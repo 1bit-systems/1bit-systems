@@ -56,6 +56,15 @@ path = "bin/1bit-helpdesk-setup.rs"
 name = "1bit-brand-swap"
 path = "bin/1bit-brand-swap.rs"
 
+# 1bit-discord-admin — one-shot admin subcommands. `event` creates a
+# guild scheduled event, `sticker` uploads a server sticker via
+# multipart, `stage` starts a stage instance on an existing stage
+# channel. Separate from `1bit-watch-discord` because none of these
+# belong in the gateway loop.
+[[bin]]
+name = "1bit-discord-admin"
+path = "bin/1bit-discord-admin.rs"
+
 [dependencies]
 anyhow      = { workspace = true }
 tokio       = { workspace = true }

@@ -93,6 +93,7 @@ commands = [
     { name = "ask",      desc = "Dispatch a question to the specialist registry" },
     { name = "resolve",  desc = "Mark the current help-desk post resolved"  },
     { name = "escalate", desc = "Mark the current help-desk post escalated" },
+    { name = "poll",     desc = "Start a Discord native poll in the current channel" },
 ]
 
 [auto_role]
@@ -138,13 +139,13 @@ milestones = [
 ]
 
 [roadmap]
-# Discord features not yet wired, tracked here so the next scan doesn't
-# have to rediscover the scope. Bump `status` when something ships.
-voice_tts       = { status = "deferred", note = "halo-kokoro integration; echo_mouth bridge needed; ~4-6h build" }
-scheduled_events= { status = "pending",  note = "use 1bit-brand-swap-adjacent bin to POST /guilds/{id}/scheduled-events for training-ship / launch" }
-polls           = { status = "pending",  note = "wrap Discord's built-in poll object once serenity exposes it (0.12 doesn't yet); fall back to reaction-poll in meantime" }
-stickers_upload = { status = "pending",  note = "PATCH /guilds/{id}/stickers — bundle with 1bit-brand-swap under a --stickers flag" }
-stage_channel   = { status = "pending",  note = "POST /stage-instances for AMAs — low usage, ship when event count > 2" }
+# Discord features tracked so the next scan doesn't have to rediscover
+# the scope. Bump `status` when something ships.
+voice_tts        = { status = "deferred", note = "halo-kokoro integration; echo_mouth bridge needed; ~4-6h build" }
+scheduled_events = { status = "shipped",  note = "1bit-discord-admin event --name ... --start ... --channel-id ... [--end ... | --location ...]" }
+polls            = { status = "shipped",  note = "/poll slash command (guild-scoped); Discord native poll object via serenity 0.12 CreatePoll" }
+stickers_upload  = { status = "shipped",  note = "1bit-discord-admin sticker --name ... --file ...; multipart upload to /guilds/{id}/stickers" }
+stage_channel    = { status = "shipped",  note = "1bit-discord-admin stage --channel-id ... --topic ...; starts a stage instance on an existing stage channel" }
 
 [server_tag]
 # The "1BIT" server tag visible next to member names in chat. Requires

@@ -36,9 +36,9 @@ use serenity::Client;
 use serenity::all::{
     AutoArchiveDuration, ButtonStyle, ChannelType, Context, CreateActionRow, CreateButton,
     CreateCommand, CreateCommandOption, CreateForumPost, CreateInteractionResponse,
-    CreateInteractionResponseMessage, CreateMessage, CreateThread, EditThread, EventHandler,
-    ForumTag, ForumTagId, GatewayIntents, GuildId, Http, Interaction, Member, Message, Ready,
-    RoleId,
+    CreateInteractionResponseMessage, CreateMessage, CreatePoll, CreatePollAnswer, CreateThread,
+    EditThread, EventHandler, ForumTag, ForumTagId, GatewayIntents, GuildId, Http, Interaction,
+    Member, Message, Ready, RoleId,
 };
 use serenity::all::CommandOptionType;
 use serenity::async_trait;
@@ -182,6 +182,32 @@ impl EventHandler for Handler {
                 .description("Mark the current help-desk post resolved"),
             CreateCommand::new("escalate")
                 .description("Mark the current help-desk post escalated for a human"),
+            CreateCommand::new("poll")
+                .description("Start a Discord native poll in the current channel")
+                .add_option(
+                    CreateCommandOption::new(
+                        CommandOptionType::String,
+                        "question",
+                        "What do you want to ask?",
+                    )
+                    .required(true),
+                )
+                .add_option(
+                    CreateCommandOption::new(
+                        CommandOptionType::String,
+                        "options",
+                        "Comma-separated answers (2-10), e.g. yes,no,later",
+                    )
+                    .required(true),
+                )
+                .add_option(
+                    CreateCommandOption::new(
+                        CommandOptionType::Integer,
+                        "hours",
+                        "Poll duration in hours (default 24, max 168)",
+                    )
+                    .required(false),
+                ),
         ];
 
         let register = if let Some(gid) = self.guild_id {
@@ -743,8 +769,85 @@ impl Handler {
             "escalate" => {
                 self.swap_post_state(ctx, &cmd, "escalated").await;
             }
+            "poll" => {
+                self.handle_poll_command(ctx, &cmd).await;
+            }
             _ => {
                 ephemeral(ctx, &cmd, &format!("Unknown command: /{name}")).await;
+            }
+        }
+    }
+
+    /// `/poll` — post a Discord native poll in the invoking channel.
+    /// Echo owns the message so the poll looks like it came from the
+    /// posting identity, matching every other specialist output.
+    async fn handle_poll_command(
+        &self,
+        ctx: &Context,
+        cmd: &serenity::all::CommandInteraction,
+    ) {
+        let Some(http) = self.echo_http.as_ref() else {
+            ephemeral(ctx, cmd, "ECHO_BOT_TOKEN unset — can't post a poll").await;
+            return;
+        };
+
+        let question = cmd
+            .data
+            .options
+            .iter()
+            .find(|o| o.name == "question")
+            .and_then(|o| o.value.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let options_raw = cmd
+            .data
+            .options
+            .iter()
+            .find(|o| o.name == "options")
+            .and_then(|o| o.value.as_str())
+            .unwrap_or("")
+            .to_string();
+        let hours = cmd
+            .data
+            .options
+            .iter()
+            .find(|o| o.name == "hours")
+            .and_then(|o| o.value.as_i64())
+            .unwrap_or(24)
+            .clamp(1, 168) as u64;
+
+        let answers: Vec<CreatePollAnswer> = options_raw
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(|s| CreatePollAnswer::new().text(s))
+            .collect();
+
+        if question.is_empty() || answers.len() < 2 || answers.len() > 10 {
+            ephemeral(
+                ctx,
+                cmd,
+                "Need a non-empty question and 2-10 comma-separated options.",
+            )
+            .await;
+            return;
+        }
+
+        let poll = CreatePoll::new()
+            .question(&question)
+            .answers(answers)
+            .duration(Duration::from_secs(hours * 3600));
+
+        let msg = CreateMessage::new().poll(poll);
+        match cmd.channel_id.send_message(http.as_ref(), msg).await {
+            Ok(_) => {
+                info!(question = %question, hours, "posted poll");
+                ephemeral(ctx, cmd, &format!("Poll posted ({hours}h)")).await;
+            }
+            Err(e) => {
+                warn!(error = %e, "failed to post poll");
+                ephemeral(ctx, cmd, &format!("Failed to post poll: {e}")).await;
             }
         }
     }
