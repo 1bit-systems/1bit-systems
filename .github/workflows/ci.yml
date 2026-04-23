@@ -27,10 +27,10 @@ jobs:
           cache-on-failure: true
 
       - name: cargo build (default features)
-        run: cargo build --workspace --release
+        run: cargo build --workspace --release --locked
 
       - name: cargo test (default features)
-        run: cargo test --workspace --release
+        run: cargo test --workspace --release --locked
 
   clippy:
     name: cargo clippy (-D warnings, no GPU crates)
@@ -64,6 +64,7 @@ jobs:
           --release
           --all-targets
           --no-deps
+          --locked
           --
           -D warnings
           -A clippy::uninlined-format-args

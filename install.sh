@@ -284,11 +284,11 @@ fi
 step "building 1bit-halo-workspace (Rust, release)"
 if [[ "$CI_MODE" != "0" ]]; then
     info "cargo check (CI mode — no link)"
-    ( cd "$WORKSPACE_DIR" && cargo check --workspace --release 2>&1 | progress_pipe "cargo" )
+    ( cd "$WORKSPACE_DIR" && cargo check --workspace --release --locked 2>&1 | progress_pipe "cargo" )
     ok "check clean"
 else
     info "cargo build --release --workspace (this takes ~1 min on first run)"
-    ( cd "$WORKSPACE_DIR" && cargo build --release --workspace 2>&1 | progress_pipe "cargo" )
+    ( cd "$WORKSPACE_DIR" && cargo build --release --workspace --locked 2>&1 | progress_pipe "cargo" )
     ok "build clean"
 fi
 
