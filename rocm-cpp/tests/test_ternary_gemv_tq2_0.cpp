@@ -195,6 +195,7 @@ static void cpu_reference(const std::vector<block_tq2_0>& wb,
 struct DiffStats {
     double max_abs = 0.0;
     double mean_abs = 0.0;
+    double max_abs_ref = 0.0;   // |ref[i]| where max_abs was observed
     int    argmax = -1;
 };
 
@@ -204,7 +205,11 @@ static DiffStats diff_stats(const std::vector<float>& a, const std::vector<float
     double sum = 0.0;
     for (size_t i = 0; i < a.size(); ++i) {
         double d = std::fabs((double)a[i] - (double)b[i]);
-        if (d > s.max_abs) { s.max_abs = d; s.argmax = (int)i; }
+        if (d > s.max_abs) {
+            s.max_abs = d;
+            s.argmax = (int)i;
+            s.max_abs_ref = std::fabs((double)b[i]);
+        }
         sum += d;
     }
     s.mean_abs = sum / (double)a.size();
@@ -218,7 +223,8 @@ struct TestSpec {
     int M;
     int K;
     bool f16_out;
-    double max_abs_threshold;
+    double max_abs_threshold;   // absolute floor
+    double rel_threshold;        // scaled by |ref[argmax]|; use 0.0 for abs-only
     uint32_t seed;
 };
 
@@ -306,13 +312,17 @@ static bool run_one(const TestSpec& t)
     HIP_OK(hipFree(d_dst));
 
     DiffStats ds = diff_stats(got, ref);
-    const bool pass = (ds.max_abs <= t.max_abs_threshold) &&
+    const double effective_threshold =
+        std::max(t.max_abs_threshold, t.rel_threshold * ds.max_abs_ref);
+    const bool pass = (ds.max_abs <= effective_threshold) &&
                       std::isfinite(ds.max_abs);
 
     printf("TEST: %-24s ... %s (max_abs=%.3e, mean_abs=%.3e, "
-           "threshold=%.1e, argmax=%d, ref=%.6f got=%.6f)\n",
+           "threshold=%.3e [abs=%.1e, rel=%.1e × |ref|=%.2f], "
+           "argmax=%d, ref=%.6f got=%.6f)\n",
            t.name, pass ? "PASS" : "FAIL",
-           ds.max_abs, ds.mean_abs, t.max_abs_threshold,
+           ds.max_abs, ds.mean_abs,
+           effective_threshold, t.max_abs_threshold, t.rel_threshold, ds.max_abs_ref,
            ds.argmax,
            ds.argmax >= 0 ? ref[ds.argmax] : 0.0,
            ds.argmax >= 0 ? got[ds.argmax] : 0.0);
@@ -341,12 +351,15 @@ int main()
     bool all_pass = true;
 
     // Ranked order — smallest / most diagnostic first.
-    all_pass &= run_one({"edge-M8-K256",      8,    256,  false, 5e-3, 0xC0FFEE01u});
-    all_pass &= run_one({"edge-M8-K512",      8,    512,  false, 5e-3, 0xC0FFEE02u});
-    all_pass &= run_one({"mid-1024x1024",     1024, 1024, false, 5e-3, 0xC0FFEE03u});
-    all_pass &= run_one({"large-4096x4096",   4096, 4096, false, 5e-3, 0xC0FFEE04u});
-    all_pass &= run_one({"mid-1024x1024-f16", 1024, 1024, true,  5e-2, 0xC0FFEE05u});
-    all_pass &= run_one({"large-4096x4096-f16", 4096, 4096, true, 5e-2, 0xC0FFEE06u});
+    // fp32 uses abs-only threshold; fp16 uses abs floor + ~1e-3 relative
+    // (10-bit mantissa). Box-measured worst 2.3e-1 on |ref|=526 ≈ 4.4e-4
+    // relative; 1e-3 keeps comfortable headroom without masking regressions.
+    all_pass &= run_one({"edge-M8-K256",      8,    256,  false, 5e-3, 0.0,  0xC0FFEE01u});
+    all_pass &= run_one({"edge-M8-K512",      8,    512,  false, 5e-3, 0.0,  0xC0FFEE02u});
+    all_pass &= run_one({"mid-1024x1024",     1024, 1024, false, 5e-3, 0.0,  0xC0FFEE03u});
+    all_pass &= run_one({"large-4096x4096",   4096, 4096, false, 5e-3, 0.0,  0xC0FFEE04u});
+    all_pass &= run_one({"mid-1024x1024-f16", 1024, 1024, true,  5e-2, 1e-3, 0xC0FFEE05u});
+    all_pass &= run_one({"large-4096x4096-f16", 4096, 4096, true, 5e-2, 1e-3, 0xC0FFEE06u});
 
     printf("\n%s\n", all_pass ? "ALL TESTS PASSED" : "SOME TESTS FAILED");
     return all_pass ? 0 : 1;
