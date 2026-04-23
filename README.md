@@ -36,7 +36,7 @@ the kernels are hand-written HIP targeting **gfx1151** (Strix Halo iGPU). everyt
 
 **what runs on the box right now:**
 
-- **LLM** — 1bit-server on `:8180`, 2B BitNet-1.58 at 66.8 tok/s, native HIP, zero python. ✅
+- **LLM** — 1bit-server on `:8180`, 2B BitNet-1.58 at 80.8 tok/s, native HIP, zero python. ✅
 - **TTS** — 1bit-tts.cpp / Qwen3-TTS on `:8095`, OpenAI `/v1/audio/speech` compat. ✅
 - **STT** — whisper.cpp on `:8190`, large-v3 q5 on the sliger B580 Vulkan node. ✅
 - **image** — stable-diffusion.cpp on `:1234`, SDXL native HIP, zero hipBLAS. ✅
@@ -63,7 +63,7 @@ no fudging, no "measured on a different box," no asterisks the size of Nebraska.
 
 | metric | value | note |
 |---|---|---|
-| **decode @ 64-tok** | 66.8 tok/s | halo v2 — 2B BitNet 1.58, greedy |
+| **decode @ 64-tok** | 80.8 tok/s | halo v2 — 2B BitNet 1.58, greedy, 3-round mean |
 | **ternary GEMV bandwidth** | 92% of LPDDR5 peak | rocprof on gfx1151 |
 | **WMMA FP16 peak** | 50.2 TFLOPS | register-resident probe, 42% of theoretical |
 | **split-KV FD attention** | 10.25× @ L=2048, 11.98× @ L=8192 | vs single-block, 1-ULP equiv |
@@ -172,7 +172,7 @@ prebuilt single-file bundle of the user-facing Rust binaries. ROCm itself is **n
 ```sh
 # download → verify → symlink to ~/.local/bin/1bit
 curl -fsSLO https://1bit.systems/dl/1bit-systems-0.1.0-x86_64.AppImage
-echo "cb24880525750d73bb9bc75c5db993e8aa7e83837165c80a442526c67226f6eb  1bit-systems-0.1.0-x86_64.AppImage" | sha256sum -c -
+echo "8a964f89bdef68ed914c04fcf23092ac642c424bb70f74dc10e8558e93b94036  1bit-systems-0.1.0-x86_64.AppImage" | sha256sum -c -
 chmod +x 1bit-systems-0.1.0-x86_64.AppImage
 ln -sfn "$PWD/1bit-systems-0.1.0-x86_64.AppImage" ~/.local/bin/1bit
 1bit --version
