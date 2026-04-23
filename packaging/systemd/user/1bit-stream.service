@@ -1,0 +1,22 @@
+[Unit]
+Description=1bit-stream — .1bl catalog HTTP server (lossy open, lossless JWT-gated)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=RUST_LOG=info
+Environment=HALO_STREAM_LISTEN=127.0.0.1:8150
+Environment=HALO_STREAM_CATALOG_DIR=%h/.local/share/1bit/catalogs
+# Operator sets these two in an override file — never commit secrets:
+#   systemctl --user edit 1bit-stream.service
+#   [Service]
+#   Environment=HALO_STREAM_JWT_SECRET=...
+#   Environment=HALO_STREAM_ADMIN_BEARER=...
+ExecStart=%h/.local/bin/1bit-stream
+Restart=on-failure
+RestartSec=5s
+Nice=5
+
+[Install]
+WantedBy=default.target

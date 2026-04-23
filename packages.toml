@@ -224,6 +224,21 @@ build       = []
 units       = []
 check       = ""
 
+# 1bit-stream — .1bl catalog HTTP server on :8150. Serves lossy-tier
+# catalogs open; gates lossless-tier on a JWT with tier=premium. No uploads,
+# no payment wiring, no UI. Caddy in front does TLS + public exposure.
+[component.stream-engine]
+description = "1bit-stream — .1bl catalog HTTP server on :8150 (lossy open, lossless JWT-gated)"
+deps        = []
+build = [
+    ["cargo", "install", "--path", "crates/1bit-stream", "--force", "--quiet"],
+]
+files = [
+    ["packaging/systemd/user/1bit-stream.service", "systemd/user/1bit-stream.service"],
+]
+units = ["1bit-stream.service"]
+check = "http://127.0.0.1:8150/v1/health"
+
 [component.npu-engine]
 description = "IRON + MLIR-AIE + Peano + libxrt — XDNA2 NPU authoring lane (ship-gate unlocked 2026-04-23)"
 deps        = []
