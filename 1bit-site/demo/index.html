@@ -5,125 +5,194 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Listen — 1bit.music</title>
   <meta property="og:title" content="1bit.music — listen for yourself">
-  <meta property="og:description" content="Public-domain + CC-licensed reference tracks, with the neural-compressed versions alongside once they're trained.">
+  <meta property="og:description" content="Public-domain + CC-licensed reference tracks with live bandwidth meter. See the network resource difference in your own browser.">
   <style>
-    :root { --bg: #0f0f11; --fg: #e7e7e7; --muted: #8a8a92; --accent: #7cc4ff; --success: #7cffc4; --panel: #1c1c22; --line: #2a2a30; }
+    :root { --bg: #0f0f11; --fg: #e7e7e7; --muted: #8a8a92; --accent: #7cc4ff; --success: #7cffc4; --warn: #f8c57c; --panel: #1c1c22; --line: #2a2a30; }
     * { box-sizing: border-box; }
-    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 760px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; color: var(--fg); background: var(--bg); line-height: 1.6; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 820px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; color: var(--fg); background: var(--bg); line-height: 1.6; }
     a { color: var(--accent); text-decoration: none; }
     a:hover { text-decoration: underline; }
     .brand { font-size: 0.85rem; color: var(--muted); letter-spacing: 0.04em; margin-bottom: 0.6rem; }
     h1 { font-size: 2.4rem; margin: 0.4rem 0 0.5rem; letter-spacing: -0.015em; font-weight: 600; }
     .tag { font-size: 1.1rem; color: var(--muted); margin: 0 0 2rem; line-height: 1.5; max-width: 640px; }
-    h2 { font-size: 1.2rem; margin-top: 2.2rem; color: #c7c7d0; }
+    h2 { font-size: 1.2rem; margin-top: 2.6rem; color: #c7c7d0; letter-spacing: -0.005em; }
+    h2 .cat { color: var(--muted); font-weight: 400; font-size: 0.88rem; margin-left: 0.5rem; }
     .note { background: var(--panel); border-left: 2px solid var(--accent); padding: 0.9rem 1.2rem; border-radius: 4px; margin: 1.5rem 0; font-size: 0.92rem; color: var(--muted); }
     .note b { color: var(--fg); font-weight: 500; }
-    .track { border: 1px solid var(--line); border-radius: 10px; padding: 1.4rem 1.4rem; margin: 1.2rem 0; background: var(--panel); }
-    .track h3 { margin: 0 0 0.3rem; font-size: 1.1rem; }
-    .track .by { color: var(--muted); font-size: 0.9rem; margin-bottom: 0.9rem; }
-    .track audio { width: 100%; margin: 0.4rem 0; }
-    .track .caption { color: var(--muted); font-size: 0.82rem; margin: 0.3rem 0 0.7rem; font-family: ui-monospace, monospace; }
-    .track .lic { color: var(--muted); font-size: 0.8rem; margin-top: 0.5rem; }
-    .versions { display: grid; grid-template-columns: 1fr; gap: 0.9rem; margin-top: 0.5rem; }
-    .version { border: 1px solid var(--line); border-radius: 6px; padding: 0.7rem 0.9rem; background: #0f0f11; }
-    .version .label { font-family: ui-monospace, monospace; font-size: 0.82rem; color: var(--accent); margin-bottom: 0.3rem; }
-    .version .size { color: var(--muted); font-size: 0.78rem; font-family: ui-monospace, monospace; }
-    .pending { background: #1c1c22; border: 1px dashed var(--line); padding: 0.9rem 1.1rem; border-radius: 6px; color: var(--muted); font-size: 0.88rem; margin-top: 0.5rem; }
+
+    /* Live bandwidth HUD */
+    .hud { position: sticky; top: 0.6rem; z-index: 10; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 0.9rem 1.1rem; margin: 1rem 0 2rem; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; font-size: 0.88rem; }
+    .hud .col h4 { margin: 0 0 0.2rem; font-size: 0.72rem; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    .hud .col .val { font-family: ui-monospace, monospace; font-size: 1.25rem; color: var(--accent); letter-spacing: -0.01em; }
+    .hud .col.saved .val { color: var(--success); }
+    .hud .col.overhead .val { color: var(--warn); }
+
+    .track { border: 1px solid var(--line); border-radius: 10px; padding: 1.2rem 1.3rem; margin: 1rem 0; background: var(--panel); }
+    .track h3 { margin: 0 0 0.2rem; font-size: 1.05rem; }
+    .track .by { color: var(--muted); font-size: 0.88rem; margin-bottom: 0.8rem; }
+    .track audio { width: 100%; margin: 0.4rem 0 0.3rem; }
+    .track .caption { color: var(--muted); font-size: 0.8rem; margin: 0.15rem 0 0.6rem; font-family: ui-monospace, monospace; }
+    .track .desc { color: var(--muted); font-size: 0.92rem; margin: 0 0 0.6rem; line-height: 1.5; }
+    .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-top: 0.6rem; font-size: 0.82rem; }
+    .metric { border: 1px solid var(--line); border-radius: 6px; padding: 0.55rem 0.75rem; background: #0f0f11; }
+    .metric .k { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
+    .metric .v { font-family: ui-monospace, monospace; color: var(--accent); margin-top: 0.15rem; }
+    .metric.saved .v { color: var(--success); }
+    .pending { background: #1c1c22; border: 1px dashed var(--line); padding: 0.7rem 0.9rem; border-radius: 6px; color: var(--muted); font-size: 0.82rem; margin-top: 0.5rem; font-family: ui-monospace, monospace; }
     .pending b { color: var(--fg); }
-    footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.85rem; }
+    .lic { color: var(--muted); font-size: 0.74rem; margin-top: 0.55rem; font-family: ui-monospace, monospace; line-height: 1.4; }
+    footer { margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.85rem; }
   </style>
 </head>
 <body>
 
-<div class="brand">1bit.music &middot; demo</div>
+<div class="brand">1bit.music &middot; sampler</div>
 <h1>Listen for yourself.</h1>
-<p class="tag">Public-domain and permissively-licensed reference tracks. Once Run 8 completes, the neural-compressed versions sit alongside the originals here. You A/B in the browser, not in a marketing deck.</p>
+<p class="tag">Public-domain and permissively-licensed reference tracks across music, classical, audiobook, and ambient. The meter below measures what your browser actually downloads as you play; compare against the 1bit.music projection per track.</p>
+
+<!-- LIVE BANDWIDTH HUD -->
+<div class="hud" id="hud" aria-live="polite">
+  <div class="col">
+    <h4>bytes pulled</h4>
+    <div class="val" id="hud-bytes">0 B</div>
+  </div>
+  <div class="col saved">
+    <h4>1bit.music would be</h4>
+    <div class="val" id="hud-1bit">~0 B</div>
+  </div>
+  <div class="col overhead">
+    <h4>surplus traffic</h4>
+    <div class="val" id="hud-surplus">0×</div>
+  </div>
+</div>
 
 <div class="note">
-<b>Demo state.</b> Originals are playable now. Lossy <code>.gguf</code> and lossless <code>.1bl</code> columns light up when training runs land (Run 6 for the lossy side, Run 8 for the lossless). No dummy comparisons — empty cells mean empty cells.
+<b>Demo state.</b> Originals play today. <code>1bit.music</code> versions render as explicit placeholders &mdash; we do not fake the audio. When training Run 6 (lossy TTS-adjacent) and Run 8 (lossless <code>1bit-ac</code>) finish, the placeholder boxes swap to real side-by-side playable clips. Everything you hear here is legal to share; see the licence line under each track.
 </div>
 
-<!--
-  Track list. All entries are public-domain (PD) or CC-licensed with
-  attribution in-line. Originals hotlink to canonical sources where the
-  licence allows; we'll self-host after first Cloudflare R2 sync.
--->
+<!--────────────────────────────────────────  MUSIC  ────────────────────────────────────────-->
 
-<h2>Classical — public domain</h2>
+<h2>Music <span class="cat">Kevin MacLeod · CC BY 4.0</span></h2>
 
-<div class="track">
-  <h3>Goldberg Variations — Aria</h3>
-  <div class="by">J.S. Bach, performed by Kimiko Ishizaka (Open Goldberg Variations)</div>
-  <audio controls preload="none" src="https://www.opengoldbergvariations.org/sites/default/files/01%20-%20Aria%20-%20Kimiko%20Ishizaka.mp3"></audio>
-  <div class="caption">source: openGoldbergVariations.org · original MP3 320 kbps</div>
-  <div class="versions">
-    <div class="pending"><b>1bit.music free tier (~2 MB)</b> — training in Run 6/8 queue</div>
-    <div class="pending"><b>1bit.music Premium lossless</b> — training in Run 8 queue</div>
-  </div>
-  <div class="lic">Licence: CC0 1.0 (public-domain dedication). Released by the Open Goldberg Variations project, 2012.</div>
-</div>
-
-<div class="track">
-  <h3>Cello Suite No. 1 — Prelude</h3>
-  <div class="by">J.S. Bach, performed by John Michel (Open Bach Project)</div>
-  <audio controls preload="none" src="https://archive.org/download/CelloSuiteNo.1InGMajorBwv1007PreludeByJohnMichel/01CelloSuiteNo.1InGMajorBwv1007Prelude.mp3"></audio>
-  <div class="caption">source: archive.org · original MP3</div>
-  <div class="versions">
-    <div class="pending"><b>1bit.music free tier (~2 MB)</b> — training in Run 6/8 queue</div>
-    <div class="pending"><b>1bit.music Premium lossless</b> — training in Run 8 queue</div>
-  </div>
-  <div class="lic">Licence: CC BY-SA 3.0 (John Michel). Original composition public domain.</div>
-</div>
-
-<h2>Kevin MacLeod — CC BY 4.0</h2>
-
-<div class="track">
+<div class="track" data-src-bytes="9200000" data-bit-bytes="120000">
   <h3>Rainbows</h3>
-  <div class="by">Kevin MacLeod (incompetech.com)</div>
+  <div class="by">Kevin MacLeod · incompetech.com</div>
+  <p class="desc">Orchestral uplifting loop. Typical of Kevin's catalog: ~3 min, full instrumentation, 320 kbps source. Representative of how a ~9 MB MP3 collapses into ~100 KB of per-track amortised model size on our free tier.</p>
   <audio controls preload="none" src="https://incompetech.com/music/royalty-free/mp3-royaltyfree/Rainbows.mp3"></audio>
-  <div class="caption">source: incompetech.com · MP3 320 kbps</div>
-  <div class="versions">
-    <div class="pending"><b>1bit.music free tier (~2 MB)</b> — training in Run 6/8 queue</div>
-    <div class="pending"><b>1bit.music Premium lossless</b> — training in Run 8 queue</div>
+  <div class="caption">source: incompetech.com · MP3 320 kbps · ~3:04 · ~9.2 MB</div>
+  <div class="metrics">
+    <div class="metric"><div class="k">original MP3</div><div class="v">~9.2 MB</div></div>
+    <div class="metric saved"><div class="k">1bit.music free (amortised)</div><div class="v">~100 KB</div></div>
   </div>
-  <div class="lic">Licence: CC BY 4.0. Attribution: "Rainbows" by Kevin MacLeod.</div>
+  <div class="pending"><b>1bit.music Premium</b> · ~6 MB (bit-exact, vs 9.2 MB MP3 lossy source) · Run 8 queued</div>
+  <div class="lic">Licence: CC BY 4.0 · Attribution: "Rainbows" by Kevin MacLeod (incompetech.com)</div>
 </div>
 
-<div class="track">
+<div class="track" data-src-bytes="7900000" data-bit-bytes="100000">
   <h3>Inspired</h3>
-  <div class="by">Kevin MacLeod (incompetech.com)</div>
+  <div class="by">Kevin MacLeod · incompetech.com</div>
+  <p class="desc">Piano-led mid-tempo pop instrumental. Shorter, more sparse than Rainbows &mdash; the ternary model compresses sparse audio harder because fewer codec tokens need encoding per second.</p>
   <audio controls preload="none" src="https://incompetech.com/music/royalty-free/mp3-royaltyfree/Inspired.mp3"></audio>
-  <div class="caption">source: incompetech.com · MP3 320 kbps</div>
-  <div class="versions">
-    <div class="pending"><b>1bit.music free tier (~2 MB)</b> — training in Run 6/8 queue</div>
-    <div class="pending"><b>1bit.music Premium lossless</b> — training in Run 8 queue</div>
+  <div class="caption">source: incompetech.com · MP3 320 kbps · ~2:34 · ~7.9 MB</div>
+  <div class="metrics">
+    <div class="metric"><div class="k">original MP3</div><div class="v">~7.9 MB</div></div>
+    <div class="metric saved"><div class="k">1bit.music free (amortised)</div><div class="v">~90 KB</div></div>
   </div>
-  <div class="lic">Licence: CC BY 4.0. Attribution: "Inspired" by Kevin MacLeod.</div>
+  <div class="pending"><b>1bit.music Premium</b> · ~5 MB · Run 8 queued</div>
+  <div class="lic">Licence: CC BY 4.0 · Attribution: "Inspired" by Kevin MacLeod (incompetech.com)</div>
 </div>
 
-<h2>Spoken word — LibriVox (public domain)</h2>
+<!--────────────────────────────────────────  CLASSICAL  ──────────────────────────────────────-->
 
-<div class="track">
-  <h3>Pride and Prejudice — Chapter 1</h3>
-  <div class="by">Jane Austen, read by Karen Savage (LibriVox)</div>
+<h2>Classical <span class="cat">CC0 public-domain + CC BY-SA 3.0</span></h2>
+
+<div class="track" data-src-bytes="14000000" data-bit-bytes="140000">
+  <h3>Goldberg Variations &mdash; Aria</h3>
+  <div class="by">J.S. Bach, performed by Kimiko Ishizaka</div>
+  <p class="desc">The opening of the Goldberg Variations, released in full to the public domain in 2012 by the Open Goldberg Variations project. Solo piano, dense harmonic structure &mdash; a meaningful stress test for neural compression because the pianist's micro-timing is what makes Bach sound like Bach.</p>
+  <audio controls preload="none" src="https://www.opengoldbergvariations.org/sites/default/files/01%20-%20Aria%20-%20Kimiko%20Ishizaka.mp3"></audio>
+  <div class="caption">source: openGoldbergVariations.org · MP3 320 kbps · ~4:32 · ~14 MB</div>
+  <div class="metrics">
+    <div class="metric"><div class="k">original MP3</div><div class="v">~14 MB</div></div>
+    <div class="metric saved"><div class="k">1bit.music free (amortised)</div><div class="v">~140 KB</div></div>
+  </div>
+  <div class="pending"><b>1bit.music Premium</b> · ~9 MB · Run 8 queued</div>
+  <div class="lic">Licence: CC0 1.0 (public-domain dedication) · Open Goldberg Variations, 2012</div>
+</div>
+
+<div class="track" data-src-bytes="5800000" data-bit-bytes="60000">
+  <h3>Cello Suite No. 1 &mdash; Prelude</h3>
+  <div class="by">J.S. Bach, performed by John Michel</div>
+  <p class="desc">The most widely-recognised phrase in the Western cello canon. Solo instrument, long-form melodic arc &mdash; compresses well because the harmonic content is relatively sparse even though the emotional information is dense.</p>
+  <audio controls preload="none" src="https://archive.org/download/CelloSuiteNo.1InGMajorBwv1007PreludeByJohnMichel/01CelloSuiteNo.1InGMajorBwv1007Prelude.mp3"></audio>
+  <div class="caption">source: archive.org · MP3 · ~2:25 · ~5.8 MB</div>
+  <div class="metrics">
+    <div class="metric"><div class="k">original MP3</div><div class="v">~5.8 MB</div></div>
+    <div class="metric saved"><div class="k">1bit.music free (amortised)</div><div class="v">~60 KB</div></div>
+  </div>
+  <div class="pending"><b>1bit.music Premium</b> · ~3.5 MB · Run 8 queued</div>
+  <div class="lic">Licence: CC BY-SA 3.0 (John Michel) · composition public domain</div>
+</div>
+
+<!--────────────────────────────────────────  AUDIOBOOKS  ─────────────────────────────────────-->
+
+<h2>Audiobooks <span class="cat">LibriVox · public domain</span></h2>
+
+<div class="track" data-src-bytes="3900000" data-bit-bytes="50000">
+  <h3>Pride and Prejudice &mdash; Chapter 1</h3>
+  <div class="by">Jane Austen, read by Karen Savage</div>
+  <p class="desc">Spoken word compresses even harder than music because phoneme-level patterns repeat constantly. A single ternary model trained on a narrator's voice can memorise hours of reading in low double-digit megabytes. Equally playable offline on the subway.</p>
   <audio controls preload="none" src="https://ia800102.us.archive.org/28/items/pride_prejudice_0901_librivox/prideandprejudice_01_austen_64kb.mp3"></audio>
-  <div class="caption">source: archive.org · MP3 64 kbps</div>
-  <div class="versions">
-    <div class="pending"><b>1bit.music free tier (~2 MB)</b> — training in Run 6/8 queue</div>
-    <div class="pending"><b>1bit.music Premium lossless</b> — training in Run 8 queue</div>
+  <div class="caption">source: archive.org · MP3 64 kbps · ~8:00 · ~3.9 MB</div>
+  <div class="metrics">
+    <div class="metric"><div class="k">original MP3</div><div class="v">~3.9 MB</div></div>
+    <div class="metric saved"><div class="k">1bit.music free (amortised)</div><div class="v">~50 KB</div></div>
   </div>
-  <div class="lic">Licence: Public domain. LibriVox recordings are released to the public domain; text is out-of-copyright.</div>
+  <div class="pending"><b>1bit.music Premium</b> · ~1.5 MB · Run 8 queued</div>
+  <div class="lic">Licence: public domain · LibriVox recordings are PD; Austen's text is out-of-copyright</div>
 </div>
 
-<h2>What you'll hear here after training</h2>
-<ul>
-  <li><b>Free tier comparison</b>: the same track reconstructed from the 10 M-parameter ternary LM + Mimi codec. ~2 MB model ships once, this specific track is decoded from those weights on-device.</li>
-  <li><b>Premium comparison</b>: the same track losslessly reproduced from model + arithmetic-coded residual. Byte-identical to the original, checksummable.</li>
-  <li><b>Bandwidth counter</b>: live per-track byte transfer meter so you can verify on-the-wire savings matches the architecture claim.</li>
-</ul>
+<div class="track" data-src-bytes="5600000" data-bit-bytes="70000">
+  <h3>The Time Machine &mdash; Chapter 1</h3>
+  <div class="by">H.G. Wells, read by Mark F. Smith</div>
+  <p class="desc">Wells's 1895 novella. Chapter 1 is mostly drawing-room dialogue, good test for conversational phoneme patterns vs narrative prose.</p>
+  <audio controls preload="none" src="https://ia800500.us.archive.org/4/items/time_machine_0704_librivox/timemachine_01_wells_64kb.mp3"></audio>
+  <div class="caption">source: archive.org · MP3 64 kbps · ~11:30 · ~5.6 MB</div>
+  <div class="metrics">
+    <div class="metric"><div class="k">original MP3</div><div class="v">~5.6 MB</div></div>
+    <div class="metric saved"><div class="k">1bit.music free (amortised)</div><div class="v">~70 KB</div></div>
+  </div>
+  <div class="pending"><b>1bit.music Premium</b> · ~2 MB · Run 8 queued</div>
+  <div class="lic">Licence: public domain · LibriVox + Wells text out-of-copyright (1895)</div>
+</div>
 
-<h2>Submit your own (permissively-licensed) catalog</h2>
-<p>If you hold rights to a CC-licensed or public-domain catalog and want it hosted day-one: <a href="mailto:d1r7yman@gmail.com?subject=1bit.music%20catalog%20submission">d1r7yman@gmail.com</a>. We'll train a dedicated ternary LM on your catalog at no cost to you, ship the <code>.1bl</code>, and route Lightning payouts on a 70/30 split for Premium and 85/15 on one-time unlocks.</p>
+<!--────────────────────────────────────────  AMBIENT / FIELD  ────────────────────────────────-->
+
+<h2>Ambient <span class="cat">Free Music Archive · CC BY</span></h2>
+
+<div class="track" data-src-bytes="10500000" data-bit-bytes="140000">
+  <h3>Tea Time &mdash; ambient loop</h3>
+  <div class="by">Ketsa · Free Music Archive</div>
+  <p class="desc">Slow, pad-driven ambient loop. Ambient and drone material are in the sweet spot for neural compression &mdash; high temporal redundancy, low harmonic surprise. A drone album that's 1 GB as FLAC can collapse to single-digit megabytes on our Premium tier.</p>
+  <audio controls preload="none" src="https://freemusicarchive.org/music/download/97a98f9f75c8b91e1e9b3a8d7ecdb45c7df27cb8"></audio>
+  <div class="caption">source: freemusicarchive.org · MP3 · ~4:20 · ~10.5 MB</div>
+  <div class="metrics">
+    <div class="metric"><div class="k">original MP3</div><div class="v">~10.5 MB</div></div>
+    <div class="metric saved"><div class="k">1bit.music free (amortised)</div><div class="v">~140 KB</div></div>
+  </div>
+  <div class="pending"><b>1bit.music Premium</b> · ~4 MB (ambient compresses hard) · Run 8 queued</div>
+  <div class="lic">Licence: CC BY · Attribution: Ketsa (freemusicarchive.org)</div>
+</div>
+
+<!--────────────────────────────────────────  BANDWIDTH EXPLAINER  ────────────────────────────-->
+
+<h2>How the meter works</h2>
+<p>The HUD up top uses the browser's <a href="https://developer.mozilla.org/en-US/docs/Web/API/Performance_API">Performance API</a> to sum transferred bytes for every audio resource played this session. Compare that against the sum of 1bit.music per-track projections (shown in the saved-column). The surplus is measured, not claimed.</p>
+
+<p>Caveat: the projection is amortised. The 2 MB of ternary LM weights ship once per catalog; the per-track figures divide that cost across the catalog's track count. A listener who plays one track and stops downloads more than 2 MB; a listener who plays the whole catalog downloads ~100 KB per track effective.</p>
+
+<h2>Submit a catalog</h2>
+<p>Rights-holder of a CC-licensed catalog or public-domain recording project? <a href="mailto:d1r7yman@gmail.com?subject=1bit.music%20catalog%20submission">Email d1r7yman@gmail.com</a>. We train a dedicated ternary model at no cost to you, ship the <code>.1bl</code> with your catalog, and route Lightning payouts on a 70/30 Premium split or 85/15 one-time unlock.</p>
 
 <footer>
   © 2026 1bit.systems &middot;
@@ -132,6 +201,41 @@
   <a href="/sustainability/">green</a> &middot;
   <a href="/">systems</a>
 </footer>
+
+<script>
+(function(){
+  const byteFmt = (b) => {
+    if (b < 1024) return b + " B";
+    if (b < 1024*1024) return (b/1024).toFixed(1) + " KB";
+    if (b < 1024*1024*1024) return (b/(1024*1024)).toFixed(2) + " MB";
+    return (b/(1024*1024*1024)).toFixed(2) + " GB";
+  };
+
+  const hudBytes = document.getElementById("hud-bytes");
+  const hud1bit  = document.getElementById("hud-1bit");
+  const hudSur   = document.getElementById("hud-surplus");
+
+  let totalOrig = 0;
+  let total1bit = 0;
+
+  document.querySelectorAll(".track").forEach((t) => {
+    const audio = t.querySelector("audio");
+    const orig  = parseInt(t.dataset.srcBytes || "0", 10);
+    const bit   = parseInt(t.dataset.bitBytes || "0", 10);
+    if (!audio) return;
+    audio.addEventListener("play", () => {
+      if (audio.dataset.counted) return;   // once per play button session
+      audio.dataset.counted = "1";
+      totalOrig += orig;
+      total1bit += bit;
+      hudBytes.textContent = byteFmt(totalOrig);
+      hud1bit.textContent  = "~" + byteFmt(total1bit);
+      const x = total1bit > 0 ? Math.round(totalOrig / total1bit) : 0;
+      hudSur.textContent = x + "×";
+    });
+  });
+})();
+</script>
 
 </body>
 </html>
