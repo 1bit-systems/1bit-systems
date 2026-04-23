@@ -58,13 +58,13 @@ COPY rocm-cpp ./rocm-cpp
 # via bind-mount or live on the host's install path. The image ships only the
 # orchestration/CLI/observability binaries.
 RUN cargo build --release \
-        -p 1bit-cli \
-        -p 1bit-power \
-        -p 1bit-watchdog \
-        -p 1bit-helm \
-        -p 1bit-voice \
-        -p 1bit-echo \
-        -p 1bit-mcp
+        -p onebit-cli \
+        -p onebit-power \
+        -p onebit-watchdog \
+        -p onebit-helm \
+        -p onebit-voice \
+        -p onebit-echo \
+        -p onebit-mcp
 
 # ---------------------------------------------------------------------------
 # Stage 2 — runtime

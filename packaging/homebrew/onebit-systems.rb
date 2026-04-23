@@ -2,10 +2,16 @@
 #
 # Tap install:
 #   brew tap bong-water-water-bong/1bit
-#   brew install 1bit-systems
+#   brew install onebit-systems
 #
 # Or one-liner:
-#   brew install bong-water-water-bong/1bit/1bit-systems
+#   brew install bong-water-water-bong/1bit/onebit-systems
+#
+# Note on naming: the user-facing product and the binary on disk are both
+# `1bit`. Homebrew formula filenames and class names, however, are Ruby
+# constants and cannot begin with a digit — so the formula file is
+# `onebit-systems.rb` and the class is `OnebitSystems`. Once installed,
+# everything the operator types is `1bit ...` as usual.
 #
 # Rule A note: this formula installs only the user-facing Rust binaries. On
 # macOS, the LLM / image / NPU lanes are no-ops (no gfx1151 silicon). The
@@ -29,12 +35,19 @@ class OnebitSystems < Formula
 
   depends_on "rust" => :build
 
-  # Installed per-binary rather than `cargo install --workspace` because the
-  # workspace contains GPU-feature-gated crates (1bit-hip, 1bit-mlx) that
+  # Installed per-crate rather than `cargo install --workspace` because the
+  # workspace contains GPU-feature-gated crates (onebit-hip, onebit-mlx) that
   # won't build on a generic Homebrew box. We ship only the portable Rust
-  # orchestration binaries.
+  # orchestration crates.
+  #
+  # NOTE: crate *directory* names on disk are still `1bit-*` (unchanged).
+  # Rust *package* names inside each Cargo.toml are `onebit-*` because
+  # Rust crate identifiers cannot begin with a digit. `cargo install
+  # --path crates/1bit-cli` correctly builds the `onebit-cli` package and
+  # emits the binary `1bit` (the `[[bin]]` name, which has no
+  # leading-digit restriction).
   def install
-    portable_bins = %w[
+    portable_crate_dirs = %w[
       1bit-cli
       1bit-power
       1bit-watchdog
@@ -44,13 +57,9 @@ class OnebitSystems < Formula
       1bit-mcp
     ]
 
-    portable_bins.each do |c|
-      system "cargo", "install", *std_cargo_args(path: "crates/#{c}")
+    portable_crate_dirs.each do |d|
+      system "cargo", "install", *std_cargo_args(path: "crates/#{d}")
     end
-
-    # The core CLI's actual bin name is `1bit`, not `1bit-cli`. Symlink so
-    # both shell histories work.
-    bin.install_symlink bin/"1bit-cli" => "1bit" if (bin/"1bit-cli").exist?
   end
 
   def caveats
