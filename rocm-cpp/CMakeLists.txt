@@ -121,6 +121,7 @@ add_library(rocm_cpp SHARED
     kernels/ternary_gemv_phase5_halo.hip
     kernels/ternary_gemv_sherry.hip
     kernels/ternary_gemv_tq1_halo.hip
+    kernels/ternary_gemv_tq2_0.hip
     kernels/rotorquant_pack.hip
     kernels/hadamard_rotate_butterfly.hip)
 set_source_files_properties(
@@ -143,6 +144,7 @@ set_source_files_properties(
     kernels/ternary_gemv_phase5_halo.hip
     kernels/ternary_gemv_sherry.hip
     kernels/ternary_gemv_tq1_halo.hip
+    kernels/ternary_gemv_tq2_0.hip
     kernels/rotorquant_pack.hip
     kernels/hadamard_rotate_butterfly.hip
     PROPERTIES LANGUAGE HIP)
