@@ -24,7 +24,7 @@
 #   docker build -f packaging/docker/Dockerfile -t 1bit-systems:0.1.8-ci .
 #
 # Multi-stage layout:
-#   Stage 1 (builder): rust:1.86-slim-bookworm, cargo build --release for the
+#   Stage 1 (builder): rust:1.88-slim-bookworm, cargo build --release for the
 #                      portable (non-GPU-linked) crate subset.
 #   Stage 2 (runtime): debian:bookworm-slim, libc + libvulkan1, binaries
 #                      copied from builder stage, non-root-safe layout.
@@ -32,7 +32,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1 — builder
 # ---------------------------------------------------------------------------
-FROM rust:1.86-slim-bookworm AS builder
+FROM rust:1.88-slim-bookworm AS builder
 
 ARG DEBIAN_FRONTEND=noninteractive
 
