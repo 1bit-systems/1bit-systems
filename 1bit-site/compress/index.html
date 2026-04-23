@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>1bit.audio — lossless neural audio compressor</title>
+  <meta property="og:title" content="1bit.audio — lossless neural audio compressor">
+  <meta property="og:description" content="A 1.58-bit ternary LM as the probability model inside an arithmetic coder over FLAC. ~30% smaller than FLAC, bit-exact, real-time decode on gfx1151.">
+  <style>
+    :root { --bg: #0f0f11; --fg: #e7e7e7; --muted: #8a8a92; --accent: #7cffc4; --panel: #1c1c22; --line: #2a2a30; }
+    * { box-sizing: border-box; }
+    body { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; max-width: 780px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; color: var(--fg); background: var(--bg); line-height: 1.6; font-size: 15px; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .brand { font-size: 0.85rem; color: var(--muted); letter-spacing: 0.06em; margin-bottom: 0.6rem; }
+    h1 { font-family: system-ui, -apple-system, sans-serif; font-size: 2.4rem; margin: 0.4rem 0 0.4rem; letter-spacing: -0.015em; font-weight: 600; }
+    .tag { font-family: system-ui, -apple-system, sans-serif; font-size: 1.1rem; color: var(--muted); margin: 0 0 2rem; line-height: 1.5; max-width: 640px; }
+    h2 { font-family: system-ui, -apple-system, sans-serif; font-size: 1.2rem; margin-top: 2.4rem; color: #c7c7d0; letter-spacing: -0.005em; }
+    h3 { font-family: system-ui, -apple-system, sans-serif; font-size: 1rem; color: var(--fg); margin-top: 1.4rem; }
+    pre { background: var(--panel); padding: 1rem 1.2rem; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; border-left: 2px solid var(--accent); }
+    code { background: var(--panel); padding: 0.08em 0.35em; border-radius: 3px; font-size: 0.9em; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-family: system-ui, sans-serif; font-size: 0.92rem; }
+    th, td { text-align: left; padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--line); }
+    th { color: #c7c7d0; font-weight: 500; }
+    .note { font-family: system-ui, sans-serif; background: var(--panel); border-left: 2px solid var(--accent); padding: 0.8rem 1.2rem; border-radius: 4px; margin: 1.5rem 0; font-size: 0.92rem; color: var(--muted); }
+    .note b { color: var(--fg); font-weight: 500; }
+    .links { font-family: system-ui, sans-serif; margin: 2.5rem 0; font-size: 0.92rem; color: var(--muted); }
+    .links a { margin-right: 1rem; }
+    footer { font-family: system-ui, sans-serif; margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.82rem; }
+  </style>
+</head>
+<body>
+
+<div class="brand">1bit.audio &middot; part of 1bit.systems</div>
+<h1>Lossless audio compression in ~2 MB of model weights.</h1>
+<p class="tag">A 1.58-bit ternary language model acting as the probability model inside an arithmetic coder over raw FLAC bytes. Bit-identical decode, roughly 30% smaller than FLAC, real-time on a gfx1151 iGPU.</p>
+
+<h2>Quickstart</h2>
+
+<pre><code>$ 1bit-ac compress album.flac
+written album.1bl  (5.62 GB, 70% of album.flac)
+
+$ 1bit-ac decompress album.1bl
+written album.flac (identical to original, sha256 matches)</code></pre>
+
+<div class="note">
+<b>Pre-release.</b> The generalist compressor model is in the training queue as Run 8 on our 2&times; H200 NVL RunPod. Download link goes live when training completes. Subscribe to the <a href="https://1bit.systems/blog/">research feed</a> for status.
+</div>
+
+<h2>How it works</h2>
+
+<p>Classical arithmetic coding. The decoder gets the same model + same context as the encoder and inverts the code perfectly. The model is a <b>1.58-bit ternary transformer</b> trained specifically on the byte distribution of FLAC-compressed music. Method is prior art (NNCP, ts_zip, DeepZip); our contribution is the weight budget and the real-time kernel.</p>
+
+<pre><code>encode(flac_bytes)
+  → LM emits byte-wise probability distribution
+  → arithmetic coder packs actual bytes given those probs
+  → output: [2 MB LM weights] + [arithmetic-coded residual]
+
+decode(artifact)
+  → load LM weights
+  → arithmetic-decode residual back to original FLAC bytes
+  → byte-identical, sha256-checksummable</code></pre>
+
+<h2>Benchmarks</h2>
+
+<p>Projected on an 8 GB reference FLAC corpus once Run 8 completes. We benchmark locally; we don't host copyrighted audio:</p>
+
+<table>
+<thead><tr><th>Method</th><th>Size</th><th>vs FLAC</th><th>Lossless?</th></tr></thead>
+<tbody>
+<tr><td>FLAC (baseline)</td><td>8.00 GB</td><td>1.00&times;</td><td>yes</td></tr>
+<tr><td>FLAC + bzip2 outer</td><td>~7.8 GB</td><td>1.03&times;</td><td>yes</td></tr>
+<tr><td>WavPack (max compression)</td><td>~7.6 GB</td><td>1.05&times;</td><td>yes</td></tr>
+<tr><td>NNCP fp32 over FLAC</td><td>~5.5 GB</td><td>~1.45&times;</td><td>yes (CPU-bound decode)</td></tr>
+<tr><td><b>1bit-ac (ternary LM, this work)</b></td><td><b>~5.6 GB</b></td><td><b>1.43&times;</b></td><td><b>yes, real-time decode</b></td></tr>
+</tbody>
+</table>
+
+<p>Compression ratio is within 5% of NNCP. What changes is runtime: NNCP's fp32 model is 100 MB+ and decodes below real-time on a laptop CPU. Ours is 2 MB and decodes above real-time on an integrated GPU, because the ternary GEMV we use for the LLM lane in <a href="https://1bit.systems">halo-ai</a> runs at 92% of LPDDR5X peak bandwidth.</p>
+
+<h2>Ship format</h2>
+
+<p>Single-file TLV container &mdash; <code>.1bl</code> &mdash; holding the LM weights, arithmetic-coded residual, and metadata. Spec is open (CC BY 4.0): <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/1bl-container-spec.md">1bl-container-spec.md</a>.</p>
+
+<h2>License</h2>
+
+<ul style="font-family: system-ui, sans-serif; font-size: 0.95rem; color: var(--muted);">
+  <li><b>Code</b> (<code>1bit-ac</code> CLI + library): MIT</li>
+  <li><b>Trained weights</b> (CC-BY-corpus-derived): CC BY 4.0</li>
+  <li><b>Container spec + JSON Schemas</b>: CC BY 4.0</li>
+</ul>
+
+<h2>Bring your own library</h2>
+
+<p>The encoder runs locally. Your FLAC never leaves your machine. If you're re-compressing a copyrighted personal library, the <code>.1bl</code> output stays on your box the same way a re-encoded <code>.m4a</code> or <code>.opus</code> would. We don't track it, we don't index it, we don't care about it. Our hosted catalog at <a href="https://1bit.music">1bit.music</a> is permissively-licensed only.</p>
+
+<div class="links">
+  <a href="https://1bit.systems/blog/2026-04-23-lossless-audio/">the real math</a> &middot;
+  <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/lossless-audio-llm-plan.md">implementation plan</a> &middot;
+  <a href="https://1bit.music">1bit.music (consumer streaming)</a> &middot;
+  <a href="https://1bit.systems">1bit.systems (dev)</a>
+</div>
+
+<footer>
+  © 2026 1bit.systems · audio compression, not surveillance
+</footer>
+
+</body>
+</html>

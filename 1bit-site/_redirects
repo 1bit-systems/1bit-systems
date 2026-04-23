@@ -19,8 +19,10 @@ https://www.1bit.video/*    https://1bit.video/:splat        301
 https://1bit.stream/*       /stream/:splat   200
 https://www.1bit.stream/*   https://1bit.stream/:splat       301
 
-https://1bit.audio/*        /audio/:splat    200
+https://1bit.audio/*        /compress/:splat 200
 https://www.1bit.audio/*    https://1bit.audio/:splat        301
+# Note: /audio/ subtree is already used by the Kokoro TTS sampler from the
+# original 1bit.systems site. The 1bit.audio apex maps to /compress/ instead.
 
 # Short permalinks
 /discord      https://discord.gg/halo-ai           302
