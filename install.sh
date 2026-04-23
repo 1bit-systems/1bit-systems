@@ -65,6 +65,103 @@ ROCM_CPP_DIR="${ROCM_CPP_DIR:-$REPO_ROOT/rocm-cpp}"
 WORKSPACE_DIR="${WORKSPACE_DIR:-$(cd "$(dirname "$0")" && pwd)}"
 ROCM_ROOT="${ROCM_ROOT:-/opt/rocm}"
 CI_MODE="${CI:-${GITHUB_ACTIONS:-0}}"
+INSTALL_MODE="${INSTALL_MODE:-source}"
+
+# ── appimage fast-path ───────────────────────────────────────
+# INSTALL_MODE=appimage downloads the latest release AppImage, verifies
+# its sha256 against the release feed, and drops a symlink at
+# $HOME/.local/bin/1bit. No ROCm build, no cargo, no systemd. The operator
+# still needs to install ROCm + rocm-cpp separately before `1bit install
+# core` will work — but the CLI itself (status / doctor / update) is live.
+#
+# Canonical release feed URL is 1bit.systems/releases.json; overridable
+# via APPIMAGE_RELEASES_URL for testing / self-hosting.
+if [[ "$INSTALL_MODE" == "appimage" ]]; then
+    banner
+    info "mode:     appimage (single-file install)"
+    [[ "$CI_MODE" != "0" ]] && info "CI mode — download-only dry run"
+
+    RELEASES_URL="${APPIMAGE_RELEASES_URL:-https://1bit.systems/releases.json}"
+    INSTALL_PREFIX="${INSTALL_PREFIX:-$HOME/.local/bin}"
+    CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/1bit-systems"
+    mkdir -p "$INSTALL_PREFIX" "$CACHE_DIR"
+
+    step "fetching release feed"
+    FEED_JSON="$CACHE_DIR/releases.json"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL -o "$FEED_JSON" "$RELEASES_URL" || die "failed to fetch $RELEASES_URL"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q -O "$FEED_JSON" "$RELEASES_URL" || die "failed to fetch $RELEASES_URL"
+    else
+        die "need curl or wget for appimage mode"
+    fi
+    ok "feed cached at $FEED_JSON"
+
+    step "parsing release feed"
+    # Prefer jq if available; fall back to a minimal grep/awk parser that
+    # handles the known flat schema (single-artifact x86_64-linux-gnu).
+    if command -v jq >/dev/null 2>&1; then
+        LATEST="$(jq -r '.latest' "$FEED_JSON")"
+        DL_URL="$(jq -r --arg v "$LATEST" '.releases[] | select(.version==$v) | .artifacts[] | select(.platform=="x86_64-linux-gnu" and .kind=="appimage") | .url' "$FEED_JSON")"
+        DL_SHA="$(jq -r --arg v "$LATEST" '.releases[] | select(.version==$v) | .artifacts[] | select(.platform=="x86_64-linux-gnu" and .kind=="appimage") | .sha256' "$FEED_JSON")"
+    else
+        LATEST="$(grep -E '"latest"' "$FEED_JSON" | head -1 | sed -E 's/.*"([0-9]+\.[0-9]+\.[0-9]+)".*/\1/')"
+        DL_URL="$(grep -E '"url"' "$FEED_JSON" | head -1 | sed -E 's/.*"(https?://[^"]+)".*/\1/')"
+        DL_SHA="$(grep -E '"sha256"' "$FEED_JSON" | head -1 | sed -E 's/.*"([a-f0-9]{64})".*/\1/')"
+    fi
+    [[ -n "$LATEST" && -n "$DL_URL" && -n "$DL_SHA" ]] || die "could not parse release feed"
+    info "latest:   $LATEST"
+    info "url:      $DL_URL"
+    info "sha256:   $DL_SHA"
+    ok "feed parsed"
+
+    step "downloading AppImage"
+    AI_PATH="$CACHE_DIR/1bit-systems-$LATEST-x86_64.AppImage"
+    if [[ -f "$AI_PATH" ]] && sha256sum "$AI_PATH" 2>/dev/null | grep -q "^$DL_SHA "; then
+        info "cached AppImage matches sha256 — reusing"
+    else
+        if command -v curl >/dev/null 2>&1; then
+            curl -fL --progress-bar -o "$AI_PATH" "$DL_URL" || die "download failed"
+        else
+            wget -O "$AI_PATH" "$DL_URL" || die "download failed"
+        fi
+    fi
+    ok "downloaded $(du -h "$AI_PATH" | awk '{print $1}')"
+
+    step "verifying sha256"
+    ACTUAL="$(sha256sum "$AI_PATH" | awk '{print $1}')"
+    if [[ "$ACTUAL" != "$DL_SHA" ]]; then
+        rm -f "$AI_PATH"
+        die "sha256 mismatch — expected $DL_SHA, got $ACTUAL"
+    fi
+    ok "sha256 verified"
+
+    step "installing symlink → $INSTALL_PREFIX/1bit"
+    chmod +x "$AI_PATH"
+    if [[ "$CI_MODE" == "0" ]]; then
+        ln -sfn "$AI_PATH" "$INSTALL_PREFIX/1bit"
+        ok "symlinked $INSTALL_PREFIX/1bit → $AI_PATH"
+        if ! printf '%s\n' "$PATH" | tr ':' '\n' | grep -Fxq "$INSTALL_PREFIX"; then
+            warn "$INSTALL_PREFIX is not on \$PATH — add it to your shell rc"
+        fi
+    else
+        ok "CI mode — symlink skipped"
+    fi
+
+    printf '\n%b╔══════════════════════════════════════════════════════════╗%b\n' "$GREEN" "$NC"
+    printf     '%b║  ✓ 1bit-systems AppImage installed                         ║%b\n' "$GREEN" "$NC"
+    printf     '%b╚══════════════════════════════════════════════════════════╝%b\n\n' "$GREEN" "$NC"
+    cat <<EOF
+Next steps:
+  1bit --version
+  1bit doctor          # checks ROCm / rocm-cpp separately — install via full source bootstrap
+  1bit --list          # list bundled binaries
+
+AppImage path:  $AI_PATH
+To switch to source install: rerun with \`INSTALL_MODE=source ./install.sh\`
+EOF
+    exit 0
+fi
 
 banner
 info "workspace: $WORKSPACE_DIR"

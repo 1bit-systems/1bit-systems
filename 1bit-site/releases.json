@@ -1,12 +1,27 @@
 {
   "$schema_note": "1bit-systems release feed. Consumed by `1bit update --check` and `1bit update --install`. Schema: see crates/1bit-cli/src/update.rs (Feed/Release/Artifact). Publish verbatim at https://1bit.systems/releases.json.",
-  "$sample_warning": "The 0.3.0 entry below is SAMPLE data from the Gap-P1-#15 scaffold pass — artifact URL is a placeholder, sha256 + minisign_sig match the test fixture at crates/1bit-cli/tests/fixtures/update/sample_artifact.bin, NOT a real release AppImage. Replace with real signed-artifact values before flipping the dns record.",
+  "$sample_warning": "The 0.3.0 entry is SAMPLE data from the Gap-P1-#15 scaffold pass — artifact URL is a placeholder, sha256 + minisign_sig match the test fixture at crates/1bit-cli/tests/fixtures/update/sample_artifact.bin, NOT a real release AppImage. The 0.1.0 entry is the real AppImage artifact built by packaging/appimage/build-appimage.sh — sha256 is real, URL is a placeholder until the 1bit.systems CDN path is wired, and minisign_sig is empty pending the signing flow. `latest` stays 0.3.0 so the update-check regression test keeps working; flip to 0.1.0 once the sample fixture is removed. Replace with real signed-artifact values before flipping the DNS record.",
   "latest": "0.3.0",
   "channels": {
-    "stable": "0.3.0",
+    "stable": "0.1.0",
     "preview": "0.3.0"
   },
   "releases": [
+    {
+      "version": "0.1.0",
+      "date": "2026-04-22",
+      "min_compatible": "0.1.0",
+      "notes": "First AppImage drop — bundles the Rust binaries (1bit, 1bit-helm, 1bit-halo-helm-tray, 1bit-watch-discord, 1bit-mcp-patreon + 15 more; 31 MB zstd-squashfs). ROCm is NOT bundled; install via ./install.sh on the host before `1bit install core`.",
+      "artifacts": [
+        {
+          "platform": "x86_64-linux-gnu",
+          "kind": "appimage",
+          "url": "https://1bit.systems/dl/1bit-systems-0.1.0-x86_64.AppImage",
+          "sha256": "cb24880525750d73bb9bc75c5db993e8aa7e83837165c80a442526c67226f6eb",
+          "minisign_sig": ""
+        }
+      ]
+    },
     {
       "version": "0.3.0",
       "date": "2026-04-22",

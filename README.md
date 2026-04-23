@@ -138,6 +138,23 @@ cargo run --release -p 1bit-server --features real-backend
 
 full install + first-boot walkthrough: [installation guide (wiki)](./docs/wiki/Repo-Layout.md) · [3-minute demo script](./DEMO.md)
 
+### install via AppImage *(single file, no build)*
+
+prebuilt single-file bundle of the user-facing Rust binaries. ROCm itself is **not** bundled — `1bit` itself runs, but `1bit install core` still needs a host `librocm_cpp.so` from the source bootstrap.
+
+```sh
+# download → verify → symlink to ~/.local/bin/1bit
+curl -fsSLO https://1bit.systems/dl/1bit-systems-0.1.0-x86_64.AppImage
+echo "cb24880525750d73bb9bc75c5db993e8aa7e83837165c80a442526c67226f6eb  1bit-systems-0.1.0-x86_64.AppImage" | sha256sum -c -
+chmod +x 1bit-systems-0.1.0-x86_64.AppImage
+ln -sfn "$PWD/1bit-systems-0.1.0-x86_64.AppImage" ~/.local/bin/1bit
+1bit --version
+```
+
+the scripted path — `INSTALL_MODE=appimage ./install.sh` — does the same three steps and verifies against [1bit-site/releases.json](./1bit-site/releases.json). works on any x86_64 Linux with glibc ≥ 2.31 (Ubuntu 20.04, Debian 11, CachyOS).
+
+symlink the AppImage to any of the 20 bundled binary names — `1bit-helm`, `1bit-halo-helm-tray`, `1bit-watch-discord`, `1bit-mcp-patreon`, `1bit-voice`, … — and it dispatches via `$ARGV0`. run `<AppImage> --list` to see them all.
+
 ## lego blocks
 
 pick what you want. drop the rest.

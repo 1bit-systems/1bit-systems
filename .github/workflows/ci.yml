@@ -86,3 +86,50 @@ jobs:
         env:
           CI: "1"
         run: ./install.sh
+
+  build-appimage:
+    name: build-appimage (non-blocking)
+    runs-on: ubuntu-latest
+    # Non-blocking while the release flow / signing is wired up. Flip to
+    # `continue-on-error: false` after first green run lands an artifact
+    # users can actually download.
+    continue-on-error: true
+    # Fork PRs don't need AppImage publishing — skip to avoid burning CI
+    # minutes on untrusted code. Runs on push/PR from the main repo.
+    if: github.event.pull_request.head.repo.fork != true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.86
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.86"
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install AppImage host deps (FUSE + ImageMagick for icon)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+              libfuse2 imagemagick fonts-dejavu-core
+
+      - name: Build AppImage
+        run: packaging/appimage/build-appimage.sh
+
+      - name: List artifact
+        run: |
+          ls -lh packaging/appimage/dist/
+          cat packaging/appimage/dist/*.sha256
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: 1bit-systems-appimage-x86_64
+          path: |
+            packaging/appimage/dist/*.AppImage
+            packaging/appimage/dist/*.sha256
+          if-no-files-found: error
+          retention-days: 14
