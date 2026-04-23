@@ -23,7 +23,8 @@ use onebit_retrieval::{WikiIndex, format_for_system_prompt};
 use reqwest::Client;
 use serde_json::{Value, json};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use tracing::{info, warn};
 
 use crate::{Name, Specialist};
 
@@ -38,10 +39,12 @@ pub fn default_model_id() -> String {
     "halo-1bit-2b".to_string()
 }
 
-/// Hard cap on how long we'll wait for the LLM. Discord replies need
-/// to feel alive; a 10s ceiling is more than enough for a ≤400-tok
-/// completion on the strixhalo box.
-const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
+/// Hard cap on how long we'll wait for the LLM. Cold-cache first
+/// completions on strixhalo have been clocked at ~7-12s for a 400-tok
+/// reply; warm calls land in 2-4s. 30s gives enough slack for the
+/// first-dispatch-after-restart case without making users wait forever
+/// if the backend is genuinely wedged.
+const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Upper bound on characters of retrieved-doc context we'll paste into
 /// the system prompt. ~4k chars ≈ ~1k tokens — leaves plenty of room
@@ -141,7 +144,57 @@ impl LlmSpecialist {
     }
 
     fn down_text(&self) -> String {
-        format!("({} down)", self.name.as_str())
+        // Friendly triage ack. Used when the upstream LLM is unreachable
+        // OR when its output is pathological (stuck in a fence-loop, etc).
+        // Never returns empty — help-desk consumers rely on a non-empty
+        // string to anchor the thread.
+        match self.name {
+            Name::Sentinel => "Sentinel ack — triaged as bug. A human will follow up here shortly.".to_string(),
+            Name::Magistrate => "Magistrate ack — logged as feature request. Review follows.".to_string(),
+            Name::Herald => "Herald ack — your question is in the queue. Human follow-up shortly.".to_string(),
+            Name::Quartermaster => "Quartermaster ack — event logged.".to_string(),
+            _ => format!("{} ack — handoff to human.", self.name.as_str()),
+        }
+    }
+
+    /// Detect LLM output that looks pathological — stuck in a code-fence
+    /// repetition loop, near-empty, or otherwise unusable on Discord.
+    /// Returns true if the caller should fall back to `down_text()`.
+    ///
+    /// Heuristics:
+    ///   * more `` ``` `` fence lines than content lines → fence loop
+    ///   * total printable content < 16 chars → stub-ish
+    ///   * same line repeated >= 5× in a row → loop
+    fn looks_pathological(text: &str) -> bool {
+        let lines: Vec<&str> = text.lines().collect();
+        let fences = lines.iter().filter(|l| l.trim().starts_with("```")).count();
+        let content_lines = lines
+            .iter()
+            .filter(|l| !l.trim().is_empty() && !l.trim().starts_with("```"))
+            .count();
+        if fences >= 3 && fences > content_lines {
+            return true;
+        }
+        let printable: String = text
+            .chars()
+            .filter(|c| !c.is_whitespace() && *c != '`')
+            .collect();
+        if printable.chars().count() < 16 {
+            return true;
+        }
+        // Consecutive repeat detection.
+        let mut run = 1;
+        for w in lines.windows(2) {
+            if !w[0].trim().is_empty() && w[0].trim() == w[1].trim() {
+                run += 1;
+                if run >= 5 {
+                    return true;
+                }
+            } else {
+                run = 1;
+            }
+        }
+        false
     }
 
     fn completions_url(&self) -> String {
@@ -254,12 +307,47 @@ impl Specialist for LlmSpecialist {
 
     async fn handle(&self, req: Value) -> Result<Value> {
         let user = extract_user_content(&req);
-        match self.call_llm(&user).await {
-            Ok(text) => Ok(json!({ "text": text })),
+        let specialist = self.name.as_str();
+        let started = Instant::now();
+        let result = self.call_llm(&user).await;
+        let elapsed_ms = started.elapsed().as_millis();
+        match result {
+            Ok(text) if !Self::looks_pathological(&text) => {
+                info!(
+                    specialist,
+                    bytes = text.len(),
+                    elapsed_ms = elapsed_ms as u64,
+                    "LLM reply ok"
+                );
+                Ok(json!({ "text": text }))
+            }
+            Ok(bad) => {
+                // Model emitted something but it's unusable (fence loop,
+                // near-empty, repeat spam). Fall through to a friendly
+                // triage ack so the help-desk thread is still populated
+                // and a human can take over.
+                warn!(
+                    specialist,
+                    bytes = bad.len(),
+                    elapsed_ms = elapsed_ms as u64,
+                    "LLM output looks pathological — falling back to down_text"
+                );
+                Ok(json!({
+                    "error": "pathological LLM output",
+                    "text": self.down_text(),
+                    "raw_truncated": bad.chars().take(200).collect::<String>(),
+                }))
+            }
             Err(e) => {
                 // Graceful degradation: ALWAYS return a `text` field so
                 // echo still has something to post. The `error` field
                 // is surfaced alongside for operator logs.
+                warn!(
+                    specialist,
+                    error = %e,
+                    elapsed_ms = elapsed_ms as u64,
+                    "LLM call failed — falling back to down_text"
+                );
                 Ok(json!({
                     "error": e,
                     "text": self.down_text(),
@@ -279,13 +367,19 @@ impl Specialist for LlmSpecialist {
 /// produce one self-contained block with no editorial padding before or
 /// after. Commands or stack traces INSIDE the response should still use
 /// inner fenced blocks; those are preserved.
+// OUTPUT_FORMAT_RULE was retired 2026-04-23 after the Sparse-BitNet
+// Run 3 checkpoint proved too weak at "wrap ENTIRE response in one
+// fenced block" — it routinely echoed the fence header + a prompt
+// fragment and nothing else, tripping `looks_pathological` and
+// collapsing every specialist reply to the `down_text` stub.
+// Unwrap + sanitize on the Discord side handle bare prose and
+// incidental inner fences just fine, so we let the model speak
+// plainly and stop forcing a shape it can't produce reliably.
 pub const OUTPUT_FORMAT_RULE: &str =
-    " OUTPUT FORMAT: wrap your ENTIRE response in a single triple-backtick \
-     fenced code block. Do not add any text, preamble, or trailing \
-     commentary outside the fence. No language tag on the opening fence. \
-     Inner code samples within the response may use their own fenced \
-     blocks with language tags (```bash ... ```) and will render as code \
-     on Discord; the outer wrapper is stripped by the poster.";
+    " Write the answer as plain prose. Use triple-backtick fenced \
+     blocks only for literal shell commands, file paths, or code \
+     samples (```bash ... ``` renders as code on Discord). Do not \
+     wrap the whole reply in a single code block.";
 
 pub const HERALD_PROMPT: &str = concat!(
 "You are Herald, the conversational voice of 1bit.systems on Discord. \
@@ -293,26 +387,29 @@ Answer the user's question concisely in 1-3 short paragraphs. If the answer requ
 don't have (benchmark numbers, internal paths, ROCm versions), ask ONE follow-up question. Tone: \
 calm technical, no emoji, no marketing, no exclamations, no movie quotes. If the question isn't \
 about 1bit.systems, say so and redirect to #water-cooler.",
-" OUTPUT FORMAT: wrap your ENTIRE response in a single triple-backtick \
-fenced code block. Do not add any text, preamble, or trailing \
-commentary outside the fence. No language tag on the opening fence. \
-Inner code samples within the response may use their own fenced \
-blocks with language tags and will render as code on Discord; the \
-outer wrapper is stripped by the poster.");
+" Write the answer as plain prose on Discord. Use triple-backtick \
+fenced blocks only for literal shell commands, file paths, or code \
+samples; never wrap the whole reply in one fenced block.");
 
 pub const SENTINEL_PROMPT: &str = concat!(
-"You are Sentinel, bug-triage specialist for 1bit.systems. The \
-user reported an issue. Your job: (1) restate the bug in one line, (2) list what else you need to \
-reproduce (kernel version, ROCm version, commit SHA, minimal repro), (3) suggest the single most \
-likely cause from the known-issue list (amdgpu OPTC hang on kernel 7.x, mlock missing, RoPE \
-convention mismatch, ROCm gfx1151 Tier-1 absent, Caddy bearer missing, KV-cache mutex contention). \
-Output <= 400 words. Calm technical tone.",
-" OUTPUT FORMAT: wrap your ENTIRE response in a single triple-backtick \
-fenced code block. Do not add any text, preamble, or trailing \
-commentary outside the fence. No language tag on the opening fence. \
-Inner code samples within the response may use their own fenced \
-blocks with language tags and will render as code on Discord; the \
-outer wrapper is stripped by the poster.");
+"You are Sentinel, bug-triage specialist for 1bit.systems. The user \
+reported an issue. Reply with a copy-paste-ready triage playbook: \
+(1) one-line restatement of the bug, (2) the single most likely cause \
+from the known-issue list (amdgpu OPTC hang on kernel 7.x, mlock \
+missing, RoPE convention mismatch, ROCm gfx1151 Tier-1 absent, Caddy \
+bearer missing, KV-cache mutex contention), (3) concrete shell \
+commands the user can run right now to diagnose or fix — journalctl \
+greps, systemctl commands, sysfs pokes, a one-line sed/patch, or a \
+specific build flag, (4) explicit close asking the user to paste the \
+output of those commands back in this thread so a human can follow \
+up. Mention any missing context you'd need (kernel version, ROCm \
+version, commit SHA, minimal repro) inside that close. Output \
+<= 400 words. Calm technical tone. Actionable > exhaustive.",
+" Plain prose on Discord. Wrap every shell command, file path, \
+systemctl invocation, or patch snippet in a fenced block with a \
+language tag (```bash ... ```, ```diff ... ```); real runnable \
+commands are the load-bearing output here. Do not wrap the whole \
+reply in a single fenced block — only the command snippets.");
 
 pub const MAGISTRATE_PROMPT: &str = concat!(
 "You are Magistrate, feature-request reviewer for 1bit.systems. \
@@ -321,23 +418,17 @@ The user proposed a feature or change. Output: (1) restatement in one line, (2) 
 gfx1151 = primary, gfx1201 port = second, Sparse-BitNet retrain = in flight, NPU = deferred until \
 XDNA2 unblocks), (3) if accept, suggest where in the codebase it lands. <= 300 words. Calm \
 technical tone.",
-" OUTPUT FORMAT: wrap your ENTIRE response in a single triple-backtick \
-fenced code block. Do not add any text, preamble, or trailing \
-commentary outside the fence. No language tag on the opening fence. \
-Inner code samples within the response may use their own fenced \
-blocks with language tags and will render as code on Discord; the \
-outer wrapper is stripped by the poster.");
+" Write the answer as plain prose on Discord. Use triple-backtick \
+fenced blocks only for literal shell commands, file paths, or code \
+samples; never wrap the whole reply in one fenced block.");
 
 pub const QUARTERMASTER_PROMPT: &str = concat!(
 "You are Quartermaster, GitHub event triage for 1bit.systems. \
 Given a single GitHub event JSON (issue opened/closed, PR opened/merged, push), output a one-line \
 human summary of what changed and whether it needs operator attention. <= 60 words. No preamble.",
-" OUTPUT FORMAT: wrap your ENTIRE response in a single triple-backtick \
-fenced code block. Do not add any text, preamble, or trailing \
-commentary outside the fence. No language tag on the opening fence. \
-Inner code samples within the response may use their own fenced \
-blocks with language tags and will render as code on Discord; the \
-outer wrapper is stripped by the poster.");
+" Write the answer as plain prose on Discord. Use triple-backtick \
+fenced blocks only for literal shell commands, file paths, or code \
+samples; never wrap the whole reply in one fenced block.");
 
 #[cfg(test)]
 mod tests {

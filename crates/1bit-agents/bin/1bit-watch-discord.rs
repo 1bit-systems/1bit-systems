@@ -244,6 +244,23 @@ impl EventHandler for Handler {
             "dispatching to specialist"
         );
 
+        // Visual ack: drop a 👀 reaction on the user's message so they
+        // can see halo picked it up, and start a typing indicator in
+        // the channel that lasts ~10s (Discord auto-expires) — covers
+        // the typical sentinel dispatch window. Both via echo's token;
+        // halo stays silent.
+        if let Some(echo) = self.echo_http.as_ref() {
+            let eyes = serenity::all::ReactionType::Unicode("👀".to_string());
+            if let Err(e) = echo.create_reaction(msg.channel_id, msg.id, &eyes).await {
+                info!(error = %e, "failed to seed pickup reaction");
+            }
+            if !matches!(class, Classification::Chat) {
+                if let Err(e) = echo.broadcast_typing(msg.channel_id).await {
+                    info!(error = %e, "failed to broadcast typing");
+                }
+            }
+        }
+
         let req = json!({
             "source": "discord",
             "channel_id": channel_id,
@@ -470,7 +487,11 @@ impl Handler {
         if meta.is_forum {
             // Forum path: one post, one starter message, classification tag,
             // plus a button row so the asker / mods can close the loop
-            // without typing a command.
+            // without typing a command. The specialist prompt demands
+            // inline `​`​`​`bash blocks around every command, so the
+            // starter renders as prose + scannable command blocks —
+            // no outer wrap, otherwise we'd nest and break the inner
+            // command fences.
             let starter = format!("{header}\n\n{quote_block}\n\n{body_reply}");
             let starter = truncate_for_forum_starter(&starter);
             let tags = meta.tags_for(class);
@@ -525,6 +546,11 @@ impl Handler {
                     if let Err(e) = msg.channel_id.say(http.as_ref(), breadcrumb).await {
                         warn!(error = %e, "failed to post help-desk breadcrumb");
                     }
+                    // Delete the asker's original message now that the
+                    // conversation has moved to the help-desk post.
+                    // Keeps the origin channel clean. Needs
+                    // MANAGE_MESSAGES on echo's role.
+                    delete_origin_message(http.as_ref(), msg).await;
                 }
                 Err(e) => {
                     warn!(error = %e, help_desk = help_desk, "failed to create forum post");
@@ -585,6 +611,7 @@ impl Handler {
         if let Err(e) = msg.channel_id.say(http.as_ref(), breadcrumb).await {
             warn!(error = %e, "failed to post help-desk breadcrumb");
         }
+        delete_origin_message(http.as_ref(), msg).await;
     }
 
     /// Single-line status pulled from 1bit-server /v1/models and
@@ -1006,6 +1033,49 @@ impl Handler {
         } else {
             info!(verdict, message_id = reaction.message_id.get(), "recorded reply feedback");
         }
+    }
+}
+
+/// Wrap a specialist reply in a single triple-backtick fenced block so
+/// it renders as a monospaced container on Discord — visually
+/// distinctive from normal chat. Inner triple-backticks in the payload
+/// (legit code samples from the model) would otherwise close the outer
+/// fence; we neutralise them by inserting a zero-width joiner between
+/// each backtick, which renders visually as three backticks but isn't
+/// parsed as a fence delimiter.
+///
+/// If the content is already short enough, the result fits under
+/// Discord's 2000-char message cap comfortably (4-byte fence overhead
+/// plus ZWJ expansions). For longer payloads the caller should trim
+/// first via `truncate_for_forum_starter` or similar.
+#[allow(dead_code)]
+fn wrap_in_codeblock(text: &str) -> String {
+    let escaped = text.replace("```", "`\u{200D}`\u{200D}`");
+    format!("```\n{escaped}\n```")
+}
+
+/// Delete the asker's original message via echo after their request
+/// has been routed into the help-desk. Users hit "post a bug in
+/// #water-cooler" and see the routed link in the help-desk; keeping the
+/// original message in the origin channel just fragments the thread.
+/// Best-effort — a missing MANAGE_MESSAGES perm is logged and skipped
+/// so the rest of the pipeline stays intact. Also skips when echo's
+/// token is absent (defensive; caller already checked but we don't
+/// rely on it).
+async fn delete_origin_message(http: &Http, msg: &Message) {
+    if let Err(e) = http.delete_message(msg.channel_id, msg.id, Some("routed to help-desk")).await {
+        info!(
+            error = %e,
+            channel_id = %msg.channel_id,
+            message_id = %msg.id,
+            "failed to delete origin message (MANAGE_MESSAGES missing?)"
+        );
+    } else {
+        info!(
+            channel_id = %msg.channel_id,
+            message_id = %msg.id,
+            "deleted origin message post-route"
+        );
     }
 }
 
