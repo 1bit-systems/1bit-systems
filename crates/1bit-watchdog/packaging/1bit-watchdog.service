@@ -1,0 +1,10 @@
+[Unit]
+Description=1bit-watchdog — upstream upstream tracker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.cargo/bin/1bit-watchdog check
+Environment=RUST_LOG=info
+Nice=10

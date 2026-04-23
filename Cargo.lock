@@ -4457,6 +4457,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "onebit-watchdog"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "onebit-whisper"
 version = "0.1.0"
 dependencies = [

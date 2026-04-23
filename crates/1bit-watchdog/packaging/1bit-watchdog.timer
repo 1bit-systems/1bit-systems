@@ -1,0 +1,12 @@
+[Unit]
+Description=1bit-watchdog hourly poll
+Requires=1bit-watchdog.service
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -20,6 +20,7 @@ members = [
     "crates/1bit-whisper",
     "crates/1bit-kokoro",
     "crates/1bit-power",
+    "crates/1bit-watchdog",
     "crates/1bit-mcp-clients",
     "crates/1bit-mcp-discord",
     "crates/1bit-mcp-linuxgsm",
