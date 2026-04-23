@@ -24,6 +24,10 @@ https://www.1bit.audio/*    https://1bit.audio/:splat        301
 # Note: /audio/ subtree is already used by the Kokoro TTS sampler from the
 # original 1bit.systems site. The 1bit.audio apex maps to /compress/ instead.
 
+# waterbon.me — founder / personal identity page
+https://waterbon.me/*       /me/:splat       200
+https://www.waterbon.me/*   https://waterbon.me/:splat       301
+
 # Short permalinks
 /discord      https://discord.gg/halo-ai           302
 /gh           https://github.com/bong-water-water-bong/1bit-systems   302
