@@ -221,4 +221,38 @@ length_ms = 1000
             "expected footer mismatch, got: {msg}"
         );
     }
+
+    #[test]
+    fn pack_includes_optional_cover_and_lyrics() {
+        // A curator who supplies cover + lyrics should see five TLV
+        // sections land in the output, in the order declared by spec
+        // §"Section order": MODEL_GGUF, ATTRIBUTION_TXT, LICENSE_TXT,
+        // COVER, TRACK_LYRICS.
+        let tmp = tempfile::tempdir().unwrap();
+        let gguf = tmp.path().join("m.gguf");
+        std::fs::write(&gguf, b"GGUF fake").unwrap();
+        let tomlp = tmp.path().join("catalog.toml");
+        std::fs::write(&tomlp, sample_toml("optsec")).unwrap();
+        let cover = tmp.path().join("cover.webp");
+        std::fs::write(&cover, b"RIFF\0\0WEBPVP8 fake").unwrap();
+        let lyrics = tmp.path().join("lyrics.txt");
+        std::fs::write(&lyrics, b"[01] la la la\n").unwrap();
+        let out = tmp.path().join("o.1bl");
+
+        pack::pack(&gguf, &tomlp, Some(&cover), Some(&lyrics), &out).unwrap();
+        let report = validate(&out).unwrap();
+        assert!(report.footer_ok);
+        assert_eq!(report.sections.len(), 5);
+        let tags: Vec<u8> = report.sections.iter().map(|s| s.tag).collect();
+        assert_eq!(
+            tags,
+            vec![
+                crate::tag::MODEL_GGUF,
+                crate::tag::ATTRIBUTION_TXT,
+                crate::tag::LICENSE_TXT,
+                crate::tag::COVER,
+                crate::tag::TRACK_LYRICS,
+            ]
+        );
+    }
 }
