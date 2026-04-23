@@ -627,7 +627,7 @@
       <button id="expandAll" title="Expand all sections">+ expand all</button>
       <button id="collapseAll" title="Collapse all sections">− collapse all</button>
     </div>
-    <div class="version-tag"><span class="dot"></span>v0.1 · docs</div>
+    <div class="version-tag"><span class="dot"></span>v0.1.8 · docs</div>
   </div>
 </header>
 
@@ -791,6 +791,18 @@
       <p>
         website · <a href="https://1bit.systems/">https://1bit.systems/</a> &nbsp;·&nbsp; source · <a href="https://github.com/bong-water-water-bong/1bit-systems">https://github.com/bong-water-water-bong/1bit-systems</a>
       </p>
+
+      <div class="callout">
+        <strong>2026-04-23 update</strong> &mdash; NPU toolchain verified end-to-end on the reference box, and five media lanes are live.
+        <ul style="margin: 10px 0 0 18px; font-size: 14px;">
+          <li><strong>NPU toolchain proven on Strix Halo.</strong> IRON axpy pytest <strong>160/160</strong> on <code>npu5</code>, MLIR-AIE &rarr; Peano &rarr; xclbin &rarr; libxrt end-to-end in <strong>26.8&nbsp;s</strong>. First time a non-VitisAI path has produced a working xclbin on this hardware. Kernel authoring is now unblocked; a ternary <code>bitnet_gemm</code> still has to be written. No tok/s claim yet. See <a href="/docs/wiki/NPU-Unlock">NPU-Unlock</a>.</li>
+          <li><strong>Five media lanes live</strong> on the box: LLM (Halo v2), TTS, STT, image (SDXL via <code>sd.cpp</code>), video-staged (Wan 2.2 TI2V-5B port in flight). Sixth lane (NPU) has a proven toolchain, no shipped kernel yet.</li>
+          <li><strong><code>1bit install all</code></strong> &mdash; single-command meta-target installs every component listed in <code>packages.toml</code>. Stop / copy / start is idempotent per component.</li>
+        </ul>
+        <p style="margin: 10px 0 0 0; font-size: 13px; color: var(--text-muted);">
+          The NPU ship gate still applies. No public launch until a ternary kernel runs on XDNA 2 and the numbers stand on their own.
+        </p>
+      </div>
 
       <h3>What works today</h3>
       <ul>
@@ -1364,9 +1376,14 @@ strix-burnin.service        — shadow-burnin harness</code></pre>
         Writing native AIE kernels requires Riallto (Phoenix-only, Ubuntu 24.04.2 + Docker + paid Xilinx license, zero GEMM kernels shipped). Custom ternary kernels on XDNA 2 would need to be authored from scratch against this toolchain.
       </p>
 
+      <h3>Toolchain progress &mdash; 2026-04-23</h3>
+      <p>
+        The <strong>authoring toolchain</strong> has been verified on the reference box independent of AMD's shipped stack. IRON axpy pytest passes <strong>160/160</strong> on <code>npu5</code>, lowering MLIR-AIE through Peano to an xclbin that <code>libxrt</code> loads and runs end-to-end in <strong>26.8&nbsp;s</strong>. This is the first working xclbin on this hardware that does not go through VitisAI. A ternary <code>bitnet_gemm</code> still has to be written against this path; no tok/s claim is made until that kernel exists and reports numbers. See <a href="/docs/wiki/NPU-Unlock">NPU-Unlock</a>.
+      </p>
+
       <h3>Current verdict</h3>
       <p>
-        <strong>Defer.</strong> Revisit when AMD ships STX-H on Ryzen AI Linux, or when a community BitNet backend for XDNA 2 lands in public. Nothing on the near- or mid-term roadmap depends on the NPU shipping.
+        <strong>Defer (end-user path).</strong> Revisit when AMD ships STX-H on Ryzen AI Linux, or when a community BitNet backend for XDNA 2 lands in public. Nothing on the near- or mid-term roadmap depends on the NPU shipping. The toolchain verification above unlocks internal kernel authoring but does not change the ship gate: a shippable end-user NPU lane still requires a kernel and a distribution story.
       </p>
     </section>
 
@@ -2009,28 +2026,38 @@ rocprof --stats --timestamp on \
 
     <section id="roadmap">
       <h2>Roadmap</h2>
+
+      <h3>Near-term (active)</h3>
       <ol>
-        <li>Sparse-BitNet Run 4 (3:4) retrain completion &mdash; H200 NVL pod &middot; 10B-token budget &middot; ~2026-04-24 ETA</li>
-        <li>Sparse-BitNet Run 5 &mdash; Microsoft canonical 2:4 on 2&times; H200 NVL DDP (see <a href="/docs/wiki/Training-Runs">Training runs</a>)</li>
+        <li>Sparse-BitNet <strong>Run 5</strong> (2:4 canonical) completion &mdash; H200 NVL pod &middot; ~30 h ETA</li>
+        <li>Sparse-BitNet <strong>Run 6</strong> &mdash; Qwen3-TTS 0.6B ternary QAT, queued on pod</li>
+        <li>Ternary <code>bitnet_gemm</code> MLIR-AIE authoring &mdash; first kernel on the proven NPU toolchain &middot; ~1&ndash;2 wk</li>
+        <li>int8 KV flip in router &mdash; halves KV bandwidth, decode-path only &middot; ~100&ndash;200 LOC</li>
+        <li>hipGraph decode capture &mdash; single recorded graph per (seq, n_heads) shape, amortises per-token launch</li>
+      </ol>
+
+      <h3>Mid-term</h3>
+      <ol>
         <li>BitNet v2 implementation &mdash; Hadamard-native W1.58 A4</li>
         <li>MedusaBitNet speculative heads &mdash; expected 1.4&ndash;1.8&times; at batch = 1</li>
         <li>Streaming STT via halo-whisper sentence-boundary partials</li>
-        <li>Image generation via <code>sd.cpp</code> native-HIP port, SDXL on gfx1151</li>
         <li>Video generation port &mdash; Wan 2.2 TI2V-5B (5B DiT, Apache 2.0)</li>
         <li>Desktop shell &mdash; voice-first, plugin API via MCP, package manager</li>
-        <li>NPU unblock &mdash; gated on AMD</li>
+        <li>NPU unblock &mdash; toolchain proven (IRON axpy on <code>npu5</code>); next gate is a ternary kernel and a shipped VitisAI-free path for end users</li>
       </ol>
+
       <p>
         <strong>Gap audit:</strong> all P0 items closed as of 2026-04-22. Remaining gaps are P1/P2 and tracked in the issue queue.
       </p>
       <p>
-        <strong>Already shipped this week:</strong> multi-arch default build (8 AMD consumer arches, one fat binary), <code>gfx1201</code> RDNA 4 port (14/14 WMMA kernels bit-exact, cross-arch PPL identical to six decimals), cross-arch benchmark suite, new <code>peak_probe_bench</code> + <code>attn_fd_sweep</code> bench tools, model registry on <code>/v1/models</code> with per-request validation, AppImage single-file install path.
+        <strong>Already shipped this week:</strong> multi-arch default build (8 AMD consumer arches, one fat binary), <code>gfx1201</code> RDNA 4 port (14/14 WMMA kernels bit-exact, cross-arch PPL identical to six decimals), cross-arch benchmark suite, new <code>peak_probe_bench</code> + <code>attn_fd_sweep</code> bench tools, model registry on <code>/v1/models</code> with per-request validation, AppImage single-file install path, <code>1bit install all</code> meta-target, NPU toolchain verified on <code>npu5</code>.
       </p>
     </section>
 
     <section id="changelog">
       <h2>Changelog</h2>
       <ul>
+        <li><strong>0.1.8</strong> &middot; 2026-04-23 &mdash; NPU toolchain verified on <code>npu5</code> (IRON axpy pytest 160/160, MLIR-AIE &rarr; Peano &rarr; xclbin &rarr; libxrt in 26.8&nbsp;s). Five media lanes live (LLM / TTS / STT / image / video-staged). <code>1bit install all</code> complete-pack meta-target landed. Ship gate still holds; no ternary kernel on NPU yet.</li>
         <li><strong>0.1.7</strong> &middot; 2026-04-22 &mdash; AppImage single-file install path shipped. <code>gfx1201</code> port promoted from in-flight to <strong>shipped</strong> (14/14 WMMA kernels bit-exact, cross-arch PPL identical). Default multi-arch build covers all 8 consumer AMD Wave32-WMMA parts (RDNA3 + 3.5 + 4). Model registry on <code>/v1/models</code> discovers real <code>.h1b</code> and validates request <code>model</code>. Cross-arch bench suite + <code>peak_probe_bench</code> + <code>attn_fd_sweep</code> landed. H200 NVL replaces SXM as default training pod (15% cheaper). Run 5 (2:4 canonical, 2&times; NVL DDP) planned behind Run 4. Patreon funding ladder (13B / 30B / 70B) declared.</li>
         <li><strong>0.1.6</strong> &middot; 2026-04-22 &mdash; Sparse-BitNet Run 4 launched. Kernel rolled back to 6.18.22-lts. Network topology documented. gfx1201 build variant wired.</li>
         <li><strong>0.1.5</strong> · 2026-04-21 — TriLM INT4 ONNX export complete. NPU placement confirmed blocked. Six-crash investigation and kernel-7.0 rollback plan.</li>
