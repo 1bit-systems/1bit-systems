@@ -529,7 +529,7 @@ dependencies = [
 [[package]]
 name = "bitnet-core"
 version = "1.0.0"
-source = "git+https://github.com/leizerowicz/bitnet-mlx.rs.git#a49cd5d53419771a2f93875c4fa103cc66d60810"
+source = "git+https://github.com/Wavegoodvybe2929/bitnet-rust.git?rev=a49cd5d53419771a2f93875c4fa103cc66d60810#a49cd5d53419771a2f93875c4fa103cc66d60810"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -559,7 +559,7 @@ dependencies = [
 [[package]]
 name = "bitnet-inference"
 version = "1.0.0"
-source = "git+https://github.com/leizerowicz/bitnet-mlx.rs.git#a49cd5d53419771a2f93875c4fa103cc66d60810"
+source = "git+https://github.com/Wavegoodvybe2929/bitnet-rust.git?rev=a49cd5d53419771a2f93875c4fa103cc66d60810#a49cd5d53419771a2f93875c4fa103cc66d60810"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -598,7 +598,7 @@ dependencies = [
 [[package]]
 name = "bitnet-metal"
 version = "1.0.0"
-source = "git+https://github.com/leizerowicz/bitnet-mlx.rs.git#a49cd5d53419771a2f93875c4fa103cc66d60810"
+source = "git+https://github.com/Wavegoodvybe2929/bitnet-rust.git?rev=a49cd5d53419771a2f93875c4fa103cc66d60810#a49cd5d53419771a2f93875c4fa103cc66d60810"
 dependencies = [
  "anyhow",
  "candle-core",
@@ -618,7 +618,7 @@ dependencies = [
 [[package]]
 name = "bitnet-quant"
 version = "1.0.0"
-source = "git+https://github.com/leizerowicz/bitnet-mlx.rs.git#a49cd5d53419771a2f93875c4fa103cc66d60810"
+source = "git+https://github.com/Wavegoodvybe2929/bitnet-rust.git?rev=a49cd5d53419771a2f93875c4fa103cc66d60810#a49cd5d53419771a2f93875c4fa103cc66d60810"
 dependencies = [
  "anyhow",
  "bincode",

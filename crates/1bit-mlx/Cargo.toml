@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace      = true
 repository.workspace   = true
 authors.workspace      = true
-description  = "1bit systems ternary inference via MLX on Apple Silicon (wraps bong-water-water-bong/bitnet-mlx-rs, mirror of leizerowicz/bitnet-mlx.rs)"
+description  = "1bit systems ternary inference via MLX on Apple Silicon (wraps Wavegoodvybe2929/bitnet-rust)"
 
 [lib]
 name = "onebit_mlx"
@@ -22,8 +22,11 @@ mlx-apple = ["bitnet-inference"]
 anyhow  = { workspace = true }
 tracing = { workspace = true }
 
-# Git-pinned against our private mirror of leizerowicz/bitnet-mlx.rs
-# (canonical upstream is Wavegoodvybe2929/bitnet-rust, the mirror is the
-# stable handle we control). mlx-rs requires macOS + Xcode toolchain —
-# cargo won't try to build this unless the `mlx-apple` feature is enabled.
-bitnet-inference = { git = "https://github.com/leizerowicz/bitnet-mlx.rs.git", optional = true }
+# Git-pinned against canonical upstream Wavegoodvybe2929/bitnet-rust.
+# Rev pinned for reproducibility; bump with care. Previous pin via the
+# leizerowicz/bitnet-mlx.rs fork went orphan after an upstream force-push
+# (the fork and canonical are twin repos by the same author; repointed to
+# the author's canonical handle 2026-04-23). mlx-rs requires macOS + Xcode
+# toolchain — cargo won't try to build this unless the `mlx-apple` feature
+# is enabled, so this is a resolver-only dep on gfx1151 hosts.
+bitnet-inference = { git = "https://github.com/Wavegoodvybe2929/bitnet-rust.git", rev = "a49cd5d53419771a2f93875c4fa103cc66d60810", optional = true }
