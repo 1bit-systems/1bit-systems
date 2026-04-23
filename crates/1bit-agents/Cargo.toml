@@ -39,6 +39,15 @@ path = "bin/1bit-watch-github.rs"
 name = "1bit-watch-patreon"
 path = "bin/1bit-watch-patreon.rs"
 
+# 1bit-helpdesk-setup — one-shot admin tool. Given a Discord forum
+# channel id + a bot token with MANAGE_CHANNELS, applies the canonical
+# help-desk topic + tag set (bug / feature / question / pending /
+# resolved / escalated). Idempotent; safe to re-run after upstream
+# forum edits to re-assert canonical state.
+[[bin]]
+name = "1bit-helpdesk-setup"
+path = "bin/1bit-helpdesk-setup.rs"
+
 [dependencies]
 anyhow      = { workspace = true }
 tokio       = { workspace = true }

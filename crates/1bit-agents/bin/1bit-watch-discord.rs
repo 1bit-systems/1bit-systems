@@ -33,8 +33,13 @@ use onebit_agents::watch::{
 use onebit_agents::{Name, Registry};
 use serde_json::json;
 use serenity::Client;
-use serenity::all::{AutoArchiveDuration, Context, CreateThread, EventHandler, GatewayIntents, Http, Message, Ready};
+use serenity::all::{
+    AutoArchiveDuration, ChannelType, Context, CreateForumPost, CreateMessage, CreateThread,
+    EventHandler, ForumTag, ForumTagId, GatewayIntents, Http, Message, Ready,
+};
 use serenity::async_trait;
+use std::collections::HashMap;
+use tokio::sync::OnceCell;
 use tracing::{error, info, warn};
 
 const DEFAULT_SERVER_URL: &str = "http://127.0.0.1:8180";
@@ -63,6 +68,54 @@ struct Handler {
     /// new thread here, and Echo replies only in that thread. Empty-string /
     /// unset disables routing and reverts to reply-in-place behavior.
     help_desk_channel_id: Option<u64>,
+    /// Lazy-fetched metadata about the help-desk channel — channel kind
+    /// (forum vs text) and the forum tag map keyed by lowercased name.
+    /// Populated the first time `route_to_help_desk` runs and reused
+    /// across subsequent routes.
+    help_desk_meta: OnceCell<HelpDeskMeta>,
+}
+
+/// Snapshot of the help-desk channel's shape.
+#[derive(Debug, Clone)]
+struct HelpDeskMeta {
+    is_forum: bool,
+    /// Lowercased tag name → tag id. Empty when the channel isn't a forum
+    /// or defines no tags.
+    tags_by_name: HashMap<String, ForumTagId>,
+}
+
+impl HelpDeskMeta {
+    fn empty() -> Self {
+        Self { is_forum: false, tags_by_name: HashMap::new() }
+    }
+
+    fn from_tags(is_forum: bool, tags: &[ForumTag]) -> Self {
+        let mut tags_by_name = HashMap::new();
+        for t in tags {
+            tags_by_name.insert(t.name.to_lowercase(), t.id);
+        }
+        Self { is_forum, tags_by_name }
+    }
+
+    /// Pick a forum-tag id for the given classification plus the implicit
+    /// "pending" state. Unknown tags are skipped silently so servers that
+    /// haven't configured the exact names still get routed correctly.
+    fn tags_for(&self, class: Classification) -> Vec<ForumTagId> {
+        let mut out = Vec::new();
+        let class_key = match class {
+            Classification::BugReport => "bug",
+            Classification::FeatureRequest => "feature",
+            Classification::Question => "question",
+            Classification::Chat => return out,
+        };
+        if let Some(id) = self.tags_by_name.get(class_key) {
+            out.push(*id);
+        }
+        if let Some(id) = self.tags_by_name.get("pending") {
+            out.push(*id);
+        }
+        out
+    }
 }
 
 #[async_trait]
@@ -140,7 +193,7 @@ impl EventHandler for Handler {
                     } else {
                         text
                     };
-                    self.route_to_help_desk(&msg, class, body).await;
+                    self.route_to_help_desk(&ctx, &msg, class, body).await;
                 } else if !text.is_empty() {
                     self.post_response(&ctx, &msg, class, text).await;
                 }
@@ -151,6 +204,7 @@ impl EventHandler for Handler {
                     // Even if dispatch failed, route the user so a human
                     // picks it up. Specialist silence must not mean silence.
                     self.route_to_help_desk(
+                        &ctx,
                         &msg,
                         class,
                         "Picked this up, a human will follow up here.",
@@ -246,12 +300,20 @@ impl Handler {
         }
     }
 
-    /// Cross-channel help-desk routing. Creates a public thread inside
-    /// the configured help-desk channel, seeds it with a quote of the
-    /// original message + a jump link, then drops a breadcrumb in the
-    /// original channel so the asker (and any observers) can follow. All
-    /// posts go through echo's token. If echo is unset we log + drop.
-    async fn route_to_help_desk(&self, msg: &Message, class: Classification, reply: &str) {
+    /// Cross-channel help-desk routing. Two shapes, picked by channel kind:
+    ///
+    ///   * **Forum channel** — each help request becomes its own forum
+    ///     post (the mc-help-desk layout). Classification drives the tag
+    ///     (`bug` / `feature` / `question`) and we also stamp `pending`
+    ///     when it exists so the triage queue is visible at a glance.
+    ///   * **Text channel** — legacy seed+thread flow: a header message
+    ///     is posted in the channel, a thread branches off it, and the
+    ///     quote + specialist reply go inside.
+    ///
+    /// The channel kind is fetched once via `OnceCell` on first route and
+    /// reused afterwards. All outbound posts go through echo's token; if
+    /// echo is unset we log + drop so halo never accidentally speaks.
+    async fn route_to_help_desk(&self, ctx: &Context, msg: &Message, class: Classification, reply: &str) {
         let Some(http) = self.echo_http.as_ref() else {
             warn!("help-desk routing requested but ECHO_BOT_TOKEN unset — dropping");
             return;
@@ -267,15 +329,94 @@ impl Handler {
             truncate_for_thread_name(&msg.content)
         );
 
-        // Seed = short header only. Keeps the help-desk feed scannable.
-        let seed_text = format!(
+        // Pre-build the three shared pieces: header, quote, cleaned reply.
+        let header = format!(
             "**help from {author}** ({class}) — {jump_url}",
             author = msg.author.name,
             class = class.as_str(),
             jump_url = msg.link(),
         );
+        let quote_block = format!("> {}", truncate_for_quote(&msg.content));
+        let clean_reply = sanitize_reply(reply);
+        let body_reply: String = if clean_reply.trim().is_empty() {
+            warn!(
+                original_len = reply.len(),
+                "specialist reply sanitized to empty — posting placeholder"
+            );
+            "_Specialist reply came back empty after cleanup — a human will follow up here._"
+                .to_string()
+        } else {
+            clean_reply
+        };
 
-        let seed_msg = match help_ch.say(http.as_ref(), &seed_text).await {
+        // Resolve channel shape on first use. Keep the cached result even
+        // if the fetch fails — empty() means "treat as text channel".
+        let meta = self
+            .help_desk_meta
+            .get_or_init(|| async move {
+                match help_ch.to_channel(&ctx.http).await {
+                    Ok(serenity::all::Channel::Guild(gc)) => {
+                        let is_forum = matches!(gc.kind, ChannelType::Forum);
+                        let tags = &gc.available_tags;
+                        info!(
+                            help_desk = help_desk,
+                            is_forum = is_forum,
+                            tag_count = tags.len(),
+                            "resolved help-desk channel metadata"
+                        );
+                        HelpDeskMeta::from_tags(is_forum, tags)
+                    }
+                    Ok(_) => {
+                        warn!(help_desk = help_desk, "help-desk channel is not a guild channel");
+                        HelpDeskMeta::empty()
+                    }
+                    Err(e) => {
+                        warn!(error = %e, help_desk = help_desk, "failed to resolve help-desk channel metadata — defaulting to text-channel shape");
+                        HelpDeskMeta::empty()
+                    }
+                }
+            })
+            .await;
+
+        if meta.is_forum {
+            // Forum path: one post, one starter message, classification tag.
+            let starter = format!("{header}\n\n{quote_block}\n\n{body_reply}");
+            let starter = truncate_for_forum_starter(&starter);
+            let tags = meta.tags_for(class);
+            let tag_count = tags.len();
+
+            let post_builder = CreateForumPost::new(
+                thread_name.clone(),
+                CreateMessage::new().content(starter),
+            )
+            .auto_archive_duration(AutoArchiveDuration::OneWeek)
+            .set_applied_tags(tags);
+
+            match help_ch.create_forum_post(http.as_ref(), post_builder).await {
+                Ok(post) => {
+                    info!(
+                        post_id = %post.id,
+                        origin_channel = msg.channel_id.get(),
+                        tag_count,
+                        "created help-desk forum post"
+                    );
+                    let breadcrumb = format!(
+                        "Routed to <#{post}> — follow there.",
+                        post = post.id.get()
+                    );
+                    if let Err(e) = msg.channel_id.say(http.as_ref(), breadcrumb).await {
+                        warn!(error = %e, "failed to post help-desk breadcrumb");
+                    }
+                }
+                Err(e) => {
+                    warn!(error = %e, help_desk = help_desk, "failed to create forum post");
+                }
+            }
+            return;
+        }
+
+        // Text-channel path: header message, branched thread, quote + reply inside.
+        let seed_msg = match help_ch.say(http.as_ref(), &header).await {
             Ok(m) => m,
             Err(e) => {
                 warn!(error = %e, help_desk = help_desk, "failed to seed help-desk post");
@@ -302,19 +443,18 @@ impl Handler {
             "spun help-desk thread"
         );
 
-        // Inside the thread: the original quote, then the specialist reply.
-        let quote_block = format!("> {}", truncate_for_quote(&msg.content));
         if let Err(e) = thread.id.say(http.as_ref(), quote_block).await {
             warn!(error = %e, "failed to post quote into thread");
         }
-        let clean_reply = sanitize_reply(reply);
-        if !clean_reply.trim().is_empty() {
-            if let Err(e) = thread.id.say(http.as_ref(), clean_reply).await {
-                warn!(error = %e, "failed to post specialist reply into thread");
-            }
+        info!(
+            thread_id = %thread.id,
+            bytes = body_reply.len(),
+            "posting specialist reply to help-desk thread"
+        );
+        if let Err(e) = thread.id.say(http.as_ref(), body_reply).await {
+            warn!(error = %e, "failed to post specialist reply into thread");
         }
 
-        // Breadcrumb back in the origin channel.
         let breadcrumb = format!(
             "Routed to <#{thread}> — follow there.",
             thread = thread.id.get()
@@ -466,6 +606,18 @@ fn sanitize_for_thread(name: &str) -> String {
     }
 }
 
+/// Clip a full forum-post starter to Discord's 2000-char message cap.
+/// We prefer to keep the header + quote intact and trim the reply tail
+/// rather than drop the post entirely. The 4-char ellipsis reserve keeps
+/// the limit comfortable even after Discord's own encoding overhead.
+fn truncate_for_forum_starter(src: &str) -> String {
+    const CAP: usize = 1996;
+    if src.chars().count() <= CAP {
+        return src.to_string();
+    }
+    src.chars().take(CAP).chain("…".chars()).collect()
+}
+
 /// Truncate a message to ≤400 chars for embedding as a blockquote in the
 /// help-desk seed post. Keeps the feed scannable without losing the gist.
 fn truncate_for_quote(src: &str) -> String {
@@ -579,6 +731,7 @@ async fn main() -> Result<()> {
         server_url,
         landing_url,
         help_desk_channel_id,
+        help_desk_meta: OnceCell::new(),
     };
 
     // MESSAGE_CONTENT is a privileged intent — operator must enable it on

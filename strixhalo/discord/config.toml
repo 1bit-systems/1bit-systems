@@ -1,0 +1,101 @@
+# strixhalo/discord/config.toml — canonical 1bit.systems Discord layout.
+#
+# This file is the source of truth for the non-secret half of the Discord
+# setup: channel IDs, tag layout, which bot does what, watch-list
+# policy. Tracked in git; it must be possible to rebuild the server-side
+# state of the 1bit.systems Discord from this file plus `discord-secrets.env`.
+#
+# Secrets (bot tokens, OAuth client secrets) live in:
+#     ~/.config/1bit/discord-secrets.env
+# That file is NEVER committed. `restore.sh` reads both and writes the
+# systemd drop-in + runs `1bit-helpdesk-setup`.
+
+[guild]
+# 1bit.systems guild. Name is informational; only the id is load-bearing.
+# TODO: fill guild_id on next restore — run `1bit-helpdesk-setup` with the
+# help-desk channel id, the tool logs the parent guild in the ack line.
+id         = ""
+name       = "1bit.systems"
+vanity_url = "1bit.systems"
+
+[bots]
+# Two bot applications, intentionally separate identities:
+#
+#   * halo     — gateway listener. Never posts. Gets MESSAGE_CONTENT
+#                (privileged) + GUILD_MESSAGES + DIRECT_MESSAGES.
+#                Hosts MANAGE_CHANNELS so `1bit-helpdesk-setup` can run
+#                under the same token.
+#   * echo ai  — posting identity. Every outbound Discord message (forum
+#                post, thread reply, breadcrumb, `@halo status`) routes
+#                through echo's token. Halo staying silent is the
+#                point — easier moderation and a clean member-list badge.
+#
+# User IDs are resolved by the bots on startup (from READY) and logged —
+# leave blank here unless you explicitly need them pinned.
+halo = { app_name = "halo",    intents = ["GUILD_MESSAGES", "DIRECT_MESSAGES", "MESSAGE_CONTENT"], token_env = "DISCORD_BOT_TOKEN" }
+echo = { app_name = "Echo ai", intents = [],                                                      token_env = "ECHO_BOT_TOKEN"    }
+
+[channels]
+# Forum channel that catches auto-routed help requests from across the
+# server. Bot behaviour matches `HelpDeskMeta::is_forum` in
+# `crates/1bit-agents/bin/1bit-watch-discord.rs`:
+#   - forum  → `create_forum_post` with classification tag
+#   - text   → legacy seed-message + branched thread fallback
+help_desk = { id = "1488326003817447536", name = "1bs-help-desk", kind = "forum" }
+
+# Optional second help-desk for the Minecraft / Mosslorn context. When
+# set, messages in the Minecraft channels get routed here instead of
+# the global help-desk. Empty until wired.
+# mc_help_desk = { id = "", name = "mc-help-desk", kind = "forum" }
+
+[watch]
+# HALO_DISCORD_CHANNELS whitelist. Empty array = observe every channel
+# the bot is permissioned for; non-empty = only these. Today: empty, so
+# halo listens broadly and routes only on classification + @mention.
+channels = []
+
+[tags]
+# Canonical tag set stamped on help-desk forum posts by the bot and
+# re-applied idempotently by `1bit-helpdesk-setup`. Keep in sync with
+# `CANONICAL_TAGS` in `crates/1bit-agents/bin/1bit-helpdesk-setup.rs` —
+# the setup tool is the authoritative writer; this file is the read-only
+# reflection used for code review and disaster recovery.
+canonical = [
+    { name = "bug",       emoji = "🐛",  source = "classification:BugReport"      },
+    { name = "feature",   emoji = "✨",  source = "classification:FeatureRequest" },
+    { name = "question",  emoji = "❓",  source = "classification:Question"       },
+    { name = "pending",   emoji = "🕘",  source = "auto-on-create"                },
+    { name = "resolved",  emoji = "✅",  source = "human:swap-from-pending"       },
+    { name = "escalated", emoji = "⬆️",  source = "human:swap-from-pending"       },
+]
+
+[permissions]
+# Minimum Discord permission flags halo must have on the server for the
+# current feature set. Halo's role is installed with these, nothing more.
+#   MESSAGE_CONTENT      — read message bodies (privileged intent)
+#   MANAGE_CHANNELS      — edit forum tags + channel topic
+#   SEND_MESSAGES        — (echo only) post in channels
+#   CREATE_PUBLIC_THREADS— (echo only) legacy thread fallback
+#   SEND_MESSAGES_IN_THREADS — (echo only)
+halo_role = ["MANAGE_CHANNELS"]
+echo_role = ["SEND_MESSAGES", "CREATE_PUBLIC_THREADS", "SEND_MESSAGES_IN_THREADS"]
+
+[server_tag]
+# The "1BIT" server tag visible next to member names in chat. Requires
+# Level 1 server boost (5 boosts minimum). Assets archived under
+# `docs/assets/brand/`.
+tag_label     = "1BIT"
+icon_asset    = "a_ddd473dc6d25e9c2035d54037adf23ef"
+splash_asset  = "38ba2d6bfc73436c4330e31ec462f708"
+
+[history]
+# Short timeline so a future operator (or future-you after a six-month
+# gap) can see why this file exists.
+# 2026-04-23 00:37Z  echo-presence gateway added (halo stays silent)
+# 2026-04-23 05:31Z  cross-channel help-desk router landed (text-channel
+#                    shape: seed-message + branched thread)
+# 2026-04-23 06:52Z  empty-code-block bug shipped — sanitize_reply gap
+# 2026-04-23 09:55Z  sanitize_reply fix + empty-body placeholder
+# 2026-04-23 11:05Z  forum-channel shape added, CreateForumPost with
+#                    classification tags, 1bit-helpdesk-setup bin for
+#                    idempotent tag/topic provisioning
