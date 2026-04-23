@@ -2,18 +2,22 @@
 
 Three domains registered 2026-04-23, all pointed at the same Cloudflare Pages origin as `1bit.systems`. Pages routes by Host header via `_redirects`.
 
-## Registrar → Cloudflare
+## Registrar → Cloudflare (Namecheap)
 
-For each of the three new domains at Porkbun (or whichever registrar you used):
+Purchased at Namecheap 2026-04-23. Per-domain nameserver change:
 
-1. Porkbun dash → Domain Management → `1bit.music`
-2. Authoritative Nameservers → set to Cloudflare's:
-   - `ns1.cloudflare.com`
-   - `ns2.cloudflare.com`
-   (or whichever pair Cloudflare assigns — Cloudflare dash shows the exact two)
-3. Wait for propagation (5–60 min)
+1. Namecheap dash → Account → Domain List
+2. Pick domain (e.g. `1bit.music`) → Manage
+3. Nameservers section → change dropdown from "Namecheap BasicDNS" to **"Custom DNS"**
+4. Paste the two Cloudflare nameservers (Cloudflare dash → Add site → it assigns a specific pair like `lars.ns.cloudflare.com` + `maya.ns.cloudflare.com` — **each domain may get different Cloudflare NS pair**, so add one Cloudflare zone first, grab the NS, then paste into Namecheap)
+5. Green checkmark → save
+6. Propagation: usually 10–30 min at Namecheap, up to 24 h in edge cases
 
-Repeat for `1bit.video` and `1bit.stream`.
+Repeat for `1bit.video` and `1bit.stream`. Cloudflare may assign the **same** NS pair for all three zones (it's tied to your Cloudflare account region) or different pairs — both are fine, just paste what Cloudflare tells you per zone.
+
+### Common Namecheap gotcha
+
+Namecheap adds "Namecheap Web Hosting DNS" by default for new domains. You must explicitly switch the dropdown to "Custom DNS" — toggling individual NS records under the default mode won't work. Sidebar note: ignore Namecheap's "PremiumDNS" upsell, Cloudflare's free tier does everything it offers.
 
 ## Cloudflare zone records
 
