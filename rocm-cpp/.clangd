@@ -1,0 +1,30 @@
+# clangd config for HIP TUs in rocm-cpp/.
+#
+# IDE-only. Real builds run through the TheRock ROCm clang++ pinned in
+# CMakeLists.txt; this file just points the language server at a HIP
+# runtime + CK include tree so LSP stops reporting "hip/hip_runtime.h
+# file not found" + false-positive `__half` lookups.
+
+CompileFlags:
+  Add:
+    - -std=c++20
+    - -xhip
+    - -I/opt/rocm/include
+    - -I/opt/rocm/include/hip
+    - -isystem
+    - /opt/rocm/include
+    - -D__HIP_PLATFORM_AMD__
+    - -D__HIP_ROCclr__
+  Remove:
+    - -W*
+
+Diagnostics:
+  Suppress:
+    # clangd tries to resolve HIP device builtins like __builtin_amdgcn_sudot4
+    # and __shfl_xor without the real HIP/ROCm toolchain; silence.
+    - pp_file_not_found
+    - unknown_typename
+    - undeclared_var_use
+    - static_assert_requirement_failed
+    - no_member
+    - typename_nested_not_found
