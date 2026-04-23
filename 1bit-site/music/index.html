@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>1bit.music — streaming that fits on a floppy</title>
+  <meta property="og:title" content="1bit.music">
+  <meta property="og:description" content="Every album in 2 MB on the free tier. Lossless on Premium. Decoded locally on your hardware, not our servers.">
+  <style>
+    :root { --bg: #0f0f11; --fg: #e7e7e7; --muted: #8a8a92; --accent: #7cc4ff; --panel: #1c1c22; --line: #2a2a30; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 860px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; color: var(--fg); background: var(--bg); line-height: 1.65; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .brand { font-size: 0.95rem; color: var(--muted); letter-spacing: 0.02em; margin-bottom: 0.6rem; }
+    h1 { font-size: 3rem; margin: 0.4rem 0 0.5rem; letter-spacing: -0.02em; font-weight: 600; }
+    .tag { font-size: 1.2rem; color: var(--muted); margin: 0 0 2.5rem; max-width: 640px; line-height: 1.5; }
+    .tiers { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; margin: 2rem 0; }
+    @media (max-width: 640px) { .tiers { grid-template-columns: 1fr; } }
+    .tier { border: 1px solid var(--line); border-radius: 10px; padding: 1.6rem 1.4rem; background: var(--panel); }
+    .tier h2 { margin: 0 0 0.6rem; font-size: 1.2rem; }
+    .tier .size { font-family: ui-monospace, monospace; font-size: 2rem; color: var(--accent); margin: 0.2rem 0 0.6rem; }
+    .tier ul { margin: 0.8rem 0 0; padding-left: 1.2rem; color: var(--muted); }
+    .tier li { margin: 0.25rem 0; }
+    .status { background: #1c1c22; border-left: 2px solid var(--accent); padding: 0.8rem 1.1rem; border-radius: 4px; margin: 2rem 0 0; font-size: 0.93rem; }
+    .status h3 { margin: 0 0 0.3rem; font-size: 0.95rem; color: #c7c7d0; }
+    .links { margin: 2.5rem 0; font-size: 0.95rem; color: var(--muted); }
+    .links a { margin-right: 1rem; }
+    footer { margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.85rem; }
+    code { background: var(--panel); padding: 0.08em 0.4em; border-radius: 3px; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+
+<div class="brand">1bit.music · part of 1bit.systems</div>
+<h1>Streaming that fits on a floppy.</h1>
+<p class="tag">A catalog compressor built on a 1.58-bit ternary language model. Free tier ships your favourite artist's discography in about 2 megabytes. Premium is bit-perfect lossless, roughly 30% smaller than FLAC.</p>
+
+<div class="tiers">
+  <div class="tier">
+    <h2>Free</h2>
+    <div class="size">~2 MB</div>
+    <p>Per artist catalog. Downloaded once, played offline forever.</p>
+    <ul>
+      <li>Generative neural reconstruction via Mimi codec</li>
+      <li>Listenable, not bit-identical to the master</li>
+      <li>~4 000× smaller than FLAC</li>
+      <li>Works on any machine — Rust decoder</li>
+    </ul>
+  </div>
+  <div class="tier">
+    <h2>Premium — $5/mo</h2>
+    <div class="size">bit-perfect</div>
+    <p>Unlimited streaming. Lossless decode on your own hardware.</p>
+    <ul>
+      <li>Arithmetic-coded residual via 1bit-ac</li>
+      <li>Byte-identical to source FLAC</li>
+      <li>~30% smaller than the FLAC it reconstructs</li>
+      <li>Real-time decode on any gfx1151 iGPU</li>
+      <li>Lightning or Patreon billing</li>
+    </ul>
+  </div>
+</div>
+
+<div class="status">
+  <h3>Pre-launch</h3>
+  Training runs on our <a href="https://1bit.systems/blog/2026-04-23-streaming-service/">2× H200 NVL RunPod</a> are scheduled. Day-one lineup is permissively-licensed only: Free Music Archive, Kevin MacLeod, public-domain classical. No copyrighted catalogs hosted; bring-your-own-library encoder ships with the player.
+</div>
+
+<div class="links">
+  <a href="https://1bit.systems/blog/2026-04-23-lossless-audio/">the real math</a> ·
+  <a href="https://1bit.systems/blog/2026-04-23-streaming-service/">product announcement</a> ·
+  <a href="https://1bit.video">1bit.video</a> ·
+  <a href="https://1bit.systems">1bit.systems (dev)</a>
+</div>
+
+<footer>
+  © 2026 1bit.systems · audio streaming that fits in a filesystem · no tracking, no ads, no algorithmic feed
+</footer>
+
+</body>
+</html>
