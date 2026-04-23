@@ -20,5 +20,6 @@ pub mod patreon;
 // because they share generic names (`classify`, `Event`) with the Discord
 // ones and we want the call site to be explicit.
 pub use discord::{
-    Classification, HELP_TEXT, classify, is_direct_mention, parse_channel_whitelist, strip_mention,
+    Classification, HELP_TEXT, classify, is_direct_mention, parse_channel_whitelist, severity,
+    strip_mention,
 };

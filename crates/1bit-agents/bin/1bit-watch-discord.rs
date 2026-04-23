@@ -28,7 +28,8 @@ use std::time::Duration;
 
 use anyhow::Result;
 use onebit_agents::watch::{
-    Classification, HELP_TEXT, classify, is_direct_mention, parse_channel_whitelist, strip_mention,
+    Classification, HELP_TEXT, classify, is_direct_mention, parse_channel_whitelist, severity,
+    strip_mention,
 };
 use onebit_agents::{Name, Registry};
 use serde_json::json;
@@ -106,21 +107,30 @@ impl HelpDeskMeta {
         Self { is_forum, tags_by_name }
     }
 
-    /// Pick a forum-tag id for the given classification plus the implicit
-    /// "pending" state. Unknown tags are skipped silently so servers that
-    /// haven't configured the exact names still get routed correctly.
-    fn tags_for(&self, class: Classification) -> Vec<ForumTagId> {
+    /// Pick a forum-tag id for the given classification + severity. We
+    /// stamp three dimensions on every forum post:
+    ///   * type     — troubleshooting / feature / inquiry
+    ///   * state    — always `pending` at creation time
+    ///   * severity — defcon-1 ... defcon-5 (lower = worse)
+    /// Unknown tag names are skipped silently so a server with a
+    /// partial tag set still works.
+    fn tags_for(&self, class: Classification, defcon: u8) -> Vec<ForumTagId> {
         let mut out = Vec::new();
-        let class_key = match class {
-            Classification::BugReport => "bug",
+        let type_key = match class {
+            Classification::BugReport => "troubleshooting",
             Classification::FeatureRequest => "feature",
-            Classification::Question => "question",
+            Classification::Question => "inquiry",
             Classification::Chat => return out,
         };
-        if let Some(id) = self.tags_by_name.get(class_key) {
+        if let Some(id) = self.tags_by_name.get(type_key) {
             out.push(*id);
         }
         if let Some(id) = self.tags_by_name.get("pending") {
+            out.push(*id);
+        }
+        let defcon = defcon.clamp(1, 5);
+        let sev_key = format!("defcon-{defcon}");
+        if let Some(id) = self.tags_by_name.get(&sev_key) {
             out.push(*id);
         }
         out
@@ -450,8 +460,10 @@ impl Handler {
             // command fences.
             let starter = format!("{header}\n\n{quote_block}\n\n{body_reply}");
             let starter = truncate_for_forum_starter(&starter);
-            let tags = meta.tags_for(class);
+            let defcon = severity(&msg.content);
+            let tags = meta.tags_for(class, defcon);
             let tag_count = tags.len();
+            info!(defcon, class = %class, "severity assigned");
 
             let action_row = CreateActionRow::Buttons(vec![
                 CreateButton::new("hd_resolve")

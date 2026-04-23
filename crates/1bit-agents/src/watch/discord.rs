@@ -64,6 +64,85 @@ impl fmt::Display for Classification {
 /// Priority: bug > feature > question > chat. A message that matches
 /// multiple categories (e.g. "bug: can we fix the panic?") is labelled
 /// as a bug — that's the one we want a human to see first.
+/// DEFCON-style severity. 1 = worst (production down / data loss),
+/// 5 = trivial (question, nitpick). Keyword-based heuristic — intended
+/// to be a starting point the bot auto-stamps on forum posts that
+/// humans can bump up or down during triage.
+pub fn severity(text: &str) -> u8 {
+    let lower = text.to_lowercase();
+    const D1: &[&str] = &[
+        "production down",
+        "data loss",
+        "data corruption",
+        "security",
+        "cve ",
+        "unusable",
+        "breaks everything",
+        "cannot use",
+        "can't use at all",
+        // Strix-Halo / 1bit-systems specific: these require a power
+        // cycle or a full reboot to recover — "really bad" by
+        // definition. OPTC hang is the reigning champion.
+        "optc",
+        "kernel panic",
+        "kernel hang",
+        "amdgpu hang",
+        "machine hung",
+        "power cycle",
+        "hard lock",
+        "wayland crash",
+        "wayland frozen",
+    ];
+    if D1.iter().any(|k| lower.contains(k)) {
+        return 1;
+    }
+    const D2: &[&str] = &[
+        "crashed",
+        "crash",
+        "segfault",
+        "sigabrt",
+        "sigsegv",
+        "sigbus",
+        "panic",
+        "panicked",
+        "blocker",
+        "regression",
+        "oom",
+        "hang",
+        "deadlock",
+    ];
+    if D2.iter().any(|k| lower.contains(k)) {
+        return 2;
+    }
+    const D3: &[&str] = &[
+        "broken",
+        "fails",
+        "failed to",
+        "doesn't work",
+        "does not work",
+        "not working",
+        "error:",
+        "bug",
+    ];
+    if D3.iter().any(|k| lower.contains(k)) {
+        return 3;
+    }
+    const D4: &[&str] = &[
+        "slow",
+        "annoying",
+        "minor",
+        "quirk",
+        "would be nice",
+        "nice to have",
+        "wish",
+        "could we",
+    ];
+    if D4.iter().any(|k| lower.contains(k)) {
+        return 4;
+    }
+    5
+}
+
 pub fn classify(text: &str) -> Classification {
     let lower = text.to_lowercase();
 

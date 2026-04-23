@@ -30,15 +30,30 @@ use serenity::all::{
 use std::sync::Arc;
 use tracing::{error, info};
 
-/// Canonical tag set — lowercased name + a unicode emoji. Order in this
-/// list is also the order they appear in the forum UI.
+/// Canonical tag set — lowercased name + a unicode emoji. Three
+/// dimensions:
+///   * type       — what kind of post (troubleshooting / feature / inquiry)
+///   * state      — where the post is in its lifecycle (pending /
+///                  resolved / escalated)
+///   * severity   — DEFCON-style urgency (1 = worst, 5 = trivial);
+///                  halo sets this from keyword heuristics on post
+///                  creation and humans can adjust as triage progresses
+/// Order in this list is also the order they appear in the forum UI.
 const CANONICAL_TAGS: &[(&str, &str)] = &[
-    ("bug", "🐛"),
-    ("feature", "✨"),
-    ("question", "❓"),
-    ("pending", "🕘"),
-    ("resolved", "✅"),
-    ("escalated", "⬆️"),
+    // Type
+    ("troubleshooting", "🐛"),
+    ("feature",         "✨"),
+    ("inquiry",         "❓"),
+    // State
+    ("pending",         "🕘"),
+    ("resolved",        "✅"),
+    ("escalated",       "⬆️"),
+    // Severity (lower number = worse)
+    ("defcon-1",        "🟥"),
+    ("defcon-2",        "🟧"),
+    ("defcon-3",        "🟨"),
+    ("defcon-4",        "🟩"),
+    ("defcon-5",        "⬜"),
 ];
 
 const HELP_DESK_TOPIC: &str = "Help-desk routed from across the 1bit.systems server. \

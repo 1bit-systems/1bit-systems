@@ -41,7 +41,7 @@ echo = { app_name = "Echo ai", intents = [],                                    
 # `crates/1bit-agents/bin/1bit-watch-discord.rs`:
 #   - forum  → `create_forum_post` with classification tag
 #   - text   → legacy seed-message + branched thread fallback
-help_desk = { id = "1488326003817447536", name = "1bs-help-desk", kind = "forum" }
+help_desk = { id = "1496832169526427669", name = "1bs-help-desk", kind = "forum" }
 
 # Optional second help-desk for the Minecraft / Mosslorn context. When
 # set, messages in the Minecraft channels get routed here instead of
@@ -56,17 +56,30 @@ channels = []
 
 [tags]
 # Canonical tag set stamped on help-desk forum posts by the bot and
-# re-applied idempotently by `1bit-helpdesk-setup`. Keep in sync with
-# `CANONICAL_TAGS` in `crates/1bit-agents/bin/1bit-helpdesk-setup.rs` —
-# the setup tool is the authoritative writer; this file is the read-only
-# reflection used for code review and disaster recovery.
+# re-applied idempotently by `1bit-helpdesk-setup`. Three dimensions:
+#   * type     — what kind of post (troubleshooting / feature / inquiry)
+#   * state    — lifecycle (pending / resolved / escalated)
+#   * severity — DEFCON 1 worst → 5 trivial; halo stamps from keyword
+#                heuristics at creation, humans can bump either way
+# Keep in sync with `CANONICAL_TAGS` in
+# `crates/1bit-agents/bin/1bit-helpdesk-setup.rs` — the setup tool is
+# the authoritative writer; this file is the read-only reflection used
+# for code review and disaster recovery.
 canonical = [
-    { name = "bug",       emoji = "🐛",  source = "classification:BugReport"      },
-    { name = "feature",   emoji = "✨",  source = "classification:FeatureRequest" },
-    { name = "question",  emoji = "❓",  source = "classification:Question"       },
-    { name = "pending",   emoji = "🕘",  source = "auto-on-create"                },
-    { name = "resolved",  emoji = "✅",  source = "human:swap-from-pending"       },
-    { name = "escalated", emoji = "⬆️",  source = "human:swap-from-pending"       },
+    # Type
+    { name = "troubleshooting", emoji = "🐛",  source = "classification:BugReport"      },
+    { name = "feature",         emoji = "✨",  source = "classification:FeatureRequest" },
+    { name = "inquiry",         emoji = "❓",  source = "classification:Question"       },
+    # State
+    { name = "pending",         emoji = "🕘",  source = "auto-on-create"                },
+    { name = "resolved",        emoji = "✅",  source = "human:swap-from-pending"       },
+    { name = "escalated",       emoji = "⬆️",  source = "human:swap-from-pending"       },
+    # Severity — DEFCON ladder; matches `severity()` in watch/discord.rs
+    { name = "defcon-1",        emoji = "🟥",  source = "severity:D1 critical (power-cycle, data loss, security, OPTC hang)" },
+    { name = "defcon-2",        emoji = "🟧",  source = "severity:D2 major    (crash, panic, segfault, OOM, hang)" },
+    { name = "defcon-3",        emoji = "🟨",  source = "severity:D3 moderate (error, bug, broken, fails)" },
+    { name = "defcon-4",        emoji = "🟩",  source = "severity:D4 minor    (slow, annoying, quirk)" },
+    { name = "defcon-5",        emoji = "⬜",  source = "severity:D5 trivial  (general inquiry, no urgency)" },
 ]
 
 [permissions]
