@@ -48,7 +48,40 @@
 <b>Pre-training.</b> Ternary DiT retrain for Wan 2.2 TI2V-5B (Run 7) lands before the in-browser compressed versions plug in here. In the meantime: here are the films we've queued for day-one ingest, with projected sizes based on Run 7's known parameters.
 </div>
 
-<h2>The canon (public domain, ready day-one)</h2>
+<div class="note" style="border-left-color: var(--success);">
+<b>Canadian jurisdiction.</b> Our infrastructure is hosted in Canada (sliger, Toronto), and we operate under Canadian copyright law. Films get 50 years from first publication in Canada (pre-2022 CUSMA grandfathering applies to anything already PD before 2022-12-30). Expanded lineup below reflects Canadian PD status, which is broader than the US for cinematographic works.
+</div>
+
+<h2>The canon (Canadian public domain, ready day-one)</h2>
+
+<div class="film">
+  <h3>The Great Dictator</h3>
+  <div class="by">1940 · Charlie Chaplin · 125 min</div>
+  <p class="desc">Chaplin's anti-fascist satire. The "world" speech at the end is still quoted verbatim at political rallies eighty-six years later. Published 1940; under Canadian law cinematographic works entered PD at 50 years from publication, so this lapsed in Canada in <b>1991</b>. Still under US copyright until 2036 — we host under Canadian jurisdiction, which is where our servers live.</p>
+  <div class="watch">▶ watch on <a href="https://archive.org/details/the-great-dictator_202011" target="_blank" rel="noopener">archive.org</a></div>
+  <div class="metrics">
+    <div class="metric"><div class="k">source 720p H.264</div><div class="v">~1.2 GB</div></div>
+    <div class="metric saved"><div class="k">1bit.video Free</div><div class="v">~8 MB</div></div>
+    <div class="metric saved"><div class="k">1bit.video Premium</div><div class="v">~800 MB</div></div>
+  </div>
+  <div class="pending"><b>1bit.video</b> · Run 7 queued</div>
+  <div class="lic">Licence: public domain in Canada (cinematographic work, 50-year term complete 1991)</div>
+</div>
+
+<div class="film">
+  <h3>1984</h3>
+  <div class="by">1949 novel by George Orwell · film adaptations 1956 (Anderson), 1984 (Radford)</div>
+  <p class="desc">Orwell died 1950. Life+50 reached on January 1, 2001 under the pre-2022 Canadian term — his works entered Canadian PD then and are grandfathered through the life+70 extension. The 1956 and 1984 screen adaptations have their own cinematographic terms; 1956 cleared Canadian PD in 2006, 1984 in 2034. We'll ingest the novel as an audiobook (via our TTS engine post Run 6) and the film adaptations as they become unambiguously clear.</p>
+  <div class="watch">▶ full text on <a href="https://www.gutenberg.net.au/ebooks01/0100021.txt" target="_blank" rel="noopener">Project Gutenberg Australia</a></div>
+  <div class="metrics">
+    <div class="metric"><div class="k">source text</div><div class="v">~580 KB</div></div>
+    <div class="metric saved"><div class="k">1bit narrated (TTS)</div><div class="v">~6 MB</div></div>
+    <div class="metric saved"><div class="k">source audiobook Premium</div><div class="v">~80 MB</div></div>
+  </div>
+  <div class="pending"><b>1bit audiobook</b> · Run 6 (Qwen3-TTS ternary) queued — we voice this ourselves once the TTS tier ships</div>
+  <div class="lic">Licence: public domain in Canada since 2001 (Orwell d.1950, life+50 grandfathered)</div>
+</div>
+
 
 <div class="film">
   <h3>Nosferatu</h3>
@@ -134,16 +167,27 @@
   <div class="lic">Licence: public domain (copyright renewal lapsed)</div>
 </div>
 
-<h2>Pre-committed</h2>
+<h2>Cinematic corpus (Canadian PD — cinematographic works, pre-1972 publication)</h2>
+<p style="color: var(--muted); font-size: 0.92rem;">Canada's 50-year cinematographic-works term (pre-2022 grandfathered) makes a large body of 20th-century cinema legally hostable here. A non-exhaustive queue we're working through, roughly in order of ingest priority:</p>
 
 <div class="queued">
-  <h4>The Great Dictator (1940)</h4>
-  <p>Chaplin's anti-fascist comedy enters the US public domain on <b>January 1, 2036</b> (95-year term from publication). On day one of its public-domain status we ingest, train a dedicated ternary DiT, and ship both tiers in the same week. Queued in memory, calendar reminder set. Playing the long game.</p>
+  <h4>Cleared for ingest (confirmed PD in Canada)</h4>
+  <ul style="margin: 0.3rem 0 0; padding-left: 1.3rem; color: var(--muted); font-size: 0.92rem;">
+    <li><b>Casablanca</b> (1942) — PD in Canada since 1993</li>
+    <li><b>Citizen Kane</b> (1941) — PD in Canada since 1992</li>
+    <li><b>2001: A Space Odyssey</b> (1968) — PD in Canada since 2019</li>
+    <li><b>The Godfather</b> (1972) — PD in Canada since 2023 (edge case)</li>
+    <li><b>Modern Times</b> (1936) · Chaplin — PD in Canada since 1987</li>
+    <li><b>City Lights</b> (1931) · Chaplin — PD in Canada since 1982</li>
+    <li><b>Monsieur Verdoux</b> (1947) · Chaplin — PD in Canada since 1998</li>
+    <li><b>Psycho</b> (1960) — PD in Canada since 2011</li>
+    <li><b>Dr. Strangelove</b> (1964) — PD in Canada since 2015</li>
+  </ul>
 </div>
 
 <div class="queued">
-  <h4>Modern Times (1936) · City Lights (1931)</h4>
-  <p>Both Chaplin films enter public domain in <b>2032</b> and <b>2027</b> respectively. Same pre-commitment: first-day ingest, same-week publish.</p>
+  <h4>Triage queue</h4>
+  <p>Each title gets a per-film copyright audit (composition, performance, and score rights can outlive the cinematographic work's term — verifying Canadian-publication date and checking CISAC/SOCAN on the music). We ingest once rights are confirmed clean. For works whose components have tangled rights (US-commissioned scores, Broadway soundtracks, etc.) we hold until each component clears.</p>
 </div>
 
 <h2>Same architecture, different kernel</h2>
