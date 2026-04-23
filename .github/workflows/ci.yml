@@ -19,7 +19,7 @@ jobs:
       - name: Install Rust 1.86
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.86"
+          toolchain: "1.88"
 
       - name: Cache cargo registry + target
         uses: Swatinem/rust-cache@v2
@@ -41,7 +41,7 @@ jobs:
       - name: Install Rust 1.86
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.86"
+          toolchain: "1.88"
           components: clippy
 
       - name: Cache cargo registry + target
@@ -81,7 +81,7 @@ jobs:
       - name: Install Rust 1.86
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.86"
+          toolchain: "1.88"
 
       - name: CI=1 ./install.sh (no ROCm, cargo check only)
         env:
@@ -104,7 +104,7 @@ jobs:
       - name: Install Rust 1.86
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.86"
+          toolchain: "1.88"
 
       - name: Cache cargo registry + target
         uses: Swatinem/rust-cache@v2
