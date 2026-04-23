@@ -69,3 +69,47 @@ jobs:
       - name: Style check
         run: |
           brew style packaging/homebrew/1bit-systems.rb || echo "style warnings (non-fatal on formula scaffold)"
+
+  docker:
+    name: Docker image (Ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build image (verify only, no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: packaging/docker/Dockerfile
+          push: false
+          load: true
+          tags: 1bit-systems:0.1.8-ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Inspect built image
+        run: |
+          docker image ls 1bit-systems:0.1.8-ci
+          docker image inspect 1bit-systems:0.1.8-ci \
+            --format '{{json .Config.Labels}}'
+
+  snap:
+    name: Snap package (Ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build snap
+        id: build
+        uses: snapcore/action-build@v1
+        with:
+          path: packaging/snap
+      - name: Upload .snap artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 1bit-systems-snap
+          path: ${{ steps.build.outputs.snap }}
+          if-no-files-found: error

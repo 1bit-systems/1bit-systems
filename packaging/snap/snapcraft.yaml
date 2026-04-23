@@ -1,0 +1,91 @@
+# 1bit-systems — snapcraft manifest (9th distribution channel)
+#
+# Confinement is CLASSIC. Rationale: the runtime reaches into /dev/kfd,
+# /dev/dri, systemd --user units, sysfs for GPU SCLK pinning, and XDNA2 NPU
+# control nodes. Strict confinement blocks all of those; devmode is dev-only.
+# Canonical review gate: classic confinement requires manual Snap Store
+# approval — an IS-XXXX ticket with rationale. Plan to file when we cut
+# 0.2.x for public release.
+#
+# Rule A is upheld the same as everywhere else: no Python parts, no torch,
+# no pip. This is a pure `plugin: rust` build on top of core24.
+
+name: 1bit-systems
+title: 1bit-systems
+version: "0.1.8"
+summary: Local AI inference on Strix Halo — LLM, TTS, STT, image, video, NPU
+description: |
+  1bit-systems is a local AI inference stack targeting AMD Strix Halo
+  (Ryzen AI MAX+ 395, gfx1151). Orchestration is Rust; kernels are native
+  C++20 HIP. No Python at serving time.
+
+  Includes:
+    * BitNet-1.58 ternary LLM via native HIP kernels (gfx1151 first-class)
+    * Qwen3-TTS text-to-speech
+    * whisper.cpp STT
+    * stable-diffusion.cpp (SDXL + Wan 2.2 TI2V-5B)
+    * XDNA2 NPU lane via ORT + VitisAI EP
+
+  This snap installs orchestration binaries only. Model weights fetch on
+  first run via `1bit install <model-id>`.
+
+grade: stable
+confinement: classic
+base: core24
+license: MIT
+
+# Classic confinement ignores most plugs, but we still declare the intent
+# so when we eventually move to strict (post-Canonical-review), the surface
+# area is already documented.
+plugs:
+  hardware-observe:
+  system-observe:
+  network:
+  home:
+
+parts:
+  1bit-systems:
+    plugin: rust
+    source: ../..
+    rust-channel: "1.86"
+    # Portable subset only — see packaging/docker/Dockerfile for rationale.
+    # GPU-linked crates live on the host path.
+    rust-features: []
+    rust-path:
+      - crates/1bit-cli
+      - crates/1bit-power
+      - crates/1bit-watchdog
+      - crates/1bit-helm
+      - crates/1bit-voice
+      - crates/1bit-echo
+      - crates/1bit-mcp
+    build-packages:
+      - pkg-config
+      - libssl-dev
+      - ca-certificates
+    stage-packages:
+      - libc6
+      - libvulkan1
+
+apps:
+  1bit:
+    command: bin/1bit
+    plugs: [hardware-observe, system-observe, network, home]
+  1bit-power:
+    command: bin/1bit-halo-power
+    plugs: [hardware-observe, system-observe]
+  1bit-watchdog:
+    command: bin/1bit-watchdog
+    plugs: [system-observe, network]
+  1bit-helm:
+    command: bin/1bit-helm
+    plugs: [hardware-observe, system-observe, network, home]
+  1bit-voice:
+    command: bin/1bit-voice
+    plugs: [network, home]
+  1bit-echo:
+    command: bin/1bit-echo
+    plugs: [network, home]
+  1bit-mcp:
+    command: bin/1bit-mcp
+    plugs: [network, home]

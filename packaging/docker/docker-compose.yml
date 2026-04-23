@@ -1,0 +1,65 @@
+# 1bit-systems — compose for single-host dev / demo.
+#
+# Rule A reminder: no Python, no torch, no CUDA-image-of-the-week inside any
+# of these images. Each service is a Rust tokio binary from the same
+# packaging/docker/Dockerfile; they differ only by ENTRYPOINT override.
+#
+# `runtime: nvidia` doesn't apply — AMD Strix Halo uses /dev/kfd + /dev/dri
+# passthrough instead. Every service that touches GPU inherits the same
+# device/group pattern below.
+#
+# Usage:
+#   docker compose -f packaging/docker/docker-compose.yml build
+#   docker compose -f packaging/docker/docker-compose.yml up server tts sd
+
+version: "3.8"
+
+x-gpu: &gpu-passthrough
+  # AMD ROCm/HIP device passthrough. Equivalent of `--device=/dev/kfd ...`.
+  devices:
+    - /dev/kfd
+    - /dev/dri
+  group_add:
+    - video
+    - render
+  # Models are shared read-write across all three services.
+  volumes:
+    - models:/root/.local/share/1bit
+
+services:
+  server:
+    image: 1bit-systems:0.1.8-ci
+    build:
+      context: ../..
+      dockerfile: packaging/docker/Dockerfile
+    container_name: 1bit-server
+    entrypoint: ["/usr/local/bin/1bit"]
+    command: ["server", "--bind", "0.0.0.0:8180"]
+    ports:
+      - "8180:8180"
+    restart: unless-stopped
+    <<: *gpu-passthrough
+
+  tts:
+    image: 1bit-systems:0.1.8-ci
+    container_name: 1bit-tts
+    entrypoint: ["/usr/local/bin/1bit"]
+    command: ["tts", "--bind", "0.0.0.0:8095"]
+    ports:
+      - "8095:8095"
+    restart: unless-stopped
+    <<: *gpu-passthrough
+
+  sd:
+    image: 1bit-systems:0.1.8-ci
+    container_name: 1bit-sd
+    entrypoint: ["/usr/local/bin/1bit"]
+    command: ["sd", "--bind", "0.0.0.0:1234"]
+    ports:
+      - "1234:1234"
+    restart: unless-stopped
+    <<: *gpu-passthrough
+
+volumes:
+  models:
+    driver: local
