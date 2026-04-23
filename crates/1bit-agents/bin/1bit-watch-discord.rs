@@ -59,6 +59,10 @@ struct Handler {
     echo_http: Option<Arc<Http>>,
     server_url: String,
     landing_url: String,
+    /// If set, non-Chat messages in OTHER channels get auto-routed into a
+    /// new thread here, and Echo replies only in that thread. Empty-string /
+    /// unset disables routing and reverts to reply-in-place behavior.
+    help_desk_channel_id: Option<u64>,
 }
 
 #[async_trait]
@@ -105,15 +109,55 @@ impl EventHandler for Handler {
             "classification": class.as_str(),
             "content": msg.content,
         });
-        match self.registry.dispatch(specialist.as_str(), req).await {
+        let dispatch_result = self.registry.dispatch(specialist.as_str(), req).await;
+
+        // Cross-channel help-desk routing:
+        //   * If HALO_HELP_DESK_CHANNEL_ID is set AND the message is outside
+        //     that channel AND classification is non-Chat, Echo creates a
+        //     new thread INSIDE the help-desk and posts the specialist's
+        //     reply there. We also drop a short breadcrumb in the original
+        //     channel linking to the new thread so the asker can follow.
+        //   * If the message IS in the help-desk, current behavior stands.
+        //   * If class == Chat, routing is skipped (no noise).
+        let should_route = matches!(
+            (self.help_desk_channel_id, class),
+            (Some(hd), c) if hd != channel_id && !matches!(c, Classification::Chat)
+        );
+
+        match dispatch_result {
             Ok(resp) => {
-                if let Some(text) = resp.get("text").and_then(|v| v.as_str()) {
-                    if !text.trim().is_empty() {
-                        self.post_response(&ctx, &msg, class, text).await;
-                    }
+                let text = resp
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim();
+                if should_route {
+                    // Post to help-desk thread even if specialist returned
+                    // empty — the user asked for help and we promised a
+                    // landing spot. Fallback copy covers the empty case.
+                    let body = if text.is_empty() {
+                        "Picked this up, a human will follow up here."
+                    } else {
+                        text
+                    };
+                    self.route_to_help_desk(&msg, class, body).await;
+                } else if !text.is_empty() {
+                    self.post_response(&ctx, &msg, class, text).await;
                 }
             }
-            Err(e) => warn!(error = %e, "specialist dispatch failed"),
+            Err(e) => {
+                warn!(error = %e, "specialist dispatch failed");
+                if should_route {
+                    // Even if dispatch failed, route the user so a human
+                    // picks it up. Specialist silence must not mean silence.
+                    self.route_to_help_desk(
+                        &msg,
+                        class,
+                        "Picked this up, a human will follow up here.",
+                    )
+                    .await;
+                }
+            }
         }
 
         // Reply path: ONLY on direct mention. Keeps us off channels
@@ -161,8 +205,17 @@ impl Handler {
         // should read as normal conversation, so strip the wrapping fence
         // before sending. Inner fenced blocks (e.g. a command example inside
         // a longer reply) are preserved — only the outer wrapper goes.
-        let clean = unwrap_outer_codeblock(text);
-        let post_text = clean.as_str();
+        // sanitize_reply then drops any *empty* inner fences so stubs that
+        // emit ```...``` with no body don't leak empty code blocks to chat.
+        let unwrapped = unwrap_outer_codeblock(text);
+        let cleaned = sanitize_reply(&unwrapped);
+        if cleaned.trim().is_empty() {
+            warn!(
+                "specialist reply had no usable content after sanitize — dropping post"
+            );
+            return;
+        }
+        let post_text = cleaned.as_str();
 
         if matches!(class, Classification::BugReport) {
             let name = format!(
@@ -190,6 +243,84 @@ impl Handler {
 
         if let Err(e) = msg.channel_id.say(http.as_ref(), post_text).await {
             warn!(error = %e, "echo failed to post specialist response");
+        }
+    }
+
+    /// Cross-channel help-desk routing. Creates a public thread inside
+    /// the configured help-desk channel, seeds it with a quote of the
+    /// original message + a jump link, then drops a breadcrumb in the
+    /// original channel so the asker (and any observers) can follow. All
+    /// posts go through echo's token. If echo is unset we log + drop.
+    async fn route_to_help_desk(&self, msg: &Message, class: Classification, reply: &str) {
+        let Some(http) = self.echo_http.as_ref() else {
+            warn!("help-desk routing requested but ECHO_BOT_TOKEN unset — dropping");
+            return;
+        };
+        let Some(help_desk) = self.help_desk_channel_id else {
+            return;
+        };
+
+        let help_ch = serenity::all::ChannelId::new(help_desk);
+        let thread_name = format!(
+            "help-{}-{}",
+            sanitize_for_thread(&msg.author.name),
+            truncate_for_thread_name(&msg.content)
+        );
+
+        // Seed = short header only. Keeps the help-desk feed scannable.
+        let seed_text = format!(
+            "**help from {author}** ({class}) — {jump_url}",
+            author = msg.author.name,
+            class = class.as_str(),
+            jump_url = msg.link(),
+        );
+
+        let seed_msg = match help_ch.say(http.as_ref(), &seed_text).await {
+            Ok(m) => m,
+            Err(e) => {
+                warn!(error = %e, help_desk = help_desk, "failed to seed help-desk post");
+                return;
+            }
+        };
+
+        let thread_builder = CreateThread::new(thread_name)
+            .auto_archive_duration(AutoArchiveDuration::OneWeek);
+        let thread = match help_ch
+            .create_thread_from_message(http.as_ref(), seed_msg.id, thread_builder)
+            .await
+        {
+            Ok(t) => t,
+            Err(e) => {
+                warn!(error = %e, "failed to spin help-desk thread — seed stays as plain post");
+                return;
+            }
+        };
+
+        info!(
+            thread_id = %thread.id,
+            origin_channel = msg.channel_id.get(),
+            "spun help-desk thread"
+        );
+
+        // Inside the thread: the original quote, then the specialist reply.
+        let quote_block = format!("> {}", truncate_for_quote(&msg.content));
+        if let Err(e) = thread.id.say(http.as_ref(), quote_block).await {
+            warn!(error = %e, "failed to post quote into thread");
+        }
+        let clean_reply = sanitize_reply(reply);
+        if !clean_reply.trim().is_empty() {
+            if let Err(e) = thread.id.say(http.as_ref(), clean_reply).await {
+                warn!(error = %e, "failed to post specialist reply into thread");
+            }
+        }
+
+        // Breadcrumb back in the origin channel.
+        let breadcrumb = format!(
+            "Routed to <#{thread}> — follow there.",
+            thread = thread.id.get()
+        );
+        if let Err(e) = msg.channel_id.say(http.as_ref(), breadcrumb).await {
+            warn!(error = %e, "failed to post help-desk breadcrumb");
         }
     }
 
@@ -268,6 +399,87 @@ fn unwrap_outer_codeblock(src: &str) -> String {
     body.trim_matches('\n').to_string()
 }
 
+/// Strip empty/duplicate code fences and collapse blank-line runs from a
+/// specialist reply. Guards against stubs that emit ``` ``` ``` … (Discord
+/// renders each as an empty code block, flooding the thread). Keeps a
+/// single fence intact when it contains actual content.
+fn sanitize_reply(src: &str) -> String {
+    let mut out: Vec<&str> = Vec::new();
+    let mut blank_run = 0;
+    let mut in_fence = false;
+    let mut fence_has_content = false;
+    let mut fence_buf: Vec<&str> = Vec::new();
+    for line in src.lines() {
+        let t = line.trim();
+        if t.starts_with("```") {
+            if in_fence {
+                if fence_has_content {
+                    out.extend(fence_buf.iter());
+                    out.push(line);
+                }
+                fence_buf.clear();
+                in_fence = false;
+                fence_has_content = false;
+            } else {
+                fence_buf.push(line);
+                in_fence = true;
+                fence_has_content = false;
+            }
+            continue;
+        }
+        if in_fence {
+            if !t.is_empty() {
+                fence_has_content = true;
+            }
+            fence_buf.push(line);
+            continue;
+        }
+        if t.is_empty() {
+            blank_run += 1;
+            if blank_run <= 1 {
+                out.push(line);
+            }
+        } else {
+            blank_run = 0;
+            out.push(line);
+        }
+    }
+    // Unterminated fence with content → keep it; without content → drop.
+    if in_fence && fence_has_content {
+        out.extend(fence_buf.iter());
+    }
+    out.join("\n").trim().to_string()
+}
+
+/// Strip non-alphanumeric from a username so it fits cleanly in a thread
+/// name. Discord thread names cap at 100 chars and prefer ASCII.
+fn sanitize_for_thread(name: &str) -> String {
+    let clean: String = name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let clean = clean.trim_matches('-');
+    if clean.len() <= 24 {
+        clean.to_string()
+    } else {
+        clean.chars().take(24).collect()
+    }
+}
+
+/// Truncate a message to ≤400 chars for embedding as a blockquote in the
+/// help-desk seed post. Keeps the feed scannable without losing the gist.
+fn truncate_for_quote(src: &str) -> String {
+    let flat: String = src
+        .chars()
+        .map(|c| if c == '\n' { ' ' } else { c })
+        .collect();
+    if flat.chars().count() <= 400 {
+        flat
+    } else {
+        flat.chars().take(397).chain("...".chars()).collect()
+    }
+}
+
 /// Clip a message body to a thread-title-friendly length (≤80 chars).
 /// Strips newlines and collapses whitespace. Used for auto-created
 /// troubleshoot threads so titles stay legible.
@@ -328,6 +540,13 @@ async fn main() -> Result<()> {
     let landing_url =
         std::env::var("HALO_LANDING_URL").unwrap_or_else(|_| DEFAULT_LANDING_URL.into());
 
+    let help_desk_channel_id: Option<u64> = std::env::var("HALO_HELP_DESK_CHANNEL_ID")
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok());
+    if let Some(hd) = help_desk_channel_id {
+        info!(help_desk_channel = hd, "help-desk routing enabled");
+    }
+
     // Echo's token is the posting identity. Halo never posts with its own
     // token — every outbound message, thread creation, status reply flows
     // through this client. Unset => halo stays purely lurker.
@@ -359,6 +578,7 @@ async fn main() -> Result<()> {
         echo_http,
         server_url,
         landing_url,
+        help_desk_channel_id,
     };
 
     // MESSAGE_CONTENT is a privileged intent — operator must enable it on
@@ -484,5 +704,42 @@ mod tests {
     fn unwrap_fence_with_trailing_whitespace() {
         let src = "\n\n```\nanswer\n```\n\n";
         assert_eq!(unwrap_outer_codeblock(src), "answer");
+    }
+
+    #[test]
+    fn sanitize_drops_multiple_empty_fences() {
+        // Specialist stubs that emit ```...``` ```...``` with no body should
+        // not leak empty code blocks into Discord (2026-04-23 help-desk bug).
+        let src = "```\n\n```\n\n```\n \n```";
+        let out = sanitize_reply(src);
+        assert!(out.trim().is_empty(), "got: {out:?}");
+    }
+
+    #[test]
+    fn sanitize_keeps_fence_with_content() {
+        let src = "Here is the fix:\n```bash\nsystemctl restart foo\n```\nGood luck!";
+        let out = sanitize_reply(src);
+        assert!(out.contains("```bash\nsystemctl restart foo\n```"));
+        assert!(out.contains("Here is the fix:"));
+        assert!(out.contains("Good luck!"));
+    }
+
+    #[test]
+    fn sanitize_strips_single_empty_fence_between_prose() {
+        let src = "Here is the fix:\n```\n```\nGood luck!";
+        let out = sanitize_reply(src);
+        assert!(!out.contains("```"), "got: {out:?}");
+        assert!(out.contains("Here is the fix:"));
+        assert!(out.contains("Good luck!"));
+    }
+
+    #[test]
+    fn unwrap_then_sanitize_kills_nested_empty_fences() {
+        // The full post_response path: outer unwrap + sanitize.
+        // Mimics a stub that wraps everything AND forgot to fill inner blocks.
+        let src = "```\n```\n```\n```";
+        let unwrapped = unwrap_outer_codeblock(src);
+        let cleaned = sanitize_reply(&unwrapped);
+        assert!(cleaned.trim().is_empty(), "got: {cleaned:?}");
     }
 }
