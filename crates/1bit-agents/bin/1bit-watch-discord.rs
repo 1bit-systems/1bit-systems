@@ -368,6 +368,41 @@ async fn main() -> Result<()> {
         | GatewayIntents::DIRECT_MESSAGES
         | GatewayIntents::MESSAGE_CONTENT;
 
+    // Secondary gateway for echo — stateless HTTP wouldn't give echo an
+    // "online" presence in the Discord member list. Spin a minimal
+    // serenity client with a no-op handler whose only job is to open and
+    // hold the websocket, so echo shows green in the guild sidebar. Halo
+    // still owns all message processing + outbound posting via
+    // `echo_http` (REST). Done in a tokio task so the halo shard loop
+    // stays primary; if echo disconnects the handler logs and exits
+    // without bringing halo down.
+    if let Ok(echo_token) = std::env::var("ECHO_BOT_TOKEN") {
+        if !echo_token.trim().is_empty() {
+            let echo_token = echo_token.clone();
+            tokio::spawn(async move {
+                // Echo only needs presence — no intents required for the
+                // bare "I'm here" websocket, but GUILDS is the cheapest
+                // non-empty intent that doesn't require the MESSAGE
+                // privileged flag. Keeps the gateway from refusing the
+                // handshake.
+                let echo_intents = GatewayIntents::GUILDS;
+                let mut echo_client = match Client::builder(&echo_token, echo_intents)
+                    .event_handler(EchoPresence)
+                    .await
+                {
+                    Ok(c) => c,
+                    Err(e) => {
+                        warn!(error = %e, "echo presence client failed to construct");
+                        return;
+                    }
+                };
+                if let Err(e) = echo_client.start().await {
+                    warn!(error = %e, "echo presence gateway exited");
+                }
+            });
+        }
+    }
+
     let mut client = Client::builder(&token, intents)
         .event_handler(handler)
         .await?;
@@ -378,6 +413,24 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// No-op event handler for the echo presence gateway. Serenity requires
+/// an `EventHandler` impl even if we never act on any event — this one
+/// just logs that echo came online and then ignores everything. Halo's
+/// `Handler` above is the real brain; echo is here purely so the Discord
+/// member list shows a green dot next to the echo account while it holds
+/// the gateway open.
+struct EchoPresence;
+
+#[async_trait]
+impl EventHandler for EchoPresence {
+    async fn ready(&self, _ctx: Context, ready: Ready) {
+        info!(
+            bot = %ready.user.name,
+            "echo presence gateway connected — green dot in member list"
+        );
+    }
 }
 
 // The heavy-lifting tests live in `onebit_agents::watch::tests` so they run
