@@ -29,10 +29,18 @@ https://waterbon.me/*       /me/:splat       200
 https://www.waterbon.me/*   https://waterbon.me/:splat       301
 
 # Short permalinks
+/buy          /premium/                            302
+/premium      /premium/                            301
+/subscribe    /premium/                            302
 /discord      https://discord.gg/halo-ai           302
 /gh           https://github.com/bong-water-water-bong/1bit-systems   302
 /github       https://github.com/bong-water-water-bong/1bit-systems   302
 /install      /#install                            302
+
+# Checkout endpoints (proxied to 1bit-tier-mint via Cloudflare Tunnel once wired)
+# For now, staged as placeholder URLs that will 404 until the backend lands.
+# /checkout/stripe?plan=…       → tier-mint Stripe Checkout session
+# /checkout/lightning?plan=…    → tier-mint BTCPay invoice
 
 # Announcement was folded into the main single-page docs 2026-04-22
 /announcement       /#announcement                 301
