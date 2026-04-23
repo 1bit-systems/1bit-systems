@@ -5,6 +5,8 @@ Plain-English explanations of the architectural calls we made — one page per d
 ## Internals
 
 - [Architecture deep](./Architecture-Deep.md) — end-to-end request walkthrough, per-kernel provenance, FFI signatures, agent registry, training pipeline, mesh, failure surface
+- [Complete pack — the six lanes](./Complete-Pack.md) — table of every lane (LLM / TTS / STT / image / video / NPU), status + install command
+- [NPU unlock 2026-04-23](./NPU-Unlock-20260423.md) — IRON + MLIR-AIE + Peano + libxrt toolchain proven on npu5 (axpy 160/160); naming reconciliation + Arch deltas + what's left to ship BitNet-1.58 on NPU
 
 ## Decisions
 

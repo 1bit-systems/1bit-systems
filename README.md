@@ -28,7 +28,32 @@ one mini-PC in a closet, one binary per service, a 1.58-bit ternary LLM answerin
 
 the kernels are hand-written HIP targeting **gfx1151** (Strix Halo iGPU). everything above them — router, HTTP server, agent bus, MCP bridge, desktop client, package manager — is **Rust**. `systemd` supervises it. Caddy fronts it. when `1bit status` prints a full column of green dots, that's your household AI.
 
+## state as of 2026-04-23
+
 *"I know kung fu."*
+
+<sub><em>(we really do now. today the NPU ship-gate cracked.)</em></sub>
+
+**what runs on the box right now:**
+
+- **LLM** — 1bit-server on `:8180`, 2B BitNet-1.58 at 66.8 tok/s, native HIP, zero python. ✅
+- **TTS** — 1bit-tts.cpp / Qwen3-TTS on `:8095`, OpenAI `/v1/audio/speech` compat. ✅
+- **STT** — whisper.cpp on `:8190`, large-v3 q5 on the sliger B580 Vulkan node. ✅
+- **image** — stable-diffusion.cpp on `:1234`, SDXL native HIP, zero hipBLAS. ✅
+- **video** — Wan 2.2 TI2V-5B Q4_K_M staged on the same sd.cpp engine (Apache-2.0). 🟡 weights pulled, pipeline wiring in flight.
+- **NPU (authoring lane)** — IRON + MLIR-AIE + Peano + libxrt proven end-to-end on our npu5 silicon. Axpy test matrix 160/160 PASSED on Arch today. 🟢 toolchain unlocked; ternary kernel authorship is the remaining work.
+
+five lanes live plus the NPU toolchain. one `1bit install all` pulls the lot on a fresh CachyOS box.
+
+```sh
+1bit install all
+```
+
+<sub><em>"Where we're going, we don't need racks."</em></sub>
+
+and still — **pre-launch.** no Reddit, no HN, no press. the [ship-gate](./docs/wiki/NPU-Unlock-20260423.md) stays closed until a real model decodes end-to-end on the NPU through our own authored kernel path — Llama-3.2-1B is the reference smoke test, BitNet-1.58 on NPU is the demo that trips the gate. today we proved the toolchain; the kernel is next.
+
+<sub><em>"We'll be back."</em></sub>
 
 ## numbers that matter
 
@@ -78,9 +103,11 @@ raw methodology: [benchmarks wiki](./docs/wiki/Benchmarks.md) · [peak projectio
 │  rocm-cpp (HIP kernels, gfx1151, zero hipBLAS)           │
 │  ternary GEMV · RMSNorm · RoPE · split-KV FD attention   │
 ├──────────────────────────────────────────────────────────┤
-│  whisper.cpp (STT) · kokoro (TTS) · sd.cpp (image)       │
+│  whisper.cpp (STT) · 1bit-tts.cpp / Qwen3 (TTS)          │
+│  sd.cpp (image + Wan 2.2 video staged)                   │
 ├──────────────────────────────────────────────────────────┤
 │  ROCm 7.13 · gfx1151 · wave32 WMMA                       │
+│  IRON + MLIR-AIE + Peano + libxrt → XDNA2 (npu5, AIE2P)  │
 ├──────────────────────────────────────────────────────────┤
 │  CachyOS · systemd · btrfs                               │
 └──────────────────────────────────────────────────────────┘
@@ -234,7 +261,7 @@ full RAG, multi-conversation, document chat, and MCP tools — Linux/macOS/Windo
 
 - **near-term** — Sherry 1.25-bit weight packing (bytes-read reduction), BitNet v2 Hadamard activation quant (W1.58A4), Medusa speculative decoding heads. see [BitNet v2 Hadamard plan](./docs/wiki/BitNet-v2-Hadamard-Plan.md), [Medusa integration plan](./docs/wiki/Medusa-Integration-Plan.md), [Sherry default decision](./docs/wiki/Sherry-Default-Decision.md).
 - **medium** — voice loop end-to-end (whisper.cpp STT streaming + Kokoro TTS), full sd.cpp image-gen wiring, `1bit-helm` as the first-class desktop client.
-- **longer** — XDNA 2 NPU lane via ORT C++ + VitisAI EP for prefill. see [why no NPU yet](./docs/wiki/Why-No-NPU-Yet.md) and [NPU kernel design](./docs/wiki/NPU-Kernel-Design.md) for the current state of the Linux NPU stack.
+- **longer** — XDNA 2 NPU lane. toolchain unlocked 2026-04-23 via IRON + MLIR-AIE + Peano + libxrt on our npu5 silicon (axpy 160/160 passed). writeup: [NPU unlock 2026-04-23](./docs/wiki/NPU-Unlock-20260423.md). remaining work = authoring a `bitnet_gemm` MLIR-AIE operator to ship BitNet-1.58 on Ryzen AI NPU Linux; that demo trips the public-launch ship-gate. see also [why no NPU yet](./docs/wiki/Why-No-NPU-Yet.md) and [NPU kernel design](./docs/wiki/NPU-Kernel-Design.md) for the prior ORT / VitisAI evaluation.
 - **distribution (post-launch)** — three install lanes: source build (canonical), **AppImage** (single-file, system-ROCm required), and **Flatpak** on Flathub (sandboxed). model weights download-on-first-run, cached under `.halo/models/`.
 
 ## docs
@@ -276,7 +303,7 @@ MIT. see [LICENSE](./LICENSE). ternary model weights follow their own upstream l
 
 <div align="center">
 
-**website:** [**1bit.systems**](https://1bit.systems) · **status:** pre-public launch; private until the XDNA 2 NPU lane lands. we'll be back. · **handle:** [@bong-water-water-bong](https://github.com/bong-water-water-bong)
+**website:** [**1bit.systems**](https://1bit.systems) · **status:** pre-public launch; five lanes live + NPU toolchain proven 2026-04-23, public launch still gated on BitNet-on-NPU demo. we'll be back. · **handle:** [@bong-water-water-bong](https://github.com/bong-water-water-bong)
 
 *"the 1-bit monster is already here. it just had to learn to count."* — **stamped by the architect**
 

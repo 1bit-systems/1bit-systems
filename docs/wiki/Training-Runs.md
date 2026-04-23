@@ -2,6 +2,12 @@
 
 Status of the active Sparse-BitNet retrain and the next run queued up behind it. Source of truth: `~/.claude/projects/-home-bcloud/memory/project_sparse_bitnet_run.md`, `project_run5_bitnet_2_4.md`, `reference_runpod_h200_nvl.md`.
 
+## Run 5 in flight, Run 6 next (2026-04-23)
+
+Run 5 (2:4 Microsoft-canonical Sparse-BitNet on Qwen-0.5B) is queued behind Run 4 and launches on **2× H200 NVL DDP** the moment Run 4 clears the pod — `accelerate launch --num_processes=2 --multi_gpu ...`, ~90 k tok/s aggregate, ~31 h wall-clock, ~$210 at $3.39/hr/GPU. DDP is the only shape that makes sense: single-GPU on NVL is identical silicon to SXM and the NVLink fabric is there to be used when we've got two cards in the pod.
+
+**Run 6 is the pivot to ternary TTS.** Qwen3-TTS 0.6B Base, QAT'd to 1.58-bit, trained on the same H200 NVL ×2 rig. The [2026-04-23 research digest](../research-digest-20260423.md) is why: one academic paper (BitTTS, no code), one closed commercial demo (EZWhisper), and nothing else in sub-2-bit speech-synth land. Shipping a runnable ternary TTS at 0.6B would be the first public weights in that lane on any hardware. Recipe stub + GGUF tq2_0 slot are already in `packages.toml` (`model.qwen3-tts-0p6b-ternary`) — trainer work kicks off the moment Run 5 clears shadow-burnin.
+
 ## Run 4 — 3:4 Sparse-BitNet @ 0.5B (live)
 
 | attribute | value |
