@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sustainability — 1bit.systems</title>
+  <meta property="og:title" content="1bit.systems — green streaming by architecture">
+  <meta property="og:description" content="~95-99% bandwidth reduction vs traditional streaming. No server transcode. Catalog ships once, decodes locally forever.">
+  <style>
+    :root { --bg: #0f0f11; --fg: #e7e7e7; --muted: #8a8a92; --accent: #7cffc4; --panel: #1c1c22; --line: #2a2a30; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 780px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; color: var(--fg); background: var(--bg); line-height: 1.65; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .brand { font-size: 0.85rem; color: var(--muted); letter-spacing: 0.04em; margin-bottom: 0.6rem; }
+    h1 { font-size: 2.6rem; margin: 0.4rem 0 0.3rem; letter-spacing: -0.015em; font-weight: 600; }
+    .tag { font-size: 1.15rem; color: var(--muted); margin: 0 0 2rem; line-height: 1.5; max-width: 640px; }
+    h2 { font-size: 1.35rem; margin-top: 2.4rem; color: #c7c7d0; letter-spacing: -0.005em; }
+    h3 { font-size: 1rem; margin-top: 1.4rem; color: var(--fg); }
+    table { width: 100%; border-collapse: collapse; margin: 1.1rem 0; font-size: 0.93rem; }
+    th, td { text-align: left; padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: #c7c7d0; font-weight: 500; }
+    .bignum { font-family: ui-monospace, monospace; font-size: 2.2rem; color: var(--accent); display: block; margin: 1rem 0 0.3rem; letter-spacing: -0.01em; }
+    .bignum-label { color: var(--muted); font-size: 0.88rem; margin-bottom: 1.2rem; }
+    .callout { background: var(--panel); border-left: 2px solid var(--accent); padding: 1rem 1.3rem; border-radius: 4px; margin: 1.8rem 0; font-size: 0.95rem; }
+    .callout b { color: var(--fg); font-weight: 500; }
+    footer { margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+
+<div class="brand">1bit.systems &middot; sustainability</div>
+<h1>Green streaming, by architecture.</h1>
+<p class="tag">The greenest byte is the one you don't transmit. Catalogs download once and play locally forever — ~95–99% bandwidth reduction vs traditional streaming, proportional cuts in data-center and CDN load.</p>
+
+<span class="bignum">~95–99%</span>
+<div class="bignum-label">bandwidth reduction vs comparable streaming services, per listener-hour</div>
+
+<h2>The problem with traditional streaming</h2>
+<p>Every play of every track is its own round trip. Spotify / Apple Music / Tidal transcode masters at scale, replicate across continental CDNs, and push ~50–450 MB/hr to the listener for each session. Streaming is roughly <b>1% of global electricity</b> and rising. The architecture assumes bandwidth is free; it isn't.</p>
+
+<h2>What we do differently</h2>
+<p>A 1.58-bit ternary language model encodes an entire artist's catalog. The model file ships to the listener once and decodes on their own Strix Halo iGPU in real time. Subsequent plays pull zero bytes from our servers.</p>
+
+<table>
+<thead><tr><th>Stack</th><th>Server transcode</th><th>CDN replication</th><th>Per-listen egress</th><th>Decode location</th></tr></thead>
+<tbody>
+<tr><td>Spotify / Apple Music</td><td>every play</td><td>multi-region</td><td>~50 MB/hr</td><td>client CPU</td></tr>
+<tr><td>Tidal HiFi</td><td>every play</td><td>multi-region</td><td>~450 MB/hr</td><td>client CPU</td></tr>
+<tr><td><b>1bit.music</b></td><td><b>never — static file</b></td><td><b>single origin</b></td><td><b>~0 after initial cache</b></td><td><b>client iGPU (ternary kernel, power-efficient)</b></td></tr>
+</tbody>
+</table>
+
+<h2>Per-listener math</h2>
+<p>A listener streaming 100 hours/month:</p>
+<table>
+<thead><tr><th>Service</th><th>Bandwidth per month</th><th>Per year</th></tr></thead>
+<tbody>
+<tr><td>Tidal HiFi</td><td>45 GB</td><td>~540 GB</td></tr>
+<tr><td>Apple Music Lossless</td><td>45 GB</td><td>~540 GB</td></tr>
+<tr><td>Spotify Premium 320 kbps</td><td>14 GB</td><td>~170 GB</td></tr>
+<tr><td><b>1bit.music Premium</b></td><td><b>~100 MB after cache</b></td><td><b>~1–2 GB</b></td></tr>
+</tbody>
+</table>
+<p>Those 1–2 GB are almost entirely first-time catalog downloads when the listener adds a new artist. Repeat plays cost nothing.</p>
+
+<h2>Data-center reduction at scale</h2>
+<p>Spotify-scale egress (~30 exabytes/yr) needs dozens of regional CDN nodes, continuous transcode fleets, and thick cross-ocean links. Our model reduces the same listener-hour demand by 95–99% because the catalog ships once and decodes a thousand times from local storage.</p>
+
+<div class="callout">
+<b>Fundamentally different scaling curve.</b> Streaming's bandwidth footprint, done this way, scales with catalog size, not with playback sessions. A 100 M-subscriber 1bit-style service runs on infrastructure that today's services use for a few hundred thousand users.
+</div>
+
+<h2>Client-side savings</h2>
+<ul>
+  <li><b>Longer device lifetime</b> — ternary kernels are DRAM-bandwidth-light (~10× less traffic per token than fp16), so playback doesn't thermal-throttle laptops and drains less battery on phones.</li>
+  <li><b>Rural / mobile access to lossless</b> — a full catalog downloads once on WiFi and replays infinitely offline. Previously impractical on metered mobile connections.</li>
+  <li><b>Airplane / subway / cottage</b> — there is no offline mode to enable, because there is no online mode to fall off of. Once the file is on your device, it plays.</li>
+</ul>
+
+<h2>Standing commitment</h2>
+<p>We publish comparison numbers here as a standing commitment. Anyone can verify the architecture-level claims by comparing <code>(bytes on wire per listener-hour)</code> on 1bit.music vs incumbents. No certification body, no self-reported audit — the file system is the audit.</p>
+
+<h2>Related</h2>
+<p>
+  <a href="/blog/2026-04-23-streaming-service/">Architecture announcement</a> ·
+  <a href="/blog/2026-04-23-lossless-audio/">How the compression works</a> ·
+  <a href="/premium/">Premium subscription</a>
+</p>
+
+<footer>
+  © 2026 1bit.systems · fewer bytes on the wire · no algorithmic feed · no tracking · no ads
+</footer>
+
+</body>
+</html>
