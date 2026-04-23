@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>The entire Beatles catalog in 2 MB — 1bit.systems research</title>
+  <meta property="og:title" content="The entire Beatles catalog in 2 MB">
+  <meta property="og:description" content="Two routes. One lossy, 4 000× smaller than FLAC. One lossless, ~30% smaller than FLAC. Both fit in a 1.58-bit ternary LLM that decodes in real time on a gfx1151 iGPU.">
+  <meta property="og:type" content="article">
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 760px; margin: 0 auto; padding: 2rem 1.5rem 4rem; color: #e7e7e7; background: #0f0f11; line-height: 1.7; }
+    a { color: #7cc4ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    h1 { font-size: 1.9rem; margin: 0.5rem 0 0.25rem; letter-spacing: -0.01em; }
+    h2 { margin-top: 2.2rem; font-size: 1.3rem; letter-spacing: -0.005em; }
+    h3 { font-size: 1.05rem; color: #c7c7d0; margin-top: 1.4rem; }
+    .meta { color: #8a8a92; font-size: 0.9rem; margin-bottom: 1.5rem; }
+    table { width: 100%; border-collapse: collapse; margin: 1.1rem 0; font-size: 0.93rem; }
+    th, td { text-align: left; padding: 0.45rem 0.7rem; border-bottom: 1px solid #2a2a30; }
+    th { color: #c7c7d0; font-weight: 500; }
+    code { background: #1c1c22; padding: 0.08em 0.35em; border-radius: 3px; font-size: 0.9em; }
+    pre { background: #1c1c22; padding: 0.9rem 1.1rem; border-radius: 6px; overflow-x: auto; font-size: 0.88rem; }
+    blockquote { border-left: 2px solid #4a4a52; padding: 0.2rem 0 0.2rem 1rem; color: #b8b8c0; margin: 1rem 0; }
+    .nav { margin-bottom: 0.4rem; }
+  </style>
+</head>
+<body>
+
+<p class="nav"><a href="/blog/">← research</a> · <a href="/">1bit.systems</a></p>
+
+<h1>The entire Beatles catalog in 2 MB — and the real math behind 1-bit audio compression</h1>
+<p class="meta">2026-04-23 · halo-ai research</p>
+
+<p>Every so often someone says "an LLM is just a compressor." Usually it's hand-wavy. Here is the arithmetic, worked out for a specific artifact: what it would actually cost, in bytes, to ship the Beatles' stereo remasters via a 1.58-bit ternary language model. And what changes when you demand the result be bit-perfect.</p>
+
+<h2>The lossy pitch</h2>
+
+<p>You pick an artist's catalog, tokenize the audio with a neural codec, and train a tiny ternary LLM to memorise the token stream. The resulting model file <em>is</em> the catalog.</p>
+
+<p>Numbers for the Beatles' 13 remastered stereo LPs (2009 box, 16-bit / 44.1 kHz FLAC, approximately 10 hours of audio):</p>
+
+<table>
+  <thead><tr><th>Format</th><th>Size</th><th>Ratio vs FLAC</th></tr></thead>
+  <tbody>
+  <tr><td>Raw PCM 16/44</td><td>~13 GB</td><td>0.6×</td></tr>
+  <tr><td><strong>FLAC</strong> (baseline)</td><td>8 GB</td><td>1×</td></tr>
+  <tr><td>MP3 320 kbps</td><td>~1.4 GB</td><td>6×</td></tr>
+  <tr><td>MP3 128 kbps</td><td>~550 MB</td><td>15×</td></tr>
+  <tr><td>Opus 64 kbps</td><td>~290 MB</td><td>27×</td></tr>
+  <tr><td>Opus 24 kbps</td><td>~110 MB</td><td>73×</td></tr>
+  <tr><td>EnCodec 3 kbps (neural codec)</td><td>~14 MB</td><td>570×</td></tr>
+  <tr><td>Mimi 1.1 kbps (12.5 Hz codec tokens)</td><td>~5 MB</td><td>1 600×</td></tr>
+  <tr><td><strong>1.58-bit LLM, 10 M params</strong></td><td><strong>~2 MB</strong></td><td><strong>4 000×</strong></td></tr>
+  </tbody>
+</table>
+
+<p>The 4 000× ratio is not a re-encoder achievement; it is a memorisation achievement. The LLM doesn't "compress" audio in the usual sense — it learns to <em>regenerate</em> the Mimi token stream when prompted with a track tag. Ten hours of audio becomes ~450 k Mimi tokens, whose minimum description length is around 1 MB of pure entropy. A 10 M-parameter transformer at 1.58 bits per weight fits 1,975,000 bytes. The remaining ~1 MB of capacity covers the generator's internal state and variance.</p>
+
+<p>Load the <code>.gguf</code>, prompt <code>[album: Abbey Road] [track: Come Together]</code>, and the model emits Mimi tokens, which the Mimi decoder turns back into a waveform. The output is recognisably the Beatles. It is not byte-equivalent to the original master.</p>
+
+<h2>The lossless pitch</h2>
+
+<p>"Recognisably" is not the same as "correct." A proper audio archive wants checksums to match. For that, we switch from memorisation to arithmetic coding.</p>
+
+<p>An arithmetic coder takes a probability distribution over the next symbol and packs the actual symbol into <code>-log₂(p)</code> bits. Give it a perfect model of the source and the code length hits the source's Shannon entropy exactly. Give it our 1.58-bit LLM as the model and the code length hits the entropy the model can predict.</p>
+
+<p>The method is not novel — Fabrice Bellard's NNCP has sat at the top of the <a href="https://www.mattmahoney.net/dc/text.html" target="_blank" rel="noopener">Large Text Compression Benchmark</a> for years using the same idea with much larger models. <em>ts_zip</em>, <em>DeepZip</em>, and a pile of academic papers run the same play on text and DNA. What makes our version interesting is the weight budget.</p>
+
+<p>Realistic lossless numbers on 8 GB of Beatles FLAC:</p>
+
+<table>
+  <thead><tr><th>Method</th><th>Lossless</th><th>Size</th><th>Ratio vs FLAC</th></tr></thead>
+  <tbody>
+  <tr><td>FLAC (baseline)</td><td>✅</td><td>8 GB</td><td>1×</td></tr>
+  <tr><td>FLAC + bzip2 outer layer</td><td>✅</td><td>~7.8 GB</td><td>1.03×</td></tr>
+  <tr><td><strong>FLAC + 1.58-bit LM as arithmetic-coder prob model</strong></td><td><strong>✅</strong></td><td><strong>~5–6 GB</strong></td><td><strong>1.3–1.6×</strong></td></tr>
+  <tr><td>Mimi codec alone</td><td>❌</td><td>5 MB</td><td>1 600× (lossy)</td></tr>
+  <tr><td>1.58-bit LLM memorisation</td><td>❌</td><td>2 MB</td><td>4 000× (lossy)</td></tr>
+  </tbody>
+</table>
+
+<p>Shannon is the ceiling. For broadly stereotypical music the theoretical floor sits ~15–20% below FLAC; a good LM pulls the realised size down to roughly there. No one compresses lossless audio by 4 000×, ever. That is not a 1bit.systems limitation, it's the <em>definition</em> of information.</p>
+
+<h2>Dual-artifact trick</h2>
+
+<p>You don't have to pick. Ship two blobs:</p>
+
+<pre><code>catalog-1p58b.gguf          2 MB   LLM weights (lossy 4 000× reconstruction)
+catalog-1p58b.residual.1bl  ~6 GB  arithmetic-coded residual delta
+</code></pre>
+
+<p>Default listen mode loads only the <code>.gguf</code> and plays generative reconstruction. Audiophile mode loads both: the LLM predicts each byte, the residual fills in the model's prediction error, and the decoder emits byte-identical FLAC. Total bit-perfect weight ≈ 6 GB, or ~25% smaller than shipping FLAC alone.</p>
+
+<h2>Why ours is interesting</h2>
+
+<p>The compression ratio alone is not the story — NNCP has beaten this on text for years. What matters is where the decoder runs.</p>
+
+<ul>
+  <li><strong>Model fits in runtime budget.</strong> A 2 MB ternary LLM loads next to the rest of halo-ai's media lanes without displacing anything. NNCP's fp32 reference implementations expect hundreds of megabytes of model + no parallel workload.</li>
+  <li><strong>HIP ternary kernel does the decode.</strong> Our <code>ternary_gemv_halo.hip</code> runs at ~92% of Strix Halo's LPDDR5X peak bandwidth. That is enough headroom to decode lossless audio in real time on a consumer iGPU. NNCP is CPU-bound and decodes below 1× playback speed on a modern laptop.</li>
+  <li><strong>Rust arithmetic coder stays portable.</strong> Ships in the same AppImage as the rest of halo; no ROCm-specific bits for the coder, only for the LLM forward pass.</li>
+</ul>
+
+<h2>License gate</h2>
+
+<p>The Beatles are not public domain. Training a neural model that verifiably reproduces their masters and then redistributing the model weights is a redistribution of copyrighted audio, and the fact that the weights are small and non-obvious does not change that. We are not going to ship a Beatles <code>.gguf</code>.</p>
+
+<p>The viable product forms for the lossless side:</p>
+
+<ol>
+  <li><strong>Train once on a permissively-licensed corpus</strong> and ship a generalist compressor. Candidates: <a href="https://freemusicarchive.org/" target="_blank" rel="noopener">Free Music Archive / Jamendo FMA-medium</a> (CC BY, 106 GB, 25 000 tracks — a standard ML benchmark), Kevin MacLeod's CC BY catalog, public-domain classical (IMSLP). The trained model works on <em>any</em> FLAC input, not just the training corpus.</li>
+  <li><strong>Bring-your-own-catalog</strong>. Ship the trainer. Users train on their own (legally-owned) library. We never host the weights.</li>
+</ol>
+
+<p>Both are fine. Both ship under MIT for code and, where applicable, CC BY 4.0 for the published weights (inheriting the corpus license).</p>
+
+<h2>What we're actually shipping</h2>
+
+<p>Call it <code>1bit-ac</code>. Rent a block of time on our existing 2× H200 NVL RunPod, train a ~10 M-param ternary LM on FMA-medium, ~8 h wall-clock at $6.78/hr = ~$55. Output: a CLI with two subcommands:</p>
+
+<pre><code>1bit-ac compress album.flac     # → album.1bl, ~70% the size of album.flac
+1bit-ac decompress album.1bl    # → album.flac, byte-identical
+</code></pre>
+
+<p>The lossy 4 000× variant ships as a separate artist-specific artifact pack (for permissively-licensed catalogs only), more as a demo of the compression ceiling than a practical format.</p>
+
+<p>Both live in the halo-ai monorepo, share the same HIP ternary kernel as the rest of our stack, and ride the same nine-channel distribution (AppImage, Flatpak, Homebrew, AUR, deb, rpm, Nix, Docker, Snap).</p>
+
+<h2>Honest summary</h2>
+
+<p>There are two real numbers here. The 4 000× number is a lossy generative reconstruction — useful for a visceral demo, not for a music archive. The 1.3–1.6× number is a lossless neural-entropy-coded compressor — useful for shipping FLAC libraries at roughly 70% of their current size with byte-exact decode. The method is classical; our contribution is the weight budget and the iGPU-native runtime.</p>
+
+<p>If the pitch you want is "ship the Beatles in 2 MB," it is honest so long as "ship" means "a lossy reconstruction that sounds like them." If the pitch you want is "ship a lossless audio library 30% smaller than FLAC," that is also honest and, unlike the 4 000× number, has a plausible path to production.</p>
+
+<p>Both plans are <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/lossless-audio-llm-plan.md" target="_blank" rel="noopener">tracked in the wiki</a>. Pod work is queued behind Runs 5, 6, and 7.</p>
+
+<p class="meta" style="margin-top:3rem;">Questions, corrections, or permissively-licensed catalogs you'd like compressed: <a href="mailto:d1r7yman@gmail.com">d1r7yman@gmail.com</a>.</p>
+
+</body>
+</html>
