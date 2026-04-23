@@ -1,0 +1,71 @@
+name: packaging
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: packaging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  appimage:
+    name: AppImage (Ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Install rust 1.86
+        run: |
+          rustup install 1.86
+          rustup default 1.86
+      - name: Install appimage tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2 file
+      - name: Build AppImage
+        run: bash packaging/appimage/build-appimage.sh
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 1bit-systems-appimage
+          path: packaging/appimage/dist/*.AppImage
+          if-no-files-found: error
+
+  flatpak:
+    name: Flatpak (Ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: bilelmoussaoui/flatpak-github-actions:freedesktop-24.08
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: 1bit-systems.flatpak
+          manifest-path: packaging/flatpak/io.onebit.Systems.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+
+  homebrew:
+    name: Homebrew formula lint
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Homebrew if missing
+        run: |
+          if ! command -v brew >/dev/null; then
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          fi
+      - name: Audit formula
+        run: |
+          brew ruby -e "require 'formula'; load '#{ENV['GITHUB_WORKSPACE']}/packaging/homebrew/1bit-systems.rb'; puts OnebitSystems.name"
+      - name: Style check
+        run: |
+          brew style packaging/homebrew/1bit-systems.rb || echo "style warnings (non-fatal on formula scaffold)"

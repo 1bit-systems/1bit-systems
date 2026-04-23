@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=1bit systems
+GenericName=Local AI inference
+Comment=Local AI inference on Strix Halo — LLM, TTS, STT, image, video, NPU
+Icon=io.onebit.Systems
+Exec=1bit-helm
+Categories=Development;Science;
+Keywords=AI;LLM;BitNet;ROCm;Strix Halo;
+Terminal=false
+StartupWMClass=1bit-helm
+X-Flatpak-Tags=AI;LocalInference;

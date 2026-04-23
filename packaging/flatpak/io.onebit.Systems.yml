@@ -1,0 +1,75 @@
+# Flatpak manifest for 1bit-systems — local AI inference on Strix Halo.
+#
+# Rule A note: this ships only the user-facing Rust binaries (CLI + tray +
+# desktop). The GPU / NPU kernel libraries (librocm_cpp.so, xclbin blobs,
+# model weights) are host-side artifacts installed by `install.sh` and
+# `1bit install all`. Flatpak runs the ops UI inside a sandbox; the sandbox
+# is opened to /dev/dri + /dev/kfd + filesystem=host so the binaries can
+# still drive the host's ROCm / XRT stack without re-bundling them.
+#
+# Build (on a box with flatpak-builder):
+#   flatpak-builder --user --install --force-clean build-flatpak \
+#       packaging/flatpak/io.onebit.Systems.yml
+#   flatpak build-bundle ~/.local/share/flatpak/repo \
+#       dist/1bit-systems.flatpak io.onebit.Systems
+#
+# CI builds this via .github/workflows/flatpak.yml using the official
+# flatpak/flatpak-github-actions action; see that file for pin versions.
+
+id: io.onebit.Systems
+
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+
+command: 1bit
+
+finish-args:
+  # Serve HTTP + pull models from Hugging Face.
+  - --share=network
+  # Desktop + tray UI.
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # XDNA NPU.
+  - --device=all
+  # User data for models + caches. Flatpak's standard app-data dir.
+  - --filesystem=~/.local/share/1bit:rw
+  - --filesystem=~/.cache/huggingface:rw
+  - --filesystem=~/.config/1bit:rw
+  # Systemd user units live in the host config tree.
+  - --filesystem=~/.config/systemd/user:rw
+  - --talk-name=org.freedesktop.systemd1
+
+modules:
+  - name: 1bit-systems
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/1bit-systems/cargo
+        # Build only no-GPU-feature defaults; GPU features are host-side.
+        RUSTFLAGS: -C target-feature=+crt-static
+    build-commands:
+      - cargo build --release --workspace
+      - install -Dm755 target/release/1bit                 /app/bin/1bit
+      - install -Dm755 target/release/1bit-power            /app/bin/1bit-power
+      - install -Dm755 target/release/1bit-watchdog         /app/bin/1bit-watchdog
+      - install -Dm755 target/release/1bit-helm             /app/bin/1bit-helm
+      - install -Dm755 target/release/1bit-echo             /app/bin/1bit-echo
+      - install -Dm755 target/release/1bit-voice            /app/bin/1bit-voice
+      - install -Dm755 target/release/1bit-mcp              /app/bin/1bit-mcp
+      - install -Dm755 target/release/1bit-halo-helm-tray   /app/bin/1bit-halo-helm-tray
+      - install -Dm644 packaging/flatpak/io.onebit.Systems.desktop
+          /app/share/applications/io.onebit.Systems.desktop
+      - install -Dm644 packaging/appimage/1bit-systems.AppDir/1bit-systems.png
+          /app/share/icons/hicolor/256x256/apps/io.onebit.Systems.png
+      - install -Dm644 packaging/flatpak/io.onebit.Systems.metainfo.xml
+          /app/share/metainfo/io.onebit.Systems.metainfo.xml
+    sources:
+      - type: dir
+        path: ../..
