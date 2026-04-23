@@ -34,9 +34,13 @@ use onebit_agents::{Name, Registry};
 use serde_json::json;
 use serenity::Client;
 use serenity::all::{
-    AutoArchiveDuration, ChannelType, Context, CreateForumPost, CreateMessage, CreateThread,
-    EventHandler, ForumTag, ForumTagId, GatewayIntents, Http, Message, Ready,
+    AutoArchiveDuration, ButtonStyle, ChannelType, Context, CreateActionRow, CreateButton,
+    CreateCommand, CreateCommandOption, CreateForumPost, CreateInteractionResponse,
+    CreateInteractionResponseMessage, CreateMessage, CreateThread, EditThread, EventHandler,
+    ForumTag, ForumTagId, GatewayIntents, GuildId, Http, Interaction, Member, Message, Ready,
+    RoleId,
 };
+use serenity::all::CommandOptionType;
 use serenity::async_trait;
 use std::collections::HashMap;
 use tokio::sync::OnceCell;
@@ -73,6 +77,11 @@ struct Handler {
     /// Populated the first time `route_to_help_desk` runs and reused
     /// across subsequent routes.
     help_desk_meta: OnceCell<HelpDeskMeta>,
+    /// Guild the slash commands register under. None → global
+    /// registration (Discord caches these for ~1h before propagating).
+    guild_id: Option<GuildId>,
+    /// Role auto-granted on `guild_member_add`. None disables auto-role.
+    member_role_id: Option<RoleId>,
 }
 
 /// Snapshot of the help-desk channel's shape.
@@ -116,16 +125,92 @@ impl HelpDeskMeta {
         }
         out
     }
+
+    /// Build the replacement tag list when swapping `pending` → a
+    /// terminal state (`resolved` or `escalated`). Keeps any existing
+    /// classification tags (bug / feature / question) in place — only
+    /// the state tag is swapped. Called from slash-command + button
+    /// handlers. Existing applied tags come from the post's current
+    /// state at the call site.
+    fn swap_state_tag(
+        &self,
+        current_tags: &[ForumTagId],
+        target_state: &str,
+    ) -> Vec<ForumTagId> {
+        let transient: std::collections::HashSet<ForumTagId> = ["pending", "resolved", "escalated"]
+            .iter()
+            .filter_map(|n| self.tags_by_name.get(*n).copied())
+            .collect();
+        let mut out: Vec<ForumTagId> = current_tags
+            .iter()
+            .copied()
+            .filter(|t| !transient.contains(t))
+            .collect();
+        if let Some(id) = self.tags_by_name.get(target_state) {
+            out.push(*id);
+        }
+        out
+    }
 }
 
 #[async_trait]
 impl EventHandler for Handler {
-    async fn ready(&self, _ctx: Context, ready: Ready) {
+    async fn ready(&self, ctx: Context, ready: Ready) {
         info!(
             bot = %ready.user.name,
             channels = self.channels.len(),
             "1bit-watch-discord connected"
         );
+
+        // Slash-command registration. Guild-scoped is instant; global
+        // takes up to an hour to propagate. Prefer HALO_GUILD_ID for
+        // iteration.
+        let commands = vec![
+            CreateCommand::new("status")
+                .description("Show halo + landing health + specialist count"),
+            CreateCommand::new("ask")
+                .description("Dispatch a question to the specialist registry")
+                .add_option(
+                    CreateCommandOption::new(
+                        CommandOptionType::String,
+                        "question",
+                        "What do you want to ask?",
+                    )
+                    .required(true),
+                ),
+            CreateCommand::new("resolve")
+                .description("Mark the current help-desk post resolved"),
+            CreateCommand::new("escalate")
+                .description("Mark the current help-desk post escalated for a human"),
+        ];
+
+        let register = if let Some(gid) = self.guild_id {
+            gid.set_commands(&ctx.http, commands.clone()).await.map(|_| "guild")
+        } else {
+            serenity::all::Command::set_global_commands(&ctx.http, commands.clone())
+                .await
+                .map(|_| "global")
+        };
+        match register {
+            Ok(scope) => info!(
+                scope,
+                count = commands.len(),
+                "registered slash commands"
+            ),
+            Err(e) => warn!(error = %e, "failed to register slash commands"),
+        }
+    }
+
+    async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
+        match interaction {
+            Interaction::Command(cmd) => self.handle_slash_command(&ctx, cmd).await,
+            Interaction::Component(btn) => self.handle_button(&ctx, btn).await,
+            _ => {}
+        }
+    }
+
+    async fn guild_member_addition(&self, ctx: Context, new_member: Member) {
+        self.handle_member_join(&ctx, new_member).await;
     }
 
     async fn message(&self, ctx: Context, msg: Message) {
@@ -379,15 +464,34 @@ impl Handler {
             .await;
 
         if meta.is_forum {
-            // Forum path: one post, one starter message, classification tag.
+            // Forum path: one post, one starter message, classification tag,
+            // plus a button row so the asker / mods can close the loop
+            // without typing a command.
             let starter = format!("{header}\n\n{quote_block}\n\n{body_reply}");
             let starter = truncate_for_forum_starter(&starter);
             let tags = meta.tags_for(class);
             let tag_count = tags.len();
 
+            let action_row = CreateActionRow::Buttons(vec![
+                CreateButton::new("hd_resolve")
+                    .label("Resolved")
+                    .emoji('✅')
+                    .style(ButtonStyle::Success),
+                CreateButton::new("hd_escalate")
+                    .label("Escalate")
+                    .emoji('⬆')
+                    .style(ButtonStyle::Danger),
+                CreateButton::new(format!("hd_reroll:{}", msg.id.get()))
+                    .label("Re-ask")
+                    .emoji('🔁')
+                    .style(ButtonStyle::Secondary),
+            ]);
+
             let post_builder = CreateForumPost::new(
                 thread_name.clone(),
-                CreateMessage::new().content(starter),
+                CreateMessage::new()
+                    .content(starter)
+                    .components(vec![action_row]),
             )
             .auto_archive_duration(AutoArchiveDuration::OneWeek)
             .set_applied_tags(tags);
@@ -506,6 +610,314 @@ impl Handler {
             metrics_tag,
             Name::ALL.len()
         )
+    }
+
+    /// Dispatch slash commands. All responses are ephemeral (only the
+    /// invoking user sees them) to keep the channel quiet; public work
+    /// like `/resolve` tagging is visible through the tag swap itself.
+    async fn handle_slash_command(
+        &self,
+        ctx: &Context,
+        cmd: serenity::all::CommandInteraction,
+    ) {
+        let name = cmd.data.name.as_str();
+        info!(command = name, user = %cmd.user.name, "slash command invoked");
+
+        match name {
+            "status" => {
+                let line = self.status_line().await;
+                ephemeral(ctx, &cmd, &line).await;
+            }
+            "ask" => {
+                let question = cmd
+                    .data
+                    .options
+                    .iter()
+                    .find(|o| o.name == "question")
+                    .and_then(|o| o.value.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                if question.is_empty() {
+                    ephemeral(ctx, &cmd, "Give me something to ask — `/ask question:<text>`").await;
+                    return;
+                }
+                let class = classify(&question);
+                let specialist = class.specialist();
+                let req = serde_json::json!({
+                    "source": "discord-slash",
+                    "channel_id": cmd.channel_id.get(),
+                    "author": cmd.user.name,
+                    "classification": class.as_str(),
+                    "content": question,
+                });
+                // Defer so Discord doesn't time out the 3s ack window.
+                let defer = cmd
+                    .create_response(
+                        &ctx.http,
+                        CreateInteractionResponse::Defer(
+                            CreateInteractionResponseMessage::new().ephemeral(true),
+                        ),
+                    )
+                    .await;
+                if let Err(e) = defer {
+                    warn!(error = %e, "failed to defer /ask response");
+                    return;
+                }
+                let reply_text = match self.registry.dispatch(specialist.as_str(), req).await {
+                    Ok(resp) => resp
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    Err(e) => {
+                        warn!(error = %e, "specialist dispatch failed (slash)");
+                        "Specialist dispatch failed — check server logs.".to_string()
+                    }
+                };
+                let clean = sanitize_reply(&unwrap_outer_codeblock(&reply_text));
+                let final_text = if clean.trim().is_empty() {
+                    "Specialist came back empty — nothing to post.".to_string()
+                } else {
+                    clean
+                };
+                if let Err(e) = cmd
+                    .edit_response(
+                        &ctx.http,
+                        serenity::all::EditInteractionResponse::new().content(final_text),
+                    )
+                    .await
+                {
+                    warn!(error = %e, "failed to post /ask follow-up");
+                }
+            }
+            "resolve" => {
+                self.swap_post_state(ctx, &cmd, "resolved").await;
+            }
+            "escalate" => {
+                self.swap_post_state(ctx, &cmd, "escalated").await;
+            }
+            _ => {
+                ephemeral(ctx, &cmd, &format!("Unknown command: /{name}")).await;
+            }
+        }
+    }
+
+    /// Handle a button press on a help-desk forum post's action row.
+    /// Custom ids:
+    ///   * `hd_resolve`                  → swap state tag to resolved
+    ///   * `hd_escalate`                 → swap state tag to escalated
+    ///   * `hd_reroll:<original_msg_id>` → re-dispatch original message
+    async fn handle_button(
+        &self,
+        ctx: &Context,
+        btn: serenity::all::ComponentInteraction,
+    ) {
+        let id = btn.data.custom_id.clone();
+        info!(custom_id = %id, user = %btn.user.name, "button pressed");
+
+        if id == "hd_resolve" {
+            self.swap_post_state_component(ctx, &btn, "resolved").await;
+        } else if id == "hd_escalate" {
+            self.swap_post_state_component(ctx, &btn, "escalated").await;
+        } else if let Some(_orig_id) = id.strip_prefix("hd_reroll:") {
+            // Reroll kicks the original classification + question back
+            // through the specialist registry. We don't have the
+            // original Message object at hand here, only the id, so the
+            // v1 behaviour is: ack, post a note, and let a human drag
+            // the asker back to the origin. A later pass can fetch the
+            // original via http::get_message and re-dispatch fully.
+            let _ = btn
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content(
+                                "Reroll queued. Full re-dispatch from this button is a \
+                                 follow-up — for now ping the asker to repost or use \
+                                 `/ask <question>` yourself.",
+                            )
+                            .ephemeral(true),
+                    ),
+                )
+                .await;
+        } else {
+            let _ = btn
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content(format!("Unknown button: {id}"))
+                            .ephemeral(true),
+                    ),
+                )
+                .await;
+        }
+    }
+
+    /// Flip the help-desk post's state tag (resolved / escalated) via a
+    /// slash command. No-ops (with an ephemeral reply) when invoked
+    /// outside a forum thread whose parent is the configured help-desk.
+    async fn swap_post_state(
+        &self,
+        ctx: &Context,
+        cmd: &serenity::all::CommandInteraction,
+        target_state: &str,
+    ) {
+        let Some(meta) = self.help_desk_meta.get() else {
+            ephemeral(ctx, cmd, "Help-desk metadata not resolved yet — route one message first.").await;
+            return;
+        };
+        if !meta.is_forum {
+            ephemeral(
+                ctx,
+                cmd,
+                "Help-desk isn't a forum — tag swaps only work in forum channels.",
+            )
+            .await;
+            return;
+        }
+        match self.swap_tag_on_channel(ctx, cmd.channel_id.get(), meta, target_state).await {
+            Ok(()) => {
+                ephemeral(ctx, cmd, &format!("✓ marked {target_state}")).await;
+            }
+            Err(e) => {
+                ephemeral(ctx, cmd, &format!("Failed: {e}")).await;
+            }
+        }
+    }
+
+    /// Same as swap_post_state but driven by a button press.
+    async fn swap_post_state_component(
+        &self,
+        ctx: &Context,
+        btn: &serenity::all::ComponentInteraction,
+        target_state: &str,
+    ) {
+        let Some(meta) = self.help_desk_meta.get() else {
+            let _ = btn
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content("Help-desk metadata not resolved yet.")
+                            .ephemeral(true),
+                    ),
+                )
+                .await;
+            return;
+        };
+        if !meta.is_forum {
+            let _ = btn
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content("Help-desk isn't a forum — tag swaps disabled.")
+                            .ephemeral(true),
+                    ),
+                )
+                .await;
+            return;
+        }
+        match self.swap_tag_on_channel(ctx, btn.channel_id.get(), meta, target_state).await {
+            Ok(()) => {
+                let _ = btn
+                    .create_response(
+                        &ctx.http,
+                        CreateInteractionResponse::Message(
+                            CreateInteractionResponseMessage::new()
+                                .content(format!("✓ marked {target_state}"))
+                                .ephemeral(true),
+                        ),
+                    )
+                    .await;
+            }
+            Err(e) => {
+                let _ = btn
+                    .create_response(
+                        &ctx.http,
+                        CreateInteractionResponse::Message(
+                            CreateInteractionResponseMessage::new()
+                                .content(format!("Failed: {e}"))
+                                .ephemeral(true),
+                        ),
+                    )
+                    .await;
+            }
+        }
+    }
+
+    /// Core tag swap: fetch the forum post's current tags, filter out
+    /// the transient state tags, push the target state tag if defined,
+    /// and apply via EditThread.
+    async fn swap_tag_on_channel(
+        &self,
+        ctx: &Context,
+        channel_id: u64,
+        meta: &HelpDeskMeta,
+        target_state: &str,
+    ) -> Result<()> {
+        let ch = serenity::all::ChannelId::new(channel_id);
+        let current = match ch.to_channel(&ctx.http).await {
+            Ok(serenity::all::Channel::Guild(gc)) => gc,
+            _ => anyhow::bail!("not a guild channel"),
+        };
+        let new_tags = meta.swap_state_tag(&current.applied_tags, target_state);
+        ch.edit_thread(&ctx.http, EditThread::new().applied_tags(new_tags))
+            .await
+            .map_err(|e| anyhow::anyhow!("edit_thread failed: {e}"))?;
+        Ok(())
+    }
+
+    /// Guild-member-add hook: auto-grant the configured member role so
+    /// new joiners are "paired" on arrival. No-op when the role isn't
+    /// configured. Logs but doesn't re-raise failures — a missing role
+    /// shouldn't crash the gateway.
+    async fn handle_member_join(&self, ctx: &Context, member: Member) {
+        let Some(role_id) = self.member_role_id else {
+            return;
+        };
+        info!(
+            user = %member.user.name,
+            guild = %member.guild_id.get(),
+            role = %role_id.get(),
+            "auto-granting member role"
+        );
+        if let Err(e) = ctx
+            .http
+            .add_member_role(
+                member.guild_id,
+                member.user.id,
+                role_id,
+                Some("auto-pair on member join"),
+            )
+            .await
+        {
+            warn!(error = %e, "failed to grant member role");
+        }
+    }
+}
+
+/// Helper: send an ephemeral reply to a slash command. Ephemeral = only
+/// the invoking user sees it, no channel noise.
+async fn ephemeral(
+    ctx: &Context,
+    cmd: &serenity::all::CommandInteraction,
+    content: &str,
+) {
+    if let Err(e) = cmd
+        .create_response(
+            &ctx.http,
+            CreateInteractionResponse::Message(
+                CreateInteractionResponseMessage::new()
+                    .content(content)
+                    .ephemeral(true),
+            ),
+        )
+        .await
+    {
+        warn!(error = %e, "failed to send ephemeral response");
     }
 }
 
@@ -723,6 +1135,28 @@ async fn main() -> Result<()> {
 
     let registry = Arc::new(Registry::default_stubs());
 
+    // Guild id for slash-command registration. Without it we fall back to
+    // global registration (slower to propagate).
+    let guild_id: Option<GuildId> = std::env::var("HALO_GUILD_ID")
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .map(GuildId::new);
+    if let Some(gid) = guild_id {
+        info!(guild_id = %gid.get(), "slash commands will register guild-scoped");
+    } else {
+        info!("HALO_GUILD_ID unset — slash commands register globally (slow propagation)");
+    }
+
+    // Role auto-granted on guild_member_add. Empty/unset disables
+    // auto-role entirely.
+    let member_role_id: Option<RoleId> = std::env::var("HALO_MEMBER_ROLE_ID")
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .map(RoleId::new);
+    if let Some(rid) = member_role_id {
+        info!(role_id = %rid.get(), "auto-role on join enabled");
+    }
+
     let handler = Handler {
         registry,
         channels,
@@ -732,14 +1166,18 @@ async fn main() -> Result<()> {
         landing_url,
         help_desk_channel_id,
         help_desk_meta: OnceCell::new(),
+        guild_id,
+        member_role_id,
     };
 
-    // MESSAGE_CONTENT is a privileged intent — operator must enable it on
-    // the bot in the Discord developer portal. Without it we still see
-    // messages but content is empty and classification reduces to Chat.
+    // MESSAGE_CONTENT + GUILD_MEMBERS are privileged intents — operator
+    // must enable them on the bot in the Discord developer portal.
+    // Without MESSAGE_CONTENT classification reduces to Chat; without
+    // GUILD_MEMBERS the auto-role-on-join hook never fires.
     let intents = GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::DIRECT_MESSAGES
-        | GatewayIntents::MESSAGE_CONTENT;
+        | GatewayIntents::MESSAGE_CONTENT
+        | GatewayIntents::GUILD_MEMBERS;
 
     // Secondary gateway for echo — stateless HTTP wouldn't give echo an
     // "online" presence in the Discord member list. Spin a minimal

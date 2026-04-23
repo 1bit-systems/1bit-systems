@@ -12,9 +12,9 @@
 
 [guild]
 # 1bit.systems guild. Name is informational; only the id is load-bearing.
-# TODO: fill guild_id on next restore — run `1bit-helpdesk-setup` with the
-# help-desk channel id, the tool logs the parent guild in the ack line.
-id         = ""
+# When this is set, slash commands register guild-scoped (instant
+# propagation) instead of global (~1h).
+id         = "1488323665836642348"
 name       = "1bit.systems"
 vanity_url = "1bit.systems"
 
@@ -72,13 +72,36 @@ canonical = [
 [permissions]
 # Minimum Discord permission flags halo must have on the server for the
 # current feature set. Halo's role is installed with these, nothing more.
-#   MESSAGE_CONTENT      — read message bodies (privileged intent)
-#   MANAGE_CHANNELS      — edit forum tags + channel topic
-#   SEND_MESSAGES        — (echo only) post in channels
-#   CREATE_PUBLIC_THREADS— (echo only) legacy thread fallback
+#   MESSAGE_CONTENT       — read message bodies (privileged intent)
+#   GUILD_MEMBERS         — see member joins, for auto-role (privileged intent)
+#   MANAGE_CHANNELS       — edit forum tags + channel topic
+#   MANAGE_ROLES          — grant the auto-role on join
+#   USE_APPLICATION_COMMANDS — allow slash commands in the guild
+#   SEND_MESSAGES         — (echo only) post in channels
+#   CREATE_PUBLIC_THREADS — (echo only) legacy thread fallback
 #   SEND_MESSAGES_IN_THREADS — (echo only)
-halo_role = ["MANAGE_CHANNELS"]
+halo_role = ["MANAGE_CHANNELS", "MANAGE_ROLES", "USE_APPLICATION_COMMANDS"]
 echo_role = ["SEND_MESSAGES", "CREATE_PUBLIC_THREADS", "SEND_MESSAGES_IN_THREADS"]
+
+[slash_commands]
+# Registered on connect by 1bit-watch-discord. Guild-scoped when
+# `[guild].id` is set (instant propagation), otherwise global (~1h).
+# Keep this block in sync with the command list in
+# `crates/1bit-agents/bin/1bit-watch-discord.rs::EventHandler::ready`.
+commands = [
+    { name = "status",   desc = "Show halo + landing health + specialist count" },
+    { name = "ask",      desc = "Dispatch a question to the specialist registry" },
+    { name = "resolve",  desc = "Mark the current help-desk post resolved"  },
+    { name = "escalate", desc = "Mark the current help-desk post escalated" },
+]
+
+[auto_role]
+# Role id auto-granted when a new member joins the guild. Empty = off.
+# Requires GUILD_MEMBERS intent (privileged) + MANAGE_ROLES permission.
+# Tracked here so a future operator can see what "pairing" means on this
+# server without greping the source.
+member_role_id = ""
+reason         = "auto-pair on member join"
 
 [server_tag]
 # The "1BIT" server tag visible next to member names in chat. Requires

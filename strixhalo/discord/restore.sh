@@ -44,7 +44,14 @@ command -v 1bit-watch-discord >/dev/null \
 HELP_DESK_ID="$(awk -F'"' '/^help_desk[[:space:]]*=.*id[[:space:]]*=/ {print $2; exit}' "$CONFIG")"
 [[ -n "$HELP_DESK_ID" ]] || fatal "could not parse channels.help_desk.id from $CONFIG"
 
+# Optional: guild_id and member_role_id. Empty strings are fine — they
+# map to "global slash registration" and "auto-role disabled" respectively.
+GUILD_ID="$(awk -F'"' '/^id[[:space:]]*=/{if(!seen){print $2; seen=1}}' "$CONFIG")"
+MEMBER_ROLE_ID="$(awk -F'"' '/^member_role_id[[:space:]]*=/ {print $2; exit}' "$CONFIG")"
+
 info "help-desk channel id: $HELP_DESK_ID"
+info "guild id: ${GUILD_ID:-<unset>}"
+info "member role id: ${MEMBER_ROLE_ID:-<unset — auto-role disabled>}"
 
 # Load secrets into the current shell without echoing to terminal.
 set -a
@@ -67,6 +74,8 @@ Environment="DISCORD_BOT_TOKEN=$DISCORD_BOT_TOKEN"
 Environment="ECHO_BOT_TOKEN=$ECHO_BOT_TOKEN"
 Environment="HALO_DISCORD_CHANNELS="
 Environment="HALO_HELP_DESK_CHANNEL_ID=$HELP_DESK_ID"
+Environment="HALO_GUILD_ID=$GUILD_ID"
+Environment="HALO_MEMBER_ROLE_ID=$MEMBER_ROLE_ID"
 Environment="HALO_WIKI_DIR=$HOME/repos/1bit-halo-workspace/docs/wiki"
 EOF
 chmod 600 "$DROPIN"
