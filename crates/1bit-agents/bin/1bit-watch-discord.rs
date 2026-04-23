@@ -257,11 +257,25 @@ impl EventHandler for Handler {
             return;
         }
 
-        // Lightweight classification + dispatch. We do this even for
-        // mentioned messages so the specialist sees the context.
+        // Lightweight classification.
         let class = classify(&msg.content);
-        let specialist = class.specialist();
 
+        // Chat = silence. We don't dispatch, we don't post, we don't
+        // touch the message. Halo is here to triage real asks, not
+        // auto-respond to banter in #water-cooler. Bug / feature /
+        // question all route to the help-desk forum below.
+        if matches!(class, Classification::Chat) {
+            return;
+        }
+
+        // Skip messages that originated IN the help-desk — that's where
+        // follow-ups already live, no point re-routing them to
+        // themselves.
+        if self.help_desk_channel_id == Some(channel_id) {
+            return;
+        }
+
+        let specialist = class.specialist();
         info!(
             author = %msg.author.name,
             channel = channel_id,
@@ -280,10 +294,8 @@ impl EventHandler for Handler {
             if let Err(e) = echo.create_reaction(msg.channel_id, msg.id, &eyes).await {
                 info!(error = %e, "failed to seed pickup reaction");
             }
-            if !matches!(class, Classification::Chat) {
-                if let Err(e) = echo.broadcast_typing(msg.channel_id).await {
-                    info!(error = %e, "failed to broadcast typing");
-                }
+            if let Err(e) = echo.broadcast_typing(msg.channel_id).await {
+                info!(error = %e, "failed to broadcast typing");
             }
         }
 
@@ -296,19 +308,9 @@ impl EventHandler for Handler {
         });
         let dispatch_result = self.registry.dispatch(specialist.as_str(), req).await;
 
-        // Cross-channel help-desk routing:
-        //   * If HALO_HELP_DESK_CHANNEL_ID is set AND the message is outside
-        //     that channel AND classification is non-Chat, Echo creates a
-        //     new thread INSIDE the help-desk and posts the specialist's
-        //     reply there. We also drop a short breadcrumb in the original
-        //     channel linking to the new thread so the asker can follow.
-        //   * If the message IS in the help-desk, current behavior stands.
-        //   * If class == Chat, routing is skipped (no noise).
-        let should_route = matches!(
-            (self.help_desk_channel_id, class),
-            (Some(hd), c) if hd != channel_id && !matches!(c, Classification::Chat)
-        );
-
+        // Every non-chat message routes to help-desk, unconditionally.
+        // No in-channel responses anymore — the main channel stays
+        // quiet; the forum is where halo speaks.
         match dispatch_result {
             Ok(resp) => {
                 let text = resp
@@ -316,33 +318,22 @@ impl EventHandler for Handler {
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .trim();
-                if should_route {
-                    // Post to help-desk thread even if specialist returned
-                    // empty — the user asked for help and we promised a
-                    // landing spot. Fallback copy covers the empty case.
-                    let body = if text.is_empty() {
-                        "Picked this up, a human will follow up here."
-                    } else {
-                        text
-                    };
-                    self.route_to_help_desk(&ctx, &msg, class, body).await;
-                } else if !text.is_empty() {
-                    self.post_response(&ctx, &msg, class, text).await;
-                }
+                let body = if text.is_empty() {
+                    "Picked this up, a human will follow up here."
+                } else {
+                    text
+                };
+                self.route_to_help_desk(&ctx, &msg, class, body).await;
             }
             Err(e) => {
                 warn!(error = %e, "specialist dispatch failed");
-                if should_route {
-                    // Even if dispatch failed, route the user so a human
-                    // picks it up. Specialist silence must not mean silence.
-                    self.route_to_help_desk(
-                        &ctx,
-                        &msg,
-                        class,
-                        "Picked this up, a human will follow up here.",
-                    )
-                    .await;
-                }
+                self.route_to_help_desk(
+                    &ctx,
+                    &msg,
+                    class,
+                    "Picked this up, a human will follow up here.",
+                )
+                .await;
             }
         }
 
@@ -371,67 +362,6 @@ impl EventHandler for Handler {
 }
 
 impl Handler {
-    /// Post a specialist's text reply via echo's token. BugReport-classified
-    /// messages are moved into a newly-created public thread on the original
-    /// message so follow-ups stay scoped to one incident. All other
-    /// classifications reply in the original channel. If `ECHO_BOT_TOKEN`
-    /// is unset, we warn and drop the post — halo never speaks with its
-    /// own token.
-    async fn post_response(&self, _ctx: &Context, msg: &Message, class: Classification, text: &str) {
-        let Some(http) = self.echo_http.as_ref() else {
-            warn!(
-                "specialist returned text but ECHO_BOT_TOKEN is unset — halo stays silent. \
-                 Configure echo's bot token to enable posting."
-            );
-            return;
-        };
-
-        // Specialists are prompted to draft inside ```...``` fences so the LLM
-        // produces one clean chunk without editorial padding. Discord posts
-        // should read as normal conversation, so strip the wrapping fence
-        // before sending. Inner fenced blocks (e.g. a command example inside
-        // a longer reply) are preserved — only the outer wrapper goes.
-        // sanitize_reply then drops any *empty* inner fences so stubs that
-        // emit ```...``` with no body don't leak empty code blocks to chat.
-        let unwrapped = unwrap_outer_codeblock(text);
-        let cleaned = sanitize_reply(&unwrapped);
-        if cleaned.trim().is_empty() {
-            warn!(
-                "specialist reply had no usable content after sanitize — dropping post"
-            );
-            return;
-        }
-        let post_text = cleaned.as_str();
-
-        if matches!(class, Classification::BugReport) {
-            let name = format!(
-                "troubleshoot: {}",
-                truncate_for_thread_name(msg.content.as_str())
-            );
-            let builder =
-                CreateThread::new(name).auto_archive_duration(AutoArchiveDuration::OneDay);
-            match msg
-                .channel_id
-                .create_thread_from_message(http.as_ref(), msg.id, builder)
-                .await
-            {
-                Ok(thread) => {
-                    if let Err(e) = thread.id.say(http.as_ref(), post_text).await {
-                        warn!(error = %e, thread_id = %thread.id, "echo failed to post into thread");
-                    }
-                    return;
-                }
-                Err(e) => {
-                    warn!(error = %e, "failed to create troubleshoot thread, falling back to channel reply");
-                }
-            }
-        }
-
-        if let Err(e) = msg.channel_id.say(http.as_ref(), post_text).await {
-            warn!(error = %e, "echo failed to post specialist response");
-        }
-    }
-
     /// Cross-channel help-desk routing. Two shapes, picked by channel kind:
     ///
     ///   * **Forum channel** — each help request becomes its own forum
