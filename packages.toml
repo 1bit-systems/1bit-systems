@@ -172,6 +172,19 @@ build       = []
 units       = []
 check       = ""
 
+# 1bit-ingest — curator-side CLI that prepares a FLAC corpus for RunPod
+# training and packs a trained GGUF + catalog.toml into a .1bl container
+# (see docs/wiki/1bl-container-spec.md). Binary only; no systemd unit,
+# no network, no training — purely a local file-tool.
+[component.ingest]
+description = "1bit-ingest — prepare/pack/validate .1bl catalog containers (binary only, no unit)"
+deps        = []
+build = [
+    ["cargo", "install", "--path", "crates/1bit-ingest", "--force", "--quiet"],
+]
+units = []
+check = ""
+
 # -----------------------------------------------------------------------------
 # Media lanes — full-C++ stack: TTS + STT + image + video.
 # All engines ship as sibling repos (1bit-tts.cpp, stable-diffusion.cpp,

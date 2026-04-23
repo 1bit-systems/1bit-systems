@@ -28,6 +28,8 @@ members = [
     "crates/1bit-mcp-patreon",
     "crates/1bit-halo-ralph",
     "crates/1bit-retrieval",
+    "crates/1bit-tier-mint",
+    "crates/1bit-ingest",
     "tools/h1b-sherry",
     "tools/gguf-to-h1b",
     "tools/bitnet-to-tq2",
