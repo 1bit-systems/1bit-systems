@@ -65,7 +65,11 @@ jobs:
           fi
       - name: Audit formula
         run: |
-          brew ruby -e "require 'formula'; load '#{ENV['GITHUB_WORKSPACE']}/packaging/homebrew/onebit-systems.rb'; puts OnebitSystems.name"
+          # Expand $GITHUB_WORKSPACE in the shell, not Ruby — the inner
+          # single quotes inside ENV['GITHUB_WORKSPACE'] broke the parent
+          # single-quoted Ruby string and the parser errored on the bare
+          # constant `GITHUB_WORKSPACE`.
+          brew ruby -e "require 'formula'; load \"$GITHUB_WORKSPACE/packaging/homebrew/onebit-systems.rb\"; puts OnebitSystems.name"
       - name: Style check
         run: |
           brew style packaging/homebrew/onebit-systems.rb || echo "style warnings (non-fatal on formula scaffold)"

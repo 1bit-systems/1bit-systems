@@ -50,10 +50,20 @@ modules:
     buildsystem: simple
     build-options:
       append-path: /usr/lib/sdk/rust-stable/bin
+      # Build-time network for cargo git deps (bitnet-rust + co). Without
+      # this the sandbox drops DNS, cargo can't clone, and the build dies
+      # halfway through. Runtime network is separately governed by
+      # finish-args.
+      build-args:
+        - --share=network
       env:
         CARGO_HOME: /run/build/1bit-systems/cargo
         # Build only no-GPU-feature defaults; GPU features are host-side.
         RUSTFLAGS: -C target-feature=+crt-static
+        # libgit2 has flaky DNS resolution in sandboxed environments;
+        # delegate to the git CLI, which handles retries + proxies better.
+        CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+        CARGO_NET_RETRY: "5"
     build-commands:
       - cargo build --release --workspace
       - install -Dm755 target/release/1bit                 /app/bin/1bit
