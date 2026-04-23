@@ -34,7 +34,7 @@
 //     under Peano. If the box confirms aie::lookup<int8_t> exists on AIE2P,
 //     swap to the LUT variant for a ~1.3x kernel speedup (see README).
 
-#include "../aie_kernel_utils.h"
+#include "aie_kernel_utils.h"
 #include <aie_api/aie.hpp>
 #include <stdint.h>
 #include <stdio.h>
@@ -103,6 +103,11 @@ static inline void unpack_ternary_scalar(const uint8_t *__restrict packed,
 // aie::broadcast. Peano vectorizes the per-lane shift-by-variable via the
 // AIE2P v32i8 shift instruction.
 // --------------------------------------------------------------------------
+// Vectorized path — kept for future work, currently disabled.
+// See TEMP note in unpack_ternary_i2_i8 for the two fixes needed before
+// re-enabling. Wrap in #if to skip non-dependent name lookup on
+// aie::shift_bytes (which doesn't exist on Peano for AIE2P).
+#if 0
 template <int NCOLS>
 static inline void unpack_ternary_vectorized(const uint8_t *__restrict packed,
                                              int8_t *__restrict out,
@@ -184,11 +189,16 @@ static inline void unpack_ternary_vectorized(const uint8_t *__restrict packed,
   event1();
 }
 
+#endif  // disabled vectorized path
+
 // NOTE on aie::shift_bytes:
-//   This name is used in aie_api/aie.hpp on AIE2/AIE2P for per-lane variable
-//   shifts across vector<uint8_t, 32>. If the on-box aie-api header exposes
-//   it under `aie::shift_right` with a vector-rhs overload instead, swap the
-//   name; no logic change. Flagged in README "confirm on box".
+//   Confirmed on box 2026-04-23: `aie::shift_bytes` does NOT exist in
+//   Peano's aie-api for AIE2P. The real intrinsic is the chess builtin
+//   `shift_bytes(vec_a, vec_b, byte_count)` in the global namespace, but
+//   that shifts concatenated vectors by a byte count — not per-lane
+//   variable shift. For the broadcast-then-variable-shift pattern we
+//   actually want, write as 4 fixed-shift vectors + interleave, OR
+//   stay scalar. Deferred to follow-up; current build uses scalar path.
 
 extern "C" {
 
@@ -205,10 +215,16 @@ extern "C" {
 // One tile's worth of weights, unpacked per call. rows = m (tile rows),
 // ncols = k (tile K). Called once per K-tile per M-tile — amortized across
 // the matmul stage.
+//
+// TEMP: routed to scalar path until the vectorized unrolled variant gets
+// two fixes validated on box — (1) drop aie::shift_bytes (doesn't exist
+// on Peano for AIE2P; the variable-per-lane u8 shift needs a different
+// primitive — candidate: fold into a 4-way fixed-shift + interleave),
+// (2) generalise the unrolled path to handle DIM_K < 256 (currently the
+// static_assert + outer-loop granularity assume ≥256).
 void unpack_ternary_i2_i8(uint8_t *__restrict packed,
                           int8_t *__restrict out) {
-  // DIM_K must be one of the multiples the packer guarantees.
-  unpack_ternary_vectorized<DIM_K>(packed, out, DIM_M);
+  unpack_ternary_scalar<DIM_K>(packed, out, DIM_M);
 }
 
 // Scalar reference (scalar_ prefix matches zero.cc's scalar_/vector_ split).

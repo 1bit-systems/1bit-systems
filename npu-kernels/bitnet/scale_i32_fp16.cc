@@ -30,7 +30,7 @@
 //   loader, not here. Task spec said "fp16 scale" — we use bfloat16 to match
 //   the hardware and the rest of the upstream aie2p kernels (see rms_norm).
 
-#include "../aie_kernel_utils.h"
+#include "aie_kernel_utils.h"
 #include <aie_api/aie.hpp>
 #include <stdint.h>
 
