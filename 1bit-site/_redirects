@@ -40,9 +40,10 @@ https://arcade.1bit.systems/* /arcade/:splat   200
 /subscribe    /premium/                            302
 /green        /sustainability/                     302
 /sustainable  /sustainability/                     302
-/demo         /demo/                               301
+/demo         /bandwidth/                          302
 /listen       /demo/                               302
 /watch        /demo/video/                         302
+/bandwidth    /bandwidth/                          301
 /discord      https://discord.gg/halo-ai           302
 /gh           https://github.com/bong-water-water-bong/1bit-systems   302
 /github       https://github.com/bong-water-water-bong/1bit-systems   302
