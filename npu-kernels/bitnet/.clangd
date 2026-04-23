@@ -1,0 +1,35 @@
+# clangd config for AIE2P kernel C++ TUs.
+#
+# System clang can't resolve aie_api/aie.hpp or aie_kernel_utils.h because
+# they ship only with the mlir-aie + llvm-aie (Peano) wheels. This config
+# points the language server at those paths so LSP stops reporting false
+# "file not found" / "aie::" unknown errors.
+#
+# Real compilation happens via `make devicename=npu2` through Peano,
+# which sets up its own include search. This file only exists for IDE UX.
+
+CompileFlags:
+  Add:
+    - -std=c++20
+    - -xc++
+    - -I/home/bcloud/.venvs/ironenv/lib/python3.14/site-packages/mlir_aie/include
+    - -I/home/bcloud/repos/mlir-aie/aie_kernels
+    - -I/home/bcloud/repos/mlir-aie/runtime_lib
+    - -DNOCPP
+    - -D__AIENGINE__=20
+    - -D__AIEARCH__=20
+    - -D__AIENGINE__ARCH__=20
+  Remove:
+    - -W*
+    - -march=*
+
+Diagnostics:
+  Suppress:
+    # Peano intrinsics (event0, event1, aie::*) aren't in stock clang;
+    # silence rather than chase pragma workarounds.
+    - undeclared_var_use
+    - unknown_typename
+    - expected_namespace_name
+    - expected_lparen_after_type
+    - unexpected_typedef
+    - pp_file_not_found
