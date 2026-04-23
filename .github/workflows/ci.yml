@@ -16,6 +16,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install system deps (libdbus for ksni tray)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
+
       - name: Install Rust 1.86
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -37,6 +42,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install system deps (libdbus for ksni tray)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
 
       - name: Install Rust 1.86
         uses: dtolnay/rust-toolchain@stable
@@ -78,6 +88,11 @@ jobs:
       - name: bash -n install.sh
         run: bash -n install.sh
 
+      - name: Install system deps (libdbus for ksni tray)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
+
       - name: Install Rust 1.86
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -111,11 +126,12 @@ jobs:
         with:
           cache-on-failure: true
 
-      - name: Install AppImage host deps (FUSE + ImageMagick for icon)
+      - name: Install AppImage host deps (FUSE + ImageMagick + libdbus)
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-              libfuse2 imagemagick fonts-dejavu-core
+              libfuse2 imagemagick fonts-dejavu-core \
+              libdbus-1-dev pkg-config
 
       - name: Build AppImage
         run: packaging/appimage/build-appimage.sh
