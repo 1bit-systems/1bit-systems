@@ -57,9 +57,7 @@ impl OobeError {
     pub fn kernel_too_new(current: &str) -> Self {
         Self {
             what: "Kernel is too new for Strix Halo OOBE.",
-            expected: format!(
-                "Linux 6.18-lts is the recommended baseline. Detected: {current}."
-            ),
+            expected: format!("Linux 6.18-lts is the recommended baseline. Detected: {current}."),
             repro: "Boot snapper snapshot #6 or install linux-lts and reboot.".to_string(),
             wiki_link: "https://github.com/bong-water-water-bong/1bit-systems/wiki/Troubleshooting#kernel-too-new",
             next_step: "Next: `1bit rollback` to pick a tested snapshot, then reboot.",
@@ -84,7 +82,8 @@ impl OobeError {
         Self {
             what: "Free disk is below the 10 GB OOBE floor.",
             expected: format!("≥ 10 GB free on the install target. Detected: {free_gb} GB."),
-            repro: "df -h / ; remove old caches under ~/.cargo/registry and ~/.halo/logs".to_string(),
+            repro: "df -h / ; remove old caches under ~/.cargo/registry and ~/.halo/logs"
+                .to_string(),
             wiki_link: "https://github.com/bong-water-water-bong/1bit-systems/wiki/Troubleshooting#disk-too-small",
             next_step: "Next: free up space, then re-run `1bit install --oobe`.",
         }
@@ -95,10 +94,9 @@ impl OobeError {
     pub fn ram_too_small(have_gb: u64, floor_gb: u64) -> Self {
         Self {
             what: "RAM is below the OOBE minimum.",
-            expected: format!(
-                "≥ {floor_gb} GB RAM for halo-v2 at Q4_K_M. Detected: {have_gb} GB."
-            ),
-            repro: "Close other tenants or choose a smaller default model (Qwen3-4B Q4).".to_string(),
+            expected: format!("≥ {floor_gb} GB RAM for halo-v2 at Q4_K_M. Detected: {have_gb} GB."),
+            repro: "Close other tenants or choose a smaller default model (Qwen3-4B Q4)."
+                .to_string(),
             wiki_link: "https://github.com/bong-water-water-bong/1bit-systems/wiki/Troubleshooting#ram-too-small",
             next_step: "Next: pick a smaller model with `1bit install --oobe core` on a Q4 profile.",
         }
@@ -138,7 +136,8 @@ impl OobeError {
     pub fn no_rollback_candidate() -> Self {
         Self {
             what: "No `.halo-preinstall` snapper snapshot found.",
-            expected: "At least one snapshot labelled `.halo-preinstall` in `snapper list`.".to_string(),
+            expected: "At least one snapshot labelled `.halo-preinstall` in `snapper list`."
+                .to_string(),
             repro: "sudo snapper -c root list | grep .halo-preinstall".to_string(),
             wiki_link: "https://github.com/bong-water-water-bong/1bit-systems/wiki/Troubleshooting#no-rollback-candidate",
             next_step: "Next: pass a snapshot number explicitly, e.g. `1bit rollback 6`.",
@@ -152,7 +151,8 @@ impl OobeError {
         Self {
             what: "An install step failed; best-effort rollback was attempted.",
             expected: format!("Clean completion of step `{step}`."),
-            repro: "Re-run `1bit install --oobe` after addressing the cause printed above.".to_string(),
+            repro: "Re-run `1bit install --oobe` after addressing the cause printed above."
+                .to_string(),
             wiki_link: "https://github.com/bong-water-water-bong/1bit-systems/wiki/Troubleshooting#install-step-failed",
             next_step: "Next: read the `left state:` line above, then re-run `1bit install --oobe`.",
         }

@@ -85,37 +85,61 @@ pub async fn handle(req: &Value) -> Value {
 
 async fn dispatch(name: &str, args: Value) -> Value {
     match name {
-        "patreon_campaigns" => run_with_client(|c| async move {
-            c.campaigns().await.map(|v| serde_json::to_string(&v).unwrap_or_default())
-        })
-        .await,
+        "patreon_campaigns" => {
+            run_with_client(|c| async move {
+                c.campaigns()
+                    .await
+                    .map(|v| serde_json::to_string(&v).unwrap_or_default())
+            })
+            .await
+        }
         "patreon_members" => {
             let Some(cid) = args.get("campaign_id").and_then(Value::as_str) else {
                 return error_text("missing required 'campaign_id'");
             };
-            let cursor = args.get("cursor").and_then(Value::as_str).map(str::to_owned);
+            let cursor = args
+                .get("cursor")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
             let cid = cid.to_owned();
             run_with_client(move |c| async move {
-                c.members(&cid, cursor.as_deref()).await.map(|v| serde_json::to_string(&v).unwrap_or_default())
+                c.members(&cid, cursor.as_deref())
+                    .await
+                    .map(|v| serde_json::to_string(&v).unwrap_or_default())
             })
             .await
         }
         "patreon_post_create" => {
-            let Some(cid) = args.get("campaign_id").and_then(Value::as_str).map(str::to_owned)
+            let Some(cid) = args
+                .get("campaign_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
             else {
                 return error_text("missing required 'campaign_id'");
             };
             let Some(title) = args.get("title").and_then(Value::as_str).map(str::to_owned) else {
                 return error_text("missing required 'title'");
             };
-            let Some(content) = args.get("content").and_then(Value::as_str).map(str::to_owned)
+            let Some(content) = args
+                .get("content")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
             else {
                 return error_text("missing required 'content'");
             };
-            let post_type = args.get("post_type").and_then(Value::as_str).map(str::to_owned);
-            let draft = PostDraft { title, content, post_type };
+            let post_type = args
+                .get("post_type")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            let draft = PostDraft {
+                title,
+                content,
+                post_type,
+            };
             run_with_client(move |c| async move {
-                c.create_post(&cid, &draft).await.map(|v| serde_json::to_string(&v).unwrap_or_default())
+                c.create_post(&cid, &draft)
+                    .await
+                    .map(|v| serde_json::to_string(&v).unwrap_or_default())
             })
             .await
         }
@@ -162,7 +186,10 @@ mod tests {
         let req = json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" });
         let resp = handle(&req).await;
         let arr = resp["result"]["tools"].as_array().expect("array");
-        let names: Vec<&str> = arr.iter().map(|v| v["name"].as_str().unwrap_or("")).collect();
+        let names: Vec<&str> = arr
+            .iter()
+            .map(|v| v["name"].as_str().unwrap_or(""))
+            .collect();
         assert!(names.contains(&"patreon_campaigns"));
         assert!(names.contains(&"patreon_members"));
         assert!(names.contains(&"patreon_post_create"));

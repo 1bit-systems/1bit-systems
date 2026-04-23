@@ -17,8 +17,8 @@
 
 use ksni::TrayMethods;
 use onebit_helm::tray::{
-    Action, REFRESH_INTERVAL, SERVICES, ServiceStatus, build_status_line, open_site,
-    probe_services, systemctl, ICON_THEME_NAME,
+    Action, ICON_THEME_NAME, REFRESH_INTERVAL, SERVICES, ServiceStatus, build_status_line,
+    open_site, probe_services, systemctl,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 

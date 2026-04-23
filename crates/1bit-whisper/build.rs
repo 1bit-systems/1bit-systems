@@ -39,8 +39,7 @@ fn main() {
 
     // Optional install-prefix override for non-default whisper.cpp installs
     // (e.g. a Vulkan-enabled build at `/opt/whisper-vulkan` on sliger).
-    let prefix = env::var_os("ONEBIT_WHISPER_PREFIX")
-        .map(std::path::PathBuf::from);
+    let prefix = env::var_os("ONEBIT_WHISPER_PREFIX").map(std::path::PathBuf::from);
 
     // 1. Build the C-linkage shim over whisper.h.
     let mut build = cc::Build::new();

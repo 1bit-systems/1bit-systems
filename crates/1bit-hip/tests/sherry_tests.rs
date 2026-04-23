@@ -154,9 +154,7 @@ fn sherry_roundtrip_k2560_n2560() {
 
     // ---- H2D copies.
     let mut d_packed = DeviceBuffer::<u8>::alloc(packed_host.len()).expect("alloc packed");
-    d_packed
-        .copy_from_slice(&packed_host)
-        .expect("H2D packed");
+    d_packed.copy_from_slice(&packed_host).expect("H2D packed");
     let mut d_act = DeviceBuffer::<u16>::alloc(k).expect("alloc act");
     d_act.copy_from_slice(&act_host).expect("H2D act");
 

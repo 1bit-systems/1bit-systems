@@ -255,53 +255,59 @@ mod tests {
         // obvious when scanning; clippy's identity_op would flatten them.
         #[allow(clippy::identity_op)]
         {
-        // N not a multiple of 64.
-        let err = ternary_gemm_smallm(
-            &[0i32; 64 * 32 / 16],
-            &[0u16; 1 * 64 / 2],
-            &mut [0u16; 32],
-            1,
-            32, // not mod 64
-            64,
-            Some(HipStream::DEFAULT),
-        )
-        .expect_err("N%64 != 0 must be rejected");
-        assert!(matches!(err, RcppError::Precondition(_)), "{err:?}");
+            // N not a multiple of 64.
+            let err = ternary_gemm_smallm(
+                &[0i32; 64 * 32 / 16],
+                &[0u16; 1 * 64 / 2],
+                &mut [0u16; 32],
+                1,
+                32, // not mod 64
+                64,
+                Some(HipStream::DEFAULT),
+            )
+            .expect_err("N%64 != 0 must be rejected");
+            assert!(matches!(err, RcppError::Precondition(_)), "{err:?}");
 
-        // K not a multiple of 64.
-        let err = ternary_gemm_smallm(
-            &[0i32; 64 * 32 / 16],
-            &[0u16; 1 * 32 / 2],
-            &mut [0u16; 64],
-            1,
-            64,
-            32, // not mod 64
-            None,
-        )
-        .expect_err("K%64 != 0 must be rejected");
-        assert!(matches!(err, RcppError::Precondition(_)), "{err:?}");
+            // K not a multiple of 64.
+            let err = ternary_gemm_smallm(
+                &[0i32; 64 * 32 / 16],
+                &[0u16; 1 * 32 / 2],
+                &mut [0u16; 64],
+                1,
+                64,
+                32, // not mod 64
+                None,
+            )
+            .expect_err("K%64 != 0 must be rejected");
+            assert!(matches!(err, RcppError::Precondition(_)), "{err:?}");
 
-        // Length mismatch: codes slice too short.
-        let err = ternary_gemm_smallm(
-            &[0i32; 4],             // far too short
-            &[0u16; 1 * 64 / 2],    // M*K/2 u16
-            &mut [0u16; 64],        // M*N bf16
-            1, 64, 64, None,
-        )
-        .expect_err("codes length mismatch must be rejected");
-        assert!(matches!(err, RcppError::Precondition(_)), "{err:?}");
+            // Length mismatch: codes slice too short.
+            let err = ternary_gemm_smallm(
+                &[0i32; 4],          // far too short
+                &[0u16; 1 * 64 / 2], // M*K/2 u16
+                &mut [0u16; 64],     // M*N bf16
+                1,
+                64,
+                64,
+                None,
+            )
+            .expect_err("codes length mismatch must be rejected");
+            assert!(matches!(err, RcppError::Precondition(_)), "{err:?}");
 
-        // Valid shape: scaffolding returns `Unsupported` (no real dispatch).
-        let result = ternary_gemm_smallm(
-            &[0i32; 64 * 64 / 16],
-            &[0u16; 1 * 64 / 2],
-            &mut [0u16; 64],
-            1, 64, 64, None,
-        );
-        assert!(
-            matches!(result, Err(RcppError::Unsupported)),
-            "scaffold must return Unsupported on valid shapes: {result:?}"
-        );
+            // Valid shape: scaffolding returns `Unsupported` (no real dispatch).
+            let result = ternary_gemm_smallm(
+                &[0i32; 64 * 64 / 16],
+                &[0u16; 1 * 64 / 2],
+                &mut [0u16; 64],
+                1,
+                64,
+                64,
+                None,
+            );
+            assert!(
+                matches!(result, Err(RcppError::Unsupported)),
+                "scaffold must return Unsupported on valid shapes: {result:?}"
+            );
         }
     }
 
@@ -334,7 +340,10 @@ mod tests {
         };
         let state = MedusaState::from_config(&cfg_with_missing)
             .expect("gate off must short-circuit before file I/O");
-        assert!(!state.is_enabled(), "gate off must stay disabled even with path");
+        assert!(
+            !state.is_enabled(),
+            "gate off must stay disabled even with path"
+        );
 
         // Explicit "0" must also count as off.
         unsafe {

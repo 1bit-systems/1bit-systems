@@ -12,7 +12,7 @@
 //     part.
 
 use crate::profiles::Profile;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::process::Command;
 use thiserror::Error;
 use tracing::{debug, info};
@@ -38,7 +38,10 @@ pub struct ShelloutBackend {
 
 impl ShelloutBackend {
     pub fn new(dry_run: bool) -> Self {
-        Self { dry_run, path: "/usr/bin/ryzenadj" }
+        Self {
+            dry_run,
+            path: "/usr/bin/ryzenadj",
+        }
     }
 
     fn run(&self, args: &[String]) -> Result<()> {
@@ -59,29 +62,41 @@ impl ShelloutBackend {
 }
 
 impl PowerBackend for ShelloutBackend {
-    fn name(&self) -> &'static str { "shellout" }
+    fn name(&self) -> &'static str {
+        "shellout"
+    }
 
     fn apply_profile(&self, p: &Profile) -> Result<()> {
         let mut args: Vec<String> = Vec::with_capacity(8);
         fn push(args: &mut Vec<String>, flag: &str, v: Option<u32>) {
-            if let Some(v) = v { args.push(format!("--{flag}={v}")); }
+            if let Some(v) = v {
+                args.push(format!("--{flag}={v}"));
+            }
         }
-        push(&mut args, "stapm-limit",        p.stapm_limit);
-        push(&mut args, "fast-limit",         p.fast_limit);
-        push(&mut args, "slow-limit",         p.slow_limit);
-        push(&mut args, "tctl-temp",          p.tctl_temp);
-        push(&mut args, "vrm-current",        p.vrm_current);
-        push(&mut args, "vrmmax-current",     p.vrmmax_current);
-        push(&mut args, "vrmsoc-current",     p.vrmsoc_current);
-        push(&mut args, "vrmsocmax-current",  p.vrmsocmax_current);
-        if args.is_empty() { return Ok(()); }
+        push(&mut args, "stapm-limit", p.stapm_limit);
+        push(&mut args, "fast-limit", p.fast_limit);
+        push(&mut args, "slow-limit", p.slow_limit);
+        push(&mut args, "tctl-temp", p.tctl_temp);
+        push(&mut args, "vrm-current", p.vrm_current);
+        push(&mut args, "vrmmax-current", p.vrmmax_current);
+        push(&mut args, "vrmsoc-current", p.vrmsoc_current);
+        push(&mut args, "vrmsocmax-current", p.vrmsocmax_current);
+        if args.is_empty() {
+            return Ok(());
+        }
         self.run(&args)
     }
 
     fn set_one(&self, key: &str, value: u32) -> Result<()> {
         const KNOBS: &[&str] = &[
-            "stapm-limit", "fast-limit", "slow-limit", "tctl-temp",
-            "vrm-current", "vrmmax-current", "vrmsoc-current", "vrmsocmax-current",
+            "stapm-limit",
+            "fast-limit",
+            "slow-limit",
+            "tctl-temp",
+            "vrm-current",
+            "vrmmax-current",
+            "vrmsoc-current",
+            "vrmsocmax-current",
         ];
         if !KNOBS.contains(&key) {
             bail!(BackendError::UnknownKey(key.to_string()));
@@ -109,7 +124,9 @@ impl LibBackend {
 
 #[cfg(feature = "libryzenadj")]
 impl PowerBackend for LibBackend {
-    fn name(&self) -> &'static str { "libryzenadj" }
+    fn name(&self) -> &'static str {
+        "libryzenadj"
+    }
     fn apply_profile(&self, _p: &Profile) -> Result<()> {
         bail!("libryzenadj backend not yet wired; use default shellout");
     }
@@ -125,7 +142,10 @@ mod tests {
     #[test]
     fn dry_run_apply_does_not_spawn() {
         let b = ShelloutBackend::new(true);
-        let p = Profile { stapm_limit: Some(55_000), ..Default::default() };
+        let p = Profile {
+            stapm_limit: Some(55_000),
+            ..Default::default()
+        };
         b.apply_profile(&p).expect("dry-run should be infallible");
     }
 

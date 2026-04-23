@@ -28,7 +28,11 @@ struct Args {
     task: String,
 
     /// OpenAI-compatible base URL.
-    #[arg(long, default_value = "http://localhost:8180/v1", env = "RALPH_BASE_URL")]
+    #[arg(
+        long,
+        default_value = "http://localhost:8180/v1",
+        env = "RALPH_BASE_URL"
+    )]
     base_url: String,
 
     /// Model id.
@@ -92,12 +96,21 @@ async fn main() -> Result<()> {
 
     let system = args.system.as_deref().unwrap_or(DEFAULT_SYSTEM);
     let mut history: Vec<Message> = vec![
-        Message { role: "system".into(), content: system.into() },
-        Message { role: "user".into(), content: args.task.clone() },
+        Message {
+            role: "system".into(),
+            content: system.into(),
+        },
+        Message {
+            role: "user".into(),
+            content: args.task.clone(),
+        },
     ];
 
     for iter in 1..=args.max_iter {
-        println!("── ralph iter {}/{} ────────────────────", iter, args.max_iter);
+        println!(
+            "── ralph iter {}/{} ────────────────────",
+            iter, args.max_iter
+        );
 
         let req = ChatRequest {
             model: &args.model,
@@ -126,7 +139,10 @@ async fn main() -> Result<()> {
             .unwrap_or_default();
 
         println!("{content}\n");
-        history.push(Message { role: "assistant".into(), content });
+        history.push(Message {
+            role: "assistant".into(),
+            content,
+        });
 
         let Some(cmd) = args.test_cmd.as_deref() else {
             break;
@@ -152,7 +168,10 @@ async fn main() -> Result<()> {
             code = output.status.code().unwrap_or(-1),
         );
         eprintln!("✗ tests failed at iter {iter}");
-        history.push(Message { role: "user".into(), content: feedback });
+        history.push(Message {
+            role: "user".into(),
+            content: feedback,
+        });
     }
 
     eprintln!("── ralph gave up after {} iterations", args.max_iter);
@@ -187,7 +206,8 @@ mod tests {
             temperature: 0.3,
             stream: false,
         };
-        let v: serde_json::Value = serde_json::from_str(&serde_json::to_string(&req).unwrap()).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&req).unwrap()).unwrap();
         assert_eq!(v["model"], "1bit-halo-v2");
         assert_eq!(v["stream"], false);
         assert_eq!(v["messages"][0]["role"], "user");

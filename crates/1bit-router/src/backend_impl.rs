@@ -647,8 +647,7 @@ impl HipBackend {
     fn maybe_hadamard_rotate_normed(
         scratch: &mut Scratch,
         hadamard_active: bool,
-        #[cfg(any(test, feature = "bitnet-v2"))]
-        dispatch_count: &std::sync::atomic::AtomicU64,
+        #[cfg(any(test, feature = "bitnet-v2"))] dispatch_count: &std::sync::atomic::AtomicU64,
         k: i32,
         stream: HipStream,
     ) -> Result<(), BackendError> {
@@ -671,8 +670,7 @@ impl HipBackend {
     fn maybe_hadamard_rotate_silu(
         scratch: &mut Scratch,
         hadamard_active: bool,
-        #[cfg(any(test, feature = "bitnet-v2"))]
-        dispatch_count: &std::sync::atomic::AtomicU64,
+        #[cfg(any(test, feature = "bitnet-v2"))] dispatch_count: &std::sync::atomic::AtomicU64,
         k: i32,
         stream: HipStream,
     ) -> Result<(), BackendError> {

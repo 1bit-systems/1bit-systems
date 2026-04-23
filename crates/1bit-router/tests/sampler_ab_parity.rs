@@ -31,9 +31,7 @@
 use std::path::Path;
 
 use onebit_core::sampler::SamplerConfig;
-use onebit_router::{
-    BackendKind, Router, RouterConfig, RouterRequest, SamplerMode, detect,
-};
+use onebit_router::{BackendKind, Router, RouterConfig, RouterRequest, SamplerMode, detect};
 
 fn default_model() -> String {
     std::env::var("HOME")

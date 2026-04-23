@@ -200,8 +200,7 @@ impl MedusaHeads {
             .copy_from_slice(hidden)
             .map_err(|e| MedusaError::LoaderError(format!("upload hidden: {e:?}")))?;
 
-        let mut out: [Vec<u16>; NUM_MEDUSA_HEADS] =
-            std::array::from_fn(|_| Vec::new());
+        let mut out: [Vec<u16>; NUM_MEDUSA_HEADS] = std::array::from_fn(|_| Vec::new());
 
         // `i` indexes four parallel arrays (w_in, w_out, out, format strings);
         // iter/zip would be a readability regression for kernel-launch code.
@@ -307,10 +306,8 @@ fn upload_device_weights(
     // Weights: alloc then copy_from_slice — copies the borrowed mmap
     // view into device memory once. No decoding, no unpacking; the
     // fp16 bit pattern is identical on disk and on device.
-    let mut w_in: [Option<DeviceBuffer<u16>>; NUM_MEDUSA_HEADS] =
-        [None, None, None, None];
-    let mut w_out: [Option<DeviceBuffer<u16>>; NUM_MEDUSA_HEADS] =
-        [None, None, None, None];
+    let mut w_in: [Option<DeviceBuffer<u16>>; NUM_MEDUSA_HEADS] = [None, None, None, None];
+    let mut w_out: [Option<DeviceBuffer<u16>>; NUM_MEDUSA_HEADS] = [None, None, None, None];
 
     for i in 0..NUM_MEDUSA_HEADS {
         let view = file
@@ -364,11 +361,11 @@ fn upload_device_weights(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::loader::{
         MEDUSA_DTYPE_FP16, MEDUSA_FORMAT_VERSION, MEDUSA_HEADER_BYTES, MEDUSA_MAGIC,
         MEDUSA_RESIDUAL_LAYERS, MedusaHeadsFile,
     };
+    use super::*;
     use std::io::Write;
 
     /// Shape smoke test: construct a synthetic `.h1b-medusa` handle and
@@ -388,7 +385,8 @@ mod tests {
         tmp.write_all(&MEDUSA_FORMAT_VERSION.to_le_bytes()).unwrap();
         tmp.write_all(&num_heads.to_le_bytes()).unwrap();
         tmp.write_all(&hidden_dim.to_le_bytes()).unwrap();
-        tmp.write_all(&MEDUSA_RESIDUAL_LAYERS.to_le_bytes()).unwrap();
+        tmp.write_all(&MEDUSA_RESIDUAL_LAYERS.to_le_bytes())
+            .unwrap();
         tmp.write_all(&MEDUSA_DTYPE_FP16.to_le_bytes()).unwrap();
         tmp.write_all(&[0u8; 40]).unwrap();
         let hd = hidden_dim as usize;
@@ -434,7 +432,8 @@ mod tests {
         tmp.write_all(&MEDUSA_FORMAT_VERSION.to_le_bytes()).unwrap();
         tmp.write_all(&num_heads.to_le_bytes()).unwrap();
         tmp.write_all(&hidden_dim.to_le_bytes()).unwrap();
-        tmp.write_all(&MEDUSA_RESIDUAL_LAYERS.to_le_bytes()).unwrap();
+        tmp.write_all(&MEDUSA_RESIDUAL_LAYERS.to_le_bytes())
+            .unwrap();
         tmp.write_all(&MEDUSA_DTYPE_FP16.to_le_bytes()).unwrap();
         tmp.write_all(&[0u8; 40]).unwrap();
         let hd = hidden_dim as usize;
@@ -475,7 +474,8 @@ mod tests {
         tmp.write_all(&MEDUSA_FORMAT_VERSION.to_le_bytes()).unwrap();
         tmp.write_all(&num_heads.to_le_bytes()).unwrap();
         tmp.write_all(&hidden_dim.to_le_bytes()).unwrap();
-        tmp.write_all(&MEDUSA_RESIDUAL_LAYERS.to_le_bytes()).unwrap();
+        tmp.write_all(&MEDUSA_RESIDUAL_LAYERS.to_le_bytes())
+            .unwrap();
         tmp.write_all(&MEDUSA_DTYPE_FP16.to_le_bytes()).unwrap();
         tmp.write_all(&[0u8; 40]).unwrap();
         let hd = hidden_dim as usize;

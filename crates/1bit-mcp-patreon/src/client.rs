@@ -93,7 +93,8 @@ impl PatreonClient {
         campaign_id: &str,
         cursor: Option<&str>,
     ) -> Result<Value, PatreonError> {
-        let fields = "fields%5Bmember%5D=email,full_name,patron_status,currently_entitled_amount_cents";
+        let fields =
+            "fields%5Bmember%5D=email,full_name,patron_status,currently_entitled_amount_cents";
         let path = match cursor {
             Some(c) => format!(
                 "/campaigns/{campaign_id}/members?{fields}&page%5Bcursor%5D={}",
@@ -140,12 +141,7 @@ impl PatreonClient {
 
     async fn get(&self, path: &str) -> Result<Value, PatreonError> {
         let url = format!("{}{}", self.base, path);
-        let resp = self
-            .http
-            .get(&url)
-            .bearer_auth(&self.token)
-            .send()
-            .await?;
+        let resp = self.http.get(&url).bearer_auth(&self.token).send().await?;
         let status = resp.status();
         let text = resp.text().await?;
         if !status.is_success() {

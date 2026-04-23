@@ -80,7 +80,13 @@ impl OnnxSession {
         let config = GenAiConfig::load(&paths.genai_config)?;
         let tokenizer = Tokenizer::from_file(&paths.tokenizer)
             .map_err(|e| OnnxError::TokenizerLoad(e.to_string()))?;
-        Ok(Self { paths, config, tokenizer, lane: ExecutionLane::Cpu, session: None })
+        Ok(Self {
+            paths,
+            config,
+            tokenizer,
+            lane: ExecutionLane::Cpu,
+            session: None,
+        })
     }
 
     /// Full load — tokenizer + config + an `ort::Session` built against

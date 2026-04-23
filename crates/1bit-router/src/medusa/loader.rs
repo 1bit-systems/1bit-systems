@@ -233,9 +233,8 @@ impl MedusaHeadsFile {
         // deployment policy. If ops swaps the file live, the resulting
         // torn reads are on them.
         let mmap = unsafe {
-            Mmap::map(&file).map_err(|e| {
-                MedusaError::LoaderError(format!("mmap {}: {e}", path.display()))
-            })?
+            Mmap::map(&file)
+                .map_err(|e| MedusaError::LoaderError(format!("mmap {}: {e}", path.display())))?
         };
 
         let bytes = &mmap[..];
@@ -581,8 +580,7 @@ mod tests {
         tmp2.as_file_mut()
             .set_len(MEDUSA_HEADER_BYTES as u64 + 64)
             .unwrap();
-        let err = MedusaHeadsFile::open(tmp2.path())
-            .expect_err("bad hidden_dim must be rejected");
+        let err = MedusaHeadsFile::open(tmp2.path()).expect_err("bad hidden_dim must be rejected");
         match err {
             MedusaError::LoaderError(msg) => {
                 assert!(
@@ -649,7 +647,8 @@ mod tests {
         // File-size math matches header.
         assert_eq!(
             file.mmap_len(),
-            hdr.expected_file_bytes().expect("no overflow at canonical shape"),
+            hdr.expected_file_bytes()
+                .expect("no overflow at canonical shape"),
         );
 
         // Per-head bytes: 2 × 2560 × 2560 × 2 = 26_214_400.

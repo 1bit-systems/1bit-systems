@@ -38,7 +38,10 @@ fn feed_and_try_recv_lifecycle_under_stub() {
     // worker should have fired at least one tick.
     let chunk = vec![0i16; 2_000];
     for _ in 0..8 {
-        assert!(stream.feed(&chunk), "backpressure should not trigger on idle worker");
+        assert!(
+            stream.feed(&chunk),
+            "backpressure should not trigger on idle worker"
+        );
     }
 
     // Let the worker breathe so it definitely gets past its step

@@ -33,7 +33,9 @@ pub struct WatchEntryRaw {
     pub notify: String,
 }
 
-fn default_soak() -> u32 { 24 }
+fn default_soak() -> u32 {
+    24
+}
 
 #[derive(Debug, Clone)]
 pub struct WatchEntry {
@@ -59,8 +61,7 @@ pub struct Manifest {
 
 impl Manifest {
     pub fn load(path: &str) -> Result<Self> {
-        let raw = fs::read_to_string(path)
-            .with_context(|| format!("reading {path}"))?;
+        let raw = fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
         Self::from_toml(&raw)
     }
 
@@ -69,7 +70,10 @@ impl Manifest {
         // `watch` table; this avoids failing on the `component` / `model`
         // sections that don't match our schema.
         let val: toml::Value = raw.parse().context("parsing toml")?;
-        let watch_val = val.get("watch").cloned().unwrap_or(toml::Value::Table(Default::default()));
+        let watch_val = val
+            .get("watch")
+            .cloned()
+            .unwrap_or(toml::Value::Table(Default::default()));
         let raw_entries: BTreeMap<String, WatchEntryRaw> = watch_val.try_into()?;
         let watch = raw_entries
             .into_iter()

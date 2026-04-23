@@ -198,10 +198,7 @@ async fn e2e_healthz_ok_without_model() {
         .expect("send /healthz");
     assert_eq!(resp.status(), reqwest::StatusCode::OK);
     let body = resp.text().await.expect("healthz body");
-    assert!(
-        body.trim() == "ok",
-        "expected body 'ok', got {body:?}"
-    );
+    assert!(body.trim() == "ok", "expected body 'ok', got {body:?}");
 
     // `/health` alias (C++ compat) should behave identically.
     let resp2 = client
@@ -279,7 +276,10 @@ async fn e2e_real_backend_chat_smoke() {
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from(format!("{home}/1bit systems/models/halo-1bit-2b.h1b")));
     if !h1b.exists() {
-        eprintln!("skipping e2e_real_backend_chat_smoke: {} not found", h1b.display());
+        eprintln!(
+            "skipping e2e_real_backend_chat_smoke: {} not found",
+            h1b.display()
+        );
         return;
     }
 

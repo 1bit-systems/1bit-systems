@@ -60,11 +60,7 @@ impl ServerError {
                 "api_error",
                 "backend_failure",
             ),
-            ServerError::Upstream(_) => (
-                StatusCode::BAD_GATEWAY,
-                "api_error",
-                "upstream_error",
-            ),
+            ServerError::Upstream(_) => (StatusCode::BAD_GATEWAY, "api_error", "upstream_error"),
             ServerError::Internal(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "api_error",

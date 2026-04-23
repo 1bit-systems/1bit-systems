@@ -157,7 +157,9 @@ impl RateLimit {
         });
 
         // Refill based on elapsed time since last check. Saturates at `capacity`.
-        let elapsed = now.saturating_duration_since(entry.last_refill).as_secs_f64();
+        let elapsed = now
+            .saturating_duration_since(entry.last_refill)
+            .as_secs_f64();
         entry.tokens = (entry.tokens + elapsed * refill).min(capacity);
         entry.last_refill = now;
         entry.last_seen = now;

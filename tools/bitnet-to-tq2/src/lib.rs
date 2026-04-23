@@ -91,9 +91,7 @@ pub enum ConvertError {
     #[error("safetensors parse error: {0}")]
     SafeTensors(#[from] safetensors::SafeTensorError),
 
-    #[error(
-        "tensor {name}: K-axis dim {cols} not a multiple of TQ2 group size ({group})"
-    )]
+    #[error("tensor {name}: K-axis dim {cols} not a multiple of TQ2 group size ({group})")]
     GroupMisaligned {
         name: String,
         cols: usize,
@@ -244,8 +242,7 @@ pub fn quantize_group_with_scale(
 /// Quantize a 128-element fp32 group using the per-block absmean policy.
 /// Computes `d = mean(|w|)` from the group itself.
 pub fn quantize_group_tq2(weights: &[f32; TQ2_GROUP_SIZE]) -> [u8; TQ2_BLOCK_BYTES] {
-    let absmean =
-        weights.iter().copied().map(|x| x.abs()).sum::<f32>() / TQ2_GROUP_SIZE as f32;
+    let absmean = weights.iter().copied().map(|x| x.abs()).sum::<f32>() / TQ2_GROUP_SIZE as f32;
     quantize_group_with_scale(weights, absmean)
 }
 
@@ -476,7 +473,12 @@ pub fn convert_with_mode(
             name: embedding_name.into(),
         })?;
     let embedding_bytes = bf16_view_to_f32_bytes(&embedding_view, embedding_name)?;
-    expect_shape_2d(&embedding_view, embedding_name, cfg.vocab_size as usize, cfg.hidden_size as usize)?;
+    expect_shape_2d(
+        &embedding_view,
+        embedding_name,
+        cfg.vocab_size as usize,
+        cfg.hidden_size as usize,
+    )?;
     out_file.write_all(&embedding_bytes)?;
     out_bytes += embedding_bytes.len() as u64;
     fp32_passthrough_names.push(embedding_name.into());
@@ -495,7 +497,8 @@ pub fn convert_with_mode(
 
     // -- Per-layer payloads -----------------------------------------------
     let mut packed_ternary_bytes: u64 = 0;
-    let mut per_layer_reports: Vec<Vec<TensorReport>> = Vec::with_capacity(cfg.num_hidden_layers as usize);
+    let mut per_layer_reports: Vec<Vec<TensorReport>> =
+        Vec::with_capacity(cfg.num_hidden_layers as usize);
     for l in 0..cfg.num_hidden_layers {
         let input_norm = pass_through_fp32_1d(
             &st,
@@ -762,8 +765,7 @@ mod tests {
         // ULP. Layout is d-first (bytes 0..2), codes-second (bytes 2..34)
         // — matches the PrismML GGUF and `bonsai_tq2_gemv.hip` kernel.
         let d = f16::from_bits(u16::from_le_bytes([block[0], block[1]])).to_f32();
-        let absmean_expected: f32 =
-            w.iter().map(|x| x.abs()).sum::<f32>() / 128.0;
+        let absmean_expected: f32 = w.iter().map(|x| x.abs()).sum::<f32>() / 128.0;
         assert!(
             (d - absmean_expected).abs() < 1e-3,
             "d={d}, expected ~{absmean_expected}"
@@ -827,7 +829,10 @@ mod tests {
         let stats = convert(&input_dir, &out_path).expect("convert must succeed");
         assert_eq!(stats.h1b_reserved_flags, H1B_FLAG_BONSAI_TQ2);
         let read_flags = read_reserved_flags(&out_path).unwrap();
-        assert_eq!(read_flags, H1B_FLAG_BONSAI_TQ2, "disk flag != in-memory flag");
+        assert_eq!(
+            read_flags, H1B_FLAG_BONSAI_TQ2,
+            "disk flag != in-memory flag"
+        );
 
         // version field sits at bytes [4..8].
         let disk = std::fs::read(&out_path).unwrap();
@@ -883,10 +888,13 @@ mod tests {
             "--per-block-scale",
         ])
         .unwrap_err();
-        assert!(err.to_string().contains("cannot be used with") || err.to_string().contains("conflict"));
+        assert!(
+            err.to_string().contains("cannot be used with") || err.to_string().contains("conflict")
+        );
 
         // Missing --in → error.
-        let err = crate::cli::Args::try_parse_from(["bitnet-to-tq2", "--out", "/tmp/x"]).unwrap_err();
+        let err =
+            crate::cli::Args::try_parse_from(["bitnet-to-tq2", "--out", "/tmp/x"]).unwrap_err();
         assert!(err.to_string().contains("--in") || err.to_string().contains("in"));
     }
 
@@ -1032,19 +1040,58 @@ mod tests {
         let up = ternary_tensor(is_, hs, 6);
         let down = ternary_tensor(hs, is_, 7);
         let tensors: Vec<(String, TensorView)> = vec![
-            ("model.embed_tokens.weight".into(), TensorView::new(Dtype::BF16, vec![vocab, hs], &embed).unwrap()),
-            ("model.norm.weight".into(), TensorView::new(Dtype::BF16, vec![hs], &hs_ones).unwrap()),
-            ("model.layers.0.input_layernorm.weight".into(), TensorView::new(Dtype::BF16, vec![hs], &hs_ones).unwrap()),
-            ("model.layers.0.post_attention_layernorm.weight".into(), TensorView::new(Dtype::BF16, vec![hs], &hs_ones).unwrap()),
-            ("model.layers.0.self_attn.attn_sub_norm.weight".into(), TensorView::new(Dtype::BF16, vec![hs], &hs_ones).unwrap()),
-            ("model.layers.0.mlp.ffn_sub_norm.weight".into(), TensorView::new(Dtype::BF16, vec![is_], &is_ones).unwrap()),
-            ("model.layers.0.self_attn.q_proj.weight".into(), TensorView::new(Dtype::BF16, vec![q_rows, hs], &q).unwrap()),
-            ("model.layers.0.self_attn.k_proj.weight".into(), TensorView::new(Dtype::BF16, vec![kv_rows, hs], &k).unwrap()),
-            ("model.layers.0.self_attn.v_proj.weight".into(), TensorView::new(Dtype::BF16, vec![kv_rows, hs], &v).unwrap()),
-            ("model.layers.0.self_attn.o_proj.weight".into(), TensorView::new(Dtype::BF16, vec![hs, nh * head_dim], &o).unwrap()),
-            ("model.layers.0.mlp.gate_proj.weight".into(), TensorView::new(Dtype::BF16, vec![is_, hs], &gate).unwrap()),
-            ("model.layers.0.mlp.up_proj.weight".into(), TensorView::new(Dtype::BF16, vec![is_, hs], &up).unwrap()),
-            ("model.layers.0.mlp.down_proj.weight".into(), TensorView::new(Dtype::BF16, vec![hs, is_], &down).unwrap()),
+            (
+                "model.embed_tokens.weight".into(),
+                TensorView::new(Dtype::BF16, vec![vocab, hs], &embed).unwrap(),
+            ),
+            (
+                "model.norm.weight".into(),
+                TensorView::new(Dtype::BF16, vec![hs], &hs_ones).unwrap(),
+            ),
+            (
+                "model.layers.0.input_layernorm.weight".into(),
+                TensorView::new(Dtype::BF16, vec![hs], &hs_ones).unwrap(),
+            ),
+            (
+                "model.layers.0.post_attention_layernorm.weight".into(),
+                TensorView::new(Dtype::BF16, vec![hs], &hs_ones).unwrap(),
+            ),
+            (
+                "model.layers.0.self_attn.attn_sub_norm.weight".into(),
+                TensorView::new(Dtype::BF16, vec![hs], &hs_ones).unwrap(),
+            ),
+            (
+                "model.layers.0.mlp.ffn_sub_norm.weight".into(),
+                TensorView::new(Dtype::BF16, vec![is_], &is_ones).unwrap(),
+            ),
+            (
+                "model.layers.0.self_attn.q_proj.weight".into(),
+                TensorView::new(Dtype::BF16, vec![q_rows, hs], &q).unwrap(),
+            ),
+            (
+                "model.layers.0.self_attn.k_proj.weight".into(),
+                TensorView::new(Dtype::BF16, vec![kv_rows, hs], &k).unwrap(),
+            ),
+            (
+                "model.layers.0.self_attn.v_proj.weight".into(),
+                TensorView::new(Dtype::BF16, vec![kv_rows, hs], &v).unwrap(),
+            ),
+            (
+                "model.layers.0.self_attn.o_proj.weight".into(),
+                TensorView::new(Dtype::BF16, vec![hs, nh * head_dim], &o).unwrap(),
+            ),
+            (
+                "model.layers.0.mlp.gate_proj.weight".into(),
+                TensorView::new(Dtype::BF16, vec![is_, hs], &gate).unwrap(),
+            ),
+            (
+                "model.layers.0.mlp.up_proj.weight".into(),
+                TensorView::new(Dtype::BF16, vec![is_, hs], &up).unwrap(),
+            ),
+            (
+                "model.layers.0.mlp.down_proj.weight".into(),
+                TensorView::new(Dtype::BF16, vec![hs, is_], &down).unwrap(),
+            ),
         ];
         safetensors::serialize_to_file(tensors.iter().map(|(n, v)| (n.as_str(), v)), None, path)
             .expect("serialize tiny safetensors");
@@ -1190,7 +1237,11 @@ pub mod cli {
 
         /// Use per-tensor absmean for the block `d` (BitNet training
         /// scale, duplicated into every block's fp16 slot). Default ON.
-        #[arg(long = "per-tensor-scale", default_value_t = true, conflicts_with = "per_block_scale")]
+        #[arg(
+            long = "per-tensor-scale",
+            default_value_t = true,
+            conflicts_with = "per_block_scale"
+        )]
         pub per_tensor_scale: bool,
 
         /// Use per-128-block absmean for the block `d` (TQ2 native

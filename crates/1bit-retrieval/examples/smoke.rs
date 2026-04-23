@@ -9,16 +9,16 @@ fn main() {
     let query = args
         .next()
         .unwrap_or_else(|| "amdgpu OPTC hang".to_string());
-    let k: usize = args
-        .next()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(5);
+    let k: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(5);
 
     // Walk upward from CARGO_MANIFEST_DIR to find docs/wiki.
     let mut root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     while !root.join("docs/wiki").exists() {
         if !root.pop() {
-            eprintln!("couldn't find docs/wiki from {:?}", env!("CARGO_MANIFEST_DIR"));
+            eprintln!(
+                "couldn't find docs/wiki from {:?}",
+                env!("CARGO_MANIFEST_DIR")
+            );
             std::process::exit(1);
         }
     }

@@ -34,6 +34,7 @@ use onebit_agents::watch::{
 use onebit_agents::{Name, Registry};
 use serde_json::json;
 use serenity::Client;
+use serenity::all::CommandOptionType;
 use serenity::all::{
     AutoArchiveDuration, ButtonStyle, ChannelType, Context, CreateActionRow, CreateButton,
     CreateCommand, CreateCommandOption, CreateForumPost, CreateInteractionResponse,
@@ -41,7 +42,6 @@ use serenity::all::{
     EditThread, EventHandler, ForumTag, ForumTagId, GatewayIntents, GuildId, Http, Interaction,
     Member, Message, Ready, RoleId,
 };
-use serenity::all::CommandOptionType;
 use serenity::async_trait;
 use std::collections::HashMap;
 use tokio::sync::OnceCell;
@@ -96,7 +96,10 @@ struct HelpDeskMeta {
 
 impl HelpDeskMeta {
     fn empty() -> Self {
-        Self { is_forum: false, tags_by_name: HashMap::new() }
+        Self {
+            is_forum: false,
+            tags_by_name: HashMap::new(),
+        }
     }
 
     fn from_tags(is_forum: bool, tags: &[ForumTag]) -> Self {
@@ -104,7 +107,10 @@ impl HelpDeskMeta {
         for t in tags {
             tags_by_name.insert(t.name.to_lowercase(), t.id);
         }
-        Self { is_forum, tags_by_name }
+        Self {
+            is_forum,
+            tags_by_name,
+        }
     }
 
     /// Pick a forum-tag id for the given classification + severity. We
@@ -142,11 +148,7 @@ impl HelpDeskMeta {
     /// the state tag is swapped. Called from slash-command + button
     /// handlers. Existing applied tags come from the post's current
     /// state at the call site.
-    fn swap_state_tag(
-        &self,
-        current_tags: &[ForumTagId],
-        target_state: &str,
-    ) -> Vec<ForumTagId> {
+    fn swap_state_tag(&self, current_tags: &[ForumTagId], target_state: &str) -> Vec<ForumTagId> {
         let transient: std::collections::HashSet<ForumTagId> = ["pending", "resolved", "escalated"]
             .iter()
             .filter_map(|n| self.tags_by_name.get(*n).copied())
@@ -188,8 +190,7 @@ impl EventHandler for Handler {
                     )
                     .required(true),
                 ),
-            CreateCommand::new("resolve")
-                .description("Mark the current help-desk post resolved"),
+            CreateCommand::new("resolve").description("Mark the current help-desk post resolved"),
             CreateCommand::new("escalate")
                 .description("Mark the current help-desk post escalated for a human"),
             CreateCommand::new("poll")
@@ -221,18 +222,16 @@ impl EventHandler for Handler {
         ];
 
         let register = if let Some(gid) = self.guild_id {
-            gid.set_commands(&ctx.http, commands.clone()).await.map(|_| "guild")
+            gid.set_commands(&ctx.http, commands.clone())
+                .await
+                .map(|_| "guild")
         } else {
             serenity::all::Command::set_global_commands(&ctx.http, commands.clone())
                 .await
                 .map(|_| "global")
         };
         match register {
-            Ok(scope) => info!(
-                scope,
-                count = commands.len(),
-                "registered slash commands"
-            ),
+            Ok(scope) => info!(scope, count = commands.len(), "registered slash commands"),
             Err(e) => warn!(error = %e, "failed to register slash commands"),
         }
     }
@@ -385,7 +384,13 @@ impl Handler {
     /// The channel kind is fetched once via `OnceCell` on first route and
     /// reused afterwards. All outbound posts go through echo's token; if
     /// echo is unset we log + drop so halo never accidentally speaks.
-    async fn route_to_help_desk(&self, ctx: &Context, msg: &Message, class: Classification, reply: &str) {
+    async fn route_to_help_desk(
+        &self,
+        ctx: &Context,
+        msg: &Message,
+        class: Classification,
+        reply: &str,
+    ) {
         let Some(http) = self.echo_http.as_ref() else {
             warn!("help-desk routing requested but ECHO_BOT_TOKEN unset — dropping");
             return;
@@ -474,10 +479,14 @@ impl Handler {
                     .label("Escalate")
                     .emoji('⬆')
                     .style(ButtonStyle::Danger),
-                CreateButton::new(format!("hd_reroll:{}", msg.id.get()))
-                    .label("Re-ask")
-                    .emoji('🔁')
-                    .style(ButtonStyle::Secondary),
+                CreateButton::new(format!(
+                    "hd_reroll:{}:{}",
+                    msg.channel_id.get(),
+                    msg.id.get()
+                ))
+                .label("Re-ask")
+                .emoji('🔁')
+                .style(ButtonStyle::Secondary),
             ]);
 
             let post_builder = CreateForumPost::new(
@@ -507,10 +516,8 @@ impl Handler {
                     )
                     .await;
 
-                    let breadcrumb = format!(
-                        "Routed to <#{post}> — follow there.",
-                        post = post.id.get()
-                    );
+                    let breadcrumb =
+                        format!("Routed to <#{post}> — follow there.", post = post.id.get());
                     if let Err(e) = msg.channel_id.say(http.as_ref(), breadcrumb).await {
                         warn!(error = %e, "failed to post help-desk breadcrumb");
                     }
@@ -536,8 +543,8 @@ impl Handler {
             }
         };
 
-        let thread_builder = CreateThread::new(thread_name)
-            .auto_archive_duration(AutoArchiveDuration::OneWeek);
+        let thread_builder =
+            CreateThread::new(thread_name).auto_archive_duration(AutoArchiveDuration::OneWeek);
         let thread = match help_ch
             .create_thread_from_message(http.as_ref(), seed_msg.id, thread_builder)
             .await
@@ -629,11 +636,7 @@ impl Handler {
     /// Dispatch slash commands. All responses are ephemeral (only the
     /// invoking user sees them) to keep the channel quiet; public work
     /// like `/resolve` tagging is visible through the tag swap itself.
-    async fn handle_slash_command(
-        &self,
-        ctx: &Context,
-        cmd: serenity::all::CommandInteraction,
-    ) {
+    async fn handle_slash_command(&self, ctx: &Context, cmd: serenity::all::CommandInteraction) {
         let name = cmd.data.name.as_str();
         info!(command = name, user = %cmd.user.name, "slash command invoked");
 
@@ -653,7 +656,12 @@ impl Handler {
                     .trim()
                     .to_string();
                 if question.is_empty() {
-                    ephemeral(ctx, &cmd, "Give me something to ask — `/ask question:<text>`").await;
+                    ephemeral(
+                        ctx,
+                        &cmd,
+                        "Give me something to ask — `/ask question:<text>`",
+                    )
+                    .await;
                     return;
                 }
                 let class = classify(&question);
@@ -723,11 +731,7 @@ impl Handler {
     /// `/poll` — post a Discord native poll in the invoking channel.
     /// Echo owns the message so the poll looks like it came from the
     /// posting identity, matching every other specialist output.
-    async fn handle_poll_command(
-        &self,
-        ctx: &Context,
-        cmd: &serenity::all::CommandInteraction,
-    ) {
+    async fn handle_poll_command(&self, ctx: &Context, cmd: &serenity::all::CommandInteraction) {
         let Some(http) = self.echo_http.as_ref() else {
             ephemeral(ctx, cmd, "ECHO_BOT_TOKEN unset — can't post a poll").await;
             return;
@@ -799,11 +803,7 @@ impl Handler {
     ///   * `hd_resolve`                  → swap state tag to resolved
     ///   * `hd_escalate`                 → swap state tag to escalated
     ///   * `hd_reroll:<original_msg_id>` → re-dispatch original message
-    async fn handle_button(
-        &self,
-        ctx: &Context,
-        btn: serenity::all::ComponentInteraction,
-    ) {
+    async fn handle_button(&self, ctx: &Context, btn: serenity::all::ComponentInteraction) {
         let id = btn.data.custom_id.clone();
         info!(custom_id = %id, user = %btn.user.name, "button pressed");
 
@@ -811,27 +811,8 @@ impl Handler {
             self.swap_post_state_component(ctx, &btn, "resolved").await;
         } else if id == "hd_escalate" {
             self.swap_post_state_component(ctx, &btn, "escalated").await;
-        } else if let Some(_orig_id) = id.strip_prefix("hd_reroll:") {
-            // Reroll kicks the original classification + question back
-            // through the specialist registry. We don't have the
-            // original Message object at hand here, only the id, so the
-            // v1 behaviour is: ack, post a note, and let a human drag
-            // the asker back to the origin. A later pass can fetch the
-            // original via http::get_message and re-dispatch fully.
-            let _ = btn
-                .create_response(
-                    &ctx.http,
-                    CreateInteractionResponse::Message(
-                        CreateInteractionResponseMessage::new()
-                            .content(
-                                "Reroll queued. Full re-dispatch from this button is a \
-                                 follow-up — for now ping the asker to repost or use \
-                                 `/ask <question>` yourself.",
-                            )
-                            .ephemeral(true),
-                    ),
-                )
-                .await;
+        } else if let Some(rest) = id.strip_prefix("hd_reroll:") {
+            self.handle_reroll(ctx, &btn, rest).await;
         } else {
             let _ = btn
                 .create_response(
@@ -846,6 +827,112 @@ impl Handler {
         }
     }
 
+    /// Fetch the original user message from the origin channel and
+    /// re-dispatch it through the specialist registry. Posts the fresh
+    /// reply back into the current forum thread (where the user
+    /// clicked the button) so the asker sees a second attempt without
+    /// leaving the post. `rest` is the encoded `<channel_id>:<msg_id>`
+    /// slice from the button's custom_id.
+    async fn handle_reroll(
+        &self,
+        ctx: &Context,
+        btn: &serenity::all::ComponentInteraction,
+        rest: &str,
+    ) {
+        let (chan_raw, msg_raw) = match rest.split_once(':') {
+            Some(p) => p,
+            None => {
+                respond_ephemeral_btn(ctx, btn, "Malformed reroll button id.").await;
+                return;
+            }
+        };
+        let origin_chan: u64 = match chan_raw.parse() {
+            Ok(v) => v,
+            Err(_) => {
+                respond_ephemeral_btn(ctx, btn, "Bad channel in reroll id.").await;
+                return;
+            }
+        };
+        let origin_msg: u64 = match msg_raw.parse() {
+            Ok(v) => v,
+            Err(_) => {
+                respond_ephemeral_btn(ctx, btn, "Bad message in reroll id.").await;
+                return;
+            }
+        };
+
+        // Defer so we don't blow the 3s ack window while the LLM runs.
+        let _ = btn
+            .create_response(
+                &ctx.http,
+                CreateInteractionResponse::Defer(
+                    CreateInteractionResponseMessage::new().ephemeral(true),
+                ),
+            )
+            .await;
+
+        let chan = serenity::all::ChannelId::new(origin_chan);
+        let mid = serenity::all::MessageId::new(origin_msg);
+        let content = match chan.message(&ctx.http, mid).await {
+            Ok(m) => m.content,
+            Err(e) => {
+                warn!(error = %e, "reroll: original message not found");
+                respond_ephemeral_btn(
+                    ctx,
+                    btn,
+                    "Original message is gone (deleted post-route). Nothing to re-ask from.",
+                )
+                .await;
+                return;
+            }
+        };
+
+        let class = classify(&content);
+        let specialist = class.specialist();
+        let req = serde_json::json!({
+            "source": "discord-reroll",
+            "channel_id": origin_chan,
+            "classification": class.as_str(),
+            "content": content,
+        });
+        info!(specialist = specialist.as_str(), "reroll dispatch");
+        let reply_text = match self.registry.dispatch(specialist.as_str(), req).await {
+            Ok(resp) => resp
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            Err(e) => {
+                warn!(error = %e, "reroll dispatch failed");
+                format!("Reroll dispatch failed: {e}")
+            }
+        };
+        let clean = sanitize_reply(&unwrap_outer_codeblock(&reply_text));
+        let final_text = if clean.trim().is_empty() {
+            "_Specialist came back empty on reroll._".to_string()
+        } else {
+            clean
+        };
+
+        // Post into the forum thread (btn.channel_id) via echo so the
+        // new reply appears in-place. Prefix with a 🔁 header so it's
+        // distinct from the original starter.
+        let body = format!(
+            "🔁 **reroll by {user}**\n\n{final_text}",
+            user = btn.user.name
+        );
+        if let Some(http) = self.echo_http.as_ref() {
+            match btn.channel_id.say(http.as_ref(), body).await {
+                Ok(reply_msg) => {
+                    seed_feedback_reactions(http.as_ref(), btn.channel_id, reply_msg.id).await;
+                }
+                Err(e) => {
+                    warn!(error = %e, "reroll: failed to post reply into thread");
+                }
+            }
+        }
+    }
+
     /// Flip the help-desk post's state tag (resolved / escalated) via a
     /// slash command. No-ops (with an ephemeral reply) when invoked
     /// outside a forum thread whose parent is the configured help-desk.
@@ -856,7 +943,12 @@ impl Handler {
         target_state: &str,
     ) {
         let Some(meta) = self.help_desk_meta.get() else {
-            ephemeral(ctx, cmd, "Help-desk metadata not resolved yet — route one message first.").await;
+            ephemeral(
+                ctx,
+                cmd,
+                "Help-desk metadata not resolved yet — route one message first.",
+            )
+            .await;
             return;
         };
         if !meta.is_forum {
@@ -868,7 +960,10 @@ impl Handler {
             .await;
             return;
         }
-        match self.swap_tag_on_channel(ctx, cmd.channel_id.get(), meta, target_state).await {
+        match self
+            .swap_tag_on_channel(ctx, cmd.channel_id.get(), meta, target_state)
+            .await
+        {
             Ok(()) => {
                 ephemeral(ctx, cmd, &format!("✓ marked {target_state}")).await;
             }
@@ -911,7 +1006,10 @@ impl Handler {
                 .await;
             return;
         }
-        match self.swap_tag_on_channel(ctx, btn.channel_id.get(), meta, target_state).await {
+        match self
+            .swap_tag_on_channel(ctx, btn.channel_id.get(), meta, target_state)
+            .await
+        {
             Ok(()) => {
                 let _ = btn
                     .create_response(
@@ -1035,7 +1133,11 @@ impl Handler {
 
         // Load the message that was reacted to. Needs full fetch to see
         // the author + content.
-        let msg = match reaction.channel_id.message(&ctx.http, reaction.message_id).await {
+        let msg = match reaction
+            .channel_id
+            .message(&ctx.http, reaction.message_id)
+            .await
+        {
             Ok(m) => m,
             Err(e) => {
                 info!(error = %e, "failed to fetch reacted message — skipping");
@@ -1076,7 +1178,11 @@ impl Handler {
         if let Err(e) = append_jsonl(&path, &entry) {
             warn!(error = %e, path = %path.display(), "failed to append feedback line");
         } else {
-            info!(verdict, message_id = reaction.message_id.get(), "recorded reply feedback");
+            info!(
+                verdict,
+                message_id = reaction.message_id.get(),
+                "recorded reply feedback"
+            );
         }
     }
 }
@@ -1108,7 +1214,10 @@ fn wrap_in_codeblock(text: &str) -> String {
 /// token is absent (defensive; caller already checked but we don't
 /// rely on it).
 async fn delete_origin_message(http: &Http, msg: &Message) {
-    if let Err(e) = http.delete_message(msg.channel_id, msg.id, Some("routed to help-desk")).await {
+    if let Err(e) = http
+        .delete_message(msg.channel_id, msg.id, Some("routed to help-desk"))
+        .await
+    {
         info!(
             error = %e,
             channel_id = %msg.channel_id,
@@ -1156,7 +1265,9 @@ async fn seed_feedback_reactions(
 /// path stable across restarts so downstream training pipelines can
 /// tail-follow it.
 fn feedback_log_path() -> std::path::PathBuf {
-    let base = std::env::var("HALO_FEEDBACK_LOG").ok().map(std::path::PathBuf::from);
+    let base = std::env::var("HALO_FEEDBACK_LOG")
+        .ok()
+        .map(std::path::PathBuf::from);
     base.unwrap_or_else(|| {
         let mut p = dirs::state_dir()
             .or_else(dirs::data_local_dir)
@@ -1167,14 +1278,53 @@ fn feedback_log_path() -> std::path::PathBuf {
     })
 }
 
+/// Size ceiling past which feedback.jsonl gets rotated on the next
+/// write. 10 MB is generous for a reaction log — each line is ~300
+/// bytes so ~33k reactions before we rotate, which in practice is
+/// months of traffic.
+const FEEDBACK_ROTATE_BYTES: u64 = 10 * 1024 * 1024;
+
+/// Keep this many rotated copies. Older ones get deleted. Pi rsync job
+/// picks up whatever's left under `~/.local/state/1bit-halo/` anyway,
+/// so the archive is authoritative long-term.
+const FEEDBACK_KEEP_ROTATIONS: usize = 5;
+
+/// Rotate a jsonl log in place when it grows past `FEEDBACK_ROTATE_BYTES`.
+/// Shift `.4` → drop, `.3` → `.4`, …, `.0` → `.1`, current → `.0`. Best
+/// effort — any individual rename failure just means the next write
+/// keeps appending to the oversized file.
+fn rotate_if_needed(path: &std::path::Path) {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return;
+    };
+    if meta.len() < FEEDBACK_ROTATE_BYTES {
+        return;
+    }
+    // Drop oldest, then cascade.
+    let oldest = path.with_extension(format!("jsonl.{}", FEEDBACK_KEEP_ROTATIONS - 1));
+    let _ = std::fs::remove_file(&oldest);
+    for i in (0..FEEDBACK_KEEP_ROTATIONS - 1).rev() {
+        let from = if i == 0 {
+            path.with_extension("jsonl.0")
+        } else {
+            path.with_extension(format!("jsonl.{i}"))
+        };
+        let to = path.with_extension(format!("jsonl.{}", i + 1));
+        if from.exists() {
+            let _ = std::fs::rename(&from, &to);
+        }
+    }
+    let _ = std::fs::rename(path, path.with_extension("jsonl.0"));
+}
+
 /// Append a serde_json Value as a single line to a jsonl file, creating
-/// parent directories as needed. File is opened in append mode each
-/// call — simpler than keeping a long-lived handle, and a reaction
-/// once every few minutes doesn't need the throughput.
+/// parent directories as needed. Rotates the file when it crosses
+/// `FEEDBACK_ROTATE_BYTES` so it can't grow unbounded.
 fn append_jsonl(path: &std::path::Path, value: &serde_json::Value) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
+    rotate_if_needed(path);
     use std::io::Write;
     let mut f = std::fs::OpenOptions::new()
         .create(true)
@@ -1186,13 +1336,27 @@ fn append_jsonl(path: &std::path::Path, value: &serde_json::Value) -> std::io::R
     Ok(())
 }
 
-/// Helper: send an ephemeral reply to a slash command. Ephemeral = only
-/// the invoking user sees it, no channel noise.
-async fn ephemeral(
+/// Helper: ephemeral reply to a component (button) interaction.
+async fn respond_ephemeral_btn(
     ctx: &Context,
-    cmd: &serenity::all::CommandInteraction,
+    btn: &serenity::all::ComponentInteraction,
     content: &str,
 ) {
+    let _ = btn
+        .create_response(
+            &ctx.http,
+            CreateInteractionResponse::Message(
+                CreateInteractionResponseMessage::new()
+                    .content(content)
+                    .ephemeral(true),
+            ),
+        )
+        .await;
+}
+
+/// Helper: send an ephemeral reply to a slash command. Ephemeral = only
+/// the invoking user sees it, no channel noise.
+async fn ephemeral(ctx: &Context, cmd: &serenity::all::CommandInteraction, content: &str) {
     if let Err(e) = cmd
         .create_response(
             &ctx.http,
@@ -1339,18 +1503,11 @@ fn truncate_for_thread_name(src: &str) -> String {
         .chars()
         .map(|c| if c.is_whitespace() { ' ' } else { c })
         .collect();
-    let collapsed: String = flat
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let collapsed: String = flat.split_whitespace().collect::<Vec<_>>().join(" ");
     if collapsed.chars().count() <= 80 {
         collapsed
     } else {
-        collapsed
-            .chars()
-            .take(77)
-            .chain("...".chars())
-            .collect()
+        collapsed.chars().take(77).chain("...".chars()).collect()
     }
 }
 

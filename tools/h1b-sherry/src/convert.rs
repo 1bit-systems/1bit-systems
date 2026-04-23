@@ -38,8 +38,8 @@ impl ConvertStats {
 /// `reserved` cfg slot. Preserves `H1B_FLAG_HADAMARD_ROTATED` if it was
 /// set upstream.
 pub fn convert_file(in_path: &Path, out_path: &Path) -> Result<ConvertStats> {
-    let src = H1bFile::open(in_path)
-        .with_context(|| format!("opening input {}", in_path.display()))?;
+    let src =
+        H1bFile::open(in_path).with_context(|| format!("opening input {}", in_path.display()))?;
 
     let cfg = *src.config();
     let fmt = cfg
@@ -101,11 +101,10 @@ pub fn convert_file(in_path: &Path, out_path: &Path) -> Result<ConvertStats> {
     };
     let layer_views: Vec<LayerTensors<'_>> = layer_blobs.iter().map(LayerOwned::as_view).collect();
 
-    let bytes = serialize(&out_cfg, &model_view, &layer_views)
-        .map_err(|e| anyhow!("serialize: {e}"))?;
+    let bytes =
+        serialize(&out_cfg, &model_view, &layer_views).map_err(|e| anyhow!("serialize: {e}"))?;
 
-    std::fs::write(out_path, &bytes)
-        .with_context(|| format!("writing {}", out_path.display()))?;
+    std::fs::write(out_path, &bytes).with_context(|| format!("writing {}", out_path.display()))?;
     Ok(stats)
 }
 
@@ -199,9 +198,7 @@ fn build_layer_owned(
     let mut packed_slots: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(7);
     for (name, packed_span, scales_span, rows, cols) in tensors {
         if cols % 32 != 0 {
-            bail!(
-                "tensor {name}: cols={cols} not divisible by 32 (Sherry requirement)",
-            );
+            bail!("tensor {name}: cols={cols} not divisible by 32 (Sherry requirement)",);
         }
         let tq1_src = src.tensor_bytes(packed_span);
         let row_in_bytes = tq1_row_bytes(cols);

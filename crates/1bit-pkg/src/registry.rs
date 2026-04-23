@@ -41,11 +41,7 @@ pub trait Registry {
     fn resolve(&self, name: &str) -> anyhow::Result<Option<RegistryEntry>>;
 
     /// Resolve a specific version of a plugin.
-    fn resolve_version(
-        &self,
-        name: &str,
-        version: &str,
-    ) -> anyhow::Result<Option<RegistryEntry>>;
+    fn resolve_version(&self, name: &str, version: &str) -> anyhow::Result<Option<RegistryEntry>>;
 
     /// Substring / fuzzy search across `name` + `description`.
     fn search(&self, query: &str) -> anyhow::Result<Vec<RegistryEntry>>;

@@ -56,11 +56,9 @@ impl Snapshot {
         let vram_total = read_u64(Path::new(DRM_ROOT).join("mem_info_vram_total"))?;
         let vram_used = read_u64(Path::new(DRM_ROOT).join("mem_info_vram_used"))?;
 
-        let meminfo = std::fs::read_to_string("/proc/meminfo")
-            .context("read /proc/meminfo")?;
+        let meminfo = std::fs::read_to_string("/proc/meminfo").context("read /proc/meminfo")?;
         let mem_total = parse_meminfo_kib(&meminfo, "MemTotal").unwrap_or(0) * 1024;
-        let mem_available =
-            parse_meminfo_kib(&meminfo, "MemAvailable").unwrap_or(0) * 1024;
+        let mem_available = parse_meminfo_kib(&meminfo, "MemAvailable").unwrap_or(0) * 1024;
 
         let services = scan_halo_services();
 

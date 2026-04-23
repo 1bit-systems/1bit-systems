@@ -62,7 +62,13 @@ impl ArtifactPaths {
             }
         }
 
-        Ok(Self { root, model, weights, genai_config, tokenizer })
+        Ok(Self {
+            root,
+            model,
+            weights,
+            genai_config,
+            tokenizer,
+        })
     }
 }
 
@@ -129,7 +135,11 @@ pub struct GenAiSearch {
 
 impl Default for GenAiSearch {
     fn default() -> Self {
-        Self { do_sample: false, temperature: default_temperature(), top_k: default_top_k() }
+        Self {
+            do_sample: false,
+            temperature: default_temperature(),
+            top_k: default_top_k(),
+        }
     }
 }
 

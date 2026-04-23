@@ -325,7 +325,6 @@ impl H1bWeightFormat {
             }),
         }
     }
-
 }
 
 /// Parsed `.h1b` config header. Mirrors `rcpp_bitnet_model_t`'s scalar fields.
@@ -403,16 +402,14 @@ impl H1bConfig {
     /// `Q1_0_g128` 1-bit format. See [`H1B_FLAG_BONSAI_Q1`] for the flag
     /// rationale. Mutually exclusive with [`Self::is_bonsai_tq2`].
     pub fn is_bonsai_q1(&self) -> bool {
-        (self.reserved & H1B_FLAG_BONSAI_Q1) != 0
-            && (self.reserved & H1B_FLAG_BONSAI_TQ2) == 0
+        (self.reserved & H1B_FLAG_BONSAI_Q1) != 0 && (self.reserved & H1B_FLAG_BONSAI_TQ2) == 0
     }
 
     /// Whether this checkpoint's ternary weights are packed in PrismML's
     /// `TQ2_0_g128` ~1.585-bit format. See [`H1B_FLAG_BONSAI_TQ2`] for
     /// the flag rationale. Mutually exclusive with [`Self::is_bonsai_q1`].
     pub fn is_bonsai_tq2(&self) -> bool {
-        (self.reserved & H1B_FLAG_BONSAI_TQ2) != 0
-            && (self.reserved & H1B_FLAG_BONSAI_Q1) == 0
+        (self.reserved & H1B_FLAG_BONSAI_TQ2) != 0 && (self.reserved & H1B_FLAG_BONSAI_Q1) == 0
     }
 }
 
@@ -1204,11 +1201,10 @@ mod tests {
         let f = H1bWeightFormat::from_version_and_flags(4, H1B_FLAG_BONSAI_Q1).unwrap();
         assert_eq!(f, H1bWeightFormat::BonsaiQ1 { group_size: 128 });
         // Both set → error.
-        assert!(H1bWeightFormat::from_version_and_flags(
-            2,
-            H1B_FLAG_BONSAI_Q1 | H1B_FLAG_BONSAI_TQ2,
-        )
-        .is_err());
+        assert!(
+            H1bWeightFormat::from_version_and_flags(2, H1B_FLAG_BONSAI_Q1 | H1B_FLAG_BONSAI_TQ2,)
+                .is_err()
+        );
         // Zero → status quo per-version dispatch.
         assert_eq!(
             H1bWeightFormat::from_version_and_flags(2, 0).unwrap(),

@@ -166,10 +166,7 @@ pub fn build_htok_from_gguf(header: &BitnetHeader) -> Result<(HtokFile, u32), Ht
 
 /// Read the GGUF at `input`, build a `.htok`, write it to `output`.
 /// Returns the summary shape for the CLI.
-pub fn export_htok_sidecar(
-    input: &Path,
-    output: &Path,
-) -> Result<HtokStats, HtokExportError> {
+pub fn export_htok_sidecar(input: &Path, output: &Path) -> Result<HtokStats, HtokExportError> {
     let gguf = GgufFile::open(input)?;
     let header = gguf.read_bitnet_metadata()?;
     let (htok, dropped) = build_htok_from_gguf(&header)?;

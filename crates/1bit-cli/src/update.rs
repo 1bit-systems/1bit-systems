@@ -191,7 +191,11 @@ pub fn pick_update<'a>(feed: &'a Feed, current: &str) -> Option<(&'a Release, &'
 /// feed uses. Keep in sync with `Artifact::platform` strings.
 pub fn current_platform() -> &'static str {
     // Only linux-gnu x86_64 ships today; extend when we pack arm64.
-    if cfg!(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu")) {
+    if cfg!(all(
+        target_arch = "x86_64",
+        target_os = "linux",
+        target_env = "gnu"
+    )) {
         "x86_64-linux-gnu"
     } else if cfg!(all(target_arch = "aarch64", target_os = "linux")) {
         "aarch64-linux-gnu"
@@ -204,8 +208,8 @@ pub fn current_platform() -> &'static str {
 
 /// Recompute sha256 over a path, compare hex-lowercase against `expect`.
 pub fn verify_sha256(path: &Path, expect: &str) -> Result<()> {
-    let mut file = std::fs::File::open(path)
-        .with_context(|| format!("open {} for hash", path.display()))?;
+    let mut file =
+        std::fs::File::open(path).with_context(|| format!("open {} for hash", path.display()))?;
     let mut hasher = Sha256::new();
     std::io::copy(&mut file, &mut hasher).context("hash read")?;
     let got = format!("{:x}", hasher.finalize());
@@ -250,8 +254,15 @@ pub fn verify_minisign(path: &Path, sig_block: &str, pubkey_b64: &str) -> Result
 #[allow(dead_code, clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CheckOutcome {
-    UpToDate { current: String, latest: String },
-    Available { current: String, release: Release, artifact: Artifact },
+    UpToDate {
+        current: String,
+        latest: String,
+    },
+    Available {
+        current: String,
+        release: Release,
+        artifact: Artifact,
+    },
     FeedError(String),
 }
 
@@ -403,13 +414,21 @@ async fn download_to(url: &str, dest: &Path, max_bytes: u64) -> Result<()> {
 /// 2. `--install` → feed fetch + verify (no-op install)
 /// 3. legacy (`--legacy-rebuild` OR `--no-build` OR `--no-restart`) → git-pull rebuild path
 /// 4. default with no flags → `--check` behavior (safest default)
-pub async fn run(check: bool, install: bool, no_build: bool, no_restart: bool, legacy: bool) -> Result<()> {
+pub async fn run(
+    check: bool,
+    install: bool,
+    no_build: bool,
+    no_restart: bool,
+    legacy: bool,
+) -> Result<()> {
     if check && install {
         bail!("--check and --install are mutually exclusive");
     }
     let use_legacy = legacy || no_build || no_restart;
     if use_legacy && (check || install) {
-        bail!("--legacy-rebuild / --no-build / --no-restart are for the legacy git path; drop --check/--install");
+        bail!(
+            "--legacy-rebuild / --no-build / --no-restart are for the legacy git path; drop --check/--install"
+        );
     }
     if use_legacy {
         return legacy_rebuild::run(no_build, no_restart).await;
@@ -543,8 +562,7 @@ mod tests {
     /// Sample keypair pubkey (matches `tests/fixtures/update/sample.pub`).
     /// Identical to `HALO_RELEASE_PUBKEY_MINISIGN`; duplicated here so
     /// a future pubkey bump doesn't silently break the fixture tests.
-    const FIXTURE_PUBKEY: &str =
-        "RWSLBfI8Kvx1y0hh48uFk6cyGEv9JVAWYcPOBG1cLF8Q0IWG5/nloFWQ";
+    const FIXTURE_PUBKEY: &str = "RWSLBfI8Kvx1y0hh48uFk6cyGEv9JVAWYcPOBG1cLF8Q0IWG5/nloFWQ";
 
     fn fixture_path(rel: &str) -> std::path::PathBuf {
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -572,8 +590,15 @@ mod tests {
             feed.releases.iter().any(|r| r.version == feed.latest),
             "releases[] must include the version named in `latest`"
         );
-        let rel = feed.releases.iter().find(|r| r.version == feed.latest).unwrap();
-        assert!(!rel.artifacts.is_empty(), "pinned release must have artifacts");
+        let rel = feed
+            .releases
+            .iter()
+            .find(|r| r.version == feed.latest)
+            .unwrap();
+        assert!(
+            !rel.artifacts.is_empty(),
+            "pinned release must have artifacts"
+        );
         assert!(
             feed.channels.contains_key("stable"),
             "stable channel pin is expected"
@@ -593,7 +618,9 @@ mod tests {
         let feed = parse_feed(sample_feed_json().as_bytes()).unwrap();
         let outcome = classify_check(&feed, "0.2.9");
         match outcome {
-            CheckOutcome::Available { current, release, .. } => {
+            CheckOutcome::Available {
+                current, release, ..
+            } => {
                 assert_eq!(current, "0.2.9");
                 assert_eq!(release.version, feed.latest);
             }

@@ -147,7 +147,10 @@ async fn chat_completion_bad_model_returns_400_with_hint() {
     assert_eq!(err["type"], "invalid_request_error");
     assert_eq!(err["code"], "bad_request");
     let msg = err["message"].as_str().unwrap_or_default();
-    assert!(msg.contains("does-not-exist"), "message missing requested id: {msg:?}");
+    assert!(
+        msg.contains("does-not-exist"),
+        "message missing requested id: {msg:?}"
+    );
     assert!(
         msg.contains("halo-1bit-2b") && msg.contains("halo-bitnet-2b-tq2"),
         "message missing available ids hint: {msg:?}"

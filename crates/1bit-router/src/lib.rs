@@ -372,7 +372,10 @@ impl Router {
                 let medusa_state = match medusa::MedusaState::from_config(&medusa_cfg) {
                     Ok(s) => {
                         if s.is_enabled() {
-                            tracing::info!("medusa enabled: heads loaded from {:?}", medusa_cfg.medusa_heads_path);
+                            tracing::info!(
+                                "medusa enabled: heads loaded from {:?}",
+                                medusa_cfg.medusa_heads_path
+                            );
                         }
                         s
                     }
@@ -815,8 +818,7 @@ fn generate_blocking(
     // token rather than base argmax — a follow-up pass once the tree-
     // attention kernel is wired). Stepper indirection keeps the legacy
     // path byte-identical for the `medusa_disabled` case.
-    let medusa_active =
-        medusa.is_enabled() && req.sampler.temperature <= 0.0 && on_delta.is_none();
+    let medusa_active = medusa.is_enabled() && req.sampler.temperature <= 0.0 && on_delta.is_none();
     let mut hidden_scratch: Vec<u16> = Vec::new();
     let mut head_logits_scratch: Vec<f32> = Vec::new();
 
@@ -992,11 +994,10 @@ fn generate_blocking(
                         break;
                     }
                     let vpos = inner.pos + (step_count + accepted_len) as i32;
-                    let base_argmax_i = inner.backend.forward_token(
-                        verify_cur,
-                        vpos,
-                        &mut logits_scratch,
-                    )?;
+                    let base_argmax_i =
+                        inner
+                            .backend
+                            .forward_token(verify_cur, vpos, &mut logits_scratch)?;
 
                     if base_argmax_i == cand {
                         accepted_len += 1;
@@ -1024,8 +1025,7 @@ fn generate_blocking(
                 //    credit them.
                 let mut base_argmax_full = [0i32; medusa::heads::NUM_MEDUSA_HEADS];
                 // Matched heads: base == head by construction.
-                base_argmax_full[..accepted_len]
-                    .copy_from_slice(&head_candidates[..accepted_len]);
+                base_argmax_full[..accepted_len].copy_from_slice(&head_candidates[..accepted_len]);
                 if accepted_len < medusa::heads::NUM_MEDUSA_HEADS {
                     if let Some(bm) = mismatch_base {
                         base_argmax_full[accepted_len] = bm;
@@ -1037,11 +1037,7 @@ fn generate_blocking(
                             head_candidates[accepted_len].wrapping_add(1);
                     }
                 }
-                for (j, cand) in head_candidates
-                    .iter()
-                    .enumerate()
-                    .skip(accepted_len + 1)
-                {
+                for (j, cand) in head_candidates.iter().enumerate().skip(accepted_len + 1) {
                     // Never verified — mark never-equal so the
                     // per-head counter stays honest.
                     base_argmax_full[j] = cand.wrapping_add(1);
@@ -1391,8 +1387,8 @@ mod backend_config_tests {
 
         // Cpu always refuses with the scaffold stub.
         for tokens in [0usize, 1, 32, 256, 4096] {
-            let cpu_err = prefill_routing_decision(Backend::Cpu, tokens)
-                .expect_err("cpu always stubs");
+            let cpu_err =
+                prefill_routing_decision(Backend::Cpu, tokens).expect_err("cpu always stubs");
             match cpu_err {
                 BackendError::CpuLaneStub(msg) => {
                     assert_eq!(
@@ -1435,7 +1431,10 @@ mod backend_config_tests {
         assert_eq!(prefill_lane_for_prompt(15, 16), PrefillLane::IGpu);
         assert_eq!(prefill_lane_for_prompt(16, 16), PrefillLane::Cpu);
         // Rollback: crossover=usize::MAX pins every request to iGPU.
-        assert_eq!(prefill_lane_for_prompt(10_000, usize::MAX), PrefillLane::IGpu);
+        assert_eq!(
+            prefill_lane_for_prompt(10_000, usize::MAX),
+            PrefillLane::IGpu
+        );
         // Stress: crossover=0 forces every request to CPU.
         assert_eq!(prefill_lane_for_prompt(0, 0), PrefillLane::Cpu);
     }

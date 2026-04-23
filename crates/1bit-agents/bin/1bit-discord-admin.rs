@@ -29,7 +29,10 @@ use std::path::PathBuf;
 use tracing::{info, warn};
 
 #[derive(Parser)]
-#[command(name = "1bit-discord-admin", about = "One-shot admin ops for 1bit.systems Discord")]
+#[command(
+    name = "1bit-discord-admin",
+    about = "One-shot admin ops for 1bit.systems Discord"
+)]
 struct Args {
     #[command(subcommand)]
     cmd: Cmd,
@@ -127,15 +130,40 @@ async fn main() -> Result<()> {
     let auth = format!("Bot {token}");
 
     match args.cmd {
-        Cmd::Event { name, start, end, channel_id, location, description, cover } => {
-            create_event(&client, &auth, guild_id, &name, &start, end.as_deref(), channel_id, location.as_deref(), description.as_deref(), cover.as_ref()).await
+        Cmd::Event {
+            name,
+            start,
+            end,
+            channel_id,
+            location,
+            description,
+            cover,
+        } => {
+            create_event(
+                &client,
+                &auth,
+                guild_id,
+                &name,
+                &start,
+                end.as_deref(),
+                channel_id,
+                location.as_deref(),
+                description.as_deref(),
+                cover.as_ref(),
+            )
+            .await
         }
-        Cmd::Sticker { name, description, tags, file } => {
-            create_sticker(&client, &auth, guild_id, &name, &description, &tags, &file).await
-        }
-        Cmd::Stage { channel_id, topic, privacy } => {
-            create_stage_instance(&client, &auth, channel_id, &topic, privacy).await
-        }
+        Cmd::Sticker {
+            name,
+            description,
+            tags,
+            file,
+        } => create_sticker(&client, &auth, guild_id, &name, &description, &tags, &file).await,
+        Cmd::Stage {
+            channel_id,
+            topic,
+            privacy,
+        } => create_stage_instance(&client, &auth, channel_id, &topic, privacy).await,
     }
 }
 
@@ -170,17 +198,34 @@ async fn create_event(
     payload.insert("scheduled_start_time".to_string(), json!(start));
     payload.insert("privacy_level".to_string(), json!(2)); // GUILD_ONLY
     payload.insert("entity_type".to_string(), json!(entity_type));
-    if let Some(e) = end { payload.insert("scheduled_end_time".to_string(), json!(e)); }
-    if let Some(cid) = channel_id { payload.insert("channel_id".to_string(), json!(cid.to_string())); }
-    if let Some(meta) = metadata { payload.insert("entity_metadata".to_string(), meta); }
-    if let Some(d) = description { payload.insert("description".to_string(), json!(d)); }
-    if let Some(c) = cover { payload.insert("image".to_string(), json!(encode_data_uri(c)?)); }
+    if let Some(e) = end {
+        payload.insert("scheduled_end_time".to_string(), json!(e));
+    }
+    if let Some(cid) = channel_id {
+        payload.insert("channel_id".to_string(), json!(cid.to_string()));
+    }
+    if let Some(meta) = metadata {
+        payload.insert("entity_metadata".to_string(), meta);
+    }
+    if let Some(d) = description {
+        payload.insert("description".to_string(), json!(d));
+    }
+    if let Some(c) = cover {
+        payload.insert("image".to_string(), json!(encode_data_uri(c)?));
+    }
 
     let url = format!("https://discord.com/api/v10/guilds/{guild_id}/scheduled-events");
-    let resp = client.post(&url).header("Authorization", auth).json(&serde_json::Value::Object(payload)).send().await?;
+    let resp = client
+        .post(&url)
+        .header("Authorization", auth)
+        .json(&serde_json::Value::Object(payload))
+        .send()
+        .await?;
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
-    if !status.is_success() { bail!("Discord rejected event create ({status}): {body}"); }
+    if !status.is_success() {
+        bail!("Discord rejected event create ({status}): {body}");
+    }
     let parsed: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
     let id = parsed.get("id").and_then(|v| v.as_str()).unwrap_or("?");
     info!(event_id = id, name, "scheduled event created");
@@ -200,7 +245,11 @@ async fn create_sticker(
     // Discord sticker upload uses multipart/form-data: `name`,
     // `description`, `tags` as text parts and `file` as a file part.
     let file_bytes = std::fs::read(file).with_context(|| format!("read {file:?}"))?;
-    let filename = file.file_name().and_then(|n| n.to_str()).unwrap_or("sticker").to_string();
+    let filename = file
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("sticker")
+        .to_string();
     let mime = match file.extension().and_then(|e| e.to_str()) {
         Some("png") => "image/png",
         Some("apng") => "image/apng",
@@ -214,14 +263,23 @@ async fn create_sticker(
         .text("tags", tags.to_string())
         .part(
             "file",
-            multipart::Part::bytes(file_bytes).file_name(filename).mime_str(mime)?,
+            multipart::Part::bytes(file_bytes)
+                .file_name(filename)
+                .mime_str(mime)?,
         );
 
     let url = format!("https://discord.com/api/v10/guilds/{guild_id}/stickers");
-    let resp = client.post(&url).header("Authorization", auth).multipart(form).send().await?;
+    let resp = client
+        .post(&url)
+        .header("Authorization", auth)
+        .multipart(form)
+        .send()
+        .await?;
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
-    if !status.is_success() { bail!("Discord rejected sticker upload ({status}): {body}"); }
+    if !status.is_success() {
+        bail!("Discord rejected sticker upload ({status}): {body}");
+    }
     let parsed: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
     let id = parsed.get("id").and_then(|v| v.as_str()).unwrap_or("?");
     info!(sticker_id = id, name, "sticker uploaded");
@@ -242,11 +300,20 @@ async fn create_stage_instance(
         "privacy_level": privacy,
     });
     let url = "https://discord.com/api/v10/stage-instances";
-    let resp = client.post(url).header("Authorization", auth).json(&payload).send().await?;
+    let resp = client
+        .post(url)
+        .header("Authorization", auth)
+        .json(&payload)
+        .send()
+        .await?;
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
-    if !status.is_success() { bail!("Discord rejected stage-instance create ({status}): {body}"); }
-    warn!("stage instance created — remember to join the voice channel with a bot/user account to actually speak");
+    if !status.is_success() {
+        bail!("Discord rejected stage-instance create ({status}): {body}");
+    }
+    warn!(
+        "stage instance created — remember to join the voice channel with a bot/user account to actually speak"
+    );
     info!(channel_id, topic, "stage instance started");
     println!("OK — stage instance on channel {channel_id}");
     Ok(())

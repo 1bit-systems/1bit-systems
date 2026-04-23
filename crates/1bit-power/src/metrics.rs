@@ -15,10 +15,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct Sample {
     pub ts_unix: u64,
     pub host: String,
-    pub tctl_c:      Option<f32>,
-    pub edge_c:      Option<f32>,
+    pub tctl_c: Option<f32>,
+    pub edge_c: Option<f32>,
     pub pkg_power_w: Option<f32>,
-    pub ec_temp_c:   Option<i32>,
+    pub ec_temp_c: Option<i32>,
     pub ec_power_mode: Option<String>,
     pub ec_fan1_rpm: Option<u32>,
     pub ec_fan2_rpm: Option<u32>,
@@ -39,11 +39,14 @@ pub fn sample() -> Result<String> {
         (None, None, None, None, None)
     };
     let s = Sample {
-        ts_unix: SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
+        ts_unix: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
         host: hostname(),
-        tctl_c:      read_hwmon("k10temp", "temp1_input").map(|v| v / 1000.0),
-        edge_c:      read_hwmon("amdgpu",  "temp1_input").map(|v| v / 1000.0),
-        pkg_power_w: read_hwmon("amdgpu",  "power1_average").map(|v| v / 1_000_000.0),
+        tctl_c: read_hwmon("k10temp", "temp1_input").map(|v| v / 1000.0),
+        edge_c: read_hwmon("amdgpu", "temp1_input").map(|v| v / 1000.0),
+        pkg_power_w: read_hwmon("amdgpu", "power1_average").map(|v| v / 1_000_000.0),
         ec_temp_c: temp,
         ec_power_mode: mode,
         ec_fan1_rpm: rpm1,

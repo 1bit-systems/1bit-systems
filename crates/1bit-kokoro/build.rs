@@ -43,8 +43,7 @@ fn main() {
     // Optional install-prefix override for non-default kokoro / onnxruntime
     // installs (e.g. an OpenVINO-enabled build under
     // `/opt/onnxruntime-openvino` on sliger).
-    let prefix = env::var_os("ONEBIT_KOKORO_PREFIX")
-        .map(std::path::PathBuf::from);
+    let prefix = env::var_os("ONEBIT_KOKORO_PREFIX").map(std::path::PathBuf::from);
 
     // 1. Build the C-linkage shim over kokoro.hpp + onnxruntime_cxx_api.h.
     let mut build = cc::Build::new();

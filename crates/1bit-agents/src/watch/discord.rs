@@ -392,4 +392,48 @@ mod tests {
         assert!(HELP_TEXT.contains("HALO_DISCORD_CHANNELS"));
         assert!(HELP_TEXT.contains("lurker") || HELP_TEXT.contains("LURKER"));
     }
+
+    #[test]
+    fn severity_defcon_1_for_optc_and_critical() {
+        assert_eq!(severity("OPTC hang froze wayland had to power cycle"), 1);
+        assert_eq!(severity("production down after the update"), 1);
+        assert_eq!(severity("kernel panic on boot"), 1);
+        assert_eq!(severity("amdgpu hang, hard lock"), 1);
+        assert_eq!(severity("this is unusable"), 1);
+    }
+
+    #[test]
+    fn severity_defcon_2_for_crashes_and_oom() {
+        assert_eq!(severity("decode crashed with SIGABRT"), 2);
+        assert_eq!(severity("got a segfault loading the model"), 2);
+        assert_eq!(severity("oom killer took it out"), 2);
+        assert_eq!(severity("panicked mid-generation"), 2);
+    }
+
+    #[test]
+    fn severity_defcon_3_for_generic_errors() {
+        assert_eq!(severity("error: failed to load gguf"), 3);
+        assert_eq!(severity("this feature is broken on my box"), 3);
+        assert_eq!(severity("chat completions doesn't work"), 3);
+    }
+
+    #[test]
+    fn severity_defcon_4_for_minor_complaints() {
+        assert_eq!(severity("decode feels slow on long prompts"), 4);
+        assert_eq!(severity("minor quirk with the tokenizer"), 4);
+        assert_eq!(severity("would be nice to have a progress bar"), 4);
+    }
+
+    #[test]
+    fn severity_defcon_5_for_plain_questions() {
+        assert_eq!(severity("how does the rope convention work?"), 5);
+        assert_eq!(severity("what's the tok/s on gfx1151"), 5);
+        assert_eq!(severity("morning lads"), 5);
+    }
+
+    #[test]
+    fn severity_precedence_d1_before_d2() {
+        // "OPTC hang" should win over "crashed" — hang is worse.
+        assert_eq!(severity("OPTC hang then the service crashed"), 1);
+    }
 }

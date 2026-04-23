@@ -10,13 +10,13 @@
 //! deps pulled in transitively.
 
 pub mod error;
-pub mod protocol;
-pub mod stdio;
-pub mod http;
 pub mod github;
+pub mod http;
+pub mod protocol;
 pub mod semgrep;
+pub mod stdio;
 
 pub use error::McpError;
-pub use protocol::{Tool, ToolCallResult, ContentBlock};
-pub use stdio::StdioClient;
 pub use http::HttpClient;
+pub use protocol::{ContentBlock, Tool, ToolCallResult};
+pub use stdio::StdioClient;

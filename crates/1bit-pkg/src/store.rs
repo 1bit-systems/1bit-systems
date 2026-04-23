@@ -66,12 +66,7 @@ impl Store {
     }
 
     /// Extract a verified tarball into a new versioned dir, atomically.
-    pub fn install(
-        &self,
-        _name: &str,
-        _version: &str,
-        _tarball: &Path,
-    ) -> anyhow::Result<PathBuf> {
+    pub fn install(&self, _name: &str, _version: &str, _tarball: &Path) -> anyhow::Result<PathBuf> {
         // extract to cache/tmp-XXXX/, rename into versioned_dir,
         // flip `current` symlink.
         todo!("atomic tarball extract + symlink flip")

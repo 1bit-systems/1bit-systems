@@ -416,7 +416,9 @@ mod tests {
             // Sanity: first and last char of a chunk are plausible tokens
             // (letter, digit, punctuation) but never split a codepoint.
             assert!(
-                first_char.is_ascii() || first_char.is_alphanumeric() || first_char.is_whitespace()
+                first_char.is_ascii()
+                    || first_char.is_alphanumeric()
+                    || first_char.is_whitespace()
                     || "#-*`_[(\"'".contains(first_char),
                 "first char of chunk looks like mid-word garbage: {:?}",
                 first_char

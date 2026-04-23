@@ -44,9 +44,7 @@ use std::path::{Path, PathBuf};
 use byteorder::{ByteOrder, LittleEndian};
 
 use onebit_core::gguf::{GgufFile, GgufTensorInfo, GgufTensorType};
-use onebit_core::h1b::{
-    H1B_FLAG_BONSAI_Q1, H1B_FLAG_BONSAI_TQ2, H1B_MAGIC, H1bWeightFormat,
-};
+use onebit_core::h1b::{H1B_FLAG_BONSAI_Q1, H1B_FLAG_BONSAI_TQ2, H1B_MAGIC, H1bWeightFormat};
 
 pub mod htok_export;
 pub use htok_export::{HtokExportError, HtokStats, build_htok_from_gguf, export_htok_sidecar};
@@ -125,17 +123,12 @@ pub enum ConvertError {
         "tensor {name} has dtype {dtype:?} which is not a Bonsai packed format \
         (expected 41=Q1_0_g128 or 42=TQ2_0_g128)"
     )]
-    NotBonsaiDtype {
-        name: String,
-        dtype: GgufTensorType,
-    },
+    NotBonsaiDtype { name: String, dtype: GgufTensorType },
 
     #[error("tensor {name} has {ndim}D shape; expected 2D (rows, cols)")]
     Not2D { name: String, ndim: usize },
 
-    #[error(
-        "tensor {name}: cols={cols} is not a multiple of the g128 group size"
-    )]
+    #[error("tensor {name}: cols={cols} is not a multiple of the g128 group size")]
     BadCols { name: String, cols: u64 },
 
     #[error(
@@ -246,13 +239,12 @@ pub fn convert_file(input: &Path, output: &Path) -> Result<ConvertStats, Convert
                     name: name.clone(),
                     dtype: GgufTensorType::Unknown(u32::MAX),
                 })?;
-            let dtype =
-                BonsaiDtype::from_u32(info.dtype.as_u32()).ok_or_else(|| {
-                    ConvertError::NotBonsaiDtype {
-                        name: name.clone(),
-                        dtype: info.dtype,
-                    }
-                })?;
+            let dtype = BonsaiDtype::from_u32(info.dtype.as_u32()).ok_or_else(|| {
+                ConvertError::NotBonsaiDtype {
+                    name: name.clone(),
+                    dtype: info.dtype,
+                }
+            })?;
             match detected {
                 None => detected = Some(dtype),
                 Some(d) if d != dtype => {
@@ -366,12 +358,12 @@ pub fn convert_file(input: &Path, output: &Path) -> Result<ConvertStats, Convert
             // parser folds them into `GgufTensorType::Unknown`. We
             // compute the payload size ourselves (rows × blocks × 18|34)
             // and slice the mmap directly.
-            let info = gguf.tensor_info(&name).ok_or_else(|| {
-                ConvertError::NotBonsaiDtype {
+            let info = gguf
+                .tensor_info(&name)
+                .ok_or_else(|| ConvertError::NotBonsaiDtype {
                     name: name.clone(),
                     dtype: GgufTensorType::Unknown(u32::MAX),
-                }
-            })?;
+                })?;
             let expected = rows
                 .checked_mul(cols / BONSAI_GROUP_SIZE as u64)
                 .and_then(|b| b.checked_mul(dtype.block_bytes() as u64))
@@ -384,16 +376,16 @@ pub fn convert_file(input: &Path, output: &Path) -> Result<ConvertStats, Convert
                     block: dtype.block_bytes(),
                 })?;
             let abs = gguf.tensor_data_start().saturating_add(info.offset) as usize;
-            let end = abs
-                .checked_add(expected as usize)
-                .ok_or_else(|| ConvertError::BadPayloadSize {
-                    name: name.clone(),
-                    got: 0,
-                    want: expected as usize,
-                    rows,
-                    cols,
-                    block: dtype.block_bytes(),
-                })?;
+            let end =
+                abs.checked_add(expected as usize)
+                    .ok_or_else(|| ConvertError::BadPayloadSize {
+                        name: name.clone(),
+                        got: 0,
+                        want: expected as usize,
+                        rows,
+                        cols,
+                        block: dtype.block_bytes(),
+                    })?;
             let buf = gguf.bytes();
             if end > buf.len() {
                 return Err(ConvertError::BadPayloadSize {
@@ -443,11 +435,7 @@ pub fn convert_file(input: &Path, output: &Path) -> Result<ConvertStats, Convert
     })
 }
 
-fn ternary_shape(
-    gguf: &GgufFile,
-    layer: u32,
-    name_tail: &str,
-) -> Result<(u64, u64), ConvertError> {
+fn ternary_shape(gguf: &GgufFile, layer: u32, name_tail: &str) -> Result<(u64, u64), ConvertError> {
     let name = format!("blk.{}.{}.weight", layer, name_tail);
     let info = gguf
         .tensor_info(&name)

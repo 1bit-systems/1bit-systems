@@ -28,11 +28,7 @@ use std::process::Command;
 /// Services the tray controls. Ordering is stable (used for the Status
 /// line) and matches the P1 #7 spec. Edit this single constant to
 /// extend the tray's reach — every other site reads through here.
-pub const SERVICES: &[&str] = &[
-    "1bit-halo-bitnet",
-    "strix-server",
-    "strix-watch-discord",
-];
+pub const SERVICES: &[&str] = &["1bit-halo-bitnet", "strix-server", "strix-watch-discord"];
 
 /// Menu-item identifiers. Stringly-typed because ksni takes owned
 /// `String` labels; we expose enum→label + enum→action so the UI side

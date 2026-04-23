@@ -214,7 +214,9 @@ fn v1_vs_v2_output_differs_via_env_gate() {
     let mut tok_v1: i32 = ids[0];
     let mut pos = 0i32;
     for &t in &ids {
-        tok_v1 = v1.forward_token(t, pos, &mut logits_v1).expect("v1 forward");
+        tok_v1 = v1
+            .forward_token(t, pos, &mut logits_v1)
+            .expect("v1 forward");
         pos += 1;
     }
     let logits_v1_snapshot = logits_v1.clone();
@@ -235,7 +237,9 @@ fn v1_vs_v2_output_differs_via_env_gate() {
     let mut tok_v2: i32 = ids[0];
     let mut pos = 0i32;
     for &t in &ids {
-        tok_v2 = v2.forward_token(t, pos, &mut logits_v2).expect("v2 forward");
+        tok_v2 = v2
+            .forward_token(t, pos, &mut logits_v2)
+            .expect("v2 forward");
         pos += 1;
     }
 

@@ -110,12 +110,8 @@ impl fmt::Display for KokoroError {
             Self::VoiceNotFound { voice } => {
                 write!(f, "voice {voice:?} not present in kokoro voice pack")
             }
-            Self::InvalidText => {
-                f.write_str("kokoro synth called with empty text payload")
-            }
-            Self::InvalidVoice => {
-                f.write_str("kokoro synth called with empty voice id")
-            }
+            Self::InvalidText => f.write_str("kokoro synth called with empty text payload"),
+            Self::InvalidVoice => f.write_str("kokoro synth called with empty voice id"),
             Self::InvalidSpeed { speed } => {
                 write!(
                     f,

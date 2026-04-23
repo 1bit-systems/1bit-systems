@@ -62,7 +62,13 @@ pub struct GenerateRequest {
 impl GenerateRequest {
     /// Convenience constructor for a deterministic greedy run.
     pub fn greedy(prompt: impl Into<String>, max_new_tokens: usize) -> Self {
-        Self { prompt: prompt.into(), max_new_tokens, temperature: 0.0, top_k: None, seed: None }
+        Self {
+            prompt: prompt.into(),
+            max_new_tokens,
+            temperature: 0.0,
+            top_k: None,
+            seed: None,
+        }
     }
 }
 
@@ -108,9 +114,11 @@ impl OnnxSession {
             .encode(req.prompt.as_str(), true)
             .map_err(|e| OnnxError::TokenizerLoad(e.to_string()))?;
 
-        let session = self
-            .session_mut()
-            .ok_or_else(|| OnnxError::SessionInit("session is config-only; call load() not load_config_only()".into()))?;
+        let session = self.session_mut().ok_or_else(|| {
+            OnnxError::SessionInit(
+                "session is config-only; call load() not load_config_only()".into(),
+            )
+        })?;
 
         let t0 = Instant::now();
 
@@ -119,10 +127,12 @@ impl OnnxSession {
 
         // Empty KV for prefill. past_seq == 0, same dtype (f32) as the
         // present.* outputs we'll swap in on subsequent steps.
-        let mut past_k: Vec<Array4<f32>> =
-            (0..layers).map(|_| Array4::<f32>::zeros((1, kv_heads, 0, head_size))).collect();
-        let mut past_v: Vec<Array4<f32>> =
-            (0..layers).map(|_| Array4::<f32>::zeros((1, kv_heads, 0, head_size))).collect();
+        let mut past_k: Vec<Array4<f32>> = (0..layers)
+            .map(|_| Array4::<f32>::zeros((1, kv_heads, 0, head_size)))
+            .collect();
+        let mut past_v: Vec<Array4<f32>> = (0..layers)
+            .map(|_| Array4::<f32>::zeros((1, kv_heads, 0, head_size)))
+            .collect();
 
         let mut step_ids: Array2<i64> =
             Array2::from_shape_vec((1, tokens.len()), tokens.clone()).expect("prefill ids shape");
@@ -144,8 +154,14 @@ impl OnnxSession {
             inputs.push(("input_ids".into(), to_value_i64(&step_ids)?));
             inputs.push(("attention_mask".into(), to_value_i64(&attn_mask)?));
             for layer in 0..layers {
-                inputs.push((format!("past_key_values.{layer}.key"), to_value_f32(&past_k[layer])?));
-                inputs.push((format!("past_key_values.{layer}.value"), to_value_f32(&past_v[layer])?));
+                inputs.push((
+                    format!("past_key_values.{layer}.key"),
+                    to_value_f32(&past_k[layer])?,
+                ));
+                inputs.push((
+                    format!("past_key_values.{layer}.value"),
+                    to_value_f32(&past_v[layer])?,
+                ));
             }
 
             let outputs = session
@@ -195,7 +211,13 @@ impl OnnxSession {
             0.0
         };
 
-        Ok(GenerateResponse { text, prompt_tokens, completion_tokens, wall_ms, tokens_per_second })
+        Ok(GenerateResponse {
+            text,
+            prompt_tokens,
+            completion_tokens,
+            wall_ms,
+            tokens_per_second,
+        })
     }
 }
 

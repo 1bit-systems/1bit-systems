@@ -20,8 +20,7 @@
 use std::path::PathBuf;
 
 use h1b_sherry::{
-    ConvertStats, convert_file, pack_sherry_row, sherry_pack::unpack_sherry_row,
-    tq1_row_bytes,
+    ConvertStats, convert_file, pack_sherry_row, sherry_pack::unpack_sherry_row, tq1_row_bytes,
 };
 use onebit_core::h1b::{
     H1B_FLAG_HADAMARD_ROTATED, H1B_FLAG_SHERRY_FP16, H1bConfig, H1bFile, H1bWeightFormat,
@@ -90,10 +89,10 @@ fn build_tq1_v4_file(reserved: i32) -> (H1bConfig, Vec<u8>, Vec<Vec<i8>>) {
         (nh * hd, hs),  // q: [32, 32]
         (nkv * hd, hs), // k: [16, 32]
         (nkv * hd, hs), // v: [16, 32]
-        (hs, nh * hd), // o: [32, 32]
-        (is_, hs),     // gate: [64, 32]
-        (is_, hs),     // up:   [64, 32]
-        (hs, is_),     // down: [32, 64]
+        (hs, nh * hd),  // o: [32, 32]
+        (is_, hs),      // gate: [64, 32]
+        (is_, hs),      // up:   [64, 32]
+        (hs, is_),      // down: [32, 64]
     ];
     for (rows, cols) in shapes {
         let mut t = vec![0i8; rows * cols];
@@ -366,14 +365,8 @@ fn cli_arg_parsing() {
         verbose: bool,
     }
 
-    let a = Args::try_parse_from([
-        "h1b-sherry",
-        "--in",
-        "/tmp/a.h1b",
-        "--out",
-        "/tmp/b.h1b",
-    ])
-    .expect("valid args parse");
+    let a = Args::try_parse_from(["h1b-sherry", "--in", "/tmp/a.h1b", "--out", "/tmp/b.h1b"])
+        .expect("valid args parse");
     assert_eq!(a.input, PathBuf::from("/tmp/a.h1b"));
     assert_eq!(a.output, PathBuf::from("/tmp/b.h1b"));
     assert!(!a.verbose);

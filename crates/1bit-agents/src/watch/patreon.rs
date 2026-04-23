@@ -170,8 +170,8 @@ pub fn parse_members_page(page: &serde_json::Value) -> Result<(Vec<Member>, Opti
             .to_string();
         let attrs = entry.get("attributes").cloned().unwrap_or_default();
         // Build via serde so optional-field handling matches Member's derive.
-        let mut member: Member = serde_json::from_value(attrs)
-            .context("member attributes failed to deserialize")?;
+        let mut member: Member =
+            serde_json::from_value(attrs).context("member attributes failed to deserialize")?;
         member.id = id;
         out.push(member);
     }
@@ -203,9 +203,10 @@ fn extract_cursor_from_link(url: &str) -> Option<String> {
     // serves the response. Handle both.
     const ENCODED: &str = "page%5Bcursor%5D=";
     const RAW: &str = "page[cursor]=";
-    let marker_start = url.find(ENCODED).map(|i| i + ENCODED.len()).or_else(|| {
-        url.find(RAW).map(|i| i + RAW.len())
-    })?;
+    let marker_start = url
+        .find(ENCODED)
+        .map(|i| i + ENCODED.len())
+        .or_else(|| url.find(RAW).map(|i| i + RAW.len()))?;
     let tail = &url[marker_start..];
     let end = tail.find('&').unwrap_or(tail.len());
     let raw = &tail[..end];
@@ -271,8 +272,9 @@ pub fn read_snapshot(path: &Path) -> Result<Option<Snapshot>> {
             Ok(Some(snap))
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(anyhow::Error::new(e)
-            .context(format!("reading snapshot at {}", path.display()))),
+        Err(e) => {
+            Err(anyhow::Error::new(e).context(format!("reading snapshot at {}", path.display())))
+        }
     }
 }
 
@@ -337,16 +339,16 @@ mod tests {
         let prev = Snapshot::new(vec![mk_member("A", "Alice", Some("active_patron"))]);
         let current = vec![mk_member("A", "Alice", Some("declined_patron"))];
         let out = diff_new_patrons(Some(&prev), &current);
-        assert!(out.new_patrons.is_empty(),
-            "declined transitions must not announce: {:?}", out.new_patrons);
+        assert!(
+            out.new_patrons.is_empty(),
+            "declined transitions must not announce: {:?}",
+            out.new_patrons
+        );
 
         // And a former_patron likewise — even one that wasn't in
         // the prior snapshot — is not "new". `is_active` gates on
         // `active_patron` specifically.
-        let out2 = diff_new_patrons(
-            Some(&prev),
-            &[mk_member("C", "Cee", Some("former_patron"))],
-        );
+        let out2 = diff_new_patrons(Some(&prev), &[mk_member("C", "Cee", Some("former_patron"))]);
         assert!(out2.new_patrons.is_empty());
     }
 

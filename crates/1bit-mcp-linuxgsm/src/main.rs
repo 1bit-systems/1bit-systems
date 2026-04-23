@@ -20,8 +20,9 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
-const ALLOWED_SUBCOMMANDS: &[&str] =
-    &["details", "status", "start", "stop", "restart", "update", "backup"];
+const ALLOWED_SUBCOMMANDS: &[&str] = &[
+    "details", "status", "start", "stop", "restart", "update", "backup",
+];
 
 fn gsm_root() -> PathBuf {
     if let Ok(r) = std::env::var("HALO_LINUXGSM_ROOT") {
@@ -141,8 +142,14 @@ async fn handle(req: Value) -> Value {
             "result": { "tools": tools() }
         }),
         "tools/call" => {
-            let name = req.pointer("/params/name").and_then(Value::as_str).unwrap_or("");
-            let args = req.pointer("/params/arguments").cloned().unwrap_or(json!({}));
+            let name = req
+                .pointer("/params/name")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let args = req
+                .pointer("/params/arguments")
+                .cloned()
+                .unwrap_or(json!({}));
             let result = match name {
                 "linuxgsm_list" => list_servers().await,
                 "linuxgsm_run" => {
@@ -227,10 +234,12 @@ mod tests {
     async fn run_driver_rejects_disallowed_subcommand() {
         let v = run_driver("mcserver", "console").await;
         assert!(v["isError"].as_bool().unwrap_or(false));
-        assert!(v["content"][0]["text"]
-            .as_str()
-            .unwrap()
-            .contains("not allowed"));
+        assert!(
+            v["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("not allowed")
+        );
     }
 
     #[tokio::test]

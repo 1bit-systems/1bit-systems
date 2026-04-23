@@ -21,7 +21,7 @@
 //   "PENDING-RUN<N>" — our weights, not yet trained; install refuses
 //   <64 hex chars>   — strict pin
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Read;
@@ -92,8 +92,8 @@ pub fn run(spec: &ModelSpec, engine_units: &[String]) -> Result<()> {
 
     // 2. Verify sha256 if strict pin; skip if UPSTREAM.
     if spec.sha256 != "UPSTREAM" {
-        let actual = sha256_file(&file_path)
-            .with_context(|| format!("hashing {}", file_path.display()))?;
+        let actual =
+            sha256_file(&file_path).with_context(|| format!("hashing {}", file_path.display()))?;
         if !actual.eq_ignore_ascii_case(&spec.sha256) {
             bail!(
                 "sha256 mismatch on {}: expected {}, got {}",

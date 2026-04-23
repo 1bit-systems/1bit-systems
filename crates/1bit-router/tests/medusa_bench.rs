@@ -38,8 +38,8 @@ const BENCH_MAX_NEW: u32 = 64;
 #[test]
 #[ignore = "requires ROCm + halo-1bit-2b.h1b + medusa heads on disk; run with --ignored"]
 fn medusa_bench_with_and_without() {
-    let model_path = std::env::var("HALO_BENCH_MODEL")
-        .unwrap_or_else(|_| DEFAULT_MODEL.to_string());
+    let model_path =
+        std::env::var("HALO_BENCH_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
     let heads_path = std::env::var("HALO_MEDUSA_HEADS_PATH")
         .unwrap_or_else(|_| DEFAULT_MEDUSA_HEADS.to_string());
     if !Path::new(&model_path).exists() || !Path::new(&heads_path).exists() {
@@ -67,19 +67,19 @@ fn medusa_bench_with_and_without() {
         .unwrap();
 
     let t0 = Instant::now();
-    let resp_off = rt.block_on(router_off.generate(RouterRequest {
-        prompt: BENCH_PROMPT.to_string(),
-        max_new_tokens: BENCH_MAX_NEW,
-        sampler: SamplerConfig {
-            temperature: 0.0,
-            ..SamplerConfig::default()
-        },
-        stop: Vec::new(),
-    }))
-    .expect("generate without medusa");
+    let resp_off = rt
+        .block_on(router_off.generate(RouterRequest {
+            prompt: BENCH_PROMPT.to_string(),
+            max_new_tokens: BENCH_MAX_NEW,
+            sampler: SamplerConfig {
+                temperature: 0.0,
+                ..SamplerConfig::default()
+            },
+            stop: Vec::new(),
+        }))
+        .expect("generate without medusa");
     let dt_off = t0.elapsed().as_secs_f64();
-    let tok_s_off =
-        resp_off.completion_tokens as f64 / dt_off.max(1e-9);
+    let tok_s_off = resp_off.completion_tokens as f64 / dt_off.max(1e-9);
 
     eprintln!(
         "medusa OFF: {} tokens in {:.3}s → {:.2} tok/s",
@@ -100,16 +100,17 @@ fn medusa_bench_with_and_without() {
     );
 
     let t1 = Instant::now();
-    let resp_on = rt.block_on(router_on.generate(RouterRequest {
-        prompt: BENCH_PROMPT.to_string(),
-        max_new_tokens: BENCH_MAX_NEW,
-        sampler: SamplerConfig {
-            temperature: 0.0,
-            ..SamplerConfig::default()
-        },
-        stop: Vec::new(),
-    }))
-    .expect("generate with medusa");
+    let resp_on = rt
+        .block_on(router_on.generate(RouterRequest {
+            prompt: BENCH_PROMPT.to_string(),
+            max_new_tokens: BENCH_MAX_NEW,
+            sampler: SamplerConfig {
+                temperature: 0.0,
+                ..SamplerConfig::default()
+            },
+            stop: Vec::new(),
+        }))
+        .expect("generate with medusa");
     let dt_on = t1.elapsed().as_secs_f64();
     let tok_s_on = resp_on.completion_tokens as f64 / dt_on.max(1e-9);
 
@@ -152,10 +153,7 @@ fn medusa_bench_with_and_without() {
         .as_ref()
         .map(|s| s.mean_accepted_prefix_len)
         .unwrap_or(0.0);
-    let per_head_rate = stats
-        .as_ref()
-        .map(|s| s.per_head_rate)
-        .unwrap_or([0.0; 4]);
+    let per_head_rate = stats.as_ref().map(|s| s.per_head_rate).unwrap_or([0.0; 4]);
     let verify_steps = stats.as_ref().map(|s| s.verify_steps).unwrap_or(0);
 
     // tokens_per_cycle = 1 (base) + mean_accepted_prefix + (1 if any
@@ -171,8 +169,7 @@ fn medusa_bench_with_and_without() {
     //   no-amortization property.
     let tokens_per_cycle = 1.0 + accepted_prefix_mean + 1.0;
     let backbone_calls_per_cycle = 1.0 + accepted_prefix_mean + 1.0;
-    let tokens_per_backbone =
-        tokens_per_cycle / backbone_calls_per_cycle.max(1e-9);
+    let tokens_per_backbone = tokens_per_cycle / backbone_calls_per_cycle.max(1e-9);
 
     let json = format!(
         r#"{{

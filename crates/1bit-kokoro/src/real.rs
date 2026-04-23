@@ -12,8 +12,8 @@
 //! declared but returns -1 until the kokoro.cpp wiring lands in a
 //! follow-up.
 
-use crate::ffi;
 use crate::KokoroError;
+use crate::ffi;
 use std::path::Path;
 
 /// Owns the opaque shim context and releases it on drop.

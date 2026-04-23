@@ -988,11 +988,7 @@ pub fn sherry_pack(ternary: &[i8], out: &mut [u8]) -> Result<(), RcppError> {
     // HIP calls — pure CPU.
     #[cfg(feature = "link-rocm")]
     unsafe {
-        ffi::rcpp_sherry_pack(
-            ternary.as_ptr(),
-            out.as_mut_ptr(),
-            ternary.len() as c_int,
-        );
+        ffi::rcpp_sherry_pack(ternary.as_ptr(), out.as_mut_ptr(), ternary.len() as c_int);
     }
     #[cfg_attr(not(feature = "link-rocm"), allow(unreachable_code))]
     Ok(())

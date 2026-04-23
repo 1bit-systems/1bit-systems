@@ -70,9 +70,7 @@ enum Cmd {
     Log,
     /// Set AXB35 EC board power mode (quiet | balanced | performance).
     /// Requires ec_su_axb35 kernel module + root.
-    Board {
-        mode: String,
-    },
+    Board { mode: String },
     /// Fan control via EC sysfs (ec_su_axb35). Root required for writes.
     Fan {
         /// Fan id: 1 or 2 = CPU fans, 3 = system fan.
@@ -118,7 +116,11 @@ fn main() -> Result<()> {
                 warn!(error = %e, "could not load profiles.toml; showing defaults");
                 Profiles::default()
             });
-            let ec_snap = if ec.available() { ec.snapshot().ok() } else { None };
+            let ec_snap = if ec.available() {
+                ec.snapshot().ok()
+            } else {
+                None
+            };
             let snap = serde_json::json!({
                 "profiles_path": path,
                 "known_profiles": profiles.names(),
@@ -129,8 +131,8 @@ fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&snap)?);
         }
         Cmd::Profile { name } => {
-            let profiles = Profiles::load(path)
-                .with_context(|| format!("loading profiles from {path}"))?;
+            let profiles =
+                Profiles::load(path).with_context(|| format!("loading profiles from {path}"))?;
             let prof = profiles
                 .get(&name)
                 .with_context(|| format!("profile `{name}` not in {path}"))?;
@@ -171,7 +173,10 @@ fn main() -> Result<()> {
                     info!(id, level, "fan level set");
                 }
             }
-            FanCmd::Curve { direction, thresholds } => {
+            FanCmd::Curve {
+                direction,
+                thresholds,
+            } => {
                 let dir = match direction.as_str() {
                     "up" | "rampup" => CurveDir::Rampup,
                     "down" | "rampdown" => CurveDir::Rampdown,
@@ -182,7 +187,9 @@ fn main() -> Result<()> {
                     .map(|s| s.trim().parse::<u8>())
                     .collect::<Result<_, _>>()
                     .context("parsing threshold CSV")?;
-                let arr: [u8; 5] = vals.as_slice().try_into()
+                let arr: [u8; 5] = vals
+                    .as_slice()
+                    .try_into()
                     .map_err(|_| anyhow::anyhow!("need exactly 5 values, got {}", vals.len()))?;
                 if cli.dry_run {
                     info!(id, ?arr, ?dir, "dry-run: would set fan curve");
@@ -217,8 +224,7 @@ mod tests {
 
     #[test]
     fn parses_set_subcommand() {
-        let cli =
-            Cli::try_parse_from(["halo-power", "set", "stapm-limit", "55000"]).unwrap();
+        let cli = Cli::try_parse_from(["halo-power", "set", "stapm-limit", "55000"]).unwrap();
         match cli.cmd {
             Cmd::Set { key, value } => {
                 assert_eq!(key, "stapm-limit");

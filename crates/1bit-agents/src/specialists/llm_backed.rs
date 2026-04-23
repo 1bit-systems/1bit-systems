@@ -135,7 +135,12 @@ impl LlmSpecialist {
     /// Quartermaster — GitHub event triage (issue opened/closed,
     /// PR opened/merged, push).
     pub fn quartermaster(base_url: impl Into<String>, model_id: impl Into<String>) -> Self {
-        Self::new(Name::Quartermaster, base_url, model_id, QUARTERMASTER_PROMPT)
+        Self::new(
+            Name::Quartermaster,
+            base_url,
+            model_id,
+            QUARTERMASTER_PROMPT,
+        )
     }
 
     /// Exposed for tests — confirm the wired prompt covers the role.
@@ -149,9 +154,15 @@ impl LlmSpecialist {
         // Never returns empty — help-desk consumers rely on a non-empty
         // string to anchor the thread.
         match self.name {
-            Name::Sentinel => "Sentinel ack — triaged as bug. A human will follow up here shortly.".to_string(),
-            Name::Magistrate => "Magistrate ack — logged as feature request. Review follows.".to_string(),
-            Name::Herald => "Herald ack — your question is in the queue. Human follow-up shortly.".to_string(),
+            Name::Sentinel => {
+                "Sentinel ack — triaged as bug. A human will follow up here shortly.".to_string()
+            }
+            Name::Magistrate => {
+                "Magistrate ack — logged as feature request. Review follows.".to_string()
+            }
+            Name::Herald => {
+                "Herald ack — your question is in the queue. Human follow-up shortly.".to_string()
+            }
             Name::Quartermaster => "Quartermaster ack — event logged.".to_string(),
             _ => format!("{} ack — handoff to human.", self.name.as_str()),
         }
@@ -198,7 +209,10 @@ impl LlmSpecialist {
     }
 
     fn completions_url(&self) -> String {
-        format!("{}/v1/chat/completions", self.base_url.trim_end_matches('/'))
+        format!(
+            "{}/v1/chat/completions",
+            self.base_url.trim_end_matches('/')
+        )
     }
 
     /// Assemble the system prompt for this turn. When retrieval is
@@ -375,24 +389,24 @@ impl Specialist for LlmSpecialist {
 // Unwrap + sanitize on the Discord side handle bare prose and
 // incidental inner fences just fine, so we let the model speak
 // plainly and stop forcing a shape it can't produce reliably.
-pub const OUTPUT_FORMAT_RULE: &str =
-    " Write the answer as plain prose. Use triple-backtick fenced \
+pub const OUTPUT_FORMAT_RULE: &str = " Write the answer as plain prose. Use triple-backtick fenced \
      blocks only for literal shell commands, file paths, or code \
      samples (```bash ... ``` renders as code on Discord). Do not \
      wrap the whole reply in a single code block.";
 
 pub const HERALD_PROMPT: &str = concat!(
-"You are Herald, the conversational voice of 1bit.systems on Discord. \
+    "You are Herald, the conversational voice of 1bit.systems on Discord. \
 Answer the user's question concisely in 1-3 short paragraphs. If the answer requires specifics you \
 don't have (benchmark numbers, internal paths, ROCm versions), ask ONE follow-up question. Tone: \
 calm technical, no emoji, no marketing, no exclamations, no movie quotes. If the question isn't \
 about 1bit.systems, say so and redirect to #water-cooler.",
-" Write the answer as plain prose on Discord. Use triple-backtick \
+    " Write the answer as plain prose on Discord. Use triple-backtick \
 fenced blocks only for literal shell commands, file paths, or code \
-samples; never wrap the whole reply in one fenced block.");
+samples; never wrap the whole reply in one fenced block."
+);
 
 pub const SENTINEL_PROMPT: &str = concat!(
-"You are Sentinel, bug-triage specialist for 1bit.systems. The user \
+    "You are Sentinel, bug-triage specialist for 1bit.systems. The user \
 reported an issue. Reply with a copy-paste-ready triage playbook: \
 (1) one-line restatement of the bug, (2) the single most likely cause \
 from the known-issue list (amdgpu OPTC hang on kernel 7.x, mlock \
@@ -405,30 +419,33 @@ output of those commands back in this thread so a human can follow \
 up. Mention any missing context you'd need (kernel version, ROCm \
 version, commit SHA, minimal repro) inside that close. Output \
 <= 400 words. Calm technical tone. Actionable > exhaustive.",
-" Plain prose on Discord. Wrap every shell command, file path, \
+    " Plain prose on Discord. Wrap every shell command, file path, \
 systemctl invocation, or patch snippet in a fenced block with a \
 language tag (```bash ... ```, ```diff ... ```); real runnable \
 commands are the load-bearing output here. Do not wrap the whole \
-reply in a single fenced block — only the command snippets.");
+reply in a single fenced block — only the command snippets."
+);
 
 pub const MAGISTRATE_PROMPT: &str = concat!(
-"You are Magistrate, feature-request reviewer for 1bit.systems. \
+    "You are Magistrate, feature-request reviewer for 1bit.systems. \
 The user proposed a feature or change. Output: (1) restatement in one line, (2) ranked verdict \
 [accept, defer, reject] with one-sentence reasoning tied to roadmap priorities (ternary kernels on \
 gfx1151 = primary, gfx1201 port = second, Sparse-BitNet retrain = in flight, NPU = deferred until \
 XDNA2 unblocks), (3) if accept, suggest where in the codebase it lands. <= 300 words. Calm \
 technical tone.",
-" Write the answer as plain prose on Discord. Use triple-backtick \
+    " Write the answer as plain prose on Discord. Use triple-backtick \
 fenced blocks only for literal shell commands, file paths, or code \
-samples; never wrap the whole reply in one fenced block.");
+samples; never wrap the whole reply in one fenced block."
+);
 
 pub const QUARTERMASTER_PROMPT: &str = concat!(
-"You are Quartermaster, GitHub event triage for 1bit.systems. \
+    "You are Quartermaster, GitHub event triage for 1bit.systems. \
 Given a single GitHub event JSON (issue opened/closed, PR opened/merged, push), output a one-line \
 human summary of what changed and whether it needs operator attention. <= 60 words. No preamble.",
-" Write the answer as plain prose on Discord. Use triple-backtick \
+    " Write the answer as plain prose on Discord. Use triple-backtick \
 fenced blocks only for literal shell commands, file paths, or code \
-samples; never wrap the whole reply in one fenced block.");
+samples; never wrap the whole reply in one fenced block."
+);
 
 #[cfg(test)]
 mod tests {
@@ -462,7 +479,8 @@ mod tests {
     async fn herald_returns_text_field_from_mock_completion() {
         // Happy-path: mock returns a synthetic OpenAI completion; the
         // specialist's handle() output must carry `"text"` verbatim.
-        let canned = r#"{"choices":[{"message":{"content":"Herald here: bench is 83 tok/s on gfx1151."}}]}"#;
+        let canned =
+            r#"{"choices":[{"message":{"content":"Herald here: bench is 83 tok/s on gfx1151."}}]}"#;
         let base = spawn_mock(canned);
 
         let herald = LlmSpecialist::herald(base, default_model_id());
@@ -489,10 +507,8 @@ mod tests {
         // Port 1 is reserved and refuses connections in practice.
         // Specialist must still return a Value with a `"text"` field
         // containing "down" so echo posts something readable.
-        let sentinel = LlmSpecialist::sentinel(
-            "http://127.0.0.1:1".to_string(),
-            default_model_id(),
-        );
+        let sentinel =
+            LlmSpecialist::sentinel("http://127.0.0.1:1".to_string(), default_model_id());
         let out = sentinel
             .handle(json!({
                 "source": "discord",
@@ -501,9 +517,16 @@ mod tests {
             .await
             .unwrap();
         let text = out["text"].as_str().expect("text field must be a string");
+        // Down-text shape changed 2026-04-23 to a friendly triage ack —
+        // what matters here is that it's non-empty so help-desk
+        // consumers have something to anchor the thread with.
         assert!(
-            text.contains("(down)") || text.contains("down)"),
-            "degraded text should contain '(down)' marker, got: {text}"
+            !text.trim().is_empty(),
+            "down_text must not be empty on network failure, got: {text:?}"
+        );
+        assert!(
+            text.to_lowercase().contains("sentinel"),
+            "sentinel down_text should name the specialist, got: {text:?}"
         );
         // Error reason should be surfaced for operator logs.
         assert!(

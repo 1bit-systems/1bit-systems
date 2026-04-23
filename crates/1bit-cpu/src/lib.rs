@@ -225,16 +225,21 @@ mod tests {
         let packed = Vec::<u8>::new();
         let act = vec![0u16; 0];
         let mut out = vec![0u16; 1];
-        let err = ternary_gemv_tq2_cpu(&packed, &act, &mut out, 1, 127, 1).expect_err("should reject");
+        let err =
+            ternary_gemv_tq2_cpu(&packed, &act, &mut out, 1, 127, 1).expect_err("should reject");
         assert!(matches!(err, CpuError::BadKIn(127)), "got {err:?}");
 
-        let err_zero = ternary_gemv_tq2_cpu(&packed, &act, &mut out, 1, 0, 1).expect_err("zero K bad");
+        let err_zero =
+            ternary_gemv_tq2_cpu(&packed, &act, &mut out, 1, 0, 1).expect_err("zero K bad");
         assert!(matches!(err_zero, CpuError::BadKIn(0)), "got {err_zero:?}");
 
         // 128 passes the K_in check (shape + length still checked below).
         let err_shape =
             ternary_gemv_tq2_cpu(&packed, &act, &mut out, 1, 128, 1).expect_err("length mismatch");
-        assert!(matches!(err_shape, CpuError::LengthMismatch { .. }), "got {err_shape:?}");
+        assert!(
+            matches!(err_shape, CpuError::LengthMismatch { .. }),
+            "got {err_shape:?}"
+        );
     }
 
     /// `N_out` must be strictly positive. Enforced before length math
@@ -247,8 +252,8 @@ mod tests {
         let mut out = vec![0u16; 1];
         let err = ternary_gemv_tq2_cpu(&packed, &act, &mut out, 0, 128, 1).expect_err("n_out=0");
         assert!(matches!(err, CpuError::BadNOut(0)), "got {err:?}");
-        let err_neg = ternary_gemv_tq2_cpu(&packed, &act, &mut out, -3, 128, 1)
-            .expect_err("n_out<0");
+        let err_neg =
+            ternary_gemv_tq2_cpu(&packed, &act, &mut out, -3, 128, 1).expect_err("n_out<0");
         assert!(matches!(err_neg, CpuError::BadNOut(-3)), "got {err_neg:?}");
     }
 
@@ -287,14 +292,14 @@ mod tests {
 
         // Wrong-length act:
         let short_act = vec![0u16; (K as usize) - 1];
-        let err = ternary_gemv_tq2_cpu(&packed, &short_act, &mut out, N, K, 1)
-            .expect_err("short act");
+        let err =
+            ternary_gemv_tq2_cpu(&packed, &short_act, &mut out, N, K, 1).expect_err("short act");
         assert!(matches!(err, CpuError::LengthMismatch { .. }));
 
         // Wrong-length out:
         let mut short_out = vec![0u16; (N as usize) - 1];
-        let err = ternary_gemv_tq2_cpu(&packed, &act, &mut short_out, N, K, 1)
-            .expect_err("short out");
+        let err =
+            ternary_gemv_tq2_cpu(&packed, &act, &mut short_out, N, K, 1).expect_err("short out");
         assert!(matches!(err, CpuError::LengthMismatch { .. }));
 
         // All three match → stub returns Unsupported (default build); real

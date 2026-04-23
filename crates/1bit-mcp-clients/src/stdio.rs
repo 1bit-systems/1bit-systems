@@ -95,7 +95,8 @@ impl StdioClient {
         );
         self.send(&req).await?;
         let resp = self.recv().await?;
-        resp.result.ok_or_else(|| McpError::Protocol("initialize returned no result".into()))
+        resp.result
+            .ok_or_else(|| McpError::Protocol("initialize returned no result".into()))
     }
 
     pub async fn list_tools(&self) -> Result<Vec<Tool>, McpError> {
@@ -103,7 +104,9 @@ impl StdioClient {
         let req = build_request(id, "tools/list", Some(serde_json::json!({})));
         self.send(&req).await?;
         let resp = self.recv().await?;
-        let result = resp.result.ok_or_else(|| McpError::Protocol("no result".into()))?;
+        let result = resp
+            .result
+            .ok_or_else(|| McpError::Protocol("no result".into()))?;
         let tools = result
             .get("tools")
             .cloned()
@@ -124,7 +127,9 @@ impl StdioClient {
         );
         self.send(&req).await?;
         let resp = self.recv().await?;
-        let result = resp.result.ok_or_else(|| McpError::Protocol("no result".into()))?;
+        let result = resp
+            .result
+            .ok_or_else(|| McpError::Protocol("no result".into()))?;
         Ok(serde_json::from_value(result)?)
     }
 
@@ -160,8 +165,12 @@ mod tests {
 
     #[tokio::test]
     async fn stdio_propagates_rpc_error() {
-        let canned = r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"method not found"}}"#;
-        let script = format!("read -r _; printf '%s\\n' '{}'", canned.replace('\'', "'\\''"));
+        let canned =
+            r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"method not found"}}"#;
+        let script = format!(
+            "read -r _; printf '%s\\n' '{}'",
+            canned.replace('\'', "'\\''")
+        );
         let client = StdioClient::spawn("/bin/sh", ["-c", &script].iter().copied())
             .await
             .expect("spawn");

@@ -222,10 +222,7 @@ pub(crate) fn npu_probe(root: &Path) -> (Outcome, String) {
             Outcome::Warn,
             "no AMD accel device in /sys/class/accel (expected on LTS kernel)".into(),
         ),
-        ([(name, id)], true) => (
-            Outcome::Ok,
-            format!("{name} device={id} amdxdna loaded"),
-        ),
+        ([(name, id)], true) => (Outcome::Ok, format!("{name} device={id} amdxdna loaded")),
         ([(name, id)], false) => (
             Outcome::Warn,
             format!("{name} device={id} but amdxdna module not loaded"),
@@ -272,16 +269,10 @@ pub(crate) fn xe2_probe(root: &Path) -> (Outcome, String) {
             let drv_link = p.join("driver");
             let drv_name = std::fs::read_link(&drv_link)
                 .ok()
-                .and_then(|t| {
-                    t.file_name()
-                        .map(|s| s.to_string_lossy().into_owned())
-                })
+                .and_then(|t| t.file_name().map(|s| s.to_string_lossy().into_owned()))
                 .unwrap_or_else(|| "<none>".into());
             return match drv_name.as_str() {
-                "xe" => (
-                    Outcome::Ok,
-                    format!("Battlemage {device} bound to xe"),
-                ),
+                "xe" => (Outcome::Ok, format!("Battlemage {device} bound to xe")),
                 "i915" => (
                     Outcome::Warn,
                     format!("Battlemage {device} bound to i915 — force xe.conf"),
@@ -311,10 +302,7 @@ pub(crate) fn gfx1201_probe(root: &Path) -> (Outcome, String) {
     let entries = match std::fs::read_dir(&drm_dir) {
         Ok(e) => e,
         Err(_) => {
-            return (
-                Outcome::Warn,
-                "no /sys/class/drm — no DRM subsystem".into(),
-            );
+            return (Outcome::Warn, "no /sys/class/drm — no DRM subsystem".into());
         }
     };
 
@@ -338,10 +326,7 @@ pub(crate) fn gfx1201_probe(root: &Path) -> (Outcome, String) {
             let drv_link = dev.join("driver");
             let drv_name = std::fs::read_link(&drv_link)
                 .ok()
-                .and_then(|t| {
-                    t.file_name()
-                        .map(|s| s.to_string_lossy().into_owned())
-                })
+                .and_then(|t| t.file_name().map(|s| s.to_string_lossy().into_owned()))
                 .unwrap_or_else(|| "<none>".into());
             return if drv_name == "amdgpu" {
                 (
@@ -505,10 +490,7 @@ mod tests {
     }
 
     fn mk_accel(root: &Path, name: &str, vendor: &str, device: &str) {
-        let dev = root
-            .join("sys/class/accel")
-            .join(name)
-            .join("device");
+        let dev = root.join("sys/class/accel").join(name).join("device");
         write(&dev.join("vendor"), &format!("{vendor}\n"));
         write(&dev.join("device"), &format!("{device}\n"));
     }
@@ -525,13 +507,7 @@ mod tests {
         }
     }
 
-    fn mk_drm_card(
-        root: &Path,
-        card: &str,
-        vendor: &str,
-        device: &str,
-        driver: Option<&str>,
-    ) {
+    fn mk_drm_card(root: &Path, card: &str, vendor: &str, device: &str, driver: Option<&str>) {
         let dev = root.join("sys/class/drm").join(card).join("device");
         write(&dev.join("vendor"), &format!("{vendor}\n"));
         write(&dev.join("device"), &format!("{device}\n"));
@@ -603,13 +579,7 @@ mod tests {
     #[test]
     fn xe2_probe_no_battlemage_device_warns() {
         let td = TempDir::new().unwrap();
-        mk_pci(
-            td.path(),
-            "0000:00:02.0",
-            "0x8086",
-            "0x46a6",
-            Some("i915"),
-        );
+        mk_pci(td.path(), "0000:00:02.0", "0x8086", "0x46a6", Some("i915"));
         let (o, d) = xe2_probe(td.path());
         assert_eq!(o, Outcome::Warn);
         assert!(d.contains("no Intel Battlemage"));
@@ -658,13 +628,7 @@ mod tests {
     fn gfx1201_probe_no_navi48_warns() {
         let td = TempDir::new().unwrap();
         // gfx1151 Strix Halo iGPU (not Navi 48) — must not match.
-        mk_drm_card(
-            td.path(),
-            "card0",
-            "0x1002",
-            "0x1586",
-            Some("amdgpu"),
-        );
+        mk_drm_card(td.path(), "card0", "0x1002", "0x1586", Some("amdgpu"));
         let (o, d) = gfx1201_probe(td.path());
         assert_eq!(o, Outcome::Warn);
         assert!(d.contains("no gfx1201"));
@@ -674,13 +638,7 @@ mod tests {
     #[test]
     fn gfx1201_probe_rx9070xt_on_amdgpu_ok() {
         let td = TempDir::new().unwrap();
-        mk_drm_card(
-            td.path(),
-            "card1",
-            "0x1002",
-            "0x7590",
-            Some("amdgpu"),
-        );
+        mk_drm_card(td.path(), "card1", "0x1002", "0x7590", Some("amdgpu"));
         let (o, d) = gfx1201_probe(td.path());
         assert_eq!(o, Outcome::Ok);
         assert!(d.contains("gfx1201"));
@@ -692,9 +650,7 @@ mod tests {
         let td = TempDir::new().unwrap();
         // a `card0-DP-1` connector entry should be skipped, and the real
         // card0 underneath should still match.
-        let dev = td
-            .path()
-            .join("sys/class/drm/card0-DP-1/device");
+        let dev = td.path().join("sys/class/drm/card0-DP-1/device");
         write(&dev.join("vendor"), "0x1002\n");
         write(&dev.join("device"), "0x7590\n");
         let (o, d) = gfx1201_probe(td.path());
@@ -708,13 +664,7 @@ mod tests {
     #[test]
     fn gfx1201_probe_wrong_driver_warns() {
         let td = TempDir::new().unwrap();
-        mk_drm_card(
-            td.path(),
-            "card1",
-            "0x1002",
-            "0x7590",
-            Some("vfio-pci"),
-        );
+        mk_drm_card(td.path(), "card1", "0x1002", "0x7590", Some("vfio-pci"));
         let (o, d) = gfx1201_probe(td.path());
         assert_eq!(o, Outcome::Warn);
         assert!(d.contains("vfio-pci"));

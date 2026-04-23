@@ -71,7 +71,10 @@ fn handle(req: &Value) -> Value {
                 .pointer("/params/name")
                 .and_then(Value::as_str)
                 .unwrap_or("");
-            let args = req.pointer("/params/arguments").cloned().unwrap_or(json!({}));
+            let args = req
+                .pointer("/params/arguments")
+                .cloned()
+                .unwrap_or(json!({}));
             let result = dispatch(name, &args);
             json!({ "jsonrpc": "2.0", "id": id, "result": result })
         }
@@ -88,11 +91,7 @@ fn dispatch(name: &str, args: &Value) -> Value {
         "discord_classify" => {
             let text = args.get("text").and_then(Value::as_str).unwrap_or("");
             let c: Classification = classify(text);
-            text_result(&format!(
-                "{}:{}",
-                c.as_str(),
-                c.specialist().as_str()
-            ))
+            text_result(&format!("{}:{}", c.as_str(), c.specialist().as_str()))
         }
         "discord_is_direct_mention" => {
             let content = args.get("content").and_then(Value::as_str).unwrap_or("");
@@ -102,12 +101,7 @@ fn dispatch(name: &str, args: &Value) -> Value {
         "discord_parse_channel_whitelist" => {
             let raw = args.get("raw").and_then(Value::as_str).unwrap_or("");
             let ids = parse_channel_whitelist(raw);
-            text_result(
-                &ids.iter()
-                    .map(u64::to_string)
-                    .collect::<Vec<_>>()
-                    .join(","),
-            )
+            text_result(&ids.iter().map(u64::to_string).collect::<Vec<_>>().join(","))
         }
         "discord_strip_mention" => {
             let content = args.get("content").and_then(Value::as_str).unwrap_or("");

@@ -9,16 +9,13 @@ use std::sync::OnceLock;
 static SET: OnceLock<HashSet<&'static str>> = OnceLock::new();
 
 const STOPWORDS: &[&str] = &[
-    "a", "an", "and", "are", "as", "at", "be", "been", "but", "by", "can",
-    "could", "did", "do", "does", "doing", "for", "from", "had", "has",
-    "have", "he", "her", "hers", "him", "his", "how", "i", "if", "in",
-    "into", "is", "it", "its", "just", "me", "my", "no", "nor", "not",
-    "of", "off", "on", "or", "our", "out", "over", "own", "same", "she",
-    "so", "some", "such", "than", "that", "the", "their", "them", "then",
-    "there", "these", "they", "this", "those", "through", "to", "too",
-    "under", "up", "was", "we", "were", "what", "when", "where", "which",
-    "while", "who", "whom", "why", "will", "with", "would", "you", "your",
-    "yours",
+    "a", "an", "and", "are", "as", "at", "be", "been", "but", "by", "can", "could", "did", "do",
+    "does", "doing", "for", "from", "had", "has", "have", "he", "her", "hers", "him", "his", "how",
+    "i", "if", "in", "into", "is", "it", "its", "just", "me", "my", "no", "nor", "not", "of",
+    "off", "on", "or", "our", "out", "over", "own", "same", "she", "so", "some", "such", "than",
+    "that", "the", "their", "them", "then", "there", "these", "they", "this", "those", "through",
+    "to", "too", "under", "up", "was", "we", "were", "what", "when", "where", "which", "while",
+    "who", "whom", "why", "will", "with", "would", "you", "your", "yours",
 ];
 
 fn set() -> &'static HashSet<&'static str> {

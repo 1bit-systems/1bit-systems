@@ -75,7 +75,8 @@ impl HttpClient {
                 message: err.message,
             });
         }
-        body.result.ok_or_else(|| McpError::Protocol("empty result".into()))
+        body.result
+            .ok_or_else(|| McpError::Protocol("empty result".into()))
     }
 
     pub async fn initialize(
@@ -83,12 +84,17 @@ impl HttpClient {
         client_name: &str,
         client_version: &str,
     ) -> Result<Value, McpError> {
-        self.round_trip("initialize", Some(initialize_params(client_name, client_version)))
-            .await
+        self.round_trip(
+            "initialize",
+            Some(initialize_params(client_name, client_version)),
+        )
+        .await
     }
 
     pub async fn list_tools(&self) -> Result<Vec<Tool>, McpError> {
-        let result = self.round_trip("tools/list", Some(serde_json::json!({}))).await?;
+        let result = self
+            .round_trip("tools/list", Some(serde_json::json!({})))
+            .await?;
         let tools = result
             .get("tools")
             .cloned()

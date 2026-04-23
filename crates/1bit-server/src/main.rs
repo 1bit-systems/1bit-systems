@@ -77,7 +77,10 @@ async fn main() -> Result<()> {
     if args.rate_limit_rpm == 0 {
         info!("rate limiter disabled (--rate-limit-rpm=0)");
     } else {
-        info!(rpm = args.rate_limit_rpm, "per-IP rate limiter enabled on /v{{1,2}}/chat/completions");
+        info!(
+            rpm = args.rate_limit_rpm,
+            "per-IP rate limiter enabled on /v{{1,2}}/chat/completions"
+        );
     }
 
     // Resolve the scan directory. Precedence:
@@ -88,7 +91,12 @@ async fn main() -> Result<()> {
     let models_dir = args
         .models_dir
         .clone()
-        .or_else(|| args.model.as_deref().and_then(|m| m.parent()).map(PathBuf::from))
+        .or_else(|| {
+            args.model
+                .as_deref()
+                .and_then(|m| m.parent())
+                .map(PathBuf::from)
+        })
         .unwrap_or_else(|| PathBuf::from("/home/bcloud/1bit-halo-models/models"));
     info!(dir = %models_dir.display(), "scanning for .h1b models");
     let mut registry = ModelRegistry::from_dir(&models_dir);

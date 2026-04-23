@@ -381,9 +381,7 @@ async fn images_generations(
     Json(req): Json<ImageGenRequest>,
 ) -> Result<Response, ServerError> {
     if req.prompt.trim().is_empty() {
-        return Err(ServerError::BadRequest(
-            "prompt must not be empty".into(),
-        ));
+        return Err(ServerError::BadRequest("prompt must not be empty".into()));
     }
 
     let url = format!("{}/v1/images/generations", s.sd_base_url.as_str());

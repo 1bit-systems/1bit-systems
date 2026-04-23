@@ -20,10 +20,10 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EntryState {
-    pub last_seen_sha:   Option<String>,
-    pub first_seen_at:   Option<DateTime<Utc>>,
+    pub last_seen_sha: Option<String>,
+    pub first_seen_at: Option<DateTime<Utc>>,
     pub last_merged_sha: Option<String>,
-    pub last_merged_at:  Option<DateTime<Utc>>,
+    pub last_merged_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -52,7 +52,8 @@ pub fn default_path() -> PathBuf {
 
 impl State {
     pub fn load(path: &Path) -> Result<Self> {
-        let raw = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let raw =
+            fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let s: State = serde_json::from_str(&raw).context("parsing state.json")?;
         Ok(s)
     }
@@ -159,7 +160,10 @@ mod tests {
                 ..Default::default()
             },
         );
-        assert!(matches!(s.observe("x", "abc", 24), Transition::SoakComplete));
+        assert!(matches!(
+            s.observe("x", "abc", 24),
+            Transition::SoakComplete
+        ));
     }
 
     #[test]

@@ -12,7 +12,7 @@
 // Layered so the sysfs root is injectable — tests point it at a
 // tempdir that mimics the real /sys layout.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use std::fs;
 use std::path::PathBuf;
@@ -26,7 +26,9 @@ pub struct EcBackend {
 
 impl EcBackend {
     pub fn new() -> Self {
-        Self { root: PathBuf::from(SYSFS_ROOT) }
+        Self {
+            root: PathBuf::from(SYSFS_ROOT),
+        }
     }
 
     #[allow(dead_code)]
@@ -43,8 +45,7 @@ impl EcBackend {
         for part in rel {
             p.push(part);
         }
-        let raw = fs::read_to_string(&p)
-            .with_context(|| format!("read {}", p.display()))?;
+        let raw = fs::read_to_string(&p).with_context(|| format!("read {}", p.display()))?;
         Ok(raw.trim().to_string())
     }
 
@@ -53,13 +54,13 @@ impl EcBackend {
         for part in rel {
             p.push(part);
         }
-        fs::write(&p, val)
-            .with_context(|| format!("write {} to {}", val, p.display()))
+        fs::write(&p, val).with_context(|| format!("write {} to {}", val, p.display()))
     }
 
     pub fn temp_c(&self) -> Result<i32> {
         let s = self.read_trim(&["temp1", "temp"])?;
-        s.parse::<i32>().with_context(|| format!("parse temp `{s}`"))
+        s.parse::<i32>()
+            .with_context(|| format!("parse temp `{s}`"))
     }
 
     pub fn power_mode(&self) -> Result<String> {
@@ -82,7 +83,14 @@ impl EcBackend {
         let level: u8 = self.read_trim(&[&name, "level"])?.parse().unwrap_or(0);
         let rampup = parse_curve(&self.read_trim(&[&name, "rampup_curve"])?);
         let rampdown = parse_curve(&self.read_trim(&[&name, "rampdown_curve"])?);
-        Ok(FanSnapshot { id, rpm, mode, level, rampup, rampdown })
+        Ok(FanSnapshot {
+            id,
+            rpm,
+            mode,
+            level,
+            rampup,
+            rampdown,
+        })
     }
 
     pub fn set_fan_mode(&self, id: u8, mode: &str) -> Result<()> {
@@ -126,7 +134,9 @@ impl EcBackend {
 }
 
 impl Default for EcBackend {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -245,7 +255,8 @@ mod tests {
     #[test]
     fn set_fan_curve_writes_csv() {
         let (_d, be) = fake_sysfs();
-        be.set_fan_curve(2, CurveDir::Rampup, &[30, 40, 60, 80, 95]).unwrap();
+        be.set_fan_curve(2, CurveDir::Rampup, &[30, 40, 60, 80, 95])
+            .unwrap();
         let f = be.fan(2).unwrap();
         assert_eq!(f.rampup, vec![30, 40, 60, 80, 95]);
     }

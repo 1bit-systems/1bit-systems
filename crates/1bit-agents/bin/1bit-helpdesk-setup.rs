@@ -42,18 +42,18 @@ use tracing::{error, info};
 const CANONICAL_TAGS: &[(&str, &str)] = &[
     // Type
     ("troubleshooting", "🐛"),
-    ("feature",         "✨"),
-    ("inquiry",         "❓"),
+    ("feature", "✨"),
+    ("inquiry", "❓"),
     // State
-    ("pending",         "🕘"),
-    ("resolved",        "✅"),
-    ("escalated",       "⬆️"),
+    ("pending", "🕘"),
+    ("resolved", "✅"),
+    ("escalated", "⬆️"),
     // Severity (lower number = worse)
-    ("defcon-1",        "🟥"),
-    ("defcon-2",        "🟧"),
-    ("defcon-3",        "🟨"),
-    ("defcon-4",        "🟩"),
-    ("defcon-5",        "⬜"),
+    ("defcon-1", "🟥"),
+    ("defcon-2", "🟧"),
+    ("defcon-3", "🟨"),
+    ("defcon-4", "🟩"),
+    ("defcon-5", "⬜"),
 ];
 
 const HELP_DESK_TOPIC: &str = "Help-desk routed from across the 1bit.systems server. \
@@ -100,7 +100,10 @@ async fn main() -> Result<()> {
              (channel settings → overview → Forum), or delete + recreate \
              as Forum. this tool only configures existing forum channels."
         );
-        bail!("channel {channel_id} is kind {:?}, not Forum", guild_channel.kind);
+        bail!(
+            "channel {channel_id} is kind {:?}, not Forum",
+            guild_channel.kind
+        );
     }
 
     info!(
@@ -116,9 +119,8 @@ async fn main() -> Result<()> {
     let tags: Vec<CreateForumTag> = CANONICAL_TAGS
         .iter()
         .map(|(name, emoji)| {
-            CreateForumTag::new(*name).emoji(serenity::all::ReactionType::Unicode(
-                (*emoji).to_string(),
-            ))
+            CreateForumTag::new(*name)
+                .emoji(serenity::all::ReactionType::Unicode((*emoji).to_string()))
         })
         .collect();
 

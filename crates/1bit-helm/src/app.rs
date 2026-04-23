@@ -966,7 +966,11 @@ fn draw_models(ui: &mut egui::Ui, app: &mut HelmApp) {
         if ui.button("Refresh").clicked() {
             app.refresh_models();
         }
-        ui.label(format!("{} model(s) @ {}", app.models.len(), app.gateway_url));
+        ui.label(format!(
+            "{} model(s) @ {}",
+            app.models.len(),
+            app.gateway_url
+        ));
     });
     ui.separator();
     if let Some(err) = &app.models_error {
@@ -988,8 +992,7 @@ fn draw_models(ui: &mut egui::Ui, app: &mut HelmApp) {
                         ui.label(egui::RichText::new(&card.id).strong().monospace());
                         if !card.owned_by.is_empty() {
                             ui.label(
-                                egui::RichText::new(format!("owned_by: {}", card.owned_by))
-                                    .weak(),
+                                egui::RichText::new(format!("owned_by: {}", card.owned_by)).weak(),
                             );
                         }
                     });
@@ -1279,5 +1282,4 @@ mod tests {
         assert!(!app.live_connected);
         assert_eq!(app.live_last_error.as_deref(), Some("x"));
     }
-
 }

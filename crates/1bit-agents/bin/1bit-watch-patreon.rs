@@ -47,8 +47,9 @@ const PATREON_API_BASE: &str = "https://www.patreon.com/api/oauth2/v2";
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("onebit_watch_patreon=info")),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                tracing_subscriber::EnvFilter::new("onebit_watch_patreon=info")
+            }),
         )
         .with_target(false)
         .init();
@@ -99,7 +100,10 @@ async fn main() -> Result<()> {
     } else if diff.new_patrons.is_empty() {
         info!("no new active patrons since last poll");
     } else {
-        info!(count = diff.new_patrons.len(), "new active patrons detected");
+        info!(
+            count = diff.new_patrons.len(),
+            "new active patrons detected"
+        );
         // ECHO_BOT_TOKEN gate: if unset, we log the new-patron list and
         // keep going. The dispatch-to-Quartermaster step is worth
         // running either way — it exercises the LLM pipeline and the
@@ -140,7 +144,8 @@ async fn fetch_all_members(
     // Field mask matches the crate-level doc — small enough to keep
     // privacy-sensitive columns out of the snapshot unless we change
     // the mask deliberately.
-    const FIELDS: &str = "fields%5Bmember%5D=email,full_name,patron_status,currently_entitled_amount_cents";
+    const FIELDS: &str =
+        "fields%5Bmember%5D=email,full_name,patron_status,currently_entitled_amount_cents";
     let mut out: Vec<Member> = Vec::new();
     let mut cursor: Option<String> = None;
 
@@ -218,9 +223,7 @@ fn build_discord_client() -> Option<Http> {
             Some(Http::new(&format!("Bot {t}")))
         }
         _ => {
-            warn!(
-                "ECHO_BOT_TOKEN unset — new-patron events will log but not post to Discord"
-            );
+            warn!("ECHO_BOT_TOKEN unset — new-patron events will log but not post to Discord");
             None
         }
     }
@@ -284,7 +287,10 @@ async fn announce_patron(registry: &Registry, discord: Option<&Http>, patron: &M
     };
 
     match ChannelId::new(channel_id).say(http, &text).await {
-        Ok(_) => info!(channel = channel_id, "posted welcome to Discord #announcements"),
+        Ok(_) => info!(
+            channel = channel_id,
+            "posted welcome to Discord #announcements"
+        ),
         Err(e) => warn!(error = %e, "failed to post welcome to Discord"),
     }
 }

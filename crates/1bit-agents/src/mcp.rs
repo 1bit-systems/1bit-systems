@@ -38,11 +38,7 @@ pub async fn github_tool_names() -> Result<Vec<String>> {
     let Some(gh) = github_from_env()? else {
         return Ok(Vec::new());
     };
-    let tools = gh
-        .inner()
-        .list_tools()
-        .await
-        .context("github tools/list")?;
+    let tools = gh.inner().list_tools().await.context("github tools/list")?;
     Ok(tools.into_iter().map(|t| t.name).collect())
 }
 

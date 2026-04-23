@@ -239,6 +239,9 @@ mod tests {
 
         let mut unpacked = vec![0i8; 32];
         unpack_sherry_row(&packed, &mut unpacked, 32);
-        assert_eq!(unpacked, ternary, "round-trip must be exact for valid 3:4 rows");
+        assert_eq!(
+            unpacked, ternary,
+            "round-trip must be exact for valid 3:4 rows"
+        );
     }
 }

@@ -5,15 +5,15 @@ use std::process::Command;
 
 pub const SERVICES: &[(&str, &str, u16)] = &[
     ("bitnet", "1bit-halo-bitnet.service", 8080), // gen-1 C++ bitnet_decode
-    ("strix", "strix-server.service", 8180), // gen-2 Rust 1bit-server
+    ("strix", "strix-server.service", 8180),      // gen-2 Rust 1bit-server
     ("sd", "1bit-halo-sd.service", 8081),
     ("whisper", "1bit-halo-whisper.service", 8082),
     ("kokoro", "1bit-halo-kokoro.service", 8083),
     ("lemonade", "1bit-halo-lemonade.service", 8000), // gen-1 lemonade daemon
-    ("strix-lm", "strix-lemonade.service", 8200), // gen-2 1bit-lemonade OpenAI gateway
-    ("landing", "strix-landing.service", 8190),  // 1bit-landing marketing + /metrics
-    ("burnin", "strix-burnin.service", 0),       // shadow-burnin v1 vs v2
-    ("tunnel", "strix-cloudflared.service", 0),  // CF tunnel → api.1bit.systems
+    ("strix-lm", "strix-lemonade.service", 8200),     // gen-2 1bit-lemonade OpenAI gateway
+    ("landing", "strix-landing.service", 8190),       // 1bit-landing marketing + /metrics
+    ("burnin", "strix-burnin.service", 0),            // shadow-burnin v1 vs v2
+    ("tunnel", "strix-cloudflared.service", 0),       // CF tunnel → api.1bit.systems
     ("agent", "1bit-halo-agent.service", 0),
 ];
 

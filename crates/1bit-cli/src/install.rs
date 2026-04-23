@@ -10,9 +10,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::oobe_error::OobeError;
-use crate::preflight::{
-    GateResult, PreflightOutcome, RealProbe, SystemProbe, run_all,
-};
+use crate::preflight::{GateResult, PreflightOutcome, RealProbe, SystemProbe, run_all};
 
 const MANIFEST_SRC: &str = include_str!("../../../packages.toml");
 
@@ -463,11 +461,7 @@ impl InstallTracker {
                 InstallAction::CopiedSudoFile(path) => {
                     println!("      - removing (sudo) {}", path.display());
                     let _ = Command::new("sudo")
-                        .args([
-                            "rm",
-                            "-f",
-                            path.to_str().unwrap_or(""),
-                        ])
+                        .args(["rm", "-f", path.to_str().unwrap_or("")])
                         .stdout(std::process::Stdio::null())
                         .stderr(std::process::Stdio::null())
                         .status();
@@ -487,10 +481,7 @@ impl Default for InstallTracker {
 /// one and drive the anchor-10 revert on failure. The public
 /// `run_install` wraps this with a fresh tracker for back-compat with
 /// non-OOBE `1bit install` calls that don't want the revert noise.
-pub async fn run_install_tracked(
-    component: &str,
-    tracker: &InstallTracker,
-) -> Result<()> {
+pub async fn run_install_tracked(component: &str, tracker: &InstallTracker) -> Result<()> {
     let m = parse()?;
     let mut order = Vec::new();
     let mut seen = HashSet::new();
@@ -740,10 +731,7 @@ pub async fn run_oobe(defaults: OobeDefaults) -> Result<()> {
 /// hook shape. Internally delegates to `run_oobe_full` with a
 /// `NullDoctor` so the behavior is identical to pass-1 OOBE.
 #[allow(dead_code)] // back-compat surface; covered by the preflight tests.
-pub async fn run_oobe_with_probe(
-    probe: &dyn SystemProbe,
-    defaults: OobeDefaults,
-) -> Result<()> {
+pub async fn run_oobe_with_probe(probe: &dyn SystemProbe, defaults: OobeDefaults) -> Result<()> {
     let defaults = OobeDefaults {
         doctor_skip: true,
         ..defaults

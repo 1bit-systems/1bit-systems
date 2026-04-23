@@ -73,7 +73,10 @@ impl Snapper for RealSnapper {
         // Text parse is cheaper than pulling a JSON flag that older
         // snapper builds don't support. The table format is stable
         // across 0.10+ and parse-failures are skipped (not fatal).
-        let out = match Command::new("snapper").args(["-c", "root", "list"]).output() {
+        let out = match Command::new("snapper")
+            .args(["-c", "root", "list"])
+            .output()
+        {
             Ok(o) => o,
             Err(_) => return Ok(Vec::new()),
         };
@@ -165,7 +168,10 @@ fn print_plan(entry: &SnapperEntry) {
     println!("rollback plan:");
     println!("  snapshot : {}", entry.number);
     println!("  label    : {}", entry.description);
-    println!("  command  : sudo snapper -c root rollback {}", entry.number);
+    println!(
+        "  command  : sudo snapper -c root rollback {}",
+        entry.number
+    );
 }
 
 /// Top-level `1bit rollback` entry point with a live snapper probe.
@@ -176,11 +182,7 @@ pub async fn run(snapshot: Option<u32>, yes: bool) -> Result<()> {
 /// Testable core of `run`. Keeps the decision logic (gate / pick /
 /// confirm / invoke) out of `run` so unit tests can wire a `FakeSnapper`
 /// without going through tokio / stdin.
-pub fn run_with_snapper(
-    snapper: &dyn Snapper,
-    snapshot: Option<u32>,
-    yes: bool,
-) -> Result<()> {
+pub fn run_with_snapper(snapper: &dyn Snapper, snapshot: Option<u32>, yes: bool) -> Result<()> {
     // Gate 1: snapper must be installed.
     if !snapper.available() {
         let e = OobeError::snapper_absent();

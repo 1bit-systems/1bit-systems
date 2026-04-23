@@ -479,10 +479,7 @@ mod tests {
             ..FakeProbe::green()
         };
         let results = run_all(&p);
-        let bad: Vec<&GateResult> = results
-            .iter()
-            .filter(|r| !r.outcome.is_green())
-            .collect();
+        let bad: Vec<&GateResult> = results.iter().filter(|r| !r.outcome.is_green()).collect();
         assert_eq!(bad.len(), 1, "exactly one gate should fail");
         assert_eq!(bad[0].name, "rocm");
     }

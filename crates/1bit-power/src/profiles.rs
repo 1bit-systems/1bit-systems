@@ -43,8 +43,8 @@ impl Profiles {
         let p = path.as_ref();
         let s = fs::read_to_string(p)
             .with_context(|| format!("reading profiles from {}", p.display()))?;
-        let me: Profiles = toml::from_str(&s)
-            .with_context(|| format!("parsing profiles from {}", p.display()))?;
+        let me: Profiles =
+            toml::from_str(&s).with_context(|| format!("parsing profiles from {}", p.display()))?;
         Ok(me)
     }
 

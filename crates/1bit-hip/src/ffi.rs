@@ -915,12 +915,7 @@ mod stub {
     // returns `Unsupported` before reaching this shim.
     #[inline]
     #[allow(unused_variables)]
-    pub unsafe extern "C" fn rcpp_sherry_pack(
-        ternary: *const i8,
-        out: *mut u8,
-        count: c_int,
-    ) {
-    }
+    pub unsafe extern "C" fn rcpp_sherry_pack(ternary: *const i8, out: *mut u8, count: c_int) {}
 
     // Bonsai Q1 / TQ2 GEMV launchers: void return — no-op in stub mode.
     // Safe wrappers in `lib.rs` short-circuit to `Unsupported` before

@@ -161,10 +161,7 @@ mod tests {
         );
         assert_eq!(SamplerMode::parse_env("cpu").unwrap(), SamplerMode::Cpu);
         assert_eq!(SamplerMode::parse_env("CPU").unwrap(), SamplerMode::Cpu);
-        assert_eq!(
-            SamplerMode::parse_env("  Cpu\n").unwrap(),
-            SamplerMode::Cpu
-        );
+        assert_eq!(SamplerMode::parse_env("  Cpu\n").unwrap(), SamplerMode::Cpu);
         // Legacy alias — `parallel` still resolves to `Cpu`.
         assert_eq!(
             SamplerMode::parse_env("parallel").unwrap(),

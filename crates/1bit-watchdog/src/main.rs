@@ -145,13 +145,19 @@ async fn poll_entry(
     match transition {
         Transition::NoChange => {}
         Transition::SeenNew => {
-            notify(entry, &format!("new upstream ref {latest} — dwell {}h", entry.soak_hours));
+            notify(
+                entry,
+                &format!("new upstream ref {latest} — dwell {}h", entry.soak_hours),
+            );
         }
         Transition::Soaking { remaining_hours } => {
             info!(id = %entry.id, remaining_hours, "still dwelling");
         }
         Transition::SoakComplete => {
-            notify(entry, &format!("soak clean — triggering on_merge/on_bump for {latest}"));
+            notify(
+                entry,
+                &format!("soak clean — triggering on_merge/on_bump for {latest}"),
+            );
             if !dry_run {
                 run_hooks(entry, dry_run)?;
             }
@@ -161,14 +167,12 @@ async fn poll_entry(
     Ok(())
 }
 
-async fn poll_github(
-    client: &reqwest::Client,
-    repo: &str,
-    branch: Option<&str>,
-) -> Result<String> {
+async fn poll_github(client: &reqwest::Client, repo: &str, branch: Option<&str>) -> Result<String> {
     let branch = branch.unwrap_or("main");
     let url = format!("https://api.github.com/repos/{repo}/commits/{branch}");
-    let mut req = client.get(&url).header("Accept", "application/vnd.github+json");
+    let mut req = client
+        .get(&url)
+        .header("Accept", "application/vnd.github+json");
     if let Ok(tok) = std::env::var("GH_TOKEN") {
         req = req.bearer_auth(tok);
     }
@@ -183,7 +187,13 @@ async fn poll_github(
 async fn poll_huggingface(client: &reqwest::Client, repo: &str) -> Result<String> {
     // HF Hub "models" endpoint exposes a sha for the default revision.
     let url = format!("https://huggingface.co/api/models/{repo}");
-    let v: serde_json::Value = client.get(&url).send().await?.error_for_status()?.json().await?;
+    let v: serde_json::Value = client
+        .get(&url)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
     let sha = v
         .get("sha")
         .and_then(|s| s.as_str())
@@ -197,12 +207,16 @@ fn run_hooks(entry: &WatchEntry, dry_run: bool) -> Result<()> {
         WatchKind::Huggingface => &entry.on_bump,
     };
     for argv in hooks {
-        if argv.is_empty() { continue; }
+        if argv.is_empty() {
+            continue;
+        }
         if dry_run {
             info!(?argv, "dry-run: would run hook");
             continue;
         }
-        let status = Command::new(&argv[0]).args(&argv[1..]).status()
+        let status = Command::new(&argv[0])
+            .args(&argv[1..])
+            .status()
             .with_context(|| format!("spawning {:?}", argv))?;
         if !status.success() {
             anyhow::bail!("hook {argv:?} exit {:?}", status.code());
