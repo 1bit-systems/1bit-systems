@@ -5,6 +5,23 @@
 # Off by default; uncomment after hard-push.
 # https://*.1bit-systems.pages.dev/*  https://1bit.systems/:splat  301
 
+# ──────────────────────────────────────────────────────────────────────
+# Multi-domain routing — four apex domains share this Pages deploy.
+# Cloudflare Pages routes by Host header; these 200-status rewrites keep
+# the URL bar on the apex while serving the matching subtree.
+
+https://1bit.music/*        /music/:splat    200
+https://www.1bit.music/*    https://1bit.music/:splat        301
+
+https://1bit.video/*        /video/:splat    200
+https://www.1bit.video/*    https://1bit.video/:splat        301
+
+https://1bit.stream/*       /stream/:splat   200
+https://www.1bit.stream/*   https://1bit.stream/:splat       301
+
+https://1bit.audio/*        /audio/:splat    200
+https://www.1bit.audio/*    https://1bit.audio/:splat        301
+
 # Short permalinks
 /discord      https://discord.gg/halo-ai           302
 /gh           https://github.com/bong-water-water-bong/1bit-systems   302
