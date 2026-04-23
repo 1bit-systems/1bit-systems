@@ -1,0 +1,42 @@
+Source: 1bit-systems
+Section: science
+Priority: optional
+Maintainer: bong-water-water-bong <277547417+bong-water-water-bong@users.noreply.github.com>
+Build-Depends:
+ debhelper-compat (= 13),
+ cargo (>= 1.86),
+ rustc (>= 1.86),
+ cmake,
+ pkg-config
+Standards-Version: 4.6.2
+Homepage: https://1bit.systems
+Vcs-Git: https://github.com/bong-water-water-bong/1bit-systems.git
+Vcs-Browser: https://github.com/bong-water-water-bong/1bit-systems
+
+Package: 1bit-systems
+Architecture: amd64
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends},
+ libc6,
+ libvulkan1
+Recommends:
+ rocm-hip-runtime,
+ xrt,
+ huggingface-hub
+Suggests:
+ rocm-hip-sdk
+Description: Local AI inference on Strix Halo — LLM, TTS, STT, image, video, NPU
+ 1bit-systems is a local AI inference stack targeting AMD Strix Halo
+ (Ryzen AI MAX+ 395, gfx1151). It ships:
+   * BitNet-1.58 ternary LLM via native HIP kernels
+   * Qwen3-TTS text-to-speech via ggml Vulkan
+   * whisper.cpp STT
+   * stable-diffusion.cpp (SDXL + Wan 2.2 TI2V-5B) via native HIP
+   * IRON + MLIR-AIE authoring lane for XDNA2 NPU kernels
+ .
+ All media engines are pure C++. Orchestration is Rust. No Python runs
+ at serving time — the serving path is HIP kernels, libxrt, and ggml.
+ .
+ This package installs only the orchestration binaries. Model weights
+ download via `1bit install <model-id>` on first run.

@@ -1,0 +1,34 @@
+#!/usr/bin/make -f
+# See debhelper(7)
+
+# Skip GPU-feature crates on Debian builds — they need ROCm at build
+# time, which we don't ship. Crates listed mirror the AUR PKGBUILD.
+PORTABLE_CRATES := onebit-cli onebit-power onebit-watchdog onebit-helm onebit-voice onebit-echo onebit-mcp
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export RUSTFLAGS = -C target-cpu=x86-64-v3
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	cargo build --release --frozen \
+		$(addprefix -p ,$(PORTABLE_CRATES))
+
+override_dh_auto_test:
+	cargo test --release --frozen \
+		-p onebit-cli -p onebit-power -p onebit-watchdog -p onebit-voice
+
+override_dh_auto_install:
+	mkdir -p debian/1bit-systems/usr/bin
+	install -m755 target/release/1bit              debian/1bit-systems/usr/bin/
+	install -m755 target/release/1bit-power        debian/1bit-systems/usr/bin/
+	install -m755 target/release/1bit-watchdog     debian/1bit-systems/usr/bin/
+	install -m755 target/release/1bit-helm         debian/1bit-systems/usr/bin/
+	install -m755 target/release/1bit-voice        debian/1bit-systems/usr/bin/
+	install -m755 target/release/1bit-echo         debian/1bit-systems/usr/bin/
+	install -m755 target/release/1bit-mcp          debian/1bit-systems/usr/bin/
+	mkdir -p debian/1bit-systems/lib/systemd/user
+	for unit in strixhalo/systemd/user/1bit-*.service strixhalo/systemd/user/1bit-*.timer; do \
+		[ -f "$$unit" ] && install -m644 "$$unit" debian/1bit-systems/lib/systemd/user/ ; \
+	done
