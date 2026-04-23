@@ -7,9 +7,9 @@ Wants=network-online.target
 Type=simple
 Environment=RUST_LOG=info
 ExecStart=%h/.local/bin/1bit-tts-server \
-    --hf-repo khimaros/Qwen3-TTS-12Hz-0.6B-Base-GGUF:Q8_0 \
-    --hf-repo-v khimaros/Qwen3-TTS-Tokenizer-12Hz-GGUF:F16 \
-    -l 127.0.0.1 -p 8095
+    -m %h/.local/share/1bit/models/qwen3-tts-0p6b-base/model.gguf \
+    -v %h/.local/share/1bit/models/qwen3-tts-tokenizer/model.gguf \
+    -H 127.0.0.1 -p 8095
 Restart=on-failure
 RestartSec=5s
 Nice=5

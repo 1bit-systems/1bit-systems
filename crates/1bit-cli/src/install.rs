@@ -216,8 +216,25 @@ async fn healthcheck(url: &str) -> bool {
 }
 
 fn run(root: &Path, argv: &[String]) -> Result<()> {
-    println!("    $ {}", argv.join(" "));
-    let (bin, rest) = argv
+    // Expand ~ to $HOME on every argv token before spawning. Command::new
+    // runs execve directly — there is no shell layer to expand the tilde,
+    // so literal "~" tokens from packages.toml would land as directory
+    // names inside root/. Do it here once, centrally.
+    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no $HOME"))?;
+    let expanded: Vec<String> = argv
+        .iter()
+        .map(|a| {
+            if let Some(rest) = a.strip_prefix("~/") {
+                home.join(rest).to_string_lossy().into_owned()
+            } else if a == "~" {
+                home.to_string_lossy().into_owned()
+            } else {
+                a.clone()
+            }
+        })
+        .collect();
+    println!("    $ {}", expanded.join(" "));
+    let (bin, rest) = expanded
         .split_first()
         .ok_or_else(|| anyhow::anyhow!("empty argv"))?;
     let s = Command::new(bin)
