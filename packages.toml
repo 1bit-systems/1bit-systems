@@ -249,10 +249,19 @@ requires     = ["tts-engine"]
 sha256       = "PENDING-RUN6"
 
 [model.qwen3-tts-0p6b-base]
-description  = "Qwen3-TTS 0.6B Base FP16 — fallback / baseline"
+description  = "Qwen3-TTS 0.6B Base Q8_0 — fallback / baseline"
 hf_repo      = "khimaros/Qwen3-TTS-12Hz-0.6B-Base-GGUF"
-hf_file      = "qwen3-tts-0.6b-base.Q8_0.gguf"
+hf_file      = "Qwen3-TTS-12Hz-0.6B-Base-Q8_0.gguf"
 size_mb      = 650
+license      = "Qwen-permissive"
+requires     = ["tts-engine"]
+sha256       = "UPSTREAM"
+
+[model.qwen3-tts-tokenizer]
+description  = "Qwen3-TTS tokenizer + vocoder (12 Hz, F16) — shared by all Qwen3-TTS GGUFs"
+hf_repo      = "khimaros/Qwen3-TTS-Tokenizer-12Hz-GGUF"
+hf_file      = "Qwen3-TTS-Tokenizer-12Hz-F16.gguf"
+size_mb      = 180
 license      = "Qwen-permissive"
 requires     = ["tts-engine"]
 sha256       = "UPSTREAM"
