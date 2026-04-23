@@ -766,6 +766,7 @@
         </button>
         <div class="nav-group-body">
           <ul class="nav-list">
+            <li><a href="#funding-goals">Funding goals</a></li>
             <li><a href="#roadmap">Roadmap</a></li>
             <li><a href="#changelog">Changelog</a></li>
             <li><a href="#contact">Contact</a></li>
@@ -796,16 +797,19 @@
         <li><strong>Halo v2</strong> — 2B BitNet 1.58 serving at <strong>66 tok/s</strong> on 64-token context, <strong>33 tok/s</strong> at 1024-token context. Measured on the reference Strix Halo box, no asterisks.</li>
         <li><strong>Ternary GEMV</strong> at <strong>92% of LPDDR5 peak bandwidth</strong> on <code>gfx1151</code>. Memory-bandwidth-bound — reducing bytes per token is where the next speedup lives.</li>
         <li><strong>Split-KV Flash-Decoding attention</strong> — <strong>6.78&times;</strong> at context length 2048, bit-exact vs reference.</li>
-        <li><strong>OpenAI-compatible HTTP</strong> on <code>:8180</code>. Any <code>openai</code> SDK, Open WebUI, DSPy, or Claude Code MCP client points at it and it just works.</li>
+        <li><strong>Multi-arch build — shipped.</strong> One fat binary runs on every mainstream AMD Radeon + APU with Wave32 WMMA: RDNA3 (<code>gfx1100/1101/1102/1103</code>), RDNA3.5 (<code>gfx1150/1151</code>), RDNA4 (<code>gfx1200/1201</code>). Commit <code>b24b8cb</code>.</li>
+        <li><strong>gfx1201 (RX 9070 XT) port — shipped.</strong> All 14 WMMA prefill kernels bit-exact vs CK on both <code>gfx1151</code> and <code>gfx1201</code>. PPL on wikitext-103 is <strong>11.9758 on both arches</strong> — identical to every printed digit. WMMA FP16 peak measured at <strong>50 TFLOPS on gfx1151</strong> and <strong>138 TFLOPS on gfx1201</strong> (RDNA4). Commits <code>dc0b1b1</code>, <code>43fb690</code>. <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/benchmarks/data/ppl-cross-arch-20260422.json" target="_blank" rel="noopener">cross-arch PPL JSON</a> &middot; <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/benchmarks/data/wmma-peak-20260422.json" target="_blank" rel="noopener">WMMA peak JSON</a>.</li>
+        <li><strong>OpenAI-compatible HTTP</strong> on <code>:8180</code>. Any <code>openai</code> SDK, Open WebUI, DSPy, or Claude Code MCP client points at it and it just works. <code>/v1/models</code> now returns the real <code>.h1b</code> registry and validates the <code>model</code> field per request.</li>
         <li><strong>MCP surface</strong> on <code>:8181</code> for introspection, KV-cache stats, sampler overrides.</li>
+        <li><strong>AppImage install — shipped.</strong> Single-file download, no build required. See <a href="#install">Install</a>.</li>
         <li><strong>Zero telemetry, zero dial-home, zero cloud.</strong> Weights and prompts never leave the machine.</li>
       </ul>
 
       <h3>What's in flight</h3>
       <ul>
-        <li><strong>Sparse-BitNet retrain</strong> on an H200 pod — targeting <strong>1.25 effective bits per weight</strong> via 3:4 N:M sparsity on top of 1.58-bit. Run 4 live. 10B-token budget, ~57 h wall-clock.</li>
+        <li><strong>Sparse-BitNet retrain</strong> on an H200 NVL pod — targeting <strong>1.25 effective bits per weight</strong> via 3:4 N:M sparsity on top of 1.58-bit. <strong>Run 4 live</strong>, 10B-token budget, ~57 h wall-clock. Default training pod is now <strong>H200 NVL ($3.39/hr)</strong> — identical HBM3e and bandwidth to SXM for single-GPU training, 15% cheaper.</li>
+        <li><strong>Run 5</strong> — Microsoft canonical <strong>2:4 Sparse-BitNet on 2&times; NVL DDP</strong> immediately after Run 4 lands. ~31 h wall-clock, ~$210 total. See <a href="/docs/wiki/Training-Runs">Training runs</a>.</li>
         <li><strong>BitNet v2</strong> implementation (Hadamard-native W1.58 A4) planned next.</li>
-        <li><strong>gfx1201 build variant</strong> for RX 9070 XT — <strong>shipped 2026-04-22</strong>. All 14 WMMA prefill kernels bit-exact vs CK on both gfx1151 and gfx1201. PPL on wikitext-103 is <strong>11.9758 on both arches</strong> — identical to every printed digit. Decode gains +18% short-context, +25% at 4K context. <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/benchmarks/data/ppl-cross-arch-20260422.json" target="_blank" rel="noopener">raw JSON</a>.</li>
         <li><strong>Desktop shell</strong> — voice-first, plugin API via MCP, package manager.</li>
       </ul>
 
@@ -1270,10 +1274,13 @@ strix-burnin.service        — shadow-burnin harness</code></pre>
         Retrain in progress on an H200 pod. Target: <strong>1.25 effective bits per weight</strong> via 3:4 N:M sparsity layered on 1.58-bit weights.
       </p>
       <p>
-        Run 3 bailed at step 500 on a false-positive mask-integrity check (empty mask cache due to disabled monitoring). Run 4 launched 2026-04-22 with the patch — <code>model.enable_mask_monitoring()</code> at init, <code>mask_cache.clear()</code> after each verify, <code>--save-every 100</code> to avoid losing progress to future bails.
+        Run 3 bailed at step 500 on a false-positive mask-integrity check (empty mask cache due to disabled monitoring). Run 4 launched 2026-04-22 with the patch &mdash; <code>model.enable_mask_monitoring()</code> at init, <code>mask_cache.clear()</code> after each verify, <code>--save-every 100</code> to avoid losing progress to future bails.
       </p>
       <p>
-        Pre-bail numbers on Run 3 tracked cleanly: loss 11.04 → 5.77 across steps 50 → 500, throughput steady at 49.5k tok/s. Run 4 first checkpoint landed at step 100. 10B-token gate ETA ~57 h.
+        Pre-bail numbers on Run 3 tracked cleanly: loss 11.04 &rarr; 5.77 across steps 50 &rarr; 500, throughput steady at 49.5k tok/s. Run 4 first checkpoint landed at step 100. 10B-token gate ETA ~57 h. Default training pod is now <strong>H200 NVL at $3.39/hr</strong> &mdash; identical 141 GB HBM3e and 4.8 TB/s bandwidth to SXM for single-GPU training, 15% cheaper.
+      </p>
+      <p>
+        <strong>Run 5</strong> pivots to Microsoft's canonical <strong>2:4</strong> recipe on <strong>2&times; H200 NVL DDP</strong> as soon as Run 4 lands (~2026-04-24). Same 0.5B scale, better-studied N:M pattern, ~31 h wall-clock, ~$210 total. See <a href="/docs/wiki/Training-Runs">Training runs</a>.
       </p>
     </section>
 
@@ -1302,7 +1309,7 @@ strix-burnin.service        — shadow-burnin harness</code></pre>
         <li><strong>Power:</strong> 45–120 W configurable TDP envelope</li>
       </ul>
       <p>
-        A secondary RDNA 4 target (RX 9070 XT on gfx1201) lives in the <code>ryzen</code> mesh node. A fat-binary build covering both arches is wired in <code>rocm-cpp</code>; the gfx1201 WMMA intrinsic port is in flight.
+        The default build is multi-arch: one fat binary covers every mainstream AMD Wave32-WMMA part &mdash; RDNA3 (<code>gfx1100/1101/1102/1103</code>), RDNA3.5 (<code>gfx1150/1151</code>), RDNA4 (<code>gfx1200/1201</code>). The RX 9070 XT (<code>gfx1201</code>, RDNA 4) on the <code>ryzen</code> mesh node is the secondary target and is <strong>shipped</strong>: all 14 WMMA prefill kernels are bit-exact vs CK on both <code>gfx1151</code> and <code>gfx1201</code>, and wikitext-103 PPL matches to six decimals across the two arches.
       </p>
     </section>
 
@@ -1398,10 +1405,26 @@ strix-burnin.service        — shadow-burnin harness</code></pre>
     <section id="install">
       <h2>Install</h2>
       <p>
-        No binary distribution yet. Build from source. Packaging (AppImage + Flatpak) is on the near-term roadmap; <code>1bit-halo-pkg</code> model package manager is long-term.
+        Two paths. The AppImage is the recommended non-developer path &mdash; one download, one checksum, one <code>chmod +x</code>. The source build is the developer path, and is also the current path for kernel work, packaging, and anyone running on a non-Arch distro.
       </p>
 
-      <h3>Build ROCm against gfx1151</h3>
+      <h3>AppImage (recommended, non-dev)</h3>
+      <p>
+        Prebuilt single-file bundle of the user-facing Rust binaries. ROCm itself is <strong>not</strong> bundled &mdash; <code>1bit</code> runs, but the kernel library <code>librocm_cpp.so</code> still needs the source bootstrap below before <code>1bit install core</code> works end-to-end.
+      </p>
+<pre><code># download → verify → symlink to ~/.local/bin/1bit
+curl -fsSLO https://1bit.systems/dl/1bit-systems-0.1.0-x86_64.AppImage
+echo "cb24880525750d73bb9bc75c5db993e8aa7e83837165c80a442526c67226f6eb  1bit-systems-0.1.0-x86_64.AppImage" | sha256sum -c -
+chmod +x 1bit-systems-0.1.0-x86_64.AppImage
+ln -sfn "$PWD/1bit-systems-0.1.0-x86_64.AppImage" ~/.local/bin/1bit
+1bit --version</code></pre>
+      <p>
+        The scripted path <code>INSTALL_MODE=appimage ./install.sh</code> does the same three steps and verifies against <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/1bit-site/releases.json" target="_blank" rel="noopener"><code>releases.json</code></a>. Works on any x86_64 Linux with glibc &ge; 2.31 (Ubuntu 20.04, Debian 11, CachyOS). The AppImage symlinks into any of the 20 bundled binary names &mdash; <code>1bit-helm</code>, <code>1bit-halo-helm-tray</code>, <code>1bit-watch-discord</code>, <code>1bit-mcp-patreon</code>, etc. &mdash; and dispatches via <code>$ARGV0</code>. Run <code>&lt;AppImage&gt; --list</code> to enumerate them.
+      </p>
+
+      <h3>Source build (dev path)</h3>
+
+      <h4>Build ROCm against gfx1151</h4>
       <p>
         System-package ROCm drops gfx1151 from Tier-1 in most distros. Build from source, or use the <code>llamacpp-rocm</code> fork's install script as a bootstrap.
       </p>
@@ -1409,19 +1432,24 @@ strix-burnin.service        — shadow-burnin harness</code></pre>
 cd ~/repos/llamacpp-rocm
 ./scripts/install-rocm.sh --target gfx1151</code></pre>
 
-      <h3>Build rocm-cpp kernel library</h3>
+      <h4>Build rocm-cpp kernel library</h4>
+      <p>
+        The default build is multi-arch &mdash; one fat binary for every mainstream Wave32-WMMA AMD part. If you want a narrower build for disk / build-time reasons, override <code>CMAKE_HIP_ARCHITECTURES</code> explicitly.
+      </p>
 <pre><code>git clone https://github.com/bong-water-water-bong/rocm-cpp ~/repos/rocm-cpp
 cd ~/repos/rocm-cpp
 
+# default: multi-arch fat binary (RDNA3 + 3.5 + 4)
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+sudo cmake --install build --prefix /usr/local
+
+# or: narrow single-arch build (Strix Halo only)
 cmake -B build \
   -DCMAKE_BUILD_TYPE=Release \
-  -DAMDGPU_TARGETS=gfx1151 \
-  -DCMAKE_HIP_ARCHITECTURES=gfx1151
+  -DCMAKE_HIP_ARCHITECTURES=gfx1151</code></pre>
 
-cmake --build build -j$(nproc)
-sudo cmake --install build --prefix /usr/local</code></pre>
-
-      <h3>Build 1bit-halo-core (bitnet_decode)</h3>
+      <h4>Build 1bit-halo-core (bitnet_decode)</h4>
 <pre><code># private repo today; public release gated on NPU ship-gate
 cd ~/1bit-halo-core
 
@@ -1430,7 +1458,7 @@ cmake --build build -j$(nproc)
 
 ./build/bitnet_decode --help</code></pre>
 
-      <h3>Build 1bit-halo-server and 1bit-halo-mcp</h3>
+      <h4>Build 1bit-halo-server and 1bit-halo-mcp</h4>
 <pre><code>cd ~/1bit-halo-workspace
 
 cargo build --release --bin 1bit-halo-server
@@ -1438,7 +1466,7 @@ cargo build --release --bin 1bit-halo-mcp
 
 ls -la target/release/1bit-halo-server target/release/1bit-halo-mcp</code></pre>
 
-      <h3>Fetch model weights</h3>
+      <h4>Fetch model weights</h4>
 <pre><code># 1bit-halo-pkg is not shipped yet. Manual download for now:
 mkdir -p ~/1bit-halo/models
 cd ~/1bit-halo/models
@@ -1453,15 +1481,15 @@ curl -LO https://.../trilm-3.9b.h1b</code></pre>
         <strong>Rule A reminder</strong> — Python may appear in caller-side tooling and dev-time scripts only. <code>bitnet_decode</code>, <code>1bit-halo-server</code>, <code>1bit-halo-mcp</code>, and kernel binaries ship zero Python. Carve-outs (Open WebUI, <code>lemonade-server</code>) are caller-side and sunset on 1bit-helm v0.3 parity.
       </div>
 
-      <h3>Second target — RX 9070 XT (gfx1201)</h3>
+      <h3>Second target &mdash; RX 9070 XT (gfx1201) &mdash; shipped</h3>
       <p>
-        Radeon RX 9070 XT (Navi 48, RDNA 4) lives in the <code>ryzen</code> mesh host and is the secondary kernel target. The build system is already multi-arch: HIP bundles per-arch code objects into a fat binary and picks at load time. Default build covers both.
+        Radeon RX 9070 XT (Navi 48, RDNA 4) lives in the <code>ryzen</code> mesh host and is the secondary kernel target. All 14 WMMA prefill kernels are bit-exact vs CK on both <code>gfx1151</code> and <code>gfx1201</code>; wikitext-103 PPL matches to six decimals (<strong>11.9758</strong> on both arches). WMMA FP16 peak is <strong>50 TFLOPS on gfx1151</strong> and <strong>138 TFLOPS on gfx1201</strong> (81% of theoretical RDNA4). The <code>standalone_gemm_4c_pipelined</code> SGPR spill on <code>gfx1201</code> is eliminated by hoisting the capturing lambda to a free <code>__device__ __forceinline__</code> function plus a flat A-cache layout (commit <code>dc0b1b1</code>).
       </p>
       <p>
-        The hot intrinsics — <code>__builtin_amdgcn_wmma_*_w32</code>, <code>__builtin_amdgcn_sudot4</code>, <code>__builtin_amdgcn_sdot4</code> — are retained on RDNA 4. Correctness holds out of the gate. Peak throughput is not yet tuned for gfx1201; block sizes and LDS budgets are still sized for gfx1151. A fresh K-outer tile sweep is needed for GDDR6 bandwidth (~640 GB/s on 9070 XT vs ~270 GB/s LPDDR5X on Strix Halo).
+        Peak throughput is not yet re-tuned for GDDR6 bandwidth (~640 GB/s on 9070 XT vs ~270 GB/s LPDDR5X on Strix Halo); block sizes and LDS budgets remain Strix-tuned. A K-outer tile sweep is the natural next pass.
       </p>
 
-      <h3>Build for gfx1201</h3>
+      <h4>Build for gfx1201</h4>
 <pre><code># single-arch build, 9070 XT only
 GFX=gfx1201 ./install.sh
 
@@ -1942,25 +1970,69 @@ rocprof --stats --timestamp on \
 
     <div class="divider-ornament">· · ·</div>
 
+    <section id="funding-goals">
+      <h2>Funding goals</h2>
+      <p>
+        Training runs are the line item a Patreon underwrites. The shape below is a tiered ladder &mdash; every tier ships Sparse-BitNet weights publicly to Hugging Face before the next tier opens. Distilled from Llama-3 dense teachers, not trained from scratch; the AAzdi <em>Sparse-BitNet</em> paper shows 1.25 bpw + 2:4 preserves ~95% dense quality with 50&ndash;100B distillation tokens.
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>tier</th><th>model</th><th>token budget</th><th>wall-clock</th><th>cost @ $3.39/hr/GPU</th><th>ships as</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Tier 1</td><td><strong>13B</strong> Sparse-BitNet</td><td>50B</td><td>~8 days on 2&times; NVL</td><td><strong>$1.5k</strong> goal</td><td>2 GB &middot; any RDNA3 iGPU</td></tr>
+          <tr><td>Tier 2</td><td><strong>30B</strong> Sparse-BitNet</td><td>80B</td><td>~25 days on 2&times; NVL</td><td><strong>$12k</strong> goal</td><td>4.8 GB &middot; Strix Halo + any RDNA3/4 dGPU</td></tr>
+          <tr><td>Tier 3 (headline)</td><td><strong>70B</strong> Sparse-BitNet</td><td>50B distill</td><td>~75 days on 8&times; NVL</td><td><strong>$50k</strong> goal</td><td><strong>11 GB</strong> &middot; any RX 9070 XT (16 GB GDDR6) &middot; Strix Halo</td></tr>
+          <tr><td>Tier 4 (moonshot)</td><td>70B full pretrain + SFT</td><td>1T</td><td>~250 days on 8&times; NVL</td><td>$200k</td><td>same 11 GB ship-time footprint</td></tr>
+        </tbody>
+      </table>
+
+      <p>
+        <strong>Why distillation, not from-scratch.</strong> Full from-scratch Llama-3-70B was ~6.4M H100-hours for 15T tokens; that is off the table for a single-donor project. Continued-pretrain distillation from dense Llama-3 into Sparse-BitNet weights compresses to 1.25 bpw while keeping the overwhelming majority of dense quality &mdash; and the inference footprint on a consumer Radeon is the point.
+      </p>
+
+      <p>
+        <strong>Shipping order before the big ask.</strong> Run 4 (0.5B, 3:4) lands Thursday. Run 5 (0.5B, 2:4, Microsoft canonical) lands ~3 days after that. Both go to Hugging Face and to the site. Only after that does the Tier 1 13B funding goal open. Tier 3 70B opens only once 13B and 30B have shipped. The credibility ladder matters more than the headline number.
+      </p>
+
+      <p>
+        <strong>Training HW gate.</strong> 13B and 30B train on 2&times; NVL DDP. 70B can't fit on 1&ndash;2 NVL during training &mdash; full state (weights + grads + Adam) is ~500 GB, needs 8&times; NVL minimum. Inference ship-time is a different number: the 70B distilled weights fit in 11 GB and run on any 16 GB Radeon or on Strix Halo's 128 GB unified pool with room to spare.
+      </p>
+
+      <p>
+        The Patreon surface opens when the NPU ship gate clears or when the project's positioning explicitly changes. Until then this page is a forward declaration, not a link.
+      </p>
+    </section>
+
+    <div class="divider-ornament">· · ·</div>
+
     <section id="roadmap">
       <h2>Roadmap</h2>
       <ol>
-        <li>Sparse-BitNet retrain completion (H200 pod · 10B-token budget)</li>
-        <li>BitNet v2 implementation — Hadamard-native W1.58 A4</li>
-        <li>MedusaBitNet speculative heads — expected 1.4–1.8× at batch = 1</li>
-        <li>gfx1201 WMMA intrinsic port for RX 9070 XT (second target)</li>
+        <li>Sparse-BitNet Run 4 (3:4) retrain completion &mdash; H200 NVL pod &middot; 10B-token budget &middot; ~2026-04-24 ETA</li>
+        <li>Sparse-BitNet Run 5 &mdash; Microsoft canonical 2:4 on 2&times; H200 NVL DDP (see <a href="/docs/wiki/Training-Runs">Training runs</a>)</li>
+        <li>BitNet v2 implementation &mdash; Hadamard-native W1.58 A4</li>
+        <li>MedusaBitNet speculative heads &mdash; expected 1.4&ndash;1.8&times; at batch = 1</li>
         <li>Streaming STT via halo-whisper sentence-boundary partials</li>
         <li>Image generation via <code>sd.cpp</code> native-HIP port, SDXL on gfx1151</li>
-        <li>Video generation port — Wan 2.2 TI2V-5B (5B DiT, Apache 2.0)</li>
-        <li>Desktop shell — voice-first, plugin API via MCP, package manager</li>
-        <li>NPU unblock — gated on AMD</li>
+        <li>Video generation port &mdash; Wan 2.2 TI2V-5B (5B DiT, Apache 2.0)</li>
+        <li>Desktop shell &mdash; voice-first, plugin API via MCP, package manager</li>
+        <li>NPU unblock &mdash; gated on AMD</li>
       </ol>
+      <p>
+        <strong>Gap audit:</strong> all P0 items closed as of 2026-04-22. Remaining gaps are P1/P2 and tracked in the issue queue.
+      </p>
+      <p>
+        <strong>Already shipped this week:</strong> multi-arch default build (8 AMD consumer arches, one fat binary), <code>gfx1201</code> RDNA 4 port (14/14 WMMA kernels bit-exact, cross-arch PPL identical to six decimals), cross-arch benchmark suite, new <code>peak_probe_bench</code> + <code>attn_fd_sweep</code> bench tools, model registry on <code>/v1/models</code> with per-request validation, AppImage single-file install path.
+      </p>
     </section>
 
     <section id="changelog">
       <h2>Changelog</h2>
       <ul>
-        <li><strong>0.1.6</strong> · 2026-04-22 — Sparse-BitNet Run 4 launched. Kernel rolled back to 6.18.22-lts. Network topology documented. gfx1201 build variant wired.</li>
+        <li><strong>0.1.7</strong> &middot; 2026-04-22 &mdash; AppImage single-file install path shipped. <code>gfx1201</code> port promoted from in-flight to <strong>shipped</strong> (14/14 WMMA kernels bit-exact, cross-arch PPL identical). Default multi-arch build covers all 8 consumer AMD Wave32-WMMA parts (RDNA3 + 3.5 + 4). Model registry on <code>/v1/models</code> discovers real <code>.h1b</code> and validates request <code>model</code>. Cross-arch bench suite + <code>peak_probe_bench</code> + <code>attn_fd_sweep</code> landed. H200 NVL replaces SXM as default training pod (15% cheaper). Run 5 (2:4 canonical, 2&times; NVL DDP) planned behind Run 4. Patreon funding ladder (13B / 30B / 70B) declared.</li>
+        <li><strong>0.1.6</strong> &middot; 2026-04-22 &mdash; Sparse-BitNet Run 4 launched. Kernel rolled back to 6.18.22-lts. Network topology documented. gfx1201 build variant wired.</li>
         <li><strong>0.1.5</strong> · 2026-04-21 — TriLM INT4 ONNX export complete. NPU placement confirmed blocked. Six-crash investigation and kernel-7.0 rollback plan.</li>
         <li><strong>0.1.4</strong> · 2026-04-20 — Bare-metal-first lock-in. AMD and AMDResearch org scan. XDNA 2 defer verdict.</li>
         <li><strong>0.1.3</strong> · 2026-04-19 — RoPE split-half fix (PPL 524 → ~12). Split-KV Flash-Decoding attention (6.78× at L=2048). PPL harness landed.</li>

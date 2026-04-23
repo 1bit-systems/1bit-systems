@@ -10,7 +10,9 @@ stated otherwise.
 | constant | value | source |
 |---|---:|---|
 | LPDDR5-8000 peak bandwidth | 256 GB/s | vendor spec, Zen5 APU |
-| iGPU FP16 peak | 60 TFLOPS | Radeon 8060S, 16 WGPs @ ~2.4 GHz |
+| iGPU FP16 peak (theoretical, gfx1151) | 118.8 TFLOPS | 40 CU × 1024 FLOPs/cycle × 2.9 GHz |
+| iGPU FP16 peak (measured, gfx1151) | **50.17 TFLOPS** (42% of theoretical) | `peak_probe_bench` 2026-04-22, [`wmma-peak-20260422.json`](../../benchmarks/data/wmma-peak-20260422.json) |
+| dGPU FP16 peak (measured, gfx1201 RX 9070 XT) | **138.04 TFLOPS** (81% of theoretical) | same run |
 | iGPU effective (measured on ternary GEMV) | 24 TFLOPS (40% util) | bench.sh + rocprof |
 | NPU INT8 peak | 50 TOPS | `xrt-smi validate`, [IRON #55](https://github.com/amd/IRON/issues/55) |
 | NPU effective (42% of peak, BF16 GEMM) | 21 TOPS | IRON #55, andrej comment 3706297989 |

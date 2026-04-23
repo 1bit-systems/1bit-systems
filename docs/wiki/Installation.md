@@ -1,6 +1,30 @@
 # Installation
 
-Full build-from-source guide. No binary distribution yet — packaging (AppImage + Flatpak) is on the near-term roadmap.
+Two install paths:
+
+- **AppImage (recommended, non-dev)** — single-file download, no build. Bundles the Rust binaries; ROCm itself is still built from source for now.
+- **Source build (dev path)** — full control, required for kernel work and non-Arch distros. Everything below.
+
+Flatpak is on the near-term roadmap.
+
+## AppImage — recommended non-dev path
+
+Prebuilt single-file bundle of the user-facing Rust binaries (`1bit`, `1bit-helm`, `1bit-halo-helm-tray`, `1bit-watch-discord`, `1bit-mcp-patreon` and 15 more — 31 MB zstd-squashfs). ROCm is **not** bundled; `1bit` itself runs, but `1bit install core` still needs `librocm_cpp.so` from the source bootstrap further down this page.
+
+```bash
+# download → verify → symlink to ~/.local/bin/1bit
+curl -fsSLO https://1bit.systems/dl/1bit-systems-0.1.0-x86_64.AppImage
+echo "cb24880525750d73bb9bc75c5db993e8aa7e83837165c80a442526c67226f6eb  1bit-systems-0.1.0-x86_64.AppImage" | sha256sum -c -
+chmod +x 1bit-systems-0.1.0-x86_64.AppImage
+ln -sfn "$PWD/1bit-systems-0.1.0-x86_64.AppImage" ~/.local/bin/1bit
+1bit --version
+```
+
+Works on any x86_64 Linux with glibc ≥ 2.31 (Ubuntu 20.04, Debian 11, CachyOS). The scripted path `INSTALL_MODE=appimage ./install.sh` does the same three steps and verifies against [`1bit-site/releases.json`](../../1bit-site/releases.json).
+
+Symlink the AppImage to any of the 20 bundled binary names and it dispatches via `$ARGV0`. Run `<AppImage> --list` to enumerate them.
+
+## Source build — dev path
 
 ## Requirements
 
@@ -55,17 +79,21 @@ cd ~/repos/llamacpp-rocm
 
 ## Build rocm-cpp kernel library
 
+Default build is a multi-arch fat binary covering every mainstream AMD Wave32-WMMA part — RDNA3 (`gfx1100/1101/1102/1103`), RDNA3.5 (`gfx1150/1151`), RDNA4 (`gfx1200/1201`). One build runs on every consumer Radeon + APU in that list. Override `CMAKE_HIP_ARCHITECTURES` explicitly if you want a narrower build for disk / build-time reasons.
+
 ```bash
 git clone https://github.com/bong-water-water-bong/rocm-cpp ~/repos/rocm-cpp
 cd ~/repos/rocm-cpp
 
-cmake -B build \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DAMDGPU_TARGETS=gfx1151 \
-  -DCMAKE_HIP_ARCHITECTURES=gfx1151
-
+# default: multi-arch fat binary (RDNA3 + 3.5 + 4)
+cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 sudo cmake --install build --prefix /usr/local
+
+# or: narrow single-arch build
+cmake -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_HIP_ARCHITECTURES=gfx1151
 ```
 
 ## Build 1bit-halo-core (bitnet_decode)
@@ -107,11 +135,11 @@ curl -LO https://.../trilm-3.9b.h1b
 
 > **Rule A reminder** — Python may appear in caller-side tooling and dev-time scripts only. `bitnet_decode`, `1bit-halo-server`, `1bit-halo-mcp`, and kernel binaries ship zero Python. Carve-outs (Open WebUI, `lemonade-server`) are caller-side and sunset on 1bit-helm v0.3 parity.
 
-## Second target — RX 9070 XT (gfx1201)
+## Second target — RX 9070 XT (gfx1201) — shipped
 
-Radeon RX 9070 XT (Navi 48, RDNA 4) lives in the `ryzen` mesh host and is the secondary kernel target. The build system is already multi-arch: HIP bundles per-arch code objects into a fat binary and picks at load time. Default build covers both.
+Radeon RX 9070 XT (Navi 48, RDNA 4) lives in the `ryzen` mesh host and is the secondary kernel target. **Port status: shipped 2026-04-22.** All 14 WMMA prefill kernels are bit-exact vs CK on both `gfx1151` and `gfx1201`. `bitnet_decode --ppl` on wikitext-103 matches to six decimals across arches (**11.9758** on both). Peak throughput is not yet re-tuned for GDDR6 bandwidth (~640 GB/s on 9070 XT vs ~270 GB/s LPDDR5X on Strix Halo); block sizes and LDS budgets remain Strix-tuned, and a K-outer tile sweep is the natural next pass. See [Benchmarks.md](./Benchmarks.md) for the cross-arch numbers.
 
-The hot intrinsics — `__builtin_amdgcn_wmma_*_w32`, `__builtin_amdgcn_sudot4`, `__builtin_amdgcn_sdot4` — are retained on RDNA 4. Correctness holds out of the gate. Peak throughput is not yet tuned for gfx1201; block sizes and LDS budgets are still sized for gfx1151. A fresh K-outer tile sweep is needed for GDDR6 bandwidth (~640 GB/s on 9070 XT vs ~270 GB/s LPDDR5X on Strix Halo).
+The hot intrinsics — `__builtin_amdgcn_wmma_*_w32`, `__builtin_amdgcn_sudot4`, `__builtin_amdgcn_sdot4` — are retained on RDNA 4 (half8 + `_w32_gfx12` shape variant, dispatched by `src/wmma_compat.hpp`). The `standalone_gemm_4c_pipelined` SGPR spill on `gfx1201` was eliminated by hoisting the capturing lambda to a free `__device__ __forceinline__` function plus a flat A-cache layout (commit `dc0b1b1`).
 
 ### Build for gfx1201
 

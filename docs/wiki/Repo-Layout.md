@@ -11,23 +11,35 @@ Canonical URL: `https://github.com/bong-water-water-bong/1bit-systems` (renamed 
 
 ```
 1bit-systems/
-├── Cargo.toml              Rust workspace manifest (15 crates)
+├── Cargo.toml              Rust workspace manifest (~26 crates)
 ├── crates/
 │   ├── 1bit-server/        OpenAI-compat HTTP (Rust, axum) — binds :8180
 │   ├── 1bit-router/        backend dispatcher — iGPU / NPU / CPU
 │   ├── 1bit-core/          model + tokenizer parsers (mmap, zero deps)
-│   ├── 1bit-cli/           operator CLI — `1bit status / doctor / …`
+│   ├── 1bit-cli/           operator CLI — `1bit status / doctor / update / …`
 │   ├── 1bit-hip/           FFI into rocm-cpp HIP kernels
 │   ├── 1bit-mlx/           Apple Silicon backend (feature-gated)
+│   ├── 1bit-onnx/          ORT C++ backend shim for the NPU lane
+│   ├── 1bit-cpu/           CPU lane (aggregator path)
 │   ├── 1bit-voice/         sentence-boundary TTS streaming orchestrator
 │   ├── 1bit-echo/          WebSocket voice server (Opus 20 ms frames)
 │   ├── 1bit-whisper/       STT via whisper.cpp FFI (feature-gated)
+│   ├── 1bit-kokoro/        TTS via kokoro.cpp (stub-by-default)
 │   ├── 1bit-agents/        17 typed specialists + discord/github watchers + dialectic memory
-│   ├── 1bit-mcp/           stdio MCP bridge — 19 tools
+│   ├── 1bit-agents-legacy/ gen-1 agents, held for parity
+│   ├── 1bit-mcp/           stdio MCP bridge
+│   ├── 1bit-mcp-clients/   in-tree MCP client helpers
+│   ├── 1bit-mcp-discord/   discord-surface MCP tools
+│   ├── 1bit-mcp-linuxgsm/  game-server MCP tools
+│   ├── 1bit-mcp-patreon/   patreon watch → Quartermaster → echo
 │   ├── 1bit-lemonade/      OpenAI-compat gateway on :8200 (Hermes + AMD GAIA interop)
 │   ├── 1bit-landing/       LAN dashboard on :8190 (live SSE telemetry)
-│   └── 1bit-helm/          native egui desktop client
-├── rocm-cpp/               [SUBTREE, post-fold] HIP kernels, C++20, gfx1151
+│   ├── 1bit-helm/          native egui desktop client + SNI tray icon
+│   ├── 1bit-power/         halo-power profile controller
+│   ├── 1bit-pkg/           packages.toml driver (install/stop/start)
+│   ├── 1bit-retrieval/     BM25 wiki full-text index
+│   └── 1bit-halo-ralph/    gen-1 bridge
+├── rocm-cpp/               [SUBTREE, post-fold] HIP kernels, C++20, gfx1151 + 1201
 ├── docs/wiki/              spec pages, one per decision — phase-tagged
 ├── strixhalo/              dotfiles: systemd units, Caddy config, bin/, fish shell
 ├── 1bit-site/              static website for 1bit.systems (CF Pages target)

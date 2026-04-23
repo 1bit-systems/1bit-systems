@@ -34,8 +34,14 @@ Plain-English explanations of the architectural calls we made — one page per d
 
 ## Benchmarks + proof
 
-- [Live tok/s + PPL](./Benchmarks.md) — what we measure, what it means
+- [Live tok/s + PPL](./Benchmarks.md) — what we measure, what it means (now includes gfx1151 vs gfx1201 cross-arch numbers + multi-arch default build)
+- [Peak performance projection](./Peak-Performance-Projection.md) — end-state throughput math, WMMA peak measured 2026-04-22
 - [FAQ](./FAQ.md) — short answers to common questions
+
+## Training + funding
+
+- [Training runs](./Training-Runs.md) — Run 4 (3:4) live status, Run 5 (2:4 canonical) plan, H200 NVL pod default
+- [Funding goals](./Funding-Goals.md) — 13B / 30B / 70B Sparse-BitNet Patreon ladder
 
 ## Ops + topology
 

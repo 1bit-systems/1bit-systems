@@ -1,6 +1,8 @@
 # Live tok/s + PPL
 
-What we measure and what each number means. All numbers taken on the production box (`strixhalo`, 100.64.0.1) unless noted.
+What we measure and what each number means. All numbers taken on the production box (`strixhalo`, 100.64.0.1) unless noted. Cross-arch numbers are captured on the `ryzen` mesh host (`100.64.0.3`, RX 9070 XT, `gfx1201`).
+
+Raw, re-runnable JSON outputs are in [`benchmarks/data/`](../../benchmarks/data/). Do not embed giant tables here — link to the JSON.
 
 ## The table
 
@@ -49,8 +51,48 @@ halo burnin stats               # live summary
 
 Numbers regenerate into `~/claude output/`.
 
+## Cross-arch — gfx1151 vs gfx1201
+
+The `gfx1201` (RX 9070 XT, RDNA 4, Navi 48, GDDR6 ~640 GB/s) port shipped 2026-04-22. All 14 WMMA prefill kernels are bit-exact vs CK on both arches; `bitnet_decode --ppl` on wikitext-103 is identical to six decimals on both boxes.
+
+| metric | gfx1151 (Strix Halo iGPU) | gfx1201 (RX 9070 XT dGPU) | source |
+|---|---:|---:|---|
+| PPL, wikitext-103 (4095-tok single-pass) | **11.9758** | **11.9758** | [`ppl-cross-arch-20260422.json`](../../benchmarks/data/ppl-cross-arch-20260422.json) |
+| `bitnet_decode --ppl` throughput (contended) | 59.2 tok/s | 73.6 tok/s | same |
+| WMMA FP16 peak (register-resident probe) | **50.17 TFLOPS** (42% of theoretical) | **138.04 TFLOPS** (81% of theoretical) | [`wmma-peak-20260422.json`](../../benchmarks/data/wmma-peak-20260422.json) |
+| WMMA INT8 peak | 53.6 TOPS | 288.4 TOPS (2.1× FP16, RDNA 4 wider INT8) | same |
+| CU count | 40 | 56 | `rocminfo` |
+| Power under sustained probe | 68.1 W | 50.0 W (probe is compute-only, no VRAM traffic) | `rocm-smi` |
+
+The take-away is not "ryzen is faster." Strix Halo's efficiency number (0.90 tok/s/W) is the headline for the closet-AI thesis; RX 9070 XT's raw throughput (178 TFLOPS peak) is the upper bound for the same kernel source on a dGPU.
+
+**Bit-exact verdict.** The gfx1201 port of ternary GEMV + attention + norm kernels is numerically identical to the gfx1151 reference on the production forward path at L=4096. This extends the existing `test_standalone` unit-shape claim to the long-context production path.
+
+## Multi-arch default build
+
+One `./install.sh` run produces a fat binary that covers every mainstream AMD consumer Wave32-WMMA part. Details: [`project_rocm_cpp_multiarch`](../../CLAUDE.md) and [Installation.md](./Installation.md).
+
+| family | arches | hardware |
+|---|---|---|
+| RDNA3 | gfx1100 / 1101 / 1102 / 1103 | RX 7600 → 7900 XTX, Phoenix iGPU (780M/760M) |
+| RDNA3.5 | gfx1150 / 1151 | Strix Point (880M/890M), Strix Halo reference |
+| RDNA4 | gfx1200 / 1201 | RX 9060, RX 9070 / 9070 XT |
+
+Arches *not* yet covered (real porting work, not a CMake flip): RDNA2 (`gfx1030-1036`, wave64 fallback needed), CDNA2/3 (`gfx90a` / `gfx942`, MFMA ISA not WMMA), Intel Arc (SYCL/oneAPI, separate backend).
+
+## Benchmark infrastructure
+
+Two new tools landed with the cross-arch pass:
+
+- `rocm-cpp/bench/peak_probe_bench.cpp` — register-resident WMMA throughput probe. Each wave loads A/B fragments once, spins `n_inner` inner iterations of 4×4 back-to-back WMMA ops. Times a median-of-5 run after 3 warmup launches. Drives the WMMA peak numbers above.
+- `tools/attn_fd_sweep.cpp` — split-KV Flash-Decoding sweep. Drives [`attn-fd-sweep-20260422.json`](../../benchmarks/data/attn-fd-sweep-20260422.json).
+
+Both honor the project constraints: `no_hipblas: true`, `c++20: true`, `wave32_wmma: true`, `no_python_runtime: true`, `native_tensile_only: true`.
+
 ## Links
 
 - [Why shadow-burnin?](./Why-Shadow-Burnin.md) — how the parity number is produced
 - [Why parity gates?](./Why-Parity-Gates.md) — how we gate cutover on it
 - [Why this way + how?](./Why-This-Way-How.md) — long-form walkthrough of the full stack
+- [Peak-Performance-Projection.md](./Peak-Performance-Projection.md) — forward-looking ceiling math
+- [Training-Runs.md](./Training-Runs.md) — Run 4 status + Run 5 plan
