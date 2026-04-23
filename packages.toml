@@ -186,6 +186,9 @@ build = [
     ["cmake", "--build", "../1bit-tts.cpp/build", "-j", "16", "--target", "qwen3-tts-server"],
     ["install", "-Dm755", "../1bit-tts.cpp/build/qwen3-tts-server", "~/.local/bin/1bit-tts-server"],
 ]
+files = [
+    ["strixhalo/systemd/user/1bit-tts.service", "systemd/user/1bit-tts.service"],
+]
 units = ["1bit-tts.service"]
 check = "http://127.0.0.1:8095/v1/audio/voices"
 
@@ -193,6 +196,9 @@ check = "http://127.0.0.1:8095/v1/audio/voices"
 description = "whisper.cpp — C++ server on :8190 (whisper-large-v3 Vulkan on sliger B580)"
 deps        = []
 build = []
+files = [
+    ["strixhalo/systemd/user/1bit-whisper.service", "systemd/user/1bit-whisper.service"],
+]
 units = ["1bit-whisper.service"]
 check = "http://127.0.0.1:8190/"
 
@@ -204,6 +210,9 @@ build = [
      "-DSD_HIPBLAS=OFF", "-DSD_HIP=ON"],
     ["cmake", "--build", "../stable-diffusion.cpp/build-hip", "-j", "16", "--target", "sd-server"],
     ["install", "-Dm755", "../stable-diffusion.cpp/build-hip/bin/sd-server", "~/.local/bin/1bit-sd-server"],
+]
+files = [
+    ["strixhalo/systemd/user/1bit-sd.service", "systemd/user/1bit-sd.service"],
 ]
 units = ["1bit-sd.service"]
 check = "http://127.0.0.1:1234/"

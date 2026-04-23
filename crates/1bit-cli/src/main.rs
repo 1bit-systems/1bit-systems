@@ -13,6 +13,7 @@ mod burnin;
 mod chat;
 mod doctor;
 mod install;
+mod install_model;
 mod logs;
 mod memory;
 mod npu;

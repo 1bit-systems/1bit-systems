@@ -19,6 +19,36 @@ const MANIFEST_SRC: &str = include_str!("../../../packages.toml");
 #[derive(Debug, Deserialize)]
 struct Manifest {
     component: BTreeMap<String, Component>,
+    /// Model slots for instant-load weight download. Added 2026-04-23.
+    /// Parsed but ignored unless `--model` flag is passed or the id
+    /// matches a known model. See [`Model`].
+    #[serde(default)]
+    model: BTreeMap<String, Model>,
+}
+
+/// One on-disk model weight. Used by `1bit install <model>` which resolves
+/// the `requires` engine component (tts-engine, image-engine, etc),
+/// fetches the GGUF via the `hf` CLI with sha256 verification, symlinks
+/// the file into `~/.local/share/1bit/models/<id>/`, and restarts the
+/// owning systemd user unit so the new weights go live immediately.
+#[derive(Debug, Deserialize)]
+struct Model {
+    description: String,
+    /// Hugging Face repo id, e.g. `bong-water-water-bong/qwen3-tts-0p6b-ternary`.
+    hf_repo: String,
+    /// Specific file inside the repo.
+    hf_file: String,
+    /// Expected sha256. `UPSTREAM` = accept whatever HF serves (upstream
+    /// release pin), `PENDING-RUN*` = weights not yet trained.
+    #[serde(default)]
+    sha256: String,
+    #[serde(default)]
+    size_mb: u64,
+    #[serde(default)]
+    license: String,
+    /// Engine components this model needs (tts-engine, image-engine, ...).
+    #[serde(default)]
+    requires: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -305,6 +335,33 @@ fn copy_tracked_file(
 }
 
 pub async fn run_install(component: &str) -> Result<()> {
+    // If the requested name matches a [model.*] slot, dispatch to the
+    // model installer — it will recurse back into run_install for the
+    // owning engine component, then fetch weights + restart units.
+    let m = parse()?;
+    if let Some(model) = m.model.get(component) {
+        // Ensure each required engine is installed first.
+        for engine in &model.requires {
+            run_install_tracked(engine, &InstallTracker::new()).await?;
+        }
+        // Collect the units owned by the engines so the model installer
+        // can restart them after the GGUF lands.
+        let mut engine_units: Vec<String> = Vec::new();
+        for engine in &model.requires {
+            if let Some(c) = m.component.get(engine) {
+                engine_units.extend(c.units.clone());
+            }
+        }
+        let spec = crate::install_model::ModelSpec {
+            id: component.to_string(),
+            description: model.description.clone(),
+            hf_repo: model.hf_repo.clone(),
+            hf_file: model.hf_file.clone(),
+            sha256: model.sha256.clone(),
+            requires: model.requires.clone(),
+        };
+        return crate::install_model::run(&spec, &engine_units);
+    }
     run_install_tracked(component, &InstallTracker::new()).await
 }
 
