@@ -1,0 +1,38 @@
+{
+  "v": "0.1",
+  "catalog": "kevin-macleod",
+  "title": "Kevin MacLeod catalog",
+  "artist": "Kevin MacLeod",
+  "license": "CC-BY-4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "attribution": "Kevin MacLeod (incompetech.com)",
+  "source": "https://incompetech.com/music/royalty-free/",
+  "created": "2026-04-23T00:00:00Z",
+  "tier": "lossy",
+  "codec": {
+    "audio": "mimi-12hz",
+    "sample_rate": 24000,
+    "channels": 2
+  },
+  "model": {
+    "arch": "bitnet-1p58",
+    "params": 10485760,
+    "bpw": 1.58,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "tracks": [
+    {
+      "id": "01",
+      "title": "Electric Sheep",
+      "length_ms": 215000,
+      "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+    },
+    {
+      "id": "02",
+      "title": "Moonlit Freeway",
+      "length_ms": 198500,
+      "sha256": "486ea46224d1bb4fb680f34f7c9ad96a8f24ec88be73ea8e5a6c65260e9cb8a7"
+    }
+  ],
+  "residual_present": false
+}

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://1bit.systems/schemas/catalog-index.schema.json",
+  "title": "1bit-stream /v1/catalogs index response",
+  "description": "JSON Schema for the response body of `GET /v1/catalogs` on a 1bit-stream server. An array of catalog summaries derived from the `.1bl` manifests served by that host.",
+  "$comment": "Schema file license: CC BY 4.0. Summary row fields mirror the relevant subset of docs/schemas/1bl-manifest.schema.json.",
+  "type": "array",
+  "items": { "$ref": "#/$defs/catalogSummary" },
+  "$defs": {
+    "catalogSummary": {
+      "type": "object",
+      "required": ["slug", "title", "artist", "license", "tier", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "type": "string",
+          "description": "Catalog slug — matches `catalog` in the manifest.",
+          "pattern": "^[a-z0-9-]{1,64}$"
+        },
+        "title": {
+          "type": "string",
+          "description": "Human-readable catalog title.",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "artist": {
+          "type": "string",
+          "description": "Primary artist / composer / publisher.",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "license": {
+          "type": "string",
+          "description": "SPDX license identifier.",
+          "pattern": "^[A-Za-z0-9.+-]+$",
+          "examples": ["CC-BY-4.0", "CC0-1.0"]
+        },
+        "tier": {
+          "type": "string",
+          "description": "Which tiers the server has available for this catalog.",
+          "enum": ["lossy", "premium", "both"]
+        },
+        "cover_url": {
+          "type": ["string", "null"],
+          "description": "Absolute URL to the cover artwork, or null if the catalog ships without a COVER section.",
+          "format": "uri"
+        },
+        "sha256": {
+          "type": "string",
+          "description": "Lowercase hex SHA-256 of the `.1bl` container footer — uniquely identifies this build of the catalog.",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

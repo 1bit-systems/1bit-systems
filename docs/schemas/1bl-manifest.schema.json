@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://1bit.systems/schemas/1bl-manifest.schema.json",
+  "title": "1bl Catalog Manifest",
+  "description": "JSON Schema for the CBOR-encoded manifest inside a `.1bl` catalog container (spec v0.1). CBOR and JSON are isomorphic for this data — the schema describes the logical shape.",
+  "type": "object",
+  "$comment": "Schema file license: CC BY 4.0. Source: docs/wiki/1bl-container-spec.md",
+  "required": [
+    "v",
+    "catalog",
+    "title",
+    "artist",
+    "license",
+    "attribution",
+    "created",
+    "tier",
+    "codec",
+    "model",
+    "tracks",
+    "residual_present"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "type": "string",
+      "description": "Manifest format version. v0.1 is the current draft.",
+      "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$",
+      "examples": ["0.1"]
+    },
+    "catalog": {
+      "type": "string",
+      "description": "Repo-slug-style catalog identifier. Lowercase kebab-case, 1–64 chars.",
+      "pattern": "^[a-z0-9-]{1,64}$",
+      "examples": ["kevin-macleod", "classical-pack"]
+    },
+    "title": {
+      "type": "string",
+      "description": "Human-readable catalog title.",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "artist": {
+      "type": "string",
+      "description": "Primary artist, composer, or publisher.",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "license": {
+      "type": "string",
+      "description": "SPDX license identifier (https://spdx.org/licenses/).",
+      "pattern": "^[A-Za-z0-9.+-]+$",
+      "examples": ["CC-BY-4.0", "CC0-1.0", "MIT"]
+    },
+    "license_url": {
+      "type": "string",
+      "description": "Canonical URL for the license text.",
+      "format": "uri"
+    },
+    "attribution": {
+      "type": "string",
+      "description": "Plain-text attribution block surfaced in player credits.",
+      "minLength": 1
+    },
+    "source": {
+      "type": "string",
+      "description": "Upstream URL for the source material.",
+      "format": "uri"
+    },
+    "created": {
+      "type": "string",
+      "description": "RFC 3339 / ISO 8601 creation timestamp.",
+      "format": "date-time"
+    },
+    "tier": {
+      "type": "string",
+      "description": "Distribution tier. `lossy` = 1-bit listen only; `premium` = includes residual for bit-exact reconstruction; `both` = shipped simultaneously.",
+      "enum": ["lossy", "premium", "both"]
+    },
+    "codec": {
+      "type": "object",
+      "description": "Codec + sample-format descriptor.",
+      "required": ["audio", "sample_rate", "channels"],
+      "additionalProperties": false,
+      "properties": {
+        "audio": {
+          "type": "string",
+          "description": "Codec identifier. Current canonical values: `mimi-12hz`, `wan22-ti2v-5b` (video).",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "sample_rate": {
+          "type": "integer",
+          "description": "PCM-equivalent sample rate in Hz.",
+          "minimum": 8000,
+          "maximum": 192000
+        },
+        "channels": {
+          "type": "integer",
+          "description": "Channel count (1 = mono, 2 = stereo, …).",
+          "minimum": 1,
+          "maximum": 8
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "description": "Embedded generator model descriptor. `sha256` covers the MODEL_GGUF section bytes.",
+      "required": ["arch", "params", "bpw", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "arch": {
+          "type": "string",
+          "description": "Model architecture identifier.",
+          "examples": ["bitnet-1p58"]
+        },
+        "params": {
+          "type": "integer",
+          "description": "Parameter count.",
+          "minimum": 1
+        },
+        "bpw": {
+          "type": "number",
+          "description": "Bits-per-weight (1.58 for canonical ternary).",
+          "exclusiveMinimum": 0,
+          "maximum": 32
+        },
+        "sha256": {
+          "type": "string",
+          "description": "Lowercase hex SHA-256 of the MODEL_GGUF section payload.",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "tracks": {
+      "type": "array",
+      "description": "Ordered, index-based track list.",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/track" }
+    },
+    "residual_present": {
+      "type": "boolean",
+      "description": "`true` iff a RESIDUAL_BLOB section is appended (premium / both tiers)."
+    },
+    "residual_sha256": {
+      "type": "string",
+      "description": "Lowercase hex SHA-256 of the RESIDUAL_BLOB section. Required when `residual_present` is true.",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "residual_present": { "const": true } }, "required": ["residual_present"] },
+      "then": { "required": ["residual_sha256"] }
+    },
+    {
+      "if": { "properties": { "tier": { "const": "lossy" } }, "required": ["tier"] },
+      "then": { "properties": { "residual_present": { "const": false } } }
+    },
+    {
+      "if": { "properties": { "tier": { "const": "premium" } }, "required": ["tier"] },
+      "then": { "properties": { "residual_present": { "const": true } } }
+    }
+  ],
+  "$defs": {
+    "track": {
+      "type": "object",
+      "description": "Per-track descriptor.",
+      "required": ["id", "title", "length_ms", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Track identifier. Zero-padded ordinal (e.g. `01`) or a kebab-case slug.",
+          "pattern": "^[a-z0-9-]{1,64}$"
+        },
+        "title": {
+          "type": "string",
+          "description": "Track title.",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "length_ms": {
+          "type": "integer",
+          "description": "Duration in milliseconds.",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "description": "Lowercase hex SHA-256. For lossless path: hash of the reconstructed PCM track. For lossy path: hash of the model-generator output (optional enforcement).",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}
