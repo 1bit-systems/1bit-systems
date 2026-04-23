@@ -171,3 +171,172 @@ deps        = ["core"]
 build       = []
 units       = []
 check       = ""
+
+# -----------------------------------------------------------------------------
+# Media lanes — full-C++ stack: TTS + STT + image + video.
+# All engines ship as sibling repos (1bit-tts.cpp, stable-diffusion.cpp,
+# whisper.cpp). Models download on first install via `hf` CLI and are
+# sha256-verified. Rule A — no Python in runtime, no containers.
+
+[component.tts-engine]
+description = "1bit-tts.cpp — Qwen3-TTS C++/ggml server on :8095 (OpenAI /v1/audio/speech)"
+deps        = []
+build = [
+    ["cmake", "-S", "../1bit-tts.cpp", "-B", "../1bit-tts.cpp/build", "-DGGML_VULKAN=ON"],
+    ["cmake", "--build", "../1bit-tts.cpp/build", "-j", "16", "--target", "qwen3-tts-server"],
+    ["install", "-Dm755", "../1bit-tts.cpp/build/qwen3-tts-server", "~/.local/bin/1bit-tts-server"],
+]
+units = ["1bit-tts.service"]
+check = "http://127.0.0.1:8095/v1/audio/voices"
+
+[component.stt-engine]
+description = "whisper.cpp — C++ server on :8190 (whisper-large-v3 Vulkan on sliger B580)"
+deps        = []
+build = []
+units = ["1bit-whisper.service"]
+check = "http://127.0.0.1:8190/"
+
+[component.image-engine]
+description = "stable-diffusion.cpp — SDXL + Wan native HIP server on :1234"
+deps        = []
+build = [
+    ["cmake", "-S", "../stable-diffusion.cpp", "-B", "../stable-diffusion.cpp/build-hip",
+     "-DSD_HIPBLAS=OFF", "-DSD_HIP=ON"],
+    ["cmake", "--build", "../stable-diffusion.cpp/build-hip", "-j", "16", "--target", "sd-server"],
+    ["install", "-Dm755", "../stable-diffusion.cpp/build-hip/bin/sd-server", "~/.local/bin/1bit-sd-server"],
+]
+units = ["1bit-sd.service"]
+check = "http://127.0.0.1:1234/"
+
+[component.video-engine]
+description = "stable-diffusion.cpp shared with image — Wan 2.2 TI2V-5B native HIP"
+deps        = ["image-engine"]
+build       = []
+units       = []
+check       = ""
+
+# -----------------------------------------------------------------------------
+# Model registry — instant-load weight slots. `1bit install <model>` resolves
+# deps (pulls engine first), fetches the GGUF via `hf` CLI with atomic write
+# + sha256 verify, symlinks into ~/.local/share/1bit/models/, then restarts
+# the owning systemd unit so the new weights are live immediately.
+
+[model.bitnet-2p4b]
+description  = "BitNet-1.58 2.4B — our Run 5 sparse (2:4 N:M) retrain"
+hf_repo      = "bong-water-water-bong/bitnet-2p4b-sparse"
+hf_file      = "model-tq2_0.gguf"
+size_mb      = 380
+license      = "MIT"
+requires     = ["core"]
+sha256       = "PENDING-RUN5"
+
+[model.qwen3-tts-0p6b-ternary]
+description  = "Qwen3-TTS 0.6B Base ternary — our Run 6 QAT"
+hf_repo      = "bong-water-water-bong/qwen3-tts-0p6b-ternary"
+hf_file      = "model-tq2_0.gguf"
+size_mb      = 180
+license      = "Qwen-permissive"
+requires     = ["tts-engine"]
+sha256       = "PENDING-RUN6"
+
+[model.qwen3-tts-0p6b-base]
+description  = "Qwen3-TTS 0.6B Base FP16 — fallback / baseline"
+hf_repo      = "khimaros/Qwen3-TTS-12Hz-0.6B-Base-GGUF"
+hf_file      = "qwen3-tts-0.6b-base.Q8_0.gguf"
+size_mb      = 650
+license      = "Qwen-permissive"
+requires     = ["tts-engine"]
+sha256       = "UPSTREAM"
+
+[model.whisper-large-v3]
+description  = "Whisper large-v3 q5_0 — STT on sliger B580 Vulkan"
+hf_repo      = "ggerganov/whisper.cpp"
+hf_file      = "ggml-large-v3-q5_0.bin"
+size_mb      = 1080
+license      = "MIT"
+requires     = ["stt-engine"]
+sha256       = "UPSTREAM"
+
+[model.sdxl-q8]
+description  = "SDXL base 1.0 Q8 — image gen native HIP"
+hf_repo      = "bong-water-water-bong/sdxl-gguf"
+hf_file      = "sd_xl_base_1.0.Q8_0.gguf"
+size_mb      = 6800
+license      = "OpenRAIL-M"
+requires     = ["image-engine"]
+sha256       = "UPSTREAM"
+
+[model.wan2-2-ti2v-5b]
+description  = "Wan 2.2 TI2V 5B Q8 — image-to-video native HIP (Apache-2.0)"
+hf_repo      = "QuantStack/Wan2.2-TI2V-5B-GGUF"
+hf_file      = "Wan2.2-TI2V-5B.Q8_0.gguf"
+size_mb      = 5200
+license      = "Apache-2.0"
+requires     = ["video-engine"]
+sha256       = "UPSTREAM"
+
+# -----------------------------------------------------------------------------
+# Upstream watch list — consumed by 1bit-watchdog. Each entry tracks a
+# upstream repo or HuggingFace model. Dwell time = 24h (unless overridden)
+# before our fork / our weights are bumped. Discord notification fires on
+# every state transition (seen-new, soaked-clean, merged, test-failed).
+
+[watch.qwen3-tts-cpp]
+kind        = "github"
+repo        = "khimaros/qwen3-tts.cpp"
+branch      = "main"
+soak_hours  = 24
+merge_into  = "bong-water-water-bong/1bit-tts.cpp"
+on_merge    = [["cmake", "--build", "../1bit-tts.cpp/build", "-j", "16"]]
+notify      = "discord:halo-updates"
+
+[watch.stable-diffusion-cpp]
+kind        = "github"
+repo        = "leejet/stable-diffusion.cpp"
+branch      = "master"
+soak_hours  = 24
+merge_into  = "bong-water-water-bong/stable-diffusion.cpp"
+on_merge    = [["cmake", "--build", "../stable-diffusion.cpp/build-hip", "-j", "16"]]
+notify      = "discord:halo-updates"
+
+[watch.whisper-cpp]
+kind        = "github"
+repo        = "ggerganov/whisper.cpp"
+branch      = "master"
+soak_hours  = 24
+merge_into  = "bong-water-water-bong/whisper.cpp"
+on_merge    = []
+notify      = "discord:halo-updates"
+
+[watch.ggml]
+kind        = "github"
+repo        = "ggml-org/ggml"
+branch      = "master"
+soak_hours  = 48  # extra dwell — ggml churn is high
+merge_into  = ""  # pin only; update via our engines' submodules
+on_merge    = []
+notify      = "discord:halo-updates"
+
+[watch.ec-su-axb35]
+kind        = "github"
+repo        = "cmetz/ec-su_axb35-linux"
+branch      = "main"
+soak_hours  = 24
+merge_into  = "bong-water-water-bong/ec-su_axb35-linux"
+on_merge    = [["make", "-C", "../ec-su_axb35-linux", "all"],
+               ["sudo", "make", "-C", "../ec-su_axb35-linux", "install"]]
+notify      = "discord:halo-updates"
+
+[watch.wan-ti2v-5b-weights]
+kind        = "huggingface"
+repo        = "Wan-AI/Wan2.2-TI2V-5B"
+soak_hours  = 24
+on_bump     = [["ssh", "runpod", "requantize-wan"]]
+notify      = "discord:halo-updates"
+
+[watch.qwen3-tts-upstream-weights]
+kind        = "huggingface"
+repo        = "Qwen/Qwen3-TTS-12Hz-0.6B-Base"
+soak_hours  = 24
+on_bump     = [["ssh", "runpod", "requantize-qwen3-tts"]]
+notify      = "discord:halo-updates"
