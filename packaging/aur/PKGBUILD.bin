@@ -1,0 +1,48 @@
+# Maintainer: bong-water-water-bong <277547417+bong-water-water-bong@users.noreply.github.com>
+#
+# 1bit-systems-bin — prebuilt AppImage install path for AUR.
+#
+# Identical end-state to the source PKGBUILD but skips the cargo compile
+# by downloading the GitHub release's AppImage and extracting its bundled
+# Rust binaries into /usr/bin.
+
+pkgname=1bit-systems-bin
+_pkgname=1bit-systems
+pkgver=0.1.8
+pkgrel=1
+pkgdesc="Local AI inference on Strix Halo (AppImage install) — LLM + TTS + STT + image + video + NPU"
+arch=('x86_64')
+url="https://1bit.systems"
+license=('MIT')
+provides=('1bit-systems')
+conflicts=('1bit-systems')
+depends=(
+    'glibc'
+    'gcc-libs'
+    'fuse2'
+    'rocm-hip-libraries'
+    'rocm-core'
+    'vulkan-icd-loader'
+    'xrt'
+)
+optdepends=(
+    'rocm-hip-sdk: building custom HIP kernels'
+    'hf-cli: first-run model download'
+)
+source=("https://github.com/bong-water-water-bong/${_pkgname}/releases/download/v${pkgver}/${_pkgname}-0.1.0-x86_64.AppImage")
+sha256sums=('877951d2af4159d3a4f415e8625244573b023807c15475b058f7794fff90d8c5')
+noextract=("${_pkgname}-0.1.0-x86_64.AppImage")
+
+package() {
+    cd "$srcdir"
+    # AppImage self-extracts under $PWD/squashfs-root/
+    install -Dm755 "${_pkgname}-0.1.0-x86_64.AppImage" \
+        "$pkgdir/opt/1bit-systems/1bit-systems.AppImage"
+
+    # Symlink dispatch names into /usr/bin. Mirrors the AppImage's
+    # own symlink-by-name behaviour from packaging/appimage/AppRun.
+    install -d "$pkgdir/usr/bin"
+    for bin in 1bit 1bit-power 1bit-watchdog 1bit-helm 1bit-voice 1bit-echo 1bit-mcp 1bit-halo-helm-tray; do
+        ln -sf "/opt/1bit-systems/1bit-systems.AppImage" "$pkgdir/usr/bin/$bin"
+    done
+}
