@@ -45,7 +45,7 @@ use onebit_core::sampler::{Sampler, SamplerConfig};
 use onebit_core::types::TokenId;
 use tokio::sync::Mutex;
 
-pub use backend_impl::{BackendError, HipBackend, ModelFormat, sniff_model_format};
+pub use backend_impl::{BackendError, HipBackend, KvDtype, ModelFormat, sniff_model_format};
 pub use detect::{BackendKind, detect};
 // Re-exports from the sampler lane. `cpu_lane::` still works as a
 // back-compat path for `1bit-server`'s benches — the shim module just

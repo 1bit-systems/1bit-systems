@@ -238,11 +238,88 @@ struct Scratch {
     next_tok_dev: DeviceBuffer<i32>, // [1]
 }
 
-/// Per-layer KV cache (FP16). We allocate `max_context * nkv * hd` per
-/// layer at `new()` and index by position.
-struct KvCache {
-    k: DeviceBuffer<u16>,
-    v: DeviceBuffer<u16>,
+/// KV-cache dtype selector.
+///
+/// `I8` is the default (2× bandwidth savings for the KV reads at long
+/// context — weights still dominate at short L, but at L=2048 on 2B-4T
+/// they're the same order of magnitude: ~400 MB weights vs ~458 MB KV
+/// at fp16 → 229 MB with i8). `F16` is kept as a debug fallback selectable
+/// through `HALO_KV_DTYPE=f16` for PPL A/B against the i8 path.
+///
+/// Geramy flagged the wire-up gap on 2026-04-23 ("K/V is the biggest RAM
+/// BW spender"); the kernels + Rust wrappers already exist in `1bit-hip`
+/// (`kv_cache_attn_decode_i8`, `quantize_fp16_to_i8_rowscale`), only the
+/// router's decode hot path was still calling the fp16 variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum KvDtype {
+    /// FP16 K/V cache — the pre-2026-04-23 default. Kept for A/B PPL
+    /// debugging; selectable via `HALO_KV_DTYPE=f16`.
+    F16,
+    /// INT8 K/V cache with per-`(pos, kv_head)` FP16 scales; dequant
+    /// fused inside `rcpp_kv_cache_attn_decode_i8`. Default.
+    #[default]
+    I8,
+}
+
+impl KvDtype {
+    /// Env var the router checks at backend construction. Value is
+    /// case-insensitive; unset → [`KvDtype::default`] (I8).
+    pub const ENV: &'static str = "HALO_KV_DTYPE";
+
+    /// Parse `HALO_KV_DTYPE=...`. Accepts `i8`/`int8`, `f16`/`fp16`/`half`.
+    /// Unknown values surface as [`BackendError::Other`] naming the valid
+    /// set so operators don't have to grep the source.
+    pub fn parse_env(raw: &str) -> Result<Self, BackendError> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "i8" | "int8" => Ok(KvDtype::I8),
+            "f16" | "fp16" | "half" => Ok(KvDtype::F16),
+            other => Err(BackendError::Other(format!(
+                "HALO_KV_DTYPE: unknown value {other:?}; accepted: i8 | f16"
+            ))),
+        }
+    }
+
+    /// Resolve from the process env. Absent or empty → default (I8).
+    pub fn from_env() -> Result<Self, BackendError> {
+        match std::env::var(Self::ENV) {
+            Ok(raw) if !raw.trim().is_empty() => Self::parse_env(&raw),
+            _ => Ok(Self::default()),
+        }
+    }
+
+    /// Human-readable label for logs / metrics.
+    pub fn label(self) -> &'static str {
+        match self {
+            KvDtype::F16 => "f16",
+            KvDtype::I8 => "i8",
+        }
+    }
+}
+
+/// Per-layer KV cache storage. Active variant is picked once at `new()`
+/// from [`KvDtype::from_env`]; the forward pass reads the discriminant
+/// on `self.kv_dtype` (one load, branch-predicted) and dispatches.
+///
+/// INT8 layout matches what `rcpp_kv_cache_attn_decode_i8` expects:
+/// - `k_i8` / `v_i8`: `[max_seq_len, num_kv_heads, head_dim]` i8
+/// - `k_scales_f16` / `v_scales_f16`: `[max_seq_len, num_kv_heads]` fp16
+///
+/// Scales are FP16 because the kernel loads them as `__half` and the
+/// `quantize_fp16_to_i8_rowscale` launch writes FP16 scales directly —
+/// no host-side cast required.
+enum KvCache {
+    /// FP16 K/V (pre-2026-04-23 behaviour). `max_context * nkv * hd` each.
+    F16 {
+        k: DeviceBuffer<u16>,
+        v: DeviceBuffer<u16>,
+    },
+    /// INT8 K/V + per-`(pos, head)` FP16 scales.
+    I8 {
+        k_i8: DeviceBuffer<i8>,
+        v_i8: DeviceBuffer<i8>,
+        k_scales: DeviceBuffer<u16>, // fp16 bits
+        v_scales: DeviceBuffer<u16>, // fp16 bits
+    },
 }
 
 /// The actual HIP backend. Holds weights, scratch, KV cache, tokenizer,
@@ -273,6 +350,12 @@ pub struct HipBackend {
     /// release hot path doesn't pay for the atomic.
     #[cfg(any(test, feature = "bitnet-v2"))]
     hadamard_dispatch_count: std::sync::atomic::AtomicU64,
+    /// KV cache dtype — resolved once at `new()` from [`KvDtype::from_env`]
+    /// and never changed for the life of the backend. Lives here (rather
+    /// than on the variant) so the hot path can dispatch with a single
+    /// enum discriminant load instead of walking the KvCache match on
+    /// every layer.
+    kv_dtype: KvDtype,
 }
 
 impl HipBackend {
@@ -396,11 +479,30 @@ impl HipBackend {
         };
 
         // ---------- KV cache ----------
+        // Resolve the dtype once; log it so serve-path ops can confirm
+        // which cache is live on a given boot without grep-on-pid-env.
+        let kv_dtype = KvDtype::from_env()?;
+        tracing::info!(
+            dtype = kv_dtype.label(),
+            max_context,
+            nkv,
+            hd,
+            "allocating KV cache"
+        );
+
         let mut kv = Vec::with_capacity(n_layers);
         for _ in 0..n_layers {
-            kv.push(KvCache {
-                k: DeviceBuffer::alloc(max_context * nkv * hd)?,
-                v: DeviceBuffer::alloc(max_context * nkv * hd)?,
+            kv.push(match kv_dtype {
+                KvDtype::F16 => KvCache::F16 {
+                    k: DeviceBuffer::alloc(max_context * nkv * hd)?,
+                    v: DeviceBuffer::alloc(max_context * nkv * hd)?,
+                },
+                KvDtype::I8 => KvCache::I8 {
+                    k_i8: DeviceBuffer::alloc(max_context * nkv * hd)?,
+                    v_i8: DeviceBuffer::alloc(max_context * nkv * hd)?,
+                    k_scales: DeviceBuffer::alloc(max_context * nkv)?,
+                    v_scales: DeviceBuffer::alloc(max_context * nkv)?,
+                },
             });
         }
 
@@ -435,6 +537,7 @@ impl HipBackend {
             hadamard_active,
             #[cfg(any(test, feature = "bitnet-v2"))]
             hadamard_dispatch_count: std::sync::atomic::AtomicU64::new(0),
+            kv_dtype,
         })
     }
 
@@ -728,47 +831,119 @@ impl HipBackend {
                 stream,
             ))?;
 
-            // Append K/V to cache at slot `pos`, then flash-decode attention.
+            // Append K/V to cache at slot `pos`, then run attention.
+            //
+            // Two dispatch paths:
+            //   * F16 — plain D→D memcpy of the just-computed fp16 K/V into
+            //     the cache, then split-KV flash-decode with fp16 reads.
+            //   * I8  — per-row quantize (one launch for K, one for V;
+            //     num_rows = nkv, row_len = hd) directly into the i8 +
+            //     scales slots, then flash-decode with int8 reads and
+            //     fused per-(pos, head) dequant.
+            //
+            // Layout matches the kernel's expected strides verbatim:
+            //   K_i8 [max_seq_len, nkv, hd]       → slot = pos * nkv * hd
+            //   K_scales [max_seq_len, nkv] fp16  → slot = pos * nkv
+            // (see rocm-cpp/src/kv_cache_attn_i8.hip lines 10-18).
             let kv_slot = (pos as usize) * (nkv as usize) * (hd as usize);
-            let kv_bytes = (nkv as usize) * (hd as usize) * core::mem::size_of::<u16>();
-            // SAFETY: kv_slot <= max_context*nkv*hd by the bounds-check at the
-            // top of forward_token; we write exactly `nkv*hd*2` bytes which
-            // fits in the allocation.
-            unsafe {
-                let rc = hip::ffi::hipMemcpyAsync(
-                    self.kv[l].k.offset_mut(kv_slot).0 as *mut core::ffi::c_void,
-                    self.scratch.k_fp16.as_device_ptr().0 as *const core::ffi::c_void,
-                    kv_bytes,
-                    hip::ffi::HIP_MEMCPY_DEVICE_TO_DEVICE,
-                    core::ptr::null_mut(),
-                );
-                if rc != hip::ffi::HIP_SUCCESS {
-                    return Err(BackendError::Hip(RcppError::HipError));
+            let scale_slot = (pos as usize) * (nkv as usize);
+
+            match &mut self.kv[l] {
+                KvCache::F16 { k, v } => {
+                    let kv_bytes = (nkv as usize) * (hd as usize) * core::mem::size_of::<u16>();
+                    // SAFETY: kv_slot <= max_context*nkv*hd by the bounds-check
+                    // at the top of forward_token; we write exactly
+                    // `nkv*hd*2` bytes which fits in the allocation.
+                    unsafe {
+                        let rc = hip::ffi::hipMemcpyAsync(
+                            k.offset_mut(kv_slot).0 as *mut core::ffi::c_void,
+                            self.scratch.k_fp16.as_device_ptr().0 as *const core::ffi::c_void,
+                            kv_bytes,
+                            hip::ffi::HIP_MEMCPY_DEVICE_TO_DEVICE,
+                            core::ptr::null_mut(),
+                        );
+                        if rc != hip::ffi::HIP_SUCCESS {
+                            return Err(BackendError::Hip(RcppError::HipError));
+                        }
+                        let rc = hip::ffi::hipMemcpyAsync(
+                            v.offset_mut(kv_slot).0 as *mut core::ffi::c_void,
+                            self.scratch.v_fp16.as_device_ptr().0 as *const core::ffi::c_void,
+                            kv_bytes,
+                            hip::ffi::HIP_MEMCPY_DEVICE_TO_DEVICE,
+                            core::ptr::null_mut(),
+                        );
+                        if rc != hip::ffi::HIP_SUCCESS {
+                            return Err(BackendError::Hip(RcppError::HipError));
+                        }
+                    }
+
+                    ok(hip::kv_cache_attn_decode_fd(
+                        self.scratch.q_fp16.as_device_ptr(),
+                        k.as_device_ptr(),
+                        v.as_device_ptr(),
+                        self.scratch.o_fp16.as_device_mut_ptr(),
+                        nh,
+                        nkv,
+                        hd,
+                        pos + 1,
+                        scale,
+                        stream,
+                    ))?;
                 }
-                let rc = hip::ffi::hipMemcpyAsync(
-                    self.kv[l].v.offset_mut(kv_slot).0 as *mut core::ffi::c_void,
-                    self.scratch.v_fp16.as_device_ptr().0 as *const core::ffi::c_void,
-                    kv_bytes,
-                    hip::ffi::HIP_MEMCPY_DEVICE_TO_DEVICE,
-                    core::ptr::null_mut(),
-                );
-                if rc != hip::ffi::HIP_SUCCESS {
-                    return Err(BackendError::Hip(RcppError::HipError));
+                KvCache::I8 {
+                    k_i8,
+                    v_i8,
+                    k_scales,
+                    v_scales,
+                } => {
+                    // SAFETY: kv_slot + nkv*hd ≤ max_context*nkv*hd and
+                    // scale_slot + nkv ≤ max_context*nkv — both bounded by
+                    // the `pos < max_context` check at forward_token's top.
+                    let (k_i8_slot, v_i8_slot, k_sc_slot, v_sc_slot) = unsafe {
+                        (
+                            k_i8.offset_mut(kv_slot),
+                            v_i8.offset_mut(kv_slot),
+                            k_scales.offset_mut(scale_slot),
+                            v_scales.offset_mut(scale_slot),
+                        )
+                    };
+
+                    // Quantize the freshly-projected K/V into the cache at
+                    // slot `pos`. num_rows = nkv (one scale per kv-head),
+                    // row_len = hd. Kernel writes fp16 scale directly.
+                    ok(hip::quantize_fp16_to_i8_rowscale(
+                        self.scratch.k_fp16.as_device_ptr(),
+                        k_i8_slot,
+                        k_sc_slot,
+                        nkv,
+                        hd,
+                        stream,
+                    ))?;
+                    ok(hip::quantize_fp16_to_i8_rowscale(
+                        self.scratch.v_fp16.as_device_ptr(),
+                        v_i8_slot,
+                        v_sc_slot,
+                        nkv,
+                        hd,
+                        stream,
+                    ))?;
+
+                    ok(hip::kv_cache_attn_decode_i8(
+                        self.scratch.q_fp16.as_device_ptr(),
+                        k_i8.as_device_ptr(),
+                        v_i8.as_device_ptr(),
+                        k_scales.as_device_ptr(),
+                        v_scales.as_device_ptr(),
+                        self.scratch.o_fp16.as_device_mut_ptr(),
+                        nh,
+                        nkv,
+                        hd,
+                        pos + 1,
+                        scale,
+                        stream,
+                    ))?;
                 }
             }
-
-            ok(hip::kv_cache_attn_decode_fd(
-                self.scratch.q_fp16.as_device_ptr(),
-                self.kv[l].k.as_device_ptr(),
-                self.kv[l].v.as_device_ptr(),
-                self.scratch.o_fp16.as_device_mut_ptr(),
-                nh,
-                nkv,
-                hd,
-                pos + 1,
-                scale,
-                stream,
-            ))?;
 
             // BitNet b1.58: attn_sub_norm between attention and O projection.
             ok(hip::rmsnorm_fp16(
@@ -971,6 +1146,13 @@ impl HipBackend {
     /// Parsed `.h1b` config header (dimensions, rope params, ...).
     pub fn config(&self) -> &H1bConfig {
         &self.cfg
+    }
+
+    /// KV cache dtype resolved at construction. Surfaces through
+    /// `/v1/models` / `/metrics` so operators can confirm which cache
+    /// variant the live process is running on without walking proc env.
+    pub fn kv_dtype(&self) -> KvDtype {
+        self.kv_dtype
     }
 
     /// Variant of [`Self::forward_token`] that also exposes the
@@ -1530,6 +1712,68 @@ mod format_sniff_tests {
         // We deliberately don't call `load_gguf_into_hip` — today it would
         // `unimplemented!` on the first tensor directory walk. The
         // assertion above is the whole point: dispatch fired.
+    }
+}
+
+#[cfg(test)]
+mod kv_dtype_tests {
+    //! Unit tests for the `KvDtype` env parser + default. These cover the
+    //! only two failure modes the serve path can hit: an unset env (must
+    //! default to I8 so the 2× long-context bandwidth win ships by default)
+    //! and a misspelled override (must surface a helpful error naming the
+    //! valid spellings). Live KV quantization is a GPU-side concern
+    //! exercised by the `--ignored` smoke_hip tests.
+    use super::*;
+    use std::sync::Mutex;
+
+    /// Serializes env mutation across parallel cargo threads, same pattern
+    /// as the bitnet_v2_hadamard_tests module below.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn default_is_i8() {
+        // The whole point of the wire-up is the 2× bandwidth win by
+        // default — regress this and the memory-bound long-context path
+        // silently goes back to fp16 reads.
+        assert_eq!(KvDtype::default(), KvDtype::I8);
+    }
+
+    #[test]
+    fn parse_env_accepts_canonical_spellings() {
+        assert_eq!(KvDtype::parse_env("i8").unwrap(), KvDtype::I8);
+        assert_eq!(KvDtype::parse_env("INT8").unwrap(), KvDtype::I8);
+        assert_eq!(KvDtype::parse_env("  i8  ").unwrap(), KvDtype::I8);
+        assert_eq!(KvDtype::parse_env("f16").unwrap(), KvDtype::F16);
+        assert_eq!(KvDtype::parse_env("FP16").unwrap(), KvDtype::F16);
+        assert_eq!(KvDtype::parse_env("half").unwrap(), KvDtype::F16);
+    }
+
+    #[test]
+    fn parse_env_rejects_unknown_with_helpful_error() {
+        let err = KvDtype::parse_env("q4").unwrap_err();
+        let s = format!("{err}");
+        assert!(s.contains("i8"), "expected mention of i8 in: {s}");
+        assert!(s.contains("f16"), "expected mention of f16 in: {s}");
+    }
+
+    #[test]
+    fn from_env_defaults_when_unset() {
+        let _g = ENV_LOCK.lock().unwrap();
+        // SAFETY: ENV_LOCK serializes every reader/writer in this module.
+        unsafe { std::env::remove_var(KvDtype::ENV) };
+        assert_eq!(KvDtype::from_env().unwrap(), KvDtype::default());
+    }
+
+    #[test]
+    fn from_env_honours_override() {
+        let _g = ENV_LOCK.lock().unwrap();
+        // SAFETY: ENV_LOCK serializes every reader/writer in this module.
+        unsafe { std::env::set_var(KvDtype::ENV, "f16") };
+        let got = KvDtype::from_env().unwrap();
+        // Always restore before asserting so a panic doesn't poison the
+        // process for later tests.
+        unsafe { std::env::remove_var(KvDtype::ENV) };
+        assert_eq!(got, KvDtype::F16);
     }
 }
 
