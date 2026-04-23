@@ -28,9 +28,15 @@ https://www.1bit.audio/*    https://1bit.audio/:splat        301
 https://waterbon.me/*       /me/:splat       200
 https://www.waterbon.me/*   https://waterbon.me/:splat       301
 
-# 1bit.arcade — WASM demos / interactive cabinet
-https://1bit.arcade/*       /arcade/:splat   200
-https://www.1bit.arcade/*   https://1bit.arcade/:splat       301
+# WASM demo cabinet — pick TLD at registrar time.
+# `.arcade` is not an ICANN TLD; swap this block to whichever of
+# 1bit.games / 1bit.game / 1bit.gg / 1bit.play / 1bit.fun actually
+# gets registered, or point `arcade.1bit.systems` here as a free
+# subdomain fallback.
+#
+# https://1bit.games/*        /arcade/:splat   200
+# https://www.1bit.games/*    https://1bit.games/:splat         301
+https://arcade.1bit.systems/* /arcade/:splat   200
 
 # Short permalinks
 /buy          /premium/                            302
