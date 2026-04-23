@@ -224,6 +224,44 @@ build       = []
 units       = []
 check       = ""
 
+[component.npu-engine]
+description = "IRON + MLIR-AIE + Peano + libxrt — XDNA2 NPU authoring lane (ship-gate unlocked 2026-04-23)"
+deps        = []
+# IRON is compile-time only. The bitnet-aie kernel we author goes into a
+# sibling repo; this component sets up the environment. Rule A holds at
+# serve time: xclbin artifact + libxrt C++ at runtime, no Python.
+build = [
+    ["mkdir", "-p", "~/repos", "~/.venvs"],
+    ["sh", "-c", "test -d ~/repos/IRON || git clone https://github.com/amd/IRON.git ~/repos/IRON"],
+    ["sh", "-c", "test -d ~/.venvs/ironenv || python3 -m venv ~/.venvs/ironenv"],
+    ["sh", "-c", "~/.venvs/ironenv/bin/pip install --upgrade pip --quiet"],
+    ["sh", "-c", "cd ~/repos/IRON && ~/.venvs/ironenv/bin/pip install -r requirements.txt --quiet"],
+    # pyxrt ships in the system Arch xrt package — symlink into the venv.
+    ["sh", "-c", "ln -sf /usr/lib/python3.14/site-packages/pyxrt.cpython-314-x86_64-linux-gnu.so ~/.venvs/ironenv/lib/python3.14/site-packages/pyxrt.cpython-314-x86_64-linux-gnu.so"],
+]
+units = []
+check = ""
+
+# ---------------------------------------------------------------------------
+# `1bit install all` — compound meta-target. Pulls every engine + every
+# currently-buildable model in one shot. First-boot OOBE on a fresh box.
+
+[component.all]
+description = "Complete pack — LLM + TTS + STT + image + video + NPU + watchdog + power"
+deps = [
+    "core",
+    "tts-engine",
+    "stt-engine",
+    "image-engine",
+    "video-engine",
+    "npu-engine",
+    "power",
+    "burnin",
+]
+build       = []
+units       = []
+check       = ""
+
 # -----------------------------------------------------------------------------
 # Model registry — instant-load weight slots. `1bit install <model>` resolves
 # deps (pulls engine first), fetches the GGUF via `hf` CLI with atomic write
@@ -285,10 +323,10 @@ requires     = ["image-engine"]
 sha256       = "UPSTREAM"
 
 [model.wan2-2-ti2v-5b]
-description  = "Wan 2.2 TI2V 5B Q8 — image-to-video native HIP (Apache-2.0)"
+description  = "Wan 2.2 TI2V 5B Q4_K_M — image-to-video native HIP (Apache-2.0)"
 hf_repo      = "QuantStack/Wan2.2-TI2V-5B-GGUF"
-hf_file      = "Wan2.2-TI2V-5B.Q8_0.gguf"
-size_mb      = 5200
+hf_file      = "Wan2.2-TI2V-5B-Q4_K_M.gguf"
+size_mb      = 3400
 license      = "Apache-2.0"
 requires     = ["video-engine"]
 sha256       = "UPSTREAM"
