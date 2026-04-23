@@ -37,9 +37,12 @@ FROM rust:1.88-slim-bookworm AS builder
 ARG DEBIAN_FRONTEND=noninteractive
 
 # Minimal build deps. NO python3, NO pip, NO torch. Rule A.
+# libdbus-1-dev is required by libdbus-sys (used by 1bit-power + friends
+# to talk to systemd --user over the session bus).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         pkg-config \
         libssl-dev \
+        libdbus-1-dev \
         ca-certificates \
         git \
     && rm -rf /var/lib/apt/lists/*

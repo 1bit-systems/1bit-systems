@@ -58,10 +58,14 @@ modules:
         - --share=network
       env:
         CARGO_HOME: /run/build/1bit-systems/cargo
-        # Build only no-GPU-feature defaults; GPU features are host-side.
-        RUSTFLAGS: -C target-feature=+crt-static
-        # libgit2 has flaky DNS resolution in sandboxed environments;
-        # delegate to the git CLI, which handles retries + proxies better.
+        # No RUSTFLAGS here — flatpak's freedesktop runtime already
+        # isolates libc, and +crt-static propagates to proc-macro host
+        # builds (error: cannot produce proc-macro for async-recursion),
+        # which breaks the workspace. Dynamic linking against the
+        # bundled glibc is correct for flatpak anyway.
+        #
+        # libgit2 has flaky DNS in sandboxed environments — delegate to
+        # the git CLI, which handles retries + proxies better.
         CARGO_NET_GIT_FETCH_WITH_CLI: "true"
         CARGO_NET_RETRY: "5"
     build-commands:
