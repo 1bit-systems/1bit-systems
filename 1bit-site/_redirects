@@ -28,6 +28,10 @@ https://www.1bit.audio/*    https://1bit.audio/:splat        301
 https://waterbon.me/*       /me/:splat       200
 https://www.waterbon.me/*   https://waterbon.me/:splat       301
 
+# 1bit.arcade — WASM demos / interactive cabinet
+https://1bit.arcade/*       /arcade/:splat   200
+https://www.1bit.arcade/*   https://1bit.arcade/:splat       301
+
 # Short permalinks
 /buy          /premium/                            302
 /premium      /premium/                            301
