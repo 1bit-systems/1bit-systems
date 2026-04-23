@@ -72,9 +72,50 @@
     </ul>
   </div>
 
-  <div class="notice">
+  <div class="notice" id="notice">
     <b>Pre-launch pricing.</b> First 1 000 subscribers are locked at $5/mo for life. Training Runs 5-8 complete in the next few weeks; day-one catalog drops then.
   </div>
+
+  <form id="waitlist" class="price-card" style="margin-top: 0.5rem;" onsubmit="return submitWaitlist(event);">
+    <p style="margin: 0 0 0.6rem; font-weight: 500; text-align: center;">Lock your founder slot</p>
+    <p style="margin: 0 0 1rem; color: var(--muted); font-size: 0.88rem; text-align: center; line-height: 1.4;">
+      Card + Lightning checkout wires up this week. Drop your email to hold position #N / 1000 — $5/mo locked for life when we flip on.
+    </p>
+    <input id="wl-email" type="email" required placeholder="you@domain.tld"
+      style="width: 100%; padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid var(--line); background: #0f0f11; color: var(--fg); font-size: 1rem; font-family: inherit; margin-bottom: 0.6rem; box-sizing: border-box;">
+    <button type="submit" class="btn primary" style="margin-bottom: 0;">Reserve my spot</button>
+    <p id="wl-out" style="margin: 1rem 0 0; text-align: center; font-size: 0.92rem; color: var(--success); min-height: 1.2em;"></p>
+  </form>
+
+  <script>
+    async function submitWaitlist(ev) {
+      ev.preventDefault();
+      const email = document.getElementById("wl-email").value;
+      const out = document.getElementById("wl-out");
+      out.style.color = "var(--muted)";
+      out.textContent = "submitting…";
+      try {
+        const r = await fetch("/api/waitlist", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email, plan: "premium-monthly", referrer: document.referrer || "" }),
+        });
+        const data = await r.json();
+        if (data.ok) {
+          out.style.color = "var(--success)";
+          out.textContent = data.message || `On the list — position ${data.position}.`;
+          document.getElementById("wl-email").value = "";
+        } else {
+          out.style.color = "#ff7c7c";
+          out.textContent = data.error || "something went wrong";
+        }
+      } catch (e) {
+        out.style.color = "#ff7c7c";
+        out.textContent = "network hiccup — try again?";
+      }
+      return false;
+    }
+  </script>
 
   <p class="fine">No ads. No tracking. No algorithmic feed. Artist payouts are ~70% of the subscription pool, Lightning-first. <a href="/blog/2026-04-23-streaming-service/">Architecture</a> · <a href="/blog/2026-04-23-lossless-audio/">The math</a>.</p>
 
