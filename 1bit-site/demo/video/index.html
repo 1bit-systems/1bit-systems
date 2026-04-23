@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Watch — 1bit.video sampler</title>
+  <meta property="og:title" content="1bit.video sampler — public-domain feature films">
+  <meta property="og:description" content="Full feature films in the public domain, ready to compress via ternary DiT after Run 7. Shannon floor meets cinema canon.">
+  <style>
+    :root { --bg: #0f0f11; --fg: #e7e7e7; --muted: #8a8a92; --accent: #e47cff; --success: #7cffc4; --warn: #f8c57c; --panel: #1c1c22; --line: #2a2a30; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 820px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; color: var(--fg); background: var(--bg); line-height: 1.6; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .brand { font-size: 0.85rem; color: var(--muted); letter-spacing: 0.04em; margin-bottom: 0.6rem; }
+    h1 { font-size: 2.4rem; margin: 0.4rem 0 0.5rem; letter-spacing: -0.015em; font-weight: 600; }
+    .tag { font-size: 1.1rem; color: var(--muted); margin: 0 0 2rem; line-height: 1.5; max-width: 640px; }
+    h2 { font-size: 1.2rem; margin-top: 2.4rem; color: #c7c7d0; letter-spacing: -0.005em; }
+    .note { background: var(--panel); border-left: 2px solid var(--accent); padding: 0.9rem 1.2rem; border-radius: 4px; margin: 1.5rem 0; font-size: 0.92rem; color: var(--muted); }
+    .note b { color: var(--fg); font-weight: 500; }
+    .film { border: 1px solid var(--line); border-radius: 10px; padding: 1.2rem 1.3rem; margin: 1rem 0; background: var(--panel); }
+    .film h3 { margin: 0 0 0.2rem; font-size: 1.1rem; }
+    .film .by { color: var(--muted); font-size: 0.88rem; margin-bottom: 0.8rem; }
+    .film .desc { color: var(--muted); font-size: 0.92rem; margin: 0 0 0.7rem; line-height: 1.5; }
+    .film .watch { color: var(--accent); font-family: ui-monospace, monospace; font-size: 0.85rem; }
+    .metrics { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; margin-top: 0.7rem; font-size: 0.82rem; }
+    @media (max-width: 640px) { .metrics { grid-template-columns: 1fr; } }
+    .metric { border: 1px solid var(--line); border-radius: 6px; padding: 0.55rem 0.75rem; background: #0f0f11; }
+    .metric .k { color: var(--muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
+    .metric .v { font-family: ui-monospace, monospace; color: var(--accent); margin-top: 0.15rem; }
+    .metric.saved .v { color: var(--success); }
+    .pending { background: #1c1c22; border: 1px dashed var(--line); padding: 0.6rem 0.9rem; border-radius: 6px; color: var(--muted); font-size: 0.82rem; margin-top: 0.5rem; font-family: ui-monospace, monospace; }
+    .pending b { color: var(--fg); }
+    .lic { color: var(--muted); font-size: 0.74rem; margin-top: 0.55rem; font-family: ui-monospace, monospace; line-height: 1.4; }
+    .queued { border: 1px solid var(--warn); border-radius: 8px; padding: 1rem 1.2rem; margin: 1.5rem 0; background: #1c1c22; }
+    .queued h4 { margin: 0 0 0.4rem; color: var(--warn); font-size: 1rem; }
+    .queued p { margin: 0; color: var(--muted); font-size: 0.9rem; line-height: 1.5; }
+    footer { margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+
+<div class="brand">1bit.video &middot; sampler</div>
+<h1>Watch, but actually watch.</h1>
+<p class="tag">Full-length public-domain feature films. The same architecture that compresses a music catalog into 2 MB compresses a 90-minute film into the low-hundred-megabyte range lossless, single-digit megabytes lossy. Shannon floor, meet cinema canon.</p>
+
+<div class="note">
+<b>Pre-training.</b> Ternary DiT retrain for Wan 2.2 TI2V-5B (Run 7) lands before the in-browser compressed versions plug in here. In the meantime: here are the films we've queued for day-one ingest, with projected sizes based on Run 7's known parameters.
+</div>
+
+<h2>The canon (public domain, ready day-one)</h2>
+
+<div class="film">
+  <h3>Nosferatu</h3>
+  <div class="by">1922 · F.W. Murnau · 94 min</div>
+  <p class="desc">The first vampire film, and the film whose copyright predates most currently-active copyright law in the United States. An unauthorised Dracula adaptation that Bram Stoker's widow tried to burn into oblivion and still exists because celluloid survives. German Expressionism's clearest surviving artefact.</p>
+  <div class="watch">▶ watch on <a href="https://archive.org/details/nosferatu" target="_blank" rel="noopener">archive.org</a></div>
+  <div class="metrics">
+    <div class="metric"><div class="k">source 720p H.264</div><div class="v">~700 MB</div></div>
+    <div class="metric saved"><div class="k">1bit.video Free</div><div class="v">~5 MB</div></div>
+    <div class="metric saved"><div class="k">1bit.video Premium</div><div class="v">~450 MB</div></div>
+  </div>
+  <div class="pending"><b>1bit.video</b> · Run 7 queued &mdash; ternary Wan 2.2 DiT + arithmetic-coded residual</div>
+  <div class="lic">Licence: public domain (US copyright lapsed 1963)</div>
+</div>
+
+<div class="film">
+  <h3>Night of the Living Dead</h3>
+  <div class="by">1968 · George A. Romero · 96 min</div>
+  <p class="desc">In the public domain because the original 1968 theatrical prints were released without a copyright notice &mdash; a pre-1976 formal requirement. Romero never recovered the commercial rights and the film became free for distribution. Founded the modern zombie genre; shot for $114 000; still in every film-school syllabus.</p>
+  <div class="watch">▶ watch on <a href="https://archive.org/details/night_of_the_living_dead" target="_blank" rel="noopener">archive.org</a></div>
+  <div class="metrics">
+    <div class="metric"><div class="k">source 720p H.264</div><div class="v">~900 MB</div></div>
+    <div class="metric saved"><div class="k">1bit.video Free</div><div class="v">~6 MB</div></div>
+    <div class="metric saved"><div class="k">1bit.video Premium</div><div class="v">~600 MB</div></div>
+  </div>
+  <div class="pending"><b>1bit.video</b> · Run 7 queued</div>
+  <div class="lic">Licence: public domain (distribution notice error, 1968)</div>
+</div>
+
+<div class="film">
+  <h3>The Cabinet of Dr. Caligari</h3>
+  <div class="by">1920 · Robert Wiene · 76 min</div>
+  <p class="desc">The defining work of German Expressionism. Painted sets, dream logic, an unreliable narrator before the phrase existed. Pre-1928, fully in the public domain in the US.</p>
+  <div class="watch">▶ watch on <a href="https://archive.org/details/DasCabinetDesDrCaligari" target="_blank" rel="noopener">archive.org</a></div>
+  <div class="metrics">
+    <div class="metric"><div class="k">source 720p H.264</div><div class="v">~600 MB</div></div>
+    <div class="metric saved"><div class="k">1bit.video Free</div><div class="v">~4 MB</div></div>
+    <div class="metric saved"><div class="k">1bit.video Premium</div><div class="v">~380 MB</div></div>
+  </div>
+  <div class="pending"><b>1bit.video</b> · Run 7 queued</div>
+  <div class="lic">Licence: public domain (pre-1928 US publication)</div>
+</div>
+
+<div class="film">
+  <h3>His Girl Friday</h3>
+  <div class="by">1940 · Howard Hawks · 92 min</div>
+  <p class="desc">Rapid-fire Hawks screwball dialogue at its unmatched peak. Copyright lapsed because Columbia failed to renew. Cary Grant, Rosalind Russell, newsroom chaos.</p>
+  <div class="watch">▶ watch on <a href="https://archive.org/details/HisGirlFriday_408" target="_blank" rel="noopener">archive.org</a></div>
+  <div class="metrics">
+    <div class="metric"><div class="k">source 720p H.264</div><div class="v">~850 MB</div></div>
+    <div class="metric saved"><div class="k">1bit.video Free</div><div class="v">~5 MB</div></div>
+    <div class="metric saved"><div class="k">1bit.video Premium</div><div class="v">~570 MB</div></div>
+  </div>
+  <div class="pending"><b>1bit.video</b> · Run 7 queued</div>
+  <div class="lic">Licence: public domain (copyright renewal lapsed)</div>
+</div>
+
+<div class="film">
+  <h3>Charade</h3>
+  <div class="by">1963 · Stanley Donen · 113 min</div>
+  <p class="desc">Audrey Hepburn, Cary Grant, Henry Mancini score. Universal shipped early prints without a copyright notice, so it entered the public domain immediately. Somehow technically free while being one of the best-made thrillers ever shot.</p>
+  <div class="watch">▶ watch on <a href="https://archive.org/details/charade1963_201902" target="_blank" rel="noopener">archive.org</a></div>
+  <div class="metrics">
+    <div class="metric"><div class="k">source 720p H.264</div><div class="v">~1.1 GB</div></div>
+    <div class="metric saved"><div class="k">1bit.video Free</div><div class="v">~7 MB</div></div>
+    <div class="metric saved"><div class="k">1bit.video Premium</div><div class="v">~740 MB</div></div>
+  </div>
+  <div class="pending"><b>1bit.video</b> · Run 7 queued</div>
+  <div class="lic">Licence: public domain (original print missing copyright notice, 1963)</div>
+</div>
+
+<div class="film">
+  <h3>Detour</h3>
+  <div class="by">1945 · Edgar G. Ulmer · 67 min</div>
+  <p class="desc">Poverty-Row noir shot in six days. Every frame looks intentional in a way that proves production budget isn't the variable that determines craft. Ulmer made it for PRC at a cost slightly above a car.</p>
+  <div class="watch">▶ watch on <a href="https://archive.org/details/detour_202402" target="_blank" rel="noopener">archive.org</a></div>
+  <div class="metrics">
+    <div class="metric"><div class="k">source 720p H.264</div><div class="v">~550 MB</div></div>
+    <div class="metric saved"><div class="k">1bit.video Free</div><div class="v">~3.5 MB</div></div>
+    <div class="metric saved"><div class="k">1bit.video Premium</div><div class="v">~370 MB</div></div>
+  </div>
+  <div class="pending"><b>1bit.video</b> · Run 7 queued</div>
+  <div class="lic">Licence: public domain (copyright renewal lapsed)</div>
+</div>
+
+<h2>Pre-committed</h2>
+
+<div class="queued">
+  <h4>The Great Dictator (1940)</h4>
+  <p>Chaplin's anti-fascist comedy enters the US public domain on <b>January 1, 2036</b> (95-year term from publication). On day one of its public-domain status we ingest, train a dedicated ternary DiT, and ship both tiers in the same week. Queued in memory, calendar reminder set. Playing the long game.</p>
+</div>
+
+<div class="queued">
+  <h4>Modern Times (1936) · City Lights (1931)</h4>
+  <p>Both Chaplin films enter public domain in <b>2032</b> and <b>2027</b> respectively. Same pre-commitment: first-day ingest, same-week publish.</p>
+</div>
+
+<h2>Same architecture, different kernel</h2>
+<p>The lossy free tier uses a ternary DiT (10&ndash;40 M parameters depending on video resolution) trained to memorise the film's Wan 2.2 token stream. The lossless Premium tier is the same DiT as the probability model inside an arithmetic coder over the original MP4 bytestream &mdash; identical <code>sha256</code> back to the source. See <a href="https://1bit.systems/blog/2026-04-23-lossless-audio/">the lossless audio write-up</a>; video uses the same mechanism on a different codec.</p>
+
+<h2>Submit a catalogue</h2>
+<p>Rights-holder or archivist with a body of public-domain or CC-licensed film work you want hosted day-one? <a href="mailto:d1r7yman@gmail.com?subject=1bit.video%20catalogue%20submission">Email d1r7yman@gmail.com</a>. Per-catalogue training costs us ~$55 of RunPod time; we eat that cost and route Premium revenue on the same 70/30 split as the music side.</p>
+
+<footer>
+  © 2026 1bit.systems &middot;
+  <a href="/video">1bit.video</a> &middot;
+  <a href="/demo/">audio sampler</a> &middot;
+  <a href="/premium/">Premium $5/mo</a> &middot;
+  <a href="/sustainability/">green</a>
+</footer>
+
+</body>
+</html>
