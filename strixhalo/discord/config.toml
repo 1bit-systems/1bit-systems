@@ -103,6 +103,49 @@ commands = [
 member_role_id = ""
 reason         = "auto-pair on member join"
 
+[welcome_dm]
+# Sent from halo's gateway to every new joiner right after the role
+# grant. Prose lives in-code (see `handle_member_join` in
+# `crates/1bit-agents/bin/1bit-watch-discord.rs`) because it references
+# slash commands that are registered programmatically. If a user has
+# DMs closed the send fails silently — we don't want halo spamming a
+# public channel as a fallback.
+enabled = true
+notes   = "Content is load-bearing; edit in-code and re-deploy."
+
+[feedback]
+# Users react 👍 or 👎 on specialist replies; halo appends a jsonl row
+# to this path for downstream training-data pipelines. The two emojis
+# are also auto-seeded on echo's reply message so the UI is obvious.
+log_path      = "$HOME/.local/state/1bit-halo/feedback.jsonl"
+env_override  = "HALO_FEEDBACK_LOG"
+emojis        = ["👍", "👎"]
+required_intent = "GUILD_MESSAGE_REACTIONS"
+
+[brand_swap]
+# `1bit-brand-swap` is the CLI that rotates Discord server icon / splash
+# / banner / name on milestones (Patreon thresholds, training-run ships,
+# launch day). Assets live under `docs/assets/brand/`. Wire a systemd
+# timer or run manually.
+bin          = "1bit-brand-swap"
+asset_dir    = "docs/assets/brand"
+required_perm = "MANAGE_GUILD"
+milestones = [
+    { label = "default",        icon = "halo-1bit-default.gif"  },
+    { label = "patreon-13b",    icon = "halo-1bit-13b.gif"      },
+    { label = "patreon-30b",    icon = "halo-1bit-30b.gif"      },
+    { label = "patreon-70b",    icon = "halo-1bit-70b.gif"      },
+]
+
+[roadmap]
+# Discord features not yet wired, tracked here so the next scan doesn't
+# have to rediscover the scope. Bump `status` when something ships.
+voice_tts       = { status = "deferred", note = "halo-kokoro integration; echo_mouth bridge needed; ~4-6h build" }
+scheduled_events= { status = "pending",  note = "use 1bit-brand-swap-adjacent bin to POST /guilds/{id}/scheduled-events for training-ship / launch" }
+polls           = { status = "pending",  note = "wrap Discord's built-in poll object once serenity exposes it (0.12 doesn't yet); fall back to reaction-poll in meantime" }
+stickers_upload = { status = "pending",  note = "PATCH /guilds/{id}/stickers — bundle with 1bit-brand-swap under a --stickers flag" }
+stage_channel   = { status = "pending",  note = "POST /stage-instances for AMAs — low usage, ship when event count > 2" }
+
 [server_tag]
 # The "1BIT" server tag visible next to member names in chat. Requires
 # Level 1 server boost (5 boosts minimum). Assets archived under

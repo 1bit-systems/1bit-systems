@@ -213,6 +213,10 @@ impl EventHandler for Handler {
         self.handle_member_join(&ctx, new_member).await;
     }
 
+    async fn reaction_add(&self, ctx: Context, reaction: serenity::all::Reaction) {
+        self.handle_reaction(&ctx, reaction).await;
+    }
+
     async fn message(&self, ctx: Context, msg: Message) {
         // Never react to our own messages or other bots.
         if msg.author.bot {
@@ -504,6 +508,16 @@ impl Handler {
                         tag_count,
                         "created help-desk forum post"
                     );
+                    // Seed 👍/👎 on the starter message so users can rate
+                    // the reply quality with one click. For forum posts
+                    // the starter message id equals the thread id.
+                    seed_feedback_reactions(
+                        http.as_ref(),
+                        post.id,
+                        serenity::all::MessageId::new(post.id.get()),
+                    )
+                    .await;
+
                     let breadcrumb = format!(
                         "Routed to <#{post}> — follow there.",
                         post = post.id.get()
@@ -555,8 +569,13 @@ impl Handler {
             bytes = body_reply.len(),
             "posting specialist reply to help-desk thread"
         );
-        if let Err(e) = thread.id.say(http.as_ref(), body_reply).await {
-            warn!(error = %e, "failed to post specialist reply into thread");
+        match thread.id.say(http.as_ref(), body_reply).await {
+            Ok(reply_msg) => {
+                seed_feedback_reactions(http.as_ref(), thread.id, reply_msg.id).await;
+            }
+            Err(e) => {
+                warn!(error = %e, "failed to post specialist reply into thread");
+            }
         }
 
         let breadcrumb = format!(
@@ -871,32 +890,185 @@ impl Handler {
     }
 
     /// Guild-member-add hook: auto-grant the configured member role so
-    /// new joiners are "paired" on arrival. No-op when the role isn't
-    /// configured. Logs but doesn't re-raise failures — a missing role
-    /// shouldn't crash the gateway.
+    /// new joiners are "paired" on arrival, then DM them a short
+    /// welcome + channel map. Role grant and DM are independent — a
+    /// missing role id skips only the role part. Failures log but do
+    /// not crash the gateway.
     async fn handle_member_join(&self, ctx: &Context, member: Member) {
-        let Some(role_id) = self.member_role_id else {
-            return;
-        };
-        info!(
-            user = %member.user.name,
-            guild = %member.guild_id.get(),
-            role = %role_id.get(),
-            "auto-granting member role"
-        );
-        if let Err(e) = ctx
-            .http
-            .add_member_role(
-                member.guild_id,
-                member.user.id,
-                role_id,
-                Some("auto-pair on member join"),
-            )
-            .await
-        {
-            warn!(error = %e, "failed to grant member role");
+        if let Some(role_id) = self.member_role_id {
+            info!(
+                user = %member.user.name,
+                guild = %member.guild_id.get(),
+                role = %role_id.get(),
+                "auto-granting member role"
+            );
+            if let Err(e) = ctx
+                .http
+                .add_member_role(
+                    member.guild_id,
+                    member.user.id,
+                    role_id,
+                    Some("auto-pair on member join"),
+                )
+                .await
+            {
+                warn!(error = %e, "failed to grant member role");
+            }
+        }
+
+        // Welcome DM — best effort. Users who block DMs get skipped
+        // silently (Discord returns 403 "Cannot send messages to this user").
+        let welcome = "**Welcome to 1bit.systems.**\n\n\
+            This is a small open-source AI project: native ternary kernels \
+            for consumer AMD hardware, open weights, built in public.\n\n\
+            • Ask questions anywhere — halo auto-routes bugs / features / \
+              questions into the help-desk forum for follow-up.\n\
+            • Use `/status` to see model + landing health, `/ask <question>` \
+              for a direct specialist reply.\n\
+            • Mention `@halo` for a silent status line.\n\n\
+            Landing page: https://1bit.systems · GitHub: https://github.com/bong-water-water-bong/1bit-systems";
+        match member.user.id.create_dm_channel(&ctx.http).await {
+            Ok(dm) => {
+                if let Err(e) = dm.id.say(&ctx.http, welcome).await {
+                    info!(user = %member.user.name, error = %e, "welcome DM skipped (user likely has DMs closed)");
+                } else {
+                    info!(user = %member.user.name, "welcome DM sent");
+                }
+            }
+            Err(e) => {
+                info!(user = %member.user.name, error = %e, "failed to open DM channel");
+            }
         }
     }
+
+    /// Reaction hook: when someone 👍 or 👎 a Sentinel reply we own,
+    /// append a single jsonl line to `~/.local/state/1bit-halo/feedback.jsonl`
+    /// so the reply-rating signal can later feed a preference-data
+    /// pipeline. We only record reactions on messages authored by
+    /// *our* bot (echo), so external convos don't leak in. Other
+    /// emojis are ignored — keep the signal clean.
+    async fn handle_reaction(&self, ctx: &Context, reaction: serenity::all::Reaction) {
+        let Some(http) = self.echo_http.as_ref() else {
+            return;
+        };
+        let emoji = match &reaction.emoji {
+            serenity::all::ReactionType::Unicode(s) => s.as_str(),
+            _ => return, // ignore custom emoji for now
+        };
+        let verdict = match emoji {
+            "👍" => "positive",
+            "👎" => "negative",
+            _ => return,
+        };
+
+        // Load the message that was reacted to. Needs full fetch to see
+        // the author + content.
+        let msg = match reaction.channel_id.message(&ctx.http, reaction.message_id).await {
+            Ok(m) => m,
+            Err(e) => {
+                info!(error = %e, "failed to fetch reacted message — skipping");
+                return;
+            }
+        };
+
+        // Only record feedback on our echo posts — that's the signal we
+        // care about for reply quality. Halo's gateway bot never speaks,
+        // so any bot-authored message in a help-desk context is echo.
+        let echo_id = {
+            // serenity Http doesn't expose get_current_user without a
+            // gateway session; rely on the author.bot flag instead and
+            // the fact that we only post through echo.
+            let _ = http;
+            None::<u64>
+        };
+        if !msg.author.bot {
+            return;
+        }
+        if let Some(expected) = echo_id {
+            if msg.author.id.get() != expected {
+                return;
+            }
+        }
+
+        let user_id = reaction.user_id.map(|u| u.get()).unwrap_or(0);
+        let entry = serde_json::json!({
+            "ts": chrono::Utc::now().to_rfc3339(),
+            "verdict": verdict,
+            "channel_id": reaction.channel_id.get(),
+            "message_id": reaction.message_id.get(),
+            "user_id": user_id,
+            "content": msg.content,
+        });
+
+        let path = feedback_log_path();
+        if let Err(e) = append_jsonl(&path, &entry) {
+            warn!(error = %e, path = %path.display(), "failed to append feedback line");
+        } else {
+            info!(verdict, message_id = reaction.message_id.get(), "recorded reply feedback");
+        }
+    }
+}
+
+/// Seed 👍 + 👎 reactions on a message echo just posted, so users can
+/// rate specialist replies with one click. Reactions feed
+/// `handle_reaction` which appends a row to `feedback.jsonl`. Best
+/// effort — failures are logged at debug because permissions or
+/// API transients here shouldn't mask the successful post.
+async fn seed_feedback_reactions(
+    http: &Http,
+    channel_id: serenity::all::ChannelId,
+    message_id: serenity::all::MessageId,
+) {
+    for emoji in ["👍", "👎"] {
+        let reaction = serenity::all::ReactionType::Unicode(emoji.to_string());
+        if let Err(e) = http
+            .create_reaction(channel_id, message_id, &reaction)
+            .await
+        {
+            info!(
+                emoji,
+                channel_id = %channel_id,
+                message_id = %message_id,
+                error = %e,
+                "failed to seed feedback reaction (check ADD_REACTIONS perm)"
+            );
+        }
+    }
+}
+
+/// Path where reply-feedback reactions are appended, one json line per
+/// reaction. Ensures the parent dir exists on first write. Keeps the
+/// path stable across restarts so downstream training pipelines can
+/// tail-follow it.
+fn feedback_log_path() -> std::path::PathBuf {
+    let base = std::env::var("HALO_FEEDBACK_LOG").ok().map(std::path::PathBuf::from);
+    base.unwrap_or_else(|| {
+        let mut p = dirs::state_dir()
+            .or_else(dirs::data_local_dir)
+            .unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+        p.push("1bit-halo");
+        p.push("feedback.jsonl");
+        p
+    })
+}
+
+/// Append a serde_json Value as a single line to a jsonl file, creating
+/// parent directories as needed. File is opened in append mode each
+/// call — simpler than keeping a long-lived handle, and a reaction
+/// once every few minutes doesn't need the throughput.
+fn append_jsonl(path: &std::path::Path, value: &serde_json::Value) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    let mut line = serde_json::to_string(value).unwrap_or_default();
+    line.push('\n');
+    f.write_all(line.as_bytes())?;
+    Ok(())
 }
 
 /// Helper: send an ephemeral reply to a slash command. Ephemeral = only
@@ -1173,11 +1345,14 @@ async fn main() -> Result<()> {
     // MESSAGE_CONTENT + GUILD_MEMBERS are privileged intents — operator
     // must enable them on the bot in the Discord developer portal.
     // Without MESSAGE_CONTENT classification reduces to Chat; without
-    // GUILD_MEMBERS the auto-role-on-join hook never fires.
+    // GUILD_MEMBERS the auto-role-on-join + welcome-DM hooks never fire.
+    // GUILD_MESSAGE_REACTIONS is non-privileged; feeds the feedback
+    // reaction logger.
     let intents = GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::DIRECT_MESSAGES
         | GatewayIntents::MESSAGE_CONTENT
-        | GatewayIntents::GUILD_MEMBERS;
+        | GatewayIntents::GUILD_MEMBERS
+        | GatewayIntents::GUILD_MESSAGE_REACTIONS;
 
     // Secondary gateway for echo — stateless HTTP wouldn't give echo an
     // "online" presence in the Discord member list. Spin a minimal

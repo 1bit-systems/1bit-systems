@@ -48,6 +48,14 @@ path = "bin/1bit-watch-patreon.rs"
 name = "1bit-helpdesk-setup"
 path = "bin/1bit-helpdesk-setup.rs"
 
+# 1bit-brand-swap — rotate the Discord server icon / splash / banner /
+# name on milestones. Base64-encodes local image files and PATCHes
+# /guilds/{id}. Use via CLI by hand or from a systemd timer that
+# watches Patreon / training-run metrics.
+[[bin]]
+name = "1bit-brand-swap"
+path = "bin/1bit-brand-swap.rs"
+
 [dependencies]
 anyhow      = { workspace = true }
 tokio       = { workspace = true }
@@ -78,6 +86,10 @@ octocrab    = "0.39"
 # on its public API, so we take a direct dep rather than relying on the
 # transitive version (the type is load-bearing in bin/1bit-watch-github.rs).
 chrono      = { version = "0.4", default-features = false, features = ["clock"] }
+# base64 data-URI encoding for 1bit-brand-swap. Workspace default is 0.22.
+base64      = { workspace = true }
+# CLI parser for admin tools (1bit-brand-swap). Derive-based, workspace-pinned.
+clap        = { workspace = true }
 # Outbound MCP client library. Optional — pulled in when the `mcp-out`
 # feature is enabled so the core agents crate stays small for consumers
 # that only want the registry. Librarian / Magistrate / Quartermaster
