@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Listen — 1bit.music</title>
+  <meta property="og:title" content="1bit.music — listen for yourself">
+  <meta property="og:description" content="Public-domain + CC-licensed reference tracks, with the neural-compressed versions alongside once they're trained.">
+  <style>
+    :root { --bg: #0f0f11; --fg: #e7e7e7; --muted: #8a8a92; --accent: #7cc4ff; --success: #7cffc4; --panel: #1c1c22; --line: #2a2a30; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 760px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; color: var(--fg); background: var(--bg); line-height: 1.6; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .brand { font-size: 0.85rem; color: var(--muted); letter-spacing: 0.04em; margin-bottom: 0.6rem; }
+    h1 { font-size: 2.4rem; margin: 0.4rem 0 0.5rem; letter-spacing: -0.015em; font-weight: 600; }
+    .tag { font-size: 1.1rem; color: var(--muted); margin: 0 0 2rem; line-height: 1.5; max-width: 640px; }
+    h2 { font-size: 1.2rem; margin-top: 2.2rem; color: #c7c7d0; }
+    .note { background: var(--panel); border-left: 2px solid var(--accent); padding: 0.9rem 1.2rem; border-radius: 4px; margin: 1.5rem 0; font-size: 0.92rem; color: var(--muted); }
+    .note b { color: var(--fg); font-weight: 500; }
+    .track { border: 1px solid var(--line); border-radius: 10px; padding: 1.4rem 1.4rem; margin: 1.2rem 0; background: var(--panel); }
+    .track h3 { margin: 0 0 0.3rem; font-size: 1.1rem; }
+    .track .by { color: var(--muted); font-size: 0.9rem; margin-bottom: 0.9rem; }
+    .track audio { width: 100%; margin: 0.4rem 0; }
+    .track .caption { color: var(--muted); font-size: 0.82rem; margin: 0.3rem 0 0.7rem; font-family: ui-monospace, monospace; }
+    .track .lic { color: var(--muted); font-size: 0.8rem; margin-top: 0.5rem; }
+    .versions { display: grid; grid-template-columns: 1fr; gap: 0.9rem; margin-top: 0.5rem; }
+    .version { border: 1px solid var(--line); border-radius: 6px; padding: 0.7rem 0.9rem; background: #0f0f11; }
+    .version .label { font-family: ui-monospace, monospace; font-size: 0.82rem; color: var(--accent); margin-bottom: 0.3rem; }
+    .version .size { color: var(--muted); font-size: 0.78rem; font-family: ui-monospace, monospace; }
+    .pending { background: #1c1c22; border: 1px dashed var(--line); padding: 0.9rem 1.1rem; border-radius: 6px; color: var(--muted); font-size: 0.88rem; margin-top: 0.5rem; }
+    .pending b { color: var(--fg); }
+    footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+
+<div class="brand">1bit.music &middot; demo</div>
+<h1>Listen for yourself.</h1>
+<p class="tag">Public-domain and permissively-licensed reference tracks. Once Run 8 completes, the neural-compressed versions sit alongside the originals here. You A/B in the browser, not in a marketing deck.</p>
+
+<div class="note">
+<b>Demo state.</b> Originals are playable now. Lossy <code>.gguf</code> and lossless <code>.1bl</code> columns light up when training runs land (Run 6 for the lossy side, Run 8 for the lossless). No dummy comparisons — empty cells mean empty cells.
+</div>
+
+<!--
+  Track list. All entries are public-domain (PD) or CC-licensed with
+  attribution in-line. Originals hotlink to canonical sources where the
+  licence allows; we'll self-host after first Cloudflare R2 sync.
+-->
+
+<h2>Classical — public domain</h2>
+
+<div class="track">
+  <h3>Goldberg Variations — Aria</h3>
+  <div class="by">J.S. Bach, performed by Kimiko Ishizaka (Open Goldberg Variations)</div>
+  <audio controls preload="none" src="https://www.opengoldbergvariations.org/sites/default/files/01%20-%20Aria%20-%20Kimiko%20Ishizaka.mp3"></audio>
+  <div class="caption">source: openGoldbergVariations.org · original MP3 320 kbps</div>
+  <div class="versions">
+    <div class="pending"><b>1bit.music free tier (~2 MB)</b> — training in Run 6/8 queue</div>
+    <div class="pending"><b>1bit.music Premium lossless</b> — training in Run 8 queue</div>
+  </div>
+  <div class="lic">Licence: CC0 1.0 (public-domain dedication). Released by the Open Goldberg Variations project, 2012.</div>
+</div>
+
+<div class="track">
+  <h3>Cello Suite No. 1 — Prelude</h3>
+  <div class="by">J.S. Bach, performed by John Michel (Open Bach Project)</div>
+  <audio controls preload="none" src="https://archive.org/download/CelloSuiteNo.1InGMajorBwv1007PreludeByJohnMichel/01CelloSuiteNo.1InGMajorBwv1007Prelude.mp3"></audio>
+  <div class="caption">source: archive.org · original MP3</div>
+  <div class="versions">
+    <div class="pending"><b>1bit.music free tier (~2 MB)</b> — training in Run 6/8 queue</div>
+    <div class="pending"><b>1bit.music Premium lossless</b> — training in Run 8 queue</div>
+  </div>
+  <div class="lic">Licence: CC BY-SA 3.0 (John Michel). Original composition public domain.</div>
+</div>
+
+<h2>Kevin MacLeod — CC BY 4.0</h2>
+
+<div class="track">
+  <h3>Rainbows</h3>
+  <div class="by">Kevin MacLeod (incompetech.com)</div>
+  <audio controls preload="none" src="https://incompetech.com/music/royalty-free/mp3-royaltyfree/Rainbows.mp3"></audio>
+  <div class="caption">source: incompetech.com · MP3 320 kbps</div>
+  <div class="versions">
+    <div class="pending"><b>1bit.music free tier (~2 MB)</b> — training in Run 6/8 queue</div>
+    <div class="pending"><b>1bit.music Premium lossless</b> — training in Run 8 queue</div>
+  </div>
+  <div class="lic">Licence: CC BY 4.0. Attribution: "Rainbows" by Kevin MacLeod.</div>
+</div>
+
+<div class="track">
+  <h3>Inspired</h3>
+  <div class="by">Kevin MacLeod (incompetech.com)</div>
+  <audio controls preload="none" src="https://incompetech.com/music/royalty-free/mp3-royaltyfree/Inspired.mp3"></audio>
+  <div class="caption">source: incompetech.com · MP3 320 kbps</div>
+  <div class="versions">
+    <div class="pending"><b>1bit.music free tier (~2 MB)</b> — training in Run 6/8 queue</div>
+    <div class="pending"><b>1bit.music Premium lossless</b> — training in Run 8 queue</div>
+  </div>
+  <div class="lic">Licence: CC BY 4.0. Attribution: "Inspired" by Kevin MacLeod.</div>
+</div>
+
+<h2>Spoken word — LibriVox (public domain)</h2>
+
+<div class="track">
+  <h3>Pride and Prejudice — Chapter 1</h3>
+  <div class="by">Jane Austen, read by Karen Savage (LibriVox)</div>
+  <audio controls preload="none" src="https://ia800102.us.archive.org/28/items/pride_prejudice_0901_librivox/prideandprejudice_01_austen_64kb.mp3"></audio>
+  <div class="caption">source: archive.org · MP3 64 kbps</div>
+  <div class="versions">
+    <div class="pending"><b>1bit.music free tier (~2 MB)</b> — training in Run 6/8 queue</div>
+    <div class="pending"><b>1bit.music Premium lossless</b> — training in Run 8 queue</div>
+  </div>
+  <div class="lic">Licence: Public domain. LibriVox recordings are released to the public domain; text is out-of-copyright.</div>
+</div>
+
+<h2>What you'll hear here after training</h2>
+<ul>
+  <li><b>Free tier comparison</b>: the same track reconstructed from the 10 M-parameter ternary LM + Mimi codec. ~2 MB model ships once, this specific track is decoded from those weights on-device.</li>
+  <li><b>Premium comparison</b>: the same track losslessly reproduced from model + arithmetic-coded residual. Byte-identical to the original, checksummable.</li>
+  <li><b>Bandwidth counter</b>: live per-track byte transfer meter so you can verify on-the-wire savings matches the architecture claim.</li>
+</ul>
+
+<h2>Submit your own (permissively-licensed) catalog</h2>
+<p>If you hold rights to a CC-licensed or public-domain catalog and want it hosted day-one: <a href="mailto:d1r7yman@gmail.com?subject=1bit.music%20catalog%20submission">d1r7yman@gmail.com</a>. We'll train a dedicated ternary LM on your catalog at no cost to you, ship the <code>.1bl</code>, and route Lightning payouts on a 70/30 split for Premium and 85/15 on one-time unlocks.</p>
+
+<footer>
+  © 2026 1bit.systems &middot;
+  <a href="/music">1bit.music</a> &middot;
+  <a href="/premium/">Premium $5/mo</a> &middot;
+  <a href="/sustainability/">green</a> &middot;
+  <a href="/">systems</a>
+</footer>
+
+</body>
+</html>

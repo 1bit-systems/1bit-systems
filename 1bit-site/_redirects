@@ -34,6 +34,8 @@ https://www.waterbon.me/*   https://waterbon.me/:splat       301
 /subscribe    /premium/                            302
 /green        /sustainability/                     302
 /sustainable  /sustainability/                     302
+/demo         /demo/                               301
+/listen       /demo/                               302
 /discord      https://discord.gg/halo-ai           302
 /gh           https://github.com/bong-water-water-bong/1bit-systems   302
 /github       https://github.com/bong-water-water-bong/1bit-systems   302
