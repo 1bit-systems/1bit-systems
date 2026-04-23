@@ -1,0 +1,16 @@
+[Unit]
+Description=1bit-whisper — whisper.cpp server (STT on Vulkan)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/1bit-whisper-server \
+    -m %h/.local/share/1bit/models/whisper-large-v3/ggml-large-v3-q5_0.bin \
+    --host 127.0.0.1 --port 8190
+Restart=on-failure
+RestartSec=5s
+Nice=5
+
+[Install]
+WantedBy=default.target

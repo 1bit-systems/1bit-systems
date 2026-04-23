@@ -1,0 +1,18 @@
+[Unit]
+Description=1bit-tts — Qwen3-TTS C++/ggml server (OpenAI /v1/audio/speech)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=RUST_LOG=info
+ExecStart=%h/.local/bin/1bit-tts-server \
+    --hf-repo khimaros/Qwen3-TTS-12Hz-0.6B-Base-GGUF:Q8_0 \
+    --hf-repo-v khimaros/Qwen3-TTS-Tokenizer-12Hz-GGUF:F16 \
+    -l 127.0.0.1 -p 8095
+Restart=on-failure
+RestartSec=5s
+Nice=5
+
+[Install]
+WantedBy=default.target
