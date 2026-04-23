@@ -73,7 +73,7 @@ pub fn parse_bytes(buf: &[u8]) -> Result<ValidateReport> {
     // Magic (4 bytes, version is the last byte).
     let mut magic = [0u8; 4];
     magic.copy_from_slice(&buf[..4]);
-    if &magic[..3] != &MAGIC[..3] {
+    if magic[..3] != MAGIC[..3] {
         return Err(IngestError::BadMagic(magic).into());
     }
     let version = magic[3];

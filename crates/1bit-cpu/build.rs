@@ -75,10 +75,10 @@ fn find_lib_dir() -> Option<PathBuf> {
             .join("../../rocm-cpp/cpu-avx2/build")
             .canonicalize()
             .ok();
-        if let Some(p) = in_tree {
-            if contains_static(&p) {
-                return Some(p);
-            }
+        if let Some(p) = in_tree
+            && contains_static(&p)
+        {
+            return Some(p);
         }
     }
 

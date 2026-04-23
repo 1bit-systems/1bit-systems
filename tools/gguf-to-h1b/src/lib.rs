@@ -600,7 +600,7 @@ mod tests {
         b.extend_from_slice(&0u32.to_le_bytes()); // dtype F32
         b.extend_from_slice(&0u64.to_le_bytes()); // offset (from data start)
         // Pad to 32-byte alignment (default GGUF alignment).
-        while b.len() % 32 != 0 {
+        while !b.len().is_multiple_of(32) {
             b.push(0);
         }
         // Payload: 2 × FP32.

@@ -845,7 +845,7 @@ fn tensor_size_bytes(t: GgufTensorType, shape: &[u64]) -> Option<u64> {
     }
     // Tensors are laid out as blocks of `bs` elements. Element count must
     // be a multiple of bs; if not, we can't safely size it and bail.
-    if elems % bs != 0 {
+    if !elems.is_multiple_of(bs) {
         return None;
     }
     Some((elems / bs) * bpb)

@@ -109,15 +109,15 @@ fn split_at_boundary(buf: &str, cap: usize) -> (&str, &str) {
     while safe_cap > 0 && !buf.is_char_boundary(safe_cap) {
         safe_cap -= 1;
     }
-    if let Some(nl) = buf[..safe_cap].rfind('\n') {
-        if nl > 0 {
-            return buf.split_at(nl + 1);
-        }
+    if let Some(nl) = buf[..safe_cap].rfind('\n')
+        && nl > 0
+    {
+        return buf.split_at(nl + 1);
     }
-    if let Some(sp) = buf[..safe_cap].rfind(' ') {
-        if sp > 0 {
-            return buf.split_at(sp + 1);
-        }
+    if let Some(sp) = buf[..safe_cap].rfind(' ')
+        && sp > 0
+    {
+        return buf.split_at(sp + 1);
     }
     buf.split_at(safe_cap)
 }

@@ -1699,7 +1699,7 @@ mod format_sniff_tests {
         buf.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
         buf.extend_from_slice(&0u64.to_le_bytes()); // kv_count
         // pad to 32-byte alignment for the (empty) tensor data region.
-        while buf.len() % 32 != 0 {
+        while !buf.len().is_multiple_of(32) {
             buf.push(0);
         }
 

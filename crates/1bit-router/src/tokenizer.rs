@@ -306,12 +306,12 @@ impl ByteLevelBpe {
             let mut best_pos: isize = -1;
             let mut best_new: i32 = 0;
             for i in 0..ids.len().saturating_sub(1) {
-                if let Some(&(merged, rank)) = self.merges.get(&(ids[i], ids[i + 1])) {
-                    if rank < best_rank {
-                        best_rank = rank;
-                        best_pos = i as isize;
-                        best_new = merged;
-                    }
+                if let Some(&(merged, rank)) = self.merges.get(&(ids[i], ids[i + 1]))
+                    && rank < best_rank
+                {
+                    best_rank = rank;
+                    best_pos = i as isize;
+                    best_new = merged;
                 }
             }
             if best_pos < 0 {

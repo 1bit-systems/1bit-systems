@@ -197,7 +197,7 @@ fn build_layer_owned(
 
     let mut packed_slots: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(7);
     for (name, packed_span, scales_span, rows, cols) in tensors {
-        if cols % 32 != 0 {
+        if !cols.is_multiple_of(32) {
             bail!("tensor {name}: cols={cols} not divisible by 32 (Sherry requirement)",);
         }
         let tq1_src = src.tensor_bytes(packed_span);

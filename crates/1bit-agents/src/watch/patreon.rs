@@ -228,12 +228,12 @@ fn percent_decode(s: &str) -> String {
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
             let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok();
-            if let Some(h) = hex {
-                if let Ok(b) = u8::from_str_radix(h, 16) {
-                    out.push(b);
-                    i += 3;
-                    continue;
-                }
+            if let Some(h) = hex
+                && let Ok(b) = u8::from_str_radix(h, 16)
+            {
+                out.push(b);
+                i += 3;
+                continue;
             }
         }
         out.push(bytes[i]);
@@ -250,10 +250,10 @@ fn percent_decode(s: &str) -> String {
 /// `PathBuf` even when the directory doesn't exist yet — the caller
 /// creates it lazily at write time.
 pub fn state_path_from_env() -> PathBuf {
-    if let Ok(v) = std::env::var("HALO_PATREON_STATE_FILE") {
-        if !v.trim().is_empty() {
-            return PathBuf::from(v);
-        }
+    if let Ok(v) = std::env::var("HALO_PATREON_STATE_FILE")
+        && !v.trim().is_empty()
+    {
+        return PathBuf::from(v);
     }
     let base = dirs::state_dir()
         .or_else(dirs::data_local_dir)

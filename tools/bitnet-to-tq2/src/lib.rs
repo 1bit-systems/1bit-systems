@@ -269,7 +269,7 @@ pub fn dequantize_group_tq2(block: &[u8; TQ2_BLOCK_BYTES]) -> [f32; TQ2_GROUP_SI
 /// Provided for compatibility; prefer [`quantize_row_with_scale`] when you
 /// already know the per-tensor scale.
 pub fn quantize_row_tq2(row: &[f32]) -> Result<Vec<u8>, ConvertError> {
-    if row.len() % TQ2_GROUP_SIZE != 0 {
+    if !row.len().is_multiple_of(TQ2_GROUP_SIZE) {
         return Err(ConvertError::GroupMisaligned {
             name: "<row>".into(),
             cols: row.len(),
@@ -291,7 +291,7 @@ pub fn quantize_row_tq2(row: &[f32]) -> Result<Vec<u8>, ConvertError> {
 /// every block. This is the per-tensor-scale path used by the default
 /// `convert` mode.
 pub fn quantize_row_with_scale(row: &[f32], d: f32) -> Result<Vec<u8>, ConvertError> {
-    if row.len() % TQ2_GROUP_SIZE != 0 {
+    if !row.len().is_multiple_of(TQ2_GROUP_SIZE) {
         return Err(ConvertError::GroupMisaligned {
             name: "<row>".into(),
             cols: row.len(),
@@ -569,7 +569,7 @@ pub fn convert_with_mode(
             // exactly `{-1, 0, +1} × per-tensor α` (pre-multiplied — the
             // `.weight_scale` tensor is absent from the -bf16 variant).
             expect_shape_2d(&view, &name, rows, cols)?;
-            if cols % TQ2_GROUP_SIZE != 0 {
+            if !cols.is_multiple_of(TQ2_GROUP_SIZE) {
                 return Err(ConvertError::GroupMisaligned {
                     name,
                     cols,

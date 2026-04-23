@@ -140,7 +140,7 @@ pub fn ternary_gemv_tq2_cpu(
     if n_out <= 0 {
         return Err(CpuError::BadNOut(n_out));
     }
-    if k_in <= 0 || (k_in as usize) % BLOCK_SIZE_K != 0 {
+    if k_in <= 0 || !(k_in as usize).is_multiple_of(BLOCK_SIZE_K) {
         return Err(CpuError::BadKIn(k_in));
     }
 

@@ -479,10 +479,10 @@ fn count_and_report_stream(
         // from the backend) still count as 1 "delta" but not a token, so
         // we treat "non-empty delta" as "one token" — matches what the
         // client sees at the SSE layer.
-        if let Ok(ref s) = item {
-            if !s.is_empty() {
-                counter.fetch_add(1, Ordering::Relaxed);
-            }
+        if let Ok(ref s) = item
+            && !s.is_empty()
+        {
+            counter.fetch_add(1, Ordering::Relaxed);
         }
         // Keep the reporter alive for the lifetime of the stream.
         let _ = &_keep_alive;

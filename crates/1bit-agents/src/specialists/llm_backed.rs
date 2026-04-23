@@ -296,10 +296,10 @@ pub(crate) fn extract_content(v: &Value) -> Option<String> {
 /// the whole JSON serialised as a string — Quartermaster's prompt
 /// explicitly says "given a single GitHub event JSON".
 fn extract_user_content(req: &Value) -> String {
-    if let Some(s) = req.get("content").and_then(|v| v.as_str()) {
-        if !s.trim().is_empty() {
-            return s.to_string();
-        }
+    if let Some(s) = req.get("content").and_then(|v| v.as_str())
+        && !s.trim().is_empty()
+    {
+        return s.to_string();
     }
     // No bare `content` string — serialise the full payload. Used by
     // Quartermaster for GitHub event JSON.

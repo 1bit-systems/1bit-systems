@@ -79,10 +79,10 @@ fn has_hip() -> bool {
                 continue;
             }
             let vendor_path = entry.path().join("device").join("vendor");
-            if let Ok(s) = fs::read_to_string(&vendor_path) {
-                if s.trim().eq_ignore_ascii_case("0x1002") {
-                    return true;
-                }
+            if let Ok(s) = fs::read_to_string(&vendor_path)
+                && s.trim().eq_ignore_ascii_case("0x1002")
+            {
+                return true;
             }
         }
     }

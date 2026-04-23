@@ -23,6 +23,8 @@ pub struct WatchEntryRaw {
     pub branch: Option<String>,
     #[serde(default = "default_soak")]
     pub soak_hours: u32,
+    // Forward-compat: packages.toml may declare a merge target; unused today.
+    #[allow(dead_code)]
     #[serde(default)]
     pub merge_into: Option<String>,
     #[serde(default)]
@@ -47,12 +49,6 @@ pub struct WatchEntry {
     pub on_merge: Vec<Vec<String>>,
     pub on_bump: Vec<Vec<String>>,
     pub notify: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct ManifestRaw {
-    #[serde(default)]
-    watch: BTreeMap<String, WatchEntryRaw>,
 }
 
 pub struct Manifest {

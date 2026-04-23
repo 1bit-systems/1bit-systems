@@ -221,7 +221,7 @@ impl H1bWeightFormat {
         match self {
             H1bWeightFormat::HaloV2 => Ok(cols.div_ceil(4)),
             H1bWeightFormat::SherryV3 | H1bWeightFormat::SherryFp16 => {
-                if cols % 32 != 0 {
+                if !cols.is_multiple_of(32) {
                     return Err(HaloError::InvalidConfig(
                         "Sherry packing requires cols divisible by 32",
                     ));
@@ -239,7 +239,7 @@ impl H1bWeightFormat {
                         "BonsaiQ1 group_size must be a positive power of two",
                     ));
                 }
-                if cols % g != 0 {
+                if !cols.is_multiple_of(g) {
                     return Err(HaloError::InvalidConfig(
                         "BonsaiQ1 requires cols divisible by group_size",
                     ));
@@ -254,7 +254,7 @@ impl H1bWeightFormat {
                         "BonsaiTQ2 group_size must be a positive power of two",
                     ));
                 }
-                if cols % g != 0 {
+                if !cols.is_multiple_of(g) {
                     return Err(HaloError::InvalidConfig(
                         "BonsaiTQ2 requires cols divisible by group_size",
                     ));

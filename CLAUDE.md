@@ -19,8 +19,10 @@ Keep terse; when in doubt, follow `ARCHITECTURE.md`.
 - **Rule C — hipBLAS is banned** in the runtime path. Native Tensile kernels
   only. If you find yourself reaching for hipBLAS, step back and port the
   kernel to `rocm-cpp` instead.
-- **Rule D — Rust 1.86, edition 2024.** `rust-version` is pinned in the
-  workspace `Cargo.toml`. Don't bump without a reason.
+- **Rule D — Rust 1.88, edition 2024.** `rust-version` is pinned in the
+  workspace `Cargo.toml`. Don't bump without a reason. (Bumped 1.86 →
+  1.88 on 2026-04-23 because `home`, `image`, `time`, `zbus`, `zvariant`
+  need MSRV ≥1.87.)
 - **Rule E — NPU stack = ORT C++ with VitisAI Execution Provider (AMD
   official, XDNA2) as the primary lane; Peano + libxrt + aie-rt stays
   as the option for custom AIE kernels we write ourselves. IRON is

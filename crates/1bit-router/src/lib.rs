@@ -930,8 +930,10 @@ fn generate_blocking(
         // first mismatch. Tree-attention amortisation (the follow-up
         // lane) is what actually yields >1.0 tok/backbone.
         // -------------------------------------------------------------
-        if medusa_active && step_count < max_new {
-            if let medusa::MedusaState::Enabled { heads, .. } = medusa {
+        if medusa_active
+            && step_count < max_new
+            && let medusa::MedusaState::Enabled { heads, .. } = medusa
+        {
                 // 1) Project backbone hidden through the 4 heads →
                 //    host-side `h_out` fp16 vectors. Runs on-device via
                 //    `fp16_gemv` + `silu_glu_fp16` with weights uploaded
@@ -1105,7 +1107,6 @@ fn generate_blocking(
                 }
             }
         }
-    }
 
     // `step_count` is the number of generated tokens emitted; the
     // accumulator is consumed below via `generated_ids.len()`.

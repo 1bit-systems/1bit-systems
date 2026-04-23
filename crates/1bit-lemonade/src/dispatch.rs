@@ -150,10 +150,10 @@ impl HaloServer {
             .map_err(|e| anyhow::anyhow!("join {path}: {e}"))?;
 
         let mut forward = reqwest::header::HeaderMap::new();
-        if let Some(ct) = req.content_type.as_deref() {
-            if let Ok(v) = reqwest::header::HeaderValue::from_str(ct) {
-                forward.insert(reqwest::header::CONTENT_TYPE, v);
-            }
+        if let Some(ct) = req.content_type.as_deref()
+            && let Ok(v) = reqwest::header::HeaderValue::from_str(ct)
+        {
+            forward.insert(reqwest::header::CONTENT_TYPE, v);
         }
         let resp = self
             .client
