@@ -158,6 +158,28 @@ target_compile_options(rocm_cpp PRIVATE
 target_link_libraries(rocm_cpp PRIVATE hip::host hip::device)
 set_target_properties(rocm_cpp PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
+# -- Optional tests gate ------------------------------------------------------
+# Flip ON to build TQ2_0 (and future opt-in) unit tests. OFF by default so
+# library consumers don't pay the compile cost.
+option(BUILD_ROCM_CPP_TESTS "Build opt-in rocm-cpp unit tests" OFF)
+
+# -- tests/test_ternary_gemv_tq2_0 : TQ2_0 × Q8_1 GEMV vs CPU reference -------
+# Gated by BUILD_ROCM_CPP_TESTS. Usage:
+#   cmake -DBUILD_ROCM_CPP_TESTS=ON -B build
+#   cmake --build build --target test_ternary_gemv_tq2_0
+#   ./build/test_ternary_gemv_tq2_0
+if(BUILD_ROCM_CPP_TESTS)
+    add_executable(test_ternary_gemv_tq2_0 tests/test_ternary_gemv_tq2_0.cpp)
+    set_source_files_properties(tests/test_ternary_gemv_tq2_0.cpp
+        PROPERTIES LANGUAGE HIP)
+    target_compile_options(test_ternary_gemv_tq2_0 PRIVATE
+        $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+    target_link_libraries(test_ternary_gemv_tq2_0 PRIVATE
+        rocm_cpp hip::host hip::device)
+    set_target_properties(test_ternary_gemv_tq2_0 PROPERTIES
+        HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+endif()
+
 # -- tests/test_ck_gemm : end-to-end functional proof --------------------------
 add_executable(test_ck_gemm tests/test_ck_gemm.cpp)
 set_source_files_properties(tests/test_ck_gemm.cpp PROPERTIES LANGUAGE HIP)
