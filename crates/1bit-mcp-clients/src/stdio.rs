@@ -183,11 +183,17 @@ mod tests {
 
     #[tokio::test]
     async fn stdio_closed_stream_returns_closed() {
-        // Exit immediately → no response → Closed.
+        // Exit immediately → dead pipe. Race: on fast CI the child is
+        // gone before we write, returning Io(BrokenPipe); on slower
+        // runners we hit the read side and get Closed. Both mean the
+        // remote is gone, which is what the test asserts.
         let client = StdioClient::spawn("/bin/true", std::iter::empty::<&str>())
             .await
             .expect("spawn");
         let err = client.initialize("halo-test", "0.0.1").await.unwrap_err();
-        assert!(matches!(err, McpError::Closed));
+        assert!(
+            matches!(err, McpError::Closed | McpError::Io(_)),
+            "expected Closed or Io, got {err:?}"
+        );
     }
 }
