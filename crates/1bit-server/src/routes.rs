@@ -27,7 +27,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use futures::StreamExt;
 use futures::stream::Stream;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 
@@ -116,14 +116,112 @@ pub fn default_http_client() -> reqwest::Client {
         .expect("reqwest::Client with 900s timeout must build")
 }
 
+/// Compute the [`AllowOrigin`] predicate for the CORS layer.
+///
+/// Default allow-list (no env var set):
+/// * any `http://localhost:<port>`
+/// * any `http://127.0.0.1:<port>`
+/// * `https://1bit.systems` (the Caddy-fronted edge)
+///
+/// Override via `HALO_CORS_ALLOWED_ORIGINS` — comma-separated exact
+/// origins (scheme + host + optional port, no trailing slash). Empty /
+/// whitespace-only entries are ignored; an unparseable entry is logged
+/// and skipped so one typo doesn't nuke the whole list.
+///
+/// Browsers send the `Origin` header as the opaque serialisation of the
+/// page origin (e.g. `http://localhost:3000`). We match case-sensitively
+/// on the header bytes — that's what `AllowOrigin::predicate` gives us —
+/// because origins are compared byte-for-byte by the CORS spec (§6.2.2).
+pub fn cors_allowed_origins() -> AllowOrigin {
+    let overrides: Vec<String> = std::env::var("HALO_CORS_ALLOWED_ORIGINS")
+        .ok()
+        .map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    if !overrides.is_empty() {
+        tracing::info!(
+            origins = ?overrides,
+            "CORS allow-list overridden via HALO_CORS_ALLOWED_ORIGINS"
+        );
+    }
+
+    AllowOrigin::predicate(move |origin, _req| {
+        let Ok(origin_str) = origin.to_str() else {
+            return false;
+        };
+        is_allowed_origin(origin_str, &overrides)
+    })
+}
+
+/// Pure origin-check — split out so the unit tests can drive it without
+/// standing up a full [`CorsLayer`] + [`axum::http::HeaderValue`] round-trip.
+pub(crate) fn is_allowed_origin(origin: &str, overrides: &[String]) -> bool {
+    // Edge: the Caddy landing page.
+    if origin == "https://1bit.systems" {
+        return true;
+    }
+    // Operator-supplied overrides take precedence over "deny" but not over
+    // the baked-in localhost loopback set — we'd rather have both than
+    // force ops to re-list `http://localhost:3000` in every deploy.
+    if overrides.iter().any(|o| o == origin) {
+        return true;
+    }
+    // Localhost loopback on any port (webui dev servers typically sit on
+    // 3000 / 5173 / 8787 / …). We accept the port-less forms too so a
+    // `file://`-hosted dev page that sets `Origin: http://localhost` isn't
+    // rejected for an unrelated reason.
+    is_localhost_http_origin(origin)
+}
+
+/// True when `origin` is `http://localhost`, `http://127.0.0.1`, or either
+/// with an explicit port suffix. Case-sensitive (the CORS spec requires a
+/// byte-exact comparison, and `Origin` headers are always emitted lower-case
+/// by conforming browsers).
+fn is_localhost_http_origin(origin: &str) -> bool {
+    let rest = match origin.strip_prefix("http://") {
+        Some(r) => r,
+        None => return false,
+    };
+    // Split off optional `:port`. A trailing `/` is never present on a
+    // serialized `Origin` (the CORS spec strips it), but we guard anyway.
+    let host = rest.split('/').next().unwrap_or(rest);
+    let (host_only, port_part) = match host.rsplit_once(':') {
+        Some((h, p)) => (h, Some(p)),
+        None => (host, None),
+    };
+    if host_only != "localhost" && host_only != "127.0.0.1" {
+        return false;
+    }
+    match port_part {
+        None => true,
+        Some(p) => !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()),
+    }
+}
+
 /// Same as [`build_router`] but takes a pre-built [`AppState`].
 pub fn build_router_with_state(state: AppState) -> Router {
-    // Permissive CORS for now; tighten to the tailnet + localhost once the
-    // webui stabilises. See `project_halo_network` memory for the cidrs.
+    // CORS allow-list. Defaults to localhost on any port (both literal
+    // `localhost` and `127.0.0.1`) plus `https://1bit.systems` — the
+    // Caddy-fronted edge where the landing + webui live. Operators can
+    // override via `HALO_CORS_ALLOWED_ORIGINS` (comma-separated exact
+    // origins) when they need a broader allow-list (e.g. a second tailnet
+    // hostname or a staging domain).
+    //
+    // Method + header sets stay broad because Axum is OpenAI-compat and we
+    // legitimately need POST with a JSON body + `authorization` /
+    // `content-type` / `x-request-id` headers from webui clients. The
+    // tightening here is strictly on the origin list — that's where a
+    // permissive CORS default actually bites (cross-origin credentialed
+    // reads).
     let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_origin(cors_allowed_origins())
+        .allow_methods(tower_http::cors::Any)
+        .allow_headers(tower_http::cors::Any);
 
     // Chat routes carry the rate limiter via `route_layer` — the limiter
     // only applies to tokens-expensive endpoints, not to /healthz or
@@ -1143,6 +1241,85 @@ mod tests {
             (ppl - 9.1607).abs() < 0.05,
             "gen-2 PPL diverged from gen-1: {ppl:.4} vs 9.1607"
         );
+    }
+
+    // ─── CORS allow-list ─────────────────────────────────────────────────
+    //
+    // The predicate itself lives in `is_allowed_origin(..)` so these tests
+    // don't need a full CorsLayer — they pin the policy at the data layer,
+    // which is where a regression would silently widen the attack surface.
+
+    #[test]
+    fn cors_default_rejects_arbitrary_https_origin() {
+        // No env override — baseline default policy. A random https origin
+        // must not be accepted; this is the case that bit us pre-0.1.1
+        // (Any-origin + credentials via browser preflight).
+        assert!(!super::is_allowed_origin("https://evil.example", &[]));
+        assert!(!super::is_allowed_origin("https://evil.example/", &[]));
+        assert!(!super::is_allowed_origin(
+            "https://subdomain.1bit.systems",
+            &[]
+        ));
+    }
+
+    #[test]
+    fn cors_default_accepts_localhost_and_edge() {
+        // Localhost dev servers (vite, next, plain python -m http.server,
+        // our own egui/eframe websockets) — all must work out of the box.
+        assert!(super::is_allowed_origin("http://localhost:3000", &[]));
+        assert!(super::is_allowed_origin("http://127.0.0.1:5173", &[]));
+        assert!(super::is_allowed_origin("http://localhost", &[]));
+        // The Caddy-fronted edge.
+        assert!(super::is_allowed_origin("https://1bit.systems", &[]));
+        // Defensive: port 0 / weird-but-valid forms still accepted under
+        // localhost because the host matches and the port is digits.
+        assert!(super::is_allowed_origin("http://localhost:0", &[]));
+    }
+
+    #[test]
+    fn cors_env_override_adds_extra_origin() {
+        let overrides = vec![
+            "https://staging.1bit.systems".to_string(),
+            "http://bong.taildeadbeef.ts.net:8080".to_string(),
+        ];
+        assert!(super::is_allowed_origin(
+            "https://staging.1bit.systems",
+            &overrides
+        ));
+        assert!(super::is_allowed_origin(
+            "http://bong.taildeadbeef.ts.net:8080",
+            &overrides
+        ));
+        // Override list doesn't widen to arbitrary origins — still a
+        // byte-exact match.
+        assert!(!super::is_allowed_origin(
+            "https://evil.example",
+            &overrides
+        ));
+        assert!(!super::is_allowed_origin(
+            "http://bong.taildeadbeef.ts.net:8081",
+            &overrides
+        ));
+    }
+
+    #[test]
+    fn cors_rejects_malformed_localhost_lookalikes() {
+        // Sub-domains of localhost (`foo.localhost`) still shouldn't route
+        // — they can be hijacked by a rogue DNS resolver. The host match is
+        // strict-equality, not suffix.
+        assert!(!super::is_allowed_origin(
+            "http://foo.localhost:3000",
+            &[]
+        ));
+        assert!(!super::is_allowed_origin(
+            "http://127.0.0.1.evil.example",
+            &[]
+        ));
+        // Non-digit port.
+        assert!(!super::is_allowed_origin("http://localhost:abc", &[]));
+        // https://localhost is NOT on the default list (no TLS loopback
+        // story yet); operators who want it must opt in via the env var.
+        assert!(!super::is_allowed_origin("https://localhost:3000", &[]));
     }
 
     #[tokio::test]
