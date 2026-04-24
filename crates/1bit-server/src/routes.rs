@@ -20,7 +20,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use axum::Json;
 use axum::Router;
-use axum::extract::State;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
@@ -203,6 +203,47 @@ fn is_localhost_http_origin(origin: &str) -> bool {
     }
 }
 
+/// Default `/ppl` request-body cap, in bytes (256 KB). Low by design —
+/// `/ppl` tokenizes arbitrary input and an unbounded body lets a bad
+/// actor run unbounded CPU tokenization on a public deploy. Operators
+/// who legitimately score long passages can relax the cap via
+/// `HALO_PPL_MAX_BYTES` (parsed as a decimal `usize`; unparseable
+/// values log-and-fall-back to this default so a typo doesn't
+/// silently widen the attack surface).
+pub const PPL_DEFAULT_MAX_BYTES: usize = 256 * 1024;
+
+/// Resolve the effective `/ppl` body-size cap. See
+/// [`PPL_DEFAULT_MAX_BYTES`] for the default and the `HALO_PPL_MAX_BYTES`
+/// override semantics.
+pub fn ppl_body_limit_bytes() -> usize {
+    match std::env::var("HALO_PPL_MAX_BYTES") {
+        Ok(raw) => match raw.trim().parse::<usize>() {
+            Ok(v) if v > 0 => {
+                tracing::info!(
+                    max_bytes = v,
+                    "ppl body-size cap overridden via HALO_PPL_MAX_BYTES"
+                );
+                v
+            }
+            Ok(_) => {
+                tracing::warn!(
+                    "HALO_PPL_MAX_BYTES=0 is not valid — using default {PPL_DEFAULT_MAX_BYTES}"
+                );
+                PPL_DEFAULT_MAX_BYTES
+            }
+            Err(e) => {
+                tracing::warn!(
+                    raw = %raw,
+                    err = %e,
+                    "HALO_PPL_MAX_BYTES unparseable — using default {PPL_DEFAULT_MAX_BYTES}"
+                );
+                PPL_DEFAULT_MAX_BYTES
+            }
+        },
+        Err(_) => PPL_DEFAULT_MAX_BYTES,
+    }
+}
+
 /// Same as [`build_router`] but takes a pre-built [`AppState`].
 pub fn build_router_with_state(state: AppState) -> Router {
     // CORS allow-list. Defaults to localhost on any port (both literal
@@ -250,7 +291,17 @@ pub fn build_router_with_state(state: AppState) -> Router {
         // OpenAI SDKs work without a path override.
         .route("/v2/images/generations", post(images_generations))
         .route("/v1/images/generations", post(images_generations))
-        .route("/ppl", post(ppl))
+        // /ppl takes arbitrary text and tokenizes it server-side.
+        // Tokenization is O(input_bytes) CPU, so an unbounded body lets a
+        // bad actor peg a core on a public deploy. Clamp to 256 KB by
+        // default; operators can relax via `HALO_PPL_MAX_BYTES` when they
+        // want to score longer passages. Axum surfaces the overflow as
+        // `413 Payload Too Large` via its default `LengthLimitError` →
+        // body-limit response, which is the shape we want.
+        .route(
+            "/ppl",
+            post(ppl).layer(DefaultBodyLimit::max(ppl_body_limit_bytes())),
+        )
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn(request_id))
@@ -1087,6 +1138,105 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    // ─── /ppl body-size cap ──────────────────────────────────────────────
+    //
+    // v0.1.0 inherited axum's default 2 MiB request body limit — a bad
+    // actor on a public deploy could pin a CPU in the tokenizer with one
+    // POST. Default tightened to 256 KB with an `HALO_PPL_MAX_BYTES`
+    // escape hatch. These tests pin the wire-visible behaviour (413 over
+    // 200) because the plumbing — axum's `DefaultBodyLimit::max(n)`
+    // applied per-route — is easy to silently lose in a refactor.
+
+    #[tokio::test]
+    async fn ppl_default_body_limit_is_256k() {
+        // Confirm the constant itself so a careless edit doesn't widen it.
+        assert_eq!(super::PPL_DEFAULT_MAX_BYTES, 256 * 1024);
+    }
+
+    #[tokio::test]
+    async fn ppl_accepts_body_at_default_limit() {
+        // Build a JSON body whose total size is as close to 256 KB as we
+        // can get without going over. The overhead of `{"text":""}` is 11
+        // bytes, so a 256 * 1024 - 11 byte `text` payload fits exactly.
+        let pad = "a".repeat(super::PPL_DEFAULT_MAX_BYTES - 11);
+        let body = serde_json::json!({ "text": pad }).to_string();
+        assert_eq!(body.len(), super::PPL_DEFAULT_MAX_BYTES);
+
+        let resp = app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/ppl")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        // EchoBackend doesn't implement ppl → 500 (api_error). The body
+        // limit layer did NOT fire — that's the assertion. We specifically
+        // assert `!= 413` so the test stays green if the backend starts
+        // answering /ppl for real.
+        assert_ne!(
+            resp.status(),
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "256 KB body must NOT be rejected by the limit layer"
+        );
+    }
+
+    #[tokio::test]
+    async fn ppl_rejects_body_over_default_limit_with_413() {
+        // 257 KB payload. We pad the `text` field until the whole JSON
+        // blob crosses the 256 KB mark. The limit applies to the raw
+        // request body bytes, not the `text` field, so we target one
+        // kilobyte past the cap to leave room for quoting + JSON noise.
+        let pad = "a".repeat(super::PPL_DEFAULT_MAX_BYTES + 1024);
+        let body = serde_json::json!({ "text": pad }).to_string();
+        assert!(
+            body.len() > super::PPL_DEFAULT_MAX_BYTES,
+            "test precondition: body should exceed the cap, got {} bytes",
+            body.len()
+        );
+
+        let resp = app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/ppl")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "body over cap must 413"
+        );
+    }
+
+    #[test]
+    fn ppl_body_limit_override_parses_positive_integer() {
+        // The function reads from the process environment. Drive it via
+        // SAFETY::set_var inside the test — it's safe here because cargo
+        // runs each `#[test]` on its own thread but the env mutation is
+        // scoped to this single-threaded block. To avoid poisoning other
+        // tests we restore the variable at the end.
+        //
+        // SAFETY: set_var/remove_var are unsafe in Rust 2024 edition — the
+        // OS guarantees we need (no concurrent getenv on another thread)
+        // hold for this synchronous test body.
+        let prev = std::env::var("HALO_PPL_MAX_BYTES").ok();
+        unsafe { std::env::set_var("HALO_PPL_MAX_BYTES", "8192") };
+        let got = super::ppl_body_limit_bytes();
+        match prev {
+            Some(v) => unsafe { std::env::set_var("HALO_PPL_MAX_BYTES", v) },
+            None => unsafe { std::env::remove_var("HALO_PPL_MAX_BYTES") },
+        }
+        assert_eq!(got, 8192);
     }
 
     /// Fake backend whose `perplexity` returns a fixed, known result.
