@@ -14,6 +14,7 @@ members = [
     "crates/1bit-aie",
     "crates/1bit-lemonade",
     "crates/1bit-helm",
+    "crates/1bit-helm-tui",
     "crates/1bit-pkg",
     "crates/1bit-landing",
     "crates/1bit-voice",
