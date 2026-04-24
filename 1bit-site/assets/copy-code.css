@@ -1,0 +1,55 @@
+/* Copy-to-clipboard button on <pre><code> blocks.
+   Matches the dark turquoise / magenta accent system. */
+
+pre.has-copy {
+  position: relative;
+}
+
+pre.has-copy .copy-btn {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  padding: 0.2rem 0.65rem;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: lowercase;
+  color: var(--text-muted, #8a9397);
+  background: transparent;
+  border: 1px solid var(--border-strong, #26323a);
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease, border-color 120ms ease,
+    background 120ms ease;
+}
+
+pre.has-copy:hover .copy-btn,
+pre.has-copy:focus-within .copy-btn,
+pre.has-copy .copy-btn:focus-visible {
+  opacity: 1;
+}
+
+pre.has-copy .copy-btn:hover {
+  color: var(--accent, #00e5d1);
+  border-color: var(--accent-soft, #00e5d166);
+  background: rgba(0, 229, 209, 0.06);
+}
+
+pre.has-copy .copy-btn:focus-visible {
+  outline: 2px solid var(--accent, #00e5d1);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  pre.has-copy .copy-btn {
+    transition: none;
+  }
+}
+
+@media (max-width: 640px) {
+  pre.has-copy .copy-btn {
+    opacity: 1; /* touch devices — always visible */
+  }
+}
