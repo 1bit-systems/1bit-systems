@@ -1119,6 +1119,23 @@ impl HipBackend {
         hip::device_synchronize()?;
         let dev_next = self.scratch.next_tok_dev.copy_to_host_scalar()?;
 
+        // 0.1.0 fast path: when the caller doesn't need logits (callsite
+        // left `logits_out` empty or opted in via HALO_SKIP_LOGITS_COPY=1
+        // for shadow-burnin parity toggling), skip the 512 KB D→H copy
+        // and the O(vocab) host-argmax reconcile. For halo-1bit-2b that
+        // saves ~20-40 µs memcpy + 50-80 µs host scan per token (~0.1 ms
+        // / 6-10 tok/s at 64-tok decode). Trusts the device argmax; the
+        // reconcile existed only for bit-exact tie determinism during
+        // the C++↔Rust shadow-burnin cutover. Flip HALO_SKIP_LOGITS_COPY=0
+        // to restore the pre-fix behaviour if a parity regression shows up.
+        let skip_copy = !std::env::var("HALO_SKIP_LOGITS_COPY")
+            .map(|v| matches!(v.as_str(), "0" | "false" | "no" | ""))
+            .unwrap_or(false)
+            && logits_out.is_empty();
+        if skip_copy {
+            return Ok(dev_next);
+        }
+
         // Copy logits back to host for non-greedy sampling paths.
         if logits_out.len() != vocab as usize {
             logits_out.resize(vocab as usize, 0.0);

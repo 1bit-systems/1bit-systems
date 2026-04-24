@@ -831,6 +831,14 @@ fn generate_blocking(
         // copies the post-final-norm hidden state back to the host so
         // the heads can project it into candidate-token logits.
         // -------------------------------------------------------------
+        // Greedy fast-path opt-in: clearing logits_scratch before the
+        // forward call signals forward_token to skip the 512 KB D→H copy
+        // and the host-argmax reconcile (see HALO_SKIP_LOGITS_COPY note
+        // in backend_impl.rs). For temp>0 we need the full logits vector
+        // on host for the sampler, so we leave it populated.
+        if !medusa_active && req.sampler.temperature <= 0.0 {
+            logits_scratch.clear();
+        }
         let argmax_next = if medusa_active {
             inner.backend.forward_token_with_hidden(
                 cur,
