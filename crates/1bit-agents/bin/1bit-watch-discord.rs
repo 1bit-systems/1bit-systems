@@ -93,6 +93,10 @@ struct Handler {
     guild_id: Option<GuildId>,
     /// Role auto-granted on `guild_member_add`. None disables auto-role.
     member_role_id: Option<RoleId>,
+    /// Channel echo greets new joiners in (visible to the guild, unlike
+    /// the welcome DM which is 1-to-1). None disables the public greet;
+    /// DM still fires regardless.
+    welcome_channel_id: Option<u64>,
 }
 
 /// Snapshot of the help-desk channel's shape.
@@ -1114,6 +1118,28 @@ impl Handler {
                 info!(user = %member.user.name, error = %e, "failed to open DM channel");
             }
         }
+
+        // Public greet in the welcome channel. Routes via echo's token
+        // so the post is attributed to the Echo identity. Falls back
+        // silently if the channel id is unset, the bot lacks permission,
+        // or the channel no longer exists.
+        if let (Some(wc), Some(echo_http)) = (self.welcome_channel_id, self.echo_http.as_ref()) {
+            let greet = format!(
+                "Welcome <@{uid}>. Pinned message has the links. Ask in any channel — halo routes questions to the help-desk.",
+                uid = member.user.id.get()
+            );
+            let ch = serenity::all::ChannelId::new(wc);
+            if let Err(e) = ch.say(echo_http.as_ref(), greet).await {
+                info!(
+                    user = %member.user.name,
+                    channel_id = wc,
+                    error = %e,
+                    "public welcome greet failed"
+                );
+            } else {
+                info!(user = %member.user.name, channel_id = wc, "public welcome greet posted");
+            }
+        }
     }
 
     /// Reaction hook: when someone 👍 or 👎 a Sentinel reply we own,
@@ -1634,6 +1660,16 @@ async fn main() -> Result<()> {
         info!(role_id = %rid.get(), "auto-role on join enabled");
     }
 
+    // Public welcome channel — echo posts a short greet here when a
+    // new member joins. Unset disables the public greet entirely;
+    // the per-user DM still fires.
+    let welcome_channel_id: Option<u64> = std::env::var("HALO_WELCOME_CHANNEL_ID")
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok());
+    if let Some(wc) = welcome_channel_id {
+        info!(welcome_channel_id = wc, "public welcome greet enabled");
+    }
+
     let handler = Handler {
         registry,
         channels,
@@ -1645,6 +1681,7 @@ async fn main() -> Result<()> {
         help_desk_meta: OnceCell::new(),
         guild_id,
         member_role_id,
+        welcome_channel_id,
     };
 
     // MESSAGE_CONTENT + GUILD_MEMBERS are privileged intents — operator
