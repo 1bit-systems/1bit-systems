@@ -10,9 +10,11 @@
 
 [![CI](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml/badge.svg)](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![Rust 1.86](https://img.shields.io/badge/rust-1.86-orange.svg)](./Cargo.toml)
+[![Rust 1.88](https://img.shields.io/badge/rust-1.88-orange.svg)](./Cargo.toml)
 [![Platform: Strix Halo gfx1151](https://img.shields.io/badge/platform-Strix%20Halo%20gfx1151-red.svg)](./docs/wiki/Why-Strix-Halo.md)
 [![Website: 1bit.systems](https://img.shields.io/badge/web-1bit.systems-7c3aed.svg)](https://1bit.systems)
+[![Wiki](https://img.shields.io/badge/wiki-deep%20dives-9333ea.svg)](https://github.com/bong-water-water-bong/1bit-systems/wiki)
+[![AUR](https://img.shields.io/badge/AUR-1bit--systems--bin-1793d1.svg)](https://aur.archlinux.org/packages/1bit-systems-bin)
 
 *"I know kung fu."* — the whole stack (router · HTTP · agents · MCP · desktop · package manager) in one Cargo workspace, sitting on hand-written HIP kernels, eating LPDDR5 at 92% of theoretical peak.
 
@@ -167,20 +169,39 @@ full install + first-boot walkthrough: [installation guide (wiki)](./docs/wiki/R
 
 ### install via AppImage *(single file, no build)*
 
-prebuilt single-file bundle of the user-facing Rust binaries. ROCm itself is **not** bundled — `1bit` itself runs, but `1bit install core` still needs a host `librocm_cpp.so` from the source bootstrap.
+prebuilt single-file bundle of the user-facing Rust binaries. **any modern distro works** — Arch, Ubuntu, Fedora, Debian, NixOS, CachyOS, the one your friend maintains for spite. AppImage doesn't care.
+
+ROCm itself is **not** bundled — you need ROCm 7.x installed on the host so `rocminfo` can see the gfx1151 agent. the binary tells you if it's missing; installing ROCm is your distro's problem.
 
 ```sh
 # download → verify → symlink to ~/.local/bin/1bit
-curl -fsSLO https://1bit.systems/dl/1bit-systems-0.1.0-x86_64.AppImage
+curl -fsSLO https://github.com/bong-water-water-bong/1bit-systems/releases/download/v0.1.0/1bit-systems-0.1.0-x86_64.AppImage
 echo "8a964f89bdef68ed914c04fcf23092ac642c424bb70f74dc10e8558e93b94036  1bit-systems-0.1.0-x86_64.AppImage" | sha256sum -c -
 chmod +x 1bit-systems-0.1.0-x86_64.AppImage
 ln -sfn "$PWD/1bit-systems-0.1.0-x86_64.AppImage" ~/.local/bin/1bit
-1bit --version
+1bit doctor     # preflight gates: kernel, ROCm, GPU agent, disk, RAM, systemd
 ```
 
-the scripted path — `INSTALL_MODE=appimage ./install.sh` — does the same three steps and verifies against [1bit-site/releases.json](./1bit-site/releases.json). works on any x86_64 Linux with glibc ≥ 2.31 (Ubuntu 20.04, Debian 11, CachyOS).
+the scripted path — `INSTALL_MODE=appimage ./install.sh` — does the same three steps and verifies against [1bit-site/releases.json](./1bit-site/releases.json). works on any x86_64 Linux with glibc ≥ 2.35.
 
 symlink the AppImage to any of the 20 bundled binary names — `1bit-helm`, `1bit-halo-helm-tray`, `1bit-watch-discord`, `1bit-mcp-patreon`, `1bit-voice`, … — and it dispatches via `$ARGV0`. run `<AppImage> --list` to see them all.
+
+### install via AUR *(Arch family)*
+
+```sh
+yay -S 1bit-systems-bin
+# or
+paru -S 1bit-systems-bin
+```
+
+thin AUR wrapper around the same AppImage. auto-updates when upstream ships a release. no source build, no rebuild on every kernel bump.
+
+### won't run on
+
+- **Windows** — never. see [FAQ](https://github.com/bong-water-water-bong/1bit-systems/wiki/FAQ#can-windows-run-1bit-systems).
+- **WSL2** — AMD iGPU passthrough doesn't cover gfx1151 as of 2026-04. see [FAQ](https://github.com/bong-water-water-bong/1bit-systems/wiki/FAQ#wsl2-docker--can-it-run).
+- **macOS / aarch64** — HIP kernels don't port. apple-silicon branch behind `mlx-apple` feature, not shipped.
+- **kernel 5.x or 7.x** — too old or has the OPTC35 hang pattern. 6.x LTS is the supported floor.
 
 ## lego blocks
 
@@ -288,6 +309,14 @@ we're gonna need a bigger box. contributions welcome from anyone running a Strix
 - **test client compatibility** — if you wire Sorana, Aicono, TabNeuron, Hermes Agent, or anything else against `1bit-server`, document the config delta in an issue.
 
 see [CONTRIBUTING.md](./CONTRIBUTING.md) and [CLAUDE.md](./CLAUDE.md) before sending code.
+
+## support
+
+**our technicians are on call 24 hours a day, 7 days a week.** (it is one guy. he does not sleep. please be patient with him.)
+
+before hitting Discord, the **[wiki has full troubleshooting guides](https://github.com/bong-water-water-bong/1bit-systems/wiki)** — [Installation](https://github.com/bong-water-water-bong/1bit-systems/wiki/Installation), [Hardware](https://github.com/bong-water-water-bong/1bit-systems/wiki/Hardware), [OPTC troubleshooting](https://github.com/bong-water-water-bong/1bit-systems/wiki/OPTC-Troubleshooting), [FAQ](https://github.com/bong-water-water-bong/1bit-systems/wiki/FAQ), and the rest. we've front-loaded every question we've already answered at least once.
+
+Discord invite: in the [project description](https://github.com/bong-water-water-bong/1bit-systems) at the top of the repo page.
 
 ## acknowledgements
 
