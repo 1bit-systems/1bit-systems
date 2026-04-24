@@ -1,14 +1,17 @@
 [Unit]
 # Vulkan-backed whisper-server variant. Intended for sliger (Intel Arc B580,
 # Xe2) where whisper.cpp is built with `-DGGML_VULKAN=ON` into
-# /opt/whisper-vulkan/. Binds :8190 (the reserved audio-pipeline port) and
-# serves large-v3 weights — large dedicated GPU lets us skip the base-model
-# fallback the strixhalo unit uses.
+# /opt/whisper-vulkan/. Binds 127.0.0.1:8190 (the reserved audio-pipeline
+# port) and serves large-v3 weights — large dedicated GPU lets us skip the
+# base-model fallback the strixhalo unit uses.
 #
 # On the audio host (sliger), install this unit + drop the RDNA3 / Strix
-# Halo `1bit-halo-whisper.service` variant. Clients on strixhalo call
-# sliger.local:8190 over the headscale mesh.
-Description=1bit-halo-whisper (Vulkan) — STT on Arc B580 / Xe2 (:8190)
+# Halo `1bit-halo-whisper.service` variant. Cross-host (strixhalo →
+# sliger) calls go through the Caddy reverse-proxy on the Headscale mesh,
+# NOT directly to this port — the bind is loopback-only to keep untrusted
+# LAN clients off the STT endpoint. Changed from `--host 0.0.0.0` on
+# 2026-04-24 (v0.1.1 hardening).
+Description=1bit-halo-whisper (Vulkan) — STT on Arc B580 / Xe2 (127.0.0.1:8190)
 After=network-online.target
 Wants=network-online.target
 
@@ -17,7 +20,7 @@ Type=simple
 Environment=WHISPER_PREFIX=/opt/whisper-vulkan
 Environment=WHISPER_MODEL=/opt/whisper-vulkan/models/ggml-large-v3.bin
 ExecStart=/opt/whisper-vulkan/bin/whisper-server \
-    --host 0.0.0.0 \
+    --host 127.0.0.1 \
     --port 8190 \
     --model ${WHISPER_MODEL} \
     --threads 8 \
