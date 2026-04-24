@@ -83,20 +83,43 @@ pub enum Backend {
     /// via [`cpu_lane::CpuLane`]. Scaffolded today but not on the
     /// critical path; dispatch surfaces [`BackendError::CpuLaneStub`].
     Cpu,
+    /// XDNA2 AIE2P NPU lane via `1bit-aie`. Only visible with
+    /// `--features aie-backend`. Dispatch currently surfaces
+    /// [`BackendError::NotYetWired`] — the skeleton trait compiles and
+    /// the router routes through it, but the xclbin / tile kernel is
+    /// still in `npu-kernels/bitnet/` awaiting final glue (see
+    /// `docs/wiki/NPU-Kernel-Handoff.md`).
+    ///
+    /// Router dispatch heuristic (unwired comment for now): once the
+    /// real backend lands, prefill gets routed to the NPU at
+    /// `prompt_len >= prefill_crossover_len` (default 33 from
+    /// `docs/wiki/Peak-Performance-Projection.md`), decode stays on
+    /// iGPU. Pipeline fill keeps both busy.
+    #[cfg(feature = "aie-backend")]
+    Aie,
 }
 
 impl Backend {
     /// Parse a `HALO_BACKEND=...` value. Case-insensitive. Accepted
-    /// spellings: `hip`, `cpu`. Any other value returns an error
-    /// that names both accepted spellings so operators see the valid
-    /// set without having to `grep` the source.
+    /// spellings: `hip`, `cpu`, and (with `--features aie-backend`) `aie`
+    /// / `npu`. Any other value returns an error that names the valid
+    /// set so operators see it without having to `grep` the source.
     pub fn parse_env(raw: &str) -> Result<Self, BackendError> {
-        match raw.trim().to_ascii_lowercase().as_str() {
+        let lowered = raw.trim().to_ascii_lowercase();
+        match lowered.as_str() {
             "hip" => Ok(Backend::Hip),
             "cpu" => Ok(Backend::Cpu),
-            other => Err(BackendError::Other(format!(
-                "HALO_BACKEND: unknown value {other:?}; accepted: hip | cpu"
-            ))),
+            #[cfg(feature = "aie-backend")]
+            "aie" | "npu" => Ok(Backend::Aie),
+            other => {
+                #[cfg(feature = "aie-backend")]
+                let accepted = "hip | cpu | aie | npu";
+                #[cfg(not(feature = "aie-backend"))]
+                let accepted = "hip | cpu";
+                Err(BackendError::Other(format!(
+                    "HALO_BACKEND: unknown value {other:?}; accepted: {accepted}"
+                )))
+            }
         }
     }
 
@@ -105,6 +128,8 @@ impl Backend {
         match self {
             Backend::Hip => "hip",
             Backend::Cpu => "cpu",
+            #[cfg(feature = "aie-backend")]
+            Backend::Aie => "aie",
         }
     }
 }
@@ -1182,6 +1207,17 @@ pub fn prefill_routing_decision(
         Backend::Hip => Ok(()),
         Backend::Cpu => Err(BackendError::CpuLaneStub(
             "CPU sampler lane scaffolded, not yet on critical path; see docs/wiki/CPU-Lane-Plan.md",
+        )),
+        // Router heuristic (unwired): when the AIE backend is real, this
+        // arm becomes "Ok for `prompt_tokens >= DEFAULT_PREFILL_CROSSOVER_L`,
+        // fall back to Hip prefill below that". Crossover L ≥ 33 derives
+        // from `docs/wiki/Peak-Performance-Projection.md`. Today the
+        // skeleton returns NotYetWired so selecting `HALO_BACKEND=aie`
+        // fails fast with a clear error rather than silently pretending
+        // to dispatch.
+        #[cfg(feature = "aie-backend")]
+        Backend::Aie => Err(BackendError::NotYetWired(
+            "AIE NPU backend: skeleton only, xclbin + tile kernel pending — see docs/wiki/NPU-Kernel-Handoff.md",
         )),
     }
 }

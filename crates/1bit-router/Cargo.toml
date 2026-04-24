@@ -17,6 +17,13 @@ path = "src/lib.rs"
 # friendly). Turn on `hip` to link 1bit-hip's rocm-cpp kernels.
 default         = []
 hip             = ["onebit-hip/link-rocm"]
+# `aie-backend` pulls in the skeleton AIE NPU lane (`onebit-aie`). Off by
+# default because the trait methods still return `NotYetWired` until the
+# BitNet-1.58 tile kernel + xclbin land (see
+# `docs/wiki/NPU-Kernel-Handoff.md` and `npu-kernels/bitnet/README.md`).
+# Default build stays green; this feature wires the `Backend::Aie`
+# variant + prefill-crossover comment path.
+aie-backend     = ["dep:onebit-aie"]
 # BitNet v2 H-BitLinear — online Walsh-Hadamard rotation on the pre-quant
 # activation stream at every ternary GEMV site. Off by default because
 # (a) rotated weights (`W' = W @ H^T`) have to be baked offline by the
@@ -63,6 +70,10 @@ bytemuck  = "1"
 
 onebit-core        = { workspace = true }
 onebit-hip  = { path = "../1bit-hip", default-features = false }
+# NPU (AIE2P) lane, skeleton only. See `--features aie-backend`. Default
+# build keeps this absent so the workspace compiles without libxrt / an
+# xclbin on disk.
+onebit-aie  = { workspace = true, optional = true }
 
 [dev-dependencies]
 # Used by `cpu_lane::tests` parity tests to build deterministic 32k-element

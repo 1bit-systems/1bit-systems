@@ -1,0 +1,52 @@
+[package]
+name         = "onebit-aie"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+description  = "1bit-aie — skeleton NPU backend (AIE2P on XDNA2 Strix Halo) for BitNet-1.58 gemv"
+
+[lib]
+name = "onebit_aie"
+path = "src/lib.rs"
+
+# ---------------------------------------------------------------------------
+# Features
+# ---------------------------------------------------------------------------
+#
+# default     — stub-only crate. Compiles without libxrt or xclbin assets.
+#               Every `AieBackend` method returns `AieError::NotYetWired`.
+#               This is the state that rides CI today.
+#
+# real-npu    — turns on the paths that would actually dlopen libxrt, load
+#               an xclbin, and dispatch onto npu5. Gated because (a) libxrt
+#               bindings for Rust are not yet in-tree (the `libxrt-sys`
+#               placeholder dep below is aspirational; we may need to
+#               author the bindings ourselves), and (b) CI doesn't have
+#               NPU hardware. The `#[ignore]` kernel tests in
+#               `src/lib.rs` flip on here.
+#
+# The feature split intentionally mirrors `onebit-hip`'s `link-rocm`
+# pattern so the router's `aie-backend` feature can compose the same way.
+[features]
+default  = []
+real-npu = []
+
+[dependencies]
+thiserror = { workspace = true }
+tracing   = { workspace = true }
+
+# Placeholder. No Rust bindings for libxrt exist on crates.io today; the
+# two known candidates are (a) author our own thin `libxrt-sys` in-tree
+# off Xilinx/XRT's C ABI, or (b) re-use the C++ API via `cxx` / `autocxx`.
+# The scoping PR leaves this commented so `cargo build --workspace`
+# doesn't break when the NPU lane is off (which is the default).
+#
+# libxrt-sys = { version = "0", optional = true }
+
+[dev-dependencies]
+# Keeps the test matrix consistent with the other crates (tempfile is the
+# workspace convention for synthesizing xclbin-shaped bytes in unit tests).
+tempfile = "3"

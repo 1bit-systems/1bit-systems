@@ -4158,6 +4158,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "onebit-aie"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "onebit-cli"
 version = "0.1.0"
 dependencies = [
@@ -4466,6 +4475,7 @@ dependencies = [
  "futures",
  "half",
  "memmap2",
+ "onebit-aie",
  "onebit-core",
  "onebit-hip",
  "rayon",
