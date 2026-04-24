@@ -318,6 +318,12 @@ pub fn build_router_with_state(state: AppState) -> Router {
         .merge(chat_routes)
         .route("/v1/completions", post(completions))
         .route("/v1/npu/status", get(crate::npu::npu_status))
+        // Lemonade-desktop-compat surface. Lives under `/api/v1/*` so it
+        // doesn't collide with the OpenAI `/v1/*` routes; auth + CORS
+        // policy is inherited from the layers below. See
+        // `crate::lemonade_api` for the full schema and Lemonade source
+        // references.
+        .nest("/api/v1", crate::lemonade_api::lemonade_router())
         // Layer-A image generation proxy → sd-server :8081. `/v2` is the
         // canonical gen-2 route (Caddy's `/v2/*` block already routes here);
         // `/v1` alias keeps parity with the legacy OpenAI surface so plain

@@ -36,6 +36,7 @@ pub mod api;
 pub mod backend;
 pub mod chat_template;
 pub mod error;
+pub mod lemonade_api;
 pub mod metrics;
 pub mod middleware;
 pub mod npu;
