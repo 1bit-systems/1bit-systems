@@ -22,6 +22,15 @@ set -euo pipefail
 # and `1bit-watch-discord` resolve regardless of invocation context.
 export PATH="$HOME/.cargo/bin:${PATH:-}"
 
+# --check mode: read config.toml + secrets.env + the current systemd
+# drop-in and report any drift (config changed but drop-in stale). No
+# writes, no restarts; exits 0 iff everything matches. Useful as a
+# pre-commit hook or a cron sanity check.
+CHECK_MODE=false
+if [[ "${1:-}" == "--check" ]]; then
+    CHECK_MODE=true
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="$SCRIPT_DIR/config.toml"
 SECRETS="$HOME/.config/1bit/discord-secrets.env"

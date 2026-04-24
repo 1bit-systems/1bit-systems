@@ -43,3 +43,6 @@ secrets/
 *.profraw
 perf.data*
 rocprof-*.json
+
+# CMake out-of-tree build
+build-tests/
