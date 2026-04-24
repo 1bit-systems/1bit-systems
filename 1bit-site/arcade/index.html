@@ -34,16 +34,10 @@
 <p class="tag">WASM-compiled demos of the halo-ai kernels running in your browser tab. No installs, no accounts, no servers to hit for compute. Run the ternary kernel on your own device, watch the byte counter move.</p>
 
 <div class="note">
-<b>Reserved.</b> Domain held, landing page placeholder. Demos below roll out as each WASM build lands — <code>1bit-ac</code> needs Run 8 to complete, the Mimi playground needs Run 6. No fake demos while they bake.
+<b>Reserved.</b> Domain held, landing page placeholder. Demos below roll out as each WASM build lands — the Mimi playground needs Run 6. No fake demos while they bake.
 </div>
 
 <h2>Planned cabinets</h2>
-
-<div class="slot">
-  <h3>lossless-in-a-tab</h3>
-  <p class="desc">Drag a FLAC onto the window, it compresses to <code>.1bl</code> and decompresses back to byte-identical FLAC, all in-browser. Counter shows bytes in, bytes out, ratio. Demonstrates that the whole toolchain fits in a web page.</p>
-  <div class="pending">queued · awaits Run 8</div>
-</div>
 
 <div class="slot">
   <h3>Mimi playground</h3>
@@ -61,12 +55,6 @@
   <h3>ternary kernel live</h3>
   <p class="desc">Pick an input tensor shape, watch our <code>ternary_gemv_halo.hip</code> equivalent (compiled to WASM + WebGPU) do the matmul at roughly the speeds quoted in our kernel benchmarks. Numbers don't lie.</p>
   <div class="pending">queued · WebGPU port in planning</div>
-</div>
-
-<div class="slot">
-  <h3>BYOC encode demo</h3>
-  <p class="desc">Upload any WAV or FLAC you own the rights to. We encode it locally via <code>1bit-ac</code> in WASM, hand you back the <code>.1bl</code>. File never leaves your browser tab — no network round-trip after initial page load.</p>
-  <div class="pending">queued · awaits Run 8</div>
 </div>
 
 <h2>Why it lives here and not on /demo/</h2>
