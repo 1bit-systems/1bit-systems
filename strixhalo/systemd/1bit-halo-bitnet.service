@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/bitnet_decode __HOME__/1bit systems/models/halo-1bit-2b.h1b --server 8080
+ExecStart=/usr/local/bin/bitnet_decode "__HOME__/1bit systems/models/halo-1bit-2b.h1b" --server 8080
 Restart=on-failure
 RestartSec=3
 

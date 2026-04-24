@@ -5,7 +5,7 @@ Wants=network.target
 
 [Service]
 Type=simple
-ExecStart=__HOME__/.local/bin/1bit-server-real --bind 127.0.0.1:8180 --model __HOME__/1bit systems/models/halo-1bit-2b.h1b
+ExecStart=__HOME__/.local/bin/1bit-server-real --bind 127.0.0.1:8180 --model "__HOME__/1bit systems/models/halo-1bit-2b.h1b"
 Restart=on-failure
 RestartSec=5
 Environment=RUST_LOG=onebit_server=info,onebit_router=info

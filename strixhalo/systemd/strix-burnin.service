@@ -1,12 +1,12 @@
 [Unit]
 Description=strix-ai-rs shadow-traffic burn-in (gen-1 :8080 vs gen-2 :8180)
-Documentation=file:__HOME__/1bit systems-core/benchmarks/shadow-burnin.sh
+Documentation=file:__HOME__/1bit-systems-core/benchmarks/shadow-burnin.sh
 After=network.target halo-bitnet.service strix-server.service
 Wants=halo-bitnet.service strix-server.service
 
 [Service]
 Type=simple
-ExecStart=__HOME__/1bit systems-core/benchmarks/shadow-burnin.sh --max-rounds 0
+ExecStart="__HOME__/1bit systems-core/benchmarks/shadow-burnin.sh" --max-rounds 0
 Restart=on-failure
 RestartSec=10
 Nice=15

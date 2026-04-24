@@ -25,11 +25,28 @@
 
 namespace {
 
+// Short-read guard. Every weight read goes through this — a truncated
+// .h1b file (hostile or network-corrupted) otherwise leaves the tail of
+// the destination buffer uninitialized; that garbage then gets uploaded
+// to the GPU and poisons the first few inference tokens silently.
+#define H1B_READ_OR_FAIL(f, ptr, n)                                         \
+    do {                                                                    \
+        (f).read(reinterpret_cast<char*>(ptr), static_cast<std::streamsize>(n)); \
+        if ((f).gcount() != static_cast<std::streamsize>(n)) {              \
+            fprintf(stderr,                                                 \
+                    "[rocm-cpp] .h1b short read at %s:%d "                  \
+                    "(wanted %zu bytes, got %lld)\n",                       \
+                    __FILE__, __LINE__, (size_t)(n),                        \
+                    (long long)(f).gcount());                               \
+            return RCPP_INVALID_ARG;                                        \
+        }                                                                   \
+    } while (0)
+
 // Read FP32 from disk, cast to FP16, upload to device (the .h1b format
 // stores norms and embeddings as float32; kernels consume FP16).
 int read_fp32_as_fp16(std::ifstream& f, size_t n, __half** out) {
     std::vector<float> src(n);
-    f.read(reinterpret_cast<char*>(src.data()), n * sizeof(float));
+    H1B_READ_OR_FAIL(f, src.data(), n * sizeof(float));
     std::vector<_Float16> dst(n);
     for (size_t i = 0; i < n; ++i) dst[i] = (_Float16)src[i];
     HIP_CHECK(hipMalloc(out, n * sizeof(_Float16)));
@@ -45,11 +62,15 @@ void skip_fp32(std::ifstream& f, size_t n) {
 
 // Read a packed ternary weight (halo-1bit format: uint8[rows, (cols+3)/4] + float[rows] scales).
 int read_ternary(std::ifstream& f, int rows, int cols, void** packed_out, void** scales_out) {
+    if (rows <= 0 || cols <= 0) {
+        fprintf(stderr, "[rocm-cpp] read_ternary: bad dims rows=%d cols=%d\n", rows, cols);
+        return RCPP_INVALID_ARG;
+    }
     const int packed_cols = (cols + 3) / 4;
     std::vector<uint8_t> packed((size_t)rows * packed_cols);
-    f.read(reinterpret_cast<char*>(packed.data()), packed.size());
+    H1B_READ_OR_FAIL(f, packed.data(), packed.size());
     std::vector<float> scales(rows);
-    f.read(reinterpret_cast<char*>(scales.data()), rows * sizeof(float));
+    H1B_READ_OR_FAIL(f, scales.data(), rows * sizeof(float));
     HIP_CHECK(hipMalloc(reinterpret_cast<void**>(packed_out), packed.size()));
     HIP_CHECK(hipMemcpy(*packed_out, packed.data(), packed.size(), hipMemcpyHostToDevice));
     HIP_CHECK(hipMalloc(reinterpret_cast<void**>(scales_out), rows * sizeof(float)));
@@ -60,15 +81,19 @@ int read_ternary(std::ifstream& f, int rows, int cols, void** packed_out, void**
 // Sherry v3: uint8[rows * cols * 5 / 32] + float[rows] scales. 1.25 bpw.
 // cols must be a multiple of 32.
 int read_ternary_sherry(std::ifstream& f, int rows, int cols, void** packed_out, void** scales_out) {
+    if (rows <= 0 || cols <= 0) {
+        fprintf(stderr, "[rocm-cpp] v3 load: bad dims rows=%d cols=%d\n", rows, cols);
+        return RCPP_INVALID_ARG;
+    }
     if (cols % 32 != 0) {
         fprintf(stderr, "[rocm-cpp] v3 load: cols=%d not divisible by 32\n", cols);
         return -1;
     }
     const size_t row_bytes = (size_t)cols * 5 / 32;
     std::vector<uint8_t> packed((size_t)rows * row_bytes);
-    f.read(reinterpret_cast<char*>(packed.data()), packed.size());
+    H1B_READ_OR_FAIL(f, packed.data(), packed.size());
     std::vector<float> scales(rows);
-    f.read(reinterpret_cast<char*>(scales.data()), rows * sizeof(float));
+    H1B_READ_OR_FAIL(f, scales.data(), rows * sizeof(float));
     HIP_CHECK(hipMalloc(reinterpret_cast<void**>(packed_out), packed.size()));
     HIP_CHECK(hipMemcpy(*packed_out, packed.data(), packed.size(), hipMemcpyHostToDevice));
     HIP_CHECK(hipMalloc(reinterpret_cast<void**>(scales_out), rows * sizeof(float)));
@@ -79,12 +104,16 @@ int read_ternary_sherry(std::ifstream& f, int rows, int cols, void** packed_out,
 // TQ1 v4: uint8[rows * cols_padded / 5] + float[rows] scales. 1.6 bpw.
 // cols is padded up to multiple of 20 (requantizer handles the padding).
 int read_ternary_tq1(std::ifstream& f, int rows, int cols, void** packed_out, void** scales_out) {
+    if (rows <= 0 || cols <= 0) {
+        fprintf(stderr, "[rocm-cpp] tq1 load: bad dims rows=%d cols=%d\n", rows, cols);
+        return RCPP_INVALID_ARG;
+    }
     const int cols_padded = ((cols + 19) / 20) * 20;
     const size_t row_bytes = (size_t)cols_padded / 5;
     std::vector<uint8_t> packed((size_t)rows * row_bytes);
-    f.read(reinterpret_cast<char*>(packed.data()), packed.size());
+    H1B_READ_OR_FAIL(f, packed.data(), packed.size());
     std::vector<float> scales(rows);
-    f.read(reinterpret_cast<char*>(scales.data()), rows * sizeof(float));
+    H1B_READ_OR_FAIL(f, scales.data(), rows * sizeof(float));
     HIP_CHECK(hipMalloc(reinterpret_cast<void**>(packed_out), packed.size()));
     HIP_CHECK(hipMemcpy(*packed_out, packed.data(), packed.size(), hipMemcpyHostToDevice));
     HIP_CHECK(hipMalloc(reinterpret_cast<void**>(scales_out), rows * sizeof(float)));
@@ -99,6 +128,11 @@ int read_ternary_tq1(std::ifstream& f, int rows, int cols, void** packed_out, vo
 int read_bonsai_blocks(std::ifstream& f, int rows, int cols,
                        int block_bytes, int group_size, void** packed_out)
 {
+    if (rows <= 0 || cols <= 0 || block_bytes <= 0 || group_size <= 0) {
+        fprintf(stderr, "[rocm-cpp] bonsai load: bad dims rows=%d cols=%d block_bytes=%d group_size=%d\n",
+                rows, cols, block_bytes, group_size);
+        return RCPP_INVALID_ARG;
+    }
     if (cols % group_size != 0) {
         fprintf(stderr, "[rocm-cpp] bonsai load: cols=%d not divisible by group_size=%d\n",
                 cols, group_size);
@@ -107,7 +141,7 @@ int read_bonsai_blocks(std::ifstream& f, int rows, int cols,
     const size_t blocks_per_row = (size_t)cols / group_size;
     const size_t row_bytes = blocks_per_row * (size_t)block_bytes;
     std::vector<uint8_t> packed((size_t)rows * row_bytes);
-    f.read(reinterpret_cast<char*>(packed.data()), packed.size());
+    H1B_READ_OR_FAIL(f, packed.data(), packed.size());
     HIP_CHECK(hipMalloc(reinterpret_cast<void**>(packed_out), packed.size()));
     HIP_CHECK(hipMemcpy(*packed_out, packed.data(), packed.size(), hipMemcpyHostToDevice));
     return 0;
@@ -357,7 +391,7 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model) {
 
     char magic[4];
     f.read(magic, 4);
-    if (std::strncmp(magic, "H1B", 3) != 0) {
+    if (f.gcount() != 4 || std::memcmp(magic, "H1B\0", 4) != 0) {
         fprintf(stderr, "Bad .h1b magic\n");
         return RCPP_INVALID_ARG;
     }
@@ -374,6 +408,39 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model) {
 
     int32_t cfg[9];
     f.read(reinterpret_cast<char*>(cfg), sizeof(cfg));
+    if (f.gcount() != (std::streamsize)sizeof(cfg)) {
+        fprintf(stderr, "Short read on .h1b config header\n");
+        return RCPP_INVALID_ARG;
+    }
+    // Sanitize config fields — a hostile .h1b with INT_MAX in any of these
+    // triggers signed int-mul overflow downstream and lands in hipMalloc
+    // with a wrapped size. Ceilings below are ~10x the largest known
+    // real-world model (Llama-3 405B class); anything past this is either
+    // a format bug or a crafted attack.
+    constexpr int32_t MAX_HIDDEN       = 1 << 15;   // 32768
+    constexpr int32_t MAX_INTERMEDIATE = 1 << 17;   // 131072
+    constexpr int32_t MAX_LAYERS       = 1 << 10;   // 1024
+    constexpr int32_t MAX_HEADS        = 1 << 10;   // 1024
+    constexpr int32_t MAX_KV_HEADS     = 1 << 10;   // 1024
+    constexpr int32_t MAX_VOCAB        = 1 << 20;   // 1,048,576
+    constexpr int32_t MAX_SEQ_LEN      = 1 << 20;
+    auto bad = [&](const char* name, int32_t v, int32_t cap) {
+        fprintf(stderr, ".h1b config field %s=%d out of range (must be in (0, %d])\n",
+                name, v, cap);
+        return RCPP_INVALID_ARG;
+    };
+    if (cfg[0] <= 0 || cfg[0] > MAX_HIDDEN)        return bad("hidden_size",       cfg[0], MAX_HIDDEN);
+    if (cfg[1] <= 0 || cfg[1] > MAX_INTERMEDIATE)  return bad("intermediate_size", cfg[1], MAX_INTERMEDIATE);
+    if (cfg[2] <= 0 || cfg[2] > MAX_LAYERS)        return bad("num_layers",        cfg[2], MAX_LAYERS);
+    if (cfg[3] <= 0 || cfg[3] > MAX_HEADS)         return bad("num_heads",         cfg[3], MAX_HEADS);
+    if (cfg[4] <= 0 || cfg[4] > MAX_KV_HEADS)      return bad("num_kv_heads",      cfg[4], MAX_KV_HEADS);
+    if (cfg[5] <= 0 || cfg[5] > MAX_VOCAB)         return bad("vocab_size",        cfg[5], MAX_VOCAB);
+    if (cfg[6] <= 0 || cfg[6] > MAX_SEQ_LEN)       return bad("max_seq_len",       cfg[6], MAX_SEQ_LEN);
+    if (cfg[0] % cfg[3] != 0) {
+        fprintf(stderr, ".h1b hidden_size=%d not divisible by num_heads=%d\n",
+                cfg[0], cfg[3]);
+        return RCPP_INVALID_ARG;
+    }
     out_model->hidden_size       = cfg[0];
     out_model->intermediate_size = cfg[1];
     out_model->num_layers        = cfg[2];

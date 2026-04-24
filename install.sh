@@ -106,7 +106,7 @@ if [[ "$INSTALL_MODE" == "appimage" ]]; then
         DL_SHA="$(jq -r --arg v "$LATEST" '.releases[] | select(.version==$v) | .artifacts[] | select(.platform=="x86_64-linux-gnu" and .kind=="appimage") | .sha256' "$FEED_JSON")"
     else
         LATEST="$(grep -E '"latest"' "$FEED_JSON" | head -1 | sed -E 's/.*"([0-9]+\.[0-9]+\.[0-9]+)".*/\1/')"
-        DL_URL="$(grep -E '"url"' "$FEED_JSON" | head -1 | sed -E 's/.*"(https?://[^"]+)".*/\1/')"
+        DL_URL="$(grep -E '"url"' "$FEED_JSON" | head -1 | sed -E 's|.*"(https?://[^"]+)".*|\1|')"
         DL_SHA="$(grep -E '"sha256"' "$FEED_JSON" | head -1 | sed -E 's/.*"([a-f0-9]{64})".*/\1/')"
     fi
     [[ -n "$LATEST" && -n "$DL_URL" && -n "$DL_SHA" ]] || die "could not parse release feed"
