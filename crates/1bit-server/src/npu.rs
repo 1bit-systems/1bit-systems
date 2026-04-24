@@ -417,6 +417,7 @@ mod tests {
             http_client: crate::routes::default_http_client(),
             rate_limit: Arc::new(crate::middleware::RateLimit::new(0)),
             models: Arc::new(crate::registry::ModelRegistry::empty()),
+            default_chat_template: crate::chat_template::ChatTemplate::default(),
         };
         let app = build_router_with_state(state);
 

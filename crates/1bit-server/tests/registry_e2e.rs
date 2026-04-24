@@ -64,6 +64,7 @@ async fn spawn_with_registry(registry: ModelRegistry) -> String {
         http_client: default_http_client(),
         rate_limit: Arc::new(RateLimit::new(0)),
         models: Arc::new(registry),
+        default_chat_template: onebit_server::ChatTemplate::default(),
     };
     let app = build_router_with_state(state);
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");

@@ -31,6 +31,7 @@ fn app() -> Router {
         http_client: default_http_client(),
         rate_limit: Arc::new(RateLimit::new(0)),
         models: Arc::new(onebit_server::registry::ModelRegistry::empty()),
+        default_chat_template: onebit_server::ChatTemplate::default(),
     };
     build_router_with_state(state).layer(MockConnectInfo(SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),

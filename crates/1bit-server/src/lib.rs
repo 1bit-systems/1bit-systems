@@ -34,6 +34,7 @@
 
 pub mod api;
 pub mod backend;
+pub mod chat_template;
 pub mod error;
 pub mod metrics;
 pub mod middleware;
@@ -45,6 +46,7 @@ pub mod shutdown;
 #[cfg(feature = "real-backend")]
 pub use backend::RealBackend;
 pub use backend::{EchoBackend, InferenceBackend, PerplexityOutput, TokenStream};
+pub use chat_template::ChatTemplate;
 pub use error::ServerError;
 pub use metrics::{Metrics, MetricsSnapshot};
 pub use routes::{build_router, build_router_with_state};

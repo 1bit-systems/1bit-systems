@@ -108,6 +108,19 @@ async fn main() -> Result<()> {
     }
     info!(count = registry.entries().len(), ids = ?registry.ids(), "model registry ready");
 
+    // HALO_CHAT_TEMPLATE picks the server-wide default prompt template
+    // (`llama3` | `short` | `raw`). The `short` / `raw` variants skip
+    // part or all of the Llama-3 framing on the prefill path — see
+    // `chat_template` module + `docs/wiki/Chat-Template-Options.md`.
+    // Clients may override per-request via `X-Halo-Chat-Template`.
+    let default_chat_template = onebit_server::ChatTemplate::from_env();
+    if default_chat_template != onebit_server::ChatTemplate::default() {
+        info!(
+            template = ?default_chat_template,
+            "HALO_CHAT_TEMPLATE override active"
+        );
+    }
+
     let state = AppState {
         backend,
         metrics: Arc::new(Metrics::new()),
@@ -115,6 +128,7 @@ async fn main() -> Result<()> {
         http_client: default_http_client(),
         rate_limit: Arc::new(RateLimit::new(args.rate_limit_rpm)),
         models: Arc::new(registry),
+        default_chat_template,
     };
     let app = build_router_with_state(state);
 

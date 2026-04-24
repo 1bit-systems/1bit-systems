@@ -21,7 +21,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use axum::Json;
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -38,10 +38,33 @@ use crate::api::{
     PplRequest, PplResponse,
 };
 use crate::backend::{GenerationParams, SharedBackend};
+use crate::chat_template::ChatTemplate;
 use crate::error::ServerError;
 use crate::metrics::{Metrics, MetricsSnapshot};
 use crate::middleware::{RateLimit, rate_limit, request_id};
 use crate::registry::ModelRegistry;
+
+/// Name of the per-request HTTP header that overrides the server-wide
+/// chat template for a single call. Values: `llama3` | `short` | `raw`
+/// (case-insensitive). Unknown values are ignored and the server-wide
+/// default is used instead. See `chat_template` module for semantics.
+pub const CHAT_TEMPLATE_HEADER: &str = "x-halo-chat-template";
+
+/// Resolve the effective [`ChatTemplate`] for a single request.
+///
+/// Precedence: `X-Halo-Chat-Template` header (if present AND parses) →
+/// `default` (server-wide, seeded from `$HALO_CHAT_TEMPLATE` at startup).
+///
+/// Unknown header values fall back to `default` silently — we do not
+/// surface a 400 because the header is purely an optimisation knob and
+/// clients should be forgiving about typos during experiments.
+pub fn resolve_chat_template(headers: &HeaderMap, default: ChatTemplate) -> ChatTemplate {
+    headers
+        .get(CHAT_TEMPLATE_HEADER)
+        .and_then(|h| h.to_str().ok())
+        .and_then(ChatTemplate::from_str_opt)
+        .unwrap_or(default)
+}
 
 /// Axum shared state — the backend plus a metrics handle. Kept `Clone`
 /// because axum stores it behind `with_state` which requires `Clone`.
@@ -67,6 +90,12 @@ pub struct AppState {
     /// startup today; when lazy-load lands this will grow a `Mutex` so the
     /// dispatcher can mark the resident model.
     pub models: Arc<ModelRegistry>,
+    /// Server-wide default chat-template rendering. Seeded from
+    /// `$HALO_CHAT_TEMPLATE` at startup; per-request override via
+    /// `X-Halo-Chat-Template` header (see [`CHAT_TEMPLATE_HEADER`]).
+    /// See `crate::chat_template` for the exact bytes emitted by each
+    /// variant and the HTTP-vs-kernel tok/s rationale.
+    pub default_chat_template: ChatTemplate,
 }
 
 // ─── Router assembly ─────────────────────────────────────────────────────
@@ -100,6 +129,10 @@ pub fn build_router(backend: SharedBackend) -> Router {
         // non-zero value via `--rate-limit-rpm`.
         rate_limit: Arc::new(RateLimit::new(0)),
         models: Arc::new(registry),
+        // Read once. The binary also calls `ChatTemplate::from_env()`
+        // before constructing `AppState` — library callers get the same
+        // behaviour for free.
+        default_chat_template: ChatTemplate::from_env(),
     })
 }
 
@@ -328,8 +361,15 @@ async fn list_models(State(s): State<AppState>) -> Json<ModelList> {
 }
 
 /// `POST /v1/chat/completions` — streaming or non-streaming per request.
+///
+/// `HeaderMap` is extracted BEFORE `Json(req)` — axum requires the body
+/// extractor be last, everything else must come before it. The header
+/// `X-Halo-Chat-Template` lets a single request pick a non-default
+/// prompt renderer (`llama3` | `short` | `raw`); see the
+/// `chat_template` module for semantics.
 async fn chat_completions(
     State(s): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<ChatCompletionRequest>,
 ) -> Result<Response, ServerError> {
     if req.messages.is_empty() {
@@ -362,6 +402,7 @@ async fn chat_completions(
         top_p: req.top_p,
         frequency_penalty: req.frequency_penalty,
         presence_penalty: req.presence_penalty,
+        chat_template: resolve_chat_template(&headers, s.default_chat_template),
     };
 
     let id = chat_id();
@@ -1019,6 +1060,7 @@ mod tests {
             http_client: default_http_client(),
             rate_limit: Arc::new(crate::middleware::RateLimit::new(0)),
             models: Arc::new(ModelRegistry::empty()),
+            default_chat_template: ChatTemplate::default(),
         };
         let app = build_router_with_state(state.clone());
 
