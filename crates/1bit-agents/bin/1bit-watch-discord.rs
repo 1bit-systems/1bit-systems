@@ -1,3 +1,13 @@
+// clippy 1.88 flags the 3-space bullet indent we use in operator
+// docstrings across bin/. Also flagging two historical collapsible_if
+// sites in the gateway state-machine — the nested form is clearer
+// there; suppress and move on.
+#![allow(
+    clippy::doc_lazy_continuation,
+    clippy::doc_overindented_list_items,
+    clippy::collapsible_if
+)]
+
 //! 1bit-watch-discord — Discord gateway client that keeps the 17 specialist
 //! registry aware of channel activity.
 //!

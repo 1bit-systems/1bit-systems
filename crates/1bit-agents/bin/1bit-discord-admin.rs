@@ -1,3 +1,12 @@
+// clippy 1.88 flags the 3-space bullet indent we use in operator
+// docstrings across bin/. Crate-local suppress keeps the format
+// consistent without reflowing every bullet in every tool.
+#![allow(
+    clippy::doc_lazy_continuation,
+    clippy::doc_overindented_list_items,
+    clippy::too_many_arguments
+)]
+
 //! 1bit-discord-admin — one-shot admin operations against the
 //! 1bit.systems Discord guild. Complements the bot runtime with
 //! operator-driven actions that don't belong in the gateway loop:
