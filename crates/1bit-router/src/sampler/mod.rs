@@ -147,12 +147,13 @@ mod tests {
     /// Serialize env mutation for this module. `std::env` is process-global.
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
-    /// Default must be `Cpu` after the 2026-04-20 flip. Regression guard
-    /// — any future accidental revert to `Inline` would silently erase
-    /// the sampler offload for boxes that don't set `HALO_SAMPLER`.
+    /// Default is `Inline` as of 2026-04-23 — fastest single-request
+    /// local decode (no cross-thread handoff per token). Cpu sampler
+    /// is the opt-in for concurrency-heavy serving. See commit 67ec21a
+    /// for the rationale and measurement numbers.
     #[test]
-    fn default_sampler_mode_is_cpu() {
-        assert_eq!(SamplerMode::default(), SamplerMode::Cpu);
+    fn default_sampler_mode_is_inline() {
+        assert_eq!(SamplerMode::default(), SamplerMode::Inline);
     }
 
     /// `inline` / `cpu` / `parallel` (alias) / empty all parse
@@ -190,26 +191,25 @@ mod tests {
         assert_eq!(SamplerMode::Cpu.label(), "cpu");
     }
 
-    /// `HALO_SAMPLER=cpu` parses to `Cpu`; unset → default (Cpu);
-    /// `inline` explicitly picks the legacy path for A/B; garbage
-    /// errors. Serialized via ENV_LOCK because `std::env` is
-    /// process-global.
+    /// `HALO_SAMPLER=cpu` parses to `Cpu`; unset → default (Inline);
+    /// `inline` explicitly picks default; garbage errors. Serialized
+    /// via ENV_LOCK because `std::env` is process-global.
     #[test]
     fn sampler_mode_env_override_is_respected() {
         let _g = ENV_LOCK.lock().unwrap();
 
-        // Unset → default (Cpu).
+        // Unset → default (Inline as of 2026-04-23).
         // SAFETY: edition-2024 env mutation; single-threaded inside lock.
         unsafe {
             std::env::remove_var(SAMPLER_MODE_ENV);
         }
-        assert_eq!(sampler_mode_from_env().unwrap(), SamplerMode::Cpu);
+        assert_eq!(sampler_mode_from_env().unwrap(), SamplerMode::Inline);
 
-        // Empty → default (Cpu).
+        // Empty → default (Inline).
         unsafe {
             std::env::set_var(SAMPLER_MODE_ENV, "");
         }
-        assert_eq!(sampler_mode_from_env().unwrap(), SamplerMode::Cpu);
+        assert_eq!(sampler_mode_from_env().unwrap(), SamplerMode::Inline);
 
         // Explicit `cpu`.
         unsafe {
