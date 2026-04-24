@@ -1,0 +1,28 @@
+User-agent: *
+Allow: /
+Allow: /docs/
+Allow: /install.sh
+Allow: /releases.json
+
+# Parked surfaces — personal lanes, not part of the stack. Block crawlers
+# from any indexed or mirrored copies while these stay private.
+Disallow: /music/
+Disallow: /stream/
+Disallow: /video/
+Disallow: /audio/
+Disallow: /compress/
+Disallow: /premium/
+Disallow: /bandwidth/
+Disallow: /demo/
+Disallow: /sustainability/
+Disallow: /legal/pd/
+Disallow: /me/
+Disallow: /arcade/
+Disallow: /voice/
+Disallow: /mobile/
+Disallow: /join/
+Disallow: /donate/
+Disallow: /blog/2026-04-23-streaming-service/
+Disallow: /blog/2026-04-23-lossless-audio/
+
+Sitemap: https://1bit.systems/sitemap.xml

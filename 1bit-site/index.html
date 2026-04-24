@@ -800,7 +800,7 @@
           <li><strong>NPU toolchain proven on Strix Halo.</strong> IRON axpy pytest <strong>160/160</strong> on <code>npu5</code>, AIE2P <code>matmul 512×512×512 i8</code> bit-exact (max_abs = 0). MLIR-AIE &rarr; Peano &rarr; xclbin &rarr; libxrt end-to-end on the reference box. First non-VitisAI path to produce a working xclbin on this hardware. A ternary <code>bitnet_gemm</code> still has to be written; no tok/s claim yet. See the <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/NPU-AIE2P" target="_blank" rel="noopener">NPU-AIE2P</a> wiki page.</li>
           <li><strong>OPTC35 Tier-3 mitigation soaked green.</strong> 2 hours of concurrent <code>bitnet_decode</code> + SDXL, 703 samples at 10 s cadence, zero new hang events. <code>amdgpu.dcdebugmask=0x410</code> is now the reference cmdline. See <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/OPTC-Troubleshooting" target="_blank" rel="noopener">OPTC troubleshooting</a>.</li>
           <li><strong>Two training runs in flight.</strong> Run 4 (0.5B Sparse-BitNet 3:4, single H200 NVL) and Run 5 (0.5B Sparse-BitNet 2:4 Microsoft canonical, 2&times; H200 NVL DDP). Both on H200 pods.</li>
-          <li><strong>Five media lanes live</strong> on the box: LLM (Halo v2), TTS, STT, image (SDXL via <code>sd.cpp</code>), video-staged (Wan 2.2 TI2V-5B port in flight). Sixth lane (NPU) has a proven toolchain, no shipped kernel yet.</li>
+          <li><strong>Four media lanes live</strong> on the box: LLM (Halo v2), TTS, STT, image (SDXL via <code>sd.cpp</code>). Fifth lane (NPU) has a proven toolchain, no shipped kernel yet.</li>
           <li><strong><code>1bit install all</code></strong> &mdash; single-command meta-target installs every component listed in <code>packages.toml</code>. Stop / copy / start is idempotent per component.</li>
         </ul>
         <p style="margin: 10px 0 0 0; font-size: 13px; color: var(--text-muted);">
@@ -860,7 +860,7 @@
         <li><strong>Questions, hardware reports, benchmark diffs</strong> → this channel or GitHub Discussions.</li>
         <li><strong>Concrete bugs</strong> → GitHub Issues with kernel version, ROCm version, commit SHA, journal excerpt.</li>
         <li><strong>Code</strong> → pull requests. Highest-leverage drop is a HIP GEMM / GEMV kernel for a shape not yet covered. Kernels accepted on merit.</li>
-        <li><strong>Funding</strong> → a Patreon surface opens when public channels open; it underwrites compute time (training runs, H200 hours, retrains).</li>
+        <li><strong>Funding</strong> → a Kickstarter surface opens when public channels open; it underwrites compute time (training runs, H200 hours, retrains).</li>
       </ul>
 
       <p style="margin-top: 32px; color: var(--text-muted); font-style: italic;">
@@ -1450,7 +1450,7 @@ chmod +x 1bit-systems-0.1.0-x86_64.AppImage
 ln -sfn "$PWD/1bit-systems-0.1.0-x86_64.AppImage" ~/.local/bin/1bit
 1bit --version</code></pre>
       <p>
-        The scripted path <code>INSTALL_MODE=appimage ./install.sh</code> does the same three steps and verifies against <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/1bit-site/releases.json" target="_blank" rel="noopener"><code>releases.json</code></a>. Works on any x86_64 Linux with glibc &ge; 2.35. The AppImage symlinks into any of the 20 bundled binary names &mdash; <code>1bit-helm</code>, <code>1bit-halo-helm-tray</code>, <code>1bit-watch-discord</code>, <code>1bit-mcp-patreon</code>, etc. &mdash; and dispatches via <code>$ARGV0</code>. Run <code>&lt;AppImage&gt; --list</code> to enumerate them.
+        The scripted path <code>INSTALL_MODE=appimage ./install.sh</code> does the same three steps and verifies against <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/1bit-site/releases.json" target="_blank" rel="noopener"><code>releases.json</code></a>. Works on any x86_64 Linux with glibc &ge; 2.35. The AppImage symlinks into any of the 20 bundled binary names &mdash; <code>1bit-helm</code>, <code>1bit-halo-helm-tray</code>, <code>1bit-watch-discord</code>, <code>1bit-mcp-kickstarter</code>, etc. &mdash; and dispatches via <code>$ARGV0</code>. Run <code>&lt;AppImage&gt; --list</code> to enumerate them.
       </p>
 
       <h3>AUR (Arch family)</h3>
@@ -2026,7 +2026,7 @@ rocprof --stats --timestamp on \
     <section id="funding-goals">
       <h2>Funding goals</h2>
       <p>
-        Training runs are the line item a Patreon underwrites. The shape below is a tiered ladder &mdash; every tier ships Sparse-BitNet weights publicly to Hugging Face before the next tier opens. Distilled from Llama-3 dense teachers, not trained from scratch; the AAzdi <em>Sparse-BitNet</em> paper shows 1.25 bpw + 2:4 preserves ~95% dense quality with 50&ndash;100B distillation tokens.
+        Training runs are the line item a Kickstarter campaign underwrites. The shape below is a tiered ladder &mdash; every tier ships Sparse-BitNet weights publicly to Hugging Face before the next tier opens. Distilled from Llama-3 dense teachers, not trained from scratch; the AAzdi <em>Sparse-BitNet</em> paper shows 1.25 bpw + 2:4 preserves ~95% dense quality with 50&ndash;100B distillation tokens.
       </p>
 
       <table>
@@ -2054,7 +2054,7 @@ rocprof --stats --timestamp on \
       </p>
 
       <p>
-        The Patreon surface opens when the NPU ship gate clears or when the project's positioning explicitly changes. Until then this page is a forward declaration, not a link.
+        The Kickstarter surface opens when the NPU ship gate clears or when the project's positioning explicitly changes. Until then this page is a forward declaration, not a link.
       </p>
     </section>
 
@@ -2077,7 +2077,6 @@ rocprof --stats --timestamp on \
         <li>BitNet v2 implementation &mdash; Hadamard-native W1.58 A4</li>
         <li>MedusaBitNet speculative heads &mdash; expected 1.4&ndash;1.8&times; at batch = 1</li>
         <li>Streaming STT via halo-whisper sentence-boundary partials</li>
-        <li>Video generation port &mdash; Wan 2.2 TI2V-5B (5B DiT, Apache 2.0)</li>
         <li>Desktop shell &mdash; voice-first, plugin API via MCP, package manager</li>
         <li>NPU unblock &mdash; toolchain proven (IRON axpy on <code>npu5</code>); next gate is a ternary kernel and a shipped VitisAI-free path for end users</li>
       </ol>
@@ -2093,8 +2092,8 @@ rocprof --stats --timestamp on \
     <section id="changelog">
       <h2>Changelog</h2>
       <ul>
-        <li><strong>0.1.8</strong> &middot; 2026-04-23 &mdash; NPU toolchain validated end-to-end on <code>npu5</code> (IRON axpy pytest 160/160, AIE2P <code>matmul 512×512×512 i8</code> bit-exact, MLIR-AIE &rarr; Peano &rarr; xclbin &rarr; libxrt). OPTC35 Tier-3 mitigation (<code>amdgpu.dcdebugmask=0x410</code>) soaked green &mdash; 2 hours, 703 samples, zero new events. Run 4 (0.5B Sparse-BitNet 3:4) and Run 5 (0.5B 2:4 Microsoft canonical, 2&times; NVL DDP) both in flight on H200 pods. Five media lanes live (LLM / TTS / STT / image / video-staged). <code>1bit install all</code> complete-pack meta-target landed. AUR package <code>1bit-systems-bin</code> published. Ship gate still holds; no ternary kernel on NPU yet.</li>
-        <li><strong>0.1.7</strong> &middot; 2026-04-22 &mdash; AppImage single-file install path shipped. <code>gfx1201</code> port promoted from in-flight to <strong>shipped</strong> (14/14 WMMA kernels bit-exact, cross-arch PPL identical). Default multi-arch build covers all 8 consumer AMD Wave32-WMMA parts (RDNA3 + 3.5 + 4). Model registry on <code>/v1/models</code> discovers real <code>.h1b</code> and validates request <code>model</code>. Cross-arch bench suite + <code>peak_probe_bench</code> + <code>attn_fd_sweep</code> landed. H200 NVL replaces SXM as default training pod (15% cheaper). Run 5 (2:4 canonical, 2&times; NVL DDP) planned behind Run 4. Patreon funding ladder (13B / 30B / 70B) declared.</li>
+        <li><strong>0.1.8</strong> &middot; 2026-04-23 &mdash; NPU toolchain validated end-to-end on <code>npu5</code> (IRON axpy pytest 160/160, AIE2P <code>matmul 512×512×512 i8</code> bit-exact, MLIR-AIE &rarr; Peano &rarr; xclbin &rarr; libxrt). OPTC35 Tier-3 mitigation (<code>amdgpu.dcdebugmask=0x410</code>) soaked green &mdash; 2 hours, 703 samples, zero new events. Run 4 (0.5B Sparse-BitNet 3:4) and Run 5 (0.5B 2:4 Microsoft canonical, 2&times; NVL DDP) both in flight on H200 pods. Four media lanes live (LLM / TTS / STT / image). <code>1bit install all</code> complete-pack meta-target landed. AUR package <code>1bit-systems-bin</code> published. Ship gate still holds; no ternary kernel on NPU yet.</li>
+        <li><strong>0.1.7</strong> &middot; 2026-04-22 &mdash; AppImage single-file install path shipped. <code>gfx1201</code> port promoted from in-flight to <strong>shipped</strong> (14/14 WMMA kernels bit-exact, cross-arch PPL identical). Default multi-arch build covers all 8 consumer AMD Wave32-WMMA parts (RDNA3 + 3.5 + 4). Model registry on <code>/v1/models</code> discovers real <code>.h1b</code> and validates request <code>model</code>. Cross-arch bench suite + <code>peak_probe_bench</code> + <code>attn_fd_sweep</code> landed. H200 NVL replaces SXM as default training pod (15% cheaper). Run 5 (2:4 canonical, 2&times; NVL DDP) planned behind Run 4. Kickstarter funding ladder (13B / 30B / 70B) declared (placeholder, surface opens post-gate).</li>
         <li><strong>0.1.6</strong> &middot; 2026-04-22 &mdash; Sparse-BitNet Run 4 launched. Kernel rolled back to 6.18.22-lts. Network topology documented. gfx1201 build variant wired.</li>
         <li><strong>0.1.5</strong> · 2026-04-21 — TriLM INT4 ONNX export complete. NPU placement confirmed blocked. Six-crash investigation and kernel-7.0 rollback plan.</li>
         <li><strong>0.1.4</strong> · 2026-04-20 — Bare-metal-first lock-in. AMD and AMDResearch org scan. XDNA 2 defer verdict.</li>
@@ -2120,7 +2119,7 @@ rocprof --stats --timestamp on \
         Project source lives at <a href="https://github.com/bong-water-water-bong/1bit-systems">github.com/bong-water-water-bong/1bit-systems</a>. Open issues, discussions, and pull requests all welcome.
       </p>
       <p>
-        A Discord server exists for live discussion; the invite URL opens when the server is ready for wider links. A Patreon surface underwrites compute time (training runs, H200 pod hours, retrains) and opens when public channels open.
+        A Discord server exists for live discussion; the invite URL opens when the server is ready for wider links. A Kickstarter campaign underwrites compute time (training runs, H200 pod hours, retrains) and opens when public channels open.
       </p>
       <p style="color: var(--text-subtle); font-family: 'JetBrains Mono', monospace; font-size: 13px; margin-top: 48px;">
         — end of document —

@@ -42,10 +42,9 @@ the kernels are hand-written HIP targeting **gfx1151** (Strix Halo iGPU). everyt
 - **TTS** — 1bit-tts.cpp / Qwen3-TTS on `:8095`, OpenAI `/v1/audio/speech` compat. ✅
 - **STT** — whisper.cpp on `:8190`, large-v3 q5 on the sliger B580 Vulkan node. ✅
 - **image** — stable-diffusion.cpp on `:1234`, SDXL native HIP, zero hipBLAS. ✅
-- **video** — Wan 2.2 TI2V-5B Q4_K_M staged on the same sd.cpp engine (Apache-2.0). 🟡 weights pulled, pipeline wiring in flight.
 - **NPU (authoring lane)** — IRON + MLIR-AIE + Peano + libxrt proven end-to-end on our npu5 silicon. Axpy test matrix 160/160 PASSED on Arch today. 🟢 toolchain unlocked; ternary kernel authorship is the remaining work.
 
-five lanes live plus the NPU toolchain. one `1bit install all` pulls the lot on a fresh CachyOS box.
+four lanes live plus the NPU toolchain. one `1bit install all` pulls the lot on a fresh CachyOS box.
 
 ```sh
 1bit install all
@@ -106,7 +105,7 @@ raw methodology: [benchmarks wiki](./docs/wiki/Benchmarks.md) · [peak projectio
 │  ternary GEMV · RMSNorm · RoPE · split-KV FD attention   │
 ├──────────────────────────────────────────────────────────┤
 │  whisper.cpp (STT) · 1bit-tts.cpp / Qwen3 (TTS)          │
-│  sd.cpp (image + Wan 2.2 video staged)                   │
+│  sd.cpp (image)                                          │
 ├──────────────────────────────────────────────────────────┤
 │  ROCm 7.13 · gfx1151 · wave32 WMMA                       │
 │  IRON + MLIR-AIE + Peano + libxrt → XDNA2 (npu5, AIE2P)  │
@@ -184,7 +183,7 @@ ln -sfn "$PWD/1bit-systems-0.1.0-x86_64.AppImage" ~/.local/bin/1bit
 
 the scripted path — `INSTALL_MODE=appimage ./install.sh` — does the same three steps and verifies against [1bit-site/releases.json](./1bit-site/releases.json). works on any x86_64 Linux with glibc ≥ 2.35.
 
-symlink the AppImage to any of the 20 bundled binary names — `1bit-helm`, `1bit-halo-helm-tray`, `1bit-watch-discord`, `1bit-mcp-patreon`, `1bit-voice`, … — and it dispatches via `$ARGV0`. run `<AppImage> --list` to see them all.
+symlink the AppImage to any of the 20 bundled binary names — `1bit-helm`, `1bit-halo-helm-tray`, `1bit-watch-discord`, `1bit-mcp-kickstarter`, `1bit-voice`, … — and it dispatches via `$ARGV0`. run `<AppImage> --list` to see them all.
 
 ### install via AUR *(Arch family)*
 

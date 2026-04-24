@@ -5,57 +5,16 @@
 # Off by default; uncomment after hard-push.
 # https://*.1bit-systems.pages.dev/*  https://1bit.systems/:splat  301
 
-# ──────────────────────────────────────────────────────────────────────
-# Multi-domain routing — four apex domains share this Pages deploy.
-# Cloudflare Pages routes by Host header; these 200-status rewrites keep
-# the URL bar on the apex while serving the matching subtree.
-
-https://1bit.music/*        /music/:splat    200
-https://www.1bit.music/*    https://1bit.music/:splat        301
-
-https://1bit.video/*        /video/:splat    200
-https://www.1bit.video/*    https://1bit.video/:splat        301
-
-https://1bit.stream/*       /stream/:splat   200
-https://www.1bit.stream/*   https://1bit.stream/:splat       301
-
-# waterbon.me — founder / personal identity page
-https://waterbon.me/*       /me/:splat       200
-https://www.waterbon.me/*   https://waterbon.me/:splat       301
-
-# 1bit.gg — WASM demo cabinet (Guernsey ccTLD, gaming-adjacent)
-https://1bit.gg/*           /arcade/:splat   200
-https://www.1bit.gg/*       https://1bit.gg/:splat           301
-# Free-subdomain mirror kept live so deep-links resolve either way
-https://arcade.1bit.systems/* /arcade/:splat   200
-
 # Short permalinks
-/buy          /premium/                            302
-/premium      /premium/                            301
-/subscribe    /premium/                            302
-/green        /sustainability/                     302
-/sustainable  /sustainability/                     302
-/demo         /bandwidth/                          302
-/listen       /demo/                               302
-/watch        /demo/video/                         302
-/bandwidth    /bandwidth/                          301
-/discord      https://discord.gg/halo-ai           302
-/gh           https://github.com/bong-water-water-bong/1bit-systems   302
-/github       https://github.com/bong-water-water-bong/1bit-systems   302
-/install      /#install                            302
-
-# Checkout endpoints (proxied to 1bit-tier-mint via Cloudflare Tunnel once wired)
-# For now, staged as placeholder URLs that will 404 until the backend lands.
-# /checkout/stripe?plan=…       → tier-mint Stripe Checkout session
-# /checkout/lightning?plan=…    → tier-mint BTCPay invoice
+/discord      https://discord.gg/halo-ai                                   302
+/gh           https://github.com/bong-water-water-bong/1bit-systems        302
+/github       https://github.com/bong-water-water-bong/1bit-systems        302
+/wiki         https://github.com/bong-water-water-bong/1bit-systems/wiki   302
+/install      /#install                                                    302
 
 # Announcement was folded into the main single-page docs 2026-04-22
 /announcement       /#announcement                 301
 /announcement.html  /#announcement                 301
 
-# Tolerate trailing-slash variance on the PWA and docs
-/voice        /voice/                              301
-/audio        /audio/                              301
-/join         /join/                               301
+# Tolerate trailing-slash variance on docs
 /docs         /docs/                               301
-/mobile/onboard /mobile/onboard/                   301

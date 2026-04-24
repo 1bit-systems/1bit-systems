@@ -11,7 +11,7 @@
       "version": "0.1.0",
       "date": "2026-04-24",
       "min_compatible": "0.1.0",
-      "notes": "First AppImage drop — bundles the Rust binaries (1bit, 1bit-helm, 1bit-halo-helm-tray, 1bit-watch-discord, 1bit-mcp-patreon + 15 more; ~32 MB zstd-squashfs). Requires glibc >= 2.35 and Linux kernel 6.x. ROCm is NOT bundled; install via ./install.sh on the host before `1bit install core`. Model weight (halo-1bit-2b.h1b, ~1.8 GB) is a separate asset. NPU smoke logs bundled for reference.",
+      "notes": "First AppImage drop — bundles the Rust binaries (1bit, 1bit-helm, 1bit-halo-helm-tray, 1bit-watch-discord, 1bit-mcp-kickstarter + 15 more; ~32 MB zstd-squashfs). Requires glibc >= 2.35 and Linux kernel 6.x. ROCm is NOT bundled; install via ./install.sh on the host before `1bit install core`. Model weight (halo-1bit-2b.h1b, ~1.8 GB) is a separate asset. NPU smoke logs bundled for reference.",
       "min_glibc": "2.35",
       "min_kernel": "6.0",
       "artifacts": [
