@@ -203,6 +203,18 @@ target_compile_options(test_prim_and_attn PRIVATE
 target_link_libraries(test_prim_and_attn PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(test_prim_and_attn PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
+# -- tests/test_attn_degenerate : v0.1.1 NaN-guard regression test ------------
+# Passes all-zero K/V into every attention kernel variant (fp16 decode/prefill,
+# fp16 split-KV Flash-Decoding, int8 decode) and asserts the output stays
+# finite. Catches a future regression on the `inv_l = (l > eps) ? 1/l : 0`
+# guard in kv_cache_attn*.hip.
+add_executable(test_attn_degenerate tests/test_attn_degenerate.cpp)
+set_source_files_properties(tests/test_attn_degenerate.cpp PROPERTIES LANGUAGE HIP)
+target_compile_options(test_attn_degenerate PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_link_libraries(test_attn_degenerate PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(test_attn_degenerate PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+
 # -- tests/test_ternary_gemm_smallm : tiled small-M ternary GEMM parity + timing
 add_executable(test_ternary_gemm_smallm tests/test_ternary_gemm_smallm.cpp)
 set_source_files_properties(tests/test_ternary_gemm_smallm.cpp PROPERTIES LANGUAGE HIP)

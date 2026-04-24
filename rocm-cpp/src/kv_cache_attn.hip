@@ -110,8 +110,14 @@ void kv_cache_attn_decode_kernel(
         m = m_new;
     }
 
-    // Normalize + write out
-    const float inv_l = 1.0f / l;
+    // Normalize + write out.
+    // WHY: degenerate rows (all-masked / empty tile) leave l == 0, which makes
+    // 1.0f/l == +inf and poisons the fp16 output with NaN once multiplied by the
+    // zero accumulator (0 * inf = NaN). Clamp below a tiny epsilon — the output
+    // accumulator is also zero in that case, so inv_l = 0 yields a finite zero
+    // row, matching the i8 + FD variants (see kv_cache_attn_i8.hip:128,
+    // kv_cache_attn_fd.hip:216).
+    const float inv_l = (l > 1e-20f) ? (1.0f / l) : 0.0f;
     for (int ei = 0; ei < elems_per_thread; ++ei) {
         int d = tid + ei * BLOCK;
         if (d < head_dim) {
@@ -224,7 +230,10 @@ void kv_cache_attn_prefill_kernel(
         m = m_new;
     }
 
-    const float inv_l = 1.0f / l;
+    // WHY: see decode-kernel comment above. In prefill the guard also covers
+    // the t == 0 path (1 query attending to 1 key): l stays finite there, but
+    // the guard is cheap and uniform across kernels.
+    const float inv_l = (l > 1e-20f) ? (1.0f / l) : 0.0f;
     for (int ei = 0; ei < elems_per_thread; ++ei) {
         int d = tid + ei * BLOCK;
         if (d < head_dim) {
