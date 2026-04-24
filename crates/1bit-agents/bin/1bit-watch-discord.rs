@@ -93,9 +93,9 @@ struct Handler {
     guild_id: Option<GuildId>,
     /// Role auto-granted on `guild_member_add`. None disables auto-role.
     member_role_id: Option<RoleId>,
-    /// Channel echo greets new joiners in (visible to the guild, unlike
-    /// the welcome DM which is 1-to-1). None disables the public greet;
-    /// DM still fires regardless.
+    /// Channel echo greets new joiners in (visible to the guild). None
+    /// disables the public greet. DM path was removed 2026-04-24 — this
+    /// is the only welcome surface now.
     welcome_channel_id: Option<u64>,
 }
 
@@ -1095,30 +1095,10 @@ impl Handler {
             }
         }
 
-        // Welcome DM — best effort. Users who block DMs get skipped
-        // silently (Discord returns 403 "Cannot send messages to this user").
-        let welcome = "**Welcome to 1bit.systems.**\n\n\
-            This is a small open-source AI project: native ternary kernels \
-            for consumer AMD hardware, open weights, built in public.\n\n\
-            • Ask questions anywhere — halo auto-routes bugs / features / \
-              questions into the help-desk forum for follow-up.\n\
-            • Use `/status` to see model + landing health, `/ask <question>` \
-              for a direct specialist reply.\n\
-            • Mention `@halo` for a silent status line.\n\n\
-            Landing page: https://1bit.systems · GitHub: https://github.com/bong-water-water-bong/1bit-systems";
-        match member.user.id.create_dm_channel(&ctx.http).await {
-            Ok(dm) => {
-                if let Err(e) = dm.id.say(&ctx.http, welcome).await {
-                    info!(user = %member.user.name, error = %e, "welcome DM skipped (user likely has DMs closed)");
-                } else {
-                    info!(user = %member.user.name, "welcome DM sent");
-                }
-            }
-            Err(e) => {
-                info!(user = %member.user.name, error = %e, "failed to open DM channel");
-            }
-        }
-
+        // Public greet only — DM path intentionally removed 2026-04-24.
+        // Joiners get visibility via the #welcome channel post; no private
+        // DM is sent. Keeps the welcome surface one-way and channel-visible.
+        //
         // Public greet in the welcome channel. Routes via echo's token
         // so the post is attributed to the Echo identity. Falls back
         // silently if the channel id is unset, the bot lacks permission,
