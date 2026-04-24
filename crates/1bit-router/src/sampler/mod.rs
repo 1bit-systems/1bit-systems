@@ -76,12 +76,16 @@ pub const SAMPLER_MODE_ENV: &str = "HALO_SAMPLER";
 /// [`SAMPLER_MODE_ENV`] env var.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SamplerMode {
-    /// Sampler runs on whatever thread the caller is on. Legacy path,
-    /// kept for A/B + rollback via `HALO_SAMPLER=inline`.
+    /// Sampler runs on whatever thread the caller is on. Fastest for
+    /// single-request local decode — no cross-thread handoff per token.
+    /// Measured 2026-04-23: 67 tok/s HTTP decode vs 43 tok/s on Cpu
+    /// sampler for halo-1bit-2b at ctx=64 on gfx1151. **Default.**
+    #[default]
     Inline,
     /// Sampler runs on the [`cpu::CpuLane`]'s rayon pool. Bit-identical
-    /// output to `Inline`; different executing thread. **Default.**
-    #[default]
+    /// output to `Inline`; different executing thread. Keep as an
+    /// opt-in for concurrency-heavy serving where the rayon pool amortizes
+    /// sampler cost across overlapping requests.
     Cpu,
 }
 
