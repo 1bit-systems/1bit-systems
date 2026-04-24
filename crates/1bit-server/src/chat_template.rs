@@ -187,12 +187,14 @@ pub fn sanitize(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if i + 1 < bytes.len() && bytes[i] == b'<' && bytes[i + 1] == b'|' {
-            if let Some(end) = s[i + 2..].find("|>") {
-                out.push_str("«scrubbed»");
-                i += 2 + end + 2;
-                continue;
-            }
+        if i + 1 < bytes.len()
+            && bytes[i] == b'<'
+            && bytes[i + 1] == b'|'
+            && let Some(end) = s[i + 2..].find("|>")
+        {
+            out.push_str("«scrubbed»");
+            i += 2 + end + 2;
+            continue;
         }
         let ch = s[i..].chars().next().unwrap();
         out.push(ch);

@@ -106,10 +106,10 @@ fn find_rocm_cpp_dir() -> Option<PathBuf> {
             .join("../../rocm-cpp/build")
             .canonicalize()
             .ok();
-        if let Some(p) = in_tree {
-            if contains_rocm_cpp_so(&p) {
-                return Some(p);
-            }
+        if let Some(p) = in_tree
+            && contains_rocm_cpp_so(&p)
+        {
+            return Some(p);
         }
     }
 
