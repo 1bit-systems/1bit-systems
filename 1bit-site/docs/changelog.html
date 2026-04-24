@@ -16,6 +16,7 @@
   <nav>
     <a href="/">home</a>
     <a href="/docs/" class="active">docs</a>
+    <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki" rel="noopener">wiki</a>
     <a href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
   </nav>
 </header>
@@ -33,30 +34,32 @@
   <a href="/docs/architecture.html">Architecture</a>
   <a href="/docs/models.html">Models</a>
   <a href="/docs/api.html">HTTP API</a>
-  <a href="/docs/voice.html">Voice</a>
-  <a href="/docs/desktop.html">Desktop</a>
+  <a href="/docs/benchmarks.html">Benchmarks</a>
   <h4>Meta</h4>
   <a href="/docs/contributing.html">Contributing</a>
   <a href="/docs/changelog.html" class="active">Changelog</a>
+  <a href="/docs/why.html">Why</a>
 </aside>
 
 <article class="docs-body">
 
 <h1>Changelog</h1>
-<p class="muted">Canonical source: <a href="https://github.com/bong-water-water-bong/1bit-systems/releases">GitHub releases</a>. Key cutovers below.</p>
+<p class="muted">Canonical source: <a href="https://github.com/bong-water-water-bong/1bit-systems/releases">GitHub releases</a>. v0.1.0 highlights and a few load-bearing cutovers below.</p>
 
-<h2 id="2026-04-21">2026-04-21 &mdash; site overhaul</h2>
+<h2 id="v0-1-0">v0.1.0 &mdash; first tagged release</h2>
 <ul>
-  <li>Calm technical voice locked on this site; GH README gets the personality.</li>
-  <li>Docs section cut clean into install / quickstart / architecture / models / api / voice / desktop / troubleshooting / faq / contributing.</li>
-  <li>New hero: "Local AI. Strix Halo. Bare metal." + 6-tile proof band.</li>
-  <li>Bench numbers refreshed to 2026-04-20 snapshot.</li>
+  <li><code>halo-1bit-2b</code> baseline: 80.8 tok/s @ ctx 64, 68.2 tok/s @ ctx 1024, PPL 9.16 on wikitext-103.</li>
+  <li>Ternary GEMV at <strong>92&nbsp;%</strong> of LPDDR5 peak on the isolated benchmark.</li>
+  <li>Split-KV Flash-Decoding attention default on all context lengths (up to 11.98&times; @ L=8192, bit-exact).</li>
+  <li>int8 KV default in the router; <code>HALO_KV_DTYPE=f16</code> override.</li>
+  <li>Cross-arch PPL parity: strixhalo (gfx1151) and RX 9070 XT (gfx1201) bit-exact.</li>
+  <li>OPTC Tier-3 mitigation (<code>amdgpu.dcdebugmask=0x410</code>) green on 2-hour concurrent soak.</li>
 </ul>
 
 <h2 id="2026-04-20">2026-04-20 &mdash; APU-aggregator pivot</h2>
 <ul>
-  <li>Strategy change: positioning shifts from "ternary runtime for the iGPU" to "APU aggregator for CPU + iGPU + NPU."</li>
-  <li>CPU AVX2 session kernel measured 7261 tok/s-equivalent @ 6912&times;2048 &mdash; CPU lane is viable as a prefill surface.</li>
+  <li>Positioning shifts from "ternary runtime for the iGPU" to "APU aggregator for CPU + iGPU + NPU."</li>
+  <li>CPU AVX2 session kernel measured 7261 tok/s-equivalent @ 6912&times;2048 &mdash; CPU lane is a viable prefill surface.</li>
   <li>Lemonade 10.2 shipped Linux NPU support; VitisAI EP route locked in per Rule E.</li>
 </ul>
 
@@ -67,19 +70,11 @@
   <li>KV-cache reset bug fix after ~200 completions (SEGV).</li>
 </ul>
 
-<h2 id="2026-04-18">2026-04-18 &mdash; live bench pass</h2>
-<ul>
-  <li>Clean burn measured: 66 tok/s @64-tok, 33 tok/s @1024-tok post-SEGV fix.</li>
-  <li>Ternary GEMV rocprof: 92% of LPDDR5 peak on the isolated benchmark.</li>
-  <li>sd.cpp native-HIP port promoted to core.</li>
-</ul>
-
-<h2 id="earlier">Earlier</h2>
-<p>Before April 2026 the project was named differently and had a different structure. The monorepo fold happened 2026-04-20 (<code>rocm-cpp/</code> subtree add). The <code>stampby</code> GitHub handle is retired; canonical is <a href="https://github.com/bong-water-water-bong">bong-water-water-bong</a>.</p>
+<p>&rarr; Full history: <a href="https://github.com/bong-water-water-bong/1bit-systems/releases" rel="noopener">GitHub releases</a>. Deep dive on wiki: <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Changelog" rel="noopener">Changelog</a>.</p>
 
 <nav class="pagination">
   <a class="prev" href="/docs/contributing.html"><span class="dir">&larr; prev</span>Contributing</a>
-  <a class="next" href="/docs/"><span class="dir">back &rarr;</span>Docs home</a>
+  <a class="next" href="/docs/why.html"><span class="dir">next &rarr;</span>Why</a>
 </nav>
 
 </article>
@@ -89,7 +84,7 @@
 
 <footer class="footer">
   <p><b>1bit systems</b> &middot; <a href="/">home</a> &middot; <a href="/docs/">docs</a> &middot; MIT licensed</p>
-  <p class="tag">docs/changelog &middot; 2026-04-21</p>
+  <p class="tag">docs/changelog &middot; 2026-04-24</p>
 </footer>
 
 </body>

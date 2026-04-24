@@ -16,6 +16,7 @@
   <nav>
     <a href="/">home</a>
     <a href="/docs/" class="active">docs</a>
+    <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki" rel="noopener">wiki</a>
     <a href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
   </nav>
 </header>
@@ -33,11 +34,11 @@
   <a href="/docs/architecture.html">Architecture</a>
   <a href="/docs/models.html">Models</a>
   <a href="/docs/api.html">HTTP API</a>
-  <a href="/docs/voice.html">Voice</a>
-  <a href="/docs/desktop.html">Desktop</a>
+  <a href="/docs/benchmarks.html">Benchmarks</a>
   <h4>Meta</h4>
   <a href="/docs/contributing.html">Contributing</a>
   <a href="/docs/changelog.html">Changelog</a>
+  <a href="/docs/why.html">Why</a>
 </aside>
 
 <article class="docs-body">
@@ -88,7 +89,7 @@ sudo systemctl reload caddy</code></pre>
 <pre><code>source /opt/rocm/etc/profile.d/rocm.sh
 pacman -Qi rocm-hip-sdk     # should be >= 6.4
 ./install.sh                # rerun; it's idempotent</code></pre>
-<p>See <a href="/docs/why-rust.html">Why Rust above + C++ below</a> for the HIP boundary.</p>
+<p>See the wiki page <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Why-Rust" rel="noopener">Why Rust above + C++ below</a> for the HIP boundary.</p>
 
 <h2 id="kv-segv">SEGV after ~200 completions</h2>
 <p><b>Symptom.</b> Server crashes with SIGSEGV after running for a while. Happened to us 2026-04-19.</p>
@@ -106,11 +107,11 @@ git pull
 systemctl --user restart strix-kokoro</code></pre>
 
 <h2 id="still-stuck">Still stuck?</h2>
-<p>Open an issue on <a href="https://github.com/bong-water-water-bong/1bit-systems/issues">GitHub</a> with <code>1bit doctor --verbose</code> output. Or drop it in <a href="https://discord.gg/halo-ai">#install-help on Discord</a>.</p>
-<p><b>Support.</b> Our technicians are on call 24 hours a day, 7 days a week via the <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki">GitHub wiki</a> troubleshooting guides and Discord.</p>
+<p>Open an issue on <a href="https://github.com/bong-water-water-bong/1bit-systems/issues">GitHub</a> with <code>1bit doctor --verbose</code> output.</p>
+<p>&rarr; Deep dive on wiki: <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Troubleshooting" rel="noopener">Troubleshooting</a>.</p>
 
 <nav class="pagination">
-  <a class="prev" href="/docs/desktop.html"><span class="dir">&larr; prev</span>Desktop</a>
+  <a class="prev" href="/docs/quickstart.html"><span class="dir">&larr; prev</span>Quickstart</a>
   <a class="next" href="/docs/faq.html"><span class="dir">next &rarr;</span>FAQ</a>
 </nav>
 
@@ -121,7 +122,7 @@ systemctl --user restart strix-kokoro</code></pre>
 
 <footer class="footer">
   <p><b>1bit systems</b> &middot; <a href="/">home</a> &middot; <a href="/docs/">docs</a> &middot; MIT licensed</p>
-  <p class="tag">docs/troubleshooting &middot; 2026-04-21</p>
+  <p class="tag">docs/troubleshooting &middot; 2026-04-24</p>
 </footer>
 
 </body>

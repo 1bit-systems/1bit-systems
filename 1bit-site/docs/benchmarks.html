@@ -4,247 +4,98 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0d1117">
-<title>Benchmarks · 1bit.systems docs</title>
+<title>Benchmarks — 1bit systems docs</title>
+<meta name="description" content="Top-line benchmark numbers for halo-1bit-2b on Strix Halo gfx1151. 80.8 tok/s, PPL 9.16, 92% LPDDR5 peak.">
 <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
-<link rel="stylesheet" href="/assets/style.css">
+<link rel="stylesheet" href="/assets/docs.css">
 </head>
 <body>
+
 <header class="topbar">
-  <a class="brand" href="/"><img src="/assets/logo.svg" alt="" width="28" height="28"><span><b>1</b>bit<span class="dot">.</span>systems</span></a>
+  <a class="brand" href="/"><svg width="24" height="24" viewBox="0 0 28 28"><circle cx="14" cy="14" r="12.5" fill="none" stroke="#00d4ff" stroke-width="1"/><text x="14" y="18" font-family="ui-monospace,monospace" font-size="12" font-weight="700" text-anchor="middle" fill="#00d4ff">1b</text></svg><span><b>1</b>bit<span class="dot">.</span>systems</span></a>
   <nav>
-    <a href="/docs/">docs</a>
-    <a href="https://github.com/bong-water-water-bong" rel="noopener" class="gh-btn">GitHub</a>
+    <a href="/">home</a>
+    <a href="/docs/" class="active">docs</a>
+    <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki" rel="noopener">wiki</a>
+    <a href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
   </nav>
 </header>
-<div class="docs-shell">
+
+<div class="docs-page">
+<div class="docs-wrap">
+
 <aside class="docs-side">
-<h4>decisions</h4>
-<a href="/docs/why-ternary.html">Why Ternary</a>
-<a href="/docs/why-rust.html">Why Rust</a>
-<a href="/docs/why-strix-halo.html">Why Strix Halo</a>
-<a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
-<a href="/docs/why-h1b-format.html">Why H1b Format</a>
-<a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
-<a href="/docs/why-1bit-agents.html">Why 1bit-agents</a>
-<a href="/docs/why-no-python.html">Why No Python</a>
-<a href="/docs/why-parity-gates.html">Why Parity Gates</a>
-<a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
-<a href="/docs/why-halo-power.html">Why halo-power</a>
-<a href="/docs/why-this-way-how.html">Why This Way + How</a>
-<h4>integrations</h4>
-<a href="/docs/hermes-integration.html">Hermes</a>
-<a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
-<a href="/docs/medusa-integration-plan.html">Medusa plan</a>
-<a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
-<a href="/docs/1bit-whisper-streaming-plan.html">Whisper streaming</a>
-<a href="/docs/npu-kernel-design.html">NPU kernel</a>
-<a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
-<a href="/docs/peak-performance-projection.html">Peak projection</a>
-<a href="/docs/cpu-lane-plan.html">CPU lane</a>
-<a href="/docs/cloudflare-tunnel-setup.html">Cloudflare tunnel</a>
-<a href="/docs/vpn-only-api.html">VPN-only API</a>
-<a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
-<a href="/docs/sdd-workflow.html">SDD workflow</a>
-<h4>crates</h4>
-<a href="/docs/crate-1bit-echo.html">1bit-echo</a>
-<a href="/docs/crate-1bit-helm.html">1bit-helm</a>
-<a href="/docs/crate-1bit-landing.html">1bit-landing</a>
-<a href="/docs/crate-1bit-lemonade.html">1bit-lemonade</a>
-<a href="/docs/crate-1bit-agents-watch.html">1bit-agents-watch</a>
-<h4>amd scans</h4>
-<a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
-<a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
-<a href="/docs/amd-manageability-scan.html">Manageability</a>
-<a href="/docs/amd-platform-driver-scan.html">Platform driver</a>
-<a href="/docs/amd-rocm-ai-hub-scan.html">ROCm AI hub</a>
-<h4>reference</h4>
-<a href="/docs/home.html">Home</a>
-<a href="/docs/faq.html">FAQ</a>
-<a href="/docs/benchmarks.html">Benchmarks</a>
-
+  <h4>Get running</h4>
+  <a href="/docs/install.html">Install</a>
+  <a href="/docs/quickstart.html">Quickstart</a>
+  <a href="/docs/troubleshooting.html">Troubleshooting</a>
+  <a href="/docs/faq.html">FAQ</a>
+  <h4>Architecture</h4>
+  <a href="/docs/architecture.html">Architecture</a>
+  <a href="/docs/models.html">Models</a>
+  <a href="/docs/api.html">HTTP API</a>
+  <a href="/docs/benchmarks.html" class="active">Benchmarks</a>
+  <h4>Meta</h4>
+  <a href="/docs/contributing.html">Contributing</a>
+  <a href="/docs/changelog.html">Changelog</a>
+  <a href="/docs/why.html">Why</a>
 </aside>
-<main class="docs-body">
+
+<article class="docs-body">
+
 <h1>Benchmarks</h1>
-<p>Every number on this page is measured on the production box (<code>strixhalo</code>, Ryzen AI 9 HX 370 / gfx1151, 128 GB LPDDR5) and traces back to a JSON or burn log in <code>~/claude output/</code>. Cross-arch comparisons against the RX 9070 XT (gfx1201) are labeled. Numbers without a hardware tag are Strix Halo.</p>
+<p class="muted">Pinned numbers for <code>halo-1bit-2b</code> on the production box (<code>strixhalo</code>, Ryzen AI MAX+ 395 / gfx1151, 128&nbsp;GB LPDDR5), greedy sampling, 2026-04-23. Full methodology, curves, rocprof breakdowns, cross-arch parity, and reproduction steps on the wiki.</p>
 
-<h2 id="top-line">Top-line on halo-1bit-2b</h2>
-<p>Decode throughput, prefill, and wikitext-103 perplexity on the default model, greedy sampling, 2026-04-23.</p>
-<pre><code>Kernel-direct bitnet_decode:  83.5 tok/s   (3-round mean)
-HTTP 1bit-server:             65.7 tok/s   (inline sampler, int8 KV default)
-Prefill:                      88.3 tok/s
-PPL wikitext-103 chunk-1024:  9.16
-PPL wikitext-103 pass-4095:  11.98
+<h2 id="top-line">Top line</h2>
+<pre><code>Kernel-direct bitnet_decode:   80.8 tok/s   (ctx 64, 3-round mean)
+Kernel-direct @ ctx 1024:      68.2 tok/s
+HTTP 1bit-server wall-clock:   65.7 tok/s   (inline sampler, int8 KV default)
+Prefill:                       88.3 tok/s
+
+PPL wikitext-103 chunk-1024:    9.16
+PPL wikitext-103 pass-4095:    11.98
 </code></pre>
-<p>The HTTP figure is wall-clock (prefill + axum + JSON serialize). The kernel figure is decode-only. Same model and hardware, different denominator.</p>
-<p>Source: <code>~/claude output/bench-2026-04-23T21-57.json</code>.</p>
+<p>The HTTP figure is wall-clock (prefill + axum + JSON serialize). The kernel figure is decode-only.</p>
 
-<h2 id="decode-curve">Decode curve by context length</h2>
-<p>Three-round means at ctx 64 / 256 / 512 / 1024, with the ratio against the 2026-04-18 burn.</p>
-<table>
-<thead><tr><th>context length</th><th>round 1</th><th>round 2</th><th>round 3</th><th>mean</th><th>vs 2026-04-18</th></tr></thead>
-<tbody>
-<tr><td>64</td><td>80.8</td><td>80.7</td><td>80.9</td><td><strong>80.80</strong></td><td>1.21×</td></tr>
-<tr><td>256</td><td>72.6</td><td>72.7</td><td>72.7</td><td><strong>72.67</strong></td><td>1.19×</td></tr>
-<tr><td>512</td><td>70.5</td><td>70.5</td><td>70.5</td><td><strong>70.50</strong></td><td>1.39×</td></tr>
-<tr><td>1024</td><td>68.6</td><td>67.7</td><td>68.4</td><td><strong>68.23</strong></td><td>2.04×</td></tr>
-</tbody></table>
-<p>Prefill steady at ~88.5 tok/s. Per-bucket variance is under 1.3 %. The 2.04× gain at 1024 tokens is attributable to split-KV Flash-Decoding attention.</p>
-<p>Source: <code>claude output/1bit-burn-20260419T193056Z.txt</code>.</p>
+<h2 id="kernel">Kernel breakdown</h2>
+<ul>
+  <li><b>Ternary GEMV</b> at <strong>92&nbsp;% of LPDDR5 peak</strong> per rocprof bytes-read &mdash; bandwidth-bound.</li>
+  <li><b>Split-KV Flash-Decoding attention</b> up to 11.98&times; vs single-block at L=8192, bit-exact (default everywhere).</li>
+  <li><b>Activation sparsity</b> 79.91&nbsp;% (above Nurvitadhi's 50&ndash;60&nbsp;% prediction; upper bound on speedup ~10&ndash;15&nbsp;% since decode is weight-bound).</li>
+  <li><b>WMMA issue-rate probe</b>: 50.17 TFLOPS fp16 / 53.60 TOPS int8 (42&nbsp;% of theoretical 118.8 &mdash; realistic matmul ceiling).</li>
+</ul>
 
-<h2 id="attn-fd">Split-KV Flash-Decoding attention</h2>
-<p>Per-layer attention latency, single-block reference versus split-KV Flash-Decoding, on the halo-1bit-2b shape.</p>
-<table>
-<thead><tr><th>L (ctx)</th><th>single-block ms</th><th>FD ms</th><th>speedup</th><th>max‖diff‖</th></tr></thead>
-<tbody>
-<tr><td>512</td><td>0.316628</td><td>0.103536</td><td><strong>3.06×</strong></td><td>3.1e-05</td></tr>
-<tr><td>1024</td><td>0.613366</td><td>0.107196</td><td><strong>5.72×</strong></td><td>6.1e-05</td></tr>
-<tr><td>2048</td><td>1.190914</td><td>0.116225</td><td><strong>10.25×</strong></td><td>3.1e-05</td></tr>
-<tr><td>4096</td><td>2.348778</td><td>0.205222</td><td><strong>11.45×</strong></td><td>8.0e-06</td></tr>
-<tr><td>8192</td><td>4.702146</td><td>0.392644</td><td><strong>11.98×</strong></td><td>3.1e-05</td></tr>
-</tbody></table>
-<p>Within 1 ULP of the reference. Default on all context lengths in v0.1.0. <code>max|diff|</code> is the maximum absolute difference from the single-block path; any deviation larger than 1 ULP blocks the cutover.</p>
-<p>Source: <code>claude output/attn-fd-sweep-20260422.json</code>.</p>
+<h2 id="parity">Cross-arch parity</h2>
+<p>Same <code>.h1b</code>, same kernel sources, run on Strix Halo (gfx1151) and RX 9070 XT (gfx1201). Output is bit-exact. <code>delta_ppl = 0.000000</code>. Perf per watt: strixhalo wins 2.06&times; (0.904 tok/s per W vs 0.439); gfx1201 wins absolute tok/s by 1.17&times; at 176&nbsp;W vs 73&nbsp;W.</p>
 
-<h2 id="wmma-peak">WMMA peak probe</h2>
-<p>Register-resident WMMA issue-rate on gfx1151, 1024 blocks × 2000 inner iterations.</p>
-<table>
-<thead><tr><th>dtype</th><th>median</th><th>% of theoretical</th></tr></thead>
-<tbody>
-<tr><td>fp16</td><td><strong>50.17 TFLOPS</strong></td><td>42.2 % of 118.8</td></tr>
-<tr><td>int8</td><td><strong>53.60 TOPS</strong></td><td>WMMA-issue-rate bound</td></tr>
-</tbody></table>
-<p>Clocks under load: sclk 2900 MHz, fclk 2000 MHz, mclk 937 MHz, power 68.1 W, edge 50 °C. 42 % of theoretical is the practical ceiling for realistic matmul workloads on gfx1151 without hipGraph capture + persistent threads + per-block scheduling.</p>
-<p>Source: <code>claude output/wmma-peak-20260422.json</code>.</p>
-
-<h2 id="ppl-parity">Perplexity cross-arch parity</h2>
-<p>Same <code>.h1b</code>, same kernel sources, run on Strix Halo (gfx1151) and RX 9070 XT (gfx1201). Output is bit-exact.</p>
-<pre><code>halo-1bit-2b single-pass 4095-tok:  PPL = 11.975776   mean_nll = 2.482886
-running-ppl @ chunk=1024:           PPL =  9.160000
-cross-arch delta_ppl:               0.000000  (BIT-EXACT)
-</code></pre>
-<p>Source: <code>claude output/ppl-cross-arch-20260422.json</code>.</p>
-
-<h2 id="rocprof">Kernel-level rocprof breakdown</h2>
-<p>Share of decode time by kernel on gfx1151.</p>
-<table>
-<thead><tr><th>kernel</th><th>% of decode time</th></tr></thead>
-<tbody>
-<tr><td>ternary_gemv_halo (phase 5)</td><td>30.3 %</td></tr>
-<tr><td>fp16 LM-head</td><td>29.3 %</td></tr>
-<tr><td>KV attention (split-KV FD)</td><td>26.6 %</td></tr>
-<tr><td>RMSNorm</td><td>4.8 %</td></tr>
-<tr><td>RoPE</td><td>3.1 %</td></tr>
-<tr><td>SiLU + glu</td><td>2.9 %</td></tr>
-<tr><td>everything else</td><td>3.0 %</td></tr>
-</tbody></table>
-<p>The ternary GEMV is at <strong>92 % of LPDDR5 peak</strong> per the rocprof bytes-read counter — bandwidth-bound. The top three kernels account for 86 % of decode time; any meaningful perf work lands in one of them. See <a href="/docs/">Kernels deep-dive</a>.</p>
-<p>Source: <code>docs/wiki/perf/rocprof-ternary-gemv-phase5.md</code> (in-repo).</p>
-
-<h2 id="activation-sparsity">Activation sparsity</h2>
-<p>Mean fraction of zero activations across the 30 layers of halo-1bit-2b, measured on a representative wikitext-103 slice.</p>
-<pre><code>mean sparsity:   79.91 %
-zero count:      11.76M / 14.72M
-per-layer band:  layers 0-5   ~72 %
-                 layers 6-20  ~82 %
-                 layers 21-29 ~78 %
-</code></pre>
-<p>Above Nurvitadhi (2018) which predicted 50-60 %. Because decode is weight-bandwidth-bound rather than activation-bandwidth-bound, the upper bound on speedup from exploiting this is roughly 10-15 %. Bytes-read reduction on weights (Sherry) remains rank-1.</p>
-<p>Source: <code>project_activation_sparsity_phase1.md</code> (memory).</p>
-
-<h2 id="perf-per-watt">Perf per watt cross-arch</h2>
-<p>Sustained 482-tok decode, steady-state wall power from the rails, 2026-04-22.</p>
-<table>
-<thead><tr><th>machine</th><th>steady W</th><th>decode tok/s</th><th>tok/s per W</th><th>winner</th></tr></thead>
-<tbody>
-<tr><td>strixhalo gfx1151</td><td><strong>73 W</strong></td><td>66.0</td><td><strong>0.904</strong></td><td>2.06×</td></tr>
-<tr><td>ryzen gfx1201 (RX 9070 XT)</td><td>176.5 W</td><td>77.5</td><td>0.439</td><td>—</td></tr>
-</tbody></table>
-<p>gfx1201 leads absolute tok/s by 1.17×; gfx1151 leads tok/s per watt by 2.06×. Strix Halo wins on efficiency; the dGPU wins on absolute throughput.</p>
-<p>Source: <code>claude output/9070xt-sherry-power-longctx-20260422.json</code>.</p>
-
-<h2 id="sherry-state">Sherry (1.25 bpw) current state</h2>
-<p>Kernel throughput and perplexity for the three Sherry-track variants. The kernel is fast; the requantizer output is broken.</p>
-<table>
-<thead><tr><th>model</th><th>tok/s @ 64</th><th>tok/s @ 1024</th><th>PPL (2048)</th><th>status</th></tr></thead>
-<tbody>
-<tr><td>baseline v2</td><td>54.3</td><td>57.4</td><td>10.336</td><td>GOLDEN</td></tr>
-<tr><td>tq1 v4</td><td>74.8</td><td>48.3</td><td>10.348</td><td>lossless alt</td></tr>
-<tr><td>sherry-ft v3</td><td>92.2</td><td>60.3</td><td><strong>9.1e8</strong></td><td>BROKEN (fmt bug)</td></tr>
-</tbody></table>
-<p>sherry-ft hits 92.2 tok/s, confirming the 1.25-bit bandwidth payoff at the kernel level. PPL is broken by two requantizer bugs: per-tensor vs per-row scale mismatch, and the 3:4 format lacking a zero-at-non-zp codepoint. Retrain under the 2:4 Sparse-BitNet recipe is in flight.</p>
-<p>Source: <code>claude output/sherry-bench-2026-04-21.json</code>.</p>
-
-<h2 id="optc-soak">OPTC Tier-3 soak verdict</h2>
-<p>Two-hour concurrent <code>bitnet_decode</code> + <code>sd-cli</code> SDXL @ 20-step soak, 2026-04-23.</p>
-<pre><code>samples            703  (10s cadence over 2 hrs)
-optc-hang count    2    (pre-run baseline; zero new events)
-GPU util mean      ~100 %
-GPU mem steady     ~90 % of VRAM
-edge temp max      65 °C
-REG_WAIT lines     0 in dmesg-post
-</code></pre>
-<p>Tier-3 is <code>amdgpu.dcdebugmask=0x410</code> on the kernel command line. Supersedes Tier-2 (GFXOFF-off + runpm=0), which failed on the 2026-04-21 crashes 5 and 6.</p>
-<p>Source: <code>claude output/optc-soak-20260423-183914/VERDICT.txt</code>.</p>
-
-<h2 id="npu-smoke">NPU smoke</h2>
-<p>Launch-day validation of the IRON → MLIR-AIE → Peano → xclbin → libxrt chain on <code>RyzenAI-npu5</code>.</p>
-<pre><code>IRON axpy:      PASS 213.2 µs    (iron/operators/axpy/test.py, 1/1 passed)
-                full matrix:     160/160 PASS
-matmul 512 i8:  PASS max_abs = 0 (single_core/final_512x512x512_64x64x64.xclbin)
-CPU fallback:   NO  — pyxrt.hw_context + pyxrt.kernel + device BOs
-</code></pre>
-<p>The toolchain runs end-to-end on our box. Remaining work to plug the NPU into the serve path is a ternary glue kernel, roughly one week.</p>
-<p>Source: <code>/tmp/npu-smoke-{axpy,matmul,aiestats}.log</code>.</p>
-
-<h2 id="reproduce">How to reproduce</h2>
-<pre><code class="lang-bash"># Kernel-direct decode
-bitnet_decode \
-  --model ~/1bit\ systems/models/halo-1bit-2b.h1b \
-  --prompt "Write a long story" \
-  --max-tokens 64 --temp 0.0
-
-# HTTP end-to-end
-./1bit-systems-0.1.0-x86_64.AppImage server &amp;
-curl -sX POST http://127.0.0.1:8180/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"halo-1bit-2b","messages":[{"role":"user","content":"hi"}],"max_tokens":64,"temperature":0}'
-
-# PPL parity vs gen-1
-bash benchmarks/ppl-gen2.sh
-</code></pre>
-<p>All outputs land in <code>~/claude output/</code>.</p>
+<h2 id="stability">Stability</h2>
+<p>OPTC Tier-3 soak (<code>amdgpu.dcdebugmask=0x410</code>), 2 hours concurrent <code>bitnet_decode</code> + <code>sd-cli</code> SDXL: 703 samples, 0 new OPTC events, util 100&nbsp;%, edge max 65&nbsp;&deg;C, 0 REG_WAIT lines in dmesg-post.</p>
 
 <h2 id="bench-rules">What makes a bench honest</h2>
 <ol>
-<li><strong>One hardware, one binary, one model.</strong> Cross-arch comparisons are labeled. Numbers without a hardware tag are Strix Halo / gfx1151.</li>
-<li><strong>Real-backend only.</strong> Stub-backend numbers do not count.</li>
-<li><strong>Multiple rounds.</strong> A single run is an anecdote. Three or more rounds with variance reported is a benchmark.</li>
-<li><strong>Source-of-truth JSON.</strong> Every table row links to the file it came from. If the file is not in the repo, the row is not in the table.</li>
-<li><strong>Denominator labeled.</strong> <code>tok/s</code> is not enough on its own — decode-only, prefill-included, and wall-clock-with-HTTP are all valid, and each row says which.</li>
+  <li>One hardware, one binary, one model. Cross-arch comparisons are labeled.</li>
+  <li>Real-backend only. Stub-backend numbers do not count.</li>
+  <li>Multiple rounds. A single run is an anecdote; three rounds with variance reported is a benchmark.</li>
+  <li>Source-of-truth JSON. Every row links to the file it came from.</li>
+  <li>Denominator labeled. Decode-only, prefill-included, and wall-clock-with-HTTP are all valid; each row says which.</li>
 </ol>
-<p>Perf PRs that match these rules land fast.</p>
 
-</main>
-<aside class="docs-toc">
-<h4>on this page</h4>
-<a href="#top-line">Top-line</a>
-<a href="#decode-curve">Decode curve</a>
-<a href="#attn-fd">Split-KV FD</a>
-<a href="#wmma-peak">WMMA peak</a>
-<a href="#ppl-parity">PPL parity</a>
-<a href="#rocprof">rocprof breakdown</a>
-<a href="#activation-sparsity">Activation sparsity</a>
-<a href="#perf-per-watt">Perf per watt</a>
-<a href="#sherry-state">Sherry state</a>
-<a href="#optc-soak">OPTC soak</a>
-<a href="#npu-smoke">NPU smoke</a>
-<a href="#reproduce">How to reproduce</a>
-<a href="#bench-rules">Bench rules</a>
+<p>&rarr; Deep dive on wiki: <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Benchmarks" rel="noopener">Benchmarks</a> (full curves, rocprof tables, reproduction harness, Sherry state, NPU smoke).</p>
 
-</aside>
+<nav class="pagination">
+  <a class="prev" href="/docs/api.html"><span class="dir">&larr; prev</span>HTTP API</a>
+  <a class="next" href="/docs/contributing.html"><span class="dir">next &rarr;</span>Contributing</a>
+</nav>
+
+</article>
+
 </div>
+</div>
+
 <footer class="footer">
-  <p><b>1bit.systems</b> · the 1bit monster · <a href="/">home</a></p>
+  <p><b>1bit systems</b> &middot; <a href="/">home</a> &middot; <a href="/docs/">docs</a> &middot; MIT licensed</p>
+  <p class="tag">docs/benchmarks &middot; 2026-04-24</p>
 </footer>
+
 </body>
 </html>

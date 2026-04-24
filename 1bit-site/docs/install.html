@@ -16,6 +16,7 @@
   <nav>
     <a href="/">home</a>
     <a href="/docs/" class="active">docs</a>
+    <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki" rel="noopener">wiki</a>
     <a href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
   </nav>
 </header>
@@ -33,29 +34,45 @@
   <a href="/docs/architecture.html">Architecture</a>
   <a href="/docs/models.html">Models</a>
   <a href="/docs/api.html">HTTP API</a>
-  <a href="/docs/voice.html">Voice</a>
-  <a href="/docs/desktop.html">Desktop</a>
+  <a href="/docs/benchmarks.html">Benchmarks</a>
   <h4>Meta</h4>
   <a href="/docs/contributing.html">Contributing</a>
   <a href="/docs/changelog.html">Changelog</a>
+  <a href="/docs/why.html">Why</a>
 </aside>
 
 <article class="docs-body">
 
 <h1>Install</h1>
-<p class="muted">Three paths, one end state: a running <code>strix-server.service</code>, a stocked model cache, and a Caddy bearer on :8180. First path is the one most people use.</p>
+<p class="muted">Three paths, one end state: a running <code>strix-server.service</code>, a stocked model cache, and a Caddy bearer on :8180. AppImage is the one most people use.</p>
 
 <blockquote><b>Support matrix.</b> Officially: AMD Ryzen AI MAX+ 395 (Strix Halo, gfx1151) on CachyOS 7.x. Other distros might work; we won't fix bugs against them until someone confirms. See <a href="/docs/architecture.html#targets">Architecture &sect; targets</a>.</blockquote>
 
-<h2 id="path-1">Path 1 &mdash; curl-pipe-bash</h2>
+<h2 id="appimage">AppImage</h2>
 
-<pre><code>curl -fsSL https://1bit.systems/install.sh | bash</code></pre>
+<pre><code>curl -fsSL https://github.com/bong-water-water-bong/1bit-systems/releases/latest/download/1bit-systems-x86_64.AppImage -o 1bit-systems.AppImage
+chmod +x 1bit-systems.AppImage
+./1bit-systems.AppImage server</code></pre>
+
+<p>Single self-contained binary: HIP kernels, Rust runtime, tokenizer, the lot. First run seeds <code>~/.cache/1bit systems/models/</code> and prints a bearer token. No root needed unless you want to wire the bundled systemd unit.</p>
+
+<h2 id="aur">AUR</h2>
+
+<pre><code>yay -S 1bit-systems       # or: paru / pikaur
+systemctl --user enable --now strix-server</code></pre>
+
+<p>The PKGBUILD lives under <code>strixhalo/pkgbuild/</code> and installs binaries into <code>/usr/bin/</code>, user-systemd units into <code>/usr/lib/systemd/user/</code>, and a default Caddyfile into <code>/etc/caddy/</code>. Pulls a pre-built <code>rocm-cpp</code> object for the current kernel &mdash; faster than compiling, but you don't get machine-specific tuning. Rebuild from source if you want that.</p>
+
+<h2 id="source">Source</h2>
+
+<pre><code>git clone https://github.com/bong-water-water-bong/1bit-systems ~/1bit-systems
+cd ~/1bit-systems
+./install.sh</code></pre>
 
 <p>What it does, in order:</p>
 <ul>
   <li>Detects the SoC (<code>lscpu | grep -i "AMD Ryzen AI MAX+"</code>). Aborts on a mismatch with a clear message.</li>
   <li>Installs pacman deps from <code>packages.toml</code>. Runs unprivileged; prompts for sudo only on <code>pacman</code>.</li>
-  <li>Clones <code>bong-water-water-bong/1bit-systems</code> to <code>~/.local/share/1bit-systems/</code>.</li>
   <li>Builds HIP kernels in <code>rocm-cpp/</code>. 45&thinsp;min to 4&thinsp;h depending on cache warmth; progress bar is honest.</li>
   <li>Runs <code>cargo build --release --workspace</code>. Installs binaries into <code>~/.local/bin/</code>.</li>
   <li>Enables user-systemd units (<code>systemctl --user enable --now strix-server</code>, etc.).</li>
@@ -63,24 +80,6 @@
 </ul>
 
 <p>Idempotent. Rerun anytime to repair or upgrade.</p>
-
-<h2 id="path-2">Path 2 &mdash; git clone</h2>
-
-<pre><code>git clone https://github.com/bong-water-water-bong/1bit-systems ~/1bit-systems
-cd ~/1bit-systems
-./install.sh</code></pre>
-
-<p>Same as Path 1, but you keep the worktree. Useful if you want to hack on crates. The install script is the same file served by the first path.</p>
-
-<h2 id="path-3">Path 3 &mdash; pacman (experimental)</h2>
-
-<p>A PKGBUILD lives in <code>strixhalo/pkgbuild/</code>. Not yet in the CachyOS repos. Build it yourself:</p>
-
-<pre><code>git clone https://github.com/bong-water-water-bong/1bit-systems
-cd 1bit-systems/strixhalo/pkgbuild
-makepkg -si</code></pre>
-
-<p>This path skips the HIP kernel compile step &mdash; it pulls a pre-built <code>rocm-cpp</code> tarball for the current upstream kernel. Faster, but you don't get machine-specific tuning.</p>
 
 <h2 id="verify">Verify</h2>
 
@@ -101,6 +100,7 @@ rm -rf ~/.local/share/1bit-systems ~/.local/bin/1bit-* ~/.config/systemd/user/st
 
 <h2 id="next">Next</h2>
 <p>Go read <a href="/docs/quickstart.html">Quickstart</a> for a first-token walkthrough, or <a href="/docs/troubleshooting.html">Troubleshooting</a> if the install script throws.</p>
+<p>&rarr; Deep dive on wiki: <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Installation" rel="noopener">Installation</a>.</p>
 
 <nav class="pagination">
   <a class="prev" href="/docs/"><span class="dir">&larr; back</span>Docs home</a>
@@ -114,7 +114,7 @@ rm -rf ~/.local/share/1bit-systems ~/.local/bin/1bit-* ~/.config/systemd/user/st
 
 <footer class="footer">
   <p><b>1bit systems</b> &middot; <a href="/">home</a> &middot; <a href="/docs/">docs</a> &middot; MIT licensed</p>
-  <p class="tag">docs/install &middot; 2026-04-21</p>
+  <p class="tag">docs/install &middot; 2026-04-24</p>
 </footer>
 
 </body>

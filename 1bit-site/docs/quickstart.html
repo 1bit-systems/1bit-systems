@@ -16,6 +16,7 @@
   <nav>
     <a href="/">home</a>
     <a href="/docs/" class="active">docs</a>
+    <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki" rel="noopener">wiki</a>
     <a href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
   </nav>
 </header>
@@ -33,11 +34,11 @@
   <a href="/docs/architecture.html">Architecture</a>
   <a href="/docs/models.html">Models</a>
   <a href="/docs/api.html">HTTP API</a>
-  <a href="/docs/voice.html">Voice</a>
-  <a href="/docs/desktop.html">Desktop</a>
+  <a href="/docs/benchmarks.html">Benchmarks</a>
   <h4>Meta</h4>
   <a href="/docs/contributing.html">Contributing</a>
   <a href="/docs/changelog.html">Changelog</a>
+  <a href="/docs/why.html">Why</a>
 </aside>
 
 <article class="docs-body">
@@ -57,14 +58,14 @@ BEARER="$(cat ~/.config/1bit systems/bearer)"
 curl -s -H "authorization: bearer $BEARER" \
   http://localhost:8180/v1/chat/completions \
   -H "content-type: application/json" \
-  -d '{"model":"halo-v2","messages":[{"role":"user","content":"one sentence, please"}],"stream":false}'</code></pre>
+  -d '{"model":"halo-1bit-2b","messages":[{"role":"user","content":"one sentence, please"}],"stream":false}'</code></pre>
 
 <h2 id="streaming">Streaming with SSE</h2>
 
 <pre><code>curl -N -H "authorization: bearer $BEARER" \
   http://localhost:8180/v1/chat/completions \
   -H "content-type: application/json" \
-  -d '{"model":"halo-v2","messages":[{"role":"user","content":"count to ten, slowly"}],"stream":true}'</code></pre>
+  -d '{"model":"halo-1bit-2b","messages":[{"role":"user","content":"count to ten, slowly"}],"stream":true}'</code></pre>
 
 <p>Expected: a stream of <code>data: {...}</code> lines terminated by <code>data: [DONE]</code>. This is the OpenAI shape &mdash; any compat client works.</p>
 
@@ -72,22 +73,14 @@ curl -s -H "authorization: bearer $BEARER" \
 
 <p>Models live in <code>~/.cache/1bit systems/models/</code>. The installer seeds three:</p>
 <ul>
+  <li><code>halo-1bit-2b</code> &mdash; our baseline. 2B params, TQ1 pack, default.</li>
   <li><code>bitnet-b1.58-2B-4T</code> &mdash; Microsoft's reference ternary, TQ1 pack.</li>
   <li><code>bonsai-1.7b-tq2</code> &mdash; PrismML ternary Bonsai. Fastest per param.</li>
-  <li><code>halo-v2</code> &mdash; BitNet v2 Hadamard-gated. Default.</li>
 </ul>
 
 <p><code>1bit list models</code> shows what's installed. See <a href="/docs/models.html">Models</a> to add your own.</p>
 
-<h2 id="helm">Open the desktop app</h2>
-
-<pre><code>1bit-helm</code></pre>
-
-<p>Or click the menu entry after install. Chat pane, model manager, live metrics, voice orb. Native Rust egui &mdash; no web view. See <a href="/docs/desktop.html">Desktop</a>.</p>
-
-<h2 id="voice">Open the voice PWA</h2>
-
-<p>Point your phone at <code>https://&lt;your-box&gt;:8443/voice/</code> on the Headscale mesh. The PWA fires a PTT loop; first audio in ~1.2&thinsp;s. Detail in <a href="/docs/voice.html">Voice</a>.</p>
+<p>&rarr; Deep dive on wiki: <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Quickstart" rel="noopener">Quickstart</a>.</p>
 
 <nav class="pagination">
   <a class="prev" href="/docs/install.html"><span class="dir">&larr; prev</span>Install</a>
@@ -101,7 +94,7 @@ curl -s -H "authorization: bearer $BEARER" \
 
 <footer class="footer">
   <p><b>1bit systems</b> &middot; <a href="/">home</a> &middot; <a href="/docs/">docs</a> &middot; MIT licensed</p>
-  <p class="tag">docs/quickstart &middot; 2026-04-21</p>
+  <p class="tag">docs/quickstart &middot; 2026-04-24</p>
 </footer>
 
 </body>

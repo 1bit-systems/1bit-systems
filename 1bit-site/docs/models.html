@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0d1117">
 <title>Models — 1bit systems docs</title>
-<meta name="description" content="Supported ternary models and how to add your own via gguf-to-h1b or bitnet-to-tq2.">
+<meta name="description" content="Supported ternary models and how to add your own. halo-1bit-2b is the default baseline.">
 <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
 <link rel="stylesheet" href="/assets/docs.css">
 </head>
@@ -16,6 +16,7 @@
   <nav>
     <a href="/">home</a>
     <a href="/docs/" class="active">docs</a>
+    <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki" rel="noopener">wiki</a>
     <a href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
   </nav>
 </header>
@@ -33,68 +34,44 @@
   <a href="/docs/architecture.html">Architecture</a>
   <a href="/docs/models.html" class="active">Models</a>
   <a href="/docs/api.html">HTTP API</a>
-  <a href="/docs/voice.html">Voice</a>
-  <a href="/docs/desktop.html">Desktop</a>
+  <a href="/docs/benchmarks.html">Benchmarks</a>
   <h4>Meta</h4>
   <a href="/docs/contributing.html">Contributing</a>
   <a href="/docs/changelog.html">Changelog</a>
+  <a href="/docs/why.html">Why</a>
 </aside>
 
 <article class="docs-body">
 
 <h1>Models</h1>
-<p class="muted">We serve ternary models (1.58-bit weights in <code>{-1, 0, +1}</code>). Stock catalog + how to pack your own.</p>
+<p class="muted">We serve ternary models (1.58-bit weights in <code>{-1, 0, +1}</code>). <code>halo-1bit-2b</code> is the default; the wiki covers conversion and the wider catalog.</p>
 
-<h2 id="stock">Stock catalog</h2>
+<h2 id="baseline">Baseline: halo-1bit-2b</h2>
 
 <table>
-<tr><th>Model</th><th>Params</th><th>Pack</th><th>Decode @64</th><th>Decode @1024</th><th>PPL</th></tr>
-<tr><td>halo-v2</td><td>2B</td><td>TQ2 + Hadamard A4</td><td>63.70 tok/s</td><td>55.01 tok/s</td><td>9.19</td></tr>
-<tr><td>bitnet-b1.58-2B-4T</td><td>2B</td><td>TQ1</td><td>50.44 tok/s</td><td>56.25 tok/s</td><td>9.21</td></tr>
-<tr><td>bonsai-1.7b-tq2</td><td>1.7B</td><td>TQ2</td><td>47.82 tok/s</td><td>60.34 tok/s</td><td>9.18</td></tr>
+<tr><th>Model</th><th>Params</th><th>Pack</th><th>Decode @64</th><th>Decode @1024</th><th>PPL (chunk 1024)</th></tr>
+<tr><td><code>halo-1bit-2b</code></td><td>2B</td><td>TQ1</td><td>80.8 tok/s</td><td>68.2 tok/s</td><td>9.16</td></tr>
 </table>
 
-<p>All three ship by default. Measured 2026-04-20 on the strixhalo box &mdash; wikitext-103, burn-in-harness.</p>
+<p>Shipped by default. Numbers measured 2026-04-23 on the strixhalo box, kernel-direct <code>bitnet_decode</code>, wikitext-103, greedy sampling. See <a href="/docs/benchmarks.html">Benchmarks</a> for the full curve and cross-arch parity.</p>
 
 <h2 id="formats">Formats</h2>
 
 <ul>
-  <li><b>TQ1</b> &mdash; 1.58 bits/weight, 5 ternaries packed per byte. Microsoft's bitnet.cpp layout. Our native first-class citizen.</li>
-  <li><b>TQ2</b> &mdash; 2.0 bits/weight (sign + magnitude). Slightly looser, slightly faster to dequant on the iGPU path. Bonsai upstream uses this.</li>
-  <li><b>H1B</b> &mdash; our container. Memory-mapped first; header describes the ternary pack and tokenizer. See <a href="/docs/why-h1b-format.html">Why .h1b</a>.</li>
+  <li><b>TQ1</b> &mdash; 1.58 bits/weight, 5 ternaries packed per byte. Microsoft's bitnet.cpp layout. Our first-class citizen.</li>
+  <li><b>TQ2</b> &mdash; 2.0 bits/weight (sign + magnitude). Slightly looser, slightly faster to dequant on the iGPU path.</li>
+  <li><b>H1B</b> &mdash; our container. Memory-mapped first; header describes the ternary pack and tokenizer.</li>
 </ul>
 
-<h2 id="convert">Convert a GGUF</h2>
-
-<p>Already packed as TQ1 or TQ2 in a GGUF? One command:</p>
-
-<pre><code>gguf-to-h1b \
-  --input model-TQ1.gguf \
-  --output ~/.cache/1bit systems/models/myname.h1b</code></pre>
-
-<p>The tool is a Rust CLI in <code>tools/gguf-to-h1b/</code>. Validates the pack, extracts the tokenizer, writes a header. 3&ndash;10 seconds for a 2B model.</p>
-
-<h2 id="requantize">Requantize a fp16 BitNet checkpoint</h2>
-
-<p>Microsoft-style BitNet fp16 checkpoint that hasn't been packed yet? Run the requantizer:</p>
-
-<pre><code>bitnet-to-tq2 \
-  --input path/to/bitnet-fp16/ \
-  --output ~/.cache/1bit systems/models/mybitnet.h1b \
-  --activation hadamard-a4        # optional, for BitNet v2 recipe
-</code></pre>
-
-<p>This calls through to Python in <code>tools/bitnet-to-tq2/</code> &mdash; Python is allowed here because it runs once on a dev box and exits. See <a href="/docs/why-no-python.html">Rule A</a>.</p>
-
-<h2 id="list">List &amp; pick</h2>
+<h2 id="list">Your own</h2>
 
 <pre><code>1bit list models
-1bit set default halo-v2
-1bit bench halo-v2       # kicks a tok/s + PPL run</code></pre>
+1bit set default halo-1bit-2b
+1bit bench halo-1bit-2b       # kicks a tok/s + PPL run</code></pre>
 
-<h2 id="budget">Budget</h2>
+<p>Conversion tools (<code>gguf-to-h1b</code>, <code>bitnet-to-tq2</code>) live in <code>tools/</code>. See the wiki for the step-by-step &mdash; it's longer than we want on this page.</p>
 
-<p>A 2B ternary model at TQ1 weighs ~430&thinsp;MB on disk. KV-cache at L=2048, fp8 K + fp16 V, ~320&thinsp;MB per active session. 128&thinsp;GB LPDDR5 holds <b>a lot</b> of concurrent sessions. Memory is free here &mdash; bandwidth is the ceiling.</p>
+<p>&rarr; Deep dive on wiki: <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Models" rel="noopener">Models</a>.</p>
 
 <nav class="pagination">
   <a class="prev" href="/docs/architecture.html"><span class="dir">&larr; prev</span>Architecture</a>
@@ -108,7 +85,7 @@
 
 <footer class="footer">
   <p><b>1bit systems</b> &middot; <a href="/">home</a> &middot; <a href="/docs/">docs</a> &middot; MIT licensed</p>
-  <p class="tag">docs/models &middot; 2026-04-21</p>
+  <p class="tag">docs/models &middot; 2026-04-24</p>
 </footer>
 
 </body>

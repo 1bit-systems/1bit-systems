@@ -16,6 +16,7 @@
   <nav>
     <a href="/">home</a>
     <a href="/docs/" class="active">docs</a>
+    <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki" rel="noopener">wiki</a>
     <a href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
   </nav>
 </header>
@@ -33,11 +34,11 @@
   <a href="/docs/architecture.html" class="active">Architecture</a>
   <a href="/docs/models.html">Models</a>
   <a href="/docs/api.html">HTTP API</a>
-  <a href="/docs/voice.html">Voice</a>
-  <a href="/docs/desktop.html">Desktop</a>
+  <a href="/docs/benchmarks.html">Benchmarks</a>
   <h4>Meta</h4>
   <a href="/docs/contributing.html">Contributing</a>
   <a href="/docs/changelog.html">Changelog</a>
+  <a href="/docs/why.html">Why</a>
 </aside>
 
 <article class="docs-body">
@@ -84,7 +85,7 @@
 
 <h2 id="router">The router</h2>
 
-<p>The router picks a lane per phase. Today: iGPU owns everything. Soon: CPU takes prefill @ L&thinsp;&ge;&thinsp;33, NPU takes bulk matmul @ L&thinsp;&ge;&thinsp;2048. Thresholds derive from measured dispatch overhead; see <a href="/docs/peak-performance-projection.html">Peak-Performance-Projection</a> &sect;3.</p>
+<p>The router picks a lane per phase. Today: iGPU owns everything. Soon: CPU takes prefill @ L&thinsp;&ge;&thinsp;33, NPU takes bulk matmul @ L&thinsp;&ge;&thinsp;2048. Thresholds derive from measured dispatch overhead; see the wiki page <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Peak-Performance-Projection" rel="noopener">Peak-Performance-Projection</a> &sect;3.</p>
 
 <pre><code>match (phase, prompt_len, ctx_len) {
     (Phase::Prefill, l, _) if l &gt;= 2048 =&gt; Backend::Npu,     // future
@@ -119,13 +120,7 @@
 <p>All user-systemd (<code>systemctl --user</code>). No container. No Python. Boot time per binary is ~200&thinsp;ms.</p>
 
 <h2 id="read-more">Read more</h2>
-<ul>
-  <li><a href="/docs/why-rust.html">Why Rust above + C++ below?</a></li>
-  <li><a href="/docs/why-strix-halo.html">Why Strix Halo?</a></li>
-  <li><a href="/docs/peak-performance-projection.html">Peak performance projection (~280 tok/s)</a></li>
-  <li><a href="/docs/cpu-lane-plan.html">CPU lane plan</a></li>
-  <li><a href="/docs/npu-kernel-design.html">NPU kernel design</a></li>
-</ul>
+<p>&rarr; Deep dive on wiki: <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Architecture" rel="noopener">Architecture</a>, <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Why-Rust" rel="noopener">Why Rust</a>, <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Why-Strix-Halo" rel="noopener">Why Strix Halo</a>, <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Peak-Performance-Projection" rel="noopener">Peak projection</a>, <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/CPU-Lane-Plan" rel="noopener">CPU lane plan</a>, <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/NPU-Kernel-Design" rel="noopener">NPU kernel design</a>.</p>
 
 <nav class="pagination">
   <a class="prev" href="/docs/quickstart.html"><span class="dir">&larr; prev</span>Quickstart</a>
@@ -139,7 +134,7 @@
 
 <footer class="footer">
   <p><b>1bit systems</b> &middot; <a href="/">home</a> &middot; <a href="/docs/">docs</a> &middot; MIT licensed</p>
-  <p class="tag">docs/architecture &middot; 2026-04-21</p>
+  <p class="tag">docs/architecture &middot; 2026-04-24</p>
 </footer>
 
 </body>

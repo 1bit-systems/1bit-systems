@@ -16,6 +16,7 @@
   <nav>
     <a href="/">home</a>
     <a href="/docs/" class="active">docs</a>
+    <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki" rel="noopener">wiki</a>
     <a href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
   </nav>
 </header>
@@ -33,11 +34,11 @@
   <a href="/docs/architecture.html">Architecture</a>
   <a href="/docs/models.html">Models</a>
   <a href="/docs/api.html" class="active">HTTP API</a>
-  <a href="/docs/voice.html">Voice</a>
-  <a href="/docs/desktop.html">Desktop</a>
+  <a href="/docs/benchmarks.html">Benchmarks</a>
   <h4>Meta</h4>
   <a href="/docs/contributing.html">Contributing</a>
   <a href="/docs/changelog.html">Changelog</a>
+  <a href="/docs/why.html">Why</a>
 </aside>
 
 <article class="docs-body">
@@ -52,7 +53,7 @@
 <pre><code>1bit rotate bearer
 systemctl restart caddy</code></pre>
 
-<p>In a mesh-only deploy, Caddy only listens on the Headscale interface. See <a href="/docs/vpn-only-api.html">VPN-only API</a>.</p>
+<p>In a mesh-only deploy, Caddy only listens on the Headscale interface. See the wiki page <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/VPN-Only-API" rel="noopener">VPN-Only API</a>.</p>
 
 <h2 id="chat">POST /v1/chat/completions</h2>
 
@@ -61,7 +62,7 @@ authorization: bearer &lt;token&gt;
 content-type: application/json
 
 {
-  "model": "halo-v2",
+  "model": "halo-1bit-2b",
   "messages": [
     {"role": "system", "content": "you are terse and technical"},
     {"role": "user",   "content": "one sentence about strix halo"}
@@ -104,22 +105,15 @@ data: [DONE]</code></pre>
   <li><code>onebit_ppl_last</code> &mdash; last PPL snapshot (set by the burnin harness).</li>
 </ul>
 
-<h2 id="audio">TTS/STT</h2>
-
-<p>Separate services, same auth. See <a href="/docs/voice.html">Voice</a>.</p>
-<ul>
-  <li><code>POST /v1/audio/speech</code> &mdash; mirrors OpenAI's TTS. 24&thinsp;kHz mono WAV back.</li>
-  <li><code>POST /v1/audio/transcriptions</code> &mdash; Whisper; multipart upload.</li>
-  <li><code>WS /echo</code> &mdash; duplex voice loop. Opus 20&thinsp;ms in, Opus out.</li>
-</ul>
-
 <h2 id="clients">Clients</h2>
 
 <p>Anything OpenAI-compat works: Open WebUI, Claude Desktop (via proxy), Hermes, Ollama clients, your own code. Point the base URL at <code>https://&lt;your-box&gt;/v1</code> and feed the bearer.</p>
 
+<p>&rarr; Deep dive on wiki: <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/HTTP-API" rel="noopener">HTTP API</a>.</p>
+
 <nav class="pagination">
   <a class="prev" href="/docs/models.html"><span class="dir">&larr; prev</span>Models</a>
-  <a class="next" href="/docs/voice.html"><span class="dir">next &rarr;</span>Voice</a>
+  <a class="next" href="/docs/benchmarks.html"><span class="dir">next &rarr;</span>Benchmarks</a>
 </nav>
 
 </article>
@@ -129,7 +123,7 @@ data: [DONE]</code></pre>
 
 <footer class="footer">
   <p><b>1bit systems</b> &middot; <a href="/">home</a> &middot; <a href="/docs/">docs</a> &middot; MIT licensed</p>
-  <p class="tag">docs/api &middot; 2026-04-21</p>
+  <p class="tag">docs/api &middot; 2026-04-24</p>
 </footer>
 
 </body>

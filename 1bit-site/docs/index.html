@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0d1117">
 <title>Docs — 1bit systems</title>
-<meta name="description" content="1bit systems documentation: install, quickstart, architecture, models, API, voice, desktop, troubleshooting, FAQ, contributing, changelog.">
+<meta name="description" content="1bit systems documentation: install, quickstart, architecture, models, API, benchmarks. Deep dives live on the GitHub wiki.">
 <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
 <link rel="stylesheet" href="/assets/docs.css">
 </head>
@@ -18,25 +18,24 @@
     <a href="/docs/" class="active">docs</a>
     <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki" rel="noopener">wiki</a>
     <a href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
-    <a href="https://discord.gg/halo-ai" rel="noopener">Discord</a>
   </nav>
 </header>
 
 <main class="docs-landing">
 
   <section class="hero">
-    <p class="eyebrow">docs &middot; install &middot; architecture &middot; api &middot; faq</p>
+    <p class="eyebrow">docs &middot; install &middot; architecture &middot; api &middot; benchmarks</p>
     <h1>1bit systems <span class="accent">docs</span></h1>
-    <p class="lede">Short, honest pages. What the software does, what it doesn't, where it lives on disk. If a page is out of date, open an issue or a PR &mdash; we re-render weekly.</p>
+    <p class="lede">Short pages here; long-form on the <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki">GitHub wiki</a>. If a page is out of date, open an issue or a PR.</p>
   </section>
 
   <section class="pillars">
     <h2>get running</h2>
     <div class="pillar-grid">
-      <a class="comm-card" href="/docs/install.html"><b>Install</b><span>script, git, or package. Three paths, one end state.</span></a>
+      <a class="comm-card" href="/docs/install.html"><b>Install</b><span>AppImage, AUR, or source. Three paths, one end state.</span></a>
       <a class="comm-card" href="/docs/quickstart.html"><b>Quickstart</b><span>first token in 60 seconds on a primed box.</span></a>
       <a class="comm-card" href="/docs/troubleshooting.html"><b>Troubleshooting</b><span>memlock, RyzenAdj, Caddy bearer, shared-mem gotchas.</span></a>
-      <a class="comm-card" href="/docs/faq.html"><b>FAQ</b><span>10 questions a Strix Halo owner actually asks.</span></a>
+      <a class="comm-card" href="/docs/faq.html"><b>FAQ</b><span>six questions a Strix Halo owner actually asks.</span></a>
     </div>
   </section>
 
@@ -44,42 +43,37 @@
     <h2>architecture</h2>
     <div class="pillar-grid">
       <a class="comm-card" href="/docs/architecture.html"><b>Architecture</b><span>the aggregator, the HIP kernel, the Rust orchestrator.</span></a>
-      <a class="comm-card" href="/docs/models.html"><b>Models</b><span>what we run and how to convert your own.</span></a>
+      <a class="comm-card" href="/docs/models.html"><b>Models</b><span><code>halo-1bit-2b</code> baseline. How to pack your own.</span></a>
       <a class="comm-card" href="/docs/api.html"><b>HTTP API</b><span>OpenAI-compat /v1/chat/completions + SSE + bearer.</span></a>
-      <a class="comm-card" href="/docs/voice.html"><b>Voice</b><span>1bit-voice + 1bit-echo + 1bit-whisper + 1bit-kokoro.</span></a>
-      <a class="comm-card" href="/docs/desktop.html"><b>Desktop</b><span>1bit-helm: native Rust egui, no web view.</span></a>
+      <a class="comm-card" href="/docs/benchmarks.html"><b>Benchmarks</b><span>80.8 tok/s @64, PPL 9.16, 92% LPDDR5 peak.</span></a>
     </div>
   </section>
 
   <section class="pillars">
     <h2>contributing &amp; releases</h2>
     <div class="pillar-grid">
-      <a class="comm-card" href="/docs/contributing.html"><b>Contributing</b><span>Rules A-E + the contribution flow.</span></a>
-      <a class="comm-card" href="/docs/changelog.html"><b>Changelog</b><span>GH releases; release notes &amp; cutover diaries.</span></a>
+      <a class="comm-card" href="/docs/contributing.html"><b>Contributing</b><span>Rules A&ndash;E + the contribution flow.</span></a>
+      <a class="comm-card" href="/docs/changelog.html"><b>Changelog</b><span>v0.1.0 and the key cutovers; full history on GH releases.</span></a>
+      <a class="comm-card" href="/docs/why.html"><b>Why</b><span>one link to the &ldquo;Why X?&rdquo; pages on the wiki.</span></a>
     </div>
   </section>
 
   <section class="pillars">
-    <h2>deep dives (wiki-rendered)</h2>
-    <p class="note">Per-decision long-form from <code>docs/wiki/</code>. Rendered by <code>docs/build.sh</code>; re-run to pick up upstream edits.</p>
+    <h2>deep dives on the wiki</h2>
+    <p class="note">Long-form design decisions, per-kernel walkthroughs, planning docs, and AMD-org scans live on the <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki">GitHub wiki</a>. Curated starting points:</p>
     <div class="pillar-grid">
-      <a class="comm-card" href="/docs/why-ternary.html"><b>Why 1.58-bit ternary?</b><span>the weight format and what ternary buys us</span></a>
-      <a class="comm-card" href="/docs/why-rust.html"><b>Why Rust above + C++ below?</b><span>the language split, hard-lined at the HIP boundary</span></a>
-      <a class="comm-card" href="/docs/why-strix-halo.html"><b>Why Strix Halo (gfx1151)?</b><span>the APU bet &mdash; 128 GB shared LPDDR5 at 256 GB/s</span></a>
-      <a class="comm-card" href="/docs/why-shadow-burnin.html"><b>Why shadow-burnin?</b><span>continuous parity check, cutover with evidence</span></a>
-      <a class="comm-card" href="/docs/why-h1b-format.html"><b>Why the .h1b format?</b><span>tilt vs GGUF &mdash; mmap-first, ternary-native</span></a>
-      <a class="comm-card" href="/docs/why-caddy-systemd.html"><b>Why Caddy + systemd?</b><span>the ops layer, no containers, no interpreters</span></a>
-      <a class="comm-card" href="/docs/why-no-python.html"><b>Why no Python at runtime?</b><span>Rule A &mdash; binaries boot in 200 ms, not 10 s</span></a>
-      <a class="comm-card" href="/docs/why-parity-gates.html"><b>Why parity gates?</b><span>PPL + byte-exact before we cut over</span></a>
-      <a class="comm-card" href="/docs/why-no-npu-yet.html"><b>Why no NPU yet?</b><span>XDNA 2 status and the wait for Linux</span></a>
-      <a class="comm-card" href="/docs/peak-performance-projection.html"><b>Peak projection</b><span>~280 tok/s, NPU prefill crossover at L&ge;33</span></a>
-      <a class="comm-card" href="/docs/cpu-lane-plan.html"><b>CPU lane plan</b><span>sampler + dispatcher off the iGPU</span></a>
-      <a class="comm-card" href="/docs/npu-kernel-design.html"><b>NPU kernel design</b><span>Peano C++ + libxrt + aie-rt</span></a>
-      <a class="comm-card" href="/docs/bitnet-v2-hadamard-plan.html"><b>BitNet v2</b><span>Hadamard-gated W1.58A4 plan</span></a>
-      <a class="comm-card" href="/docs/medusa-integration-plan.html"><b>Medusa heads</b><span>speculative decoding plan</span></a>
-      <a class="comm-card" href="/docs/halo-whisper-streaming-plan.html"><b>Whisper streaming</b><span>STT partials plan</span></a>
-      <a class="comm-card" href="/docs/benchmarks.html"><b>Benchmarks</b><span>live tok/s, PPL, what we measure</span></a>
-      <a class="comm-card" href="/docs/faq.html"><b>Wiki FAQ</b><span>short answers to common questions</span></a>
+      <a class="comm-card" href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Why-Ternary" rel="noopener"><b>Why 1.58-bit ternary?</b><span>the weight format and what ternary buys us</span></a>
+      <a class="comm-card" href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Why-Rust" rel="noopener"><b>Why Rust above + C++ below?</b><span>the language split at the HIP boundary</span></a>
+      <a class="comm-card" href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Why-Strix-Halo" rel="noopener"><b>Why Strix Halo (gfx1151)?</b><span>the APU bet &mdash; 128&nbsp;GB shared LPDDR5 at 256&nbsp;GB/s</span></a>
+      <a class="comm-card" href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Why-No-NPU-Yet" rel="noopener"><b>Why no NPU yet?</b><span>XDNA 2 status and the wait for VitisAI EP on Linux</span></a>
+      <a class="comm-card" href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Kernels" rel="noopener"><b>Kernels deep-dive</b><span>ternary GEMV, split-KV Flash-Decoding, rocprof</span></a>
+      <a class="comm-card" href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Peak-Performance-Projection" rel="noopener"><b>Peak projection</b><span>~280 tok/s, NPU prefill crossover at L&ge;33</span></a>
+      <a class="comm-card" href="https://github.com/bong-water-water-bong/1bit-systems/wiki/CPU-Lane-Plan" rel="noopener"><b>CPU lane plan</b><span>AVX2 aggregating prefill off the iGPU</span></a>
+      <a class="comm-card" href="https://github.com/bong-water-water-bong/1bit-systems/wiki/NPU-Kernel-Design" rel="noopener"><b>NPU kernel design</b><span>Peano C++ + libxrt + aie-rt</span></a>
+      <a class="comm-card" href="https://github.com/bong-water-water-bong/1bit-systems/wiki/BitNet-v2-Hadamard-Plan" rel="noopener"><b>BitNet v2</b><span>Hadamard-gated W1.58A4 plan</span></a>
+      <a class="comm-card" href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Medusa" rel="noopener"><b>Medusa heads</b><span>speculative decoding plan</span></a>
+      <a class="comm-card" href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Development" rel="noopener"><b>Development</b><span>crates, repo layout, workflow</span></a>
+      <a class="comm-card" href="https://github.com/bong-water-water-bong/1bit-systems/wiki" rel="noopener"><b>All wiki pages</b><span>index of every long-form doc</span></a>
     </div>
   </section>
 
@@ -87,7 +81,7 @@
 
 <footer class="footer">
   <p><b>1bit systems</b> &middot; <a href="/">home</a> &middot; MIT licensed &middot; built by <a href="https://github.com/bong-water-water-bong" rel="noopener">bong-water-water-bong</a></p>
-  <p class="tag">docs &middot; v3 &middot; 2026-04-21</p>
+  <p class="tag">docs &middot; v4 &middot; 2026-04-24</p>
 </footer>
 
 </body>
