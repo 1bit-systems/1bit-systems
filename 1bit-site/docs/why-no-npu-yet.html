@@ -68,6 +68,8 @@
 </aside>
 <main class="docs-body">
 <h1>Why no NPU yet?</h1>
+<h2 id="2026-04-23-status-toolchain-validated-end-to-end">2026-04-23 STATUS — toolchain validated end-to-end</h2>
+<p>Independent authoring path is green. IRON axpy pytest <strong>160/160</strong> on <code>npu5</code>, AIE2P <code>matmul 512×512×512 i8</code> bit-exact, MLIR-AIE → Peano → xclbin → <code>libxrt</code> round-trip in 26.8&nbsp;s on the reference box. First non-VitisAI path to produce a working xclbin on Strix Halo. The remaining work for serve-path integration is a ternary <code>bitnet_gemm</code> glue kernel (unpack + mmul + scale) — roughly one week of kernel authoring. The ship gate still holds: no public launch until ternary runs on XDNA 2 and the numbers stand on their own.</p>
 <h2 id="2026-04-21-pivot-npu-lane-onnx-runtime-vitisai-ep">2026-04-21 PIVOT — NPU lane = ONNX Runtime + VitisAI EP</h2>
 <p>User directive 2026-04-21: <strong>full ONNX.</strong> FastFlowLM (Q4-only subprocess bridge) is retired. The <code>crates/1bit-xdna</code> FFI crate and <code>HALO_BACKEND=xdna</code> router variant were deleted. NPU path going forward is ONNX Runtime's C++ API with AMD's VitisAI Execution Provider — <code>.onnx</code> model → graph partitioner → AIE ops via VitisAI, CPU-EP fallback for anything VitisAI doesn't accelerate. Rule A clean (ORT has a C++ API — Python is optional-only). See <code>project_npu_path_onnx.md</code> for the full rationale.</p>
 <p>Custom AIE kernels remain on the Peano + libxrt + aie-rt path described below, for ops VitisAI doesn't accelerate — we just don't need a separate <code>1bit-xdna</code> Rust crate to reach them, because ORT handles the dispatch side.</p>

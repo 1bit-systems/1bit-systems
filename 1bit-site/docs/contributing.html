@@ -51,7 +51,7 @@
   <li><b>Rule A</b> &mdash; no Python at runtime. Python is fine for dev-box scripts (requantizers, analysis notebooks); never in a systemd unit or an HTTP path.</li>
   <li><b>Rule B</b> &mdash; C++20 for kernels. HIP kernels stay in <code>rocm-cpp/</code>. FFI through <code>1bit-hip</code>. No Rust ports.</li>
   <li><b>Rule C</b> &mdash; no hipBLAS in the runtime path. Native Tensile kernels only.</li>
-  <li><b>Rule D</b> &mdash; Rust 1.86, edition 2024. Pinned in the workspace <code>Cargo.toml</code>.</li>
+  <li><b>Rule D</b> &mdash; Rust 1.88, edition 2024. Pinned in the workspace <code>Cargo.toml</code>.</li>
   <li><b>Rule E</b> &mdash; NPU stack is ORT C++ with the VitisAI Execution Provider (AMD official). Peano + libxrt + aie-rt for custom AIE kernels.</li>
 </ul>
 

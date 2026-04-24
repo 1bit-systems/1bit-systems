@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0d1117">
-<title>Live tok/s + PPL · 1bit.systems docs</title>
+<title>Benchmarks · 1bit.systems docs</title>
 <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
 <link rel="stylesheet" href="/assets/style.css">
 </head>
@@ -67,65 +67,182 @@
 
 </aside>
 <main class="docs-body">
-<h1>Live tok/s + PPL</h1>
-<p>What we measure and what each number means. All numbers taken on the production box (<code>strixhalo</code>, 100.64.0.1) unless noted.</p>
-<h2 id="the-table">The table</h2>
-<table>
-<thead><tr><th>metric</th><th>value</th><th>source</th><th>what it means</th></tr></thead>
-<tbody>
-<tr><td>Decode throughput @ L=64</td><td><strong>83 tok/s</strong></td><td><code>bench.sh</code></td><td>Short-context user-chat speed. What you feel typing a prompt.</td></tr>
-<tr><td>Decode throughput @ L=1024</td><td><strong>33 tok/s</strong></td><td><code>bench.sh</code></td><td>Long-context agent speed. KV-cache bandwidth dominates here.</td></tr>
-<tr><td>PPL, wikitext-103 (gen-2 Rust)</td><td><strong>9.1805</strong></td><td><code>benchmarks/ppl-gen2.sh</code></td><td>Distribution-level quality. Lower is better.</td></tr>
-<tr><td>PPL, wikitext-103 (gen-1 baseline)</td><td><strong>9.1607</strong></td><td>historical</td><td>Reference point; gen-2 is +0.02, inside ±0.05 tolerance.</td></tr>
-<tr><td>Shadow-burnin byte-exact</td><td><strong>95.55%</strong></td><td><code>halo burnin stats</code></td><td>Argmax-level parity, gen-1 vs gen-2. 14,344 rounds.</td></tr>
-<tr><td>Ternary GEMV roofline</td><td><strong>92% of LPDDR5 peak</strong></td><td><code>rocprof</code></td><td>Kernel is bandwidth-bound, not compute-bound. Bytes-read reduction (Sherry) is rank-1.</td></tr>
-<tr><td>Split-KV Flash-Decoding attn</td><td><strong>6.78× vs prior</strong> @ L=2048</td><td><code>benchmarks/attn_fd.sh</code></td><td>Bit-exact speedup over single-block attention. Default since 2026-04-19.</td></tr>
-<tr><td>Voice mouth-to-ear first audio</td><td><strong>1.23 s</strong></td><td><code>benchmarks/voice.sh</code></td><td>End-to-end: STT + LLM + TTS first chunk. 3-5× faster than naive serial loop.</td></tr>
-<tr><td>Tests across 13 crates</td><td><strong>201 passing, 0 failing</strong></td><td><code>cargo test --workspace --release</code></td><td>Workspace-wide green. CI gate.</td></tr>
-<tr><td><code>1bit-server</code> binary, stripped</td><td><strong>2.4 MB</strong></td><td><code>size target/release/1bit-server</code></td><td>Static-friendly Rust binary; ships without a runtime.</td></tr>
-<tr><td>Landing live tok/s</td><td><strong>pulled from <code>/metrics</code> via <code>/_live/stats</code> SSE</strong></td><td><code>crates/1bit-landing/src/telemetry.rs</code></td><td>The number you see in the hero on <code>https://strixhalo.local/</code> is no longer a static guess — it's the same <code>tokps_recent</code> the Prom scraper sees, pushed over SSE every 1.5 s.</td></tr>
-</tbody></table>
-<h2 id="one-liners-per-number">One-liners per number</h2>
-<ul>
-<li><strong>83 @ 64 / 33 @ 1024</strong> — same kernel; the drop is pure KV-cache bandwidth. A 70B FP16 model on the same box does ~18 tok/s. See <a href="why-ternary.html">Why ternary?</a>.</li>
-<li><strong>PPL 9.1805</strong> — we re-pack Microsoft's weights (no retraining). The +0.02 delta vs gen-1 is FP16-reordering noise, not quality loss.</li>
-<li><strong>95.55% byte-exact</strong> — <strong>74.9% of the remaining 4.45% is one prompt</strong> (idx=7, &quot;chemical symbol for gold&quot;). Fix that sampler delta and parity jumps to ~98.9%. See <a href="why-parity-gates.html">Why parity gates?</a>.</li>
-<li><strong>92% of peak</strong> — roofline math from <code>rocprof</code> confirms the ternary GEMV is memory-bound. Compute-side optimization has near-zero headroom; Sherry 1.25-bit packing (bytes-read reduction) is the next 15-25% lever.</li>
-<li><strong>6.78× attn</strong> — one block per head → split across blocks with an online-softmax reduction. Bit-exact means PPL didn't move when we flipped the default.</li>
-<li><strong>1.23 s voice</strong> — whisper.cpp partials + sentence-boundary TTS streaming. Naive serial (wait-full-STT → wait-full-LLM → wait-full-TTS) is ~4-6 s.</li>
-<li><strong>201 tests</strong> — includes property tests on tokenizer round-trips and parity assertions on <code>.h1b</code> load paths.</li>
-<li><strong>2.4 MB</strong> — the whole serving daemon. For comparison, gen-1 Python install was ~1.2 GB.</li>
-</ul>
-<h2 id="reproducibility-notes">Reproducibility notes</h2>
-<ul>
-<li><strong>Box</strong>: Ryzen AI 9 HX 370 (Strix Halo / gfx1151), 128 GB LPDDR5 @ 256 GB/s, CachyOS, kernel 7.0.</li>
-<li><strong>Ambient</strong>: 22-24 °C room temperature, closet airflow, headless. Thermal throttle shows up above ~28 °C — numbers above are the 22 °C set.</li>
-<li><strong>Power</strong>: <code>halo power balanced</code> profile, 150 W sustained TDP, voltage curve at default. See <a href="why-halo-power.html">Why <code>halo power</code>?</a> for the under-volt recipe that adds ~4% throughput without stability loss.</li>
-<li><strong>Model</strong>: <code>microsoft/bitnet-b1.58-2B-4T</code> → <code>.h1b</code> v3, 1.8 GB on disk.</li>
-<li><strong>Temperature</strong>: 0 (greedy argmax) for parity + PPL; 0.7 for voice UX only.</li>
-</ul>
-<p>Re-run locally with:</p>
-<pre><code class="lang-bash">cd /home/bcloud/repos/halo-workspace
-./benchmarks/bench.sh           # decode throughput
-./benchmarks/ppl-gen2.sh        # PPL
-./benchmarks/shadow-burnin.sh   # parity (long-running)
-halo burnin stats               # live summary
+<h1>Benchmarks</h1>
+<p>Every number on this page is measured on the production box (<code>strixhalo</code>, Ryzen AI 9 HX 370 / gfx1151, 128 GB LPDDR5) and traces back to a JSON or burn log in <code>~/claude output/</code>. Cross-arch comparisons against the RX 9070 XT (gfx1201) are labeled. Numbers without a hardware tag are Strix Halo.</p>
+
+<h2 id="top-line">Top-line on halo-1bit-2b</h2>
+<p>Decode throughput, prefill, and wikitext-103 perplexity on the default model, greedy sampling, 2026-04-23.</p>
+<pre><code>Kernel-direct bitnet_decode:  83.5 tok/s   (3-round mean)
+HTTP 1bit-server:             65.7 tok/s   (inline sampler, int8 KV default)
+Prefill:                      88.3 tok/s
+PPL wikitext-103 chunk-1024:  9.16
+PPL wikitext-103 pass-4095:  11.98
 </code></pre>
-<p>Numbers regenerate into <code>~/claude output/</code>.</p>
-<h2 id="links">Links</h2>
-<ul>
-<li><a href="why-shadow-burnin.html">Why shadow-burnin?</a> — how the parity number is produced</li>
-<li><a href="why-parity-gates.html">Why parity gates?</a> — how we gate cutover on it</li>
-<li><a href="why-this-way-how.html">Why this way + how?</a> — long-form walkthrough of the full stack</li>
-</ul>
+<p>The HTTP figure is wall-clock (prefill + axum + JSON serialize). The kernel figure is decode-only. Same model and hardware, different denominator.</p>
+<p>Source: <code>~/claude output/bench-2026-04-23T21-57.json</code>.</p>
+
+<h2 id="decode-curve">Decode curve by context length</h2>
+<p>Three-round means at ctx 64 / 256 / 512 / 1024, with the ratio against the 2026-04-18 burn.</p>
+<table>
+<thead><tr><th>context length</th><th>round 1</th><th>round 2</th><th>round 3</th><th>mean</th><th>vs 2026-04-18</th></tr></thead>
+<tbody>
+<tr><td>64</td><td>80.8</td><td>80.7</td><td>80.9</td><td><strong>80.80</strong></td><td>1.21×</td></tr>
+<tr><td>256</td><td>72.6</td><td>72.7</td><td>72.7</td><td><strong>72.67</strong></td><td>1.19×</td></tr>
+<tr><td>512</td><td>70.5</td><td>70.5</td><td>70.5</td><td><strong>70.50</strong></td><td>1.39×</td></tr>
+<tr><td>1024</td><td>68.6</td><td>67.7</td><td>68.4</td><td><strong>68.23</strong></td><td>2.04×</td></tr>
+</tbody></table>
+<p>Prefill steady at ~88.5 tok/s. Per-bucket variance is under 1.3 %. The 2.04× gain at 1024 tokens is attributable to split-KV Flash-Decoding attention.</p>
+<p>Source: <code>claude output/1bit-burn-20260419T193056Z.txt</code>.</p>
+
+<h2 id="attn-fd">Split-KV Flash-Decoding attention</h2>
+<p>Per-layer attention latency, single-block reference versus split-KV Flash-Decoding, on the halo-1bit-2b shape.</p>
+<table>
+<thead><tr><th>L (ctx)</th><th>single-block ms</th><th>FD ms</th><th>speedup</th><th>max‖diff‖</th></tr></thead>
+<tbody>
+<tr><td>512</td><td>0.316628</td><td>0.103536</td><td><strong>3.06×</strong></td><td>3.1e-05</td></tr>
+<tr><td>1024</td><td>0.613366</td><td>0.107196</td><td><strong>5.72×</strong></td><td>6.1e-05</td></tr>
+<tr><td>2048</td><td>1.190914</td><td>0.116225</td><td><strong>10.25×</strong></td><td>3.1e-05</td></tr>
+<tr><td>4096</td><td>2.348778</td><td>0.205222</td><td><strong>11.45×</strong></td><td>8.0e-06</td></tr>
+<tr><td>8192</td><td>4.702146</td><td>0.392644</td><td><strong>11.98×</strong></td><td>3.1e-05</td></tr>
+</tbody></table>
+<p>Within 1 ULP of the reference. Default on all context lengths in v0.1.0. <code>max|diff|</code> is the maximum absolute difference from the single-block path; any deviation larger than 1 ULP blocks the cutover.</p>
+<p>Source: <code>claude output/attn-fd-sweep-20260422.json</code>.</p>
+
+<h2 id="wmma-peak">WMMA peak probe</h2>
+<p>Register-resident WMMA issue-rate on gfx1151, 1024 blocks × 2000 inner iterations.</p>
+<table>
+<thead><tr><th>dtype</th><th>median</th><th>% of theoretical</th></tr></thead>
+<tbody>
+<tr><td>fp16</td><td><strong>50.17 TFLOPS</strong></td><td>42.2 % of 118.8</td></tr>
+<tr><td>int8</td><td><strong>53.60 TOPS</strong></td><td>WMMA-issue-rate bound</td></tr>
+</tbody></table>
+<p>Clocks under load: sclk 2900 MHz, fclk 2000 MHz, mclk 937 MHz, power 68.1 W, edge 50 °C. 42 % of theoretical is the practical ceiling for realistic matmul workloads on gfx1151 without hipGraph capture + persistent threads + per-block scheduling.</p>
+<p>Source: <code>claude output/wmma-peak-20260422.json</code>.</p>
+
+<h2 id="ppl-parity">Perplexity cross-arch parity</h2>
+<p>Same <code>.h1b</code>, same kernel sources, run on Strix Halo (gfx1151) and RX 9070 XT (gfx1201). Output is bit-exact.</p>
+<pre><code>halo-1bit-2b single-pass 4095-tok:  PPL = 11.975776   mean_nll = 2.482886
+running-ppl @ chunk=1024:           PPL =  9.160000
+cross-arch delta_ppl:               0.000000  (BIT-EXACT)
+</code></pre>
+<p>Source: <code>claude output/ppl-cross-arch-20260422.json</code>.</p>
+
+<h2 id="rocprof">Kernel-level rocprof breakdown</h2>
+<p>Share of decode time by kernel on gfx1151.</p>
+<table>
+<thead><tr><th>kernel</th><th>% of decode time</th></tr></thead>
+<tbody>
+<tr><td>ternary_gemv_halo (phase 5)</td><td>30.3 %</td></tr>
+<tr><td>fp16 LM-head</td><td>29.3 %</td></tr>
+<tr><td>KV attention (split-KV FD)</td><td>26.6 %</td></tr>
+<tr><td>RMSNorm</td><td>4.8 %</td></tr>
+<tr><td>RoPE</td><td>3.1 %</td></tr>
+<tr><td>SiLU + glu</td><td>2.9 %</td></tr>
+<tr><td>everything else</td><td>3.0 %</td></tr>
+</tbody></table>
+<p>The ternary GEMV is at <strong>92 % of LPDDR5 peak</strong> per the rocprof bytes-read counter — bandwidth-bound. The top three kernels account for 86 % of decode time; any meaningful perf work lands in one of them. See <a href="/docs/">Kernels deep-dive</a>.</p>
+<p>Source: <code>docs/wiki/perf/rocprof-ternary-gemv-phase5.md</code> (in-repo).</p>
+
+<h2 id="activation-sparsity">Activation sparsity</h2>
+<p>Mean fraction of zero activations across the 30 layers of halo-1bit-2b, measured on a representative wikitext-103 slice.</p>
+<pre><code>mean sparsity:   79.91 %
+zero count:      11.76M / 14.72M
+per-layer band:  layers 0-5   ~72 %
+                 layers 6-20  ~82 %
+                 layers 21-29 ~78 %
+</code></pre>
+<p>Above Nurvitadhi (2018) which predicted 50-60 %. Because decode is weight-bandwidth-bound rather than activation-bandwidth-bound, the upper bound on speedup from exploiting this is roughly 10-15 %. Bytes-read reduction on weights (Sherry) remains rank-1.</p>
+<p>Source: <code>project_activation_sparsity_phase1.md</code> (memory).</p>
+
+<h2 id="perf-per-watt">Perf per watt cross-arch</h2>
+<p>Sustained 482-tok decode, steady-state wall power from the rails, 2026-04-22.</p>
+<table>
+<thead><tr><th>machine</th><th>steady W</th><th>decode tok/s</th><th>tok/s per W</th><th>winner</th></tr></thead>
+<tbody>
+<tr><td>strixhalo gfx1151</td><td><strong>73 W</strong></td><td>66.0</td><td><strong>0.904</strong></td><td>2.06×</td></tr>
+<tr><td>ryzen gfx1201 (RX 9070 XT)</td><td>176.5 W</td><td>77.5</td><td>0.439</td><td>—</td></tr>
+</tbody></table>
+<p>gfx1201 leads absolute tok/s by 1.17×; gfx1151 leads tok/s per watt by 2.06×. Strix Halo wins on efficiency; the dGPU wins on absolute throughput.</p>
+<p>Source: <code>claude output/9070xt-sherry-power-longctx-20260422.json</code>.</p>
+
+<h2 id="sherry-state">Sherry (1.25 bpw) current state</h2>
+<p>Kernel throughput and perplexity for the three Sherry-track variants. The kernel is fast; the requantizer output is broken.</p>
+<table>
+<thead><tr><th>model</th><th>tok/s @ 64</th><th>tok/s @ 1024</th><th>PPL (2048)</th><th>status</th></tr></thead>
+<tbody>
+<tr><td>baseline v2</td><td>54.3</td><td>57.4</td><td>10.336</td><td>GOLDEN</td></tr>
+<tr><td>tq1 v4</td><td>74.8</td><td>48.3</td><td>10.348</td><td>lossless alt</td></tr>
+<tr><td>sherry-ft v3</td><td>92.2</td><td>60.3</td><td><strong>9.1e8</strong></td><td>BROKEN (fmt bug)</td></tr>
+</tbody></table>
+<p>sherry-ft hits 92.2 tok/s, confirming the 1.25-bit bandwidth payoff at the kernel level. PPL is broken by two requantizer bugs: per-tensor vs per-row scale mismatch, and the 3:4 format lacking a zero-at-non-zp codepoint. Retrain under the 2:4 Sparse-BitNet recipe is in flight.</p>
+<p>Source: <code>claude output/sherry-bench-2026-04-21.json</code>.</p>
+
+<h2 id="optc-soak">OPTC Tier-3 soak verdict</h2>
+<p>Two-hour concurrent <code>bitnet_decode</code> + <code>sd-cli</code> SDXL @ 20-step soak, 2026-04-23.</p>
+<pre><code>samples            703  (10s cadence over 2 hrs)
+optc-hang count    2    (pre-run baseline; zero new events)
+GPU util mean      ~100 %
+GPU mem steady     ~90 % of VRAM
+edge temp max      65 °C
+REG_WAIT lines     0 in dmesg-post
+</code></pre>
+<p>Tier-3 is <code>amdgpu.dcdebugmask=0x410</code> on the kernel command line. Supersedes Tier-2 (GFXOFF-off + runpm=0), which failed on the 2026-04-21 crashes 5 and 6.</p>
+<p>Source: <code>claude output/optc-soak-20260423-183914/VERDICT.txt</code>.</p>
+
+<h2 id="npu-smoke">NPU smoke</h2>
+<p>Launch-day validation of the IRON → MLIR-AIE → Peano → xclbin → libxrt chain on <code>RyzenAI-npu5</code>.</p>
+<pre><code>IRON axpy:      PASS 213.2 µs    (iron/operators/axpy/test.py, 1/1 passed)
+                full matrix:     160/160 PASS
+matmul 512 i8:  PASS max_abs = 0 (single_core/final_512x512x512_64x64x64.xclbin)
+CPU fallback:   NO  — pyxrt.hw_context + pyxrt.kernel + device BOs
+</code></pre>
+<p>The toolchain runs end-to-end on our box. Remaining work to plug the NPU into the serve path is a ternary glue kernel, roughly one week.</p>
+<p>Source: <code>/tmp/npu-smoke-{axpy,matmul,aiestats}.log</code>.</p>
+
+<h2 id="reproduce">How to reproduce</h2>
+<pre><code class="lang-bash"># Kernel-direct decode
+bitnet_decode \
+  --model ~/1bit\ systems/models/halo-1bit-2b.h1b \
+  --prompt "Write a long story" \
+  --max-tokens 64 --temp 0.0
+
+# HTTP end-to-end
+./1bit-systems-0.1.0-x86_64.AppImage server &amp;
+curl -sX POST http://127.0.0.1:8180/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"halo-1bit-2b","messages":[{"role":"user","content":"hi"}],"max_tokens":64,"temperature":0}'
+
+# PPL parity vs gen-1
+bash benchmarks/ppl-gen2.sh
+</code></pre>
+<p>All outputs land in <code>~/claude output/</code>.</p>
+
+<h2 id="bench-rules">What makes a bench honest</h2>
+<ol>
+<li><strong>One hardware, one binary, one model.</strong> Cross-arch comparisons are labeled. Numbers without a hardware tag are Strix Halo / gfx1151.</li>
+<li><strong>Real-backend only.</strong> Stub-backend numbers do not count.</li>
+<li><strong>Multiple rounds.</strong> A single run is an anecdote. Three or more rounds with variance reported is a benchmark.</li>
+<li><strong>Source-of-truth JSON.</strong> Every table row links to the file it came from. If the file is not in the repo, the row is not in the table.</li>
+<li><strong>Denominator labeled.</strong> <code>tok/s</code> is not enough on its own — decode-only, prefill-included, and wall-clock-with-HTTP are all valid, and each row says which.</li>
+</ol>
+<p>Perf PRs that match these rules land fast.</p>
 
 </main>
 <aside class="docs-toc">
 <h4>on this page</h4>
-<a href="#the-table">The table</a>
-<a href="#one-liners-per-number">One-liners per number</a>
-<a href="#reproducibility-notes">Reproducibility notes</a>
-<a href="#links">Links</a>
+<a href="#top-line">Top-line</a>
+<a href="#decode-curve">Decode curve</a>
+<a href="#attn-fd">Split-KV FD</a>
+<a href="#wmma-peak">WMMA peak</a>
+<a href="#ppl-parity">PPL parity</a>
+<a href="#rocprof">rocprof breakdown</a>
+<a href="#activation-sparsity">Activation sparsity</a>
+<a href="#perf-per-watt">Perf per watt</a>
+<a href="#sherry-state">Sherry state</a>
+<a href="#optc-soak">OPTC soak</a>
+<a href="#npu-smoke">NPU smoke</a>
+<a href="#reproduce">How to reproduce</a>
+<a href="#bench-rules">Bench rules</a>
 
 </aside>
 </div>

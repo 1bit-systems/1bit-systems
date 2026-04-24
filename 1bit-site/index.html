@@ -769,7 +769,9 @@
             <li><a href="#funding-goals">Funding goals</a></li>
             <li><a href="#roadmap">Roadmap</a></li>
             <li><a href="#changelog">Changelog</a></li>
+            <li><a href="#support">Support</a></li>
             <li><a href="#contact">Contact</a></li>
+            <li><a href="https://github.com/bong-water-water-bong/1bit-systems/wiki" target="_blank" rel="noopener">Wiki &rarr;</a></li>
           </ul>
         </div>
       </div>
@@ -793,9 +795,11 @@
       </p>
 
       <div class="callout">
-        <strong>2026-04-23 update</strong> &mdash; NPU toolchain verified end-to-end on the reference box, and five media lanes are live.
+        <strong>2026-04-23 update</strong> &mdash; NPU toolchain validated end-to-end, stability soak closed green, two training runs in flight.
         <ul style="margin: 10px 0 0 18px; font-size: 14px;">
-          <li><strong>NPU toolchain proven on Strix Halo.</strong> IRON axpy pytest <strong>160/160</strong> on <code>npu5</code>, MLIR-AIE &rarr; Peano &rarr; xclbin &rarr; libxrt end-to-end in <strong>26.8&nbsp;s</strong>. First time a non-VitisAI path has produced a working xclbin on this hardware. Kernel authoring is now unblocked; a ternary <code>bitnet_gemm</code> still has to be written. No tok/s claim yet. See <a href="/docs/wiki/NPU-Unlock">NPU-Unlock</a>.</li>
+          <li><strong>NPU toolchain proven on Strix Halo.</strong> IRON axpy pytest <strong>160/160</strong> on <code>npu5</code>, AIE2P <code>matmul 512×512×512 i8</code> bit-exact (max_abs = 0). MLIR-AIE &rarr; Peano &rarr; xclbin &rarr; libxrt end-to-end on the reference box. First non-VitisAI path to produce a working xclbin on this hardware. A ternary <code>bitnet_gemm</code> still has to be written; no tok/s claim yet. See the <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/NPU-AIE2P" target="_blank" rel="noopener">NPU-AIE2P</a> wiki page.</li>
+          <li><strong>OPTC35 Tier-3 mitigation soaked green.</strong> 2 hours of concurrent <code>bitnet_decode</code> + SDXL, 703 samples at 10 s cadence, zero new hang events. <code>amdgpu.dcdebugmask=0x410</code> is now the reference cmdline. See <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/OPTC-Troubleshooting" target="_blank" rel="noopener">OPTC troubleshooting</a>.</li>
+          <li><strong>Two training runs in flight.</strong> Run 4 (0.5B Sparse-BitNet 3:4, single H200 NVL) and Run 5 (0.5B Sparse-BitNet 2:4 Microsoft canonical, 2&times; H200 NVL DDP). Both on H200 pods.</li>
           <li><strong>Five media lanes live</strong> on the box: LLM (Halo v2), TTS, STT, image (SDXL via <code>sd.cpp</code>), video-staged (Wan 2.2 TI2V-5B port in flight). Sixth lane (NPU) has a proven toolchain, no shipped kernel yet.</li>
           <li><strong><code>1bit install all</code></strong> &mdash; single-command meta-target installs every component listed in <code>packages.toml</code>. Stop / copy / start is idempotent per component.</li>
         </ul>
@@ -806,21 +810,24 @@
 
       <h3>What works today</h3>
       <ul>
-        <li><strong>Halo v2</strong> — 2B BitNet 1.58 serving at <strong>66 tok/s</strong> on 64-token context, <strong>33 tok/s</strong> at 1024-token context. Measured on the reference Strix Halo box, no asterisks.</li>
+        <li><strong>Halo v2</strong> — 2B BitNet 1.58 serving at <strong>80.8 tok/s</strong> on 64-token context, <strong>68.2 tok/s</strong> at 1024-token context (kernel-direct <code>bitnet_decode</code>, 3-round mean, 2026-04-23). PPL on wikitext-103 is <strong>9.16</strong> at chunk-1024 and <strong>11.98</strong> on the 4095-tok single pass. Measured on the reference Strix Halo box, no asterisks.</li>
         <li><strong>Ternary GEMV</strong> at <strong>92% of LPDDR5 peak bandwidth</strong> on <code>gfx1151</code>. Memory-bandwidth-bound — reducing bytes per token is where the next speedup lives.</li>
-        <li><strong>Split-KV Flash-Decoding attention</strong> — <strong>6.78&times;</strong> at context length 2048, bit-exact vs reference.</li>
+        <li><strong>Split-KV Flash-Decoding attention</strong> — <strong>10.25&times;</strong> at context length 2048, <strong>11.98&times;</strong> at context 8192, bit-exact vs reference.</li>
+        <li><strong>Cross-arch efficiency.</strong> Strix Halo <strong>0.904 tok/s/W</strong> at 73 W steady. RX 9070 XT (gfx1201) <strong>0.439 tok/s/W</strong> at 176.5 W. 2.06&times; efficiency winner on sustained decode. WMMA FP16 peak <strong>50.17 TFLOPS</strong> on gfx1151, 138 TFLOPS on gfx1201.</li>
         <li><strong>Multi-arch build — shipped.</strong> One fat binary runs on every mainstream AMD Radeon + APU with Wave32 WMMA: RDNA3 (<code>gfx1100/1101/1102/1103</code>), RDNA3.5 (<code>gfx1150/1151</code>), RDNA4 (<code>gfx1200/1201</code>). Commit <code>b24b8cb</code>.</li>
-        <li><strong>gfx1201 (RX 9070 XT) port — shipped.</strong> All 14 WMMA prefill kernels bit-exact vs CK on both <code>gfx1151</code> and <code>gfx1201</code>. PPL on wikitext-103 is <strong>11.9758 on both arches</strong> — identical to every printed digit. WMMA FP16 peak measured at <strong>50 TFLOPS on gfx1151</strong> and <strong>138 TFLOPS on gfx1201</strong> (RDNA4). Commits <code>dc0b1b1</code>, <code>43fb690</code>. <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/benchmarks/data/ppl-cross-arch-20260422.json" target="_blank" rel="noopener">cross-arch PPL JSON</a> &middot; <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/benchmarks/data/wmma-peak-20260422.json" target="_blank" rel="noopener">WMMA peak JSON</a>.</li>
+        <li><strong>gfx1201 (RX 9070 XT) port — shipped.</strong> All 14 WMMA prefill kernels bit-exact vs CK on both <code>gfx1151</code> and <code>gfx1201</code>. PPL on wikitext-103 is <strong>11.9758 on both arches</strong> — identical to every printed digit. Commits <code>dc0b1b1</code>, <code>43fb690</code>. <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/benchmarks/data/ppl-cross-arch-20260422.json" target="_blank" rel="noopener">cross-arch PPL JSON</a> &middot; <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/benchmarks/data/wmma-peak-20260422.json" target="_blank" rel="noopener">WMMA peak JSON</a>.</li>
         <li><strong>OpenAI-compatible HTTP</strong> on <code>:8180</code>. Any <code>openai</code> SDK, Open WebUI, DSPy, or Claude Code MCP client points at it and it just works. <code>/v1/models</code> now returns the real <code>.h1b</code> registry and validates the <code>model</code> field per request.</li>
         <li><strong>MCP surface</strong> on <code>:8181</code> for introspection, KV-cache stats, sampler overrides.</li>
-        <li><strong>AppImage install — shipped.</strong> Single-file download, no build required. See <a href="#install">Install</a>.</li>
+        <li><strong>AppImage install — shipped.</strong> Single-file download (~32 MB), no build required. Runs on any modern Linux distro — Arch, Ubuntu, Fedora, Debian, NixOS, CachyOS. See <a href="#install">Install</a>.</li>
+        <li><strong>AUR package — shipped.</strong> <code>yay -S 1bit-systems-bin</code> or <code>paru -S 1bit-systems-bin</code> on Arch-family distros.</li>
+        <li><strong>Deep-dive documentation</strong> on the <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki" target="_blank" rel="noopener">GitHub wiki</a> — Architecture, Benchmarks, Hardware, Installation, Kernels, Models, NPU-AIE2P, OPTC troubleshooting, Training, Roadmap.</li>
         <li><strong>Zero telemetry, zero dial-home, zero cloud.</strong> Weights and prompts never leave the machine.</li>
       </ul>
 
       <h3>What's in flight</h3>
       <ul>
-        <li><strong>Sparse-BitNet retrain</strong> on an H200 NVL pod — targeting <strong>1.25 effective bits per weight</strong> via 3:4 N:M sparsity on top of 1.58-bit. <strong>Run 4 live</strong>, 10B-token budget, ~57 h wall-clock. Default training pod is now <strong>H200 NVL ($3.39/hr)</strong> — identical HBM3e and bandwidth to SXM for single-GPU training, 15% cheaper.</li>
-        <li><strong>Run 5</strong> — Microsoft canonical <strong>2:4 Sparse-BitNet on 2&times; NVL DDP</strong> immediately after Run 4 lands. ~31 h wall-clock, ~$210 total. See <a href="/docs/wiki/Training-Runs">Training runs</a>.</li>
+        <li><strong>Sparse-BitNet Run 4</strong> on a single H200 NVL pod — targeting <strong>1.25 effective bits per weight</strong> via 3:4 N:M sparsity on top of 1.58-bit. 10B-token budget, ~57 h wall-clock. Default training pod is <strong>H200 NVL ($3.39/hr)</strong> — identical HBM3e and bandwidth to SXM for single-GPU training, 15% cheaper.</li>
+        <li><strong>Sparse-BitNet Run 5</strong> — Microsoft canonical <strong>2:4 on 2&times; H200 NVL DDP</strong>, running in parallel with Run 4. ~31 h wall-clock, ~$210 total. See <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Training" target="_blank" rel="noopener">Training (wiki)</a>.</li>
         <li><strong>BitNet v2</strong> implementation (Hadamard-native W1.58 A4) planned next.</li>
         <li><strong>Desktop shell</strong> — voice-first, plugin API via MCP, package manager.</li>
       </ul>
@@ -873,11 +880,12 @@
         <a href="#install">Install</a> &middot;
         <a href="#troubleshooting">Troubleshooting</a> &middot;
         <a href="#add-your-app">Add your own app</a> &middot;
-        <a href="#connect-openwebui">Open WebUI</a>
+        <a href="#connect-openwebui">Open WebUI</a> &middot;
+        <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki" target="_blank" rel="noopener">Wiki</a>
       </div>
 
       <p>
-        This is the full documentation, the full history, and the full roadmap on one page. Scroll, <code>Ctrl+F</code>, or bookmark a section. No separate blog, no separate benchmark report. If a thing exists about the project, it should be here.
+        This is the full documentation, the full history, and the full roadmap on one page. Scroll, <code>Ctrl+F</code>, or bookmark a section. For deep-dives &mdash; architecture, kernels, benchmarks, training, NPU-AIE2P, OPTC troubleshooting &mdash; see the <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki" target="_blank" rel="noopener">GitHub wiki</a>.
       </p>
 
       <div class="callout">
@@ -984,7 +992,7 @@
         </dd>
         <dt><code>kv_cache_attn_decode_fd</code></dt>
         <dd>
-          Split-KV Flash-Decoding. Per-head parallelism across thread-blocks; each head splits its KV range into B chunks, reduces to <code>(m, l, o)</code> triples, combines via log-sum-exp. Landed 2026-04-19, default in both servers. <strong>6.78× speedup at L=2048</strong>, bit-exact against the reference path.
+          Split-KV Flash-Decoding. Per-head parallelism across thread-blocks; each head splits its KV range into B chunks, reduces to <code>(m, l, o)</code> triples, combines via log-sum-exp. Landed 2026-04-19, default in both servers. <strong>10.25× at L=2048</strong>, <strong>11.98× at L=8192</strong>, bit-exact against the reference path (max_abs 3.1e-05, 1-ULP equivalent).
         </dd>
         <dt><code>rope_fp16</code></dt>
         <dd>
@@ -1081,7 +1089,7 @@ log (JSONL): ~/claude output/shadow-burnin.jsonl
 cutover    : ≥ 96% bit-exact argmax over a 72 h rolling window
 current    : 96.67% (post-special-token fix)</code></pre>
       <p>
-        Cutover gates: (1) PPL parity on wikitext within ±0.05 of the gen-1 baseline 9.1607 — gen-2 currently 9.1805, delta +0.02, PASS. (2) Shadow-burnin ≥96% for 72 h continuous under real traffic, no restarts, no memory growth.
+        Cutover gates: (1) PPL parity on wikitext-103 within ±0.05 of the gen-1 baseline 9.1607 — gen-2 currently 9.16 at chunk-1024 (11.98 on the 4095-tok single pass), well inside tolerance. (2) Shadow-burnin ≥96% for 72 h continuous under real traffic, no restarts, no memory growth.
       </p>
 
       <h3>Mesh</h3>
@@ -1188,7 +1196,7 @@ strix-burnin.service        — shadow-burnin harness</code></pre>
         Standard Flash-Decoding adapted for gfx1151 wave32. Each attention head splits its KV range across multiple thread-blocks; softmax statistics are combined with a log-sum-exp merge; output is written once per head.
       </p>
       <p>
-        Landed 2026-04-19 as the default in <code>bitnet_decode</code>. Speedup: <strong>6.78× at context length 2048</strong>, bit-exact against the reference path.
+        Landed 2026-04-19 as the default in <code>bitnet_decode</code>. Speedups: <strong>10.25× at L=2048</strong>, <strong>11.45× at L=4096</strong>, <strong>11.98× at L=8192</strong>. Bit-exact against the reference path (max absolute difference 3.1e-05, 1-ULP equivalent).
       </p>
     </section>
 
@@ -1255,21 +1263,27 @@ strix-burnin.service        — shadow-burnin harness</code></pre>
       <ul>
         <li>2B parameters · Microsoft's public BitNet release</li>
         <li>1.58-bit weights · FP16 activations</li>
+        <li>Weight file <code>halo-1bit-2b.h1b</code> · <strong>1.8 GB</strong> on disk</li>
         <li>Served by <code>bitnet_decode</code> on <code>:8080</code> and <code>1bit-halo-server</code> on <code>:8180</code></li>
       </ul>
 
       <table>
         <thead>
-          <tr><th>context</th><th>tok/s</th></tr>
+          <tr><th>context</th><th>tok/s (decode)</th></tr>
         </thead>
         <tbody>
-          <tr><td>64 tokens</td><td>66</td></tr>
-          <tr><td>1024 tokens</td><td>33</td></tr>
+          <tr><td>64 tokens</td><td><strong>80.80</strong></td></tr>
+          <tr><td>256 tokens</td><td>72.67</td></tr>
+          <tr><td>512 tokens</td><td>70.50</td></tr>
+          <tr><td>1024 tokens</td><td><strong>68.23</strong></td></tr>
         </tbody>
       </table>
 
       <p>
-        Clean burn numbers from 2026-04-18, post-RoPE fix. Memory-bandwidth-bound across the whole context range.
+        Clean-burn 3-round means, 2026-04-23. Kernel-direct <code>bitnet_decode</code>, greedy sampling. HTTP wall-clock through <code>1bit-server</code> is 65.7 tok/s at 64-token context (inline sampler, int8 KV default). Prefill steady at ~88.5 tok/s. Memory-bandwidth-bound across the whole context range.
+      </p>
+      <p>
+        Perplexity on wikitext-103: <strong>9.16</strong> at chunk-1024, <strong>11.98</strong> on the 4095-tok single pass. Bit-exact between gfx1151 and gfx1201.
       </p>
     </section>
 
@@ -1301,11 +1315,11 @@ strix-burnin.service        — shadow-burnin harness</code></pre>
     <section id="stack">
       <h2>The stack</h2>
       <ul>
-        <li><strong>Host OS:</strong> CachyOS (Arch-family, rolling) on Btrfs + snapper + limine</li>
-        <li><strong>Kernel:</strong> 6.18.22-lts — pinned after an amdgpu OPTC hang on 7.0</li>
+        <li><strong>Host OS:</strong> CachyOS (Arch-family, rolling) on Btrfs + snapper + limine. AppImage also runs on Arch, Ubuntu, Fedora, Debian, NixOS — any modern Linux distro.</li>
+        <li><strong>Kernel:</strong> 6.18.22-lts — pinned after an amdgpu OPTC hang on 7.0; cmdline includes <code>amdgpu.dcdebugmask=0x410</code> (Tier-3 mitigation, soaked green 2026-04-23)</li>
         <li><strong>ROCm:</strong> 7.x built from source against gfx1151 (not on ROCm's Tier-1 list)</li>
         <li><strong>Kernels:</strong> C++20 + HIP · wave32 WMMA · zero runtime hipBLAS</li>
-        <li><strong>Orchestration:</strong> Rust 2021 · Cargo workspace · axum + tokio</li>
+        <li><strong>Orchestration:</strong> Rust 2024 · Cargo workspace · axum + tokio</li>
         <li><strong>Edge:</strong> Caddy reverse-proxy for bearer auth and TLS</li>
         <li><strong>Supervision:</strong> systemd (one unit per binary)</li>
       </ul>
@@ -1316,7 +1330,7 @@ strix-burnin.service        — shadow-burnin harness</code></pre>
       <ul>
         <li><strong>CPU:</strong> Ryzen AI Max+ 395 · Zen 5 · 16 cores / 32 threads</li>
         <li><strong>GPU:</strong> Radeon 8060S · 40 CU RDNA 3.5 · gfx1151 · wave32 WMMA</li>
-        <li><strong>NPU:</strong> XDNA 2 · 50 TOPS claimed · inaccessible — see <a href="#npu-status">NPU status</a></li>
+        <li><strong>NPU:</strong> XDNA 2 · 50 TOPS claimed · authoring toolchain validated 2026-04-23 (IRON axpy 160/160, AIE2P matmul bit-exact); no shipped ternary kernel yet — see <a href="#npu-status">NPU status</a></li>
         <li><strong>Memory:</strong> 128 GB LPDDR5X-8000 · unified · ~270 GB/s peak</li>
         <li><strong>Power:</strong> 45–120 W configurable TDP envelope</li>
       </ul>
@@ -1378,7 +1392,7 @@ strix-burnin.service        — shadow-burnin harness</code></pre>
 
       <h3>Toolchain progress &mdash; 2026-04-23</h3>
       <p>
-        The <strong>authoring toolchain</strong> has been verified on the reference box independent of AMD's shipped stack. IRON axpy pytest passes <strong>160/160</strong> on <code>npu5</code>, lowering MLIR-AIE through Peano to an xclbin that <code>libxrt</code> loads and runs end-to-end in <strong>26.8&nbsp;s</strong>. This is the first working xclbin on this hardware that does not go through VitisAI. A ternary <code>bitnet_gemm</code> still has to be written against this path; no tok/s claim is made until that kernel exists and reports numbers. See <a href="/docs/wiki/NPU-Unlock">NPU-Unlock</a>.
+        The <strong>authoring toolchain</strong> has been validated end-to-end on the reference box, independent of AMD's shipped stack. IRON axpy pytest passes <strong>160/160</strong> on <code>npu5</code>; an AIE2P <code>matmul 512×512×512 i8</code> xclbin returns bit-exact results (max_abs = 0). MLIR-AIE &rarr; Peano &rarr; xclbin &rarr; <code>libxrt</code> loads and runs end-to-end, no VitisAI involvement. This is the first non-VitisAI path to produce a working xclbin on this hardware. A ternary <code>bitnet_gemm</code> still has to be written against this path; no tok/s claim is made until that kernel exists and reports numbers. See the <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/NPU-AIE2P" target="_blank" rel="noopener">NPU-AIE2P</a> wiki page.
       </p>
 
       <h3>Current verdict</h3>
@@ -1427,17 +1441,36 @@ strix-burnin.service        — shadow-burnin harness</code></pre>
 
       <h3>AppImage (recommended, non-dev)</h3>
       <p>
-        Prebuilt single-file bundle of the user-facing Rust binaries. ROCm itself is <strong>not</strong> bundled &mdash; <code>1bit</code> runs, but the kernel library <code>librocm_cpp.so</code> still needs the source bootstrap below before <code>1bit install core</code> works end-to-end.
+        Prebuilt single-file bundle of the user-facing Rust binaries. About <strong>32 MB</strong> on disk. Works on <strong>any modern Linux distro</strong> &mdash; Arch, Ubuntu, Fedora, Debian, NixOS, CachyOS. ROCm itself is <strong>not</strong> bundled &mdash; <code>1bit</code> runs, but the kernel library <code>librocm_cpp.so</code> still needs the source bootstrap below before <code>1bit install core</code> works end-to-end.
       </p>
-<pre><code># download → verify → symlink to ~/.local/bin/1bit
-curl -fsSLO https://1bit.systems/dl/1bit-systems-0.1.0-x86_64.AppImage
-echo "cb24880525750d73bb9bc75c5db993e8aa7e83837165c80a442526c67226f6eb  1bit-systems-0.1.0-x86_64.AppImage" | sha256sum -c -
+<pre><code># download → verify → chmod → symlink to ~/.local/bin/1bit
+curl -fsSLO https://github.com/bong-water-water-bong/1bit-systems/releases/download/v0.1.0/1bit-systems-0.1.0-x86_64.AppImage
+echo "8a964f89bdef68ed914c04fcf23092ac642c424bb70f74dc10e8558e93b94036  1bit-systems-0.1.0-x86_64.AppImage" | sha256sum -c -
 chmod +x 1bit-systems-0.1.0-x86_64.AppImage
 ln -sfn "$PWD/1bit-systems-0.1.0-x86_64.AppImage" ~/.local/bin/1bit
 1bit --version</code></pre>
       <p>
-        The scripted path <code>INSTALL_MODE=appimage ./install.sh</code> does the same three steps and verifies against <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/1bit-site/releases.json" target="_blank" rel="noopener"><code>releases.json</code></a>. Works on any x86_64 Linux with glibc &ge; 2.31 (Ubuntu 20.04, Debian 11, CachyOS). The AppImage symlinks into any of the 20 bundled binary names &mdash; <code>1bit-helm</code>, <code>1bit-halo-helm-tray</code>, <code>1bit-watch-discord</code>, <code>1bit-mcp-patreon</code>, etc. &mdash; and dispatches via <code>$ARGV0</code>. Run <code>&lt;AppImage&gt; --list</code> to enumerate them.
+        The scripted path <code>INSTALL_MODE=appimage ./install.sh</code> does the same three steps and verifies against <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/1bit-site/releases.json" target="_blank" rel="noopener"><code>releases.json</code></a>. Works on any x86_64 Linux with glibc &ge; 2.35. The AppImage symlinks into any of the 20 bundled binary names &mdash; <code>1bit-helm</code>, <code>1bit-halo-helm-tray</code>, <code>1bit-watch-discord</code>, <code>1bit-mcp-patreon</code>, etc. &mdash; and dispatches via <code>$ARGV0</code>. Run <code>&lt;AppImage&gt; --list</code> to enumerate them.
       </p>
+
+      <h3>AUR (Arch family)</h3>
+      <p>
+        For Arch, Manjaro, EndeavourOS, CachyOS, and any Arch-family distro with an AUR helper:
+      </p>
+<pre><code>yay -S 1bit-systems-bin
+# or
+paru -S 1bit-systems-bin</code></pre>
+      <p>
+        Thin wrapper around the same AppImage. Auto-updates on <code>yay -Syu</code> / <code>paru -Syu</code>. No source build, no rebuild on kernel bumps.
+      </p>
+
+      <h3>Model weight</h3>
+      <p>
+        The AppImage is the runtime. The model is a separate download &mdash; <code>halo-1bit-2b.h1b</code> is <strong>1.8 GB</strong>.
+      </p>
+<pre><code>mkdir -p "$HOME/1bit systems/models"
+curl -L https://github.com/bong-water-water-bong/1bit-systems/releases/download/v0.1.0/halo-1bit-2b.h1b \
+  -o "$HOME/1bit systems/models/halo-1bit-2b.h1b"</code></pre>
 
       <h3>Source build (dev path)</h3>
 
@@ -1966,18 +1999,21 @@ rocprof --stats --timestamp on \
 # if lower, the tile or packed layout regressed</code></pre>
 
       <h3>Model quality — PPL harness</h3>
-<pre><code># wikitext-103 perplexity · post-RoPE-fix reference numbers:
-# 1bit-halo-v2: PPL ~12 on wikitext-103, ~1.04 on repetition
+<pre><code># wikitext-103 perplexity · reference numbers (2026-04-22, bit-exact gfx1151 / gfx1201):
+# halo-1bit-2b chunk-1024:  PPL 9.16
+# halo-1bit-2b pass-4095:   PPL 11.9758
 ./build/bitnet_decode \
-  --model ~/1bit-halo/models/1bit-halo-v2.h1b \
+  --model ~/1bit-halo/models/halo-1bit-2b.h1b \
   --ppl ~/datasets/wikitext-103/wiki.test.tokens \
   --context 2048</code></pre>
 
       <h3>Live benchmark</h3>
-<pre><code># clean-burn reference numbers (2026-04-18):
-# 64-token context:   66 tok/s
-# 1024-token context: 33 tok/s
-./build/bitnet_decode --bench 64 --bench 256 --bench 1024</code></pre>
+<pre><code># clean-burn reference numbers (2026-04-23, 3-round mean, kernel-direct):
+# 64-token context:   80.80 tok/s
+# 256-token context:  72.67 tok/s
+# 512-token context:  70.50 tok/s
+# 1024-token context: 68.23 tok/s
+./build/bitnet_decode --bench 64 --bench 256 --bench 512 --bench 1024</code></pre>
 
       <h3>Output conventions</h3>
       <p>
@@ -2050,14 +2086,14 @@ rocprof --stats --timestamp on \
         <strong>Gap audit:</strong> all P0 items closed as of 2026-04-22. Remaining gaps are P1/P2 and tracked in the issue queue.
       </p>
       <p>
-        <strong>Already shipped this week:</strong> multi-arch default build (8 AMD consumer arches, one fat binary), <code>gfx1201</code> RDNA 4 port (14/14 WMMA kernels bit-exact, cross-arch PPL identical to six decimals), cross-arch benchmark suite, new <code>peak_probe_bench</code> + <code>attn_fd_sweep</code> bench tools, model registry on <code>/v1/models</code> with per-request validation, AppImage single-file install path, <code>1bit install all</code> meta-target, NPU toolchain verified on <code>npu5</code>.
+        <strong>Already shipped this week:</strong> multi-arch default build (8 AMD consumer arches, one fat binary), <code>gfx1201</code> RDNA 4 port (14/14 WMMA kernels bit-exact, cross-arch PPL identical to six decimals), cross-arch benchmark suite, new <code>peak_probe_bench</code> + <code>attn_fd_sweep</code> bench tools, model registry on <code>/v1/models</code> with per-request validation, AppImage single-file install path (~32 MB), AUR package <code>1bit-systems-bin</code>, <code>1bit install all</code> meta-target, NPU toolchain validated on <code>npu5</code> (AIE2P matmul bit-exact), OPTC35 Tier-3 mitigation soaked green.
       </p>
     </section>
 
     <section id="changelog">
       <h2>Changelog</h2>
       <ul>
-        <li><strong>0.1.8</strong> &middot; 2026-04-23 &mdash; NPU toolchain verified on <code>npu5</code> (IRON axpy pytest 160/160, MLIR-AIE &rarr; Peano &rarr; xclbin &rarr; libxrt in 26.8&nbsp;s). Five media lanes live (LLM / TTS / STT / image / video-staged). <code>1bit install all</code> complete-pack meta-target landed. Ship gate still holds; no ternary kernel on NPU yet.</li>
+        <li><strong>0.1.8</strong> &middot; 2026-04-23 &mdash; NPU toolchain validated end-to-end on <code>npu5</code> (IRON axpy pytest 160/160, AIE2P <code>matmul 512×512×512 i8</code> bit-exact, MLIR-AIE &rarr; Peano &rarr; xclbin &rarr; libxrt). OPTC35 Tier-3 mitigation (<code>amdgpu.dcdebugmask=0x410</code>) soaked green &mdash; 2 hours, 703 samples, zero new events. Run 4 (0.5B Sparse-BitNet 3:4) and Run 5 (0.5B 2:4 Microsoft canonical, 2&times; NVL DDP) both in flight on H200 pods. Five media lanes live (LLM / TTS / STT / image / video-staged). <code>1bit install all</code> complete-pack meta-target landed. AUR package <code>1bit-systems-bin</code> published. Ship gate still holds; no ternary kernel on NPU yet.</li>
         <li><strong>0.1.7</strong> &middot; 2026-04-22 &mdash; AppImage single-file install path shipped. <code>gfx1201</code> port promoted from in-flight to <strong>shipped</strong> (14/14 WMMA kernels bit-exact, cross-arch PPL identical). Default multi-arch build covers all 8 consumer AMD Wave32-WMMA parts (RDNA3 + 3.5 + 4). Model registry on <code>/v1/models</code> discovers real <code>.h1b</code> and validates request <code>model</code>. Cross-arch bench suite + <code>peak_probe_bench</code> + <code>attn_fd_sweep</code> landed. H200 NVL replaces SXM as default training pod (15% cheaper). Run 5 (2:4 canonical, 2&times; NVL DDP) planned behind Run 4. Patreon funding ladder (13B / 30B / 70B) declared.</li>
         <li><strong>0.1.6</strong> &middot; 2026-04-22 &mdash; Sparse-BitNet Run 4 launched. Kernel rolled back to 6.18.22-lts. Network topology documented. gfx1201 build variant wired.</li>
         <li><strong>0.1.5</strong> · 2026-04-21 — TriLM INT4 ONNX export complete. NPU placement confirmed blocked. Six-crash investigation and kernel-7.0 rollback plan.</li>
@@ -2066,6 +2102,16 @@ rocprof --stats --timestamp on \
         <li><strong>0.1.2</strong> · 2026-04-18 — Sherry 1.25-bit spike committed. <code>sd.cpp</code> native-HIP port promoted to core.</li>
         <li><strong>0.1.0</strong> · 2026-04 — <code>bitnet_decode</code> online. Halo v2 first responding. ROCm 7.x system build against gfx1151.</li>
       </ul>
+    </section>
+
+    <section id="support">
+      <h2>Support</h2>
+      <p>
+        Our technicians are on call 24 hours a day, 7 days a week.
+      </p>
+      <p>
+        Issues, discussions, and pull requests are handled on <a href="https://github.com/bong-water-water-bong/1bit-systems">GitHub</a>. The <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki" target="_blank" rel="noopener">wiki</a> covers installation, hardware, OPTC troubleshooting, and the FAQ &mdash; most questions answer themselves there.
+      </p>
     </section>
 
     <section id="contact">
