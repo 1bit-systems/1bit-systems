@@ -1,0 +1,21 @@
+pkgbase = 1bit-systems-bin
+	pkgdesc = Local 1-bit / 1.58-bit ternary LLM inference on AMD Strix Halo (AppImage)
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/bong-water-water-bong/1bit-systems
+	arch = x86_64
+	license = MIT
+	depends = fuse2
+	depends = rocm-hip-runtime
+	depends = rocm-core
+	optdepends = rocminfo: recommended, used by preflight gates
+	optdepends = amdxdna-dkms: XDNA2 NPU support (0.1.x glue kernel lands later)
+	optdepends = xrt: runtime dispatch for XDNA2 NPU
+	provides = 1bit-systems
+	conflicts = 1bit-systems
+	conflicts = 1bit-systems-git
+	source = 1bit-systems-0.1.0-x86_64.AppImage::https://github.com/bong-water-water-bong/1bit-systems/releases/download/v0.1.0/1bit-systems-0.1.0-x86_64.AppImage
+	sha256sums = 8a964f89bdef68ed914c04fcf23092ac642c424bb70f74dc10e8558e93b94036
+	noextract = 1bit-systems-0.1.0-x86_64.AppImage
+
+pkgname = 1bit-systems-bin
