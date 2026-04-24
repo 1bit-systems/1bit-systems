@@ -330,3 +330,13 @@ target_link_libraries(bitnet_tui PRIVATE
 
 # -- ck-prefill : research binaries (kept building for tuning) ------------------
 add_subdirectory(ck-prefill)
+
+# -- router-cpp : 1bit.cpp Phase 2 scaffolding (opt-in) ------------------------
+# Default OFF — the Rust router is still the shipping one. Flip ON with
+#   -DBUILD_ROUTER_CPP=ON
+# to build the C++20 mirror side-by-side. See router-cpp/README.md for
+# the port status + file map.
+option(BUILD_ROUTER_CPP "Build the 1bit.cpp router scaffold (Phase 2 port)" OFF)
+if(BUILD_ROUTER_CPP)
+    add_subdirectory(router-cpp)
+endif()

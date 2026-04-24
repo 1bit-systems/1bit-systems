@@ -1,3 +1,8 @@
+// Future — C++ mirror: see `rocm-cpp/router-cpp/src/backend_hip.cpp`. The
+// Phase 2 port kills the sampler-pipe IPC + async overhead (50-80% of
+// kernel tok/s) by running the forward pass synchronously from C++ with
+// no tokio / flume hop between logits and sampler. This Rust source stays
+// as the reference implementation for one release cycle.
 //! HIP backend — forward pass + weight upload.
 //!
 //! This is the Rust port of the `forward_token` lambda at
