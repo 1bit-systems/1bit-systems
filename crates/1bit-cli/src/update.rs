@@ -98,15 +98,33 @@ pub struct Artifact {
     /// `x86_64-linux-gnu`, `aarch64-linux-gnu`, …  Matches Rust target
     /// triples where possible so existing tooling can grep.
     pub platform: String,
-    /// `appimage`, `tarball`, `deb`. Scaffold pass only wires appimage.
+    /// `appimage`, `tarball`, `deb`, `model`, `log`. Only `primary`
+    /// install artifacts get sha256+minisign verified; `log` / `doc`
+    /// attachments ride along as metadata.
     pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub url: String,
-    /// Lowercase hex-encoded SHA-256 over the artifact bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    /// Lowercase hex-encoded SHA-256 over the artifact bytes. Required
+    /// for install artifacts; omitted on auxiliary attachments like logs.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub sha256: String,
     /// Base64 minisign signature block (the full `.minisig` file
     /// contents — untrusted+trusted comments + sig lines). We inline
     /// it into the feed so verify is one HTTP GET away.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub minisign_sig: String,
+    /// True when this artifact is the one the CLI installs by default.
+    /// Defaults to true for backward compatibility with existing feeds
+    /// that don't declare this.
+    #[serde(default = "default_primary")]
+    pub primary: bool,
+}
+
+fn default_primary() -> bool {
+    true
 }
 
 // ─── version compare (semver-lite) ─────────────────────────────────────
