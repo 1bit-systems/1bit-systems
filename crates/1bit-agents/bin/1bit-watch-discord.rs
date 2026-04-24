@@ -526,15 +526,14 @@ impl Handler {
                     )
                     .await;
 
-                    let breadcrumb =
-                        format!("Routed to <#{post}> — follow there.", post = post.id.get());
-                    if let Err(e) = msg.channel_id.say(http.as_ref(), breadcrumb).await {
-                        warn!(error = %e, "failed to post help-desk breadcrumb");
-                    }
+                    // No breadcrumb — keeps origin channel clean.
+                    // DM the asker the routed link instead so they can
+                    // follow their own thread without the channel
+                    // getting chatter.
+                    dm_routed_link(http.as_ref(), msg, post.id.get()).await;
                     // Delete the asker's original message now that the
                     // conversation has moved to the help-desk post.
-                    // Keeps the origin channel clean. Needs
-                    // MANAGE_MESSAGES on echo's role.
+                    // Needs MANAGE_MESSAGES on echo's role.
                     delete_origin_message(http.as_ref(), msg).await;
                 }
                 Err(e) => {
@@ -589,13 +588,9 @@ impl Handler {
             }
         }
 
-        let breadcrumb = format!(
-            "Routed to <#{thread}> — follow there.",
-            thread = thread.id.get()
-        );
-        if let Err(e) = msg.channel_id.say(http.as_ref(), breadcrumb).await {
-            warn!(error = %e, "failed to post help-desk breadcrumb");
-        }
+        // No breadcrumb — keeps origin channel clean.
+        // DM the asker their routed link so follow-up is frictionless.
+        dm_routed_link(http.as_ref(), msg, thread.id.get()).await;
         delete_origin_message(http.as_ref(), msg).await;
     }
 
@@ -1240,6 +1235,34 @@ async fn delete_origin_message(http: &Http, msg: &Message) {
             message_id = %msg.id,
             "deleted origin message post-route"
         );
+    }
+}
+
+/// DM the asker a link to the routed help-desk post/thread. Replaces
+/// the old in-channel breadcrumb — keeps the origin channel clean
+/// while still giving the asker a way to find their own thread.
+/// Falls back silently if DMs are closed or the bot lacks permission.
+async fn dm_routed_link(http: &Http, msg: &Message, routed_id: u64) {
+    let body = format!(
+        "Your question was routed to <#{routed_id}>. Follow there for the reply."
+    );
+    match msg.author.id.create_dm_channel(http).await {
+        Ok(dm) => {
+            if let Err(e) = dm.id.say(http, body).await {
+                info!(
+                    error = %e,
+                    user_id = %msg.author.id,
+                    "failed to DM routed-link breadcrumb (DMs closed?)"
+                );
+            }
+        }
+        Err(e) => {
+            info!(
+                error = %e,
+                user_id = %msg.author.id,
+                "could not open DM channel for routed-link breadcrumb"
+            );
+        }
     }
 }
 
