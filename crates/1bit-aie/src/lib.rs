@@ -41,6 +41,9 @@
 
 #![deny(missing_docs)]
 
+pub mod sys;
+pub mod xrt;
+
 use std::path::Path;
 
 /// Opaque handle for a loaded .xclbin kernel, returned by
