@@ -4,7 +4,7 @@ The stack behaves like a small station — discrete modules, one bus, hard seals
 
 ## Constellation
 
-One host (strixhalo, gfx1151) serves every production HTTP surface. A small Headscale mesh binds two compute peers (sliger, ryzen) and one archive (pi). External callers speak OpenAI-compatible HTTP to a Caddy bearer-checked front door; Caddy splits `/v1/*` to the legacy C++ decoder and `/v2/*` to the gen-2 Rust server. Gen-2 dispatches through `1bit-router` to a HIP backend that crosses the FFI airlock into `rocm-cpp` for ternary GEMV, split-KV Flash-Decoding attention, RoPE, RMSNorm, SiLU, and the KV cache. Voice (halo-whisper, halo-kokoro), image (sd.cpp), tooling (halo-mcp), and agents (1bit-agents) hang off the same host. Every long-lived process is a systemd unit.
+One host (strixhalo, gfx1151) serves every production HTTP surface. A small Headscale mesh binds one audio peer (sliger, Arc B580 Vulkan for STT/TTS), one kernel peer (ryzen, gfx1201 / RX 9070 XT), and one archive (pi). External callers speak OpenAI-compatible HTTP to a Caddy bearer-checked front door, which reverse-proxies `/v1/*` to the Rust `1bit-server` on `:8180`. The server dispatches through `1bit-router` to a HIP backend that crosses the FFI airlock into `rocm-cpp` for ternary GEMV, split-KV Flash-Decoding attention, RoPE, RMSNorm, SiLU, and the KV cache. Voice (halo-whisper, halo-kokoro — hosted on the sliger B580), image (sd.cpp, local), tooling (halo-mcp), and agents (1bit-agents) hang off the same control plane. Every long-lived process is a systemd unit. (Post-cutover state as of v0.1.0, 2026-04-24; the retired gen-1 C++ `bitnet_decode` on `:8080` is disabled.)
 
 ```
                               +-------------------+
@@ -14,61 +14,68 @@ One host (strixhalo, gfx1151) serves every production HTTP surface. A small Head
                               +---------+---------+
                                         |
                               +---------v---------+
-                              |   Caddy :443 TLS  |  bearer check + /v1 vs /v2 split
+                              |   Caddy :443 TLS  |  bearer check
                               +---------+---------+
                                         |
-                +-----------------------+-----------------------+
-                |                       |                       |
-         gen-1  |                gen-2  |               sidecars|
-          (C++) v                (Rust) v                       v
-  +------------------+  +------------------+  +------------------+
-  | bitnet_decode    |  | 1bit-halo-server |  | 1bit-lemonade    |
-  | :8080 /v1/*      |  | :8180 /v2/*      |  | :8200 gateway    |
-  +--------+---------+  +--------+---------+  +--------+---------+
-           |                     |                     |
-           |           FFI       v                     |
-           |            +------------------+           |
-           |            |   1bit-router    |           |
-           |            |   backend = Hip  |           |
-           |            +--------+---------+           |
-           |                     | extern "C"          |
-           v                     v                     v
-  +----------------------------------------------------+
-  |            rocm-cpp (C++20 / HIP)                  |
-  |  ternary_gemv · attention_fd · rope · rmsnorm      |
-  |  silu · kv_cache · h1b_loader · tokenizer          |
-  +------------------------+---------------------------+
-                           | hipcc → gfx1151 ISA
-                           v
-                +------------------+
-                | Radeon 8060S     |
-                | 40 CU · wave32   |
-                | WMMA · 256 GB/s  |
-                +------------------+
+                   +--------------------+--------------------+
+                   |                                         |
+                   | /v1/*                                   | sidecars
+                   v                                         v
+         +------------------+                    +------------------+
+         | 1bit-halo-server |                    | 1bit-lemonade    |
+         | :8180 (Rust)     |                    | :8200 gateway    |
+         +--------+---------+                    +------------------+
+                  |
+                  v
+         +------------------+
+         |   1bit-router    |
+         |   backend = Hip  |
+         +--------+---------+
+                  | extern "C"
+                  v
+         +------------------------------------------+
+         |            rocm-cpp (C++20 / HIP)        |
+         |  ternary_gemv · attention_fd · rope      |
+         |  rmsnorm · silu · kv_cache · h1b_loader  |
+         +------------------+-----------------------+
+                            | hipcc → gfx1151 ISA
+                            v
+                 +------------------+
+                 | Radeon 8060S     |
+                 | 40 CU · wave32   |
+                 | WMMA · 256 GB/s  |
+                 +------------------+
+
+  Retired 2026-04-24 (v0.1.0 cutover): gen-1 bitnet_decode (C++) on :8080
+    unit 1bit-halo-bitnet.service now disabled; :8080 does not bind.
 
   Sidecars (same host, same systemd):
-    halo-whisper :8181      halo-kokoro :8182      sd.cpp :8081
-    1bit-landing :8190      halo-mcp (stdio)       1bit-agents (tokio bus)
-    1bit-watch-discord      1bit-watch-github      halo-memory-sync
+    sd.cpp :8081            1bit-landing :8190     halo-mcp (stdio)
+    1bit-agents (tokio bus) 1bit-watch-discord     1bit-watch-github
+    halo-memory-sync
+
+  Sliger audio node (separate host on the mesh, 100.64.0.2):
+    halo-whisper :8190 (Vulkan, Arc B580)
+    halo-kokoro  :8191 (Vulkan, Arc B580; CPU fallback)
 
   Mesh (Headscale 100.64.0.0/10):
-    strixhalo 100.64.0.1 (this box, coordinator)
-    sliger    100.64.0.2 (1080 Ti, failover)
-    ryzen     100.64.0.3 (gfx1201, second kernel target)
+    strixhalo 100.64.0.1 (this box, coordinator, LLM + image)
+    sliger    100.64.0.2 (Arc B580 Vulkan, STT/TTS; 1080 Ti retired 2026-04-22)
+    ryzen     100.64.0.3 (gfx1201, RX 9070 XT, second kernel target)
     pi        100.64.0.4 (ZFS 3.6 TB, canonical archive)
 ```
 
-See the four-pillar table in [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md) §"The four pillars" for the language / repo split. The short version: pillar 1 is Rust orchestration (this workspace), pillar 2 is HIP kernels (`rocm-cpp`), pillar 3 is Apple-Silicon MLX (feature-gated, dev-only), pillar 4 is reference material (Python lemonade, not runtime).
+See the three-pillar table in [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md) §"The three pillars" for the language / repo split. The short version: pillar 1 is HIP kernels (`rocm-cpp`), pillar 2 is the Rust caller (this workspace), pillar 3 is agents + Rust services on the same box. Apple-Silicon MLX is a feature-gated dev-only side path (not shipped); upstream Python Lemonade is a caller-side reference (not runtime). Our own `1bit-lemonade` crate (Rust) is a separate implementation, not a Lemonade port.
 
 ## Ports + surfaces
 
 | port | binding | service | surface | notes |
 |---:|---|---|---|---|
 | 443 | public | caddy | TLS | bearer check on `/v1`, `/v2` |
-| 8080 | 127.0.0.1 | bitnet_decode (C++) | `/v1/*` | gen-1, served behind `/v1/*` |
-| 8180 | 127.0.0.1 | 1bit-halo-server (Rust) | `/v2/*` | gen-2, feature `real-backend` |
-| 8181 | 127.0.0.1 | halo-whisper | STT | whisper.cpp streaming wrapper |
-| 8182 | 127.0.0.1 | halo-kokoro | TTS | kokoro.cpp, single-header |
+| 8180 | 127.0.0.1 | 1bit-halo-server (Rust) | `/v1/*` | production LLM; feature `real-backend` |
+| ~~8080~~ | — | ~~bitnet_decode (C++)~~ | ~~`/v1/*`~~ | retired at v0.1.0 cutover; unit disabled |
+| 8190 | sliger | halo-whisper | STT | whisper.cpp Vulkan on Arc B580 (separate host) |
+| 8191 | sliger | halo-kokoro | TTS | kokoro.cpp Vulkan on Arc B580 (separate host) |
 | 8081 | 127.0.0.1 | sd.cpp | SDXL | image-gen sidecar |
 | 8190 | 127.0.0.1 | 1bit-landing | HTML | `/studio/*` landing + wiki proxy |
 | 8200 | 127.0.0.1 | 1bit-lemonade | `/v1/models` | OpenAI-compat model gateway |
@@ -423,28 +430,28 @@ H200 measured **49.5k tok/s** on the Sparse-BitNet 3:4 config. 10 B tokens / 49.
 
 ### Artifact flow
 
-pod → rsync to pi 100.64.0.4 (archive, ZFS) → requantizer (local, Rust) → `.h1b` → scp to strixhalo → shadow-burnin → cutover. See [Why-Shadow-Burnin](./Why-Shadow-Burnin.md).
+pod → rsync to pi 100.64.0.4 (archive, ZFS) → requantizer (local, Rust) → `.h1b` → scp to strixhalo → PPL + smoke → deploy. (Pre-v0.1.0 this flow included a shadow-burnin leg against gen-1; that leg closed at cutover.) See [Why-Shadow-Burnin](./Why-Shadow-Burnin.md).
 
-## Shadow-burnin
+## Shadow-burnin (historical — cutover complete at v0.1.0)
 
-Continuous v1-vs-v2 argmax comparison. Same prompt, same sampler, run on both `/v1/*` (gen-1 C++) and `/v2/*` (gen-2 Rust). Compare logits + argmax per position.
+Continuous v1-vs-v2 argmax comparison ran between gen-1 C++ (`:8080`) and gen-2 Rust (`:8180`) through the 2026-04-21 → 04-23 window. Same prompt, same sampler, logits + argmax compared per position.
 
 ```
 interval        : 30 s
 state file      : ~/.local/share/1bit-halo/shadow-burnin.state
 log (JSONL)     : ~/claude output/shadow-burnin.jsonl
 cutover gate    : ≥ 96% bit-exact argmax across 72 h rolling
-current         : 96.67% (post-special-token fix)
+final           : 96.66% (v0.1.0, cutover landed)
 ```
 
-The `~/claude output/` quoting matters — the space is intentional, see memory `feedback_benchmark_output_folder`. Harness lives at `benchmarks/shadow-burnin.sh` and logs one JSON object per compared completion. See [Why-Parity-Gates](./Why-Parity-Gates.md).
+The `~/claude output/` quoting matters — the space is intentional, see memory `feedback_benchmark_output_folder`. Harness lives at `benchmarks/shadow-burnin.sh`. Retained for future backend swaps (e.g. NPU-backed serving) where the same comparator is useful. See [Why-Parity-Gates](./Why-Parity-Gates.md).
 
-Cutover criteria (repeated from [ARCHITECTURE.md](../../ARCHITECTURE.md) §"Cutover criteria"):
+Cutover gates that were satisfied pre-v0.1.0:
 
-1. PPL parity on wikitext within **±0.05** of the gen-1 baseline (9.1607). Current gen-2: 9.1805 → delta +0.02 → PASS.
-2. Shadow-burnin **≥96%** byte-exact for a continuous 72 h window under real traffic, with no service restarts and no memory growth.
+1. PPL parity on wikitext within **±0.05** of the gen-1 baseline (9.1607). Final gen-2: 9.1805 → delta +0.02 → PASS.
+2. Shadow-burnin **≥96%** byte-exact across 1500+ rounds → PASS.
 
-Until both hold, gen-1 serves `/v1/*` and gen-2 runs silently on `:8180`.
+As of v0.1.0 (2026-04-24) gen-2 Rust `1bit-server` owns `/v1/*` on `:8180`. The gen-1 `bitnet_decode` unit is disabled.
 
 ## Mesh
 
@@ -475,20 +482,24 @@ The `100.64.0.0/10` range is CGNAT-reserved in RFC 6598; it is specifically allo
 Systemd unit graph (user scope, installed from `strixhalo/systemd/`):
 
 ```
-  strix-server.service        — 1bit-halo-server :8180   (gen-2 Rust)
-  1bit-halo-bitnet.service    — bitnet_decode :8080      (gen-1 C++)
+  strix-server.service        — 1bit-halo-server :8180   (production LLM, Rust)
   strix-lemonade.service      — 1bit-lemonade :8200
   strix-landing.service       — 1bit-landing :8190
   strix-echo.service          — echo poster (Discord)
   strix-watch-discord.service — halo listener
   strix-watch-github.timer    — 300 s poll
-  1bit-halo-whisper.service   — STT :8181
-  1bit-halo-kokoro.service    — TTS :8182
   1bit-halo-sd.service        — sd.cpp :8081
   1bit-halo-anvil.timer       — kernel rebuild on rocm-cpp commits
   1bit-halo-memory-sync.timer — GH push of ~/.claude/.../memory every 15m
   strix-cloudflared.service   — optional public ingress
-  strix-burnin.service        — shadow-burnin harness
+
+  Retired (disabled, kept for archive):
+  1bit-halo-bitnet.service    — gen-1 bitnet_decode :8080 (cutover at v0.1.0)
+  strix-burnin.service        — shadow-burnin harness (kept for future backend swaps)
+
+  On sliger (separate host, 100.64.0.2):
+  1bit-halo-whisper.service   — STT :8190 (Arc B580 Vulkan)
+  1bit-halo-kokoro.service    — TTS :8191 (Arc B580 Vulkan)
 ```
 
 Caddy fronts TLS at `:443` (system-level service, not user). Headscale fronts at `:8380` (loopback) fronted by Caddy as `headscale.<host>` on `:443`. Full layout: [Why-Caddy-Systemd](./Why-Caddy-Systemd.md).

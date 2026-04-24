@@ -1,5 +1,7 @@
 # CUTOVER.md — flipping `/v1/*` from gen-1 C++ to gen-2 Rust
 
+> **Status: completed at v0.1.0 (2026-04-24).** This document is retained as a historical runbook; the cutover described below has already happened. `/v1/*` now terminates at `127.0.0.1:8180` (`1bit-server`, Rust). The gen-1 `bitnet_decode` (C++) service on `:8080` is disabled and the `/v1-legacy/*` escape hatch has not been needed. The gates and procedure are preserved in case a future backend swap (e.g. NPU-backed serving) needs the same pattern.
+
 When to run: after the 72-hour shadow burn-in clears the gates below.
 What happens: Caddy's `/v1/*` route moves from `127.0.0.1:8080`
 (`bitnet_decode`, C++) to `127.0.0.1:8180` (`1bit-server`, Rust). Gen-1

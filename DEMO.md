@@ -17,10 +17,11 @@ Voice-over: "1bit systems runs on this single Strix Halo mini-PC — AMD Radeon 
 
 Switch to browser, visit **https://strixhalo.local/**.
 
-Voice-over: "Four pillars. All four green on this box right now. The tok/s
-number in the hero is live — it's reading /metrics from the Rust server."
+Voice-over: "Three pillars — HIP kernels, Rust caller, agents + services.
+All green on this box right now. The tok/s number in the hero is live —
+it's reading /metrics from the Rust server."
 
-Scroll once to show the 4-pillar grid + benchmark table.
+Scroll once to show the pillar grid + benchmark table.
 
 ## 00:35 — one chat completion (30s)
 
@@ -34,22 +35,26 @@ curl -s http://127.0.0.1:8180/v1/chat/completions \
 ```
 
 Expected: a coherent one-sentence answer in <1s. Voice-over during: "This
-is the gen-2 Rust 1bit-server on port 8180, hitting real 2-bit BitNet
+is the Rust 1bit-server on port 8180, hitting hand-written ternary BitNet
 kernels on the GPU."
 
 ## 01:05 — parity proof (30s)
 
+Prior to v0.1.0 (2026-04-24) this slot showed the live gen-1 (C++, :8080)
+vs gen-2 (Rust, :8180) shadow-burnin. The cutover is done — gen-2 owns
+`:8180`, gen-1 is retired. Show the archived summary instead:
+
 ```bash
-/home/bcloud/1bit systems-core/benchmarks/shadow-burnin.sh --summary
+/home/bcloud/1bit systems-core/benchmarks/shadow-burnin.sh --summary --archive
 ```
 
-Point at the numbers: rounds (≥1000), exact-match rate (≥96%), p95 latency
-on both sides within ~10ms.
+Point at the numbers: rounds (1500+), exact-match rate 96.66% at
+temperature zero, PPL 9.1805 (Rust) vs 9.1607 (C++ baseline).
 
-Voice-over: "Gen-1 C++ on port 8080 and gen-2 Rust on 8180 agree
-byte-for-byte 96 percent of the time at temperature zero. The remaining
-4 percent is sub-ULP FP16 rounding — PPL on wikitext is 9.18 vs Microsoft's
-9.16 paper baseline."
+Voice-over: "Before we cut over, gen-1 C++ and gen-2 Rust agreed
+byte-for-byte 96.66 percent of the time at temperature zero. The remaining
+~3 percent is sub-ULP FP16 rounding. PPL on wikitext is 9.18 vs Microsoft's
+9.16 paper baseline — inside tolerance. Rust owns :8180 as of v0.1.0."
 
 ## 01:35 — install story (45s)
 
@@ -78,15 +83,14 @@ install — standard ops story."
 
 ## 02:50 — close (15s)
 
-Voice-over: "Four private repos on GitHub, 93 workspace tests green, CI on
-every push. Source is not public yet; launch happens after the 72-hour
-shadow burn-in completes. Ping me for a read-only collaborator invite."
+Voice-over: "Public repos on GitHub, 90+ workspace tests green, CI on
+every push. v0.1.0 shipped 2026-04-24. Next gate is the NPU serve-path
+trip — public launch opens when that lands."
 
 End card: 1bit systems wordmark + "strix-ai-rs — built on Strix Halo".
 
 ## Pre-roll checklist
 
-- [ ] Shadow burn-in must have ≥1000 rounds + ≥95% byte-exact match rate.
 - [ ] `1bit doctor` green (0 warn, 0 fail).
 - [ ] Landing page loads without cert warnings (accept halo CA once in the
   browser profile you record with).

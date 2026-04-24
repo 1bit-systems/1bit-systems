@@ -75,6 +75,10 @@ One AppImage, 20 symlinked binary names, dispatched via `$ARGV0`. Full walkthrou
 
 Five house rules (A–E: no python at runtime, C++20 for kernels, no hipBLAS, Rust 1.88 edition 2024, ORT+VitisAI primary NPU lane) — see [CLAUDE.md](./CLAUDE.md) and [CONTRIBUTING.md](./CONTRIBUTING.md).
 
+### supported targets
+
+Shipping target is Strix Halo `gfx1151` (plus the wider RDNA3 / RDNA3.5 / RDNA4 Wave32-WMMA arches covered by the `rocm-cpp` fat-binary). The Apple-Silicon MLX backend (`--features mlx-apple`, via the `1bit-mlx` crate wrapping `bitnet-mlx-rs`) is a **dev-only path; not a supported deployment target.** It exists for Mac-side development ergonomics — quick iteration on tokenizer, chat-template, and sampler without a strixhalo box in reach. Nothing in the release artefacts runs on MLX.
+
 > *every piece snaps in and snaps out. zero telemetry. zero cloud. bring your own APU.*
 
 ## license
