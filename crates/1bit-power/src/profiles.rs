@@ -32,8 +32,12 @@ pub struct Profile {
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct Profiles {
+    // No deny_unknown_fields here: combined with #[serde(flatten)]
+    // serde treats every profile name ([quiet], [balanced], ...) as an
+    // "unknown" field at the outer struct and rejects the whole file.
+    // Per-knob strictness is still enforced by the inner Profile struct.
     #[serde(flatten)]
     map: BTreeMap<String, Profile>,
 }
