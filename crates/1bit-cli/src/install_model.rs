@@ -31,6 +31,10 @@ use std::time::Duration;
 
 /// Data shape must match `[model.*]` in `packages.toml`. Kept local to
 /// avoid making `Model` public from install.rs.
+// description + requires are mirrored from packages.toml for round-trip
+// fidelity; current install flow doesn't use them at runtime but drops
+// are tracked by the sibling Model struct's field list.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ModelSpec {
     pub id: String,

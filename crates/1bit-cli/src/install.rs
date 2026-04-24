@@ -40,8 +40,12 @@ struct Model {
     /// release pin), `PENDING-RUN*` = weights not yet trained.
     #[serde(default)]
     sha256: String,
+    // size_mb + license are kept for packages.toml round-trip fidelity
+    // but not consumed today; `install_model` reads them via ModelSpec.
+    #[allow(dead_code)]
     #[serde(default)]
     size_mb: u64,
+    #[allow(dead_code)]
     #[serde(default)]
     license: String,
     /// Engine components this model needs (tts-engine, image-engine, ...).
@@ -151,10 +155,10 @@ fn workspace_root() -> &'static Path {
 
 /// Resolve the user config root. XDG first, then ~/.config.
 fn user_config_root() -> Result<PathBuf> {
-    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
-        if !xdg.is_empty() {
-            return Ok(PathBuf::from(xdg));
-        }
+    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME")
+        && !xdg.is_empty()
+    {
+        return Ok(PathBuf::from(xdg));
     }
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no $HOME"))?;
     Ok(home.join(".config"))

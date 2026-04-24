@@ -224,10 +224,10 @@ fn summarize_info(info: &str) -> String {
 /// column separator that ryzenadj --info uses. Falls back to the last
 /// whitespace token on lines without a `|`.
 fn pick_value(line: &str) -> String {
-    if let Some(rest) = line.split('|').nth(1) {
-        if let Some(tok) = rest.split_whitespace().next() {
-            return tok.trim().to_string();
-        }
+    if let Some(rest) = line.split('|').nth(1)
+        && let Some(tok) = rest.split_whitespace().next()
+    {
+        return tok.trim().to_string();
     }
     line.split_whitespace().last().unwrap_or("?").to_string()
 }

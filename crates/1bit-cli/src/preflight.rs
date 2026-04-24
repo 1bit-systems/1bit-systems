@@ -129,7 +129,9 @@ impl SystemProbe for RealProbe {
         }
         // f_bavail = blocks available to non-root; f_frsize = fragment
         // size in bytes. Multiply to bytes, then /1 GiB.
-        let bytes = (st.f_bavail as u64).saturating_mul(st.f_frsize as u64);
+        // (libc already types these as u64 on Linux — explicit casts are
+        // a no-op and clippy flags them.)
+        let bytes = st.f_bavail.saturating_mul(st.f_frsize);
         bytes / (1024 * 1024 * 1024)
     }
 

@@ -382,10 +382,10 @@ async fn download_to(url: &str, dest: &Path, max_bytes: u64) -> Result<()> {
     if !resp.status().is_success() {
         bail!("artifact {} returned HTTP {}", url, resp.status());
     }
-    if let Some(len) = resp.content_length() {
-        if len > max_bytes {
-            bail!("artifact too large: {len} bytes > cap {max_bytes}");
-        }
+    if let Some(len) = resp.content_length()
+        && len > max_bytes
+    {
+        bail!("artifact too large: {len} bytes > cap {max_bytes}");
     }
 
     let mut file = tokio::fs::File::create(dest)
