@@ -367,6 +367,13 @@ unsafe extern "C" {
         stream: *mut c_void,
     ) -> rcpp_status_t;
 
+    pub fn rcpp_argmax_fp16_top1(
+        logits_dev: *const c_void,
+        out_idx_dev: *mut c_void,
+        V: c_int,
+        stream: *mut c_void,
+    ) -> rcpp_status_t;
+
     pub fn rcpp_fp16_gemv(
         W_dev: *const c_void,
         x_dev: *const c_void,
@@ -774,6 +781,11 @@ mod stub {
     ) -> rcpp_status_t);
 
     stub_fn!(rcpp_argmax_fp32(
+        logits_dev: *const c_void, out_idx_dev: *mut c_void, V: c_int,
+        stream: *mut c_void
+    ) -> rcpp_status_t);
+
+    stub_fn!(rcpp_argmax_fp16_top1(
         logits_dev: *const c_void, out_idx_dev: *mut c_void, V: c_int,
         stream: *mut c_void
     ) -> rcpp_status_t);

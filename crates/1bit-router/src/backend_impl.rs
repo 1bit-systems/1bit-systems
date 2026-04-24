@@ -690,13 +690,94 @@ impl HipBackend {
     /// `logits_out` lets the caller reuse a host-side buffer across calls
     /// (sized to `vocab_size`). It's always overwritten on success.
     ///
-    /// This is the single hot path. It takes `&mut self` because every
-    /// scratch buffer and the KV cache are borrowed mutably.
+    /// This is the sampled-decode hot path. Greedy-only callers should
+    /// prefer [`Self::forward_token_greedy`] — same forward pass, no
+    /// 512 KB D→H copy, no host-argmax reconcile. It takes `&mut self`
+    /// because every scratch buffer and the KV cache are borrowed mutably.
     pub fn forward_token(
         &mut self,
         token_id: i32,
         pos: i32,
         logits_out: &mut Vec<f32>,
+    ) -> Result<i32, BackendError> {
+        let dev_next = self.forward_pass_to_device_argmax(token_id, pos)?;
+        let vocab = self.cfg.vocab_size;
+
+        // 0.1.0 fast path: when the caller doesn't need logits (callsite
+        // left `logits_out` empty or opted in via HALO_SKIP_LOGITS_COPY=1
+        // for shadow-burnin parity toggling), skip the 512 KB D→H copy
+        // and the O(vocab) host-argmax reconcile. Kept for backwards
+        // compatibility with callers that opportunistically clear
+        // `logits_out`; new greedy-only callers should use the dedicated
+        // [`Self::forward_token_greedy`] entry point instead — same
+        // fast-path behaviour, no env gate, no host Vec<f32> needed.
+        let skip_copy = !std::env::var("HALO_SKIP_LOGITS_COPY")
+            .map(|v| matches!(v.as_str(), "0" | "false" | "no" | ""))
+            .unwrap_or(false)
+            && logits_out.is_empty();
+        if skip_copy {
+            return Ok(dev_next);
+        }
+
+        // Copy logits back to host for non-greedy sampling paths.
+        if logits_out.len() != vocab as usize {
+            logits_out.resize(vocab as usize, 0.0);
+        }
+        self.scratch
+            .logits
+            .copy_to_slice(logits_out.as_mut_slice())?;
+
+        // Deterministic host argmax: strict `>` preserves the first
+        // (lowest) index on ties. If the device agreed, we keep its
+        // answer (zero-cost); if not, the device hit a tie and we
+        // override with the lower index.
+        let next = host_argmax_lowest_index(logits_out, dev_next);
+
+        Ok(next)
+    }
+
+    /// Dedicated greedy-only fast path. Runs the same forward pass as
+    /// [`Self::forward_token`] but **skips the logits D→H memcpy
+    /// entirely** and returns the on-device argmax index verbatim.
+    ///
+    /// Why a dedicated entry point (rather than relying on
+    /// [`Self::forward_token`] + empty `logits_out` +
+    /// `HALO_SKIP_LOGITS_COPY`)?
+    ///
+    ///   * **No env dance.** Callers that know they want greedy (temp=0
+    ///     or top-k=1 with no logprob-return) get the fast path by
+    ///     construction, regardless of how `HALO_SKIP_LOGITS_COPY` is
+    ///     set.
+    ///   * **No host-argmax reconcile.** The reconcile existed only for
+    ///     bit-exact tie determinism during the C++↔Rust shadow-burnin
+    ///     cutover. Greedy callers that accept device-argmax semantics
+    ///     don't pay that O(vocab) scan.
+    ///   * **No 512 KB allocation pressure.** The `logits_out` `Vec<f32>`
+    ///     doesn't need to exist on the call path at all.
+    ///
+    /// Savings on halo-1bit-2b (vocab=128256, fp32 logits = 512 KB):
+    /// ~20-40 µs skipped memcpy + ~50-80 µs skipped host-scan per
+    /// token. At 64-token decode context that's roughly 2-5 tok/s back;
+    /// the gain grows as decode tok/s grows because the per-token fixed
+    /// overhead becomes a larger fraction of each step. See
+    /// `benchmarks/greedy-fast-path.sh` for the harness.
+    pub fn forward_token_greedy(
+        &mut self,
+        token_id: i32,
+        pos: i32,
+    ) -> Result<i32, BackendError> {
+        self.forward_pass_to_device_argmax(token_id, pos)
+    }
+
+    /// Shared forward-pass core used by both [`Self::forward_token`]
+    /// and [`Self::forward_token_greedy`]. Runs the full 30-layer stack,
+    /// dispatches the on-device argmax, synchronises, and returns the
+    /// device-argmax token id. Leaves `self.scratch.logits` populated
+    /// on device so callers may optionally memcpy it back.
+    fn forward_pass_to_device_argmax(
+        &mut self,
+        token_id: i32,
+        pos: i32,
     ) -> Result<i32, BackendError> {
         if (pos as usize) >= self.max_context {
             return Err(BackendError::Context {
@@ -1100,16 +1181,18 @@ impl HipBackend {
             stream,
         ))?;
 
-        // Greedy argmax on device (fast path). We also run a deterministic
-        // host-side argmax below and reconcile: on a tie (two tokens with
-        // the exact same f32 logit), the HIP warp-reduction can land on
-        // EITHER tied lane depending on the per-thread stride-scan (see
-        // `rcpp_argmax_fp32` in `rocm-cpp/src/prim_kernels.hip`), which is
-        // a real source of drift against gen-1's effective behaviour on
-        // prompts like "The chemical symbol for gold is" where the model
-        // puts ~equal mass on two tokens. Host reconciliation forces
-        // lowest-token-id-wins-on-tie — a stable total order that matches
-        // a plain linear scan on both gen-1 and gen-2.
+        // Greedy argmax on device. Callers of [`Self::forward_token`]
+        // may optionally reconcile against a deterministic host-side
+        // scan for bit-exact tie determinism;
+        // [`Self::forward_token_greedy`] trusts the device answer
+        // verbatim (no D→H logits copy, no host reconcile).
+        //
+        // Background on the reconcile: on a tie (two tokens with the
+        // exact same fp32 logit), the HIP warp reduction can land on
+        // either tied lane depending on the per-thread stride-scan.
+        // Host reconcile — when invoked — forces
+        // lowest-token-id-wins-on-tie, the total order matching a
+        // plain linear scan on both gen-1 and gen-2.
         ok(hip::argmax_fp32(
             self.scratch.logits.as_device_ptr(),
             self.scratch.next_tok_dev.as_device_mut_ptr(),
@@ -1119,37 +1202,7 @@ impl HipBackend {
         hip::device_synchronize()?;
         let dev_next = self.scratch.next_tok_dev.copy_to_host_scalar()?;
 
-        // 0.1.0 fast path: when the caller doesn't need logits (callsite
-        // left `logits_out` empty or opted in via HALO_SKIP_LOGITS_COPY=1
-        // for shadow-burnin parity toggling), skip the 512 KB D→H copy
-        // and the O(vocab) host-argmax reconcile. For halo-1bit-2b that
-        // saves ~20-40 µs memcpy + 50-80 µs host scan per token (~0.1 ms
-        // / 6-10 tok/s at 64-tok decode). Trusts the device argmax; the
-        // reconcile existed only for bit-exact tie determinism during
-        // the C++↔Rust shadow-burnin cutover. Flip HALO_SKIP_LOGITS_COPY=0
-        // to restore the pre-fix behaviour if a parity regression shows up.
-        let skip_copy = !std::env::var("HALO_SKIP_LOGITS_COPY")
-            .map(|v| matches!(v.as_str(), "0" | "false" | "no" | ""))
-            .unwrap_or(false)
-            && logits_out.is_empty();
-        if skip_copy {
-            return Ok(dev_next);
-        }
-
-        // Copy logits back to host for non-greedy sampling paths.
-        if logits_out.len() != vocab as usize {
-            logits_out.resize(vocab as usize, 0.0);
-        }
-        self.scratch
-            .logits
-            .copy_to_slice(logits_out.as_mut_slice())?;
-
-        // Deterministic host argmax: strict `>` preserves the first (lowest)
-        // index on ties. If the device agreed, we keep its answer (zero-cost);
-        // if not, the device hit a tie and we override with the lower index.
-        let next = host_argmax_lowest_index(logits_out, dev_next);
-
-        Ok(next)
+        Ok(dev_next)
     }
 
     /// Reset decode state at the start of a new conversation.

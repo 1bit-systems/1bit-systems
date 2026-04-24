@@ -827,18 +827,15 @@ fn generate_blocking(
         let pos = inner.pos + step_count as i32;
 
         // -------------------------------------------------------------
-        // Base forward pass. Medusa path takes a variant that also
-        // copies the post-final-norm hidden state back to the host so
-        // the heads can project it into candidate-token logits.
+        // Base forward pass. Three dispatch targets:
+        //   * Medusa → forward_token_with_hidden (copies post-final-norm
+        //     hidden so the heads can project into candidate logits).
+        //   * Greedy (temp <= 0, no sampler work) →
+        //     forward_token_greedy (dedicated fast path; skips the
+        //     512 KB D→H logits copy and the host-argmax reconcile).
+        //   * Sampled (temp > 0) → forward_token (full logits copied
+        //     back to host for the sampler to chew on).
         // -------------------------------------------------------------
-        // Greedy fast-path opt-in: clearing logits_scratch before the
-        // forward call signals forward_token to skip the 512 KB D→H copy
-        // and the host-argmax reconcile (see HALO_SKIP_LOGITS_COPY note
-        // in backend_impl.rs). For temp>0 we need the full logits vector
-        // on host for the sampler, so we leave it populated.
-        if !medusa_active && req.sampler.temperature <= 0.0 {
-            logits_scratch.clear();
-        }
         let argmax_next = if medusa_active {
             inner.backend.forward_token_with_hidden(
                 cur,
@@ -846,6 +843,12 @@ fn generate_blocking(
                 &mut logits_scratch,
                 &mut hidden_scratch,
             )?
+        } else if req.sampler.temperature <= 0.0 {
+            // Dedicated greedy fast path: no logits buffer touched,
+            // no env gate, no host reconcile. See
+            // `HipBackend::forward_token_greedy` for the full savings
+            // breakdown.
+            inner.backend.forward_token_greedy(cur, pos)?
         } else {
             inner.backend.forward_token(cur, pos, &mut logits_scratch)?
         };

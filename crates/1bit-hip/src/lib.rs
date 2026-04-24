@@ -640,6 +640,29 @@ pub fn argmax_fp32(
     RcppStatus::from_raw(raw)
 }
 
+/// Top-1 argmax over FP16 logits — writes max-index to `*out_idx_dev`.
+/// Paired with `forward_token_greedy`'s D→H-skip fast path for a future
+/// fp16-output lm_head variant. Caller pre-allocates one `i32` on device
+/// for `out_idx_dev`.
+pub fn argmax_fp16_top1(
+    logits: DevicePtr<u16>,
+    out_idx: DeviceMutPtr<i32>,
+    v: i32,
+    stream: HipStream,
+) -> RcppStatus {
+    // SAFETY: pointer forwarding; out_idx is a single int32 on device.
+    // `u16` is the Rust-side stand-in for `__half` (same layout on gfx1151).
+    let raw = unsafe {
+        ffi::rcpp_argmax_fp16_top1(
+            logits.as_void(),
+            out_idx.as_void(),
+            v as c_int,
+            stream.as_raw(),
+        )
+    };
+    RcppStatus::from_raw(raw)
+}
+
 // -----------------------------------------------------------------------------
 // Embedding lookup
 // -----------------------------------------------------------------------------
