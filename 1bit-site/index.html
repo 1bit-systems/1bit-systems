@@ -1,731 +1,303 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>1bit.systems — Local ternary inference on AMD Strix Halo</title>
-<meta name="description" content="Native ternary LLM stack on AMD Strix Halo. C++20 HIP kernels, Rust orchestration. No Python at runtime. No cloud.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<style>
-  :root {
-    /* Dark-first theme with glowing turquoise + magenta */
-    --bg: #0a0e10;
-    --bg-sidebar: #0d1215;
-    --bg-code: #111619;
-    --text: #e6edef;
-    --text-muted: #8a9397;
-    --text-subtle: #565d61;
-
-    /* PRIMARY: glowing turquoise */
-    --accent: #00e5d1;
-    --accent-soft: #00e5d166;
-    --accent-glow: #00e5d140;
-
-    /* SECONDARY: deep magenta */
-    --magenta: #ff3d9a;
-    --magenta-soft: #ff3d9a66;
-    --magenta-glow: #ff3d9a33;
-
-    --border: #1a2125;
-    --border-strong: #26323a;
-
-    --sidebar-width: 260px;
-    --content-max: 760px;
-    --header-height: 60px;
-  }
-
-  /* Optional light mode */
-  @media (prefers-color-scheme: light) {
-    :root {
-      --bg: #f5f8f9;
-      --bg-sidebar: #eef3f5;
-      --bg-code: #e4ebee;
-      --text: #0a1518;
-      --text-muted: #4a5459;
-      --text-subtle: #859095;
-      --accent: #008577;
-      --accent-soft: #00857766;
-      --accent-glow: #00857720;
-      --magenta: #c91d6f;
-      --magenta-soft: #c91d6f66;
-      --magenta-glow: #c91d6f20;
-      --border: #d4dde1;
-      --border-strong: #b8c3c8;
-    }
-  }
-
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-
-  html { scroll-behavior: smooth; scroll-padding-top: 80px; }
-
-  body {
-    font-family: 'Inter', -apple-system, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    line-height: 1.7;
-    font-size: 16px;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-
-  /* Ambient background glow — subtle cyan/magenta wash on dark */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 0;
-    background:
-      radial-gradient(ellipse 800px 600px at 15% 20%, var(--accent-glow), transparent 60%),
-      radial-gradient(ellipse 700px 500px at 85% 80%, var(--magenta-glow), transparent 60%);
-    opacity: 0.6;
-  }
-  @media (prefers-color-scheme: light) {
-    body::before { opacity: 0.4; }
-  }
-
-  header.topbar {
-    position: fixed;
-    top: 0; left: 0; right: 0;
-    height: var(--header-height);
-    background: rgba(10, 14, 16, 0.75);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    border-bottom: 1px solid var(--border);
-    z-index: 100;
-    display: flex;
-    align-items: center;
-    padding: 0 32px;
-  }
-
-  @media (prefers-color-scheme: light) {
-    header.topbar { background: rgba(245, 248, 249, 0.75); }
-  }
-
-  .logo {
-    font-family: 'Fraunces', serif;
-    font-weight: 600;
-    font-size: 18px;
-    letter-spacing: -0.02em;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    color: var(--text);
-    text-decoration: none;
-  }
-  .logo:hover {
-    text-decoration: none;
-  }
-
-  /* Logo mark: glowing turquoise halo */
-  .logo-mark {
-    width: 24px; height: 24px;
-    border: 2px solid var(--accent);
-    border-radius: 50%;
-    position: relative;
-    box-shadow:
-      0 0 12px var(--accent-soft),
-      inset 0 0 8px var(--accent-glow);
-    animation: halo-pulse 4s ease-in-out infinite;
-  }
-  .logo-mark::after {
-    content: '';
-    position: absolute;
-    inset: 4px;
-    border-radius: 50%;
-    background: radial-gradient(circle at 30% 30%, var(--accent), transparent 65%);
-    opacity: 0.7;
-  }
-
-  @keyframes halo-pulse {
-    0%, 100% {
-      box-shadow: 0 0 12px var(--accent-soft), inset 0 0 8px var(--accent-glow);
-    }
-    50% {
-      box-shadow: 0 0 18px var(--accent), inset 0 0 12px var(--accent-soft);
-    }
-  }
-
-  .logo-text em {
-    font-style: italic;
-    font-weight: 400;
-    color: var(--magenta);
-    text-shadow: 0 0 10px var(--magenta-glow);
-  }
-
-  .topbar-meta {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-    gap: 16px;
-  }
-
-  .version-tag {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    color: var(--text-subtle);
-    letter-spacing: 0.02em;
-  }
-
-  .version-tag .dot {
-    display: inline-block;
-    width: 8px; height: 8px;
-    background: var(--accent);
-    border-radius: 50%;
-    margin-right: 8px;
-    vertical-align: middle;
-    box-shadow: 0 0 10px var(--accent), 0 0 18px var(--accent-soft);
-    animation: pulse 2s ease-in-out infinite;
-  }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; box-shadow: 0 0 10px var(--accent), 0 0 18px var(--accent-soft); }
-    50% { opacity: 0.6; box-shadow: 0 0 6px var(--accent); }
-  }
-
-  .layout {
-    display: flex;
-    padding-top: var(--header-height);
-    min-height: 100vh;
-    position: relative;
-    z-index: 1;
-  }
-
-  aside.sidebar {
-    width: var(--sidebar-width);
-    flex-shrink: 0;
-    position: fixed;
-    top: var(--header-height);
-    bottom: 0;
-    left: 0;
-    overflow-y: auto;
-    background: rgba(13, 18, 21, 0.6);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border-right: 1px solid var(--border);
-    padding: 20px 0 32px;
-    z-index: 10;
-  }
-  @media (prefers-color-scheme: light) {
-    aside.sidebar { background: rgba(238, 243, 245, 0.8); }
-  }
-
-  .sidebar::-webkit-scrollbar { width: 4px; }
-  .sidebar::-webkit-scrollbar-track { background: transparent; }
-  .sidebar::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 2px; }
-  .sidebar::-webkit-scrollbar-thumb:hover { background: var(--accent); }
-
-  .nav-list { list-style: none; padding: 8px 0; }
-
-  .nav-list a {
-    display: flex;
-    align-items: center;
-    width: 100%;
-    padding: 8px 24px 8px 28px;
-    color: var(--text-muted);
-    text-decoration: none;
-    font-size: 14px;
-    font-family: 'Inter', sans-serif;
-    font-weight: 400;
-    border-left: 2px solid transparent;
-    transition: color 0.15s, border-color 0.15s, background 0.15s, text-shadow 0.15s;
-    line-height: 1.5;
-  }
-
-  .nav-list a:hover {
-    color: var(--text);
-  }
-
-  .nav-list a.active {
-    color: var(--accent);
-    border-left-color: var(--accent);
-    font-weight: 500;
-    background: linear-gradient(90deg, var(--accent-glow), transparent 70%);
-    text-shadow: 0 0 12px var(--accent-soft);
-    box-shadow: inset 2px 0 12px -4px var(--accent-soft);
-  }
-
-  .nav-label {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: var(--text-subtle);
-    padding: 16px 24px 8px 28px;
-  }
-
-  main {
-    flex: 1;
-    margin-left: var(--sidebar-width);
-    padding: 48px 64px 120px;
-    max-width: calc(var(--content-max) + 128px);
-    position: relative;
-    z-index: 2;
-  }
-
-  .eyebrow {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.15em;
-    color: var(--magenta);
-    margin-bottom: 16px;
-    text-shadow: 0 0 12px var(--magenta-glow);
-  }
-
-  h1 {
-    font-family: 'Fraunces', serif;
-    font-weight: 600;
-    font-size: 52px;
-    line-height: 1.1;
-    letter-spacing: -0.03em;
-    margin-bottom: 20px;
-    color: var(--text);
-  }
-
-  .lede {
-    font-family: 'Fraunces', serif;
-    font-weight: 400;
-    font-size: 22px;
-    line-height: 1.5;
-    color: var(--text-muted);
-    margin-bottom: 32px;
-    max-width: 640px;
-  }
-
-  h2 {
-    font-family: 'Fraunces', serif;
-    font-weight: 600;
-    font-size: 30px;
-    line-height: 1.2;
-    letter-spacing: -0.02em;
-    margin-top: 72px;
-    margin-bottom: 20px;
-    padding-top: 20px;
-    border-top: 1px solid var(--border);
-    color: var(--text);
-    scroll-margin-top: 80px;
-  }
-
-  p {
-    margin-bottom: 18px;
-    color: var(--text);
-    max-width: 700px;
-  }
-
-  ul, ol {
-    margin-bottom: 20px;
-    padding-left: 24px;
-    max-width: 700px;
-  }
-
-  li {
-    margin-bottom: 8px;
-    color: var(--text);
-  }
-
-  a {
-    color: var(--accent);
-    text-decoration: underline;
-    text-decoration-color: var(--border-strong);
-    text-underline-offset: 3px;
-    transition: text-decoration-color 0.15s, text-shadow 0.15s;
-  }
-  a:hover {
-    text-decoration-color: currentColor;
-    text-shadow: 0 0 10px var(--accent-glow);
-  }
-
-  strong { font-weight: 600; color: var(--text); }
-
-  code {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.88em;
-    background: var(--bg-code);
-    padding: 2px 6px;
-    border-radius: 4px;
-    border: 1px solid var(--border);
-    color: var(--accent);
-  }
-
-  pre {
-    background: var(--bg-code);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 18px 20px;
-    overflow-x: auto;
-    margin: 16px 0 20px;
-    max-width: 700px;
-    position: relative;
-  }
-  pre::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0;
-    width: 3px; height: 100%;
-    background: linear-gradient(180deg, var(--accent), var(--magenta));
-    border-radius: 2px 0 0 2px;
-    box-shadow: 0 0 8px var(--accent-soft);
-  }
-
-  pre code {
-    background: transparent;
-    border: none;
-    padding: 0;
-    font-size: 13px;
-    line-height: 1.7;
-    color: var(--text);
-  }
-
-  blockquote {
-    border-left: 3px solid var(--magenta);
-    padding: 4px 0 4px 20px;
-    margin: 28px 0 32px;
-    font-family: 'Fraunces', serif;
-    font-style: italic;
-    font-size: 18px;
-    color: var(--text-muted);
-    max-width: 640px;
-  }
-
-  /* Hero metric chips */
-  .metrics {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin: 28px 0 36px;
-  }
-  .metric {
-    background: var(--bg-code);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px 16px;
-    min-width: 180px;
-  }
-  .metric .v {
-    font-family: 'Fraunces', serif;
-    font-size: 26px;
-    font-weight: 600;
-    color: var(--accent);
-    letter-spacing: -0.02em;
-    text-shadow: 0 0 12px var(--accent-glow);
-    display: block;
-    line-height: 1.1;
-  }
-  .metric .k {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--text-subtle);
-    margin-top: 4px;
-    display: block;
-  }
-
-  .cta-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin-top: 20px;
-  }
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 18px;
-    border-radius: 6px;
-    font-size: 14px;
-    font-weight: 500;
-    text-decoration: none;
-    transition: all 0.15s;
-  }
-  .btn-primary {
-    background: var(--accent);
-    color: var(--bg);
-    border: 1px solid var(--accent);
-  }
-  .btn-primary:hover {
-    box-shadow: 0 0 20px var(--accent-soft);
-    text-shadow: none;
-  }
-  .btn-ghost {
-    background: transparent;
-    color: var(--text);
-    border: 1px solid var(--border-strong);
-  }
-  .btn-ghost:hover {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-
-  table {
-    width: 100%;
-    max-width: 700px;
-    border-collapse: collapse;
-    margin: 12px 0 24px;
-    font-size: 14px;
-  }
-
-  th, td {
-    text-align: left;
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  th {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--magenta);
-    border-bottom: 1px solid var(--border-strong);
-  }
-
-  td.num {
-    font-family: 'JetBrains Mono', monospace;
-    color: var(--accent);
-  }
-
-  .wiki-link {
-    display: inline-block;
-    font-size: 14px;
-    color: var(--text-muted);
-    margin-top: 4px;
-  }
-  .wiki-link::after { content: ' →'; color: var(--accent); }
-
-  .footer-card {
-    background: var(--bg-code);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 20px 24px;
-    margin-top: 32px;
-    max-width: 700px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 20px;
-    font-size: 14px;
-  }
-  .footer-card a { color: var(--text); }
-  .footer-card a:hover { color: var(--accent); }
-
-  .status-list {
-    list-style: none;
-    padding-left: 0;
-  }
-  .status-list li {
-    padding: 8px 0;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    gap: 12px;
-    align-items: baseline;
-  }
-  .status-list li:last-child { border-bottom: none; }
-  .status-list .tag {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    padding: 2px 8px;
-    border-radius: 4px;
-    flex-shrink: 0;
-    min-width: 70px;
-    text-align: center;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-  .tag.live { background: var(--accent-glow); color: var(--accent); border: 1px solid var(--accent-soft); }
-  .tag.wip  { background: var(--magenta-glow); color: var(--magenta); border: 1px solid var(--magenta-soft); }
-  .tag.hold { background: transparent; color: var(--text-subtle); border: 1px solid var(--border-strong); }
-
-  @media (max-width: 900px) {
-    header.topbar { padding: 0 20px; }
-    aside.sidebar {
-      transform: translateX(-100%);
-      transition: transform 0.2s;
-      width: 260px;
-      z-index: 99;
-    }
-    aside.sidebar.open { transform: translateX(0); }
-    main { margin-left: 0; padding: 32px 20px 80px; }
-    h1 { font-size: 36px; }
-    h2 { font-size: 24px; }
-    .lede { font-size: 18px; }
-    .menu-toggle { display: block; }
-  }
-
-  .menu-toggle {
-    display: none;
-    background: none;
-    border: 1px solid var(--border-strong);
-    border-radius: 6px;
-    padding: 6px 10px;
-    margin-right: 12px;
-    color: var(--text);
-    cursor: pointer;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 14px;
-  }
-  .menu-toggle:hover {
-    border-color: var(--accent);
-    color: var(--accent);
-    box-shadow: 0 0 12px var(--accent-glow);
-  }
-</style>
-  <link rel="stylesheet" href="/assets/copy-code.css">
-  <script src="/assets/copy-code.js" defer></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0d1117">
+<title>1bit.systems &mdash; Native ternary LLM stack for AMD Strix Halo</title>
+<meta name="description" content="Native ternary LLM stack for AMD Strix Halo. Run a dozen local AI models on a $2000 mini-PC. C++ all the way down. No cloud, no Python at runtime, no API keys.">
+<meta property="og:title" content="1bit.systems &mdash; Native ternary LLM stack for AMD Strix Halo">
+<meta property="og:description" content="Run a dozen local AI models on a $2000 mini-PC. C++ all the way down. No cloud, no Python at runtime, no API keys.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://1bit.systems/">
+<meta property="og:image" content="https://1bit.systems/assets/logo.svg">
+<link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+<link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
 
 <header class="topbar">
-  <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">≡</button>
-  <a href="/" class="logo">
-    <span class="logo-mark"></span>
-    <span class="logo-text">1bit<em>.systems</em></span>
+  <a class="brand" href="/">
+    <img src="/assets/logo.svg" alt="" width="28" height="28">
+    <span><b>1</b>bit<span class="dot">.</span>systems</span>
   </a>
-  <div class="topbar-meta">
-    <div class="version-tag"><span class="dot"></span>v0.1.8</div>
-  </div>
+  <nav>
+    <a href="#features">features</a>
+    <a href="#runtime">runtime</a>
+    <a href="#hardware">hardware</a>
+    <a href="#numbers">numbers</a>
+    <a href="#install">install</a>
+    <a href="/docs/">docs</a>
+    <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki" rel="noopener">wiki</a>
+    <a class="gh-btn" href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
+  </nav>
 </header>
 
-<div class="layout">
+<main>
 
-  <aside class="sidebar" id="sidebar">
-    <nav>
-      <div class="nav-label">On this page</div>
-      <ul class="nav-list">
-        <li><a href="#home">Home</a></li>
-        <li><a href="#install">Install</a></li>
-        <li><a href="#benchmarks">Benchmarks</a></li>
-        <li><a href="#status">Status</a></li>
-      </ul>
-      <div class="nav-label">Elsewhere</div>
-      <ul class="nav-list">
-        <li><a href="https://github.com/bong-water-water-bong/1bit-systems/wiki" target="_blank" rel="noopener">Wiki</a></li>
-        <li><a href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">GitHub</a></li>
-        <li><a href="https://github.com/bong-water-water-bong/1bit-systems/releases" target="_blank" rel="noopener">Releases</a></li>
-        <li><a href="https://discord.gg/EhQgmNePg" target="_blank" rel="noopener">Discord</a></li>
-      </ul>
-    </nav>
-  </aside>
+  <section class="hero">
+    <p class="eyebrow">v0.1 &middot; Strix Halo &middot; gfx1151 + XDNA2</p>
+    <h1>Native <span class="accent">ternary</span> LLM stack for AMD Strix Halo.</h1>
+    <p class="lede">
+      Run a dozen local AI models on a $2000 mini-PC.
+      C++ all the way down. No cloud, no Python at runtime, no API keys.
+    </p>
+    <div class="hero-cta">
+      <a class="btn" href="#install">Install</a>
+      <a class="btn ghost" href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">View on GitHub</a>
+      <a class="btn ghost" href="/docs/">Docs</a>
+    </div>
+    <p class="aspirational">
+      Ship-gated launch. We do not announce until a ternary kernel runs on the NPU.
+      The repo is the record, this page is the brief. <a href="#status">Current status &rarr;</a>
+    </p>
+  </section>
 
-  <main>
-
-    <section id="home">
-      <div class="eyebrow">1bit.systems · v0.1</div>
-      <h1>Local ternary inference on AMD Strix Halo.</h1>
-      <p class="lede">
-        A native sub-2-bit LLM stack for the mini-PC in your closet. C++20 HIP kernels, Rust orchestration. No Python at runtime. No cloud.
-      </p>
-
-      <div class="metrics">
-        <div class="metric"><span class="v">80.8 tok/s</span><span class="k">Decode @ 64-tok</span></div>
-        <div class="metric"><span class="v">92%</span><span class="k">LPDDR5 peak · ternary GEMV</span></div>
+  <section id="features" class="pillars">
+    <h2>Four pillars</h2>
+    <p class="note">A small stack. Each piece does one thing and does it on bare metal.</p>
+    <div class="pillar-grid">
+      <div class="pillar">
+        <h3>Ternary at native speed</h3>
+        <p>1.58&nbsp;bpw weights, hand-written HIP kernels on <code>gfx1151</code>. Ternary GEMV runs at <b>92% of LPDDR5x peak</b>. No hipBLAS in the runtime path.</p>
       </div>
-
-      <div class="cta-row">
-        <a class="btn btn-primary" href="#install">Install</a>
-        <a class="btn btn-ghost" href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">GitHub</a>
-        <a class="btn btn-ghost" href="https://github.com/bong-water-water-bong/1bit-systems/wiki" target="_blank" rel="noopener">Wiki</a>
+      <div class="pillar">
+        <h3>NPU dispatch</h3>
+        <p>XDNA&nbsp;2 (AIE2P) toolchain proven end-to-end. IRON axpy <code>160/160</code>, <code>matmul 512&times;512&times;512 i8</code> bit-exact. Custom Peano kernels via libxrt.</p>
       </div>
-    </section>
+      <div class="pillar">
+        <h3>OpenAI &middot; Ollama &middot; Anthropic compatible</h3>
+        <p>Drop-in replacement on <code>:8180</code>. <code>/v1</code>, <code>/api/v1</code>, <code>/v0</code>, <code>/api/v0</code>, Ollama <code>/api/*</code>, Anthropic <code>/api/messages</code>, WS realtime.</p>
+      </div>
+      <div class="pillar">
+        <h3>Bare metal first</h3>
+        <p>Single ELF, systemd, no Docker, no interpreter. Engine in-process, weights mmap&rsquo;d. Weights and prompts never leave the machine.</p>
+      </div>
+    </div>
+  </section>
 
-    <section id="what">
-      <h2>What it is</h2>
-      <p>
-        A serving stack built around 1.58-bit ternary weights. Hand-written HIP kernels target <code>gfx1151</code>; everything above &mdash; OpenAI-compatible HTTP, MCP bridge, sessions, sampler &mdash; is Rust. A 70-billion-parameter model fits in 128&nbsp;GB of unified memory at 1.58 bits per weight, which is the whole reason this runs on a mini-PC. Weights and prompts never leave the machine.
-      </p>
-      <p>
-        <a class="wiki-link" href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Architecture" target="_blank" rel="noopener">Architecture deep-dive on the wiki</a>
-      </p>
-    </section>
+  <section id="runtime" class="pillars">
+    <h2>What runs out of the box</h2>
+    <p class="note">Components shipped in the AppImage. Each is a single binary or a single unit.</p>
+    <div class="pillar-grid">
+      <div class="pillar">
+        <h3>lemond</h3>
+        <p>Local LLM gateway on <code>:8180</code>. C++. Recipe-dispatched to the in-process Engine and external backends.</p>
+      </div>
+      <div class="pillar">
+        <h3>1bit-flow</h3>
+        <p>DAG workflow engine. Twelve in-tree ctest cases. The plumbing for agent loops and pipelines.</p>
+      </div>
+      <div class="pillar">
+        <h3>bun-fight</h3>
+        <p>Eight-LLM debate harness. Three ctest cases. Adversarial round-tabling for hard prompts.</p>
+      </div>
+      <div class="pillar">
+        <h3>1bit-rag</h3>
+        <p>Hybrid retrieval &mdash; dense + lexical. Eight ctest cases. Embeddings on CPU, rerank on iGPU.</p>
+      </div>
+      <div class="pillar">
+        <h3>agent-core</h3>
+        <p>GAIA-derived agent spine. Tool-use, planner, and memory loop, ported into the C++ core.</p>
+      </div>
+      <div class="pillar">
+        <h3>halo-arcade</h3>
+        <p>Eight-game retro cabinet. Vanilla JS canvas, no framework. Lives at <a href="https://1bit.gg" rel="noopener">1bit.gg</a>.</p>
+      </div>
+      <div class="pillar">
+        <h3>1bit-helm</h3>
+        <p>Desktop client. Rust egui/eframe. SNI tray icon for service start/stop on Plasma.</p>
+      </div>
+      <div class="pillar">
+        <h3>1bit-cli</h3>
+        <p>Operator commands. <code>1bit status</code>, <code>logs</code>, <code>doctor</code>, <code>install</code>, <code>update</code>.</p>
+      </div>
+    </div>
+    <h3 class="subhead">Modalities</h3>
+    <ul class="modalities">
+      <li><b>Chat</b> &mdash; ternary LLM, OpenAI-compat SSE</li>
+      <li><b>Embeddings</b> &mdash; <code>/v1/embeddings</code></li>
+      <li><b>Audio</b> &mdash; whisper.cpp STT + kokoro TTS, voice loop with sentence-boundary streaming</li>
+      <li><b>Images</b> &mdash; sd.cpp native-HIP, no Python</li>
+    </ul>
+  </section>
 
-    <section id="benchmarks">
-      <h2>Benchmarks</h2>
-      <p>Measured on the reference Strix Halo box (Radeon 8060S, gfx1151, 128&nbsp;GB LPDDR5X). 3-round mean.</p>
-      <table>
-        <thead><tr><th>metric</th><th>value</th></tr></thead>
-        <tbody>
-          <tr><td>Decode @ 64-tok</td><td class="num">80.8 tok/s</td></tr>
-          <tr><td>Decode @ 1024-tok</td><td class="num">68.23 tok/s</td></tr>
-          <tr><td>Ternary GEMV</td><td class="num">92% of LPDDR5 peak</td></tr>
-          <tr><td>Split-KV attention (vs reference)</td><td class="num">10.25× @ L=2048 · 11.98× @ L=8192</td></tr>
-          <tr><td>WMMA FP16 peak</td><td class="num">50.17 TFLOPS</td></tr>
-          <tr><td>PPL on wikitext-103</td><td class="num">9.16 (chunk-1024) · 11.98 (pass-4095)</td></tr>
-          <tr><td>Perf / W (sustained decode)</td><td class="num">0.904 tok/J</td></tr>
-        </tbody>
-      </table>
-      <p>
-        <a class="wiki-link" href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Benchmarks" target="_blank" rel="noopener">Full methodology and cross-arch numbers</a>
-      </p>
-    </section>
+  <section id="hardware" class="pillars">
+    <h2>Hardware</h2>
+    <p class="note">Built first for AMD Strix Halo. Same fat binary covers eight consumer AMD Wave32-WMMA arches.</p>
+    <div class="hw-grid">
+      <div class="hw-card">
+        <h3>gfx1151 iGPU</h3>
+        <ul>
+          <li>RDNA&nbsp;3.5, ~RTX 4070 class</li>
+          <li>256&nbsp;GB/s LPDDR5x, 128&nbsp;GB unified</li>
+          <li>Wave32 WMMA, native FP16 / BF16</li>
+          <li>Hand-written HIP, no hipBLAS</li>
+        </ul>
+      </div>
+      <div class="hw-card">
+        <h3>XDNA&nbsp;2 NPU</h3>
+        <ul>
+          <li>50 TOPS, AIE2P tile array</li>
+          <li>MLIR-AIE &rarr; Peano &rarr; libxrt</li>
+          <li>i8 matmul + axpy bit-exact today</li>
+          <li>Ternary GEMV kernel in flight</li>
+        </ul>
+      </div>
+    </div>
+    <p class="hw-also">
+      Also runs on <code>gfx1201</code> (RX 9070 XT, RDNA&nbsp;4) and <code>gfx1100</code> (RDNA&nbsp;3). One fat binary, eight arches.
+    </p>
+  </section>
 
-    <section id="install">
-      <h2>Install</h2>
-      <p>Three paths. Pick one.</p>
+  <section id="numbers" class="numbers">
+    <h2>Honest numbers</h2>
+    <p class="note">Measured on the reference Strix Halo box (Radeon 8060S, gfx1151, 128&nbsp;GB LPDDR5x). Three-round mean.</p>
+    <div class="metrics">
+      <div><b>80.8 tok/s</b><span>Decode @ 64-tok</span></div>
+      <div><b>68.23 tok/s</b><span>Decode @ 1024-tok</span></div>
+      <div><b>92%</b><span>LPDDR5x peak &middot; ternary GEMV</span></div>
+      <div><b>50.17 TFLOPS</b><span>WMMA FP16 peak</span></div>
+      <div><b>10.25&times;</b><span>Split-KV attn @ L=2048</span></div>
+      <div><b>11.98&times;</b><span>Split-KV attn @ L=8192</span></div>
+      <div><b>9.16</b><span>PPL wikitext-103, chunk-1024</span></div>
+      <div><b>0.904 tok/J</b><span>Sustained perf / W</span></div>
+    </div>
+    <p class="note">
+      Build target archs: <code>gfx1151</code> + <code>gfx1201</code> + six more RDNA&nbsp;3 / 3.5 / 4 (one fat binary).
+      Full methodology and cross-arch table on the
+      <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Benchmarks" rel="noopener">wiki</a>.
+    </p>
+  </section>
 
-      <p><strong>AppImage</strong> &mdash; one file, any modern Linux distro:</p>
-<pre><code>curl -fsSLO https://github.com/bong-water-water-bong/1bit-systems/releases/download/v0.1.0/1bit-systems-0.1.0-x86_64.AppImage
+  <section id="install" class="install">
+    <h2>Install</h2>
+    <p class="note">Three paths. Pick one. Arch / CachyOS is our truth; the AppImage covers everything else.</p>
+
+    <div class="os-tabs" role="tablist">
+      <button class="os-tab active" data-tab="arch" role="tab" aria-selected="true">Arch / CachyOS</button>
+      <button class="os-tab" data-tab="appimage" role="tab" aria-selected="false">AppImage</button>
+      <button class="os-tab" data-tab="source" role="tab" aria-selected="false">Source</button>
+      <button class="os-tab" data-tab="ubuntu" role="tab" aria-selected="false">Ubuntu / Debian</button>
+    </div>
+
+    <div class="os-pane active" data-pane="arch">
+      <pre><code>yay -S 1bit-systems-bin</code></pre>
+      <p class="muted">AUR. Pulls the AppImage, drops a launcher in <code>~/.local/bin</code>, registers the systemd user units.</p>
+    </div>
+
+    <div class="os-pane" data-pane="appimage">
+      <pre><code>curl -fsSLO https://github.com/bong-water-water-bong/1bit-systems/releases/download/v0.1.0/1bit-systems-0.1.0-x86_64.AppImage
 echo "8a964f89bdef68ed914c04fcf23092ac642c424bb70f74dc10e8558e93b94036  1bit-systems-0.1.0-x86_64.AppImage" | sha256sum -c -
-chmod +x 1bit-systems-0.1.0-x86_64.AppImage && ln -sfn "$PWD/1bit-systems-0.1.0-x86_64.AppImage" ~/.local/bin/1bit</code></pre>
+chmod +x 1bit-systems-0.1.0-x86_64.AppImage
+ln -sfn "$PWD/1bit-systems-0.1.0-x86_64.AppImage" ~/.local/bin/1bit</code></pre>
+      <p class="muted">Requires glibc &ge; 2.35 and Linux kernel 6.x. ROCm not bundled &mdash; install on the host first.</p>
+    </div>
 
-      <p><strong>AUR</strong> &mdash; Arch, Manjaro, EndeavourOS, CachyOS:</p>
-<pre><code>yay -S 1bit-systems-bin</code></pre>
+    <div class="os-pane" data-pane="source">
+      <pre><code>curl -fsSL https://1bit.systems/install.sh | sh</code></pre>
+      <p class="muted">Bootstraps ROCm against <code>gfx1151</code>, builds the workspace, installs the user units. Read it first; it&rsquo;s 400&nbsp;lines.</p>
+    </div>
 
-      <p><strong>Source</strong> &mdash; developer path, bootstraps ROCm against gfx1151:</p>
-<pre><code>curl -fsSL https://1bit.systems/install.sh | sh</code></pre>
+    <div class="os-pane" data-pane="ubuntu">
+      <pre><code># Ubuntu 24.04 / Debian 13: AppImage path is supported.
+# A native .deb is not yet shipped &mdash; use the AppImage tab.</code></pre>
+      <p class="muted">Tracking issue: <a href="https://github.com/bong-water-water-bong/1bit-systems/issues" rel="noopener">deb packaging</a>.</p>
+    </div>
 
-      <p>
-        <a class="wiki-link" href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Installation" target="_blank" rel="noopener">Full installation guide, hardware requirements, first-run</a>
-      </p>
-    </section>
+    <ul class="install-bullets">
+      <li>First run: <code>1bit doctor</code> &mdash; checks ROCm, memlock, RyzenAdj, Caddy.</li>
+      <li>Start the server: <code>systemctl --user start 1bit-halo-lemonade.service</code></li>
+      <li>First completion: <code>curl -s localhost:8180/v1/models</code></li>
+    </ul>
 
-    <section id="status">
-      <h2>Status</h2>
-      <ul class="status-list">
-        <li><span class="tag live">Live</span><span>LLM serving on Strix Halo iGPU &mdash; Halo v2 (BitNet 1.58) at 80.8 tok/s, OpenAI-compatible HTTP on <code>:8180</code>.</span></li>
-        <li><span class="tag live">Live</span><span>NPU toolchain proven end-to-end. IRON axpy 160/160, AIE2P <code>matmul 512×512×512 i8</code> bit-exact. <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/NPU-AIE2P" target="_blank" rel="noopener">NPU-AIE2P wiki</a>.</span></li>
-        <li><span class="tag wip">In&nbsp;flight</span><span>Two Sparse-BitNet training runs on H200 pods. <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Training" target="_blank" rel="noopener">Training wiki</a>.</span></li>
-        <li><span class="tag wip">In&nbsp;flight</span><span>NPU serve-path &mdash; ternary <code>bitnet_gemm</code> kernel on XDNA&nbsp;2. Toolchain works; kernel still has to be written.</span></li>
-        <li><span class="tag hold">Ship&nbsp;gate</span><span>No public launch until a ternary kernel runs on the NPU. GitHub is the record; this page is the tease.</span></li>
-      </ul>
-      <p>
-        <a class="wiki-link" href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Roadmap" target="_blank" rel="noopener">Roadmap</a>
-      </p>
-    </section>
+    <p>
+      <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Installation" rel="noopener">Full install guide &rarr;</a>
+    </p>
+  </section>
 
-  </main>
-</div>
+  <section id="apps" class="community">
+    <h2>Apps &amp; ecosystem</h2>
+    <p class="note">Sibling projects in the same orbit. All under the same handle.</p>
+    <div class="community-row">
+      <a class="comm-card" href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">
+        <b>lemond</b><span>The OpenAI / Ollama / Anthropic gateway. C++. Listens on <code>:8180</code>.</span>
+      </a>
+      <a class="comm-card" href="https://1bit.gg" rel="noopener">
+        <b>1bit.gg arcade</b><span>WASM cabinet, vanilla JS canvas, eight retro games in the browser.</span>
+      </a>
+      <a class="comm-card" href="https://github.com/bong-water-water-bong/1bit-systems/wiki" rel="noopener">
+        <b>infinity-arcade</b><span>Code-gen-from-prompt. Stage 1: <code>bonsai-1.7b</code> LoRA. Planned.</span>
+      </a>
+      <a class="comm-card" href="https://github.com/bong-water-water-bong/1bit-systems/wiki" rel="noopener">
+        <b>halo-arcade</b><span>The retro cabinet shipped with helm. Same engine as 1bit.gg.</span>
+      </a>
+    </div>
+  </section>
+
+  <section id="status" class="status-section">
+    <h2>Status</h2>
+    <ul class="status-list">
+      <li><span class="tag-status live">Live</span><span>LLM serving on Strix Halo iGPU &mdash; Halo v2 (BitNet 1.58) at 80.8 tok/s, OpenAI-compatible HTTP on <code>:8180</code>.</span></li>
+      <li><span class="tag-status live">Live</span><span>NPU toolchain proven end-to-end. IRON axpy 160/160, AIE2P <code>matmul 512&times;512&times;512 i8</code> bit-exact.</span></li>
+      <li><span class="tag-status wip">In&nbsp;flight</span><span>Run 5 cooking. Two Sparse-BitNet training runs on H200 pods.</span></li>
+      <li><span class="tag-status wip">In&nbsp;flight</span><span>Sherry 1.25-bit retrain &mdash; 3:4 sparsity, requantizer + loader landed.</span></li>
+      <li><span class="tag-status wip">In&nbsp;flight</span><span>NPU serve-path &mdash; ternary <code>bitnet_gemm</code> kernel on XDNA&nbsp;2. Toolchain works; kernel still has to be written.</span></li>
+      <li><span class="tag-status hold">Ship&nbsp;gate</span><span>No public launch until a ternary kernel runs on the NPU. GitHub is the record; this page is the brief.</span></li>
+    </ul>
+    <p class="updated">Last updated 2026-04-25.</p>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <div class="footer-grid">
+    <div>
+      <p><b>1bit.systems</b></p>
+      <p class="muted">Native ternary LLM stack for AMD Strix Halo.</p>
+    </div>
+    <div>
+      <p class="footer-h">Code</p>
+      <p><a href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a></p>
+      <p><a href="https://github.com/bong-water-water-bong/1bit-systems/wiki" rel="noopener">Wiki</a></p>
+      <p><a href="https://github.com/bong-water-water-bong/1bit-systems/releases" rel="noopener">Releases</a></p>
+    </div>
+    <div>
+      <p class="footer-h">Read</p>
+      <p><a href="/docs/">Docs</a></p>
+      <p><a href="/blog/">Research</a></p>
+      <p><a href="/docs/changelog.html">Changelog</a></p>
+    </div>
+    <div>
+      <p class="footer-h">Talk</p>
+      <p><a href="https://discord.gg/EhQgmNePg" rel="noopener">Discord</a></p>
+      <p><a href="https://github.com/bong-water-water-bong/1bit-systems/issues" rel="noopener">Issues</a></p>
+    </div>
+  </div>
+  <p class="foot-meta">
+    MIT licensed &middot; built by <a href="https://github.com/bong-water-water-bong" rel="noopener">bong-water-water-bong</a> &middot;
+    <span class="tag">v0.1.0</span>
+  </p>
+</footer>
 
 <script>
-  const sidebar = document.getElementById('sidebar');
-
-  document.querySelectorAll('.nav-list a').forEach(a => {
-    a.addEventListener('click', () => {
-      sidebar.classList.remove('open');
+  (function(){
+    var tabs = document.querySelectorAll('.os-tab');
+    var panes = document.querySelectorAll('.os-pane');
+    tabs.forEach(function(tab){
+      tab.addEventListener('click', function(){
+        var name = tab.getAttribute('data-tab');
+        tabs.forEach(function(t){
+          var on = t === tab;
+          t.classList.toggle('active', on);
+          t.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        panes.forEach(function(p){
+          p.classList.toggle('active', p.getAttribute('data-pane') === name);
+        });
+      });
     });
-  });
-
-  const sections = document.querySelectorAll('section[id]');
-  const navLinks = document.querySelectorAll('.nav-list a');
-
-  function updateActive() {
-    const scrollPos = window.scrollY + 120;
-    let currentId = null;
-    sections.forEach(s => {
-      if (s.offsetTop <= scrollPos) currentId = s.id;
-    });
-    navLinks.forEach(a => {
-      a.classList.toggle('active', a.getAttribute('href') === '#' + currentId);
-    });
-  }
-  window.addEventListener('scroll', updateActive, { passive: true });
-  updateActive();
-
-  document.getElementById('menuToggle').addEventListener('click', () => sidebar.classList.toggle('open'));
+  })();
 </script>
 
 </body>
