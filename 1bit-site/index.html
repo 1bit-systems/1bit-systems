@@ -15,9 +15,9 @@
 <meta name="twitter:image" content="https://1bit.systems/assets/logo.png">
 <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
 <link rel="apple-touch-icon" href="/assets/logo.png">
-<link rel="stylesheet" href="/assets/style.css?v=20260425e">
-<link rel="stylesheet" href="/assets/copy-code.css?v=20260425e">
-<script src="/assets/copy-code.js?v=20260425e" defer></script>
+<link rel="stylesheet" href="/assets/style.css?v=20260425f">
+<link rel="stylesheet" href="/assets/copy-code.css?v=20260425f">
+<script src="/assets/copy-code.js?v=20260425f" defer></script>
 </head>
 <body class="onepage">
 
@@ -311,6 +311,18 @@ cd ~/1bit-systems
 curl -s http://localhost:8180/health
 1bit status</code></pre>
     <p>Expected: the service active, <code>/health</code> returns <code>ok</code>, and <code>1bit status</code> prints a summary of running units + backend mode.</p>
+
+    <h3>Open the apps in your browser</h3>
+    <p>Once the install script finishes, two web UIs are live on your LAN. Open them from any laptop / phone on the same network &mdash; no install on the client side.</p>
+    <table class="data-table">
+      <thead><tr><th>App</th><th>URL</th><th>What it is</th></tr></thead>
+      <tbody>
+        <tr><td><b>Lemonade</b></td><td><code>http://&lt;your-strix-halo-ip&gt;:8000/app/</code></td><td>The chat UI. Pick any of the loaded models from the dropdown, type, watch the tokens stream. <code>http://localhost:8000/app/</code> works on the box itself.</td></tr>
+        <tr><td><b>GAIA</b></td><td><code>http://&lt;your-strix-halo-ip&gt;:8000/gaia/</code></td><td>The agent UI. Multi-turn sessions, document RAG, MCP tools, mobile pairing. The same lemond models drive it through the agent-core shim.</td></tr>
+      </tbody>
+    </table>
+    <p>Find your Strix Halo's LAN IP with <code>hostname -I</code> on the box (or just <code>strixhalo.local</code> if your router publishes mDNS). The trailing slash matters &mdash; <code>/app</code> without the slash 301-redirects to <code>/app/</code>, but bookmarks should always include it.</p>
+
     <h3>Uninstall</h3>
     <pre><code>1bit doctor --purge
 # or manually:
