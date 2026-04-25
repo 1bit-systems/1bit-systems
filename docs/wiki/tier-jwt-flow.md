@@ -3,9 +3,9 @@
 Status: draft v0.1, 2026-04-23.
 
 How a paying customer turns money into a `tier: premium` JWT that unlocks
-`/v1/catalogs/:slug/lossless` on `1bit-stream`. Two payment rails,
-BTCPay (Lightning) and Patreon, collapse into one JWT shape so the
-stream server doesn't care which one paid.
+`/v1/catalogs/:slug/lossless` on `1bit-stream`. The payment rail is
+BTCPay (Lightning); the JWT shape is open to additional rails later
+without changing the stream-server side.
 
 The minting side is implemented by `crates/1bit-tier-mint`, running
 as `1bit-tier-mint.service` on `127.0.0.1:8151` (one port above
@@ -79,25 +79,6 @@ IPC between the two beyond a shared HMAC secret in env.
 
 Lightning is final-on-confirm; there is no refund path. See §6.
 
-### 1b. Patreon
-
-Identical end-state, different trigger:
-
-- Customer lands on Patreon, joins the Premium tier.
-- Patreon fires `members:create` (or `members:update` with
-  `patron_status = active_patron`) at
-  `https://<tunnel>/patreon/webhook` → cloudflared → tier-mint.
-- Tier-mint verifies `X-Patreon-Signature` (MD5-HMAC, per Patreon
-  v2 docs), mints a JWT keyed to `patreon_member_id`, stashes in
-  the poll cache, and also emails the token to the customer out-of-band
-  (out-of-scope for MVP — today we rely on the storefront's
-  "Already a Patron?" flow which links out to Patreon, reads the
-  member id via OAuth, and polls tier-mint the same way BTCPay
-  flow does).
-
-Patreon chargebacks and `former_patron` updates flip the member id
-onto the revocation list — see §6.
-
 ---
 
 ## 2. JWT shape
@@ -117,21 +98,19 @@ so ECDSA would just mean more key management for no threat-model win.
 
 ```json
 {
-  "sub":               "inv-01GXYZ...",        // invoice id or member id
+  "sub":               "inv-01GXYZ...",        // invoice id
   "tier":              "premium",
   "iss":               "1bit.systems",
   "exp":               1745000000,              // unix, ~30 days from iat
   "iat":               1742500000,
   "jti":               "inv-01GXYZ...",        // = sub; used as revoke key
-  "btcpay_invoice":    "inv-01GXYZ..."         // XOR
-  // or
-  "patreon_member_id": "m-42"                   // XOR
+  "btcpay_invoice":    "inv-01GXYZ..."
 }
 ```
 
 Claims in the struct but omitted when empty via `skip_serializing_if`.
-Exactly one of `btcpay_invoice` / `patreon_member_id` is present so
-the stream server (and the revoke endpoint) knows the provenance.
+`btcpay_invoice` records the provenance of the mint so the stream
+server (and the revoke endpoint) can attribute it back.
 
 ### Stream-server verify rules
 
@@ -208,18 +187,6 @@ prefix is also inconsistent across versions — we tolerate bare-hex.
 Lock the exact spelling after the first real `InvoiceSettled` hits
 staging.
 
-### Patreon (`/patreon/webhook`)
-
-- Header: `X-Patreon-Signature`.
-- Algorithm: **MD5-HMAC**, hex. (Yes, MD5. That's what Patreon
-  documents.)
-- Secret: configured per-webhook in the Patreon creator portal.
-  Stored in our env as `HALO_PATREON_WEBHOOK_SECRET`.
-
-MD5 is broken as a hash but fine as an HMAC primitive — the HMAC
-construction is still a PRF under MD5 in this threat model. We don't
-love it; we tolerate it.
-
 ---
 
 ## 5. Refund / chargeback / revoke
@@ -227,7 +194,6 @@ love it; we tolerate it.
 | Rail | Reversible? | How we handle it |
 |------|-------------|------------------|
 | BTCPay Lightning | **No.** Settled on-chain (well, off-chain final) in seconds. | Once minted, the JWT is good for its `exp`. No revocation path unless we manually hit `/tier/revoke`. |
-| Patreon | **Yes.** Member can dispute, Patreon can claw back, stripe chargeback can flip the member to `declined_patron`. | Patreon fires a `members:update` with `patron_status in {declined_patron, former_patron}`. Tier-mint pushes the `member_id` onto the revocation list. |
 | Admin override | — | `POST /tier/revoke { id, admin_token }`. For bad actors / abuse / leaked tokens. |
 
 The revocation list is the single source of truth on the stream
@@ -249,13 +215,12 @@ We intentionally **do not store minted JWTs** after issuance:
 
 What we **do** store:
 
-- The **revocation list** (keyed by invoice id / member id).
-  Write-through in-memory now, sqlite on disk soon.
+- The **revocation list** (keyed by invoice id). Write-through
+  in-memory now, sqlite on disk soon.
 - BTCPay keeps its own invoice ledger; we never duplicate.
-- Patreon keeps its own member ledger; we never duplicate.
 
 This keeps the service stateless enough that restarts are free and
-there's no PII on our box beyond what BTCPay/Patreon already have.
+there's no PII on our box beyond what BTCPay already has.
 
 ---
 
@@ -263,7 +228,7 @@ there's no PII on our box beyond what BTCPay/Patreon already have.
 
 | Threat | Mitigation |
 |--------|------------|
-| **Replay** — attacker records an old webhook and re-plays it. | BTCPay includes a timestamp and a unique delivery id; tier-mint is idempotent on `invoice_id` (duplicate mints overwrite but the revoke list is keyed the same, so nothing is gained). Patreon webhooks likewise. We could optionally track seen delivery ids in a short-TTL bloom filter — deferred. |
+| **Replay** — attacker records an old webhook and re-plays it. | BTCPay includes a timestamp and a unique delivery id; tier-mint is idempotent on `invoice_id` (duplicate mints overwrite but the revoke list is keyed the same, so nothing is gained). We could optionally track seen delivery ids in a short-TTL bloom filter — deferred. |
 | **Forged webhook** — attacker POSTs a fake `InvoiceSettled` from the open internet. | HMAC verification rejects anything not signed under the shared secret. Caddy / cloudflared both front the service on 127.0.0.1 so unauthenticated traffic can't even reach it. |
 | **Stolen JWT** — user shares their token on Discord. | Short-ish `exp` (30 days). Admin can `/tier/revoke` the `jti` which invalidates all existing JWTs from that invoice. Future: bind the JWT to a client fingerprint (UA + install id) — but that defeats the "just a bearer" simplicity. |
 | **Leaked signing secret (`HALO_TIER_HMAC_SECRET`)** | Quarterly rotation (§3). Dual-key overlap means rotation is not load-bearing on customer uptime — worst case, player retries once and re-polls. |
@@ -289,7 +254,6 @@ git). The systemd unit loads via `EnvironmentFile=`.
 # ~/.config/1bit/tier-mint.env   (placeholder — real values never in repo)
 HALO_TIER_HMAC_SECRET=REPLACE_WITH_OPENSSL_RAND_HEX_32
 HALO_BTCPAY_WEBHOOK_SECRET=REPLACE_WITH_BTCPAY_STORE_SECRET
-HALO_PATREON_WEBHOOK_SECRET=REPLACE_WITH_PATREON_WEBHOOK_SECRET
 HALO_TIER_LISTEN=127.0.0.1:8151
 RUST_LOG=info
 ```
@@ -302,7 +266,6 @@ umask 077
 cat > ~/.config/1bit/tier-mint.env <<EOF
 HALO_TIER_HMAC_SECRET=$(openssl rand -hex 32)
 HALO_BTCPAY_WEBHOOK_SECRET=<paste from BTCPay admin>
-HALO_PATREON_WEBHOOK_SECRET=<paste from Patreon creator portal>
 HALO_TIER_LISTEN=127.0.0.1:8151
 EOF
 chmod 600 ~/.config/1bit/tier-mint.env
@@ -342,6 +305,4 @@ immediately and `git filter-repo` the history.
 - `docs/wiki/1bl-container-spec.md` — the `.1bl` format that Premium
   unlocks the lossless residual of.
 - `crates/1bit-tier-mint/` — the implementation.
-- `crates/1bit-mcp-patreon/` — sibling, read-only Patreon browsing
-  for the creator (not the paying customer's rail).
 - `strixhalo/systemd/user/1bit-tier-mint.service` — unit file.

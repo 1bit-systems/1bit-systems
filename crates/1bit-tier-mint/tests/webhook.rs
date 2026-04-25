@@ -17,7 +17,6 @@ fn test_state() -> AppState {
     AppState::for_tests(Config {
         jwt_secret: b"test-jwt-hmac-secret-at-least-32b-long".to_vec(),
         btcpay_webhook_secret: b"btcpay-secret".to_vec(),
-        patreon_webhook_secret: b"patreon-secret".to_vec(),
         issuer: "1bit.systems".to_string(),
         jwt_ttl: Duration::from_secs(3600),
     })

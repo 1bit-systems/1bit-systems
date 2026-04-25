@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace      = true
 repository.workspace   = true
 authors.workspace      = true
-description  = "1bit-tier-mint — BTCPay + Patreon webhook → Premium tier JWT issuance for 1bit.systems"
+description  = "1bit-tier-mint — BTCPay + Lightning + GitHub Sponsors webhook → Premium tier JWT issuance for 1bit.systems"
 
 [[bin]]
 name = "1bit-tier-mint"

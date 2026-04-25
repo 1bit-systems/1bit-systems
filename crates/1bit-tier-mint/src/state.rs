@@ -17,9 +17,6 @@ pub struct Config {
     /// BTCPay-side shared secret; HMAC-SHA256 of the request body must
     /// match the `BTCPay-Sig` header.
     pub btcpay_webhook_secret: Vec<u8>,
-    /// Patreon-side shared secret; MD5-HMAC of the request body must
-    /// match the `X-Patreon-Signature` header.
-    pub patreon_webhook_secret: Vec<u8>,
     /// JWT issuer claim (`iss`).
     pub issuer: String,
     /// JWT lifetime from mint. Short, because `/tier/refresh` can
@@ -39,21 +36,17 @@ impl Config {
         let btcpay_webhook_secret = std::env::var("HALO_BTCPAY_WEBHOOK_SECRET")
             .context("HALO_BTCPAY_WEBHOOK_SECRET must be set")?
             .into_bytes();
-        let patreon_webhook_secret = std::env::var("HALO_PATREON_WEBHOOK_SECRET")
-            .context("HALO_PATREON_WEBHOOK_SECRET must be set")?
-            .into_bytes();
         Ok(Self {
             jwt_secret,
             btcpay_webhook_secret,
-            patreon_webhook_secret,
             issuer: "1bit.systems".to_string(),
             jwt_ttl: Duration::from_secs(60 * 60 * 24 * 30), // 30 days
         })
     }
 }
 
-/// Revoke list entries are keyed by the originating invoice / member id.
-/// The stream server reads `jti` = that id out of the JWT and consults
+/// Revoke list entries are keyed by the originating invoice id. The
+/// stream server reads `jti` = that id out of the JWT and consults
 /// this set before serving the lossless endpoint.
 ///
 /// In production this would be durable (sqlite on disk). For the MVP
@@ -63,15 +56,15 @@ impl Config {
 #[derive(Clone)]
 pub struct AppState {
     pub cfg: Arc<Config>,
-    /// `invoice_id` / `patreon_member_id` → minted JWT. Populated by the
-    /// webhook handler; drained by `/tier/poll/:id`. Entries expire on
-    /// first read (the customer only needs to collect once) or after
-    /// 10 minutes, whichever comes first.
+    /// `invoice_id` → minted JWT. Populated by the webhook handler;
+    /// drained by `/tier/poll/:id`. Entries expire on first read (the
+    /// customer only needs to collect once) or after 10 minutes,
+    /// whichever comes first.
     pub poll_cache: Arc<DashMap<String, PollEntry>>,
-    /// Revoked invoice / member ids. Stream server consults via the
-    /// shared sqlite file — this in-memory set is the write-through
-    /// layer; a background task would flush to disk. Out of scope for
-    /// the MVP skeleton.
+    /// Revoked invoice ids. Stream server consults via the shared
+    /// sqlite file — this in-memory set is the write-through layer;
+    /// a background task would flush to disk. Out of scope for the
+    /// MVP skeleton.
     pub revoked: Arc<DashSet<String>>,
 }
 

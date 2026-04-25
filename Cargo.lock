@@ -4504,19 +4504,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "onebit-mcp-patreon"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "onebit-mlx"
 version = "0.1.0"
 dependencies = [

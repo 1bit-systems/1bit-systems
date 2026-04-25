@@ -1,6 +1,6 @@
 # Funding goals
 
-The tiered Patreon ladder for training runs. Every tier ships Sparse-BitNet weights publicly to Hugging Face before the next tier opens. Source of truth: `~/.claude/projects/-home-bcloud/memory/project_patreon_goal_ladder.md`.
+The tiered funding ladder for training runs, raised via GitHub Sponsors. Every tier ships Sparse-BitNet weights publicly to Hugging Face before the next tier opens.
 
 ## Ladder
 
@@ -42,9 +42,9 @@ H200 NVL at $3.39/hr on RunPod, not SXM at $3.99/hr. Identical 141 GB HBM3e + 4.
 
 Never switch pods mid-run — migrating checkpoint + tmux session + env risks corruption and invalidates shadow comparison. Always finish a run, then provision the next pod.
 
-## Patreon surface
+## Funding surface
 
-Closed today. Opens when the XDNA 2 NPU ship gate clears, or when the project's positioning explicitly changes. Until then this page is a forward declaration, not a link.
+GitHub Sponsors is the canonical (and only) public funding lane — 0% platform fee, all proceeds underwrite training compute. Sponsorship opens when the XDNA 2 NPU ship gate clears, or when the project's positioning explicitly changes. Until then this page is a forward declaration, not a live link.
 
 ## See also
 

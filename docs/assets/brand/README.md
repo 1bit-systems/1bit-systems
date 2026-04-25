@@ -60,7 +60,6 @@ curl -X PATCH -H "Authorization: Bot $ECHO_TOKEN" -H "Content-Type: application/
 
 - GitHub social preview (1280×640 derivative)
 - Favicon derivatives (32, 48, 192, 512 PNG + ICO)
-- Patreon header (1600×400 derivative)
 - Twitter/Bluesky banner if the stack ever gets a social presence
 - YouTube channel art if we ever publish bench videos
 

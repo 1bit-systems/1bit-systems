@@ -29,16 +29,6 @@ path = "bin/1bit-watch-discord.rs"
 name = "1bit-watch-github"
 path = "bin/1bit-watch-github.rs"
 
-# 1bit-watch-patreon — one-shot Patreon member poller. Diffs campaign
-# members against ~/.local/state/1bit-halo/patreon-members.json and for
-# each newly-active patron dispatches a payload to Quartermaster via
-# Registry and posts the reply to Discord #announcements via echo's
-# bot token. Read-only against the Patreon API. Runs as a systemd
-# oneshot via strixhalo/systemd/1bit-halo-patreon.timer.
-[[bin]]
-name = "1bit-watch-patreon"
-path = "bin/1bit-watch-patreon.rs"
-
 # 1bit-helpdesk-setup — one-shot admin tool. Given a Discord forum
 # channel id + a bot token with MANAGE_CHANNELS, applies the canonical
 # help-desk topic + tag set (bug / feature / question / pending /
@@ -51,7 +41,7 @@ path = "bin/1bit-helpdesk-setup.rs"
 # 1bit-brand-swap — rotate the Discord server icon / splash / banner /
 # name on milestones. Base64-encodes local image files and PATCHes
 # /guilds/{id}. Use via CLI by hand or from a systemd timer that
-# watches Patreon / training-run metrics.
+# watches training-run metrics.
 [[bin]]
 name = "1bit-brand-swap"
 path = "bin/1bit-brand-swap.rs"

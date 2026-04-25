@@ -138,17 +138,16 @@ required_intent = "GUILD_MESSAGE_REACTIONS"
 
 [brand_swap]
 # `1bit-brand-swap` is the CLI that rotates Discord server icon / splash
-# / banner / name on milestones (Patreon thresholds, training-run ships,
-# launch day). Assets live under `docs/assets/brand/`. Wire a systemd
-# timer or run manually.
+# / banner / name on milestones (training-run ships, launch day). Assets
+# live under `docs/assets/brand/`. Wire a systemd timer or run manually.
 bin          = "1bit-brand-swap"
 asset_dir    = "docs/assets/brand"
 required_perm = "MANAGE_GUILD"
 milestones = [
     { label = "default",        icon = "halo-1bit-default.gif"  },
-    { label = "patreon-13b",    icon = "halo-1bit-13b.gif"      },
-    { label = "patreon-30b",    icon = "halo-1bit-30b.gif"      },
-    { label = "patreon-70b",    icon = "halo-1bit-70b.gif"      },
+    { label = "training-13b",   icon = "halo-1bit-13b.gif"      },
+    { label = "training-30b",   icon = "halo-1bit-30b.gif"      },
+    { label = "training-70b",   icon = "halo-1bit-70b.gif"      },
 ]
 
 [roadmap]

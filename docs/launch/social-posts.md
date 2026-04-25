@@ -55,7 +55,7 @@ Economics:
 What's pre-launch tonight:
 ✓ 6 domains live (1bit.music / .video / .stream / .audio / .systems + waterbon.me)
 ✓ Waitlist open
-✓ Patreon tier ready
+✓ GitHub Sponsors tier ready
 ◻ Stripe + Lightning checkouts (this week)
 ◻ First catalog drops after Run 8 training completes
 
@@ -158,35 +158,6 @@ egress cost goes to zero when decode runs on the customer's Strix Halo.
 
 Running on a Bosgame BeyondMax (AXB35-02 board) with CachyOS. ROCm 7.x.
 The whole stack is open-source (MIT / Apache).
-```
-
-## Patreon post
-
-```
-We're going live-ish tonight.
-
-https://1bit.music is a real domain now, with real landing pages, real
-Patreon-integrated subscription flow, and a waitlist for founder pricing.
-
-What's done:
-• Six apex domains (music/.video/.stream/.audio + waterbon.me + systems)
-• Six live landing pages
-• Waitlist with founder-tier signup
-• All the architecture + math + research committed to the repo and wiki
-
-What's left before real charges go through:
-• Stripe Connect integration (~this week)
-• Lightning (BTCPay finishing Bitcoin IBD, also this week)
-• First permissively-licensed catalog published
-
-To our patrons: you helped fund the RunPod time that made this possible.
-The training runs are continuing — Run 5 is mid-flight on 2× H200 NVL
-right now, and Runs 6-8 follow directly behind. Every one of those runs
-is underwritten by Patreon contributions + a tiny BTC pile.
-
-Thank you.
-
-— waterbon
 ```
 
 ## Hacker News (Show HN — HOLD until post-Run-8 hard-launch)

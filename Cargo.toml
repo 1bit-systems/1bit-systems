@@ -27,7 +27,6 @@ members = [
     "crates/1bit-mcp-clients",
     "crates/1bit-mcp-discord",
     "crates/1bit-mcp-linuxgsm",
-    "crates/1bit-mcp-patreon",
     "crates/1bit-halo-ralph",
     "crates/1bit-retrieval",
     "crates/1bit-tier-mint",

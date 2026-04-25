@@ -43,7 +43,7 @@ Plain-English explanations of the architectural calls we made — one page per d
 ## Training + funding
 
 - [Training runs](./Training-Runs.md) — Run 4 (3:4) live status, Run 5 (2:4 canonical) plan, H200 NVL pod default
-- [Funding goals](./Funding-Goals.md) — 13B / 30B / 70B Sparse-BitNet Patreon ladder
+- [Funding goals](./Funding-Goals.md) — 13B / 30B / 70B Sparse-BitNet GitHub Sponsors ladder
 
 ## Integrations
 

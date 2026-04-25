@@ -1,6 +1,5 @@
 # Funding routes for 1bit.systems.
-# GitHub Sponsors is the canonical route (0% platform fee).
-# Patreon is a fallback — API is read-only so we deprioritise polishing it.
+# GitHub Sponsors is the canonical (and only) public funding lane.
+# 0% platform fee. No Patreon.
 
 github: bong-water-water-bong
-patreon: 1bitsystems

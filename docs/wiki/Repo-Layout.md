@@ -31,7 +31,6 @@ Canonical URL: `https://github.com/bong-water-water-bong/1bit-systems` (renamed 
 │   ├── 1bit-mcp-clients/   in-tree MCP client helpers
 │   ├── 1bit-mcp-discord/   discord-surface MCP tools
 │   ├── 1bit-mcp-linuxgsm/  game-server MCP tools
-│   ├── 1bit-mcp-patreon/   patreon watch → Quartermaster → echo
 │   ├── 1bit-lemonade/      OpenAI-compat gateway on :8200 (Hermes + AMD GAIA interop)
 │   ├── 1bit-landing/       LAN dashboard on :8190 (live SSE telemetry)
 │   ├── 1bit-helm/          native egui desktop client + SNI tray icon

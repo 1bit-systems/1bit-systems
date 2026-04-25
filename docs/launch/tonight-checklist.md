@@ -74,7 +74,6 @@ Copy-paste posts in `docs/launch/social-posts.md`:
 - [ ] Reddit r/audiophile
 - [ ] Reddit r/amd
 - [ ] Hacker News (Show HN — save for post-Run-8 for "launch launch")
-- [ ] Patreon announcement post
 
 ## 7. (Optional tonight) USPTO TEAS Plus (~$500)
 

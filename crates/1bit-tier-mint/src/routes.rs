@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 use crate::state::{AppState, PollEntry, unix_now};
-use crate::{btcpay, jwt, patreon};
+use crate::{btcpay, jwt};
 
 /// 10-minute TTL on poll cache entries. The storefront is expected to
 /// poll every 1-2 s for roughly the Lightning settle window (~a few
@@ -104,80 +104,6 @@ pub async fn btcpay_webhook(
         Json(BtcpayWebhookResponse { ok: true, jwt: Some(token) }),
     )
         .into_response()
-}
-
-// -----------------------------------------------------------------------------
-// Patreon webhook
-// -----------------------------------------------------------------------------
-
-pub async fn patreon_webhook(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    body: Bytes,
-) -> Response {
-    let sig = headers
-        .get("x-patreon-signature")
-        .or_else(|| headers.get("X-Patreon-Signature"))
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-
-    if !patreon::verify_signature(&state.cfg.patreon_webhook_secret, &body, sig) {
-        warn!("patreon webhook: signature mismatch");
-        return (StatusCode::UNAUTHORIZED, "bad signature").into_response();
-    }
-
-    let event: patreon::PatreonEvent = match serde_json::from_slice(&body) {
-        Ok(e) => e,
-        Err(e) => {
-            warn!(?e, "patreon webhook: malformed body");
-            return (StatusCode::BAD_REQUEST, "malformed body").into_response();
-        }
-    };
-
-    let member_id = event.data.id.clone();
-    let status_str = event.data.attributes.patron_status.as_deref().unwrap_or("");
-
-    match status_str {
-        "active_patron" => {
-            if state.revoked.contains(&member_id) {
-                // Previously revoked — admin must explicitly un-revoke
-                // (out of scope for MVP; tombstone wins).
-                return (StatusCode::CONFLICT, "member revoked").into_response();
-            }
-            let token = match jwt::mint_patreon(
-                &state.cfg.jwt_secret,
-                &member_id,
-                state.cfg.jwt_ttl,
-                &state.cfg.issuer,
-            ) {
-                Ok(t) => t,
-                Err(e) => {
-                    warn!(?e, "patreon webhook: mint failed");
-                    return (StatusCode::INTERNAL_SERVER_ERROR, "mint failed").into_response();
-                }
-            };
-            state.poll_cache.insert(
-                member_id.clone(),
-                PollEntry {
-                    jwt: token.clone(),
-                    minted_at: SystemTime::now(),
-                },
-            );
-            info!(member = %member_id, "minted premium JWT (patreon)");
-            (StatusCode::OK, Json(BtcpayWebhookResponse { ok: true, jwt: Some(token) }))
-                .into_response()
-        }
-        "declined_patron" | "former_patron" => {
-            state.revoked.insert(member_id.clone());
-            info!(member = %member_id, "patreon revoke (chargeback/churn)");
-            (StatusCode::OK, Json(BtcpayWebhookResponse { ok: true, jwt: None })).into_response()
-        }
-        _ => {
-            // Unknown/unhandled status — 200 so Patreon stops retrying,
-            // but no mint.
-            (StatusCode::OK, Json(BtcpayWebhookResponse { ok: true, jwt: None })).into_response()
-        }
-    }
 }
 
 // -----------------------------------------------------------------------------

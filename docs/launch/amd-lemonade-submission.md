@@ -46,9 +46,9 @@ Classical method (NNCP, ts_zip, DeepZip) with a 1.58-bit weight budget. 2 MB mod
 
 A axum service that serves `.1bl` catalogs with JWT-gated Premium access. Lossy-tier sections (model weights only, ~2 MB) served unauthenticated; Premium residual sections (arithmetic-coded deltas for bit-perfect decode) gated behind `Authorization: Bearer <jwt>` with `tier=premium`. Tests green: 15/15.
 
-### 3. `1bit-tier-mint` — BTCPay + Patreon → JWT issuance
+### 3. `1bit-tier-mint` — BTCPay → JWT issuance
 
-Webhook receiver that mints HS256 JWTs when invoices settle. Lightning-first payout path (~0.001% routing fee vs 2-3% card). Patreon fallback for fiat-preferring users. Tests green: 11/11.
+Webhook receiver that mints HS256 JWTs when invoices settle. Lightning-first payout path (~0.001% routing fee vs 2-3% card). Tests green: 11/11.
 
 ### 4. `1bit-ingest` — catalog packaging CLI
 
@@ -63,7 +63,7 @@ uniffi-rs core with Kotlin + Swift + C + WASM bindings. One Rust core, four plat
 - **Free tier** — 2 MB neural reconstruction (4 000× smaller than FLAC, lossy, recognisable-not-bit-exact)
 - **Premium** — $5/mo, bit-perfect lossless, first 1 000 subscribers locked for life
 - **Payout splits**: 70% artist pro-rata / 30% platform for Premium subs; 85/15 on one-time unlocks; 100% to artist on tip button
-- **Payment rails**: Lightning (BTCPay on sliger), Stripe Connect (card + Apple Pay), Patreon, Wise for intl artists
+- **Payment rails**: Lightning (BTCPay on sliger), Stripe Connect (card + Apple Pay), Wise for intl artists
 - **~96% gross margin** vs Spotify's ~25% — because decode runs on the customer's Strix Halo, not our servers
 
 ## Rule A compliance (no Python at runtime)
@@ -145,7 +145,7 @@ We don't need a sustainability certification. The architecture is the audit. Eve
 3. **Non-Python ship path** — we're the only submission likely to satisfy Rule A. No Python in the serving binary.
 4. **The NPU story is real.** Most submissions will skip XDNA2. Ours has the toolchain proven end-to-end today (IRON axpy) and a concrete ternary-matmul kernel planned (~1-2 weeks).
 5. **First public ternary audio/video codec** on any consumer hardware. The research is novel; the runtime perf is unique to AMD silicon.
-6. **Commercial viability**: unit economics are clean (~96% margin), payment rails already wired (BTCPay + Patreon), 6-domain brand deployed. AMD supporting this project is supporting a real business, not a demo.
+6. **Commercial viability**: unit economics are clean (~96% margin), payment rails already wired (BTCPay Lightning), 6-domain brand deployed. AMD supporting this project is supporting a real business, not a demo.
 
 ## What we're asking for (if contest terms include prize / support)
 
@@ -180,7 +180,7 @@ We don't need a sustainability certification. The architecture is the audit. Eve
 ### Appendix C — Key commits from launch week
 
 - `af799e4` feat(1bit-stream): .1bl catalog server skeleton
-- `f456ab8` feat(1bit-tier-mint): BTCPay + Patreon → JWT
+- `f456ab8` feat(1bit-tier-mint): BTCPay → JWT
 - `4281e46` feat(1bit-ingest): catalog packaging CLI
 - `68f129f` docs(spec): .1bl container format v0.1
 - `da8ab65` docs(schemas): JSON Schema for .1bl manifest

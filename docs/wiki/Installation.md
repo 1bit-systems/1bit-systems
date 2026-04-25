@@ -9,7 +9,7 @@ Flatpak is on the near-term roadmap.
 
 ## AppImage — recommended non-dev path
 
-Prebuilt single-file bundle of the user-facing Rust binaries (`1bit`, `1bit-helm`, `1bit-halo-helm-tray`, `1bit-watch-discord`, `1bit-mcp-patreon` and 15 more — 31 MB zstd-squashfs). ROCm is **not** bundled; `1bit` itself runs, but `1bit install core` still needs `librocm_cpp.so` from the source bootstrap further down this page.
+Prebuilt single-file bundle of the user-facing Rust binaries (`1bit`, `1bit-helm`, `1bit-halo-helm-tray`, `1bit-watch-discord` and 14 more — 31 MB zstd-squashfs). ROCm is **not** bundled; `1bit` itself runs, but `1bit install core` still needs `librocm_cpp.so` from the source bootstrap further down this page.
 
 ```bash
 # download → verify → symlink to ~/.local/bin/1bit

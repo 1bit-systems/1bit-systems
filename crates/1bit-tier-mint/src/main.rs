@@ -3,8 +3,7 @@
 //! Listens on `HALO_TIER_LISTEN` (default `127.0.0.1:8151`, one port
 //! above `1bit-stream` on 8150). Reachable only from localhost; the
 //! BTCPay webhook is fronted by Caddy which terminates TLS and
-//! proxies in. Patreon's webhook is cloudflared-tunnelled the same
-//! way.
+//! proxies in.
 
 use std::net::SocketAddr;
 

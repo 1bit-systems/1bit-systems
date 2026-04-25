@@ -1,4 +1,4 @@
-//! `1bit-tier-mint` — mints Premium tier JWTs from paid BTCPay or Patreon events.
+//! `1bit-tier-mint` — mints Premium tier JWTs from paid BTCPay events.
 //!
 //! # Rails
 //!
@@ -8,15 +8,9 @@
 //!   mint a JWT keyed to the invoice id, and stash it in an in-memory
 //!   poll cache so the browser that's polling `GET /tier/poll/:invoice_id`
 //!   can collect it.
-//! * **Patreon**: pledge webhooks (`members:create`, `members:update`)
-//!   hit `/patreon/webhook` and are verified using `X-Patreon-Signature`
-//!   (MD5-HMAC) against `HALO_PATREON_WEBHOOK_SECRET`. On `active_patron`
-//!   status we mint. On `declined_patron` / `former_patron` we push the
-//!   member id onto the revoke list.
 //!
-//! Both rails mint the **same JWT shape** — callers of
-//! `/v1/catalogs/:slug/lossless` on 1bit-stream don't care which rail
-//! paid. See `docs/wiki/tier-jwt-flow.md` for the full write-up.
+//! Callers of `/v1/catalogs/:slug/lossless` on 1bit-stream just verify
+//! the JWT — see `docs/wiki/tier-jwt-flow.md` for the full write-up.
 //!
 //! # What this service does NOT do
 //!
@@ -30,7 +24,6 @@
 
 pub mod btcpay;
 pub mod jwt;
-pub mod patreon;
 pub mod routes;
 pub mod state;
 
@@ -45,7 +38,6 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/v1/health", get(routes::health))
         .route("/btcpay/webhook", post(routes::btcpay_webhook))
-        .route("/patreon/webhook", post(routes::patreon_webhook))
         .route("/tier/poll/:invoice_id", get(routes::tier_poll))
         .route("/tier/revoke", post(routes::tier_revoke))
         .with_state(state)

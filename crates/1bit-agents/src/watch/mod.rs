@@ -12,7 +12,6 @@
 
 pub mod discord;
 pub mod github;
-pub mod patreon;
 
 // Re-export the Discord helpers at the `watch::` level so the binary can
 // `use onebit_agents::watch::{classify, …}` without threading the submodule

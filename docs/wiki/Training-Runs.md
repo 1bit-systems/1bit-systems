@@ -73,6 +73,6 @@ Trainers are Python on RunPod (TRL + HF). Python is allowed there — RunPod pod
 
 ## See also
 
-- [Funding-Goals.md](./Funding-Goals.md) — where these runs plug into the Patreon ladder
+- [Funding-Goals.md](./Funding-Goals.md) — where these runs plug into the GitHub Sponsors ladder
 - [Benchmarks.md](./Benchmarks.md) — post-retrain parity gates (wikitext-103 PPL, shadow-burnin)
 - [Sherry-Default-Decision.md](./Sherry-Default-Decision.md) — prior decision on 1.25 bpw ship format

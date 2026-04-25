@@ -1,5 +1,5 @@
 //! 1bit-brand-swap — rotate the Discord server icon / splash / banner on
-//! milestones (Patreon threshold hit, training run shipped, launch day).
+//! milestones (training run shipped, launch day).
 //!
 //! Discord only accepts image payloads as base64 data-URIs on PATCH
 //! /guilds/{guild.id}. This CLI handles the encoding + API call so the
