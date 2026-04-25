@@ -15,8 +15,11 @@ build = [
     ["cargo", "install", "--path", "crates/1bit-helm",     "--force", "--quiet"],
     ["cargo", "install", "--path", "crates/1bit-landing",  "--force", "--quiet"],
 ]
+# lemond's systemd unit (1bit-halo-lemonade.service) lives out-of-tree
+# alongside the C++ server at /home/bcloud/repos/lemonade/. `1bit install core`
+# does NOT manage that unit — the lemond install script does. We only own
+# strix-landing here.
 units = [
-    "1bit-halo-lemonade.service",
     "strix-landing.service",
 ]
 check = "http://127.0.0.1:8180/v1/models"
