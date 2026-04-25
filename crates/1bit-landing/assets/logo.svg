@@ -1,24 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 120" role="img" aria-label="1bit systems">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="1bit.systems">
   <defs>
-    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%"  stop-color="#58a6ff"/>
-      <stop offset="100%" stop-color="#3fb950"/>
-    </linearGradient>
-    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%"  stop-color="#58a6ff" stop-opacity="0.35"/>
-      <stop offset="100%" stop-color="#58a6ff" stop-opacity="0"/>
+    <radialGradient id="g" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#00d4ff" stop-opacity="0"/>
     </radialGradient>
   </defs>
-  <rect width="480" height="120" fill="#0a0e14"/>
-  <circle cx="60" cy="60" r="46" fill="url(#glow)"/>
-  <circle cx="60" cy="60" r="34" fill="none" stroke="url(#ring)" stroke-width="4"/>
-  <circle cx="60" cy="60" r="6" fill="#3fb950"/>
-  <text x="120" y="72" font-family="'JetBrains Mono','SF Mono',monospace"
-        font-size="48" font-weight="700" fill="#c9d1d9" letter-spacing="-0.02em">
-    halo<tspan fill="#58a6ff">-ai</tspan>
-  </text>
-  <text x="122" y="96" font-family="-apple-system,'Segoe UI',Inter,sans-serif"
-        font-size="14" fill="#8b949e" letter-spacing="0.16em">
-    TERNARY · gfx1151 · RUST
-  </text>
+  <rect width="64" height="64" fill="#0d1117"/>
+  <circle cx="32" cy="32" r="26" fill="url(#g)"/>
+  <circle cx="32" cy="32" r="20" fill="none" stroke="#00d4ff" stroke-width="2.5"/>
+  <circle cx="32" cy="32" r="3.2" fill="#00d4ff"/>
+  <text x="32" y="40" text-anchor="middle"
+        font-family="'JetBrains Mono','SF Mono',monospace"
+        font-size="18" font-weight="700" fill="#00d4ff" letter-spacing="-0.04em">1b</text>
 </svg>
