@@ -86,3 +86,88 @@ img,svg{display:block;max-width:100%}
   .docs-wrap{grid-template-columns:1fr}
   .docs-side{position:static;border-right:0;border-bottom:1px solid var(--border-dim);padding:0 0 14px;max-height:none;margin-bottom:18px}
 }
+
+/* ============================================
+   Single-page docs extensions (added 2026-04-25)
+   - magenta accent (Discord brand) preserved alongside cyan
+   - left-nav search, section highlight, anchor links
+   ============================================ */
+:root{
+  --accent2:#ff4d8d;          /* discord magenta — keep, don't touch */
+  --accent2-dim:#a82d5e;
+}
+
+html{scroll-behavior:smooth}
+
+/* stats badge strip below topbar */
+.docs-stats{
+  display:flex;flex-wrap:wrap;gap:6px;align-items:center;
+  padding:10px 20px;border-bottom:1px solid var(--border-dim);
+  background:rgba(13,17,23,.6);
+}
+.docs-stats img{height:20px;display:inline-block;border-radius:3px}
+.docs-stats a:hover{text-decoration:none;opacity:.85}
+
+/* hero header inside docs-body */
+.docs-hero{padding:8px 0 18px;border-bottom:1px solid var(--border-dim);margin-bottom:8px}
+.docs-hero .eyebrow{text-transform:uppercase;letter-spacing:.18em;font-size:11px;color:var(--muted);font-family:var(--mono);margin:0 0 10px}
+.docs-hero h1{font-size:clamp(28px,4vw,40px);line-height:1.1;margin:0 0 10px;letter-spacing:-.02em}
+.docs-hero .lede{max-width:64ch;color:var(--fg);font-size:16.5px;margin:0}
+
+/* search box */
+.docs-search-wrap{padding:0 4px 10px}
+#docs-search{
+  width:100%;background:var(--panel);color:var(--fg);
+  border:1px solid var(--border-dim);border-radius:6px;
+  padding:8px 10px;font:inherit;font-size:13.5px;
+  font-family:var(--mono);
+}
+#docs-search:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(0,212,255,.18)}
+#docs-search::placeholder{color:var(--muted)}
+
+/* nav reading width tighter, content wider */
+.docs-page{max-width:1200px;margin:0 auto;padding:0 20px}
+.docs-wrap{grid-template-columns:240px minmax(0,1fr)}
+.docs-side{top:64px;max-height:calc(100vh - 80px)}
+.docs-nav h4:first-of-type{margin-top:6px}
+
+/* narrower reading column */
+.docs-body{max-width:760px;margin:0 auto 0 0}
+
+/* anchor "#" icons next to headings */
+.docs-body .anchor{
+  color:var(--border);font-size:.7em;margin-left:.4em;font-weight:400;
+  opacity:0;transition:opacity .15s ease,color .15s ease;
+}
+.docs-body h2:hover .anchor,.docs-body h3:hover .anchor{opacity:1}
+.docs-body .anchor:hover{color:var(--accent);text-decoration:none}
+
+/* section spacing + scroll-margin for anchor jumps */
+.docs-body section.doc-section{scroll-margin-top:96px;padding-top:18px;margin-top:18px}
+.docs-body section.doc-section + section.doc-section{border-top:1px solid var(--border-dim)}
+
+/* mobile nav toggle (hidden on desktop) */
+.docs-nav-toggle{
+  display:none;position:sticky;top:60px;z-index:35;
+  background:var(--panel);color:var(--fg);
+  border:1px solid var(--border-dim);border-radius:6px;
+  padding:7px 12px;margin:10px 0;font:inherit;font-size:13px;
+  font-family:var(--mono);cursor:pointer;
+}
+.docs-nav-toggle:hover{border-color:var(--accent);color:var(--accent)}
+
+@media (max-width:800px){
+  .docs-stats{padding:8px 12px;gap:4px}
+  .docs-stats img{height:18px}
+  .docs-page{padding:0 14px}
+  .docs-wrap{grid-template-columns:1fr;gap:0}
+  .docs-nav-toggle{display:inline-block}
+  .docs-side{
+    display:none;position:static;border-right:0;border-bottom:1px solid var(--border-dim);
+    padding:0 0 14px;max-height:none;margin-bottom:14px;
+  }
+  .docs-side.open{display:block}
+  .docs-body{max-width:100%}
+  .docs-body section.doc-section{scroll-margin-top:60px}
+}
+
