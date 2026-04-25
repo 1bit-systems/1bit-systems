@@ -1,9 +1,14 @@
 :root{
-  --bg:#0d1117; --fg:#e6edf3; --muted:#8b949e;
-  --accent:#00d4ff; --accent-dim:#0088a6;
-  --warn:#f0b72f;
-  --panel:#161b22; --panel-2:#1c222b;
-  --border:#30363d; --border-dim:#21262d;
+  --bg:#0d1117; --fg:#c9d1d9; --muted:#8b949e;
+  --accent:#00d4ff;
+  --warn:#d4a520; --warn-fg:#f0b429;
+  --card:#11161d;
+  --border:#1f2630;
+  --code-bg:#0a0e14;
+  /* legacy aliases — collapse to canonical tokens for backwards-compat */
+  --accent-dim:var(--accent);
+  --panel:var(--card); --panel-2:var(--card);
+  --border-dim:var(--border);
   --mono:ui-monospace,"JetBrains Mono",SFMono-Regular,Menlo,Consolas,monospace;
   --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
 }
@@ -26,8 +31,8 @@ img,svg{display:block;max-width:100%}
 .topbar nav a{color:var(--fg);font-size:14px;padding:7px 11px;border-radius:6px}
 .topbar nav a:hover{background:var(--panel);color:var(--accent);text-decoration:none}
 .topbar nav a.active{color:var(--accent)}
-.topbar nav a.gh-btn{background:var(--accent);color:#041318;font-weight:600;margin-left:4px}
-.topbar nav a.gh-btn:hover{background:#33ddff;color:#041318}
+.topbar nav a.gh-btn{background:var(--accent);color:#0d1117;font-weight:600;margin-left:4px}
+.topbar nav a.gh-btn:hover{background:transparent;color:var(--accent)}
 
 /* landing page */
 .docs-landing{max-width:1100px;margin:0 auto;padding:0 20px 64px}
@@ -63,7 +68,7 @@ img,svg{display:block;max-width:100%}
 .docs-body ul,.docs-body ol{margin:0 0 14px;padding-left:22px}
 .docs-body li{margin-bottom:6px}
 .docs-body code{background:var(--panel);border:1px solid var(--border-dim);border-radius:4px;padding:1px 6px;font-size:13.5px}
-.docs-body pre{background:#06090d;border:1px solid var(--border);border-radius:8px;padding:14px 16px;overflow-x:auto;margin:0 0 16px}
+.docs-body pre{background:var(--code-bg);border:1px solid var(--border);border-radius:8px;padding:14px 16px;overflow-x:auto;margin:0 0 16px}
 .docs-body pre code{background:transparent;border:0;padding:0;font-size:13px;color:var(--fg)}
 .docs-body blockquote{margin:0 0 16px;padding:10px 14px;border-left:3px solid var(--accent);background:rgba(0,212,255,.06);color:var(--fg);border-radius:0 6px 6px 0}
 .docs-body table{border-collapse:collapse;width:100%;margin:0 0 16px;font-size:14px}
@@ -94,7 +99,7 @@ img,svg{display:block;max-width:100%}
    ============================================ */
 :root{
   --accent2:#ff4d8d;          /* discord magenta — keep, don't touch */
-  --accent2-dim:#a82d5e;
+  --accent2-dim:var(--accent2); /* legacy alias — collapsed to canonical */
 }
 
 html{scroll-behavior:smooth}

@@ -48,7 +48,7 @@ main{max-width:1040px;margin:0 auto;padding:0 1.5rem 4rem}
 .btn.ghost:hover{border-color:var(--accent);color:var(--accent)!important}
 
 /* os-warn */
-.os-warn{max-width:1040px;margin:0 auto 2rem;padding:1rem 1.2rem;border:1px solid var(--warn);border-left:4px solid var(--warn);background:rgba(212,165,32,.08);color:#e8c56a;border-radius:6px;font-size:.93rem}
+.os-warn{max-width:1040px;margin:0 auto 2rem;padding:1rem 1.2rem;border:1px solid var(--warn);border-left:4px solid var(--warn);background:rgba(212,165,32,.08);color:var(--warn-fg);border-radius:6px;font-size:.93rem}
 .os-warn h2{margin:0 0 .35rem;color:var(--warn-fg);font-size:1rem}
 .os-warn p{margin:0}
 

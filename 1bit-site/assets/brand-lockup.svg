@@ -30,7 +30,7 @@
     <text x="0" y="0"
           font-family="'Inter','Helvetica Neue',Helvetica,Arial,sans-serif"
           font-size="78" font-weight="800" letter-spacing="-0.025em">
-      <tspan fill="#00d4ff">1</tspan><tspan fill="#e6edf3">bit</tspan><tspan fill="#ff4d8d">.</tspan><tspan fill="#e6edf3">systems</tspan>
+      <tspan fill="#00d4ff">1</tspan><tspan fill="#c9d1d9">bit</tspan><tspan fill="#ff4d8d">.</tspan><tspan fill="#c9d1d9">systems</tspan>
     </text>
   </g>
 </svg>
