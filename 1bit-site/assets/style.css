@@ -29,6 +29,8 @@ main{max-width:1040px;margin:0 auto;padding:0 1.5rem 4rem}
 
 /* hero */
 .hero{padding:3.5rem 0 2rem;max-width:1040px;margin:0 auto;padding-left:1.5rem;padding-right:1.5rem}
+.hero-logo{display:block;width:160px;height:160px;margin:0 0 1.4rem;border-radius:28px;image-rendering:auto}
+@media (max-width:700px){.hero-logo{width:120px;height:120px;margin-bottom:1rem}}
 .eyebrow{color:var(--accent);font-family:var(--mono);font-size:.82rem;letter-spacing:.08em;text-transform:uppercase;margin:0 0 1rem}
 .hero h1{font-size:clamp(2.1rem,5vw,3.6rem);line-height:1.08;letter-spacing:-.02em;margin:0 0 1.2rem;font-weight:700}
 .accent{color:var(--accent)}
