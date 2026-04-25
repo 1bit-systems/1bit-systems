@@ -4,7 +4,6 @@ members = [
     "crates/1bit-cli",
     "crates/1bit-core",
     "crates/1bit-mcp",
-    "crates/1bit-cpu",
     "crates/1bit-mlx",
     "crates/1bit-onnx",
     "crates/1bit-aie",
@@ -92,7 +91,6 @@ uuid        = { version = "1", features = ["v4", "serde"] }
 # Shared across halo crates
 onebit-core        = { path = "crates/1bit-core" }
 onebit-retrieval   = { path = "crates/1bit-retrieval" }
-onebit-cpu  = { path = "crates/1bit-cpu" }
 onebit-aie  = { path = "crates/1bit-aie", default-features = false }
 onebit-kokoro = { path = "crates/1bit-kokoro", default-features = false, features = ["stub"] }
 
