@@ -16,7 +16,6 @@ members = [
     "crates/1bit-landing",
     "crates/1bit-voice",
     "crates/1bit-echo",
-    "crates/1bit-whisper",
     "crates/1bit-kokoro",
     "crates/1bit-power",
     "crates/1bit-stream",
@@ -100,7 +99,6 @@ onebit-retrieval   = { path = "crates/1bit-retrieval" }
 onebit-hip  = { path = "crates/1bit-hip" }
 onebit-cpu  = { path = "crates/1bit-cpu" }
 onebit-aie  = { path = "crates/1bit-aie", default-features = false }
-onebit-whisper = { path = "crates/1bit-whisper", default-features = false, features = ["stub"] }
 onebit-kokoro = { path = "crates/1bit-kokoro", default-features = false, features = ["stub"] }
 
 [profile.release]

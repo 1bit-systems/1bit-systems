@@ -31,8 +31,9 @@
 //!   per sentence, and exposes the resulting WAV chunks as a `Stream`.
 //!
 //! No whisper on the input side yet — that stage is still a separate HTTP
-//! POST in the live system. When 1bit-whisper's streaming path lands, we
-//! add it here as the front of the pipeline.
+//! POST in the live system. STT is now served by lemond's `whispercpp:vulkan`
+//! backend at /home/bcloud/repos/lemonade/; when streaming whisper lands
+//! upstream we add it here as the front of the pipeline.
 
 pub mod pipeline;
 pub mod splitter;
