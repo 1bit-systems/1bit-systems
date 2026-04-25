@@ -15,7 +15,7 @@
 //!   "gpu_util_pct": 27,
 //!   "npu_up": false,
 //!   "shadow_burn_exact_pct": 92.1,
-//!   "services": [ { "name": "strix-server", "active": true }, ... ],
+//!   "services": [ { "name": "1bit-halo-lemonade", "active": true }, ... ],
 //!   "stale": false
 //! }
 //! ```
@@ -208,9 +208,9 @@ mod tests {
             "npu_up": false,
             "shadow_burn_exact_pct": 92.1,
             "services": [
-                { "name": "strix-server",   "active": true  },
-                { "name": "strix-landing",  "active": true  },
-                { "name": "strix-lemonade", "active": false }
+                { "name": "1bit-halo-lemonade", "active": true  },
+                { "name": "strix-landing",      "active": true  },
+                { "name": "1bit-halo-bitnet",   "active": false }
             ],
             "stale": false
         }"#;

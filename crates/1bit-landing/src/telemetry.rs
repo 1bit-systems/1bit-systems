@@ -28,10 +28,21 @@ use tokio::process::Command;
 /// User-scope systemd units we probe for `/_live/services`. Kept small
 /// and explicit — random `strix-*` units the user adds are ignored until
 /// this list grows.
+///
+/// Canon (2026-04-25): lemond (the C++ server at /home/bcloud/repos/lemonade/)
+/// runs as `1bit-halo-lemonade.service` on :8180. The retired
+/// `strix-server` / `halo-server-real` / `1bit-server` units are gone.
+/// `strix-lemonade` was the Rust 1bit-lemonade gateway and is also
+/// retired. The list below mirrors the canonical short-name set in
+/// 1bit-cli/src/status.rs.
 pub const TRACKED_SERVICES: &[&str] = &[
-    "strix-server",
+    "1bit-halo-lemonade",
+    "1bit-halo-bitnet",
+    "1bit-halo-sd",
+    "1bit-halo-whisper",
+    "1bit-halo-kokoro",
+    "1bit-halo-agent",
     "strix-landing",
-    "strix-lemonade",
     "strix-echo",
     "strix-burnin",
     "strix-cloudflared",
@@ -40,7 +51,7 @@ pub const TRACKED_SERVICES: &[&str] = &[
 /// Cached live snapshot emitted on `/_live/stats`.
 ///
 /// `stale` flips true when the most recent `collect()` failed to reach
-/// 1bit-server and we're serving the previous `loaded_model`.
+/// lemond and we're serving the previous `loaded_model`.
 #[derive(Debug, Clone, Serialize)]
 pub struct Stats {
     pub loaded_model: String,
@@ -75,7 +86,7 @@ impl Stats {
 }
 
 /// Path surfaces we sniff to produce a [`Stats`]. Overridable from tests
-/// so we don't need rocm-smi / 1bit-server running in CI.
+/// so we don't need rocm-smi / lemond running in CI.
 #[derive(Clone)]
 pub struct Sources {
     pub http: reqwest::Client,
@@ -85,7 +96,7 @@ pub struct Sources {
     pub shadow_burnin_jsonl: PathBuf,
     pub systemctl_bin: PathBuf,
     pub services: &'static [&'static str],
-    /// Base URL for 1bit-server probes. Tests point this at a mock.
+    /// Base URL for lemond probes. Tests point this at a mock.
     pub onebit_server_base: String,
 }
 
@@ -499,12 +510,12 @@ mod tests {
             systemctl_bin: PathBuf::from("/nonexistent/systemctl"),
             services: TRACKED_SERVICES,
             // Unroutable TEST-NET-1 address so probe_model fails fast
-            // without actually hitting 1bit-server on the dev box.
+            // without actually hitting lemond on the dev box.
             onebit_server_base: "http://192.0.2.1:1".to_string(),
         };
         let t = Telemetry::new(sources);
         let s = t.collect().await;
-        // loaded_model blank, stale flagged (1bit-server unreachable).
+        // loaded_model blank, stale flagged (lemond unreachable).
         assert!(s.loaded_model.is_empty());
         assert!(s.stale);
         assert_eq!(s.tok_s_decode, 0.0);
