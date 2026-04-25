@@ -17,21 +17,40 @@
 /announcement.html  /#announcement                 301
 
 # Tolerate trailing-slash variance on docs
-/docs         /docs/                               301
+/docs              /docs/                          301
+/docs/index.html   /docs/                          301!
 
 # Per-page docs were folded into a single-page docs 2026-04-25.
 # Old URLs jump to the corresponding anchor on /docs/.
 # 301! (with bang) forces the redirect even when the legacy static
 # HTML is still on disk — Cloudflare Pages defaults to serving static
 # files first, so the bang is needed for the rule to win.
+#
+# We list BOTH the .html form and the bare clean-URL form because
+# Cloudflare Pages auto-strips .html with a 308 BEFORE consulting
+# _redirects. Without the bare entries, /docs/install.html → 308
+# /docs/install → 200 stale per-page file (route never reaches our
+# /docs/install.html rule). The bare 301! wins over the legacy
+# clean-URL serve.
 /docs/install.html          /docs/#install            301!
+/docs/install               /docs/#install            301!
 /docs/quickstart.html       /docs/#quickstart         301!
+/docs/quickstart            /docs/#quickstart         301!
 /docs/troubleshooting.html  /docs/#troubleshooting    301!
+/docs/troubleshooting       /docs/#troubleshooting    301!
 /docs/faq.html              /docs/#faq                301!
+/docs/faq                   /docs/#faq                301!
 /docs/architecture.html     /docs/#architecture       301!
+/docs/architecture          /docs/#architecture       301!
 /docs/models.html           /docs/#models             301!
+/docs/models                /docs/#models             301!
 /docs/api.html              /docs/#api                301!
+/docs/api                   /docs/#api                301!
 /docs/benchmarks.html       /docs/#benchmarks         301!
+/docs/benchmarks            /docs/#benchmarks         301!
 /docs/why.html              /docs/#why                301!
+/docs/why                   /docs/#why                301!
 /docs/contributing.html     /docs/#contributing       301!
+/docs/contributing          /docs/#contributing       301!
 /docs/changelog.html        /docs/#changelog          301!
+/docs/changelog             /docs/#changelog          301!
