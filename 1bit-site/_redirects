@@ -6,7 +6,7 @@
 # https://*.1bit-systems.pages.dev/*  https://1bit.systems/:splat  301
 
 # Short permalinks
-/discord      https://discord.gg/EhQgmNePg                                 302
+/discord      https://discord.gg/dSyV646eBs                                302
 /gh           https://github.com/bong-water-water-bong/1bit-systems        302
 /github       https://github.com/bong-water-water-bong/1bit-systems        302
 /wiki         https://github.com/bong-water-water-bong/1bit-systems/wiki   302
@@ -18,3 +18,20 @@
 
 # Tolerate trailing-slash variance on docs
 /docs         /docs/                               301
+
+# Per-page docs were folded into a single-page docs 2026-04-25.
+# Old URLs jump to the corresponding anchor on /docs/.
+# 301! (with bang) forces the redirect even when the legacy static
+# HTML is still on disk — Cloudflare Pages defaults to serving static
+# files first, so the bang is needed for the rule to win.
+/docs/install.html          /docs/#install            301!
+/docs/quickstart.html       /docs/#quickstart         301!
+/docs/troubleshooting.html  /docs/#troubleshooting    301!
+/docs/faq.html              /docs/#faq                301!
+/docs/architecture.html     /docs/#architecture       301!
+/docs/models.html           /docs/#models             301!
+/docs/api.html              /docs/#api                301!
+/docs/benchmarks.html       /docs/#benchmarks         301!
+/docs/why.html              /docs/#why                301!
+/docs/contributing.html     /docs/#contributing       301!
+/docs/changelog.html        /docs/#changelog          301!
