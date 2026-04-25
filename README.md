@@ -1,6 +1,6 @@
 <div align="center">
 
-# 1bit systems
+# 1bit.systems
 
 ### ternary inference for the rest of us
 
@@ -15,7 +15,7 @@
 
 <br>
 
-<img src="./1bit-site/assets/brand-lockup.svg" alt="1bit systems" width="520" />
+<img src="./1bit-site/assets/brand-lockup.svg" alt="1bit.systems" width="520" />
 
 <br>
 
@@ -27,7 +27,7 @@
 
 <sub><em>"Whoa."</em></sub>
 
-You bought a Strix Halo because the spec sheet read like science fiction — 128 GB of unified LPDDR5x, Radeon 8060S, an XDNA2 NPU welded onto the die. Then you booted Linux and discovered that the cloud-AI ecosystem still thinks "local" means a 4090 and a 1500W PSU. We built this for the other crowd. The mini-PC-on-the-desk crowd. The closet-server crowd. The "I want a chat endpoint that doesn't phone home" crowd. 1bit systems is a full ternary inference stack tuned for one machine — `gfx1151` plus its NPU — written in C++ where it has to be fast and Rust where it has to be careful. No Python at runtime. No Docker on the serving path. No telemetry, ever.
+You bought a Strix Halo because the spec sheet read like science fiction — 128 GB of unified LPDDR5x, Radeon 8060S, an XDNA2 NPU welded onto the die. Then you booted Linux and discovered that the cloud-AI ecosystem still thinks "local" means a 4090 and a 1500W PSU. We built this for the other crowd. The mini-PC-on-the-desk crowd. The closet-server crowd. The "I want a chat endpoint that doesn't phone home" crowd. 1bit.systems is a full ternary inference stack tuned for one machine — `gfx1151` plus its NPU — written in C++ where it has to be fast and Rust where it has to be careful. No Python at runtime. No Docker on the serving path. No telemetry, ever.
 
 <sub><em>"There is no spoon."</em></sub>
 
@@ -36,6 +36,23 @@ You bought a Strix Halo because the spec sheet read like science fiction — 128
 * **`lemond`** — the canonical local AI server. C++ HTTP front door. OpenAI / Ollama / Anthropic API surfaces on port `:8180`. Dispatches per-recipe to wrapped backends including the in-process `rocm-cpp` Engine. Forked from `lemonade-sdk/lemonade` and patched in-house — every wedge stays here.
 * **`1bit-services`** — the apps tower above lemond. Operator CLI, desktop helm, landing page, voice loop, MCP bridge, power profile control, retrieval pipeline, watchdog. All Rust. All bare metal.
 * **`halo-arcade`** — a vanilla-JS canvas-game cabinet that ships in the same release. Because every good rig deserves a coin slot.
+
+## out of the box
+
+Three models auto-load on boot via `lemond-bootstrap.service`. Reachable on `:8180/api/v1/*` the moment the unit is green.
+
+| auto-loaded | role | backend |
+|---|---|---|
+| `Bonsai-1.7B-gguf:Q1_0` | chat | llama.cpp Vulkan |
+| `nomic-embed-text-v1.5` | embeddings | llama.cpp Vulkan |
+| `halo-1bit-2b` | chat (ternary) | rocm-cpp ternary |
+
+Eight `.h1b` ternary models ship with the release. All of them are reachable via the unified `/api/v1/*` surface — pull the rest with `1bit pull <name>` when you want them resident. `max_loaded_models=12` so you can mix.
+
+The companion UIs come up alongside lemond:
+
+- **GAIA UI** — `http://localhost:8000/gaia/`. Full FastAPI shim rewritten in C++. 11/11 ctest, 36+ endpoints. Chat, file picker, agent panel.
+- **Lemonade UI** — `http://localhost:8000/app/`. The classic lemonade console — model list, recipe inspector, live `/metrics`.
 
 ## built by
 
@@ -46,7 +63,7 @@ A two-person crew on a Strix Halo box, plus the kindness of strangers who write 
 1. **Install** — pick your medicine on [1bit.systems/install](https://1bit.systems/install). CachyOS and Arch are first-class. The AppImage works on any glibc ≥ 2.35 + ROCm 7.x host.
 2. **Get models** — `1bit pull bonsai-1.7b` grabs the ternary weights. We bundle eight `.h1b` ternary models on day one. Bring your own GGUF if you swing that way.
 3. **Run** — `1bit run bonsai-1.7b` opens a chat. `lemond` is already serving OpenAI-compat on `:8180`.
-4. **Mobile (someday)** — there is no app yet. The plan is a Rust core wrapped in uniffi-rs for iOS + Android. We will tell you when it boots.
+4. **Mobile** — `1bit tunnel start` mints a Headscale preauthkey and prints a QR. Scan from the official Tailscale app, point its login URL at `https://headscale.strixhalo.local`, and your phone is on the closet box's mesh. No app store, no middleman. The hosted iOS / Android client is on the roadmap; the Rust core wrapped in uniffi-rs is what makes that boring.
 5. **Connect** — point any OpenAI-compatible client at `http://localhost:8180/v1`. Open WebUI, Claude Code, Continue, your weekend Bun script. They all just work.
 
 ```sh
@@ -133,29 +150,43 @@ NPU path: we author AIE2P kernels in C++ via `Xilinx/llvm-aie` (Peano), dispatch
 
 ## honest numbers
 
-Strix Halo reference, single-stream decode, real wall-clock:
+C++ wins the lane. Doesn't matter which C++ — `rocm-cpp`, llama.cpp Vulkan, ggml-hip — the family beats every other family on this box. What changes inside the family is who wins which model.
 
-| metric | value |
-|---|---|
-| Bonsai 1.7B ternary, decode @ 64-tok | **104 tok/s** |
-| Halo 1bit 2B baseline, decode @ 64-tok | 88 tok/s |
-| ternary GEMV memory utilization | 92% of LPDDR5x peak |
-| split-KV FD attention vs naive | 6.78× @ L=2048 |
-| NPU ternary GEMV @ 512×512 | 0.27 ms |
-| NPU i8 matmul @ 512×512 | 0.93 ms |
-| ternary `.h1b` models bundled | 8 |
-| supported AMD arches in one fat binary | gfx1151 + 7 (RDNA3/3.5/4) |
+```
+Strix Halo · gfx1151 · 256-tok decode · max_loaded_models=12
+```
 
-We are not going to put a benchmark grid here that we can't reproduce on demand. Numbers above are reproducible from `benchmarks/` against checked-in recipes. Anything else is in the [Benchmarks wiki](./docs/wiki/Benchmarks.md) with raw JSON and methodology. If a number isn't in this table, we either haven't measured it yet or don't trust the measurement.
+| model | backend | tok/s |
+|---|---|---|
+| `smollm2-135m` | llama.cpp Vulkan | **257.9** |
+| `Bonsai-1.7B-gguf:Q1_0` | llama.cpp Vulkan | 151.3 |
+| `gemma-3-270m-it` | llama.cpp Vulkan | 93.2 |
+| `deepseek-r1-distill-qwen-1.5b` | llama.cpp Vulkan | 92.1 |
+| `halo-1bit-2b-sherry-cpp` | rocm-cpp ternary | **57.6** |
+| `halo-1bit-2b-sherry-v3` | rocm-cpp ternary | 53.3 |
+| `halo-1bit-2b-sherry-v4` | rocm-cpp ternary | 53.4 |
+| `halo-1bit-2b` | rocm-cpp ternary | 51.0 |
+| `halo-1bit-2b-tq1` | rocm-cpp ternary | 50.2 |
+| `halo-bitnet-2b-tq2` | rocm-cpp ternary | 48.9 |
+| `bonsai-1.7b-tq2-h1b` | rocm-cpp ternary | 42.2 |
+
+> **Caveat.** Cache-friendly prompts (e.g. counting "1, 2, 3, ...") hit ~333 tok/s on Bonsai gguf. That is peak, not steady-state. Numbers above are essay-style 256-tok output — the regime you actually feel when you talk to the thing.
+
+**Reading the table.** Vulkan llama.cpp dominates raw throughput on small or quantized GGUFs — that's where it is supposed to win and we are not pretending otherwise. `rocm-cpp` wins on the `halo-1bit-2b` family because there is no comparable GGUF for our ternary `.h1b` weights — that lane is ours alone. Sherry-cpp at **57.6 tok/s** is best-of-ours; the 100+ target lives downstream of Run 5 retrain.
+
+Memory side: ternary GEMV pulls **92% of LPDDR5x peak**, the split-KV Flash-Decoding attention beats naive **6.78× at L=2048**, NPU ternary GEMV @ 512×512 lands at 0.27 ms, NPU i8 matmul @ 512×512 at 0.93 ms.
+
+Reproducible from `benchmarks/` against checked-in recipes. Anything not in this README lives in the [Benchmarks wiki](./docs/wiki/Benchmarks.md) with raw JSON and methodology.
 
 ## status, honestly
 
 | lane | state |
 |---|---|
 | LLM · TTS · STT · image | shipping on `:8180 / :8095 / :8190 / :1234` |
+| Sherry retrain (Run 5) | mid-flight, step 1700 / 9600, ~64h walltime, 10B-budget cap may stop earlier |
+| `halo-1bit-2b-sherry-cpp` | best-of-ours @ 57.6 tok/s; 100+ tok/s target post-Run-5 |
 | NPU toolchain (IRON + MLIR-AIE + Peano + libxrt, npu5) | axpy 160/160 green on Arch |
 | NPU serve path (BitNet-1.58 end-to-end) | kernel authoring in flight |
-| Sherry 1.25-bit retrain | mid-run, weights not landed |
 | Reddit / public launch | ship-gated until the NPU lane goes live |
 | Wan 2.2 video lane | upstream-blocked on sd.cpp 5D ggml |
 
@@ -197,7 +228,7 @@ Pick your language on the [Clients wiki](./docs/wiki/Clients.md). Rust, Go, C++,
 We forked, patched, and bundled work from a lot of people. They didn't ask for our patches and we don't push them upstream — our improvements stay in our forks, theirs flow into ours. Asymmetric, friendly, no relationship overhead.
 
 - [`lemonade-sdk/lemonade`](https://github.com/lemonade-sdk/lemonade) — C++ server skeleton. We forked `lemond` from here.
-- [`ggml/llama.cpp`](https://github.com/ggml-org/llama.cpp) — kernel idioms.
+- [`ggml/llama.cpp`](https://github.com/ggml-org/llama.cpp) — kernel idioms, Vulkan backend on the GGUF lane.
 - [`ggml/whisper.cpp`](https://github.com/ggerganov/whisper.cpp) · [`ggml/stable-diffusion.cpp`](https://github.com/leejet/stable-diffusion.cpp)
 - [`olokobayusuf/kokoro.cpp`](https://github.com/olokobayusuf/kokoro.cpp) — TTS.
 - [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) · [`Xilinx/llvm-aie`](https://github.com/Xilinx/llvm-aie) · [`Xilinx/aie-rt`](https://github.com/Xilinx/aie-rt) — NPU toolchain.
