@@ -21,6 +21,7 @@
 
     btn.addEventListener("click", async () => {
       const text = codeEl.innerText;
+      let ok = false;
       try {
         if (navigator.clipboard && window.isSecureContext) {
           await navigator.clipboard.writeText(text);
@@ -36,10 +37,15 @@
           document.body.removeChild(ta);
         }
         btn.textContent = LABEL_DONE;
+        btn.classList.add("is-copied");
+        ok = true;
       } catch (_) {
         btn.textContent = LABEL_FAIL;
       }
-      setTimeout(() => (btn.textContent = LABEL_IDLE), 1400);
+      setTimeout(() => {
+        btn.textContent = LABEL_IDLE;
+        btn.classList.remove("is-copied");
+      }, 1400);
     });
 
     pre.appendChild(btn);

@@ -1,5 +1,7 @@
 /* Copy-to-clipboard button on <pre><code> blocks.
-   Matches the dark turquoise / magenta accent system. */
+   Matches the canonical 1bit.systems palette:
+   --accent  #00d4ff (cyan)    -> hover
+   --accent2 #ff4d8d (magenta) -> "copied" success state */
 
 pre.has-copy {
   position: relative;
@@ -10,14 +12,14 @@ pre.has-copy .copy-btn {
   top: 0.5rem;
   right: 0.5rem;
   padding: 0.2rem 0.65rem;
-  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-family: var(--mono, "JetBrains Mono", ui-monospace, monospace);
   font-size: 0.72rem;
   font-weight: 500;
   letter-spacing: 0.03em;
   text-transform: lowercase;
-  color: var(--text-muted, #8a9397);
-  background: transparent;
-  border: 1px solid var(--border-strong, #26323a);
+  color: var(--muted, #8b949e);
+  background: rgba(13, 17, 23, 0.6);
+  border: 1px solid var(--border, #1f2630);
   border-radius: 4px;
   cursor: pointer;
   opacity: 0;
@@ -32,14 +34,22 @@ pre.has-copy .copy-btn:focus-visible {
 }
 
 pre.has-copy .copy-btn:hover {
-  color: var(--accent, #00e5d1);
-  border-color: var(--accent-soft, #00e5d166);
-  background: rgba(0, 229, 209, 0.06);
+  color: var(--accent, #00d4ff);
+  border-color: var(--accent, #00d4ff);
+  background: rgba(0, 212, 255, 0.08);
 }
 
 pre.has-copy .copy-btn:focus-visible {
-  outline: 2px solid var(--accent, #00e5d1);
+  outline: 2px solid var(--accent, #00d4ff);
   outline-offset: 2px;
+}
+
+/* Success state — magenta accent */
+pre.has-copy .copy-btn.is-copied,
+pre.has-copy .copy-btn.is-copied:hover {
+  color: var(--accent2, #ff4d8d);
+  border-color: var(--accent2, #ff4d8d);
+  background: rgba(255, 77, 141, 0.08);
 }
 
 @media (prefers-reduced-motion: reduce) {
