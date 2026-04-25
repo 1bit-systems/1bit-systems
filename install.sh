@@ -320,6 +320,13 @@ printf '\n%b╔═════════════════════�
 printf     '%b║  ✓ 1bit-systems bootstrap complete                         ║%b\n' "$GREEN" "$NC"
 printf     '%b╚══════════════════════════════════════════════════════════╝%b\n\n' "$GREEN" "$NC"
 
+# Detect LAN IP so the printed URLs are reachable from a phone / laptop
+# on the same network, not just the local machine.
+LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+[ -z "${LAN_IP:-}" ] && LAN_IP="localhost"
+LEMONADE_URL="http://${LAN_IP}:8000/app/"
+GAIA_URL="http://${LAN_IP}:8000/gaia/"
+
 cat <<EOF
 Next steps:
   1bit status             # 7-service snapshot
@@ -330,7 +337,28 @@ Next steps:
   1bit bench              # shadow-burnin parity summary
   1bit ppl                # perplexity vs gen-1 baseline 9.1607
 
+Apps live in your browser:
+  Lemonade  ${LEMONADE_URL}
+  GAIA      ${GAIA_URL}
+
 Landing page:  https://strixhalo.local/
 Docs:          README.md, ARCHITECTURE.md, DEMO.md
 
 EOF
+
+# ── auto-open the two web UIs in default browser ──────────────
+# Skip in CI, headless boxes, and when the user explicitly opted out.
+# xdg-open is the freedesktop standard; fall back to sensible-browser.
+if [ "${CI:-0}" = "1" ] || [ "${NO_OPEN:-0}" = "1" ] || [ -z "${DISPLAY:-${WAYLAND_DISPLAY:-}}" ]; then
+  echo "  (set NO_OPEN=1 or unset DISPLAY/WAYLAND_DISPLAY -> not auto-opening browser tabs)"
+else
+  for OPENER in xdg-open sensible-browser gnome-open kde-open; do
+    if command -v "$OPENER" >/dev/null 2>&1; then
+      printf '  opening %s ... ' "$LEMONADE_URL"; "$OPENER" "$LEMONADE_URL" >/dev/null 2>&1 && echo "ok" || echo "failed"
+      sleep 1
+      printf '  opening %s ... ' "$GAIA_URL";     "$OPENER" "$GAIA_URL"     >/dev/null 2>&1 && echo "ok" || echo "failed"
+      break
+    fi
+  done
+fi
+
