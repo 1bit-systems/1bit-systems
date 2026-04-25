@@ -10,15 +10,18 @@
 <meta property="og:description" content="Run a dozen local AI models on a $2000 mini-PC. C++ all the way down. No cloud, no Python at runtime, no API keys.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://1bit.systems/">
-<meta property="og:image" content="https://1bit.systems/assets/logo.png">
+<meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://1bit.systems/assets/logo.png">
 <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+<link rel="apple-touch-icon" href="/assets/logo.png">
 <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
 
 <header class="topbar">
   <a class="brand" href="/">
-    <img src="/assets/logo.svg" alt="" width="28" height="28">
+    <img src="/assets/logo.png" alt="" width="28" height="28">
     <span><b>1</b>bit<span class="dot">.</span>systems</span>
   </a>
   <nav>
@@ -36,7 +39,7 @@
 <main>
 
   <section class="hero">
-    <img class="hero-logo" src="/assets/logo.png" alt="1bit.systems" width="160" height="160">
+    <img class="hero-lockup" src="/assets/brand-lockup.svg" alt="1bit.systems" width="520" height="130">
     <p class="eyebrow">v0.1 &middot; Strix Halo &middot; gfx1151 + XDNA2</p>
     <h1>Native <span class="accent">ternary</span> LLM stack for AMD Strix Halo.</h1>
     <p class="lede">
@@ -121,6 +124,105 @@
       <li><b>Audio</b> &mdash; whisper.cpp STT + kokoro TTS, voice loop with sentence-boundary streaming</li>
       <li><b>Images</b> &mdash; sd.cpp native-HIP, no Python</li>
     </ul>
+  </section>
+
+  <section id="models" class="pillars">
+    <h2>Model gallery</h2>
+    <p class="note">Loaded out of the box by <code>lemond-bootstrap.service</code> on first start. Cold boot to first token ~30 s. Add or remove models with <code>1bit model add &lt;name&gt;</code>.</p>
+    <div class="model-grid">
+      <div class="model-card">
+        <h3>halo-1bit-2b-sherry <span class="badge">flagship</span></h3>
+        <dl>
+          <dt>params</dt><dd>2.0 B</dd>
+          <dt>quant</dt><dd>1.58 bpw ternary</dd>
+          <dt>backend</dt><dd>rocm-cpp Engine</dd>
+          <dt>tok/s</dt><dd>57.6</dd>
+          <dt>on disk</dt><dd>410 MB</dd>
+        </dl>
+        <p class="use"><b>Use:</b> primary chat. Halo v2 BitNet 1.58 + Sherry 1.25-bit retrain.</p>
+      </div>
+      <div class="model-card">
+        <h3>smollm2-135m</h3>
+        <dl>
+          <dt>params</dt><dd>135 M</dd>
+          <dt>quant</dt><dd>Q4_K_M</dd>
+          <dt>backend</dt><dd>llama.cpp Vulkan</dd>
+          <dt>tok/s</dt><dd>257.9</dd>
+          <dt>on disk</dt><dd>88 MB</dd>
+        </dl>
+        <p class="use"><b>Use:</b> draft model + autocomplete. Lowest latency on box.</p>
+      </div>
+      <div class="model-card">
+        <h3>Bonsai-1.7B</h3>
+        <dl>
+          <dt>params</dt><dd>1.7 B</dd>
+          <dt>quant</dt><dd>Q4_K_M GGUF</dd>
+          <dt>backend</dt><dd>llama.cpp Vulkan</dd>
+          <dt>tok/s</dt><dd>151.3</dd>
+          <dt>on disk</dt><dd>1.0 GB</dd>
+        </dl>
+        <p class="use"><b>Use:</b> code, infinity-arcade prompt-to-game LoRA host.</p>
+      </div>
+      <div class="model-card">
+        <h3>gemma-3-270m-it</h3>
+        <dl>
+          <dt>params</dt><dd>270 M</dd>
+          <dt>quant</dt><dd>Q4_K_M</dd>
+          <dt>backend</dt><dd>llama.cpp Vulkan</dd>
+          <dt>tok/s</dt><dd>93.2</dd>
+          <dt>on disk</dt><dd>175 MB</dd>
+        </dl>
+        <p class="use"><b>Use:</b> instruct fallback, multilingual.</p>
+      </div>
+      <div class="model-card">
+        <h3>deepseek-r1-distill-1.5b</h3>
+        <dl>
+          <dt>params</dt><dd>1.5 B</dd>
+          <dt>quant</dt><dd>Q4_K_M</dd>
+          <dt>backend</dt><dd>llama.cpp Vulkan</dd>
+          <dt>tok/s</dt><dd>92.1</dd>
+          <dt>on disk</dt><dd>1.1 GB</dd>
+        </dl>
+        <p class="use"><b>Use:</b> reasoning. <code>&lt;think&gt;</code> tag streamed separately.</p>
+      </div>
+      <div class="model-card">
+        <h3>nomic-embed-text-v1.5</h3>
+        <dl>
+          <dt>params</dt><dd>137 M</dd>
+          <dt>quant</dt><dd>FP16</dd>
+          <dt>backend</dt><dd>llama.cpp CPU</dd>
+          <dt>tok/s</dt><dd>n/a (embed)</dd>
+          <dt>on disk</dt><dd>262 MB</dd>
+        </dl>
+        <p class="use"><b>Use:</b> RAG embeddings. <code>/v1/embeddings</code>, 768 dims.</p>
+      </div>
+      <div class="model-card">
+        <h3>whisper-large-v3-turbo</h3>
+        <dl>
+          <dt>params</dt><dd>809 M</dd>
+          <dt>quant</dt><dd>Q5_0</dd>
+          <dt>backend</dt><dd>whisper.cpp Vulkan</dd>
+          <dt>tok/s</dt><dd>~16x realtime</dd>
+          <dt>on disk</dt><dd>574 MB</dd>
+        </dl>
+        <p class="use"><b>Use:</b> STT for the voice loop. Sliding-window streaming.</p>
+      </div>
+      <div class="model-card">
+        <h3>kokoro-82m</h3>
+        <dl>
+          <dt>params</dt><dd>82 M</dd>
+          <dt>quant</dt><dd>FP16 ONNX</dd>
+          <dt>backend</dt><dd>onnxruntime CPU</dd>
+          <dt>tok/s</dt><dd>~22x realtime</dd>
+          <dt>on disk</dt><dd>165 MB</dd>
+        </dl>
+        <p class="use"><b>Use:</b> TTS. Sentence-boundary streaming, multi-voice.</p>
+      </div>
+    </div>
+    <p class="note" style="margin-top:1rem">
+      Full registry &amp; checksums in
+      <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/packages.toml" rel="noopener"><code>packages.toml</code></a>.
+    </p>
   </section>
 
   <section id="hardware" class="pillars">

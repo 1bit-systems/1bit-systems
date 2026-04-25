@@ -15,7 +15,7 @@
 
 <br>
 
-<img src="./1bit-site/assets/logo.svg" alt="1bit systems" width="220" />
+<img src="./1bit-site/assets/brand-lockup.svg" alt="1bit systems" width="520" />
 
 <br>
 
