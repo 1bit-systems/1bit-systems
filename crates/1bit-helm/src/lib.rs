@@ -13,7 +13,7 @@
 //! * `telemetry`  — long-lived SSE subscription to 1bit-landing.
 //! * `models`     — `GET /v1/models` client for the Models pane.
 //! * `conv_log`   — JSONL conversation snapshot on close.
-//! * `app`        — eframe `App` impl. Five panes behind a top-bar switcher.
+//! * `app`        — eframe `App` impl. Four panes behind a top-bar switcher.
 //! * `tray`       — KDE Plasma SNI tray logic (gap P1 #7). Pure; the
 //!   `1bit-halo-helm-tray` binary wires it to a live dbus host.
 //!

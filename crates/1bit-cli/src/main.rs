@@ -15,7 +15,6 @@ mod doctor;
 mod install;
 mod install_model;
 mod logs;
-mod memory;
 mod npu;
 mod oobe_error;
 mod power;
@@ -24,7 +23,6 @@ mod preflight;
 mod restart;
 mod rollback;
 mod say;
-mod skill;
 mod status;
 mod update;
 mod version;
@@ -173,16 +171,6 @@ enum Cmd {
         #[arg(long)]
         list: bool,
     },
-    /// Manage SKILL.md files under ~/.halo/skills/ (operator-facing CRUD).
-    Skill {
-        #[command(subcommand)]
-        cmd: skill::SkillCmd,
-    },
-    /// Manage MEMORY.md + USER.md under ~/.halo/memories/ (operator-facing).
-    Memory {
-        #[command(subcommand)]
-        cmd: memory::MemoryCmd,
-    },
     /// XDNA 2 NPU diagnostics — xrt-smi wrapper + firmware / memlock probes.
     Npu {
         #[command(subcommand)]
@@ -274,8 +262,6 @@ async fn main() -> Result<()> {
             dry_run,
             list,
         } => power::run(profile, dry_run, list),
-        Cmd::Skill { cmd } => skill::run(cmd),
-        Cmd::Memory { cmd } => memory::run(cmd),
         Cmd::Npu { cmd } => npu::run(cmd),
         Cmd::Burnin { cmd } => burnin::run(cmd).await,
         Cmd::Budget => budget::run().await,

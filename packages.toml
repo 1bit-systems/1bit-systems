@@ -57,7 +57,7 @@ check = ""
 # 1bit-mcp — stdio JSON-RPC MCP bridge. Installed as a binary only; Claude
 # Code / external MCP clients launch it on demand, no systemd unit.
 [component.mcp]
-description = "1bit-mcp — stdio MCP bridge over 1bit-agents registry (binary only, no unit)"
+description = "1bit-mcp — stdio MCP bridge skeleton (binary only, no unit). Tool list empty post-2026-04-25 cull; will re-target GAIA agent-core."
 deps        = []
 build = [
     ["cargo", "install", "--path", "crates/1bit-mcp", "--force", "--quiet"],

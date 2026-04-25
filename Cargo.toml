@@ -3,7 +3,6 @@ resolver = "2"
 members = [
     "crates/1bit-cli",
     "crates/1bit-core",
-    "crates/1bit-agents",
     "crates/1bit-mcp",
     "crates/1bit-hip",
     "crates/1bit-cpu",
@@ -93,7 +92,6 @@ uuid        = { version = "1", features = ["v4", "serde"] }
 
 # Shared across halo crates
 onebit-core        = { path = "crates/1bit-core" }
-onebit-agents      = { path = "crates/1bit-agents" }
 onebit-retrieval   = { path = "crates/1bit-retrieval" }
 onebit-hip  = { path = "crates/1bit-hip" }
 onebit-cpu  = { path = "crates/1bit-cpu" }

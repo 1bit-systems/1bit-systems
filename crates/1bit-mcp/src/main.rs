@@ -1,35 +1,16 @@
-// 1bit-mcp — Phase 1 entry point.
+// 1bit-mcp — minimal stdio JSON-RPC entry point.
 //
-// Flow:
-//   1. Build a StdioServer wired to the default 1bit-agents registry
-//      (17 stubs via Registry::default_stubs, one Arc shared across
-//      requests).
-//   2. Drive the JSON-RPC loop on stdin/stdout until EOF.
-//
-// Signals: SIGTERM / SIGINT close stdin via the kernel and let run()
-// return Ok(()) naturally. We don't install handlers yet — the current
-// workload is entirely synchronous stubs, so there's nothing to drain.
-//
-// Environment:
-//   HALO_MCP_TIMEOUT_MS — reserved for when real specialists do I/O.
-//                         Currently just logged so ops tooling can
-//                         verify the plumbing end-to-end.
-//   RUST_LOG            — standard tracing filter. Defaults to
-//                         "onebit_mcp=info" if unset.
+// The agents-backed registry was retired in the 2026-04-25 cull (see
+// lib.rs). This binary still launches and accepts JSON-RPC traffic so
+// existing systemd / packages.toml plumbing keeps working; tool list is
+// empty until the crate is re-pointed at GAIA agent-core (or until the
+// canonical C++ port at 1bit-services/mcp/ supersedes it).
 
 use anyhow::Result;
 use tokio::io;
 use tracing::info;
 
 use onebit_mcp::StdioServer;
-
-fn load_timeout_ms() -> u64 {
-    std::env::var("HALO_MCP_TIMEOUT_MS")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .filter(|&ms| ms > 0)
-        .unwrap_or(30_000)
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -44,14 +25,11 @@ async fn main() -> Result<()> {
         .with_target(false)
         .init();
 
-    let timeout_ms = load_timeout_ms();
-    let server = StdioServer::with_default_agents();
-
+    let server = StdioServer::new();
     info!(
         version = %onebit_mcp::SERVER_VERSION,
         tools = server.registry().len(),
-        timeout_ms,
-        "1bit-mcp starting (Phase 1 — tools/call routes via onebit_agents::Registry)"
+        "1bit-mcp starting (post-agents-cull stub — empty tool list)"
     );
 
     server.run(io::stdin(), io::stdout()).await?;

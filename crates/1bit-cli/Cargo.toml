@@ -25,12 +25,7 @@ toml             = { workspace = true }
 dirs             = { workspace = true }
 libc             = { workspace = true }
 sha2             = { workspace = true }
-# Signed-release feed verification. Zero-dep Ed25519/minisign verifier;
-# the full `minisign` crate (which pulls scrypt/pbkdf2 for private-key
-# decryption) stays off the runtime path on purpose — we never sign,
-# only verify. See crates/1bit-cli/src/update.rs.
 minisign-verify  = "0.2"
-onebit-agents      = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

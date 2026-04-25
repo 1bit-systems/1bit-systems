@@ -31,8 +31,6 @@ futures      = { workspace = true }
 async-stream = { workspace = true }
 dirs         = { workspace = true }
 tracing      = { workspace = true }
-# 1bit-agents for SkillStore + MemoryStore reads (Skills / Memory panes).
-onebit-agents  = { workspace = true }
 # Bearer-token storage. keyring 3.x uses secret-service on Linux via zbus
 # (pure Rust — no openssl, no libsecret C dep). If secret-service is not
 # reachable at runtime (headless server, missing gnome-keyring) we fall

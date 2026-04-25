@@ -12,7 +12,9 @@ Keep terse; when in doubt, follow `ARCHITECTURE.md`.
 - **Rule B — C++20 only for kernels.** All HIP kernels stay in the
   `rocm-cpp/` subtree of this monorepo (folded 2026-04-20 via
   `git subtree add`; history preserved). Do NOT reimplement kernels in
-  Rust. FFI through `1bit-hip`. The standalone
+  Rust. The Engine is in-process now (lemond calls rocm-cpp directly via
+  the C++ Engine); the former `1bit-hip` Rust FFI bridge was deleted in
+  the 2026-04-25 cull. The standalone
   `bong-water-water-bong/rocm-cpp` mirror stays readable for one grace
   week, then archives. Old `stampby/rocm-cpp` already archived,
   `stampby` handle retired.
@@ -53,16 +55,18 @@ crates were retired in the 2026-04-25 cull — lemond is canonical now.
 crates/
   1bit-cli           unified operator CLI (1bit status/logs/doctor/install/...)
   1bit-core          model + tokenizer parsers (pure, no I/O beyond mmap)
-  1bit-agents        17-specialist async registry (one file, one source of truth)
-  1bit-mcp           tokio stdio JSON-RPC bridge → 1bit-agents registry
+  1bit-mcp           tokio stdio JSON-RPC bridge — empty tool list post-cull,
+                       reborn against GAIA agent-core or its C++ port
+                       (1bit-services/mcp/) when that lands
   1bit-landing       marketing page on :8190, live /metrics probe
   1bit-helm          desktop client (egui/eframe) — formerly halo-gaia, renamed 2026-04-20
   1bit-voice         sentence-boundary streaming voice loop (LLM SSE → TTS chunks)
   1bit-echo          browser-side WebSocket gateway over 1bit-voice
   1bit-power         RyzenAdj wrapper for `halo power` profile control
-  1bit-hip           FFI into rocm-cpp HIP kernels (gfx1151 ternary GEMV)
-  1bit-cpu           CPU AVX2 fallback FFI
   1bit-mlx           Apple Silicon backend (feature-gated)
+  # 1bit-agents, 1bit-hip, 1bit-cpu — deleted in the 2026-04-25 cull
+  # (agents superseded by GAIA agent-core; hip/cpu obsolete since the
+  # Engine moved in-process inside lemond).
 strixhalo/           dotfiles (systemd, caddy, bin, fish) — see strixhalo/README.md
 packages.toml        pkg manifest consumed by `1bit install`
 install.sh           fresh-box bootstrap

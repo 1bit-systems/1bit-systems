@@ -1,6 +1,6 @@
 //! eframe/egui `App` impl for 1bit-helm.
 //!
-//! Six panes, left-nav + top-bar switcher:
+//! Four panes, left-nav + top-bar switcher:
 //!
 //! * Status   — subscribes to `http://127.0.0.1:8190/_live/stats` (1bit-landing
 //!   SSE). Renders loaded model + tok/s gauge + GPU temp/util +
@@ -8,13 +8,14 @@
 //! * Chat     — `POST /v1/chat/completions` against the lemonade gateway
 //!   (default `http://127.0.0.1:8200`), SSE `stream: true`,
 //!   token-by-token append.
-//! * Skills   — `onebit_agents::SkillStore::list` + right-pane body viewer.
-//!   Edit opens `$EDITOR` via `std::process::Command`.
-//! * Memory   — `onebit_agents::MemoryStore::list(MemoryKind::Memory)` +
-//!   `list(MemoryKind::User)` with tabs + inline add.
 //! * Models   — `GET /v1/models`. Card grid with a disabled "Load" button
 //!   (server loads at startup today — future hook).
 //! * Settings — bearer-token mgmt (+ about dialog).
+//!
+//! The Skills + Memory panes were retired in the 2026-04-25 cull when
+//! `onebit-agents` was deleted (superseded by GAIA agent-core in
+//! `1bit-services/agent-core/`). Re-add via the new agent-core surface
+//! when the canonical port lands.
 //!
 //! Persistence: last-open pane + window size via eframe's `persistence`
 //! feature (ron-backed).
@@ -47,8 +48,6 @@ pub enum Pane {
     #[default]
     Status,
     Chat,
-    Skills,
-    Memory,
     Models,
     Settings,
 }
@@ -57,8 +56,6 @@ impl Pane {
     pub const ALL: &'static [Pane] = &[
         Pane::Status,
         Pane::Chat,
-        Pane::Skills,
-        Pane::Memory,
         Pane::Models,
         Pane::Settings,
     ];
@@ -67,31 +64,12 @@ impl Pane {
         match self {
             Pane::Status => "Status",
             Pane::Chat => "Chat",
-            Pane::Skills => "Skills",
-            Pane::Memory => "Memory",
             Pane::Models => "Models",
             Pane::Settings => "Settings",
         }
     }
 }
 
-/// Selected skill + its rendered body, shown in the Skills right pane.
-#[derive(Debug, Clone)]
-pub struct SkillRow {
-    pub name: String,
-    pub category: String,
-    pub description: String,
-    /// Rendered SKILL.md body — lazy: populated when the user clicks the
-    /// row, not on every `refresh_skills`.
-    pub body: Option<String>,
-}
-
-/// Which memory file the Memory pane is currently viewing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MemoryTab {
-    Memory,
-    User,
-}
 
 /// Messages from background workers back to the UI.
 #[derive(Debug)]
@@ -129,20 +107,6 @@ pub struct HelmApp {
     /// Latest /v1/models snapshot for the Models pane.
     pub models: Vec<ModelCard>,
     pub models_error: Option<String>,
-
-    /// Latest Skills snapshot for the Skills pane.
-    pub skills: Vec<SkillRow>,
-    /// Index into `skills` of the row whose body is in the right pane.
-    pub skill_selected: Option<usize>,
-    /// Optional override for the skills root — used by tests.
-    pub skill_root_override: Option<PathBuf>,
-
-    /// Memory entries split by kind.
-    pub memory_entries: Vec<String>,
-    pub user_entries: Vec<String>,
-    pub memory_tab: MemoryTab,
-    pub memory_input: String,
-    pub memory_root_override: Option<PathBuf>,
 
     /// Status-pane live readout (mirrored from `/_live/stats`).
     pub live: LiveStats,
@@ -191,14 +155,6 @@ impl HelmApp {
             chat_streaming: None,
             models: Vec::new(),
             models_error: None,
-            skills: Vec::new(),
-            skill_selected: None,
-            skill_root_override: None,
-            memory_entries: Vec::new(),
-            user_entries: Vec::new(),
-            memory_tab: MemoryTab::Memory,
-            memory_input: String::new(),
-            memory_root_override: None,
             live: LiveStats::default(),
             live_connected: false,
             live_last_error: None,
@@ -258,84 +214,8 @@ impl HelmApp {
             }
         });
 
-        // Seed Skills + Memory + Models now so first-paint isn't blank.
-        self.refresh_skills();
-        self.refresh_memory();
+        // Seed Models now so first-paint isn't blank.
         self.refresh_models();
-    }
-
-    /// Load skills from the shared on-disk `~/.halo/skills` root. Called
-    /// on-demand when the Skills pane opens or the Refresh button is hit.
-    pub fn refresh_skills(&mut self) {
-        let store = match &self.skill_root_override {
-            Some(root) => Ok(onebit_agents::SkillStore::with_root(root.clone())),
-            None => onebit_agents::SkillStore::new(),
-        };
-        match store.and_then(|s| s.list()) {
-            Ok(skills) => {
-                self.skills = skills
-                    .into_iter()
-                    .map(|s| SkillRow {
-                        name: s.name,
-                        category: s.metadata_halo.category,
-                        description: s.description,
-                        body: None,
-                    })
-                    .collect();
-                // Sort: category then name, stable, case-insensitive.
-                self.skills.sort_by(|a, b| {
-                    a.category
-                        .to_lowercase()
-                        .cmp(&b.category.to_lowercase())
-                        .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-                });
-                self.skill_selected = None;
-                self.last_error = None;
-            }
-            Err(e) => self.last_error = Some(format!("skills: {e}")),
-        }
-    }
-
-    /// Read the SKILL.md body for row `idx` into `skills[idx].body`.
-    fn load_skill_body(&mut self, idx: usize) {
-        let Some(row) = self.skills.get(idx) else {
-            return;
-        };
-        let name = row.name.clone();
-        let store = match &self.skill_root_override {
-            Some(root) => Ok(onebit_agents::SkillStore::with_root(root.clone())),
-            None => onebit_agents::SkillStore::new(),
-        };
-        match store.and_then(|s| s.get(&name)) {
-            Ok(Some(skill)) => {
-                if let Some(r) = self.skills.get_mut(idx) {
-                    r.body = Some(skill.body);
-                }
-            }
-            Ok(None) => self.last_error = Some(format!("skill '{name}' disappeared")),
-            Err(e) => self.last_error = Some(format!("skill get: {e}")),
-        }
-    }
-
-    /// Load MEMORY.md + USER.md entries from the shared on-disk root.
-    pub fn refresh_memory(&mut self) {
-        let store = match &self.memory_root_override {
-            Some(root) => onebit_agents::MemoryStore::with_root(root.clone()),
-            None => onebit_agents::MemoryStore::new(),
-        };
-        match store {
-            Ok(store) => {
-                match store.list(onebit_agents::MemoryKind::Memory) {
-                    Ok(v) => self.memory_entries = v,
-                    Err(e) => self.last_error = Some(format!("memory: {e}")),
-                }
-                match store.list(onebit_agents::MemoryKind::User) {
-                    Ok(v) => self.user_entries = v,
-                    Err(e) => self.last_error = Some(format!("memory user: {e}")),
-                }
-            }
-            Err(e) => self.last_error = Some(format!("memory store: {e}")),
-        }
     }
 
     /// Fire a `GET /v1/models` on the ambient runtime. Result comes back
@@ -388,61 +268,6 @@ impl HelmApp {
                 let _ = tx.send(UiMsg::ChatError(e.to_string()));
             }
         });
-    }
-
-    /// Open `$EDITOR` on the selected skill's SKILL.md, synchronously.
-    fn edit_selected_skill(&mut self) {
-        let Some(idx) = self.skill_selected else {
-            return;
-        };
-        let Some(row) = self.skills.get(idx) else {
-            return;
-        };
-        let name = row.name.clone();
-        let root = self.skill_root_override.clone().unwrap_or_else(|| {
-            dirs::home_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join(".halo")
-                .join("skills")
-        });
-        // Find the file by walking categories — mirrors SkillStore.
-        let Some(path) = find_skill_md(&root, &name) else {
-            self.last_error = Some(format!(
-                "SKILL.md for '{name}' not found under {}",
-                root.display()
-            ));
-            return;
-        };
-        let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
-        // Spawn detached; helm's window blocks otherwise.
-        match std::process::Command::new(&editor).arg(&path).spawn() {
-            Ok(_) => self.toast = Some(format!("opened {} in {editor}", path.display())),
-            Err(e) => self.last_error = Some(format!("$EDITOR {editor}: {e}")),
-        }
-    }
-
-    /// Append `memory_input` to the active tab's file. On success, clears
-    /// the input + re-reads the store.
-    fn memory_add(&mut self) {
-        if self.memory_input.trim().is_empty() {
-            return;
-        }
-        let store = match &self.memory_root_override {
-            Some(root) => onebit_agents::MemoryStore::with_root(root.clone()),
-            None => onebit_agents::MemoryStore::new(),
-        };
-        let entry = std::mem::take(&mut self.memory_input);
-        let kind = match self.memory_tab {
-            MemoryTab::Memory => onebit_agents::MemoryKind::Memory,
-            MemoryTab::User => onebit_agents::MemoryKind::User,
-        };
-        match store.and_then(|s| s.add(kind, &entry).map(|_| ())) {
-            Ok(()) => {
-                self.toast = Some("memory entry added".into());
-                self.refresh_memory();
-            }
-            Err(e) => self.last_error = Some(format!("memory add: {e}")),
-        }
     }
 
     /// Flush the conversation to `~/.halo/helm/conversations/<ts>.jsonl`
@@ -517,24 +342,6 @@ async fn stream_chat(
     }
     let _ = tx.send(UiMsg::ChatDone);
     Ok(())
-}
-
-fn find_skill_md(root: &std::path::Path, name: &str) -> Option<PathBuf> {
-    if !root.exists() {
-        return None;
-    }
-    for entry in std::fs::read_dir(root).ok()? {
-        let entry = entry.ok()?;
-        let ty = entry.file_type().ok()?;
-        if !ty.is_dir() {
-            continue;
-        }
-        let candidate = entry.path().join(name).join("SKILL.md");
-        if candidate.exists() {
-            return Some(candidate);
-        }
-    }
-    None
 }
 
 // --- eframe wiring ---------------------------------------------------------
@@ -639,8 +446,6 @@ impl eframe::App for HelmApp {
         egui::CentralPanel::default().show(ctx, |ui| match self.current_pane {
             Pane::Status => draw_status(ui, self),
             Pane::Chat => draw_chat(ui, self),
-            Pane::Skills => draw_skills(ui, self),
-            Pane::Memory => draw_memory(ui, self),
             Pane::Models => draw_models(ui, self),
             Pane::Settings => draw_settings(ui, self),
         });
@@ -831,135 +636,6 @@ fn draw_chat(ui: &mut egui::Ui, app: &mut HelmApp) {
     });
 }
 
-fn draw_skills(ui: &mut egui::Ui, app: &mut HelmApp) {
-    ui.heading("Skills");
-    ui.horizontal(|ui| {
-        if ui.button("Refresh").clicked() {
-            app.refresh_skills();
-        }
-        ui.label(format!("{} skill(s)", app.skills.len()));
-        if app.skill_selected.is_some() && ui.button("Edit ($EDITOR)").clicked() {
-            app.edit_selected_skill();
-        }
-    });
-    ui.separator();
-
-    let avail_w = ui.available_width();
-    let left_w = (avail_w * 0.35).clamp(180.0, 340.0);
-
-    ui.horizontal_top(|ui| {
-        egui::ScrollArea::vertical()
-            .id_salt("skills-left")
-            .max_width(left_w)
-            .show(ui, |ui| {
-                if app.skills.is_empty() {
-                    ui.label("(no skills loaded — click Refresh)");
-                    return;
-                }
-                let mut to_load: Option<usize> = None;
-                let mut current_cat: Option<String> = None;
-                for (i, s) in app.skills.iter().enumerate() {
-                    if current_cat.as_deref() != Some(s.category.as_str()) {
-                        ui.add_space(4.0);
-                        ui.label(
-                            egui::RichText::new(if s.category.is_empty() {
-                                "(uncategorised)"
-                            } else {
-                                s.category.as_str()
-                            })
-                            .strong(),
-                        );
-                        current_cat = Some(s.category.clone());
-                    }
-                    let selected = app.skill_selected == Some(i);
-                    let resp = ui.selectable_label(selected, &s.name);
-                    if resp.clicked() {
-                        app.skill_selected = Some(i);
-                        if s.body.is_none() {
-                            to_load = Some(i);
-                        }
-                    }
-                }
-                if let Some(i) = to_load {
-                    app.load_skill_body(i);
-                }
-            });
-
-        ui.separator();
-
-        egui::ScrollArea::vertical()
-            .id_salt("skills-right")
-            .show(ui, |ui| match app.skill_selected {
-                None => {
-                    ui.label("(select a skill on the left to view SKILL.md)");
-                }
-                Some(i) => {
-                    if let Some(s) = app.skills.get(i) {
-                        ui.label(egui::RichText::new(&s.name).heading());
-                        ui.label(&s.description);
-                        ui.separator();
-                        let body = s.body.as_deref().unwrap_or("(loading…)");
-                        ui.monospace(body);
-                    }
-                }
-            });
-    });
-}
-
-fn draw_memory(ui: &mut egui::Ui, app: &mut HelmApp) {
-    ui.heading("Memory");
-    ui.horizontal(|ui| {
-        ui.selectable_value(&mut app.memory_tab, MemoryTab::Memory, "MEMORY.md");
-        ui.selectable_value(&mut app.memory_tab, MemoryTab::User, "USER.md");
-        ui.separator();
-        if ui.button("Refresh").clicked() {
-            app.refresh_memory();
-        }
-        let (n, cap) = match app.memory_tab {
-            MemoryTab::Memory => (app.memory_entries.len(), "memory"),
-            MemoryTab::User => (app.user_entries.len(), "user"),
-        };
-        ui.label(format!("{n} {cap} entries"));
-    });
-    ui.separator();
-
-    egui::ScrollArea::vertical()
-        .id_salt("mem-body")
-        .max_height(ui.available_height() - 80.0)
-        .show(ui, |ui| {
-            let entries: &[String] = match app.memory_tab {
-                MemoryTab::Memory => &app.memory_entries,
-                MemoryTab::User => &app.user_entries,
-            };
-            if entries.is_empty() {
-                ui.label("(empty)");
-            } else {
-                for (i, e) in entries.iter().enumerate() {
-                    ui.label(
-                        egui::RichText::new(format!("{}.", i + 1))
-                            .weak()
-                            .monospace(),
-                    );
-                    ui.label(e);
-                    ui.add_space(6.0);
-                }
-            }
-        });
-
-    ui.separator();
-    ui.label(egui::RichText::new("Add entry").strong());
-    ui.horizontal(|ui| {
-        let edit = egui::TextEdit::multiline(&mut app.memory_input)
-            .desired_rows(2)
-            .hint_text("new memory entry…")
-            .desired_width(ui.available_width() - 80.0);
-        ui.add(edit);
-        if ui.button("Add").clicked() {
-            app.memory_add();
-        }
-    });
-}
-
 fn draw_models(ui: &mut egui::Ui, app: &mut HelmApp) {
     ui.heading("Models");
     ui.horizontal(|ui| {
@@ -1134,9 +810,6 @@ mod tests {
         assert!(app.chat_conv.turns.is_empty());
         assert!(app.chat_input.is_empty());
         assert!(app.chat_streaming.is_none());
-        assert!(app.skills.is_empty());
-        assert!(app.memory_entries.is_empty());
-        assert!(app.user_entries.is_empty());
         assert!(app.models.is_empty());
         assert!(app.last_error.is_none());
     }
@@ -1149,24 +822,20 @@ mod tests {
     }
 
     #[test]
-    fn pane_all_covers_six_panes_in_declared_order() {
+    fn pane_all_covers_four_panes_in_declared_order() {
         // Tripwire: if we add a pane to the enum but miss `Pane::ALL`, the
         // UI silently drops it.
-        assert_eq!(Pane::ALL.len(), 6);
+        assert_eq!(Pane::ALL.len(), 4);
         assert_eq!(Pane::ALL[0], Pane::Status);
         assert_eq!(Pane::ALL[1], Pane::Chat);
-        assert_eq!(Pane::ALL[2], Pane::Skills);
-        assert_eq!(Pane::ALL[3], Pane::Memory);
-        assert_eq!(Pane::ALL[4], Pane::Models);
-        assert_eq!(Pane::ALL[5], Pane::Settings);
+        assert_eq!(Pane::ALL[2], Pane::Models);
+        assert_eq!(Pane::ALL[3], Pane::Settings);
     }
 
     #[test]
     fn pane_labels_are_stable_strings() {
         assert_eq!(Pane::Status.label(), "Status");
         assert_eq!(Pane::Chat.label(), "Chat");
-        assert_eq!(Pane::Skills.label(), "Skills");
-        assert_eq!(Pane::Memory.label(), "Memory");
         assert_eq!(Pane::Models.label(), "Models");
         assert_eq!(Pane::Settings.label(), "Settings");
     }
@@ -1178,42 +847,6 @@ mod tests {
             let back: Pane = serde_json::from_str(&s).unwrap();
             assert_eq!(back, *p);
         }
-    }
-
-    #[test]
-    fn refresh_skills_picks_up_tempdir_seed() {
-        // Bypass the runtime entirely: seed a tempdir with one skill,
-        // point skill_root_override at it, call refresh_skills.
-        let td = TempDir::new().unwrap();
-        let mut store = onebit_agents::SkillStore::with_root(td.path().to_path_buf());
-        let mut s = onebit_agents::skills::format::Skill::new("linter-oracle", "lint Rust PRs");
-        s.metadata_halo.category = "ci".into();
-        store.create(s).unwrap();
-
-        let mut app = HelmApp::new(cfg());
-        app.skill_root_override = Some(td.path().to_path_buf());
-        app.refresh_skills();
-        assert_eq!(app.skills.len(), 1);
-        assert_eq!(app.skills[0].name, "linter-oracle");
-        assert_eq!(app.skills[0].category, "ci");
-    }
-
-    #[test]
-    fn refresh_memory_reads_tempdir_seed() {
-        let td = TempDir::new().unwrap();
-        let store = onebit_agents::MemoryStore::with_root(td.path().to_path_buf()).unwrap();
-        store
-            .add(onebit_agents::MemoryKind::Memory, "hello memory")
-            .unwrap();
-        store
-            .add(onebit_agents::MemoryKind::User, "hello user")
-            .unwrap();
-
-        let mut app = HelmApp::new(cfg());
-        app.memory_root_override = Some(td.path().to_path_buf());
-        app.refresh_memory();
-        assert_eq!(app.memory_entries, vec!["hello memory"]);
-        assert_eq!(app.user_entries, vec!["hello user"]);
     }
 
     #[test]
