@@ -19,7 +19,7 @@
 
 <br>
 
-### [Install](https://1bit.systems/install) · [Docs](https://1bit.systems/docs) · [Site](https://1bit.systems) · [Discord](https://discord.gg/1bit)
+### [Install](https://1bit.systems/install) · [Docs](https://1bit.systems/docs) · [Site](https://1bit.systems) · [Discord](https://discord.gg/dSyV646eBs)
 
 </div>
 
