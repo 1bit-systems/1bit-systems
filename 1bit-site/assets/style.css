@@ -335,18 +335,17 @@ body.onepage .pillars,body.onepage .numbers,body.onepage .install,body.onepage .
   body.onepage main.page-main > section{padding:2.4rem 1.1rem}
 }
 
-/* ── thin themed scrollbars ────────────────────────────────────────────
-   Default OS scrollbars look like white slab blocks on the dark theme.
-   Make them narrow + tinted so the chrome stops fighting the content.
-   Firefox path uses scrollbar-width/color; webkit uses pseudo-elements. */
-* { scrollbar-width: thin; scrollbar-color: rgba(0,212,255,.25) transparent; }
-::-webkit-scrollbar { width: 8px; height: 8px; }
+/* ── scrollbars matched to site palette ────────────────────────────────
+   Use --border (#1f2630) for the thumb so the chrome blends into the
+   dark page bg (#0d1117). Subtle, no glow, no cyan accent. */
+* { scrollbar-width: thin; scrollbar-color: #1f2630 transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(0,212,255,.22);
-  border-radius: 4px;
-  border: 2px solid transparent;
+  background: #1f2630;
+  border-radius: 5px;
+  border: 2px solid #0d1117;
   background-clip: padding-box;
 }
-::-webkit-scrollbar-thumb:hover { background: rgba(0,212,255,.45); background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: #2a313c; background-clip: padding-box; }
 ::-webkit-scrollbar-corner { background: transparent; }

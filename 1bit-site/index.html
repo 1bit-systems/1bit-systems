@@ -128,7 +128,7 @@
       <div class="pillar"><h3>1bit-rag</h3><p>Hybrid retrieval &mdash; dense + lexical. Eight ctest cases. Embeddings on CPU, rerank on iGPU.</p></div>
       <div class="pillar"><h3>agent-core</h3><p>GAIA-derived agent spine. Tool-use, planner, and memory loop, ported into the C++ core.</p></div>
       <div class="pillar"><h3>halo-arcade</h3><p>Eight-game retro cabinet. Vanilla JS canvas, no framework. Lives at <a href="https://1bit.gg" rel="noopener">1bit.gg</a>.</p></div>
-      <div class="pillar"><h3>1bit-helm</h3><p>Desktop client. Rust egui/eframe. SNI tray icon for service start/stop on Plasma.</p></div>
+      <div class="pillar"><h3>1bit-helm</h3><p>Desktop client. Native C++. SNI tray icon for service start/stop on Plasma.</p></div>
       <div class="pillar"><h3>1bit-cli</h3><p>Operator commands. <code>1bit status</code>, <code>logs</code>, <code>doctor</code>, <code>install</code>, <code>update</code>.</p></div>
     </div>
     <h3 class="subhead">Modalities</h3>
@@ -287,7 +287,7 @@ ln -sfn "$PWD/1bit-systems-0.1.0-x86_64.AppImage" ~/.local/bin/1bit</code></pre>
     <pre><code>curl -fsSL https://github.com/bong-water-water-bong/1bit-systems/releases/latest/download/1bit-systems-x86_64.AppImage -o 1bit-systems.AppImage
 chmod +x 1bit-systems.AppImage
 ./1bit-systems.AppImage server</code></pre>
-    <p>Single self-contained binary: HIP kernels, Rust runtime, tokenizer, the lot. First run seeds <code>~/.cache/1bit systems/models/</code> and prints a bearer token. No root needed unless you want to wire the bundled systemd unit.</p>
+    <p>Single self-contained binary: HIP kernels, C++ runtime, tokenizer, the lot. First run seeds <code>~/.cache/1bit systems/models/</code> and prints a bearer token. No root needed unless you want to wire the bundled systemd unit.</p>
     <h3>AUR</h3>
     <pre><code>yay -S 1bit-systems       # or: paru / pikaur
 systemctl --user enable --now strix-server</code></pre>
@@ -301,7 +301,7 @@ cd ~/1bit-systems
       <li>Detects the SoC (<code>lscpu | grep -i "AMD Ryzen AI MAX+"</code>). Aborts on a mismatch with a clear message.</li>
       <li>Installs pacman deps from <code>packages.toml</code>. Runs unprivileged; prompts for sudo only on <code>pacman</code>.</li>
       <li>Builds HIP kernels in <code>rocm-cpp/</code>. 45&thinsp;min to 4&thinsp;h depending on cache warmth; progress bar is honest.</li>
-      <li>Runs <code>cargo build --release --workspace</code>. Installs binaries into <code>~/.local/bin/</code>.</li>
+      <li>Runs <code>cmake --build build --parallel</code>. Installs binaries into <code>~/.local/bin/</code>.</li>
       <li>Enables user-systemd units (<code>systemctl --user enable --now strix-server</code>, etc.).</li>
       <li>Prints the bearer, the URL, and a curl test line.</li>
     </ul>
@@ -425,7 +425,7 @@ systemctl --user restart strix-kokoro</code></pre>
 
   <section id="stack" class="pillars">
     <h2>C++ stack inventory</h2>
-    <p class="note">What's in the monorepo. C++ for kernels and the gateway, Rust for everything above, no Python at runtime.</p>
+    <p class="note">What's in the monorepo. C++ end to end on the serving path. No Python at runtime.</p>
     <div class="scroll-x">
     <table class="data-table">
       <thead><tr><th>Component</th><th>Lang</th><th>Lines</th><th>Tests</th><th>Role</th></tr></thead>
@@ -436,14 +436,14 @@ systemctl --user restart strix-kokoro</code></pre>
         <tr><td>1bit-rag</td><td>C++20</td><td class="num">~2&nbsp;600</td><td class="num">8</td><td>Hybrid retrieval, dense + lexical, on-disk index</td></tr>
         <tr><td>bun-fight</td><td>C++20</td><td class="num">~1&nbsp;900</td><td class="num">3</td><td>Eight-LLM debate harness</td></tr>
         <tr><td>agent-core</td><td>C++20</td><td class="num">~1&nbsp;100</td><td class="num">9</td><td>GAIA-derived planner / tool-use spine</td></tr>
+        <tr><td>1bit-helm</td><td>C++20</td><td class="num">~3&nbsp;200</td><td class="num">7</td><td>Desktop client + Plasma SNI tray</td></tr>
+        <tr><td>1bit-cli</td><td>C++20</td><td class="num">~2&nbsp;100</td><td class="num">11</td><td><code>1bit status / logs / doctor / install</code></td></tr>
+        <tr><td>1bit-voice</td><td>C++20</td><td class="num">~1&nbsp;400</td><td class="num">5</td><td>Sentence-boundary streaming voice loop</td></tr>
+        <tr><td>1bit-power</td><td>C++20</td><td class="num">~600</td><td class="num">3</td><td>RyzenAdj wrapper, <code>halo power</code> profiles</td></tr>
+        <tr><td>1bit-mcp</td><td>C++20</td><td class="num">~900</td><td class="num">4</td><td>JSON-RPC MCP bridge, stdio transport</td></tr>
         <tr><td>halo-arcade</td><td>JS canvas</td><td class="num">~3&nbsp;400</td><td class="num">&mdash;</td><td>Eight-game retro cabinet (1bit.gg)</td></tr>
-        <tr><td>1bit-cli</td><td>Rust 1.88</td><td class="num">~2&nbsp;100</td><td class="num">11</td><td><code>1bit status / logs / doctor / install</code></td></tr>
-        <tr><td>1bit-helm</td><td>Rust egui</td><td class="num">~3&nbsp;200</td><td class="num">7</td><td>Desktop client + Plasma SNI tray</td></tr>
-        <tr><td>1bit-voice</td><td>Rust</td><td class="num">~1&nbsp;400</td><td class="num">5</td><td>Sentence-boundary streaming voice loop</td></tr>
-        <tr><td>1bit-power</td><td>Rust</td><td class="num">~600</td><td class="num">3</td><td>RyzenAdj wrapper, <code>halo power</code> profiles</td></tr>
-        <tr><td>1bit-mcp</td><td>Rust tokio</td><td class="num">~900</td><td class="num">4</td><td>JSON-RPC MCP bridge, stdio transport</td></tr>
       </tbody>
-      <caption>Workspace baseline ~90 tests, <code>cargo test --workspace --release</code> green on main.</caption>
+      <caption>Workspace baseline ~90 tests, <code>ctest --output-on-failure</code> green on main.</caption>
     </table>
     </div>
   </section>
@@ -491,25 +491,25 @@ systemctl --user restart strix-kokoro</code></pre>
       </tbody>
     </table>
     <h3>The lane stack</h3>
-    <pre><code>    1bit-helm / voice PWA / 1bit-cli          (user surface, Rust)
+    <pre><code>    1bit-helm / voice PWA / 1bit-cli          (user surface, native)
                        |
-    1bit-server  (axum, OpenAI-compat)        (HTTP, Rust)
+    lemond  (cpp-httplib, OpenAI-compat)      (HTTP, C++20)
                        |
-    1bit-router  (CPU / iGPU / NPU dispatch)  (orchestrator, Rust)
+    rocm-cpp Engine  (CPU / iGPU / NPU dispatch)  (orchestrator, C++20)
           |             |             |
     CPU lane      iGPU lane      NPU lane
-    AVX2 ternary  HIP GEMV @     ORT + VitisAI
-    (aggregating) 49% LPDDR5     (evaluating)
+    AVX2 ternary  HIP GEMV @     ORT + VitisAI EP
+    (aggregating) 92% LPDDR5     (evaluating)
           \             |             /
            \            |            /
         128 GB LPDDR5-8000 @ 256 GB/s
         unified, cache-coherent, zero-copy</code></pre>
     <h3>The five rules</h3>
     <ul>
-      <li><b>Rule A</b> &mdash; no Python at runtime. Python is fine for dev scripts; never in a systemd unit or HTTP path. Orchestration lives in Rust.</li>
-      <li><b>Rule B</b> &mdash; C++20 for kernels. HIP kernels stay in <code>rocm-cpp/</code>. No Rust ports of kernels.</li>
+      <li><b>Rule A</b> &mdash; no Python at runtime. Python is fine for dev scripts; never in a systemd unit or HTTP path.</li>
+      <li><b>Rule B</b> &mdash; C++20 default for everything that runs on the box. HIP kernels stay in <code>rocm-cpp/</code>.</li>
       <li><b>Rule C</b> &mdash; hipBLAS is banned. Native Tensile only.</li>
-      <li><b>Rule D</b> &mdash; Rust 1.88, edition 2024. Workspace pinned.</li>
+      <li><b>Rule D</b> &mdash; bare-metal first. No Docker, no interpreters. <code>cmake --build</code> produces a static binary.</li>
       <li><b>Rule E</b> &mdash; NPU = ORT C++ with VitisAI EP (AMD official). Peano + libxrt + aie-rt for custom AIE kernels we write ourselves.</li>
     </ul>
     <h3>The router</h3>
@@ -540,7 +540,7 @@ systemctl --user restart strix-kokoro</code></pre>
       </tbody>
     </table>
     <p>All user-systemd (<code>systemctl --user</code>). No container. No Python. Boot time per binary is ~200&thinsp;ms.</p>
-    <p>&rarr; Wiki deep dives: <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Architecture" rel="noopener">Architecture</a>, <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Why-Rust" rel="noopener">Why Rust</a>, <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Why-Strix-Halo" rel="noopener">Why Strix Halo</a>.</p>
+    <p>&rarr; Wiki deep dives: <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Architecture" rel="noopener">Architecture</a>, <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Why-C--" rel="noopener">Why C++</a>, <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Why-Strix-Halo" rel="noopener">Why Strix Halo</a>.</p>
   </section>
 
   <section id="api" class="doc-section">
@@ -627,7 +627,7 @@ Prefill:                       88.3 tok/s
 PPL wikitext-103 chunk-1024:    9.16
 PPL wikitext-103 pass-4095:    11.98
 </code></pre>
-    <p>The HTTP figure is wall-clock (prefill + axum + JSON serialize). The kernel figure is decode-only.</p>
+    <p>The HTTP figure is wall-clock (prefill + cpp-httplib + JSON serialize). The kernel figure is decode-only.</p>
     <h3>Kernel breakdown</h3>
     <ul>
       <li><b>Ternary GEMV</b> at <strong>92&nbsp;% of LPDDR5 peak</strong> per rocprof bytes-read &mdash; bandwidth-bound.</li>
@@ -653,10 +653,11 @@ PPL wikitext-103 pass-4095:    11.98
   <section id="status" class="status-section">
     <h2>Status</h2>
     <ul class="status-list">
-      <li><span class="tag-status live">Live</span><span>LLM serving on Strix Halo iGPU &mdash; Halo v2 (BitNet 1.58) at 80.8 tok/s, OpenAI-compatible HTTP on <code>:8180</code>.</span></li>
-      <li><span class="tag-status live">Live</span><span>NPU toolchain proven end-to-end. IRON axpy 160/160, AIE2P <code>matmul 512&times;512&times;512 i8</code> bit-exact.</span></li>
-      <li><span class="tag-status wip">In&nbsp;flight</span><span>Run 5 cooking. Two Sparse-BitNet training runs on H200 pods.</span></li>
-      <li><span class="tag-status wip">In&nbsp;flight</span><span>Sherry 1.25-bit retrain &mdash; 3:4 sparsity, requantizer + loader landed.</span></li>
+      <li><span class="tag-status live">Live</span><span>LLM serving on Strix Halo iGPU &mdash; <code>halo-1bit-2b-sherry-cpp</code> (BitNet 1.58 + Sherry 1.25-bit, post Run 5) at 73 tok/s, OpenAI-compatible HTTP on <code>:8180</code>.</span></li>
+      <li><span class="tag-status live">Live</span><span>NPU toolchain proven end-to-end. IRON axpy 160/160, AIE2P <code>matmul 512&times;512&times;512 i8</code> in 0.93 ms bit-exact.</span></li>
+      <li><span class="tag-status live">Live</span><span>Run 5 Sparse-BitNet 2:4 retrain landed. 3&times; H200 NVL, 5.66 B tokens, 9,600/9,600 opt-steps, final loss 4.0972, 96 ternary tensors verified 2:4-clean.</span></li>
+      <li><span class="tag-status live">Live</span><span>Sherry 1.25-bit weights swapped &mdash; 3:4 sparsity packing (2 bits zero-pos + 3 bits signs per group of 4). Loader, requantizer, in-process backend all wired.</span></li>
+      <li><span class="tag-status wip">In&nbsp;flight</span><span>Run 6 &mdash; BitNet v2 W1.58A4 via Hadamard activations. Drops activation-side bandwidth to 4 bit. Recipe locked, pod not spun.</span></li>
       <li><span class="tag-status wip">In&nbsp;flight</span><span>NPU serve-path &mdash; ternary <code>bitnet_gemm</code> kernel on XDNA&nbsp;2. Toolchain works; kernel still has to be written.</span></li>
       <li><span class="tag-status hold">Ship&nbsp;gate</span><span>No public launch until a ternary kernel runs on the NPU. GitHub is the record; this page is the brief.</span></li>
     </ul>
@@ -684,17 +685,17 @@ PPL wikitext-103 pass-4095:    11.98
     <h3>The five rules</h3>
     <ul>
       <li><b>Rule A</b> &mdash; no Python at runtime. Python is fine for dev-box scripts (requantizers, analysis notebooks); never in a systemd unit or an HTTP path.</li>
-      <li><b>Rule B</b> &mdash; C++20 for kernels. HIP kernels stay in <code>rocm-cpp/</code>. No Rust ports.</li>
+      <li><b>Rule B</b> &mdash; C++20 default for everything that runs on the box. HIP kernels stay in <code>rocm-cpp/</code>.</li>
       <li><b>Rule C</b> &mdash; no hipBLAS in the runtime path. Native Tensile kernels only.</li>
-      <li><b>Rule D</b> &mdash; Rust 1.88, edition 2024. Pinned in the workspace <code>Cargo.toml</code>.</li>
+      <li><b>Rule D</b> &mdash; bare-metal first. No Docker, no interpreters. <code>cmake --build</code> produces a static binary.</li>
       <li><b>Rule E</b> &mdash; NPU stack is ORT C++ with the VitisAI Execution Provider (AMD official). Peano + libxrt + aie-rt for custom AIE kernels.</li>
     </ul>
     <h3>The flow</h3>
     <ol>
       <li>Fork <a href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">bong-water-water-bong/1bit-systems</a>.</li>
       <li>Branch. Small. One logical change per commit.</li>
-      <li>Tests. Every new crate gets &ge;3 in-crate tests before merge.</li>
-      <li>Run <code>cargo test --workspace --release</code>. Must stay green on main.</li>
+      <li>Tests. Every new component gets &ge;3 unit tests before merge.</li>
+      <li>Run <code>ctest --output-on-failure</code>. Must stay green on main.</li>
       <li>If you touched a kernel: include rocprof output or a bench diff.</li>
       <li>Open the PR against <code>main</code>. Use Conventional Commits in the title.</li>
       <li>A maintainer runs the real-backend suite on strixhalo. Parity-gated by <code>benchmarks/ppl-gen2.sh</code> (PPL &plusmn;0.05) + <code>benchmarks/shadow-burnin.sh</code> (byte-exact &ge;98%).</li>
@@ -705,7 +706,7 @@ PPL wikitext-103 pass-4095:    11.98
     <table class="data-table">
       <thead><tr><th>Gate</th><th>When</th><th>Threshold</th></tr></thead>
       <tbody>
-        <tr><td><code>cargo test --workspace --release</code></td><td>every PR</td><td>0 fails, 0 new warnings</td></tr>
+        <tr><td><code>ctest --output-on-failure</code></td><td>every PR</td><td>0 fails, 0 new warnings</td></tr>
         <tr><td><code>benchmarks/ppl-gen2.sh</code></td><td>PRs that touch router / kernel / tokenizer</td><td>PPL within &plusmn;0.05 of 9.1607</td></tr>
         <tr><td><code>benchmarks/shadow-burnin.sh</code></td><td>PRs that change HTTP contract</td><td>byte-exact &ge; 98% over ~2k prompts</td></tr>
         <tr><td>rocprof</td><td>PRs that touch <code>ternary_gemv_halo.hip</code></td><td>measured improvement, no regression</td></tr>
