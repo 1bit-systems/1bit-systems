@@ -42,19 +42,27 @@ Keep terse; when in doubt, follow `ARCHITECTURE.md`.
 
 ## Layout
 
+lemond — the canonical OpenAI / Ollama / Anthropic-compat HTTP server —
+lives OUTSIDE this repo at `/home/bcloud/repos/lemonade/` (C++, runs as
+`1bit-halo-lemonade.service` on :8180). It dispatches per recipe to wrapped
+backends including the in-process ternary path (rocm-cpp Engine, gfx115x).
+The Rust `1bit-lemonade`, `1bit-router`, `1bit-server`, and `1bit-whisper`
+crates were retired in the 2026-04-25 cull — lemond is canonical now.
+
 ```
 crates/
-  1bit-cli           unified operator CLI (1bit status/logs/doctor/...)
+  1bit-cli           unified operator CLI (1bit status/logs/doctor/install/...)
   1bit-core          model + tokenizer parsers (pure, no I/O beyond mmap)
-  1bit-router        backend dispatcher + forward pass driver
-  1bit-server        axum HTTP, OpenAI-compat, /ppl, /metrics
   1bit-agents        17-specialist async registry (one file, one source of truth)
   1bit-mcp           tokio stdio JSON-RPC bridge → 1bit-agents registry
   1bit-landing       marketing page on :8190, live /metrics probe
-  1bit-lemonade      OpenAI-compat model gateway (/v1/models on :8200)
   1bit-helm          desktop client (egui/eframe) — formerly halo-gaia, renamed 2026-04-20
-  1bit-hip    FFI into rocm-cpp
-  1bit-mlx    Apple Silicon backend (feature-gated)
+  1bit-voice         sentence-boundary streaming voice loop (LLM SSE → TTS chunks)
+  1bit-echo          browser-side WebSocket gateway over 1bit-voice
+  1bit-power         RyzenAdj wrapper for `halo power` profile control
+  1bit-hip           FFI into rocm-cpp HIP kernels (gfx1151 ternary GEMV)
+  1bit-cpu           CPU AVX2 fallback FFI
+  1bit-mlx           Apple Silicon backend (feature-gated)
 strixhalo/           dotfiles (systemd, caddy, bin, fish) — see strixhalo/README.md
 packages.toml        pkg manifest consumed by `1bit install`
 install.sh           fresh-box bootstrap
@@ -106,10 +114,10 @@ After changes that need a live restart:
 
 ```bash
 cargo build --release --workspace                      # or -p <crate>
-# 1bit-server: binary is held open by the running unit → stop first
-systemctl --user stop strix-server
-cp target/release/1bit-server ~/.local/bin/1bit-server-real
-systemctl --user start strix-server
+# lemond: binary is held open by the running unit → stop first
+systemctl --user stop 1bit-halo-lemonade.service
+cp target/release/lemond ~/.local/bin/lemond
+systemctl --user start 1bit-halo-lemonade.service
 # other binaries install via cargo install --path crates/<name>
 ```
 
