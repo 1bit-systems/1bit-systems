@@ -27,11 +27,12 @@
   <nav>
     <a href="#features">features</a>
     <a href="#runtime">runtime</a>
+    <a href="#models">models</a>
     <a href="#hardware">hardware</a>
-    <a href="#numbers">numbers</a>
+    <a href="#bench">bench</a>
     <a href="#install">install</a>
+    <a href="#status">status</a>
     <a href="/docs/">docs</a>
-    <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki" rel="noopener">wiki</a>
     <a class="gh-btn" href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
   </nav>
 </header>
@@ -132,90 +133,42 @@
     <div class="model-grid">
       <div class="model-card">
         <h3>halo-1bit-2b-sherry <span class="badge">flagship</span></h3>
-        <dl>
-          <dt>params</dt><dd>2.0 B</dd>
-          <dt>quant</dt><dd>1.58 bpw ternary</dd>
-          <dt>backend</dt><dd>rocm-cpp Engine</dd>
-          <dt>tok/s</dt><dd>57.6</dd>
-          <dt>on disk</dt><dd>410 MB</dd>
-        </dl>
+        <dl><dt>params</dt><dd>2.0 B</dd><dt>quant</dt><dd>1.58 bpw ternary</dd><dt>backend</dt><dd>rocm-cpp Engine</dd><dt>tok/s</dt><dd>57.6</dd><dt>on disk</dt><dd>410 MB</dd></dl>
         <p class="use"><b>Use:</b> primary chat. Halo v2 BitNet 1.58 + Sherry 1.25-bit retrain.</p>
       </div>
       <div class="model-card">
         <h3>smollm2-135m</h3>
-        <dl>
-          <dt>params</dt><dd>135 M</dd>
-          <dt>quant</dt><dd>Q4_K_M</dd>
-          <dt>backend</dt><dd>llama.cpp Vulkan</dd>
-          <dt>tok/s</dt><dd>257.9</dd>
-          <dt>on disk</dt><dd>88 MB</dd>
-        </dl>
+        <dl><dt>params</dt><dd>135 M</dd><dt>quant</dt><dd>Q4_K_M</dd><dt>backend</dt><dd>llama.cpp Vulkan</dd><dt>tok/s</dt><dd>257.9</dd><dt>on disk</dt><dd>88 MB</dd></dl>
         <p class="use"><b>Use:</b> draft model + autocomplete. Lowest latency on box.</p>
       </div>
       <div class="model-card">
         <h3>Bonsai-1.7B</h3>
-        <dl>
-          <dt>params</dt><dd>1.7 B</dd>
-          <dt>quant</dt><dd>Q4_K_M GGUF</dd>
-          <dt>backend</dt><dd>llama.cpp Vulkan</dd>
-          <dt>tok/s</dt><dd>151.3</dd>
-          <dt>on disk</dt><dd>1.0 GB</dd>
-        </dl>
+        <dl><dt>params</dt><dd>1.7 B</dd><dt>quant</dt><dd>Q4_K_M GGUF</dd><dt>backend</dt><dd>llama.cpp Vulkan</dd><dt>tok/s</dt><dd>151.3</dd><dt>on disk</dt><dd>1.0 GB</dd></dl>
         <p class="use"><b>Use:</b> code, infinity-arcade prompt-to-game LoRA host.</p>
       </div>
       <div class="model-card">
         <h3>gemma-3-270m-it</h3>
-        <dl>
-          <dt>params</dt><dd>270 M</dd>
-          <dt>quant</dt><dd>Q4_K_M</dd>
-          <dt>backend</dt><dd>llama.cpp Vulkan</dd>
-          <dt>tok/s</dt><dd>93.2</dd>
-          <dt>on disk</dt><dd>175 MB</dd>
-        </dl>
+        <dl><dt>params</dt><dd>270 M</dd><dt>quant</dt><dd>Q4_K_M</dd><dt>backend</dt><dd>llama.cpp Vulkan</dd><dt>tok/s</dt><dd>93.2</dd><dt>on disk</dt><dd>175 MB</dd></dl>
         <p class="use"><b>Use:</b> instruct fallback, multilingual.</p>
       </div>
       <div class="model-card">
         <h3>deepseek-r1-distill-1.5b</h3>
-        <dl>
-          <dt>params</dt><dd>1.5 B</dd>
-          <dt>quant</dt><dd>Q4_K_M</dd>
-          <dt>backend</dt><dd>llama.cpp Vulkan</dd>
-          <dt>tok/s</dt><dd>92.1</dd>
-          <dt>on disk</dt><dd>1.1 GB</dd>
-        </dl>
+        <dl><dt>params</dt><dd>1.5 B</dd><dt>quant</dt><dd>Q4_K_M</dd><dt>backend</dt><dd>llama.cpp Vulkan</dd><dt>tok/s</dt><dd>92.1</dd><dt>on disk</dt><dd>1.1 GB</dd></dl>
         <p class="use"><b>Use:</b> reasoning. <code>&lt;think&gt;</code> tag streamed separately.</p>
       </div>
       <div class="model-card">
         <h3>nomic-embed-text-v1.5</h3>
-        <dl>
-          <dt>params</dt><dd>137 M</dd>
-          <dt>quant</dt><dd>FP16</dd>
-          <dt>backend</dt><dd>llama.cpp CPU</dd>
-          <dt>tok/s</dt><dd>n/a (embed)</dd>
-          <dt>on disk</dt><dd>262 MB</dd>
-        </dl>
+        <dl><dt>params</dt><dd>137 M</dd><dt>quant</dt><dd>FP16</dd><dt>backend</dt><dd>llama.cpp CPU</dd><dt>tok/s</dt><dd>n/a (embed)</dd><dt>on disk</dt><dd>262 MB</dd></dl>
         <p class="use"><b>Use:</b> RAG embeddings. <code>/v1/embeddings</code>, 768 dims.</p>
       </div>
       <div class="model-card">
         <h3>whisper-large-v3-turbo</h3>
-        <dl>
-          <dt>params</dt><dd>809 M</dd>
-          <dt>quant</dt><dd>Q5_0</dd>
-          <dt>backend</dt><dd>whisper.cpp Vulkan</dd>
-          <dt>tok/s</dt><dd>~16x realtime</dd>
-          <dt>on disk</dt><dd>574 MB</dd>
-        </dl>
+        <dl><dt>params</dt><dd>809 M</dd><dt>quant</dt><dd>Q5_0</dd><dt>backend</dt><dd>whisper.cpp Vulkan</dd><dt>tok/s</dt><dd>~16x realtime</dd><dt>on disk</dt><dd>574 MB</dd></dl>
         <p class="use"><b>Use:</b> STT for the voice loop. Sliding-window streaming.</p>
       </div>
       <div class="model-card">
         <h3>kokoro-82m</h3>
-        <dl>
-          <dt>params</dt><dd>82 M</dd>
-          <dt>quant</dt><dd>FP16 ONNX</dd>
-          <dt>backend</dt><dd>onnxruntime CPU</dd>
-          <dt>tok/s</dt><dd>~22x realtime</dd>
-          <dt>on disk</dt><dd>165 MB</dd>
-        </dl>
+        <dl><dt>params</dt><dd>82 M</dd><dt>quant</dt><dd>FP16 ONNX</dd><dt>backend</dt><dd>onnxruntime CPU</dd><dt>tok/s</dt><dd>~22x realtime</dd><dt>on disk</dt><dd>165 MB</dd></dl>
         <p class="use"><b>Use:</b> TTS. Sentence-boundary streaming, multi-voice.</p>
       </div>
     </div>
@@ -251,6 +204,101 @@
     <p class="hw-also">
       Also runs on <code>gfx1201</code> (RX 9070 XT, RDNA&nbsp;4) and <code>gfx1100</code> (RDNA&nbsp;3). One fat binary, eight arches.
     </p>
+    <h3 class="subhead">Fat-binary arch coverage</h3>
+    <div class="scroll-x">
+    <table class="data-table">
+      <thead>
+        <tr><th>Arch</th><th>Family</th><th>Card examples</th><th>WMMA</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>gfx1100</td><td>RDNA&nbsp;3</td><td>RX 7900 XTX, 7900 XT</td><td class="num">FP16/BF16</td><td class="tok">tested</td></tr>
+        <tr><td>gfx1101</td><td>RDNA&nbsp;3</td><td>RX 7800 XT, 7700 XT</td><td class="num">FP16/BF16</td><td class="tok">built</td></tr>
+        <tr><td>gfx1102</td><td>RDNA&nbsp;3</td><td>RX 7600, 7600 XT</td><td class="num">FP16/BF16</td><td class="tok">built</td></tr>
+        <tr><td>gfx1103</td><td>RDNA&nbsp;3</td><td>Phoenix iGPU (HX 370 etc.)</td><td class="num">FP16/BF16</td><td class="tok">built</td></tr>
+        <tr><td>gfx1150</td><td>RDNA&nbsp;3.5</td><td>Strix Point iGPU</td><td class="num">FP16/BF16</td><td class="tok">built</td></tr>
+        <tr class="flagship"><td>gfx1151</td><td>RDNA&nbsp;3.5</td><td>Strix Halo (Radeon 8060S)</td><td class="num">FP16/BF16</td><td class="tok">flagship</td></tr>
+        <tr><td>gfx1200</td><td>RDNA&nbsp;4</td><td>RX 9060 XT</td><td class="num">FP16/BF16/FP8</td><td class="tok">built</td></tr>
+        <tr><td>gfx1201</td><td>RDNA&nbsp;4</td><td>RX 9070, 9070 XT</td><td class="num">FP16/BF16/FP8</td><td class="tok">tested</td></tr>
+      </tbody>
+      <caption>Wave32-WMMA targets compiled into the AppImage. One ELF, eight arches. Source: <code>rocm-cpp/CMakeLists.txt</code>.</caption>
+    </table>
+    </div>
+    <h3 class="subhead">XDNA&nbsp;2 NPU detail</h3>
+    <div class="scroll-x">
+    <table class="data-table">
+      <thead>
+        <tr><th>Spec</th><th>Value</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Tile array</td><td>AIE2P, 8&times;5 compute tiles + 8 mem tiles + 8 shim tiles</td></tr>
+        <tr><td>Peak (i8)</td><td class="num">50 TOPS</td></tr>
+        <tr><td>SRAM per tile</td><td class="num">64 KB</td></tr>
+        <tr><td>Toolchain</td><td>MLIR-AIE &rarr; Peano (LLVM-AIE) &rarr; xclbin &rarr; libxrt</td></tr>
+        <tr><td>Custom-kernel lane</td><td>IRON-py compile-time, ORT C++ runtime</td></tr>
+        <tr><td>Proven kernels</td><td><code>axpy</code> 160/160 &middot; <code>matmul 512&sup3; i8</code> bit-exact</td></tr>
+        <tr><td>In flight</td><td>ternary <code>bitnet_gemm</code> (ship-gate)</td></tr>
+      </tbody>
+      <caption>Strix Halo NPU. Hardware probe: <code>RyzenAI-npu5</code>, device id <code>17f0_11</code>.</caption>
+    </table>
+    </div>
+  </section>
+
+  <section id="stack" class="pillars">
+    <h2>C++ stack inventory</h2>
+    <p class="note">What's in the monorepo. C++ for kernels and the gateway, Rust for everything above, no Python at runtime.</p>
+    <div class="scroll-x">
+    <table class="data-table">
+      <thead>
+        <tr><th>Component</th><th>Lang</th><th>Lines</th><th>Tests</th><th>Role</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>rocm-cpp</td><td>C++20 / HIP</td><td class="num">~14&nbsp;000</td><td class="num">38</td><td>Hand-written ternary GEMV, split-KV attn, RoPE, sd.cpp port</td></tr>
+        <tr><td>lemond</td><td>C++20</td><td class="num">~9&nbsp;500</td><td class="num">24</td><td>OpenAI / Ollama / Anthropic gateway on <code>:8180</code>; in-process Engine</td></tr>
+        <tr><td>1bit-flow</td><td>C++20</td><td class="num">~3&nbsp;800</td><td class="num">12</td><td>DAG workflow + agent loop runtime</td></tr>
+        <tr><td>1bit-rag</td><td>C++20</td><td class="num">~2&nbsp;600</td><td class="num">8</td><td>Hybrid retrieval, dense + lexical, on-disk index</td></tr>
+        <tr><td>bun-fight</td><td>C++20</td><td class="num">~1&nbsp;900</td><td class="num">3</td><td>Eight-LLM debate harness</td></tr>
+        <tr><td>agent-core</td><td>C++20</td><td class="num">~1&nbsp;100</td><td class="num">9</td><td>GAIA-derived planner / tool-use spine</td></tr>
+        <tr><td>halo-arcade</td><td>JS canvas</td><td class="num">~3&nbsp;400</td><td class="num">&mdash;</td><td>Eight-game retro cabinet (1bit.gg)</td></tr>
+        <tr><td>1bit-cli</td><td>Rust 1.88</td><td class="num">~2&nbsp;100</td><td class="num">11</td><td><code>1bit status / logs / doctor / install</code></td></tr>
+        <tr><td>1bit-helm</td><td>Rust egui</td><td class="num">~3&nbsp;200</td><td class="num">7</td><td>Desktop client + Plasma SNI tray</td></tr>
+        <tr><td>1bit-voice</td><td>Rust</td><td class="num">~1&nbsp;400</td><td class="num">5</td><td>Sentence-boundary streaming voice loop</td></tr>
+        <tr><td>1bit-power</td><td>Rust</td><td class="num">~600</td><td class="num">3</td><td>RyzenAdj wrapper, <code>halo power</code> profiles</td></tr>
+        <tr><td>1bit-mcp</td><td>Rust tokio</td><td class="num">~900</td><td class="num">4</td><td>JSON-RPC MCP bridge, stdio transport</td></tr>
+      </tbody>
+      <caption>Workspace baseline ~90 tests, <code>cargo test --workspace --release</code> green on main.</caption>
+    </table>
+    </div>
+  </section>
+
+  <section id="architecture" class="pillars">
+    <h2>Architecture</h2>
+    <p class="note">One ELF per service, single Caddy front, no Docker. Browser, CLI, and mobile all hit the same gateway.</p>
+    <div class="arch-wrap">
+<pre>
+   browser / phone / 1bit-helm / curl / OpenAI SDK
+                       |
+                       v
+              <b>Caddy :8000</b>  TLS, bearer auth, /gaia/, /v1/*
+                       |
+        +-----+--------+--------+----------+-------+
+        v     v        v        v          v       v
+  <b>lemond</b>  <b>1bit-</b>  <b>kokoro</b>   <b>whisper</b>     <b>sd-srv</b>  <b>ipfs</b>
+  :8180   <b>agent</b>   :8083    :8082       :8081   :8084
+  OAI/    :8196   TTS,     STT,        sd.cpp  pin
+  Ollama  planner ONNX     Vulkan      HIP     pubs
+  /Anth   +tools  CPU      iGPU        iGPU    cache
+        |
+        v
+  <b>rocm-cpp Engine</b> (in-process)  -->  HIP kernels on <i>gfx1151 iGPU</i>
+        |                                ternary GEMV @ 92% LPDDR5 peak
+        v
+  <b>libxrt</b> + Peano xclbin           -->  <i>XDNA 2 NPU (AIE2P)</i>
+                                       i8 matmul/axpy bit-exact; ternary in flight
+</pre>
+    </div>
+    <p class="note" style="margin-top:1rem">
+      Each service is a <code>systemctl --user</code> unit. Stop one, the rest keep running. <code>1bit doctor</code> probes every endpoint.
+    </p>
   </section>
 
   <section id="numbers" class="numbers">
@@ -270,6 +318,36 @@
       Build target archs: <code>gfx1151</code> + <code>gfx1201</code> + six more RDNA&nbsp;3 / 3.5 / 4 (one fat binary).
       Full methodology and cross-arch table on the
       <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Benchmarks" rel="noopener">wiki</a>.
+    </p>
+  </section>
+
+  <section id="bench" class="numbers">
+    <h2>Benchmark matrix</h2>
+    <p class="note">Three-round mean, 256-token output, 64-token prompt. <code>halo doctor --bench</code> reproduces this on your box. Higher is better.</p>
+    <div class="scroll-x">
+    <table class="data-table">
+      <thead>
+        <tr><th>Model</th><th>Params</th><th>Quant</th><th>Backend</th><th>tok/s</th><th>VRAM</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>smollm2-135m</td><td class="num">135 M</td><td>Q4_K_M</td><td>llama.cpp Vulkan</td><td class="num tok">257.9</td><td class="num">120 MB</td></tr>
+        <tr><td>Bonsai-1.7B-gguf</td><td class="num">1.7 B</td><td>Q4_K_M</td><td>llama.cpp Vulkan</td><td class="num tok">151.3</td><td class="num">1.3 GB</td></tr>
+        <tr><td>gemma-3-270m-it</td><td class="num">270 M</td><td>Q4_K_M</td><td>llama.cpp Vulkan</td><td class="num tok">93.2</td><td class="num">240 MB</td></tr>
+        <tr><td>deepseek-r1-distill-1.5b</td><td class="num">1.5 B</td><td>Q4_K_M</td><td>llama.cpp Vulkan</td><td class="num tok">92.1</td><td class="num">1.2 GB</td></tr>
+        <tr><td>halo-1bit-2b-baseline</td><td class="num">2.0 B</td><td>1.58 bpw</td><td>rocm-cpp</td><td class="num tok">80.8</td><td class="num">540 MB</td></tr>
+        <tr><td>qwen2.5-1.5b-instruct</td><td class="num">1.5 B</td><td>Q4_K_M</td><td>llama.cpp Vulkan</td><td class="num tok">79.4</td><td class="num">1.2 GB</td></tr>
+        <tr><td>halo-1bit-2b-baseline @1024</td><td class="num">2.0 B</td><td>1.58 bpw</td><td>rocm-cpp</td><td class="num tok">68.2</td><td class="num">540 MB</td></tr>
+        <tr class="flagship"><td>halo-1bit-2b-sherry</td><td class="num">2.0 B</td><td>1.25 bpw</td><td>rocm-cpp ternary</td><td class="num tok">57.6</td><td class="num">410 MB</td></tr>
+        <tr><td>llama-3.2-3b-instruct</td><td class="num">3.2 B</td><td>Q4_K_M</td><td>llama.cpp Vulkan</td><td class="num tok">53.7</td><td class="num">2.3 GB</td></tr>
+        <tr><td>phi-3.5-mini-instruct</td><td class="num">3.8 B</td><td>Q4_K_M</td><td>llama.cpp Vulkan</td><td class="num tok">48.1</td><td class="num">2.6 GB</td></tr>
+        <tr><td>mistral-7b-instruct-v0.3</td><td class="num">7.2 B</td><td>Q4_K_M</td><td>llama.cpp Vulkan</td><td class="num tok">26.4</td><td class="num">4.5 GB</td></tr>
+        <tr><td>qwen2.5-14b-instruct</td><td class="num">14.7 B</td><td>Q4_K_M</td><td>llama.cpp Vulkan</td><td class="num tok">12.9</td><td class="num">9.1 GB</td></tr>
+      </tbody>
+      <caption>Strix Halo &middot; Radeon 8060S &middot; gfx1151 &middot; 128 GB LPDDR5x &middot; 256-tok output &middot; 2026-04-25.</caption>
+    </table>
+    </div>
+    <p class="note" style="margin-top:1rem">
+      <b>halo-1bit-2b-sherry</b> is our flagship ternary build. The other rows show cohabitation: pick the right model for the task, all share the same gateway. Long-context decode (1024 tok) costs ~16% on the ternary path. Methodology + raw JSON: <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Benchmarks" rel="noopener">wiki/Benchmarks</a>.
     </p>
   </section>
 
@@ -319,6 +397,28 @@ ln -sfn "$PWD/1bit-systems-0.1.0-x86_64.AppImage" ~/.local/bin/1bit</code></pre>
     </p>
   </section>
 
+  <section id="gaia" class="pillars">
+    <h2>GAIA UI &amp; mobile pairing</h2>
+    <p class="note">A vendored copy of <a href="https://github.com/amd/gaia" rel="noopener">amd/gaia</a> ships in the AppImage. Same React UI AMD ships, but the FastAPI backend is replaced by a thin C++ shim that calls our gateway. Open <code>http://localhost:8000/gaia/</code> on the host or pair a phone over the mesh.</p>
+    <div class="gaia-grid">
+      <div class="gaia-card">
+        <h3>What runs at <code>/gaia/</code></h3>
+        <p>Vendored React UI from <code>amd/gaia</code> served as static assets by Caddy. The FastAPI surface is reimplemented in C++ and proxied through to <code>lemond :8180</code>: completions, embeddings, model-list, voice loop. Zero Python in the runtime path.</p>
+        <p>WebSocket realtime fans out to <code>1bit-voice</code> for sentence-boundary TTS streaming. Whisper partials drive the prompt input.</p>
+        <p>Source: <code>1bit-services/gaia-shim/</code> &middot; upstream React tree pinned at <code>amd/gaia@v0.9.x</code>.</p>
+      </div>
+      <div class="gaia-card">
+        <h3>Mobile pairing flow</h3>
+        <div class="pair-step"><span class="n">1.</span><span><b>Helm</b> generates a Headscale preauthkey, encodes the host URL + key as a QR.</span></div>
+        <div class="pair-step"><span class="n">2.</span><span>Phone scans QR with Tailscale (custom login server = your Headscale).</span></div>
+        <div class="pair-step"><span class="n">3.</span><span>Phone joins the mesh as a leaf node, gets a <code>100.64.x.y</code> address.</span></div>
+        <div class="pair-step"><span class="n">4.</span><span>Browse <code>http://halo.tail-NNN.ts.net:8000/gaia/</code> &mdash; chat, voice, image gen.</span></div>
+        <div class="pair-step"><span class="n">5.</span><span>Bearer token auto-injected by Caddy on the mesh interface only.</span></div>
+        <p style="margin-top:.6rem">No data leaves the mesh. Caddy refuses non-mesh sources outside <code>localhost</code>.</p>
+      </div>
+    </div>
+  </section>
+
   <section id="apps" class="community">
     <h2>Apps &amp; ecosystem</h2>
     <p class="note">Sibling projects in the same orbit. All under the same handle.</p>
@@ -349,6 +449,85 @@ ln -sfn "$PWD/1bit-systems-0.1.0-x86_64.AppImage" ~/.local/bin/1bit</code></pre>
       <li><span class="tag-status hold">Ship&nbsp;gate</span><span>No public launch until a ternary kernel runs on the NPU. GitHub is the record; this page is the brief.</span></li>
     </ul>
     <p class="updated">Last updated 2026-04-25.</p>
+  </section>
+
+  <section id="roadmap" class="pillars">
+    <h2>Run history</h2>
+    <p class="note">Pretraining and post-training runs on rented H200 NVL pods. One commit per run, recipe + checksum locked before spin. Status mirror updated by hand on push.</p>
+    <ul class="timeline">
+      <li class="done">
+        <b>Run 1 &mdash; Halo v1 baseline</b><span class="meta">2026-02 &middot; done</span>
+        <p>BitNet 1.58 from scratch, 1.4 B params, 100 B tokens RedPajama subset. PPL 11.4 on wikitext-103.</p>
+      </li>
+      <li class="done">
+        <b>Run 2 &mdash; Halo v2 + RoPE fix</b><span class="meta">2026-03 &middot; done</span>
+        <p>2.0 B ternary, HF split-half RoPE, split-KV attn. PPL 9.16. Live on the box at 80.8 tok/s.</p>
+      </li>
+      <li class="done">
+        <b>Run 3 &mdash; Activation-sparsity probe</b><span class="meta">2026-04-09 &middot; done</span>
+        <p>Measured 79.91% activation sparsity vs Nurvitadhi 50&ndash;60%. Bandwidth dominates 600:1 &mdash; deferred Phase 2.</p>
+      </li>
+      <li class="done">
+        <b>Run 4 &mdash; Sherry 1.25-bit retrain</b><span class="meta">2026-04-22 &middot; done</span>
+        <p>3:4 sparsity packing, 2 bits zero-pos + 3 bits signs. PPL +0.04 over baseline. Ships as flagship.</p>
+      </li>
+      <li class="live">
+        <b>Run 5 &mdash; Sparse-BitNet 2:4</b><span class="meta">2026-04-24 &middot; in flight</span>
+        <p>Two parallel training runs on H200 NVL ($3.70/hr each). Joint 1.58 + 2:4 N:M. Static status: cooking. Live step / loss endpoint planned.</p>
+      </li>
+      <li class="queued">
+        <b>Run 6 &mdash; Qwen3-TTS QAT</b><span class="meta">queued</span>
+        <p>Quantization-aware training to drop kokoro-replacement TTS to ternary. Recipe locked, pod not spun.</p>
+      </li>
+      <li class="candidate">
+        <b>Run 7 &mdash; Playable1-1bit (DiT)</b><span class="meta">candidate</span>
+        <p>Image / video DiT in ternary. Wan 2.2 5D blocker upstream &mdash; waiting on patched loader or Wan 2.1 fallback.</p>
+      </li>
+    </ul>
+  </section>
+
+  <section id="why" class="pillars">
+    <h2>Why this matters</h2>
+    <p class="note">The pitch in four cards.</p>
+    <div class="why-grid">
+      <div class="why-card">
+        <h3>1.58 bpw weights</h3>
+        <p>Ternary quantization stores each weight in a sign + zero-pos pattern. <b>~10&times; smaller</b> than FP16, <b>~4&times; smaller</b> than Q4. Whole 2 B model in 410 MB.</p>
+      </div>
+      <div class="why-card">
+        <h3>Memory-bound decode</h3>
+        <p>LLM decode is bandwidth-bound, not FLOP-bound. Strix Halo's <b>256 GB/s LPDDR5x</b> is the budget; we use <b>92%</b> of it. Smaller weights = more tokens per second of bandwidth.</p>
+      </div>
+      <div class="why-card">
+        <h3>$2&nbsp;000 mini-PC</h3>
+        <p>One Strix Halo box runs the whole stack. <b>No GPU farm, no cloud bill, no API key.</b> Compare $0.50&ndash;$5 per million tokens cloud vs. <b>~$0 per token</b> at the wall after install.</p>
+      </div>
+      <div class="why-card">
+        <h3>No Python at runtime</h3>
+        <p>Single ELF, systemd unit, weights mmap'd. No interpreter to start, no GIL to fight, no requirements.txt to drift. Cold boot to first token <b>~30 s</b>. Reboot survival = clean.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="refs" class="community">
+    <h2>References</h2>
+    <p class="note">Source-of-truth links. Every claim on this page lands somewhere below.</p>
+    <div class="refs-row">
+      <a href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub org / monorepo <span>code</span></a>
+      <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki" rel="noopener">Wiki / deep dives <span>docs</span></a>
+      <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Benchmarks" rel="noopener">Benchmark methodology <span>numbers</span></a>
+      <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/packages.toml" rel="noopener">packages.toml registry <span>models</span></a>
+      <a href="https://github.com/lemonade-sdk/lemonade" rel="noopener">lemonade-sdk upstream <span>fork lineage</span></a>
+      <a href="https://github.com/amd/gaia" rel="noopener">amd/gaia upstream <span>UI vendor</span></a>
+      <a href="https://github.com/amd/IRON" rel="noopener">amd/IRON AIE2P kernels <span>NPU</span></a>
+      <a href="https://github.com/Xilinx/llvm-aie" rel="noopener">Xilinx/llvm-aie (Peano) <span>NPU compiler</span></a>
+      <a href="https://github.com/microsoft/BitNet" rel="noopener">microsoft/BitNet <span>1.58-bit upstream</span></a>
+      <a href="https://github.com/leejet/stable-diffusion.cpp" rel="noopener">stable-diffusion.cpp <span>image gen</span></a>
+      <a href="https://github.com/ggerganov/whisper.cpp" rel="noopener">whisper.cpp <span>STT</span></a>
+      <a href="https://github.com/olokobayusuf/kokoro.cpp" rel="noopener">kokoro.cpp <span>TTS</span></a>
+      <a href="https://videocardz.com/newz/amd-strix-halo-runs-eight-llms-concurrently" rel="noopener">videocardz: 8 models concurrent <span>press</span></a>
+      <a href="https://1bit.gg" rel="noopener">1bit.gg arcade <span>sibling</span></a>
+    </div>
   </section>
 
 </main>
