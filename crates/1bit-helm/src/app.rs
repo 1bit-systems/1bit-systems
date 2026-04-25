@@ -1084,7 +1084,7 @@ fn draw_bearer_modal(ctx: &egui::Context, app: &mut HelmApp) {
         .show(ctx, |ui| {
             ui.label(format!("{BRAND} — first-run setup"));
             ui.label(
-                "Paste the bearer for 1bit-lemonade's `/v1/*` endpoints.\n\
+                "Paste the bearer for lemond's `/v1/*` endpoints.\n\
                  Stored in your system keyring (or chmod-0600 XDG file).",
             );
             ui.add_space(4.0);

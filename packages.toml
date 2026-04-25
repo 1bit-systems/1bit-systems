@@ -1,4 +1,4 @@
-# strix-ai-rs package manifest. Consumed by `1bit install <component>`.
+# 1bit-systems package manifest. Consumed by `1bit install <component>`.
 #
 # Each [component.X] declares:
 #   description — one line shown in `1bit install --list`
@@ -8,19 +8,15 @@
 #   check       — optional HTTP healthcheck; 2xx = installed OK
 
 [component.core]
-description = "1bit systems core — halo CLI + 1bit-server + 1bit-lemonade gateway + 1bit-helm desktop + landing page + voice/echo/mcp + npu userspace"
+description = "1bit systems core — 1bit CLI + 1bit-helm desktop + landing page + voice/echo/mcp + npu userspace (lemond is the canonical inference server, installed out-of-tree from /home/bcloud/repos/lemonade/)"
 deps        = ["voice", "echo", "mcp", "npu"]
 build = [
     ["cargo", "install", "--path", "crates/1bit-cli",      "--force", "--quiet"],
-    ["cargo", "install", "--path", "crates/1bit-server",   "--force", "--quiet",
-     "--features", "real-backend"],
-    ["cargo", "install", "--path", "crates/1bit-lemonade", "--force", "--quiet"],
     ["cargo", "install", "--path", "crates/1bit-helm",     "--force", "--quiet"],
     ["cargo", "install", "--path", "crates/1bit-landing",  "--force", "--quiet"],
 ]
 units = [
-    "strix-server.service",
-    "strix-lemonade.service",
+    "1bit-halo-lemonade.service",
     "strix-landing.service",
 ]
 check = "http://127.0.0.1:8180/v1/models"
@@ -119,13 +115,6 @@ deps        = []
 build       = []
 units       = ["1bit-halo-lemonade.service"]
 check       = "http://127.0.0.1:8000/api/v0/models"
-
-[component.lemonade-rs]
-description = "1bit-lemonade — OpenAI + Lemonade-SDK compat gateway on :8200 (bundled in core)"
-deps        = ["core"]
-build       = []
-units       = []
-check       = "http://127.0.0.1:8200/_health"
 
 [component.bitnet-gen1]
 description = "Gen-1 C++ bitnet_decode server (legacy /v1/*)"

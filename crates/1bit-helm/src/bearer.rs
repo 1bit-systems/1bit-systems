@@ -1,4 +1,4 @@
-//! Bearer-token storage for 1bit-lemonade's `/v1/*` endpoints.
+//! Bearer-token storage for lemond's `/v1/*` endpoints.
 //!
 //! Strategy (spec: Crate-halo-helm.md invariant 4):
 //!   1. Try the system keyring via the `keyring` crate (secret-service on

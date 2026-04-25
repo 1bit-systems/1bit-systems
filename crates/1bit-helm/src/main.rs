@@ -1,4 +1,5 @@
-//! 1bit-helm — egui/eframe desktop client against 1bit-server / 1bit-lemonade.
+//! 1bit-helm — egui/eframe desktop client against lemond (the canonical
+//! OpenAI / Ollama / Anthropic-compat HTTP server at /home/bcloud/repos/lemonade/).
 //!
 //! Renamed from halo-gaia on 2026-04-20 to avoid a naming collision with
 //! AMD GAIA (amd-gaia.ai). See `docs/wiki/AMD-GAIA-Integration.md`.

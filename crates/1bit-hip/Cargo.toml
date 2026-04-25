@@ -10,7 +10,7 @@ description  = "FFI bridge from Rust to rocm-cpp's HIP ternary BitNet kernels (g
 # `links = "rocm_cpp"` tells cargo this crate owns the `rocm_cpp` native
 # library linkage — enables propagation of `cargo:KEY=VALUE` metadata
 # (e.g. `rocm_cpp_lib_dir`) as `DEP_ROCM_CPP_KEY` env vars to direct
-# downstream build.rs scripts (1bit-server, 1bit-router).
+# downstream build.rs scripts (lemond at /home/bcloud/repos/lemonade/ and friends).
 links = "rocm_cpp"
 
 [lib]
@@ -19,8 +19,8 @@ path = "src/lib.rs"
 
 [features]
 # Default: NO link against rocm (safe for CI / hosts without ROCm). Callers
-# that want real kernels enable `link-rocm` via 1bit-router's `hip` feature
-# or 1bit-server's `real-backend` feature. Local dev builds can flip with
+# that want real kernels enable `link-rocm` via lemond's `real-backend`
+# feature. Local dev builds can flip with
 # `cargo build -p 1bit-hip --features link-rocm`.
 default      = []
 link-rocm    = []
@@ -35,7 +35,6 @@ thiserror    = { workspace = true }
 libloading   = "0.8"
 # `half` is used by the `hadamard_rotate_inverse_identity` #[ignore] test
 # that exercises the Hadamard rotation round-trip on real fp16 device
-# memory. Already a workspace dep (1bit-router + 1bit-core both use it);
-# listing here lets the lib-test target compile even when --features
-# link-rocm is off.
+# memory. Already a workspace dep (1bit-core uses it); listing here lets
+# the lib-test target compile even when --features link-rocm is off.
 half         = { workspace = true }

@@ -78,8 +78,9 @@ fn main() {
     // this rlib's own link step (effectively a no-op since rlibs are
     // archives). Downstream consumers need their OWN build.rs to emit
     // `rustc-link-arg-bins` / `-tests`, because those variants are only
-    // honoured from crates that have bin / test targets. 1bit-server and
-    // 1bit-router carry matching build.rs files to re-export the rpaths.
+    // honoured from crates that have bin / test targets. lemond
+    // (the C++ canonical server at /home/bcloud/repos/lemonade/) carries
+    // a matching build.rs to re-export the rpaths.
     if let Some(p) = &rocm_cpp_dir {
         println!("cargo:rustc-link-arg=-Wl,-rpath,{}", p.display());
         // Expose the resolved path to downstream build.rs via metadata.
