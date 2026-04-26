@@ -236,13 +236,13 @@ async fn build_lossy_bytes(cat: &Catalog) -> std::io::Result<Vec<u8>> {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!("magic mismatch at serve time (expected {:?}, got {:?})", MAGIC, magic),
-        ).into());
+        ));
     }
     if magic[3] != FORMAT_VERSION {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!("format version mismatch (expected {}, got {})", FORMAT_VERSION, magic[3]),
-        ).into());
+        ));
     }
 
     let mut out = Vec::with_capacity(cat.total_bytes as usize);
