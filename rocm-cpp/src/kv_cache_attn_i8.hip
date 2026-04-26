@@ -35,23 +35,24 @@ namespace {
 constexpr int BLOCK = 128;
 constexpr int WARP  = 32;
 constexpr int MAX_HEAD_DIM = 256;
-constexpr int O_LOCAL_MAX  = 8;   // fixed per-thread accumulator capacity
 
-// WHY: each kernel below declares `float o_local[O_LOCAL_MAX]` and indexes
-// it with `ei` bounded by `elems_per_thread = ceil(head_dim / BLOCK)`. If a
-// future diff raises MAX_HEAD_DIM or lowers BLOCK such that the quotient
-// exceeds O_LOCAL_MAX, the inner accumulator loops would write past the
-// array. Fail loudly at compile time rather than silently corrupt the
-// residual. The launcher separately enforces the runtime bound
-// `head_dim <= MAX_HEAD_DIM` so this assert fully covers the dynamic case.
-static_assert((MAX_HEAD_DIM + BLOCK - 1) / BLOCK <= O_LOCAL_MAX,
-              "o_local[O_LOCAL_MAX] would overflow: raise O_LOCAL_MAX, raise "
-              "BLOCK, or lower MAX_HEAD_DIM");
+// O_LOCAL is now a template parameter on the kernels (round-4 perf change).
+// At BitNet-2B-4T (head_dim=128, BLOCK=128) elems_per_thread is 1 and the
+// kernel only needs ONE register for o_local; the previous fixed-8 array
+// pinned 8 VGPRs/thread regardless. The launcher selects O_LOCAL =
+// ceil(head_dim / BLOCK) at dispatch time. The static_assert pins the
+// dispatch table to the current MAX_HEAD_DIM/BLOCK ratio.
+constexpr int O_LOCAL_MAX  = (MAX_HEAD_DIM + BLOCK - 1) / BLOCK;
+static_assert(O_LOCAL_MAX == 2,
+              "kv_i8 launcher dispatch table assumes O_LOCAL_MAX==2; if "
+              "MAX_HEAD_DIM or BLOCK changed, extend the switches in the "
+              "launchers below.");
 
 // Fast-math sentinel — see prim_kernels.hip. -FLT_MAX avoids the
 // -Wnan-infinity-disabled UB that -INFINITY triggers under -ffast-math.
 constexpr float NEG_SENTINEL = -FLT_MAX;
 
+template <int O_LOCAL>
 __global__ __launch_bounds__(BLOCK)
 void kv_cache_attn_decode_i8_kernel(
     const __half*  __restrict__ Q,
@@ -80,8 +81,7 @@ void kv_cache_attn_decode_i8_kernel(
 
     float m = NEG_SENTINEL;
     float l = 0.0f;
-    const int elems_per_thread = (head_dim + BLOCK - 1) / BLOCK;
-    float o_local[O_LOCAL_MAX] = {0};
+    float o_local[O_LOCAL] = {0};
 
     // Single-barrier-per-step reduction with double-buffered warp-partial LDS:
     //   iter t writes s_sum[buf], syncthreads, then everyone reads s_sum[buf].
@@ -126,9 +126,10 @@ void kv_cache_attn_decode_i8_kernel(
         const float beta  = std::expf(s - m_new);
         l = l * alpha + beta;
         #pragma unroll
-        for (int k = 0; k < O_LOCAL_MAX; ++k) o_local[k] *= alpha;
+        for (int k = 0; k < O_LOCAL; ++k) o_local[k] *= alpha;
         const float beta_vs = beta * vs;
-        for (int ei = 0; ei < elems_per_thread; ++ei) {
+        #pragma unroll
+        for (int ei = 0; ei < O_LOCAL; ++ei) {
             int d = tid + ei * BLOCK;
             if (d < head_dim) {
                 o_local[ei] += beta_vs * (float)V_row[d];
@@ -138,7 +139,8 @@ void kv_cache_attn_decode_i8_kernel(
     }
 
     const float inv_l = (l > 0.0f) ? (1.0f / l) : 0.0f;
-    for (int ei = 0; ei < elems_per_thread; ++ei) {
+    #pragma unroll
+    for (int ei = 0; ei < O_LOCAL; ++ei) {
         int d = tid + ei * BLOCK;
         if (d < head_dim) {
             out[(size_t)h * head_dim + d] = __float2half(o_local[ei] * inv_l);
@@ -146,6 +148,7 @@ void kv_cache_attn_decode_i8_kernel(
     }
 }
 
+template <int O_LOCAL>
 __global__ __launch_bounds__(BLOCK)
 void kv_cache_attn_prefill_i8_kernel(
     const __half*  __restrict__ Q,
@@ -175,8 +178,7 @@ void kv_cache_attn_prefill_i8_kernel(
 
     float m = NEG_SENTINEL;
     float l = 0.0f;
-    const int elems_per_thread = (head_dim + BLOCK - 1) / BLOCK;
-    float o_local[O_LOCAL_MAX] = {0};
+    float o_local[O_LOCAL] = {0};
 
     // See decode kernel above for the single-barrier-per-step rationale.
     constexpr int NWARPS = BLOCK / WARP;
@@ -210,9 +212,10 @@ void kv_cache_attn_prefill_i8_kernel(
         const float beta  = std::expf(s - m_new);
         l = l * alpha + beta;
         #pragma unroll
-        for (int k = 0; k < O_LOCAL_MAX; ++k) o_local[k] *= alpha;
+        for (int k = 0; k < O_LOCAL; ++k) o_local[k] *= alpha;
         const float beta_vs = beta * vs;
-        for (int ei = 0; ei < elems_per_thread; ++ei) {
+        #pragma unroll
+        for (int ei = 0; ei < O_LOCAL; ++ei) {
             int d = tid + ei * BLOCK;
             if (d < head_dim) {
                 o_local[ei] += beta_vs * (float)V_row[d];
@@ -222,7 +225,8 @@ void kv_cache_attn_prefill_i8_kernel(
     }
 
     const float inv_l = (l > 0.0f) ? (1.0f / l) : 0.0f;
-    for (int ei = 0; ei < elems_per_thread; ++ei) {
+    #pragma unroll
+    for (int ei = 0; ei < O_LOCAL; ++ei) {
         int d = tid + ei * BLOCK;
         if (d < head_dim) {
             out[((size_t)t * num_q_heads + h) * head_dim + d] = __float2half(o_local[ei] * inv_l);
@@ -312,15 +316,28 @@ rcpp_kv_cache_attn_decode_i8(const void* Q_dev,
     if (head_dim <= 0 || head_dim > MAX_HEAD_DIM)    return RCPP_INVALID_ARG;
     if (seq_len <= 0)                                return RCPP_INVALID_ARG;
     dim3 grid(num_q_heads, 1, 1), block(BLOCK, 1, 1);
-    hipLaunchKernelGGL(kv_cache_attn_decode_i8_kernel,
-                       grid, block, 0, (hipStream_t)stream,
-                       static_cast<const __half*>(Q_dev),
-                       static_cast<const int8_t*>(K_i8_dev),
-                       static_cast<const int8_t*>(V_i8_dev),
-                       static_cast<const __half*>(K_scales_fp16_dev),
-                       static_cast<const __half*>(V_scales_fp16_dev),
-                       static_cast<__half*>(out_dev),
-                       num_q_heads, num_kv_heads, head_dim, seq_len, scale);
+    const int o_local_needed = (head_dim + BLOCK - 1) / BLOCK;
+    if (o_local_needed <= 1) {
+        hipLaunchKernelGGL(kv_cache_attn_decode_i8_kernel<1>,
+                           grid, block, 0, (hipStream_t)stream,
+                           static_cast<const __half*>(Q_dev),
+                           static_cast<const int8_t*>(K_i8_dev),
+                           static_cast<const int8_t*>(V_i8_dev),
+                           static_cast<const __half*>(K_scales_fp16_dev),
+                           static_cast<const __half*>(V_scales_fp16_dev),
+                           static_cast<__half*>(out_dev),
+                           num_q_heads, num_kv_heads, head_dim, seq_len, scale);
+    } else {
+        hipLaunchKernelGGL(kv_cache_attn_decode_i8_kernel<2>,
+                           grid, block, 0, (hipStream_t)stream,
+                           static_cast<const __half*>(Q_dev),
+                           static_cast<const int8_t*>(K_i8_dev),
+                           static_cast<const int8_t*>(V_i8_dev),
+                           static_cast<const __half*>(K_scales_fp16_dev),
+                           static_cast<const __half*>(V_scales_fp16_dev),
+                           static_cast<__half*>(out_dev),
+                           num_q_heads, num_kv_heads, head_dim, seq_len, scale);
+    }
     return RCPP_OK;
 }
 
@@ -339,15 +356,28 @@ rcpp_kv_cache_attn_prefill_i8(const void* Q_dev,
     if (head_dim <= 0 || head_dim > MAX_HEAD_DIM)    return RCPP_INVALID_ARG;
     if (seq_len <= 0)                                return RCPP_INVALID_ARG;
     dim3 grid(seq_len, num_q_heads, 1), block(BLOCK, 1, 1);
-    hipLaunchKernelGGL(kv_cache_attn_prefill_i8_kernel,
-                       grid, block, 0, (hipStream_t)stream,
-                       static_cast<const __half*>(Q_dev),
-                       static_cast<const int8_t*>(K_i8_dev),
-                       static_cast<const int8_t*>(V_i8_dev),
-                       static_cast<const __half*>(K_scales_fp16_dev),
-                       static_cast<const __half*>(V_scales_fp16_dev),
-                       static_cast<__half*>(out_dev),
-                       num_q_heads, num_kv_heads, head_dim, seq_len, scale);
+    const int o_local_needed = (head_dim + BLOCK - 1) / BLOCK;
+    if (o_local_needed <= 1) {
+        hipLaunchKernelGGL(kv_cache_attn_prefill_i8_kernel<1>,
+                           grid, block, 0, (hipStream_t)stream,
+                           static_cast<const __half*>(Q_dev),
+                           static_cast<const int8_t*>(K_i8_dev),
+                           static_cast<const int8_t*>(V_i8_dev),
+                           static_cast<const __half*>(K_scales_fp16_dev),
+                           static_cast<const __half*>(V_scales_fp16_dev),
+                           static_cast<__half*>(out_dev),
+                           num_q_heads, num_kv_heads, head_dim, seq_len, scale);
+    } else {
+        hipLaunchKernelGGL(kv_cache_attn_prefill_i8_kernel<2>,
+                           grid, block, 0, (hipStream_t)stream,
+                           static_cast<const __half*>(Q_dev),
+                           static_cast<const int8_t*>(K_i8_dev),
+                           static_cast<const int8_t*>(V_i8_dev),
+                           static_cast<const __half*>(K_scales_fp16_dev),
+                           static_cast<const __half*>(V_scales_fp16_dev),
+                           static_cast<__half*>(out_dev),
+                           num_q_heads, num_kv_heads, head_dim, seq_len, scale);
+    }
     return RCPP_OK;
 }
 

@@ -121,6 +121,44 @@ rcpp_ternary_gemv_sherry_f16(const void* packed_weights_dev,
                              int M, int K,
                              void*       stream);
 
+// Round-4 perf overloads: x_scale lives on device.
+//
+// Original *_f16 entries take `float x_scale` by value; the decode loop has
+// to hipMemcpy-D2H the freshly-quantized scale before each launch, costing
+// ~150 host-blocking round-trips per token at 30 layers. The *_devscale
+// variants below take a device pointer and read the scalar inside the
+// kernel, eliminating the stalls. Math is bit-equivalent — same fold-in
+// `(float)v * x_scale * scales[my_row]` at the writeback. Stable ABI: the
+// originals are unchanged.
+//
+// x_scale_dev points to a single FP32 scalar on device, written by the
+// preceding rcpp_quantize_fp16_to_i8 call (its `scale_dev` parameter).
+// Caller may reuse the same pointer across many GEMV launches if it's
+// recomputed in-place each layer.
+rcpp_status_t
+rcpp_ternary_gemv_halo_f16_devscale(const void* packed_weights_dev,
+                                    const void* activations_i8_dev,
+                                    const float* x_scale_dev,
+                                    const void* row_scales_dev,
+                                    void* output_f16_dev,
+                                    int M, int K, void* stream);
+
+rcpp_status_t
+rcpp_ternary_gemv_sherry_f16_devscale(const void* packed_weights_dev,
+                                      const void* activations_i8_dev,
+                                      const float* x_scale_dev,
+                                      const void* row_scales_dev,
+                                      void* output_f16_dev,
+                                      int M, int K, void* stream);
+
+rcpp_status_t
+rcpp_ternary_gemv_tq1_halo_f16_devscale(const void* packed_weights_dev,
+                                        const void* activations_i8_dev,
+                                        const float* x_scale_dev,
+                                        const void* row_scales_dev,
+                                        void* output_f16_dev,
+                                        int M, int K_padded, void* stream);
+
 // halo-ai Lane B': TQ1 base-3 packing (halo-1bit v4, "tq1-halo" variant).
 // 5 ternaries per byte via d0 + d1·3 + d2·9 + d3·27 + d4·81 (d_i = 0/1/2 → -1/0/+1).
 // **Lossless for ternary** — any ±1/0 pattern survives intact, unlike Sherry.
@@ -320,6 +358,22 @@ rcpp_kv_cache_attn_prefill_i8(const void* Q_dev,
                               void* out_dev,
                               int num_q_heads, int num_kv_heads, int head_dim,
                               int seq_len, float scale, void* stream);
+
+// Split-KV Flash-Decoding variant of rcpp_kv_cache_attn_decode_i8 — recovers
+// the same 6.78× @ L=2048 win the fp16 FD port hit, composed multiplicatively
+// with the 2× DRAM cut int8 storage already gives. Same signature + math as
+// rcpp_kv_cache_attn_decode_i8; tile size and partials cache mirror
+// rcpp_kv_cache_attn_decode_fd. Uses an internal device-side scratch buffer
+// for per-tile (m, l, o) partials, grown on demand and shared across calls
+// (no per-call hipMalloc in the hot path). See src/kv_cache_attn_fd_i8.hip.
+rcpp_status_t
+rcpp_kv_cache_attn_decode_fd_i8(const void* Q_dev,
+                                const void* K_i8_dev, const void* V_i8_dev,
+                                const void* K_scales_fp16_dev,
+                                const void* V_scales_fp16_dev,
+                                void* out_dev,
+                                int num_q_heads, int num_kv_heads, int head_dim,
+                                int seq_len, float scale, void* stream);
 
 // Per-row symmetric int8 quantizer with fp16 scale output. Each block quantizes
 // one row of row_len fp16 values, writing row_len int8 values and a single fp16

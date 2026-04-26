@@ -1,31 +1,24 @@
-// Phase 6c — Split-KV Flash-Decoding attention for batch=1 decode.
+// Phase 6c-i8 — Split-KV Flash-Decoding attention over INT8 KV storage.
 //
-// The baseline kv_cache_attn_decode_kernel assigns one block per Q head (20 on
-// BitNet-2B-4T), which is catastrophically under-subscribed on gfx1151 — we
-// measured ~4–5 GB/s off a ~256 GB/s LPDDR5 peak. The inner seq_len loop is
-// also gated by 2 __syncthreads() per step plus a broadcast reduction.
+// Combines the bandwidth halving of kv_cache_attn_i8.hip (1-byte K/V + per-
+// (pos, kv_head) fp16 scale) with the split-KV occupancy recovery of
+// kv_cache_attn_fd.hip. The single-block-per-Q-head i8 path saturates ~20
+// blocks on a 40-WGP gfx1151 — same starvation that drove the original FD
+// port for the fp16 cache. Tile=128 + two-pass online-softmax recovers
+// occupancy at long context.
 //
-// Flash-Decoding (Dao et al.) fix: split the KV axis into tiles, run one block
-// per (q_head, kv_tile) to recover occupancy, then do a tiny second-pass reduce
-// across tiles to combine the online-softmax partials.
+// At seq_len=2048 we expect the same 6.78× the fp16 FD port hit at
+// equivalent shapes (per project_attention_fd.md), composed multiplicatively
+// with the 2× DRAM cut already realised by the i8 storage. Ship-relevant for
+// long-context decode (project_i8_kv_unwired.md says I8 is now the default
+// router pick for ctx > 512).
 //
-// Pass 1 grid = (num_q_heads, num_kv_tiles)
-//   each block computes (partial_out[HD], partial_m, partial_l) for its tile
-//   stored in partials[num_q_heads, num_kv_tiles, HD+2]  (HD f32, m f32, l f32)
+// This file is purely additive — kv_cache_attn_i8.hip stays in place and the
+// new entry point `rcpp_kv_cache_attn_decode_fd_i8` lives alongside the
+// single-block decoder so bitnet_decode (and lemond's engine) can opt in
+// per-call.
 //
-// Pass 2 grid = (num_q_heads)
-//   each block scans its num_kv_tiles partials with the same m/l online-softmax
-//   recipe and writes fp16 out[num_q_heads, head_dim].
-//
-// TILE=128 chosen so that:
-//   - at seq_len=2048 we have 20*16 = 320 blocks (vs 20 before) — plenty of
-//     room for the scheduler to fill gfx1151's 40 WGPs (80 SIMDs).
-//   - at seq_len=64 we still split into 1 block-per-head (no regression) but
-//     just replay the baseline's work structure.
-//   - the partials buffer for a max-supported context (say 8192) stays tiny:
-//     8192/128 = 64 tiles * 20 heads * 130 f32 = 666 KB.
-//
-// Single partials allocation is cached as a static buffer, grown on demand.
+// O_LOCAL is templated identically to fd.hip; see that file for the rationale.
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
@@ -41,40 +34,29 @@ namespace {
 constexpr int BLOCK        = 128;
 constexpr int WARP         = 32;
 constexpr int MAX_HEAD_DIM = 256;
-constexpr int TILE         = 128;    // Flash-Decoding KV-tile size (compile-time)
-
-// O_LOCAL is now a template parameter on the kernels (round-4 perf change).
-// At BitNet-2B-4T (head_dim=128, BLOCK=128) elems_per_thread is 1 and the
-// kernel only needs ONE register for o_local; the previous fixed-8 array
-// pinned 8 VGPRs/thread regardless, costing occupancy. The launcher selects
-// O_LOCAL = ceil(head_dim / BLOCK) at dispatch time, falling back to the
-// largest specialization (2) if the runtime value exceeds the compiled-in
-// instantiations.
+constexpr int TILE         = 128;
 constexpr int O_LOCAL_MAX  = (MAX_HEAD_DIM + BLOCK - 1) / BLOCK;
 static_assert(O_LOCAL_MAX == 2,
-              "FD launcher dispatch table assumes O_LOCAL_MAX==2; if "
+              "FD-i8 launcher dispatch table assumes O_LOCAL_MAX==2; if "
               "MAX_HEAD_DIM or BLOCK changed, extend the switch in the "
               "launcher to cover the new ceil(head_dim/BLOCK).");
 
-// Fast-math sentinel — see prim_kernels.hip. -FLT_MAX avoids the
-// -Wnan-infinity-disabled UB that -INFINITY triggers under -ffast-math.
-// The pass-2 reduce guards empty tiles with `if (tile_l == 0.0f) continue;`
-// so the sentinel's exact value never participates in arithmetic — it's
-// written at line 90 purely as a diagnostic marker.
 constexpr float NEG_SENTINEL = -FLT_MAX;
 
-// Pass 1: one block per (h, kv_tile). Computes online-softmax *over the tile*.
-// Writes [num_q_heads, num_kv_tiles, head_dim+2] scratch. Layout is:
-//   partials[h, tile, 0..head_dim-1]  : output accumulator (f32)
-//   partials[h, tile, head_dim]       : partial m  (running max)
-//   partials[h, tile, head_dim+1]     : partial l  (running sum of exp)
+// Pass 1 — int8 KV storage with per-(pos, kv_head) fp16 scales. Mirrors
+// kv_cache_attn_decode_split_kernel<O_LOCAL> in fd.hip; the only material
+// changes are K/V load type (int8_t), the per-tile scale broadcast (fp16
+// scales[pos*num_kv_heads + kv_head]), and the dequant fold-in done as a
+// scalar multiply on the fp32 dot/V accumulators.
 template <int O_LOCAL>
 __global__ __launch_bounds__(BLOCK)
-void kv_cache_attn_decode_split_kernel(
-    const __half* __restrict__ Q,
-    const __half* __restrict__ K,
-    const __half* __restrict__ V,
-    float*        __restrict__ partials,
+void kv_cache_attn_decode_split_i8_kernel(
+    const __half*  __restrict__ Q,
+    const int8_t*  __restrict__ K,
+    const int8_t*  __restrict__ V,
+    const __half*  __restrict__ K_scales,   // [seq_len, num_kv_heads]
+    const __half*  __restrict__ V_scales,   // [seq_len, num_kv_heads]
+    float*         __restrict__ partials,
     int num_q_heads, int num_kv_heads, int head_dim,
     int seq_len, int num_kv_tiles, float scale)
 {
@@ -99,20 +81,16 @@ void kv_cache_attn_decode_split_kernel(
 
     float m = NEG_SENTINEL;
     float l = 0.0f;
-    // Templated accumulator size — the launcher picks O_LOCAL = ceil(hd/BLOCK)
-    // so this is exactly the number of registers we need. At hd=128, BLOCK=128,
-    // O_LOCAL=1 and we save 7 VGPRs/thread vs the prior fixed-8 array.
     float o_local[O_LOCAL] = {0};
 
     __shared__ float s_sum[BLOCK / WARP];
     __shared__ float s_scalar[1];
 
-    // Handle degenerate tiles (no work — emit neutral partials).
     if (t_begin >= t_end) {
         if (tid == 0) {
             float* out_base = partials + ((size_t)h * num_kv_tiles + tile) * (head_dim + 2);
-            out_base[head_dim]     = NEG_SENTINEL;   // partial_m
-            out_base[head_dim + 1] = 0.0f;        // partial_l
+            out_base[head_dim]     = NEG_SENTINEL;
+            out_base[head_dim + 1] = 0.0f;
         }
         for (int d = tid; d < head_dim; d += BLOCK) {
             float* out_base = partials + ((size_t)h * num_kv_tiles + tile) * (head_dim + 2);
@@ -122,8 +100,18 @@ void kv_cache_attn_decode_split_kernel(
     }
 
     for (int t = t_begin; t < t_end; ++t) {
-        const __half* K_row = K + ((size_t)t * num_kv_heads + kv_head) * head_dim;
+        const int8_t* K_row = K + ((size_t)t * num_kv_heads + kv_head) * head_dim;
+        const int8_t* V_row = V + ((size_t)t * num_kv_heads + kv_head) * head_dim;
 
+        // Per-(pos, kv_head) scales — identical broadcast pattern as the
+        // single-block i8 kernel. All lanes hit the same 2-byte address →
+        // hardware coalesces into one cache-line broadcast, no LDS hop.
+        const size_t sc_idx = (size_t)t * num_kv_heads + kv_head;
+        const float ks = (float)K_scales[sc_idx];
+        const float vs = (float)V_scales[sc_idx];
+
+        // Q · dequant(K_row)  — fold ks into the scalar multiply at the end
+        // rather than per-element; preserves the int8 → fp16 → fp32 chain.
         float partial = 0.0f;
         for (int d = tid; d < head_dim; d += BLOCK) {
             partial += (float)Q_shared[d] * (float)K_row[d];
@@ -136,7 +124,8 @@ void kv_cache_attn_decode_split_kernel(
             float v = (lane < BLOCK / WARP) ? s_sum[lane] : 0.0f;
             #pragma unroll
             for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) v += __shfl_xor(v, o);
-            if (lane == 0) s_scalar[0] = v * scale;
+            // Fold ks (K dequant scale) into the softmax score in fp32.
+            if (lane == 0) s_scalar[0] = v * ks * scale;
         }
         __syncthreads();
         const float s = s_scalar[0];
@@ -145,14 +134,17 @@ void kv_cache_attn_decode_split_kernel(
         const float alpha = std::expf(m - m_new);
         const float beta  = std::expf(s - m_new);
         l = l * alpha + beta;
+
         #pragma unroll
         for (int k = 0; k < O_LOCAL; ++k) o_local[k] *= alpha;
-        const __half* V_row = V + ((size_t)t * num_kv_heads + kv_head) * head_dim;
+
+        // V dequant scale folded into the accumulation step.
+        const float beta_vs = beta * vs;
         #pragma unroll
         for (int ei = 0; ei < O_LOCAL; ++ei) {
             int d = tid + ei * BLOCK;
             if (d < head_dim) {
-                o_local[ei] += beta * (float)V_row[d];
+                o_local[ei] += beta_vs * (float)V_row[d];
             }
         }
         m = m_new;
@@ -173,16 +165,14 @@ void kv_cache_attn_decode_split_kernel(
     }
 }
 
-// Pass 2: one block per q_head. Each block walks its num_kv_tiles partial
-// triples (o_tile, m_tile, l_tile) and combines them with the same numerically
-// stable online-softmax recipe, then writes a single fp16 output vector.
-//
-// Small (num_kv_tiles <= BLOCK typically), so a single-warp-or-two
-// loop-with-__syncthreads on the running (m, l) is fine. We use a "broadcast
-// the tile's m/l via shared memory" pattern — same as pass 1's S[t] broadcast.
+// Pass 2 — identical to fd.hip's reduce. Partials are already in fp32 with
+// the per-(pos, kv_head) scales folded into both the softmax score and the
+// V-side accumulator, so the reduce only needs to combine (m, l, o) triples
+// across tiles. We instantiate per O_LOCAL for the same VGPR reason as
+// pass 1.
 template <int O_LOCAL>
 __global__ __launch_bounds__(BLOCK)
-void kv_cache_attn_reduce_kernel(
+void kv_cache_attn_reduce_i8_kernel(
     const float*  __restrict__ partials,
     __half*       __restrict__ out,
     int num_q_heads, int head_dim, int num_kv_tiles)
@@ -196,22 +186,21 @@ void kv_cache_attn_reduce_kernel(
     float l = 0.0f;
     float o_local[O_LOCAL] = {0};
 
-    __shared__ float s_ml[2];  // [tile_m, tile_l] broadcast slot
+    __shared__ float s_ml[2];
 
     for (int tile = 0; tile < num_kv_tiles; ++tile) {
         const float* in_base =
             partials + ((size_t)h * num_kv_tiles + tile) * (head_dim + 2);
 
         if (tid == 0) {
-            s_ml[0] = in_base[head_dim];       // tile_m
-            s_ml[1] = in_base[head_dim + 1];   // tile_l
+            s_ml[0] = in_base[head_dim];
+            s_ml[1] = in_base[head_dim + 1];
         }
         __syncthreads();
         const float tile_m = s_ml[0];
         const float tile_l = s_ml[1];
-        __syncthreads();   // pair with the one above before next iter's write
+        __syncthreads();
 
-        // Empty tile → skip (partial_l is 0, partial_m is -INF).
         if (tile_l == 0.0f) continue;
 
         const float m_new = (tile_m > m) ? tile_m : m;
@@ -242,27 +231,22 @@ void kv_cache_attn_reduce_kernel(
     }
 }
 
-// ---- Cached intermediate buffer -------------------------------------------
-// Growing-only scratch; freed at process exit via hipFree-on-destruct atexit
-// would need hipDeviceReset coordination — leave it leaking, OS reclaims.
-struct PartialsCache {
+// Cached growing-only partials buffer, identical pattern to fd.hip but kept
+// SEPARATE so a mixed fp16/i8 workload doesn't thrash a shared cache. Both
+// caches grow monotonically with seq_len during a decode stream and are
+// freed (or leaked at exit) by the OS.
+struct PartialsCacheI8 {
     std::mutex  mu;
     float*      ptr   = nullptr;
-    size_t      cap_f = 0;   // capacity in floats
+    size_t      cap_f = 0;
 
-    // Returns a device pointer with at least need_f floats of capacity.
     float* acquire(size_t need_f) {
         std::lock_guard<std::mutex> g(mu);
         if (need_f <= cap_f) return ptr;
         if (ptr) {
-            // Best-effort free. Growing on every decode step for a monotonic
-            // seq_len is the normal path; a failing hipFree here would leak
-            // device memory, but we can't meaningfully recover — log and move on.
             hipError_t fst = hipFree(ptr);
-            (void)fst;  // [[nodiscard]] on hipError_t; ignored by design
+            (void)fst;
         }
-        // Grow with a 1.5x factor to avoid thrashing as seq_len grows
-        // monotonically during a decode stream.
         size_t new_cap = (cap_f == 0) ? need_f : cap_f;
         while (new_cap < need_f) new_cap = new_cap + (new_cap >> 1) + 1;
         void* p = nullptr;
@@ -278,69 +262,71 @@ struct PartialsCache {
     }
 };
 
-PartialsCache& partials_cache() {
-    static PartialsCache c;
+PartialsCacheI8& partials_cache_i8() {
+    static PartialsCacheI8 c;
     return c;
 }
 
 }  // namespace
 
 extern "C" rcpp_status_t
-rcpp_kv_cache_attn_decode_fd(const void* Q_dev, const void* K_dev, const void* V_dev,
-                             void* out_dev,
-                             int num_q_heads, int num_kv_heads, int head_dim,
-                             int seq_len, float scale, void* stream)
+rcpp_kv_cache_attn_decode_fd_i8(const void* Q_dev,
+                                const void* K_i8_dev, const void* V_i8_dev,
+                                const void* K_scales_fp16_dev,
+                                const void* V_scales_fp16_dev,
+                                void* out_dev,
+                                int num_q_heads, int num_kv_heads, int head_dim,
+                                int seq_len, float scale, void* stream)
 {
-    if (!Q_dev || !K_dev || !V_dev || !out_dev)          return RCPP_INVALID_ARG;
-    if (num_q_heads <= 0 || num_kv_heads <= 0)           return RCPP_INVALID_ARG;
-    if (num_q_heads % num_kv_heads != 0)                 return RCPP_INVALID_ARG;
-    if (head_dim <= 0 || head_dim > MAX_HEAD_DIM)        return RCPP_INVALID_ARG;
-    if (seq_len <= 0)                                    return RCPP_INVALID_ARG;
+    if (!Q_dev || !K_i8_dev || !V_i8_dev ||
+        !K_scales_fp16_dev || !V_scales_fp16_dev || !out_dev)
+        return RCPP_INVALID_ARG;
+    if (num_q_heads <= 0 || num_kv_heads <= 0)       return RCPP_INVALID_ARG;
+    if (num_q_heads % num_kv_heads != 0)             return RCPP_INVALID_ARG;
+    if (head_dim <= 0 || head_dim > MAX_HEAD_DIM)    return RCPP_INVALID_ARG;
+    if (seq_len <= 0)                                return RCPP_INVALID_ARG;
 
     const int num_kv_tiles = (seq_len + TILE - 1) / TILE;
-
     const size_t need_f =
         (size_t)num_q_heads * (size_t)num_kv_tiles * (size_t)(head_dim + 2);
-    float* partials = partials_cache().acquire(need_f);
+    float* partials = partials_cache_i8().acquire(need_f);
     if (!partials) return RCPP_HIP_ERROR;
 
-    // Pass 1 — fill partials. Templated dispatch by O_LOCAL = ceil(hd/BLOCK):
-    // BitNet-2B-4T (hd=128) hits the O_LOCAL=1 path and saves ~7 VGPRs/thread
-    // vs the prior fixed-8 array. Anything beyond MAX_HEAD_DIM is rejected at
-    // the runtime check above; the static_assert pins the dispatch table to
-    // O_LOCAL_MAX==2.
     dim3 grid1(num_q_heads, num_kv_tiles, 1), block(BLOCK, 1, 1);
     const int o_local_needed = (head_dim + BLOCK - 1) / BLOCK;
     if (o_local_needed <= 1) {
-        hipLaunchKernelGGL(kv_cache_attn_decode_split_kernel<1>,
+        hipLaunchKernelGGL(kv_cache_attn_decode_split_i8_kernel<1>,
                            grid1, block, 0, (hipStream_t)stream,
                            static_cast<const __half*>(Q_dev),
-                           static_cast<const __half*>(K_dev),
-                           static_cast<const __half*>(V_dev),
+                           static_cast<const int8_t*>(K_i8_dev),
+                           static_cast<const int8_t*>(V_i8_dev),
+                           static_cast<const __half*>(K_scales_fp16_dev),
+                           static_cast<const __half*>(V_scales_fp16_dev),
                            partials,
                            num_q_heads, num_kv_heads, head_dim,
                            seq_len, num_kv_tiles, scale);
     } else {
-        hipLaunchKernelGGL(kv_cache_attn_decode_split_kernel<2>,
+        hipLaunchKernelGGL(kv_cache_attn_decode_split_i8_kernel<2>,
                            grid1, block, 0, (hipStream_t)stream,
                            static_cast<const __half*>(Q_dev),
-                           static_cast<const __half*>(K_dev),
-                           static_cast<const __half*>(V_dev),
+                           static_cast<const int8_t*>(K_i8_dev),
+                           static_cast<const int8_t*>(V_i8_dev),
+                           static_cast<const __half*>(K_scales_fp16_dev),
+                           static_cast<const __half*>(V_scales_fp16_dev),
                            partials,
                            num_q_heads, num_kv_heads, head_dim,
                            seq_len, num_kv_tiles, scale);
     }
 
-    // Pass 2 — reduce tiles into final fp16 out.
     dim3 grid2(num_q_heads, 1, 1);
     if (o_local_needed <= 1) {
-        hipLaunchKernelGGL(kv_cache_attn_reduce_kernel<1>,
+        hipLaunchKernelGGL(kv_cache_attn_reduce_i8_kernel<1>,
                            grid2, block, 0, (hipStream_t)stream,
                            partials,
                            static_cast<__half*>(out_dev),
                            num_q_heads, head_dim, num_kv_tiles);
     } else {
-        hipLaunchKernelGGL(kv_cache_attn_reduce_kernel<2>,
+        hipLaunchKernelGGL(kv_cache_attn_reduce_i8_kernel<2>,
                            grid2, block, 0, (hipStream_t)stream,
                            partials,
                            static_cast<__half*>(out_dev),

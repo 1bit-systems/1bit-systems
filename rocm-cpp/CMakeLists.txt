@@ -106,6 +106,7 @@ add_library(rocm_cpp SHARED
     src/kv_cache_attn.hip
     src/kv_cache_attn_i8.hip
     src/kv_cache_attn_fd.hip
+    src/kv_cache_attn_fd_i8.hip
     src/kv_cache_attn_fd_rotor.hip
     src/kv_rotorquant.cpp
     src/h1b_loader.cpp
@@ -122,6 +123,7 @@ add_library(rocm_cpp SHARED
     kernels/ternary_gemv_sherry.hip
     kernels/ternary_gemv_tq1_halo.hip
     kernels/ternary_gemv_tq2_0.hip
+    kernels/ternary_gemv_devscale.hip
     kernels/rotorquant_pack.hip
     kernels/hadamard_rotate_butterfly.hip)
 set_source_files_properties(
@@ -132,6 +134,7 @@ set_source_files_properties(
     src/kv_cache_attn.hip
     src/kv_cache_attn_i8.hip
     src/kv_cache_attn_fd.hip
+    src/kv_cache_attn_fd_i8.hip
     src/kv_cache_attn_fd_rotor.hip
     src/ternary_gemm_smallm.hip
     src/ternary_gemm_smallm_scalar_ref.hip
@@ -145,6 +148,7 @@ set_source_files_properties(
     kernels/ternary_gemv_sherry.hip
     kernels/ternary_gemv_tq1_halo.hip
     kernels/ternary_gemv_tq2_0.hip
+    kernels/ternary_gemv_devscale.hip
     kernels/rotorquant_pack.hip
     kernels/hadamard_rotate_butterfly.hip
     PROPERTIES LANGUAGE HIP)

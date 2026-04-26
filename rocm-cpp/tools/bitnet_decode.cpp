@@ -461,10 +461,16 @@ int main(int argc, char** argv) {
 
     // Int8-activation dispatch (HALO_V2 / SHERRY_I8 / TQ1). Unused on the
     // SHERRY_FP16 / BONSAI_* paths — forward lambda branches before calling.
+    //
+    // Round-4 perf change: route through *_devscale entries. They take the
+    // x_scale device pointer rather than a host float, so the per-layer
+    // hipMemcpy-D2H of x_scale_dev disappears (was ~150 host stalls per
+    // token at 30 layers). Math is bit-equivalent; the scalar is read once
+    // per workgroup at the writeback. See kernels/ternary_gemv_devscale.hip.
     const auto ternary_gemv_i8 =
-        (m.weight_format == RCPP_WEIGHT_FORMAT_TQ1)       ? rcpp_ternary_gemv_tq1_halo_f16
-      : (m.weight_format == RCPP_WEIGHT_FORMAT_SHERRY_I8) ? rcpp_ternary_gemv_sherry_f16
-                                                          : rcpp_ternary_gemv_halo_f16;
+        (m.weight_format == RCPP_WEIGHT_FORMAT_TQ1)       ? rcpp_ternary_gemv_tq1_halo_f16_devscale
+      : (m.weight_format == RCPP_WEIGHT_FORMAT_SHERRY_I8) ? rcpp_ternary_gemv_sherry_f16_devscale
+                                                          : rcpp_ternary_gemv_halo_f16_devscale;
     // TQ1 expects K padded to multiple of 20 (u32-aligned row bytes). Other
     // formats use K directly — align_k becomes a no-op for them.
     const int k_pad_unit = (m.weight_format == RCPP_WEIGHT_FORMAT_TQ1) ? 20 : 1;
@@ -673,11 +679,14 @@ int main(int argc, char** argv) {
     };
 
     // Ternary GEMV dispatcher. In the int8 paths (HALO_V2/SHERRY_I8/TQ1) this
-    // forwards the (packed, x_i8, x_scale, row_scales, out, N, K) args to the
-    // int8-act kernel. In the SHERRY_FP16 path it ignores x_i8/x_scale and
-    // drives the fp16-in/fp16-out clean-room kernel off `normed` directly,
-    // then applies row_scales in the post-pass helper.
-    auto ternary_gemv = [&](const void* packed, const int8_t* x_i8_in, float x_scale,
+    // forwards the (packed, x_i8, x_scale_dev, row_scales, out, N, K) args
+    // to the int8-act kernel via the *_devscale entries — x_scale is read
+    // off the device pointer inside the kernel, no host stall. In the
+    // SHERRY_FP16 path it ignores x_i8/x_scale_dev and drives the
+    // fp16-in/fp16-out clean-room kernel off `normed` directly, then
+    // applies row_scales in the post-pass helper.
+    auto ternary_gemv = [&](const void* packed, const int8_t* x_i8_in,
+                            const float* x_scale_dev_arg,
                             const float* row_scales, const void* normed_fp16,
                             void* out_fp16, int N, int K) -> rcpp_status_t {
         if (is_bonsai) {
@@ -688,7 +697,7 @@ int main(int argc, char** argv) {
             return bitnet_sherry_fp16_gemv(packed, normed_fp16, row_scales,
                                            out_fp16, N, K, /*stream=*/nullptr);
         }
-        return ternary_gemv_i8(packed, x_i8_in, x_scale, row_scales,
+        return ternary_gemv_i8(packed, x_i8_in, x_scale_dev_arg, row_scales,
                                out_fp16, N, K, /*stream=*/nullptr);
     };
 
@@ -706,19 +715,17 @@ int main(int argc, char** argv) {
             RC_OK(rcpp_rmsnorm_fp32_in_fp16_out(x_fp32, ly.input_norm_dev, normed,
                                                 m.rms_norm_eps, hs, nullptr));
             // INT8 quant only matters for the int8 paths; the SHERRY_FP16 path
-            // reads `normed` directly. We still run it so x_i8 / x_scale are
-            // valid if we ever hop formats mid-decode (we don't today, but the
-            // cost is one small kernel per layer — negligible vs 7 GEMVs).
+            // reads `normed` directly. We still run it so x_i8 / x_scale_dev
+            // are valid if we ever hop formats mid-decode (we don't today, but
+            // the cost is one small kernel per layer — negligible vs 7 GEMVs).
+            // Round-4: x_scale stays on the device — no host hipMemcpy needed
+            // because the *_devscale GEMV reads it from x_scale_dev.
             RC_OK(rcpp_quantize_fp16_to_i8(normed, x_i8, x_scale_dev, hs, nullptr));
-            float x_scale = 0.0f;
-            if (!is_sherry_fp16) {
-                HIP_OK(hipMemcpy(&x_scale, x_scale_dev, 4, hipMemcpyDeviceToHost));
-            }
 
             // Q/K/V projections — fused FP16 output (halo-ai Lane A)
-            RC_OK(ternary_gemv(ly.q_packed_dev, x_i8, x_scale, ly.q_scales_dev, normed, q_fp16, nh*hd,  hs_k));
-            RC_OK(ternary_gemv(ly.k_packed_dev, x_i8, x_scale, ly.k_scales_dev, normed, k_fp16, nkv*hd, hs_k));
-            RC_OK(ternary_gemv(ly.v_packed_dev, x_i8, x_scale, ly.v_scales_dev, normed, v_fp16, nkv*hd, hs_k));
+            RC_OK(ternary_gemv(ly.q_packed_dev, x_i8, x_scale_dev, ly.q_scales_dev, normed, q_fp16, nh*hd,  hs_k));
+            RC_OK(ternary_gemv(ly.k_packed_dev, x_i8, x_scale_dev, ly.k_scales_dev, normed, k_fp16, nkv*hd, hs_k));
+            RC_OK(ternary_gemv(ly.v_packed_dev, x_i8, x_scale_dev, ly.v_scales_dev, normed, v_fp16, nkv*hd, hs_k));
 
             // Qwen3 attention preamble — per-head RMSNorm on Q and K, applied
             // BEFORE RoPE (matches HuggingFace qwen3/modeling_qwen3.py
@@ -757,7 +764,12 @@ int main(int argc, char** argv) {
                     V_caches_i8[l] + (size_t)pos * nkv * hd,
                     V_scales[l]    + (size_t)pos * nkv,
                     nkv, hd, nullptr));
-                RC_OK(rcpp_kv_cache_attn_decode_i8(
+                // Split-KV Flash-Decoding over int8 storage: same per-(pos,
+                // kv_head) scale broadcast as the single-block kernel, but
+                // grid = (num_q_heads, num_kv_tiles) recovers occupancy at
+                // long ctx. Drop-in replacement; bit-for-bit equivalent
+                // online softmax to the single-block path.
+                RC_OK(rcpp_kv_cache_attn_decode_fd_i8(
                     q_fp16,
                     K_caches_i8[l], V_caches_i8[l],
                     K_scales[l],    V_scales[l],
@@ -791,11 +803,9 @@ int main(int argc, char** argv) {
                 // Qwen3 has no attn_sub_norm — attention output feeds O proj
                 // directly. Reuse `normed` as the O-proj output buffer so we
                 // don't trample o_fp16 mid-compute when residual-adds it.
+                // Round-4: x_scale stays on device; no host hipMemcpy here.
                 RC_OK(rcpp_quantize_fp16_to_i8(o_fp16, x_i8, x_scale_dev, hs, nullptr));
-                if (!is_sherry_fp16 && !is_bonsai) {
-                    HIP_OK(hipMemcpy(&x_scale, x_scale_dev, 4, hipMemcpyDeviceToHost));
-                }
-                RC_OK(ternary_gemv(ly.o_packed_dev, x_i8, x_scale, ly.o_scales_dev,
+                RC_OK(ternary_gemv(ly.o_packed_dev, x_i8, x_scale_dev, ly.o_scales_dev,
                                    o_fp16, normed, hs, align_k(nh*hd)));
                 RC_OK(rcpp_residual_add_fp32_from_fp16(x_fp32, normed, hs, nullptr));
             } else {
@@ -803,10 +813,7 @@ int main(int argc, char** argv) {
                 RC_OK(rcpp_rmsnorm_fp16(o_fp16, ly.attn_sub_norm_dev, normed,
                                         m.rms_norm_eps, hs, nullptr));
                 RC_OK(rcpp_quantize_fp16_to_i8(normed, x_i8, x_scale_dev, hs, nullptr));
-                if (!is_sherry_fp16) {
-                    HIP_OK(hipMemcpy(&x_scale, x_scale_dev, 4, hipMemcpyDeviceToHost));
-                }
-                RC_OK(ternary_gemv(ly.o_packed_dev, x_i8, x_scale, ly.o_scales_dev, normed, o_fp16, hs, align_k(nh*hd)));
+                RC_OK(ternary_gemv(ly.o_packed_dev, x_i8, x_scale_dev, ly.o_scales_dev, normed, o_fp16, hs, align_k(nh*hd)));
                 RC_OK(rcpp_residual_add_fp32_from_fp16(x_fp32, o_fp16, hs, nullptr));
             }
 
@@ -814,12 +821,9 @@ int main(int argc, char** argv) {
             RC_OK(rcpp_rmsnorm_fp32_in_fp16_out(x_fp32, ly.post_attn_norm_dev, normed,
                                                 m.rms_norm_eps, hs, nullptr));
             RC_OK(rcpp_quantize_fp16_to_i8(normed, x_i8, x_scale_dev, hs, nullptr));
-            if (!is_sherry_fp16) {
-                HIP_OK(hipMemcpy(&x_scale, x_scale_dev, 4, hipMemcpyDeviceToHost));
-            }
 
-            RC_OK(ternary_gemv(ly.gate_packed_dev, x_i8, x_scale, ly.gate_scales_dev, normed, gate_fp16, is, hs_k));
-            RC_OK(ternary_gemv(ly.up_packed_dev,   x_i8, x_scale, ly.up_scales_dev,   normed, up_fp16,   is, hs_k));
+            RC_OK(ternary_gemv(ly.gate_packed_dev, x_i8, x_scale_dev, ly.gate_scales_dev, normed, gate_fp16, is, hs_k));
+            RC_OK(ternary_gemv(ly.up_packed_dev,   x_i8, x_scale_dev, ly.up_scales_dev,   normed, up_fp16,   is, hs_k));
 
             if (is_qwen3) {
                 // Qwen3 FFN activation: SwiGLU = silu(gate) * up. No
@@ -840,13 +844,11 @@ int main(int argc, char** argv) {
                 RC_OK(rcpp_relu2_glu_rmsnorm_fp16(gate_fp16, up_fp16, ly.ffn_sub_norm_dev,
                                                   silu_out, m.rms_norm_eps, is, nullptr));
             }
+            // Round-4: silu_scale stays on device; ternary_gemv reads it from
+            // silu_scale_dev via the *_devscale entry.
             RC_OK(rcpp_quantize_fp16_to_i8(silu_out, silu_i8, silu_scale_dev, is, nullptr));
-            float silu_scale = 0.0f;
-            if (!is_sherry_fp16 && !is_bonsai) {
-                HIP_OK(hipMemcpy(&silu_scale, silu_scale_dev, 4, hipMemcpyDeviceToHost));
-            }
 
-            RC_OK(ternary_gemv(ly.down_packed_dev, silu_i8, silu_scale, ly.down_scales_dev, silu_out, down_fp16, hs, is_k));
+            RC_OK(ternary_gemv(ly.down_packed_dev, silu_i8, silu_scale_dev, ly.down_scales_dev, silu_out, down_fp16, hs, is_k));
             RC_OK(rcpp_residual_add_fp32_from_fp16(x_fp32, down_fp16, hs, nullptr));
         }
 
