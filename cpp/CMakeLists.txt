@@ -80,14 +80,18 @@ endif()
 add_subdirectory(ingest)
 add_subdirectory(stream)
 add_subdirectory(tier-mint)
+# `cli` MUST be added before `agent` — agent's static lib does a
+# `target_link_libraries(... PUBLIC onebit::cli)` for the proc helper,
+# and CMake 3.28 (Ubuntu 24.04 CI runner) errors on the deferred ALIAS
+# lookup if cli's add_subdirectory hasn't run yet.  CMake 4+ tolerates
+# the reverse order via deferred resolution; CI doesn't.
+add_subdirectory(cli)
 add_subdirectory(agent)
 
 if(ONEBIT_BUILD_DESKTOP)
     add_subdirectory(helm)
     add_subdirectory(helm-tui)
 endif()
-
-add_subdirectory(cli)
 
 # Pending ports — add_subdirectory lines uncommented as each crate lands.
 

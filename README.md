@@ -5,7 +5,7 @@
 ### ternary inference for the rest of us
 
 [![Latest Release](https://img.shields.io/github/v/release/bong-water-water-bong/1bit-systems?include_prereleases)](https://github.com/bong-water-water-bong/1bit-systems/releases/latest)
-[![CI](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml/badge.svg)](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml)
+[![CI](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/cpp-ctest.yml/badge.svg)](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/cpp-ctest.yml)
 [![GitHub downloads](https://img.shields.io/github/downloads/bong-water-water-bong/1bit-systems/total.svg)](https://github.com/bong-water-water-bong/1bit-systems/releases)
 [![GitHub issues](https://img.shields.io/github/issues/bong-water-water-bong/1bit-systems)](https://github.com/bong-water-water-bong/1bit-systems/issues)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./CONTRIBUTING.md)
