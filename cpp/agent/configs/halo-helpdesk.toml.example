@@ -15,5 +15,24 @@ kind = "discord"
 sqlite_path = "~/.local/share/halo-agents/halo-helpdesk/memory.db"
 
 [tools]
-enabled = ["repo_search", "bench_lookup", "install_runbook"]
+enabled = [
+  "repo_search",
+  "bench_lookup",
+  "install_runbook",
+  "agent_consult",      # cross-route to halo-coder for kernel/code questions
+  "speak_to_echo",      # opt-in voice reply via echo TTS
+]
 # gh_issue_create disabled by default; enable explicitly + provide GH_TOKEN env.
+
+# Pair with halo-coder for two-specialty consensus routing. When a user
+# asks something that touches both install and code (e.g. "why does
+# install.sh skip the HIP kernel build on my box?"), this agent consults
+# halo-coder via agent_consult and merges the answer.
+[tools.agent_consult]
+peer_name      = "halo-coder"
+peer_brain_url = "http://127.0.0.1:8180/v1"
+peer_model     = "Qwen3-8B-GGUF"
+
+[tools.speak_to_echo]
+echo_url      = "http://127.0.0.1:8181/v1/tts"
+auto_speak    = false

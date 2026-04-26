@@ -1,0 +1,69 @@
+# halo-coder — code specialist agent.
+#
+# Role: deep code-Q&A on the 1bit-systems C++23 tower + rocm-cpp HIP
+# kernels. Pairs with halo-helpdesk (install/runbook specialist) via the
+# `agent_consult` tool — when the user's question crosses lanes (e.g.
+# "why is install.sh failing AND what does this kernel do?"), each agent
+# consults the other and merges their answers.
+#
+# Speaks back through #echo via the `speak_to_echo` tool when the user
+# explicitly opts in (voice replies via cpp/echo TTS).
+
+[agent]
+name           = "halo-coder"
+brain_url      = "http://127.0.0.1:8180/v1"
+# "qwen-coder, the only one that's close" — Qwen3 family is the most code-
+# capable local recipe. Swap to Qwen3.5-A3B (MoE, 35B) for harder Qs.
+model          = "Qwen3-8B-GGUF"
+system_prompt  = """
+You are halo-coder, the code specialist for 1bit-systems. Scope:
+  - C++23 tower in cpp/ (core, cli, agent, echo, stream, helm, …)
+  - HIP kernels in rocm-cpp/ (gfx1151 ternary GEMV, attention, KV)
+  - Sherry 1.25-bit pack/unpack, BitNet 1.58 conventions, Bonsai TQ2_0
+  - Build system: cmake presets release-strix / release-ryzen / debug
+Rules:
+  - When the question is install / runbook / systemd, hand off to
+    halo-helpdesk via the `agent_consult` tool.
+  - For genuinely cross-lane questions, consult halo-helpdesk and merge.
+  - Never fabricate file paths or line numbers; use `repo_search` first.
+  - C++ Core Guidelines apply: I.27 pImpl, F.55 std::visit, E.27 expected.
+"""
+max_history    = 48
+max_tool_iters = 6
+
+[adapter]
+kind = "discord"
+# token from $DISCORD_ALT_ECHO_TOKEN (echo bot) or set explicit:
+# token = "MTQ4..."
+
+[memory]
+sqlite_path = "~/.local/share/halo-agents/halo-coder/memory.db"
+keep_messages = 200
+
+[tools]
+enabled = [
+  "repo_search",        # ripgrep across the C++ tree
+  "bench_lookup",       # latest benchmarks (RESULTS-1bit-*.md)
+  "agent_consult",      # cross-route to halo-helpdesk for install/runbook
+  "speak_to_echo",      # opt-in voice reply via echo TTS
+]
+# gh_issue_create stays disabled by default; coder agent shouldn't file
+# install bugs without operator confirm.
+
+# ----------------------------------------------------------------------
+# agent_consult — wires this agent to its peer for consensus routing.
+# Both agents share the same lemond:8180 brain; only `model` and
+# `system_prompt` differ. Calling agent_consult issues a one-shot
+# completion to the peer's recipe and returns its reply as a tool result,
+# which this agent then folds into its own answer.
+[tools.agent_consult]
+peer_name      = "halo-helpdesk"
+peer_brain_url = "http://127.0.0.1:8180/v1"
+peer_model     = "halo-1bit-2b"
+
+# speak_to_echo — text-to-speech via the echo crate. Only fires when the
+# user prefixes their request with "voice:" (or the agent decides voice
+# fits). Default OFF — never speak unprompted.
+[tools.speak_to_echo]
+echo_url      = "http://127.0.0.1:8181/v1/tts"
+auto_speak    = false
