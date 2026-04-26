@@ -38,9 +38,7 @@ Current upload hash on guild: `38ba2d6bfc73436c4330e31ec462f708`.
 ## Re-upload
 
 Both uploaded via the echo bot (has `MANAGE_GUILD` perm on the guild). Token lives in
-`~/.config/systemd/user/strix-watch-discord.service.d/token.conf`.
-
-```bash
+`<operator-side, private repo>`. ```bash
 ECHO_TOKEN=...  # from the drop-in
 GUILD=1488323665836642348
 

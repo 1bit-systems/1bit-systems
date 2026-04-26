@@ -80,5 +80,5 @@ fn state_gpu(_s: &AppState) -> String {
 }
 
 fn state_logs(_s: &AppState) -> String {
-    "[journalctl tail] — widget stub; v2 pipes strix-server + strix-watch-discord".into()
+    "[journalctl tail] — widget stub; v2 pipes strix-server".into()
 }

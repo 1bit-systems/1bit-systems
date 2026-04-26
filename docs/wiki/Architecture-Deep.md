@@ -51,7 +51,6 @@ One host (strixhalo, gfx1151) serves every production HTTP surface. A small Head
 
   Sidecars (same host, same systemd):
     sd.cpp :8081            1bit-landing :8190     halo-mcp (stdio)
-    1bit-agents (tokio bus) 1bit-watch-discord     1bit-watch-github
     halo-memory-sync
 
   Sliger audio node (separate host on the mesh, 100.64.0.2):
@@ -331,7 +330,6 @@ The registry is the boundary between the agents bus (tokio) and the MCP server (
 
 ## Discord pipeline
 
-Binary: `1bit-watch-discord` (crates/1bit-agents/bin/1bit-watch-discord.rs). Identity: **halo** (listener). Gateway intents required:
 
 - `GUILDS` — list channels
 - `GUILD_MESSAGES` — receive messages
@@ -354,7 +352,6 @@ Posts are made under a **separate** identity (**echo**) so the listener stays a 
 
 Config:
 
-- `DISCORD_BOT_TOKEN` — root-protected drop-in at `~/.config/systemd/user/strix-watch-discord.service.d/token.conf`
 - `HALO_DISCORD_CHANNELS` — comma-separated channel ID allowlist, same drop-in
 - Unit is **not** enabled by default; operator runs `systemctl --user enable --now strix-watch-discord` after dropping the token
 
@@ -526,7 +523,6 @@ Dependencies we trust, with rationale:
 |---|---|---|
 | TheRock (ROCm dist) | system `/opt/rocm/` | AMD-official; hipcc + runtime |
 | composable_kernel | reference | HIP kernel patterns (reference-only, not linked) |
-| serenity-rs | `1bit-watch-discord` | Discord gateway client, pure Rust, maintained |
 | octocrab | `1bit-watch-github` | GitHub API, typed, pure Rust |
 | axum + tower | `1bit-halo-server` | HTTP framework, tokio-native |
 | hyper + reqwest | server + client | HTTP/1.1 + HTTP/2 |
@@ -725,7 +721,6 @@ HTTP client
           → route("/v1/npu/status")        → npu::npu_status
         → metrics.record_request()
 
-1bit-watch-discord (listener)
   → serenity gateway
   → classify() → Name::{Sentinel, Magistrate, Herald}
   → Registry::dispatch(name, req)
@@ -755,8 +750,6 @@ Environment variables read at startup (not exhaustive):
 | `HALO_SD_URL` | 1bit-halo-server | `http://127.0.0.1:8081` | image-gen sidecar |
 | `HALO_GH_REPOS` | 1bit-watch-github | see `DEFAULT_REPOS` | comma-separated owner/repo |
 | `HALO_GH_POLL_SECONDS` | 1bit-watch-github | 300 | poll interval |
-| `DISCORD_BOT_TOKEN` | 1bit-watch-discord | (required) | drop-in at systemd override |
-| `HALO_DISCORD_CHANNELS` | 1bit-watch-discord | (none) | comma-separated channel allowlist |
 | `RUST_LOG` | every Rust binary | `info` | tracing subscriber filter |
 | `LD_LIBRARY_PATH` | strix-server.service | `<home>/repos/rocm-cpp/build:/opt/rocm/lib` | finds `librocm_cpp.so` |
 

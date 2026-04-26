@@ -17,7 +17,6 @@
 //! Live on this box (see `systemctl --user list-unit-files '1bit-*' 'strix-*'`):
 //! * `1bit-halo-bitnet.service`  — ternary inference daemon
 //! * `strix-server.service`      — 1bit-server HTTP on :8180
-//! * `strix-watch-discord.service` — discord bridge
 //!
 //! The spec (P1 #7) names these three verbatim. `strix-lemonade`,
 //! `strix-landing`, `strix-burnin` are live too but out of MVP scope
@@ -28,7 +27,7 @@ use std::process::Command;
 /// Services the tray controls. Ordering is stable (used for the Status
 /// line) and matches the P1 #7 spec. Edit this single constant to
 /// extend the tray's reach — every other site reads through here.
-pub const SERVICES: &[&str] = &["1bit-halo-bitnet", "strix-server", "strix-watch-discord"];
+pub const SERVICES: &[&str] = &["1bit-halo-bitnet", "strix-server"];
 
 /// Menu-item identifiers. Stringly-typed because ksni takes owned
 /// `String` labels; we expose enum→label + enum→action so the UI side
@@ -202,7 +201,7 @@ mod tests {
         assert_eq!(SERVICES.len(), 3, "MVP covers exactly three units");
         assert_eq!(SERVICES[0], "1bit-halo-bitnet");
         assert_eq!(SERVICES[1], "strix-server");
-        assert_eq!(SERVICES[2], "strix-watch-discord");
+        assert_eq!(SERVICES[2]);
         // No duplicates — systemctl would accept them but the status
         // line would read ugly.
         let mut sorted = SERVICES.to_vec();
@@ -223,14 +222,12 @@ mod tests {
                 state: ServiceState::Active,
             },
             ServiceStatus {
-                name: "strix-watch-discord".into(),
                 state: ServiceState::Inactive,
             },
         ];
         let line = build_status_line(&rows);
         assert_eq!(
             line,
-            "1bit-halo-bitnet: active · strix-server: active · strix-watch-discord: inactive"
         );
 
         // Empty input is a degenerate-but-real case — the polling

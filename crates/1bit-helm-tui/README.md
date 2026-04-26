@@ -27,7 +27,6 @@ operator can rearrange on the fly. Goals, in priority order:
    you get the full live chart. Same widget, progressive disclosure.
 
 3. **One widget per service / agent.** Every running thing
-   (`1bit-server`, `1bit-watch-discord`, each `1bit-agents` specialist,
    `halo-whisper`, `halo-kokoro`, etc.) gets its own little card. You
    open the ones you care about, close the rest. Shared status bar
    across all of them at the bottom.
