@@ -12,6 +12,8 @@
 
 #include "onebit/agent/factories.hpp"
 #include "onebit/agent/tools/registry.hpp"
+#include "onebit/agent/adapter_discord.hpp"
+#include "onebit/agent/adapter_telegram.hpp"
 
 #include <spdlog/spdlog.h>
 
@@ -134,9 +136,32 @@ make_adapter(const Config& cfg)
     if (cfg.adapter.kind == "stdin") {
         return std::unique_ptr<IAdapter>(new StdinAdapter());
     }
+    if (cfg.adapter.kind == "discord") {
+        DiscordAdapterConfig dcfg;
+        dcfg.token = resolve_token("DISCORD_BOT_TOKEN", cfg.adapter.token);
+        if (dcfg.token.empty()) {
+            return std::unexpected(AgentError::config(
+                "discord adapter: token missing (set $DISCORD_BOT_TOKEN "
+                "or [adapter] token = ...)"));
+        }
+        // Pull DM allowlist from access.json so the adapter follows the
+        // same gate as the older help-desk plugin.
+        auto access = load_access_json(default_access_json_path());
+        if (access) dcfg.dm_allowlist = std::move(*access);
+        return std::unique_ptr<IAdapter>(new DiscordAdapter(std::move(dcfg)));
+    }
+    if (cfg.adapter.kind == "telegram") {
+        TelegramAdapterConfig tcfg;
+        tcfg.token = cfg.adapter.token;  // Telegram has no env-precedence path
+        if (tcfg.token.empty()) {
+            return std::unexpected(AgentError::config(
+                "telegram adapter: [adapter] token = ... is required"));
+        }
+        return std::unique_ptr<IAdapter>(new TelegramAdapter(std::move(tcfg)));
+    }
     return std::unexpected(AgentError::config(
         "adapter.kind=\"" + cfg.adapter.kind +
-        "\" not registered (sibling agent must provide make_adapter)"));
+        "\" not registered (expected stdin / discord / telegram)"));
 }
 
 [[nodiscard]] std::expected<std::unique_ptr<IToolRegistry>, AgentError>
