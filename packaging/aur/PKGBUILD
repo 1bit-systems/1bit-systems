@@ -40,7 +40,7 @@ optdepends=(
     'hf-cli: first-run model download'
 )
 makedepends=(
-    'rust>=1.86'
+    'rust>=1.88'
     'cargo'
     'cmake'
     'git'

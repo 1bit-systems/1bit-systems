@@ -51,21 +51,20 @@ BUNDLED_BINS=(
     1bit
     1bit-helm
     1bit-halo-helm-tray
-    onebit-server
     1bit-landing
-    1bit-lemonade
-    1bit-watch-discord
-    1bit-watch-github
     1bit-mcp
     1bit-mcp-linuxgsm
     1bit-voice
     1bit-echo
-    1bit-whisper
     1bit-kokoro
-    1bit-halo-pkg
     1bit-halo-power
     1bit-halo-ralph
 )
+# Removed in the 2026-04-25 cull (these crates no longer exist in
+# Cargo.toml workspace.members and would silently produce a bundle
+# missing those binaries):
+#   onebit-server, 1bit-lemonade, 1bit-watch-discord,
+#   1bit-watch-github, 1bit-whisper, 1bit-halo-pkg
 
 # Crates excluded from the release build because they need ROCm /
 # Apple frameworks that aren't available on clean AppImage build hosts.

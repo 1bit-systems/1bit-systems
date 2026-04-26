@@ -15,9 +15,9 @@
 <meta name="twitter:image" content="https://1bit.systems/assets/logo.png">
 <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
 <link rel="apple-touch-icon" href="/assets/logo.png">
-<link rel="stylesheet" href="/assets/style.css?v=20260425i">
-<link rel="stylesheet" href="/assets/copy-code.css?v=20260425i">
-<script src="/assets/copy-code.js?v=20260425i" defer></script>
+<link rel="stylesheet" href="/assets/style.css?v=20260425j">
+<link rel="stylesheet" href="/assets/copy-code.css?v=20260425j">
+<script src="/assets/copy-code.js?v=20260425j" defer></script>
 </head>
 <body class="onepage">
 
@@ -150,8 +150,8 @@
       <div class="model-card"><h3>gemma-3-270m-it</h3><dl><dt>params</dt><dd>270 M</dd><dt>quant</dt><dd>UD-IQ2_M</dd><dt>backend</dt><dd>llama.cpp Vulkan</dd><dt>tok/s</dt><dd>443</dd><dt>on disk</dt><dd>160 MB</dd></dl><p class="use"><b>Use:</b> instruct fallback, multilingual.</p></div>
       <div class="model-card"><h3>deepseek-r1-distill-qwen-1.5b</h3><dl><dt>params</dt><dd>1.5 B</dd><dt>quant</dt><dd>Q4_K_M</dd><dt>backend</dt><dd>llama.cpp Vulkan</dd><dt>tok/s</dt><dd>168</dd><dt>on disk</dt><dd>1.2 GB</dd></dl><p class="use"><b>Use:</b> reasoning. <code>&lt;think&gt;</code> tag streamed separately.</p></div>
       <div class="model-card"><h3>nomic-embed-text-v1.5</h3><dl><dt>params</dt><dd>137 M</dd><dt>quant</dt><dd>FP16</dd><dt>backend</dt><dd>llama.cpp CPU</dd><dt>tok/s</dt><dd>n/a (embed)</dd><dt>on disk</dt><dd>262 MB</dd></dl><p class="use"><b>Use:</b> RAG embeddings. <code>/v1/embeddings</code>, 768 dims.</p></div>
-      <div class="model-card"><h3>whisper-large-v3-turbo</h3><dl><dt>params</dt><dd>809 M</dd><dt>quant</dt><dd>Q5_0</dd><dt>backend</dt><dd>whisper.cpp Vulkan</dd><dt>tok/s</dt><dd>~16x realtime</dd><dt>on disk</dt><dd>574 MB</dd></dl><p class="use"><b>Use:</b> STT for the voice loop. Sliding-window streaming.</p></div>
-      <div class="model-card"><h3>kokoro-82m</h3><dl><dt>params</dt><dd>82 M</dd><dt>quant</dt><dd>FP16 ONNX</dd><dt>backend</dt><dd>onnxruntime CPU</dd><dt>tok/s</dt><dd>~22x realtime</dd><dt>on disk</dt><dd>165 MB</dd></dl><p class="use"><b>Use:</b> TTS. Sentence-boundary streaming, multi-voice.</p></div>
+      <div class="model-card"><h3>whisper-tiny.en</h3><dl><dt>params</dt><dd>39 M</dd><dt>quant</dt><dd>Q5_0</dd><dt>backend</dt><dd>whisper.cpp</dd><dt>latency</dt><dd>0.25 s round-trip</dd><dt>on disk</dt><dd>75 MB</dd></dl><p class="use"><b>Use:</b> STT for the voice loop. Sliding-window streaming.</p></div>
+      <div class="model-card"><h3>kokoro-v1.0</h3><dl><dt>params</dt><dd>82 M</dd><dt>quant</dt><dd>FP16 ONNX</dd><dt>backend</dt><dd>koko (CPU)</dd><dt>realtime</dt><dd>11.27&times;</dd><dt>on disk</dt><dd>340 MB</dd></dl><p class="use"><b>Use:</b> TTS. 38 voices across en/es/hi/it/ja/pt/zh.</p></div>
     </div>
     <p class="note" style="margin-top:1rem">Full registry &amp; checksums in <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/packages.toml" rel="noopener"><code>packages.toml</code></a>.</p>
   </section>

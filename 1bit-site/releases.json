@@ -1,17 +1,16 @@
 {
   "$schema_note": "1bit-systems release feed. Consumed by `1bit update --check` and `1bit update --install`. Schema: see crates/1bit-cli/src/update.rs (Feed/Release/Artifact). Publish verbatim at https://1bit.systems/releases.json.",
-  "$sample_warning": "The 0.3.0 entry is SAMPLE data from the Gap-P1-#15 scaffold pass — artifact URL is a placeholder, sha256 + minisign_sig match the test fixture at crates/1bit-cli/tests/fixtures/update/sample_artifact.bin, NOT a real release AppImage. The 0.1.0 entry is the real AppImage artifact built by packaging/appimage/build-appimage.sh on 2026-04-23 (size 33,237,496 bytes, sha256 matches the sidecar at packaging/appimage/dist/1bit-systems-0.1.0-x86_64.AppImage.sha256). URLs point at the GitHub release (bong-water-water-bong/1bit-systems v0.1.0) to be cut 2026-04-24; old `1bit.systems/dl/` mirror path is retired. `minisign_sig` stays empty until the signing flow lands. The `halo-1bit-2b.h1b` model weight and the three `npu-smoke-*.log` bundles are listed as release assets but are not yet on disk at write time — sha256 for the h1b is taken from the release bundle plan; refresh from a real sidecar before tagging. `latest` stays 0.3.0 so the update-check regression test keeps working; flip to 0.1.0 once the sample fixture is removed.",
-  "latest": "0.3.0",
+  "latest": "0.1.0",
   "channels": {
     "stable": "0.1.0",
-    "preview": "0.3.0"
+    "preview": "0.1.0"
   },
   "releases": [
     {
       "version": "0.1.0",
       "date": "2026-04-24",
       "min_compatible": "0.1.0",
-      "notes": "First AppImage drop — bundles the Rust binaries (1bit, 1bit-helm, 1bit-halo-helm-tray, 1bit-watch-discord, 1bit-mcp-kickstarter + 15 more; ~32 MB zstd-squashfs). Requires glibc >= 2.35 and Linux kernel 6.x. ROCm is NOT bundled; install via ./install.sh on the host before `1bit install core`. Model weight (halo-1bit-2b.h1b, ~1.8 GB) is a separate asset. NPU smoke logs bundled for reference.",
+      "notes": "First AppImage drop \u2014 bundles the Rust binaries (1bit, 1bit-helm, 1bit-halo-helm-tray, 1bit-watch-discord, 1bit-mcp-kickstarter + 15 more; ~32 MB zstd-squashfs). Requires glibc >= 2.35 and Linux kernel 6.x. ROCm is NOT bundled; install via ./install.sh on the host before `1bit install core`. Model weight (halo-1bit-2b.h1b, ~1.8 GB) is a separate asset. NPU smoke logs bundled for reference.",
       "min_glibc": "2.35",
       "min_kernel": "6.0",
       "artifacts": [
@@ -54,21 +53,8 @@
           "primary": false
         }
       ]
-    },
-    {
-      "version": "0.3.0",
-      "date": "2026-04-22",
-      "min_compatible": "0.2.0",
-      "notes": "Scaffold placeholder release — do not deploy. Real 0.3.0 ships once the signed-install atomic swap lands.",
-      "artifacts": [
-        {
-          "platform": "x86_64-linux-gnu",
-          "kind": "appimage",
-          "url": "https://1bit.systems/dl/1bit-systems-0.3.0-x86_64.AppImage",
-          "sha256": "f6c39a3c039a64953c30ddf3566f08b3fedd3a1fe9c29d71c2772b79d8edcffb",
-          "minisign_sig": "untrusted comment: signature from rsign secret key\nRUSLBfI8Kvx1y4BKHHyz39RYeN8T/6UOS0n1XXG9Hcoi44atAfcZrhBm9q7IRxL96MzMZUyhtyqg1JL8AhL33QB/TxRKQ6N9XA4=\ntrusted comment: timestamp:1776902539\tfile:test_payload.bin\tprehashed\nafI9e3+DIq4FSAYQ+Hqpj6UOd/aSglXOvQy99IS72JJqGNEM8jH8lioNRAwwX2AARoZkCk3k0/zDuo2Xnx7JBA==\n"
-        }
-      ]
     }
-  ]
+  ],
+  "$sample_warning_old": "The 0.3.0 entry is SAMPLE data from the Gap-P1-#15 scaffold pass \u2014 artifact URL is a placeholder, sha256 + minisign_sig match the test fixture at crates/1bit-cli/tests/fixtures/update/sample_artifact.bin, NOT a real release AppImage. The 0.1.0 entry is the real AppImage artifact built by packaging/appimage/build-appimage.sh on 2026-04-23 (size 33,237,496 bytes, sha256 matches the sidecar at packaging/appimage/dist/1bit-systems-0.1.0-x86_64.AppImage.sha256). URLs point at the GitHub release (bong-water-water-bong/1bit-systems v0.1.0) to be cut 2026-04-24; old `1bit.systems/dl/` mirror path is retired. `minisign_sig` stays empty until the signing flow lands. The `halo-1bit-2b.h1b` model weight and the three `npu-smoke-*.log` bundles are listed as release assets but are not yet on disk at write time \u2014 sha256 for the h1b is taken from the release bundle plan; refresh from a real sidecar before tagging. `latest` stays 0.3.0 so the update-check regression test keeps working; flip to 0.1.0 once the sample fixture is removed.",
+  "$sample_warning": "0.3.0 sample fixture removed 2026-04-25 \u2014 flipped latest to real 0.1.0 AppImage. Restore with the old warning text from the v0.1.x releases when running update-check regression tests."
 }
