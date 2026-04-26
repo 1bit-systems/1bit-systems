@@ -46,21 +46,47 @@ info() { printf '%b  · %s%b\n' "$DIM" "$*" "$NC"; }
 warn() { printf '%b  ⚠ %s%b\n' "$YELLOW" "$*" "$NC" >&2; }
 die()  { printf '%b  ✗ %s%b\n' "$RED" "$*" "$NC" >&2; exit 1; }
 
-# Progress dots for a long-running command. Reads stdin, emits a heartbeat
-# every ~2 seconds, buffers output for later retrieval. Returns the
-# command's exit code. Usage: `some_long_cmd 2>&1 | progress_pipe "label"`.
+# Progress dots for a long-running command. Reads stdin, tees to a per-label
+# logfile under /tmp/1bit-install-logs/ for post-mortem, emits a heartbeat
+# line counter, and returns 0. Pipefail (set -e) catches upstream failures;
+# on failure the trap (LOG_DUMP_ON_ERR) prints the tail of every captured
+# log so the operator sees *why* cmake/hipcc/git died.
+# Usage: `some_long_cmd 2>&1 | progress_pipe "label"`.
+LOG_DIR="${LOG_DIR:-/tmp/1bit-install-logs}"
+mkdir -p "$LOG_DIR"
 progress_pipe() {
     local label=$1
+    local logfile="$LOG_DIR/${label// /_}.log"
     local n=0
     local line=""
+    : > "$logfile"
     while IFS= read -r line; do
+        printf '%s\n' "$line" >> "$logfile"
         n=$((n + 1))
         if (( n % 20 == 0 )); then
             printf '%b    %s · %d lines%b\r' "$DIM" "$label" "$n" "$NC" >&2
         fi
     done
-    printf '%b    %s · %d lines total%b\n' "$DIM" "$label" "$n" "$NC" >&2
+    printf '%b    %s · %d lines total → %s%b\n' "$DIM" "$label" "$n" "$logfile" "$NC" >&2
 }
+
+# On any failure, dump tail of every captured log so the operator sees the
+# real error instead of just "cmake exited 1".
+LOG_DUMP_ON_ERR() {
+    local rc=$?
+    [[ "$rc" == "0" ]] && return 0
+    printf '\n%b━━ install failed (exit %d) — log tails ━━%b\n' "$RED" "$rc" "$NC" >&2
+    if compgen -G "$LOG_DIR/*.log" > /dev/null; then
+        for f in "$LOG_DIR"/*.log; do
+            [[ -s "$f" ]] || continue
+            printf '\n%b── %s (last 40 lines) ──%b\n' "$YELLOW" "$f" "$NC" >&2
+            tail -40 "$f" >&2
+        done
+        printf '\n%bfull logs in %s%b\n' "$DIM" "$LOG_DIR" "$NC" >&2
+    fi
+    return $rc
+}
+trap LOG_DUMP_ON_ERR ERR
 
 # ── configuration ────────────────────────────────────────────
 REPO_ROOT="${REPO_ROOT:-$HOME/repos}"
@@ -176,11 +202,35 @@ info "rocm root: $ROCM_ROOT"
 # ── step 1: host check ───────────────────────────────────────
 step "host + dependency check"
 if [[ "$CI_MODE" == "0" ]]; then
-    [[ -x "$ROCM_ROOT/bin/rocminfo" ]] || die "no rocminfo at $ROCM_ROOT/bin (install rocm-hip-sdk)"
-    if "$ROCM_ROOT/bin/rocminfo" | grep -q gfx1151; then
-        info "gfx1151 detected"
-    else
+    # Multi-probe: rocminfo string, amdgpu-arch, amd-smi product name. ROCm
+    # version layouts vary (/opt/rocm vs /opt/rocm-7.13.0), and 8060S/Radeon
+    # 8060S/AMD RYZEN AI MAX+ 395 are all gfx1151 marketing names. We accept
+    # any of these as a positive ID rather than insist on a literal "gfx1151"
+    # string in rocminfo output.
+    GFX_HIT=0
+    if [[ -x "$ROCM_ROOT/bin/rocminfo" ]]; then
+        if "$ROCM_ROOT/bin/rocminfo" 2>/dev/null | grep -q gfx1151; then
+            info "gfx1151 detected (rocminfo)"; GFX_HIT=1
+        fi
+    elif command -v rocminfo >/dev/null 2>&1; then
+        if rocminfo 2>/dev/null | grep -q gfx1151; then
+            info "gfx1151 detected (rocminfo on PATH)"; GFX_HIT=1
+        fi
+    fi
+    if [[ "$GFX_HIT" == "0" ]] && command -v amdgpu-arch >/dev/null 2>&1; then
+        if amdgpu-arch 2>/dev/null | grep -q gfx1151; then
+            info "gfx1151 detected (amdgpu-arch)"; GFX_HIT=1
+        fi
+    fi
+    if [[ "$GFX_HIT" == "0" ]] && command -v amd-smi >/dev/null 2>&1; then
+        if amd-smi static 2>/dev/null | grep -Eqi '8060S|RYZEN AI MAX'; then
+            info "Strix Halo detected (amd-smi: Radeon 8060S / Ryzen AI MAX)"
+            GFX_HIT=1
+        fi
+    fi
+    if [[ "$GFX_HIT" == "0" ]]; then
         warn "no gfx1151 detected — gen-2 kernels target this specifically"
+        warn "(checked rocminfo, amdgpu-arch, amd-smi; install rocm-hip-sdk if missing)"
     fi
 else
     info "CI mode — skipping gfx1151 gate"
