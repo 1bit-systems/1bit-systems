@@ -698,7 +698,7 @@ Editorial, deep-dive reference. Longer than docs, less structured than reference
 **Runtime (Rust)**
 
 17. `Workspace layout (20 crates)`
-18. `1bit-router and the backend dispatcher`
+18. `lemond and the backend dispatcher`
 19. `1bit-server HTTP surface (v1 + v2 + /ppl + /metrics)`
 20. `1bit-onnx: loading OGA Model Builder output` (new, this session)
 21. `Sampler modes and CPU pipelining`
@@ -737,7 +737,7 @@ Editorial, deep-dive reference. Longer than docs, less structured than reference
 **Serving**
 
 41. `/v1/chat/completions vs /v2/*`
-42. `Gateway dispatch (1bit-lemonade, 1bit-router)`
+42. `Gateway dispatch (1bit-lemonade, lemond)`
 43. `Strix-landing status page on :8190`
 
 **Voice**

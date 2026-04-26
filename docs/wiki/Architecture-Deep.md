@@ -4,7 +4,7 @@ The stack behaves like a small station — discrete modules, one bus, hard seals
 
 ## Constellation
 
-One host (strixhalo, gfx1151) serves every production HTTP surface. A small Headscale mesh binds one audio peer (sliger, Arc B580 Vulkan for STT/TTS), one kernel peer (ryzen, gfx1201 / RX 9070 XT), and one archive (pi). External callers speak OpenAI-compatible HTTP to a Caddy bearer-checked front door, which reverse-proxies `/v1/*` to the Rust `1bit-server` on `:8180`. The server dispatches through `1bit-router` to a HIP backend that crosses the FFI airlock into `rocm-cpp` for ternary GEMV, split-KV Flash-Decoding attention, RoPE, RMSNorm, SiLU, and the KV cache. Voice (halo-whisper, halo-kokoro — hosted on the sliger B580), image (sd.cpp, local), tooling (halo-mcp), and agents (1bit-agents) hang off the same control plane. Every long-lived process is a systemd unit. (Post-cutover state as of v0.1.0, 2026-04-24; the retired gen-1 C++ `bitnet_decode` on `:8080` is disabled.)
+One host (strixhalo, gfx1151) serves every production HTTP surface. A small Headscale mesh binds one audio peer (sliger, Arc B580 Vulkan for STT/TTS), one kernel peer (ryzen, gfx1201 / RX 9070 XT), and one archive (pi). External callers speak OpenAI-compatible HTTP to a Caddy bearer-checked front door, which reverse-proxies `/v1/*` to the Rust `1bit-server` on `:8180`. The server dispatches through `lemond` to a HIP backend that crosses the FFI airlock into `rocm-cpp` for ternary GEMV, split-KV Flash-Decoding attention, RoPE, RMSNorm, SiLU, and the KV cache. Voice (halo-whisper, halo-kokoro — hosted on the sliger B580), image (sd.cpp, local), tooling (halo-mcp), and agents (1bit-agents) hang off the same control plane. Every long-lived process is a systemd unit. (Post-cutover state as of v0.1.0, 2026-04-24; the retired gen-1 C++ `bitnet_decode` on `:8080` is disabled.)
 
 ```
                               +-------------------+
@@ -28,7 +28,7 @@ One host (strixhalo, gfx1151) serves every production HTTP surface. A small Head
                   |
                   v
          +------------------+
-         |   1bit-router    |
+         |   lemond    |
          |   backend = Hip  |
          +--------+---------+
                   | extern "C"
@@ -112,9 +112,9 @@ async fn chat_completions(
 
 ### 4. Router dispatch
 
-`1bit-router`'s `Router::run(req: RouterRequest) -> RouterResponse`. `Backend::Hip` is the default and the only one compiled on production. `Backend::Cpu` scaffolds the AVX2 lane from `1bit-cpu` but returns `BackendError::CpuLaneStub` today. See [CPU-Lane-Plan](./CPU-Lane-Plan.md) for the wire-up path.
+`lemond`'s `Router::run(req: RouterRequest) -> RouterResponse`. `Backend::Hip` is the default and the only one compiled on production. `Backend::Cpu` scaffolds the AVX2 lane from `1bit-cpu` but returns `BackendError::CpuLaneStub` today. See [CPU-Lane-Plan](./CPU-Lane-Plan.md) for the wire-up path.
 
-For long prompts, `prefill_routing_decision` consults `prefill_crossover_len` (default 33 — see `DEFAULT_PREFILL_CROSSOVER_L` in `crates/1bit-router/src/lib.rs`) to decide whether the prefill phase goes to CPU AVX2 or stays on the iGPU. Decode always stays on iGPU — bandwidth story wins, see [Why-Strix-Halo](./Why-Strix-Halo.md).
+For long prompts, `prefill_routing_decision` consults `prefill_crossover_len` (default 33 — see `DEFAULT_PREFILL_CROSSOVER_L` in `crates/lemond/src/lib.rs`) to decide whether the prefill phase goes to CPU AVX2 or stays on the iGPU. Decode always stays on iGPU — bandwidth story wins, see [Why-Strix-Halo](./Why-Strix-Halo.md).
 
 ### 5. Session + KV-cache setup
 
@@ -695,7 +695,7 @@ pub enum RcppStatus {
 }
 ```
 
-`RcppStatus::from_raw` converts the C int. Anything non-zero bubbles up through `1bit-hip` as `RcppError`, into `1bit-router` as `BackendError::Hip`, and into the HTTP layer as `ServerError::Backend` (HTTP 500). No panic crosses the FFI airlock — C++ exceptions are caught at the extern boundary in `rocm-cpp`.
+`RcppStatus::from_raw` converts the C int. Anything non-zero bubbles up through `1bit-hip` as `RcppError`, into `lemond` as `BackendError::Hip`, and into the HTTP layer as `ServerError::Backend` (HTTP 500). No panic crosses the FFI airlock — C++ exceptions are caught at the extern boundary in `rocm-cpp`.
 
 ## Appendix C — who-calls-what (concrete call graph)
 
@@ -709,7 +709,7 @@ HTTP client
         → AppState { backend: SharedBackend, metrics, sd_base_url, http_client }
         → build_router_with_state(state)
           → route("/v1/chat/completions")  → chat_completions handler
-            → Backend::Hip via 1bit-router::Router::run
+            → Backend::Hip via lemond::Router::run
               → HipBackend::forward
                 → 1bit-hip::ternary_gemv_halo_f16 (Q, K, V, O, gate, up, down)
                 → 1bit-hip::rmsnorm_fp16
@@ -749,9 +749,9 @@ Environment variables read at startup (not exhaustive):
 
 | var | consumer | default | notes |
 |---|---|---|---|
-| `HALO_BACKEND` | 1bit-router | `hip` | `hip` \| `cpu` |
-| `HALO_SAMPLER` | 1bit-router | `inline` | `inline` \| `cpu` |
-| `HALO_PREFILL_CROSSOVER_L` | 1bit-router | 33 | prompt length at which prefill moves to CPU AVX2 lane |
+| `HALO_BACKEND` | lemond | `hip` | `hip` \| `cpu` |
+| `HALO_SAMPLER` | lemond | `inline` | `inline` \| `cpu` |
+| `HALO_PREFILL_CROSSOVER_L` | lemond | 33 | prompt length at which prefill moves to CPU AVX2 lane |
 | `HALO_SD_URL` | 1bit-halo-server | `http://127.0.0.1:8081` | image-gen sidecar |
 | `HALO_GH_REPOS` | 1bit-watch-github | see `DEFAULT_REPOS` | comma-separated owner/repo |
 | `HALO_GH_POLL_SECONDS` | 1bit-watch-github | 300 | poll interval |

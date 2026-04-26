@@ -1,7 +1,7 @@
 //! 1bit-mlx — Apple Silicon ternary backend for 1bit systems.
 //!
 //! Sibling of `1bit-hip` (AMD gfx1151). Both expose the same `Backend`
-//! trait that `1bit-router` consumes; one wraps MLX-via-mlx-rs, the other wraps
+// (deleted: was 1bit-router orphan crate)
 //! librocm_cpp.so. Cargo features pick at build time.
 //!
 //! Build on Apple Silicon:  `cargo build -p 1bit-mlx --features mlx-apple`
@@ -23,7 +23,7 @@ pub enum BackendStatus {
 }
 
 /// The shape every halo ternary backend must expose. Both -hip and -mlx
-/// implement this; 1bit-router picks at dispatch time.
+// (deleted: was 1bit-router orphan crate)
 pub trait TernaryBackend {
     fn name(&self) -> &'static str;
     fn supports_shape(&self, n_heads: usize, head_dim: usize) -> bool;

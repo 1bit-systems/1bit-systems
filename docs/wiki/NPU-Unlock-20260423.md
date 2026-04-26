@@ -68,7 +68,7 @@ The authoring toolchain is proven; the BitNet-specific kernel is not written.
 
 1. **Author a `bitnet_gemm` operator in MLIR-AIE vector DSL** (~1–2 wk). Port the algorithm from our gfx1151 `ternary_gemv_halo.hip`: packed 2-bit weights × int8 activations with fp16 scale, absmean quantization. Different silicon (AIE2P VLIW + vector intrinsics vs WMMA), same algorithm shape.
 2. **Tune for AIE2P tiling.** Memory hierarchy is tile-local scratchpads + shim DMA, not LPDDR5 streaming. Gerganov's L1-tiling lead from `project_gerganov_l1_tuning.md` applies analogously: K-outer tile so weight reads stay in tile scratchpad across multiple M rows.
-3. **Integrate xclbin dispatch into `1bit-router` backend.** Load the xclbin via `libxrt` C++ (`xrt::device`, `xrt::kernel`, `xrt::bo`) from a new sibling crate or direct FFI inside `1bit-hip`. Rule A stays clean — runtime path is C++ + Rust, no Python once the kernel is compiled.
+3. **Integrate xclbin dispatch into `lemond` backend.** Load the xclbin via `libxrt` C++ (`xrt::device`, `xrt::kernel`, `xrt::bo`) from a new sibling crate or direct FFI inside `1bit-hip`. Rule A stays clean — runtime path is C++ + Rust, no Python once the kernel is compiled.
 4. **Smoke-test with Llama-3.2-1B first** (IRON ships the reference under `applications/llama_3.2_1b/llama_npu.py`), then swap in our BitNet-1.58.
 5. **Trip the ship-gate.** `project_ship_gate_npu.md` lifts when a full sub-2-bit model decodes on the NPU via our kernel, not before. Axpy does not lift it; Llama-1B or BitNet-2B on the NPU does.
 

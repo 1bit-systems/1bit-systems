@@ -7,7 +7,7 @@
 ```
  ┌────────────────────────────────────────────────────────┐
  │  Rust (halo-workspace, 11 crates, 121+ tests)          │
- │  1bit-cli · 1bit-server · 1bit-router · 1bit-mcp       │
+ │  1bit-cli · 1bit-server · lemond · 1bit-mcp       │
  │  1bit-agents · 1bit-lemonade · 1bit-helm · 1bit-landing│
  │  1bit-core (mmap + tokenizer + sampler) · halo-bitnet-*│
  └──────────────────────────┬─────────────────────────────┘

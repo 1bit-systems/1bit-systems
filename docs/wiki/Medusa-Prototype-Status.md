@@ -158,7 +158,7 @@ _Pending hipcc compile + rocprof run on architect's box._
 
 Today our attention kernel is `src/kv_cache_attn_fd.hip` (Flash-Decoding,
 one query per head, split-KV). It's called from
-`crates/1bit-router/src/backend_impl.rs` in the `forward_token` hot path:
+`crates/lemond/src/backend_impl.rs` in the `forward_token` hot path:
 
 - `backend_impl.rs:463` — `forward_token` entry (one token in, one out).
 - `backend_impl.rs:595-614` — `hipMemcpyAsync` writes K/V into the
@@ -213,7 +213,7 @@ One PR per crate so each is reviewable in isolation.
 - [ ] Three in-crate tests (per CLAUDE.md): mock-device happy path,
       mask-bounds check, M-range bounds check.
 
-### PR-3: `1bit-router` — `forward_tree`, gated behind config
+### PR-3: `lemond` — `forward_tree`, gated behind config
 
 - [ ] `backend_impl.rs` — add `forward_tree(&mut self, accepted: &[i32],
       base_pos: i32, tree: &SpecTree, logits_out: &mut [f32]) ->

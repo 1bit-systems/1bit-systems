@@ -85,7 +85,7 @@ Takes under 10 seconds.
 - Remove `halo-bitnet.service` from `1bit install --list` default set
   (keep component in `packages.toml`, drop from `core` deps).
 - Drop gen-1 from shadow-burnin (no longer useful as baseline; replace
-  with 1bit-router itself on a second GPU once we have one).
+  with lemond itself on a second GPU once we have one).
 - Update README.md's "Quickstart" to point at `:8180` by default.
 - Tag a `pre-cutover` snapshot on `bong-water-water-bong/rocm-cpp` so
   we can roll back to the gen-1-compatible kernel set if needed.

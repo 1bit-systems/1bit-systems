@@ -65,7 +65,7 @@ have no measurement yet; 200 tok/s is the floor we plan against.
 
 ```
           ┌──────────────────────────────────────────────────┐
-          │                 1bit-router                       │
+          │                 lemond                       │
           │                                                   │
           │   route_forward(prompt_len, ctx_len, phase):      │
           │     prefill && L < 33   →  Backend::IGpu          │
@@ -80,7 +80,7 @@ have no measurement yet; 200 tok/s is the floor we plan against.
           │  CPU lane      │  │  iGPU lane     │  │  NPU lane     │
           │                │  │                │  │  (future)     │
           │ crates/        │  │ crates/        │  │ crates/       │
-          │   1bit-router/ │  │   1bit-hip +   │  │   1bit-npu    │
+          │   lemond/ │  │   1bit-hip +   │  │   1bit-npu    │
           │   cpu_lane.rs  │  │   rocm-cpp/    │  │   (ORT +      │
           │                │  │                │  │    VitisAI)   │
           │ ternary AVX2   │  │ ternary HIP    │  │ xclbin overlay│
@@ -128,7 +128,7 @@ BD-list setup, <1 ms CPU rayon wake).
 - Target measurement: 200+ tok/s pp on BitNet-2B @ L=512. If we miss
   by more than 30% (i.e. below 140 tok/s), escalate before Phase 2.
 
-### Phase 2 — `1bit-router` prefill/decode split
+### Phase 2 — `lemond` prefill/decode split
 
 - `Backend::Cpu` is already scaffolded (see `CPU-Lane-Plan.md`). Extend
   `RouterConfig` with `PrefillBackend::Auto | IGpu | Cpu | Npu`.
@@ -140,7 +140,7 @@ BD-list setup, <1 ms CPU rayon wake).
   backend than decode. KV cache handoff lives on the iGPU — CPU
   prefill writes K/V tensors directly into the iGPU's KV buffer using
   the LPDDR5 cache-coherent path.
-- Tests: three new parity tests in `crates/1bit-router/tests/` —
+- Tests: three new parity tests in `crates/lemond/tests/` —
   `cpu_prefill_igpu_decode_matches_igpu_full`,
   `crossover_threshold_respected`, `env_override_works`.
 

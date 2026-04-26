@@ -269,7 +269,7 @@ The following work is deferred to a separate agent session:
    to route the ternary GEMV through the new launcher. Needs matching
    Qwen3 attention layout (separate `attn_q_norm` / `attn_k_norm` — see
    "Surprise" below).
-3. **Router / server model selection** — `1bit-router` grows a
+3. **Router / server model selection** — `lemond` grows a
    `BonsaiModel` variant that reads `is_bonsai_tq2()` off the header, and
    `1bit-server` / `1bit-lemonade` expose it as a switchable backend.
 4. **Tokenizer** — Bonsai uses Qwen3's GPT-2-style BPE tokenizer with

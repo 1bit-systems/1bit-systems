@@ -4,7 +4,7 @@ DEV-ONLY one-shot converter — see `CLAUDE.md` Rule A exception.
 
 Turns the upstream `parrishcorcoran/MedusaBitNet-2B-4T`
 `medusa_heads_step2000.pt` checkpoint into the native `.h1b-medusa` v2
-binary consumed by `crates/1bit-router/src/medusa/loader.rs`.
+binary consumed by `crates/lemond/src/medusa/loader.rs`.
 
 **Not a runtime component.** Never invoke from a systemd unit or HTTP
 path. Python is only tolerated here because it runs once on a dev box;
@@ -25,7 +25,7 @@ box already has it (used by other one-shot converters like
 ## Output format
 
 Matches `MEDUSA_FORMAT_VERSION = 2` in
-`crates/1bit-router/src/medusa/loader.rs`. See that file's module
+`crates/lemond/src/medusa/loader.rs`. See that file's module
 docstring for the exact byte layout.
 
 Header: 68 bytes. Per-head payload: `w_in` then `w_out`, each

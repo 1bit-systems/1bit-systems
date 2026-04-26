@@ -31,7 +31,7 @@ that work its own rayon-backed thread pool:
   attribute it cleanly.
 
 Surface entry point: [`onebit_router::cpu_lane::CpuLane`] in
-`crates/1bit-router/src/cpu_lane.rs`.
+`crates/lemond/src/cpu_lane.rs`.
 
 ## Why CPU is a peer lane, not a fallback
 
@@ -55,16 +55,16 @@ Surface entry point: [`onebit_router::cpu_lane::CpuLane`] in
 
 2026-04-20:
 
-* `crates/1bit-router/src/cpu_lane.rs` — new module. `CpuLane` struct
+* `crates/lemond/src/cpu_lane.rs` — new module. `CpuLane` struct
   holds a `rayon::ThreadPool`; `parallel_sample(&self, logits, top_k,
   top_p, temp)` demonstrates the rayon parallel-reduction pattern
   (argmax at `temp=0`, chunked top-k fallback at `temp>0`).
-* `Backend::Cpu` in `1bit-router`'s routing guard now returns
+* `Backend::Cpu` in `lemond`'s routing guard now returns
   `BackendError::CpuLaneStub("CPU sampler lane scaffolded, not yet on
   critical path; see docs/wiki/CPU-Lane-Plan.md")` instead of
   `unimplemented!()`. Distinct error kind from `NotYetWired` so ops
   tooling can count them separately.
-* `rayon = "1"` added to `crates/1bit-router/Cargo.toml`. Rayon 1.12 is
+* `rayon = "1"` added to `crates/lemond/Cargo.toml`. Rayon 1.12 is
   already in the workspace Cargo.lock transitively (via tokenizers);
   adding it directly doesn't grow the build graph.
 * Three unit tests in `cpu_lane::tests` — constructor doesn't panic,
@@ -192,4 +192,4 @@ skip and stay pure Rust.
 * `docs/wiki/Peak-Performance-Projection.md` — the 7/7 lane aspirational
   target; the CPU lane closes surface #7.
 * `docs/wiki/AMD-AI-ML-Tools-Scan.md` — ZenDNN 5.2 notes for step (c).
-* `crates/1bit-router/src/cpu_lane.rs` — the module this page describes.
+* `crates/lemond/src/cpu_lane.rs` — the module this page describes.

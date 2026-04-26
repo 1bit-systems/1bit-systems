@@ -84,7 +84,7 @@ touch all three.
   - `fp16_gemv_batched(...)` if we choose path (1) for the heads.
 - `src/ffi.rs` — matching `extern "C"` prototypes.
 
-### 2.3 `halo-workspace/crates/1bit-router` (decode driver)
+### 2.3 `halo-workspace/crates/lemond` (decode driver)
 
 - `src/backend_impl.rs:410` — `HipBackend::forward_token` is the hot loop.
   It takes one token id and returns one. Medusa requires a new sibling
@@ -115,7 +115,7 @@ touch all three.
 
 ### 2.4 Things that **don't** change
 
-- Tokenizer (`crates/1bit-router/src/tokenizer.rs`,
+- Tokenizer (`crates/lemond/src/tokenizer.rs`,
   `crates/1bit-core/src/htok.rs`) — vocabulary is the same backbone; heads
   share `lm_head`.
 - GGUF/.h1b loaders — heads are a separate 13 MB fp16 file; add one new

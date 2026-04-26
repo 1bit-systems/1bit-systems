@@ -2,7 +2,7 @@
 //!
 //! This sprint plugs the gap between [`crate::gguf`] (parse-only GGUF mmap)
 //! and [`crate::h1b`]'s 2-bit ternary layout (`uint8[rows, (cols+3)/4]`
-//! + per-row scale) so [`1bit-router`]'s GGUF loader can stop blowing up on
+// (deleted: was 1bit-router orphan crate)
 //!   `unimplemented!("IQ2_S …")`.
 //!
 //! ## IQ2_S block layout (for future grep)

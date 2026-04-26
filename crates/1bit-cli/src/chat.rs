@@ -1,5 +1,5 @@
 // `1bit chat` — one-shot REPL against 1bit-server :8180. No session history,
-// no KV persistence — the server resets KV per-request (see 1bit-router
+// (deleted: was 1bit-router orphan crate)
 // commit de53544). Good enough for demos + smoke tests.
 
 use anyhow::{Context, Result, bail};

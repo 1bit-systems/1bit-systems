@@ -382,7 +382,7 @@ impl H1bConfig {
     ///
     /// Today's 2B-4T base model (and every shipping checkpoint) returns
     /// `false` — the bit is cleared in all weights we distribute. The
-    /// 1bit-router's `bitnet-v2` feature consults this accessor to decide
+    // (deleted: was 1bit-router orphan crate)
     /// whether to dispatch the online rotation kernel.
     pub fn is_hadamard_rotated(&self) -> bool {
         (self.reserved & H1B_FLAG_HADAMARD_ROTATED) != 0

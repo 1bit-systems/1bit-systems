@@ -25,7 +25,7 @@ Exact bytes for `[{"role":"user","content":"hi"}]`:
 ```
 
 Tokenizer breakdown (Llama-3 vocab, hard-coded specials in
-`crates/1bit-router/src/tokenizer.rs`):
+`crates/lemond/src/tokenizer.rs`):
 
 | Token                                 | ID     |
 |---------------------------------------|--------|

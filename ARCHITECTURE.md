@@ -44,7 +44,7 @@ Rule A: all three pillars are bare-metal C++ / Rust with zero Python at runtime.
                               |
                               v
                    +----------+----------+
-                   |   1bit-router       |   dispatches per Backend trait
+                   |   lemond       |   dispatches per Backend trait
                    +----------+----------+
                               |
                     feature:  |
@@ -75,7 +75,7 @@ MlxBackend → 1bit-mlx → bitnet-mlx-rs on aarch64-apple-darwin.
 
 - **`1bit-cli`** — `halo` binary. `status / logs / restart / doctor / update / install / version`. Reads `packages.toml`, drives systemd units, queries the local HTTP server for liveness.
 - **`1bit-core`** — GGUF loader, BPE tokenizer, sampler, chat-template renderer. Backend-agnostic. Shared by both `HipBackend` and `MlxBackend`.
-- **`1bit-router`** — defines the `Backend` trait and picks an implementation at build time via cargo features.
+- **`lemond`** — defines the `Backend` trait and picks an implementation at build time via cargo features.
 - **`1bit-server`** — axum app. OpenAI-compat `/v1/chat/completions`, `/v1/completions`, `/v1/models`. Streams SSE. Binds `:8180` (loopback); fronted by Caddy on `:443`.
 - **`1bit-agents`** — tokio-based agent bus for the specialist pool. Sits next to the server, not in the inference hot path.
 - **`1bit-mcp`** — stdio JSON-RPC MCP bridge. Lets external Claude/MCP clients drive the local model.

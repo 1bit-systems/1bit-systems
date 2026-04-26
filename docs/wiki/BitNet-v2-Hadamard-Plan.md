@@ -8,7 +8,7 @@ A8→A4 recipe we had queued after Sherry lands.
 wiring, no weight pipeline, no PPL runs yet.
 
 **Updated 2026-04-20 (PM)**: CMakeLists.txt linked, FFI exported, 1bit-hip
-safe wrapper landed, 1bit-router `bitnet-v2` feature flag + hook landed.
+safe wrapper landed, lemond `bitnet-v2` feature flag + hook landed.
 See §10 for the wiring map. Still missing: **rotated checkpoint** — no
 shipping `.h1b` carries `H1B_FLAG_HADAMARD_ROTATED` yet, so the hook is
 dormant on every production box today. PPL delta measurement waits on
@@ -59,7 +59,7 @@ constexpr so we can run B=256 and B=64 in our PPL sweep before committing.
 
 ## 3. Insertion points in our forward pass
 
-All sites are in `crates/1bit-router/src/backend_impl.rs` (gen-2 Rust
+All sites are in `crates/lemond/src/backend_impl.rs` (gen-2 Rust
 forward driver). Line numbers are as of commit HEAD on 2026-04-20:
 
 | # | site | line | pre-state | post-rotate step |
@@ -298,9 +298,9 @@ flipping it on is a per-build feature flag PLUS a per-model header bit.
   - `HADAMARD_BLOCK: usize = 128` public constant.
 - Divisibility + length preconditions enforced Rust-side before dispatch.
 
-### Feature gate (1bit-router)
+### Feature gate (lemond)
 
-- New Cargo feature `bitnet-v2` in `crates/1bit-router/Cargo.toml`. Off
+- New Cargo feature `bitnet-v2` in `crates/lemond/Cargo.toml`. Off
   by default. Does NOT depend on the `hip` feature (the code path is
   compiled even for stub-mode builds so tests cover both branches).
 - **Model metadata**: `H1B_FLAG_HADAMARD_ROTATED = 0x1` lives in bit 0
@@ -339,10 +339,10 @@ flipping it on is a per-build feature flag PLUS a per-model header bit.
   precondition checks on the safe wrapper.
 - `1bit-hip::tests::hadamard_rotate_inverse_identity` (`#[ignore]`) —
   `H · H · x / B = x` round-trip within fp16 ε on 1 KiB of random input.
-- `1bit-router::bitnet_v2_hadamard_tests::gate_*` — three tests, one
+- `lemond::bitnet_v2_hadamard_tests::gate_*` — three tests, one
   per decision-matrix row, `#[cfg]`-gated so we cover both feature-on
   and feature-off builds.
-- `1bit-router::tests::hadamard_hook_fires_four_times_per_layer`
+- `lemond::tests::hadamard_hook_fires_four_times_per_layer`
   (`#[ignore]`, needs rotated `.h1b`) — live counter check.
 
 ### Still TODO

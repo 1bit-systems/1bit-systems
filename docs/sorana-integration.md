@@ -152,7 +152,7 @@ on `127.0.0.1:8180` does not — Caddy is the bearer gate. Two options:
   workflow touching embeddings or audio will 404 against the shim
   unless we forward to a different backend (sd-server for images
   already lives at `127.0.0.1:8081`; embeddings have no home yet).
-- **Model list.** 1bit-server reports whatever `1bit-router` has
+- **Model list.** 1bit-server reports whatever `lemond` has
   loaded. Sorana may display only one model (the current halo model).
   That is fine for text chat; it is a confusing UX for a "workspace"
   that expects to route across models.

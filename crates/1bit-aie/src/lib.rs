@@ -28,7 +28,7 @@
 //!
 //! ## Why a trait, not a free function
 //!
-//! The router (`crates/1bit-router/src/backend_impl.rs`) already carries a
+// (deleted: was 1bit-router orphan crate)
 //! concrete [`HipBackend`] and a `Backend::Cpu` stub. When the NPU lane
 //! lights up the router grows a `Backend::Aie` variant that holds a
 //! `Box<dyn AieBackend>`. A trait lets us:

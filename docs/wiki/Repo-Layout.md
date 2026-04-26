@@ -14,7 +14,7 @@ Canonical URL: `https://github.com/bong-water-water-bong/1bit-systems` (renamed 
 ├── Cargo.toml              Rust workspace manifest (~26 crates)
 ├── crates/
 │   ├── 1bit-server/        OpenAI-compat HTTP (Rust, axum) — binds :8180
-│   ├── 1bit-router/        backend dispatcher — iGPU / NPU / CPU
+│   ├── lemond/        backend dispatcher — iGPU / NPU / CPU
 │   ├── 1bit-core/          model + tokenizer parsers (mmap, zero deps)
 │   ├── 1bit-cli/           operator CLI — `1bit status / doctor / update / …`
 │   ├── 1bit-hip/           FFI into rocm-cpp HIP kernels

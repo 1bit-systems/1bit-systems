@@ -100,7 +100,7 @@ Working in 1bit-systems or 1bit systems-core? These rules are non-negotiable:
 
 ## 11-crate workspace
 
-- `1bit-cli`, `1bit-core`, `1bit-router`, `1bit-server`, `1bit-agents`,
+- `1bit-cli`, `1bit-core`, `lemond`, `1bit-server`, `1bit-agents`,
   `1bit-mcp`, `1bit-landing`, `1bit-lemonade`, `1bit-helm`,
   `1bit-hip`, `1bit-mlx`.
 

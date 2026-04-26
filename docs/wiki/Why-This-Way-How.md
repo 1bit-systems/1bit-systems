@@ -23,7 +23,7 @@ If you've read the landing page and want the engineering story, this is that pag
          │              └─ /lemon/*  → 1bit-lemonade :8200          │
          │                                                          │
          │  ┌────────────────── halo-workspace (rust) ─────────────┐│
-         │  │ 1bit-cli  · 1bit-server  · 1bit-router · 1bit-mcp    ││
+         │  │ 1bit-cli  · 1bit-server  · lemond · 1bit-mcp    ││
          │  │ 1bit-core · 1bit-agents  · 1bit-landing · 1bit-helm  ││
          │  │ 1bit-lemonade · 1bit-hip · 1bit-mlx    ││
          │  └──────────────────────┬───────────────────────────────┘│
@@ -76,7 +76,7 @@ Follow a single `halo chat "What is the capital of France?"` request through the
 1. **`halo chat`** (Rust binary, clap) reads stdin → one line → synthesizes an OpenAI chat-completions payload.
 2. **HTTP POST** to `http://127.0.0.1:8180/v1/chat/completions`, bearer-less on loopback.
 3. **`1bit-server`** (axum) receives the request. Route handler deserializes with `serde_json` into a strongly-typed `ChatRequest`. Clock starts for the `/metrics` latency histogram.
-4. **`1bit-router`** picks the HIP backend (it's the only one compiled on this box). Locks a tokio Mutex around the shared KV cache. Resets `pos = 0` (per-request — fix from commit `de53544`).
+4. **`lemond`** picks the HIP backend (it's the only one compiled on this box). Locks a tokio Mutex around the shared KV cache. Resets `pos = 0` (per-request — fix from commit `de53544`).
 5. **Tokenizer** (`1bit-core`) encodes the prompt. Llama-3 special tokens (`<|eot_id|>`, etc.) are recognized as single IDs, not byte-level BPE — the fix that took parity from 18% to 96%.
 6. **Prefill loop** — one forward pass per prompt token, writing K/V into the FP16 KV cache. Uses `1bit-hip`'s safe wrappers around `rcpp_ternary_gemv_halo_f16` + RMSNorm + RoPE + split-KV Flash-Decoding.
 7. **Decode loop** — sample from logits at temperature 0 (greedy argmax on host), append to `generated_ids`, write next K/V slot, stop on `<|eot_id|>` or `max_tokens`.
@@ -99,7 +99,7 @@ All four run under systemd timers, idempotent, silent when nothing's changed. Yo
 
 ## How the NPU would plug in (when unblocked)
 
-Single-line change in `1bit-router`:
+Single-line change in `lemond`:
 
 ```rust
 match phase {

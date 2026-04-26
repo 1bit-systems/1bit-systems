@@ -43,7 +43,7 @@
 #
 # NOTE: the greedy path is selected automatically by the router when
 # `temperature == 0.0` and no streaming callback is set — see
-# crates/1bit-router/src/lib.rs. To A/B against the skip-copy path,
+# crates/lemond/src/lib.rs. To A/B against the skip-copy path,
 # flip `HALO_SKIP_LOGITS_COPY` below; the router still enters
 # `forward_token_greedy` because the temperature gate dominates, so
 # this bench actually A/Bs against a temperature=0.01 sampled run
