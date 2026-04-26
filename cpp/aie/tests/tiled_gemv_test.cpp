@@ -60,18 +60,16 @@ constexpr const char* kFixtureInsts64 =
     return v && v[0] == '1' && v[1] == '\0';
 }
 
-// Prefer Phase-1 (64-tile) until the leaf gemm() impl threads the
-// loaded_tile_*() dims through every BO/DMA path. The 512-tile xclbin
-// loads but dispatch currently produces NaN — the runtime tile-sizing
-// landed at the public API but the inner kernel call still sizes BOs
-// off the legacy 64-byte constexpr defaults. Tracked as gate G7
-// follow-up in project_ship_gate_status_2026_04_26.md.
+// Prefer Phase-2 (512-tile): with the leaf's host-side W pre-tile +
+// fp32-out post-cast threaded through gemm(), the 512 xclbin dispatches
+// bit-exact (rel_err = 0). Phase-1 64-tile remains the fallback fixture
+// when the 512 build artifact is missing on a host.
 [[nodiscard]] std::pair<const char*, const char*> resolve_fixture() noexcept {
-    if (fs::exists(kFixtureXclbin64) && fs::exists(kFixtureInsts64)) {
-        return {kFixtureXclbin64, kFixtureInsts64};
-    }
     if (fs::exists(kFixtureXclbin512) && fs::exists(kFixtureInsts512)) {
         return {kFixtureXclbin512, kFixtureInsts512};
+    }
+    if (fs::exists(kFixtureXclbin64) && fs::exists(kFixtureInsts64)) {
+        return {kFixtureXclbin64, kFixtureInsts64};
     }
     return {nullptr, nullptr};
 }
@@ -290,7 +288,7 @@ TEST_CASE("TiledGemvCfg is a trivially-copyable POD")
 // is unset OR no fixture xclbin resolves.
 // ----------------------------------------------------------------------------
 
-TEST_CASE("tiled_gemv: 2560x2560 q_proj/o_proj shape matches CPU oracle" * doctest::skip(true))
+TEST_CASE("tiled_gemv: 2560x2560 q_proj/o_proj shape matches CPU oracle")
 {
     if (!real_backend_enabled()) {
         DOCTEST_WARN_MESSAGE(true,
@@ -318,7 +316,7 @@ TEST_CASE("tiled_gemv: 2560x2560 q_proj/o_proj shape matches CPU oracle" * docte
                   /*seed=*/0x202604261ULL);
 }
 
-TEST_CASE("tiled_gemv: 640x2560 k_proj/v_proj shape (N-pad) matches CPU oracle" * doctest::skip(true))
+TEST_CASE("tiled_gemv: 640x2560 k_proj/v_proj shape (N-pad) matches CPU oracle")
 {
     if (!real_backend_enabled()) {
         DOCTEST_WARN_MESSAGE(true,

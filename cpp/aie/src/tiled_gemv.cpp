@@ -14,6 +14,16 @@
 // because Phase-2's in-tile zero_bitnet_f32_512 zeroes the C tile once
 // per outer block).
 //
+// W layout transpose: the wrapper's input is documented as `[N, K]`
+// row-major (matches engine_npu_dispatch.cpp's `[N*K/16]` host mirror),
+// but the leaf's gemm() contract is `[K, N]` row-major (matches the
+// IRON kernel's pW indexing in bitnet_gemm.cc / bitnet_gemm_512.cc and
+// the leaf test in bitnet_gemm_aie2p_test.cpp). We therefore decode
+// each ternary code from the source `[N, K]` block and re-pack into a
+// `[K, N]` staging buffer per (n_block, k_block) call. The `[N, K] →
+// [K, N]` transpose is done at code granularity (2-bit codes) so the
+// HALO_V2 word packing rule is preserved end to end.
+//
 // Why this layout vs. the Phase-2 pretiled microtile order:
 //   - The wrapper is a layout-stable abstraction over arbitrary K_total,
 //     N_total. The microtile pretile is a per-tile transform that
@@ -152,11 +162,11 @@ tiled_gemv(BitnetGemmAIE2P&               kernel,
     const std::size_t k_blocks = (k_total + tile_k - 1) / tile_k;
     const std::size_t n_blocks = (n_total + tile_n - 1) / tile_n;
 
-    // Per-row stride (in u32 words) of the source w_packed buffer.
+    // Per-row stride (in u32 words) of the source w_packed buffer
+    // (which is `[N, K]` row-major). The dest tile w_pad is `[K, N]`
+    // row-major; its per-K-row stride is tile_n / 16, computed at the
+    // staging site below.
     const std::size_t src_row_stride_u32 = k_total / kCodesPerU32;
-    // Per-row stride (in u32 words) of the staging w_pad tile. tile_k is
-    // also a multiple of 16 (asserted above), so this is exact.
-    const std::size_t dst_row_stride_u32 = tile_k / kCodesPerU32;
 
     // Sanity-check the leaf's expected sizes match what we'll feed it.
     if (kernel.loaded_a_elems()     != tile_m * tile_k ||
@@ -197,41 +207,48 @@ tiled_gemv(BitnetGemmAIE2P&               kernel,
                         a_bf16.data() + k_off,
                         k_live * sizeof(std::uint16_t));
 
-            // ---- W staging: zero-fill, copy (n_live × k_live) block.
-            // Source row r in the full matrix lives at
-            //   w_packed + (n_off + r) * src_row_stride_u32
-            // and we want columns [k_off, k_off + k_live) which start
-            // at u32 offset (k_off / 16) and span (k_live / 16) words
-            // (with a tail-word patch when k_live % 16 != 0).
+            // ---- W staging: zero-fill, then transpose [N,K] -> [K,N]
+            // at 2-bit-code granularity for the live (n_live × k_live)
+            // sub-block.
+            //
+            // Source layout : w_packed is HALO_V2 over [n_total, k_total]
+            //                 row-major; row r=(n_off+r), col c=(k_off+c)
+            //                 lives in u32 word
+            //                   src_row_stride_u32 * r + (k_off+c)/16
+            //                 at slot ((k_off+c) % 16).
+            // Dest   layout : w_pad is HALO_V2 over [tile_k, tile_n]
+            //                 row-major; row k, col n lives in u32 word
+            //                   dst_row_stride_n_u32 * k + n/16
+            //                 at slot (n % 16). dst_row_stride_n_u32 is
+            //                 tile_n / 16 (NOT tile_k / 16 — the W tile
+            //                 the leaf consumes is K-major-rows, N-cols).
+            //
+            // Code-level transpose is the only safe way: byte-stride
+            // memcpy would require src and dst to share a stride, which
+            // they don't for this transpose.
             std::memset(w_pad.data(), 0,
                         kernel.loaded_w_elems_u32() * sizeof(std::uint32_t));
 
-            const std::size_t src_col_off_u32  = k_off / kCodesPerU32;
-            const std::size_t k_full_words     = k_live / kCodesPerU32;
-            const std::size_t k_tail_codes     = k_live % kCodesPerU32;
+            const std::size_t dst_row_stride_n_u32 = tile_n / kCodesPerU32;
 
             for (std::size_t r = 0; r < n_live; ++r) {
                 const std::uint32_t* src_row =
-                    w_packed.data() +
-                    (n_off + r) * src_row_stride_u32 +
-                    src_col_off_u32;
-                std::uint32_t* dst_row =
-                    w_pad.data() + r * dst_row_stride_u32;
+                    w_packed.data() + (n_off + r) * src_row_stride_u32;
+                for (std::size_t c = 0; c < k_live; ++c) {
+                    const std::size_t src_idx       = k_off + c;
+                    const std::size_t src_word      = src_idx / kCodesPerU32;
+                    const std::size_t src_slot      = src_idx % kCodesPerU32;
+                    const std::uint32_t code =
+                        (src_row[src_word] >> (2u * src_slot)) & 0x3u;
 
-                std::memcpy(dst_row, src_row,
-                            k_full_words * sizeof(std::uint32_t));
-
-                // Tail word: when k_live isn't a multiple of 16, copy
-                // only the low (2 * k_tail_codes) bits and zero the
-                // high bits (= ternary 0 = no contribution). Defensive;
-                // production shapes always hit k_full_words exactly
-                // because k_total % 16 == 0 and tile_k % 16 == 0.
-                if (k_tail_codes != 0) {
-                    const std::uint32_t mask =
-                        (k_tail_codes == kCodesPerU32)
-                            ? 0xFFFFFFFFu
-                            : ((1u << (2u * k_tail_codes)) - 1u);
-                    dst_row[k_full_words] = src_row[k_full_words] & mask;
+                    // Dest: row=k (=c), col=n (=r) inside the (tile_k,
+                    // tile_n) staging tile.
+                    const std::size_t dst_word =
+                        c * dst_row_stride_n_u32 + (r / kCodesPerU32);
+                    const std::size_t dst_slot = r % kCodesPerU32;
+                    w_pad[dst_word] |=
+                        static_cast<std::uint32_t>(code & 0x3u)
+                        << (2u * dst_slot);
                 }
             }
 

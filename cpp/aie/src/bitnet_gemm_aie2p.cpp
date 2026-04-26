@@ -11,6 +11,9 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <ios>
 #include <iterator>
@@ -96,6 +99,84 @@ read_file(const std::filesystem::path& path)
     return t;
 }
 
+// Decode a 2-bit code at flat index `idx` from a flat-row-major HALO_V2-
+// packed [K*N/16] u32 buffer. Returns the 2-bit code (00=0, 01=+1, 10=-1).
+[[nodiscard]] inline std::uint32_t
+halo_v2_decode_code(const std::uint32_t* w_flat,
+                    std::size_t          idx) noexcept
+{
+    const std::size_t word = idx >> 4;          // / 16
+    const std::size_t slot = idx & 0xF;         // % 16
+    return (w_flat[word] >> (2u * slot)) & 0x3u;
+}
+
+// Re-tile flat-row-major HALO_V2 packed weights into the Phase-2 microtile
+// stream order (matches pretile_weights_for_kernel in run_pyxrt_bitnet_512.py).
+//
+// Input  : `w_flat` — [K*N/16] u32, codes stored as if the (K, N) ternary
+//          matrix were flattened row-major and packed 16 codes/u32 LSB-first.
+// Output : `w_tiled` — same total length, codes laid out in
+//          (n_blk, k_blk, i_blk, j_blk) traversal order with each (S, T)=(8, 8)
+//          microtile becoming 4 contiguous u32 words.
+//
+// AIE-API mmul shape constants (must match bitnet_gemm_iron_512.py).
+constexpr std::uint32_t kPhase2_R = 4;
+constexpr std::uint32_t kPhase2_S = 8;
+constexpr std::uint32_t kPhase2_T = 8;
+
+inline void
+phase2_pretile_weights(const std::uint32_t* w_flat,
+                       std::uint32_t*       w_tiled,
+                       std::uint32_t        K,
+                       std::uint32_t        N,
+                       std::uint32_t        k_inner,
+                       std::uint32_t        n_inner) noexcept
+{
+    // Mirrors pretile_weights_for_kernel + _pack_microtile_codes_to_4_u32.
+    const std::uint32_t K_div_k = K / k_inner;
+    const std::uint32_t N_div_n = N / n_inner;
+    const std::uint32_t S = kPhase2_S;
+    const std::uint32_t T = kPhase2_T;
+    const std::uint32_t k_microtiles = k_inner / S;     // 8 for k_inner=64
+    const std::uint32_t n_microtiles = n_inner / T;     // 8
+
+    std::size_t write_idx = 0;
+    for (std::uint32_t n_blk = 0; n_blk < N_div_n; ++n_blk) {
+        for (std::uint32_t k_blk = 0; k_blk < K_div_k; ++k_blk) {
+            const std::uint32_t k_base = k_blk * k_inner;
+            const std::uint32_t n_base = n_blk * n_inner;
+            for (std::uint32_t i_blk = 0; i_blk < k_microtiles; ++i_blk) {
+                for (std::uint32_t j_blk = 0; j_blk < n_microtiles; ++j_blk) {
+                    // Source: 64 codes from rows [k_base+i_blk*S, +S),
+                    // cols [n_base+j_blk*T, +T) of the row-major (K, N).
+                    std::uint32_t out_words[4] = {0u, 0u, 0u, 0u};
+                    for (std::uint32_t s_row = 0; s_row < S; ++s_row) {
+                        const std::uint32_t row = k_base + i_blk * S + s_row;
+                        for (std::uint32_t t_col = 0; t_col < T; ++t_col) {
+                            const std::uint32_t col = n_base + j_blk * T + t_col;
+                            const std::size_t flat_idx =
+                                static_cast<std::size_t>(row) * N + col;
+                            const std::uint32_t code =
+                                halo_v2_decode_code(w_flat, flat_idx);
+                            // Microtile flatten: lane = s_row * T + t_col,
+                            // word = lane / 16, slot = lane % 16.
+                            const std::uint32_t lane = s_row * T + t_col;
+                            const std::uint32_t w_idx  = lane >> 4;
+                            const std::uint32_t w_slot = lane & 0xF;
+                            out_words[w_idx] |= (code & 0x3u) << (2u * w_slot);
+                        }
+                    }
+                    w_tiled[write_idx + 0] = out_words[0];
+                    w_tiled[write_idx + 1] = out_words[1];
+                    w_tiled[write_idx + 2] = out_words[2];
+                    w_tiled[write_idx + 3] = out_words[3];
+                    write_idx += 4;
+                }
+            }
+        }
+    }
+}
+
 // Filename-string fallback solver for hosts where xrt::xclbin::arg::get_size()
 // returns 0 for the BO args (some XRT-AIE backends report only the scalar
 // args). Looks for a "<NNN>x<NNN>x<NNN>" triple anywhere in the path stem
@@ -168,6 +249,22 @@ struct BitnetGemmAIE2P::Impl {
     std::uint32_t    tile_m{0};
     std::uint32_t    tile_k{0};
     std::uint32_t    tile_n{0};
+    // Per-output-element byte count from the xclbin's C-arg metadata.
+    //   Phase-1 (M=K=N=64)  : C is bf16 -> 2.
+    //   Phase-2 (M=K=N=512) : C is fp32 -> 4 (kernel's K-reduction acc
+    //                          stays in fp32 inside the AIE; host casts
+    //                          to bf16 after drain — see Phase-2 IRON
+    //                          DSL contract in bitnet_gemm_iron_512.py).
+    // Decides BO sizing (loaded_c_bytes()) AND whether gemm() needs the
+    // fp32->bf16 post-cast on readback.
+    std::uint32_t    c_elem_bytes{2};
+    // Phase-2 host-side weight pre-tile required: input to gemm() comes
+    // in as flat-row-major HALO_V2 pack ([K*N/16] u32), but the kernel
+    // expects the microtile-block layout from
+    // pretile_weights_for_kernel(). Detected at load() from the per-arg
+    // metadata + tile shape; when true we re-tile inside gemm() via
+    // phase2_pretile_weights().
+    bool             requires_w_pretile{false};
     bool             ready{false};
 };
 
@@ -220,6 +317,61 @@ BitnetGemmAIE2P::load(const std::filesystem::path& xclbin_path,
         out.p_->kernel_name = kernels.front().get_name();
         out.p_->kernel = xrt::kernel{out.p_->ctx, out.p_->kernel_name};
 
+        // ----- Optional debug probe ---------------------------------------
+        // Set ONEBIT_AIE_DEBUG=1 OR ONEBIT_AIE_DEBUG_FILE=/path to dump
+        // every kernel's args (name/size/host_type/group_id) to stderr
+        // and/or a file. Off by default; ~3 env-var reads per load() when
+        // disabled. Notes from the Phase-2 bring-up debug session
+        // (2026-04-26): on amdxdna XRT, every BO arg reports `host_type
+        // ="void*"` and `get_size() == 8` (pointer size), so the metadata
+        // alone cannot distinguish bf16-out (Phase-1) from fp32-out
+        // (Phase-2) — we disambiguate by the macro tile dim instead. The
+        // probe is kept in tree because it was the smoking gun and the
+        // next xclbin change is going to need it again.
+        {
+            const char* dbg     = std::getenv("ONEBIT_AIE_DEBUG");
+            const char* dbgfile = std::getenv("ONEBIT_AIE_DEBUG_FILE");
+            const bool to_stderr = dbg && dbg[0] == '1' && dbg[1] == '\0';
+            FILE* fp_file = nullptr;
+            if (dbgfile && dbgfile[0] != '\0') {
+                fp_file = std::fopen(dbgfile, "a");
+            }
+            if (to_stderr || fp_file) {
+                auto emit = [&](const char* line) {
+                    if (to_stderr) std::fputs(line, stderr);
+                    if (fp_file)   std::fputs(line, fp_file);
+                };
+                char buf[1024];
+                std::snprintf(buf, sizeof(buf),
+                    "[onebit::aie] xclbin=%s kernels=%zu\n",
+                    xclbin_path.string().c_str(), kernels.size());
+                emit(buf);
+                for (std::size_t ki = 0; ki < kernels.size(); ++ki) {
+                    const auto kn = kernels[ki].get_name();
+                    const auto ka = kernels[ki].get_args();
+                    std::snprintf(buf, sizeof(buf),
+                        "[onebit::aie]   kernel[%zu]=\"%s\" args=%zu\n",
+                        ki, kn.c_str(), ka.size());
+                    emit(buf);
+                    for (std::size_t ai = 0; ai < ka.size(); ++ai) {
+                        int gid = -1;
+                        try {
+                            gid = out.p_->kernel.group_id(static_cast<int>(ai));
+                        } catch (...) { gid = -1; }
+                        std::snprintf(buf, sizeof(buf),
+                            "[onebit::aie]     arg[%zu] name=\"%s\" "
+                            "size=%zu host_type=\"%s\" group_id=%d\n",
+                            ai, ka[ai].get_name().c_str(),
+                            static_cast<std::size_t>(ka[ai].get_size()),
+                            ka[ai].get_host_type().c_str(),
+                            gid);
+                        emit(buf);
+                    }
+                }
+            }
+            if (fp_file) std::fclose(fp_file);
+        }
+
         // ----- Tile-dim probe ---------------------------------------------
         // Strategy:
         //   1) Ask the xclbin for the W-arg byte size (kernel arg index 4).
@@ -252,6 +404,28 @@ BitnetGemmAIE2P::load(const std::filesystem::path& xclbin_path,
         out.p_->tile_k = tile_dim;
         out.p_->tile_n = tile_dim;
 
+        // ----- Phase-1 vs Phase-2 contract -------------------------------
+        // The xclbin's per-arg get_size() reports the pointer size (8) for
+        // BO args on amdxdna XRT today, NOT the BO byte count — so we can
+        // only see "void* sized 8" regardless of which xclbin we loaded.
+        // We therefore disambiguate Phase-1 vs Phase-2 by the macro tile
+        // dim and apply both Phase-2 contracts together:
+        //
+        //   * Phase-1 (tile_dim==64): macro == inner; kernel re-tiles W
+        //     on-die; C is bf16 (2 B/elem).
+        //   * Phase-2 (tile_dim>64) : host pre-tiles W into microtile-block
+        //     stream order (matches pretile_weights_for_kernel in
+        //     run_pyxrt_bitnet_512.py); C is fp32 inside the AIE — the
+        //     kernel writes 4 B/elem and the host casts to bf16 on read.
+        //
+        // The signal "tile_dim > 64" piggy-backs on the inner shape being
+        // locked at 64 in both ship designs today. If a future xclbin
+        // breaks that, switch to an arg-name sniff (Phase-2 IRON-py emits
+        // `bo2` with no size hint either, so the only signal is shape).
+        const bool is_phase2 = (tile_dim > 64);
+        out.p_->c_elem_bytes       = is_phase2 ? 4u : 2u;
+        out.p_->requires_w_pretile = is_phase2;
+
         // BO sizing in bytes for the loaded tile.
         const std::size_t kAbytes =
             static_cast<std::size_t>(tile_dim) * tile_dim * sizeof(std::uint16_t);
@@ -259,7 +433,7 @@ BitnetGemmAIE2P::load(const std::filesystem::path& xclbin_path,
             static_cast<std::size_t>(tile_dim) * tile_dim / kBitnetGemmAIE2P_CodesPerU32
             * sizeof(std::uint32_t);
         const std::size_t kCbytes =
-            static_cast<std::size_t>(tile_dim) * tile_dim * sizeof(std::uint16_t);
+            static_cast<std::size_t>(tile_dim) * tile_dim * out.p_->c_elem_bytes;
 
         const std::size_t insts_bytes_sz = insts_bytes->size();
 
@@ -331,12 +505,31 @@ BitnetGemmAIE2P::gemm(std::span<const std::uint16_t> a_bf16,
 
     const std::size_t kAbytes = a_expected * sizeof(std::uint16_t);
     const std::size_t kWbytes = w_expected * sizeof(std::uint32_t);
-    const std::size_t kCbytes = c_expected * sizeof(std::uint16_t);
+    const std::size_t kCbytes = c_expected * p_->c_elem_bytes;
+
+    // Phase-2 host-side weight pre-tile: input is flat-row-major
+    // HALO_V2-pack [K*N/16] u32; the kernel wants microtile-block order.
+    // Done into a stack-free heap buffer when needed; Phase-1 (T=64)
+    // ships the input straight through.
+    std::vector<std::uint32_t> w_tiled_buf;
+    const std::uint32_t* w_to_upload = w_packed.data();
+    if (p_->requires_w_pretile) {
+        w_tiled_buf.resize(w_expected);
+        // Inner kernel shape is locked at (m, k, n) = (64, 64, 64) for the
+        // Phase-2 design today. If we add other macro tiles, the inner
+        // shape needs to come from the xclbin too — flag for revisit.
+        constexpr std::uint32_t k_inner_default = 64;
+        constexpr std::uint32_t n_inner_default = 64;
+        phase2_pretile_weights(w_packed.data(), w_tiled_buf.data(),
+                               p_->tile_k, p_->tile_n,
+                               k_inner_default, n_inner_default);
+        w_to_upload = w_tiled_buf.data();
+    }
 
     try {
         // H2D: stage activations + weights.
         p_->bo_a.write(a_bf16.data(),   kAbytes, 0);
-        p_->bo_w.write(w_packed.data(), kWbytes, 0);
+        p_->bo_w.write(w_to_upload,     kWbytes, 0);
         p_->bo_a.sync(XCL_BO_SYNC_BO_TO_DEVICE);
         p_->bo_w.sync(XCL_BO_SYNC_BO_TO_DEVICE);
         // bo_insts already synced at load() time.
@@ -354,7 +547,25 @@ BitnetGemmAIE2P::gemm(std::span<const std::uint16_t> a_bf16,
 
         // D2H: pull the result.
         p_->bo_c.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
-        p_->bo_c.read(c_bf16.data(), kCbytes, 0);
+
+        if (p_->c_elem_bytes == 2) {
+            // bf16 path — kernel emits the final dtype directly.
+            p_->bo_c.read(c_bf16.data(), kCbytes, 0);
+        } else {
+            // fp32 path (Phase-2): kernel writes [tile_m*tile_n] f32; we
+            // read into a staging buffer and round-to-nearest-even into
+            // the caller's bf16 span. Same biasing trick the python
+            // reference uses (run_pyxrt_bitnet_512.py:fp32_to_bf16_u16).
+            std::vector<float> staging(c_expected);
+            p_->bo_c.read(staging.data(), kCbytes, 0);
+            for (std::size_t i = 0; i < c_expected; ++i) {
+                std::uint32_t u = 0;
+                std::memcpy(&u, &staging[i], sizeof(u));
+                const std::uint32_t lsb  = (u >> 16) & 1u;
+                const std::uint32_t bias = 0x7FFFu + lsb;
+                c_bf16[i] = static_cast<std::uint16_t>((u + bias) >> 16);
+            }
+        }
     } catch (const std::exception& e) {
         return std::unexpected(Error{ErrorKind::Xrt, e.what()});
     }
