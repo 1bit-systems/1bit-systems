@@ -102,9 +102,22 @@ TEST_CASE("admin bearer compare allows match")
     CHECK(check_admin(c, bad) == GateOutcome::BadToken);
 }
 
-TEST_CASE("admin open when not configured")
+TEST_CASE("admin fails closed when bearer not configured")
+{
+    // Regression: prior behaviour returned Allow when admin_bearer was empty,
+    // leaving /internal/reindex world-callable until the operator set
+    // HALO_STREAM_ADMIN_BEARER. Must fail closed instead.
+    AuthConfig       c;
+    httplib::Request r;
+    CHECK(check_admin(c, r) == GateOutcome::ServerMisconfigured);
+
+    auto with_token = bearer_req("anything");
+    CHECK(check_admin(c, with_token) == GateOutcome::ServerMisconfigured);
+}
+
+TEST_CASE("admin status mapping surfaces 503 on misconfigured")
 {
     AuthConfig       c;
     httplib::Request r;
-    CHECK(check_admin(c, r) == GateOutcome::Allow);
+    CHECK(onebit::stream::as_status(check_admin(c, r)) == 503);
 }

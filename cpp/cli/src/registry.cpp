@@ -55,7 +55,7 @@ std::filesystem::path overlay_path()
     return xdg_config_home() / "1bit" / "packages.local.toml";
 }
 
-Manifest& merge_into(Manifest& base, Manifest overlay)
+std::expected<void, Error> merge_into(Manifest& base, Manifest overlay)
 {
     for (auto& [name, oc] : overlay.components) {
         oc.origin = PackageOrigin::Overlay;
@@ -64,18 +64,39 @@ Manifest& merge_into(Manifest& base, Manifest overlay)
             base.components.emplace(name, std::move(oc));
             continue;
         }
-        // Field-level overwrite on every populated overlay field. We use
-        // `populated` semantics rather than always-overwrite so an overlay
-        // that only sets one field doesn't blank out the rest. Matches
-        // Rust's "later wins per-key" with deep merge.
+        // Field-level overwrite for descriptive fields; canonical exec
+        // fields (build / files / check / units) are protected against
+        // overlay overwrite — see header doc + audit AUDIT-2026-04-26.md
+        // "CLI 3 RCE vectors". An overlay that *adds* an exec field
+        // where canonical is empty is allowed; overwriting a non-empty
+        // canonical exec field is rejected.
         Component& bc = it->second;
         if (!oc.description.empty()) bc.description = std::move(oc.description);
         if (!oc.deps.empty())        bc.deps     = std::move(oc.deps);
-        if (!oc.build.empty())       bc.build    = std::move(oc.build);
-        if (!oc.units.empty())       bc.units    = std::move(oc.units);
         if (!oc.packages.empty())    bc.packages = std::move(oc.packages);
-        if (!oc.files.empty())       bc.files    = std::move(oc.files);
-        if (!oc.check.empty())       bc.check    = std::move(oc.check);
+
+        const auto reject = [&](std::string_view field) {
+            return std::unexpected(Error::precondition(
+                fmt::format("overlay refused: cannot overwrite canonical "
+                            "'{}' on component '{}' (security: exec fields "
+                            "are canonical-only)", field, name)));
+        };
+        if (!oc.build.empty()) {
+            if (!bc.build.empty()) return reject("build");
+            bc.build = std::move(oc.build);
+        }
+        if (!oc.units.empty()) {
+            if (!bc.units.empty()) return reject("units");
+            bc.units = std::move(oc.units);
+        }
+        if (!oc.files.empty()) {
+            if (!bc.files.empty()) return reject("files");
+            bc.files = std::move(oc.files);
+        }
+        if (!oc.check.empty()) {
+            if (!bc.check.empty()) return reject("check");
+            bc.check = std::move(oc.check);
+        }
         bc.origin = PackageOrigin::Overlay;
     }
     for (auto& [id, om] : overlay.models) {
@@ -85,6 +106,12 @@ Manifest& merge_into(Manifest& base, Manifest overlay)
             base.models.emplace(id, std::move(om));
             continue;
         }
+        // Model fields are pure metadata — no exec / no system effect
+        // beyond a download of a hash-pinned blob — so overlay overwrite
+        // is permitted (it lets users repoint a stale `hf_repo` / supply
+        // a missing sha256 without editing canonical). The runtime
+        // policy comment in registry.hpp restricts only Component exec
+        // fields.
         Model& bm = it->second;
         if (!om.description.empty()) bm.description = std::move(om.description);
         if (!om.hf_repo.empty())     bm.hf_repo     = std::move(om.hf_repo);
@@ -95,7 +122,7 @@ Manifest& merge_into(Manifest& base, Manifest overlay)
         if (!om.requires_.empty())   bm.requires_   = std::move(om.requires_);
         bm.origin = PackageOrigin::Overlay;
     }
-    return base;
+    return {};
 }
 
 std::expected<Manifest, Error> load_default()
@@ -115,7 +142,9 @@ std::expected<Manifest, Error> load_default()
     if (!over) {
         return std::unexpected(over.error());
     }
-    merge_into(m, std::move(*over));
+    if (auto rc = merge_into(m, std::move(*over)); !rc) {
+        return std::unexpected(rc.error());
+    }
     return m;
 }
 

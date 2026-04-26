@@ -41,8 +41,24 @@ parse_manifest_str(std::string_view toml, PackageOrigin origin);
 parse_manifest_file(const std::filesystem::path& path, PackageOrigin origin);
 
 // Deep-merge `overlay` onto `base`, tracking origin per-component.
-// Mutates `base` in-place and returns a reference to it for chaining.
-Manifest& merge_into(Manifest& base, Manifest overlay);
+//
+// Security policy (see audit cpp/cli/src/registry.cpp:74,77 — overlay is
+// user-controlled and an overlay overwrite of a canonical exec field is
+// equivalent to arbitrary `1bit install`-time RCE):
+//
+//   * Overlay MAY add components / models that don't exist in `base`.
+//   * Overlay MAY overwrite descriptive fields (`description`, `deps`,
+//     `packages`, model metadata).
+//   * Overlay MAY populate any of the four exec fields below ONLY when
+//     they are EMPTY in the canonical entry.
+//   * Overlay MUST NOT overwrite a non-empty canonical `build`, `files`,
+//     `check`, or `units` — attempting it returns `Error::precondition`
+//     and leaves `base` partially merged (callers should treat the
+//     overall load as failed, the same way a parse error is treated).
+//
+// Mutates `base` in-place; on success returns void.
+[[nodiscard]] std::expected<void, Error>
+merge_into(Manifest& base, Manifest overlay);
 
 // Resolve the path the overlay would live at, honoring `XDG_CONFIG_HOME`.
 // Does NOT verify existence.

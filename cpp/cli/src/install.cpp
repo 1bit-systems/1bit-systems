@@ -2,9 +2,11 @@
 
 #include "onebit/cli/http.hpp"
 #include "onebit/cli/oobe_error.hpp"
+#include "onebit/cli/paths.hpp"
 #include "onebit/cli/preflight.hpp"
 #include "onebit/cli/proc.hpp"
 
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <fmt/core.h>
@@ -37,6 +39,55 @@ resolve_recursive(const Manifest& m,
     seen.insert(target);
     order.push_back(target);
     return {};
+}
+
+// Audit AUDIT-2026-04-26.md "CLI 3 RCE vectors" #3: an overlay-supplied
+// `dst` path containing `..` segments could escape the install root.
+// Canonical destinations in `packages.toml` are either relative (joined
+// under `ctx.config_root` — by construction contained) or land in one
+// of a small set of system roots (/etc, /usr/local, ${HOME}/.local,
+// ${HOME}/.config). We validate every absolute destination — including
+// canonical ones — both as defense in depth and so the surface area of
+// "what the installer will write to" is auditable from this one place.
+[[nodiscard]] bool dest_under_allowed_root(const std::filesystem::path& abs_dest)
+{
+    namespace fs = std::filesystem;
+    if (!abs_dest.is_absolute()) return false;
+    std::error_code ec;
+    // weakly_canonical resolves `..` lexically without requiring
+    // every component to exist on disk — perfect for OOBE where the
+    // target file naturally doesn't exist yet.
+    const auto canon = fs::weakly_canonical(abs_dest, ec);
+    if (ec) return false;
+    const auto canon_str = canon.string();
+
+    const auto home = home_dir();
+    // home / ".local" produces ".../home/.local" with no trailing slash;
+    // append explicitly so prefix containment is a clean boundary check
+    // and ".../home/.localX" can never match.
+    const std::string home_local  = (home / ".local").string()  + "/";
+    const std::string home_config = (home / ".config").string() + "/";
+    const std::array<std::string, 6> roots = {
+        std::string("/etc/"),
+        std::string("/usr/local/"),
+        std::string("/var/lib/1bit/"),
+        home_local,
+        home_config,
+        // /tmp is not in the production allowlist, but the test suite
+        // and OOBE preflight scratchpads land there — gate it in the
+        // canonical root list, not a special case. Production paths
+        // never resolve under /tmp.
+        std::string("/tmp/"),
+    };
+    for (const auto& r : roots) {
+        // starts_with on the resolved path; the trailing '/' on every
+        // root prevents `/etcd/foo` from matching `/etc/`.
+        if (canon_str.size() >= r.size() &&
+            canon_str.compare(0, r.size(), r) == 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 [[nodiscard]] std::string render_subs(std::string_view raw,
@@ -123,18 +174,22 @@ public:
         if (dest.is_absolute()) {
             std::cout << "    installing (sudo) " << src.string()
                       << " → " << dest.string() << '\n';
-            // popen("sudo tee <path>", "w") + write rendered.
-            const std::string cmd =
-                std::string("sudo tee ") + dest.string() + " > /dev/null";
-            FILE* p = ::popen(cmd.c_str(), "w");
-            if (p == nullptr) {
-                return std::unexpected(Error::subprocess("popen sudo tee failed"));
-            }
-            const auto written = std::fwrite(rendered.data(), 1, rendered.size(), p);
-            const int rc = ::pclose(p);
-            if (written != rendered.size() || rc != 0) {
+            // argv form — audit AUDIT-2026-04-26.md "CLI 3 RCE vectors"
+            // #1. The previous popen("sudo tee " + dest) composed a
+            // shell command line out of an overlay-controlled `dest`;
+            // any metacharacter in `dest` would reach `/bin/sh -c`. With
+            // argv each operand is a single slot — `;`, `$()`, `|`, glob
+            // are all preserved as literals.
+            //
+            // tee echoes stdin to its stdout. We inherit the parent's
+            // stdout so the (small) duplication is harmless; the value
+            // is the audit story, not the noise reduction.
+            auto rc = run_with_stdin({"sudo", "tee", dest.string()}, rendered);
+            if (!rc) return std::unexpected(rc.error());
+            if (*rc != 0) {
                 return std::unexpected(Error::subprocess(
-                    "sudo tee failed for " + dest.string()));
+                    fmt::format("sudo tee failed (exit {}) for {}",
+                                *rc, dest.string())));
             }
             return true;
         }
@@ -237,9 +292,37 @@ run_install(HostExecutor& host,
 
         for (const auto& f : c.files) {
             const std::filesystem::path src = ctx.workspace_root / f.src;
-            const std::filesystem::path dest = std::filesystem::path(f.dst).is_absolute()
-                ? std::filesystem::path(f.dst)
-                : ctx.config_root / f.dst;
+            const std::filesystem::path raw_dst(f.dst);
+
+            // Path-traversal containment — audit AUDIT-2026-04-26.md
+            // "CLI 3 RCE vectors" #3. For absolute dests, the resolved
+            // path must land under one of the allowlisted system roots.
+            // For relative dests, weakly_canonicalize the join under
+            // ctx.config_root and require it to stay under config_root
+            // (overlay can still smuggle `../../etc/passwd` via a
+            // relative path).
+            std::filesystem::path dest;
+            if (raw_dst.is_absolute()) {
+                if (!dest_under_allowed_root(raw_dst)) {
+                    return std::unexpected(Error::precondition(fmt::format(
+                        "files.dst rejected (escapes install allowlist): {}",
+                        raw_dst.string())));
+                }
+                dest = raw_dst;
+            } else {
+                std::error_code ec;
+                const auto joined = std::filesystem::weakly_canonical(
+                    ctx.config_root / raw_dst, ec);
+                const auto cfg = std::filesystem::weakly_canonical(
+                    ctx.config_root, ec);
+                if (ec || joined.string().rfind(cfg.string() + "/", 0) != 0) {
+                    return std::unexpected(Error::precondition(fmt::format(
+                        "files.dst rejected (relative path escapes "
+                        "config_root): {}",
+                        raw_dst.string())));
+                }
+                dest = joined;
+            }
             const bool pre_existed = std::filesystem::exists(dest);
             auto wrote = host.copy_tracked_file(src, dest, f.substitute);
             if (!wrote) return std::unexpected(wrote.error());

@@ -98,8 +98,15 @@ pick_zero_pos(const std::array<std::int8_t, 4>& g) noexcept
 }
 
 // Encode one group's 5-bit code: code = (zero_pos << 3) | signs_field.
-//   signs_field bit i = 1 if the i-th non-zero-pos lane's weight is +1
-//   or 0 (treated as +1 fallback to match the bench packer); 0 if -1.
+//   signs_field bit i = 1 if the i-th non-zero-pos lane's weight is +1;
+//                       0 if -1.
+//
+// Precondition: every non-zero-pos lane MUST hold a strict ±1.  Zeros on
+// non-zp lanes are a caller bug — Sherry encodes exactly one zero (the
+// `zero_pos`) and three signs.  Silently mapping `v == 0` to either sign
+// corrupts billions of weights at decode time (Sherry regression bug #2,
+// fixed 2026-04-26).  The caller (`pack_sherry_row`) is responsible for
+// flipping any extra zeros to a deterministic ±1 *before* calling here.
 [[nodiscard]] inline std::uint8_t
 encode_group(const std::array<std::int8_t, 4>& g,
              std::uint8_t                      zero_pos) noexcept
@@ -109,7 +116,14 @@ encode_group(const std::array<std::int8_t, 4>& g,
     for (std::size_t p = 0; p < 4; ++p) {
         if (static_cast<std::uint8_t>(p) == zero_pos) continue;
         const std::int8_t v = g[p];
-        const std::uint8_t bit = (v == 1 || v == 0) ? 1u : 0u;
+        // Precondition: non-zp lane is strictly ±1.  Hard-fail in debug;
+        // in release, treat any 0 as +1 only as a last-ditch fallback so
+        // we still produce decodable output (but stats are *wrong* if we
+        // ever hit this — the caller should have flipped extras already).
+        assert((v == 1 || v == -1) &&
+               "encode_group: non-zero-pos lane must be ±1; "
+               "caller must flip extra zeros before encoding");
+        const std::uint8_t bit = (v == 1) ? 1u : 0u;
         signs |= static_cast<std::uint8_t>(bit << sign_idx);
         ++sign_idx;
     }
@@ -118,11 +132,32 @@ encode_group(const std::array<std::int8_t, 4>& g,
 }
 
 struct PackRowStats {
+    // Number of ternary lanes whose value the requantizer had to change to
+    // satisfy Sherry's "exactly one zero per group of 4" post-condition.
+    // Two cases contribute:
+    //   (a) Dense group (no zeros): one ±1 lane is forced to 0 at the
+    //       chosen `zero_pos`.  +1 flip per such group.
+    //   (b) Multi-zero group (>=2 zeros): every zero past the chosen
+    //       `zero_pos` is forced to +1 (deterministic).  +K flips for a
+    //       group with (1+K) zeros (K >= 1).
+    // 3:4-sparse groups (exactly one zero) contribute zero flips.
     std::uint32_t forced_zero_flips = 0;
 };
 
 // Pack one row of `cols` ternary weights into Sherry's 5-bit-per-group
 // layout. cols must be a multiple of 4; for byte-aligned rows cols % 32 == 0.
+//
+// Sherry's invariant: each group of 4 lanes encodes exactly ONE zero (at
+// `zero_pos`) and three signs.  Inputs that violate this — dense groups
+// (0 zeros) or multi-zero groups (>=2 zeros) — are deterministically
+// "repaired" here:
+//   * Dense  → the smallest-magnitude lane (lowest index on ties) is set
+//              to 0; that lane becomes the encoded `zero_pos`.
+//   * Extras → every zero past `zero_pos` is set to +1.  Choice of +1
+//              (not -1) matches `make_3to4_sparse` in the rocm-cpp bench
+//              packer for sign symmetry across the pipeline.
+// Both repairs increment `forced_zero_flips`; `encode_group` then sees
+// only strict ±1 on non-zp lanes.
 inline PackRowStats pack_sherry_row(std::span<const std::int8_t> ternary,
                                     std::span<std::uint8_t>      packed,
                                     std::size_t                  cols) noexcept
@@ -141,9 +176,22 @@ inline PackRowStats pack_sherry_row(std::span<const std::int8_t> ternary,
             ternary[base + 2], ternary[base + 3]};
         const std::uint8_t zp = pick_zero_pos(grp);
         if (grp[zp] != 0) {
-            // We're flipping a ±1 lane to zero — lossy.
+            // Dense group — pick_zero_pos picked a ±1 lane (smallest
+            // magnitude on a tie).  Force it to 0; this is one lossy flip.
+            grp[zp] = 0;
             ++stats.forced_zero_flips;
         }
+        // Now repair multi-zero groups: every non-zp lane that is still 0
+        // gets forced to +1 (deterministic).  Count each as one flip.
+        for (std::size_t p = 0; p < 4; ++p) {
+            if (static_cast<std::uint8_t>(p) == zp) continue;
+            if (grp[p] == 0) {
+                grp[p] = 1;
+                ++stats.forced_zero_flips;
+            }
+        }
+        // Post-condition: exactly one zero at `zp`, three ±1 elsewhere.
+        // `encode_group` asserts this in debug builds.
         const std::uint8_t code = encode_group(grp, zp);
         const std::size_t bit_pos = 5 * g;
         const std::size_t byte_idx = bit_pos >> 3;

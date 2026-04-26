@@ -7,6 +7,9 @@
 //   4. convert_file end-to-end on a synthetic v4 .h1b (hadamard preserved,
 //      flag composition, flip fraction within budget)
 //   5. convert_file rejects v3 input
+//   6. pack_sherry_row repairs multi-zero groups (Sherry regression bug #2):
+//      groups with 2/3/4 zeros must round-trip non-zero values exactly,
+//      with extras flipped to +1 and counted in `forced_zero_flips`.
 
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
@@ -297,6 +300,131 @@ TEST_CASE("h1b-sherry: convert_file end-to-end + flag composition")
             read_le<std::int32_t>(buf.data() + 4 + 4 + 8 * 4);
         CHECK((reserved & H1B_FLAG_SHERRY_FP16) != 0);
         CHECK(((reserved & H1B_FLAG_HADAMARD_ROTATED) != 0) == (in_flag != 0));
+    }
+}
+
+TEST_CASE("h1b-sherry: pack_sherry_row repairs multi-zero groups")
+{
+    // Sherry regression bug #2 (2026-04-26): groups with >=2 zeros used to
+    // be silently corrupted (extras decoded as +1) WITHOUT being counted
+    // in `forced_zero_flips`.  Post-fix: extras are deterministically
+    // flipped to +1 *and* counted, and every NON-zero lane survives the
+    // round-trip exactly.
+
+    auto round_trip = [](const std::vector<std::int8_t>& in)
+        -> std::pair<std::vector<std::int8_t>, std::uint32_t> {
+        std::vector<std::uint8_t> packed(sherry_row_bytes(in.size()), 0);
+        auto stats = pack_sherry_row(
+            std::span<const std::int8_t>{in.data(), in.size()},
+            std::span<std::uint8_t>{packed.data(), packed.size()},
+            in.size());
+        std::vector<std::int8_t> out(in.size(), 99);
+        unpack_sherry_row(
+            std::span<const std::uint8_t>{packed.data(), packed.size()},
+            std::span<std::int8_t>{out.data(), out.size()},
+            in.size());
+        return {std::move(out), stats.forced_zero_flips};
+    };
+
+    // ── 8 groups, 2 zeros each ──
+    // Pattern: {0, 0, +1, -1}.  pick_zero_pos picks lane 0 (lowest-index
+    // zero); lane 1 is the extra zero → forced to +1.  Lanes 2, 3 survive
+    // exactly.  Expected: 1 flip per group × 8 = 8 total.
+    {
+        std::vector<std::int8_t> in(32, 0);
+        for (std::size_t g = 0; g < 8; ++g) {
+            const std::size_t b = g * 4;
+            in[b + 0] = 0; in[b + 1] = 0; in[b + 2] = 1; in[b + 3] = -1;
+        }
+        auto [out, flips] = round_trip(in);
+        CHECK(flips == 8u);
+        for (std::size_t g = 0; g < 8; ++g) {
+            const std::size_t b = g * 4;
+            CHECK(out[b + 0] == 0);   // chosen zero_pos (preserved)
+            CHECK(out[b + 1] == 1);   // extra zero → +1
+            CHECK(out[b + 2] == 1);   // survives exactly
+            CHECK(out[b + 3] == -1);  // survives exactly
+        }
+    }
+
+    // ── 8 groups, 3 zeros each ──
+    // Pattern: {0, 0, 0, -1}.  pick_zero_pos = 0; lanes 1, 2 forced to +1;
+    // lane 3 survives.  Expected: 2 flips per group × 8 = 16.
+    {
+        std::vector<std::int8_t> in(32, 0);
+        for (std::size_t g = 0; g < 8; ++g) {
+            const std::size_t b = g * 4;
+            in[b + 0] = 0; in[b + 1] = 0; in[b + 2] = 0; in[b + 3] = -1;
+        }
+        auto [out, flips] = round_trip(in);
+        CHECK(flips == 16u);
+        for (std::size_t g = 0; g < 8; ++g) {
+            const std::size_t b = g * 4;
+            CHECK(out[b + 0] == 0);
+            CHECK(out[b + 1] == 1);
+            CHECK(out[b + 2] == 1);
+            CHECK(out[b + 3] == -1);
+        }
+    }
+
+    // ── 8 groups, 4 zeros each (degenerate all-zero row) ──
+    // pick_zero_pos = 0; lanes 1, 2, 3 forced to +1.  Expected: 3 flips
+    // per group × 8 = 24.  This is the worst case and confirms encoder
+    // never emits a non-zp zero.
+    {
+        std::vector<std::int8_t> in(32, 0);
+        auto [out, flips] = round_trip(in);
+        CHECK(flips == 24u);
+        for (std::size_t g = 0; g < 8; ++g) {
+            const std::size_t b = g * 4;
+            CHECK(out[b + 0] == 0);
+            CHECK(out[b + 1] == 1);
+            CHECK(out[b + 2] == 1);
+            CHECK(out[b + 3] == 1);
+        }
+    }
+
+    // ── Mixed-density row: every group has at least one zero, so the
+    // chosen zero_pos always lands on a 0 lane and every NON-zero input
+    // lane survives the round-trip exactly.  Confirms zero-count handling
+    // is per-group and that signs are stable across density variation.
+    {
+        std::vector<std::int8_t> in = {
+            // g0: 1 zero  (lane 1)       → 0 flips
+             1,  0, -1,  1,
+            // g1: 2 zeros (lanes 1,2)    → 1 flip  (lane 2 → +1)
+            -1,  0,  0,  1,
+            // g2: 1 zero  (lane 2)       → 0 flips
+             1, -1,  0,  1,
+            // g3: 3 zeros (lanes 0,2,3)  → 2 flips (lanes 2,3 → +1)
+             0, -1,  0,  0,
+            // g4: 1 zero  (lane 3)       → 0 flips
+             1, -1,  1,  0,
+            // g5: 4 zeros (degenerate)   → 3 flips (lanes 1,2,3 → +1)
+             0,  0,  0,  0,
+            // g6: 1 zero  (lane 0)       → 0 flips
+             0,  1, -1,  1,
+            // g7: 2 zeros (lanes 0,3)    → 1 flip  (lane 3 → +1)
+             0,  1, -1,  0,
+        };
+        REQUIRE(in.size() == 32u);
+        auto [out, flips] = round_trip(in);
+        CHECK(flips == (0u + 1u + 0u + 2u + 0u + 3u + 0u + 1u));
+        // Bit-exact survival: every NON-zero input lane round-trips
+        // unchanged.  (Holds because every group above has >=1 zero, so
+        // pick_zero_pos lands on an input zero and never clobbers a ±1.)
+        for (std::size_t i = 0; i < in.size(); ++i) {
+            if (in[i] != 0) CHECK(out[i] == in[i]);
+        }
+        // Decoder never emits a 0 outside the chosen zero_pos.  Each group
+        // has exactly one 0 in the output.
+        for (std::size_t g = 0; g < 8; ++g) {
+            int zero_count = 0;
+            for (std::size_t p = 0; p < 4; ++p) {
+                if (out[g * 4 + p] == 0) ++zero_count;
+            }
+            CHECK(zero_count == 1);
+        }
     }
 }
 

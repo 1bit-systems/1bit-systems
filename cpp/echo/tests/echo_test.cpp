@@ -114,6 +114,271 @@ TEST_CASE("ws_accept_key matches RFC 6455 example")
 }
 
 // =====================================================================
+// RFC 6455 frame-codec validation (no TCP — drives parse_frame on
+// crafted byte buffers).
+// =====================================================================
+
+namespace {
+
+// In-memory byte source; vends a `detail::ByteReader` over a buffer.
+struct BufReader {
+    std::vector<std::uint8_t> bytes;
+    std::size_t               pos = 0;
+
+    onebit::echo::detail::ByteReader reader()
+    {
+        return [this](std::uint8_t* dst, std::size_t n) -> bool {
+            if (pos + n > bytes.size()) return false;
+            std::memcpy(dst, bytes.data() + pos, n);
+            pos += n;
+            return true;
+        };
+    }
+};
+
+} // namespace
+
+TEST_CASE("RFC §5.1: server rejects unmasked client frame with 1002")
+{
+    // FIN | Text, no MASK, len=5, payload "hello"
+    BufReader r;
+    r.bytes = {0x81U, 0x05U, 'h','e','l','l','o'};
+    auto m = onebit::echo::detail::parse_frame(r.reader(),
+                                               /*is_server_side=*/true);
+    REQUIRE(!m.has_value());
+    CHECK(m.error().kind       == onebit::echo::WsError::Kind::Protocol);
+    CHECK(m.error().close_code == onebit::echo::kWsCloseProtocolErr);
+}
+
+TEST_CASE("RFC §5.2: 64-bit length with MSB=1 rejected with 1002")
+{
+    // FIN | Binary, MASK=1, len marker=127, ext-len = 0xFFFF...FFFF.
+    BufReader r;
+    r.bytes = {0x82U, 0xFFU,
+               0xFFU, 0xFFU, 0xFFU, 0xFFU,
+               0xFFU, 0xFFU, 0xFFU, 0xFFU,
+               0x00U, 0x00U, 0x00U, 0x00U /* mask */};
+    auto m = onebit::echo::detail::parse_frame(r.reader(),
+                                               /*is_server_side=*/true);
+    REQUIRE(!m.has_value());
+    CHECK(m.error().kind       == onebit::echo::WsError::Kind::Protocol);
+    CHECK(m.error().close_code == onebit::echo::kWsCloseProtocolErr);
+    // Crucial: we never grew an allocation. The reader was only advanced
+    // through the header bytes (no payload bytes consumed).
+    CHECK(r.pos <= 10);
+}
+
+TEST_CASE("Frame > 64 MiB rejected BEFORE payload alloc")
+{
+    // FIN | Binary, MASK=1, len marker=127, ext-len = 64 MiB + 1.
+    const std::uint64_t big = 64ULL * 1024ULL * 1024ULL + 1ULL;
+    BufReader r;
+    r.bytes = {0x82U, 0xFFU};
+    for (int k = 7; k >= 0; --k) {
+        r.bytes.push_back(static_cast<std::uint8_t>(big >> (k * 8)));
+    }
+    // We deliberately do NOT supply mask or payload bytes. If
+    // validate_frame_header doesn't reject up front, parse_frame would
+    // try to read the mask, then allocate 64 MiB+1 and EOF.
+    auto m = onebit::echo::detail::parse_frame(r.reader(),
+                                               /*is_server_side=*/true);
+    REQUIRE(!m.has_value());
+    CHECK(m.error().kind       == onebit::echo::WsError::Kind::Protocol);
+    CHECK(m.error().close_code == onebit::echo::kWsCloseProtocolErr);
+    // Reader stopped after the 2-byte header + 8-byte extended length.
+    // No mask read, no payload alloc — that's the whole point of the
+    // pre-alloc rejection.
+    CHECK(r.pos == 10);
+}
+
+TEST_CASE("Reserved opcode 0x3 rejected with 1002")
+{
+    // FIN | opcode=0x3 (reserved data), MASK=1, len=0.
+    BufReader r;
+    r.bytes = {0x83U, 0x80U, 0x00U, 0x00U, 0x00U, 0x00U};
+    auto m = onebit::echo::detail::parse_frame(r.reader(),
+                                               /*is_server_side=*/true);
+    REQUIRE(!m.has_value());
+    CHECK(m.error().kind       == onebit::echo::WsError::Kind::Protocol);
+    CHECK(m.error().close_code == onebit::echo::kWsCloseProtocolErr);
+}
+
+TEST_CASE("Reserved opcode 0xB rejected with 1002")
+{
+    // FIN | opcode=0xB (reserved control), MASK=1, len=0.
+    BufReader r;
+    r.bytes = {0x8BU, 0x80U, 0x00U, 0x00U, 0x00U, 0x00U};
+    auto m = onebit::echo::detail::parse_frame(r.reader(),
+                                               /*is_server_side=*/true);
+    REQUIRE(!m.has_value());
+    CHECK(m.error().kind       == onebit::echo::WsError::Kind::Protocol);
+    CHECK(m.error().close_code == onebit::echo::kWsCloseProtocolErr);
+}
+
+TEST_CASE("Non-zero RSV1 rejected with 1002")
+{
+    // FIN | RSV1=1 | Text, MASK=1, len=0.
+    BufReader r;
+    r.bytes = {0xC1U, 0x80U, 0x00U, 0x00U, 0x00U, 0x00U};
+    auto m = onebit::echo::detail::parse_frame(r.reader(),
+                                               /*is_server_side=*/true);
+    REQUIRE(!m.has_value());
+    CHECK(m.error().kind       == onebit::echo::WsError::Kind::Protocol);
+    CHECK(m.error().close_code == onebit::echo::kWsCloseProtocolErr);
+}
+
+TEST_CASE("Fragmented control frame (FIN=0 on Ping) rejected with 1002")
+{
+    // FIN=0 | Ping, MASK=1, len=0. RFC §5.5.
+    BufReader r;
+    r.bytes = {0x09U, 0x80U, 0x00U, 0x00U, 0x00U, 0x00U};
+    auto m = onebit::echo::detail::parse_frame(r.reader(),
+                                               /*is_server_side=*/true);
+    REQUIRE(!m.has_value());
+    CHECK(m.error().kind       == onebit::echo::WsError::Kind::Protocol);
+    CHECK(m.error().close_code == onebit::echo::kWsCloseProtocolErr);
+}
+
+TEST_CASE("Masked single-frame Text round-trips through parse_frame")
+{
+    // FIN | Text, MASK=1, len=5, mask=AA 55 CC 33, payload "hello"^mask.
+    BufReader r;
+    const std::uint8_t mask[4] = {0xAA, 0x55, 0xCC, 0x33};
+    const char         t[]     = "hello";
+    r.bytes = {0x81U, 0x85U, mask[0], mask[1], mask[2], mask[3]};
+    for (int i = 0; i < 5; ++i) {
+        r.bytes.push_back(
+            static_cast<std::uint8_t>(t[i]) ^ mask[i & 3]);
+    }
+    auto m = onebit::echo::detail::parse_frame(r.reader(),
+                                               /*is_server_side=*/true);
+    REQUIRE(m.has_value());
+    CHECK(m->opcode == WsOpcode::Text);
+    CHECK(m->text() == "hello");
+}
+
+TEST_CASE("base64_decode: RFC 4648 round-trips and 16-byte SWK")
+{
+    // The RFC-6455 example key decodes to 16 bytes.
+    auto v = onebit::echo::detail::base64_decode("dGhlIHNhbXBsZSBub25jZQ==");
+    REQUIRE(v.has_value());
+    CHECK(v->size() == 16);
+    // Garbage cases
+    CHECK(!onebit::echo::detail::base64_decode("not_base64!").has_value());
+    CHECK(!onebit::echo::detail::base64_decode("AAA").has_value()); // bad len
+    CHECK(!onebit::echo::detail::base64_decode("====").has_value()); // all pad
+}
+
+// =====================================================================
+// Handshake header validation — drives ws_server_handshake over a
+// socketpair() so we never bind a real TCP port.
+// =====================================================================
+
+namespace {
+
+// Spawn ws_server_handshake on one end of a socketpair, write `req` into
+// the other end, then read the server's HTTP response. Returns the first
+// status line bytes (e.g. "HTTP/1.1 400 Bad Request").
+std::string run_handshake(const std::string& req)
+{
+    int sv[2];
+    REQUIRE(::socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+    std::string resp_status;
+    std::thread server_thr([&]() {
+        auto r = onebit::echo::ws_server_handshake(sv[0]);
+        // We don't care about the result — just that the response
+        // reached the peer. Close the server side after responding.
+        ::shutdown(sv[0], SHUT_RDWR);
+        ::close(sv[0]);
+        (void)r;
+    });
+    ::send(sv[1], req.data(), req.size(), MSG_NOSIGNAL);
+    std::string buf;
+    char        tmp[1024];
+    while (true) {
+        const ssize_t n = ::recv(sv[1], tmp, sizeof(tmp), 0);
+        if (n <= 0) break;
+        buf.append(tmp, tmp + n);
+    }
+    ::close(sv[1]);
+    server_thr.join();
+    const auto eol = buf.find("\r\n");
+    if (eol != std::string::npos) resp_status = buf.substr(0, eol);
+    else                          resp_status = buf;
+    return resp_status;
+}
+
+} // namespace
+
+TEST_CASE("Handshake without Sec-WebSocket-Version: 13 → 400")
+{
+    std::string req;
+    req += "GET /ws HTTP/1.1\r\n";
+    req += "Host: localhost\r\n";
+    req += "Upgrade: websocket\r\n";
+    req += "Connection: Upgrade\r\n";
+    req += "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n";
+    // No Sec-WebSocket-Version header.
+    req += "\r\n";
+    const auto status = run_handshake(req);
+    CHECK(status.find("400") != std::string::npos);
+    CHECK(status.find("101") == std::string::npos);
+}
+
+TEST_CASE("Handshake with wrong Upgrade header → 400")
+{
+    std::string req;
+    req += "GET /ws HTTP/1.1\r\n";
+    req += "Host: localhost\r\n";
+    req += "Upgrade: h2c\r\n";              // wrong protocol
+    req += "Connection: Upgrade\r\n";
+    req += "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n";
+    req += "Sec-WebSocket-Version: 13\r\n\r\n";
+    const auto status = run_handshake(req);
+    CHECK(status.find("400") != std::string::npos);
+}
+
+TEST_CASE("Handshake with Connection lacking Upgrade token → 400")
+{
+    std::string req;
+    req += "GET /ws HTTP/1.1\r\n";
+    req += "Host: localhost\r\n";
+    req += "Upgrade: websocket\r\n";
+    req += "Connection: keep-alive\r\n";    // missing Upgrade
+    req += "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n";
+    req += "Sec-WebSocket-Version: 13\r\n\r\n";
+    const auto status = run_handshake(req);
+    CHECK(status.find("400") != std::string::npos);
+}
+
+TEST_CASE("Handshake with non-16-byte Sec-WebSocket-Key → 400")
+{
+    std::string req;
+    req += "GET /ws HTTP/1.1\r\n";
+    req += "Host: localhost\r\n";
+    req += "Upgrade: websocket\r\n";
+    req += "Connection: Upgrade\r\n";
+    // "AAAA" decodes to 3 bytes, not 16.
+    req += "Sec-WebSocket-Key: AAAA\r\n";
+    req += "Sec-WebSocket-Version: 13\r\n\r\n";
+    const auto status = run_handshake(req);
+    CHECK(status.find("400") != std::string::npos);
+}
+
+TEST_CASE("Handshake with all required headers + valid SWK → 101")
+{
+    std::string req;
+    req += "GET /ws HTTP/1.1\r\n";
+    req += "Host: localhost\r\n";
+    req += "Upgrade: websocket\r\n";
+    req += "Connection: keep-alive, Upgrade\r\n";   // multi-token OK
+    req += "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n";
+    req += "Sec-WebSocket-Version: 13\r\n\r\n";
+    const auto status = run_handshake(req);
+    CHECK(status.find("101") != std::string::npos);
+}
+
+// =====================================================================
 // End-to-end WS protocol smoke test against a real EchoServer.
 // We inject a fake SSE body + fake TTS into a VoicePipeline so the
 // preamble and chunks actually fire without network or kokoro running.

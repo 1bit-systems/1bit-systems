@@ -149,16 +149,19 @@ TEST_CASE("missing catalog returns 404")
     fs::remove_all(tmp);
 }
 
-TEST_CASE("reindex endpoint open without admin bearer")
+TEST_CASE("reindex endpoint fails closed when admin bearer not configured")
 {
+    // Regression: previously this returned 200 (fail-OPEN) when the admin
+    // secret was empty, exposing /internal/reindex to the world. Now the
+    // auth layer returns ServerMisconfigured (HTTP 503) until an operator
+    // sets HALO_STREAM_ADMIN_BEARER.
     const auto tmp = mktemp_dir();
     onebit::stream::AppState state(tmp, onebit::stream::AuthConfig{});
     Server                   srv(state, random_port());
     httplib::Client          cli("127.0.0.1", srv.port());
     auto                     res = cli.Post("/internal/reindex", "", "text/plain");
     REQUIRE(res);
-    CHECK(res->status == 200);
-    CHECK(res->body.find("\"loaded\":0") != std::string::npos);
+    CHECK(res->status == 503);
     fs::remove_all(tmp);
 }
 

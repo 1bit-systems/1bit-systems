@@ -60,6 +60,7 @@ if(ONEBIT_BUILD_TESTS)
         tests/manifest_test.cpp
         tests/sha256_test.cpp
         tests/install_tracker_test.cpp
+        tests/install_test.cpp
         tests/oobe_error_test.cpp
         tests/preflight_test.cpp
         tests/update_feed_test.cpp

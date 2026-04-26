@@ -118,8 +118,10 @@ GateOutcome check_premium(const AuthConfig& cfg, const httplib::Request& req)
 
 GateOutcome check_admin(const AuthConfig& cfg, const httplib::Request& req)
 {
+    // Fail closed: an unset admin bearer means the operator has not opted into
+    // exposing /internal/* routes. Refuse rather than wave the request through.
     if (cfg.admin_bearer.empty()) {
-        return GateOutcome::Allow;
+        return GateOutcome::ServerMisconfigured;
     }
     auto it = req.headers.find("Authorization");
     if (it == req.headers.end()) {

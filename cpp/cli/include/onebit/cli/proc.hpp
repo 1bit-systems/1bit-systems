@@ -35,6 +35,21 @@ run_capture(const std::vector<std::string>& argv,
 run_inherit(const std::vector<std::string>& argv,
             const std::filesystem::path& cwd = {});
 
+// Spawn argv with `stdin_bytes` piped to the child's stdin; stdout and
+// stderr are inherited from the parent (so the user sees `sudo` prompts
+// + diagnostics live). Returns the child's exit code.
+//
+// Argv form is the whole point — never compose a shell command line out
+// of caller-controlled strings (audit AUDIT-2026-04-26.md "CLI 3 RCE
+// vectors", `cpp/cli/src/install.cpp:127-134` previously used
+// `popen("sudo tee " + dest)` and let any overlay-controlled `dst`
+// reach `/bin/sh -c`). With argv, every byte of `dest` is a single
+// argv slot — no metacharacter parses, no glob, no traversal-by-shell.
+[[nodiscard]] std::expected<int, Error>
+run_with_stdin(const std::vector<std::string>& argv,
+               std::string_view stdin_bytes,
+               const std::filesystem::path& cwd = {});
+
 // True iff `bin` is on $PATH.
 [[nodiscard]] bool which(std::string_view bin);
 

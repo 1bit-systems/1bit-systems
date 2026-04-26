@@ -76,13 +76,26 @@ struct Manifest {
     std::map<std::string, Model>     models;
 };
 
-// True iff `expand_placeholder` would rewrite this seed (currently
-// "$USER" / "$HOME" — anything else is treated as a literal).
+// True iff `expand_placeholder` would rewrite this seed when matched as
+// the whole input (currently "$USER" / "$HOME" — anything else is treated
+// as a literal seed). The substring forms supported by
+// `expand_placeholder` (e.g. `${HOME}/foo`) are NOT classified here —
+// `is_placeholder_seed` is used by manifest-parse code to decide whether
+// the seed itself is a known token, not whether expansion will happen.
 [[nodiscard]] bool is_placeholder_seed(std::string_view raw) noexcept;
 
-// Resolve a substitute seed string to its concrete value. Reads from the
-// process environment (`USER` / `HOME`) when applicable; literals pass
-// through unchanged.
+// Substring-substitute every supported placeholder in `raw` and return
+// the rewritten string. Recognized tokens (longest-prefix-first):
+//
+//   ${XDG_CONFIG_HOME}   ${XDG_DATA_HOME}   ${HOME}   ${USER}
+//   $HOME                $USER
+//
+// Resolution reads the process environment (`HOME`, `USER`,
+// `XDG_CONFIG_HOME`, `XDG_DATA_HOME`); the two XDG tokens fall back to
+// `$HOME/.config` / `$HOME/.local/share` when the env var is unset, to
+// match `paths.cpp`. Strict: no shell-style `${VAR:-default}`, no
+// command substitution `$(cmd)`, no glob — every match is a plain
+// substring replace. Pass-through for unrecognized literals.
 [[nodiscard]] std::string expand_placeholder(std::string_view raw);
 
 }  // namespace onebit::cli

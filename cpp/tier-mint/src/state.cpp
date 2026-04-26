@@ -51,6 +51,10 @@ std::expected<Config, std::string> Config::from_env()
         return std::unexpected(
             std::string{"HALO_BTCPAY_WEBHOOK_SECRET must be set"});
     }
+    if (c.btcpay_webhook_secret.size() < 32) {
+        return std::unexpected(
+            std::string{"HALO_BTCPAY_WEBHOOK_SECRET too short; need >= 32 bytes"});
+    }
     c.admin_secret = env_bytes("HALO_TIER_ADMIN_SECRET");
     if (c.admin_secret.empty()) {
         return std::unexpected(
@@ -60,9 +64,21 @@ std::expected<Config, std::string> Config::from_env()
         return std::unexpected(
             std::string{"HALO_TIER_ADMIN_SECRET too short; need >= 32 bytes"});
     }
+    // Pairwise inequality across all three secrets. Reusing one byte-string in
+    // two roles would let a leak in one path forge tokens in another. In
+    // particular, btcpay_webhook_secret == jwt_secret would let BTCPay (or
+    // anyone who learns the webhook secret) mint premium JWTs.
     if (eq_bytes(c.admin_secret, c.jwt_secret)) {
         return std::unexpected(
             std::string{"HALO_TIER_ADMIN_SECRET must NOT equal HALO_TIER_HMAC_SECRET"});
+    }
+    if (eq_bytes(c.btcpay_webhook_secret, c.jwt_secret)) {
+        return std::unexpected(
+            std::string{"HALO_BTCPAY_WEBHOOK_SECRET must NOT equal HALO_TIER_HMAC_SECRET"});
+    }
+    if (eq_bytes(c.btcpay_webhook_secret, c.admin_secret)) {
+        return std::unexpected(
+            std::string{"HALO_BTCPAY_WEBHOOK_SECRET must NOT equal HALO_TIER_ADMIN_SECRET"});
     }
     return c;
 }
