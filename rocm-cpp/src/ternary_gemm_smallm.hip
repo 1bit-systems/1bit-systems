@@ -45,8 +45,9 @@
 //
 // Non-goals
 // ---------
-//   * Not wired into halo-router / forward_token — stays standalone until
-//     the architect flips the Medusa backend on.
+//   * Not wired into Engine::forward_token — stays standalone until the
+//     Medusa backend is enabled. (Was halo-router.forward_token; router
+//     retired 2026-04-25, Engine lives in-process inside lemond.)
 //   * Not a WMMA kernel. gfx1151 WMMA int8 is 16x16x32 which would fit,
 //     but the VGPR cost for 4 WMMA accumulator tiles at 2-waves/SIMD is
 //     higher than sdot4's 256-VGPR total. sdot4 also stays bit-compatible

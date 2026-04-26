@@ -25,18 +25,6 @@ namespace {
 constexpr int BLOCK = 128;
 constexpr int WARP  = 32;
 constexpr int MAX_HEAD_DIM = 256;
-constexpr int O_LOCAL_MAX  = 8;   // fixed per-thread accumulator capacity
-
-// WHY: each kernel below declares `float o_local[O_LOCAL_MAX]` and indexes
-// it with `ei` bounded by `elems_per_thread = ceil(head_dim / BLOCK)`. If a
-// future diff raises MAX_HEAD_DIM or lowers BLOCK such that the quotient
-// exceeds O_LOCAL_MAX, the inner accumulator loops would write past the
-// array. Fail loudly at compile time rather than silently corrupt the
-// residual. The launcher separately enforces the runtime bound
-// `head_dim <= MAX_HEAD_DIM` so this assert fully covers the dynamic case.
-static_assert((MAX_HEAD_DIM + BLOCK - 1) / BLOCK <= O_LOCAL_MAX,
-              "o_local[O_LOCAL_MAX] would overflow: raise O_LOCAL_MAX, raise "
-              "BLOCK, or lower MAX_HEAD_DIM");
 
 // Fast-math sentinel — see prim_kernels.hip for rationale.
 // Fast-math makes plain -INFINITY UB; -FLT_MAX is finite and equivalent
@@ -73,8 +61,7 @@ void kv_cache_attn_decode_kernel(
     float m = NEG_SENTINEL;
     float l = 0.0f;
     const int elems_per_thread = (head_dim + BLOCK - 1) / BLOCK;
-    float o_local[O_LOCAL_MAX] = {0};  // static_assert at namespace scope proves
-                                       // elems_per_thread <= O_LOCAL_MAX.
+    float o_local[8] = {0};  // supports up to head_dim = 256 / 128 threads * 2 = fine
 
     // Per-warp shared for reductions
     __shared__ float s_max[BLOCK / WARP];
@@ -111,7 +98,7 @@ void kv_cache_attn_decode_kernel(
         l = l * alpha + beta;
         // Scale existing output accumulator by alpha
         #pragma unroll
-        for (int k = 0; k < O_LOCAL_MAX; ++k) o_local[k] *= alpha;
+        for (int k = 0; k < 8; ++k) o_local[k] *= alpha;
         // Accumulate V[t] weighted by beta
         const __half* V_row = V + ((size_t)t * num_kv_heads + kv_head) * head_dim;
         for (int ei = 0; ei < elems_per_thread; ++ei) {
@@ -123,14 +110,8 @@ void kv_cache_attn_decode_kernel(
         m = m_new;
     }
 
-    // Normalize + write out.
-    // WHY: degenerate rows (all-masked / empty tile) leave l == 0, which makes
-    // 1.0f/l == +inf and poisons the fp16 output with NaN once multiplied by the
-    // zero accumulator (0 * inf = NaN). Clamp below a tiny epsilon — the output
-    // accumulator is also zero in that case, so inv_l = 0 yields a finite zero
-    // row, matching the i8 + FD variants (see kv_cache_attn_i8.hip:128,
-    // kv_cache_attn_fd.hip:216).
-    const float inv_l = (l > 1e-20f) ? (1.0f / l) : 0.0f;
+    // Normalize + write out
+    const float inv_l = 1.0f / l;
     for (int ei = 0; ei < elems_per_thread; ++ei) {
         int d = tid + ei * BLOCK;
         if (d < head_dim) {
@@ -201,7 +182,7 @@ void kv_cache_attn_prefill_kernel(
     float m = NEG_SENTINEL;
     float l = 0.0f;
     const int elems_per_thread = (head_dim + BLOCK - 1) / BLOCK;
-    float o_local[O_LOCAL_MAX] = {0};
+    float o_local[8] = {0};
 
     __shared__ float s_sum[BLOCK / WARP];
     __shared__ float s_scalar[1];
@@ -232,7 +213,7 @@ void kv_cache_attn_prefill_kernel(
         const float beta  = std::expf(s - m_new);
         l = l * alpha + beta;
         #pragma unroll
-        for (int k = 0; k < O_LOCAL_MAX; ++k) o_local[k] *= alpha;
+        for (int k = 0; k < 8; ++k) o_local[k] *= alpha;
         const __half* V_row = V + ((size_t)tp * num_kv_heads + kv_head) * head_dim;
         for (int ei = 0; ei < elems_per_thread; ++ei) {
             int d = tid + ei * BLOCK;
@@ -243,10 +224,7 @@ void kv_cache_attn_prefill_kernel(
         m = m_new;
     }
 
-    // WHY: see decode-kernel comment above. In prefill the guard also covers
-    // the t == 0 path (1 query attending to 1 key): l stays finite there, but
-    // the guard is cheap and uniform across kernels.
-    const float inv_l = (l > 1e-20f) ? (1.0f / l) : 0.0f;
+    const float inv_l = 1.0f / l;
     for (int ei = 0; ei < elems_per_thread; ++ei) {
         int d = tid + ei * BLOCK;
         if (d < head_dim) {

@@ -22,15 +22,29 @@ MODEL_REPO="${MODEL_REPO:-microsoft/bitnet-b1.58-2B-4T-bf16}"
 MODEL_DIR="${MODEL_DIR:-$PREFIX/halo-1bit/models/bitnet-2b-base}"
 H1B_OUT="${H1B_OUT:-$PREFIX/halo-1bit/models/halo-1bit-2b-absmean.h1b}"
 JOBS="${JOBS:-$(nproc)}"
+# Arch: override with e.g. GFX=gfx1201 (RX 9070 XT / Navi 48) or
+# GFX="gfx1151;gfx1201" for a fat binary that runs on both targets.
+# If GFX=auto, detect via rocminfo (resolved after helpers are defined below).
 GFX="${GFX:-gfx1151}"
 
-ROCM_CPP_REPO="${ROCM_CPP_REPO:-https://github.com/stampby/rocm-cpp.git}"
-HALO_1BIT_REPO="${HALO_1BIT_REPO:-https://github.com/stampby/halo-1bit.git}"
+ROCM_CPP_REPO="${ROCM_CPP_REPO:-https://github.com/bong-water-water-bong/rocm-cpp.git}"
+HALO_1BIT_REPO="${HALO_1BIT_REPO:-https://github.com/bong-water-water-bong/halo-1bit.git}"
 
 blue()  { printf '\033[1;34m%s\033[0m\n' "$*"; }
 green() { printf '\033[1;32m%s\033[0m\n' "$*"; }
 red()   { printf '\033[1;31m%s\033[0m\n' "$*" >&2; }
 step()  { blue "── $* ─────────────────────────────────"; }
+
+# Resolve GFX=auto now that helpers are defined.
+if [ "$GFX" = "auto" ]; then
+    if [ -x "$ROCM_ROOT/bin/rocminfo" ]; then
+        GFX="$("$ROCM_ROOT/bin/rocminfo" | awk '/gfx1[12][0-9][0-9]/ {gsub(/.*Name:[[:space:]]*/,""); print; exit}')"
+    elif command -v rocminfo >/dev/null 2>&1; then
+        GFX="$(rocminfo | awk '/gfx1[12][0-9][0-9]/ {gsub(/.*Name:[[:space:]]*/,""); print; exit}')"
+    fi
+    [ -z "$GFX" ] && { red "GFX=auto: could not detect gfx arch via rocminfo"; exit 1; }
+    green "GFX=auto detected: $GFX"
+fi
 
 # ─── Preflight ────────────────────────────────────────────────────────────────
 step "Preflight"

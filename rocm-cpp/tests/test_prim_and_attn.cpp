@@ -264,60 +264,6 @@ static void test_kv_attn() {
     HIP_OK(hipFree(dQ)); HIP_OK(hipFree(dK)); HIP_OK(hipFree(dV)); HIP_OK(hipFree(dO));
 }
 
-// ---------------------------------------------------------------------------
-// Argmax over fp16 logits (paired with forward_token_greedy's D→H-skip
-// fast path). Seeds a ~vocab-sized fp16 vector with uniformly random
-// values and asserts the kernel's returned index matches
-// std::max_element's baseline. Exact-integer match — argmax on a
-// uniquely-maxed random fp16 vector is deterministic under
-// fast-math reductions (no summations, just pairwise `>`).
-// ---------------------------------------------------------------------------
-static void test_argmax_fp16_top1() {
-    const int V = 128256;  // Llama-3 vocab, the production fast-path size.
-    std::mt19937 rng(0xA17EA5u);
-    std::uniform_real_distribution<float> rd(-4.0f, 4.0f);
-    std::vector<_Float16> logits(V);
-    for (auto& v : logits) v = (_Float16)rd(rng);
-
-    // Plant a clearly-separated max so the reduction has a unique
-    // winner under fp16 rounding.
-    const int planted_idx = 77337;
-    logits[planted_idx] = (_Float16)8.0f;
-
-    _Float16* dLogits; int* dIdx;
-    HIP_OK(hipMalloc(&dLogits, V * sizeof(_Float16)));
-    HIP_OK(hipMalloc(&dIdx, sizeof(int)));
-    HIP_OK(hipMemcpy(dLogits, logits.data(), V * sizeof(_Float16),
-                     hipMemcpyHostToDevice));
-
-    auto st = rcpp_argmax_fp16_top1(dLogits, dIdx, V, nullptr);
-    if (st != RCPP_OK) {
-        fprintf(stderr, "rcpp_argmax_fp16_top1 returned %d\n", (int)st);
-        std::abort();
-    }
-    HIP_OK(hipDeviceSynchronize());
-
-    int device_idx = -1;
-    HIP_OK(hipMemcpy(&device_idx, dIdx, sizeof(int), hipMemcpyDeviceToHost));
-
-    // Reference: host-side linear scan.
-    int ref_idx = 0;
-    float ref_val = (float)logits[0];
-    for (int i = 1; i < V; ++i) {
-        float v = (float)logits[i];
-        if (v > ref_val) { ref_val = v; ref_idx = i; }
-    }
-
-    bool pass = (device_idx == ref_idx) && (device_idx == planted_idx);
-    printf("  %-28s : device=%d ref=%d planted=%d  %s\n",
-           "argmax_fp16_top1", device_idx, ref_idx, planted_idx,
-           pass ? "PASS" : "FAIL");
-    results.push_back({"argmax_fp16_top1", pass, 0.0f, 0.0f});
-
-    HIP_OK(hipFree(dLogits));
-    HIP_OK(hipFree(dIdx));
-}
-
 int main() {
     printf("=== rocm-cpp prim + attention kernel tests ===\n");
     test_quant();
@@ -326,7 +272,6 @@ int main() {
     test_silu_glu();
     test_embedding();
     test_kv_attn();
-    test_argmax_fp16_top1();
     int fails = 0;
     for (auto& r : results) if (!r.pass) ++fails;
     printf("\n%zu tests: %d pass / %d fail\n", results.size(), (int)results.size() - fails, fails);

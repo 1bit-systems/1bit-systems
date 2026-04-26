@@ -10,27 +10,12 @@ installed.
 
 ## Files
 
-| File                              | Purpose                                                        |
-|-----------------------------------|----------------------------------------------------------------|
-| `halo_ternary_mm.h`               | Fused-path entry signature; parity oracle header.              |
-| `halo_ternary_mm.cpp`             | Fused-path scalar reference + stubbed vectorized body.         |
-| `kernels/bitnet_gemv_aie2p.cc`    | **Pipelined-path** tile entry stub (skeleton, signature only). |
-| `scripts/build_aie.sh`            | IRON → Peano → hipcc link → xclbin wrapper (scaffold only).    |
+| File                   | Purpose                                                        |
+|------------------------|----------------------------------------------------------------|
+| `halo_ternary_mm.h`    | Core entry signature; safe to include host-side for MLIR/FFI.  |
+| `halo_ternary_mm.cpp`  | Scalar reference + stubbed vectorized path (AIE-API gated).    |
 
-Two BitNet-1.58 designs coexist while the lane bakes:
-
-1. **Fused path** (`halo_ternary_mm.{h,cpp}`) — one tile kernel that unpacks
-   ternary, multiplies by int8 activations, and accumulates into int32 in a
-   single body. Simpler to reason about, used as the bit-exact parity oracle
-   for bring-up.
-2. **Pipelined path** (`kernels/bitnet_gemv_aie2p.cc` + stages in
-   `../../npu-kernels/bitnet/`) — three ObjectFifo-connected stages
-   (unpack → stock `matmul_vectorized_8x8x8_i8_i32` → scale). This reuses
-   the stock upstream matmul tile, which already has a bit-exact M=K=N=512
-   xclbin built for npu2 (see `project_npu_matmul_i8.md`). Default
-   ship target.
-
-## Build the tile object (fused parity-oracle path)
+## Build the tile object
 
 ```sh
 /opt/peano/bin/clang --target=aie2p-none-unknown-elf \
@@ -45,20 +30,6 @@ halo_ternary_mm.o: ELF 32-bit LSB relocatable, *unknown arch 0x108* version 1 (S
 
 (`0x108` is the ELF e_machine code the Peano backend emits for AIE2P; same
 value observed for the `examples/aie_hello.cpp` smoke test.)
-
-## Build the xclbin (pipelined path — the ship target)
-
-```sh
-./scripts/build_aie.sh            # scaffold today; kernel author fills in
-# or override shape:
-env M=1024 K=1024 N=16 ./scripts/build_aie.sh
-```
-
-This wraps the IRON + MLIR-AIE + Peano chain that produces
-`build/bitnet_gemv/final_${M}x${K}x${N}_${m}x${k}x${n}.xclbin`. Load-time
-dispatch is handled by `crates/1bit-aie` once the `AieBackend` trait's real
-impl lands; see `docs/wiki/NPU-Kernel-Handoff.md` for the C++ ↔ Rust
-boundary.
 
 ## What's stubbed vs live
 

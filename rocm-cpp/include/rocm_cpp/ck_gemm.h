@@ -247,14 +247,6 @@ rcpp_rmsnorm_fp32_in_fp16_out(const void* x_fp32_dev, const void* weight_dev,
 rcpp_status_t
 rcpp_argmax_fp32(const void* logits_dev, void* out_idx_dev, int V, void* stream);
 
-// Top-1 argmax over FP16 logits — writes the max-index to *out_idx_dev.
-// Paired with forward_token_greedy's D→H-skip fast path; identical
-// reduction to rcpp_argmax_fp32 but consumes half-precision input, so a
-// future fp16-output lm_head variant doesn't need an extra cast pass.
-// Caller allocates one int on the device for out_idx_dev.
-rcpp_status_t
-rcpp_argmax_fp16_top1(const void* logits_dev, void* out_idx_dev, int V, void* stream);
-
 // FP16 × FP16 → FP32 GEMV. For LM head on tied-embedding BitNet models
 // (embedding matrix IS the LM head, stored as FP16). y[m] = sum_k W[m,k]*x[k].
 rcpp_status_t

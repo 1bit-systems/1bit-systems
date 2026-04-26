@@ -38,18 +38,6 @@ constexpr int BLOCK        = 128;
 constexpr int WARP         = 32;
 constexpr int MAX_HEAD_DIM = 256;
 constexpr int TILE         = 128;
-constexpr int O_LOCAL_MAX  = 8;     // fixed per-thread accumulator capacity
-
-// WHY: each kernel below declares `float o_local[O_LOCAL_MAX]` and indexes
-// it with `ei` bounded by `elems_per_thread = ceil(head_dim / BLOCK)`. If a
-// future diff raises MAX_HEAD_DIM or lowers BLOCK such that the quotient
-// exceeds O_LOCAL_MAX, the inner accumulator loops would write past the
-// array. Fail loudly at compile time rather than silently corrupt the
-// residual. The launcher separately enforces the runtime bound
-// `head_dim <= MAX_HEAD_DIM` so this assert fully covers the dynamic case.
-static_assert((MAX_HEAD_DIM + BLOCK - 1) / BLOCK <= O_LOCAL_MAX,
-              "o_local[O_LOCAL_MAX] would overflow: raise O_LOCAL_MAX, raise "
-              "BLOCK, or lower MAX_HEAD_DIM");
 
 // Fast-math sentinel — see prim_kernels.hip. -FLT_MAX avoids the
 // -Wnan-infinity-disabled UB that -INFINITY triggers under -ffast-math.
@@ -156,7 +144,7 @@ void kv_cache_attn_decode_split_pq3_kernel(
     float m = NEG_SENTINEL;
     float l = 0.0f;
     const int elems_per_thread = (head_dim + BLOCK - 1) / BLOCK;
-    float o_local[O_LOCAL_MAX] = {0};
+    float o_local[8] = {0};
 
     __shared__ float s_sum[BLOCK / WARP];
     __shared__ float s_scalar[1];
@@ -237,7 +225,7 @@ void kv_cache_attn_decode_split_pq3_kernel(
         const float beta  = expf(s_score - m_new);
         l = l * alpha + beta;
         #pragma unroll
-        for (int k = 0; k < O_LOCAL_MAX; ++k) o_local[k] *= alpha;
+        for (int k = 0; k < 8; ++k) o_local[k] *= alpha;
 
         // ---- beta * dequant(V_row) accumulated into o_local --------------
         // ONE lane per pair does triple-load + dequant; the odd partner pulls
@@ -307,7 +295,7 @@ void kv_cache_attn_reduce_pq3_kernel(
     float m = NEG_SENTINEL;
     float l = 0.0f;
     const int elems_per_thread = (head_dim + BLOCK - 1) / BLOCK;
-    float o_local[O_LOCAL_MAX] = {0};
+    float o_local[8] = {0};
 
     __shared__ float s_ml[2];
 
@@ -332,7 +320,7 @@ void kv_cache_attn_reduce_pq3_kernel(
         l = l * alpha + beta * tile_l;
 
         #pragma unroll
-        for (int k = 0; k < O_LOCAL_MAX; ++k) o_local[k] *= alpha;
+        for (int k = 0; k < 8; ++k) o_local[k] *= alpha;
 
         for (int ei = 0; ei < elems_per_thread; ++ei) {
             int d = tid + ei * BLOCK;

@@ -10,6 +10,7 @@
 // Build is added to CMakeLists; run as:  build/bench_sherry [M K iters]
 
 #include "rocm_cpp/ck_gemm.h"
+#include "rocm_cpp/sherry.h"  // clean-room reference launcher (regression tripwire)
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
 #include <cstdio>
@@ -144,24 +145,34 @@ int main(int argc, char** argv) {
         std::uniform_int_distribution<int> d(-127, 127);
         for (int k = 0; k < K; ++k) x_i8[k] = (int8_t)d(rng);
     }
+    // FP16 activations for the clean-room sherry_ref launcher (no x_scale —
+    // the kernel takes fp16 acts directly). Mirror the int8 distribution
+    // numerically so the timed work is comparable, even though sherry_ref's
+    // arithmetic differs (fp16 mul-add vs sdot4 int8 reduce).
+    std::vector<__half> x_fp16(K);
+    for (int k = 0; k < K; ++k) x_fp16[k] = __float2half((float)x_i8[k] / 127.0f);
     std::vector<float> scales(M, 1.0f);
     std::vector<__half> y_halo(M), y_sherry(M);
     const float x_scale = 1.0f / 127.0f;
 
     // Upload.
-    void *d_halo, *d_sherry, *d_tq1, *d_x, *d_scales, *d_y_halo, *d_y_sherry, *d_y_tq1;
+    void *d_halo, *d_sherry, *d_tq1, *d_x, *d_x_fp16, *d_scales,
+         *d_y_halo, *d_y_sherry, *d_y_tq1, *d_y_sherry_ref;
     HC(hipMalloc(&d_halo, halo_packed.size() * 4));
     HC(hipMalloc(&d_sherry, sherry_packed.size()));
     HC(hipMalloc(&d_tq1, tq1_packed.size()));
     HC(hipMalloc(&d_x, K));
+    HC(hipMalloc(&d_x_fp16, K * 2));
     HC(hipMalloc(&d_scales, M * 4));
     HC(hipMalloc(&d_y_halo, M * 2));
     HC(hipMalloc(&d_y_sherry, M * 2));
     HC(hipMalloc(&d_y_tq1, M * 2));
+    HC(hipMalloc(&d_y_sherry_ref, M * 2));
     HC(hipMemcpy(d_halo, halo_packed.data(), halo_packed.size() * 4, hipMemcpyHostToDevice));
     HC(hipMemcpy(d_sherry, sherry_packed.data(), sherry_packed.size(), hipMemcpyHostToDevice));
     HC(hipMemcpy(d_tq1, tq1_packed.data(), tq1_packed.size(), hipMemcpyHostToDevice));
     HC(hipMemcpy(d_x, x_i8.data(), K, hipMemcpyHostToDevice));
+    HC(hipMemcpy(d_x_fp16, x_fp16.data(), K * 2, hipMemcpyHostToDevice));
     HC(hipMemcpy(d_scales, scales.data(), M * 4, hipMemcpyHostToDevice));
     std::vector<__half> y_tq1(M);
 
@@ -169,6 +180,17 @@ int main(int argc, char** argv) {
     rcpp_ternary_gemv_halo_f16    (d_halo,   d_x, x_scale, d_scales, d_y_halo,   M, K, nullptr);
     rcpp_ternary_gemv_sherry_f16  (d_sherry, d_x, x_scale, d_scales, d_y_sherry, M, K, nullptr);
     rcpp_ternary_gemv_tq1_halo_f16(d_tq1,    d_x, x_scale, d_scales, d_y_tq1,    M, K, nullptr);
+    // sherry_ref is the clean-room fp16-in/fp16-out launcher exposed by
+    // include/rocm_cpp/sherry.h. We don't correctness-check its output here
+    // (different scaling convention — pure signed-sum, no x_scale, no
+    // row-scale fold); the differential test in tests/test_sherry_gemv.cpp
+    // already validates it bit-for-bit against the scalar reference. Bench
+    // it solely to flag perf regressions if anyone wires it into prod.
+    sherry_ternary_gemv_launch(
+        static_cast<const uint8_t*>(d_sherry),
+        static_cast<const uint16_t*>(d_x_fp16),
+        static_cast<uint16_t*>(d_y_sherry_ref),
+        M, K, /*stream=*/nullptr);
     HC(hipDeviceSynchronize());
     HC(hipMemcpy(y_halo.data(),   d_y_halo,   M * 2, hipMemcpyDeviceToHost));
     HC(hipMemcpy(y_sherry.data(), d_y_sherry, M * 2, hipMemcpyDeviceToHost));
@@ -227,28 +249,52 @@ int main(int argc, char** argv) {
     auto t5 = std::chrono::high_resolution_clock::now();
     double tq1_ms = std::chrono::duration<double, std::milli>(t5 - t4).count();
 
-    double halo_us   = halo_ms   * 1000.0 / iters;
-    double sherry_us = sherry_ms * 1000.0 / iters;
-    double tq1_us    = tq1_ms    * 1000.0 / iters;
+    // Time sherry_ref (clean-room launcher). Same packed weights as `sherry`,
+    // fp16 acts instead of int8 + post-scale. Expected ~2-3x slower than the
+    // fast `sherry` row — that gap is the regression tripwire: if `sherry_ref`
+    // ever lands within 10% of `sherry`, someone has either tuned the
+    // clean-room kernel up to par (great, retire the i8 path) or the i8
+    // kernel got slower (bad, investigate). If `sherry_ref` ever ends up
+    // FASTER than `sherry`, the i8 path has rotted — page the architect.
+    auto t6 = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < iters; ++i)
+        sherry_ternary_gemv_launch(
+            static_cast<const uint8_t*>(d_sherry),
+            static_cast<const uint16_t*>(d_x_fp16),
+            static_cast<uint16_t*>(d_y_sherry_ref),
+            M, K, /*stream=*/nullptr);
+    HC(hipDeviceSynchronize());
+    auto t7 = std::chrono::high_resolution_clock::now();
+    double sherry_ref_ms = std::chrono::duration<double, std::milli>(t7 - t6).count();
+
+    double halo_us       = halo_ms       * 1000.0 / iters;
+    double sherry_us     = sherry_ms     * 1000.0 / iters;
+    double tq1_us        = tq1_ms        * 1000.0 / iters;
+    double sherry_ref_us = sherry_ref_ms * 1000.0 / iters;
     double halo_bytes   = (double)M * K / 4.0;          // 2 bpw
     double sherry_bytes = (double)M * K * 5.0 / 32.0;   // 1.25 bpw
     double tq1_bytes    = (double)M * K / 5.0;          // 1.6 bpw
-    double halo_gbs   = halo_bytes   / (halo_us   * 1e-6) / 1e9;
-    double sherry_gbs = sherry_bytes / (sherry_us * 1e-6) / 1e9;
-    double tq1_gbs    = tq1_bytes    / (tq1_us    * 1e-6) / 1e9;
+    double halo_gbs       = halo_bytes   / (halo_us       * 1e-6) / 1e9;
+    double sherry_gbs     = sherry_bytes / (sherry_us     * 1e-6) / 1e9;
+    double tq1_gbs        = tq1_bytes    / (tq1_us        * 1e-6) / 1e9;
+    double sherry_ref_gbs = sherry_bytes / (sherry_ref_us * 1e-6) / 1e9;
 
-    printf("[bench_sherry] halo   : %.2f µs/call  %.1f GB/s   (%.2f MB/row reads)\n",
+    printf("[bench_sherry] halo       : %.2f µs/call  %.1f GB/s   (%.2f MB/row reads)\n",
            halo_us, halo_gbs, halo_bytes / 1e6);
-    printf("[bench_sherry] sherry : %.2f µs/call  %.1f GB/s   (%.2f MB/row reads)\n",
+    printf("[bench_sherry] sherry     : %.2f µs/call  %.1f GB/s   (%.2f MB/row reads)\n",
            sherry_us, sherry_gbs, sherry_bytes / 1e6);
-    printf("[bench_sherry] tq1    : %.2f µs/call  %.1f GB/s   (%.2f MB/row reads)\n",
+    printf("[bench_sherry] sherry_ref : %.2f µs/call  %.1f GB/s   (%.2f MB/row reads)  [clean-room, offline-only]\n",
+           sherry_ref_us, sherry_ref_gbs, sherry_bytes / 1e6);
+    printf("[bench_sherry] tq1        : %.2f µs/call  %.1f GB/s   (%.2f MB/row reads)\n",
            tq1_us, tq1_gbs, tq1_bytes / 1e6);
-    printf("[bench_sherry] sherry vs halo: %.2fx speedup  %.1f%% bytes-reduction\n",
+    printf("[bench_sherry] sherry vs halo:        %.2fx speedup  %.1f%% bytes-reduction\n",
            halo_us / sherry_us, (1.0 - sherry_bytes / halo_bytes) * 100.0);
-    printf("[bench_sherry] tq1    vs halo: %.2fx speedup  %.1f%% bytes-reduction\n",
+    printf("[bench_sherry] tq1    vs halo:        %.2fx speedup  %.1f%% bytes-reduction\n",
            halo_us / tq1_us,    (1.0 - tq1_bytes    / halo_bytes) * 100.0);
+    printf("[bench_sherry] sherry vs sherry_ref:  %.2fx faster (regression tripwire — alert if <1.5x)\n",
+           sherry_ref_us / sherry_us);
 
-    hipFree(d_halo); hipFree(d_sherry); hipFree(d_tq1); hipFree(d_x); hipFree(d_scales);
-    hipFree(d_y_halo); hipFree(d_y_sherry); hipFree(d_y_tq1);
+    hipFree(d_halo); hipFree(d_sherry); hipFree(d_tq1); hipFree(d_x); hipFree(d_x_fp16); hipFree(d_scales);
+    hipFree(d_y_halo); hipFree(d_y_sherry); hipFree(d_y_tq1); hipFree(d_y_sherry_ref);
     return 0;
 }

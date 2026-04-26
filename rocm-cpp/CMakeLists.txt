@@ -50,49 +50,19 @@ FetchContent_MakeAvailable(cpp_httplib nlohmann_json ftxui)
 # phases 1-4 will replace that; once they land, this find_package goes away too.
 find_package(composable_kernel REQUIRED CONFIG PATHS "${ROCM_ROOT}")
 
-# GPU arch(es) to build for. Default covers every AMD consumer arch with
-# Wave32 WMMA — RDNA3, RDNA3.5, and RDNA4 — so one fat binary Just Works
-# across the mainstream Radeon + APU lineup:
+# GPU arch(es) to build for.
+#   gfx1151 — Strix Halo iGPU (primary target, RDNA 3.5)
+#   gfx1201 — RX 9070 XT / Navi 48 dGPU (secondary target, RDNA 4)
+# Default builds a fat binary covering both: HIP bundles code objects per-arch
+# and the runtime selects at load time. Override with a single arch for faster
+# builds, e.g. -DCMAKE_HIP_ARCHITECTURES=gfx1151.
 #
-#   RDNA3   (half16, __builtin_amdgcn_wmma_*_w32):
-#     gfx1100  Navi 31      RX 7900 XTX / 7900 XT / W7900
-#     gfx1101  Navi 32      RX 7800 XT / 7700 XT
-#     gfx1102  Navi 33      RX 7600 / 7600 XT / 7700S
-#     gfx1103  Phoenix      Radeon 780M / 760M (Ryzen 7040/8040 iGPU)
-#
-#   RDNA3.5 (half16, __builtin_amdgcn_wmma_*_w32):
-#     gfx1150  Strix Point  Radeon 880M / 890M (Ryzen AI 9 HX 370)
-#     gfx1151  Strix Halo   Radeon 8060S (Ryzen AI Max+ 395)  <-- reference
-#
-#   RDNA4   (half8, __builtin_amdgcn_wmma_*_w32_gfx12):
-#     gfx1200  Navi 44      RX 9060 (expected)
-#     gfx1201  Navi 48      RX 9070 / RX 9070 XT              <-- 2nd target
-#
-# All eight share the WMMA family src/wmma_compat.hpp already dispatches:
-# the RDNA3/3.5 block uses the original `_w32` builtin with half16, the
-# RDNA4 block uses the `_w32_gfx12` builtin with half8 + the blocked C
-# accumulator mapping. HIP bundles code objects per-arch into one fat
-# binary; runtime picks by device.
-#
-# Override for a narrower slice when disk/build-time matters:
-#   -DCMAKE_HIP_ARCHITECTURES="gfx1151"              # Strix Halo only
-#   -DCMAKE_HIP_ARCHITECTURES="gfx1151;gfx1201"      # both our hosts
-#   -DCMAKE_HIP_ARCHITECTURES="gfx1201"              # RX 9070 XT only
-#
-# Not on the default list (and why):
-#   gfx1030-1036 (RDNA2)   — no WMMA; would need a wave64 / no-WMMA fallback.
-#   gfx90a / gfx942 (CDNA) — MFMA, not WMMA; separate port via mfma_compat.hpp.
-#   gfx900-906 (GCN)       — too old, no ternary-GEMV ISA win.
-#
-# Port status (2026-04-22):
-#   PORTED    — wmma_peak_probe.hip
-#             — prefill_standalone.hip (all 14 kernels, bit-exact vs CK on
-#               both gfx1151 + gfx1201)
-#             — sdot4/sudot4 kernels (arch-independent builtins, no changes)
-#   Track per-arch dispatch in src/wmma_compat.hpp.
-set(CMAKE_HIP_ARCHITECTURES
-    "gfx1100;gfx1101;gfx1102;gfx1103;gfx1150;gfx1151;gfx1200;gfx1201"
-    CACHE STRING "GPU arch(es) to build")
+# Arch-specific tuning (block sizes, LDS budgets, VGPR allocation) is currently
+# sized for gfx1151. Correctness holds across gfx1151/gfx1201 because the hot
+# intrinsics (__builtin_amdgcn_wmma_*_w32, __builtin_amdgcn_sudot4/sdot4) are
+# retained on RDNA 4, but peak bandwidth on gfx1201 (GDDR6 ~640 GB/s) needs a
+# fresh K-outer tile sweep — tracked in docs/TODO.
+set(CMAKE_HIP_ARCHITECTURES "gfx1151;gfx1201" CACHE STRING "GPU arch(es) to build")
 
 # -- librocm_cpp : shared library exposing the C API ----------------------------
 # Host packer is pure C++ (no CK). Device kernel uses CK headers only — no
@@ -111,6 +81,7 @@ add_library(rocm_cpp SHARED
     src/kv_rotorquant.cpp
     src/h1b_loader.cpp
     src/tokenizer.cpp
+    src/engine.cpp
     src/ternary_gemm_smallm.hip
     src/ternary_gemm_smallm_scalar_ref.hip
     src/sherry_gemv.hip
@@ -118,14 +89,17 @@ add_library(rocm_cpp SHARED
     src/bonsai_q1_gemv.hip
     src/bonsai_tq2_gemv.hip
     src/bonsai_gemv_scalar_ref.hip
+    src/medusa_tree_attn.hip
+    src/medusa_small_m_gemv.hip
+    src/medusa_loader.cpp
     kernels/ternary_gemv_phase5_dot4.hip
     kernels/ternary_gemv_phase5_halo.hip
     kernels/ternary_gemv_sherry.hip
     kernels/ternary_gemv_tq1_halo.hip
-    kernels/ternary_gemv_tq2_0.hip
     kernels/ternary_gemv_devscale.hip
     kernels/rotorquant_pack.hip
-    kernels/hadamard_rotate_butterfly.hip)
+    kernels/hadamard_rotate_butterfly.hip
+    src/hadamard_rotate.hip)
 set_source_files_properties(
     src/ck_gemm.cpp
     src/prefill_standalone.hip
@@ -143,14 +117,16 @@ set_source_files_properties(
     src/bonsai_q1_gemv.hip
     src/bonsai_tq2_gemv.hip
     src/bonsai_gemv_scalar_ref.hip
+    src/medusa_tree_attn.hip
+    src/medusa_small_m_gemv.hip
     kernels/ternary_gemv_phase5_dot4.hip
     kernels/ternary_gemv_phase5_halo.hip
     kernels/ternary_gemv_sherry.hip
     kernels/ternary_gemv_tq1_halo.hip
-    kernels/ternary_gemv_tq2_0.hip
     kernels/ternary_gemv_devscale.hip
     kernels/rotorquant_pack.hip
     kernels/hadamard_rotate_butterfly.hip
+    src/hadamard_rotate.hip
     PROPERTIES LANGUAGE HIP)
 target_include_directories(rocm_cpp PUBLIC
     $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
@@ -162,27 +138,11 @@ target_compile_options(rocm_cpp PRIVATE
 target_link_libraries(rocm_cpp PRIVATE hip::host hip::device)
 set_target_properties(rocm_cpp PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
-# -- Optional tests gate ------------------------------------------------------
-# Flip ON to build TQ2_0 (and future opt-in) unit tests. OFF by default so
-# library consumers don't pay the compile cost.
-option(BUILD_ROCM_CPP_TESTS "Build opt-in rocm-cpp unit tests" OFF)
-
-# -- tests/test_ternary_gemv_tq2_0 : TQ2_0 × Q8_1 GEMV vs CPU reference -------
-# Gated by BUILD_ROCM_CPP_TESTS. Usage:
-#   cmake -DBUILD_ROCM_CPP_TESTS=ON -B build
-#   cmake --build build --target test_ternary_gemv_tq2_0
-#   ./build/test_ternary_gemv_tq2_0
-if(BUILD_ROCM_CPP_TESTS)
-    add_executable(test_ternary_gemv_tq2_0 tests/test_ternary_gemv_tq2_0.cpp)
-    set_source_files_properties(tests/test_ternary_gemv_tq2_0.cpp
-        PROPERTIES LANGUAGE HIP)
-    target_compile_options(test_ternary_gemv_tq2_0 PRIVATE
-        $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-    target_link_libraries(test_ternary_gemv_tq2_0 PRIVATE
-        rocm_cpp hip::host hip::device)
-    set_target_properties(test_ternary_gemv_tq2_0 PROPERTIES
-        HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
-endif()
+# CTest registration — `ctest --tests-regex medusa` keys on the test names
+# below. enable_testing() must come BEFORE add_test() calls, but AFTER the
+# project() call (already on line 11). Tests register at the bottom of the
+# file once their executables exist.
+enable_testing()
 
 # -- tests/test_ck_gemm : end-to-end functional proof --------------------------
 add_executable(test_ck_gemm tests/test_ck_gemm.cpp)
@@ -206,18 +166,6 @@ target_compile_options(test_prim_and_attn PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(test_prim_and_attn PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(test_prim_and_attn PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
-
-# -- tests/test_attn_degenerate : v0.1.1 NaN-guard regression test ------------
-# Passes all-zero K/V into every attention kernel variant (fp16 decode/prefill,
-# fp16 split-KV Flash-Decoding, int8 decode) and asserts the output stays
-# finite. Catches a future regression on the `inv_l = (l > eps) ? 1/l : 0`
-# guard in kv_cache_attn*.hip.
-add_executable(test_attn_degenerate tests/test_attn_degenerate.cpp)
-set_source_files_properties(tests/test_attn_degenerate.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(test_attn_degenerate PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_link_libraries(test_attn_degenerate PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(test_attn_degenerate PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
 # -- tests/test_ternary_gemm_smallm : tiled small-M ternary GEMM parity + timing
 add_executable(test_ternary_gemm_smallm tests/test_ternary_gemm_smallm.cpp)
@@ -268,6 +216,60 @@ target_compile_options(test_bonsai_e2e PRIVATE
 target_link_libraries(test_bonsai_e2e PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(test_bonsai_e2e PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
+# -- tests/test_hadamard_butterfly : Hadamard rotate butterfly correctness ----
+# BitNet v2 W1.58A4 input pre-rotation kernel. Two checks: (1) bit-exact fp16
+# vs scalar reference, (2) per-block bench. Needs ROCm device.
+add_executable(test_hadamard_butterfly tests/test_hadamard_butterfly.cpp)
+set_source_files_properties(tests/test_hadamard_butterfly.cpp PROPERTIES LANGUAGE HIP)
+target_compile_options(test_hadamard_butterfly PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_link_libraries(test_hadamard_butterfly PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(test_hadamard_butterfly PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+
+# -- tests/test_medusa_skeleton : ABI/link smoke for Medusa kernel stubs ------
+# Scope-pass test (2026-04-24): both launchers return RCPP_NOT_IMPLEMENTED.
+# Replaced by a proper differential test once the kernel bodies are authored.
+# No GPU device required; this test exercises only the host-side launcher
+# early-return path. Plain C++17 TU — no HIP language tagging needed.
+add_executable(test_medusa_skeleton tests/test_medusa_skeleton.cpp)
+target_compile_options(test_medusa_skeleton PRIVATE -Wall -Wextra -Wno-unused-result)
+target_link_libraries(test_medusa_skeleton PRIVATE rocm_cpp)
+add_test(NAME medusa_skeleton COMMAND test_medusa_skeleton)
+
+# -- tests/test_medusa_small_m_gemv : bit-exact diff for the small-M GEMV ----
+# Compiles as HIP (uses hipLaunchKernelGGL via the launcher + __half ULP
+# helpers) and links against rocm_cpp for rcpp_medusa_small_m_gemv. Needs a
+# live ROCm device — built always but skipped on hosts without one.
+add_executable(test_medusa_small_m_gemv tests/test_medusa_small_m_gemv.cpp)
+set_source_files_properties(tests/test_medusa_small_m_gemv.cpp PROPERTIES LANGUAGE HIP)
+target_compile_options(test_medusa_small_m_gemv PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_link_libraries(test_medusa_small_m_gemv PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(test_medusa_small_m_gemv PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+add_test(NAME medusa_small_m_gemv COMMAND test_medusa_small_m_gemv)
+
+# -- tests/test_medusa_tree_attn : differential test for tree-parallel FD ----
+# Diffs rcpp_medusa_tree_attn_decode_fd at M=1 (bit-exact vs single-Q FD)
+# and M>1 (vs host-side Flash-Decoding scalar reference, fp16 ULP <= 64).
+# Needs a live ROCm device — early-exits 0 if no device present.
+add_executable(test_medusa_tree_attn tests/test_medusa_tree_attn.cpp)
+set_source_files_properties(tests/test_medusa_tree_attn.cpp PROPERTIES LANGUAGE HIP)
+target_compile_options(test_medusa_tree_attn PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_link_libraries(test_medusa_tree_attn PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(test_medusa_tree_attn PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+add_test(NAME medusa_tree_attn COMMAND test_medusa_tree_attn)
+
+# -- tests/test_medusa_loader : .h1b-medusa v1 sidecar round-trip ------------
+# Synthetic-zero writer + happy-path load + four negative cases (bad magic,
+# hidden mismatch, vocab mismatch, truncated payload). Exercises the loader
+# without needing real Medusa weights; hipMallocs the per-head buffers so it
+# requires a live ROCm device (skips with exit 0 otherwise).
+add_executable(test_medusa_loader tests/test_medusa_loader.cpp)
+target_compile_options(test_medusa_loader PRIVATE -Wall -Wextra -Wno-unused-result)
+target_link_libraries(test_medusa_loader PRIVATE rocm_cpp hip::host)
+add_test(NAME medusa_loader COMMAND test_medusa_loader)
+
 # -- tools/bitnet_decode : end-to-end MVP decode CLI ---------------------------
 add_executable(bitnet_decode tools/bitnet_decode.cpp)
 set_source_files_properties(tools/bitnet_decode.cpp PROPERTIES LANGUAGE HIP)
@@ -309,14 +311,6 @@ target_compile_options(bench_kv_fd PRIVATE
 target_link_libraries(bench_kv_fd PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(bench_kv_fd PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
-# -- tools/attn_fd_sweep : FD vs single-block attn sweep (JSON stdout) --------
-add_executable(attn_fd_sweep tools/attn_fd_sweep.cpp)
-set_source_files_properties(tools/attn_fd_sweep.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(attn_fd_sweep PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_link_libraries(attn_fd_sweep PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(attn_fd_sweep PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
-
 # -- tools/bench_rotor : rotorquant PlanarQuant-3 KV compression microbench --
 add_executable(bench_rotor tools/bench_rotor.cpp)
 set_source_files_properties(tools/bench_rotor.cpp PROPERTIES LANGUAGE HIP)
@@ -332,18 +326,106 @@ target_link_libraries(bitnet_tui PRIVATE
     nlohmann_json::nlohmann_json
     ftxui::screen ftxui::dom ftxui::component)
 
+# -- tools/h1b_repack_sherry : C++ replacement for the buggy Python Sherry packer
+# Reads HALO_V2 .h1b, writes Sherry v3 (flag SHERRY_FP16). Pure host C++ —
+# no HIP language tagging. Links against rocm_cpp for rcpp_sherry_pack and
+# the (host-side) loader path; hip::host pulls in libamdhip64 because
+# librocm_cpp.so is HIP-linked.
+add_executable(h1b_repack_sherry tools/h1b_repack_sherry.cpp)
+target_link_libraries(h1b_repack_sherry PRIVATE rocm_cpp hip::host)
+
 # -- ck-prefill : research binaries (kept building for tuning) ------------------
 add_subdirectory(ck-prefill)
 
-# -- 1bit-router : C++20 router scaffold (Phase 2) -----------------------------
-# Lives as its own public repo + git submodule at workspace root
-# `1bit-router/` (see https://github.com/bong-water-water-bong/1bit-router).
-# Build it from there:
+# ============================================================================
+# XDNA / AIE2P NPU wrapper (rocm_cpp_xdna)
+# ============================================================================
+# Default OFF so non-NPU builds keep working without a libxrt dep. When ON,
+# we link against the system /usr/lib/libxrt_coreutil.so (XRT 2.21+) and ship
+# a sibling library `librocm_cpp_xdna.so` exposing rocm_cpp::XdnaKernel.
 #
-#   cmake -S 1bit-router -B 1bit-router/build \
-#     -DROCM_CPP_DIR=../rocm-cpp -DCMAKE_BUILD_TYPE=Release
-#   cmake --build 1bit-router/build -j
-#   ./1bit-router/build/test_router_smoke
-#
-# Intentionally not pulled into the rocm-cpp build tree — the two ship
-# independent release cadences.
+# The wrapper is intentionally a *separate* shared library (not folded into
+# librocm_cpp.so) so the HIP/ROCm path stays libxrt-free for callers that
+# only want gfx1151 GPU inference.
+option(BUILD_XDNA "Build XDNA2 NPU wrapper (rocm_cpp_xdna) against libxrt" OFF)
+
+if(BUILD_XDNA)
+    if(NOT UNIX OR APPLE)
+        message(FATAL_ERROR "BUILD_XDNA requires Linux + libxrt (amdxdna driver)")
+    endif()
+
+    # XRT ships /usr/include/xrt/*.h and /usr/lib/libxrt_coreutil.so but no
+    # CMake config on the Arch package. Use pkg-config; fall back to a manual
+    # link if the .pc file is missing.
+    find_package(PkgConfig QUIET)
+    set(XRT_FOUND_VIA_PC FALSE)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(XRT QUIET xrt)
+        if(XRT_FOUND)
+            set(XRT_FOUND_VIA_PC TRUE)
+        endif()
+    endif()
+
+    if(NOT XRT_FOUND_VIA_PC)
+        if(NOT EXISTS "/usr/include/xrt/xrt_kernel.h")
+            message(FATAL_ERROR
+                "BUILD_XDNA: /usr/include/xrt/xrt_kernel.h missing. "
+                "Install xrt (Arch: pacman -S xrt) or set XRT_INCLUDE_DIRS.")
+        endif()
+        if(NOT EXISTS "/usr/lib/libxrt_coreutil.so")
+            message(FATAL_ERROR
+                "BUILD_XDNA: /usr/lib/libxrt_coreutil.so missing.")
+        endif()
+        set(XRT_INCLUDE_DIRS "/usr/include")
+        set(XRT_LIBRARIES "/usr/lib/libxrt_coreutil.so")
+    endif()
+
+    add_library(rocm_cpp_xdna SHARED
+        aie/src/xdna_kernel.cpp
+    )
+    target_include_directories(rocm_cpp_xdna PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/aie/include>
+        $<INSTALL_INTERFACE:include>
+    )
+    target_include_directories(rocm_cpp_xdna SYSTEM PRIVATE ${XRT_INCLUDE_DIRS})
+    target_link_libraries(rocm_cpp_xdna PRIVATE ${XRT_LIBRARIES})
+    target_compile_features(rocm_cpp_xdna PUBLIC cxx_std_17)
+
+    add_executable(test_xdna_kernel aie/tests/test_xdna_kernel.cpp)
+    target_link_libraries(test_xdna_kernel PRIVATE rocm_cpp_xdna)
+    add_test(NAME xdna_kernel_smoke COMMAND test_xdna_kernel)
+    message(STATUS "XDNA wrapper: ENABLED (libxrt at ${XRT_LIBRARIES})")
+
+    # ------------------------------------------------------------------
+    # XDNA ternary GEMV (rocm_cpp_xdna_ternary)
+    # ------------------------------------------------------------------
+    # Independent shared library + test that wraps the v0 ternary GEMV
+    # xclbin. Built when both BUILD_XDNA and BUILD_XDNA_TERNARY are ON.
+    # The xclbin is NOT built by CMake — author it via
+    #     bash aie/scripts/build_ternary_xclbin.sh 64 64
+    # The test skips with exit 0 if the xclbin isn't present, so a clean
+    # checkout still passes ctest.
+    option(BUILD_XDNA_TERNARY "Build XDNA2 ternary GEMV wrapper (rocm_cpp_xdna_ternary)" OFF)
+
+    if(BUILD_XDNA_TERNARY)
+        add_library(rocm_cpp_xdna_ternary SHARED
+            aie/src/xdna_ternary_gemv.cpp)
+        target_include_directories(rocm_cpp_xdna_ternary PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/aie/include>
+            $<INSTALL_INTERFACE:include>)
+        target_include_directories(rocm_cpp_xdna_ternary SYSTEM PRIVATE ${XRT_INCLUDE_DIRS})
+        target_link_libraries(rocm_cpp_xdna_ternary PRIVATE ${XRT_LIBRARIES})
+        # _Float16 is gnu++ extension; needs >=c++20 + clang/gcc.
+        target_compile_features(rocm_cpp_xdna_ternary PUBLIC cxx_std_20)
+
+        add_executable(test_xdna_ternary_gemv aie/tests/test_xdna_ternary_gemv.cpp)
+        target_compile_features(test_xdna_ternary_gemv PRIVATE cxx_std_20)
+        target_link_libraries(test_xdna_ternary_gemv PRIVATE rocm_cpp_xdna_ternary)
+        add_test(NAME xdna_ternary_gemv_smoke COMMAND test_xdna_ternary_gemv)
+        message(STATUS "XDNA ternary GEMV: ENABLED")
+    else()
+        message(STATUS "XDNA ternary GEMV: disabled (set -DBUILD_XDNA_TERNARY=ON to enable)")
+    endif()
+else()
+    message(STATUS "XDNA wrapper: disabled (set -DBUILD_XDNA=ON to enable)")
+endif()
