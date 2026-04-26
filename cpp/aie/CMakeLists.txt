@@ -177,3 +177,27 @@ if(ONEBIT_BUILD_TESTS)
     add_test(NAME onebit_aie_bitnet_gemm
              COMMAND onebit_aie_bitnet_gemm_test)
 endif()
+
+# -----------------------------------------------------------------------------
+# onebit_aie_tiled_gemv — host-side pad-and-tile dispatcher around the
+# fixed-tile BitnetGemmAIE2P leaf. Pure C++23, no XRT linkage of its own
+# (the kernel reference does the dispatch). Builds clean on any host that
+# can build onebit_aie_bitnet_gemm.
+# -----------------------------------------------------------------------------
+add_library(onebit_aie_tiled_gemv STATIC
+    src/tiled_gemv.cpp
+)
+target_include_directories(onebit_aie_tiled_gemv PUBLIC include)
+target_compile_features(onebit_aie_tiled_gemv PUBLIC cxx_std_23)
+target_link_libraries(onebit_aie_tiled_gemv PUBLIC onebit::aie_bitnet_gemm)
+add_library(onebit::aie_tiled_gemv ALIAS onebit_aie_tiled_gemv)
+
+if(ONEBIT_BUILD_TESTS)
+    add_executable(onebit_aie_tiled_gemv_test
+        tests/tiled_gemv_test.cpp
+    )
+    target_link_libraries(onebit_aie_tiled_gemv_test PRIVATE
+        onebit::aie_tiled_gemv doctest::doctest)
+    add_test(NAME onebit_aie_tiled_gemv
+             COMMAND onebit_aie_tiled_gemv_test)
+endif()
