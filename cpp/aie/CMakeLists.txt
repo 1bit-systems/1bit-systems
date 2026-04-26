@@ -200,4 +200,17 @@ if(ONEBIT_BUILD_TESTS)
         onebit::aie_tiled_gemv doctest::doctest)
     add_test(NAME onebit_aie_tiled_gemv
              COMMAND onebit_aie_tiled_gemv_test)
+
+    # dispatch_smoke_test — engine-level dispatch contract:
+    #   * row-scale fold post-mmul (Phase-2 contract)
+    #   * handle reuse across consecutive gemm() calls
+    # Skips with WARN when ONEBIT_REAL_BACKEND=0 or fixture xclbin missing
+    # so CI hosts without /dev/accel/accel0 still pass green.
+    add_executable(onebit_aie_dispatch_smoke_test
+        tests/dispatch_smoke_test.cpp
+    )
+    target_link_libraries(onebit_aie_dispatch_smoke_test PRIVATE
+        onebit::aie_bitnet_gemm doctest::doctest)
+    add_test(NAME onebit_aie_dispatch_smoke
+             COMMAND onebit_aie_dispatch_smoke_test)
 endif()

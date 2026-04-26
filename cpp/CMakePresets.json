@@ -11,6 +11,7 @@
                 "CMAKE_BUILD_TYPE": "Release",
                 "ONEBIT_BUILD_DESKTOP": "ON",
                 "ONEBIT_BUILD_NPU": "ON",
+                "ONEBIT_BUILD_XDNA": "ON",
                 "CMAKE_CXX_FLAGS_RELEASE": "-O3 -DNDEBUG -march=native"
             }
         },

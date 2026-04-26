@@ -21,6 +21,13 @@
 #include "rocm_cpp/sherry.h"
 #include "rocm_cpp/tokenizer.h"
 
+#ifdef ROCM_CPP_HAVE_XDNA
+// C-ABI bridge to the C++23 onebit::aie::BitnetGemmAIE2P engine.  Header is
+// plain C; engine.cpp stays at C++17 and the AIE std::expected surface is
+// hidden behind this shim.  See engine_npu_dispatch.h for the contract.
+#include "engine_npu_dispatch.h"
+#endif
+
 #include <hip/hip_fp16.h>
 #include <hip/hip_runtime.h>
 
@@ -265,6 +272,23 @@ struct Engine::Impl {
     bool is_qwen3 = false;
     float scale = 0.0f;
     TernaryGemvI8Fn ternary_gemv_i8 = nullptr;
+
+    // ── NPU (XDNA2 / AIE2P) bitnet_gemm dispatch lane ─────────────────────
+    // Lazy-loaded on first ternary_gemv() call when HALO_NPU=1.  The
+    // BitnetGemmAIE2P xclbin is compiled at a fixed M=K=N=64 tile today;
+    // dispatch fires only when N%64==0 && K%64==0 (everything else falls
+    // through to the HIP path).  For halo-1bit-2b (hs=2560, is=6912) every
+    // GEMV gates IN at the K side (2560%64=0, 6912%64=0) but the N side is
+    // a mix — see project_npu_bitnet_gemm_authored.md for the gate audit.
+    //
+    // npu_init_attempted_ traps repeated load failures: a single failure
+    // disables the lane for the lifetime of the Engine to avoid retry
+    // storm on every layer's GEMV call.
+#ifdef ROCM_CPP_HAVE_XDNA
+    rcpp_npu_dispatch_t* npu_gemm_ = nullptr;
+    bool                 npu_init_attempted_ = false;
+    bool                 npu_dispatch_enabled_ = false;
+#endif
 
     // Device scratch (allocated in load(), freed in unload())
     float*    x_fp32 = nullptr;
@@ -566,7 +590,70 @@ struct Engine::Impl {
         rcpp_bitnet_free(&model);
         std::memset(&model, 0, sizeof(model));
         loaded = false;
+
+#ifdef ROCM_CPP_HAVE_XDNA
+        // Release the NPU handle alongside the rest of the per-load state so
+        // a re-load() reinitializes from scratch.  Defensive null-tolerant.
+        if (npu_gemm_) {
+            rcpp_npu_dispatch_free(npu_gemm_);
+            npu_gemm_ = nullptr;
+        }
+        npu_init_attempted_   = false;
+        npu_dispatch_enabled_ = false;
+#endif
     }
+
+#ifdef ROCM_CPP_HAVE_XDNA
+    // Env-gate read once per call.  Cheap; getenv() is a hash lookup on
+    // glibc.  Splitting this from the cached `npu_dispatch_enabled_` lets
+    // the operator flip HALO_NPU on/off between calls (debug aid) without
+    // re-loading the xclbin.
+    static bool npu_dispatch_enabled() noexcept {
+        const char* v = std::getenv("HALO_NPU");
+        return v && v[0] == '1' && v[1] == '\0';
+    }
+
+    // First-call lazy load of the AIE2P xclbin.  On failure logs once and
+    // sets npu_dispatch_enabled_=false for the rest of the Engine lifetime.
+    void npu_init_if_enabled() {
+        if (npu_init_attempted_) return;
+        npu_init_attempted_ = true;
+
+        const char* xclbin = std::getenv("HALO_NPU_XCLBIN");
+        const char* insts  = std::getenv("HALO_NPU_INSTS");
+        // Default to the M=K=N=64 phase-1 xclbin authored in mlir-aie.
+        // The 512×512×512 phase-2 xclbin exists on disk too but the
+        // BitnetGemmAIE2P wrapper is hard-coded to the 64-tile in its
+        // compile-time constants — pointing it at the 512 file would
+        // fail the BO size check at load().
+        if (!xclbin || !*xclbin) {
+            xclbin = "/home/bcloud/repos/mlir-aie/programming_examples/"
+                     "basic/bitnet_gemm/single_core/build/"
+                     "final_64x64x64_64x64x64.xclbin";
+        }
+        if (!insts || !*insts) {
+            insts = "/home/bcloud/repos/mlir-aie/programming_examples/"
+                    "basic/bitnet_gemm/single_core/build/"
+                    "insts_64x64x64_64x64x64.txt";
+        }
+
+        char err[512] = {0};
+        rcpp_npu_dispatch_t* h = nullptr;
+        const auto rc = rcpp_npu_dispatch_create(xclbin, insts,
+                                                 err, sizeof(err), &h);
+        if (rc != RCPP_NPU_OK || !h) {
+            std::fprintf(stderr,
+                "[rocm_cpp::Engine] NPU lane disabled: %s\n",
+                err[0] ? err : "rcpp_npu_dispatch_create returned error");
+            npu_dispatch_enabled_ = false;
+            return;
+        }
+        npu_gemm_ = h;
+        npu_dispatch_enabled_ = true;
+        std::fprintf(stderr,
+            "[rocm_cpp::Engine] NPU lane enabled (xclbin=%s)\n", xclbin);
+    }
+#endif // ROCM_CPP_HAVE_XDNA
 
     // ---- ternary GEMV dispatcher (Bonsai vs i8 path) --------------------
     //
@@ -580,7 +667,44 @@ struct Engine::Impl {
                                const float* row_scales,
                                const void* normed_fp16,
                                void* out_fp16,
-                               int N, int K) const {
+                               int N, int K)
+#ifdef ROCM_CPP_HAVE_XDNA
+                               // non-const because npu_init_if_enabled()
+                               // mutates npu_*_ members lazily on first hit
+#else
+                               const
+#endif
+    {
+#ifdef ROCM_CPP_HAVE_XDNA
+        // NPU short-circuit: env-gated, tile-matched, falls through on any
+        // failure.  Skip Bonsai (needs Q1/TQ2-shape weights, not HALO_V2)
+        // and SHERRY_FP16 (1.25-bpw packing, not HALO_V2) — the AIE2P
+        // xclbin is hard-coded to HALO_V2.
+        const bool tile_ok = (N > 0) && (K > 0) &&
+                             (N % 64 == 0) && (K % 64 == 0);
+        const bool fmt_ok =
+            !is_bonsai &&
+            model.weight_format != RCPP_WEIGHT_FORMAT_SHERRY_FP16 &&
+            model.weight_format != RCPP_WEIGHT_FORMAT_SHERRY_I8 &&
+            model.weight_format != RCPP_WEIGHT_FORMAT_TQ1;
+        if (Impl::npu_dispatch_enabled() && tile_ok && fmt_ok) {
+            npu_init_if_enabled();
+            if (npu_dispatch_enabled_ && npu_gemm_) {
+                const auto rc = rcpp_npu_dispatch_gemv(
+                    npu_gemm_, packed, row_scales, normed_fp16, out_fp16,
+                    N, K);
+                if (rc == RCPP_NPU_OK) {
+                    return RCPP_OK;
+                }
+                std::fprintf(stderr,
+                    "[rocm_cpp::Engine] NPU dispatch failed (rc=%d, %s) "
+                    "— falling back to HIP\n",
+                    (int)rc, rcpp_npu_dispatch_last_error(npu_gemm_));
+                // fall through
+            }
+        }
+#endif
+
         if (is_bonsai) {
             return bonsai_gemv_dispatch(model.weight_format, packed,
                                         normed_fp16, out_fp16, N, K,

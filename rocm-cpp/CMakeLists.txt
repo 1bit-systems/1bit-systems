@@ -397,6 +397,57 @@ if(BUILD_XDNA)
     message(STATUS "XDNA wrapper: ENABLED (libxrt at ${XRT_LIBRARIES})")
 
     # ------------------------------------------------------------------
+    # rocm_cpp_npu_dispatch — C++23 island bridging Engine::ternary_gemv
+    # to the onebit::aie::BitnetGemmAIE2P xclbin engine.
+    # ------------------------------------------------------------------
+    # rocm_cpp itself is C++17 (HIP TUs), but BitnetGemmAIE2P's public
+    # header pulls in <expected> (C++23).  We isolate the cast/host-bridge
+    # logic in a single non-HIP TU compiled at cxx_std_23 and present it
+    # to engine.cpp through a plain C ABI (engine_npu_dispatch.h).
+    #
+    # The onebit::aie_bitnet_gemm target lives in cpp/aie/CMakeLists.txt;
+    # the parent cpp/CMakeLists.txt orders add_subdirectory(aie) BEFORE
+    # add_subdirectory(rocm-cpp) so the alias resolves here.  We probe
+    # for the target and degrade gracefully when rocm-cpp is being built
+    # standalone (no aie sibling).
+    if(TARGET onebit::aie_bitnet_gemm)
+        add_library(rocm_cpp_npu_dispatch STATIC
+            src/engine_npu_dispatch.cpp)
+        target_include_directories(rocm_cpp_npu_dispatch PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src>)
+        target_include_directories(rocm_cpp_npu_dispatch SYSTEM PRIVATE
+            "${ROCM_ROOT}/include")
+        target_compile_features(rocm_cpp_npu_dispatch PUBLIC cxx_std_23)
+        # tiled_gemv (the pad-and-tile dispatcher) is the wrapper we
+        # actually call; it lives in onebit::aie_tiled_gemv next to the
+        # leaf BitnetGemmAIE2P engine.  Both are PUBLIC here so the
+        # transitive include path picks up the AIE headers.
+        set(_npu_dispatch_aie_targets
+            onebit::aie_bitnet_gemm)
+        if(TARGET onebit::aie_tiled_gemv)
+            list(APPEND _npu_dispatch_aie_targets onebit::aie_tiled_gemv)
+        endif()
+        target_link_libraries(rocm_cpp_npu_dispatch
+            PUBLIC  ${_npu_dispatch_aie_targets}
+            PRIVATE hip::host)
+
+        # Fold into the main rocm_cpp shared lib + flag the engine TU so
+        # the short-circuit compiles.  PRIVATE link is intentional: the
+        # NPU bridge is an implementation detail of the engine, not part
+        # of librocm_cpp.so's exported surface.
+        target_link_libraries(rocm_cpp PRIVATE rocm_cpp_npu_dispatch)
+        target_compile_definitions(rocm_cpp PRIVATE ROCM_CPP_HAVE_XDNA=1)
+        message(STATUS
+            "XDNA dispatch: ENABLED (engine.cpp short-circuits via "
+            "rcpp_npu_dispatch_*; HALO_NPU=1 to activate at runtime)")
+    else()
+        message(STATUS
+            "XDNA dispatch: skipped — onebit::aie_bitnet_gemm target not "
+            "found.  Build via the cpp/ tower (release-strix preset) for "
+            "the engine NPU short-circuit.")
+    endif()
+
+    # ------------------------------------------------------------------
     # XDNA ternary GEMV (rocm_cpp_xdna_ternary)
     # ------------------------------------------------------------------
     # Independent shared library + test that wraps the v0 ternary GEMV

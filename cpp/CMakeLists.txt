@@ -17,6 +17,11 @@ option(ONEBIT_BUILD_DESKTOP   "Build helm desktop (Qt6)" ON)
 option(ONEBIT_BUILD_NPU       "Build aie/NPU runtime (libxrt)" ON)
 option(ONEBIT_BUILD_TESTS     "Build test suite" ON)
 option(ONEBIT_BUILD_TOOLS     "Build offline tools" ON)
+# ONEBIT_BUILD_XDNA: link onebit::aie_bitnet_gemm directly against libxrt
+# (default OFF — the cpp/aie/CMakeLists.txt holds the matching option).
+# Surfacing it here lets the release-strix preset turn it on without
+# poking into the aie/ subtree from the preset file.
+option(ONEBIT_BUILD_XDNA      "Direct-link libxrt for AIE2P bitnet_gemm" OFF)
 # rocm-cpp is the HIP kernel subtree (folded 2026-04-20). Its top-level
 # CMakeLists.txt pins TheRock's clang as the HIP compiler. Build it in-tree
 # only when the TheRock toolchain is present at ~/therock/build/dist/rocm.
@@ -46,19 +51,31 @@ add_subdirectory(voice)
 add_subdirectory(echo)
 add_subdirectory(onnx)
 add_subdirectory(kokoro)
+
+# `aie` MUST be added before `rocm-cpp` so the onebit::aie_bitnet_gemm
+# target exists when rocm-cpp's CMakeLists probes for it (the engine NPU
+# dispatch shim links against it under -DBUILD_XDNA=ON).  Re-ordering this
+# pair triggers a silent build regression: rocm-cpp falls back to the
+# "no aie target" branch and engine.cpp loses the short-circuit.
+if(ONEBIT_BUILD_NPU)
+    add_subdirectory(aie)
+endif()
+
 if(ONEBIT_BUILD_ROCM_CPP)
     if(EXISTS "$ENV{HOME}/therock/build/dist/rocm/lib/llvm/bin/clang++")
         message(STATUS "rocm-cpp: building in-tree against TheRock toolchain.")
+        # Forward the NPU build flag.  rocm-cpp's CMakeLists keys its
+        # XDNA wrapper + engine bridge on BUILD_XDNA, not ONEBIT_BUILD_XDNA.
+        if(ONEBIT_BUILD_XDNA OR ONEBIT_BUILD_NPU)
+            set(BUILD_XDNA ON CACHE BOOL
+                "Forwarded from cpp/ tower for NPU dispatch lane" FORCE)
+        endif()
         add_subdirectory(${CMAKE_SOURCE_DIR}/../rocm-cpp ${CMAKE_BINARY_DIR}/rocm-cpp)
     else()
         message(WARNING
             "ONEBIT_BUILD_ROCM_CPP=ON but ~/therock/build/dist/rocm not found. "
             "Build TheRock first (see project_therock_watch.md) or set OFF.")
     endif()
-endif()
-
-if(ONEBIT_BUILD_NPU)
-    add_subdirectory(aie)
 endif()
 add_subdirectory(ingest)
 add_subdirectory(stream)
