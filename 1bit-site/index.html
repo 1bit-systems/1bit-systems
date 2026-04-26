@@ -744,6 +744,16 @@ PPL wikitext-103 pass-4095:    11.98
   <section id="changelog" class="doc-section">
     <h2>Changelog</h2>
     <p class="muted note">Canonical source: <a href="https://github.com/bong-water-water-bong/1bit-systems/releases" rel="noopener">GitHub releases</a>. v0.1.0 highlights and a few load-bearing cutovers below.</p>
+    <h3>2026-04-26 &mdash; NPU lane lights up</h3>
+    <ul>
+      <li>First end-to-end ternary GEMM on the Strix Halo XDNA2 NPU (AIE2P, fw 1.1.2.65 via <code>amdxdna</code>). Phase-1 64&times;64&times;64 tile lands at <code>rel_err = 4.0&times;10<sup>&minus;3</sup></code> against the bf16 CPU oracle (28 890 B xclbin). Phase-2 fused 512&times;512&times;512 tile is <strong>bit-exact</strong> (15 354 B). <code>run.wait()</code> returned <code>ERT_CMD_STATE_COMPLETED</code> on every iteration.</li>
+      <li>libxrt direct-call lane wired through <code>cpp/aie/BitnetGemmAIE2P</code> (pImpl, <code>std::expected&lt;T, Error&gt;</code>, <code>std::span</code> interface). Build-gated on <code>ONEBIT_BUILD_XDNA</code>; XRT 2.21.75. Sibling to the existing dlopen-backed <code>XrtBackend</code>.</li>
+      <li><code>mlir-aie</code> forked to <code>bong-water-water-bong/mlir-aie</code> with Phase-1 + Phase-2 sources + xclbins under <code>programming_examples/basic/bitnet_gemm/single_core/</code>.</li>
+      <li>1bit recipes namespaced under <code>1bit-systems/</code> in the lemonade-sdk fork's <code>server_models.json</code> registry.</li>
+      <li>Sherry repack tool now recomputes per-row scales post-3:4 sparsification (<code>S_sherry = S_v2 &middot; |q_v2|_1 / |q_sherry|_1</code>) instead of pass-through; PPL re-verification pending.</li>
+      <li>Install script: unset bad <code>CC</code> / <code>CXX</code> / <code>HIPCXX</code> env and wipe stale <code>CMakeCache.txt</code> before retry. Bun Discord shim sidecar puts the help-desk bot fleet online without dragging discord.js into the C++ tower.</li>
+      <li><strong>Not done yet:</strong> tile widening for production model dims (Phase-2 caps at 512 per launch), runtime engine wire (decode loop still on HIP <code>rcpp_ternary_gemv_halo_f16_devscale</code>), soak run on real model weights. Ship-gate kernel half resolved; runtime + soak open. Detail: <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/CHANGELOG-2026-04-26.md" rel="noopener">CHANGELOG-2026-04-26.md</a>, wiki page <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/NPU-bitnet-gemm-2026-04-26" rel="noopener">NPU-bitnet-gemm-2026-04-26</a>.</li>
+    </ul>
     <h3>v0.1.0 &mdash; first tagged release</h3>
     <ul>
       <li><code>halo-1bit-2b</code> baseline: 80.8 tok/s @ ctx 64, 68.2 tok/s @ ctx 1024, PPL 9.16 on wikitext-103.</li>
