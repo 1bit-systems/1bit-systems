@@ -198,10 +198,9 @@ mod tests {
     /// content and order so a silent refactor gets caught.
     #[test]
     fn service_name_set_is_stable() {
-        assert_eq!(SERVICES.len(), 3, "MVP covers exactly three units");
+        assert_eq!(SERVICES.len(), 2, "MVP covers exactly two units post-Discord-cull");
         assert_eq!(SERVICES[0], "1bit-halo-bitnet");
         assert_eq!(SERVICES[1], "strix-server");
-        assert_eq!(SERVICES[2]);
         // No duplicates — systemctl would accept them but the status
         // line would read ugly.
         let mut sorted = SERVICES.to_vec();
@@ -221,13 +220,11 @@ mod tests {
                 name: "strix-server".into(),
                 state: ServiceState::Active,
             },
-            ServiceStatus {
-                state: ServiceState::Inactive,
-            },
         ];
         let line = build_status_line(&rows);
         assert_eq!(
             line,
+            "1bit-halo-bitnet: active · strix-server: active",
         );
 
         // Empty input is a degenerate-but-real case — the polling
