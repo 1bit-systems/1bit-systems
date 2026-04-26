@@ -70,3 +70,110 @@ if(ONEBIT_BUILD_TESTS)
     target_link_libraries(onebit_aie_test PRIVATE onebit::aie doctest::doctest)
     add_test(NAME onebit_aie COMMAND onebit_aie_test)
 endif()
+
+# -----------------------------------------------------------------------------
+# onebit_aie_bitnet_gemm — direct-link libxrt wrapper around the authored
+# AIE2P ternary-GEMM xclbin (bitnet_gemm_bf16, M=K=N=64).
+#
+# This is a *separate* library from onebit_aie_lib above. The dlopen path
+# stays for the lemonade-routed BitNet GEMV; this lib is the ORT/Engine
+# direct-call lane that mirrors run_pyxrt_bitnet.py.
+#
+# Gating: ONEBIT_BUILD_XDNA (top-level option) OR BUILD_XDNA (inherited
+# from rocm-cpp when ONEBIT_BUILD_ROCM_CPP=ON). Either turns it on.
+# When neither is set, the library still builds but every entry point
+# returns LibraryUnavailable — same compile-clean stance as onebit::onnx.
+# -----------------------------------------------------------------------------
+option(ONEBIT_BUILD_XDNA "Build XDNA NPU lane (link libxrt directly)" OFF)
+
+set(_onebit_bitnet_gemm_xrt_enabled FALSE)
+if(ONEBIT_BUILD_XDNA OR BUILD_XDNA)
+    if(NOT UNIX OR APPLE)
+        message(FATAL_ERROR
+            "ONEBIT_BUILD_XDNA requires Linux + libxrt (amdxdna driver)")
+    endif()
+    set(_onebit_bitnet_gemm_xrt_enabled TRUE)
+endif()
+
+set(_onebit_bitnet_gemm_xrt_inc "")
+set(_onebit_bitnet_gemm_xrt_libs "")
+if(_onebit_bitnet_gemm_xrt_enabled)
+    # Same probe pattern as rocm-cpp/CMakeLists.txt:350 — pkg-config first,
+    # manual /usr/lib fallback for Arch which ships xrt without a .pc file.
+    find_package(PkgConfig QUIET)
+    set(_xrt_via_pc FALSE)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(_PC_XRT QUIET xrt)
+        if(_PC_XRT_FOUND)
+            set(_onebit_bitnet_gemm_xrt_inc  ${_PC_XRT_INCLUDE_DIRS})
+            set(_onebit_bitnet_gemm_xrt_libs ${_PC_XRT_LIBRARIES})
+            set(_xrt_via_pc TRUE)
+        endif()
+    endif()
+
+    if(NOT _xrt_via_pc)
+        if(NOT EXISTS "/usr/include/xrt/xrt_kernel.h")
+            message(FATAL_ERROR
+                "ONEBIT_BUILD_XDNA: /usr/include/xrt/xrt_kernel.h missing. "
+                "Install xrt (Arch/CachyOS: pacman -S xrt).")
+        endif()
+        if(NOT EXISTS "/usr/lib/libxrt_coreutil.so")
+            message(FATAL_ERROR
+                "ONEBIT_BUILD_XDNA: /usr/lib/libxrt_coreutil.so missing.")
+        endif()
+        set(_onebit_bitnet_gemm_xrt_inc  "/usr/include")
+
+        # Required: xrt_coreutil. Optional: xrt_driver_xdna (when xrt was
+        # built with the AMDXDNA driver in-tree — Arch packaging does this).
+        # The C++ surface in xrt_kernel.h links against coreutil only; the
+        # xdna driver lib is loaded by coreutil at runtime via dlopen, so
+        # we don't need to put it on the link line. We DO add it as a
+        # secondary lib when present so static analysis tools see it.
+        set(_onebit_bitnet_gemm_xrt_libs "/usr/lib/libxrt_coreutil.so")
+        if(EXISTS "/usr/lib/libxrt_driver_xdna.so.2")
+            list(APPEND _onebit_bitnet_gemm_xrt_libs
+                 "/usr/lib/libxrt_driver_xdna.so.2")
+        endif()
+    endif()
+
+    message(STATUS
+        "onebit::aie::bitnet_gemm — XDNA direct-link ENABLED "
+        "(includes=${_onebit_bitnet_gemm_xrt_inc} libs=${_onebit_bitnet_gemm_xrt_libs})")
+else()
+    message(STATUS
+        "onebit::aie::bitnet_gemm — XDNA direct-link DISABLED "
+        "(set -DONEBIT_BUILD_XDNA=ON to wire libxrt). "
+        "Library still builds; entry points return LibraryUnavailable.")
+endif()
+
+add_library(onebit_aie_bitnet_gemm STATIC
+    src/bitnet_gemm_aie2p.cpp
+)
+target_include_directories(onebit_aie_bitnet_gemm PUBLIC include)
+target_compile_features(onebit_aie_bitnet_gemm PUBLIC cxx_std_23)
+# Pull in onebit::aie for label() / Error::what() (defined in src/error.cpp
+# under that target). Avoids ODR-bloat from re-linking error.cpp here.
+target_link_libraries(onebit_aie_bitnet_gemm PUBLIC onebit::aie)
+add_library(onebit::aie_bitnet_gemm ALIAS onebit_aie_bitnet_gemm)
+
+if(_onebit_bitnet_gemm_xrt_enabled)
+    target_compile_definitions(onebit_aie_bitnet_gemm PRIVATE
+        ONEBIT_AIE_HAVE_XRT_RT=1)
+    target_include_directories(onebit_aie_bitnet_gemm SYSTEM PRIVATE
+        ${_onebit_bitnet_gemm_xrt_inc})
+    target_link_libraries(onebit_aie_bitnet_gemm PRIVATE
+        ${_onebit_bitnet_gemm_xrt_libs})
+else()
+    target_compile_definitions(onebit_aie_bitnet_gemm PRIVATE
+        ONEBIT_AIE_HAVE_XRT_RT=0)
+endif()
+
+if(ONEBIT_BUILD_TESTS)
+    add_executable(onebit_aie_bitnet_gemm_test
+        tests/bitnet_gemm_aie2p_test.cpp
+    )
+    target_link_libraries(onebit_aie_bitnet_gemm_test PRIVATE
+        onebit::aie_bitnet_gemm doctest::doctest)
+    add_test(NAME onebit_aie_bitnet_gemm
+             COMMAND onebit_aie_bitnet_gemm_test)
+endif()
