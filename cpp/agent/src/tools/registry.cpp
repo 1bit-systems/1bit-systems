@@ -168,6 +168,10 @@ ToolRegistry::build(const std::vector<std::string>& enabled,
         {"bench_lookup",     &tools::make_bench_lookup},
         {"install_runbook",  &tools::make_install_runbook},
         {"gh_issue_create",  &tools::make_gh_issue_create},
+        {"read_file",        &tools::make_read_file},
+        {"list_files",       &tools::make_list_files},
+        {"git_log",          &tools::make_git_log},
+        {"service_status",   &tools::make_service_status},
     };
 
     for (const auto& name : enabled) {

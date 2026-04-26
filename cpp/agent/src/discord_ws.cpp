@@ -429,11 +429,11 @@ std::string serialize_identify(const GatewayConfig& cfg)
     out += esc(cfg.token);
     out += "\",\"intents\":";
     out += std::to_string(cfg.intents);
-    out += ",\"properties\":{\"$os\":\"";
+    out += ",\"properties\":{\"os\":\"";
     out += esc(cfg.os);
-    out += "\",\"$browser\":\"";
+    out += "\",\"browser\":\"";
     out += esc(cfg.browser);
-    out += "\",\"$device\":\"";
+    out += "\",\"device\":\"";
     out += esc(cfg.device);
     out += "\"}}}";
     return out;

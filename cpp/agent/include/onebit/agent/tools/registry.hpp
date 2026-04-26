@@ -90,6 +90,10 @@ inline constexpr std::size_t kMaxContentBytes = 4 * 1024;
                                          std::string peer_model,
                                          std::string self_name);
 [[nodiscard]] ToolDef make_speak_to_echo(std::string echo_url, bool auto_speak);
+[[nodiscard]] ToolDef make_read_file();
+[[nodiscard]] ToolDef make_list_files();
+[[nodiscard]] ToolDef make_git_log();
+[[nodiscard]] ToolDef make_service_status();
 
 // ---- Test seam -----------------------------------------------------------
 //

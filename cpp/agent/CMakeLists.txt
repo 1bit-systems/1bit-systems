@@ -38,6 +38,10 @@ add_library(onebit_agent_lib STATIC
     src/tools/gh_issue_create.cpp
     src/tools/agent_consult.cpp
     src/tools/speak_to_echo.cpp
+    src/tools/read_file.cpp
+    src/tools/list_files.cpp
+    src/tools/git_log.cpp
+    src/tools/service_status.cpp
 )
 target_include_directories(onebit_agent_lib PUBLIC include)
 target_include_directories(onebit_agent_lib PRIVATE src)

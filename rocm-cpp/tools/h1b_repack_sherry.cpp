@@ -368,17 +368,42 @@ int do_repack(const std::string& in_path, const std::string& out_path) {
             stats.v2_bytes = src_bytes;
             stats.v3_bytes = dst_bytes;
 
+            // Per-row scale recomputation: the kernel writeback computes
+            // y[r] = scales[r] * sum_k(x[k] * sign(q_sherry[r,k])), so the
+            // scale must absorb the L1 ratio between the input HALO_V2
+            // ternary row and the strict-3:4-sparse row produced by
+            // make_3to4_sparse. Without this, dot products are biased on
+            // every row by ~|q_v2|_1 / |q_sherry|_1 and PPL collapses to
+            // ~9e8 (validated 2026-04-26 forensic).
+            //
+            // |q_sherry|_1 is constant by construction (3 * groups), but
+            // |q_v2|_1 varies per row. Compute it inline and emit a
+            // recomputed fp32 scale tensor.
+            std::vector<float> scales_v3((size_t)sp.rows, 0.0f);
+            const float* scales_v2 =
+                reinterpret_cast<const float*>(scales);
+            const int groups_per_row = sp.cols / 4;
+            const float l1_out = static_cast<float>(3 * groups_per_row);
             for (int r = 0; r < sp.rows; ++r) {
                 halo_unpack_row(src + (size_t)r * src_row_bytes,
                                 sp.cols, ternary.data());
+                int l1_in_count = 0;
+                for (int c = 0; c < sp.cols; ++c) {
+                    if (ternary[c] != 0) ++l1_in_count;
+                }
                 make_3to4_sparse(ternary.data(), sp.cols, sparse.data(), stats);
                 pack_row_sherry(sparse.data(), sp.cols,
                                 packed_v3.data() + (size_t)r * dst_row_bytes);
+                const float ratio = (l1_out > 0.0f && l1_in_count > 0)
+                    ? (static_cast<float>(l1_in_count) / l1_out)
+                    : 1.0f;
+                scales_v3[r] = scales_v2[r] * ratio;
             }
 
-            // Emit packed tensor + per-row scales (pass-through).
+            // Emit packed tensor + recomputed per-row scales.
             append_bytes(packed_v3.data(), dst_bytes);
-            append_bytes(scales, scales_bytes);
+            append_bytes(reinterpret_cast<const uint8_t*>(scales_v3.data()),
+                         scales_bytes);
 
             // Multi-zero rate cap (architect spec: < 5%).
             const double multi_rate = stats.groups_total
