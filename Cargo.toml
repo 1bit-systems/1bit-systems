@@ -17,7 +17,6 @@ members = [
     "crates/1bit-stream",
     "crates/1bit-watchdog",
     "crates/1bit-mcp-clients",
-    "crates/1bit-mcp-discord",
     "crates/1bit-mcp-linuxgsm",
     "crates/1bit-halo-ralph",
     "crates/1bit-retrieval",
@@ -29,6 +28,7 @@ members = [
 ]
 exclude = [
     "crates/1bit-agents-legacy",  # folded historical snapshot (halo-agents@ed7825b, 2026-04-21); not built
+    "crates/1bit-mcp-discord-orphan",  # depends on retired onebit-agents; revive when discord MCP gets a new home
 ]
 
 [workspace.package]

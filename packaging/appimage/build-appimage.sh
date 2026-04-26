@@ -57,7 +57,6 @@ BUNDLED_BINS=(
     1bit-watch-discord
     1bit-watch-github
     1bit-mcp
-    1bit-mcp-discord
     1bit-mcp-linuxgsm
     1bit-voice
     1bit-echo
