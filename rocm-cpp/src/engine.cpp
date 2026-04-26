@@ -18,6 +18,7 @@
 #include "rocm_cpp/ck_gemm.h"
 #include "rocm_cpp/kv_rotorquant.h"
 #include "rocm_cpp/medusa.h"
+#include "rocm_cpp/sherry.h"
 #include "rocm_cpp/tokenizer.h"
 
 #include <hip/hip_fp16.h>
@@ -472,18 +473,39 @@ struct Engine::Impl {
             throw std::runtime_error(
                 "rocm_cpp::Engine::load: kv_rotor requires head_dim % 8 == 0");
         }
+        // ROCm hot-path win (2026-04-26 docs walk): flip KV-cache buffers to
+        // coarse-grain. On Strix Halo unified memory the iGPU normally
+        // maintains per-cacheline coherence with the CPU on hipMalloc'd
+        // device memory; coarse-grain skips that snoop traffic. KV cache is
+        // device-local during decode (CPU never touches it between launches)
+        // so this is safe and a pure win on LPDDR5x bandwidth.
+        int kv_dev_id = 0;
+        HIP_CHECK(hipGetDevice(&kv_dev_id));
+        auto kv_advise_coarse = [&](void* p, size_t n) {
+            // Best-effort: not all driver builds honor this on plain
+            // hipMalloc; ignore failures rather than aborting the load.
+            (void)hipMemAdvise(p, n, hipMemAdviseSetCoarseGrain, kv_dev_id);
+        };
         for (int l = 0; l < L; ++l) {
             if (cfg.kv_int8) {
                 HIP_CHECK(hipMalloc(&K_caches_i8[l], kv_size_i8));
                 HIP_CHECK(hipMalloc(&V_caches_i8[l], kv_size_i8));
                 HIP_CHECK(hipMalloc(&K_scales[l], sc_size));
                 HIP_CHECK(hipMalloc(&V_scales[l], sc_size));
+                kv_advise_coarse(K_caches_i8[l], kv_size_i8);
+                kv_advise_coarse(V_caches_i8[l], kv_size_i8);
+                kv_advise_coarse(K_scales[l],    sc_size);
+                kv_advise_coarse(V_scales[l],    sc_size);
             } else if (cfg.kv_rotor) {
                 HIP_CHECK(hipMalloc(&K_caches_pq3[l], kv_size_pq3));
                 HIP_CHECK(hipMalloc(&V_caches_pq3[l], kv_size_pq3));
+                kv_advise_coarse(K_caches_pq3[l], kv_size_pq3);
+                kv_advise_coarse(V_caches_pq3[l], kv_size_pq3);
             } else {
                 HIP_CHECK(hipMalloc(&K_caches[l], kv_size));
                 HIP_CHECK(hipMalloc(&V_caches[l], kv_size));
+                kv_advise_coarse(K_caches[l], kv_size);
+                kv_advise_coarse(V_caches[l], kv_size);
             }
         }
 
@@ -563,6 +585,22 @@ struct Engine::Impl {
             return bonsai_gemv_dispatch(model.weight_format, packed,
                                         normed_fp16, out_fp16, N, K,
                                         /*stream=*/nullptr);
+        }
+        // SHERRY_FP16 carries a flag that says "this row_scale was minted
+        // for the fp16-act kernel, not the i8 kernel". Routing it through
+        // the i8 path double-counts magnitude (i8 quant introduces its own
+        // x_scale on top of the row scale) and the activation precision
+        // collapses to ±127. Send it to the dedicated fp16 launcher with
+        // per-row scales instead — same packed weights, fp16 acts straight
+        // off the RMSNorm output, single multiply at writeback.
+        if (model.weight_format == RCPP_WEIGHT_FORMAT_SHERRY_FP16) {
+            sherry_ternary_gemv_with_scales_launch(
+                static_cast<const uint8_t*>(packed),
+                static_cast<const uint16_t*>(normed_fp16),
+                row_scales,
+                static_cast<uint16_t*>(out_fp16),
+                N, K, /*stream=*/nullptr);
+            return RCPP_OK;
         }
         return ternary_gemv_i8(packed, x_i8_in, x_scale_dev, row_scales,
                                out_fp16, N, K, /*stream=*/nullptr);

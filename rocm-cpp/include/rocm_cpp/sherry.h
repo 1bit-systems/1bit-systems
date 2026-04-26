@@ -76,6 +76,31 @@ void sherry_ternary_gemv_scalar_ref_launch(
     int             K_in,
     void*           stream);
 
+// Same packing + activation contract as `sherry_ternary_gemv_launch`, but
+// folds in the halo-1bit v3 per-row fp32 scale before the fp16 clamp +
+// cast. Required when the caller has the `[N_out] f32` scales tensor
+// emitted by `tools/h1b-sherry/` (Rust requantizer) or
+// `tools/h1b_repack_sherry.cpp` (C++ requantizer); without this fold-in
+// the output magnitudes are off by the absmean factor and downstream
+// RMSNorm / softmax silently produce garbage.
+//
+//   row_scales_fp32 : const float*, device, length N_out (one per output
+//                     row). Pass `nullptr` to opt out — the kernel then
+//                     reduces to the pure signed-sum behavior of
+//                     `sherry_ternary_gemv_launch`.
+//
+// All other parameters and constraints match `sherry_ternary_gemv_launch`
+// exactly. Single kernel under the hood; the scale fold-in is one fmul
+// on lane 0 of the writeback, no extra LDS / register pressure.
+void sherry_ternary_gemv_with_scales_launch(
+    const uint8_t*  packed_weights,
+    const uint16_t* act_fp16,
+    const float*    row_scales_fp32,
+    uint16_t*       out_fp16,
+    int             N_out,
+    int             K_in,
+    void*           stream);
+
 // Host-side packer. Input is a contiguous int8 array of `count` ternary
 // values in {-1, 0, +1}, laid out as consecutive groups of 4. For each group,
 // the caller is responsible for ensuring exactly one lane is 0 (Sherry's

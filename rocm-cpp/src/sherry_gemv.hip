@@ -128,12 +128,24 @@ uint32_t fetch_code_5b(const uint8_t* __restrict__ row, int g) {
                              // of 4 (group size) and of 128 (block size × 4
                              // fp16-per-thread).
 
+// scales is OPTIONAL. When non-null, the kernel multiplies the per-row
+// fp32 accumulator by `scales[row]` before the fp16 cast — matching the
+// halo-1bit v3 Sherry contract (the .h1b stores a per-row fp32 scale
+// alongside the packed weights so the kernel can fold (1.25-bpw weight ×
+// learned absmean magnitude) in one pass). When null, the kernel emits
+// the pure signed-sum behavior the differential test relies on (pure
+// ±1/0 × fp16 → fp16, bit-identical to the scalar reference).
+//
+// The branch on `scales == nullptr` is uniform across the block (kernel
+// arg is the same for every thread), so the compiler folds it to a
+// scalar predicate; no divergence cost.
 __attribute__((amdgpu_flat_work_group_size(SHERRY_BLOCK, SHERRY_BLOCK)))
 __global__ void sherry_ternary_gemv_kernel(
     const uint8_t*  __restrict__ packed,
     const __half*   __restrict__ act,
     __half*         __restrict__ out,
-    int N_out, int K_in)
+    int N_out, int K_in,
+    const float*    __restrict__ scales)
 {
     const int tid  = threadIdx.x;
     const int lane = tid & (SHERRY_WAVE - 1);
@@ -269,6 +281,13 @@ __global__ void sherry_ternary_gemv_kernel(
             v += __shfl_xor(v, off);
         }
         if (lane == 0) {
+            // Per-row scale fold-in (halo-1bit v3 Sherry contract). Done in
+            // fp32 BEFORE the fp16 clamp + cast so an outlier row can't
+            // saturate the unscaled signed-sum into +Inf (which would then
+            // multiply to NaN on the post-pass). Skipped when scales is
+            // null — preserves the pure-signed-sum semantics the
+            // differential test in tests/test_sherry_gemv.cpp relies on.
+            if (scales) v *= scales[row];
             // Clamp to fp16 range before cast. Post-hoc ternary × large acts
             // can overflow fp16 on outlier rows; downstream RMSNorm /
             // softmax is NaN-poisoned if we emit +Inf here. Same guard as
@@ -302,7 +321,43 @@ extern "C" void sherry_ternary_gemv_launch(
                        packed_weights,
                        reinterpret_cast<const __half*>(act_fp16),
                        reinterpret_cast<__half*>(out_fp16),
-                       N_out, K_in);
+                       N_out, K_in,
+                       /*scales=*/nullptr);
+}
+
+// Variant that folds in the halo-1bit v3 per-row fp32 scale on each row's
+// writeback. Identical kernel as `sherry_ternary_gemv_launch`; the only
+// difference is the trailing scale multiply before the fp16 clamp + cast.
+// `row_scales_fp32` is a device pointer to N_out fp32 entries (one per
+// output row). When integrated into the live decode loop the loader
+// hands us back the same `q_scales_dev` / `k_scales_dev` / ... arrays
+// the i8 sherry kernel consumes — bit-equivalent fold-in math, just on
+// fp16 activations instead of int8.
+extern "C" void sherry_ternary_gemv_with_scales_launch(
+    const uint8_t*  packed_weights,
+    const uint16_t* act_fp16,
+    const float*    row_scales_fp32,
+    uint16_t*       out_fp16,
+    int             N_out,
+    int             K_in,
+    void*           stream)
+{
+    if (N_out <= 0 || K_in <= 0)            return;
+    if ((K_in & 0x3) != 0)                  return;  // groups of 4
+    if ((K_in & 0x1F) != 0)                 return;  // byte-aligned rows (K * 5 / 32 integer)
+    // row_scales_fp32 may be null — caller intent is "no fold-in"; fall
+    // through to the same kernel with a null scale pointer (kernel-side
+    // branch is uniform-on-null, no divergence).
+
+    dim3 grid(N_out, 1, 1);
+    dim3 block(SHERRY_BLOCK, 1, 1);
+    hipLaunchKernelGGL(sherry_ternary_gemv_kernel,
+                       grid, block, 0, (hipStream_t)stream,
+                       packed_weights,
+                       reinterpret_cast<const __half*>(act_fp16),
+                       reinterpret_cast<__half*>(out_fp16),
+                       N_out, K_in,
+                       row_scales_fp32);
 }
 
 extern "C" void rcpp_sherry_pack(const int8_t* ternary, uint8_t* out, int count) {
