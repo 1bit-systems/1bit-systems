@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   ctest:
-    name: cpp/ ctest (Ubuntu, gcc-13, CPU only)
+    name: cpp/ ctest (Ubuntu, gcc-14, CPU only)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
 
@@ -32,15 +32,23 @@ jobs:
 
       - name: Install build deps
         run: |
+          # gcc-14 is required for <print> / std::println used by
+          # onebit/log.hpp (the C++23 logging facade every cpp/ crate
+          # consumes). gcc-14 ships in 24.04 by default but its
+          # libstdc++ is missing <print> — pull gcc-14 from the
+          # ubuntu-toolchain-r PPA.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends software-properties-common
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential ninja-build cmake \
-            gcc-13 g++-13 \
+            gcc-14 g++-14 \
             qt6-base-dev qt6-base-dev-tools \
             libgl1-mesa-dev libxkbcommon-dev libdbus-1-dev \
             libssl-dev pkg-config
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100
-          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
           gcc --version
           g++ --version
           cmake --version
@@ -51,8 +59,8 @@ jobs:
         run: |
           cmake -S . -B build/ci -GNinja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_CXX_COMPILER=g++-13 \
-            -DCMAKE_C_COMPILER=gcc-13 \
+            -DCMAKE_CXX_COMPILER=g++-14 \
+            -DCMAKE_C_COMPILER=gcc-14 \
             -DONEBIT_BUILD_TESTS=ON \
             -DONEBIT_BUILD_TOOLS=ON \
             -DONEBIT_BUILD_NPU=OFF \

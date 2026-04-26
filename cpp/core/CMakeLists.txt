@@ -10,6 +10,14 @@ target_compile_features(onebit_core_lib PUBLIC cxx_std_20)
 target_link_libraries(onebit_core_lib PUBLIC nlohmann_json::nlohmann_json)
 add_library(onebit::core ALIAS onebit_core_lib)
 
+# onebit::log — header-only C++23 logging facade (std::println/print/format).
+# Lives next to core's headers but is a separate INTERFACE target so it
+# can be consumed by C++23 callers without dragging the core archive in.
+add_library(onebit_log_lib INTERFACE)
+target_include_directories(onebit_log_lib INTERFACE include)
+target_compile_features(onebit_log_lib INTERFACE cxx_std_23)
+add_library(onebit::log ALIAS onebit_log_lib)
+
 if(ONEBIT_BUILD_TESTS)
     add_executable(onebit_core_test
         tests/sampler_test.cpp
