@@ -155,10 +155,18 @@ pub async fn tier_revoke(
     State(state): State<AppState>,
     Json(req): Json<RevokeRequest>,
 ) -> Response {
-    // Cheap admin gate: compare the admin token (unencoded) against
-    // the JWT signing secret. Not perfect but keeps the surface area
-    // small; real admin needs its own key.
-    if req.admin_token.as_bytes() != state.cfg.jwt_secret.as_slice() {
+    // Constant-time compare against the dedicated admin secret. Was
+    // previously bytewise-compared to the JWT signing key, which meant
+    // anyone who exfiltrated the admin token also recovered the key
+    // they needed to mint arbitrary premium tokens. Admin and signing
+    // are now independent env vars (HALO_TIER_ADMIN_SECRET vs
+    // HALO_TIER_HMAC_SECRET); state.rs::Config::from_env enforces both.
+    let provided = req.admin_token.as_bytes();
+    let expected = state.cfg.admin_secret.as_slice();
+    let ok = provided.len() == expected.len()
+        && provided.iter().zip(expected.iter())
+            .fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0;
+    if !ok {
         return (StatusCode::UNAUTHORIZED, "bad admin token").into_response();
     }
     state.revoked.insert(req.id.clone());

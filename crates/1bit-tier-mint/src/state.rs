@@ -17,6 +17,11 @@ pub struct Config {
     /// BTCPay-side shared secret; HMAC-SHA256 of the request body must
     /// match the `BTCPay-Sig` header.
     pub btcpay_webhook_secret: Vec<u8>,
+    /// Admin bearer for `/tier/revoke`. **Independent of `jwt_secret`** —
+    /// reusing the JWT signing key as the admin token meant anyone who
+    /// guessed/exfiltrated the admin token also recovered the key needed
+    /// to mint arbitrary premium tokens. Now its own env var.
+    pub admin_secret: Vec<u8>,
     /// JWT issuer claim (`iss`).
     pub issuer: String,
     /// JWT lifetime from mint. Short, because `/tier/refresh` can
@@ -36,9 +41,19 @@ impl Config {
         let btcpay_webhook_secret = std::env::var("HALO_BTCPAY_WEBHOOK_SECRET")
             .context("HALO_BTCPAY_WEBHOOK_SECRET must be set")?
             .into_bytes();
+        let admin_secret = std::env::var("HALO_TIER_ADMIN_SECRET")
+            .context("HALO_TIER_ADMIN_SECRET must be set (independent of HALO_TIER_HMAC_SECRET; reusing the JWT signing key means leaking admin = unlimited mint)")?
+            .into_bytes();
+        if admin_secret.len() < 32 {
+            anyhow::bail!("HALO_TIER_ADMIN_SECRET too short; need ≥ 32 bytes of entropy");
+        }
+        if admin_secret == jwt_secret {
+            anyhow::bail!("HALO_TIER_ADMIN_SECRET must NOT equal HALO_TIER_HMAC_SECRET");
+        }
         Ok(Self {
             jwt_secret,
             btcpay_webhook_secret,
+            admin_secret,
             issuer: "1bit.systems".to_string(),
             jwt_ttl: Duration::from_secs(60 * 60 * 24 * 30), // 30 days
         })
