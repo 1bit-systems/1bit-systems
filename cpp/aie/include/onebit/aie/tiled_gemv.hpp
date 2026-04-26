@@ -40,13 +40,15 @@
 namespace onebit::aie {
 
 // Pad-and-tile dispatch config. Trivially-copyable POD; passed by value
-// at the call site. `tile` MUST equal the kernel's compiled tile size
-// (BitnetGemmAIE2P::tile_n() == tile_k() == tile_m()); otherwise the
-// call returns ShapeMismatch without dispatching.
+// at the call site. `tile == 0` -> auto-detect from the kernel's loaded
+// xclbin (kernel.loaded_tile_n()). Any non-zero value MUST equal the
+// kernel's loaded tile size (loaded_tile_n() == loaded_tile_k() ==
+// loaded_tile_m()); otherwise the call returns ShapeMismatch without
+// dispatching.
 struct TiledGemvCfg {
     int n_total;       // unpadded output dim (rows of W, output of GEMV)
     int k_total;       // unpadded input  dim (cols of W, length of A)
-    int tile = 512;    // must match the loaded xclbin's compiled tile
+    int tile = 0;      // 0 = auto-detect from kernel.loaded_tile_n()
 };
 
 // Pad-and-tile GEMV. `a_bf16` is a row-major bf16 vector of length

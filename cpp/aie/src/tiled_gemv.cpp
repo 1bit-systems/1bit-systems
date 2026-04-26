@@ -91,21 +91,29 @@ tiled_gemv(BitnetGemmAIE2P&               kernel,
             "tiled_gemv called on un-ready kernel"});
     }
 
-    // Per-leaf compile-time tile dims. Phase-2 ships 512x512x512 with a
-    // 64x64 inner mmul; the wrapper only sees the outer kernel tile.
-    const std::size_t tile_m = kernel.tile_m();
-    const std::size_t tile_k = kernel.tile_k();
-    const std::size_t tile_n = kernel.tile_n();
+    // Per-leaf tile dims, read off the loaded xclbin (Phase-1 = 64,
+    // Phase-2 = 512). The wrapper only sees the outer kernel tile;
+    // the inner 64x64 mmul lives below.
+    const std::size_t tile_m = kernel.loaded_tile_m();
+    const std::size_t tile_k = kernel.loaded_tile_k();
+    const std::size_t tile_n = kernel.loaded_tile_n();
+    if (tile_m == 0 || tile_k == 0 || tile_n == 0) {
+        return std::unexpected(Error{ErrorKind::NotYetWired,
+            "tiled_gemv: kernel reports zero tile dims (un-ready)"});
+    }
 
-    // tile_k must match cfg.tile (we only ever fan A by k_block of size
-    // tile_k, and we expect tile_n == tile_k for the production xclbin).
-    if (cfg.tile <= 0 ||
-        static_cast<std::size_t>(cfg.tile) != tile_k ||
-        static_cast<std::size_t>(cfg.tile) != tile_n) {
-        return std::unexpected(Error{ErrorKind::ShapeMismatch,
-            "cfg.tile (" + std::to_string(cfg.tile) +
-            ") does not match leaf tile_k (" + std::to_string(tile_k) +
-            ") / tile_n (" + std::to_string(tile_n) + ")"});
+    // cfg.tile == 0 -> auto-detect (use the kernel's loaded tile). Any
+    // positive value must match tile_k AND tile_n; mismatch is rejected
+    // before dispatch so we don't silently produce a wrong-shape buffer.
+    if (cfg.tile != 0) {
+        if (cfg.tile < 0 ||
+            static_cast<std::size_t>(cfg.tile) != tile_k ||
+            static_cast<std::size_t>(cfg.tile) != tile_n) {
+            return std::unexpected(Error{ErrorKind::ShapeMismatch,
+                "cfg.tile (" + std::to_string(cfg.tile) +
+                ") does not match leaf tile_k (" + std::to_string(tile_k) +
+                ") / tile_n (" + std::to_string(tile_n) + ")"});
+        }
     }
 
     if (cfg.n_total <= 0 || cfg.k_total <= 0) {
@@ -151,11 +159,11 @@ tiled_gemv(BitnetGemmAIE2P&               kernel,
     const std::size_t dst_row_stride_u32 = tile_k / kCodesPerU32;
 
     // Sanity-check the leaf's expected sizes match what we'll feed it.
-    if (kernel.a_elems()     != tile_m * tile_k ||
-        kernel.c_elems()     != tile_m * tile_n ||
-        kernel.w_elems_u32() != (tile_k * tile_n) / kCodesPerU32) {
+    if (kernel.loaded_a_elems()     != tile_m * tile_k ||
+        kernel.loaded_c_elems()     != tile_m * tile_n ||
+        kernel.loaded_w_elems_u32() != (tile_k * tile_n) / kCodesPerU32) {
         return std::unexpected(Error{ErrorKind::ShapeMismatch,
-            "leaf a_elems/c_elems/w_elems_u32 inconsistent with tile dims"});
+            "leaf loaded_a_elems/c_elems/w_elems_u32 inconsistent with tile dims"});
     }
 
     // Staging buffers reused across all (n_block, k_block) calls. We
@@ -163,9 +171,9 @@ tiled_gemv(BitnetGemmAIE2P&               kernel,
     // stays zero, which is the canonical "skip this row/column" value
     // for both the A-tile (row 0 carries the activation, rows 1..M-1
     // are dead weight) and the W-tile (HALO_V2 code 00 = +0).
-    std::vector<std::uint16_t> a_pad(kernel.a_elems(), 0u);
-    std::vector<std::uint32_t> w_pad(kernel.w_elems_u32(), 0u);
-    std::vector<std::uint16_t> c_pad(kernel.c_elems(), 0u);
+    std::vector<std::uint16_t> a_pad(kernel.loaded_a_elems(), 0u);
+    std::vector<std::uint32_t> w_pad(kernel.loaded_w_elems_u32(), 0u);
+    std::vector<std::uint16_t> c_pad(kernel.loaded_c_elems(), 0u);
 
     // fp32 K-block accumulator, one per N-block (size = tile_n).
     std::vector<float> c_acc(tile_n, 0.0f);
@@ -184,7 +192,7 @@ tiled_gemv(BitnetGemmAIE2P&               kernel,
             // Rows 1..M-1 stay zero from the initial fill — they're
             // never overwritten (the dead-rows-of-the-M-tile cost).
             std::memset(a_pad.data(), 0,
-                        kernel.a_elems() * sizeof(std::uint16_t));
+                        kernel.loaded_a_elems() * sizeof(std::uint16_t));
             std::memcpy(a_pad.data(),
                         a_bf16.data() + k_off,
                         k_live * sizeof(std::uint16_t));
@@ -196,7 +204,7 @@ tiled_gemv(BitnetGemmAIE2P&               kernel,
             // at u32 offset (k_off / 16) and span (k_live / 16) words
             // (with a tail-word patch when k_live % 16 != 0).
             std::memset(w_pad.data(), 0,
-                        kernel.w_elems_u32() * sizeof(std::uint32_t));
+                        kernel.loaded_w_elems_u32() * sizeof(std::uint32_t));
 
             const std::size_t src_col_off_u32  = k_off / kCodesPerU32;
             const std::size_t k_full_words     = k_live / kCodesPerU32;

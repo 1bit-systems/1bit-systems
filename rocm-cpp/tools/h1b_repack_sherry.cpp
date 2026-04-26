@@ -167,16 +167,21 @@ void make_3to4_sparse(const int8_t* ternary, int cols, int8_t* out,
             v[0] = 0;
         }
 
-        // Force every non-(zero_pos) zero to +1 so the packed sign bit
-        // matches the well-formed 3:4 contract. This rewrites at most 2
-        // lanes when zeros >= 2 — the alternative (encoding as -1) would
-        // bias the rest of the group negative and is what the old py
-        // packer effectively did via its sign_bit = (q==1) rule.
+        // Force every non-(zero_pos) zero to ±1 so the packed sign bit
+        // matches the well-formed 3:4 contract. The OLD policy used a
+        // hardcoded +1 here, which collapsed PPL to ~1e9 because 54% of
+        // halo-1bit-2b groups have ≥2 natural zeros: forcing all of
+        // their secondary zeros to +1 introduced a DC bias on every
+        // row (validated 2026-04-26 — phantom_signs_lost=94.7% of
+        // groups). Use a deterministic *balanced* fill keyed on
+        // (group_index ^ lane_index) so half the phantom signs are −1
+        // and half are +1 across each row, preserving the row's mean
+        // in expectation.
         for (int p = 0; p < 4; ++p) {
             if (p == zero_pos) {
                 v[p] = 0;
             } else if (v[p] == 0) {
-                v[p] = +1;  // secondary natural zero → +1 (deterministic)
+                v[p] = ((g + p) & 1) ? +1 : -1;
                 ++stats.phantom_signs_lost;
             }
         }

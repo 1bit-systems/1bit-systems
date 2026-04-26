@@ -9,6 +9,8 @@
 
 #include "onebit/aie/bitnet_gemm_aie2p.hpp"
 
+#include <cmath>
+#include <cstdint>
 #include <fstream>
 #include <ios>
 #include <iterator>
@@ -67,6 +69,77 @@ read_file(const std::filesystem::path& path)
     return buf;
 }
 
+// Solve the square tile size T from the W (HALO_V2 packed) arg byte
+// count. HALO_V2 packs 16 ternary codes per uint32 (4 bytes), so each
+// W byte holds 4 codes. For a TxT weight matrix:
+//   total_codes = T*T
+//   W_bytes     = total_codes / 4 = T*T / 4
+// Inverse:
+//   T = sqrt(W_bytes * 4)
+//
+// Sanity check on the live xclbins (16 codes/u32 invariant):
+//   T=64  -> W_bytes = 64*64/4 = 1024
+//   T=512 -> W_bytes = 512*512/4 = 65536
+//
+// Returns 0 when w_bytes is zero, the implied T isn't a positive integer
+// (round-trip square fails), or T isn't a multiple of 16 (HALO_V2 word
+// boundary requirement — partial words cross uint32 lines).
+[[nodiscard]] std::uint32_t solve_tile_from_w_bytes(std::uint64_t w_bytes) noexcept
+{
+    if (w_bytes == 0) return 0;
+    const std::uint64_t codes = w_bytes * 4ULL;
+    const auto t_d = std::sqrt(static_cast<double>(codes));
+    const auto t   = static_cast<std::uint32_t>(t_d + 0.5);
+    if (t == 0) return 0;
+    if (static_cast<std::uint64_t>(t) * t != codes) return 0;
+    if ((t % kBitnetGemmAIE2P_CodesPerU32) != 0) return 0;
+    return t;
+}
+
+// Filename-string fallback solver for hosts where xrt::xclbin::arg::get_size()
+// returns 0 for the BO args (some XRT-AIE backends report only the scalar
+// args). Looks for a "<NNN>x<NNN>x<NNN>" triple anywhere in the path stem
+// and pulls the first dim. Returns 0 when no triple matches.
+[[nodiscard]] std::uint32_t solve_tile_from_filename(std::string_view path) noexcept
+{
+    // Scan left-to-right for runs of "<digits>x<digits>x<digits>".
+    auto is_digit = [](char c) noexcept { return c >= '0' && c <= '9'; };
+    for (std::size_t i = 0; i + 4 < path.size(); ++i) {
+        if (!is_digit(path[i])) continue;
+        std::size_t j = i;
+        std::uint64_t a = 0;
+        while (j < path.size() && is_digit(path[j])) {
+            a = a * 10 + static_cast<std::uint64_t>(path[j] - '0');
+            ++j;
+        }
+        if (j >= path.size() || path[j] != 'x') continue;
+        ++j;
+        std::size_t k0 = j;
+        std::uint64_t b = 0;
+        while (j < path.size() && is_digit(path[j])) {
+            b = b * 10 + static_cast<std::uint64_t>(path[j] - '0');
+            ++j;
+        }
+        if (j == k0) continue;
+        if (j >= path.size() || path[j] != 'x') continue;
+        ++j;
+        std::size_t l0 = j;
+        std::uint64_t c = 0;
+        while (j < path.size() && is_digit(path[j])) {
+            c = c * 10 + static_cast<std::uint64_t>(path[j] - '0');
+            ++j;
+        }
+        if (j == l0) continue;
+        // Require all three dims equal AND a HALO_V2-legal multiple of 16.
+        if (a == b && b == c && a > 0 && (a % kBitnetGemmAIE2P_CodesPerU32) == 0) {
+            return static_cast<std::uint32_t>(a);
+        }
+        // Not a match: continue scanning past this run.
+        i = j; // outer loop's ++i still fires; harmless.
+    }
+    return 0;
+}
+
 } // namespace
 
 // ----------------------------------------------------------------------------
@@ -90,6 +163,11 @@ struct BitnetGemmAIE2P::Impl {
     xrt::bo          bo_c;
     std::uint32_t    n_insts{0};
     std::string      kernel_name;
+    // Tile dims read out of the xclbin at load(); see probe_tile_dim()
+    // below for the heuristic. Zero on un-ready handle.
+    std::uint32_t    tile_m{0};
+    std::uint32_t    tile_k{0};
+    std::uint32_t    tile_n{0};
     bool             ready{false};
 };
 
@@ -142,10 +220,46 @@ BitnetGemmAIE2P::load(const std::filesystem::path& xclbin_path,
         out.p_->kernel_name = kernels.front().get_name();
         out.p_->kernel = xrt::kernel{out.p_->ctx, out.p_->kernel_name};
 
-        // BO sizing in bytes for the compiled tile.
-        constexpr std::size_t kAbytes = a_elems()     * sizeof(std::uint16_t);
-        constexpr std::size_t kWbytes = w_elems_u32() * sizeof(std::uint32_t);
-        constexpr std::size_t kCbytes = c_elems()     * sizeof(std::uint16_t);
+        // ----- Tile-dim probe ---------------------------------------------
+        // Strategy:
+        //   1) Ask the xclbin for the W-arg byte size (kernel arg index 4).
+        //      If it reports a sane value, T = sqrt(W_bytes * 4) with the
+        //      square round-trip checked. AIE/IPU xclbins on some XRT
+        //      versions report a scalar host-type size for global BO args,
+        //      in which case (1) returns 0 and we fall through to (2).
+        //   2) Filename heuristic: scan path stem for "<NNN>x<NNN>x<NNN>"
+        //      with all three dims equal and a multiple of 16. This is what
+        //      the build emits today (final_<T>x<T>x<T>_64x64x64.xclbin and
+        //      final_<T>_<T>x<T>x<T>_64x64x64.xclbin).
+        //   3) Both failed -> fail load() loudly. We do NOT silently fall
+        //      back to the compile-time default — a wrong tile would
+        //      mis-size the BOs and produce garbage at gemm() time.
+        std::uint32_t tile_dim = 0;
+        const auto kargs = kernels.front().get_args();
+        if (kargs.size() > 4) {
+            const auto w_bytes = static_cast<std::uint64_t>(kargs[4].get_size());
+            tile_dim = solve_tile_from_w_bytes(w_bytes);
+        }
+        if (tile_dim == 0) {
+            tile_dim = solve_tile_from_filename(xclbin_path.string());
+        }
+        if (tile_dim == 0) {
+            return std::unexpected(Error{ErrorKind::ShapeMismatch,
+                "could not infer tile dim from xclbin (W-arg get_size and "
+                "filename heuristic both failed): " + xclbin_path.string()});
+        }
+        out.p_->tile_m = tile_dim;
+        out.p_->tile_k = tile_dim;
+        out.p_->tile_n = tile_dim;
+
+        // BO sizing in bytes for the loaded tile.
+        const std::size_t kAbytes =
+            static_cast<std::size_t>(tile_dim) * tile_dim * sizeof(std::uint16_t);
+        const std::size_t kWbytes =
+            static_cast<std::size_t>(tile_dim) * tile_dim / kBitnetGemmAIE2P_CodesPerU32
+            * sizeof(std::uint32_t);
+        const std::size_t kCbytes =
+            static_cast<std::size_t>(tile_dim) * tile_dim * sizeof(std::uint16_t);
 
         const std::size_t insts_bytes_sz = insts_bytes->size();
 
@@ -192,25 +306,32 @@ BitnetGemmAIE2P::gemm(std::span<const std::uint16_t> a_bf16,
                                      "BitnetGemmAIE2P::gemm on un-ready engine"});
     }
 
-    if (a_bf16.size() != a_elems()) {
+    // Per-instance expected sizes from the loaded xclbin's tile dims.
+    const std::size_t a_expected = static_cast<std::size_t>(p_->tile_m) * p_->tile_k;
+    const std::size_t w_expected =
+        (static_cast<std::size_t>(p_->tile_k) * p_->tile_n) /
+        kBitnetGemmAIE2P_CodesPerU32;
+    const std::size_t c_expected = static_cast<std::size_t>(p_->tile_m) * p_->tile_n;
+
+    if (a_bf16.size() != a_expected) {
         return std::unexpected(Error{
             ErrorKind::ShapeMismatch,
-            "a_bf16 length != M*K (" + std::to_string(a_elems()) + ")"});
+            "a_bf16 length != M*K (" + std::to_string(a_expected) + ")"});
     }
-    if (w_packed.size() != w_elems_u32()) {
+    if (w_packed.size() != w_expected) {
         return std::unexpected(Error{
             ErrorKind::ShapeMismatch,
-            "w_packed length != K*N/16 (" + std::to_string(w_elems_u32()) + ")"});
+            "w_packed length != K*N/16 (" + std::to_string(w_expected) + ")"});
     }
-    if (c_bf16.size() != c_elems()) {
+    if (c_bf16.size() != c_expected) {
         return std::unexpected(Error{
             ErrorKind::ShapeMismatch,
-            "c_bf16 length != M*N (" + std::to_string(c_elems()) + ")"});
+            "c_bf16 length != M*N (" + std::to_string(c_expected) + ")"});
     }
 
-    constexpr std::size_t kAbytes = a_elems()     * sizeof(std::uint16_t);
-    constexpr std::size_t kWbytes = w_elems_u32() * sizeof(std::uint32_t);
-    constexpr std::size_t kCbytes = c_elems()     * sizeof(std::uint16_t);
+    const std::size_t kAbytes = a_expected * sizeof(std::uint16_t);
+    const std::size_t kWbytes = w_expected * sizeof(std::uint32_t);
+    const std::size_t kCbytes = c_expected * sizeof(std::uint16_t);
 
     try {
         // H2D: stage activations + weights.
@@ -248,6 +369,32 @@ std::string_view BitnetGemmAIE2P::kernel_name() const noexcept {
 
 bool BitnetGemmAIE2P::is_ready() const noexcept {
     return p_ && p_->ready;
+}
+
+std::uint32_t BitnetGemmAIE2P::loaded_tile_m() const noexcept {
+    return (p_ && p_->ready) ? p_->tile_m : 0u;
+}
+std::uint32_t BitnetGemmAIE2P::loaded_tile_k() const noexcept {
+    return (p_ && p_->ready) ? p_->tile_k : 0u;
+}
+std::uint32_t BitnetGemmAIE2P::loaded_tile_n() const noexcept {
+    return (p_ && p_->ready) ? p_->tile_n : 0u;
+}
+std::size_t BitnetGemmAIE2P::loaded_a_elems() const noexcept {
+    return (p_ && p_->ready)
+        ? static_cast<std::size_t>(p_->tile_m) * p_->tile_k
+        : 0u;
+}
+std::size_t BitnetGemmAIE2P::loaded_w_elems_u32() const noexcept {
+    return (p_ && p_->ready)
+        ? (static_cast<std::size_t>(p_->tile_k) * p_->tile_n) /
+          kBitnetGemmAIE2P_CodesPerU32
+        : 0u;
+}
+std::size_t BitnetGemmAIE2P::loaded_c_elems() const noexcept {
+    return (p_ && p_->ready)
+        ? static_cast<std::size_t>(p_->tile_m) * p_->tile_n
+        : 0u;
 }
 
 #else  // ONEBIT_AIE_HAVE_XRT_RT == 0
@@ -288,6 +435,13 @@ BitnetGemmAIE2P::gemm(std::span<const std::uint16_t> a_bf16,
 
 std::string_view BitnetGemmAIE2P::kernel_name() const noexcept { return {}; }
 bool             BitnetGemmAIE2P::is_ready()    const noexcept { return false; }
+
+std::uint32_t BitnetGemmAIE2P::loaded_tile_m() const noexcept { return 0u; }
+std::uint32_t BitnetGemmAIE2P::loaded_tile_k() const noexcept { return 0u; }
+std::uint32_t BitnetGemmAIE2P::loaded_tile_n() const noexcept { return 0u; }
+std::size_t   BitnetGemmAIE2P::loaded_a_elems()     const noexcept { return 0u; }
+std::size_t   BitnetGemmAIE2P::loaded_w_elems_u32() const noexcept { return 0u; }
+std::size_t   BitnetGemmAIE2P::loaded_c_elems()     const noexcept { return 0u; }
 
 #endif // ONEBIT_AIE_HAVE_XRT_RT
 
