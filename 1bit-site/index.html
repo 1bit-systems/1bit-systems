@@ -281,7 +281,7 @@ ln -sfn "$PWD/1bit-systems-0.1.0-x86_64.AppImage" ~/.local/bin/1bit</code></pre>
 
   <section id="install-detailed" class="doc-section">
     <h2>Install &middot; detailed</h2>
-    <p class="muted note">Three paths, one end state: a running <code>strix-server.service</code>, a stocked model cache, and a Caddy bearer on <code>:8180</code>. AppImage is what most people use.</p>
+    <p class="muted note">Three paths, one end state: a running <code>1bit-halo-lemonade.service</code>, a stocked model cache, and a Caddy bearer on <code>:8180</code>. AppImage is what most people use.</p>
     <blockquote><b>Support matrix.</b> Officially: AMD Ryzen AI MAX+ 395 (Strix Halo, gfx1151) on CachyOS 7.x. Other distros might work; we won't fix bugs against them until someone confirms. See <a href="#architecture-deep">Architecture &sect; targets</a>.</blockquote>
     <h3>AppImage</h3>
     <pre><code>curl -fsSL https://github.com/bong-water-water-bong/1bit-systems/releases/latest/download/1bit-systems-x86_64.AppImage -o 1bit-systems.AppImage
@@ -290,7 +290,7 @@ chmod +x 1bit-systems.AppImage
     <p>Single self-contained binary: HIP kernels, C++ runtime, tokenizer, the lot. First run seeds <code>~/.cache/1bit systems/models/</code> and prints a bearer token. No root needed unless you want to wire the bundled systemd unit.</p>
     <h3>AUR</h3>
     <pre><code>yay -S 1bit-systems       # or: paru / pikaur
-systemctl --user enable --now strix-server</code></pre>
+systemctl --user enable --now 1bit-halo-lemonade</code></pre>
     <p>The PKGBUILD lives under <code>strixhalo/pkgbuild/</code> and installs binaries into <code>/usr/bin/</code>, user-systemd units into <code>/usr/lib/systemd/user/</code>, a default Caddyfile into <code>/etc/caddy/</code>. Pulls a pre-built <code>rocm-cpp</code> object for the current kernel &mdash; faster than compiling, but you don't get machine-specific tuning.</p>
     <h3>Source</h3>
     <pre><code>git clone https://github.com/bong-water-water-bong/1bit-systems ~/1bit-systems
@@ -302,12 +302,12 @@ cd ~/1bit-systems
       <li>Installs pacman deps from <code>packages.toml</code>. Runs unprivileged; prompts for sudo only on <code>pacman</code>.</li>
       <li>Builds HIP kernels in <code>rocm-cpp/</code>. 45&thinsp;min to 4&thinsp;h depending on cache warmth; progress bar is honest.</li>
       <li>Runs <code>cmake --build build --parallel</code>. Installs binaries into <code>~/.local/bin/</code>.</li>
-      <li>Enables user-systemd units (<code>systemctl --user enable --now strix-server</code>, etc.).</li>
+      <li>Enables user-systemd units (<code>systemctl --user enable --now 1bit-halo-lemonade</code>, etc.).</li>
       <li>Prints the bearer, the URL, and a curl test line.</li>
     </ul>
     <p>Idempotent. Rerun anytime to repair or upgrade.</p>
     <h3>Verify</h3>
-    <pre><code>systemctl --user status strix-server
+    <pre><code>systemctl --user status 1bit-halo-lemonade
 curl -s http://localhost:8180/health
 1bit status</code></pre>
     <p>Expected: the service active, <code>/health</code> returns <code>ok</code>, and <code>1bit status</code> prints a summary of running units + backend mode.</p>
@@ -326,7 +326,7 @@ curl -s http://localhost:8180/health
     <h3>Uninstall</h3>
     <pre><code>1bit doctor --purge
 # or manually:
-systemctl --user disable --now strix-server strix-whisper strix-kokoro strix-echo
+systemctl --user disable --now 1bit-halo-lemonade 1bit-whisper 1bit-halo-kokoro 1bit-tts
 rm -rf ~/.local/share/1bit-systems ~/.local/bin/1bit-* ~/.config/systemd/user/strix-*.service</code></pre>
     <p>Config files in <code>~/.config/1bit systems/</code> and the model cache in <code>~/.cache/1bit systems/</code> are left alone. Remove them by hand if you want a clean slate.</p>
     <p>&rarr; Wiki deep dive: <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki/Installation" rel="noopener">Installation</a>.</p>
@@ -369,9 +369,9 @@ curl -s -H "authorization: bearer $BEARER" \
     <h3>Always start with</h3>
     <pre><code>1bit doctor           # runs all checks, prints a report
 1bit doctor --verbose # adds systemctl --user status output for every unit
-journalctl --user -u strix-server -n 80 --no-pager</code></pre>
+journalctl --user -u 1bit-halo-lemonade -n 80 --no-pager</code></pre>
     <h3>memlock</h3>
-    <p><b>Symptom.</b> <code>strix-server.service</code> fails with <code>mlock: Resource temporarily unavailable</code>.</p>
+    <p><b>Symptom.</b> <code>1bit-halo-lemonade.service</code> fails with <code>mlock: Resource temporarily unavailable</code>.</p>
     <p><b>Cause.</b> The default <code>memlock</code> rlimit is too low for the KV cache &times; model. We mlock-pin the weights.</p>
     <p><b>Fix.</b> Add to <code>/etc/security/limits.conf</code> (or <code>/etc/security/limits.d/1bit.conf</code>):</p>
     <pre><code>*    soft    memlock    unlimited
@@ -411,9 +411,9 @@ git pull
     <p><b>Symptom.</b> Both the LLM and the TTS crater when they run concurrently.</p>
     <p><b>Cause.</b> Two HIP kernels fighting for the same 256&thinsp;GB/s pool. Router doesn't stagger them yet.</p>
     <p><b>Workaround.</b> Pin Kokoro to a limited thread budget:</p>
-    <pre><code>systemctl --user edit strix-kokoro
+    <pre><code>systemctl --user edit 1bit-halo-kokoro
 # add: Environment=ORT_INTRA_OP_NUM_THREADS=4
-systemctl --user restart strix-kokoro</code></pre>
+systemctl --user restart 1bit-halo-kokoro</code></pre>
     <h3>Still stuck?</h3>
     <p>Open an issue on <a href="https://github.com/bong-water-water-bong/1bit-systems/issues" rel="noopener">GitHub</a> with <code>1bit doctor --verbose</code> output. Or drop into <a href="https://discord.gg/dSyV646eBs" rel="noopener">Discord</a>.</p>
   </section>
@@ -542,13 +542,13 @@ systemctl --user restart strix-kokoro</code></pre>
     <table class="data-table">
       <thead><tr><th>Unit</th><th>Binary</th><th>Port</th><th>Job</th></tr></thead>
       <tbody>
-        <tr><td><code>strix-server</code></td><td>1bit-server</td><td>8180</td><td>OpenAI-compat HTTP</td></tr>
-        <tr><td><code>strix-lemonade</code></td><td>1bit-lemonade</td><td>8200</td><td>Lemonade/GAIA gateway</td></tr>
-        <tr><td><code>strix-landing</code></td><td>1bit-landing</td><td>8190</td><td>LAN dashboard + SSE</td></tr>
-        <tr><td><code>strix-echo</code></td><td>1bit-echo</td><td>8181</td><td>WebSocket voice loop</td></tr>
-        <tr><td><code>strix-whisper</code></td><td>1bit-whisper</td><td>8182</td><td>STT</td></tr>
-        <tr><td><code>strix-kokoro</code></td><td>1bit-kokoro</td><td>8183</td><td>TTS</td></tr>
-        <tr><td>caddy (root)</td><td>caddy</td><td>443</td><td>TLS, bearer gate, mesh-only</td></tr>
+        <tr><td><code>1bit-halo-lemonade</code></td><td>lemond</td><td>8180</td><td>OpenAI / Ollama / Anthropic gateway</td></tr>
+        <tr><td><code>1bit-halo-agent</code></td><td>agent-core</td><td>8196</td><td>GAIA-compat 36-endpoint shim</td></tr>
+        <tr><td><code>1bit-halo-landing</code></td><td>landing-cpp</td><td>8190</td><td>LAN dashboard + live status</td></tr>
+        <tr><td><code>1bit-halo-kokoro</code></td><td>koko</td><td>8083</td><td>TTS (kokoro v1.0)</td></tr>
+        <tr><td><code>1bit-halo-whisper</code></td><td>whisper-server</td><td>8082</td><td>STT</td></tr>
+        <tr><td><code>1bit-halo-sd</code></td><td>sd-server</td><td>8081</td><td>image gen (sd.cpp HIP)</td></tr>
+        <tr><td>caddy (root)</td><td>caddy</td><td>8000 / 443</td><td>reverse proxy, bearer gate, mesh routes</td></tr>
       </tbody>
     </table>
     <p>All user-systemd (<code>systemctl --user</code>). No container. No Python. Boot time per binary is ~200&thinsp;ms.</p>

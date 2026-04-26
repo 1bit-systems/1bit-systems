@@ -94,9 +94,9 @@ Native first, then everything else.
 | [Open WebUI](https://docs.openwebui.com/) | point at `http://localhost:8180/v1`. |
 | [Claude Code](https://claude.com/claude-code) | Anthropic-compat surface. |
 | [Continue](https://continue.dev/) | OpenAI-compat. |
-| [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) | image gen on `:1234`, native HIP for SDXL. |
-| [whisper.cpp](https://github.com/ggerganov/whisper.cpp) | STT on `:8190`. |
-| [kokoro](https://github.com/olokobayusuf/kokoro.cpp) | TTS on `:8095`. |
+| [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) | image gen on `:8081`, native HIP for SDXL. |
+| [whisper.cpp](https://github.com/ggerganov/whisper.cpp) | STT on `:8082`. |
+| [kokoro](https://github.com/olokobayusuf/kokoro.cpp) | TTS on `:8083`. |
 
 ## supported platforms
 
@@ -153,28 +153,31 @@ NPU path: we author AIE2P kernels in C++ via `Xilinx/llvm-aie` (Peano), dispatch
 C++ wins the lane. Doesn't matter which C++ — `rocm-cpp`, llama.cpp Vulkan, ggml-hip — the family beats every other family on this box. What changes inside the family is who wins which model.
 
 ```
-Strix Halo · gfx1151 · 256-tok decode · max_loaded_models=12
+Strix Halo · gfx1151 · 256-tok decode · median-of-3 · max_loaded_models=13 · 2026-04-25 (post Run 5)
 ```
 
 | model | backend | tok/s |
 |---|---|---|
-| `smollm2-135m` | llama.cpp Vulkan | **257.9** |
-| `Bonsai-1.7B-gguf:Q1_0` | llama.cpp Vulkan | 151.3 |
-| `gemma-3-270m-it` | llama.cpp Vulkan | 93.2 |
-| `deepseek-r1-distill-qwen-1.5b` | llama.cpp Vulkan | 92.1 |
-| `halo-1bit-2b-sherry-cpp` | rocm-cpp ternary | **57.6** |
-| `halo-1bit-2b-sherry-v3` | rocm-cpp ternary | 53.3 |
-| `halo-1bit-2b-sherry-v4` | rocm-cpp ternary | 53.4 |
-| `halo-1bit-2b` | rocm-cpp ternary | 51.0 |
-| `halo-1bit-2b-tq1` | rocm-cpp ternary | 50.2 |
-| `halo-bitnet-2b-tq2` | rocm-cpp ternary | 48.9 |
-| `bonsai-1.7b-tq2-h1b` | rocm-cpp ternary | 42.2 |
+| `smollm2-135m` | llama.cpp Vulkan | **530** |
+| `gemma-3-270m-it` | llama.cpp Vulkan | 443 |
+| `Bonsai-1.7B-gguf:Q1_0` | llama.cpp Vulkan | 330 |
+| `Llama-3.2-1B-Instruct-GGUF` | llama.cpp Vulkan | 199 |
+| `deepseek-r1-distill-qwen-1.5b` | llama.cpp Vulkan | 168 |
+| `halo-1bit-2b-sherry-cpp` | rocm-cpp ternary | **73** |
+| `Qwen3-4B-GGUF` | llama.cpp Vulkan | 73 |
+| `halo-1bit-2b-sherry-v3` | rocm-cpp ternary | 73 |
+| `halo-1bit-2b-sherry-v4` | rocm-cpp ternary | 73 |
+| `Phi-4-mini-instruct-GGUF` | llama.cpp Vulkan | 71 |
+| `halo-1bit-2b` | rocm-cpp ternary | 65 |
+| `halo-1bit-2b-tq1` | rocm-cpp ternary | 60 |
+| `bonsai-1.7b-tq2-h1b` | rocm-cpp ternary | 59 |
+| `halo-bitnet-2b-tq2` | rocm-cpp ternary | 56 |
 
-> **Caveat.** Cache-friendly prompts (e.g. counting "1, 2, 3, ...") hit ~333 tok/s on Bonsai gguf. That is peak, not steady-state. Numbers above are essay-style 256-tok output — the regime you actually feel when you talk to the thing.
+> **Caveat.** Numbers above are essay-style 256-tok output, median-of-3 — the regime you actually feel when you talk to the thing. Cache-friendly prompts run higher.
 
-**Reading the table.** Vulkan llama.cpp dominates raw throughput on small or quantized GGUFs — that's where it is supposed to win and we are not pretending otherwise. `rocm-cpp` wins on the `halo-1bit-2b` family because there is no comparable GGUF for our ternary `.h1b` weights — that lane is ours alone. Sherry-cpp at **57.6 tok/s** is best-of-ours; the 100+ target lives downstream of Run 5 retrain.
+**Reading the table.** Vulkan llama.cpp dominates raw throughput on small or quantized GGUFs — that's where it is supposed to win and we are not pretending otherwise. `rocm-cpp` ternary ties Vulkan in the same GB band: sherry-cpp 73 tok/s vs Qwen3-4B 73 tok/s, but ours holds 2 B params at 1.65 GB vs Qwen3's 4 B at 2.38 GB. Same throughput, smaller footprint.
 
-Memory side: ternary GEMV pulls **92% of LPDDR5x peak**, the split-KV Flash-Decoding attention beats naive **6.78× at L=2048**, NPU ternary GEMV @ 512×512 lands at 0.27 ms, NPU i8 matmul @ 512×512 at 0.93 ms.
+Memory side: ternary GEMV pulls **92% of LPDDR5x peak**, the split-KV Flash-Decoding attention beats naive **6.78× at L=2048**. **NPU i8 matmul @ 512×512 = 0.93 ms** bit-exact. NPU ternary kernel is the next ship-gate — toolchain proven, ternary `bitnet_gemm` not written yet.
 
 Reproducible from `benchmarks/` against checked-in recipes. Anything not in this README lives in the [Benchmarks wiki](./docs/wiki/Benchmarks.md) with raw JSON and methodology.
 

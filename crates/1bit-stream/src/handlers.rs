@@ -229,10 +229,24 @@ async fn build_lossy_bytes(cat: &Catalog) -> std::io::Result<Vec<u8>> {
     let mut header_buf = vec![0u8; header_len as usize];
     f.read_exact(&mut header_buf).await?;
 
+    // Validate file magic + format version BEFORE the I/O. With panic=abort
+    // in [profile.release], the previous assert_eq! pair would tear down the
+    // whole process on a malformed catalog file instead of returning 500.
+    if magic != MAGIC {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("magic mismatch at serve time (expected {:?}, got {:?})", MAGIC, magic),
+        ).into());
+    }
+    if magic[3] != FORMAT_VERSION {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("format version mismatch (expected {}, got {})", FORMAT_VERSION, magic[3]),
+        ).into());
+    }
+
     let mut out = Vec::with_capacity(cat.total_bytes as usize);
     out.extend_from_slice(&magic);
-    assert_eq!(magic, MAGIC, "magic mismatch at serve time");
-    assert_eq!(magic[3], FORMAT_VERSION, "version mismatch at serve time");
     out.extend_from_slice(&hlen);
     out.extend_from_slice(&header_buf);
 

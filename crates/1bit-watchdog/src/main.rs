@@ -27,7 +27,11 @@ mod state;
 use config::{Manifest, WatchEntry, WatchKind};
 use state::{State, Transition};
 
-const DEFAULT_MANIFEST: &str = "/home/bcloud/repos/1bit-halo-workspace/packages.toml";
+// Resolved at runtime via xdg config paths in main(). Constant retained as
+// a documented placeholder — never read directly. Was hardcoded to
+// /home/bcloud/repos/1bit-halo-workspace/packages.toml which broke on every
+// non-bcloud box AND on bcloud's box after the workspace rename to 1bit-systems.
+const DEFAULT_MANIFEST_FILENAME: &str = "packages.toml";
 
 #[derive(Parser, Debug)]
 #[command(
@@ -76,20 +80,30 @@ async fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
-    let manifest_path = cli.manifest.as_deref().unwrap_or(DEFAULT_MANIFEST);
+    // Resolve manifest: CLI override -> $XDG_CONFIG_HOME/1bit/packages.toml ->
+    // $HOME/.config/1bit/packages.toml -> CWD. Old build hardcoded
+    // /home/bcloud/repos/1bit-halo-workspace/packages.toml which broke on
+    // every other box.
+    let default_manifest = std::env::var("XDG_CONFIG_HOME").ok()
+        .map(PathBuf::from)
+        .or_else(|| std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(".config")))
+        .map(|d| d.join("1bit").join(DEFAULT_MANIFEST_FILENAME))
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_MANIFEST_FILENAME));
+    let manifest_path: PathBuf = cli.manifest.map(PathBuf::from).unwrap_or(default_manifest);
+    let manifest_path_str = manifest_path.to_string_lossy().into_owned();
     let state_path = cli
         .state_file
         .map(PathBuf::from)
         .unwrap_or_else(state::default_path);
 
-    let manifest = Manifest::load(manifest_path)
-        .with_context(|| format!("loading watch entries from {manifest_path}"))?;
+    let manifest = Manifest::load(&manifest_path_str)
+        .with_context(|| format!("loading watch entries from {manifest_path_str}"))?;
     let mut state = State::load(&state_path).unwrap_or_default();
 
     match cli.cmd {
         Cmd::Status => {
             let snapshot = serde_json::json!({
-                "manifest_path": manifest_path,
+                "manifest_path": manifest_path_str,
                 "state_path": state_path.display().to_string(),
                 "entries": state.entries(),
             });
