@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+// Sherry — see LICENSE-SHERRY.md and SHERRY-FILES.txt at the repo root.
+// Commercial use requires a separate license.
+//
 // h1b-sherry test suite (doctest, header-only target).
 //
 // Coverage (≥ 4 test cases):

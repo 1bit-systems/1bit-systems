@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+// Sherry — see LICENSE-SHERRY.md and SHERRY-FILES.txt at the repo root.
+// Commercial use requires a separate license.
+//
 // sherry_gemv_scalar_ref.hip — 1 thread per row Sherry reference.
 //
 // Purpose: a known-correct implementation the test harness can diff the fast

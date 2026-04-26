@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+// Sherry — see LICENSE-SHERRY.md and SHERRY-FILES.txt at the repo root.
+// Commercial use requires a separate license.
+//
 // Sherry 1.25-bit ternary GEMV — halo-1bit v3 packing (Lane B of rocprof plan).
 //
 // Packing spec (per `project_sherry_spike.md`):

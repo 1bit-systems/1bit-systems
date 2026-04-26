@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+// Sherry — see LICENSE-SHERRY.md and SHERRY-FILES.txt at the repo root.
+// Commercial use requires a separate license.
+//
 // h1b-sherry — header-only requantizer kernels.
 //
 // Faithful C++23 port of `tools/h1b-sherry/src/{tq1_unpack,sherry_pack,

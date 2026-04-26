@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+// Sherry — see LICENSE-SHERRY.md and SHERRY-FILES.txt at the repo root.
+// Commercial use requires a separate license.
+//
 // h1b-sherry CLI — offline requantizer: halo-1bit TQ1 v4 → Sherry 1.25-bit v3.
 //
 // Mirrors the Rust CLI (`tools/h1b-sherry/src/main.rs`) bit-for-bit:
@@ -7,10 +11,11 @@
 
 #include "onebit/tools/h1b_sherry_convert.hpp"
 
+#include "onebit/log.hpp"
+
 #include <CLI/CLI.hpp>
 #include <spdlog/spdlog.h>
 
-#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <string>
@@ -43,16 +48,15 @@ int main(int argc, char** argv)
 
     auto r = convert_file(input, output);
     if (!r) {
-        std::fprintf(stderr, "h1b-sherry: error: %s\n", r.error().what.c_str());
+        onebit::log::eprintln("h1b-sherry: error: {}", r.error().what);
         return EXIT_FAILURE;
     }
     const ConvertStats& s = *r;
     const double pct = s.flip_fraction() * 100.0;
-    std::fprintf(
-        stderr,
-        "h1b-sherry: wrote %s (layers=%u, rows=%llu, groups=%llu, "
-        "forced_zero_flips=%llu = %.3f%%, hadamard_preserved=%s)\n",
-        output.c_str(),
+    onebit::log::eprintln(
+        "h1b-sherry: wrote {} (layers={}, rows={}, groups={}, "
+        "forced_zero_flips={} = {:.3f}%, hadamard_preserved={})",
+        output.string(),
         static_cast<unsigned>(s.layers_processed),
         static_cast<unsigned long long>(s.rows_total),
         static_cast<unsigned long long>(s.groups_total),
@@ -60,10 +64,9 @@ int main(int argc, char** argv)
         pct,
         s.hadamard_preserved ? "true" : "false");
     if (verbose) {
-        std::fprintf(
-            stderr,
-            "h1b-sherry: sign-change upper bound is 25%% per group; "
-            "observed %.3f%% avg\n",
+        onebit::log::eprintln(
+            "h1b-sherry: sign-change upper bound is 25% per group; "
+            "observed {:.3f}% avg",
             pct);
     }
     return EXIT_SUCCESS;

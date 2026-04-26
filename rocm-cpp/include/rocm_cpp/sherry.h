@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+// Sherry — see LICENSE-SHERRY.md and SHERRY-FILES.txt at the repo root.
+// Commercial use requires a separate license.
+//
 // rocm-cpp — Sherry 1.25-bit ternary GEMV C API (clean-room fp16 path).
 //
 // This is a standalone entry point distinct from the halo-1bit v3 format used

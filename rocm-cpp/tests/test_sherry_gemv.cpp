@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+// Sherry — see LICENSE-SHERRY.md and SHERRY-FILES.txt at the repo root.
+// Commercial use requires a separate license.
+//
 // test_sherry_gemv.cpp — differential test for the Sherry 1.25-bpw GEMV.
 //
 // Sweep: N_out ∈ {2560, 6912}, K_in ∈ {2560, 6912}, 50 seeds each.

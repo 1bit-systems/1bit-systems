@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Sherry — see LICENSE-SHERRY.md and SHERRY-FILES.txt at the repo root.
+# Commercial use requires a separate license.
+#
 # h1b-sherry — offline requantizer: TQ1 v4 → Sherry v3 (fp16 dispatch).
 #
 # Reads a halo .h1b v4 (TQ1, base-3 packing) and emits a .h1b v3 with the

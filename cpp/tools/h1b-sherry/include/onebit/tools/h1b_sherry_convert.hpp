@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+// Sherry — see LICENSE-SHERRY.md and SHERRY-FILES.txt at the repo root.
+// Commercial use requires a separate license.
+//
 // File-level converter: .h1b (TQ1 v4) → .h1b (Sherry v3, fp16 flag set).
 //
 // Self-contained: parses + writes the Rust onebit-core streaming layout

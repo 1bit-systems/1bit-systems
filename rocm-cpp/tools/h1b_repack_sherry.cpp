@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+// Sherry — see LICENSE-SHERRY.md and SHERRY-FILES.txt at the repo root.
+// Commercial use requires a separate license.
+//
 // h1b_repack_sherry — C++ port of `requantize_h1b_to_sherry.py`, RULE A (no
 // Python on the runtime/build path). Replaces the buggy Python packer that
 // encoded natural q==0 lanes as sign_bit=0 (kernel decodes that as -1) and so
@@ -156,15 +160,18 @@ void make_3to4_sparse(const int8_t* ternary, int cols, int8_t* out,
             ++stats.natural_zero_picks;
             if (zeros >= 2) ++stats.multi_zero_groups;
         } else {
-            // No natural zero. We must drop one ±1 lane → pick lane 0 (matches
-            // the old py packer's silent default for symmetry; lane choice is
-            // arbitrary without bf16 magnitudes). The dropped sign becomes 0
-            // in the packed output and decodes as 0 at the kernel — i.e. we
-            // lose the contribution of v[0] for this group.
-            zero_pos = 0;
+            // No natural zero (all four lanes are ±1). We must drop one lane
+            // to satisfy 3:4. Without bf16 magnitudes we have no oracle for
+            // "smallest |w|", so distribute the loss across all four positions
+            // by picking `g % 4`. This breaks the lane-0 systematic bias the
+            // old policy carried (every no-zero group dropped its lane-0
+            // contribution; the ~13% of groups in this path collectively shaved
+            // ~3.25% of column-0-aligned weight contribution off every row).
+            // Round-robin on g %% 4 makes the loss 0-mean across the row.
+            zero_pos = g & 0x3;
             ++stats.no_zero_groups;
             ++stats.phantom_signs_lost;
-            v[0] = 0;
+            v[zero_pos] = 0;
         }
 
         // Force every non-(zero_pos) zero to ±1 so the packed sign bit
@@ -373,36 +380,42 @@ int do_repack(const std::string& in_path, const std::string& out_path) {
             stats.v2_bytes = src_bytes;
             stats.v3_bytes = dst_bytes;
 
-            // Per-row scale recomputation: the kernel writeback computes
-            // y[r] = scales[r] * sum_k(x[k] * sign(q_sherry[r,k])), so the
-            // scale must absorb the L1 ratio between the input HALO_V2
-            // ternary row and the strict-3:4-sparse row produced by
-            // make_3to4_sparse. Without this, dot products are biased on
-            // every row by ~|q_v2|_1 / |q_sherry|_1 and PPL collapses to
-            // ~9e8 (validated 2026-04-26 forensic).
+            // Per-row scale: PASS THROUGH from HALO_V2.
             //
-            // |q_sherry|_1 is constant by construction (3 * groups), but
-            // |q_v2|_1 varies per row. Compute it inline and emit a
-            // recomputed fp32 scale tensor.
+            // Earlier revisions (commit 2e25db9) folded an `l1_v2 / l1_sh`
+            // ratio into scales_v3, on the theory that the strict-3:4
+            // sparsification grew |q|_1 from `l1_v2` to `3 * groups` and
+            // therefore over-counted contributions. That theory was wrong:
+            //
+            //   The phantom signs forced into multi-zero groups are filled
+            //   with a deterministic balanced ±1 pattern (`(g + p) & 1`),
+            //   so their EXPECTED contribution to `sum_k act[k] * w[k]` is
+            //   ZERO across a row. The L1 ratio rescale shrinks the genuine
+            //   ±1 signal contributions by `l1_v2 / l1_sh` ≈ 0.7-0.8 while
+            //   leaving the phantom NOISE at full magnitude — net effect
+            //   is signal attenuation + noise preservation, the worst of
+            //   both worlds. PPL went from 1.06e9 (without rescale, with
+            //   the old constant-+1 phantom fill) to 8131 (with rescale,
+            //   with balanced phantom fill); removing the rescale on the
+            //   balanced-phantom path should bring scale-magnitude back
+            //   to v2 levels.
+            //
+            // Right answer: keep scales_v2 verbatim. The kernel computes
+            // `scales[r] * sum_k act[k] * sign_sh[k]`, and E[sum] under
+            // balanced phantom fill equals the v2 sum (modulo the small
+            // 13% no-zero-group lane-drop, which is now round-robined
+            // across lane positions and is also 0-mean per row in
+            // expectation).
             std::vector<float> scales_v3((size_t)sp.rows, 0.0f);
             const float* scales_v2 =
                 reinterpret_cast<const float*>(scales);
-            const int groups_per_row = sp.cols / 4;
-            const float l1_out = static_cast<float>(3 * groups_per_row);
             for (int r = 0; r < sp.rows; ++r) {
                 halo_unpack_row(src + (size_t)r * src_row_bytes,
                                 sp.cols, ternary.data());
-                int l1_in_count = 0;
-                for (int c = 0; c < sp.cols; ++c) {
-                    if (ternary[c] != 0) ++l1_in_count;
-                }
                 make_3to4_sparse(ternary.data(), sp.cols, sparse.data(), stats);
                 pack_row_sherry(sparse.data(), sp.cols,
                                 packed_v3.data() + (size_t)r * dst_row_bytes);
-                const float ratio = (l1_out > 0.0f && l1_in_count > 0)
-                    ? (static_cast<float>(l1_in_count) / l1_out)
-                    : 1.0f;
-                scales_v3[r] = scales_v2[r] * ratio;
+                scales_v3[r] = scales_v2[r];
             }
 
             // Emit packed tensor + recomputed per-row scales.

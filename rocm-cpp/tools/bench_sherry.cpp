@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+// Sherry — see LICENSE-SHERRY.md and SHERRY-FILES.txt at the repo root.
+// Commercial use requires a separate license.
+//
 // bench_sherry.cpp — Sherry 1.25-bit ternary GEMV microbench
 //
 // Generates a 3:4-sparse ternary weight matrix (every group of 4 has exactly
