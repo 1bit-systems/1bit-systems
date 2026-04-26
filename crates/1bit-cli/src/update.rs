@@ -632,14 +632,21 @@ mod tests {
         assert!(!is_newer("0.2.9", "0.3.0"));
 
         // Wire the version-compare into classify_check so we exercise
-        // the full `--check` logic (minus the HTTP hop).
+        // the full `--check` logic (minus the HTTP hop). Use a current
+        // version that's older than ANY plausible feed.latest — 0.0.0
+        // makes the test resilient when releases.json gets bumped or
+        // the placeholder/sample fixture is removed (as in 2026-04-25
+        // when latest flipped 0.3.0 -> real 0.1.0).
         let feed = parse_feed(sample_feed_json().as_bytes()).unwrap();
-        let outcome = classify_check(&feed, "0.2.9");
+        let stale = "0.0.0";
+        assert!(is_newer(&feed.latest, stale),
+            "feed.latest {} should be newer than {}", feed.latest, stale);
+        let outcome = classify_check(&feed, stale);
         match outcome {
             CheckOutcome::Available {
                 current, release, ..
             } => {
-                assert_eq!(current, "0.2.9");
+                assert_eq!(current, stale);
                 assert_eq!(release.version, feed.latest);
             }
             other => panic!("expected Available, got {other:?}"),
