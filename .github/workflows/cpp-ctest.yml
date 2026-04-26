@@ -1,0 +1,77 @@
+name: cpp-ctest
+
+# C++23 port build + ctest. Replaces the retired Rust workflow (gone in
+# the 2026-04-26 scaffold gut). NPU + ROCm + Qt6 desktop are gated OFF in
+# CI because GitHub free runners don't have AMD GPUs / Strix Halo / Qt6
+# pre-installed by default — we install Qt6 from apt and build everything
+# else CPU-only. Strix Halo / RX 9070 XT verification still happens on
+# the in-house runner.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: cpp-ctest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ctest:
+    name: cpp/ ctest (Ubuntu, gcc-13, CPU only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ninja-build cmake \
+            gcc-13 g++-13 \
+            qt6-base-dev qt6-base-dev-tools \
+            libgl1-mesa-dev libxkbcommon-dev libdbus-1-dev \
+            libssl-dev pkg-config
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100
+          gcc --version
+          g++ --version
+          cmake --version
+          ninja --version
+
+      - name: Configure (CPU-only, no NPU, no rocm-cpp)
+        working-directory: cpp
+        run: |
+          cmake -S . -B build/ci -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=g++-13 \
+            -DCMAKE_C_COMPILER=gcc-13 \
+            -DONEBIT_BUILD_TESTS=ON \
+            -DONEBIT_BUILD_TOOLS=ON \
+            -DONEBIT_BUILD_NPU=OFF \
+            -DONEBIT_BUILD_DESKTOP=ON \
+            -DONEBIT_BUILD_ROCM_CPP=OFF \
+            -DHELM_BUNDLE_LEMONADE=OFF
+
+      - name: Build
+        working-directory: cpp
+        run: cmake --build build/ci --parallel
+
+      - name: Test
+        working-directory: cpp
+        run: ctest --test-dir build/ci --output-on-failure
+
+      - name: Upload test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-log
+          path: cpp/build/ci/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
