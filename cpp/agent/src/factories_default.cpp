@@ -13,6 +13,7 @@
 #include "onebit/agent/factories.hpp"
 #include "onebit/agent/tools/registry.hpp"
 #include "onebit/agent/adapter_discord.hpp"
+#include "onebit/agent/adapter_discord_shim.hpp"
 #include "onebit/agent/adapter_telegram.hpp"
 
 #include <spdlog/spdlog.h>
@@ -137,18 +138,27 @@ make_adapter(const Config& cfg)
         return std::unique_ptr<IAdapter>(new StdinAdapter());
     }
     if (cfg.adapter.kind == "discord") {
-        DiscordAdapterConfig dcfg;
-        dcfg.token = resolve_token("DISCORD_BOT_TOKEN", cfg.adapter.token);
+        DiscordShimAdapterConfig dcfg;
+        // Trust the TOML-expanded token: config.cpp already resolved any
+        // ${ENV:VAR} reference, so each instance picks its own env var
+        // (DISCORD_BOT_TOKEN for halo-helpdesk, DISCORD_ALT_ECHO_TOKEN
+        // for halo-coder). Falling back to a hardcoded env var here
+        // would clobber the second instance's token with the first.
+        dcfg.token = cfg.adapter.token;
         if (dcfg.token.empty()) {
             return std::unexpected(AgentError::config(
-                "discord adapter: token missing (set $DISCORD_BOT_TOKEN "
-                "or [adapter] token = ...)"));
+                "discord adapter: token missing — set [adapter] token = "
+                "\"${ENV:DISCORD_BOT_TOKEN}\" (or your env var of choice)"));
         }
-        // Pull DM allowlist from access.json so the adapter follows the
-        // same gate as the older help-desk plugin.
+        // Pull DM allowlist from access.json so the shim's parent applies
+        // the same gate as the older help-desk plugin.
         auto access = load_access_json(default_access_json_path());
         if (access) dcfg.dm_allowlist = std::move(*access);
-        return std::unique_ptr<IAdapter>(new DiscordAdapter(std::move(dcfg)));
+        // Use the bun shim by default — the hand-rolled OpenSSL/RFC6455
+        // path in adapter_discord.cpp gets RST'd post-IDENTIFY by CF on
+        // gateway.discord.gg. The shim survives reboots because it's a
+        // child of the systemd-managed halo-agent process.
+        return std::unique_ptr<IAdapter>(new DiscordShimAdapter(std::move(dcfg)));
     }
     if (cfg.adapter.kind == "telegram") {
         TelegramAdapterConfig tcfg;

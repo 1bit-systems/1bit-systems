@@ -28,6 +28,7 @@ add_library(onebit_agent_lib STATIC
     src/loop.cpp
     src/factories_default.cpp
     src/adapter_discord.cpp
+    src/adapter_discord_shim.cpp
     src/discord_ws.cpp
     src/adapter_telegram.cpp
     src/tools/registry.cpp

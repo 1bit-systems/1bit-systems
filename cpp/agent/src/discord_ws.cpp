@@ -79,7 +79,11 @@ constexpr std::chrono::seconds kHelloDeadline{30};
     r.append(sec_key.data(), sec_key.size());
     r += "\r\n";
     r += "Sec-WebSocket-Version: 13\r\n";
-    r += "User-Agent: halo-agent/1.0 (+https://1bit.systems)\r\n";
+    // Cloudflare bot-management on gateway.discord.gg accepts a wide
+    // range of UAs but will RST connections from anything that smells
+    // like a probe. Use a Discord-API-Library-style UA so we land in
+    // the bot fast-path. Reference: same shape as discord.py / serenity.
+    r += "User-Agent: DiscordBot (https://1bit.systems, 1.0)\r\n";
     r += "\r\n";
     return r;
 }
@@ -233,7 +237,23 @@ read_http_response(SSL* ssl)
         const int r = SSL_read(ssl, dst,
                                static_cast<int>(std::min<std::size_t>(
                                    n, std::numeric_limits<int>::max())));
-        if (r <= 0) return false;
+        if (r <= 0) {
+            const int err = SSL_get_error(ssl, r);
+            // Retry transient WANT_READ/WANT_WRITE — blocking sockets can
+            // still surface these during renegotiation. Hard-fail anything
+            // else so the caller reconnects.
+            if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+                continue;
+            }
+            char ebuf[160]{};
+            unsigned long ec = ERR_peek_last_error();
+            if (ec) ERR_error_string_n(ec, ebuf, sizeof(ebuf));
+            std::fprintf(stderr,
+                "[discord_ws] SSL_read returned %d, ssl_err=%d, errno=%d (%s), openssl=%s\n",
+                r, err, errno, std::strerror(errno),
+                ebuf[0] ? ebuf : "(none)");
+            return false;
+        }
         dst += r;
         n   -= static_cast<std::size_t>(r);
     }
@@ -371,18 +391,52 @@ parse_frame_header(const std::uint8_t* buf, std::size_t available)
 
 std::string serialize_identify(const GatewayConfig& cfg)
 {
-    nlohmann::json j;
-    j["op"] = static_cast<int>(GatewayOp::Identify);
-    j["d"] = {
-        {"token", cfg.token},
-        {"intents", cfg.intents},
-        {"properties", {
-            {"os",      cfg.os},
-            {"browser", cfg.browser},
-            {"device",  cfg.device},
-        }},
+    // Build by hand so the on-the-wire field order matches what every
+    // discord library (discord.py, serenity, …) sends. nlohmann's
+    // implicit alphabetical ordering put `d` before `op` and Discord's
+    // CF frontend was severing those connections post-IDENTIFY without
+    // ever surfacing an Op 9 InvalidSession; using string concatenation
+    // here forces the canonical shape and dodges that fingerprint.
+    auto esc = [](const std::string& s) {
+        std::string out;
+        out.reserve(s.size() + 2);
+        for (char c : s) {
+            switch (c) {
+                case '"':  out += "\\\""; break;
+                case '\\': out += "\\\\"; break;
+                case '\b': out += "\\b";  break;
+                case '\f': out += "\\f";  break;
+                case '\n': out += "\\n";  break;
+                case '\r': out += "\\r";  break;
+                case '\t': out += "\\t";  break;
+                default:
+                    if (static_cast<unsigned char>(c) < 0x20) {
+                        char buf[8];
+                        std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+                        out += buf;
+                    } else {
+                        out += c;
+                    }
+            }
+        }
+        return out;
     };
-    return j.dump();
+    std::string out;
+    out.reserve(256);
+    out += "{\"op\":";
+    out += std::to_string(static_cast<int>(GatewayOp::Identify));
+    out += ",\"d\":{\"token\":\"";
+    out += esc(cfg.token);
+    out += "\",\"intents\":";
+    out += std::to_string(cfg.intents);
+    out += ",\"properties\":{\"$os\":\"";
+    out += esc(cfg.os);
+    out += "\",\"$browser\":\"";
+    out += esc(cfg.browser);
+    out += "\",\"$device\":\"";
+    out += esc(cfg.device);
+    out += "\"}}}";
+    return out;
 }
 
 std::string serialize_heartbeat(std::int64_t last_seq)
@@ -510,6 +564,11 @@ struct DiscordGateway::Impl {
         if (SSL_CTX_set_default_verify_paths(ctx) != 1) {
             return std::unexpected(tls_err("set_default_verify_paths"));
         }
+        // Cloudflare's bot-management on gateway.discord.gg keys partly
+        // on TLS ALPN. WebSockets ride HTTP/1.1, so advertise that
+        // explicitly — without ALPN CF was severing post-IDENTIFY.
+        constexpr unsigned char kAlpn[] = "\x08http/1.1";
+        SSL_CTX_set_alpn_protos(ctx, kAlpn, sizeof(kAlpn) - 1);
 
         std::string err_msg;
         fd = tcp_connect(cfg.gateway_host, cfg.gateway_port, err_msg);
@@ -574,9 +633,18 @@ struct DiscordGateway::Impl {
             WsOpcode::Text,
             reinterpret_cast<const std::uint8_t*>(text.data()),
             text.size(), mask);
+        std::fprintf(stderr,
+                     "[discord_ws] send_text frame=%zu bytes header=",
+                     frame.size());
+        for (std::size_t k = 0; k < std::min<std::size_t>(8, frame.size()); ++k) {
+            std::fprintf(stderr, "%02x", frame[k]);
+        }
+        std::fprintf(stderr, "\n");
         if (!ssl_write_all(ssl, frame.data(), frame.size())) {
+            std::fprintf(stderr, "[discord_ws] send_text SSL_write failed\n");
             return std::unexpected(tls_err("send_text"));
         }
+        std::fprintf(stderr, "[discord_ws] send_text ok\n");
         return {};
     }
 
@@ -730,12 +798,20 @@ std::expected<void, GatewayError> DiscordGateway::connect()
     p_->teardown();
     p_->stop_flag.store(false, std::memory_order_release);
 
+    std::fprintf(stderr, "[discord_ws] tls_connect…\n");
     if (auto r = p_->tls_connect(); !r) return std::unexpected(r.error());
+    std::fprintf(stderr, "[discord_ws] ws_upgrade…\n");
     if (auto r = p_->ws_upgrade();  !r) return std::unexpected(r.error());
 
     // Read HELLO.
+    std::fprintf(stderr, "[discord_ws] recv HELLO…\n");
     auto hello = p_->recv_text(kHelloDeadline);
-    if (!hello) return std::unexpected(hello.error());
+    if (!hello) {
+        std::fprintf(stderr, "[discord_ws] recv HELLO failed: %s\n",
+                     hello.error().message.c_str());
+        return std::unexpected(hello.error());
+    }
+    std::fprintf(stderr, "[discord_ws] HELLO ok (%zu bytes)\n", hello->size());
     auto parsed = parse_gateway_frame(*hello);
     if (!parsed) return std::unexpected(parsed.error());
     if (parsed->op != GatewayOp::Hello) {
@@ -760,6 +836,16 @@ std::expected<void, GatewayError> DiscordGateway::connect()
         }
     } else {
         const std::string ident = serialize_identify(p_->cfg);
+        // Redact token for the trace; keep length as fingerprint.
+        std::string redacted = ident;
+        if (auto p = redacted.find("\"token\":\""); p != std::string::npos) {
+            auto e = redacted.find('"', p + 9);
+            if (e != std::string::npos) {
+                redacted.replace(p + 9, e - p - 9,
+                    "<redacted len=" + std::to_string(e - p - 9) + ">");
+            }
+        }
+        std::fprintf(stderr, "[discord_ws] IDENTIFY: %s\n", redacted.c_str());
         if (auto sr = p_->send_text(ident); !sr) {
             return std::unexpected(sr.error());
         }
