@@ -11,6 +11,9 @@
 //   * tool registry    -> empty (no tools).
 
 #include "onebit/agent/factories.hpp"
+#include "onebit/agent/tools/registry.hpp"
+
+#include <spdlog/spdlog.h>
 
 #include <atomic>
 #include <chrono>
@@ -137,9 +140,26 @@ make_adapter(const Config& cfg)
 }
 
 [[nodiscard]] std::expected<std::unique_ptr<IToolRegistry>, AgentError>
-make_tool_registry(const Config& /*cfg*/)
+make_tool_registry(const Config& cfg)
 {
-    return std::unique_ptr<IToolRegistry>(new EmptyToolRegistry());
+    if (cfg.tools.enabled.empty()) {
+        return std::unique_ptr<IToolRegistry>(new EmptyToolRegistry());
+    }
+    auto reg = std::make_unique<ToolRegistry>();
+
+    ToolRegistry::BuildOptions opts;
+    opts.self_name              = cfg.agent.name;
+    opts.consult_peer_name      = cfg.tools.agent_consult.peer_name;
+    opts.consult_peer_brain_url = cfg.tools.agent_consult.peer_brain_url;
+    opts.consult_peer_model     = cfg.tools.agent_consult.peer_model;
+    opts.echo_url               = cfg.tools.speak_to_echo.echo_url;
+    opts.echo_auto_speak        = cfg.tools.speak_to_echo.auto_speak;
+
+    auto outcome = reg->build(cfg.tools.enabled, opts);
+    for (const auto& w : outcome.warnings) {
+        spdlog::warn("tool registry: {}", w);
+    }
+    return std::unique_ptr<IToolRegistry>(reg.release());
 }
 
 } // namespace onebit::agent

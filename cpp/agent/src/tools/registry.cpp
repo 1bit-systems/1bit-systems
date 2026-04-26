@@ -171,6 +171,36 @@ ToolRegistry::build(const std::vector<std::string>& enabled,
     };
 
     for (const auto& name : enabled) {
+        // agent_consult / speak_to_echo are configured tools (they need
+        // peer endpoints / echo URL from BuildOptions), so they go
+        // through their own factories instead of the static map above.
+        if (name == "agent_consult") {
+            if (opts.consult_peer_brain_url.empty() ||
+                opts.consult_peer_model.empty())
+            {
+                out.warnings.push_back(
+                    "agent_consult listed but [tools.agent_consult] "
+                    "peer_brain_url / peer_model missing — skipping");
+                continue;
+            }
+            register_tool(tools::make_agent_consult(
+                opts.consult_peer_name,
+                opts.consult_peer_brain_url,
+                opts.consult_peer_model,
+                opts.self_name));
+            continue;
+        }
+        if (name == "speak_to_echo") {
+            if (opts.echo_url.empty()) {
+                out.warnings.push_back(
+                    "speak_to_echo listed but [tools.speak_to_echo] "
+                    "echo_url missing — skipping");
+                continue;
+            }
+            register_tool(tools::make_speak_to_echo(
+                opts.echo_url, opts.echo_auto_speak));
+            continue;
+        }
         auto it = factories.find(name);
         if (it == factories.end()) {
             out.warnings.push_back("unknown tool in [tools] enabled: " + name);

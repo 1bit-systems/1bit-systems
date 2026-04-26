@@ -35,6 +35,8 @@ add_library(onebit_agent_lib STATIC
     src/tools/bench_lookup.cpp
     src/tools/install_runbook.cpp
     src/tools/gh_issue_create.cpp
+    src/tools/agent_consult.cpp
+    src/tools/speak_to_echo.cpp
 )
 target_include_directories(onebit_agent_lib PUBLIC include)
 target_include_directories(onebit_agent_lib PRIVATE src)

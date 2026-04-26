@@ -63,6 +63,23 @@ struct MemorySection {
 
 struct ToolsSection {
     std::vector<std::string> enabled;
+
+    // Optional per-tool config sub-tables. Parsed from
+    //   [tools.agent_consult]
+    //   peer_name      = "halo-coder"
+    //   peer_brain_url = "http://127.0.0.1:8180/v1"
+    //   peer_model     = "Qwen3-8B-GGUF"
+    // Empty strings = disabled / use ToolDef defaults.
+    struct AgentConsultCfg {
+        std::string peer_name;
+        std::string peer_brain_url;
+        std::string peer_model;
+    } agent_consult;
+
+    struct SpeakToEchoCfg {
+        std::string echo_url    = "http://127.0.0.1:8181/v1/tts";
+        bool        auto_speak  = false;
+    } speak_to_echo;
 };
 
 struct Config {

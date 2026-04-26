@@ -85,6 +85,11 @@ inline constexpr std::size_t kMaxContentBytes = 4 * 1024;
 [[nodiscard]] ToolDef make_bench_lookup();
 [[nodiscard]] ToolDef make_install_runbook();
 [[nodiscard]] ToolDef make_gh_issue_create();
+[[nodiscard]] ToolDef make_agent_consult(std::string peer_name,
+                                         std::string peer_brain_url,
+                                         std::string peer_model,
+                                         std::string self_name);
+[[nodiscard]] ToolDef make_speak_to_echo(std::string echo_url, bool auto_speak);
 
 // ---- Test seam -----------------------------------------------------------
 //
@@ -137,6 +142,18 @@ public:
     // opts into "let the agent file issues without asking".
     struct BuildOptions {
         bool gh_issue_auto_confirm = false;
+
+        // Self-name + peer wiring for agent_consult. Empty peer_brain_url
+        // skips the consult tool even if listed in `enabled` (with a
+        // BuildOutcome warning).
+        std::string self_name;
+        std::string consult_peer_name;
+        std::string consult_peer_brain_url;
+        std::string consult_peer_model;
+
+        // Voice mirror for speak_to_echo. Empty echo_url skips the tool.
+        std::string echo_url;
+        bool        echo_auto_speak = false;
     };
     struct BuildOutcome {
         std::vector<std::string> warnings;

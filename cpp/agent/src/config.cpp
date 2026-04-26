@@ -106,6 +106,17 @@ parse_table(const toml::table& root)
                 }
             }
         }
+        if (const auto* sub = a->get_as<toml::table>("agent_consult")) {
+            cfg.tools.agent_consult.peer_name      = get_str_or(*sub, "peer_name", std::string{});
+            cfg.tools.agent_consult.peer_brain_url = get_str_or(*sub, "peer_brain_url", std::string{});
+            cfg.tools.agent_consult.peer_model     = get_str_or(*sub, "peer_model", std::string{});
+        }
+        if (const auto* sub = a->get_as<toml::table>("speak_to_echo")) {
+            cfg.tools.speak_to_echo.echo_url   = get_str_or(*sub, "echo_url",
+                cfg.tools.speak_to_echo.echo_url);
+            cfg.tools.speak_to_echo.auto_speak = get_or<bool>(*sub, "auto_speak",
+                cfg.tools.speak_to_echo.auto_speak);
+        }
     }
 
     // ${ENV:...} expansion across all string fields. Done after parse
