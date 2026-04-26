@@ -1,9 +1,13 @@
 # 1bit-systems — container image (8th distribution channel)
 #
 # Rule A (hard): no Python in this image. No `pip install`, no `apt install
-# python3-*` runtime deps, no torch. The serving path is pure Rust+HIP.
+# python3-*` runtime deps, no torch. The serving path is pure C++23+HIP.
 # If a future contributor proposes a Python layer, reject the PR and point
 # them at `CLAUDE.md` → Rule A.
+#
+# Rust gut 2026-04-26: this Dockerfile used to drive cargo. The
+# orchestration tower is C++23 in `cpp/` now. Builder stage uses
+# debian:bookworm-slim + g++-14 + cmake + ninja.
 #
 # ROCm / HIP is NOT bundled. Kernels are loaded from the HOST via device
 # passthrough. At `docker run` time, the operator must pass:
@@ -24,50 +28,49 @@
 #   docker build -f packaging/docker/Dockerfile -t 1bit-systems:0.1.8-ci .
 #
 # Multi-stage layout:
-#   Stage 1 (builder): rust:1.88-slim-bookworm, cargo build --release for the
-#                      portable (non-GPU-linked) crate subset.
+#   Stage 1 (builder): debian:bookworm-slim + g++-14 + cmake + ninja, drives
+#                      `cmake --preset release-strix` against cpp/.
 #   Stage 2 (runtime): debian:bookworm-slim, libc + libvulkan1, binaries
 #                      copied from builder stage, non-root-safe layout.
 
 # ---------------------------------------------------------------------------
 # Stage 1 — builder
 # ---------------------------------------------------------------------------
-FROM rust:1.88-slim-bookworm AS builder
+FROM debian:bookworm-slim AS builder
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-# Minimal build deps. NO python3, NO pip, NO torch. Rule A.
-# libdbus-1-dev is required by libdbus-sys (used by 1bit-power + friends
-# to talk to systemd --user over the session bus).
+# Minimal build deps. NO python3, NO pip, NO torch. Rule A. Bookworm's
+# default g++ is 12; we pull g++-14 from bookworm-backports for C++23
+# (`std::expected`, `std::print`).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        pkg-config \
-        libssl-dev \
-        libdbus-1-dev \
         ca-certificates \
+        cmake \
+        ninja-build \
+        g++-14 \
+        gcc-14 \
+        pkg-config \
+        libdbus-1-dev \
         git \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100 \
+    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
 
 WORKDIR /src
 
-# Copy workspace manifests + source. Cache-friendly: Cargo.toml/lock first.
-COPY Cargo.toml Cargo.lock ./
-COPY crates ./crates
-COPY tools  ./tools
+# Copy the cpp tree + ancillary inputs. Cache-friendly: CMakePresets first.
+COPY cpp ./cpp
 COPY rocm-cpp ./rocm-cpp
 
-# Portable subset only — GPU-linked crates (1bit-server, 1bit-router, 1bit-hip,
-# 1bit-lemonade, 1bit-whisper, 1bit-kokoro, 1bit-landing) pull rocm-cpp/HIP at
-# link time and are NOT built inside the container. They come from the host
-# via bind-mount or live on the host's install path. The image ships only the
+# Portable subset only — GPU-linked components (server, lemonade,
+# whisper, kokoro, landing) pull rocm-cpp/HIP at link time and are NOT
+# built inside the container. They come from the host via bind-mount or
+# live on the host's install path. The image ships only the
 # orchestration/CLI/observability binaries.
-RUN cargo build --release \
-        -p onebit-cli \
-        -p onebit-power \
-        -p onebit-watchdog \
-        -p onebit-helm \
-        -p onebit-voice \
-        -p onebit-echo \
-        -p onebit-mcp
+RUN cd cpp \
+    && cmake --preset release-strix \
+    && cmake --build --preset release-strix \
+        --target 1bit 1bit-power 1bit-watchdog 1bit-helm 1bit-voice 1bit-echo 1bit-mcp
 
 # ---------------------------------------------------------------------------
 # Stage 2 — runtime
@@ -81,18 +84,18 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libc6 \
         libvulkan1 \
+        libstdc++6 \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Binaries. Names mirror the Cargo `[[bin]]` entries discovered via
-# `cargo metadata`; if a crate renames a bin, update here.
-COPY --from=builder /src/target/release/1bit            /usr/local/bin/1bit
-COPY --from=builder /src/target/release/1bit-halo-power /usr/local/bin/1bit-halo-power
-COPY --from=builder /src/target/release/1bit-watchdog   /usr/local/bin/1bit-watchdog
-COPY --from=builder /src/target/release/1bit-helm       /usr/local/bin/1bit-helm
-COPY --from=builder /src/target/release/1bit-voice      /usr/local/bin/1bit-voice
-COPY --from=builder /src/target/release/1bit-echo       /usr/local/bin/1bit-echo
-COPY --from=builder /src/target/release/1bit-mcp        /usr/local/bin/1bit-mcp
+# Binaries from cpp/build/strix/<component>/<bin>.
+COPY --from=builder /src/cpp/build/strix/cli/1bit                 /usr/local/bin/1bit
+COPY --from=builder /src/cpp/build/strix/power/1bit-power         /usr/local/bin/1bit-power
+COPY --from=builder /src/cpp/build/strix/watchdog/1bit-watchdog   /usr/local/bin/1bit-watchdog
+COPY --from=builder /src/cpp/build/strix/helm/1bit-helm           /usr/local/bin/1bit-helm
+COPY --from=builder /src/cpp/build/strix/voice/1bit-voice         /usr/local/bin/1bit-voice
+COPY --from=builder /src/cpp/build/strix/echo/1bit-echo           /usr/local/bin/1bit-echo
+COPY --from=builder /src/cpp/build/strix/mcp/1bit-mcp             /usr/local/bin/1bit-mcp
 
 # Model cache. First-run `1bit install <model>` writes here.
 VOLUME ["/root/.local/share/1bit"]
@@ -110,7 +113,7 @@ EXPOSE 8085 8095 1234 8180 8190 8200
 LABEL org.opencontainers.image.source="https://github.com/bong-water-water-bong/1bit-systems" \
       org.opencontainers.image.version="0.1.8-ci" \
       org.opencontainers.image.title="1bit-systems" \
-      org.opencontainers.image.description="Local AI inference on Strix Halo — LLM / TTS / STT / image / video / NPU. Rust orchestration, HIP kernels, no Python." \
+      org.opencontainers.image.description="Local AI inference on Strix Halo — LLM / TTS / STT / image / video / NPU. C++23 orchestration, HIP kernels, no Python." \
       org.opencontainers.image.licenses="MIT"
 
 ENTRYPOINT ["/usr/local/bin/1bit"]

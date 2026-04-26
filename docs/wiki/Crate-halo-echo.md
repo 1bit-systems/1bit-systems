@@ -75,10 +75,10 @@ Wire protocol on the `/ws` route:
 
 | Spec section | Code file |
 |---|---|
-| Interface / Codec | `crates/1bit-echo/src/lib.rs` |
-| Interface / EchoServer | `crates/1bit-echo/src/server.rs` |
-| Opus encoding | `crates/1bit-echo/src/opus.rs` |
-| CLI flag plumbing | `crates/1bit-echo/src/main.rs` |
+| Interface / Codec | `cpp/echo/src/lib.rs` |
+| Interface / EchoServer | `cpp/echo/src/server.rs` |
+| Opus encoding | `cpp/echo/src/opus.rs` |
+| CLI flag plumbing | `cpp/echo/src/main.rs` |
 
 ## Phase: implementation
 
@@ -90,6 +90,6 @@ Phase promotes to `verified` once:
 ## Cross-refs
 
 - `docs/wiki/SDD-Workflow.md` — phase gates
-- `crates/1bit-voice/` — upstream pipeline 1bit-echo wraps
+- `cpp/voice/` — upstream pipeline 1bit-echo wraps
 - `crates/halo-kokoro/` — the actual TTS backend
 - Deployed at `/audio/` via `strix-echo.service` (tracked systemd unit) on 127.0.0.1:8085

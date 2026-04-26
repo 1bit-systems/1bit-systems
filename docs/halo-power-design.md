@@ -94,7 +94,7 @@ Because RyzenZPilot has no Linux build and no CLI, the shell-out target is
 4. Writes `/run/user/$UID/halo-power/current-profile` so subsequent
    `halo power` (no args) shows state without re-probing hardware.
 
-Cost: ~150 lines of Rust in `crates/1bit-cli/src/power.rs` + one
+Cost: ~150 lines of Rust in `cpp/cli/src/power.rs` + one
 `Cmd::Power` enum variant in `main.rs`. Three unit tests (argv builder,
 state-file round-trip, profile-name parse).
 Dependency: `ryzenadj` binary on `PATH`, a passwordless sudoers rule for
@@ -148,7 +148,7 @@ Reasoning:
 4. **Rule A compliant.** `ryzenadj` is a C binary, no Python in the
    runtime path.
 5. **Reversible.** If we later want to port (option c), the `halo power`
-   CLI surface stays identical; only `crates/1bit-cli/src/power.rs`
+   CLI surface stays identical; only `cpp/cli/src/power.rs`
    changes. Users don't notice.
 
 User's prior was (b); recommendation confirms.
@@ -191,7 +191,7 @@ Open questions (NOT blockers for this doc, tracked as follow-ups):
 
 ## CLI surface
 
-Added to `crates/1bit-cli/src/main.rs` as a new `Cmd::Power` variant.
+Added to `cpp/cli/src/main.rs` as a new `Cmd::Power` variant.
 Shape follows existing halo subcommands (`status`, `logs`, `doctor`,
 `install`) — short subcommand word, flags on the right.
 

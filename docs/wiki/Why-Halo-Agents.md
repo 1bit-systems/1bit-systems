@@ -78,10 +78,10 @@ Our 17 specialists are each 100-400 LOC. Tests are per-specialist. Inputs are ty
 
 ## How Claude / Hermes see them
 
-Via [`1bit-mcp`](../../crates/1bit-mcp/) — a tokio stdio JSON-RPC bridge. All 17 specialists surface as MCP tools, plus `skill_manage` and `memory_manage` (file-backed, see [Hermes Integration](./Hermes-Integration.md)). That's **19 MCP tools total**. Any MCP-speaking client drives the box.
+Via [`1bit-mcp`](../../cpp/mcp/) — a tokio stdio JSON-RPC bridge. All 17 specialists surface as MCP tools, plus `skill_manage` and `memory_manage` (file-backed, see [Hermes Integration](./Hermes-Integration.md)). That's **19 MCP tools total**. Any MCP-speaking client drives the box.
 
 ## Pointers
 
 - Registry: [`crates/1bit-agents/src/lib.rs`](../../crates/1bit-agents/src/lib.rs)
-- Bridge: [`crates/1bit-mcp/`](../../crates/1bit-mcp/)
+- Bridge: [`cpp/mcp/`](../../cpp/mcp/)
 - External client setup: [Hermes Integration](./Hermes-Integration.md)

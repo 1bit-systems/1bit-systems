@@ -45,7 +45,7 @@ plugins/1bit systems/
   "homepage": "https://github.com/bong-water-water-bong/1bit-systems",
   "mcpServers": {
     "1bit-mcp": {
-      "command": "${HOME}/.cargo/bin/1bit-mcp",
+      "command": "${HOME}/.local/bin/1bit-mcp",
       "args": [],
       "env": {
         "RUST_LOG": "onebit_mcp=info"
@@ -109,7 +109,7 @@ Working in 1bit-systems or 1bit systems-core? These rules are non-negotiable:
 Binary is held open by the unit — must stop first:
 
     systemctl --user stop strix-server
-    cp target/release/1bit-server ~/.local/bin/1bit-server-real
+    cp cpp/build/strix/server/1bit-server ~/.local/bin/1bit-server-real
     systemctl --user start strix-server
 
 Or use `halo install core` which does it for you.

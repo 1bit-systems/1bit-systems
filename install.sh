@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# strix-ai-rs / 1bit systems bootstrap. Clones + builds the gen-2 Rust stack and
-# its native-HIP kernel dependency (rocm-cpp), then hands off to the
+# 1bit-systems bootstrap. Clones + builds the C++23 tower and its
+# native-HIP kernel dependency (rocm-cpp), then hands off to the
 # in-tree `1bit install` package manager for per-component wiring.
 #
 # Idempotent: re-runs only fetch-and-rebuild what changed.
 #
 # Supported hosts: CachyOS / Arch (pacman) on gfx1151. Other distros can
 # crib the deps-check section manually; the build path itself is generic.
+#
+# Rust gut 2026-04-26: this script used to drive cargo. The whole
+# orchestration tower is C++23 in `cpp/` now. We invoke
+# `cmake --preset release-strix` instead. See CLAUDE.md ("I know kung fu").
 
 set -euo pipefail
 
@@ -22,7 +26,7 @@ banner() {
     printf '\n'
     printf '%b╔══════════════════════════════════════════════════════════╗%b\n' "$CYAN" "$NC"
     printf '%b║  %b 1bit-systems · strix-halo bootstrap %b                      %b║%b\n' "$CYAN" "$BOLD" "$NC" "$CYAN" "$NC"
-    printf '%b║  %bgfx1151 · ternary BitNet · Rust orchestration%b             %b║%b\n' "$CYAN" "$DIM" "$NC" "$CYAN" "$NC"
+    printf '%b║  %bgfx1151 · ternary BitNet · C++23 tower%b                     %b║%b\n' "$CYAN" "$DIM" "$NC" "$CYAN" "$NC"
     printf '%b╚══════════════════════════════════════════════════════════╝%b\n' "$CYAN" "$NC"
 }
 
@@ -181,7 +185,7 @@ if [[ "$CI_MODE" == "0" ]]; then
 else
     info "CI mode — skipping gfx1151 gate"
 fi
-for t in git cargo cmake; do
+for t in git cmake; do
     command -v "$t" >/dev/null 2>&1 || die "missing: $t (install first)"
     info "$t $(${t} --version 2>&1 | head -1)"
 done
@@ -280,35 +284,38 @@ else
     ok "NPU userspace staged"
 fi
 
-# ── step 4: 1bit-halo-workspace build ───────────────────────
-step "building 1bit-halo-workspace (Rust, release)"
+# ── step 4: cpp tower build ─────────────────────────────────
+step "building 1bit-systems cpp tower (C++23, release-strix)"
 if [[ "$CI_MODE" != "0" ]]; then
-    info "cargo check (CI mode — no link)"
-    ( cd "$WORKSPACE_DIR" && cargo check --workspace --release --locked 2>&1 | progress_pipe "cargo" )
-    ok "check clean"
+    info "cmake configure-only (CI mode — no link)"
+    ( cd "$WORKSPACE_DIR/cpp" && cmake --preset release-strix 2>&1 | progress_pipe "cmake" )
+    ok "configure clean"
 else
-    info "cargo build --release --workspace (this takes ~1 min on first run)"
-    ( cd "$WORKSPACE_DIR" && cargo build --release --workspace --locked 2>&1 | progress_pipe "cargo" )
+    info "cmake configure"
+    ( cd "$WORKSPACE_DIR/cpp" && cmake --preset release-strix 2>&1 | progress_pipe "cmake" )
+    info "cmake --build --preset release-strix (this takes ~1 min on first run)"
+    ( cd "$WORKSPACE_DIR/cpp" && cmake --build --preset release-strix 2>&1 | progress_pipe "build" )
     ok "build clean"
 fi
 
-# ── step 5: 1bit-cli install ─────────────────────────────────
-step "installing 1bit-cli → \$HOME/.cargo/bin/1bit"
-( cd "$WORKSPACE_DIR" && cargo install --path crates/1bit-cli --force --quiet 2>&1 | progress_pipe "install" )
-if [[ -x "$HOME/.cargo/bin/1bit" ]]; then
-    ok "$($HOME/.cargo/bin/1bit --version 2>&1 | head -1)"
+# ── step 5: 1bit CLI install ─────────────────────────────────
+step "installing 1bit CLI → \$HOME/.local/bin/1bit"
+mkdir -p "$HOME/.local/bin"
+install -Dm755 "$WORKSPACE_DIR/cpp/build/strix/cli/1bit" "$HOME/.local/bin/1bit"
+if [[ -x "$HOME/.local/bin/1bit" ]]; then
+    ok "$($HOME/.local/bin/1bit --version 2>&1 | head -1)"
 else
-    warn "1bit binary not at ~/.cargo/bin — is \$PATH set?"
+    warn "1bit binary not at ~/.local/bin — is \$PATH set?"
 fi
 
 # ── step 6: packages.toml handoff ────────────────────────────
-step "running 1bit install core (gen-2 Rust server + HIP backend)"
+step "running 1bit install core (C++23 tower + HIP backend)"
 if [[ "$CI_MODE" != "0" ]]; then
     info "CI mode — skipping"
     ok "skipped"
 else
     export ROCM_CPP_LIB_DIR="$ROCM_CPP_DIR/build"
-    if "$HOME/.cargo/bin/1bit" install core 2>&1 | progress_pipe "1bit install"; then
+    if "$HOME/.local/bin/1bit" install core 2>&1 | progress_pipe "1bit install"; then
         ok "core component up"
     else
         warn "1bit install core failed; inspect with '1bit doctor'"

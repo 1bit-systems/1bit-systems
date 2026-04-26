@@ -158,7 +158,7 @@ Each forward pass enqueues: `rmsnorm_fp16` → `ternary_gemv_halo_f16` for Q/K/V
 
 Sample argmax on host (`argmax_fp32`), append to `generated_ids`, write next K/V slot, check stop tokens, repeat until `<|eot_id|>` or `max_tokens`. Stop check runs on token IDs *before* detokenization so special tokens never leak into the output bytes.
 
-Temperature > 0 engages the sampler from `1bit-core::sampler` (top-p, top-k, frequency/presence penalty). See `crates/1bit-core/src/sampler.rs::Sampler`.
+Temperature > 0 engages the sampler from `1bit-core::sampler` (top-p, top-k, frequency/presence penalty). See `cpp/core/src/sampler.rs::Sampler`.
 
 ### 9. Streaming return
 
@@ -240,7 +240,7 @@ Compared to a discrete GPU: weights would have to be DMA-copied into VRAM at sta
 
 ### `.h1b` — halo-1bit
 
-Source: `crates/1bit-core/src/h1b.rs`. Version 2 layout:
+Source: `cpp/core/src/h1b.rs`. Version 2 layout:
 
 ```
 offset  size  field
@@ -274,7 +274,7 @@ See [Why-H1b-Format](./Why-H1b-Format.md) for the vs-GGUF rationale. Short versi
 
 ### `.htok` — tokenizer
 
-Source: `crates/1bit-core/src/htok.rs`. BPE with Llama-3's 128 256-entry vocab + special tokens. `HtokFile { vocab, merges, special, ... }`. All ints little-endian. Mmap'd, parsed once at startup.
+Source: `cpp/core/src/htok.rs`. BPE with Llama-3's 128 256-entry vocab + special tokens. `HtokFile { vocab, merges, special, ... }`. All ints little-endian. Mmap'd, parsed once at startup.
 
 ### GGUF → `.h1b` conversion
 
@@ -379,7 +379,7 @@ Output is routed into the agents registry identically to Discord.
 
 ## MCP surface
 
-Crate: `crates/1bit-mcp`. Wire: **stdio JSON-RPC**, one object per `\n`-delimited line (Claude Code convention, not LSP `Content-Length`). Protocol version constant:
+Crate: `cpp/mcp`. Wire: **stdio JSON-RPC**, one object per `\n`-delimited line (Claude Code convention, not LSP `Content-Length`). Protocol version constant:
 
 ```rust
 pub const PROTOCOL_VERSION: &str = "2024-11-05";
@@ -391,8 +391,8 @@ pub const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 - `tools/list` — derived from `Name::ALL` + `description_for(name)` + the specialist's `input_schema()`
 - `tools/call` — dispatches through `Arc<Registry>` via `Registry::dispatch(name, req)`
-- `resources/list`, `resources/read` — skill store (`crates/1bit-mcp/src/skills.rs`)
-- `memory/get`, `memory/put` — session memory (`crates/1bit-mcp/src/memory.rs`)
+- `resources/list`, `resources/read` — skill store (`cpp/mcp/src/skills.rs`)
+- `memory/get`, `memory/put` — session memory (`cpp/mcp/src/memory.rs`)
 
 The server is built via `StdioServer::with_default_agents()` (prebuilt 17-stub registry) or `StdioServer::new(agents, skills, memory)` for custom wiring. Claude Desktop and Claude Code attach via stdio. 22 in-crate tests cover the registry, the wire framing, and the error codes (`INVALID_REQUEST = -32600`, `METHOD_NOT_FOUND = -32601`, `INVALID_PARAMS = -32602`, `INTERNAL = -32603`, `UNKNOWN_TOOL = -32001`).
 

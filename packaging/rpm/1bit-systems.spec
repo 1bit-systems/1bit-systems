@@ -5,10 +5,10 @@
 # Or via copr:
 #   copr-cli build bong-water-water-bong/1bit-systems 1bit-systems.spec
 #
-# Installs only the portable Rust orchestration binaries. GPU-feature
-# crates (1bit-hip, 1bit-mlx) are skipped because they need ROCm at
-# build time; end users bring ROCm separately and wire model weights
-# via `1bit install <model-id>` on first run.
+# Installs only the portable C++23 orchestration binaries. The GPU
+# kernels (rocm-cpp / librocm_cpp.so) are skipped because they need
+# ROCm at build time; end users bring ROCm separately and wire model
+# weights via `1bit install <model-id>` on first run.
 
 Name:           1bit-systems
 Version:        0.1.8
@@ -19,9 +19,9 @@ License:        MIT
 URL:            https://1bit.systems
 Source0:        https://github.com/bong-water-water-bong/1bit-systems/archive/refs/tags/v%{version}.tar.gz
 
-BuildRequires:  rust >= 1.86
-BuildRequires:  cargo
-BuildRequires:  cmake
+BuildRequires:  cmake >= 3.27
+BuildRequires:  ninja-build
+BuildRequires:  gcc-c++ >= 14
 BuildRequires:  pkgconfig
 BuildRequires:  systemd-rpm-macros
 
@@ -42,35 +42,31 @@ Suggests:       rocm-hip-devel
   * stable-diffusion.cpp (SDXL + Wan 2.2 TI2V-5B) via native HIP
   * IRON + MLIR-AIE authoring lane for XDNA2 NPU kernels
 
-All media engines are pure C++. Orchestration is Rust. No Python runs
-at serving time. This package installs only the orchestration binaries;
-model weights download via `1bit install <model-id>` on first run.
+All media engines AND the orchestration tower are pure C++23. No
+Python runs at serving time. This package installs only the
+orchestration binaries; model weights download via
+`1bit install <model-id>` on first run.
 
 %prep
 %autosetup -n 1bit-systems-%{version}
 
 %build
-cargo build --release --frozen \
-    -p onebit-cli \
-    -p onebit-power \
-    -p onebit-watchdog \
-    -p onebit-helm \
-    -p onebit-voice \
-    -p onebit-echo \
-    -p onebit-mcp
+cd cpp
+cmake --preset release-strix
+cmake --build --preset release-strix
 
 %check
-cargo test --release --frozen \
-    -p onebit-cli -p onebit-power -p onebit-watchdog -p onebit-voice
+cd cpp
+ctest --preset release-strix
 
 %install
-install -Dm755 target/release/1bit            %{buildroot}%{_bindir}/1bit
-install -Dm755 target/release/1bit-power      %{buildroot}%{_bindir}/1bit-power
-install -Dm755 target/release/1bit-watchdog   %{buildroot}%{_bindir}/1bit-watchdog
-install -Dm755 target/release/1bit-helm       %{buildroot}%{_bindir}/1bit-helm
-install -Dm755 target/release/1bit-voice      %{buildroot}%{_bindir}/1bit-voice
-install -Dm755 target/release/1bit-echo       %{buildroot}%{_bindir}/1bit-echo
-install -Dm755 target/release/1bit-mcp        %{buildroot}%{_bindir}/1bit-mcp
+install -Dm755 cpp/build/strix/cli/1bit               %{buildroot}%{_bindir}/1bit
+install -Dm755 cpp/build/strix/power/1bit-power       %{buildroot}%{_bindir}/1bit-power
+install -Dm755 cpp/build/strix/watchdog/1bit-watchdog %{buildroot}%{_bindir}/1bit-watchdog
+install -Dm755 cpp/build/strix/helm/1bit-helm         %{buildroot}%{_bindir}/1bit-helm
+install -Dm755 cpp/build/strix/voice/1bit-voice       %{buildroot}%{_bindir}/1bit-voice
+install -Dm755 cpp/build/strix/echo/1bit-echo         %{buildroot}%{_bindir}/1bit-echo
+install -Dm755 cpp/build/strix/mcp/1bit-mcp           %{buildroot}%{_bindir}/1bit-mcp
 
 for unit in strixhalo/systemd/user/1bit-*.service strixhalo/systemd/user/1bit-*.timer; do
     [ -f "$unit" ] && install -Dm644 "$unit" %{buildroot}%{_userunitdir}/$(basename "$unit")

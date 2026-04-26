@@ -61,7 +61,7 @@ If you are on Ubuntu, expect the following extra steps:
 
 1. Install ROCm 7.x per AMD's official Ubuntu instructions (not the stock Ubuntu repo — that ROCm is too old). See [rocm.docs.amd.com](https://rocm.docs.amd.com/en/latest/deploy/linux/installer/install.html).
 2. gfx1151 is not on ROCm's Tier-1 list. Expect to build from source. The `llamacpp-rocm` fork's install script is the paved road.
-3. systemd user units in this repo assume paths like `~/.cargo/bin/`. These are distro-agnostic; copy the unit files to `~/.config/systemd/user/` unchanged.
+3. systemd user units in this repo assume paths like `~/.local/bin/`. These are distro-agnostic; copy the unit files to `~/.config/systemd/user/` unchanged.
 4. Caddy's Arch package ships with permissions that let it bind to `:80` and `:443` out of the box. On Ubuntu, verify the package manager sets the `cap_net_bind_service` capability on the Caddy binary — or run it under a reverse-proxy that already has the right caps.
 
 When asking for help on non-Arch, lead the question with distro + kernel version + ROCm version. Short example: "Ubuntu 24.04, 6.11, ROCm 7.0 from AMD repo — `1bit-halo-server` fails to link." That beats "it's broken" every time.
@@ -112,10 +112,10 @@ cmake --build build -j$(nproc)
 ```bash
 cd ~/1bit-halo-workspace
 
-cargo build --release --bin 1bit-halo-server
-cargo build --release --bin 1bit-halo-mcp
+cmake --build cpp/build/strix --bin 1bit-halo-server
+cmake --build cpp/build/strix --bin 1bit-halo-mcp
 
-ls -la target/release/1bit-halo-server target/release/1bit-halo-mcp
+ls -la cpp/build/strix/server/1bit-server cpp/build/strix/mcp/1bit-mcp
 ```
 
 ## Fetch model weights
@@ -181,7 +181,7 @@ cd ~/1bit-halo-core
 
 ```bash
 cd ~/1bit-halo-workspace
-./target/release/1bit-halo-server \
+./cpp/build/strix/server/1bit-server \
   --upstream http://127.0.0.1:8080 \
   --bind 0.0.0.0:8180
 ```

@@ -138,7 +138,7 @@ Free tier pack ≈ **2.1 MB**. Premium pack ≈ **6.8 GB** (~32% below FLAC).
 
 ## Reference implementation
 
-Lives in `crates/1bit-stream` (see companion doc). Reader + writer in Rust, zero-copy where possible, streaming-friendly so a Premium client can start playback before the residual finishes downloading.
+Lives in `cpp/stream` (see companion doc). Reader + writer in Rust, zero-copy where possible, streaming-friendly so a Premium client can start playback before the residual finishes downloading.
 
 ## Versioning
 

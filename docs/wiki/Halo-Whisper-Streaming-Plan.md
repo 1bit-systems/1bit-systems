@@ -228,7 +228,7 @@ Notes:
 
 ## 4. 1bit-voice integration
 
-Today (`crates/1bit-voice/src/pipeline.rs`): the pipeline is **output
+Today (`cpp/voice/src/pipeline.rs`): the pipeline is **output
 only**. It takes a prompt string, fans out SSE from 1bit-server, runs
 `SentenceSplitter`, and POSTs sentences at halo-kokoro. There is no
 input side in this crate yet. `1bit-echo` is an empty `lib.rs`

@@ -65,7 +65,7 @@ If a spec needs to go BACK a phase (discovered-constraint rewrites the design), 
 
 When I spawn a background agent (research or build), the prompt points at the spec file rather than re-describing the problem. Agents diff their output against the spec sections. Example prompt framing:
 
-> Implement `crates/1bit-helm/src/view/mod.rs` per `docs/wiki/Crate-1bit-helm.md` § Interface. Keep invariants §2 + §3 green. Non-goals in §5 are out of scope.
+> Implement `cpp/helm/src/view/mod.rs` per `docs/wiki/Crate-1bit-helm.md` § Interface. Keep invariants §2 + §3 green. Non-goals in §5 are out of scope.
 
 ## Retroactive application
 

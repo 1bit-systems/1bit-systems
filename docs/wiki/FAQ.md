@@ -49,7 +49,7 @@ For private-beta testers, yes. PPL parity proven, shadow-burnin at 96.66% byte-e
 
 ## Can I run it on Apple Silicon?
 
-Yes. The workspace is feature-gated — `cargo build --workspace --features mlx-apple` pulls in `bitnet-mlx-rs` and targets M-series via MLX. Same code, different kernel backend. AMD is the performance target; Apple is supported but not optimized.
+Yes. The workspace is feature-gated — `cmake --build cpp/build/strix --features mlx-apple` pulls in `bitnet-mlx-rs` and targets M-series via MLX. Same code, different kernel backend. AMD is the performance target; Apple is supported but not optimized.
 
 ## Can I run it on NVIDIA?
 

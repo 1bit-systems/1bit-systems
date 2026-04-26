@@ -3,11 +3,13 @@
 #
 # Usage:
 #   packaging/appimage/build-appimage.sh              # full build
-#   SKIP_CARGO=1 packaging/appimage/build-appimage.sh # reuse target/release
+#   SKIP_BUILD=1 packaging/appimage/build-appimage.sh # reuse cpp/build/strix
 #   APPIMAGETOOL=/path/to/appimagetool ... override tool location
+#   VERSION=0.1.8 packaging/appimage/build-appimage.sh # override version
 #
 # Steps:
-#   1. `cargo build --release --workspace --bins` (ROCm/MLX crates excluded)
+#   1. `cmake --build --preset release-strix` (ROCm/MLX targets skipped
+#      because they aren't part of release-strix anyway)
 #   2. Copy the user-facing binaries into AppDir/usr/bin/
 #   3. Copy AppRun + .desktop + .png to AppDir/ root
 #   4. Download appimagetool to $HOME/.cache/appimagetool/ if missing
@@ -16,8 +18,12 @@
 #   7. Print the artifact path
 #
 # Rule A: this is a build-time script run on dev/CI hosts. The output
-# AppImage bundles only pure-Rust binaries — no Python, no ROCm,
-# no librocm_cpp.so. ROCm stays a host prereq installed by ./install.sh.
+# AppImage bundles only the C++23 orchestration binaries — no Python,
+# no ROCm, no librocm_cpp.so. ROCm stays a host prereq installed by
+# ./install.sh.
+#
+# Rust gut 2026-04-26: this script used to drive cargo. We use cmake
+# now via `cmake --preset release-strix`.
 
 set -euo pipefail
 
@@ -28,11 +34,15 @@ APPDIR="$HERE/1bit-systems.AppDir"
 BIN_DST="$APPDIR/usr/bin"
 DIST="$HERE/dist"
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/appimagetool"
+CPP_BUILD="$WORKSPACE/cpp/build/strix"
 
-# Read version from workspace Cargo.toml.
-VERSION="$(grep -E '^version\s*=' "$WORKSPACE/Cargo.toml" | head -1 | sed -E 's/.*"([^"]+)".*/\1/')"
+# Version: env override, else parse latest [X.Y.Z] from CHANGELOG.md.
+VERSION="${VERSION:-}"
+if [[ -z "$VERSION" ]]; then
+    VERSION="$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+' "$WORKSPACE/CHANGELOG.md" | head -1 | sed -E 's/.*\[([0-9]+\.[0-9]+\.[0-9]+)([^]]*)\].*/\1\2/')"
+fi
 if [[ -z "${VERSION}" ]]; then
-    echo "build-appimage: could not parse version from Cargo.toml" >&2
+    echo "build-appimage: could not parse version from CHANGELOG.md (set VERSION=X.Y.Z env)" >&2
     exit 1
 fi
 ARCH="x86_64"
@@ -44,43 +54,37 @@ warn(){ printf '\033[1;33m⚠\033[0m %s\n' "$*" >&2; }
 die() { printf '\033[0;31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
 # ── bins to bundle ───────────────────────────────────────────
-# Matches `[[bin]]` entries across the workspace for non-GPU crates.
-# Kept in sync by hand; if you add a new user-facing binary, add it
-# here. Anything that links librocm_cpp.so or libmlx is NOT included.
+# Matches binaries built by `cmake --preset release-strix` — the
+# user-facing subset that does not link librocm_cpp.so or libmlx.
+# Kept in sync by hand; if you add a new user-facing binary, append
+# its (component, binname) pair below.
 BUNDLED_BINS=(
-    1bit
-    1bit-helm
-    1bit-halo-helm-tray
-    1bit-landing
-    1bit-mcp
-    1bit-mcp-linuxgsm
-    1bit-voice
-    1bit-echo
-    1bit-kokoro
-    1bit-halo-power
-    1bit-halo-ralph
-)
-# Removed in the 2026-04-25 cull (these crates no longer exist in
-# Cargo.toml workspace.members and would silently produce a bundle
-# missing those binaries):
-#   onebit-server, 1bit-lemonade, 1bit-watch-discord,
-#   1bit-watch-github, 1bit-whisper, 1bit-halo-pkg
-
-# Crates excluded from the release build because they need ROCm /
-# Apple frameworks that aren't available on clean AppImage build hosts.
-# They stay buildable via feature flags on the operator box.
-EXCLUDE_CRATES=(
-    --exclude onebit-hip
-    --exclude onebit-mlx
+    "cli/1bit"
+    "helm/1bit-helm"
+    "helm/1bit-halo-helm-tray"
+    "landing/1bit-landing"
+    "mcp/1bit-mcp"
+    "mcp-linuxgsm/1bit-mcp-linuxgsm"
+    "voice/1bit-voice"
+    "echo/1bit-echo"
+    "power/1bit-power"
+    "halo-ralph/1bit-halo-ralph"
+    "watchdog/1bit-watchdog"
+    "ingest/1bit-ingest"
+    "stream/1bit-stream"
+    "tier-mint/1bit-tier-mint"
+    "helm-tui/1bit-helm-tui"
 )
 
-# ── step 1: cargo build ──────────────────────────────────────
-if [[ "${SKIP_CARGO:-0}" != "1" ]]; then
-    log "cargo build --release --workspace --bins (excluding onebit-hip, onebit-mlx)"
-    ( cd "$WORKSPACE" && cargo build --release --workspace --bins "${EXCLUDE_CRATES[@]}" )
-    ok "cargo build complete"
+# ── step 1: cmake build ──────────────────────────────────────
+if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
+    log "cmake configure (release-strix preset)"
+    ( cd "$WORKSPACE/cpp" && cmake --preset release-strix )
+    log "cmake build (release-strix preset)"
+    ( cd "$WORKSPACE/cpp" && cmake --build --preset release-strix )
+    ok "cmake build complete"
 else
-    log "SKIP_CARGO=1 — reusing existing target/release"
+    log "SKIP_BUILD=1 — reusing existing $CPP_BUILD"
 fi
 
 # ── step 2: populate AppDir/usr/bin ──────────────────────────
@@ -89,19 +93,18 @@ rm -rf "$BIN_DST"
 mkdir -p "$BIN_DST"
 
 MISSING=()
-for b in "${BUNDLED_BINS[@]}"; do
-    src="$WORKSPACE/target/release/$b"
+for entry in "${BUNDLED_BINS[@]}"; do
+    src="$CPP_BUILD/$entry"
+    name="$(basename "$entry")"
     if [[ -x "$src" ]]; then
-        cp -f "$src" "$BIN_DST/$b"
-        # Keep perms + strip no further — workspace [profile.release] already
-        # strips symbols.
+        install -Dm755 "$src" "$BIN_DST/$name"
     else
-        MISSING+=("$b")
+        MISSING+=("$entry")
     fi
 done
 
 if [[ ${#MISSING[@]} -gt 0 ]]; then
-    warn "binaries not found in target/release (may be pre-build artefact gap):"
+    warn "binaries not found in $CPP_BUILD (may be pre-build artefact gap):"
     for m in "${MISSING[@]}"; do
         warn "  - $m"
     done

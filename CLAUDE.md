@@ -1,147 +1,111 @@
 # CLAUDE.md — conventions for 1bit-systems
 
-Conventions for any Claude (or human) agent working inside this repo.
-Keep terse; when in doubt, follow `ARCHITECTURE.md`.
+Conventions for any agent here. Terse; when in doubt see
+`ARCHITECTURE.md`.
+
+> "I know kung fu." Phase 2 tripped 2026-04-26. Rust is gone;
+> everything above the kernels is C++23 now.
 
 ## Hard rules
 
-- **Rule A — no Python at runtime.** Python is fine for scripts that run
-  once on a dev box (requantizers, analysis notebooks), never inside a
-  systemd unit or a path that serves HTTP. If a component needs orchestration,
-  write it in Rust.
-- **Rule B — C++20 only for kernels.** All HIP kernels stay in the
-  `rocm-cpp/` subtree of this monorepo (folded 2026-04-20 via
-  `git subtree add`; history preserved). Do NOT reimplement kernels in
-  Rust. The Engine is in-process now (lemond calls rocm-cpp directly via
-  the C++ Engine); the former `1bit-hip` Rust FFI bridge was deleted in
-  the 2026-04-25 cull. The standalone
-  `bong-water-water-bong/rocm-cpp` mirror stays readable for one grace
-  week, then archives. Old `stampby/rocm-cpp` already archived,
-  `stampby` handle retired.
-- **Rule C — hipBLAS is banned** in the runtime path. Native Tensile kernels
-  only. If you find yourself reaching for hipBLAS, step back and port the
-  kernel to `rocm-cpp` instead.
-- **Rule D — Rust 1.88, edition 2024.** `rust-version` is pinned in the
-  workspace `Cargo.toml`. Don't bump without a reason. (Bumped 1.86 →
-  1.88 on 2026-04-23 because `home`, `image`, `time`, `zbus`, `zvariant`
-  need MSRV ≥1.87.)
-- **Rule E — NPU stack = ORT C++ with VitisAI Execution Provider (AMD
-  official, XDNA2) as the primary lane; Peano + libxrt + aie-rt stays
-  as the option for custom AIE kernels we write ourselves. IRON is
-  permitted at compile-time.** Primary lane: ONNX Runtime C++ API with
-  AMD's VitisAI EP does the .onnx → AIE lowering for us (matches the
-  Vitis AI enterprise stack trickling down to consumer Ryzen AI).
-  Custom-kernel lane (for ops VitisAI doesn't accelerate): AIE kernel
-  authoring in C++ via `Xilinx/llvm-aie` (Peano); runtime dispatch via
-  `libxrt` C++ (`xrt::kernel`, `xrt::bo`); tile driver `Xilinx/aie-rt`
-  where we need bare-metal control. IRON is permitted at compile-time
-  (reference-only). The retired FastFlowLM subprocess bridge +
-  `1bit-xdna` crate were removed 2026-04-21 — see
-  `project_npu_path_onnx.md`.
+- **Rule A — no Python at runtime.** Dev-box scripts and IRON-py
+  offline NPU authoring fine. Never a systemd unit or HTTP path.
+- **Rule B — C++23 default; kernels stay in `rocm-cpp/`.** Tower above
+  the kernels is C++23 (`std::expected`, `std::span`, `std::format`,
+  ranges). HIP kernels stay C++20 in `rocm-cpp/` (folded 2026-04-20
+  via `git subtree add`; history preserved). Do NOT reimplement
+  kernels above the kernel layer.
+- **Rule C — hipBLAS banned** in the runtime path. Native Tensile
+  kernels only. If you reach for hipBLAS, port the kernel to
+  `rocm-cpp` instead.
+- **Rule E — NPU = ORT C++ + VitisAI EP primary; Peano + libxrt +
+  aie-rt custom-kernel lane.** IRON permitted at compile time.
+- **Rule F — ISO C++ Core Guidelines.** Watch I.27 (pImpl:
+  `std::unique_ptr<Impl>`, special members declared in header,
+  defaulted in `.cpp`). F.55 exhaustive `std::visit` on variants.
+  `std::expected<T, HaloError>` on every fallible path; no
+  exceptions in hot paths. `[[nodiscard]]` on factory returns.
+
+> "There is no spoon." The old Rule D (workspace toolchain pin) is
+> retired with the Rust workspace.
+
 - **Target: aspirational 7/7 lanes, ~280 tok/s decode, NPU-prefill
-  crossover at L ≥ 33.** Projected in `docs/wiki/Peak-Performance-Projection.md`.
-  We do not settle for the conservative tier.
+  crossover at L ≥ 33.** Projected in
+  `docs/wiki/Peak-Performance-Projection.md`. We do not settle for
+  the conservative tier.
 
 ## Layout
 
-lemond — the canonical OpenAI / Ollama / Anthropic-compat HTTP server —
-lives OUTSIDE this repo at `/home/bcloud/repos/lemonade/` (C++, runs as
-`1bit-halo-lemonade.service` on :8180). It dispatches per recipe to wrapped
-backends including the in-process ternary path (rocm-cpp Engine, gfx115x).
-The Rust `1bit-lemonade`, `1bit-router`, `1bit-server`, and `1bit-whisper`
-crates were retired in the 2026-04-25 cull — lemond is canonical now.
+`lemond` lives outside this repo at `/home/bcloud/repos/lemonade/`,
+runs as `1bit-halo-lemonade.service` on `:8180`, dispatches per recipe
+to the in-process Engine. Tower components in `cpp/`: `core`, `cli`,
+`mcp`/`mcp-clients`/`mcp-linuxgsm`, `landing`, `helm`/`helm-tui`,
+`voice`/`echo`, `power`, `watchdog`, `retrieval`/`ingest`/`stream`/
+`tier-mint`, `onnx`/`aie`/`kokoro`, `tools/`. Plus `strixhalo/`
+dotfiles and `packages.toml`.
 
+## Build
+
+```bash
+cmake --preset release-strix
+cmake --build --preset release-strix
+ctest --preset release-strix
 ```
-crates/
-  1bit-cli           unified operator CLI (1bit status/logs/doctor/install/...)
-  1bit-core          model + tokenizer parsers (pure, no I/O beyond mmap)
-  1bit-mcp           tokio stdio JSON-RPC bridge — empty tool list post-cull,
-                       reborn against GAIA agent-core or its C++ port
-                       (1bit-services/mcp/) when that lands
-  1bit-landing       marketing page on :8190, live /metrics probe
-  1bit-helm          desktop client (egui/eframe) — formerly halo-gaia, renamed 2026-04-20
-  1bit-voice         sentence-boundary streaming voice loop (LLM SSE → TTS chunks)
-  1bit-echo          browser-side WebSocket gateway over 1bit-voice
-  1bit-power         RyzenAdj wrapper for `halo power` profile control
-  1bit-mlx           Apple Silicon backend (feature-gated)
-  # 1bit-agents, 1bit-hip, 1bit-cpu — deleted in the 2026-04-25 cull
-  # (agents superseded by GAIA agent-core; hip/cpu obsolete since the
-  # Engine moved in-process inside lemond).
-strixhalo/           dotfiles (systemd, caddy, bin, fish) — see strixhalo/README.md
-packages.toml        pkg manifest consumed by `1bit install`
-install.sh           fresh-box bootstrap
-```
+
+`release-ryzen` for gfx1201, `debug` for asan.
 
 ## Testing
 
-- **Every new crate gets ≥3 in-crate tests** before it can be merged.
-- **`cargo test --workspace --release` must stay green on main.** Current
-  baseline: ~90 tests across 11 crates.
-- **Integration tests that need real GPU / model weights** go behind
-  `#[ignore]` + `--features real-backend` and are run by hand on the
-  strixhalo box. CI on GitHub Actions runs only the default feature set.
-- **Parity vs gen-1** is the ultimate cutover gate. Two harnesses:
-  - `benchmarks/ppl-gen2.sh` — PPL on wikitext-103. gen-1 baseline 9.1607.
-    gen-2 currently 9.1805 (delta +0.02, within ±0.05 tolerance). PASS.
-  - `benchmarks/shadow-burnin.sh` — continuous /v1 vs /v2 argmax compare.
-    Current rate: ~90% byte-exact after special-token fix. Logs to
-    `~/claude output/shadow-burnin.jsonl`, state in `~/.local/share/1bit systems/`.
-
-## Commit conventions
-
-- Conventional Commits prefixes: `feat / fix / perf / docs / refactor / build / ci / chore / test`.
-- **One logical change per commit.** "fix: X" PLUS "feat: Y" should be
-  two commits, not one.
-- **Messages have a "why" line.** Not "add tokenizer" — "add tokenizer
-  special-token handling; gen-1 expects 128009 on EOT boundary and argmax
-  diverges without it."
-- **Always push to `bong` remote** (`git@github-bong:...`).
-  `bong-water-water-bong` is the canonical handle. `stampby` is retired.
-
-## What NOT to do
-
-- **Don't commit tokens, session cookies, or bearer secrets.** Caddyfile's
-  bearer lives in `/etc/caddy/Caddyfile` (root-only). The `strixhalo/caddy/Caddyfile`
-  tracked copy has `sk-halo-REPLACE_ME` placeholders; never replace in git.
-- **Don't add Python deps.** If you think you need Python, talk to the user.
-- **Don't touch `ternary_gemv_halo.hip`** in rocm-cpp without a rocprof
-  trace showing the improvement. Current kernel is at 92% of LPDDR5 peak.
-- **Don't skip the KV-cache reset** at the start of each generation. The
-  2026-04-19 SEGV was a `pos` accumulator bug that only showed up under
-  sustained load (~200 completions in).
-- **Don't add new warnings.** CI doesn't gate on `-D warnings` yet, but that
-  gate is coming.
+- ≥3 doctest cases per component before merge.
+- `ctest --preset release-strix` green on `main`.
+- GPU tests gate on `ONEBIT_REAL_BACKEND=1`.
+- **Parity vs gen-2** is the cutover gate — see `CUTOVER.md`.
 
 ## Deploy flow
 
-After changes that need a live restart:
+`1bit install <component>` reads `packages.toml` and does
+stop/copy/start. Use it.
 
-```bash
-cargo build --release --workspace                      # or -p <crate>
-# lemond: binary is held open by the running unit → stop first
-systemctl --user stop 1bit-halo-lemonade.service
-cp target/release/lemond ~/.local/bin/lemond
-systemctl --user start 1bit-halo-lemonade.service
-# other binaries install via cargo install --path crates/<name>
-```
+## Commits
 
-Use `1bit install <component>` from `packages.toml` when in doubt — it
-does the stop/copy/start cycle correctly.
+Conventional Commits prefixes: `feat / fix / perf / docs / refactor /
+build / ci / chore / test`. One logical change per commit. "Why" line
+on every message — not "add tokenizer" but "add tokenizer special-token
+handling; gen-2 expects 128009 on EOT boundary and argmax diverges
+without it." Push to `bong` remote (`git@github-bong:...`).
+`bong-water-water-bong` is the canonical handle. `stampby` is retired.
+
+## What NOT to do
+
+- **Don't commit tokens, session cookies, or bearer secrets.**
+  Caddyfile's bearer lives in `/etc/caddy/Caddyfile` (root-only). The
+  `strixhalo/caddy/Caddyfile` tracked copy has `sk-halo-REPLACE_ME`
+  placeholders; never replace in git.
+- **Don't add Python deps.** If you think you need Python, talk to
+  the user.
+- **Don't touch `ternary_gemv_halo.hip`** in `rocm-cpp/` without a
+  rocprof trace showing the improvement. Current kernel sits at 92%
+  of LPDDR5x peak.
+- **Don't skip the KV-cache reset** at the start of each generation.
+  The 2026-04-19 SEGV was a `pos` accumulator bug that only showed up
+  under sustained load (~200 completions in).
+- **Don't add new warnings.** CI doesn't gate on `-Werror` yet, but
+  that gate is coming.
 
 ## Agent / subagent ground rules
 
 When delegating to a background agent:
 
 - Give it **exact file paths + line numbers** where possible.
-- Tell it what to **not** touch (other crates, config files, READMEs).
+- Tell it what to **not** touch (other components, configs, READMEs).
 - Ask for a **≤200-word report**, not a full transcript.
-- **Trust but verify.** The agent's summary describes intent, not outcome.
-  Always re-run tests + inspect the actual diff before claiming success.
+- **Trust but verify.** The agent's summary describes intent, not
+  outcome. Re-run tests + inspect the actual diff before claiming
+  success.
 
 ## Memory
 
-Per-project persistent memory lives outside this repo at
-`~/.claude/projects/-home-bcloud/memory/`. Don't duplicate that here.
-Load-bearing memory entries for this repo: `project_strix_ai_rs.md`,
-`project_bitnet_live_bench.md`, `project_ppl_harness.md`,
-`project_1bit_paper_techniques.md`.
+`~/.claude/projects/-home-bcloud/memory/`. Load-bearing:
+`project_1bit_systems_cpp_port.md`, `feedback_cpp_is_the_standard.md`,
+`feedback_time_over_cost.md`, `project_bitnet_live_bench.md`,
+`project_ppl_harness.md`.

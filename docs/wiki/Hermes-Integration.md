@@ -141,4 +141,4 @@ Complementary, not competitive. Hermes is the cockpit; 1bit-systems is the engin
 - [Hermes docs](https://hermes-agent.nousresearch.com/docs/)
 - [Honcho upstream](https://github.com/plastic-labs/honcho)
 - [agentskills.io](https://agentskills.io) — open standard for skill sharing
-- Our 1bit-mcp crate: `crates/1bit-mcp/`
+- Our 1bit-mcp crate: `cpp/mcp/`

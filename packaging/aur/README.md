@@ -4,7 +4,7 @@ Two packages publishable to the Arch User Repository:
 
 | Package | Install path | Best for |
 |---|---|---|
-| `1bit-systems`     | builds from source via cargo      | devs, anyone on Arch rolling with ROCm already tuned |
+| `1bit-systems`     | builds from source via cmake      | devs, anyone on Arch rolling with ROCm already tuned |
 | `1bit-systems-bin` | extracts the upstream AppImage    | end users who want a 30-second install |
 
 ## Publish workflow

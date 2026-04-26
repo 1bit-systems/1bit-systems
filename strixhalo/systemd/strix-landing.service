@@ -1,14 +1,14 @@
 [Unit]
-Description=strix-ai-rs 1bit-landing (marketing page + live status on :8190)
+Description=1bit-landing (marketing page + live status on :8190)
 After=network.target
 Wants=network.target
 
 [Service]
 Type=simple
-ExecStart=__HOME__/.cargo/bin/1bit-landing
+ExecStart=__HOME__/.local/bin/1bit-landing
 Restart=on-failure
 RestartSec=5
-Environment=RUST_LOG=onebit_landing=info
+Environment=ONEBIT_LOG=info
 Nice=15
 
 [Install]

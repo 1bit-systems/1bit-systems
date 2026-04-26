@@ -5,6 +5,6 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=%h/.cargo/bin/1bit-watchdog check
-Environment=RUST_LOG=info
+ExecStart=%h/.local/bin/1bit-watchdog check
+Environment=ONEBIT_LOG=info
 Nice=10

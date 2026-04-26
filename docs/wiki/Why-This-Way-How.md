@@ -126,9 +126,9 @@ One script. What it does:
 
 1. Check GPU is gfx1151, kernel is 7.x, `amdxdna` + `rocm-hip-sdk` installed.
 2. Clone (or pull) `bong-water-water-bong/rocm-cpp`, build kernels with `cmake --build`. Takes ~2 minutes on a Strix Halo.
-3. `cargo build --release --workspace` in halo-workspace. Another ~1 minute.
-4. `cargo install --path crates/1bit-cli` + `...1bit-server` + `...1bit-lemonade` + `...1bit-helm` + `...1bit-landing`. All five binaries land in `~/.cargo/bin/`.
-5. `systemctl --user enable --now strix-server strix-lemonade strix-landing`.
+3. `cmake --build --preset release-strix` in cpp/. Another ~1 minute.
+4. `install -Dm755 cpp/build/strix/cli/1bit ~/.local/bin/1bit` plus the other tower binaries (helm, landing, voice, echo, mcp). All land in `~/.local/bin/`.
+5. `systemctl --user enable --now 1bit-halo-lemonade strix-landing`.
 6. Symlink `/home/bcloud/halo-1bit/models/halo-1bit-2b.{h1b,htok}` to the real model dir (compat shim for a hardcoded path in the release binary — will be removed after next rebuild).
 7. Run `halo doctor`. Green means you're live.
 

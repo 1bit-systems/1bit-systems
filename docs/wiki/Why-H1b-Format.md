@@ -27,7 +27,7 @@ for layer in 0..header.layers {
 }
 ```
 
-No allocator on the hot path. The OS page cache is our weight cache. Code: [`crates/1bit-core/src/h1b.rs`](../../crates/1bit-core/src/h1b.rs).
+No allocator on the hot path. The OS page cache is our weight cache. Code: [`cpp/core/src/h1b.rs`](../../cpp/core/src/h1b.rs).
 
 ## Why not GGUF directly
 
@@ -52,6 +52,6 @@ If GGUF ever adds a first-class ternary type with per-row scales and 3:4 sparsit
 
 ## Pointers
 
-- Reader struct: [`crates/1bit-core/src/h1b.rs`](../../crates/1bit-core/src/h1b.rs)
+- Reader struct: [`cpp/core/src/h1b.rs`](../../cpp/core/src/h1b.rs)
 - Exporter (one-shot Python): `requantize-h1b.py` in the dev-tools folder
 - Related: [Why ternary?](./Why-Ternary.md), [Why no Python?](./Why-No-Python.md)

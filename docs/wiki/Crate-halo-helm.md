@@ -118,7 +118,7 @@ Closed since the solutioning cut:
 - [x] **Chat pane streaming.** `POST /v1/chat/completions` with `stream: true`, reuses the hand-rolled `parse_sse_line` parser from `stream.rs`. Token-by-token append to the streaming bubble; `stick_to_bottom(true)` ScrollArea.
 - [x] **Skills + Memory pane reads.** Direct calls to `onebit_agents::SkillStore::list` + `onebit_agents::MemoryStore::list(MemoryKind)`. Both accept `..._root_override: Option<PathBuf>` so tests seed a tempdir.
 - [x] **Conversation log on close.** Flushed from `eframe::App::save` into `~/.halo/helm/conversations/<ts>.jsonl` (roundtrip tested).
-- [x] **Desktop entry + icon.** `crates/1bit-helm/assets/1bit-helm.desktop` + `crates/1bit-helm/assets/icon.svg` (copy of the `1b` cyan monogram from `1bit-site/assets/logo.svg`).
+- [x] **Desktop entry + icon.** `cpp/helm/assets/1bit-helm.desktop` + `cpp/helm/assets/icon.svg` (copy of the `1b` cyan monogram from `1bit-site/assets/logo.svg`).
 - [x] **Brand surfacing.** Top bar shows "1bit-helm — 1bit monster"; bottom strip and Settings → About show `1bit monster` and `1bit.systems`.
 
 Remaining for `verified` (needs user manual-run screenshot):
@@ -146,4 +146,4 @@ None of these are Python; all ship by default on the supported distros. We do NO
 - `docs/wiki/SDD-Workflow.md` — phase gate + review specialist mapping.
 - `docs/wiki/VPN-Only-API.md` — mesh-awareness requirement (invariant 3).
 - `docs/wiki/AMD-GAIA-Integration.md` — rename rationale + AMD GAIA integration story.
-- `crates/1bit-helm/` — implementation.
+- `cpp/helm/` — implementation.

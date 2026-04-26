@@ -60,10 +60,10 @@ Binds `:8190` loopback by default. Overridable via `HALO_LANDING_BIND` env.
 
 | Spec section | Code file |
 |---|---|
-| Interface / routes | `crates/1bit-landing/src/main.rs` |
-| Invariant 3 (zero external) | `crates/1bit-landing/assets/` — all inline, no CDN refs |
-| Invariant 4 (SSE) | `crates/1bit-landing/src/main.rs` `live_stats_sse` + `live_services_sse` |
-| Telemetry sources | `crates/1bit-landing/src/telemetry.rs` (cache + `Sources` struct) |
+| Interface / routes | `cpp/landing/src/main.rs` |
+| Invariant 3 (zero external) | `cpp/landing/assets/` — all inline, no CDN refs |
+| Invariant 4 (SSE) | `cpp/landing/src/main.rs` `live_stats_sse` + `live_services_sse` |
+| Telemetry sources | `cpp/landing/src/telemetry.rs` (cache + `Sources` struct) |
 
 ## Phase: implementation
 
@@ -76,6 +76,6 @@ Promote to `verified` once:
 
 - `docs/wiki/SDD-Workflow.md` — phase framework
 - `docs/wiki/VPN-Only-API.md` — LAN-only policy
-- `crates/1bit-landing/` — code
+- `cpp/landing/` — code
 - `strixhalo/systemd/strix-landing.service` — user unit
 - Caddy wires it at `/` and `/_health` via the `@landing` matcher

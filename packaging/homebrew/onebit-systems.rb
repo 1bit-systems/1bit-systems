@@ -13,11 +13,15 @@
 # `onebit-systems.rb` and the class is `OnebitSystems`. Once installed,
 # everything the operator types is `1bit ...` as usual.
 #
-# Rule A note: this formula installs only the user-facing Rust binaries. On
-# macOS, the LLM / image / NPU lanes are no-ops (no gfx1151 silicon). The
-# CLI + watchdog + helm tray + install manager still work for operating a
-# remote 1bit server over HTTP. For full local inference you need a
-# Linux + gfx1151 host and the AppImage / source install path.
+# Rule A note: this formula installs only the user-facing C++23 binaries
+# from the `cpp/` tree. On macOS, the LLM / image / NPU lanes are no-ops
+# (no gfx1151 silicon). The CLI + watchdog + helm tray + install manager
+# still work for operating a remote 1bit server over HTTP. For full local
+# inference you need a Linux + gfx1151 host and the AppImage / source
+# install path.
+#
+# Rust gut 2026-04-26: this formula used to drive cargo. We use cmake
+# now via `cmake --preset release-strix`.
 
 class OnebitSystems < Formula
   desc "Local AI inference on Strix Halo — LLM, TTS, STT, image, video, NPU"
@@ -33,33 +37,28 @@ class OnebitSystems < Formula
     version "0.1.8"
   end
 
-  depends_on "rust" => :build
+  depends_on "cmake"   => :build
+  depends_on "ninja"   => :build
+  depends_on "gcc"     => :build  # macOS clang lacks std::print/expected at parity
 
-  # Installed per-crate rather than `cargo install --workspace` because the
-  # workspace contains GPU-feature-gated crates (onebit-hip, onebit-mlx) that
-  # won't build on a generic Homebrew box. We ship only the portable Rust
-  # orchestration crates.
-  #
-  # NOTE: crate *directory* names on disk are still `1bit-*` (unchanged).
-  # Rust *package* names inside each Cargo.toml are `onebit-*` because
-  # Rust crate identifiers cannot begin with a digit. `cargo install
-  # --path crates/1bit-cli` correctly builds the `onebit-cli` package and
-  # emits the binary `1bit` (the `[[bin]]` name, which has no
-  # leading-digit restriction).
+  # We build only the portable subset of components. The GPU-linked
+  # ones (server, lemonade, whisper, kokoro) need ROCm/HIP at link time
+  # and are skipped on Homebrew (macOS lacks gfx1151 anyway).
   def install
-    portable_crate_dirs = %w[
-      1bit-cli
-      1bit-power
-      1bit-watchdog
-      1bit-helm
-      1bit-voice
-      1bit-echo
-      1bit-mcp
-    ]
-
-    portable_crate_dirs.each do |d|
-      system "cargo", "install", *std_cargo_args(path: "crates/#{d}")
+    cd "cpp" do
+      system "cmake", "--preset", "release-strix"
+      system "cmake", "--build", "--preset", "release-strix",
+             "--target", "1bit", "1bit-power", "1bit-watchdog",
+             "1bit-helm", "1bit-voice", "1bit-echo", "1bit-mcp"
     end
+
+    bin.install "cpp/build/strix/cli/1bit"
+    bin.install "cpp/build/strix/power/1bit-power"
+    bin.install "cpp/build/strix/watchdog/1bit-watchdog"
+    bin.install "cpp/build/strix/helm/1bit-helm"
+    bin.install "cpp/build/strix/voice/1bit-voice"
+    bin.install "cpp/build/strix/echo/1bit-echo"
+    bin.install "cpp/build/strix/mcp/1bit-mcp"
   end
 
   def caveats

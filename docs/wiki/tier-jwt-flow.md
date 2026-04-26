@@ -7,7 +7,7 @@ How a paying customer turns money into a `tier: premium` JWT that unlocks
 BTCPay (Lightning); the JWT shape is open to additional rails later
 without changing the stream-server side.
 
-The minting side is implemented by `crates/1bit-tier-mint`, running
+The minting side is implemented by `cpp/tier-mint`, running
 as `1bit-tier-mint.service` on `127.0.0.1:8151` (one port above
 `1bit-stream`). The stream server verifies the JWT in-process — no
 IPC between the two beyond a shared HMAC secret in env.
@@ -304,5 +304,5 @@ immediately and `git filter-repo` the history.
 
 - `docs/wiki/1bl-container-spec.md` — the `.1bl` format that Premium
   unlocks the lossless residual of.
-- `crates/1bit-tier-mint/` — the implementation.
+- `cpp/tier-mint/` — the implementation.
 - `strixhalo/systemd/user/1bit-tier-mint.service` — unit file.

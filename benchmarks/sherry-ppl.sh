@@ -102,16 +102,20 @@ if [[ ! -f "${DATASET}" ]]; then
     exit 2
 fi
 
-# Run the harness and capture output. PPL is expected on a line like
-#   "PPL: 9.1805"
-# per the ppl harness doc (project_ppl_harness.md).
+# Run the harness. Real CLI is positional:
+#   bitnet_decode <model.h1b> --ppl <file.txt> [max_tokens]
+# stderr line: "[ppl] file=... tokens=... nll=... ppl=9.1805"
+# stdout line: '{"file":"...","tokens":...,"nll":...,"ppl":9.180500}'
 RAW="$("${BITNET_DECODE_BIN}" \
-    --ppl \
-    --dataset wikitext-103 \
-    --model "${MODEL}" \
+    "${MODEL}" \
+    --ppl "${DATASET}" \
     2>&1 || true)"
 
-PPL="$(echo "${RAW}" | awk 'match($0, /PPL[: ]+([0-9]+\.[0-9]+)/, m) { print m[1]; exit }')"
+# Try JSON shape first (more stable), fall back to "ppl=<n>" stderr line.
+PPL="$(echo "${RAW}" | awk 'match($0, /"ppl":[ ]*([0-9]+\.[0-9]+)/, m) { print m[1]; exit }')"
+if [[ -z "${PPL:-}" ]]; then
+    PPL="$(echo "${RAW}" | awk 'match($0, /ppl=([0-9]+\.[0-9]+)/, m) { print m[1]; exit }')"
+fi
 
 if [[ -z "${PPL:-}" ]]; then
     write_json "parse_error" "null" "null" "could not parse PPL from harness output"

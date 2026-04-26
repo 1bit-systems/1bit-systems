@@ -1,11 +1,15 @@
 # Flatpak manifest for 1bit-systems — local AI inference on Strix Halo.
 #
-# Rule A note: this ships only the user-facing Rust binaries (CLI + tray +
-# desktop). The GPU / NPU kernel libraries (librocm_cpp.so, xclbin blobs,
-# model weights) are host-side artifacts installed by `install.sh` and
-# `1bit install all`. Flatpak runs the ops UI inside a sandbox; the sandbox
-# is opened to /dev/dri + /dev/kfd + filesystem=host so the binaries can
-# still drive the host's ROCm / XRT stack without re-bundling them.
+# Rule A note: this ships only the user-facing C++23 binaries (CLI +
+# tray + desktop). The GPU / NPU kernel libraries (librocm_cpp.so,
+# xclbin blobs, model weights) are host-side artifacts installed by
+# `install.sh` and `1bit install all`. Flatpak runs the ops UI inside
+# a sandbox; the sandbox is opened to /dev/dri + /dev/kfd +
+# filesystem=host so the binaries can still drive the host's ROCm /
+# XRT stack without re-bundling them.
+#
+# Rust gut 2026-04-26: the build path is now cmake --preset
+# release-strix against the `cpp/` tree.
 #
 # Build (on a box with flatpak-builder):
 #   flatpak-builder --user --install --force-clean build-flatpak \
@@ -21,9 +25,6 @@ id: io.onebit.Systems
 runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
-
-sdk-extensions:
-  - org.freedesktop.Sdk.Extension.rust-stable
 
 command: 1bit
 
@@ -49,35 +50,22 @@ modules:
   - name: 1bit-systems
     buildsystem: simple
     build-options:
-      append-path: /usr/lib/sdk/rust-stable/bin
-      # Build-time network for cargo git deps (bitnet-rust + co). Without
-      # this the sandbox drops DNS, cargo can't clone, and the build dies
-      # halfway through. Runtime network is separately governed by
-      # finish-args.
+      # No build-time network needed — cmake fetches its own deps via
+      # FetchContent at configure time, and we ship the freedesktop SDK
+      # which has g++ 14 baked in.
       build-args:
         - --share=network
-      env:
-        CARGO_HOME: /run/build/1bit-systems/cargo
-        # No RUSTFLAGS here — flatpak's freedesktop runtime already
-        # isolates libc, and +crt-static propagates to proc-macro host
-        # builds (error: cannot produce proc-macro for async-recursion),
-        # which breaks the workspace. Dynamic linking against the
-        # bundled glibc is correct for flatpak anyway.
-        #
-        # libgit2 has flaky DNS in sandboxed environments — delegate to
-        # the git CLI, which handles retries + proxies better.
-        CARGO_NET_GIT_FETCH_WITH_CLI: "true"
-        CARGO_NET_RETRY: "5"
     build-commands:
-      - cargo build --release --workspace
-      - install -Dm755 target/release/1bit                 /app/bin/1bit
-      - install -Dm755 target/release/1bit-power            /app/bin/1bit-power
-      - install -Dm755 target/release/1bit-watchdog         /app/bin/1bit-watchdog
-      - install -Dm755 target/release/1bit-helm             /app/bin/1bit-helm
-      - install -Dm755 target/release/1bit-echo             /app/bin/1bit-echo
-      - install -Dm755 target/release/1bit-voice            /app/bin/1bit-voice
-      - install -Dm755 target/release/1bit-mcp              /app/bin/1bit-mcp
-      - install -Dm755 target/release/1bit-halo-helm-tray   /app/bin/1bit-halo-helm-tray
+      - cd cpp && cmake --preset release-strix
+      - cd cpp && cmake --build --preset release-strix
+      - install -Dm755 cpp/build/strix/cli/1bit                 /app/bin/1bit
+      - install -Dm755 cpp/build/strix/power/1bit-power         /app/bin/1bit-power
+      - install -Dm755 cpp/build/strix/watchdog/1bit-watchdog   /app/bin/1bit-watchdog
+      - install -Dm755 cpp/build/strix/helm/1bit-helm           /app/bin/1bit-helm
+      - install -Dm755 cpp/build/strix/echo/1bit-echo           /app/bin/1bit-echo
+      - install -Dm755 cpp/build/strix/voice/1bit-voice         /app/bin/1bit-voice
+      - install -Dm755 cpp/build/strix/mcp/1bit-mcp             /app/bin/1bit-mcp
+      - install -Dm755 cpp/build/strix/helm/1bit-halo-helm-tray /app/bin/1bit-halo-helm-tray
       - install -Dm644 packaging/flatpak/io.onebit.Systems.desktop
           /app/share/applications/io.onebit.Systems.desktop
       - install -Dm644 packaging/appimage/1bit-systems.AppDir/1bit-systems.png

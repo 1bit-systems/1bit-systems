@@ -175,7 +175,7 @@ position is "only", not "best" — the comparison is binary today.
 
 ## 6. Brand implication
 
-Revise the hero line. Today's landing page (`crates/1bit-landing`)
+Revise the hero line. Today's landing page (`cpp/landing`)
 leads with "the only sub-2-bit runtime on Strix Halo". After the pivot
 it reads:
 

@@ -2,9 +2,9 @@
 #
 # Arch User Repository (AUR) PKGBUILD for 1bit-systems.
 #
-# Four packages in this tree:
+# Two packages in this tree:
 #   1bit-systems-bin   — prebuilt AppImage (fast install, no compile)
-#   1bit-systems       — builds from source via cargo (slower, matches
+#   1bit-systems       — builds from source via cmake (slower, matches
 #                        rocm-cpp host install)
 #
 # Publish to AUR via (once per bump):
@@ -12,9 +12,9 @@
 #   git commit -am "v$pkgver"
 #   git push aur master
 #
-# Rule A: only Rust orchestration binaries land in the package. ROCm /
-# librocm_cpp.so / model weights are handled by `install.sh` on first
-# run of `1bit install all`.
+# Rule A/B: only the C++23 orchestration binaries from `cpp/` land in
+# the package. ROCm / librocm_cpp.so / model weights are handled by
+# `install.sh` on first run of `1bit install all`.
 
 pkgname=1bit-systems
 pkgver=0.1.8
@@ -40,9 +40,9 @@ optdepends=(
     'hf-cli: first-run model download'
 )
 makedepends=(
-    'rust>=1.88'
-    'cargo'
-    'cmake'
+    'cmake>=3.27'
+    'ninja'
+    'gcc>=14'
     'git'
 )
 source=("$pkgname-$pkgver.tar.gz::https://github.com/bong-water-water-bong/1bit-systems/archive/refs/tags/v$pkgver.tar.gz")
@@ -50,42 +50,31 @@ sha256sums=('SKIP')  # Auto-fill via `updpkgsums` on release day.
 
 prepare() {
     cd "$pkgname-$pkgver"
-    # Vendor crates for reproducible builds.
-    cargo fetch --locked
 }
 
 build() {
-    cd "$pkgname-$pkgver"
-    # Skip GPU-feature crates on public AUR builds — end user enables them
-    # via `1bit install all` after ROCm host prereqs are in place.
-    cargo build --release --frozen \
-        -p onebit-cli \
-        -p onebit-power \
-        -p onebit-watchdog \
-        -p onebit-helm \
-        -p onebit-voice \
-        -p onebit-echo \
-        -p onebit-mcp
+    cd "$pkgname-$pkgver/cpp"
+    # release-strix preset is gfx1151-flavored. AUR builds are agnostic to
+    # the host's GPU because we do not link against ROCm here — the GPU
+    # path lives in librocm_cpp.so which the operator builds out-of-tree.
+    cmake --preset release-strix
+    cmake --build --preset release-strix
 }
 
 check() {
-    cd "$pkgname-$pkgver"
-    cargo test --release --frozen \
-        -p onebit-cli \
-        -p onebit-power \
-        -p onebit-watchdog \
-        -p onebit-voice
+    cd "$pkgname-$pkgver/cpp"
+    ctest --preset release-strix
 }
 
 package() {
     cd "$pkgname-$pkgver"
-    install -Dm755 "target/release/1bit"             "$pkgdir/usr/bin/1bit"
-    install -Dm755 "target/release/1bit-power"       "$pkgdir/usr/bin/1bit-power"
-    install -Dm755 "target/release/1bit-watchdog"    "$pkgdir/usr/bin/1bit-watchdog"
-    install -Dm755 "target/release/1bit-helm"        "$pkgdir/usr/bin/1bit-helm"
-    install -Dm755 "target/release/1bit-voice"       "$pkgdir/usr/bin/1bit-voice"
-    install -Dm755 "target/release/1bit-echo"        "$pkgdir/usr/bin/1bit-echo"
-    install -Dm755 "target/release/1bit-mcp"         "$pkgdir/usr/bin/1bit-mcp"
+    install -Dm755 "cpp/build/strix/cli/1bit"                 "$pkgdir/usr/bin/1bit"
+    install -Dm755 "cpp/build/strix/power/1bit-power"         "$pkgdir/usr/bin/1bit-power"
+    install -Dm755 "cpp/build/strix/watchdog/1bit-watchdog"   "$pkgdir/usr/bin/1bit-watchdog"
+    install -Dm755 "cpp/build/strix/helm/1bit-helm"           "$pkgdir/usr/bin/1bit-helm"
+    install -Dm755 "cpp/build/strix/voice/1bit-voice"         "$pkgdir/usr/bin/1bit-voice"
+    install -Dm755 "cpp/build/strix/echo/1bit-echo"           "$pkgdir/usr/bin/1bit-echo"
+    install -Dm755 "cpp/build/strix/mcp/1bit-mcp"             "$pkgdir/usr/bin/1bit-mcp"
 
     # Systemd user units — ship alongside the binaries so `1bit install`
     # can symlink them into $XDG_CONFIG_HOME/systemd/user/.

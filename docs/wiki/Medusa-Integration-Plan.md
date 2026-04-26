@@ -107,7 +107,7 @@ touch all three.
   `None`, call `forward_token` unchanged; if `Some`, call `forward_tree`
   and advance `cur` / `pos` by the accepted length.
 - `1bit-core::sampler::Sampler` at
-  `crates/1bit-core/src/sampler.rs` — currently samples one token from
+  `cpp/core/src/sampler.rs` — currently samples one token from
   one logits row. Needs a batched variant that takes a 2D logits buffer
   and returns the argmax *per row* so the verify step can pick the
   accepted prefix. Rep-penalty bookkeeping has to be applied to the
@@ -116,7 +116,7 @@ touch all three.
 ### 2.4 Things that **don't** change
 
 - Tokenizer (`crates/lemond/src/tokenizer.rs`,
-  `crates/1bit-core/src/htok.rs`) — vocabulary is the same backbone; heads
+  `cpp/core/src/htok.rs`) — vocabulary is the same backbone; heads
   share `lm_head`.
 - GGUF/.h1b loaders — heads are a separate 13 MB fp16 file; add one new
   loader path, don't touch the backbone loader.

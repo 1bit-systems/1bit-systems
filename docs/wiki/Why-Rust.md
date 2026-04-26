@@ -32,7 +32,7 @@
 - **Memory safety** — the orchestration layer manages HTTP request lifecycles, SSE streams, model weight mmaps, tokenizer tables, KV cache ownership, systemd journal pipes. A Python `KeyError` or C++ use-after-free at that layer takes down the serving process. `Result<T, E>` + ownership prevents that class of bug entirely.
 - **`tokio` + `axum`** — proven async HTTP/SSE stack. The 1bit-server implements OpenAI chat completions, SSE streaming, and per-request sharded metrics in ~1 500 LOC.
 - **`serde` + `schemars`** — typed JSON-RPC, MCP tool schemas, config loading. Each specialist declares `#[derive(JsonSchema)]` on its input/output struct and the MCP `tools/list` output falls out for free.
-- **`cargo` as build + package manager** — one command (`cargo build --workspace`) builds all 11 crates. CI runs `cargo test --workspace`. No `make`, no `cmake` at this layer.
+- **`cargo` as build + package manager** — one command (`cmake --build cpp/build/strix`) builds all 11 crates. CI runs `cargo test --workspace`. No `make`, no `cmake` at this layer.
 - **Binary distribution** — Rust produces static-link-friendly binaries with no runtime dep. `1bit-server` is 2.4 MB and needs only `libamdhip64.so` + `librocm_cpp.so` from the system.
 
 ## Why not pure Rust end-to-end?
