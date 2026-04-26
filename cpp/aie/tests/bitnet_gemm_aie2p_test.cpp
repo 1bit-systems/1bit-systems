@@ -340,10 +340,16 @@ TEST_CASE("BitnetGemmAIE2P load(512 xclbin) reports loaded_tile_*()==512")
 }
 
 TEST_CASE("BitnetGemmAIE2P 512 dispatch matches CPU bf16 oracle"
-          * doctest::skip(true))   // gate G7 follow-up: leaf gemm() impl
-                                   // does not yet thread loaded_tile_*()
-                                   // through every BO/DMA path; 512
-                                   // dispatch currently produces NaN.
+          * doctest::skip(true))   // gate G7: even after runtime tile
+                                   // sizing migration, 512 xclbin
+                                   // dispatches NaN. Suspect: W-arg
+                                   // byte count probe gives wrong
+                                   // tile dim, OR kernel name lookup
+                                   // picks wrong index, OR BO
+                                   // group_id() returns wrong group
+                                   // for the 512 xclbin layout.
+                                   // Tracked in
+                                   // project_ship_gate_status_2026_04_26.md.
 {
     if (!real_backend_enabled()) {
         DOCTEST_WARN_MESSAGE(true,
