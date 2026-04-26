@@ -91,6 +91,10 @@ add_subdirectory(agent)
 if(ONEBIT_BUILD_DESKTOP)
     add_subdirectory(helm)
     add_subdirectory(helm-tui)
+    # helm-tauri is opt-in via -DONEBIT_BUILD_HELM_TAURI=ON. Its own
+    # CMakeLists.txt gates everything inside that option, so listing
+    # the subdirectory unconditionally here is a no-op when OFF.
+    add_subdirectory(helm-tauri)
 endif()
 
 # Pending ports — add_subdirectory lines uncommented as each crate lands.
