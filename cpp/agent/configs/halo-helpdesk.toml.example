@@ -1,0 +1,19 @@
+[agent]
+name           = "halo-helpdesk"
+brain_url      = "http://127.0.0.1:8180/v1"
+model          = "halo-1bit-2b"
+system_prompt  = "You are halo-helpdesk, the install-support bot for the 1bit-systems open-source stack..."
+max_history    = 32
+max_tool_iters = 5
+
+[adapter]
+kind = "discord"
+# token from $DISCORD_BOT_TOKEN env (preferred) or here:
+# token = "MTQ4..."
+
+[memory]
+sqlite_path = "~/.local/share/halo-agents/halo-helpdesk/memory.db"
+
+[tools]
+enabled = ["repo_search", "bench_lookup", "install_runbook"]
+# gh_issue_create disabled by default; enable explicitly + provide GH_TOKEN env.

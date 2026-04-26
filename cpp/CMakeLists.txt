@@ -63,6 +63,7 @@ endif()
 add_subdirectory(ingest)
 add_subdirectory(stream)
 add_subdirectory(tier-mint)
+add_subdirectory(agent)
 
 if(ONEBIT_BUILD_DESKTOP)
     add_subdirectory(helm)
@@ -94,7 +95,7 @@ if(CLANG_TIDY_EXE)
     set(_onebit_tidy_crates
         core mcp cli landing power voice echo helm helm-tui
         watchdog halo-ralph mcp-clients mcp-linuxgsm onnx kokoro
-        aie stream ingest retrieval tier-mint tools)
+        aie stream ingest retrieval tier-mint tools agent)
 
     set(_onebit_tidy_sources)
     foreach(_crate IN LISTS _onebit_tidy_crates)

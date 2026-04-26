@@ -1,0 +1,17 @@
+# Enable per-config: systemctl --user enable --now halo-agent@halo-helpdesk
+[Unit]
+Description=halo autonomous agent — instance %i
+After=network-online.target 1bit-halo-lemonade.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart=%h/.local/bin/halo-agent --config %h/.config/halo-agents/%i.toml
+Restart=always
+RestartSec=5
+StandardOutput=append:%h/.local/share/halo-agents/%i.log
+StandardError=append:%h/.local/share/halo-agents/%i.log
+Environment="HALO_AGENT_INSTANCE=%i"
+
+[Install]
+WantedBy=default.target

@@ -38,6 +38,25 @@ build       = []
 units       = []
 check       = ""
 
+# halo-agent — autonomous specialist daemon. One process per persona
+# (halo-helpdesk, halo-echo, ...), backed by lemond on :8180 and a per-instance
+# SQLite memory.db. Discord + Telegram adapters; no Python at runtime.
+# Operator enables instance units per-config:
+#   systemctl --user enable --now halo-agent@halo-helpdesk
+[component.agent]
+description = "halo autonomous agent daemon — Discord/Telegram help-desk bot, lemond-backed, zero-Claude runtime"
+deps        = ["mcp", "lemonade"]
+build = [
+    ["cmake", "--build", "cpp/build/strix", "--target", "halo-agent"],
+    ["install", "-Dm755", "cpp/build/strix/agent/halo-agent", "${HOME}/.local/bin/halo-agent"],
+    ["install", "-Dm644", "strixhalo/systemd/halo-agent@.service", "${HOME}/.config/systemd/user/halo-agent@.service"],
+    ["mkdir", "-p", "${HOME}/.config/halo-agents"],
+    ["mkdir", "-p", "${HOME}/.local/share/halo-agents"],
+    ["systemctl", "--user", "daemon-reload"],
+]
+units       = []  # instance units enabled per-config by operator
+check       = ""
+
 # 1bit-voice — sentence-boundary TTS streaming CLI. Installs the binary to
 # ~/.local/bin via cmake + install. No systemd unit; the binary is invoked
 # on demand by `1bit say`, `1bit-echo`, and ad-hoc shell pipelines.
