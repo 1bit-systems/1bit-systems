@@ -259,6 +259,25 @@ if [[ "$CI_MODE" != "0" ]]; then
     info "CI mode — skipping (no ROCm on runners)"
     ok "skipped"
 else
+    # Some operators have CC / CXX / HIPCXX inherited from a TheRock dev
+    # tree (or other non-ROCm-aware build) that point at compiler binaries
+    # which no longer exist. CMake will refuse to configure with a bogus
+    # CMAKE_*_COMPILER path. Validate first and unset cleanly so we fall
+    # back to the system clang/clang++ on PATH.
+    for var in CC CXX HIPCXX; do
+        val="${!var:-}"
+        if [[ -n "$val" && ! -x "$val" ]]; then
+            warn "$var=$val is not executable — unsetting so CMake uses PATH"
+            unset "$var"
+        fi
+    done
+    # Wipe any stale CMakeCache that cached a now-dead compiler path.
+    if [[ -f "$ROCM_CPP_DIR/build/CMakeCache.txt" ]] && \
+       grep -q '^CMAKE_\(C\|CXX\|HIP\)_COMPILER:' "$ROCM_CPP_DIR/build/CMakeCache.txt" && \
+       ! grep -q "^CMAKE_CXX_COMPILER:.*=$(command -v c++ 2>/dev/null || echo /usr/bin/c++)" "$ROCM_CPP_DIR/build/CMakeCache.txt"; then
+        warn "stale CMakeCache in $ROCM_CPP_DIR/build — removing"
+        rm -rf "$ROCM_CPP_DIR/build"
+    fi
     mkdir -p "$ROCM_CPP_DIR/build"
     pushd "$ROCM_CPP_DIR/build" >/dev/null
     info "cmake configure"
