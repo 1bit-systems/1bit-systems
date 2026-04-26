@@ -334,6 +334,23 @@ target_link_libraries(bitnet_tui PRIVATE
 add_executable(h1b_repack_sherry tools/h1b_repack_sherry.cpp)
 target_link_libraries(h1b_repack_sherry PRIVATE rocm_cpp hip::host)
 
+# -- tools/sherry_per_row_probe : one-shot diagnostic CPU oracle --------------
+# Compares per-row dot products of v2 vs Sherry v3 on layer 0 q_proj using a
+# fixed pseudo-Gaussian activation vector. Pure host C++; not linked into the
+# runtime path. Used to localize residual PPL gap (uniform vs row-varying
+# rel_err tells us scale-bug vs sign-distribution-bug).
+add_executable(sherry_per_row_probe tools/sherry_per_row_probe.cpp)
+target_link_libraries(sherry_per_row_probe PRIVATE)
+
+# -- tools/sherry_calib_capture : per-projection calibration sidecar emitter --
+# Reads .h1b RMSNorm weights and emits a per-(layer, projection) (mu, sigma)
+# sidecar consumed by h1b_repack_sherry's round-5 distribution-matched scale
+# path. Loader-only host C++ — no GPU, no rocm_cpp link. MIT (the calibration
+# step is not part of the Sherry algorithm; the kernel + repacker stay
+# PolyForm-Noncommercial).
+add_executable(sherry_calib_capture tools/sherry_calib_capture.cpp)
+target_link_libraries(sherry_calib_capture PRIVATE)
+
 # -- ck-prefill : research binaries (kept building for tuning) ------------------
 add_subdirectory(ck-prefill)
 

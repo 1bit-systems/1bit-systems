@@ -79,6 +79,104 @@ namespace {
 // Halo v2 codes: 0->-1, 1->0, 2->+1, 3->unused (treated as 0).
 static constexpr int8_t kHaloCodeToTernary[4] = {-1, 0, +1, 0};
 
+// ── Round-5 calibration sidecar ("HCAL" v1) ──────────────────────────────────
+//
+// One per-input-dim (mu, sigma) entry per (layer, projection). The repacker
+// uses these to draw input-distribution-matched activation samples and pick
+// per-row scale corrections that bring the Sherry GEMV's expected output back
+// onto the v2 expected output, row by row.
+//
+// File layout (matches sherry_calib_capture):
+//   magic[4]  = 'H','C','A','L'
+//   version   = int32(1)
+//   hs        = int32
+//   is_       = int32
+//   layers    = int32
+//   projs     = int32(7)  -- q,k,v,o,gate,up,down in this order
+//   flags     = int32(0)
+//   per (layer, proj) in layer-major order:
+//     K_in    = int32
+//     mu[K_in]    = float32 array
+//     sigma[K_in] = float32 array
+struct CalibTensor {
+    int K_in = 0;
+    std::vector<float> mu;
+    std::vector<float> sigma;
+};
+struct CalibSidecar {
+    bool loaded = false;
+    int hs = 0, is_ = 0, layers = 0, projs = 0;
+    // Indexed [layer * projs + proj_idx]. Project order matches
+    // layer_tensors() in this file: q,k,v,o,gate,up,down.
+    std::vector<CalibTensor> entries;
+
+    const CalibTensor* lookup(int li, int proj_idx) const noexcept {
+        if (!loaded) return nullptr;
+        if (li < 0 || li >= layers) return nullptr;
+        if (proj_idx < 0 || proj_idx >= projs) return nullptr;
+        return &entries[(size_t)li * (size_t)projs + (size_t)proj_idx];
+    }
+};
+
+bool load_calib_sidecar(const std::string& path, CalibSidecar& out) {
+    std::ifstream f(path, std::ios::binary | std::ios::ate);
+    if (!f) return false;
+    const std::streamsize n = f.tellg();
+    if (n < 24) return false;
+    std::vector<uint8_t> buf((size_t)n);
+    f.seekg(0, std::ios::beg);
+    f.read(reinterpret_cast<char*>(buf.data()), n);
+    if (!f) return false;
+    if (std::memcmp(buf.data(), "HCAL", 4) != 0) {
+        std::fprintf(stderr, "[sherry] calib sidecar: bad magic at %s\n", path.c_str());
+        return false;
+    }
+    auto rd_i32 = [&](size_t off) -> int32_t {
+        int32_t v;
+        std::memcpy(&v, buf.data() + off, 4);
+        return v;
+    };
+    if (rd_i32(4) != 1) {
+        std::fprintf(stderr, "[sherry] calib sidecar: unsupported version %d\n",
+                     rd_i32(4));
+        return false;
+    }
+    out.hs     = rd_i32(8);
+    out.is_    = rd_i32(12);
+    out.layers = rd_i32(16);
+    out.projs  = rd_i32(20);
+    // flags @ 24 reserved; read but ignored.
+    size_t off = 28;
+    const size_t total = (size_t)out.layers * (size_t)out.projs;
+    out.entries.assign(total, {});
+    for (size_t i = 0; i < total; ++i) {
+        if (off + 4 > buf.size()) {
+            std::fprintf(stderr, "[sherry] calib sidecar: truncated at entry %zu\n", i);
+            return false;
+        }
+        const int32_t K = rd_i32(off);
+        off += 4;
+        if (K <= 0 || K > (1 << 20)) {
+            std::fprintf(stderr, "[sherry] calib sidecar: bad K_in=%d at entry %zu\n", K, i);
+            return false;
+        }
+        const size_t bytes = (size_t)K * 4u;
+        if (off + 2u * bytes > buf.size()) {
+            std::fprintf(stderr, "[sherry] calib sidecar: short read at entry %zu\n", i);
+            return false;
+        }
+        out.entries[i].K_in = K;
+        out.entries[i].mu.resize((size_t)K);
+        out.entries[i].sigma.resize((size_t)K);
+        std::memcpy(out.entries[i].mu.data(),    buf.data() + off, bytes); off += bytes;
+        std::memcpy(out.entries[i].sigma.data(), buf.data() + off, bytes); off += bytes;
+    }
+    out.loaded = true;
+    std::printf("[sherry] calib sidecar loaded: %s (L=%d P=%d hs=%d is=%d)\n",
+                path.c_str(), out.layers, out.projs, out.hs, out.is_);
+    return true;
+}
+
 // Per-tensor stats accumulated by the packer + reported on stdout.
 struct TensorStats {
     std::string name;
@@ -246,7 +344,100 @@ std::vector<TensorSpec> layer_tensors(int hs, int is_, int nh, int nkv, int hd) 
 
 // ---- repack core -----------------------------------------------------------
 
-int do_repack(const std::string& in_path, const std::string& out_path) {
+// Sample N=8 deterministic Box-Muller draws per K dim using Normal(mu[k], sigma[k]).
+// Returns the per-sample activation vectors as a flat [N_SAMPLES][K] float buffer.
+// Seed is keyed on (li, proj_idx) so calibration is reproducible across runs and
+// independent across (layer, projection) pairs.
+constexpr int kCalibSamples = 8;
+
+void draw_calib_samples(const CalibTensor& ct, int li, int proj_idx,
+                        std::vector<float>& acts /*[N_SAMPLES * K]*/)
+{
+    const int K = ct.K_in;
+    acts.assign((size_t)kCalibSamples * (size_t)K, 0.0f);
+    // xorshift64 keyed on (li, proj_idx).
+    uint64_t s = 0x9E3779B97F4A7C15ULL
+               ^ ((uint64_t)li * 0x9E3779B97F4A7C15ULL)
+               ^ ((uint64_t)proj_idx * 0xC2B2AE3D27D4EB4FULL);
+    if (s == 0) s = 0xDEADBEEFDEADBEEFULL;
+    auto next_u64 = [&]() -> uint64_t {
+        s ^= s << 13; s ^= s >> 7; s ^= s << 17;
+        return s;
+    };
+    auto next_uniform_open = [&]() -> double {
+        // (0, 1) — exclusive at both ends, so log() in Box-Muller is finite.
+        const uint64_t u = (next_u64() >> 11) | 1ULL;  // [1, 2^53), avoid 0
+        return (double)u / (double)(1ULL << 53);
+    };
+    // Box-Muller pairs.
+    for (int n = 0; n < kCalibSamples; ++n) {
+        float* row = acts.data() + (size_t)n * (size_t)K;
+        int k = 0;
+        while (k + 1 < K) {
+            const double u1 = next_uniform_open();
+            const double u2 = next_uniform_open();
+            const double r = std::sqrt(-2.0 * std::log(u1));
+            const double th = 6.28318530717958647692 * u2;
+            const double z0 = r * std::cos(th);
+            const double z1 = r * std::sin(th);
+            row[k]     = (float)(ct.mu[(size_t)k]     + (double)ct.sigma[(size_t)k]     * z0);
+            row[k + 1] = (float)(ct.mu[(size_t)(k+1)] + (double)ct.sigma[(size_t)(k+1)] * z1);
+            k += 2;
+        }
+        if (k < K) {
+            const double u1 = next_uniform_open();
+            const double u2 = next_uniform_open();
+            const double r = std::sqrt(-2.0 * std::log(u1));
+            const double th = 6.28318530717958647692 * u2;
+            const double z = r * std::cos(th);
+            row[k] = (float)(ct.mu[(size_t)k] + (double)ct.sigma[(size_t)k] * z);
+        }
+    }
+}
+
+// Per-row scale ratio over a fixed sample population.
+//
+//   ratio[r] = (Σ_n a_n . v2_signed_n) / (Σ_n a_n . sherry_signed_n)
+//
+// where the dot products are
+//   sum_k acts_n[k] * v2_signs[r,k]
+//   sum_k acts_n[k] * sh_signs[r,k]
+// and v2_signs / sh_signs are int8 ∈ {-1, 0, +1}. We absorb the L2 of the
+// activation field by accumulating |a_n . w_v2| and |a_n . w_sh| (signed
+// sums, not absolute) and taking the ratio of their sums-over-N. Clamp to
+// [0.5, 2.0] — the round-4 [0.25, 4.0] clamp was too loose because the
+// activation distribution it sampled had no per-dim shape; with real per-K
+// sigma the ratio should sit much closer to 1.
+//
+// Returns 1.0 if either denominator is zero (kernel-side fallback to v2
+// scale verbatim, which is what round-3 already does).
+float per_row_calib_ratio(const std::vector<float>& acts /*[N_SAMPLES * K]*/,
+                          const int8_t* v2_row,
+                          const int8_t* sh_row,
+                          int K)
+{
+    double num = 0.0, den = 0.0;
+    for (int n = 0; n < kCalibSamples; ++n) {
+        const float* a = acts.data() + (size_t)n * (size_t)K;
+        double dv = 0.0, ds = 0.0;
+        for (int k = 0; k < K; ++k) {
+            const float ak = a[k];
+            dv += (double)ak * (double)v2_row[k];
+            ds += (double)ak * (double)sh_row[k];
+        }
+        num += dv;
+        den += ds;
+    }
+    if (std::fabs(den) < 1e-12 || std::fabs(num) < 1e-12) return 1.0f;
+    double r = num / den;
+    if (r < 0.5)  r = 0.5;
+    if (r > 2.0)  r = 2.0;
+    return (float)r;
+}
+
+int do_repack(const std::string& in_path, const std::string& out_path,
+              const std::string& calib_path)
+{
     std::vector<uint8_t> buf;
     if (!read_all(in_path, buf)) {
         std::fprintf(stderr, "[h1b_repack_sherry] cannot open %s\n", in_path.c_str());
@@ -282,6 +473,32 @@ int do_repack(const std::string& in_path, const std::string& out_path) {
 
     std::printf("[sherry] config: hs=%d is=%d L=%d nh=%d nkv=%d V=%d hd=%d\n",
                 hs, is_, L, nh, nkv, V, hd);
+
+    // Round-5 calibration sidecar. Optional — if absent, behavior matches
+    // round-3 (S_sh[r] = S_v2[r] verbatim, no per-row correction).
+    CalibSidecar calib;
+    std::string resolved_calib_path = calib_path;
+    if (resolved_calib_path.empty()) {
+        // Auto-derive: input.h1b → input.calib.bin (replace trailing .h1b).
+        const std::string& s = in_path;
+        if (s.size() >= 4 && s.compare(s.size() - 4, 4, ".h1b") == 0) {
+            resolved_calib_path = s.substr(0, s.size() - 4) + ".calib.bin";
+        } else {
+            resolved_calib_path = s + ".calib.bin";
+        }
+    }
+    if (load_calib_sidecar(resolved_calib_path, calib)) {
+        if (calib.hs != hs || calib.is_ != is_ || calib.layers != L) {
+            std::fprintf(stderr,
+                "[sherry] calib sidecar dim mismatch (hs=%d is=%d L=%d vs "
+                "h1b hs=%d is=%d L=%d) — IGNORING\n",
+                calib.hs, calib.is_, calib.layers, hs, is_, L);
+            calib.loaded = false;
+        }
+    } else {
+        std::printf("[sherry] no calib sidecar at %s — round-3 fallback "
+                    "(S_sh[r] = S_v2[r] verbatim)\n", resolved_calib_path.c_str());
+    }
 
     float rope_theta = 500000.0f;
     float rms_eps    = 1.0e-5f;
@@ -353,7 +570,11 @@ int do_repack(const std::string& in_path, const std::string& out_path) {
         std::vector<int8_t> ternary;
         std::vector<int8_t> sparse;
         std::vector<uint8_t> packed_v3;
-        for (const auto& sp : specs) {
+        // Round-5: per-(layer, proj) calibration sample buffer. Reused across
+        // rows of the same projection.
+        std::vector<float> calib_acts;
+        for (size_t proj_idx = 0; proj_idx < specs.size(); ++proj_idx) {
+            const auto& sp = specs[proj_idx];
             const size_t src_row_bytes = (size_t)((sp.cols + 3) / 4);
             const size_t src_bytes     = (size_t)sp.rows * src_row_bytes;
             const size_t scales_bytes  = (size_t)sp.rows * 4;
@@ -380,42 +601,84 @@ int do_repack(const std::string& in_path, const std::string& out_path) {
             stats.v2_bytes = src_bytes;
             stats.v3_bytes = dst_bytes;
 
-            // Per-row scale: PASS THROUGH from HALO_V2.
+            // Per-row scale path.
             //
-            // Earlier revisions (commit 2e25db9) folded an `l1_v2 / l1_sh`
-            // ratio into scales_v3, on the theory that the strict-3:4
-            // sparsification grew |q|_1 from `l1_v2` to `3 * groups` and
-            // therefore over-counted contributions. That theory was wrong:
+            // Round-3 (no calibration sidecar): pass through `scales_v2[r]`
+            // verbatim. The phantom-sign fill is balanced ±1 so E[Σ a*w_sh]
+            // tracks E[Σ a*w_v2] in expectation; on a long-context PPL run
+            // the lane-drop noise averages out across rows.
             //
-            //   The phantom signs forced into multi-zero groups are filled
-            //   with a deterministic balanced ±1 pattern (`(g + p) & 1`),
-            //   so their EXPECTED contribution to `sum_k act[k] * w[k]` is
-            //   ZERO across a row. The L1 ratio rescale shrinks the genuine
-            //   ±1 signal contributions by `l1_v2 / l1_sh` ≈ 0.7-0.8 while
-            //   leaving the phantom NOISE at full magnitude — net effect
-            //   is signal attenuation + noise preservation, the worst of
-            //   both worlds. PPL went from 1.06e9 (without rescale, with
-            //   the old constant-+1 phantom fill) to 8131 (with rescale,
-            //   with balanced phantom fill); removing the rescale on the
-            //   balanced-phantom path should bring scale-magnitude back
-            //   to v2 levels.
+            // Round-5 (calibration sidecar present): per-row distribution-
+            // matched correction.
             //
-            // Right answer: keep scales_v2 verbatim. The kernel computes
-            // `scales[r] * sum_k act[k] * sign_sh[k]`, and E[sum] under
-            // balanced phantom fill equals the v2 sum (modulo the small
-            // 13% no-zero-group lane-drop, which is now round-robined
-            // across lane positions and is also 0-mean per row in
-            // expectation).
+            //   S_sh[r] = S_v2[r] * (Σ_n a_n . v2_signed_n)
+            //                     / (Σ_n a_n . sherry_signed_n)
+            //
+            //   over N=8 deterministic Box-Muller samples drawn from
+            //   Normal(mu[k], sigma[k]) per K dim, where (mu, sigma) come
+            //   from the calibration sidecar. Round-4 used a flat Gaussian
+            //   without per-dim shape; the resulting ratios diverged
+            //   wildly (range -58k to +87k, 31% clamped) and PPL regressed
+            //   to 4.2e7. With per-K-dim sigma the activation distribution
+            //   matches the actual post-RMSNorm distribution shape per
+            //   layer/projection, so the ratio sits much closer to 1 and
+            //   the [0.5, 2.0] clamp catches only genuine outliers.
             std::vector<float> scales_v3((size_t)sp.rows, 0.0f);
             const float* scales_v2 =
                 reinterpret_cast<const float*>(scales);
+
+            const CalibTensor* ct =
+                calib.lookup(li, static_cast<int>(proj_idx));
+            const bool use_calib = (ct != nullptr) && (ct->K_in == sp.cols);
+            if (calib.loaded && !use_calib) {
+                std::fprintf(stderr,
+                    "[sherry][warn] L%d %s: calib K_in=%d != tensor cols=%d — "
+                    "row scale falls back to v2 verbatim\n",
+                    li, sp.name, ct ? ct->K_in : -1, sp.cols);
+            }
+            if (use_calib) {
+                draw_calib_samples(*ct, li, static_cast<int>(proj_idx),
+                                   calib_acts);
+            }
+
+            // Per-tensor calib ratio stats.
+            double ratio_min = 1e30, ratio_max = -1e30, ratio_sum = 0.0;
+            int ratio_clamped = 0, ratio_count = 0;
+            // Reusable scratch for v2 ternary signs (we already have ternary
+            // for sherry packing; we need a separate copy because
+            // make_3to4_sparse mutates `ternary` → `sparse`).
+            std::vector<int8_t> v2_row_buf;
+            if (use_calib) v2_row_buf.assign((size_t)sp.cols, 0);
+
             for (int r = 0; r < sp.rows; ++r) {
                 halo_unpack_row(src + (size_t)r * src_row_bytes,
                                 sp.cols, ternary.data());
+                if (use_calib) {
+                    std::memcpy(v2_row_buf.data(), ternary.data(),
+                                (size_t)sp.cols);
+                }
                 make_3to4_sparse(ternary.data(), sp.cols, sparse.data(), stats);
                 pack_row_sherry(sparse.data(), sp.cols,
                                 packed_v3.data() + (size_t)r * dst_row_bytes);
-                scales_v3[r] = scales_v2[r];
+                if (use_calib) {
+                    const float ratio = per_row_calib_ratio(
+                        calib_acts, v2_row_buf.data(), sparse.data(), sp.cols);
+                    scales_v3[r] = scales_v2[r] * ratio;
+                    if (ratio == 0.5f || ratio == 2.0f) ++ratio_clamped;
+                    if (ratio < ratio_min) ratio_min = ratio;
+                    if (ratio > ratio_max) ratio_max = ratio;
+                    ratio_sum += (double)ratio;
+                    ++ratio_count;
+                } else {
+                    scales_v3[r] = scales_v2[r];
+                }
+            }
+            if (use_calib && ratio_count > 0 && (li == 0 || li + 1 == L)) {
+                std::printf(
+                    "[sherry] L%-2d %-4s ratio min=%.3f max=%.3f mean=%.3f "
+                    "clamped=%d/%d\n",
+                    li, sp.name, ratio_min, ratio_max,
+                    ratio_sum / (double)ratio_count, ratio_clamped, ratio_count);
             }
 
             // Emit packed tensor + recomputed per-row scales.
@@ -676,13 +939,20 @@ void usage() {
         "usage:\n"
         "  h1b_repack_sherry --input <halo_v2.h1b> --output <sherry_v3.h1b>\n"
         "                    [--threshold-mode absmean|smallest-quartile]\n"
-        "  h1b_repack_sherry --verify <sherry_v3.h1b> [--source <halo_v2.h1b>]\n");
+        "                    [--calib <model.calib.bin>]\n"
+        "  h1b_repack_sherry --verify <sherry_v3.h1b> [--source <halo_v2.h1b>]\n"
+        "\n"
+        "Round-5 calibration (--calib): emit sidecar via sherry_calib_capture\n"
+        "first, then point this tool at it. If --calib is omitted the tool\n"
+        "auto-derives the path (input.h1b -> input.calib.bin); if that file\n"
+        "is absent, the repacker falls back to round-3 behavior (S_v2[r]\n"
+        "verbatim).\n");
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
-    std::string in_path, out_path, verify_path, source_path;
+    std::string in_path, out_path, verify_path, source_path, calib_path;
     std::string threshold_mode = "absmean";
     bool mode_repack = false, mode_verify = false;
     for (int i = 1; i < argc; ++i) {
@@ -690,6 +960,7 @@ int main(int argc, char** argv) {
         if      (a == "--input"           && i + 1 < argc) { in_path        = argv[++i]; mode_repack = true; }
         else if (a == "--output"          && i + 1 < argc) { out_path       = argv[++i]; mode_repack = true; }
         else if (a == "--threshold-mode"  && i + 1 < argc) { threshold_mode = argv[++i]; }
+        else if (a == "--calib"           && i + 1 < argc) { calib_path     = argv[++i]; }
         else if (a == "--verify"          && i + 1 < argc) { verify_path    = argv[++i]; mode_verify = true; }
         else if (a == "--source"          && i + 1 < argc) { source_path    = argv[++i]; }
         else if (a == "--help" || a == "-h") { usage(); return 0; }
@@ -720,7 +991,7 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "[h1b_repack_sherry] --input and --output both required\n");
             return 2;
         }
-        return do_repack(in_path, out_path);
+        return do_repack(in_path, out_path, calib_path);
     }
     return do_verify(verify_path, source_path);
 }
