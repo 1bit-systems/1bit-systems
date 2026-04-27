@@ -96,12 +96,14 @@ WORKSPACE_DIR="${WORKSPACE_DIR:-$(cd "$(dirname "$0")" && pwd)}"
 ROCM_ROOT="${ROCM_ROOT:-/opt/rocm}"
 CI_MODE="${CI:-${GITHUB_ACTIONS:-0}}"
 INSTALL_MODE="${INSTALL_MODE:-source}"
-# SKIP_ROCM_CPP=1 skips the external rocm-cpp clone+build (steps 2-3). The
-# cpp tower's release-strix preset has ONEBIT_BUILD_ROCM_CPP=OFF by default,
-# so the librocm_cpp.so artifact this step produces is only consumed by the
-# out-of-tree lemond. If lemond isn't deployed on this box (or you're just
-# bringing up the CLI / landing / voice tower), skip the build.
-SKIP_ROCM_CPP="${SKIP_ROCM_CPP:-0}"
+# BUILD_ROCM_CPP=1 enables the external rocm-cpp clone+build (steps 2-3).
+# Default is OFF: the cpp tower's release-strix preset has
+# ONEBIT_BUILD_ROCM_CPP=OFF, so the librocm_cpp.so artifact this step
+# produces is only consumed by the out-of-tree lemond inference server.
+# Most operators bringing up the CLI / landing / voice tower don't need it,
+# and the build requires either TheRock or a complete rocm-cpp source tree.
+# Set BUILD_ROCM_CPP=1 explicitly when deploying with lemond.
+BUILD_ROCM_CPP="${BUILD_ROCM_CPP:-0}"
 
 # ── appimage fast-path ───────────────────────────────────────
 # INSTALL_MODE=appimage downloads the latest release AppImage, verifies
@@ -249,8 +251,9 @@ ok "host looks good"
 
 # ── step 2: rocm-cpp sync ────────────────────────────────────
 step "fetching rocm-cpp (HIP kernels)"
-if [[ "$SKIP_ROCM_CPP" != "0" ]]; then
-    info "SKIP_ROCM_CPP=$SKIP_ROCM_CPP — skipping clone (cpp tower's release-strix preset doesn't link librocm_cpp.so)"
+if [[ "$BUILD_ROCM_CPP" == "0" ]]; then
+    info "BUILD_ROCM_CPP=0 (default) — skipping clone (cpp tower's release-strix preset doesn't link librocm_cpp.so)"
+    info "set BUILD_ROCM_CPP=1 if you're deploying lemond and need librocm_cpp.so"
     ok "skipped"
 else
     mkdir -p "$REPO_ROOT"
@@ -266,8 +269,8 @@ fi
 
 # ── step 3: rocm-cpp build ───────────────────────────────────
 step "building rocm-cpp (bitnet_decode + librocm_cpp.so)"
-if [[ "$SKIP_ROCM_CPP" != "0" ]]; then
-    info "SKIP_ROCM_CPP=$SKIP_ROCM_CPP — skipping build"
+if [[ "$BUILD_ROCM_CPP" == "0" ]]; then
+    info "BUILD_ROCM_CPP=0 (default) — skipping build"
     ok "skipped"
 elif [[ "$CI_MODE" != "0" ]]; then
     info "CI mode — skipping (no ROCm on runners)"
@@ -397,7 +400,9 @@ if [[ "$CI_MODE" != "0" ]]; then
     info "CI mode — skipping"
     ok "skipped"
 else
-    export ROCM_CPP_LIB_DIR="$ROCM_CPP_DIR/build"
+    if [[ "$BUILD_ROCM_CPP" != "0" ]]; then
+        export ROCM_CPP_LIB_DIR="$ROCM_CPP_DIR/build"
+    fi
     if "$HOME/.local/bin/1bit" install core 2>&1 | progress_pipe "1bit install"; then
         ok "core component up"
     else
