@@ -69,6 +69,13 @@ target_compile_features(onebit_agent_lib PUBLIC cxx_std_23)
 # httplib's websocket + TLS path needs OPENSSL_SUPPORT defined at the call
 # site; set it on the public surface so adapter TUs see it consistently.
 target_compile_definitions(onebit_agent_lib PUBLIC CPPHTTPLIB_OPENSSL_SUPPORT=1)
+# install_runbook.cpp resolves runbook .md files relative to this baked-in
+# absolute path (source-tree). Removes the prior /home/bcloud hardcode that
+# broke CI runners. Production installs still fall through to
+# ${HOME}/.local/share/1bit-agent/runbooks (resolved at runtime).
+target_compile_definitions(onebit_agent_lib PRIVATE
+    ONEBIT_AGENT_RUNBOOK_DIR="${CMAKE_CURRENT_SOURCE_DIR}/configs/runbooks"
+)
 target_link_libraries(onebit_agent_lib
     PUBLIC
         onebit::core

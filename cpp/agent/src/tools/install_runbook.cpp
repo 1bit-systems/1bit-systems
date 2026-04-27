@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <ios>
@@ -13,22 +14,41 @@
 #include <string_view>
 #include <unordered_set>
 
+#ifndef ONEBIT_AGENT_RUNBOOK_DIR
+#define ONEBIT_AGENT_RUNBOOK_DIR "configs/runbooks"
+#endif
+
 namespace onebit::agent::tools {
 
 namespace {
 
-// Runbooks ship in-tree at cpp/agent/configs/runbooks/. The CLI's install
-// path drops them into ${HOME}/.local/share/1bit-agent/runbooks/ — we
-// look at both, repo-tree first because dev iteration loads from there.
-constexpr std::string_view kRepoRunbooks =
-    "/home/bcloud/repos/1bit-systems/cpp/agent/configs/runbooks";
-constexpr std::string_view kInstalledRunbooks =
-    "/home/bcloud/.local/share/1bit-agent/runbooks";
+[[nodiscard]] std::string home_subdir(const char* suffix)
+{
+    const char* home = std::getenv("HOME");
+    if (!home || !*home) return {};
+    return std::string(home) + suffix;
+}
+
+// Runbooks ship in-tree at cpp/agent/configs/runbooks/, baked at build
+// time via ONEBIT_AGENT_RUNBOOK_DIR. The CLI's install path drops them
+// into ${HOME}/.local/share/1bit-agent/runbooks/ — we look at both,
+// repo-tree first because dev iteration loads from there.
+[[nodiscard]] std::string repo_runbooks_dir()
+{
+    return ONEBIT_AGENT_RUNBOOK_DIR;
+}
+
+[[nodiscard]] std::string installed_runbooks_dir()
+{
+    return home_subdir("/.local/share/1bit-agent/runbooks");
+}
 
 // Optional buglog the brain has seen us write to. If present, we grep
 // for similar errors and append the matching fix block.
-constexpr std::string_view kBuglogPath =
-    "/home/bcloud/.claude/projects/-home-bcloud/memory/buglog.json";
+[[nodiscard]] std::string buglog_path()
+{
+    return home_subdir("/.claude/projects/-home-bcloud/memory/buglog.json");
+}
 
 // Whitelist — components must match a fixed set so the agent can't be
 // tricked into reading arbitrary files via path traversal in `component`.
@@ -133,7 +153,7 @@ allowed_components()
     auto tokens = tokenize_error(error_text);
     if (tokens.empty()) return {};
 
-    const std::string body = read_file(kBuglogPath);
+    const std::string body = read_file(buglog_path());
     if (body.empty()) return {};
 
     nlohmann::json j;
@@ -196,12 +216,15 @@ allowed_components()
 [[nodiscard]] std::string load_runbook(const std::string& component)
 {
     // Repo tree wins so dev edits land without a reinstall.
-    auto path = std::filesystem::path(kRepoRunbooks) / (component + ".md");
+    auto path = std::filesystem::path(repo_runbooks_dir()) / (component + ".md");
     auto body = read_file(path);
     if (!body.empty()) return body;
 
-    path = std::filesystem::path(kInstalledRunbooks) / (component + ".md");
-    body = read_file(path);
+    const auto installed = installed_runbooks_dir();
+    if (!installed.empty()) {
+        path = std::filesystem::path(installed) / (component + ".md");
+        body = read_file(path);
+    }
     return body;
 }
 
@@ -233,7 +256,7 @@ ToolDef make_install_runbook()
         if (body.empty()) {
             return ToolResult{false,
                 "no runbook found for `" + component + "` (looked in "
-                + std::string(kRepoRunbooks) + ")"};
+                + repo_runbooks_dir() + ")"};
         }
 
         std::string error_text;
