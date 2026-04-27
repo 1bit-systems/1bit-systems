@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/1bit-echo --bind 127.0.0.1:8085 --codec opus
+ExecStart=%h/.local/bin/1bit-echo --bind 127.0.0.1:8085 --codec opus
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

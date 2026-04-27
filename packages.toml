@@ -234,7 +234,7 @@ deps        = []
 build = [
     ["cmake", "-S", "../1bit-tts.cpp", "-B", "../1bit-tts.cpp/build", "-DGGML_VULKAN=ON"],
     ["cmake", "--build", "../1bit-tts.cpp/build", "-j", "16", "--target", "qwen3-tts-server"],
-    ["install", "-Dm755", "../1bit-tts.cpp/build/qwen3-tts-server", "~/.local/bin/1bit-tts-server"],
+    ["install", "-Dm755", "../1bit-tts.cpp/build/qwen3-tts-server", "${HOME}/.local/bin/1bit-tts-server"],
 ]
 files = [
     ["strixhalo/systemd/1bit-tts.service", "systemd/user/1bit-tts.service"],
@@ -259,7 +259,7 @@ build = [
     ["cmake", "-S", "../stable-diffusion.cpp", "-B", "../stable-diffusion.cpp/build-hip",
      "-DSD_HIPBLAS=OFF", "-DSD_HIP=ON"],
     ["cmake", "--build", "../stable-diffusion.cpp/build-hip", "-j", "16", "--target", "sd-server"],
-    ["install", "-Dm755", "../stable-diffusion.cpp/build-hip/bin/sd-server", "~/.local/bin/1bit-sd-server"],
+    ["install", "-Dm755", "../stable-diffusion.cpp/build-hip/bin/sd-server", "${HOME}/.local/bin/1bit-sd-server"],
 ]
 files = [
     ["strixhalo/systemd/1bit-sd.service", "systemd/user/1bit-sd.service"],
@@ -297,13 +297,13 @@ deps        = []
 # sibling repo; this component sets up the environment. Rule A holds at
 # serve time: xclbin artifact + libxrt C++ at runtime, no Python.
 build = [
-    ["mkdir", "-p", "~/repos", "~/.venvs"],
-    ["sh", "-c", "test -d ~/repos/IRON || git clone https://github.com/amd/IRON.git ~/repos/IRON"],
-    ["sh", "-c", "test -d ~/.venvs/ironenv || python3 -m venv ~/.venvs/ironenv"],
-    ["sh", "-c", "~/.venvs/ironenv/bin/pip install --upgrade pip --quiet"],
-    ["sh", "-c", "cd ~/repos/IRON && ~/.venvs/ironenv/bin/pip install -r requirements.txt --quiet"],
+    ["mkdir", "-p", "${HOME}/repos", "${HOME}/.venvs"],
+    ["sh", "-c", "test -d ${HOME}/repos/IRON || git clone https://github.com/amd/IRON.git ${HOME}/repos/IRON"],
+    ["sh", "-c", "test -d ${HOME}/.venvs/ironenv || python3 -m venv ${HOME}/.venvs/ironenv"],
+    ["sh", "-c", "${HOME}/.venvs/ironenv/bin/pip install --upgrade pip --quiet"],
+    ["sh", "-c", "cd ${HOME}/repos/IRON && ${HOME}/.venvs/ironenv/bin/pip install -r requirements.txt --quiet"],
     # pyxrt ships in the system Arch xrt package — symlink into the venv.
-    ["sh", "-c", "ln -sf /usr/lib/python3.14/site-packages/pyxrt.cpython-314-x86_64-linux-gnu.so ~/.venvs/ironenv/lib/python3.14/site-packages/pyxrt.cpython-314-x86_64-linux-gnu.so"],
+    ["sh", "-c", "ln -sf /usr/lib/python3.14/site-packages/pyxrt.cpython-314-x86_64-linux-gnu.so ${HOME}/.venvs/ironenv/lib/python3.14/site-packages/pyxrt.cpython-314-x86_64-linux-gnu.so"],
 ]
 units = []
 check = ""
