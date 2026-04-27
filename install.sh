@@ -96,6 +96,12 @@ WORKSPACE_DIR="${WORKSPACE_DIR:-$(cd "$(dirname "$0")" && pwd)}"
 ROCM_ROOT="${ROCM_ROOT:-/opt/rocm}"
 CI_MODE="${CI:-${GITHUB_ACTIONS:-0}}"
 INSTALL_MODE="${INSTALL_MODE:-source}"
+# SKIP_ROCM_CPP=1 skips the external rocm-cpp clone+build (steps 2-3). The
+# cpp tower's release-strix preset has ONEBIT_BUILD_ROCM_CPP=OFF by default,
+# so the librocm_cpp.so artifact this step produces is only consumed by the
+# out-of-tree lemond. If lemond isn't deployed on this box (or you're just
+# bringing up the CLI / landing / voice tower), skip the build.
+SKIP_ROCM_CPP="${SKIP_ROCM_CPP:-0}"
 
 # ── appimage fast-path ───────────────────────────────────────
 # INSTALL_MODE=appimage downloads the latest release AppImage, verifies
@@ -243,19 +249,27 @@ ok "host looks good"
 
 # ── step 2: rocm-cpp sync ────────────────────────────────────
 step "fetching rocm-cpp (HIP kernels)"
-mkdir -p "$REPO_ROOT"
-if [[ -d "$ROCM_CPP_DIR/.git" ]]; then
-    info "existing checkout — pulling origin/main"
-    git -C "$ROCM_CPP_DIR" pull --ff-only 2>&1 | progress_pipe "git pull"
+if [[ "$SKIP_ROCM_CPP" != "0" ]]; then
+    info "SKIP_ROCM_CPP=$SKIP_ROCM_CPP — skipping clone (cpp tower's release-strix preset doesn't link librocm_cpp.so)"
+    ok "skipped"
 else
-    info "fresh clone — $ROCM_CPP_URL"
-    git clone "$ROCM_CPP_URL" "$ROCM_CPP_DIR" 2>&1 | progress_pipe "git clone"
+    mkdir -p "$REPO_ROOT"
+    if [[ -d "$ROCM_CPP_DIR/.git" ]]; then
+        info "existing checkout — pulling origin/main"
+        git -C "$ROCM_CPP_DIR" pull --ff-only 2>&1 | progress_pipe "git pull"
+    else
+        info "fresh clone — $ROCM_CPP_URL"
+        git clone "$ROCM_CPP_URL" "$ROCM_CPP_DIR" 2>&1 | progress_pipe "git clone"
+    fi
+    ok "rocm-cpp HEAD $(git -C "$ROCM_CPP_DIR" rev-parse --short HEAD)"
 fi
-ok "rocm-cpp HEAD $(git -C "$ROCM_CPP_DIR" rev-parse --short HEAD)"
 
 # ── step 3: rocm-cpp build ───────────────────────────────────
 step "building rocm-cpp (bitnet_decode + librocm_cpp.so)"
-if [[ "$CI_MODE" != "0" ]]; then
+if [[ "$SKIP_ROCM_CPP" != "0" ]]; then
+    info "SKIP_ROCM_CPP=$SKIP_ROCM_CPP — skipping build"
+    ok "skipped"
+elif [[ "$CI_MODE" != "0" ]]; then
     info "CI mode — skipping (no ROCm on runners)"
     ok "skipped"
 else
