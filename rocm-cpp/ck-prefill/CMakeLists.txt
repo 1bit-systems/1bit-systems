@@ -1,12 +1,25 @@
 cmake_minimum_required(VERSION 3.21)
 
-# Use TheRock's HIP compiler for native gfx1151
-set(CMAKE_HIP_COMPILER "$ENV{HOME}/therock/build/dist/rocm/lib/llvm/bin/clang++"
-    CACHE FILEPATH "HIP compiler")
-set(CMAKE_C_COMPILER "$ENV{HOME}/therock/build/dist/rocm/lib/llvm/bin/clang"
-    CACHE FILEPATH "C compiler")
-set(CMAKE_CXX_COMPILER "$ENV{HOME}/therock/build/dist/rocm/lib/llvm/bin/clang++"
-    CACHE FILEPATH "C++ compiler")
+# Use TheRock's HIP compiler for native gfx1151. Fall back to system ROCm
+# (`/opt/rocm`) when TheRock isn't present — same rocm-llvm tree, identical
+# kernel codegen for ROCm 7.x packaged on CachyOS / Arch.
+set(_CKPF_THEROCK_BIN "$ENV{HOME}/therock/build/dist/rocm/lib/llvm/bin")
+set(_CKPF_SYSTEM_BIN  "/opt/rocm/lib/llvm/bin")
+if(EXISTS "${_CKPF_THEROCK_BIN}/clang++")
+    set(_CKPF_LLVM_BIN "${_CKPF_THEROCK_BIN}")
+    set(_CKPF_ROCM_DEFAULT "$ENV{HOME}/therock/build/dist/rocm")
+elseif(EXISTS "${_CKPF_SYSTEM_BIN}/clang++")
+    set(_CKPF_LLVM_BIN "${_CKPF_SYSTEM_BIN}")
+    set(_CKPF_ROCM_DEFAULT "/opt/rocm")
+else()
+    message(FATAL_ERROR
+        "ck-prefill needs an AMD clang at either ${_CKPF_THEROCK_BIN}/clang++ "
+        "or ${_CKPF_SYSTEM_BIN}/clang++.")
+endif()
+
+set(CMAKE_HIP_COMPILER "${_CKPF_LLVM_BIN}/clang++" CACHE FILEPATH "HIP compiler")
+set(CMAKE_C_COMPILER   "${_CKPF_LLVM_BIN}/clang"   CACHE FILEPATH "C compiler")
+set(CMAKE_CXX_COMPILER "${_CKPF_LLVM_BIN}/clang++" CACHE FILEPATH "C++ compiler")
 
 project(ck_prefill LANGUAGES CXX HIP)
 
@@ -23,8 +36,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # assertions are disabled). Match that.
 add_compile_definitions(NDEBUG)
 
-# Point at TheRock's ROCm + CK
-set(ROCM_ROOT "$ENV{HOME}/therock/build/dist/rocm")
+# Point at TheRock's ROCm + CK; system ROCm fallback resolved above.
+set(ROCM_ROOT "${_CKPF_ROCM_DEFAULT}" CACHE PATH "ROCm install root")
 list(PREPEND CMAKE_PREFIX_PATH "${ROCM_ROOT}" "${ROCM_ROOT}/lib/cmake")
 
 find_package(hip REQUIRED CONFIG PATHS "${ROCM_ROOT}")

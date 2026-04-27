@@ -1,12 +1,28 @@
 cmake_minimum_required(VERSION 3.21)
 
-# Pin HIP compiler to TheRock's clang for native gfx1151.
-set(CMAKE_HIP_COMPILER "$ENV{HOME}/therock/build/dist/rocm/lib/llvm/bin/clang++"
-    CACHE FILEPATH "HIP compiler")
-set(CMAKE_C_COMPILER   "$ENV{HOME}/therock/build/dist/rocm/lib/llvm/bin/clang"
-    CACHE FILEPATH "C compiler")
-set(CMAKE_CXX_COMPILER "$ENV{HOME}/therock/build/dist/rocm/lib/llvm/bin/clang++"
-    CACHE FILEPATH "C++ compiler")
+# Pin HIP compiler to TheRock's clang for native gfx1151. Fall back to the
+# system ROCm install (`/opt/rocm`) when TheRock isn't present — that path
+# ships the same rocm-llvm clang and produces identical kernels for the
+# CachyOS / Arch packaged ROCm 7.x.
+set(_ONEBIT_THEROCK_BIN "$ENV{HOME}/therock/build/dist/rocm/lib/llvm/bin")
+set(_ONEBIT_SYSTEM_BIN  "/opt/rocm/lib/llvm/bin")
+if(EXISTS "${_ONEBIT_THEROCK_BIN}/clang++")
+    set(_ONEBIT_LLVM_BIN "${_ONEBIT_THEROCK_BIN}")
+    set(_ONEBIT_ROCM_DEFAULT "$ENV{HOME}/therock/build/dist/rocm")
+elseif(EXISTS "${_ONEBIT_SYSTEM_BIN}/clang++")
+    set(_ONEBIT_LLVM_BIN "${_ONEBIT_SYSTEM_BIN}")
+    set(_ONEBIT_ROCM_DEFAULT "/opt/rocm")
+else()
+    message(FATAL_ERROR
+        "rocm-cpp needs an AMD clang at either ${_ONEBIT_THEROCK_BIN}/clang++ "
+        "(TheRock dev build) or ${_ONEBIT_SYSTEM_BIN}/clang++ (system ROCm). "
+        "Install rocm-hip-sdk or build TheRock; see rocm-cpp/docs/01-environment.md.")
+endif()
+message(STATUS "rocm-cpp: using clang at ${_ONEBIT_LLVM_BIN}")
+
+set(CMAKE_HIP_COMPILER "${_ONEBIT_LLVM_BIN}/clang++" CACHE FILEPATH "HIP compiler")
+set(CMAKE_C_COMPILER   "${_ONEBIT_LLVM_BIN}/clang"   CACHE FILEPATH "C compiler")
+set(CMAKE_CXX_COMPILER "${_ONEBIT_LLVM_BIN}/clang++" CACHE FILEPATH "C++ compiler")
 
 project(rocm_cpp LANGUAGES C CXX HIP)
 
@@ -23,8 +39,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # when assertions are disabled. Match upstream Release build.
 add_compile_definitions(NDEBUG)
 
-# TheRock ROCm dist (CK, HIP, rocBLAS)
-set(ROCM_ROOT "$ENV{HOME}/therock/build/dist/rocm")
+# ROCm dist root (CK, HIP, rocBLAS) — TheRock if present, else system ROCm.
+set(ROCM_ROOT "${_ONEBIT_ROCM_DEFAULT}" CACHE PATH "ROCm install root")
 list(PREPEND CMAKE_PREFIX_PATH "${ROCM_ROOT}" "${ROCM_ROOT}/lib/cmake")
 
 find_package(hip REQUIRED CONFIG PATHS "${ROCM_ROOT}")
