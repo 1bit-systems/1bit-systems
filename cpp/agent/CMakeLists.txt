@@ -19,6 +19,18 @@
 
 find_package(OpenSSL REQUIRED)
 find_package(SQLite3 REQUIRED)
+# CMake renamed the FindSQLite3 imported target from `SQLite::SQLite3`
+# (legacy, deprecated in CMake 4) to `SQLite3::SQLite3` (modern).
+# Older CMake (3.14-3.30) only exports the legacy name; newer CMake
+# (4+) emits a deprecation warning when the legacy name is used. Pick
+# the right one at configure time so we work on both lanes.
+if(TARGET SQLite3::SQLite3)
+    set(_onebit_sqlite_target SQLite3::SQLite3)
+elseif(TARGET SQLite::SQLite3)
+    set(_onebit_sqlite_target SQLite::SQLite3)
+else()
+    message(FATAL_ERROR "SQLite3 found via find_package but no imported target was created")
+endif()
 
 add_library(onebit_agent_lib STATIC
     src/error.cpp
@@ -60,7 +72,7 @@ target_link_libraries(onebit_agent_lib
         tomlplusplus::tomlplusplus
         OpenSSL::SSL
         OpenSSL::Crypto
-        SQLite3::SQLite3
+        ${_onebit_sqlite_target}
 )
 add_library(onebit::agent ALIAS onebit_agent_lib)
 
