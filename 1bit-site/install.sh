@@ -37,6 +37,7 @@ banner
 step "checking hardware"
 MODEL="$(awk -F: '/^model name/ {print $2; exit}' /proc/cpuinfo | sed 's/^ *//')"
 info "detected: ${MODEL:-unknown}"
+shopt -s nocasematch
 case "$MODEL" in
   *"AMD Ryzen AI MAX+ 395"*) ok "Strix Halo confirmed" ;;
   *"Ryzen AI MAX"*)
@@ -57,6 +58,7 @@ case "$MODEL" in
     die "unsupported CPU — aborting"
     ;;
 esac
+shopt -u nocasematch
 
 # ── distro check (soft) ──────────────────────────────────────
 step "checking distro"
