@@ -26,6 +26,9 @@ build = [
 # alongside the C++ server at /home/bcloud/repos/lemonade/. `1bit install core`
 # does NOT manage that unit — the lemond install script does. We only own
 # strix-landing here.
+files = [
+    ["strixhalo/systemd/strix-landing.service", "systemd/user/strix-landing.service"],
+]
 units = [
     "strix-landing.service",
 ]
@@ -79,6 +82,9 @@ build = [
     ["cmake", "--build", "cpp/build/strix", "--target", "1bit-echo"],
     ["install", "-Dm755", "cpp/build/strix/echo/1bit-echo", "${HOME}/.local/bin/1bit-echo"],
 ]
+files = [
+    ["strixhalo/systemd/strix-echo.service", "systemd/user/strix-echo.service"],
+]
 units = ["strix-echo.service"]
 check = ""
 
@@ -131,6 +137,10 @@ check       = ""
 description = "Whisper STT + Kokoro TTS (external repos, systemd only)"
 deps        = []
 build       = []
+files = [
+    ["strixhalo/systemd/1bit-halo-whisper.service", "systemd/user/1bit-halo-whisper.service"],
+    ["strixhalo/systemd/1bit-halo-kokoro.service",  "systemd/user/1bit-halo-kokoro.service"],
+]
 units       = ["1bit-halo-whisper.service", "1bit-halo-kokoro.service"]
 check       = "http://127.0.0.1:8083/health"
 
@@ -138,6 +148,9 @@ check       = "http://127.0.0.1:8083/health"
 description = "Stable Diffusion image gen (native HIP, stable-diffusion.cpp)"
 deps        = []
 build       = []
+files = [
+    ["strixhalo/systemd/1bit-halo-sd.service", "systemd/user/1bit-halo-sd.service"],
+]
 units       = ["1bit-halo-sd.service"]
 check       = "http://127.0.0.1:8081/health"
 
@@ -145,6 +158,9 @@ check       = "http://127.0.0.1:8081/health"
 description = "lemonade-server — Python reference, OpenAI-compat frontend (legacy)"
 deps        = []
 build       = []
+files = [
+    ["strixhalo/systemd/1bit-halo-lemonade.service", "systemd/user/1bit-halo-lemonade.service"],
+]
 units       = ["1bit-halo-lemonade.service"]
 check       = "http://127.0.0.1:8000/api/v0/models"
 
@@ -167,6 +183,9 @@ check       = ""
 description = "Gen-1 C++ bitnet_decode server (legacy /v1/*)"
 deps        = []
 build       = []
+files = [
+    ["strixhalo/systemd/1bit-halo-bitnet.service", "systemd/user/1bit-halo-bitnet.service"],
+]
 units       = ["1bit-halo-bitnet.service"]
 check       = "http://127.0.0.1:8080/v1/models"
 
@@ -198,6 +217,9 @@ check       = ""
 description = "Shadow-traffic burn-in: gen-1 :8080 vs gen-2 :8180, 72h parity log"
 deps        = ["core", "bitnet-gen1"]
 build       = []
+files = [
+    ["strixhalo/systemd/strix-burnin.service", "systemd/user/strix-burnin.service"],
+]
 units       = ["strix-burnin.service"]
 check       = ""
 
