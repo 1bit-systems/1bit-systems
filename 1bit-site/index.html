@@ -269,7 +269,7 @@
 echo "8a964f89bdef68ed914c04fcf23092ac642c424bb70f74dc10e8558e93b94036  1bit-systems-0.1.0-x86_64.AppImage" | sha256sum -c -
 chmod +x 1bit-systems-0.1.0-x86_64.AppImage
 ln -sfn "$PWD/1bit-systems-0.1.0-x86_64.AppImage" ~/.local/bin/1bit</code></pre><p class="muted">Requires glibc &ge; 2.35 and Linux kernel 6.x. ROCm not bundled &mdash; install on the host first.</p></div>
-    <div class="os-pane" data-pane="source"><pre><code>curl -fsSL https://1bit.systems/install.sh | sh</code></pre><p class="muted">Bootstraps ROCm against <code>gfx1151</code>, builds the workspace, installs the user units. Read it first; it&rsquo;s 400&nbsp;lines.</p></div>
+    <div class="os-pane" data-pane="source"><pre><code>curl -fsSL https://1bit.systems/install.sh | bash</code></pre><p class="muted">Bootstraps ROCm against <code>gfx1151</code>, builds the workspace, installs the user units. Read it first; it&rsquo;s 400&nbsp;lines.</p></div>
     <div class="os-pane" data-pane="ubuntu"><pre><code># Ubuntu 24.04 / Debian 13: AppImage path is supported.
 # A native .deb is not yet shipped &mdash; use the AppImage tab.</code></pre><p class="muted">Tracking issue: <a href="https://github.com/bong-water-water-bong/1bit-systems/issues" rel="noopener">deb packaging</a>.</p></div>
     <ul class="install-bullets">

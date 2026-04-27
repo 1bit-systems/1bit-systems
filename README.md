@@ -91,7 +91,7 @@ cmake --preset release-strix
 cmake --build --preset release-strix
 ctest --preset release-strix
 
-curl -fsSL https://1bit.systems/install.sh | sh
+curl -fsSL https://1bit.systems/install.sh | bash
 1bit install core
 1bit pull bonsai-1.7b
 1bit run bonsai-1.7b

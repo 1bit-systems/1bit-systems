@@ -98,10 +98,10 @@ fi
 
 # ── memlock limits ───────────────────────────────────────────
 step "raising memlock limits for HIP"
-LIMITS_FILE=/etc/security/limits.d/99-1bit systems.conf
-if [ ! -f "$LIMITS_FILE" ] || ! grep -q 1bit systems "$LIMITS_FILE"; then
+LIMITS_FILE="/etc/security/limits.d/99-1bit-systems.conf"
+if [ ! -f "$LIMITS_FILE" ] || ! grep -q "1bit-systems" "$LIMITS_FILE"; then
   sudo tee "$LIMITS_FILE" >/dev/null <<EOF
-# 1bit.systems / 1bit systems — HIP needs to pin large contiguous buffers.
+# 1bit-systems — HIP needs to pin large contiguous buffers.
 *       soft    memlock     unlimited
 *       hard    memlock     unlimited
 EOF
