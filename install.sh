@@ -400,6 +400,10 @@ if [[ "$CI_MODE" != "0" ]]; then
     info "CI mode — skipping"
     ok "skipped"
 else
+    # `1bit install core` writes user-level systemd units via tee, which
+    # doesn't create parent dirs. mkdir -p so a fresh box works without
+    # `loginctl enable-linger` having pre-created ~/.config/systemd/user.
+    mkdir -p "$HOME/.config/systemd/user" "$HOME/.local/bin" "$HOME/.local/share/1bit"
     if [[ "$BUILD_ROCM_CPP" != "0" ]]; then
         export ROCM_CPP_LIB_DIR="$ROCM_CPP_DIR/build"
     fi
