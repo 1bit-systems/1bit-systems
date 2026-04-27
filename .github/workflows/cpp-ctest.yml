@@ -46,7 +46,7 @@ jobs:
             gcc-14 g++-14 \
             qt6-base-dev qt6-base-dev-tools \
             libgl1-mesa-dev libxkbcommon-dev libdbus-1-dev \
-            libssl-dev pkg-config
+            libssl-dev libsqlite3-dev pkg-config
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
           gcc --version
