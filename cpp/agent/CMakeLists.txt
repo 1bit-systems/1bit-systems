@@ -57,6 +57,14 @@ add_library(onebit_agent_lib STATIC
 )
 target_include_directories(onebit_agent_lib PUBLIC include)
 target_include_directories(onebit_agent_lib PRIVATE src)
+# Belt-and-suspenders: CMake 3.28 (CI) doesn't always propagate
+# INTERFACE_INCLUDE_DIRECTORIES from an ALIAS target (onebit::log →
+# onebit_log_lib) into a STATIC consumer's compile line. Add the
+# core include path explicitly so adapter_discord.cpp + sibling TUs
+# can resolve <onebit/log.hpp>.
+target_include_directories(onebit_agent_lib PRIVATE
+    ${CMAKE_SOURCE_DIR}/core/include
+)
 target_compile_features(onebit_agent_lib PUBLIC cxx_std_23)
 # httplib's websocket + TLS path needs OPENSSL_SUPPORT defined at the call
 # site; set it on the public surface so adapter TUs see it consistently.
