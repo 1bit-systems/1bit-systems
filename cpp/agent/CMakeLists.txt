@@ -73,6 +73,13 @@ target_link_libraries(onebit_agent_lib
         OpenSSL::SSL
         OpenSSL::Crypto
         ${_onebit_sqlite_target}
+        # factories_default.cpp + adapter_*.cpp include <spdlog/spdlog.h>
+        # directly. Locally the FetchContent'd spdlog target propagates its
+        # include via some sibling link, but on CI's CMake 3.28 the include
+        # path doesn't leak — link it explicitly so every TU sees the
+        # header. fmt is spdlog's transitive dep but worth being explicit.
+        spdlog::spdlog
+        fmt::fmt
 )
 add_library(onebit::agent ALIAS onebit_agent_lib)
 
