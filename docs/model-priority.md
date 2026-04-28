@@ -14,6 +14,8 @@ of the requested model class exists.
 |---|---|---|---|---|
 | `Bonsai-1.7B-requantized-Bonsai-1.7B-IQ1_S.gguf` | IQ1_S (~1.6 bpw) | 385 MB | `llamacpp` | Showcase / floor — ~280 tok/s decode on `gfx1151` |
 
+> Note: PrismML's *original* Bonsai 8B paper format is **`Q1_0_g128`** (1.125 bpw, scale-only, requires PrismML's llama.cpp fork). `lilyanatia/*-requantized` re-packs Bonsai *from* `Q1_0_g128` *to* mainline-llama.cpp `IQ1_S` so it loads on stock `llamacpp:rocm` / `llamacpp:vulkan`. Slightly higher bpw (~1.6 vs 1.125), no fork required. See [`docs/bonsai-1bit-paper-notes.md`](bonsai-1bit-paper-notes.md).
+
 ### Tier 2 — 2-bit (daily driver)
 
 ~2.0–2.5 bpw. Used when a Tier-1 variant isn't available or doesn't meet quality
