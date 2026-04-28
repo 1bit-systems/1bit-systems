@@ -5,27 +5,70 @@
 # and FastFlowLM (XDNA 2 NPU) behind one OpenAI-compat endpoint.
 #
 # Idempotent. Safe to re-run. Targets CachyOS / Arch (pacman).
+#
+# Usage:
+#   ./install.sh             # actually install
+#   ./install.sh --dry-run   # preview every action without mutating anything
+#   ./install.sh --help      # show this help
 
 set -euo pipefail
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'
 CYAN='\033[0;36m'; DIM='\033[2m'; BOLD='\033[1m'; NC='\033[0m'
 
+DRY_RUN=0
+
 say()  { printf '%b▸%b %s\n' "$CYAN" "$NC" "$*"; }
 ok()   { printf '%b✓%b %s\n' "$GREEN" "$NC" "$*"; }
 warn() { printf '%b!%b %s\n' "$YELLOW" "$NC" "$*"; }
 die()  { printf '%b✗%b %s\n' "$RED" "$NC" "$*" >&2; exit 1; }
+dry()  { printf '%b≈%b %bDRY%b %s\n' "$YELLOW" "$NC" "$BOLD" "$NC" "$*"; }
+
+# Run a command, or just show what would have run when DRY_RUN=1.
+# Read-only probes (command -v, [[ -f ... ]], grep, flm version) bypass this.
+run() {
+    if (( DRY_RUN )); then
+        dry "$*"
+    else
+        "$@"
+    fi
+}
+
+usage() {
+    cat <<EOF
+1bit-systems installer
+
+Usage:
+  ./install.sh             actually install (idempotent)
+  ./install.sh --dry-run   preview every action; mutate nothing
+  ./install.sh -h | --help show this help
+
+What runs in dry-run mode:
+  - Read-only probes: pacman / paru / flm presence, FLM version,
+    Lemonade manifest presence and current pin, model-cache check,
+    lemond running-state check.
+  - Every mutating command (pacman -S, paru -S, sudo tee/sed/install,
+    nohup lemond, curl download) is printed prefixed with "DRY"
+    instead of executing.
+
+Targets CachyOS / Arch. Run on the box you want to host the stack.
+EOF
+}
 
 banner() {
+    local tag=""
+    (( DRY_RUN )) && tag=" — DRY-RUN"
     printf '\n'
     printf '%b╔═══════════════════════════════════════════════════════════╗%b\n' "$CYAN" "$NC"
-    printf '%b║%b  %b1bit-systems%b — strix-halo 1-bit inference engine        %b║%b\n' "$CYAN" "$NC" "$BOLD" "$NC" "$CYAN" "$NC"
+    printf '%b║%b  %b1bit-systems%b — strix-halo 1-bit inference engine%s%b║%b\n' "$CYAN" "$NC" "$BOLD" "$NC" "$tag" "$CYAN" "$NC"
     printf '%b║%b  %bgfx1151 ROCm + Vulkan + XDNA 2 NPU%b                       %b║%b\n' "$CYAN" "$NC" "$DIM" "$NC" "$CYAN" "$NC"
     printf '%b╚═══════════════════════════════════════════════════════════╝%b\n' "$CYAN" "$NC"
+    (( DRY_RUN )) && warn "Dry-run mode — no commands will mutate the system."
 }
 
 require_pacman() {
     command -v pacman >/dev/null 2>&1 || die "pacman not found — this installer targets CachyOS / Arch."
+    ok "pacman found ($(pacman --version 2>/dev/null | head -1))"
 }
 
 require_paru() {
@@ -33,11 +76,12 @@ require_paru() {
         warn "paru not found; installing AUR packages will need it."
         die "Install paru first: https://github.com/Morganamilo/paru"
     fi
+    ok "paru found"
 }
 
 install_packages() {
     say "Installing packages (pacman + AUR)"
-    sudo pacman -S --needed --noconfirm \
+    run sudo pacman -S --needed --noconfirm \
         rocm-hip-sdk \
         xrt \
         xrt-plugin-amdxdna \
@@ -46,7 +90,7 @@ install_packages() {
         npm \
         github-cli \
         ninja
-    paru -S --needed --noconfirm lemonade-server
+    run paru -S --needed --noconfirm lemonade-server
     ok "Packages installed"
 }
 
@@ -57,6 +101,13 @@ write_memlock_limits() {
         return
     fi
     say "Writing memlock limits to $conf"
+    if (( DRY_RUN )); then
+        dry "sudo tee $conf <<EOF"
+        printf '       %b# 1bit-systems: NPU + GPU buffers need unlimited memlock.%b\n' "$DIM" "$NC"
+        printf '       %b*       soft    memlock     unlimited%b\n' "$DIM" "$NC"
+        printf '       %b*       hard    memlock     unlimited%b\n' "$DIM" "$NC"
+        return
+    fi
     sudo tee "$conf" >/dev/null <<'EOF'
 # 1bit-systems: NPU + GPU buffers need unlimited memlock.
 *       soft    memlock     unlimited
@@ -71,11 +122,27 @@ EOF
 # `flm validate` is fully green. Bump the pin to whatever flm actually reports.
 patch_lemonade_flm_pin() {
     local manifest=/usr/share/lemonade-server/resources/backend_versions.json
-    [[ -f "$manifest" ]] || { warn "Lemonade manifest not at $manifest — skipping pin patch"; return; }
-    command -v flm >/dev/null 2>&1 || { warn "flm not on PATH — skipping pin patch"; return; }
+    if [[ ! -f "$manifest" ]]; then
+        if (( DRY_RUN )); then
+            warn "Lemonade manifest $manifest does not exist yet (would after install_packages); skipping pin probe"
+        else
+            warn "Lemonade manifest not at $manifest — skipping pin patch"
+        fi
+        return
+    fi
+    if ! command -v flm >/dev/null 2>&1; then
+        if (( DRY_RUN )); then
+            warn "flm not on PATH yet (would be after install_packages); skipping pin probe"
+        else
+            warn "flm not on PATH — skipping pin patch"
+        fi
+        return
+    fi
+    command -v python3 >/dev/null 2>&1 || { warn "python3 not found — skipping pin patch"; return; }
     local installed pinned
     installed=$(flm version 2>/dev/null | head -1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || true)
-    pinned=$(grep -oE '"npu":\s*"v[0-9]+\.[0-9]+\.[0-9]+"' "$manifest" | head -1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || true)
+    # Read flm.npu specifically (the manifest also has whispercpp.npu and others — never sed-replace blindly).
+    pinned=$(python3 -c "import json,sys; print(json.load(open('$manifest')).get('flm',{}).get('npu',''))" 2>/dev/null || true)
     if [[ -z "$installed" || -z "$pinned" ]]; then
         warn "Could not read FLM versions (installed=$installed pinned=$pinned) — skipping pin patch"
         return
@@ -85,7 +152,15 @@ patch_lemonade_flm_pin() {
         return
     fi
     say "Bumping Lemonade flm:npu pin: $pinned → $installed"
-    sudo sed -i "s|\"npu\": \"$pinned\"|\"npu\": \"$installed\"|" "$manifest"
+    # Edit the JSON via python (preserves structure; only touches flm.npu).
+    run sudo python3 -c "
+import json,sys
+p = '$manifest'
+m = json.load(open(p))
+m['flm']['npu'] = '$installed'
+json.dump(m, open(p,'w'), indent=2)
+open(p,'a').write('\n')
+"
     ok "Lemonade flm:npu pin updated to $installed (restart lemond for it to take effect)"
     warn "Future lemonade-server pacman updates will overwrite this — re-run install.sh."
 }
@@ -94,6 +169,11 @@ start_lemond() {
     say "Starting lemond on :13305"
     if pgrep -f 'lemonade-server.*serve' >/dev/null 2>&1 || pgrep -x lemond >/dev/null 2>&1; then
         ok "lemond already running"
+        return
+    fi
+    if (( DRY_RUN )); then
+        dry "nohup lemond >/tmp/lemond.log 2>&1 &"
+        dry "sleep 2 && health-probe http://127.0.0.1:13305"
         return
     fi
     nohup lemond >/tmp/lemond.log 2>&1 &
@@ -114,7 +194,11 @@ pull_default_model() {
         return
     fi
     say "Pulling default 1-bit model: $file (385 MB)"
-    mkdir -p "$dest"
+    run mkdir -p "$dest"
+    if (( DRY_RUN )); then
+        dry "curl -L --fail -o $dest/$file https://huggingface.co/lilyanatia/Bonsai-1.7B-requantized/resolve/main/$file"
+        return
+    fi
     curl -L --fail \
         -o "$dest/$file" \
         "https://huggingface.co/lilyanatia/Bonsai-1.7B-requantized/resolve/main/$file" \
@@ -124,13 +208,25 @@ pull_default_model() {
 
 install_cli() {
     say "Installing /usr/local/bin/1bit + proxy"
-    sudo install -m 0755 "$(dirname "$0")/scripts/1bit" /usr/local/bin/1bit
-    sudo install -d /usr/local/share/1bit-systems
-    sudo install -m 0644 "$(dirname "$0")/scripts/1bit-proxy.js" /usr/local/share/1bit-systems/1bit-proxy.js
+    run sudo install -m 0755 "$(dirname "$0")/scripts/1bit" /usr/local/bin/1bit
+    run sudo install -d /usr/local/share/1bit-systems
+    run sudo install -m 0644 "$(dirname "$0")/scripts/1bit-proxy.js" /usr/local/share/1bit-systems/1bit-proxy.js
     ok "1bit CLI + proxy installed — try: 1bit up"
 }
 
+parse_args() {
+    while (( $# )); do
+        case "$1" in
+            -n|--dry-run) DRY_RUN=1 ;;
+            -h|--help) usage; exit 0 ;;
+            *) die "Unknown arg: $1 (try --help)" ;;
+        esac
+        shift
+    done
+}
+
 main() {
+    parse_args "$@"
     banner
     require_pacman
     require_paru
@@ -141,9 +237,14 @@ main() {
     start_lemond
     pull_default_model
     echo
-    printf '%b✓%b Done. Run %b1bit up%b to launch lemond + flm + proxy.\n' "$GREEN" "$NC" "$BOLD" "$NC"
-    printf '   %bUnified OpenAI endpoint:%b http://127.0.0.1:13306/v1/  (recommended — both lanes)\n' "$DIM" "$NC"
-    printf '   %bGAIA users:%b https://amd-gaia.ai (.deb on Linux). Point it at http://127.0.0.1:13306\n' "$DIM" "$NC"
+    if (( DRY_RUN )); then
+        printf '%b≈%b %bDry-run complete.%b No system state was modified.\n' "$YELLOW" "$NC" "$BOLD" "$NC"
+        printf '   Re-run without %b--dry-run%b to actually install.\n' "$BOLD" "$NC"
+    else
+        printf '%b✓%b Done. Run %b1bit up%b to launch lemond + flm + proxy.\n' "$GREEN" "$NC" "$BOLD" "$NC"
+        printf '   %bUnified OpenAI endpoint:%b http://127.0.0.1:13306/v1/  (recommended — both lanes)\n' "$DIM" "$NC"
+        printf '   %bGAIA users:%b https://amd-gaia.ai (.deb on Linux). Point it at http://127.0.0.1:13306\n' "$DIM" "$NC"
+    fi
 }
 
 main "$@"
