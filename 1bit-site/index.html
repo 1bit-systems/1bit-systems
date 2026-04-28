@@ -221,11 +221,14 @@
 
   <section id="hardware" class="pillars">
     <h2>Hardware</h2>
-    <p class="note">Built and tested on AMD Ryzen AI MAX+ 395 (Strix Halo). Other gfx11/12 RDNA cards work via Lemonade's prebuilt llama.cpp; NPU lane is Strix Halo only.</p>
+    <p class="note">Built and tested on AMD Ryzen AI MAX+ 395 (Strix Halo). Verified second target: Ryzen 7 9800X3D + Radeon RX 9070 XT (RDNA 4 dGPU box, no NPU). Other gfx11/12 RDNA cards should work the same way.</p>
     <div class="hw-grid">
       <div class="hw-card"><h3>gfx1151 iGPU</h3><ul><li>RDNA 3.5, Radeon 8060S</li><li>256 GB/s LPDDR5x, 128 GB unified</li><li>ROCm 7.2 + Vulkan</li><li><s>Hand-written HIP, no hipBLAS</s> &rarr; <b>stock upstream</b></li></ul></div>
       <div class="hw-card"><h3>XDNA 2 NPU</h3><ul><li>50 TOPS, AIE2P tile array</li><li>FastFlowLM runtime</li><li>Pre-compiled UINT4-AWQ models</li><li><s>Custom Peano kernels</s> &rarr; <b>upstream FLM</b></li></ul></div>
+      <div class="hw-card"><h3>gfx1201 dGPU</h3><ul><li>RDNA 4, Radeon RX 9070 XT</li><li>16 GB GDDR6, ~640 GB/s</li><li>llamacpp:vulkan (auto-pick)</li><li>Bonsai 1-bit at <b>413 tok/s</b></li><li>Qwen3.5-35B IQ2_XXS at <b>131 tok/s</b></li></ul></div>
+      <div class="hw-card"><h3>Future: drop-in NPU</h3><ul><li><b>Axelera Metis-B</b> 16 GB / 214 TOPS</li><li>PCIe add-in, fits a dGPU box</li><li>Closes lane matrix on non-Strix systems</li><li>Pending the 16 GB variant ship</li></ul></div>
     </div>
+    <p class="muted">→ <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/benchmarks/RESULTS-9070xt-2026-04-28.md">9070 XT bench file</a> — full Bonsai sweep + 35B daily-driver numbers.</p>
   </section>
 
   <section id="install" class="install">

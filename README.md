@@ -145,8 +145,14 @@ NPU isn't the throughput champion against the iGPU on small models — its value
 - Linux 7.0+ kernel with in-tree `amdxdna` (CachyOS / Arch tested)
 
 ### Also works — discrete-GPU boxes
-- **Radeon RX 9070 XT** (`gfx1201`, RDNA 4) on Ryzen 7 9800X3D verified 2026-04-28. `install.sh`'s `has_xdna_npu()` autodetect skips the FLM/XRT NPU lane on dGPU boxes; the iGPU/dGPU lane (`llamacpp:rocm` / `llamacpp:vulkan`) lights up. Bonsai-1.7B-IQ1_S decodes at **~413 tok/s** on the 9070 XT (vs ~281 on the 8060S iGPU at the same model) — see [`benchmarks/RESULTS-9070xt-2026-04-28.md`](benchmarks/RESULTS-9070xt-2026-04-28.md).
+- **Radeon RX 9070 XT** (`gfx1201`, RDNA 4) on Ryzen 7 9800X3D verified 2026-04-28. `install.sh`'s `has_xdna_npu()` autodetect skips the FLM/XRT NPU lane on dGPU boxes; the iGPU/dGPU lane (`llamacpp:rocm` / `llamacpp:vulkan`) lights up.
+  - Bonsai-1.7B-IQ1_S decodes at **~413 tok/s** on the 9070 XT (vs ~281 on the 8060S iGPU at the same model)
+  - Qwen3.5-35B-A3B-IQ2_XXS holds **~131 tok/s** decode on long output (vs ~73 on the iGPU) — a 35B-class MoE running on a single 16 GB consumer card
+  - Full sweep + side-by-side: [`benchmarks/RESULTS-9070xt-2026-04-28.md`](benchmarks/RESULTS-9070xt-2026-04-28.md)
 - Other RDNA 3 / RDNA 4 ROCm-supported AMD GPUs should work the same way; the install script doesn't pin to a specific `gfx`.
+
+### Future slot — drop-in NPU on dGPU boxes
+- **Axelera Metis-B (16 GB / 214 TOPS)** is the natural NPU add-in for the ryzen box once the 16 GB variant ships. Would give a non-Strix-Halo machine a discrete-NPU lane equivalent to (or beyond) the iGPU box's XDNA 2 — closing the lane matrix on dGPU systems.
 
 ## AMD GAIA integration
 
