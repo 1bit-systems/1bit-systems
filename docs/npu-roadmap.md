@@ -77,11 +77,19 @@ GTT-map and kernel-alloc cost from the hot path), with the larger win
 on smaller models where this overhead is a bigger relative fraction
 of total wall-clock.
 
-## Upstream issue body — paste-ready
+## The fix — keep it in our `1bit-flm` fork
 
-The agent that ran the probe drafted this; included verbatim from
-`benchmarks/RESULTS-flm-strace-2026-04-28.md` so we don't have two
-copies drifting:
+We don't file this upstream. The plan is the same fork-and-patch path
+we've used elsewhere (`1bit-gaia`, `1bit-sd.cpp`, `1bit-ggml`, etc.):
+fork `FastFlowLM/FastFlowLM` → `bong-water-water-bong/1bit-flm`,
+land the BO-pool patch on a branch, build, ship via a sibling AUR pkg
+that replaces the upstream `fastflowlm` dep with our fork.
+
+The patch description below is written as a commit message body for
+the fork branch (not an upstream issue). Same content; different
+audience.
+
+### Patch description (commit body for `1bit-flm`)
 
 > **Title:** FLM allocates and frees ~30 small DRM BOs per decoded
 > token via amdxdna — pool them
@@ -131,14 +139,21 @@ action from this repo is:
 
 1. ~~Probe FLM with strace to confirm where the re-uploads happen~~
    **Done — see `benchmarks/RESULTS-flm-strace-2026-04-28.md`.**
-2. **Open the upstream issue against `FastFlowLM/FastFlowLM`** with
-   the body above. Track the resulting issue/PR from this doc.
-3. Write a regression bench harness that runs the same `strace -c`
-   probe and asserts ioctl/token < some threshold. Lands in
-   `benchmarks/bench-npu-ioctl-budget.sh` so a future FLM upgrade
-   can be checked here.
-4. Re-bench `flm:npu` after the fix lands. The expected before/after
-   delta becomes a real receipt for the project.
+2. **Fork FLM into `bong-water-water-bong/1bit-flm`** and land the
+   BO-pool patch on a branch. The patch description above is the
+   commit body. We don't file upstream — the integrated stack is the
+   project's edge; we keep our patches in our forks.
+3. Build a sibling AUR pkg (`1bit-flm-bin`?) that drops the patched
+   `flm` binary in place of the upstream `fastflowlm` package. Bump
+   `1bit-systems-{git,bin}`'s `depends=()` to point at our fork.
+4. Use the **regression bench harness** at
+   [`benchmarks/bench-npu-ioctl-budget.sh`](../benchmarks/bench-npu-ioctl-budget.sh)
+   to assert `ioctls/token` stays under threshold. Currently set to
+   fail at 250 (baseline observed: ~215 total / 18 decoded tokens at
+   FLM 0.9.39). After the BO-pool patch lands, expect this number
+   to collapse to <50 — bump `THRESHOLD` down then.
+5. Re-bench `flm:npu` after the patch lands. Before/after decode tok/s
+   delta becomes the project's receipt.
 
 ## What we *can't* and *won't* do here
 
