@@ -114,6 +114,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
+      # The releases/download exclude is for docs/aur.md, which references
+      # future-tense release-asset URLs (e.g. v2.0.0 binaries that
+      # release.yml will publish later); they 404 until the tag is cut.
       - name: lychee link check
         uses: lycheeverse/lychee-action@v2
         with:
@@ -127,6 +130,7 @@ jobs:
             --exclude '^https://account\.amd\.com/'
             --exclude '^https?://(www\.)?amd\.com/'
             --exclude '^https?://(www\.)?lightheartlabs\.io/'
+            --exclude '^https://github\.com/bong-water-water-bong/1bit-systems/releases/download/'
             README.md
             CHANGELOG.md
             CONTRIBUTING.md

@@ -130,7 +130,9 @@ to the GitHub Release. After the release lands:
 1. Update `pkgver` in `packaging/aur/1bit-systems-bin/PKGBUILD` to
    match the tag.
 2. Replace the four `'SKIP'` entries in `sha256sums=()` with real
-   checksums. Compute them with:
+   checksums. Compute them with (substitute the tag you're packaging —
+   `v2.0.0` is the planned cutover, but the URL only resolves once
+   `release.yml` has actually published the assets):
    ```sh
    curl -sSL https://github.com/bong-water-water-bong/1bit-systems/releases/download/v2.0.0/1bit-x86_64-linux.sha256
    ```
