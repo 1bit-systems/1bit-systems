@@ -22,7 +22,7 @@ PROXY_URL="http://127.0.0.1:13306"
 LEMOND_LOG=/tmp/lemond.log
 FLM_LOG=/tmp/flm-serve.log
 PROXY_LOG=/tmp/1bit-proxy.log
-DEFAULT_NPU_MODEL="${ONEBIT_NPU_MODEL:-qwen3:0.6b}"
+DEFAULT_NPU_MODEL="${ONEBIT_NPU_MODEL:-qwen3:1.7b}"
 
 # Locate the proxy script in the repo or installed location.
 proxy_script() {
@@ -194,7 +194,7 @@ Usage:
   1bit status            Show service status
   1bit pull <model>      Pull a model (auto-routes NPU vs GPU)
   1bit bench             Run the 1-bit / ternary pile bench
-  1bit npu [model]       Start FLM NPU server (default: $DEFAULT_NPU_MODEL)
+  1bit npu [model]       Start FLM NPU server (default: \$DEFAULT_NPU_MODEL)
 
 Endpoints (after \`1bit up\`):
   Unified OpenAI:    $PROXY_URL/v1/   (recommended — both lanes, one shape)
