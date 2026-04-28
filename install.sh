@@ -113,7 +113,7 @@ main() {
     start_lemond
     pull_default_model
     echo
-    ok "Done. Run %b1bit up%b to launch the server + open the webapp."
+    printf '%b✓%b Done. Run %b1bit up%b to launch the server + open the webapp.\n' "$GREEN" "$NC" "$BOLD" "$NC"
     printf '   %bGAIA users:%b https://amd-gaia.ai (.deb on Linux). Point it at http://127.0.0.1:13305\n' "$DIM" "$NC"
 }
 
