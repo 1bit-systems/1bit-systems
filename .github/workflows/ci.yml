@@ -1,0 +1,135 @@
+name: ci
+
+# Lean CI: shellcheck + markdown link check + HTML/JSON validation.
+# No GPU, no model pulls, no install.sh execution — keeps the
+# install script + docs + site from drifting.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  shellcheck:
+    name: shellcheck install.sh + scripts/
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+      - name: Lint install.sh
+        run: shellcheck -x -S warning install.sh
+      - name: Lint scripts/*
+        run: |
+          set -e
+          for f in scripts/*; do
+            if [ -f "$f" ] && head -1 "$f" | grep -qE '^#!.*(bash|sh)'; then
+              echo "→ $f"
+              shellcheck -x -S warning "$f"
+            fi
+          done
+      - name: bash -n syntax check (catches anything shellcheck misses)
+        run: |
+          bash -n install.sh
+          for f in scripts/*; do
+            [ -f "$f" ] && head -1 "$f" | grep -qE '^#!.*(bash|sh)' && bash -n "$f"
+          done
+
+  install-help-runs:
+    name: install.sh --help / --dry-run argparse
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v5
+      - name: --help exits clean
+        run: bash install.sh --help
+      - name: unknown arg fails clean
+        run: |
+          if bash install.sh --bogus 2>&1 | grep -q "Unknown arg"; then
+            echo "✓ unknown-arg path works"
+          else
+            echo "✗ install.sh did not reject --bogus correctly"
+            exit 1
+          fi
+
+  json-validate:
+    name: validate JSON files
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v5
+      - name: jq parse every .json
+        run: |
+          set -e
+          fails=0
+          while IFS= read -r f; do
+            if ! jq -e . "$f" >/dev/null 2>&1; then
+              echo "✗ $f"
+              fails=$((fails + 1))
+            else
+              echo "✓ $f"
+            fi
+          done < <(git ls-files '*.json')
+          [ "$fails" -eq 0 ]
+
+  html-validate:
+    name: validate 1bit-site HTML
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install tidy
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq tidy
+      - name: tidy each page (warnings allowed, errors fail)
+        run: |
+          set -e
+          fails=0
+          for f in $(git ls-files '1bit-site/**/*.html'); do
+            # tidy exit codes: 0=ok, 1=warnings only, 2=errors
+            tidy -q -e -utf8 "$f" >/dev/null 2>tidy-err.log || rc=$?
+            rc=${rc:-0}
+            if [ "$rc" -ge 2 ]; then
+              echo "✗ $f"
+              cat tidy-err.log
+              fails=$((fails + 1))
+            else
+              echo "✓ $f"
+            fi
+          done
+          [ "$fails" -eq 0 ]
+
+  markdown-links:
+    name: lychee — link check on docs/ + README + CHANGELOG
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: lychee link check
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: |
+            --no-progress
+            --max-concurrency 4
+            --timeout 15
+            --exclude-path 1bit-site
+            --exclude-path .github
+            --exclude '^https://discord\.gg/'
+            --exclude '^https://account\.amd\.com/'
+            README.md
+            CHANGELOG.md
+            CONTRIBUTING.md
+            SECURITY.md
+            CODE_OF_CONDUCT.md
+            'docs/**/*.md'
+            'benchmarks/**/*.md'
+          fail: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
