@@ -69,6 +69,22 @@ Installs `lemonade-server`, `fastflowlm`, `xrt`, `xrt-plugin-amdxdna`, `rocm-hip
 
 After first install: re-login or reboot once so memlock limits apply on the NPU lane.
 
+#### Wall-time expectations
+
+| Phase | Fresh box (100 Mbps) | Notes |
+|---|---:|---|
+| Step 0 prereqs (`pacman -Syu` + 4 small pkgs) | 1&ndash;3 min | depends how out-of-date the system is |
+| `git clone` | ~5 s | tiny repo |
+| `pacman -S` deps inside `install.sh` | **5&ndash;10 min** | dominated by ROCm: `composable-kernel` (1.6 GB) + `rocm-llvm` (1 GB) + `rccl` 424 MB + `rocblas` 323 MB + smaller &asymp; **~4 GB** total download + extract |
+| `paru -S lemonade-server` (AUR build) | 1&ndash;2 min | Go build + dep resolution |
+| memlock conf + `flm:npu` pin patch + CLI install | < 1 s | trivial |
+| `lemond` start + health probe | ~3 s | |
+| Bonsai-1.7B-IQ1_S model pull (385 MB) | ~5 s @ 75 MB/s | |
+| **Total &mdash; fresh install** | **~10&ndash;15 min** | bottleneck is ~4 GB of ROCm packages from CachyOS repos |
+| **Idempotent re-run** | **< 5 s** | every step detects "already installed" and skips |
+
+Faster on gigabit (~5&ndash;8 min). The AUR build of `lemonade-server` is the only step that can't overlap with the model pull.
+
 ## Run
 
 ```sh
