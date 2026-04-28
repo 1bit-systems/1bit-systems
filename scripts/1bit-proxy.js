@@ -26,6 +26,7 @@
 'use strict';
 
 const http = require('http');
+const zlib = require('zlib');
 const fs = require('fs');
 const path = require('path');
 const { URL } = require('url');
@@ -122,11 +123,28 @@ function forward(req, res, body, targetUrl, opts = {}) {
     const isHtml = (ur.headers['content-type'] || '').includes('text/html');
 
     if (rewriteHtml && isHtml && PLUGIN_SRC) {
-      // Buffer + rewrite path
+      // Buffer the (possibly compressed) body, decompress if needed,
+      // splice in our script, return uncompressed.
+      const enc = (ur.headers['content-encoding'] || '').toLowerCase();
       const bufs = [];
       ur.on('data', c => bufs.push(c));
       ur.on('end', () => {
-        let html = Buffer.concat(bufs).toString('utf8');
+        const raw = Buffer.concat(bufs);
+        let plain;
+        try {
+          if (enc === 'gzip')      plain = zlib.gunzipSync(raw);
+          else if (enc === 'deflate') plain = zlib.inflateSync(raw);
+          else if (enc === 'br')      plain = zlib.brotliDecompressSync(raw);
+          else                        plain = raw;
+        } catch (e) {
+          // Decompression failed — pass through untouched rather than
+          // serving mojibake.
+          const headers = { ...ur.headers };
+          res.writeHead(ur.statusCode, headers);
+          res.end(raw);
+          return;
+        }
+        let html = plain.toString('utf8');
         const tag = `\n<script>/* 1bit-menu-sections (proxy-injected) */\n(function(){${PLUGIN_SRC}\n})();</script>\n`;
         if (html.includes('</head>')) {
           html = html.replace('</head>', tag + '</head>');
@@ -137,10 +155,11 @@ function forward(req, res, body, targetUrl, opts = {}) {
         }
         const out = Buffer.from(html, 'utf8');
         const headers = { ...ur.headers };
-        // Drop content-length & content-encoding so we don't lie about size
-        // and don't have to gunzip/regzip.
+        // We're emitting plain utf-8 now — strip transfer/encoding markers
+        // and recompute content-length.
         delete headers['content-length'];
         delete headers['content-encoding'];
+        delete headers['transfer-encoding'];
         headers['content-length'] = String(out.length);
         res.writeHead(ur.statusCode, headers);
         res.end(out);
