@@ -167,9 +167,9 @@
     <table class="data-table">
       <thead><tr><th>Aspect</th><th>Models</th><th>Quant</th><th>Notes</th></tr></thead>
       <tbody>
-        <tr class="flagship"><td>General chat &middot; small</td><td>Bonsai-1.7B</td><td>IQ1_S (385 MB)</td><td>Fastest decode in the pile (278 tok/s on Vulkan).</td></tr>
-        <tr><td>General chat &middot; mid</td><td>Bonsai-4B</td><td>IQ1_S (872 MB)</td><td>~144 tok/s decode.</td></tr>
-        <tr><td>General chat &middot; large</td><td>Bonsai-8B</td><td>IQ1_S (1.8 GB)</td><td>~92 tok/s decode.</td></tr>
+        <tr class="flagship"><td>General chat &middot; small</td><td>Bonsai-1.7B</td><td>IQ1_S (385 MB)</td><td>Fastest decode in the pile (269 tok/s on Vulkan).</td></tr>
+        <tr><td>General chat &middot; mid</td><td>Bonsai-4B</td><td>IQ1_S (872 MB)</td><td>141 tok/s decode.</td></tr>
+        <tr><td>General chat &middot; large</td><td>Bonsai-8B</td><td>IQ1_S (1.8 GB)</td><td>90 tok/s decode.</td></tr>
         <tr><td>Pure ternary (BitNet)</td><td>BitNet b1.58 3B / large</td><td>TQ2_0</td><td>Microsoft reference architecture, gianni-cor requants.</td></tr>
         <tr><td>Ternary alt</td><td>TriLM-3.9B, Outlier-10B-V2, superkaiii-Bonsai-4B</td><td>TQ1_0 / TQ2_0</td><td>Native ternary GGUF format (PR #8151 lineage).</td></tr>
         <tr><td>Tiny / draft</td><td>Bitnet-SmolLM-135M</td><td>Q2_K</td><td>Fast autocomplete + draft model.</td></tr>
@@ -203,7 +203,9 @@
     <table class="data-table">
       <thead><tr><th>Model</th><th>Backend</th><th>Quant</th><th>Size</th><th>pp512 (tok/s)</th><th>tg128 (tok/s)</th></tr></thead>
       <tbody>
-        <tr class="flagship"><td>Bonsai-1.7B</td><td>Vulkan</td><td>IQ1_S</td><td class="num">385 MB</td><td class="num tok">4624</td><td class="num tok">278</td></tr>
+        <tr class="flagship"><td>Bonsai-1.7B</td><td>Vulkan</td><td>IQ1_S</td><td class="num">385 MB</td><td class="num tok">4834</td><td class="num tok">269</td></tr>
+        <tr><td>Bonsai-4B</td><td>Vulkan</td><td>IQ1_S</td><td class="num">873 MB</td><td class="num tok">1962</td><td class="num tok">141</td></tr>
+        <tr><td>Bonsai-8B</td><td>Vulkan</td><td>IQ1_S</td><td class="num">1.8 GB</td><td class="num tok">1116</td><td class="num tok">90</td></tr>
         <tr><td>Bonsai-1.7B</td><td>ROCm</td><td>IQ1_S</td><td class="num">385 MB</td><td class="num tok">4481</td><td class="num tok">194</td></tr>
         <tr><td>Qwen3-0.6B</td><td>NPU (FLM)</td><td>q4nx</td><td class="num">652 MB</td><td class="num tok">49 (prefill)</td><td class="num tok">92</td></tr>
         <tr class="strike-row"><td class="was">halo-1bit-2b-sherry-cpp</td><td class="was">rocm-cpp ternary</td><td class="was">1.25 bpw 3:4</td><td class="was num">1.65 GB</td><td class="was num tok">&mdash;</td><td class="was num tok">73 (claimed)</td></tr>
