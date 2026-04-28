@@ -1,0 +1,23 @@
+pkgbase = 1bit-systems-git
+	pkgdesc = Lean unified 1-bit / sub-2-bit inference engine for AMD Strix Halo (Lemonade + FastFlowLM)
+	pkgver = r0.0000000
+	pkgrel = 1
+	url = https://1bit.systems
+	install = 1bit-systems.install
+	arch = x86_64
+	license = MIT
+	makedepends = git
+	depends = lemonade-server
+	depends = fastflowlm
+	depends = xrt
+	depends = xrt-plugin-amdxdna
+	depends = rocm-hip-sdk
+	depends = nodejs
+	depends = curl
+	depends = python
+	provides = 1bit-systems
+	conflicts = 1bit-systems
+	source = 1bit-systems::git+https://github.com/bong-water-water-bong/1bit-systems.git#branch=main
+	sha256sums = SKIP
+
+pkgname = 1bit-systems-git

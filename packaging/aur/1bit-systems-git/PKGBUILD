@@ -1,0 +1,60 @@
+# Maintainer: bong-water-water-bong <277547417+bong-water-water-bong@users.noreply.github.com>
+
+pkgname=1bit-systems-git
+_pkgname=1bit-systems
+pkgver=r0.0000000
+pkgrel=1
+pkgdesc='Lean unified 1-bit / sub-2-bit inference engine for AMD Strix Halo (Lemonade + FastFlowLM)'
+arch=('x86_64')
+url='https://1bit.systems'
+license=('MIT')
+
+# Runtime deps. Inference engine, NPU lane, iGPU stack — all pacman/AUR.
+depends=(
+  'lemonade-server'        # AUR — OpenAI-compat server, recipe routing
+  'fastflowlm'             # cachyos-extra-znver4 — NPU runtime
+  'xrt'                    # cachyos-extra-znver4 — Xilinx Runtime
+  'xrt-plugin-amdxdna'     # cachyos-extra-znver4 — XDNA driver plugin
+  'rocm-hip-sdk'           # extra — iGPU lane (gfx1151)
+  'nodejs'                 # for /usr/share/1bit-systems/1bit-proxy.js
+  'curl'                   # used by `1bit pull` and the model bootstrap
+  'python'                 # for the flm:npu version-pin patcher in install hook
+)
+
+makedepends=('git')
+
+provides=("$_pkgname")
+conflicts=("$_pkgname")
+
+source=("$_pkgname::git+https://github.com/bong-water-water-bong/1bit-systems.git#branch=main")
+sha256sums=('SKIP')
+install="${_pkgname}.install"
+
+pkgver() {
+  cd "$srcdir/$_pkgname"
+  printf 'r%s.%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+}
+
+package() {
+  cd "$srcdir/$_pkgname"
+
+  # Control-plane CLI
+  install -Dm755 scripts/1bit          "$pkgdir/usr/bin/1bit"
+
+  # Proxy script + home-page asset (looked up by /usr/bin/1bit at runtime)
+  install -Dm644 scripts/1bit-proxy.js "$pkgdir/usr/share/$_pkgname/1bit-proxy.js"
+  install -Dm644 scripts/1bit-home.html "$pkgdir/usr/share/$_pkgname/1bit-home.html"
+
+  # Memlock conf — NPU + GPU buffers want unlimited
+  install -Dm644 /dev/stdin "$pkgdir/etc/security/limits.d/99-1bit-systems.conf" <<'EOF'
+# 1bit-systems: NPU + GPU buffers need unlimited memlock.
+*       soft    memlock     unlimited
+*       hard    memlock     unlimited
+EOF
+
+  # License + a copy of install.sh for reference (the AUR pkg does what
+  # install.sh does; users can read it for transparency).
+  install -Dm644 LICENSE     "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 install.sh  "$pkgdir/usr/share/doc/$pkgname/install.sh"
+  install -Dm644 README.md   "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

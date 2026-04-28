@@ -32,6 +32,8 @@ proxy_script() {
     self_dir="$(dirname "$(readlink -f "$0")")"
     if [[ -f "$self_dir/1bit-proxy.js" ]]; then
         echo "$self_dir/1bit-proxy.js"
+    elif [[ -f /usr/share/1bit-systems/1bit-proxy.js ]]; then
+        echo /usr/share/1bit-systems/1bit-proxy.js
     elif [[ -f /usr/local/share/1bit-systems/1bit-proxy.js ]]; then
         echo /usr/local/share/1bit-systems/1bit-proxy.js
     elif [[ -f /home/bcloud/Projects/1bit-systems/scripts/1bit-proxy.js ]]; then
