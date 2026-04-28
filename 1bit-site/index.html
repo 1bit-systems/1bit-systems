@@ -288,6 +288,20 @@ Inference's rhythm, a song.</code></pre>
     </table>
     <p class="muted">Decode holds <b>255 — 281 tok/s</b> across the sweep. Prefill scales <b>853 &rarr; 2220 tok/s</b> from short to long prompts. Measured against <code>:13305</code> end-to-end (no warmup excluded), so these are honest API-level numbers, not isolated kernel benches. Cross-reference: the <a href="/docs/benchmarks.html#stack-green-2026-04-28">stack-green page</a> has llama-bench numbers from a separate run that match within noise (281.2 tok/s for the same checkpoint).</p>
 
+    <h3 style="margin-top:1.5rem">The floor and the daily driver</h3>
+    <p class="muted">1-bit Bonsai-1.7B is the floor &mdash; raw decode, the receipt that sub-2-bit on this hardware is real. Most users won't run a 1.7B as their assistant. The <em>daily driver</em> is sub-2-bit on a real-sized model. Same hardware, same Lemonade endpoint, captured 2026-04-28 head-to-head:</p>
+    <table class="bench">
+      <thead>
+        <tr><th>Model</th><th>Quant</th><th>Bits/wt</th><th>Disk</th><th>Decode (med, 200 tok)</th><th>Decode (long, 350 tok)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>Qwen3.5-35B-A3B</code> (MoE) baseline</td><td>Q4_K_XL</td><td>~4.5</td><td>22 GB</td><td>54 tok/s</td><td>54 tok/s</td></tr>
+        <tr><td><code>Qwen3.5-35B-A3B</code> (MoE) sub-2-bit</td><td><b>IQ2_XXS</b></td><td><b>~2.0</b></td><td><b>11.5 GB</b></td><td><b>73 tok/s</b></td><td><b>73 tok/s</b></td></tr>
+        <tr><td colspan="3" style="text-align:right"><i>Δ sub-2-bit / baseline</i></td><td><b>0.52&times;</b></td><td><b>+35%</b></td><td><b>+35%</b></td></tr>
+      </tbody>
+    </table>
+    <p class="muted">Half the disk, ~35% faster decode, on a real 35B-class MoE that actually answers real questions. <s>2-bit is a compromise.</s> &rarr; <b>Sub-2-bit on MoE is the sweet spot on this APU.</b> 1-bit is the headline (Bonsai above); 2-bit is what you'll keep open all day. <code>lemonade pull Manojb/Qwen3.5-35B-A3B-UD-IQ2_XXS.gguf</code> + <code>lemonade load Qwen3.5-35B-A3B-UD-IQ2_XXS.gguf-UD-IQ2_XXS</code> and you're there.</p>
+
     <p class="muted">Want to watch the install run? <code>./install.sh --dry-run</code> prints every action it would take without mutating anything &mdash; recording at <a href="/assets/casts/install-dry-run.cast">/assets/casts/install-dry-run.cast</a> (load with <code>asciinema play &lt;url&gt;</code> locally).</p>
   </section>
 
