@@ -123,6 +123,7 @@ jobs:
             --exclude-path .github
             --exclude '^https://discord\.gg/'
             --exclude '^https://account\.amd\.com/'
+            --exclude '^https?://(www\.)?amd\.com/'
             README.md
             CHANGELOG.md
             CONTRIBUTING.md

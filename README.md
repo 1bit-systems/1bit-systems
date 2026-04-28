@@ -8,6 +8,7 @@
 
 *One OpenAI-compatible endpoint. iGPU + NPU behind one API. 1-bit is the floor; sub-2-bit MoE is what you'll keep open all day.*
 
+[![CI](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml/badge.svg)](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-00d4ff.svg)](LICENSE)
 [![Site](https://img.shields.io/badge/site-1bit.systems-00d4ff.svg)](https://1bit.systems)
 [![Discord](https://img.shields.io/badge/discord-1bit.systems-5865F2.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)

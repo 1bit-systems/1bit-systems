@@ -187,8 +187,9 @@ start_lemond() {
 }
 
 pull_default_model() {
-    local dest=/home/$(id -un)/halo-ai/models/ternary-test/lily-bonsai-1.7b-rq
-    local file=Bonsai-1.7B-IQ1_S.gguf
+    local dest file
+    dest=/home/$(id -un)/halo-ai/models/ternary-test/lily-bonsai-1.7b-rq
+    file=Bonsai-1.7B-IQ1_S.gguf
     if [[ -f "$dest/$file" ]]; then
         ok "Default 1-bit model already present ($file)"
         return
