@@ -65,6 +65,7 @@
 
     <h4>Run it</h4>
     <a href="#install" data-anchor="install">Install</a>
+    <a href="#sixty-second" data-anchor="sixty-second">60-second 1-bit</a>
     <a href="#quickstart" data-anchor="quickstart">Quickstart</a>
     <a href="#api" data-anchor="api">OpenAI API</a>
     <a href="#apps" data-anchor="apps">Compatible apps</a>
@@ -239,6 +240,55 @@ cd 1bit-systems
       <li><s>AppImage covers everything else.</s> &rarr; <b>not shipped.</b></li>
       <li><s>Source build via <code>cmake --preset release-strix</code>.</s> &rarr; <b>no source build &mdash; nothing in this repo to compile.</b></li>
     </ul>
+  </section>
+
+  <section id="sixty-second" class="doc-section">
+    <h2>60-second 1-bit</h2>
+    <p class="note">Speed-to-running is the claim to fame. Pulled the model, asked it to write a haiku, got an answer, end-to-end through Lemonade's OpenAI endpoint on <code>:13305</code>. Measured 2026-04-28 on the production strixhalo box (Ryzen AI MAX+ 395 / gfx1151, 124&nbsp;GB LPDDR5x).</p>
+
+    <pre><code># 1. one-time pull (385 MB at ~85 MB/s on the box ≈ 4-5 s)
+lemonade pull lilyanatia/Bonsai-1.7B-requantized:Bonsai-1.7B-IQ1_S.gguf
+
+# 2. ask it for a haiku
+curl -s http://127.0.0.1:13305/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"user.Bonsai-1.7B-requantized-Bonsai-1.7B-IQ1_S.gguf",
+       "messages":[{"role":"user","content":"Write a haiku about local AI inference on a Strix Halo APU."}],
+       "max_tokens":80}'</code></pre>
+
+    <div class="receipt">
+      <p><b class="truth">Output (live, 1-bit Bonsai-1.7B at IQ1_S):</b></p>
+      <pre><code>In a world of code, I see
+Strix's power in the shadows,
+Inference's rhythm, a song.</code></pre>
+      <p><b class="truth">Numbers:</b></p>
+      <ul>
+        <li><b>Decode: 284 tok/s</b> (27 tokens / 95 ms)</li>
+        <li>Prefill: 119 tok/s (28 tokens)</li>
+        <li>Cold wall (model load + chat): <b>3.9 s</b></li>
+        <li>Model on disk: <b>385 MB</b></li>
+      </ul>
+      <p class="muted">That's 1.7B params at sub-2-bit precision on an integrated GPU, behind the same OpenAI API you'd use for any other model. <s>Custom HIP kernels.</s> &rarr; <b>upstream <code>llamacpp:rocm</code> on Lemonade.</b></p>
+    </div>
+
+    <h3 style="margin-top:1.5rem">Bonsai numbers — full sweep</h3>
+    <p class="muted">Same model, same endpoint, varying prompt + max_tokens. Decode is steady across short and long requests; prefill scales with prompt length. Captured 2026-04-28.</p>
+    <table class="bench">
+      <thead>
+        <tr><th>Run</th><th>Prompt tok</th><th>Output tok</th><th>Prefill tok/s</th><th>Decode tok/s</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>warm-up</td><td>11</td><td>50</td><td>853</td><td><b>275</b></td></tr>
+        <tr><td>tiny ("hi")</td><td>16</td><td>20</td><td>1235</td><td><b>281</b></td></tr>
+        <tr><td>haiku</td><td>1</td><td>62</td><td>256</td><td><b>274</b></td></tr>
+        <tr><td>100-word essay</td><td>21</td><td>200</td><td>1553</td><td><b>267</b></td></tr>
+        <tr><td>250-word essay</td><td>30</td><td>350</td><td>2192</td><td><b>261</b></td></tr>
+        <tr><td>500-word essay</td><td>31</td><td>700</td><td>2220</td><td><b>255</b></td></tr>
+      </tbody>
+    </table>
+    <p class="muted">Decode holds <b>255 — 281 tok/s</b> across the sweep. Prefill scales <b>853 &rarr; 2220 tok/s</b> from short to long prompts. Measured against <code>:13305</code> end-to-end (no warmup excluded), so these are honest API-level numbers, not isolated kernel benches. Cross-reference: the <a href="/docs/benchmarks.html#stack-green-2026-04-28">stack-green page</a> has llama-bench numbers from a separate run that match within noise (281.2 tok/s for the same checkpoint).</p>
+
+    <p class="muted">Want to watch the install run? <code>./install.sh --dry-run</code> prints every action it would take without mutating anything &mdash; recording at <a href="/assets/casts/install-dry-run.cast">/assets/casts/install-dry-run.cast</a> (load with <code>asciinema play &lt;url&gt;</code> locally).</p>
   </section>
 
   <section id="quickstart" class="doc-section">
