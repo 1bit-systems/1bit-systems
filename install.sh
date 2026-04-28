@@ -57,13 +57,19 @@ EOF
 
 banner() {
     local tag=""
-    (( DRY_RUN )) && tag=" — DRY-RUN"
+    if (( DRY_RUN )); then tag=" — DRY-RUN"; fi
     printf '\n'
     printf '%b╔═══════════════════════════════════════════════════════════╗%b\n' "$CYAN" "$NC"
     printf '%b║%b  %b1bit-systems%b — strix-halo 1-bit inference engine%s%b║%b\n' "$CYAN" "$NC" "$BOLD" "$NC" "$tag" "$CYAN" "$NC"
     printf '%b║%b  %bgfx1151 ROCm + Vulkan + XDNA 2 NPU%b                       %b║%b\n' "$CYAN" "$NC" "$DIM" "$NC" "$CYAN" "$NC"
     printf '%b╚═══════════════════════════════════════════════════════════╝%b\n' "$CYAN" "$NC"
-    (( DRY_RUN )) && warn "Dry-run mode — no commands will mutate the system."
+    # Don't end the function on a `(( ... )) && cmd` line — under `set -e`
+    # the arithmetic returns 1 when DRY_RUN=0, the && chain returns 1, the
+    # function returns 1, and `set -e` exits the whole script silently
+    # right after the banner.
+    if (( DRY_RUN )); then
+        warn "Dry-run mode — no commands will mutate the system."
+    fi
 }
 
 require_pacman() {
