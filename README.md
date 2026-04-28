@@ -10,7 +10,7 @@ Three lanes behind one OpenAI-compatible endpoint:
 | **GPU (Vulkan)** | llama.cpp Vulkan, Lemonade | same | decode on sub-2-bit (best for IQ1_S) |
 | **NPU (XDNA 2)** | FastFlowLM | UINT4-AWQ, q4nx | low-power, parallel to GPU |
 
-Talks OpenAI on `:13305` — works with any client that speaks OpenAI: AMD GAIA, Open WebUI, Continue, Hermes, raw `curl`.
+Talks OpenAI on `:13306` (unified) — `1bit up` starts lemond + flm + a small proxy that fans out to both lanes behind one endpoint. Works with any client that speaks OpenAI: AMD GAIA, Open WebUI, Continue, Hermes, raw `curl`.
 
 ## Install
 

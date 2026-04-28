@@ -98,9 +98,11 @@ pull_default_model() {
 }
 
 install_cli() {
-    say "Installing /usr/local/bin/1bit"
+    say "Installing /usr/local/bin/1bit + proxy"
     sudo install -m 0755 "$(dirname "$0")/scripts/1bit" /usr/local/bin/1bit
-    ok "1bit CLI installed — try: 1bit up"
+    sudo install -d /usr/local/share/1bit-systems
+    sudo install -m 0644 "$(dirname "$0")/scripts/1bit-proxy.js" /usr/local/share/1bit-systems/1bit-proxy.js
+    ok "1bit CLI + proxy installed — try: 1bit up"
 }
 
 main() {
@@ -113,8 +115,9 @@ main() {
     start_lemond
     pull_default_model
     echo
-    printf '%b✓%b Done. Run %b1bit up%b to launch the server + open the webapp.\n' "$GREEN" "$NC" "$BOLD" "$NC"
-    printf '   %bGAIA users:%b https://amd-gaia.ai (.deb on Linux). Point it at http://127.0.0.1:13305\n' "$DIM" "$NC"
+    printf '%b✓%b Done. Run %b1bit up%b to launch lemond + flm + proxy.\n' "$GREEN" "$NC" "$BOLD" "$NC"
+    printf '   %bUnified OpenAI endpoint:%b http://127.0.0.1:13306/v1/  (recommended — both lanes)\n' "$DIM" "$NC"
+    printf '   %bGAIA users:%b https://amd-gaia.ai (.deb on Linux). Point it at http://127.0.0.1:13306\n' "$DIM" "$NC"
 }
 
 main "$@"

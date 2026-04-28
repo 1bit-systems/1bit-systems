@@ -2,12 +2,12 @@
 # 1bit — control plane for the 1bit-systems lean 1-bit inference engine.
 #
 # Subcommands:
-#   1bit up            start lemond + open webapp + launch GAIA if installed
-#   1bit down          stop lemond
-#   1bit status        show lemond + flm status
+#   1bit up            start lemond + flm + proxy; open browser; launch GAIA
+#   1bit down          stop all three
+#   1bit status        show lemond / flm / proxy status
 #   1bit pull <model>  pull a model (auto-routes: NPU via flm, GPU via lemonade)
 #   1bit bench         run the 1-bit / ternary pile bench
-#   1bit npu           start FLM NPU server (qwen3:0.6b by default)
+#   1bit npu [model]   start FLM NPU server (default: qwen3:0.6b)
 
 set -euo pipefail
 
@@ -18,53 +18,132 @@ warn() { printf '%b!%b %s\n' "$YELLOW" "$NC" "$*"; }
 die()  { printf '%b✗%b %s\n' "$RED" "$NC" "$*" >&2; exit 1; }
 
 LEMOND_URL="http://127.0.0.1:13305"
+PROXY_URL="http://127.0.0.1:13306"
 LEMOND_LOG=/tmp/lemond.log
 FLM_LOG=/tmp/flm-serve.log
+PROXY_LOG=/tmp/1bit-proxy.log
+DEFAULT_NPU_MODEL="${ONEBIT_NPU_MODEL:-qwen3:0.6b}"
+
+# Locate the proxy script in the repo or installed location.
+proxy_script() {
+    local self_dir
+    self_dir="$(dirname "$(readlink -f "$0")")"
+    if [[ -f "$self_dir/1bit-proxy.js" ]]; then
+        echo "$self_dir/1bit-proxy.js"
+    elif [[ -f /usr/local/share/1bit-systems/1bit-proxy.js ]]; then
+        echo /usr/local/share/1bit-systems/1bit-proxy.js
+    elif [[ -f /home/bcloud/Projects/1bit-systems/scripts/1bit-proxy.js ]]; then
+        echo /home/bcloud/Projects/1bit-systems/scripts/1bit-proxy.js
+    else
+        echo ""
+    fi
+}
+
+# -- service controls -----------------------------------------------------
+
+start_lemond() {
+    if pgrep -x lemond >/dev/null 2>&1; then
+        ok "lemond already running"
+        return
+    fi
+    say "Starting lemond on :13305"
+    nohup lemond >"$LEMOND_LOG" 2>&1 &
+    # wait up to ~10s for it to come up
+    for _ in $(seq 1 20); do
+        sleep 0.5
+        curl -s --max-time 1 "$LEMOND_URL/v1/models" >/dev/null 2>&1 && { ok "lemond up at $LEMOND_URL"; return; }
+    done
+    warn "lemond didn't respond — see $LEMOND_LOG"
+}
+
+start_flm() {
+    if pgrep -f 'flm.*serve' >/dev/null 2>&1; then
+        ok "flm already serving (pid $(pgrep -f 'flm.*serve' | head -1))"
+        return
+    fi
+    say "Starting flm serve $DEFAULT_NPU_MODEL"
+    nohup flm serve "$DEFAULT_NPU_MODEL" >"$FLM_LOG" 2>&1 &
+    sleep 4
+    local port
+    port="$(flm port 2>/dev/null | awk '{print $NF}')"
+    if [[ -n "$port" ]]; then
+        ok "flm serving $DEFAULT_NPU_MODEL on :$port"
+    else
+        warn "flm didn't report a port — see $FLM_LOG"
+    fi
+}
+
+start_proxy() {
+    if pgrep -f '1bit-proxy.js' >/dev/null 2>&1; then
+        ok "proxy already running"
+        return
+    fi
+    local script
+    script="$(proxy_script)"
+    [[ -z "$script" ]] && { warn "proxy script not found, skipping"; return; }
+    command -v node >/dev/null 2>&1 || { warn "node not found, skipping proxy"; return; }
+    say "Starting 1bit-proxy on :13306 (unifies lemond + flm)"
+    nohup node "$script" >"$PROXY_LOG" 2>&1 &
+    sleep 1
+    if curl -s --max-time 2 "$PROXY_URL/health" >/dev/null 2>&1; then
+        ok "proxy up at $PROXY_URL — single OpenAI endpoint, both lanes"
+    else
+        warn "proxy didn't respond — see $PROXY_LOG"
+    fi
+}
 
 cmd_up() {
-    if ! pgrep -x lemond >/dev/null 2>&1; then
-        say "Starting lemond on :13305"
-        nohup lemond >"$LEMOND_LOG" 2>&1 &
-        sleep 2
-    fi
-    if curl -s --max-time 3 "$LEMOND_URL/v1/models" >/dev/null 2>&1; then
-        ok "lemond up at $LEMOND_URL"
-    else
-        warn "lemond not responding — see $LEMOND_LOG"
-    fi
+    start_lemond
+    start_flm
+    start_proxy
 
     say "Opening browser: $LEMOND_URL"
     xdg-open "$LEMOND_URL" >/dev/null 2>&1 &
 
     if command -v gaia >/dev/null 2>&1; then
-        say "Launching AMD GAIA"
+        say "Launching AMD GAIA (point it at $PROXY_URL/v1)"
         nohup gaia >/dev/null 2>&1 &
-        ok "GAIA launched (point it at $LEMOND_URL/v1)"
     else
-        warn "AMD GAIA not installed. Get the .deb from https://amd-gaia.ai and point it at $LEMOND_URL/v1"
+        warn "AMD GAIA not installed. Get the .deb from https://amd-gaia.ai and point it at $PROXY_URL/v1"
     fi
+
+    echo
+    ok "All up. Endpoints:"
+    printf '   Unified (recommended):  %s/v1/\n' "$PROXY_URL"
+    printf '   Lemonade (GPU only):    %s/v1/\n' "$LEMOND_URL"
+    printf '   FLM (NPU only):         http://127.0.0.1:%s/v1/\n' "$(flm port 2>/dev/null | awk '{print $NF}')"
 }
 
 cmd_down() {
-    if pgrep -x lemond >/dev/null 2>&1; then
-        pkill -x lemond
-        ok "lemond stopped"
-    else
-        ok "lemond already stopped"
-    fi
+    say "Stopping all services"
+    pkill -f '1bit-proxy.js' 2>/dev/null && ok "proxy stopped" || ok "proxy already stopped"
+    pkill -f 'flm.*serve' 2>/dev/null && ok "flm stopped" || ok "flm already stopped"
+    pkill -x lemond 2>/dev/null && ok "lemond stopped" || ok "lemond already stopped"
 }
 
 cmd_status() {
     if curl -s --max-time 2 "$LEMOND_URL/v1/models" >/dev/null 2>&1; then
-        ok "lemond: up at $LEMOND_URL"
+        ok "lemond:  up at $LEMOND_URL"
     else
-        warn "lemond: down"
+        warn "lemond:  down"
     fi
+
     if pgrep -f 'flm.*serve' >/dev/null 2>&1; then
-        ok "flm:    serving"
+        local port
+        port="$(flm port 2>/dev/null | awk '{print $NF}')"
+        ok "flm:     serving on :$port"
     else
-        warn "flm:    not serving (run \`1bit npu\` to start)"
+        warn "flm:     not serving"
     fi
+
+    if curl -s --max-time 2 "$PROXY_URL/health" >/dev/null 2>&1; then
+        local n
+        n="$(curl -s --max-time 2 "$PROXY_URL/health" | grep -oE '"models":[0-9]+' | grep -oE '[0-9]+')"
+        ok "proxy:   up at $PROXY_URL ($n models unified)"
+    else
+        warn "proxy:   down"
+    fi
+
     echo
     echo "memlock limit: $(ulimit -l)"
 }
@@ -83,21 +162,21 @@ cmd_pull() {
 
 cmd_bench() {
     local script
-    script="$(dirname "$(readlink -f "$0")")/../benchmarks/bench-1bit-pile.sh"
     if [[ -f /home/bcloud/Projects/1bit-systems/benchmarks/bench-1bit-pile.sh ]]; then
         script=/home/bcloud/Projects/1bit-systems/benchmarks/bench-1bit-pile.sh
+    else
+        die "bench script not found"
     fi
-    [[ -f "$script" ]] || die "bench script not found: $script"
     bash "$script"
 }
 
 cmd_npu() {
-    local model="${1:-qwen3:0.6b}"
+    local model="${1:-$DEFAULT_NPU_MODEL}"
     if pgrep -f 'flm.*serve' >/dev/null 2>&1; then
-        ok "flm already serving (PID $(pgrep -f 'flm.*serve' | head -1))"
+        ok "flm already serving (pid $(pgrep -f 'flm.*serve' | head -1))"
         return
     fi
-    say "Starting FLM NPU server: $model"
+    say "Starting flm serve $model"
     nohup flm serve "$model" >"$FLM_LOG" 2>&1 &
     sleep 3
     local port
@@ -110,16 +189,19 @@ usage() {
 1bit — 1bit-systems control plane
 
 Usage:
-  1bit up                Start lemond + open browser + launch GAIA if installed
-  1bit down              Stop lemond
-  1bit status            Show lemond + FLM status, memlock
+  1bit up                Start lemond + flm + proxy, open browser, launch GAIA if installed
+  1bit down              Stop all services
+  1bit status            Show service status
   1bit pull <model>      Pull a model (auto-routes NPU vs GPU)
   1bit bench             Run the 1-bit / ternary pile bench
-  1bit npu [model]       Start FLM NPU server (default: qwen3:0.6b)
+  1bit npu [model]       Start FLM NPU server (default: $DEFAULT_NPU_MODEL)
 
-Endpoints:
-  Lemonade (ROCm/Vulkan):  $LEMOND_URL/v1/  (OpenAI-compat)
-  FLM (NPU):               http://127.0.0.1:\$(flm port)/v1/
+Endpoints (after \`1bit up\`):
+  Unified OpenAI:    $PROXY_URL/v1/   (recommended — both lanes, one shape)
+  Lemonade (GPU):    $LEMOND_URL/v1/
+  FLM (NPU):         http://127.0.0.1:\$(flm port)/v1/
+
+Override the default NPU model: ONEBIT_NPU_MODEL=qwen3:1.7b 1bit up
 EOF
 }
 
