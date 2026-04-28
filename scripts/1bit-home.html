@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>1bit.systems &mdash; home</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1f2937;
+    --border: #2a2a2a;
+    --text: #e5e7eb;
+    --text-dim: #888;
+    --text-muted: #666;
+    --accent: #ffc832;
+    --accent-dim: #b8902a;
+    --green: #2ea043;
+    --red: #f85149;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 20px 60px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { font-family: ui-monospace, "JetBrains Mono", Consolas, monospace; font-size: 0.92em; background: #0a0a0a; padding: 2px 6px; border-radius: 4px; color: var(--accent); }
+
+  /* Hero */
+  .hero { padding: 28px 0 16px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+  .lockup { font-size: 2.4rem; font-weight: 800; letter-spacing: -0.02em; color: var(--text); }
+  .lockup b { color: var(--accent); }
+  .lockup .dot { color: var(--accent); }
+  .tagline { color: var(--text-dim); font-size: 1.05rem; margin-top: 6px; max-width: 640px; }
+  .eyebrow { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); margin-bottom: 6px; }
+
+  /* Sections */
+  section { margin: 28px 0; }
+  h2 { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); margin: 0 0 14px; }
+
+  /* Launchers */
+  .launchers { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .launcher {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    text-decoration: none;
+    color: var(--text);
+    transition: border-color 0.15s, transform 0.15s;
+    display: block;
+  }
+  .launcher:hover { border-color: var(--accent); text-decoration: none; transform: translateY(-1px); }
+  .launcher h3 { margin: 0 0 4px; font-size: 1.1rem; color: var(--text); }
+  .launcher .sub { color: var(--text-dim); font-size: 0.85rem; }
+  .launcher .url { color: var(--text-muted); font-size: 0.78rem; font-family: ui-monospace, monospace; margin-top: 8px; }
+  .launcher.disabled { opacity: 0.55; }
+  .launcher.disabled:hover { border-color: var(--border); transform: none; cursor: default; }
+  .launcher .install { color: var(--accent-dim); font-size: 0.78rem; margin-top: 8px; }
+
+  /* Try-it-now chat */
+  .chat {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .chat-row { display: flex; gap: 10px; align-items: stretch; margin-bottom: 10px; }
+  .chat select, .chat textarea, .chat button {
+    background: #0a0a0a;
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font: inherit;
+  }
+  .chat select { min-width: 280px; }
+  .chat textarea { flex: 1; resize: vertical; min-height: 70px; font-family: inherit; }
+  .chat button {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    font-weight: 700;
+    padding: 0 22px;
+    cursor: pointer;
+    min-width: 100px;
+  }
+  .chat button:hover { background: #ffd24d; }
+  .chat button:disabled { background: var(--text-muted); cursor: wait; }
+  .response {
+    margin-top: 10px;
+    background: #0a0a0a;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    min-height: 80px;
+    white-space: pre-wrap;
+    font-family: ui-monospace, "JetBrains Mono", monospace;
+    font-size: 0.92rem;
+    color: var(--text);
+    overflow-y: auto;
+    max-height: 360px;
+  }
+  .response.empty { color: var(--text-muted); font-style: italic; font-family: inherit; font-size: 0.9rem; }
+
+  /* Status */
+  .status { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .dot.up { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .dot.down { background: var(--red); }
+  .stat .name { font-weight: 600; color: var(--text); }
+  .stat .meta { color: var(--text-muted); font-size: 0.82rem; margin-left: auto; font-family: ui-monospace, monospace; }
+
+  /* Footer */
+  footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 0.85rem; }
+  footer code { background: transparent; padding: 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <p class="eyebrow">v0.2 &middot; Strix Halo &middot; gfx1151 + XDNA 2</p>
+    <div class="lockup"><b>1</b>bit<span class="dot">.</span>systems</div>
+    <p class="tagline">A 1-bit inference engine for AMD Strix Halo. We pack and serve the models — bring your own client.</p>
+  </header>
+
+  <section>
+    <h2>Apps</h2>
+    <div class="launchers">
+      <a class="launcher" href="http://127.0.0.1:13305/" target="_blank" rel="noopener">
+        <h3>Lemonade</h3>
+        <div class="sub">Native UI · model manager · GPU + all backends</div>
+        <div class="url">127.0.0.1:13305</div>
+      </a>
+      <a class="launcher" id="gaia-card" href="https://amd-gaia.ai" target="_blank" rel="noopener">
+        <h3>GAIA</h3>
+        <div class="sub">AMD's local desktop AI agent</div>
+        <div class="install" id="gaia-status">Checking…</div>
+      </a>
+      <a class="launcher" id="webui-card" href="http://127.0.0.1:3000/" target="_blank" rel="noopener">
+        <h3>Open WebUI</h3>
+        <div class="sub">Browser chat with full features</div>
+        <div class="install" id="webui-status">Checking…</div>
+      </a>
+    </div>
+  </section>
+
+  <section>
+    <h2>Try it now</h2>
+    <div class="chat">
+      <div class="chat-row">
+        <select id="model-picker"><option>Loading models…</option></select>
+        <button id="send-btn" type="button">Send</button>
+      </div>
+      <textarea id="prompt" placeholder="Type a prompt. Enter to send. Shift+Enter for newline."></textarea>
+      <div id="response" class="response empty">Pick a model and ask something. Streaming reply appears here.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Status</h2>
+    <div class="status">
+      <div class="stat"><div class="dot down" id="dot-lemond"></div><span class="name">Lemonade</span><span class="meta" id="meta-lemond">:13305 · ?</span></div>
+      <div class="stat"><div class="dot down" id="dot-flm"></div><span class="name">FLM</span><span class="meta" id="meta-flm">NPU · ?</span></div>
+      <div class="stat"><div class="dot down" id="dot-proxy"></div><span class="name">Proxy</span><span class="meta" id="meta-proxy">:13306 · ?</span></div>
+    </div>
+  </section>
+
+  <footer>
+    <p><a href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">GitHub</a> · <a href="https://1bit.systems" target="_blank" rel="noopener">1bit.systems</a> · run locally: <code>1bit up</code></p>
+  </footer>
+
+</div>
+
+<script>
+'use strict';
+
+const PROXY_BASE = '';  // same origin
+
+const ONEBIT_RE = /\b(bitnet|bonsai|tq[12]_0|iq1_[ms]|iq2_bn|trilm|outlier)\b/i;
+
+function classifyModel(m) {
+  if (m.owned_by === 'flm') return 'NPU (FLM)';
+  if (ONEBIT_RE.test(m.id)) return '1bit GPU';
+  return 'Other GPU';
+}
+
+async function loadModels() {
+  const picker = document.getElementById('model-picker');
+  try {
+    const r = await fetch(PROXY_BASE + '/v1/models');
+    const d = await r.json();
+    const groups = {};
+    for (const m of d.data || []) {
+      const g = classifyModel(m);
+      (groups[g] ||= []).push(m);
+    }
+    const order = ['1bit GPU', 'NPU (FLM)', 'Other GPU'];
+    picker.innerHTML = '';
+    for (const g of order) {
+      if (!groups[g]) continue;
+      const og = document.createElement('optgroup');
+      og.label = `${g} (${groups[g].length})`;
+      for (const m of groups[g].sort((a,b) => a.id.localeCompare(b.id))) {
+        const o = document.createElement('option');
+        o.value = m.id;
+        o.textContent = m.id;
+        og.appendChild(o);
+      }
+      picker.appendChild(og);
+    }
+    // Default selection: prefer the NPU default if present, else first 1bit, else first.
+    const defaultPick = ['qwen3:1.7b', 'qwen3:0.6b'].find(id => groups['NPU (FLM)']?.some(m => m.id === id))
+      || groups['1bit GPU']?.[0]?.id
+      || picker.options[0]?.value;
+    if (defaultPick) picker.value = defaultPick;
+  } catch (e) {
+    picker.innerHTML = `<option>Error: ${e.message}</option>`;
+  }
+}
+
+async function sendPrompt() {
+  const picker = document.getElementById('model-picker');
+  const prompt = document.getElementById('prompt');
+  const resp = document.getElementById('response');
+  const btn = document.getElementById('send-btn');
+  const text = prompt.value.trim();
+  if (!text) return;
+  if (!picker.value) return;
+
+  btn.disabled = true;
+  resp.classList.remove('empty');
+  resp.textContent = '';
+
+  try {
+    const r = await fetch(PROXY_BASE + '/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: picker.value,
+        messages: [{ role: 'user', content: text }],
+        stream: true,
+        max_tokens: 512,
+      }),
+    });
+    if (!r.ok) {
+      const err = await r.text();
+      resp.textContent = `Error ${r.status}: ${err}`;
+      return;
+    }
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) !== -1) {
+        const event = buf.slice(0, i).trim();
+        buf = buf.slice(i + 2);
+        for (const line of event.split('\n')) {
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (data === '[DONE]') { return; }
+          try {
+            const j = JSON.parse(data);
+            const delta = j.choices?.[0]?.delta?.content || j.choices?.[0]?.message?.content || '';
+            if (delta) {
+              resp.textContent += delta;
+              resp.scrollTop = resp.scrollHeight;
+            }
+          } catch {}
+        }
+      }
+    }
+  } catch (e) {
+    resp.textContent = `Error: ${e.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function refreshStatus() {
+  try {
+    const r = await fetch(PROXY_BASE + '/health');
+    const d = await r.json();
+    // Poke each backend separately for liveness counts.
+    const [lemondOk, flmOk] = await Promise.all([
+      fetch(d.lemond + '/v1/models').then(x => x.ok).catch(() => false),
+      fetch(d.flm + '/v1/models').then(x => x.ok).catch(() => false),
+    ]);
+    const dl = document.getElementById('dot-lemond'); dl.className = 'dot ' + (lemondOk ? 'up' : 'down');
+    document.getElementById('meta-lemond').textContent = ':13305 · ' + (lemondOk ? 'up' : 'down');
+    const df = document.getElementById('dot-flm'); df.className = 'dot ' + (flmOk ? 'up' : 'down');
+    const flmPort = (d.flm.match(/:(\d+)/) || [, '?'])[1];
+    document.getElementById('meta-flm').textContent = `NPU :${flmPort} · ` + (flmOk ? 'up' : 'down');
+    const dp = document.getElementById('dot-proxy'); dp.className = 'dot up';
+    document.getElementById('meta-proxy').textContent = `:13306 · ${d.models} models`;
+  } catch {
+    document.getElementById('dot-proxy').className = 'dot down';
+    document.getElementById('meta-proxy').textContent = ':13306 · down';
+  }
+}
+
+async function checkLauncherAvailability() {
+  // Open WebUI: probe :3000
+  try {
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 1500);
+    await fetch('http://127.0.0.1:3000/', { mode: 'no-cors', signal: ctrl.signal });
+    document.getElementById('webui-status').textContent = 'Running on :3000';
+  } catch {
+    const card = document.getElementById('webui-card');
+    card.classList.add('disabled');
+    document.getElementById('webui-status').textContent = 'Not running. docker run open-webui ...';
+    card.removeAttribute('href');
+  }
+  // GAIA: there's no reliable browser-side detection, so just point at install.
+  document.getElementById('gaia-status').textContent = 'Get the Linux .deb · point it at :13306/v1';
+}
+
+// Send on Enter (no shift)
+document.getElementById('prompt').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendPrompt();
+  }
+});
+document.getElementById('send-btn').addEventListener('click', sendPrompt);
+
+loadModels();
+refreshStatus();
+checkLauncherAvailability();
+setInterval(refreshStatus, 5000);
+setInterval(loadModels, 30000);
+</script>
+</body>
+</html>

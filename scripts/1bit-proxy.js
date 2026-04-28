@@ -22,8 +22,22 @@
 'use strict';
 
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const { URL } = require('url');
 const { execSync } = require('child_process');
+
+// Locate the home page HTML. Prefer a co-installed copy.
+const HOME_HTML = (() => {
+  const candidates = [
+    path.join(__dirname, '1bit-home.html'),
+    path.join(__dirname, '..', 'scripts', '1bit-home.html'),
+    '/usr/local/share/1bit-systems/1bit-home.html',
+    '/home/bcloud/Projects/1bit-systems/scripts/1bit-home.html',
+  ];
+  for (const p of candidates) { if (fs.existsSync(p)) return fs.readFileSync(p, 'utf8'); }
+  return null;
+})();
 
 const PROXY_PORT = parseInt(process.env.ONEBIT_PROXY_PORT || '13306', 10);
 const LEMOND_URL = process.env.LEMOND_URL || 'http://127.0.0.1:13305';
@@ -81,6 +95,18 @@ async function readBody(req) {
 
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://127.0.0.1:${PROXY_PORT}`);
+
+  // Home page
+  if ((u.pathname === '/' || u.pathname === '/home') && req.method === 'GET') {
+    if (!HOME_HTML) {
+      res.writeHead(404, { 'content-type': 'text/plain' });
+      res.end('1bit-home.html not found alongside proxy');
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(HOME_HTML);
+    return;
+  }
 
   // Health check for the proxy itself
   if (u.pathname === '/health' && req.method === 'GET') {
