@@ -11,6 +11,7 @@
 [![CI](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml/badge.svg)](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-00d4ff.svg)](LICENSE)
 [![AUR: 1bit-systems-git](https://img.shields.io/badge/AUR-1bit--systems--git-1793D1.svg?logo=archlinux&logoColor=white)](packaging/aur/1bit-systems-git)
+[![AUR: 1bit-systems-bin](https://img.shields.io/badge/AUR-1bit--systems--bin-1793D1.svg?logo=archlinux&logoColor=white)](packaging/aur/1bit-systems-bin)
 [![Site](https://img.shields.io/badge/site-1bit.systems-00d4ff.svg)](https://1bit.systems)
 [![Discord](https://img.shields.io/badge/discord-1bit.systems-5865F2.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
 [![Built on Lemonade](https://img.shields.io/badge/built%20on-Lemonade-yellow.svg)](https://lemonade-server.ai)

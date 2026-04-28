@@ -1,0 +1,108 @@
+name: release
+
+# Triggered by `git tag v*.*.* && git push --tags`. Builds the
+# bun-compiled `1bit` binary and attaches it as a GitHub Release asset.
+# That artifact is what `packaging/aur/1bit-systems-bin/PKGBUILD`
+# downloads, so a tag push is the entire release pipeline.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., v2.0.0). Must already exist on origin.'
+        required: true
+
+permissions:
+  contents: write   # needed to create the release + upload assets
+
+jobs:
+
+  build-binary:
+    name: bun build --compile (linux x86_64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    outputs:
+      sha256: ${{ steps.checksum.outputs.sha256 }}
+      size: ${{ steps.checksum.outputs.size }}
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build single-static binary
+        working-directory: packaging/binary
+        run: |
+          bun build --compile --target=bun-linux-x64 --outfile=1bit ./1bit.ts
+          file ./1bit
+          ls -la ./1bit
+
+      - name: Smoke-test the binary
+        working-directory: packaging/binary
+        run: |
+          ./1bit --help
+          # `status` will show all services down on a runner — that's fine,
+          # the test is "binary doesn't crash".
+          ./1bit status || true
+
+      - name: Compute checksum + rename for release
+        id: checksum
+        working-directory: packaging/binary
+        run: |
+          mv 1bit "1bit-x86_64-linux"
+          SHA256=$(sha256sum 1bit-x86_64-linux | cut -d' ' -f1)
+          SIZE_BYTES=$(stat -c %s 1bit-x86_64-linux)
+          SIZE_HUMAN=$(du -h 1bit-x86_64-linux | cut -f1)
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+          echo "size=$SIZE_HUMAN" >> "$GITHUB_OUTPUT"
+          echo "$SHA256  1bit-x86_64-linux" > 1bit-x86_64-linux.sha256
+          echo "Built 1bit-x86_64-linux  size=$SIZE_HUMAN ($SIZE_BYTES B)  sha256=$SHA256"
+
+      - name: Upload as workflow artifact (so dispatch runs are inspectable)
+        uses: actions/upload-artifact@v4
+        with:
+          name: 1bit-x86_64-linux
+          path: |
+            packaging/binary/1bit-x86_64-linux
+            packaging/binary/1bit-x86_64-linux.sha256
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: |
+            packaging/binary/1bit-x86_64-linux
+            packaging/binary/1bit-x86_64-linux.sha256
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            ## 1bit-systems ${{ github.event.inputs.tag || github.ref_name }}
+
+            **Binary:** `1bit-x86_64-linux` (statically-linked, bun-compiled)
+            **Size:** ${{ steps.checksum.outputs.size }}
+            **SHA-256:** `${{ steps.checksum.outputs.sha256 }}`
+
+            ### Install (Arch / CachyOS via AUR)
+
+            ```sh
+            paru -S 1bit-systems-bin
+            ```
+
+            ### Install (manual)
+
+            ```sh
+            curl -L -o 1bit https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag || github.ref_name }}/1bit-x86_64-linux
+            sha256sum -c <<< "${{ steps.checksum.outputs.sha256 }}  1bit"
+            chmod +x 1bit && sudo mv 1bit /usr/local/bin/
+            ```
+
+            See [`docs/aur.md`](https://github.com/${{ github.repository }}/blob/main/docs/aur.md) for the full packaging story.

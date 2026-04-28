@@ -93,14 +93,63 @@ installed — e.g., a script edit, dep change, new file in the install
 list), bump `pkgrel` in the PKGBUILD and re-commit. The `pkgver` updates
 automatically via the `pkgver()` function on each rebuild.
 
-## Future: stable `1bit-systems` (non-`-git`) PKGBUILD
+## `1bit-systems-bin` &mdash; the compiled-binary track
 
-When the repo gets a stable v2.0+ tag (post-cutover release), add a
-sibling `packaging/aur/1bit-systems/PKGBUILD` that pins `source=` to the
-tagged release tarball instead of `git+...`. Both packages can coexist
-with `provides=("1bit-systems")` and `conflicts=("1bit-systems")` so
-users pick `-git` for rolling or `1bit-systems` for stable.
+A second AUR pkg for users who want a **single static binary** instead of
+the bash + Node runtime split. Drops the `nodejs` dep entirely &mdash; the
+Bun runtime is baked into the binary.
+
+```
+packaging/aur/1bit-systems-bin/
+├── PKGBUILD                 # downloads 1bit-x86_64-linux from GitHub Releases
+├── 1bit-systems.install     # same post-install hook as -git
+└── .SRCINFO
+```
+
+Source artifacts come from a GitHub Release (built by `.github/workflows/release.yml`):
+
+- `1bit-x86_64-linux` &mdash; the bun-compiled binary (~62 MB, statically
+  linked, embeds `home.html` at build time).
+- `LICENSE`, `README.md`, `install.sh` &mdash; pulled from the tagged commit
+  via `raw.githubusercontent.com` for inclusion in `/usr/share/doc/`.
+
+`provides=("1bit-systems")` and `conflicts=("1bit-systems-git")` so users pick one.
+
+### How a release is cut
+
+```sh
+git tag v2.0.0
+git push --tags
+```
+
+The `release.yml` workflow runs on tag push, builds the binary on
+`ubuntu-24.04`, smoke-tests `--help` and `status`, computes a
+sha256, and attaches `1bit-x86_64-linux` + `1bit-x86_64-linux.sha256`
+to the GitHub Release. After the release lands:
+
+1. Update `pkgver` in `packaging/aur/1bit-systems-bin/PKGBUILD` to
+   match the tag.
+2. Replace the four `'SKIP'` entries in `sha256sums=()` with real
+   checksums. Compute them with:
+   ```sh
+   curl -sSL https://github.com/bong-water-water-bong/1bit-systems/releases/download/v2.0.0/1bit-x86_64-linux.sha256
+   ```
+3. Regenerate `.SRCINFO`: `cd packaging/aur/1bit-systems-bin && makepkg --printsrcinfo > .SRCINFO`
+4. Push to AUR: same flow as `-git` &mdash;
+   `git clone ssh://aur@aur.archlinux.org/1bit-systems-bin.git`, copy
+   files in, push.
+
+### Stable (non-`-git`, non-`-bin`) PKGBUILD &mdash; deferred
+
+A third sibling `packaging/aur/1bit-systems/PKGBUILD` pinned to a tag
+release tarball is the conventional "stable" Arch package. Skipped for
+now because:
+
+- `1bit-systems-git` already covers the rolling case
+- `1bit-systems-bin` already covers the binary-release case
+- A third package that just unpacks a source tarball without compilation
+  is redundant with `-git` for a pure-script repo
 
 The current `v1.0.0` tag is 500+ commits behind `main` (pre-cutover, no
-`install.sh` / no `scripts/1bit`); it's not viable as a base for a
-pinned PKGBUILD.
+`install.sh`, no `scripts/1bit`); not viable as a base anyway. Revisit
+after the cutover work tags `v2.0.0`.

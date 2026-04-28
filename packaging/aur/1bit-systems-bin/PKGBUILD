@@ -1,0 +1,78 @@
+# Maintainer: bong-water-water-bong <277547417+bong-water-water-bong@users.noreply.github.com>
+#
+# This package downloads the prebuilt single-static `1bit` binary from a
+# GitHub Release artifact (the bun-compiled `packaging/binary/1bit.ts` +
+# `proxy.ts` + `home.html` from the same repo). No `nodejs` dep — the
+# Bun runtime is baked into the binary.
+#
+# To bump pkgver:
+#   1. Tag a release on the upstream repo:
+#        git tag v2.0.0 && git push --tags
+#   2. The .github/workflows/release.yml workflow builds the binary on
+#      `ubuntu-24.04` and attaches it to the release.
+#   3. Update `pkgver` here, then update sha256sums (instructions below).
+#
+# To compute sha256sums after a release:
+#   curl -sSL -o /tmp/1bit.bin "https://github.com/bong-water-water-bong/1bit-systems/releases/download/v$pkgver/1bit-x86_64-linux"
+#   sha256sum /tmp/1bit.bin
+# Paste the result into sha256sums=( ... ).
+
+pkgname=1bit-systems-bin
+_pkgname=1bit-systems
+pkgver=2.0.0
+pkgrel=1
+pkgdesc='Lean unified 1-bit / sub-2-bit inference engine for AMD Strix Halo (Lemonade + FastFlowLM) — single-binary build'
+arch=('x86_64')
+url='https://1bit.systems'
+license=('MIT')
+
+depends=(
+  'lemonade-server'        # AUR — OpenAI-compat server
+  'fastflowlm'             # cachyos-extra-znver4 — NPU runtime
+  'xrt'                    # cachyos-extra-znver4
+  'xrt-plugin-amdxdna'     # cachyos-extra-znver4
+  'rocm-hip-sdk'           # extra — iGPU lane
+  'curl'                   # used by `1bit pull`
+  'python'                 # for the flm:npu pin patch in install hook
+  # NOTE: no `nodejs` dep — the bun-compiled binary has its runtime baked in.
+)
+
+provides=("$_pkgname")
+conflicts=("$_pkgname" "1bit-systems-git")
+
+source=(
+  "1bit-x86_64-linux::https://github.com/bong-water-water-bong/1bit-systems/releases/download/v$pkgver/1bit-x86_64-linux"
+  "LICENSE::https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/v$pkgver/LICENSE"
+  "README.md::https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/v$pkgver/README.md"
+  "install.sh::https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/v$pkgver/install.sh"
+)
+
+# Set to actual checksums after each release. Until the first v2.0.0 release
+# exists, these are SKIP — install will succeed but won't verify integrity.
+sha256sums=(
+  'SKIP'
+  'SKIP'
+  'SKIP'
+  'SKIP'
+)
+
+install="${_pkgname}.install"
+
+package() {
+  cd "$srcdir"
+
+  # The compiled `1bit` binary
+  install -Dm755 1bit-x86_64-linux "$pkgdir/usr/bin/1bit"
+
+  # Memlock conf — same as 1bit-systems-git
+  install -Dm644 /dev/stdin "$pkgdir/etc/security/limits.d/99-1bit-systems.conf" <<'EOF'
+# 1bit-systems: NPU + GPU buffers need unlimited memlock.
+*       soft    memlock     unlimited
+*       hard    memlock     unlimited
+EOF
+
+  # License + reference docs
+  install -Dm644 LICENSE     "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 install.sh  "$pkgdir/usr/share/doc/$pkgname/install.sh"
+  install -Dm644 README.md   "$pkgdir/usr/share/doc/$pkgname/README.md"
+}
