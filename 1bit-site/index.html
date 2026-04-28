@@ -231,12 +231,30 @@
   <section id="install" class="install">
     <h2>Install</h2>
     <p class="note">CachyOS / Arch on Strix Halo. One script. Idempotent.</p>
+
+    <h3 style="margin-top:1rem">Step 0 &mdash; prerequisites</h3>
+    <p class="muted">A clean CachyOS / Arch base ships <em>most</em> of these, but a minimal install can be missing some. Run once before cloning:</p>
+    <pre><code>sudo pacman -Syu                                  # fully update first
+sudo pacman -S --needed git base-devel paru curl  # git for clone, base-devel for AUR builds,
+                                                  # paru for the AUR lemonade-server package,
+                                                  # curl for the model pull</code></pre>
+    <p class="muted">You'll also need:</p>
+    <ul class="install-bullets">
+      <li>A user with <b><code>sudo</code> privileges</b> &mdash; the installer writes <code>/etc/security/limits.d/99-1bit-systems.conf</code> and patches Lemonade's manifest under <code>/usr/share/</code>.</li>
+      <li>A <b>Strix Halo</b> APU (<code>gfx1151</code> iGPU + XDNA 2 NPU). Other Ryzen AI gens (XDNA 1 &mdash; 7000 / 8000 / 200-series) will install but the <code>flm:npu</code> lane won't light up.</li>
+      <li>A modern kernel with <b>in-tree <code>amdxdna</code></b> &mdash; Linux 7.0+ ships it. CachyOS 7.0.x and Arch's mainline <code>linux</code> are good. For older kernels (6.18 / 6.19) install <code>paru -S amdxdna-dkms</code> first.</li>
+      <li><b>~70 GB free</b> on <code>/home</code> &mdash; covers the default 1-bit Bonsai pull and headroom for the 35B IQ2_XXS daily driver alongside it.</li>
+    </ul>
+
+    <h3 style="margin-top:1.25rem">Step 1 &mdash; clone + run</h3>
     <pre><code>git clone https://github.com/bong-water-water-bong/1bit-systems
 cd 1bit-systems
-./install.sh</code></pre>
-    <p class="muted">Installs pacman + AUR packages, writes <code>/etc/security/limits.d/99-1bit-systems.conf</code> (memlock unlimited), pulls the default 1-bit model (Bonsai-1.7B-IQ1_S, 385 MB), installs the <code>1bit</code> CLI to <code>/usr/local/bin/</code>.</p>
-    <p class="muted">After install: re-login or reboot once so the memlock limits apply for the NPU lane.</p>
-    <ul class="install-bullets">
+./install.sh                 # actually install
+./install.sh --dry-run       # preview every action without mutating</code></pre>
+    <p class="muted">Installs <code>lemonade-server</code>, <code>fastflowlm</code>, <code>xrt</code>, <code>xrt-plugin-amdxdna</code>, <code>rocm-hip-sdk</code>. Writes memlock limits. Auto-patches Lemonade's <code>flm:npu</code> version pin to match your installed FastFlowLM (the silent <code>update_required</code> gotcha). Pulls the default 1-bit model (Bonsai-1.7B-IQ1_S, 385&nbsp;MB). Installs the <code>1bit</code> CLI to <code>/usr/local/bin/</code>.</p>
+    <p class="muted">After first install: re-login or reboot once so the memlock limits apply for the NPU lane.</p>
+
+    <ul class="install-bullets" style="margin-top:1rem">
       <li><s>AUR package <code>1bit-systems-bin</code>.</s> &rarr; <b>not shipped &mdash; just the install script.</b></li>
       <li><s>AppImage covers everything else.</s> &rarr; <b>not shipped.</b></li>
       <li><s>Source build via <code>cmake --preset release-strix</code>.</s> &rarr; <b>no source build &mdash; nothing in this repo to compile.</b></li>
