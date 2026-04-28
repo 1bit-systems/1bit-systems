@@ -19,9 +19,11 @@ die()  { printf '%b✗%b %s\n' "$RED" "$NC" "$*" >&2; exit 1; }
 
 LEMOND_URL="http://127.0.0.1:13305"
 PROXY_URL="http://127.0.0.1:13306"
+WEBUI_URL="http://127.0.0.1:3000"
 LEMOND_LOG=/tmp/lemond.log
 FLM_LOG=/tmp/flm-serve.log
 PROXY_LOG=/tmp/1bit-proxy.log
+WEBUI_LOG=/tmp/1bit-webui.log
 DEFAULT_NPU_MODEL="${ONEBIT_NPU_MODEL:-qwen3:1.7b}"
 
 # Locate the proxy script in the repo or installed location.
@@ -170,6 +172,49 @@ cmd_bench() {
     bash "$script"
 }
 
+cmd_webui() {
+    local action="${1:-up}"
+    case "$action" in
+        up)
+            if pgrep -f 'open-webui.*serve' >/dev/null 2>&1; then
+                ok "open-webui already running at $WEBUI_URL"
+                return
+            fi
+            command -v open-webui >/dev/null 2>&1 || die "open-webui not found. Run: uv tool install open-webui"
+            say "Starting open-webui on :3000  (1bit.systems-branded, points at $PROXY_URL/v1)"
+            WEBUI_NAME="1bit.systems" \
+            OPENAI_API_BASE_URL="$PROXY_URL/v1" \
+            OPENAI_API_KEY="local-no-auth" \
+            ENABLE_OLLAMA_API="False" \
+            WEBUI_AUTH="False" \
+                nohup open-webui serve --port 3000 --host 127.0.0.1 >"$WEBUI_LOG" 2>&1 &
+            for _ in $(seq 1 30); do
+                sleep 1
+                curl -s --max-time 1 "$WEBUI_URL/health" >/dev/null 2>&1 && { ok "open-webui up at $WEBUI_URL"; return; }
+            done
+            warn "open-webui didn't respond in 30s — see $WEBUI_LOG"
+            ;;
+        down)
+            if pgrep -f 'open-webui.*serve' >/dev/null 2>&1; then
+                pkill -f 'open-webui.*serve'
+                ok "open-webui stopped"
+            else
+                ok "open-webui already stopped"
+            fi
+            ;;
+        status)
+            if curl -s --max-time 2 "$WEBUI_URL/health" >/dev/null 2>&1; then
+                ok "open-webui: up at $WEBUI_URL"
+            else
+                warn "open-webui: down"
+            fi
+            ;;
+        *)
+            die "usage: 1bit webui [up|down|status]"
+            ;;
+    esac
+}
+
 cmd_npu() {
     local model="${1:-$DEFAULT_NPU_MODEL}"
     if pgrep -f 'flm.*serve' >/dev/null 2>&1; then
@@ -195,6 +240,7 @@ Usage:
   1bit pull <model>      Pull a model (auto-routes NPU vs GPU)
   1bit bench             Run the 1-bit / ternary pile bench
   1bit npu [model]       Start FLM NPU server (default: \$DEFAULT_NPU_MODEL)
+  1bit webui [up|down|status]  Run Open WebUI on :3000, branded + pointed at proxy
 
 Endpoints (after \`1bit up\`):
   Unified OpenAI:    $PROXY_URL/v1/   (recommended — both lanes, one shape)
@@ -212,6 +258,7 @@ case "${1:-}" in
     pull)   shift; cmd_pull "$@" ;;
     bench)  cmd_bench ;;
     npu)    shift; cmd_npu "$@" ;;
+    webui)  shift; cmd_webui "$@" ;;
     -h|--help|help|"") usage ;;
     *)      die "unknown subcommand: $1 (try \`1bit help\`)" ;;
 esac
