@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0d1117">
-<title>1bit.systems &mdash; lean 1-bit inference engine for AMD Strix Halo</title>
-<meta name="description" content="A lean 1-bit inference engine for AMD Strix Halo. OpenAI-compatible endpoint on :13305. Bring your own client. Built on upstream Lemonade Server + FastFlowLM.">
-<meta property="og:title" content="1bit.systems &mdash; lean 1-bit inference engine for AMD Strix Halo">
-<meta property="og:description" content="OpenAI-compat on :13305. Bring your own client. Built on Lemonade + FastFlowLM. ~278 tok/s decode on 1.7B IQ1_S.">
+<title>1bit.systems &mdash; the 2-bit killer for AMD Strix Halo</title>
+<meta name="description" content="1bit.systems presents the 2-bit killer. 1-bit is the floor (Bonsai-1.7B IQ1_S at ~280 tok/s). Sub-2-bit MoE is the daily driver (Qwen3.5-35B-A3B IQ2_XXS at ~73 tok/s, half the disk). OpenAI-compat on :13305.">
+<meta property="og:title" content="1bit.systems &mdash; the 2-bit killer for AMD Strix Halo">
+<meta property="og:description" content="1-bit is the floor; sub-2-bit MoE is the daily driver. Bonsai-1.7B IQ1_S ~280 tok/s, Qwen3.5-35B-A3B IQ2_XXS ~73 tok/s at half the disk. OpenAI-compat on :13305.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://1bit.systems/">
 <meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
@@ -84,11 +84,12 @@
     <p class="eyebrow">v0.2 &middot; Strix Halo &middot; gfx1151 + XDNA 2 &middot; lean cut</p>
     <h1>
       <s>Native ternary LLM stack with hand-written HIP + custom NPU kernels.</s><br>
-      A lean <span class="accent">1-bit inference engine</span> for AMD Strix Halo.
+      <span style="display:block;font-size:1.15em;line-height:1.15;margin:.15em 0">1bit.systems presents <span class="accent">the 2-bit killer</span>.</span>
+      <span style="display:block;font-size:.72em;color:#8b949e;font-weight:400;margin-top:.4em">1-bit is the floor. Sub-2-bit MoE is what you'll keep open all day.</span>
     </h1>
     <p class="lede">
       <s>C++ all the way down. Hand-written HIP kernels at 92% of LPDDR5x peak. Custom Peano + libxrt NPU lane. Eight crates, twelve services, one fat binary.</s><br>
-      <b>Built on upstream Lemonade Server and FastFlowLM.</b> OpenAI-compatible endpoint on <code>:13305</code>. <b>Bring your own client.</b> We pack and serve the 1-bit models &mdash; you bring the app.
+      <b>Built on upstream Lemonade Server and FastFlowLM.</b> OpenAI-compatible endpoint on <code>:13305</code>. Bonsai-1.7B at IQ1_S decodes <b>~280 tok/s</b> as the floor; Qwen3.5-35B-A3B at IQ2_XXS holds <b>~73 tok/s</b> at half the disk of the Q4_K_XL baseline. Bring your own client.
     </p>
     <div class="hero-cta">
       <a class="btn" href="#install">Install</a>
