@@ -68,7 +68,9 @@ banner() {
 
 require_pacman() {
     command -v pacman >/dev/null 2>&1 || die "pacman not found — this installer targets CachyOS / Arch."
-    ok "pacman found ($(pacman --version 2>/dev/null | head -1))"
+    # NB: don't `pacman --version | head -1` here — that SIGPIPEs pacman, and
+    # with `set -o pipefail` the whole script silently exits after the banner.
+    ok "pacman found"
 }
 
 require_paru() {
