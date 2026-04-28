@@ -56,6 +56,9 @@
     <a href="#what" data-anchor="what">What this actually is</a>
     <a href="#lanes" data-anchor="lanes">Three lanes</a>
 
+    <h4>Models</h4>
+    <a href="#coverage" data-anchor="coverage">Model coverage</a>
+
     <h4>Numbers</h4>
     <a href="#bench" data-anchor="bench">Bench results</a>
     <a href="#hardware" data-anchor="hardware">Hardware</a>
@@ -153,6 +156,44 @@
       <div class="pillar"><h3>GPU &middot; Vulkan</h3><p>llama.cpp Vulkan. <b>Best decode</b> on sub-2-bit quants today &mdash; mainline IQ1_S compute shaders win on Strix Halo.</p></div>
       <div class="pillar"><h3>NPU &middot; XDNA 2</h3><p>FastFlowLM. UINT4-AWQ / q4nx models pre-compiled by AMD. Low-power inference, runs <em>in parallel</em> with the iGPU.</p></div>
     </div>
+  </section>
+
+  <section id="coverage" class="doc-section">
+    <h2>Model coverage</h2>
+    <p class="note">The honest pitch: <b>1-bit where it works. Best-quant-available where it doesn't. Same OpenAI endpoint either way.</b></p>
+
+    <h3 class="subhead">Where 1-bit / ternary works today</h3>
+    <div class="scroll-x">
+    <table class="data-table">
+      <thead><tr><th>Aspect</th><th>Models</th><th>Quant</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr class="flagship"><td>General chat &middot; small</td><td>Bonsai-1.7B</td><td>IQ1_S (385 MB)</td><td>Fastest decode in the pile (278 tok/s on Vulkan).</td></tr>
+        <tr><td>General chat &middot; mid</td><td>Bonsai-4B</td><td>IQ1_S (872 MB)</td><td>~144 tok/s decode.</td></tr>
+        <tr><td>General chat &middot; large</td><td>Bonsai-8B</td><td>IQ1_S (1.8 GB)</td><td>~92 tok/s decode.</td></tr>
+        <tr><td>Pure ternary (BitNet)</td><td>BitNet b1.58 3B / large</td><td>TQ2_0</td><td>Microsoft reference architecture, gianni-cor requants.</td></tr>
+        <tr><td>Ternary alt</td><td>TriLM-3.9B, Outlier-10B-V2, superkaiii-Bonsai-4B</td><td>TQ1_0 / TQ2_0</td><td>Native ternary GGUF format (PR #8151 lineage).</td></tr>
+        <tr><td>Tiny / draft</td><td>Bitnet-SmolLM-135M</td><td>Q2_K</td><td>Fast autocomplete + draft model.</td></tr>
+      </tbody>
+      <caption>Run <code>1bit bench</code> to sweep this whole pile. Sources documented in <code>benchmarks/bench-1bit-pile.sh</code>.</caption>
+    </table>
+    </div>
+
+    <h3 class="subhead">Where 1-bit doesn't exist yet (use best-quant-available)</h3>
+    <div class="scroll-x">
+    <table class="data-table">
+      <thead><tr><th>Aspect</th><th>1-bit option?</th><th>Lean answer (same endpoint)</th></tr></thead>
+      <tbody>
+        <tr class="strike-row"><td>Code (autocomplete / chat)</td><td class="was">Bonsai-Coder-IQ1_S</td><td>Qwen2.5-Coder or DeepSeek-Coder at <b>Q4_K_M</b>. Different quant, same OpenAI shape.</td></tr>
+        <tr class="strike-row"><td>Reasoning / thinking</td><td class="was">DeepSeek-R1 IQ1_S</td><td>R1-distill at <b>Q4_K_M</b> works fine on the iGPU.</td></tr>
+        <tr class="strike-row"><td>Vision (VLM)</td><td class="was">VLM IQ1_S</td><td>Qwen2.5-VL or LLaVA at <b>Q4</b>. Multimodal models don't ternary-quant well today.</td></tr>
+        <tr class="strike-row"><td>Embeddings</td><td class="was">embed-IQ1</td><td>nomic-embed at <b>FP16</b>, ~262 MB. Embedding models are small enough that quant savings barely matter.</td></tr>
+        <tr><td>STT / TTS</td><td>n/a (different model class)</td><td>whisper.cpp + kokoro on the side. Lean separation.</td></tr>
+        <tr><td>NPU lane (XDNA 2)</td><td>UINT4-AWQ &middot; q4nx</td><td>AMD's pre-compiled NPU pile via FastFlowLM: qwen3 0.6/1.7/4/8B, gemma3 1B/4B, phi4-mini, lfm2, llama3.2 1B/3B, deepseek-r1:8b, gpt-oss:20b. Different quant family, parallel to GPU.</td></tr>
+      </tbody>
+      <caption>1-bit is strongest for general chat &mdash; that's where the format wins. Other modalities lean on whatever quant works best for their model class. The wire shape stays OpenAI on <code>:13305</code> regardless.</caption>
+    </table>
+    </div>
+    <p class="note" style="margin-top:1rem">Why this matters: <s>"1-bit everything"</s> &rarr; <b>"1-bit where it wins, best-quant-available where it doesn't."</b> The second pitch is honest and matches what the endpoint already does &mdash; load any GGUF, dispatch by recipe, expose OpenAI.</p>
   </section>
 
   <section id="bench" class="numbers">
