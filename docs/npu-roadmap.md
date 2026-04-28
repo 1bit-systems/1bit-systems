@@ -1,132 +1,155 @@
-# NPU lane — known optimization roadmap
+# NPU lane — measured optimization roadmap
 
 The `flm:npu` lane on Strix Halo (XDNA 2 / AIE2P, served by FastFlowLM
 through `xrt-plugin-amdxdna`) is *running* — we measured 87-95 tok/s
 decode on `qwen3-0.6b-FLM` and 42 tok/s on `qwen3-1.7b-FLM` (see
-`benchmarks/RESULTS-stack-2026-04-28.md`).
+`benchmarks/RESULTS-stack-2026-04-28.md`). Those numbers are below
+the silicon ceiling.
 
-Those numbers are far below what the silicon can do. The NPU has 8
-columns × 4 rows of AIE2P tiles, each tile with vector + scalar + DMA
-units, theoretical aggregate well into the hundreds of GB/s of on-tile
-bandwidth at low precision. We're seeing ~200 GB/s effective at best,
-and on token-by-token decode it's much lower.
+**This doc was originally drafted from two hypothesis. We then probed
+with `strace` (full report in
+[`benchmarks/RESULTS-flm-strace-2026-04-28.md`](../benchmarks/RESULTS-flm-strace-2026-04-28.md))
+and the data refuted both. Leaving the strikethroughs visible because
+the *measurement* is the interesting bit.**
 
-The known bottleneck — recorded here as project context, not a fix
-shipped in this repo — is **per-call weight DMA**.
+## ~~Hypothesis #1 — per-call weight DMA~~ → **REFUTED**
 
-## The two compounding optimizations
+~~Allocate W BOs once at model load, copy weights once, never re-upload.
+This alone should move the NPU lane from "13 s per layer GEMV" to
+"~10 ms per layer GEMV" once the per-tile DMA is the only cost.~~
 
-There are two known per-token-decode wins that are upstream-side, both
-about eliminating overhead between the actual compute work the AIE2P
-tiles do:
+**Measured:** total `DRM_IOCTL_AMDXDNA_CREATE_BO` bytes during a 20-token
+decode = ~23 MB. Weights for Qwen3-0.6B are 0.6-1.2 GB. Largest single
+allocation observed: 2 MB (three of them). **Weights are mapped at
+server start (likely into a persistent DEV_HEAP) and not re-uploaded
+per `infer()`.** What FLM is doing here is already correct.
 
-1. **Persistent device-resident weights** — weights live on the NPU
-   across calls; only activations + accumulators DMA on each `infer()`.
-2. **Fused per-token dispatch loop** — the host issues *one* AIE graph
-   per token instead of N graphs (one per `tiled_gemv`).
+## ~~Hypothesis #2 — per-tile dispatch storm~~ → **REFUTED**
 
-These compound. Together they should move the lane from "host driving
-the schedule, NPU mostly waiting" to "NPU dominates wall-clock, host
-is just feeding tokens."
+~~Push the n_block × k_block tile loop into a single AIE graph that
+issues all 25 mmul calls in one kern.run().wait(). Saves 24
+dispatches per matrix per token.~~
 
-## 1. Persistent device-resident weights
+**Measured:** `DRM_IOCTL_AMDXDNA_EXEC_CMD` per decoded token = **2.85**,
+not "thousands". The runtime already batches tile work into a small
+number of command chains. EXEC_CMD count is *not* the bottleneck.
 
-| Mode | Per-layer GEMV wall | Per-token decode est. (1.7B model) |
-|---|---:|---:|
-| **Current** (weights re-uploaded per call) | ~13 s | the ceiling we're seeing today |
-| **Persistent** (weights uploaded once at model load, BOs kept resident) | ~10 ms | ~1300× per-layer speedup; the per-tile DMA streaming activations + accumulators is the only remaining wall-clock |
+## What's actually slow — per-step DRM BO churn
 
-The fix at the architecture level: allocate BOs (XRT Buffer Objects) for
-weight tiles **once** at model-load time, copy weights into them
-**once**, then on every `infer()` call only DMA the activations and
-accumulators across the tiles. Never re-upload weights between calls.
+Per decoded token at 97 tok/s on Qwen3-0.6B:
 
-### Where this fix would land
+```
+DRM_IOCTL_AMDXDNA_CREATE_BO     30.0 / token
+DRM_IOCTL_AMDXDNA_GET_BO_INFO   30.0 / token
+DRM_IOCTL_GEM_CLOSE             30.5 / token
+DRM_IOCTL_AMDXDNA_EXEC_CMD       2.85 / token
+DRM_IOCTL_SYNCOBJ_TIMELINE_WAIT  1.80 / token
+                                ────
+                                ~96 ioctls / token
+```
 
-Depending on which layer of the stack is responsible for the
-re-upload — needs investigation, not yet measured:
+The hot path is a `CREATE_BO → GET_BO_INFO → … → GEM_CLOSE` triplet
+fired ~30 times per token, each round-trip allocating then freeing a
+tiny scratch buffer (modal 34 KB DEV) or command buffer (224 B CMD).
+Total churn = 36 MB allocated *and freed* per 48-token request —
+36 MB of pure overhead that adds nothing the model needs.
 
-1. **FastFlowLM** — if `flm` is calling `xrt::bo::write()` on the weight
-   tensors per inference, the fix is FLM-side. Worth grepping FLM's
-   source for whether a "persistent weights" or `--keep-weights-resident`
-   flag exists, and if not, opening an upstream issue/PR.
-2. **`xrt-plugin-amdxdna`** — if the kernel-side plugin is invalidating /
-   re-binding BOs between calls, that's a deeper fix. Would need an
-   `xrt_bo` flag to mark a BO `KEEP_RESIDENT` (or an equivalent), or an
-   API contract that BOs persist across submissions on the same xclbin.
-3. **Lemonade** — if `max_loaded_models=1` swap is also flushing FLM
-   state between requests, lemond would benefit from a "pin this model"
-   mode so a hot model's BOs stay resident across `/v1/chat/completions`
-   calls.
+At 97 tok/s × 30 alloc/free pairs/token = **~2,910 DRM round-trips per
+second** for buffer churn alone. Each round-trip costs a syscall, a
+`copy_from_user`, and (for CREATE_BO) a kernel allocation + GTT map.
+That's the ceiling we're hitting before EXEC_CMD or compute even
+becomes the bottleneck.
 
-## 2. Fused per-token dispatch loop
+## The fix — per-stream BO pool
 
-The current pattern (best understood from the FLM/IRON dispatch code):
-for each weight matrix in a layer, the host fires `tiled_gemv` once per
-tile of the `n_block × k_block` tiling — typically ~25 separate
-`kern.run().wait()` calls per matrix. Each call has fixed dispatch
-overhead (host → kernel ioctl, command-queue insertion, AIE wakeup,
-completion wait, host re-dispatch).
+FLM-side change: keep a per-stream free-list of CMD and small-DEV BOs
+keyed on `(type, size)`. On each step, pop a BO from the free-list (or
+allocate if none); on each step end, return to the free-list instead
+of `GEM_CLOSE`'ing. Once warm, the steady-state ioctl count per token
+should collapse to roughly `EXEC_CMD + SYNCOBJ_WAIT` ≈ ~5 ioctls/token,
+down from ~96.
 
-The fix: push the `n_block × k_block` loop *into a single AIE graph*
-that internally issues all 25 mmul calls before signaling completion.
-The host only does `kern.run().wait()` once per matrix.
+Expected delta: hard to predict precisely without running the patched
+binary, but the ~2.9 k alloc/free round-trips/sec of overhead are a
+nontrivial slice of the ~97 tok/s ceiling on a 0.6B model. **A
+plausible reading is +20-50% steady-state decode tok/s** (eliminating
+GTT-map and kernel-alloc cost from the hot path), with the larger win
+on smaller models where this overhead is a bigger relative fraction
+of total wall-clock.
 
-| Mode | Dispatches per matrix | Per-token decode hot-path |
-|---|---:|---|
-| **Current** (host-side tile loop) | ~25 | dispatch overhead × 25 dominates |
-| **Fused** (single-graph tile loop) | 1 | only the actual compute + on-tile DMA |
+## Upstream issue body — paste-ready
 
-Saving 24 dispatches per matrix per token. With multiple matrices per
-layer (Q, K, V, O, gate, up, down for transformer-style) and many
-layers per token, that's *thousands* of avoided dispatches per
-generated token.
+The agent that ran the probe drafted this; included verbatim from
+`benchmarks/RESULTS-flm-strace-2026-04-28.md` so we don't have two
+copies drifting:
 
-Where this lands: **AIE graph compiler / FLM kernel layer**. Same
-upstream-FLM territory as the persistent-weights fix — neither is
-something this repo can or should reimplement. Combined with #1, the
-FLM lane stops being "host orchestrates everything" and becomes "NPU
-runs the actual work."
+> **Title:** FLM allocates and frees ~30 small DRM BOs per decoded
+> token via amdxdna — pool them
+>
+> Probed `flm serve qwen3:0.6b` (FLM 0.9.39, amdxdna driver 0.6,
+> FW 1.1.2.65, AIE2P / 8-col) with `strace -f -e trace=ioctl` against
+> a hot server during a single `/v1/chat/completions` call
+> (`max_tokens=20`, `temperature=0`).
+>
+> Per decoded token I see **30.0 `DRM_IOCTL_AMDXDNA_CREATE_BO` + 30.0
+> `DRM_IOCTL_AMDXDNA_GET_BO_INFO` + 30.5 `DRM_IOCTL_GEM_CLOSE`**,
+> paired roughly 1:1, with only **2.85
+> `DRM_IOCTL_AMDXDNA_EXEC_CMD`** dispatches in the same window (and
+> 1.8 `DRM_IOCTL_SYNCOBJ_TIMELINE_WAIT`s). Allocation sizes are small
+> (modal 34 KB and 7.9 KB DEV-type, 224 B CMD-type; only three 2 MB
+> BOs across the whole 48-token request). Total churn is ~36 MB
+> allocated *and freed* per request — i.e. these are scratch /
+> command-list buffers, not weights. Weights stay resident across
+> calls (no GB-scale CREATE_BO during decode), and the per-tile
+> dispatch fanout is fine (single-digit EXEC_CMD per token). The
+> ceiling at ~97 tok/s for qwen3:0.6b on this NPU is partly being
+> eaten by ~2.9k alloc/free DRM round-trips per second of pure ioctl
+> + GTT-map overhead.
+>
+> **Suggested fix (FLM side):** keep a per-stream pool of CMD and
+> small-DEV BOs sized by the largest seen (≥34 KB), and reuse them
+> across `infer()` steps instead of CREATE_BO/GEM_CLOSE'ing each
+> time. Decoder-side scratch lifetime is one step, so a free-list
+> keyed on `(type, size)` is sufficient. Expect the 30/30/30
+> triplet to collapse to ~0 ioctls/token for the steady-state case,
+> with EXEC_CMD/SYNCOBJ_WAIT becoming the only per-token DRM
+> traffic. If buffer pooling already exists, it is being bypassed
+> when prefill transitions to decode (the pattern is identical in
+> both phases).
+>
+> Repro: `flm serve qwen3:0.6b --port 8001`, warm with one request,
+> then `strace -f -p $(pgrep -f 'flm serve') -e trace=ioctl -c`
+> while firing one 20-token completion. Idle traffic on the FLM PID
+> is zero, so the count is delta-clean.
 
 ## Why this is upstream work, not 1bit-systems work
 
-Per the project's `CLAUDE.md` lean rule:
+Per the project's `CLAUDE.md` lean rule, this repo is the install +
+control plane on top of upstream Lemonade Server and FastFlowLM. We
+don't reimplement inference, don't port kernels in-tree. The right
+action from this repo is:
 
-> **Lean over scaffolding.** This repo is the install + control plane on
-> top of upstream Lemonade Server and FastFlowLM. Do not reimplement
-> inference. Do not port kernels in-tree. Upstream PRs are the right
-> place for kernel work.
+1. ~~Probe FLM with strace to confirm where the re-uploads happen~~
+   **Done — see `benchmarks/RESULTS-flm-strace-2026-04-28.md`.**
+2. **Open the upstream issue against `FastFlowLM/FastFlowLM`** with
+   the body above. Track the resulting issue/PR from this doc.
+3. Write a regression bench harness that runs the same `strace -c`
+   probe and asserts ioctl/token < some threshold. Lands in
+   `benchmarks/bench-npu-ioctl-budget.sh` so a future FLM upgrade
+   can be checked here.
+4. Re-bench `flm:npu` after the fix lands. The expected before/after
+   delta becomes a real receipt for the project.
 
-The persistent-weights fix is firmly inference-side. The right action
-from this repo is:
+## What we *can't* and *won't* do here
 
-- Probe FLM to confirm where the re-upload is happening (one line of
-  `strace -e trace=ioctl flm serve ...` on a hot loop should make it
-  obvious if XRT submissions include weight DMA or not).
-- File the issue/PR upstream against `FastFlowLM/FastFlowLM` and/or the
-  AMD xdna-driver project if it's plugin-side.
-- Once landed upstream, our `flm:npu` decode numbers should jump
-  significantly without any change to this repo.
-
-## What we *can* do here
-
-- **Track the upstream fix** — link to whatever issue/PR surfaces and
-  link from this doc. If/when FLM ships persistent-weights, bump the
-  version-pin patch in `install.sh` and add a "before / after" bench
-  row in `benchmarks/`.
-- **Write the bench harness now** — a fixed-prompt fixed-output bench
-  that hits `flm:npu` enough times to expose the per-call DMA cost.
-  Land in `benchmarks/bench-npu-resident.sh`. When the upstream fix
-  ships, run the same harness and the delta is the receipt.
-- **Set expectations honestly** — the NPU lane is currently a real but
-  modest accelerator. The 1bit-systems hero claim ("two-bit killer") is
-  about the iGPU lane today; the NPU lane has headroom that isn't ours
-  to deliver, but is the next big number when upstream lands it.
+Re-implement FastFlowLM, port AIE kernels in-tree, fork the amdxdna
+driver. The cpp-tower archive at `archive/cpp-tower-2026-04-27` is
+where that scope went and stayed when it didn't ship.
 
 ## References
 
-- AMD XDNA 2 architecture overview (Strix Halo NPU):
-  `https://www.amd.com/en/technologies/xdna.html`
+- `benchmarks/RESULTS-flm-strace-2026-04-28.md` — full strace probe,
+  raw counts, BO size histogram, idle baseline, repro commands.
 - AMD XDNA driver (kernel-side): `https://github.com/amd/xdna-driver`
 - FastFlowLM: `https://github.com/FastFlowLM/FastFlowLM`
 - Lemonade FLM-on-Linux article (joint AMD + FLM):
