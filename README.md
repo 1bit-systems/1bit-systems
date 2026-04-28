@@ -1,67 +1,141 @@
+<div align="center">
+
+<img src="1bit-site/assets/logo.png" alt="1bit-systems" width="120" height="120">
+
 # 1bit-systems
 
-A lean 1-bit inference engine for AMD Strix Halo (Ryzen AI MAX+ 395, Radeon 8060S `gfx1151`, XDNA 2 NPU).
+### **the unified 1-bit engine for AMD Strix Halo &mdash; the 2-bit killer**
 
-Three lanes behind one OpenAI-compatible endpoint:
+*One OpenAI-compatible endpoint. iGPU + NPU behind one API. 1-bit is the floor; sub-2-bit MoE is what you'll keep open all day.*
 
-| Lane | Backend | Quants | Best at |
-|---|---|---|---|
-| **GPU (ROCm)** | llama.cpp HIP, Lemonade | Q4_K_M, Q2_K, IQ1_S, TQ1_0, TQ2_0 | prompt-eval, dense models |
-| **GPU (Vulkan)** | llama.cpp Vulkan, Lemonade | same | decode on sub-2-bit (best for IQ1_S) |
-| **NPU (XDNA 2)** | FastFlowLM | UINT4-AWQ, q4nx | low-power, parallel to GPU |
+[![License: MIT](https://img.shields.io/badge/License-MIT-00d4ff.svg)](LICENSE)
+[![Site](https://img.shields.io/badge/site-1bit.systems-00d4ff.svg)](https://1bit.systems)
+[![Discord](https://img.shields.io/badge/discord-1bit.systems-5865F2.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
+[![Built on Lemonade](https://img.shields.io/badge/built%20on-Lemonade-yellow.svg)](https://lemonade-server.ai)
+[![Built on FastFlowLM](https://img.shields.io/badge/built%20on-FastFlowLM-orange.svg)](https://github.com/FastFlowLM/FastFlowLM)
+[![GitHub last commit](https://img.shields.io/github/last-commit/bong-water-water-bong/1bit-systems)](https://github.com/bong-water-water-bong/1bit-systems/commits/main)
+[![Hardware: Strix Halo](https://img.shields.io/badge/hardware-Strix%20Halo%20%7C%20gfx1151%20%7C%20XDNA%202-red.svg)](https://www.amd.com/en/products/processors/laptop/ryzen/ai-max-series.html)
 
-Talks OpenAI on `:13306` (unified) — `1bit up` starts lemond + flm + a small proxy that fans out to both lanes behind one endpoint. Works with any client that speaks OpenAI: AMD GAIA, Open WebUI, Continue, Hermes, raw `curl`.
+</div>
 
-## Install
+---
+
+## Status — green on every lane
+
+| Lane | Backend | State |
+|---|---|:-:|
+| **iGPU (ROCm, gfx1151)** | `llamacpp:rocm` `b1231` | ✅ |
+| **iGPU (Vulkan)** | `llamacpp:vulkan` `b8668` | ✅ |
+| **NPU (XDNA 2)** | `flm:npu` `v0.9.39` | ✅ |
+| Image gen (ROCm) | `sd-cpp:rocm` | ✅ |
+| TTS / STT | `kokoro:cpu`, `whispercpp:vulkan` | ✅ |
+| Web UI | `open-webui` on `:3000` | ✅ |
+| Agent UI | `amd-gaia` on `:5005` | ✅ |
+
+**Unified.** All seven services above hang off **one OpenAI-compatible endpoint at `:13305`**. The same request shape routes to iGPU (ROCm or Vulkan) or NPU (FastFlowLM) based on the model name — Lemonade's native recipe routing, no proxy, no shim. Send the same `POST /v1/chat/completions` and switch which silicon answers by changing `model:`.
+
+---
+
+## Install (Arch / CachyOS)
 
 ```sh
 git clone https://github.com/bong-water-water-bong/1bit-systems
 cd 1bit-systems
-./install.sh
+./install.sh                 # actually install
+./install.sh --dry-run       # preview every action without mutating
 ```
 
-Installs `lemonade-server`, `fastflowlm`, `xrt`, `xrt-plugin-amdxdna`, `rocm-hip-sdk`, writes memlock limits, pulls a default 1-bit model (`Bonsai-1.7B-IQ1_S`, 385 MB), installs the `1bit` CLI to `/usr/local/bin/`.
+Installs `lemonade-server`, `fastflowlm`, `xrt`, `xrt-plugin-amdxdna`, `rocm-hip-sdk`. Writes memlock limits. Auto-patches Lemonade's `flm:npu` version pin to match your installed FastFlowLM (the silent `update_required` gotcha — see [docs/reddit-npu-gate.md](docs/reddit-npu-gate.md) for the receipts). Pulls the default 1-bit model (`Bonsai-1.7B-IQ1_S`, 385 MB). Installs the `1bit` CLI to `/usr/local/bin/`.
 
-After install — re-login or reboot once so memlock limits apply for the NPU lane.
+After first install: re-login or reboot once so memlock limits apply on the NPU lane.
 
 ## Run
 
 ```sh
-1bit up           # starts lemond, opens webapp, launches GAIA if installed
-1bit status       # show lemond + FLM status
-1bit pull qwen3:0.6b   # pull a model (auto-routes: NPU via flm, GPU via lemonade)
-1bit npu          # start FLM NPU server
-1bit bench        # run the 1-bit / ternary pile bench
-1bit down         # stop lemond
+1bit up                     # starts lemond on :13305 + opens the web UI
+1bit status                 # quick health on lemond + flm + memlock
+1bit pull qwen3:0.6b        # auto-routes: NPU via flm, iGPU via lemonade
+1bit bench                  # full 1-bit / ternary pile bench
+1bit down                   # stop lemond
 ```
 
-## Reference numbers
+## Default models — benchmarked head-to-head
 
-Strix Halo gfx1151, captured 2026-04-27, `-p 512 -n 128 -r 2 -ngl 99`:
+Captured **2026-04-28** on the production strixhalo box (Ryzen AI MAX+ 395 / `gfx1151`, 124 GB LPDDR5x), single-shot via OpenAI-compat curls against `:13305`. Full methodology in [`benchmarks/`](benchmarks).
 
-| Model | Backend | Quant | pp512 (tok/s) | tg128 (tok/s) |
-|---|---|---|---:|---:|
-| Bonsai-1.7B | Vulkan | IQ1_S | 4624 | **278** |
-| Bonsai-1.7B | ROCm   | IQ1_S | 4481 | 194 |
-| Qwen3-0.6B  | NPU    | q4nx  | 49 (prefill) | 92 |
+### The floor — 1-bit Bonsai
 
-Vulkan wins decode on sub-2-bit for now (mainline IQ1_S compute shaders > stock ROCm kernels). NPU is a separate lane — runs in parallel to GPU at low power.
+[full sweep →](benchmarks/RESULTS-stack-2026-04-28.md)
+
+| Model | Quant | Disk | Decode (steady) | Prefill |
+|---|---|---:|---:|---:|
+| `lilyanatia/Bonsai-1.7B-IQ1_S` | IQ1_S (~1.6 bpw) | **385 MB** | **255 — 281 tok/s** | 853 — 2220 tok/s |
+
+The brand floor. Demonstrates that sub-2-bit on `gfx1151` is real, fast, and shipping today.
+
+### The daily driver — sub-2-bit MoE
+
+[full bench →](benchmarks/RESULTS-qwen3.5-35b-quant-2026-04-28.md)
+
+| Model | Quant | Bits/wt | Disk | Decode (steady) |
+|---|---|---:|---:|---:|
+| `unsloth/Qwen3.5-35B-A3B-Q4_K_XL` (baseline) | Q4_K_XL | ~4.5 | 22 GB | 54 tok/s |
+| `Manojb/Qwen3.5-35B-A3B-UD-IQ2_XXS` | **IQ2_XXS** | **~2.0** | **11.5 GB** | **73 tok/s** |
+| **Δ sub-2-bit / baseline** | — | — | **0.52×** | **+35 %** |
+
+Half the disk, **+35 % decode** on the same 35B MoE. This is the model `gaia chat` and `open-webui` default to.
+
+### NPU lane — `flm:npu`
+
+| Model | Decode (steady) | Prefill | TTFT |
+|---|---:|---:|---:|
+| `qwen3-0.6b-FLM` | 95 tok/s | 76 tok/s | 460 ms |
+| `qwen3-1.7b-FLM` | 42 tok/s | 54 tok/s | 570 ms |
+| `deepseek-r1-8b-FLM` | 11 tok/s | 15 tok/s | 1430 ms |
+
+NPU isn't the throughput champion against the iGPU on small models — its value is **offload** (free up the iGPU for bigger ROCm models) and **per-request lane selection** behind the same OpenAI endpoint.
+
+---
+
+## Hardware
+
+- **AMD Ryzen AI MAX+ 395** APU (Strix Halo)
+- iGPU: `gfx1151` Radeon 8060S, ROCm 7.2 + Vulkan
+- NPU: XDNA 2 / AIE2P, FW 1.1.2.65, `amdxdna` 0.6
+- 124 GB LPDDR5x unified memory, ~256 GB/s
+- Linux 7.0+ kernel with in-tree `amdxdna` (CachyOS / Arch tested)
 
 ## AMD GAIA integration
 
-[AMD GAIA](https://amd-gaia.ai) is AMD's local desktop UI for AI agents on Ryzen AI MAX+. Install the `.deb`, point it at `http://127.0.0.1:13305/v1/` — done. `1bit up` will launch GAIA automatically if it's on `$PATH`.
+[AMD GAIA](https://amd-gaia.ai) is AMD's local desktop UI for AI agents on Ryzen AI hardware. Install via `uv tool install --with 'amd-gaia[ui]' amd-gaia`, point it at `http://127.0.0.1:13305/v1`, done. `1bit up` will launch GAIA automatically if it's on `$PATH`. Default agent model on this box is `Qwen3.5-35B-A3B-IQ2_XXS` via the `LEMONADE_MODEL` env var.
 
 ## Layout
 
 ```
 .
-├── install.sh             # bootstrap
-├── scripts/1bit           # control-plane CLI
-├── benchmarks/            # bench-1bit-pile.sh + RESULTS-*.md
-├── 1bit-site/             # 1bit.systems landing page (manual deploy: wrangler pages deploy)
-└── docs/                  # architecture + integration notes
+├── install.sh                      # bootstrap (idempotent, --dry-run supported)
+├── scripts/1bit                    # control-plane CLI
+├── benchmarks/                     # bench scripts + RESULTS-*.md
+├── 1bit-site/                      # 1bit.systems landing page (Cloudflare Pages)
+└── docs/
+    ├── model-priority.md           # 1-bit > 2-bit > rest selection policy
+    └── reddit-npu-gate.md          # the strikethrough Reddit post / receipts
 ```
+
+## What lives outside this repo
+
+- **`lemond` (Lemonade Server)** — installed via `paru` from AUR, serves on `:13305`. Backends cached at `~/.cache/lemonade/bin/`.
+- **`flm` (FastFlowLM)** — installed via `pacman` from `cachyos-extra-znver4`, drives the NPU lane.
+- **ROCm 7.2.x** — installed via `pacman` (`rocm-hip-sdk`).
+- **XRT + `amdxdna`** — installed via `pacman`.
+- **Models** — pulled from HuggingFace (`lilyanatia/*`, `Manojb/*`, `unsloth/*`, `gianni-cor/*`, etc.) into Lemonade's cache and registered in `~/.cache/lemonade/user_models.json`. See [`docs/model-priority.md`](docs/model-priority.md) for the tiering policy.
+
+## Receipts
+
+- [`docs/reddit-npu-gate.md`](docs/reddit-npu-gate.md) — the strikethrough Reddit post on AMD's Linux NPU LLM gate, three corrections kept visible because the failure mode is more interesting than the original argument.
+- [`benchmarks/RESULTS-stack-2026-04-28.md`](benchmarks/RESULTS-stack-2026-04-28.md) — unified-stack bench, both lanes through one endpoint.
+- [`benchmarks/RESULTS-qwen3.5-35b-quant-2026-04-28.md`](benchmarks/RESULTS-qwen3.5-35b-quant-2026-04-28.md) — sub-2-bit vs Q4 head-to-head on the same 35B MoE.
 
 ## License
 
-MIT. See `LICENSE`.
+MIT. See [`LICENSE`](LICENSE).
