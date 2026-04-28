@@ -217,6 +217,45 @@ cmd_webui() {
     esac
 }
 
+cmd_omni() {
+    # Locate 1bit-omni.py: prefer adjacent script (dev), then AUR (/usr/share),
+    # then manual install.sh path (/usr/local/share).
+    local self_dir omni_script
+    self_dir="$(dirname "$(readlink -f "$0")")"
+    for cand in \
+        "$self_dir/1bit-omni.py" \
+        /usr/share/1bit-systems/1bit-omni.py \
+        /usr/local/share/1bit-systems/1bit-omni.py
+    do
+        if [[ -f "$cand" ]]; then omni_script="$cand"; break; fi
+    done
+    [[ -n "${omni_script:-}" ]] || die "1bit-omni.py not found (looked in $self_dir, /usr/share/1bit-systems/, /usr/local/share/1bit-systems/)"
+
+    if [[ $# -eq 0 ]]; then
+        cat <<EOF
+1bit omni — agentic OpenAI tool-calling loop with our defaults
+
+  Default LLM:    Qwen3.5-35B-A3B-UD-IQ2_XXS  (Tier 2 daily driver)
+  Default tools:  generate_image (SD-Turbo)
+                  text_to_speech (kokoro-v1)
+                  transcribe_audio (Whisper-Tiny)
+
+Usage:
+  1bit omni "Generate an image of X"
+  1bit omni "Say 'hello world' out loud"
+  1bit omni "Transcribe /path/to/audio.wav"
+
+Override defaults via env vars:
+  ONEBIT_OMNI_LLM, ONEBIT_OMNI_IMAGE, ONEBIT_OMNI_TTS, ONEBIT_OMNI_STT
+  ONEBIT_OMNI_OUT (default /tmp/1bit-omni)
+
+Outputs land at /tmp/1bit-omni/ (image.png, tts.wav).
+EOF
+        return 0
+    fi
+    exec python3 "$omni_script" "$@"
+}
+
 cmd_npu() {
     local model="${1:-$DEFAULT_NPU_MODEL}"
     if pgrep -f 'flm.*serve' >/dev/null 2>&1; then
@@ -242,6 +281,8 @@ Usage:
   1bit pull <model>      Pull a model (auto-routes NPU vs GPU)
   1bit bench             Run the 1-bit / ternary pile bench
   1bit npu [model]       Start FLM NPU server (default: \$DEFAULT_NPU_MODEL)
+  1bit omni "<prompt>"   OmniRouter agentic loop with our defaults
+                         (Qwen3.5-35B IQ2_XXS LLM + SD-Turbo + kokoro + whisper)
   1bit webui [up|down|status]  Run Open WebUI on :3000, branded + pointed at proxy
 
 Endpoints (after \`1bit up\`):
@@ -260,6 +301,7 @@ case "${1:-}" in
     pull)   shift; cmd_pull "$@" ;;
     bench)  cmd_bench ;;
     npu)    shift; cmd_npu "$@" ;;
+    omni)   shift; cmd_omni "$@" ;;
     webui)  shift; cmd_webui "$@" ;;
     -h|--help|help|"") usage ;;
     *)      die "unknown subcommand: $1 (try \`1bit help\`)" ;;

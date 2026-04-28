@@ -45,6 +45,9 @@ package() {
   install -Dm644 scripts/1bit-proxy.js "$pkgdir/usr/share/$_pkgname/1bit-proxy.js"
   install -Dm644 scripts/1bit-home.html "$pkgdir/usr/share/$_pkgname/1bit-home.html"
 
+  # OmniRouter loop with our 1bit defaults (Tier 2 LLM + SD-Turbo + kokoro + whisper)
+  install -Dm755 scripts/1bit-omni.py "$pkgdir/usr/share/$_pkgname/1bit-omni.py"
+
   # Memlock conf — NPU + GPU buffers want unlimited
   install -Dm644 /dev/stdin "$pkgdir/etc/security/limits.d/99-1bit-systems.conf" <<'EOF'
 # 1bit-systems: NPU + GPU buffers need unlimited memlock.
