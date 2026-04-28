@@ -38,6 +38,25 @@
 
 ## Install (Arch / CachyOS)
 
+### Step 0 &mdash; prerequisites
+
+A clean CachyOS / Arch base ships *most* of these, but a minimal install can be missing some. Run once before cloning:
+
+```sh
+sudo pacman -Syu                                  # fully update first
+sudo pacman -S --needed git base-devel paru curl  # git for clone, base-devel for AUR builds,
+                                                  # paru for the AUR lemonade-server package,
+                                                  # curl is used by install.sh for the model pull
+```
+
+You'll also need:
+- A user with **`sudo` privileges** (the installer writes `/etc/security/limits.d/99-1bit-systems.conf` and patches Lemonade's manifest under `/usr/share/`).
+- A **Strix Halo** APU (`gfx1151` iGPU + XDNA 2 NPU). Other Ryzen AI gens (XDNA 1 — 7000 / 8000 / 200-series) will install but the `flm:npu` lane won't light up.
+- A modern kernel with **in-tree `amdxdna`** &mdash; Linux 7.0+ ships it. CachyOS 7.0.x and Arch's mainline `linux` kernel are good. For older kernels (6.18 / 6.19) install `paru -S amdxdna-dkms` first.
+- ~70&nbsp;GB free on `/home` for the default model pulls. More if you plan to run the 35B IQ2_XXS daily driver alongside the Bonsai floor.
+
+### Step 1 &mdash; clone + run
+
 ```sh
 git clone https://github.com/bong-water-water-bong/1bit-systems
 cd 1bit-systems
