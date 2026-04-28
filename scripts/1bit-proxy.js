@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 //
 // 1bit-proxy — unify Lemonade (GPU) + FastFlowLM (NPU) into one OpenAI
-// endpoint on :13306.
+// endpoint on :13306, AND serve the Lemonade webapp with the
+// 1bit-menu-sections plugin pre-injected.
 //
 // Routes by model id:
 //   - if the model lives in `flm`, requests go to FLM_URL
@@ -11,14 +12,22 @@
 // /v1/embeddings (etc) are forwarded transparently — including SSE
 // streaming — based on the `model` field in the request body.
 //
+// HTML responses from lemond have our menu-sections script spliced
+// into <head> — so the dropdown groups into "1bit LLM" / "Ryzen LLM"
+// without needing Tampermonkey.
+//
 // Pure Node stdlib. No deps. Configure via env:
-//   ONEBIT_PROXY_PORT   (default 13306)
-//   LEMOND_URL          (default http://127.0.0.1:13305)
-//   FLM_URL             (auto-discovered via `flm port` if unset)
+//   ONEBIT_PROXY_PORT       (default 13306)
+//   LEMOND_URL              (default http://127.0.0.1:13305)
+//   FLM_URL                 (auto-discovered via `flm port` if unset)
+//   ONEBIT_PLUGIN_PATH      (default: sibling 1bit-menu-sections.user.js)
+//   ONEBIT_DISABLE_INJECT   (set to "1" to disable HTML injection)
 
 'use strict';
 
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const { URL } = require('url');
 const { execSync } = require('child_process');
 
@@ -33,6 +42,23 @@ const FLM_URL = (() => {
   } catch {}
   return 'http://127.0.0.1:11434';
 })();
+const INJECT_DISABLED = process.env.ONEBIT_DISABLE_INJECT === '1';
+
+// Locate and load the menu plugin source for inline HTML injection.
+const PLUGIN_PATH = (() => {
+  if (process.env.ONEBIT_PLUGIN_PATH) return process.env.ONEBIT_PLUGIN_PATH;
+  const candidates = [
+    path.join(__dirname, '..', 'plugins', '1bit-menu-sections.user.js'),
+    path.join(__dirname, '1bit-menu-sections.user.js'),
+    '/usr/local/share/1bit-systems/1bit-menu-sections.user.js',
+    '/home/bcloud/Projects/1bit-systems/plugins/1bit-menu-sections.user.js',
+  ];
+  for (const p of candidates) { if (fs.existsSync(p)) return p; }
+  return '';
+})();
+const PLUGIN_SRC = (PLUGIN_PATH && !INJECT_DISABLED)
+  ? fs.readFileSync(PLUGIN_PATH, 'utf8').replace(/^\/\/ ==UserScript==[\s\S]*?\/\/ ==\/UserScript==/m, '')
+  : '';
 
 const CACHE_TTL_MS = 5_000;
 let modelCache = { byId: new Map(), refreshed: 0 };
@@ -76,6 +102,69 @@ async function readBody(req) {
   return Buffer.concat(chunks);
 }
 
+// Forward a request to a target URL, optionally rewriting HTML responses
+// to inject our plugin script.
+function forward(req, res, body, targetUrl, opts = {}) {
+  const { rewriteHtml = false, modelId } = opts;
+  const tu = new URL(targetUrl);
+
+  const fwdHeaders = { ...req.headers, host: `${tu.hostname}:${tu.port || 80}` };
+  delete fwdHeaders['content-length'];
+  if (body.length) fwdHeaders['content-length'] = String(body.length);
+
+  const upstream = http.request({
+    hostname: tu.hostname,
+    port: tu.port || 80,
+    path: req.url,
+    method: req.method,
+    headers: fwdHeaders,
+  }, ur => {
+    const isHtml = (ur.headers['content-type'] || '').includes('text/html');
+
+    if (rewriteHtml && isHtml && PLUGIN_SRC) {
+      // Buffer + rewrite path
+      const bufs = [];
+      ur.on('data', c => bufs.push(c));
+      ur.on('end', () => {
+        let html = Buffer.concat(bufs).toString('utf8');
+        const tag = `\n<script>/* 1bit-menu-sections (proxy-injected) */\n(function(){${PLUGIN_SRC}\n})();</script>\n`;
+        if (html.includes('</head>')) {
+          html = html.replace('</head>', tag + '</head>');
+        } else if (html.includes('<body')) {
+          html = html.replace('<body', tag + '<body');
+        } else {
+          html = tag + html;
+        }
+        const out = Buffer.from(html, 'utf8');
+        const headers = { ...ur.headers };
+        // Drop content-length & content-encoding so we don't lie about size
+        // and don't have to gunzip/regzip.
+        delete headers['content-length'];
+        delete headers['content-encoding'];
+        headers['content-length'] = String(out.length);
+        res.writeHead(ur.statusCode, headers);
+        res.end(out);
+      });
+    } else {
+      // Pass-through stream (handles SSE, binaries, JSON, etc.)
+      res.writeHead(ur.statusCode, ur.headers);
+      ur.pipe(res);
+    }
+  });
+  upstream.on('error', e => {
+    if (!res.headersSent) {
+      res.writeHead(502, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        error: { message: `upstream error: ${e.message}`, target: targetUrl, model: modelId },
+      }));
+    } else {
+      res.end();
+    }
+  });
+  if (body.length) upstream.write(body);
+  upstream.end();
+}
+
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://127.0.0.1:${PROXY_PORT}`);
 
@@ -88,6 +177,8 @@ const server = http.createServer(async (req, res) => {
       flm: FLM_URL,
       models: modelCache.byId.size,
       cached_at: modelCache.refreshed,
+      inject: !INJECT_DISABLED && !!PLUGIN_SRC,
+      plugin: PLUGIN_PATH || null,
     }));
     return;
   }
@@ -103,43 +194,26 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Everything else: peek at body for `model` and route
+  // For inference traffic on /v1/* with a body, route by model.
+  // For everything else (UI HTML, JS bundles, /api/* admin calls), forward
+  // to lemond and rewrite HTML responses if applicable.
+  const isInferenceRoute = u.pathname.startsWith('/v1/') || u.pathname.startsWith('/api/v1/');
   const body = await readBody(req);
+
   let modelId;
-  if (body.length) {
+  if (isInferenceRoute && body.length) {
     try { modelId = JSON.parse(body.toString()).model; } catch {}
   }
 
-  if (Date.now() - modelCache.refreshed > CACHE_TTL_MS) await refreshModels();
-  const target = pickTarget(modelId);
-  const tu = new URL(target);
+  if (modelId) {
+    if (Date.now() - modelCache.refreshed > CACHE_TTL_MS) await refreshModels();
+  }
+  const target = modelId ? pickTarget(modelId) : LEMOND_URL;
 
-  const fwdHeaders = { ...req.headers, host: `${tu.hostname}:${tu.port || 80}` };
-  delete fwdHeaders['content-length'];
-  if (body.length) fwdHeaders['content-length'] = String(body.length);
+  // Only rewrite HTML for top-level UI requests (not inference, not API).
+  const shouldRewrite = !isInferenceRoute && !INJECT_DISABLED && PLUGIN_SRC;
 
-  const upstream = http.request({
-    hostname: tu.hostname,
-    port: tu.port || 80,
-    path: u.pathname + u.search,
-    method: req.method,
-    headers: fwdHeaders,
-  }, ur => {
-    res.writeHead(ur.statusCode, ur.headers);
-    ur.pipe(res);
-  });
-  upstream.on('error', e => {
-    if (!res.headersSent) {
-      res.writeHead(502, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({
-        error: { message: `upstream error: ${e.message}`, target, model: modelId },
-      }));
-    } else {
-      res.end();
-    }
-  });
-  if (body.length) upstream.write(body);
-  upstream.end();
+  forward(req, res, body, target, { rewriteHtml: shouldRewrite, modelId });
 });
 
 (async () => {
@@ -150,6 +224,11 @@ const server = http.createServer(async (req, res) => {
     console.log(`[1bit-proxy] listening on http://127.0.0.1:${PROXY_PORT}`);
     console.log(`[1bit-proxy]   lemond: ${LEMOND_URL}  (${lemondCount} models)`);
     console.log(`[1bit-proxy]   flm:    ${FLM_URL}  (${flmCount} models)`);
+    if (PLUGIN_SRC) {
+      console.log(`[1bit-proxy]   inject: ${PLUGIN_PATH}  (menu sections active in served UI)`);
+    } else {
+      console.log(`[1bit-proxy]   inject: disabled`);
+    }
     setInterval(() => { refreshModels().catch(() => {}); }, 30_000);
   });
 })();
