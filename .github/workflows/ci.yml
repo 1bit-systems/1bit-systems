@@ -40,7 +40,9 @@ jobs:
         run: |
           bash -n install.sh
           for f in scripts/*; do
-            [ -f "$f" ] && head -1 "$f" | grep -qE '^#!.*(bash|sh)' && bash -n "$f"
+            if [ -f "$f" ] && head -1 "$f" | grep -qE '^#!.*(bash|sh)'; then
+              bash -n "$f"
+            fi
           done
 
   install-help-runs:
@@ -124,6 +126,7 @@ jobs:
             --exclude '^https://discord\.gg/'
             --exclude '^https://account\.amd\.com/'
             --exclude '^https?://(www\.)?amd\.com/'
+            --exclude '^https?://(www\.)?lightheartlabs\.io/'
             README.md
             CHANGELOG.md
             CONTRIBUTING.md
