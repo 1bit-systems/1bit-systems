@@ -79,18 +79,39 @@ require_paru() {
     ok "paru found"
 }
 
+# Detect if this box has the AMD XDNA NPU (Strix Halo / Strix Point / Kraken Point).
+# Returns 0 if NPU is present, 1 otherwise. Used to decide whether to install the
+# xrt / xrt-plugin-amdxdna / fastflowlm trio (no point on a dGPU-only machine).
+has_xdna_npu() {
+    # Hardware ID 1022:17f0 (XDNA 2 — Strix Halo / Strix Point) or
+    #             1022:1502 (XDNA 1 — Phoenix / Hawk Point — not supported by FLM).
+    if command -v lspci >/dev/null 2>&1; then
+        if lspci -n 2>/dev/null | grep -qE '1022:(17f0|1502)'; then
+            return 0
+        fi
+    fi
+    [[ -e /dev/accel/accel0 ]] && return 0
+    lsmod 2>/dev/null | grep -q '^amdxdna ' && return 0
+    return 1
+}
+
 install_packages() {
-    say "Installing packages (pacman + AUR)"
-    run sudo pacman -S --needed --noconfirm \
-        rocm-hip-sdk \
-        xrt \
-        xrt-plugin-amdxdna \
-        fastflowlm \
-        nodejs \
-        npm \
-        github-cli \
-        ninja
-    run paru -S --needed --noconfirm lemonade-server
+    local base_pkgs=(rocm-hip-sdk nodejs npm github-cli ninja)
+    local xdna_pkgs=(xrt xrt-plugin-amdxdna fastflowlm)
+
+    say "Installing base packages (pacman)"
+    run sudo pacman -S --needed --noconfirm "${base_pkgs[@]}"
+
+    if has_xdna_npu; then
+        say "XDNA NPU detected — installing NPU lane (xrt + fastflowlm)"
+        run sudo pacman -S --needed --noconfirm "${xdna_pkgs[@]}"
+    else
+        warn "no XDNA NPU detected — skipping xrt / xrt-plugin-amdxdna / fastflowlm"
+        warn "(this box runs the iGPU/dGPU lane only; flm:npu recipe will stay 'unsupported')"
+    fi
+
+    say "Installing Lemonade Server (AUR)"
+    run paru -S --needed --noconfirm --skipreview --noprovides lemonade-server
     ok "Packages installed"
 }
 
