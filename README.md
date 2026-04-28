@@ -137,11 +137,16 @@ NPU isn't the throughput champion against the iGPU on small models — its value
 
 ## Hardware
 
+### Primary target — Strix Halo APU
 - **AMD Ryzen AI MAX+ 395** APU (Strix Halo)
 - iGPU: `gfx1151` Radeon 8060S, ROCm 7.2 + Vulkan
 - NPU: XDNA 2 / AIE2P, FW 1.1.2.65, `amdxdna` 0.6
 - 124 GB LPDDR5x unified memory, ~256 GB/s
 - Linux 7.0+ kernel with in-tree `amdxdna` (CachyOS / Arch tested)
+
+### Also works — discrete-GPU boxes
+- **Radeon RX 9070 XT** (`gfx1201`, RDNA 4) on Ryzen 7 9800X3D verified 2026-04-28. `install.sh`'s `has_xdna_npu()` autodetect skips the FLM/XRT NPU lane on dGPU boxes; the iGPU/dGPU lane (`llamacpp:rocm` / `llamacpp:vulkan`) lights up. Bonsai-1.7B-IQ1_S decodes at **~413 tok/s** on the 9070 XT (vs ~281 on the 8060S iGPU at the same model) — see [`benchmarks/RESULTS-9070xt-2026-04-28.md`](benchmarks/RESULTS-9070xt-2026-04-28.md).
+- Other RDNA 3 / RDNA 4 ROCm-supported AMD GPUs should work the same way; the install script doesn't pin to a specific `gfx`.
 
 ## AMD GAIA integration
 
