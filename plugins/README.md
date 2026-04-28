@@ -31,18 +31,6 @@ If you don't want Tampermonkey, drop the script body into a `javascript:` bookma
 - No fuzzy search (yet) — Ctrl+R reverse-search would be a nice follow-up
 - Doesn't work in AMD GAIA (it's Electron, not a webview we can userscript-into). If you want this in GAIA, a fork + upstream PR is the path.
 
-## `1bit-menu-sections.user.js`
+## ~~`1bit-menu-sections.user.js`~~ — retired 2026-04-27
 
-Groups the Lemonade webapp model list into three labeled sections:
-
-- **1bit LLM** — BitNet, Bonsai, TriLM, Outlier, ternary / sub-2-bit pile (matched by name)
-- **Ryzen LLM (NPU lane)** — FastFlowLM-supported XDNA 2 models. Click any row to copy `1bit npu <model>` to your clipboard (FLM runs on a separate port from Lemonade, so the script can't activate them in-browser)
-- **Other** — everything else (default Lemonade catalog entries)
-
-### Install
-
-Same path as `1bit-history.user.js` — paste into a new Tampermonkey script and reload the Lemonade webapp at `http://127.0.0.1:13305/`.
-
-### Why a userscript and not an upstream PR
-
-Tonight's small win. The right long-term answer is to extend the Lemonade REST API with category metadata so the upstream UI can render sections natively. Until then, this script is ~150 lines and ships in our repo.
+Lemonade's native Model Manager already groups by recipe (FastFlowLM NPU / Llama.cpp GPU / Kokoro / StableDiffusion.cpp / Whisper.cpp). The plugin was solving a problem that didn't exist. Removed.

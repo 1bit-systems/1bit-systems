@@ -97,8 +97,8 @@ cmd_up() {
     start_flm
     start_proxy
 
-    say "Opening browser: $PROXY_URL  (UI + menu sections injected)"
-    xdg-open "$PROXY_URL" >/dev/null 2>&1 &
+    say "Opening browser: $LEMOND_URL  (Lemonade native UI)"
+    xdg-open "$LEMOND_URL" >/dev/null 2>&1 &
 
     if command -v gaia >/dev/null 2>&1; then
         say "Launching AMD GAIA (point it at $PROXY_URL/v1)"
