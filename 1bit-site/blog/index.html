@@ -21,6 +21,11 @@
   <h1>research</h1>
   <p class="muted">Public notes on the work. Papers we steal from, benchmarks we run, things we ship.</p>
   <ul class="posts">
+    <li>
+      <span class="date">2026-04-28</span> &middot;
+      <a href="/docs/benchmarks.html#stack-green-2026-04-28">Unified stack — both lanes green</a>
+      <p class="muted">One Lemonade endpoint, two compute lanes (iGPU <code>llamacpp:rocm</code> + NPU <code>flm:npu</code>), on Linux. LFM2-1.2B at ~217 tok/s on iGPU; BitNet-b1.58-3B (TQ2_0, sub-2-bit) at ~71-76 tok/s; qwen3-0.6b on NPU at ~95 tok/s. Install fix for the silent <code>flm:npu</code> version-pin gotcha is in <code>install.sh</code>.</p>
+    </li>
   </ul>
 </body>
 </html>

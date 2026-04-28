@@ -65,6 +65,31 @@ EOF
     ok "memlock limits written — re-login or reboot for them to apply"
 }
 
+# Lemonade pins backend versions in /usr/share/lemonade-server/resources/backend_versions.json
+# with strict equality. Arch's `fastflowlm` package can lead the pin (e.g. AUR ships v0.9.39
+# while Lemonade pins v0.9.38), which flips the flm:npu recipe to `update_required` even when
+# `flm validate` is fully green. Bump the pin to whatever flm actually reports.
+patch_lemonade_flm_pin() {
+    local manifest=/usr/share/lemonade-server/resources/backend_versions.json
+    [[ -f "$manifest" ]] || { warn "Lemonade manifest not at $manifest — skipping pin patch"; return; }
+    command -v flm >/dev/null 2>&1 || { warn "flm not on PATH — skipping pin patch"; return; }
+    local installed pinned
+    installed=$(flm version 2>/dev/null | head -1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || true)
+    pinned=$(grep -oE '"npu":\s*"v[0-9]+\.[0-9]+\.[0-9]+"' "$manifest" | head -1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || true)
+    if [[ -z "$installed" || -z "$pinned" ]]; then
+        warn "Could not read FLM versions (installed=$installed pinned=$pinned) — skipping pin patch"
+        return
+    fi
+    if [[ "$installed" == "$pinned" ]]; then
+        ok "Lemonade flm:npu pin already matches installed FLM ($installed)"
+        return
+    fi
+    say "Bumping Lemonade flm:npu pin: $pinned → $installed"
+    sudo sed -i "s|\"npu\": \"$pinned\"|\"npu\": \"$installed\"|" "$manifest"
+    ok "Lemonade flm:npu pin updated to $installed (restart lemond for it to take effect)"
+    warn "Future lemonade-server pacman updates will overwrite this — re-run install.sh."
+}
+
 start_lemond() {
     say "Starting lemond on :13305"
     if pgrep -f 'lemonade-server.*serve' >/dev/null 2>&1 || pgrep -x lemond >/dev/null 2>&1; then
@@ -111,6 +136,7 @@ main() {
     require_paru
     install_packages
     write_memlock_limits
+    patch_lemonade_flm_pin
     install_cli
     start_lemond
     pull_default_model

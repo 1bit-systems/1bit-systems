@@ -78,6 +78,24 @@ PPL wikitext-103 pass-4095:    11.98
 <h2 id="stability">Stability</h2>
 <p>OPTC Tier-3 soak (<code>amdgpu.dcdebugmask=0x410</code>), 2 hours concurrent <code>bitnet_decode</code> + <code>sd-cli</code> SDXL: 703 samples, 0 new OPTC events, util 100&nbsp;%, edge max 65&nbsp;&deg;C, 0 REG_WAIT lines in dmesg-post.</p>
 
+<h2 id="stack-green-2026-04-28">Unified stack — both lanes green (2026-04-28)</h2>
+<p class="muted">Single Lemonade endpoint on <code>:13305</code> routing to either iGPU (<code>llamacpp:rocm</code>) or NPU (<code>flm:npu</code>) per requested model. No proxy. Single-shot OpenAI-compat curls; meant to validate end-to-end stack health, not steady-state peaks. Full table + methodology in <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/benchmarks/RESULTS-stack-2026-04-28.md" rel="noopener">benchmarks/RESULTS-stack-2026-04-28.md</a>.</p>
+
+<table class="bench">
+  <thead>
+    <tr><th>Model</th><th>Backend</th><th>Lane</th><th>Decode tok/s</th><th>Prefill tok/s</th><th>TTFT</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>LFM2-1.2B-GGUF</code></td><td><code>llamacpp:rocm</code></td><td>iGPU</td><td><b>217</b></td><td>1600 — 2026</td><td>~0</td></tr>
+    <tr><td><code>BitNet-b1.58-3B</code> (TQ2_0)</td><td><code>llamacpp:rocm</code></td><td>iGPU (1-bit)</td><td><b>71 — 76</b></td><td>859 — 1211</td><td>~0</td></tr>
+    <tr><td><code>qwen3-0.6b-FLM</code></td><td><code>flm:npu</code></td><td>NPU</td><td><b>87 — 95</b></td><td>52 — 98</td><td>460 ms</td></tr>
+    <tr><td><code>qwen3-1.7b-FLM</code></td><td><code>flm:npu</code></td><td>NPU</td><td><b>42</b></td><td>35 — 71</td><td>570 ms</td></tr>
+    <tr><td><code>deepseek-r1-8b-FLM</code></td><td><code>flm:npu</code></td><td>NPU</td><td><b>11.3</b></td><td>14.7</td><td>1430 ms</td></tr>
+  </tbody>
+</table>
+
+<p>Both lanes serve, on Linux, today. Sub-2-bit ternary (<code>BitNet-b1.58-3B-TQ2_0</code>) runs through the same endpoint as the FP-quant lanes — that's what "1-bit on the unified stack" means in practice. NPU loses raw decode tok/s to iGPU on small models; its value is offload (free up the iGPU for bigger ROCm models) and per-request lane selection. Stack pre-req: Lemonade's <code>flm:npu</code> recipe-version pin matched against installed FLM (auto-applied by <code>install.sh</code>'s <code>patch_lemonade_flm_pin()</code>; <a href="/docs/changelog.html">changelog</a>).</p>
+
 <h2 id="bench-rules">What makes a bench honest</h2>
 <ol>
   <li>One hardware, one binary, one model. Cross-arch comparisons are labeled.</li>

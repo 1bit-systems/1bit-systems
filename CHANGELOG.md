@@ -5,6 +5,27 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added (2026-04-28)
+
+- `install.sh`: `patch_lemonade_flm_pin()` — auto-bumps Lemonade's
+  pinned `flm.npu` version in `/usr/share/lemonade-server/resources/backend_versions.json`
+  to whatever `flm version` reports. Lemonade does *strict equality* on
+  backend versions; the AUR `fastflowlm` package can lead the pin (e.g.
+  AUR ships `v0.9.39` while Lemonade pins `v0.9.38`), which silently
+  flips the `flm:npu` recipe to `update_required` even when `flm validate`
+  is fully green. The patch makes `1bit-systems` install all-green
+  end-to-end on Arch/CachyOS without manual intervention.
+- `benchmarks/RESULTS-stack-2026-04-28.md` — unified-stack bench through
+  Lemonade's native recipe routing on `:13305`. Both lanes serve
+  (iGPU `llamacpp:rocm` and NPU `flm:npu`), no proxy required. iGPU LFM2-1.2B
+  ~217 tok/s decode; iGPU BitNet-b1.58-3B (TQ2_0, sub-2-bit) ~71-76 tok/s;
+  NPU qwen3-0.6b ~95 tok/s; NPU qwen3-1.7b ~42 tok/s.
+
+### Fixed (2026-04-28)
+
+- `flm:npu` recipe in Lemonade no longer reports `update_required` after
+  install — `install.sh` patches the version pin in place.
+
 ### Changed
 
 - **Cutover (2026-04-27):** repo pivoted to a lean install + control

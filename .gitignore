@@ -44,3 +44,4 @@ rocprof-*.json
 
 # CMake out-of-tree build
 build-tests/
+.webui_secret_key
