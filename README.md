@@ -1,378 +1,67 @@
-<div align="center">
+# 1bit-systems
 
-# 1bit.systems
+A lean 1-bit inference engine for AMD Strix Halo (Ryzen AI MAX+ 395, Radeon 8060S `gfx1151`, XDNA 2 NPU).
 
-### ternary inference for the rest of us
+Three lanes behind one OpenAI-compatible endpoint:
 
-[![Latest Release](https://img.shields.io/github/v/release/bong-water-water-bong/1bit-systems?include_prereleases)](https://github.com/bong-water-water-bong/1bit-systems/releases/latest)
-[![CI](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/cpp-ctest.yml/badge.svg)](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/cpp-ctest.yml)
-[![GitHub downloads](https://img.shields.io/github/downloads/bong-water-water-bong/1bit-systems/total.svg)](https://github.com/bong-water-water-bong/1bit-systems/releases)
-[![GitHub issues](https://img.shields.io/github/issues/bong-water-water-bong/1bit-systems)](https://github.com/bong-water-water-bong/1bit-systems/issues)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./CONTRIBUTING.md)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![Star History](https://img.shields.io/badge/Star%20History-View-brightgreen)](https://star-history.com/#bong-water-water-bong/1bit-systems)
-[![AUR](https://img.shields.io/badge/AUR-1bit--systems--bin-1793d1.svg)](https://aur.archlinux.org/packages/1bit-systems-bin)
+| Lane | Backend | Quants | Best at |
+|---|---|---|---|
+| **GPU (ROCm)** | llama.cpp HIP, Lemonade | Q4_K_M, Q2_K, IQ1_S, TQ1_0, TQ2_0 | prompt-eval, dense models |
+| **GPU (Vulkan)** | llama.cpp Vulkan, Lemonade | same | decode on sub-2-bit (best for IQ1_S) |
+| **NPU (XDNA 2)** | FastFlowLM | UINT4-AWQ, q4nx | low-power, parallel to GPU |
 
-<br>
+Talks OpenAI on `:13305` — works with any client that speaks OpenAI: AMD GAIA, Open WebUI, Continue, Hermes, raw `curl`.
 
-<img src="./1bit-site/assets/brand-lockup.svg" alt="1bit.systems" width="520" />
-
-<br>
-
-### [Install](https://1bit.systems/install) · [Docs](https://1bit.systems/docs) · [Site](https://1bit.systems) · [Discord](https://discord.gg/dSyV646eBs)
-
-</div>
-
----
-
-<sub><em>"Whoa."</em></sub>
-
-You bought a Strix Halo because the spec sheet read like science fiction
-— 128 GB of unified LPDDR5x, Radeon 8060S, an XDNA2 NPU welded onto the
-die. Then you booted Linux and discovered the cloud-AI ecosystem still
-thinks "local" means a 4090 and a 1500W PSU. We built this for the
-other crowd. The mini-PC-on-the-desk crowd. The closet-server crowd.
-The "I want a chat endpoint that doesn't phone home" crowd.
-1bit.systems is a full ternary inference stack tuned for one machine —
-`gfx1151` plus its NPU — C++23 from kernels to desktop. No Python at
-runtime. No Docker on the serving path. No telemetry, ever.
-
-<sub><em>"There is no spoon."</em></sub>
-
-## comes in three flavors
-
-* **`lemond`** — the canonical local AI server. C++ HTTP front door.
-  OpenAI / Ollama / Anthropic API surfaces on port `:8180`. Dispatches
-  per-recipe to wrapped backends including the in-process `rocm-cpp`
-  Engine. Forked from `lemonade-sdk/lemonade` and patched in-house —
-  every wedge stays here.
-* **`1bit-services`** — the apps tower above lemond, in `cpp/`.
-  Operator CLI, Qt6 + FTXUI helms, landing page, voice loop, MCP
-  bridge, power profile control, retrieval pipeline, watchdog, NPU
-  dispatch. All C++23. All bare metal.
-* **`halo-arcade`** — a vanilla-JS canvas-game cabinet that ships in
-  the same release. Because every good rig deserves a coin slot.
-
-## out of the box
-
-Three models auto-load on boot via `lemond-bootstrap.service`.
-Reachable on `:8180/api/v1/*` the moment the unit is green.
-
-| auto-loaded | role | backend |
-|---|---|---|
-| `Bonsai-1.7B-gguf:Q1_0` | chat | llama.cpp Vulkan |
-| `nomic-embed-text-v1.5` | embeddings | llama.cpp Vulkan |
-| `halo-1bit-2b` | chat (ternary) | rocm-cpp ternary |
-
-Eight `.h1b` ternary models ship with the release. All of them are
-reachable via the unified `/api/v1/*` surface — pull the rest with
-`1bit pull <name>` when you want them resident. `max_loaded_models=12`
-so you can mix.
-
-The companion UIs come up alongside lemond:
-
-- **GAIA UI** — `http://localhost:8000/gaia/`. Full FastAPI shim
-  rewritten in C++. 11/11 ctest, 36+ endpoints. Chat, file picker,
-  agent panel.
-- **Lemonade UI** — `http://localhost:8000/app/`. The classic lemonade
-  console — model list, recipe inspector, live `/metrics`.
-
-## built by
-
-A two-person crew on a Strix Halo box, plus the kindness of strangers
-who write good open-source kernels. We use AMD hardware. We are not
-affiliated with AMD. Anything that looks like a partnership is just us
-reading their docs at 2am.
-
-## getting started
+## Install
 
 ```sh
-cmake --preset release-strix
-cmake --build --preset release-strix
-ctest --preset release-strix
-
-curl -fsSL https://1bit.systems/install.sh | bash
-1bit install core
-1bit pull bonsai-1.7b
-1bit run bonsai-1.7b
+git clone https://github.com/bong-water-water-bong/1bit-systems
+cd 1bit-systems
+./install.sh
 ```
 
-Point any OpenAI-compatible client at `http://localhost:8180/v1`. Open
-WebUI, Claude Code, Continue — they all just work.
+Installs `lemonade-server`, `fastflowlm`, `xrt`, `xrt-plugin-amdxdna`, `rocm-hip-sdk`, writes memlock limits, pulls a default 1-bit model (`Bonsai-1.7B-IQ1_S`, 385 MB), installs the `1bit` CLI to `/usr/local/bin/`.
 
-`1bit tunnel start` mints a Headscale preauthkey and prints a QR. Scan
-from the official Tailscale app, point its login URL at
-`https://headscale.strixhalo.local`, and your phone is on the closet
-box's mesh. No app store, no middleman.
+After install — re-login or reboot once so memlock limits apply for the NPU lane.
 
-<sub><em>"I know kung fu."</em></sub>
-
-## adding a service
-
-Third parties extend the package manager without forking. Drop a
-`packages.local.toml` next to `packages.toml`:
-
-```toml
-[my-sidecar]
-binary = "/usr/local/bin/my-sidecar"
-unit   = "my-sidecar.service"
-port   = 9100
-```
-
-Then `1bit registry add ./packages.local.toml && 1bit install
-my-sidecar`. The overlay survives `1bit update`.
-
-## apps + integrations
-
-Native first, then everything else.
-
-| native (we ship it) | description |
-|---|---|
-| [`lemond`](https://github.com/bong-water-water-bong/lemonade) | C++ HTTP server. Forked from lemonade-sdk. OpenAI / Ollama / Anthropic surfaces. |
-| [`1bit-helm`](./cpp/helm) | Qt6 desktop client. Plasma SNI tray icon. Start / stop / status. |
-| [`1bit-landing`](./cpp/landing) | live `/metrics` probe + landing page on `:8190`. |
-| [`1bit-voice`](./cpp/voice) | sentence-boundary streaming voice loop (LLM SSE → TTS chunks). |
-| [`1bit-echo`](./cpp/echo) | browser WebSocket gateway over `1bit-voice`. |
-| [`1bit-mcp`](./cpp/mcp) | stdio JSON-RPC MCP bridge for Claude Code and friends. |
-| [`1bit-power`](./cpp/power) | `1bit power` — RyzenAdj wrapper, profile control. |
-| [`halo-arcade`](./browser) | vanilla JS canvas games. The good kind. |
-
-| third-party (it just works) | how |
-|---|---|
-| [Open WebUI](https://docs.openwebui.com/) | point at `http://localhost:8180/v1`. |
-| [Claude Code](https://claude.com/claude-code) | Anthropic-compat surface. |
-| [Continue](https://continue.dev/) | OpenAI-compat. |
-| [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) | image gen on `:8081`, native HIP for SDXL. |
-| [whisper.cpp](https://github.com/ggerganov/whisper.cpp) | STT on `:8082`. |
-| [kokoro](https://github.com/olokobayusuf/kokoro.cpp) | TTS on `:8083`. |
-
-## supported platforms
-
-| platform | state |
-|---|---|
-| ![CachyOS](https://img.shields.io/badge/CachyOS-canonical-008B8B?logoColor=white) | first-class. We dev here. |
-| ![Arch Linux](https://img.shields.io/badge/Arch%20Linux-supported-1793D1?logo=arch-linux&logoColor=white) | AUR `1bit-systems-bin`. |
-| ![Fedora](https://img.shields.io/badge/Fedora-AppImage-294172?logo=fedora&logoColor=white) | AppImage path. ROCm 7.x on host. |
-| ![Debian / Ubuntu](https://img.shields.io/badge/Debian%2FUbuntu-AppImage-A81D33?logo=debian&logoColor=white) | AppImage. .deb someday. |
-| ![NixOS](https://img.shields.io/badge/NixOS-flake-5277C3?logo=nixos&logoColor=white) | `flake.nix` in tree. Untested by us. |
-| ![Windows](https://img.shields.io/badge/Windows-not%20yet-0078D6?logo=windows&logoColor=white) | use `lemond` upstream until we port. |
-
-## CLI
+## Run
 
 ```sh
-# chat with a ternary model
-1bit run bonsai-1.7b
-
-# list everything we know how to pull
-1bit list
-
-# get models
-1bit pull halo-1bit-2b
-
-# launch a connected app from the catalog
-1bit launch claude
-
-# stack health
-1bit status
-1bit doctor
-1bit logs lemond
+1bit up           # starts lemond, opens webapp, launches GAIA if installed
+1bit status       # show lemond + FLM status
+1bit pull qwen3:0.6b   # pull a model (auto-routes: NPU via flm, GPU via lemonade)
+1bit npu          # start FLM NPU server
+1bit bench        # run the 1-bit / ternary pile bench
+1bit down         # stop lemond
 ```
 
-```sh
-# multi-modality, dispatched by lemond's recipe registry
-1bit run kokoro-v1            # TTS
-1bit run whisper-large-v3     # STT
-1bit run sdxl-turbo           # image gen
-```
+## Reference numbers
 
-## hardware
+Strix Halo gfx1151, captured 2026-04-27, `-p 512 -n 128 -r 2 -ngl 99`:
 
-The shipping target is a single SKU: **AMD Strix Halo, Ryzen AI MAX+
-Pro 395, Radeon 8060S iGPU (`gfx1151`), XDNA2 NPU, 128 GB LPDDR5x.**
-That is the closet machine. Everything in this repo is tuned around
-its bandwidth, its kernels, its NPU control packets, its thermal
-envelope.
+| Model | Backend | Quant | pp512 (tok/s) | tg128 (tok/s) |
+|---|---|---|---:|---:|
+| Bonsai-1.7B | Vulkan | IQ1_S | 4624 | **278** |
+| Bonsai-1.7B | ROCm   | IQ1_S | 4481 | 194 |
+| Qwen3-0.6B  | NPU    | q4nx  | 49 (prefill) | 92 |
 
-The fat-binary build covers eight Wave32-WMMA AMD arches in one ship
-— `gfx1151` plus the rest of RDNA3 / RDNA3.5 / RDNA4. RX 9070 XT
-(`gfx1201`) on a Ryzen host is the sibling target; same kernels,
-more bandwidth.
+Vulkan wins decode on sub-2-bit for now (mainline IQ1_S compute shaders > stock ROCm kernels). NPU is a separate lane — runs in parallel to GPU at low power.
 
-NPU path: we author AIE2P kernels in C++ via `Xilinx/llvm-aie`
-(Peano), dispatch through `libxrt`, and use IRON / MLIR-AIE at compile
-time. AMD's VitisAI EP is the primary lane when it lands on Linux
-STX-H; until then, the custom-kernel lane carries the load.
+## AMD GAIA integration
 
-<sub><em>"Where we're going, we don't need racks."</em></sub>
+[AMD GAIA](https://amd-gaia.ai) is AMD's local desktop UI for AI agents on Ryzen AI MAX+. Install the `.deb`, point it at `http://127.0.0.1:13305/v1/` — done. `1bit up` will launch GAIA automatically if it's on `$PATH`.
 
-## honest numbers
-
-C++ wins the lane. Doesn't matter which C++ — `rocm-cpp`, llama.cpp
-Vulkan, ggml-hip — the family beats every other family on this box.
-What changes inside the family is who wins which model.
+## Layout
 
 ```
-Strix Halo · gfx1151 · 256-tok decode · median-of-3 · max_loaded_models=13 · 2026-04-25 (post Run 5)
+.
+├── install.sh             # bootstrap
+├── scripts/1bit           # control-plane CLI
+├── benchmarks/            # bench-1bit-pile.sh + RESULTS-*.md
+├── 1bit-site/             # 1bit.systems landing page (manual deploy: wrangler pages deploy)
+└── docs/                  # architecture + integration notes
 ```
 
-| model | backend | tok/s |
-|---|---|---|
-| `smollm2-135m` | llama.cpp Vulkan | **530** |
-| `gemma-3-270m-it` | llama.cpp Vulkan | 443 |
-| `Bonsai-1.7B-gguf:Q1_0` | llama.cpp Vulkan | 330 |
-| `Llama-3.2-1B-Instruct-GGUF` | llama.cpp Vulkan | 199 |
-| `deepseek-r1-distill-qwen-1.5b` | llama.cpp Vulkan | 168 |
-| `halo-1bit-2b-sherry-cpp` | rocm-cpp ternary | **73** |
-| `Qwen3-4B-GGUF` | llama.cpp Vulkan | 73 |
-| `halo-1bit-2b-sherry-v3` | rocm-cpp ternary | 73 |
-| `halo-1bit-2b-sherry-v4` | rocm-cpp ternary | 73 |
-| `Phi-4-mini-instruct-GGUF` | llama.cpp Vulkan | 71 |
-| `halo-1bit-2b` | rocm-cpp ternary | 65 |
-| `halo-1bit-2b-tq1` | rocm-cpp ternary | 60 |
-| `bonsai-1.7b-tq2-h1b` | rocm-cpp ternary | 59 |
-| `halo-bitnet-2b-tq2` | rocm-cpp ternary | 56 |
+## License
 
-> **Caveat.** Numbers above are essay-style 256-tok output,
-> median-of-3 — the regime you actually feel when you talk to the
-> thing. Cache-friendly prompts run higher.
-
-**Reading the table.** Vulkan llama.cpp dominates raw throughput on
-small or quantized GGUFs — that's where it is supposed to win and we
-are not pretending otherwise. `rocm-cpp` ternary ties Vulkan in the
-same GB band: sherry-cpp 73 tok/s vs Qwen3-4B 73 tok/s, but ours holds
-2 B params at 1.65 GB vs Qwen3's 4 B at 2.38 GB. Same throughput,
-smaller footprint.
-
-Run 5 (Sherry retrain) headline: **104.7 tok/s** sustained on
-`halo-1bit-2b-sherry-cpp` cache-friendly prompts, final loss 4.8870,
-PPL 9.18-ish on wikitext-103 1024 tok.
-
-Memory side: ternary GEMV pulls **92% of LPDDR5x peak**, the split-KV
-Flash-Decoding attention beats naive **6.78× at L=2048**. **NPU i8
-matmul @ 512×512 = 0.93 ms** bit-exact. NPU ternary kernel is the next
-ship-gate — toolchain proven, ternary `bitnet_gemm` not written yet.
-
-Reproducible from `benchmarks/` against checked-in recipes. Anything
-not in this README lives in the [Benchmarks
-wiki](./docs/wiki/Benchmarks.md) with raw JSON and methodology.
-
-## status, honestly
-
-| lane | state |
-|---|---|
-| LLM · TTS · STT · image | shipping on `:8180 / :8095 / :8190 / :1234` |
-| Sherry retrain (Run 5) | landed; `halo-1bit-2b-sherry-cpp` shipping at 73 tok/s essay / 104.7 tok/s cache-friendly |
-| NPU toolchain (IRON + MLIR-AIE + Peano + libxrt, npu5) | axpy 160/160 green on Arch |
-| NPU serve path (BitNet-1.58 end-to-end) | kernel authoring in flight |
-| Reddit / public launch | ship-gated until the NPU lane goes live |
-| Wan 2.2 video lane | upstream-blocked on sd.cpp 5D ggml |
-
-If you came here from a Reddit post — there isn't one yet. We are not
-announcing until the NPU demo trips the gate.
-
-## the rules of the house
-
-- **Rule A.** No Python at runtime. Scripts on a dev box are fine. A
-  systemd unit serving HTTP is not.
-- **Rule B.** C++23 default. HIP kernels stay C++20 in `rocm-cpp/`.
-- **Rule C.** hipBLAS is banned in the runtime path. Native Tensile
-  kernels only.
-- **Rule E.** NPU stack is ORT C++ with the VitisAI EP as the primary
-  lane; Peano + libxrt + aie-rt is the custom-kernel lane.
-- **Rule F.** ISO C++ Core Guidelines — I.27 pImpl, F.55 exhaustive
-  `std::visit`, `std::expected` on every fallible path,
-  `[[nodiscard]]` on factories.
-
-The full long-form lives in [`CLAUDE.md`](./CLAUDE.md) and
-[`CONTRIBUTING.md`](./CONTRIBUTING.md). They are short on purpose.
-
-## connect a client
-
-The server speaks OpenAI-compat. Anything that takes a `base_url`
-works.
-
-```python
-from openai import OpenAI
-
-client = OpenAI(
-    base_url="http://localhost:8180/v1",
-    api_key="not-used-but-required",
-)
-
-resp = client.chat.completions.create(
-    model="bonsai-1.7b",
-    messages=[{"role": "user", "content": "hello, ternary world"}],
-)
-print(resp.choices[0].message.content)
-```
-
-Pick your language on the [Clients wiki](./docs/wiki/Clients.md).
-C++, Go, Node, Ruby, PHP, Java, C#. They all dial the same port.
-
-## standing on shoulders
-
-We forked, patched, and bundled work from a lot of people. They didn't
-ask for our patches and we don't push them upstream — our improvements
-stay in our forks, theirs flow into ours. Asymmetric, friendly, no
-relationship overhead.
-
-- [`lemonade-sdk/lemonade`](https://github.com/lemonade-sdk/lemonade)
-  — C++ server skeleton. We forked `lemond` from here.
-- [`ggml/llama.cpp`](https://github.com/ggml-org/llama.cpp) — kernel
-  idioms, Vulkan backend on the GGUF lane.
-- [`ggml/whisper.cpp`](https://github.com/ggerganov/whisper.cpp) ·
-  [`ggml/stable-diffusion.cpp`](https://github.com/leejet/stable-diffusion.cpp)
-- [`olokobayusuf/kokoro.cpp`](https://github.com/olokobayusuf/kokoro.cpp)
-  — TTS.
-- [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) ·
-  [`Xilinx/llvm-aie`](https://github.com/Xilinx/llvm-aie) ·
-  [`Xilinx/aie-rt`](https://github.com/Xilinx/aie-rt) — NPU
-  toolchain.
-- [Microsoft BitNet](https://github.com/microsoft/BitNet) — original
-  1.58-bit reference. MIT licensed.
-
-## read more
-
-- [Architecture-Deep](./docs/wiki/Architecture-Deep.md) — pillars,
-  component map, build presets.
-- [Benchmarks](./docs/wiki/Benchmarks.md) — raw JSON, cross-arch
-  (9070 XT / gfx1201), methodology.
-- [Why-Strix-Halo](./docs/wiki/Why-Strix-Halo.md) — hardware
-  rationale, supported floors.
-- [NPU-Kernel-Design](./docs/wiki/NPU-Kernel-Design.md) ·
-  [NPU-Unlock-20260423](./docs/wiki/NPU-Unlock-20260423.md) — AIE2P
-  path.
-- [Training-Runs](./docs/wiki/Training-Runs.md) — absmean QAT,
-  Sparse-BitNet, BitNet v2 Hadamard.
-- [Eight-Models-Roadmap](./docs/wiki/Eight-Models-Roadmap.md) —
-  what's next on weights.
-
-## license + footer
-
-Most of the source is MIT (see [LICENSE](./LICENSE)). Sherry-specific
-source (3:4 N:M sparse ternary GEMV, 1.25 bpw packer, L1-ratio rescale,
-phantom-sign balance) is PolyForm Noncommercial 1.0.0 (see
-[LICENSE-SHERRY.md](./LICENSE-SHERRY.md) and
-[SHERRY-FILES.txt](./SHERRY-FILES.txt)). Commercial use of Sherry
-requires a paid license — contact
-bong-water-water-bong@users.noreply.github.com.
-
-The relicense is forward-only (effective 2026-04-26). Pre-cut history
-remains MIT for that snapshot.
-
-Model weights follow upstream licenses (Microsoft MIT for BitNet
-b1.58-2B-4T, etc.).
-
-We don't transfer anything off your box without you asking. When you
-`1bit pull`, we go to Hugging Face. That's it. No analytics, no crash
-reporters, no "anonymous usage statistics."
-
----
-
-<div align="center">
-
-[**1bit.systems**](https://1bit.systems) · [@bong-water-water-bong](https://github.com/bong-water-water-bong)
-
-<sub><em>no LLMs were harmed making this. one almost was.</em></sub>
-
-</div>
+MIT. See `LICENSE`.

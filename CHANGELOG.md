@@ -5,6 +5,16 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Cutover (2026-04-27):** repo pivoted to a lean install + control
+  plane on top of upstream Lemonade Server and FastFlowLM. The C++23
+  tower (`cpp/`, `rocm-cpp/`, `npu-kernels/`, `agents/`, `browser/`,
+  `strixhalo/`, `packaging/`) is archived in
+  `archive/cpp-tower-2026-04-27` and removed from `main`. New
+  `install.sh` + `scripts/1bit` CLI replace the old `1bit install`
+  package manager.
+
 ### Added
 
 - Repository landing-page polish: badges, hero block, TOC,

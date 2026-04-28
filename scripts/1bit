@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+# 1bit — control plane for the 1bit-systems lean 1-bit inference engine.
+#
+# Subcommands:
+#   1bit up            start lemond + open webapp + launch GAIA if installed
+#   1bit down          stop lemond
+#   1bit status        show lemond + flm status
+#   1bit pull <model>  pull a model (auto-routes: NPU via flm, GPU via lemonade)
+#   1bit bench         run the 1-bit / ternary pile bench
+#   1bit npu           start FLM NPU server (qwen3:0.6b by default)
+
+set -euo pipefail
+
+CYAN='\033[0;36m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
+say()  { printf '%b▸%b %s\n' "$CYAN" "$NC" "$*"; }
+ok()   { printf '%b✓%b %s\n' "$GREEN" "$NC" "$*"; }
+warn() { printf '%b!%b %s\n' "$YELLOW" "$NC" "$*"; }
+die()  { printf '%b✗%b %s\n' "$RED" "$NC" "$*" >&2; exit 1; }
+
+LEMOND_URL="http://127.0.0.1:13305"
+LEMOND_LOG=/tmp/lemond.log
+FLM_LOG=/tmp/flm-serve.log
+
+cmd_up() {
+    if ! pgrep -x lemond >/dev/null 2>&1; then
+        say "Starting lemond on :13305"
+        nohup lemond >"$LEMOND_LOG" 2>&1 &
+        sleep 2
+    fi
+    if curl -s --max-time 3 "$LEMOND_URL/v1/models" >/dev/null 2>&1; then
+        ok "lemond up at $LEMOND_URL"
+    else
+        warn "lemond not responding — see $LEMOND_LOG"
+    fi
+
+    say "Opening browser: $LEMOND_URL"
+    xdg-open "$LEMOND_URL" >/dev/null 2>&1 &
+
+    if command -v gaia >/dev/null 2>&1; then
+        say "Launching AMD GAIA"
+        nohup gaia >/dev/null 2>&1 &
+        ok "GAIA launched (point it at $LEMOND_URL/v1)"
+    else
+        warn "AMD GAIA not installed. Get the .deb from https://amd-gaia.ai and point it at $LEMOND_URL/v1"
+    fi
+}
+
+cmd_down() {
+    if pgrep -x lemond >/dev/null 2>&1; then
+        pkill -x lemond
+        ok "lemond stopped"
+    else
+        ok "lemond already stopped"
+    fi
+}
+
+cmd_status() {
+    if curl -s --max-time 2 "$LEMOND_URL/v1/models" >/dev/null 2>&1; then
+        ok "lemond: up at $LEMOND_URL"
+    else
+        warn "lemond: down"
+    fi
+    if pgrep -f 'flm.*serve' >/dev/null 2>&1; then
+        ok "flm:    serving"
+    else
+        warn "flm:    not serving (run \`1bit npu\` to start)"
+    fi
+    echo
+    echo "memlock limit: $(ulimit -l)"
+}
+
+cmd_pull() {
+    local model="${1:-}"
+    [[ -z "$model" ]] && die "usage: 1bit pull <model>"
+    if flm list 2>/dev/null | grep -q "^[[:space:]]*-[[:space:]]*${model}[[:space:]]"; then
+        say "Routing to FLM (NPU): $model"
+        flm pull "$model"
+    else
+        say "Routing to lemonade (GPU): $model"
+        lemonade pull "$model"
+    fi
+}
+
+cmd_bench() {
+    local script
+    script="$(dirname "$(readlink -f "$0")")/../benchmarks/bench-1bit-pile.sh"
+    if [[ -f /home/bcloud/Projects/1bit-systems/benchmarks/bench-1bit-pile.sh ]]; then
+        script=/home/bcloud/Projects/1bit-systems/benchmarks/bench-1bit-pile.sh
+    fi
+    [[ -f "$script" ]] || die "bench script not found: $script"
+    bash "$script"
+}
+
+cmd_npu() {
+    local model="${1:-qwen3:0.6b}"
+    if pgrep -f 'flm.*serve' >/dev/null 2>&1; then
+        ok "flm already serving (PID $(pgrep -f 'flm.*serve' | head -1))"
+        return
+    fi
+    say "Starting FLM NPU server: $model"
+    nohup flm serve "$model" >"$FLM_LOG" 2>&1 &
+    sleep 3
+    local port
+    port="$(flm port 2>/dev/null | awk '{print $NF}')"
+    ok "flm serving $model on :$port (log: $FLM_LOG)"
+}
+
+usage() {
+    cat <<EOF
+1bit — 1bit-systems control plane
+
+Usage:
+  1bit up                Start lemond + open browser + launch GAIA if installed
+  1bit down              Stop lemond
+  1bit status            Show lemond + FLM status, memlock
+  1bit pull <model>      Pull a model (auto-routes NPU vs GPU)
+  1bit bench             Run the 1-bit / ternary pile bench
+  1bit npu [model]       Start FLM NPU server (default: qwen3:0.6b)
+
+Endpoints:
+  Lemonade (ROCm/Vulkan):  $LEMOND_URL/v1/  (OpenAI-compat)
+  FLM (NPU):               http://127.0.0.1:\$(flm port)/v1/
+EOF
+}
+
+case "${1:-}" in
+    up)     cmd_up ;;
+    down)   cmd_down ;;
+    status) cmd_status ;;
+    pull)   shift; cmd_pull "$@" ;;
+    bench)  cmd_bench ;;
+    npu)    shift; cmd_npu "$@" ;;
+    -h|--help|help|"") usage ;;
+    *)      die "unknown subcommand: $1 (try \`1bit help\`)" ;;
+esac

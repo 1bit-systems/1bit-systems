@@ -1,6 +1,6 @@
 # Contributing to 1bit-systems
 
-Private monorepo for the gen-2 Rust 1bit systems stack. Public clients and downstream projects are welcome regardless of who holds the workspace checkout.
+Lean install + control plane for 1-bit inference on AMD Strix Halo. Public clients and downstream projects are welcome.
 
 ## How to help
 
@@ -14,12 +14,11 @@ Private monorepo for the gen-2 Rust 1bit systems stack. Public clients and downs
 
 See [`CLAUDE.md`](./CLAUDE.md). Short version:
 
-- **Rule A**: no Python at runtime (scripts are fine, services are Rust).
-- **Rule B**: C++20 only for HIP kernels, FFI'd through `1bit-hip`.
-- **Rule C**: hipBLAS banned at runtime.
-- **Rule D**: Rust 1.86, edition 2024.
+- **Lean over scaffolding** — this repo is install + control plane on top of upstream Lemonade Server and FastFlowLM. Don't reimplement inference; upstream PRs are the right place for kernel work.
+- **No Python at runtime** — bash for the installer + `1bit` CLI is fine.
+- **OpenAI surface is sacred** — anything that breaks `:13305/v1/*` is a bug.
 
-Use Conventional Commits (`feat:`, `fix:`, `docs:`, etc.). Tests must stay green on `cargo test --workspace --release` (default features).
+Use Conventional Commits (`feat:`, `fix:`, `docs:`, etc.).
 
 ## Acknowledgements
 

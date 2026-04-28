@@ -1,111 +1,72 @@
 # CLAUDE.md — conventions for 1bit-systems
 
-Conventions for any agent here. Terse; when in doubt see
-`ARCHITECTURE.md`.
-
-> "I know kung fu." Phase 2 tripped 2026-04-26. Rust is gone;
-> everything above the kernels is C++23 now.
+Lean 1-bit inference engine on Strix Halo. Three lanes behind one
+OpenAI-compatible endpoint at `:13305`.
 
 ## Hard rules
 
-- **Rule A — no Python at runtime.** Dev-box scripts and IRON-py
-  offline NPU authoring fine. Never a systemd unit or HTTP path.
-- **Rule B — C++23 default; kernels stay in `rocm-cpp/`.** Tower above
-  the kernels is C++23 (`std::expected`, `std::span`, `std::format`,
-  ranges). HIP kernels stay C++20 in `rocm-cpp/` (folded 2026-04-20
-  via `git subtree add`; history preserved). Do NOT reimplement
-  kernels above the kernel layer.
-- **Rule C — hipBLAS banned** in the runtime path. Native Tensile
-  kernels only. If you reach for hipBLAS, port the kernel to
-  `rocm-cpp` instead.
-- **Rule E — NPU = ORT C++ + VitisAI EP primary; Peano + libxrt +
-  aie-rt custom-kernel lane.** IRON permitted at compile time.
-- **Rule F — ISO C++ Core Guidelines.** Watch I.27 (pImpl:
-  `std::unique_ptr<Impl>`, special members declared in header,
-  defaulted in `.cpp`). F.55 exhaustive `std::visit` on variants.
-  `std::expected<T, HaloError>` on every fallible path; no
-  exceptions in hot paths. `[[nodiscard]]` on factory returns.
-
-> "There is no spoon." The old Rule D (workspace toolchain pin) is
-> retired with the Rust workspace.
-
-- **Target: aspirational 7/7 lanes, ~280 tok/s decode, NPU-prefill
-  crossover at L ≥ 33.** Projected in
-  `docs/wiki/Peak-Performance-Projection.md`. We do not settle for
-  the conservative tier.
+- **Lean over scaffolding.** This repo is the install + control plane on
+  top of upstream Lemonade Server and FastFlowLM. Do not reimplement
+  inference. Do not port kernels in-tree. Upstream PRs are the right
+  place for kernel work.
+- **No Python at runtime.** Bash for the installer + `1bit` CLI is fine;
+  upstream FLM and lemonade-server bring their own runtimes.
+- **Compatibility surface is OpenAI.** Anything that breaks the
+  `:13305/v1/*` shape is a bug. The whole point is "works with any
+  client that speaks OpenAI."
 
 ## Layout
 
-`lemond` lives outside this repo at `/home/bcloud/repos/lemonade/`,
-runs as `1bit-halo-lemonade.service` on `:8180`, dispatches per recipe
-to the in-process Engine. Tower components in `cpp/`: `core`, `cli`,
-`mcp`/`mcp-clients`/`mcp-linuxgsm`, `landing`, `helm`/`helm-tui`,
-`voice`/`echo`, `power`, `watchdog`, `retrieval`/`ingest`/`stream`/
-`tier-mint`, `onnx`/`aie`/`kokoro`, `tools/`. Plus `strixhalo/`
-dotfiles and `packages.toml`.
-
-## Build
-
-```bash
-cmake --preset release-strix
-cmake --build --preset release-strix
-ctest --preset release-strix
+```
+.
+├── install.sh             # pacman + paru installer, idempotent
+├── scripts/1bit           # control-plane CLI (up/down/status/pull/bench/npu)
+├── benchmarks/            # bench-1bit-pile.sh + RESULTS-*.md
+├── 1bit-site/             # CF Pages site for 1bit.systems
+└── docs/                  # architecture notes
 ```
 
-`release-ryzen` for gfx1201, `debug` for asan.
+## What lives outside this repo
 
-## Testing
+- `lemond` (Lemonade Server) — installed via paru/AUR, runs on `:13305`,
+  binaries cached at `~/.cache/lemonade/bin/`.
+- `flm` (FastFlowLM, NPU) — installed via pacman from `cachyos-extra-znver4`.
+- ROCm 7.2.x — installed via pacman (`rocm-hip-sdk`).
+- XRT + amdxdna — installed via pacman.
+- Bonsai / ternary GGUFs — pulled from HuggingFace (`lilyanatia/*`,
+  `superkaiii/*`, `gianni-cor/*`) into `~/halo-ai/models/ternary-test/`.
 
-- ≥3 doctest cases per component before merge.
-- `ctest --preset release-strix` green on `main`.
-- GPU tests gate on `ONEBIT_REAL_BACKEND=1`.
-- **Parity vs gen-2** is the cutover gate — see `CUTOVER.md`.
+## Test / verify
 
-## Deploy flow
+```sh
+./install.sh           # idempotent, run anytime
+1bit status            # quick health check
+1bit bench             # full pile bench (needs models pulled first)
+```
 
-`1bit install <component>` reads `packages.toml` and does
-stop/copy/start. Use it.
+## Deploy
+
+`1bit-site/` deploys to Cloudflare Pages via `wrangler pages deploy`. The
+CF project name is `1bit-systems` (not `1bit-site`). There is no GitHub
+auto-deploy hook on the lean branch — push to CF manually after edits.
 
 ## Commits
 
-Conventional Commits prefixes: `feat / fix / perf / docs / refactor /
-build / ci / chore / test`. One logical change per commit. "Why" line
-on every message — not "add tokenizer" but "add tokenizer special-token
-handling; gen-2 expects 128009 on EOT boundary and argmax diverges
-without it." Push to `bong` remote (`git@github-bong:...`).
-`bong-water-water-bong` is the canonical handle. `stampby` is retired.
+Conventional Commits: `feat / fix / perf / docs / refactor / build / ci /
+chore / test`. One logical change per commit. Push to `origin`
+(`bong-water-water-bong/1bit-systems`).
 
 ## What NOT to do
 
-- **Don't commit tokens, session cookies, or bearer secrets.**
-  Caddyfile's bearer lives in `/etc/caddy/Caddyfile` (root-only). The
-  `strixhalo/caddy/Caddyfile` tracked copy has `sk-halo-REPLACE_ME`
-  placeholders; never replace in git.
-- **Don't add Python deps.** If you think you need Python, talk to
-  the user.
-- **Don't touch `ternary_gemv_halo.hip`** in `rocm-cpp/` without a
-  rocprof trace showing the improvement. Current kernel sits at 92%
-  of LPDDR5x peak.
-- **Don't skip the KV-cache reset** at the start of each generation.
-  The 2026-04-19 SEGV was a `pos` accumulator bug that only showed up
-  under sustained load (~200 completions in).
-- **Don't add new warnings.** CI doesn't gate on `-Werror` yet, but
-  that gate is coming.
-
-## Agent / subagent ground rules
-
-When delegating to a background agent:
-
-- Give it **exact file paths + line numbers** where possible.
-- Tell it what to **not** touch (other components, configs, READMEs).
-- Ask for a **≤200-word report**, not a full transcript.
-- **Trust but verify.** The agent's summary describes intent, not
-  outcome. Re-run tests + inspect the actual diff before claiming
-  success.
+- **Don't add a Rust workspace, a C++ tower, or HIP kernels back.** That
+  was the abandoned scaffolding archived as `archive/cpp-tower-2026-04-27`.
+  If you need it, branch from there.
+- **Don't commit secrets.** CF tokens and gh tokens live in libsecret.
+- **Don't expand scope.** Match the literal ask. Default to the minimum
+  that delivers 1-bit inference.
 
 ## Memory
 
-`~/.claude/projects/-home-bcloud/memory/`. Load-bearing:
-`project_1bit_systems_cpp_port.md`, `feedback_cpp_is_the_standard.md`,
-`feedback_time_over_cost.md`, `project_bitnet_live_bench.md`,
-`project_ppl_harness.md`.
+`~/.claude/projects/-home-bcloud-Projects/memory/`. Load-bearing for this
+project: `project_lemonade_install.md`, `project_1bit_real_vision.md`,
+`feedback_dont_expand_scope.md`.

@@ -1,9 +1,0 @@
-[Unit]
-Description=Sync Claude Code persistent memory to private GitHub backup
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-ExecStart=%h/.local/bin/1bit-halo-memory-sync.sh
-Nice=10
