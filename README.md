@@ -41,6 +41,10 @@
 
 ## Install (Arch / CachyOS)
 
+> On Ubuntu, considering Distrobox, or trying to choose between AMD's closed Ryzen AI EP
+> and the open Lemonade + FLM stack? See [`docs/INSTALL.md`](docs/INSTALL.md) for the
+> both-paths writeup.
+
 ### Step 0 &mdash; prerequisites
 
 A clean CachyOS / Arch base ships *most* of these, but a minimal install can be missing some. Run once before cloning:
