@@ -1,3 +1,5 @@
+⚠️ **UPDATE (2026-04-29).** Lemonade upstream now pins `flm.npu = v0.9.39`, matching the Arch package. The `sed` one-liner referenced below (lines 36, 231) is **historical** — not needed on current Lemonade installs. Re-applies only if a future release reverts the pin.
+
 ⚠️ **UPDATE (2026-04-28). Most of this post is wrong. Two separate corrections; both are mine to own. Leaving the post up with strikethroughs because the failure mode is more interesting than the original argument, and I owe clean retractions more than a clean delete.**
 
 **Correction #1 — I conflated two AMD stacks that are not the same stack.** I drew confident conclusions about the wrong one and skipped the one that actually answers the question I was asking.

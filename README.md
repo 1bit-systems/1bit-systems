@@ -59,7 +59,7 @@ sudo pacman -S --needed git base-devel paru curl  # git for clone, base-devel fo
 You'll also need:
 - A user with **`sudo` privileges** (the installer writes `/etc/security/limits.d/99-1bit-systems.conf` and patches Lemonade's manifest under `/usr/share/`).
 - A **Strix Halo** APU (`gfx1151` iGPU + XDNA 2 NPU). Other Ryzen AI gens (XDNA 1 — 7000 / 8000 / 200-series) will install but the `flm:npu` lane won't light up.
-- A modern kernel with **in-tree `amdxdna`** &mdash; Linux 7.0+ ships it. CachyOS 7.0.x and Arch's mainline `linux` kernel are good. For older kernels (6.18 / 6.19) install `paru -S amdxdna-dkms` first.
+- A modern kernel with **in-tree `amdxdna`** &mdash; Linux 7.0+ ships it. CachyOS 7.0.x and Arch's mainline `linux` kernel are good. For kernels older than 7.0 (e.g. 6.x), install `paru -S amdxdna-dkms` first.
 - ~70&nbsp;GB free on `/home` for the default model pulls. More if you plan to run the 35B IQ2_XXS daily driver alongside the Bonsai floor.
 
 ### Step 1 &mdash; clone + run
@@ -132,7 +132,7 @@ Half the disk, **+35 % decode** on the same 35B MoE. This is the model `gaia cha
 | Model | Decode (steady) | Prefill | TTFT |
 |---|---:|---:|---:|
 | `qwen3-0.6b-FLM` | 95 tok/s | 76 tok/s | 460 ms |
-| `qwen3-1.7b-FLM` | 42 tok/s | 54 tok/s | 570 ms |
+| `qwen3-1.7b-FLM` | 42 tok/s | 54 tok/s | 577 ms |
 | `deepseek-r1-8b-FLM` | 11 tok/s | 15 tok/s | 1430 ms |
 
 NPU isn't the throughput champion against the iGPU on small models — its value is **offload** (free up the iGPU for bigger ROCm models) and **per-request lane selection** behind the same OpenAI endpoint.
@@ -144,7 +144,7 @@ NPU isn't the throughput champion against the iGPU on small models — its value
 ### Primary target — Strix Halo APU
 - **AMD Ryzen AI MAX+ 395** APU (Strix Halo)
 - iGPU: `gfx1151` Radeon 8060S, ROCm 7.2 + Vulkan
-- NPU: XDNA 2 / AIE2P, FW 1.1.2.65, `amdxdna` 0.6
+- NPU: XDNA 2 / AIE2P, FW 1.1.2.65, in-tree `amdxdna` (kernel 7.0+)
 - 124 GB LPDDR5x unified memory, ~256 GB/s
 - Linux 7.0+ kernel with in-tree `amdxdna` (CachyOS / Arch tested)
 

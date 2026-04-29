@@ -39,7 +39,7 @@ The win for `1bit-systems` is the **default-models tier policy** layered on top:
 Anything with the `tool-calling` label in `lemonade list`. On this box right now:
 
 - `Qwen3.5-35B-A3B-GGUF` (Q4_K_XL) — default per `LEMONADE_MODEL` env
-- `Qwen3.5-35B-A3B-UD-IQ2_XXS.gguf-UD-IQ2_XXS` — Tier 2 daily driver
+- `Qwen3.5-35B-A3B-UD-IQ2_XXS-GGUF` — Tier 2 daily driver
 - (other Qwen3-Instruct variants if pulled — `Qwen3-4B-Instruct-2507-GGUF` per the example)
 
 Embedding models, Vision-only models, and the FLM/NPU lane don't fit the OmniRouter loop role (they're tools or specific-purpose, not the orchestrator).

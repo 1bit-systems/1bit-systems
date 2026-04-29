@@ -1,7 +1,7 @@
 # Install — what AMD says vs what actually works
 
 > Reference doc for the cross-distro / cross-stack picture. If you're on
-> Arch / CachyOS and just want this repo running, [`README.md`](../README.md#install--arch--cachyos)
+> Arch / CachyOS and just want this repo running, [`README.md`](../README.md#install-arch--cachyos)
 > has the one-command path. This file is the "which install route do I
 > actually want, and what trade-off am I taking" map.
 
@@ -14,7 +14,7 @@ don't give you the same thing. Pick the one that matches what you need.
 | Stack | Runs | License | Distribution |
 |---|---|---|---|
 | **Ryzen AI 1.7.1 EP** (closed) | AMD's 200+ AWQ/OGA HF checkpoints (`huggingface.co/amd/*_rai_1.7.1_npu_*`) | Closed | `.deb`, Ubuntu 24.04 only, behind `account.amd.com` login |
-| **Lemonade Server + FastFlowLM** (open) | FLM's curated catalog (qwen3, gemma3, phi-4-mini, lfm2, llama-3.2, deepseek-r1, gpt-oss) | MIT + Apache | AUR (Arch / CachyOS), PPA (Ubuntu), Linux build everywhere |
+| **Lemonade Server + FastFlowLM** (open) | FLM's curated catalog (qwen3, gemma3, phi-4-mini, lfm2, llama-3.2, deepseek-r1, gpt-oss) | Apache (Lemonade) + MIT/proprietary-binary (FLM) | AUR (Arch / CachyOS), installer (Ubuntu), Linux build everywhere |
 
 The closed EP runs models the open stack can't. The open stack runs on
 distros the closed EP can't. **Neither is a superset.**
@@ -54,7 +54,7 @@ actual LLM workload. If you want the closed EP, you're booting Ubuntu
 Lemonade + FastFlowLM works directly on the host. No container, no DKMS
 for closed-EP modules. The in-tree `amdxdna` (kernel 7+) or
 `xrt-amdxdna` DKMS (kernel 6.x) is enough. **This is what this repo
-installs** ([`README.md` → Install](../README.md#install--arch--cachyos)).
+installs** ([`README.md` → Install](../README.md#install-arch--cachyos)).
 All four lanes light up:
 
 | Lane | Backend | Recipe |
@@ -165,7 +165,7 @@ dmesg | tail -20 | grep -i amdxdna   # expect firmware-load lines
 source /opt/xilinx/xrt/setup.sh
 xrt-smi examine
 # Expect: Device(s) Present
-#         [0000:c7:00.1]  :  RyzenAI-npu5
+#         [<bdf>:00.1]  :  RyzenAI-npu5      ; bdf varies by board
 #         NPU Firmware Version : <loaded, non-zero>
 ls /dev/accel/accel0                                  # device node present
 ldconfig -p | grep onnxruntime_providers_ryzenai      # libonnxruntime_providers_ryzenai.so resolvable
@@ -174,7 +174,7 @@ ldconfig -p | grep onnxruntime_providers_ryzenai      # libonnxruntime_providers
 ### A.7 — Python env + `ryzenai_llm` wheel
 
 ```bash
-cd ~/ryzenai/run_llm || (mkdir -p ~/ryzenai/run_llm && cd ~/ryzenai/run_llm)
+mkdir -p ~/ryzenai/run_llm && cd ~/ryzenai/run_llm
 python3.12 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
@@ -297,8 +297,10 @@ Try the actual LLM flow and you get this — verbatim, no further string,
 every time:
 
 ```bash
-python -m onnxruntime_genai_ryzenai \
-       --model amd/Phi-3.5-mini-instruct_rai_1.7.1_npu_4K
+./model_benchmark \
+  -i Phi-3.5-mini-instruct_rai_${VERSION}_npu_4K/ \
+  -l 128 \
+  -f amd_genai_prompt.txt
 ```
 
 ```
@@ -312,8 +314,8 @@ construction.
 ### B.6 — Why (root cause)
 
 The strict `RyzenAI` execution provider used for LLMs probes the loaded
-`amdxdna` module for symbols/ioctls that AMD's shipped
-`xrt_plugin-amdxdna 2.21.260102.53.release` exports. The in-tree
+`amdxdna` module for symbols/ioctls that AMD's shipped module
+(`xrt_plugin-amdxdna 2.21.260102.53.release`) exports, while the in-tree
 `amdxdna` from kernel 7+ exposes a compatible-but-not-identical surface
 — enough for `xrt-smi` and `VitisAIExecutionProvider`, not enough for
 the strict EP's check. Distrobox passes the device node through, but a
@@ -331,7 +333,7 @@ This is a wall, not a misconfiguration. Two real options:
   AWQ/OGA models run.
 - **Path C** — pivot to Lemonade + FastFlowLM. Doesn't need the closed
   EP, runs on whatever in-tree `amdxdna` your distro ships, and is what
-  this repo installs ([README → Install](../README.md#install--arch--cachyos)).
+  this repo installs ([README → Install](../README.md#install-arch--cachyos)).
 
 ### B.8 — What still works in this container
 
