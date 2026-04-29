@@ -65,6 +65,7 @@
 
     <h4>Run it</h4>
     <a href="#install" data-anchor="install">Install</a>
+    <a href="#install-detailed" data-anchor="install-detailed">Install paths (Ubuntu / Distrobox / Native)</a>
     <a href="#sixty-second" data-anchor="sixty-second">60-second 1-bit</a>
     <a href="#quickstart" data-anchor="quickstart">Quickstart</a>
     <a href="#api" data-anchor="api">OpenAI API</a>
@@ -262,6 +263,75 @@ cd 1bit-systems
       <li><s>AppImage covers everything else.</s> &rarr; <b>not shipped.</b></li>
       <li><s>Source build via <code>cmake --preset release-strix</code>.</s> &rarr; <b>no source build &mdash; nothing in this repo to compile.</b></li>
     </ul>
+  </section>
+
+  <section id="install-detailed" class="doc-section">
+    <h2>Install paths — what AMD says vs what actually works</h2>
+    <p class="note">AMD's docs say "Ubuntu 24.04 only." That's accurate for <em>one</em> of two AMD-built stacks on Strix Halo. We tested all three install routes; they don't give you the same thing. Pick the one that matches what you need.</p>
+
+    <h3 style="margin-top:1.25rem">The two stacks</h3>
+    <table class="bench">
+      <thead>
+        <tr><th>Stack</th><th>Runs</th><th>License</th><th>Distribution</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>Ryzen AI 1.7.1 EP</b> (closed)</td><td>AMD's 200+ AWQ/OGA HF checkpoints (<code>huggingface.co/amd/*_rai_1.7.1_npu_*</code>)</td><td>Closed</td><td><code>.deb</code>, Ubuntu 24.04 only, behind <code>account.amd.com</code></td></tr>
+        <tr><td><b>Lemonade Server + FastFlowLM</b> (open)</td><td>FLM's curated catalog (qwen3, gemma3, phi-4-mini, lfm2, llama-3.2, deepseek-r1, gpt-oss)</td><td>MIT + Apache</td><td>AUR (Arch / CachyOS), installer (Ubuntu), Linux build everywhere</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">The closed EP runs models the open stack can't. The open stack runs on distros the closed EP can't. <b>Neither is a superset.</b></p>
+
+    <h3 style="margin-top:1.25rem">Three install paths</h3>
+
+    <h4 style="margin-top:1rem">Path A &mdash; Ubuntu 24.04 native (both stacks)</h4>
+    <p class="muted">AMD's <code>.deb</code> bundles install cleanly. The <code>xrt_plugin-amdxdna 2.21.260102.53</code> kernel module DKMS-builds against Ubuntu's stock kernel. Closed EP runs the AWQ/OGA models. Lemonade + FLM also works alongside.</p>
+    <p class="muted"><b>Trade-off:</b> you have to run Ubuntu.</p>
+    <p class="muted">&rarr; <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/INSTALL.md#path-a--ubuntu-2404-detailed-runbook">Detailed step-by-step runbook (10 steps) on GitHub</a></p>
+
+    <h4 style="margin-top:1rem">Path B &mdash; Distrobox on a non-Ubuntu host</h4>
+    <p class="muted">Looks tempting. <b>Mostly doesn't work for the closed EP.</b> Tested on CachyOS host (kernel <code>7.0.2-1-cachyos</code>) &rarr; Ubuntu 24.04 distrobox container with NPU passthrough:</p>
+    <ul class="install-bullets">
+      <li>&#x2705; <code>xrt-smi examine</code> sees the NPU through <code>/dev/accel/accel0</code></li>
+      <li>&#x2705; AMD's <code>quicktest.py</code> (basic ONNX via <code>VitisAIExecutionProvider</code>) passes</li>
+      <li>&#x274C; <code>onnxruntime-genai-ryzenai</code> LLM init fails with <code>Generic Failure</code></li>
+    </ul>
+    <p class="muted">Cause: the strict <code>RyzenAI</code> provider checks something the AMD-shipped kernel module exposes that the in-tree <code>amdxdna</code> doesn't. Distrobox passes the device through; it cannot give the container its own kernel module.</p>
+    <p class="muted"><b>Trade-off:</b> distrobox gets you 80% of the way and falls down at the actual LLM workload. If you want the closed EP, you're booting Ubuntu 24.04 native.</p>
+    <p class="muted">&rarr; <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/INSTALL.md#path-b--distrobox-detailed-runbook">Detailed runbook + failure-mode trace on GitHub</a></p>
+
+    <h4 style="margin-top:1rem">Path C &mdash; Native non-Ubuntu (Arch / CachyOS / Fedora / &hellip;)</h4>
+    <p class="muted">Lemonade + FastFlowLM works directly on the host. No container, no DKMS for closed-EP modules. The in-tree <code>amdxdna</code> (kernel 7+) or <code>xrt-amdxdna</code> DKMS (kernel 6.x) is enough. <b>This is what this repo installs</b> (<a href="#install">see Install above</a>). All four lanes light up:</p>
+    <table class="bench">
+      <thead><tr><th>Lane</th><th>Backend</th><th>Recipe</th></tr></thead>
+      <tbody>
+        <tr><td>NPU (XDNA 2)</td><td>FastFlowLM</td><td><code>flm:npu</code></td></tr>
+        <tr><td>iGPU (gfx1151) &mdash; Vulkan</td><td>llama.cpp</td><td><code>llamacpp:vulkan</code></td></tr>
+        <tr><td>iGPU (gfx1151) &mdash; ROCm</td><td>llama.cpp</td><td><code>llamacpp:rocm</code></td></tr>
+        <tr><td>CPU (Zen 5)</td><td>llama.cpp</td><td><code>llamacpp:cpu</code></td></tr>
+      </tbody>
+    </table>
+    <p class="muted"><b>Trade-off:</b> no closed EP. AMD's 200+ AWQ/OGA checkpoints are downloadable but unrunnable on the NPU. FLM's catalog overlaps on the popular architectures.</p>
+
+    <h3 style="margin-top:1.25rem">Receipts (Path C, kernel 7.0.2-1-cachyos)</h3>
+    <table class="bench">
+      <thead><tr><th>Model</th><th>Backend</th><th>Lane</th><th>Decode t/s</th><th>Prefill t/s</th><th>TTFT</th></tr></thead>
+      <tbody>
+        <tr><td><code>LFM2-1.2B-GGUF</code></td><td><code>llamacpp:rocm</code></td><td>iGPU</td><td>216.3</td><td>1366.5</td><td>~0</td></tr>
+        <tr><td><code>qwen3-0.6b-FLM</code></td><td><code>flm:npu</code></td><td>NPU</td><td>95.4</td><td>76.0</td><td>460&nbsp;ms</td></tr>
+        <tr><td><code>qwen3-1.7b-FLM</code></td><td><code>flm:npu</code></td><td>NPU</td><td>41.8</td><td>53.7</td><td>577&nbsp;ms</td></tr>
+        <tr><td><code>deepseek-r1-8b-FLM</code></td><td><code>flm:npu</code></td><td>NPU</td><td>11.3</td><td>14.7</td><td>1430&nbsp;ms</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">iGPU is faster than NPU on these sizes. The NPU lane's value isn't peak tg &mdash; it's offloading the iGPU for ROCm bigger-model serving, lower power for background inference, and a unified <code>:13305</code> API where the request picks the silicon per model name.</p>
+
+    <h3 style="margin-top:1.25rem">What's still missing on Linux</h3>
+    <ul class="install-bullets">
+      <li><b>AWQ/OGA on non-Ubuntu</b> &mdash; needs an <code>xrt</code>-based EP equivalent of the closed <code>.so</code>. Doesn't exist publicly.</li>
+      <li><b>Brevitas in <code>optimum-amd</code></b> &mdash; &ldquo;Coming soon&rdquo; since 2024.</li>
+      <li><b>Diffusion + CLIP on NPU under Linux</b> &mdash; Windows-only.</li>
+      <li><b>BitNet on NPU</b> &mdash; research-tier; not shipped on any consumer NPU yet.</li>
+    </ul>
+    <p class="muted">&rarr; <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/INSTALL.md">Full <code>INSTALL.md</code> on GitHub</a> with detailed runbooks for Path A and Path B.</p>
   </section>
 
   <section id="sixty-second" class="doc-section">
