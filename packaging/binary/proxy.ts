@@ -71,9 +71,13 @@ function pickTarget(modelId: string | undefined): string {
 export async function startProxy(): Promise<void> {
   await refreshModels();
 
+  // Bind all interfaces so the proxy is reachable from the LAN, not just
+  // localhost. Set PROXY_HOST=127.0.0.1 to restore loopback-only.
+  const PROXY_HOST = process.env.PROXY_HOST || "0.0.0.0";
+
   const server = Bun.serve({
     port: PROXY_PORT,
-    hostname: "127.0.0.1",
+    hostname: PROXY_HOST,
     // 30 min idle for long completions.
     idleTimeout: 0,
     async fetch(req) {
@@ -181,7 +185,9 @@ export async function startProxy(): Promise<void> {
   const flmCount = Array.from(modelCache.byId.values()).filter(
     (m) => m.backend === "flm",
   ).length;
-  console.log(`[1bit-proxy] listening on http://127.0.0.1:${server.port}`);
+  console.log(
+    `[1bit-proxy] listening on http://${PROXY_HOST}:${server.port}`,
+  );
   console.log(
     `[1bit-proxy]   lemond: ${LEMOND_URL}  (${lemondCount} models)`,
   );
