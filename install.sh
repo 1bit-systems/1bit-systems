@@ -240,6 +240,7 @@ install_cli() {
     say "Installing /usr/local/bin/1bit + proxy + omni"
     run sudo install -m 0755 "$(dirname "$0")/scripts/1bit" /usr/local/bin/1bit
     run sudo install -d /usr/local/share/1bit-systems
+    run sudo install -m 0644 "$(dirname "$0")/scripts/1bit-home.html" /usr/local/share/1bit-systems/1bit-home.html
     run sudo install -m 0644 "$(dirname "$0")/scripts/1bit-proxy.js" /usr/local/share/1bit-systems/1bit-proxy.js
     run sudo install -m 0755 "$(dirname "$0")/scripts/1bit-omni.py" /usr/local/share/1bit-systems/1bit-omni.py
     ok "1bit CLI + proxy + omni installed — try: 1bit up   or   1bit omni \"...\""
