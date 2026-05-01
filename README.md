@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="1bit-site/assets/logo.png" alt="1bit-systems" width="120" height="120">
+<img src="1bit-site/assets/brand-lockup.svg" alt="1bit.systems" width="480">
 
 # 1bit-systems
 
