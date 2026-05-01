@@ -251,6 +251,12 @@ section li::marker{color:var(--accent)}
   image-rendering:auto;
 }
 @media (max-width:640px){.hero-mark{width:72px;height:72px}}
+.hero-lockup{
+  display:block;width:480px;max-width:100%;height:auto;
+  margin:0 0 1.6rem;
+  image-rendering:auto;
+}
+@media (max-width:640px){.hero-lockup{width:320px}}
 .eyebrow{
   font-family:var(--font-mono);font-size:.72rem;
   letter-spacing:.18em;text-transform:uppercase;
