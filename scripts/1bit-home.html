@@ -6,15 +6,16 @@
 <title>1bit.systems &mdash; home</title>
 <style>
   :root {
-    --bg: #0d1117;
-    --panel: #161b22;
-    --panel-2: #1f2937;
-    --border: #2a2a2a;
-    --text: #e5e7eb;
-    --text-dim: #888;
-    --text-muted: #666;
-    --accent: #ffc832;
-    --accent-dim: #b8902a;
+    /* Aligned with 1bit-site/assets/style.css canonical palette. */
+    --bg: #0d1117;            /* deep graphite */
+    --panel: #11161d;         /* card surface (site --bg-2) */
+    --panel-2: #161c25;       /* deeper inset (site --rule-soft) */
+    --border: #1f2630;        /* line color (site --rule) */
+    --text: #c9d1d9;          /* primary ink (site --ink) */
+    --text-dim: #8b949e;      /* secondary ink (site --ink-2) */
+    --text-muted: #6e7681;    /* tertiary ink (site --ink-3) */
+    --accent: #00d4ff;        /* cyan — primary brand */
+    --accent-dim: #0a8fa6;    /* darkened cyan for hint text */
     --green: #2ea043;
     --red: #f85149;
   }
@@ -30,7 +31,7 @@
   .wrap { max-width: 980px; margin: 0 auto; padding: 28px 20px 60px; }
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
-  code { font-family: ui-monospace, "JetBrains Mono", Consolas, monospace; font-size: 0.92em; background: #0a0a0a; padding: 2px 6px; border-radius: 4px; color: var(--accent); }
+  code { font-family: ui-monospace, "JetBrains Mono", Consolas, monospace; font-size: 0.92em; background: #0a0e14; padding: 2px 6px; border-radius: 4px; color: var(--accent); }
 
   /* Hero */
   .hero { padding: 28px 0 16px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
@@ -73,7 +74,7 @@
   }
   .chat-row { display: flex; gap: 10px; align-items: stretch; margin-bottom: 10px; }
   .chat select, .chat textarea, .chat button {
-    background: #0a0a0a;
+    background: #0a0e14;
     border: 1px solid var(--border);
     color: var(--text);
     border-radius: 6px;
@@ -91,11 +92,11 @@
     cursor: pointer;
     min-width: 100px;
   }
-  .chat button:hover { background: #ffd24d; }
+  .chat button:hover { background: #5fe6ff; }
   .chat button:disabled { background: var(--text-muted); cursor: wait; }
   .response {
     margin-top: 10px;
-    background: #0a0a0a;
+    background: #0a0e14;
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 12px 14px;
