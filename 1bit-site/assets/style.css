@@ -1,9 +1,50 @@
 /* ============================================================
    1bit.systems — "Bonsai Spec Sheet"
-   Industrial datasheet × refined editorial.
-   System-font stack — variable fonts to be self-hosted in follow-up
-   (CSP forbids fonts.googleapis.com; README forbids CDNs).
+   Industrial datasheet × refined editorial. Three colors total.
+   Self-hosted variable fonts under /assets/fonts/ (no CDN dep).
    ============================================================ */
+
+/* Variable fonts — latin subset only, served from same origin */
+@font-face {
+  font-family: 'Fraunces';
+  font-style: italic;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url('/assets/fonts/fraunces-latin-ital.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url('/assets/fonts/fraunces-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Newsreader';
+  font-style: italic;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url('/assets/fonts/newsreader-latin-ital.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Newsreader';
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url('/assets/fonts/newsreader-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/assets/fonts/jetbrains-mono-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 
 :root{
   /* palette — original site theme: cyan-on-graphite + magenta highlight */
@@ -26,10 +67,10 @@
   --warn: #d4a520;
   --warn-fg: #f0b429;
 
-  /* typography — system stack while variable fonts are pending self-host */
-  --font-display: ui-serif, Georgia, 'Times New Roman', 'Apple Garamond', serif;
-  --font-body:    ui-serif, Georgia, 'Times New Roman', 'Apple Garamond', serif;
-  --font-mono:    'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+  /* typography */
+  --font-display: 'Fraunces', ui-serif, Georgia, 'Times New Roman', serif;
+  --font-body:    'Newsreader', ui-serif, Georgia, 'Times New Roman', serif;
+  --font-mono:    'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
   --mono: var(--font-mono);
 
   /* rhythm */
