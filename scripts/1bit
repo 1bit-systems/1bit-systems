@@ -11,7 +11,12 @@
 
 set -euo pipefail
 
-CYAN='\033[0;36m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
+# Brand palette mirrors 1bit-site/assets/style.css (truecolor — terminal-theme-independent).
+CYAN='\033[38;2;0;212;255m'    # #00d4ff — --accent
+GREEN='\033[38;2;46;160;67m'   # #2ea043 — success
+YELLOW='\033[38;2;240;180;41m' # #f0b429 — --warn-fg
+RED='\033[38;2;248;81;73m'     # #f85149 — danger
+NC='\033[0m'
 say()  { printf '%b▸%b %s\n' "$CYAN" "$NC" "$*"; }
 ok()   { printf '%b✓%b %s\n' "$GREEN" "$NC" "$*"; }
 warn() { printf '%b!%b %s\n' "$YELLOW" "$NC" "$*"; }
