@@ -1,10 +1,9 @@
 /* ============================================================
    1bit.systems — "Bonsai Spec Sheet"
-   Industrial datasheet × refined editorial. Three colors total.
-   Fraunces display, Newsreader body, JetBrains Mono technical.
+   Industrial datasheet × refined editorial.
+   System-font stack — variable fonts to be self-hosted in follow-up
+   (CSP forbids fonts.googleapis.com; README forbids CDNs).
    ============================================================ */
-
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 :root{
   /* palette — original site theme: cyan-on-graphite + magenta highlight */
@@ -27,10 +26,10 @@
   --warn: #d4a520;
   --warn-fg: #f0b429;
 
-  /* typography */
-  --font-display: 'Fraunces', 'Times New Roman', Georgia, serif;
-  --font-body:    'Newsreader', Georgia, 'Times New Roman', serif;
-  --font-mono:    'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace;
+  /* typography — system stack while variable fonts are pending self-host */
+  --font-display: ui-serif, Georgia, 'Times New Roman', 'Apple Garamond', serif;
+  --font-body:    ui-serif, Georgia, 'Times New Roman', 'Apple Garamond', serif;
+  --font-mono:    'SF Mono', ui-monospace, Menlo, Consolas, monospace;
   --mono: var(--font-mono);
 
   /* rhythm */
