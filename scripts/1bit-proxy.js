@@ -40,6 +40,10 @@ const HOME_HTML = (() => {
 })();
 
 const PROXY_PORT = parseInt(process.env.ONEBIT_PROXY_PORT || '13306', 10);
+// Bind all interfaces by default so LAN apps (Open WebUI, Continue, GitHub
+// Copilot, AnythingLLM, etc.) can hit the unified endpoint. Set
+// PROXY_HOST=127.0.0.1 to restore loopback-only.
+const PROXY_HOST = process.env.PROXY_HOST || '0.0.0.0';
 const LEMOND_URL = process.env.LEMOND_URL || 'http://127.0.0.1:13305';
 const FLM_URL = (() => {
   if (process.env.FLM_URL) return process.env.FLM_URL;
@@ -173,10 +177,10 @@ const server = http.createServer(async (req, res) => {
 
 (async () => {
   await refreshModels();
-  server.listen(PROXY_PORT, '127.0.0.1', () => {
+  server.listen(PROXY_PORT, PROXY_HOST, () => {
     const lemondCount = Array.from(modelCache.byId.values()).filter(m => m.backend === 'lemond').length;
     const flmCount = Array.from(modelCache.byId.values()).filter(m => m.backend === 'flm').length;
-    console.log(`[1bit-proxy] listening on http://127.0.0.1:${PROXY_PORT}`);
+    console.log(`[1bit-proxy] listening on http://${PROXY_HOST}:${PROXY_PORT}`);
     console.log(`[1bit-proxy]   lemond: ${LEMOND_URL}  (${lemondCount} models)`);
     console.log(`[1bit-proxy]   flm:    ${FLM_URL}  (${flmCount} models)`);
     setInterval(() => { refreshModels().catch(() => {}); }, 30_000);
