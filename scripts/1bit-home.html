@@ -147,7 +147,7 @@
         <div class="sub">Native UI · model manager · GPU + all backends</div>
         <div class="url">127.0.0.1:13305</div>
       </a>
-      <a class="launcher" id="gaia-card" href="https://amd-gaia.ai" target="_blank" rel="noopener">
+      <a class="launcher" id="gaia-card" href="gaia://launch" rel="noopener">
         <h3>GAIA</h3>
         <div class="sub">AMD's local desktop AI agent</div>
         <div class="install" id="gaia-status">Checking…</div>
@@ -331,8 +331,18 @@ async function checkLauncherAvailability() {
     document.getElementById('webui-status').textContent = 'Not running. docker run open-webui ...';
     card.removeAttribute('href');
   }
-  // GAIA: there's no reliable browser-side detection, so just point at install.
-  document.getElementById('gaia-status').textContent = 'Get the Linux .deb · point it at :13306/v1';
+  // GAIA can't be probed from the browser. Card href is gaia://launch — that
+  // launches the locally-installed AppImage if install.sh registered the
+  // x-scheme-handler/gaia handler. If not registered, the browser shows its
+  // standard "no handler" prompt; the hint here links to the install page.
+  const status = document.getElementById('gaia-status');
+  status.textContent = 'Click to launch · not installed? ';
+  const link = document.createElement('a');
+  link.href = 'https://amd-gaia.ai';
+  link.target = '_blank';
+  link.rel = 'noopener';
+  link.textContent = 'amd-gaia.ai';
+  status.appendChild(link);
 }
 
 // Send on Enter (no shift)
