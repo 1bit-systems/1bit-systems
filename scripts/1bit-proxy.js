@@ -157,6 +157,11 @@ const server = http.createServer(async (req, res) => {
     path: u.pathname + u.search,
     method: req.method,
     headers: fwdHeaders,
+    // flm tears down its TCP socket after each response. node's default
+    // globalAgent keeps it pooled and reuses it on the next call →
+    // ECONNRESET ("socket hang up"). Fresh socket per request is fine for
+    // LLM traffic (handshake is µs, inference is seconds).
+    agent: false,
   }, ur => {
     res.writeHead(ur.statusCode, ur.headers);
     ur.pipe(res);
