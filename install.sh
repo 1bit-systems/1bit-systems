@@ -194,18 +194,68 @@ open(p,'a').write('\n')
     warn "Future lemonade-server pacman updates will overwrite this — re-run install.sh."
 }
 
+# Patch ~/.cache/lemonade/config.json so lemond binds 0.0.0.0 even when started
+# directly (without `1bit up`'s explicit --host flag). Idempotent; skips if the
+# config doesn't exist yet (it's created on first lemond run).
+configure_lemonade_lan_bind() {
+    local cfg="$HOME/.cache/lemonade/config.json"
+    if [[ ! -f "$cfg" ]]; then
+        ok "lemonade config not yet created; --host 0.0.0.0 still applied via 1bit up"
+        return
+    fi
+    if grep -q '"host": "0\.0\.0\.0"' "$cfg"; then
+        ok "lemonade config already binds 0.0.0.0"
+        return
+    fi
+    say "Patching lemonade config to bind 0.0.0.0 ($cfg)"
+    if (( DRY_RUN )); then
+        dry "sed -i 's/\"host\": \"[^\"]*\"/\"host\": \"0.0.0.0\"/' $cfg"
+        return
+    fi
+    sed -i 's/"host": "[^"]*"/"host": "0.0.0.0"/' "$cfg"
+    ok "lemonade now binds 0.0.0.0 (restart lemond for it to take effect)"
+}
+
+# If UFW is installed and active, add allow rules for the LAN-facing services
+# from the local /24. Skips silently when UFW isn't present.
+configure_ufw_lan() {
+    command -v ufw >/dev/null 2>&1 || { ok "ufw not installed; skipping firewall rules"; return; }
+    if ! sudo ufw status 2>/dev/null | head -1 | grep -q 'active'; then
+        ok "ufw not active; skipping firewall rules"
+        return
+    fi
+    # Detect the local /24 from the default-route source IP.
+    local src cidr
+    src=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}') || true
+    if [[ -z "$src" ]]; then
+        warn "Could not detect local IP — skipping UFW LAN rules"
+        return
+    fi
+    cidr="$(echo "$src" | awk -F. '{print $1"."$2"."$3".0/24"}')"
+    say "Adding UFW LAN rules for $cidr (lemond:13305, 1bit-proxy:13306, open-webui:3000)"
+    local port name
+    for entry in "13305:lemonade LAN" "13306:1bit-proxy LAN" "3000:open-webui LAN"; do
+        port="${entry%%:*}"; name="${entry#*:}"
+        if sudo ufw status | grep -qE "^${port}/tcp\b.*${cidr}"; then
+            ok "ufw rule for ${port}/tcp from $cidr already present"
+            continue
+        fi
+        run sudo ufw allow from "$cidr" to any port "$port" proto tcp comment "$name"
+    done
+}
+
 start_lemond() {
-    say "Starting lemond on :13305"
+    say "Starting lemond on :13305 (bound 0.0.0.0 — reachable from LAN)"
     if pgrep -f 'lemonade-server.*serve' >/dev/null 2>&1 || pgrep -x lemond >/dev/null 2>&1; then
         ok "lemond already running"
         return
     fi
     if (( DRY_RUN )); then
-        dry "nohup lemond >/tmp/lemond.log 2>&1 &"
+        dry "nohup lemond --host 0.0.0.0 >/tmp/lemond.log 2>&1 &"
         dry "sleep 2 && health-probe http://127.0.0.1:13305"
         return
     fi
-    nohup lemond >/tmp/lemond.log 2>&1 &
+    nohup lemond --host 0.0.0.0 >/tmp/lemond.log 2>&1 &
     sleep 2
     if curl -s --max-time 3 http://127.0.0.1:13305/api/v1/health >/dev/null 2>&1 \
        || curl -s --max-time 3 http://127.0.0.1:13305/v1/models >/dev/null 2>&1; then
@@ -265,6 +315,8 @@ main() {
     install_packages
     write_memlock_limits
     patch_lemonade_flm_pin
+    configure_lemonade_lan_bind
+    configure_ufw_lan
     install_cli
     start_lemond
     pull_default_model
