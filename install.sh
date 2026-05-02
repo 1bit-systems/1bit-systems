@@ -232,9 +232,9 @@ configure_ufw_lan() {
         return
     fi
     cidr="$(echo "$src" | awk -F. '{print $1"."$2"."$3".0/24"}')"
-    say "Adding UFW LAN rules for $cidr (lemond:13305, 1bit-proxy:13306, open-webui:3000)"
+    say "Adding UFW LAN rules for $cidr (lemond:13305+9000, 1bit-proxy:13306, open-webui:3000)"
     local port name
-    for entry in "13305:lemonade LAN" "13306:1bit-proxy LAN" "3000:open-webui LAN"; do
+    for entry in "13305:lemonade LAN" "9000:lemonade websocket LAN" "13306:1bit-proxy LAN" "3000:open-webui LAN"; do
         port="${entry%%:*}"; name="${entry#*:}"
         if sudo ufw status | grep -qE "^${port}/tcp\b.*${cidr}"; then
             ok "ufw rule for ${port}/tcp from $cidr already present"
