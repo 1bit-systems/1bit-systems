@@ -29,7 +29,7 @@ When AUR packaging is refreshed, it should match this service layout:
 
 - Replace upstream `lemonade-server` and `fastflowlm` package dependencies with source-built fork packages, or mark the AUR package as a thin wrapper that only installs CLI/docs and requires a completed `install.sh` build.
 - Remove the old Lemonade `backend_versions.json` pin patch hook.
-- Add `scripts/1bit-omni.py`, `scripts/1bit-proxy.js`, `scripts/1bit-home.html`, and current `scripts/1bit` exactly as installed by `install.sh`.
+- Add `scripts/1bit-omni.py`, `scripts/omni-plugins/*.json`, `scripts/1bit-proxy.js`, `scripts/1bit-home.html`, and current `scripts/1bit` exactly as installed by `install.sh`.
 - Document GAIA as primary and Open WebUI as secondary.
 - Pin FLM to `:52625`.
 - Regenerate `.SRCINFO` after any PKGBUILD change.

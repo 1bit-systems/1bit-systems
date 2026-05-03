@@ -564,9 +564,14 @@ install_cli() {
     run sudo install -m 0755 "$(dirname "$0")/scripts/optc-status" /usr/local/bin/1bit-optc-status
     run sudo install -m 0755 "$(dirname "$0")/scripts/optc_soak_2hr.sh" /usr/local/bin/1bit-optc-soak
     run sudo install -d /usr/local/share/1bit-systems
+    run sudo install -d /usr/local/share/1bit-systems/omni-plugins
     run sudo install -m 0644 "$(dirname "$0")/scripts/1bit-home.html" /usr/local/share/1bit-systems/1bit-home.html
     run sudo install -m 0644 "$(dirname "$0")/scripts/1bit-proxy.js" /usr/local/share/1bit-systems/1bit-proxy.js
     run sudo install -m 0755 "$(dirname "$0")/scripts/1bit-omni.py" /usr/local/share/1bit-systems/1bit-omni.py
+    for plugin in "$(dirname "$0")"/scripts/omni-plugins/*.json; do
+        [[ -f "$plugin" ]] || continue
+        run sudo install -m 0644 "$plugin" "/usr/local/share/1bit-systems/omni-plugins/$(basename "$plugin")"
+    done
     ok "1bit CLI + proxy + omni installed — try: 1bit up   or   1bit omni \"...\""
 }
 

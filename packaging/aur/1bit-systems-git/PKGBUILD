@@ -46,6 +46,7 @@ package() {
 
   # OmniRouter loop with our 1bit defaults (Tier 2 LLM + SD-Turbo + kokoro + whisper)
   install -Dm755 scripts/1bit-omni.py "$pkgdir/usr/share/$_pkgname/1bit-omni.py"
+  install -Dm644 scripts/omni-plugins/*.json -t "$pkgdir/usr/share/$_pkgname/omni-plugins/"
 
   # Memlock conf — NPU + GPU buffers want unlimited
   install -Dm644 /dev/stdin "$pkgdir/etc/security/limits.d/99-1bit-systems.conf" <<'EOF'

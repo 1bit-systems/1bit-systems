@@ -164,6 +164,7 @@ install.sh                         installer and systemd unit writer
 scripts/1bit                       local control CLI
 scripts/1bit-proxy.js              OpenAI-compatible union proxy
 scripts/1bit-omni.py               Lemonade OmniRouter helper loop
+scripts/omni-plugins/              Caller-side Lemonade OmniRouter plugins
 benchmarks/                        reproducible benchmark scripts/results
 docs/                              repo docs and architecture notes
 docs/app-integration.md            how apps connect to the inference engine

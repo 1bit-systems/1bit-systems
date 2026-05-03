@@ -13,6 +13,7 @@ but with our tier-priority defaults baked in:
 
 Override any of these with the matching env var:
   ONEBIT_OMNI_LLM, ONEBIT_OMNI_IMAGE, ONEBIT_OMNI_TTS, ONEBIT_OMNI_STT.
+Add caller-side Lemonade OmniRouter plugins with ONEBIT_OMNI_PLUGIN_DIRS.
 
 Endpoint follows LEMONADE_BASE_URL if set, else http://127.0.0.1:13305/v1.
 
@@ -40,6 +41,20 @@ STT = os.environ.get("ONEBIT_OMNI_STT", "Whisper-Tiny")
 
 OUT_DIR = Path(os.environ.get("ONEBIT_OMNI_OUT", "/tmp/1bit-omni"))
 OUT_DIR.mkdir(parents=True, exist_ok=True)
+PLUGIN_DIRS = [
+    Path(p).expanduser()
+    for p in os.environ.get(
+        "ONEBIT_OMNI_PLUGIN_DIRS",
+        ":".join(
+            [
+                str(Path(__file__).resolve().parent / "omni-plugins"),
+                "/usr/share/1bit-systems/omni-plugins",
+                "/usr/local/share/1bit-systems/omni-plugins",
+            ]
+        ),
+    ).split(":")
+    if p
+]
 
 TOOLS = [
     {
@@ -89,6 +104,12 @@ SYSTEM = (
 
 def http_post(path: str, body: bytes, headers: dict, timeout: int = 600) -> bytes:
     req = urllib.request.Request(f"{LEMONADE_URL}{path}", data=body, headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read()
+
+
+def http_get(path: str, timeout: int = 120) -> bytes:
+    req = urllib.request.Request(f"{LEMONADE_URL}{path}", method="GET")
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read()
 
@@ -160,6 +181,66 @@ DISPATCH = {
 }
 
 
+def build_plugin_body(spec: dict, args: dict) -> dict:
+    out = {}
+    for key, source in (spec or {}).items():
+        if isinstance(source, dict) and "arg" in source:
+            out[key] = args.get(source["arg"], source.get("default"))
+        elif isinstance(source, dict) and "env" in source:
+            out[key] = os.environ.get(source["env"], source.get("default", ""))
+        else:
+            out[key] = source
+    return out
+
+
+def execute_plugin_tool(name: str, args: dict, handler: dict) -> str:
+    kind = handler.get("kind")
+    endpoint = handler.get("endpoint")
+    if not endpoint:
+        return f"plugin tool {name} has no endpoint"
+
+    if kind == "http_get":
+        raw = http_get(endpoint)
+    elif kind == "http_json":
+        body = build_plugin_body(handler.get("body", {}), args)
+        raw = http_post(endpoint, json.dumps(body).encode(), {"Content-Type": "application/json"})
+    else:
+        return f"plugin tool {name} has unsupported kind: {kind}"
+
+    text = raw.decode(errors="replace")
+    max_chars = int(handler.get("max_chars", 4000))
+    if len(text) > max_chars:
+        return text[:max_chars] + f"\n... truncated {len(text) - max_chars} chars"
+    return text
+
+
+def load_omni_plugins() -> None:
+    seen = {tool["function"]["name"] for tool in TOOLS}
+    for plugin_dir in PLUGIN_DIRS:
+        if not plugin_dir.is_dir():
+            continue
+        for path in sorted(plugin_dir.glob("*.json")):
+            try:
+                plugin = json.loads(path.read_text())
+            except Exception as e:
+                print(f"warning: failed to load OmniRouter plugin {path}: {e}", file=sys.stderr)
+                continue
+
+            handlers = plugin.get("handlers", {})
+            for tool in plugin.get("tools", []):
+                fn = tool.get("function", {})
+                name = fn.get("name")
+                if not name or name in seen:
+                    continue
+                handler = handlers.get(name)
+                if not isinstance(handler, dict):
+                    print(f"warning: plugin {path} tool {name} has no handler; skipping", file=sys.stderr)
+                    continue
+                TOOLS.append(tool)
+                DISPATCH[name] = lambda args, n=name, h=handler: execute_plugin_tool(n, args, h)
+                seen.add(name)
+
+
 def chat_completion(messages: list, tools: list | None = None) -> dict:
     body = {"model": LLM, "messages": messages, "max_tokens": 600, "temperature": 0}
     if tools:
@@ -173,6 +254,7 @@ def banner():
 
 
 def run(prompt: str) -> int:
+    load_omni_plugins()
     banner()
     print(f"\033[1;36m›\033[0m {prompt}")
 

@@ -378,15 +378,18 @@ cmd_omni() {
   Default tools:  generate_image (SD-Turbo)
                   text_to_speech (kokoro-v1)
                   transcribe_audio (Whisper-Tiny)
+  Plugins:        scripts/omni-plugins/*.json plus installed plugin dirs
 
 Usage:
   1bit omni "Generate an image of X"
   1bit omni "Say 'hello world' out loud"
   1bit omni "Transcribe /path/to/audio.wav"
+  1bit omni "List OmniRouter models and labels"
 
 Override defaults via env vars:
   ONEBIT_OMNI_LLM, ONEBIT_OMNI_IMAGE, ONEBIT_OMNI_TTS, ONEBIT_OMNI_STT
   ONEBIT_OMNI_OUT (default /tmp/1bit-omni)
+  ONEBIT_OMNI_PLUGIN_DIRS (colon-separated plugin dirs)
 
 Outputs land at /tmp/1bit-omni/ (image.png, tts.wav).
 EOF

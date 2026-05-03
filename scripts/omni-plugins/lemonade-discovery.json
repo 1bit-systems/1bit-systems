@@ -1,0 +1,26 @@
+{
+  "name": "lemonade-discovery",
+  "version": "0.1.0",
+  "description": "Caller-side Lemonade OmniRouter discovery tools for 1bit omni.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "list_omni_models",
+        "description": "List Lemonade models, including hidden Collections and labels used for OmniRouter tool compatibility.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "handlers": {
+    "list_omni_models": {
+      "kind": "http_get",
+      "endpoint": "/models?show_all=true",
+      "max_chars": 6000
+    }
+  }
+}

@@ -57,7 +57,7 @@ http://127.0.0.1:13305/v1
 
 Use `1bit-proxy :13306` only when the client wants Lemonade plus FastFlowLM model routing behind one base URL.
 
-`scripts/1bit-omni.py` is the local helper loop for exercising that pattern with the stack defaults.
+`scripts/1bit-omni.py` is the local helper loop for exercising that pattern with the stack defaults. It supports caller-side OmniRouter plugins; see [Lemonade OmniRouter plugins](./omnirouter-plugins.md).
 
 ## Useful Commands
 
