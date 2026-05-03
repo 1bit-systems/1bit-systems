@@ -123,6 +123,8 @@ jobs:
           args: |
             --no-progress
             --max-concurrency 4
+            --max-retries 3
+            --retry-wait-time 2
             --timeout 15
             --exclude-path 1bit-site
             --exclude-path .github
@@ -131,6 +133,7 @@ jobs:
             --exclude '^https?://(www\.)?amd\.com/'
             --exclude '^https?://(www\.)?lightheartlabs\.io/'
             --exclude '^https?://(www\.)?reddit\.com/'
+            --exclude '^https?://(www\.)?contributor-covenant\.org/'
             --exclude '^https://github\.com/bong-water-water-bong/1bit-systems/actions/workflows/'
             --exclude '^https://github\.com/bong-water-water-bong/1bit-systems/releases/download/'
             README.md
