@@ -366,24 +366,170 @@ configure_ufw_lan() {
     done
 }
 
-start_lemond() {
-    say "Starting lemond on :13305 (bound 0.0.0.0 — reachable from LAN)"
-    if pgrep -f 'lemonade-server.*serve' >/dev/null 2>&1 || pgrep -x lemond >/dev/null 2>&1; then
-        ok "lemond already running"
-        return
-    fi
+install_systemd_units() {
+    say "Installing systemd units for the full 1bit.systems stack (auto-start at boot)"
+    run sudo mkdir -p /var/log/1bit-systems
+    run sudo chown bcloud:bcloud /var/log/1bit-systems
+
     if (( DRY_RUN )); then
-        dry "nohup lemond --host 0.0.0.0 >/tmp/lemond.log 2>&1 &"
-        dry "sleep 2 && health-probe http://127.0.0.1:13305"
+        dry "write /etc/systemd/system/{lemond,flm,1bit-proxy,open-webui}.service + 1bit-stack.target"
+        dry "systemctl daemon-reload && enable + start 1bit-stack.target"
+        dry "write ~/.config/autostart/gaia-agent-ui.desktop"
         return
     fi
-    nohup lemond --host 0.0.0.0 >/tmp/lemond.log 2>&1 &
-    sleep 2
-    if curl -s --max-time 3 http://127.0.0.1:13305/api/v1/health >/dev/null 2>&1 \
-       || curl -s --max-time 3 http://127.0.0.1:13305/v1/models >/dev/null 2>&1; then
+
+    sudo tee /etc/systemd/system/lemond.service >/dev/null <<'UNIT'
+[Unit]
+Description=Lemonade Server (1bit-systems / source-built)
+After=network-online.target
+Wants=network-online.target
+PartOf=1bit-stack.target
+[Service]
+Type=simple
+User=bcloud
+Group=bcloud
+WorkingDirectory=/home/bcloud
+EnvironmentFile=-/etc/lemonade/conf.d/zz-secrets.conf
+ExecStart=/usr/local/bin/lemond --host 0.0.0.0
+ExecReload=/bin/kill -HUP $MAINPID
+KillSignal=SIGINT
+Restart=on-failure
+RestartSec=5s
+LimitMEMLOCK=infinity
+LimitNOFILE=65536
+AmbientCapabilities=CAP_SYS_RESOURCE
+[Install]
+WantedBy=multi-user.target 1bit-stack.target
+UNIT
+
+    sudo tee /etc/systemd/system/flm.service >/dev/null <<'UNIT'
+[Unit]
+Description=FastFlowLM NPU server (1bit-systems / source-built)
+After=network-online.target lemond.service
+Wants=network-online.target
+PartOf=1bit-stack.target
+[Service]
+Type=simple
+User=bcloud
+Group=bcloud
+WorkingDirectory=/home/bcloud
+Environment=ONEBIT_NPU_MODEL=qwen3:1.7b
+ExecStart=/bin/bash -c '/usr/local/bin/flm serve "${ONEBIT_NPU_MODEL}"'
+StandardOutput=append:/var/log/1bit-systems/flm.log
+StandardError=append:/var/log/1bit-systems/flm.log
+Restart=on-failure
+RestartSec=5s
+LimitMEMLOCK=infinity
+[Install]
+WantedBy=multi-user.target 1bit-stack.target
+UNIT
+
+    sudo tee /etc/systemd/system/1bit-proxy.service >/dev/null <<'UNIT'
+[Unit]
+Description=1bit-systems proxy (unifies lemond + flm on :13306)
+After=lemond.service flm.service
+Wants=lemond.service flm.service
+PartOf=1bit-stack.target
+[Service]
+Type=simple
+User=bcloud
+Group=bcloud
+WorkingDirectory=/home/bcloud
+ExecStart=/usr/bin/node /usr/local/share/1bit-systems/1bit-proxy.js
+StandardOutput=append:/var/log/1bit-systems/1bit-proxy.log
+StandardError=append:/var/log/1bit-systems/1bit-proxy.log
+Restart=on-failure
+RestartSec=5s
+[Install]
+WantedBy=multi-user.target 1bit-stack.target
+UNIT
+
+    sudo tee /etc/systemd/system/open-webui.service >/dev/null <<'UNIT'
+[Unit]
+Description=open-webui (1bit-systems / points at :13306 unified endpoint)
+After=network-online.target 1bit-proxy.service
+Wants=network-online.target 1bit-proxy.service
+PartOf=1bit-stack.target
+[Service]
+Type=simple
+User=bcloud
+Group=bcloud
+WorkingDirectory=/home/bcloud
+ExecStart=/home/bcloud/.local/bin/open-webui serve --host 0.0.0.0 --port 3000
+StandardOutput=append:/var/log/1bit-systems/open-webui.log
+StandardError=append:/var/log/1bit-systems/open-webui.log
+Restart=on-failure
+RestartSec=5s
+[Install]
+WantedBy=multi-user.target 1bit-stack.target
+UNIT
+
+    sudo tee /etc/systemd/system/1bit-stack.target >/dev/null <<'UNIT'
+[Unit]
+Description=1bit-systems full stack (lemond + flm + proxy + open-webui)
+Wants=lemond.service flm.service 1bit-proxy.service open-webui.service
+After=lemond.service flm.service 1bit-proxy.service open-webui.service
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable lemond.service flm.service 1bit-proxy.service open-webui.service 1bit-stack.target
+
+    # XDG autostart for the GAIA Agent UI desktop AppImage (graphical login only).
+    if [[ -x /home/bcloud/Applications/gaia-agent-ui.AppImage ]]; then
+        mkdir -p /home/bcloud/.config/autostart
+        cat > /home/bcloud/.config/autostart/gaia-agent-ui.desktop <<'XDG'
+[Desktop Entry]
+Type=Application
+Name=GAIA Agent UI
+Comment=AMD GAIA agent UI - auto-launches on graphical login (1bit-systems)
+Exec=/home/bcloud/Applications/gaia-agent-ui.AppImage --no-sandbox
+Icon=gaia
+Terminal=false
+X-GNOME-Autostart-enabled=true
+StartupNotify=false
+Categories=Development;
+XDG
+        ok "GAIA Agent UI XDG autostart installed at ~/.config/autostart/gaia-agent-ui.desktop"
+    else
+        warn "GAIA AppImage not found at ~/Applications/gaia-agent-ui.AppImage — skipping autostart"
+        warn "(install via: amd-gaia.ai installer; XDG entry will be added on next install.sh run)"
+    fi
+
+    ok "systemd units installed + enabled — stack will auto-start at boot"
+}
+
+start_stack() {
+    say "Bringing up 1bit-stack.target (lemond + flm + proxy + open-webui)"
+    if (( DRY_RUN )); then
+        dry "sudo systemctl start 1bit-stack.target"
+        return
+    fi
+    # Stop any nohup-launched legacy processes so systemd has clean ports.
+    for name in lemond flm; do
+        if pgrep -x "$name" >/dev/null 2>&1; then
+            local actual
+            actual=$(readlink "/proc/$(pgrep -x "$name" | head -1)/exe" 2>/dev/null || true)
+            if [[ "$actual" != *"systemd"* && "$actual" != /opt/1bit/*/bin/* ]]; then
+                warn "Killing legacy nohup-launched $name (pid $(pgrep -x "$name" | head -1))"
+                sudo kill -9 $(pgrep -x "$name") 2>/dev/null || true
+            fi
+        fi
+    done
+    sudo systemctl start 1bit-stack.target
+    sleep 4
+    for unit in lemond flm 1bit-proxy open-webui; do
+        if systemctl is-active --quiet "$unit.service"; then
+            ok "$unit.service: active"
+        else
+            warn "$unit.service: $(systemctl is-active "$unit.service")"
+        fi
+    done
+    if curl -s --max-time 3 http://127.0.0.1:13305/api/v1/health >/dev/null 2>&1; then
         ok "lemond responding on http://127.0.0.1:13305"
     else
-        warn "lemond didn't respond — check /tmp/lemond.log"
+        warn "lemond didn't respond — journalctl -u lemond.service for details"
     fi
 }
 
@@ -441,7 +587,8 @@ main() {
     configure_lemonade_lan_bind
     configure_ufw_lan
     install_cli
-    start_lemond
+    install_systemd_units
+    start_stack
     pull_default_model
     echo
     if (( DRY_RUN )); then
