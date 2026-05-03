@@ -1,18 +1,33 @@
 # OmniRouter Compatibility
 
-OmniRouter belongs to Lemonade. In this stack Lemonade is the canonical OpenAI-compatible multimodal server on `http://127.0.0.1:13305/v1`, and GAIA is the primary agent/UI/control layer that consumes that capability.
+OmniRouter belongs to Lemonade. In this stack Lemonade is the canonical OpenAI-compatible multimodal inference server on `http://127.0.0.1:13305/api/v1` and `http://127.0.0.1:13305/v1`, and GAIA is the primary agent/UI/control layer that consumes that capability.
 
-The `1bit-proxy` endpoint on `http://127.0.0.1:13306/v1` is a convenience union endpoint. It keeps Lemonade as the default route, then sends targeted model families to FastFlowLM on `:52625` when that is the better lane, for example FLM chat models and `embed-*` embedding requests.
+The `1bit-proxy` endpoint on `http://127.0.0.1:13306/api/v1` and `http://127.0.0.1:13306/v1` is a convenience union inference endpoint. It keeps Lemonade as the default route, then sends targeted model families to FastFlowLM on `:52625` when that is the better lane, for example FLM chat models and `embed-*` embedding requests.
+
+## App Connection Model
+
+Lemonade's app model is straightforward: apps talk to a local inference server through a standard API. In practice that means configuring an OpenAI-compatible base URL in GAIA, Open WebUI, AnythingLLM, Continue, Dify, n8n, or your own OpenAI SDK code.
+
+For `1bit-systems`, use:
+
+| Client need | Base URL |
+|---|---|
+| GAIA / Lemonade-style clients | `http://127.0.0.1:13306/api/v1` |
+| Generic OpenAI-compatible clients | `http://127.0.0.1:13306/v1` |
+| Lemonade direct, no union routing | `http://127.0.0.1:13305/api/v1` |
+| FLM direct NPU runtime | `http://127.0.0.1:52625/v1` |
+
+Use a placeholder API key such as `local-no-auth` unless you explicitly enabled Lemonade authentication.
 
 ## Routing Model
 
 | Workload | Canonical route | Notes |
 |---|---|---|
-| Chat, tools, images, TTS, Lemonade STT, vision | Lemonade `:13305/v1` | Lemonade owns multimodal OpenAI compatibility and OmniRouter behavior. |
+| Chat, tools, images, TTS, Lemonade STT, vision | Lemonade `:13305/api/v1` or `:13305/v1` | Lemonade owns multimodal OpenAI compatibility and OmniRouter behavior. |
 | NPU chat models | FastFlowLM `:52625/v1` | Use direct FLM or the union proxy when model routing is desired. |
 | Embeddings with `embed-*` models | FastFlowLM `:52625/v1` | `embed-gemma:300m` is verified locally through the proxy. |
 | ASR with `whisper-v3:*` | FastFlowLM `:52625/v1` | Opt-in: pull the model and enable `--asr 1` first. |
-| OpenAI clients that want one base URL | `1bit-proxy :13306/v1` | Convenience layer, not the canonical OmniRouter server. |
+| OpenAI clients that want one base URL | `1bit-proxy :13306/api/v1` or `:13306/v1` | Convenience layer, not the canonical OmniRouter server. |
 
 ## How OmniRouter Works Here
 
@@ -39,7 +54,8 @@ Lemonade exposes standard OpenAI endpoints for model calls and modality tools. A
 Use these base URLs deliberately:
 
 ```text
-Lemonade canonical OmniRouter: http://127.0.0.1:13305/v1
+Lemonade canonical OmniRouter: http://127.0.0.1:13305/api/v1
+Union endpoint for GAIA:       http://127.0.0.1:13306/api/v1
 Union endpoint for clients:    http://127.0.0.1:13306/v1
 FastFlowLM direct NPU lane:    http://127.0.0.1:52625/v1
 ```

@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0d1117">
-<title>1bit.systems - GAIA + Lemonade + FastFlowLM on AMD Strix Halo</title>
-<meta name="description" content="1bit.systems is a local AMD Strix Halo AI stack: GAIA as the agent UI, Lemonade as the canonical OpenAI and OmniRouter server, FastFlowLM on XDNA NPU, and one optional union endpoint on :13306.">
+<title>1bit.systems - OpenAI-compatible inference engine for AMD Strix Halo</title>
+<meta name="description" content="1bit.systems is a local OpenAI-compatible inference engine for AMD Strix Halo. Apps connect to Lemonade, FastFlowLM, or the 1bit union endpoint; the single control plane comes second.">
 <meta property="og:title" content="1bit.systems">
-<meta property="og:description" content="GAIA agent UI, Lemonade OmniRouter, FastFlowLM XDNA NPU, OpenAI-compatible local control plane for AMD Strix Halo.">
+<meta property="og:description" content="Inference engine first: Lemonade OmniRouter, FastFlowLM XDNA NPU, and a 1bit union endpoint for OpenAI-compatible apps.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://1bit.systems/">
 <meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
@@ -59,13 +59,13 @@
 
 <section id="pitch" class="hero">
   <img class="hero-lockup" src="/assets/brand-lockup.svg" alt="1bit.systems">
-  <p class="eyebrow">AMD Strix Halo · gfx1151 + XDNA 2 · GAIA first</p>
+  <p class="eyebrow">AMD Strix Halo · gfx1151 + XDNA 2 · inference engine first</p>
   <h1>
-    <span>1bit.systems is the local AI control plane for Ryzen AI.</span>
-    <span>GAIA drives it. Lemonade routes it. FastFlowLM lights up the NPU.</span>
+    <span>1bit.systems is a local inference engine for Ryzen AI.</span>
+    <span>Apps connect over OpenAI-compatible APIs. The control plane comes second.</span>
   </h1>
   <p class="lede">
-    The public shape is simple: use GAIA as the primary agent UI, Lemonade as the canonical OpenAI-compatible multimodal and OmniRouter server on <code>:13305</code>, FastFlowLM as the XDNA NPU runtime on <code>:52625</code>, and <code>1bit-proxy</code> on <code>:13306</code> when a client wants both lanes behind one OpenAI base URL.
+    The public shape is simple: apps talk to an inference endpoint. Use Lemonade as the canonical OpenAI-compatible multimodal and OmniRouter server on <code>:13305</code>, FastFlowLM as the XDNA NPU runtime on <code>:52625</code>, and <code>1bit-proxy</code> on <code>:13306</code> when a client wants both lanes behind one OpenAI base URL.
   </p>
   <div class="hero-cta">
     <a class="btn" href="#install">Install</a>
@@ -74,15 +74,15 @@
 </section>
 
 <section id="stack" class="pillars" data-mark="01 / STACK">
-  <h2>Current stack</h2>
-  <p class="note">A clean local stack following the upstream docs for GAIA, Lemonade, and FastFlowLM, with a small proxy where local clients need one endpoint.</p>
+  <h2>Inference engine</h2>
+  <p class="note">The engine is the product surface: OpenAI-compatible apps send requests to Lemonade, FastFlowLM, or the union endpoint. The single control plane manages those services after the inference path is clear.</p>
   <div class="pillar-grid">
-    <div class="pillar"><h3>GAIA</h3><p>Primary agent UI and control layer. Local AppImage launches <code>gaia chat --ui</code>; the CLI also exposes GAIA API and MCP controls.</p></div>
-    <div class="pillar"><h3>Lemonade</h3><p>Canonical OpenAI-compatible multimodal server and OmniRouter source of truth on <code>http://127.0.0.1:13305/v1</code>.</p></div>
+    <div class="pillar"><h3>Lemonade</h3><p>Canonical OpenAI-compatible multimodal inference server and OmniRouter source of truth on <code>http://127.0.0.1:13305/api/v1</code> and <code>/v1</code>.</p></div>
     <div class="pillar"><h3>FastFlowLM</h3><p>XDNA NPU runtime on <code>http://127.0.0.1:52625/v1</code>, serving FLM chat models and the local embedding side lane.</p></div>
-    <div class="pillar"><h3>1bit proxy</h3><p>Convenience union endpoint on <code>http://127.0.0.1:13306/v1</code>. Lemonade remains default; FLM receives targeted model families.</p></div>
+    <div class="pillar"><h3>1bit proxy</h3><p>Convenience union endpoint on <code>http://127.0.0.1:13306/api/v1</code> and <code>/v1</code>. Lemonade remains default; FLM receives targeted model families.</p></div>
+    <div class="pillar"><h3>Apps</h3><p>GAIA, Open WebUI, AnythingLLM, Continue, Dify, n8n, and custom SDK clients connect by setting an OpenAI-compatible base URL.</p></div>
+    <div class="pillar"><h3>Control plane</h3><p><code>1bit</code>, GAIA, Open WebUI, and <code>1bit-stack.target</code> manage the engine after the endpoint contract is set.</p></div>
     <div class="pillar"><h3>Open WebUI</h3><p>Secondary browser UI on <code>:3000</code>, pointed at the union endpoint by the systemd unit.</p></div>
-    <div class="pillar"><h3>systemd</h3><p><code>1bit-stack.target</code> owns Lemonade, FLM, proxy, and Open WebUI. GAIA is desktop autostart/AppImage.</p></div>
   </div>
 </section>
 
@@ -116,8 +116,8 @@ cd 1bit-systems
 </section>
 
 <section id="api" class="doc-section" data-mark="04 / API">
-  <h2>API surface</h2>
-  <p class="note">Pick the base URL based on what you want the client to control.</p>
+  <h2>Connect apps</h2>
+  <p class="note">This is how other apps use the inference engine: configure an OpenAI-compatible base URL and send normal SDK requests. Use any placeholder API key unless you explicitly enabled auth.</p>
   <pre><code># Recommended for GAIA/Open WebUI/clients that want both lanes
 http://127.0.0.1:13306/v1
 
@@ -125,17 +125,30 @@ http://127.0.0.1:13306/v1
 http://127.0.0.1:13306/api/v1
 
 # Lemonade direct: canonical multimodal + OmniRouter
-http://127.0.0.1:13305/v1
+http://127.0.0.1:13305/api/v1
 
 # FastFlowLM direct: NPU runtime
 http://127.0.0.1:52625/v1</code></pre>
   <p>Use Lemonade direct for pure OmniRouter work. Use the proxy when one OpenAI-compatible client should see Lemonade plus FLM chat, embeddings, and opt-in FLM ASR routing.</p>
+  <p class="muted">This follows Lemonade's app model: local apps integrate by configuring an OpenAI-compatible base URL. Lemonade's own docs cover the API surface and app guides at <a href="https://lemonade-server.ai/docs/api/" rel="noopener">lemonade-server.ai/docs/api/</a> and <a href="https://lemonade-server.ai/docs/server/apps/" rel="noopener">/docs/server/apps/</a>.</p>
+  <div class="scroll-x">
+  <table class="data-table">
+    <thead><tr><th>App</th><th>Base URL</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>GAIA Agent UI / CLI</td><td><code>http://127.0.0.1:13306/api/v1</code></td><td>GAIA follows Lemonade-style <code>/api/v1</code> while still reaching the union endpoint.</td></tr>
+      <tr><td>Open WebUI</td><td><code>http://127.0.0.1:13306/v1</code></td><td>Standard OpenAI-compatible UI surface.</td></tr>
+      <tr><td>AnythingLLM / Continue / Dify / n8n</td><td><code>http://127.0.0.1:13306/v1</code></td><td>Generic OpenAI-compatible client setup.</td></tr>
+      <tr><td>Custom OpenAI SDK code</td><td><code>http://127.0.0.1:13306/v1</code></td><td>Use normal OpenAI SDK calls against the local engine.</td></tr>
+      <tr><td>Direct Lemonade apps</td><td><code>http://127.0.0.1:13305/api/v1</code></td><td>Canonical Lemonade multimodal and OmniRouter behavior.</td></tr>
+    </tbody>
+  </table>
+  </div>
 </section>
 
 <section id="apps" class="pillars" data-mark="05 / APPS">
   <h2>Apps</h2>
   <div class="pillar-grid">
-    <div class="pillar"><h3>GAIA Agent UI</h3><p>Primary UI. The local install lives at <code>~/Applications/gaia-agent-ui.AppImage</code> and <code>~/.gaia/venv/bin/gaia</code>.</p></div>
+    <div class="pillar"><h3>GAIA Agent UI</h3><p>Primary UI/control client. Point it at <code>http://127.0.0.1:13306/api/v1</code> when it should use the full inference engine.</p></div>
     <div class="pillar"><h3>Open WebUI</h3><p>Secondary UI. The service exports <code>OPENAI_API_BASE_URL=http://127.0.0.1:13306/v1</code>.</p></div>
     <div class="pillar"><h3>OpenAI clients</h3><p>Continue, AnythingLLM, Dify, n8n, and similar tools can use <code>:13306/v1</code> with any placeholder API key.</p></div>
   </div>
@@ -160,13 +173,13 @@ http://127.0.0.1:52625/v1</code></pre>
 
 <section id="architecture-deep" class="doc-section" data-mark="07 / ARCHITECTURE">
   <h2>Architecture</h2>
-  <pre><code>GAIA Agent UI
-  -> 1bit-proxy :13306/v1       optional union endpoint
-       -> Lemonade :13305/v1    canonical OpenAI + multimodal + OmniRouter
-       -> FastFlowLM :52625/v1  XDNA NPU chat + embeddings + opt-in ASR
+  <pre><code>Apps / SDKs
+  -> 1bit-proxy :13306/v1 or :13306/api/v1
+       -> Lemonade :13305/api/v1    canonical OpenAI + multimodal + OmniRouter
+       -> FastFlowLM :52625/v1      XDNA NPU chat + embeddings + opt-in ASR
 
 Open WebUI :3000 -> 1bit-proxy :13306/v1
-systemd target   -> lemond + flm + proxy + open-webui</code></pre>
+Control plane    -> 1bit CLI + GAIA + systemd target</code></pre>
 </section>
 
 <section id="models-deep" class="doc-section" data-mark="08 / MODELS">
@@ -198,7 +211,7 @@ tail -80 /var/log/1bit-systems/1bit-proxy.log
 
 <section id="contributing" class="doc-section" data-mark="11 / CONTRIBUTING">
   <h2>Contributing</h2>
-  <p>Keep changes aligned with the live stack: GAIA integration, Lemonade OpenAI/OmniRouter behavior, FastFlowLM NPU service flags, <code>1bit-proxy</code> routing, packaging parity, systemd lifecycle, and static site accuracy.</p>
+  <p>Keep changes aligned with the live stack: inference endpoint compatibility first, then GAIA integration, Lemonade OpenAI/OmniRouter behavior, FastFlowLM NPU service flags, <code>1bit-proxy</code> routing, packaging parity, systemd lifecycle, and static site accuracy.</p>
 </section>
 
 <section id="changelog" class="doc-section" data-mark="12 / CHANGELOG">

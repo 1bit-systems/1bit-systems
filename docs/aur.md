@@ -19,9 +19,9 @@ When AUR packaging is refreshed, it should match this service layout:
 | Component | Port / path |
 |---|---|
 | GAIA | desktop AppImage + `~/.gaia/venv/bin/gaia` |
-| Lemonade | `http://127.0.0.1:13305/v1` |
+| Lemonade | `http://127.0.0.1:13305/api/v1` or `/v1` |
 | FastFlowLM | `http://127.0.0.1:52625/v1` |
-| 1bit proxy | `http://127.0.0.1:13306/v1` |
+| 1bit proxy | `http://127.0.0.1:13306/api/v1` or `/v1` |
 | Open WebUI | `http://127.0.0.1:3000` |
 | systemd | `1bit-stack.target` |
 

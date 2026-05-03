@@ -21,9 +21,12 @@ The site is deliberately simple: vanilla HTML/CSS/JS, no framework, no CDN, no a
 Current public architecture:
 
 ```text
-GAIA -> 1bit-proxy :13306/v1 -> Lemonade :13305/v1
-                              -> FastFlowLM :52625/v1
+Apps / SDKs -> 1bit-proxy :13306/v1 or :13306/api/v1
+                 -> Lemonade :13305/api/v1
+                 -> FastFlowLM :52625/v1
+
 Open WebUI :3000 -> 1bit-proxy :13306/v1
+Control plane    -> 1bit CLI + GAIA + systemd target
 ```
 
 ## Local Preview
@@ -64,4 +67,6 @@ The custom domain `1bit.systems` is bound to the `main` branch in Cloudflare Pag
 - Keep it static.
 - Keep copy aligned with `README.md`.
 - Do not publish local inference ports as internet-accessible services.
-- Keep GAIA primary, Lemonade canonical, FLM on `:52625`, proxy on `:13306`, Open WebUI secondary.
+- Keep the inference endpoint contract primary.
+- Keep the single control plane secondary: `1bit` CLI, GAIA, Open WebUI, and systemd.
+- Keep Lemonade canonical, FLM on `:52625`, proxy on `:13306`, Open WebUI secondary.
