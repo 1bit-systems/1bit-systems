@@ -134,9 +134,9 @@
 <div class="wrap">
 
   <header class="hero">
-    <p class="eyebrow">v0.2 &middot; Strix Halo &middot; gfx1151 + XDNA 2</p>
+    <p class="eyebrow">Strix Halo &middot; gfx1151 + XDNA 2 &middot; GAIA first</p>
     <div class="lockup"><b>1</b>bit<span class="dot">.</span>systems</div>
-    <p class="tagline">A 1-bit inference engine for AMD Strix Halo. We pack and serve the models — bring your own client.</p>
+    <p class="tagline">Local AMD AI control plane: GAIA on top, Lemonade as the canonical OpenAI/OmniRouter server, FastFlowLM on the NPU, and this union endpoint for clients.</p>
   </header>
 
   <section>
@@ -144,17 +144,17 @@
     <div class="launchers">
       <a class="launcher" href="http://127.0.0.1:13305/" target="_blank" rel="noopener">
         <h3>Lemonade</h3>
-        <div class="sub">Native UI · model manager · GPU + all backends</div>
+        <div class="sub">Canonical OpenAI + multimodal + OmniRouter</div>
         <div class="url">127.0.0.1:13305</div>
       </a>
       <a class="launcher" id="gaia-card" href="gaia://launch" rel="noopener">
         <h3>GAIA</h3>
-        <div class="sub">AMD's local desktop AI agent</div>
+        <div class="sub">Primary AMD local agent UI/control layer</div>
         <div class="install" id="gaia-status">Checking…</div>
       </a>
       <a class="launcher" id="webui-card" href="http://127.0.0.1:3000/" target="_blank" rel="noopener">
         <h3>Open WebUI</h3>
-        <div class="sub">Browser chat with full features</div>
+        <div class="sub">Secondary browser UI pointed at :13306/v1</div>
         <div class="install" id="webui-status">Checking…</div>
       </a>
     </div>
@@ -331,12 +331,10 @@ async function checkLauncherAvailability() {
     document.getElementById('webui-status').textContent = 'Not running. docker run open-webui ...';
     card.removeAttribute('href');
   }
-  // GAIA can't be probed from the browser. Card href is gaia://launch — that
-  // launches the locally-installed AppImage if install.sh registered the
-  // x-scheme-handler/gaia handler. If not registered, the browser shows its
-  // standard "no handler" prompt; the hint here links to the install page.
+  // GAIA can't be reliably probed from this browser page because its UI port
+  // is dynamic. Use `1bit gaia status` for exact process and port details.
   const status = document.getElementById('gaia-status');
-  status.textContent = 'Click to launch · not installed? ';
+  status.textContent = 'Primary UI · check with 1bit gaia status · ';
   const link = document.createElement('a');
   link.href = 'https://amd-gaia.ai';
   link.target = '_blank';

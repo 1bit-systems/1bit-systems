@@ -3,22 +3,22 @@
 pkgname=1bit-systems-git
 _pkgname=1bit-systems
 pkgver=r0.0000000
-pkgrel=1
-pkgdesc='Lean unified 1-bit / sub-2-bit inference engine for AMD Strix Halo (Lemonade + FastFlowLM)'
+pkgrel=2
+pkgdesc='DEPRECATED packaging draft for 1bit-systems; use install.sh until AUR is refreshed'
 arch=('x86_64')
 url='https://1bit.systems'
 license=('MIT')
 
-# Runtime deps. Inference engine, NPU lane, iGPU stack — all pacman/AUR.
+# Deprecated packaging draft. The current canonical installer builds the
+# maintained Lemonade/FastFlowLM fork paths under /opt/1bit. Do not publish this
+# PKGBUILD to AUR until it is rewritten to match docs/aur.md.
 depends=(
-  'lemonade-server'        # AUR — OpenAI-compat server, recipe routing
-  'fastflowlm'             # cachyos-extra-znver4 — NPU runtime
   'xrt'                    # cachyos-extra-znver4 — Xilinx Runtime
   'xrt-plugin-amdxdna'     # cachyos-extra-znver4 — XDNA driver plugin
   'rocm-hip-sdk'           # extra — iGPU lane (gfx1151)
   'nodejs'                 # for /usr/share/1bit-systems/1bit-proxy.js
   'curl'                   # used by `1bit pull` and the model bootstrap
-  'python'                 # for the flm:npu version-pin patcher in install hook
+  'python'                 # for scripts/1bit-omni.py
 )
 
 makedepends=('git')
@@ -28,7 +28,6 @@ conflicts=("$_pkgname")
 
 source=("$_pkgname::git+https://github.com/bong-water-water-bong/1bit-systems.git#branch=main")
 sha256sums=('SKIP')
-install="${_pkgname}.install"
 
 pkgver() {
   cd "$srcdir/$_pkgname"

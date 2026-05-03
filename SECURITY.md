@@ -1,74 +1,51 @@
 # Security Policy
 
-## Supported versions
+## Supported Versions
 
-`1bit-systems` is pre-1.0. Only the tip of `main` is supported. Tagged
-releases (if any) are snapshots, not long-term support branches.
+`1bit-systems` is pre-1.0. Only the tip of `main` is supported. Tagged releases are snapshots, not long-term support branches.
 
-| branch / tag         | supported                |
-| -------------------- | ------------------------ |
-| `main`               | yes                      |
-| any tagged release   | best-effort, no backports |
+| Branch / tag | Supported |
+|---|---|
+| `main` | yes |
+| tagged releases | best effort, no backports |
 
-## Reporting a vulnerability
+## Reporting A Vulnerability
 
-**Do not open a public GitHub issue** for anything with a security
-impact. Instead, use GitHub's private vulnerability reporting:
+Do not open a public GitHub issue for anything with security impact. Use GitHub private vulnerability reporting:
 
-**→ [Report a vulnerability](https://github.com/bong-water-water-bong/1bit-systems/security/advisories/new)**
+https://github.com/bong-water-water-bong/1bit-systems/security/advisories/new
 
-Or email the maintainer directly. If the private-report button is
-unavailable, a minimal disclosure (problem, versions affected, proof of
-concept if you have one) is enough to start the conversation; we'll
-move the rest to a private channel.
-
-## What to expect
-
-- **Acknowledgement** within 72 hours of the report.
-- **Triage assessment** within 7 days (severity + reproducibility).
-- **Fix or public advisory** within 30 days for anything confirmed
-  high-severity; shorter for critical. If we need longer, we'll say so
-  with a reason.
-- **Credit** in the advisory if you want it, anonymous if you don't.
+If that path is unavailable, contact the maintainer directly with the affected version, proof of concept, and impact summary.
 
 ## Scope
 
-In scope: everything under this repository — the Rust workspace, the
-`rocm-cpp/` HIP kernels subtree, `strixhalo/` dotfiles, `install.sh`,
-and the Caddy / systemd integration examples.
+Current in-scope surfaces:
 
-Out of scope (report upstream):
+- `install.sh`, especially privileged writes under `/etc`, `/usr/local`, `/opt/1bit`, systemd, and memlock configuration.
+- `scripts/1bit`, including service control, GAIA launch/control, benchmark wrappers, and path discovery.
+- `scripts/1bit-proxy.js`, especially request routing, body limits, WebSocket upgrade handling, and LAN binding.
+- Lemonade configuration and backend/version wiring used by this stack.
+- FastFlowLM service flags and NPU runtime exposure on `:52625`.
+- GAIA and Open WebUI client configuration when pointed at `:13305`, `:13306`, or `:52625`.
+- `1bit-stack.target` and the service units for Lemonade, FLM, proxy, and Open WebUI.
+- The static Cloudflare Pages site, especially `install.sh` delivery and redirects.
 
-- `bun`, `lemonade-sdk`, `stable-diffusion.cpp`, `whisper.cpp`,
-  `kokoro.cpp` — all upstream projects with their own security policies.
-- Third-party clients (DSPy, Open WebUI, LibreChat) — upstream.
-- Hardware / firmware issues (AMD ROCm stack, kernel modules, XDNA2
-  driver) — report to AMD.
+Out of scope unless caused by this repo:
 
-## Known-sensitive areas
+- Upstream vulnerabilities in Lemonade, FastFlowLM, llama.cpp, stable-diffusion.cpp, Whisper, Kokoro, Open WebUI, GAIA, ROCm, XRT, `amdxdna`, or firmware.
+- Third-party OpenAI-compatible clients.
+- Model behavior, hallucinations, prompt injection in generated text, or unsafe completions.
 
-If you're looking for something to pick apart, these are worth a harder
-look than average:
+## Known-Sensitive Areas
 
-- **`/etc/caddy/Caddyfile` bearer-token check** — reverse-proxy surface
-  for `/v2/*`. Placeholder in `strixhalo/caddy/Caddyfile` is
-  `sk-halo-REPLACE_ME`; real tokens live only in the root-owned file.
-- **GGUF / `.h1b` loaders** — we `mmap` attacker-controlled files. Any
-  out-of-bounds read or integer-overflow in the parser is in scope.
-- **`1bit-mcp`** — stdio JSON-RPC bridge. Input comes from whatever is
-  calling the MCP server.
-- **`install.sh`** — curl-pipe-bash entrypoint. Served from CF Pages at
-  `1bit.systems/install.sh`. Any way to execute unintended code from it
-  is critical.
+- Local inference endpoints are unauthenticated by default. Do not expose `:13305`, `:13306`, `:52625`, `:3000`, GAIA API, or GAIA MCP to the internet without explicit authentication and TLS.
+- `1bit-proxy` accepts OpenAI-compatible bodies and forwards them to local services. Oversized body handling and model-based routing are security-relevant.
+- `install.sh` is a privileged bootstrap path. Any way to execute unintended code from the Cloudflare-hosted install script is critical.
+- GAIA mobile/local tunnel features can expose the local UI to the LAN. Treat the token and LAN route as sensitive.
 
-## What we don't treat as a vulnerability
+## What To Expect
 
-- **Out-of-memory on over-sized prompts.** `1bit-server` is a
-  single-tenant local service, not a public API. Rate-limiting is the
-  operator's job (Caddy layer).
-- **Model output.** Hallucinations, unsafe completions, prompt injection
-  in the generated text are model-behavior problems, not security bugs
-  — file them as regular issues.
-- **Tokens in your own dev logs.** `1bit-server` logs request metadata,
-  not bearers. If you're logging your own bearer to stdout, fix your
-  Caddyfile.
+- Acknowledgement within 72 hours.
+- Triage within 7 days.
+- Fix or advisory within 30 days for confirmed high severity issues, faster for critical issues when practical.
+- Credit in the advisory if requested.

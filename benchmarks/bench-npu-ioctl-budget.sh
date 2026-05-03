@@ -59,6 +59,7 @@ mkdir -p "$WORKDIR"
 # --- State management ------------------------------------------------------
 
 LEMOND_WAS_ACTIVE=0
+FLM_SERVICE_WAS_ACTIVE=0
 FLM_PID=""
 STRACE_PID=""
 
@@ -67,24 +68,35 @@ cleanup() {
     [[ -n "$FLM_PID" ]] && kill "$FLM_PID" 2>/dev/null || true
     sleep 1
     [[ -n "$FLM_PID" ]] && kill -9 "$FLM_PID" 2>/dev/null || true
+    if (( FLM_SERVICE_WAS_ACTIVE )); then
+        say "restoring flm.service (was active before probe)"
+        sudo systemctl start flm.service 2>&1 | head -2
+    fi
     if (( LEMOND_WAS_ACTIVE )); then
         say "restoring lemond.service (was active before probe)"
-        systemctl --user start lemond 2>&1 | head -2
+        sudo systemctl start lemond.service 2>&1 | head -2
     fi
 }
 trap cleanup EXIT
 
 # --- Main ------------------------------------------------------------------
 
-if systemctl --user is-active lemond >/dev/null 2>&1; then
+if systemctl is-active --quiet lemond.service; then
     LEMOND_WAS_ACTIVE=1
     say "stopping lemond.service to free the NPU for the probe"
-    systemctl --user stop lemond
+    sudo systemctl stop lemond.service
     sleep 2
 fi
 
-# Some boxes have a stale flm process — kill it first
-pkill -f "^flm serve" 2>/dev/null || true
+if systemctl is-active --quiet flm.service; then
+    FLM_SERVICE_WAS_ACTIVE=1
+    say "stopping flm.service so systemd does not race the probe server"
+    sudo systemctl stop flm.service
+    sleep 2
+fi
+
+# Some boxes have a stale non-systemd flm process — kill it first.
+pgrep -f "^flm serve" >/dev/null 2>&1 && pkill -f "^flm serve" 2>/dev/null || true
 sleep 1
 
 say "starting flm serve $MODEL on :$FLM_PORT"

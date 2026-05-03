@@ -1,86 +1,18 @@
-# Post-install hooks for 1bit-systems (AUR pkg).
-#
-# - On install / upgrade: patch Lemonade's strict-equality flm:npu pin in
-#   /usr/share/lemonade-server/resources/backend_versions.json so it matches
-#   the FastFlowLM version actually present on the box (the silent
-#   `update_required` gotcha — see /usr/share/doc/1bit-systems-git/README.md
-#   and the upstream docs/reddit-npu-gate.md for receipts).
-# - Also remind the user about the memlock re-login requirement.
-
 post_install() {
-  _patch_flm_pin
-  _print_postinstall
+  cat <<'MSG'
+==> 1bit-systems-git AUR packaging is currently deprecated.
+==> Use the repository install.sh for the supported GAIA + Lemonade + FastFlowLM stack.
+==> See docs/aur.md in the source repo before publishing this package.
+MSG
 }
 
 post_upgrade() {
-  _patch_flm_pin
-  cat <<'EOF'
-==> 1bit-systems upgraded.
-==> If lemonade-server was also upgraded, the flm:npu pin may have been
-==> reset to the manifest default. This hook re-applies the patch.
-EOF
+  post_install
 }
 
 post_remove() {
-  cat <<'EOF'
-==> 1bit-systems removed.
-==> /etc/security/limits.d/99-1bit-systems.conf was kept (other processes
-==> may rely on memlock=unlimited). Remove manually if you want it gone.
-EOF
-}
-
-_patch_flm_pin() {
-  local manifest=/usr/share/lemonade-server/resources/backend_versions.json
-  if [[ ! -f "$manifest" ]]; then
-    echo ":: Lemonade manifest $manifest not found — skipping flm:npu pin patch."
-    return 0
-  fi
-  if ! command -v flm >/dev/null 2>&1; then
-    echo ":: flm not on PATH — skipping flm:npu pin patch."
-    return 0
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    echo ":: python3 not found — skipping flm:npu pin patch."
-    return 0
-  fi
-  local installed pinned
-  installed=$(flm version 2>/dev/null | head -1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || true)
-  pinned=$(python3 -c "import json,sys; print(json.load(open('$manifest')).get('flm',{}).get('npu',''))" 2>/dev/null || true)
-  if [[ -z "$installed" || -z "$pinned" ]]; then
-    echo ":: could not read FLM versions (installed=$installed pinned=$pinned) — skipping pin patch"
-    return 0
-  fi
-  if [[ "$installed" == "$pinned" ]]; then
-    echo ":: flm:npu pin already matches installed FLM ($installed)"
-    return 0
-  fi
-  echo ":: bumping Lemonade flm:npu pin: $pinned → $installed"
-  python3 -c "
-import json
-p = '$manifest'
-m = json.load(open(p))
-m['flm']['npu'] = '$installed'
-json.dump(m, open(p, 'w'), indent=2)
-open(p, 'a').write('\n')
-" || echo ":: pin patch failed"
-}
-
-_print_postinstall() {
-  cat <<'EOF'
-
-==> 1bit-systems installed.
-
-    Re-login or reboot once so the memlock=unlimited limits in
-    /etc/security/limits.d/99-1bit-systems.conf apply for the NPU lane.
-
-    Quickstart:
-      1bit up                   # start lemond + open the web UI
-      1bit status               # health check
-      1bit pull qwen3:0.6b      # auto-route NPU/iGPU per model name
-
-    Site:    https://1bit.systems
-    GitHub:  https://github.com/bong-water-water-bong/1bit-systems
-    Issues:  https://github.com/bong-water-water-bong/1bit-systems/issues
-
-EOF
+  cat <<'MSG'
+==> /etc/security/limits.d/99-1bit-systems.conf may remain installed.
+==> Remove it manually only if no local AI runtime depends on unlimited memlock.
+MSG
 }

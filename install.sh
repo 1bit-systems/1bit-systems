@@ -110,9 +110,11 @@ install_packages() {
     # come from pacman.
     local base_pkgs=(
         # Build toolchain — needed to compile lemonade + flm from forks
-        cmake ninja base-devel rust nodejs npm github-cli git
+        cmake ninja base-devel rust nodejs npm github-cli git pkgconf
         # Lemonade C++ runtime deps (pkg-config visible)
         libwebsockets libcap libdrm openssl curl
+        # FLM optional engines (ASR + embeddings) and transitive native deps
+        boost ffmpeg fftw
         # GPU stack — kernel/HIP layer only; iGPU lanes (rocm/vulkan llama.cpp)
         # come from cachyos-extra-znver4 separately
         rocm-hip-sdk
@@ -260,62 +262,6 @@ EOF
     ok "memlock limits written — re-login or reboot for them to apply"
 }
 
-# OBSOLETE under the from-source/fork model. With both Lemonade and FLM built
-# from forks under bong-water-water-bong, version coherency is enforced at
-# build time (Lemonade's backend_versions.json ships pinned to whatever FLM
-# version we built alongside it). Kept as a no-op for backwards compat with
-# scripts that may still call it; will be removed in a future cleanup.
-patch_lemonade_flm_pin() {
-    ok "patch_lemonade_flm_pin: noop (versions coherent via from-source fork build)"
-    return 0
-}
-
-# Original AUR-era implementation (kept for reference, never executed):
-_unused_legacy_patch_lemonade_flm_pin() {
-    local manifest=/usr/share/lemonade-server/resources/backend_versions.json
-    if [[ ! -f "$manifest" ]]; then
-        if (( DRY_RUN )); then
-            warn "Lemonade manifest $manifest does not exist yet (would after install_packages); skipping pin probe"
-        else
-            warn "Lemonade manifest not at $manifest — skipping pin patch"
-        fi
-        return
-    fi
-    if ! command -v flm >/dev/null 2>&1; then
-        if (( DRY_RUN )); then
-            warn "flm not on PATH yet (would be after install_packages); skipping pin probe"
-        else
-            warn "flm not on PATH — skipping pin patch"
-        fi
-        return
-    fi
-    command -v python3 >/dev/null 2>&1 || { warn "python3 not found — skipping pin patch"; return; }
-    local installed pinned
-    installed=$(flm version 2>/dev/null | head -1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || true)
-    # Read flm.npu specifically (the manifest also has whispercpp.npu and others — never sed-replace blindly).
-    pinned=$(python3 -c "import json,sys; print(json.load(open('$manifest')).get('flm',{}).get('npu',''))" 2>/dev/null || true)
-    if [[ -z "$installed" || -z "$pinned" ]]; then
-        warn "Could not read FLM versions (installed=$installed pinned=$pinned) — skipping pin patch"
-        return
-    fi
-    if [[ "$installed" == "$pinned" ]]; then
-        ok "Lemonade flm:npu pin already matches installed FLM ($installed)"
-        return
-    fi
-    say "Bumping Lemonade flm:npu pin: $pinned → $installed"
-    # Edit the JSON via python (preserves structure; only touches flm.npu).
-    run sudo python3 -c "
-import json,sys
-p = '$manifest'
-m = json.load(open(p))
-m['flm']['npu'] = '$installed'
-json.dump(m, open(p,'w'), indent=2)
-open(p,'a').write('\n')
-"
-    ok "Lemonade flm:npu pin updated to $installed (restart lemond for it to take effect)"
-    warn "Future lemonade-server pacman updates will overwrite this — re-run install.sh."
-}
-
 # Patch ~/.cache/lemonade/config.json so lemond binds 0.0.0.0 even when started
 # directly (without `1bit up`'s explicit --host flag). Idempotent; skips if the
 # config doesn't exist yet (it's created on first lemond run).
@@ -414,7 +360,8 @@ User=bcloud
 Group=bcloud
 WorkingDirectory=/home/bcloud
 Environment=ONEBIT_NPU_MODEL=qwen3:1.7b
-ExecStart=/bin/bash -c '/usr/local/bin/flm serve "${ONEBIT_NPU_MODEL}"'
+Environment="ONEBIT_FLM_FLAGS=--port 52625 --embed 1 --socket 20 --q-len 20"
+ExecStart=/bin/bash -c '/usr/local/bin/flm serve "${ONEBIT_NPU_MODEL}" ${ONEBIT_FLM_FLAGS}'
 StandardOutput=append:/var/log/1bit-systems/flm.log
 StandardError=append:/var/log/1bit-systems/flm.log
 Restart=on-failure
@@ -455,6 +402,11 @@ Type=simple
 User=bcloud
 Group=bcloud
 WorkingDirectory=/home/bcloud
+Environment=WEBUI_NAME=1bit.systems
+Environment=OPENAI_API_BASE_URL=http://127.0.0.1:13306/v1
+Environment=OPENAI_API_KEY=local-no-auth
+Environment=ENABLE_OLLAMA_API=False
+Environment=WEBUI_AUTH=False
 ExecStart=/home/bcloud/.local/bin/open-webui serve --host 0.0.0.0 --port 3000
 StandardOutput=append:/var/log/1bit-systems/open-webui.log
 StandardError=append:/var/log/1bit-systems/open-webui.log
@@ -583,7 +535,6 @@ main() {
     install_packages
     build_install_forks
     write_memlock_limits
-    patch_lemonade_flm_pin
     configure_lemonade_lan_bind
     configure_ufw_lan
     install_cli

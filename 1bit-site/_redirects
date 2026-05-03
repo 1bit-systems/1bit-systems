@@ -25,8 +25,8 @@
 /docs                       /                         301!
 /docs/                      /                         301!
 /docs/index.html            /                         301!
-/docs/install.html          /#install-detailed        301!
-/docs/install               /#install-detailed        301!
+/docs/install.html          /#install                 301!
+/docs/install               /#install                 301!
 /docs/quickstart.html       /#quickstart              301!
 /docs/quickstart            /#quickstart              301!
 /docs/troubleshooting.html  /#troubleshooting         301!
@@ -39,10 +39,10 @@
 /docs/models                /#models-deep             301!
 /docs/api.html              /#api                     301!
 /docs/api                   /#api                     301!
-/docs/benchmarks.html       /#benchmarks-deep         301!
-/docs/benchmarks            /#benchmarks-deep         301!
-/docs/why.html              /#why                     301!
-/docs/why                   /#why                     301!
+/docs/benchmarks.html       /#bench                   301!
+/docs/benchmarks            /#bench                   301!
+/docs/why.html              /#stack                   301!
+/docs/why                   /#stack                   301!
 /docs/contributing.html     /#contributing            301!
 /docs/contributing          /#contributing            301!
 /docs/changelog.html        /#changelog               301!

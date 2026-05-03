@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0d1117">
-<title>1bit.systems &mdash; the 2-bit killer for AMD Strix Halo</title>
-<meta name="description" content="1bit.systems presents the 2-bit killer. 1-bit is the floor (Bonsai-1.7B IQ1_S at ~280 tok/s). Sub-2-bit MoE is the daily driver (Qwen3.5-35B-A3B IQ2_XXS at ~73 tok/s, half the disk). OpenAI-compat on :13305.">
-<meta property="og:title" content="1bit.systems &mdash; the 2-bit killer for AMD Strix Halo">
-<meta property="og:description" content="1-bit is the floor; sub-2-bit MoE is the daily driver. Bonsai-1.7B IQ1_S ~280 tok/s, Qwen3.5-35B-A3B IQ2_XXS ~73 tok/s at half the disk. OpenAI-compat on :13305.">
+<title>1bit.systems - GAIA + Lemonade + FastFlowLM on AMD Strix Halo</title>
+<meta name="description" content="1bit.systems is a local AMD Strix Halo AI stack: GAIA as the agent UI, Lemonade as the canonical OpenAI and OmniRouter server, FastFlowLM on XDNA NPU, and one optional union endpoint on :13306.">
+<meta property="og:title" content="1bit.systems">
+<meta property="og:description" content="GAIA agent UI, Lemonade OmniRouter, FastFlowLM XDNA NPU, OpenAI-compatible local control plane for AMD Strix Halo.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://1bit.systems/">
 <meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
@@ -15,7 +15,7 @@
 <meta name="twitter:image" content="https://1bit.systems/assets/logo.png">
 <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
 <link rel="apple-touch-icon" href="/assets/logo.png">
-<link rel="stylesheet" href="/assets/style.css?v=20260501">
+<link rel="stylesheet" href="/assets/style.css?v=20260503">
 <link rel="stylesheet" href="/assets/copy-code.css?v=20260427">
 <script src="/assets/copy-code.js?v=20260427" defer></script>
 </head>
@@ -27,9 +27,10 @@
     <span><b>1</b>bit<span class="dot">.</span>systems</span>
   </a>
   <nav>
+    <a href="#stack">stack</a>
     <a href="#install">install</a>
-    <a href="#bench">bench</a>
     <a href="#api">api</a>
+    <a href="#bench">bench</a>
     <a href="#apps">apps</a>
     <a class="gh-btn" href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
   </nav>
@@ -38,393 +39,180 @@
 <button id="side-toggle" class="side-toggle" type="button" aria-label="Toggle navigation">menu</button>
 
 <div class="page-shell">
-
 <aside class="page-side" aria-label="Site navigation">
   <nav class="side-nav">
-    <h4>Overview</h4>
+    <h4>Run</h4>
     <a href="#pitch" data-anchor="pitch">Pitch</a>
-    <a href="#what" data-anchor="what">What this is</a>
-    <a href="#lanes" data-anchor="lanes">Three lanes</a>
-
-    <h4>Models</h4>
-    <a href="#coverage" data-anchor="coverage">Model coverage</a>
-
-    <h4>Numbers</h4>
-    <a href="#bench" data-anchor="bench">Bench results</a>
-    <a href="#hardware" data-anchor="hardware">Hardware</a>
-
-    <h4>Run it</h4>
+    <a href="#stack" data-anchor="stack">Stack</a>
     <a href="#install" data-anchor="install">Install</a>
-    <a href="#install-detailed" data-anchor="install-detailed">Install paths (Ubuntu / Distrobox / Native)</a>
-    <a href="#sixty-second" data-anchor="sixty-second">60-second 1-bit</a>
     <a href="#quickstart" data-anchor="quickstart">Quickstart</a>
-    <a href="#api" data-anchor="api">OpenAI API</a>
-    <a href="#apps" data-anchor="apps">Compatible apps</a>
-
-    <h4>Project</h4>
-    <a href="#status" data-anchor="status">Status</a>
+    <a href="#api" data-anchor="api">API</a>
+    <h4>Operate</h4>
+    <a href="#apps" data-anchor="apps">Apps</a>
+    <a href="#bench" data-anchor="bench">Bench</a>
+    <a href="#troubleshooting" data-anchor="troubleshooting">Troubleshooting</a>
     <a href="#contributing" data-anchor="contributing">Contributing</a>
   </nav>
 </aside>
 
 <main class="page-main">
 
-  <section id="pitch" class="hero">
-    <img class="hero-lockup" src="/assets/brand-lockup.svg" alt="1bit.systems">
-    <p class="eyebrow">v0.2 &middot; Strix Halo &middot; gfx1151 + XDNA 2</p>
-    <h1>
-      <span>1bit.systems &mdash; <span class="accent">the 2-bit killer</span>.</span>
-      <span>1-bit is the floor. Sub-2-bit MoE is what you'll keep open all day.</span>
-    </h1>
-    <p class="lede">
-      Built on upstream Lemonade Server and FastFlowLM. OpenAI-compatible endpoint on <code>:13305</code>. Bonsai-1.7B at IQ1_S decodes <b>~280 tok/s</b> as the floor; Qwen3.5-35B-A3B at IQ2_XXS holds <b>~73 tok/s</b> at half the disk of the Q4_K_XL baseline. Bring your own client.
-    </p>
-    <div class="hero-cta">
-      <a class="btn" href="#install">Install</a>
-      <a class="btn ghost" href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
-    </div>
-  </section>
+<section id="pitch" class="hero">
+  <img class="hero-lockup" src="/assets/brand-lockup.svg" alt="1bit.systems">
+  <p class="eyebrow">AMD Strix Halo · gfx1151 + XDNA 2 · GAIA first</p>
+  <h1>
+    <span>1bit.systems is the local AI control plane for Ryzen AI.</span>
+    <span>GAIA drives it. Lemonade routes it. FastFlowLM lights up the NPU.</span>
+  </h1>
+  <p class="lede">
+    The public shape is simple: use GAIA as the primary agent UI, Lemonade as the canonical OpenAI-compatible multimodal and OmniRouter server on <code>:13305</code>, FastFlowLM as the XDNA NPU runtime on <code>:52625</code>, and <code>1bit-proxy</code> on <code>:13306</code> when a client wants both lanes behind one OpenAI base URL.
+  </p>
+  <div class="hero-cta">
+    <a class="btn" href="#install">Install</a>
+    <a class="btn ghost" href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
+  </div>
+</section>
 
-  <section id="what" class="pillars" data-mark="01 / WHAT">
-    <h2>What this is</h2>
-    <div class="pillar-grid">
-      <div class="pillar"><h3>One install script</h3><p>Bash. Installs <code>lemonade-server</code>, <code>fastflowlm</code>, <code>xrt</code>, <code>amdxdna</code>, ROCm. Writes memlock limits. Pulls a default 1-bit model. Idempotent.</p></div>
-      <div class="pillar"><h3>One control CLI</h3><p><code>1bit up</code>, <code>1bit status</code>, <code>1bit pull</code>, <code>1bit bench</code>. ~120 lines of bash. That's the whole product surface.</p></div>
-      <div class="pillar"><h3>One OpenAI endpoint</h3><p><code>http://127.0.0.1:13305/v1/*</code>. Works with any client that speaks OpenAI &mdash; AMD GAIA, Open WebUI, Continue, raw <code>curl</code>. We don't ship UI.</p></div>
-      <div class="pillar"><h3>Three lanes, one shape</h3><p>ROCm + Vulkan llama.cpp on the iGPU; FastFlowLM on the XDNA 2 NPU. All three speak OpenAI. Pick the lane per workload.</p></div>
-    </div>
-  </section>
+<section id="stack" class="pillars" data-mark="01 / STACK">
+  <h2>Current stack</h2>
+  <p class="note">A clean local stack following the upstream docs for GAIA, Lemonade, and FastFlowLM, with a small proxy where local clients need one endpoint.</p>
+  <div class="pillar-grid">
+    <div class="pillar"><h3>GAIA</h3><p>Primary agent UI and control layer. Local AppImage launches <code>gaia chat --ui</code>; the CLI also exposes GAIA API and MCP controls.</p></div>
+    <div class="pillar"><h3>Lemonade</h3><p>Canonical OpenAI-compatible multimodal server and OmniRouter source of truth on <code>http://127.0.0.1:13305/v1</code>.</p></div>
+    <div class="pillar"><h3>FastFlowLM</h3><p>XDNA NPU runtime on <code>http://127.0.0.1:52625/v1</code>, serving FLM chat models and the local embedding side lane.</p></div>
+    <div class="pillar"><h3>1bit proxy</h3><p>Convenience union endpoint on <code>http://127.0.0.1:13306/v1</code>. Lemonade remains default; FLM receives targeted model families.</p></div>
+    <div class="pillar"><h3>Open WebUI</h3><p>Secondary browser UI on <code>:3000</code>, pointed at the union endpoint by the systemd unit.</p></div>
+    <div class="pillar"><h3>systemd</h3><p><code>1bit-stack.target</code> owns Lemonade, FLM, proxy, and Open WebUI. GAIA is desktop autostart/AppImage.</p></div>
+  </div>
+</section>
 
-  <section id="lanes" class="pillars" data-mark="02 / LANES">
-    <h2>Three lanes</h2>
-    <p class="note">Each lane is a swap-in inference backend behind the same wire shape.</p>
-    <div class="pillar-grid">
-      <div class="pillar"><h3>GPU &middot; ROCm</h3><p>llama.cpp HIP, prebuilt for <code>gfx1151</code> by Lemonade. Strong prefill. Quants: Q4_K_M, Q2_K, IQ1_S, TQ1_0, TQ2_0.</p></div>
-      <div class="pillar"><h3>GPU &middot; Vulkan</h3><p>llama.cpp Vulkan. <b>Best decode</b> on sub-2-bit quants today &mdash; mainline IQ1_S compute shaders win on Strix Halo.</p></div>
-      <div class="pillar"><h3>NPU &middot; XDNA 2</h3><p>FastFlowLM. UINT4-AWQ / q4nx models pre-compiled by AMD. Low-power inference, runs <em>in parallel</em> with the iGPU.</p></div>
-    </div>
-  </section>
-
-  <section id="coverage" class="doc-section" data-mark="03 / MODELS">
-    <h2>Model coverage</h2>
-    <p class="note">The honest pitch: <b>1-bit where it works. Best-quant-available where it doesn't. Same OpenAI endpoint either way.</b></p>
-
-    <h3 class="subhead">Where 1-bit / ternary works today</h3>
-    <div class="scroll-x">
-    <table class="data-table">
-      <thead><tr><th>Aspect</th><th>Models</th><th>Quant</th><th>Notes</th></tr></thead>
-      <tbody>
-        <tr class="flagship"><td>General chat &middot; small</td><td>Bonsai-1.7B</td><td>IQ1_S (385 MB)</td><td>Fastest decode in the pile (269 tok/s on Vulkan).</td></tr>
-        <tr><td>General chat &middot; mid</td><td>Bonsai-4B</td><td>IQ1_S (872 MB)</td><td>141 tok/s decode.</td></tr>
-        <tr><td>General chat &middot; large</td><td>Bonsai-8B</td><td>IQ1_S (1.8 GB)</td><td>90 tok/s decode.</td></tr>
-        <tr><td>Pure ternary (BitNet)</td><td>BitNet b1.58 3B / large</td><td>TQ2_0</td><td>Microsoft reference architecture, gianni-cor requants.</td></tr>
-        <tr><td>Ternary alt</td><td>TriLM-3.9B, Outlier-10B-V2, superkaiii-Bonsai-4B</td><td>TQ1_0 / TQ2_0</td><td>Native ternary GGUF format (PR #8151 lineage).</td></tr>
-        <tr><td>Tiny / draft</td><td>Bitnet-SmolLM-135M</td><td>Q2_K</td><td>Fast autocomplete + draft model.</td></tr>
-      </tbody>
-      <caption>Run <code>1bit bench</code> to sweep this whole pile. Sources documented in <code>benchmarks/bench-1bit-pile.sh</code>.</caption>
-    </table>
-    </div>
-
-    <h3 class="subhead">Where 1-bit doesn't exist yet (use best-quant-available)</h3>
-    <div class="scroll-x">
-    <table class="data-table">
-      <thead><tr><th>Aspect</th><th>1-bit option?</th><th>Lean answer (same endpoint)</th></tr></thead>
-      <tbody>
-        <tr><td>Code (autocomplete / chat)</td><td>not viable yet</td><td>Qwen2.5-Coder or DeepSeek-Coder at <b>Q4_K_M</b>. Different quant, same OpenAI shape.</td></tr>
-        <tr><td>Reasoning / thinking</td><td>not viable yet</td><td>R1-distill at <b>Q4_K_M</b> works fine on the iGPU.</td></tr>
-        <tr><td>Vision (VLM)</td><td>not viable yet</td><td>Qwen2.5-VL or LLaVA at <b>Q4</b>. Multimodal models don't ternary-quant well today.</td></tr>
-        <tr><td>Embeddings</td><td>not viable yet</td><td>nomic-embed at <b>FP16</b>, ~262 MB. Embedding models are small enough that quant savings barely matter.</td></tr>
-        <tr><td>STT / TTS</td><td>n/a (different model class)</td><td>whisper.cpp + kokoro on the side. Lean separation.</td></tr>
-        <tr><td>NPU lane (XDNA 2)</td><td>UINT4-AWQ &middot; q4nx</td><td>AMD's pre-compiled NPU pile via FastFlowLM: qwen3 0.6/1.7/4/8B, gemma3 1B/4B, phi4-mini, lfm2, llama3.2 1B/3B, deepseek-r1:8b, gpt-oss:20b. Different quant family, parallel to GPU.</td></tr>
-      </tbody>
-      <caption>1-bit is strongest for general chat &mdash; that's where the format wins. Other modalities lean on whatever quant works best for their model class. The wire shape stays OpenAI on <code>:13305</code> regardless.</caption>
-    </table>
-    </div>
-    <p class="note" style="margin-top:1rem">The pitch: <b>1-bit where it wins, best-quant-available where it doesn't.</b> The endpoint loads any GGUF, dispatches by recipe, exposes OpenAI.</p>
-  </section>
-
-  <section id="bench" class="numbers" data-mark="04 / BENCH">
-    <h2>Bench results</h2>
-    <p class="note">Captured 2026-04-27 on the reference Strix Halo box (Radeon 8060S, gfx1151, 128 GB LPDDR5x). <code>llama-bench -p 512 -n 128 -r 2 -ngl 99</code>. Stock upstream Lemonade binaries &mdash; no in-tree kernel mods.</p>
-    <div class="scroll-x">
-    <table class="data-table">
-      <thead><tr><th>Model</th><th>Backend</th><th>Quant</th><th>Size</th><th>pp512 (tok/s)</th><th>tg128 (tok/s)</th></tr></thead>
-      <tbody>
-        <tr class="flagship"><td>Bonsai-1.7B</td><td>Vulkan</td><td>IQ1_S</td><td class="num">385 MB</td><td class="num tok">4834</td><td class="num tok">269</td></tr>
-        <tr><td>Bonsai-4B</td><td>Vulkan</td><td>IQ1_S</td><td class="num">873 MB</td><td class="num tok">1962</td><td class="num tok">141</td></tr>
-        <tr><td>Bonsai-8B</td><td>Vulkan</td><td>IQ1_S</td><td class="num">1.8 GB</td><td class="num tok">1116</td><td class="num tok">90</td></tr>
-        <tr><td>Bonsai-1.7B</td><td>ROCm</td><td>IQ1_S</td><td class="num">385 MB</td><td class="num tok">4481</td><td class="num tok">194</td></tr>
-        <tr><td>Qwen3-0.6B</td><td>NPU (FLM)</td><td>q4nx</td><td class="num">652 MB</td><td class="num tok">49 (prefill)</td><td class="num tok">92</td></tr>
-      </tbody>
-      <caption>Three real lanes on stock upstream binaries. Vulkan IQ1_S takes the decode crown on Strix Halo.</caption>
-    </table>
-    </div>
-    <p class="note" style="margin-top:1rem">Want more rows? <code>1bit bench</code> sweeps the full ternary / sub-2-bit pile (Bonsai 1.7/4/8B, TriLM, Outlier, BitNet b1.58, SmolLM). Reproducible: <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/benchmarks/bench-1bit-pile.sh" rel="noopener"><code>benchmarks/bench-1bit-pile.sh</code></a>.</p>
-  </section>
-
-  <section id="hardware" class="pillars" data-mark="05 / HARDWARE">
-    <h2>Hardware</h2>
-    <p class="note">Built and tested on AMD Ryzen AI MAX+ 395 (Strix Halo). Verified second target: Ryzen 7 9800X3D + Radeon RX 9070 XT (RDNA 4 dGPU box, no NPU). Other gfx11/12 RDNA cards should work the same way.</p>
-    <div class="hw-grid">
-      <div class="hw-card"><h3>gfx1151 iGPU</h3><ul><li>RDNA 3.5, Radeon 8060S</li><li>256 GB/s LPDDR5x, 128 GB unified</li><li>ROCm 7.2 + Vulkan</li><li>Stock upstream llama.cpp via Lemonade</li></ul></div>
-      <div class="hw-card"><h3>XDNA 2 NPU</h3><ul><li>50 TOPS, AIE2P tile array</li><li>FastFlowLM runtime</li><li>Pre-compiled UINT4-AWQ models</li></ul></div>
-      <div class="hw-card"><h3>gfx1201 dGPU</h3><ul><li>RDNA 4, Radeon RX 9070 XT</li><li>16 GB GDDR6, ~640 GB/s</li><li>llamacpp:vulkan (auto-pick)</li><li>Bonsai 1-bit at <b>413 tok/s</b></li><li>Qwen3.5-35B IQ2_XXS at <b>131 tok/s</b></li></ul></div>
-      <div class="hw-card"><h3>Future: drop-in NPU</h3><ul><li><b>Axelera Metis-B</b> 16 GB / 214 TOPS</li><li>PCIe add-in, fits a dGPU box</li><li>Closes lane matrix on non-Strix systems</li><li>Pending the 16 GB variant ship</li></ul></div>
-    </div>
-    <p class="muted">→ <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/benchmarks/RESULTS-9070xt-2026-04-28.md">9070 XT bench file</a> — full Bonsai sweep + 35B daily-driver numbers.</p>
-  </section>
-
-  <section id="install" class="install" data-mark="06 / INSTALL">
-    <h2>Install</h2>
-    <p class="note">CachyOS / Arch on Strix Halo. One script. Idempotent.</p>
-
-    <h3 style="margin-top:1rem">Step 0 &mdash; prerequisites</h3>
-    <p class="muted">A clean CachyOS / Arch base ships <em>most</em> of these, but a minimal install can be missing some. Run once before cloning:</p>
-    <pre><code>sudo pacman -Syu                                  # fully update first
-sudo pacman -S --needed git base-devel paru curl  # git for clone, base-devel for AUR builds,
-                                                  # paru for the AUR lemonade-server package,
-                                                  # curl for the model pull</code></pre>
-    <p class="muted">You'll also need:</p>
-    <ul class="install-bullets">
-      <li>A user with <b><code>sudo</code> privileges</b> &mdash; the installer writes <code>/etc/security/limits.d/99-1bit-systems.conf</code> and patches Lemonade's manifest under <code>/usr/share/</code>.</li>
-      <li>A <b>Strix Halo</b> APU (<code>gfx1151</code> iGPU + XDNA 2 NPU). Other Ryzen AI gens (XDNA 1 &mdash; 7000 / 8000 / 200-series) will install but the <code>flm:npu</code> lane won't light up.</li>
-      <li>A modern kernel with <b>in-tree <code>amdxdna</code></b> &mdash; Linux 7.0+ ships it. CachyOS 7.0.x and Arch's mainline <code>linux</code> are good. For older kernels (6.18 / 6.19) install <code>paru -S amdxdna-dkms</code> first.</li>
-      <li><b>~70 GB free</b> on <code>/home</code> &mdash; covers the default 1-bit Bonsai pull and headroom for the 35B IQ2_XXS daily driver alongside it.</li>
-    </ul>
-
-    <h3 style="margin-top:1.25rem">Step 1 &mdash; clone + run</h3>
-    <pre><code>git clone https://github.com/bong-water-water-bong/1bit-systems
+<section id="install" class="install" data-mark="02 / INSTALL">
+  <h2>Install</h2>
+  <p class="note">Source install builds and wires the forked Lemonade/FastFlowLM paths instead of relying on stale upstream application packages.</p>
+  <pre><code>git clone https://github.com/bong-water-water-bong/1bit-systems
 cd 1bit-systems
-./install.sh                 # actually install
-./install.sh --dry-run       # preview every action without mutating</code></pre>
-    <p class="muted">Installs <code>lemonade-server</code>, <code>fastflowlm</code>, <code>xrt</code>, <code>xrt-plugin-amdxdna</code>, <code>rocm-hip-sdk</code>. Writes memlock limits. Auto-patches Lemonade's <code>flm:npu</code> version pin to match your installed FastFlowLM (the silent <code>update_required</code> gotcha). Pulls the default 1-bit model (Bonsai-1.7B-IQ1_S, 385&nbsp;MB). Installs the <code>1bit</code> CLI to <code>/usr/local/bin/</code>.</p>
-    <p class="muted">After first install: re-login or reboot once so the memlock limits apply for the NPU lane.</p>
+./install.sh
 
-  </section>
+# after first install, re-login or reboot so memlock limits apply
+1bit up
+1bit status</code></pre>
+  <p class="muted">The installer writes the CLI, systemd units, Open WebUI configuration, memlock limits, and local service defaults. Lemonade and FastFlowLM are built from maintained fork sources under <code>/opt/1bit</code>.</p>
+</section>
 
-  <section id="install-detailed" class="doc-section" data-mark="07 / PATHS">
-    <h2>Install paths — what AMD says vs what actually works</h2>
-    <p class="note">AMD's docs say "Ubuntu 24.04 only." That's accurate for <em>one</em> of two AMD-built stacks on Strix Halo. We tested all three install routes; they don't give you the same thing. Pick the one that matches what you need.</p>
+<section id="quickstart" class="doc-section" data-mark="03 / QUICKSTART">
+  <h2>Quickstart</h2>
+  <div class="scroll-x">
+  <table class="data-table">
+    <thead><tr><th>Check</th><th>Command</th><th>Expected</th></tr></thead>
+    <tbody>
+      <tr><td>Stack</td><td><code>1bit status</code></td><td>Lemonade <code>:13305</code>, FLM <code>:52625</code>, proxy <code>:13306</code>, GAIA UI running.</td></tr>
+      <tr><td>Lemonade</td><td><code>curl http://127.0.0.1:13305/v1/models</code></td><td>Canonical OpenAI model list.</td></tr>
+      <tr><td>Union</td><td><code>curl http://127.0.0.1:13306/v1/models</code></td><td>Lemonade plus FLM model list.</td></tr>
+      <tr><td>GAIA</td><td><code>1bit gaia status</code></td><td>AppImage path, venv CLI, and current local UI port.</td></tr>
+      <tr><td>Open WebUI</td><td><code>1bit webui status</code></td><td>Secondary UI on <code>http://127.0.0.1:3000</code>.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
 
-    <h3 style="margin-top:1.25rem">The two stacks</h3>
-    <table class="bench">
-      <thead>
-        <tr><th>Stack</th><th>Runs</th><th>License</th><th>Distribution</th></tr>
-      </thead>
-      <tbody>
-        <tr><td><b>Ryzen AI 1.7.1 EP</b> (closed)</td><td>AMD's 200+ AWQ/OGA HF checkpoints (<code>huggingface.co/amd/*_rai_1.7.1_npu_*</code>)</td><td>Closed</td><td><code>.deb</code>, Ubuntu 24.04 only, behind <code>account.amd.com</code></td></tr>
-        <tr><td><b>Lemonade Server + FastFlowLM</b> (open)</td><td>FLM's curated catalog (qwen3, gemma3, phi-4-mini, lfm2, llama-3.2, deepseek-r1, gpt-oss)</td><td>MIT + Apache</td><td>AUR (Arch / CachyOS), installer (Ubuntu), Linux build everywhere</td></tr>
-      </tbody>
-    </table>
-    <p class="muted">The closed EP runs models the open stack can't. The open stack runs on distros the closed EP can't. <b>Neither is a superset.</b></p>
+<section id="api" class="doc-section" data-mark="04 / API">
+  <h2>API surface</h2>
+  <p class="note">Pick the base URL based on what you want the client to control.</p>
+  <pre><code># Recommended for GAIA/Open WebUI/clients that want both lanes
+http://127.0.0.1:13306/v1
 
-    <h3 style="margin-top:1.25rem">Three install paths</h3>
+# GAIA CLI style base URL
+http://127.0.0.1:13306/api/v1
 
-    <h4 style="margin-top:1rem">Path A &mdash; Ubuntu 24.04 native (both stacks)</h4>
-    <p class="muted">AMD's <code>.deb</code> bundles install cleanly. The <code>xrt_plugin-amdxdna 2.21.260102.53</code> kernel module DKMS-builds against Ubuntu's stock kernel. Closed EP runs the AWQ/OGA models. Lemonade + FLM also works alongside.</p>
-    <p class="muted"><b>Trade-off:</b> you have to run Ubuntu.</p>
-    <p class="muted">&rarr; <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/INSTALL.md#path-a--ubuntu-2404-detailed-runbook">Detailed step-by-step runbook (10 steps) on GitHub</a></p>
+# Lemonade direct: canonical multimodal + OmniRouter
+http://127.0.0.1:13305/v1
 
-    <h4 style="margin-top:1rem">Path B &mdash; Distrobox on a non-Ubuntu host</h4>
-    <p class="muted">Looks tempting. <b>Mostly doesn't work for the closed EP.</b> Tested on CachyOS host (kernel <code>7.0.2-1-cachyos</code>) &rarr; Ubuntu 24.04 distrobox container with NPU passthrough:</p>
-    <ul class="install-bullets">
-      <li>&#x2705; <code>xrt-smi examine</code> sees the NPU through <code>/dev/accel/accel0</code></li>
-      <li>&#x2705; AMD's <code>quicktest.py</code> (basic ONNX via <code>VitisAIExecutionProvider</code>) passes</li>
-      <li>&#x274C; <code>onnxruntime-genai-ryzenai</code> LLM init fails with <code>Generic Failure</code></li>
-    </ul>
-    <p class="muted">Cause: the strict <code>RyzenAI</code> provider checks something the AMD-shipped kernel module exposes that the in-tree <code>amdxdna</code> doesn't. Distrobox passes the device through; it cannot give the container its own kernel module.</p>
-    <p class="muted"><b>Trade-off:</b> distrobox gets you 80% of the way and falls down at the actual LLM workload. If you want the closed EP, you're booting Ubuntu 24.04 native.</p>
-    <p class="muted">&rarr; <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/INSTALL.md#path-b--distrobox-detailed-runbook">Detailed runbook + failure-mode trace on GitHub</a></p>
+# FastFlowLM direct: NPU runtime
+http://127.0.0.1:52625/v1</code></pre>
+  <p>Use Lemonade direct for pure OmniRouter work. Use the proxy when one OpenAI-compatible client should see Lemonade plus FLM chat, embeddings, and opt-in FLM ASR routing.</p>
+</section>
 
-    <h4 style="margin-top:1rem">Path C &mdash; Native non-Ubuntu (Arch / CachyOS / Fedora / &hellip;)</h4>
-    <p class="muted">Lemonade + FastFlowLM works directly on the host. No container, no DKMS for closed-EP modules. The in-tree <code>amdxdna</code> (kernel 7+) or <code>xrt-amdxdna</code> DKMS (kernel 6.x) is enough. <b>This is what this repo installs</b> (<a href="#install">see Install above</a>). All four lanes light up:</p>
-    <table class="bench">
-      <thead><tr><th>Lane</th><th>Backend</th><th>Recipe</th></tr></thead>
-      <tbody>
-        <tr><td>NPU (XDNA 2)</td><td>FastFlowLM</td><td><code>flm:npu</code></td></tr>
-        <tr><td>iGPU (gfx1151) &mdash; Vulkan</td><td>llama.cpp</td><td><code>llamacpp:vulkan</code></td></tr>
-        <tr><td>iGPU (gfx1151) &mdash; ROCm</td><td>llama.cpp</td><td><code>llamacpp:rocm</code></td></tr>
-        <tr><td>CPU (Zen 5)</td><td>llama.cpp</td><td><code>llamacpp:cpu</code></td></tr>
-      </tbody>
-    </table>
-    <p class="muted"><b>Trade-off:</b> no closed EP. AMD's 200+ AWQ/OGA checkpoints are downloadable but unrunnable on the NPU. FLM's catalog overlaps on the popular architectures.</p>
+<section id="apps" class="pillars" data-mark="05 / APPS">
+  <h2>Apps</h2>
+  <div class="pillar-grid">
+    <div class="pillar"><h3>GAIA Agent UI</h3><p>Primary UI. The local install lives at <code>~/Applications/gaia-agent-ui.AppImage</code> and <code>~/.gaia/venv/bin/gaia</code>.</p></div>
+    <div class="pillar"><h3>Open WebUI</h3><p>Secondary UI. The service exports <code>OPENAI_API_BASE_URL=http://127.0.0.1:13306/v1</code>.</p></div>
+    <div class="pillar"><h3>OpenAI clients</h3><p>Continue, AnythingLLM, Dify, n8n, and similar tools can use <code>:13306/v1</code> with any placeholder API key.</p></div>
+  </div>
+</section>
 
-    <h3 style="margin-top:1.25rem">Path C numbers (CachyOS, kernel 7.0.2)</h3>
-    <table class="bench">
-      <thead><tr><th>Model</th><th>Backend</th><th>Lane</th><th>Decode t/s</th><th>Prefill t/s</th><th>TTFT</th></tr></thead>
-      <tbody>
-        <tr><td><code>LFM2-1.2B-GGUF</code></td><td><code>llamacpp:rocm</code></td><td>iGPU</td><td>216.3</td><td>1366.5</td><td>~0</td></tr>
-        <tr><td><code>qwen3-0.6b-FLM</code></td><td><code>flm:npu</code></td><td>NPU</td><td>95.4</td><td>76.0</td><td>460&nbsp;ms</td></tr>
-        <tr><td><code>qwen3-1.7b-FLM</code></td><td><code>flm:npu</code></td><td>NPU</td><td>41.8</td><td>53.7</td><td>577&nbsp;ms</td></tr>
-        <tr><td><code>deepseek-r1-8b-FLM</code></td><td><code>flm:npu</code></td><td>NPU</td><td>11.3</td><td>14.7</td><td>1430&nbsp;ms</td></tr>
-      </tbody>
-    </table>
-    <p class="muted">iGPU is faster than NPU on these sizes. The NPU lane's value isn't peak tg &mdash; it's offloading the iGPU for ROCm bigger-model serving, lower power for background inference, and a unified <code>:13305</code> API where the request picks the silicon per model name.</p>
+<section id="bench" class="numbers" data-mark="06 / BENCH">
+  <h2>Bench results</h2>
+  <p class="note">Recent local runs on the reference Strix Halo box.</p>
+  <div class="scroll-x">
+  <table class="data-table">
+    <thead><tr><th>Benchmark</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td>NPU ioctl budget, <code>qwen3:0.6b</code></td><td>19 decoded tokens, 3879 ioctls, 204 ioctls/token, 96.3 decode tok/s. Passed threshold 250, warned above 200.</td></tr>
+      <tr><td>Bonsai 1.7B IQ1_S</td><td>~4828 prompt tok/s, ~284.7 gen tok/s.</td></tr>
+      <tr><td>Bonsai 4B IQ1_S</td><td>~1904 prompt tok/s, ~142.5 gen tok/s.</td></tr>
+      <tr><td>Bonsai 8B IQ1_S</td><td>~1058 prompt tok/s, ~90.8 gen tok/s.</td></tr>
+      <tr><td>Gianni BitNet 3B TQ2_0</td><td>~1796 prompt tok/s, ~76.1 gen tok/s.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
 
-    <h3 style="margin-top:1.25rem">What's still missing on Linux</h3>
-    <ul class="install-bullets">
-      <li><b>AWQ/OGA on non-Ubuntu</b> &mdash; needs an <code>xrt</code>-based EP equivalent of the closed <code>.so</code>. Doesn't exist publicly.</li>
-      <li><b>Brevitas in <code>optimum-amd</code></b> &mdash; &ldquo;Coming soon&rdquo; since 2024.</li>
-      <li><b>Diffusion + CLIP on NPU under Linux</b> &mdash; Windows-only.</li>
-      <li><b>BitNet on NPU</b> &mdash; research-tier; not shipped on any consumer NPU yet.</li>
-    </ul>
-    <p class="muted">&rarr; <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/INSTALL.md">Full <code>INSTALL.md</code> on GitHub</a> with detailed runbooks for Path A and Path B.</p>
-  </section>
+<section id="architecture-deep" class="doc-section" data-mark="07 / ARCHITECTURE">
+  <h2>Architecture</h2>
+  <pre><code>GAIA Agent UI
+  -> 1bit-proxy :13306/v1       optional union endpoint
+       -> Lemonade :13305/v1    canonical OpenAI + multimodal + OmniRouter
+       -> FastFlowLM :52625/v1  XDNA NPU chat + embeddings + opt-in ASR
 
-  <section id="sixty-second" class="doc-section" data-mark="08 / 60-SEC">
-    <h2>60-second 1-bit</h2>
-    <p class="note">Speed-to-running is the claim to fame. Pulled the model, asked it to write a haiku, got an answer, end-to-end through Lemonade's OpenAI endpoint on <code>:13305</code>. Measured 2026-04-28 on the production strixhalo box (Ryzen AI MAX+ 395 / gfx1151, 124&nbsp;GB LPDDR5x).</p>
+Open WebUI :3000 -> 1bit-proxy :13306/v1
+systemd target   -> lemond + flm + proxy + open-webui</code></pre>
+</section>
 
-    <pre><code># 1. one-time pull (385 MB at ~85 MB/s on the box ≈ 4-5 s)
-lemonade pull lilyanatia/Bonsai-1.7B-requantized:Bonsai-1.7B-IQ1_S.gguf
+<section id="models-deep" class="doc-section" data-mark="08 / MODELS">
+  <h2>Models</h2>
+  <p>Model policy is pragmatic: use 1-bit and ternary GGUF where they win on the iGPU, use sub-2-bit MoE for daily-driver chat, and use FLM's q4nx/AWQ model catalog for the XDNA NPU lane. Embeddings route to FLM when the model name uses the <code>embed-*</code> family.</p>
+</section>
 
-# 2. ask it for a haiku
-curl -s http://127.0.0.1:13305/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"user.Bonsai-1.7B-requantized-Bonsai-1.7B-IQ1_S.gguf",
-       "messages":[{"role":"user","content":"Write a haiku about local AI inference on a Strix Halo APU."}],
-       "max_tokens":80}'</code></pre>
+<section id="troubleshooting" class="doc-section" data-mark="09 / TROUBLESHOOTING">
+  <h2>Troubleshooting</h2>
+  <pre><code>1bit status
+systemctl status 1bit-stack.target
+systemctl status lemond.service flm.service 1bit-proxy.service open-webui.service
+journalctl -u lemond.service -n 80 --no-pager
+tail -80 /var/log/1bit-systems/flm.log
+tail -80 /var/log/1bit-systems/1bit-proxy.log
+1bit gaia logs</code></pre>
+  <p>Probe the actual ports before changing clients: Lemonade <code>:13305</code>, FLM <code>:52625</code>, proxy <code>:13306</code>, Open WebUI <code>:3000</code>, and the dynamic GAIA UI port shown by <code>1bit gaia status</code>.</p>
+</section>
 
-    <div class="result-card">
-      <p><b>Output (live, 1-bit Bonsai-1.7B at IQ1_S):</b></p>
-      <pre><code>In a world of code, I see
-Strix's power in the shadows,
-Inference's rhythm, a song.</code></pre>
-      <p><b>Numbers:</b></p>
-      <ul>
-        <li><b>Decode: 284 tok/s</b> (27 tokens / 95 ms)</li>
-        <li>Prefill: 119 tok/s (28 tokens)</li>
-        <li>Cold wall (model load + chat): <b>3.9 s</b></li>
-        <li>Model on disk: <b>385 MB</b></li>
-      </ul>
-      <p class="muted">1.7B params at sub-2-bit precision on an integrated GPU, behind the same OpenAI API you'd use for any other model. Upstream <code>llamacpp:rocm</code> on Lemonade.</p>
-    </div>
+<section id="faq" class="doc-section" data-mark="10 / FAQ">
+  <h2>FAQ</h2>
+  <h3>Is <code>:13306</code> the new Lemonade?</h3>
+  <p>No. Lemonade remains canonical on <code>:13305</code>. The proxy is a client convenience layer.</p>
+  <h3>Is the NPU shipping?</h3>
+  <p>Yes. FastFlowLM runs the XDNA NPU lane on <code>:52625</code>. It is useful for offload and parallelism, not just peak throughput.</p>
+  <h3>Should I expose this to the internet?</h3>
+  <p>No, not directly. These are local developer services. Put authentication, TLS, and explicit routing in front of anything remote.</p>
+</section>
 
-    <h3 style="margin-top:1.5rem">Bonsai numbers — full sweep</h3>
-    <p class="muted">Same model, same endpoint, varying prompt + max_tokens. Decode is steady across short and long requests; prefill scales with prompt length. Captured 2026-04-28.</p>
-    <table class="bench">
-      <thead>
-        <tr><th>Run</th><th>Prompt tok</th><th>Output tok</th><th>Prefill tok/s</th><th>Decode tok/s</th></tr>
-      </thead>
-      <tbody>
-        <tr><td>warm-up</td><td>11</td><td>50</td><td>853</td><td><b>275</b></td></tr>
-        <tr><td>tiny ("hi")</td><td>16</td><td>20</td><td>1235</td><td><b>281</b></td></tr>
-        <tr><td>haiku</td><td>1</td><td>62</td><td>256</td><td><b>274</b></td></tr>
-        <tr><td>100-word essay</td><td>21</td><td>200</td><td>1553</td><td><b>267</b></td></tr>
-        <tr><td>250-word essay</td><td>30</td><td>350</td><td>2192</td><td><b>261</b></td></tr>
-        <tr><td>500-word essay</td><td>31</td><td>700</td><td>2220</td><td><b>255</b></td></tr>
-      </tbody>
-    </table>
-    <p class="muted">Decode holds <b>255 — 281 tok/s</b> across the sweep. Prefill scales <b>853 &rarr; 2220 tok/s</b> from short to long prompts. Measured against <code>:13305</code> end-to-end (no warmup excluded), so these are honest API-level numbers, not isolated kernel benches. Cross-reference: the <a href="/docs/benchmarks.html#stack-green-2026-04-28">stack-green page</a> has llama-bench numbers from a separate run that match within noise (281.2 tok/s for the same checkpoint).</p>
+<section id="contributing" class="doc-section" data-mark="11 / CONTRIBUTING">
+  <h2>Contributing</h2>
+  <p>Keep changes aligned with the live stack: GAIA integration, Lemonade OpenAI/OmniRouter behavior, FastFlowLM NPU service flags, <code>1bit-proxy</code> routing, packaging parity, systemd lifecycle, and static site accuracy.</p>
+</section>
 
-    <h3 style="margin-top:1.5rem">The floor and the daily driver</h3>
-    <p class="muted">1-bit Bonsai-1.7B is the floor &mdash; raw decode, the receipt that sub-2-bit on this hardware is real. Most users won't run a 1.7B as their assistant. The <em>daily driver</em> is sub-2-bit on a real-sized model. Same hardware, same Lemonade endpoint, captured 2026-04-28 head-to-head:</p>
-    <table class="bench">
-      <thead>
-        <tr><th>Model</th><th>Quant</th><th>Bits/wt</th><th>Disk</th><th>Decode (med, 200 tok)</th><th>Decode (long, 350 tok)</th></tr>
-      </thead>
-      <tbody>
-        <tr><td><code>Qwen3.5-35B-A3B</code> (MoE) baseline</td><td>Q4_K_XL</td><td>~4.5</td><td>22 GB</td><td>54 tok/s</td><td>54 tok/s</td></tr>
-        <tr><td><code>Qwen3.5-35B-A3B</code> (MoE) sub-2-bit</td><td><b>IQ2_XXS</b></td><td><b>~2.0</b></td><td><b>11.5 GB</b></td><td><b>73 tok/s</b></td><td><b>73 tok/s</b></td></tr>
-        <tr><td colspan="3" style="text-align:right"><i>Δ sub-2-bit / baseline</i></td><td><b>0.52&times;</b></td><td><b>+35%</b></td><td><b>+35%</b></td></tr>
-      </tbody>
-    </table>
-    <p class="muted">Half the disk, ~35% faster decode, on a real 35B-class MoE that actually answers real questions. <b>Sub-2-bit on MoE is the sweet spot on this APU.</b> 1-bit is the headline (Bonsai above); 2-bit is what you'll keep open all day. <code>lemonade pull Manojb/Qwen3.5-35B-A3B-UD-IQ2_XXS.gguf</code> + <code>lemonade load Qwen3.5-35B-A3B-UD-IQ2_XXS.gguf-UD-IQ2_XXS</code> and you're there.</p>
-
-    <p class="muted">Want to watch the install run? <code>./install.sh --dry-run</code> prints every action it would take without mutating anything &mdash; recording at <a href="/assets/casts/install-dry-run.cast">/assets/casts/install-dry-run.cast</a> (load with <code>asciinema play &lt;url&gt;</code> locally).</p>
-  </section>
-
-  <section id="quickstart" class="doc-section" data-mark="09 / QUICKSTART">
-    <h2>Quickstart</h2>
-    <pre><code>1bit up
-# starts lemond on :13305
-# opens the lemonade webapp in your browser
-# launches AMD GAIA if it's installed
-
-1bit status
-# ✓ lemond: up at http://127.0.0.1:13305
-# ✓ flm:    serving
-# memlock limit: unlimited
-
-1bit pull qwen3:0.6b      # auto-routes to NPU (flm) or GPU (lemonade)
-1bit bench                # full sub-2-bit / ternary sweep
-1bit down                 # stop lemond</code></pre>
-  </section>
-
-  <section id="api" class="doc-section" data-mark="10 / API">
-    <h2>OpenAI API</h2>
-    <p>Standard OpenAI shape on <code>http://127.0.0.1:13305/v1/*</code>. No auth required for localhost.</p>
-    <pre><code>curl -s http://127.0.0.1:13305/v1/chat/completions \
-  -H "content-type: application/json" \
-  -d '{
-    "model": "Bonsai-1.7B-IQ1_S",
-    "messages": [{"role": "user", "content": "hello"}],
-    "stream": false
-  }'</code></pre>
-    <p class="muted">Endpoints: <code>/v1/chat/completions</code> (streaming + non-streaming), <code>/v1/completions</code>, <code>/v1/embeddings</code>, <code>/v1/models</code>. NPU lane runs on a separate port (see <code>flm port</code>) with the same shape.</p>
-  </section>
-
-  <section id="apps" class="pillars" data-mark="11 / APPS">
-    <h2>Compatible apps</h2>
-    <p class="note">Anything that speaks OpenAI works. We don't ship UI &mdash; pick yours.</p>
-
-    <div class="apps-strip">
-      <img src="/assets/apps/open-webui.png" alt="Open WebUI" title="Open WebUI" loading="lazy">
-      <img src="/assets/apps/continue.png" alt="Continue" title="Continue" loading="lazy">
-      <img src="/assets/apps/claude-code.png" alt="Claude Code" title="Claude Code" loading="lazy">
-      <img src="/assets/apps/github-copilot.png" alt="GitHub Copilot" title="GitHub Copilot" loading="lazy">
-      <img src="/assets/apps/openhands.png" alt="OpenHands" title="OpenHands" loading="lazy">
-      <img src="/assets/apps/anythingllm.png" alt="AnythingLLM" title="AnythingLLM" loading="lazy">
-      <img src="/assets/apps/dify.png" alt="Dify" title="Dify" loading="lazy">
-      <img src="/assets/apps/n8n.png" alt="n8n" title="n8n" loading="lazy">
-      <img src="/assets/apps/gaia.png" alt="AMD GAIA" title="AMD GAIA" loading="lazy">
-      <img src="/assets/apps/codegpt.png" alt="CodeGPT" title="CodeGPT" loading="lazy">
-      <img src="/assets/apps/morphik.png" alt="Morphik" title="Morphik" loading="lazy">
-      <img src="/assets/apps/perplexica.png" alt="Perplexica" title="Perplexica" loading="lazy">
-      <img src="/assets/apps/hugging-face.png" alt="Hugging Face" title="Hugging Face" loading="lazy">
-      <img src="/assets/apps/iterate-ai.png" alt="Iterate.ai" title="Iterate.ai" loading="lazy">
-      <img src="/assets/apps/fx-chatbot.png" alt="Firefox Chatbot" title="Firefox Chatbot" loading="lazy">
-      <img src="/assets/apps/lemon-zest.png" alt="Lemon Zest" title="Lemon Zest" loading="lazy">
-      <img src="/assets/apps/infinity-arcade.png" alt="Infinity Arcade" title="Infinity Arcade" loading="lazy">
-      <img src="/assets/apps/deep-tutor.png" alt="Deep Tutor" title="Deep Tutor" loading="lazy">
-      <img src="/assets/apps/ai-toolkit.png" alt="MS AI Toolkit" title="MS AI Toolkit" loading="lazy">
-    </div>
-    <p class="muted">Logo provenance: <a href="/assets/apps/NOTICE">/assets/apps/NOTICE</a></p>
-
-    <div class="pillar-grid">
-      <div class="pillar"><h3>AMD GAIA</h3><p><a href="https://amd-gaia.ai" rel="noopener">amd-gaia.ai</a> &middot; Electron desktop, MIT, <code>.deb</code> on Linux. Point its Lemonade endpoint at <code>http://127.0.0.1:13305/v1/</code>. <code>1bit up</code> launches GAIA automatically if it's on <code>$PATH</code>.</p></div>
-      <div class="pillar"><h3>Open WebUI</h3><p>Browser chat UI. Set the OpenAI-compatible base URL to <code>http://127.0.0.1:13305/v1</code>. Works out of the box.</p></div>
-      <div class="pillar"><h3>Continue (VS Code / JetBrains)</h3><p>IDE assistant. Add a custom OpenAI provider with the same base URL. Code completion + chat.</p></div>
-      <div class="pillar"><h3>Anything else</h3><p>OpenAI Python / TS SDKs, LangChain, LlamaIndex, Aider, Claude Code, raw <code>curl</code>. If it talks OpenAI, it talks to us.</p></div>
-    </div>
-  </section>
-
-  <section id="status" class="doc-section" data-mark="12 / STATUS">
-    <h2>Status</h2>
-    <ul>
-      <li>✓ <b>Install works.</b> One script, idempotent.</li>
-      <li>✓ <b>OpenAI endpoint works.</b> Stock upstream Lemonade on <code>:13305</code>.</li>
-      <li>✓ <b>Bench numbers reproduced.</b> 4624 pp512 / 278 tg128 on Bonsai-1.7B-IQ1_S (Vulkan), 92 tok/s NPU on Qwen3-0.6B.</li>
-      <li>✓ <b>NPU lane verified.</b> FastFlowLM serving on XDNA 2 with memlock unblocked.</li>
-      <li>~ <b>NPU + GPU concurrent dispatch.</b> Possible per backend, no in-tree router yet. Both are addressable separately today.</li>
-    </ul>
-  </section>
-
-  <section id="contributing" class="doc-section" data-mark="13 / CONTRIB">
-    <h2>Contributing</h2>
-    <p>Bug reports and PRs welcome on <a href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>. The repo is small &mdash; <code>install.sh</code>, the <code>1bit</code> CLI, the bench scripts, and this site. Kernel work happens upstream in <a href="https://github.com/ggml-org/llama.cpp" rel="noopener">llama.cpp</a> and <a href="https://github.com/lemonade-sdk/lemonade" rel="noopener">Lemonade</a>; we don't reimplement.</p>
-    <p>See <code>CONTRIBUTING.md</code> for the short form.</p>
-  </section>
+<section id="changelog" class="doc-section" data-mark="12 / CHANGELOG">
+  <h2>Changelog</h2>
+  <p>2026-05-03: Public docs reset to the GAIA + Lemonade + FastFlowLM architecture, with the union endpoint documented as <code>:13306</code>.</p>
+</section>
 
 </main>
 </div>
 
-<footer class="page-foot">
-  <p>1bit.systems &middot; lean 1-bit inference for Strix Halo &middot;
-    <a href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a> &middot;
-    MIT
-  </p>
-</footer>
-
+<script>
+const toggle = document.getElementById('side-toggle');
+const side = document.querySelector('.page-side');
+if (toggle && side) toggle.addEventListener('click', () => side.classList.toggle('open'));
+</script>
 </body>
 </html>

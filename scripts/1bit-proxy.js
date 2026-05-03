@@ -17,12 +17,13 @@
 // Pure Node stdlib. No deps. Configure via env:
 //   ONEBIT_PROXY_PORT   (default 13306)
 //   LEMOND_URL          (default http://127.0.0.1:13305)
-//   FLM_URL             (auto-discovered via `flm port` if unset)
+//   FLM_URL             (default http://127.0.0.1:52625)
 
 'use strict';
 
 const http = require('http');
 const fs = require('fs');
+const net = require('net');
 const path = require('path');
 const { URL } = require('url');
 const { execSync } = require('child_process');
@@ -33,7 +34,7 @@ const HOME_HTML = (() => {
     path.join(__dirname, '1bit-home.html'),
     path.join(__dirname, '..', 'scripts', '1bit-home.html'),
     '/usr/local/share/1bit-systems/1bit-home.html',
-    '/home/bcloud/Projects/1bit-systems/scripts/1bit-home.html',
+    '/home/bcloud/1bit-systems/scripts/1bit-home.html',
   ];
   for (const p of candidates) { if (fs.existsSync(p)) return fs.readFileSync(p, 'utf8'); }
   return null;
@@ -45,6 +46,7 @@ const PROXY_PORT = parseInt(process.env.ONEBIT_PROXY_PORT || '13306', 10);
 // PROXY_HOST=127.0.0.1 to restore loopback-only.
 const PROXY_HOST = process.env.PROXY_HOST || '0.0.0.0';
 const LEMOND_URL = process.env.LEMOND_URL || 'http://127.0.0.1:13305';
+const MAX_BODY_BYTES = parseInt(process.env.ONEBIT_PROXY_MAX_BODY || String(50 * 1024 * 1024), 10);
 const FLM_URL = (() => {
   if (process.env.FLM_URL) return process.env.FLM_URL;
   try {
@@ -52,7 +54,7 @@ const FLM_URL = (() => {
     const m = out.match(/(\d{2,5})/);
     if (m) return `http://127.0.0.1:${m[1]}`;
   } catch {}
-  return 'http://127.0.0.1:11434';
+  return 'http://127.0.0.1:52625';
 })();
 
 const CACHE_TTL_MS = 5_000;
@@ -91,10 +93,42 @@ function pickTarget(modelId) {
   return entry && entry.backend === 'flm' ? FLM_URL : LEMOND_URL;
 }
 
+function parseMultipartModel(body) {
+  if (!body.length) return undefined;
+  // Enough for normal multipart headers and a short model field; avoid
+  // stringifying large audio payloads.
+  const head = body.subarray(0, Math.min(body.length, 1024 * 1024)).toString('utf8');
+  const m = head.match(/name="model"\r?\n\r?\n([^\r\n]+)/);
+  return m ? m[1].trim() : undefined;
+}
+
 async function readBody(req) {
   const chunks = [];
-  for await (const c of req) chunks.push(c);
+  let total = 0;
+  for await (const c of req) {
+    total += c.length;
+    if (total > MAX_BODY_BYTES) {
+      const err = new Error(`request body too large; max ${MAX_BODY_BYTES} bytes`);
+      err.statusCode = 413;
+      throw err;
+    }
+    chunks.push(c);
+  }
   return Buffer.concat(chunks);
+}
+
+function pickTargetForPath(pathname, modelId) {
+  // Lemonade is the default OmniRouter modality surface. FLM ASR is an
+  // opt-in side lane for its own whisper-v3:* model family.
+  if (pathname === '/v1/audio/transcriptions') {
+    return /^whisper-v3[:_-]/i.test(modelId || '') ? FLM_URL : LEMOND_URL;
+  }
+  // FLM's embedding engine is side-loaded and not currently advertised by
+  // /v1/models, so route its known embedding model family explicitly.
+  if (pathname === '/v1/embeddings' && /^embed-/i.test(modelId || '')) return FLM_URL;
+  // Lemonade owns the Responses API and realtime stack.
+  if (pathname === '/v1/responses' || pathname.startsWith('/realtime')) return LEMOND_URL;
+  return pickTarget(modelId);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -137,14 +171,24 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Everything else: peek at body for `model` and route
-  const body = await readBody(req);
+  let body;
+  try {
+    body = await readBody(req);
+  } catch (e) {
+    res.writeHead(e.statusCode || 400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: { message: e.message } }));
+    return;
+  }
   let modelId;
   if (body.length) {
     try { modelId = JSON.parse(body.toString()).model; } catch {}
   }
+  if (!modelId && u.pathname === '/v1/audio/transcriptions') {
+    modelId = parseMultipartModel(body);
+  }
 
   if (Date.now() - modelCache.refreshed > CACHE_TTL_MS) await refreshModels();
-  const target = pickTarget(modelId);
+  const target = pickTargetForPath(u.pathname, modelId);
   const tu = new URL(target);
 
   const fwdHeaders = { ...req.headers, host: `${tu.hostname}:${tu.port || 80}` };
@@ -178,6 +222,26 @@ const server = http.createServer(async (req, res) => {
   });
   if (body.length) upstream.write(body);
   upstream.end();
+});
+
+server.on('upgrade', (req, socket, head) => {
+  const u = new URL(req.url, `http://127.0.0.1:${PROXY_PORT}`);
+  if (!u.pathname.startsWith('/realtime')) {
+    socket.destroy();
+    return;
+  }
+  const target = new URL(LEMOND_URL);
+  const upstream = net.connect(target.port || 80, target.hostname, () => {
+    upstream.write(`${req.method} ${u.pathname}${u.search} HTTP/${req.httpVersion}\r\n`);
+    for (const [k, v] of Object.entries(req.headers)) {
+      upstream.write(`${k}: ${k.toLowerCase() === 'host' ? `${target.hostname}:${target.port || 80}` : v}\r\n`);
+    }
+    upstream.write('\r\n');
+    if (head && head.length) upstream.write(head);
+    upstream.pipe(socket);
+    socket.pipe(upstream);
+  });
+  upstream.on('error', () => socket.destroy());
 });
 
 (async () => {

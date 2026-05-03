@@ -21,7 +21,7 @@ const FLM_URL: string = (() => {
     const m = out.match(/(\d{2,5})/);
     if (m) return `http://127.0.0.1:${m[1]}`;
   } catch {}
-  return "http://127.0.0.1:11434";
+  return "http://127.0.0.1:52625";
 })();
 
 const CACHE_TTL_MS = 5_000;

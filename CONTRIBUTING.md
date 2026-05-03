@@ -1,60 +1,61 @@
-# Contributing to 1bit-systems
+# Contributing To 1bit-systems
 
-Lean install + control plane for 1-bit inference on AMD Strix Halo. Public clients and downstream projects are welcome.
+`1bit-systems` is the install, control, docs, packaging, and glue layer for a local AMD AI stack:
 
-## How to help
+```text
+GAIA -> 1bit-proxy :13306/v1 -> Lemonade :13305/v1
+                              -> FastFlowLM :52625/v1
+Open WebUI :3000 -> 1bit-proxy :13306/v1
+systemd -> 1bit-stack.target
+```
 
-- **File an issue** in this repo with reproducible steps and `1bit doctor` output.
-- **Send a patch** via pull request against the `bong-water-water-bong/1bit-systems` mirror, or via a git bundle if you don't have collaborator access. The team-lead reviews and lands.
-- **Run the benchmark** on your Strix Halo box — `1bit bench` output against a clean install is gold for our perf table.
-- **Test client compatibility** — if you wire Open WebUI, DSPy, LibreChat, Sorana, Aicono, TabNeuron, or anything else against 1bit-server and hit a snag, document the config delta in an issue.
-- **Translate** the README — our current translations are machine-generated. Native speakers welcome.
+## How To Help
 
-## Code style
+- File issues with reproducible commands and `1bit status` output.
+- Test GAIA, Open WebUI, and other OpenAI-compatible clients against `http://127.0.0.1:13306/v1`.
+- Run `1bit bench` or the benchmark scripts under `benchmarks/` on real AMD hardware and attach the raw output.
+- Audit docs and website copy for stale endpoint, package, or architecture claims.
+- Improve installer, systemd, proxy routing, packaging, and GAIA integration.
 
-See [`CLAUDE.md`](./CLAUDE.md). Short version:
+## Code Style
 
-- **Lean over scaffolding** — this repo is install + control plane on top of upstream Lemonade Server and FastFlowLM. Don't reimplement inference; upstream PRs are the right place for kernel work.
-- **No Python at runtime** — bash for the installer + `1bit` CLI is fine.
-- **OpenAI surface is sacred** — anything that breaks `:13305/v1/*` is a bug.
+- Keep the repo focused on orchestration. Do not reimplement Lemonade, FastFlowLM, or GAIA internals here.
+- Prefer existing shell/Node/Python helper style over adding a new framework.
+- Preserve the OpenAI-compatible API shape.
+- Treat Lemonade `:13305` as canonical for multimodal and OmniRouter behavior.
+- Treat `1bit-proxy :13306` as a convenience union endpoint, not a replacement for Lemonade.
+- Keep FLM pinned to `:52625` for stack parity unless there is a documented reason to change it.
+- Keep GAIA as the primary UI/control surface and Open WebUI as secondary.
 
-Use Conventional Commits (`feat:`, `fix:`, `docs:`, etc.).
+Use Conventional Commits (`feat:`, `fix:`, `docs:`, etc.) when practical.
 
-## Acknowledgements
+## Tests And Checks
 
-### Light Heart Labs
+Run the narrow checks for the files you changed. Common checks:
 
-Huge gratitude to **[Light Heart Labs](https://lightheartlabs.io/)** — their open-source **DreamServer** project ([`Light-Heart-Labs/DreamServer`](https://github.com/Light-Heart-Labs/DreamServer)) has been a reference point for local-AI-first architecture and a supportive neighbor in the ecosystem. Their maintainer **[@Lightheartdevs](https://github.com/Lightheartdevs)** is a pull-access collaborator on this repo.
+```sh
+bash -n install.sh scripts/1bit benchmarks/bench-npu-ioctl-budget.sh
+node --check scripts/1bit-proxy.js
+python3 -m py_compile scripts/1bit-omni.py
+1bit status
+```
 
-### Upstream projects 1bit systems stands on
+For public website changes, preview locally:
 
-- **Microsoft BitNet** — [`microsoft/BitNet`](https://github.com/microsoft/BitNet), Wang & Ma et al. The reference C++ kernels and the `bitnet-b1.58-2B-4T` weights we run today. arXiv: [`2402.17764`](https://arxiv.org/abs/2402.17764) (BitNet b1.58), [`2504.18415`](https://arxiv.org/abs/2504.18415) (BitNet v2).
-- **llama.cpp** — [`ggml-org/llama.cpp`](https://github.com/ggml-org/llama.cpp). GGUF format, IQ2_S quantization scheme, and the attention-kernel idioms our FD attention grew out of.
-- **ROCm / HIP** — the AMD compute runtime that our `rocm-cpp` kernels compile against.
-- **axum / tokio / serde / clap / reqwest** — the Rust crate foundations of halo-workspace.
-- **egui / eframe** — 1bit-helm's native GUI layer (formerly ratatui/crossterm; egui cutover 2026-04-20 with the halo-gaia → 1bit-helm rename).
-- **puppeteer-core + Bun** — halo-browser's attach-mode CDP driver.
+```sh
+cd 1bit-site
+python3 -m http.server 8765
+```
 
-### Research we read (that shipped)
+Cloudflare Pages deployment is documented in `1bit-site/README.md`.
 
-- **Sherry 1.25-bit** (anonymous, vLLM issue [`#33142`](https://github.com/vllm-project/vllm/issues/33142)) — 3:4 sparsity packing we adopted in our requantizer.
-- **Split-KV Flash-Decoding** — Dao et al., the attention-kernel strategy we ported to gfx1151.
-- **rotorquant / PlanarQuant** ([`scrya-com/rotorquant`](https://github.com/scrya-com/rotorquant)) — KV-cache compression; we're porting to HIP as `--kv-rotor`.
-- **MedusaBitNet** ([`parrishcorcoran/MedusaBitNet-2B-4T`](https://huggingface.co/parrishcorcoran/MedusaBitNet-2B-4T)) — speculative decoding heads on BitNet, trained on Ryzen AI MAX+ 395.
-- **MemPalace** ([`MemPalace/mempalace`](https://github.com/MemPalace/mempalace)) — memory-tiering ideas we're porting into our auto-memory frontmatter.
-- **Sparse-BitNet** (arXiv [`2603.05168`](https://arxiv.org/abs/2603.05168)) — validates our 2-bit + N:M sparsity direction.
+## Upstream Projects
 
-### Research we read (that we chose to skip)
+This stack stands on:
 
-- **Clifford-rotor KV compression** — paper's eponymous scheme lost to PlanarQuant in its own Table 5. Shipped via rotorquant's PlanarQuant path instead.
-- **bitnet-cuda** ([`Wavegoodvybe2929/bitnet-rust`](https://github.com/Wavegoodvybe2929/bitnet-rust) subcrate) — 1.2k-LOC stub, no working kernels.
-
-### Co-travelers on the AMD ternary road
-
-- **AMD Lemonade** — their official local-LLM server; we ship a Lemonade-SDK-compatible shim so their clients run against 1bit-server with zero config change.
-- **Chi Hoang (Tetramatrix)** — 168-repo AMD-Lemonade ecosystem. His clients (Sorana, Aicono, TabNeuron, diffron, lemonade-python-sdk) are first-class citizens of 1bit systems via the `/api/v1/health` + `/api/v0/models` compat paths in `1bit-lemonade`.
-- **FlyGoat (RyzenAdj)** — the Linux Ryzen power-tuning CLI that will back our future `1bit power` subcommand.
-
-## How to apply this file
-
-When you send a patch that pulls in a new external repo / paper / project as a dependency or inspiration, add it to the matching section above. Write the contributor's name and cite the URL. No anonymous ports.
+- AMD GAIA: https://amd-gaia.ai/docs/quickstart
+- Lemonade Server: https://lemonade-server.ai/docs/
+- Lemonade OmniRouter: https://lemonade-server.ai/docs/omni-router/
+- FastFlowLM: https://fastflowlm.com/docs/
+- llama.cpp / GGUF ecosystem for iGPU GGUF benchmarking and model work.
+- ROCm, XRT, and `amdxdna` for AMD GPU/NPU runtime support.

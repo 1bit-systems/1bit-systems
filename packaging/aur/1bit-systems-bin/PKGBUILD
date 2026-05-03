@@ -20,20 +20,18 @@
 pkgname=1bit-systems-bin
 _pkgname=1bit-systems
 pkgver=2.0.0
-pkgrel=1
-pkgdesc='Lean unified 1-bit / sub-2-bit inference engine for AMD Strix Halo (Lemonade + FastFlowLM) — single-binary build'
+pkgrel=2
+pkgdesc='DEPRECATED binary packaging draft for 1bit-systems; use install.sh until refreshed'
 arch=('x86_64')
 url='https://1bit.systems'
 license=('MIT')
 
 depends=(
-  'lemonade-server'        # AUR — OpenAI-compat server
-  'fastflowlm'             # cachyos-extra-znver4 — NPU runtime
   'xrt'                    # cachyos-extra-znver4
   'xrt-plugin-amdxdna'     # cachyos-extra-znver4
   'rocm-hip-sdk'           # extra — iGPU lane
   'curl'                   # used by `1bit pull`
-  'python'                 # for the flm:npu pin patch in install hook
+  'python'                 # for helper scripts
   # NOTE: no `nodejs` dep — the bun-compiled binary has its runtime baked in.
 )
 
@@ -56,7 +54,6 @@ sha256sums=(
   'SKIP'
 )
 
-install="${_pkgname}.install"
 
 package() {
   cd "$srcdir"

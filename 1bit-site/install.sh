@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# 1bit.systems bootstrap — wake the 1bit monster on your Strix Halo box.
+# 1bit.systems bootstrap — GAIA + Lemonade + FastFlowLM on Strix Halo.
 #
 # Usage: curl -fsSL https://1bit.systems/install.sh | bash
 #
 # What it does, in order:
 #   1. Refuses to run on anything that isn't "AMD Ryzen AI MAX+ 395" (Strix Halo).
-#   2. Installs CachyOS AMDXDNA + XRT packages (cachyos-extra-znver4 repo).
-#   3. Raises memlock so HIP can pin big buffers.
+#   2. Installs the NPU driver layer when pacman exposes it.
+#   3. Raises memlock so GPU/NPU runtimes can pin buffers.
 #   4. Clones bong-water-water-bong/1bit-systems to ~/src/1bit-systems.
-#   5. Hands off to the repo's own install.sh for the real build + systemd wiring.
+#   5. Hands off to repo install.sh for fork builds and systemd wiring.
 #
 # Idempotent — safe to re-run to repair or upgrade.
 
@@ -20,8 +20,8 @@ banner() {
   printf '\n'
   printf '%b╔══════════════════════════════════════════════════════════════╗%b\n' "$C" "$N"
   printf '%b║                                                              ║%b\n' "$C" "$N"
-  printf '%b║   %b1bit.systems · the 1bit monster · strix halo bootstrap%b   %b║%b\n' "$C" "$B" "$N" "$C" "$N"
-  printf '%b║   %bgfx1151 · ternary BitNet-b1.58 · bare metal · zero cloud%b   %b║%b\n' "$C" "$D" "$N" "$C" "$N"
+  printf '%b║   %b1bit.systems · GAIA + Lemonade + FastFlowLM%b        %b║%b\n' "$C" "$B" "$N" "$C" "$N"
+  printf '%b║   %bgfx1151 iGPU · XDNA NPU · local OpenAI endpoints%b      %b║%b\n' "$C" "$D" "$N" "$C" "$N"
   printf '%b║                                                              ║%b\n' "$C" "$N"
   printf '%b╚══════════════════════════════════════════════════════════════╝%b\n\n' "$C" "$N"
 }
@@ -75,7 +75,7 @@ else
 fi
 
 # ── packages ─────────────────────────────────────────────────
-step "installing NPU + XRT packages"
+step "installing NPU driver packages"
 PKGS=(
   xrt
   xrt-plugin-amdxdna

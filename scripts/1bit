@@ -8,6 +8,7 @@
 #   1bit pull <model>  pull a model (auto-routes: NPU via flm, GPU via lemonade)
 #   1bit bench         run the 1-bit / ternary pile bench
 #   1bit npu [model]   start FLM NPU server (default: qwen3:0.6b)
+#   1bit gaia          manage AMD GAIA agent UI / API / MCP
 
 set -euo pipefail
 
@@ -29,7 +30,12 @@ LEMOND_LOG=/tmp/lemond.log
 FLM_LOG=/tmp/flm-serve.log
 PROXY_LOG=/tmp/1bit-proxy.log
 WEBUI_LOG=/tmp/1bit-webui.log
+GAIA_LOG="${HOME}/.gaia/gaia.log"
+GAIA_ELECTRON_LOG="${HOME}/.gaia/electron-main.log"
+GAIA_APPIMAGE="${GAIA_APPIMAGE:-${HOME}/Applications/gaia-agent-ui.AppImage}"
 DEFAULT_NPU_MODEL="${ONEBIT_NPU_MODEL:-qwen3:1.7b}"
+DEFAULT_FLM_FLAGS="${ONEBIT_FLM_FLAGS:---port 52625 --embed 1 --socket 20 --q-len 20}"
+GAIA_BASE_URL="${GAIA_BASE_URL:-$PROXY_URL/api/v1}"
 
 # Locate the proxy script in the repo or installed location.
 proxy_script() {
@@ -37,15 +43,65 @@ proxy_script() {
     self_dir="$(dirname "$(readlink -f "$0")")"
     if [[ -f "$self_dir/1bit-proxy.js" ]]; then
         echo "$self_dir/1bit-proxy.js"
-    elif [[ -f /usr/share/1bit-systems/1bit-proxy.js ]]; then
-        echo /usr/share/1bit-systems/1bit-proxy.js
     elif [[ -f /usr/local/share/1bit-systems/1bit-proxy.js ]]; then
         echo /usr/local/share/1bit-systems/1bit-proxy.js
-    elif [[ -f /home/bcloud/Projects/1bit-systems/scripts/1bit-proxy.js ]]; then
-        echo /home/bcloud/Projects/1bit-systems/scripts/1bit-proxy.js
+    elif [[ -f /usr/share/1bit-systems/1bit-proxy.js ]]; then
+        echo /usr/share/1bit-systems/1bit-proxy.js
+    elif [[ -f /home/bcloud/1bit-systems/scripts/1bit-proxy.js ]]; then
+        echo /home/bcloud/1bit-systems/scripts/1bit-proxy.js
     else
         echo ""
     fi
+}
+
+gaia_cli() {
+    local cand
+    for cand in \
+        "${HOME}/.gaia/venv/bin/gaia" \
+        "${HOME}/.local/bin/gaia" \
+        "$(command -v gaia 2>/dev/null || true)"
+    do
+        [[ -n "$cand" && -x "$cand" ]] && { echo "$cand"; return 0; }
+    done
+    return 1
+}
+
+gaia_ui_url() {
+    local port
+    port="$(ss -ltnp 2>/dev/null | awk '/gaia/ && /127[.]0[.]0[.]1:/ {
+        sub(/.*127[.]0[.]0[.]1:/, "", $4); sub(/ .*/, "", $4); print $4; exit
+    }')"
+    [[ -n "$port" ]] && echo "http://127.0.0.1:$port"
+}
+
+start_gaia() {
+    if pgrep -f 'gaia-agent-ui.AppImage|/\.gaia/venv/bin/gaia chat --ui' >/dev/null 2>&1; then
+        local url
+        url="$(gaia_ui_url || true)"
+        ok "GAIA already running${url:+ at $url}"
+        return
+    fi
+
+    if [[ -x "$GAIA_APPIMAGE" ]]; then
+        say "Launching AMD GAIA Agent UI ($GAIA_APPIMAGE)"
+        GAIA_BASE_URL="$GAIA_BASE_URL" nohup "$GAIA_APPIMAGE" --no-sandbox >/dev/null 2>&1 &
+        return
+    fi
+
+    local gaia
+    gaia="$(gaia_cli || true)"
+    [[ -n "$gaia" ]] || { warn "GAIA not found. Install from https://amd-gaia.ai/docs/quickstart and point it at $GAIA_BASE_URL"; return; }
+    say "Launching AMD GAIA web UI against $GAIA_BASE_URL"
+    nohup "$gaia" chat --ui --base-url "$GAIA_BASE_URL" >"$GAIA_LOG" 2>&1 &
+}
+
+stop_gaia() {
+    local stopped=0
+    if pgrep -f 'gaia-agent-ui.AppImage|/\.gaia/venv/bin/gaia chat --ui|/\.gaia-desktop-bin' >/dev/null 2>&1; then
+        pkill -f 'gaia-agent-ui.AppImage|/\.gaia/venv/bin/gaia chat --ui|/\.gaia-desktop-bin' 2>/dev/null || true
+        stopped=1
+    fi
+    [[ "$stopped" -eq 1 ]] && ok "GAIA stopped" || ok "GAIA already stopped"
 }
 
 # -- service controls -----------------------------------------------------
@@ -71,12 +127,13 @@ start_flm() {
         return
     fi
     say "Starting flm serve $DEFAULT_NPU_MODEL"
-    nohup flm serve "$DEFAULT_NPU_MODEL" >"$FLM_LOG" 2>&1 &
+    # shellcheck disable=SC2086 # flags intentionally split like normal CLI args
+    nohup flm serve "$DEFAULT_NPU_MODEL" $DEFAULT_FLM_FLAGS >"$FLM_LOG" 2>&1 &
     sleep 4
     local port
     port="$(flm port 2>/dev/null | awk '{print $NF}')"
     if [[ -n "$port" ]]; then
-        ok "flm serving $DEFAULT_NPU_MODEL on :$port"
+        ok "flm serving $DEFAULT_NPU_MODEL on :$port (flags: $DEFAULT_FLM_FLAGS)"
     else
         warn "flm didn't report a port — see $FLM_LOG"
     fi
@@ -109,12 +166,7 @@ cmd_up() {
     say "Opening browser: $PROXY_URL  (1bit.systems home)"
     xdg-open "$PROXY_URL" >/dev/null 2>&1 &
 
-    if command -v gaia >/dev/null 2>&1; then
-        say "Launching AMD GAIA (point it at $PROXY_URL/v1)"
-        nohup gaia >/dev/null 2>&1 &
-    else
-        warn "AMD GAIA not installed. Get the .deb from https://amd-gaia.ai and point it at $PROXY_URL/v1"
-    fi
+    start_gaia
 
     echo
     ok "All up. Endpoints:"
@@ -125,6 +177,7 @@ cmd_up() {
 
 cmd_down() {
     say "Stopping all services"
+    stop_gaia
     pkill -f '1bit-proxy.js' 2>/dev/null && ok "proxy stopped" || ok "proxy already stopped"
     pkill -f 'flm.*serve' 2>/dev/null && ok "flm stopped" || ok "flm already stopped"
     pkill -x lemond 2>/dev/null && ok "lemond stopped" || ok "lemond already stopped"
@@ -141,6 +194,7 @@ cmd_status() {
         local port
         port="$(flm port 2>/dev/null | awk '{print $NF}')"
         ok "flm:     serving on :$port"
+        [[ "$port" == "52625" ]] || warn "flm:     expected :52625 for stack parity"
     else
         warn "flm:     not serving"
     fi
@@ -151,6 +205,14 @@ cmd_status() {
         ok "proxy:   up at $PROXY_URL ($n models unified)"
     else
         warn "proxy:   down"
+    fi
+
+    local gaia_url
+    gaia_url="$(gaia_ui_url || true)"
+    if pgrep -f 'gaia-agent-ui.AppImage|/\.gaia/venv/bin/gaia chat --ui' >/dev/null 2>&1; then
+        ok "gaia:    up${gaia_url:+ at $gaia_url}"
+    else
+        warn "gaia:    down"
     fi
 
     echo
@@ -170,12 +232,17 @@ cmd_pull() {
 }
 
 cmd_bench() {
-    local script
-    if [[ -f /home/bcloud/Projects/1bit-systems/benchmarks/bench-1bit-pile.sh ]]; then
-        script=/home/bcloud/Projects/1bit-systems/benchmarks/bench-1bit-pile.sh
-    else
-        die "bench script not found"
-    fi
+    local self_dir script
+    self_dir="$(dirname "$(readlink -f "$0")")"
+    for cand in \
+        "$self_dir/../benchmarks/bench-1bit-pile.sh" \
+        /home/bcloud/1bit-systems/benchmarks/bench-1bit-pile.sh \
+        /usr/local/share/1bit-systems/benchmarks/bench-1bit-pile.sh \
+        /usr/share/1bit-systems/benchmarks/bench-1bit-pile.sh
+    do
+        if [[ -f "$cand" ]]; then script="$cand"; break; fi
+    done
+    [[ -n "${script:-}" ]] || die "bench script not found"
     bash "$script"
 }
 
@@ -218,6 +285,73 @@ cmd_webui() {
             ;;
         *)
             die "usage: 1bit webui [up|down|status]"
+            ;;
+    esac
+}
+
+cmd_gaia() {
+    local group="${1:-status}"
+    shift || true
+    local gaia
+    local action="${1:-}"
+    case "$group" in
+        up|ui)
+            if [[ "$group" == "ui" ]]; then
+                case "${action:-up}" in
+                    up|start) start_gaia ;;
+                    down|stop) stop_gaia ;;
+                    status) cmd_gaia status ;;
+                    *) die "usage: 1bit gaia ui [up|down|status]" ;;
+                esac
+            else
+                start_gaia
+            fi
+            ;;
+        down|stop)
+            stop_gaia
+            ;;
+        status)
+            local url
+            url="$(gaia_ui_url || true)"
+            if pgrep -f 'gaia-agent-ui.AppImage|/\.gaia/venv/bin/gaia chat --ui' >/dev/null 2>&1; then
+                ok "GAIA Agent UI running${url:+ at $url}"
+                pgrep -af 'gaia-agent-ui.AppImage|/\.gaia/venv/bin/gaia chat --ui' || true
+            else
+                warn "GAIA Agent UI is not running"
+            fi
+            [[ -x "$GAIA_APPIMAGE" ]] && ok "AppImage: $GAIA_APPIMAGE" || warn "AppImage missing: $GAIA_APPIMAGE"
+            gaia="$(gaia_cli || true)"
+            [[ -n "$gaia" ]] && ok "CLI: $gaia" || warn "CLI not found"
+            ;;
+        api)
+            gaia="$(gaia_cli || true)"
+            [[ -n "$gaia" ]] || die "GAIA CLI not found"
+            action="${action:-status}"
+            shift || true
+            exec "$gaia" api "$action" --base-url "$GAIA_BASE_URL" "$@"
+            ;;
+        mcp)
+            gaia="$(gaia_cli || true)"
+            [[ -n "$gaia" ]] || die "GAIA CLI not found"
+            action="${action:-status}"
+            shift || true
+            exec "$gaia" --base-url "$GAIA_BASE_URL" mcp "$action" "$@"
+            ;;
+        cli|chat)
+            gaia="$(gaia_cli || true)"
+            [[ -n "$gaia" ]] || die "GAIA CLI not found"
+            exec "$gaia" chat --base-url "$GAIA_BASE_URL" "$@"
+            ;;
+        logs)
+            for log in "$GAIA_ELECTRON_LOG" "$GAIA_LOG"; do
+                if [[ -f "$log" ]]; then
+                    echo "==> $log"
+                    tail -80 "$log"
+                fi
+            done
+            ;;
+        *)
+            die "usage: 1bit gaia [up|down|status|ui|cli|api|mcp|logs]"
             ;;
     esac
 }
@@ -268,11 +402,12 @@ cmd_npu() {
         return
     fi
     say "Starting flm serve $model"
-    nohup flm serve "$model" >"$FLM_LOG" 2>&1 &
+    # shellcheck disable=SC2086 # flags intentionally split like normal CLI args
+    nohup flm serve "$model" $DEFAULT_FLM_FLAGS >"$FLM_LOG" 2>&1 &
     sleep 3
     local port
     port="$(flm port 2>/dev/null | awk '{print $NF}')"
-    ok "flm serving $model on :$port (log: $FLM_LOG)"
+    ok "flm serving $model on :$port (flags: $DEFAULT_FLM_FLAGS, log: $FLM_LOG)"
 }
 
 usage() {
@@ -280,7 +415,7 @@ usage() {
 1bit — 1bit-systems control plane
 
 Usage:
-  1bit up                Start lemond + flm + proxy, open browser, launch GAIA if installed
+  1bit up                Start lemond + flm + proxy, open browser, launch GAIA
   1bit down              Stop all services
   1bit status            Show service status
   1bit pull <model>      Pull a model (auto-routes NPU vs GPU)
@@ -289,13 +424,16 @@ Usage:
   1bit omni "<prompt>"   OmniRouter agentic loop with our defaults
                          (Qwen3.5-35B IQ2_XXS LLM + SD-Turbo + kokoro + whisper)
   1bit webui [up|down|status]  Run Open WebUI on :3000, branded + pointed at proxy
+  1bit gaia [up|down|status|ui|cli|api|mcp|logs]
+                         Manage AMD GAIA Agent UI / CLI / API / MCP
 
 Endpoints (after \`1bit up\`):
   Unified OpenAI:    $PROXY_URL/v1/   (recommended — both lanes, one shape)
   Lemonade (GPU):    $LEMOND_URL/v1/
   FLM (NPU):         http://127.0.0.1:\$(flm port)/v1/
 
-Override the default NPU model: ONEBIT_NPU_MODEL=qwen3:1.7b 1bit up
+Override FLM: ONEBIT_NPU_MODEL=qwen3:1.7b ONEBIT_FLM_FLAGS='--embed 1 --asr 1' 1bit up
+Override GAIA base: GAIA_BASE_URL=http://127.0.0.1:13306/api/v1 1bit gaia cli
 EOF
 }
 
@@ -308,6 +446,7 @@ case "${1:-}" in
     npu)    shift; cmd_npu "$@" ;;
     omni)   shift; cmd_omni "$@" ;;
     webui)  shift; cmd_webui "$@" ;;
+    gaia)   shift; cmd_gaia "$@" ;;
     -h|--help|help|"") usage ;;
     *)      die "unknown subcommand: $1 (try \`1bit help\`)" ;;
 esac

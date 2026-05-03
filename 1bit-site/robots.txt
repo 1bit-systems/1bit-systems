@@ -2,7 +2,7 @@ User-agent: *
 Allow: /
 Allow: /docs/
 Allow: /install.sh
-Allow: /releases.json
+Disallow: /releases.json
 
 # Parked surfaces — personal lanes, not part of the stack. Block crawlers
 # from any indexed or mirrored copies while these stay private.

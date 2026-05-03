@@ -1,60 +1,6 @@
 {
-  "$schema_note": "1bit-systems release feed. Consumed by `1bit update --check` and `1bit update --install`. Schema: see crates/1bit-cli/src/update.rs (Feed/Release/Artifact). Publish verbatim at https://1bit.systems/releases.json.",
-  "latest": "0.1.0",
-  "channels": {
-    "stable": "0.1.0",
-    "preview": "0.1.0"
-  },
-  "releases": [
-    {
-      "version": "0.1.0",
-      "date": "2026-04-24",
-      "min_compatible": "0.1.0",
-      "notes": "First AppImage drop \u2014 bundles the Rust binaries (1bit, 1bit-helm, 1bit-halo-helm-tray, 1bit-mcp-kickstarter + 15 more; ~32 MB zstd-squashfs). Requires glibc >= 2.35 and Linux kernel 6.x. ROCm is NOT bundled; install via ./install.sh on the host before `1bit install core`. Model weight (halo-1bit-2b.h1b, ~1.8 GB) is a separate asset. NPU smoke logs bundled for reference.",
-      "min_glibc": "2.35",
-      "min_kernel": "6.0",
-      "artifacts": [
-        {
-          "platform": "x86_64-linux-gnu",
-          "kind": "appimage",
-          "url": "https://github.com/bong-water-water-bong/1bit-systems/releases/download/v0.1.0/1bit-systems-0.1.0-x86_64.AppImage",
-          "size": 33237496,
-          "sha256": "8a964f89bdef68ed914c04fcf23092ac642c424bb70f74dc10e8558e93b94036",
-          "minisign_sig": ""
-        },
-        {
-          "platform": "any",
-          "kind": "model",
-          "name": "halo-1bit-2b.h1b",
-          "url": "https://github.com/bong-water-water-bong/1bit-systems/releases/download/v0.1.0/halo-1bit-2b.h1b",
-          "size": 1932735283,
-          "sha256": "f503748d6ebdcf44d6ba938cbd8b7bfd93f96c72714d5f634ceba2e17aa31770",
-          "minisign_sig": ""
-        },
-        {
-          "platform": "any",
-          "kind": "log",
-          "name": "npu-smoke-axpy.log",
-          "url": "https://github.com/bong-water-water-bong/1bit-systems/releases/download/v0.1.0/npu-smoke-axpy.log",
-          "primary": false
-        },
-        {
-          "platform": "any",
-          "kind": "log",
-          "name": "npu-smoke-matmul.log",
-          "url": "https://github.com/bong-water-water-bong/1bit-systems/releases/download/v0.1.0/npu-smoke-matmul.log",
-          "primary": false
-        },
-        {
-          "platform": "any",
-          "kind": "log",
-          "name": "npu-smoke-aiestats.log",
-          "url": "https://github.com/bong-water-water-bong/1bit-systems/releases/download/v0.1.0/npu-smoke-aiestats.log",
-          "primary": false
-        }
-      ]
-    }
-  ],
-  "$sample_warning_old": "The 0.3.0 entry is SAMPLE data from the Gap-P1-#15 scaffold pass \u2014 artifact URL is a placeholder, sha256 + minisign_sig match the test fixture at crates/1bit-cli/tests/fixtures/update/sample_artifact.bin, NOT a real release AppImage. The 0.1.0 entry is the real AppImage artifact built by packaging/appimage/build-appimage.sh on 2026-04-23 (size 33,237,496 bytes, sha256 matches the sidecar at packaging/appimage/dist/1bit-systems-0.1.0-x86_64.AppImage.sha256). URLs point at the GitHub release (bong-water-water-bong/1bit-systems v0.1.0) to be cut 2026-04-24; old `1bit.systems/dl/` mirror path is retired. `minisign_sig` stays empty until the signing flow lands. The `halo-1bit-2b.h1b` model weight and the three `npu-smoke-*.log` bundles are listed as release assets but are not yet on disk at write time \u2014 sha256 for the h1b is taken from the release bundle plan; refresh from a real sidecar before tagging. `latest` stays 0.3.0 so the update-check regression test keeps working; flip to 0.1.0 once the sample fixture is removed.",
-  "$sample_warning": "0.3.0 sample fixture removed 2026-04-25 \u2014 flipped latest to real 0.1.0 AppImage. Restore with the old warning text from the v0.1.x releases when running update-check regression tests."
+  "$schema_note": "Current 1bit.systems site does not publish an updater feed. This placeholder is kept only so old clients receive an explicit empty feed instead of stale artifacts.",
+  "latest": null,
+  "channels": {},
+  "releases": []
 }

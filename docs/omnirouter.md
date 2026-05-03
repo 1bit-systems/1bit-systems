@@ -1,52 +1,54 @@
-# OmniRouter compatibility
+# OmniRouter Compatibility
 
-[Lemonade OmniRouter](https://www.reddit.com/r/LocalLLaMA/comments/1sy54d1/lemonade_omnirouter_unifying_the_best_local_ai/) (announced by AMD's `jfowers_amd` 2026-04-28) unifies local AI engines under standard OpenAI tool-calling. The LLM gets tool defs (`generate_image`, `text_to_speech`, etc.); when it triggers a tool call, the orchestrator routes to the matching Lemonade modality endpoint:
+OmniRouter belongs to Lemonade. In this stack Lemonade is the canonical OpenAI-compatible multimodal server on `http://127.0.0.1:13305/v1`, and GAIA is the primary agent/UI/control layer that consumes that capability.
 
-| Tool call | Routes to | Backend |
+The `1bit-proxy` endpoint on `http://127.0.0.1:13306/v1` is a convenience union endpoint. It keeps Lemonade as the default route, then sends targeted model families to FastFlowLM on `:52625` when that is the better lane, for example FLM chat models and `embed-*` embedding requests.
+
+## Routing Model
+
+| Workload | Canonical route | Notes |
 |---|---|---|
-| `generate_image` | `POST /v1/images/generations` | `sd-cpp:rocm` / `sd-cpp:cpu` |
-| `text_to_speech` | `POST /v1/audio/speech` | `kokoro:cpu` |
-| `transcribe_audio` | `POST /v1/audio/transcriptions` | `whispercpp:vulkan` / `whispercpp:cpu` |
-| (vision input) | `POST /v1/chat/completions` w/ image content | `llamacpp:rocm` (multimodal model) |
+| Chat, tools, images, TTS, Lemonade STT, vision | Lemonade `:13305/v1` | Lemonade owns multimodal OpenAI compatibility and OmniRouter behavior. |
+| NPU chat models | FastFlowLM `:52625/v1` | Use direct FLM or the union proxy when model routing is desired. |
+| Embeddings with `embed-*` models | FastFlowLM `:52625/v1` | `embed-gemma:300m` is verified locally through the proxy. |
+| ASR with `whisper-v3:*` | FastFlowLM `:52625/v1` | Opt-in: pull the model and enable `--asr 1` first. |
+| OpenAI clients that want one base URL | `1bit-proxy :13306/v1` | Convenience layer, not the canonical OmniRouter server. |
 
-**This stack already supports it.** The reference example at [`lemonade-sdk/lemonade/examples/lemonade_tools.py`](https://github.com/lemonade-sdk/lemonade/blob/main/examples/lemonade_tools.py) runs unmodified against our `lemond` on `:13305`.
+## How OmniRouter Works Here
 
-## Verified working — 2026-04-28
+Lemonade exposes standard OpenAI endpoints for model calls and modality tools. An agent loop gives the LLM tool definitions such as `generate_image`, `text_to_speech`, and `transcribe_audio`. When the LLM emits a tool call, the orchestrator calls the matching Lemonade modality endpoint:
 
-Adapted the reference example to use our daily-driver model, fired two requests:
+| Tool call | Endpoint | Typical backend |
+|---|---|---|
+| `generate_image` | `POST /v1/images/generations` | `sd-cpp:rocm` or CPU fallback |
+| `text_to_speech` | `POST /v1/audio/speech` | `kokoro` |
+| `transcribe_audio` | `POST /v1/audio/transcriptions` | Lemonade Whisper backend, or FLM only for `whisper-v3:*` through the proxy |
+| vision input | `POST /v1/chat/completions` with image content | Lemonade multimodal model |
+
+`scripts/1bit-omni.py` is the local helper loop for exercising that pattern with the stack defaults.
+
+## Useful Commands
 
 ```sh
-python3 omni-test.py "Generate an image of a 1bit-systems mascot — neon two-bit themed"
-# → Qwen3.5-35B-A3B-GGUF picks the prompt
-# → tool call: generate_image({...})
-# → POST /v1/images/generations  →  SD-Turbo  →  531 KB PNG (512x512)
-
-python3 omni-test.py "Say 'one bit systems is the two bit killer' out loud"
-# → tool call: text_to_speech({input: ...})
-# → POST /v1/audio/speech  →  kokoro-v1  →  303 KB WAV (24kHz mono)
+1bit up
+1bit omni "Generate an image of a clean 1bit.systems rack diagram"
+1bit omni "Say '1bit systems is online' out loud"
+1bit gaia cli
 ```
 
-No code changes to lemond, no patches to llama.cpp, no fork needed. The `1bit-systems` install does the legwork (pulls all the backends + their default models) and the OpenAI-compat tool-calling + modality-routing pattern uses the endpoints that come for free.
+Use these base URLs deliberately:
 
-## Why no fork (this time)
+```text
+Lemonade canonical OmniRouter: http://127.0.0.1:13305/v1
+Union endpoint for clients:    http://127.0.0.1:13306/v1
+FastFlowLM direct NPU lane:    http://127.0.0.1:52625/v1
+```
 
-Per `feedback_fork_dont_report` doctrine we fork upstream when we have a patch we want to keep as part of our edge. OmniRouter is the *opposite* — it's a public pattern that anyone running Lemonade with the modality backends installed already supports. There's nothing to patch, no edge to keep. We just point at it and say "yes, works."
+## References
 
-The win for `1bit-systems` is the **default-models tier policy** layered on top: our preferred LLM is `Qwen3.5-35B-A3B-IQ2_XXS` (sub-2-bit MoE, daily driver) which the OmniRouter agentic loop calls into. Anyone using the OmniRouter pattern with our install gets a 35B-class model dispatching tools at half the disk + ~35% faster decode than the Q4_K_XL baseline.
-
-## Models that work as the LLM in the loop
-
-Anything with the `tool-calling` label in `lemonade list`. On this box right now:
-
-- `Qwen3.5-35B-A3B-GGUF` (Q4_K_XL) — default per `LEMONADE_MODEL` env
-- `Qwen3.5-35B-A3B-UD-IQ2_XXS-GGUF` — Tier 2 daily driver
-- (other Qwen3-Instruct variants if pulled — `Qwen3-4B-Instruct-2507-GGUF` per the example)
-
-Embedding models, Vision-only models, and the FLM/NPU lane don't fit the OmniRouter loop role (they're tools or specific-purpose, not the orchestrator).
-
-## See also
-
-- Reddit announcement (2026-04-28): https://www.reddit.com/r/LocalLLaMA/comments/1sy54d1/
-- Reference example: https://github.com/lemonade-sdk/lemonade/blob/main/examples/lemonade_tools.py
-- Our model-priority tiering: [`docs/model-priority.md`](model-priority.md)
-- Default-model env wiring: [`docs/aur.md`](aur.md) and `~/.config/fish/config.fish`
+- Lemonade docs: https://lemonade-server.ai/docs/
+- Lemonade OmniRouter docs: https://lemonade-server.ai/docs/omni-router/
+- Lemonade OpenAI API docs: https://lemonade-server.ai/docs/api/openai/
+- FastFlowLM docs: https://fastflowlm.com/docs/
+- FastFlowLM server docs: https://fastflowlm.com/docs/instructions/server/
+- GAIA quickstart: https://amd-gaia.ai/docs/quickstart
