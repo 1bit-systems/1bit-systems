@@ -44,11 +44,10 @@ Usage:
   ./install.sh -h | --help show this help
 
 What runs in dry-run mode:
-  - Read-only probes: pacman / paru / flm presence, FLM version,
-    Lemonade manifest presence and current pin, model-cache check,
-    lemond running-state check.
-  - Every mutating command (pacman -S, paru -S, sudo tee/sed/install,
-    nohup lemond, curl download) is printed prefixed with "DRY"
+  - Read-only probes: pacman presence, hardware / service state,
+    config presence, model-cache check, and local port health.
+  - Every mutating command (pacman -S, sudo tee/sed/install,
+    systemctl start, curl download) is printed prefixed with "DRY"
     instead of executing.
 
 Targets CachyOS / Arch. Run on the box you want to host the stack.
@@ -77,14 +76,6 @@ require_pacman() {
     # NB: don't `pacman --version | head -1` here — that SIGPIPEs pacman, and
     # with `set -o pipefail` the whole script silently exits after the banner.
     ok "pacman found"
-}
-
-require_paru() {
-    if ! command -v paru >/dev/null 2>&1; then
-        warn "paru not found; installing AUR packages will need it."
-        die "Install paru first: https://github.com/Morganamilo/paru"
-    fi
-    ok "paru found"
 }
 
 # Detect if this box has the AMD XDNA NPU (Strix Halo / Strix Point / Kraken Point).
@@ -157,7 +148,7 @@ build_install_forks() {
     local projects=$HOME/Projects
     local cflags="-O3 -march=znver4 -mtune=znver4 -DNDEBUG"
 
-    run mkdir -p "$projects" /opt/1bit
+    run mkdir -p "$projects"
     if [[ ! -w /opt/1bit ]]; then
         say "Taking ownership of /opt/1bit ($(id -un))"
         run sudo install -d -o "$(id -un)" -g "$(id -gn)" /opt/1bit
@@ -215,8 +206,9 @@ build_install_forks() {
     # ---- PATH symlinks ----
     say "Symlinking binaries into /usr/local/bin"
     for bin in /opt/1bit/lemonade/bin/* /opt/1bit/flm/bin/*; do
-        [[ -x "$bin" ]] || continue
-        local link="/usr/local/bin/$(basename "$bin")"
+        [[ -f "$bin" && -x "$bin" ]] || continue
+        local link
+        link="/usr/local/bin/$(basename "$bin")"
         if [[ -L "$link" && "$(readlink -f "$link")" == "$(readlink -f "$bin")" ]]; then
             continue
         fi
@@ -314,8 +306,12 @@ configure_ufw_lan() {
 
 install_systemd_units() {
     say "Installing systemd units for the full 1bit.systems stack (auto-start at boot)"
+    local install_user install_group install_home
+    install_user="$(id -un)"
+    install_group="$(id -gn)"
+    install_home="$HOME"
     run sudo mkdir -p /var/log/1bit-systems
-    run sudo chown bcloud:bcloud /var/log/1bit-systems
+    run sudo chown "$install_user:$install_group" /var/log/1bit-systems
 
     if (( DRY_RUN )); then
         dry "write /etc/systemd/system/{lemond,flm,1bit-proxy,open-webui}.service + 1bit-stack.target"
@@ -324,7 +320,7 @@ install_systemd_units() {
         return
     fi
 
-    sudo tee /etc/systemd/system/lemond.service >/dev/null <<'UNIT'
+    sudo tee /etc/systemd/system/lemond.service >/dev/null <<UNIT
 [Unit]
 Description=Lemonade Server (1bit-systems / source-built)
 After=network-online.target
@@ -332,9 +328,9 @@ Wants=network-online.target
 PartOf=1bit-stack.target
 [Service]
 Type=simple
-User=bcloud
-Group=bcloud
-WorkingDirectory=/home/bcloud
+User=$install_user
+Group=$install_group
+WorkingDirectory=$install_home
 EnvironmentFile=-/etc/lemonade/conf.d/zz-secrets.conf
 ExecStart=/usr/local/bin/lemond --host 0.0.0.0
 ExecReload=/bin/kill -HUP $MAINPID
@@ -348,7 +344,7 @@ AmbientCapabilities=CAP_SYS_RESOURCE
 WantedBy=multi-user.target 1bit-stack.target
 UNIT
 
-    sudo tee /etc/systemd/system/flm.service >/dev/null <<'UNIT'
+    sudo tee /etc/systemd/system/flm.service >/dev/null <<UNIT
 [Unit]
 Description=FastFlowLM NPU server (1bit-systems / source-built)
 After=network-online.target lemond.service
@@ -356,12 +352,12 @@ Wants=network-online.target
 PartOf=1bit-stack.target
 [Service]
 Type=simple
-User=bcloud
-Group=bcloud
-WorkingDirectory=/home/bcloud
+User=$install_user
+Group=$install_group
+WorkingDirectory=$install_home
 Environment=ONEBIT_NPU_MODEL=qwen3:1.7b
 Environment="ONEBIT_FLM_FLAGS=--port 52625 --embed 1 --socket 20 --q-len 20"
-ExecStart=/bin/bash -c '/usr/local/bin/flm serve "${ONEBIT_NPU_MODEL}" ${ONEBIT_FLM_FLAGS}'
+ExecStart=/bin/bash -c '/usr/local/bin/flm serve "\${ONEBIT_NPU_MODEL}" \${ONEBIT_FLM_FLAGS}'
 StandardOutput=append:/var/log/1bit-systems/flm.log
 StandardError=append:/var/log/1bit-systems/flm.log
 Restart=on-failure
@@ -371,7 +367,7 @@ LimitMEMLOCK=infinity
 WantedBy=multi-user.target 1bit-stack.target
 UNIT
 
-    sudo tee /etc/systemd/system/1bit-proxy.service >/dev/null <<'UNIT'
+    sudo tee /etc/systemd/system/1bit-proxy.service >/dev/null <<UNIT
 [Unit]
 Description=1bit-systems proxy (unifies lemond + flm on :13306)
 After=lemond.service flm.service
@@ -379,9 +375,9 @@ Wants=lemond.service flm.service
 PartOf=1bit-stack.target
 [Service]
 Type=simple
-User=bcloud
-Group=bcloud
-WorkingDirectory=/home/bcloud
+User=$install_user
+Group=$install_group
+WorkingDirectory=$install_home
 ExecStart=/usr/bin/node /usr/local/share/1bit-systems/1bit-proxy.js
 StandardOutput=append:/var/log/1bit-systems/1bit-proxy.log
 StandardError=append:/var/log/1bit-systems/1bit-proxy.log
@@ -391,7 +387,7 @@ RestartSec=5s
 WantedBy=multi-user.target 1bit-stack.target
 UNIT
 
-    sudo tee /etc/systemd/system/open-webui.service >/dev/null <<'UNIT'
+    sudo tee /etc/systemd/system/open-webui.service >/dev/null <<UNIT
 [Unit]
 Description=open-webui (1bit-systems / points at :13306 unified endpoint)
 After=network-online.target 1bit-proxy.service
@@ -399,15 +395,15 @@ Wants=network-online.target 1bit-proxy.service
 PartOf=1bit-stack.target
 [Service]
 Type=simple
-User=bcloud
-Group=bcloud
-WorkingDirectory=/home/bcloud
+User=$install_user
+Group=$install_group
+WorkingDirectory=$install_home
 Environment=WEBUI_NAME=1bit.systems
 Environment=OPENAI_API_BASE_URL=http://127.0.0.1:13306/v1
 Environment=OPENAI_API_KEY=local-no-auth
 Environment=ENABLE_OLLAMA_API=False
 Environment=WEBUI_AUTH=False
-ExecStart=/home/bcloud/.local/bin/open-webui serve --host 0.0.0.0 --port 3000
+ExecStart=$install_home/.local/bin/open-webui serve --host 0.0.0.0 --port 3000
 StandardOutput=append:/var/log/1bit-systems/open-webui.log
 StandardError=append:/var/log/1bit-systems/open-webui.log
 Restart=on-failure
@@ -429,14 +425,14 @@ UNIT
     sudo systemctl enable lemond.service flm.service 1bit-proxy.service open-webui.service 1bit-stack.target
 
     # XDG autostart for the GAIA Agent UI desktop AppImage (graphical login only).
-    if [[ -x /home/bcloud/Applications/gaia-agent-ui.AppImage ]]; then
-        mkdir -p /home/bcloud/.config/autostart
-        cat > /home/bcloud/.config/autostart/gaia-agent-ui.desktop <<'XDG'
+    if [[ -x "$install_home/Applications/gaia-agent-ui.AppImage" ]]; then
+        mkdir -p "$install_home/.config/autostart"
+        cat > "$install_home/.config/autostart/gaia-agent-ui.desktop" <<XDG
 [Desktop Entry]
 Type=Application
 Name=GAIA Agent UI
 Comment=AMD GAIA agent UI - auto-launches on graphical login (1bit-systems)
-Exec=/home/bcloud/Applications/gaia-agent-ui.AppImage --no-sandbox
+Exec=$install_home/Applications/gaia-agent-ui.AppImage --no-sandbox
 Icon=gaia
 Terminal=false
 X-GNOME-Autostart-enabled=true
@@ -531,7 +527,6 @@ main() {
     parse_args "$@"
     banner
     require_pacman
-    require_paru
     install_packages
     build_install_forks
     write_memlock_limits
