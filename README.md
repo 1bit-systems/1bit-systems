@@ -1,4 +1,26 @@
+<div align="center">
+
+<img src="1bit-site/assets/brand-lockup.svg" alt="1bit.systems" width="480">
+
 # 1bit-systems
+
+### GAIA + Lemonade + FastFlowLM for AMD Strix Halo
+
+*GAIA on top. Lemonade as the canonical OpenAI/OmniRouter server. FastFlowLM on XDNA. One optional union endpoint for clients.*
+
+[![CI](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml/badge.svg)](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-00d4ff.svg)](LICENSE)
+[![Site](https://img.shields.io/badge/site-1bit.systems-00d4ff.svg)](https://1bit.systems)
+[![Discord](https://img.shields.io/badge/discord-1bit.systems-5865F2.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
+[![Built on GAIA](https://img.shields.io/badge/built%20on-AMD%20GAIA-ff4d8d.svg)](https://amd-gaia.ai/docs/quickstart)
+[![Built on Lemonade](https://img.shields.io/badge/built%20on-Lemonade-yellow.svg)](https://lemonade-server.ai/docs/)
+[![Built on FastFlowLM](https://img.shields.io/badge/built%20on-FastFlowLM-orange.svg)](https://fastflowlm.com/docs/)
+[![Hardware: Strix Halo](https://img.shields.io/badge/hardware-Strix%20Halo%20%7C%20gfx1151%20%7C%20XDNA%202-red.svg)](https://www.amd.com/en/products/processors/laptop/ryzen/ai-max-series.html)
+[![GitHub last commit](https://img.shields.io/github/last-commit/bong-water-water-bong/1bit-systems)](https://github.com/bong-water-water-bong/1bit-systems/commits/main)
+
+</div>
+
+---
 
 Local AI control plane for AMD Strix Halo: GAIA as the agent/UI layer, Lemonade as the canonical OpenAI-compatible multimodal server, FastFlowLM on the XDNA NPU, and a small union proxy for clients that want one endpoint for both lanes.
 
