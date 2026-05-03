@@ -108,6 +108,32 @@ stablecoin rail can instead:
 This is not implemented in the current runtime. It is the preferred design
 direction if we add paid machine-to-machine API access.
 
+### 1c. Agent spend policy vs merchant execution
+
+The payment endpoint is not where the decision belongs. A merchant or Stripe
+checkout can create a charge, but the agent policy layer decides whether a
+charge is allowed before any merchant is touched.
+
+Example policy:
+
+```text
+keep model spend under threshold
+if price drops below policy target:
+  approve purchase up to budget
+  execute through merchant rail
+  record receipt + capability/JWT
+else:
+  defer or ask for approval
+```
+
+This matters for autonomous machine clients. The agent may eventually buy
+model credits, inference time, API access, replacement supplies, or another
+resource needed to finish a task. The merchant rail might be Stripe,
+stablecoin settlement, Lightning, or a vendor-specific API, but all of those
+are execution rails. The decision point stays in local policy: budget,
+approval threshold, vendor allowlist, spend cap, audit log, and revocation
+path.
+
 ---
 
 ## 2. JWT shape
