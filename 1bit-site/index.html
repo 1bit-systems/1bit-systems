@@ -30,6 +30,7 @@
     <a href="#stack">stack</a>
     <a href="#install">install</a>
     <a href="#api">api</a>
+    <a href="#rules">rules</a>
     <a href="#bench">bench</a>
     <a href="#apps">apps</a>
     <a class="gh-btn" href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
@@ -47,6 +48,7 @@
     <a href="#install" data-anchor="install">Install</a>
     <a href="#quickstart" data-anchor="quickstart">Quickstart</a>
     <a href="#api" data-anchor="api">API</a>
+    <a href="#rules" data-anchor="rules">Rules</a>
     <h4>Operate</h4>
     <a href="#apps" data-anchor="apps">Apps</a>
     <a href="#bench" data-anchor="bench">Bench</a>
@@ -142,6 +144,19 @@ http://127.0.0.1:52625/v1</code></pre>
       <tr><td>Direct Lemonade apps</td><td><code>http://127.0.0.1:13305/api/v1</code></td><td>Canonical Lemonade multimodal and OmniRouter behavior.</td></tr>
     </tbody>
   </table>
+  </div>
+</section>
+
+<section id="rules" class="doc-section" data-mark="05 / RULES">
+  <h2>The five rules</h2>
+  <p class="note">The live stack is Lemonade on <code>:13305</code>, FastFlowLM on <code>:52625</code>, and <code>1bit-proxy</code> on <code>:13306</code>. These rules describe that stack as it runs now.</p>
+  <div class="pillar-grid">
+    <div class="pillar"><h3>Rule A</h3><p>Core serving stays Python-free. Training, notebooks, build-time conversion, caller-side tools, and isolated compatibility UIs are allowed. The proxy, kernels, native runtimes, and model hot paths stay Python-free.</p></div>
+    <div class="pillar"><h3>Rule B</h3><p>C++20 for kernels. HIP code lives in <code>rocm-cpp/</code>; Rust is for layers above the kernel boundary.</p></div>
+    <div class="pillar"><h3>Rule C</h3><p><code>hipBLAS</code> is banned in the runtime path. Port the kernel to <code>rocm-cpp/</code> instead.</p></div>
+    <div class="pillar"><h3>Rule D</h3><p>Rust 1.88+, edition 2024. Bumps require a reason.</p></div>
+    <div class="pillar"><h3>Rule E</h3><p>FastFlowLM is the live XDNA serving lane. Custom NPU kernels use IRON at author-time, then MLIR-AIE, Peano, <code>xclbin</code>, and <code>libxrt</code> from C++ at runtime.</p></div>
+    <div class="pillar"><h3>Carve-out</h3><p>Open WebUI is a secondary compatibility UI behind the union endpoint. It does not become the engine.</p></div>
   </div>
 </section>
 

@@ -466,7 +466,7 @@ UNIT
 [Unit]
 Description=1bit Strix Halo OPTC workaround: pin amdgpu DPM level high
 ConditionPathExistsGlob=/sys/class/drm/card*/device/power_dpm_force_performance_level
-After=graphical.target
+After=systemd-udev-settle.service
 
 [Service]
 Type=oneshot
@@ -474,7 +474,7 @@ ExecStart=/bin/sh -c 'for f in /sys/class/drm/card*/device/power_dpm_force_perfo
 RemainAfterExit=yes
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=graphical.target
 UNIT
 
     sudo systemctl daemon-reload

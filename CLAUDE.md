@@ -1,19 +1,25 @@
 # CLAUDE.md — conventions for 1bit-systems
 
-Lean 1-bit inference engine on Strix Halo. Three lanes behind one
-OpenAI-compatible endpoint at `:13305`.
+Lean local inference engine on Strix Halo. Apps connect to Lemonade,
+FastFlowLM, or the 1bit union endpoint. The single control plane comes
+second.
 
 ## Hard rules
 
-- **Lean over scaffolding.** This repo is the install + control plane on
-  top of upstream Lemonade Server and FastFlowLM. Do not reimplement
-  inference. Do not port kernels in-tree. Upstream PRs are the right
-  place for kernel work.
-- **No Python at runtime.** Bash for the installer + `1bit` CLI is fine;
-  upstream FLM and lemonade-server bring their own runtimes.
-- **Compatibility surface is OpenAI.** Anything that breaks the
-  `:13305/v1/*` shape is a bug. The whole point is "works with any
-  client that speaks OpenAI."
+- **Rule A: core serving stays Python-free.** Training, notebooks,
+  build-time conversion, caller-side tools, and compatibility UIs are
+  allowed. The core engine path we own is Python-free: proxy, kernels,
+  native runtimes, and model hot paths. Open WebUI is allowed only as an
+  isolated secondary UI behind the OpenAI-compatible endpoint.
+- **Rule B: C++20 for kernels.** HIP code belongs in `rocm-cpp/`.
+- **Rule C: hipBLAS is banned in the runtime path.** Port kernels to
+  `rocm-cpp/` instead.
+- **Rule D: Rust 1.88+, edition 2024.** Bump with a reason.
+- **Rule E: NPU has two lanes.** FastFlowLM is the live XDNA serving
+  lane. Custom NPU kernels are IRON author-time → MLIR-AIE → Peano →
+  xclbin → libxrt C++ runtime.
+- **Compatibility surface is OpenAI.** Anything that breaks `:13306/v1`
+  or `:13306/api/v1` for clients is a bug.
 
 ## Layout
 
@@ -28,9 +34,10 @@ OpenAI-compatible endpoint at `:13305`.
 
 ## What lives outside this repo
 
-- `lemond` (Lemonade Server) — installed via paru/AUR, runs on `:13305`,
+- `lemond` (Lemonade Server) — built from the maintained fork, runs on `:13305`,
   binaries cached at `~/.cache/lemonade/bin/`.
-- `flm` (FastFlowLM, NPU) — installed via pacman from `cachyos-extra-znver4`.
+- `flm` (FastFlowLM, NPU) — built from the maintained fork, runs on `:52625`.
+- `1bit-proxy` — Node service on `:13306`, unifies Lemonade and FastFlowLM.
 - ROCm 7.2.x — installed via pacman (`rocm-hip-sdk`).
 - XRT + amdxdna — installed via pacman.
 - Bonsai / ternary GGUFs — pulled from HuggingFace (`lilyanatia/*`,
