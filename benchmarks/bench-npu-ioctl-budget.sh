@@ -33,6 +33,7 @@ MAX_TOKENS="${MAX_TOKENS:-20}"
 THRESHOLD="${THRESHOLD:-250}"          # ioctls/token (incl. prefill); baseline ~215, fail above 250
 WARN_THRESHOLD="${WARN_THRESHOLD:-200}"  # warn if creeping above 200/token
 WORKDIR="${WORKDIR:-/tmp/npu-ioctl-budget}"
+BENCH_PROMPT="${BENCH_PROMPT:-Write five short words separated by spaces.}"
 
 # --- Output helpers --------------------------------------------------------
 
@@ -128,8 +129,8 @@ sleep 1
 say "firing $MAX_TOKENS-token decode at temperature=0"
 RESP=$(curl -sS -m 120 "http://127.0.0.1:$FLM_PORT/v1/chat/completions" \
     -H 'Content-Type: application/json' \
-    -d "$(jq -nc --arg m "$MODEL" --argjson n "$MAX_TOKENS" \
-        '{model:$m,messages:[{role:"user",content:"Write five short words separated by spaces."}],max_tokens:$n,temperature:0}')")
+    -d "$(jq -nc --arg m "$MODEL" --arg p "$BENCH_PROMPT" --argjson n "$MAX_TOKENS" \
+        '{model:$m,messages:[{role:"user",content:$p}],max_tokens:$n,temperature:0}')")
 echo "$RESP" > "$WORKDIR/decode.json"
 
 # Detach strace cleanly so it dumps the summary
