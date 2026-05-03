@@ -304,6 +304,47 @@ configure_ufw_lan() {
     done
 }
 
+configure_optc_mitigation() {
+    # Strix Halo gfx1151 can hard-freeze in the display controller under mixed
+    # compositor + GPU-compute load. Stage the tested dcdebugmask workaround on
+    # Limine systems; it takes effect after the next reboot.
+    if ! lspci 2>/dev/null | grep -qiE 'Strix|Radeon.*8060S|gfx1151|AMD.*Graphics'; then
+        [[ -e /sys/class/drm/card1/device/power_dpm_force_performance_level ]] || {
+            ok "OPTC mitigation: no Strix Halo-like amdgpu display device detected"
+            return
+        }
+    fi
+
+    local flag="amdgpu.dcdebugmask=0x410"
+    if tr ' ' '\n' </proc/cmdline | grep -qx "$flag"; then
+        ok "OPTC mitigation active in current boot ($flag)"
+        return
+    fi
+
+    if [[ ! -f /etc/default/limine ]] || ! command -v limine-install >/dev/null 2>&1; then
+        warn "OPTC mitigation not active; add $flag to your bootloader cmdline"
+        return
+    fi
+
+    say "Staging OPTC mitigation in /etc/default/limine ($flag)"
+    if (( DRY_RUN )); then
+        dry "optional: snapper -c root create -d pre-1bit-optc-dcdebugmask"
+        dry "backup /etc/default/limine, append $flag, run limine-install"
+        return
+    fi
+
+    if command -v snapper >/dev/null 2>&1; then
+        sudo snapper -c root create -d "pre-1bit-optc-dcdebugmask" || \
+            warn "snapper snapshot failed; continuing with /etc/default/limine backup"
+    fi
+    sudo cp -a /etc/default/limine "/etc/default/limine.pre-1bit-optc.$(date +%Y%m%d%H%M%S)"
+    if ! grep -q "$flag" /etc/default/limine; then
+        sudo sed -i "/KERNEL_CMDLINE\\[default\\]/ s/\"$/ $flag\"/" /etc/default/limine
+    fi
+    sudo limine-install
+    warn "OPTC mitigation staged; reboot required before $flag is active"
+}
+
 install_systemd_units() {
     say "Installing systemd units for the full 1bit.systems stack (auto-start at boot)"
     local install_user install_group install_home
@@ -421,8 +462,23 @@ After=lemond.service flm.service 1bit-proxy.service open-webui.service
 WantedBy=multi-user.target
 UNIT
 
+    sudo tee /etc/systemd/system/1bit-optc-gpu-perf.service >/dev/null <<'UNIT'
+[Unit]
+Description=1bit Strix Halo OPTC workaround: pin amdgpu DPM level high
+ConditionPathExistsGlob=/sys/class/drm/card*/device/power_dpm_force_performance_level
+After=graphical.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'for f in /sys/class/drm/card*/device/power_dpm_force_performance_level; do [ -e "$f" ] && echo high > "$f" || true; done'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
     sudo systemctl daemon-reload
-    sudo systemctl enable lemond.service flm.service 1bit-proxy.service open-webui.service 1bit-stack.target
+    sudo systemctl enable lemond.service flm.service 1bit-proxy.service open-webui.service 1bit-stack.target 1bit-optc-gpu-perf.service
 
     # XDG autostart for the GAIA Agent UI desktop AppImage (graphical login only).
     if [[ -x "$install_home/Applications/gaia-agent-ui.AppImage" ]]; then
@@ -505,6 +561,8 @@ pull_default_model() {
 install_cli() {
     say "Installing /usr/local/bin/1bit + proxy + omni"
     run sudo install -m 0755 "$(dirname "$0")/scripts/1bit" /usr/local/bin/1bit
+    run sudo install -m 0755 "$(dirname "$0")/scripts/optc-status" /usr/local/bin/1bit-optc-status
+    run sudo install -m 0755 "$(dirname "$0")/scripts/optc_soak_2hr.sh" /usr/local/bin/1bit-optc-soak
     run sudo install -d /usr/local/share/1bit-systems
     run sudo install -m 0644 "$(dirname "$0")/scripts/1bit-home.html" /usr/local/share/1bit-systems/1bit-home.html
     run sudo install -m 0644 "$(dirname "$0")/scripts/1bit-proxy.js" /usr/local/share/1bit-systems/1bit-proxy.js
@@ -532,6 +590,7 @@ main() {
     write_memlock_limits
     configure_lemonade_lan_bind
     configure_ufw_lan
+    configure_optc_mitigation
     install_cli
     install_systemd_units
     start_stack

@@ -167,6 +167,7 @@ scripts/1bit-omni.py               Lemonade OmniRouter helper loop
 benchmarks/                        reproducible benchmark scripts/results
 docs/                              repo docs and architecture notes
 docs/app-integration.md            how apps connect to the inference engine
+docs/optc-troubleshooting.md       Strix Halo OPTC hang mitigation and soak test
 1bit-site/                         Cloudflare Pages site for 1bit.systems
 packaging/                         AUR and binary packaging work
 ```
