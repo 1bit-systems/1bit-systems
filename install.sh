@@ -104,23 +104,120 @@ has_xdna_npu() {
 }
 
 install_packages() {
-    local base_pkgs=(rocm-hip-sdk nodejs npm github-cli ninja)
-    local xdna_pkgs=(xrt xrt-plugin-amdxdna fastflowlm)
+    # 1bit.systems policy: NO upstream application packages. Lemonade Server and
+    # FastFlowLM are built from forks under bong-water-water-bong (see
+    # build_install_forks). Only kernel/driver-layer packages and build deps
+    # come from pacman.
+    local base_pkgs=(
+        # Build toolchain — needed to compile lemonade + flm from forks
+        cmake ninja base-devel rust nodejs npm github-cli git
+        # Lemonade C++ runtime deps (pkg-config visible)
+        libwebsockets libcap libdrm openssl curl
+        # GPU stack — kernel/HIP layer only; iGPU lanes (rocm/vulkan llama.cpp)
+        # come from cachyos-extra-znver4 separately
+        rocm-hip-sdk
+    )
+    local xdna_pkgs=(xrt xrt-plugin-amdxdna)   # NPU driver/firmware only — flm itself comes from fork
 
-    say "Installing base packages (pacman)"
+    say "Installing build toolchain + driver packages (pacman)"
     run sudo pacman -S --needed --noconfirm "${base_pkgs[@]}"
 
     if has_xdna_npu; then
-        say "XDNA NPU detected — installing NPU lane (xrt + fastflowlm)"
+        say "XDNA NPU detected — installing NPU driver layer (xrt + xrt-plugin-amdxdna)"
         run sudo pacman -S --needed --noconfirm "${xdna_pkgs[@]}"
     else
-        warn "no XDNA NPU detected — skipping xrt / xrt-plugin-amdxdna / fastflowlm"
+        warn "no XDNA NPU detected — skipping xrt / xrt-plugin-amdxdna"
         warn "(this box runs the iGPU/dGPU lane only; flm:npu recipe will stay 'unsupported')"
     fi
 
-    say "Installing Lemonade Server (AUR)"
-    run paru -S --needed --noconfirm --skipreview --noprovides lemonade-server
-    ok "Packages installed"
+    # If a previous install left lemonade-server (AUR) or fastflowlm (pacman) installed,
+    # remove them — they conflict with the from-source builds at /opt/1bit/.
+    if pacman -Qq lemonade-server >/dev/null 2>&1; then
+        warn "Removing legacy AUR lemonade-server (replaced by /opt/1bit/lemonade source build)"
+        run sudo pacman -Rns --noconfirm lemonade-server
+    fi
+    if pacman -Qq fastflowlm >/dev/null 2>&1; then
+        warn "Removing legacy pacman fastflowlm (replaced by /opt/1bit/flm source build)"
+        run sudo pacman -Rns --noconfirm fastflowlm
+    fi
+    ok "Build deps installed; legacy app packages removed if present"
+}
+
+# Clone bong-water-water-bong/1bit-{lemonade,fastflowlm}, configure with
+# Strix-Halo-tuned flags, build, install to /opt/1bit/<name>, symlink binaries
+# into /usr/local/bin so the rest of install.sh and `1bit` CLI find them on
+# PATH. Idempotent: cmake --build is a no-op when sources haven't changed.
+build_install_forks() {
+    local fork_owner=bong-water-water-bong
+    local projects=$HOME/Projects
+    local cflags="-O3 -march=znver4 -mtune=znver4 -DNDEBUG"
+
+    run mkdir -p "$projects" /opt/1bit
+    if [[ ! -w /opt/1bit ]]; then
+        say "Taking ownership of /opt/1bit ($(id -un))"
+        run sudo install -d -o "$(id -un)" -g "$(id -gn)" /opt/1bit
+    fi
+
+    # ---- 1bit-lemonade ----
+    local lemo="$projects/1bit-lemonade"
+    if [[ ! -d "$lemo/.git" ]]; then
+        say "Cloning $fork_owner/1bit-lemonade → $lemo"
+        run git clone "https://github.com/$fork_owner/1bit-lemonade.git" "$lemo"
+        run git -C "$lemo" remote add upstream https://github.com/lemonade-sdk/lemonade.git
+    fi
+
+    say "Configuring + building 1bit-lemonade (znver4 / -O3 / LTO)"
+    run cmake -S "$lemo" -B "$lemo/build" -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/opt/1bit/lemonade \
+        -DCMAKE_C_FLAGS_RELEASE="$cflags" \
+        -DCMAKE_CXX_FLAGS_RELEASE="$cflags" \
+        -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON \
+        -DBUILD_WEB_APP=ON \
+        -DBUILD_TAURI_APP=OFF
+    run cmake --build "$lemo/build" -j"$(nproc)"
+    run cmake --install "$lemo/build" --prefix /opt/1bit/lemonade
+
+    # ---- 1bit-fastflowlm ----
+    local flm="$projects/1bit-fastflowlm"
+    if [[ ! -d "$flm/.git" ]]; then
+        say "Cloning $fork_owner/1bit-fastflowlm → $flm"
+        run git clone "https://github.com/$fork_owner/1bit-fastflowlm.git" "$flm"
+        run git -C "$flm" remote add upstream https://github.com/FastFlowLM/FastFlowLM.git
+    fi
+    run git -C "$flm" submodule update --init --recursive
+
+    say "Configuring + building 1bit-fastflowlm (znver4 / -O3 / LTO)"
+    run cmake -S "$flm/src" -B "$flm/build" --preset linux-default \
+        -DCMAKE_INSTALL_PREFIX=/opt/1bit/flm \
+        -DCMAKE_XCLBIN_PREFIX=/opt/1bit/flm/share/flm \
+        -DXRT_INCLUDE_DIR=/usr/include/xrt \
+        -DXRT_LIB_DIR=/usr/lib \
+        -DCMAKE_C_FLAGS_RELEASE="$cflags" \
+        -DCMAKE_CXX_FLAGS_RELEASE="$cflags" \
+        -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON
+    run cmake --build "$flm/build" -j"$(nproc)"
+    run cmake --install "$flm/build" --prefix /opt/1bit/flm
+
+    # ---- PATH symlinks ----
+    say "Symlinking binaries into /usr/local/bin"
+    for bin in /opt/1bit/lemonade/bin/* /opt/1bit/flm/bin/*; do
+        [[ -x "$bin" ]] || continue
+        local link="/usr/local/bin/$(basename "$bin")"
+        if [[ -L "$link" && "$(readlink -f "$link")" == "$(readlink -f "$bin")" ]]; then
+            continue
+        fi
+        run sudo ln -sfn "$bin" "$link"
+    done
+
+    # ---- Systemd unit ----
+    if [[ -f /opt/1bit/lemonade/lib/systemd/system/lemond.service ]]; then
+        run sudo install -m 0644 /opt/1bit/lemonade/lib/systemd/system/lemond.service \
+            /etc/systemd/system/lemond.service
+        run sudo systemctl daemon-reload
+    fi
+
+    ok "Forks built and installed under /opt/1bit; binaries symlinked into /usr/local/bin"
 }
 
 write_memlock_limits() {
@@ -145,11 +242,18 @@ EOF
     ok "memlock limits written — re-login or reboot for them to apply"
 }
 
-# Lemonade pins backend versions in /usr/share/lemonade-server/resources/backend_versions.json
-# with strict equality. Arch's `fastflowlm` package can lead the pin (e.g. AUR ships v0.9.39
-# while Lemonade pins v0.9.38), which flips the flm:npu recipe to `update_required` even when
-# `flm validate` is fully green. Bump the pin to whatever flm actually reports.
+# OBSOLETE under the from-source/fork model. With both Lemonade and FLM built
+# from forks under bong-water-water-bong, version coherency is enforced at
+# build time (Lemonade's backend_versions.json ships pinned to whatever FLM
+# version we built alongside it). Kept as a no-op for backwards compat with
+# scripts that may still call it; will be removed in a future cleanup.
 patch_lemonade_flm_pin() {
+    ok "patch_lemonade_flm_pin: noop (versions coherent via from-source fork build)"
+    return 0
+}
+
+# Original AUR-era implementation (kept for reference, never executed):
+_unused_legacy_patch_lemonade_flm_pin() {
     local manifest=/usr/share/lemonade-server/resources/backend_versions.json
     if [[ ! -f "$manifest" ]]; then
         if (( DRY_RUN )); then
@@ -313,6 +417,7 @@ main() {
     require_pacman
     require_paru
     install_packages
+    build_install_forks
     write_memlock_limits
     patch_lemonade_flm_pin
     configure_lemonade_lan_bind
