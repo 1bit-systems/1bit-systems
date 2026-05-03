@@ -25,7 +25,7 @@ If a client requires an API key, use `local-no-auth` unless you explicitly confi
 | AnythingLLM | OpenAI-compatible | `http://127.0.0.1:13306/v1` |
 | Continue | OpenAI-compatible | `http://127.0.0.1:13306/v1` |
 | Dify / n8n / custom tools | OpenAI-compatible | `http://127.0.0.1:13306/v1` |
-| Direct Lemonade workflows | Lemonade/OpenAI-compatible | `http://127.0.0.1:13305/api/v1` |
+| Direct Lemonade workflows | Lemonade/OpenAI-compatible | `http://127.0.0.1:13305/v1` or `http://127.0.0.1:13305/api/v1` |
 
 ## Minimal SDK Test
 
@@ -57,6 +57,8 @@ App
       -> FastFlowLM :52625   NPU chat, embeddings, opt-in ASR
 ```
 
+For pure OmniRouter tool workflows, use Lemonade direct on `http://127.0.0.1:13305/v1`. OmniRouter tool definitions target Lemonade endpoints such as `/v1/images/generations`, `/v1/images/edits`, `/v1/audio/speech`, `/v1/audio/transcriptions`, and `/v1/chat/completions` for vision.
+
 ## Security
 
 These endpoints are local developer services by default. Do not expose them directly to the internet. Put authentication, TLS, and an explicit reverse proxy policy in front of any remote access.
@@ -65,5 +67,5 @@ These endpoints are local developer services by default. Do not expose them dire
 
 - Lemonade docs: https://lemonade-server.ai/docs/
 - Lemonade API overview: https://lemonade-server.ai/docs/api/
-- Lemonade app integration guides: https://lemonade-server.ai/docs/server/apps/
+- Lemonade OmniRouter docs: https://lemonade-server.ai/docs/omni-router/
 - Lemonade server configuration: https://lemonade-server.ai/docs/server/configuration/
