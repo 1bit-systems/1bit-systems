@@ -121,10 +121,13 @@ install_packages() {
 
     say "Installing build toolchain + driver packages (pacman)"
     run sudo pacman -S --needed --noconfirm "${base_pkgs[@]}"
+    # Mark our build deps --asexplicit so a later -R cascade can't orphan them.
+    run sudo pacman -D --asexplicit --noconfirm "${base_pkgs[@]}"
 
     if has_xdna_npu; then
         say "XDNA NPU detected — installing NPU driver layer (xrt + xrt-plugin-amdxdna)"
         run sudo pacman -S --needed --noconfirm "${xdna_pkgs[@]}"
+        run sudo pacman -D --asexplicit --noconfirm "${xdna_pkgs[@]}"
     else
         warn "no XDNA NPU detected — skipping xrt / xrt-plugin-amdxdna"
         warn "(this box runs the iGPU/dGPU lane only; flm:npu recipe will stay 'unsupported')"
@@ -134,11 +137,11 @@ install_packages() {
     # remove them — they conflict with the from-source builds at /opt/1bit/.
     if pacman -Qq lemonade-server >/dev/null 2>&1; then
         warn "Removing legacy AUR lemonade-server (replaced by /opt/1bit/lemonade source build)"
-        run sudo pacman -Rns --noconfirm lemonade-server
+        run sudo pacman -R --noconfirm lemonade-server
     fi
     if pacman -Qq fastflowlm >/dev/null 2>&1; then
         warn "Removing legacy pacman fastflowlm (replaced by /opt/1bit/flm source build)"
-        run sudo pacman -Rns --noconfirm fastflowlm
+        run sudo pacman -R --noconfirm fastflowlm
     fi
     ok "Build deps installed; legacy app packages removed if present"
 }
