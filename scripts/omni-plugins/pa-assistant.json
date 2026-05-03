@@ -1,0 +1,65 @@
+{
+  "name": "pa-assistant",
+  "version": "0.1.0",
+  "description": "Personal assistant tool bundle for 1bit omni, routed through local Lemonade chat completions.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "ask_pa_assistant",
+        "description": "Ask a focused personal assistant to plan, triage, summarize, or turn operator context into concrete next actions. Use this for calendar-style planning, daily recaps, work triage, message drafts, checklist generation, and cross-app workflow planning.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string",
+              "description": "The personal-assistant task to perform."
+            },
+            "context": {
+              "type": "string",
+              "description": "Relevant local context, notes, transcripts, repo status, schedule details, or constraints."
+            }
+          },
+          "required": ["task"],
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "handlers": {
+    "ask_pa_assistant": {
+      "kind": "http_json",
+      "endpoint": "/chat/completions",
+      "extract_json": "choices.0.message.content",
+      "max_chars": 6000,
+      "body": {
+        "model": {
+          "env": "ONEBIT_PA_MODEL",
+          "default": "Gemma-4-E4B-it-GGUF"
+        },
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are PA Assistant inside the 1bit-systems Lemonade OmniRouter loop. Convert messy operator context into short, concrete, prioritized actions. Prefer local-first workflows. Do not claim to have used external apps unless the caller supplied their output. Keep outputs compact and directly executable. /no_think"
+          },
+          {
+            "role": "user",
+            "content": {
+              "arg": "task"
+            }
+          },
+          {
+            "role": "user",
+            "content": {
+              "arg": "context",
+              "default": ""
+            }
+          }
+        ],
+        "max_tokens": 700,
+        "temperature": 0.2,
+        "enable_thinking": false
+      }
+    }
+  }
+}

@@ -1,0 +1,91 @@
+{
+  "name": "3d-assets",
+  "version": "0.1.0",
+  "description": "Caller-side 3D asset generation bridge. Defaults to Hunyuan3D-2.1, with TRELLIS/TRELLIS.2 and Stable Fast 3D as alternate backends.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "create_3d_asset",
+        "description": "Create or queue a 3D asset generation job from a text prompt and optional source image. Use this for game props, product mockups, GLB/OBJ/PLY asset requests, or voice-described 3D assets.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "description": "Detailed description of the 3D asset to create."
+            },
+            "source_image": {
+              "type": "string",
+              "description": "Optional local image path for image-to-3D backends."
+            },
+            "format": {
+              "type": "string",
+              "enum": ["glb", "obj", "ply"],
+              "description": "Preferred exported asset format.",
+              "default": "glb"
+            },
+            "quality": {
+              "type": "string",
+              "enum": ["draft", "standard", "high"],
+              "description": "Generation quality target.",
+              "default": "draft"
+            },
+            "backend": {
+              "type": "string",
+              "enum": ["hunyuan3d", "trellis", "trellis2", "sf3d"],
+              "description": "3D generation backend to use. Hunyuan3D is the default text-first backend.",
+              "default": "hunyuan3d"
+            }
+          },
+          "required": ["prompt"],
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "handlers": {
+    "create_3d_asset": {
+      "kind": "process_json",
+      "command": {
+        "env": "ONEBIT_3D_ASSET_CMD",
+        "default": "/usr/local/share/1bit-systems/omni-tools/asset3d.py"
+      },
+      "timeout": 7200,
+      "max_chars": 6000,
+      "body": {
+        "prompt": {
+          "arg": "prompt"
+        },
+        "source_image": {
+          "arg": "source_image",
+          "default": ""
+        },
+        "format": {
+          "arg": "format",
+          "default": "glb"
+        },
+        "quality": {
+          "arg": "quality",
+          "default": "draft"
+        },
+        "backend": {
+          "arg": "backend",
+          "default": "hunyuan3d"
+        },
+        "output_dir": {
+          "env": "ONEBIT_3D_ASSET_OUT",
+          "default": "/tmp/1bit-omni/assets"
+        },
+        "hf_model": {
+          "env": "ONEBIT_3D_ASSET_MODEL",
+          "default": "tencent/Hunyuan3D-2.1"
+        },
+        "repo_path": {
+          "env": "ONEBIT_3D_ASSET_REPO",
+          "default": ""
+        }
+      }
+    }
+  }
+}

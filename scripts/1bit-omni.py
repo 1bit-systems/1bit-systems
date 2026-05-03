@@ -28,7 +28,10 @@ from __future__ import annotations
 import base64
 import json
 import os
+import shlex
+import shutil
 import sys
+import subprocess
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -93,11 +96,29 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "record_microphone",
+            "description": "Record a short WAV clip from the local microphone for voice-first workflows.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "seconds": {
+                        "type": "integer",
+                        "description": "How many seconds to record, from 1 to 30.",
+                        "default": 5,
+                    }
+                },
+                "required": [],
+            },
+        },
+    },
 ]
 
 SYSTEM = (
     "You are a 1bit-systems assistant on local Strix Halo hardware. "
-    "Use the tools when the user asks for an image, TTS, or transcription. "
+    "Use the tools when the user asks for an image, TTS, transcription, voice input, or local asset generation. "
     "Otherwise reply directly. Keep replies short. /no_think"
 )
 
@@ -174,29 +195,59 @@ def tool_transcribe_audio(path: str) -> str:
     return d.get("text", "(no text)").strip()
 
 
+def tool_record_microphone(seconds: int = 5) -> str:
+    try:
+        seconds = int(str(seconds or 5).split()[0])
+    except (TypeError, ValueError):
+        seconds = 5
+    seconds = max(1, min(seconds, 30))
+    out = OUT_DIR / "voice.wav"
+    commands = [
+        ["arecord", "-q", "-f", "cd", "-d", str(seconds), str(out)],
+        ["pw-record", "--duration", str(seconds), str(out)],
+        ["ffmpeg", "-y", "-f", "pulse", "-i", "default", "-t", str(seconds), str(out)],
+    ]
+    for cmd in commands:
+        if shutil.which(cmd[0]) is None:
+            continue
+        try:
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=seconds + 10)
+            if out.exists() and out.stat().st_size > 0:
+                return f"Wrote {out} ({out.stat().st_size:,} bytes)"
+        except Exception as e:
+            last_error = str(e)
+            continue
+    return f"microphone recording failed; install arecord, pw-record, or ffmpeg and check microphone permissions{': ' + last_error if 'last_error' in locals() else ''}"
+
+
 DISPATCH = {
     "generate_image": lambda args: tool_generate_image(args.get("prompt", "")),
     "text_to_speech": lambda args: tool_text_to_speech(args.get("input", "")),
     "transcribe_audio": lambda args: tool_transcribe_audio(args.get("path", "")),
+    "record_microphone": lambda args: tool_record_microphone(args.get("seconds", 5)),
 }
 
 
+def render_plugin_value(spec, args: dict):
+    if isinstance(spec, dict) and "arg" in spec:
+        return args.get(spec["arg"], spec.get("default"))
+    if isinstance(spec, dict) and "env" in spec:
+        return os.environ.get(spec["env"], spec.get("default", ""))
+    if isinstance(spec, dict):
+        return {key: render_plugin_value(value, args) for key, value in spec.items()}
+    if isinstance(spec, list):
+        return [render_plugin_value(value, args) for value in spec]
+    return spec
+
+
 def build_plugin_body(spec: dict, args: dict) -> dict:
-    out = {}
-    for key, source in (spec or {}).items():
-        if isinstance(source, dict) and "arg" in source:
-            out[key] = args.get(source["arg"], source.get("default"))
-        elif isinstance(source, dict) and "env" in source:
-            out[key] = os.environ.get(source["env"], source.get("default", ""))
-        else:
-            out[key] = source
-    return out
+    return render_plugin_value(spec or {}, args)
 
 
 def execute_plugin_tool(name: str, args: dict, handler: dict) -> str:
     kind = handler.get("kind")
     endpoint = handler.get("endpoint")
-    if not endpoint:
+    if kind in {"http_get", "http_json"} and not endpoint:
         return f"plugin tool {name} has no endpoint"
 
     if kind == "http_get":
@@ -204,10 +255,43 @@ def execute_plugin_tool(name: str, args: dict, handler: dict) -> str:
     elif kind == "http_json":
         body = build_plugin_body(handler.get("body", {}), args)
         raw = http_post(endpoint, json.dumps(body).encode(), {"Content-Type": "application/json"})
+    elif kind == "process_json":
+        command = render_plugin_value(handler.get("command"), args)
+        if not command:
+            return f"plugin tool {name} has no command"
+        if isinstance(command, str):
+            command = shlex.split(command)
+        body = build_plugin_body(handler.get("body", {}), args)
+        timeout = int(handler.get("timeout", 3600))
+        proc = subprocess.run(
+            command,
+            input=json.dumps(body).encode(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=handler.get("cwd") or None,
+            timeout=timeout,
+        )
+        raw = proc.stdout
+        if proc.returncode != 0:
+            err = proc.stderr.decode(errors="replace")
+            return f"plugin tool {name} exited {proc.returncode}: {err[:1000]}"
     else:
         return f"plugin tool {name} has unsupported kind: {kind}"
 
     text = raw.decode(errors="replace")
+    extract = handler.get("extract_json")
+    if extract:
+        try:
+            value = json.loads(text)
+            for part in str(extract).split("."):
+                if isinstance(value, list):
+                    value = value[int(part)]
+                else:
+                    value = value[part]
+            text = value if isinstance(value, str) else json.dumps(value)
+        except Exception as e:
+            text = f"plugin tool {name} failed to extract {extract}: {e}\n{text}"
+
     max_chars = int(handler.get("max_chars", 4000))
     if len(text) > max_chars:
         return text[:max_chars] + f"\n... truncated {len(text) - max_chars} chars"
@@ -259,43 +343,43 @@ def run(prompt: str) -> int:
     print(f"\033[1;36m›\033[0m {prompt}")
 
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}]
-    resp = chat_completion(messages, tools=TOOLS)
-    msg = resp["choices"][0]["message"]
-    tool_calls = msg.get("tool_calls") or []
+    for _ in range(4):
+        resp = chat_completion(messages, tools=TOOLS)
+        msg = resp["choices"][0]["message"]
+        tool_calls = msg.get("tool_calls") or []
 
-    if not tool_calls:
-        content = msg.get("content") or "(empty reply)"
-        print(f"\033[1;32m✓\033[0m {content}")
-        return 0
+        if not tool_calls:
+            content = msg.get("content") or "(empty reply)"
+            print(f"\033[1;32m✓\033[0m {content}")
+            return 0
 
-    # Append the assistant message + each tool result; one more pass for the final reply
-    messages.append({
-        "role": "assistant",
-        "content": msg.get("content") or "",
-        "tool_calls": tool_calls,
-    })
-
-    for tc in tool_calls:
-        name = tc["function"]["name"]
-        args = json.loads(tc["function"]["arguments"] or "{}")
-        print(f"\033[1;33m⚙\033[0m tool: \033[1m{name}\033[0m({json.dumps(args)})")
-        handler = DISPATCH.get(name)
-        if handler is None:
-            result = f"unknown tool: {name}"
-        else:
-            try:
-                result = handler(args)
-            except urllib.error.HTTPError as e:
-                result = f"HTTP {e.code}: {e.read().decode()[:200]}"
-            except Exception as e:
-                result = f"tool error: {e}"
-        print(f"\033[2m   → {result}\033[0m")
         messages.append({
-            "role": "tool",
-            "tool_call_id": tc["id"],
-            "name": name,
-            "content": result,
+            "role": "assistant",
+            "content": msg.get("content") or "",
+            "tool_calls": tool_calls,
         })
+
+        for tc in tool_calls:
+            name = tc["function"]["name"]
+            args = json.loads(tc["function"]["arguments"] or "{}")
+            print(f"\033[1;33m⚙\033[0m tool: \033[1m{name}\033[0m({json.dumps(args)})")
+            handler = DISPATCH.get(name)
+            if handler is None:
+                result = f"unknown tool: {name}"
+            else:
+                try:
+                    result = handler(args)
+                except urllib.error.HTTPError as e:
+                    result = f"HTTP {e.code}: {e.read().decode()[:200]}"
+                except Exception as e:
+                    result = f"tool error: {e}"
+            print(f"\033[2m   → {result}\033[0m")
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc["id"],
+                "name": name,
+                "content": result,
+            })
 
     final = chat_completion(messages, tools=None)
     final_content = final["choices"][0]["message"].get("content") or ""

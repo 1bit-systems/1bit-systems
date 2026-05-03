@@ -254,31 +254,33 @@ EOF
     ok "memlock limits written — re-login or reboot for them to apply"
 }
 
-# Patch ~/.cache/lemonade/config.json so lemond binds 0.0.0.0 even when started
-# directly (without `1bit up`'s explicit --host flag). Idempotent; skips if the
-# config doesn't exist yet (it's created on first lemond run).
-configure_lemonade_lan_bind() {
+# Patch ~/.cache/lemonade/config.json so lemond uses the intended bind address
+# even when started directly. Defaults to loopback; set ONEBIT_LEMOND_HOST=0.0.0.0
+# only when a trusted LAN or authenticated reverse proxy should reach it.
+configure_lemonade_bind() {
     local cfg="$HOME/.cache/lemonade/config.json"
+    local host="${ONEBIT_LEMOND_HOST:-127.0.0.1}"
     if [[ ! -f "$cfg" ]]; then
-        ok "lemonade config not yet created; --host 0.0.0.0 still applied via 1bit up"
+        ok "lemonade config not yet created; --host $host still applied via 1bit up"
         return
     fi
-    if grep -q '"host": "0\.0\.0\.0"' "$cfg"; then
-        ok "lemonade config already binds 0.0.0.0"
+    if grep -q "\"host\": \"$host\"" "$cfg"; then
+        ok "lemonade config already binds $host"
         return
     fi
-    say "Patching lemonade config to bind 0.0.0.0 ($cfg)"
+    say "Patching lemonade config to bind $host ($cfg)"
     if (( DRY_RUN )); then
-        dry "sed -i 's/\"host\": \"[^\"]*\"/\"host\": \"0.0.0.0\"/' $cfg"
+        dry "sed -i 's/\"host\": \"[^\"]*\"/\"host\": \"$host\"/' $cfg"
         return
     fi
-    sed -i 's/"host": "[^"]*"/"host": "0.0.0.0"/' "$cfg"
-    ok "lemonade now binds 0.0.0.0 (restart lemond for it to take effect)"
+    sed -i "s/\"host\": \"[^\"]*\"/\"host\": \"$host\"/" "$cfg"
+    ok "lemonade now binds $host (restart lemond for it to take effect)"
 }
 
-# If UFW is installed and active, add allow rules for the LAN-facing services
-# from the local /24. Skips silently when UFW isn't present.
+# If UFW is installed and active, optionally add allow rules for LAN-facing
+# services. Skips unless ONEBIT_ENABLE_LAN=1 because the default stack is local.
 configure_ufw_lan() {
+    [[ "${ONEBIT_ENABLE_LAN:-0}" == "1" ]] || { ok "LAN exposure disabled; skipping UFW LAN rules"; return; }
     command -v ufw >/dev/null 2>&1 || { ok "ufw not installed; skipping firewall rules"; return; }
     if ! sudo ufw status 2>/dev/null | head -1 | grep -q 'active'; then
         ok "ufw not active; skipping firewall rules"
@@ -351,6 +353,10 @@ install_systemd_units() {
     install_user="$(id -un)"
     install_group="$(id -gn)"
     install_home="$HOME"
+    local lemond_host="${ONEBIT_LEMOND_HOST:-127.0.0.1}"
+    local proxy_host="${PROXY_HOST:-127.0.0.1}"
+    local webui_host="${ONEBIT_WEBUI_HOST:-127.0.0.1}"
+    local lemonade_model="${LEMONADE_MODEL:-user.Qwen3.5-35B-A3B-UD-IQ2_XXS.gguf-UD-IQ2_XXS}"
     run sudo mkdir -p /var/log/1bit-systems
     run sudo chown "$install_user:$install_group" /var/log/1bit-systems
 
@@ -373,7 +379,8 @@ User=$install_user
 Group=$install_group
 WorkingDirectory=$install_home
 EnvironmentFile=-/etc/lemonade/conf.d/zz-secrets.conf
-ExecStart=/usr/local/bin/lemond --host 0.0.0.0
+Environment=LEMONADE_MODEL=$lemonade_model
+ExecStart=/usr/local/bin/lemond --host $lemond_host
 ExecReload=/bin/kill -HUP $MAINPID
 KillSignal=SIGINT
 Restart=on-failure
@@ -419,11 +426,16 @@ Type=simple
 User=$install_user
 Group=$install_group
 WorkingDirectory=$install_home
+Environment=PROXY_HOST=$proxy_host
 ExecStart=/usr/bin/node /usr/local/share/1bit-systems/1bit-proxy.js
 StandardOutput=append:/var/log/1bit-systems/1bit-proxy.log
 StandardError=append:/var/log/1bit-systems/1bit-proxy.log
 Restart=on-failure
 RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 [Install]
 WantedBy=multi-user.target 1bit-stack.target
 UNIT
@@ -444,11 +456,15 @@ Environment=OPENAI_API_BASE_URL=http://127.0.0.1:13306/v1
 Environment=OPENAI_API_KEY=local-no-auth
 Environment=ENABLE_OLLAMA_API=False
 Environment=WEBUI_AUTH=False
-ExecStart=$install_home/.local/bin/open-webui serve --host 0.0.0.0 --port 3000
+ExecStart=$install_home/.local/bin/open-webui serve --host $webui_host --port 3000
 StandardOutput=append:/var/log/1bit-systems/open-webui.log
 StandardError=append:/var/log/1bit-systems/open-webui.log
 Restart=on-failure
 RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 [Install]
 WantedBy=multi-user.target 1bit-stack.target
 UNIT
@@ -502,6 +518,24 @@ XDG
     fi
 
     ok "systemd units installed + enabled — stack will auto-start at boot"
+}
+
+disable_legacy_user_units() {
+    # Older installs used systemd --user units for Lemonade / Open WebUI. The
+    # current stack owns both as system units; leaving user units enabled causes
+    # port conflicts, restart storms, or journal churn from stale binary paths.
+    local units=()
+    [[ -f "$HOME/.config/systemd/user/open-webui.service" ]] && units+=(open-webui.service)
+    [[ -f "$HOME/.config/systemd/user/lemond.service" ]] && units+=(lemond.service)
+    ((${#units[@]})) || { ok "no legacy user units found"; return; }
+
+    say "Disabling legacy user units: ${units[*]}"
+    if (( DRY_RUN )); then
+        dry "systemctl --user disable --now ${units[*]}"
+        return
+    fi
+    systemctl --user disable --now "${units[@]}" >/dev/null 2>&1 || \
+        warn "could not disable legacy user units; check systemctl --user status ${units[*]}"
 }
 
 start_stack() {
@@ -565,12 +599,17 @@ install_cli() {
     run sudo install -m 0755 "$(dirname "$0")/scripts/optc_soak_2hr.sh" /usr/local/bin/1bit-optc-soak
     run sudo install -d /usr/local/share/1bit-systems
     run sudo install -d /usr/local/share/1bit-systems/omni-plugins
+    run sudo install -d /usr/local/share/1bit-systems/omni-tools
     run sudo install -m 0644 "$(dirname "$0")/scripts/1bit-home.html" /usr/local/share/1bit-systems/1bit-home.html
     run sudo install -m 0644 "$(dirname "$0")/scripts/1bit-proxy.js" /usr/local/share/1bit-systems/1bit-proxy.js
     run sudo install -m 0755 "$(dirname "$0")/scripts/1bit-omni.py" /usr/local/share/1bit-systems/1bit-omni.py
     for plugin in "$(dirname "$0")"/scripts/omni-plugins/*.json; do
         [[ -f "$plugin" ]] || continue
         run sudo install -m 0644 "$plugin" "/usr/local/share/1bit-systems/omni-plugins/$(basename "$plugin")"
+    done
+    for tool in "$(dirname "$0")"/scripts/omni-tools/*; do
+        [[ -f "$tool" ]] || continue
+        run sudo install -m 0755 "$tool" "/usr/local/share/1bit-systems/omni-tools/$(basename "$tool")"
     done
     ok "1bit CLI + proxy + omni installed — try: 1bit up   or   1bit omni \"...\""
 }
@@ -593,11 +632,12 @@ main() {
     install_packages
     build_install_forks
     write_memlock_limits
-    configure_lemonade_lan_bind
+    configure_lemonade_bind
     configure_ufw_lan
     configure_optc_mitigation
     install_cli
     install_systemd_units
+    disable_legacy_user_units
     start_stack
     pull_default_model
     echo

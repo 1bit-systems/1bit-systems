@@ -51,7 +51,7 @@ done
 (( found )) || warn "no power_dpm_force_performance_level file found"
 
 say "service"
-if systemctl status 1bit-optc-gpu-perf.service >/dev/null 2>&1; then
+if [[ "$(systemctl show 1bit-optc-gpu-perf.service -p LoadState --value 2>/dev/null)" == "loaded" ]]; then
     systemctl --no-pager --full status 1bit-optc-gpu-perf.service || true
 else
     warn "1bit-optc-gpu-perf.service is not installed"

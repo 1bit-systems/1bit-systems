@@ -2,7 +2,11 @@
 
 **Status 2026-04-20:** `1bit.systems` apex is **already live** as a Hugo site on Cloudflare Pages (HTTP/2, CF-Ray header, 172.67.134.39). That is the marketing site, served from an external repo, unrelated to this tunnel.
 
-**This tunnel exposes a _different_ subdomain: `api.1bit.systems` → `1bit-proxy :13306`**. Purpose: public OpenAI-compatible access to the same union endpoint GAIA, Open WebUI, and SDK clients use locally.
+**Unsafe unless protected:** this tunnel exposes a _different_ subdomain:
+`api.1bit.systems` → `1bit-proxy :13306`. Do not enable this path unless
+Cloudflare Access, a bearer-auth layer, or an equivalent authenticated gateway is
+mandatory in front of it. The local inference endpoint is otherwise
+unauthenticated.
 
 ## State on strixhalo
 
@@ -45,10 +49,10 @@ TUUID=<paste from step 2>
 cp ~/.cloudflared/config.yml.template ~/.cloudflared/config.yml
 sed -i "s/PLACEHOLDER_UUID/$TUUID/g" ~/.cloudflared/config.yml
 
-# 5. Quick smoke test (foreground, kill with Ctrl-C)
+# 5. Quick smoke test (foreground, kill with Ctrl-C) after auth is configured
 cloudflared tunnel --config ~/.cloudflared/config.yml run
 #    → from another machine:
-#      curl -sS https://api.1bit.systems/v1/models
+#      curl -sS -H "Authorization: Bearer <token>" https://api.1bit.systems/v1/models
 #      should return the 1bit proxy OpenAI-compatible /v1/models JSON
 
 # 6. Enable persistent user service
@@ -78,7 +82,11 @@ ingress:
   - service: http_status:404
 ```
 
-`http://127.0.0.1:13306` is the 1bit union endpoint. `1bit-proxy` will see requests as coming from 127.0.0.1; the real client IP lands in the `CF-Connecting-IP` header. If rate-limiting or logging per-user is needed later, read that header in the proxy layer.
+`http://127.0.0.1:13306` is the 1bit union endpoint. `1bit-proxy` will see
+requests as coming from 127.0.0.1; the real client IP lands in the
+`CF-Connecting-IP` header. Because the proxy itself does not authenticate
+requests, the tunnel must enforce authentication before traffic reaches this
+service.
 
 ## Coexistence with Caddy
 
@@ -99,7 +107,9 @@ No Caddyfile change required.
 - **1bit-helm desktop client.** No reason to publicly expose.
 - **strix-burnin** / **shadow-burnin** logs. Private.
 
-If we need per-path gating later, CF Access can front the tunnel with email-link auth. That's a follow-up, not required for launch.
+Cloudflare Access or an equivalent auth layer is required before this tunnel is
+enabled. Public unauthenticated `/v1/models`, chat, embeddings, audio, image, or
+realtime endpoints are not an acceptable launch state.
 
 ## Rollback
 

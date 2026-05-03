@@ -16,6 +16,7 @@
 //
 // Pure Node stdlib. No deps. Configure via env:
 //   ONEBIT_PROXY_PORT   (default 13306)
+//   PROXY_HOST          (default 127.0.0.1; set 0.0.0.0 for LAN)
 //   LEMOND_URL          (default http://127.0.0.1:13305)
 //   FLM_URL             (default http://127.0.0.1:52625)
 
@@ -41,10 +42,7 @@ const HOME_HTML = (() => {
 })();
 
 const PROXY_PORT = parseInt(process.env.ONEBIT_PROXY_PORT || '13306', 10);
-// Bind all interfaces by default so LAN apps (Open WebUI, Continue, GitHub
-// Copilot, AnythingLLM, etc.) can hit the unified endpoint. Set
-// PROXY_HOST=127.0.0.1 to restore loopback-only.
-const PROXY_HOST = process.env.PROXY_HOST || '0.0.0.0';
+const PROXY_HOST = process.env.PROXY_HOST || '127.0.0.1';
 const LEMOND_URL = process.env.LEMOND_URL || 'http://127.0.0.1:13305';
 const MAX_BODY_BYTES = parseInt(process.env.ONEBIT_PROXY_MAX_BODY || String(50 * 1024 * 1024), 10);
 const FLM_URL = (() => {
@@ -133,9 +131,10 @@ function pickTargetForPath(pathname, modelId) {
 
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://127.0.0.1:${PROXY_PORT}`);
+  const pathname = u.pathname.replace(/^\/api\/v1(?=\/|$)/, '/v1');
 
   // Home page
-  if ((u.pathname === '/' || u.pathname === '/home') && req.method === 'GET') {
+  if ((pathname === '/' || pathname === '/home') && req.method === 'GET') {
     if (!HOME_HTML) {
       res.writeHead(404, { 'content-type': 'text/plain' });
       res.end('1bit-home.html not found alongside proxy');
@@ -147,7 +146,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Health check for the proxy itself
-  if (u.pathname === '/health' && req.method === 'GET') {
+  if (pathname === '/health' && req.method === 'GET') {
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({
       ok: true,
@@ -160,7 +159,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // /v1/models → union of both backends
-  if (u.pathname === '/v1/models' && req.method === 'GET') {
+  if (pathname === '/v1/models' && req.method === 'GET') {
     if (Date.now() - modelCache.refreshed > CACHE_TTL_MS) await refreshModels();
     res.setHeader('content-type', 'application/json');
     const data = Array.from(modelCache.byId.values()).map(m => ({
@@ -183,12 +182,12 @@ const server = http.createServer(async (req, res) => {
   if (body.length) {
     try { modelId = JSON.parse(body.toString()).model; } catch {}
   }
-  if (!modelId && u.pathname === '/v1/audio/transcriptions') {
+  if (!modelId && pathname === '/v1/audio/transcriptions') {
     modelId = parseMultipartModel(body);
   }
 
   if (Date.now() - modelCache.refreshed > CACHE_TTL_MS) await refreshModels();
-  const target = pickTargetForPath(u.pathname, modelId);
+  const target = pickTargetForPath(pathname, modelId);
   const tu = new URL(target);
 
   const fwdHeaders = { ...req.headers, host: `${tu.hostname}:${tu.port || 80}` };
@@ -198,7 +197,7 @@ const server = http.createServer(async (req, res) => {
   const upstream = http.request({
     hostname: tu.hostname,
     port: tu.port || 80,
-    path: u.pathname + u.search,
+    path: pathname + u.search,
     method: req.method,
     headers: fwdHeaders,
     // flm tears down its TCP socket after each response. node's default

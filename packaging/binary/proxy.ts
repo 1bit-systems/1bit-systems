@@ -12,6 +12,10 @@ import HOME_HTML from "./home.html" with { type: "text" };
 
 const PROXY_PORT = parseInt(process.env.ONEBIT_PROXY_PORT || "13306", 10);
 const LEMOND_URL = process.env.LEMOND_URL || "http://127.0.0.1:13305";
+const MAX_BODY_BYTES = parseInt(
+  process.env.ONEBIT_PROXY_MAX_BODY || String(50 * 1024 * 1024),
+  10,
+);
 const FLM_URL: string = (() => {
   if (process.env.FLM_URL) return process.env.FLM_URL;
   try {
@@ -71,9 +75,9 @@ function pickTarget(modelId: string | undefined): string {
 export async function startProxy(): Promise<void> {
   await refreshModels();
 
-  // Bind all interfaces so the proxy is reachable from the LAN, not just
-  // localhost. Set PROXY_HOST=127.0.0.1 to restore loopback-only.
-  const PROXY_HOST = process.env.PROXY_HOST || "0.0.0.0";
+  // Local-only by default. Set PROXY_HOST=0.0.0.0 only behind explicit
+  // authentication/TLS or a trusted LAN firewall policy.
+  const PROXY_HOST = process.env.PROXY_HOST || "127.0.0.1";
 
   const server = Bun.serve({
     port: PROXY_PORT,
@@ -129,6 +133,16 @@ export async function startProxy(): Promise<void> {
         req.method === "GET" || req.method === "HEAD"
           ? null
           : await req.arrayBuffer();
+      if (bodyBuf && bodyBuf.byteLength > MAX_BODY_BYTES) {
+        return Response.json(
+          {
+            error: {
+              message: `request body too large; max ${MAX_BODY_BYTES} bytes`,
+            },
+          },
+          { status: 413 },
+        );
+      }
       let modelId: string | undefined;
       if (bodyBuf && bodyBuf.byteLength) {
         try {
