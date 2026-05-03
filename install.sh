@@ -179,7 +179,14 @@ build_install_forks() {
         -DBUILD_WEB_APP=ON \
         -DBUILD_TAURI_APP=OFF
     run cmake --build "$lemo/build" -j"$(nproc)"
-    run cmake --install "$lemo/build" --prefix /opt/1bit/lemonade
+    run cmake --install "$lemo/build" --prefix /opt/1bit/lemonade || \
+        warn "cmake install hit non-/opt paths (systemd, /etc/lemonade) — we install those ourselves below"
+
+    # lemond hardcodes its resource search to <bindir>/resources but cmake_install
+    # puts them in <prefix>/share/lemonade-server/resources. Bridge with a symlink.
+    if [[ ! -e /opt/1bit/lemonade/bin/resources ]]; then
+        run ln -sfn /opt/1bit/lemonade/share/lemonade-server/resources /opt/1bit/lemonade/bin/resources
+    fi
 
     # ---- 1bit-fastflowlm ----
     local flm="$projects/1bit-fastflowlm"
@@ -200,7 +207,8 @@ build_install_forks() {
         -DCMAKE_CXX_FLAGS_RELEASE="$cflags" \
         -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON
     run cmake --build "$flm/build" -j"$(nproc)"
-    run cmake --install "$flm/build" --prefix /opt/1bit/flm
+    run cmake --install "$flm/build" --prefix /opt/1bit/flm || \
+        warn "cmake install hit non-/opt paths (e.g. /usr/local/bin symlink) — we install those ourselves below"
 
     # ---- PATH symlinks ----
     say "Symlinking binaries into /usr/local/bin"
@@ -219,6 +227,13 @@ build_install_forks() {
             /etc/systemd/system/lemond.service
         run sudo systemctl daemon-reload
     fi
+    # Lemonade's cmake_install.cmake tries to create /etc/lemonade/conf.d/zz-secrets.conf
+    # which fails without sudo. Install it ourselves if missing.
+    if [[ ! -f /etc/lemonade/conf.d/zz-secrets.conf && -f "$lemo/data/secrets.conf" ]]; then
+        run sudo install -d /etc/lemonade/conf.d
+        run sudo install -m 0640 "$lemo/data/secrets.conf" /etc/lemonade/conf.d/zz-secrets.conf
+    fi
+
 
     ok "Forks built and installed under /opt/1bit; binaries symlinked into /usr/local/bin"
 }
