@@ -59,4 +59,4 @@ If we ever needed a *runtime* requantize (which we don't — the output is cache
 ## Citations
 
 - [`CLAUDE.md`](../../CLAUDE.md) — the formal rule in the repo conventions.
-- [`feedback_no_python_runtime.md`](memory-only) — origin of the rule, with the first Python-service-crashes-in-prod anecdote.
+- `feedback_no_python_runtime.md` in the private memory archive — origin of the rule, with the first Python-service-crashes-in-prod anecdote.

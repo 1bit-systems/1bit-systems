@@ -9,7 +9,7 @@
 - **Graceful reload** on `caddy reload` — no dropped connections, no pid juggling.
 - **Structured JSON logs** to the systemd journal. `journalctl -u caddy -o json` is grep-able.
 
-We run one `Caddyfile` at `/etc/caddy/Caddyfile` (root-owned because Caddy binds :443). A placeholder copy lives at [`strixhalo/caddy/Caddyfile`](../../strixhalo/caddy/Caddyfile) with `sk-halo-REPLACE_ME` tokens — never replaced in git.
+We run one `Caddyfile` at `/etc/caddy/Caddyfile` (root-owned because Caddy binds :443). Operator-local placeholders carry `sk-halo-REPLACE_ME` tokens and are never committed with secrets.
 
 ## Why `tls internal` on LAN
 
@@ -31,7 +31,7 @@ If we ever expose a public endpoint, Caddy flips from `tls internal` to ACME aut
 - **Isolation.** Local stack services run as the operator where possible, not as broad root processes.
 - **Per-user tuning.** `~/.config/systemd/user/*.service` is editable without a config manager.
 
-Units live at [`strixhalo/systemd/`](../../strixhalo/systemd/) in git. `install.sh` copies them to `~/.config/systemd/user/` and runs `systemctl --user daemon-reload`.
+Units are installed by `install.sh`, then systemd reloads the relevant user or system manager.
 
 ## `loginctl enable-linger`
 
@@ -45,7 +45,7 @@ Now user-scope helpers survive SSH disconnect, reboot, and TTY switch. The box i
 
 ## Why we do NOT use Docker
 
-Rule A (bare-metal-first, see [`feedback_bare_metal_first.md`](memory-only)) forbids containers in the runtime path. Reasons, in order:
+Rule A and the bare-metal-first policy keep containers out of the runtime path. Reasons, in order:
 
 1. **Cold start.** Container boot adds 300-800 ms on top of process start. For a service called by voice pipelines that target <2 s end-to-end, that's a third of the budget.
 2. **Storage driver churn.** Overlay2 + Btrfs = unpredictable layer timing under snapper.
@@ -57,6 +57,4 @@ Caller-side is different — if you want to run 1bit-cli inside Docker on your l
 
 ## Pointers
 
-- Units: [`strixhalo/systemd/`](../../strixhalo/systemd/)
-- Caddyfile (tracked): [`strixhalo/caddy/Caddyfile`](../../strixhalo/caddy/Caddyfile)
 - Bootstrap: [`install.sh`](../../install.sh)

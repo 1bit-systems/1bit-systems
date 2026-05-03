@@ -9,7 +9,7 @@
 - `cloudflared 2026.3.0` installed (`pacman -S cloudflared`, already in `cachyos-extra-znver4` repo — no AUR needed).
 - `~/.cloudflared/` exists, empty except `config.yml.template` (staged, ready to rename after tunnel create).
 - `~/.config/systemd/user/strix-cloudflared.service` staged.
-- `strixhalo/cloudflared/config.yml.template` + `strixhalo/systemd/strix-cloudflared.service` tracked in the repo for fresh-box installs.
+- Cloudflared config and service templates are operator-local until this lane is promoted back into the repo.
 
 Nothing is running or reachable yet — auth + UUID fill-in still needed.
 
@@ -111,7 +111,5 @@ cloudflared tunnel delete api-1bit systems-studio
 
 ## References
 
-- [`strixhalo/systemd/strix-cloudflared.service`](../../strixhalo/systemd/strix-cloudflared.service) — tracked copy of the user unit
-- [`strixhalo/cloudflared/config.yml.template`](../../strixhalo/cloudflared/config.yml.template) — tracked template with PLACEHOLDER_UUID
 - Cloudflare Tunnel docs: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
 - 1bit proxy port: `scripts/1bit-proxy.js` / `1bit-proxy.service` (bind `:13306`)

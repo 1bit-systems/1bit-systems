@@ -7,7 +7,7 @@
 1. **Fence 1 — Mesh membership.** You're not talking to strixhalo unless your device is on the Headscale mesh. Headscale runs on strixhalo itself and uses Tailscale clients (macOS, Linux, Windows, iOS, Android) to peer in. We hand out a **single-use, 24-hour pre-auth key** per invitee.
 2. **Fence 2 — Per-user bearer token.** Even on the mesh, every `/v2/*` / `/lemon/*` / `/sd/*` Caddy route requires a `Authorization: Bearer sk-halo-...` header. Tokens are per-user, stored in `/etc/caddy/bearers.txt` (root:caddy 0640), one per line. Caddy matches any line at request time; we can revoke one user without affecting the other nine.
 
-Every bearer is also time-boxed. Each line carries an `expires <ISO>` comment stamp written by `1bit-mesh-invite.sh`, and a nightly sweeper auto-revokes once the stamp is in the past. See [Beta-10-Day-TTL](Beta-10-Day-TTL.md).
+Every bearer is also time-boxed. Each line carries an `expires <ISO>` comment stamp written by `1bit-mesh-invite.sh`, and a nightly sweeper auto-revokes once the stamp is in the past. The beta TTL runbook owns the exact policy.
 
 Bearer line format (post 2026-04-20):
 
@@ -67,7 +67,7 @@ strixhalo/bin/1bit-mesh-revoke.sh <handle>
 
 Expires the Headscale authkey, drops the bearer line from `/etc/caddy/bearers.txt`, reloads Caddy. Sub-second.
 
-Automated revoke on TTL expiry is covered by [Beta-10-Day-TTL](Beta-10-Day-TTL.md) — the same script gets called under the hood.
+Automated revoke on TTL expiry is covered by the beta TTL runbook — the same script gets called under the hood.
 
 ## Security posture (what the attacker model is)
 
@@ -108,7 +108,7 @@ Public = brochure. Mesh = the product.
 
 - `strixhalo/bin/1bit-mesh-invite.sh` — the canonical invite script
 - `strixhalo/bin/1bit-mesh-revoke.sh` — the canonical revoke script
-- `strixhalo/bin/1bit-beta-expire.sh` — nightly 10-day TTL sweeper (see [Beta-10-Day-TTL](Beta-10-Day-TTL.md))
+- `strixhalo/bin/1bit-beta-expire.sh` — nightly 10-day TTL sweeper
 - `project_halo_network.md` memory — mesh topology + node IPs
 - `docs/wiki/Cloudflare-Tunnel-Setup.md` — the *other* approach, currently NOT in use (template deliberately disabled)
 - `studio-site/join/index.html` — the public-facing explanation + invite request form

@@ -1,6 +1,6 @@
 # Ternary-on-AIE: packing & MAC plan
 
-Design doc for how `BitNet-b1.58-2B-4T` weights (ternary, values `{-1, 0, +1}`) land on the XDNA 2 AIE2P tile array. Extends [`NPU-Kernel-Design.md`](./NPU-Kernel-Design.md). Read that first for the 8×4 tile grid + INT8 GEMM gotchas.
+Design doc for how `BitNet-b1.58-2B-4T` weights (ternary, values `{-1, 0, +1}`) land on the XDNA 2 AIE2P tile array. It extends the private NPU kernel design notes covering the 8x4 tile grid and INT8 GEMM gotchas.
 
 ## Packing on the host side (Rust, offline)
 
@@ -77,7 +77,7 @@ Both run on the iGPU (HIP), not the NPU. Overhead: ~0.3 ms per layer at 2B. Abso
 
 ## Sources
 
-- [`docs/wiki/NPU-Kernel-Design.md`](./NPU-Kernel-Design.md) — parent design doc.
+- Parent NPU kernel design notes are in the private memory archive until restored to this repo.
 - IRON `aie_kernels/aie2p/mm.cc:83-208` — INT8 MAC template we adapt.
 - IRON `iron/operators/gemm/design.py:368-415` — DMA descriptor patterns.
 - Microsoft BitNet b1.58 paper: 2-bit ternary encoding.

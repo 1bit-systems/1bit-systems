@@ -22,7 +22,7 @@ So the policy is: **everything we depend on at runtime lives in a `bong-water-wa
 | [ggerganov/whisper.cpp](https://github.com/ggerganov/whisper.cpp) | [bong/1bit-whisper.cpp](https://github.com/bong-water-water-bong/1bit-whisper.cpp) | STT engine — freshly forked 2026-04-23 |
 | [ggml-org/ggml](https://github.com/ggml-org/ggml) | [bong/1bit-ggml](https://github.com/bong-water-water-bong/1bit-ggml) | tensor runtime — base for 5D support + HIP ternary ops |
 | [lemonade-sdk/lemonade](https://github.com/lemonade-sdk/lemonade) | [bong/lemonade](https://github.com/bong-water-water-bong/lemonade) | OpenAI-compat frontend (caller-side gateway) |
-| [lemonade-sdk/lemon-mlx-engine](https://github.com/lemonade-sdk/lemon-mlx-engine) | [bong/lemon-mlx-engine](https://github.com/bong-water-water-bong/lemon-mlx-engine) | MLX backend — ours for Apple Silicon + ROCm |
+| `lemonade-sdk/lemon-mlx-engine` | `bong/lemon-mlx-engine` | MLX backend — ours for Apple Silicon + ROCm |
 | [lemonade-sdk/llamacpp-rocm](https://github.com/lemonade-sdk/llamacpp-rocm) | [bong/llamacpp-rocm](https://github.com/bong-water-water-bong/llamacpp-rocm) | ROCm-specific llama.cpp builds |
 | [cmetz/ec-su_axb35-linux](https://github.com/cmetz/ec-su_axb35-linux) | (tracked via 1bit-watchdog; no fork yet) | EC driver for Bosgame / AXB35-02 |
 | [amd/IRON](https://github.com/amd/IRON) | (tracked read-only; compile-time tool, no serve-path fork) | NPU kernel authoring |

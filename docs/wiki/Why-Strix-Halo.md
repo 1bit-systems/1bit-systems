@@ -64,7 +64,7 @@ RDNA 3.5 iGPU. The `gfx1151` ISA level gives us:
 
 ## Community
 
-Early — Strix Halo launched mid-2025. We're one of a handful of projects publicly running native HIP ternary kernels on gfx1151. The niche is intentional; see [`project_halo_vision.md`](memory-only) for the "silent-closet BYOA inference" thesis.
+Early — Strix Halo launched mid-2025. We're one of a handful of projects publicly running native HIP ternary kernels on gfx1151. The niche is intentional; the private memory archive carries the "silent-closet BYOA inference" thesis.
 
 ## Citations
 
