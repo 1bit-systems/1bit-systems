@@ -58,6 +58,33 @@ const FLM_URL = (() => {
 const CACHE_TTL_MS = 5_000;
 let modelCache = { byId: new Map(), refreshed: 0 };
 
+function fillEmptyContentFromReasoning(obj) {
+  for (const choice of obj && obj.choices || []) {
+    const message = choice.message || choice.delta;
+    if (!message) continue;
+    if ((message.content === '' || message.content == null) && message.reasoning_content) {
+      message.content = message.reasoning_content;
+    }
+  }
+  return obj;
+}
+
+function normalizeSseChunk(chunk, state) {
+  state.buf += chunk.toString('utf8');
+  const parts = state.buf.split(/\r?\n/);
+  state.buf = parts.pop() || '';
+  return parts.map(line => {
+    if (!line.startsWith('data: ')) return line;
+    const data = line.slice(6);
+    if (data === '[DONE]') return line;
+    try {
+      return `data: ${JSON.stringify(fillEmptyContentFromReasoning(JSON.parse(data)))}`;
+    } catch {
+      return line;
+    }
+  }).join('\n') + '\n';
+}
+
 function getJson(url, timeoutMs = 2000) {
   return new Promise((resolve, reject) => {
     const req = http.get(url, r => {
@@ -206,8 +233,44 @@ const server = http.createServer(async (req, res) => {
     // LLM traffic (handshake is µs, inference is seconds).
     agent: false,
   }, ur => {
-    res.writeHead(ur.statusCode, ur.headers);
-    ur.pipe(res);
+    const isChatCompletion = pathname === '/v1/chat/completions';
+    const contentType = String(ur.headers['content-type'] || '');
+    const isSse = contentType.includes('text/event-stream');
+    if (!isChatCompletion) {
+      res.writeHead(ur.statusCode, ur.headers);
+      ur.pipe(res);
+      return;
+    }
+    if (isSse) {
+      res.writeHead(ur.statusCode, ur.headers);
+      const state = { buf: '' };
+      ur.on('data', chunk => res.write(normalizeSseChunk(chunk, state)));
+      ur.on('end', () => {
+        if (state.buf) res.write(normalizeSseChunk('\n', state));
+        res.end();
+      });
+      return;
+    }
+
+    const chunks = [];
+    ur.on('data', chunk => chunks.push(chunk));
+    ur.on('end', () => {
+      const body = Buffer.concat(chunks);
+      if (!contentType.includes('application/json')) {
+        res.writeHead(ur.statusCode, ur.headers);
+        res.end(body);
+        return;
+      }
+      try {
+        const normalized = Buffer.from(JSON.stringify(fillEmptyContentFromReasoning(JSON.parse(body.toString('utf8')))));
+        const headers = { ...ur.headers, 'content-length': String(normalized.length) };
+        res.writeHead(ur.statusCode, headers);
+        res.end(normalized);
+      } catch {
+        res.writeHead(ur.statusCode, ur.headers);
+        res.end(body);
+      }
+    });
   });
   upstream.on('error', e => {
     if (!res.headersSent) {
