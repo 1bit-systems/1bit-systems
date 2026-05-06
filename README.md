@@ -119,6 +119,7 @@ ONEBIT_TOOLBOX_MODEL=/path/to/model.gguf 1bit toolbox up
 
 Useful docs:
 
+- Q2_0 Strix Halo plan: [`docs/q2_0-strix-halo.md`](docs/q2_0-strix-halo.md)
 - GAIA quickstart: https://amd-gaia.ai/docs/quickstart
 - Lemonade docs: https://lemonade-server.ai/docs/
 - Lemonade API overview: https://lemonade-server.ai/docs/api/
