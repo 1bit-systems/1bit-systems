@@ -139,6 +139,41 @@ configure_toolbox_groups() {
     warn "Log out and back in, or reboot, before toolbox GPU permissions are guaranteed in new shells."
 }
 
+check_toolbox_readiness() {
+    say "Checking toolbox runtime readiness"
+
+    local active_groups configured_groups
+    active_groups="$(id -nG)"
+    configured_groups="$(id -Gn "$(id -un)" 2>/dev/null || printf '%s' "$active_groups")"
+    printf '   active groups:     %s\n' "$active_groups"
+    printf '   configured groups: %s\n' "$configured_groups"
+
+    local group
+    for group in video render; do
+        if printf '%s\n' "$active_groups" | tr ' ' '\n' | grep -qx "$group"; then
+            ok "$group group active in this shell"
+        elif printf '%s\n' "$configured_groups" | tr ' ' '\n' | grep -qx "$group"; then
+            warn "$group group is configured but not active; log out and back in or reboot"
+        elif getent group "$group" >/dev/null 2>&1; then
+            warn "$group group exists but $(id -un) is not configured for it"
+        else
+            warn "$group group does not exist on this host"
+        fi
+    done
+
+    local dev
+    for dev in /dev/dri /dev/kfd; do
+        if [[ -e "$dev" ]]; then
+            ok "$dev visible"
+        else
+            warn "$dev missing; Strix Halo toolboxes cannot access the GPU from this shell"
+        fi
+    done
+    if [[ ! -e /dev/dri || ! -e /dev/kfd ]]; then
+        printf '   Device fix: run 1bit doctor from a login shell that can see /dev/dri and /dev/kfd.\n'
+    fi
+}
+
 write_toolbox_config() {
     local cfg_dir="$HOME/.config/1bit-systems"
     local cfg="$cfg_dir/toolbox.env"
@@ -173,6 +208,7 @@ install_toolbox_bootstrap() {
     warn "Non-pacman host detected ($id); using toolbox-backed bootstrap instead of native Arch build."
     install_toolbox_packages
     configure_toolbox_groups
+    check_toolbox_readiness
     install_cli
     write_toolbox_config
 
