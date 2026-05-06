@@ -94,6 +94,23 @@ is not active means log out and back in or reboot before blaming HIP.
 
 ## Validation Checklist
 
+The repo includes a harness for the build, benchmark, and endpoint smoke test:
+
+```bash
+Q2_MODEL=/path/to/q2_0-g64.gguf \
+Q2_FORMAT=g64 \
+LLAMA_CPP_DIR=/home/bcloud/prism-llama.cpp \
+  benchmarks/q2_0-strix-halo-validate.sh --build --bench --server-smoke
+```
+
+Preview the exact commands without mutating the build tree:
+
+```bash
+Q2_MODEL=/path/to/q2_0-g64.gguf \
+Q2_FORMAT=g64 \
+  benchmarks/q2_0-strix-halo-validate.sh --dry-run
+```
+
 Correctness:
 
 - `test-quantize-fns` covers Q2_0 quantize/dequantize error bounds.
