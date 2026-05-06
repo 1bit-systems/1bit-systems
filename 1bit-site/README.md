@@ -2,13 +2,13 @@
 
 Static Cloudflare Pages site for `1bit.systems`.
 
-The site is deliberately simple: vanilla HTML/CSS/JS, no framework, no CDN, no analytics. The landing page is the canonical public docs surface; legacy `/docs/*` paths redirect back to anchors on `/` through `_redirects`.
+The site is deliberately simple: vanilla HTML/CSS/JS, no framework, no CDN, no analytics. The landing page is the public docs surface for the current repair path; legacy `/docs/*` paths redirect back to anchors on `/` through `_redirects`.
 
 ## Layout
 
 ```text
 1bit-site/
-  index.html       clean landing/docs page for the current stack
+  index.html       clean landing/docs page for the toolbox-first repair path
   install.sh       curl-pipe bootstrap that hands off to repo install.sh
   _headers         Cloudflare Pages headers
   _redirects       docs and short-link redirects
@@ -22,12 +22,17 @@ Current public architecture:
 
 ```text
 Apps / SDKs -> 1bit-proxy :13306/v1 or :13306/api/v1
-                 -> Lemonade :13305/api/v1
-                 -> FastFlowLM :52625/v1
+                 -> toolbox llama-server or Lemonade :13305/v1
+                 -> optional FastFlowLM :52625/v1
 
 Open WebUI :3000 -> 1bit-proxy :13306/v1
-Control plane    -> 1bit CLI + GAIA + systemd target
+Control plane    -> target: 1bit CLI + GAIA + systemd/toolbox lifecycle
 ```
+
+The finished single control plane is not shipping yet. Public copy should say
+the repaired out-of-box path is toolbox-backed Strix Halo inference first:
+`vulkan-radv` for compatibility, then `rocm-7.2.2` after `/dev/dri` and
+`/dev/kfd` are verified.
 
 ## Local Preview
 
@@ -68,5 +73,7 @@ The custom domain `1bit.systems` is bound to the `main` branch in Cloudflare Pag
 - Keep copy aligned with `README.md`.
 - Do not publish local inference ports as internet-accessible services.
 - Keep the inference endpoint contract primary.
-- Keep the single control plane secondary: `1bit` CLI, GAIA, Open WebUI, and systemd.
-- Keep Lemonade canonical, FLM on `:52625`, proxy on `:13306`, Open WebUI secondary.
+- Keep the single control plane secondary and explicitly unfinished.
+- Keep toolbox-backed llama.cpp first for Ubuntu/Fedora repair copy.
+- Keep native Lemonade/FLM as product-direction lanes, not universal install claims.
+- Keep proxy on `:13306`, active backend on `:13305`, optional FLM on `:52625`, Open WebUI secondary.

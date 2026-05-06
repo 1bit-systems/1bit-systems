@@ -39,6 +39,23 @@ GAIA_BASE_URL="${GAIA_BASE_URL:-$PROXY_URL/api/v1}"
 LEMOND_HOST="${ONEBIT_LEMOND_HOST:-127.0.0.1}"
 PROXY_HOST="${PROXY_HOST:-127.0.0.1}"
 WEBUI_HOST="${ONEBIT_WEBUI_HOST:-127.0.0.1}"
+ONEBIT_CONFIG_DIR="${ONEBIT_CONFIG_DIR:-$HOME/.config/1bit-systems}"
+ONEBIT_TOOLBOX_ENV="${ONEBIT_TOOLBOX_ENV:-$ONEBIT_CONFIG_DIR/toolbox.env}"
+
+load_toolbox_env() {
+    if [[ -r "$ONEBIT_TOOLBOX_ENV" ]]; then
+        # shellcheck disable=SC1090
+        . "$ONEBIT_TOOLBOX_ENV"
+    fi
+    ONEBIT_TOOLBOX_NAME="${ONEBIT_TOOLBOX_NAME:-1bit-llama-vulkan}"
+    ONEBIT_TOOLBOX_IMAGE="${ONEBIT_TOOLBOX_IMAGE:-docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv}"
+    ONEBIT_TOOLBOX_BACKEND="${ONEBIT_TOOLBOX_BACKEND:-auto}"
+    ONEBIT_TOOLBOX_MODEL="${ONEBIT_TOOLBOX_MODEL:-}"
+    ONEBIT_TOOLBOX_CTX="${ONEBIT_TOOLBOX_CTX:-8192}"
+    ONEBIT_TOOLBOX_NGL="${ONEBIT_TOOLBOX_NGL:-999}"
+    ONEBIT_TOOLBOX_HOST="${ONEBIT_TOOLBOX_HOST:-127.0.0.1}"
+    ONEBIT_TOOLBOX_PORT="${ONEBIT_TOOLBOX_PORT:-13305}"
+}
 
 # Locate the proxy script in the repo or installed location.
 proxy_script() {
@@ -162,6 +179,16 @@ start_proxy() {
 }
 
 cmd_up() {
+    if should_use_toolbox_default; then
+        cmd_toolbox up
+        start_proxy
+        echo
+        ok "All up. Endpoints:"
+        printf '   Unified (recommended):  %s/v1/\n' "$PROXY_URL"
+        printf '   Toolbox llama.cpp:      http://127.0.0.1:%s/v1/\n' "${ONEBIT_TOOLBOX_PORT:-13305}"
+        return
+    fi
+
     start_lemond
     start_flm
     start_proxy
@@ -220,6 +247,332 @@ cmd_status() {
 
     echo
     echo "memlock limit: $(ulimit -l)"
+}
+
+cmd_doctor() {
+    say "host"
+    if [[ -r /etc/os-release ]]; then
+        # shellcheck disable=SC1091
+        . /etc/os-release
+        printf '   distro: %s\n' "${PRETTY_NAME:-unknown}"
+    else
+    printf '   distro: unknown\n'
+    fi
+    printf '   kernel: %s\n' "$(uname -r)"
+    printf '   user:   %s\n' "$(id -un)"
+    printf '   active groups:     %s\n' "$(id -Gn)"
+    printf '   configured groups: %s\n' "$(id -nG "$(id -un)" 2>/dev/null || id -Gn)"
+    if ! id -Gn | tr ' ' '\n' | grep -qx render && id -nG "$(id -un)" 2>/dev/null | tr ' ' '\n' | grep -qx render; then
+        warn "render group is configured but not active in this shell; log out and back in or reboot"
+    fi
+
+    echo
+    say "gpu devices"
+    for dev in /dev/dri /dev/kfd /dev/accel/accel0; do
+        if [[ -e "$dev" ]]; then
+            ok "$dev present"
+            ls -ld "$dev" 2>/dev/null || true
+        else
+            warn "$dev missing"
+        fi
+    done
+    if [[ -d /sys/class/drm ]]; then
+        printf '   sysfs drm: %s\n' "$(find /sys/class/drm -maxdepth 1 -mindepth 1 -printf '%f ' 2>/dev/null)"
+    fi
+
+    echo
+    say "runtime tools"
+    for tool in pacman apt podman toolbox distrobox rocminfo clinfo vulkaninfo llama-server lemond flm node; do
+        if command -v "$tool" >/dev/null 2>&1; then
+            ok "$tool: $(command -v "$tool")"
+        else
+            warn "$tool: not found"
+        fi
+    done
+
+    echo
+    say "backend endpoints"
+    if curl -s --max-time 2 "$LEMOND_URL/v1/models" >/dev/null 2>&1; then
+        ok "OpenAI backend at $LEMOND_URL/v1"
+    else
+        warn "no OpenAI backend at $LEMOND_URL/v1"
+    fi
+    if curl -s --max-time 2 "$PROXY_URL/health" >/dev/null 2>&1; then
+        ok "1bit-proxy at $PROXY_URL"
+    else
+        warn "1bit-proxy down"
+    fi
+
+    echo
+    say "toolbox hint"
+    load_toolbox_env
+    printf '   config: %s\n' "$ONEBIT_TOOLBOX_ENV"
+    printf '   image:  %s\n' "$ONEBIT_TOOLBOX_IMAGE"
+    printf '   name:   %s\n' "$ONEBIT_TOOLBOX_NAME"
+    [[ -n "$ONEBIT_TOOLBOX_MODEL" ]] && printf '   model:  %s\n' "$ONEBIT_TOOLBOX_MODEL" || warn "ONEBIT_TOOLBOX_MODEL is not set"
+    if [[ ! -e /dev/dri || ! -e /dev/kfd ]]; then
+        warn "GPU compute device nodes are not visible in this shell/container."
+        printf '   Fix host access first, then create toolboxes with --device /dev/dri --device /dev/kfd.\n'
+    fi
+    if command -v apt >/dev/null 2>&1 && ! command -v pacman >/dev/null 2>&1; then
+        printf '   Native install.sh is not the right path on Ubuntu today.\n'
+        printf '   See docs/toolbox-backends.md for Strix Halo toolbox-backed backends.\n'
+    fi
+}
+
+toolbox_engine() {
+    load_toolbox_env
+    case "$ONEBIT_TOOLBOX_BACKEND" in
+        distrobox|toolbox) printf '%s\n' "$ONEBIT_TOOLBOX_BACKEND"; return 0 ;;
+        auto|"") ;;
+        *) die "unknown ONEBIT_TOOLBOX_BACKEND=$ONEBIT_TOOLBOX_BACKEND (use auto, distrobox, or toolbox)" ;;
+    esac
+    if command -v distrobox >/dev/null 2>&1; then
+        printf 'distrobox\n'
+    elif command -v toolbox >/dev/null 2>&1; then
+        printf 'toolbox\n'
+    else
+        return 1
+    fi
+}
+
+toolbox_exists() {
+    load_toolbox_env
+    podman container exists "$ONEBIT_TOOLBOX_NAME" >/dev/null 2>&1
+}
+
+toolbox_exec() {
+    local engine="$1"
+    shift
+    case "$engine" in
+        distrobox) distrobox enter "$ONEBIT_TOOLBOX_NAME" -- "$@" ;;
+        toolbox) toolbox run --container "$ONEBIT_TOOLBOX_NAME" "$@" ;;
+        *) return 1 ;;
+    esac
+}
+
+should_use_toolbox_default() {
+    load_toolbox_env
+    [[ "${ONEBIT_BACKEND:-}" == "toolbox" ]] && return 0
+    command -v pacman >/dev/null 2>&1 && [[ "${ONEBIT_BACKEND:-}" != "toolbox" ]] && return 1
+    [[ -r "$ONEBIT_TOOLBOX_ENV" ]] && return 0
+    ! command -v lemond >/dev/null 2>&1 && ! command -v flm >/dev/null 2>&1 && return 0
+    return 1
+}
+
+cmd_toolbox_status() {
+    load_toolbox_env
+    local engine
+    engine="$(toolbox_engine 2>/dev/null || true)"
+    say "toolbox backend"
+    printf '   engine: %s\n' "${engine:-missing distrobox/toolbox}"
+    printf '   name:   %s\n' "$ONEBIT_TOOLBOX_NAME"
+    printf '   image:  %s\n' "$ONEBIT_TOOLBOX_IMAGE"
+    printf '   config: %s\n' "$ONEBIT_TOOLBOX_ENV"
+    [[ -n "$ONEBIT_TOOLBOX_MODEL" ]] && printf '   model:  %s\n' "$ONEBIT_TOOLBOX_MODEL" || warn "model not set; export ONEBIT_TOOLBOX_MODEL=/path/to/model.gguf"
+    if command -v podman >/dev/null 2>&1 && toolbox_exists; then
+        ok "container exists"
+        podman ps --filter "name=^${ONEBIT_TOOLBOX_NAME}$" --format '   running: {{.Status}}' 2>/dev/null || true
+    else
+        warn "container not created"
+    fi
+    if curl -s --max-time 2 "http://127.0.0.1:${ONEBIT_TOOLBOX_PORT}/v1/models" >/dev/null 2>&1; then
+        ok "llama.cpp backend up at http://127.0.0.1:${ONEBIT_TOOLBOX_PORT}/v1"
+    else
+        warn "llama.cpp backend down at :${ONEBIT_TOOLBOX_PORT}"
+    fi
+}
+
+cmd_toolbox_list() {
+    cat <<EOF
+1bit toolbox lanes
+
+Default inference:
+  llama-radv     docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv
+                 Stable llama.cpp GGUF serving. 1bit default on Ubuntu/Fedora.
+
+Performance inference:
+  llama-rocm     docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.2
+                 ROCm llama.cpp after host /dev/dri and /dev/kfd are stable.
+
+High-throughput serving:
+  vllm           docker.io/kyuz0/vllm-therock-gfx1151:stable
+                 vLLM OpenAI endpoint, usually on :8000.
+
+Image/video:
+  comfyui        docker.io/kyuz0/amd-strix-halo-comfyui:latest
+                 ComfyUI workflows and model manager.
+
+Training:
+  finetune       docker.io/kyuz0/amd-strix-halo-llm-finetuning:latest
+                 Jupyter fine-tuning workspace.
+
+References:
+  https://github.com/kyuz0/amd-strix-halo-toolboxes
+  https://github.com/kyuz0/amd-strix-halo-vllm-toolboxes
+  https://github.com/kyuz0/amd-strix-halo-comfyui-toolboxes
+  https://github.com/kyuz0/amd-strix-halo-llm-finetuning
+EOF
+}
+
+cmd_toolbox_commands() {
+    local lane="${1:-llama-radv}"
+    case "$lane" in
+        llama-radv)
+            cat <<EOF
+# llama.cpp RADV/Vulkan: most compatible first inference lane
+ONEBIT_TOOLBOX_IMAGE=docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv \\
+ONEBIT_TOOLBOX_NAME=1bit-llama-vulkan \\
+  1bit toolbox bootstrap
+
+ONEBIT_TOOLBOX_MODEL=/path/to/model.gguf 1bit toolbox up
+1bit up
+EOF
+            ;;
+        llama-rocm)
+            cat <<EOF
+# llama.cpp ROCm: performance lane after /dev/kfd is working
+ONEBIT_TOOLBOX_IMAGE=docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.2 \\
+ONEBIT_TOOLBOX_NAME=1bit-llama-rocm \\
+  1bit toolbox bootstrap
+
+ONEBIT_TOOLBOX_MODEL=/path/to/model.gguf \\
+ONEBIT_TOOLBOX_NAME=1bit-llama-rocm \\
+  1bit toolbox up
+EOF
+            ;;
+        vllm)
+            cat <<EOF
+# vLLM toolbox: high-throughput OpenAI-compatible serving
+# Fedora:
+toolbox create vllm \\
+  --image docker.io/kyuz0/vllm-therock-gfx1151:stable \\
+  -- --device /dev/dri --device /dev/kfd \\
+     --group-add video --group-add render --security-opt seccomp=unconfined
+toolbox enter vllm
+start-vllm
+
+# Ubuntu:
+distrobox create -n vllm \\
+  --image docker.io/kyuz0/vllm-therock-gfx1151:stable \\
+  --additional-flags "--device /dev/kfd --device /dev/dri --group-add video --group-add render --security-opt seccomp=unconfined"
+distrobox enter vllm
+start-vllm
+
+# After vLLM is serving:
+LEMOND_URL=http://127.0.0.1:8000 node "$(proxy_script)"
+EOF
+            ;;
+        comfyui)
+            cat <<EOF
+# ComfyUI toolbox: image/video generation lane
+toolbox create strix-halo-comfyui \\
+  --image docker.io/kyuz0/amd-strix-halo-comfyui:latest \\
+  -- --device /dev/dri --device /dev/kfd \\
+     --group-add video --group-add render --security-opt seccomp=unconfined
+toolbox enter strix-halo-comfyui
+/opt/set_extra_paths.sh
+model_manager
+start_comfy_ui
+EOF
+            ;;
+        finetune)
+            cat <<EOF
+# Fine-tuning toolbox: training/Jupyter lane
+toolbox create strix-halo-llm-finetuning \\
+  --image docker.io/kyuz0/amd-strix-halo-llm-finetuning:latest \\
+  -- --device /dev/dri --device /dev/kfd \\
+     --group-add video --group-add render --security-opt seccomp=unconfined
+toolbox enter strix-halo-llm-finetuning
+mkdir -p ~/finetuning-workspace
+cp -r /opt/workspace ~/finetuning-workspace/
+jupyter lab --notebook-dir ~/finetuning-workspace/
+EOF
+            ;;
+        *)
+            die "usage: 1bit toolbox commands [llama-radv|llama-rocm|vllm|comfyui|finetune]"
+            ;;
+    esac
+}
+
+cmd_toolbox_bootstrap() {
+    load_toolbox_env
+    command -v podman >/dev/null 2>&1 || die "podman not found. Ubuntu: sudo apt install podman distrobox nodejs curl. Fedora: sudo dnf install podman toolbox nodejs curl."
+    local engine
+    engine="$(toolbox_engine)" || die "distrobox/toolbox not found. Ubuntu: install distrobox. Fedora: install toolbox."
+    if [[ ! -e /dev/dri ]]; then
+        die "/dev/dri missing; fix host GPU device visibility before creating the toolbox. Check groups video/render, udev rules, and whether this shell is inside a container."
+    fi
+    if [[ "$ONEBIT_TOOLBOX_IMAGE" == *rocm* && ! -e /dev/kfd ]]; then
+        die "/dev/kfd missing; ROCm toolbox cannot use HIP/ROCm from this environment. Use the Vulkan image or fix KFD access first."
+    fi
+    if toolbox_exists; then
+        ok "toolbox already exists: $ONEBIT_TOOLBOX_NAME"
+        return
+    fi
+
+    say "Creating $engine backend $ONEBIT_TOOLBOX_NAME from $ONEBIT_TOOLBOX_IMAGE"
+    case "$engine" in
+        distrobox)
+            distrobox create --yes \
+                --name "$ONEBIT_TOOLBOX_NAME" \
+                --image "$ONEBIT_TOOLBOX_IMAGE" \
+                --additional-flags "--device /dev/dri --device /dev/kfd --group-add video --group-add render --security-opt seccomp=unconfined"
+            ;;
+        toolbox)
+            toolbox create "$ONEBIT_TOOLBOX_NAME" \
+                --image "$ONEBIT_TOOLBOX_IMAGE" \
+                -- --device /dev/dri --device /dev/kfd \
+                   --group-add video --group-add render \
+                   --security-opt seccomp=unconfined
+            ;;
+    esac
+    ok "toolbox created. Set ONEBIT_TOOLBOX_MODEL, then run: 1bit toolbox up"
+}
+
+cmd_toolbox_up() {
+    load_toolbox_env
+    local engine model
+    engine="$(toolbox_engine)" || die "distrobox/toolbox not found"
+    toolbox_exists || cmd_toolbox_bootstrap
+    model="${1:-$ONEBIT_TOOLBOX_MODEL}"
+    [[ -n "$model" ]] || die "model path required. Use: ONEBIT_TOOLBOX_MODEL=/path/to/model.gguf 1bit toolbox up"
+    [[ -f "$model" ]] || warn "model path is not visible on the host: $model. It must also be visible inside the toolbox."
+    if curl -s --max-time 2 "http://127.0.0.1:${ONEBIT_TOOLBOX_PORT}/v1/models" >/dev/null 2>&1; then
+        ok "toolbox llama.cpp already serving at :$ONEBIT_TOOLBOX_PORT"
+        return
+    fi
+    say "Starting toolbox llama-server on ${ONEBIT_TOOLBOX_HOST}:${ONEBIT_TOOLBOX_PORT}"
+    local cmd=()
+    case "$engine" in
+        distrobox) cmd=(distrobox enter "$ONEBIT_TOOLBOX_NAME" -- llama-server --host "$ONEBIT_TOOLBOX_HOST" --port "$ONEBIT_TOOLBOX_PORT" -m "$model" -c "$ONEBIT_TOOLBOX_CTX" -ngl "$ONEBIT_TOOLBOX_NGL" -fa 1 --no-mmap) ;;
+        toolbox) cmd=(toolbox run --container "$ONEBIT_TOOLBOX_NAME" llama-server --host "$ONEBIT_TOOLBOX_HOST" --port "$ONEBIT_TOOLBOX_PORT" -m "$model" -c "$ONEBIT_TOOLBOX_CTX" -ngl "$ONEBIT_TOOLBOX_NGL" -fa 1 --no-mmap) ;;
+    esac
+    nohup "${cmd[@]}" >"$LEMOND_LOG" 2>&1 &
+    for _ in $(seq 1 30); do
+        sleep 1
+        curl -s --max-time 1 "http://127.0.0.1:${ONEBIT_TOOLBOX_PORT}/v1/models" >/dev/null 2>&1 && { ok "toolbox backend up at http://127.0.0.1:${ONEBIT_TOOLBOX_PORT}/v1"; return; }
+    done
+    warn "toolbox backend did not respond — see $LEMOND_LOG"
+}
+
+cmd_toolbox_down() {
+    load_toolbox_env
+    pkill -f "llama-server.*${ONEBIT_TOOLBOX_PORT}" 2>/dev/null && ok "toolbox llama-server stopped" || ok "toolbox llama-server already stopped"
+}
+
+cmd_toolbox() {
+    local action="${1:-status}"
+    shift || true
+    case "$action" in
+        list|refs) cmd_toolbox_list ;;
+        commands|cmd) cmd_toolbox_commands "$@" ;;
+        bootstrap|create) cmd_toolbox_bootstrap ;;
+        up|start) cmd_toolbox_up "$@" ;;
+        down|stop) cmd_toolbox_down ;;
+        status) cmd_toolbox_status ;;
+        *) die "usage: 1bit toolbox [list|commands|bootstrap|up|down|status]" ;;
+    esac
 }
 
 cmd_pull() {
@@ -428,6 +781,9 @@ Usage:
   1bit up                Start lemond + flm + proxy, open browser, launch GAIA
   1bit down              Stop all services
   1bit status            Show service status
+  1bit doctor            Inspect host GPU/runtime/toolbox readiness
+  1bit toolbox [list|commands|bootstrap|up|down|status]
+                         Manage toolbox-backed llama.cpp backend
   1bit pull <model>      Pull a model (auto-routes NPU vs GPU)
   1bit bench             Run the 1-bit / ternary pile bench
   1bit npu [model]       Start FLM NPU server (default: \$DEFAULT_NPU_MODEL)
@@ -443,6 +799,7 @@ Endpoints (after \`1bit up\`):
   FLM (NPU):         http://127.0.0.1:\$(flm port)/v1/
 
 Override FLM: ONEBIT_NPU_MODEL=qwen3:1.7b ONEBIT_FLM_FLAGS='--embed 1 --asr 1' 1bit up
+Override backend: ONEBIT_BACKEND=toolbox ONEBIT_TOOLBOX_MODEL=/path/model.gguf 1bit up
 Override GAIA base: GAIA_BASE_URL=http://127.0.0.1:13306/api/v1 1bit gaia cli
 EOF
 }
@@ -451,6 +808,8 @@ case "${1:-}" in
     up)     cmd_up ;;
     down)   cmd_down ;;
     status) cmd_status ;;
+    doctor) cmd_doctor ;;
+    toolbox) shift; cmd_toolbox "$@" ;;
     pull)   shift; cmd_pull "$@" ;;
     bench)  cmd_bench ;;
     npu)    shift; cmd_npu "$@" ;;

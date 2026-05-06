@@ -13,6 +13,11 @@ Four concrete reasons, each already bit us:
 
 So the policy is: **everything we depend on at runtime lives in a `bong-water-water-bong/` fork we control.** Upstreams stay pinned as `upstream` remotes for rebasing good changes back in.
 
+Repair-path carve-out: Strix Halo llama.cpp toolboxes are allowed as external
+backend containers while the control plane is rebuilt. They sit behind
+OpenAI-compatible HTTP and do not become code we vendor into the core serving
+path.
+
 ## Active forks (2026-04-23)
 
 | Upstream | Our fork | Purpose |
@@ -58,4 +63,6 @@ Everything else is forked.
 - Rule A (no Python at runtime) — forks don't change this. Python build-time remains allowed for IRON + hf-CLI + model conversion.
 - Rule B (C++20 for kernels) — every fork is C++ except IRON (Python DSL → xclbin, compile-time only).
 - Rule C (no hipBLAS at runtime) — enforced across every fork that touches the serving path.
-- Rule E (NPU stack) — FastFlowLM is the live serving lane. IRON is author-time only for custom kernels; we do not fork it.
+- Rule E (NPU stack) — FastFlowLM is the intended native serving lane when the
+  host stack is healthy. IRON is author-time only for custom kernels; we do not
+  fork it.

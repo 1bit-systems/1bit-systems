@@ -2,7 +2,9 @@
 
 `1bit-systems` is an inference engine first. The single control plane comes second.
 
-Apps connect to the engine over OpenAI-compatible base URLs. The control plane exists to start, monitor, and route the inference services; it is not the app contract.
+Apps connect to the engine over OpenAI-compatible base URLs. The intended
+control plane will start, monitor, and route inference services; today the
+working repair surface is `1bit-proxy` plus a toolbox-backed backend.
 
 ## Base URLs
 
@@ -10,9 +12,9 @@ Apps connect to the engine over OpenAI-compatible base URLs. The control plane e
 |---|---|
 | Full 1bit engine for generic OpenAI-compatible apps | `http://127.0.0.1:13306/v1` |
 | Full 1bit engine for GAIA / Lemonade-style clients | `http://127.0.0.1:13306/api/v1` |
-| Lemonade direct, canonical multimodal and OmniRouter | `http://127.0.0.1:13305/api/v1` |
-| Lemonade direct, generic OpenAI-style path | `http://127.0.0.1:13305/v1` |
-| FastFlowLM direct NPU runtime | `http://127.0.0.1:52625/v1` |
+| Active backend direct, toolbox llama.cpp or Lemonade | `http://127.0.0.1:13305/v1` |
+| Lemonade direct, native multimodal and OmniRouter | `http://127.0.0.1:13305/api/v1` |
+| FastFlowLM direct NPU runtime, optional | `http://127.0.0.1:52625/v1` |
 
 If a client requires an API key, use `local-no-auth` unless you explicitly configured Lemonade authentication.
 
@@ -25,7 +27,7 @@ If a client requires an API key, use `local-no-auth` unless you explicitly confi
 | AnythingLLM | OpenAI-compatible | `http://127.0.0.1:13306/v1` |
 | Continue | OpenAI-compatible | `http://127.0.0.1:13306/v1` |
 | Dify / n8n / custom tools | OpenAI-compatible | `http://127.0.0.1:13306/v1` |
-| Direct Lemonade workflows | Lemonade/OpenAI-compatible | `http://127.0.0.1:13305/v1` or `http://127.0.0.1:13305/api/v1` |
+| Direct backend tests | toolbox llama.cpp or Lemonade/OpenAI-compatible | `http://127.0.0.1:13305/v1` or `http://127.0.0.1:13305/api/v1` |
 
 ## Minimal SDK Test
 
@@ -48,16 +50,25 @@ print(response.choices[0].message.content)
 
 ## Routing Rules
 
-The union endpoint keeps Lemonade as the default route because Lemonade owns canonical multimodal OpenAI compatibility and OmniRouter behavior. The proxy only diverts targeted FastFlowLM model families to the NPU lane, such as FLM chat models and `embed-*` embeddings.
+The union endpoint keeps the app URL stable while the active backend changes.
+During repair, the default backend can be toolbox `llama-server` on `:13305`.
+On the native path, Lemonade owns multimodal OpenAI compatibility and
+OmniRouter behavior. The proxy can divert targeted FastFlowLM model families to
+the NPU lane, such as FLM chat models and `embed-*` embeddings, when FLM is
+enabled.
 
 ```text
 App
   -> 1bit-proxy :13306
-      -> Lemonade :13305     default, multimodal, OmniRouter
-      -> FastFlowLM :52625   NPU chat, embeddings, opt-in ASR
+      -> toolbox llama-server or Lemonade :13305
+      -> optional FastFlowLM :52625
 ```
 
-For pure OmniRouter tool workflows, use Lemonade direct on `http://127.0.0.1:13305/v1`. OmniRouter tool definitions target Lemonade endpoints such as `/v1/images/generations`, `/v1/images/edits`, `/v1/audio/speech`, `/v1/audio/transcriptions`, and `/v1/chat/completions` for vision.
+For pure OmniRouter tool workflows on the native path, use Lemonade direct on
+`http://127.0.0.1:13305/v1`. OmniRouter tool definitions target Lemonade
+endpoints such as `/v1/images/generations`, `/v1/images/edits`,
+`/v1/audio/speech`, `/v1/audio/transcriptions`, and `/v1/chat/completions` for
+vision.
 
 ## Security
 

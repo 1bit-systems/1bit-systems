@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0d1117">
-<title>1bit.systems - OpenAI-compatible inference engine for AMD Strix Halo</title>
-<meta name="description" content="1bit.systems is a local OpenAI-compatible inference engine for AMD Strix Halo. Apps connect to Lemonade, FastFlowLM, or the 1bit union endpoint; the single control plane comes second.">
+<title>1bit.systems - toolbox-first inference engine for AMD Strix Halo</title>
+<meta name="description" content="1bit.systems is a local OpenAI-compatible inference workbench for AMD Strix Halo. The repaired path is toolbox-backed llama.cpp first, with 1bit-proxy as the stable app endpoint while the single control plane is rebuilt.">
 <meta property="og:title" content="1bit.systems">
-<meta property="og:description" content="Inference engine first: Lemonade OmniRouter, FastFlowLM XDNA NPU, and a 1bit union endpoint for OpenAI-compatible apps.">
+<meta property="og:description" content="Inference engine first: Strix Halo toolboxes, llama.cpp, optional native Lemonade/FastFlowLM lanes, and a 1bit union endpoint for OpenAI-compatible apps.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://1bit.systems/">
 <meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
@@ -63,11 +63,11 @@
   <img class="hero-lockup" src="/assets/brand-lockup.svg" alt="1bit.systems">
   <p class="eyebrow">AMD Strix Halo · gfx1151 + XDNA 2 · inference engine first</p>
   <h1>
-    <span>1bit.systems is a local inference engine for Ryzen AI.</span>
-    <span>Apps connect over OpenAI-compatible APIs. The control plane comes second.</span>
+    <span>1bit.systems is repairing local inference for Ryzen AI.</span>
+    <span>Apps connect over OpenAI-compatible APIs while the control plane is rebuilt.</span>
   </h1>
   <p class="lede">
-    The public shape is simple: apps talk to an inference endpoint. Use Lemonade as the canonical OpenAI-compatible multimodal and OmniRouter server on <code>:13305</code>, FastFlowLM as the XDNA NPU runtime on <code>:52625</code>, and <code>1bit-proxy</code> on <code>:13306</code> when a client wants both lanes behind one OpenAI base URL.
+    The useful shape is simple: apps talk to one local endpoint. Today the most reliable Strix Halo repair path is a toolbox-backed <code>llama-server</code> on <code>:13305</code>, with <code>1bit-proxy</code> on <code>:13306</code> as the stable OpenAI-compatible app surface. Native Lemonade and FastFlowLM remain product-direction lanes, not a finished one-click control plane.
   </p>
   <div class="hero-cta">
     <a class="btn" href="#install">Install</a>
@@ -77,20 +77,34 @@
 
 <section id="stack" class="pillars" data-mark="01 / STACK">
   <h2>Inference engine</h2>
-  <p class="note">The engine is the product surface: OpenAI-compatible apps send requests to Lemonade, FastFlowLM, or the union endpoint. The single control plane manages those services after the inference path is clear.</p>
+  <p class="note">The engine is the product surface: OpenAI-compatible apps send requests to a backend through the union endpoint. For the repair path, use the Strix Halo toolboxes first; the single control plane is still roadmap work.</p>
   <div class="pillar-grid">
-    <div class="pillar"><h3>Lemonade</h3><p>Canonical OpenAI-compatible multimodal inference server and OmniRouter source of truth on <code>http://127.0.0.1:13305/api/v1</code> and <code>/v1</code>.</p></div>
-    <div class="pillar"><h3>FastFlowLM</h3><p>XDNA NPU runtime on <code>http://127.0.0.1:52625/v1</code>, serving FLM chat models and the local embedding side lane.</p></div>
-    <div class="pillar"><h3>1bit proxy</h3><p>Convenience union endpoint on <code>http://127.0.0.1:13306/api/v1</code> and <code>/v1</code>. Lemonade remains default; FLM receives targeted model families.</p></div>
+    <div class="pillar"><h3>Toolbox llama.cpp</h3><p>Recommended first backend on Ubuntu/Fedora: <code>kyuz0/amd-strix-halo-toolboxes:vulkan-radv</code>, then <code>rocm-7.2.2</code> after device access is verified.</p></div>
+    <div class="pillar"><h3>Lemonade</h3><p>Native multimodal and OmniRouter lane for the Arch/CachyOS path. It remains product direction, but toolbox <code>llama-server</code> can occupy <code>:13305</code> during repair.</p></div>
+    <div class="pillar"><h3>FastFlowLM</h3><p>Optional XDNA NPU side lane on <code>http://127.0.0.1:52625/v1</code> when the host NPU stack is actually healthy.</p></div>
+    <div class="pillar"><h3>1bit proxy</h3><p>Convenience union endpoint on <code>http://127.0.0.1:13306/api/v1</code> and <code>/v1</code>. It is the stable app surface while backend lifecycle is rebuilt.</p></div>
     <div class="pillar"><h3>Apps</h3><p>GAIA, Open WebUI, AnythingLLM, Continue, Dify, n8n, and custom SDK clients connect by setting an OpenAI-compatible base URL.</p></div>
-    <div class="pillar"><h3>Control plane</h3><p><code>1bit</code>, GAIA, Open WebUI, and <code>1bit-stack.target</code> manage the engine after the endpoint contract is set.</p></div>
+    <div class="pillar"><h3>Control plane</h3><p><code>1bit</code>, GAIA, Open WebUI, systemd, and toolbox lifecycle are the intended control plane pieces. They are not yet one finished operator surface.</p></div>
     <div class="pillar"><h3>Open WebUI</h3><p>Secondary browser UI on <code>:3000</code>, pointed at the union endpoint by the systemd unit.</p></div>
   </div>
 </section>
 
 <section id="install" class="install" data-mark="02 / INSTALL">
   <h2>Install</h2>
-  <p class="note">Source install builds and wires the forked Lemonade/FastFlowLM paths instead of relying on stale upstream application packages.</p>
+  <p class="note">On Ubuntu/Fedora, start with toolbox-backed inference. The native installer is currently Arch/CachyOS-first and should not be treated as the universal bootstrap.</p>
+  <pre><code># Fedora toolbox: compatibility-first backend
+toolbox create llama-vulkan-radv \
+  --image docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv \
+  -- --device /dev/dri --group-add video --security-opt seccomp=unconfined
+
+toolbox enter llama-vulkan-radv
+llama-server --host 127.0.0.1 --port 13305 -m /path/to/model.gguf -c 8192 -ngl 999 -fa 1 --no-mmap
+
+# host
+node scripts/1bit-proxy.js
+curl -s http://127.0.0.1:13306/v1/models</code></pre>
+  <p class="muted">After <code>vulkan-radv</code> is stable, test <code>rocm-7.2.2</code> with <code>/dev/dri</code> and <code>/dev/kfd</code> passed through. See <a href="https://github.com/kyuz0/amd-strix-halo-toolboxes" rel="noopener">kyuz0/amd-strix-halo-toolboxes</a> and <a href="https://strix-halo-toolboxes.com/" rel="noopener">strix-halo-toolboxes.com</a>.</p>
+  <p class="note">Native Arch/CachyOS path:</p>
   <pre><code>git clone https://github.com/bong-water-water-bong/1bit-systems
 cd 1bit-systems
 ./install.sh
@@ -98,7 +112,7 @@ cd 1bit-systems
 # after first install, re-login or reboot so memlock limits apply
 1bit up
 1bit status</code></pre>
-  <p class="muted">The installer writes the CLI, systemd units, Open WebUI configuration, memlock limits, and local service defaults. Lemonade and FastFlowLM are built from maintained fork sources under <code>/opt/1bit</code>.</p>
+  <p class="muted">The installer writes the CLI, systemd units, Open WebUI configuration, memlock limits, and local service defaults for the native path. The backend-agnostic control plane still needs a registry, lifecycle checks, and toolbox start/stop support.</p>
 </section>
 
 <section id="quickstart" class="doc-section" data-mark="03 / QUICKSTART">
@@ -107,8 +121,9 @@ cd 1bit-systems
   <table class="data-table">
     <thead><tr><th>Check</th><th>Command</th><th>Expected</th></tr></thead>
     <tbody>
-      <tr><td>Stack</td><td><code>1bit status</code></td><td>Lemonade <code>:13305</code>, FLM <code>:52625</code>, proxy <code>:13306</code>, GAIA UI running.</td></tr>
-      <tr><td>Lemonade</td><td><code>curl http://127.0.0.1:13305/v1/models</code></td><td>Canonical OpenAI model list.</td></tr>
+      <tr><td>Backend</td><td><code>llama-cli --list-devices</code></td><td>Toolbox can see the Strix Halo GPU before server mode starts.</td></tr>
+      <tr><td>Stack</td><td><code>1bit status</code></td><td>Native path status where installed; toolbox-backed lifecycle is still pending.</td></tr>
+      <tr><td>Backend API</td><td><code>curl http://127.0.0.1:13305/v1/models</code></td><td>Toolbox <code>llama-server</code> or Lemonade model list.</td></tr>
       <tr><td>Union</td><td><code>curl http://127.0.0.1:13306/v1/models</code></td><td>Lemonade plus FLM model list.</td></tr>
       <tr><td>GAIA</td><td><code>1bit gaia status</code></td><td>AppImage path, venv CLI, and current local UI port.</td></tr>
       <tr><td>Open WebUI</td><td><code>1bit webui status</code></td><td>Secondary UI on <code>http://127.0.0.1:3000</code>.</td></tr>
@@ -126,12 +141,12 @@ http://127.0.0.1:13306/v1
 # GAIA CLI style base URL
 http://127.0.0.1:13306/api/v1
 
-# Lemonade direct: canonical multimodal + OmniRouter
+# Backend direct: toolbox llama-server or Lemonade
 http://127.0.0.1:13305/api/v1
 
-# FastFlowLM direct: NPU runtime
+# FastFlowLM direct: optional NPU runtime
 http://127.0.0.1:52625/v1</code></pre>
-  <p>Use Lemonade direct for pure OmniRouter work. Use the proxy when one OpenAI-compatible client should see Lemonade plus FLM chat, embeddings, and opt-in FLM ASR routing.</p>
+  <p>Use <code>:13305</code> direct when testing the active backend. Use the proxy when one OpenAI-compatible client should keep the same base URL while the backend changes from toolbox llama.cpp to native Lemonade or optional FLM routing.</p>
   <p class="muted">This follows Lemonade's app model: local apps integrate by configuring an OpenAI-compatible base URL. Lemonade's own docs cover the API surface and app guides at <a href="https://lemonade-server.ai/docs/api/" rel="noopener">lemonade-server.ai/docs/api/</a> and <a href="https://lemonade-server.ai/docs/server/apps/" rel="noopener">/docs/server/apps/</a>.</p>
   <div class="scroll-x">
   <table class="data-table">
@@ -149,13 +164,13 @@ http://127.0.0.1:52625/v1</code></pre>
 
 <section id="rules" class="doc-section" data-mark="05 / RULES">
   <h2>The five rules</h2>
-  <p class="note">The live stack is Lemonade on <code>:13305</code>, FastFlowLM on <code>:52625</code>, and <code>1bit-proxy</code> on <code>:13306</code>. These rules describe that stack as it runs now.</p>
+  <p class="note">The current repair stack is toolbox-backed llama.cpp or native Lemonade on <code>:13305</code>, optional FastFlowLM on <code>:52625</code>, and <code>1bit-proxy</code> on <code>:13306</code>. These rules describe the intended product boundary, not a finished one-click control plane.</p>
   <div class="pillar-grid">
     <div class="pillar"><h3>Rule A</h3><p>Core serving stays Python-free. Training, notebooks, build-time conversion, caller-side tools, and isolated compatibility UIs are allowed. The proxy, kernels, native runtimes, and model hot paths stay Python-free.</p></div>
     <div class="pillar"><h3>Rule B</h3><p>C++20 for kernels. HIP code lives in <code>rocm-cpp/</code>; Rust is for layers above the kernel boundary.</p></div>
     <div class="pillar"><h3>Rule C</h3><p><code>hipBLAS</code> is banned in the runtime path. Port the kernel to <code>rocm-cpp/</code> instead.</p></div>
     <div class="pillar"><h3>Rule D</h3><p>Rust 1.88+, edition 2024. Bumps require a reason.</p></div>
-    <div class="pillar"><h3>Rule E</h3><p>FastFlowLM is the live XDNA serving lane. Custom NPU kernels use IRON at author-time, then MLIR-AIE, Peano, <code>xclbin</code>, and <code>libxrt</code> from C++ at runtime.</p></div>
+    <div class="pillar"><h3>Rule E</h3><p>FastFlowLM is the intended XDNA serving lane when the NPU stack is healthy. Custom NPU kernels use IRON at author-time, then MLIR-AIE, Peano, <code>xclbin</code>, and <code>libxrt</code> from C++ at runtime.</p></div>
     <div class="pillar"><h3>Carve-out</h3><p>Open WebUI is a secondary compatibility UI behind the union endpoint. It does not become the engine.</p></div>
   </div>
 </section>
@@ -190,16 +205,16 @@ http://127.0.0.1:52625/v1</code></pre>
   <h2>Architecture</h2>
   <pre><code>Apps / SDKs
   -> 1bit-proxy :13306/v1 or :13306/api/v1
-       -> Lemonade :13305/api/v1    canonical OpenAI + multimodal + OmniRouter
-       -> FastFlowLM :52625/v1      XDNA NPU chat + embeddings + opt-in ASR
+       -> toolbox llama-server or Lemonade :13305/v1
+       -> optional FastFlowLM :52625/v1
 
 Open WebUI :3000 -> 1bit-proxy :13306/v1
-Control plane    -> 1bit CLI + GAIA + systemd target</code></pre>
+Control plane    -> target: 1bit CLI + GAIA + systemd/toolbox lifecycle</code></pre>
 </section>
 
 <section id="models-deep" class="doc-section" data-mark="08 / MODELS">
   <h2>Models</h2>
-  <p>Model policy is pragmatic: use 1-bit and ternary GGUF where they win on the iGPU, use sub-2-bit MoE for daily-driver chat, and use FLM's q4nx/AWQ model catalog for the XDNA NPU lane. Embeddings route to FLM when the model name uses the <code>embed-*</code> family.</p>
+  <p>Model policy is pragmatic: use GGUF through the Strix Halo llama.cpp toolboxes first, use 1-bit and ternary GGUF where they win on the iGPU, and use FLM's q4nx/AWQ catalog only when the XDNA NPU lane is verified on the host.</p>
 </section>
 
 <section id="troubleshooting" class="doc-section" data-mark="09 / TROUBLESHOOTING">
@@ -211,26 +226,27 @@ journalctl -u lemond.service -n 80 --no-pager
 tail -80 /var/log/1bit-systems/flm.log
 tail -80 /var/log/1bit-systems/1bit-proxy.log
 1bit gaia logs</code></pre>
-  <p>Probe the actual ports before changing clients: Lemonade <code>:13305</code>, FLM <code>:52625</code>, proxy <code>:13306</code>, Open WebUI <code>:3000</code>, and the dynamic GAIA UI port shown by <code>1bit gaia status</code>.</p>
+  <p>Probe the actual ports before changing clients: active backend <code>:13305</code>, optional FLM <code>:52625</code>, proxy <code>:13306</code>, Open WebUI <code>:3000</code>, and the dynamic GAIA UI port shown by <code>1bit gaia status</code>.</p>
 </section>
 
 <section id="faq" class="doc-section" data-mark="10 / FAQ">
   <h2>FAQ</h2>
   <h3>Is <code>:13306</code> the new Lemonade?</h3>
-  <p>No. Lemonade remains canonical on <code>:13305</code>. The proxy is a client convenience layer.</p>
+  <p>No. The proxy is a client convenience layer. During repair, <code>:13305</code> may be toolbox <code>llama-server</code>; on the native path it may be Lemonade.</p>
   <h3>Is the NPU shipping?</h3>
-  <p>Yes. FastFlowLM runs the XDNA NPU lane on <code>:52625</code>. It is useful for offload and parallelism, not just peak throughput.</p>
+  <p>Not as the universal first path. FastFlowLM can run the XDNA NPU lane on <code>:52625</code> on a healthy native host, but the current out-of-box repair path is GPU-backed toolbox inference first.</p>
   <h3>Should I expose this to the internet?</h3>
   <p>No, not directly. These are local developer services. Put authentication, TLS, and explicit routing in front of anything remote.</p>
 </section>
 
 <section id="contributing" class="doc-section" data-mark="11 / CONTRIBUTING">
   <h2>Contributing</h2>
-  <p>Keep changes aligned with the live stack: inference endpoint compatibility first, then GAIA integration, Lemonade OpenAI/OmniRouter behavior, FastFlowLM NPU service flags, <code>1bit-proxy</code> routing, packaging parity, systemd lifecycle, and static site accuracy.</p>
+  <p>Keep changes aligned with the repair path: inference endpoint compatibility first, toolbox-backed Strix Halo runtime, then GAIA integration, native Lemonade/OpenAI behavior, optional FastFlowLM NPU flags, <code>1bit-proxy</code> routing, backend registry work, lifecycle, and static site accuracy.</p>
 </section>
 
 <section id="changelog" class="doc-section" data-mark="12 / CHANGELOG">
   <h2>Changelog</h2>
+  <p>2026-05-06: Public docs now state the toolbox-first Strix Halo repair path and mark the single control plane as unfinished roadmap work.</p>
   <p>2026-05-03: Public docs reset to the GAIA + Lemonade + FastFlowLM architecture, with the union endpoint documented as <code>:13306</code>.</p>
 </section>
 

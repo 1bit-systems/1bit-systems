@@ -2,13 +2,20 @@
 
 ## What is 1bit systems?
 
-1bit systems is a local inference and app-control stack for the Strix Halo box. Apps speak OpenAI-compatible HTTP to `1bit-proxy` on `:13306`; the proxy keeps Lemonade as the default multimodal/OmniRouter route on `:13305` and routes targeted FLM model families to FastFlowLM on `:52625` for XDNA NPU chat and embeddings.
+1bit systems is a local inference workbench for the Strix Halo box. Apps speak
+OpenAI-compatible HTTP to `1bit-proxy` on `:13306`; during the repair phase the
+default backend should be a toolbox-backed `llama-server` on `:13305`. Native
+Lemonade and FastFlowLM remain the product-direction lanes, but they are not a
+finished universal control plane.
 
-GAIA is the primary UI/control surface. Open WebUI is a secondary compatibility UI on `:3000`.
+GAIA is the intended primary UI/control surface. Open WebUI is a secondary
+compatibility UI on `:3000`.
 
 ## What does it run on?
 
-The reference host is AMD Ryzen AI MAX+ 395 / Strix Halo on CachyOS. The current NPU device is `/dev/accel/accel0`, and XRT reports `RyzenAI-npu5` through the in-tree `amdxdna` kernel driver.
+The native reference host is AMD Ryzen AI MAX+ 395 / Strix Halo on CachyOS. The
+toolbox repair path is meant to make Ubuntu/Fedora useful first by passing GPU
+devices into known-good Strix Halo containers.
 
 ## What are the current endpoints?
 
@@ -16,13 +23,32 @@ The reference host is AMD Ryzen AI MAX+ 395 / Strix Halo on CachyOS. The current
 |---|---|
 | GAIA / Lemonade-style clients | `http://127.0.0.1:13306/api/v1` |
 | Generic OpenAI-compatible clients | `http://127.0.0.1:13306/v1` |
-| Lemonade direct | `http://127.0.0.1:13305/api/v1` or `/v1` |
-| FastFlowLM direct NPU lane | `http://127.0.0.1:52625/v1` |
+| Active backend direct | `http://127.0.0.1:13305/v1` |
+| Lemonade direct, native path | `http://127.0.0.1:13305/api/v1` or `/v1` |
+| FastFlowLM direct NPU lane, optional | `http://127.0.0.1:52625/v1` |
 | Open WebUI | `http://127.0.0.1:3000` |
 
 Use `local-no-auth` as the placeholder API key for local clients that require one.
 
 ## How do I install it?
+
+On Ubuntu/Fedora, start with the toolbox-backed path:
+
+```bash
+toolbox create llama-vulkan-radv \
+  --image docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv \
+  -- --device /dev/dri --group-add video --security-opt seccomp=unconfined
+
+toolbox enter llama-vulkan-radv
+llama-cli --list-devices
+llama-server --host 127.0.0.1 --port 13305 \
+  -m /path/to/model.gguf -c 8192 -ngl 999 -fa 1 --no-mmap
+```
+
+Use `rocm-7.2.2` after `vulkan-radv` works and `/dev/kfd` is available. See
+[Toolbox backends](../toolbox-backends.md).
+
+On Arch/CachyOS, the native installer path is:
 
 ```bash
 git clone https://github.com/bong-water-water-bong/1bit-systems.git
@@ -37,7 +63,9 @@ Then verify:
 curl -s http://127.0.0.1:13306/v1/models
 ```
 
-The installer wires Lemonade, FastFlowLM, `1bit-proxy`, Open WebUI, GAIA helpers, memlock limits, and systemd units. On first install, log out and back in, or reboot, so memlock limits apply to the NPU lane.
+The installer wires Lemonade, FastFlowLM, `1bit-proxy`, Open WebUI, GAIA
+helpers, memlock limits, and systemd units for the native path. It does not yet
+start and stop toolbox backends as one control plane.
 
 ## What clients work with it?
 
@@ -51,7 +79,10 @@ Anything that accepts an OpenAI-compatible `base_url`:
 
 ## What are the five rules?
 
-See [Development](./Development.md). Short form: no Python in the core serving path, C++20 for HIP kernels, no hipBLAS in runtime, Rust 1.88+ edition 2024, and NPU is FastFlowLM live serving plus IRON author-time custom kernels.
+See [Development](./Development.md). Short form: no Python in the core serving
+path we own, C++20 for HIP kernels, no hipBLAS in runtime, Rust 1.88+ edition
+2024, toolbox-backed llama.cpp first for repair, and FastFlowLM as the intended
+NPU lane plus IRON author-time custom kernels.
 
 ## Is Python allowed anywhere?
 
@@ -59,7 +90,10 @@ Yes, outside the core runtime. Training, notebooks, build-time DSLs, and caller-
 
 ## What is the NPU status?
 
-FastFlowLM is live on XDNA/XRT for supported FLM chat and embedding models. Custom kernel work uses IRON at author time, lowers through MLIR-AIE and Peano, emits `xclbin`, and loads from native runtime code through `libxrt`.
+FastFlowLM can serve supported FLM chat and embedding models on XDNA/XRT when
+the native host stack is healthy. It is not the universal bootstrap path.
+Custom kernel work uses IRON at author time, lowers through MLIR-AIE and Peano,
+emits `xclbin`, and loads from native runtime code through `libxrt`.
 
 ## Is stablecoin payment routing part of the current stack?
 

@@ -42,7 +42,10 @@ Our scaffold crate `halo-gaia` (phase: analysis, see `Crate-halo-gaia.md`) is a 
 
 ## Integration path: AMD GAIA as external client over 1bit-proxy
 
-AMD GAIA drives inference through a Lemonade/OpenAI-compatible endpoint. In the current stack, point it at `http://127.0.0.1:13306/api/v1` to reach Lemonade and FastFlowLM behind one local base URL.
+AMD GAIA drives inference through a Lemonade/OpenAI-compatible endpoint. In the
+repair path, point it at `http://127.0.0.1:13306/api/v1` so GAIA can keep one
+local base URL while the backend is toolbox `llama-server`, native Lemonade, or
+optional FastFlowLM.
 
 Same pattern as Hermes Agent (see `Hermes-Integration.md`): Electron + Node lives on the user's laptop (external-client surface, Rule A unaffected) while our native-HIP kernels stay on strixhalo.
 
@@ -70,7 +73,7 @@ Bearer: AMD GAIA may not send an `Authorization` header by default. Caddy's `/le
 ## Cross-refs
 
 - `Crate-1bit-helm.md` — our desktop client spec (formerly Crate-halo-gaia.md)
-- `Development.md` — the current stack and review rules AMD GAIA sits on top of
+- `Development.md` — the repair path and review rules AMD GAIA sits on top of
 - `Hermes-Integration.md` — parallel external-client pattern for Hermes Agent
 - `VPN-Only-API.md` — mesh + bearer posture that AMD GAIA sits behind
 

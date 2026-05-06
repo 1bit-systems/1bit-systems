@@ -1,8 +1,8 @@
 # Install — what AMD says vs what actually works
 
 > Reference doc for the cross-distro / cross-stack picture. If you're on
-> Arch / CachyOS and just want this repo running, [`README.md`](../README.md#install-arch--cachyos)
-> has the one-command path. This file is the "which install route do I
+> Arch / CachyOS, Ubuntu, or Fedora and just want this repo running,
+> [`README.md`](../README.md#install) has the current entry point. This file is the "which install route do I
 > actually want, and what trade-off am I taking" map.
 
 AMD's docs say "Ubuntu 24.04 only." That's accurate for **one** of two
@@ -14,21 +14,36 @@ don't give you the same thing. Pick the one that matches what you need.
 | Stack | Runs | License | Distribution |
 |---|---|---|---|
 | **Ryzen AI 1.7.1 EP** (closed) | AMD's 200+ AWQ/OGA HF checkpoints (`huggingface.co/amd/*_rai_1.7.1_npu_*`) | Closed | `.deb`, Ubuntu 24.04 only, behind `account.amd.com` login |
-| **Lemonade Server + FastFlowLM** (open) | FLM's curated catalog (qwen3, gemma3, phi-4-mini, lfm2, llama-3.2, deepseek-r1, gpt-oss) | Apache (Lemonade) + MIT/proprietary-binary (FLM) | AUR (Arch / CachyOS), installer (Ubuntu), Linux build everywhere |
+| **Open local stack** | GGUF models through llama.cpp, plus FLM/Lemonade where available | Open runtime mix | Native source build on Arch/CachyOS; toolbox bootstrap on Ubuntu/Fedora |
 
 The closed EP runs models the open stack can't. The open stack runs on
 distros the closed EP can't. **Neither is a superset.**
 
 ## Three install paths
 
-### Path A — Ubuntu 24.04 native (both stacks)
+### Path A — Ubuntu 24.04 native AMD EP
 
 AMD's `.deb` bundles install cleanly. The
 `xrt_plugin-amdxdna 2.21.260102.53` kernel module DKMS-builds against
-Ubuntu's stock kernel. Closed EP runs the AWQ/OGA models. Lemonade + FLM
-also works alongside.
+Ubuntu's stock kernel. Closed EP runs the AWQ/OGA models.
 
 **Trade-off:** you have to run Ubuntu.
+
+For this repo's open inference path on Ubuntu, use a Strix Halo toolbox
+backend and run `1bit-proxy` on the host:
+
+```bash
+distrobox create llama-vulkan-radv \
+  --image docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv \
+  --additional-flags "--device /dev/dri --group-add video --security-opt seccomp=unconfined"
+
+distrobox enter llama-vulkan-radv
+llama-server --host 127.0.0.1 --port 13305 \
+  -m /path/to/model.gguf -c 8192 -ngl 999 -fa 1 --no-mmap
+
+# host
+node scripts/1bit-proxy.js
+```
 
 ### Path B — Distrobox on a non-Ubuntu host
 
@@ -49,13 +64,14 @@ module.
 actual LLM workload. If you want the closed EP, you're booting Ubuntu
 24.04 native.
 
-### Path C — Native non-Ubuntu (Arch / CachyOS / Fedora / …)
+### Path C — Native Arch / CachyOS
 
-Lemonade + FastFlowLM works directly on the host. No container, no DKMS
-for closed-EP modules. The in-tree `amdxdna` (kernel 7+) or
-`xrt-amdxdna` DKMS (kernel 6.x) is enough. **This is what this repo
-installs** ([`README.md` → Install](../README.md#install-arch--cachyos)).
-All four lanes light up:
+Lemonade + FastFlowLM can work directly on the host. No container, no DKMS for
+closed-EP modules. The in-tree `amdxdna` (kernel 7+) or `xrt-amdxdna` DKMS
+(kernel 6.x) is enough when the running host stack is healthy. This is what
+this repo's native installer path builds on pacman hosts
+([`README.md` → Install](../README.md#install)). Treat this as the native
+target lane, not the universal first bootstrap.
 
 | Lane | Backend | Recipe |
 |---|---|---|
@@ -67,6 +83,20 @@ All four lanes light up:
 **Trade-off:** no closed EP. AMD's 200+ AWQ/OGA checkpoints are
 downloadable but unrunnable on the NPU. FLM's catalog overlaps on the
 popular architectures.
+
+### Path D — Toolbox Ubuntu / Fedora
+
+This is the current out-of-box path for this repo outside Arch/CachyOS. Create
+a Strix Halo llama.cpp toolbox, start `llama-server` on `:13305`, then start
+`1bit-proxy` on the host. The proxy keeps the same app endpoint:
+
+```text
+http://127.0.0.1:13306/v1
+```
+
+**Trade-off:** first milestone is GGUF inference through llama.cpp. Lemonade,
+FLM, vLLM, and remote workers still need a backend registry before they are one
+clean control plane.
 
 ## Path A — Ubuntu 24.04 detailed runbook
 

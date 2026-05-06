@@ -4,7 +4,9 @@
 # Lean 1-bit inference engine: Lemonade Server (ROCm + Vulkan llama.cpp)
 # and FastFlowLM (XDNA 2 NPU) behind one OpenAI-compat endpoint.
 #
-# Idempotent. Safe to re-run. Targets CachyOS / Arch (pacman).
+# Idempotent. Safe to re-run.
+# - CachyOS / Arch: native source build + systemd stack (pacman)
+# - Ubuntu / Fedora: toolbox-backed bootstrap + CLI/proxy install
 #
 # Usage:
 #   ./install.sh             # actually install
@@ -50,7 +52,13 @@ What runs in dry-run mode:
     systemctl start, curl download) is printed prefixed with "DRY"
     instead of executing.
 
-Targets CachyOS / Arch. Run on the box you want to host the stack.
+Run on the box you want to host the stack.
+
+Install paths:
+  - CachyOS / Arch: native source build for Lemonade/FastFlowLM plus systemd.
+  - Ubuntu / Fedora: installs the 1bit CLI/proxy and bootstraps a Strix Halo
+    llama.cpp toolbox backend. Use ONEBIT_TOOLBOX_AUTOCREATE=1 to create the
+    toolbox during install; otherwise run "1bit toolbox bootstrap" afterward.
 EOF
 }
 
@@ -72,10 +80,122 @@ banner() {
 }
 
 require_pacman() {
-    command -v pacman >/dev/null 2>&1 || die "pacman not found — this installer targets CachyOS / Arch."
+    command -v pacman >/dev/null 2>&1 || die "pacman not found — native install targets CachyOS / Arch. Ubuntu/Fedora should take the toolbox bootstrap path."
     # NB: don't `pacman --version | head -1` here — that SIGPIPEs pacman, and
     # with `set -o pipefail` the whole script silently exits after the banner.
     ok "pacman found"
+}
+
+os_id() {
+    if [[ -r /etc/os-release ]]; then
+        # shellcheck disable=SC1091
+        . /etc/os-release
+        printf '%s\n' "${ID:-unknown}"
+    else
+        printf 'unknown\n'
+    fi
+}
+
+has_pkg_manager_for_toolbox_bootstrap() {
+    command -v apt-get >/dev/null 2>&1 || command -v dnf >/dev/null 2>&1
+}
+
+install_toolbox_packages() {
+    local missing=()
+    command -v podman >/dev/null 2>&1 || missing+=(podman)
+    command -v node >/dev/null 2>&1 || missing+=(nodejs)
+    command -v curl >/dev/null 2>&1 || missing+=(curl)
+
+    if command -v apt-get >/dev/null 2>&1; then
+        command -v distrobox >/dev/null 2>&1 || missing+=(distrobox)
+        [[ -f /etc/ssl/certs/ca-certificates.crt ]] || missing+=(ca-certificates)
+        ((${#missing[@]})) || { ok "toolbox bootstrap packages already present"; return; }
+        say "Installing Ubuntu toolbox bootstrap packages: ${missing[*]}"
+        run sudo apt-get update
+        run sudo apt-get install -y "${missing[@]}"
+        return
+    fi
+
+    if command -v dnf >/dev/null 2>&1; then
+        command -v toolbox >/dev/null 2>&1 || missing+=(toolbox)
+        ((${#missing[@]})) || { ok "toolbox bootstrap packages already present"; return; }
+        say "Installing Fedora toolbox bootstrap packages: ${missing[*]}"
+        run sudo dnf install -y "${missing[@]}"
+        return
+    fi
+
+    die "No supported package manager found. Install podman + nodejs + distrobox/toolbox, then run install.sh again."
+}
+
+configure_toolbox_groups() {
+    local groups_to_add=()
+    for group in video render; do
+        getent group "$group" >/dev/null 2>&1 || continue
+        id -nG | tr ' ' '\n' | grep -qx "$group" || groups_to_add+=("$group")
+    done
+    ((${#groups_to_add[@]})) || { ok "user already has available GPU access groups"; return; }
+    say "Adding $(id -un) to GPU access groups: ${groups_to_add[*]}"
+    run sudo usermod -aG "$(IFS=,; echo "${groups_to_add[*]}")" "$(id -un)"
+    warn "Log out and back in, or reboot, before toolbox GPU permissions are guaranteed in new shells."
+}
+
+write_toolbox_config() {
+    local cfg_dir="$HOME/.config/1bit-systems"
+    local cfg="$cfg_dir/toolbox.env"
+    say "Writing toolbox backend defaults to $cfg"
+    if (( DRY_RUN )); then
+        dry "mkdir -p $cfg_dir && write $cfg"
+        return
+    fi
+    mkdir -p "$cfg_dir"
+    if [[ -f "$cfg" ]]; then
+        ok "toolbox config already exists ($cfg)"
+        return
+    fi
+    cat >"$cfg" <<'EOF'
+# 1bit-systems toolbox backend defaults.
+# Set ONEBIT_TOOLBOX_MODEL to a GGUF path before running "1bit toolbox up".
+ONEBIT_TOOLBOX_NAME=1bit-llama-vulkan
+ONEBIT_TOOLBOX_IMAGE=docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv
+ONEBIT_TOOLBOX_BACKEND=auto
+ONEBIT_TOOLBOX_MODEL=
+ONEBIT_TOOLBOX_CTX=8192
+ONEBIT_TOOLBOX_NGL=999
+ONEBIT_TOOLBOX_HOST=127.0.0.1
+ONEBIT_TOOLBOX_PORT=13305
+EOF
+    ok "toolbox config written"
+}
+
+install_toolbox_bootstrap() {
+    local id
+    id="$(os_id)"
+    warn "Non-pacman host detected ($id); using toolbox-backed bootstrap instead of native Arch build."
+    install_toolbox_packages
+    configure_toolbox_groups
+    install_cli
+    write_toolbox_config
+
+    if [[ "${ONEBIT_TOOLBOX_AUTOCREATE:-0}" == "1" ]]; then
+        say "Creating toolbox backend because ONEBIT_TOOLBOX_AUTOCREATE=1"
+        if (( DRY_RUN )); then
+            dry "1bit toolbox bootstrap"
+        else
+            /usr/local/bin/1bit toolbox bootstrap || warn "toolbox bootstrap needs attention; run: 1bit doctor && 1bit toolbox status"
+        fi
+    else
+        warn "Toolbox image was not pulled during install."
+        printf '   Next: 1bit doctor\n'
+        printf '         1bit toolbox bootstrap\n'
+        printf '         ONEBIT_TOOLBOX_MODEL=/path/to/model.gguf 1bit toolbox up\n'
+    fi
+
+    echo
+    if (( DRY_RUN )); then
+        printf '%b≈%b %bDry-run complete.%b No system state was modified.\n' "$YELLOW" "$NC" "$BOLD" "$NC"
+    else
+        printf '%b✓%b Toolbox bootstrap installed. Unified endpoint after backend start: http://127.0.0.1:13306/v1/\n' "$GREEN" "$NC"
+    fi
 }
 
 # Detect if this box has the AMD XDNA NPU (Strix Halo / Strix Point / Kraken Point).
@@ -611,7 +731,11 @@ install_cli() {
         [[ -f "$tool" ]] || continue
         run sudo install -m 0755 "$tool" "/usr/local/share/1bit-systems/omni-tools/$(basename "$tool")"
     done
-    ok "1bit CLI + proxy + omni installed — try: 1bit up   or   1bit omni \"...\""
+    if (( DRY_RUN )); then
+        ok "1bit CLI + proxy + omni install commands validated"
+    else
+        ok "1bit CLI + proxy + omni installed — try: 1bit up   or   1bit omni \"...\""
+    fi
 }
 
 parse_args() {
@@ -628,6 +752,13 @@ parse_args() {
 main() {
     parse_args "$@"
     banner
+    if ! command -v pacman >/dev/null 2>&1; then
+        if has_pkg_manager_for_toolbox_bootstrap; then
+            install_toolbox_bootstrap
+            return
+        fi
+        die "Unsupported host: no pacman, apt-get, or dnf found. Install podman + nodejs + distrobox/toolbox manually, then use docs/toolbox-backends.md."
+    fi
     require_pacman
     install_packages
     build_install_forks

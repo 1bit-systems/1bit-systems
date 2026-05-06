@@ -22,9 +22,11 @@
 
 ---
 
-Local OpenAI-compatible inference engine for AMD Strix Halo. Apps connect to it the same way they connect to Lemonade or any OpenAI-compatible local server: set a base URL, set any placeholder API key if the client requires one, then send normal chat, embeddings, image, audio, or tool-calling requests.
+Local OpenAI-compatible inference engine workbench for AMD Strix Halo. Apps should connect to it the same way they connect to Lemonade, llama.cpp, vLLM, or any OpenAI-compatible local server: set a base URL, set any placeholder API key if the client requires one, then send normal chat, embeddings, image, audio, or tool-calling requests.
 
-The single control plane is the second layer: `1bit` starts and checks the services, GAIA provides the primary agent/UI surface, Open WebUI is secondary, and systemd keeps the stack alive. Lemonade is the canonical multimodal and OmniRouter inference server, FastFlowLM is the XDNA NPU runtime, and `1bit-proxy` is the union endpoint for clients that want Lemonade and FLM behind one base URL.
+The intended single control plane is not finished yet. Today, `1bit-proxy` is the useful stable surface, the native installer is Arch/CachyOS-first, and toolbox-backed Strix Halo runtimes are the pragmatic way to get Ubuntu/Fedora systems serving again. See [`docs/control-plane-roadmap.md`](docs/control-plane-roadmap.md) and [`docs/toolbox-backends.md`](docs/toolbox-backends.md).
+
+The control plane is the second layer: `1bit` should start and check the services, GAIA provides the primary agent/UI surface, Open WebUI is secondary, and systemd or toolbox lifecycle keeps the stack alive. Lemonade can be the canonical multimodal and OmniRouter inference server, FastFlowLM is the XDNA NPU runtime, and `1bit-proxy` is the union endpoint for clients that want multiple lanes behind one base URL.
 
 ## Current Shape
 
@@ -86,6 +88,8 @@ print(client.chat.completions.create(
 
 ## Install
 
+On Arch/CachyOS, run the native installer from the repo root:
+
 ```sh
 git clone https://github.com/bong-water-water-bong/1bit-systems
 cd 1bit-systems
@@ -93,6 +97,25 @@ cd 1bit-systems
 ```
 
 The installer is idempotent. It installs the local control CLI, systemd units, Open WebUI wiring, memlock limits, and default service configuration. Lemonade and FastFlowLM are built from the maintained fork sources under `/opt/1bit`; legacy upstream application packages are removed so the local stack uses the forked code paths. On first install, log out and back in, or reboot, so memlock limits apply to the NPU lane.
+
+Install behavior is distro-aware:
+
+| Host | Installer behavior |
+|---|---|
+| CachyOS / Arch | Native source build for Lemonade + FastFlowLM, systemd stack, Open WebUI wiring |
+| Ubuntu / Fedora | CLI/proxy install plus toolbox-backed llama.cpp bootstrap path |
+
+Ubuntu/Fedora quick path, using the toolbox-backed repair lane:
+
+```sh
+./install.sh
+1bit doctor
+1bit toolbox bootstrap
+ONEBIT_TOOLBOX_MODEL=/path/to/model.gguf 1bit toolbox up
+1bit up
+```
+
+`ONEBIT_TOOLBOX_AUTOCREATE=1 ./install.sh` also creates the toolbox during install. It still cannot guess which GGUF you want, so set `ONEBIT_TOOLBOX_MODEL` before starting inference. See [`docs/toolbox-backends.md`](docs/toolbox-backends.md).
 
 Useful docs:
 
@@ -109,6 +132,12 @@ Useful docs:
 ```sh
 1bit up                       # start Lemonade, FLM, proxy, browser, GAIA
 1bit status                   # show Lemonade, FLM, proxy, GAIA, memlock
+1bit doctor                   # inspect host GPU/runtime/toolbox readiness
+1bit toolbox list             # show Strix Halo backend lanes
+1bit toolbox commands vllm    # print vLLM toolbox bootstrap commands
+1bit toolbox status           # inspect toolbox-backed llama.cpp backend
+1bit toolbox bootstrap        # create the Strix Halo llama.cpp toolbox
+ONEBIT_TOOLBOX_MODEL=/path/model.gguf 1bit toolbox up
 1bit gaia status              # exact GAIA AppImage/CLI/UI status
 1bit gaia cli                 # GAIA CLI chat against the configured base URL
 1bit gaia api status          # GAIA API server status

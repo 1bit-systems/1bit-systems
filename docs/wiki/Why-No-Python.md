@@ -10,6 +10,8 @@
 - Caller-side scripts — DSPy, lemonade-python-sdk, user's jupyter notebook.
 - Build-time tooling — our `.h1b` requantizer runs once to convert Microsoft's weights. It's a Python + PyTorch one-shot that writes a file. Not shipped.
 - Research notebooks — benchmark analysis, paper reproduction. Output is numbers or plots, not services.
+- Toolbox backends — Strix Halo llama.cpp toolboxes are allowed as isolated
+  inference backends behind `1bit-proxy`, not as the control plane.
 - Compatibility UIs — Open WebUI is allowed as an isolated secondary UI/client behind `1bit-proxy`, not as the core engine.
 - Author-time NPU DSLs — IRON's Python DSL is allowed before runtime; the shipped artifact is `xclbin` loaded by native code through `libxrt`.
 
@@ -28,7 +30,10 @@ What we hit:
 
 ## The immediate wins of the Rust rewrite
 
-- Install time: `./install.sh` is idempotent and wires the current Lemonade + FastFlowLM + `1bit-proxy` stack.
+- Repair path: toolbox-backed llama.cpp can serve first while `1bit-proxy`
+  keeps app URLs stable.
+- Native install time: `./install.sh` is idempotent for the Arch/CachyOS
+  Lemonade + FastFlowLM + `1bit-proxy` stack.
 - First-request latency: under 250 ms cold, effectively 0 warm.
 - Memory footprint at idle: native services stay small compared with the gen-1 Python process.
 - Error messages: deserializer-level "expected u32 at `.usage.prompt_tokens`, got string" vs Python's "`KeyError: 'usage'`" with no line number.
@@ -53,7 +58,9 @@ If we ever needed a *runtime* requantize (which we don't — the output is cache
 ## Enforcement
 
 - Review blocks Python in the core serving path.
-- Service changes must preserve the current boundary: Lemonade/FastFlowLM/proxy runtime stays behind OpenAI-compatible HTTP; caller-side Python remains outside it.
+- Service changes must preserve the current boundary: toolbox/Lemonade/FastFlowLM
+  backends stay behind OpenAI-compatible HTTP; caller-side Python remains
+  outside the core serving path we own.
 - The 1bit-mcp MCP server is native; DSPy, notebooks, Hermes, and other Python examples are callers, not core services.
 
 ## Citations

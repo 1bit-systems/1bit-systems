@@ -354,7 +354,7 @@ Per-run template:
 
 Sections:
 
-- Now (shipping)
+- Historical: Now (was marked shipping in this draft)
 - Next (in progress)
 - Later (researched, not built)
 - Watching (upstream dependencies)
@@ -420,7 +420,7 @@ Reverse-chronological list of Release CPT entries. Each entry:
 
 - Who / what / why (3 paragraphs, neutral)
 - Origin story (from `project_halo_vision.md`): efficiency play for CAD $3000 Strix Halo mini-PC, silent-closet BYOA inference, shared machine-specific kernels. We're the only public gfx1151 ternary stack.
-- Principles: Rule A (core serving stays Python-free; caller/UI carve-outs are isolated behind the OpenAI-compatible endpoint), Rule B (C++20 kernels in rocm-cpp), Rule C (no hipBLAS in runtime), Rule D (Rust 1.88+, edition 2024), Rule E (FastFlowLM is the live XDNA serving lane; custom NPU kernels are IRON author-time -> MLIR-AIE -> Peano -> xclbin -> libxrt C++ runtime). Each as its own paragraph with one-sentence justification.
+- Principles: Rule A (core serving stays Python-free; caller/UI carve-outs are isolated behind the OpenAI-compatible endpoint), Rule B (C++20 kernels in rocm-cpp), Rule C (no hipBLAS in runtime), Rule D (Rust 1.88+, edition 2024), Rule E (FastFlowLM is the intended XDNA serving lane after native host verification; custom NPU kernels are IRON author-time -> MLIR-AIE -> Peano -> xclbin -> libxrt C++ runtime). Each as its own paragraph with one-sentence justification.
 - Contact: `[DECIDE: mailbox + matrix/discord optional]`
 - Maintainers (by handle, not name): `bong-water-water-bong` (canonical commits). `stampby` archived.
 
@@ -870,7 +870,7 @@ Format per term: `term`, `aliases`, `short_def`, `long_def`, `see_also`.
 | Rule B | C++20 by default for new components |
 | Rule C | hipBLAS runtime-banned |
 | Rule D | Rust 1.88+, edition 2024 |
-| Rule E | FastFlowLM live XDNA serving lane; IRON -> MLIR-AIE -> Peano -> xclbin -> libxrt for custom NPU kernels |
+| Rule E | FastFlowLM intended XDNA serving lane after native host verification; IRON -> MLIR-AIE -> Peano -> xclbin -> libxrt for custom NPU kernels |
 | 1bit CLI | Local stack control command |
 | Helm | 1bit-systems desktop shell (voice-first) |
 | Echo | 1bit-systems voice loop (STT + TTS + orchestration) |
@@ -887,7 +887,7 @@ Format per term: `term`, `aliases`, `short_def`, `long_def`, `see_also`.
 | MCP | Model Context Protocol (halo-mcp Rust server) |
 | MCP-out | outgoing MCP client in onebit-agents |
 | Lemonade | canonical multimodal / OmniRouter server on :13305 |
-| FastFlowLM | live XDNA NPU serving lane on :52625 |
+| FastFlowLM | intended XDNA NPU serving lane on :52625 after native host verification |
 | 1bit-proxy | union endpoint on :13306 |
 | Open WebUI | secondary compatibility UI behind :13306 |
 | CachyOS | our baseline distro |
@@ -1022,3 +1022,9 @@ Pull these from `[DECIDE]` tags above for a single meeting:
 - License of halo-mcp repo
 - 2FA plugin choice on WP
 - Whether to translate (hreflang) any content past English
+# Historical Website Spec
+
+This file is a historical design/spec draft. It predates the 2026-05-06
+toolbox-first repair path and may overstate shipping status for Lemonade,
+FastFlowLM, NPU, and the single control plane. Current public copy must follow
+`README.md`, `docs/toolbox-backends.md`, and `docs/control-plane-roadmap.md`.

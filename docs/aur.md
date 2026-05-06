@@ -2,7 +2,7 @@
 
 The AUR packages are not the canonical install path right now.
 
-Use the source installer:
+Use the source installer only on Arch/CachyOS native hosts:
 
 ```sh
 git clone https://github.com/bong-water-water-bong/1bit-systems
@@ -10,7 +10,12 @@ cd 1bit-systems
 ./install.sh
 ```
 
-Reason: the current stack builds the maintained forked Lemonade and FastFlowLM paths under `/opt/1bit` and wires them through systemd. The old AUR packages still describe upstream `lemonade-server` / `fastflowlm` package dependencies and a Lemonade `flm:npu` pin patch hook. That was useful for the earlier integration pass, but it is now stale relative to the fork-first policy.
+Reason: the native path builds the maintained forked Lemonade and FastFlowLM
+paths under `/opt/1bit` and wires them through systemd. The old AUR packages
+still describe upstream `lemonade-server` / `fastflowlm` package dependencies
+and a Lemonade `flm:npu` pin patch hook. That was useful for the earlier
+integration pass, but it is now stale relative to the toolbox-first repair path
+and fork-first native policy.
 
 ## Target Package Shape
 
@@ -19,8 +24,9 @@ When AUR packaging is refreshed, it should match this service layout:
 | Component | Port / path |
 |---|---|
 | GAIA | desktop AppImage + `~/.gaia/venv/bin/gaia` |
-| Lemonade | `http://127.0.0.1:13305/api/v1` or `/v1` |
-| FastFlowLM | `http://127.0.0.1:52625/v1` |
+| Toolbox `llama-server` | `http://127.0.0.1:13305/v1` |
+| Lemonade, native path | `http://127.0.0.1:13305/api/v1` or `/v1` |
+| FastFlowLM, optional NPU path | `http://127.0.0.1:52625/v1` |
 | 1bit proxy | `http://127.0.0.1:13306/api/v1` or `/v1` |
 | Open WebUI | `http://127.0.0.1:3000` |
 | systemd | `1bit-stack.target` |
@@ -31,6 +37,7 @@ When AUR packaging is refreshed, it should match this service layout:
 - Remove the old Lemonade `backend_versions.json` pin patch hook.
 - Add `scripts/1bit-omni.py`, `scripts/omni-plugins/*.json`, `scripts/1bit-proxy.js`, `scripts/1bit-home.html`, and current `scripts/1bit` exactly as installed by `install.sh`.
 - Document GAIA as primary and Open WebUI as secondary.
+- Document the toolbox-backed Strix Halo backend path before native FLM claims.
 - Pin FLM to `:52625`.
 - Regenerate `.SRCINFO` after any PKGBUILD change.
 

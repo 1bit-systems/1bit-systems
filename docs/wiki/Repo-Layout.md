@@ -3,7 +3,7 @@ phase: implementation
 owner: cartograph
 ---
 
-# Repo layout — current stack
+# Repo layout — repair stack
 
 Canonical URL: `https://github.com/bong-water-water-bong/1bit-systems`.
 
@@ -14,7 +14,7 @@ Canonical URL: `https://github.com/bong-water-water-bong/1bit-systems`.
 ├── README.md               public stack overview and install entry
 ├── CONTRIBUTING.md         contribution rules and service map
 ├── CLAUDE.md               hard engineering rules for agents
-├── install.sh              idempotent host bootstrap and systemd wiring
+├── install.sh              Arch/CachyOS native bootstrap and systemd wiring
 ├── scripts/
 │   ├── 1bit                operator CLI: up/down/status/gaia/webui helpers
 │   └── 1bit-proxy.js       union OpenAI-compatible endpoint on :13306
@@ -33,11 +33,15 @@ GAIA / Open WebUI / SDK clients
         |
         v
 1bit-proxy :13306
-   |-- Lemonade :13305    default, multimodal, OmniRouter
-   `-- FastFlowLM :52625  XDNA NPU chat, embeddings, opt-in ASR
+   |-- toolbox llama-server :13305  first repaired GGUF backend
+   |-- Lemonade :13305              native multimodal / OmniRouter lane
+   `-- FastFlowLM :52625            optional XDNA NPU lane
 ```
 
-GAIA points at `http://127.0.0.1:13306/api/v1`. Generic OpenAI-compatible clients use `http://127.0.0.1:13306/v1`. Lemonade direct remains available on `:13305`, and FastFlowLM direct remains available on `:52625`.
+GAIA points at `http://127.0.0.1:13306/api/v1`. Generic OpenAI-compatible
+clients use `http://127.0.0.1:13306/v1`. The active repaired backend is
+toolbox `llama-server` on `:13305`; Lemonade and FastFlowLM are native lanes
+when installed and healthy.
 
 ## Kernel ownership
 
@@ -54,7 +58,8 @@ Do not reintroduce old `halo-*` branding in current docs unless the name is an a
 
 ## See also
 
-- [Development](./Development.md) — current stack and Rules A-E
+- [Development](./Development.md) — repair path and Rules A-E
 - [Clients](./Clients.md) — OpenAI-compatible client setup
-- [Lemonade compatibility](./Lemonade-Compat.md) — Lemonade's role in the current stack
-- [NPU status](./Why-No-NPU-Yet.md) — FastFlowLM live lane and IRON authoring lane
+- [Lemonade compatibility](./Lemonade-Compat.md) — Lemonade's native lane role
+- [NPU status](./Why-No-NPU-Yet.md) — FastFlowLM target lane and IRON authoring lane
+- [Toolbox backends](../toolbox-backends.md) — toolbox-first repair path

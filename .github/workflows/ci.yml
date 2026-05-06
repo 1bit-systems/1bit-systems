@@ -94,10 +94,10 @@ jobs:
         run: |
           set -e
           fails=0
-          for f in $(git ls-files '1bit-site/**/*.html'); do
+          for f in $(git ls-files '1bit-site/*.html' '1bit-site/**/*.html'); do
             # tidy exit codes: 0=ok, 1=warnings only, 2=errors
+            rc=0
             tidy -q -e -utf8 "$f" >/dev/null 2>tidy-err.log || rc=$?
-            rc=${rc:-0}
             if [ "$rc" -ge 2 ]; then
               echo "✗ $f"
               cat tidy-err.log
