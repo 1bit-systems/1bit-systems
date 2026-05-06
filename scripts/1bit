@@ -23,6 +23,13 @@ ok()   { printf '%b✓%b %s\n' "$GREEN" "$NC" "$*"; }
 warn() { printf '%b!%b %s\n' "$YELLOW" "$NC" "$*"; }
 die()  { printf '%b✗%b %s\n' "$RED" "$NC" "$*" >&2; exit 1; }
 
+ONEBIT_CONFIG_DIR="${ONEBIT_CONFIG_DIR:-$HOME/.config/1bit-systems}"
+ONEBIT_RUNTIME_ENV="${ONEBIT_RUNTIME_ENV:-$ONEBIT_CONFIG_DIR/runtime.env}"
+if [[ -r "$ONEBIT_RUNTIME_ENV" ]]; then
+    # shellcheck disable=SC1090
+    . "$ONEBIT_RUNTIME_ENV"
+fi
+
 LEMOND_URL="${LEMOND_URL:-http://127.0.0.1:13305}"
 ONEBIT_PROXY_PORT="${ONEBIT_PROXY_PORT:-13306}"
 PROXY_URL="${PROXY_URL:-http://127.0.0.1:${ONEBIT_PROXY_PORT}}"
@@ -40,7 +47,6 @@ GAIA_BASE_URL="${GAIA_BASE_URL:-$PROXY_URL/api/v1}"
 LEMOND_HOST="${ONEBIT_LEMOND_HOST:-127.0.0.1}"
 PROXY_HOST="${PROXY_HOST:-127.0.0.1}"
 WEBUI_HOST="${ONEBIT_WEBUI_HOST:-127.0.0.1}"
-ONEBIT_CONFIG_DIR="${ONEBIT_CONFIG_DIR:-$HOME/.config/1bit-systems}"
 ONEBIT_TOOLBOX_ENV="${ONEBIT_TOOLBOX_ENV:-$ONEBIT_CONFIG_DIR/toolbox.env}"
 
 load_toolbox_env() {
