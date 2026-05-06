@@ -224,6 +224,7 @@ install_toolbox_bootstrap() {
         printf '   Next: 1bit doctor\n'
         printf '         1bit toolbox bootstrap\n'
         printf '         ONEBIT_TOOLBOX_MODEL=/path/to/model.gguf 1bit toolbox up\n'
+        printf '         1bit up\n'
     fi
 
     echo

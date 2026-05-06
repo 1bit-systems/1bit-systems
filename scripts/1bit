@@ -7,7 +7,7 @@
 #   1bit status        show lemond / flm / proxy status
 #   1bit pull <model>  pull a model (auto-routes: NPU via flm, GPU via lemonade)
 #   1bit bench         run the 1-bit / ternary pile bench
-#   1bit npu [model]   start FLM NPU server (default: qwen3:0.6b)
+#   1bit npu [model]   start FLM NPU server (default: qwen3:1.7b)
 #   1bit gaia          manage AMD GAIA agent UI / API / MCP
 
 set -euo pipefail
@@ -23,8 +23,9 @@ ok()   { printf '%b✓%b %s\n' "$GREEN" "$NC" "$*"; }
 warn() { printf '%b!%b %s\n' "$YELLOW" "$NC" "$*"; }
 die()  { printf '%b✗%b %s\n' "$RED" "$NC" "$*" >&2; exit 1; }
 
-LEMOND_URL="http://127.0.0.1:13305"
-PROXY_URL="http://127.0.0.1:13306"
+LEMOND_URL="${LEMOND_URL:-http://127.0.0.1:13305}"
+ONEBIT_PROXY_PORT="${ONEBIT_PROXY_PORT:-13306}"
+PROXY_URL="${PROXY_URL:-http://127.0.0.1:${ONEBIT_PROXY_PORT}}"
 WEBUI_URL="http://127.0.0.1:3000"
 LEMOND_LOG=/tmp/lemond.log
 FLM_LOG=/tmp/flm-serve.log
@@ -126,11 +127,21 @@ stop_gaia() {
 
 # -- service controls -----------------------------------------------------
 
+openai_backend_live() {
+    curl -s --max-time 2 "$LEMOND_URL/v1/models" >/dev/null 2>&1 || \
+        curl -s --max-time 2 "$LEMOND_URL/api/v1/models" >/dev/null 2>&1
+}
+
 start_lemond() {
+    if openai_backend_live; then
+        ok "OpenAI backend already responding at $LEMOND_URL"
+        return
+    fi
     if pgrep -x lemond >/dev/null 2>&1; then
         ok "lemond already running"
         return
     fi
+    command -v lemond >/dev/null 2>&1 || { warn "lemond binary not found and no backend is live at $LEMOND_URL"; return; }
     say "Starting lemond on ${LEMOND_HOST}:13305"
     nohup lemond --host "$LEMOND_HOST" >"$LEMOND_LOG" 2>&1 &
     # wait up to ~10s for it to come up
@@ -146,6 +157,7 @@ start_flm() {
         ok "flm already serving (pid $(pgrep -f 'flm.*serve' | head -1))"
         return
     fi
+    command -v flm >/dev/null 2>&1 || { warn "flm binary not found, skipping NPU lane"; return; }
     say "Starting flm serve $DEFAULT_NPU_MODEL"
     # shellcheck disable=SC2086 # flags intentionally split like normal CLI args
     nohup flm serve "$DEFAULT_NPU_MODEL" $DEFAULT_FLM_FLAGS >"$FLM_LOG" 2>&1 &
@@ -160,16 +172,16 @@ start_flm() {
 }
 
 start_proxy() {
-    if pgrep -f '1bit-proxy.js' >/dev/null 2>&1; then
-        ok "proxy already running"
+    if curl -s --max-time 2 "$PROXY_URL/health" >/dev/null 2>&1; then
+        ok "proxy already running at $PROXY_URL"
         return
     fi
     local script
     script="$(proxy_script)"
     [[ -z "$script" ]] && { warn "proxy script not found, skipping"; return; }
     command -v node >/dev/null 2>&1 || { warn "node not found, skipping proxy"; return; }
-    say "Starting 1bit-proxy on ${PROXY_HOST}:13306 (unifies lemond + flm)"
-    PROXY_HOST="$PROXY_HOST" nohup node "$script" >"$PROXY_LOG" 2>&1 &
+    say "Starting 1bit-proxy on ${PROXY_HOST}:${ONEBIT_PROXY_PORT} (unifies default backend + flm)"
+    LEMOND_URL="$LEMOND_URL" ONEBIT_PROXY_PORT="$ONEBIT_PROXY_PORT" PROXY_HOST="$PROXY_HOST" nohup node "$script" >"$PROXY_LOG" 2>&1 &
     sleep 1
     if curl -s --max-time 2 "$PROXY_URL/health" >/dev/null 2>&1; then
         ok "proxy up at $PROXY_URL — single OpenAI endpoint, both lanes"
@@ -180,7 +192,11 @@ start_proxy() {
 
 cmd_up() {
     if should_use_toolbox_default; then
-        cmd_toolbox up
+        if openai_backend_live; then
+            ok "OpenAI backend already responding at $LEMOND_URL"
+        else
+            cmd_toolbox up || warn "toolbox backend did not start; proxy will still start if another backend is live"
+        fi
         start_proxy
         echo
         ok "All up. Endpoints:"
@@ -353,6 +369,7 @@ toolbox_exec() {
 
 should_use_toolbox_default() {
     load_toolbox_env
+    openai_backend_live && return 1
     [[ "${ONEBIT_BACKEND:-}" == "toolbox" ]] && return 0
     command -v pacman >/dev/null 2>&1 && [[ "${ONEBIT_BACKEND:-}" != "toolbox" ]] && return 1
     [[ -r "$ONEBIT_TOOLBOX_ENV" ]] && return 0
@@ -778,7 +795,7 @@ usage() {
 1bit — 1bit-systems control plane
 
 Usage:
-  1bit up                Start lemond + flm + proxy, open browser, launch GAIA
+  1bit up                Start or attach to backend, then start proxy
   1bit down              Stop all services
   1bit status            Show service status
   1bit doctor            Inspect host GPU/runtime/toolbox readiness
@@ -786,7 +803,7 @@ Usage:
                          Manage toolbox-backed llama.cpp backend
   1bit pull <model>      Pull a model (auto-routes NPU vs GPU)
   1bit bench             Run the 1-bit / ternary pile bench
-  1bit npu [model]       Start FLM NPU server (default: \$DEFAULT_NPU_MODEL)
+  1bit npu [model]       Start FLM NPU server (default: $DEFAULT_NPU_MODEL)
   1bit omni "<prompt>"   OmniRouter agentic loop with our defaults
                          (Qwen3.5-35B IQ2_XXS LLM + SD-Turbo + kokoro + whisper)
   1bit webui [up|down|status]  Run Open WebUI on :3000, branded + pointed at proxy
@@ -795,7 +812,7 @@ Usage:
 
 Endpoints (after \`1bit up\`):
   Unified OpenAI:    $PROXY_URL/v1/   (recommended — both lanes, one shape)
-  Lemonade (GPU):    $LEMOND_URL/v1/
+  Backend on :13305: $LEMOND_URL/v1/  (Lemonade or toolbox llama.cpp)
   FLM (NPU):         http://127.0.0.1:\$(flm port)/v1/
 
 Override FLM: ONEBIT_NPU_MODEL=qwen3:1.7b ONEBIT_FLM_FLAGS='--embed 1 --asr 1' 1bit up
