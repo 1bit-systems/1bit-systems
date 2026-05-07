@@ -28,6 +28,10 @@ RUN_BENCH=0
 RUN_SERVER=0
 DRY_RUN=0
 
+if [[ -d /opt/rocm/bin ]]; then
+    export PATH="/opt/rocm/bin:$PATH"
+fi
+
 say() { printf '▸ %s\n' "$*"; }
 ok() { printf '✓ %s\n' "$*"; }
 warn() { printf '! %s\n' "$*" >&2; }
@@ -91,7 +95,7 @@ preflight() {
     have cmake || die "cmake not found"
     have curl || die "curl not found"
 
-    if (( ! DRY_RUN )); then
+    if (( ! DRY_RUN && (RUN_BENCH || RUN_SERVER) )); then
         [[ -n "$Q2_MODEL" ]] || die "Q2_MODEL is required"
         [[ -r "$Q2_MODEL" ]] || die "Q2_MODEL not readable: $Q2_MODEL"
     fi
@@ -105,6 +109,14 @@ preflight() {
         rocminfo 2>/dev/null | awk '/Name:.*gfx|Marketing Name|Uuid:/ { print }' | head -20 || true
     else
         warn "rocminfo not found"
+    fi
+
+    if (( RUN_BUILD )); then
+        have hipcc || warn "hipcc not found; install hip-dev and ensure /opt/rocm/bin is on PATH"
+        [[ -f /opt/rocm/lib/cmake/hip-lang/hip-lang-config.cmake ]] \
+            || warn "hip-lang CMake package not found; install hip-dev"
+        [[ -f /opt/rocm/lib/cmake/hipblas/hipblas-config.cmake ]] \
+            || warn "hipBLAS CMake package not found; install hipblas-dev and rocblas-dev"
     fi
 }
 
@@ -138,7 +150,7 @@ run_correctness() {
     local test_bin="$BUILD_DIR/bin/test-quantize-fns"
     if [[ -x "$test_bin" ]]; then
         say "run quant correctness smoke"
-        run "$test_bin" q2_0
+        run "$test_bin"
     else
         warn "test-quantize-fns not found at $test_bin; skipping"
     fi
@@ -192,9 +204,16 @@ server_smoke() {
 main() {
     parse_args "$@"
     preflight
-    (( RUN_BUILD )) && build_hip
-    (( RUN_BENCH )) && run_correctness && run_bench
-    (( RUN_SERVER )) && server_smoke
+    if (( RUN_BUILD )); then
+        build_hip
+    fi
+    if (( RUN_BENCH )); then
+        run_correctness
+        run_bench
+    fi
+    if (( RUN_SERVER )); then
+        server_smoke
+    fi
 }
 
 main "$@"

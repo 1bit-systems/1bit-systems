@@ -117,6 +117,44 @@ Correctness:
 - Compare CPU output against HIP output on a small prompt.
 - Confirm `/v1/models` and `/v1/chat/completions` through `llama-server`.
 
+### Host Validation Log
+
+2026-05-06 on Strix Halo:
+
+- ROCm 7.2.1 packages are installed under `/opt/rocm-7.2.1`.
+- `rocminfo` sees `gfx1151` as `AMD Radeon Graphics`.
+- `llama-bench --list-devices` sees `ROCm0: AMD Radeon Graphics`.
+- Prism `llama.cpp` branch `prism` at `d104cf1b6` configures and builds with:
+
+```bash
+PATH=/opt/rocm/bin:$PATH cmake -S /home/bcloud/prism-llama.cpp \
+  -B /home/bcloud/prism-llama.cpp/build-q2-hip \
+  -DGGML_HIP=ON \
+  -DAMDGPU_TARGETS=gfx1151 \
+  -DCMAKE_BUILD_TYPE=Release
+
+PATH=/opt/rocm/bin:$PATH cmake --build /home/bcloud/prism-llama.cpp/build-q2-hip -j"$(nproc)"
+```
+
+Two install blockers were found and fixed on the host:
+
+- Missing `hip-lang-config.cmake`: install `hip-dev` and `rocm-cmake`.
+- Missing `hipblas-config.cmake`: install `hipblas-dev` and `rocblas-dev`.
+
+Current Prism Q2_0 correctness status:
+
+```text
+Testing q2_0
+ q2_0 absolute quantization error:    FAILED (0.008678)
+ q2_0 dot product error:              FAILED (0.141111)
+2 tests failed
+```
+
+This is not a HIP compile failure. The HIP backend builds, including
+`mmq-instance-q2_0.cu`; the remaining blocker is the Q2_0 quantization
+correctness threshold/implementation in the Prism branch before benchmark
+numbers should be trusted.
+
 Performance:
 
 ```bash
@@ -143,6 +181,53 @@ Product integration:
 - Point `1bit-proxy` at it using `LEMOND_URL`.
 - Verify `curl http://127.0.0.1:13306/health`.
 - Verify one `/v1/chat/completions` request.
+
+## Prism Bonsai Demo
+
+The Prism Bonsai 1.7B Q2_0 model was downloaded to:
+
+```text
+/home/bcloud/models/prism-bonsai/Ternary-Bonsai-1.7B-Q2_0.gguf
+sha256: d97d94eb564590c9f0300e54d3f87bbbb25a78693d0ade9f6e177973dcb8228a
+```
+
+Persistent local demo endpoints:
+
+```text
+llama-server: http://127.0.0.1:18092/v1
+1bit proxy:   http://127.0.0.1:13308/v1
+```
+
+Start commands:
+
+```bash
+setsid -f /bin/bash -lc 'PATH=/opt/rocm/bin:$PATH exec /home/bcloud/prism-llama.cpp/build-q2-hip/bin/llama-server --host 127.0.0.1 --port 18092 -m /home/bcloud/models/prism-bonsai/Ternary-Bonsai-1.7B-Q2_0.gguf -c 4096 -ngl 99 -fa 1 > /tmp/1bit-bonsai-server-18092.log 2>&1'
+
+setsid -f /bin/bash -lc 'LEMOND_URL=http://127.0.0.1:18092 ONEBIT_PROXY_PORT=13308 PROXY_HOST=127.0.0.1 exec node /home/bcloud/1bit-systems/scripts/1bit-proxy.js > /tmp/1bit-bonsai-proxy-13308.log 2>&1'
+```
+
+Verified checks:
+
+```bash
+curl http://127.0.0.1:13308/health
+curl http://127.0.0.1:13308/v1/models
+```
+
+Demo request:
+
+```bash
+curl http://127.0.0.1:13308/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"Ternary-Bonsai-1.7B-Q2_0.gguf","messages":[{"role":"system","content":"Repeat only facts given by the user. Do not invent URLs."},{"role":"user","content":"Demo facts: model=Ternary-Bonsai-1.7B-Q2_0.gguf; backend=ROCm gfx1151 on AMD Strix Halo; server=http://127.0.0.1:18092/v1; proxy=http://127.0.0.1:13308/v1. Return them as four short lines."}],"max_tokens":96,"temperature":0}'
+```
+
+Observed demo timing through the proxy:
+
+```text
+prompt:     116 tokens, 3850 tok/s
+generation: 77 tokens, 219 tok/s
+backend:    b8846-d104cf1b6, ROCm gfx1151
+```
 
 ## Risks
 
