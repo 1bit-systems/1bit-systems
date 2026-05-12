@@ -1,6 +1,7 @@
 cpp/build/
 rocm-cpp/build/
 .wrangler/
+.superpowers/
 
 # HIP / Clang-offload compiler artifacts — never commit, ever.
 # Regenerable from source; large (.hipi ~3 MB each); noisy in diffs.

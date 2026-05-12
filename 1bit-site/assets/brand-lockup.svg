@@ -2,27 +2,27 @@
   <title>1bit.systems</title>
   <defs>
     <radialGradient id="ringGlow" cx="50%" cy="50%" r="55%">
-      <stop offset="0%" stop-color="#ff4d8d" stop-opacity="0.35"/>
-      <stop offset="70%" stop-color="#ff4d8d" stop-opacity="0.05"/>
-      <stop offset="100%" stop-color="#ff4d8d" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#f00fd2" stop-opacity="0.42"/>
+      <stop offset="70%" stop-color="#f00fd2" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#f00fd2" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="coreGlow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.35"/>
-      <stop offset="100%" stop-color="#00d4ff" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#12a0ed" stop-opacity="0.42"/>
+      <stop offset="100%" stop-color="#12a0ed" stop-opacity="0"/>
     </radialGradient>
   </defs>
 
   <!-- transparent canvas; consumers can put it on dark or light bg -->
 
-  <!-- mark: pink ring + cyan "1bs" -->
+  <!-- mark: recolored ring + "1bs"; geometry preserved -->
   <g transform="translate(100,100)">
     <circle r="92" fill="url(#ringGlow)"/>
-    <circle r="76" fill="#0d1117"/>
-    <circle r="76" fill="none" stroke="#ff4d8d" stroke-width="6"/>
+    <circle r="76" fill="#021621"/>
+    <circle r="76" fill="none" stroke="#f00fd2" stroke-width="6"/>
     <circle r="60" fill="url(#coreGlow)"/>
     <text x="0" y="18" text-anchor="middle"
           font-family="'JetBrains Mono','SF Mono','Fira Code',ui-monospace,monospace"
-          font-size="56" font-weight="800" fill="#00d4ff" letter-spacing="-0.04em">1bs</text>
+          font-size="56" font-weight="800" fill="#00ff00" letter-spacing="-0.04em">1bs</text>
   </g>
 
   <!-- wordmark: 1bit.systems -->
@@ -30,7 +30,7 @@
     <text x="0" y="0"
           font-family="'Inter','Helvetica Neue',Helvetica,Arial,sans-serif"
           font-size="78" font-weight="800" letter-spacing="-0.025em">
-      <tspan fill="#00d4ff">1</tspan><tspan fill="#c9d1d9">bit</tspan><tspan fill="#ff4d8d">.</tspan><tspan fill="#c9d1d9">systems</tspan>
+      <tspan fill="#00ff00">1</tspan><tspan fill="#e7f6fd">bit</tspan><tspan fill="#f00fd2">.</tspan><tspan fill="#e7f6fd">systems</tspan>
     </text>
   </g>
 </svg>

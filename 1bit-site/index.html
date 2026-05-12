@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#0d1117">
+<meta name="theme-color" content="#021621">
 <title>1bit.systems - toolbox-first inference engine for AMD Strix Halo</title>
 <meta name="description" content="1bit.systems is a local OpenAI-compatible inference workbench for AMD Strix Halo. The repaired path is toolbox-backed llama.cpp first, with 1bit-proxy as the stable app endpoint while the single control plane is rebuilt.">
 <meta property="og:title" content="1bit.systems">
@@ -15,7 +15,7 @@
 <meta name="twitter:image" content="https://1bit.systems/assets/logo.png">
 <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
 <link rel="apple-touch-icon" href="/assets/logo.png">
-<link rel="stylesheet" href="/assets/style.css?v=20260503">
+<link rel="stylesheet" href="/assets/style.css?v=20260511-aurora">
 <link rel="stylesheet" href="/assets/copy-code.css?v=20260427">
 <script src="/assets/copy-code.js?v=20260427" defer></script>
 </head>
@@ -23,7 +23,7 @@
 
 <header class="topbar">
   <a class="brand" href="/">
-    <img src="/assets/logo.png" alt="" width="28" height="28">
+    <img src="/assets/logo.svg" alt="" width="28" height="28">
     <span><b>1</b>bit<span class="dot">.</span>systems</span>
   </a>
   <nav>
@@ -60,18 +60,41 @@
 <main class="page-main">
 
 <section id="pitch" class="hero">
-  <img class="hero-lockup" src="/assets/brand-lockup.svg" alt="1bit.systems">
-  <p class="eyebrow">AMD Strix Halo · gfx1151 + XDNA 2 · inference engine first</p>
-  <h1>
-    <span>1bit.systems is repairing local inference for Ryzen AI.</span>
-    <span>Apps connect over OpenAI-compatible APIs while the control plane is rebuilt.</span>
-  </h1>
-  <p class="lede">
-    The useful shape is simple: apps talk to one local endpoint. Today the most reliable Strix Halo repair path is a toolbox-backed <code>llama-server</code> on <code>:13305</code>, with <code>1bit-proxy</code> on <code>:13306</code> as the stable OpenAI-compatible app surface. Native Lemonade and FastFlowLM remain product-direction lanes, not a finished one-click control plane.
-  </p>
-  <div class="hero-cta">
-    <a class="btn" href="#install">Install</a>
-    <a class="btn ghost" href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
+  <div class="hero-grid">
+    <div class="hero-copy">
+      <img class="hero-lockup" src="/assets/brand-lockup.svg" alt="1bit.systems">
+      <p class="eyebrow">AMD Strix Halo · gfx1151 + XDNA 2 · inference engine first</p>
+      <h1>
+        <span>Local inference, wired for Strix Halo.</span>
+        <span>One OpenAI-compatible endpoint while the control plane is rebuilt.</span>
+      </h1>
+      <p class="lede">
+        The useful shape is simple: apps talk to one local endpoint. Today the most reliable Strix Halo repair path is a toolbox-backed <code>llama-server</code> on <code>:13305</code>, with <code>1bit-proxy</code> on <code>:13306</code> as the stable OpenAI-compatible app surface. Native Lemonade and FastFlowLM remain product-direction lanes, not a finished one-click control plane.
+      </p>
+      <div class="hero-cta">
+        <a class="btn" href="#install">Install</a>
+        <a class="btn ghost" href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
+      </div>
+    </div>
+    <aside class="hero-console" aria-label="1bit endpoint map">
+      <div class="console-top">
+        <span class="console-dot live"></span>
+        <span>routing surface</span>
+        <b>local only</b>
+      </div>
+      <div class="endpoint primary-endpoint">
+        <span>union</span>
+        <b>127.0.0.1:13306/v1</b>
+        <em>OpenAI-compatible app surface</em>
+      </div>
+      <div class="endpoint-grid">
+        <div class="endpoint"><span>backend</span><b>:13305</b><em>llama.cpp / Lemonade</em></div>
+        <div class="endpoint"><span>npu lane</span><b>:52625</b><em>FastFlowLM optional</em></div>
+        <div class="endpoint"><span>web ui</span><b>:3000</b><em>secondary client</em></div>
+        <div class="endpoint"><span>control</span><b>1bit</b><em>CLI + lifecycle</em></div>
+      </div>
+      <pre><code>curl http://127.0.0.1:13306/v1/models</code></pre>
+    </aside>
   </div>
 </section>
 

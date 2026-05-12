@@ -1,28 +1,41 @@
 <div align="center">
 
-<img src="1bit-site/assets/brand-lockup.svg" alt="1bit.systems" width="480">
+<img src="1bit-site/assets/brand-lockup.svg" alt="1bit.systems" width="540">
 
-# 1bit-systems
+# Local inference, wired for Strix Halo.
 
-### OpenAI-compatible inference engine for AMD Strix Halo
+### One OpenAI-compatible endpoint while the control plane is rebuilt.
 
-*Inference engine first. Single control plane second. Apps connect over OpenAI-compatible base URLs to Lemonade, FastFlowLM, or the 1bit union endpoint.*
+`1bit.systems` is a toolbox-first local inference workbench for AMD Strix Halo. Apps connect over standard OpenAI-compatible base URLs. The stable surface is the union endpoint; the finished single control plane comes second.
 
 [![CI](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml/badge.svg)](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-00d4ff.svg)](LICENSE)
-[![Site](https://img.shields.io/badge/site-1bit.systems-00d4ff.svg)](https://1bit.systems)
-[![Discord](https://img.shields.io/badge/discord-1bit.systems-5865F2.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
-[![Built on GAIA](https://img.shields.io/badge/built%20on-AMD%20GAIA-ff4d8d.svg)](https://amd-gaia.ai/docs/quickstart)
-[![Built on Lemonade](https://img.shields.io/badge/built%20on-Lemonade-yellow.svg)](https://lemonade-server.ai/docs/)
-[![Built on FastFlowLM](https://img.shields.io/badge/built%20on-FastFlowLM-orange.svg)](https://fastflowlm.com/docs/)
-[![Hardware: Strix Halo](https://img.shields.io/badge/hardware-Strix%20Halo%20%7C%20gfx1151%20%7C%20XDNA%202-red.svg)](https://www.amd.com/en/products/processors/laptop/ryzen/ai-max-series.html)
+[![License: MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
+[![Site](https://img.shields.io/badge/site-1bit.systems-12a0ed.svg)](https://1bit.systems)
+[![Discord](https://img.shields.io/badge/discord-1bit.systems-f00fd2.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
+[![Union endpoint](https://img.shields.io/badge/endpoint-:13306%2Fv1-00ff00.svg)](#connect-apps)
+[![Strix Halo](https://img.shields.io/badge/strix%20halo-gfx1151%20%2B%20XDNA%202-12a0ed.svg)](https://www.amd.com/en/products/processors/laptop/ryzen/ai-max-series.html)
+[![Control plane](https://img.shields.io/badge/control%20plane-rebuilding-f00fd2.svg)](docs/control-plane-roadmap.md)
 [![GitHub last commit](https://img.shields.io/github/last-commit/bong-water-water-bong/1bit-systems)](https://github.com/bong-water-water-bong/1bit-systems/commits/main)
 
 </div>
 
 ---
 
-Local OpenAI-compatible inference engine workbench for AMD Strix Halo. Apps should connect to it the same way they connect to Lemonade, llama.cpp, vLLM, or any OpenAI-compatible local server: set a base URL, set any placeholder API key if the client requires one, then send normal chat, embeddings, image, audio, or tool-calling requests.
+## Routing Surface
+
+| Lane | Local URL | Role |
+|---|---:|---|
+| Union endpoint | `http://127.0.0.1:13306/v1` | OpenAI-compatible app surface for clients that want one base URL |
+| Backend | `http://127.0.0.1:13305/v1` | toolbox llama.cpp or Lemonade-compatible inference lane |
+| NPU lane | `http://127.0.0.1:52625/v1` | optional FastFlowLM XDNA path |
+| Web UI | `http://127.0.0.1:3000` | secondary browser client |
+| Control | `1bit` | CLI, lifecycle, repair checks, and service wiring |
+
+```sh
+curl http://127.0.0.1:13306/v1/models
+```
+
+Apps should connect to `1bit.systems` the same way they connect to Lemonade, llama.cpp, vLLM, or any OpenAI-compatible local server: set a base URL, set any placeholder API key if the client requires one, then send normal chat, embeddings, image, audio, or tool-calling requests.
 
 The intended single control plane is not finished yet. Today, `1bit-proxy` is the useful stable surface, the native installer is Arch/CachyOS-first, and toolbox-backed Strix Halo runtimes are the pragmatic way to get Ubuntu/Fedora systems serving again. See [`docs/control-plane-roadmap.md`](docs/control-plane-roadmap.md) and [`docs/toolbox-backends.md`](docs/toolbox-backends.md).
 
