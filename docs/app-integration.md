@@ -78,5 +78,5 @@ These endpoints are local developer services by default. Do not expose them dire
 
 - Lemonade docs: https://lemonade-server.ai/docs/
 - Lemonade API overview: https://lemonade-server.ai/docs/api/
-- Lemonade OmniRouter docs: https://lemonade-server.ai/docs/omni-router/
-- Lemonade server configuration: https://lemonade-server.ai/docs/server/configuration/
+- Lemonade OmniRouter docs: https://lemonade-server.ai/docs/dev/omni-router/
+- Lemonade server configuration: https://lemonade-server.ai/docs/guide/configuration/

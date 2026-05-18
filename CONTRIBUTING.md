@@ -55,7 +55,7 @@ This stack stands on:
 
 - AMD GAIA: https://amd-gaia.ai/docs/quickstart
 - Lemonade Server: https://lemonade-server.ai/docs/
-- Lemonade OmniRouter: https://lemonade-server.ai/docs/omni-router/
+- Lemonade OmniRouter: https://lemonade-server.ai/docs/dev/omni-router/
 - FastFlowLM: https://fastflowlm.com/docs/
 - llama.cpp / GGUF ecosystem for iGPU GGUF benchmarking and model work.
 - ROCm, XRT, and `amdxdna` for AMD GPU/NPU runtime support.

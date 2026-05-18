@@ -81,7 +81,7 @@ FastFlowLM direct NPU lane:    http://127.0.0.1:52625/v1
 ## References
 
 - Lemonade docs: https://lemonade-server.ai/docs/
-- Lemonade OmniRouter docs: https://lemonade-server.ai/docs/omni-router/
+- Lemonade OmniRouter docs: https://lemonade-server.ai/docs/dev/omni-router/
 - Lemonade OpenAI API docs: https://lemonade-server.ai/docs/api/openai/
 - FastFlowLM docs: https://fastflowlm.com/docs/
 - FastFlowLM server docs: https://fastflowlm.com/docs/instructions/server/

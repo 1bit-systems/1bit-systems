@@ -136,8 +136,8 @@ Useful docs:
 - GAIA quickstart: https://amd-gaia.ai/docs/quickstart
 - Lemonade docs: https://lemonade-server.ai/docs/
 - Lemonade API overview: https://lemonade-server.ai/docs/api/
-- Lemonade app integration guides: https://lemonade-server.ai/docs/server/apps/
-- Lemonade OmniRouter: https://lemonade-server.ai/docs/omni-router/
+- Lemonade app integration guides: https://lemonade-server.ai/docs/integrations/
+- Lemonade OmniRouter: https://lemonade-server.ai/docs/dev/omni-router/
 - FastFlowLM docs: https://fastflowlm.com/docs/
 - FastFlowLM server mode: https://fastflowlm.com/docs/instructions/server/
 
