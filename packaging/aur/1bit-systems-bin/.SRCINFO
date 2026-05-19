@@ -1,13 +1,10 @@
 pkgbase = 1bit-systems-bin
-	pkgdesc = Lean unified 1-bit / sub-2-bit inference engine for AMD Strix Halo (Lemonade + FastFlowLM) — single-binary build
+	pkgdesc = DEPRECATED binary packaging draft for 1bit-systems; use install.sh until refreshed
 	pkgver = 2.0.0
-	pkgrel = 1
+	pkgrel = 2
 	url = https://1bit.systems
-	install = 1bit-systems.install
 	arch = x86_64
 	license = MIT
-	depends = lemonade-server
-	depends = fastflowlm
 	depends = xrt
 	depends = xrt-plugin-amdxdna
 	depends = rocm-hip-sdk

@@ -57,7 +57,7 @@ Crossover: compute-bound at all prefill lengths we'll see. Bandwidth is not the 
 
 ## Activation path
 
-Activations flow in as int8 from a stage upstream (CPU-side quantiser or the previous layer's output). Today's 1bit-server has bf16 activations end-to-end; for NPU prefill we add:
+Activations flow in as int8 from a stage upstream (CPU-side quantiser or the previous layer's output). Today's 1bit-proxy has bf16 activations end-to-end; for NPU prefill we add:
 
 - `activation_quantise_int8(bf16 in, i8 out, bf16 scale)` — one pass before tile dispatch.
 - `activation_dequantise_bf16(i32 in, bf16 out, bf16 scale)` — one pass after tile drain.

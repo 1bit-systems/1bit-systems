@@ -34,11 +34,11 @@ cloudflared tunnel login
 #      ~/.cloudflared/cert.pem
 
 # 2. Create the tunnel (returns a UUID, writes ~/.cloudflared/<UUID>.json)
-cloudflared tunnel create api-1bit systems-studio
+cloudflared tunnel create api-1bit-systems-studio
 #    → note the UUID; call it TUUID
 
 # 3. Bind the subdomain to the tunnel (creates a proxied CNAME in CF DNS)
-cloudflared tunnel route dns api-1bit systems-studio api.1bit.systems
+cloudflared tunnel route dns api-1bit-systems-studio api.1bit.systems
 ```
 
 ## Four mechanical steps (fill in UUID + enable)
@@ -115,8 +115,8 @@ realtime endpoints are not an acceptable launch state.
 
 ```bash
 systemctl --user disable --now strix-cloudflared.service
-cloudflared tunnel route dns --overwrite-dns api-1bit systems-studio  # removes CNAME
-cloudflared tunnel delete api-1bit systems-studio
+cloudflared tunnel route dns --overwrite-dns api-1bit-systems-studio  # removes CNAME
+cloudflared tunnel delete api-1bit-systems-studio
 ```
 
 ## References

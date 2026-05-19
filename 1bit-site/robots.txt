@@ -24,5 +24,3 @@ Disallow: /join/
 Disallow: /donate/
 Disallow: /blog/2026-04-23-streaming-service/
 Disallow: /blog/2026-04-23-lossless-audio/
-
-Sitemap: https://1bit.systems/sitemap.xml

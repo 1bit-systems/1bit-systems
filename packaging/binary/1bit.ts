@@ -9,6 +9,7 @@
 
 import { spawn, spawnSync, execSync } from "node:child_process";
 import { existsSync, openSync, closeSync } from "node:fs";
+import { homedir } from "node:os";
 import { startProxy } from "./proxy.ts";
 
 const CYAN = "\x1b[0;36m";
@@ -267,11 +268,21 @@ function escapeRe(s: string): string {
 }
 
 function cmdBench(): void {
+  const home = homedir();
   const candidates = [
-    "/home/bcloud/Projects/1bit-systems/benchmarks/bench-1bit-pile.sh",
+    `${process.cwd()}/benchmarks/bench-1bit-pile.sh`,
+    `${home}/1bit-systems/benchmarks/bench-1bit-pile.sh`,
+    `${home}/Projects/1bit-systems/benchmarks/bench-1bit-pile.sh`,
+    "/usr/share/1bit-systems/benchmarks/bench-1bit-pile.sh",
+    "/usr/local/share/1bit-systems/benchmarks/bench-1bit-pile.sh",
   ];
   let script = "";
-  for (const p of candidates) if (existsSync(p)) script = p;
+  for (const p of candidates) {
+    if (existsSync(p)) {
+      script = p;
+      break;
+    }
+  }
   if (!script) die("bench script not found");
   const r = spawnSync("bash", [script], { stdio: "inherit" });
   if (r.status !== 0) process.exit(r.status || 1);
@@ -353,7 +364,7 @@ Usage:
   1bit status            Show service status
   1bit pull <model>      Pull a model (auto-routes NPU vs GPU)
   1bit bench             Run the 1-bit / ternary pile bench
-  1bit npu [model]       Start FLM NPU server (default: $DEFAULT_NPU_MODEL)
+  1bit npu [model]       Start FLM NPU server (default: ${DEFAULT_NPU_MODEL})
   1bit webui [up|down|status]  Run Open WebUI on :3000, branded + pointed at proxy
 
 Endpoints (after \`1bit up\`):

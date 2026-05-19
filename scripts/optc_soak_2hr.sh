@@ -12,7 +12,7 @@ set -euo pipefail
 
 DURATION="${1:-7200}"
 CADENCE="${OPTC_CADENCE:-10}"
-OUT_DIR="${OPTC_OUT_DIR:-$HOME/claude output/optc-soak-$(date +%Y%m%d-%H%M%S)}"
+OUT_DIR="${OPTC_OUT_DIR:-$HOME/claude-output/optc-soak-$(date +%Y%m%d-%H%M%S)}"
 PATTERN='REG_WAIT.*optc35_disable_crtc|optc35_disable_crtc'
 
 mkdir -p "$OUT_DIR"

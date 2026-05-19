@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # bench-1bit-pile.sh — sweep llama-bench across the ternary/sub-2-bit pile
-# Output: /home/bcloud/claude output/bench-1bit-<DATE>.json (one JSON object per model)
+# Output: $OUT_DIR/bench-1bit-<DATE>.json (one JSON object per model)
 set -uo pipefail
 
 LLAMA_BENCH="${LLAMA_BENCH:-/home/bcloud/.cache/lemonade/bin/llamacpp/vulkan/llama-bench}"
 PILE_ROOT="${PILE_ROOT:-/home/bcloud/halo-ai/models/ternary-test}"
-OUT_DIR="${OUT_DIR:-/home/bcloud/claude output}"
+OUT_DIR="${OUT_DIR:-$HOME/claude-output}"
 TS="$(date +%Y%m%d-%H%M%S)"
 JSON_OUT="${OUT_DIR}/bench-1bit-${TS}.json"
 LOG_OUT="${OUT_DIR}/bench-1bit-${TS}.log"
@@ -42,7 +42,7 @@ for entry in "${ENTRIES[@]}"; do
         continue
     fi
 
-    SIZE_MB="$(($(stat -c%s "${GGUF}") / (1024 * 1024)))"
+    SIZE_MB="$(($(wc -c < "${GGUF}") / (1024 * 1024)))"
     echo "=== ${LABEL} (${SIZE_MB} MB) ===" | tee -a "${LOG_OUT}"
 
     # llama-bench JSON output. -p 512 (prompt-eval), -n 128 (gen), -r 2 (reps).
@@ -57,9 +57,13 @@ for entry in "${ENTRIES[@]}"; do
     # Each invocation prints one JSON array. Tag with our label.
     if [[ ${FIRST} -eq 0 ]]; then echo "," >> "${JSON_OUT}"; fi
     FIRST=0
-    {
-        echo "{\"label\":\"${LABEL}\",\"gguf\":\"${GGUF}\",\"size_mb\":${SIZE_MB},\"results\":${RAW}}"
-    } >> "${JSON_OUT}"
+    jq -n \
+        --arg label "${LABEL}" \
+        --arg gguf  "${GGUF}" \
+        --argjson size_mb "${SIZE_MB}" \
+        --argjson results "${RAW}" \
+        '{label:$label, gguf:$gguf, size_mb:$size_mb, results:$results}' \
+        >> "${JSON_OUT}"
 
     echo "${RAW}" | tee -a "${LOG_OUT}"
 done

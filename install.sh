@@ -498,7 +498,7 @@ configure_optc_mitigation() {
     fi
     sudo cp -a /etc/default/limine "/etc/default/limine.pre-1bit-optc.$(date +%Y%m%d%H%M%S)"
     if ! grep -q "$flag" /etc/default/limine; then
-        sudo sed -i "/KERNEL_CMDLINE\\[default\\]/ s/\"$/ $flag\"/" /etc/default/limine
+        echo "KERNEL_CMDLINE[default]+=\" $flag\"" | sudo tee -a /etc/default/limine >/dev/null
     fi
     sudo limine-install
     warn "OPTC mitigation staged; reboot required before $flag is active"

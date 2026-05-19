@@ -74,8 +74,6 @@ proxy_script() {
         echo /usr/local/share/1bit-systems/1bit-proxy.js
     elif [[ -f /usr/share/1bit-systems/1bit-proxy.js ]]; then
         echo /usr/share/1bit-systems/1bit-proxy.js
-    elif [[ -f /home/bcloud/1bit-systems/scripts/1bit-proxy.js ]]; then
-        echo /home/bcloud/1bit-systems/scripts/1bit-proxy.js
     else
         echo ""
     fi
@@ -615,7 +613,6 @@ cmd_bench() {
     self_dir="$(dirname "$(readlink -f "$0")")"
     for cand in \
         "$self_dir/../benchmarks/bench-1bit-pile.sh" \
-        /home/bcloud/1bit-systems/benchmarks/bench-1bit-pile.sh \
         /usr/local/share/1bit-systems/benchmarks/bench-1bit-pile.sh \
         /usr/share/1bit-systems/benchmarks/bench-1bit-pile.sh
     do

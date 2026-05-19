@@ -27,7 +27,7 @@ Thanks for sending a patch. A few ground rules from CLAUDE.md:
 - [ ] **Rule A** — no Python at runtime (scripts on a dev box are fine; services / HTTP paths stay Rust).
 - [ ] **Rule B** — all new kernels live under `rocm-cpp/` (C++20 / HIP); FFI'd through `1bit-hip`.
 - [ ] **Rule C** — no new hipBLAS calls on the runtime path.
-- [ ] **Rule D** — Rust 1.86 / edition 2024 (no `rust-version` bump without a reason).
+- [ ] **Rule D** — Rust 1.88+ / edition 2024 (no `rust-version` bump without a reason).
 
 ## Tests
 

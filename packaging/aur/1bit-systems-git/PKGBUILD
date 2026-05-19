@@ -24,7 +24,7 @@ depends=(
 makedepends=('git')
 
 provides=("$_pkgname")
-conflicts=("$_pkgname")
+conflicts=("$_pkgname" "1bit-systems-bin")
 
 source=("$_pkgname::git+https://github.com/bong-water-water-bong/1bit-systems.git#branch=main")
 sha256sums=('SKIP')
@@ -46,7 +46,13 @@ package() {
 
   # OmniRouter loop with our 1bit defaults (Tier 2 LLM + SD-Turbo + kokoro + whisper)
   install -Dm755 scripts/1bit-omni.py "$pkgdir/usr/share/$_pkgname/1bit-omni.py"
-  install -Dm644 scripts/omni-plugins/*.json -t "$pkgdir/usr/share/$_pkgname/omni-plugins/"
+  # Defensive: skip if the omni-plugins glob has no matches (don't fail the build).
+  shopt -s nullglob
+  _omni=(scripts/omni-plugins/*.json)
+  shopt -u nullglob
+  if (( ${#_omni[@]} > 0 )); then
+    install -Dm644 "${_omni[@]}" -t "$pkgdir/usr/share/$_pkgname/omni-plugins/"
+  fi
 
   # Memlock conf — NPU + GPU buffers want unlimited
   install -Dm644 /dev/stdin "$pkgdir/etc/security/limits.d/99-1bit-systems.conf" <<'EOF'

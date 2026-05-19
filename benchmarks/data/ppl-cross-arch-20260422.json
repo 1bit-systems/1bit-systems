@@ -3,16 +3,16 @@
   "timestamp": "2026-04-22",
   "purpose": "Cross-arch numerical parity verification: gfx1151 (Strix Halo iGPU) vs gfx1201 (RX 9070 XT RDNA4 dGPU) on identical model + dataset + harness",
   "model": {
-    "path": "/home/bcloud/1bit-halo-models/models/halo-1bit-2b.h1b",
+    "path": "~/1bit-halo-models/models/halo-1bit-2b.h1b",
     "md5": "6a234ff78fa5da4eb60befa744de693e",
-    "tokenizer": "/home/bcloud/1bit-halo-models/models/halo-1bit-2b.htok",
+    "tokenizer": "~/1bit-halo-models/models/halo-1bit-2b.htok",
     "weight_format": "HALO_V2 2bpw int8-act",
     "arch": "bitnet",
     "hs": 2560, "is": 6912, "L": 30, "nh": 20, "nkv": 5, "hd": 128, "vocab": 128256,
     "rope_theta": 500000.0, "rms_norm_eps": 1.0e-05
   },
   "dataset": {
-    "path": "/home/bcloud/1bit-halo-models/datasets/wikitext-103-test.txt",
+    "path": "~/1bit-halo-models/datasets/wikitext-103-test.txt",
     "md5": "c9a4cfee58e432486273b1126541e347",
     "bytes": 1281033
   },
@@ -40,7 +40,7 @@
       "host": "ryzen",
       "arch": "gfx1201",
       "gpu": "RX 9070 XT (RDNA4, GDDR6 ~640 GB/s)",
-      "binary": "/home/bcloud/rocm-cpp/build/bitnet_decode",
+      "binary": "~/rocm-cpp/build/bitnet_decode",
       "perplexity": 11.975776,
       "mean_nll": 2.482886,
       "scored_chunks": 4095,

@@ -1,5 +1,12 @@
 # 1bit.systems — Complete Website Spec (v2, 2026-04-21)
 
+> **Historical.** This file is a 2026-04-21 design/spec draft. It predates the
+> 2026-05-06 toolbox-first repair path and may overstate shipping status for
+> Lemonade, FastFlowLM, the NPU lane, and the single control plane. Current
+> public copy must follow `README.md`, `docs/toolbox-backends.md`, and
+> `docs/control-plane-roadmap.md`. See the "Historical Website Spec" note at
+> the bottom of this file for the same caveat.
+
 **Target:** WordPress install (Gutenberg blocks), calm-technical voice, local-first product presentation with a built-in wiki.
 
 **Voice:** calm technical. No memes. No 80s refs. No exclamation marks. (Per `project_brand_voice_split.md`; the meme voice stays on the GH README.)

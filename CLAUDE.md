@@ -12,8 +12,11 @@ second.
   native runtimes, and model hot paths. Open WebUI is allowed only as an
   isolated secondary UI behind the OpenAI-compatible endpoint.
 - **Rule B: C++20 for kernels.** HIP code belongs in `rocm-cpp/`.
+  *Only applies on the archived branch `archive/cpp-tower-2026-04-27`;
+  the live tree intentionally has no `rocm-cpp/` tower (see What NOT to
+  do below).*
 - **Rule C: hipBLAS is banned in the runtime path.** Port kernels to
-  `rocm-cpp/` instead.
+  `rocm-cpp/` instead. *Same scope as Rule B — archive-branch only.*
 - **Rule D: Rust 1.88+, edition 2024.** Bump with a reason.
 - **Rule E: NPU has two lanes.** FastFlowLM is the live XDNA serving
   lane. Custom NPU kernels are IRON author-time → MLIR-AIE → Peano →
