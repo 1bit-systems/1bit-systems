@@ -1,0 +1,26 @@
+name: openhands-review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: OpenHands PR review
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Review PR
+        uses: All-Hands-AI/openhands-pr-review-action@v1
+        with:
+          review_bot_github_token: ${{ secrets.GITHUB_TOKEN }}
+          llm_api_key: ${{ secrets.GEMINI_API_KEY }}
+          llm_model: gemini/gemini-2.0-flash
