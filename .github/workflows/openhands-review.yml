@@ -14,13 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
       - name: Review PR
-        uses: All-Hands-AI/openhands-pr-review-action@v1
+        uses: OpenHands/extensions/plugins/pr-review@main
         with:
-          review_bot_github_token: ${{ secrets.GITHUB_TOKEN }}
-          llm_api_key: ${{ secrets.GEMINI_API_KEY }}
-          llm_model: gemini/gemini-2.0-flash
+          llm-model: gemini/gemini-2.0-flash
+          llm-api-key: ${{ secrets.GEMINI_API_KEY }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
