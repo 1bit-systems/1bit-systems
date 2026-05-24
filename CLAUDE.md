@@ -1,3 +1,5 @@
+> **Start here:** Read `docs/wiki/README.md` before any work on this project.
+
 # CLAUDE.md — conventions for 1bit-systems
 
 Lean local inference engine on Strix Halo. Apps connect to Lemonade,
