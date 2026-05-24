@@ -1,0 +1,80 @@
+name: codex-review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: Codex PR review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Collect diff
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr diff "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            | head -c 51200 > /tmp/pr.diff
+
+      - name: Review with Codex
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, urllib.request, pathlib, subprocess
+
+          api_key = os.environ["OPENAI_API_KEY"]
+          diff = pathlib.Path("/tmp/pr.diff").read_text(errors="replace")
+
+          prompt = (
+              "You are a careful code reviewer. Review the following PR diff "
+              "and give concise, actionable feedback. Focus on correctness, "
+              "security, test coverage, and edge cases. Format as GitHub Markdown.\n\n"
+              "```diff\n" + diff + "\n```"
+          )
+
+          payload = json.dumps({
+              "model": "gpt-4o-mini",
+              "messages": [{"role": "user", "content": prompt}],
+              "max_tokens": 1024,
+              "temperature": 0.2,
+          }).encode()
+
+          req = urllib.request.Request(
+              "https://api.openai.com/v1/chat/completions",
+              data=payload,
+              headers={
+                  "Content-Type": "application/json",
+                  "Authorization": f"Bearer {api_key}",
+              },
+          )
+          with urllib.request.urlopen(req, timeout=60) as r:
+              data = json.load(r)
+
+          review = data["choices"][0]["message"]["content"]
+          body = (
+              "### Codex (GPT-4o-mini) review\n\n" + review
+              + "\n\n---\n*Automated review via codex-review workflow*"
+          )
+
+          subprocess.run(
+              ["gh", "pr", "comment",
+               str(os.environ["PR_NUMBER"]),
+               "--repo", os.environ["REPO"],
+               "--body", body],
+              check=True,
+          )
+          PYEOF
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
