@@ -47,9 +47,9 @@ These rules gate every review. Violating them is a bug.
 
 | Article | What it covers |
 |---------|----------------|
-| [[Architecture-Deep]] | Runtime topology diagram (proxy → Lemonade/FLM/toolbox), service port map, request flow steps, kernel boundary (C++20 HIP in `rocm-cpp/`), and NPU two-lane boundary (FastFlowLM serving + IRON authoring) |
+| [[Architecture-Deep]] | Runtime topology diagram (proxy → Lemonade/FLM/toolbox), service port map, request flow steps, and NPU two-lane boundary (FastFlowLM serving + IRON authoring). Note: kernel boundary (C++20 HIP in `rocm-cpp/`) describes `archive/cpp-tower-2026-04-27` only — live tree has no kernel layer. |
 | [[Repo-Layout]] | Top-level directory tree, runtime shape diagram, kernel ownership rules, brand naming (`1bit systems` / `1bit.systems` / `1bit` CLI), and cross-links to related wiki pages |
-| [[Why-Rust]] | The Rust-above / C++-below language split: HIP kernels stay C++20 in `rocm-cpp/`, Rust owns native orchestration above the kernel layer; includes the current live proxy topology |
+| [[Why-Rust]] | The Rust-above / C++-below language split: Rust owns native orchestration; includes the current live proxy topology. Note: references to `rocm-cpp/` HIP kernels apply to `archive/cpp-tower-2026-04-27` only. |
 | [[Why-No-Python]] | Rule A in full: what is banned in the core serving path, what is allowed (training, notebooks, caller-side, IRON author-time, Open WebUI as isolated UI), why (cold-start, dependency churn, silent failures, GIL, binary size), and enforcement |
 | [[Why-No-NPU-Yet]] | Current NPU lane status: FastFlowLM on XDNA/XRT as the intended serving lane, toolbox llama.cpp as the first repair path, IRON→MLIR-AIE→Peano→xclbin→libxrt for custom AIE kernels, and decode bandwidth-vs-compute analysis |
 | [[Development]] | The authoritative review baseline: five rules A–E stated in full, current operational endpoint map (toolbox/Lemonade/FLM/proxy/WebUI/GAIA URLs), and the target architecture diagram |
@@ -70,7 +70,7 @@ These rules gate every review. Violating them is a bug.
 | [[Fork-Everything]] | Ownership strategy: all runtime dependencies forked under `bong-water-water-bong/`; active fork table (lemonade, llamacpp-rocm, whisper.cpp, stable-diffusion.cpp, ggml, 1bit-tts.cpp); 24-hour dwell watchdog update flow |
 | [[Ternary-on-AIE-Pack-Plan]] | Design doc for ternary weight packing and MAC on the XDNA 2 AIE2P tile array: 2-bit encoding, host-side Rust requantizer, on-tile Peano C++ unpack kernel, DMA descriptor gotchas, bandwidth-vs-compute crossover analysis |
 | [[halo-agent-fleet]] | Autonomous agent fleet spec: binary + TOML config per agent, adapter/brain/tools architecture, SQLite conversation persistence, `systemd --user` template units, security defaults (allowlist, rate limit, mutating-tool confirmation) |
-| [[tier-jwt-flow]] | Draft payment-to-JWT flow for a future premium API tier: BTCPay Lightning rail (9-step end-to-end diagram), stablecoin machine-client alternative, HS256 JWT shape, 90-day key rotation with dual-key overlap, webhook HMAC auth, threat model |
+| [[tier-jwt-flow]] | Draft payment-to-JWT flow for a future premium API tier: BTCPay Lightning rail (9-step end-to-end diagram), stablecoin machine-client alternative, HS256 JWT shape, 90-day key rotation with dual-key overlap, webhook HMAC auth, threat model, and autonomous agent spend policy design |
 | [[Crate-halo-lemonade]] | Historical: `1bit-lemonade` Rust gateway idea; now superseded — current stack is Lemonade direct on `:13305`, FastFlowLM on `:52625`, `1bit-proxy` on `:13306` |
 | [[Crate-halo-helm]] | Historical: `1bit-helm` native desktop pane plan (renamed from `halo-gaia` 2026-04-20); current primary UI is AMD GAIA, secondary is Open WebUI |
 | [[Crate-halo-landing]] | Historical: `1bit-landing` LAN dashboard plan; current operational checks use `1bit status` and `systemctl status lemond flm 1bit-proxy open-webui`; public website lives in `1bit-site/` |
