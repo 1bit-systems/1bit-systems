@@ -6,6 +6,8 @@
 
 ### One OpenAI-compatible endpoint while the control plane is rebuilt.
 
+**→ [Project Wiki](docs/wiki/README.md)** — architecture, decisions, gotchas, and agent onboarding.
+
 `1bit.systems` is a toolbox-first local inference workbench for AMD Strix Halo. Apps connect over standard OpenAI-compatible base URLs. The stable surface is the union endpoint; the finished single control plane comes second.
 
 [![CI](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml/badge.svg)](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml)
