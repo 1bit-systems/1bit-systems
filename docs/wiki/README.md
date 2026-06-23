@@ -1,55 +1,45 @@
 # Project Wiki: 1bit-systems
 
 ## Mission
-To provide a toolbox-first local inference workbench for AMD Strix Halo. It unifies multiple inference backends (Lemonade, FastFlowLM, llama.cpp) behind a single OpenAI-compatible union endpoint (`1bit-proxy`), enabling seamless integration for local AI applications.
+To provide the fastest local 1-bit inference on AMD Strix Halo. The runtime is Lemonade SDK with a native `BitNetServer` backend wrapping rocm-cpp HIP kernels. One layer. Python-free inference hot path.
 
 ## Architecture
-- **1bit-proxy:** A Node.js service (port `:13306`) that acts as the primary union entry point for OpenAI-compatible clients.
-- **Backends:**
-  - **Lemonade Server:** Canonical multimodal and OmniRouter inference server (port `:13305`).
-  - **FastFlowLM:** XDNA NPU runtime for FLM models and embeddings (port `:52625`).
-  - **Toolbox llama.cpp:** A repair/bootstrap lane for non-Arch hosts using Vulkan or ROCm.
-- **Control Plane:** The `1bit` CLI handles lifecycle (`up`, `down`, `status`), repair checks, and service wiring.
-- **UI Layers:** GAIA Agent UI (primary control surface) and Open WebUI (secondary browser UI).
-- **Lifecycle:** Managed via `systemd` units (`1bit-stack.target`).
+- **Runtime:** `lemond` (Lemonade Server, C++17) on port `:13305`
+- **1-bit Backend:** `BitNetServer` — wraps `bitnet_decode --server` (rocm-cpp) as a subprocess
+- **Fallback Backends:** `LlamaCppServer` (non-1bit models), `FastFlowLMServer` (NPU)
+- **API Surface:** OpenAI-compatible `/v1/`, Ollama-compatible `/api/`, Anthropic-compatible `/api/messages`
+- **UI:** Lemonade Tauri desktop app + web app at `/app`
 
 ## Agent Handoff
-- **Installation:** Run `./install.sh`. It is idempotent and Arch/CachyOS-first. For Ubuntu/Fedora, use the `1bit toolbox` repair path.
+- **Installation:** Build rocm-cpp, then build 1bit-lemonade. See root README.
 - **Commands:**
-  - `1bit up`: Start the entire stack.
-  - `1bit status`: Check the health of all services.
-  - `1bit doctor`: Inspect host readiness (GPU, NPU, toolbox).
-- **Verification:** Connect to `http://127.0.0.1:13306/v1`. Test with a simple `curl` or the Python SDK example in the README.
-- **Hot Paths:** `scripts/1bit` (CLI logic), `scripts/1bit-proxy.js` (request routing), and the `install.sh` unit generation.
-- **Current Priorities:** Finalizing the single control plane for toolbox lifecycle management and stabilizing the NPU lane bootstrap.
+  - `lemonade run BitNet-b1.58-2B-4T`: Start 1-bit inference
+  - `lemonade list`: Show available models
+  - `lemonade pull <model>`: Download a model
+- **Verification:** `curl http://127.0.0.1:13305/v1/models`
+- **Hot Paths:** `lemond` binary, `bitnet_decode` subprocess, `librocm_cpp.so` kernels
 
 ## Decisions & Gotchas
-- **Rule A: Core serving is Python-free.** The proxy, kernels, and native runtimes are built without Python to ensure performance and stability (see [[Why-No-Python]]).
-- **Arch-First:** The native installer is optimized for CachyOS/Arch. Other distros require the `toolbox` container approach.
-- **NPU Lanes:** Supports both FastFlowLM for serving and IRON/MLIR-AIE for custom kernel authoring.
-- **Fork-Everything:** All runtime dependencies are maintained as forks under `bong-water-water-bong/` to ensure stability.
-- **Lemond Segfault:** Uses standalone `lemon-asr` if the `lemond` whisper backend fails on certain hardware.
+- **Rule A: Core serving is Python-free.** The hot path is C++/HIP only.
+- **Lemonade is the only runtime layer.** No proxy, no shell orchestration.
+- **rocm-cpp kernels are the engine.** Custom HIP GEMV/GEMM for ternary weights.
+- **Fork-everything.** Lemonade fork at `bong-water-water-bong/1bit-lemonade`.
 
 ## Hard Rules
-- **Rule A:** Core serving stays Python-free.
-- **Rule B:** C++20 for kernels (archived branch).
-- **Rule C:** hipBLAS is banned in the runtime path (archived branch).
-- **Rule D:** Rust 1.88+, edition 2024.
-- **Rule E:** NPU has two lanes (FastFlowLM serving + custom IRON kernels).
-- **Compatibility:** OpenAI surface (`:13306/v1`) must never be broken.
+- **Rule A:** Core serving stays Python-free (C++/HIP hot path)
+- **Rule B:** C++20 for kernels (rocm-cpp repo)
+- **Rule C:** hipBLAS is banned — all compute uses custom ternary-aware kernels
+- **Rule D:** Lemonade SDK is the only runtime layer
+- **Rule E:** NPU is an optional side lane (FastFlowLM via Lemonade FLM backend)
+- **Compatibility:** OpenAI surface (`:13305/v1`) never breaks
 
 ## Article Index
-(See original wiki for detailed article descriptions)
 - [[Architecture-Deep]]
-- [[Repo-Layout]]
-- [[Why-Rust]]
+- [[Why-Lemonade]]
 - [[Why-No-Python]]
-- [[Why-No-NPU-Yet]]
+- [[BitNetServer-Backend]]
 - [[Development]]
-- [[Complete-Pack]]
 - [[Installation]]
 - [[Clients]]
 - [[FAQ]]
-- [[AMD-GAIA-Integration]]
-- [[Fork-Everything]]
 - [[Ternary-on-AIE-Pack-Plan]]
