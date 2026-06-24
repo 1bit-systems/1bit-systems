@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '1bit-site/**'
+  workflow_dispatch:
 
 concurrency:
   group: deploy-${{ github.ref }}
