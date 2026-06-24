@@ -67,7 +67,7 @@ print(client.chat.completions.create(
 
 ## Verified Benchmarks
 
-On Strix Halo (Ryzen AI MAX+ 395, 128 GB unified), via rocm-cpp:
+On Strix Halo (Ryzen AI MAX+ 395, 128 GB unified), ROCm 7.2.4, via rocm-cpp:
 
 | Model | Prompt tok/s | Gen tok/s |
 |---|---|---|
@@ -76,7 +76,10 @@ On Strix Halo (Ryzen AI MAX+ 395, 128 GB unified), via rocm-cpp:
 | Bonsai 4B IQ1_S | 2,125 | 126 |
 | Bonsai 8B IQ1_S | 1,325 | 96 |
 
-**Decode GEMV:** 4.9–7.2× faster than rocBLAS FP16 at 1/16 the B memory.
+**Decode GEMV:** 7.6× faster than rocBLAS FP16 (27.6 µs vs ~700 µs)  
+**Prefill GEMM (FFN up):** 21.8 TFlops our ternary vs 32.9 TFlops rocBLAS —  
+  but at **1/4 the B memory bandwidth** = 2.6× effective throughput  
+**Square prefill (4096³):** 20.2 TFlops (61% of rocBLAS at 1/4 memory)
 
 ## Repos
 
