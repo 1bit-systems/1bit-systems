@@ -65,21 +65,43 @@ print(client.chat.completions.create(
 | Open WebUI, AnythingLLM, n8n, Dify | `http://127.0.0.1:13305/v1` |
 | Continue.dev, Aider, Cline | `http://127.0.0.1:13305/v1` |
 
-## Verified Benchmarks
+## Verified Benchmarks — ROCm 7.2.4, gfx1151, June 2026
 
-On Strix Halo (Ryzen AI MAX+ 395, 128 GB unified), ROCm 7.2.4, via rocm-cpp:
+### Prefill GEMM (our ternary 4h kernel vs rocBLAS FP16)
 
-| Model | Prompt tok/s | Gen tok/s |
-|---|---|---|
-| BitNet-2B-4T | — | **82** (bit-match vs PyTorch) |
-| Bonsai 1.7B IQ1_S | 5,001 | 231 |
-| Bonsai 4B IQ1_S | 2,125 | 126 |
-| Bonsai 8B IQ1_S | 1,325 | 96 |
+| Shape | rocm-cpp (TFlops) | rocBLAS (TFlops) | Ratio | B Memory |
+|---|---|---|---|---|
+| FFN up (2560×6912×2560) | **21.94** | 29.99 | 0.73× | **1/4** |
+| FFN down (2560×2560×6912) | **20.91** | — | — | **1/4** |
+| Square (4096×4096×4096) | **19.73** | 28.77 | 0.69× | **1/4** |
 
-**Decode GEMV:** 7.6× faster than rocBLAS FP16 (27.6 µs vs ~700 µs)  
-**Prefill GEMM (FFN up):** 21.8 TFlops our ternary vs 32.9 TFlops rocBLAS —  
-  but at **1/4 the B memory bandwidth** = 2.6× effective throughput  
-**Square prefill (4096³):** 20.2 TFlops (61% of rocBLAS at 1/4 memory)
+Effective throughput per byte: **2.9× rocBLAS**
+
+### Decode GEMV (batch=1, memory-bound)
+
+| Shape | rocm-cpp halo (µs) | rocBLAS FP16 (µs) | Speedup | B Memory |
+|---|---|---|---|---|
+| 2560×2560 | ~30 | 212 | **7.1×** | 1/16 |
+| 4096×4096 | ~100 | 814 | **8.1×** | 1/16 |
+| 6912×2560 (LM head) | **27.0** | ~700 | **7.8×** | 1/16 |
+| 4096×11008 | ~200 | 1468 | **7.3×** | 1/16 |
+
+**sherry** (3:4 N:M sparse, PolyForm NC): 18.7 µs = 1.45× halo  
+**tq1** (PolyForm NC): 18.7 µs = 1.44× halo
+
+### llama.cpp Q1_0 Full Burn (7 models)
+
+| Model | Quant | Size | pp512 t/s | tg128 t/s |
+|---|---|---|---|---|
+| Bonsai-1.7B | Q1_0 | 231 MB | 5,001 | 231 |
+| BitNet-2B-4T | Q1_0 | 538 MB | 3,652 | 120 |
+| Bonsai-4B | Q1_0 | 540 MB | 2,125 | 126 |
+| Bonsai-8B | Q1_0 | 1.07 GB | 1,325 | 96 |
+| Qwen3-Coder-Next 80B | IQ1_S | 17.6 GB | 662 | 51 |
+| Llama-4-Scout 17Bx16E | IQ1_S | 27.2 GB | 326 | 21 |
+| BitNet-2B-4T | TQ1_0 | 1.02 GB | 282 | 50 |
+
+Full data: [rocm-cpp results/BENCHMARK-20260623.md](https://github.com/bong-water-water-bong/rocm-cpp/blob/main/results/BENCHMARK-20260623.md)
 
 ## Repos
 
