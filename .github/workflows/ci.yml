@@ -129,6 +129,7 @@ jobs:
             --exclude-path 1bit-site
             --exclude-path .github
             --exclude-path benchmarks
+            --exclude-path docs/wiki
             --exclude '^https://discord\.gg/'
             --exclude '^https://account\.amd\.com/'
             --exclude '^https?://(www\.)?amd\.com/'
