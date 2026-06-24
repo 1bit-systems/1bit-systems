@@ -128,6 +128,7 @@ jobs:
             --timeout 15
             --exclude-path 1bit-site
             --exclude-path .github
+            --exclude-path benchmarks
             --exclude '^https://discord\.gg/'
             --exclude '^https://account\.amd\.com/'
             --exclude '^https?://(www\.)?amd\.com/'
@@ -142,7 +143,6 @@ jobs:
             SECURITY.md
             CODE_OF_CONDUCT.md
             'docs/**/*.md'
-            'benchmarks/**/*.md'
           fail: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
