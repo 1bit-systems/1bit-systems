@@ -130,6 +130,8 @@ jobs:
             --exclude-path .github
             --exclude-path benchmarks
             --exclude-path docs/wiki
+            --exclude '^https://lemonade-server\.ai/'
+            --exclude '^https://huggingface\.co/'
             --exclude '^https://discord\.gg/'
             --exclude '^https://account\.amd\.com/'
             --exclude '^https?://(www\.)?amd\.com/'
