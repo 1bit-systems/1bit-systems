@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#021621">
-<title>1bit.systems - toolbox-first inference engine for AMD Strix Halo</title>
-<meta name="description" content="1bit.systems is a local OpenAI-compatible inference workbench for AMD Strix Halo. The repaired path is toolbox-backed llama.cpp first, with 1bit-proxy as the stable app endpoint while the single control plane is rebuilt.">
+<title>1bit.systems — 7.8× faster 1-bit inference for AMD Strix Halo</title>
+<meta name="description" content="1bit.systems delivers 7.8x faster decode than rocBLAS on AMD Strix Halo. Pure Rust server, custom HIP C++ kernels. One-command install.">
 <meta property="og:title" content="1bit.systems">
-<meta property="og:description" content="Inference engine first: Strix Halo toolboxes, llama.cpp, optional native Lemonade/FastFlowLM lanes, and a 1bit union endpoint for OpenAI-compatible apps.">
+<meta property="og:description" content="7.8x faster than rocBLAS — custom 1-bit HIP kernels for Strix Halo. Pure Rust, zero Python, one-command install.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://1bit.systems/">
 <meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
@@ -27,12 +27,11 @@
     <span><b>1</b>bit<span class="dot">.</span>systems</span>
   </a>
   <nav>
-    <a href="#stack">stack</a>
     <a href="#install">install</a>
-    <a href="#api">api</a>
-    <a href="#rules">rules</a>
     <a href="#bench">bench</a>
+    <a href="#api">api</a>
     <a href="#apps">apps</a>
+    <a href="#rules">rules</a>
     <a class="gh-btn" href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
   </nav>
 </header>
@@ -42,18 +41,14 @@
 <div class="page-shell">
 <aside class="page-side" aria-label="Site navigation">
   <nav class="side-nav">
-    <h4>Run</h4>
-    <a href="#pitch" data-anchor="pitch">Pitch</a>
-    <a href="#stack" data-anchor="stack">Stack</a>
+    <h4>Start</h4>
     <a href="#install" data-anchor="install">Install</a>
     <a href="#quickstart" data-anchor="quickstart">Quickstart</a>
     <a href="#api" data-anchor="api">API</a>
-    <a href="#rules" data-anchor="rules">Rules</a>
-    <h4>Operate</h4>
+    <h4>Data</h4>
+    <a href="#bench" data-anchor="bench">Benchmarks</a>
     <a href="#apps" data-anchor="apps">Apps</a>
-    <a href="#bench" data-anchor="bench">Bench</a>
-    <a href="#troubleshooting" data-anchor="troubleshooting">Troubleshooting</a>
-    <a href="#contributing" data-anchor="contributing">Contributing</a>
+    <a href="#rules" data-anchor="rules">Rules</a>
   </nav>
 </aside>
 
@@ -63,79 +58,60 @@
   <div class="hero-grid">
     <div class="hero-copy">
       <img class="hero-lockup" src="/assets/brand-lockup.svg" alt="1bit.systems">
-      <p class="eyebrow">AMD Strix Halo · gfx1151 + XDNA 2 · inference engine first</p>
+      <p class="eyebrow">AMD Strix Halo · gfx1151 + XDNA 2 · pure Rust + C++/HIP</p>
       <h1>
-        <span>Local inference, wired for Strix Halo.</span>
-        <span>One OpenAI-compatible endpoint while the control plane is rebuilt.</span>
+        <span>1-bit inference, 7.8× faster than rocBLAS.</span>
+        <span>One command to install. Zero Python at runtime.</span>
       </h1>
       <p class="lede">
-        The useful shape is simple: apps talk to one local endpoint. Today the most reliable Strix Halo repair path is a toolbox-backed <code>llama-server</code> on <code>:13305</code>, with <code>1bit-proxy</code> on <code>:13306</code> as the stable OpenAI-compatible app surface. Native Lemonade and FastFlowLM remain product-direction lanes, not a finished one-click control plane.
+        The engine is <a href="https://github.com/bong-water-water-bong/rocm-cpp">rocm-cpp</a> — native HIP kernels for ternary GEMV/GEMM on gfx1151. The server is <a href="https://github.com/bong-water-water-bong/1bit-engine">1bit-engine</a> — a pure Rust HTTP proxy. Together they deliver 27 µs decode at 6912×2560 (7.8× rocBLAS) and 21.9 TFlops prefill at 1/4 the memory.
       </p>
       <div class="hero-cta">
-        <a class="btn" href="#install">Install</a>
-        <a class="btn ghost" href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
+        <a class="btn" href="#install">Install in one command</a>
+        <a class="btn ghost" href="https://github.com/bong-water-water-bong/1bit-engine">GitHub</a>
       </div>
     </div>
     <aside class="hero-console" aria-label="1bit endpoint map">
       <div class="console-top">
         <span class="console-dot live"></span>
-        <span>routing surface</span>
+        <span>single endpoint</span>
         <b>local only</b>
       </div>
       <div class="endpoint primary-endpoint">
-        <span>union</span>
-        <b>127.0.0.1:13306/v1</b>
-        <em>OpenAI-compatible app surface</em>
+        <span>engine</span>
+        <b>127.0.0.1:13305/v1</b>
+        <em>axum (Rust) + bitnet_decode (HIP)</em>
       </div>
-      <div class="endpoint-grid">
-        <div class="endpoint"><span>backend</span><b>:13305</b><em>llama.cpp / Lemonade</em></div>
-        <div class="endpoint"><span>npu lane</span><b>:52625</b><em>FastFlowLM optional</em></div>
-        <div class="endpoint"><span>web ui</span><b>:3000</b><em>secondary client</em></div>
-        <div class="endpoint"><span>control</span><b>1bit</b><em>CLI + lifecycle</em></div>
-      </div>
-      <pre><code>curl http://127.0.0.1:13306/v1/models</code></pre>
+      <pre><code>curl http://127.0.0.1:13305/v1/models</code></pre>
     </aside>
   </div>
 </section>
 
 <section id="stack" class="pillars" data-mark="01 / STACK">
   <h2>Inference engine</h2>
-  <p class="note">The engine is the product surface: OpenAI-compatible apps send requests to a backend through the union endpoint. For the repair path, use the Strix Halo toolboxes first; the single control plane is still roadmap work.</p>
+  <p class="note">One runtime layer: <a href="https://github.com/bong-water-water-bong/1bit-engine">1bit-engine</a> (Rust) wraps <a href="https://github.com/bong-water-water-bong/rocm-cpp">rocm-cpp</a> (C++/HIP) behind a single OpenAI-compatible endpoint. Zero Python at runtime.</p>
   <div class="pillar-grid">
-    <div class="pillar"><h3>Toolbox llama.cpp</h3><p>Recommended first backend on Ubuntu/Fedora: <code>kyuz0/amd-strix-halo-toolboxes:vulkan-radv</code>, then <code>rocm-7.2.2</code> after device access is verified.</p></div>
-    <div class="pillar"><h3>Lemonade</h3><p>Native multimodal and OmniRouter lane for the Arch/CachyOS path. It remains product direction, but toolbox <code>llama-server</code> can occupy <code>:13305</code> during repair.</p></div>
-    <div class="pillar"><h3>FastFlowLM</h3><p>Optional XDNA NPU side lane on <code>http://127.0.0.1:52625/v1</code> when the host NPU stack is actually healthy.</p></div>
-    <div class="pillar"><h3>1bit proxy</h3><p>Convenience union endpoint on <code>http://127.0.0.1:13306/api/v1</code> and <code>/v1</code>. It is the stable app surface while backend lifecycle is rebuilt.</p></div>
-    <div class="pillar"><h3>Apps</h3><p>GAIA, Open WebUI, AnythingLLM, Continue, Dify, n8n, and custom SDK clients connect by setting an OpenAI-compatible base URL.</p></div>
-    <div class="pillar"><h3>Control plane</h3><p><code>1bit</code>, GAIA, Open WebUI, systemd, and toolbox lifecycle are the intended control plane pieces. They are not yet one finished operator surface.</p></div>
-    <div class="pillar"><h3>Open WebUI</h3><p>Secondary browser UI on <code>:3000</code>, pointed at the union endpoint by the systemd unit.</p></div>
+    <div class="pillar"><h3>Server</h3><p>Pure Rust (axum) on <code>:13305</code>. Spawns <code>bitnet_decode --server</code> as a subprocess. 8.4 MB binary, 5 shared libs. Rustls-only — zero system deps.</p></div>
+    <div class="pillar"><h3>Kernels</h3><p>Custom HIP C++ kernels for ternary GEMV/GEMM. Decode: 27 µs at 6912×2560 = <b>7.8× rocBLAS</b>. Prefill: 21.9 TFlops at 2560×6912×2560.</p></div>
+    <div class="pillar"><h3>NPU lane</h3><p>Optional XDNA NPU via FastFlowLM. Benchmarked at 87-95 tok/s on 0.6B models. Pooled DRM BOs would push to 130+ tok/s.</p></div>
+    <div class="pillar"><h3>Auto-tuning</h3><p><code>--tune-prefill</code> benchmarks 7 kernel variants at startup and picks the fastest. <code>--fp16-weights</code> pre-decodes weights for maximum throughput.</p></div>
+    <div class="pillar"><h3>Apps</h3><p>Open WebUI, AnythingLLM, Continue, Aider, Cline, n8n, Dify — any OpenAI-compatible client. Set base URL to <code>http://127.0.0.1:13305/v1</code>.</p></div>
+    <div class="pillar"><h3>Open source</h3><p>MIT license. Core kernels open. Sherry-specific sparse kernels available under PolyForm NC for commercial licensees.</p></div>
   </div>
 </section>
 
 <section id="install" class="install" data-mark="02 / INSTALL">
-  <h2>Install</h2>
-  <p class="note">On Ubuntu/Fedora, start with toolbox-backed inference. The native installer is currently Arch/CachyOS-first and should not be treated as the universal bootstrap.</p>
-  <pre><code># Fedora toolbox: compatibility-first backend
-toolbox create llama-vulkan-radv \
-  --image docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv \
-  -- --device /dev/dri --group-add video --security-opt seccomp=unconfined
-
-toolbox enter llama-vulkan-radv
-llama-server --host 127.0.0.1 --port 13305 -m /path/to/model.gguf -c 8192 -ngl 999 -fa 1 --no-mmap
-
-# host
-node scripts/1bit-proxy.js
-curl -s http://127.0.0.1:13306/v1/models</code></pre>
-  <p class="muted">After <code>vulkan-radv</code> is stable, test <code>rocm-7.2.2</code> with <code>/dev/dri</code> and <code>/dev/kfd</code> passed through. See <a href="https://github.com/kyuz0/amd-strix-halo-toolboxes" rel="noopener">kyuz0/amd-strix-halo-toolboxes</a> and <a href="https://strix-halo-toolboxes.com/" rel="noopener">strix-halo-toolboxes.com</a>.</p>
-  <p class="note">Native Arch/CachyOS path:</p>
-  <pre><code>git clone https://github.com/bong-water-water-bong/1bit-systems
-cd 1bit-systems
-./install.sh
-
-# after first install, re-login or reboot so memlock limits apply
-1bit up
-1bit status</code></pre>
-  <p class="muted">The installer writes the CLI, systemd units, Open WebUI configuration, memlock limits, and local service defaults for the native path. The backend-agnostic control plane still needs a registry, lifecycle checks, and toolbox start/stop support.</p>
+  <h2>Install in one command</h2>
+  <p class="note">Requires AMD Strix Halo (gfx1151) with ROCm 7.2+. Ubuntu 24.04, Arch, CachyOS, Fedora supported.</p>
+  <pre><code>curl -fsSL https://raw.githubusercontent.com/bong-water-water-bong/1bit-engine/main/install.sh | bash</code></pre>
+  <p class="muted">Installs Rust, ROCm build deps, clones+builds rocm-cpp kernels and the Rust server. ~15 minutes on a Ryzen AI MAX+ 395. Then download a .h1b model and run:</p>
+  <pre><code>export HSA_OVERRIDE_GFX_VERSION=11.5.1
+export HSA_ENABLE_SDMA=0
+source ~/.cargo/env
+~/1bit/engine/target/release/onebit \
+  --model model.h1b --port 13305 \
+  --tune-prefill --fp16-weights</code></pre>
+  <p class="muted"><a href="https://github.com/bong-water-water-bong/rocm-cpp">rocm-cpp</a> · <a href="https://github.com/bong-water-water-bong/1bit-engine">1bit-engine</a> · <a href="https://github.com/bong-water-water-bong/1bit-systems">1bit-systems</a></p>
 </section>
 
 <section id="quickstart" class="doc-section" data-mark="03 / QUICKSTART">
