@@ -38,13 +38,17 @@ C++/HIP subprocess. Streaming passthrough, health checks, CORS — minimal.
 ## Install
 
 ```bash
-# Prerequisites: ROCm 7.x, Rust 1.88+
-git clone https://github.com/bong-water-water-bong/1bit-engine
-cd 1bit-engine
-cargo build --release
+# One command — handles Ubuntu, Arch, Fedora
+curl -fsSL https://raw.githubusercontent.com/bong-water-water-bong/1bit-engine/main/install.sh | bash
+```
 
-# Run
-./target/release/onebit --model path/to/model.h1b --port 13305
+The installer handles everything: ROCm build deps, Rust, rocm-cpp kernels, and the Rust server. Then download a .h1b model and run:
+
+```bash
+source ~/.cargo/env
+export HSA_OVERRIDE_GFX_VERSION=11.5.1
+export HSA_ENABLE_SDMA=0
+~/1bit/engine/target/release/onebit --model model.h1b --port 13305 --tune-prefill --fp16-weights
 ```
 
 ## Connect Apps
