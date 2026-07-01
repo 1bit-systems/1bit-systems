@@ -2,26 +2,30 @@
 
 <img src="site/assets/brand-lockup.svg" alt="1bit.systems" width="540">
 
-# The NPU AMD shipped locked. Now open.
-
-### 50 TOPS INT8 · 281 tok/s 1-bit · 55.7 TFLOPS raw silicon · Pure C++ · Zero Python
-
-**Strix Halo is the fastest AI chip in a consumer laptop. We proved it.**
-
-One C++ binary loads Qwen3-0.6B onto the XDNA 2 NPU at 244 ms/tok.  
-One 385MB 1-bit model runs at 281 tok/s on the same chip's GPU.  
-One Vulkan engine decodes at 27 µs/tok with GLSL compute shaders.
+# 50 TOPS INT8. 55.7 TFLOPS measured. 281 tok/s 1-bit.
+## On a consumer laptop. Open source. Zero Python.
 
 [![50 TOPS Verified](https://img.shields.io/badge/50%20TOPS-verified-00ff00.svg)](engine/npu/BENCHMARKS.md)
 [![55.7 TFLOPS Peak](https://img.shields.io/badge/55.7%20TFLOPS-raw%20silicon-12a0ed.svg)](engine/npu/BENCHMARKS.md)
 [![281 tok/s 1-bit](https://img.shields.io/badge/281%20tok%2Fs-1--bit-f00fd2.svg)](engine/npu/BENCHMARKS.md)
-[![License: MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
-[![Site](https://img.shields.io/badge/site-1bit.systems-12a0ed.svg)](https://1bit.systems)
+[![Pure C++](https://img.shields.io/badge/runtime-C%2B%2B23-00ff00.svg)](engine/npu/src/npu_engine_cb.cpp)
+[![MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/discord-1bit.systems-f00fd2.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
 
 </div>
 
 ---
+
+### What you get — right now, on one chip
+
+| Engine | Hardware | Precision | Speed | Model | Size |
+|--------|----------|-----------|-------|-------|------|
+| **NPU** | XDNA 2 · 32 tiles | INT8 | **244 ms/tok** | Qwen3-0.6B | 610 MB |
+| **1-bit GPU** | Radeon 8060S · 40 CUs | IQ1_S | **281 tok/s** | Bonsai 1.7B | 385 MB |
+| **Vulkan GPU** | Radeon 8060S · 40 CUs | Q4_K | **27 µs/tok** | Qwen3.5-9B | 5.4 GB |
+
+**55.7 TFLOPS raw INT8 GEMM** — exceeds AMD's 50 TOPS rating.  
+**All numbers verified on-device.** [Full benchmarks →](engine/npu/BENCHMARKS.md)
 
 ## Architecture
 
