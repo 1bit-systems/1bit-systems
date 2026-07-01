@@ -31,6 +31,17 @@
 **55.7 TFLOPS raw INT8 GEMM** — exceeds AMD's 50 TOPS rating.  
 **All numbers verified on-device.** [Full benchmarks →](engine/npu/BENCHMARKS.md)
 
+### Client Compatibility (OpenAI API → NPU)
+
+| Client | How |
+|--------|-----|
+| **vLLM** | `export OPENAI_API_BASE=http://localhost:8081/v1` |
+| **Ollama** | `ollama create qwen3-npu -f Modelfile` |
+| **OpenAI SDK** | `client = OpenAI(base_url="http://localhost:8081/v1")` |
+| **LangChain** | `ChatOpenAI(openai_api_base="http://localhost:8081/v1")` |
+| **Open WebUI** | Set `OPENAI_API_BASE` env var |
+| **curl** | `curl -d '{"messages":[...]}' localhost:8081/v1/chat/completions` |
+
 ### Every backend, one person
 
 NPU engine (C++23 XRT direct), Vulkan engine (Zig GLSL→SPIR-V), Metal engine
