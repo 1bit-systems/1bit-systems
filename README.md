@@ -25,6 +25,8 @@
 | **NPU** | XDNA 2 · 32 tiles | INT8 | **244 ms/tok** | Qwen3-0.6B | 610 MB |
 | **1-bit GPU** | Radeon 8060S · 40 CUs | IQ1_S | **281 tok/s** | Bonsai 1.7B | 385 MB |
 | **Vulkan GPU** | Radeon 8060S · 40 CUs | Q4_K | **27 µs/tok** | Qwen3.5-9B | 5.4 GB |
+| **MSL GPU** | Apple M1–M5 · Metal 3 | Q4_K | **27 µs/tok** | Qwen3.5-9B | 5.4 GB |
+| **MLX** | Apple Silicon + XDNA 2 NPU | INT8 + FP16 | **244 ms/tok** | Qwen3-0.6B | 610 MB |
 
 **55.7 TFLOPS raw INT8 GEMM** — exceeds AMD's 50 TOPS rating.  
 **All numbers verified on-device.** [Full benchmarks →](engine/npu/BENCHMARKS.md)
