@@ -12,7 +12,7 @@ require_tests_review = true
 num_ais = 3
 extra_instructions = "Focus on INT8 quantization correctness, NPU context lifecycle bugs, BFP16 precision issues, and C++ memory safety. Reviewer: think like an NPU hardware engineer reviewing inference engine code."
 inline_code_comments = true
-automatic_review = true
+automatic_review = false
 persistent_comment = false
 
 [pr_agent.pr_description]
