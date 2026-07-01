@@ -42,7 +42,7 @@ faster than venture capital.
 
 *Built with DeepSeek v4 (99.9%) · Shipped with Claude (0.1%) · One human.*
 
-*—thearchitect · "Sorry but not Sorry"*
+*—bong-water-water-bong · "Sorry but not Sorry"*
 
 ## Architecture
 
