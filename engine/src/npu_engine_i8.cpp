@@ -118,18 +118,10 @@ int main(){
         for(int hh=0;hh<NH;hh++){double sq=0;for(int d=0;d<HD;d++)sq+=qo[hh*HD+d]*qo[hh*HD+d];float iq=1.0f/sqrtf((float)(sq/HD)+EPS);for(int d=0;d<HD;d++)qo[hh*HD+d]*=iq*qn[d];ra(&qo[hh*HD],HD,sp);
             if(hh%GQA==0){int kvh=hh/GQA;double sk=0;for(int d=0;d<HD;d++)sk+=ko[kvh*HD+d]*ko[kvh*HD+d];float ik=1.0f/sqrtf((float)(sk/HD)+EPS);for(int d=0;d<HD;d++)ko[kvh*HD+d]*=ik*kn[d];ra(&ko[kvh*HD],HD,sp);memcpy(&kv[l].k[sp*NKV*HD+kvh*HD],&ko[kvh*HD],HD*4);memcpy(&kv[l].v[sp*NKV*HD+kvh*HD],&vo[kvh*HD],HD*4);}}
         kv[l].n=sp+1;int cl=kv[l].n;
-        // Attention: CPU for <32 tokens, NPU for ≥32 (avoids BF16 repack overhead)
+        // CPU attention (faster than NPU repack at <100 tokens)
         for(int w=0;w<AW;w++){
-            float*Qw=&qo[w*WQH*HD];
-            float*Kw=&kv[l].k[w*WKVH*HD];
-            float*Vw=&kv[l].v[w*WKVH*HD];
-            if(ak[w].ready && cl>=32){
-                std::vector<float> kw(cl*WKVH*HD),vw(cl*WKVH*HD);
-                for(int p=0;p<cl;p++){memcpy(&kw[p*WKVH*HD],Kw+p*NKV*HD,WKVH*HD*4);memcpy(&vw[p*WKVH*HD],Vw+p*NKV*HD,WKVH*HD*4);}
-                ak[w].run(Qw,kw.data(),vw.data(),cl,&at[w*WQH*HD]);
-            }else{
-                AttnK::cpu_attn(Qw,Kw,Vw,cl,&at[w*WQH*HD]);
-            }
+            float*Qw=&qo[w*WQH*HD],*Kw=&kv[l].k[w*WKVH*HD],*Vw=&kv[l].v[w*WKVH*HD];
+            AttnK::cpu_attn(Qw,Kw,Vw,cl,&at[w*WQH*HD]);
         }
         co.go(l,at.data(),1,NH*HD,5.0f/127.0f,wsc[l].o_,oo.data(),H);cn(oo.data(),H);for(int i=0;i<H;i++)h[i]=sb[i]+oo[i];
         memcpy(sb.data(),h.data(),H*4);rn_c(h.data(),pa_n[l],H);
