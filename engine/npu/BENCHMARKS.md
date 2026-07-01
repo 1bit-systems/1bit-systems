@@ -67,6 +67,41 @@ All tokens diverse. No NaN. No crashes. Clean exit every time.
 | Power | ~2W NPU + ~10W CPU | ~25-35W | ~15-25W |
 | Memory | 128 GB unified | 128 GB unified | 128 GB unified |
 
+## 1-Bit / Ternary Models (GPU — Vulkan)
+
+*Already benchmarked on Strix Halo Radeon 8060S (gfx1151). pi-agent patched llama.cpp with Q2_0 validation. April 26, 2026.*
+
+| Model | Quant | Size | Prompt-eval | Decode | Format |
+|-------|-------|------|------------|--------|--------|
+| **lily-bonsai-1.7B** | IQ1_S | 385 MB | 4910 tok/s | **281.2 tok/s** | llama.cpp repack |
+| **lily-bonsai-1.7B** | Q2_K | 595 MB | 4659 tok/s | **227.6 tok/s** | mainline Q2_K |
+| **gianni-bitnet-large** | TQ2_0 | 207 MB | 1362 tok/s | 73.5 tok/s | native ternary |
+| **lily-bonsai-4B** | IQ1_S | 872 MB | 1984 tok/s | 143.7 tok/s | llama.cpp repack |
+| **gianni-bitnet-3B** | TQ2_0 | 1834 MB | 1910 tok/s | 81.3 tok/s | native ternary |
+| lily-bonsai-8B | IQ1_S | 1803 MB | 1119 tok/s | 92.1 tok/s | llama.cpp repack |
+
+**Fastest: 1.7B IQ1_S at 281.2 tok/s — 3.5 ms/tok. On GPU. 385 MB total.**
+Models on disk: `/home/bcloud/models/bonsai-1.7b/`
+Validate: `benchmarks/q2_0-strix-halo-validate.sh`
+
+### NPU vs GPU: The Full Stack
+
+| Engine | Hardware | Best Model | Best Speed | Best Size |
+|--------|----------|-----------|-----------|-----------|
+| NPU (this) | XDNA 2 | Qwen3-0.6B INT8 | 244 ms/tok | 610 MB |
+| GPU ZINC | Radeon 8060S Vulkan | Qwen3.5-9B Q4_K | 27 µs/tok | — |
+| GPU 1-bit | Radeon 8060S Vulkan | **Bonsai-1.7B IQ1_S** | **3.5 ms/tok** | **385 MB** |
+
+**1-bit on NPU is the moonshot**: IQ1_S × 50 TOPS × batched prefill = potentially <1ms/tok.
+
+### 1-Bit Model Sources
+
+```
+hf download lilyanatia/Bonsai-1.7B-requantized   --local-dir ./models/bonsai-1.7b/
+hf download gianni-cor/bitnet_b1_58-3B-TQ2_0     --local-dir ./models/gianni-3b-tq2/
+hf download gianni-cor/bitnet_b1_58-large-TQ2_0  --local-dir ./models/gianni-large-tq2/
+```
+
 ## What This Proves
 
 1. **The Strix Halo NPU exceeds its 50 TOPS rating** — D projection hits 55.7 TFLOPS on real hardware with our xclbins.

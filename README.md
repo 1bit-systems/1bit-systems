@@ -89,6 +89,7 @@ zig build -Doptimize=ReleaseFast
 |--------|----------|-------|--------|
 | **NPU** (engine/npu) | XDNA 2 NPU | 246 ms/tok | Qwen3-0.6B |
 | **GPU** (engine/gpu) | Radeon 8060S (Vulkan) | 27 µs/decode | Qwen3.5, Gemma 4 |
+| **1bit GPU** (ZINC) | Radeon 8060S (Vulkan) | **3.5 ms/tok** | Bonsai-1.7B IQ1_S (385 MB) |
 
 ## The Journey
 
