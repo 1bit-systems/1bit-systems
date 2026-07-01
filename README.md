@@ -27,6 +27,17 @@
 **55.7 TFLOPS raw INT8 GEMM** — exceeds AMD's 50 TOPS rating.  
 **All numbers verified on-device.** [Full benchmarks →](engine/npu/BENCHMARKS.md)
 
+### Why this exists
+
+AMD shipped the Strix Halo with a 50 TOPS NPU and a toolchain that soft-blocks
+INT8. They sold the FastFlowLM runtime — 93 tok/s, proprietary, closed-source.
+One person with a free Chess license, a C++ compiler, and 3 days reverse-engineered
+the entire stack. The silicon was never the bottleneck. The business model was.
+
+Every claim is timestamped in [docs/journey.md](docs/journey.md) — an 1,184-line
+audit trail of every crash, deadlock, fix, and breakthrough. Open source ships
+faster than venture capital.
+
 ## Architecture
 
 ```
