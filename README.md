@@ -26,15 +26,12 @@ weights to INT8, and runs inference on the Strix Halo NPU via AMD's XRT
 runtime — with 4 NPU contexts alive simultaneously and zero context swapping.
 
 ```bash
-g++ -std=c++23 -O3 -o npu_engine engine/src/npu_engine_i8.cpp engine/build/dequant_q4nx.o \
-    -I$XRT/include -L$XRT/lib64 -lxrt_coreutil -luuid -lm -ldl
+g++ -std=c++23 -O3 -o npu_engine engine/src/npu_engine_i8.cpp engine/build/dequant_q4nx.o -I$XRT/include -L$XRT/lib64 -lxrt_coreutil -luuid -lm -ldl
 ./npu_engine
 ```
 
 ```
-=== NPU Engine i8 + Attention ===
-Init 8 contexts (4 GEMM + 4 attention).
-Dequant+pack: 4.5s
+Init 8 contexts. Dequant+pack: 4.5s.
 
 Generate:
   [0] 107325  [1] 40469   [2] 115358  [3] 127809

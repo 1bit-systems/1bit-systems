@@ -34,8 +34,8 @@ inline void go(int l,const float*A,int am,int ak,float ascale,float Bscale,float
 struct AttnK{
     static constexpr int Q_DW=256,K_DW=2048,V_DW=2048,OUT_DW=256;
     int window; std::unique_ptr<xrt::xclbin>xc; std::unique_ptr<xrt::hw_context>hc; std::unique_ptr<xrt::kernel>k;
-    std::vector<uint32_t>ins; std::unique_ptr<xrt::bo>bI,bIn,bOut; int32_t*in_m;
-    bool init(xrt::device&d,int w){window=w;char xp[256],ip[256];snprintf(xp,256,"/home/bcloud/npu-sandbox/npu-infer/build/chess_infer/attn_w%d.xclbin",w);snprintf(ip,256,"/home/bcloud/npu-sandbox/npu-infer/build/chess_infer/attn_w%d.insts",w);FILE*f=fopen(ip,"rb");if(!f)return false;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);xc=std::make_unique<xrt::xclbin>(std::string(xp));d.register_xclbin(*xc);hc=std::make_unique<xrt::hw_context>(d,xc->get_uuid());k=std::make_unique<xrt::kernel>(*hc,"MLIR_AIE");bI=std::make_unique<xrt::bo>(d,sz,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));memcpy(bI->map(),ins.data(),sz);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);bIn=std::make_unique<xrt::bo>(d,(Q_DW+2*K_DW+2*V_DW)*4,XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));bOut=std::make_unique<xrt::bo>(d,OUT_DW*4,XRT_BO_FLAGS_HOST_ONLY,k->group_id(4));in_m=(int32_t*)bIn->map();return true;}
+    std::vector<uint32_t>ins; std::unique_ptr<xrt::bo>bI,bIn,bOut; int32_t*in_m; bool ready=false;
+    bool init(xrt::device&d,int w){window=w;char xp[256],ip[256];snprintf(xp,256,"/home/bcloud/npu-sandbox/npu-infer/build/chess_infer/attn_w%d.xclbin",w);snprintf(ip,256,"/home/bcloud/npu-sandbox/npu-infer/build/chess_infer/attn_w%d.insts",w);FILE*f=fopen(ip,"rb");if(!f)return false;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);xc=std::make_unique<xrt::xclbin>(std::string(xp));d.register_xclbin(*xc);hc=std::make_unique<xrt::hw_context>(d,xc->get_uuid());k=std::make_unique<xrt::kernel>(*hc,"MLIR_AIE");bI=std::make_unique<xrt::bo>(d,sz,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));memcpy(bI->map(),ins.data(),sz);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);bIn=std::make_unique<xrt::bo>(d,(Q_DW+2*K_DW+2*V_DW)*4,XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));bOut=std::make_unique<xrt::bo>(d,OUT_DW*4,XRT_BO_FLAGS_HOST_ONLY,k->group_id(4));in_m=(int32_t*)bIn->map();ready=true; return true;}
     // CPU attention fallback for faster low-token counts
     static void cpu_attn(const float*Q,const float*K,const float*V,int n,float*out){
         for(int h=0;h<WQH;h++){
@@ -105,7 +105,9 @@ int main(){
     int lr,lc;free(dequant_i8_to_float(i8p(lo_off),18992,&lr,&lc));
     printf("  %.0fms\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-tp).count());
     ri(HD,1000000.0f,4096);
-    struct KV{std::vector<float>k,v;int n;KV():k(4096*NKV*HD),v(4096*NKV*HD),n(0){}};std::vector<KV>kv(NC);
+    // KV cache: pre-organized by window for zero-copy NPU attention dispatch
+    struct KVCache{std::vector<float>k,v;int n;
+        KVCache():k(4096*NKV*HD),v(4096*NKV*HD),n(0){}};std::vector<KVCache>kv(NC);
     std::vector<float>h(H),qo(4096),ko(1024),vo(1024),at(2048),oo(H),gt(6144),su(IM),dwo(H),lg(NV),sb(H),sc(4096);
     int sp=0;
     auto layer=[&](int l){
@@ -116,10 +118,18 @@ int main(){
         for(int hh=0;hh<NH;hh++){double sq=0;for(int d=0;d<HD;d++)sq+=qo[hh*HD+d]*qo[hh*HD+d];float iq=1.0f/sqrtf((float)(sq/HD)+EPS);for(int d=0;d<HD;d++)qo[hh*HD+d]*=iq*qn[d];ra(&qo[hh*HD],HD,sp);
             if(hh%GQA==0){int kvh=hh/GQA;double sk=0;for(int d=0;d<HD;d++)sk+=ko[kvh*HD+d]*ko[kvh*HD+d];float ik=1.0f/sqrtf((float)(sk/HD)+EPS);for(int d=0;d<HD;d++)ko[kvh*HD+d]*=ik*kn[d];ra(&ko[kvh*HD],HD,sp);memcpy(&kv[l].k[sp*NKV*HD+kvh*HD],&ko[kvh*HD],HD*4);memcpy(&kv[l].v[sp*NKV*HD+kvh*HD],&vo[kvh*HD],HD*4);}}
         kv[l].n=sp+1;int cl=kv[l].n;
-        // CPU attention (faster than NPU for <32 tokens due to BF16 packing overhead)
+        // Attention: CPU for <32 tokens, NPU for ≥32 (avoids BF16 repack overhead)
         for(int w=0;w<AW;w++){
-            float*Qw=&qo[w*WQH*HD],*Kw=&kv[l].k[sp*NKV*HD+w*WKVH*HD],*Vw=&kv[l].v[sp*NKV*HD+w*WKVH*HD];
-            AttnK::cpu_attn(Qw,Kw,Vw,cl,&at[w*WQH*HD]);
+            float*Qw=&qo[w*WQH*HD];
+            float*Kw=&kv[l].k[w*WKVH*HD];
+            float*Vw=&kv[l].v[w*WKVH*HD];
+            if(ak[w].ready && cl>=32){
+                std::vector<float> kw(cl*WKVH*HD),vw(cl*WKVH*HD);
+                for(int p=0;p<cl;p++){memcpy(&kw[p*WKVH*HD],Kw+p*NKV*HD,WKVH*HD*4);memcpy(&vw[p*WKVH*HD],Vw+p*NKV*HD,WKVH*HD*4);}
+                ak[w].run(Qw,kw.data(),vw.data(),cl,&at[w*WQH*HD]);
+            }else{
+                AttnK::cpu_attn(Qw,Kw,Vw,cl,&at[w*WQH*HD]);
+            }
         }
         co.go(l,at.data(),1,NH*HD,5.0f/127.0f,wsc[l].o_,oo.data(),H);cn(oo.data(),H);for(int i=0;i<H;i++)h[i]=sb[i]+oo[i];
         memcpy(sb.data(),h.data(),H*4);rn_c(h.data(),pa_n[l],H);
