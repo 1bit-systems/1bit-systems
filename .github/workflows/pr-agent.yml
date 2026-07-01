@@ -21,5 +21,6 @@ jobs:
         uses: qodo-ai/pr-agent@v0.30
         env:
           OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_BASE: "https://api.opencode.ai/v1"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CONFIG_FILE: .pr_agent.toml

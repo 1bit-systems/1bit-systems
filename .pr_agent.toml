@@ -1,7 +1,7 @@
 [pr_agent]
-model = "deepseek/deepseek-chat"
-model_turbo = "deepseek/deepseek-chat"
-fallback_models = ["openai/gpt-4o-mini"]
+model = "opencode/glm-5.2"
+model_turbo = "opencode/glm-5.2"
+fallback_models = ["deepseek/deepseek-chat", "openai/gpt-4o-mini"]
 verbosity_level = 2
 publish_output = true
 publish_output_progress = false
