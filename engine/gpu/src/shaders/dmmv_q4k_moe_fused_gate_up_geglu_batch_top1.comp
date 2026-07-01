@@ -1,0 +1,160 @@
+#version 460
+// ZINC - token-batched Gemma top-1 Q4_K MoE fused gate+up+GEGLU.
+//
+// Gemma packs each expert's gate and up rows in one Q4_K tensor:
+//   [expert][gate rows][up rows].
+//
+// Grid:
+//   x = four output rows
+//   y = token
+//
+// Routing is token-major softmax_topk output. This shader uses only slot 0,
+// matching the accepted 49-72 token Gemma prefill top-1 fast tail.
+
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_clustered : require
+
+layout(local_size_x = 64) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+    uint expert_stride;
+    uint up_offset;
+    uint routing_stride;
+};
+
+layout(set = 0, binding = 0) readonly buffer MatrixA { uint a_u32[]; };
+layout(set = 0, binding = 1) readonly buffer VectorX { vec4 x_v4[]; };
+layout(set = 0, binding = 2) writeonly buffer Output { float y_data[]; };
+layout(set = 0, binding = 3) readonly buffer Routing { uint routing_data[]; };
+
+const uint ROWS_PER_WG = 4u;
+const uint LANES_PER_ROW = 16u;
+const uint Q4K_BLOCK_U32 = 36u;
+
+vec4 unpack_nibbles_lo(uint v) {
+    return vec4(float(v & 0xFu), float((v >> 8) & 0xFu),
+                float((v >> 16) & 0xFu), float((v >> 24) & 0xFu));
+}
+
+vec4 unpack_nibbles_hi(uint v) {
+    return vec4(float((v >> 4) & 0xFu), float((v >> 12) & 0xFu),
+                float((v >> 20) & 0xFu), float((v >> 28) & 0xFu));
+}
+
+void decode_scales(uint sc0, uint sc1, uint sc2, uint shift,
+                   out float sc_a, out float mn_a,
+                   out float sc_b, out float mn_b,
+                   out float sc_c, out float mn_c,
+                   out float sc_d, out float mn_d) {
+    const uint sc0_v = sc0 >> shift;
+    const uint sc1_v = sc1 >> shift;
+    const uint sc2_v = sc2 >> shift;
+
+    sc_a = float(sc0_v & 0x3Fu);
+    mn_a = float(sc1_v & 0x3Fu);
+    sc_b = float((sc0_v >> 8u) & 0x3Fu);
+    mn_b = float((sc1_v >> 8u) & 0x3Fu);
+    sc_c = float((sc2_v & 0xFu) | ((sc0_v & 0xC0u) >> 2u));
+    mn_c = float(((sc2_v & 0xF0u) >> 4u) | ((sc1_v & 0xC0u) >> 2u));
+    sc_d = float(((sc2_v >> 8u) & 0xFu) | (((sc0_v >> 8u) & 0xC0u) >> 2u));
+    mn_d = float((((sc2_v >> 8u) & 0xF0u) >> 4u) | (((sc1_v >> 8u) & 0xC0u) >> 2u));
+}
+
+float dot_q4k_row(uint row_u32, uint i, uint q_offset_in_half, uint shift,
+                  vec4 by0, vec4 by1, vec4 by2, vec4 by3) {
+    const uint blk_u32 = row_u32 + i * Q4K_BLOCK_U32;
+
+    const uint d_dmin = a_u32[blk_u32];
+    const float d_val = unpackHalf2x16(d_dmin & 0xFFFFu).x;
+    const float dmin_val = unpackHalf2x16(d_dmin >> 16).x;
+
+    const uint sc0 = a_u32[blk_u32 + 1u];
+    const uint sc1 = a_u32[blk_u32 + 2u];
+    const uint sc2 = a_u32[blk_u32 + 3u];
+
+    const uint qs_u32_0 = a_u32[blk_u32 + 4u + q_offset_in_half / 4u];
+    const uint qs_u32_1 = a_u32[blk_u32 + 4u + q_offset_in_half / 4u + 16u];
+
+    const vec4 q0_lo = unpack_nibbles_lo(qs_u32_0);
+    const vec4 q0_hi = unpack_nibbles_hi(qs_u32_0);
+    const vec4 q1_lo = unpack_nibbles_lo(qs_u32_1);
+    const vec4 q1_hi = unpack_nibbles_hi(qs_u32_1);
+
+    float sc_a, mn_a, sc_b, mn_b, sc_c, mn_c, sc_d, mn_d;
+    decode_scales(sc0, sc1, sc2, shift,
+                  sc_a, mn_a, sc_b, mn_b,
+                  sc_c, mn_c, sc_d, mn_d);
+
+    const float f0 = d_val * sc_a, b0 = dmin_val * mn_a;
+    const float f1 = d_val * sc_b, b1 = dmin_val * mn_b;
+    const float f2 = d_val * sc_c, b2 = dmin_val * mn_c;
+    const float f3 = d_val * sc_d, b3 = dmin_val * mn_d;
+
+    float sum = 0.0;
+    sum += dot(vec4(f0) * q0_lo - vec4(b0), by0);
+    sum += dot(vec4(f1) * q0_hi - vec4(b1), by1);
+    sum += dot(vec4(f2) * q1_lo - vec4(b2), by2);
+    sum += dot(vec4(f3) * q1_hi - vec4(b3), by3);
+    return sum;
+}
+
+float geglu(float gate, float up) {
+    const float g3 = gate * gate * gate;
+    float inner = 0.7978845608 * (gate + 0.044715 * g3);
+    inner = clamp(inner, -15.0, 15.0);
+    const float gelu_g = 0.5 * gate * (1.0 + tanh(inner));
+    return gelu_g * up;
+}
+
+void main() {
+    const uint tid = gl_LocalInvocationID.x;
+    const uint row_group = tid / LANES_PER_ROW;
+    const uint lane = tid - row_group * LANES_PER_ROW;
+    const uint row = gl_WorkGroupID.x * ROWS_PER_WG + row_group;
+    const uint tok = gl_WorkGroupID.y;
+    if (row >= M) return;
+
+    const uint expert_id = routing_data[tok * routing_stride];
+
+    const uint il = lane / 4u;
+    const uint ir = lane & 3u;
+    const uint v_im = il / 2u;
+    const uint v_in = il & 1u;
+    const uint l0 = 4u * (2u * ir + v_in);
+    const uint q_offset_in_half = 32u * v_im + l0;
+    const uint y_offset_local = 64u * v_im + l0;
+    const uint shift = v_im * 16u;
+
+    const uint x_base_v4 = tok * (K / 4u);
+    const uint y_base = tok * M;
+    const uint expert_base_u32 = (expert_id * expert_stride) / 4u;
+    const uint up_base_u32 = expert_base_u32 + up_offset / 4u;
+    const uint blocks_per_row = K / 256u;
+    const uint gate_row_u32 = expert_base_u32 + row * blocks_per_row * Q4K_BLOCK_U32;
+    const uint up_row_u32 = up_base_u32 + row * blocks_per_row * Q4K_BLOCK_U32;
+
+    float sum_gate = 0.0;
+    float sum_up = 0.0;
+    for (uint i = 0u; i < blocks_per_row; i++) {
+        const uint b_idx = (i * 256u + y_offset_local) / 4u;
+        const vec4 by0 = x_v4[x_base_v4 + b_idx];
+        const vec4 by1 = x_v4[x_base_v4 + b_idx + 8u];
+        const uint b_idx2 = (i * 256u + y_offset_local + 128u) / 4u;
+        const vec4 by2 = x_v4[x_base_v4 + b_idx2];
+        const vec4 by3 = x_v4[x_base_v4 + b_idx2 + 8u];
+
+        sum_gate += dot_q4k_row(gate_row_u32, i, q_offset_in_half, shift, by0, by1, by2, by3);
+        sum_up += dot_q4k_row(up_row_u32, i, q_offset_in_half, shift, by0, by1, by2, by3);
+    }
+
+    sum_gate = subgroupClusteredAdd(sum_gate, LANES_PER_ROW);
+    sum_up = subgroupClusteredAdd(sum_up, LANES_PER_ROW);
+    if (lane == 0u) {
+        y_data[y_base + row] = geglu(sum_gate, sum_up);
+    }
+}

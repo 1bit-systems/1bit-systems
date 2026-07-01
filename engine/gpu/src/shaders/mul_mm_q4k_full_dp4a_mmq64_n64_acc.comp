@@ -1,0 +1,216 @@
+#version 460
+// ZINC - low-register exact-64 Q4_K DP4a dense-down prefill.
+//
+// This is the Q4_K-down sibling of the low-register Q6_K exact-64 kernel. It
+// consumes Q8_1 activations, applies the Q4_K bias-correction term, and
+// accumulates directly into the residual destination.
+
+#include "dp4a_compat.glsl"
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_control_flow_attributes : require
+
+const uint BM = 64u;
+const uint BN = 64u;
+const uint BK = 32u;
+const uint BK_STEP = 4u;
+const uint WG_SIZE = 128u;
+const uint WARP = 64u;
+const uint WM = 64u;
+const uint WN = 32u;
+const uint WMITER = 1u;
+const uint TM = 2u;
+const uint TN = 2u;
+const uint WNITER = (WM * WN) / (WARP * TM * TN * WMITER);
+const uint WSUBM = WM / WMITER;
+const uint WSUBN = WN / WNITER;
+
+const uint Q4K_BLOCK_U32 = 36u;
+
+layout(constant_id = 0) const uint SPEC_K = 0u;
+
+layout(local_size_x = WG_SIZE) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint N;
+    uint K;
+    uint stride_b_packed;
+    uint stride_b_scale;
+    uint stride_d;
+    uint a_offset;
+    uint d_offset;
+};
+
+layout(set = 0, binding = 0) readonly buffer MatA { uint a_u32[]; };
+layout(set = 0, binding = 1) readonly buffer ActB { uint b_packed[]; };
+layout(set = 0, binding = 2) readonly buffer SclB { vec2 b_scale_dsum[]; };
+layout(set = 0, binding = 3) buffer MatD { float d_data[]; };
+
+shared uint buf_a_qs[BK_STEP * BM * 4u];
+shared vec2 buf_a_dm[BK_STEP * BM];
+shared uint buf_b_qs[BK_STEP * BN * 8u];
+shared vec2 buf_b_sd[BK_STEP * BN];
+
+uint q4k_scale_byte(uint sc0, uint sc1, uint sc2, uint idx) {
+    uint word = (idx < 4u) ? sc0 : ((idx < 8u) ? sc1 : sc2);
+    return (word >> ((idx & 3u) * 8u)) & 0xFFu;
+}
+
+void q4k_scale_min(uint sb, uint sc0, uint sc1, uint sc2, out float sc_val, out float mn_val) {
+    if (sb < 4u) {
+        const uint b0 = q4k_scale_byte(sc0, sc1, sc2, sb);
+        const uint b4 = q4k_scale_byte(sc0, sc1, sc2, sb + 4u);
+        sc_val = float(b0 & 63u);
+        mn_val = float(b4 & 63u);
+    } else {
+        const uint b = q4k_scale_byte(sc0, sc1, sc2, sb);
+        const uint b4 = q4k_scale_byte(sc0, sc1, sc2, sb + 4u);
+        const uint bm4 = q4k_scale_byte(sc0, sc1, sc2, sb - 4u);
+        sc_val = float((b4 & 0xFu) | ((bm4 >> 6u) << 4u));
+        mn_val = float(((b4 >> 4u) & 0xFu) | ((b >> 6u) << 4u));
+    }
+}
+
+uint pack_q4_iqs(uint blk_u32, uint sb, uint iqs) {
+    const uint iqs_k = sb * 8u + iqs * 2u;
+    const uint qs_idx = (iqs_k / 16u) * 8u + (iqs_k % 8u);
+    const uint qs_shift = ((iqs_k % 16u) / 8u) * 4u;
+    const uint vals0 = (a_u32[blk_u32 + 4u + qs_idx] >> qs_shift) & 0x0F0F0F0Fu;
+    const uint vals1 = (a_u32[blk_u32 + 4u + qs_idx + 1u] >> qs_shift) & 0x0F0F0F0Fu;
+    return vals0 | (vals1 << 4u);
+}
+
+vec2 q4_dm(uint blk_u32, uint sb) {
+    const uint d_dmin = a_u32[blk_u32];
+    const float d_val = unpackHalf2x16(d_dmin & 0xFFFFu).x;
+    const float dmin_val = unpackHalf2x16(d_dmin >> 16u).x;
+    const uint sc0 = a_u32[blk_u32 + 1u];
+    const uint sc1 = a_u32[blk_u32 + 2u];
+    const uint sc2 = a_u32[blk_u32 + 3u];
+    float sc_val;
+    float mn_val;
+    q4k_scale_min(sb, sc0, sc1, sc2, sc_val, mn_val);
+    return vec2(d_val * sc_val, dmin_val * mn_val);
+}
+
+void main() {
+    const uint tid = gl_LocalInvocationID.x;
+    const uint ir = gl_WorkGroupID.x;
+    const uint ic = gl_WorkGroupID.y;
+
+    const uint warp_i = tid / WARP;
+    const uint tiw = tid % WARP;
+    const uint tiwr = tiw % (WSUBM / TM);
+    const uint tiwc = tiw / (WSUBM / TM);
+    const uint warp_c = warp_i;
+
+    const uint loadr_a = tid % (BK / 8u);
+    const uint loadc_a = tid / (BK / 8u);
+    const uint loadr_b = tid % (BK / 16u);
+    const uint loadc_b = tid / (BK / 16u);
+    const uint loadstride_a = WG_SIZE * 8u / BK;
+    const uint loadstride_b = WG_SIZE * 16u / BK;
+
+    float sums[WNITER * WMITER * TM * TN];
+    [[unroll]] for (uint i = 0u; i < WNITER * WMITER * TM * TN; i++) {
+        sums[i] = 0.0;
+    }
+
+    const uint k_limit = (SPEC_K != 0u) ? SPEC_K : K;
+    const uint blocks_per_row = k_limit / 256u;
+    const uint a_base_u32 = a_offset / 4u;
+    const uint b_stride_packed = (SPEC_K != 0u) ? (SPEC_K / 4u) : stride_b_packed;
+    const uint b_stride_scale = (SPEC_K != 0u) ? (SPEC_K / 32u) : stride_b_scale;
+
+    for (uint k_outer = 0u; k_outer < k_limit; k_outer += BK * BK_STEP) {
+        [[unroll]] for (uint l = 0u; loadc_a + l < BM; l += loadstride_a) {
+            const uint row_local = loadc_a + l;
+            const uint row_global = ir * BM + row_local;
+
+            [[unroll]] for (uint ks = 0u; ks < BK_STEP; ks++) {
+                const uint k_step_base = k_outer + ks * BK;
+                const uint super_block = k_step_base >> 8u;
+                const uint sb = (k_step_base & 255u) >> 5u;
+                const uint blk_u32 = a_base_u32
+                    + row_global * blocks_per_row * Q4K_BLOCK_U32
+                    + super_block * Q4K_BLOCK_U32;
+                buf_a_qs[(ks * BM + row_local) * 4u + loadr_a] = pack_q4_iqs(blk_u32, sb, loadr_a);
+                if (loadr_a == 0u) {
+                    buf_a_dm[ks * BM + row_local] = q4_dm(blk_u32, sb);
+                }
+            }
+        }
+
+        [[unroll]] for (uint l = 0u; loadc_b + l < BN; l += loadstride_b) {
+            const uint col_local = loadc_b + l;
+            const uint col_global = ic * BN + col_local;
+
+            [[unroll]] for (uint ks = 0u; ks < BK_STEP; ks++) {
+                const uint k_step_base = k_outer + ks * BK;
+                const uint block_b = k_step_base >> 5u;
+                const uint src = col_global * b_stride_packed + ((k_step_base + loadr_b * 16u) >> 2u);
+                const uint b_base = (ks * BN + col_local) * 8u + loadr_b * 4u;
+                [[unroll]] for (uint p = 0u; p < 4u; p++) {
+                    buf_b_qs[b_base + p] = b_packed[src + p];
+                }
+                if (loadr_b == 0u) {
+                    buf_b_sd[ks * BN + col_local] = b_scale_dsum[col_global * b_stride_scale + block_b];
+                }
+            }
+        }
+
+        barrier();
+
+        [[unroll]] for (uint ks = 0u; ks < BK_STEP; ks++) {
+            uint a_qs[TM][4];
+            vec2 a_dm[TM];
+            [[unroll]] for (uint cr = 0u; cr < TM; cr++) {
+                const uint row_local = tiwr * TM + cr;
+                const uint a_base = (ks * BM + row_local) * 4u;
+                [[unroll]] for (uint p = 0u; p < 4u; p++) {
+                    a_qs[cr][p] = buf_a_qs[a_base + p];
+                }
+                a_dm[cr] = buf_a_dm[ks * BM + row_local];
+            }
+
+            [[unroll]] for (uint wsic = 0u; wsic < WNITER; wsic++) {
+                [[unroll]] for (uint cc = 0u; cc < TN; cc++) {
+                    const uint col_local = warp_c * WN + wsic * WSUBN + tiwc * TN + cc;
+                    const uint b_base = (ks * BN + col_local) * 8u;
+                    uint b_qs[8];
+                    [[unroll]] for (uint p = 0u; p < 8u; p++) {
+                        b_qs[p] = buf_b_qs[b_base + p];
+                    }
+                    const vec2 b_sd = buf_b_sd[ks * BN + col_local];
+
+                    [[unroll]] for (uint cr = 0u; cr < TM; cr++) {
+                        int q_sum = 0;
+                        [[unroll]] for (uint p = 0u; p < 8u; p++) {
+                            const uint qs_a = (a_qs[cr][p / 2u] >> ((p & 1u) * 4u)) & 0x0F0F0F0Fu;
+                            q_sum = dotPacked4x8AccSatEXT(int(qs_a), int(b_qs[p]), q_sum);
+                        }
+                        const uint sums_idx = (wsic * TN + cc) * TM + cr;
+                        sums[sums_idx] += b_sd.x * a_dm[cr].x * float(q_sum) - a_dm[cr].y * b_sd.y;
+                    }
+                }
+            }
+        }
+
+        barrier();
+    }
+
+    [[unroll]] for (uint wsic = 0u; wsic < WNITER; wsic++) {
+        [[unroll]] for (uint cc = 0u; cc < TN; cc++) {
+            const uint col_g = ic * BN + warp_c * WN + wsic * WSUBN + tiwc * TN + cc;
+            [[unroll]] for (uint cr = 0u; cr < TM; cr++) {
+                const uint row_g = ir * BM + tiwr * TM + cr;
+                if (row_g < M && col_g < N) {
+                    const uint sums_idx = (wsic * TN + cc) * TM + cr;
+                    d_data[d_offset + col_g * stride_d + row_g] += sums[sums_idx];
+                }
+            }
+        }
+    }
+}

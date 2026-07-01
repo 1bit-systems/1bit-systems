@@ -1,44 +1,39 @@
 # CLAUDE.md — 1bit.systems
 
-## Project
+Two inference engines, one chip. NPU (C++) + GPU (Zig). Zero Python.
 
-1-bit/ternary inference engine for AMD Strix Halo NPU (XDNA 2).
-Currently INT8 inference on Qwen3-0.6B at 243 ms/tok. Roadmap to BitNet b1.58.
+## Engine: NPU (`engine/npu/`)
 
-## Architecture
+C++23 INT8 inference on XDNA 2 NPU. 4-live contexts, 246 ms/tok.
 
-- `engine/src/npu_engine_i8.cpp` — Main inference engine (145 lines C++23)
-- `engine/src/dequant_q4nx.c` — Q4NX weight dequantizer (C)
-- `engine/xclbins/n1_core_i8_v2.py` — INT8 MLIR generator (K-interleave fixed)
-- `engine/kernel/edge_attention.cc` — NPU attention kernel (Chess C++)
-- `docs/` — Architecture docs, build guide, roadmap
+- `engine/npu/src/npu_engine_i8.cpp` — Main loop (155 lines)
+- `engine/npu/src/dequant_q4nx.c` — Q4NX dequantizer
+- `engine/npu/kernel/edge_attention.cc` — NPU attention (Chess C++)
+- `engine/npu/xclbins/n1_core_i8_v2.py` — INT8 MLIR generator
+
+Build: `g++ -std=c++23 -O3 -o npu_engine engine/npu/src/npu_engine_i8.cpp engine/npu/build/dequant_q4nx.o -I$XRT/include -L$XRT/lib64 -lxrt_coreutil -luuid -lm -ldl`
+
+## Engine: GPU (`engine/gpu/`)
+
+Zig inference on Vulkan/CUDA/Metal. GGUF native. Compute shaders.
+
+- `engine/gpu/src/vulkan/forward.zig` — Vulkan prefill + decode
+- `engine/gpu/src/cuda/` — CUDA backend
+- `engine/gpu/src/metal/` — Metal backend (Apple Silicon)
+- `engine/gpu/src/shaders/` — GLSL compute shaders (SPIR-V)
+
+Build: `zig build -Doptimize=ReleaseFast`
 
 ## Key facts
 
-- Pure C++ runtime. Zero Python at runtime. Zero Rust.
-- 4 INT8 GEMM contexts + 4 attention contexts alive simultaneously
-- Per-layer weight BOs pre-loaded at startup — no weight memcpy during inference
-- Q4NX weights dequantized once at startup (4.5s), then INT8 xclbins take over
-- NPU2 supports multiple concurrent hw_contexts (tested: 8 alive at once)
-- Chess compiler license required for xclbin builds (free from AMD Ryzen AI EA)
-
-## Build
-
-```bash
-# One-time xclbin build
-cd engine/xclbins && source torch2aie/scripts/env.sh
-python3 n1_core_i8_v2.py -M 128 -K $K -N $N > design.mlir
-aiecc --aietools=$AIETOOLS_DIR --aie-generate-xclbin design.mlir
-
-# Engine build
-g++ -std=c++23 -O3 -o npu_engine engine/src/npu_engine_i8.cpp \
-    engine/build/dequant_q4nx.o \
-    -I$XRT/include -L$XRT/lib64 -lxrt_coreutil -luuid -lm -ldl
-```
+- Both engines share the same brand, same domain, same chip targets
+- NPU engine uses INT8 xclbins + XRT runtime
+- GPU engine uses Vulkan 1.3 compute shaders + SPIR-V
+- Both are pure native — no Python, no Rust, no runtime interpreters
+- Journey doc at docs/journey.md (full audit trail)
 
 ## References
 
-- `/home/bcloud/npu-sandbox/` — NPU sandbox with all experiments
-- `/home/bcloud/torch2aie/` — AMD toolchain (xclbin compilation)
-- `/home/bcloud/Desktop/HANDOFF-NPU-OPTIMIZATION.md` — Full project history
-- `/home/bcloud/npu-gpu-cpu/` — Git history with INT8 engine commits
+- `/home/bcloud/npu-sandbox/` — NPU experiments
+- `/home/bcloud/torch2aie/` — AMD toolchain
+- `/home/bcloud/zinc/` — Original GPU engine source

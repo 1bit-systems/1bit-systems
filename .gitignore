@@ -23,3 +23,5 @@ Thumbs.db
 *.xclbin
 *.insts
 /opt/
+.zig-cache/
+zig-out/

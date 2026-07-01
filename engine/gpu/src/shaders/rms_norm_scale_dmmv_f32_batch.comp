@@ -1,0 +1,67 @@
+#version 460
+// ZINC - token-batched Gemma router RMS norm + scale + f32 DMMV.
+//
+// Grid:
+//   x = router row / expert
+//   y = token
+//
+// Input hidden is token-major [token][K]. Router weights are f32 row-major
+// [M][K]. Output logits are token-major [token][M].
+
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(local_size_x = 64) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+    uint n_tokens;
+    uint eps_bits;
+};
+
+layout(set = 0, binding = 0) readonly buffer Hidden {
+    vec4 hidden_v4[];
+};
+
+layout(set = 0, binding = 1) readonly buffer RouterScale {
+    vec4 scale_v4[];
+};
+
+layout(set = 0, binding = 2) readonly buffer RouterWeights {
+    vec4 router_w_v4[];
+};
+
+layout(set = 0, binding = 3) writeonly buffer RouterLogits {
+    float router_out[];
+};
+
+void main() {
+    const uint row = gl_WorkGroupID.x;
+    const uint tok = gl_WorkGroupID.y;
+    const uint tid = gl_LocalInvocationID.x;
+    if (row >= M || tok >= n_tokens) return;
+
+    const float eps = uintBitsToFloat(eps_bits);
+    const uint K_v4 = K >> 2;
+    const uint x_base = tok * K_v4;
+
+    float sum_sq = 0.0;
+    for (uint i = tid; i < K_v4; i += 64u) {
+        const vec4 v = hidden_v4[x_base + i];
+        sum_sq += dot(v, v);
+    }
+    sum_sq = subgroupAdd(sum_sq);
+
+    const float rms_inv = inversesqrt(sum_sq / float(K) + eps);
+    const uint w_base_v4 = row * K_v4;
+
+    float sum = 0.0;
+    for (uint k_v4 = tid; k_v4 < K_v4; k_v4 += 64u) {
+        const vec4 x = hidden_v4[x_base + k_v4] * rms_inv * scale_v4[k_v4];
+        sum += dot(x, router_w_v4[w_base_v4 + k_v4]);
+    }
+    sum = subgroupAdd(sum);
+    if (tid == 0u) {
+        router_out[tok * M + row] = sum;
+    }
+}

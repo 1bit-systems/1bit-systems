@@ -1,0 +1,125 @@
+#version 460
+// Batched MoE top-k + renormalized softmax.
+//
+// One workgroup processes one token's router logits. The compact output slot is
+// token-major, with ids first and f32 weights written as uint bits:
+//   slot[0..k)  = expert ids
+//   slot[k..2k) = softmax weights
+
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) readonly buffer Logits {
+    float logits[];
+};
+
+layout(set = 0, binding = 1) buffer RouterOutput {
+    uint output_data[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint n_experts;
+    uint k;
+    uint scale_bits;
+    uint token_base;
+    uint n_tokens;
+    uint logits_stride;
+    uint output_stride;
+};
+
+const uint MAX_PER_THREAD = 4u;
+const uint MAX_K = 16u;
+
+shared float s_topk_logits[MAX_K];
+shared uint s_subgroup_winner[4];
+shared uint s_global_winner;
+
+uint sortable(float f) {
+    uint ui = floatBitsToUint(f);
+    return (ui & 0x80000000u) != 0u ? ~ui : (ui ^ 0x80000000u);
+}
+
+float unsortable_hi(uint s) {
+    uint full = (s & 0x80000000u) != 0u ? (s ^ 0x80000000u) : ~s;
+    return uintBitsToFloat(full & 0xFFFFFF00u);
+}
+
+void main() {
+    uint local_tok = gl_WorkGroupID.x;
+    uint tid = gl_LocalInvocationID.x;
+    if (local_tok >= n_tokens) return;
+
+    uint tok = token_base + local_tok;
+    uint logits_base = tok * logits_stride;
+    uint out_base = tok * output_stride;
+    float logit_scale = uintBitsToFloat(scale_bits);
+
+    float vals[MAX_PER_THREAD];
+    uint idxs[MAX_PER_THREAD];
+    for (uint i = 0u; i < MAX_PER_THREAD; i++) {
+        uint elem_idx = tid + i * 64u;
+        if (elem_idx < n_experts) {
+            vals[i] = logits[logits_base + elem_idx];
+            idxs[i] = elem_idx;
+        } else {
+            vals[i] = -1.0 / 0.0;
+            idxs[i] = 0u;
+        }
+    }
+
+    for (uint ki = 0u; ki < k; ki++) {
+        float best_val = vals[0];
+        uint best_idx = idxs[0];
+        for (uint i = 1u; i < MAX_PER_THREAD; i++) {
+            if (vals[i] > best_val) {
+                best_val = vals[i];
+                best_idx = idxs[i];
+            }
+        }
+
+        uint packed = (sortable(best_val) & 0xFFFFFF00u)
+                    | (255u - (best_idx & 0xFFu));
+        uint subgroup_winner = subgroupMax(packed);
+        if (subgroupElect()) {
+            s_subgroup_winner[gl_SubgroupID] = subgroup_winner;
+        }
+        barrier();
+
+        if (tid == 0u) {
+            uint winner_scan = s_subgroup_winner[0];
+            for (uint sg = 1u; sg < gl_NumSubgroups; sg++) {
+                winner_scan = max(winner_scan, s_subgroup_winner[sg]);
+            }
+            s_global_winner = winner_scan;
+        }
+        barrier();
+
+        uint winner = s_global_winner;
+        uint winner_idx = 255u - (winner & 0xFFu);
+        float winner_val = unsortable_hi(winner & 0xFFFFFF00u);
+
+        for (uint i = 0u; i < MAX_PER_THREAD; i++) {
+            if (idxs[i] == winner_idx) {
+                vals[i] = -1.0 / 0.0;
+            }
+        }
+
+        if (tid == 0u) {
+            output_data[out_base + ki] = winner_idx;
+            if (ki < MAX_K) s_topk_logits[ki] = winner_val * logit_scale;
+        }
+    }
+
+    barrier();
+
+    float my_logit = (tid < k && tid < MAX_K) ? s_topk_logits[tid] : -1.0 / 0.0;
+    float max_logit = subgroupMax(my_logit);
+    float my_exp = (tid < k && tid < MAX_K) ? exp(my_logit - max_logit) : 0.0;
+    float wsum = subgroupAdd(my_exp);
+    float inv_wsum = (wsum > 0.0) ? (1.0 / wsum) : 0.0;
+    if (tid < k && tid < MAX_K) {
+        output_data[out_base + k + tid] = floatBitsToUint(my_exp * inv_wsum);
+    }
+}

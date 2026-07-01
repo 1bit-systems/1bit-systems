@@ -1,0 +1,215 @@
+#version 460
+// ZINC - Q8_0 fused pair DMMV.
+//
+// Computes two independent Q8_0 matvecs that share the same input vector:
+//   Y0[row] = A0[row] * X
+//   Y1[row] = A1[row] * X
+// The primary target is Qwen A3B SSM projection, where wqkv and z/gate are
+// separate Q8_0 matrices fed by the same attn_norm vector.
+
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_EXT_shader_16bit_storage : require
+
+layout(local_size_x = 64) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M0;
+    uint M1;
+    uint K;
+    uint a0_offset;
+    uint a1_offset;
+    uint x_offset;
+    uint y0_offset;
+    uint y1_offset;
+};
+
+layout(set = 0, binding = 0) readonly buffer MatrixA0 { uint8_t a0_data[]; };
+layout(set = 0, binding = 1) readonly buffer MatrixA1 { uint8_t a1_data[]; };
+layout(set = 0, binding = 2) readonly buffer VectorX  { vec4 x_data[];    };
+layout(set = 0, binding = 3) writeonly buffer VectorY0 { float y0_data[]; };
+layout(set = 0, binding = 4) writeonly buffer VectorY1 { float y1_data[]; };
+
+const uint Q8_0_BLOCK_SIZE = 32u;
+const uint Q8_0_BYTES = 34u;
+
+shared float s_sum00[4];
+shared float s_sum01[4];
+shared float s_sum10[4];
+shared float s_sum11[4];
+
+void main() {
+    uint row0 = gl_WorkGroupID.x * 2u;
+    uint row1 = row0 + 1u;
+    uint tid = gl_LocalInvocationID.x;
+    uint blocks_per_row = K / Q8_0_BLOCK_SIZE;
+    bool do00 = row0 < M0;
+    bool do01 = row1 < M0;
+    bool do10 = row0 < M1;
+    bool do11 = row1 < M1;
+
+    if (!do00 && !do01 && !do10 && !do11) return;
+
+    float sum00 = 0.0;
+    float sum01 = 0.0;
+    float sum10 = 0.0;
+    float sum11 = 0.0;
+
+    for (uint blk = tid; blk < blocks_per_row; blk += 64u) {
+        uint x_base_v4 = x_offset / 16u + blk * 8u;
+
+        vec4 xv0 = x_data[x_base_v4 + 0u];
+        vec4 xv1 = x_data[x_base_v4 + 1u];
+        vec4 xv2 = x_data[x_base_v4 + 2u];
+        vec4 xv3 = x_data[x_base_v4 + 3u];
+        vec4 xv4 = x_data[x_base_v4 + 4u];
+        vec4 xv5 = x_data[x_base_v4 + 5u];
+        vec4 xv6 = x_data[x_base_v4 + 6u];
+        vec4 xv7 = x_data[x_base_v4 + 7u];
+
+        if (do00) {
+            uint byte_off = a0_offset + row0 * blocks_per_row * Q8_0_BYTES + blk * Q8_0_BYTES;
+            uint d_bits = uint(a0_data[byte_off]) | (uint(a0_data[byte_off + 1u]) << 8);
+            float d = unpackHalf2x16(d_bits).x;
+            uint qs = byte_off + 2u;
+
+            ivec4 q0 = ivec4(int(int8_t(a0_data[qs + 0u])), int(int8_t(a0_data[qs + 1u])), int(int8_t(a0_data[qs + 2u])), int(int8_t(a0_data[qs + 3u])));
+            ivec4 q1 = ivec4(int(int8_t(a0_data[qs + 4u])), int(int8_t(a0_data[qs + 5u])), int(int8_t(a0_data[qs + 6u])), int(int8_t(a0_data[qs + 7u])));
+            ivec4 q2 = ivec4(int(int8_t(a0_data[qs + 8u])), int(int8_t(a0_data[qs + 9u])), int(int8_t(a0_data[qs + 10u])), int(int8_t(a0_data[qs + 11u])));
+            ivec4 q3 = ivec4(int(int8_t(a0_data[qs + 12u])), int(int8_t(a0_data[qs + 13u])), int(int8_t(a0_data[qs + 14u])), int(int8_t(a0_data[qs + 15u])));
+            ivec4 q4 = ivec4(int(int8_t(a0_data[qs + 16u])), int(int8_t(a0_data[qs + 17u])), int(int8_t(a0_data[qs + 18u])), int(int8_t(a0_data[qs + 19u])));
+            ivec4 q5 = ivec4(int(int8_t(a0_data[qs + 20u])), int(int8_t(a0_data[qs + 21u])), int(int8_t(a0_data[qs + 22u])), int(int8_t(a0_data[qs + 23u])));
+            ivec4 q6 = ivec4(int(int8_t(a0_data[qs + 24u])), int(int8_t(a0_data[qs + 25u])), int(int8_t(a0_data[qs + 26u])), int(int8_t(a0_data[qs + 27u])));
+            ivec4 q7 = ivec4(int(int8_t(a0_data[qs + 28u])), int(int8_t(a0_data[qs + 29u])), int(int8_t(a0_data[qs + 30u])), int(int8_t(a0_data[qs + 31u])));
+
+            float block_sum = 0.0;
+            block_sum += dot(vec4(q0), xv0);
+            block_sum += dot(vec4(q1), xv1);
+            block_sum += dot(vec4(q2), xv2);
+            block_sum += dot(vec4(q3), xv3);
+            block_sum += dot(vec4(q4), xv4);
+            block_sum += dot(vec4(q5), xv5);
+            block_sum += dot(vec4(q6), xv6);
+            block_sum += dot(vec4(q7), xv7);
+            sum00 += d * block_sum;
+        }
+
+        if (do01) {
+            uint byte_off = a0_offset + row1 * blocks_per_row * Q8_0_BYTES + blk * Q8_0_BYTES;
+            uint d_bits = uint(a0_data[byte_off]) | (uint(a0_data[byte_off + 1u]) << 8);
+            float d = unpackHalf2x16(d_bits).x;
+            uint qs = byte_off + 2u;
+
+            ivec4 q0 = ivec4(int(int8_t(a0_data[qs + 0u])), int(int8_t(a0_data[qs + 1u])), int(int8_t(a0_data[qs + 2u])), int(int8_t(a0_data[qs + 3u])));
+            ivec4 q1 = ivec4(int(int8_t(a0_data[qs + 4u])), int(int8_t(a0_data[qs + 5u])), int(int8_t(a0_data[qs + 6u])), int(int8_t(a0_data[qs + 7u])));
+            ivec4 q2 = ivec4(int(int8_t(a0_data[qs + 8u])), int(int8_t(a0_data[qs + 9u])), int(int8_t(a0_data[qs + 10u])), int(int8_t(a0_data[qs + 11u])));
+            ivec4 q3 = ivec4(int(int8_t(a0_data[qs + 12u])), int(int8_t(a0_data[qs + 13u])), int(int8_t(a0_data[qs + 14u])), int(int8_t(a0_data[qs + 15u])));
+            ivec4 q4 = ivec4(int(int8_t(a0_data[qs + 16u])), int(int8_t(a0_data[qs + 17u])), int(int8_t(a0_data[qs + 18u])), int(int8_t(a0_data[qs + 19u])));
+            ivec4 q5 = ivec4(int(int8_t(a0_data[qs + 20u])), int(int8_t(a0_data[qs + 21u])), int(int8_t(a0_data[qs + 22u])), int(int8_t(a0_data[qs + 23u])));
+            ivec4 q6 = ivec4(int(int8_t(a0_data[qs + 24u])), int(int8_t(a0_data[qs + 25u])), int(int8_t(a0_data[qs + 26u])), int(int8_t(a0_data[qs + 27u])));
+            ivec4 q7 = ivec4(int(int8_t(a0_data[qs + 28u])), int(int8_t(a0_data[qs + 29u])), int(int8_t(a0_data[qs + 30u])), int(int8_t(a0_data[qs + 31u])));
+
+            float block_sum = 0.0;
+            block_sum += dot(vec4(q0), xv0);
+            block_sum += dot(vec4(q1), xv1);
+            block_sum += dot(vec4(q2), xv2);
+            block_sum += dot(vec4(q3), xv3);
+            block_sum += dot(vec4(q4), xv4);
+            block_sum += dot(vec4(q5), xv5);
+            block_sum += dot(vec4(q6), xv6);
+            block_sum += dot(vec4(q7), xv7);
+            sum01 += d * block_sum;
+        }
+
+        if (do10) {
+            uint byte_off = a1_offset + row0 * blocks_per_row * Q8_0_BYTES + blk * Q8_0_BYTES;
+            uint d_bits = uint(a1_data[byte_off]) | (uint(a1_data[byte_off + 1u]) << 8);
+            float d = unpackHalf2x16(d_bits).x;
+            uint qs = byte_off + 2u;
+
+            ivec4 q0 = ivec4(int(int8_t(a1_data[qs + 0u])), int(int8_t(a1_data[qs + 1u])), int(int8_t(a1_data[qs + 2u])), int(int8_t(a1_data[qs + 3u])));
+            ivec4 q1 = ivec4(int(int8_t(a1_data[qs + 4u])), int(int8_t(a1_data[qs + 5u])), int(int8_t(a1_data[qs + 6u])), int(int8_t(a1_data[qs + 7u])));
+            ivec4 q2 = ivec4(int(int8_t(a1_data[qs + 8u])), int(int8_t(a1_data[qs + 9u])), int(int8_t(a1_data[qs + 10u])), int(int8_t(a1_data[qs + 11u])));
+            ivec4 q3 = ivec4(int(int8_t(a1_data[qs + 12u])), int(int8_t(a1_data[qs + 13u])), int(int8_t(a1_data[qs + 14u])), int(int8_t(a1_data[qs + 15u])));
+            ivec4 q4 = ivec4(int(int8_t(a1_data[qs + 16u])), int(int8_t(a1_data[qs + 17u])), int(int8_t(a1_data[qs + 18u])), int(int8_t(a1_data[qs + 19u])));
+            ivec4 q5 = ivec4(int(int8_t(a1_data[qs + 20u])), int(int8_t(a1_data[qs + 21u])), int(int8_t(a1_data[qs + 22u])), int(int8_t(a1_data[qs + 23u])));
+            ivec4 q6 = ivec4(int(int8_t(a1_data[qs + 24u])), int(int8_t(a1_data[qs + 25u])), int(int8_t(a1_data[qs + 26u])), int(int8_t(a1_data[qs + 27u])));
+            ivec4 q7 = ivec4(int(int8_t(a1_data[qs + 28u])), int(int8_t(a1_data[qs + 29u])), int(int8_t(a1_data[qs + 30u])), int(int8_t(a1_data[qs + 31u])));
+
+            float block_sum = 0.0;
+            block_sum += dot(vec4(q0), xv0);
+            block_sum += dot(vec4(q1), xv1);
+            block_sum += dot(vec4(q2), xv2);
+            block_sum += dot(vec4(q3), xv3);
+            block_sum += dot(vec4(q4), xv4);
+            block_sum += dot(vec4(q5), xv5);
+            block_sum += dot(vec4(q6), xv6);
+            block_sum += dot(vec4(q7), xv7);
+            sum10 += d * block_sum;
+        }
+
+        if (do11) {
+            uint byte_off = a1_offset + row1 * blocks_per_row * Q8_0_BYTES + blk * Q8_0_BYTES;
+            uint d_bits = uint(a1_data[byte_off]) | (uint(a1_data[byte_off + 1u]) << 8);
+            float d = unpackHalf2x16(d_bits).x;
+            uint qs = byte_off + 2u;
+
+            ivec4 q0 = ivec4(int(int8_t(a1_data[qs + 0u])), int(int8_t(a1_data[qs + 1u])), int(int8_t(a1_data[qs + 2u])), int(int8_t(a1_data[qs + 3u])));
+            ivec4 q1 = ivec4(int(int8_t(a1_data[qs + 4u])), int(int8_t(a1_data[qs + 5u])), int(int8_t(a1_data[qs + 6u])), int(int8_t(a1_data[qs + 7u])));
+            ivec4 q2 = ivec4(int(int8_t(a1_data[qs + 8u])), int(int8_t(a1_data[qs + 9u])), int(int8_t(a1_data[qs + 10u])), int(int8_t(a1_data[qs + 11u])));
+            ivec4 q3 = ivec4(int(int8_t(a1_data[qs + 12u])), int(int8_t(a1_data[qs + 13u])), int(int8_t(a1_data[qs + 14u])), int(int8_t(a1_data[qs + 15u])));
+            ivec4 q4 = ivec4(int(int8_t(a1_data[qs + 16u])), int(int8_t(a1_data[qs + 17u])), int(int8_t(a1_data[qs + 18u])), int(int8_t(a1_data[qs + 19u])));
+            ivec4 q5 = ivec4(int(int8_t(a1_data[qs + 20u])), int(int8_t(a1_data[qs + 21u])), int(int8_t(a1_data[qs + 22u])), int(int8_t(a1_data[qs + 23u])));
+            ivec4 q6 = ivec4(int(int8_t(a1_data[qs + 24u])), int(int8_t(a1_data[qs + 25u])), int(int8_t(a1_data[qs + 26u])), int(int8_t(a1_data[qs + 27u])));
+            ivec4 q7 = ivec4(int(int8_t(a1_data[qs + 28u])), int(int8_t(a1_data[qs + 29u])), int(int8_t(a1_data[qs + 30u])), int(int8_t(a1_data[qs + 31u])));
+
+            float block_sum = 0.0;
+            block_sum += dot(vec4(q0), xv0);
+            block_sum += dot(vec4(q1), xv1);
+            block_sum += dot(vec4(q2), xv2);
+            block_sum += dot(vec4(q3), xv3);
+            block_sum += dot(vec4(q4), xv4);
+            block_sum += dot(vec4(q5), xv5);
+            block_sum += dot(vec4(q6), xv6);
+            block_sum += dot(vec4(q7), xv7);
+            sum11 += d * block_sum;
+        }
+    }
+
+    sum00 = subgroupAdd(sum00);
+    sum01 = subgroupAdd(sum01);
+    sum10 = subgroupAdd(sum10);
+    sum11 = subgroupAdd(sum11);
+
+    if (gl_NumSubgroups > 1u) {
+        if (subgroupElect()) {
+            s_sum00[gl_SubgroupID] = sum00;
+            s_sum01[gl_SubgroupID] = sum01;
+            s_sum10[gl_SubgroupID] = sum10;
+            s_sum11[gl_SubgroupID] = sum11;
+        }
+        barrier();
+        if (tid == 0u) {
+            sum00 = s_sum00[0];
+            sum01 = s_sum01[0];
+            sum10 = s_sum10[0];
+            sum11 = s_sum11[0];
+            for (uint sg = 1u; sg < gl_NumSubgroups; sg++) {
+                sum00 += s_sum00[sg];
+                sum01 += s_sum01[sg];
+                sum10 += s_sum10[sg];
+                sum11 += s_sum11[sg];
+            }
+        }
+    }
+
+    if (tid == 0u) {
+        uint y0_base = y0_offset / 4u;
+        uint y1_base = y1_offset / 4u;
+        if (do00) y0_data[y0_base + row0] = sum00;
+        if (do01) y0_data[y0_base + row1] = sum01;
+        if (do10) y1_data[y1_base + row0] = sum10;
+        if (do11) y1_data[y1_base + row1] = sum11;
+    }
+}

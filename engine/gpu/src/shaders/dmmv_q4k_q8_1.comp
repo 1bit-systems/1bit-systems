@@ -1,0 +1,148 @@
+#version 460
+// ZINC - Q4_K weights x Q8_1 activation DMMV.
+//
+// One wave computes two output rows. Each lane owns one 32-value sub-block
+// from one Q4_K superblock, uses int8 dot4 against the pre-quantized
+// activation, and contributes the Q4_K min correction from Q8_1's dsum term.
+
+#include "dp4a_compat.glsl"
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(local_size_x = 64) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+    uint a_offset;
+    uint x_offset;
+    uint y_offset;
+    uint acc_mode;
+};
+
+layout(set = 0, binding = 0) readonly buffer MatrixA { uint a_u32[]; };
+layout(set = 0, binding = 1) readonly buffer VectorXQ81 { uint x_q81[]; };
+layout(set = 0, binding = 2) buffer VectorY { float y_data[]; };
+
+const uint Q4K_BLOCK_U32 = 36u;
+const uint Q8_1_U32_PER_BLOCK = 9u;
+const uint NUM_ROWS = 2u;
+
+shared float s_sg_sums0[4];
+shared float s_sg_sums1[4];
+
+uint q4k_scale_byte(uint sc0, uint sc1, uint sc2, uint idx) {
+    uint word = (idx < 4u) ? sc0 : ((idx < 8u) ? sc1 : sc2);
+    return (word >> ((idx & 3u) * 8u)) & 0xFFu;
+}
+
+void q4k_scale_min(uint sb, uint sc0, uint sc1, uint sc2, out float sc_val, out float mn_val) {
+    if (sb < 4u) {
+        const uint b0 = q4k_scale_byte(sc0, sc1, sc2, sb);
+        const uint b4 = q4k_scale_byte(sc0, sc1, sc2, sb + 4u);
+        sc_val = float(b0 & 63u);
+        mn_val = float(b4 & 63u);
+    } else {
+        const uint b = q4k_scale_byte(sc0, sc1, sc2, sb);
+        const uint b4 = q4k_scale_byte(sc0, sc1, sc2, sb + 4u);
+        const uint bm4 = q4k_scale_byte(sc0, sc1, sc2, sb - 4u);
+        sc_val = float((b4 & 0xFu) | ((bm4 >> 6) << 4));
+        mn_val = float(((b4 >> 4) & 0xFu) | ((b >> 6) << 4));
+    }
+}
+
+uint q4k_pack_nibbles(uint qs_word, bool high) {
+    if (high) qs_word >>= 4u;
+    const uint q0 = qs_word & 0xFu;
+    const uint q1 = (qs_word >> 8u) & 0xFu;
+    const uint q2 = (qs_word >> 16u) & 0xFu;
+    const uint q3 = (qs_word >> 24u) & 0xFu;
+    return q0 | (q1 << 8u) | (q2 << 16u) | (q3 << 24u);
+}
+
+float q4k_q8_1_block_dot(uint row_u32, uint q4_block, uint sb, uint x_block_u32) {
+    const uint blk_u32 = row_u32 + q4_block * Q4K_BLOCK_U32;
+    const uint d_dmin = a_u32[blk_u32];
+    const float d_val = unpackHalf2x16(d_dmin & 0xFFFFu).x;
+    const float dmin_val = unpackHalf2x16(d_dmin >> 16).x;
+    const uint sc0 = a_u32[blk_u32 + 1u];
+    const uint sc1 = a_u32[blk_u32 + 2u];
+    const uint sc2 = a_u32[blk_u32 + 3u];
+
+    float sc_val;
+    float mn_val;
+    q4k_scale_min(sb, sc0, sc1, sc2, sc_val, mn_val);
+
+    const uint q_group = sb >> 1u;
+    const bool high = (sb & 1u) != 0u;
+    const uint qs_base = blk_u32 + 4u + q_group * 8u;
+    int isum = 0;
+    [[unroll]] for (uint p = 0u; p < 8u; p++) {
+        const uint q_packed = q4k_pack_nibbles(a_u32[qs_base + p], high);
+        isum = dotPacked4x8AccSatEXT(int(q_packed), int(x_q81[x_block_u32 + p]), isum);
+    }
+
+    const vec2 ds = unpackHalf2x16(x_q81[x_block_u32 + 8u]);
+    return ds.x * (d_val * sc_val) * float(isum) - (dmin_val * mn_val) * ds.y;
+}
+
+void main() {
+    const uint tid = gl_LocalInvocationID.x;
+    const uint row0 = gl_WorkGroupID.x * NUM_ROWS;
+    if (row0 >= M) return;
+    const uint row1 = row0 + 1u;
+    const bool row1_valid = row1 < M;
+
+    const uint blocks_per_row = K / 256u;
+    const uint a_base = a_offset / 4u;
+    const uint x_base_block = x_offset / 36u;
+    const uint y_base = y_offset / 4u;
+
+    const uint sb = tid & 7u;
+    const uint block_lane = tid >> 3u;
+
+    const uint row0_u32 = a_base + row0 * blocks_per_row * Q4K_BLOCK_U32;
+    const uint row1_u32 = a_base + row1 * blocks_per_row * Q4K_BLOCK_U32;
+
+    float sum0 = 0.0;
+    float sum1 = 0.0;
+    for (uint b = block_lane; b < blocks_per_row; b += 8u) {
+        const uint x_block_u32 = (x_base_block + b * 8u + sb) * Q8_1_U32_PER_BLOCK;
+        sum0 += q4k_q8_1_block_dot(row0_u32, b, sb, x_block_u32);
+        if (row1_valid) {
+            sum1 += q4k_q8_1_block_dot(row1_u32, b, sb, x_block_u32);
+        }
+    }
+
+    sum0 = subgroupAdd(sum0);
+    sum1 = subgroupAdd(sum1);
+    if (gl_NumSubgroups > 1u) {
+        if (subgroupElect()) {
+            s_sg_sums0[gl_SubgroupID] = sum0;
+            s_sg_sums1[gl_SubgroupID] = sum1;
+        }
+        barrier();
+        if (tid == 0u) {
+            sum0 = s_sg_sums0[0];
+            sum1 = s_sg_sums1[0];
+            for (uint sg = 1u; sg < gl_NumSubgroups; sg++) {
+                sum0 += s_sg_sums0[sg];
+                sum1 += s_sg_sums1[sg];
+            }
+        }
+        barrier();
+    }
+
+    if (tid == 0u) {
+        if (acc_mode != 0u) {
+            y_data[y_base + row0] += sum0;
+            if (row1_valid) y_data[y_base + row1] += sum1;
+        } else {
+            y_data[y_base + row0] = sum0;
+            if (row1_valid) y_data[y_base + row1] = sum1;
+        }
+    }
+}

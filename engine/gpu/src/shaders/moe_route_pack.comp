@@ -1,0 +1,106 @@
+#version 460
+// ZINC - grouped MoE route packing helper.
+//
+// One workgroup scans a token-major routing cache, counts routes per expert,
+// stores route ids in expert-major order, and emits compact active blocks:
+//   active_blocks[i] = expert_id | (block_index << 16)
+//
+// Consumers use one active block for up to 8 route ids. This is the Vulkan
+// counterpart of the Metal route-pack block kernel, scoped to the current
+// layer's already-computed route cache.
+
+layout(local_size_x = 256) in;
+
+layout(push_constant) uniform PushConstants {
+    uint n_tokens;
+    uint n_experts;
+    uint k;
+    uint routing_stride;
+    uint ids_stride;
+    uint gate_up_workgroups_x;
+    uint down_workgroups_x;
+    uint routing_token_base;
+} pc;
+
+layout(set = 0, binding = 0) readonly buffer Routing {
+    uint routing[];
+};
+
+layout(set = 0, binding = 1) buffer Counts {
+    uint counts[];
+};
+
+layout(set = 0, binding = 2) buffer Ids {
+    uint ids[];
+};
+
+layout(set = 0, binding = 3) buffer ActiveBlockCount {
+    uint active_block_count[];
+};
+
+layout(set = 0, binding = 4) buffer ActiveBlocks {
+    uint active_blocks[];
+};
+
+layout(set = 0, binding = 5) buffer DispatchArgs {
+    uint dispatch_args[];
+};
+
+const uint NUM_COLS = 8u;
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+
+    if (tid == 0u) {
+        active_block_count[0] = 0u;
+    }
+    if (tid < pc.n_experts) {
+        counts[tid] = 0u;
+    }
+    memoryBarrierBuffer();
+    barrier();
+
+    const uint total_routes = pc.n_tokens * pc.k;
+    if (tid < pc.n_experts) {
+        for (uint route = tid; route < total_routes; route += pc.n_experts) {
+            const uint token = route / pc.k;
+            const uint slot = route - token * pc.k;
+            const uint expert_id = routing[(pc.routing_token_base + token) * pc.routing_stride + slot];
+            if (expert_id >= pc.n_experts) {
+                continue;
+            }
+            const uint index = atomicAdd(counts[expert_id], 1u);
+            if (index < pc.ids_stride) {
+                ids[expert_id * pc.ids_stride + index] = route;
+            }
+        }
+    }
+    memoryBarrierBuffer();
+    barrier();
+
+    if (tid < pc.n_experts) {
+        const uint stored_count = min(counts[tid], pc.ids_stride);
+        counts[tid] = stored_count;
+        const uint block_count = (stored_count + NUM_COLS - 1u) / NUM_COLS;
+        const uint block_offset = atomicAdd(active_block_count[0], block_count);
+        for (uint block = 0u; block < block_count; block++) {
+            active_blocks[block_offset + block] = tid | (block << 16u);
+        }
+    }
+    memoryBarrierBuffer();
+    barrier();
+
+    if (tid == 0u) {
+        const uint used_blocks = active_block_count[0];
+        dispatch_args[0] = pc.gate_up_workgroups_x;
+        dispatch_args[1] = used_blocks;
+        dispatch_args[2] = 1u;
+        dispatch_args[3] = pc.down_workgroups_x;
+        dispatch_args[4] = used_blocks;
+        dispatch_args[5] = 1u;
+        const uint max_blocks = total_routes;
+        for (uint i = used_blocks; i < max_blocks; i++) {
+            active_blocks[i] = 0xFFFFFFFFu;
+        }
+    }
+}

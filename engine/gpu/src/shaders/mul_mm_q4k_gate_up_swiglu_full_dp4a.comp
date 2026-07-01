@@ -1,0 +1,277 @@
+#version 460
+// ZINC — int8 DP4a full-tile Q4_K gate+up activation GEMM for dense FFN
+// prefill. Default specialization is SwiGLU for Qwen3.6-27B; Gemma selects
+// GEGLU through ACTIVATION=1 from a second host pipeline. Same lever as the
+// Q6_K dense-down DP4a path
+// (mul_mm_q6k_full_dp4a.comp): the f32-FMA / f16-LDS path is occupancy-bound
+// (shaderstats: 6 subgroups/SIMD at ~12.7KB LDS) and the only remaining
+// throughput lever is hardware int8 dot4 (v_dot4_i32_i8 / OpSDot
+// PackedVectorFormat4x8Bit), which does 4 MACs per instruction.
+//
+// Q4_K math: per row m, per 32-sub-block sb,
+//   weight[m,k] = factor[m,sb] * nibble[m,k] - bias[m,sb]    (k in the sub-block)
+//   factor = d * 6b_scale, bias = dmin * 6b_min.
+// With activations Q8-quantized per 32-block (scale s, packed int8 b_i8),
+//   sum_k weight[m,k]*B[k,n] for one sub-block
+//     = s[n,sb] * (factor[m,sb] * idot(nibble, b_i8) - bias[m,sb] * isum(b_i8))
+// dsum[n,sb] = s[n,sb] * isum is precomputed once by quantize_act_q8_1.comp so
+// the GEMM only does idot per (m,n,sb) and one MAD+MAD per (m,n,sb).
+//
+// Nibble packing for DP4a: Q4_K nibbles are in [0..15], which already sign-
+// extends to itself as int8, so we just mask the low (or high) nibble out of
+// each qs byte and ship it straight to dotPacked4x8AccSatEXT — no extra
+// dequant pass and no per-element FMA in the inner loop.
+//
+// LDS budget: ~3.8KB (gate=1024, up=1024, gate_fb=256, up_fb=256, b=1024,
+// b_sd=256). The f16 path uses ~12.7KB; halving LDS lifts the occupancy
+// ceiling from 6 to ~10 subgroups/SIMD (pre-VGPR check), the actual win.
+//
+// Host may only dispatch when M and N are multiples of 32. Ragged tails fall
+// back to the f32 mul_mm_q4k_gate_up_swiglu shader (the existing path).
+
+#include "dp4a_compat.glsl"
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_control_flow_attributes : require
+
+const uint BM = 32u;
+const uint BN = 32u;
+const uint BK = 32u;
+const uint TM = 4u;
+const uint TN = 4u;
+const uint WG_SIZE = 64u;
+const uint TPR_M = BM / TM;  // 8
+const uint TPR_N = BN / TN;  // 8
+
+const uint Q4K_BLOCK_U32 = 36u;
+// 8 packed uints (=32 int8) per BM/BN row, +1 pad uint so strided LDS reads
+// in the dot loop avoid bank conflicts on the 32-bank LDS.
+const uint SPACK = 9u;
+
+layout(local_size_x = WG_SIZE) in;
+
+layout(constant_id = 0) const uint ACTIVATION = 0u; // 0 = SwiGLU, 1 = GEGLU
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint N;
+    uint K;
+    uint stride_b_packed;  // per-column uints in packed activation = K/4
+    uint stride_b_scale;   // per-column vec2s in (scale, dsum)     = K/32
+    uint stride_d;         // per-column floats in output            = M
+    uint a_offset;         // byte offset into the Q4_K SSBOs (gate AND up)
+    uint d_offset;         // float offset into output
+};
+
+layout(set = 0, binding = 0) readonly buffer GateA { uint gate_u32[]; };
+layout(set = 0, binding = 1) readonly buffer UpA   { uint up_u32[]; };
+layout(set = 0, binding = 2) readonly buffer ActB  { uint b_packed[]; };
+layout(set = 0, binding = 3) readonly buffer SclB  { vec2 b_scale_dsum[]; };
+layout(set = 0, binding = 4) writeonly buffer MatD { float d_data[]; };
+
+shared uint  buf_gate[BM * SPACK];
+shared uint  buf_up[BM * SPACK];
+shared vec2  buf_gate_fb[BM];   // (factor, bias)
+shared vec2  buf_up_fb[BM];
+shared uint  buf_b[BN * SPACK];
+shared vec2  buf_b_sd[BN];      // (scale, dsum)
+
+void main() {
+    const uint tid = gl_LocalInvocationID.x;
+    const uint ir = gl_WorkGroupID.x;
+    const uint ic = gl_WorkGroupID.y;
+
+    const uint tiwr = tid % TPR_M;
+    const uint tiwc = tid / TPR_M;
+
+    float sums_gate[TM][TN];
+    float sums_up[TM][TN];
+    [[unroll]] for (uint m = 0u; m < TM; m++) {
+        [[unroll]] for (uint n = 0u; n < TN; n++) {
+            sums_gate[m][n] = 0.0;
+            sums_up[m][n] = 0.0;
+        }
+    }
+
+    const uint a_base_u32 = a_offset / 4u;
+    const uint blocks_per_row = K / 256u;
+
+    for (uint k_outer = 0u; k_outer < K; k_outer += BK) {
+        const uint super_block = k_outer / 256u;
+        const uint sb_offset = k_outer & 0xFFu;
+        const uint sb = sb_offset >> 5;         // 0..7 within the 256-block
+        const uint chunk = sb >> 1;             // 0..3
+        const uint nibble_choice = sb & 1u;     // 0 = low nibble, 1 = high nibble
+
+        // ---- load gate + up i8 weights + (factor, bias) per row for this sub ----
+        {
+            const uint row_local = tid / 2u;
+            const uint tile_half = tid & 1u;          // 0 -> k 0..15, 1 -> k 16..31
+            const uint k_in_tile = tile_half * 16u;
+            const uint row_global = ir * BM + row_local;
+
+            const uint blk_u32 = a_base_u32
+                + row_global * blocks_per_row * Q4K_BLOCK_U32
+                + super_block * Q4K_BLOCK_U32;
+
+            // ---- gate side ----
+            uint d_dmin = gate_u32[blk_u32];
+            float d_val = unpackHalf2x16(d_dmin & 0xFFFFu).x;
+            float dmin_val = unpackHalf2x16(d_dmin >> 16).x;
+            uint sc0 = gate_u32[blk_u32 + 1u];
+            uint sc1 = gate_u32[blk_u32 + 2u];
+            uint sc2 = gate_u32[blk_u32 + 3u];
+            uint bytes[12];
+            bytes[0]  = sc0 & 0xFFu;
+            bytes[1]  = (sc0 >> 8) & 0xFFu;
+            bytes[2]  = (sc0 >> 16) & 0xFFu;
+            bytes[3]  = (sc0 >> 24) & 0xFFu;
+            bytes[4]  = sc1 & 0xFFu;
+            bytes[5]  = (sc1 >> 8) & 0xFFu;
+            bytes[6]  = (sc1 >> 16) & 0xFFu;
+            bytes[7]  = (sc1 >> 24) & 0xFFu;
+            bytes[8]  = sc2 & 0xFFu;
+            bytes[9]  = (sc2 >> 8) & 0xFFu;
+            bytes[10] = (sc2 >> 16) & 0xFFu;
+            bytes[11] = (sc2 >> 24) & 0xFFu;
+            float sc_val, mn_val;
+            if (sb < 4u) {
+                sc_val = float(bytes[sb] & 63u);
+                mn_val = float(bytes[sb + 4u] & 63u);
+            } else {
+                sc_val = float((bytes[sb + 4u] & 0xFu) | ((bytes[sb - 4u] >> 6) << 4));
+                mn_val = float(((bytes[sb + 4u] >> 4) & 0xFu) | ((bytes[sb] >> 6) << 4));
+            }
+            const float gate_factor = d_val * sc_val;
+            const float gate_bias = dmin_val * mn_val;
+
+            uint qs_byte_base = chunk * 32u + k_in_tile;
+            uint qs_u32_idx = blk_u32 + 4u + (qs_byte_base >> 2);
+            uint gate_packed[4];
+            [[unroll]] for (uint w = 0u; w < 4u; w++) {
+                uint qs_word = gate_u32[qs_u32_idx + w];
+                // Each byte's selected nibble is in [0..15], already valid as
+                // int8 (zero-extend) for the DP4a dot.
+                gate_packed[w] = (nibble_choice == 0u) ? (qs_word & 0x0F0F0F0Fu)
+                                                       : ((qs_word >> 4) & 0x0F0F0F0Fu);
+            }
+            const uint base_a = row_local * SPACK + tile_half * 4u;
+            [[unroll]] for (uint w = 0u; w < 4u; w++) buf_gate[base_a + w] = gate_packed[w];
+
+            // ---- up side (same shape, different SSBO) ----
+            d_dmin = up_u32[blk_u32];
+            d_val = unpackHalf2x16(d_dmin & 0xFFFFu).x;
+            dmin_val = unpackHalf2x16(d_dmin >> 16).x;
+            sc0 = up_u32[blk_u32 + 1u];
+            sc1 = up_u32[blk_u32 + 2u];
+            sc2 = up_u32[blk_u32 + 3u];
+            bytes[0]  = sc0 & 0xFFu;
+            bytes[1]  = (sc0 >> 8) & 0xFFu;
+            bytes[2]  = (sc0 >> 16) & 0xFFu;
+            bytes[3]  = (sc0 >> 24) & 0xFFu;
+            bytes[4]  = sc1 & 0xFFu;
+            bytes[5]  = (sc1 >> 8) & 0xFFu;
+            bytes[6]  = (sc1 >> 16) & 0xFFu;
+            bytes[7]  = (sc1 >> 24) & 0xFFu;
+            bytes[8]  = sc2 & 0xFFu;
+            bytes[9]  = (sc2 >> 8) & 0xFFu;
+            bytes[10] = (sc2 >> 16) & 0xFFu;
+            bytes[11] = (sc2 >> 24) & 0xFFu;
+            if (sb < 4u) {
+                sc_val = float(bytes[sb] & 63u);
+                mn_val = float(bytes[sb + 4u] & 63u);
+            } else {
+                sc_val = float((bytes[sb + 4u] & 0xFu) | ((bytes[sb - 4u] >> 6) << 4));
+                mn_val = float(((bytes[sb + 4u] >> 4) & 0xFu) | ((bytes[sb] >> 6) << 4));
+            }
+            const float up_factor = d_val * sc_val;
+            const float up_bias = dmin_val * mn_val;
+
+            uint up_packed[4];
+            [[unroll]] for (uint w = 0u; w < 4u; w++) {
+                uint qs_word = up_u32[qs_u32_idx + w];
+                up_packed[w] = (nibble_choice == 0u) ? (qs_word & 0x0F0F0F0Fu)
+                                                     : ((qs_word >> 4) & 0x0F0F0F0Fu);
+            }
+            [[unroll]] for (uint w = 0u; w < 4u; w++) buf_up[base_a + w] = up_packed[w];
+
+            // Factor/bias is row-scalar — only one of the row's two threads
+            // needs to write it.
+            if (tile_half == 0u) {
+                buf_gate_fb[row_local] = vec2(gate_factor, gate_bias);
+                buf_up_fb[row_local] = vec2(up_factor, up_bias);
+            }
+        }
+
+        // ---- load pre-quantized int8 activation half-tile + (scale,dsum) ----
+        {
+            const uint col_local = tid / 2u;
+            const uint tile_half = tid & 1u;
+            const uint k_in_tile = tile_half * 16u;
+            const uint col_global = ic * BN + col_local;
+            const uint src = col_global * stride_b_packed + ((k_outer + k_in_tile) >> 2);
+            const uint base_b = col_local * SPACK + tile_half * 4u;
+            [[unroll]] for (uint w = 0u; w < 4u; w++) buf_b[base_b + w] = b_packed[src + w];
+            if (tile_half == 0u) {
+                buf_b_sd[col_local] = b_scale_dsum[col_global * stride_b_scale + (k_outer >> 5)];
+            }
+        }
+
+        barrier();
+
+        // ---- int8 dot4 accumulate (gate + up share the activation) ----
+        uint gate_reg[TM][8];
+        uint up_reg[TM][8];
+        vec2 gate_fb_reg[TM];
+        vec2 up_fb_reg[TM];
+        [[unroll]] for (uint m = 0u; m < TM; m++) {
+            const uint wrow = (tiwr * TM + m) * SPACK;
+            [[unroll]] for (uint p = 0u; p < 8u; p++) {
+                gate_reg[m][p] = buf_gate[wrow + p];
+                up_reg[m][p] = buf_up[wrow + p];
+            }
+            gate_fb_reg[m] = buf_gate_fb[tiwr * TM + m];
+            up_fb_reg[m] = buf_up_fb[tiwr * TM + m];
+        }
+        [[unroll]] for (uint n = 0u; n < TN; n++) {
+            const uint acol = (tiwc * TN + n) * SPACK;
+            uint areg[8];
+            [[unroll]] for (uint p = 0u; p < 8u; p++) areg[p] = buf_b[acol + p];
+            const vec2 b_sd = buf_b_sd[tiwc * TN + n]; // (scale, dsum)
+            [[unroll]] for (uint m = 0u; m < TM; m++) {
+                int gate_isum = 0;
+                int up_isum = 0;
+                [[unroll]] for (uint p = 0u; p < 8u; p++) {
+                    gate_isum = dotPacked4x8AccSatEXT(int(gate_reg[m][p]), int(areg[p]), gate_isum);
+                    up_isum   = dotPacked4x8AccSatEXT(int(up_reg[m][p]),   int(areg[p]), up_isum);
+                }
+                // contribution = b_scale * factor * idot - bias * dsum.
+                sums_gate[m][n] += b_sd.x * gate_fb_reg[m].x * float(gate_isum)
+                                  - gate_fb_reg[m].y * b_sd.y;
+                sums_up[m][n]   += b_sd.x * up_fb_reg[m].x * float(up_isum)
+                                  - up_fb_reg[m].y * b_sd.y;
+            }
+        }
+
+        barrier();
+    }
+
+    [[unroll]] for (uint m = 0u; m < TM; m++) {
+        [[unroll]] for (uint n = 0u; n < TN; n++) {
+            const uint row_g = ir * BM + tiwr * TM + m;
+            const uint col_g = ic * BN + tiwc * TN + n;
+            const float gate = sums_gate[m][n];
+            const float up = sums_up[m][n];
+            if (ACTIVATION == 1u) {
+                const float g3 = gate * gate * gate;
+                float inner = 0.7978845608 * (gate + 0.044715 * g3);
+                inner = clamp(inner, -15.0, 15.0);
+                const float gelu_gate = 0.5 * gate * (1.0 + tanh(inner));
+                d_data[d_offset + col_g * stride_d + row_g] = gelu_gate * up;
+            } else {
+                const float silu_gate = gate / (1.0 + exp(-gate));
+                d_data[d_offset + col_g * stride_d + row_g] = silu_gate * up;
+            }
+        }
+    }
+}

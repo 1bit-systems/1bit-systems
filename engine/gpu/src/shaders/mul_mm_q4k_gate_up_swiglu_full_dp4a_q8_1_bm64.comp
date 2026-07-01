@@ -1,0 +1,321 @@
+#version 460
+// ZINC — int8 DP4a full-tile Q4_K gate+up+SwiGLU GEMM that emits the SwiGLU
+// activation pre-quantized to int8 Q8_1-style blocks (packed lanes + per-32
+// (scale, dsum) vec2) for the Qwen3.6-27B Q4_K-down DP4a GEMM, fusing the
+// otherwise-separate quantize_act_q8_1 pre-pass into the producing kernel.
+//
+// Same DP4a math + dispatch shape as mul_mm_q4k_gate_up_swiglu_full_dp4a_q8.
+// The only difference is the third output buffer is a vec2 (scale, dsum)
+// stream instead of a single f32 scale stream. Q4_K weights are
+// factor*nibble - bias; the consumer mul_mm_q4k_full_dp4a needs the
+// dsum = scale * sum(int8_lanes_in_block) bias-correction term that the
+// Q8_0 (scale-only) variant doesn't carry. dsum is computed by reducing
+// per-thread isum across the cluster-of-8 (subgroupClusteredAdd cluster
+// size = 8 = number of sub-row threads that share one Q8 block) so no LDS
+// traffic for the post-GEMM step.
+//
+// Output layout (matches quantize_act_q8_1.comp consumers):
+//   d_packed:     token-major [token][K/4] uint, 4 int8 lanes per uint;
+//                 write[token * stride_d_packed + ir*8 + tiwr]
+//   d_scale_dsum: token-major [token][K/32] vec2 (scale, scale*isum_i8);
+//                 write[token * stride_d_scale + ir]
+//
+// Host normally dispatches exact 32/40/64-column bodies. A specialized guarded
+// BN=64 variant can cover a long ragged body by zero-filling inactive columns
+// and suppressing out-of-range writes.
+
+#include "dp4a_compat.glsl"
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_KHR_shader_subgroup_clustered : require
+
+const uint BM = 64u;
+const uint BK = 32u;
+const uint TM = 4u;
+const uint WG_SIZE = 128u;
+const uint TPR_M = BM / TM;  // 16
+const uint Q8_BLOCK_THREADS = 8u;
+
+const uint Q4K_BLOCK_U32 = 36u;
+const uint SPACK = 9u;
+
+layout(constant_id = 0) const uint SPEC_K = 0u;
+layout(constant_id = 1) const uint SPEC_BN = 32u;
+layout(constant_id = 2) const uint ACTIVATION = 0u; // 0 = SwiGLU, 1 = GEGLU
+layout(constant_id = 3) const uint SPEC_RAGGED_N = 0u;
+layout(constant_id = 4) const uint SPEC_INTERLEAVED_OUT = 0u;
+
+const uint BN = SPEC_BN;
+const uint TPR_N = WG_SIZE / TPR_M;  // 8
+const uint TN = BN / TPR_N;
+
+layout(local_size_x = WG_SIZE) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint N;
+    uint K;
+    uint stride_b_packed;   // per-column uints in input packed activation = K/4
+    uint stride_b_scale;    // per-column vec2s in input scale buffer       = K/32
+    uint stride_d_packed;   // per-token uints in output packed swiglu      = M/4
+    uint stride_d_scale;    // per-token vec2s in output scale_dsum buffer  = M/32
+    uint a_offset;          // byte offset into the Q4_K SSBOs (gate AND up)
+    uint b_packed_offset;   // uint offset into input packed activation
+    uint b_scale_offset;    // vec2 offset into input scale buffer
+    uint d_packed_offset;   // uint offset into output packed buffer
+    uint d_scale_offset;    // vec2 offset into output scale_dsum buffer
+};
+
+layout(set = 0, binding = 0) readonly buffer GateA { uint gate_u32[]; };
+layout(set = 0, binding = 1) readonly buffer UpA   { uint up_u32[]; };
+layout(set = 0, binding = 2) readonly buffer ActB  { uint b_packed[]; };
+layout(set = 0, binding = 3) readonly buffer SclB  { vec2 b_scale_dsum[]; };
+layout(set = 0, binding = 4) writeonly buffer DstPacked { uint d_packed[]; };
+layout(set = 0, binding = 5) writeonly buffer DstScaleDsum { vec2 d_scale_dsum[]; };
+
+shared uint  buf_gate[BM * SPACK];
+shared uint  buf_up[BM * SPACK];
+shared vec2  buf_gate_fb[BM];
+shared vec2  buf_up_fb[BM];
+shared uint  buf_b[BN * SPACK];
+shared vec2  buf_b_sd[BN];
+
+uint q4k_scale_byte(uint sc0, uint sc1, uint sc2, uint idx) {
+    uint word = (idx < 4u) ? sc0 : ((idx < 8u) ? sc1 : sc2);
+    return (word >> ((idx & 3u) * 8u)) & 0xFFu;
+}
+
+float fast_silu(float x) {
+    if (x > 8.0) return x;
+    if (x < -8.0) return 0.0;
+    return x / (1.0 + exp(-x));
+}
+
+float fast_gelu(float x) {
+    const float g3 = x * x * x;
+    float inner = 0.7978845608 * (x + 0.044715 * g3);
+    inner = clamp(inner, -15.0, 15.0);
+    return 0.5 * x * (1.0 + tanh(inner));
+}
+
+void q4k_scale_min(uint sb, uint sc0, uint sc1, uint sc2, out float sc_val, out float mn_val) {
+    if (sb < 4u) {
+        const uint b0 = q4k_scale_byte(sc0, sc1, sc2, sb);
+        const uint b4 = q4k_scale_byte(sc0, sc1, sc2, sb + 4u);
+        sc_val = float(b0 & 63u);
+        mn_val = float(b4 & 63u);
+    } else {
+        const uint b = q4k_scale_byte(sc0, sc1, sc2, sb);
+        const uint b4 = q4k_scale_byte(sc0, sc1, sc2, sb + 4u);
+        const uint bm4 = q4k_scale_byte(sc0, sc1, sc2, sb - 4u);
+        sc_val = float((b4 & 0xFu) | ((bm4 >> 6) << 4));
+        mn_val = float(((b4 >> 4) & 0xFu) | ((b >> 6) << 4));
+    }
+}
+
+void main() {
+    const uint tid = gl_LocalInvocationID.x;
+    const uint ir = gl_WorkGroupID.x;
+    const uint ic = gl_WorkGroupID.y;
+
+    const uint tiwr = tid % TPR_M;
+    const uint tiwc = tid / TPR_M;
+
+    float sums_gate[TM][TN];
+    float sums_up[TM][TN];
+    [[unroll]] for (uint m = 0u; m < TM; m++) {
+        [[unroll]] for (uint n = 0u; n < TN; n++) {
+            sums_gate[m][n] = 0.0;
+            sums_up[m][n] = 0.0;
+        }
+    }
+
+    const uint k_limit = (SPEC_K != 0u) ? SPEC_K : K;
+    const uint a_base_u32 = a_offset / 4u;
+    const uint blocks_per_row = k_limit / 256u;
+    const uint b_stride_packed = (SPEC_K != 0u) ? (SPEC_K / 4u) : stride_b_packed;
+    const uint b_stride_scale = (SPEC_K != 0u) ? (SPEC_K / 32u) : stride_b_scale;
+
+    for (uint k_outer = 0u; k_outer < k_limit; k_outer += BK) {
+        const uint super_block = k_outer / 256u;
+        const uint sb_offset = k_outer & 0xFFu;
+        const uint sb = sb_offset >> 5;
+        const uint chunk = sb >> 1;
+        const uint nibble_choice = sb & 1u;
+
+        {
+            const uint row_local = tid / 2u;
+            const uint tile_half = tid & 1u;
+            const uint k_in_tile = tile_half * 16u;
+            const uint row_global = ir * BM + row_local;
+
+            const uint blk_u32 = a_base_u32
+                + row_global * blocks_per_row * Q4K_BLOCK_U32
+                + super_block * Q4K_BLOCK_U32;
+
+            uint d_dmin = gate_u32[blk_u32];
+            float d_val = unpackHalf2x16(d_dmin & 0xFFFFu).x;
+            float dmin_val = unpackHalf2x16(d_dmin >> 16).x;
+            uint sc0 = gate_u32[blk_u32 + 1u];
+            uint sc1 = gate_u32[blk_u32 + 2u];
+            uint sc2 = gate_u32[blk_u32 + 3u];
+            float sc_val, mn_val;
+            q4k_scale_min(sb, sc0, sc1, sc2, sc_val, mn_val);
+            const float gate_factor = d_val * sc_val;
+            const float gate_bias = dmin_val * mn_val;
+
+            uint qs_byte_base = chunk * 32u + k_in_tile;
+            uint qs_u32_idx = blk_u32 + 4u + (qs_byte_base >> 2);
+            uint gate_packed[4];
+            [[unroll]] for (uint w = 0u; w < 4u; w++) {
+                uint qs_word = gate_u32[qs_u32_idx + w];
+                gate_packed[w] = (nibble_choice == 0u) ? (qs_word & 0x0F0F0F0Fu)
+                                                       : ((qs_word >> 4) & 0x0F0F0F0Fu);
+            }
+            const uint base_a = row_local * SPACK + tile_half * 4u;
+            [[unroll]] for (uint w = 0u; w < 4u; w++) buf_gate[base_a + w] = gate_packed[w];
+
+            d_dmin = up_u32[blk_u32];
+            d_val = unpackHalf2x16(d_dmin & 0xFFFFu).x;
+            dmin_val = unpackHalf2x16(d_dmin >> 16).x;
+            sc0 = up_u32[blk_u32 + 1u];
+            sc1 = up_u32[blk_u32 + 2u];
+            sc2 = up_u32[blk_u32 + 3u];
+            q4k_scale_min(sb, sc0, sc1, sc2, sc_val, mn_val);
+            const float up_factor = d_val * sc_val;
+            const float up_bias = dmin_val * mn_val;
+
+            uint up_packed[4];
+            [[unroll]] for (uint w = 0u; w < 4u; w++) {
+                uint qs_word = up_u32[qs_u32_idx + w];
+                up_packed[w] = (nibble_choice == 0u) ? (qs_word & 0x0F0F0F0Fu)
+                                                     : ((qs_word >> 4) & 0x0F0F0F0Fu);
+            }
+            [[unroll]] for (uint w = 0u; w < 4u; w++) buf_up[base_a + w] = up_packed[w];
+
+            if (tile_half == 0u) {
+                buf_gate_fb[row_local] = vec2(gate_factor, gate_bias);
+                buf_up_fb[row_local] = vec2(up_factor, up_bias);
+            }
+        }
+
+        if (BN >= 32u) {
+            const uint tile_half = tid & 1u;
+            const uint k_in_tile = tile_half * 16u;
+            const uint col_local = tid / 2u;
+            if (col_local < BN) {
+                const uint col_global = ic * BN + col_local;
+                const bool col_ok = SPEC_RAGGED_N == 0u || col_global < N;
+                const uint src = b_packed_offset + col_global * b_stride_packed + ((k_outer + k_in_tile) >> 2);
+                const uint base_b = col_local * SPACK + tile_half * 4u;
+                [[unroll]] for (uint w = 0u; w < 4u; w++) buf_b[base_b + w] = col_ok ? b_packed[src + w] : 0u;
+                if (tile_half == 0u) {
+                    buf_b_sd[col_local] = col_ok ? b_scale_dsum[b_scale_offset + col_global * b_stride_scale + (k_outer >> 5)] : vec2(0.0);
+                }
+            }
+        } else {
+            const uint col_local = tid >> 3;
+            const uint pack_idx = tid & 7u;
+            const uint col_global = ic * BN + col_local;
+            const bool col_ok = col_global < N;
+            const uint base_b = col_local * SPACK;
+            buf_b[base_b + pack_idx] = col_ok
+                ? b_packed[b_packed_offset + col_global * b_stride_packed + (k_outer >> 2) + pack_idx]
+                : 0u;
+            if (pack_idx == 0u) {
+                buf_b_sd[col_local] = col_ok
+                    ? b_scale_dsum[b_scale_offset + col_global * b_stride_scale + (k_outer >> 5)]
+                    : vec2(0.0);
+            }
+        }
+
+        barrier();
+
+        uint gate_reg[TM][8];
+        uint up_reg[TM][8];
+        vec2 gate_fb_reg[TM];
+        vec2 up_fb_reg[TM];
+        [[unroll]] for (uint m = 0u; m < TM; m++) {
+            const uint wrow = (tiwr * TM + m) * SPACK;
+            [[unroll]] for (uint p = 0u; p < 8u; p++) {
+                gate_reg[m][p] = buf_gate[wrow + p];
+                up_reg[m][p] = buf_up[wrow + p];
+            }
+            gate_fb_reg[m] = buf_gate_fb[tiwr * TM + m];
+            up_fb_reg[m] = buf_up_fb[tiwr * TM + m];
+        }
+        [[unroll]] for (uint n = 0u; n < TN; n++) {
+            const uint acol = (tiwc * TN + n) * SPACK;
+            uint areg[8];
+            [[unroll]] for (uint p = 0u; p < 8u; p++) areg[p] = buf_b[acol + p];
+            const vec2 b_sd = buf_b_sd[tiwc * TN + n];
+            [[unroll]] for (uint m = 0u; m < TM; m++) {
+                int gate_isum = 0;
+                int up_isum = 0;
+                [[unroll]] for (uint p = 0u; p < 8u; p++) {
+                    gate_isum = dotPacked4x8AccSatEXT(int(gate_reg[m][p]), int(areg[p]), gate_isum);
+                    up_isum   = dotPacked4x8AccSatEXT(int(up_reg[m][p]),   int(areg[p]), up_isum);
+                }
+                sums_gate[m][n] += b_sd.x * gate_fb_reg[m].x * float(gate_isum)
+                                  - gate_fb_reg[m].y * b_sd.y;
+                sums_up[m][n]   += b_sd.x * up_fb_reg[m].x * float(up_isum)
+                                  - up_fb_reg[m].y * b_sd.y;
+            }
+        }
+
+        barrier();
+    }
+
+    // ---- fused SwiGLU + per-32-block Q8_1 quantize, no scratch_swiglu write ----
+    //
+    // Same row/col ownership as the Q8_0 variant. Q8_1 form additionally emits
+    // dsum = scale * sum(int8_lanes_in_block) so mul_mm_q4k_full_dp4a can
+    // subtract the Q4_K per-block bias term in one MAD per (m,n).
+    //
+    // Each thread holds TM=4 int8 values for one (tiwc, n) block; BM=64 emits
+    // two 32-row Q8 blocks per output col. We reduce each 8-thread cluster to
+    // get the 32-lane block isum; only the first lane of each block writes the
+    // (scale, dsum) vec2.
+    [[unroll]] for (uint n = 0u; n < TN; n++) {
+        float act_vals[TM];
+        float local_max = 0.0;
+        [[unroll]] for (uint m = 0u; m < TM; m++) {
+            const float gate = sums_gate[m][n];
+            const float up = sums_up[m][n];
+            const float gate_act = (ACTIVATION == 1u) ? fast_gelu(gate) : fast_silu(gate);
+            const float v = gate_act * up;
+            act_vals[m] = v;
+            local_max = max(local_max, abs(v));
+        }
+        const uint q8_block = tiwr / Q8_BLOCK_THREADS;
+        const uint q8_lane = tiwr & (Q8_BLOCK_THREADS - 1u);
+        const float global_max = subgroupClusteredMax(local_max, Q8_BLOCK_THREADS);
+        const float scale = global_max / 127.0;
+        const float inv = (global_max > 0.0) ? (127.0 / global_max) : 0.0;
+
+        const uint col_g = ic * BN + tiwc * TN + n;
+        uint packed = 0u;
+        int local_isum = 0;
+        [[unroll]] for (uint m = 0u; m < TM; m++) {
+            int q = int(round(act_vals[m] * inv));
+            q = clamp(q, -127, 127);
+            local_isum += q;
+            packed |= (uint(q) & 0xFFu) << (m * 8u);
+        }
+        const int block_isum = subgroupClusteredAdd(local_isum, Q8_BLOCK_THREADS);
+        if ((BN >= 32u && SPEC_RAGGED_N == 0u) || col_g < N) {
+            const uint block_g = ir * (BM / 32u) + q8_block;
+            const uint packed_idx = (SPEC_INTERLEAVED_OUT != 0u)
+                ? d_packed_offset + (block_g * N + col_g) * 8u + q8_lane
+                : d_packed_offset + col_g * stride_d_packed + ir * (BM / 4u) + tiwr;
+            d_packed[packed_idx] = packed;
+            if (q8_lane == 0u) {
+                const uint scale_idx = (SPEC_INTERLEAVED_OUT != 0u)
+                    ? d_scale_offset + block_g * N + col_g
+                    : d_scale_offset + col_g * stride_d_scale + ir * (BM / 32u) + q8_block;
+                d_scale_dsum[scale_idx] = vec2(scale, scale * float(block_isum));
+            }
+        }
+    }
+}

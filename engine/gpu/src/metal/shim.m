@@ -1,0 +1,780 @@
+// ZINC Metal shim — thin C API wrapping Apple Metal framework.
+// This is the ONLY Objective-C file in the project. All Metal/ObjC calls are encapsulated here.
+// See specs/005-apple-silicon-inference/contracts/metal-shim-api.md for the contract.
+#import <Metal/Metal.h>
+#import <Foundation/Foundation.h>
+#include "shim.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <mach/mach.h>
+
+#ifndef MTLGPUFamilyApple10
+#define MTLGPUFamilyApple10 ((MTLGPUFamily)1010)
+#endif
+
+#define ZINC_METAL_BINDING_SLOTS 64
+#define ZINC_METAL_TGMEM_SLOTS 8
+#define ZINC_METAL_CACHED_BYTES_MAX 128
+
+// --- Opaque struct definitions ---
+
+struct MetalCtx {
+    id<MTLDevice> device;
+    id<MTLCommandQueue> queue;
+};
+
+struct MetalBuf {
+    id<MTLBuffer> buffer;
+    size_t size;
+    int is_mmap;
+};
+
+struct MetalPipe {
+    id<MTLComputePipelineState> state;
+};
+
+struct MetalCmd {
+    id<MTLCommandQueue> queue; // retained for mtl_commit_wait_restart
+    id<MTLCommandBuffer> cmd_buf;
+    id<MTLComputeCommandEncoder> encoder;
+    id<MTLComputePipelineState> current_pipeline;
+    void* current_buffers[ZINC_METAL_BINDING_SLOTS];
+    uint32_t current_tgmem_lengths[ZINC_METAL_TGMEM_SLOTS];
+    uint8_t current_bytes_valid[ZINC_METAL_BINDING_SLOTS];
+    size_t current_bytes_size[ZINC_METAL_BINDING_SLOTS];
+    uint8_t current_bytes[ZINC_METAL_BINDING_SLOTS][ZINC_METAL_CACHED_BYTES_MAX];
+    uint8_t is_concurrent;
+};
+
+// Residency set wrapper. The `id` is held as `void *` so this header compiles
+// on SDKs where MTLResidencySet is unavailable; the @available check at runtime
+// gates actual API usage. Adapted from llama.cpp ggml-metal-device.m.
+struct MetalRSet {
+    id<MTLDevice> device;
+    void *rset; // id<MTLResidencySet> on macOS 15+, nil otherwise
+};
+
+// --- Device lifecycle ---
+
+MetalCtx* mtl_init(void) {
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    if (!device) {
+        fprintf(stderr, "Error: Metal device not available. Apple Silicon required.\n");
+        return NULL;
+    }
+
+    id<MTLCommandQueue> queue = [device newCommandQueue];
+    if (!queue) {
+        fprintf(stderr, "Error: Failed to create Metal command queue.\n");
+        return NULL;
+    }
+
+    MetalCtx* ctx = (MetalCtx*)calloc(1, sizeof(MetalCtx));
+    if (!ctx) return NULL;
+
+    ctx->device = device;
+    ctx->queue = queue;
+    return ctx;
+}
+
+void mtl_destroy(MetalCtx* ctx) {
+    if (!ctx) return;
+    ctx->queue = nil;
+    ctx->device = nil;
+    free(ctx);
+}
+
+uint64_t mtl_max_buffer_size(MetalCtx* ctx) {
+    if (!ctx) return 0;
+    return (uint64_t)[ctx->device maxBufferLength];
+}
+
+uint64_t mtl_total_memory(MetalCtx* ctx) {
+    if (!ctx) return 0;
+    // Use Mach API to get total physical memory (unified memory on Apple Silicon)
+    mach_port_t host = mach_host_self();
+    vm_size_t page_size;
+    host_page_size(host, &page_size);
+
+    mach_msg_type_number_t count = HOST_BASIC_INFO_COUNT;
+    host_basic_info_data_t info;
+    if (host_info(host, HOST_BASIC_INFO, (host_info_t)&info, &count) == KERN_SUCCESS) {
+        return (uint64_t)info.max_mem;
+    }
+    // Fallback: recommendedMaxWorkingSetSize is GPU-specific but useful
+    return (uint64_t)[ctx->device recommendedMaxWorkingSetSize];
+}
+
+uint32_t mtl_chip_family(MetalCtx* ctx) {
+    if (!ctx) return 0; // unknown
+
+    if ([ctx->device supportsFamily:MTLGPUFamilyApple10]) return 10;
+    if ([ctx->device supportsFamily:MTLGPUFamilyApple9]) return 9;
+    if ([ctx->device supportsFamily:MTLGPUFamilyApple8]) return 8;
+    if ([ctx->device supportsFamily:MTLGPUFamilyApple7]) return 7;
+
+    return 0; // unknown / pre-M1
+}
+
+uint8_t mtl_supports_family(MetalCtx* ctx, uint32_t family) {
+    if (!ctx) return 0;
+    return [ctx->device supportsFamily:(MTLGPUFamily)family] ? 1 : 0;
+}
+
+uint8_t mtl_has_unified_memory(MetalCtx* ctx) {
+    if (!ctx) return 0;
+    return [ctx->device hasUnifiedMemory] ? 1 : 0;
+}
+
+uint8_t mtl_supports_raytracing(MetalCtx* ctx) {
+    if (!ctx) return 0;
+    return [ctx->device supportsRaytracing] ? 1 : 0;
+}
+
+uint64_t mtl_recommended_max_working_set_size(MetalCtx* ctx) {
+    if (!ctx) return 0;
+    return (uint64_t)[ctx->device recommendedMaxWorkingSetSize];
+}
+
+uint64_t mtl_max_threadgroup_memory_length(MetalCtx* ctx) {
+    if (!ctx) return 0;
+    return (uint64_t)[ctx->device maxThreadgroupMemoryLength];
+}
+
+// --- Buffer management ---
+
+MetalBuf* mtl_create_buffer(MetalCtx* ctx, size_t size, void** cpu_ptr) {
+    if (!ctx || size == 0) return NULL;
+
+    id<MTLBuffer> buffer = [ctx->device newBufferWithLength:size
+                                                    options:MTLResourceStorageModeShared];
+    if (!buffer) {
+        fprintf(stderr, "Error: Failed to allocate Metal buffer of %zu bytes.\n", size);
+        return NULL;
+    }
+
+    MetalBuf* buf = (MetalBuf*)calloc(1, sizeof(MetalBuf));
+    if (!buf) return NULL;
+
+    buf->buffer = buffer;
+    buf->size = size;
+    buf->is_mmap = 0;
+
+    if (cpu_ptr) {
+        *cpu_ptr = [buffer contents];
+    }
+
+    return buf;
+}
+
+MetalBuf* mtl_create_private_buffer(MetalCtx* ctx, size_t size) {
+    if (!ctx || size == 0) return NULL;
+
+    id<MTLBuffer> buffer = [ctx->device newBufferWithLength:size
+                                                    options:MTLResourceStorageModePrivate];
+    if (!buffer) {
+        fprintf(stderr, "Error: Failed to allocate private Metal buffer of %zu bytes.\n", size);
+        return NULL;
+    }
+
+    MetalBuf* buf = (MetalBuf*)calloc(1, sizeof(MetalBuf));
+    if (!buf) return NULL;
+
+    buf->buffer = buffer;
+    buf->size = size;
+    buf->is_mmap = 0;
+    return buf;
+}
+
+MetalBuf* mtl_wrap_mmap(MetalCtx* ctx, void* ptr, size_t size) {
+    if (!ctx || !ptr || size == 0) return NULL;
+
+    // Verify page alignment (4096 on Apple Silicon)
+    if ((uintptr_t)ptr % 4096 != 0) {
+        fprintf(stderr, "Error: mmap pointer %p is not page-aligned (4096).\n", ptr);
+        return NULL;
+    }
+    // Round size up to page boundary
+    size_t aligned_size = (size + 4095) & ~(size_t)4095;
+
+    id<MTLBuffer> buffer = [ctx->device newBufferWithBytesNoCopy:ptr
+                                                          length:aligned_size
+                                                         options:MTLResourceStorageModeShared
+                                                     deallocator:nil];
+    if (!buffer) {
+        fprintf(stderr, "Error: Failed to wrap mmap'd region (%p, %zu bytes) as Metal buffer.\n", ptr, size);
+        return NULL;
+    }
+
+    MetalBuf* buf = (MetalBuf*)calloc(1, sizeof(MetalBuf));
+    if (!buf) return NULL;
+
+    buf->buffer = buffer;
+    buf->size = size;
+    buf->is_mmap = 1;
+    return buf;
+}
+
+void* mtl_buffer_contents(MetalBuf* buf) {
+    if (!buf) return NULL;
+    return [buf->buffer contents];
+}
+
+void mtl_free_buffer(MetalBuf* buf) {
+    if (!buf) return;
+    buf->buffer = nil; // ARC releases the MTLBuffer
+    free(buf);
+}
+
+// --- Pipeline management ---
+
+static MetalPipe* mtl_create_pipeline_impl(MetalCtx* ctx, const char* msl_source, const char* fn_name, int report_errors) {
+    if (!ctx || !msl_source || !fn_name) return NULL;
+
+    NSError* error = nil;
+    NSString* source = [NSString stringWithUTF8String:msl_source];
+    MTLCompileOptions* options = [[MTLCompileOptions alloc] init];
+    options.fastMathEnabled = YES;
+
+    id<MTLLibrary> library = [ctx->device newLibraryWithSource:source options:options error:&error];
+    if (!library) {
+        if (report_errors) {
+            fprintf(stderr, "Error: MSL compilation failed for '%s': %s\n",
+                    fn_name, [[error localizedDescription] UTF8String]);
+        }
+        return NULL;
+    }
+
+    NSString* name = [NSString stringWithUTF8String:fn_name];
+    id<MTLFunction> function = [library newFunctionWithName:name];
+    if (!function) {
+        if (report_errors) {
+            fprintf(stderr, "Error: Kernel function '%s' not found in compiled MSL.\n", fn_name);
+        }
+        return NULL;
+    }
+
+    id<MTLComputePipelineState> state = [ctx->device newComputePipelineStateWithFunction:function
+                                                                                   error:&error];
+    if (!state) {
+        if (report_errors) {
+            fprintf(stderr, "Error: Failed to create compute pipeline for '%s': %s\n",
+                    fn_name, [[error localizedDescription] UTF8String]);
+        }
+        return NULL;
+    }
+
+    MetalPipe* pipe = (MetalPipe*)calloc(1, sizeof(MetalPipe));
+    if (!pipe) return NULL;
+    pipe->state = state;
+    return pipe;
+}
+
+MetalPipe* mtl_create_pipeline(MetalCtx* ctx, const char* msl_source, const char* fn_name) {
+    return mtl_create_pipeline_impl(ctx, msl_source, fn_name, 1);
+}
+
+MetalPipe* mtl_create_pipeline_quiet(MetalCtx* ctx, const char* msl_source, const char* fn_name) {
+    return mtl_create_pipeline_impl(ctx, msl_source, fn_name, 0);
+}
+
+MetalPipe* mtl_create_pipeline_from_lib(MetalCtx* ctx, const void* lib_data, size_t lib_size, const char* fn_name) {
+    if (!ctx || !lib_data || lib_size == 0 || !fn_name) return NULL;
+
+    NSError* error = nil;
+    dispatch_data_t data = dispatch_data_create(lib_data, lib_size, NULL, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
+    id<MTLLibrary> library = [ctx->device newLibraryWithData:data error:&error];
+    if (!library) {
+        fprintf(stderr, "Error: Failed to load metallib for '%s': %s\n",
+                fn_name, [[error localizedDescription] UTF8String]);
+        return NULL;
+    }
+
+    NSString* name = [NSString stringWithUTF8String:fn_name];
+    id<MTLFunction> function = [library newFunctionWithName:name];
+    if (!function) {
+        fprintf(stderr, "Error: Kernel function '%s' not found in metallib.\n", fn_name);
+        return NULL;
+    }
+
+    id<MTLComputePipelineState> state = [ctx->device newComputePipelineStateWithFunction:function
+                                                                                   error:&error];
+    if (!state) {
+        fprintf(stderr, "Error: Failed to create pipeline from metallib for '%s': %s\n",
+                fn_name, [[error localizedDescription] UTF8String]);
+        return NULL;
+    }
+
+    MetalPipe* pipe = (MetalPipe*)calloc(1, sizeof(MetalPipe));
+    if (!pipe) return NULL;
+    pipe->state = state;
+    return pipe;
+}
+
+uint32_t mtl_pipeline_max_threads(MetalPipe* pipe) {
+    if (!pipe) return 0;
+    return (uint32_t)[pipe->state maxTotalThreadsPerThreadgroup];
+}
+
+uint32_t mtl_pipeline_thread_execution_width(MetalPipe* pipe) {
+    if (!pipe) return 0;
+    return (uint32_t)[pipe->state threadExecutionWidth];
+}
+
+uint32_t mtl_pipeline_static_threadgroup_memory_length(MetalPipe* pipe) {
+    if (!pipe) return 0;
+    return (uint32_t)[pipe->state staticThreadgroupMemoryLength];
+}
+
+void mtl_free_pipeline(MetalPipe* pipe) {
+    if (!pipe) return;
+    pipe->state = nil;
+    free(pipe);
+}
+
+// --- Command buffer & dispatch ---
+
+MetalCmd* mtl_begin_command(MetalCtx* ctx) {
+    return mtl_begin_command_mode(ctx, 0);
+}
+
+MetalCmd* mtl_begin_command_mode(MetalCtx* ctx, uint8_t serial) {
+    if (!ctx) return NULL;
+
+    // Use unretained references to avoid buffer retain/release overhead during
+    // command encoding — matches llama.cpp's ggml-metal-context.m approach.
+    // Safe because all Metal buffers are owned by the InferenceEngine and
+    // outlive every command buffer.
+    id<MTLCommandBuffer> cmd_buf = [ctx->queue commandBufferWithUnretainedReferences];
+    if (!cmd_buf) {
+        fprintf(stderr, "Error: Failed to create Metal command buffer.\n");
+        return NULL;
+    }
+
+    id<MTLComputeCommandEncoder> encoder = serial
+        ? [cmd_buf computeCommandEncoder]
+        : [cmd_buf computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
+    if (!encoder) {
+        fprintf(stderr, "Error: Failed to create compute command encoder.\n");
+        return NULL;
+    }
+
+    // Match llama.cpp's ggml_metal_graph_compute submission pattern: enqueue
+    // command buffers before the caller records the graph work, then commit
+    // after encoding. On Apple GPUs this lets the command queue establish order
+    // early for the dense decode chunks that are committed asynchronously.
+    [cmd_buf enqueue];
+
+    MetalCmd* cmd = (MetalCmd*)calloc(1, sizeof(MetalCmd));
+    if (!cmd) return NULL;
+    cmd->queue = ctx->queue;
+    cmd->cmd_buf = cmd_buf;
+    cmd->encoder = encoder;
+    cmd->current_pipeline = nil;
+    cmd->is_concurrent = serial ? 0 : 1;
+    return cmd;
+}
+
+static inline void mtl_set_pipeline_if_needed(MetalCmd* cmd, MetalPipe* pipe) {
+    id<MTLComputePipelineState> state = pipe->state;
+    if (cmd->current_pipeline != state) {
+        [cmd->encoder setComputePipelineState:state];
+        cmd->current_pipeline = state;
+    }
+}
+
+static inline void mtl_set_buffer_if_needed(MetalCmd* cmd, MetalBuf* buf, uint32_t idx) {
+    if (!buf || !buf->buffer) return;
+
+    void* current = (__bridge void*)buf->buffer;
+    if (idx < ZINC_METAL_BINDING_SLOTS && cmd->current_buffers[idx] == current) {
+        return;
+    }
+
+    [cmd->encoder setBuffer:buf->buffer offset:0 atIndex:idx];
+    if (idx < ZINC_METAL_BINDING_SLOTS) {
+        cmd->current_buffers[idx] = current;
+        cmd->current_bytes_valid[idx] = 0;
+    }
+}
+
+static inline void mtl_set_bytes_if_needed(MetalCmd* cmd, const void* bytes, size_t size, uint32_t idx) {
+    if (!bytes || size == 0) return;
+
+    if (idx < ZINC_METAL_BINDING_SLOTS && size <= ZINC_METAL_CACHED_BYTES_MAX) {
+        if (cmd->current_bytes_valid[idx] &&
+            cmd->current_bytes_size[idx] == size &&
+            memcmp(cmd->current_bytes[idx], bytes, size) == 0) {
+            return;
+        }
+
+        [cmd->encoder setBytes:bytes length:size atIndex:idx];
+        cmd->current_buffers[idx] = NULL;
+        cmd->current_bytes_valid[idx] = 1;
+        cmd->current_bytes_size[idx] = size;
+        memcpy(cmd->current_bytes[idx], bytes, size);
+        return;
+    }
+
+    [cmd->encoder setBytes:bytes length:size atIndex:idx];
+    if (idx < ZINC_METAL_BINDING_SLOTS) {
+        cmd->current_buffers[idx] = NULL;
+        cmd->current_bytes_valid[idx] = 0;
+    }
+}
+
+static inline void mtl_set_threadgroup_memory_if_needed(MetalCmd* cmd, uint32_t length, uint32_t idx) {
+    if (idx < ZINC_METAL_TGMEM_SLOTS && cmd->current_tgmem_lengths[idx] == length) {
+        return;
+    }
+
+    [cmd->encoder setThreadgroupMemoryLength:length atIndex:idx];
+    if (idx < ZINC_METAL_TGMEM_SLOTS) {
+        cmd->current_tgmem_lengths[idx] = length;
+    }
+}
+
+void mtl_dispatch(MetalCmd* cmd, MetalPipe* pipe,
+                  const uint32_t grid[3], const uint32_t block[3],
+                  MetalBuf** bufs, uint32_t n_bufs,
+                  const void* push_data, size_t push_size) {
+    if (!cmd || !pipe) return;
+
+    mtl_set_pipeline_if_needed(cmd, pipe);
+
+    // Bind data buffers at indices 0..n_bufs-1
+    for (uint32_t i = 0; i < n_bufs; i++) {
+        if (bufs[i]) {
+            mtl_set_buffer_if_needed(cmd, bufs[i], i);
+        }
+    }
+
+    // Bind push constants as a buffer at index n_bufs (equivalent to Vulkan push constants)
+    if (push_data && push_size > 0) {
+        mtl_set_bytes_if_needed(cmd, push_data, push_size, n_bufs);
+    }
+
+    MTLSize threadgroups = MTLSizeMake(grid[0], grid[1], grid[2]);
+    MTLSize threads_per = MTLSizeMake(block[0], block[1], block[2]);
+    [cmd->encoder dispatchThreadgroups:threadgroups threadsPerThreadgroup:threads_per];
+}
+
+void mtl_dispatch_v2(MetalCmd* cmd, MetalPipe* pipe,
+                     const uint32_t grid[3], const uint32_t block[3],
+                     MetalBuf** bufs, uint32_t n_bufs,
+                     const void* push_data, size_t push_size,
+                     uint32_t push_idx) {
+    if (!cmd || !pipe) return;
+
+    mtl_set_pipeline_if_needed(cmd, pipe);
+
+    // Bind data buffers, shifting indices to skip push_idx
+    for (uint32_t i = 0; i < n_bufs; i++) {
+        uint32_t slot = (i < push_idx) ? i : (i + 1);
+        if (bufs[i]) {
+            mtl_set_buffer_if_needed(cmd, bufs[i], slot);
+        }
+    }
+
+    // Bind push constants at push_idx via setBytes (inlined into command buffer)
+    if (push_data && push_size > 0) {
+        mtl_set_bytes_if_needed(cmd, push_data, push_size, push_idx);
+    }
+
+    MTLSize threadgroups = MTLSizeMake(grid[0], grid[1], grid[2]);
+    MTLSize threads_per = MTLSizeMake(block[0], block[1], block[2]);
+    [cmd->encoder dispatchThreadgroups:threadgroups threadsPerThreadgroup:threads_per];
+}
+
+void mtl_dispatch_v2_tgmem(MetalCmd* cmd, MetalPipe* pipe,
+                     const uint32_t grid[3], const uint32_t block[3],
+                     MetalBuf** bufs, uint32_t n_bufs,
+                     const void* push_data, size_t push_size,
+                     uint32_t push_idx, uint32_t tg_mem_size) {
+    if (!cmd || !pipe) return;
+
+    mtl_set_pipeline_if_needed(cmd, pipe);
+
+    for (uint32_t i = 0; i < n_bufs; i++) {
+        uint32_t slot = (i < push_idx) ? i : (i + 1);
+        if (bufs[i]) {
+            mtl_set_buffer_if_needed(cmd, bufs[i], slot);
+        }
+    }
+
+    if (push_data && push_size > 0) {
+        mtl_set_bytes_if_needed(cmd, push_data, push_size, push_idx);
+    }
+
+    if (tg_mem_size > 0) {
+        mtl_set_threadgroup_memory_if_needed(cmd, tg_mem_size, 0);
+    }
+
+    MTLSize threadgroups = MTLSizeMake(grid[0], grid[1], grid[2]);
+    MTLSize threads_per = MTLSizeMake(block[0], block[1], block[2]);
+    [cmd->encoder dispatchThreadgroups:threadgroups threadsPerThreadgroup:threads_per];
+}
+
+void mtl_barrier(MetalCmd* cmd) {
+    if (!cmd) return;
+    // Lightweight in-encoder memory barrier — ensures all buffer writes from
+    // previous dispatches are visible to subsequent dispatches, without
+    // destroying and recreating the compute command encoder.
+    // Available since macOS 10.14; Apple Silicon requires macOS 11+.
+    [cmd->encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+}
+
+void mtl_barrier_buffer(MetalCmd* cmd, MetalBuf* buf) {
+    if (!cmd || !buf || !buf->buffer) return;
+
+    id<MTLResource> resource = buf->buffer;
+    [cmd->encoder memoryBarrierWithResources:&resource count:1];
+}
+
+void mtl_barrier_buffers(MetalCmd* cmd, MetalBuf** bufs, uint32_t n_bufs) {
+    if (!cmd || !bufs || n_bufs == 0) return;
+
+    id<MTLResource> resources[32];
+    uint32_t count = 0;
+    for (uint32_t i = 0; i < n_bufs && count < 32; ++i) {
+        if (!bufs[i] || !bufs[i]->buffer) continue;
+        resources[count++] = bufs[i]->buffer;
+    }
+    if (count == 0) return;
+
+    [cmd->encoder memoryBarrierWithResources:resources count:count];
+}
+
+void mtl_commit_and_wait(MetalCmd* cmd) {
+    if (!cmd) return;
+    [cmd->encoder endEncoding];
+    [cmd->cmd_buf commit];
+    [cmd->cmd_buf waitUntilCompleted];
+
+    if ([cmd->cmd_buf status] == MTLCommandBufferStatusError) {
+        fprintf(stderr, "Error: Metal command buffer failed: %s\n",
+                [[cmd->cmd_buf.error localizedDescription] UTF8String]);
+    }
+
+    cmd->encoder = nil;
+    cmd->current_pipeline = nil;
+    cmd->cmd_buf = nil;
+    cmd->queue = nil;
+    free(cmd);
+}
+
+void mtl_commit_async(MetalCmd* cmd) {
+    if (!cmd) return;
+    [cmd->encoder endEncoding];
+    cmd->encoder = nil;
+    cmd->current_pipeline = nil;
+    [cmd->cmd_buf commit];
+}
+
+void mtl_wait(MetalCmd* cmd) {
+    if (!cmd) return;
+    [cmd->cmd_buf waitUntilCompleted];
+
+    if ([cmd->cmd_buf status] == MTLCommandBufferStatusError) {
+        fprintf(stderr, "Error: Metal command buffer failed: %s\n",
+                [[cmd->cmd_buf.error localizedDescription] UTF8String]);
+    }
+
+    cmd->cmd_buf = nil;
+    cmd->queue = nil;
+    free(cmd);
+}
+
+void mtl_release_completed(MetalCmd* cmd) {
+    if (!cmd) return;
+
+    MTLCommandBufferStatus status = [cmd->cmd_buf status];
+    if (status != MTLCommandBufferStatusCompleted &&
+        status != MTLCommandBufferStatusError) {
+        [cmd->cmd_buf waitUntilCompleted];
+        status = [cmd->cmd_buf status];
+    }
+
+    if (status == MTLCommandBufferStatusError) {
+        fprintf(stderr, "Error: Metal command buffer failed: %s\n",
+                [[cmd->cmd_buf.error localizedDescription] UTF8String]);
+    }
+
+    cmd->cmd_buf = nil;
+    cmd->queue = nil;
+    free(cmd);
+}
+
+uint64_t mtl_command_gpu_duration_ns(MetalCmd* cmd) {
+    if (!cmd || !cmd->cmd_buf) return 0;
+
+    MTLCommandBufferStatus status = [cmd->cmd_buf status];
+    if (status != MTLCommandBufferStatusCompleted &&
+        status != MTLCommandBufferStatusError) {
+        return 0;
+    }
+
+    const CFTimeInterval start = [cmd->cmd_buf GPUStartTime];
+    const CFTimeInterval end = [cmd->cmd_buf GPUEndTime];
+    if (start <= 0.0 || end <= start) return 0;
+
+    const double ns = (end - start) * 1000000000.0;
+    if (ns <= 0.0) return 0;
+    return (uint64_t)ns;
+}
+
+uint64_t mtl_wait_gpu_duration_ns(MetalCmd* cmd) {
+    if (!cmd) return 0;
+    [cmd->cmd_buf waitUntilCompleted];
+
+    if ([cmd->cmd_buf status] == MTLCommandBufferStatusError) {
+        fprintf(stderr, "Error: Metal command buffer failed: %s\n",
+                [[cmd->cmd_buf.error localizedDescription] UTF8String]);
+    }
+
+    const uint64_t gpu_ns = mtl_command_gpu_duration_ns(cmd);
+    cmd->cmd_buf = nil;
+    cmd->queue = nil;
+    free(cmd);
+    return gpu_ns;
+}
+
+void mtl_commit_wait_restart(MetalCmd* cmd) {
+    if (!cmd || !cmd->cmd_buf || !cmd->queue) return;
+
+    [cmd->encoder endEncoding];
+    [cmd->cmd_buf commit];
+    [cmd->cmd_buf waitUntilCompleted];
+
+    if ([cmd->cmd_buf status] == MTLCommandBufferStatusError) {
+        fprintf(stderr, "Error: Metal command buffer failed during restart: %s\n",
+                [[cmd->cmd_buf.error localizedDescription] UTF8String]);
+    }
+
+    id<MTLCommandBuffer> new_buf = [cmd->queue commandBufferWithUnretainedReferences];
+    if (!new_buf) {
+        fprintf(stderr, "Error: mtl_commit_wait_restart could not create a new command buffer.\n");
+        cmd->encoder = nil;
+        cmd->cmd_buf = nil;
+        return;
+    }
+
+    id<MTLComputeCommandEncoder> new_encoder = cmd->is_concurrent
+        ? [new_buf computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent]
+        : [new_buf computeCommandEncoder];
+    if (!new_encoder) {
+        fprintf(stderr, "Error: mtl_commit_wait_restart could not create a new compute encoder.\n");
+        cmd->encoder = nil;
+        cmd->cmd_buf = new_buf;
+        return;
+    }
+
+    [new_buf enqueue];
+
+    cmd->cmd_buf = new_buf;
+    cmd->encoder = new_encoder;
+
+    // Encoder state cache is invalid after restart — all bindings must be re-issued.
+    cmd->current_pipeline = nil;
+    memset(cmd->current_buffers, 0, sizeof(cmd->current_buffers));
+    memset(cmd->current_bytes_valid, 0, sizeof(cmd->current_bytes_valid));
+    memset(cmd->current_bytes_size, 0, sizeof(cmd->current_bytes_size));
+    memset(cmd->current_tgmem_lengths, 0, sizeof(cmd->current_tgmem_lengths));
+}
+
+// --- Residency sets (macOS 15+) ---
+//
+// Mirrors llama.cpp `ggml_metal_buffer_rset_init` / `_rset_free`: build a
+// residency set covering all model weight buffers, commit + request residency
+// once, and rely on Metal to keep them wired down. Without this, on real
+// inference workloads the OS may evict the 17 GB of weights between layer
+// dispatches, masking the kernel's real bandwidth (kernels that microbench
+// at 491 GB/s have been observed at ~4 GB/s effective in real runs).
+
+uint8_t mtl_rset_supported(void) {
+#if defined(__MAC_15_0) || defined(__IPHONE_18_0)
+    if (@available(macOS 15.0, iOS 18.0, *)) {
+        return 1;
+    }
+#endif
+    return 0;
+}
+
+MetalRSet* mtl_rset_create(MetalCtx* ctx, uint32_t initial_capacity) {
+    if (!ctx) return NULL;
+#if defined(__MAC_15_0) || defined(__IPHONE_18_0)
+    if (@available(macOS 15.0, iOS 18.0, *)) {
+        MTLResidencySetDescriptor* desc = [[MTLResidencySetDescriptor alloc] init];
+        desc.label = @"zinc_model_weights";
+        desc.initialCapacity = (NSUInteger)initial_capacity;
+
+        NSError* error = nil;
+        id<MTLResidencySet> rset = [ctx->device newResidencySetWithDescriptor:desc error:&error];
+        if (!rset || error) {
+            if (error) {
+                fprintf(stderr, "Error: failed to create MTLResidencySet: %s\n",
+                        [[error localizedDescription] UTF8String]);
+            }
+            return NULL;
+        }
+
+        MetalRSet* out = (MetalRSet*)calloc(1, sizeof(MetalRSet));
+        if (!out) {
+            return NULL;
+        }
+        out->device = ctx->device;
+        // Transfer +1 retain into the C pointer; balanced in mtl_rset_free.
+        out->rset = (__bridge_retained void*)rset;
+        // The device's command queue gets the residency set so command buffers
+        // automatically see all member allocations as resident.
+        [ctx->queue addResidencySet:rset];
+        return out;
+    }
+#endif
+    (void)initial_capacity;
+    return NULL;
+}
+
+void mtl_rset_add_buffer(MetalRSet* rset, MetalBuf* buf) {
+    if (!rset || !buf || !buf->buffer) return;
+#if defined(__MAC_15_0) || defined(__IPHONE_18_0)
+    if (@available(macOS 15.0, iOS 18.0, *)) {
+        if (rset->rset) {
+            id<MTLResidencySet> rs = (__bridge id<MTLResidencySet>)rset->rset;
+            [rs addAllocation:buf->buffer];
+        }
+    }
+#endif
+}
+
+void mtl_rset_commit_and_request(MetalRSet* rset) {
+    if (!rset) return;
+#if defined(__MAC_15_0) || defined(__IPHONE_18_0)
+    if (@available(macOS 15.0, iOS 18.0, *)) {
+        if (rset->rset) {
+            id<MTLResidencySet> rs = (__bridge id<MTLResidencySet>)rset->rset;
+            [rs commit];
+            [rs requestResidency];
+        }
+    }
+#endif
+}
+
+void mtl_rset_free(MetalRSet* rset) {
+    if (!rset) return;
+#if defined(__MAC_15_0) || defined(__IPHONE_18_0)
+    if (@available(macOS 15.0, iOS 18.0, *)) {
+        if (rset->rset) {
+            // __bridge_transfer hands the +1 reference back to ARC for release.
+            id<MTLResidencySet> rs = (__bridge_transfer id<MTLResidencySet>)rset->rset;
+            [rs endResidency];
+            [rs removeAllAllocations];
+            rs = nil;
+            rset->rset = NULL;
+        }
+    }
+#endif
+    rset->device = nil;
+    free(rset);
+}
