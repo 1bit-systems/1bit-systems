@@ -25,3 +25,6 @@ Thumbs.db
 /opt/
 .zig-cache/
 zig-out/
+*.deb
+*.tar.gz
+!packaging/**/*.tar.gz

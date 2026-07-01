@@ -1,0 +1,15 @@
+version: '3.8'
+services:
+  npu:
+    build: .
+    ports:
+      - "8081:8081"
+    devices:
+      - /dev/accel/accel0:/dev/accel/accel0
+    volumes:
+      - ${HOME}/.config/flm/models:/models:ro
+      - /home/bcloud/npu-sandbox/npu-infer/build/int8:/xclbins:ro
+    environment:
+      - NPU_MODEL_PATH=/models/Qwen3-0.6B-NPU2/model.q4nx
+      - NPU_XCLBIN_DIR=/xclbins
+    restart: unless-stopped

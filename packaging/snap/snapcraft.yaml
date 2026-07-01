@@ -1,0 +1,35 @@
+name: 1bit-systems
+version: '2026.07.01'
+summary: 50 TOPS INT8 NPU inference engine for AMD Strix Halo
+description: |
+  1bit.systems is a pure native inference stack for the AMD Ryzen AI Max+ 395.
+  It runs Qwen3-0.6B at 244 ms/tok on the XDNA 2 NPU with 4 concurrent contexts.
+  Zero Python at runtime. One C++23 binary.
+
+grade: stable
+confinement: strict
+base: core24
+
+apps:
+  npu:
+    command: bin/1bit-npu
+    plugs: [xrt, hardware-observe]
+  server:
+    command: bin/1bit-server
+    daemon: simple
+    plugs: [network-bind, xrt, hardware-observe]
+
+parts:
+  1bit-systems:
+    plugin: make
+    source: https://github.com/bong-water-water-bong/1bit-systems.git
+    source-tag: v2026.07.01
+    build-packages: [g++, libxrt-dev]
+    stage-packages: [libxrt2, libxrt-npu2]
+    override-build: |
+      gcc -c -O3 -o engine/npu/build/dequant_q4nx.o engine/npu/src/dequant_q4nx.c
+      g++ -std=c++23 -O3 -o $SNAPCRAFT_PART_INSTALL/bin/1bit-npu \
+        engine/npu/src/npu_engine_cb.cpp engine/npu/build/dequant_q4nx.o \
+        -lxrt_coreutil -luuid -lm -ldl
+      g++ -std=c++23 -O3 -o $SNAPCRAFT_PART_INSTALL/bin/1bit-server \
+        packaging/binary/server.cpp
