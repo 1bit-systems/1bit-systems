@@ -3,7 +3,7 @@ name: Site Analytics
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 6 * * *'   # daily at 6am UTC
+    - cron: '0 6 * * *'
 
 jobs:
   analytics:
@@ -17,30 +17,34 @@ jobs:
           ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID"
           TOKEN="$CLOUDFLARE_API_TOKEN"
           PROJECT="1bit-systems"
-          API="https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/pages/projects/$PROJECT"
 
           echo "=== Project Info ==="
-          curl -s -H "Authorization: Bearer $TOKEN" "$API" | \
-            jq '{ name: .result.name, subdomain: .result.subdomain, domains: .result.domains, created: .result.created_on }'
-
-          echo ""
-          echo "=== Analytics (last 30 days) ==="
-          curl -s -H "Authorization: Bearer $TOKEN" "$API/analytics" | \
-            jq '{
-              visitors_30d: (.result.visitors.unique_visitors.sum // 0),
-              page_views_30d: (.result.page_views.sum // 0),
-              total_requests_30d: (.result.requests.sum // 0),
-              bandwidth_30d: (.result.bandwidth.sum // 0)
-            }'
-
-          echo ""
-          echo "=== Daily visitors (last 7 days) ==="
           curl -s -H "Authorization: Bearer $TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/pages/projects/$PROJECT/analytics" | \
-            jq '.result.visitors.unique_visitors.series[]? | { date: .[0], visitors: .[1] }' 2>/dev/null || \
-            echo "(daily breakdown not available on this plan)"
+            "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/pages/projects/$PROJECT" | \
+            jq '{ name: .result.name, subdomain: .result.subdomain, domains: .result.domains }'
 
           echo ""
           echo "=== Deployments (last 5) ==="
-          curl -s -H "Authorization: Bearer $TOKEN" "$API/deployments?per_page=5" | \
-            jq '[.result[]? | { environment, created_on, deployment_trigger: .deployment_trigger.type, latest_stage: ([.stages[]? | select(.ended_on == null) | .name] | first // "complete") }]'
+          curl -s -H "Authorization: Bearer $TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/pages/projects/$PROJECT/deployments?per_page=5" | \
+            jq '[.result[]? | { environment, created_on, deploy_url: .url, latest_stage: ([.stages[]? | select(.ended_on == null) | .name] | first // "complete") }]'
+
+          echo ""
+          echo "=== Analytics via GraphQL (last 7 days) ==="
+          TODAY=$(date -u +%Y-%m-%d)
+          WEEK_AGO=$(date -u -d "7 days ago" +%Y-%m-%d)
+          QUERY='{"query":"{\n  viewer {\n    accounts(filter: {accountTag: \"'$ACCOUNT_ID'\"}) {\n      pagesAdaptiveGroups(limit: 100, filter: {date_gt: \"'$WEEK_AGO'\", projectName: \"'$PROJECT'\"}, orderBy: [date_DESC]) {\n        dimensions { date projectName }\n        uniq {\n          uniques\n        }\n        count\n        sum {\n          requests\n          bytes\n        }\n      }\n    }\n  }\n}","variables":{}}'
+          curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$QUERY" \
+            "https://api.cloudflare.com/client/v4/graphql" | \
+            jq '{
+              daily: [.data.viewer.accounts[0].pagesAdaptiveGroups[]? | {
+                date: .dimensions.date,
+                visitors: .uniq.uniques,
+                requests: .sum.requests,
+                bandwidth_bytes: .sum.bytes
+              }],
+              total_visitors: ([.data.viewer.accounts[0].pagesAdaptiveGroups[]?.uniq.uniques] | add // 0),
+              total_requests: ([.data.viewer.accounts[0].pagesAdaptiveGroups[]?.sum.requests] | add // 0)
+            }' 2>/dev/null || echo "(GraphQL analytics not available — check Cloudflare dashboard)"
