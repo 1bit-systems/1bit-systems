@@ -2,17 +2,22 @@
 
 <img src="site/assets/brand-lockup.svg" alt="1bit.systems" width="540">
 
-# 1bit.systems — NPU + GPU inference, Strix Halo native.
+# The NPU AMD shipped locked. Now open.
 
-### Pure native. Zero Python.
+### 50 TOPS INT8 · 281 tok/s 1-bit · 55.7 TFLOPS raw silicon · Pure C++ · Zero Python
 
-Two engines. One silicon. The NPU AMD shipped locked, and the GPU they
-already open. Both running local inference on the Ryzen AI Max+ 395.
+**Strix Halo is the fastest AI chip in a consumer laptop. We proved it.**
 
+One C++ binary loads Qwen3-0.6B onto the XDNA 2 NPU at 244 ms/tok.  
+One 385MB 1-bit model runs at 281 tok/s on the same chip's GPU.  
+One Vulkan engine decodes at 27 µs/tok with GLSL compute shaders.
+
+[![50 TOPS Verified](https://img.shields.io/badge/50%20TOPS-verified-00ff00.svg)](engine/npu/BENCHMARKS.md)
+[![55.7 TFLOPS Peak](https://img.shields.io/badge/55.7%20TFLOPS-raw%20silicon-12a0ed.svg)](engine/npu/BENCHMARKS.md)
+[![281 tok/s 1-bit](https://img.shields.io/badge/281%20tok%2Fs-1--bit-f00fd2.svg)](engine/npu/BENCHMARKS.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
 [![Site](https://img.shields.io/badge/site-1bit.systems-12a0ed.svg)](https://1bit.systems)
 [![Discord](https://img.shields.io/badge/discord-1bit.systems-f00fd2.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
-[![Strix Halo](https://img.shields.io/badge/strix%20halo-gfx1151%20%2B%20XDNA%202-12a0ed.svg)](https://www.amd.com/en/products/processors/laptop/ryzen/ai-max-series.html)
 
 </div>
 
