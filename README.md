@@ -42,7 +42,7 @@ faster than venture capital.
 
 *Built with DeepSeek v4 (99.9%) · Shipped with Claude (0.1%) · One human.*
 
-*—bong-water-water-bong · bcloud@1bit.systems · "Sorry but not Sorry"*
+*—bong-water-water-bong · admin@1bit.systems · "Sorry but not Sorry"*
 
 ## Architecture
 

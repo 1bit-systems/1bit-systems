@@ -104,7 +104,7 @@ int main(int argc, char** argv) {
 
     printf("1bit.systems NPU API → http://localhost:%d/v1/chat/completions\n", port);
     printf("  Model: Qwen3-0.6B INT8 (4-live contexts, 244 ms/tok)\n");
-    printf("  Entry: email thearchitect@1bit.systems\n\n");
+    printf("  Entry: admin@1bit.systems\n\n");
 
     while (true) {
         int client = accept(sock, nullptr, nullptr);
