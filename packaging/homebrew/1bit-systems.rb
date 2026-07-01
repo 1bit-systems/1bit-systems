@@ -1,6 +1,7 @@
 class OnebitSystems < Formula
   desc "50 TOPS INT8 NPU inference engine for AMD Strix Halo"
   homepage "https://1bit.systems"
+  head "https://github.com/bong-water-water-bong/1bit-systems.git"
   url "https://github.com/bong-water-water-bong/1bit-systems/archive/refs/tags/v2026.07.01.tar.gz"
   sha256 "SKIP"
   license "MIT"

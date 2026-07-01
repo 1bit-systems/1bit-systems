@@ -4,7 +4,7 @@ Section: utils
 Priority: optional
 Architecture: amd64
 Depends: libxrt2 (>= 2.21), libxrt-npu2
-Maintainer: 1bit.systems <hello@1bit.systems>
+Maintainer: bong-water-water-bong <bcloud@1bit.systems>
 Description: INT8 inference engine for AMD Strix Halo NPU
  1bit.systems is a pure native inference stack for the AMD Ryzen AI Max+ 395.
  It runs Qwen3-0.6B at 243 ms/tok on the XDNA 2 NPU with 4 concurrent contexts.

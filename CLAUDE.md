@@ -1,6 +1,7 @@
 # CLAUDE.md — 1bit.systems
 
 Two inference engines, one chip. NPU (C++) + GPU (Zig). Zero Python.
+Contact: bcloud@1bit.systems
 
 ## Engine: NPU (`engine/npu/`)
 
