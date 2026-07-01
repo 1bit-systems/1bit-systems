@@ -67,7 +67,7 @@ struct AttnK{
     }
 };
 
-int main(){
+int main(int argc,char**argv){
     setvbuf(stdout,NULL,_IONBF,0);
     printf("=== NPU Engine i8 + Attention ===\n\n");
     const char*mp="/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
@@ -128,11 +128,11 @@ int main(){
         cg.go(l,h.data(),1,H,5.0f/127.0f,wsc[l].g_,gt.data(),6144);cn(gt.data(),6144);for(int i=0;i<IM;i++){float gv=gt[i];if(!std::isfinite(gv))gv=0;su[i]=(gv/(1.0f+expf(-gv)))*gt[IM+i];}
         cd.go(l,su.data(),1,IM,5.0f/127.0f,wsc[l].d_,dwo.data(),H);cn(dwo.data(),H);for(int i=0;i<H;i++)h[i]=sb[i]+dwo[i];
     };
-    int pt[]={151643,872,198,11852,151644,198,151643,77091,198};int npt=9;
+    int pt[]={151643,872,198,11852,151644,198,151643,77091,198};int npt=(argc>1)?atoi(argv[1]):9;if(npt<1)npt=1;if(npt>9)npt=9;
     printf("=== Prefill %d ===\n",npt);
     for(int pi=0;pi<npt;pi++){for(int i=0;i<H;i++)h[i]=bf16g(emb[pt[pi]*H+i]);for(int l=0;l<NC;l++)layer(l);sp++;if(pi%3==0)printf("  %d/%d\n",pi+1,npt);}
     printf("Done\n\n");
-    printf("=== Generate ===\n");int ng=8;auto tgs=std::chrono::steady_clock::now();
+    printf("=== Generate ===\n");int ng=(argc>2)?atoi(argv[2]):8;auto tgs=std::chrono::steady_clock::now();
     for(int st=0;st<ng;st++){auto ts=std::chrono::steady_clock::now();
         for(int l=0;l<NC;l++)layer(l);
         memcpy(sb.data(),h.data(),H*4);rn_c(sb.data(),fin,H);
