@@ -12,14 +12,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build dequantizer
-        run: gcc -c -O3 -o engine/build/dequant_q4nx.o engine/src/dequant_q4nx.c
+        run: gcc -c -O3 -o engine/npu/build/dequant_q4nx.o engine/npu/src/dequant_q4nx.c
       - name: Build engine
         run: |
-          g++ -std=c++23 -O3 -o engine/build/npu_engine \
-            engine/src/npu_engine_i8.cpp engine/build/dequant_q4nx.o \
-            -I/opt/xrt/include -L/opt/xrt/lib -lxrt_coreutil -luuid -lm -ldl
+          mkdir -p engine/npu/build
+          g++ -std=c++23 -O3 -o engine/npu/build/npu_engine             engine/npu/src/npu_engine_i8.cpp engine/npu/build/dequant_q4nx.o             -I/opt/xrt/include -L/opt/xrt/lib -lxrt_coreutil -luuid -lm -ldl
       - name: Benchmark
         run: |
-          cd engine/build
+          cd engine/npu/build
           ./npu_engine 2>&1 | tee benchmark.log
           grep "ms/tok" benchmark.log
