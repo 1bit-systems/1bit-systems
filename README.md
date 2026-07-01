@@ -9,6 +9,8 @@
 [![55.7 TFLOPS Peak](https://img.shields.io/badge/55.7%20TFLOPS-raw%20silicon-12a0ed.svg)](engine/npu/BENCHMARKS.md)
 [![281 tok/s 1-bit](https://img.shields.io/badge/281%20tok%2Fs-1--bit-f00fd2.svg)](engine/npu/BENCHMARKS.md)
 [![Pure C++](https://img.shields.io/badge/runtime-C%2B%2B23-00ff00.svg)](engine/npu/src/npu_engine_cb.cpp)
+[![DeepSeek v4](https://img.shields.io/badge/built%20with-DeepSeek%20v4-7b3af2.svg)](https://deepseek.com)
+[![Claude](https://img.shields.io/badge/shipped%20with-Claude-d97706.svg)](https://claude.ai)
 [![MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/discord-1bit.systems-f00fd2.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
 
@@ -37,6 +39,8 @@ the entire stack. The silicon was never the bottleneck. The business model was.
 Every claim is timestamped in [docs/journey.md](docs/journey.md) — an 1,184-line
 audit trail of every crash, deadlock, fix, and breakthrough. Open source ships
 faster than venture capital.
+
+*Built with DeepSeek v4 (99.9%) · Shipped with Claude (0.1%) · One human.*
 
 ## Architecture
 
