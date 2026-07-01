@@ -91,7 +91,54 @@
 </div>
 
 <script>
-const TOKENS = {
+const API = 'http://localhost:8001';
+
+async function pollState() {
+  try {
+    const r = await fetch(API);
+    const s = await r.json();
+    document.getElementById('status').textContent = s.status || 'idle';
+    document.getElementById('status').className = s.status === 'running' ? 'pulse running' : s.status === 'complete' ? 'pulse done' : 'pulse';
+    if (s.speed_ms_tok) {
+      document.getElementById('speed').textContent = s.speed_ms_tok;
+      document.getElementById('bar').style.width = (1000/(parseInt(s.speed_ms_tok)||250)) + '%';
+      document.getElementById('bar').textContent = (1000/(parseInt(s.speed_ms_tok)||250)).toFixed(1) + ' tok/s';
+    }
+    if (s.tokens_generated) document.getElementById('tokens').textContent = s.tokens_generated;
+    if (s.output) {
+      const lines = JSON.parse(s.output).split('\n').filter(l => l.includes('[') || l.includes('ms/tok') || l.includes('Prefill'));
+      document.getElementById('term').innerHTML = lines.map(l => {
+        let cls = 'dim';
+        if (l.includes('[')) cls = '';
+        if (l.includes('ms/tok')) cls = 'g';
+        return `<div class="line ${cls}">${l.replace(/</g,'&lt;')}</div>`;
+      }).join('\n');
+      // Parse tokens
+      const toks = lines.filter(l => l.includes('[') && l.match(/\d+ \(/)).map(l => l.match(/\] (\d+) \(/)?.[1]).filter(Boolean);
+      if (toks.length) {
+        const disp = document.getElementById('tokens-display');
+        disp.style.display = 'flex';
+        disp.innerHTML = toks.map(t => `<span class="token">${t}</span>`).join('');
+      }
+    }
+  } catch(e) {
+    document.getElementById('status').textContent = 'daemon offline';
+    document.getElementById('status').className = 'pulse offline';
+  }
+}
+
+async function triggerRun() {
+  try {
+    await fetch(API + '/run', { method: 'POST' });
+    document.getElementById('status').textContent = 'running';
+    document.getElementById('status').className = 'pulse running';
+  } catch(e) {
+    document.getElementById('term').innerHTML = '<div class="line dim">NPU daemon not running. Start it:</div><div class="line">$ cd engine/npu && bash daemon.sh serve</div><div class="line dim">Then in another terminal:</div><div class="line">$ bash daemon.sh run 9 8</div>';
+  }
+}
+setInterval(pollState, 2000);
+pollState();
+</script>
   prefill: {
     title: "Batched Prefill (9 tokens, 176ms)",
     data: [151643, 872, 198, 11852, 151644, 198, 151643, 77091, 198]
