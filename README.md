@@ -1,120 +1,161 @@
 <div align="center">
 
-<img src="1bit-site/assets/brand-lockup.svg" alt="1bit.systems" width="540">
+<img src="site/assets/brand-lockup.svg" alt="1bit.systems" width="540">
 
-# Local 1-bit inference, wired for Strix Halo.
+# INT8 inference, unlocked on Strix Halo.
 
-### Pure Rust. Zero Python.
+### Pure C++. 4.1 tok/s. Zero Python at runtime.
 
-**[→ Project Wiki](docs/wiki/README.md)** — architecture, decisions, and agent onboarding.
+`1bit.systems` is an INT8 inference engine for the AMD Strix Halo NPU (XDNA 2).
+It runs Qwen3-0.6B at **243 ms/tok** with diverse token output — on consumer
+silicon that AMD's own Linux toolchain soft-blocks.
 
-`1bit.systems` is a 1-bit inference engine for AMD Strix Halo (gfx1151). The
-runtime is a Rust HTTP server that wraps [rocm-cpp](https://github.com/bong-water-water-bong/rocm-cpp)
-HIP kernels, delivering 4.9–7.2× faster decode than rocBLAS FP16 at 1/4 the memory.
-
-[![CI](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml/badge.svg)](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
 [![Site](https://img.shields.io/badge/site-1bit.systems-12a0ed.svg)](https://1bit.systems)
 [![Discord](https://img.shields.io/badge/discord-1bit.systems-f00fd2.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
-[![Endpoint](https://img.shields.io/badge/endpoint-:13305%2Fv1-00ff00.svg)](#connect-apps)
 [![Strix Halo](https://img.shields.io/badge/strix%20halo-gfx1151%20%2B%20XDNA%202-12a0ed.svg)](https://www.amd.com/en/products/processors/laptop/ryzen/ai-max-series.html)
 
 </div>
 
 ---
 
+## What this is
+
+A **standalone C++ binary** that loads a Qwen3-0.6B model, dequantizes Q4NX
+weights to INT8, and runs inference on the Strix Halo NPU via AMD's XRT
+runtime — with 4 NPU contexts alive simultaneously and zero context swapping.
+
+```bash
+g++ -std=c++23 -O3 -o npu_engine engine/src/npu_engine_i8.cpp engine/build/dequant_q4nx.o \
+    -I$XRT/include -L$XRT/lib64 -lxrt_coreutil -luuid -lm -ldl
+./npu_engine
+```
+
+```
+=== NPU Engine i8 + Attention ===
+Init 8 contexts (4 GEMM + 4 attention).
+Dequant+pack: 4.5s
+
+Generate:
+  [0] 107325  [1] 40469   [2] 115358  [3] 127809
+  [4] 121341  [5] 35443   [6] 16927   [7] 105629
+
+=== 243 ms/tok ===
+```
+
+## Hardware
+
+| Component | Spec |
+|-----------|------|
+| CPU | AMD Ryzen AI Max+ 395 (16 Zen 5 cores) |
+| GPU | Radeon 8060S (40 RDNA 3.5 CUs) |
+| NPU | XDNA 2 (32 AIE2P tiles, 50 TOPS INT8) |
+| RAM | 128 GB LPDDR5x unified |
+| OS | Ubuntu 26.04 LTS, kernel 7.0.0+ |
+
+## Performance
+
+| Engine | Speed | Tokens | Approach |
+|--------|-------|--------|----------|
+| **i8 4-live** | **243 ms/tok (4.1 tok/s)** | Diverse ✅ | 4 INT8 contexts + NPU attention |
+| i8 swap | 446 ms/tok | Diverse ✅ | 1-at-a-time context swap |
+| BFP16 v8 | 1335 ms/tok | Repeating ❌ | Chess GEMM, BO-cached swap |
+| FLM (reference) | ~11 ms/tok (93 tok/s) | — | Proprietary AMD runtime |
+
 ## Architecture
 
 ```
-onebit (:13305)   axum (Rust)
-  └── bitnet_decode --server   rocm-cpp (C++/HIP)
-       └── librocm_cpp.so      ternary GEMV/GEMV
-            └── gfx1151        Strix Halo iGPU
+┌─────────────────────────────────────────────────────────┐
+│                   npu_engine (C++)                      │
+│                                                         │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐ │
+│  │ QKV GEMM │  │ O  GEMM  │  │ GU GEMM  │  │ D GEMM │ │
+│  │ (INT8)   │  │ (INT8)   │  │ (INT8)   │  │ (INT8) │ │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └───┬────┘ │
+│       │              │              │            │      │
+│       └──────────────┴──────────────┴────────────┘      │
+│                          │                               │
+│                    ┌─────▼──────┐                        │
+│                    │ NPU Driver │                        │
+│                    │ (amdxdna)  │                        │
+│                    └────────────┘                        │
+└─────────────────────────────────────────────────────────┘
 ```
 
-**Zero Python. Zero C++ at the server layer.** One Rust binary spawns one
-C++/HIP subprocess. Streaming passthrough, health checks, CORS — minimal.
+All 4 GEMM contexts and 4 attention contexts are alive simultaneously.
+No context swapping. Per-layer weight BOs are pre-loaded at startup —
+zero weight memcpy during inference.
 
-## Install
+## Why this matters
+
+AMD ships the Strix Halo NPU with:
+- An MLIR parser that rejects `i8` types (only `v8bfp16ebs8` is accepted)
+- A toolchain that requires a proprietary Chess compiler license
+- No public INT8 inference examples on Linux
+
+We fixed:
+- **K-interleaving bug** — added `dataReuse` annotations to ObjectFifo DMA
+- **INT8 xclbin generation** — Chess-compiled kernels with correct INT8 matmul
+- **4-live contexts** — NPU2 supports multiple concurrent hw_contexts
+- **Per-layer weight BOs** — pre-loaded, never copied during inference
+
+## Quick Start
+
+See [docs/building.md](docs/building.md) for full build instructions.
+
+### Prerequisites
+
+- AMD Strix Halo system (Ryzen AI Max+ 395)
+- Ubuntu 26.04+ with kernel 7.0.0+
+- AMD XRT 2.21+ (`xrt-smi examine` should show `RyzenAI-npu5`)
+- Chess compiler license (free from [AMD Ryzen AI EA](https://account.amd.com/en/member/ryzenai-sw-ea.html))
+- Qwen3-0.6B Q4NX model from FastFlowLM
+
+### Build
 
 ```bash
-# One command — handles Ubuntu, Arch, Fedora
-curl -fsSL https://raw.githubusercontent.com/bong-water-water-bong/1bit-engine/main/install.sh | bash
+# 1. Install XRT
+sudo apt install libxrt2 libxrt-npu2 libxrt-dev xrt-smi
+
+# 2. Set up torch2aie toolchain (for xclbin compilation)
+git clone https://github.com/taowen/torch2aie.git
+cd torch2aie && ./scripts/setup_python.sh && source scripts/env.sh
+
+# 3. Place Chess license
+mkdir -p torch2aie/licenses/
+cp /path/to/Xilinx.lic torch2aie/licenses/
+
+# 4. Build INT8 xclbins (one-time)
+cd engine/xclbins
+python3 n1_core_i8_v2.py -M 128 -K 1024 -N 4096 -m 32 -k 64 -n 128 > qkv.mlir
+aiecc --aietools=$AIETOOLS_DIR --aie-generate-xclbin --no-compile-host \
+      --xclbin-name=final_i8_QKV_v.xclbin qkv.mlir
+# (repeat for O, GU, D projections)
+
+# 5. Build engine
+g++ -std=c++23 -O3 -o npu_engine engine/src/npu_engine_i8.cpp \
+    engine/build/dequant_q4nx.o \
+    -I$XRT/include -L$XRT/lib64 -lxrt_coreutil -luuid -lm -ldl
+
+# 6. Run
+./npu_engine
 ```
 
-The installer handles everything: ROCm build deps, Rust, rocm-cpp kernels, and the Rust server. Then download a .h1b model and run:
+## Roadmap
 
-```bash
-source ~/.cargo/env
-export HSA_OVERRIDE_GFX_VERSION=11.5.1
-export HSA_ENABLE_SDMA=0
-~/1bit/engine/target/release/onebit --model model.h1b --port 13305 --tune-prefill --fp16-weights
-```
-
-## Connect Apps
-
-```python
-from openai import OpenAI
-client = OpenAI(base_url="http://127.0.0.1:13305/v1", api_key="any")
-print(client.chat.completions.create(
-    model="bitnet",
-    messages=[{"role":"user","content":"Say hello in one word."}],
-    max_tokens=20,
-).choices[0].message.content)
-```
-
-| App | Base URL |
-|---|---|
-| OpenAI SDK (Python, Node, Go) | `http://127.0.0.1:13305/v1` |
-| Open WebUI, AnythingLLM, n8n, Dify | `http://127.0.0.1:13305/v1` |
-| Continue.dev, Aider, Cline | `http://127.0.0.1:13305/v1` |
-
-## Verified Benchmarks — ROCm 7.2.4, gfx1151, June 2026
-
-### Prefill GEMM (our ternary 4h kernel vs rocBLAS FP16)
-
-| Shape | rocm-cpp (TFlops) | rocBLAS (TFlops) | Ratio | B Memory |
-|---|---|---|---|---|
-| FFN up (2560×6912×2560) | **21.94** | 29.99 | 0.73× | **1/4** |
-| FFN down (2560×2560×6912) | **20.91** | — | — | **1/4** |
-| Square (4096×4096×4096) | **19.73** | 28.77 | 0.69× | **1/4** |
-
-Effective throughput per byte: **2.9× rocBLAS**
-
-### Decode GEMV (batch=1, memory-bound)
-
-| Shape | rocm-cpp halo (µs) | rocBLAS FP16 (µs) | Speedup | B Memory |
-|---|---|---|---|---|
-| 2560×2560 | ~30 | 212 | **7.1×** | 1/16 |
-| 4096×4096 | ~100 | 814 | **8.1×** | 1/16 |
-| 6912×2560 (LM head) | **27.0** | ~700 | **7.8×** | 1/16 |
-| 4096×11008 | ~200 | 1468 | **7.3×** | 1/16 |
-
-**sherry** (3:4 N:M sparse, PolyForm NC): 18.7 µs = 1.45× halo  
-**tq1** (PolyForm NC): 18.7 µs = 1.44× halo
-
-### llama.cpp Q1_0 Full Burn (7 models)
-
-| Model | Quant | Size | pp512 t/s | tg128 t/s |
-|---|---|---|---|---|
-| Bonsai-1.7B | Q1_0 | 231 MB | 5,001 | 231 |
-| BitNet-2B-4T | Q1_0 | 538 MB | 3,652 | 120 |
-| Bonsai-4B | Q1_0 | 540 MB | 2,125 | 126 |
-| Bonsai-8B | Q1_0 | 1.07 GB | 1,325 | 96 |
-| Qwen3-Coder-Next 80B | IQ1_S | 17.6 GB | 662 | 51 |
-| Llama-4-Scout 17Bx16E | IQ1_S | 27.2 GB | 326 | 21 |
-| BitNet-2B-4T | TQ1_0 | 1.02 GB | 282 | 50 |
-
-Full data: [rocm-cpp results/BENCHMARK-20260623.md](https://github.com/bong-water-water-bong/rocm-cpp/blob/main/results/BENCHMARK-20260623.md)
-
-## Repos
-
-| Repo | Role |
-|---|---|
-| [1bit-engine](https://github.com/bong-water-water-bong/1bit-engine) | Rust HTTP server (the runtime) |
-| [rocm-cpp](https://github.com/bong-water-water-bong/rocm-cpp) | C++/HIP kernels (the engine) |
-| [1bit-systems](https://github.com/bong-water-water-bong/1bit-systems) | Website, docs, benchmarks (this repo) |
+| Milestone | Status |
+|-----------|--------|
+| INT8 K-interleaving fix | ✅ Done |
+| 4-live INT8 contexts | ✅ Done |
+| NPU attention kernel | ✅ Built (not yet wired) |
+| 174 ms/tok target | 📋 NPU attention dispatch |
+| GGUF Q8_0 model loading | 📋 Direct INT8 weights |
+| 1-bit / BitNet b1.58 | 🔮 Post-INT8 |
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
+
+---
+
+*Built on Strix Halo. Powered by the NPU AMD shipped but never unlocked.*

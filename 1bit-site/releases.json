@@ -1,6 +1,0 @@
-{
-  "$schema_note": "Current 1bit.systems site does not publish an updater feed. This placeholder is kept only so old clients receive an explicit empty feed instead of stale artifacts.",
-  "latest": null,
-  "channels": {},
-  "releases": []
-}

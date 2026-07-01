@@ -1,0 +1,25 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: self-hosted
+    if: github.event.repository.owner.login == 'bong-water-water-bong'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build dequantizer
+        run: gcc -c -O3 -o engine/build/dequant_q4nx.o engine/src/dequant_q4nx.c
+      - name: Build engine
+        run: |
+          g++ -std=c++23 -O3 -o engine/build/npu_engine \
+            engine/src/npu_engine_i8.cpp engine/build/dequant_q4nx.o \
+            -I/opt/xrt/include -L/opt/xrt/lib -lxrt_coreutil -luuid -lm -ldl
+      - name: Benchmark
+        run: |
+          cd engine/build
+          ./npu_engine 2>&1 | tee benchmark.log
+          grep "ms/tok" benchmark.log

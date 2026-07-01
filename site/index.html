@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>1bit.systems — INT8 Inference on Strix Halo</title>
+<style>
+  :root {
+    --bg: #021621;
+    --text: #e7f6fd;
+    --green: #00ff00;
+    --pink: #f00fd2;
+    --blue: #12a0ed;
+    --dim: #4a6a7a;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .container { max-width: 720px; width: 100%; padding: 2rem 1.5rem; }
+  header { text-align: center; padding: 3rem 0 2rem; }
+  header img { width: 320px; max-width: 80%; }
+  h1 { font-size: 2rem; font-weight: 800; margin-top: 1.5rem; }
+  h1 span.g { color: var(--green); }
+  h2 { font-size: 1.25rem; color: var(--dim); font-weight: 400; margin-top: 0.5rem; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; margin: 2rem 0; }
+  .stat { background: rgba(18,160,237,0.08); border: 1px solid rgba(18,160,237,0.2); border-radius: 8px; padding: 1rem; text-align: center; }
+  .stat .num { font-size: 1.75rem; font-weight: 800; color: var(--green); font-family: 'JetBrains Mono', monospace; }
+  .stat .label { font-size: 0.75rem; color: var(--dim); margin-top: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .code { background: rgba(0,255,0,0.05); border: 1px solid rgba(0,255,0,0.15); border-radius: 8px; padding: 1rem; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; overflow-x: auto; white-space: pre; }
+  .code .c { color: var(--dim); }
+  .code .g { color: var(--green); }
+  .code .p { color: var(--pink); }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .links { display: flex; gap: 1rem; justify-content: center; margin-top: 2rem; flex-wrap: wrap; }
+  .links a { padding: 0.5rem 1rem; border: 1px solid var(--blue); border-radius: 6px; font-size: 0.85rem; }
+  .links a:hover { background: var(--blue); color: var(--bg); text-decoration: none; }
+  footer { text-align: center; padding: 2rem; color: var(--dim); font-size: 0.8rem; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <img src="assets/brand-lockup.svg" alt="1bit.systems">
+    <h1>INT8 inference, <span class="g">unlocked</span> on Strix Halo</h1>
+    <h2>Pure C++. 4.1 tok/s. Zero Python at runtime.</h2>
+  </header>
+
+  <div class="stats">
+    <div class="stat"><div class="num">4.1</div><div class="label">tok/s INT8</div></div>
+    <div class="stat"><div class="num">243</div><div class="label">ms/tok</div></div>
+    <div class="stat"><div class="num">8</div><div class="label">NPU contexts</div></div>
+    <div class="stat"><div class="num">145</div><div class="label">lines of C++</div></div>
+  </div>
+
+  <div class="code">
+<span class="c">// One binary. One command.</span>
+$ g++ -std=c++23 -O3 -o npu_engine engine/src/npu_engine_i8.cpp \
+      engine/build/dequant_q4nx.o -lxrt_coreutil -luuid -lm
+
+$ ./npu_engine
+<span class="g">=== NPU Engine i8 + Attention ===</span>
+Init 8 contexts (4 GEMM + 4 attention). Dequant+pack: 4.5s
+
+<span class="g">Generate:</span>
+  [0] <span class="p">107325</span>  [1] <span class="p">40469</span>   [2] <span class="p">115358</span>  [3] <span class="p">127809</span>
+  [4] <span class="p">121341</span>  [5] <span class="p">35443</span>   [6] <span class="p">16927</span>   [7] <span class="p">105629</span>
+
+<span class="g">=== 243 ms/tok ===</span>
+  </div>
+
+  <div class="links">
+    <a href="https://github.com/bong-water-water-bong/1bit-systems">GitHub</a>
+    <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/building.md">Build Guide</a>
+    <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/architecture.md">Architecture</a>
+    <a href="https://discord.gg/dSyV646eBs">Discord</a>
+  </div>
+</div>
+<footer>Built on Strix Halo. Powered by the NPU AMD shipped but never unlocked.</footer>
+</body>
+</html>

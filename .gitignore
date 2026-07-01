@@ -1,58 +1,25 @@
-cpp/build/
-rocm-cpp/build/
-.wrangler/
-.superpowers/
+# Build artifacts
+engine/build/*.o
+engine/build/npu_engine
+*.xclbin
+*.insts
+*.mlir
+*.mlir.prj/
 
-# HIP / Clang-offload compiler artifacts — never commit, ever.
-# Regenerable from source; large (.hipi ~3 MB each); noisy in diffs.
-*.bc
-*.hipi
-*.hipfb
-*.cubin
-*.fatbin
-*.ptx
-*-hip-amdgcn-amd-amdhsa-*.o
-*-hip-amdgcn-amd-amdhsa-*.s
-*-hip-amdgcn-amd-amdhsa-*.out
-*-host-x86_64-pc-linux-gnu.o
-*-host-x86_64-pc-linux-gnu.s
-*-host-x86_64-pc-linux-gnu.bc
-*.out.resolution.txt
+# Python
+__pycache__/
+*.pyc
+.venv/
 
-# OS / editor scratch
+# IDE
+.vscode/
+.idea/
+
+# OS
 .DS_Store
 Thumbs.db
-*.swp
-*.swo
-*~
-.idea/
-.vscode/
-!.vscode/extensions.json
 
-# Local secrets — never in git
-.env
-.env.local
-*.pem
-*.key
-secrets/
-
-# Benchmark output (lives in ~/claude output/ per house rule)
-/benchmarks/out/
-*.profdata
-*.profraw
-perf.data*
-rocprof-*.json
-
-# CMake out-of-tree build
-build-tests/
-.webui_secret_key
-
-# Ruflo runtime (generated, not for git)
-.claude-flow/data/
-.claude-flow/logs/
-.claude-flow/sessions/
-.claude-flow/swarm/
-.claude-flow/learning/
-.claude-flow/metrics/
-.claude-flow/daemon.pid
-.claude-flow/daemon-state.json
+# XRT / NPU
+*.xclbin
+*.insts
+/opt/
