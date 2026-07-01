@@ -152,6 +152,23 @@ g++ -std=c++23 -O3 -o npu_engine engine/src/npu_engine_i8.cpp \
 | GGUF Q8_0 model loading | 📋 Direct INT8 weights |
 | 1-bit / BitNet b1.58 | 🔮 Post-INT8 |
 
+## The Journey
+
+This engine is the result of a 3-day reverse-engineering sprint documented in
+[docs/journey.md](docs/journey.md) — a timestamped handoff showing every
+breakthrough, crash, deadlock, and fix:
+
+- **UPDATE 1-7**: NPU benchmarking, FLM reverse engineering, pyxrt analysis
+- **UPDATE 8**: Full-layer xclbin deadlock (ERT state 8 timeout)
+- **UPDATE 9**: Chess license activated — 31.4 TFLOPS verified
+- **UPDATE 10**: NaN accumulation fixed (safe softmax + error containment)
+- **UPDATE 11**: NPU edge attention kernel built for 0.6B
+- **UPDATE 12**: INT8 K-interleaving fixed (dataReuse on ObjectFifo)
+- **UPDATE 13**: 4-live INT8 engine — 219 ms/tok
+
+Every dead end is documented. Every wrong turn is timestamped. This is
+real hardware, real crashes, real progress.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
