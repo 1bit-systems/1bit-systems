@@ -253,6 +253,7 @@ class Handler(BaseHTTPRequestHandler):
             messages = req.get("messages", [])
             stream = req.get("stream", False)
             extra_kwargs = {k: v for k, v in req.items() if k not in ("model", "messages", "stream")}
+            print(f"  REQ model={model!r} msgs={len(messages)} stream={stream} extra_keys={list(extra_kwargs.keys())}", flush=True)
 
             # Streaming requested but not (yet) truly supported — just respond
             # non-streaming. Most clients handle this gracefully.
@@ -278,6 +279,11 @@ class Handler(BaseHTTPRequestHandler):
                 if isinstance(resp, dict):
                     resp["x-device"] = device
                     resp["x-model-size"] = f"{model_size}B"
+                    if "error" in resp:
+                        print(f"  RESP error: {resp['error']}", flush=True)
+                    else:
+                        txt = resp.get("choices",[{}])[0].get("message",{}).get("content","")[:50]
+                        print(f"  RESP ok: {txt!r}", flush=True)
 
                 self._json(200, resp)
 
