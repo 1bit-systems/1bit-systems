@@ -258,7 +258,7 @@
     <div class="foot-fine">
       <div>Built with DeepSeek v4 (99.9%) · Shipped with Claude (0.1%) · One human.</div>
       <div>Strix Halo. 10 ms/tok NPU (97 tok/s). 281 tok/s 1-bit GPU. 55.7 TFLOPS. Beats FLM Kraken Point.</div>
-      <div style="margin-top:8px;">The final unlock is Vendor Locked (Hint Hint).</div>
+      <div style="margin-top:8px;">The final unlock is Vendor (Hint Hint).</div>
       <div>—bong-water-water-bong · <span class="p">"Sorry but not Sorry :)"</span></div>
       <div style="margin-top:8px;"><a href="mailto:admin@1bit.systems" style="color:var(--muted);">admin@1bit.systems</a></div>
     </div>
@@ -269,8 +269,8 @@
   (function(){
     var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (reduce) return;
-    var frames = ["  [1] batch=4 tok=9275 ms=161 (40 ms/tok)","  [5] batch=4 tok=106211 ms=159 (40 ms/tok)","  [1] batch=4 tok=83570 ms=158 (40 ms/tok)","  [5] batch=4 tok=114316 ms=160 (40 ms/tok)"];
-    var ms = [50,49,51,50];
+    var frames = ["  [1] batch=32 tok=103246 178ms (6 ms/tok)","  [33] batch=32 tok=75805 183ms (6 ms/tok)","  [1] batch=32 tok=108119 246ms (8 ms/tok)","  [33] batch=31 tok=139225 365ms (12 ms/tok)"];
+    var ms = [10,11,10,12];
     var i = 0;
     var msEl = document.getElementById('ms'), ms2 = document.getElementById('ms2');
     setInterval(function(){i++;var m=ms[i%ms.length];msEl.textContent=m;ms2.textContent=m;},950);
