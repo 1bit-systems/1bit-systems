@@ -87,7 +87,7 @@ async function main() {
       reply.raw.write(`data: ${JSON.stringify({ id: responseId, object: "chat.completion.chunk", created: Date.now(), model, choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }] })}\n\n`);
 
       const engine = spawn(ENGINE, engineArgs, { stdio: ["ignore", "pipe", "pipe"] });
-      const rl = createInterface({ input: engine.stdout! });
+      const rl = createInterface({ input: engine.stderr! }); // MT engine writes tokens to stderr
       rl.on("line", (line: string) => {
         const m = line.match(/top8=\[(\d+)/);
         if (!m) return;
@@ -102,7 +102,7 @@ async function main() {
       try {
         const engine = spawn(ENGINE, engineArgs, { stdio: ["ignore", "pipe", "pipe"] });
         const ids: string[] = [];
-        const rl = createInterface({ input: engine.stdout! });
+        const rl = createInterface({ input: engine.stderr! }); // MT engine writes tokens to stderr
         for await (const line of rl) {
           const m = line.match(/top8=\[(\d+)/);
           if (m) ids.push(m[1]);
