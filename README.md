@@ -10,15 +10,50 @@
 [![281 tok/s 1-bit](https://img.shields.io/badge/281%20tok%2Fs-1--bit-f00fd2.svg)](engine/npu/BENCHMARKS.md)
 [![5 models](https://img.shields.io/badge/5%20models-auto--detect-00ff00.svg)](engine/npu/BENCHMARKS.md)
 [![120KB binary](https://img.shields.io/badge/binary-120KB-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
+<br>
+[![Debian](https://img.shields.io/badge/deb-install-d70a53.svg)](https://github.com/bong-water-water-bong/1bit-systems/releases/latest)
+[![Snap](https://img.shields.io/badge/snap-install-82BEA0.svg)](https://github.com/bong-water-water-bong/1bit-systems/releases/latest)
+[![Docker](https://img.shields.io/badge/docker-run-2496ED.svg)](https://github.com/bong-water-water-bong/1bit-systems/releases/latest)
+[![AUR](https://img.shields.io/badge/AUR-yay-1793d1.svg)](https://github.com/bong-water-water-bong/1bit-systems/releases/latest)
+[![Homebrew](https://img.shields.io/badge/brew-install-fbb040.svg)](https://github.com/bong-water-water-bong/1bit-systems/releases/latest)
+[![Ollama](https://img.shields.io/badge/ollama-ready-000000.svg)](https://github.com/bong-water-water-bong/1bit-systems/releases/latest)
+<br>
+[![curl install](https://img.shields.io/badge/curl%20%7C%20bash-install-00ff00.svg)](packaging/install.sh)
 [![Pure C++](https://img.shields.io/badge/runtime-C%2B%2B23-00ff00.svg)](engine/npu/src/npu_engine_all.cpp)
-[![DeepSeek v4](https://img.shields.io/badge/built%20with-DeepSeek%20v4-7b3af2.svg)](https://deepseek.com)
-[![Claude](https://img.shields.io/badge/shipped%20with-Claude-d97706.svg)](https://claude.ai)
+[![Zero Python](https://img.shields.io/badge/deps-0-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
 [![MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/discord-1bit.systems-f00fd2.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
 
 </div>
 
 ---
+
+### Get Started
+
+```bash
+# One-liner
+curl -sL https://1bit.systems/install.sh | bash
+
+# Or pick your package manager
+sudo dpkg -i 1bit-systems_2026.07.02_amd64.deb     # Debian/Ubuntu
+sudo snap install 1bit-systems                       # Snap
+yay -S 1bit-systems-bin                              # Arch (AUR)
+brew install 1bit-systems                            # macOS (Homebrew)
+docker run -d --device /dev/accel/accel0 \
+  -p 8081:8081 1bit-systems/npu:2026.07.02           # Docker
+ollama create qwen3-npu -f packaging/ollama/Modelfile # Ollama
+
+# Or build from source (one command)
+g++ -std=c++23 -O3 -march=native -fopenmp -ffast-math \
+    -o npu_engine_all engine/npu/src/npu_engine_all.cpp \
+    engine/npu/build/dequant_q4nx.o \
+    -Iengine/npu/src -lxrt_coreutil
+
+# Run (auto-detects model)
+OMP_NUM_THREADS=16 ./npu_engine_all model.q4nx 16
+```
+
+> **No Python. No pip. No Docker. No MLIR toolchain. Just g++ and run.**
 
 ### What you get — right now, on one chip
 
