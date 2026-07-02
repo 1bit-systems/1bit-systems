@@ -67,15 +67,22 @@ v12 (Jul 2):  10 ms/tok   M=32 + OpenMP attention       24.0×
 mt  (Jul 2):   TBD        Model-agnostic, multi-model
 ```
 
-### FLM Fused Design Port — Kernels ✅, MLIR ✅, aiecc ❌ (Buffer Layout)
+### FLM Fused Design Port — ✅ 2 XCLBINS COMPILED
 
-**All 5 kernels compiled + MLIR generated and validated:**
-- Generated 2255-line valid QKV prefix MLIR for 0.6B dimensions
-- Generator BD ID fix applied and verified
-- aiecc fails on hardcoded buffer addresses — the 8B memory layout doesn't fit 0.6B's smaller buffers
-- Full-layer port needs: regenerate memory layout for 0.6B dimensions (~200 address changes)
+| XCLBIN | Size | Lines MLIR | aiecc | Content |
+|--------|------|------------|-------|---------|
+| `design_qkv_prefix.xclbin` | 253KB | 2255 | ✅ 5min | QKV GEMM + QK norms + RoPE + KV writeback |
+| `design_full_layer.xclbin` | 374KB | 3344 | ✅ 10min | Full layer: QKV→attn→O→GU→SiLU→D |
 
-**Working MLIR saved at:** `/home/bcloud/torch2aie/build/qwen3_06b_layer/design_qkv_prefix.mlir`
+**All 5 Chess kernels linked:** main_projection, edge_attention, postprocess_qkv, full_vector_station, swiglu
+**Location:** `/home/bcloud/torch2aie/build/qwen3_06b_layer/`
+**Generator fixes applied:**
+- Dynamic WEIGHT_PATCH_BD_IDS (no more hardcoded 8-span assumption)
+- Stripped explicit buffer addresses (let aiecc basic-sequential allocator handle)
+- Fixed replay/down chunk contract check (was hardcoded to 8B values)
+- All MLIR validations pass for 0.6B dimensions
+
+**Engine integration blocked by:** Weight format — fused xclbin expects Q4NX compact record format. Our current engine uses flat INT8 weights. Need weight conversion or Q4NX loader. FLM's `run_full_layer.py` contains the integration pattern (Q4NX weight streaming + runtime sequence).
 
 ### Attention Test XCLBINS
 - `attn_scalar.o` (Peano, 4KB) — ✅ Compiled
