@@ -65,8 +65,10 @@ Effective speed approaches **50 ms/tok (20 tok/s)** at 16+ tokens. All diverse. 
 | Jul 2 | i8 f32-LM | **19 ms/tok** | **222 ms/tok** | Diverse ✅ | Pre-converted f32 embeddings (-20%) |
 | Jul 2 | i8 v4 profile | — | **221 ms/tok** | Diverse ✅ | Per-GEMM profile: 1346μs dispatch avg |
 | **Jul 2** | **i8 v6 batch-4** | **19 ms/tok** | **50 ms/tok** | Diverse ✅ | **Chained batch-4 + OpenMP LM head (4.4×)** |
+| **Jul 2** | **i8 v7 probe** | — | **160 ms/tok** | Diverse ✅ | **ioctl=9μs, r.wait=1334μs → NPU compute, not dispatch** |
 
 **Net: 13.5× prefill speedup. 4.4× decode speedup. Zero Python. Pure C++.**
+**v7 finding: fusing xclbins saves only 27μs/layer (3 ioctls). Real fix: increase M (batch size).**
 
 ## Per-GEMM Dispatch Profile (v4)
 
