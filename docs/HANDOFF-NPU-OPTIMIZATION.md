@@ -1,3 +1,83 @@
+## UPDATE 18 (2026-07-02 04:00 ADT): M=32 BATCH + NPU LM HEAD — TARGET: BEAT FLM
+
+### FLM Benchmark (Kraken Point — smaller NPU than Strix Halo)
+
+```
+Qwen3-0.6B on Kraken Point (AMD Ryzen AI 7 350):
+  66.5 tok/s at 1K context (15.0 ms/tok)
+  1494 tok/s prefill
+```
+
+FLM wins on weaker hardware because: weights stream on NPU, attention on NPU,
+all layers chained in one dispatch graph. No per-layer DMA round-trips.
+
+### Our Position (Strix Halo — 32 tiles vs Kraken Point's fewer)
+
+```
+v3  (Jul 1): 244 ms/tok (4.1 tok/s)   baseline
+v6  (Jul 2):  50 ms/tok (20 tok/s)    batch-4 + OpenMP LM head          4.4×
+v7  (Jul 2):       —                  ioctl=9μs, r.wait=1334μs probe
+v8  (Jul 2):  27 ms/tok (37 tok/s)    M=8 batch decode                  8.2×
+v9  (Jul 2):  16 ms/tok (63 tok/s)    M=16 batch decode                 15.2×
+v10 (Jul 2):  16 ms/tok (63 tok/s)    NPU LM head (4ms vs 6ms OpenMP)
+v11 (Jul 2):  RUNNING                 M=32 batch decode — target >100 tok/s
+```
+
+### NPU LM Head (v10 — Working)
+
+Built dedicated xclbin: 128×1024×30720 INT8 (8 tiles, 3827 MLIR lines, 88KB).
+Embedding table pre-packed as 5×31MB int8 BOs. 5 NPU dispatches × 1334μs + DMA
+= 4ms total vs 6ms OpenMP CPU (-33%).
+
+N=61440 attempt (3 chunks = ~2.5ms) blocked: aiecc times out >10min at 46K MLIR.
+Acceptable — LM head is <10% of latency budget now.
+
+### xrt::runlist API
+
+Exists but not useful: adding runs to a runlist batches `ioctl()` calls (9μs each)
+but doesn't reduce `r.wait()` time (1334μs). Fusion saves only 27μs/layer × 28
+= 0.75ms total. The 1334μs is NPU compute, not driver overhead.
+
+### Real Fix: Batched M-Dimension
+
+NPU compute time is fixed (~1334μs per GEMM dispatch). M=1: 99% idle.
+M=16: 16× throughput at same compute time → 11ms/tok batch step.
+M=32: 32× throughput → target ~6ms/tok batch step → ~5ms/tok effective.
+
+### What's NOT the Bottleneck
+
+- **ioctl overhead**: 9μs per call (<1%)
+- **CPU attention**: 26μs per layer at context <32
+- **LM head**: 4ms NPU or 6ms OpenMP — minor contribution
+- **Weight DMA**: synced once at startup, no per-token sync needed
+
+### What IS the Bottleneck
+
+- **NPU compute time per GEMM**: 1334μs regardless of M-dimension
+- **KV cache attention on CPU**: grows O(N) with sequence length at 16 heads × 8 KV heads
+- **112 dispatches**: not fixable without fused xclbin (FLM-style)
+
+### Next
+
+1. M=32 benchmark: target >100 tok/s on Strix Halo (>10ms/tok)
+2. NPU attention: FLM's edge_attention.o already compiled — needs fused MLIR
+3. Fused transformer xclbin: QKV→attention→O→GU→D on-chip (weeks of MLIR-AIE)
+
+### Key Files (current)
+
+| File | Purpose |
+|------|---------|
+| `/home/bcloud/1bit-systems/engine/npu/src/npu_engine_v11.cpp` | M=32 batch decode (latest) |
+| `/home/bcloud/1bit-systems/engine/npu/src/npu_engine_v10.cpp` | NPU LM head (4ms) |
+| `/home/bcloud/1bit-systems/engine/npu/src/npu_engine_v7.cpp` | μs-probe: ioctl vs r.wait |
+| `/home/bcloud/1bit-systems/engine/npu/BENCHMARKS.md` | Benchmark source of truth |
+| `/home/bcloud/npu-sandbox/npu-infer/build/int8/LM_n30k.mlir` | NPU LM head MLIR (3827 lines) |
+| `/home/bcloud/npu-sandbox/npu-infer/build/int8/final_i8_LM_n30k.xclbin` | NPU LM head xclbin (88KB) |
+| `/home/bcloud/torch2aie/build/qwen3_decode_layer_objects/` | FLM compiled kernels |
+| `/home/bcloud/torch2aie/examples/qwen3-decode-layer/` | FLM fused design source |
+
+---
+
 ## UPDATE 16 (2026-07-02 02:00 ADT): FULL DECODE PROFILE — NPU GEMM = 100% BOTTLENECK
 
 ### The Question
