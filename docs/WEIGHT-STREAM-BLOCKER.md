@@ -42,3 +42,42 @@ Estimated 4-8 hours to produce working fused decode.
 Standalone INT8 GEMM xclbins. OpenMP attention + LM head.
 Zero Python. Pure C++.
 
+
+## UPDATE (07:30): Q4NX Packer v2 — Correct Size, DMA Timeout
+
+Weight packer v2 produces correct-size output (9,835,264 bytes = 2,458,816 dwords)
+matching the fused xclbin MLIR exactly:
+
+```
+AUX: 4864 bytes (1216 dwords)
+Stream: 9,830,400 bytes (2,457,600 dwords)
+Total: 9,835,264 bytes (2,458,816 dwords) ✅
+```
+
+Packer at: `/home/bcloud/npu-sandbox/npu-infer/tools/pack_fused_v2.py`
+
+**Algorithm:**
+1. Dequantize I8 weights → f32
+2. Re-quantize to Q4NX format (symmetric 4-bit per group)
+3. Pack in FLM schedule order (group→patch→schedule_entry→row_in_patch)
+4. Prepend AUX prefix (norm weights + RoPE angles in bf16)
+
+**Why DMA still times out (63s):**
+The fused xclbin's main16 kernel (`qwen3_decode_kernels.cc`) implements FLM's
+proprietary Q4NX dequant algorithm with specific scale/zero semantics:
+- Scales are per-row per-group (bf16)
+- Zeros are per-row per-group (bf16)  
+- Weights are packed as two U4 lanes of 16 rows each
+- Dequant: `(w * scale + zero)` with float accumulation
+
+Our Q4NX quantizer produces valid values but the specific scale/zero
+computation likely differs from FLM's training pipeline, causing NaN/Inf
+accumulations that stall AIE compute tiles.
+
+**Resolution:** The Q4NX format is not a generic 4-bit quantization — it's FLM's
+proprietary format tuned to their training pipeline. Correct integration requires
+either using FLM's weight generator directly or matching their quantization
+parameters exactly. This is a model-converter project, not an engine project.
+
+**Action:** Continue production engine (v12 standalone INT8, 97 tok/s).
+Schedule Q4NX format conversion as a separate workstream.
