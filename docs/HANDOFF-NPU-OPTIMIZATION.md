@@ -1,3 +1,19 @@
+## UPDATE 21b (2026-07-02): MERGED WITH REMOTE AUTO-DETECT ENGINE
+
+### Merge
+- Merged with `origin/main` which had a completely refactored `npu_engine_universal.cpp`
+- New engine: auto-detects model dimensions from Q4NX header (no more preprocessor flags)
+- M=32 batched decode, OpenMP attention, OpenMP LM head, f32 embeddings
+- Our token-file input feature (`argv[3]`) applied on top of new engine
+- Added `model_config.h` (from npu-sandbox) to make the new engine compilable
+
+### Files Changed Post-Merge
+| File | Action |
+|------|--------|
+| `engine/npu/src/model_config.h` | Created (was missing from remote) |
+| `engine/npu/src/npu_engine_universal.cpp` | Merged — remote's auto-detect + our argv[3] |
+| `engine/npu/build_npu.sh` | Switched to auto-detect universal binary |
+
 ## UPDATE 21 (2026-07-02): USER INPUT + API BRIDGE + QWEN3-VL-4B FIX
 
 ### Engine: User Prompt Input
