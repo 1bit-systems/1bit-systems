@@ -12,7 +12,7 @@ import { randomBytes } from "crypto";
 import fastifyMultipart from "@fastify/multipart";
 
 const HOME = process.env.HOME || "/home/bcloud";
-const ENGINE = resolve(HOME, "npu-sandbox/npu-infer/build/npu_engine_mt");
+const ENGINE = resolve(HOME, "1bit-systems/engine/npu/build/npu_engine_v12");
 const TOKENIZE = resolve(HOME, "1bit-systems/engine/npu/tokenizer/tokenize");
 const DETOK = resolve(HOME, "1bit-systems/engine/npu/tokenizer/detokenize");
 const WHISPER = "/usr/local/bin/whisper-cpp";
@@ -80,34 +80,39 @@ async function main() {
     if (!tokenIds.length) return reply.code(500).send({ error: "tokenizer failed" });
 
     const responseId = `chatcmpl-${Date.now()}`;
-    const engineArgs = [cfg.path, ...tokenIds.map(String)];
+    // v12 engine: ./npu_engine_v12 [decode_tokens]
+    // Uses hardcoded Qwen3-0.6B prompt + model path
+    const maxTok = model === "qwen3_0_6b" ? 16 : 8;
+    const engineArgs = ["9", String(maxTok)];
 
     if (stream) {
       reply.raw.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
       reply.raw.write(`data: ${JSON.stringify({ id: responseId, object: "chat.completion.chunk", created: Date.now(), model, choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }] })}\n\n`);
 
-      const engine = spawn(ENGINE, engineArgs, { stdio: ["ignore", "pipe", "pipe"] });
-      const rl = createInterface({ input: engine.stderr! }); // MT engine writes tokens to stderr
+      const engine = spawn(ENGINE, engineArgs, { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, OMP_NUM_THREADS: "16" } });
+      const rl = createInterface({ input: engine.stdout! }); // v12 writes tokens to stdout
       rl.on("line", (line: string) => {
-        const m = line.match(/top8=\[(\d+)/);
+        const m = line.match(/tok=(\d+)/); // v12 format: "tok=N"
         if (!m) return;
         const text = detokenize(cfg.tok, m[1]);
         if (text) reply.raw.write(`data: ${JSON.stringify({ id: responseId, object: "chat.completion.chunk", created: Date.now(), model, choices: [{ index: 0, delta: { content: text }, finish_reason: null }] })}\n\n`);
       });
+      engine.stderr!.on("data", (d: Buffer) => process.stderr.write(d));
       engine.on("close", () => {
         reply.raw.write(`data: ${JSON.stringify({ id: responseId, object: "chat.completion.chunk", created: Date.now(), model, choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
         reply.raw.end();
       });
     } else {
       try {
-        const engine = spawn(ENGINE, engineArgs, { stdio: ["ignore", "pipe", "pipe"] });
+        const engine = spawn(ENGINE, engineArgs, { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, OMP_NUM_THREADS: "16" } });
         const ids: string[] = [];
-        const rl = createInterface({ input: engine.stderr! }); // MT engine writes tokens to stderr
+        const rl = createInterface({ input: engine.stdout! });
         for await (const line of rl) {
-          const m = line.match(/top8=\[(\d+)/);
+          const m = line.match(/tok=(\d+)/);
           if (m) ids.push(m[1]);
         }
-        return { id: responseId, object: "chat.completion", created: Date.now(), model, choices: [{ index: 0, message: { role: "assistant", content: detokenize(cfg.tok, ids.join(",")) || "(generating...)" }, finish_reason: "stop" }] };
+        const output = detokenize(cfg.tok, ids.join(",")) || "(generating...)";
+        return { id: responseId, object: "chat.completion", created: Date.now(), model, choices: [{ index: 0, message: { role: "assistant", content: output }, finish_reason: "stop" }] };
       } catch (e: any) { return reply.code(500).send({ error: e.message }); }
     }
   });
