@@ -67,16 +67,15 @@ v12 (Jul 2):  10 ms/tok   M=32 + OpenMP attention       24.0×
 mt  (Jul 2):   TBD        Model-agnostic, multi-model
 ```
 
-### FLM Fused Design Port
+### FLM Fused Design Port — Kernels ✅, MLIR ✅, aiecc ❌ (Buffer Layout)
 
-**All 5 kernels recompiled for Qwen3-0.6B** (Chess aie2p):
-- `main_projection_q4nx_06b.o` (80KB)
-- `edge_attention_06b.o` (37KB)
-- `postprocess_qkv_06b.o` (34KB)
-- `full_vector_station_06b.o` (20KB)
-- `swiglu_06b.o` (7KB)
+**All 5 kernels compiled + MLIR generated and validated:**
+- Generated 2255-line valid QKV prefix MLIR for 0.6B dimensions
+- Generator BD ID fix applied and verified
+- aiecc fails on hardcoded buffer addresses — the 8B memory layout doesn't fit 0.6B's smaller buffers
+- Full-layer port needs: regenerate memory layout for 0.6B dimensions (~200 address changes)
 
-**Generator fix applied:** Dynamic WEIGHT_PATCH_BD_IDS (resolution: `docs/MLIR-GENERATOR-BLOCKER.md`)
+**Working MLIR saved at:** `/home/bcloud/torch2aie/build/qwen3_06b_layer/design_qkv_prefix.mlir`
 
 ### Attention Test XCLBINS
 - `attn_scalar.o` (Peano, 4KB) — ✅ Compiled
