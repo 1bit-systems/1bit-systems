@@ -1,6 +1,8 @@
 # Build artifacts
 engine/build/*.o
 engine/build/npu_engine
+engine/npu/build/*.o
+engine/npu/build/npu_engine*
 *.xclbin
 *.insts
 *.mlir

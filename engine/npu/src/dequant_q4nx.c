@@ -36,27 +36,25 @@ static inline float bf16_to_float(uint16_t v) {
  * Output: [out_rows, out_cols] row-major float array (caller must free).
  * out_rows = n_tile_rows * 32, out_cols = n_tile_cols * 256
  */
+// Forward declaration for the wrapper
+float* dequant_i8_to_float_ex(const uint8_t* data, int i8_rows, int in_features,
+                              int* out_rows, int* out_cols);
+
 float* dequant_i8_to_float(const uint8_t* data, int i8_rows,
                            int* out_rows, int* out_cols) {
+    return dequant_i8_to_float_ex(data, i8_rows, 1024, out_rows, out_cols);
+}
+
+/**
+ * Extended version with explicit in_features (hidden_dim).
+ * For Q4NX format: n_tile_cols = in_features / TILE_COLS.
+ */
+float* dequant_i8_to_float_ex(const uint8_t* data, int i8_rows, int in_features,
+                              int* out_rows, int* out_cols) {
     // Determine tile grid: rows first, columns second
     int n_tile_cols, n_tile_rows;
 
-    // For Qwen3-0.6B: in_features=1024, so n_tile_cols = 1024/256 = 4
-    // But for different tensors, in_features may differ.
-    // The total output values = i8_rows * 32 * 256 = i8_rows * 8192
-    // For Q_proj [2048,1024]: total = 2097152, i8_rows = 256
-    //   n_tile_cols * n_tile_rows * 32 * 256 = 2097152
-    //   n_tile_cols * n_tile_rows = 256 → both could be anything
-    //
-    // For K_proj [1024,1024]: total = 1048576, i8_rows = 128
-    //   128 * 32 * 256 = 1048576 → n_tile_cols*n_tile_rows = 128
-    //
-    // For Gate [3072,1024]: total = 3145728, i8_rows = 384
-    //   384 * 32 * 256 = 3145728 → n_tile_cols*n_tile_rows = 384
-    //
-    // In all cases: n_tile_cols = in_features / 256 = 1024/256 = 4
-    // n_tile_rows = i8_rows / n_tile_cols = i8_rows / 4
-    n_tile_cols = 1024 / TILE_COLS;  // always 4 for hidden=1024
+    n_tile_cols = in_features / TILE_COLS;
     n_tile_rows = i8_rows / n_tile_cols;
 
     *out_rows = n_tile_rows * TILE_ROWS;
