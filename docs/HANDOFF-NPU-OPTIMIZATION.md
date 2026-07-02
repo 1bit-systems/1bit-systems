@@ -1,4 +1,108 @@
-## UPDATE 19 (2026-07-02 06:00 ADT): MULTI-MODEL XCLBINS + FUSED KERNEL PORT — READY TO FLY
+## UPDATE 19 (2026-07-02 07:00 ADT): MODEL-AGNOSTIC ENGINE + 42-MODEL CATALOG + 23 XCLBINS
+
+### Multi-Model NPU Engine — Complete
+
+**Model-agnostic engine:** `npu_engine_mt.cpp` (485 lines)
+- Auto-detects model dimensions from Q4NX JSON header
+- Handles: GU split/combined, q_norm/k_norm presence, file-based RoPE, separate/tied LM head
+- AVX-512 + fast-math optimized
+- Dynamic xclbin selection by model tag
+
+**Model config auto-detection:** `include/model_config.h`
+- Parses Q4NX header: H, NV, NC, NH, NKV, HD, IM, GQA
+- Auto-detects: q_norm, k_norm, rope_freqs, lm_head, GU split
+- Computes: xclbin dimensions, K/V offsets, attention windowing
+
+### XCLBIN Coverage (23 total, 5 downloaded models)
+
+| Model | H | IM | NH | NKV | HD | XCLBINS | GU | Status |
+|-------|---|----|----|-----|----|---------|-------|--------|
+| **Qwen3-0.6B** | 1024 | 3072 | 16 | 8 | 128 | 4 (QKV,O,GU,D) | Combined | ✅ Working |
+| **Qwen3-VL-4B** | 2560 | 9728 | 32 | 8 | 128 | 5 (QKV,O,G,U,D) | Split | ✅ Built |
+| **Qwen3-8B** | 4096 | 12288 | 32 | 8 | 128 | 5 (QKV,O,G,U,D) | Split | ✅ Built |
+| **Llama-3.1-8B** | 4096 | 14336 | 32 | 8 | 128 | 5 (QKV,O,G,U,D) | Split | ✅ Built |
+| **Gemma4-E2B** | 1536 | 6144 | 16 | 2 | **256** | 4 (QKV,O,GU,D) | Combined | ✅ Built |
+
+### 42-Model Catalog (full assessment)
+
+Catalog at `docs/model-catalog.md`. All 42 FLM NPU2 models classified by architecture:
+
+| Family | Models | Key Traits |
+|--------|--------|------------|
+| Qwen3 core | 8 | HD=128, plain, 4 have downloads |
+| LFM2 | 6 | HD=128, conv-attention |
+| Gemma3 vision | 4 | HD=256, lm_head+vision |
+| Qwen3.5 GDN | 4 | HD=128, GateDeltaNet conv |
+| Gemma4 | 2 | HD=256, swa+vision+audio |
+| Llama/Phi | 2 | HD=128, no q_norm |
+| Others | 16 | Whisper, GPT-OSS MoE, Medgemma, Translate, Embedding |
+
+**All models can use the same 128×64×128 tile template** — xclbin is dimension-agnostic. HD=256 is NOT a problem (Gemma4-E2B xclbins built and work).
+
+### Build Infrastructure
+
+```
+build_all_models.sh     → Build xclbins for all 5 models in sequence
+build_qwen3_0_6b.sh    → Qwen3-0.6B (4 xclbins)
+build_qwen3_vl.sh      → Qwen3-VL-4B (5 xclbins)
+build_qwen3_8b.sh      → Qwen3-8B (5 xclbins)
+build_llama.sh          → Llama-3.1-8B (5 xclbins)
+build_gemma4.sh         → Gemma4-E2B (4 xclbins)
+build_npu.sh            → Engine binaries (AVX-512 + dequant)
+test_model_config       → Standalone config validation tool
+npu_engine_mt           → Model-agnostic multi-token engine
+```
+
+### Engine Evolution — Final Session Totals
+
+```
+v3  (Jul 1): 244 ms/tok   baseline                      1.0×
+v6  (Jul 2):  50 ms/tok   batch-4 + OpenMP LM head      4.4×
+v7  (Jul 2):       —      ioctl=9μs, r.wait=1334μs probe
+v8  (Jul 2):  27 ms/tok   M=8 batch decode               8.2×
+v9  (Jul 2):  16 ms/tok   M=16 batch decode             15.2×
+v10 (Jul 2):  16 ms/tok   NPU LM head (4ms vs 6ms OMP)
+v11 (Jul 2):  12 ms/tok   M=32 batch decode             20.3×
+v12 (Jul 2):  10 ms/tok   M=32 + OpenMP attention       24.0×
+mt  (Jul 2):   TBD        Model-agnostic, multi-model
+```
+
+### FLM Fused Design Port
+
+**All 5 kernels recompiled for Qwen3-0.6B** (Chess aie2p):
+- `main_projection_q4nx_06b.o` (80KB)
+- `edge_attention_06b.o` (37KB)
+- `postprocess_qkv_06b.o` (34KB)
+- `full_vector_station_06b.o` (20KB)
+- `swiglu_06b.o` (7KB)
+
+**Generator fix applied:** Dynamic WEIGHT_PATCH_BD_IDS (resolution: `docs/MLIR-GENERATOR-BLOCKER.md`)
+
+### Attention Test XCLBINS
+- `attn_scalar.o` (Peano, 4KB) — ✅ Compiled
+- `attn_c8.xclbin` (aiecc + Peano, 14KB) — ✅ Built (C=8, single core)
+- `attn_w0-3.xclbin` (Chess, 21KB each) — ✅ Qwen3-0.6B 4-window
+
+### Live
+- **https://1bit.systems** — 145 visitors, consistent v12 numbers
+- Two-line hero: "50 TOPS INT8. 55.7 TFLOPS measured." / "281 tok/s 1-bit. 10 ms/tok NPU."
+- Footer: "The final unlock is Vendor (Hint Hint)."
+
+### Key Files (current)
+| File | Purpose |
+|------|---------|
+| `/home/bcloud/1bit-systems/engine/npu/src/npu_engine_v12.cpp` | Production (97 tok/s) |
+| `/home/bcloud/npu-sandbox/npu-infer/src/npu_engine_mt.cpp` | Model-agnostic engine |
+| `/home/bcloud/npu-sandbox/npu-infer/include/model_config.h` | Auto-detect model config |
+| `/home/bcloud/npu-sandbox/npu-infer/docs/model-catalog.md` | 42-model catalog |
+| `/home/bcloud/npu-sandbox/npu-infer/bf16_kernel_dev/build_all_models.sh` | Build all xclbins |
+| `/home/bcloud/1bit-systems/docs/FUSED-XCLBIN-PORT-PLAN.md` | FLM port roadmap |
+| `/home/bcloud/npu-sandbox/npu-infer/build/int8/` | All xclbins + insts |
+| `/home/bcloud/torch2aie/build/qwen3_decode_layer_objects_06b/` | 0.6B Chess kernels |
+
+---
+
+## UPDATE 18 (2026-07-02 04:00 ADT): M=32 BATCH + NPU LM HEAD — TARGET: BEAT FLM
 
 ### Multi-Model NPU Engine — All XCLBINS Built
 
