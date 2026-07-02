@@ -104,7 +104,7 @@
 <nav>
   <div class="nav-in">
     <a class="brand" href="#top"><span class="mark">1bs</span><span class="wordmark"><span class="g">1</span>bit<span class="p">.</span>systems</span></a>
-    <div class="nav-links"><a href="#engines">Engines</a><a href="#benchmarks">Benchmarks</a><a href="#profile">Profile</a><a href="#proof">Proof</a><a href="#build">Build</a></div>
+    <div class="nav-links"><a href="#engines">Engines</a><a href="#benchmarks">Benchmarks</a><a href="#install">Install</a><a href="#build">Build</a></div>
     <div class="nav-cta"><a class="txt" href="https://discord.gg/dSyV646eBs" target="_blank" rel="noopener">Discord</a><a class="btn btn-primary btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">GitHub</a></div>
   </div>
 </nav>
@@ -230,6 +230,22 @@
       <div class="check"><span class="ck">✓</span><span class="txt">Qwen3-0.6B/8B/VL-4B + Llama-3.1-8B + Gemma4-E2B verified.</span></div>
       <div class="check"><span class="ck">✓</span><span class="txt">Full audit trail in <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/journey.md" target="_blank" rel="noopener">docs/journey.md</a>.</span></div>
     </div>
+  </div>
+</section>
+
+<section id="install" class="block">
+  <span class="eyebrow">Install</span>
+  <h2 style="margin:16px 0 8px;">Pick your package manager. 12 ways to install.</h2>
+  <p class="lead" style="margin-bottom:24px;">One binary ships everywhere. No Python. No pip. No compilation required.</p>
+  <div class="grid4" style="margin-top:28px;">
+    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">curl | bash</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">1 command</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">curl -sL 1bit.systems/install.sh | bash</span></div></div>
+    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Debian/Ubuntu</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">.deb 62KB</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">sudo dpkg -i 1bit-systems*.deb</span></div></div>
+    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Snap</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">snapcraft</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">sudo snap install 1bit-systems</span></div></div>
+    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Arch (AUR)</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">PKGBUILD</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">yay -S 1bit-systems-bin</span></div></div>
+    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Homebrew</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">Formula</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">brew install 1bit-systems</span></div></div>
+    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Docker</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">Ubuntu 26.04</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">docker run -d --device /dev/accel/accel0 -p 8081:8081 1bit-systems/npu</span></div></div>
+    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Ollama</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">Modelfile</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">ollama create qwen3-npu -f Modelfile</span></div></div>
+    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Build from source</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">120KB binary</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">g++ -std=c++23 -O3 ... -o npu_engine_all</span></div></div>
   </div>
 </section>
 
