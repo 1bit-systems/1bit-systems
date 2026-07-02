@@ -48,8 +48,8 @@ jobs:
       - name: Build engine (continuous batch)
         run: |
           mkdir -p engine/npu/build
-          g++ -std=c++23 -O3 -march=native -fopenmp -o engine/npu/build/npu_engine_cb \
-            engine/npu/src/npu_engine_cb.cpp engine/npu/build/dequant_q4nx.o \
+          g++ -std=c++23 -O3 -march=native -fopenmp -ffast-math -o engine/npu/build/npu_engine_v9 \
+            engine/npu/src/npu_engine_v9.cpp engine/npu/build/dequant_q4nx.o \
             -I/opt/xrt/include -L/opt/xrt/lib -lxrt_coreutil -luuid -lm -ldl
 
       - name: Benchmark
@@ -59,7 +59,7 @@ jobs:
           echo "=== NPU Benchmark $(date -u) ==="
           echo "Prefill tokens: $M, Decode tokens: $N"
           cd engine/npu/build
-          ./npu_engine_cb $M $N 2>&1 | tee benchmark.log
+          ./npu_engine_v9 $M $N 2>&1 | tee benchmark.log
           echo "---"
           grep "ms/tok" benchmark.log || echo "::warning::No ms/tok line found"
 

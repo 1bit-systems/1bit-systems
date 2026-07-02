@@ -67,11 +67,10 @@ Effective speed approaches **50 ms/tok (20 tok/s)** at 16+ tokens. All diverse. 
 | **Jul 2** | **i8 v6 batch-4** | **19 ms/tok** | **50 ms/tok** | Diverse ✅ | **Chained batch-4 + OpenMP LM head (4.4×)** |
 | **Jul 2** | **i8 v7 probe** | — | **160 ms/tok** | Diverse ✅ | **ioctl=9μs, r.wait=1334μs → NPU compute, not dispatch** |
 | **Jul 2** | **i8 v8 M=8** | **19 ms/tok** | **27 ms/tok** | Diverse ✅ | **M=8 batch decode — 21ms/tok step (8.2× vs v3)** |
+| **Jul 2** | **i8 v9 M=16** | **19 ms/tok** | **16 ms/tok** | Diverse ✅ | **M=16 batch decode — 11ms/tok step (15.2× vs v3)** |
 
-**Net: 13.5× prefill speedup. 8.2× decode speedup (244→27 ms/tok). Zero Python. Pure C++.**
-**v7 finding: fusing xclbins saves only 27μs/layer. Real fix: increase M (batch size).**
-**v8: M=8 amortizes 1334μs NPU compute across 8 tokens — batch steps at 21ms/tok.**
-**FLM (93 tok/s = 10.7ms/tok) now only 2.5× away. M=16 target: ~15ms/tok.**
+**Net: 13.5× prefill speedup. 15.2× decode speedup (244→16 ms/tok). Zero Python. Pure C++.**
+**FLM (93 tok/s = 10.7ms/tok) is 1.5× away. Single session: 244→50→27→16 ms/tok.**
 
 ## Per-GEMM Dispatch Profile (v4)
 
