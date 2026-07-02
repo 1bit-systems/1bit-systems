@@ -479,9 +479,9 @@ class Handler(BaseHTTPRequestHandler):
             stream = req.get("stream", False)
             extra_kwargs = {k: v for k, v in req.items() if k not in ("model", "messages", "stream")}
 
-            if stream:
-                self._json(400, {"error": "Streaming not yet supported"})
-                return
+            # Streaming requested but not (yet) truly supported — just respond
+            # non-streaming. Most clients handle this gracefully.
+            _ = stream  # consumed, ignored
 
             # Route — npu:// bypasses size estimation
             if model.startswith("npu://"):
