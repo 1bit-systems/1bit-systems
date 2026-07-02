@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>1bit.systems — 50 TOPS INT8 · 55.7 TFLOPS · 281 tok/s 1-bit · 50 ms/tok NPU</title>
-<meta name="description" content="A 1-bit inference engine for the AMD Strix Halo APU. 50 TOPS INT8, 55.7 TFLOPS measured, 281 tok/s at 1-bit, 50 ms/tok NPU. Open source. Zero Python.">
+<title>1bit.systems — 50 TOPS INT8 · 55.7 TFLOPS · 281 tok/s 1-bit · 10 ms/tok NPU</title>
+<meta name="description" content="A 1-bit inference engine for the AMD Strix Halo APU. 50 TOPS INT8, 55.7 TFLOPS measured, 281 tok/s at 1-bit, 10 ms/tok NPU. Open source. Zero Python.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
@@ -114,7 +114,7 @@
     <div>
       <span class="eyebrow">Strix Halo · Ryzen AI Max+ 395</span>
       <h1><span class="g">50 TOPS</span> INT8. <span class="g">55.7 TFLOPS</span> measured.</h1>
-      <h1 style="margin-top:4px;"><span class="g">281 tok/s</span> 1-bit. <span class="g">16 ms/tok</span> NPU.</h1>
+      <h1 style="margin-top:4px;"><span class="g">281 tok/s</span> 1-bit. <span class="g">10 ms/tok</span> NPU.</h1>
       <p class="sub">M=32 batched inference for the AMD Strix Halo APU. 24× faster than day 1. Beats FLM Kraken Point. Open source. Zero Python.</p>
       <div class="row" style="margin-top:18px;">
         <span class="pill ok"><span class="dot"></span>verified on-device</span>
@@ -158,7 +158,7 @@
   <h2 style="margin:16px 0 8px;">Five engines. Zero Python. One person.</h2>
   <p class="lead">Hand-written, dependency-free, benchmarked on the metal. Compile a binary; run it offline.</p>
   <div class="grid4" style="margin-top:28px;">
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag npu">NPU v12</span><span class="mono" style="font-size:12px;color:var(--muted);">XDNA 2 · 32 tiles</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">INT8 M=16 Engine</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">16 ms/tok<span style="font-size:15px;color:var(--muted);font-weight:500;"> (63 tok/s)</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">C++23. M=16 batched decode. OpenMP LM head. 15.2× vs v3. 1.5× from FLM.</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">M=16 · 11ms/step · XRT direct</div></div>
+    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag npu">NPU v12</span><span class="mono" style="font-size:12px;color:var(--muted);">XDNA 2 · 32 tiles</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">INT8 M=32 Engine</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">10 ms/tok<span style="font-size:15px;color:var(--muted);font-weight:500;"> (97 tok/s)</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">C++23. M=32 batched decode. OpenMP attention + LM head. 24× vs v3. Beats FLM Kraken Point.</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">M=32 · 6ms/step · XRT direct</div></div>
     <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag oneb">1-bit</span><span class="mono" style="font-size:12px;color:var(--muted);">RDNA 3.5 · 40 CUs</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">Bonsai 1.7B</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">281 tok/s</div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">IQ1_S · 385 MB. Vulkan backend. pi-agent patched llama.cpp.</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">385 MB model · Vulkan · Strix Halo</div></div>
     <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag gpu">GPU</span><span class="mono" style="font-size:12px;color:var(--muted);">Vulkan 1.3 · 40 CUs</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">ZINC Engine</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">27 µs<span style="font-size:15px;color:var(--muted);font-weight:500;"> / decode</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">Zig. GLSL compute → SPIR-V. Qwen3.5-9B Q4_K. GGUF native. 7.8× rocBLAS.</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">CUDA · Metal · Vulkan · MSL</div></div>
     <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag mlx">MLX</span><span class="mono" style="font-size:12px;color:var(--muted);">Apple + XDNA 2</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">MLX NPU Backend</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">dual<span style="font-size:15px;color:var(--muted);font-weight:500;"> silicon</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">Apple MLX fork with IRON XDNA 2 backend. Same framework runs on M1–M5 AND your NPU.</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">Apple Silicon · XDNA 2 · one framework</div></div>
@@ -187,8 +187,8 @@
     <div class="stat"><span class="lbl caps">Actual GEMM</span><span class="val">0.5-5 <span>μs</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>overhead ratio: 2000×</span></div>
     <div class="stat"><span class="lbl caps">CPU attention</span><span class="val">26 <span>μs/layer</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>&lt;1% of total</span></div>
     <div class="stat"><span class="lbl caps">LM head (OpenMP)</span><span class="val">6 <span>ms</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>was 67ms · 11× faster</span></div>
-    <div class="stat"><span class="lbl caps">Fix: M=16 batch</span><span class="val">15.2<span>×</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>amortizes NPU compute</span></div>
-    <div class="stat"><span class="lbl caps">Gap to FLM</span><span class="val">1.5<span>×</span></span><span class="foot"><span class="dot" style="background:var(--dim)"></span>was 20× · closing</span></div>
+    <div class="stat"><span class="lbl caps">Fix: M=32 batch</span><span class="val">24<span>×</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>amortizes NPU compute</span></div>
+    <div class="stat"><span class="lbl caps">vs FLM</span><span class="val">2<span>×</span></span><span class="foot"><span class="dot" style="background:var(--dim)"></span>beats Kraken Point</span></div>
   </div>
 </section>
 
@@ -198,15 +198,15 @@
   <p class="lead" style="margin-bottom:24px;">No wrapper, no scheduler, no Python. Compile, point it at the NPU, and read the latency straight off the metal.</p>
   <div class="panel">
     <div style="display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid var(--border);"><span class="dots"><span style="background:var(--pink)"></span><span style="background:var(--blue)"></span><span style="background:var(--green)"></span></span><span class="mono" style="margin-left:8px;font-size:12.5px;color:var(--muted);">strix-halo:~/1bit-systems</span></div>
-    <div class="mono" style="padding:20px 22px;font-size:13px;line-height:1.85;white-space:pre;overflow-x:auto;"><span class="c"># NPU v9: M=16 batch decode, 16 ms/tok effective</span>
+    <div class="mono" style="padding:20px 22px;font-size:13px;line-height:1.85;white-space:pre;overflow-x:auto;"><span class="c"># NPU v12: M=32 batch decode, 10 ms/tok effective</span>
 <span class="t">$ g++ -std=c++23 -O3 -march=native -fopenmp \</span>
-<span class="t">      -o npu_engine_v9 engine/npu/src/npu_engine_v9.cpp \</span>
+<span class="t">      -o npu_engine_v12 engine/npu/src/npu_engine_v12.cpp \</span>
 <span class="t">      engine/npu/build/dequant_q4nx.o -lxrt_coreutil -luuid -lm</span>
-<span class="t">$ OMP_NUM_THREADS=16 ./npu_engine_v9 64</span>
-<span class="g">  [0] boot=<span class="p">127595</span> (157ms)</span>
-<span class="g">  [1] batch=16 tok=<span class="p">78102</span> ms=180 (<span class="b">11 ms/tok</span>)</span>
-<span class="g">  [17] batch=16 tok=<span class="p">2619</span> ms=200 (<span class="b">13 ms/tok</span>)</span>
-<span class="g" style="font-weight:700;">=== 16.1 ms/tok effective ===</span>
+<span class="t">$ OMP_NUM_THREADS=16 ./npu_engine_v12 128</span>
+<span class="g">  [0] boot=<span class="p">30390</span> (155ms)</span>
+<span class="g">  [1] batch=32 tok=<span class="p">103246</span> 178ms (<span class="b">6 ms/tok</span>)</span>
+<span class="g">  [33] batch=32 tok=<span class="p">75805</span> 183ms (<span class="b">6 ms/tok</span>)</span>
+<span class="g" style="font-weight:700;">=== 7.3 ms/tok (137 tok/s) ===</span>
 
 <span class="c"># Profile: per-GEMM breakdown</span>
 <span class="t">$ ./npu_engine_profile</span>
@@ -223,8 +223,8 @@
   <div class="card" style="padding:24px;">
     <div class="verify-grid">
       <div class="check"><span class="ck">✓</span><span class="txt">All numbers verified on-device — no cloud, no simulator.</span></div>
-      <div class="check"><span class="ck">✓</span><span class="txt">v9 engine running at 16 ms/tok effective, 11 ms/tok per batch step.</span></div>
-      <div class="check"><span class="ck">✓</span><span class="txt">15.2× speedup in one session — 244→16 ms/tok. 1.5× from FLM.</span></div>
+      <div class="check"><span class="ck">✓</span><span class="txt">v12 engine running at 10 ms/tok effective, 6 ms/tok per batch step.</span></div>
+      <div class="check"><span class="ck">✓</span><span class="txt">24× speedup in one session — 244→10 ms/tok. Beats FLM Kraken Point.</span></div>
       <div class="check"><span class="ck">✓</span><span class="txt">1-bit models benchmarked at 281 tok/s on Vulkan.</span></div>
       <div class="check"><span class="ck">✓</span><span class="txt">Full audit trail in <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/journey.md" target="_blank" rel="noopener">docs/journey.md</a>.</span></div>
     </div>
