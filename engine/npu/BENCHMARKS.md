@@ -55,8 +55,11 @@ All tokens diverse. No NaN. No crashes. Clean exit every time.
 | Jul 1 | i8 swap | 256 ms/tok | 446 ms/tok | Diverse ✅ | K-interleaving fixed |
 | Jul 1 | i8 4-live | **20 ms/tok** | **244 ms/tok** | Diverse ✅ | Context pool breakthrough |
 | Jul 1 | i8 CB | **20 ms/tok** | **244 ms/tok** | Diverse ✅ | Batched prefill |
+| **Jul 2** | **i8 f32-LM** | **19 ms/tok** | **222 ms/tok** | Diverse ✅ | Pre-converted f32 embeddings (-20%) |
+| **Jul 2** | **i8 v4 profile** | — | **221 ms/tok** | Diverse ✅ | Per-GEMM profile: 1346μs dispatch avg |
+| **Jul 2** | **i8 v6 batch-4** | **19 ms/tok** | **50 ms/tok** | Diverse ✅ | **Chained batch-4 + OpenMP LM head (4.4×)** |
 
-**Net: 13.5× prefill speedup. 7.8× decode speedup. Zero Python. Pure C++.**
+**Net: 13.5× prefill speedup. 4.4× decode speedup (v6, one session). Zero Python. Pure C++.**
 
 ## System Efficiency
 
