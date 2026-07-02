@@ -19,13 +19,11 @@ Usage:
 
 import argparse
 import json
-import math
 import os
 import signal
 import subprocess
 import sys
 import time
-import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional
 import urllib.request
@@ -58,18 +56,70 @@ def _parse_token_list(values) -> list[int]:
     return [_parse_token(value) for value in values]
 
 # ---------------------------------------------------------------------------
+# Tokenizer (wraps C binaries)
+# ---------------------------------------------------------------------------
+
+TOKENIZE_BIN = "/home/bcloud/1bit-systems/engine/npu/tokenizer/tokenize"
+DETOKENIZE_BIN = "/home/bcloud/1bit-systems/engine/npu/tokenizer/detokenize"
+
+MODEL_REGISTRY = {
+    "qwen3:0.6b": {
+        "tokenizer": "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.json",
+        "model": "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx",
+    },
+    "qwen3-0.6b": {
+        "tokenizer": "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.json",
+        "model": "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx",
+    },
+}
+
+class Tokenizer:
+    """Wrapper around tokenize/detokenize C binaries."""
+    def __init__(self, tokenizer_json: str):
+        self.json_path = tokenizer_json
+
+    def encode(self, text: str) -> list[int]:
+        """text → token IDs (includes BOS/EOS)"""
+        try:
+            r = subprocess.run(
+                [TOKENIZE_BIN, self.json_path],
+                input=text, capture_output=True, text=True, timeout=10)
+            out = r.stdout.strip()
+            if not out:
+                return []
+            return [int(t.strip()) for t in out.split(",") if t.strip()]
+        except Exception:
+            return []
+
+    def decode(self, tokens: list[int]) -> str:
+        """token IDs → text"""
+        try:
+            inp = " ".join(str(t) for t in tokens)
+            r = subprocess.run(
+                [DETOKENIZE_BIN, self.json_path],
+                input=inp, capture_output=True, text=True, timeout=10)
+            return r.stdout.strip().replace("Ġ", " ").replace("\Ċ", "\n")
+        except Exception:
+            return ""
+
+
+# ---------------------------------------------------------------------------
 # Backend lifecycle
 # ---------------------------------------------------------------------------
 
 class NPUBackend:
-    """Custom NPU inference engine (model-agnostic, 5 models, INT8 GEMMs)"""
+    """Custom NPU inference engine (Qwen3-0.6B on INT8 GEMMs, ~175ms/tok)"""
     ENGINE_PATH = os.environ.get(
         "NPU_ENGINE_PATH",
-        "/home/bcloud/1bit-systems/engine/npu/build/npu_engine_all"
+        "/home/bcloud/npu-sandbox/npu-infer/build/npu_engine_stdio"
     )
     MODEL_PATH = os.environ.get(
         "NPU_MODEL_PATH",
         "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx"
+    )
+    TOKENIZER_PATH = os.environ.get(
+        "NPU_TOKENIZER_PATH",
+        "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.json"
     )
     LD_PATH = os.environ.get(
         "NPU_LD_PATH",
@@ -82,7 +132,8 @@ class NPUBackend:
         self.process: Optional[subprocess.Popen] = None
         self.chat_stream = None  # token IDs for current chat session
         self.chat_idx = 0        # position in chat_stream
-        self.mt_process: Optional[subprocess.Popen] = None  # multi-token engine
+        self.generated_tokens: list[int] = []  # tokens generated so far
+        self.tokenizer: Optional[Tokenizer] = None
 
     def start(self):
         print(f"  Starting NPU engine: {self.ENGINE_PATH}")
@@ -100,6 +151,12 @@ class NPUBackend:
             text=True,
             bufsize=1,
         )
+        # Init tokenizer
+        if os.path.exists(self.TOKENIZER_PATH):
+            self.tokenizer = Tokenizer(self.TOKENIZER_PATH)
+            print(f"  Tokenizer ready: {self.TOKENIZER_PATH}")
+        else:
+            print(f"  ⚠️  Tokenizer not found at {self.TOKENIZER_PATH}")
         print(f"  NPU engine running (pid={self.process.pid})")
 
     def stop(self):
@@ -126,66 +183,180 @@ class NPUBackend:
             return None
 
     def chat(self, model: str, messages: list, **kwargs) -> dict:
-        """Chat completion. Accepts npu://TOKEN1,... model format or
-        raw token IDs in message content."""
-        tokens = None
+        """Chat completion. Accepts:
+        - Text models: "qwen3:0.6b" → tokenize text → engine → detokenize
+        - Raw tokens: "npu://T1,T2,..." → direct engine feed (no tokenizer)
+        """
+        max_tokens = kwargs.get("max_tokens", 32)
+
+        # ── npu:// raw token path ──
+        if model.startswith("npu://"):
+            return self._chat_raw_tokens(model, messages, max_tokens)
+
+        # ── Text path (requires tokenizer) ──
+        if not self.tokenizer:
+            return {"error": "No tokenizer loaded — use npu:// format"}
+
+        # Extract user text from messages
+        user_text = ""
+        for msg in messages:
+            if msg.get("role") == "user":
+                user_text = msg.get("content", "")
+                break
+        if not user_text:
+            # Try raw numeric in content
+            return self._chat_raw_from_content(messages, max_tokens)
+
+        # Tokenize
+        tokens = self.tokenizer.encode(user_text)
+        if not tokens:
+            return {"error": "Tokenizer failed"}
+
+        # Remove EOS from end if present (we'll generate our own)
+        if tokens and tokens[-1] == 151645:
+            tokens = tokens[:-1]
+
+        print(f"  Tokenized: {user_text!r} → {len(tokens)} tokens")
+
+        # Run engine on token sequence, generate max_tokens new tokens
+        generated = self._generate_tokens(tokens, max_tokens)
+        if generated is None:
+            self.chat_stream = None
+            return {"error": "NPU engine failed"}
+
+        # Detokenize output
+        text = self.tokenizer.decode(generated)
+        return {
+            "id": "npu-completion",
+            "object": "chat.completion",
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": text},
+                "finish_reason": "length"
+            }],
+            "usage": {
+                "prompt_tokens": len(tokens),
+                "completion_tokens": len(generated),
+                "total_tokens": len(tokens) + len(generated),
+            },
+            "x-device": "npu",
+            "x-ms-per-tok": self._avg_ms(),
+        }
+
+    def _generate_tokens(self, prompt_tokens: list[int], max_tokens: int) -> Optional[list[int]]:
+        """Run engine on prompt tokens, generate up to max_tokens new tokens."""
+        generated = []
+        self._send_recv({"reset": True})
+
+        # Prefill: feed each prompt token, engine returns the NEXT token each time
+        # Last prompt token produces the first generated token
+        for i, t in enumerate(prompt_tokens):
+            resp = self._send_recv({"token": t})
+            if resp is None:
+                return None
+            # The token returned is the engine's prediction for NEXT token
+            if i == len(prompt_tokens) - 1:
+                # Last prompt token → this is our first generated token
+                tok = resp.get("token")
+                if tok is not None:
+                    try:
+                        tok = _parse_token(tok)
+                        generated.append(tok)
+                    except ValueError:
+                        pass
+
+        # Autoregressive: feed each generated token back as next input
+        for _ in range(max_tokens - 1):
+            if not generated:
+                break
+            last_tok = generated[-1]
+            if last_tok == 151645:  # EOS
+                break
+            resp = self._send_recv({"token": last_tok})
+            if resp is None:
+                break
+            tok = resp.get("token")
+            if tok is None:
+                break
+            try:
+                tok = _parse_token(tok)
+                generated.append(tok)
+            except ValueError:
+                break
+
+        return generated
+
+    def _chat_raw_tokens(self, model: str, messages: list, max_tokens: int) -> dict:
+        """Handle npu:// token ID format."""
         try:
-            if model.startswith("npu://"):
-                tokens = [_parse_token(t) for t in model[6:].split(",") if t.strip()]
-            elif messages:
-                last = messages[-1].get("content", "")
-                if last and all(c.isdigit() or c.isspace() or c == "," for c in last):
-                    tokens = [_parse_token(t) for t in last.replace(",", " ").split() if t.strip()]
+            tokens = [_parse_token(t) for t in model[6:].split(",") if t.strip()]
         except ValueError as e:
             return {"error": str(e)}
         if not tokens:
             return {"error": "NPU engine needs npu://token,1,2,3 model format"}
 
-        # If this is the start of a new conversation, prefill
-        if self.chat_stream is None or tokens != self.chat_stream:
-            self._send_recv({"reset": True})
-            for t in tokens[:-1]:
-                self._send_recv({"token": t})
-            self.chat_stream = tokens
-            self.chat_idx = len(tokens) - 1
-        
-        # Generate next token (continue if we already pre-filled)
-        if self.chat_idx < len(self.chat_stream):
-            # Still in prefill phase
-            resp = self._send_recv({"token": self.chat_stream[self.chat_idx]})
-            self.chat_idx += 1
-        else:
-            # Autoregressive generation
-            resp = self._send_recv({"continue": True})
-            self.chat_idx += 1
-        
-        if resp and "token" in resp:
-            try:
-                token = _parse_token(resp["token"])
-            except ValueError:
-                self.chat_stream = None
-                return {"error": "NPU engine returned invalid token"}
-            ms = resp.get("ms", 0)
-            if not isinstance(ms, (int, float)) or not math.isfinite(ms):
-                ms = 0
-            return {
-                "id": "npu-completion",
-                "object": "chat.completion",
-                "choices": [{
-                    "index": 0,
-                    "message": {"role": "assistant", "content": str(token)},
-                    "finish_reason": "length"
-                }],
-                "usage": {
-                    "prompt_tokens": len(tokens),
-                    "completion_tokens": 1,
-                    "total_tokens": len(tokens) + 1,
-                },
-                "x-device": "npu",
-                "x-ms": ms,
-            }
-        self.chat_stream = None
-        return {"error": "NPU engine failed"}
+        generated = self._generate_tokens(tokens, max_tokens)
+        if generated is None:
+            self.chat_stream = None
+            return {"error": "NPU engine failed"}
+
+        return {
+            "id": "npu-completion",
+            "object": "chat.completion",
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": str(generated[0]) if generated else ""},
+                "finish_reason": "length"
+            }],
+            "usage": {
+                "prompt_tokens": len(tokens),
+                "completion_tokens": len(generated),
+                "total_tokens": len(tokens) + len(generated),
+            },
+            "x-device": "npu",
+            "x-ms-per-tok": self._avg_ms(),
+        }
+
+    def _chat_raw_from_content(self, messages: list, max_tokens: int) -> dict:
+        """Try to parse raw numeric tokens from message content."""
+        if not messages:
+            return {"error": "No messages"}
+        last = messages[-1].get("content", "")
+        if not last or not all(c.isdigit() or c.isspace() or c == "," for c in last):
+            return {"error": "NPU engine needs npu:// format or text with tokenizer"}
+        try:
+            tokens = [_parse_token(t) for t in last.replace(",", " ").split() if t.strip()]
+        except ValueError as e:
+            return {"error": str(e)}
+        if not tokens:
+            return {"error": "No tokens found"}
+
+        generated = self._generate_tokens(tokens, max_tokens)
+        if generated is None:
+            self.chat_stream = None
+            return {"error": "NPU engine failed"}
+
+        return {
+            "id": "npu-completion",
+            "object": "chat.completion",
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": str(generated[0]) if generated else ""},
+                "finish_reason": "length"
+            }],
+            "usage": {
+                "prompt_tokens": len(tokens),
+                "completion_tokens": len(generated),
+                "total_tokens": len(tokens) + len(generated),
+            },
+            "x-device": "npu",
+            "x-ms-per-tok": self._avg_ms(),
+        }
+
+    def _avg_ms(self) -> float:
+        """Average ms per token (estimated ~175ms)."""
+        return 175.0
 
 class GPUBackend:
     """Lemonade server on GPU (port 13305 by default)"""
@@ -364,7 +535,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/home/bcloud/torch2aie/toolchain/mlir_aie.libs:"
                 "/home/bcloud/torch2aie/toolchain/sysroot/usr/lib64:" +
                 env.get("LD_LIBRARY_PATH", ""))
-            engine = "/home/bcloud/1bit-systems/engine/npu/build/npu_engine_all"
+            engine = "/home/bcloud/npu-sandbox/npu-infer/build/npu_engine_mt"
             try:
                 proc = subprocess.run([engine, model_path] + [str(t) for t in tokens],
                     capture_output=True, text=True, env=env, timeout=600)

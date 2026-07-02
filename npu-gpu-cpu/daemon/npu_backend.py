@@ -27,7 +27,7 @@ class NPUEngine:
     # Paths for the NPU engine binary
     ENGINE_PATH = os.environ.get(
         "NPU_ENGINE_PATH",
-        "/home/bcloud/1bit-systems/engine/npu/build/npu_engine_all"
+        "/home/bcloud/npu-sandbox/npu-infer/build/npu_engine_stdio"
     )
     DEFAULT_MODEL = os.environ.get(
         "NPU_MODEL_PATH",
