@@ -1,3 +1,88 @@
+## UPDATE 19 (2026-07-02 06:00 ADT): MULTI-MODEL XCLBINS + FUSED KERNEL PORT — READY TO FLY
+
+### Multi-Model NPU Engine — All XCLBINS Built
+
+| Model Family | Models | Projections | Total XCLBINS | Status |
+|-------------|--------|-------------|---------------|--------|
+| **Qwen3-0.6B** | 610 MB | QKV, O, GU, D | 4 | ✅ Working (97 tok/s) |
+| **Qwen3-0.6B-native** | New | QKV_0_6b, O_0_6b, GU_0_6b, D_0_6b | 4 | ✅ Fresh build |
+| **Qwen3-8B** | 5.4 GB | QKV, O, G, U, D | 5 | ✅ Split G+U |
+| **Qwen3-VL-4B** | Vision | QKV, O, G, U, D | 5 | ✅ Vision support |
+| **Gemma4-E2B** | 2B params | QKV, O, GU, D | 4 | ✅ Google model |
+| **Llama 3.x** | 1B/3B | QKV, O, G, U, D | 5 | ✅ Split G+U |
+
+**All xclbins at:** `/home/bcloud/npu-sandbox/npu-infer/build/int8/final_i8_*`
+**Instruction files:** matching `insts_i8_*` per xclbin
+
+### Engine Evolution — Final Session Totals
+
+```
+v3  (Jul 1): 244 ms/tok   baseline                      1.0×
+v6  (Jul 2):  50 ms/tok   batch-4 + OpenMP LM head      4.4×
+v7  (Jul 2):       —      ioctl=9μs, r.wait=1334μs probe
+v8  (Jul 2):  27 ms/tok   M=8 batch decode               8.2×
+v9  (Jul 2):  16 ms/tok   M=16 batch decode             15.2×
+v10 (Jul 2):  16 ms/tok   NPU LM head (4ms vs 6ms OMP)
+v11 (Jul 2):  12 ms/tok   M=32 batch decode             20.3×
+v12 (Jul 2):  10 ms/tok   M=32 + OpenMP attention       24.0×
+```
+
+### FLM Fused Design Port — Kernels Compiled, MLIR Generator Blocked
+
+**All 5 kernels recompiled for Qwen3-0.6B** with Chess (xchesscc aie2p):
+
+| Kernel | Object | Size | Location |
+|--------|--------|------|---------|
+| main_projection (GEMM) | `main_projection_q4nx_06b.o` | 80KB | `build/qwen3_decode_layer_objects_06b/` |
+| edge_attention | `edge_attention_06b.o` | 37KB | `build/qwen3_decode_layer_objects_06b/` |
+| postprocess_qkv | `postprocess_qkv_06b.o` | 34KB | `build/qwen3_decode_layer_objects_06b/` |
+| full_vector_station | `full_vector_station_06b.o` | 20KB | `build/qwen3_decode_layer_objects_06b/` |
+| swiglu | `swiglu_06b.o` | 7KB | `build/qwen3_decode_layer_objects_06b/` |
+
+**Blockers documented in:** `docs/FUSED-XCLBIN-PORT-PLAN.md` + `docs/MLIR-GENERATOR-BLOCKER.md`
+- Generator fix already applied: dynamic WEIGHT_PATCH_BD_IDS (no more hardcoded 8-span assumption)
+- Remaining: link_with path changes, BD ID conflict resolution, runtime sequence updates
+
+**Contract files ready:**
+- `contract_06b.py` — Qwen3-0.6B dimensions (H=1024, IM=3072, NH=16, NKV=8)
+- `qwen3_constants_06b.h` — C++ constants matching
+
+### Attention Kernel Status
+
+| Artifact | Toolchain | Size | Status |
+|----------|-----------|------|--------|
+| `attn_scalar.o` | Peano | 4KB | ✅ Compiled |
+| `attn_c8.xclbin` | aiecc+Peano | 14KB | ✅ Built (C=8, single core) |
+| `attn_w0-3.xclbin` | Chess | 21KB each | ✅ Built (4-window Qwen3-0.6B) |
+| `attn_c16.xclbin` | aiecc | TBD | ❌ Resource allocation blocked (L2 48KB limit) |
+
+**Why not integrated yet:** Separate NPU attention dispatch adds 28×1334μs = 37ms/token.
+CPU OpenMP attention at context 40 costs 7ms total. NPU attention only wins fused
+with QKV/O in one xclbin (FLM approach — 1 dispatch for 3 operations).
+
+### What's Live
+
+- **https://1bit.systems** — 145 unique visitors. Two-line hero, consistent v12 numbers
+- **GitHub CI** — self-hosted runner on Strix Halo, push-to-benchmark
+- **PR-Agent** — Qodo + OpenCode GLM-5.2, 3 AI reviewers
+- **Discord** — discord.gg/dSyV646eBs
+
+### Key Files (current)
+
+| File | Purpose |
+|------|---------|
+| `/home/bcloud/1bit-systems/engine/npu/src/npu_engine_v12.cpp` | Production engine (97 tok/s) |
+| `/home/bcloud/1bit-systems/engine/npu/src/npu_engine_v7.cpp` | μs-probe: ioctl vs r.wait |
+| `/home/bcloud/1bit-systems/engine/npu/src/npu_engine_v10.cpp` | NPU LM head (N=30720 xclbin) |
+| `/home/bcloud/1bit-systems/engine/npu/BENCHMARKS.md` | Benchmark source of truth |
+| `/home/bcloud/1bit-systems/docs/FUSED-XCLBIN-PORT-PLAN.md` | FLM port roadmap |
+| `/home/bcloud/1bit-systems/docs/MLIR-GENERATOR-BLOCKER.md` | Generator fix details |
+| `/home/bcloud/npu-sandbox/npu-infer/build/int8/final_i8_*` | All model xclbins |
+| `/home/bcloud/torch2aie/build/qwen3_decode_layer_objects_06b/` | 0.6B Chess kernels |
+| `/home/bcloud/torch2aie/examples/qwen3-decode-layer/contract_06b.py` | 0.6B contract |
+
+---
+
 ## UPDATE 18 (2026-07-02 04:00 ADT): M=32 BATCH + NPU LM HEAD — TARGET: BEAT FLM
 
 ### FLM Benchmark (Kraken Point — smaller NPU than Strix Halo)
