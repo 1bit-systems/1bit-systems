@@ -15,6 +15,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <cstring>
 #include <cmath>
 #include <vector>
@@ -502,6 +503,7 @@ int main(int argc,char**argv){
     if (gen_count > 64) gen_count = 64;
 
     if (gen_count > 0) {
+        srand(time(NULL));  // seed for temperature sampling
         int next_tok = last_pred;
         int pos = M;  // first decode position = prefill length
         fprintf(stderr,"\n=== Decode %d tokens (pos=%d) ===\n",gen_count,pos);
@@ -619,16 +621,29 @@ int main(int argc,char**argv){
                 if (lg_dec[n] > mx_) mx_ = lg_dec[n];
             }
 
-            // Sample top-1
+            // Temperature sampling (default 0.8 from NPU_TEMP env)
+            float temperature = 0.8f;
+            const char* temp_env = getenv("NPU_TEMP");
+            if (temp_env) { float t = atof(temp_env); if (t > 0.01f) temperature = t; }
+
             if (!std::isfinite(mx_) || mx_ < -1e29f) {
                 next_tok = 0;
             } else {
-                double sum_ = 0; float best_v = -1e30f; int best_id = 0;
+                double sum_ = 0;
                 for (int i = 0; i < NV; i++) {
                     float d = lg_dec[i] - mx_; if (d < -80) d = -80;
-                    float ev = expf(d); if (ev > best_v) { best_v = ev; best_id = i; }
+                    lg_dec[i] = expf(d / temperature);
+                    sum_ += lg_dec[i];
                 }
-                next_tok = best_id;
+                if (sum_ <= 0) { next_tok = 0; }
+                else {
+                    double r = (double)rand() / RAND_MAX * sum_, acc = 0;
+                    next_tok = 0;
+                    for (int i = 0; i < NV; i++) {
+                        acc += lg_dec[i];
+                        if (acc >= r) { next_tok = i; break; }
+                    }
+                }
             }
 
             printf(" %d", next_tok);
