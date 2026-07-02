@@ -31,22 +31,29 @@ void packB(int l,const float*w,int K,int N,float&sout){float amax=0;for(int i=0;
 inline void go(int l,const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){float ais=1.0f/ascale;memset(Am,0,(size_t)am*KD);for(int m=0;m<am;m++)for(int k=0;k<ak;k++){float v=A[m*ak+k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;Am[m*KD+k]=(int8_t)q;}bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);auto r=(*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[l],*bC);r.wait();bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);float cs=ascale*Bscale;for(int m=0;m<am;m++)for(int n=0;n<an;n++){float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;C[m*an+n]=val;}}
 };
 
-// OpenMP-parallel LM head
+// OpenMP-parallel LM head — NaN-safe with fallback initialization
 inline void lm_topk_omp(const float*hidden,float*lg,int*top_ids,int K){
+    // Init top_ids to safe fallback (0 = unk token)
+    for(int b=0;b<K;b++)top_ids[b]=0;
+    // NaN guard on hidden state
+    for(int k=0;k<H;k++)if(!std::isfinite(hidden[k])){for(int b=0;b<K;b++)top_ids[b]=0;return;}
     float mx=-1e30f;
     #pragma omp parallel for reduction(max:mx)
     for(int n=0;n<NV;n++){double s=0;const float* e=&emb_f32[(size_t)n*H];const float* h=hidden;
         #pragma omp simd reduction(+:s)
-        for(int k=0;k<H;k++)s+=(double)h[k]*e[k];lg[n]=(float)s;if(lg[n]>mx)mx=lg[n];}
+        for(int k=0;k<H;k++){float hv=h[k];if(!std::isfinite(hv))continue;s+=(double)hv*e[k];}float v=(float)s;lg[n]=std::isfinite(v)?v:0.0f;if(lg[n]>mx)mx=lg[n];}
+    if(!std::isfinite(mx)||mx<-1e29f){for(int b=0;b<K;b++)top_ids[b]=0;return;}
     double sum=0;
     #pragma omp parallel for reduction(+:sum)
-    for(int n=0;n<NV;n++){float d=lg[n]-mx;if(d<-80)d=-80;lg[n]=expf(d);sum+=lg[n];}
-    float r=(float)rand()/RAND_MAX*(float)sum,acc=0;
-    for(int n=0;n<NV;n++){acc+=lg[n];if(acc>=r){top_ids[0]=n;break;}}
+    for(int n=0;n<NV;n++){float d=lg[n]-mx;if(d<-80)d=-80;float ev=expf(d);lg[n]=std::isfinite(ev)?ev:0.0f;sum+=lg[n];}
+    if(!std::isfinite(sum)||sum<=0){for(int b=0;b<K;b++)top_ids[b]=0;return;}
+    float r=(float)rand()/RAND_MAX*(float)sum,acc=0;bool sampled=false;
+    for(int n=0;n<NV;n++){acc+=lg[n];if(acc>=r){top_ids[0]=n;sampled=true;break;}}
+    if(!sampled)top_ids[0]=0;
     struct TI{int id;float v;};TI top[40];
     for(int b=0;b<K;b++){top[b].id=-1;top[b].v=-1e30f;}
     for(int n=0;n<NV;n++){float v=lg[n];for(int b=0;b<K;b++){if(v>top[b].v){memmove(&top[b+1],&top[b],(K-1-b)*sizeof(TI));top[b].id=n;top[b].v=v;break;}}}
-    for(int b=0;b<K;b++)top_ids[b]=top[b].id;
+    for(int b=0;b<K;b++)if(top[b].id>=0)top_ids[b]=top[b].id;
 }
 
 // OpenMP attention: parallelize across heads
