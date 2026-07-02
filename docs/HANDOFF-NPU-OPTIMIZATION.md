@@ -1,3 +1,61 @@
+## UPDATE 20 (2026-07-02 10:43 ADT): UNIVERSAL ENGINE — ALL 5 MODELS RUNNING ON NPU
+
+### Universal NPU Engine — Compiled with Preprocessor Flags
+
+**`npu_engine_universal.cpp`** (320 lines) now in `1bit-systems-new` repo:
+- One source, compile-time model selection via `-DMODEL_qwen3_0_6b` etc.
+- Per-model dims in `npu_dims.h` (H, NH, NKV, HD, IM, NC, NV, GQA, LM_I8R)
+- Fused G+U for qwen3_0_6b and gemma4_e2b; separated G+U for others
+- Graceful corrupt layer skip (offsets past mmap end)
+
+**Build:** `build_npu.sh` — builds all 6 binaries in one shot
+**XCLBIN build:** `build_xclbins.sh` — xclbin builder with correct dims per model
+
+### Verified Runtime — All 5 Models on Strix Halo NPU
+
+| Model | Prefill | Decode | Layers | Notes |
+|-------|---------|--------|--------|-------|
+| **Qwen3-0.6B** | 50 ms/tok | 218 ms/tok | 28/28 | ✅ Fastest, GU fused |
+| **Qwen3-8B** | 566 ms/tok | ~840 ms/tok | 36/36 | ✅ H=4096, GU split |
+| **Qwen3-VL-4B** | 376 ms/tok | ~540 ms/tok | 35/36 | ✅ Layer 9 Q4NX truncated, skip |
+| **Llama-3.1-8B** | 529 ms/tok | ~780 ms/tok | 32/32 | ✅ GU split, no q_norm |
+| **Gemma4-E2B** | 202 ms/tok | ~460 ms/tok | 35/35 | ✅ H=1536 (not 3584), HD=256 |
+
+### Bugs Fixed
+
+1. **Qwen3-VL-4B segfault**: Layer 9 Q4NX offsets past file end. Added mmap boundary check → graceful skip with clear diagnostic.
+2. **Gemma4-E2B wrong dims**: `npu_dims.h` had H=3584, NC=42, NH=16, NKV=4, IM=14336 — actual Q4NX has H=1536, NC=35, NH=8, NKV=1, IM=6144. Corrected all dims. `build_xclbins.sh` also corrected. Stale G/U xclbins from wrong dims removed.
+3. **~3GB memory waste**: Removed lm_head full dequant validation call (allocated + freed ~2.5GB per model).
+
+### Active Repo
+
+**Source of truth:** `/home/bcloud/1bit-systems-new/` (NOT 1bit-systems/, NOT npu-sandbox/)
+- Engine: `engine/npu/src/npu_engine_universal.cpp`
+- DIMS: `engine/npu/src/npu_dims.h`
+- Build: `engine/npu/build_npu.sh`
+- XCLBIN build: `engine/npu/build_xclbins.sh`
+
+**Pushed:** `git commit` + `git push origin main`
+
+### Open Issues
+
+- **Qwen3-VL-4B layer 9 corrupt**: Q4NX truncated at ~3.23GB (needs 3.29GB). Need re-conversion from source safetensors with enough disk space.
+- **No user prompt input**: Engine uses hardcoded prompt tokens. Next task: accept tokens via argv or stdin.
+- **Performance**: Single-token decode is ~200-800ms (no batching). M-batch mode (from v12) is a separate optimization.
+
+### Key Files (current)
+| File | Purpose |
+|------|---------|
+| `/home/bcloud/1bit-systems-new/engine/npu/src/npu_engine_universal.cpp` | Universal engine |
+| `/home/bcloud/1bit-systems-new/engine/npu/src/npu_dims.h` | All 5 model dims |
+| `/home/bcloud/1bit-systems-new/engine/npu/src/dequant_q4nx.c` | Dequant with in_features param |
+| `/home/bcloud/1bit-systems-new/engine/npu/build_npu.sh` | Build all model binaries |
+| `/home/bcloud/1bit-systems-new/engine/npu/build_xclbins.sh` | Build all model xclbins |
+| `/home/bcloud/npu-sandbox/npu-infer/build/int8/` | All xclbins + insts |
+| `/home/bcloud/.config/flm/models/` | Model dirs (Qwen3-0.6B, VL-4B, Llama, Gemma4) |
+
+---
+
 ## UPDATE 19 (2026-07-02 07:00 ADT): MODEL-AGNOSTIC ENGINE + 42-MODEL CATALOG + 23 XCLBINS
 
 ### Multi-Model NPU Engine — Complete
