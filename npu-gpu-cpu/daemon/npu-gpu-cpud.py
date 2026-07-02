@@ -128,6 +128,7 @@ class NPUBackend:
                 timeout=120)
             resp = json.loads(r.read())
             resp["x-device"] = "npu"
+            resp["model"] = model  # preserve client-requested model name
             return resp
         except Exception as e:
             return {"error": str(e), "x-device": "npu"}
