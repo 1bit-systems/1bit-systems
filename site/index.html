@@ -245,6 +245,7 @@
     <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Homebrew</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">Formula</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">brew install 1bit-systems</span></div></div>
     <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Docker</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">Ubuntu 26.04</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">docker run -d --device /dev/accel/accel0 -p 8081:8081 1bit-systems/npu</span></div></div>
     <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Ollama</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">Modelfile</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">ollama create qwen3-npu -f Modelfile</span></div></div>
+    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">1bit Mobile</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">ngrok + QR</div><div class="code" style="margin-top:10px;padding:8px 10px;font-size:11px;text-align:left;"><span class="g">curl -fsSL 1bit.systems/mobile.sh | sh</span></div></div>
     <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Build from source</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">120KB binary</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">g++ -std=c++23 -O3 ... -o npu_engine_all</span></div></div>
   </div>
 </section>
@@ -267,6 +268,20 @@
       <div class="mono" style="font-size:14px;color:var(--muted);margin:8px 0;">Single curl command. No Node.js knowledge needed.</div>
       <div class="code" style="margin-top:12px;padding:10px 12px;font-size:12px;"><span class="g">curl -fsSL https://1bit.systems/agent.sh | sh</span></div>
       <div style="margin-top:12px;display:flex;gap:8px;"><span class="pill ok"><span class="dot"></span>1 command</span><span class="pill info"><span class="dot"></span>auto-detects OS</span></div>
+    </div>
+    <div class="card" style="padding:24px;">
+      <div style="display:flex;align-items:center;gap:8px;"><span class="tag npu" style="background:var(--green);">ngrok</span><span class="mono" style="font-size:12px;color:var(--muted);">qr code</span></div>
+      <h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">1bit Mobile</h3>
+      <div class="mono" style="font-size:14px;color:var(--muted);margin:8px 0;">Connect your phone to your NPU. QR code pairing. iOS & Android.</div>
+      <div class="code" style="margin-top:12px;padding:10px 12px;font-size:12px;"><span class="g">curl -fsSL https://1bit.systems/mobile.sh | sh</span></div>
+      <div style="margin-top:12px;display:flex;gap:8px;"><span class="pill ok"><span class="dot"></span>ngrok tunnel</span><span class="pill info"><span class="dot"></span>QR code pairing</span></div>
+    </div>
+    <div class="card" style="padding:24px;">
+      <div style="display:flex;align-items:center;gap:8px;"><span class="tag npu" style="background:var(--pink);">Flutter</span><span class="mono" style="font-size:12px;color:var(--muted);">open source</span></div>
+      <h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">App Stores</h3>
+      <div class="mono" style="font-size:14px;color:var(--muted);margin:8px 0;">Native iOS & Android app. Chat with your NPU from anywhere.</div>
+      <div class="code" style="margin-top:12px;padding:10px 12px;font-size:12px;"><span class="g">App Store + Google Play</span></div>
+      <div style="margin-top:12px;display:flex;gap:8px;"><span class="pill ok"><span class="dot"></span>iOS</span><span class="pill info"><span class="dot"></span>Android</span></div>
     </div>
   </div>
   <div class="grid4" style="margin-top:20px;">
