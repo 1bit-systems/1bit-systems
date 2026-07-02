@@ -48,7 +48,7 @@ jobs:
       - name: Build engine (continuous batch)
         run: |
           mkdir -p engine/npu/build
-          g++ -std=c++23 -O3 -o engine/npu/build/npu_engine_cb \
+          g++ -std=c++23 -O3 -march=native -fopenmp -o engine/npu/build/npu_engine_cb \
             engine/npu/src/npu_engine_cb.cpp engine/npu/build/dequant_q4nx.o \
             -I/opt/xrt/include -L/opt/xrt/lib -lxrt_coreutil -luuid -lm -ldl
 
