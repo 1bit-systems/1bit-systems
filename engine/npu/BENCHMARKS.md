@@ -116,5 +116,26 @@ hf download gianni-cor/bitnet_b1_58-large-TQ2_0  --local-dir ./models/gianni-lar
 
 ---
 
-*Benchmarks run July 1, 2026. All numbers verified on-device. git: 1bit-systems@main*  
+## Decode Profile (222 ms/tok — where the time goes)
+
+Per-token decode through 28 layers, μs-accurate timing.
+
+| Phase | Per-Layer (μs) | 28-Layer Total (ms) | % |
+|-------|---------------|---------------------|---|
+| QKV GEMM | 1,455 | 40.8 | 18% |
+| GU GEMM | 1,713 | 48.0 | 21% |
+| D GEMM | 1,268 | 35.5 | 16% |
+| O GEMM | 1,162 | 32.5 | 15% |
+| **NPU GEMM subtotal** | **5,599** | **156.8** | **70%** |
+| LM head (CPU) | — | 67.0 | 30% |
+| All other CPU* | 26 | 0.7 | <1% |
+| **Total** | **5,625** | **224.2** | **100%** |
+
+*\*Norms, RoPE, KV cache writes, softmax, attention scoring — all rounding error vs GEMM.*
+
+**Conclusion**: 112 kernel dispatches per token × ~1.4 ms each = the bottleneck. CPU attention is 26 μs/layer. FLM hits 93 tok/s by keeping weights on NPU and streaming layers without per-layer DMA round-trips. Closing the 20× gap requires pre-loading all weights onto NPU in one dispatch chain.
+
+Profile engine: `engine/npu/src/npu_engine_profile.cpp` — run with `./npu_engine_profile`
+
+*Benchmarks run July 2, 2026. All numbers verified on-device. git: 1bit-systems@main*  
 *Repo: https://github.com/bong-water-water-bong/1bit-systems*
