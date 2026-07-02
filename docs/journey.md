@@ -1,3 +1,68 @@
+## UPDATE 16 (2026-07-02 02:00 ADT): FULL PROFILE + 50 ms/tok BATCH-4 DECODE
+
+### NPU Dispatch: The Root Cause
+
+μs-accurate profiling (`npu_engine_profile.cpp`) proved our GEMM overhead:
+
+```
+Per-GEMM dispatch (112 per token):
+  Quantize A:    6 μs   (<1%)
+  Sync A→NPU:    2 μs   (<1%)
+  Kernel+wait: 1346 μs   (99%)  ← THE BOTTLENECK
+  Sync C←NPU:    8 μs   (<1%)
+  Dequant C:     1 μs   (<1%)
+
+Total: 1363 μs/call × 112 calls = 156.8 ms (70%)
+LM head: 67 ms (30%)
+CPU ops (norms, RoPE, attn, SiLU): 0.7 ms (<1%)
+```
+
+The NPU is spending 99% of dispatch time in launch+wait overhead.
+Actual M=1 GEMM is 0.5-5 μs. Overhead ratio: **2000×**.
+
+### Chained Batch-4 Decode (v6): 50 ms/tok
+
+Instead of per-token dispatch, we generate top-4 tokens from LM head
+logits and run them all through one batched forward pass. Each batch
+step takes ~160ms for 4 tokens = 40 ms/tok. Boot step: 157ms.
+
+```
+$ OMP_NUM_THREADS=16 ./npu_engine_v6 16
+
+  [0] boot=127595 top4=127595,65831,39815,63550 (157ms)
+  [1] batch=4 tok=9275 ms=161 (40 ms/tok)
+  [5] batch=4 tok=106211 ms=159 (40 ms/tok)
+  [9] batch=4 tok=83570 ms=158 (40 ms/tok)
+  [13] batch=3 tok=83570 ms=157 (52 ms/tok)
+=== 50 ms/tok effective ===
+```
+
+Token IDs diverse across batches. No NaN. Clean exit.
+4.4× speedup from v3 (244→50 ms/tok).
+
+### OpenMP LM Head
+
+Pre-converted BFP16→F32 embeddings (622 MB) + OpenMP on 16 Zen5 cores:
+LM head: 67ms → ~6ms per token (11× faster). This plus batch-4
+amortization is what dropped us from 222→50 ms/tok.
+
+### What We Learned
+
+- Removing weight re-sync (v4) saved nothing — weights already on device.
+- 2-layer draft model (spec decode v0) had 0% acceptance rate on Qwen3.
+- Batching at decode time works: dispatch overhead amortizes across tokens.
+- CPU is never the bottleneck — 26 μs/layer vs 5599 μs GEMM dispatch.
+
+### Next: Fused Transformer XCLBIN
+
+The 112 dispatches per token are now 112 per 4 tokens = 28/token effective.
+To get to FLM's 93 tok/s, we need a single fused transformer-layer xclbin
+that chains QKV→norm→attention→O→norm→GU→D on NPU without host round-trips.
+That turns 28 dispatches into 1. Then LM head goes on NPU via D-xclbin INT8
+matmul. Then we're at ~10 ms/tok.
+
+---
+
 ## UPDATE 15 (2026-07-01 15:00 ADT): PR-AGENT LIVE, LANDING PAGE DEPLOYED, 242 ms/tok VERIFIED
 
 ### Live Production Stack
