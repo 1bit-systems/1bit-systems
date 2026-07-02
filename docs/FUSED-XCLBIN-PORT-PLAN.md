@@ -1,6 +1,23 @@
 # FLM Fused XCLBIN Port — Qwen3-0.6B
 
-## Status: Contract created, kernels need recompilation, MLIR generator needs update
+## Status: ✅ Kernels recompiled, contract created, MLIR generator pending
+
+### Step 1: Recompile Kernels ✅ DONE
+
+All 5 kernels recompiled for Qwen3-0.6B with Chess (xchesscc):
+
+| Kernel | Object | Size | Status |
+|--------|--------|------|--------|
+| main_projection (GEMM) | `main_projection_q4nx_06b.o` | 80KB | ✅ |
+| edge_attention (4 heads/window) | `edge_attention_06b.o` | 37KB | ✅ |
+| postprocess_qkv (Q records=4) | `postprocess_qkv_06b.o` | 34KB | ✅ |
+| full_vector_station (RMSNorm) | `full_vector_station_06b.o` | 20KB | ✅ |
+| swiglu (LUT-based) | `swiglu_06b.o` | 7KB | ✅ |
+
+**Locations:**
+- Sources: `/home/bcloud/torch2aie/examples/qwen3-decode-layer/*_06b.{cc,h}`
+- Objects: `/home/bcloud/torch2aie/build/qwen3_decode_layer_objects_06b/*.o`
+- Constants: `qwen3_constants_06b.h` (H=1024, IM=3072, NH=16, NKV=8)
 
 ### What FLM's fused design does
 
