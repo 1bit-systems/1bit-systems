@@ -1,150 +1,388 @@
-#!/usr/bin/env -S npx tsx
-/** 1bit NPU Bridge v3 — OpenAI-compatible chat + TTS + transcription.
- *  Uses C tokenizer/detokenizer for accurate BPE. MT engine for chat.
- *  PORT=8081 npx tsx bridge.ts */
+/**
+ * 1bit NPU API Bridge — OpenAI-compatible chat completions server.
+ *
+ * Start: npx tsx src/commands/bridge.ts
+ * Usage: curl -N http://127.0.0.1:9090/v1/chat/completions \
+ *            -H "Content-Type: application/json" \
+ *            -d '{"model":"qwen3_0_6b","messages":[{"role":"user","content":"hello"}],"stream":true}'
+ *
+ * Pipeline: text → tokenize → NPU engine → detokenize → SSE stream
+ */
+
 import Fastify from "fastify";
-import { spawn, execSync } from "child_process";
-import { readFileSync, existsSync, unlinkSync } from "fs";
+import { spawn } from "child_process";
+import { readFileSync, existsSync } from "fs";
 import { createInterface } from "readline";
-import { resolve, join } from "path";
-import { tmpdir } from "os";
-import { randomBytes } from "crypto";
-import fastifyMultipart from "@fastify/multipart";
+import { resolve } from "path";
 
 const HOME = process.env.HOME || "/home/bcloud";
-const ENGINE = resolve(HOME, "1bit-systems/engine/npu/build/npu_engine_v12");
-const TOKENIZE = resolve(HOME, "1bit-systems/engine/npu/tokenizer/tokenize");
-const DETOK = resolve(HOME, "1bit-systems/engine/npu/tokenizer/detokenize");
-const WHISPER = "/usr/local/bin/whisper-cpp";
-const ESPEAK = "/usr/bin/espeak-ng";
+const ENGINE_DIR = resolve(HOME, "1bit-systems-new/engine/npu");
+const TOKENIZER_DIR = resolve(ENGINE_DIR, "tokenizer");
 
-const MODELS: Record<string, { path: string; tok: string; template: string }> = {
+// Map of model name -> engine binary + tokenizer + model paths
+const MODELS: Record<
+  string,
+  { engine: string; tokenizer: string; modelPath: string; maxTokens: number }
+> = {
   qwen3_0_6b: {
-    path: resolve(HOME, ".config/flm/models/Qwen3-0.6B-NPU2/model.q4nx"),
-    tok: resolve(HOME, ".config/flm/models/Qwen3-0.6B-NPU2/tokenizer.json"),
-    template: "<|im_start|>system\n{system}<|im_end|>\n<|im_start|>user\n{user}<|im_end|>\n<|im_start|>assistant\n",
+    engine: resolve(ENGINE_DIR, "build/npu_engine_auto"),
+    tokenizer: resolve(
+      HOME,
+      ".config/flm/models/Qwen3-0.6B-NPU2/tokenizer.json"
+    ),
+    modelPath: resolve(
+      HOME,
+      ".config/flm/models/Qwen3-0.6B-NPU2/model.q4nx"
+    ),
+    maxTokens: 128,
   },
-  qwen3_8b: {
-    path: resolve(HOME, "models/Qwen3-8B-NPU2/model.q4nx"),
-    tok: resolve(HOME, "models/Qwen3-8B-NPU2/tokenizer.json"),
-    template: "<|im_start|>system\n{system}<|im_end|>\n<|im_start|>user\n{user}<|im_end|>\n<|im_start|>assistant\n",
+  qwen3_vl_4b: {
+    engine: resolve(ENGINE_DIR, "build/npu_engine_auto"),
+    tokenizer: resolve(
+      HOME,
+      ".config/flm/models/Qwen3-VL-4B-Instruct-NPU2/tokenizer.json"
+    ),
+    modelPath: resolve(
+      HOME,
+      ".config/flm/models/Qwen3-VL-4B-Instruct-NPU2/model.q4nx"
+    ),
+    maxTokens: 64,
   },
   llama: {
-    path: resolve(HOME, ".config/flm/models/Llama-3.1-8B-NPU2/model.q4nx"),
-    tok: resolve(HOME, ".config/flm/models/Llama-3.1-8B-NPU2/tokenizer.json"),
-    template: "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{system}<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{user}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n",
+    engine: resolve(ENGINE_DIR, "build/npu_engine_auto"),
+    tokenizer: resolve(
+      HOME,
+      ".config/flm/models/Llama-3.1-8B-NPU2/tokenizer.json"
+    ),
+    modelPath: resolve(
+      HOME,
+      ".config/flm/models/Llama-3.1-8B-NPU2/model.q4nx"
+    ),
+    maxTokens: 64,
   },
   gemma4_e2b: {
-    path: resolve(HOME, ".config/flm/models/Gemma4-E2B-IT-NPU2/model.q4nx"),
-    tok: resolve(HOME, ".config/flm/models/Gemma4-E2B-IT-NPU2/tokenizer.json"),
-    template: "<bos><start_of_turn>user\n{user}<end_of_turn>\n<start_of_turn>model\n",
+    engine: resolve(ENGINE_DIR, "build/npu_engine_auto"),
+    tokenizer: resolve(
+      HOME,
+      ".config/flm/models/Gemma4-E2B-IT-NPU2/tokenizer.json"
+    ),
+    modelPath: resolve(
+      HOME,
+      ".config/flm/models/Gemma4-E2B-IT-NPU2/model.q4nx"
+    ),
+    maxTokens: 64,
   },
 };
 
-function tokenize(tokPath: string, text: string): number[] {
+// Simple reverse token lookup: load token -> string mapping from tokenizer.json
+function loadDetokenizer(tokenizerPath: string): Map<number, string> {
+  const map = new Map<number, string>();
   try {
-    return execSync(`${TOKENIZE} ${tokPath}`, { input: text, encoding: "utf-8", timeout: 2000 })
-      .trim().split(",").map(Number).filter(n => !isNaN(n));
-  } catch { return []; }
-}
-function detokenize(tokPath: string, ids: string): string {
-  try {
-    return execSync(`${DETOK} ${tokPath}`, { input: ids, encoding: "utf-8", timeout: 500 }).trim();
-  } catch { return ""; }
+    const json = JSON.parse(readFileSync(tokenizerPath, "utf-8"));
+
+    // Try different tokenizer vocab structures
+    let vocabSource: any = null;
+
+    if (json.model?.vocab) vocabSource = json.model.vocab;
+    if (json.added_tokens && Array.isArray(json.added_tokens)) {
+      if (!vocabSource) vocabSource = {};
+      for (const t of json.added_tokens) {
+        if (t.content !== undefined && t.id !== undefined) {
+          map.set(t.id, t.content);
+        }
+      }
+    }
+
+    if (vocabSource && typeof vocabSource === "object") {
+      if (Array.isArray(vocabSource)) {
+        // Format: [{"id":0,"content":"token"}]
+        for (const entry of vocabSource) {
+          if (entry.id !== undefined && entry.content !== undefined) {
+            const content = entry.content
+              .replace(/\\u[0-9a-fA-F]{4}/g, "?")
+              .replace(/\\n/g, "\n")
+              .replace(/\\t/g, "\t");
+            map.set(entry.id, content);
+          }
+        }
+      } else {
+        // Format: {"token": id} — reverse it
+        for (const [token, id] of Object.entries(vocabSource)) {
+          if (typeof id === "number") {
+            // Unescape the token string
+            let content = token
+              .replace(/\\u[0-9a-fA-F]{4}/g, "?")
+              .replace(/\\n/g, "\n")
+              .replace(/\\t/g, "\t");
+            map.set(id, content);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error("[bridge] Failed to load detokenizer:", (e as Error).message);
+  }
+  return map;
 }
 
 async function main() {
-  const app = Fastify({ logger: false });
-  await app.register(fastifyMultipart);
+  // Pre-load all detokenizers
+  const detokenizers = new Map<string, Map<number, string>>();
+  for (const [name, cfg] of Object.entries(MODELS)) {
+    if (existsSync(cfg.tokenizer)) {
+      detokenizers.set(name, loadDetokenizer(cfg.tokenizer));
+      console.log(`[bridge] loaded detokenizer for ${name}`);
+    }
+  }
 
+  const app = Fastify({ logger: false });
+
+  // Health check
   app.get("/health", async () => ({
-    status: "ok", models: Object.keys(MODELS).filter(k => existsSync(MODELS[k].path)),
-    engine: existsSync(ENGINE), tokenizer: existsSync(TOKENIZE), espeak: existsSync(ESPEAK),
+    status: "ok",
+    models: Object.keys(MODELS),
   }));
 
-  app.get("/v1/models", async () => {
-    const avail = Object.keys(MODELS).filter(k => existsSync(MODELS[k].path));
-    return { object: "list", data: avail.map(id => ({ id, object: "model", created: Date.now(), owned_by: "1bit" })) };
-  });
+  // OpenAI-compatible model listing
+  app.get("/v1/models", async () => ({
+    object: "list",
+    data: Object.entries(MODELS).map(([id]) => ({
+      id,
+      object: "model",
+      created: Math.floor(Date.now() / 1000),
+      owned_by: "1bit-systems",
+      permission: [],
+      root: id,
+    })),
+  }));
 
+  // Chat completions
   app.post("/v1/chat/completions", async (req, reply) => {
-    const { model = "qwen3_0_6b", messages, stream = false } = req.body as any;
-    const cfg = MODELS[model];
-    if (!cfg || !existsSync(cfg.path)) return reply.code(404).send({ error: `Unknown model: ${model}` });
+    const body = req.body as any;
+    const modelName = (body?.model || "qwen3_0_6b") as string;
+    const messages: Array<{ role: string; content: string }> =
+      body?.messages || [];
+    const stream = body?.stream !== false;
+    const maxTokens = Math.min(
+      body?.max_tokens || 32,
+      MODELS[modelName]?.maxTokens || 32
+    );
 
-    const system = (messages || []).find((m: any) => m.role === "system")?.content || "You are a helpful assistant running on 1bit NPU.";
-    const userMsgs = (messages || []).filter((m: any) => m.role === "user").map((m: any) => m.content);
-    const lastUser = userMsgs[userMsgs.length - 1] || "Hello";
-    const prompt = cfg.template.replace("{system}", system).replace("{user}", lastUser);
-    const tokenIds = tokenize(cfg.tok, prompt);
-    if (!tokenIds.length) return reply.code(500).send({ error: "tokenizer failed" });
+    if (!MODELS[modelName]) {
+      reply.code(404).send({ error: `Unknown model: ${modelName}` });
+      return;
+    }
+
+    const cfg = MODELS[modelName];
+    const detok = detokenizers.get(modelName) || new Map();
+
+    if (!existsSync(cfg.engine)) {
+      reply
+        .code(500)
+        .send({ error: `Engine not built: ${cfg.engine}. Run build_npu.sh.` });
+      return;
+    }
+
+    // Build chat-formatted prompt using Qwen-style template
+    let chatPrompt = "";
+    for (const msg of messages) {
+      if (msg.role === "system") {
+        chatPrompt += `<|im_start|>system\n${msg.content}<|im_end|>\n`;
+      } else if (msg.role === "user") {
+        chatPrompt += `<|im_start|>user\n${msg.content}<|im_end|>\n`;
+      } else if (msg.role === "assistant") {
+        chatPrompt += `<|im_start|>assistant\n${msg.content}<|im_end|>\n`;
+      }
+    }
+    chatPrompt += "<|im_start|>assistant\n";
+
+    const promptForLog = chatPrompt.replace(/\n/g, "\\n").slice(0, 100);
+
+    console.log(
+      `[bridge] ${modelName}: prompt="${promptForLog}..." stream=${stream} max_tokens=${maxTokens}`
+    );
+
+    // Tokenize the prompt
+    const tokenizerBin = resolve(TOKENIZER_DIR, "tokenize");
+    if (!existsSync(tokenizerBin)) {
+      reply
+        .code(500)
+        .send({
+          error:
+            "Tokenizer not built. Run make -C engine/npu/tokenizer/",
+        });
+      return;
+    }
+
+    const tokenizerProcess = spawn(tokenizerBin, [cfg.tokenizer]);
+    tokenizerProcess.stdin!.write(chatPrompt);
+    tokenizerProcess.stdin!.end();
+
+    // Read token IDs from tokenizer
+    const tokenIds = await new Promise<string>((resolve_token, reject) => {
+      let output = "";
+      tokenizerProcess.stdout!.on("data", (chunk: Buffer) => {
+        output += chunk.toString();
+      });
+      tokenizerProcess.on("close", (code) => {
+        if (code === 0) resolve_token(output.trim());
+        else reject(new Error(`Tokenizer exited with code ${code}`));
+      });
+      tokenizerProcess.on("error", reject);
+    });
+
+    const tokenCount = tokenIds.split(",").length;
+    console.log(`[bridge] tokenized into ${tokenCount} tokens`);
 
     const responseId = `chatcmpl-${Date.now()}`;
-    // v12 engine: ./npu_engine_v12 [decode_tokens]
-    // Uses hardcoded Qwen3-0.6B prompt + model path
-    const maxTok = model === "qwen3_0_6b" ? 16 : 8;
-    const engineArgs = ["9", String(maxTok)];
+    const created = Math.floor(Date.now() / 1000);
 
+    // Set up SSE headers for streaming
     if (stream) {
-      reply.raw.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
-      reply.raw.write(`data: ${JSON.stringify({ id: responseId, object: "chat.completion.chunk", created: Date.now(), model, choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }] })}\n\n`);
+      reply.raw.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+        "Access-Control-Allow-Origin": "*",
+      });
 
-      const engine = spawn(ENGINE, engineArgs, { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, OMP_NUM_THREADS: "16" } });
-      const rl = createInterface({ input: engine.stdout! }); // v12 writes tokens to stdout
-      rl.on("line", (line: string) => {
-        const m = line.match(/tok=(\d+)/); // v12 format: "tok=N"
-        if (!m) return;
-        const text = detokenize(cfg.tok, m[1]);
-        if (text) reply.raw.write(`data: ${JSON.stringify({ id: responseId, object: "chat.completion.chunk", created: Date.now(), model, choices: [{ index: 0, delta: { content: text }, finish_reason: null }] })}\n\n`);
-      });
-      engine.stderr!.on("data", (d: Buffer) => process.stderr.write(d));
-      engine.on("close", () => {
-        reply.raw.write(`data: ${JSON.stringify({ id: responseId, object: "chat.completion.chunk", created: Date.now(), model, choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
-        reply.raw.end();
-      });
-    } else {
-      try {
-        const engine = spawn(ENGINE, engineArgs, { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, OMP_NUM_THREADS: "16" } });
-        const ids: string[] = [];
-        const rl = createInterface({ input: engine.stdout! });
-        for await (const line of rl) {
-          const m = line.match(/tok=(\d+)/);
-          if (m) ids.push(m[1]);
-        }
-        const output = detokenize(cfg.tok, ids.join(",")) || "(generating...)";
-        return { id: responseId, object: "chat.completion", created: Date.now(), model, choices: [{ index: 0, message: { role: "assistant", content: output }, finish_reason: "stop" }] };
-      } catch (e: any) { return reply.code(500).send({ error: e.message }); }
+      // Send role chunk
+      const roleChunk = {
+        id: responseId,
+        object: "chat.completion.chunk",
+        created,
+        model: modelName,
+        choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
+      };
+      reply.raw.write(`data: ${JSON.stringify(roleChunk)}\n\n`);
     }
+
+    // Spawn the NPU engine (auto-detect: argv[1]=model_path argv[2]=decode_tokens argv[3]=input_tokens)
+    const modelQ4nx = cfg.modelPath;
+    const engineArgs = [
+      modelQ4nx,                       // argv[1]: model.q4nx path
+      String(maxTokens),               // argv[2]: decode tokens count
+      "-",                             // argv[3]: input tokens from stdin
+    ];
+
+    console.log(
+      `[bridge] spawning: ${cfg.engine} ${engineArgs.join(" ")}`
+    );
+
+    const engine = spawn(cfg.engine, engineArgs, {
+      cwd: ENGINE_DIR,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    // Pipe token IDs to engine stdin
+    engine.stdin!.write(tokenIds + "\n");
+    engine.stdin!.end();
+
+    // Parse engine output and stream decoded tokens
+    let accumulatedText = "";
+    let tokenCount_generated = 0;
+
+    const rl = createInterface({ input: engine.stdout! });
+
+    rl.on("line", (line: string) => {
+      // Engine output format: "  [N] token_id (time_ms)"
+      const match = line.match(/^\s+\[(\d+)\]\s+(\d+)\s+\((\d+)ms\)/);
+      if (match) {
+        const tokId = parseInt(match[2], 10);
+        const tokText = detok.get(tokId);
+        if (tokText) {
+          accumulatedText += tokText;
+          tokenCount_generated++;
+
+          if (stream) {
+            const chunk = {
+              id: responseId,
+              object: "chat.completion.chunk",
+              created,
+              model: modelName,
+              choices: [
+                {
+                  index: 0,
+                  delta: { content: tokText },
+                  finish_reason: null,
+                },
+              ],
+            };
+            reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+          }
+        }
+      }
+    });
+
+    // Collect stderr for debugging
+    let stderrData = "";
+    engine.stderr!.on("data", (chunk: Buffer) => {
+      stderrData += chunk.toString();
+    });
+
+    await new Promise<void>((resolve_engine) => {
+      engine.on("close", (code) => {
+        console.log(`[bridge] engine exited code=${code}`);
+        if (stderrData)
+          console.log(`[bridge] stderr: ${stderrData.slice(-200)}`);
+
+        // Send final streaming chunks
+        if (stream) {
+          const finalChunk = {
+            id: responseId,
+            object: "chat.completion.chunk",
+            created,
+            model: modelName,
+            choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+          };
+          reply.raw.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
+          reply.raw.write("data: [DONE]\n\n");
+          reply.raw.end();
+        } else {
+          // Non-streaming response
+          reply.send({
+            id: responseId,
+            object: "chat.completion",
+            created,
+            model: modelName,
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: accumulatedText || " ",
+                },
+                finish_reason: "stop",
+              },
+            ],
+            usage: {
+              prompt_tokens: tokenCount,
+              completion_tokens: tokenCount_generated,
+              total_tokens: tokenCount + tokenCount_generated,
+            },
+          });
+        }
+        resolve_engine();
+      });
+      engine.on("error", (err) => {
+        console.error(`[bridge] engine error: ${err.message}`);
+        if (!stream) reply.code(500).send({ error: err.message });
+        resolve_engine();
+      });
+    });
   });
 
-  app.post("/v1/audio/transcriptions", async (req, reply) => {
-    if (!existsSync(WHISPER)) return reply.code(501).send({ error: "whisper-cpp not installed" });
-    try {
-      const data = await req.file(); if (!data) return reply.code(400).send({ error: "no audio file" });
-      const tmpIn = join(tmpdir(), `1bit-${randomBytes(8).toString("hex")}.webm`);
-      const tmpWav = join(tmpdir(), `1bit-${randomBytes(8).toString("hex")}.wav`);
-      require("fs").writeFileSync(tmpIn, await data.toBuffer());
-      execSync(`ffmpeg -y -i ${tmpIn} -ar 16000 -ac 1 -f wav ${tmpWav} 2>/dev/null`);
-      const out = execSync(`${WHISPER} -m ~/whisper.cpp/models/ggml-base.en.bin -f ${tmpWav} --no-timestamps 2>/dev/null`, { encoding: "utf-8" });
-      unlinkSync(tmpIn); unlinkSync(tmpWav);
-      return { text: out.trim() };
-    } catch (e: any) { return reply.code(500).send({ error: e.message }); }
-  });
-
-  app.post("/v1/audio/speech", async (req, reply) => {
-    const { input } = (req.body || {}) as any;
-    if (!input) return reply.code(400).send({ error: "missing input" });
-    try {
-      const tmpWav = join(tmpdir(), `1bit-tts-${randomBytes(8).toString("hex")}.wav`);
-      execSync(`${ESPEAK} -v en-us -s 175 -w ${tmpWav} "${input.replace(/"/g, '\\"')}" 2>/dev/null`);
-      const audio = readFileSync(tmpWav); unlinkSync(tmpWav);
-      return reply.type("audio/wav").send(audio);
-    } catch (e: any) { return reply.code(500).send({ error: e.message }); }
-  });
-
-  const PORT = parseInt(process.env.PORT || "8081", 10);
-  await app.listen({ port: PORT, host: "0.0.0.0" });
-  console.log(`[bridge] http://0.0.0.0:${PORT} | engine:${existsSync(ENGINE)} tok:${existsSync(TOKENIZE)} tts:${existsSync(ESPEAK)}`);
+  // Start server
+  const PORT = parseInt(process.env.PORT || "9090", 10);
+  const HOST = process.env.HOST || "0.0.0.0";
+  try {
+    await app.listen({ port: PORT, host: HOST });
+    console.log(`[bridge] listening on ${HOST}:${PORT}`);
+    console.log(`[bridge] models: ${Object.keys(MODELS).join(", ")}`);
+  } catch (err) {
+    console.error(`[bridge] failed to start: ${(err as Error).message}`);
+    process.exit(1);
+  }
 }
 
-main().catch(e => { console.error(e); process.exit(1); });
+main();
