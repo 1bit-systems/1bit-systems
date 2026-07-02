@@ -452,13 +452,15 @@ class Handler(BaseHTTPRequestHandler):
                 },
             })
         elif self.path == "/v1/models":
-            # Proxy from NPU backend (has the model list)
-            try:
-                r = urllib.request.urlopen(
-                    f"http://localhost:{backends['npu'].port}/v1/models", timeout=5)
-                self._json(200, json.loads(r.read()))
-            except Exception as e:
-                self._json(503, {"error": str(e)})
+            self._json(200, {
+                "object": "list",
+                "data": [
+                    {"id": "Qwen3-0.6B-NPU2", "object": "model", "owned_by": "npu"},
+                    {"id": "Qwen3-8B-NPU2", "object": "model", "owned_by": "npu"},
+                    {"id": "Llama-3.1-8B-NPU2", "object": "model", "owned_by": "npu"},
+                    {"id": "Gemma4-E2B-IT-NPU2", "object": "model", "owned_by": "npu"},
+                ]
+            })
         else:
             self._json(404, {"error": "Not found"})
 
