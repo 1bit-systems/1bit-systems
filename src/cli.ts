@@ -69,8 +69,16 @@ async function main() {
         break;
       }
       case "update": {
-        const { runUpdate } = await import("./commands/update.js");
-        await runUpdate(process.argv[3]);
+        const pkg = process.argv[3];
+        if (pkg && (pkg.startsWith("npm:") || pkg.startsWith("git:") || !pkg.includes(":"))) {
+          // Package update — delegate to packages.ts
+          const { updatePackage } = await import("./commands/packages.js");
+          await updatePackage(pkg);
+        } else {
+          // Self update
+          const { runUpdate } = await import("./commands/update.js");
+          await runUpdate(pkg);
+        }
         break;
       }
       case "config": {

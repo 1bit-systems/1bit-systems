@@ -58,9 +58,47 @@ if [ -f "$MODEL" ] && [ -f "$XCLDIR/final_i8_QKV_v.xclbin" ]; then
     timeout 60 engine/npu/build/npu_engine 1 2 2>/dev/null && say "Smoke test passed!" || warn "Smoke test timed out (normal on first run)"
 fi
 
+# --- 1bit CLI Installation ---
+say "Installing 1bit agent CLI..."
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Install npm dependencies
+if command -v node &>/dev/null; then
+  cd "$PROJECT_DIR"
+  npm install --ignore-scripts 2>/dev/null || warn "npm install skipped (run manually: npm install)"
+  npm run build 2>/dev/null || warn "npm build skipped (run manually: npm run build)"
+
+  # Symlink to ~/.local/bin
+  mkdir -p "${HOME}/.local/bin"
+  ln -sf "$PROJECT_DIR/bin/1bit" "${HOME}/.local/bin/1bit"
+
+  # Add to PATH if not already
+  if [[ ":$PATH:" != *":${HOME}/.local/bin:"* ]]; then
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${HOME}/.bashrc"
+    say "Added ~/.local/bin to PATH in .bashrc"
+  fi
+
+  say "1bit CLI installed. Run: 1bit help"
+else
+  warn "Node.js not found. Install Node.js 22+ to use the 1bit agent CLI."
+fi
+
+# --- Systemd Service ---
+if command -v systemctl &>/dev/null; then
+  if [ -f "$PROJECT_DIR/services/install-service.sh" ]; then
+    say "Installing 1bit-agent systemd service..."
+    bash "$PROJECT_DIR/services/install-service.sh" install 2>/dev/null || warn "Service install failed (run manually: services/install-service.sh)"
+  fi
+fi
+
 echo ""
 echo "  Install complete."
-echo "  Binary: engine/npu/build/npu_engine"
-echo "  Run:    ./engine/npu/build/npu_engine"
+echo "  Binary:  engine/npu/build/npu_engine"
+echo "  CLI:     1bit"
+echo "  Service: 1bit-agent (systemd --user)"
+echo ""
+echo "  Run: 1bit chat"
+echo "  Run: 1bit up   (to start NPU stack)"
 echo ""
 echo "  —bong-water-water-bong · Sorry but not Sorry"

@@ -1,0 +1,1 @@
+{"version":3,"file":"streaming.d.ts","sourceRoot":"","sources":["../../../src/extra/observability/streaming.ts"],"names":[],"mappings":"AAAA;;;;;;;;;;;GAWG;AAEH,OAAO,EACL,eAAe,EAEhB,MAAM,4CAA4C,CAAC;AAmDpD;;;;;GAKG;AACH,wBAAgB,cAAc,CAAC,UAAU,EAAE,MAAM,GAAG,eAAe,EAAE,CAsBpE;AAED;;GAEG;AACH,wBAAgB,8BAA8B,CAC5C,MAAM,EAAE,eAAe,EAAE,GACxB,MAAM,CAAC,MAAM,EAAE,OAAO,CAAC,CAuEzB"}

@@ -1,0 +1,15 @@
+[Unit]
+Description=1bit NPU-native coding agent
+Documentation=https://1bit.systems
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/bcloud/1bit-systems/bin/1bit chat
+WorkingDirectory=/home/bcloud/1bit-systems
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=default.target

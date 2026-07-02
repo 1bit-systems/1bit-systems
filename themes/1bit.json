@@ -1,0 +1,28 @@
+{
+  "name": "1bit",
+  "description": "1bit — NPU-native dark theme",
+  "colors": {
+    "background": "#0a0a0f",
+    "foreground": "#e0e0e0",
+    "primary": "#00ff87",
+    "secondary": "#00d4ff",
+    "accent": "#f00fd2",
+    "muted": "#4a4a5a",
+    "success": "#00ff87",
+    "warning": "#ffaa00",
+    "error": "#ff3355",
+    "info": "#00d4ff",
+    "selection": "#1a3a2a",
+    "cursor": "#00ff87",
+    "lineHighlight": "#0d1f14",
+    "bracket": "#4a9a6a",
+    "comment": "#5a5a6a",
+    "keyword": "#00d4ff",
+    "string": "#00ff87",
+    "number": "#f00fd2",
+    "function": "#ffaa00",
+    "type": "#00d4ff",
+    "variable": "#e0e0e0",
+    "constant": "#f00fd2"
+  }
+}

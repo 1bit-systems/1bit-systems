@@ -28,6 +28,21 @@
     "npu",
     "pi-package"
   ],
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts"
+    ],
+    "themes": [
+      "./themes"
+    ],
+    "configDir": ".pi"
+  },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.80.3",
     "@earendil-works/pi-ai": "^0.80.3",
