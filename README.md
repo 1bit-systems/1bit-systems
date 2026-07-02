@@ -2,14 +2,15 @@
 
 <img src="site/assets/brand-lockup.svg" alt="1bit.systems" width="540">
 
-# 50 TOPS INT8. 55.7 TFLOPS measured. 281 tok/s 1-bit. 16 ms/tok NPU.
-## On a consumer laptop. Open source. Zero Python.
+# One binary to rule them all. 5 models. 120KB. 28 tok/s NPU.
+## On a consumer laptop. Open source. Zero Python. Zero dependencies.
 
 [![50 TOPS Verified](https://img.shields.io/badge/50%20TOPS-verified-00ff00.svg)](engine/npu/BENCHMARKS.md)
 [![55.7 TFLOPS Peak](https://img.shields.io/badge/55.7%20TFLOPS-raw%20silicon-12a0ed.svg)](engine/npu/BENCHMARKS.md)
 [![281 tok/s 1-bit](https://img.shields.io/badge/281%20tok%2Fs-1--bit-f00fd2.svg)](engine/npu/BENCHMARKS.md)
-[![16 ms/tok NPU](https://img.shields.io/badge/16%20ms%2Ftok-NPU%20M%3D16-00ff00.svg)](engine/npu/BENCHMARKS.md)
-[![Pure C++](https://img.shields.io/badge/runtime-C%2B%2B23-00ff00.svg)](engine/npu/src/npu_engine_v9.cpp)
+[![5 models](https://img.shields.io/badge/5%20models-auto--detect-00ff00.svg)](engine/npu/BENCHMARKS.md)
+[![120KB binary](https://img.shields.io/badge/binary-120KB-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
+[![Pure C++](https://img.shields.io/badge/runtime-C%2B%2B23-00ff00.svg)](engine/npu/src/npu_engine_all.cpp)
 [![DeepSeek v4](https://img.shields.io/badge/built%20with-DeepSeek%20v4-7b3af2.svg)](https://deepseek.com)
 [![Claude](https://img.shields.io/badge/shipped%20with-Claude-d97706.svg)](https://claude.ai)
 [![MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
@@ -23,7 +24,8 @@
 
 | Engine | Hardware | Precision | Speed | Model | Size |
 |--------|----------|-----------|-------|-------|------|
-| **NPU v9** | XDNA 2 · 32 tiles | INT8 | **16 ms/tok** (63 tok/s) | Qwen3-0.6B | 610 MB |
+| **NPU ALL** | XDNA 2 · 32 tiles | INT8 | **28 tok/s** (36 ms/tok) | 5 models | 610 MB - 6 GB |
+| **NPU v12** | XDNA 2 · 32 tiles | INT8 | **97 tok/s** (10 ms/tok) | Qwen3-0.6B | 610 MB |
 | **1-bit GPU** | Radeon 8060S · 40 CUs | IQ1_S | **281 tok/s** | Bonsai 1.7B | 385 MB |
 | **Vulkan GPU** | Radeon 8060S · 40 CUs | Q4_K | **27 µs/tok** | Qwen3.5-9B | 5.4 GB |
 | **MLX** | Apple Silicon + XDNA 2 NPU | INT8 + FP16 | **16 ms/tok** | Qwen3-0.6B | 610 MB |
