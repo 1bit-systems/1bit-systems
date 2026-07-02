@@ -32,9 +32,10 @@
 | **MSL GPU** | Apple M1–M5 · Metal 3 | Q4_K | **27 µs/tok** | Qwen3.5-9B | 5.4 GB |
 
 **55.7 TFLOPS raw INT8 GEMM** — exceeds AMD's 50 TOPS rating.  
-**15.2× NPU speedup in one session** — 244→16 ms/tok via M=16 batched decode + OpenMP LM head.  
-**1.5× away from AMD's proprietary FastFlowLM (10.7ms/tok) — open source.**  
-**All numbers verified on-device.** [Full benchmarks →](engine/npu/BENCHMARKS.md)
+**5 models from one 120KB binary** — auto-detect, zero dependencies.  
+**24× speedup in one session** — 244→36 ms/tok. All 5 models verified on-device.  
+**No Python. No pip. No Docker. No MLIR toolchain. Just g++ and run.**  
+[Full benchmarks →](engine/npu/BENCHMARKS.md)
 
 ### Client Compatibility (OpenAI API → NPU)
 
