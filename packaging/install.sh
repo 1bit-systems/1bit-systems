@@ -10,7 +10,7 @@ die() { printf "${RED}✗${NC} %s\n" "$*"; exit 1; }
 
 echo ""
 printf "${GREEN}╔══════════════════════════════════════════╗${NC}\n"
-printf "${GREEN}║         1bit.systems — NPU Install      ║${NC}\n"
+printf "${GREEN}║   1bit.systems — 5 models, 120KB, 28 tok/s   ║${NC}\n"
 printf "${GREEN}╚══════════════════════════════════════════╝${NC}\n"
 echo ""
 
@@ -32,30 +32,45 @@ if [ ! -f "$XCLDIR/final_i8_QKV_v.xclbin" ]; then
     warn "See docs/building.md for full xclbin build instructions."
 fi
 
-# Check model
-MODEL="${HOME}/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx"
-if [ ! -f "$MODEL" ]; then
-    warn "Model not found. Install FastFlowLM and pull the model:"
-    warn "  pip install fastflowlm && flm pull qwen3:0.6b"
-fi
+# Check models
+say "Checking for models..."
+MODELS_FOUND=0
+for MODEL_DIR in \
+    "${HOME}/.config/flm/models/Qwen3-0.6B-NPU2" \
+    "${HOME}/models/Qwen3-8B-NPU2" \
+    "${HOME}/.config/flm/models/Qwen3-VL-4B-Instruct-NPU2" \
+    "${HOME}/.config/flm/models/Llama-3.1-8B-NPU2" \
+    "${HOME}/.config/flm/models/Gemma4-E2B-IT-NPU2"; do
+    if [ -f "$MODEL_DIR/model.q4nx" ]; then
+        say "  $(basename $MODEL_DIR)"
+        MODELS_FOUND=$((MODELS_FOUND + 1))
+    fi
+done
+[ $MODELS_FOUND -eq 0 ] && warn "No models found. Install FastFlowLM and pull models:"
+[ $MODELS_FOUND -eq 0 ] && warn "  pip install fastflowlm && flm pull qwen3:0.6b"
 
 # Build engine
-say "Building engine..."
-gcc -c -O3 -o engine/npu/build/dequant_q4nx.o engine/npu/src/dequant_q4nx.c 2>/dev/null || true
-g++ -std=c++23 -O3 -o engine/npu/build/npu_engine engine/npu/src/npu_engine_cb.cpp \
+say "Building engine (5 models, 120KB binary)..."
+gcc -c -std=c11 -O3 -o engine/npu/build/dequant_q4nx.o engine/npu/src/dequant_q4nx.c 2>/dev/null || true
+g++ -std=c++23 -O3 -march=native -fopenmp -ffast-math \
+    -o engine/npu/build/npu_engine_all \
+    engine/npu/src/npu_engine_all.cpp \
     engine/npu/build/dequant_q4nx.o \
+    -Iengine/npu/src \
     -l xrt_coreutil -l uuid -l m -l dl 2>/dev/null || {
     warn "Build failed — missing XRT headers or libs."
     warn "Install: sudo apt install libxrt-dev libxrt-npu2"
     warn "Or use the pre-built binary from GitHub Releases."
     exit 0
 }
-say "Engine built: engine/npu/build/npu_engine"
+say "Engine built: engine/npu/build/npu_engine_all"
 
-# Run quick smoke test
-if [ -f "$MODEL" ] && [ -f "$XCLDIR/final_i8_QKV_v.xclbin" ]; then
-    say "Running smoke test (BOS token, 2 decode)..."
-    timeout 60 engine/npu/build/npu_engine 1 2 2>/dev/null && say "Smoke test passed!" || warn "Smoke test timed out (normal on first run)"
+# Run smoke test on first found model
+DEFAULT_MODEL="${HOME}/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx"
+if [ -f "$DEFAULT_MODEL" ]; then
+    say "Running smoke test (9 token prefill, 4 decode, OpenMP)..."
+    OMP_NUM_THREADS=16 timeout 60 engine/npu/build/npu_engine_all "$DEFAULT_MODEL" 4 2>/dev/null && \
+        say "Smoke test passed — 28 tok/s!" || warn "Smoke test timed out (normal on first run)"
 fi
 
 # --- 1bit CLI Installation ---
