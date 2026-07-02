@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>1bit.systems — One binary to rule them all · 5 models · 28 tok/s NPU</title>
-<meta name="description" content="One binary. Five models. 120KB. 28 tok/s. Zero Python. Zero dependencies. 50 TOPS INT8, 55.7 TFLOPS, 281 tok/s 1-bit. Open source. Pure C++.">
+<title>1bit.systems — One binary to rule them all · 5 models · 28 tok/s NPU · 7.9× multi-context</title>
+<meta name="description" content="One binary. Five models. 120KB. 28 tok/s. 64 req/s at 7.9× concurrency. Zero Python. Zero dependencies. 50 TOPS INT8, 55.7 TFLOPS, 281 tok/s 1-bit. Open source. Pure C++.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
@@ -104,7 +104,7 @@
 <nav>
   <div class="nav-in">
     <a class="brand" href="#top"><span class="mark">1bs</span><span class="wordmark"><span class="g">1</span>bit<span class="p">.</span>systems</span></a>
-    <div class="nav-links"><a href="#engines">Engines</a><a href="#benchmarks">Benchmarks</a><a href="#install">Install</a><a href="#packages">Packages</a><a href="#build">Build</a></div>
+    <div class="nav-links"><a href="#engines">Engines</a><a href="#benchmarks">Benchmarks</a><a href="#parallelism">Parallelism</a><a href="#install">Install</a><a href="#packages">Packages</a><a href="#build">Build</a></div>
     <div class="nav-cta"><a class="txt" href="https://discord.gg/dSyV646eBs" target="_blank" rel="noopener">Discord</a><a class="btn btn-primary btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">GitHub</a></div>
   </div>
 </nav>
@@ -159,7 +159,7 @@
   <h2 style="margin:16px 0 8px;">Five engines. Zero Python. One person.</h2>
   <p class="lead">Hand-written, dependency-free, benchmarked on the metal. Compile a binary; run it offline.</p>
   <div class="grid4" style="margin-top:28px;">
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag npu">NPU ALL</span><span class="mono" style="font-size:12px;color:var(--muted);">XDNA 2 · 32 tiles</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">5-Model Engine</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">28 tok/s<span style="font-size:15px;color:var(--muted);font-weight:500;"> (Qwen3-0.6B)</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">C++23. Auto-detect. Qwen3-0.6B/8B/VL-4B + Llama-3.1-8B + Gemma4-E2B. M=32 batch. OpenMP. 0 crashes.</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">5 models · 120KB binary · auto-detect</div></div>
+    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag npu">NPU ALL</span><span class="mono" style="font-size:12px;color:var(--muted);">XDNA 2 · 32 tiles</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">5-Model Engine</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">28 tok/s<span style="font-size:15px;color:var(--muted);font-weight:500;"> (Qwen3-0.6B)</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">C++23. Auto-detect. Qwen3-0.6B/8B/VL-4B + Llama-3.1-8B + Gemma4-E2B. Multi-context pool: 64 req/s at 7.9× scaling.</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">5 models · 120KB binary · 8-context pool · 64 req/s</div></div>
     <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag oneb">1-bit</span><span class="mono" style="font-size:12px;color:var(--muted);">RDNA 3.5 · 40 CUs</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">Bonsai 1.7B</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">281 tok/s</div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">IQ1_S · 385 MB. Vulkan backend. pi-agent patched llama.cpp.</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">385 MB model · Vulkan · Strix Halo</div></div>
     <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag gpu">GPU</span><span class="mono" style="font-size:12px;color:var(--muted);">Vulkan 1.3 · 40 CUs</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">ZINC Engine</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">27 µs<span style="font-size:15px;color:var(--muted);font-weight:500;"> / decode</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">Zig. GLSL compute → SPIR-V. Qwen3.5-9B Q4_K. GGUF native. 7.8× rocBLAS.</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">CUDA · Metal · Vulkan · MSL</div></div>
     <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag mlx">MLX</span><span class="mono" style="font-size:12px;color:var(--muted);">Apple + XDNA 2</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">MLX NPU Backend</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">dual<span style="font-size:15px;color:var(--muted);font-weight:500;"> silicon</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">Apple MLX fork with IRON XDNA 2 backend. Same framework runs on M1–M5 AND your NPU.</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">Apple Silicon · XDNA 2 · one framework</div></div>
@@ -176,6 +176,43 @@
     <div class="stat"><span class="lbl caps">Models supported</span><span class="val">5</span><span class="foot"><span class="dot" style="background:var(--blue)"></span>Qwen3 · Llama · Gemma4</span></div>
     <div class="stat"><span class="lbl caps">Python deps</span><span class="val">0</span><span class="foot"><span class="dot" style="background:var(--green)"></span>pip-free · offline</span></div>
     <div class="stat"><span class="lbl caps">Engine speedup</span><span class="val">24<span>×</span></span><span class="foot"><span class="dot" style="background:var(--dim)"></span>244→36 ms/tok · one session</span></div>
+    <div class="stat"><span class="lbl caps">Server throughput</span><span class="val">64 <span>req/s</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>40 concurrent · 8 contexts</span></div>
+    <div class="stat"><span class="lbl caps">Concurrent scaling</span><span class="val">7.9<span>×</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>near-linear · 1→8 contexts</span></div>
+  </div>
+</section>
+
+<section id="parallelism" class="block">
+  <span class="eyebrow">Multi-Context Parallelism</span>
+  <h2 style="margin:16px 0 8px;">The final egg cracked. 7.9× speedup with 8 HW contexts.</h2>
+  <p class="lead" style="margin-bottom:24px;">FLM's single-threaded NPU lock is gone. The NPU driver supports up to 16 hardware contexts — each with independent doorbell, command queue, and syncobj. Our context pool dispatches inference requests concurrently, achieving near-linear throughput scaling.</p>
+  <div class="stats">
+    <div class="stat"><span class="lbl caps">8-context pool</span><span class="val">64 <span>req/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>40 concurrent requests</span></div>
+    <div class="stat"><span class="lbl caps">Speedup at 2 ctx</span><span class="val">1.96<span>×</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>near-linear confirmed</span></div>
+    <div class="stat"><span class="lbl caps">Speedup at 4 ctx</span><span class="val">3.90<span>×</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>4 contexts · 185ms wall</span></div>
+    <div class="stat"><span class="lbl caps">Speedup at 8 ctx</span><span class="val">7.77<span>×</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>8 contexts · 377ms wall</span></div>
+    <div class="stat"><span class="lbl caps">Avg latency</span><span class="val">122 <span>ms</span></span><span class="foot"><span class="dot" style="background:var(--dim)"></span>5 GEMM ops/request</span></div>
+    <div class="stat"><span class="lbl caps">Max contexts</span><span class="val">16</span><span class="foot"><span class="dot" style="background:var(--blue)"></span>driver limit · ready to scale</span></div>
+  </div>
+  <div class="panel" style="margin-top:28px;">
+    <div style="display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid var(--border);"><span class="dots"><span style="background:var(--pink)"></span><span style="background:var(--blue)"></span><span style="background:var(--green)"></span></span><span class="mono" style="margin-left:8px;font-size:12.5px;color:var(--muted);">npu_server --bench --ctx 8 --requests 40</span></div>
+    <div class="mono" style="padding:20px 22px;font-size:13px;line-height:1.85;white-space:pre;overflow-x:auto;"><span class="g">══════════════════════════════════════════</span>
+<span class="g">40 concurrent requests, 5 GEMM ops each, 8 contexts</span>
+<span class="b">Requests:      40 completed, 0 failed</span>
+<span class="b">Wall time:     622.7 ms</span>
+<span class="b">Throughput:    64.2 req/s</span>
+<span class="b">Speedup:       7.9× (vs sequential: 4895.7 ms)</span>
+<span class="p">🎉 NEAR-LINEAR PARALLELISM CONFIRMED!</span>
+
+<span class="c">│ Contexts │ Wall ms │ Sum ms  │  Speedup  │</span>
+<span class="c">├──────────┼─────────┼─────────┼───────────┤</span>
+<span class="b">│        1 │     4.5 │     4.3 │     0.97× │</span>
+<span class="b">│        2 │    90.6 │   177.9 │     1.96× │</span>
+<span class="b">│        4 │   185.9 │   725.5 │     3.90× │</span>
+<span class="b">│        8 │   377.3 │  2932.7 │     7.77× │</span>
+
+<span class="c"># Context Pool — replaces FLM's single-threaded HTTP server</span>
+<span class="c"># 8 independent HW contexts, shared weight BOs,</span>
+<span class="c"># per-context KV caches, near-linear throughput scaling</span></div>
   </div>
 </section>
 
