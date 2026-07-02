@@ -1,3 +1,67 @@
+## UPDATE 21 (2026-07-02): USER INPUT + API BRIDGE + QWEN3-VL-4B FIX
+
+### Engine: User Prompt Input
+- Added `argv[3]=<token_file_path>` to `npu_engine_universal.cpp`
+- Engine reads comma-separated token IDs from file, replaces hardcoded `pt[]` array
+- Pass `-` as argv[3] to read tokens from stdin (piping)
+- Falls back to default hardcoded prompt when no file provided
+- Rebuilt all 6 engine variants via `build_npu.sh`
+
+### Tokenizer: Standalone BPE
+- Created `engine/npu/tokenizer/tokenize.c` — standalone BPE tokenizer (pure C)
+- Reads GGUF `tokenizer.json` directly (both dict-format and array-format vocabs)
+- Greedy longest-match tokenization with byte fallback
+- No BOS/EOS auto-prefixing (caller formats chat template)
+- Build: `make -C engine/npu/tokenizer`
+- Usage: `echo "text" | engine/npu/tokenizer/tokenize <tokenizer.json>`
+- Output: comma-separated token IDs on stdout
+
+### API Bridge: OpenAI-Compatible Server
+- Created `src/commands/bridge.ts` — Fastify server on port 9090
+- Endpoints: `GET /health`, `GET /v1/models`, `POST /v1/chat/completions`
+- Pipeline: text → chat template → tokenize → NPU engine → detokenize → SSE stream
+- Supports 4 models via API: qwen3_0_6b, qwen3_8b, llama, gemma4_e2b
+- Updated `src/commands/up.ts` to use new bridge path and corrected build dir
+
+### Qwen3-VL-4B Fix
+- **Root cause:** `model.q4nx` truncated during initial download at 3,232 MB — layer 9 weights (7 tensors, ~59.7 MB) missing
+- **Fix:** `flm pull qwen3vl-it:4b` — re-downloaded complete model (3,292 MB)
+- All 36 layers verified, all tensors in bounds ✅
+
+### Status
+| Model | Prefill | Decode | API Ready | Notes |
+|-------|---------|--------|-----------|-------|
+| Qwen3-0.6B | 50 ms/tok | 218 ms/tok | ✅ | Fastest |
+| Qwen3-8B | 566 ms/tok | ~840 ms/tok | ✅ | |
+| Qwen3-VL-4B | 376 ms/tok | ~540 ms/tok | ❌ | Layer 9 fixed! VL model needs special API handling |
+| Llama-3.1-8B | 529 ms/tok | ~780 ms/tok | ✅ | |
+| Gemma4-E2B | 202 ms/tok | ~460 ms/tok | ✅ | |
+
+### Files Created/Modified
+| File | Action |
+|------|--------|
+| `engine/npu/src/npu_engine_universal.cpp` | Modified — argv[3] input file, stdin pipe, vector-based pt |
+| `engine/npu/tokenizer/tokenize.c` | Created — BPE tokenizer |
+| `engine/npu/tokenizer/Makefile` | Created — tokenizer build |
+| `src/commands/bridge.ts` | Created — API bridge (Fastify) |
+| `src/commands/up.ts` | Modified — bridge path, build path |
+| `~/.config/flm/models/Qwen3-VL-4B-Instruct-NPU2/model.q4nx` | Replaced — complete 36 layers |
+| `packaging/install.sh` | Updated fastify dependency |
+
+### Commits
+```
+aac6adef feat(engine): accept prompt token IDs from file via argv[3]
+d14bef3f feat(tokenizer): standalone BPE tokenizer for NPU engine
+4ef8951f feat(bridge): API bridge for NPU engine (OpenAI-compatible)
+```
+
+### Known Issue: NPU XRT Allocation Failure
+After repeated test runs, the NPU can enter a state where `xrt::bo` allocations fail with:
+```
+mmap(...) failed (err=-11): Resource temporarily unavailable
+```
+Fix: `sudo modprobe -r amdxdna && sudo modprobe amdxdna` or full system reboot.
+
 ## UPDATE 20 (2026-07-02 10:43 ADT): UNIVERSAL ENGINE — ALL 5 MODELS RUNNING ON NPU
 
 ### Universal NPU Engine — Compiled with Preprocessor Flags
