@@ -68,30 +68,36 @@ faster than venture capital.
 
 *Built with DeepSeek v4 (99.9%) · Shipped with Claude (0.1%) · One human.*
 
-*—bong-water-water-bong · admin@1bit.systems · "Sorry but not Sorry :)"*
+*Built with DeepSeek v4 (99.9%) · Shipped with Claude (0.1%) · One human.*
+*—bong-water-water-bong · "Sorry but not Sorry :)"*
+*admin@1bit.systems*
 
 ## Architecture
 
 ```
 1bit.systems/
 ├── engine/
-│   ├── npu/          # C++ INT8 engine — NPU (XDNA 2)
-│   │   ├── src/npu_engine_v9.cpp       # M=16 batch decode (16 ms/tok)
-│   │   ├── src/npu_engine_v7.cpp       # μs-probe: ioctl vs r.wait breakdown
-│   │   ├── src/npu_engine_profile.cpp  # Per-layer μs-accurate profiler
-│   │   ├── src/dequant_q4nx.c          # Q4NX weight dequantizer
-│   │   ├── kernel/edge_attention.cc    # NPU attention kernel (Chess)
-│   │   ├── xclbins/n1_core_i8_v2.py    # INT8 MLIR generator
-│   │   └── build/                      # Pre-compiled objects + binaries
-│   └── gpu/          # Zig engine — GPU (Vulkan/CUDA/Metal)
-│       ├── src/vulkan/forward.zig      # Vulkan prefill + decode
-│       ├── src/cuda/                   # CUDA backend
-│       ├── src/metal/                  # Apple Silicon backend
-│       ├── src/shaders/                # GLSL compute shaders (SPIR-V)
-│       └── build.zig                   # Zig build system
-├── docs/             # Architecture, build guide, roadmap, journey
-├── site/             # Landing page (Cloudflare Pages)
-└── .github/          # CI benchmarks + PR agent
+│   ├── npu/                # C++23 INT8 engine — NPU (XDNA 2)
+│   │   ├── src/
+│   │   │   ├── npu_engine_v9.cpp       # M=16 batch decode (16 ms/tok)
+│   │   │   ├── npu_engine_v6.cpp       # Batch-4 decode (50 ms/tok)
+│   │   │   ├── npu_engine_v7.cpp       # μs-probe: ioctl vs r.wait breakdown
+│   │   │   ├── npu_engine_profile.cpp  # Per-layer μs-accurate profiler
+│   │   │   ├── npu_engine_cb.cpp       # Continuous-batch baseline
+│   │   │   └── dequant_q4nx.c          # Q4NX weight dequantizer
+│   │   ├── kernel/edge_attention.cc    # NPU attention kernel (Chess C++)
+│   │   ├── build/                      # Pre-compiled objects + binaries
+│   │   ├── BENCHMARKS.md               # Benchmark source of truth
+│   │   └── README.md
+│   └── gpu/                # Zig engine — GPU (Vulkan/CUDA/Metal)
+│       └── build.zig                   # Zig build system (WIP)
+├── site/                   # Landing page (Cloudflare Pages → 1bit.systems)
+│   ├── index.html
+│   └── assets/brand-lockup.svg
+├── 1bit-site/              # Deploy mirror (synced from site/)
+├── docs/                   # Architecture, build guide, roadmap, journey
+├── packaging/              # deb, snap, tarball, docker, ollama, AUR
+└── .github/workflows/      # CI benchmark + deploy + PR agent
 ```
 
 ## NPU Engine (`engine/npu/`)
