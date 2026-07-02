@@ -105,8 +105,9 @@ inline void lm_topk_omp(const float*hidden,float*lg,int*top_ids,int K,int NV,int
 
 int main(int argc,char**argv){
     setvbuf(stdout,NULL,_IONBF,0);
-    if(argc<2){printf("Usage: %s model.q4nx [decode_tokens]\n",argv[0]);return 1;}
-    const char*mp=argv[1];int ng=(argc>2)?atoi(argv[2]):32;
+    if(argc<2){printf("Usage: %s model.q4nx [decode_tokens] [input_tokens_file|-]\n",argv[0]);return 1;}
+    const char*mp=argv[1];int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
+    const char*input_tok_file=(argc>3&&argv[3][0]!='\0')?argv[3]:nullptr;
 
     // Model tag
     std::string mp_s(mp),model_tag;auto ls=mp_s.rfind('/');auto sl=mp_s.rfind('/',ls-1);
@@ -205,11 +206,28 @@ int main(int argc,char**argv){
     std::vector<float> h_b(XM*H), qo_b(XM*qkv_n), at_b(XM*NH*HD), oo_b(XM*H), gt_b(XM*(cfg.gu_split?IM:2*IM)), su_b(XM*IM), dw_b(XM*H);
     std::vector<float> h_data(H), qo_data(qkv_n*BS), ko_data(NKV*HD*BS), vo_data(NKV*HD*BS), at_data(NH*HD*BS), oo_data(H*BS);
     std::vector<float> gt_data((cfg.gu_split?IM:2*IM)*BS), su_data(IM*BS), dwo_data(H*BS), sb_data(H*BS), lg_buf(NV);
-    int sp=0; int pt[]={151643,872,198,11852,151644,198,151643,77091,198}; int npt=9;
+    int sp=0;
+
+    // Load input tokens from file or use default hardcoded sequence
+    std::vector<int> pt_vec;
+    if(input_tok_file){
+        FILE* tf=fopen(input_tok_file,"r");
+        if(!tf){ fprintf(stderr,"Cannot open input tokens: %s\n",input_tok_file); return 1; }
+        if(strcmp(input_tok_file,"-")==0) tf=stdin;
+        int tid;
+        while(fscanf(tf,"%d",&tid)==1) pt_vec.push_back(tid);
+        if(tf!=stdin) fclose(tf);
+        if(pt_vec.empty()){ fprintf(stderr,"Empty input token file: %s\n",input_tok_file); return 1; }
+        if((int)pt_vec.size() > 4095) pt_vec.resize(4095);
+    }else{
+        pt_vec={151643,872,198,11852,151644,198,151643,77091,198};
+    }
+    int npt=(int)pt_vec.size(); if(npt<1)npt=1;
+    if(input_tok_file && npt > XM) npt = XM;
 
     // ===== PREFILL =====
     printf("=== Prefill %d ===\n",npt);auto t0=std::chrono::steady_clock::now();
-    for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=emb_f32[pt[pi]*H+i];
+    for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=emb_f32[pt_vec[pi]*H+i];
     for(int l=0;l<NC;l++){
         for(int pi=0;pi<npt;pi++)rn_c(&h_b[pi*H],in_n[l].data(),H);
         cq.go(l,h_b.data(),npt,H,5.0f/127.0f,qsc[l],qo_b.data(),qkv_n);cn(qo_b.data(),npt*qkv_n);
