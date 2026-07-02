@@ -1,3 +1,77 @@
+## UPDATE 22 (2026-07-02 15:00 ADT): ALL 5 MODELS — V12 BATCH SPEED, 0 CRASHES
+
+### The Breakthrough: Model-Agnostic v12 Engine
+
+**`npu_engine_all.cpp`** — one engine, 5 models, M=32 batch + OpenMP.
+Auto-detects dimensions from Q4NX header. No preprocessor flags.
+Verified on Strix Halo NPU: **all 5 models running, zero crashes.**
+
+```
+=== NPU Engine ALL — All 5 Models on Strix Halo NPU ===
+
+Qwen3-0.6B:   58 ms/tok (17 tok/s)  28 layers  H=1024   IM=3072   ✅
+Gemma4-E2B:   117 ms/tok (9 tok/s)   35 layers  H=1536   IM=6144   ✅
+Qwen3-VL-4B:  141 ms/tok (7 tok/s)   36 layers  H=2560   IM=9728   ✅
+Llama-3.1-8B: 185 ms/tok (5 tok/s)   32 layers  H=4096   IM=14336  ✅
+Qwen3-8B:     215 ms/tok (5 tok/s)   36 layers  H=4096   IM=12288  ✅
+```
+
+### The Fix: `dequant_i8_to_float_ex` with Correct `in_features`
+
+The `dequant_i8_to_float` wrapper hardcodes `in_feat=1024` — only Qwen3-0.6B uses 1024.
+For 8B models: O projection reads NH×HD=4096 columns, not 1024.
+Fix: use `dequant_i8_to_float_ex(data, i8_rows, in_feat, ...)` with correct per-projection
+in_features (H for Q/K/V/G/U, NH×HD for O, IM for D).
+
+Before this fix: heap corruption on all models except 0.6B → `munmap_chunk(): invalid pointer`.
+After this fix: all 5 models run clean to completion.
+
+### Engine Architecture
+
+| Component | Detail |
+|-----------|--------|
+| Model detection | `parse_q4nx_header()` from `model_config.h` |
+| XCLBIN loading | Dynamic by model tag: `final_i8_QKV_{tag}.xclbin` |
+| Dequant | `dequant_i8_to_float_ex` with correct in_features |
+| Embeddings | Pre-converted BFP16→F32 (v12 optimization) |
+| Attention | OpenMP across 16 heads on 16 Zen5 cores |
+| LM head | OpenMP f32 dot-products (v12 optimization) |
+| Batching | M=32 batched decode with chained batch steps |
+| GU handling | Auto-detect split vs combined per model |
+
+### What Changed Since UPDATE 21
+
+| Before (UPDATE 21) | After (UPDATE 22) |
+|---------------------|-------------------|
+| Preprocessor flags `-DMODEL_*` per model | Auto-detect from Q4NX header |
+| 6 separate binaries | 1 binary for all models |
+| Single-token decode (218-840 ms/tok) | M=32 batch (58-215 ms/tok) |
+| Qwen3-8B crashes (heap corruption) | Clean exit, zero crashes |
+| dequant_i8_to_float (in_feat=1024) | dequant_i8_to_float_ex (correct) |
+| 4 models broken | All 5 models verified |
+
+### Known Issues
+
+- **NPU XRT Allocation**: After repeated runs, `xrt::bo` can fail with `mmap(...) err=-11`. Fix: `sudo modprobe -r amdxdna && sudo modprobe amdxdna`.
+- **Qwen3-VL-4B**: Layer 9 weights fixed (re-downloaded model). Now 36/36 layers complete.
+- **Gemma4-E2B HD=256**: Runs correctly but slower per-token due to 256-dim head (more KV cache per token).
+- **Llama-3.1-8B**: No q_norm/k_norm. RoPE via rope_freqs file. Works with Qwen3-0.6B RoPE fallback.
+- **Speed vs v12 standalone**: 58 ms/tok on 0.6B vs 10 ms/tok for v12. Gap is from dequant+pack cost per layer in the universal path. v12 packs weights once at startup; universal repacks each layer.
+
+### Key Files (current)
+
+| File | Purpose |
+|------|---------|
+| `/home/bcloud/1bit-systems/engine/npu/src/npu_engine_all.cpp` | Model-agnostic v12 engine |
+| `/home/bcloud/npu-sandbox/npu-infer/include/model_config.h` | Auto-detect model config |
+| `/home/bcloud/npu-sandbox/npu-infer/build/int8/final_i8_*` | All 23 model xclbins |
+| `/home/bcloud/1bit-systems/engine/npu/src/npu_engine_v12.cpp` | v12 standalone (97 tok/s on 0.6B) |
+| `/home/bcloud/1bit-systems/docs/HANDOFF-NPU-OPTIMIZATION.md` | This handoff |
+| `/home/bcloud/1bit-systems/docs/FUSED-XCLBIN-PORT-PLAN.md` | FLM fused port status |
+| `/home/bcloud/npu-sandbox/npu-infer/tools/pack_fused_v3.py` | Q4NX weight packer v3 |
+
+---
+
 ## UPDATE 21b (2026-07-02): MERGED WITH REMOTE AUTO-DETECT ENGINE
 
 ### Merge
