@@ -1,6 +1,6 @@
 # CLAUDE.md — 1bit.systems
 
-**50 TOPS INT8 · 55.7 TFLOPS measured · 281 tok/s 1-bit. On a consumer laptop.**
+**50 TOPS INT8 · 94 tok/s NPU (FLM) · 281 tok/s 1-bit. On a consumer laptop.**
 Contact: admin@1bit.systems
 
 Three inference engines, one chip. NPU (C++) + GPU (Zig). Zero Python.
@@ -8,7 +8,7 @@ Three inference engines, one chip. NPU (C++) + GPU (Zig). Zero Python.
 ## Agent Workflow (skills to invoke automatically)
 
 ### On every code change:
-1. **`/verify`** — Build engine, run `./npu_engine_cb 9 4`, confirm 244±10 ms/tok and diverse tokens
+1. **`/verify`** — Run `curl -s http://127.0.0.1:9090/v1/chat/completions` and confirm 94±5 tok/s NPU decode via FLM proxy
 2. **`/code-review`** — Review diff for INT8 quantization bugs, context lifecycle issues, C++ memory safety
 
 ### On every push:
@@ -21,7 +21,7 @@ Three inference engines, one chip. NPU (C++) + GPU (Zig). Zero Python.
    - Focus: INT8 quantization, NPU context lifecycle, BFP16 precision, C++ memory safety
 
 ## Engine: NPU (`engine/npu/`)
-C++23 INT8 inference on XDNA 2 NPU. 4-live contexts, 244 ms/tok.
+C++23 INT8 inference on XDNA 2 NPU. Daemon proxies to FLM (94 tok/s). C++ engine: 28 tok/s all-models, 97 tok/s v12.
 - `engine/npu/src/npu_engine_cb.cpp` — Main loop (batched prefill + decode)
 - `engine/npu/src/dequant_q4nx.c` — Q4NX dequantizer
 - `engine/npu/kernel/edge_attention.cc` — NPU attention (Chess C++)

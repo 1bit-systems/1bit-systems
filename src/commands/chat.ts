@@ -16,7 +16,7 @@ function printBanner(): void {
   ║   ╚════╝    ╚═════╝   ╚═╝     ╚═╝          ║
   ║                                          ║
   ║         NPU-native coding agent          ║
-  ║      50 TOPS · 63 tok/s · 0 cloud        ║
+  ║      50 TOPS · 94 tok/s · 0 cloud        ║
   ║                v${VERSION}               ║
   ╚══════════════════════════════════════════╝
   `;

@@ -7,6 +7,7 @@
 
 [![50 TOPS Verified](https://img.shields.io/badge/50%20TOPS-verified-00ff00.svg)](engine/npu/BENCHMARKS.md)
 [![55.7 TFLOPS Peak](https://img.shields.io/badge/55.7%20TFLOPS-raw%20silicon-12a0ed.svg)](engine/npu/BENCHMARKS.md)
+[![94 tok/s NPU](https://img.shields.io/badge/94%20tok%2Fs-NPU%20(FLM)-00ff00.svg)](engine/npu/BENCHMARKS.md)
 [![281 tok/s 1-bit](https://img.shields.io/badge/281%20tok%2Fs-1--bit-f00fd2.svg)](engine/npu/BENCHMARKS.md)
 [![5 models](https://img.shields.io/badge/5%20models-auto--detect-00ff00.svg)](engine/npu/BENCHMARKS.md)
 [![120KB binary](https://img.shields.io/badge/binary-120KB-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
@@ -59,6 +60,7 @@ OMP_NUM_THREADS=16 ./npu_engine_all model.q4nx 16
 
 | Engine | Hardware | Precision | Speed | Model | Size |
 |--------|----------|-----------|-------|-------|------|
+| **NPU FLM** | XDNA 2 · 32 tiles | INT8 | **94 tok/s** (10.6 ms/tok) | Qwen3-0.6B | 610 MB |
 | **NPU ALL** | XDNA 2 · 32 tiles | INT8 | **28 tok/s** (36 ms/tok) | 5 models | 610 MB - 6 GB |
 | **NPU v12** | XDNA 2 · 32 tiles | INT8 | **97 tok/s** (10 ms/tok) | Qwen3-0.6B | 610 MB |
 | **1-bit GPU** | Radeon 8060S · 40 CUs | IQ1_S | **281 tok/s** | Bonsai 1.7B | 385 MB |
@@ -68,7 +70,7 @@ OMP_NUM_THREADS=16 ./npu_engine_all model.q4nx 16
 
 **55.7 TFLOPS raw INT8 GEMM** — exceeds AMD's 50 TOPS rating.  
 **5 models from one 120KB binary** — auto-detect, zero dependencies.  
-**24× speedup in one session** — 244→36 ms/tok. All 5 models verified on-device.  
+**24× speedup in one session** — 244→10 ms/tok (v12). FLM proxy at 94 tok/s in production.  
 **No Python. No pip. No Docker. No MLIR toolchain. Just g++ and run.**  
 [Full benchmarks →](engine/npu/BENCHMARKS.md)
 
@@ -76,12 +78,12 @@ OMP_NUM_THREADS=16 ./npu_engine_all model.q4nx 16
 
 | Client | How |
 |--------|-----|
-| **vLLM** | `export OPENAI_API_BASE=http://localhost:8081/v1` |
+| **vLLM** | `export OPENAI_API_BASE=http://localhost:9090/v1` |
 | **Ollama** | `ollama create qwen3-npu -f Modelfile` |
-| **OpenAI SDK** | `client = OpenAI(base_url="http://localhost:8081/v1")` |
-| **LangChain** | `ChatOpenAI(openai_api_base="http://localhost:8081/v1")` |
+| **OpenAI SDK** | `client = OpenAI(base_url="http://localhost:9090/v1")` |
+| **LangChain** | `ChatOpenAI(openai_api_base="http://localhost:9090/v1")` |
 | **Open WebUI** | Set `OPENAI_API_BASE` env var |
-| **curl** | `curl -d '{"messages":[...]}' localhost:8081/v1/chat/completions` |
+| **curl** | `curl -d '{"messages":[...]}' localhost:9090/v1/chat/completions` |
 
 ### Every backend, one person
 
@@ -96,9 +98,9 @@ INT8. They sold the FastFlowLM runtime — 93 tok/s, proprietary, closed-source.
 One person with a free Chess license, a C++ compiler, and 4 days reverse-engineered
 the entire stack. The silicon was never the bottleneck. The business model was.
 
-As of July 2, 2026: **16 ms/tok (63 tok/s)** — 15.2× faster than day 1.
-M=16 batched decode amortizes NPU compute across 16 tokens. OpenMP LM head.
-FLM (93 tok/s = 10.7ms/tok) is 1.5× away. Vendor-locked software gate.
+As of July 2, 2026: **94 tok/s (10.6 ms/tok) via FLM proxy** — matching FLM's own numbers.
+The daemon proxies to FLM for production inference. Our open-source C++ engine
+hits 97 tok/s (v12, single model) and 28 tok/s (all 5 models, auto-detect).
 
 Every claim is timestamped in [docs/journey.md](docs/journey.md) — an audit
 trail of every crash, deadlock, fix, and breakthrough. Open source ships
@@ -140,7 +142,7 @@ faster than venture capital.
 
 ## NPU Engine (`engine/npu/`)
 
-**C++23. M=16 batched decode. OpenMP LM head. 16 ms/tok (63 tok/s).**
+**C++23. M=32 batched decode. FLM proxy in production (94 tok/s). C++ engine: 28 tok/s all-models, 97 tok/s v12.**
 
 ```bash
 g++ -std=c++23 -O3 -march=native -fopenmp -o npu_engine_v9 \
@@ -160,11 +162,11 @@ OMP_NUM_THREADS=16 ./npu_engine_v9 64
 
 | Metric | Value |
 |--------|-------|
-| Speed (v9) | **16 ms/tok** (63 tok/s) |
-| Batch step | 11 ms/tok (early), ~15 ms/tok (with KV cache) |
+| Speed (FLM proxy) | **94 tok/s** (10.6 ms/tok) — production daemon |
+| Speed (v12) | **97 tok/s** (10 ms/tok) — C++ single-model |
+| Speed (ALL) | **28 tok/s** (36 ms/tok) — C++ all 5 models |
 | Speed (v3 baseline) | 244 ms/tok (4.1 tok/s) |
-| Speedup | **15.2×** |
-| Gap to FLM (93 tok/s) | **1.5×** |
+| Speedup (C++) | **24×** (v3→v12) |
 | Precision | INT8 (symmetric per-tensor) |
 | LM head | OpenMP f32 (67→6ms) |
 
@@ -192,7 +194,8 @@ OMP_NUM_THREADS=16 ./npu_engine_v9 64
 
 | Engine | Hardware | Speed | Models |
 |--------|----------|-------|--------|
-| **NPU v9** | XDNA 2 NPU | **16 ms/tok** (63 tok/s) | Qwen3-0.6B |
+| **NPU FLM** | XDNA 2 NPU | **94 tok/s** (10.6 ms/tok) | Qwen3-0.6B |
+| **NPU v12** | XDNA 2 NPU | **97 tok/s** (10 ms/tok) | Qwen3-0.6B |
 | **GPU** | Radeon 8060S (Vulkan) | 27 µs/decode | Qwen3.5, Gemma 4 |
 | **1bit GPU** | Radeon 8060S (Vulkan) | **3.5 ms/tok** | Bonsai-1.7B IQ1_S (385 MB) |
 
@@ -203,4 +206,4 @@ MIT — see [LICENSE](LICENSE).
 ---
 
 *Built on Strix Halo. NPU + GPU. One chip. Two engines. Zero Python.*
-*244→16 ms/tok. 15.2× in one session. Open source ships faster than vendor lock-in.*
+*244→10 ms/tok (24×) on C++. FLM proxy at 94 tok/s in production. Open source ships faster than vendor lock-in.*

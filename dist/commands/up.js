@@ -20,39 +20,18 @@ function isPortInUse(port) {
 export async function startUp() {
     console.log("  🚀 Starting 1bit NPU stack...\n");
     // --- 1bit API bridge (port 9090) ---
-    const bridgeScript = resolve(HOME, "npu-sandbox/npu-infer/1bit/dist/server.cjs");
-    const bridgeFallback = resolve(HOME, "npu-sandbox/npu-infer/1bit", "package.json");
+    const bridgeScript = resolve(HOME, "1bit-systems-new/src/commands/bridge.ts");
     if (isPortInUse(9090)) {
         console.log("  ✅ 1bit API bridge already running on port 9090");
     }
     else if (existsSync(bridgeScript)) {
-        const bridge = spawn("node", [bridgeScript], {
+        const bridge = spawn("npx", ["tsx", bridgeScript], {
             stdio: "ignore",
             detached: true,
             env: { ...process.env, PORT: "9090" },
         });
         bridge.unref();
         console.log("  ✅ Started 1bit API bridge (port 9090)");
-    }
-    else if (existsSync(bridgeFallback)) {
-        // Try building first
-        console.log("  ⚠️  bridge not built. Building...");
-        try {
-            execSync("npm run build", {
-                cwd: resolve(HOME, "npu-sandbox/npu-infer/1bit"),
-                stdio: "inherit",
-            });
-            const bridge2 = spawn("node", [bridgeScript], {
-                stdio: "ignore",
-                detached: true,
-                env: { ...process.env, PORT: "9090" },
-            });
-            bridge2.unref();
-            console.log("  ✅ Started 1bit API bridge (port 9090)");
-        }
-        catch {
-            console.log("  ⚠️  Could not build bridge. Run build manually.");
-        }
     }
     else {
         console.log("  ⚠️  1bit API bridge not found at", bridgeScript);
@@ -84,12 +63,12 @@ export async function startUp() {
  * Build the C++ NPU engine from source.
  */
 export async function startBuild() {
-    const buildDir = resolve(HOME, "npu-sandbox/npu-infer");
+    const buildDir = resolve(HOME, "1bit-systems-new/engine/npu");
     if (!existsSync(buildDir)) {
         console.log(`  ⚠️  Build directory not found: ${buildDir}`);
         return;
     }
-    const buildScript = resolve(buildDir, "build/build_npu.sh");
+    const buildScript = resolve(buildDir, "build_npu.sh");
     if (!existsSync(buildScript)) {
         console.log(`  ⚠️  Build script not found: ${buildScript}`);
         console.log("  Falling back to CMake in", buildDir);
