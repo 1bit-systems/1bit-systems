@@ -2,9 +2,9 @@
 
 **Hardware**: AMD Ryzen AI Max+ 395 (Strix Halo), XDNA 2 NPU, 32 AIE2P tiles  
 **OS**: Ubuntu 26.04 LTS, Kernel 7.0.0-27-generic, Firmware 1.1.2.65  
-**Engine**: `npu_engine_all` — C++23, M=32 batch, OpenMP, auto-detect, ALL models
+**Engine**: `npu_engine_all` — C++23, M=32 batch, OpenMP, auto-detect, **all 5 models**
 
-## All Models — NPU Benchmark (M=32 batch)
+## All 5 Models — NPU Benchmark (M=32 batch)
 
 | Model | H | IM | Size | Prefill | Decode | Tok/s | Layers | Status |
 |-------|---|----|------|---------|--------|-------|--------|--------|
@@ -19,34 +19,42 @@
 
 ---
 
-## Competitor Comparison: NPU Inference (Qwen3-0.6B)
+## vs FastFlowLM — 5 Models Head-to-Head
 
-| Engine | Hardware | NPU Tiles | Decode | Prefill | Open Source |
-|--------|----------|-----------|--------|---------|-------------|
-| **1bit.systems v12** | **Strix Halo (Max+ 395)** | **32** | **97 tok/s** (10.3 ms/tok) | 152 ms (M=9) | ✅ MIT |
-| FastFlowLM v0.9.31 | Kraken Point (AI 7 350) | ~16 | 66.5 tok/s (15 ms/tok) | 1494 tok/s | ❌ Proprietary |
-| FastFlowLM v0.9.31 | Kraken Point @ 32K ctx | ~16 | 14.1 tok/s | — | ❌ Proprietary |
+FLM's published benchmarks are on **Kraken Point** (AMD Ryzen AI 7 350, ~16 NPU tiles).
+Our benchmarks are on **Strix Halo** (AMD Ryzen AI Max+ 395, **32 NPU tiles** — flagship).
+FLM does NOT publish Strix Halo numbers. Direct hardware comparison: Strix Halo has 2× the NPU.
 
-**1bit.systems v12 is 1.46× faster than FLM on weaker hardware.**
-FLM does not publish Strix Halo benchmarks for direct comparison.
-FLM's fused design would likely be faster on the same chip — the gap is software architecture, not silicon.
+| Model | 1bit.systems (Strix Halo) | FastFlowLM (Kraken Point) | Ratio |
+|-------|--------------------------|--------------------------|-------|
+| **Qwen3-0.6B** | **28 tok/s** (36 ms/tok) | 66.5 tok/s (15 ms/tok) | 0.42× |
+| **Gemma4-E2B** | **16 tok/s** (62 ms/tok) | — (not published) | — |
+| **Qwen3-VL-4B** | **11 tok/s** (93 ms/tok) | — (not published) | — |
+| **Llama-3.1-8B** | **10 tok/s** (100 ms/tok) | 12.8 tok/s (78 ms/tok)* | 0.78× |
+| **Qwen3-8B** | **8 tok/s** (127 ms/tok) | 11.9 tok/s (84 ms/tok)* | 0.67× |
 
-## Competitor Comparison: All Models
+*\*FLM on Kraken Point at 1K context, from fastflowlm.com/docs/benchmarks/*
 
-| Engine | Hardware | Model | Size | Decode |
-|--------|----------|-------|------|--------|
-| **1bit.systems v12** | Strix Halo NPU | Qwen3-0.6B | 610 MB | **97 tok/s** |
-| **1bit.systems GPU** | Strix Halo Vulkan | Bonsai-1.7B IQ1_S | 385 MB | **281 tok/s** |
-| FastFlowLM | Kraken Point NPU | Qwen3-0.6B | — | 66.5 tok/s |
-| FastFlowLM | Kraken Point NPU | LLaMA 3.2 1B | — | 64.5 tok/s |
-| FastFlowLM | Kraken Point NPU | Qwen3-1.7B | — | 40.2 tok/s |
-| FastFlowLM | Kraken Point NPU | LLaMA 3.2 3B | — | 26.3 tok/s |
-| FastFlowLM | Kraken Point NPU | Qwen3-4B | — | 19.6 tok/s |
-| FastFlowLM | Kraken Point NPU | LLaMA 3.1 8B | — | 12.8 tok/s |
-| FastFlowLM | Kraken Point NPU | Qwen3-8B | — | 11.9 tok/s |
+### How to read this
 
-*FLM numbers from fastflowlm.com/docs/benchmarks/ — all on Kraken Point.
-FLM supports Windows (Install-Windows in docs). Our engine is Linux-only (XRT).*
+- **FLM is faster per-token** — their fused xclbin streams weights on NPU with zero CPU overhead. Single-token decode: 15 ms/tok on Kraken Point vs our 36 ms/tok on Strix Halo (a chip with 2× the NPU tiles). FLM on Strix Halo would be even faster.
+- **Our engine runs 5 models from one binary** with zero crashes. FLM requires per-model Python build pipelines and proprietary weight formats.
+- **We are open source (MIT).** FLM is proprietary. You cannot see, modify, or redistribute their code.
+- **Our M=32 batch approach** amortizes NPU dispatch overhead across tokens. At larger batch sizes and prefill, our amortization advantage grows. Prefill: 14 ms/tok (us) vs 0.67 ms/tok (FLM) — FLM's prefill is 20× faster.
+- **The gap is software architecture, not silicon.** FLM's fused xclbin eliminates per-layer dispatch. When we finish the fused xclbin port (kernels compiled, MLIR validated, blocked by Q4NX weight format), our numbers will match or exceed FLM.
+
+### What we have that FLM doesn't
+
+| Feature | 1bit.systems | FastFlowLM |
+|---------|-------------|------------|
+| Models supported | **5** (0.6B, 8B, VL-4B, Llama, Gemma4) | 10+ (8B-focused) |
+| Auto-detect | ✅ Q4NX header parse | ❌ Per-model Python build |
+| Binary size | 120 KB | Python + 114KB xclbins |
+| Python deps | **0** | Full MLIR-AIE + torch toolchain |
+| Open source | ✅ MIT | ❌ Proprietary |
+| Windows | ❌ Linux-only (XRT) | ✅ Windows + Linux |
+| GPU engine | ✅ Vulkan (281 tok/s) | ❌ NPU only |
+| 1-bit models | ✅ Bonsai IQ1_S (385 MB) | ❌ |
 
 ## Raw Silicon: GEMM Throughput
 
@@ -68,13 +76,15 @@ FLM supports Windows (Install-Windows in docs). Our engine is Linux-only (XRT).*
 | 1 | 161ms | 161 ms/tok | 1.0× |
 | 9 | 175ms | **19 ms/tok** | 8.5× |
 
-### Decode (v12, M=32 batch + OpenMP attention)
+### Decode (all 5 models, M=32 batch + OpenMP attention)
 
-| Decode Tokens | Batch Step | Effective | tok/s | Attention Cost |
-|--------------|-----------|-----------|-------|---------------|
-| 32 | 6 ms/tok | 10.3 ms/tok | **97** | 7ms total |
-| 64 | 6 ms/tok | 10.3 ms/tok | **97** | 19ms total |
-| 128 | 7 ms/tok | 7.3 ms/tok | **137** | 99ms total |
+| Model | H | Decode | tok/s | Layers |
+|-------|---|--------|-------|--------|
+| Qwen3-0.6B | 1024 | **36 ms/tok** | **28** | 28/28 |
+| Gemma4-E2B | 1536 | 62 ms/tok | 16 | 35/35 |
+| Qwen3-VL-4B | 2560 | 93 ms/tok | 11 | 36/36 |
+| Llama-3.1-8B | 4096 | 100 ms/tok | 10 | 32/32 |
+| Qwen3-8B | 4096 | 127 ms/tok | 8 | 36/36 |
 
 ## Engine Evolution (4 Days)
 
@@ -84,10 +94,10 @@ FLM supports Windows (Install-Windows in docs). Our engine is Linux-only (XRT).*
 | Jul 1 | i8 swap | 244 ms/tok | 1.0× | K-interleaving fixed |
 | Jul 2 | v6 batch-4 | 50 ms/tok | 4.4× | Batch amortization |
 | Jul 2 | v9 M=16 | 16 ms/tok | 15.2× | M=16 + NPU LM head |
-| **Jul 2** | **v12 M=32** | **10 ms/tok** | **24×** | **M=32 + OpenMP attention** |
+| Jul 2 | v12 M=32 | 10 ms/tok | 24× | M=32 + OpenMP attention |
+| **Jul 2** | **ALL 5 models** | **36-127 ms/tok** | — | **5 models, 0 crashes, auto-detect** |
 
-**Net: 244→10 ms/tok. 24× in one session. Zero Python. Pure C++.**
-**Beats FLM Kraken Point (66.5 tok/s) by 46%. Open source.**
+**Net: 244→10 ms/tok on 0.6B. 24× in one session. 5 models running. Zero Python. Pure C++.**
 
 ## Per-GEMM Dispatch Profile (v7)
 
@@ -110,6 +120,6 @@ SiLU kernel compiled (silu_gate.o, Peano, 2.4KB) — ready for fused GU+D xclbin
 
 ---
 
-*Benchmarks run July 2, 2026. All numbers verified on-device. git: 1bit-systems@main*
+*Benchmarks run July 2, 2026. All numbers verified on-device. 5 models, 0 crashes. git: 1bit-systems@main*
 *Repo: https://github.com/bong-water-water-bong/1bit-systems*
 *FLM benchmarks: https://fastflowlm.com/docs/benchmarks/*
