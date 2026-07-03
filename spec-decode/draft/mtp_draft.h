@@ -1,11 +1,28 @@
 #pragma once
-// MTP Draft Model — 1-layer Eagle3-style draft head for XDNA 2 NPU
-// Accepts trunk hidden states + token embeddings, predicts next-N logits.
-// Designed for Qwen3-0.6B: hidden=1024, heads=16, KV=8, head_dim=128.
+// MTP Draft Model — Eagle3-style draft head for XDNA 2 NPU, matching DeepSpec's
+// Qwen3Eagle3Model architecture exactly (deepspec/modeling/eagle3/qwen3/modeling.py)
+// so trained checkpoints load and run correctly. hidden=1024, heads=16, KV=8,
+// head_dim=128, 1 draft decoder layer.
+//
+// Forward pass (matches modeling.py precisely):
+//   1. hidden = fc(concat(target_layer_hidden[0..4]))            // 5120 -> 1024
+//   2. embed = embed_tokens(input_id)                            // 1024
+//   3. per layer: residual=hidden
+//        h_n = hidden_norm(hidden); e_n = input_layernorm(embed)
+//        x = concat(e_n, h_n)                                    // 2048
+//        attn = self_attn(x)  (q/k_norm + RoPE "rotate_half" + causal attn + o_proj)
+//        hidden = residual + attn
+//        residual = hidden
+//        hidden = post_attention_layernorm(hidden)
+//        hidden = residual + swiglu_mlp(hidden)
+//   4. logits = lm_head(norm(hidden))
 
 #include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <vector>
 #include <cmath>
+#include <algorithm>
 
 struct MTPDraftConfig {
     int32_t hidden_size = 1024;
@@ -18,282 +35,237 @@ struct MTPDraftConfig {
     int32_t inter_dim = 3072;        // FFN intermediate (same as trunk)
     int32_t max_seq = 4096;          // Max sequence length
     float rms_norm_eps = 1e-6f;
+    float rope_theta = 1000000.0f;
 };
 
-// Eagle3-style draft block: 1 transformer layer + fusion projection
-// Total params: ~8.5M (hidden_size * (hidden_size*3 + inter_dim*3) / 1M)
-// Fits in ~34 MB at FP16 — trivially co-locates with 0.6B target on NPU.
+// Matches the exact tensor names/shapes in a trained DeepSpec Eagle3 checkpoint
+// (model.safetensors). See scripts_local/export_draft_weights.py for the writer.
 struct MTPDraftWeights {
-    // eh_proj: fuses [e_norm | h_norm] (2*hidden → hidden)
-    std::vector<float> eh_proj_weight; // [2*hidden, hidden]
-    std::vector<float> eh_proj_bias;   // [hidden]
+    std::vector<float> embed_tokens;   // [vocab, hidden]
+    std::vector<float> fc;             // [hidden, num_target_layers*hidden] (row-major, out x in)
+    std::vector<float> hidden_norm;    // [hidden]
+    std::vector<float> input_layernorm;// [hidden]
+    std::vector<float> q_proj;         // [num_heads*head_dim, 2*hidden]
+    std::vector<float> k_proj;         // [num_kv_heads*head_dim, 2*hidden]
+    std::vector<float> v_proj;         // [num_kv_heads*head_dim, 2*hidden]
+    std::vector<float> o_proj;         // [hidden, num_heads*head_dim]
+    std::vector<float> q_norm;         // [head_dim]
+    std::vector<float> k_norm;         // [head_dim]
+    std::vector<float> post_attention_layernorm; // [hidden]
+    std::vector<float> gate_proj;      // [inter_dim, hidden]
+    std::vector<float> up_proj;        // [inter_dim, hidden]
+    std::vector<float> down_proj;      // [hidden, inter_dim]
+    std::vector<float> norm;           // [hidden]
+    std::vector<float> lm_head;        // [vocab, hidden]
 
-    // Attention QKV projections
-    std::vector<float> q_proj_weight;  // [hidden, hidden]
-    std::vector<float> k_proj_weight;  // [hidden, hidden_kv]
-    std::vector<float> v_proj_weight;  // [hidden, hidden_kv]
-    std::vector<float> o_proj_weight;  // [hidden, hidden]
+    bool empty() const { return fc.empty(); }
 
-    // QK normalization (RMS norms)
-    std::vector<float> q_norm_weight;  // [head_dim]
-    std::vector<float> k_norm_weight;  // [head_dim]
-
-    // FFN projections (SwiGLU: gate, up → down)
-    std::vector<float> ffn_gate_weight; // [hidden, inter_dim]
-    std::vector<float> ffn_up_weight;   // [hidden, inter_dim]
-    std::vector<float> ffn_down_weight; // [inter_dim, hidden]
-
-    // Layer norms
-    std::vector<float> attn_norm;      // [hidden]
-    std::vector<float> ffn_norm;       // [hidden]
-    std::vector<float> eh_norm;        // [hidden] — e norm
-    std::vector<float> hh_norm;        // [hidden] — h norm
+    // Loads the flat binary dump written by export_draft_weights.py — a fixed-order
+    // sequential concatenation of float32 arrays matching the fields above exactly.
+    bool load(const char* path, const MTPDraftConfig& cfg) {
+        FILE* f = fopen(path, "rb");
+        if (!f) return false;
+        auto read_vec = [&](std::vector<float>& v, size_t n) {
+            v.resize(n);
+            size_t got = fread(v.data(), sizeof(float), n, f);
+            return got == n;
+        };
+        int H = cfg.hidden_size, V = cfg.vocab_size, NH = cfg.num_heads, NKV = cfg.num_kv_heads;
+        int D = cfg.head_dim, IM = cfg.inter_dim, NTL = cfg.num_target_layers;
+        bool ok = true;
+        ok &= read_vec(embed_tokens, (size_t)V * H);
+        ok &= read_vec(fc, (size_t)H * NTL * H);
+        ok &= read_vec(hidden_norm, H);
+        ok &= read_vec(input_layernorm, H);
+        ok &= read_vec(q_proj, (size_t)(NH * D) * (2 * H));
+        ok &= read_vec(k_proj, (size_t)(NKV * D) * (2 * H));
+        ok &= read_vec(v_proj, (size_t)(NKV * D) * (2 * H));
+        ok &= read_vec(o_proj, (size_t)H * (NH * D));
+        ok &= read_vec(q_norm, D);
+        ok &= read_vec(k_norm, D);
+        ok &= read_vec(post_attention_layernorm, H);
+        ok &= read_vec(gate_proj, (size_t)IM * H);
+        ok &= read_vec(up_proj, (size_t)IM * H);
+        ok &= read_vec(down_proj, (size_t)H * IM);
+        ok &= read_vec(norm, H);
+        ok &= read_vec(lm_head, (size_t)V * H);
+        fclose(f);
+        return ok;
+    }
 };
 
 // Runtime state: single KV cache entry for the draft block
 struct MTPDraftState {
-    std::vector<float> k_cache; // [num_kv_heads, max_seq, head_dim]
-    std::vector<float> v_cache; // [num_kv_heads, max_seq, head_dim]
+    std::vector<float> k_cache; // [max_seq, num_kv_heads, head_dim]
+    std::vector<float> v_cache; // [max_seq, num_kv_heads, head_dim]
     int32_t seq_len = 0;
     int32_t max_seq = 4096;
 
     void resize(int32_t num_kv_heads, int32_t head_dim, int32_t max_len) {
         max_seq = max_len;
-        k_cache.resize(num_kv_heads * max_len * head_dim, 0.0f);
-        v_cache.resize(num_kv_heads * max_len * head_dim, 0.0f);
+        k_cache.assign((size_t)num_kv_heads * max_len * head_dim, 0.0f);
+        v_cache.assign((size_t)num_kv_heads * max_len * head_dim, 0.0f);
         seq_len = 0;
     }
 };
 
-// Core MTP inference — runs on NPU as a single fused kernel chain
 class MTPDraftModel {
 public:
-    MTPDraftModel(const MTPDraftConfig& cfg) : cfg_(cfg) {}
+    MTPDraftModel(const MTPDraftConfig& cfg) : cfg_(cfg) {
+        int half = cfg_.head_dim / 2;
+        inv_freq_.resize(half);
+        for (int i = 0; i < half; i++)
+            inv_freq_[i] = 1.0f / std::pow(cfg_.rope_theta, (2.0f * i) / cfg_.head_dim);
+    }
 
-    // Predict N speculative tokens given trunk hidden state + last token
-    // Inputs:
-    //   trunk_hidden [num_target_layers, hidden_size] — features from N target layers
-    //   last_token    [vocab_size] — one-hot / embedding of current token
-    //   state         — KV cache for draft block
-    // Output:
-    //   draft_logits [block_size, vocab_size] — logits for N speculative tokens
-    //   draft_hidden [block_size, hidden_size] — hidden states for acceptance check
+    bool load_weights(const char* path) { return w_.load(path, cfg_); }
+    bool weights_loaded() const { return !w_.empty(); }
+
+    // trunk_hidden: [num_target_layers, hidden_size] fp32 features from the target model
+    // (already fp32-converted by the caller). input_id: current token id (embedding is
+    // looked up internally). draft_logits: [vocab_size] output. draft_hidden: [hidden_size]
+    // output (fed back as trunk_hidden[0] substitute isn't needed — draft re-derives from
+    // target features each call in this integration's usage pattern).
     void forward(
         const float* trunk_hidden,
-        const float* last_token_embed,
+        int32_t input_id,
+        int32_t pos,
         MTPDraftState& state,
         float* draft_logits,
         float* draft_hidden
     ) {
-        // Fast path: skip computation when weights not loaded
-        if (w_.eh_proj_weight.empty()) {
-            for (int i = 0; i < cfg_.hidden_size; i++)
-                draft_hidden[i] = trunk_hidden[i];
+        int H = cfg_.hidden_size;
+        if (w_.empty()) {
+            // Fast path: no trained weights yet — passthrough so callers/tests don't crash.
+            for (int i = 0; i < H; i++) draft_hidden[i] = trunk_hidden[i];
             draft_logits[0] = draft_hidden[0];
             return;
         }
 
-        // Stage 1: Fuse trunk features via learned projection
-        fuse_trunk_features(trunk_hidden, draft_hidden);
+        std::vector<float> hidden(H);
+        linear(trunk_hidden, w_.fc.data(), hidden.data(), cfg_.num_target_layers * H, H);
 
-        // Stage 2: Eh_proj — fuse e_norm and h_norm
-        // e = rms_norm(last_token_embed)
-        // h = rms_norm(trunk_fused)
-        // fused = eh_proj(concat([e, h]))
-        float fused[1024];
-        fusion_step(last_token_embed, draft_hidden, fused);
+        std::vector<float> embed(H);
+        const float* erow = &w_.embed_tokens[(size_t)input_id * H];
+        std::copy(erow, erow + H, embed.begin());
 
-        // Stage 3: Self-attention with KV cache
-        float attn_out[1024];
-        self_attention(fused, state, attn_out);
+        std::vector<float> residual(hidden);
+        std::vector<float> h_n(H), e_n(H);
+        rms_norm(hidden.data(), h_n.data(), w_.hidden_norm.data(), H);
+        rms_norm(embed.data(), e_n.data(), w_.input_layernorm.data(), H);
 
-        // Stage 4: Residual + FFN
-        float ffn_in[1024];
-        for (int i = 0; i < cfg_.hidden_size; i++)
-            ffn_in[i] = fused[i] + attn_out[i];
-        float ffn_out[1024];
-        swiglu_ffn(ffn_in, ffn_out);
+        std::vector<float> x(2 * H);
+        std::copy(e_n.begin(), e_n.end(), x.begin());
+        std::copy(h_n.begin(), h_n.end(), x.begin() + H);
 
-        // Stage 5: Final residual -> logits
-        float final_hidden[1024];
-        for (int i = 0; i < cfg_.hidden_size; i++)
-            final_hidden[i] = ffn_in[i] + ffn_out[i];
+        std::vector<float> attn_out(H);
+        self_attention(x.data(), pos, state, attn_out.data());
+        for (int i = 0; i < H; i++) hidden[i] = residual[i] + attn_out[i];
 
-        // Store hidden state for next iteration
-        for (int i = 0; i < cfg_.hidden_size; i++)
-            draft_hidden[i] = final_hidden[i];
+        residual = hidden;
+        std::vector<float> post_n(H);
+        rms_norm(hidden.data(), post_n.data(), w_.post_attention_layernorm.data(), H);
+        std::vector<float> mlp_out(H);
+        swiglu_ffn(post_n.data(), mlp_out.data());
+        for (int i = 0; i < H; i++) hidden[i] = residual[i] + mlp_out[i];
 
-        // Project to vocab logits
-        compute_logits(final_hidden, draft_logits);
+        std::copy(hidden.begin(), hidden.end(), draft_hidden);
 
-        // Note: full autoregressive block_size loop would repeat
-        // stages 2-5 using sampled tokens as input
+        std::vector<float> final_n(H);
+        rms_norm(hidden.data(), final_n.data(), w_.norm.data(), H);
+        linear(final_n.data(), w_.lm_head.data(), draft_logits, H, cfg_.vocab_size);
     }
 
 private:
     MTPDraftConfig cfg_;
     MTPDraftWeights w_;
+    std::vector<float> inv_freq_;
 
     void rms_norm(const float* x, float* y, const float* weight, int n) {
-        float ss = 0.0f;
-        for (int i = 0; i < n; i++) ss += x[i] * x[i];
-        float rms = std::sqrt(ss / n + cfg_.rms_norm_eps);
-        float inv = 1.0f / rms;
-        if (weight) {
-            for (int i = 0; i < n; i++)
-                y[i] = weight[i] * (x[i] * inv);
-        } else {
-            for (int i = 0; i < n; i++)
-                y[i] = x[i] * inv;
+        double ss = 0.0;
+        for (int i = 0; i < n; i++) ss += (double)x[i] * x[i];
+        float inv = 1.0f / std::sqrt((float)(ss / n) + cfg_.rms_norm_eps);
+        for (int i = 0; i < n; i++) y[i] = weight[i] * (x[i] * inv);
+    }
+
+    // y = W @ x, W stored row-major [out_dim, in_dim] (PyTorch nn.Linear.weight layout)
+    void linear(const float* x, const float* W, float* y, int in_dim, int out_dim) {
+        for (int o = 0; o < out_dim; o++) {
+            double s = 0.0;
+            const float* row = W + (size_t)o * in_dim;
+            for (int i = 0; i < in_dim; i++) s += (double)row[i] * x[i];
+            y[o] = (float)s;
         }
     }
 
-    void fuse_trunk_features(const float* trunk_hidden, float* fused) {
-        // Simple average pooling of N target layer features
-        // More sophisticated: learned weighted sum per layer
-        int n = cfg_.num_target_layers;
-        int h = cfg_.hidden_size;
-        for (int j = 0; j < h; j++) {
-            float sum = 0.0f;
-            for (int i = 0; i < n; i++)
-                sum += trunk_hidden[i * h + j];
-            fused[j] = sum / n;
+    // HuggingFace "rotate_half" RoPE convention: pairs (i, i+head_dim/2) rotate together,
+    // NOT adjacent pairs (i, i+1) — different from the NPU engine's interleaved convention,
+    // because these weights are trained straight from HF transformers with no repacking.
+    void apply_rope(float* x, int head_dim, int pos) {
+        int half = head_dim / 2;
+        std::vector<float> orig(x, x + head_dim);
+        for (int i = 0; i < half; i++) {
+            float angle = pos * inv_freq_[i];
+            float c = std::cos(angle), s = std::sin(angle);
+            x[i] = orig[i] * c - orig[i + half] * s;
+            x[i + half] = orig[i + half] * c + orig[i] * s;
         }
     }
 
-    void fusion_step(const float* token_embed, const float* trunk_hidden, float* fused) {
-        float e_norm[1024], h_norm[1024];
-        rms_norm(token_embed, e_norm, w_.eh_norm.empty() ? nullptr : w_.eh_norm.data(), cfg_.hidden_size);
-        rms_norm(trunk_hidden, h_norm, w_.hh_norm.empty() ? nullptr : w_.hh_norm.data(), cfg_.hidden_size);
-        // Concat: [e_norm | h_norm] -> matmul with eh_proj
-        int h = cfg_.hidden_size;
-        const float* eh_w = w_.eh_proj_weight.empty() ? nullptr : w_.eh_proj_weight.data();
-        if (eh_w) {
-            for (int j = 0; j < h; j++) {
-                float sum = w_.eh_proj_bias.empty() ? 0.0f : w_.eh_proj_bias[j];
-                for (int k = 0; k < h; k++)
-                    sum += e_norm[k] * eh_w[k * h + j];
-                for (int k = 0; k < h; k++)
-                    sum += h_norm[k] * eh_w[(h + k) * h + j];
-                fused[j] = sum;
-            }
-        } else {
-            // Identity shortcut: just pass trunk features through
-            for (int j = 0; j < h; j++)
-                fused[j] = trunk_hidden[j];
+    void self_attention(const float* x /* [2*hidden] */, int pos, MTPDraftState& state, float* out) {
+        int H = cfg_.hidden_size, NH = cfg_.num_heads, NKV = cfg_.num_kv_heads, D = cfg_.head_dim;
+        std::vector<float> q(NH * D), k(NKV * D), v(NKV * D);
+        linear(x, w_.q_proj.data(), q.data(), 2 * H, NH * D);
+        linear(x, w_.k_proj.data(), k.data(), 2 * H, NKV * D);
+        linear(x, w_.v_proj.data(), v.data(), 2 * H, NKV * D);
+
+        for (int h = 0; h < NH; h++) {
+            rms_norm(&q[h * D], &q[h * D], w_.q_norm.data(), D);
+            apply_rope(&q[h * D], D, pos);
         }
-    }
-
-    void self_attention(const float* x, MTPDraftState& state, float* out) {
-        int h = cfg_.hidden_size;
-        int n_h = cfg_.num_heads;
-        int n_kv = cfg_.num_kv_heads;
-        int d = cfg_.head_dim;
-
-        // QKV projections (identity if weights not loaded)
-        float q[2048], k[1024], v[1024];
-        matmul(x, w_.q_proj_weight.empty() ? nullptr : w_.q_proj_weight.data(), q, h, h);
-        matmul(x, w_.k_proj_weight.empty() ? nullptr : w_.k_proj_weight.data(), k, h, n_kv * d);
-        matmul(x, w_.v_proj_weight.empty() ? nullptr : w_.v_proj_weight.data(), v, h, n_kv * d);
-        if (w_.q_proj_weight.empty()) std::copy(x, x + h, q);
-        if (w_.k_proj_weight.empty()) std::copy(x, x + n_kv * d, k);
-        if (w_.v_proj_weight.empty()) std::copy(x, x + n_kv * d, v);
-
-        // QK normalization
-        for (int i = 0; i < n_h; i++)
-            rms_norm(q + i * d, q + i * d, w_.q_norm_weight.empty() ? nullptr : w_.q_norm_weight.data(), d);
-        for (int i = 0; i < n_kv; i++)
-            rms_norm(k + i * d, k + i * d, w_.k_norm_weight.empty() ? nullptr : w_.k_norm_weight.data(), d);
-
-        // Update KV cache
-        int pos = state.seq_len;
-        for (int i = 0; i < n_kv * d; i++) {
-            state.k_cache[pos * n_kv * d + i] = k[i];
-            state.v_cache[pos * n_kv * d + i] = v[i];
+        for (int h = 0; h < NKV; h++) {
+            rms_norm(&k[h * D], &k[h * D], w_.k_norm.data(), D);
+            apply_rope(&k[h * D], D, pos);
         }
 
-        // Scaled dot-product attention with causal mask
-        float attn_scores[16 * 4096]; // [n_h, seq_len]
-        for (int head = 0; head < n_h; head++) {
-            int kv_head = head % n_kv;
-            for (int t = 0; t <= pos; t++) {
-                float score = 0.0f;
-                for (int j = 0; j < d; j++)
-                    score += q[head * d + j] * state.k_cache[t * n_kv * d + kv_head * d + j];
-                attn_scores[head * (pos + 1) + t] = score / std::sqrt((float)d);
-            }
+        for (int h = 0; h < NKV; h++) {
+            std::copy(&k[h * D], &k[h * D] + D, &state.k_cache[((size_t)pos * NKV + h) * D]);
+            std::copy(&v[h * D], &v[h * D] + D, &state.v_cache[((size_t)pos * NKV + h) * D]);
         }
-
-        // Softmax
-        float attn_probs[16 * 4096];
-        for (int head = 0; head < n_h; head++) {
-            float max_s = -1e9f;
-            for (int t = 0; t <= pos; t++)
-                max_s = std::max(max_s, attn_scores[head * (pos + 1) + t]);
-            float sum = 0.0f;
-            for (int t = 0; t <= pos; t++) {
-                float e = std::exp(attn_scores[head * (pos + 1) + t] - max_s);
-                attn_probs[head * (pos + 1) + t] = e;
-                sum += e;
-            }
-            for (int t = 0; t <= pos; t++)
-                attn_probs[head * (pos + 1) + t] /= sum;
-        }
-
-        // Weighted sum of values
-        float attn_out[16 * 128] = {0.0f};
-        for (int head = 0; head < n_h; head++) {
-            int kv_head = head % n_kv;
-            for (int t = 0; t <= pos; t++) {
-                float p = attn_probs[head * (pos + 1) + t];
-                for (int j = 0; j < d; j++)
-                    attn_out[head * d + j] += p * state.v_cache[t * n_kv * d + kv_head * d + j];
-            }
-        }
-
-        // Output projection
-        matmul(attn_out, w_.o_proj_weight.empty() ? nullptr : w_.o_proj_weight.data(), out, h, h);
-        if (w_.o_proj_weight.empty()) std::fill(out, out + h, 0.0f);
-
         state.seq_len = pos + 1;
+        int gqa = NH / NKV;
+        int ctx = pos + 1;
+
+        std::vector<float> attn_out(NH * D, 0.0f);
+        std::vector<float> scores(ctx);
+        for (int h = 0; h < NH; h++) {
+            int kvh = h / gqa;
+            for (int t = 0; t < ctx; t++) {
+                double s = 0.0;
+                const float* krow = &state.k_cache[((size_t)t * NKV + kvh) * D];
+                for (int d = 0; d < D; d++) s += (double)q[h * D + d] * krow[d];
+                scores[t] = (float)(s / std::sqrt((float)D));
+            }
+            float mx = *std::max_element(scores.begin(), scores.end());
+            double sum = 0.0;
+            for (int t = 0; t < ctx; t++) { scores[t] = std::exp(scores[t] - mx); sum += scores[t]; }
+            float inv_sum = (float)(1.0 / sum);
+            for (int t = 0; t < ctx; t++) {
+                float p = scores[t] * inv_sum;
+                const float* vrow = &state.v_cache[((size_t)t * NKV + kvh) * D];
+                for (int d = 0; d < D; d++) attn_out[h * D + d] += p * vrow[d];
+            }
+        }
+        linear(attn_out.data(), w_.o_proj.data(), out, NH * D, H);
     }
 
     void swiglu_ffn(const float* x, float* out) {
-        int h = cfg_.hidden_size;
-        int inter = cfg_.inter_dim;
-        float gate[3072], up[3072];
-        bool has_gate = !w_.ffn_gate_weight.empty();
-        bool has_up = !w_.ffn_up_weight.empty();
-        bool has_down = !w_.ffn_down_weight.empty();
-        matmul(x, has_gate ? w_.ffn_gate_weight.data() : nullptr, gate, h, inter);
-        matmul(x, has_up ? w_.ffn_up_weight.data() : nullptr, up, h, inter);
-        if (!has_gate) std::copy(x, x + std::min(h, inter), gate);
-        if (!has_up) std::copy(x, x + std::min(h, inter), up);
-        for (int i = 0; i < inter; i++)
-            gate[i] = gate[i] / (1.0f + std::exp(-gate[i])); // SiLU
-        float hidden[3072];
-        for (int i = 0; i < inter; i++)
-            hidden[i] = gate[i] * up[i];
-        matmul(hidden, has_down ? w_.ffn_down_weight.data() : nullptr, out, inter, h);
-        if (!has_down) std::fill(out, out + h, 0.0f);
-    }
-
-    void compute_logits(const float* hidden, float* logits) {
-        // In practice, use lm_head weight (loaded separately)
-        // For now, just put hidden[0] at position 0
-        logits[0] = hidden[0];  // signal amplitude
-    }
-
-    void matmul(const float* a, const float* b, float* c, int m, int n) {
-        if (!b) {
-            std::fill(c, c + n, 0.0f);
-            return;
-        }
-        for (int j = 0; j < n; j++) {
-            float sum = 0.0f;
-            for (int k = 0; k < m; k++)
-                sum += a[k] * b[k * n + j];
-            c[j] = sum;
-        }
+        int H = cfg_.hidden_size, IM = cfg_.inter_dim;
+        std::vector<float> gate(IM), up(IM);
+        linear(x, w_.gate_proj.data(), gate.data(), H, IM);
+        linear(x, w_.up_proj.data(), up.data(), H, IM);
+        std::vector<float> act(IM);
+        for (int i = 0; i < IM; i++) act[i] = (gate[i] / (1.0f + std::exp(-gate[i]))) * up[i];
+        linear(act.data(), w_.down_proj.data(), out, IM, H);
     }
 };
