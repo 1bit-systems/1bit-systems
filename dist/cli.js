@@ -12,7 +12,7 @@ function printHelp() {
     process.stdout.write("    update [pkg]      Update 1bit and packages\n");
     process.stdout.write("    config [key=val]  View or set configuration\n\n");
     process.stdout.write("  NPU stack commands:\n");
-    process.stdout.write("    up        Start NPU stack (lemond + 1bit API bridge)\n");
+    process.stdout.write("    up        Start NPU stack (npu-gpu-cpud daemon + FLM proxy)\n");
     process.stdout.write("    down      Stop NPU stack\n");
     process.stdout.write("    status    Show NPU stack status\n");
     process.stdout.write("    build     Build NPU engine from source\n\n");
