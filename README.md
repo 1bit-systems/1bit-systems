@@ -2,7 +2,7 @@
 
 <img src="site/assets/brand-lockup.svg" alt="1bit.systems" width="540">
 
-# One binary to rule them all.
+# 128kb Binary to rule them all.
 ## Open source. Zero Python. Zero dependencies.
 
 [![50 TOPS Verified](https://img.shields.io/badge/50%20TOPS-verified-00ff00.svg)](engine/npu/BENCHMARKS.md)
@@ -10,7 +10,7 @@
 [![94 tok/s NPU](https://img.shields.io/badge/94%20tok%2Fs-NPU%20(FLM)-00ff00.svg)](engine/npu/BENCHMARKS.md)
 [![22 tok/s GPU](https://img.shields.io/badge/22%20tok%2Fs-GPU%20(Vulkan)-12a0ed.svg)](engine/npu/BENCHMARKS.md)
 [![5 models](https://img.shields.io/badge/5%20models-auto--detect-00ff00.svg)](engine/npu/BENCHMARKS.md)
-[![120KB binary](https://img.shields.io/badge/binary-120KB-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
+[![128kb binary](https://img.shields.io/badge/binary-128kb-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
 <br>
 [![Debian](https://img.shields.io/badge/deb-install-d70a53.svg)](https://github.com/bong-water-water-bong/1bit-systems/releases/latest)
 [![Snap](https://img.shields.io/badge/snap-install-82BEA0.svg)](https://github.com/bong-water-water-bong/1bit-systems/releases/latest)
@@ -66,7 +66,7 @@ OMP_NUM_THREADS=16 ./npu_engine_all model.q4nx 16
 | **GPU (ZINC)** | Radeon 8060S · 32 CUs | F16 | **22 tok/s** (46 ms/tok) | Bonsai-1.7B | 3.3 GB |
 
 **55.7 TFLOPS raw INT8 GEMM** — exceeds AMD's 50 TOPS rating.  
-**5 models from one 120KB binary** — auto-detect, zero dependencies.  
+**5 models from one 128kb binary** — auto-detect, zero dependencies.  
 **24× speedup in one session** — 244→10 ms/tok (v12). FLM proxy at 94 tok/s in production.  
 **No Python. No pip. No Docker. No MLIR toolchain. Just g++ and run.**  
 [Full benchmarks →](engine/npu/BENCHMARKS.md)
