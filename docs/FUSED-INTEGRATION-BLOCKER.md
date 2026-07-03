@@ -144,3 +144,48 @@ before RoPE) or carefully tracing lock/buffer-depth assignments in
 `cases/full_layer_qkv_prefix_generate.py`'s resource manifest. This is a step up in complexity from
 everything checked so far (single-kernel math) — multi-tile dataflow/synchronization bugs are
 generally the hardest class to find without hardware-side tracing tools.
+
+---
+
+## UPDATE (2026-07-03, cont'd 2): O/UP/GATE/DOWN Deadlock — Also Not a Kernel-Math Problem
+
+Same `run_kernel_main16_q4nx.py` microbenchmark has a `--mode full` option that runs the *entire*
+Q,K,V,O,UPGATE,DOWN chunk chain (all 7 phases, `MAIN16_PHASE_LIMIT_FULL=7`) through the isolated
+single-tile GEMM scheduler — same `MAIN16_LAYER_SCHEDULER`/phase-limit constants the real full-layer
+design uses, just without the attention/vector-station/swiglu tiles wired in.
+
+```
+main16_full_records: max_abs=0.000007629 mean_abs=0.000000010 mismatches=0
+PASS: Main16 Q4NX isolated numerical validation (full)
+```
+
+**627µs, no deadlock, correct to float precision.** This rules out main16's GEMM/dequant scheduler
+as the source of the 63s full-layer deadlock — it handles the full 7-phase chunk chain (including
+the larger UP/GATE/DOWN record counts) just fine on its own, and produces exactly
+`UPGATE_REPLAYS=12` records as expected (the isolated test's shape check would have failed
+otherwise). The deadlock is specifically in the **cross-tile handshake** between main16 and its
+downstream consumers.
+
+Traced the wiring in `full_layer_engine_generate.py`: main16's UPGATE-phase records get emitted via
+`full_main_emit_upgate_slice_record`, then routed through a **packet-switched bridge tile** — the
+same physical output channel (`BRIDGE_COMPACT_OUT_CHANNEL`) carries multiple logically distinct
+flows (Q→`post`, O→`full`, UPGATE/DOWN→`swiglu`) disambiguated by packet ID
+(`Q_GLOBAL_PACKET_ID`, `O_GLOBAL_PACKET_ID`, `FFN_GLOBAL_PACKET_ID`). `swiglu`'s core loop waits on
+`aie.use_lock(%swiglu_input_full, AcquireGreaterEqual, 2)` for exactly
+`C1R2_UPGATE_REPLAYS // 2 = 6` iterations (12 total). If the bridge ever fails to tag/route the full
+count of UPGATE packets to swiglu with the right packet ID — a routing/count mismatch in the
+packet-switched NoC config, not a data or GEMM bug — swiglu (or the `full`/c1r2 vector-station tile)
+would block on `AcquireGreaterEqual` forever, exactly matching the observed 63s hang (an XRT command
+timeout, not a crash).
+
+**This may share a root cause with the QKV numeric-correctness bug** — both point at the same
+bridge/compaction layer that combines per-tile main16 output into the downstream single-stream
+flows consumed by postprocess_qkv, full_vector_station, and swiglu. Not confirmed, but a reasonable
+unifying hypothesis.
+
+**Next step, if resumed:** trace the bridge tile's packet-ID tagging logic for UPGATE/DOWN records
+specifically (where main16's per-column, per-row output gets assigned `FFN_GLOBAL_PACKET_ID` before
+entering `BRIDGE_COMPACT_OUT_CHANNEL`) and verify the emitted count matches swiglu's and c1r2's
+expected `AcquireGreaterEqual` counts exactly. This is packet-switched NoC routing — one of the
+harder classes of AIE bugs to fully verify by reading alone; confirming it may require adding a
+lock-state or packet-count probe to the bridge tile and rebuilding.
