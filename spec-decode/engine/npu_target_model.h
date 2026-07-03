@@ -21,8 +21,27 @@
 #include <xrt/xrt_kernel.h>
 
 extern "C" float* dequant_i8_to_float(const uint8_t*, int, int*, int*);
+extern "C" float* dequant_i8_to_float_ex(const uint8_t*, int, int, int*, int*);
 
 namespace npu_target_detail {
+
+// See docs/V12-CORRECTNESS-BLOCKER.md. dequant_i8_to_float(_ex) returns row-major
+// [out_features, in_features] (PyTorch nn.Linear convention); packB()/go() need the
+// transpose - [in_features, out_features] - since the GEMM computes A[tokens,in] @ B[in,out].
+static inline void transpose_pack(const float* src, int out_f, int in_f, float* dst, int dst_stride, int dst_offset) {
+    for (int o = 0; o < out_f; o++)
+        for (int i = 0; i < in_f; i++)
+            dst[(size_t)i * dst_stride + dst_offset + o] = src[(size_t)o * in_f + i];
+}
+// Dynamic per-call activation quantization scale (see docs/V12-CORRECTNESS-BLOCKER.md) -
+// a hardcoded 5.0f/127.0f assumes activations stay within [-5,5], but measured post-RMSNorm
+// activations range as wide as [-8.24,7.01], silently clipping to +-127 every layer.
+static inline float dynamic_ascale(const float* x, int n) {
+    float amax = 0;
+    for (int i = 0; i < n; i++) { float a = fabsf(x[i]); if (std::isfinite(a) && a > amax) amax = a; }
+    if (amax < 1e-12f) amax = 1.0f;
+    return amax / 127.0f;
+}
 
 static inline float bf16f(uint16_t v){uint32_t b=(uint32_t)v<<16;float f;memcpy(&f,&b,4);return f;}
 static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:bf16f(v);}
@@ -152,6 +171,7 @@ public:
             snprintf(b,128,"model.layers.%d.self_attn.k_norm.weight",l); lo[l].kn_off=jo(js,jl,b);
         }
         uint64_t no = jo(js,jl,"model.norm.weight");
+        uint64_t lo_off = jo(js,jl,"lm_head.weight");
 
         in_n_.assign(NC, std::vector<float>(H));
         pa_n_.assign(NC, std::vector<float>(H));
@@ -179,23 +199,50 @@ public:
         cd_ = {"D",XM,IM,H}; cd_.init(*dev_, path, ipath, 4, NC);
 
         wsc_.resize(NC);
+        const int QOUT = NH*HD, KVOUT = NKV*HD;   // in_features=H (default dequant is correct)
+        const int OOUT = H, OIN = NH*HD;          // in_features=2048, NOT the default 1024
+        const int GUOUT = IM;                      // in_features=H (default dequant is correct)
+        const int DOUT = H, DIN = IM;              // in_features=3072, NOT the default 1024
         for (int l = 0; l < NC; l++) {
-            int qr,kr,vr,or_,gr,ur,dr,unused;
+            int qr,kr,vr,unused;
             float* qw=dequant_i8_to_float(i8p(lo[l].qp),256,&qr,&unused);
             float* kw=dequant_i8_to_float(i8p(lo[l].kp),128,&kr,&unused);
             float* vw=dequant_i8_to_float(i8p(lo[l].vp),128,&vr,&unused);
-            int t=qr+kr+vr; std::vector<float> w((size_t)H*t);
-            for (int kk=0;kk<H;kk++){memcpy(&w[kk*t],&qw[kk*qr],qr*4); memcpy(&w[kk*t+qr],&kw[kk*kr],kr*4); memcpy(&w[kk*t+qr+kr],&vw[kk*vr],vr*4);}
+            int t=QOUT+KVOUT+KVOUT; std::vector<float> w((size_t)H*t);
+            npu_target_detail::transpose_pack(qw, QOUT, H, w.data(), t, 0);
+            npu_target_detail::transpose_pack(kw, KVOUT, H, w.data(), t, QOUT);
+            npu_target_detail::transpose_pack(vw, KVOUT, H, w.data(), t, QOUT+KVOUT);
             cq_.packB(l, w.data(), H, t, wsc_[l].qk); free(qw); free(kw); free(vw);
-            float* ow=dequant_i8_to_float(i8p(lo[l].op),256,&or_,&unused);
-            co_.packB(l, ow, or_, H, wsc_[l].o_); free(ow);
+
+            int or2,oc2;
+            float* ow=dequant_i8_to_float_ex(i8p(lo[l].op),256,OIN,&or2,&oc2);
+            std::vector<float> wo((size_t)OIN*OOUT);
+            npu_target_detail::transpose_pack(ow, OOUT, OIN, wo.data(), OOUT, 0);
+            co_.packB(l, wo.data(), OIN, OOUT, wsc_[l].o_); free(ow);
+
+            int gr,ur;
             float* gw=dequant_i8_to_float(i8p(lo[l].gp),384,&gr,&unused);
             float* uw=dequant_i8_to_float(i8p(lo[l].up),384,&ur,&unused);
-            int t2=gr+ur; std::vector<float> w2((size_t)H*t2);
-            for (int kk=0;kk<H;kk++){memcpy(&w2[kk*t2],&gw[kk*gr],gr*4); memcpy(&w2[kk*t2+gr],&uw[kk*ur],ur*4);}
+            int t2=GUOUT+GUOUT; std::vector<float> w2((size_t)H*t2);
+            npu_target_detail::transpose_pack(gw, GUOUT, H, w2.data(), t2, 0);
+            npu_target_detail::transpose_pack(uw, GUOUT, H, w2.data(), t2, GUOUT);
             cg_.packB(l, w2.data(), H, t2, wsc_[l].g_); free(gw); free(uw);
-            float* dw=dequant_i8_to_float(i8p(lo[l].dp),384,&dr,&unused);
-            cd_.packB(l, dw, dr, H, wsc_[l].d_); free(dw);
+
+            int dr2,dc2;
+            float* dw=dequant_i8_to_float_ex(i8p(lo[l].dp),384,DIN,&dr2,&dc2);
+            std::vector<float> wd((size_t)DIN*DOUT);
+            npu_target_detail::transpose_pack(dw, DOUT, DIN, wd.data(), DOUT, 0);
+            cd_.packB(l, wd.data(), DIN, DOUT, wsc_[l].d_); free(dw);
+        }
+
+        // lm_head.weight is NOT tied to embed_tokens.weight for this model (separate storage,
+        // separate quantization). See docs/V12-CORRECTNESS-BLOCKER.md.
+        {
+            int lr, lc;
+            float* lm_raw = dequant_i8_to_float(i8p(lo_off), 18992, &lr, &lc);
+            lm_head_f32_.resize((size_t)lr * lc);
+            memcpy(lm_head_f32_.data(), lm_raw, (size_t)lr * lc * sizeof(float));
+            free(lm_raw);
         }
 
         rope_cos_.resize(4096*HD); rope_sin_.resize(4096*HD);
@@ -230,7 +277,7 @@ public:
 
         for (int l=0;l<NC;l++) {
             for (int pi=0;pi<n;pi++) rn_c(&h_b[pi*H], in_n_[l].data(), H);
-            cq_.go(l, h_b.data(), n, H, 5.0f/127.0f, wsc_[l].qk, qo_b.data(), 4096);
+            cq_.go(l, h_b.data(), n, H, npu_target_detail::dynamic_ascale(h_b.data(), n * H), wsc_[l].qk, qo_b.data(), 4096);
             cn(qo_b.data(), n*4096);
             const float* qn = qn_w_[l].data(); const float* kn = kn_w_[l].data();
             for (int pi=0;pi<n;pi++) {
@@ -263,17 +310,17 @@ public:
                     at_b[pi*NH*HD+hh*HD+d]=s;
                 }
             }
-            co_.go(l, at_b.data(), n, NH*HD, 5.0f/127.0f, wsc_[l].o_, oo_b.data(), H);
+            co_.go(l, at_b.data(), n, NH*HD, npu_target_detail::dynamic_ascale(at_b.data(), n * NH * HD), wsc_[l].o_, oo_b.data(), H);
             cn(oo_b.data(), n*H);
             for (int pi=0;pi<n;pi++) for (int i=0;i<H;i++) h_b[pi*H+i]+=oo_b[pi*H+i];
             for (int pi=0;pi<n;pi++) rn_c(&h_b[pi*H], pa_n_[l].data(), H);
-            cg_.go(l, h_b.data(), n, H, 5.0f/127.0f, wsc_[l].g_, gt_b.data(), 6144);
+            cg_.go(l, h_b.data(), n, H, npu_target_detail::dynamic_ascale(h_b.data(), n * H), wsc_[l].g_, gt_b.data(), 6144);
             cn(gt_b.data(), n*6144);
             for (int pi=0;pi<n;pi++) for (int i=0;i<IM;i++) {
                 float gv=gt_b[pi*6144+i]; if(!std::isfinite(gv))gv=0;
                 su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[pi*6144+IM+i];
             }
-            cd_.go(l, su_b.data(), n, IM, 5.0f/127.0f, wsc_[l].d_, dw_b.data(), H);
+            cd_.go(l, su_b.data(), n, IM, npu_target_detail::dynamic_ascale(su_b.data(), n * IM), wsc_[l].d_, dw_b.data(), H);
             cn(dw_b.data(), n*H);
             for (int pi=0;pi<n;pi++) for (int i=0;i<H;i++) h_b[pi*H+i]+=dw_b[pi*H+i];
 
@@ -291,8 +338,8 @@ public:
                 rn_c(sb.data(), fin_.data(), H);
                 float* lg = out_logits + (size_t)(logits_for_all_positions ? pi : 0)*NV;
                 for (int v=0; v<NV; v++) {
-                    double s=0; const uint16_t* erow = emb_ + (size_t)v*H;
-                    for (int kk=0;kk<H;kk++) { uint16_t r=erow[kk]; if((r&0x7F80)!=0x7F80) s+=(double)sb[kk]*bf16f(r); }
+                    double s=0; const float* wrow = &lm_head_f32_[(size_t)v*H];
+                    for (int kk=0;kk<H;kk++) s+=(double)sb[kk]*wrow[kk];
                     lg[v]=(float)s;
                 }
             }
@@ -354,6 +401,7 @@ private:
 
     uint8_t* md_ = nullptr; size_t md_size_ = 0; uint64_t df_ = 0;
     const uint16_t* emb_ = nullptr;
+    std::vector<float> lm_head_f32_;
     std::vector<std::vector<float>> in_n_, pa_n_, qn_w_, kn_w_;
     std::vector<float> fin_;
     std::unique_ptr<xrt::device> dev_;
