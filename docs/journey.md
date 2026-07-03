@@ -37,6 +37,95 @@ v12 (97 tok/s, standalone INT8 GEMM, zero Python) stays production. Full details
 
 ---
 
+## UPDATE 23 (2026-07-02 15:32 ADT): PRODUCTION RELEASE — v2026.07.02-all5models
+
+Shipped: tag `v2026.07.02-all5models`, site updated to "One binary to rule them all." 5 model
+families verified, 0 crashes, 28 tok/s on Qwen3-0.6B (all-models auto-detect binary). vs FLM: 2.4×
+slower per-token, but open source, zero dependencies, 5 models from one 120KB binary. Fused xclbin
+flagged as the path to close the gap (picked back up in Update 24, three sessions later).
+
+---
+
+## UPDATE 22 (2026-07-02 15:13 ADT): ALL 5 MODELS AT V12 BATCH SPEED, 0 CRASHES
+
+Model-agnostic engine (`npu_engine_all.cpp`) verified across the full catalog:
+
+| Model | Decode |
+|---|---|
+| Qwen3-0.6B | 58 ms/tok |
+| Gemma4-E2B | 117 ms/tok |
+| Qwen3-VL-4B | 141 ms/tok |
+| Llama-3.1-8B | 185 ms/tok |
+| Qwen3-8B | 215 ms/tok |
+
+Fix: `dequant_i8_to_float_ex` had `in_features` hardcoded to 1024 — only 0.6B ever worked
+correctly. Corrected to read `H`, `NH×HD`, `IM` per-projection from the model header; all 5
+families verified working.
+
+---
+
+## UPDATE 21 (2026-07-02 12:01 ADT): SESSION CLOSE — FULL NPU ENGINE STATE
+
+*(Reconstructed from git history — commits in this window didn't carry explicit UPDATE numbers;
+assigned 20/21 here to keep the sequence readable.)*
+
+v12 engine at 97 tok/s (10 ms/tok), 24× speedup, beating FLM Kraken Point (66.5 tok/s). Fused
+xclbin: 3 xclbins compiled (QKV-prefix, full-layer, unified), 5 Chess kernels recompiled for
+Qwen3-0.6B, blocked on Q4NX weight format (see Update 20) — NPU firmware confirmed an active
+xclbin via `ERT_CMD_STATE_TIMEOUT`, an early sighting of the same deadlock symptom Update 24 later
+isolated. Model xclbins: 23 total across 5 families (Qwen3-0.6B, Qwen3-VL-4B, Qwen3-8B,
+Llama-3.1-8B, Gemma4-E2B). CLI scaffolded by a second agent (package.json, tsconfig, command
+routing).
+
+---
+
+## UPDATE 20 (2026-07-02 05:17–07:27 ADT): FUSED XCLBIN — FIRST ATTEMPT, Q4NX BLOCKER
+
+The first full attempt at the fused-transformer-xclbin idea flagged in Update 18. Contract
+established for Qwen3-0.6B dimensions, 5 kernels recompiled with Chess for the smaller model.
+MLIR generator produced a working design; 2 xclbins compiled (374KB full-layer, 253KB QKV-prefix).
+`npu_engine_v13` proved the dispatch mechanics work — xclbin loads, BOs allocate (9.4MB weights),
+kernel dispatches without crashing — but hit a wall: the fused xclbin's weight-stream layout
+expects FLM's proprietary Q4NX chunk format, and the engine's flat INT8 weights don't match it.
+Weight-stream scheduler work got the packed size exactly right (2,458,816 dwords) but DMA still
+timed out (63s) — diagnosed at the time as a Q4NX *quantization* mismatch (dequant→requant producing
+NaN/Inf). Decision: keep v12 (97 tok/s, standalone GEMM) in production, treat fused xclbin as a
+separate weight-format workstream.
+
+(Update 24, a session later, revisited this with fresh eyes and found the real bug was the
+*schedule* — chunks replicated identically across columns instead of indexed per-tile — not the
+quantization theory reached here. See `docs/WEIGHT-STREAM-BLOCKER.md` for the correction.)
+
+---
+
+## UPDATE 19 (2026-07-02 06:24–06:27 ADT): MULTI-MODEL XCLBINS, MODEL-AGNOSTIC ENGINE
+
+Two parallel threads landed close together:
+
+- **Multi-model build-out**: 22-23 xclbins compiled across 6 model families (Qwen3-0.6B, Qwen3-8B,
+  Qwen3-VL-4B, Gemma4-E2B, Llama). `npu_engine_mt.cpp` (model-agnostic multi-token engine) +
+  `model_config.h` (auto-detects model dimensions from Q4NX headers) + a 42-model catalog
+  (`model-catalog.md`) classifying every FLM NPU2 model by architecture. `build_all_models.sh`
+  automates the xclbin builds.
+- **Engine speed**: v12 at 10 ms/tok (97 tok/s), 24× speedup from the v3 baseline
+  (244→50→16→10 ms/tok across v3→v6→v9→v12).
+- **Attention**: `attn_scalar.o` + `attn_c8.xclbin` compiled but not integrated — CPU OpenMP was
+  still faster for context <128 at this point.
+- Site live: 145 visitors, CI pipeline + PR-Agent running, benchmarks current.
+
+---
+
+## UPDATE 18 (2026-07-02 04:01 ADT): M=32 TARGET, NPU LM HEAD, FLM COMPARISON
+
+FLM Kraken Point benchmark for reference: 66.5 tok/s on weaker hardware than ours. Engine evolution
+recap v3→v10: 244→16 ms/tok (15.2×, same numbers as Update 17). NPU LM head landed on-chip: 4ms
+(N=30720 xclbin, 88KB) — previously a CPU-side cost. `xrt::runlist` batching investigated and found
+to save only 27μs/layer (not worth the complexity). M=32 v11 targeted for >100 tok/s. Next flagged:
+NPU attention kernel (`edge_attention.o` compiled, not yet integrated) and the fused-xclbin idea
+that Update 20 picks up.
+
+---
+
 ## UPDATE 17 (2026-07-02 03:00 ADT): M=16 BATCH DECODE — 16 ms/tok, 15.2× SPEEDUP
 
 ### 244→16 ms/tok in One Session
