@@ -9,6 +9,7 @@
   "main": "./dist/index.js",
   "files": [
     "dist",
+    "daemon",
     "extensions",
     "skills",
     "prompts",
