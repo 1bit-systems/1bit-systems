@@ -104,8 +104,6 @@ trail of every crash, deadlock, fix, and breakthrough. Open source ships
 faster than venture capital.
 
 *Built with DeepSeek v4 (99.9%) · Shipped with Claude (0.1%) · One human.*
-
-*Built with DeepSeek v4 (99.9%) · Shipped with Claude (0.1%) · One human.*
 *—bong-water-water-bong · "Sorry but not Sorry :)"*
 *admin@1bit.systems*
 
