@@ -189,3 +189,84 @@ entering `BRIDGE_COMPACT_OUT_CHANNEL`) and verify the emitted count matches swig
 expected `AcquireGreaterEqual` counts exactly. This is packet-switched NoC routing — one of the
 harder classes of AIE bugs to fully verify by reading alone; confirming it may require adding a
 lock-state or packet-count probe to the bridge tile and rebuilding.
+
+---
+
+## UPDATE (2026-07-03, cont'd 3): Traced compact_dataflow.py — One False Lead, One Dead End, Bridge Confirmed Shared
+
+Went deeper into `compact_dataflow.py`, the module that builds the per-column record compaction
+and bridge packet routing shared by both the QKV-prefix (working) and full-layer (deadlocking)
+designs.
+
+**False lead, ruled out:** `CompactPhase.output_offset`/`output_length` — computed per-phase in
+`_phase_output_slice()`, with a suspicious asymmetry (upgate gets `offset=1`, every other phase gets
+`offset=0`). Grepped for all uses: **these fields are never read anywhere** — dead code, not wired
+into any BD generation. Not the bug. Documenting so a future session doesn't re-chase this.
+
+**Confirmed:** `full_layer_qkv_prefix_generate.py` builds its bridge wiring via the exact same
+`full._bridge(phase_trace)` function `full_layer_engine_generate.py` uses for the full design —
+just called with the shorter `QKV_PREFIX_PHASE_TRACE` (q,k,v) instead of the full 6-phase
+`COMPACT_PHASE_TRACE` (q,k,v,o,upgate,down). So the bridge/compaction mechanism is genuinely shared,
+parameterized code, not two independent implementations — QKV-prefix's clean dispatch is *some*
+evidence the mechanism works, but doesn't prove correctness for the longer 6-phase trace (upgate
+alone carries `UPGATE_BODY_RECORDS=12` records via multi-dimensional strided BDs, a code path
+QKV-prefix never exercises).
+
+**Dead end:** tried `run_full_layer.py --check-only` (structural validation only, no hardware) hoping
+for a cheap signal — it still hard-requires the real Qwen3-8B model (`qwen3_8b_decode_layer_runner`),
+same as the earlier `run_kernel_postprocess_qkv.py` attempt. Not usable for the 0.6B pipeline.
+
+**Assessment:** further static tracing of this ~1500-line generator is hitting diminishing returns —
+each new hypothesis this round either turned out to be dead code or an untestable path. Getting a
+decisive answer now needs a lock-state/packet-count probe built into the bridge tile itself and
+rebuilt on hardware (a new-instrumentation task, not a reading task) — see the "Next step" above,
+which still stands as the concrete way forward.
+
+---
+
+## UPDATE (2026-07-03, cont'd 4): Found and Fixed a Real Bug (kQRecords), Ruled Out As Root Cause
+
+While scoping the column-compaction isolation test, traced `compact_column_memtile`'s actual
+generated code and found it does **not** hardcode any record count — it's self-paced ping-pong
+forwarding with no fixed iteration count, meaning it almost certainly isn't where a count-mismatch
+deadlock lives. This reframed the likely mechanism: AIE ping-pong buffers create backpressure that
+propagates *upstream* — a stall in any downstream consumer (`post`, `full`, `swiglu`) could cascade
+all the way back through bridge and column-compaction to main16, looking exactly like the observed
+deadlock without any of those earlier-stage components having a bug of their own.
+
+That redirected attention to `post` (the K/V cache-writeback tile, `postprocess_qkv.cc`) — and found
+a real, concrete, previously-undetected bug: **the build system links the wrong kernel source by
+default.**
+
+- `npu_build.py`'s `POSTPROCESS_QKV_SOURCE` env var defaults to `postprocess_qkv.cc`, which hardcodes
+  `kQRecords = 8`.
+- A separate `postprocess_qkv_06b.cc` exists with the *correct* Qwen3-0.6B value, `kQRecords = 4`
+  (matching `Q_BODY_RECORDS=4` for this model — an 8-head-block value left over from a larger model).
+  Nothing in the generator or build scripts ever selects it; every hardware run this session
+  (and, per the object file `link_with = ".../postprocess_qkv.o"` hardcoded in both
+  `full_layer_qkv_prefix_generate.py` and `full_layer_engine_generate.py`) used the wrong one.
+- With `kQRecords=8` but only 8 total QKV records ever sent (Q:4+K:2+V:2), the record-routing check
+  `record_index < kQRecords` is *always true* — every record gets classified as Q, so K and V never
+  receive real data. This is exactly the kind of bug that would produce plausible-looking-but-wrong
+  cache values.
+
+**Tested the fix**: re-ran `run_qkv_prefix.py` with `QWEN3_POSTPROCESS_QKV_SOURCE=postprocess_qkv_06b.cc`
+set. Confirmed in the build log that it actually recompiled from the corrected source
+(`Compiling postprocess_qkv.o with Chess from postprocess_qkv_06b.cc...`). **Result: byte-for-byte
+identical output to the unfixed run** — same `expected`/`got` values down to the last decimal place.
+
+**This is a clean, decisive negative.** The `kQRecords` mismatch is real and worth fixing for hygiene
+(it's latent undefined behavior — writing at `block=record_index` up to 7 into a 4-block `q_body`
+buffer is an out-of-bounds write on AIE's unprotected tile-local SRAM), but it is **not** the cause
+of the QKV-prefix numeric mismatch. Something else is wrong upstream or in a part of the K/V/RoPE
+path not yet isolated.
+
+**Where this leaves the investigation:** every major hypothesis has now been tested and eliminated
+through direct hardware verification, not just static reading — weight schedule (fixed, confirmed),
+GEMM/dequant math (byte-exact, isolated, full phase chain), RoPE/RMSNorm formulas (verified against
+source), packet-ID tagging (verified via record header data), column-compaction structure
+(understood, appears sound), and now `kQRecords` (tested, ruled out). What remains requires either
+on-chip state inspection (hardware debug registers / cycle-accurate trace tooling not available
+here) or a much deeper dive into the K/V-norm/RoPE side-buffer feed into `post` than source-reading
+alone has been able to resolve. Recommend treating this as needing either AMD toolchain-level debug
+support or a fresh multi-session investigation, not a quick continuation.
