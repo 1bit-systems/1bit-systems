@@ -23,6 +23,7 @@
 
 static const char* kModelPath = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
 static const char* kXclbinDir = "/home/bcloud/npu-sandbox/npu-infer/build/int8";
+static const char* kDraftCheckpoint = "/home/bcloud/spec-decode/checkpoints/eagle3_draft.bin";
 
 int main(int argc, char* argv[]) {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -48,7 +49,13 @@ int main(int argc, char* argv[]) {
            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_load).count());
 
     MTPDraftConfig draft_cfg;
-    MTPDraftModel draft_model(draft_cfg); // weights untrained/zero until a checkpoint is loaded
+    MTPDraftModel draft_model(draft_cfg);
+    bool draft_trained = draft_model.load_weights(kDraftCheckpoint);
+    if (draft_trained) {
+        printf("Loaded trained draft checkpoint: %s\n", kDraftCheckpoint);
+    } else {
+        printf("No draft checkpoint found at %s — running untrained fast path.\n", kDraftCheckpoint);
+    }
 
     SpeculativeDecoder decoder(target, draft_model, spec_cfg);
 
@@ -58,8 +65,12 @@ int main(int argc, char* argv[]) {
     std::vector<int32_t> prompt(chat_prompt, chat_prompt + prompt_len);
     std::vector<int32_t> output(max_new + prompt_len);
 
-    printf("Generating (draft weights are untrained — expect ~0%% acceptance until an Eagle3\n");
-    printf("checkpoint is trained via train_draft.py; this run validates the NPU dispatch path)...\n");
+    if (draft_trained) {
+        printf("Generating with trained Eagle3 draft (335-example smoke-test checkpoint)...\n");
+    } else {
+        printf("Generating (draft weights are untrained — expect ~0%% acceptance until an Eagle3\n");
+        printf("checkpoint is trained via train_draft.py; this run validates the NPU dispatch path)...\n");
+    }
 
     auto t0 = std::chrono::high_resolution_clock::now();
     int generated = decoder.generate(prompt.data(), prompt_len, output.data(), max_new);

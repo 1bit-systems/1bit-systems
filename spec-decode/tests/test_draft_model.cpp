@@ -60,27 +60,27 @@ int main() {
     // Test 4: Forward pass shape correctness
     // Input: trunk_hidden [num_target_layers, hidden_size]
     std::vector<float> trunk_hidden(cfg.num_target_layers * cfg.hidden_size, 0.5f);
-    std::vector<float> last_token_embed(cfg.hidden_size, 0.1f);
-    std::vector<float> draft_logits(cfg.block_size * cfg.vocab_size, 0.0f);
-    std::vector<float> draft_hidden(cfg.block_size * cfg.hidden_size, 0.0f);
-    
-    model.forward(trunk_hidden.data(), last_token_embed.data(),
+    int32_t last_token_id = 42;
+    std::vector<float> draft_logits(cfg.vocab_size, 0.0f);
+    std::vector<float> draft_hidden(cfg.hidden_size, 0.0f);
+
+    model.forward(trunk_hidden.data(), last_token_id, /*pos=*/0,
                   state, draft_logits.data(), draft_hidden.data());
-    
+
     // Check output shapes (non-zero due to random init, actual weights would be loaded)
     float logit_sum = 0.0f;
-    for (int i = 0; i < cfg.block_size * cfg.vocab_size; i++)
+    for (int i = 0; i < cfg.vocab_size; i++)
         logit_sum += draft_logits[i];
-    
+
     TEST("Draft logits produced (sum check)",
          logit_sum >= 0 || logit_sum < 0); // always true, just checks no crash
-    
+
     // Test 5: KV cache advances
     // Fast path: KV cache not advanced when weights are empty
     TEST("KV cache unchanged (fast path, no weights)", state.seq_len == 0);
-    
+
     // Second forward — still fast path
-    model.forward(trunk_hidden.data(), last_token_embed.data(),
+    model.forward(trunk_hidden.data(), last_token_id, /*pos=*/0,
                   state, draft_logits.data(), draft_hidden.data());
     TEST("KV cache still 0 on second call", state.seq_len == 0);
     
@@ -113,11 +113,11 @@ int main() {
     small_state.resize(2, 16, 1024);
     
     std::vector<float> small_trunk(5 * 64, 0.3f);
-    std::vector<float> small_embed(64, 0.2f);
-    std::vector<float> small_logits(3 * 1000, 0.0f);
-    std::vector<float> small_hidden(3 * 64, 0.0f);
-    
-    small_model.forward(small_trunk.data(), small_embed.data(),
+    int32_t small_token_id = 7;
+    std::vector<float> small_logits(1000, 0.0f);
+    std::vector<float> small_hidden(64, 0.0f);
+
+    small_model.forward(small_trunk.data(), small_token_id, /*pos=*/0,
                         small_state, small_logits.data(), small_hidden.data());
     TEST("Small config forward pass (fast path)", small_state.seq_len == 0);
     

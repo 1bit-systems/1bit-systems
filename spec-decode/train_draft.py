@@ -254,7 +254,7 @@ def main():
     print("1. Convert draft model to GGUF format for NPU:")
     print("   python convert_to_gguf.py --draft-checkpoint <path> --output draft-qwen3-0.6b-mtp.gguf")
     print("2. Run evaluation:")
-    echo "   python eval_draft.py --target Qwen/Qwen3-0.6B --draft <checkpoint>"
+    print("   python eval_draft.py --target Qwen/Qwen3-0.6B --draft <checkpoint>")
     print("3. Integrate with NPU engine:")
     print("   See engine/spec_decode.h for the C++ integration API")
     print("=" * 60)

@@ -14,12 +14,12 @@ int main() {
     
     // Setup
     float trunk[5*1024] = {0.5f};
-    float embed[1024] = {0.1f};
-    float logits_out[7*50000] = {0.0f};
-    float hidden_out[7*1024] = {0.0f};
-    
+    int32_t last_token_id = 1;
+    static float logits_out[50000] = {0.0f};
+    float hidden_out[1024] = {0.0f};
+
     auto t0 = std::chrono::high_resolution_clock::now();
-    draft.forward(trunk, embed, state, logits_out, hidden_out);
+    draft.forward(trunk, last_token_id, /*pos=*/0, state, logits_out, hidden_out);
     auto t1 = std::chrono::high_resolution_clock::now();
     
     double us = std::chrono::duration<double, std::micro>(t1 - t0).count();

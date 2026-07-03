@@ -157,26 +157,38 @@ public:
 
         // Speculative decoding loop
         while (generated < max_len) {
-            // 1. Draft: predict N candidate tokens
+            // 1. Draft: autoregress block_size candidate tokens. The draft has its own
+            // tiny attention window that resets each round (positions 0..block_size-1) —
+            // it only needs to model the immediate continuation, not full history; that's
+            // the target model's job. Each step embeds the previous step's token internally
+            // (real token id, not a stub) and reuses the same target_hidden trunk features
+            // for the whole round (matches training: one fc-projected feature set per round).
             std::vector<int32_t> draft_tokens(cfg_.block_size);
             std::vector<float> draft_logits(
-                cfg_.block_size * cfg_.vocab_size
+                (size_t)cfg_.block_size * cfg_.vocab_size
             );
-            
-            // Get last token embedding (simplified — in practice from target model)
-            float last_embed[1024] = {0.0f};
-            
-            draft_.forward(
-                target_hidden.data(),
-                last_embed,
-                state_,
-                draft_logits.data(),
-                target_hidden.data()  // reuse buffer
-            );
+            std::vector<float> draft_hidden_step(cfg_.hidden_size);
+
+            MTPDraftState draft_state;
+            draft_state.resize(cfg_.num_kv_heads, cfg_.head_dim, cfg_.block_size);
+            int32_t draft_input_id = output_ids[generated - 1];
+            for (int i = 0; i < cfg_.block_size; i++) {
+                draft_.forward(
+                    target_hidden.data(),
+                    draft_input_id,
+                    /*pos=*/i,
+                    draft_state,
+                    draft_logits.data() + (size_t)i * cfg_.vocab_size,
+                    draft_hidden_step.data()
+                );
+                draft_input_id = argmax(
+                    draft_logits.data() + (size_t)i * cfg_.vocab_size, cfg_.vocab_size
+                );
+            }
 
             // Sample draft tokens greedily
             for (int i = 0; i < cfg_.block_size; i++) {
-                float* logits_i = draft_logits.data() + i * cfg_.vocab_size;
+                float* logits_i = draft_logits.data() + (size_t)i * cfg_.vocab_size;
                 draft_tokens[i] = argmax(logits_i, cfg_.vocab_size);
             }
             stats_.total_draft_proposed += cfg_.block_size;
