@@ -22,7 +22,9 @@
     <circle r="60" fill="url(#coreGlow)"/>
     <text x="0" y="18" text-anchor="middle"
           font-family="'JetBrains Mono','SF Mono','Fira Code',ui-monospace,monospace"
-          font-size="56" font-weight="800" fill="#00ff00" letter-spacing="-0.04em">1bs</text>
+          font-size="56" font-weight="800" letter-spacing="-0.04em">
+      <tspan fill="#00ff00">1b</tspan><tspan fill="#f00fd2" dx="-0.22em">.</tspan><tspan fill="#00ff00" dx="-0.22em">s</tspan>
+    </text>
   </g>
 
   <!-- wordmark: 1bit.systems -->
