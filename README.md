@@ -8,7 +8,7 @@
 [![50 TOPS Verified](https://img.shields.io/badge/50%20TOPS-verified-00ff00.svg)](engine/npu/BENCHMARKS.md)
 [![55.7 TFLOPS Peak](https://img.shields.io/badge/55.7%20TFLOPS-raw%20silicon-12a0ed.svg)](engine/npu/BENCHMARKS.md)
 [![94 tok/s NPU](https://img.shields.io/badge/94%20tok%2Fs-NPU%20(FLM)-00ff00.svg)](engine/npu/BENCHMARKS.md)
-[![281 tok/s 1-bit](https://img.shields.io/badge/281%20tok%2Fs-1--bit-f00fd2.svg)](engine/npu/BENCHMARKS.md)
+[![22 tok/s GPU](https://img.shields.io/badge/22%20tok%2Fs-GPU%20(Vulkan)-12a0ed.svg)](engine/npu/BENCHMARKS.md)
 [![5 models](https://img.shields.io/badge/5%20models-auto--detect-00ff00.svg)](engine/npu/BENCHMARKS.md)
 [![120KB binary](https://img.shields.io/badge/binary-120KB-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
 <br>
@@ -63,10 +63,7 @@ OMP_NUM_THREADS=16 ./npu_engine_all model.q4nx 16
 | **NPU FLM** | XDNA 2 · 32 tiles | INT8 | **94 tok/s** (10.6 ms/tok) | Qwen3-0.6B | 610 MB |
 | **NPU ALL** | XDNA 2 · 32 tiles | INT8 | **28 tok/s** (36 ms/tok) | 5 models | 610 MB - 6 GB |
 | **NPU v12** | XDNA 2 · 32 tiles | INT8 | **97 tok/s** (10 ms/tok) | Qwen3-0.6B | 610 MB |
-| **1-bit GPU** | Radeon 8060S · 40 CUs | IQ1_S | **281 tok/s** | Bonsai 1.7B | 385 MB |
-| **Vulkan GPU** | Radeon 8060S · 40 CUs | Q4_K | **27 µs/tok** | Qwen3.5-9B | 5.4 GB |
-| **MLX** | Apple Silicon + XDNA 2 NPU | INT8 + FP16 | **16 ms/tok** | Qwen3-0.6B | 610 MB |
-| **MSL GPU** | Apple M1–M5 · Metal 3 | Q4_K | **27 µs/tok** | Qwen3.5-9B | 5.4 GB |
+| **GPU (ZINC)** | Radeon 8060S · 32 CUs | F16 | **22 tok/s** (46 ms/tok) | Bonsai-1.7B | 3.3 GB |
 
 **55.7 TFLOPS raw INT8 GEMM** — exceeds AMD's 50 TOPS rating.  
 **5 models from one 120KB binary** — auto-detect, zero dependencies.  
@@ -87,8 +84,8 @@ OMP_NUM_THREADS=16 ./npu_engine_all model.q4nx 16
 
 ### Every backend, one person
 
-NPU engine (C++23 XRT direct), Vulkan engine (Zig GLSL→SPIR-V), Metal engine
-(Zig MSL), 1-bit GPU engine (pi-agent llama.cpp fork), and MLX NPU backend
+NPU engine (C++23 XRT direct), Vulkan engine (Zig GLSL→SPIR-V, port 8080), Metal engine
+(Zig MSL), and MLX NPU backend
 (Apple MLX fork with IRON XDNA 2). All built here. All open.
 
 ### Why this exists
@@ -187,8 +184,7 @@ OMP_NUM_THREADS=16 ./npu_engine_v9 64
 | Metric | Value |
 |--------|-------|
 | Backends | Vulkan (RDNA3/4), CUDA, Metal |
-| Decode (Q4_K, 6912×2560) | 27.0 µs |
-| 1-bit (Bonsai-1.7B IQ1_S) | 3.5 ms/tok (281 tok/s) |
+| Decode (F16, 1.7B) | **46 ms/tok (22 tok/s)** — 99.6% BW utilization |
 
 ## Performance
 
@@ -196,8 +192,7 @@ OMP_NUM_THREADS=16 ./npu_engine_v9 64
 |--------|----------|-------|--------|
 | **NPU FLM** | XDNA 2 NPU | **94 tok/s** (10.6 ms/tok) | Qwen3-0.6B |
 | **NPU v12** | XDNA 2 NPU | **97 tok/s** (10 ms/tok) | Qwen3-0.6B |
-| **GPU** | Radeon 8060S (Vulkan) | 27 µs/decode | Qwen3.5, Gemma 4 |
-| **1bit GPU** | Radeon 8060S (Vulkan) | **3.5 ms/tok** | Bonsai-1.7B IQ1_S (385 MB) |
+| **GPU (ZINC)** | Radeon 8060S · 32 CUs (Vulkan) | **22 tok/s** (46 ms/tok) | Bonsai-1.7B-F16 |
 
 ## License
 
