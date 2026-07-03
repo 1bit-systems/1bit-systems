@@ -51,6 +51,13 @@ struct TargetModelInterface {
         float* out
     ) = 0;
 
+    // Commit the accepted prefix of the most recent forward_with_kv() call to the KV cache,
+    // discarding any rejected trailing positions. start_pos must match the past_len passed to
+    // that forward_with_kv() call; n_accept is how many of its input positions to keep.
+    // Default no-op for implementations that don't need explicit rollback (e.g. simulated
+    // targets that recompute KV from scratch every call).
+    virtual void commit_accepted(int32_t /*start_pos*/, int32_t /*n_accept*/) {}
+
     virtual ~TargetModelInterface() = default;
 };
 
@@ -174,8 +181,11 @@ public:
             }
             stats_.total_draft_proposed += cfg_.block_size;
 
-            // 2. Verify: run target on [last_token | draft_tokens...]
+            // 2. Verify: run target on [last_token | draft_tokens...] against the existing
+            // KV cache (past_len = generated - 1, since output_ids[generated-1] hasn't had
+            // its own KV entry written yet — see commit_accepted below).
             int32_t verify_len = 1 + cfg_.block_size; // last + N draft
+            int32_t past_len = generated - 1;
             std::vector<int32_t> verify_input(verify_len);
             verify_input[0] = output_ids[generated - 1];
             std::copy(draft_tokens.begin(), draft_tokens.end(),
@@ -186,24 +196,22 @@ public:
                 num_model_layers * cfg_.hidden_size
             );
             std::vector<float> verify_logits(
-                verify_len * cfg_.vocab_size
+                (size_t)verify_len * cfg_.vocab_size
             );
 
-            // In practice: use forward_with_kv with past KV cache
-            target_.forward(
-                verify_input.data(), verify_len,
+            target_.forward_with_kv(
+                verify_input.data(), verify_len, past_len,
                 verify_logits.data(), verify_hidden.data()
             );
 
             // 3. Rejection sampling
             int n_accepted = 0;
+            bool rejected_early = false;
+            bool hit_eos = false;
             for (int i = 0; i < cfg_.block_size && generated < max_len; i++) {
-                float p_draft = 1.0f;  // greedy: probability = 1
-                float p_target = 1.0f; // simplified — real impl uses softmax
-
                 // Greedy acceptance: if draft == argmax(target), accept
                 int32_t target_token = argmax(
-                    verify_logits.data() + i * cfg_.vocab_size,
+                    verify_logits.data() + (size_t)i * cfg_.vocab_size,
                     cfg_.vocab_size
                 );
 
@@ -213,39 +221,41 @@ public:
                     generated++;
                     n_accepted++;
                     stats_.total_tokens++;
-                    if (draft_tokens[i] == cfg_.eos_token_id) {
-                        stats_.accepted_draft_tokens += n_accepted;
-                        stats_.verify_calls++;
-                        return generated;
-                    }
+                    if (draft_tokens[i] == cfg_.eos_token_id) { hit_eos = true; break; }
                 } else {
-                    // Reject: use target's token instead
+                    // Reject: use target's token instead. Do NOT also emit a bonus token —
+                    // verify_logits[block_size] predicts what follows ALL draft tokens, which
+                    // is no longer a valid continuation once one of them was rejected.
                     output_ids[generated] = target_token;
                     generated++;
                     stats_.total_tokens++;
+                    rejected_early = true;
                     break;
                 }
             }
 
-            // Bonus token: target's prediction after all draft tokens
-            // Always at verify_logits[block_size] (last position)
-            if (generated < max_len) {
+            // Bonus token: target's prediction after all draft tokens were accepted.
+            // Only valid when nothing was rejected — always at verify_logits[block_size].
+            if (!rejected_early && !hit_eos && generated < max_len) {
                 int32_t bonus_token = argmax(
-                    verify_logits.data() + cfg_.block_size * cfg_.vocab_size,
+                    verify_logits.data() + (size_t)cfg_.block_size * cfg_.vocab_size,
                     cfg_.vocab_size
                 );
                 output_ids[generated] = bonus_token;
                 generated++;
                 stats_.total_tokens++;
-                if (bonus_token == cfg_.eos_token_id) {
-                    stats_.accepted_draft_tokens += n_accepted;
-                    stats_.verify_calls++;
-                    return generated;
-                }
+                if (bonus_token == cfg_.eos_token_id) hit_eos = true;
             }
 
             stats_.accepted_draft_tokens += n_accepted;
             stats_.verify_calls++;
+
+            // Commit this round's KV cache: keep entries for the previously-uncached last
+            // token plus every accepted/corrective token (n_accepted+1 positions starting at
+            // past_len); the bonus token (if any) gets its own KV entry on the next round.
+            target_.commit_accepted(past_len, n_accepted + 1);
+
+            if (hit_eos) return generated;
 
             // 4. Update target hidden states for next draft
             target_.get_layer_hidden(
