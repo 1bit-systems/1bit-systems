@@ -1343,7 +1343,119 @@ g++ -std=c++17 -O3 -march=native -ffast-math \
 sudo ./npu_engine_i8
 ```
 
+---
+
+## Session 2026-07-02/03 — Production Stack, Release, Site Refresh
+
+### FLM Proxy Daemon (July 2)
+
+The C++ engine runs 5 models but at lower tok/s than FLM. Decision: proxy to FLM for production while the open-source engine catches up on the fused xclbin.
+
+**Daemon** — `daemon/npu-gpu-cpud.py` (420 lines, Python stdlib only):
+- OpenAI-compatible HTTP on port 9090 (`/v1/chat/completions`, `/v1/models`, `/v1/health`)
+- Starts FLM as a subprocess on port 52625, proxies requests
+- Routes by model size: <2B→NPU, 2-8B→GPU, >8B→CPU
+- Moved from `npu-gpu-cpu/` external repo into this repo — now ships with the source
+
+**Systemd unit** — `daemon/npu-daemon.service`:
+- `FLM_PMODE=turbo` by default
+- `Restart=always` with 5s backoff
+- `LimitMEMLOCK=infinity` for NPU memory access
+
+### TypeScript Build Fix (July 2)
+
+`npm run build` was broken — `bridge.ts` and `server.ts` imported `fastify` which wasn't installed. These were WIP TypeScript servers that tried to run the C++ engine directly; the Python daemon replaced them. Excluded from tsconfig, removed `fastify` from package.json. Build exits clean.
+
+### Benchmark Results — FLM Turbo (July 3)
+
+| Metric | pmode=performance | pmode=turbo |
+|--------|-------------------|-------------|
+| Decode (Qwen3-0.6B) | 94.1 tok/s | **94.7 tok/s** |
+| TTFT | 513 ms | **497 ms** |
+| GPU Llama-3.1-8B | 11.3 tok/s | 11.3 tok/s (no change) |
+| Qwen3-8B (GPU) | timeout | 5-10 tok/s (unstable) |
+
+Turbo gain: marginal (+0.6% decode, -16ms TTFT). The 500ms TTFT is the NPU loading weights from DDR — no software knob fixes this. Only a fused xclbin can break through.
+
+### CPU + GPU Tuning
+
+- CPU governor: powersave→performance (marginal TTFT improvement)
+- GPU perf level: auto (2900 MHz under load, 600 MHz idle)
+- GPU sclk seen at 2646-2900 MHz. No fan controls exposed on this APU — EC handles it.
+- No manual overclock available on NPU — clock gated by XDNA firmware.
+
+### Release Packaging (July 2-3)
+
+Built and uploaded to GitHub Releases (`v2026.07.02`):
+| File | Size | Contents |
+|------|------|----------|
+| `runtime.tar.gz` | 43 KB | Pre-built CLI + daemon + systemd unit + docs |
+| `src.tar.gz` | 2.3 MB | Full source (excludes binaries, node_modules) |
+
+Release notes show 94 tok/s FLM, 97 tok/s C++ v12. Clean install: `tar xzf` → `bash install.sh` → `1bit chat`.
+
+### Stale Numbers Purge (July 2)
+
+Every file in the repo still said 63 tok/s (old v9 number from June). The daemon swapped to FLM proxy weeks ago. Hunted down every occurrence:
+- `src/commands/chat.ts`: 63→94 tok/s
+- `CLAUDE.md`: tagline, verify command, engine description
+- `README.md`: badges, tables, engine speeds, port 8081→9090, FLM competitor→partner framing
+- `site/index.html`: hero panel, stats, console output, docker port, footer, JS animation
+- `engine/npu/BENCHMARKS.md`: full restructure with production FLM numbers at top
+- `~/.1bit/agent/settings.json`: npuEndpoint port 8081→9090
+
+### Site (July 2-3)
+
+Deployed to Cloudflare Pages. Visual polish:
+- "Open source" in blue, "Zero dependencies" in pink
+- Hero shows FLM proxy curl command on the console panel
+- All port references updated to 9090
+- Footer shows FLM + C++ v12 numbers
+
+### GitHub Traffic (as of July 2)
+
+| Metric | Value |
+|--------|-------|
+| Stars | 10 |
+| Forks | 3 |
+| Views (14 days) | 49 unique / 19 visitors |
+| Clones (14 days) | 1,096 total / 296 unique cloners |
+| Top referrer | 1bit.systems (11), Google (11), GitHub (11) |
+| Release downloads | 0 (new release just posted) |
+
+The Jun 21-22 clone spike (492 in one day) looks like a scraper or bot. Organic traffic is steady at 2-9 visitors/day from search and direct.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `daemon/npu-gpu-cpud.py` | New — moved from npu-gpu-cpu/ |
+| `daemon/npu-daemon.service` | New — systemd unit |
+| `src/commands/up.ts` | Rewrote to use repo daemon |
+| `src/commands/chat.ts` | 63→94 tok/s banner |
+| `src/cli.ts` | Help text updated |
+| `tsconfig.json` | Exclude bridge/server |
+| `package.json` | Remove fastify, add daemon to files |
+| `CLAUDE.md` | Updated tagline and verify |
+| `README.md` | Full number refresh |
+| `site/index.html` | Full number refresh + styling |
+| `packaging/install.sh` | Rewritten for tarball flow |
+| `engine/npu/BENCHMARKS.md` | Restructured + turbo results |
+| `docs/journey.md` | This entry |
+| `.github/workflows/deploy.yml` | Cloudflare Pages deploy on push to main |
+
+### Current Status (July 3, 2026)
+
+- **Production**: FLM proxy on port 9090, pmode=turbo, 94.7 tok/s
+- **C++ engine**: 5 models, 28 tok/s (ALL) / 97 tok/s (v12), auto-detect
+- **Site**: Live at https://1bit.systems, all numbers current
+- **Release**: 2 tarballs on GitHub, clean install flow
+- **Build**: `npm run build` exits clean
+- **Next**: Fused xclbin port (blocked by IRON Python API)
+- **Traffic**: 296 unique cloners in 2 weeks, zero marketing
+
 ### Repos
 
+- `https://github.com/bong-water-water-bong/1bit-systems` — This repo (source of truth)
 - `https://github.com/bong-water-water-bong/npu-infer` — INT8 engine + xclbin generators
 - `https://github.com/bong-water-water-bong/npu-gpu-cpu` — Handoff docs + unified control plane
