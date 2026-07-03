@@ -65,6 +65,9 @@ class NPUBackend:
     """NPU inference via FLM (Fast Flow LM) — proxy to flm serve."""
     FLM_MODEL = os.environ.get("FLM_MODEL", "qwen3:0.6b")
     FLM_BIN = os.environ.get("FLM_BIN", "/usr/bin/flm")
+    FLM_PMODE = os.environ.get("FLM_PMODE", "turbo")
+    FLM_CTX_LEN = os.environ.get("FLM_CTX_LEN", "")       # blank = FLM default
+    FLM_Q_LEN = os.environ.get("FLM_Q_LEN", "")            # NPU queue depth
     # FLM's internal port; we proxy from our port to FLM's API
 
     def __init__(self, port: int = 52625):
@@ -73,7 +76,7 @@ class NPUBackend:
         self.flm_url = f"http://127.0.0.1:{port}/v1/chat/completions"
 
     def start(self):
-        print(f"  Starting FLM NPU backend on port {self.port}...")
+        print(f"  Starting FLM NPU backend on port {self.port} (pmode={self.FLM_PMODE})...")
         env = os.environ.copy()
         # Raise memlock limit for FLM
         try:
@@ -81,8 +84,15 @@ class NPUBackend:
             resource.setrlimit(resource.RLIMIT_MEMLOCK, (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
         except Exception:
             pass
+        cmd = [self.FLM_BIN, "serve", self.FLM_MODEL,
+               "--port", str(self.port), "--host", "127.0.0.1",
+               "--pmode", self.FLM_PMODE]
+        if self.FLM_CTX_LEN:
+            cmd += ["--ctx-len", self.FLM_CTX_LEN]
+        if self.FLM_Q_LEN:
+            cmd += ["--q-len", self.FLM_Q_LEN]
         self.process = subprocess.Popen(
-            [self.FLM_BIN, "serve", self.FLM_MODEL, "--port", str(self.port), "--host", "127.0.0.1"],
+            cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             env=env,
