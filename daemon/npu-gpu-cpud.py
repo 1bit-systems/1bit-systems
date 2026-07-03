@@ -31,16 +31,49 @@ from typing import Optional
 import urllib.request
 import urllib.error
 
-# Optional Stripe integration for the merch store
+# Stripe integration — uses raw HTTPS (no SDK needed)
 STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
-_stripe = None
-if STRIPE_SECRET_KEY:
-    try:
-        import stripe as _stripe_lib
-        _stripe_lib.api_key = STRIPE_SECRET_KEY
-        _stripe = _stripe_lib
-    except ImportError:
-        pass
+
+def _stripe_create_checkout(items: list, success_url: str, cancel_url: str) -> dict:
+    """Create a Stripe Checkout Session via REST API."""
+    import ssl, http.client
+    body = urllib.parse.urlencode({
+        "mode": "payment",
+        "success_url": success_url,
+        "cancel_url": cancel_url,
+        "payment_method_types[]": "card",
+    })
+    for i, item in enumerate(items):
+        prefix = f"line_items[{i}]"
+        body += "&" + urllib.parse.urlencode({
+            f"{prefix}[price_data][currency]": item.get("price_data", {}).get("currency", "usd"),
+            f"{prefix}[price_data][product_data][name]": item.get("price_data", {}).get("product_data", {}).get("name", "Merch"),
+            f"{prefix}[price_data][unit_amount]": str(item.get("price_data", {}).get("unit_amount", 0)),
+            f"{prefix}[quantity]": str(item.get("quantity", 1)),
+        })
+    for j, country in enumerate([
+        "US","CA","GB","DE","FR","AU","JP","BR","MX","NL","SE",
+        "NO","DK","FI","CH","AT","BE","IE","PT","ES","IT","PL",
+        "CZ","RO","GR","NZ","SG","HK","KR","IN"
+    ]):
+        body += "&" + urllib.parse.urlencode({f"shipping_address_collection[allowed_countries][{j}]": country})
+
+    conn = http.client.HTTPSConnection("api.stripe.com", timeout=15, context=ssl.create_default_context())
+    auth = f"Bearer {STRIPE_SECRET_KEY}"
+    req = conn.request(
+        "POST", "/v1/checkout/sessions",
+        body=body.encode(),
+        headers={
+            "Authorization": auth,
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+    )
+    resp = conn.getresponse()
+    data = json.loads(resp.read())
+    conn.close()
+    if resp.status >= 400:
+        return {"error": data.get("error", {}).get("message", f"HTTP {resp.status}")}
+    return {"url": data.get("url"), "id": data.get("id")}
 
 def _reject_json_constant(value: str):
     raise ValueError(f"Invalid JSON constant: {value}")
@@ -287,23 +320,18 @@ class Handler(BaseHTTPRequestHandler):
             if not items:
                 self._json(400, {"error": "Cart is empty"})
                 return
-            if not _stripe:
+            if not STRIPE_SECRET_KEY:
                 self._json(503, {"error": "Stripe not configured. Set STRIPE_SECRET_KEY env var."})
                 return
             try:
-                session = _stripe.checkout.Session.create(
-                    payment_method_types=["card"],
-                    line_items=items,
-                    mode="payment",
-                    success_url=req.get("successUrl", "https://1bit.systems/store/success"),
-                    cancel_url=req.get("cancelUrl", "https://1bit.systems/store"),
-                    shipping_address_collection={"allowed_countries": [
-                        "US","CA","GB","DE","FR","AU","JP","BR","MX","NL",
-                        "SE","NO","DK","FI","CH","AT","BE","IE","PT","ES",
-                        "IT","PL","CZ","RO","GR","NZ","SG","HK","KR","IN"
-                    ]},
+                resp = _stripe_create_checkout(
+                    items,
+                    req.get("successUrl", "https://1bit.systems/store/success"),
+                    req.get("cancelUrl", "https://1bit.systems/store"),
                 )
-                resp = {"url": session.url, "id": session.id}
+                if "error" in resp:
+                    self._json(400, resp)
+                    return
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Access-Control-Allow-Origin", "*")

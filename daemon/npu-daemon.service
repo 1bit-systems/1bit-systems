@@ -4,12 +4,15 @@ After=network.target
 
 [Service]
 Type=simple
-# REQUIRED: edit this path to point to daemon/npu-gpu-cpud.py in your repo checkout
 ExecStart=/usr/bin/python3 /home/bcloud/daemon/npu-gpu-cpud.py --port 9090
 Restart=always
 RestartSec=5
 LimitMEMLOCK=infinity
 Environment=FLM_PMODE=turbo
+# Set your Stripe secret key for merch store checkout:
+#   sudo sed -i 's/^#Environment=STRIPE/Environment=STRIPE/' /etc/systemd/system/npu-daemon.service
+#   sudo systemctl daemon-reload && sudo systemctl restart npu-daemon
+#Environment=STRIPE_SECRET_KEY=sk_live_YOUR_KEY_HERE
 StandardOutput=journal
 StandardError=journal
 
