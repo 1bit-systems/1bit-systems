@@ -1,3 +1,42 @@
+## UPDATE 24 (2026-07-03): FUSED XCLBIN RESUMED — SCHEDULE FIXED, DEADLOCK ISOLATED, NEW KERNEL BUG FOUND
+
+Picked back up the fused-transformer-xclbin effort flagged as "next" at the end of Update 17
+(the intervening Updates 18-23 covering the fused-xclbin dead end, the pivot to the universal
+5-model v12 engine, and the merch store live in git history / other docs, not fully reflected
+in this file until now).
+
+### What Was Found
+
+1. **Reconstructed the correct Q4NX weight-packing schedule** by cross-referencing the MLIR
+   generator against `qwen3_model.py::_projection_stream_from_schedule` — the fused xclbin
+   expects weight chunks distributed per-column/per-row (`row_chunk = block*16 + group*4 +
+   patch*2 + row_in_patch`), not replicated identically across columns as the old
+   `q4nx_stream.cpp` did. `npu-sandbox/npu-infer/tools/pack_fused_v3.py` already implements this
+   correctly (verified byte-identical on regen) by reading real Q4NX chunks straight out of
+   `model.q4nx`, no dequant/requant.
+2. **Schedule-correct weights alone didn't fix the full-layer deadlock** — re-ran `npu_engine_v13`,
+   still 62857ms timeout, all-zero output.
+3. **Isolated the deadlock to the O/UP/GATE/DOWN tail.** The smaller QKV-prefix xclbin (rebuilt
+   fresh via `full_layer_qkv_prefix_runner.py`) dispatches cleanly in ~4ms, no deadlock at all —
+   matching what the sibling BitNet port (`torch2aie/examples/bitnet-decode-layer`) found for the
+   identical design shape. The full-layer deadlock is a lock/dataflow bug specific to the tail
+   phases, not a data-scheduling problem.
+4. **Found a second, separate bug: QKV-prefix produces numerically wrong output**, even
+   deadlock-free. ~1000+ K/V cache mismatches vs. the CPU golden reference, at multiple token
+   positions. Traced RoPE and RMSNorm formulas in the Chess kernel (`postprocess_qkv.cc`) against
+   the Python reference — both match exactly. V-cache (no RoPE/norm at all) is *also* wrong,
+   narrowing the bug to the Q4NX GEMM/dequant kernel (`qwen3_decode_kernels.cc`) or record
+   absorption — unresolved, needs kernel-level debug instrumentation to pin down further.
+
+### Status
+
+Fused xclbin is closer than before (schedule solved, deadlock scope narrowed) but still not
+working end-to-end — two distinct kernel bugs remain (tail deadlock, QKV numeric correctness).
+v12 (97 tok/s, standalone INT8 GEMM, zero Python) stays production. Full details in
+`docs/FUSED-INTEGRATION-BLOCKER.md`.
+
+---
+
 ## UPDATE 17 (2026-07-02 03:00 ADT): M=16 BATCH DECODE — 16 ms/tok, 15.2× SPEEDUP
 
 ### 244→16 ms/tok in One Session

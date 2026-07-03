@@ -182,22 +182,33 @@ bool build_fused_weights(const char*model_path, const char*output_path){
         "model.layers.0.mlp.down_proj.weight",
     };
     const char* phase_names[]={"Q","K","V","O","UP","GATE","DOWN"};
+    // Fixed Qwen3-0.6B projection dimensions (out_dim, in_dim) — hardcoded rather than parsed
+    // from the model JSON's "shape" field, which this file's naive get_shape() misreads (it
+    // picked up garbage like [256,5120] during testing). Matches pack_fused_v3.py's phase table.
+    const int phase_out_dim[]={NH*HD, NKV*HD, NKV*HD, H,   IM,  IM,  H};
+    const int phase_in_dim[] ={H,     H,      H,      NH*HD, H, H,   IM};
 
-    // Collect all chunks from each phase
-    struct ChunkInfo{const char*name;std::vector<uint8_t>data;int count;};
+    // Collect all chunks from each phase. Chunks are read sequentially from the model file in
+    // row_chunk-major, input_chunk-minor order (row_chunk = output tile row 0..tile_rows-1,
+    // input_chunk = input tile col 0..n_tile_cols-1) — this is the order FLM's own file format
+    // uses, and it's what the schedule below indexes as `row_chunk * chunks + input_chunk`.
+    struct ChunkInfo{const char*name;std::vector<uint8_t>data;int count;int blocks;int chunks;};
     std::vector<ChunkInfo> all_phases;
     int total_chunks=0;
 
     for(int p=0;p<7;p++){
-        ChunkInfo ci;ci.name=phase_names[p];ci.count=0;
+        ChunkInfo ci;ci.name=phase_names[p];ci.count=0;ci.blocks=0;ci.chunks=0;
         int64_t off=get_data_offset(js,jl,phases[p]);
-        int s0=0,s1=0;get_shape(js,jl,phases[p],s0,s1);
+        int s0=phase_in_dim[p],s1=phase_out_dim[p];
         if(off>=0){
             // Compute chunk count from tile dimensions
             int in_d=s0, out_d=s1;
-            int n_tile_cols=(in_d+255)/256; // ceil(in/256)
-            int tile_rows=(out_d+31)/32; // ceil(out/32)
+            int n_tile_cols=(in_d+255)/256; // ceil(in/256) = input chunks per tile row
+            int tile_rows=(out_d+31)/32; // ceil(out/32) = output tile rows (blocks*16, see schedule)
             int nchunks=n_tile_cols*tile_rows;
+            // "block" = one group×patch×row_in_patch sweep (16 row_chunks); tile_rows must be
+            // a multiple of 16 by construction (4 columns × 2 patches × 2 rows_per_patch).
+            ci.blocks=tile_rows/16; ci.chunks=n_tile_cols;
 
             // Read chunks from model
             for(int i=0;i<nchunks;i++){
@@ -219,22 +230,43 @@ bool build_fused_weights(const char*model_path, const char*output_path){
     printf("  Total: %d chunks (%d bytes each = %.0f KB total)\n",
            total_chunks,CHUNK_BYTES,(double)total_chunks*CHUNK_BYTES/1024);
 
-    // Build weight stream: 4 columns × 2 patches, each patch iterates all phases
-    // Each patch also has ROWS_PER_PATCH=2 rows (duplicate each chunk row)
-    // Actually, for each chunk we need to send ROWS_PER_PATCH copies
-    std::vector<uint8_t> weight_stream;
+    // Build the FLM schedule: (phase_index, block, input_chunk) triples in
+    // Q,K,V -> O -> interleaved(UP,GATE) per block -> DOWN order. This matches
+    // qwen3_model.py::layer_weight_stream / _projection_stream_from_schedule exactly.
+    enum PhaseIdx{Q=0,K=1,V=2,O=3,UP=4,GATE=5,DOWN=6};
+    struct SchedEntry{int phase;int block;int input_chunk;};
+    std::vector<SchedEntry> schedule;
+    auto append_phase=[&](int p){
+        for(int b=0;b<all_phases[p].blocks;b++)
+            for(int c=0;c<all_phases[p].chunks;c++)
+                schedule.push_back({p,b,c});
+    };
+    append_phase(Q); append_phase(K); append_phase(V);
+    append_phase(O);
+    for(int b=0;b<all_phases[UP].blocks;b++){
+        for(int c=0;c<all_phases[UP].chunks;c++) schedule.push_back({UP,b,c});
+        for(int c=0;c<all_phases[GATE].chunks;c++) schedule.push_back({GATE,b,c});
+    }
+    append_phase(DOWN);
+    printf("  Schedule: %zu entries\n",schedule.size());
 
-    for(int col=0;col<COLS;col++){
+    // Emit chunks in group(column) -> patch -> schedule -> row_in_patch order. Each AIE core
+    // (group, row=patch*2+row_in_patch) owns a distinct 32-row slice of every projection matrix,
+    // selected via row_chunk = block*16 + group*4 + patch*2 + row_in_patch.
+    std::vector<uint8_t> weight_stream;
+    weight_stream.reserve((size_t)COLS*PATCHES*schedule.size()*ROWS_PER_PATCH*CHUNK_BYTES);
+
+    for(int group=0;group<COLS;group++){
         for(int patch=0;patch<PATCHES;patch++){
-            for(int p=0;p<7;p++){
-                auto&ci=all_phases[p];
-                for(int c=0;c<ci.count;c++){
-                    // ROWS_PER_PATCH copies of each chunk
-                    for(int r=0;r<ROWS_PER_PATCH;r++){
-                        auto start=ci.data.begin()+c*CHUNK_BYTES;
-                        auto end=start+CHUNK_BYTES;
-                        weight_stream.insert(weight_stream.end(),start,end);
-                    }
+            for(auto&e:schedule){
+                auto&ci=all_phases[e.phase];
+                if(ci.chunks==0) continue;
+                for(int row_in_patch=0;row_in_patch<ROWS_PER_PATCH;row_in_patch++){
+                    int row_chunk=e.block*16+group*4+patch*2+row_in_patch;
+                    int source=row_chunk*ci.chunks+e.input_chunk;
+                    auto start=ci.data.begin()+(size_t)source*CHUNK_BYTES;
+                    auto end=start+CHUNK_BYTES;
+                    weight_stream.insert(weight_stream.end(),start,end);
                 }
             }
         }

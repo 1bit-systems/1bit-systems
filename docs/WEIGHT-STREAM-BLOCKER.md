@@ -81,3 +81,19 @@ parameters exactly. This is a model-converter project, not an engine project.
 
 **Action:** Continue production engine (v12 standalone INT8, 97 tok/s).
 Schedule Q4NX format conversion as a separate workstream.
+
+---
+
+## UPDATE (2026-07-03): This Diagnosis Was Wrong — It Was a Schedule Bug, Not a Format Bug
+
+The "requant produces NaN, wrong quantization pipeline" theory above applied to `pack_fused_v2.py`
+(dequant → re-quant, genuinely mismatched vs. FLM's training-time parameters). It does **not**
+apply to `pack_fused_v3.py` / the current `engine/npu/src/q4nx_stream.cpp`, both of which read raw
+Q4NX chunks directly from `model.q4nx` with zero dequant/requant — using FLM's own bytes verbatim.
+
+The real remaining bug in `q4nx_stream.cpp` was schedule ordering (naive per-column replication
+instead of the group/patch/row-indexed schedule), now fixed and verified byte-identical to the
+validated `pack_fused_v3.py` output. See `docs/FUSED-INTEGRATION-BLOCKER.md`'s 2026-07-03 update
+for the full schedule formula and for what's still blocking (an O/UP/GATE/DOWN dataflow deadlock
+and a separate QKV numeric-correctness bug, both isolated to the Chess-compiled kernel — not the
+weight format).
