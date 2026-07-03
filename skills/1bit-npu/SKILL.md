@@ -30,6 +30,22 @@ curl http://127.0.0.1:9090/v1/chat/completions \
 | Lemond (Chat UI) | 13305 | `http://127.0.0.1:13305/` |
 | Lemond WebSocket | 9000 | `ws://127.0.0.1:9000/` |
 
+## Zaya1 74B — iGPU (ROCm) Backend
+
+On port 8081 via llama.cpp Zaya fork. ~18 tok/s on Radeon 8060S.
+
+```bash
+# Start Zaya server
+1bit zaya
+
+# Query Zaya endpoint
+curl http://127.0.0.1:8081/v1/chat/completions \
+  -d '{"messages":[{"role":"user","content":"Hello"}],"stream":false}'
+```
+
+### Memory note
+Zaya1 74B Q4_K_M is 42.6 GiB and loads entirely in VRAM (63 GiB total on Radeon 8060S), leaving ~15 GiB for KV cache + compute. Context limited to 8192 tokens by default to keep headroom.
+
 ## Models available on NPU
 
 - `qwen3-0.6b-FLM` (0.6B) — default, fastest
