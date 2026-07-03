@@ -1,4 +1,8 @@
-/** NPU Engine v3 — Continuous Batching. Batch N tokens through all layers. Target: <50ms/tok. */
+/** NPU Engine v3 — Continuous Batching. Batch N tokens through all layers. Target: <50ms/tok.
+ * KNOWN ISSUE — output is not yet coherent on real chat prompts, despite three real,
+ * confirmed bug fixes applied here (LM head weight substitution, weight-packing transpose,
+ * activation quantization clipping). This was previously only ever validated for speed
+ * ("97 tok/s, doesn't crash"), never output quality. See docs/V12-CORRECTNESS-BLOCKER.md. */
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -13,6 +17,24 @@
 #include <xrt/xrt_bo.h>
 #include <xrt/xrt_kernel.h>
 extern "C" float* dequant_i8_to_float(const uint8_t*,int,int*,int*);
+extern "C" float* dequant_i8_to_float_ex(const uint8_t*,int,int,int*,int*);
+// See docs/V12-CORRECTNESS-BLOCKER.md. dequant_i8_to_float(_ex) returns row-major
+// [out_features, in_features] (PyTorch nn.Linear convention); packB()/go() need the
+// transpose - [in_features, out_features] - since the GEMM computes A[tokens,in] @ B[in,out].
+static void transpose_pack(const float* src, int out_f, int in_f, float* dst, int dst_stride, int dst_offset) {
+    for (int o = 0; o < out_f; o++)
+        for (int i = 0; i < in_f; i++)
+            dst[(size_t)i * dst_stride + dst_offset + o] = src[(size_t)o * in_f + i];
+}
+// Dynamic per-call activation quantization scale (see docs/V12-CORRECTNESS-BLOCKER.md) -
+// a hardcoded 5.0f/127.0f assumes activations stay within [-5,5], but measured post-RMSNorm
+// activations range as wide as [-8.24,7.01], silently clipping to +-127 every layer.
+static inline float dynamic_ascale(const float* x, int n) {
+    float amax = 0;
+    for (int i = 0; i < n; i++) { float a = fabsf(x[i]); if (std::isfinite(a) && a > amax) amax = a; }
+    if (amax < 1e-12f) amax = 1.0f;
+    return amax / 127.0f;
+}
 static inline float bf16f(uint16_t v){uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}
 static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:bf16f(v);}
 static constexpr int H=1024,NC=28,NH=16,NKV=8,HD=128,IM=3072,NV=151936,GQA=2;
@@ -66,16 +88,30 @@ int main(int argc,char**argv){
 
     printf("Dequant+pack...\n");auto tp=std::chrono::steady_clock::now();
     struct WS{float qk,o_,g_,d_;}wsc[NC];
-    for(int l=0;l<NC;l++){int qr,kr,vr,or_,gr,ur,dr,unused;
+    const int QOUT=NH*HD,KVOUT=NKV*HD;   // in_features=H (default dequant is correct)
+    const int OOUT=H,OIN=NH*HD;          // in_features=2048, NOT the default 1024
+    const int GUOUT=IM;                   // in_features=H (default dequant is correct)
+    const int DOUT=H,DIN=IM;              // in_features=3072, NOT the default 1024
+    for(int l=0;l<NC;l++){int qr,kr,vr,unused;
         float*qw=dequant_i8_to_float(i8p(lo[l].qp),256,&qr,&unused),*kw=dequant_i8_to_float(i8p(lo[l].kp),128,&kr,&unused),*vw=dequant_i8_to_float(i8p(lo[l].vp),128,&vr,&unused);
-        int t=qr+kr+vr;std::vector<float>w((size_t)H*t);for(int k=0;k<H;k++){memcpy(&w[k*t],&qw[k*qr],qr*4);memcpy(&w[k*t+qr],&kw[k*kr],kr*4);memcpy(&w[k*t+qr+kr],&vw[k*vr],vr*4);}
+        int t=QOUT+KVOUT+KVOUT;std::vector<float>w((size_t)H*t);
+        transpose_pack(qw,QOUT,H,w.data(),t,0); transpose_pack(kw,KVOUT,H,w.data(),t,QOUT); transpose_pack(vw,KVOUT,H,w.data(),t,QOUT+KVOUT);
         cq.packB(l,w.data(),H,t,wsc[l].qk);free(qw);free(kw);free(vw);
-        float*ow=dequant_i8_to_float(i8p(lo[l].op),256,&or_,&unused);co.packB(l,ow,or_,H,wsc[l].o_);free(ow);
-        float*gw=dequant_i8_to_float(i8p(lo[l].gp),384,&gr,&unused),*uw=dequant_i8_to_float(i8p(lo[l].up),384,&ur,&unused);
-        int t2=gr+ur;std::vector<float>w2((size_t)H*t2);for(int k=0;k<H;k++){memcpy(&w2[k*t2],&gw[k*gr],gr*4);memcpy(&w2[k*t2+gr],&uw[k*ur],ur*4);}
+        int or2,oc2; float*ow=dequant_i8_to_float_ex(i8p(lo[l].op),256,OIN,&or2,&oc2);
+        std::vector<float>wo((size_t)OIN*OOUT); transpose_pack(ow,OOUT,OIN,wo.data(),OOUT,0);
+        co.packB(l,wo.data(),OIN,OOUT,wsc[l].o_);free(ow);
+        int gr,ur; float*gw=dequant_i8_to_float(i8p(lo[l].gp),384,&gr,&unused),*uw=dequant_i8_to_float(i8p(lo[l].up),384,&ur,&unused);
+        int t2=GUOUT+GUOUT;std::vector<float>w2((size_t)H*t2);
+        transpose_pack(gw,GUOUT,H,w2.data(),t2,0); transpose_pack(uw,GUOUT,H,w2.data(),t2,GUOUT);
         cg.packB(l,w2.data(),H,t2,wsc[l].g_);free(gw);free(uw);
-        float*dw=dequant_i8_to_float(i8p(lo[l].dp),384,&dr,&unused);cd.packB(l,dw,dr,H,wsc[l].d_);free(dw);}
-    int lr,lc;free(dequant_i8_to_float(i8p(lo_off),18992,&lr,&lc));
+        int dr2,dc2; float*dw=dequant_i8_to_float_ex(i8p(lo[l].dp),384,DIN,&dr2,&dc2);
+        std::vector<float>wd((size_t)DIN*DOUT); transpose_pack(dw,DOUT,DIN,wd.data(),DOUT,0);
+        cd.packB(l,wd.data(),DIN,DOUT,wsc[l].d_);free(dw);}
+    // lm_head.weight is NOT tied to embed_tokens.weight for this model (separate storage,
+    // separate quantization). See docs/V12-CORRECTNESS-BLOCKER.md.
+    int lr,lc; float* lm_raw=dequant_i8_to_float(i8p(lo_off),18992,&lr,&lc);
+    std::vector<float> lm_head_f32((size_t)lr*lc);
+    memcpy(lm_head_f32.data(),lm_raw,(size_t)lr*lc*sizeof(float)); free(lm_raw);
     printf("  %.0fms\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-tp).count());
     ri(HD,1000000.0f,4096);
 
@@ -93,7 +129,7 @@ int main(int argc,char**argv){
 
     for(int l=0;l<NC;l++){
         for(int pi=0;pi<npt;pi++)rn_c(&h_b[pi*H],in_n[l],H);
-        cq.go(l,h_b.data(),npt,H,5.0f/127.0f,wsc[l].qk,qo_b.data(),4096);cn(qo_b.data(),npt*4096);
+        cq.go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),wsc[l].qk,qo_b.data(),4096);cn(qo_b.data(),npt*4096);
         float*qn=qn_w[l],*kn=kn_w[l];
         for(int pi=0;pi<npt;pi++){
             for(int hh=0;hh<NH;hh++){double s=0;for(int d=0;d<HD;d++)s+=qo_b[pi*NH*HD+hh*HD+d]*qo_b[pi*NH*HD+hh*HD+d];float iq=1.0f/sqrtf((float)(s/HD)+EPS);for(int d=0;d<HD;d++)qo_b[pi*NH*HD+hh*HD+d]*=iq*qn[d];ra(&qo_b[pi*NH*HD+hh*HD],HD,sp+pi);}
@@ -107,12 +143,12 @@ int main(int argc,char**argv){
         for(int pi=0;pi<npt;pi++){for(int hh=0;hh<NH;hh++){int kvh=hh/GQA;std::vector<float>ss(cl);
             for(int p=0;p<cl;p++){double s=0;for(int d=0;d<HD;d++)s+=qo_b[pi*NH*HD+hh*HD+d]*kv[l].k[p*NKV*HD+kvh*HD+d];ss[p]=(float)(s/sqrtf(HD));}
             sm(ss.data(),cl);for(int d=0;d<HD;d++){float s=0;for(int p=0;p<cl;p++)s+=ss[p]*kv[l].v[p*NKV*HD+kvh*HD+d];at_b[pi*NH*HD+hh*HD+d]=s;}}}
-        co.go(l,at_b.data(),npt,NH*HD,5.0f/127.0f,wsc[l].o_,oo_b.data(),H);cn(oo_b.data(),npt*H);
+        co.go(l,at_b.data(),npt,NH*HD,dynamic_ascale(at_b.data(),npt*NH*HD),wsc[l].o_,oo_b.data(),H);cn(oo_b.data(),npt*H);
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]+=oo_b[pi*H+i];
         for(int pi=0;pi<npt;pi++)rn_c(&h_b[pi*H],pa_n[l],H);
-        cg.go(l,h_b.data(),npt,H,5.0f/127.0f,wsc[l].g_,gt_b.data(),6144);cn(gt_b.data(),npt*6144);
+        cg.go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),wsc[l].g_,gt_b.data(),6144);cn(gt_b.data(),npt*6144);
         for(int pi=0;pi<npt;pi++){for(int i=0;i<IM;i++){float gv=gt_b[pi*6144+i];if(!std::isfinite(gv))gv=0;su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[pi*6144+IM+i];}}
-        cd.go(l,su_b.data(),npt,IM,5.0f/127.0f,wsc[l].d_,dw_b.data(),H);cn(dw_b.data(),npt*H);
+        cd.go(l,su_b.data(),npt,IM,dynamic_ascale(su_b.data(),npt*IM),wsc[l].d_,dw_b.data(),H);cn(dw_b.data(),npt*H);
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]+=dw_b[pi*H+i];
     }
     sp+=npt;memcpy(h.data(),&h_b[(npt-1)*H],H*4);
@@ -125,7 +161,7 @@ int main(int argc,char**argv){
     for(int step=0;step<ng;step++){auto ts=std::chrono::steady_clock::now();
         for(int l=0;l<NC;l++){
             memcpy(sb.data(),h.data(),H*4);rn_c(h.data(),in_n[l],H);
-            cq.go(l,h.data(),1,H,5.0f/127.0f,wsc[l].qk,qo.data(),4096);cn(qo.data(),4096);
+            cq.go(l,h.data(),1,H,dynamic_ascale(h.data(),H),wsc[l].qk,qo.data(),4096);cn(qo.data(),4096);
             memcpy(ko.data(),&qo[2048],4096);memcpy(vo.data(),&qo[3072],4096);
             float*qn=qn_w[l],*kn=kn_w[l];
             for(int hh=0;hh<NH;hh++){double sq=0;for(int d=0;d<HD;d++)sq+=qo[hh*HD+d]*qo[hh*HD+d];float iq=1.0f/sqrtf((float)(sq/HD)+EPS);for(int d=0;d<HD;d++)qo[hh*HD+d]*=iq*qn[d];ra(&qo[hh*HD],HD,sp);
@@ -135,17 +171,17 @@ int main(int argc,char**argv){
                 for(int p=0;p<cl;p++){double s=0;for(int d=0;d<HD;d++)s+=qo[hh*HD+d]*kv[l].k[p*NKV*HD+kvh*HD+d];sc[p]=(float)(s/sqrtf(HD));}
                 sm(sc.data(),cl);for(int d=0;d<HD;d++){float s=0;for(int p=0;p<cl;p++)s+=sc[p]*kv[l].v[p*NKV*HD+kvh*HD+d];at[hh*HD+d]=s;}
             }
-            co.go(l,at.data(),1,NH*HD,5.0f/127.0f,wsc[l].o_,oo.data(),H);cn(oo.data(),H);for(int i=0;i<H;i++)h[i]=sb[i]+oo[i];
+            co.go(l,at.data(),1,NH*HD,dynamic_ascale(at.data(),NH*HD),wsc[l].o_,oo.data(),H);cn(oo.data(),H);for(int i=0;i<H;i++)h[i]=sb[i]+oo[i];
             memcpy(sb.data(),h.data(),H*4);rn_c(h.data(),pa_n[l],H);
-            cg.go(l,h.data(),1,H,5.0f/127.0f,wsc[l].g_,gt_b.data(),6144);cn(gt_b.data(),6144);
+            cg.go(l,h.data(),1,H,dynamic_ascale(h.data(),H),wsc[l].g_,gt_b.data(),6144);cn(gt_b.data(),6144);
             for(int i=0;i<IM;i++){float gv=gt_b[i];if(!std::isfinite(gv))gv=0;su_b[i]=(gv/(1.0f+expf(-gv)))*gt_b[IM+i];}
-            cd.go(l,su_b.data(),1,IM,5.0f/127.0f,wsc[l].d_,dw_b.data(),H);cn(dw_b.data(),H);
+            cd.go(l,su_b.data(),1,IM,dynamic_ascale(su_b.data(),IM),wsc[l].d_,dw_b.data(),H);cn(dw_b.data(),H);
             for(int i=0;i<H;i++)h[i]=sb[i]+dw_b[i];
         }
         // F32-optimized LM head (single pass: compute logits, find max, softmax, sample)
         memcpy(sb.data(),h.data(),H*4);rn_c(sb.data(),fin,H);
         float mx=-1e30f;
-        for(int n=0;n<NV;n++){double s=0;const float*e=&emb_f32_cb[(size_t)n*H];
+        for(int n=0;n<NV;n++){double s=0;const float*e=&lm_head_f32[(size_t)n*H];
             for(int k=0;k<H;k++)s+=(double)sb[k]*e[k];lg[n]=(float)s;if(lg[n]>mx)mx=lg[n];}
         double sum=0;for(int i=0;i<NV;i++){float d=lg[i]-mx;if(d<-80)d=-80;lg[i]=expf(d);sum+=lg[i];}
         float rr=(float)rand()/RAND_MAX*(float)sum,acc=0;int tok=0;for(int i=0;i<NV;i++){acc+=lg[i];if(acc>=rr){tok=i;break;}}

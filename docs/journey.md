@@ -1,3 +1,46 @@
+## UPDATE 25 (2026-07-03): v12 WAS NEVER OUTPUT-VALIDATED — 3 REAL BUGS FOUND, STILL INCOHERENT
+
+Set out to swap the production daemon's NPU backend from FLM (proprietary, closed-source)
+to v12 (our own C++ engine, "97 tok/s, beats FLM's 94, Zero Python"). Before wiring it in,
+sanity-checked actual chat output against FLM for the same prompt. FLM answered "What is
+2+2?" correctly (" 4."). v12 — byte-identical reproduction of the unmodified original —
+produced complete garbage. Every doc and benchmark in this repo checks tok/s and "doesn't
+crash," never coherence. The 97 tok/s number is real; the output behind it never was.
+
+Found and fixed 3 real, confirmed bugs, all present in `npu_engine_cb.cpp` since it was
+first written and inherited by `npu_target_model.h` (spec-decode's target-model dispatch):
+
+1. **LM head weight substitution** — `lm_head.weight` gets correctly dequantized then
+   immediately discarded; the code computes final vocab logits against the *embedding*
+   table instead (assumes tied embeddings). Qwen3-0.6B's checkpoint stores them completely
+   separately (confirmed via Q4NX header data_offsets) — the model computes a reasonable
+   final hidden state, then reads logits off the wrong matrix.
+2. **Weight-packing transpose** — `dequant_i8_to_float` returns row-major
+   `[out_features, in_features]`; the GEMM dispatch needs `[in_features, out_features]`.
+   The packing loop read the buffer with the wrong stride, silently scrambling every
+   weight matrix (Q/K/V/O/Gate/Up/Down) while still producing finite, plausible-looking
+   numbers. Also: O-proj and Down-proj dequant calls used the wrong `in_features` (1024
+   default instead of their real 2048/3072), scrambling the tiling itself.
+3. **Activation quantization clipping** — hardcoded INT8 scale assumed activations stay
+   within [-5,5]; measured range is [-8.24,7.01]. Silently clipped every layer, compounding
+   across all 28.
+
+All three fixed, in all three copies of this logic (`npu_engine_cb.cpp`,
+`npu_engine_server.cpp` — a new persistent-server variant built for the daemon swap,
+and `spec-decode/engine/npu_target_model.h`). Chat output is **still incoherent** after
+all three fixes, individually and combined, tested against both RoPE conventions
+(interleaved-pairs and HF's actual rotate_half). Ruled out via ground-truth comparison
+against the real HF model: embedding lookup, RoPE theta/config, GQA head mapping, K/V
+extraction offsets — all correct. Remaining suspects: RoPE rotation convention (tested,
+inconclusive) or the compiled `.xclbin` kernels themselves, undebuggable without the AI
+Engine Simulator — blocked on this machine since Update 24's investigation (missing
+`aie2p_8x4_device.json` for NPU2). Full writeup: `docs/V12-CORRECTNESS-BLOCKER.md`.
+
+**FLM proxy stays in production.** Do not wire v12/1bit.engine into the daemon until this
+is resolved and re-verified against real chat prompts, not just dispatch speed.
+
+---
+
 ## UPDATE 24 (2026-07-03): FUSED XCLBIN RESUMED — SCHEDULE FIXED, DEADLOCK ISOLATED, NEW KERNEL BUG FOUND
 
 Picked back up the fused-transformer-xclbin effort flagged as "next" at the end of Update 17
