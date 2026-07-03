@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>1bit.systems — 120kb Binary to rule them all · 5 models · 94 tok/s NPU (FLM) · 7.9× multi-context</title>
-<meta name="description" content="120kb Binary to rule them all. Five models. 120kb binary. 94 tok/s NPU via FLM proxy, 97 tok/s C++ v12. 64 req/s at 7.9× concurrency. Zero Python. Zero dependencies. 50 TOPS INT8, 55.7 TFLOPS, 281 tok/s 1-bit. Open source.">
+<meta name="description" content="120kb Binary to rule them all. Five models. 120kb binary. 94 tok/s NPU via FLM proxy, 97 tok/s C++ v12. 22 tok/s GPU (ZINC Vulkan). 64 req/s at 7.9× concurrency. Zero Python. Zero deps. Open source.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
@@ -151,7 +151,7 @@
   <p class="lead">The NPU AMD shipped locked. The GPU they already open. 1bit.systems drives both — from one mini PC, with no cloud in the loop.</p>
   <div class="grid2" style="margin-top:28px;">
     <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">NPU · XDNA 2</span><span class="pill warn"><span class="dot"></span>unlocked</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute tiles</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">50 TOPS of INT8 AMD shipped disabled on consumer silicon. Driven through FLM proxy at 94 tok/s (Qwen3-0.6B). C++ engine hits 97 tok/s (v12). Supports 5 model families from one binary.</p></div>
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--blue);">GPU · RDNA 3.5</span><span class="pill info"><span class="dot"></span>open</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">40</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute units</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">Vulkan 1.3 compute. GLSL shaders → SPIR-V, GGUF native. 37k tok/s throughput, 281 tok/s 1-bit.</p></div>
+    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--blue);">GPU · RDNA 3.5</span><span class="pill info"><span class="dot"></span>open</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute units</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">Vulkan 1.3 compute. ZINC engine (Zig, GGUF native, GLSL→SPIR-V). 22 tok/s decode (Bonsai-1.7B F16).</p></div>
   </div>
 </section>
 
@@ -161,8 +161,7 @@
   <p class="lead">Hand-written, dependency-free, benchmarked on the metal. Compile a binary; run it offline.</p>
   <div class="grid4" style="margin-top:28px;">
     <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag npu">NPU ALL</span><span class="mono" style="font-size:12px;color:var(--muted);">XDNA 2 · 32 tiles</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">5-Model Engine</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">94 tok/s<span style="font-size:15px;color:var(--muted);font-weight:500;"> (FLM proxy)</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">Production daemon proxies to FLM (94 tok/s). C++ engine: 28 tok/s all-5, 97 tok/s v12. Multi-context pool: 64 req/s at 7.9× scaling.</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">5 models · 120kb binary · 8-context pool · 64 req/s</div></div>
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag oneb">1-bit</span><span class="mono" style="font-size:12px;color:var(--muted);">RDNA 3.5 · 40 CUs</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">Bonsai 1.7B</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">281 tok/s</div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">IQ1_S · 385 MB. Vulkan backend. pi-agent patched llama.cpp.</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">385 MB model · Vulkan · Strix Halo</div></div>
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag gpu">GPU</span><span class="mono" style="font-size:12px;color:var(--muted);">Vulkan 1.3 · 40 CUs</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">ZINC Engine</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">27 µs<span style="font-size:15px;color:var(--muted);font-weight:500;"> / decode</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">Zig. GLSL compute → SPIR-V. Qwen3.5-9B Q4_K. GGUF native. 7.8× rocBLAS.</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">CUDA · Metal · Vulkan · MSL</div></div>
+    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag gpu">GPU</span><span class="mono" style="font-size:12px;color:var(--muted);">RDNA 3.5 · 32 CUs</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">ZINC Engine</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">22 tok/s<span style="font-size:15px;color:var(--muted);font-weight:500;"> decode</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">Zig. GLSL compute → SPIR-V. GGUF native. Bonsai-1.7B-F16. 99.6% bandwidth utilization (255 GB/s of 256).</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">Vulkan · 32 CUs · 256 GB/s · Strix Halo</div></div>
     <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag mlx">MLX</span><span class="mono" style="font-size:12px;color:var(--muted);">Apple + XDNA 2</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">MLX NPU Backend</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">dual<span style="font-size:15px;color:var(--muted);font-weight:500;"> silicon</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">Apple MLX fork with IRON XDNA 2 backend. Same framework runs on M1–M5 AND your NPU.</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">Apple Silicon · XDNA 2 · one framework</div></div>
   </div>
 </section>
@@ -172,7 +171,7 @@
   <h2 style="margin:16px 0 24px;">The numbers, verified. 5 models.</h2>
   <div class="stats">
     <div class="stat"><span class="lbl caps">Peak throughput</span><span class="val">55.7 <span>TFLOPS</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>INT8 · XDNA 2 NPU</span></div>
-    <div class="stat"><span class="lbl caps">1-bit decode</span><span class="val">281 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>Bonsai 1.7B · IQ1_S</span></div>
+    <div class="stat"><span class="lbl caps">GPU decode (F16)</span><span class="val">22 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>Bonsai-1.7B · ZINC Vulkan</span></div>
     <div class="stat"><span class="lbl caps">NPU FLM (0.6B)</span><span class="val">94 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>10.6 ms/tok · FLM proxy</span></div>
     <div class="stat"><span class="lbl caps">NPU C++ (0.6B)</span><span class="val">97 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--dim)"></span>10 ms/tok · v12 single-model</span></div>
     <div class="stat"><span class="lbl caps">Models supported</span><span class="val">5</span><span class="foot"><span class="dot" style="background:var(--blue)"></span>Qwen3 · Llama · Gemma4</span></div>
@@ -259,9 +258,9 @@
 <span class="b">  QKV: 1455μs  O: 1162μs  GU: 1713μs  D: 1268μs</span>
 <span class="b">  NPU GEMM: 156.8ms (70%)  LM head: 67ms (30%)  CPU: 0.7ms (&lt;1%)</span>
 
-<span class="c"># 1-bit GPU: 281 tok/s, 385 MB model</span>
-<span class="t">$ ./bonsai --model Bonsai-1.7B-IQ1_S.gguf --gpu-layers 99</span>
-<span class="b">281 tok/s · 385 MB · Vulkan · Strix Halo</span></div>
+<span class="c"># GPU: 22 tok/s, Bonsai-1.7B-F16 via ZINC</span>
+<span class="t">$ ./zinc -m Bonsai-1.7B-F16.gguf --prompt "Hello" --n-predict 128</span>
+<span class="b">46 ms/tok · 22 tok/s · 99.6% bandwidth · Vulkan</span></div>
   </div>
 </section>
 
@@ -375,8 +374,8 @@
   (function(){
     var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (reduce) return;
-    var frames = ["FLM proxy:     10.6 ms/tok (94 tok/s)","C++ v12:       10.3 ms/tok (97 tok/s)","C++ ALL 5 models: auto-detect engine","Llama-3.1-8B GPU: 11.3 tok/s","50 TOPS INT8 · 24× speedup"];
-    var ms = [10.6,10.3,"5","11.3","24×"];
+    var frames = ["FLM proxy:     10.6 ms/tok (94 tok/s)","C++ v12:       10.3 ms/tok (97 tok/s)","C++ ALL 5 models: auto-detect engine","GPU (ZINC):     46 ms/tok (22 tok/s)","50 TOPS INT8 · 24× speedup"];
+    var ms = [10.6,10.3,"5","46","24×"];
     var i = 0;
     var msEl = document.getElementById('ms');
     setInterval(function(){i++;var m=ms[i%ms.length];msEl.textContent=m;},950);
