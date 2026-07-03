@@ -31,6 +31,17 @@ from typing import Optional
 import urllib.request
 import urllib.error
 
+# Optional Stripe integration for the merch store
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+_stripe = None
+if STRIPE_SECRET_KEY:
+    try:
+        import stripe as _stripe_lib
+        _stripe_lib.api_key = STRIPE_SECRET_KEY
+        _stripe = _stripe_lib
+    except ImportError:
+        pass
+
 def _reject_json_constant(value: str):
     raise ValueError(f"Invalid JSON constant: {value}")
 
@@ -221,6 +232,9 @@ start_time = time.time()
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path == "/store" or self.path == "/store/":
+            self._serve_store()
+            return
         if self.path == "/v1/health":
             self._json(200, {
                 "status": "ok",
@@ -251,7 +265,54 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._json(404, {"error": "Not found"})
 
+    def do_OPTIONS(self):
+        if self.path == "/api/checkout":
+            self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.end_headers()
+
     def do_POST(self):
+        # ── Stripe checkout endpoint ──
+        if self.path == "/api/checkout":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            try:
+                req = _loads_json(body)
+            except (json.JSONDecodeError, ValueError):
+                self._json(400, {"error": "Invalid JSON"})
+                return
+            items = req.get("items", [])
+            if not items:
+                self._json(400, {"error": "Cart is empty"})
+                return
+            if not _stripe:
+                self._json(503, {"error": "Stripe not configured. Set STRIPE_SECRET_KEY env var."})
+                return
+            try:
+                session = _stripe.checkout.Session.create(
+                    payment_method_types=["card"],
+                    line_items=items,
+                    mode="payment",
+                    success_url=req.get("successUrl", "https://1bit.systems/store/success"),
+                    cancel_url=req.get("cancelUrl", "https://1bit.systems/store"),
+                    shipping_address_collection={"allowed_countries": [
+                        "US","CA","GB","DE","FR","AU","JP","BR","MX","NL",
+                        "SE","NO","DK","FI","CH","AT","BE","IE","PT","ES",
+                        "IT","PL","CZ","RO","GR","NZ","SG","HK","KR","IN"
+                    ]},
+                )
+                resp = {"url": session.url, "id": session.id}
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps(resp).encode())
+            except Exception as e:
+                self._json(400, {"error": str(e)})
+            return
+
         if self.path == "/v1/chat/completions":
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
@@ -361,6 +422,19 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(502, {"error": str(e)})
         else:
             self._json(404, {"error": "Not found"})
+
+    def _serve_store(self):
+        store_path = os.path.join(os.path.dirname(__file__), "..", "site", "store", "index.html")
+        try:
+            with open(store_path, "rb") as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except FileNotFoundError:
+            self._json(404, {"error": "Store not found"})
 
     def _json(self, status: int, data: dict):
         self.send_response(status)

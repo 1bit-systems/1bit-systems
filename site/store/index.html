@@ -186,8 +186,12 @@ const PRODUCTS = [
 const CART = new Map(); // productId -> {product, size, qty}
 let stripe = null;
 
+// API base — daemon runs on port 9090 on the Strix Halo
+const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? '' : 'http://127.0.0.1:9090';
+
 document.addEventListener('DOMContentLoaded', () => {
-  stripe = Stripe('pk_live_placeholder'); // TODO: replace with real Stripe publishable key
+  stripe = Stripe('pk_live_51TUvAmJnXt3bWED8N2qz5VRr63btuJjUeB8awZ6bJVWJvk0dWIgKBuXk56QRvUx4OItBsvkpooVZWwFgVcoJAuHp00aKGHfX7U');
   render();
 });
 
@@ -250,22 +254,23 @@ async function checkout() {
   }
 
   try {
-    // For now: direct to Stripe checkout. When the user connects their
-    // Stripe account, this will use their real publishable key.
-    // For now it shows a "configure your Stripe key" message.
-    msg('Stripe checkout ready — replace pk_live_placeholder with your publishable key', 'ok');
-
-    // Full integration (uncomment when Stripe key is set):
-    // const { error } = await stripe.redirectToCheckout({
-    //   lineItems: items,
-    //   mode: 'payment',
-    //   successUrl: 'https://store.1bit.systems/success',
-    //   cancelUrl: 'https://store.1bit.systems',
-    //   shippingAddressCollection: { allowedCountries: ['US','CA','GB','DE','FR','AU','JP','BR','MX','NL','SE','NO','DK','FI','CH','AT','BE','IE','PT','ES','IT','PL','CZ','RO','GR','NZ','SG','HK','KR','IN'] },
-    // });
-    // if (error) msg(error.message, 'err');
+    const resp = await fetch(API_BASE + '/api/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        items: items,
+        successUrl: 'https://1bit.systems/store/success',
+        cancelUrl: 'https://1bit.systems/store',
+      }),
+    });
+    const data = await resp.json();
+    if (data.url) {
+      window.location.href = data.url;
+    } else {
+      msg(data.error || 'Checkout failed', 'err');
+    }
   } catch(e) {
-    msg(e.message, 'err');
+    msg(e.message || 'Checkout error', 'err');
   }
 }
 
