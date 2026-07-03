@@ -261,10 +261,17 @@ GPU inference tier vs NPU:
 **ZINC Vulkan supported quant types**: `q4_k`, `q5_k`, `q6_k`, `q8_0`, `f16`, `f32`, `mxfp4`
 **Not supported**: `q2_k`, `q3_k`, `q4_0`, `q4_1`, `iq1_s`, `iq1_m`, all `iq*` 1-bit formats
 
-> The Bonsai-1.7B-IQ1_S and Q2_K models are built on quant types (iq1_s = type 19,
-> q2_k = type 10) that ZINC's Vulkan compute shaders don't implement. The `--check`
-> flag correctly identifies these models, but forward pass fails with
-> `UnsupportedQuantType`. Writing IQ1_S Vulkan shaders is a substantial feature.
+> The Bonsai-1.7B-IQ1_S model uses a **mixed quantization scheme**:
+> - Attention Q/K/V and FFN weights: IQ1_S (type 19) — ZINC has no shaders for this
+> - Attention output projection: IQ2_XXS (type 16) — now loads correctly
+> - Embeddings: Q8_1 (type 10) — falls back to zeros
+>
+> The Bonsai-1.7B-Q2_K model uses Q2_K (type 10) throughout — not supported.
+>
+> **Fix applied (zinc@0e2de7ad)**:
+> - IQ1_S, IQ1_M, IQ2_XXS block sizes (256) and bytes-per-block (34/36/66) added
+> - Prevents segfault: all 310 tensors load without `vkBindBufferMemory` crash
+> - Forward pass still fails with `UnsupportedQuantType` for IQ1_S — new feature needed
 
 Run ZINC: `cd ~/zinc && zig-out/bin/zinc -m <model.gguf> --prompt "Hello"`
 Build ZINC: `cd ~/zinc && /path/to/zig-0.15.2/zig build -Dbackend=vulkan -Doptimize=ReleaseFast`
