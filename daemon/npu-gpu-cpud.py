@@ -34,6 +34,173 @@ import urllib.error
 # Stripe integration — uses raw HTTPS (no SDK needed)
 STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
 
+# Order notification emails
+ORDER_NOTIFY_EMAIL = os.environ.get("ORDER_NOTIFY_EMAIL", "sales@1bit.systems")  # supplier
+ORDER_NOTIFY_CC = os.environ.get("ORDER_NOTIFY_CC", "")                          # you
+SMTP_HOST = os.environ.get("SMTP_HOST", "localhost")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "25"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASS = os.environ.get("SMTP_PASS", "")
+ORDER_LOG = os.path.join(os.path.dirname(__file__), "..", "orders.json")
+
+def _send_order_email(order: dict):
+    """Send order notification via SMTP or local sendmail."""
+    subject = f"🛒 1bit Store Order — {order.get('customer_name','Customer')}"
+    lines = [f"From: 1bit Store <store@1bit.systems>",
+             f"To: {ORDER_NOTIFY_EMAIL}"]
+    if ORDER_NOTIFY_CC:
+        lines.append(f"Cc: {ORDER_NOTIFY_CC}")
+    lines += [f"Subject: {subject}", "Content-Type: text/plain; charset=utf-8", ""]
+    lines.append("═══════════════════════════════════════")
+    lines.append("  NEW ORDER — 1bit.systems Store")
+    lines.append("═══════════════════════════════════════")
+    lines.append("")
+    for item in order.get("items", []):
+        name = item.get("product", "Merch")
+        size = f" ({item.get('size')})" if item.get("size") else ""
+        qty = item.get("qty", 1)
+        price = item.get("price", 0)
+        lines.append(f"  {qty}× {name}{size}  —  ${price/100:.2f} each")
+    lines.append("")
+    lines.append(f"  Total:     ${order.get('total',0)/100:.2f}")
+    lines.append(f"  Customer:  {order.get('customer_name','?')}")
+    lines.append(f"  Email:     {order.get('customer_email','?')}")
+    lines.append(f"  Shipping:  {order.get('shipping_address','?')}")
+    lines.append(f"  Stripe ID: {order.get('stripe_session_id','?')}")
+    lines.append("")
+    lines.append("  Free extras (included): stickers + lanyard + thank you card + mystery sticker")
+    lines.append("")
+    lines.append("═══════════════════════════════════════")
+    lines.append("  Ship it. —bong-water-water-bong")
+    lines.append("═══════════════════════════════════════")
+    msg = "\r\n".join(lines)
+    try:
+        import smtplib
+        if SMTP_HOST == "localhost":
+            # Try local sendmail
+            import subprocess as sp
+            sp.run(["sendmail", "-t"], input=msg.encode(), timeout=10)
+        else:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as s:
+                s.starttls()
+                if SMTP_USER:
+                    s.login(SMTP_USER, SMTP_PASS)
+                s.sendmail("store@1bit.systems",
+                           [e for e in [ORDER_NOTIFY_EMAIL, ORDER_NOTIFY_CC] if e],
+                           msg.encode())
+        print(f"  ✉️  Order email sent to {ORDER_NOTIFY_EMAIL}", flush=True)
+    except Exception as e:
+        print(f"  ⚠️  Email failed: {e} (order saved to {ORDER_LOG})", flush=True)
+
+def _log_order(order: dict):
+    """Persist order to JSON log."""
+    orders = []
+    try:
+        with open(ORDER_LOG) as f:
+            orders = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    order["logged_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    orders.append(order)
+    os.makedirs(os.path.dirname(ORDER_LOG), exist_ok=True)
+    with open(ORDER_LOG, "w") as f:
+        json.dump(orders, f, indent=2)
+
+# Pending orders: session_id → order details (persisted to disk)
+_pending_orders: dict[str, dict] = {}
+PENDING_LOG = os.path.join(os.path.dirname(__file__), "..", ".pending-orders.json")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+
+def _load_pending():
+    """Restore pending orders from disk (survives daemon restart)."""
+    global _pending_orders
+    try:
+        with open(PENDING_LOG) as f:
+            _pending_orders = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        _pending_orders = {}
+
+def _save_pending():
+    """Persist pending orders to disk."""
+    with open(PENDING_LOG, "w") as f:
+        json.dump(_pending_orders, f)
+    # Also create orders.json if it doesn't exist
+    if not os.path.exists(ORDER_LOG):
+        with open(ORDER_LOG, "w") as f:
+            json.dump([], f)
+
+# Load any pending orders from previous daemon runs
+_load_pending()
+
+def _fulfill_order(order: dict):
+    """Send notification and log order when payment completes."""
+    _log_order(order)
+
+    # Send notification email
+    print(f"\n{'='*60}", flush=True)
+    print(f"  🛒 ORDER PAID — {order.get('total',0)/100:.2f}", flush=True)
+    for item in order.get("items", []):
+        print(f"    {item.get('qty',1)}× {item.get('product','?')} {item.get('size','')}", flush=True)
+    print(f"  Ship to: {order.get('customer_name','?')} — {order.get('shipping_address','?')}", flush=True)
+    print(f"{'='*60}\n", flush=True)
+
+    _send_order_email(order)
+
+def _handle_stripe_webhook(body: bytes, sig_header: str) -> dict:
+    """Process Stripe webhook event. Returns {ok: true} or {error: ...}."""
+    import hmac, hashlib
+    event = json.loads(body)
+    event_type = event.get("type", "")
+
+    # Verify signature if secret is configured
+    if STRIPE_WEBHOOK_SECRET and sig_header:
+        try:
+            timestamp, signature = sig_header.split(",", 1)
+            t = timestamp.split("=")[1]
+            s = signature.split("=")[1]
+            signed = f"{t}.{body.decode()}"
+            expected = hmac.new(
+                STRIPE_WEBHOOK_SECRET.encode(), signed.encode(), hashlib.sha256
+            ).hexdigest()
+            if not hmac.compare_digest(expected, s):
+                return {"error": "Invalid signature", "status": 403}
+        except Exception:
+            return {"error": "Bad signature header", "status": 400}
+
+    if event_type == "checkout.session.completed":
+        session = event.get("data", {}).get("object", {})
+        sid = session.get("id", "")
+        customer = session.get("customer_details", {})
+        shipping = session.get("shipping_details", {})
+        addr = shipping.get("address", {})
+
+        # Build order from webhook data
+        order = _pending_orders.pop(sid, None)
+        if not order:
+            # Reconstruct order from line items if we missed the creation
+            line_items = session.get("display_items", [])
+            order = {
+                "items": [{"product": li.get("custom",{}).get("name","Merch"),
+                           "qty": li.get("quantity",1),
+                           "price": li.get("amount_total",0)} for li in line_items],
+                "total": session.get("amount_total", 0),
+                "customer_name": customer.get("name", shipping.get("name", "?")),
+                "customer_email": customer.get("email", "?"),
+                "shipping_address": f"{shipping.get('name','')} {addr.get('line1','')} {addr.get('city','')} {addr.get('state','')} {addr.get('country','')}",
+            }
+        else:
+            _save_pending()  # persist removal from pending
+            # Enrich with real customer details from Stripe
+            order["customer_name"] = customer.get("name", shipping.get("name", order.get("customer_name", "?")))
+            order["customer_email"] = customer.get("email", "?")
+            order["shipping_address"] = f"{shipping.get('name','')} {addr.get('line1','')} {addr.get('city','')} {addr.get('state','')} {addr.get('country','')}".strip() or order.get("shipping_address", "?")
+
+        order["stripe_session_id"] = sid
+        _fulfill_order(order)
+        return {"ok": True}
+
+    return {"ok": True, "skipped": event_type}
+
 def _stripe_create_checkout(items: list, success_url: str, cancel_url: str) -> dict:
     """Create a Stripe Checkout Session via REST API."""
     import ssl, http.client
@@ -332,6 +499,18 @@ class Handler(BaseHTTPRequestHandler):
                 if "error" in resp:
                     self._json(400, resp)
                     return
+                # Store pending order for webhook fulfillment
+                sid = resp.get("id", "")
+                if sid:
+                    _pending_orders[sid] = {
+                        "items": [{"product": it.get("price_data",{}).get("product_data",{}).get("name","Merch"),
+                                   "size": it.get("size",""), "qty": it.get("quantity",1),
+                                   "price": it.get("price_data",{}).get("unit_amount",0)}
+                                  for it in items],
+                        "total": sum(it.get("price_data",{}).get("unit_amount",0) * it.get("quantity",1)
+                                     for it in items),
+                    }
+                    _save_pending()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Access-Control-Allow-Origin", "*")
@@ -339,6 +518,17 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps(resp).encode())
             except Exception as e:
                 self._json(400, {"error": str(e)})
+            return
+
+        if self.path == "/api/webhook":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            sig = self.headers.get("Stripe-Signature", "")
+            result = _handle_stripe_webhook(body, sig)
+            if "status" in result and result["status"] >= 400:
+                self._json(result.pop("status", 400), result)
+            else:
+                self._json(200, result)
             return
 
         if self.path == "/v1/chat/completions":
