@@ -1,0 +1,17 @@
+[Unit]
+Description=1bit NPU Daemon (FLM-powered, turbo)
+After=network.target
+
+[Service]
+Type=simple
+# REQUIRED: edit this path to point to daemon/npu-gpu-cpud.py in your repo checkout
+ExecStart=/usr/bin/python3 /home/bcloud/daemon/npu-gpu-cpud.py --port 9090
+Restart=always
+RestartSec=5
+LimitMEMLOCK=infinity
+Environment=FLM_PMODE=turbo
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
