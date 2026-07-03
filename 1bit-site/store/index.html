@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>1bit.systems Store — Sorry but not Sorry</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#021621; --panel:#06222f; --tile:#06222f; --inner:#021018;
+    --border:#0e3346; --border2:#123a4d;
+    --text:#e7f6fd; --muted:#86adbf; --dim:#4a6a7a;
+    --green:#00ff00; --green-d:#00c853; --pink:#f00fd2; --blue:#12a0ed;
+    --sans:'Inter','Helvetica Neue',Helvetica,Arial,sans-serif;
+    --mono:'JetBrains Mono','SFMono-Regular','Menlo',Consolas,monospace;
+    --maxw:1100px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:radial-gradient(1100px 560px at 80% -10%,rgba(240,15,210,.10),transparent 60%),radial-gradient(950px 520px at 4% 8%,rgba(18,160,237,.10),transparent 60%),var(--bg);color:var(--text);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased;min-height:100vh;}
+  a{color:inherit;text-decoration:none;}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 32px;}
+  nav{position:sticky;top:0;z-index:30;backdrop-filter:blur(14px);background:rgba(2,22,33,.78);border-bottom:1px solid var(--border);}
+  .nav-in{max-width:var(--maxw);margin:0 auto;padding:0 32px;height:68px;display:flex;align-items:center;gap:24px;}
+  .brand{display:flex;align-items:center;gap:11px;}
+  .mark{width:40px;height:40px;border-radius:999px;background:var(--bg);border:2px solid var(--pink);box-shadow:0 0 16px rgba(240,15,210,.35);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:800;font-size:13px;letter-spacing:-.04em;color:var(--green);}
+  .wordmark{font-size:19px;letter-spacing:-.025em;font-weight:800;}
+  .wordmark .g{color:var(--green);} .wordmark .p{color:var(--pink);}
+  .nav-cta{display:flex;align-items:center;gap:14px;margin-left:auto;}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-family:var(--sans);font-weight:700;border-radius:999px;cursor:pointer;white-space:nowrap;transition:background .16s ease,box-shadow .18s ease;border:1px solid transparent;}
+  .btn-primary{background:var(--green);color:var(--bg);box-shadow:0 2px 6px rgba(16,42,67,.2);}
+  .btn-primary:hover{background:var(--green-d);box-shadow:0 6px 22px rgba(0,255,0,.30);}
+  .btn-ghost{background:transparent;color:var(--text);border:1px solid var(--border2);}
+  .btn-ghost:hover{background:rgba(18,160,237,.08);border-color:var(--blue);}
+  .btn-md{height:44px;padding:0 20px;font-size:16px;}
+  .hero{padding:60px 0 40px;text-align:center;}
+  h1{font-size:clamp(34px,4.8vw,54px);font-weight:900;line-height:1.08;letter-spacing:-.025em;}
+  h1 .g{color:var(--green);} h1 .p{color:var(--pink);} h1 .b{color:var(--blue);}
+  .sub{max-width:520px;margin:20px auto;font-size:17px;line-height:1.5;color:var(--muted);}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;margin:40px 0;}
+  .card{border-radius:18px;border:1px solid var(--border);background:var(--tile);overflow:hidden;transition:border-color .2s,box-shadow .2s;}
+  .card:hover{border-color:var(--pink);box-shadow:0 8px 30px rgba(240,15,210,.15);}
+  .card-img{height:260px;background:var(--inner);display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);}
+  .card-body{padding:20px 22px 24px;}
+  .card-body h3{font-size:18px;font-weight:800;margin-bottom:6px;}
+  .card-body .price{font-family:var(--mono);font-size:22px;font-weight:800;color:var(--green);}
+  .card-body .desc{font-size:13px;color:var(--muted);margin:8px 0;line-height:1.45;}
+  .mono{font-family:var(--mono);}
+  .caps{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);}
+  .pill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:700;}
+  .pill.warn{background:rgba(240,15,210,.16);color:#f5a3e6;border:1px solid rgba(240,15,210,.25);}
+  .pill.info{background:rgba(18,160,237,.14);color:#7cc8f5;border:1px solid rgba(18,160,237,.25);}
+  .branding-showcase{display:flex;flex-wrap:wrap;gap:16px;justify-content:center;margin:30px 0;}
+  .branding-showcase span{padding:8px 18px;border-radius:999px;font-family:var(--mono);font-weight:800;font-size:14px;border:1px solid var(--border2);}
+  footer{border-top:1px solid var(--border);margin-top:60px;padding:40px 0;text-align:center;font-size:13px;color:var(--dim);}
+  @media (max-width:600px){.wrap,.nav-in{padding:0 20px;}.hero{padding:44px 0 28px;}}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-in">
+    <a class="brand" href="/"><span class="mark">1bs</span><span class="wordmark"><span class="g">1</span>bit<span class="p">.</span>systems</span></a>
+    <div class="nav-cta">
+      <a class="btn btn-ghost btn-md" href="/">← Back to 1bit.systems</a>
+    </div>
+  </div>
+</nav>
+
+<section class="hero wrap">
+  <span class="caps" style="color:var(--pink);">Merch Store</span>
+  <h1 style="margin-top:12px;"><span class="p">Sorry</span> but not <span class="g">Sorry</span></h1>
+  <p class="sub">AMD locked the NPU. We unlocked it. Now wear the proof. <br>100% dropshipped · zero inventory · ships worldwide.</p>
+  <div class="branding-showcase">
+    <span style="color:var(--green);">50 TOPS</span>
+    <span style="color:var(--pink);">94 tok/s</span>
+    <span style="color:var(--blue);">Open Source</span>
+    <span style="color:var(--green);">281 tok/s 1-bit</span>
+    <span style="color:var(--pink);">Zero Dependencies</span>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="grid">
+
+    <div class="card">
+      <div class="card-img">
+        <svg width="200" height="200" viewBox="0 0 200 200"><rect width="200" height="200" rx="16" fill="#021621" stroke="#0e3346" stroke-width="2"/><text x="100" y="80" text-anchor="middle" fill="#00ff00" font-family="monospace" font-size="52" font-weight="900">1bs</text><text x="100" y="115" text-anchor="middle" fill="#86adbf" font-family="monospace" font-size="14">50 TOPS · 94 tok/s</text><text x="100" y="150" text-anchor="middle" fill="#f00fd2" font-family="monospace" font-size="16" font-weight="800">Sorry but not Sorry</text></svg>
+      </div>
+      <div class="card-body">
+        <h3>T-Shirt — Black</h3>
+        <div class="price">$29.99</div>
+        <div class="desc">Premium cotton. "Sorry but not Sorry" in pink on black. 1bit logo chest print. Unisex S-3XL.</div>
+        <div style="margin-top:12px;"><span class="pill warn">Coming Soon</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-img">
+        <svg width="200" height="200" viewBox="0 0 200 200"><rect width="200" height="200" rx="16" fill="#021621" stroke="#0e3346" stroke-width="2"/><text x="100" y="90" text-anchor="middle" fill="#f00fd2" font-family="monospace" font-size="48" font-weight="900">NPU</text><text x="100" y="125" text-anchor="middle" fill="#00ff00" font-family="monospace" font-size="20" font-weight="800">UNLOCKED</text><text x="100" y="155" text-anchor="middle" fill="#86adbf" font-family="monospace" font-size="12">Strix Halo · 32 tiles</text></svg>
+      </div>
+      <div class="card-body">
+        <h3>T-Shirt — Navy</h3>
+        <div class="price">$29.99</div>
+        <div class="desc">"NPU UNLOCKED" in green on navy. Strix Halo 32-tile diagram on back. Unisex S-3XL.</div>
+        <div style="margin-top:12px;"><span class="pill warn">Coming Soon</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-img">
+        <svg width="200" height="200" viewBox="0 0 200 200"><rect width="200" height="200" rx="16" fill="#021621" stroke="#0e3346" stroke-width="2"/><text x="100" y="85" text-anchor="middle" fill="#12a0ed" font-family="monospace" font-size="40" font-weight="900">1bit</text><text x="100" y="120" text-anchor="middle" fill="#e7f6fd" font-family="monospace" font-size="18" font-weight="800">systems</text><text x="100" y="155" text-anchor="middle" fill="#f00fd2" font-family="monospace" font-size="12">est. 2026</text></svg>
+      </div>
+      <div class="card-body">
+        <h3>Coffee Mug — 11oz</h3>
+        <div class="price">$18.99</div>
+        <div class="desc">Ceramic. "1bit.systems" in blue on matte black. Dishwasher safe. 11oz / 325ml.</div>
+        <div style="margin-top:12px;"><span class="pill warn">Coming Soon</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-img">
+        <svg width="200" height="200" viewBox="0 0 200 200"><rect width="200" height="200" rx="16" fill="#021621" stroke="#0e3346" stroke-width="2"/><text x="100" y="85" text-anchor="middle" fill="#00ff00" font-family="monospace" font-size="36" font-weight="900">94 tok/s</text><text x="100" y="120" text-anchor="middle" fill="#86adbf" font-family="monospace" font-size="16">AMD Strix Halo</text><text x="100" y="150" text-anchor="middle" fill="#f00fd2" font-family="monospace" font-size="14" font-weight="800">100% local AI</text></svg>
+      </div>
+      <div class="card-body">
+        <h3>Water Bottle — 20oz</h3>
+        <div class="price">$24.99</div>
+        <div class="desc">Stainless steel, vacuum insulated. "100% local AI" + 1bit lockup. Keeps cold 24hrs.</div>
+        <div style="margin-top:12px;"><span class="pill warn">Coming Soon</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-img">
+        <svg width="200" height="200" viewBox="0 0 200 200"><rect width="200" height="200" rx="16" fill="#021621" stroke="#0e3346" stroke-width="2"/><text x="100" y="80" text-anchor="middle" fill="#f00fd2" font-family="monospace" font-size="44" font-weight="900">1bs</text><text x="100" y="115" text-anchor="middle" fill="#00ff00" font-family="monospace" font-size="18" font-weight="800">HOODIE</text><text x="100" y="150" text-anchor="middle" fill="#86adbf" font-family="monospace" font-size="12">Zero Python. Zero Dependencies.</text></svg>
+      </div>
+      <div class="card-body">
+        <h3>Hoodie — Black</h3>
+        <div class="price">$49.99</div>
+        <div class="desc">Heavyweight fleece. "Zero Python. Zero Dependencies." on back. 1bit mark on chest.</div>
+        <div style="margin-top:12px;"><span class="pill warn">Coming Soon</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-img">
+        <svg width="200" height="200" viewBox="0 0 200 200"><rect width="200" height="200" rx="16" fill="#021621" stroke="#0e3346" stroke-width="2"/><text x="100" y="75" text-anchor="middle" fill="#00ff00" font-family="monospace" font-size="28" font-weight="900">STICKER</text><text x="100" y="105" text-anchor="middle" fill="#f00fd2" font-family="monospace" font-size="22" font-weight="800">PACK</text><text x="100" y="140" text-anchor="middle" fill="#12a0ed" font-family="monospace" font-size="14">1bit · NPU · 94 tok/s</text><text x="100" y="165" text-anchor="middle" fill="#86adbf" font-family="monospace" font-size="12">3-pack vinyl</text></svg>
+      </div>
+      <div class="card-body">
+        <h3>Sticker Pack — 3-pack</h3>
+        <div class="price">$8.99</div>
+        <div class="desc">Die-cut vinyl. 1bit mark + "94 tok/s" + "Open Source" badges. Weatherproof. 3×3".</div>
+        <div style="margin-top:12px;"><span class="pill warn">Coming Soon</span></div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section class="wrap" style="text-align:center;padding:40px 0;">
+  <span class="caps" style="color:var(--blue);">How it works</span>
+  <h2 style="margin:16px 0;font-size:28px;font-weight:800;">Dropshipped. Zero inventory. Ships worldwide.</h2>
+  <p class="sub">Powered by <span style="color:var(--green);">Printful</span> — premium print-on-demand. <br>Order → printed next day → delivered in 5-10 days. <br>We never touch the product. You get the drip.</p>
+  <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:24px;">
+    <span class="pill info">🌍 Worldwide shipping</span>
+    <span class="pill info">📦 Print-on-demand</span>
+    <span class="pill info">💳 Cards · PayPal · Crypto</span>
+    <span class="pill info">🔄 30-day returns</span>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>1bit.systems Merch · Dropshipped by Printful · <a href="mailto:admin@1bit.systems" style="color:var(--blue);">admin@1bit.systems</a></p>
+    <p style="margin-top:8px;color:var(--dim);">—bong-water-water-bong · Sorry but not Sorry :)</p>
+  </div>
+</footer>
+
+</body>
+</html>
