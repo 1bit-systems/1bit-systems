@@ -220,6 +220,35 @@ iGPU inference tier vs NPU:
 
 ---
 
+## iGPU (ROCm) — Zaya1 Preview 74B-A4B via llama.cpp (July 3, 2026) [ARCHIVED]
+
+*ROCm completely removed from system on July 3, 2026. Vulkan is the only GPU backend.*
+*These benchmarks are historical — Zaya 74B no longer runs on this hardware.*
+
+**Hardware**: Radeon 8060S Graphics (gfx1151), 62814 MiB VRAM, 122 GiB unified RAM
+**Build**: `Juste-Leo2/llama.cpp` Zaya1 branch, `-DGGML_HIP=ON`, build b9094
+**Model**: ZAYA1PREVIEW-74B-A4B-Q4_K_M.gguf (42.60 GiB, 74.79B params, 4.89 BPW)
+**Quant**: Q4_K_M, 24 experts, 1 expert/token, 120 layers, 16 heads, 2 KV heads
+**Context**: 8192 tokens, flash attention enabled, full GPU offload (99/121 layers)
+
+| Test | Latency | Throughput |
+|------|---------|------------|
+| pp64 (prefill, 64 tok) | — | **150.1 ± 22.5 tok/s** |
+| pp128 | — | **221.8 ± 18.9 tok/s** |
+| pp256 | — | **369.1 ± 21.3 tok/s** |
+| tg128 (decode) | 56.7 ms/tok | **17.63 ± 0.27 tok/s** |
+| Real-world gen (51→100 tok) | 55.9 ms/tok | **17.89 tok/s** |
+| Real-world gen (43→4 tok, TTFT) | 507 ms | **84.7 tok/s (prefill)** |
+
+**Key insights**:
+- 74B MoE model ran **entirely in VRAM** (42.6 GiB in 63 GiB) with 15+ GiB for KV cache & compute
+- CCA attention + MoE GEGLU layers decoded at 17.6-17.9 tok/s — 1.6× faster than the NPU C++ engine's 8B models
+- Prefill hit 369 tok/s at pp256 (batch efficiency scales well vs 74B)
+- Flash attention enabled with 8192 context — could grow to full 262K context
+- Real-world throughput (17.9 tok/s) was usable for interactive chat, document Q&A, coding
+
+---
+
 ## ZINC GPU (Vulkan) — Bonsai-1.7B-F16 via Zinc (July 3, 2026)
 
 **Hardware**: Radeon 8060S Graphics (RADV STRIX_HALO), 32 CUs, 256 GB/s, 42217 MB VRAM
