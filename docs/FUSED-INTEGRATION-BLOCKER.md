@@ -109,3 +109,38 @@ toolchain), not a quick fix.
 
 **Status: still not production-ready.** v12 (97 tok/s, standalone INT8 GEMM) remains the production
 engine.
+
+---
+
+## UPDATE (2026-07-03, cont'd): Main16 GEMM Proven Correct In Isolation — Bug Is In Multi-Tile Plumbing
+
+Found `run_kernel_main16_q4nx.py`, an existing isolated microbenchmark that runs *only* the
+`main_projection_q4nx_fast.o` Q4NX GEMM/dequant kernel (single AIE tile) against
+`q4nx_reference.py::q4nx_matvec_from_chunk`, no RoPE/norm/absorb/multi-tile plumbing involved.
+
+```
+main16_q_records: max_abs=0.000000000 mean_abs=0.000000000 mismatches=0
+PASS: Main16 Q4NX isolated numerical validation (q)
+```
+
+**Byte-exact.** This decisively rules out the GEMM/dequant math as the source of the QKV-prefix
+numeric bug — combined with the earlier RoPE/RMSNorm formula match (verified by reading
+`postprocess_qkv.cc` against the Python reference line-for-line), every individual kernel's
+*arithmetic* now checks out. The bug has to be in what's unique to the full multi-tile QKV-prefix
+pipeline and absent from these isolated single-kernel tests: the record-absorption/compaction step
+that assembles per-tile GEMM output across 16 physical AIE cores into `k_body`/`v_body`
+(`qwen3_postprocess_absorb_qkv_payload_record` in `postprocess_qkv.cc`), or lock/buffer-depth/DMA
+routing in the MLIR resource manifest that wires main16's output to postprocess's input across
+columns.
+
+Tried `run_kernel_postprocess_qkv.py` (an isolated test of the RoPE/norm/absorb kernel alone) to
+empirically confirm the RoPE finding — it requires the real Qwen3-8B model (hardcoded path from a
+different machine, `/var/home/taowen/flm/models/Qwen3-8B-NPU2`, not present here) and doesn't apply
+to our 0.6B pipeline. Not a finding, just an unavailable test.
+
+**Remaining search space, if resumed:** the multi-tile bridge/compaction wiring — likely needs
+either instrumenting the actual 18-tile QKV-prefix design (add a debug tap after record absorption,
+before RoPE) or carefully tracing lock/buffer-depth assignments in
+`cases/full_layer_qkv_prefix_generate.py`'s resource manifest. This is a step up in complexity from
+everything checked so far (single-kernel math) — multi-tile dataflow/synchronization bugs are
+generally the hardest class to find without hardware-side tracing tools.
