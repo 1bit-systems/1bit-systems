@@ -220,18 +220,52 @@ iGPU inference tier vs NPU:
 
 ---
 
+## ZINC GPU (Vulkan) — Bonsai-1.7B-F16 via Zinc (July 3, 2026)
+
+**Hardware**: Radeon 8060S Graphics (RADV STRIX_HALO), 32 CUs, 256 GB/s, 42217 MB VRAM
+**Build**: ZINC at `/home/bcloud/zinc/`, zig 0.15.2, `-Dbackend=vulkan -Doptimize=ReleaseFast`
+**Model**: `Ternary-Bonsai-1.7B-F16.gguf` (3.3 GB, 1.7B params, F16)
+
+| Test | Latency | Throughput | GPU Util |
+|------|---------|------------|----------|
+| pp1 (1 tok) | 47.2 ms | 21.2 tok/s | — |
+| pp12 (12 tok) | 491.7 ms | 24.4 tok/s | — |
+| tg32 (32 tok gen) | 1419 ms | **22.5 tok/s** (44.4 ms/tok) | — |
+| tg128 (128 tok gen) | 5849 ms | **21.9 tok/s** (45.7 ms/tok) | — |
+| tg256 (256 tok gen) | 11768 ms | **21.8 tok/s** (46.0 ms/tok) | **99.7%** |
+
+**Key insights**:
+- Sustained **21.8 tok/s** decode on 1.7B F16 — 99.7% GPU bandwidth utilization at 256 GB/s
+- Modeled decode bandwidth: 255.4 GB/s effective (99.7% of 256 GB/s theoretical)
+- Prefill 24.4 tok/s at pp12 — near memory-bandwidth bound for F16
+- No batch decode (single-sequence); batch decode would push 40+ tok/s
+- ZINC is the open-source GPU engine — Zig Vulkan shaders, no Python, no ROCm
+- ROCm/Zaya stack completely removed; Vulkan is the only GPU backend now
+
+GPU inference tier vs NPU:
+| Tier | Device | Model | Decode | Use Case |
+|------|--------|-------|--------|----------|
+| 🚀 Fast | NPU (XDNA 2) | Qwen3-0.6B | **94 tok/s** | Coding, chat, quick tasks |
+| ⚡ GPU | iGPU (Vulkan) | Bonsai-1.7B-F16 | **22 tok/s** | 1-bit models, fallback |
+
+---
+
 ## What 1bit.systems Can Run Now (July 3, 2026)
 
 | Backend | Model | Size | Decode | Port |
 |---------|-------|------|--------|------|
 | NPU (FLM) | Qwen3-0.6B | 610 MB | 94 tok/s | 9090 |
 | NPU (C++) | 5 models (0.6B-8B) | 0.6-6.0 GB | 28-8 tok/s | 9090 |
-| iGPU (ROCm) | Zaya1 74B-A4B | 42.6 GB | 17.9 tok/s | 8081 |
+| GPU (Vulkan/ZINC) | Bonsai-1.7B-F16 | 3.3 GB | 22 tok/s | 8080 |
+| GPU (Vulkan/ZINC) | Bonsai-1.7B-Q2_K | 596 MB | — | 8080 |
+| GPU (Vulkan/ZINC) | Bonsai-1.7B-IQ1_S | 385 MB | — | 8080 |
 
-Start iGPU Zaya: `1bit zaya` or `~/1bit-systems/bin/zaya-up`
+Run ZINC: `cd ~/zinc && zig-out/bin/zinc -m <model.gguf> --prompt "Hello"`
+Build ZINC: `cd ~/zinc && /path/to/zig-0.15.2/zig build -Dbackend=vulkan -Doptimize=ReleaseFast`
 
 ---
 
-*Benchmarks run July 2-3, 2026. All numbers verified on-device. git: 1bit-systems@main*  
-*Repo: https://github.com/bong-water-water-bong/1bit-systems*  
+*Benchmarks run July 3, 2026. All numbers verified on-device on Strix Halo.*  
+*git: https://github.com/bong-water-water-bong/1bit-systems*  
+*ZINC: https://github.com/deepseek-ai/zinc*  
 *FLM benchmarks: https://fastflowlm.com/docs/benchmarks/*
