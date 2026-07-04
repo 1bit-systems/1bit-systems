@@ -18,22 +18,14 @@
 #include <ctime>
 #include <cstring>
 #include <cmath>
+#include "platform.h"
 #include <vector>
 #include <chrono>
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <xrt/xrt_device.h>
-#include <xrt/xrt_bo.h>
-#include <xrt/xrt_kernel.h>
 #include <immintrin.h>
 #include "kv_quant.h"
 #include "model_config.h"
 
 extern "C" float* dequant_i8_to_float_ex(const uint8_t*,int,int,int*,int*);
-static inline float bf16f(uint16_t v){uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}
-static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:bf16f(v);}
 
 static constexpr float EPS=1e-6f;
 static inline void cn(float*x,int n){for(int i=0;i<n;i++)if(!std::isfinite(x[i]))x[i]=0.0f;}
@@ -198,8 +190,8 @@ int main(int argc,char**argv){
     for(int i=0;i<M;i++)input_tokens[i]=atoi(argv[2+i]);
     
     // Re-open file for mmap (parse_q4nx_header unmapped it)
-    int fd=open(mp,O_RDONLY);struct stat st;fstat(fd,&st);
-    uint8_t*md=(uint8_t*)mmap(NULL,st.st_size,PROT_READ,MAP_PRIVATE,fd,0);close(fd);
+    int fd=platform_open_read(mp);platform_stat st;platform_fstat(fd,&st);
+    uint8_t*md=(uint8_t*)platform_mmap((size_t)st.st_size,PROT_READ,MAP_PRIVATE,fd,0);platform_close(fd);
     uint64_t hsz;memcpy(&hsz,md,8);uint64_t df=8+hsz;
     auto i8p=[&](uint64_t o){return md+df+o;};
     auto emb=(const uint16_t*)(md+df);
@@ -207,7 +199,7 @@ int main(int argc,char**argv){
 
     auto jo=[&](const char*nm)->uint64_t{
         size_t nl=strlen(nm);const char*p=js,*e=js+jl;
-        while(p<e){auto q=(const char*)memmem(p,e-p,nm,nl);if(!q)return 0;
+        while(p<e){auto q=(const char*)platform_memmem(p,e-p,nm,nl);if(!q)return 0;
             if(q>js&&*(q-1)=='"'&&*(q+nl)=='"'){auto o=strstr(q,"\"data_offsets\"");
                 if(o){auto a=strchr(o,'[');if(a)return strtoull(a+1,NULL,10);}}p=q+1;}return 0;};
 
@@ -658,5 +650,5 @@ int main(int argc,char**argv){
         fprintf(stderr,"  Decode: %.0fms (%.1f ms/tok)\n", dms, dms/gen_count);
     }
 
-    munmap(md,st.st_size);return 0;
+    platform_munmap(md,st.st_size);return 0;
 }
