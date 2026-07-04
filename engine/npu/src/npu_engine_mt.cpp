@@ -40,12 +40,11 @@ static inline void rn_c(float*x,const float*w,int n,int M){
 // RoPE tables (theta-based), sized dynamically
 static std::vector<float>rc,rs;
 static void ri(int hd,float th,int mp){rc.resize(mp*hd);rs.resize(mp*hd);
-    for(int p=0;p<mp;p++)for(int d=0;d<hd;d+=2){
-        float f=1.0f/powf(th,(float)d/hd),a=p*f;
-        rc[p*hd+d]=cosf(a);rs[p*hd+d]=sinf(a);
-        rc[p*hd+d+1]=cosf(a);rs[p*hd+d+1]=sinf(a);}}
-static inline void ra(float*x,int hd,int p){for(int d=0;d<hd;d+=2){
-    float a=x[d],b=x[d+1],c=rc[p*hd+d],s=rs[p*hd+d];x[d]=a*c-b*s;x[d+1]=b*c+a*s;}}
+    for(int p=0;p<mp;p++)for(int i=0;i<hd/2;i++){
+        float f=1.0f/powf(th,(float)(2*i)/hd),a=p*f;
+        rc[p*hd+i]=cosf(a);rs[p*hd+i]=sinf(a);}}
+static inline void ra(float*x,int hd,int p){for(int i=0;i<hd/2;i++){
+    float a=x[i],b=x[i+hd/2],c=rc[p*hd+i],s=rs[p*hd+i];x[i]=a*c-b*s;x[i+hd/2]=b*c+a*s;}}
 
 // NPU GEMM context — one per xclbin type
 struct I8Ctx{
@@ -257,7 +256,7 @@ int main(int argc,char**argv){
 
     fprintf(stderr,"Init NPU contexts (M=%d,XM=%d)...\n",M,XM);
     xrt::device dev(0);
-    std::string xd="/home/bcloud/npu-sandbox/npu-infer/build/int8";
+    std::string xd=getenv("NPU_XCLBIN_DIR")?getenv("NPU_XCLBIN_DIR"):"/home/bcloud/npu-sandbox/npu-infer/build/int8";
     
     I8Ctx cq,co,cg,cd;
     cq.MD=XM;cq.KD=cfg.xclbin_qkv_k;cq.ND=cfg.xclbin_qkv_n;
@@ -357,7 +356,7 @@ int main(int argc,char**argv){
         memset(qo.data(),0,M*qkv_n*4);
         for(int pass=0;pass<M;pass+=XM){
             int bm=M-pass;if(bm>XM)bm=XM;
-            cq.go(l,pass,&h[pass*H],bm,H,5.0f/127.0f,qsc[l],qo.data(),qkv_n);}
+            cq.go(l,pass,&h[pass*H],bm,H,dynamic_ascale(&h[pass*H],bm*H),qsc[l],qo.data(),qkv_n);}
         for(int m=0;m<M;m++)cn(&qo[m*qkv_n],qkv_n);
         
         // Split Q, K, V
@@ -398,7 +397,7 @@ int main(int argc,char**argv){
         // O projection
         for(int pass=0;pass<M;pass+=XM){
             int bm=M-pass;if(bm>XM)bm=XM;
-            co.go(l,pass,&at[pass*NH*HD],bm,NH*HD,5.0f/127.0f,osc[l],oo.data(),H);}
+            co.go(l,pass,&at[pass*NH*HD],bm,NH*HD,dynamic_ascale(&at[pass*NH*HD],bm*NH*HD),osc[l],oo.data(),H);}
         for(int m=0;m<M;m++){
             cn(&oo[m*H],H);for(int i=0;i<H;i++)h[m*H+i]=sb[m*H+i]+oo[m*H+i];}
         
@@ -411,13 +410,13 @@ int main(int argc,char**argv){
             memset(gt.data(),0,M*IM*4);
             for(int pass=0;pass<M;pass+=XM){
                 int bm=M-pass;if(bm>XM)bm=XM;
-                cg.go(l,pass,&h[pass*H],bm,H,5.0f/127.0f,gsc[l],gt.data(),IM);}
+                cg.go(l,pass,&h[pass*H],bm,H,dynamic_ascale(&h[pass*H],bm*H),gsc[l],gt.data(),IM);}
             for(int m=0;m<M;m++)cn(&gt[m*IM],IM);
             // U separately
             memset(dwo.data(),0,M*IM*4);
             for(int pass=0;pass<M;pass+=XM){
                 int bm=M-pass;if(bm>XM)bm=XM;
-                cu_ptr->go(l,pass,&h[pass*H],bm,H,5.0f/127.0f,usc[l],dwo.data(),IM);}
+                cu_ptr->go(l,pass,&h[pass*H],bm,H,dynamic_ascale(&h[pass*H],bm*H),usc[l],dwo.data(),IM);}
             for(int m=0;m<M;m++)cn(&dwo[m*IM],IM);
             // SiLU(G) * U
             for(int m=0;m<M;m++){
@@ -429,7 +428,7 @@ int main(int argc,char**argv){
             memset(gt.data(),0,M*mlp_out*4);
             for(int pass=0;pass<M;pass+=XM){
                 int bm=M-pass;if(bm>XM)bm=XM;
-                cg.go(l,pass,&h[pass*H],bm,H,5.0f/127.0f,gsc[l],gt.data(),mlp_out);}
+                cg.go(l,pass,&h[pass*H],bm,H,dynamic_ascale(&h[pass*H],bm*H),gsc[l],gt.data(),mlp_out);}
             for(int m=0;m<M;m++){
                 cn(&gt[m*mlp_out],mlp_out);
                 for(int i=0;i<IM;i++){
@@ -441,7 +440,7 @@ int main(int argc,char**argv){
         // D projection
         for(int pass=0;pass<M;pass+=XM){
             int bm=M-pass;if(bm>XM)bm=XM;
-            cd.go(l,pass,&su[pass*IM],bm,IM,5.0f/127.0f,dsc[l],dwo.data(),H);}
+            cd.go(l,pass,&su[pass*IM],bm,IM,dynamic_ascale(&su[pass*IM],bm*IM),dsc[l],dwo.data(),H);}
         for(int m=0;m<M;m++){
             cn(&dwo[m*H],H);for(int i=0;i<H;i++)h[m*H+i]=sb[m*H+i]+dwo[m*H+i];}
     }
@@ -521,7 +520,7 @@ int main(int argc,char**argv){
 
                 // QKV projection (M=1)
                 memset(qo.data(), 0, qkv_n*4);
-                cq.go(l, 0, h.data(), 1, H, 5.0f/127.0f, qsc[l], qo.data(), qkv_n);
+                cq.go(l, 0, h.data(),1,H,dynamic_ascale(h.data(),1*H), qsc[l], qo.data(), qkv_n);
                 cn(qo.data(), qkv_n);
 
                 // Split QKV
@@ -563,7 +562,7 @@ int main(int argc,char**argv){
                 }
 
                 // O projection (M=1)
-                co.go(l, 0, at.data(), 1, NH*HD, 5.0f/127.0f, osc[l], oo.data(), H);
+                co.go(l, 0, at.data(),1,NH*HD,dynamic_ascale(at.data(),1*NH*HD), osc[l], oo.data(), H);
                 cn(oo.data(), H);
                 for (int i = 0; i < H; i++) h[i] = sb[i] + oo[i];
 
@@ -572,16 +571,16 @@ int main(int argc,char**argv){
                 rn_c(h.data(), pa_n[l].data(), H, 1);
 
                 if (cfg.gu_split) {
-                    cg.go(l, 0, h.data(), 1, H, 5.0f/127.0f, gsc[l], gt.data(), IM);
+                    cg.go(l, 0, h.data(),1,H,dynamic_ascale(h.data(),1*H), gsc[l], gt.data(), IM);
                     cn(gt.data(), IM);
-                    cu_ptr->go(l, 0, h.data(), 1, H, 5.0f/127.0f, usc[l], dwo.data(), IM);
+                    cu_ptr->go(l, 0, h.data(),1,H,dynamic_ascale(h.data(),1*H), usc[l], dwo.data(), IM);
                     cn(dwo.data(), IM);
                     for (int i = 0; i < IM; i++) {
                         float gv = gt[i]; if (!std::isfinite(gv)) gv = 0;
                         su[i] = (gv/(1.0f+expf(-gv))) * dwo[i];
                     }
                 } else {
-                    cg.go(l, 0, h.data(), 1, H, 5.0f/127.0f, gsc[l], gt.data(), mlp_out);
+                    cg.go(l, 0, h.data(),1,H,dynamic_ascale(h.data(),1*H), gsc[l], gt.data(), mlp_out);
                     cn(gt.data(), mlp_out);
                     for (int i = 0; i < IM; i++) {
                         float gv = gt[i]; if (!std::isfinite(gv)) gv = 0;
@@ -591,7 +590,7 @@ int main(int argc,char**argv){
                 }
 
                 // D projection (M=1)
-                cd.go(l, 0, su.data(), 1, IM, 5.0f/127.0f, dsc[l], dwo.data(), H);
+                cd.go(l, 0, su.data(),1,IM,dynamic_ascale(su.data(),1*IM), dsc[l], dwo.data(), H);
                 cn(dwo.data(), H);
                 for (int i = 0; i < H; i++) h[i] = sb[i] + dwo[i];
             }
