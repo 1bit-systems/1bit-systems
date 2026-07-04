@@ -25,7 +25,7 @@ target_include_directories(spec_decode INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/eng
 if(ENABLE_NPU)
     add_executable(npu_spec_decode
         engine/npu_spec_integration.cpp
-        /home/bcloud/engine/npu/src/dequant_q4nx.c
+        ../engine/npu/src/dequant_q4nx.c
     )
     target_link_libraries(npu_spec_decode PRIVATE
         spec_decode
@@ -67,9 +67,11 @@ if(BUILD_TESTING)
 endif()
 
 # Install
-install(TARGETS npu_spec_decode
-    RUNTIME DESTINATION bin
-)
+if(ENABLE_NPU)
+    install(TARGETS npu_spec_decode
+        RUNTIME DESTINATION bin
+    )
+endif()
 install(DIRECTORY draft/ engine/
     DESTINATION include
     FILES_MATCHING PATTERN "*.h"
