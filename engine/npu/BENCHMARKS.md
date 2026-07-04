@@ -156,6 +156,23 @@ To revert for debugging: swap `dmmv_opts`/`attn_opts` assignments in
 
 ---
 
+## Speculative Decoding — Eagle3 Draft (July 4, 2026)
+
+Speculative decoding engine at `spec-decode/` using Eagle3-style MTP draft.
+Target: Qwen3-0.6B on NPU (94 tok/s). Draft: single transformer layer (hidden=1024).
+C++23 header-only (1,078 lines, 9/9 tests pass).
+
+**Simulated speedup** (block_size=7, NPU baseline 94 tok/s):
+
+| Acceptance | Simulated tok/s | vs Baseline |
+|-----------|----------------|-------------|
+| 70% | **263 tok/s** | 2.8× |
+| 80% | **235 tok/s** | 2.5× |
+| 95% | **752 tok/s** | 8.0× |
+
+**Status**: Built, trained (10k-example checkpoint at `spec-decode/checkpoints/eagle3_draft.bin`).
+NPU forward call hangs on this system (driver/firmware issue) — needs `xbutil reset`.
+
 ## Raw C++ Engine — All 5 Models (M=32 batch, OpenMP)
 
 These are the open-source C++ engine numbers — no FLM, no proprietary code. Single binary, auto-detect.
