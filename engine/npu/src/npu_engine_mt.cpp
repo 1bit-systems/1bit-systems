@@ -332,10 +332,9 @@ int main(int argc,char**argv){
     // Initialize RoPE
     if(cfg.has_rope_freqs_file&&!rope_freqs.empty()){
         rc.resize((M+128)*HD);rs.resize((M+128)*HD);
-        for(int p=0;p<M+128;p++) for(int d=0;d<HD;d+=2){
-            int fi=(d/2)%(int)rope_freqs.size();float a=p*rope_freqs[fi];
-            rc[p*HD+d]=cosf(a);rs[p*HD+d]=sinf(a);
-            rc[p*HD+d+1]=cosf(a);rs[p*HD+d+1]=sinf(a);}
+        for(int p=0;p<M+128;p++) for(int i=0;i<HD/2;i++){
+            int fi=i%(int)rope_freqs.size();float a=p*rope_freqs[fi];
+            rc[p*HD+i]=cosf(a);rs[p*HD+i]=sinf(a);}
     } else ri(HD,cfg.rope_theta,M+128);
     
     // KV quantized caches
