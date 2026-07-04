@@ -73,6 +73,26 @@ all 28 layers.
 **Fix**: `dynamic_ascale()` — per-call amax-based scale, matching the same approach
 `packB()` already uses for weights, instead of a fixed constant.
 
+**Update (July 2026)**: `dynamic_ascale()` has now been applied to **ALL** engine
+files — every `.cpp` file in `engine/npu/src/` that uses `go()` calls now computes
+activation scale dynamically per-call. The fix covers 19 source files including the
+production engines (`npu_engine_all.cpp`, `npu_engine_server.cpp`), the speculative
+decode engines (`spec.cpp`, `spec_decode.cpp`, `spec_v2.cpp`), the universal merge
+engine (`universal_v12merge.cpp`), the multi-token engine (`npu_engine_mt.cpp`),
+and all vintage numbered engines (v2 through v12). The v4 engine's inline dequant
+path (bypassing `go()`) was also fixed with per-buffer dynamic scales. The only
+remaining references to `5.0f/127.0f` are in comments documenting the old approach.
+
+**Update (July 2026)**: `dynamic_ascale()` has now been applied to **ALL** engine
+files — every `.cpp` file in `engine/npu/src/` that uses `go()` calls now computes
+activation scale dynamically per-call. The fix covers 19 source files including the
+production engines (`npu_engine_all.cpp`, `npu_engine_server.cpp`), the speculative
+decode engines (`spec.cpp`, `spec_decode.cpp`, `spec_v2.cpp`), the universal merge
+engine (`universal_v12merge.cpp`), the multi-token engine (`npu_engine_mt.cpp`),
+and all vintage numbered engines (v2 through v12). The v4 engine's inline dequant
+path (bypassing `go()`) was also fixed with per-buffer dynamic scales. The only
+remaining references to `5.0f/127.0f` are in comments documenting the old approach.
+
 ## What's Still Broken
 
 With all three original fixes plus the RoPE convention fix applied, the host-side
