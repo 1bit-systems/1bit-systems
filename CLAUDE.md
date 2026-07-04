@@ -3,7 +3,10 @@
 **50 TOPS INT8 · 94 tok/s NPU (FLM) · 22 tok/s GPU. On a consumer laptop.**
 Contact: admin@1bit.systems
 
-Three inference engines, one chip. NPU (C++) + GPU (Zig). Zero Python.
+**Three inference engines, one chip, ONE cache.** NPU (C++) + GPU (Zig) + CPU (scheduler).
+The H2O KV cache eviction layer is now fused across all three backends:
+the `KvPagePool` scheduler, zero-page remapping, and RadixAttention prefix tree
+are backend-agnostic and shared by NPU, GPU (Vulkan), and GPU (Metal) inference paths.
 
 ## Agent Workflow (skills to invoke automatically)
 
@@ -32,7 +35,20 @@ Build: `g++ -std=c++23 -O3 -o npu_engine engine/npu/src/npu_engine_cb.cpp engine
 ## Engine: GPU (`engine/gpu/`)
 Zig inference on Vulkan/CUDA/Metal. GGUF native. Compute shaders.
 
+## Unified KV Cache Layer (`engine/gpu/src/scheduler/`)
+Backend-agnostic KV cache infrastructure shared across NPU, GPU, and CPU paths:
+- `kv_cache.zig` — H2O eviction: cumulative attention scoring, min-heap eviction, zero-page technique
+  (remaps evicted pages to a reserved zero-filled page — ~0 attention naturally, no shader changes)
+  Three policies: h2o_attention_score, lru, fifo. Toggle via `ZINC_KV_EVICTION_POLICY` env var.
+- `radix_tree.zig` — RadixAttention prefix tree for cross-request KV page sharing
+- `offload_engine.zig` — CPU memory offloading for cold KV pages
+- `quant_profile.zig` — Per-layer dynamic quantization scheme selection (8 schemes)
+- `request.zig` + `scheduler.zig` — Request lifecycle and continuous batching with page allocation
+
 ## Key facts for agents
+- **NPU+GPU+CPU are now fused** via unified H2O KV cache layer (`scheduler/`).
+  The KvPagePool, zero-page remapping, RadixAttention prefix tree, and eviction
+  policies are backend-agnostic and shared by all three inference paths.
 - NPU2 supports 8+ simultaneous hw_contexts (firmware 1.1.2.65)
 - INT8 xclbins at `/home/bcloud/npu-sandbox/npu-infer/build/int8/`
 - Model at `~/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx`
