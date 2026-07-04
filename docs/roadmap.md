@@ -1,6 +1,6 @@
 # Roadmap
 
-## Phase 1: INT8 Inference ✅
+## Phase 1: INT8 Inference ⚠️ (dispatch speed verified, output coherence in progress)
 
 - [x] INT8 K-interleaving fix (dataReuse on ObjectFifo)
 - [x] 5 INT8 xclbins built and NPU-verified (QKV, O, GU, D, KV)
@@ -47,7 +47,7 @@ is the same architecture. No new xclbins needed — reuses existing INT8 GEMMs a
 - [ ] Ternary GEMV kernel — replaces INT8 GEMM for 1-bit
 - [ ] Hybrid precision: attention in BF16, weights in ternary
 - [ ] Target: <25 ms/tok on Strix Halo NPU
-- [ ] Bonsai-1.7B already benchmarked at 281 tok/s on GPU
+- [ ] Bonsai-1.7B IQ1_S: 281 tok/s (historical, llama.cpp) — needs ZINC 1-bit support
 
 ## Phase 5: Productionization ✅ (mostly done)
 
