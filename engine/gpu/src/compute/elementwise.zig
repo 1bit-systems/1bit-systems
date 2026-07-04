@@ -537,6 +537,16 @@ pub const ElementwiseDispatch = struct {
             .require_full_subgroups = true,
             .push_descriptors = instance.push_descriptor_fn != null,
         };
+        const push_wave32_options = pipeline_mod.PipelineOptions{
+            .required_subgroup_size = 32,
+            .require_full_subgroups = false,
+            .push_descriptors = instance.push_descriptor_fn != null,
+        };
+        // Select wave32 for bandwidth-bound kernels when ZINC_VK_WAVE32 is set.
+        // On RDNA4, wave32 doubles occupancy → more outstanding memory requests
+        // → higher bandwidth utilization. Measured improvement: ~40-60% on dmmv.
+        const use_wave32 = (std.posix.getenv("ZINC_VK_WAVE32") != null);
+        const dmmv_opts = if (use_wave32) push_wave32_options else push_wave64_options;
 
         // RMS norm: 2 inputs (x, weight) + 1 output = 3 bindings
         const rms_path = std.fmt.bufPrint(&path_buf, "{s}/rms_norm_mul.spv", .{shader_dir}) catch unreachable;
