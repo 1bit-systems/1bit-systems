@@ -36,6 +36,24 @@ static void ri(int hd,float th,int mp){rc.resize(mp*hd);rs.resize(mp*hd);
 static inline void ra(float*x,int hd,int p){for(int d=0;d<hd;d+=2){
     float a=x[d],b=x[d+1],c=rc[p*hd+d],s=rs[p*hd+d];x[d]=a*c-b*s;x[d+1]=b*c+a*s;}}
 static std::vector<float> emb_f32; // f32 embeddings for fast LM head
+static std::vector<float> lm_head_f32; // f32 lm_head weights (separate from emb)
+// dequant_i8_to_float(_ex) returns row-major [out_features, in_features] (PyTorch nn.Linear);
+// packB()/go() need the transpose — [in_features, out_features] — since the GEMM computes
+// A[tokens,in] @ B[in,out].
+static void transpose_pack(const float* src, int out_f, int in_f, float* dst, int dst_stride, int dst_offset) {
+    for (int o = 0; o < out_f; o++)
+        for (int i = 0; i < in_f; i++)
+            dst[(size_t)i * dst_stride + dst_offset + o] = src[(size_t)o * in_f + i];
+}
+// Dynamic per-call activation quantization scale.
+// Hardcoded 5.0f/127.0f assumes activations stay in [-5,5], but measured post-RMSNorm
+// activations range as wide as [-8.24,7.01], silently clipping every layer.
+static inline float dynamic_ascale(const float* x, int n) {
+    float amax = 0;
+    for (int i = 0; i < n; i++) { float a = fabsf(x[i]); if (std::isfinite(a) && a > amax) amax = a; }
+    if (amax < 1e-12f) amax = 1.0f;
+    return amax / 127.0f;
+}
 
 static uint64_t jo(const char*js,size_t jl,const char*nm){size_t nl=strlen(nm);
     const char*p=js,*e=js+jl;while(p<e){auto q=(const char*)memmem(p,e-p,nm,nl);
@@ -87,9 +105,10 @@ static inline void attn_omp(float*qo,float*at,int cl,const float*kv_k,const floa
 }
 
 // v12: OpenMP LM head with f32 embeddings — top-K sampling
-inline void lm_topk_omp(const float*hidden,float*lg,int*top_ids,int K,int NV,int H,float mx=-1e30f){
+// emb: embedding/lm_head table (row-major [vocab_size, hidden_size])
+inline void lm_topk_omp(const float*hidden,float*lg,int*top_ids,int K,int NV,int H,const float*emb,float mx=-1e30f){
     #pragma omp parallel for reduction(max:mx)
-    for(int n=0;n<NV;n++){double s=0;const float*e=&emb_f32[(size_t)n*H];const float*h=hidden;
+    for(int n=0;n<NV;n++){double s=0;const float*e=&emb[(size_t)n*H];const float*h=hidden;
         #pragma omp simd reduction(+:s)
         for(int k=0;k<H;k++)s+=(double)h[k]*e[k];lg[n]=(float)s;if(lg[n]>mx)mx=lg[n];}
     double sum=0;
@@ -152,6 +171,7 @@ int main(int argc,char**argv){
         snprintf(bn,128,"model.layers.%d.self_attn.q_norm.weight",l);qn_off[l]=jo(js,jl,bn);
         snprintf(bn,128,"model.layers.%d.self_attn.k_norm.weight",l);kn_off[l]=jo(js,jl,bn);}
     uint64_t no=jo(js,jl,"model.norm.weight");
+    uint64_t lo=jo(js,jl,"lm_head.weight");
     std::vector<std::vector<float>> in_n(NC,std::vector<float>(H)),pa_n(NC,std::vector<float>(H)),qn_w(NC,std::vector<float>(HD)),kn_w(NC,std::vector<float>(HD));
     std::vector<float> fin_v(H);
     for(int l=0;l<NC;l++){auto iw=(const uint16_t*)(md+df+in_off[l]),pw=(const uint16_t*)(md+df+pa_off[l]);
@@ -164,6 +184,15 @@ int main(int argc,char**argv){
     auto gi8=[&](const char*k)->int{int r=0;find_tensor_info(js,jl,k,&r);return r;};
     int q_i8=gi8("model.layers.0.self_attn.q_proj.weight"),k_i8=gi8("model.layers.0.self_attn.k_proj.weight"),v_i8=gi8("model.layers.0.self_attn.v_proj.weight");
     int o_i8=gi8("model.layers.0.self_attn.o_proj.weight"),g_i8=gi8("model.layers.0.mlp.gate_proj.weight"),u_i8=gi8("model.layers.0.mlp.up_proj.weight"),d_i8=gi8("model.layers.0.mlp.down_proj.weight");
+    int lm_i8=gi8("lm_head.weight");
+
+    // Load lm_head.weight separately — NOT tied to embed_tokens.weight for this model
+    if(lo&&lm_i8>0){int lr,lc;float*lm_raw=dequant_i8_to_float_ex(i8p(lo),lm_i8,H,&lr,&lc);if(lm_raw){
+        lm_head_f32.assign(lm_raw,lm_raw+(size_t)lr*lc);free(lm_raw);
+        printf("  lm_head: %dx%d (loaded from JSON), using for final logits\n",lr,lc);
+    }else{printf("  lm_head: dequant failed, falling back to emb\n");}}
+    if(lm_head_f32.empty()){printf("  lm_head: using emb_f32 (tied embeddings)\n");}
+    const float* lm_emb = lm_head_f32.empty() ? emb_f32.data() : lm_head_f32.data();
 
     // Init NPU
     printf("Init NPU...\n");xrt::device dev(0);
@@ -182,15 +211,32 @@ int main(int argc,char**argv){
 
     printf("Dequant+pack...\n");auto tp=std::chrono::steady_clock::now();
     std::vector<float> qsc(NC),osc(NC),gsc(NC),dsc(NC),usc(NC);
-    for(int l=0;l<NC;l++){int qr,kr,vr,or_,gr,ur,dr,unused;
+    const int QOUT=NH*HD,KVOUT=NKV*HD;   // QKV out_features, in_features=H (default dequant correct)
+    const int OOUT=H,OIN=NH*HD;          // O: out=H, in=NH*HD — dequant needs OIN
+    const int GUOUT=IM;                   // Gate/Up: out=IM, in=H
+    const int DOUT=H,DIN=IM;              // Down: out=H, in=IM — dequant needs DIN
+    for(int l=0;l<NC;l++){int qr,kr,vr,unused;
         float*qw=dequant_i8_to_float_ex(i8p(qp[l]),q_i8,H,&qr,&unused),*kw=dequant_i8_to_float_ex(i8p(kp[l]),k_i8,H,&kr,&unused),*vw=dequant_i8_to_float_ex(i8p(vp[l]),v_i8,H,&vr,&unused);
-        int t=qr+kr+vr;std::vector<float>w((size_t)H*t);for(int k=0;k<H;k++){memcpy(&w[k*t],&qw[k*qr],qr*4);memcpy(&w[k*t+qr],&kw[k*kr],kr*4);memcpy(&w[k*t+qr+kr],&vw[k*vr],vr*4);}
+        int t=QOUT+KVOUT+KVOUT;std::vector<float>w((size_t)H*t);
+        transpose_pack(qw,QOUT,H,w.data(),t,0); transpose_pack(kw,KVOUT,H,w.data(),t,QOUT); transpose_pack(vw,KVOUT,H,w.data(),t,QOUT+KVOUT);
         cq.packB(l,w.data(),H,t,qsc[l]);free(qw);free(kw);free(vw);
-        float*ow=dequant_i8_to_float_ex(i8p(op[l]),o_i8,NH*HD,&or_,&unused);co.packB(l,ow,or_,H,osc[l]);free(ow);
-        float*gw=dequant_i8_to_float_ex(i8p(gp[l]),g_i8,H,&gr,&unused);
-        if(cfg.gu_split){float*uw=dequant_i8_to_float_ex(i8p(up[l]),u_i8,H,&ur,&unused);cg.packB(l,gw,H,gr,gsc[l]);cu_ptr->packB(l,uw,H,ur,usc[l]);free(uw);}
-        else{float*uw=dequant_i8_to_float_ex(i8p(up[l]),u_i8,H,&ur,&unused);int t2=gr+ur;std::vector<float>w2((size_t)H*t2);for(int k=0;k<H;k++){memcpy(&w2[k*t2],&gw[k*gr],gr*4);memcpy(&w2[k*t2+gr],&uw[k*ur],ur*4);}cg.packB(l,w2.data(),H,t2,gsc[l]);free(uw);}free(gw);
-        float*dw=dequant_i8_to_float_ex(i8p(dp[l]),d_i8,IM,&dr,&unused);cd.packB(l,dw,dr,H,dsc[l]);free(dw);}
+        int or2,oc2;float*ow=dequant_i8_to_float_ex(i8p(op[l]),o_i8,OIN,&or2,&oc2);
+        std::vector<float>wo((size_t)OIN*OOUT);transpose_pack(ow,OOUT,OIN,wo.data(),OOUT,0);
+        co.packB(l,wo.data(),OIN,OOUT,osc[l]);free(ow);
+        int gr,ur;float*gw=dequant_i8_to_float_ex(i8p(gp[l]),g_i8,H,&gr,&unused),*uw=dequant_i8_to_float_ex(i8p(up[l]),u_i8,H,&ur,&unused);
+        if(cfg.gu_split){
+            std::vector<float>wg((size_t)H*gr);transpose_pack(gw,GUOUT,H,wg.data(),gr,0);
+            cg.packB(l,wg.data(),H,gr,gsc[l]);
+            std::vector<float>wu((size_t)H*ur);transpose_pack(uw,GUOUT,H,wu.data(),ur,0);
+            cu_ptr->packB(l,wu.data(),H,ur,usc[l]);
+        }else{
+            int t2=gr+ur;std::vector<float>w2((size_t)H*t2);
+            transpose_pack(gw,GUOUT,H,w2.data(),t2,0);transpose_pack(uw,GUOUT,H,w2.data(),t2,GUOUT);
+            cg.packB(l,w2.data(),H,t2,gsc[l]);
+        }free(gw);free(uw);
+        int dr2,dc2;float*dw=dequant_i8_to_float_ex(i8p(dp[l]),d_i8,DIN,&dr2,&dc2);
+        std::vector<float>wd((size_t)DIN*DOUT);transpose_pack(dw,DOUT,DIN,wd.data(),DOUT,0);
+        cd.packB(l,wd.data(),DIN,DOUT,dsc[l]);free(dw);}
     printf("  %.0fms\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-tp).count());
 
     // RoPE
@@ -230,7 +276,7 @@ int main(int argc,char**argv){
     for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=emb_f32[pt_vec[pi]*H+i];
     for(int l=0;l<NC;l++){
         for(int pi=0;pi<npt;pi++)rn_c(&h_b[pi*H],in_n[l].data(),H);
-        cq.go(l,h_b.data(),npt,H,5.0f/127.0f,qsc[l],qo_b.data(),qkv_n);cn(qo_b.data(),npt*qkv_n);
+        cq.go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),qsc[l],qo_b.data(),qkv_n);cn(qo_b.data(),npt*qkv_n);
         float*qn=qn_w[l].data(),*kn=kn_w[l].data();
         for(int pi=0;pi<npt;pi++){
             for(int hh=0;hh<NH;hh++){double s=0;for(int d=0;d<HD;d++)s+=qo_b[pi*qkv_n+hh*HD+d]*qo_b[pi*qkv_n+hh*HD+d];float iq=1.0f/sqrtf((float)(s/HD)+EPS);
@@ -241,15 +287,15 @@ int main(int argc,char**argv){
                 memcpy(&kv_caches[l].k[(sp+pi)*NKV*HD+kvh*HD],ks,HD*4);memcpy(&kv_caches[l].v[(sp+pi)*NKV*HD+kvh*HD],vs,HD*4);}}
         kv_caches[l].n=sp+npt;int cl=kv_caches[l].n;
         for(int pi=0;pi<npt;pi++){attn_omp(&qo_b[pi*qkv_n],&at_b[pi*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA);}
-        co.go(l,at_b.data(),npt,NH*HD,5.0f/127.0f,osc[l],oo_b.data(),H);cn(oo_b.data(),npt*H);
+        co.go(l,at_b.data(),npt,NH*HD,dynamic_ascale(at_b.data(),npt*NH*HD),osc[l],oo_b.data(),H);cn(oo_b.data(),npt*H);
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]+=oo_b[pi*H+i];
         for(int pi=0;pi<npt;pi++)rn_c(&h_b[pi*H],pa_n[l].data(),H);
         int mlp_out=cfg.gu_split?IM:2*IM;
-        cg.go(l,h_b.data(),npt,H,5.0f/127.0f,gsc[l],gt_b.data(),mlp_out);cn(gt_b.data(),npt*mlp_out);
-        if(cfg.gu_split){cu_ptr->go(l,h_b.data(),npt,H,5.0f/127.0f,usc[l],su_b.data(),IM);cn(su_b.data(),npt*IM);
+        cg.go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),gsc[l],gt_b.data(),mlp_out);cn(gt_b.data(),npt*mlp_out);
+        if(cfg.gu_split){cu_ptr->go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),usc[l],su_b.data(),IM);cn(su_b.data(),npt*IM);
             for(int pi=0;pi<npt;pi++){for(int i=0;i<IM;i++){float gv=gt_b[pi*IM+i];if(!std::isfinite(gv))gv=0;su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*su_b[pi*IM+i];}}}
         else{for(int pi=0;pi<npt;pi++){for(int i=0;i<IM;i++){float gv=gt_b[pi*mlp_out+i];if(!std::isfinite(gv))gv=0;su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[pi*mlp_out+IM+i];}}}
-        cd.go(l,su_b.data(),npt,IM,5.0f/127.0f,dsc[l],dw_b.data(),H);cn(dw_b.data(),npt*H);
+        cd.go(l,su_b.data(),npt,IM,dynamic_ascale(su_b.data(),npt*IM),dsc[l],dw_b.data(),H);cn(dw_b.data(),npt*H);
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]+=dw_b[pi*H+i];
     }sp+=npt;memcpy(h_data.data(),&h_b[(npt-1)*H],H*4);
     printf("Prefill: %.0fms (%.0f ms/tok)\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count(),std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count()/npt);
@@ -265,7 +311,7 @@ int main(int argc,char**argv){
         float h0[H];memcpy(h0,h_data.data(),H*4);
         for(int l=0;l<NC;l++){
             memcpy(sb_data.data(),h0,H*4);rn_c(h0,in_n[l].data(),H);
-            cq.go(l,h0,1,H,5.0f/127.0f,qsc[l],qo_data.data(),qkv_n);cn(qo_data.data(),qkv_n);
+            cq.go(l,h0,1,H,dynamic_ascale(h0,H),qsc[l],qo_data.data(),qkv_n);cn(qo_data.data(),qkv_n);
             memcpy(ko_data.data(),&qo_data[cfg.qkv_k_offset],NKV*HD*4);memcpy(vo_data.data(),&qo_data[cfg.qkv_v_offset],NKV*HD*4);
             float*qn=qn_w[l].data(),*kn=kn_w[l].data();
             for(int hh=0;hh<NH;hh++){double sq=0;for(int d=0;d<HD;d++)sq+=qo_data[hh*HD+d]*qo_data[hh*HD+d];float iq=1.0f/sqrtf((float)(sq/HD)+EPS);
@@ -275,17 +321,17 @@ int main(int argc,char**argv){
                 memcpy(&kv_caches[l].k[sp*NKV*HD+kvh*HD],&ko_data[kvh*HD],HD*4);memcpy(&kv_caches[l].v[sp*NKV*HD+kvh*HD],&vo_data[kvh*HD],HD*4);}}
             kv_caches[l].n=sp+1;int cl=kv_caches[l].n;
             attn_omp(qo_data.data(),at_data.data(),cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA);
-            co.go(l,at_data.data(),1,NH*HD,5.0f/127.0f,osc[l],oo_data.data(),H);cn(oo_data.data(),H);for(int i=0;i<H;i++)h0[i]=sb_data[i]+oo_data[i];
+            co.go(l,at_data.data(),1,NH*HD,dynamic_ascale(at_data.data(),NH*HD),osc[l],oo_data.data(),H);cn(oo_data.data(),H);for(int i=0;i<H;i++)h0[i]=sb_data[i]+oo_data[i];
             memcpy(sb_data.data(),h0,H*4);rn_c(h0,pa_n[l].data(),H);
             int mlp_out=cfg.gu_split?IM:2*IM;
-            cg.go(l,h0,1,H,5.0f/127.0f,gsc[l],gt_data.data(),mlp_out);cn(gt_data.data(),mlp_out);
-            if(cfg.gu_split){cu_ptr->go(l,h0,1,H,5.0f/127.0f,usc[l],su_data.data(),IM);cn(su_data.data(),IM);
+            cg.go(l,h0,1,H,dynamic_ascale(h0,H),gsc[l],gt_data.data(),mlp_out);cn(gt_data.data(),mlp_out);
+            if(cfg.gu_split){cu_ptr->go(l,h0,1,H,dynamic_ascale(h0,H),usc[l],su_data.data(),IM);cn(su_data.data(),IM);
                 for(int i=0;i<IM;i++){float gv=gt_data[i];if(!std::isfinite(gv))gv=0;su_data[i]=(gv/(1.0f+expf(-gv)))*su_data[i];}}
             else{for(int i=0;i<IM;i++){float gv=gt_data[i];if(!std::isfinite(gv))gv=0;su_data[i]=(gv/(1.0f+expf(-gv)))*gt_data[IM+i];}}
-            cd.go(l,su_data.data(),1,IM,5.0f/127.0f,dsc[l],dwo_data.data(),H);cn(dwo_data.data(),H);for(int i=0;i<H;i++)h0[i]=sb_data[i]+dwo_data[i];
+            cd.go(l,su_data.data(),1,IM,dynamic_ascale(su_data.data(),IM),dsc[l],dwo_data.data(),H);cn(dwo_data.data(),H);for(int i=0;i<H;i++)h0[i]=sb_data[i]+dwo_data[i];
         }
         memcpy(sb_data.data(),h0,H*4);rn_c(sb_data.data(),fin_v.data(),H);
-        lm_topk_omp(sb_data.data(),lg_buf.data(),top_ids,BS,NV,H);
+        lm_topk_omp(sb_data.data(),lg_buf.data(),top_ids,BS,NV,H,lm_emb);
         memcpy(h_data.data(),h0,H*4);sp++;total_accepted++;
         t_boot=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-ts_boot).count();
         printf("  [0] boot=%d (%.0fms)\n",top_ids[0],t_boot);
@@ -298,7 +344,7 @@ int main(int argc,char**argv){
         for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=emb_f32[(size_t)top_ids[b]*H+i];
         for(int l=0;l<NC;l++){
             for(int b=0;b<batch_size;b++)rn_c(&h_b[b*H],in_n[l].data(),H);
-            cq.go(l,h_b.data(),batch_size,H,5.0f/127.0f,qsc[l],qo_b.data(),qkv_n);cn(qo_b.data(),batch_size*qkv_n);
+            cq.go(l,h_b.data(),batch_size,H,dynamic_ascale(h_b.data(),batch_size*H),qsc[l],qo_b.data(),qkv_n);cn(qo_b.data(),batch_size*qkv_n);
             float*qn=qn_w[l].data(),*kn=kn_w[l].data();
             for(int b=0;b<batch_size;b++){
                 for(int hh=0;hh<NH;hh++){double s=0;for(int d=0;d<HD;d++)s+=qo_b[b*qkv_n+hh*HD+d]*qo_b[b*qkv_n+hh*HD+d];float iq=1.0f/sqrtf((float)(s/HD)+EPS);
@@ -312,21 +358,21 @@ int main(int argc,char**argv){
                 memcpy(&kv_caches[l].k[(sp+b)*NKV*HD+kvh*HD],ks,HD*4);memcpy(&kv_caches[l].v[(sp+b)*NKV*HD+kvh*HD],vs,HD*4);}
             kv_caches[l].n=sp+batch_size;int cl=kv_caches[l].n;
             for(int b=0;b<batch_size;b++){attn_omp(&qo_b[b*qkv_n],&at_b[b*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA);}
-            co.go(l,at_b.data(),batch_size,NH*HD,5.0f/127.0f,osc[l],oo_b.data(),H);cn(oo_b.data(),batch_size*H);
+            co.go(l,at_b.data(),batch_size,NH*HD,dynamic_ascale(at_b.data(),batch_size*NH*HD),osc[l],oo_b.data(),H);cn(oo_b.data(),batch_size*H);
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]+=oo_b[b*H+i];
             for(int b=0;b<batch_size;b++)rn_c(&h_b[b*H],pa_n[l].data(),H);
             int mlp_out=cfg.gu_split?IM:2*IM;
-            cg.go(l,h_b.data(),batch_size,H,5.0f/127.0f,gsc[l],gt_b.data(),mlp_out);cn(gt_b.data(),batch_size*mlp_out);
-            if(cfg.gu_split){cu_ptr->go(l,h_b.data(),batch_size,H,5.0f/127.0f,usc[l],su_b.data(),IM);cn(su_b.data(),batch_size*IM);
+            cg.go(l,h_b.data(),batch_size,H,dynamic_ascale(h_b.data(),batch_size*H),gsc[l],gt_b.data(),mlp_out);cn(gt_b.data(),batch_size*mlp_out);
+            if(cfg.gu_split){cu_ptr->go(l,h_b.data(),batch_size,H,dynamic_ascale(h_b.data(),batch_size*H),usc[l],su_b.data(),IM);cn(su_b.data(),batch_size*IM);
                 for(int b=0;b<batch_size;b++){for(int i=0;i<IM;i++){float gv=gt_b[b*IM+i];if(!std::isfinite(gv))gv=0;su_b[b*IM+i]=(gv/(1.0f+expf(-gv)))*su_b[b*IM+i];}}}
             else{for(int b=0;b<batch_size;b++){for(int i=0;i<IM;i++){float gv=gt_b[b*mlp_out+i];if(!std::isfinite(gv))gv=0;su_b[b*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[b*mlp_out+IM+i];}}
-            cd.go(l,su_b.data(),batch_size,IM,5.0f/127.0f,dsc[l],dw_b.data(),H);cn(dw_b.data(),batch_size*H);
+            cd.go(l,su_b.data(),batch_size,IM,dynamic_ascale(su_b.data(),batch_size*IM),dsc[l],dw_b.data(),H);cn(dw_b.data(),batch_size*H);
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]+=dw_b[b*H+i];
         }
 
         // LM head on batch[0] → top-32 for next batch
         memcpy(sb_data.data(),&h_b[0],H*4);rn_c(sb_data.data(),fin_v.data(),H);
-        lm_topk_omp(sb_data.data(),lg_buf.data(),top_ids,BS,NV,H);
+        lm_topk_omp(sb_data.data(),lg_buf.data(),top_ids,BS,NV,H,lm_emb);
 
         total_accepted+=batch_size;sp+=batch_size;n_batches++;
         double batch_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-ts_batch).count();
