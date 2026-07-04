@@ -121,7 +121,7 @@ static inline void rn_c(float*x,const float*w,int n){cn(x,n);double ss=0;for(int
 static std::vector<float>rc,rs;static void ri(int hd,float th,int mp){rc.resize(mp*hd);rs.resize(mp*hd);for(int p=0;p<mp;p++)for(int d=0;d<hd;d+=2){float f=1.0f/powf(th,(float)d/hd),a=p*f;rc[p*hd+d]=cosf(a);rs[p*hd+d]=sinf(a);rc[p*hd+d+1]=cosf(a);rs[p*hd+d+1]=sinf(a);}}
 static inline void ra_interleaved(float*x,int hd,int p){for(int d=0;d<hd;d+=2){float a=x[d],b=x[d+1],c=rc[p*hd+d],s=rs[p*hd+d];x[d]=a*c-b*s;x[d+1]=b*c+a*s;}}
 static inline void ra_rothalf(float*x,int hd,int p){int half=hd/2;for(int i=0;i<half;i++){float a=x[i],b=x[i+half],c=rc[p*hd+2*i],s=rs[p*hd+2*i];x[i]=a*c-b*s;x[i+half]=b*c+a*s;}}
-static inline void ra(float*x,int hd,int p){ra_interleaved(x,hd,p);}
+static inline void ra(float*x,int hd,int p){ra_rothalf(x,hd,p);}
 static uint64_t jo(const char*js,size_t jl,const char*nm){size_t nl=strlen(nm);const char*p=js,*e=js+jl;while(p<e){auto q=(const char*)memmem(p,e-p,nm,nl);if(!q)return 0;if(q>js&&*(q-1)=='"'&&*(q+nl)=='"'){auto o=strstr(q,"\"data_offsets\"");if(o){auto a=strchr(o,'[');if(a)return strtoull(a+1,NULL,10);}}p=q+1;}return 0;}
 
 static std::vector<float> emb_f32_cb;
@@ -281,7 +281,8 @@ int main(int argc, char** argv) {
                 for (int kvh = 0; kvh < NKV; kvh++) {
                     float *ks = &qo_b[pi * 4096 + 2048 + kvh * HD], *vs = &qo_b[pi * 4096 + 3072 + kvh * HD];
                     double sk = 0; for (int d = 0; d < HD; d++) sk += ks[d] * ks[d]; float ik = 1.0f / sqrtf((float)(sk / HD) + EPS);
-                    for (int d = 0; d < HD; d++) ks[d] *= ik * kn[d]; ra(ks, HD, sp + pi);
+                    for (int d = 0; d < HD; d++) ks[d] *= ik * kn[d];
+                    ra(ks, HD, sp + pi);
                     memcpy(&kv[l].k[(sp + pi) * NKV * HD + kvh * HD], ks, HD * 4); memcpy(&kv[l].v[(sp + pi) * NKV * HD + kvh * HD], vs, HD * 4);
                 }
             }

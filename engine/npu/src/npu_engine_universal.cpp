@@ -29,12 +29,12 @@ static inline void rn_c(float*x,const float*w,int n){cn(x,n);double ss=0;
     for(int i=0;i<n;i++)if(std::isfinite(x[i]))ss+=(double)x[i]*x[i];
     float ir=1.0f/sqrtf((float)(ss/n)+EPS);for(int i=0;i<n;i++)x[i]=std::isfinite(x[i])?x[i]*ir*w[i]:0.0f;}
 static std::vector<float>rc,rs;
-static void ri(int hd,float th,int mp){rc.resize(mp*hd);rs.resize(mp*hd);
-    for(int p=0;p<mp;p++)for(int d=0;d<hd;d+=2){
-        float f=1.0f/powf(th,(float)d/hd),a=p*f;
-        rc[p*hd+d]=cosf(a);rs[p*hd+d]=sinf(a);rc[p*hd+d+1]=cosf(a);rs[p*hd+d+1]=sinf(a);}}
-static inline void ra(float*x,int hd,int p){for(int d=0;d<hd;d+=2){
-    float a=x[d],b=x[d+1],c=rc[p*hd+d],s=rs[p*hd+d];x[d]=a*c-b*s;x[d+1]=b*c+a*s;}}
+static void ri(int hd,float th,int mp){int hd2=hd/2;rc.resize(mp*hd);rs.resize(mp*hd);
+    for(int p=0;p<mp;p++)for(int d=0;d<hd2;d++){
+        float f=1.0f/powf(th,(float)d/hd2),a=p*f;
+        rc[p*hd+d]=cosf(a);rs[p*hd+d]=sinf(a);}}
+static inline void ra(float*x,int hd,int p){int hd2=hd/2;for(int d=0;d<hd2;d++){
+    float a=x[d],b=x[d+hd2],c=rc[p*hd+d],s=rs[p*hd+d];x[d]=a*c-b*s;x[d+hd2]=b*c+a*s;}}
 static std::vector<float> emb_f32; // f32 embeddings for fast LM head
 static std::vector<float> lm_head_f32; // f32 lm_head weights (separate from emb)
 // dequant_i8_to_float(_ex) returns row-major [out_features, in_features] (PyTorch nn.Linear);

@@ -246,10 +246,10 @@ public:
         }
 
         rope_cos_.resize(4096*HD); rope_sin_.resize(4096*HD);
-        for (int p=0;p<4096;p++) for (int d=0;d<HD;d+=2) {
-            float f=1.0f/powf(1000000.0f,(float)d/HD), a=p*f;
-            rope_cos_[p*HD+d]=cosf(a); rope_sin_[p*HD+d]=sinf(a);
-            rope_cos_[p*HD+d+1]=cosf(a); rope_sin_[p*HD+d+1]=sinf(a);
+        for (int p=0;p<4096;p++) for (int i=0;i<HD/2;i++) {
+            float f=1.0f/powf(1000000.0f,(float)(2*i)/HD), a=p*f;
+            rope_cos_[p*HD+2*i]=cosf(a); rope_sin_[p*HD+2*i]=sinf(a);
+            rope_cos_[p*HD+2*i+1]=cosf(a); rope_sin_[p*HD+2*i+1]=sinf(a);
         }
 
         kv_.resize(NC);
@@ -283,6 +283,7 @@ public:
             const float* qn = qn_w_[l].data(); const float* kn = kn_w_[l].data();
             for (int pi=0;pi<n;pi++) {
                 for (int hh=0;hh<NH;hh++) {
+                    // QK RMSNorm FIRST, then RoPE (matching HuggingFace Qwen3 order)
                     double s=0; for (int d=0;d<HD;d++) s+=(double)qo_b[pi*4096+hh*HD+d]*qo_b[pi*4096+hh*HD+d];
                     float iq=1.0f/sqrtf((float)(s/HD)+1e-6f);
                     for (int d=0;d<HD;d++) qo_b[pi*4096+hh*HD+d]*=iq*qn[d];
@@ -290,6 +291,7 @@ public:
                 }
                 for (int kvh=0;kvh<NKV;kvh++) {
                     float* ks=&qo_b[pi*4096+2048+kvh*HD]; float* vs=&qo_b[pi*4096+3072+kvh*HD];
+                    // QK RMSNorm FIRST, then RoPE (matching HuggingFace Qwen3 order)
                     double sk=0; for (int d=0;d<HD;d++) sk+=(double)ks[d]*ks[d];
                     float ik=1.0f/sqrtf((float)(sk/HD)+1e-6f);
                     for (int d=0;d<HD;d++) ks[d]*=ik*kn[d];
