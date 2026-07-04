@@ -107,6 +107,7 @@ jobs:
           REF: ${{ steps.traffic.outputs.TOP_REFERRER }}
           PATH: ${{ steps.traffic.outputs.TOP_PATH }}
           SPIKE: ${{ steps.traffic.outputs.SPIKE }}
+          SPIKE_MSG: ${{ steps.traffic.outputs.SPIKE_MSG }}
         run: |
           echo "## Traffic Report — ${GITHUB_REPOSITORY}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -122,8 +123,6 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "Alert: $SPIKE_MSG" >> $GITHUB_STEP_SUMMARY
           fi
-        env:
-          SPIKE_MSG: ${{ steps.traffic.outputs.SPIKE_MSG }}
 
       - name: Create Spike Issue
         if: steps.traffic.outputs.SPIKE == 'true'
