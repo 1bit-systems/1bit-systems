@@ -19,15 +19,17 @@ Every model at ≤1.5625 bpw (true 1-bit class). Measured on **Radeon 8060S GPU*
 
 | Model | BPW | Size | Params | Engine | Prefill | Decode | ms/tok |
 |-------|-----|------|--------|--------|---------|--------|--------|
-| Hy-MT2 1.8B | **1.3125** (STQ1_0) | 441 MB | 1.8B | ZINC (Sherry) | 485 tok/s | **285 tok/s** | 3.5 |
-| Qwen3.5-0.8B | **1.25** (Q1_0) | 268 MB | 752M | llama.cpp | 9,738 tok/s | **313 tok/s** | 3.2 |
+| Qwen2 0.5B | **1.06** (IQ1_S) | 296 MB | 494M | llama.cpp | 4,206 tok/s | **383 tok/s** | 2.6 |
 | gemma-2-2b | **1.06** (IQ1_S) | 788 MB | 2.6B | llama.cpp | 1,788 tok/s | **160 tok/s** | 6.3 |
+| Qwen3.5-0.8B | **1.25** (Q1_0) | 268 MB | 752M | llama.cpp | 9,738 tok/s | **313 tok/s** | 3.2 |
 | Qwen3.5-9B | **1.25** (Q1_0) | 1.82 GB | 8.95B | llama.cpp | 1,071 tok/s | **74 tok/s** | 13.5 |
+| Hy-MT2 1.8B | **1.3125** (STQ1_0) | 441 MB | 1.8B | ZINC (Sherry) | 485 tok/s | **269 tok/s** | 3.7 |
 
 ### Prefill Scaling
 
 | Model | 32 tok | 128 tok | 512 tok | 2048 tok |
 |-------|--------|---------|---------|----------|
+| Qwen2 0.5B IQ1_S | 4,206 tok/s | 8,471 tok/s | — | — |
 | Qwen3.5-0.8B Q1_0 | 3,910 tok/s | 7,685 tok/s | 9,738 tok/s | 8,514 tok/s |
 | Qwen3.5-9B Q1_0 | 770 tok/s | 1,071 tok/s | — | — |
 
@@ -36,18 +38,20 @@ Every model at ≤1.5625 bpw (true 1-bit class). Measured on **Radeon 8060S GPU*
 | Backend | Model | Size | Tok/s | Power |
 |---------|-------|------|-------|-------|
 | **NPU** (FLM) | Qwen3-0.6B Q4NX | 526 MB | **94 tok/s** | ~15W |
-| **GPU** (ZINC) | Hy-MT2 1.8B STQ1_0 | 441 MB | **285 tok/s** | ~45W |
+| **GPU** (llama.cpp) | Qwen2 0.5B IQ1_S | 296 MB | **383 tok/s** | ~45W |
 | **GPU** (llama.cpp) | Qwen3.5-0.8B Q1_0 | 268 MB | **313 tok/s** | ~45W |
+| **GPU** (ZINC) | Hy-MT2 1.8B STQ1_0 | 441 MB | **269 tok/s** | ~45W |
 | **GPU** (llama.cpp) | gemma-2-2b IQ1_S | 788 MB | **160 tok/s** | ~45W |
 | **GPU** (llama.cpp) | Qwen3.5-9B Q1_0 | 1.82 GB | **74 tok/s** | ~45W |
 
 ### Key Takeaways
 
-- **0.8B model at 1.25 bits**: 313 tok/s — 268 MB. Faster than NPU, 3× smaller file.
-- **1.8B model at 1.3125 bits**: 285 tok/s via ZINC Sherry ternary decode — 3× NPU speed.
-- **2.6B model at 1.06 bits**: 160 tok/s — 1.7× NPU speed with 5× more parameters.
-- **9B model at 1.25 bits**: 74 tok/s — larger 1-bit model fits in 1.82 GB.
-- NPU still wins on power efficiency (~15W vs ~45W) but GPU 1-bit is 3-5× faster.
+- **0.5B model at 1.06 bits (IQ1_S)**: 383 tok/s — fastest 1-bit, 296 MB. 4× NPU speed.
+- **0.8B model at 1.25 bits (Q1_0)**: 313 tok/s — 268 MB. 3× NPU speed, smallest file.
+- **1.8B model at 1.3125 bits (STQ1_0)**: 269 tok/s via ZINC Sherry ternary decode — 3× NPU speed.
+- **2.6B model at 1.06 bits (IQ1_S)**: 160 tok/s — 1.7× NPU speed with 5× more parameters.
+- **9B model at 1.25 bits (Q1_0)**: 74 tok/s — large 1-bit model fits in 1.82 GB on a laptop.
+- NPU still wins on power efficiency (~15W vs ~45W) but GPU 1-bit is 2-4× faster.
 - **All models run on a consumer laptop** — no datacenter.
 
 ### Models Tested
@@ -58,6 +62,7 @@ Every model at ≤1.5625 bpw (true 1-bit class). Measured on **Radeon 8060S GPU*
 | Qwen3.5-0.8B | [WariHima/Qwen3.5-0.8B-Q1_0-GGUF](https://huggingface.co/WariHima/Qwen3.5-0.8B-Q1_0-GGUF) | Q1_0 (1.25 bpw) |
 | gemma-2-2b | [Ffftdtd5dtft/gemma-2-2b-IQ1_S-GGUF](https://huggingface.co/Ffftdtd5dtft/gemma-2-2b-IQ1_S-GGUF) | IQ1_S (1.06 bpw) |
 | Qwen3.5-9B | [WariHima/Qwen3.5-9B-Q1_0-GGUF](https://huggingface.co/WariHima/Qwen3.5-9B-Q1_0-GGUF) | Q1_0 (1.25 bpw) |
+| Qwen2 0.5B | [Ffftdtd5dtft/Qwen2-0.5B-IQ1_S-GGUF](https://huggingface.co/Ffftdtd5dtft/Qwen2-0.5B-IQ1_S-GGUF) | IQ1_S (~1.06 bpw) |
 | BitNet b1.58 2B | [microsoft/bitnet-b1.58-2B-4T-gguf](https://huggingface.co/microsoft/bitnet-b1.58-2B-4T-gguf) | i2_s (~2 bpw) — arch unsupported |
 
 ### Notes
