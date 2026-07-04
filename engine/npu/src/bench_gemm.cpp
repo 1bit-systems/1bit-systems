@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
 #include <chrono>
 #include <xrt/xrt_device.h>
@@ -9,9 +10,12 @@
 #include <xrt/xrt_kernel.h>
 int main(){
     auto d=xrt::device(0);
-    auto xc=xrt::xclbin(std::string([]{const char*e=getenv("NPU_XCLBIN_DIR");std::string d=e?e:"/home/bcloud/npu-sandbox/npu-infer/build/int8";return (d+"/final_i8_QKV_v.xclbin").c_str();}()));
+    const std::string xd=[]{const char*e=getenv("NPU_XCLBIN_DIR");return e?std::string(e):std::string("/home/bcloud/npu-sandbox/npu-infer/build/int8");}();
+    const std::string xclbin_path=xd+"/final_i8_QKV_v.xclbin";
+    auto xc=xrt::xclbin(xclbin_path);
     d.register_xclbin(xc);auto h=xrt::hw_context(d,xc.get_uuid());auto k=xrt::kernel(h,"MLIR_AIE");
-    FILE*f=fopen([]{const char*e=getenv("NPU_XCLBIN_DIR");std::string d=e?e:"/home/bcloud/npu-sandbox/npu-infer/build/int8";return (d+"/insts_i8_QKV_v.txt").c_str();}(),"rb");
+    const std::string insts_path=xd+"/insts_i8_QKV_v.txt";
+    FILE*f=fopen(insts_path.c_str(),"rb");
     fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);std::vector<uint32_t>ins(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);
     auto bI=xrt::bo(d,ins.size()*4,XCL_BO_FLAGS_CACHEABLE,k.group_id(1));
     memcpy(bI.map(),ins.data(),ins.size()*4);bI.sync(XCL_BO_SYNC_BO_TO_DEVICE);
