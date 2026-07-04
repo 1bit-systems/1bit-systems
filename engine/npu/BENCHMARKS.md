@@ -1,8 +1,13 @@
-# 1bit.systems NPU Benchmarks — July 3, 2026
+# 1bit.systems Benchmarks — July 4, 2026
 
-**Hardware**: AMD Ryzen AI Max+ 395 (Strix Halo), XDNA 2 NPU, 32 AIE2P tiles  
-**OS**: Ubuntu 26.04 LTS, Kernel 7.0.0-27-generic, Firmware 1.1.2.65  
+**Hardware**: AMD Ryzen AI Max+ 395 (Strix Halo)  
+- NPU: XDNA 2, 32 AIE2P tiles  
+- GPU: Radeon 8060S (RADV, 32 CUs, 256 GB/s, Vulkan)  
+- CPU: Zen 5, 16C/32T  
+**OS**: Ubuntu 26.04 LTS, Kernel 7.0.0-27-generic  
 **FLM**: v0.9.43, pmode=turbo, port 52625  
+**ZINC**: 0631a677 (STQ1_0), Vulkan backend  
+**llama.cpp**: 1a7582b91 (9094), Vulkan backend  
 
 ---
 
