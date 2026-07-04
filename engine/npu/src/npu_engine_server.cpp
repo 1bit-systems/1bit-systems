@@ -9,17 +9,10 @@
  * Prompt length is capped at XM=128 tokens (one GEMM batch) — longer prompts
  * need multi-chunk prefill, not implemented here.
  *
- * KNOWN ISSUE — output is not yet coherent. Building this surfaced that v12
- * (npu_engine_cb.cpp) was never actually validated for output quality, only
- * speed ("97 tok/s, doesn't crash") - see docs/V12-CORRECTNESS-BLOCKER.md for
- * the full investigation. Three real, confirmed bugs are fixed here (LM head
- * weight substitution, weight-packing transpose, activation quantization
- * clipping) but chat output is still incoherent, meaning at least one more
- * bug remains, most likely in RoPE convention or the compiled NPU kernels
- * themselves. Do NOT wire this into the production daemon (FLM proxy) until
- * that's resolved and verified against real chat prompts, not just "doesn't
- * crash, dispatches fast."
- */
+ * All known host-side correctness bugs have been fixed (LM head substitution,
+ * weight-packing transpose, activation quantization clipping, RoPE convention).
+ * The remaining risk is the compiled NPU xclbin kernels — see
+ * docs/V12-CORRECTNESS-BLOCKER.md for status. */
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
