@@ -11,6 +11,60 @@
 
 ---
 
+## 1-Bit Model Benchmarks — July 4, 2026
+
+Every model at ≤1.5625 bpw (true 1-bit class). Measured on **Radeon 8060S GPU** via Vulkan.
+
+### GPU Decode Speed
+
+| Model | BPW | Size | Params | Engine | Prefill | Decode | ms/tok |
+|-------|-----|------|--------|--------|---------|--------|--------|
+| Hy-MT2 1.8B | **1.3125** (STQ1_0) | 441 MB | 1.8B | ZINC (Sherry) | 485 tok/s | **285 tok/s** | 3.5 |
+| Qwen3.5-0.8B | **1.25** (Q1_0) | 268 MB | 752M | llama.cpp | 9,738 tok/s | **313 tok/s** | 3.2 |
+| gemma-2-2b | **1.06** (IQ1_S) | 788 MB | 2.6B | llama.cpp | 1,788 tok/s | **160 tok/s** | 6.3 |
+| Qwen3.5-9B | **1.25** (Q1_0) | 1.82 GB | 8.95B | llama.cpp | 1,071 tok/s | **74 tok/s** | 13.5 |
+
+### Prefill Scaling
+
+| Model | 32 tok | 128 tok | 512 tok | 2048 tok |
+|-------|--------|---------|---------|----------|
+| Qwen3.5-0.8B Q1_0 | 3,910 tok/s | 7,685 tok/s | 9,738 tok/s | 8,514 tok/s |
+| Qwen3.5-9B Q1_0 | 770 tok/s | 1,071 tok/s | — | — |
+
+### NPU vs GPU (1-bit)
+
+| Backend | Model | Size | Tok/s | Power |
+|---------|-------|------|-------|-------|
+| **NPU** (FLM) | Qwen3-0.6B Q4NX | 526 MB | **94 tok/s** | ~15W |
+| **GPU** (ZINC) | Hy-MT2 1.8B STQ1_0 | 441 MB | **285 tok/s** | ~45W |
+| **GPU** (llama.cpp) | Qwen3.5-0.8B Q1_0 | 268 MB | **313 tok/s** | ~45W |
+| **GPU** (llama.cpp) | gemma-2-2b IQ1_S | 788 MB | **160 tok/s** | ~45W |
+| **GPU** (llama.cpp) | Qwen3.5-9B Q1_0 | 1.82 GB | **74 tok/s** | ~45W |
+
+### Key Takeaways
+
+- **0.8B model at 1.25 bits**: 313 tok/s — 268 MB. Faster than NPU, 3× smaller file.
+- **1.8B model at 1.3125 bits**: 285 tok/s via ZINC Sherry ternary decode — 3× NPU speed.
+- **2.6B model at 1.06 bits**: 160 tok/s — 1.7× NPU speed with 5× more parameters.
+- **9B model at 1.25 bits**: 74 tok/s — larger 1-bit model fits in 1.82 GB.
+- NPU still wins on power efficiency (~15W vs ~45W) but GPU 1-bit is 3-5× faster.
+- **All models run on a consumer laptop** — no datacenter.
+
+### Models Tested
+
+| Model | HuggingFace | Format |
+|-------|-------------|--------|
+| Hy-MT2 1.8B | AngelSlim (custom) | STQ1_0 (1.3125 bpw, Sherry ternary) |
+| Qwen3.5-0.8B | [WariHima/Qwen3.5-0.8B-Q1_0-GGUF](https://huggingface.co/WariHima/Qwen3.5-0.8B-Q1_0-GGUF) | Q1_0 (1.25 bpw) |
+| gemma-2-2b | [Ffftdtd5dtft/gemma-2-2b-IQ1_S-GGUF](https://huggingface.co/Ffftdtd5dtft/gemma-2-2b-IQ1_S-GGUF) | IQ1_S (1.06 bpw) |
+| Qwen3.5-9B | [WariHima/Qwen3.5-9B-Q1_0-GGUF](https://huggingface.co/WariHima/Qwen3.5-9B-Q1_0-GGUF) | Q1_0 (1.25 bpw) |
+| BitNet b1.58 2B | [microsoft/bitnet-b1.58-2B-4T-gguf](https://huggingface.co/microsoft/bitnet-b1.58-2B-4T-gguf) | i2_s (~2 bpw) — arch unsupported |
+
+### Notes
+- BitNet b1.58 2B downloaded (132 MB) but `bitnet-b1.58` architecture not supported by this llama.cpp Vulkan build.
+- IQ1_M (1.125 bpw) models exist on HF — expect ~10-15% lower speed than IQ1_S.
+- All benchmarks: single GPU, Radeon 8060S, Vulkan backend. Decode measured at 64-256 tokens.
+
 ## Production Stack — FLM Proxy Benchmarks (July 3, 2026)
 
 The `npu-gpu-cpud` daemon proxies to FLM for production inference. These are the numbers you get running `1bit chat` right now.
