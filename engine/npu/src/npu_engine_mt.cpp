@@ -28,6 +28,14 @@
 extern "C" float* dequant_i8_to_float_ex(const uint8_t*,int,int,int*,int*);
 
 static constexpr float EPS=1e-6f;
+// Dynamic per-call activation quantization scale — computed from actual range
+// Prevents silent clipping of activations outside [-5,5] (measured post-RMSNorm up to [-8.24,7.01])
+static inline float dynamic_ascale(const float* x, int n) {
+    float amax = 0;
+    for (int i = 0; i < n; i++) { float a = fabsf(x[i]); if (std::isfinite(a) && a > amax) amax = a; }
+    if (amax < 1e-12f) amax = 1.0f;
+    return amax / 127.0f;
+}
 static inline void cn(float*x,int n){for(int i=0;i<n;i++)if(!std::isfinite(x[i]))x[i]=0.0f;}
 static inline void rn_c(float*x,const float*w,int n,int M){
     for(int m=0;m<M;m++){
