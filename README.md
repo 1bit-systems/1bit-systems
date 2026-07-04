@@ -2,8 +2,9 @@
 
 <img src="site/assets/brand-lockup.svg" alt="1bit.systems" width="540">
 
-# 1bit.systems — 120 KB NPU Inference Engine
-## 94 tok/s on AMD Strix Halo. Zero Python. Zero dependencies. Open source.
+# 120kb Binary to rule them all.
+## 94 tok/s on AMD Strix Halo.
+### Zero Python. Zero dependencies. Open source.
 
 [![50 TOPS Verified](https://img.shields.io/badge/50%20TOPS-verified-00ff00.svg)](engine/npu/BENCHMARKS.md)
 [![55.7 TFLOPS Peak](https://img.shields.io/badge/55.7%20TFLOPS-raw%20silicon-12a0ed.svg)](engine/npu/BENCHMARKS.md)
