@@ -1,6 +1,6 @@
 #version 460
 // ZINC — Paged flash attention with grouped-query attention (GQA) support
-// RDNA4-optimized: wave32 (32 threads/workgroup), one query head per workgroup
+// RDNA4-optimized: 64 threads/workgroup (2x wave32 subgroups), one query head per workgroup
 //
 // Implements the flash attention algorithm for autoregressive decode:
 //   - Single query token attending to the full KV cache
@@ -52,7 +52,11 @@ layout(set = 0, binding = 3) readonly  buffer PageTable { uint  page_ids[];   };
 layout(set = 0, binding = 4) writeonly buffer Output    { float o_data[];     };
 layout(set = 0, binding = 4) writeonly buffer OutputV4  { vec4  o_data_v4[];  };
 layout(set = 0, binding = 5) readonly  buffer Sinks     { float sink_data[];  };
-layout(set = 0, binding = 6) coherent buffer ScoreAccum { float score_accum[]; }; // H2O cumulative attention scores
+layout(set = 0, binding = 6) coherent buffer ScoreAccum   { float score_accum[];     }; // H2O cumulative attention scores
+// uint alias of the same binding, used only for the atomic compare-and-swap
+// float-add below (GLSL core has no atomicAdd for float without an extra
+// device extension). Same aliasing idiom as Query/QueryV4 etc. above.
+layout(set = 0, binding = 6) coherent buffer ScoreAccumU  { uint  score_accum_u32[]; };
 
 // Shared memory for attention block processing
 // Attention scores for one 256-token block (max scores held at once),
@@ -311,9 +315,25 @@ void main() {
         for (uint i = tid; i < block_len; i += 64u) {
             uint seq_pos = block_start + i;
             float weight = s_scores_v4[i >> 2][i & 3u];
-            // Atomic add is not needed: each seq_pos is written by
-            // exactly one thread (the one that owns that i).
-            score_accum[seq_pos] += weight;
+            // This dispatch runs one workgroup per attention head, and
+            // every head attends over the same physical seq_pos range —
+            // so different (concurrently-running) workgroups race on the
+            // same score_accum[seq_pos] here. `coherent` only orders
+            // visibility, it does not make `+=` atomic, so a plain
+            // read-modify-write can silently drop updates and corrupt H2O
+            // eviction scores. Accumulate via a compare-and-swap loop on
+            // the uint bit-pattern alias instead (GLSL core has no
+            // atomicAdd for float without a device extension); this is an
+            // exact-bit float add, so score_accum's contents stay
+            // identical to what CPU-side f32 readback expects.
+            uint old_bits = score_accum_u32[seq_pos];
+            for (;;) {
+                float old_val = uintBitsToFloat(old_bits);
+                uint new_bits = floatBitsToUint(old_val + weight);
+                uint prev_bits = atomicCompSwap(score_accum_u32[seq_pos], old_bits, new_bits);
+                if (prev_bits == old_bits) break;
+                old_bits = prev_bits;
+            }
         }
         barrier();
 
