@@ -52,6 +52,7 @@ layout(set = 0, binding = 3) readonly  buffer PageTable { uint  page_ids[];   };
 layout(set = 0, binding = 4) writeonly buffer Output    { float o_data[];     };
 layout(set = 0, binding = 4) writeonly buffer OutputV4  { vec4  o_data_v4[];  };
 layout(set = 0, binding = 5) readonly  buffer Sinks     { float sink_data[];  };
+layout(set = 0, binding = 6) buffer    ScoreAccum    { float score_accum[]; }; // H2O cumulative attention scores
 
 // Shared memory for attention block processing
 // Attention scores for one 256-token block (max scores held at once),
@@ -303,6 +304,18 @@ void main() {
             barrier();
             block_sum = s_reduce_scalar;
         }
+
+        // --- H2O score accumulation: add this block's softmax weights
+        // to the cumulative per-token attention score buffer.
+        // Each thread handles its strided token range.
+        for (uint i = tid; i < block_len; i += 64u) {
+            uint seq_pos = block_start + i;
+            float weight = s_scores_v4[i >> 2][i & 3u];
+            // Atomic add is not needed: each seq_pos is written by
+            // exactly one thread (the one that owns that i).
+            score_accum[seq_pos] += weight;
+        }
+        barrier();
 
         // --- Phase 4: Rescale previous accumulator + accumulate new V ---
         // V is read as vec4: each thread holds a vec4 acc covering 4
