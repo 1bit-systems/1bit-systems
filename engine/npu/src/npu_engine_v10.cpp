@@ -35,6 +35,7 @@ static inline void rn_c(float*x,const float*w,int n){cn(x,n);double ss=0;for(int
 static std::vector<float>rc,rs;static void ri(int hd,float th,int mp){rc.resize(mp*hd);rs.resize(mp*hd);for(int p=0;p<mp;p++)for(int i=0;i<hd/2;i++){float f=1.0f/powf(th,(float)(2*i)/hd),a=p*f;rc[p*hd+i]=cosf(a);rs[p*hd+i]=sinf(a);}}
 static inline void ra(float*x,int hd,int p){for(int i=0;i<hd/2;i++){float a=x[i],b=x[i+hd/2],c=rc[p*hd+i],s=rs[p*hd+i];x[i]=a*c-b*s;x[i+hd/2]=b*c+a*s;}}
 static uint64_t jo(const char*js,size_t jl,const char*nm){size_t nl=strlen(nm);const char*p=js,*e=js+jl;while(p<e){auto q=(const char*)memmem(p,e-p,nm,nl);if(!q)return 0;if(q>js&&*(q-1)=='"'&&*(q+nl)=='"'){auto o=strstr(q,"\"data_offsets\"");if(o){auto a=strchr(o,'[');if(a)return strtoull(a+1,NULL,10);}}p=q+1;}return 0;}
+static std::string xd(){const char*e=getenv("NPU_XCLBIN_DIR");return e?std::string(e):std::string("/home/bcloud/npu-sandbox/npu-infer/build/int8");}
 static std::vector<float> emb_f32;
 
 struct I8Ctx{const char*name;int MD,KD,ND;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt::hw_context>hc;std::unique_ptr<xrt::kernel>k;std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bI,bA,bC,layerB[NC];int8_t*Am;int32_t*Cm;
@@ -52,8 +53,11 @@ struct LMCtx{
     float es; // A input scale (fixed at 5.0/127)
 
     bool init(xrt::device&d){
-        const char*xp=(std::string(xd())+"/final_i8_LM_n30k.xclbin").c_str();
-        const char*ip=(std::string(xd())+"/insts_i8_LM_n30k.txt").c_str();
+        std::string xdd=xd();
+        std::string xps=xdd+"/final_i8_LM_n30k.xclbin";
+        std::string ips=xdd+"/insts_i8_LM_n30k.txt";
+        const char*xp=xps.c_str();
+        const char*ip=ips.c_str();
         FILE*f=fopen(ip,"rb");if(!f)return false;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);
         ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);
         xc=std::make_unique<xrt::xclbin>(std::string(xp));d.register_xclbin(*xc);
@@ -145,12 +149,12 @@ int main(int argc,char**argv){
     for(int n=0;n<NV;n++)for(int i=0;i<H;i++)emb_f32[(size_t)n*H+i]=bf16g(emb[n*H+i]);
 
     printf("Init 5 GEMM (4 layer + LM head)...\n");xrt::device dev(0);
-    static const char* xd(){const char*e=getenv("NPU_XCLBIN_DIR");return e?e:"/home/bcloud/npu-sandbox/npu-infer/build/int8";}
-    I8Ctx cq{"QKV",XM,H,4096},co{"O",XM,NH*HD,H},cg{"GU",XM,H,6144},cd{"(std::string(xd())+",XM,IM,H};
-    cq.init(dev,D").c_str()/final_i8_QKV_v.xclbin",(std::string(xd())+"/insts_i8_QKV_v.txt").c_str(),4);
-    co.init(dev,(std::string(xd())+"/final_i8_O_v.xclbin").c_str(),  (std::string(xd())+"/insts_i8_O_v.txt").c_str(),  4);
-    cg.init(dev,(std::string(xd())+"/final_i8_GU_v.xclbin").c_str(), (std::string(xd())+"/insts_i8_GU_v.txt").c_str(), 4);
-    cd.init(dev,(std::string(xd())+"/final_i8_D_v.xclbin").c_str(),  (std::string(xd())+"/insts_i8_D_v.txt").c_str(),  4);
+    std::string xd=[]{const char*e=getenv("NPU_XCLBIN_DIR");return e?std::string(e):std::string("/home/bcloud/npu-sandbox/npu-infer/build/int8");}();
+    I8Ctx cq{"QKV",XM,H,4096},co{"O",XM,NH*HD,H},cg{"GU",XM,H,6144},cd{"D",XM,IM,H};
+    cq.init(dev,(xd+"/final_i8_QKV_v.xclbin").c_str(),(xd+"/insts_i8_QKV_v.txt").c_str(),4);
+    co.init(dev,(xd+"/final_i8_O_v.xclbin").c_str(),  (xd+"/insts_i8_O_v.txt").c_str(),  4);
+    cg.init(dev,(xd+"/final_i8_GU_v.xclbin").c_str(), (xd+"/insts_i8_GU_v.txt").c_str(), 4);
+    cd.init(dev,(xd+"/final_i8_D_v.xclbin").c_str(),  (xd+"/insts_i8_D_v.txt").c_str(),  4);
     LMCtx lmc;lmc.init(dev);
     printf("LM head: pack emb...\n");lmc.packEmb();
 
@@ -221,9 +225,9 @@ int main(int argc,char**argv){
             for(int hh=0;hh<NH;hh++){double sq=0;for(int d=0;d<HD;d++)sq+=qo[hh*HD+d]*qo[hh*HD+d];float iq=1.0f/sqrtf((float)(sq/HD)+EPS);for(int d=0;d<HD;d++)qo[hh*HD+d]*=iq*qn[d];ra(&qo[hh*HD],HD,sp);
                 if(hh%GQA==0){int kvh=hh/GQA;double sk=0;for(int d=0;d<HD;d++)sk+=ko[kvh*HD+d]*ko[kvh*HD+d];float ik=1.0f/sqrtf((float)(sk/HD)+EPS);for(int d=0;d<HD;d++)ko[kvh*HD+d]*=ik*kn[d];ra(&ko[kvh*HD],HD,sp);memcpy(&kv[l].k[sp*NKV*HD+kvh*HD],&ko[kvh*HD],HD*4);memcpy(&kv[l].v[sp*NKV*HD+kvh*HD],&vo[kvh*HD],HD*4);}}
             kv[l].n=sp+1;int cl=kv[l].n;
-            for(int hh=0;hh<NH;hh++){int kvh=hh/GQA;std::vector<float>sc(sp+pi+1);
-                for(int p=0;p<sp+pi+1;p++){double s=0;for(int d=0;d<HD;d++)s+=qo[hh*HD+d]*kv[l].k[p*NKV*HD+kvh*HD+d];sc[p]=(float)(s/sqrtf(HD));}
-                sm(sc.data(),sp+pi+1);for(int d=0;d<HD;d++){float s=0;for(int p=0;p<sp+pi+1;p++)s+=sc[p]*kv[l].v[p*NKV*HD+kvh*HD+d];at[hh*HD+d]=s;}
+            for(int hh=0;hh<NH;hh++){int kvh=hh/GQA;std::vector<float>sc(sp+1);
+                for(int p=0;p<sp+1;p++){double s=0;for(int d=0;d<HD;d++)s+=qo[hh*HD+d]*kv[l].k[p*NKV*HD+kvh*HD+d];sc[p]=(float)(s/sqrtf(HD));}
+                sm(sc.data(),sp+1);for(int d=0;d<HD;d++){float s=0;for(int p=0;p<sp+1;p++)s+=sc[p]*kv[l].v[p*NKV*HD+kvh*HD+d];at[hh*HD+d]=s;}
             }
             co.go(l,at.data(),1,NH*HD,dynamic_ascale(at.data(),1*NH*HD),wsc[l].o_,oo.data(),H);cn(oo.data(),H);for(int i=0;i<H;i++)h0[i]=sb_[i]+oo[i];
             memcpy(sb_.data(),h0,H*4);rn_c(h0,pa_n[l],H);
@@ -261,7 +265,7 @@ int main(int argc,char**argv){
                 memcpy(&kv[l].k[(sp+b)*NKV*HD+kvh*HD],ks,HD*4);memcpy(&kv[l].v[(sp+b)*NKV*HD+kvh*HD],vs,HD*4);
             }
             kv[l].n=sp+batch_size;int cl=kv[l].n;
-            for(int b=0;b<batch_size;b++){for(int hh=0;hh<NH;hh++){int kvh=hh/GQA;std::vector<float>ss(sp+pi+1);
+            for(int b=0;b<batch_size;b++){for(int hh=0;hh<NH;hh++){int kvh=hh/GQA;std::vector<float>ss(sp+b+1);
                 for(int p=0;p<sp+b+1;p++){double s=0;for(int d=0;d<HD;d++)s+=qo_b[b*NH*HD+hh*HD+d]*kv[l].k[p*NKV*HD+kvh*HD+d];ss[p]=(float)(s/sqrtf(HD));}
                 sm(ss.data(),sp+b+1);for(int d=0;d<HD;d++){float s=0;for(int p=0;p<sp+b+1;p++)s+=ss[p]*kv[l].v[p*NKV*HD+kvh*HD+d];at_b[b*NH*HD+hh*HD+d]=s;}}}
             co.go(l,at_b.data(),batch_size,NH*HD,dynamic_ascale(at_b.data(),batch_size*NH*HD),wsc[l].o_,oo_b.data(),H);cn(oo_b.data(),batch_size*H);
