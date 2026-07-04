@@ -2,8 +2,8 @@
 
 <img src="site/assets/brand-lockup.svg" alt="1bit.systems" width="540">
 
-# 120kb Binary to rule them all.
-## Open source. Zero Python. Zero dependencies.
+# 1bit.systems — 120 KB NPU Inference Engine
+## 94 tok/s on AMD Strix Halo. Zero Python. Zero dependencies. Open source.
 
 [![50 TOPS Verified](https://img.shields.io/badge/50%20TOPS-verified-00ff00.svg)](engine/npu/BENCHMARKS.md)
 [![55.7 TFLOPS Peak](https://img.shields.io/badge/55.7%20TFLOPS-raw%20silicon-12a0ed.svg)](engine/npu/BENCHMARKS.md)
@@ -19,7 +19,7 @@
 [![Homebrew](https://img.shields.io/badge/brew-install-fbb040.svg)](https://github.com/bong-water-water-bong/1bit-systems/releases/latest)
 [![Ollama](https://img.shields.io/badge/ollama-ready-000000.svg)](https://github.com/bong-water-water-bong/1bit-systems/releases/latest)
 <br>
-[![curl install](https://img.shields.io/badge/curl%20%7C%20bash-install-00ff00.svg)](packaging/install.sh)
+[![NPU install](https://img.shields.io/badge/curl%20%7C%20bash%20NPU--only-00ff00.svg)](packaging/npu-install.sh)
 [![Pure C++](https://img.shields.io/badge/runtime-C%2B%2B23-00ff00.svg)](engine/npu/src/npu_engine_all.cpp)
 [![Zero Python](https://img.shields.io/badge/deps-0-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
 [![MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
@@ -29,31 +29,32 @@
 
 ---
 
-#### Quick Start → [docs/getting-started.md](docs/getting-started.md)
+> **I reverse-engineered AMD's proprietary NPU stack in 4 days.**
+> One binary. 120 KB. 94 tok/s. No Python. No pip. No Docker. No MLIR toolchain.
+> Just your NPU and a C++ compiler. [MIT licensed](LICENSE).
 
-## Get Started
+---
+
+## Install & Run (30 seconds)
 
 ```bash
-# One-liner
-curl -sL https://1bit.systems/install.sh | bash
+# Install NPU engine (zero dependencies — just bash and curl)
+curl -sL https://1bit.systems/npu-install.sh | bash
 
-# Or pick your package manager
-sudo dpkg -i 1bit-systems_2026.07.02_amd64.deb     # Debian/Ubuntu
-sudo snap install 1bit-systems                       # Snap
-yay -S 1bit-systems-bin                              # Arch (AUR)
-brew install 1bit-systems                            # macOS (Homebrew)
-docker run -d --device /dev/accel/accel0 \
-  -p 8081:8081 1bit-systems/npu:2026.07.02           # Docker
-ollama create qwen3-npu -f packaging/ollama/Modelfile # Ollama
+# Download a model
+1bit pull qwen3-0.6b
 
-# Or build from source (one command)
-g++ -std=c++23 -O3 -march=native -fopenmp -ffast-math \
-    -o npu_engine_all engine/npu/src/npu_engine_all.cpp \
-    engine/npu/build/dequant_q4nx.o \
-    -Iengine/npu/src -lxrt_coreutil
+# Chat (auto-detects NPU → GPU → CPU)
+1bit chat
+```
 
-# Run (auto-detects model)
-OMP_NUM_THREADS=16 ./npu_engine_all model.q4nx 16
+Or use the HTTP API (OpenAI-compatible):
+
+```bash
+1bit serve &
+curl -X POST http://localhost:8081/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen3-0.6b","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
 > **No Python. No pip. No Docker. No MLIR toolchain. Just g++ and run.**

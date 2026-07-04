@@ -1,0 +1,76 @@
+name: Bug Report
+description: Something isn't working
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please fill out this form so I can reproduce the issue.
+
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware
+      description: Your hardware (Strix Halo / Ryzen AI Max+ 395 / other)
+      placeholder: e.g. Ryzen AI 9 HX 375, Strix Halo, etc.
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS & Kernel
+      description: Linux distro, version, kernel
+      placeholder: e.g. Ubuntu 26.04, kernel 6.14.0
+    validations:
+      required: true
+
+  - type: input
+    id: xrt-version
+    attributes:
+      label: XRT Version
+      description: Output of `xbutil examine`
+      placeholder: e.g. 2.21.0
+    validations:
+      required: true
+
+  - type: input
+    id: binary-version
+    attributes:
+      label: Binary Version
+      description: Which release or commit
+      placeholder: e.g. v2026.07.02 or git commit hash
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Exact Command
+      description: The full command you ran
+      render: shell
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Full Output / Error
+      description: Paste the complete terminal output, including any error messages
+      render: text
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      placeholder: |
+        1. Build with 'make -C packaging npu'
+        2. Run './npu_engine_all model.q4nx 16'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+    validations:
+      required: true
