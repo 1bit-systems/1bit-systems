@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include <string>
 #include <vector>
 #include <chrono>
 #include <fcntl.h>
@@ -77,28 +78,28 @@ int main(int argc,char**argv){
     static constexpr int GU_NOUT = GU_FUSED ? 2*IM : IM; // for fused: both G+U; for separate: G only
     static constexpr int U_NOUT = GU_FUSED ? 0 : IM; // separate U
     // D output = H
-    #define XD XCLBIN_DIR
+    std::string xd_dir=XCLBIN_DIR;
 
     // Build xclbin/insts paths using the per-model suffix
     char qkv_xp[256], o_xp[256], gu_xp[256], d_xp[256];
     char qkv_ip[256], o_ip[256], gu_ip[256], d_ip[256];
     char g_xp[256], u_xp[256], g_ip[256], u_ip[256];
 
-    snprintf(qkv_xp,256,XD"/final_i8_QKV_%s.xclbin",XCLBIN_SUFFIX);
-    snprintf(qkv_ip,256,XD"/insts_i8_QKV_%s.txt",XCLBIN_SUFFIX);
-    snprintf(o_xp,256,XD"/final_i8_O_%s.xclbin",XCLBIN_SUFFIX);
-    snprintf(o_ip,256,XD"/insts_i8_O_%s.txt",XCLBIN_SUFFIX);
+    snprintf(qkv_xp,256,"%s/final_i8_QKV_%s.xclbin",xd_dir.c_str(),XCLBIN_SUFFIX);
+    snprintf(qkv_ip,256,"%s/insts_i8_QKV_%s.txt",xd_dir.c_str(),XCLBIN_SUFFIX);
+    snprintf(o_xp,256,"%s/final_i8_O_%s.xclbin",xd_dir.c_str(),XCLBIN_SUFFIX);
+    snprintf(o_ip,256,"%s/insts_i8_O_%s.txt",xd_dir.c_str(),XCLBIN_SUFFIX);
     if(GU_FUSED){
-        snprintf(gu_xp,256,XD"/final_i8_GU_%s.xclbin",XCLBIN_SUFFIX);
-        snprintf(gu_ip,256,XD"/insts_i8_GU_%s.txt",XCLBIN_SUFFIX);
+        snprintf(gu_xp,256,"%s/final_i8_GU_%s.xclbin",xd_dir.c_str(),XCLBIN_SUFFIX);
+        snprintf(gu_ip,256,"%s/insts_i8_GU_%s.txt",xd_dir.c_str(),XCLBIN_SUFFIX);
     }else{
-        snprintf(g_xp,256,XD"/final_i8_G_%s.xclbin",XCLBIN_SUFFIX);
-        snprintf(g_ip,256,XD"/insts_i8_G_%s.txt",XCLBIN_SUFFIX);
-        snprintf(u_xp,256,XD"/final_i8_U_%s.xclbin",XCLBIN_SUFFIX);
-        snprintf(u_ip,256,XD"/insts_i8_U_%s.txt",XCLBIN_SUFFIX);
+        snprintf(g_xp,256,"%s/final_i8_G_%s.xclbin",xd_dir.c_str(),XCLBIN_SUFFIX);
+        snprintf(g_ip,256,"%s/insts_i8_G_%s.txt",xd_dir.c_str(),XCLBIN_SUFFIX);
+        snprintf(u_xp,256,"%s/final_i8_U_%s.xclbin",xd_dir.c_str(),XCLBIN_SUFFIX);
+        snprintf(u_ip,256,"%s/insts_i8_U_%s.txt",xd_dir.c_str(),XCLBIN_SUFFIX);
     }
-    snprintf(d_xp,256,XD"/final_i8_D_%s.xclbin",XCLBIN_SUFFIX);
-    snprintf(d_ip,256,XD"/insts_i8_D_%s.txt",XCLBIN_SUFFIX);
+    snprintf(d_xp,256,"%s/final_i8_D_%s.xclbin",xd_dir.c_str(),XCLBIN_SUFFIX);
+    snprintf(d_ip,256,"%s/insts_i8_D_%s.txt",xd_dir.c_str(),XCLBIN_SUFFIX);
 
     I8Ctx cq{"QKV",XM,H,QKV_STRIDE},co{"O",XM,ATTEN_STRIDE,H};
     I8Ctx cg{"GU",XM,H,GU_FUSED ? (2*IM) : IM};
@@ -245,9 +246,9 @@ int main(int argc,char**argv){
                 }
             }
             kv[l].n=sp+1;int cl=kv[l].n;
-            for(int hh=0;hh<NH;hh++){int kvh=hh/GQA;std::vector<float>sc(sp+pi+1);
+            for(int hh=0;hh<NH;hh++){int kvh=hh/GQA;std::vector<float>sc(sp+1);
                 for(int p=0;p<cl;p++){double s=0;for(int d=0;d<HD;d++)s+=qo[(size_t)hh*HD+d]*kv[l].k[(size_t)p*NKV*HD+kvh*HD+d];sc[p]=(float)(s/sqrtf(HD));}
-                sm(sc.data(),sp+pi+1);for(int d=0;d<HD;d++){float s=0;for(int p=0;p<sp+pi+1;p++)s+=sc[p]*kv[l].v[(size_t)p*NKV*HD+kvh*HD+d];at[(size_t)hh*HD+d]=s;}
+                sm(sc.data(),sp+1);for(int d=0;d<HD;d++){float s=0;for(int p=0;p<sp+1;p++)s+=sc[p]*kv[l].v[(size_t)p*NKV*HD+kvh*HD+d];at[(size_t)hh*HD+d]=s;}
             }
             co.go(l,at.data(),1,ATTEN_STRIDE,dynamic_ascale(at.data(),1*ATTEN_STRIDE),wsc[l].o_,oo.data(),H);cn(oo.data(),H);
             for(int i=0;i<H;i++)h[i]=sb[i]+oo[i];
