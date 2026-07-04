@@ -188,6 +188,7 @@ int main(int argc, char** argv) {
         printf("   Need to find npu_xclbin_manager constructor or size\n");
         return 1;
     }
+<<<<<<< HEAD
     
     // ── 3. Create qwen3_npu model (loads weights) ──
     // The Impl size is ~2600+ bytes (from disassembly: stack offsets up to 0x1d0+)
@@ -207,6 +208,115 @@ int main(int argc, char** argv) {
     } catch (...) {
         printf("❌ Constructor threw unknown exception\n");
         return 1;
+=======
+    sp+=npt;memcpy(h.data(),&h_b[(npt-1)*H],H*4);
+    printf("Prefill: %.0fms (%.0f ms/tok)\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count(),std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count()/npt);
+
+    // ===== PROFILED DECODE =====
+    printf("=== Profiled Decode v4 (%d tokens) ===\n",ng);
+    printf("Each GEMM: q=quantize A, s=sync A in, k=kernel+wait, c=sync C out, d=dequant\n\n");
+    double t_q=0,t_syncA=0,t_kern=0,t_syncC=0,t_dq=0;
+    double t_attn_total=0,t_lm_total=0;
+
+    for(int step=0;step<ng;step++){auto ts=std::chrono::steady_clock::now();
+        for(int l=0;l<NC;l++){
+            memcpy(sb.data(),h.data(),H*4);rn_c(h.data(),in_n[l],H);
+
+            // === QKV GEMM ===
+            {auto t0g=std::chrono::steady_clock::now();
+            float ascale_q=dynamic_ascale(h.data(),H);float ais=1.0f/ascale_q;float*iA=h.data();
+            memset(cq.Am,0,(size_t)1*cq.KD);
+            for(int k=0;k<H;k++){float v=iA[k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;cq.Am[k]=(int8_t)q;}
+            t_q+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t0g).count();
+            auto t1g=std::chrono::steady_clock::now();cq.bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            t_syncA+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t1g).count();
+            auto t2g=std::chrono::steady_clock::now();auto r=(*cq.k)((unsigned)3,*cq.bI,(unsigned)cq.ins.size(),*cq.bA,*cq.layerB[l],*cq.bC);r.wait();
+            t_kern+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t2g).count();
+            auto t3g=std::chrono::steady_clock::now();cq.bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+            t_syncC+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t3g).count();
+            auto t4g=std::chrono::steady_clock::now();float cs=ascale_qkv*wsc[l].qk;for(int n=0;n<4096;n++){float val=(float)cq.Cm[n]*cs;if(!std::isfinite(val))val=0;qo[n]=val;}
+            t_dq+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t4g).count();}
+
+            cn(qo.data(),4096);memcpy(ko.data(),&qo[2048],4096);memcpy(vo.data(),&qo[3072],4096);
+            float*qn=qn_w[l],*kn=kn_w[l];
+
+            auto ta0=std::chrono::steady_clock::now();
+            for(int hh=0;hh<NH;hh++){double sq=0;for(int d=0;d<HD;d++)sq+=qo[hh*HD+d]*qo[hh*HD+d];float iq=1.0f/sqrtf((float)(sq/HD)+EPS);for(int d=0;d<HD;d++)qo[hh*HD+d]*=iq*qn[d];ra(&qo[hh*HD],HD,sp);
+                if(hh%GQA==0){int kvh=hh/GQA;double sk=0;for(int d=0;d<HD;d++)sk+=ko[kvh*HD+d]*ko[kvh*HD+d];float ik=1.0f/sqrtf((float)(sk/HD)+EPS);for(int d=0;d<HD;d++)ko[kvh*HD+d]*=ik*kn[d];ra(&ko[kvh*HD],HD,sp);memcpy(&kv[l].k[sp*NKV*HD+kvh*HD],&ko[kvh*HD],HD*4);memcpy(&kv[l].v[sp*NKV*HD+kvh*HD],&vo[kvh*HD],HD*4);}}
+            kv[l].n=sp+1;int cl=kv[l].n;
+            for(int hh=0;hh<NH;hh++){int kvh=hh/GQA;std::vector<float>sc(sp+pi+1);
+                for(int p=0;p<sp+pi+1;p++){double s=0;for(int d=0;d<HD;d++)s+=qo[hh*HD+d]*kv[l].k[p*NKV*HD+kvh*HD+d];sc[p]=(float)(s/sqrtf(HD));}
+                sm(sc.data(),sp+pi+1);for(int d=0;d<HD;d++){float s=0;for(int p=0;p<sp+pi+1;p++)s+=sc[p]*kv[l].v[p*NKV*HD+kvh*HD+d];at[hh*HD+d]=s;}
+            }
+            t_attn_total+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-ta0).count();
+
+            // === O GEMM ===
+            {auto t0g=std::chrono::steady_clock::now();
+            float ascale_o=dynamic_ascale(at.data(),NH*HD);float ais=1.0f/ascale_o;float*iA=at.data();
+            memset(co.Am,0,(size_t)1*co.KD);
+            for(int k=0;k<NH*HD;k++){float v=iA[k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;co.Am[k]=(int8_t)q;}
+            t_q+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t0g).count();
+            auto t1g=std::chrono::steady_clock::now();co.bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            t_syncA+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t1g).count();
+            auto t2g=std::chrono::steady_clock::now();auto r=(*co.k)((unsigned)3,*co.bI,(unsigned)co.ins.size(),*co.bA,*co.layerB[l],*co.bC);r.wait();
+            t_kern+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t2g).count();
+            auto t3g=std::chrono::steady_clock::now();co.bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+            t_syncC+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t3g).count();
+            auto t4g=std::chrono::steady_clock::now();float cs=ascale_o*wsc[l].o_;for(int n=0;n<H;n++){float val=(float)co.Cm[n]*cs;if(!std::isfinite(val))val=0;oo[n]=val;}
+            t_dq+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t4g).count();}
+
+            cn(oo.data(),H);for(int i=0;i<H;i++)h[i]=sb[i]+oo[i];
+
+            memcpy(sb.data(),h.data(),H*4);rn_c(h.data(),pa_n[l],H);
+
+            // === GU GEMM ===
+            {auto t0g=std::chrono::steady_clock::now();
+            float ascale_g=dynamic_ascale(h.data(),H);float ais=1.0f/ascale_g;float*iA=h.data();
+            memset(cg.Am,0,(size_t)1*cg.KD);
+            for(int k=0;k<H;k++){float v=iA[k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;cg.Am[k]=(int8_t)q;}
+            t_q+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t0g).count();
+            auto t1g=std::chrono::steady_clock::now();cg.bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            t_syncA+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t1g).count();
+            auto t2g=std::chrono::steady_clock::now();auto r=(*cg.k)((unsigned)3,*cg.bI,(unsigned)cg.ins.size(),*cg.bA,*cg.layerB[l],*cg.bC);r.wait();
+            t_kern+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t2g).count();
+            auto t3g=std::chrono::steady_clock::now();cg.bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+            t_syncC+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t3g).count();
+            auto t4g=std::chrono::steady_clock::now();float cs=ascale_g*wsc[l].g_;for(int n=0;n<6144;n++){float val=(float)cg.Cm[n]*cs;if(!std::isfinite(val))val=0;gt[n]=val;}
+            t_dq+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t4g).count();}
+
+            cn(gt.data(),6144);for(int i=0;i<IM;i++){float gv=gt[i];if(!std::isfinite(gv))gv=0;su[i]=(gv/(1.0f+expf(-gv)))*gt[IM+i];}
+
+            // === D GEMM ===
+            {auto t0g=std::chrono::steady_clock::now();
+            float ascale_d=dynamic_ascale(su.data(),IM);float ais=1.0f/ascale_d;float*iA=su.data();
+            memset(cd.Am,0,(size_t)1*cd.KD);
+            for(int k=0;k<IM;k++){float v=iA[k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;cd.Am[k]=(int8_t)q;}
+            t_q+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t0g).count();
+            auto t1g=std::chrono::steady_clock::now();cd.bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            t_syncA+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t1g).count();
+            auto t2g=std::chrono::steady_clock::now();auto r=(*cd.k)((unsigned)3,*cd.bI,(unsigned)cd.ins.size(),*cd.bA,*cd.layerB[l],*cd.bC);r.wait();
+            t_kern+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t2g).count();
+            auto t3g=std::chrono::steady_clock::now();cd.bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+            t_syncC+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t3g).count();
+            auto t4g=std::chrono::steady_clock::now();float cs=ascale_d*wsc[l].d_;for(int n=0;n<H;n++){float val=(float)cd.Cm[n]*cs;if(!std::isfinite(val))val=0;dwo[n]=val;}
+            t_dq+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t4g).count();}
+
+            cn(dwo.data(),H);for(int i=0;i<H;i++)h[i]=sb[i]+dwo[i];
+        }
+
+        auto tlm0=std::chrono::steady_clock::now();
+        memcpy(sb.data(),h.data(),H*4);rn_c(sb.data(),fin,H);
+        float mx=-1e30f;
+        for(int n=0;n<NV;n++){double s=0;const float*e=&lm_head_f32[(size_t)n*H];
+            for(int k=0;k<H;k++)s+=(double)sb[k]*e[k];lg[n]=std::isfinite((float)s)?(float)s:-1e30f;if(lg[n]>mx)mx=lg[n];}
+        double sum=0;for(int i=0;i<NV;i++){float d=lg[i]-mx;if(d<-80)d=-80;lg[i]=expf(d);sum+=lg[i];}
+        float rr=(float)rand()/RAND_MAX*(float)sum,acc=0;int tok=0;for(int i=0;i<NV;i++){acc+=lg[i];if(acc>=rr){tok=i;break;}}
+        t_lm_total+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-tlm0).count();
+
+        double mss=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-ts).count();
+        printf("  [%d] %d (%.0fms)\n",step,tok,mss);
+        for(int i=0;i<H;i++)h[i]=emb_f32[(size_t)tok*H+i];sp++;
+>>>>>>> d34a5b3d (fix(npu): finish v4.cpp lm_head untied-embeddings fix + decode quant bug)
     }
     
     // ── 4. Generate instruction sequences ──
