@@ -29,7 +29,9 @@
 
 ---
 
-### Get Started
+#### Quick Start → [docs/getting-started.md](docs/getting-started.md)
+
+## Get Started
 
 ```bash
 # One-liner
@@ -191,6 +193,13 @@ OMP_NUM_THREADS=16 ./npu_engine_v9 64
 | **NPU FLM** | XDNA 2 NPU | **94 tok/s** (10.6 ms/tok) | Qwen3-0.6B |
 | **NPU v12** | XDNA 2 NPU | **97 tok/s** (10 ms/tok) | Qwen3-0.6B |
 | **GPU (ZINC)** | Radeon 8060S · 32 CUs (Vulkan) | **22 tok/s** (46 ms/tok) | Bonsai-1.7B-F16 |
+
+## Community
+
+- [Getting Started Guide](docs/getting-started.md) — First-run in 30 seconds
+- [Contributing](CONTRIBUTING.md) — How to help
+- [Security Policy](SECURITY.md) — Report vulnerabilities
+- [Roadmap](ROADMAP.md) — What's coming next
 
 ## License
 
