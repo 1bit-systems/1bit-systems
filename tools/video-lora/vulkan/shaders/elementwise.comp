@@ -1,0 +1,27 @@
+#version 460
+// Element-wise operations: add, multiply, scale
+// op: 0=add, 1=mul, 2=scale
+
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0) buffer D0 { float d0[]; };
+layout(set = 0, binding = 1) readonly buffer D1 { float d1[]; };
+
+layout(push_constant) uniform PushConstants {
+    uint N;
+    uint op;
+    float scalar;
+};
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= N) return;
+
+    float a = d0[idx];
+    float b = d1[idx];
+
+    if (op == 0) d0[idx] = a + b;       // add
+    else if (op == 1) d0[idx] = a * b;  // mul
+    else if (op == 2) d0[idx] = a * scalar; // scale
+    else if (op == 3) d0[idx] = a + b * scalar; // add with scale (residual)
+}

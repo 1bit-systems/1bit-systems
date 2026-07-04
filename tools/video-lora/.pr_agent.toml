@@ -1,0 +1,13 @@
+[pr_agent]
+model = "opencode/glm-5.2"
+model_turbo = "opencode/glm-5.2"
+fallback_models = ["deepseek/deepseek-chat", "openai/gpt-4o-mini"]
+verbosity_level = 2
+publish_output = true
+
+[pr_agent.pr_reviewer]
+require_score_review = true
+require_tests_review = true
+num_ais = 3
+inline_code_comments = true
+automatic_review = false

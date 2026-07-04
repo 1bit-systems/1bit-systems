@@ -1,0 +1,71 @@
+#version 460
+// 2D Convolution for SD1.5 UNet — NCHW layout
+// Supports: 3x3 kernel, stride 1, padding 1 (same), groups=1
+// One workgroup = one output pixel (all channels)
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Input {
+    float in_data[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Weight {
+    float weight_data[];
+};
+
+layout(set = 0, binding = 2) readonly buffer Bias {
+    float bias_data[];
+};
+
+layout(set = 0, binding = 3) buffer Output {
+    float out_data[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint in_channels;   // C_in
+    uint out_channels;  // C_out
+    uint H;             // input height
+    uint W;             // input width
+    uint K;             // kernel size (3 for 3x3)
+    uint pad;           // padding (1 for same)
+    uint groups;        // convolution groups
+};
+
+// Shared memory for input tile
+shared float tile[8 + 2][8 + 2]; // 8x8 + 1 padding each side (3x3 kernel)
+
+void main() {
+    uint ox = gl_GlobalInvocationID.x;
+    uint oy = gl_GlobalInvocationID.y;
+    uint oc = gl_GlobalInvocationID.z; // output channel
+
+    if (ox >= W || oy >= H || oc >= out_channels) return;
+
+    uint kw = 3; // kernel width (fixed for SD1.5)
+    uint kh = 3; // kernel height
+
+    float sum = bias_data[oc];
+    uint kw_center = kw / 2;
+    uint kh_center = kh / 2;
+
+    // Convolve over all input channels
+    for (uint ic = 0; ic < in_channels; ic++) {
+        for (uint ky = 0; ky < kh; ky++) {
+            int iy = int(oy) + int(ky) - int(kh_center);
+            if (iy < 0 || iy >= int(H)) continue;
+
+            for (uint kx = 0; kx < kw; kx++) {
+                int ix = int(ox) + int(kx) - int(kw_center);
+                if (ix < 0 || ix >= int(W)) continue;
+
+                uint in_idx = ic * H * W + uint(iy) * W + uint(ix);
+                uint w_idx = oc * in_channels * kh * kw + ic * kh * kw + ky * kw + kx;
+
+                sum += in_data[in_idx] * weight_data[w_idx];
+            }
+        }
+    }
+
+    uint out_idx = oc * H * W + oy * W + ox;
+    out_data[out_idx] = sum;
+}
