@@ -57,7 +57,7 @@ int main(int argc,char**argv){
     int npt=9,ng=(argc>1)?atoi(argv[1]):16;
     printf("=== NPU Engine v8 — M=%d Batch Decode (M=%d) ===\n\n",BS,npt+1);
     const char*mp="/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
-    int fd=platform_open_read(mp);platform_stat st;platform_fstat(fd,&st);
+    auto fd=platform_open_read(mp);platform_stat st;platform_fstat(fd,&st);
     uint8_t*md=(uint8_t*)platform_mmap((size_t)st.st_size,PROT_READ,MAP_PRIVATE,fd,0);platform_close(fd);
     uint64_t hsz;memcpy(&hsz,md,8);uint64_t df=8+hsz;
     auto i8p=[&](uint64_t o){return md+df+o;};auto emb=(const uint16_t*)(md+df);

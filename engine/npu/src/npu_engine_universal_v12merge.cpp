@@ -36,7 +36,7 @@ int main(int argc,char**argv){
     printf("=== NPU Engine v5 — %s (H=%d NC=%d NH=%d NKV=%d HD=%d IM=%d NV=%d GQA=%d) ===\n\n",
            MODEL_TAG,H,NC,NH,NKV,HD,IM,NV,GQA);
     printf("Model: %s\n\n",mp);
-    int fd=platform_open_read(mp);platform_stat st;platform_fstat(fd,&st);
+    auto fd=platform_open_read(mp);platform_stat st;platform_fstat(fd,&st);
     uint8_t*md=(uint8_t*)platform_mmap((size_t)st.st_size,PROT_READ,MAP_PRIVATE,fd,0);platform_close(fd);
     uint64_t mmap_sz=st.st_size;
     uint64_t hsz;memcpy(&hsz,md,8);uint64_t df=8+hsz;
