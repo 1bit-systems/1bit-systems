@@ -26,6 +26,9 @@ static std::vector<float>rc,rs;static void ri(int hd,float th,int mp){rc.resize(
 static inline void ra(float*x,int hd,int p){for(int d=0;d<hd;d+=2){float a=x[d],b=x[d+1],c=rc[p*hd+d],s=rs[p*hd+d];x[d]=a*c-b*s;x[d+1]=b*c+a*s;}}
 static uint64_t jo(const char*js,size_t jl,const char*nm){size_t nl=strlen(nm);const char*p=js,*e=js+jl;while(p<e){auto q=(const char*)memmem(p,e-p,nm,nl);if(!q)return 0;if(q>js&&*(q-1)=='"'&&*(q+nl)=='"'){auto o=strstr(q,"\"data_offsets\"");if(o){auto a=strchr(o,'[');if(a)return strtoull(a+1,NULL,10);}}p=q+1;}return 0;}
 static std::vector<float> emb_f32;
+// F32 pre-converted lm_head weights — Qwen3-0.6B does NOT tie embeddings, so the
+// output projection must use lm_head.weight, not the input embedding table.
+static std::vector<float> lm_head_f32;
 
 struct I8Ctx{const char*name;int MD,KD,ND;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt::hw_context>hc;std::unique_ptr<xrt::kernel>k;std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bI,bA,bC,layerB[NC];int8_t*Am;int16_t*Cm;
 bool init(xrt::device&d,const char*xp,const char*ip,int gid_B){FILE*f=fopen(ip,"rb");if(!f)return false;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);xc=std::make_unique<xrt::xclbin>(std::string(xp));d.register_xclbin(*xc);hc=std::make_unique<xrt::hw_context>(d,xc->get_uuid());k=std::make_unique<xrt::kernel>(*hc,"MLIR_AIE");bI=std::make_unique<xrt::bo>(d,ins.size()*4,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));memcpy(bI->map(),ins.data(),ins.size()*4);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);bA=std::make_unique<xrt::bo>(d,(size_t)MD*KD,XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*2,XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));Am=(int8_t*)bA->map();Cm=(int16_t*)bC->map();for(int l=0;l<NC;l++)layerB[l]=std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B));return true;}
@@ -42,8 +45,15 @@ struct LMCtx{
     float es; // A input scale (fixed at 5.0/127)
 
     bool init(xrt::device&d){
+<<<<<<< HEAD
         const char*xp="/home/bcloud/npu-sandbox/npu-infer/build/int8/final_i8_LM_n30k.xclbin";
         const char*ip="/home/bcloud/npu-sandbox/npu-infer/build/int8/insts_i8_LM_n30k.txt";
+=======
+        std::string xp_s=std::string(xd())+"/final_i8_LM_n30k.xclbin";
+        std::string ip_s=std::string(xd())+"/insts_i8_LM_n30k.txt";
+        const char*xp=xp_s.c_str();
+        const char*ip=ip_s.c_str();
+>>>>>>> cf6bd8e0 (fix(npu): v10.cpp dangling xp/ip pointers + missing lm_head untied fix)
         FILE*f=fopen(ip,"rb");if(!f)return false;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);
         ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);
         xc=std::make_unique<xrt::xclbin>(std::string(xp));d.register_xclbin(*xc);
@@ -58,11 +68,11 @@ struct LMCtx{
         es=5.0f/127.0f;return true;
     }
 
-    // Pre-quantize and sync embedding table slices
+    // Pre-quantize and sync lm_head weight slices (untied output projection, NOT emb_f32)
     void packEmb(){
         float amax=0;
         // Find global amax first
-        for(int i=0;i<(int)NV*H;i++){float a=fabsf(emb_f32[i]);if(std::isfinite(a)&&a>amax)amax=a;}
+        for(int i=0;i<(int)NV*H;i++){float a=fabsf(lm_head_f32[i]);if(std::isfinite(a)&&a>amax)amax=a;}
         if(amax<1e-12f)amax=1.0f;
         float is=127.0f/amax;
         for(int c=0;c<LM_CHUNKS;c++){
@@ -71,7 +81,7 @@ struct LMCtx{
             auto*Bm=(int8_t*)embB[c]->map();
             memset(Bm,0,(size_t)1024*LM_N); // zero-pad (covers padding for last chunk)
             for(int n=n_start;n<n_end;n++){int col=n-n_start;
-                for(int k=0;k<H;k++){float v=emb_f32[(size_t)n*H+k];if(!std::isfinite(v))v=0;
+                for(int k=0;k<H;k++){float v=lm_head_f32[(size_t)n*H+k];if(!std::isfinite(v))v=0;
                     int x=(int)roundf(v*is);if(x>127)x=127;else if(x<-127)x=-127;
                     Bm[col*H+k]=(int8_t)x;}
             }
@@ -84,7 +94,7 @@ struct LMCtx{
     int sample(const float*hidden,float*lg_logits){
         float ais=1.0f/es;
         memset(Am,0,(size_t)128*1024);
-        for(int k=0;k<H;k++){float v=hidden[k];if(!std::isfinite(v))v=0;int q=(int)roundf(v/ais);if(q>127)q=127;else if(q<-127)q=-127;Am[k]=(int8_t)q;}
+        for(int k=0;k<H;k++){float v=hidden[k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;Am[k]=(int8_t)q;}
         bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
         double total_time=0;
@@ -133,6 +143,7 @@ int main(int argc,char**argv){
 
     printf("Pre-convert emb f32...\n");emb_f32.resize((size_t)NV*H);
     for(int n=0;n<NV;n++)for(int i=0;i<H;i++)emb_f32[(size_t)n*H+i]=bf16g(emb[n*H+i]);
+    {int lr,lc;float* lm_raw=dequant_i8_to_float(i8p(lo_off),18992,&lr,&lc);lm_head_f32.resize((size_t)lr*lc);memcpy(lm_head_f32.data(),lm_raw,(size_t)lr*lc*sizeof(float));free(lm_raw);}
 
     printf("Init 5 GEMM (4 layer + LM head)...\n");xrt::device dev(0);
     #define D "/home/bcloud/npu-sandbox/npu-infer/build/int8"
@@ -155,7 +166,6 @@ int main(int argc,char**argv){
         int t2=gr+ur;std::vector<float>w2((size_t)H*t2);for(int k=0;k<H;k++){memcpy(&w2[k*t2],&gw[k*gr],gr*4);memcpy(&w2[k*t2+gr],&uw[k*ur],ur*4);}
         cg.packB(l,w2.data(),H,t2,wsc[l].g_);free(gw);free(uw);
         float*dw=dequant_i8_to_float(i8p(lo[l].dp),384,&dr,&unused);cd.packB(l,dw,dr,H,wsc[l].d_);free(dw);}
-    int lr,lc;free(dequant_i8_to_float(i8p(lo_off),18992,&lr,&lc));
     printf("  %.0fms\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-tp).count());
     ri(HD,1000000.0f,4096);
 
