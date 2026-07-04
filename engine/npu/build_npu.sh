@@ -51,3 +51,5 @@ ls -lh "$BUILDDIR/npu_engine"
 echo ""
 echo "=== All builds complete ==="
 ls -lh "$BUILDDIR"/npu_engine*
+echo ""
+echo "Windows build: cmake -B build -S . -DXRT_DIR=\"C:/Program Files/AMD/XRT\""
