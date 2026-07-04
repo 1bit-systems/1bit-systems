@@ -1,4 +1,4 @@
-# 1bit.systems Benchmarks — July 4, 2026
+# 1bit.systems Benchmarks — July 4, 2026 (refresh 2)
 
 **Hardware**: AMD Ryzen AI Max+ 395 (Strix Halo)  
 - NPU: XDNA 2, 32 AIE2P tiles  
@@ -11,48 +11,54 @@
 
 ---
 
-## 1-Bit Model Benchmarks — July 4, 2026
+## 1-Bit Model Benchmarks — July 4, 2026 (refresh 2)
 
-Every model at ≤1.5625 bpw (true 1-bit class). Measured on **Radeon 8060S GPU** via Vulkan.
+Every model at ≤1.5625 bpw (true 1-bit class). Measured on **Radeon 8060S GPU** via Vulkan. All numbers fresh from live runs with 3 repetitions — no cached data.
 
 ### GPU Decode Speed
 
 | Model | BPW | Size | Params | Engine | Prefill | Decode | ms/tok |
 |-------|-----|------|--------|--------|---------|--------|--------|
-| Qwen2 0.5B | **1.06** (IQ1_S) | 296 MB | 494M | llama.cpp | 4,206 tok/s | **383 tok/s** | 2.6 |
-| gemma-2-2b | **1.06** (IQ1_S) | 788 MB | 2.6B | llama.cpp | 1,788 tok/s | **160 tok/s** | 6.3 |
-| Qwen3.5-0.8B | **1.25** (Q1_0) | 268 MB | 752M | llama.cpp | 9,738 tok/s | **313 tok/s** | 3.2 |
-| Qwen3.5-9B | **1.25** (Q1_0) | 1.82 GB | 8.95B | llama.cpp | 1,071 tok/s | **74 tok/s** | 13.5 |
-| Hy-MT2 1.8B | **1.3125** (STQ1_0) | 441 MB | 1.8B | ZINC (Sherry) | 485 tok/s | **269 tok/s** | 3.7 |
+| Qwen2 0.5B | **1.06** (IQ1_S) | 296 MB | 494M | llama.cpp | 4,188 tok/s | **381 tok/s** | 2.6 |
+| gemma-2-2b | **1.06** (IQ1_S) | 788 MB | 2.6B | llama.cpp | 1,773 tok/s | **158 tok/s** | 6.3 |
+| Qwen3.5-0.8B | **1.25** (Q1_0) | 268 MB | 752M | llama.cpp | 3,883 tok/s | **312 tok/s** | 3.2 |
+| gemma3 4B | **1.06** (IQ1_S) | 1.05 GB | 3.88B | llama.cpp | 1,247 tok/s | **122 tok/s** | 8.2 |
+| Qwen3.5-9B | **1.25** (Q1_0) | 1.82 GB | 8.95B | llama.cpp | 762 tok/s | **70 tok/s** | 14.3 |
+| Nemo 8B | **1.06** (IQ1_S) | 1.97 GB | 8.41B | llama.cpp | 720 tok/s | **79 tok/s** | 12.7 |
+| Hy-MT2 1.8B | **1.3125** (STQ1_0) | 441 MB | 1.8B | ZINC (Sherry) | 238 tok/s | **267 tok/s** | 3.7 |
 
 ### Prefill Scaling
 
 | Model | 32 tok | 128 tok | 512 tok | 2048 tok |
 |-------|--------|---------|---------|----------|
-| Qwen2 0.5B IQ1_S | 4,206 tok/s | 8,471 tok/s | — | — |
-| Qwen3.5-0.8B Q1_0 | 3,910 tok/s | 7,685 tok/s | 9,738 tok/s | 8,514 tok/s |
-| Qwen3.5-9B Q1_0 | 770 tok/s | 1,071 tok/s | — | — |
+| Qwen2 0.5B IQ1_S | 4,188 tok/s | — | — | — |
+| Qwen3.5-0.8B Q1_0 | 3,883 tok/s | — | — | — |
+| gemma3 4B IQ1_S | 1,247 tok/s | — | — | — |
+| Nemo 8B IQ1_S | 720 tok/s | — | — | — |
+| Qwen3.5-9B Q1_0 | 762 tok/s | — | — | — |
 
 ### NPU vs GPU (1-bit)
 
 | Backend | Model | Size | Tok/s | Power |
 |---------|-------|------|-------|-------|
 | **NPU** (FLM) | Qwen3-0.6B Q4NX | 526 MB | **94 tok/s** | ~15W |
-| **GPU** (llama.cpp) | Qwen2 0.5B IQ1_S | 296 MB | **383 tok/s** | ~45W |
-| **GPU** (llama.cpp) | Qwen3.5-0.8B Q1_0 | 268 MB | **313 tok/s** | ~45W |
-| **GPU** (ZINC) | Hy-MT2 1.8B STQ1_0 | 441 MB | **269 tok/s** | ~45W |
-| **GPU** (llama.cpp) | gemma-2-2b IQ1_S | 788 MB | **160 tok/s** | ~45W |
-| **GPU** (llama.cpp) | Qwen3.5-9B Q1_0 | 1.82 GB | **74 tok/s** | ~45W |
+| **GPU** (llama.cpp) | Qwen2 0.5B IQ1_S | 296 MB | **381 tok/s** | ~45W |
+| **GPU** (llama.cpp) | Qwen3.5-0.8B Q1_0 | 268 MB | **312 tok/s** | ~45W |
+| **GPU** (ZINC) | Hy-MT2 1.8B STQ1_0 | 441 MB | **267 tok/s** | ~45W |
+| **GPU** (llama.cpp) | gemma3 4B IQ1_S | 1.05 GB | **122 tok/s** | ~45W |
+| **GPU** (llama.cpp) | Nemo 8B IQ1_S | 1.97 GB | **79 tok/s** | ~45W |
+| **GPU** (llama.cpp) | gemma-2-2b IQ1_S | 788 MB | **158 tok/s** | ~45W |
+| **GPU** (llama.cpp) | Qwen3.5-9B Q1_0 | 1.82 GB | **70 tok/s** | ~45W |
 
 ### Key Takeaways
 
-- **0.5B model at 1.06 bits (IQ1_S)**: 383 tok/s — fastest 1-bit, 296 MB. 4× NPU speed.
-- **0.8B model at 1.25 bits (Q1_0)**: 313 tok/s — 268 MB. 3× NPU speed, smallest file.
-- **1.8B model at 1.3125 bits (STQ1_0)**: 269 tok/s via ZINC Sherry ternary decode — 3× NPU speed.
-- **2.6B model at 1.06 bits (IQ1_S)**: 160 tok/s — 1.7× NPU speed with 5× more parameters.
-- **9B model at 1.25 bits (Q1_0)**: 74 tok/s — large 1-bit model fits in 1.82 GB on a laptop.
-- NPU still wins on power efficiency (~15W vs ~45W) but GPU 1-bit is 2-4× faster.
-- **All models run on a consumer laptop** — no datacenter.
+- **0.5B model at 1.06 bits (IQ1_S)**: 381 tok/s — fastest 1-bit, 296 MB. 4× NPU speed.
+- **0.8B model at 1.25 bits (Q1_0)**: 312 tok/s — 268 MB. 3.4× NPU speed, smallest file.
+- **1.8B model at 1.3125 bits (STQ1_0)**: 267 tok/s via ZINC Sherry ternary decode — 2.9× NPU speed.
+- **3.88B model at 1.06 bits (IQ1_S)**: 122 tok/s — gemma3 4B, 1.05 GB, 1.3× NPU speed.
+- **8.41B model at 1.06 bits (IQ1_S)**: 79 tok/s — Nemo Minitron 8B, 1.97 GB.
+- **8.95B model at 1.25 bits (Q1_0)**: 70 tok/s — Qwen3.5-9B, 1.82 GB.
+- NPU still wins on power efficiency (~15W vs ~45W) but GPU 1-bit is 1.3-4× faster.
 
 ### Models Tested
 
