@@ -1,6 +1,6 @@
 # CLAUDE.md — 1bit.systems
 
-**50 TOPS INT8 · 94 tok/s NPU (FLM) · 281 tok/s 1-bit. On a consumer laptop.**
+**50 TOPS INT8 · 94 tok/s NPU (FLM) · 22 tok/s GPU. On a consumer laptop.**
 Contact: admin@1bit.systems
 
 Three inference engines, one chip. NPU (C++) + GPU (Zig). Zero Python.
