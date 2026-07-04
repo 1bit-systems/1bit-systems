@@ -1,6 +1,6 @@
 #version 460
 // ZINC — Paged flash attention with grouped-query attention (GQA) support
-// RDNA4-optimized: wave64 (64 threads/workgroup), one query head per workgroup
+// RDNA4-optimized: wave32 (32 threads/workgroup), one query head per workgroup
 //
 // Implements the flash attention algorithm for autoregressive decode:
 //   - Single query token attending to the full KV cache
