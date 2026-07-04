@@ -52,7 +52,7 @@ layout(set = 0, binding = 3) readonly  buffer PageTable { uint  page_ids[];   };
 layout(set = 0, binding = 4) writeonly buffer Output    { float o_data[];     };
 layout(set = 0, binding = 4) writeonly buffer OutputV4  { vec4  o_data_v4[];  };
 layout(set = 0, binding = 5) readonly  buffer Sinks     { float sink_data[];  };
-layout(set = 0, binding = 6) buffer    ScoreAccum    { float score_accum[]; }; // H2O cumulative attention scores
+layout(set = 0, binding = 6) coherent buffer ScoreAccum { float score_accum[]; }; // H2O cumulative attention scores
 
 // Shared memory for attention block processing
 // Attention scores for one 256-token block (max scores held at once),

@@ -48,7 +48,7 @@ layout(set = 0, binding = 3) readonly  buffer PageTable { uint  page_ids[]; };
 layout(set = 0, binding = 4) writeonly buffer Output    { float o_data[];   };
 layout(set = 0, binding = 4) writeonly buffer OutputV4  { vec4  o_data_v4[]; };
 layout(set = 0, binding = 5) readonly  buffer Sinks     { float sink_data[]; };
-layout(set = 0, binding = 6) buffer    ScoreAccum   { float score_accum[]; }; // H2O cumulative attention scores
+layout(set = 0, binding = 6) coherent buffer ScoreAccum { float score_accum[]; }; // H2O cumulative attention scores
 
 const uint BLOCK_SIZE = 256u;
 const uint BLOCK_SIZE_V4 = BLOCK_SIZE >> 2;  // 64
@@ -423,4 +423,9 @@ void main() {
     for (uint d4 = tid; d4 < head_dim_v4; d4 += 64u) {
         o_data_v4[out_base_v4 + d4] = s_out_v4[d4] * rescale * inv_sum;
     }
+
+    // H2O: force retention of score_accum binding even though this shader
+    // doesn't accumulate scores (the per-head flash_attn shader does).
+    // This keeps the pipeline layout compatible (7 bindings).
+    if (tid == 0u) score_accum[0] = score_accum[0];
 }
