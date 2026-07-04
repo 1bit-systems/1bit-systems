@@ -1,1 +1,0 @@
-{"version":3,"file":"authstatus.js","sourceRoot":"","sources":["../../../src/models/components/authstatus.ts"],"names":[],"mappings":"AAAA;;;GAGG;AAGH,OAAO,KAAK,SAAS,MAAM,sBAAsB,CAAC;AAGlD,MAAM,CAAC,MAAM,UAAU,GAAG;IACxB,KAAK,EAAE,OAAO;IACd,OAAO,EAAE,SAAS;IAClB,KAAK,EAAE,OAAO;CACN,CAAC;AAGX,gBAAgB;AAChB,MAAM,CAAC,MAAM,wBAAwB,GACnC,SAAS,CAAC,aAAa,CAAC,UAAU,CAAC,CAAC"}
