@@ -140,8 +140,8 @@ jobs:
             --label traffic-spike \
             --body "## 🚨 Traffic Spike Detected
 
-**Yesterday:** $CY clones ($CYU unique)
+            **Yesterday:** $CY clones ($CYU unique)
 
-Please investigate the source and update README / docs accordingly.
+            Please investigate the source and update README / docs accordingly.
 
-Report: [${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}]()"
+            Report: [${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}]()"
