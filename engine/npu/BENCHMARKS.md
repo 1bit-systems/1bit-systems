@@ -119,6 +119,26 @@ Returns 404 from the daemon — the FLM backend doesn't have a Gemma4-E2B model 
 
 ---
 
+## KV Cache Efficiency — H2O Eviction (July 4, 2026)
+
+The H2O (Heavy-Hitter Oracle) eviction system enables efficient long-context inference by keeping only the most-attended tokens in the KV cache. Benchmarks pending hardware validation — expected improvements:
+
+| Metric | Without H2O | With H2O (expected) |
+|--------|-------------|-------------------|
+| Max context (32K budget) | ~32K tokens | ~128K tokens (4×) |
+| Decode speed at 128K | Out of memory | ~85% of baseline |
+| Cache miss quality loss | N/A | <1% perplexity (H2O paper)
+| Batch size (4K context) | 8 sequences | 32 sequences (4×) |
+
+**Mechanism**: Each KV page tracks cumulative attention scores. When the page pool is exhausted, the lowest-scoring pages are evicted and remapped to a shared zero-filled page — producing naturally ~0 attention scores with no shader changes required.
+
+**Configuration**: Set `ZINC_KV_EVICTION_POLICY=h2o` (or `lru`/`fifo`) to enable. Three auxiliary modules available:
+- `radix_tree.zig`: RadixAttention prefix tree for cross-request page sharing
+- `offload_engine.zig`: CPU memory offloading for cold pages
+- `quant_profile.zig`: Per-layer dynamic quantization scheme selection
+
+---
+
 ## Raw C++ Engine — All 5 Models (M=32 batch, OpenMP)
 
 These are the open-source C++ engine numbers — no FLM, no proprietary code. Single binary, auto-detect.
