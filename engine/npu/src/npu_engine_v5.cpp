@@ -146,7 +146,7 @@ int main(int argc,char**argv){
         // LM head → get logits + top-BS token indices
         memcpy(sb.data(),h.data(),H*4);rn_c(sb.data(),fin,H);
         float mx=-1e30f;
-        for(int n=0;n<NV;n++){double s=0;const float*e=&emb_f32[(size_t)n*H];
+        for(int n=0;n<NV;n++){double s=0;const float*e=&lm_head_f32[(size_t)n*H];
             for(int k=0;k<H;k++)s+=(double)sb[k]*e[k];lg[n]=std::isfinite((float)s)?(float)s:-1e30f;if(lg[n]>mx)mx=lg[n];}
         double sum=0;for(int i=0;i<NV;i++){float d=lg[i]-mx;if(d<-80)d=-80;lg[i]=expf(d);sum+=lg[i];}
 
