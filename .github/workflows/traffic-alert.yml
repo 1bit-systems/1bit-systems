@@ -138,13 +138,16 @@ jobs:
             echo "Spike issue already open — skipping"
             exit 0
           fi
-          gh issue create \
-            --title "Traffic spike: $CY clones ($CYU unique) yesterday" \
-            --label traffic-spike \
-            --body "## Traffic Spike Detected
+          cat > /tmp/spike_body.md << SPIKEND
+## Traffic Spike Detected
 
 **Yesterday:** $CY clones ($CYU unique)
 
 Please investigate the source and update README / docs accordingly.
 
-Report: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+Report: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+SPIKEND
+          gh issue create \
+            --title "Traffic spike: $CY clones ($CYU unique) yesterday" \
+            --label traffic-spike \
+            --body-file /tmp/spike_body.md
