@@ -89,7 +89,12 @@ pub const Scheduler = struct {
         if (self.pending.items.len == 0) return null;
         for (self.slots, 0..) |*slot, i| {
             if (slot.* == null) {
-                var req = self.pending.orderedRemove(0);
+                // Work on a copy of the head-of-queue request and only remove
+                // it from `pending` once allocation and the state transition
+                // both succeed. Removing it up front meant a failed
+                // allocOrEvict (e.g. error.KvCacheExhausted) silently dropped
+                // the request instead of leaving it queued for retry.
+                var req = self.pending.items[0];
                 req.slot_id = @intCast(i);
 
                 // Allocate KV cache pages if the pool is configured.
@@ -101,6 +106,7 @@ pub const Scheduler = struct {
                 }
 
                 try req.transition(.prefilling);
+                _ = self.pending.orderedRemove(0);
                 slot.* = req;
                 log.info("Request {d} admitted to slot {d}", .{ req.id, i });
                 return @intCast(i);
@@ -243,9 +249,12 @@ pub const Scheduler = struct {
                 if (self.kv_page_pool) |pool| {
                     if (req.kv_page_ids) |page_ids| {
                         pool.freePages(req.id);
-                        // kv_page_ids was allocated by the pool's allocator;
-                        // the pool interface expects the caller to free the slice.
-                        self.allocator.free(page_ids);
+                        // kv_page_ids was allocated with the pool's allocator
+                        // (see KvPagePool.allocPages), which may differ from
+                        // the Scheduler's own allocator — free it with the
+                        // same allocator that allocated it to avoid
+                        // corrupting either allocator's internal state.
+                        pool.allocator.free(page_ids);
                         req.kv_page_ids = null;
                     }
                 }
