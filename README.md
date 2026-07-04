@@ -134,9 +134,12 @@ faster than venture capital.
 │   ├── index.html
 │   └── assets/brand-lockup.svg
 ├── 1bit-site/              # Deploy mirror (synced from site/)
+├── tools/
+│   └── video-lora/         # Video gen w/ LoRA (Wan2.2, LTX-Video, AnimateDiff, CogVideoX)
+│                           # + standalone Vulkan compute backend (Zig)
 ├── docs/                   # Architecture, build guide, roadmap, journey
 ├── packaging/              # deb, snap, tarball, docker, ollama, AUR
-└── .github/workflows/      # CI benchmark + deploy + PR agent
+└── .github/workflows/      # CI benchmark + deploy + PR agent + video-lora CI
 ```
 
 ## NPU Engine (`engine/npu/`)
