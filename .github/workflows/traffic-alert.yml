@@ -1,0 +1,135 @@
+name: Traffic Alert
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 8 * * *'   # daily at 8AM UTC = midnight/1AM Pacific
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  check-traffic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch GitHub Traffic Data
+        id: traffic
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OWNER="${{ github.repository_owner }}"
+          REPO="${{ github.event.repository.name }}"
+
+          # --- Clones ---
+          CLONE_JSON=$(gh api repos/$OWNER/$REPO/traffic/clones)
+          CLONE_COUNT=$(echo "$CLONE_JSON" | jq '.count')
+          CLONE_UNIQUES=$(echo "$CLONE_JSON" | jq '.uniques')
+
+          # Last 2 days (yesterday + day before)
+          YESTERDAY=$(echo "$CLONE_JSON" | jq '.clones[-2].count // 0')
+          YESTERDAY_UNIQ=$(echo "$CLONE_JSON" | jq '.clones[-2].uniques // 0')
+          DAY_BEFORE=$(echo "$CLONE_JSON" | jq '.clones[-3].count // 0')
+
+          # --- Views ---
+          VIEW_JSON=$(gh api repos/$OWNER/$REPO/traffic/views)
+          VIEW_COUNT=$(echo "$VIEW_JSON" | jq '.count')
+          VIEW_UNIQUES=$(echo "$VIEW_JSON" | jq '.uniques')
+
+          # --- Referrers ---
+          REF_JSON=$(gh api repos/$OWNER/$REPO/traffic/popular/referrers)
+          TOP_REF=$(echo "$REF_JSON" | jq -r '.[0] | "\(.referrer): \(.count) (\(.uniques) unique)" // "none"')
+
+          # --- Top paths ---
+          PATH_JSON=$(gh api repos/$OWNER/$REPO/traffic/popular/paths)
+          TOP_PATH=$(echo "$PATH_JSON" | jq -r '.[0] | "\(.path) — \(.count) views" // "none"')
+
+          # --- Spike detection ---
+          SPIKE=false
+          SPIKE_MSG=""
+          if [ "$YESTERDAY" -gt 0 ] && [ "$DAY_BEFORE" -gt 0 ]; then
+            RATIO=$(echo "scale=2; $YESTERDAY / $DAY_BEFORE" | bc)
+            if [ "$(echo "$RATIO > 3" | bc)" -eq 1 ]; then
+              SPIKE=true
+              SPIKE_MSG="🚨 CLONE SPIKE: $YESTERDAY clones yesterday vs $DAY_BEFORE day before (${RATIO}x increase!)"
+            fi
+          fi
+          if [ "$YESTERDAY" -gt 200 ]; then
+            SPIKE=true
+            SPIKE_MSG="$SPIKE_MSG
+🔥 HIGH VOLUME: $YESTERDAY clones in a single day"
+          fi
+
+          # --- Save to summary ---
+          {
+            echo "CLONE_14D=$CLONE_COUNT"
+            echo "CLONE_UNIQUES_14D=$CLONE_UNIQUES"
+            echo "CLONE_YESTERDAY=$YESTERDAY"
+            echo "CLONE_YESTERDAY_UNIQ=$YESTERDAY_UNIQ"
+            echo "VIEW_14D=$VIEW_COUNT"
+            echo "VIEW_UNIQUES_14D=$VIEW_UNIQUES"
+            echo "TOP_REFERRER=$TOP_REF"
+            echo "TOP_PATH=$TOP_PATH"
+            echo "SPIKE=$SPIKE"
+            echo "SPIKE_MSG<<SPIKE_EOF"
+            echo "$SPIKE_MSG"
+            echo "SPIKE_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Report to Job Summary
+        env:
+          C: ${{ steps.traffic.outputs.CLONE_14D }}
+          CU: ${{ steps.traffic.outputs.CLONE_UNIQUES_14D }}
+          CY: ${{ steps.traffic.outputs.CLONE_YESTERDAY }}
+          CYU: ${{ steps.traffic.outputs.CLONE_YESTERDAY_UNIQ }}
+          V: ${{ steps.traffic.outputs.VIEW_14D }}
+          VU: ${{ steps.traffic.outputs.VIEW_UNIQUES_14D }}
+          REF: ${{ steps.traffic.outputs.TOP_REFERRER }}
+          PATH: ${{ steps.traffic.outputs.TOP_PATH }}
+          SPIKE: ${{ steps.traffic.outputs.SPIKE }}
+          MSG: ${{ steps.traffic.outputs.SPIKE_MSG }}
+        run: |
+          echo "## 📊 1bit.systems — Daily Traffic Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Clones (14d) | $C ($CU unique) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Yesterday | $CY clones ($CYU unique) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Views (14d) | $V ($VU unique) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Top referrer | $REF |" >> $GITHUB_STEP_SUMMARY
+          echo "| Top path | $PATH |" >> $GITHUB_STEP_SUMMARY
+          echo "| Spike detected | $SPIKE |" >> $GITHUB_STEP_SUMMARY
+          if [ "$SPIKE" = "true" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "$MSG" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Create Spike Issue
+        if: steps.traffic.outputs.SPIKE == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MSG: ${{ steps.traffic.outputs.SPIKE_MSG }}
+          CY: ${{ steps.traffic.outputs.CLONE_YESTERDAY }}
+          CYU: ${{ steps.traffic.outputs.CLONE_YESTERDAY_UNIQ }}
+        run: |
+          # Check if we already have an open spike issue
+          EXISTING=$(gh issue list --label traffic-spike --state open --json number --jq 'length')
+          if [ "$EXISTING" -gt 0 ]; then
+            echo "Spike issue already open — skipping duplicate"
+            exit 0
+          fi
+
+          gh issue create \
+            --title "📈 Traffic spike: $CY clones ($CYU unique) yesterday" \
+            --label traffic-spike \
+            --body "## 🚨 Traffic Spike Detected
+
+**Yesterday:** $CY clones ($CYU unique)
+
+$MSG
+
+Full report: [${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}]()
+
+Please investigate the source of this traffic spike and update the README / docs accordingly."
