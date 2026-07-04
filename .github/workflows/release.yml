@@ -1,0 +1,111 @@
+name: Release — Build & Publish Packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build packages for'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ gcc dpkg-dev snapcraft 2>/dev/null || true
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          fi
+          echo "version=$(echo ${GITHUB_REF_NAME} | sed 's/^v//')" >> $GITHUB_OUTPUT
+
+      - name: Build dequant object
+        run: |
+          gcc -c -std=c11 -O3 -o dequant_q4nx.o \
+            engine/npu/src/dequant_q4nx.c
+
+      - name: Build NPU engine
+        run: |
+          g++ -std=c++23 -O3 -march=x86-64 -fopenmp -ffast-math \
+            -o 1bit-npu \
+            engine/npu/src/npu_engine_all.cpp \
+            dequant_q4nx.o \
+            -Iengine/npu/src -lxrt_coreutil -luuid -lm -ldl \
+            2>/dev/null || \
+          g++ -std=c++23 -O3 -march=native -fopenmp -ffast-math \
+            -o 1bit-npu \
+            engine/npu/src/npu_engine_all.cpp \
+            dequant_q4nx.o \
+            -Iengine/npu -lxrt_coreutil -luuid -lm -ldl
+
+      - name: Build HTTP server
+        run: |
+          g++ -std=c++23 -O3 -o 1bit-server \
+            packaging/binary/server.cpp
+
+      - name: Strip binaries
+        run: |
+          strip -s 1bit-npu 2>/dev/null || true
+          strip -s 1bit-server 2>/dev/null || true
+
+      - name: Build .deb package
+        run: |
+          mkdir -p deb-pkg/DEBIAN deb-pkg/usr/bin deb-pkg/usr/lib/1bit
+          cp packaging/deb/DEBIAN/control deb-pkg/DEBIAN/
+          cp packaging/deb/DEBIAN/postinst deb-pkg/DEBIAN/ 2>/dev/null || true
+          cp 1bit-npu deb-pkg/usr/bin/
+          cp 1bit-server deb-pkg/usr/bin/
+          cp dequant_q4nx.o deb-pkg/usr/lib/1bit/
+          sed -i "s/Version:.*/Version: ${{ steps.version.outputs.version }}/" deb-pkg/DEBIAN/control
+          dpkg-deb --build deb-pkg 1bit-systems_${{ steps.version.outputs.version }}_amd64.deb
+
+      - name: Build tarball
+        run: |
+          PKG="1bit-systems-${{ steps.version.outputs.version }}-linux-amd64"
+          mkdir -p "${PKG}/bin" "${PKG}/lib"
+          cp 1bit-npu "${PKG}/bin/"
+          cp 1bit-server "${PKG}/bin/"
+          cp dequant_q4nx.o "${PKG}/lib/"
+          cp packaging/npu-install.sh "${PKG}/"
+          chmod +x "${PKG}/npu-install.sh"
+          tar czf "${PKG}.tar.gz" "${PKG}/"
+
+      - name: Generate checksums
+        run: |
+          sha256sum 1bit-systems_${{ steps.version.outputs.version }}_amd64.deb \
+            1bit-systems-${{ steps.version.outputs.version }}-linux-amd64.tar.gz \
+            > checksums.txt
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ steps.version.outputs.tag }}" --json tagName &>/dev/null; then
+            # Release exists — upload assets to it
+            gh release upload "${{ steps.version.outputs.tag }}" \
+              1bit-systems_${{ steps.version.outputs.version }}_amd64.deb \
+              1bit-systems-${{ steps.version.outputs.version }}-linux-amd64.tar.gz \
+              checksums.txt \
+              1bit-npu 1bit-server \
+              --clobber
+          else
+            echo "Release ${{ steps.version.outputs.tag }} not found — not uploading (create release manually or use the tag trigger)"
+          fi
