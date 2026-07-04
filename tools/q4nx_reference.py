@@ -167,7 +167,7 @@ def dequantize_weight(offset, i8_rows, in_features):
                     else:
                         raw_nibble = (byte_val >> 4) & 0x0F
 
-                    # signed INT4
+                    # signed INT4: sign-extend nibble (matches dequant_q4nx.c)
                     int4_val = raw_nibble if raw_nibble < 8 else raw_nibble - 16
 
                     global_col = tile_col * COLS_PER_TILE + local_col

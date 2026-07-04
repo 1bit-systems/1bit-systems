@@ -52,21 +52,31 @@ def rotate_half(x):
 
 
 def apply_rope(x, cos, sin):
-    """Apply rotary position embedding to a [..., HD] tensor."""
-    return x * cos + rotate_half(x) * sin
+    """
+    Apply rotary position embedding to a [..., HD] tensor.
+
+    Uses HuggingFace rotate_half convention where each pair (i, i+HD/2)
+    shares the same (cos, sin) from the [HD/2] tables.
+    """
+    hd2 = x.shape[-1] // 2
+    x1 = x[..., :hd2]
+    x2 = x[..., hd2:]
+    return np.concatenate([x1 * cos - x2 * sin, x2 * cos + x1 * sin], axis=-1)
 
 
 def precompute_rope(seq_len, head_dim=HD, theta=RPE_THETA):
-    """Precompute cos/sin for RoPE at positions 0..seq_len-1."""
+    """
+    Precompute cos/sin for RoPE at positions 0..seq_len-1.
+
+    Returns arrays of shape [seq_len, HD/2] for use with apply_rope()'s
+    rotate_half convention — each pair (i, i+HD/2) shares one (cos, sin).
+    """
     inv_freq = 1.0 / (theta ** (np.arange(0, head_dim, 2, dtype=np.float64) / head_dim))
     positions = np.arange(seq_len, dtype=np.float64)
     angles = np.outer(positions, inv_freq)  # [seq_len, HD//2]
     cos = np.cos(angles).astype(np.float32)  # [seq_len, HD//2]
     sin = np.sin(angles).astype(np.float32)
-    # Duplicate for both halves (cos/sin are broadcast over HD dim)
-    cos_full = np.repeat(cos, 2, axis=-1)     # [seq_len, HD]
-    sin_full = np.repeat(sin, 2, axis=-1)
-    return cos_full, sin_full
+    return cos, sin  # [seq_len, HD/2] — no repeat for rotate_half
 
 
 # ── tensor stats ────────────────────────────────────────────────────────
@@ -156,19 +166,7 @@ def forward_layer(h, layer_idx, params):
     intermediates["k_heads"] = k
     intermediates["v_heads"] = v
 
-    # ── 4. RoPE on q and k ──
-    cos_p = cos_full[seq_pos]   # [HD]
-    sin_p = sin_full[seq_pos]   # [HD]
-    for hh in range(NH):
-        q[hh] = apply_rope(q[hh], cos_p, sin_p)
-    for kh in range(NKV):
-        k[kh] = apply_rope(k[kh], cos_p, sin_p)
-    describe("q_heads (after RoPE)", q)
-    describe("k_heads (after RoPE)", k)
-    intermediates["q_rope"] = q.copy()
-    intermediates["k_rope"] = k.copy()
-
-    # ── 5. QK norm (element-wise per head) ──
+    # ── 4. QK norm (element-wise per head) ──
     for hh in range(NH):
         q[hh] = q[hh] * w.q_norm
     for kh in range(NKV):
@@ -177,6 +175,18 @@ def forward_layer(h, layer_idx, params):
     describe("k_heads (after QK norm)", k)
     intermediates["q_normed"] = q.copy()
     intermediates["k_normed"] = k.copy()
+
+    # ── 5. RoPE on q and k ──
+    cos_p = cos_full[seq_pos]   # [HD/2]
+    sin_p = sin_full[seq_pos]   # [HD/2]
+    for hh in range(NH):
+        q[hh] = apply_rope(q[hh], cos_p, sin_p)
+    for kh in range(NKV):
+        k[kh] = apply_rope(k[kh], cos_p, sin_p)
+    describe("q_heads (after RoPE)", q)
+    describe("k_heads (after RoPE)", k)
+    intermediates["q_rope"] = q.copy()
+    intermediates["k_rope"] = k.copy()
 
     # ── 6. Attention with GQA ──
     # GQA factor = NH // NKV = 2
