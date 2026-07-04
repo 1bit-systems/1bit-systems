@@ -25,6 +25,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional
@@ -708,6 +709,19 @@ def main():
 
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
+
+    # Periodic zombie reaper — lemond GPU backend often dies immediately on
+    # systems without ROCm, leaving a defunct process. This timer reaps it.
+    def _reaper():
+        while True:
+            try:
+                os.waitpid(-1, os.WNOHANG)
+            except ChildProcessError:
+                pass  # no children to reap
+            threading.Event().wait(5)
+
+    _reaper_thread = threading.Thread(target=_reaper, daemon=True)
+    _reaper_thread.start()
 
     server = HTTPServer(("0.0.0.0", args.port), Handler)
     print(f"Gateway listening on http://0.0.0.0:{args.port}")
