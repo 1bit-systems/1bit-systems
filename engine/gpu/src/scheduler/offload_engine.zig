@@ -147,8 +147,14 @@ pub const OffloadEngine = struct {
     /// Returns null if nothing to reload.
     pub fn processNextReload(self: *OffloadEngine) ?struct { page_id: u32, cpu_data: []const u8 } {
         if (self.reload_queue.items.len == 0) return null;
-        const page_id = self.reload_queue.orderedRemove(0);
+        // Peek the page id and only dequeue once we've confirmed its CPU
+        // buffer is actually available. Dequeuing first meant a
+        // not-yet-ready reload (no matching CPU buffer, e.g. offload still
+        // in flight) was dropped permanently instead of staying queued for
+        // a later retry.
+        const page_id = self.reload_queue.items[0];
         const data = self.findCpuBuffer(page_id) orelse return null;
+        _ = self.reload_queue.orderedRemove(0);
 
         log.debug("Reload: page {d} → GPU (buffer reserved until completeReload)", .{page_id});
         return .{ .page_id = page_id, .cpu_data = data };
@@ -269,4 +275,28 @@ test "OffloadEngine processNext in FIFO order" {
     try std.testing.expectEqual(@as(u32, 20), r2.page_id);
     const r3 = eng.processNextOffload().?;
     try std.testing.expectEqual(@as(u32, 30), r3.page_id);
+}
+
+test "OffloadEngine processNextReload keeps a not-yet-ready request queued" {
+    const allocator = std.testing.allocator;
+    var eng = try OffloadEngine.init(allocator, 1, 64);
+    defer eng.deinit();
+
+    // Request a reload for a page with no CPU buffer yet (e.g. its offload
+    // hasn't completed). This must not be dropped from the queue — it
+    // should stay pending for a later retry.
+    try eng.requestReload(5);
+    try std.testing.expectEqual(@as(u32, 1), eng.pendingReloads());
+    try std.testing.expect(eng.processNextReload() == null);
+    try std.testing.expectEqual(@as(u32, 1), eng.pendingReloads());
+
+    // Once the page actually lands on a CPU buffer, the same queued
+    // request must succeed.
+    try eng.requestOffload(5);
+    _ = eng.processNextOffload();
+    eng.completeOffload(5);
+
+    const reload = eng.processNextReload().?;
+    try std.testing.expectEqual(@as(u32, 5), reload.page_id);
+    try std.testing.expectEqual(@as(u32, 0), eng.pendingReloads());
 }
