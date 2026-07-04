@@ -135,7 +135,7 @@ int main(int argc,char**argv){
             {auto t0g=std::chrono::steady_clock::now();
             float ascale_q=dynamic_ascale(h.data(),H);float ais=1.0f/ascale_q;float*iA=h.data();
             memset(cq.Am,0,(size_t)1*cq.KD);
-            for(int k=0;k<H;k++){float v=iA[k];if(!std::isfinite(v))v=0;int q=(int)roundf(v/ais);if(q>127)q=127;else if(q<-127)q=-127;cq.Am[k]=(int8_t)q;}
+            for(int k=0;k<H;k++){float v=iA[k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;cq.Am[k]=(int8_t)q;}
             t_q+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t0g).count();
             auto t1g=std::chrono::steady_clock::now();cq.bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
             t_syncA+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t1g).count();
@@ -163,7 +163,7 @@ int main(int argc,char**argv){
             {auto t0g=std::chrono::steady_clock::now();
             float ascale_o=dynamic_ascale(at.data(),NH*HD);float ais=1.0f/ascale_o;float*iA=at.data();
             memset(co.Am,0,(size_t)1*co.KD);
-            for(int k=0;k<NH*HD;k++){float v=iA[k];if(!std::isfinite(v))v=0;int q=(int)roundf(v/ais);if(q>127)q=127;else if(q<-127)q=-127;co.Am[k]=(int8_t)q;}
+            for(int k=0;k<NH*HD;k++){float v=iA[k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;co.Am[k]=(int8_t)q;}
             t_q+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t0g).count();
             auto t1g=std::chrono::steady_clock::now();co.bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
             t_syncA+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t1g).count();
@@ -182,7 +182,7 @@ int main(int argc,char**argv){
             {auto t0g=std::chrono::steady_clock::now();
             float ascale_g=dynamic_ascale(h.data(),H);float ais=1.0f/ascale_g;float*iA=h.data();
             memset(cg.Am,0,(size_t)1*cg.KD);
-            for(int k=0;k<H;k++){float v=iA[k];if(!std::isfinite(v))v=0;int q=(int)roundf(v/ais);if(q>127)q=127;else if(q<-127)q=-127;cg.Am[k]=(int8_t)q;}
+            for(int k=0;k<H;k++){float v=iA[k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;cg.Am[k]=(int8_t)q;}
             t_q+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t0g).count();
             auto t1g=std::chrono::steady_clock::now();cg.bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
             t_syncA+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t1g).count();
@@ -199,7 +199,7 @@ int main(int argc,char**argv){
             {auto t0g=std::chrono::steady_clock::now();
             float ascale_d=dynamic_ascale(su.data(),IM);float ais=1.0f/ascale_d;float*iA=su.data();
             memset(cd.Am,0,(size_t)1*cd.KD);
-            for(int k=0;k<IM;k++){float v=iA[k];if(!std::isfinite(v))v=0;int q=(int)roundf(v/ais);if(q>127)q=127;else if(q<-127)q=-127;cd.Am[k]=(int8_t)q;}
+            for(int k=0;k<IM;k++){float v=iA[k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;cd.Am[k]=(int8_t)q;}
             t_q+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t0g).count();
             auto t1g=std::chrono::steady_clock::now();cd.bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
             t_syncA+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t1g).count();
@@ -216,7 +216,7 @@ int main(int argc,char**argv){
         auto tlm0=std::chrono::steady_clock::now();
         memcpy(sb.data(),h.data(),H*4);rn_c(sb.data(),fin,H);
         float mx=-1e30f;
-        for(int n=0;n<NV;n++){double s=0;const float*e=&emb_f32[(size_t)n*H];
+        for(int n=0;n<NV;n++){double s=0;const float*e=&lm_head_f32[(size_t)n*H];
             for(int k=0;k<H;k++)s+=(double)sb[k]*e[k];lg[n]=std::isfinite((float)s)?(float)s:-1e30f;if(lg[n]>mx)mx=lg[n];}
         double sum=0;for(int i=0;i<NV;i++){float d=lg[i]-mx;if(d<-80)d=-80;lg[i]=expf(d);sum+=lg[i];}
         float rr=(float)rand()/RAND_MAX*(float)sum,acc=0;int tok=0;for(int i=0;i<NV;i++){acc+=lg[i];if(acc>=rr){tok=i;break;}}
