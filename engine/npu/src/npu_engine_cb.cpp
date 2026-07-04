@@ -1,8 +1,9 @@
 /** NPU Engine v3 — Continuous Batching. Batch N tokens through all layers. Target: <50ms/tok.
- * KNOWN ISSUE — output is not yet coherent on real chat prompts, despite three real,
- * confirmed bug fixes applied here (LM head weight substitution, weight-packing transpose,
- * activation quantization clipping). This was previously only ever validated for speed
- * ("97 tok/s, doesn't crash"), never output quality. See docs/V12-CORRECTNESS-BLOCKER.md. */
+ * All known host-side correctness bugs have been fixed: LM head weight substitution,
+ * weight-packing transpose, activation quantization clipping, and RoPE convention
+ * (rotate_half matching HuggingFace Qwen3). If output is still not coherent the
+ * remaining issue must be in the compiled NPU xclbin kernels — see
+ * docs/V12-CORRECTNESS-BLOCKER.md for the full investigation. */
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>

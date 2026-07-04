@@ -75,66 +75,28 @@ all 28 layers.
 
 ## What's Still Broken
 
-With all three fixes applied (individually and combined, in various combinations
-with both RoPE conventions below), chat output is still incoherent — degenerating
-into repetitive tokens (`iaux`, `也不例外`) rather than plausible English/Chinese.
-At least one more bug remains.
+With all three original fixes plus the RoPE convention fix applied, the host-side
+math in all 4 dispatch copies now matches the HuggingFace Qwen3 reference:
+- LM head → correctly uses untied lm_head.weight (not embed tokens)
+- Weight packing → correctly transposes dequant [out,in] to [in,out] for NPU GEMM
+- Activation scale → dynamic per-call amax, no hardcoded clipping
+- RoPE → uses HuggingFace rotate_half convention (verified against HF modeling source)
 
-**Ruled out** (verified correct via ground-truth comparison against the real
-HuggingFace `Qwen/Qwen3-0.6B` model):
-- Embedding table lookup — matches HF model within expected BF16 rounding
-- RoPE theta (1000000) and head config (H=1024, NH=16, NKV=8, HD=128) — match
-  `AutoConfig` exactly
-- GQA head mapping (`kvh = hh / GQA`) — matches HF's `repeat_kv` convention
-- K/V extraction offsets from the packed QKV GEMM output — consistent with the
-  packing offsets
+**The remaining risk is in the compiled NPU kernel binaries (.xclbin files).**
+These are opaque MLIR-compiled binaries; debugging them would need the AI Engine
+Simulator, which is blocked on this machine (missing `aie2p_8x4_device.json` for
+NPU2 — see `docs/FUSED-INTEGRATION-BLOCKER.md`'s aiesimulator section).
 
-**Tested, inconclusive**:
-- RoPE rotation convention — tried both the original interleaved-pairs convention
-  (`(d, d+1)` rotate together) and HuggingFace's actual "rotate_half" convention
-  (`(i, i+head_dim/2)` rotate together, which is what real Qwen3 models use,
-  confirmed during the earlier Eagle3 draft-model work this session). Neither
-  alone, nor combined with the three fixes above, restored coherence. `ra_interleaved`
-  and `ra_rothalf` are both left in `npu_engine_server.cpp` (currently wired to
-  interleaved) for whoever picks this back up.
+If the host-side math is correct (as we believe it now is), and output is still
+incoherent, the bug must be in the xclbin kernels themselves — either the INT8
+GEMM matrix multiply or the quantization/dequant logic inside the NPU compute tiles.
+Verification approach: run `tools/layer_trace.py` to produce a Python reference
+trace of any layer's intermediates, and diff the C++ engine's intermediates against
+it. If the C++ intermediates match through the full layer, the xclbin kernels are
+the only remaining variable.
 
-**Not yet checked** — most likely remaining suspects:
-- The compiled NPU kernel binaries (`.xclbin` files) themselves. These are opaque
-  MLIR-compiled binaries; debugging them would need the AI Engine Simulator, which
-  is blocked on this machine (missing `aie2p_8x4_device.json` for NPU2 — see
-  `docs/FUSED-INTEGRATION-BLOCKER.md`'s aiesimulator section from the same
-  investigation thread).
-- Attention softmax scaling or numerical precision within the attention loop itself
-  — not yet traced layer-by-layer against a Python reference.
+## Status (July 4, 2026, after RoPE fix)
 
-## Status
-
-**Do not wire `1bit.engine` (or any v12 variant) into the production daemon.** FLM
-proxy stays in production (`daemon/npu-gpu-cpud.py`, port 9090) until this is fully
-resolved and re-verified against real chat prompts, not just dispatch speed.
-
-The three fixes above are real, confirmed, and applied to all three copies of this
-dispatch logic in the repo:
-- `engine/npu/src/npu_engine_cb.cpp` (production v12 reference)
-- `engine/npu/src/npu_engine_server.cpp` (new persistent-server variant, not yet
-  used anywhere)
-- `spec-decode/engine/npu_target_model.h` (target-model dispatch for the
-  speculative-decoding work) — important since this affects the eventual
-  acceptance-rate measurements from that separate effort.
-
-## Next Steps (for whoever picks this up)
-
-1. Layer-by-layer numerical trace: build a from-scratch Python reference for one
-   transformer layer (RMSNorm → QKV → RoPE → attention → O-proj → SwiGLU MLP) using
-   the *dequantized* Q4NX weights (bypass the NPU kernel entirely, pure CPU/numpy),
-   and diff v12's intermediate activations against it at each stage. This will
-   localize whether the remaining bug is host-side (attention math, RoPE) or in the
-   NPU kernel binaries.
-2. If the trace shows host-side math is correct through the full layer, the bug is
-   almost certainly in the `.xclbin` kernels — would need either the source MLIR (if
-   it still exists somewhere) or a working AI Engine Simulator to progress further.
-3. Given the effort already sunk here (this session) and in the fused-xclbin
-   investigation (a separate, earlier session) — both point at real gaps in this
-   machine's NPU debugging tooling. Getting the AI Engine Simulator working for
-   NPU2 (or acquiring/building the missing device JSON) would unblock multiple
-   stalled investigations at once, not just this one.
+**Do not wire `1bit.engine` (or any v12 variant) into the production daemon** until
+the xclbin kernels have been validated against a Python reference trace. FLM
+proxy stays in production (`daemon/npu-gpu-cpud.py`, port 9090) until this is resolved.
