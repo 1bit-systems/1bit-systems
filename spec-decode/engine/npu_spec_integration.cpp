@@ -66,7 +66,7 @@ int main(int argc, char* argv[]) {
     std::vector<int32_t> output(max_new + prompt_len);
 
     if (draft_trained) {
-        printf("Generating with trained Eagle3 draft (335-example smoke-test checkpoint)...\n");
+        printf("Generating with trained Eagle3 draft (%s)...\n", kDraftCheckpoint);
     } else {
         printf("Generating (draft weights are untrained — expect ~0%% acceptance until an Eagle3\n");
         printf("checkpoint is trained via train_draft.py; this run validates the NPU dispatch path)...\n");

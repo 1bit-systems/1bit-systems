@@ -1630,3 +1630,27 @@ The Jun 21-22 clone spike (492 in one day) looks like a scraper or bot. Organic 
 - `https://github.com/bong-water-water-bong/1bit-systems` — This repo (source of truth)
 - `https://github.com/bong-water-water-bong/npu-infer` — INT8 engine + xclbin generators
 - `https://github.com/bong-water-water-bong/npu-gpu-cpu` — Handoff docs + unified control plane
+
+## Session 2026-07-03/04 — Triton-XDNA Eval, memlock Fix, Spec-Decode Reality Check
+
+### Triton-XDNA (AMD's Triton-to-XDNA compiler)
+
+Evaluated `amd/Triton-XDNA` as a candidate to replace handwritten `edge_attention.cc`/`n1_core_i8_v2.py` MLIR. Cloned to `npu-sandbox/Triton-XDNA/`, built via prebuilt wheels (Python 3.12 venv, `sandbox/`).
+
+**Root cause of every launch failure was `RLIMIT_MEMLOCK`, not NPU contention.** XRT's launch path does `mmap(..., MAP_SHARED|MAP_FIXED|MAP_LOCKED)` for a 64MB device buffer; the default systemd session limit (`DefaultLimitMEMLOCK=8M`) is far too small. `npu-daemon.service` works because it explicitly sets `LimitMEMLOCK=infinity`; ad-hoc shells didn't. Spent real time chasing a red herring (stopped/restarted `npu-daemon.service` mid-investigation, verified it wasn't the cause — failed identically with the NPU device completely free).
+
+**Fix**: `/etc/security/limits.d/90-bcloud-memlock.conf` — `bcloud soft/hard memlock unlimited`. Persistent, applies to new login sessions (PAM limits don't retroactively apply to already-open shells).
+
+**Result**: `matmul_i8_m64_n64_k64` example compiles to a real AIE2P device binary (`.pdi`/`.elf`) and runs correctly on this exact hardware — validated bit-exact (`atol=0, rtol=0`) against PyTorch CPU reference across 8 shape combos (M,N,K ∈ {256,1024}), run twice each. Correctness only — no throughput benchmark run yet.
+
+### Spec-decode reality check
+
+Ran the real `npu_spec_decode` binary (not the synthetic `spec_decode_bench` sweep) against the actual trained checkpoint at `checkpoints/eagle3_draft_2k.bin` (`eagle3_qwen3_0.6b_2k`, step_21). Same memlock issue hit here too — same fix applies repo-wide, not just Triton-XDNA.
+
+**Result: 0.2 tok/s, 0.0% acceptance, 1.02x effective speedup** vs the ~94-97 tok/s non-speculative baseline — i.e. currently a ~500x regression, not a speedup. Root cause: step_21 is only ~2% of a full run (config implies ~1,000 steps for 3 epochs at global_batch_size=32 over the 10,976-example regenerated dataset) — the draft head is barely past random init. Not an integration bug as far as we can tell; the dispatch path itself works (loads, runs, produces tokens). Needs the full training run to complete before it's benchmarkable again.
+
+Also noticed `checkpoints/eagle3_qwen3_0.6b_10k/` (the name `run_full_pipeline.sh` actually targets) is empty — no checkpoint saved — while the `_2k`-named run is the one that produced `step_21`. Divergence not investigated further this session.
+
+### NPU daemon verify
+
+Re-verified FLM proxy after the stop/restart: 91.6-93.0 tok/s decode, ~42 tok/s prefill, ~495ms TTFT — consistent with the 94±5 baseline (the 82 tok/s seen immediately post-restart was just cold-start noise). Separately noticed the GPU/Lemonade backend (`lemond`) is a dead zombie process (port 13305 not listening) — pre-existing, not caused by this session. Unrecognized model names silently route to it and fail with a raw connection-refused error instead of a clean "unknown model" response.
