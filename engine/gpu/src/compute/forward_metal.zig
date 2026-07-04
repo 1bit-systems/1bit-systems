@@ -7120,6 +7120,9 @@ pub const InferenceEngine = struct {
     kv_cache_q8: bool,
     kv_cache_head_stride_bytes: u32,
     kv_cache_bytes_per_token: u32,
+    // H2O eviction: page pool for paged attention
+    kv_page_pool: ?*@import("../scheduler/kv_cache.zig").KvPagePool,
+    kv_page_size_tokens: u32,
     q8_tg_override: ?u32,
     q8_dual_tg_override: ?u32,
     q8_tg_size_env_present: bool,
@@ -7401,6 +7404,15 @@ pub const InferenceEngine = struct {
         self.kv_cache_q8 = kv_cache_q8;
         self.kv_cache_head_stride_bytes = kv_cache_head_stride_bytes;
         self.kv_cache_bytes_per_token = @intCast(kv_cache_bytes_per_token);
+        // H2O eviction: page pool and paged attention.
+        // ZINC_METAL_KV_PAGE_SIZE: tokens per page (0 = contiguous, default).
+        // >0 enables paged attention with H2O eviction support.
+        // ZINC_KV_EVICTION_POLICY: h2o/lru/fifo/none (default none).
+        self.kv_page_size_tokens = readU32Env("ZINC_METAL_KV_PAGE_SIZE") orelse 0;
+        self.kv_page_pool = null;
+        if (self.kv_page_size_tokens > 0) {
+            log.info("Metal H2O: paged attention enabled (page_size={d}). Set ZINC_KV_EVICTION_POLICY=h2o and wire kv_page_pool for full eviction.", .{self.kv_page_size_tokens});
+        }
         self.q8_tg_override = null;
         self.q8_dual_tg_override = null;
         self.q8_tg_size_env_present = std.posix.getenv("ZINC_METAL_Q8_TG_SIZE") != null;
@@ -7578,7 +7590,11 @@ pub const InferenceEngine = struct {
         self.page_table_buf = try metal_buffer.createBuffer(ctx, page_table_size);
         {
             const page_table_ptr: [*]u32 = @ptrCast(@alignCast(self.page_table_buf.cpu_ptr.?));
-            for (0..max_ctx) |i| {
+            const pt_entries = @divTrunc(page_table_size, @sizeOf(u32));
+            // Identity paged mapping: logical page i → physical page i.
+            // When H2O eviction is enabled, evicted page entries are remapped
+            // to the zero page via direct cpu_ptr modification.
+            for (0..pt_entries) |i| {
                 page_table_ptr[i] = @intCast(i);
             }
         }
@@ -16623,16 +16639,34 @@ fn dispatchFlashAttnOnCmd(
     kv_cache_head_stride_bytes: u32,
     kv_cache_bytes_per_token: u32,
 ) void {
+    // H2O eviction: remap evicted pages to the zero page in the page table.
+    // The page_table_buf is CPU-visible (shared memory), so we can modify
+    // it directly without a staging copy.
+    if (engine.kv_page_size_tokens > 0) {
+        if (engine.kv_page_pool) |pool| {
+            const evicted = pool.drainEvicted();
+            if (evicted.len > 0) {
+                const page_table_ptr: [*]u32 = @ptrCast(@alignCast(engine.page_table_buf.cpu_ptr.?));
+                const zp = pool.zeroPageId();
+                for (evicted) |eid| {
+                    // Remap all tokens in the evicted page to the zero page.
+                    page_table_ptr[eid] = zp;
+                }
+                log.info("Metal H2O: remapped {d} evicted pages to zero page", .{evicted.len});
+            }
+        }
+    }
     const push = FlashAttnPush{
         .head_dim = head_dim,
         .n_heads = n_heads,
         .n_kv_heads = n_kv_heads,
         .seq_len = seq_len,
         .sliding_window_size = sliding_window_size,
-        // Metal currently keeps the KV cache as a flat contiguous
-        // [token][kv_head][head_dim] buffer. Use page_size=0 to select the
-        // shader's contiguous-addressing fast path and skip page-table math.
-        .page_size = 0,
+        // Page size for paged attention. 0 = contiguous (default).
+        // When H2O eviction is enabled (kv_page_size_tokens > 0), use
+        // paged addressing so the page table can remap evicted pages
+        // to the zero page.
+        .page_size = engine.kv_page_size_tokens,
         .attn_scale_bits = if (engine.config.attn_scale != 0) @as(u32, @bitCast(engine.config.attn_scale)) else 0,
         .kv_head_stride_bytes = kv_cache_head_stride_bytes,
         .kv_token_stride_bytes = kv_cache_bytes_per_token,

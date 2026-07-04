@@ -1088,6 +1088,9 @@ pub const InferenceEngine = struct {
     active_kv_page_ids: ?[]u32, // current request's logical→physical page mapping
     active_kv_request_id: ?u64, // owner ID stamped into kv_page_pool
     next_kv_request_id: u64, // monotonically increasing request ID for kv_page_pool ownership
+    // H2O score accumulation: GPU buffer written by flash_attn shader + staging for CPU readback
+    score_accum_buf: Buffer, // device-local, seq_len * f32, written by attention shaders
+    score_accum_staging: Buffer, // host-visible, seq_len * f32, for CPU readback after decode step
     // SSM state (per-layer, CPU-side, for SSM layers) — legacy, used until GPU SSM is integrated
     ssm_conv_states: [][]f32, // [n_layers] conv state: (kernel_size-1) * conv_channels
     ssm_states: [][]f32, // [n_layers] recurrent state: head_v_dim * head_v_dim * num_v_heads
@@ -2007,7 +2010,35 @@ pub const InferenceEngine = struct {
         const pt_u32: [*]u32 = @ptrCast(@alignCast(page_table_staging.mapped.?));
         @memset(pt_u32[0..kv_page_count], 0);
         try buffer_mod.copyBuffer(instance, cmd_pool.handle, &page_table_staging, &page_table_buf, page_table_size);
-        var kv_page_pool = try kv_cache_mod.KvPagePool.init(allocator, kv_page_count, kv_page_size_tokens);
+
+        // H2O score accumulation buffer: device-local, written by flash_attn shader.
+        const score_accum_size = @as(vk.c.VkDeviceSize, max_ctx) * @sizeOf(f32);
+        var score_accum_buf = try Buffer.initDeviceLocal(
+            instance,
+            score_accum_size,
+            vk.c.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        );
+        errdefer score_accum_buf.deinit();
+        var score_accum_staging = try Buffer.initStaging(instance, score_accum_size);
+        errdefer score_accum_staging.deinit();
+        // Zero-initialize: all scores start at 0.
+        {
+            const sa_u32: [*]u32 = @ptrCast(@alignCast(score_accum_staging.mapped.?));
+            @memset(sa_u32[0 .. max_ctx * @sizeOf(u32) / @sizeOf(u32)], 0);
+        }
+        try buffer_mod.copyBuffer(instance, cmd_pool.handle, &score_accum_staging, &score_accum_buf, score_accum_size);
+        // Replace with initWithEviction to support H2O eviction.
+        // The policy defaults to .none (backward compatible); set the
+        // ZINC_KV_EVICTION_POLICY env var to "h2o" to enable.
+        const eviction_policy: kv_cache_mod.EvictionPolicy = blk: {
+            if (std.posix.getenv("ZINC_KV_EVICTION_POLICY")) |val| {
+                if (std.mem.eql(u8, val, "h2o")) break :blk .h2o_attention_score;
+                if (std.mem.eql(u8, val, "lru")) break :blk .lru;
+                if (std.mem.eql(u8, val, "fifo")) break :blk .fifo;
+            }
+            break :blk .none;
+        };
+        var kv_page_pool = try kv_cache_mod.KvPagePool.initWithEviction(allocator, kv_page_count, kv_page_size_tokens, eviction_policy);
         errdefer kv_page_pool.deinit();
 
         // SSM state (CPU-side, for hybrid models)
@@ -3468,6 +3499,8 @@ pub const InferenceEngine = struct {
             .kv_v_cache = kv_v_cache,
             .page_table_buf = page_table_buf,
             .page_table_staging = page_table_staging,
+            .score_accum_buf = score_accum_buf,
+            .score_accum_staging = score_accum_staging,
             .kv_page_pool = kv_page_pool,
             .active_kv_page_ids = null,
             .active_kv_request_id = null,
@@ -3600,6 +3633,22 @@ pub const InferenceEngine = struct {
     fn uploadActivePageTable(self: *InferenceEngine, page_ids: []const u32) !void {
         const staging_u32: [*]u32 = @ptrCast(@alignCast(self.page_table_staging.mapped.?));
         @memcpy(staging_u32[0..page_ids.len], page_ids);
+
+        // H2O eviction: remap evicted pages to the zero page in the page table.
+        const evicted = self.kv_page_pool.drainEvicted();
+        if (evicted.len > 0) {
+            const zp = self.kv_page_pool.zeroPageId();
+            for (page_ids, 0..) |pid, i| {
+                for (evicted) |eid| {
+                    if (pid == eid) {
+                        staging_u32[i] = zp;
+                        break;
+                    }
+                }
+            }
+            log.info("H2O: remapped {d} evicted pages to zero page", .{evicted.len});
+        }
+
         try buffer_mod.copyBuffer(
             self.instance,
             self.cmd_pool.handle,
@@ -3786,7 +3835,7 @@ pub const InferenceEngine = struct {
 
             const request_id = self.active_kv_request_id orelse return error.KvPagesNotAllocated;
             const additional_page_count = required_pages - existing_page_count;
-            const additional_pages = try self.kv_page_pool.allocPages(request_id, additional_page_count);
+            const additional_pages = try self.kv_page_pool.allocOrEvict(request_id, additional_page_count);
             errdefer self.allocator.free(additional_pages);
             sortPageIdsAscending(additional_pages);
 
@@ -3814,7 +3863,7 @@ pub const InferenceEngine = struct {
 
         const request_id = self.next_kv_request_id;
         self.next_kv_request_id += 1;
-        const page_ids = try self.kv_page_pool.allocPages(request_id, @intCast(required_pages));
+        const page_ids = try self.kv_page_pool.allocOrEvict(request_id, @intCast(required_pages));
         errdefer {
             self.kv_page_pool.freePages(request_id);
             self.allocator.free(page_ids);
@@ -3823,6 +3872,12 @@ pub const InferenceEngine = struct {
         try self.uploadActivePageTable(page_ids);
         self.active_kv_page_ids = page_ids;
         self.active_kv_request_id = request_id;
+
+        // Record a uniform score increment for the newly allocated pages.
+        // This provides basic recency-biased scoring for H2O eviction.
+        // For full attention-score-based eviction, the GPU's attention
+        // scores need to be read back and passed to recordScores instead.
+        self.kv_page_pool.recordScores(page_ids, null);
     }
 
     fn physicalTokenIndex(self: *const InferenceEngine, logical_token: u32) !u32 {
@@ -3942,6 +3997,33 @@ pub const InferenceEngine = struct {
                 },
             );
         }
+    }
+
+    /// Read back accumulated H2O attention scores from the GPU and feed them
+    /// into the eviction policy. Call after each decodeStep when H2O eviction
+    /// is enabled (ZINC_KV_EVICTION_POLICY=h2o).
+    ///
+    /// The score_accum_staging buffer is populated by decodeStep's end-of-step
+    /// GPU→staging copy (see line ~11110). This function reads the host-visible
+    /// staging and forwards per-token attention weights to the eviction policy.
+    ///
+    /// @param n_tokens Number of scored token positions to read (typically the
+    ///   current sequence length = state.position - state.prefix_tokens_cached).
+    pub fn flushH2OScores(self: *InferenceEngine, n_tokens: u32) void {
+        if (self.kv_page_pool.eviction_policy != .h2o_attention_score) return;
+        const page_ids = self.active_kv_page_ids orelse return;
+        if (page_ids.len == 0 or n_tokens == 0) return;
+
+        // The staging buffer was filled by the GPU→staging copy at the end of
+        // decodeStep. Read it: scores[0..n_tokens) holds cumulative softmax
+        // weights per token position from the last decode step.
+        const scores: [*]f32 = @ptrCast(@alignCast(self.score_accum_staging.mapped.?));
+
+        // Clamp to the number of tokens actually scored.
+        const n = @min(n_tokens, @as(u32, @intCast(self.max_context_tokens)));
+
+        // Feed per-token scores to the eviction policy.
+        self.kv_page_pool.recordScores(page_ids, scores[0..n]);
     }
 
     // -----------------------------------------------------------------------
@@ -6500,6 +6582,24 @@ pub const InferenceEngine = struct {
         else
             state.position + 1;
         try self.ensureKvPagesForContext(next_token_target);
+
+        // Zero-initialize the H2O score accumulation buffer for this decode step.
+        // This ensures per-token scores from the previous decode step don't
+        // leak across steps. The flash_attn shader will add this step's
+        // softmax weights to each entry.
+        if (self.kv_page_pool.eviction_policy != .none) {
+            const sa_u32: [*]u32 = @ptrCast(@alignCast(self.score_accum_staging.mapped.?));
+            const n_u32: usize = @intCast(state.position * @sizeOf(f32) / @sizeOf(u32));
+            @memset(sa_u32[0..n_u32], 0);
+            try buffer_mod.copyBuffer(
+                self.instance,
+                self.cmd_pool.handle,
+                &self.score_accum_staging,
+                &self.score_accum_buf,
+                @as(vk.c.VkDeviceSize, state.position) * @sizeOf(f32),
+            );
+        }
+
         const config = &self.model.config;
         const hidden_dim = config.hidden_dim;
         const hidden_size = @as(vk.c.VkDeviceSize, hidden_dim) * @sizeOf(f32);
@@ -11053,6 +11153,19 @@ pub const InferenceEngine = struct {
         }
         self.recordProfilingSample();
 
+        // H2O: read back the attention score buffer. This requires the
+        // flash_attn shader to be rebuilt with the score_accum binding.
+        // Until then, ensureKvPagesForContext provides uniform recency scoring.
+        if (self.kv_page_pool.eviction_policy != .none and self.active_kv_page_ids != null) {
+            try buffer_mod.copyBuffer(
+                self.instance,
+                self.cmd_pool.handle,
+                &self.score_accum_buf,
+                &self.score_accum_staging,
+                @as(vk.c.VkDeviceSize, state.position) * @sizeOf(f32),
+            );
+        }
+
         if (self.partial_decode_advance_position) {
             state.position += 1;
         }
@@ -11580,7 +11693,7 @@ pub const InferenceEngine = struct {
             .sink_offset = sink_offset,
         };
         if (pip.uses_push_descriptors) {
-            self.pushDispatch6(
+            self.pushDispatch7(
                 pip,
                 std.mem.asBytes(&push),
                 q_buf,
@@ -11595,6 +11708,8 @@ pub const InferenceEngine = struct {
                 out_size,
                 sinks,
                 sinks_size,
+                self.score_accum_buf.handle,
+                self.score_accum_buf.size,
                 n_heads,
                 n_queries,
                 1,
@@ -11602,7 +11717,7 @@ pub const InferenceEngine = struct {
             return;
         }
         const ds = try self.allocDescSet(pip.descriptor_set_layout);
-        self.writeDescSet6(ds, q_buf, q_size, k_cache, k_cache_size, v_cache, v_cache_size, page_table, page_table_size, out_buf, out_size, sinks, sinks_size);
+        self.writeDescSet7(ds, q_buf, q_size, k_cache, k_cache_size, v_cache, v_cache_size, page_table, page_table_size, out_buf, out_size, sinks, sinks_size, self.score_accum_buf.handle, self.score_accum_buf.size);
         try self.attention.recordFlashAttnBatched(&self.decode_cmd, ds, head_dim, n_heads, n_kv_heads, seq_start, n_queries, page_size, attn_scale, sink_offset);
     }
 
@@ -21216,6 +21331,8 @@ pub const InferenceEngine = struct {
             scratch_attn_out.size,
             self.attn_sinks_buf.handle,
             self.attn_sinks_buf.size,
+            self.score_accum_buf.handle,
+            self.score_accum_buf.size,
             layer_head_dim,
             cfg.n_heads,
             layer_n_kv_heads,
@@ -23247,6 +23364,8 @@ pub const InferenceEngine = struct {
             scratch_attn_out.size,
             self.attn_sinks_buf.handle,
             self.attn_sinks_buf.size,
+            self.score_accum_buf.handle,
+            self.score_accum_buf.size,
             layer_head_dim,
             cfg.n_heads,
             layer_n_kv_heads,
@@ -24906,7 +25025,7 @@ pub const InferenceEngine = struct {
             // position within the batch (causal_len = base_token + query + 1).
             const sink_offset = layer * cfg.n_heads;
             const flash_attn_kernel_phase = self.beginProfilePhase();
-            try self.dispatchFlashAttnBatched(scratch_q.handle, scratch_q.size, self.kv_k_cache[layer_idx].handle, self.kv_k_cache[layer_idx].size, self.kv_v_cache[layer_idx].handle, self.kv_v_cache[layer_idx].size, self.page_table_buf.handle, self.page_table_buf.size, scratch_attn_out.handle, scratch_attn_out.size, self.attn_sinks_buf.handle, self.attn_sinks_buf.size, layer_head_dim, cfg.n_heads, layer_n_kv_heads, base_token, n_tokens, kv_page_size_tokens, cfg.attn_scale, sink_offset);
+            try self.dispatchFlashAttnBatched(scratch_q.handle, scratch_q.size, self.kv_k_cache[layer_idx].handle, self.kv_k_cache[layer_idx].size, self.kv_v_cache[layer_idx].handle, self.kv_v_cache[layer_idx].size, self.page_table_buf.handle, self.page_table_buf.size, scratch_attn_out.handle, scratch_attn_out.size, self.attn_sinks_buf.handle, self.attn_sinks_buf.size, self.score_accum_buf.handle, self.score_accum_buf.size, layer_head_dim, cfg.n_heads, layer_n_kv_heads, base_token, n_tokens, kv_page_size_tokens, cfg.attn_scale, sink_offset);
             self.decode_cmd.computeBarrier();
             self.endProfilePhase(.flash_attn_kernel, flash_attn_kernel_phase);
 
@@ -26482,6 +26601,8 @@ pub const InferenceEngine = struct {
         self.kv_page_pool.deinit();
         self.page_table_staging.deinit();
         self.page_table_buf.deinit();
+        self.score_accum_staging.deinit();
+        self.score_accum_buf.deinit();
         for (self.kv_k_cache) |*b| b.deinit();
         for (self.kv_v_cache) |*b| b.deinit();
         self.allocator.free(self.kv_k_cache);
@@ -26884,6 +27005,10 @@ pub fn generate(
         const input_token = state.generated_tokens.items[state.generated_tokens.items.len - 1];
 
         try engine.decodeStep(&state, input_token, true);
+
+        // Feed per-token attention scores into the H2O eviction policy.
+        engine.flushH2OScores(state.position);
+
         const token = engine.sampleGreedy();
         try state.generated_tokens.append(allocator, token);
         // Top-5 logits per token for first 5 tokens + last token
