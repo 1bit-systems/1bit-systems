@@ -93,12 +93,17 @@ class CppEngineBackend:
     def chat(self, model: str, messages: list, **kwargs) -> dict:
         if not self.ready:
             return {"error": "NPU engine not ready"}
-        last_user_msg = ""
-        for m in reversed(messages):
-            if m.get("role") == "user":
-                last_user_msg = m["content"]
-                break
-        prompt_tokens = self.tokenize(last_user_msg)
+        # Build Qwen3 chat template
+        prompt_parts = []
+        for m in messages:
+            r = m.get("role", "user")
+            c = m.get("content", "")
+            prompt_parts.append("<|im_start|>" + r + "\n" + c + "<|im_end|>\n")
+        prompt_parts.append("<|im_start|>assistant\n")
+        full_prompt = "".join(prompt_parts)
+        
+        prompt_tokens = self.tokenize(full_prompt)
+        print(f"  [debug] prompt_tokens={prompt_tokens}", flush=True)
         if not prompt_tokens:
             return {"error": "Empty prompt"}
         max_new_tokens = kwargs.get("max_tokens", 256)
