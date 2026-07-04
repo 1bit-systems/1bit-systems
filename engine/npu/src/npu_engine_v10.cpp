@@ -5,11 +5,18 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
-#include "platform.h"
 #include <vector>
 #include <algorithm>
 #include <chrono>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <xrt/xrt_device.h>
+#include <xrt/xrt_bo.h>
+#include <xrt/xrt_kernel.h>
 extern "C" float* dequant_i8_to_float(const uint8_t*,int,int*,int*);
+static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:[&]{uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}();}
 static constexpr int H=1024,NC=28,NH=16,NKV=8,HD=128,IM=3072,NV=151936,GQA=2;
 static constexpr float EPS=1e-6f; static constexpr int XM=128, BS=16;
 static constexpr int LM_N=30720, LM_CHUNKS=5; // 5 chunks × 30720 = 153600 ≥ NV=151936
@@ -25,10 +32,13 @@ static inline float dynamic_ascale(const float* x, int n) {
 static inline void cn(float*x,int n){for(int i=0;i<n;i++)if(!std::isfinite(x[i]))x[i]=0.0f;}
 static inline void sm(float*sc,int n){if(n<=0)return;cn(sc,n);float mx=sc[0];for(int i=1;i<n;i++)if(sc[i]>mx)mx=sc[i];double s=0;for(int i=0;i<n;i++){float d=sc[i]-mx;if(d>80)d=80;else if(d<-80)d=-80;sc[i]=expf(d);s+=sc[i];}if(s<=0){float iv=1.0f/n;for(int i=0;i<n;i++)sc[i]=iv;return;}float is=1.0f/(float)s;for(int i=0;i<n;i++)sc[i]*=is;}
 static inline void rn_c(float*x,const float*w,int n){cn(x,n);double ss=0;for(int i=0;i<n;i++)if(std::isfinite(x[i]))ss+=(double)x[i]*x[i];float ir=1.0f/sqrtf((float)(ss/n)+EPS);for(int i=0;i<n;i++)x[i]=std::isfinite(x[i])?x[i]*ir*w[i]:0.0f;}
-static std::vector<float>rc,rs;static void ri(int hd,float th,int mp){rc.resize(mp*hd);rs.resize(mp*hd);for(int p=0;p<mp;p++)for(int d=0;d<hd;d+=2){float f=1.0f/powf(th,(float)d/hd),a=p*f;rc[p*hd+d]=cosf(a);rs[p*hd+d]=sinf(a);rc[p*hd+d+1]=cosf(a);rs[p*hd+d+1]=sinf(a);}}
-static inline void ra(float*x,int hd,int p){for(int d=0;d<hd;d+=2){float a=x[d],b=x[d+1],c=rc[p*hd+d],s=rs[p*hd+d];x[d]=a*c-b*s;x[d+1]=b*c+a*s;}}
-static uint64_t jo(const char*js,size_t jl,const char*nm){size_t nl=strlen(nm);const char*p=js,*e=js+jl;while(p<e){auto q=(const char*)platform_memmem(p,e-p,nm,nl);if(!q)return 0;if(q>js&&*(q-1)=='"'&&*(q+nl)=='"'){auto o=strstr(q,"\"data_offsets\"");if(o){auto a=strchr(o,'[');if(a)return strtoull(a+1,NULL,10);}}p=q+1;}return 0;}
+static std::vector<float>rc,rs;static void ri(int hd,float th,int mp){rc.resize(mp*hd);rs.resize(mp*hd);for(int p=0;p<mp;p++)for(int i=0;i<hd/2;i++){float f=1.0f/powf(th,(float)(2*i)/hd),a=p*f;rc[p*hd+i]=cosf(a);rs[p*hd+i]=sinf(a);}}
+static inline void ra(float*x,int hd,int p){for(int i=0;i<hd/2;i++){float a=x[i],b=x[i+hd/2],c=rc[p*hd+i],s=rs[p*hd+i];x[i]=a*c-b*s;x[i+hd/2]=b*c+a*s;}}
+static uint64_t jo(const char*js,size_t jl,const char*nm){size_t nl=strlen(nm);const char*p=js,*e=js+jl;while(p<e){auto q=(const char*)memmem(p,e-p,nm,nl);if(!q)return 0;if(q>js&&*(q-1)=='"'&&*(q+nl)=='"'){auto o=strstr(q,"\"data_offsets\"");if(o){auto a=strchr(o,'[');if(a)return strtoull(a+1,NULL,10);}}p=q+1;}return 0;}
 static std::vector<float> emb_f32;
+// F32 pre-converted lm_head weights — Qwen3-0.6B does NOT tie embeddings, so the
+// output projection must use lm_head.weight, not the input embedding table.
+static std::vector<float> lm_head_f32;
 
 struct I8Ctx{const char*name;int MD,KD,ND;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt::hw_context>hc;std::unique_ptr<xrt::kernel>k;std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bI,bA,bC,layerB[NC];int8_t*Am;int32_t*Cm;
 bool init(xrt::device&d,const char*xp,const char*ip,int gid_B){FILE*f=fopen(ip,"rb");if(!f)return false;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);xc=std::make_unique<xrt::xclbin>(std::string(xp));d.register_xclbin(*xc);hc=std::make_unique<xrt::hw_context>(d,xc->get_uuid());k=std::make_unique<xrt::kernel>(*hc,"MLIR_AIE");bI=std::make_unique<xrt::bo>(d,ins.size()*4,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));memcpy(bI->map(),ins.data(),ins.size()*4);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);bA=std::make_unique<xrt::bo>(d,(size_t)MD*KD,XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*4,XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));Am=(int8_t*)bA->map();Cm=(int32_t*)bC->map();for(int l=0;l<NC;l++)layerB[l]=std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B));return true;}
@@ -45,11 +55,10 @@ struct LMCtx{
     float es; // A input scale (fixed at 5.0/127)
 
     bool init(xrt::device&d){
-        std::string xdd=xd();
-        std::string xps=xdd+"/final_i8_LM_n30k.xclbin";
-        std::string ips=xdd+"/insts_i8_LM_n30k.txt";
-        const char*xp=xps.c_str();
-        const char*ip=ips.c_str();
+        std::string xp_s=std::string(xd())+"/final_i8_LM_n30k.xclbin";
+        std::string ip_s=std::string(xd())+"/insts_i8_LM_n30k.txt";
+        const char*xp=xp_s.c_str();
+        const char*ip=ip_s.c_str();
         FILE*f=fopen(ip,"rb");if(!f)return false;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);
         ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);
         xc=std::make_unique<xrt::xclbin>(std::string(xp));d.register_xclbin(*xc);
@@ -64,11 +73,11 @@ struct LMCtx{
         es=1.0f;return true;
     }
 
-    // Pre-quantize and sync embedding table slices
+    // Pre-quantize and sync lm_head weight slices (untied output projection, NOT emb_f32)
     void packEmb(){
         float amax=0;
         // Find global amax first
-        for(int i=0;i<(int)NV*H;i++){float a=fabsf(emb_f32[i]);if(std::isfinite(a)&&a>amax)amax=a;}
+        for(int i=0;i<(int)NV*H;i++){float a=fabsf(lm_head_f32[i]);if(std::isfinite(a)&&a>amax)amax=a;}
         if(amax<1e-12f)amax=1.0f;
         float is=127.0f/amax;
         for(int c=0;c<LM_CHUNKS;c++){
@@ -77,7 +86,7 @@ struct LMCtx{
             auto*Bm=(int8_t*)embB[c]->map();
             memset(Bm,0,(size_t)1024*LM_N); // zero-pad (covers padding for last chunk)
             for(int n=n_start;n<n_end;n++){int col=n-n_start;
-                for(int k=0;k<H;k++){float v=emb_f32[(size_t)n*H+k];if(!std::isfinite(v))v=0;
+                for(int k=0;k<H;k++){float v=lm_head_f32[(size_t)n*H+k];if(!std::isfinite(v))v=0;
                     int x=(int)roundf(v*is);if(x>127)x=127;else if(x<-127)x=-127;
                     Bm[col*H+k]=(int8_t)x;}
             }
@@ -90,7 +99,7 @@ struct LMCtx{
     int sample(const float*hidden,float*lg_logits){
         float es=dynamic_ascale(hidden,H);float ais=1.0f/es;
         memset(Am,0,(size_t)128*1024);
-        for(int k=0;k<H;k++){float v=hidden[k];if(!std::isfinite(v))v=0;int q=(int)roundf(v/ais);if(q>127)q=127;else if(q<-127)q=-127;Am[k]=(int8_t)q;}
+        for(int k=0;k<H;k++){float v=hidden[k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;Am[k]=(int8_t)q;}
         bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
         double total_time=0;
@@ -124,9 +133,9 @@ int main(int argc,char**argv){
     setvbuf(stdout,NULL,_IONBF,0);
     int npt=9,ng=(argc>1)?atoi(argv[1]):16;
     printf("=== NPU Engine v10 — NPU LM head + M=%d Batch (M=%d) ===\n\n",BS,npt+1);
-    const char*mp="/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
-    auto fd=platform_open_read(mp);platform_stat st;platform_fstat(fd,&st);
-    uint8_t*md=(uint8_t*)platform_mmap((size_t)st.st_size,PROT_READ,MAP_PRIVATE,fd,0);platform_close(fd);
+    const char*mp=[]{const char*e=getenv("NPU_MODEL_PATH");return e?e:"/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";}();
+    int fd=open(mp,O_RDONLY);struct stat st;fstat(fd,&st);
+    uint8_t*md=(uint8_t*)mmap(NULL,st.st_size,PROT_READ,MAP_PRIVATE,fd,0);close(fd);
     uint64_t hsz;memcpy(&hsz,md,8);uint64_t df=8+hsz;
     auto i8p=[&](uint64_t o){return md+df+o;};auto emb=(const uint16_t*)(md+df);
     const char*js=(const char*)(md+8);size_t jl=hsz;
@@ -139,14 +148,15 @@ int main(int argc,char**argv){
 
     printf("Pre-convert emb f32...\n");emb_f32.resize((size_t)NV*H);
     for(int n=0;n<NV;n++)for(int i=0;i<H;i++)emb_f32[(size_t)n*H+i]=bf16g(emb[n*H+i]);
+    {int lr,lc;float* lm_raw=dequant_i8_to_float(i8p(lo_off),18992,&lr,&lc);lm_head_f32.resize((size_t)lr*lc);memcpy(lm_head_f32.data(),lm_raw,(size_t)lr*lc*sizeof(float));free(lm_raw);}
 
     printf("Init 5 GEMM (4 layer + LM head)...\n");xrt::device dev(0);
-    std::string xd=[]{const char*e=getenv("NPU_XCLBIN_DIR");return e?std::string(e):std::string("/home/bcloud/npu-sandbox/npu-infer/build/int8");}();
-    I8Ctx cq{"QKV",XM,H,4096},co{"O",XM,NH*HD,H},cg{"GU",XM,H,6144},cd{"D",XM,IM,H};
-    cq.init(dev,(xd+"/final_i8_QKV_v.xclbin").c_str(),(xd+"/insts_i8_QKV_v.txt").c_str(),4);
-    co.init(dev,(xd+"/final_i8_O_v.xclbin").c_str(),  (xd+"/insts_i8_O_v.txt").c_str(),  4);
-    cg.init(dev,(xd+"/final_i8_GU_v.xclbin").c_str(), (xd+"/insts_i8_GU_v.txt").c_str(), 4);
-    cd.init(dev,(xd+"/final_i8_D_v.xclbin").c_str(),  (xd+"/insts_i8_D_v.txt").c_str(),  4);
+    static const char* xd(){const char*e=getenv("NPU_XCLBIN_DIR");return e?e:"/home/bcloud/npu-sandbox/npu-infer/build/int8";}
+    I8Ctx cq{"QKV",XM,H,4096},co{"O",XM,NH*HD,H},cg{"GU",XM,H,6144},cd{"(std::string(xd())+",XM,IM,H};
+    cq.init(dev,D").c_str()/final_i8_QKV_v.xclbin",(std::string(xd())+"/insts_i8_QKV_v.txt").c_str(),4);
+    co.init(dev,(std::string(xd())+"/final_i8_O_v.xclbin").c_str(),  (std::string(xd())+"/insts_i8_O_v.txt").c_str(),  4);
+    cg.init(dev,(std::string(xd())+"/final_i8_GU_v.xclbin").c_str(), (std::string(xd())+"/insts_i8_GU_v.txt").c_str(), 4);
+    cd.init(dev,(std::string(xd())+"/final_i8_D_v.xclbin").c_str(),  (std::string(xd())+"/insts_i8_D_v.txt").c_str(),  4);
     LMCtx lmc;lmc.init(dev);
     printf("LM head: pack emb...\n");lmc.packEmb();
 
@@ -161,7 +171,6 @@ int main(int argc,char**argv){
         int t2=gr+ur;std::vector<float>w2((size_t)H*t2);for(int k=0;k<H;k++){memcpy(&w2[k*t2],&gw[k*gr],gr*4);memcpy(&w2[k*t2+gr],&uw[k*ur],ur*4);}
         cg.packB(l,w2.data(),H,t2,wsc[l].g_);free(gw);free(uw);
         float*dw=dequant_i8_to_float(i8p(lo[l].dp),384,&dr,&unused);cd.packB(l,dw,dr,H,wsc[l].d_);free(dw);}
-    int lr,lc;free(dequant_i8_to_float(i8p(lo_off),18992,&lr,&lc));
     printf("  %.0fms\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-tp).count());
     ri(HD,1000000.0f,4096);
 
@@ -217,9 +226,9 @@ int main(int argc,char**argv){
             for(int hh=0;hh<NH;hh++){double sq=0;for(int d=0;d<HD;d++)sq+=qo[hh*HD+d]*qo[hh*HD+d];float iq=1.0f/sqrtf((float)(sq/HD)+EPS);for(int d=0;d<HD;d++)qo[hh*HD+d]*=iq*qn[d];ra(&qo[hh*HD],HD,sp);
                 if(hh%GQA==0){int kvh=hh/GQA;double sk=0;for(int d=0;d<HD;d++)sk+=ko[kvh*HD+d]*ko[kvh*HD+d];float ik=1.0f/sqrtf((float)(sk/HD)+EPS);for(int d=0;d<HD;d++)ko[kvh*HD+d]*=ik*kn[d];ra(&ko[kvh*HD],HD,sp);memcpy(&kv[l].k[sp*NKV*HD+kvh*HD],&ko[kvh*HD],HD*4);memcpy(&kv[l].v[sp*NKV*HD+kvh*HD],&vo[kvh*HD],HD*4);}}
             kv[l].n=sp+1;int cl=kv[l].n;
-            for(int hh=0;hh<NH;hh++){int kvh=hh/GQA;std::vector<float>sc(sp+1);
-                for(int p=0;p<sp+1;p++){double s=0;for(int d=0;d<HD;d++)s+=qo[hh*HD+d]*kv[l].k[p*NKV*HD+kvh*HD+d];sc[p]=(float)(s/sqrtf(HD));}
-                sm(sc.data(),sp+1);for(int d=0;d<HD;d++){float s=0;for(int p=0;p<sp+1;p++)s+=sc[p]*kv[l].v[p*NKV*HD+kvh*HD+d];at[hh*HD+d]=s;}
+            for(int hh=0;hh<NH;hh++){int kvh=hh/GQA;std::vector<float>sc(sp+pi+1);
+                for(int p=0;p<sp+pi+1;p++){double s=0;for(int d=0;d<HD;d++)s+=qo[hh*HD+d]*kv[l].k[p*NKV*HD+kvh*HD+d];sc[p]=(float)(s/sqrtf(HD));}
+                sm(sc.data(),sp+pi+1);for(int d=0;d<HD;d++){float s=0;for(int p=0;p<sp+pi+1;p++)s+=sc[p]*kv[l].v[p*NKV*HD+kvh*HD+d];at[hh*HD+d]=s;}
             }
             co.go(l,at.data(),1,NH*HD,dynamic_ascale(at.data(),1*NH*HD),wsc[l].o_,oo.data(),H);cn(oo.data(),H);for(int i=0;i<H;i++)h0[i]=sb_[i]+oo[i];
             memcpy(sb_.data(),h0,H*4);rn_c(h0,pa_n[l],H);
@@ -257,7 +266,7 @@ int main(int argc,char**argv){
                 memcpy(&kv[l].k[(sp+b)*NKV*HD+kvh*HD],ks,HD*4);memcpy(&kv[l].v[(sp+b)*NKV*HD+kvh*HD],vs,HD*4);
             }
             kv[l].n=sp+batch_size;int cl=kv[l].n;
-            for(int b=0;b<batch_size;b++){for(int hh=0;hh<NH;hh++){int kvh=hh/GQA;std::vector<float>ss(sp+b+1);
+            for(int b=0;b<batch_size;b++){for(int hh=0;hh<NH;hh++){int kvh=hh/GQA;std::vector<float>ss(sp+pi+1);
                 for(int p=0;p<sp+b+1;p++){double s=0;for(int d=0;d<HD;d++)s+=qo_b[b*NH*HD+hh*HD+d]*kv[l].k[p*NKV*HD+kvh*HD+d];ss[p]=(float)(s/sqrtf(HD));}
                 sm(ss.data(),sp+b+1);for(int d=0;d<HD;d++){float s=0;for(int p=0;p<sp+b+1;p++)s+=ss[p]*kv[l].v[p*NKV*HD+kvh*HD+d];at_b[b*NH*HD+hh*HD+d]=s;}}}
             co.go(l,at_b.data(),batch_size,NH*HD,dynamic_ascale(at_b.data(),batch_size*NH*HD),wsc[l].o_,oo_b.data(),H);cn(oo_b.data(),batch_size*H);
@@ -279,5 +288,5 @@ int main(int argc,char**argv){
     }
     double tts=std::chrono::duration<double>(std::chrono::steady_clock::now()-tgs).count();
     printf("\n=== %.1f ms/tok effective (boot=%.0fms, batches=%d) ===\n",tts*1000/ng,t_boot,n_batches);
-    platform_munmap(md,st.st_size);return 0;
+    munmap(md,st.st_size);return 0;
 }
