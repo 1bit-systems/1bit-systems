@@ -33,3 +33,5 @@ zig-out/
 *.deb
 *.tar.gz
 !packaging/**/*.tar.gz
+1bit-agent/
+spec-decode/build/

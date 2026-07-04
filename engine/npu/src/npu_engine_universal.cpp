@@ -15,7 +15,7 @@
 #include <xrt/xrt_bo.h>
 #include <xrt/xrt_kernel.h>
 #include "model_config.h"
-extern "C" float* dequant_i8_to_float(const uint8_t*,int,int*,int*);
+extern "C" float* dequant_i8_to_float_ex(const uint8_t*,int,int,int*,int*);
 static inline float bf16f(uint16_t v){uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}
 static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:bf16f(v);}
 static constexpr float EPS=1e-6f;
@@ -183,14 +183,14 @@ int main(int argc,char**argv){
     printf("Dequant+pack...\n");auto tp=std::chrono::steady_clock::now();
     std::vector<float> qsc(NC),osc(NC),gsc(NC),dsc(NC),usc(NC);
     for(int l=0;l<NC;l++){int qr,kr,vr,or_,gr,ur,dr,unused;
-        float*qw=dequant_i8_to_float(i8p(qp[l]),q_i8,&qr,&unused),*kw=dequant_i8_to_float(i8p(kp[l]),k_i8,&kr,&unused),*vw=dequant_i8_to_float(i8p(vp[l]),v_i8,&vr,&unused);
+        float*qw=dequant_i8_to_float_ex(i8p(qp[l]),q_i8,H,&qr,&unused),*kw=dequant_i8_to_float_ex(i8p(kp[l]),k_i8,H,&kr,&unused),*vw=dequant_i8_to_float_ex(i8p(vp[l]),v_i8,H,&vr,&unused);
         int t=qr+kr+vr;std::vector<float>w((size_t)H*t);for(int k=0;k<H;k++){memcpy(&w[k*t],&qw[k*qr],qr*4);memcpy(&w[k*t+qr],&kw[k*kr],kr*4);memcpy(&w[k*t+qr+kr],&vw[k*vr],vr*4);}
         cq.packB(l,w.data(),H,t,qsc[l]);free(qw);free(kw);free(vw);
-        float*ow=dequant_i8_to_float(i8p(op[l]),o_i8,&or_,&unused);co.packB(l,ow,or_,H,osc[l]);free(ow);
-        float*gw=dequant_i8_to_float(i8p(gp[l]),g_i8,&gr,&unused);
-        if(cfg.gu_split){float*uw=dequant_i8_to_float(i8p(up[l]),u_i8,&ur,&unused);cg.packB(l,gw,H,gr,gsc[l]);cu_ptr->packB(l,uw,H,ur,usc[l]);free(uw);}
-        else{float*uw=dequant_i8_to_float(i8p(up[l]),u_i8,&ur,&unused);int t2=gr+ur;std::vector<float>w2((size_t)H*t2);for(int k=0;k<H;k++){memcpy(&w2[k*t2],&gw[k*gr],gr*4);memcpy(&w2[k*t2+gr],&uw[k*ur],ur*4);}cg.packB(l,w2.data(),H,t2,gsc[l]);free(uw);}free(gw);
-        float*dw=dequant_i8_to_float(i8p(dp[l]),d_i8,&dr,&unused);cd.packB(l,dw,dr,H,dsc[l]);free(dw);}
+        float*ow=dequant_i8_to_float_ex(i8p(op[l]),o_i8,NH*HD,&or_,&unused);co.packB(l,ow,or_,H,osc[l]);free(ow);
+        float*gw=dequant_i8_to_float_ex(i8p(gp[l]),g_i8,H,&gr,&unused);
+        if(cfg.gu_split){float*uw=dequant_i8_to_float_ex(i8p(up[l]),u_i8,H,&ur,&unused);cg.packB(l,gw,H,gr,gsc[l]);cu_ptr->packB(l,uw,H,ur,usc[l]);free(uw);}
+        else{float*uw=dequant_i8_to_float_ex(i8p(up[l]),u_i8,H,&ur,&unused);int t2=gr+ur;std::vector<float>w2((size_t)H*t2);for(int k=0;k<H;k++){memcpy(&w2[k*t2],&gw[k*gr],gr*4);memcpy(&w2[k*t2+gr],&uw[k*ur],ur*4);}cg.packB(l,w2.data(),H,t2,gsc[l]);free(uw);}free(gw);
+        float*dw=dequant_i8_to_float_ex(i8p(dp[l]),d_i8,IM,&dr,&unused);cd.packB(l,dw,dr,H,dsc[l]);free(dw);}
     printf("  %.0fms\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-tp).count());
 
     // RoPE
