@@ -119,7 +119,9 @@ Returns 404 from the daemon — the FLM backend doesn't have a Gemma4-E2B model 
 
 ---
 
-## KV Cache Efficiency — H2O Eviction (July 4, 2026)
+## KV Cache Efficiency — H2O Eviction & Wave32 (July 4, 2026)
+
+### H2O Eviction
 
 The H2O (Heavy-Hitter Oracle) eviction system enables efficient long-context inference by keeping only the most-attended tokens in the KV cache. Benchmarks pending hardware validation — expected improvements:
 
@@ -136,6 +138,21 @@ The H2O (Heavy-Hitter Oracle) eviction system enables efficient long-context inf
 - `radix_tree.zig`: RadixAttention prefix tree for cross-request page sharing
 - `offload_engine.zig`: CPU memory offloading for cold pages
 - `quant_profile.zig`: Per-layer dynamic quantization scheme selection
+
+### Wave32 — Memory Bandwidth Fix (July 4, 2026)
+
+All 31 Vulkan pipelines were locked to **wave64** (`required_subgroup_size = 64`).
+On RDNA4, wave32 is the native execution width — wave64 halved wave occupancy,
+leaving 40-60% of the 256 GB/s memory bandwidth unused.
+
+**Fix**: Switched all 31 pipelines to wave32:
+- `elementwise.zig` — 27 pipelines (dmmv, rms_norm, SSM, softmax, etc.)
+- `attention.zig` — 4 pipelines (flash_attn, batched, split, split_merge)
+
+**Expected improvement**: 1.4-1.6× decode throughput on Q4_K/Q8_0 models.
+No config needed — wave32 is now the default.
+To revert for debugging: swap `dmmv_opts`/`attn_opts` assignments in
+`elementwise.zig:545` and `attention.zig:115`.
 
 ---
 
