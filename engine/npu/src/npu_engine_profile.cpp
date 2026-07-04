@@ -60,12 +60,12 @@ int main(int argc,char**argv){
     for(int n=0;n<NV;n++)for(int i=0;i<H;i++)emb_f32_cb[(size_t)n*H+i]=bf16g(emb[n*H+i]);
 
     printf("Init GEMM...\n");xrt::device dev(0);
-    static const char* xd(){const char*e=getenv("NPU_XCLBIN_DIR");return e?e:"/home/bcloud/npu-sandbox/npu-infer/build/int8";}
-    I8Ctx cq{"QKV",XM,H,4096},co{"O",XM,NH*HD,H},cg{"GU",XM,H,6144},cd{"(std::string(xd())+",XM,IM,H};
-    cq.init(dev,D").c_str()/final_i8_QKV_v.xclbin",(std::string(xd())+"/insts_i8_QKV_v.txt").c_str(),4);
-    co.init(dev,(std::string(xd())+"/final_i8_O_v.xclbin").c_str(),  (std::string(xd())+"/insts_i8_O_v.txt").c_str(),  4);
-    cg.init(dev,(std::string(xd())+"/final_i8_GU_v.xclbin").c_str(), (std::string(xd())+"/insts_i8_GU_v.txt").c_str(), 4);
-    cd.init(dev,(std::string(xd())+"/final_i8_D_v.xclbin").c_str(),  (std::string(xd())+"/insts_i8_D_v.txt").c_str(),  4);
+    std::string xd=[]{const char*e=getenv("NPU_XCLBIN_DIR");return e?std::string(e):std::string("/home/bcloud/npu-sandbox/npu-infer/build/int8");}();
+    I8Ctx cq{"QKV",XM,H,4096},co{"O",XM,NH*HD,H},cg{"GU",XM,H,6144},cd{"D",XM,IM,H};
+    cq.init(dev,(xd+"/final_i8_QKV_v.xclbin").c_str(),(xd+"/insts_i8_QKV_v.txt").c_str(),4);
+    co.init(dev,(xd+"/final_i8_O_v.xclbin").c_str(),  (xd+"/insts_i8_O_v.txt").c_str(),  4);
+    cg.init(dev,(xd+"/final_i8_GU_v.xclbin").c_str(), (xd+"/insts_i8_GU_v.txt").c_str(), 4);
+    cd.init(dev,(xd+"/final_i8_D_v.xclbin").c_str(),  (xd+"/insts_i8_D_v.txt").c_str(),  4);
 
     printf("Pack weights...\n");auto tp=std::chrono::steady_clock::now();
     struct WS{float qk,o_,g_,d_;}wsc[NC];
@@ -161,9 +161,9 @@ int main(int argc,char**argv){
         kv[l].n=sp+1;int cl=kv[l].n;
 
         auto t_attn0=std::chrono::steady_clock::now();
-        for(int hh=0;hh<NH;hh++){int kvh=hh/GQA;std::vector<float>ss(sp+pi+1);
-            for(int p=0;p<sp+pi+1;p++){double s=0;for(int d=0;d<HD;d++)s+=qo[hh*HD+d]*kv[l].k[p*NKV*HD+kvh*HD+d];ss[p]=(float)(s/sqrtf(HD));}
-            sm(ss.data(),sp+pi+1);for(int d=0;d<HD;d++){float s=0;for(int p=0;p<sp+pi+1;p++)s+=ss[p]*kv[l].v[p*NKV*HD+kvh*HD+d];at[hh*HD+d]=s;}
+        for(int hh=0;hh<NH;hh++){int kvh=hh/GQA;std::vector<float>ss(sp+1);
+            for(int p=0;p<sp+1;p++){double s=0;for(int d=0;d<HD;d++)s+=qo[hh*HD+d]*kv[l].k[p*NKV*HD+kvh*HD+d];ss[p]=(float)(s/sqrtf(HD));}
+            sm(ss.data(),sp+1);for(int d=0;d<HD;d++){float s=0;for(int p=0;p<sp+1;p++)s+=ss[p]*kv[l].v[p*NKV*HD+kvh*HD+d];at[hh*HD+d]=s;}
         }
         l_attn=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t_attn0).count();
 
