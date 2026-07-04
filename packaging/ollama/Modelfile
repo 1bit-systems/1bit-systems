@@ -1,16 +1,18 @@
 # 1bit.systems NPU backend for Ollama
-# Usage: ollama create qwen3-npu -f Modelfile
-# Then:   ollama run qwen3-npu
+# Usage: First start the NPU daemon:  1bit serve
+# Then create the Ollama model:       ollama create qwen3-npu -f Modelfile
+# Then run:                           ollama run qwen3-npu
+#
+# This creates an Ollama model that routes through the NPU HTTP API.
+# Requires the 1bit daemon running on port 9090.
 
-FROM llama.cpp
+FROM qwen3:0.6b
 
 PARAMETER temperature 0.7
-PARAMETER top_k 40
 PARAMETER top_p 0.9
 
-# Override the LLM backend to use the NPU HTTP API
-# Start the NPU server first: ./1bit-server 8081
-PARAMETER api_base http://localhost:8081/v1
+# Route through NPU proxy API
+PARAMETER api_base http://host.docker.internal:9090/v1
 
 TEMPLATE """{{ if .System }}<|im_start|>system
 {{ .System }}<|im_end|>
