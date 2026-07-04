@@ -5,6 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>1bit.systems — 120kb Binary to rule them all · 5 models · 94 tok/s NPU (FLM) · 7.9× multi-context</title>
 <meta name="description" content="120kb Binary to rule them all. Five models. 120kb binary. 94 tok/s NPU via FLM proxy, 97 tok/s C++ v12. 22 tok/s GPU (ZINC Vulkan). 64 req/s at 7.9× concurrency. Zero Python. Zero deps. Open source.">
+<meta property="og:title" content="1bit.systems — 120kb NPU inference engine, 94 tok/s on AMD Strix Halo">
+<meta property="og:description" content="Zero Python. Zero dependencies. Open source. 94 tok/s on AMD Strix Halo NPU. One binary, 5 models, auto-detect.">
+<meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
+<meta property="og:url" content="https://1bit.systems">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="1bit.systems — 120kb NPU inference engine">
+<meta name="twitter:description" content="94 tok/s on AMD Strix Halo NPU. Zero Python. Zero deps. Open source.">
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<link rel="alternate icon" href="/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
@@ -97,7 +107,12 @@
   .foot-links a:hover{color:var(--blue);}
   .foot-fine{margin-top:28px;padding-top:22px;border-top:1px solid var(--border);font-family:var(--mono);font-size:12.5px;line-height:1.9;color:var(--dim);}
   .foot-fine .p{color:var(--pink);font-style:italic;}
-  @media (max-width:860px){.hero-grid{grid-template-columns:1fr;gap:36px;}.nav-links{display:none;}}
+  .hamburger{display:none;flex-direction:column;justify-content:center;gap:5px;width:36px;height:36px;background:none;border:none;cursor:pointer;padding:6px;}
+  .hamburger span{display:block;height:2.5px;border-radius:2px;background:var(--text);transition:transform .2s ease,opacity .2s ease;}
+  .hamburger.open span:nth-child(1){transform:translateY(7.5px)rotate(45deg);}
+  .hamburger.open span:nth-child(2){opacity:0;}
+  .hamburger.open span:nth-child(3){transform:translateY(-7.5px)rotate(-45deg);}
+  @media (max-width:860px){.nav-links{position:fixed;top:68px;left:0;right:0;background:rgba(2,22,33,.97);backdrop-filter:blur(14px);border-bottom:1px solid var(--border);flex-direction:column;gap:0;padding:12px 0;display:none;z-index:29;}.nav-links.open{display:flex;}.nav-links a{display:block;padding:14px 32px;font-size:16px;}.hamburger{display:flex;}.hero-grid{grid-template-columns:1fr;gap:36px;}}
   @media (max-width:560px){.wrap,.nav-in{padding:0 20px;}.block{padding:44px 20px;}.hero{padding:52px 0 32px;}.cta-band{padding:32px 22px;}}
 </style>
 </head>
@@ -106,8 +121,9 @@
 <nav>
   <div class="nav-in">
     <a class="brand" href="#top"><span class="mark">1bs</span><span class="wordmark"><span class="g">1</span>bit<span class="p">.</span>systems</span></a>
-    <div class="nav-links"><a href="#engines">Engines</a><a href="#benchmarks">Benchmarks</a><a href="#parallelism">Parallelism</a><a href="#install">Install</a><a href="#packages">Packages</a><a href="store/">Store</a><a href="#build">Build</a></div>
+    <div class="nav-links" id="navLinks"><a href="#engines">Engines</a><a href="#benchmarks">Benchmarks</a><a href="#parallelism">Parallelism</a><a href="#install">Install</a><a href="#packages">Packages</a><a href="store/">Store</a><a href="#build">Build</a></div>
     <div class="nav-cta"><a class="txt" href="https://discord.gg/dSyV646eBs" target="_blank" rel="noopener">Discord</a><a class="btn btn-primary btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">GitHub</a></div>
+    <button class="hamburger" id="hamburger" aria-label="Menu"><span></span><span></span><span></span></button>
   </div>
 </nav>
 
@@ -162,7 +178,7 @@
   <div class="grid4" style="margin-top:28px;">
     <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag npu">NPU ALL</span><span class="mono" style="font-size:12px;color:var(--muted);">XDNA 2 · 32 tiles</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">5-Model Engine</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">94 tok/s<span style="font-size:15px;color:var(--muted);font-weight:500;"> (FLM proxy)</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">Production daemon proxies to FLM (94 tok/s). C++ engine: 28 tok/s all-5, 97 tok/s v12. Multi-context pool: 64 req/s at 7.9× scaling.</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">5 models · 120kb binary · 8-context pool · 64 req/s</div></div>
     <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag gpu">GPU</span><span class="mono" style="font-size:12px;color:var(--muted);">RDNA 3.5 · 32 CUs</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">ZINC Engine</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">22 tok/s<span style="font-size:15px;color:var(--muted);font-weight:500;"> decode</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">Zig. GLSL compute → SPIR-V. GGUF native. Bonsai-1.7B-F16. <span style="color:var(--dim);">Hardware-limited: 256 GB/s memory wall caps F16 throughput at 22 tok/s. ZINC uses 99.6% of available bandwidth — ceiling hit, not a software gap.</span></p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">Vulkan · 32 CUs · 256 GB/s · 99.6% utilized</div></div>
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag mlx">MLX</span><span class="mono" style="font-size:12px;color:var(--muted);">Apple + XDNA 2</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">MLX NPU Backend</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">dual<span style="font-size:15px;color:var(--muted);font-weight:500;"> silicon</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">Apple MLX fork with IRON XDNA 2 backend. Same framework runs on M1–M5 AND your NPU.</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">Apple Silicon · XDNA 2 · one framework</div></div>
+    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag gpu">macOS</span><span class="mono" style="font-size:12px;color:var(--muted);">Metal + MLX</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">ZINC on Mac</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">Metal <span style="font-size:15px;color:var(--muted);font-weight:500;">backend</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">ZINC GPU engine with native Metal shaders. Runs on Apple Silicon — GGUF models, HTTP server. <span style="color:var(--dim);">Lemon MLX Engine for 50+ architectures. Testers needed — see issue #21.</span></p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">ZINC Metal · Apple Silicon ✅ · MLX upstream ✅ · testers welcome</div></div>
   </div>
 </section>
 
@@ -379,6 +395,9 @@
     var i = 0;
     var msEl = document.getElementById('ms');
     setInterval(function(){i++;var m=ms[i%ms.length];msEl.textContent=m;},950);
+    var ham=document.getElementById('hamburger'),nav=document.getElementById('navLinks');
+    if(ham&&nav){ham.addEventListener('click',function(){ham.classList.toggle('open');nav.classList.toggle('open');});}
+    var links=nav&&nav.querySelectorAll('a');for(var j=0;links&&j<links.length;j++){links[j].addEventListener('click',function(){ham.classList.remove('open');nav.classList.remove('open');});}
   })();
 </script>
 </body>
