@@ -89,14 +89,16 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
             float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;C[m*an+n]=val;}}
 };
 
-// v12: OpenMP attention — parallelize across heads
-static inline void attn_omp(float*qo,float*at,int cl,const float*kv_k,const float*kv_v,int NH,int NKV,int HD,int GQA){
+// v12: OpenMP attention — parallelize across heads, with optional causal mask
+static inline void attn_omp(float*qo,float*at,int cl,const float*kv_k,const float*kv_v,int NH,int NKV,int HD,int GQA,int max_pos=-1){
+    if(max_pos<0)max_pos=cl;
     #pragma omp parallel for
     for(int hh=0;hh<NH;hh++){int kvh=hh/GQA;
         std::vector<float> scores(cl);float mx=-1e30f;
-        for(int p=0;p<cl;p++){double s=0;int qoff=hh*HD,koff=p*NKV*HD+kvh*HD;
+        for(int p=0;p<cl;p++){if(p>=max_pos){scores[p]=-1e30f;continue;}
+            double s=0;int qoff=hh*HD,koff=p*NKV*HD+kvh*HD;
             #pragma omp simd reduction(+:s)
-            for(int d=0;d<HD;d++)s+=(double)qo[qoff+d]*kv_k[koff+d];scores[p]=(float)(s*0.0883883476);if(scores[p]>mx)mx=scores[p];}
+            for(int d=0;d<HD;d++)s+=(double)qo[qoff+d]*kv_k[koff+d];scores[p]=(float)(s/sqrtf((float)HD));if(scores[p]>mx)mx=scores[p];}
         double sw=0;for(int p=0;p<cl;p++){scores[p]=expf(scores[p]-mx);sw+=scores[p];}
         float isw=sw>0?1.0f/(float)sw:1.0f/cl;
         for(int d=0;d<HD;d++){float acc=0;int aoff=hh*HD+d;
@@ -251,7 +253,7 @@ int main(int argc,char**argv){
     int qkv_n=cfg.qkv_total;
     std::vector<float> h_b(XM*H), qo_b(XM*qkv_n), at_b(XM*NH*HD), oo_b(XM*H), gt_b(XM*(cfg.gu_split?IM:2*IM)), su_b(XM*IM), dw_b(XM*H);
     std::vector<float> h_data(H), qo_data(qkv_n*BS), ko_data(NKV*HD*BS), vo_data(NKV*HD*BS), at_data(NH*HD*BS), oo_data(H*BS);
-    std::vector<float> gt_data((cfg.gu_split?IM:2*IM)*BS), su_data(IM*BS), dwo_data(H*BS), sb_data(H*BS), lg_buf(NV);
+    std::vector<float> gt_data((cfg.gu_split?IM:2*IM)*BS), su_data(IM*BS), dwo_data(H*BS), sb_data(XM*H), lg_buf(NV);
     int sp=0;
 
     // Load input tokens from file or use default hardcoded sequence
@@ -275,6 +277,8 @@ int main(int argc,char**argv){
     printf("=== Prefill %d ===\n",npt);auto t0=std::chrono::steady_clock::now();
     for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=emb_f32[pt_vec[pi]*H+i];
     for(int l=0;l<NC;l++){
+        // Save pre-norm residuals before rn_c destroys h_b
+        for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)sb_data[pi*H+i]=h_b[pi*H+i];
         for(int pi=0;pi<npt;pi++)rn_c(&h_b[pi*H],in_n[l].data(),H);
         cq.go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),qsc[l],qo_b.data(),qkv_n);cn(qo_b.data(),npt*qkv_n);
         float*qn=qn_w[l].data(),*kn=kn_w[l].data();
@@ -283,12 +287,16 @@ int main(int argc,char**argv){
                 for(int d=0;d<HD;d++)qo_b[pi*qkv_n+hh*HD+d]*=iq*(cfg.has_q_norm?qn[d]:1.0f);ra(&qo_b[pi*qkv_n+hh*HD],HD,sp+pi);}
             for(int kvh=0;kvh<NKV;kvh++){float*ks=&qo_b[pi*qkv_n+cfg.qkv_k_offset+kvh*HD],*vs=&qo_b[pi*qkv_n+cfg.qkv_v_offset+kvh*HD];
                 double sk=0;for(int d=0;d<HD;d++)sk+=ks[d]*ks[d];float ik=1.0f/sqrtf((float)(sk/HD)+EPS);
-                for(int d=0;d<HD;d++){ks[d]*=ik*(cfg.has_k_norm?kn[d]:1.0f);ra(ks,HD,sp+pi);}
+                for(int d=0;d<HD;d++)ks[d]*=ik*(cfg.has_k_norm?kn[d]:1.0f);ra(ks,HD,sp+pi);
                 memcpy(&kv_caches[l].k[(sp+pi)*NKV*HD+kvh*HD],ks,HD*4);memcpy(&kv_caches[l].v[(sp+pi)*NKV*HD+kvh*HD],vs,HD*4);}}
         kv_caches[l].n=sp+npt;int cl=kv_caches[l].n;
-        for(int pi=0;pi<npt;pi++){attn_omp(&qo_b[pi*qkv_n],&at_b[pi*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA);}
+        // Causal attention: token pi attends only to positions [0, sp+pi]
+        for(int pi=0;pi<npt;pi++){attn_omp(&qo_b[pi*qkv_n],&at_b[pi*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA,sp+pi+1);}
         co.go(l,at_b.data(),npt,NH*HD,dynamic_ascale(at_b.data(),npt*NH*HD),osc[l],oo_b.data(),H);cn(oo_b.data(),npt*H);
-        for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]+=oo_b[pi*H+i];
+        // Residual add: use saved pre-norm values
+        for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=sb_data[pi*H+i]+oo_b[pi*H+i];
+        // Save pre-FFN residuals before second rn_c
+        for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)sb_data[pi*H+i]=h_b[pi*H+i];
         for(int pi=0;pi<npt;pi++)rn_c(&h_b[pi*H],pa_n[l].data(),H);
         int mlp_out=cfg.gu_split?IM:2*IM;
         cg.go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),gsc[l],gt_b.data(),mlp_out);cn(gt_b.data(),npt*mlp_out);
@@ -296,7 +304,8 @@ int main(int argc,char**argv){
             for(int pi=0;pi<npt;pi++){for(int i=0;i<IM;i++){float gv=gt_b[pi*IM+i];if(!std::isfinite(gv))gv=0;su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*su_b[pi*IM+i];}}}
         else{for(int pi=0;pi<npt;pi++){for(int i=0;i<IM;i++){float gv=gt_b[pi*mlp_out+i];if(!std::isfinite(gv))gv=0;su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[pi*mlp_out+IM+i];}}}
         cd.go(l,su_b.data(),npt,IM,dynamic_ascale(su_b.data(),npt*IM),dsc[l],dw_b.data(),H);cn(dw_b.data(),npt*H);
-        for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]+=dw_b[pi*H+i];
+        // Residual add: use saved pre-FFN values
+        for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=sb_data[pi*H+i]+dw_b[pi*H+i];
     }sp+=npt;memcpy(h_data.data(),&h_b[(npt-1)*H],H*4);
     printf("Prefill: %.0fms (%.0f ms/tok)\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count(),std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count()/npt);
 
@@ -343,6 +352,8 @@ int main(int argc,char**argv){
         int batch_size=std::min(BS,ng-step);
         for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=emb_f32[(size_t)top_ids[b]*H+i];
         for(int l=0;l<NC;l++){
+            // Save pre-norm residuals before rn_c
+            for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)sb_data[b*H+i]=h_b[b*H+i];
             for(int b=0;b<batch_size;b++)rn_c(&h_b[b*H],in_n[l].data(),H);
             cq.go(l,h_b.data(),batch_size,H,dynamic_ascale(h_b.data(),batch_size*H),qsc[l],qo_b.data(),qkv_n);cn(qo_b.data(),batch_size*qkv_n);
             float*qn=qn_w[l].data(),*kn=kn_w[l].data();
@@ -351,7 +362,7 @@ int main(int argc,char**argv){
                     for(int d=0;d<HD;d++)qo_b[b*qkv_n+hh*HD+d]*=iq*(cfg.has_q_norm?qn[d]:1.0f);ra(&qo_b[b*qkv_n+hh*HD],HD,sp+b);}
                 for(int kvh=0;kvh<NKV;kvh++){float*ks=&qo_b[b*qkv_n+cfg.qkv_k_offset+kvh*HD],*vs=&qo_b[b*qkv_n+cfg.qkv_v_offset+kvh*HD];
                     double sk=0;for(int d=0;d<HD;d++)sk+=ks[d]*ks[d];float ik=1.0f/sqrtf((float)(sk/HD)+EPS);
-                    for(int d=0;d<HD;d++){ks[d]*=ik*(cfg.has_k_norm?kn[d]:1.0f);ra(ks,HD,sp+b);}}
+                    for(int d=0;d<HD;d++)ks[d]*=ik*(cfg.has_k_norm?kn[d]:1.0f);ra(ks,HD,sp+b);}
             }
             for(int b=0;b<batch_size;b++)for(int kvh=0;kvh<NKV;kvh++){
                 float*ks=&qo_b[b*qkv_n+cfg.qkv_k_offset+kvh*HD],*vs=&qo_b[b*qkv_n+cfg.qkv_v_offset+kvh*HD];
@@ -359,15 +370,19 @@ int main(int argc,char**argv){
             kv_caches[l].n=sp+batch_size;int cl=kv_caches[l].n;
             for(int b=0;b<batch_size;b++){attn_omp(&qo_b[b*qkv_n],&at_b[b*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA);}
             co.go(l,at_b.data(),batch_size,NH*HD,dynamic_ascale(at_b.data(),batch_size*NH*HD),osc[l],oo_b.data(),H);cn(oo_b.data(),batch_size*H);
-            for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]+=oo_b[b*H+i];
+            // Residual add: use saved pre-norm values
+            for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=sb_data[b*H+i]+oo_b[b*H+i];
+            // Save pre-FFN residuals before second rn_c
+            for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)sb_data[b*H+i]=h_b[b*H+i];
             for(int b=0;b<batch_size;b++)rn_c(&h_b[b*H],pa_n[l].data(),H);
             int mlp_out=cfg.gu_split?IM:2*IM;
             cg.go(l,h_b.data(),batch_size,H,dynamic_ascale(h_b.data(),batch_size*H),gsc[l],gt_b.data(),mlp_out);cn(gt_b.data(),batch_size*mlp_out);
             if(cfg.gu_split){cu_ptr->go(l,h_b.data(),batch_size,H,dynamic_ascale(h_b.data(),batch_size*H),usc[l],su_b.data(),IM);cn(su_b.data(),batch_size*IM);
                 for(int b=0;b<batch_size;b++){for(int i=0;i<IM;i++){float gv=gt_b[b*IM+i];if(!std::isfinite(gv))gv=0;su_b[b*IM+i]=(gv/(1.0f+expf(-gv)))*su_b[b*IM+i];}}}
-            else{for(int b=0;b<batch_size;b++){for(int i=0;i<IM;i++){float gv=gt_b[b*mlp_out+i];if(!std::isfinite(gv))gv=0;su_b[b*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[b*mlp_out+IM+i];}}
+            else{for(int b=0;b<batch_size;b++){for(int i=0;i<IM;i++){float gv=gt_b[b*mlp_out+i];if(!std::isfinite(gv))gv=0;su_b[b*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[b*mlp_out+IM+i];}}}
             cd.go(l,su_b.data(),batch_size,IM,dynamic_ascale(su_b.data(),batch_size*IM),dsc[l],dw_b.data(),H);cn(dw_b.data(),batch_size*H);
-            for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]+=dw_b[b*H+i];
+            // Residual add: use saved pre-FFN values
+            for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=sb_data[b*H+i]+dw_b[b*H+i];
         }
 
         // LM head on batch[0] → top-32 for next batch
@@ -384,5 +399,4 @@ int main(int argc,char**argv){
     printf("\n=== %.1f ms/tok (%.0f tok/s) | boot=%.0fms batches=%d accepted=%d ===\n",tts*1000/ng,ng/tts,t_boot,n_batches,total_accepted);
 
     munmap(md,st.st_size);return 0;
-}
 }

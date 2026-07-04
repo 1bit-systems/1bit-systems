@@ -271,11 +271,12 @@ public:
         if (start_pos == 0) for (auto& c : kv_) c.n = 0;
         int sp = start_pos;
 
-        std::vector<float> h_b((size_t)n*H), qo_b((size_t)n*4096), at_b((size_t)n*NH*HD);
+        std::vector<float> h_b((size_t)n*H), res_b((size_t)n*H), qo_b((size_t)n*4096), at_b((size_t)n*NH*HD);
         std::vector<float> oo_b((size_t)n*H), gt_b((size_t)n*6144), su_b((size_t)n*IM), dw_b((size_t)n*H);
         for (int pi=0;pi<n;pi++) for (int i=0;i<H;i++) h_b[pi*H+i]=bf16g(emb_[tokens[pi]*H+i]);
 
         for (int l=0;l<NC;l++) {
+            for (int pi=0;pi<n;pi++) memcpy(&res_b[pi*H], &h_b[pi*H], H*4);
             for (int pi=0;pi<n;pi++) rn_c(&h_b[pi*H], in_n_[l].data(), H);
             cq_.go(l, h_b.data(), n, H, npu_target_detail::dynamic_ascale(h_b.data(), n * H), wsc_[l].qk, qo_b.data(), 4096);
             cn(qo_b.data(), n*4096);
@@ -300,19 +301,20 @@ public:
             kv_[l].n = sp+n; int cl = kv_[l].n;
             for (int pi=0;pi<n;pi++) for (int hh=0;hh<NH;hh++) {
                 int kvh=hh/GQA; std::vector<float> ss(cl);
-                for (int p=0;p<cl;p++) {
+                for (int p=0;p<=sp+pi;p++) {
                     double s=0; for (int d=0;d<HD;d++) s+=(double)qo_b[pi*4096+hh*HD+d]*kv_[l].k[(size_t)p*NKV*HD+kvh*HD+d];
                     ss[p]=(float)(s/sqrtf((float)HD));
                 }
-                sm(ss.data(), cl);
+                sm(ss.data(), sp+pi+1);
                 for (int d=0;d<HD;d++) {
-                    float s=0; for (int p=0;p<cl;p++) s+=ss[p]*kv_[l].v[(size_t)p*NKV*HD+kvh*HD+d];
+                    float s=0; for (int p=0;p<=sp+pi;p++) s+=ss[p]*kv_[l].v[(size_t)p*NKV*HD+kvh*HD+d];
                     at_b[pi*NH*HD+hh*HD+d]=s;
                 }
             }
             co_.go(l, at_b.data(), n, NH*HD, npu_target_detail::dynamic_ascale(at_b.data(), n * NH * HD), wsc_[l].o_, oo_b.data(), H);
             cn(oo_b.data(), n*H);
-            for (int pi=0;pi<n;pi++) for (int i=0;i<H;i++) h_b[pi*H+i]+=oo_b[pi*H+i];
+            for (int pi=0;pi<n;pi++) for (int i=0;i<H;i++) h_b[pi*H+i] = res_b[pi*H+i] + oo_b[pi*H+i];
+            for (int pi=0;pi<n;pi++) memcpy(&res_b[pi*H], &h_b[pi*H], H*4);
             for (int pi=0;pi<n;pi++) rn_c(&h_b[pi*H], pa_n_[l].data(), H);
             cg_.go(l, h_b.data(), n, H, npu_target_detail::dynamic_ascale(h_b.data(), n * H), wsc_[l].g_, gt_b.data(), 6144);
             cn(gt_b.data(), n*6144);
@@ -322,7 +324,7 @@ public:
             }
             cd_.go(l, su_b.data(), n, IM, npu_target_detail::dynamic_ascale(su_b.data(), n * IM), wsc_[l].d_, dw_b.data(), H);
             cn(dw_b.data(), n*H);
-            for (int pi=0;pi<n;pi++) for (int i=0;i<H;i++) h_b[pi*H+i]+=dw_b[pi*H+i];
+            for (int pi=0;pi<n;pi++) for (int i=0;i<H;i++) h_b[pi*H+i] = res_b[pi*H+i] + dw_b[pi*H+i];
 
             // Snapshot last position's hidden state at this layer, for MTP draft feature taps.
             memcpy(layer_hidden_snapshot_[l].data(), &h_b[(size_t)(n-1)*H], H*4);
