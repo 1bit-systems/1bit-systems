@@ -1,0 +1,25 @@
+WARNING: The locale 'en_US.UTF-8' is not installed on your system.\nPlease install it by running:\n  Ubuntu/Debian: sudo locale-gen en_US.UTF-8 && sudo update-locale\n  RHEL/CentOS:   sudo localedef -i en_US -f UTF-8 en_US.UTF-8
+                                           AI Engine Simulator
+                                     Version 2026.1 (linux64-bit)
+                                     SW Build 6511674 on 2026-06-16-09:18:49
+                          Copyright 1986-2022 Xilinx, Inc. All Rights Reserved.
+                          Copyright 2022-2026 Advanced Micro Devices, Inc. All Rights Reserved.
+OPTIONS:
+
+AIE Simulator Options:
+  --display-run-interval arg (=0)                  Displays time stamp periodically after each time(in NS) elapse, provided by this option. e.g. --display-run-interval=10 (same line gets updated on console and new line gets appended with time value if console output is redirected to file)
+  -w [ --dump-vcd ] arg                            Dump VCD to a file. e.g. --dump-vcd=foo
+  --enable-memory-check [=arg(=1)]                 Enable runtime program and data memory boundary access check. Any violation access will be reported as [WARNING] message. Default is disabled.
+  --hang-detect-time arg (=0)                      Simulation exits if all active cores are in a stalled state = time period(in NS) provided by this option. Default is 1000000 ns. e.g. --hang-detect-time=10
+  -i [ --input-dir ] arg (=.)                      Specify input data directory
+  -o [ --output-dir ] arg (=aiesimulator_output)   Specify Output data directory
+  --online                                         Call vcdanalyze to parse VCD on-the-fly, to optionally produce TEXT (-text) or WDB (-wdb)
+  -f [ --options-file ] arg                        option file with extra arguments. e.g. --options-file=sim_opts.txt
+  --output-time-stamp [=arg(=uniform_time_value)]  Use --output-time-stamp=no to get output file without time values and --output-time-stamp to get uniform time value[in ns] in output file
+  --pkg-dir arg                                    Set the package directory. e.g. --pkg-dir=Work
+  --profile arg                                    Generate profiling data. use --profile argument to get profiling data for all used cores, or --profile="(col,row)(col,row)..."to get profiling data for specified cores
+  --simulation-cycle-timeout arg (=0)              Run the simulator for a given number of cycles. e.g. --simulation-cycle-timeout=10000
+
+Generic Options:
+  -h [ --help-list ]                               Display list of available options
+
