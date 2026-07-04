@@ -13,26 +13,21 @@
 [![5 models](https://img.shields.io/badge/5%20models-auto--detect-00ff00.svg)](engine/npu/BENCHMARKS.md)
 [![120kb binary](https://img.shields.io/badge/binary-120kb-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
 <br>
-[![Debian](https://img.shields.io/badge/deb-install-d70a53.svg)](https://github.com/bong-water-water-bong/1bit-systems/releases/latest)
-[![Snap](https://img.shields.io/badge/snap-install-82BEA0.svg)](https://github.com/bong-water-water-bong/1bit-systems/releases/latest)
-[![Docker](https://img.shields.io/badge/docker-run-2496ED.svg)](https://github.com/bong-water-water-bong/1bit-systems/releases/latest)
-[![AUR](https://img.shields.io/badge/AUR-yay-1793d1.svg)](https://github.com/bong-water-water-bong/1bit-systems/releases/latest)
-[![Homebrew](https://img.shields.io/badge/brew-install-fbb040.svg)](https://github.com/bong-water-water-bong/1bit-systems/releases/latest)
-[![Ollama](https://img.shields.io/badge/ollama-ready-000000.svg)](https://github.com/bong-water-water-bong/1bit-systems/releases/latest)
-<br>
 [![NPU install](https://img.shields.io/badge/curl%20%7C%20bash%20NPU--only-00ff00.svg)](packaging/npu-install.sh)
 [![Pure C++](https://img.shields.io/badge/runtime-C%2B%2B23-00ff00.svg)](engine/npu/src/npu_engine_all.cpp)
 [![Zero Python](https://img.shields.io/badge/deps-0-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
 [![MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/discord-1bit.systems-f00fd2.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
+<br>
+<sub>Packaging: deb · snap · docker · AUR · homebrew · ollama — [in progress](packaging/)</sub>
 
 </div>
 
 ---
 
 > **I reverse-engineered AMD's proprietary NPU stack in 4 days.**
-> One binary. 120 KB. 94 tok/s. No Python. No pip. No Docker. No MLIR toolchain.
-> Just your NPU and a C++ compiler. [MIT licensed](LICENSE).
+> One binary. 120 KB. 94 tok/s. **Zero Python across the entire stack** — daemon, engine, CLI, all C++.
+> No Python. No pip. No Docker. Just your NPU and a C++ compiler. [MIT licensed](LICENSE).
 
 ---
 
@@ -71,7 +66,14 @@ curl -X POST http://localhost:8081/v1/chat/completions \
 
 **55.7 TFLOPS raw INT8 GEMM** — exceeds AMD's 50 TOPS rating.  
 **5 models from one 120kb binary** — auto-detect, zero dependencies.  
-**24× speedup in one session** — 244→10 ms/tok (v12). FLM proxy at 94 tok/s in production.  
+**24× speedup in one session** — 244→10 ms/tok (v12).  
+
+> ⚠️ **v12 C++ engine**: 97 tok/s measured, but output is currently incoherent.
+> The **FLM proxy (94 tok/s)** is the production backend — every `1bit chat` uses it.
+> v12 correctness tracked in [docs/journey.md#update-25](docs/journey.md).
+> See [docs/STATUS.md](docs/STATUS.md) for the full picture.
+
+FLM proxy at 94 tok/s in production.  
 **No Python. No pip. No Docker. No MLIR toolchain. Just g++ and run.**  
 [Full benchmarks →](engine/npu/BENCHMARKS.md)
 
@@ -88,9 +90,10 @@ curl -X POST http://localhost:8081/v1/chat/completions \
 
 ### Every backend, one person
 
-NPU engine (C++23 XRT direct), Vulkan engine (Zig GLSL→SPIR-V, port 8080), Metal engine
-(Zig MSL), and MLX NPU backend
-(Apple MLX fork with IRON XDNA 2). All built here. All open.
+NPU engine (C++23 XRT direct), Vulkan engine (Zig GLSL→SPIR-V, port 8080),
+[Lemon MLX Engine](https://github.com/deepseek-ai/lemon-mlx-engine)
+(C++ on MLX, 50+ architectures, Apple Silicon + ROCm fork). NPU IRON backend
+on the roadmap.
 
 ### Why this exists
 
@@ -101,7 +104,7 @@ the entire stack. The silicon was never the bottleneck. The business model was.
 
 As of July 2, 2026: **94 tok/s (10.6 ms/tok) via FLM proxy** — matching FLM's own numbers.
 The daemon proxies to FLM for production inference. Our open-source C++ engine
-hits 97 tok/s (v12, single model) and 28 tok/s (all 5 models, auto-detect).
+hits 97 tok/s (v12, single model — see correctness note above).
 
 Every claim is timestamped in [docs/journey.md](docs/journey.md) — an audit
 trail of every crash, deadlock, fix, and breakthrough. Open source ships
@@ -144,7 +147,7 @@ faster than venture capital.
 
 ## NPU Engine (`engine/npu/`)
 
-**C++23. M=32 batched decode. FLM proxy in production (94 tok/s). C++ engine: 28 tok/s all-models, 97 tok/s v12.**
+**C++23. M=32 batched decode. FLM proxy in production (94 tok/s). C++ engine: 28 tok/s all-models, 97 tok/s v12 (⚠️ output incoherent, see [STATUS.md](docs/STATUS.md)).**
 
 ```bash
 g++ -std=c++23 -O3 -march=native -fopenmp -o npu_engine_v9 \
@@ -165,7 +168,7 @@ OMP_NUM_THREADS=16 ./npu_engine_v9 64
 | Metric | Value |
 |--------|-------|
 | Speed (FLM proxy) | **94 tok/s** (10.6 ms/tok) — production daemon |
-| Speed (v12) | **97 tok/s** (10 ms/tok) — C++ single-model |
+| Speed (v12) | **97 tok/s** (10 ms/tok) — C++ single-model ⚠️ output incoherent |
 | Speed (ALL) | **28 tok/s** (36 ms/tok) — C++ all 5 models |
 | Speed (v3 baseline) | 244 ms/tok (4.1 tok/s) |
 | Speedup (C++) | **24×** (v3→v12) |
@@ -202,6 +205,7 @@ OMP_NUM_THREADS=16 ./npu_engine_v9 64
 ## Community
 
 - [Getting Started Guide](docs/getting-started.md) — First-run in 30 seconds
+- [Architecture](docs/architecture.md) — How the NPU engine works, file structure, data flow
 - [Contributing](CONTRIBUTING.md) — How to help
 - [Security Policy](SECURITY.md) — Report vulnerabilities
 - [Roadmap](ROADMAP.md) — What's coming next
