@@ -83,16 +83,6 @@ and all vintage numbered engines (v2 through v12). The v4 engine's inline dequan
 path (bypassing `go()`) was also fixed with per-buffer dynamic scales. The only
 remaining references to `5.0f/127.0f` are in comments documenting the old approach.
 
-**Update (July 2026)**: `dynamic_ascale()` has now been applied to **ALL** engine
-files — every `.cpp` file in `engine/npu/src/` that uses `go()` calls now computes
-activation scale dynamically per-call. The fix covers 19 source files including the
-production engines (`npu_engine_all.cpp`, `npu_engine_server.cpp`), the speculative
-decode engines (`spec.cpp`, `spec_decode.cpp`, `spec_v2.cpp`), the universal merge
-engine (`universal_v12merge.cpp`), the multi-token engine (`npu_engine_mt.cpp`),
-and all vintage numbered engines (v2 through v12). The v4 engine's inline dequant
-path (bypassing `go()`) was also fixed with per-buffer dynamic scales. The only
-remaining references to `5.0f/127.0f` are in comments documenting the old approach.
-
 ## What's Still Broken
 
 With all three original fixes plus the RoPE convention fix applied, the host-side
@@ -115,8 +105,33 @@ trace of any layer's intermediates, and diff the C++ engine's intermediates agai
 it. If the C++ intermediates match through the full layer, the xclbin kernels are
 the only remaining variable.
 
-## Status (July 4, 2026, after RoPE fix)
+## Status (July 2026 — after comprehensive 7-round fix pass)
 
-**Do not wire `1bit.engine` (or any v12 variant) into the production daemon** until
-the xclbin kernels have been validated against a Python reference trace. FLM
-proxy stays in production (`daemon/npu-gpu-cpud.py`, port 9090) until this is resolved.
+All known host-side math bugs have been fixed across all 19 engine files in `engine/npu/src/`:
+
+| Fix Round | Bug | Scope | Status |
+|-----------|-----|-------|--------|
+| 1 | Activation quant clipping (`5.0f/127.0f` → `dynamic_ascale()`) | 19 engines | ✅ |
+| 2 | Weight-packing transpose (`transpose_pack()` + correct `in_features`) | 6 engines | ✅ |
+| 3 | LM head tied embeddings (`lm_head_f32` separate from `emb_f32`) | 6 engines | ✅ |
+| 4 | RoPE convention (interleaved → half-split rotate_half) | 16 engines | ✅ |
+| 5 | Causal mask in prefill (V-loops use `sp+pi+1`, v2/v12merge buffer overflow fixed) | 19 engines | ✅ |
+| 6 | Spec decode KV cache (draft tokens write K/V + full attention) | 3 spec engines | ✅ |
+| 7 | Hardcoded paths (replaced with `NPU_XCLBIN_DIR`/`NPU_MODEL_PATH` env vars) | 20+ files | ✅ |
+| 8 | NaN guards on LM head softmax | 11 engines | ✅ |
+
+**All engines compile cleanly** (verified with `-fsyntax-only` on g++ 15.2.0).
+
+Branch: `fix/npu-engine-bugs` — PR at https://github.com/bong-water-water-bong/1bit-systems/pull/23
+
+### Remaining Risk
+
+The **only remaining variable** is the compiled NPU xclbin kernels themselves — opaque
+MLIR-compiled binaries. If output is still incoherent after all host-side fixes, the
+bug must be in the INT8 GEMM or quantization logic inside the NPU compute tiles.
+
+Verification path: run `tools/layer_trace.py` to produce a Python reference trace of
+any layer's intermediates, and diff the C++ engine's intermediates against it.
+
+**Do not wire `1bit.engine` (or any v12 variant) into production** until xclbin kernel
+validation is complete. FLM proxy stays in production (`daemon/npu-gpu-cpud.py`, port 9090).
