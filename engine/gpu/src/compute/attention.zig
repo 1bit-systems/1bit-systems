@@ -104,15 +104,21 @@ pub const AttentionDispatch = struct {
         }
 
         var path_buf: [512]u8 = undefined;
-        const wave64_push_options = pipeline_mod.PipelineOptions{
-            .required_subgroup_size = 64,
-            .require_full_subgroups = true,
+        const wave32_push_options = pipeline_mod.PipelineOptions{
+            .required_subgroup_size = 32,
+            .require_full_subgroups = false,
             .push_descriptors = instance.push_descriptor_fn != null,
         };
+        // wave32 is preferred on RDNA4 — higher wave occupancy = better bandwidth
+        // utilization. The flash_attn shader correctly handles gl_NumSubgroups > 1
+        // via the cross-subgroup merge path in Phase 2/3.
+        const attn_opts = wave32_push_options;
+        // To revert to wave64 for debugging:
+        // const attn_opts = wave64_push_options;
 
         // Flash attention: 7 bindings (Q, K cache, V cache, page table, output, per-head sinks, score_accum)
         const attn_path = std.fmt.bufPrint(&path_buf, "{s}/flash_attn.spv", .{shader_dir}) catch unreachable;
-        const pipeline = pipeline_mod.createFromSpirvWithOptions(instance, attn_path, 7, @sizeOf(FlashAttnPush), &.{}, wave64_push_options, allocator) catch |err| blk: {
+        const pipeline = pipeline_mod.createFromSpirvWithOptions(instance, attn_path, 7, @sizeOf(FlashAttnPush), &.{}, attn_opts, allocator) catch |err| blk: {
             log.warn("flash_attn shader not loaded: {s}", .{@errorName(err)});
             break :blk null;
         };
@@ -124,7 +130,7 @@ pub const AttentionDispatch = struct {
         // both the prefill batched path (n_queries=N) and the decode-shape
         // foundation gated by ZINC_BATCH_ATTN=1 (n_queries=1).
         const attn_batched_path = std.fmt.bufPrint(&path_buf, "{s}/flash_attn_batched.spv", .{shader_dir}) catch unreachable;
-        const pipeline_batched = pipeline_mod.createFromSpirvWithOptions(instance, attn_batched_path, 7, @sizeOf(FlashAttnBatchedPush), &.{}, wave64_push_options, allocator) catch |err| blk: {
+        const pipeline_batched = pipeline_mod.createFromSpirvWithOptions(instance, attn_batched_path, 7, @sizeOf(FlashAttnBatchedPush), &.{}, attn_opts, allocator) catch |err| blk: {
             log.warn("flash_attn_batched shader not loaded: {s}", .{@errorName(err)});
             break :blk null;
         };
@@ -154,17 +160,17 @@ pub const AttentionDispatch = struct {
             // the flash_attn.spv path before specializing the split-K variant.
             const split_attn_path = std.fmt.bufPrint(&path_buf, "{s}/flash_attn.spv", .{shader_dir}) catch unreachable;
             const split_specs = [_]pipeline_mod.SpecConst{.{ .id = 0, .value = fa_split_k_request }};
-            pipeline_split = pipeline_mod.createFromSpirvWithOptions(instance, split_attn_path, 7, @sizeOf(FlashAttnPush), &split_specs, wave64_push_options, allocator) catch |err| blk: {
+            pipeline_split = pipeline_mod.createFromSpirvWithOptions(instance, split_attn_path, 7, @sizeOf(FlashAttnPush), &split_specs, attn_opts, allocator) catch |err| blk: {
                 log.warn("flash_attn split-K specialization not loaded: {s}", .{@errorName(err)});
                 break :blk null;
             };
 
             const merge_path = std.fmt.bufPrint(&path_buf, "{s}/flash_attn_split_merge.spv", .{shader_dir}) catch unreachable;
             const merge_specs = [_]pipeline_mod.SpecConst{.{ .id = 0, .value = fa_split_k_request }};
-            // The merge shader uses local_size_x=64 but does not require wave64;
+            // The merge shader uses local_size_x=64 but does not require wave32;
             // still pass the same options for consistency with the other
-            // wave64 attention pipelines.
-            pipeline_split_merge = pipeline_mod.createFromSpirvWithOptions(instance, merge_path, 3, @sizeOf(FlashAttnSplitMergePush), &merge_specs, wave64_push_options, allocator) catch |err| blk: {
+            // now-default wave32 attention pipelines.
+            pipeline_split_merge = pipeline_mod.createFromSpirvWithOptions(instance, merge_path, 3, @sizeOf(FlashAttnSplitMergePush), &merge_specs, attn_opts, allocator) catch |err| blk: {
                 log.warn("flash_attn_split_merge shader not loaded: {s}", .{@errorName(err)});
                 break :blk null;
             };
