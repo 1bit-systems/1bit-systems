@@ -55,7 +55,7 @@ struct I8Ctx{
     std::vector<uint32_t>ins;
     std::unique_ptr<xrt::bo>bI,bA,bC;
     std::vector<std::unique_ptr<xrt::bo>>layerB;
-    int8_t*Am;int16_t*Cm;
+    int8_t*Am;int32_t*Cm;
     
     bool init(xrt::device&d,const char*xp,const char*ip,int gid_B,int nlayers){
         NL=nlayers;
@@ -70,8 +70,8 @@ struct I8Ctx{
         memcpy(bI->map(),ins.data(),ins.size()*4);
         bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);
         bA=std::make_unique<xrt::bo>(d,(size_t)MD*KD,XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));
-        bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*2,XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));
-        Am=(int8_t*)bA->map();Cm=(int16_t*)bC->map();
+        bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*4,XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));
+        Am=(int8_t*)bA->map();Cm=(int32_t*)bC->map();
         for(int l=0;l<NL;l++)
             layerB.emplace_back(std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B)));
         return true;

@@ -48,7 +48,7 @@ static uint64_t jo(const char*js,size_t jl,const char*nm){size_t nl=strlen(nm);
 
 struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt::hw_context>hc;
     std::unique_ptr<xrt::kernel>k;std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bI,bA,bC;
-    std::vector<std::unique_ptr<xrt::bo>>layerB;int8_t*Am;int16_t*Cm;
+    std::vector<std::unique_ptr<xrt::bo>>layerB;int8_t*Am;int32_t*Cm;
     bool init(xrt::device&d,const char*xp,const char*ip,int gid_B,int nlayers){
         NL=nlayers;FILE*f=fopen(ip,"rb");if(!f)return false;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);
         ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);
@@ -57,8 +57,8 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
         bI=std::make_unique<xrt::bo>(d,ins.size()*4,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));
         memcpy(bI->map(),ins.data(),ins.size()*4);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);
         bA=std::make_unique<xrt::bo>(d,(size_t)MD*KD,XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));
-        bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*2,XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));
-        Am=(int8_t*)bA->map();Cm=(int16_t*)bC->map();
+        bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*4,XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));
+        Am=(int8_t*)bA->map();Cm=(int32_t*)bC->map();
         for(int l=0;l<NL;l++)layerB.emplace_back(std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B)));
         return true;}
     void packB(int l,const float*w,int K,int N,float&sout){float amax=0;
