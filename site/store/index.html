@@ -91,7 +91,7 @@
     <span style="color:var(--green);">50 TOPS</span>
     <span style="color:var(--pink);">94 tok/s</span>
     <span style="color:var(--blue);">Open Source</span>
-    <span style="color:var(--green);">281 tok/s 1-bit</span>
+    <span style="color:var(--green);">Open Source</span>
     <span style="color:var(--pink);">Zero Dependencies</span>
   </div>
 </section>
@@ -188,7 +188,8 @@ let stripe = null;
 
 // API base — daemon runs on port 9090 on the Strix Halo
 const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  ? '' : 'http://127.0.0.1:9090';
+  // Checkout only works from the Strix Halo machine itself (daemon on port 9090)
+  ? '' : '';  // Remote checkout not yet available — see issue #23
 
 document.addEventListener('DOMContentLoaded', () => {
   stripe = Stripe('pk_live_51TUvAmJnXt3bWED8N2qz5VRr63btuJjUeB8awZ6bJVWJvk0dWIgKBuXk56QRvUx4OItBsvkpooVZWwFgVcoJAuHp00aKGHfX7U');
@@ -275,8 +276,9 @@ async function checkout() {
 }
 
 function render() {
-  const grid = document.getElementById('grid');
+  const grid = document.getElementById('products');
   const cartBar = document.getElementById('cart-bar');
+  if (!grid || !cartBar) { console.warn('Store: products or cart-bar not found'); return; }
   const total = cartTotal();
 
   grid.innerHTML = PRODUCTS.map(p => {
