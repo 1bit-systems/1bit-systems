@@ -1,13 +1,18 @@
-//! Continuous-batching scheduler groundwork for concurrent inference requests.
+//! Continuous-batching scheduler groundwork for concurrent inference requests
+//! with H2O KV-cache eviction support.
 //! @section Scheduler
-//! Today this module owns request slot accounting and state collection only.
-//! The HTTP serving hot path still serializes generation behind
-//! ServerState.generation_mutex; the batched prefill/decode dispatch loop is
-//! not wired yet.
+//! Today this module owns request slot accounting, state collection, and KV
+//! page lifecycle management. The HTTP serving hot path still serializes
+//! generation behind ServerState.generation_mutex; the batched prefill/decode
+//! dispatch loop is not wired yet.
+//!
+//! When KV cache pages are exhausted, the scheduler triggers H2O eviction
+//! (lowest-scoring pages dropped) to admit new requests.
 const std = @import("std");
 const Request = @import("request.zig").Request;
 const RequestState = @import("request.zig").RequestState;
 const GenerationParams = @import("request.zig").GenerationParams;
+const KvPagePool = @import("kv_cache.zig").KvPagePool;
 
 const log = std.log.scoped(.scheduler);
 
@@ -29,23 +34,32 @@ pub const Scheduler = struct {
     next_id: u64,
     /// Allocator for owned resources.
     allocator: std.mem.Allocator,
+    /// KV page pool for paged attention with H2O eviction, or null if
+    /// the scheduler does not manage KV pages directly.
+    kv_page_pool: ?*KvPagePool,
+    /// Number of KV pages to allocate per request on admit.
+    pages_per_request: u32,
 
     /// Initialize the scheduler with a fixed number of concurrent request slots.
     /// @param allocator Allocator for the slot array.
     /// @param max_parallel Maximum number of concurrent requests.
+    /// @param kv_page_pool Optional KV page pool for H2O eviction.
+    /// @param pages_per_request KV pages to allocate per admitted request (0 = no page management).
     /// @returns A Scheduler with all slots initially empty.
-    pub fn init(allocator: std.mem.Allocator, max_parallel: u32) !Scheduler {
+    pub fn init(allocator: std.mem.Allocator, max_parallel: u32, kv_page_pool: ?*KvPagePool, pages_per_request: u32) !Scheduler {
         const slots = try allocator.alloc(?Request, max_parallel);
         @memset(slots, null);
         const scratch = try allocator.alloc(u32, max_parallel);
-        log.info("Scheduler ready: {d} slots", .{max_parallel});
+        log.info("Scheduler ready: {d} slots, KV pages: {d}", .{ max_parallel, if (kv_page_pool != null) kv_page_pool.?.total_pages else @as(u32, 0) });
         return .{
             .slots = slots,
-            .pending = .{},
+            .pending = std.ArrayList(Request).empty,
             .scratch = scratch,
             .max_parallel = max_parallel,
             .next_id = 1,
             .allocator = allocator,
+            .kv_page_pool = kv_page_pool,
+            .pages_per_request = pages_per_request,
         };
     }
 
@@ -65,16 +79,27 @@ pub const Scheduler = struct {
     }
 
     /// Admit the oldest pending request into the first free slot, if any.
-    /// Moves it out of the `pending` queue, assigns `slot_id`, and transitions it
-    /// to `.prefilling`. The caller then runs prefill for every slot reported by
-    /// `pendingPrefill` and transitions those to `.decoding`.
+    /// Moves it out of the `pending` queue, assigns `slot_id`, allocates KV
+    /// cache pages (may trigger H2O eviction), and transitions it to `.prefilling`.
+    /// The caller then runs prefill for every slot reported by `pendingPrefill`
+    /// and transitions those to `.decoding`.
     /// @returns The assigned slot index, or null if no pending request or no free slot.
+    /// @note May trigger H2O eviction of low-scoring KV pages from other requests.
     pub fn admitNext(self: *Scheduler) !?u32 {
         if (self.pending.items.len == 0) return null;
         for (self.slots, 0..) |*slot, i| {
             if (slot.* == null) {
                 var req = self.pending.orderedRemove(0);
                 req.slot_id = @intCast(i);
+
+                // Allocate KV cache pages if the pool is configured.
+                if (self.kv_page_pool) |pool| {
+                    if (self.pages_per_request > 0) {
+                        const page_ids = try pool.allocOrEvict(req.id, self.pages_per_request);
+                        req.kv_page_ids = page_ids;
+                    }
+                }
+
                 try req.transition(.prefilling);
                 slot.* = req;
                 log.info("Request {d} admitted to slot {d}", .{ req.id, i });
@@ -206,13 +231,24 @@ pub const Scheduler = struct {
         return self.scratch[0..n];
     }
 
-    /// Release a completed or cancelled request's slot, freeing its resources.
+    /// Release a completed or cancelled request's slot, freeing its resources
+    /// and returning its KV cache pages to the pool.
     /// @param self Scheduler to release from.
     /// @param slot_id Slot index to free (the value returned by `submit`).
     /// @note Silently does nothing if `slot_id` is out of range or the slot is already empty.
     pub fn release(self: *Scheduler, slot_id: u32) void {
         if (slot_id < self.slots.len) {
             if (self.slots[slot_id]) |*req| {
+                // Return KV pages to the pool before deinitializing the request.
+                if (self.kv_page_pool) |pool| {
+                    if (req.kv_page_ids) |page_ids| {
+                        pool.freePages(req.id);
+                        // kv_page_ids was allocated by the pool's allocator;
+                        // the pool interface expects the caller to free the slice.
+                        self.allocator.free(page_ids);
+                        req.kv_page_ids = null;
+                    }
+                }
                 req.deinit();
                 self.slots[slot_id] = null;
                 log.info("Released slot {d}", .{slot_id});
@@ -235,7 +271,7 @@ pub const Scheduler = struct {
 
 test "Scheduler submit and release" {
     const allocator = std.testing.allocator;
-    var sched = try Scheduler.init(allocator, 4);
+    var sched = try Scheduler.init(allocator, 4, null, 0);
     defer sched.deinit();
 
     try std.testing.expectEqual(@as(u32, 0), sched.activeCount());
@@ -254,7 +290,7 @@ test "Scheduler submit and release" {
 
 test "Scheduler full" {
     const allocator = std.testing.allocator;
-    var sched = try Scheduler.init(allocator, 2);
+    var sched = try Scheduler.init(allocator, 2, null, 0);
     defer sched.deinit();
 
     _ = try sched.submit(&.{1}, .{});
@@ -264,7 +300,7 @@ test "Scheduler full" {
 
 test "Scheduler isFull" {
     const allocator = std.testing.allocator;
-    var sched = try Scheduler.init(allocator, 2);
+    var sched = try Scheduler.init(allocator, 2, null, 0);
     defer sched.deinit();
 
     try std.testing.expect(!sched.isFull());
@@ -278,7 +314,7 @@ test "Scheduler isFull" {
 
 test "Scheduler release and reuse slot" {
     const allocator = std.testing.allocator;
-    var sched = try Scheduler.init(allocator, 1);
+    var sched = try Scheduler.init(allocator, 1, null, 0);
     defer sched.deinit();
 
     const s1 = try sched.submit(&.{10}, .{});
@@ -293,7 +329,7 @@ test "Scheduler release and reuse slot" {
 
 test "Scheduler continuous-batching admit and reuse" {
     const allocator = std.testing.allocator;
-    var sched = try Scheduler.init(allocator, 2); // 2 slots, 3 requests → forces reuse
+    var sched = try Scheduler.init(allocator, 2, null, 0); // 2 slots, 3 requests → forces reuse
     defer sched.deinit();
 
     _ = try sched.enqueue(&.{ 1, 2 }, .{ .max_tokens = 4 });
@@ -329,7 +365,7 @@ test "Scheduler continuous-batching admit and reuse" {
 test "Scheduler EOS-driven eviction frees a slot for a waiter (variable lengths)" {
     const allocator = std.testing.allocator;
     const EOS: u32 = 42;
-    var sched = try Scheduler.init(allocator, 2); // 2 slots, 3 requests → reuse on eviction
+    var sched = try Scheduler.init(allocator, 2, null, 0); // 2 slots, 3 requests → reuse on eviction
     defer sched.deinit();
 
     _ = try sched.enqueue(&.{1}, .{ .max_tokens = 8 }); // will EOS early
@@ -366,7 +402,7 @@ test "Scheduler concurrent enqueue under external mutex assigns unique slots" {
     // Prove that pattern yields exactly N pending requests with unique, contiguous
     // ids and no lost/duplicated entries — i.e. enqueue is safe under that locking.
     const allocator = std.testing.allocator;
-    var sched = try Scheduler.init(allocator, 2);
+    var sched = try Scheduler.init(allocator, 2, null, 0);
     defer sched.deinit();
 
     const N: u32 = 6;
@@ -399,7 +435,7 @@ test "Scheduler concurrent enqueue under external mutex assigns unique slots" {
 
 test "Scheduler request IDs increment" {
     const allocator = std.testing.allocator;
-    var sched = try Scheduler.init(allocator, 4);
+    var sched = try Scheduler.init(allocator, 4, null, 0);
     defer sched.deinit();
 
     _ = try sched.submit(&.{1}, .{});
@@ -414,7 +450,7 @@ test "Scheduler request IDs increment" {
 
 test "Scheduler collects pending prefill and active decoding slots" {
     const allocator = std.testing.allocator;
-    var sched = try Scheduler.init(allocator, 4);
+    var sched = try Scheduler.init(allocator, 4, null, 0);
     defer sched.deinit();
 
     const prefill_slot = try sched.submit(&.{1}, .{});
@@ -437,7 +473,7 @@ test "Scheduler collects pending prefill and active decoding slots" {
 
 test "Scheduler state collection respects scratch capacity" {
     const allocator = std.testing.allocator;
-    var sched = try Scheduler.init(allocator, 3);
+    var sched = try Scheduler.init(allocator, 3, null, 0);
     defer sched.deinit();
 
     _ = try sched.submit(&.{1}, .{});
@@ -449,4 +485,64 @@ test "Scheduler state collection respects scratch capacity" {
     try std.testing.expectEqual(@as(usize, 2), pending.len);
     try std.testing.expectEqual(@as(u32, 0), pending[0]);
     try std.testing.expectEqual(@as(u32, 1), pending[1]);
+}
+
+test "Scheduler admit with H2O eviction allocates KV pages" {
+    const allocator = std.testing.allocator;
+    var pool = try KvPagePool.initWithEviction(allocator, 5, 256, .h2o_attention_score); // 4 usable + 1 zero
+    defer pool.deinit();
+
+    var sched = try Scheduler.init(allocator, 4, &pool, 2); // 2 pages per request
+    defer sched.deinit();
+
+    _ = try sched.enqueue(&.{ 1, 2, 3 }, .{ .max_tokens = 8 });
+    _ = try sched.enqueue(&.{ 4, 5 }, .{ .max_tokens = 8 });
+
+    // Admit both — should allocate 2 pages each from pool (4 total → pool exhausted).
+    try std.testing.expect((try sched.admitNext()) != null);
+    try std.testing.expect((try sched.admitNext()) != null);
+    try std.testing.expectEqual(@as(u32, 0), pool.freeCount()); // all 4 usable pages used
+
+    // Both requests should have kv_page_ids set.
+    for (sched.slots) |slot| {
+        if (slot) |req| {
+            try std.testing.expect(req.kv_page_ids != null);
+            try std.testing.expectEqual(@as(usize, 2), req.kv_page_ids.?.len);
+        }
+    }
+
+    // Free one request — pages should return to pool.
+    sched.release(0);
+    try std.testing.expectEqual(@as(u32, 2), pool.freeCount());
+}
+
+test "Scheduler H2O eviction triggered on admit when pool full" {
+    const allocator = std.testing.allocator;
+    var pool = try KvPagePool.initWithEviction(allocator, 7, 256, .h2o_attention_score); // 6 usable + 1 zero
+    defer pool.deinit();
+
+    var sched = try Scheduler.init(allocator, 4, &pool, 3); // 3 pages per request
+    defer sched.deinit();
+
+    _ = try sched.enqueue(&.{ 1, 2 }, .{ .max_tokens = 4 });
+    _ = try sched.enqueue(&.{ 3, 4 }, .{ .max_tokens = 4 });
+
+    // First admit: 3 pages used, 1 remains free.
+    try std.testing.expect((try sched.admitNext()) != null);
+    try std.testing.expectEqual(@as(u32, 1), pool.freeCount());
+
+    // Record scores so eviction can select the lowest.
+    if (sched.slots[0]) |req| {
+        if (req.kv_page_ids) |ids| {
+            pool.recordScores(ids, null);
+        }
+    }
+
+    // Second admit: needs 3 pages but only 1 free → triggers H2O eviction.
+    try std.testing.expect((try sched.admitNext()) != null);
+    // After eviction, the second request got its pages.
+    try std.testing.expectEqual(@as(u32, 0), pool.freeCount());
+    if (sched.slots[1]) |req| {
+        try std.testing.expect(req.kv_page_ids != null);
+    }
 }

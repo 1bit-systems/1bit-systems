@@ -55,6 +55,9 @@ pub const Request = struct {
     // KV cache slot assignment (set by scheduler)
     /// KV cache slot, or null.
     slot_id: ?u32,
+    /// Allocated KV page IDs for this request (managed by KvPagePool).
+    /// Set by the scheduler when the request is admitted.
+    kv_page_ids: ?[]u32,
     // Timing
     /// Creation timestamp.
     created_at_ns: i128,
@@ -74,9 +77,10 @@ pub const Request = struct {
             .id = id,
             .state = .pending,
             .prompt_tokens = prompt_tokens,
-            .generated_tokens = .{},
+            .generated_tokens = std.ArrayList(u32).empty,
             .params = params,
             .slot_id = null,
+            .kv_page_ids = null,
             .created_at_ns = std.time.nanoTimestamp(),
             .first_token_ns = null,
             .allocator = allocator,
@@ -125,6 +129,10 @@ pub const Request = struct {
     /// @param self Request to tear down.
     pub fn deinit(self: *Request) void {
         self.generated_tokens.deinit(self.allocator);
+        if (self.kv_page_ids) |pages| {
+            self.allocator.free(pages);
+            self.kv_page_ids = null;
+        }
     }
 };
 
