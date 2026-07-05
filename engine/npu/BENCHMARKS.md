@@ -1,420 +1,64 @@
-# 1bit.systems Benchmarks — July 4, 2026 (refresh 2)
+# 1bit.systems Benchmarks — July 5, 2026 (audited)
 
 **Hardware**: AMD Ryzen AI Max+ 395 (Strix Halo)  
 - NPU: XDNA 2, 32 AIE2P tiles  
 - GPU: Radeon 8060S (RADV, 32 CUs, 256 GB/s, Vulkan)  
 - CPU: Zen 5, 16C/32T  
 **OS**: Ubuntu 26.04 LTS, Kernel 7.0.0-27-generic  
-**FLM**: v0.9.43, pmode=turbo, port 52625  
-**ZINC**: 0631a677 (STQ1_0), Vulkan backend  
-**llama.cpp**: 1a7582b91 (9094), Vulkan backend  
+
+## Production: FLM Proxy
+
+The `npu-gpu-cpud` daemon proxies to FastFlowLM for production inference. Verified coherent output.
+
+| Model | Decode | TTFT | Power |
+|-------|--------|------|-------|
+| Qwen3-0.6B (FLM turbo) | **94 tok/s** | 513 ms | ~15W |
+
+## Verified C++ Engines
+
+Engines with verified coherent output (actual inference, not just throughput benchmarking):
+
+| Engine | Decode | Model | Status |
+|--------|--------|-------|--------|
+| **Fused INT8** (`npu_engine_fused_i8.cpp`) | **248 ms/tok** (4 tok/s) | Qwen3-0.6B | ✅ Verified |
+| **Universal** (`npu_engine_universal.cpp`) | **58 ms/tok** (17 tok/s) | Qwen3-0.6B | ✅ Runs |
+| **C++23 daemon** (`npu-gpu-cpud.cpp`) | — | All | ✅ Compiled, 112 KB |
+
+### Honesty Note on "97 tok/s" Claims
+
+The C++ v12 engine benchmarks showing **97 tok/s** measured raw throughput only — the **output was never coherent**. The V12 correctness audit (July 3-4, 2026) discovered the engine had been running with 3 critical bugs:
+- Wrong LM head weights (used embed table instead of head)
+- All weight matrices transposed (packed wrong orientation)
+- Activation quantization clipping outside [-5,5]
+
+These were fixed across 7 rounds, but **the xclbin kernels themselves remain opaque binaries** — the host-side math is now correct per the fused xclbin validation, but the standalone INT8 xclbins have not been re-verified for coherent output.
+
+**Current honest numbers**: The fused xclbin engine (torch2aie-compiled) produces valid output at 4 tok/s. The standalone engines compile and decode but output has not been validated for coherence post-fix.
+
+## GPU (Vulkan/ZINC) — Bonsai-1.7B-F16
+
+| Backend | Model | Decode | BW Util |
+|---------|-------|--------|---------|
+| GPU (ZINC Vulkan) | Bonsai-1.7B-F16 | **22 tok/s** | 99.7% of 256 GB/s |
+
+## GPU (llama.cpp) — 1-Bit Models
+
+All numbers verified from live runs on Radeon 8060S (Vulkan).
+
+| Model | BPW | Size | Decode |
+|-------|-----|------|--------|
+| Qwen2 0.5B IQ1_S | 1.06 | 296 MB | **381 tok/s** |
+| gemma-2-2b IQ1_S | 1.06 | 788 MB | **158 tok/s** |
+| Qwen3.5-0.8B Q1_0 | 1.25 | 268 MB | **312 tok/s** |
+| gemma3 4B IQ1_S | 1.06 | 1.05 GB | **122 tok/s** |
+| Qwen3.5-9B Q1_0 | 1.25 | 1.82 GB | **70 tok/s** |
+| Nemo 8B IQ1_S | 1.06 | 1.97 GB | **79 tok/s** |
+| Hy-MT2 1.8B STQ1_0 | 1.3125 | 441 MB | **267 tok/s** |
+
+## What's Ahead: True 1-bit on NPU
+
+GPU 1-bit (IQ1_S/Q1_0) already achieves 70-381 tok/s on Radeon 8060S — 1.3-4× faster than the NPU's 0.6B FLM path. The NPU's advantage is power efficiency (~15W vs ~45W). The Zig NPU engine rewrite (in `main` at `f65afae9`) targets direct NPU inference without FLM, with DMA-BUF zero-copy between NPU and GPU.
 
 ---
 
-## 1-Bit Model Benchmarks — July 4, 2026 (refresh 2)
-
-Every model at ≤1.5625 bpw (true 1-bit class). Measured on **Radeon 8060S GPU** via Vulkan. All numbers fresh from live runs with 3 repetitions — no cached data.
-
-### GPU Decode Speed
-
-| Model | BPW | Size | Params | Engine | Prefill | Decode | ms/tok |
-|-------|-----|------|--------|--------|---------|--------|--------|
-| Qwen2 0.5B | **1.06** (IQ1_S) | 296 MB | 494M | llama.cpp | 4,188 tok/s | **381 tok/s** | 2.6 |
-| gemma-2-2b | **1.06** (IQ1_S) | 788 MB | 2.6B | llama.cpp | 1,773 tok/s | **158 tok/s** | 6.3 |
-| Qwen3.5-0.8B | **1.25** (Q1_0) | 268 MB | 752M | llama.cpp | 3,883 tok/s | **312 tok/s** | 3.2 |
-| gemma3 4B | **1.06** (IQ1_S) | 1.05 GB | 3.88B | llama.cpp | 1,247 tok/s | **122 tok/s** | 8.2 |
-| Qwen3.5-9B | **1.25** (Q1_0) | 1.82 GB | 8.95B | llama.cpp | 762 tok/s | **70 tok/s** | 14.3 |
-| Nemo 8B | **1.06** (IQ1_S) | 1.97 GB | 8.41B | llama.cpp | 720 tok/s | **79 tok/s** | 12.7 |
-| Hy-MT2 1.8B | **1.3125** (STQ1_0) | 441 MB | 1.8B | ZINC (Sherry) | 238 tok/s | **267 tok/s** | 3.7 |
-
-### Prefill Scaling
-
-| Model | 32 tok | 128 tok | 512 tok | 2048 tok |
-|-------|--------|---------|---------|----------|
-| Qwen2 0.5B IQ1_S | 4,188 tok/s | — | — | — |
-| Qwen3.5-0.8B Q1_0 | 3,883 tok/s | — | — | — |
-| gemma3 4B IQ1_S | 1,247 tok/s | — | — | — |
-| Nemo 8B IQ1_S | 720 tok/s | — | — | — |
-| Qwen3.5-9B Q1_0 | 762 tok/s | — | — | — |
-
-### NPU vs GPU (1-bit)
-
-| Backend | Model | Size | Tok/s | Power |
-|---------|-------|------|-------|-------|
-| **NPU** (FLM) | Qwen3-0.6B Q4NX | 526 MB | **94 tok/s** | ~15W |
-| **GPU** (llama.cpp) | Qwen2 0.5B IQ1_S | 296 MB | **381 tok/s** | ~45W |
-| **GPU** (llama.cpp) | Qwen3.5-0.8B Q1_0 | 268 MB | **312 tok/s** | ~45W |
-| **GPU** (ZINC) | Hy-MT2 1.8B STQ1_0 | 441 MB | **267 tok/s** | ~45W |
-| **GPU** (llama.cpp) | gemma3 4B IQ1_S | 1.05 GB | **122 tok/s** | ~45W |
-| **GPU** (llama.cpp) | Nemo 8B IQ1_S | 1.97 GB | **79 tok/s** | ~45W |
-| **GPU** (llama.cpp) | gemma-2-2b IQ1_S | 788 MB | **158 tok/s** | ~45W |
-| **GPU** (llama.cpp) | Qwen3.5-9B Q1_0 | 1.82 GB | **70 tok/s** | ~45W |
-
-### Key Takeaways
-
-- **0.5B model at 1.06 bits (IQ1_S)**: 381 tok/s — fastest 1-bit, 296 MB. 4× NPU speed.
-- **0.8B model at 1.25 bits (Q1_0)**: 312 tok/s — 268 MB. 3.4× NPU speed, smallest file.
-- **1.8B model at 1.3125 bits (STQ1_0)**: 267 tok/s via ZINC Sherry ternary decode — 2.9× NPU speed.
-- **3.88B model at 1.06 bits (IQ1_S)**: 122 tok/s — gemma3 4B, 1.05 GB, 1.3× NPU speed.
-- **8.41B model at 1.06 bits (IQ1_S)**: 79 tok/s — Nemo Minitron 8B, 1.97 GB.
-- **8.95B model at 1.25 bits (Q1_0)**: 70 tok/s — Qwen3.5-9B, 1.82 GB.
-- NPU still wins on power efficiency (~15W vs ~45W) but GPU 1-bit is 1.3-4× faster.
-
-### Models Tested
-
-| Model | HuggingFace | Format |
-|-------|-------------|--------|
-| Hy-MT2 1.8B | AngelSlim (custom) | STQ1_0 (1.3125 bpw, Sherry ternary) |
-| Qwen3.5-0.8B | [WariHima/Qwen3.5-0.8B-Q1_0-GGUF](https://huggingface.co/WariHima/Qwen3.5-0.8B-Q1_0-GGUF) | Q1_0 (1.25 bpw) |
-| gemma-2-2b | [Ffftdtd5dtft/gemma-2-2b-IQ1_S-GGUF](https://huggingface.co/Ffftdtd5dtft/gemma-2-2b-IQ1_S-GGUF) | IQ1_S (1.06 bpw) |
-| Qwen3.5-9B | [WariHima/Qwen3.5-9B-Q1_0-GGUF](https://huggingface.co/WariHima/Qwen3.5-9B-Q1_0-GGUF) | Q1_0 (1.25 bpw) |
-| Qwen2 0.5B | [Ffftdtd5dtft/Qwen2-0.5B-IQ1_S-GGUF](https://huggingface.co/Ffftdtd5dtft/Qwen2-0.5B-IQ1_S-GGUF) | IQ1_S (~1.06 bpw) |
-| BitNet b1.58 2B | [microsoft/bitnet-b1.58-2B-4T-gguf](https://huggingface.co/microsoft/bitnet-b1.58-2B-4T-gguf) | i2_s (~2 bpw) — arch unsupported |
-
-### Notes
-- **7 models at 3 quantization formats** (IQ1_S, Q1_0, STQ1_0) tested across 0.5B to 8.95B parameters.
-- BitNet b1.58 2B (i2_s, 132 MB) and 3B (Q2_K, 1.79 GB) downloaded — `bitnet-b1.58` architecture not supported by this llama.cpp build.
-- All models found are at the IQ1_S (~1.06 bpw) and Q1_0 (1.25 bpw) levels. IQ1_M (~1.125 bpw) models exist but only as multi-sharded files too large to test.
-- Every model runs on a consumer laptop GPU (Radeon 8060S, 32 CUs, monolithic VRAM).
-- gemma3 4B is slow (26 tok/s) due to its multi-modal architecture, not the quantization.
-- All benchmarks: single GPU, Radeon 8060S, Vulkan backend. Decode measured at 64 tokens.
-
-## Production Stack — FLM Proxy Benchmarks (July 3, 2026)
-
-The `npu-gpu-cpud` daemon proxies to FLM for production inference. These are the numbers you get running `1bit chat` right now.
-
-### Qwen3-0.6B — FLM turbo (9 runs)
-
-| Prompt | TTFT | Decode | Overall | Tokens |
-|--------|------|--------|---------|--------|
-| Short ("hello") | 511 ms | 83.0 tok/s | 17 tok/s | 9-16 |
-| Medium (10 words) | 515 ms | **94.0 tok/s** | 40-54 tok/s | 73-97 |
-| Long (26 words) | 514 ms | **93.3 tok/s** | 61-77 tok/s | 256 |
-
-**Aggregate**: 94.0 tok/s decode median, 513ms TTFT avg, 256 max_tokens.
-
-### Qwen3-8B — FLM turbo (partial, GPU routing unstable)
-
-| Prompt | TTFT | Decode | Tokens |
-|--------|------|--------|--------|
-| Short | 1325-3385 ms | 5.4-10.9 tok/s | 146-214 |
-| Medium | 1355-3262 ms | 4.8-5.4 tok/s | 375-582 |
-| Long | timed out | — | — |
-
-8B model routing is unstable — GPU backend times out on long prompts. The routing policy sends <2B to NPU, 2B-8B to GPU. 8B is right at the boundary and hits GPU which has ~11 tok/s throughput. Fix: force `npu://` prefix to route 8B to NPU.
-
-### GPU (ROCm) — Llama-3.1-8B
-
-| Prompt | TTFT | Decode | Tokens |
-|--------|------|--------|--------|
-| Short | 1714 ms | **11.3 tok/s** | 38-43 |
-| Medium | 1719 ms | **11.3 tok/s** | 142-149 |
-| Long | 1746 ms | 11.1 tok/s | 1097-1139 |
-
-GPU is consistent but slow at 11.3 tok/s. TTFT is 3× worse than NPU (1714ms vs 513ms). The GPU has 40 CUs running Vulkan/ROCm — this is an ROCm driver bottleneck, not silicon.
-
-### Gemma4-E2B (FLM)
-
-Returns 404 from the daemon — the FLM backend doesn't have a Gemma4-E2B model serving. The C++ engine supports it at 16 tok/s.
-
----
-
-## KV Cache Efficiency — H2O Eviction & Wave32 (July 4, 2026)
-
-### H2O Eviction
-
-The H2O (Heavy-Hitter Oracle) eviction system enables efficient long-context inference by keeping only the most-attended tokens in the KV cache. Benchmarks pending hardware validation — expected improvements:
-
-| Metric | Without H2O | With H2O (expected) |
-|--------|-------------|-------------------|
-| Max context (32K budget) | ~32K tokens | ~128K tokens (4×) |
-| Decode speed at 128K | Out of memory | ~85% of baseline |
-| Cache miss quality loss | N/A | <1% perplexity (H2O paper)
-| Batch size (4K context) | 8 sequences | 32 sequences (4×) |
-
-**Mechanism**: Each KV page tracks cumulative attention scores. When the page pool is exhausted, the lowest-scoring pages are evicted and remapped to a shared zero-filled page — producing naturally ~0 attention scores with no shader changes required.
-
-**Configuration**: Set `ZINC_KV_EVICTION_POLICY=h2o` (or `lru`/`fifo`) to enable. Three auxiliary modules available:
-- `radix_tree.zig`: RadixAttention prefix tree for cross-request page sharing
-- `offload_engine.zig`: CPU memory offloading for cold pages
-- `quant_profile.zig`: Per-layer dynamic quantization scheme selection
-
-### Wave32 — Memory Bandwidth Fix (July 4, 2026)
-
-All 31 Vulkan pipelines were locked to **wave64** (`required_subgroup_size = 64`).
-On RDNA4, wave32 is the native execution width — wave64 halved wave occupancy,
-leaving 40-60% of the 256 GB/s memory bandwidth unused.
-
-**Fix**: Switched all 31 pipelines to wave32:
-- `elementwise.zig` — 27 pipelines (dmmv, rms_norm, SSM, softmax, etc.)
-- `attention.zig` — 4 pipelines (flash_attn, batched, split, split_merge)
-
-**Expected improvement**: 1.4-1.6× decode throughput on Q4_K/Q8_0 models.
-No config needed — wave32 is now the default.
-To revert for debugging: swap `dmmv_opts`/`attn_opts` assignments in
-`elementwise.zig:545` and `attention.zig:115`.
-
----
-
-## Speculative Decoding — Eagle3 Draft (July 4, 2026)
-
-Speculative decoding engine at `spec-decode/` using Eagle3-style MTP draft.
-Target: Qwen3-0.6B on NPU (94 tok/s). Draft: single transformer layer (hidden=1024).
-C++23 header-only (1,078 lines, 9/9 tests pass).
-
-**Simulated speedup** (block_size=7, NPU baseline 94 tok/s):
-
-| Acceptance | Simulated tok/s | vs Baseline |
-|-----------|----------------|-------------|
-| 70% | **263 tok/s** | 2.8× |
-| 80% | **235 tok/s** | 2.5× |
-| 95% | **752 tok/s** | 8.0× |
-
-**Status**: Built, trained (10k-example checkpoint at `spec-decode/checkpoints/eagle3_draft.bin`).
-NPU forward call hangs on this system (driver/firmware issue) — needs `xbutil reset`.
-
-## Raw C++ Engine — All 5 Models (M=32 batch, OpenMP)
-
-These are the open-source C++ engine numbers — no FLM, no proprietary code. Single binary, auto-detect.
-
-| Model | H | IM | Size | Prefill | Decode | Tok/s | Layers | Status |
-|-------|---|----|------|---------|--------|-------|--------|--------|
-| **Qwen3-0.6B** | 1024 | 3072 | 610 MB | 14 ms/tok | **36 ms/tok** | **28** | 28/28 | ✅ |
-| **Gemma4-E2B** | 1536 | 6144 | 4.7 GB | 20 ms/tok | **62 ms/tok** | **16** | 35/35 | ✅ |
-| **Qwen3-VL-4B** | 2560 | 9728 | 3.2 GB | 34 ms/tok | **93 ms/tok** | **11** | 36/36 | ✅ |
-| **Llama-3.1-8B** | 4096 | 14336 | 5.7 GB | 47 ms/tok | **100 ms/tok** | **10** | 32/32 | ✅ |
-| **Qwen3-8B** | 4096 | 12288 | 6.0 GB | 49 ms/tok | **127 ms/tok** | **8** | 36/36 | ✅ |
-
-**All 5 models verified on Strix Halo NPU. Zero crashes. Single auto-detecting engine.**
-**Scale is linear with model size — 36→127 ms/tok from 0.6B→8B.**
-
----
-
-## Engine Speed — Qwen3-0.6B Head-to-Head
-
-| Engine | Decode | TTFT | tok/s | Notes |
-|--------|--------|------|-------|-------|
-| **FLM turbo** (production) | 10.6 ms/tok | 497 ms | **94.7** | Proprietary, pmode=turbo |
-| **C++ v12** (single-model) | 10 ms/tok | 14 ms/tok prefill | **97** | Open source, M=32 batch |
-| **C++ ALL** (5 models) | 36 ms/tok | 14 ms/tok prefill | **28** | Auto-detect, one binary |
-
-### How to read this
-
-- **FLM is our production backend.** The daemon proxies to it. It's proprietary, but we ship an open-source C++ engine that's within 3% of FLM's speed (97 vs 94.7 tok/s).
-- **C++ v12 is the same speed as FLM on decode** — 97 tok/s vs 94.7 tok/s. FLM's advantage is per-request TTFT (its fused xclbin streams weights on-chip, eliminating per-layer ioctl dispatch). Our C++ engine amortizes the dispatch with M=32 batched decode, matching or exceeding FLM on throughput.
-- **C++ ALL auto-detects 5 models from a 120KB binary.** FLM requires per-model Python build pipelines and proprietary weight formats. Our engine parses the Q4NX header and configures dimensions at runtime.
-- **The gap is software architecture, not silicon.** FLM's fused xclbin eliminates per-layer dispatch. When the fused xclbin port lands (kernels compiled, MLIR validated, blocked by Q4NX weight format on the IRON Python API), our open-source engine will match FLM without any proprietary code.
-
----
-
-## What 1bit.systems Has That FLM Doesn't
-
-| Feature | 1bit.systems | FastFlowLM |
-|---------|-------------|------------|
-| Production engine | ✅ FLM proxy (94.7 tok/s) | ✅ FLM native |
-| Open-source engine | ✅ C++23, MIT, 97 tok/s | ❌ |
-| Models supported | **5** (0.6B, 8B, VL-4B, Llama, Gemma4) | 10+ (8B-focused) |
-| Auto-detect | ✅ Q4NX header parse | ❌ Per-model Python build |
-| Binary size | 120 KB | Python + 114KB xclbins |
-| Python deps | **0** | Full MLIR-AIE + torch toolchain |
-| Daemon (HTTP API) | ✅ OpenAI-compatible, port 9090 | ✅ Built-in |
-| Systemd unit | ✅ turbo by default | ❌ Manual start |
-| GPU engine | ✅ Vulkan (22 tok/s) | ❌ NPU only |
-| 1-bit models | ✅ Bonsai IQ1_S (385 MB) | ❌ |
-| Windows | ❌ Linux-only (XRT) | ✅ Windows + Linux |
-| License | ✅ MIT | ❌ Proprietary |
-
----
-
-## Raw Silicon: GEMM Throughput
-
-*Chess-compiled INT8 xclbins. Verified on-device.*
-
-| Projection | Shape | Time | TFLOPS (avg/peak) | % of 50 TOPS |
-|-----------|-------|------|-------------------|-------------|
-| **D** (down) | 1024×3072×1024 | 116μs | **55.7 / 80.5** | **111%** |
-| **O** (output) | 1024×2048×1024 | 108μs | 39.7 / 49.4 | 79% |
-| **GU** (gate+up) | 1024×1024×6144 | 801μs | 16.1 / 16.5 | 32% |
-| **QKV** (fused) | 1024×1024×4096 | 559μs | 15.4 / 15.5 | 31% |
-
----
-
-## C++ Engine: End-to-End
-
-### Prefill Scaling
-
-| M (tokens) | Time | Per-Token | Speedup vs M=1 |
-|-----------|------|-----------|----------------|
-| 1 | 161ms | 161 ms/tok | 1.0× |
-| 9 | 175ms | **19 ms/tok** | 8.5× |
-
-### Decode (all 5 models, M=32 batch + OpenMP attention)
-
-| Model | H | Decode | tok/s | Layers |
-|-------|---|--------|-------|--------|
-| Qwen3-0.6B | 1024 | **36 ms/tok** | **28** | 28/28 |
-| Gemma4-E2B | 1536 | 62 ms/tok | 16 | 35/35 |
-| Qwen3-VL-4B | 2560 | 93 ms/tok | 11 | 36/36 |
-| Llama-3.1-8B | 4096 | 100 ms/tok | 10 | 32/32 |
-| Qwen3-8B | 4096 | 127 ms/tok | 8 | 36/36 |
-
----
-
-## Engine Evolution (4 Days)
-
-| Date | Engine | Decode | Speedup | Breakthrough |
-|------|--------|--------|---------|-------------|
-| Jun 28 | v7 BFP16 | 1930 ms/tok | — | First working decode |
-| Jul 1 | i8 swap | 244 ms/tok | 1.0× | K-interleaving fixed |
-| Jul 2 | v6 batch-4 | 50 ms/tok | 4.4× | Batch amortization |
-| Jul 2 | v9 M=16 | 16 ms/tok | 15.2× | M=16 + NPU LM head |
-| Jul 2 | v12 M=32 | 10 ms/tok | 24× | M=32 + OpenMP attention |
-| **Jul 2** | **ALL 5 models** | **36-127 ms/tok** | — | **5 models, 0 crashes, auto-detect** |
-
-**Net: 244→10 ms/tok on 0.6B. 24× in one session. 5 models running. Zero Python. Pure C++.**
-
----
-
-## Tuning — What Moves the Needle
-
-| Tuning | Decode | TTFT | Notes |
-|--------|--------|------|-------|
-| FLM pmode=performance (default) | 94.1 tok/s | 513 ms | Our original daemon config |
-| **FLM pmode=turbo** | **94.7 tok/s** | **497 ms** | Systemd default as of July 3 |
-| CPU governor powersave | — | — | AMD default |
-| CPU governor performance | — | — | Marginal TTFT improvement |
-| GPU perf auto | 11.3 tok/s | 1714 ms | For 8B models routed to GPU |
-| C++ v12 M=32 | 97 tok/s | 10 ms/tok | Open-source ceiling (no fused xclbin) |
-
-**Turbo gains are real but marginal (+0.6% decode, -16ms TTFT).** The 500ms TTFT is the NPU loading weights from DDR into AIE tiles — no software knob fixes this. Only a fused xclbin (streaming weights on-chip) can break through.
-
----
-
-## Per-GEMM Dispatch Profile (C++ v7)
-
-| Component | μs/call | % |
-|-----------|---------|---|
-| Kernel call (ioctl) | 9 | 1% |
-| **r.wait() (NPU compute)** | **1,334** | **98%** |
-| DMA + quantize + dequant | 17 | 1% |
-
-**Fusion saves only 9μs ioctl per merged dispatch.** NPU compute time = bottleneck.
-Real fix: increase M (batch size). M=32 amortizes 1334μs across 32 tokens → 42μs/token.
-
----
-
-## NPU Attention Status
-
-Chess-compiled Qwen3-0.6B attention xclbins exist (attn_w0-3, 4 windows × 4 Q heads).
-Integrated but **CPU OpenMP is faster** for context < 128 due to dispatch overhead.
-NPU attention wins only if fused into QKV/O xclbin (FLM approach).
-SiLU kernel compiled (silu_gate.o, Peano, 2.4KB) — ready for fused GU+D xclbin.
-**Fused xclbin blocked by IRON Python API limitations.** Needs raw MLIR-AIE generation.
-
----
-
-## iGPU (ROCm) — Zaya1 Preview 74B-A4B via llama.cpp (July 3, 2026) [ARCHIVED]
-
-*ROCm completely removed from system on July 3, 2026. Vulkan is the only GPU backend.*
-*These benchmarks are historical — Zaya 74B no longer runs on this hardware.*
-
-**Hardware**: Radeon 8060S Graphics (gfx1151), 62814 MiB VRAM, 122 GiB unified RAM
-**Build**: `Juste-Leo2/llama.cpp` Zaya1 branch, `-DGGML_HIP=ON`, build b9094
-**Model**: ZAYA1PREVIEW-74B-A4B-Q4_K_M.gguf (42.60 GiB, 74.79B params, 4.89 BPW)
-**Quant**: Q4_K_M, 24 experts, 1 expert/token, 120 layers, 16 heads, 2 KV heads
-**Context**: 8192 tokens, flash attention enabled, full GPU offload (99/121 layers)
-
-| Test | Latency | Throughput |
-|------|---------|------------|
-| pp64 (prefill, 64 tok) | — | **150.1 ± 22.5 tok/s** |
-| pp128 | — | **221.8 ± 18.9 tok/s** |
-| pp256 | — | **369.1 ± 21.3 tok/s** |
-| tg128 (decode) | 56.7 ms/tok | **17.63 ± 0.27 tok/s** |
-| Real-world gen (51→100 tok) | 55.9 ms/tok | **17.89 tok/s** |
-| Real-world gen (43→4 tok, TTFT) | 507 ms | **84.7 tok/s (prefill)** |
-
-**Key insights**:
-- 74B MoE model ran **entirely in VRAM** (42.6 GiB in 63 GiB) with 15+ GiB for KV cache & compute
-- CCA attention + MoE GEGLU layers decoded at 17.6-17.9 tok/s — 1.6× faster than the NPU C++ engine's 8B models
-- Prefill hit 369 tok/s at pp256 (batch efficiency scaled well vs 74B)
-- Flash attention enabled with 8192 context — could grow to full 262K context
-- Real-world throughput (17.9 tok/s) was usable for interactive chat, document Q&A, coding
-
-iGPU inference tier vs NPU:
-| Tier | Device | Model | Decode | Use Case |
-|------|--------|-------|--------|----------|
-| 🚀 Fast | NPU (XDNA 2) | Qwen3-0.6B | **94 tok/s** | Coding, chat, quick tasks |
-| 🧠 Big | iGPU (Radeon 8060S) | Zaya1 74B | **17.9 tok/s** | Heavy reasoning, creative, large models |
-
----
-
-## ZINC GPU (Vulkan) — Bonsai-1.7B-F16 via Zinc (July 3, 2026)
-
-**Hardware**: Radeon 8060S Graphics (RADV STRIX_HALO), 32 CUs, 256 GB/s, 42217 MB VRAM
-**Build**: ZINC at `/home/bcloud/zinc/`, zig 0.15.2, `-Dbackend=vulkan -Doptimize=ReleaseFast`
-**Model**: `Ternary-Bonsai-1.7B-F16.gguf` (3.3 GB, 1.7B params, F16)
-
-### Comprehensive Benchmark Suite
-
-| Test | Measure | Latency | Throughput | Tokens |
-|------|---------|---------|------------|--------|
-| **A** Cold-start load | Full load + 1-tok decode | 47.1 ms | 21.3 tok/s | 1→0 |
-| **B** Prefill (TTFT) | 75-token prompt → 1 gen | 3037 ms | **24.7 tok/s** | 75→1 |
-| **C** Decode (short) | 1-tok prompt → 128 gen | 5839 ms | **21.9 tok/s** (45.6 ms/tok) | 1→128 |
-| **D** Decode (medium) | 1-tok prompt → 256 gen | 11771 ms | **21.8 tok/s** (46.0 ms/tok) | 1→256 |
-| **E** Decode (long) | 1-tok prompt → 512 gen | 23741 ms | **21.6 tok/s** (46.4 ms/tok) | 1→512 |
-| **F** Memory footprint | VRAM: KV cache | 3280 MB + 32K ctx | — | — |
-
-**Modeled bandwidth**: 256 GB/s × 2 bytes/element × 1.7B params × 21.6 tok/s = **255.0 GB/s** (99.6% of theoretical 256 GB/s)
-
-**Decode consistency**: 21.6-21.9 tok/s across all runs (1.4% variance across 890 tokens generated)
-
-### Key insights
-
-- **Memory-bandwidth saturated**: 99.6-99.7% of the 256 GB/s F32 theoretical bandwidth used moving 1.7B × 2 bytes = 3.4 GB of model weights per token through VRAM
-- **No batch decode**: Single-sequence only (ZINC server mode at port 8080 could batch parallel requests)
-- **Batch decode would add**: With 4 parallel requests → ~40+ tok/s (batch amortizes weight loads across decode heads)
-- **Prefill = autoregressive**: ZINC prefill processes 1 token at a time through the full 1.7B params. 75-tok prompt = 75 single-token forward passes = 24.7 tok/s
-- **No ROCm**: ZINC uses Vulkan-only; ROCm/Zaya completely removed from system
-
-### GPU inference tiers
-
-| Tier | Backend | Model | Decode | BW Util |
-|------|---------|-------|--------|---------|
-| 🚀 Fast | NPU (XDNA 2) | Qwen3-0.6B | **94 tok/s** | ≈50 TOPS INT8 |
-| ⚡ GPU | iGPU (Vulkan/ZINC) | Bonsai-1.7B-F16 | **22 tok/s** | **99.7%** of 256 GB/s |
-
----
-
-## What 1bit.systems Can Run Now (July 3, 2026)
-
-| Backend | Model | Size | Decode | Port |
-|---------|-------|------|--------|------|
-| NPU (FLM) | Qwen3-0.6B | 610 MB | 94 tok/s | 9090 |
-| NPU (C++) | 5 models (0.6B-8B) | 0.6-6.0 GB | 28-8 tok/s | 9090 |
-| GPU (Vulkan/ZINC) | Bonsai-1.7B-F16 | 3.3 GB | 22 tok/s | 8080 |
-
-**ZINC Vulkan supported quant types**: `q4_k`, `q5_k`, `q6_k`, `q8_0`, `f16`, `f32`, `mxfp4`
-**Not supported**: `q2_k`, `q3_k`, `q4_0`, `q4_1`, `iq1_s`, `iq1_m`, all `iq*` 1-bit formats
-
-> The Bonsai-1.7B-IQ1_S model uses a **mixed quantization scheme**:
-> - Attention Q/K/V and FFN weights: IQ1_S (type 19) — ZINC has no shaders for this
-> - Attention output projection: IQ2_XXS (type 16) — now loads correctly
-> - Embeddings: Q8_1 (type 10) — falls back to zeros
->
-> The Bonsai-1.7B-Q2_K model uses Q2_K (type 10) throughout — not supported.
->
-> **Fix applied (zinc@0e2de7ad)**:
-> - IQ1_S, IQ1_M, IQ2_XXS block sizes (256) and bytes-per-block (34/36/66) added
-> - Prevents segfault: all 310 tensors load without `vkBindBufferMemory` crash
-> - Forward pass still fails with `UnsupportedQuantType` for IQ1_S — new feature needed
-
-Run ZINC: `cd ~/zinc && zig-out/bin/zinc -m <model.gguf> --prompt "Hello"`
-Build ZINC: `cd ~/zinc && /path/to/zig-0.15.2/zig build -Dbackend=vulkan -Doptimize=ReleaseFast`
-
----
-
-*Benchmarks run July 3, 2026. All numbers verified on-device on Strix Halo.*  
-*git: https://github.com/bong-water-water-bong/1bit-systems*  
-*ZINC: https://github.com/deepseek-ai/zinc*  
-*FLM benchmarks: https://fastflowlm.com/docs/benchmarks/*
+*Benchmarks verified on-device July 5, 2026. Numbers with verification status.*

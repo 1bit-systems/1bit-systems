@@ -1,46 +1,29 @@
-# Engine Status
+# Engine Status — July 5, 2026 (audited)
 
 ## Production: FLM Proxy (94 tok/s) ✅
 
-The NPU daemon proxies to FastFlowLM for production inference. Coherent output,
-OpenAI-compatible API, used by `1bit chat` and all integration clients.
+NPU daemon proxies to FastFlowLM. Coherent output, OpenAI API.
 
-- **Port**: 9090
-- **Models**: Qwen3-0.6B (turbo)
-- **Status**: Verified, production stable
+- **Port**: 9090 | **Models**: Qwen3-0.6B (turbo) | **Status**: Production stable
 
-## C++ v12 Engine (97 tok/s) ⚠️ — Output Incoherent
+## C++ Universal Engine (17 tok/s) ⚠️ — Output NOT Verified
 
-The open-source C++ engine achieves 97 tok/s decode on Qwen3-0.6B, but has
-**never produced coherent output**. All benchmarks measure throughput only —
-correctness has not been validated.
+The auto-detecting 5-model engine compiles and runs, but coherent output is
+**not yet confirmed** after the 7-round V12 correctness fix pass. The fused
+xclbin reference path is validated (max_abs=0.0078 vs CPU oracle), but the
+standalone INT8 xclbins have not been re-tested for coherent output.
 
-### Known issues
-
-1. **Q4NX weight format**: Dequantization produces incorrect values. The
-   `dequant_q4nx.c` routine needs validation against FLM's reference output.
-2. **Attention path**: CPU OpenMP attention works but numerical accuracy vs
-   FLM's fused attention has not been verified.
-3. **LM head**: The final projection layer may introduce errors that compound
-   across tokens.
-
-### Fix history
-
-- 3 bugs found and fixed (details in [journey.md](journey.md#update-25))
-- Output still incoherent after all fixes
-- Root cause likely deeper — weight format or numerical path
-
-### Next steps
-
-- Lock-step comparison: run v12 and FLM side-by-side, dump activations per layer
-- Compare dequantized weights against known-good reference
-- Fused xclbin port (eliminates per-layer ioctl) may also fix correctness by
-  matching FLM's dispatch path
+- Universal engine: 17 tok/s on Qwen3-0.6B (verified to run, output TBD)
+- Fused xclbin engine: 4 tok/s (verified correct output)
 
 ## GPU ZINC Engine (22 tok/s) ✅
 
-Vulkan compute shaders via ZINC. Verified coherent output on Bonsai-1.7B-F16.
+Vulkan compute shaders. Verified coherent output on Bonsai-1.7B-F16.
+
+## GPU 1-bit (llama.cpp) — 70-381 tok/s ✅
+
+7 models at IQ1_S/Q1_0/STQ1_0 formats on Radeon 8060S. Verified throughput.
 
 ---
 
-*Last updated: July 4, 2026*
+*Detailed benchmarks: `engine/npu/BENCHMARKS.md`*
