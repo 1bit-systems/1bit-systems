@@ -352,50 +352,51 @@
   </div>
 </section>
 
-<section id="ecosystem" class="block">
-  <span class="eyebrow">Ecosystem</span>
-  <h2 style="margin:16px 0 8px;">The Strix Halo NPU ecosystem is growing.</h2>
-  <p class="lead" style="margin-bottom:24px;">1bit.systems is the <strong>engine layer</strong> — the lowest-level open-source NPU+GPU+CPU inference stack. Others build platforms on the same runtime we helped document, benchmark, and push past its limits.</p>
-  <div class="grid3" style="margin-top:28px;">
+<section id="platform" class="block">
+  <span class="eyebrow">Platform</span>
+  <h2 style="margin:16px 0 8px;">JARVIS — your private AI on your hardware.</h2>
+  <p class="lead" style="margin-bottom:24px;">On top of the 1bit.systems engine stack, <strong>JARVIS</strong> delivers a full private AI assistant — chat, voice, vision, RAG, agents — all running locally on NPU+GPU+CPU. Zero cloud. Zero subscriptions.</p>
+  <div class="grid2" style="margin-top:28px;">
     <div class="card" style="padding:24px;">
-      <div style="display:flex;align-items:center;gap:8px;"><span class="tag npu" style="background:var(--green);">Engine</span></div>
-      <h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">1bit.systems</h3>
-      <div class="mono" style="font-size:14px;color:var(--muted);margin:8px 0;">Custom C++23/Zig — INT8 xclbins, Vulkan shaders, fused dispatch, H2O KV cache, speculative decoding</div>
-      <div style="margin-top:12px;font-size:12px;color:var(--dim);">The foundation — kernel-level NPU+GPU+CPU engine</div>
-      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
-        <span class="pill ok" style="font-size:10px;"><span class="dot"></span>97 tok/s v12</span>
-        <span class="pill info" style="font-size:10px;"><span class="dot"></span>22 models</span>
+      <div style="display:flex;align-items:center;gap:8px;"><span class="tag npu" style="background:var(--pink);">JARVIS</span><span class="mono" style="font-size:12px;color:var(--muted);">Private AI · Full Stack</span></div>
+      <h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">Full AI Stack. One Machine. Zero Cloud.</h3>
+      <p style="font-size:14px;color:var(--muted);margin:12px 0 16px;line-height:1.55;">JARVIS wraps the fused engine in a voice-enabled, vision-capable, document-aware AI assistant with web UI, mobile app, and an OpenAI-compatible API.</p>
+      <div class="grid2" style="gap:10px;margin-top:14px;">
+        <div class="check" style="padding:6px 0;"><span class="ck">🎤</span><span class="txt" style="font-size:13px;"><strong>Voice I/O</strong> — Whisper-v3 STT on NPU + Piper TTS. Push-to-talk, natural conversation.</span></div>
+        <div class="check" style="padding:6px 0;"><span class="ck">👁</span><span class="txt" style="font-size:13px;"><strong>Vision</strong> — Qwen3-VL-4B on NPU. Upload images, screenshots, or photos. 11 tok/s.</span></div>
+        <div class="check" style="padding:6px 0;"><span class="ck">📄</span><span class="txt" style="font-size:13px;"><strong>RAG</strong> — Open Knowledge Format. Index PDFs, notes, files. Full-text search. Transparent .md.</span></div>
+        <div class="check" style="padding:6px 0;"><span class="ck">⚡</span><span class="txt" style="font-size:13px;"><strong>Agents</strong> — Tool calling: calculator, Python, file ops. Explain-and-execute workflow.</span></div>
+        <div class="check" style="padding:6px 0;"><span class="ck">🌐</span><span class="txt" style="font-size:13px;"><strong>Web UI</strong> — Streaming markdown, voice recording, image upload. Any browser.</span></div>
+        <div class="check" style="padding:6px 0;"><span class="ck">📱</span><span class="txt" style="font-size:13px;"><strong>Mobile</strong> — Flutter app on iOS & Android. Connect via ngrok tunnel + QR code.</span></div>
+      </div>
+      <div style="margin-top:16px;display:flex;flex-wrap:wrap;gap:8px;">
+        <span class="pill ok" style="font-size:10px;"><span class="dot"></span>94 tok/s on NPU</span>
+        <span class="pill info" style="font-size:10px;"><span class="dot"></span>Open Knowledge Format</span>
+        <span class="pill warn" style="font-size:10px;"><span class="dot"></span>Zero data leaves machine</span>
+      </div>
+      <div style="margin-top:16px;">
+        <a class="btn btn-primary btn-sm" href="jarvis/" target="_blank">Try JARVIS →</a>
       </div>
     </div>
-    <div class="card" style="padding:24px;">
-      <div style="display:flex;align-items:center;gap:8px;"><span class="tag npu" style="background:var(--blue);">Platform</span></div>
-      <h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">hal0</h3>
-      <div class="mono" style="font-size:14px;color:var(--muted);margin:8px 0;">Container-based inference platform — FastAPI orchestration, dashboards, slot management, model registry</div>
-      <div style="margin-top:12px;font-size:12px;color:var(--dim);">Wraps FLM in Podman containers for turnkey deployment</div>
-      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
-        <span class="pill info" style="font-size:10px;"><span class="dot"></span>v0.9 public beta</span>
-        <a href="https://github.com/Hal0ai/hal0" target="_blank" rel="noopener" style="color:var(--blue);font-size:10px;">GitHub →</a>
-      </div>
-    </div>
-    <div class="card" style="padding:24px;">
-      <div style="display:flex;align-items:center;gap:8px;"><span class="tag npu" style="background:var(--pink);">Runtime</span></div>
-      <h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">FastFlowLM (FLM)</h3>
-      <div class="mono" style="font-size:14px;color:var(--muted);margin:8px 0;">AMD's NPU runtime — 94 tok/s, multi-model serving, embed + ASR</div>
-      <div style="margin-top:12px;font-size:12px;color:var(--dim);">Both projects use FLM; 1bit also builds custom engines that supplant it</div>
-      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
-        <span class="pill ok" style="font-size:10px;"><span class="dot"></span>94 tok/s</span>
-        <span class="pill info" style="font-size:10px;"><span class="dot"></span>closed-source</span>
-      </div>
-    </div>
-  </div>
-  <div class="card" style="margin-top:20px;padding:20px 24px;">
-    <div style="font-size:13px;color:var(--dim);line-height:1.6;">
-      <strong style="color:var(--muted);">Ecosystem timeline:</strong>
-      <span style="margin-left:4px;">
-        <span style="color:var(--green);">Mar 2026</span> — 1bit.systems: first open-source NPU engine on Strix Halo ·
-        <span style="color:var(--blue);">Jul 2026</span> — <a href="https://github.com/Hal0ai/hal0" target="_blank" rel="noopener" style="color:var(--blue);">hal0</a>: first public beta — container platform using FLM
-      </span>
-    </div>
+    <div class="code" style="font-size:12px;line-height:1.7;padding:20px;display:flex;flex-direction:column;justify-content:center;">
+<span class="g">$ curl -X POST http://jarvis.local:8080/api/chat \</span>
+<span class="g">  -F "message=What can you do?"</span>
+
+<span class="b">{</span>
+<span class="b">  "response": "I'm JARVIS — your private AI assistant.</span>
+<span class="b">  I can chat, see images, hear your voice, search your</span>
+<span class="b">  documents, write code, and control your system.</span>
+<span class="b">  Everything runs locally on your NPU+GPU+CPU."</span>
+<span class="b">}</span>
+
+<span class="c"># Install in 3 commands:</span>
+<span class="g">$ sudo flm serve qwen3:0.6b --port 52625 --pmode turbo</span>
+<span class="g">$ python3 server.py</span>
+<span class="g">$ open http://localhost:8080/chat</span>
+
+<span class="c"># Or one-command mobile access:</span>
+<span class="g">$ curl -fsSL 1bit.systems/mobile.sh | sh</span>
+<span class="b">→ ngrok tunnel + QR code for iOS/Android</span></div>
   </div>
 </section>
 
