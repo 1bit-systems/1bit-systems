@@ -164,13 +164,37 @@ def train():
     
     os.makedirs("checkpoints", exist_ok=True)
     path = "checkpoints/eagle3_draft.bin"
+    # Export in C++ MTPDraftWeights order: weights only, no biases
+    fields = [
+        ('embed.weight', 'embed', (VOCAB, H)),
+        ('fc.weight', 'fc', (H, 5*H)),
+        ('hidden_norm.weight', 'hidden_norm', (H,)),
+        ('input_norm.weight', 'input_layernorm', (H,)),
+        ('q_proj.weight', 'q_proj', (NUM_HEADS*HEAD_DIM, 2*H)),
+        ('k_proj.weight', 'k_proj', (NUM_KV_HEADS*HEAD_DIM, 2*H)),
+        ('v_proj.weight', 'v_proj', (NUM_KV_HEADS*HEAD_DIM, 2*H)),
+        ('o_proj.weight', 'o_proj', (H, NUM_HEADS*HEAD_DIM)),
+        ('q_norm.weight', 'q_norm', (HEAD_DIM,)),
+        ('k_norm.weight', 'k_norm', (HEAD_DIM,)),
+        ('post_attn_norm.weight', 'post_attention_layernorm', (H,)),
+        ('gate.weight', 'gate_proj', (INTER_DIM, H)),
+        ('up.weight', 'up_proj', (INTER_DIM, H)),
+        ('down.weight', 'down_proj', (H, INTER_DIM)),
+        ('norm.weight', 'norm', (H,)),
+        ('lm_head.weight', 'lm_head', (VOCAB, H)),
+    ]
+    total_bytes = 0
     with open(path, 'wb') as f:
-        for name, param in model.named_parameters():
-            arr = param.detach().cpu().float().numpy()
+        for param_name, field_name, shape in fields:
+            name_map = {n: p for n, p in model.named_parameters()}
+            arr = name_map[param_name].detach().cpu().float().numpy()
+            assert arr.shape == shape or arr.shape == shape[::-1], \
+                f'{field_name}: expected {shape}, got {arr.shape}'
             f.write(arr.tobytes())
+            total_bytes += arr.nbytes
     
     total_time = (time.time() - t_start) / 60
-    print(f"\n✅ Saved to {path} ({os.path.getsize(path)/1e6:.1f} MB)")
+    print(f"\n✅ Saved to {path} ({total_bytes/1e6:.1f} MB)")
     print(f"Training time: {total_time:.1f}m")
 
 if __name__ == '__main__':
