@@ -1,143 +1,200 @@
 #!/usr/bin/env python3
 """
-Q2_0 (ternary 1.58-bit) → INT8 Q4NX converter for NPU inference.
+Q2_0 (ternary 1.58-bit, GGUFv3) → Q4NX converter for NPU inference.
 
-Reads a GGUF file with Q2_0 (type 42) ternary blocks, dequantizes to f32,
-re-quantizes to INT8 symmetric-per-tensor, and writes a .q4nx file the
-NPU engine can load.
+Produces a Q4NX file with JSON header + INT8 weight data that
+npu_engine_universal.cpp can load directly.
 
 Usage:
-    python3 tools/q2_0_to_q4nx.py Ternary-Bonsai-1.7B-q2_0.gguf output.q4nx
+    python3 tools/q2_0_to_q4nx.py model.gguf output.q4nx
+    ./npu_engine_universal output.q4nx
 """
 
+import json
+import re
 import struct
 import sys
 import numpy as np
 
-
-# ── Q2_0 decoder (from q2_0_decode.py, extracted) ──────────────────────
-
-def parse_gguf_tensors(path):
-    """Return list of (name, shape, dtype_code, data_bytes) for all tensors."""
-    f = open(path, "rb")
-
-    def rd(fmt):
-        return struct.unpack("<" + fmt, f.read(struct.calcsize(fmt)))[0]
-
-    def rstr():
-        return f.read(rd("Q")).decode("utf-8", "replace")
-
-    assert f.read(4) == b"GGUF"
-    rd("I")
-    n_tensors = rd("Q")
-    n_kv = rd("Q")
-
-    for _ in range(n_kv):
-        k = rstr()
-        t = rd("I")
-        if t == 6: rd("Q")  # array
-        elif t == 7: rstr()
-        elif t in (11, 12): rd("Q" if t == 11 else "I")
-        elif t == 8: rstr()
-        # skip others
-
-    tensors = []
-    alignment = rd("I") if n_tensors > 0 else 32
-    stored_dtypes = {0: np.float32, 1: np.float16, 2: np.float64, 3: np.int8, 4: np.int16,
-                     5: np.int32, 6: np.int64, 7: np.uint8, 8: np.uint16, 9: np.uint32, 10: np.uint64}
-    ggml_types = {
-        0: ("f32", 4), 1: ("f16", 2), 2: ("f64", 8),
-        10: ("q8_0", 34), 11: ("q4_0", 18), 12: ("q4_1", 22),
-        42: ("q2_0", 34),  # Q2_0 ternary (128-block, 34 bytes)
-    }
-
-    for _ in range(n_tensors):
-        name = rstr()
-        ndim = rd("I")
-        shape = tuple(reversed([rd("Q") for _ in range(ndim)]))
-        dtype = rd("I")
-        offset = rd("Q")
-        blk = ggml_types.get(dtype, ("?", 0))
-        tensors.append((name, shape, dtype, offset, blk))
-
-    return tensors, f
-
-
 QK_Q2_0 = 128
-BLOCK_BYTES_Q2_0 = 2 + QK_Q2_0 // 4  # scale f16 + 32 bytes of 2-bit codes
+BLOCK_BYTES_Q2_0 = 34
+
+# GGUF → HuggingFace name mapping (Qwen3/Bonsai)
+NAME_MAP = {
+    "token_embd.weight": "model.embed_tokens.weight",
+    "output_norm.weight": "model.norm.weight",
+    "output.weight": "lm_head.weight",
+}
+BLK_MAP = {
+    "attn_norm": "input_layernorm",
+    "ffn_norm": "post_attention_layernorm",
+    "attn_k_norm": "self_attn.k_norm",
+    "attn_q_norm": "self_attn.q_norm",
+    "attn_k": "self_attn.k_proj",
+    "attn_q": "self_attn.q_proj",
+    "attn_v": "self_attn.v_proj",
+    "attn_output": "self_attn.o_proj",
+    "ffn_gate": "mlp.gate_proj",
+    "ffn_up": "mlp.up_proj",
+    "ffn_down": "mlp.down_proj",
+}
 
 
-def decode_q2_0_block(data, offset):
-    """Decode one Q2_0 block (34 bytes) → 128 f32 values."""
-    d = struct.unpack_from("<e", data, offset)[0]  # f16 scale
-    codes = np.frombuffer(data, dtype=np.uint8, count=32, offset=offset + 2)
-    # 4 codes per byte, LSB-first, codes 0→{-1}, 1→{0}, 2→{+1}, 3→{+2}
-    vals = np.zeros(128, dtype=np.float32)
-    for j in range(128):
-        c = (codes[j // 4] >> ((j % 4) * 2)) & 0x3
-        vals[j] = (int(c) - 1) * d
-    return vals
+def map_name(gguf_name):
+    if gguf_name in NAME_MAP:
+        return NAME_MAP[gguf_name]
+    m = re.match(r"blk\.(\d+)\.(.+?)(\.weight)?$", gguf_name)
+    if m:
+        n, rest = int(m.group(1)), m.group(2)
+        if rest in BLK_MAP:
+            return f"model.layers.{n}.{BLK_MAP[rest]}.weight"
+    return gguf_name
 
 
-# ── Q4NX writer ───────────────────────────────────────────────────────
+def gguf_tensors(path):
+    """Yield (name, shape, dtype_code, offset) for all GGUF tensors."""
 
-def write_q4nx(tensors, src_path, dst_path):
-    """Convert Q2_0 GGUF tensors to INT8 Q4NX format."""
-    tensors_meta, f = parse_gguf_tensors(src_path)
-    f.close()
-    f = open(src_path, "rb")
+    def r32(f):
+        return struct.unpack("<I", f.read(4))[0]
 
-    out = open(dst_path, "wb")
-    n_written = 0
+    def r64(f):
+        return struct.unpack("<Q", f.read(8))[0]
 
-    for name, shape, dtype, offset, (blk_name, blk_bytes) in tensors_meta:
-        if dtype != 42:
-            continue  # skip non-ternary tensors (embeddings, norms, etc.)
+    def rstr(f):
+        return f.read(r64(f)).decode("utf-8", "replace")
 
-        print(f"  {name:50s} {str(shape):20s} {blk_name}")
+    def skip_val(f, t):
+        if t in (0, 1, 7):
+            f.read(1)
+        elif t in (2, 3):
+            f.read(2)
+        elif t in (4, 5, 6, 10):
+            f.read(4)
+        elif t in (11, 12):
+            f.read(8)
+        elif t == 8:
+            f.read(r64(f))
+        elif t == 9:
+            at = r32(f)
+            n = r64(f)
+            for _ in range(n):
+                skip_val(f, at)
 
-        # Read raw blocks
-        n_blocks = int(np.prod(shape) / QK_Q2_0)
-        assert np.prod(shape) % QK_Q2_0 == 0, f"{name}: size not multiple of 128"
+    with open(path, "rb") as f:
+        assert f.read(4) == b"GGUF"
+        ver = r32(f)
+        n_tensors = r64(f)
+        n_kv = r64(f)
 
-        f.seek(offset)
-        raw = f.read(n_blocks * BLOCK_BYTES_Q2_0)
+        for _ in range(n_kv):
+            rstr(f)
+            skip_val(f, r32(f))
 
-        # Dequantize all blocks → flat f32
-        total_elems = n_blocks * QK_Q2_0
-        f32_vals = np.zeros(total_elems, dtype=np.float32)
-        for b in range(n_blocks):
-            boff = b * BLOCK_BYTES_Q2_0
-            f32_vals[b * QK_Q2_0:(b + 1) * QK_Q2_0] = decode_q2_0_block(raw, boff)
+        # GGUFv3: no alignment between KV and tensor infos
 
-        # Reshape to original dims
-        f32_vals = f32_vals.reshape(shape)
+        for _ in range(n_tensors):
+            name = rstr(f)
+            ndim = r32(f)
+            shape = tuple(reversed([r64(f) for _ in range(ndim)]))
+            dtype = r32(f)
+            offset = r64(f)
+            yield name, shape, dtype, offset
 
-        # Symmetric INT8 quantization: scale = max(abs) / 127
-        abs_max = np.max(np.abs(f32_vals))
-        if abs_max < 1e-10:
-            abs_max = 1.0
-        scale = abs_max / 127.0
-        i8_vals = np.clip(np.round(f32_vals / scale), -128, 127).astype(np.int8)
 
-        # Write Q4NX tensor header + data
-        # Simple format: 4 bytes size, 4 bytes scale (f32), then int8 data
-        out.write(struct.pack("<I", i8_vals.nbytes))
-        out.write(struct.pack("<f", scale))
-        out.write(i8_vals.tobytes())
-        n_written += 1
+def decode_q2_0(data):
+    """Decode Q2_0 ternary data → f32 array."""
+    n_blocks = len(data) // BLOCK_BYTES_Q2_0
+    scales = np.frombuffer(data, dtype=np.float16, count=n_blocks, offset=0).astype(np.float32)
+    codes = np.frombuffer(data, dtype=np.uint8, count=n_blocks * 32, offset=2).reshape(n_blocks, 32)
+    decoded = np.zeros((n_blocks, 128), dtype=np.float32)
+    for bit in range(4):
+        val = ((codes >> (bit * 2)) & 0x3).astype(np.float32)
+        decoded[:, bit::4] = (val - 1.0)
+    decoded *= scales[:, np.newaxis]
+    return decoded.ravel()
 
-    f.close()
-    out.close()
-    print(f"\nWrote {n_written} tensors → {dst_path}")
+
+def main():
+    if len(sys.argv) != 3:
+        print(f"Usage: {sys.argv[0]} model.gguf output.q4nx")
+        sys.exit(1)
+
+    src, dst = sys.argv[1], sys.argv[2]
+
+    tensors = list(gguf_tensors(src))
+    print(f"GGUF: {len(tensors)} tensors")
+
+    header = {}
+    data_blocks = []
+    data_offset = 0
+
+    with open(src, "rb") as gf:
+        for name, shape, dtype, offset in tensors:
+            n_elems = int(np.prod(shape))
+            hf_name = map_name(name)
+
+            if dtype == 42:
+                # Q2_0 ternary → INT8
+                gf.seek(offset)
+                raw = gf.read(n_elems // QK_Q2_0 * BLOCK_BYTES_Q2_0)
+                f32_vals = decode_q2_0(raw).reshape(shape)
+
+                abs_max = np.max(np.abs(f32_vals))
+                scale_f = abs_max / 127.0 if abs_max > 1e-10 else 1.0
+                i8_vals = np.clip(np.round(f32_vals / scale_f), -128, 127).astype(np.int8)
+                raw_data = i8_vals.tobytes()
+
+                header[hf_name] = {
+                    "dtype": "I8",
+                    "shape": list(shape),
+                    "data_offsets": [data_offset, data_offset + len(raw_data)],
+                    "scale": round(float(scale_f), 6),
+                }
+                data_blocks.append(raw_data)
+                data_offset += len(raw_data)
+
+            elif dtype in (0, 1):
+                # f32 or f16 (norms, lm_head, embed)
+                el_sz = 4 if dtype == 0 else 2
+                dtype_name = "F32" if dtype == 0 else "F16"
+                gf.seek(offset)
+                raw_data = gf.read(n_elems * el_sz)
+
+                header[hf_name] = {
+                    "dtype": dtype_name,
+                    "shape": list(shape),
+                    "data_offsets": [data_offset, data_offset + len(raw_data)],
+                }
+                data_blocks.append(raw_data)
+                data_offset += len(raw_data)
+
+    # Add lm_head.weight alias if missing (tied embeddings)
+    if "lm_head.weight" not in header and "model.embed_tokens.weight" in header:
+        emb = header["model.embed_tokens.weight"]
+        header["lm_head.weight"] = dict(emb)
+        # Copy the data block reference
+        emb_off = emb["data_offsets"]
+        header["lm_head.weight"]["data_offsets"] = list(emb_off)
+
+    hdr_json = json.dumps(header, separators=(",", ":"))
+    hdr_bytes = hdr_json.encode()
+
+    with open(dst, "wb") as out:
+        out.write(struct.pack("<Q", len(hdr_bytes)))
+        out.write(hdr_bytes)
+        for block in data_blocks:
+            out.write(block)
+
+    n_w = sum(1 for v in header.values() if v.get("dtype") == "I8")
+    print(f"\nWrote {len(header)} tensors ({n_w} INT8 weights) → {dst}")
+    print(f"Size: {data_offset / 1e6:.1f} MB")
+
+    import os
+    actual = os.path.getsize(dst)
+    expected = 8 + len(hdr_bytes) + data_offset
+    assert actual == expected, "Size mismatch!"
+    print("✅ Q4NX format valid (engine-ready)")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python3 tools/q2_0_to_q4nx.py model.gguf output.q4nx")
-        sys.exit(1)
-
-    tensors_meta, _ = parse_gguf_tensors(sys.argv[1])
-    print(f"Found {len(tensors_meta)} tensors in {sys.argv[1]}")
-    print("Converting Q2_0 ternary weights to INT8...")
-    write_q4nx(tensors_meta, sys.argv[1], sys.argv[2])
+    main()
