@@ -1,0 +1,53 @@
+name: Traffic Badge
+on:
+  schedule:
+    - cron: '0 6 * * *'   # daily at 6AM UTC
+  workflow_dispatch:       # manual trigger
+
+jobs:
+  badge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch traffic + stars
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Clone data (last 14 days)
+          CLONES=$(gh api repos/${{ github.repository }}/traffic/clones --jq '.count')
+          UNIQUE_CLONERS=$(gh api repos/${{ github.repository }}/traffic/clones --jq '.uniques')
+
+          # Star count
+          STARS=$(gh api repos/${{ github.repository }} --jq '.stargazers_count')
+
+          # Compute ratios
+          TOTAL_RATIO=$(echo "scale=0; $CLONES / $STARS" | bc 2>/dev/null || echo "$CLONES")
+          UNIQUE_RATIO=$(echo "scale=0; $UNIQUE_CLONERS / $STARS" | bc 2>/dev/null || echo "$UNIQUE_CLONERS")
+
+          # Determine color
+          if [ "$TOTAL_RATIO" -ge 100 ]; then COLOR="brightgreen"
+          elif [ "$TOTAL_RATIO" -ge 50 ]; then COLOR="green"
+          elif [ "$TOTAL_RATIO" -ge 20 ]; then COLOR="yellowgreen"
+          else COLOR="yellow"
+          fi
+
+          cat > site/traffic-badge.json << EOF
+          {
+            "schemaVersion": 1,
+            "label": "clones:stars",
+            "message": "${TOTAL_RATIO}:1 (${UNIQUE_RATIO}:1 unique)",
+            "color": "${COLOR}",
+            "cacheSeconds": 86400
+          }
+          EOF
+
+          echo "Badge: ${TOTAL_RATIO}:1 clones:stars (${UNIQUE_RATIO}:1 unique)"
+
+      - name: Commit badge
+        run: |
+          git config user.name "CI Fix Bot"
+          git config user.email "ci-fixer@bot.com"
+          git add site/traffic-badge.json
+          git diff --cached --quiet || git commit -m "chore: update traffic badge [skip ci]"
+          git push
