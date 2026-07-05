@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>1bit.systems — 120kb Binary to rule them all · 5 models · 94 tok/s NPU (FLM) · 7.9× multi-context</title>
-<meta name="description" content="120kb Binary to rule them all. Five models. 120kb binary. 94 tok/s NPU via FLM proxy, 97 tok/s C++ v12. 22 tok/s GPU (ZINC Vulkan). 64 req/s at 7.9× concurrency. Zero Python. Zero deps. Open source.">
-<meta property="og:title" content="1bit.systems — 120kb NPU inference engine, 94 tok/s on AMD Strix Halo">
-<meta property="og:description" content="Zero Python. Zero dependencies. Open source. 94 tok/s on AMD Strix Halo NPU. One binary, 5 models, auto-detect.">
+<title>1bit.systems — 120kb Binary · Fused NPU+GPU+CPU · 22 models · Model-agnostic</title>
+<meta name="description" content="120kb Binary. Fused NPU+GPU+CPU. 22 models auto-detected across video, image & audio. 94 tok/s on AMD Strix Halo. Zero Python. Zero deps. Open source.">
+<meta property="og:title" content="1bit.systems — 120kb Binary · Fused NPU+GPU+CPU">
+<meta property="og:description" content="120kb Binary. Fused NPU+GPU+CPU. 22 models auto-detected. 94 tok/s on AMD Strix Halo. Zero Python. Open source.">
 <meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
 <meta property="og:url" content="https://1bit.systems">
 <meta property="og:type" content="website">
@@ -132,12 +132,13 @@
     <div>
       <span class="eyebrow">Strix Halo · Ryzen AI Max+ 395</span>
       <h1><span class="g">120kb Binary</span> to rule them all.</h1>
-      <h1 style="margin-top:4px;"><span class="b">Open source.</span> Zero Python. <span class="p">Zero dependencies.</span></h1>
+      <h1 style="margin-top:4px;font-size:clamp(22px,2.8vw,34px);"><span class="b">Fused</span></h1>
+      <h1 style="margin-top:2px;font-size:clamp(28px,3.6vw,44px);"><span class="b">NPU+GPU+CPU</span></h1>
       <p class="sub">Auto-detect. Zero dependencies. M=32 batch. 50 TOPS INT8 · 55.7 TFLOPS measured. No Python. No pip. No Docker. Just g++ and run. Open source. Pure C++.</p>
       <div class="row" style="margin-top:18px;">
         <span class="pill ok"><span class="dot"></span>verified on-device</span>
         <span class="pill dark"><span class="dot"></span>120kb binary · no Python · no pip</span>
-        <span class="pill info"><span class="dot"></span>5 models · auto-detect</span>
+        <span class="pill info"><span class="dot"></span>22 models · auto-detect</span>
         <span class="pill warn" style="margin-top:6px"><span class="dot"></span>Qwen3 · Llama · Gemma4</span>
       </div>
       <div class="cta-row">
@@ -147,7 +148,7 @@
     </div>
     <div class="panel">
       <div style="padding:20px 22px;">
-        <div class="console-hd"><span class="dots"><span style="background:var(--pink)"></span><span style="background:var(--blue)"></span><span style="background:var(--green)"></span></span><span class="mono" style="font-size:13px;color:var(--muted);">npu_engine_all — 5 models live</span><span style="flex:1"></span><span class="eyebrow">Offline</span></div>
+        <div class="console-hd"><span class="dots"><span style="background:var(--pink)"></span><span style="background:var(--blue)"></span><span style="background:var(--green)"></span></span><span class="mono" style="font-size:13px;color:var(--muted);">AgnosticPipeline — 22 models auto-detected</span><span style="flex:1"></span><span class="eyebrow">Offline</span></div>
         <div style="margin-top:20px;"><div class="caps" style="color:var(--dim);">Qwen3-0.6B · FLM proxy · 94 tok/s</div><div style="display:flex;align-items:baseline;gap:8px;margin-top:6px;"><span id="ms" class="mono" style="font-size:52px;font-weight:800;line-height:1;color:var(--green);font-variant-numeric:tabular-nums;">10.6</span><span class="mono" style="font-size:16px;font-weight:500;color:var(--muted);">ms / tok</span><span class="mono" style="font-size:14px;color:var(--green);font-weight:700;">(94 tok/s)</span></div></div>
         <div style="margin-top:8px;display:flex;gap:12px;"><span class="pill ok" style="font-size:11px;"><span class="dot"></span>0.6B · 8B · VL-4B · Llama · Gemma4</span><span class="pill info" style="font-size:11px;"><span class="dot"></span>FLM proxy · daemon port 9090</span></div>
         <div class="code" style="margin-top:18px;padding:14px 15px;font-size:12.5px;line-height:1.75;"><span class="g">$ curl -s http://127.0.0.1:9090/v1/chat/completions \</span>
