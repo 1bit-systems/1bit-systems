@@ -104,7 +104,7 @@ FLM proxy at 94 tok/s in production.
 NPU engine (C++23 XRT direct), Vulkan engine (Zig GLSL→SPIR-V, port 8080),
 [Lemon MLX Engine](https://github.com/deepseek-ai/lemon-mlx-engine)
 (C++ on MLX, 50+ architectures, Apple Silicon + ROCm fork).
-[**Zaya**](https://github.com/bong-water-water-bong/zaya-llama.cpp) — custom model architecture
+[**Zaya**](engine/zaya/) — custom model architecture (submodule)
 designed from the ground up for AMD hardware. CCA attention, MoE routing,
 AMD-native quantization. Served via `1bit zaya`.
 
@@ -146,7 +146,7 @@ faster than venture capital.
 │   │   └── README.md
 │   └── gpu/                # Zig engine — GPU (Vulkan/CUDA/Metal)
 │       └── build.zig                   # Zig build system (WIP)
-├── zaya-llama.cpp/        # Zaya model architecture — AMD-native design
+├── engine/zaya/        # Zaya model architecture (submodule) — AMD-native design
 │                           # CCA attention, MoE routing, Q2_0 ternary
 ├── site/                   # Landing page (Cloudflare Pages → 1bit.systems)
 │   ├── index.html

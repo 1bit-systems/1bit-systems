@@ -37,3 +37,5 @@ zig-out/
 spec-decode/build/
 engine/lora/adapters/
 *.lora
+zinc/
+zaya-llama.cpp/
