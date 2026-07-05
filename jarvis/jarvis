@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# JARVIS — Private AI Assistant CLI
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+G='\033[0;32m'; P='\033[0;35m'; B='\033[0;34m'; D='\033[1;30m'; R='\033[0m'; BOLD='\033[1m'
+
+show_header() { echo -e "\n  ${BOLD}${G}✦ JARVIS${R} ${BOLD}— Private AI on 1bit.systems${R}\n  ${D}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${R}\n"; }
+show_help() {
+  show_header
+  echo -e "  ${BOLD}Usage:${R} ./jarvis <command>\n"
+  echo -e "  ${G}start${R}        Start all JARVIS services"
+  echo -e "  ${G}stop${R}         Stop all JARVIS services"
+  echo -e "  ${G}restart${R}      Restart all services"
+  echo -e "  ${G}status${R}       Check status of all backends"
+  echo -e "  ${G}chat${R}         Send a chat message"
+  echo -e "  ${G}demo${R}         Run full capability demo"
+  echo -e "  ${G}mobile${R}       Expose JARVIS via ngrok + QR"
+  echo -e "  ${G}tts${R}          Download TTS voice"
+  echo -e "  ${G}models${R}       Show available models"
+  echo -e "  ${G}log${R}          Tail JARVIS logs"
+  echo -e "  ${G}help${R}         Show this help\n"
+}
+
+start() {
+  show_header
+  echo -e "  ${BOLD}Starting JARVIS...${R}\n"
+  if ! curl -s http://127.0.0.1:52625/v1/models >/dev/null 2>&1; then
+    echo -e "  ${B}⚡ Starting NPU backend (FLM)...${R}"
+    sudo /usr/bin/flm serve qwen3:0.6b --port 52625 --host 127.0.0.1 --pmode turbo &>/tmp/flm.log &
+    for i in $(seq 1 30); do
+      if curl -s http://127.0.0.1:52625/v1/models >/dev/null 2>&1; then echo -e "  ${G}✅ NPU backend ready${R}"; break; fi
+      sleep 1
+    done
+  else echo -e "  ${G}✅ NPU backend already running${R}"; fi
+  
+  if curl -s http://localhost:8080/api/status >/dev/null 2>&1; then
+    echo -e "  ${G}✅ JARVIS server already running (port 8080)${R}"
+  else
+    echo -e "  ${B}⚡ Starting JARVIS server...${R}"
+    [ ! -d "venv" ] && python3 -m venv venv && source venv/bin/activate && pip install -q fastapi uvicorn websockets python-multipart httpx piper-tts >/dev/null 2>&1
+    source venv/bin/activate
+    nohup python3 server/server.py &>/tmp/jarvis.log &
+    for i in $(seq 1 15); do
+      if curl -s http://localhost:8080/api/status >/dev/null 2>&1; then echo -e "  ${G}✅ JARVIS server ready (http://localhost:8080)${R}"; break; fi
+      sleep 1
+    done
+  fi
+  echo -e "\n  ${G}✦${R} ${BOLD}JARVIS is running${R}"
+  echo -e "  ${D}Web UI:${R} http://localhost:8080/chat"
+  echo -e "  ${D}API:${R}    http://localhost:8080/api/status\n"
+}
+
+stop() {
+  sudo kill $(lsof -ti:8080) 2>/dev/null && echo -e "  ${G}✅ JARVIS server stopped${R}" || echo -e "  ${D}No JARVIS server running${R}"
+  echo -e "  ${D}NPU backend (FLM) left running${R}"
+}
+
+check() {
+  show_header
+  if curl -s http://localhost:8080/api/status >/dev/null 2>&1; then
+    curl -s http://localhost:8080/api/status | python3 -c "
+import sys,json;d=json.load(sys.stdin)
+print(f\"  JARVIS server: ✅ (:8080)\")
+print(f\"  NPU: {'✅' if d['status']['flm_npu']['ok'] else '⬜'}  GPU: {'✅' if d['status']['fused_engine']['ok'] else '⬜'}  TTS: {'✅' if d['status']['tts']['ok'] else '⬜'}\")
+print(f\"  Model: {d['model']}  Knowledge: {d['knowledge']['total']} entries\")
+" 2>/dev/null
+  else echo -e "  JARVIS server: ⬜ (:8080 — not running)"; fi
+  curl -s http://127.0.0.1:52625/v1/models >/dev/null 2>&1 && echo -e "  NPU (FLM):     ✅ (:52625 — 94 tok/s)" || echo -e "  NPU (FLM):     ⬜ (:52625)"
+  echo -e ""
+}
+
+chat_cmd() {
+  local msg="${1:-Hello JARVIS!}"
+  echo -e "  ${G}✦${R} Sending: ${B}$msg${R}"
+  curl -s -X POST http://localhost:8080/api/chat -F "message=$msg" -F "session_id=cli-$$" 2>/dev/null | python3 -c '
+import sys,json
+for line in sys.stdin:
+    try:
+        d=json.loads(line.strip())
+        if d.get("type")=="chunk": print(d.get("text",""),end="",flush=True)
+        elif d.get("type")=="done": print()
+    except: pass
+' 2>/dev/null
+}
+
+case "${1:-help}" in
+  start) start ;;
+  stop) stop ;;
+  restart) stop; sleep 1; start ;;
+  status) check ;;
+  chat) shift; chat_cmd "$*" ;;
+  demo) bash scripts/demo.sh ;;
+  mobile) bash scripts/mobile.sh "$2" ;;
+  tts) source venv/bin/activate 2>/dev/null; python3 server/voice.py --download ;;
+  models) curl -s http://127.0.0.1:52625/v1/models 2>/dev/null | python3 -m json.tool 2>/dev/null || echo "FLM not running" ;;
+  log) tail -f /tmp/jarvis.log ;;
+  help|*) show_help ;;
+esac

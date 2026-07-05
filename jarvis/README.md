@@ -80,7 +80,7 @@ Qwen3-0.6B: 94 tok/s on XDNA2
 ## Project Structure
 
 ```
-jarvis-project/
+jarvis/
 ├── server/              # Python FastAPI server
 │   ├── server.py        # Main entry point
 │   ├── agent.py         # LLM agent with tool calling
