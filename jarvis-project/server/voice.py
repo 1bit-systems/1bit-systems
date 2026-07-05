@@ -19,16 +19,22 @@ class VoiceIO:
         """Initialize piper TTS."""
         try:
             from piper import PiperVoice
-            # Look for a downloaded voice
-            voice_dir = Path(self.config.voice_dir) / "en_US"
-            if voice_dir.exists():
-                for f in voice_dir.iterdir():
-                    if f.suffix == ".onnx":
-                        self.tts_voice = PiperVoice.load(str(f))
-                        print(f"[JARVIS] TTS loaded: {f.name}")
-                        return
-            print(f"[JARVIS] No TTS voice found in {voice_dir}")
-            print("[JARVIS] Run: bash -c 'source /home/bcloud/jarvis-env/bin/activate && python3 -m piper download en_US-lessac-medium'")
+            # Look for a downloaded voice in multiple locations
+            search_paths = [
+                Path(self.config.voice_dir) / "en" / "en_US" / "lessac" / "medium",
+                Path(self.config.voice_dir) / "en_US" / "lessac" / "medium",
+                Path(self.config.voice_dir) / "en_US",
+                Path.home() / ".local/share/piper/voices/en/en_US/lessac/medium",
+                Path.home() / ".local/share/piper/voices/en_US/lessac/medium",
+            ]
+            for voice_dir in search_paths:
+                if voice_dir.exists():
+                    for f in voice_dir.iterdir():
+                        if f.suffix == ".onnx":
+                            self.tts_voice = PiperVoice.load(str(f))
+                            print(f"[JARVIS] TTS loaded: {f.name}")
+                            return
+            print(f"[JARVIS] No TTS voice found in {search_paths[0]}")
         except ImportError:
             print("[JARVIS] piper-tts not available")
 
