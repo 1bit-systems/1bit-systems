@@ -3,7 +3,8 @@
  *
  * Converts any GGUF model to FLM's Q4NX format for 94 tok/s inference.
  *
- * Build:
+#include "../src/gguf_parser.h"
+#include <iostream>
  *   g++ -std=c++23 -O3 -o gguf_to_q4nx gguf_to_q4nx.cpp \
  *       -I.. -I../src -ldl -lm
  *
@@ -20,6 +21,45 @@
 #include <map>
 
 #include "../src/gguf_parser.h"
+
+#define QK_K_BITNET 256
+
+static float bitnet_half_to_float(uint16_t h) {
+    uint32_t b = (h & 0x7FFF) << 13 | (h & 0x8000) << 16;
+    if ((h & 0x7C00) == 0x7C00) b |= 0x7F800000;
+    float f; memcpy(&f, &b, 4); return f;
+}
+
+static void dequant_tq1_0(const uint8_t* data, float* out, int n) {
+    int nb = n / QK_K_BITNET;
+    const uint8_t pow3[6] = {1, 3, 9, 27, 81, 243};
+    const int qs_bytes = (QK_K_BITNET - 4 * QK_K_BITNET / 64) / 5;
+    const int qh_bytes = QK_K_BITNET / 64;
+    for (int i = 0; i < nb; i++) {
+        const uint8_t* block = data + i * (qs_bytes + qh_bytes + 2);
+        uint16_t dh; memcpy(&dh, block + qs_bytes + qh_bytes, 2);
+        float d = bitnet_half_to_float(dh);
+        const uint8_t* qs = block;
+        const uint8_t* qh = block + qs_bytes;
+        for (int j = 0; j < 32; j += 32)
+            for (int nn = 0; nn < 5; nn++)
+                for (int m = 0; m < 32; m++) {
+                    uint8_t q = qs[j + m] * pow3[nn];
+                    *out++ = (float)((int)(((uint16_t)q * 3) >> 8) - 1) * d;
+                }
+        for (int j = 32; j < qs_bytes; j += 16)
+            for (int nn = 0; nn < 5; nn++)
+                for (int m = 0; m < 16; m++) {
+                    uint8_t q = qs[j + m] * pow3[nn];
+                    *out++ = (float)((int)(((uint16_t)q * 3) >> 8) - 1) * d;
+                }
+        for (int nn = 0; nn < 4; nn++)
+            for (int j = 0; j < qh_bytes; ++j) {
+                uint8_t q = qh[j] * pow3[nn];
+                *out++ = (float)((int)(((uint16_t)q * 3) >> 8) - 1) * d;
+            }
+    }
+}
 
 // ─── Tensor name mapping ───
 static std::string tn(const char* arch, int l, const char* proj) {
@@ -48,11 +88,12 @@ static std::string tn(const char* arch, int l, const char* proj) {
 static float* deq(GGUFReader& r, const GGUFModel::Tensor& t, uint64_t data_off) {
     int n=1;for(auto d:t.dims)n*=d;float*o=new float[n];
     r.seek(data_off+t.file_offset);
-    int bs=ggml_blck_size((ggml_type)t.type),ts=ggml_type_size((ggml_type)t.type),nb=bs>0?n/bs:0;
-    switch(t.type){
+    int bs=t.type==36?QK_K_BITNET:ggml_blck_size((ggml_type)t.type),ts=t.type==36?12:ggml_type_size((ggml_type)t.type),nb=bs>0?n/bs:0;
+    fprintf(stderr,"deq type=%d n=%d bs=%d ts=%d\n",t.type,n,bs,ts);switch(t.type){
         case 0: for(int i=0;i<n;i++)o[i]=r.read_f32();break;
         case 1: for(int i=0;i<n;i++)o[i]=r.read_f16();break;
         case 8: for(int b=0;b<nb;b++){float d=r.read_f16();for(int j=0;j<32;j++)o[b*32+j]=d*(int8_t)r.read_u8();}break;
+        case 36: { r.seek(data_off+t.file_offset); size_t tqb=(size_t)n*12/QK_K_BITNET; uint8_t* buf=new uint8_t[tqb]; for(size_t bi=0;bi<tqb;bi++)buf[bi]=r.read_u8(); dequant_tq1_0(buf, o, n); delete[] buf; } break;
         default: fprintf(stderr,"Unsupported type %d for dequant\n",t.type);delete[]o;return nullptr;
     }
     return o;
@@ -60,7 +101,7 @@ static float* deq(GGUFReader& r, const GGUFModel::Tensor& t, uint64_t data_off) 
 
 static uint16_t f32bf16(float f){uint32_t u;memcpy(&u,&f,4);return(uint16_t)(u>>16);}
 
-int main(int argc,char**argv){
+int main(int argc,char**argv){fprintf(stderr,"START\n");
     if(argc<3){fprintf(stderr,"Usage: %s input.gguf output.q4nx\n",argv[0]);return 1;}
     printf("GGUF → Q4NX Converter\n\n");
     
@@ -68,7 +109,8 @@ int main(int argc,char**argv){
     GGUFModel info;if(!info.parse(r)){r.close();return 1;}
     
     int H=info.hidden_size,NC=info.n_layers,NH=info.n_heads;
-    int NKV=info.n_kv_heads?info.n_kv_heads:NH,HD=info.head_dim?info.head_dim:H/NH;
+    int NKV=info.n_kv_heads?info.n_kv_heads:(NH>0?NH:1);
+    int HD=info.head_dim?info.head_dim:(NH>0?H/NH:128);
     int IM=info.intermediate_size,NV=info.vocab_size;
     // Try to get vocab from embedding tensor shape
     if(NV==0){auto te=info.get_tensor("token_embd.weight");if(te&&te->dims.size()>=2)NV=(int)te->dims[1];}
