@@ -96,6 +96,7 @@ Backend-agnostic KV cache infrastructure shared across NPU, GPU, and CPU paths:
 - Audit trail: `docs/journey.md` (1,236 lines, 15 updates)
 - Packaging: `packaging/` (deb + snap + tarball + docker + ollama)
 - Pre-commit: always run `/verify` before committing engine changes
+- **No Python in runtime paths** — CI enforces: `engine/npu/src/`, `engine/gpu/src/`, `engine/video/src/`, `spec-decode/engine/`, `spec-decode/draft/` must stay `.py`-free
 - PR description: use conventional commits, include ms/tok delta, tag [npu] or [gpu]
 - Release: `gh release create` + upload deb/snap/tarball + tag vYYYY.MM.DD
 

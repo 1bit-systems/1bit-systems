@@ -1,0 +1,46 @@
+name: No Python in Runtime
+on:
+  pull_request:
+    paths:
+      - 'engine/npu/src/**'
+      - 'engine/gpu/src/**'
+      - 'engine/video/src/**'
+      - 'spec-decode/engine/**'
+      - 'spec-decode/draft/**'
+  push:
+    branches: [main]
+    paths:
+      - 'engine/npu/src/**'
+      - 'engine/gpu/src/**'
+      - 'engine/video/src/**'
+      - 'spec-decode/engine/**'
+      - 'spec-decode/draft/**'
+
+jobs:
+  check-no-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check engine runtime paths are Python-free
+        run: |
+          FAIL=0
+          RUNTIME_PATHS=(
+            "engine/npu/src"
+            "engine/gpu/src"
+            "engine/video/src"
+            "spec-decode/engine"
+            "spec-decode/draft"
+          )
+          for path in "${RUNTIME_PATHS[@]}"; do
+            count=$(find "$path" -name '*.py' 2>/dev/null | wc -l)
+            if [ "$count" -gt 0 ]; then
+              echo "❌ $path has $count Python file(s):"
+              find "$path" -name '*.py' -exec echo "   {}" \;
+              FAIL=1
+            else
+              echo "✅ $path — clean"
+            fi
+          done
+          # Also check no new .py files were added outside allowed tool paths
+          # Allow: engine/npu/kernel/ (MLIR generators), spec-decode/train*.py (training scripts)
+          exit $FAIL
