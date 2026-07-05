@@ -2,7 +2,7 @@
 # Source the Chess/MLIR toolchain for NPU xclbin compilation
 # Run before any build_*.sh script
 export TOOLCHAIN=/home/bcloud/torch2aie/toolchain
-export PATH=$TOOLCHAIN/bin:$TOOLCHAIN/aietools/bin:$PATH
+export PATH=$TOOLCHAIN/bin:$TOOLCHAIN/aietools/bin:$TOOLCHAIN/mlir_aie/bin:$PATH
 export LD_LIBRARY_PATH=$TOOLCHAIN/mlir_aie/lib:$TOOLCHAIN/lib:$LD_LIBRARY_PATH
 export PYTHONPATH=$TOOLCHAIN/mlir_aie/python:$PYTHONPATH
 export XCHESS=$TOOLCHAIN/bin/xchesscc
