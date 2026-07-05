@@ -24,7 +24,7 @@ are backend-agnostic and shared by NPU, GPU (Vulkan), and GPU (Metal) inference 
    - Focus: INT8 quantization, NPU context lifecycle, BFP16 precision, C++ memory safety
 
 ## Engine: NPU (`engine/npu/`)
-C++23 daemon proxies to FLM (94 tok/s). C++ engine: 17 tok/s universal (coherence TBD). Daemon: C++23 zero-dep, 110 KB binary.
+C++23 daemon proxies to FLM (94 tok/s). C++ engine: 17 tok/s universal (xclbin weight layout mismatch — requires Q4NX-native packing). Daemon: 110 KB zero-dep binary.
 - `engine/npu/src/npu_engine_cb.cpp` — Main loop (batched prefill + decode)
 - `engine/npu/src/dequant_q4nx.c` — Q4NX dequantizer
 - `engine/npu/kernel/edge_attention.cc` — NPU attention (Chess C++)
