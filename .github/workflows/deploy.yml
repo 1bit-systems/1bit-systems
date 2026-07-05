@@ -6,7 +6,7 @@ on:
     paths:
       - 'site/**'
       - '1bit-site/**'
-      - 'jarvis-project/**'
+      - 'jarvis/**'
   workflow_dispatch:
 
 jobs:
