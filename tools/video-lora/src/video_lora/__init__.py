@@ -1,3 +1,7 @@
-"""Video LoRA — video generation with LoRA support."""
+"""Video LoRA — model-agnostic video generation with LoRA support."""
 
-__version__ = "0.1.0"
+from .engine.agnostic import AgnosticPipeline
+from .engine.registry import all_known, lookup
+
+__version__ = "0.2.0"
+__all__ = ["AgnosticPipeline", "all_known", "lookup"]
