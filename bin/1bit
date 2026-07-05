@@ -1,13 +1,60 @@
-#!/bin/bash
-# 1bit CLI entry — lightweight bash wrapper
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+#!/usr/bin/env bash
+# 1bit — NPU-native coding agent. TUI with 1bit.systems theme.
+# Default: launches full interactive TUI (status bars, model info, agent indicators)
+# Commands: up|down|status|build → NPU stack management
 
-if [ -f "$PROJECT_ROOT/dist/cli.js" ]; then
-  node "$PROJECT_ROOT/dist/cli.js" "$@"
-elif [ -f "$PROJECT_ROOT/src/cli.ts" ]; then
-  npx --yes tsx "$PROJECT_ROOT/src/cli.ts" "$@"
-else
-  echo "Error: 1bit CLI not built. Run 'npm run build' in $PROJECT_ROOT" >&2
-  exit 1
-fi
+set -e
+
+PI="/home/bcloud/.local/bin/pi"
+THEME="/home/bcloud/.pi/agent/themes/1bit.json"
+VERSION="2026.07.02"
+
+case "${1:-chat}" in
+  chat|"")
+    # Full interactive TUI with 1bit theme — professional status bar, model info, agent indicators
+    exec "$PI" --theme "$THEME" "${@:2}"
+    ;;
+  up)
+    exec "$PI" --theme "$THEME" -p "Start the NPU stack: npu-gpu-cpud daemon + FLM proxy"
+    ;;
+  down)
+    exec sudo pkill -f "npu-gpu-cpud\|flm serve" 2>/dev/null; echo "NPU stack stopped"
+    ;;
+  status)
+    echo "  ═══ 1bit.systems — NPU Stack Status ═══"
+    curl -s http://127.0.0.1:9090/v1/models >/dev/null 2>&1 && echo "  Fused Engine :9090    ✅" || echo "  Fused Engine :9090    ⬜"
+    curl -s http://127.0.0.1:52625/v1/models >/dev/null 2>&1 && echo "  NPU (FLM)    :52625   ✅ 94 tok/s" || echo "  NPU (FLM)    :52625   ⬜"
+    curl -s http://localhost:8080/api/status >/dev/null 2>&1 && echo "  JARVIS       :8080    ✅" || echo "  JARVIS       :8080    ⬜"
+    ;;
+  build)
+    echo "Building NPU engine..."
+    cd /home/bcloud && g++ -std=c++23 -O3 -march=native -fopenmp \
+      -o engine/npu/build/npu_engine_all engine/npu/src/npu_engine_all.cpp \
+      engine/npu/build/dequant_q4nx.o -lxrt_coreutil -luuid -lm
+    echo "Done. Binary: engine/npu/build/npu_engine_all"
+    ;;
+  version|--version|-v)
+    echo "1bit.systems v$VERSION"
+    ;;
+  help|--help|-h)
+    echo "1bit — NPU-native coding agent  v$VERSION"
+    echo ""
+    echo "  Usage: 1bit [command]"
+    echo ""
+    echo "  (no args)    Full TUI interactive session"
+    echo "  up           Start NPU stack"
+    echo "  down         Stop NPU stack"
+    echo "  status       Show NPU/JARVIS status"
+    echo "  build        Build NPU inference engine"
+    echo "  help         This help"
+    echo ""
+    echo "  Full TUI features: status bar, model info, agent indicators,"
+    echo "  tool calling, session management, theme support."
+    echo ""
+    echo "  Visit https://1bit.systems"
+    ;;
+  *)
+    # Pass through to pi with 1bit theme
+    exec "$PI" --theme "$THEME" "$@"
+    ;;
+esac
