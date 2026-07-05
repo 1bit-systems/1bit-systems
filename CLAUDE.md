@@ -1,6 +1,6 @@
 # CLAUDE.md — 1bit.systems
 
-**50 TOPS INT8 · 94 tok/s NPU (FLM) · 17 tok/s C++ engine. On a consumer laptop.**
+**50 TOPS INT8 · 94 tok/s NPU (FLM) · C++23 daemon (110 KB). On a consumer laptop.**
 Contact: admin@1bit.systems
 
 **Three inference engines, one chip, ONE cache.** NPU (C++) + GPU (Zig) + CPU (scheduler).
@@ -11,7 +11,7 @@ are backend-agnostic and shared by NPU, GPU (Vulkan), and GPU (Metal) inference 
 ## Agent Workflow (skills to invoke automatically)
 
 ### On every code change:
-1. **`/verify`** — Run `curl -s http://127.0.0.1:9090/v1/chat/completions` and confirm FLM proxy responds (94 tok/s typical)
+1. **`/verify`** — Run `curl -s http://127.0.0.1:9090/v1/chat/completions -d '{"model":"qwen3:0.6b","messages":[{"role":"user","content":"hi"}],"max_tokens":1}'` and confirm FLM proxy responds (94 tok/s typical)
 2. **`/code-review`** — Review diff for INT8 quantization bugs, context lifecycle issues, C++ memory safety
 
 ### On every push:
@@ -24,7 +24,7 @@ are backend-agnostic and shared by NPU, GPU (Vulkan), and GPU (Metal) inference 
    - Focus: INT8 quantization, NPU context lifecycle, BFP16 precision, C++ memory safety
 
 ## Engine: NPU (`engine/npu/`)
-C++23 INT8 inference on XDNA 2 NPU. Daemon proxies to FLM (94 tok/s). C++ engine: 17 tok/s universal (output coherence TBD).
+C++23 daemon proxies to FLM (94 tok/s). C++ engine: 17 tok/s universal (coherence TBD). Daemon: C++23 zero-dep, 110 KB binary.
 - `engine/npu/src/npu_engine_cb.cpp` — Main loop (batched prefill + decode)
 - `engine/npu/src/dequant_q4nx.c` — Q4NX dequantizer
 - `engine/npu/kernel/edge_attention.cc` — NPU attention (Chess C++)

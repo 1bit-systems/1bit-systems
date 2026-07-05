@@ -1,29 +1,20 @@
-# Engine Status — July 5, 2026 (audited)
+# Engine Status — July 5, 2026
 
-## Production: FLM Proxy (94 tok/s) ✅
+## Production: C++23 Daemon → FLM Proxy (94 tok/s) ✅
 
-NPU daemon proxies to FastFlowLM. Coherent output, OpenAI API.
+`npu-gpu-cpud` — C++23 zero-dep binary (110 KB). Proxies to FLM on port 52625.
 
-- **Port**: 9090 | **Models**: Qwen3-0.6B (turbo) | **Status**: Production stable
+- **Port**: 9090 | **Model**: Qwen3-0.6B | **TTFT**: 529 ms | **Decode**: 94.4 tok/s
+- **Output**: Verified coherent | **Zero Python** in runtime path
 
-## C++ Universal Engine (17 tok/s) ⚠️ — Output NOT Verified
+## C++ Universal Engine (17 tok/s) ⚠️
 
-The auto-detecting 5-model engine compiles and runs, but coherent output is
-**not yet confirmed** after the 7-round V12 correctness fix pass. The fused
-xclbin reference path is validated (max_abs=0.0078 vs CPU oracle), but the
-standalone INT8 xclbins have not been re-tested for coherent output.
+Auto-detects 5 models. Runs but coherent output **not yet confirmed** after
+8 rounds of host-side math fixes. The fused xclbin path is validated correct
+(max_abs=0.0078 vs CPU oracle) but runs at 4 tok/s.
 
-- Universal engine: 17 tok/s on Qwen3-0.6B (verified to run, output TBD)
-- Fused xclbin engine: 4 tok/s (verified correct output)
-
-## GPU ZINC Engine (22 tok/s) ✅
-
-Vulkan compute shaders. Verified coherent output on Bonsai-1.7B-F16.
-
-## GPU 1-bit (llama.cpp) — 70-381 tok/s ✅
-
-7 models at IQ1_S/Q1_0/STQ1_0 formats on Radeon 8060S. Verified throughput.
+## GPU ZINC (22 tok/s) ✅ | GPU llama.cpp 1-bit (70-381 tok/s) ✅
 
 ---
 
-*Detailed benchmarks: `engine/npu/BENCHMARKS.md`*
+*BENCHMARKS.md for full numbers. Daemon: `daemon/npu-gpu-cpud.cpp`.*
