@@ -1,0 +1,241 @@
+#!/usr/bin/env bash
+# JARVIS — Private AI Assistant CLI
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+G='\033[0;32m'
+P='\033[0;35m'
+B='\033[0;34m'
+D='\033[1;30m'
+R='\033[0m'
+BOLD='\033[1m'
+
+show_header() {
+  echo -e ""
+  echo -e "  ${BOLD}${G} ✦ JARVIS${R} ${BOLD}— Private AI on 1bit.systems${R}"
+  echo -e "  ${D}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${R}"
+  echo -e ""
+}
+
+show_help() {
+  show_header
+  echo -e "  ${BOLD}Usage:${R} ./jarvis <command>"
+  echo -e ""
+  echo -e "  ${BOLD}Commands:${R}"
+  echo -e "  ${G}start${R}        Start all JARVIS services"
+  echo -e "  ${G}stop${R}         Stop all JARVIS services"
+  echo -e "  ${G}restart${R}      Restart all services"
+  echo -e "  ${G}status${R}       Check status of all backends"
+  echo -e "  ${G}chat${R}         Send a chat message (curl demo)"
+  echo -e "  ${G}demo${R}         Run full capability demo"
+  echo -e "  ${G}mobile${R}       Expose JARVIS via ngrok + QR"
+  echo -e "  ${G}tts${R}          Download TTS voice"
+  echo -e "  ${G}models${R}       Show available models"
+  echo -e "  ${G}log${R}          Tail JARVIS logs"
+  echo -e "  ${G}help${R}         Show this help"
+  echo -e ""
+}
+
+ensure_npu() {
+  if ! curl -s http://127.0.0.1:52625/v1/models >/dev/null 2>&1; then
+    echo -e "  ${B}⚡ Starting NPU backend (FLM)...${R}"
+    sudo /usr/bin/flm serve qwen3:0.6b --port 52625 --host 127.0.0.1 --pmode turbo &>/tmp/flm.log &
+    # Wait for it to be ready
+    for i in $(seq 1 30); do
+      if curl -s http://127.0.0.1:52625/v1/models >/dev/null 2>&1; then
+        echo -e "  ${G}✅ NPU backend ready${R}"
+        return 0
+      fi
+      sleep 1
+    done
+    echo -e "  ${P}⚠️  NPU backend not ready yet — check /tmp/flm.log${R}"
+    return 1
+  fi
+  echo -e "  ${G}✅ NPU backend already running${R}"
+}
+
+start() {
+  show_header
+  echo -e "  ${BOLD}Starting JARVIS...${R}"
+  echo -e ""
+
+  # Step 1: Start NPU backend
+  ensure_npu
+
+  # Step 2: Start JARVIS server
+  if curl -s http://localhost:8080/api/status >/dev/null 2>&1; then
+    echo -e "  ${G}✅ JARVIS server already running (port 8080)${R}"
+  else
+    echo -e "  ${B}⚡ Starting JARVIS server...${R}"
+    # Ensure venv
+    if [ ! -d "venv" ]; then
+      echo -e "  ${D}   Creating Python venv...${R}"
+      python3 -m venv venv
+      source venv/bin/activate
+      pip install fastapi uvicorn websockets python-multipart httpx piper-tts > /dev/null 2>&1
+    fi
+    source venv/bin/activate
+    # Create symlink for backwards compat
+    mkdir -p /home/bcloud/jarvis 2>/dev/null
+    ln -sf "$SCRIPT_DIR" /home/bcloud/jarvis 2>/dev/null || true
+    nohup python3 server/server.py &>/tmp/jarvis.log &
+    # Wait for it
+    for i in $(seq 1 15); do
+      if curl -s http://localhost:8080/api/status >/dev/null 2>&1; then
+        echo -e "  ${G}✅ JARVIS server ready (http://localhost:8080)${R}"
+        break
+      fi
+      sleep 1
+    done
+  fi
+
+  echo -e ""
+  echo -e "  ${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${R}"
+  echo -e "  ${G}✦${R} ${BOLD}JARVIS is running${R}"
+  echo -e "  ${D}   Web UI:  ${B}http://localhost:8080/chat${R}"
+  echo -e "  ${D}   API:     ${B}http://localhost:8080/api/status${R}"
+  echo -e "  ${D}   NPU:     ${B}http://127.0.0.1:52625${R}"
+  echo -e "  ${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${R}"
+  echo -e ""
+}
+
+stop() {
+  show_header
+  echo -e "  ${B}Stopping JARVIS...${R}"
+  sudo kill $(lsof -ti:8080) 2>/dev/null && echo -e "  ${G}✅ JARVIS server stopped${R}" || echo -e "  ${D}   No JARVIS server running${R}"
+  # Don't kill FLM — it's managed separately
+  echo -e "  ${D}   NPU backend (FLM) left running${R}"
+}
+
+check_status() {
+  show_header
+  echo -e "  ${BOLD}Backend Status:${R}"
+  echo -e ""
+
+  # JARVIS server
+  if curl -s http://localhost:8080/api/status >/dev/null 2>&1; then
+    STATUS=$(curl -s http://localhost:8080/api/status)
+    echo -e "  ${G}✅ JARVIS server${R}     :8080"
+    echo -e "$STATUS" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(f\"    NPU: {'✅' if d['status']['flm_npu']['ok'] else '⬜'}  GPU: {'✅' if d['status']['fused_engine']['ok'] else '⬜'}\")
+print(f\"    Model: {d['model']}\")
+print(f\"    Knowledge: {d['knowledge']['total']} entries\")
+" 2>/dev/null || true
+  else
+    echo -e "  ${P}⬜ JARVIS server${R}     :8080 — not running"
+  fi
+
+  # NPU (FLM)
+  if curl -s http://127.0.0.1:52625/v1/models >/dev/null 2>&1; then
+    echo -e "  ${G}✅ NPU (FLM)${R}          :52625 — 94 tok/s"
+  else
+    echo -e "  ${P}⬜ NPU (FLM)${R}          :52625 — not running"
+  fi
+
+  # Fused daemon
+  if curl -s http://127.0.0.1:9090/v1/models >/dev/null 2>&1; then
+    echo -e "  ${G}✅ Fused Engine${R}       :9090"
+  else
+    echo -e "  ${P}⬜ Fused Engine${R}       :9090 — not running"
+  fi
+
+  # TTS
+  if [ -f "$HOME/.local/share/piper/voices/en_US/lessac/medium/en_US-lessac-medium.onnx" ]; then
+    echo -e "  ${G}✅ TTS (Piper)${R}        voice loaded"
+  else
+    echo -e "  ${P}⬜ TTS (Piper)${R}        not installed"
+  fi
+  echo -e ""
+}
+
+cmd_chat() {
+  local msg="${1:-Hello JARVIS!}"
+  echo -e "  ${G}✦${R} Sending: ${B}$msg${R}"
+  echo -e "  ${D}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${R}"
+  curl -s -X POST http://localhost:8080/api/chat \
+    -F "message=$msg" \
+    -F "session_id=cli-$$" 2>/dev/null | python3 -c '
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if line:
+        try:
+            d = json.loads(line)
+            t = d.get("type","")
+            if t == "chunk":
+                print(d.get("text",""), end="", flush=True)
+            elif t == "done":
+                print()
+        except: pass
+' 2>/dev/null || echo "(JARVIS not running)"
+  echo -e ""
+}
+
+cmd_demo() {
+  bash scripts/demo.sh
+}
+
+cmd_mobile() {
+  echo -e "  ${B}Setting up mobile access...${R}"
+  echo -e ""
+
+  # Check ngrok
+  if ! command -v ngrok &>/dev/null; then
+    echo -e "  ${P}⚠️  ngrok not found. Install it:${R}"
+    echo -e "     ${D}curl -fsSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc${R}"
+    echo -e "     ${D}echo 'deb https://ngrok-agent.s3.amazonaws.com buster main' | sudo tee /etc/apt/sources.list.d/ngrok.list${R}"
+    echo -e "     ${D}sudo apt update && sudo apt install ngrok${R}"
+    exit 1
+  fi
+
+  local port="${1:-8080}"
+
+  # Start ngrok
+  pkill ngrok 2>/dev/null || true
+  sleep 1
+  nohup ngrok http $port --log=stdout > /tmp/ngrok-jarvis.log 2>&1 &
+  echo -e "  ${D}   Waiting for ngrok tunnel...${R}"
+
+  for i in $(seq 1 15); do
+    NGROK_URL=$(curl -s http://localhost:4040/api/tunnels 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['tunnels'][0]['public_url'])" 2>/dev/null || true)
+    if [ -n "$NGROK_URL" ]; then
+      echo -e "  ${G}✅ ngrok tunnel active${R}"
+      echo -e "  ${B}   $NGROK_URL${R}"
+      echo -e ""
+      # Generate QR code
+      if command -v qrencode &>/dev/null; then
+        qrencode -t ANSIUTF8 "$NGROK_URL" 2>/dev/null || true
+      fi
+      echo -e ""
+      echo -e "  ${D}   Open in JARVIS Mobile or any browser${R}"
+      break
+    fi
+    sleep 1
+  done
+}
+
+cmd_tts() {
+  echo -e "  ${B}Downloading TTS voice (en_US-lessac-medium)...${R}"
+  source venv/bin/activate 2>/dev/null || true
+  python3 -m piper download en_US-lessac-medium 2>&1
+  echo -e "  ${G}✅ TTS voice downloaded${R}"
+}
+
+# ─── Main ───
+case "${1:-help}" in
+  start)    start ;;
+  stop)     stop ;;
+  restart)  stop; sleep 1; start ;;
+  status)   check_status ;;
+  chat)     shift; cmd_chat "$*" ;;
+  demo)     cmd_demo ;;
+  mobile)   shift; cmd_mobile "$@" ;;
+  tts)      cmd_tts ;;
+  models)   curl -s http://127.0.0.1:52625/v1/models 2>/dev/null | python3 -m json.tool 2>/dev/null || echo "FLM not running" ;;
+  log)      tail -f /tmp/jarvis.log ;;
+  help|*)   show_help ;;
+esac

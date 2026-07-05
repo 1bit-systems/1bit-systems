@@ -295,19 +295,70 @@ int main(int argc,char**argv){
             }
             draft_proposed+=block_size;
 
-            // 2. Verify & accept (single-token verification for now)
+            // 2. Verify: run NPU batch decode on draft tokens, compare logits
             int naccepted=0;
-            for(int i=0;i<block_size&&total_tokens+naccepted<ng;i++){
-                // Check draft token against target logits
-                // For full verification: run one NPU forward and compare
-                // Simplified: accept if draft token is non-EOS (placeholder)
-                if(dt[i]!=151645){cur_id=dt[i];naccepted++;total_tokens++;draft_accepted++;}
-                else break;
+            int bs_vfy = std::min(block_size, ng - total_tokens);
+            std::vector<int> npu_best(bs_vfy);
+            
+            // Embed all draft tokens for batch verification
+            for(int b=0;b<bs_vfy;b++)
+                for(int i=0;i<H;i++)
+                    h_b[b*H+i] = emb_f32[(size_t)dt[b]*H+i];
+            
+            // Run 28-layer NPU forward on all draft tokens (M=batch)
+            for(int l=0;l<NC;l++){
+                for(int b=0;b<bs_vfy;b++) rn_c(&h_b[b*H],&in_n[l*H],H);
+                cq.go(l,h_b.data(),bs_vfy,H,dynamic_ascale(h_b.data(),bs_vfy*H),qsc[l],qo_b.data(),qkv_n);cn(qo_b.data(),bs_vfy*qkv_n);
+                for(int b=0;b<bs_vfy;b++){
+                    for(int hh=0;hh<NH;hh++){double s=0;for(int d=0;d<HD;d++)s+=qo_b[b*qkv_n+hh*HD+d]*qo_b[b*qkv_n+hh*HD+d];
+                        float iq=1.0f/sqrtf((float)(s/HD)+EPS);for(int d=0;d<HD;d++)qo_b[b*qkv_n+hh*HD+d]*=iq*(cfg.has_q_norm?qn_w[l*HD+d]:1.0f);ra(&qo_b[b*qkv_n+hh*HD],HD,sp+b);}
+                    for(int kvh=0;kvh<NKV;kvh++){float*ks=&qo_b[b*qkv_n+cfg.qkv_k_offset+kvh*HD],*vs=&qo_b[b*qkv_n+cfg.qkv_v_offset+kvh*HD];
+                        double sk=0;for(int d=0;d<HD;d++)sk+=ks[d]*ks[d];float ik=1.0f/sqrtf((float)(sk/HD)+EPS);
+                        for(int d=0;d<HD;d++){ks[d]*=ik*(cfg.has_k_norm?kn_w[l*HD+d]:1.0f);ra(ks,HD,sp+b);}}}
+                for(int b=0;b<bs_vfy;b++)for(int kvh=0;kvh<NKV;kvh++){
+                    memcpy(&kv_c[l].k[(sp+b)*NKV*HD+kvh*HD],&qo_b[b*qkv_n+cfg.qkv_k_offset+kvh*HD],HD*4);
+                    memcpy(&kv_c[l].v[(sp+b)*NKV*HD+kvh*HD],&qo_b[b*qkv_n+cfg.qkv_v_offset+kvh*HD],HD*4);}
+                kv_c[l].n=sp+bs_vfy;int cl=kv_c[l].n;
+                for(int b=0;b<bs_vfy;b++) attn_omp(&qo_b[b*qkv_n],&at_b[b*NH*HD],cl,kv_c[l].k.data(),kv_c[l].v.data(),NH,NKV,HD,GQA);
+                co.go(l,at_b.data(),bs_vfy,NH*HD,dynamic_ascale(at_b.data(),bs_vfy*NH*HD),osc[l],oo_b.data(),H);cn(oo_b.data(),bs_vfy*H);
+                for(int b=0;b<bs_vfy;b++) for(int i=0;i<H;i++) h_b[b*H+i] += oo_b[b*H+i];
+                for(int b=0;b<bs_vfy;b++) rn_c(&h_b[b*H],&pa_n[l*H],H);
+                int mo=cfg.gu_split?IM:2*IM;
+                cg.go(l,h_b.data(),bs_vfy,H,dynamic_ascale(h_b.data(),bs_vfy*H),gsc[l],gt_b.data(),mo);cn(gt_b.data(),bs_vfy*mo);
+                if(cfg.gu_split){cu_ptr->go(l,h_b.data(),bs_vfy,H,dynamic_ascale(h_b.data(),bs_vfy*H),usc[l],su_b.data(),IM);cn(su_b.data(),bs_vfy*IM);
+                    for(int b=0;b<bs_vfy;b++){for(int i=0;i<IM;i++){float gv=gt_b[b*IM+i];su_b[b*IM+i]=(gv/(1.0f+expf(-gv)))*su_b[b*IM+i];}}}
+                else{for(int b=0;b<bs_vfy;b++){for(int i=0;i<IM;i++){float gv=gt_b[b*mo+i];su_b[b*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[b*mo+IM+i];}}}
+                cd.go(l,su_b.data(),bs_vfy,IM,dynamic_ascale(su_b.data(),bs_vfy*IM),dsc[l],dw_b.data(),H);cn(dw_b.data(),bs_vfy*H);
+                for(int b=0;b<bs_vfy;b++) for(int i=0;i<H;i++) h_b[b*H+i] += dw_b[b*H+i];
             }
-            if(naccepted==0){cur_id=(cur_id+1)%NV;total_tokens++;} // fallback
+            
+            // Get NPU argmax for each position
+            for(int b=0;b<bs_vfy;b++){
+                memcpy(sb_d.data(),&h_b[b*H],H*4);rn_c(sb_d.data(),fin_v.data(),H);
+                npu_best[b] = lm_argmax(sb_d.data(),lg_b.data(),NV,H);
+            }
+            
+            // Acceptance check: compare NPU predictions with draft tokens
+            // NPU position i predicts the next token after draft dt[i]
+            // We compare NPU prediction[i] with dt[i+1] (if i+1 < bs_vfy)
+            for(int i=0;i<bs_vfy-1 && total_tokens+naccepted<ng;i++){
+                if(npu_best[i] == dt[i+1]){
+                    cur_id = dt[i+1]; naccepted++; total_tokens++; draft_accepted++;
+                } else {
+                    cur_id = npu_best[i]; naccepted++; total_tokens++;
+                    break;
+                }
+            }
+            // Bonus token: NPU prediction after all draft tokens
+            if(naccepted == bs_vfy-1 && total_tokens < ng){
+                cur_id = npu_best[bs_vfy-1]; total_tokens++;
+            }
+            if(naccepted==0){cur_id=npu_best[0];total_tokens++;}
+            
+            sp += naccepted + 1; // advance position for KV cache
             verify_calls++;
             step+=naccepted>0?naccepted:1;
-            if(total_tokens%10==0)printf("  [%d/%d] accept=%d/%d (%.0f%%)\n",total_tokens,ng,draft_accepted,draft_proposed,100.0f*draft_accepted/std::max(draft_proposed,1));
+            if(total_tokens%10==0)printf("  [%d/%d] accept=%d/%d (%.0f%%) npu=%d\n",total_tokens,ng,draft_accepted,draft_proposed,100.0f*draft_accepted/std::max(draft_proposed,1),npu_best[0]);
         }else{
             // === REGULAR M=32 BATCH DECODE ===
             int bs=std::min(BS,ng-total_tokens);

@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>JARVIS — 1bit.systems</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+/* ─── 1bit.systems Theme ─── */
+:root{
+  --bg:#021621; --panel:#06222f; --tile:#06222f; --inner:#021018;
+  --border:#0e3346; --border2:#123a4d;
+  --text:#e7f6fd; --muted:#86adbf; --dim:#4a6a7a;
+  --green:#00ff00; --green-d:#00c853; --pink:#f00fd2; --blue:#12a0ed;
+  --sans:'Inter','Helvetica Neue',Helvetica,Arial,sans-serif;
+  --mono:'JetBrains Mono','SFMono-Regular','Menlo',Consolas,monospace;
+  --radius:14px;
+}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;background:radial-gradient(1100px 560px at 80% -10%,rgba(240,15,210,.08),transparent 60%),radial-gradient(950px 520px at 4% 8%,rgba(18,160,237,.08),transparent 60%),var(--bg);color:var(--text);font-family:var(--sans);}
+body{display:flex;flex-direction:column;overflow:hidden;}
+
+/* ─── Header ─── */
+header{
+  background:rgba(2,22,33,.92);backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--border);
+  padding:0 24px;height:60px;
+  display:flex;align-items:center;gap:14px;flex-shrink:0;z-index:10;
+}
+.mark{
+  width:34px;height:34px;border-radius:999px;background:var(--bg);
+  border:2px solid var(--pink);box-shadow:0 0 12px rgba(240,15,210,.25);
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-weight:800;font-size:10px;
+  letter-spacing:-.04em;color:var(--green);flex-shrink:0;
+}
+.wordmark{font-size:17px;letter-spacing:-.025em;font-weight:800;}
+.wordmark .g{color:var(--green);}.wordmark .p{color:var(--pink);}.wordmark .b{color:var(--blue);}
+.header-status{display:flex;align-items:center;gap:8px;margin-left:auto;}
+.pill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px 0 8px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap;font-family:var(--sans);}
+.pill .dot{width:7px;height:7px;border-radius:999px;flex:none;}
+.pill.ok{background:rgba(0,255,0,.12);color:#7dffb0;}.pill.ok .dot{background:var(--green);}
+.pill.info{background:rgba(18,160,237,.14);color:#7cc8f5;}.pill.info .dot{background:var(--blue);}
+.pill.warn{background:rgba(240,15,210,.16);color:#f5a3e6;}.pill.warn .dot{background:var(--pink);}
+
+/* ─── Layout ─── */
+.main-container{display:flex;flex:1;overflow:hidden;}
+
+/* ─── Sidebar ─── */
+.sidebar{
+  width:250px;background:rgba(2,22,33,.6);
+  border-right:1px solid var(--border);
+  padding:16px;display:flex;flex-direction:column;gap:12px;
+  overflow-y:auto;flex-shrink:0;
+}
+.panel{
+  background:var(--tile);border:1px solid var(--border);
+  border-radius:var(--radius);padding:14px;
+}
+.panel h3{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:8px;}
+.panel .stat{display:flex;justify-content:space-between;font-size:12px;padding:3px 0;font-family:var(--mono);}
+.panel .stat .lbl{color:var(--muted);font-family:var(--sans);}
+.panel .stat .val{color:var(--green);font-weight:700;}
+.panel .stat .val.off{color:var(--dim);}
+.panel .stat .val.pink{color:var(--pink);}
+.panel .stat .val.blue{color:var(--blue);}
+
+/* ─── Chat Area ─── */
+.chat-area{flex:1;display:flex;flex-direction:column;min-width:0;}
+
+/* ─── Messages ─── */
+.messages{
+  flex:1;overflow-y:auto;padding:16px 20px;
+  display:flex;flex-direction:column;gap:10px;
+}
+.message{
+  max-width:88%;padding:12px 16px;border-radius:14px;
+  line-height:1.6;font-size:14px;animation:fadeIn .25s ease;
+  position:relative;
+}
+.message p{margin-bottom:6px;}
+.message p:last-child{margin-bottom:0;}
+.message .ts{
+  font-size:10px;color:var(--dim);margin-top:6px;font-family:var(--mono);
+  opacity:.6;
+}
+.message.user{
+  background:var(--panel);align-self:flex-end;
+  border:1px solid var(--border2);
+}
+.message.user::after{
+  content:'';position:absolute;bottom:6px;right:-6px;
+  width:12px;height:12px;background:var(--panel);
+  border-right:1px solid var(--border2);border-bottom:1px solid var(--border2);
+  transform:rotate(-45deg);border-radius:0 0 3px 0;
+}
+.message.assistant{
+  background:var(--tile);align-self:flex-start;
+  border:1px solid var(--border);
+}
+.message.assistant::after{
+  content:'';position:absolute;bottom:6px;left:-6px;
+  width:12px;height:12px;background:var(--tile);
+  border-left:1px solid var(--border);border-top:1px solid var(--border);
+  transform:rotate(-45deg);border-radius:3px 0 0 0;
+}
+.message.system{align-self:center;font-size:11px;color:var(--dim);background:rgba(18,160,237,.06);border:1px solid rgba(18,160,237,.15);border-radius:20px;padding:6px 16px;}
+.message.system::after{display:none;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+
+/* ─── Console-style code ─── */
+.message pre{
+  margin:8px 0;padding:12px 14px;border-radius:10px;
+  background:var(--inner);border:1px solid var(--border);
+  overflow-x:auto;font-family:var(--mono);font-size:12.5px;
+}
+.message pre code{background:none;padding:0;}
+.message code{background:var(--inner);padding:1px 6px;border-radius:4px;font-size:13px;font-family:var(--mono);}
+.message a{color:var(--blue);font-weight:600;}
+.message a:hover{color:var(--pink);}
+.message .g{color:var(--green);}
+.message .p{color:var(--pink);}
+.message .b{color:var(--blue);}
+.message .c{color:var(--dim);}
+.message .t{color:var(--text);}
+.message strong{color:var(--text);font-weight:700;}
+.message em{color:var(--text);}
+
+/* ─── Input Area ─── */
+.input-area{
+  padding:14px 20px;background:rgba(2,22,33,.8);
+  border-top:1px solid var(--border);
+  display:flex;gap:8px;align-items:flex-end;
+}
+.input-area textarea{
+  flex:1;background:var(--inner);border:1px solid var(--border);
+  border-radius:12px;padding:12px 16px;color:var(--text);
+  font-family:var(--sans);font-size:14px;resize:none;
+  min-height:48px;max-height:150px;
+  outline:none;transition:border-color .2s;
+}
+.input-area textarea:focus{border-color:var(--blue);}
+.input-area textarea::placeholder{color:var(--dim);}
+.btn{
+  background:var(--tile);border:1px solid var(--border);
+  color:var(--text);padding:10px 16px;border-radius:10px;
+  cursor:pointer;transition:all .16s ease;font-size:13px;
+  display:flex;align-items:center;gap:6px;white-space:nowrap;
+  font-family:var(--sans);font-weight:600;
+}
+.btn:hover{background:rgba(18,160,237,.1);border-color:var(--blue);color:var(--blue);}
+.btn:disabled{opacity:.35;cursor:not-allowed;}
+.btn-primary{background:var(--green);color:var(--bg);border-color:var(--green);font-weight:800;}
+.btn-primary:hover{background:var(--green-d);border-color:var(--green-d);color:var(--bg);box-shadow:0 4px 16px rgba(0,255,0,.2);}
+.btn-pink{background:transparent;color:var(--pink);border-color:var(--pink);}
+.btn-pink:hover{background:rgba(240,15,210,.12);}
+.btn-record{background:transparent;color:var(--pink);border-color:var(--pink);min-width:44px;justify-content:center;}
+.btn-record.recording{background:var(--pink);color:#fff;animation:pulse 1s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.6;}}
+
+/* ─── Sidebar Buttons ─── */
+.tool-btn{display:block;width:100%;text-align:left;padding:7px 10px;margin:4px 0;font-size:12px;}
+
+/* ─── Upload Zone ─── */
+.upload-zone{
+  border:1px dashed var(--border);border-radius:10px;
+  padding:16px;text-align:center;cursor:pointer;transition:all .2s;
+  font-size:11px;color:var(--dim);
+}
+.upload-zone:hover{border-color:var(--blue);color:var(--muted);background:rgba(18,160,237,.04);}
+
+/* ─── Typing ─── */
+.typing-indicator{display:flex;gap:4px;align-items:center;padding:2px 0;}
+.typing-indicator span{
+  width:7px;height:7px;border-radius:999px;
+  background:var(--muted);animation:typing 1.4s infinite;
+}
+.typing-indicator span:nth-child(2){animation-delay:.2s;}
+.typing-indicator span:nth-child(3){animation-delay:.4s;}
+@keyframes typing{0%,60%,100%{opacity:.3;}30%{opacity:1;}}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar{width:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+::-webkit-scrollbar-thumb:hover{background:var(--pink);}
+
+/* ─── Responsive ─── */
+@media(max-width:768px){
+  .sidebar{display:none;}
+  .message{max-width:95%;}
+  .input-area{padding:10px 14px;flex-wrap:wrap;}
+  header{padding:0 14px;}
+  .header-status .pill{display:none;}
+}
+</style>
+</head>
+<body>
+<header>
+  <a href="/chat" style="text-decoration:none;display:flex;align-items:center;gap:10px;">
+    <span class="mark">J</span>
+    <span class="wordmark"><span class="g">J</span>AR<span class="p">V</span>IS</span>
+  </a>
+  <span class="pill info"><span class="dot"></span>1bit.systems</span>
+  <div class="header-status">
+    <span class="pill ok" id="npuStatus"><span class="dot"></span>NPU</span>
+    <span class="pill info" id="gpuStatus"><span class="dot"></span>GPU</span>
+    <span class="pill warn" id="ttsStatus"><span class="dot"></span>TTS</span>
+  </div>
+</header>
+
+<div class="main-container">
+  <aside class="sidebar" id="sidebar">
+    <div class="panel">
+      <h3>⚡ Backends</h3>
+      <div class="stat"><span class="lbl">NPU (XDNA2)</span><span class="val" id="sNpu">—</span></div>
+      <div class="stat"><span class="lbl">GPU (R8060S)</span><span class="val" id="sGpu">—</span></div>
+      <div class="stat"><span class="lbl">TTS (Piper)</span><span class="val" id="sTts">—</span></div>
+      <div class="stat"><span class="lbl">Model</span><span class="val blue" id="sModel">—</span></div>
+    </div>
+
+    <div class="panel">
+      <h3>🎤 Voice</h3>
+      <button class="btn tool-btn btn-record" id="recordBtn" onclick="toggleRecord()">
+        ⏺ Record
+      </button>
+      <label style="font-size:11px;color:var(--dim);display:flex;align-items:center;gap:6px;margin-top:6px;cursor:pointer;">
+        <input type="checkbox" id="autoTts" checked style="accent-color:var(--green);">
+        Auto-speak responses
+      </label>
+    </div>
+
+    <div class="panel">
+      <h3>📎 Upload</h3>
+      <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+        + Drop files or click
+      </div>
+      <input type="file" id="fileInput" multiple hidden onchange="handleFiles(this.files)">
+      <div id="uploadStatus" style="font-size:10px;color:var(--dim);margin-top:4px;font-family:var(--mono);"></div>
+    </div>
+
+    <div class="panel">
+      <h3>🛠 Commands</h3>
+      <button class="btn tool-btn" onclick="insertCmd('/status')">📊 Status</button>
+      <button class="btn tool-btn" onclick="insertCmd('/rag ')"">📚 Search docs</button>
+      <button class="btn tool-btn" onclick="insertCmd('/calc ')"">🧮 Calculator</button>
+      <button class="btn tool-btn" onclick="insertCmd('Write Python code to ')"">🐍 Python</button>
+    </div>
+  </aside>
+
+  <div class="chat-area">
+    <div class="messages" id="messages"></div>
+    <div class="input-area">
+      <button class="btn btn-record" id="recordBtn2" onclick="toggleRecord()" title="Voice input">
+        <span id="micIcon">🎤</span>
+      </button>
+      <textarea id="input" rows="1" placeholder="Ask JARVIS anything..."
+                onkeydown="handleKey(event)" autofocus></textarea>
+      <button class="btn" onclick="chooseImage()" title="Attach image">🖼</button>
+      <input type="file" id="imageInput" accept="image/*" hidden onchange="handleImage(this.files)">
+      <button class="btn btn-primary" onclick="sendMessage()" id="sendBtn">↵ Send</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── State ─────────────────────────────────────────────────────
+const S = {
+  sid: 's-' + Math.random().toString(36).slice(2,10),
+  msgs: [],
+  recording: false,
+  recorder: null,
+  chunks: [],
+  ws: null,
+  connected: false,
+  reconnecting: false,
+  streaming: false,
+  curEl: null,
+  curText: '',
+};
+
+// ─── WebSocket ──────────────────────────────────────────────────
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  S.ws = new WebSocket(`${proto}//${location.host}/ws/chat`);
+  S.ws.onopen = () => { S.connected = true; S.reconnecting = false; setStatus(); sysMsg('✦ Connected to JARVIS'); };
+  S.ws.onmessage = onMsg;
+  S.ws.onclose = () => { S.connected = false; setStatus(); if(!S.reconnecting){S.reconnecting=true;setTimeout(connect,3000);} };
+  S.ws.onerror = () => {};
+}
+
+function onMsg(e) {
+  // Binary = TTS audio
+  if(e.data instanceof Blob) {
+    const r = new FileReader();
+    r.onload = () => { try{const m=JSON.parse(r.result);if(m.type==='tts_result'&&m.audio)playAudio(m.audio);}catch(_){} };
+    r.readAsText(e.data);
+    return;
+  }
+  try {
+    const m = JSON.parse(e.data);
+    switch(m.type) {
+      case 'chunk': appendChunk(m.text); break;
+      case 'done': doneMsg(m.sid); break;
+      case 'stt_result': document.getElementById('input').value = m.text; sendMessage(); break;
+      case 'cleared': document.getElementById('messages').innerHTML = ''; sysMsg('✦ Conversation cleared'); break;
+    }
+  } catch(_) {}
+}
+
+// ─── Chat ───────────────────────────────────────────────────────
+function sendMessage() {
+  const inp = document.getElementById('input');
+  const text = inp.value.trim();
+  if(!text) return;
+  inp.value = ''; inp.style.height = 'auto';
+  addMsg('user', text);
+  S.streaming = true; S.curEl = null; S.curText = '';
+  typing(true);
+  S.ws.send(JSON.stringify({type:'message',text,session_id:S.sid}));
+}
+
+function handleKey(e) {
+  if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+
+function appendChunk(t) {
+  typing(false);
+  if(!S.curEl) { S.curEl = addMsg('assistant'); S.curText = ''; }
+  S.curText += t;
+  S.curEl.innerHTML = md(S.curText);
+  scroll();
+}
+
+function doneMsg(sid) {
+  S.sid = sid || S.sid;
+  S.streaming = false;
+  typing(false);
+  if(S.curEl && S.curText) S.curEl.innerHTML = md(S.curText);
+  if(document.getElementById('autoTts').checked && S.curText) {
+    const t = S.curText.replace(/<[^>]*>/g,'').slice(0,500);
+    if(t.trim()) S.ws.send(JSON.stringify({type:'tts',text:t}));
+  }
+}
+
+// ─── Messages ───────────────────────────────────────────────────
+function addMsg(role, html) {
+  const c = document.getElementById('messages');
+  const el = document.createElement('div');
+  el.className = `message ${role}`;
+  if(html) el.innerHTML = role==='assistant' ? md(html) : esc(html);
+  c.appendChild(el);
+  const ts = document.createElement('div');
+  ts.className = 'ts';
+  ts.textContent = new Date().toLocaleTimeString();
+  el.appendChild(ts);
+  scroll();
+  return el;
+}
+
+function sysMsg(t) { addMsg('system', `<span style="font-family:var(--mono);font-size:10px;">${esc(t)}</span>`); }
+
+function typing(on) {
+  const el = document.getElementById('typing');
+  if(el) el.remove();
+  if(!on) return;
+  const c = document.getElementById('messages');
+  const d = document.createElement('div');
+  d.className = 'message assistant'; d.id = 'typing';
+  d.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+  c.appendChild(d);
+  scroll();
+}
+
+// ─── Voice ──────────────────────────────────────────────────────
+async function toggleRecord() {
+  if(S.recording) {
+    S.recorder.stop();
+    S.recording = false;
+    document.getElementById('recordBtn').textContent = '⏺ Record';
+    document.getElementById('recordBtn').classList.remove('recording');
+    document.getElementById('recordBtn2').classList.remove('recording');
+    document.getElementById('micIcon').textContent = '🎤';
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio:{sampleRate:16000,channelCount:1}});
+    const mr = new MediaRecorder(stream, {mimeType:'audio/webm;codecs=opus'});
+    S.recorder = mr; S.chunks = [];
+    mr.ondataavailable = e => { if(e.data.size>0) S.chunks.push(e.data); };
+    mr.onstop = () => {
+      const blob = new Blob(S.chunks, {type:'audio/webm'});
+      const r = new FileReader();
+      r.onload = () => S.ws.send(JSON.stringify({type:'stt',audio:r.result.split(',')[1]}));
+      r.readAsDataURL(blob);
+      stream.getTracks().forEach(t=>t.stop());
+    };
+    mr.start();
+    S.recording = true;
+    document.getElementById('recordBtn').textContent = '⏹ Stop';
+    document.getElementById('recordBtn').classList.add('recording');
+    document.getElementById('recordBtn2').classList.add('recording');
+    document.getElementById('micIcon').textContent = '🔴';
+    sysMsg('🎤 Listening...');
+  } catch(e) { sysMsg(`❌ Mic: ${e.message}`); }
+}
+
+function playAudio(b64) {
+  try {
+    const bin = atob(b64);
+    const a = new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) a[i]=bin.charCodeAt(i);
+    const blob = new Blob([a], {type:'audio/wav'});
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.onended = () => URL.revokeObjectURL(url);
+    audio.play();
+  } catch(e) { console.error('Audio',e); }
+}
+
+// ─── Image ──────────────────────────────────────────────────────
+function chooseImage() { document.getElementById('imageInput').click(); }
+function handleImage(files) {
+  if(!files.length) return;
+  const r = new FileReader();
+  r.onload = () => {
+    const b64 = r.result.split(',')[1];
+    const t = document.getElementById('input').value.trim() || 'What do you see in this image?';
+    document.getElementById('input').value = '';
+    addMsg('user', `📷 ${esc(t)} <span style="color:var(--pink);">(image)</span>`);
+    S.streaming = true; S.curEl = null; S.curText = ''; typing(true);
+    S.ws.send(JSON.stringify({type:'message',text:t,image:b64,session_id:S.sid}));
+  };
+  r.readAsDataURL(files[0]);
+}
+
+// ─── File Upload ────────────────────────────────────────────────
+function handleFiles(files) {
+  for(const f of files) {
+    const fd = new FormData();
+    fd.append('file', f);
+    fd.append('category', f.type.startsWith('image/')?'image':'rag');
+    fetch('/api/upload', {method:'POST',body:fd})
+      .then(r=>r.json())
+      .then(d => {
+        document.getElementById('uploadStatus').textContent = `✓ ${f.name} ${(d.size/1024).toFixed(1)} KB`;
+        sysMsg(`📎 Uploaded ${esc(f.name)}`);
+      })
+      .catch(e => document.getElementById('uploadStatus').textContent = `✗ ${e}`);
+  }
+}
+const uz = document.getElementById('uploadZone');
+uz.addEventListener('dragover',e=>{e.preventDefault();uz.style.borderColor='var(--blue)';});
+uz.addEventListener('dragleave',()=>{uz.style.borderColor='';});
+uz.addEventListener('drop',e=>{e.preventDefault();uz.style.borderColor='';handleFiles(e.dataTransfer.files);});
+
+// ─── Commands ───────────────────────────────────────────────────
+function insertCmd(c) { const inp=document.getElementById('input'); inp.value=c; inp.focus(); }
+
+// ─── Status ─────────────────────────────────────────────────────
+function setStatus() {
+  const sDot=document.getElementById('npuStatus');
+  if(S.connected){sDot.className='pill ok';sDot.innerHTML='<span class="dot"></span>Live';}
+  else{sDot.className='pill warn';sDot.innerHTML='<span class="dot"></span>Offline';}
+}
+async function check() {
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    document.getElementById('sNpu').textContent = d.status?.fused_engine?.ok ? '✅' : '⬜';
+    document.getElementById('sGpu').textContent = d.status?.flm_npu?.ok ? '✅' : '⬜';
+    document.getElementById('sTts').textContent = d.status?.tts?.ok ? '✅' : '⬜';
+    document.getElementById('sModel').textContent = d.model||'—';
+  } catch(_) {}
+}
+setInterval(check, 15000);
+
+// ─── Markdown (console-style) ───────────────────────────────────
+function md(t) {
+  if(!t) return '';
+  let h = esc(t);
+  h = h.replace(/```(\w*)\n?([\s\S]*?)```/g,
+    (_,l,c) => `<pre><code class="language-${l}">${esc(c.trim())}</code></pre>`);
+  h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
+  h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  h = h.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  h = h.replace(/^- (.+)$/gm, '<span style="display:block;padding-left:16px;position:relative;">&bull; $1</span>');
+  h = h.replace(/\n/g, '<br>');
+  return h;
+}
+function esc(t) {
+  const d = document.createElement('div');
+  d.textContent = t;
+  return d.innerHTML;
+}
+function scroll() {
+  const c = document.getElementById('messages');
+  c.scrollTop = c.scrollHeight;
+}
+
+// ─── Input auto-resize ──────────────────────────────────────────
+document.getElementById('input').addEventListener('input', function() {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 150) + 'px';
+});
+
+// ─── Init ───────────────────────────────────────────────────────
+connect();
+check();
+sysMsg('✦ JARVIS — 1bit.systems <span style="color:var(--dim);">| private AI on NPU+GPU+CPU</span>');
+sysMsg('🎤 Click the mic or press Record to speak');
+</script>
+</body>
+</html>

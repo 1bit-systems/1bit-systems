@@ -1,0 +1,13 @@
+# Runtime data
+data/knowledge/*
+!data/knowledge/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+venv/
+*.egg-info/
+
+# Logs
+*.log
+/tmp/
