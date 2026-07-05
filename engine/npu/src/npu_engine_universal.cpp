@@ -177,10 +177,10 @@ int main(int argc,char**argv){
     std::vector<std::vector<float>> in_n(NC,std::vector<float>(H)),pa_n(NC,std::vector<float>(H)),qn_w(NC,std::vector<float>(HD)),kn_w(NC,std::vector<float>(HD));
     std::vector<float> fin_v(H);
     for(int l=0;l<NC;l++){auto iw=(const uint16_t*)(md+df+in_off[l]),pw=(const uint16_t*)(md+df+pa_off[l]);
-        for(int i=0;i<H;i++){in_n[l][i]=bf16g(iw[i]);pa_n[l][i]=bf16g(pw[i]);}
+        for(int i=0;i<H;i++){in_n[l][i]=std::min(2.0f,std::max(-2.0f,bf16g(iw[i])));pa_n[l][i]=std::min(2.0f,std::max(-2.0f,bf16g(pw[i])));}
         if(cfg.has_q_norm&&qn_off[l]){auto qq=(const uint16_t*)(md+df+qn_off[l]);for(int i=0;i<HD;i++)qn_w[l][i]=bf16g(qq[i]);}
         if(cfg.has_k_norm&&kn_off[l]){auto kk=(const uint16_t*)(md+df+kn_off[l]);for(int i=0;i<HD;i++)kn_w[l][i]=bf16g(kk[i]);}}
-    {auto fw=(const uint16_t*)(md+df+no);for(int i=0;i<H;i++)fin_v[i]=bf16g(fw[i]);}
+    {auto fw=(const uint16_t*)(md+df+no);for(int i=0;i<H;i++)fin_v[i]=std::min(2.0f,std::max(-2.0f,bf16g(fw[i])));}
 
     // I8 tile rows
     auto gi8=[&](const char*k)->int{int r=0;find_tensor_info(js,jl,k,&r);return r;};
@@ -268,7 +268,7 @@ int main(int argc,char**argv){
         if(pt_vec.empty()){ fprintf(stderr,"Empty input token file: %s\n",input_tok_file); return 1; }
         if((int)pt_vec.size() > 4095) pt_vec.resize(4095);
     }else{
-        pt_vec={151643,872,198,11852,151644,198,151643,77091,198};
+        pt_vec={151644,872,198,13048,151645,198,151644,77091,198}; // "<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n"
     }
     int npt=(int)pt_vec.size(); if(npt<1)npt=1;
     if(input_tok_file && npt > XM) npt = XM;
