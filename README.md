@@ -15,7 +15,7 @@
 [![Zero Python](https://img.shields.io/badge/deps-0-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
 [![MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/discord-1bit.systems-f00fd2.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
-[![clones:stars](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/traffic-badge.json)](https://github.com/bong-water-water-bong/1bit-systems/graphs/traffic)
+[![clones:stars](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/traffic-badge.json&color=blue)](https://github.com/bong-water-water-bong/1bit-systems/graphs/traffic)
 <br>
 <sub>deb · snap · docker · AUR · homebrew · ollama</sub>
 
