@@ -14,8 +14,9 @@
 [![C++23](https://img.shields.io/badge/runtime-C%2B%2B23-00ff00.svg)](engine/npu/src/npu_engine_all.cpp)
 [![Zero Python](https://img.shields.io/badge/deps-0-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
 [![MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
+[![Discord](https://img.shields.io/badge/discord-1bit.systems-f00fd2.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
 <br>
-<sub>curl · deb · snap · docker · AUR · homebrew · ollama</sub>
+<sub>deb · snap · docker · AUR · homebrew · ollama</sub>
 
 </div>
 
@@ -88,7 +89,7 @@ curl -X POST http://localhost:8081/v1/chat/completions \
 | **Zaya** 🆕 | Radeon 8060S · 32 CUs | Q2_0 | **~18 tok/s** | Zaya (AMD-native) | varies |
 
 **55.7 TFLOPS raw INT8 GEMM** — exceeds AMD's 50 TOPS rating.  
-**5 NPU LLMs + 22 multi-modal models** — auto-detect, zero dependencies.  
+**22 multi-modal + 5 NPU LLMs** — auto-detect, zero dependencies.  
 **24× speedup in one session** — 244→10 ms/tok (v12).  
 
 > ✅ **v12 C++ engine**: 97 tok/s — coherence bug FIXED (root cause: missing AIE micro-tiling in xclbin generator).

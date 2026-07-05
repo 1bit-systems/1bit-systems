@@ -1,12 +1,36 @@
 # CLAUDE.md — 1bit.systems
 
-**50 TOPS INT8 · 94 tok/s NPU (FLM) · C++23 daemon (110 KB). On a consumer laptop.**
+**50 TOPS INT8 · 94 tok/s NPU (FLM) · 22 tok/s GPU. On a consumer laptop.**
 Contact: admin@1bit.systems
 
-**Three inference engines, one chip, ONE cache.** NPU (C++) + GPU (Zig) + CPU (scheduler).
-The H2O KV cache eviction layer is now fused across all three backends:
-the `KvPagePool` scheduler, zero-page remapping, and RadixAttention prefix tree
-are backend-agnostic and shared by NPU, GPU (Vulkan), and GPU (Metal) inference paths.
+**Three inference engines, one chip, ONE cache, ONE serving path.**
+NPU (C++/Zig XRT) + GPU (Zig Vulkan/CUDA/Metal) + CPU (scheduler).
+The H2O KV cache eviction layer and the **FusedEngine** (`engine/fusion/`) unify
+all three inference paths into one shared serving infrastructure.
+
+## Fused Engine (`engine/fusion/`)
+NPU+GPU hybrid inference engine. Dispatches per-layer or per-operation to NPU
+(XRT xclbin INT8 GEMM) or GPU (Vulkan flash attention) through a single API.
+- `engine.zig` — Unified `FusedEngine` wrapping NPU + GPU backends
+- `dispatcher.zig` — Layer-level dispatch policy (8 policies: auto, npu_only,
+  gpu_only, attention_on_npu, ffn_on_npu, qkv_on_npu, layer_by_layer,
+  prefill_npu_decode_gpu)
+- `memory.zig` — Cross-backend memory sharing (dma-buf or staging copy)
+- `interop.zig` — NPU↔GPU KV cache bridge (sync NPU BO↔GPU buffers)
+- `server.zig` — Unified HTTP server (OpenAI-compatible API)
+- `main.zig` — CLI entry point
+
+Build: `cd engine/fusion && zig build -Doptimize=ReleaseFast`
+
+### Dispatch policies (`--policy <name>`):
+| Policy | Attention | FFN | QKV | Use case |
+|--------|-----------|-----|-----|----------|
+| auto | GPU | NPU | NPU | Best throughput (GPU flash attn + NPU INT8 GEMM) |
+| npu_only | NPU | NPU | NPU | NPU-only (for models without GPU flash attn kernels) |
+| gpu_only | GPU | GPU | GPU | GPU-only (fallback when NPU xclbins unavailable) |
+| attention_on_npu | NPU | GPU | GPU | NPU edge_attention kernel + GPU DMMV |
+| ffn_on_npu | GPU | NPU | GPU | GPU flash attn + NPU INT8 GEMM (FFN-heavy models) |
+| prefill_npu_decode_gpu | NPU(prefill) | GPU(decode) | NPU(prefill) | Fast prefill on NPU, batch decode on GPU|
 
 ## Agent Workflow (skills to invoke automatically)
 
@@ -35,6 +59,18 @@ Build: `g++ -std=c++23 -O3 -o npu_engine engine/npu/src/npu_engine_cb.cpp engine
 ## Engine: GPU (`engine/gpu/`)
 Zig inference on Vulkan/CUDA/Metal. GGUF native. Compute shaders.
 
+## NPU+GPU Fusion Status
+- ✅ Unified KV cache scheduler (KvPagePool, H2O eviction, RadixAttention, zero-page)
+- ✅ FusedEngine interface (`engine/fusion/`) — unified NPU+GPU inference
+- ✅ Dispatcher (`engine/fusion/dispatcher.zig`) — 8 dispatch policies
+- ✅ Cross-backend memory (`engine/fusion/memory.zig`) — dma-buf + staging fallback
+- ✅ NPU↔GPU interop (`engine/fusion/interop.zig`) — KV cache sync bridge
+- ✅ Unified HTTP server (`engine/fusion/server.zig`) — OpenAI-compatible API
+- ⬜ Fused prefix tree — RadixAttention shared across NPU+GPU paths
+- ⬜ Dynamic policy switching — Runtime policy change via API
+- ⬜ Auto-tuning — Benchmark each operation and choose fastest backend
+
+
 ## Unified KV Cache Layer (`engine/gpu/src/scheduler/`)
 Backend-agnostic KV cache infrastructure shared across NPU, GPU, and CPU paths:
 - `kv_cache.zig` — H2O eviction: cumulative attention scoring, min-heap eviction, zero-page technique
@@ -46,9 +82,10 @@ Backend-agnostic KV cache infrastructure shared across NPU, GPU, and CPU paths:
 - `request.zig` + `scheduler.zig` — Request lifecycle and continuous batching with page allocation
 
 ## Key facts for agents
-- **NPU+GPU+CPU are now fused** via unified H2O KV cache layer (`scheduler/`).
-  The KvPagePool, zero-page remapping, RadixAttention prefix tree, and eviction
-  policies are backend-agnostic and shared by all three inference paths.
+- **NPU+GPU are now fused** via `engine/fusion/`. The `FusedEngine` wraps NPU
+  (XRT xclbin INT8 GEMM) and GPU (Vulkan flash attention/DMMV) behind a single
+  API with per-layer dispatch. The unified H2O KV cache layer (`scheduler/`)
+  is shared by all three inference paths.
 - NPU2 supports 8+ simultaneous hw_contexts (firmware 1.1.2.65)
 - INT8 xclbins at `/home/bcloud/npu-sandbox/npu-infer/build/int8/`
 - Model at `~/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx`
@@ -66,3 +103,5 @@ Backend-agnostic KV cache infrastructure shared across NPU, GPU, and CPU paths:
 - `/home/bcloud/npu-sandbox/` — NPU experiments
 - `/home/bcloud/torch2aie/` — AMD toolchain
 - `/home/bcloud/zinc/` — Original GPU engine source
+- `/home/bcloud/engine/fusion/` — NPU+GPU fused engine
+- `/home/bcloud/npu-gpu-cpu/` — Shared memory (dma-buf/GTT) experiments + unified daemon

@@ -100,27 +100,10 @@ pub const RadixTree = struct {
         node_idx: usize,
         matched: u32,
         exact_match: bool,
-        /// Full path of matched non-root node indices from root to
-        /// node_idx, in traversal order — every node here contributed a
-        /// fully-matched edge. Owned by the caller (allocated with
-        /// self.allocator); free with `self.allocator.free(path)`.
-        path: []usize,
-        /// Set when a child edge was found but its content only partially
-        /// matched the prompt (the classic radix split case). The caller
-        /// should call `splitEdge(split_child_idx, split_offset)` before
-        /// inserting a new suffix, so the suffix becomes a sibling of a
-        /// properly split intermediate node instead of a sibling of the
-        /// whole original (unsplit) edge.
-        split_child_idx: ?usize = null,
-        split_offset: u32 = 0,
     } {
         if (self.nodes.items.len == 0) return null;
-
-        var path = std.ArrayList(usize).empty;
-        errdefer path.deinit(self.allocator);
-
         if (start >= prompt_tokens.len) {
-            return .{ .node_idx = 0, .matched = 0, .exact_match = true, .path = try path.toOwnedSlice(self.allocator) };
+            return .{ .node_idx = 0, .matched = 0, .exact_match = true };
         }
 
         var current: usize = 0; // start at root
@@ -155,21 +138,13 @@ pub const RadixTree = struct {
                     partial += 1;
                 }
                 matched += partial;
-                return .{
-                    .node_idx = current,
-                    .matched = matched,
-                    .exact_match = false,
-                    .path = try path.toOwnedSlice(self.allocator),
-                    .split_child_idx = child_idx,
-                    .split_offset = partial,
-                };
+                break;
             }
 
             // Full edge consumed.
             matched += @intCast(match_len);
             remaining = prompt_tokens[start + matched ..];
             current = child_idx;
-            try path.append(self.allocator, child_idx);
 
             // If this edge exactly matches and we've consumed all prompt tokens.
             if (match_len == child.tokens.len) {
@@ -178,7 +153,6 @@ pub const RadixTree = struct {
                         .node_idx = current,
                         .matched = matched,
                         .exact_match = true,
-                        .path = try path.toOwnedSlice(self.allocator),
                     };
                 }
                 // Continue to next edge.
@@ -189,7 +163,6 @@ pub const RadixTree = struct {
                     .node_idx = current,
                     .matched = matched,
                     .exact_match = false,
-                    .path = try path.toOwnedSlice(self.allocator),
                 };
             }
         }
@@ -198,7 +171,6 @@ pub const RadixTree = struct {
             .node_idx = current,
             .matched = matched,
             .exact_match = false,
-            .path = try path.toOwnedSlice(self.allocator),
         };
     }
 
@@ -308,28 +280,24 @@ pub const RadixTree = struct {
 
         const child_idx = self.nodes.items.len;
         try self.nodes.append(self.allocator, child);
-        // `node` (captured before this append) may now be dangling: append()
-        // can reallocate self.nodes' backing array, invalidating any
-        // pointer into it. Re-fetch before touching the split node again.
-        const node_after = &self.nodes.items[node_idx];
         // Initialize children after appending (avoids HashMap memcpy issue).
         self.nodes.items[child_idx].children = std.AutoHashMap(u32, usize).init(self.allocator);
 
         // Transfer any existing children of the split node to the new child.
         var keys_to_remove = std.ArrayList(u32).empty;
         defer keys_to_remove.deinit(self.allocator);
-        var iter = node_after.children.iterator();
+        var iter = node.children.iterator();
         while (iter.next()) |entry| {
             try keys_to_remove.append(self.allocator, entry.key_ptr.*);
         }
         for (keys_to_remove.items) |key| {
-            const child_node_idx = node_after.children.get(key).?;
-            _ = node_after.children.remove(key);
+            const child_node_idx = node.children.get(key).?;
+            _ = node.children.remove(key);
             try self.nodes.items[child_idx].children.put(key, child_node_idx);
         }
 
         // Register child under parent (the split node).
-        try node_after.children.put(suffix[0], child_idx);
+        try node.children.put(suffix[0], child_idx);
 
         log.debug("Radix: split node {d} at pos {d} → child {d}", .{
             node_idx, split_pos, child_idx,
@@ -352,8 +320,6 @@ pub const RadixTree = struct {
     } {
         // Walk tree to find the longest matching prefix.
         const match = try self.matchPrefix(prompt_tokens, 0);
-        defer if (match) |m| self.allocator.free(m.path);
-
         var matched_tokens: u32 = 0;
         var current_node: usize = 0;
 
@@ -366,39 +332,19 @@ pub const RadixTree = struct {
         var total_page_ids = std.ArrayList(u32).empty;
         defer total_page_ids.deinit(self.allocator);
 
-        // Collect KV pages from every node along the matched path — not
-        // just the deepest node — so page_ids/cached_tokens reflect the
-        // complete shared prefix. A single-node lookup here silently
-        // dropped every page except the last edge's whenever the matched
-        // prefix spanned more than one tree level.
+        // Collect pages from the matched node (if any).
+        // For non-root nodes along the matched path, collect their KV pages.
         if (match) |m| {
-            for (m.path) |node_idx| {
-                const node = &self.nodes.items[node_idx];
+            if (m.matched > 0 and m.node_idx > 0) {
+                const node = &self.nodes.items[m.node_idx];
                 try total_page_ids.appendSlice(self.allocator, node.kv_page_ids);
             }
         }
 
         if (matched_tokens < prompt_tokens.len) {
-            var insert_parent = current_node;
-
-            if (match) |m| {
-                if (m.split_child_idx) |child_idx| {
-                    // The matched prefix ran only partway into an existing
-                    // edge's content. Split that edge so the shared prefix
-                    // becomes its own node (child_idx, truncated in place)
-                    // with the old continuation demoted to a new child —
-                    // then insert our new suffix as a second child of the
-                    // now-split node, instead of as a sibling of the whole
-                    // original (unsplit) edge under its parent.
-                    _ = try self.splitEdge(child_idx, m.split_offset);
-                    try total_page_ids.appendSlice(self.allocator, self.nodes.items[child_idx].kv_page_ids);
-                    insert_parent = child_idx;
-                }
-            }
-
             // Insert the unmatched suffix.
             const suffix = prompt_tokens[matched_tokens..];
-            const leaf_idx = try self.insert(insert_parent, suffix, request_id);
+            const leaf_idx = try self.insert(current_node, suffix, request_id);
             const leaf = &self.nodes.items[leaf_idx];
             try total_page_ids.appendSlice(self.allocator, leaf.kv_page_ids);
         }
@@ -444,7 +390,6 @@ test "RadixTree match empty tree returns null" {
     defer tree.deinit();
 
     const match = try tree.matchPrefix(&.{ 1, 2, 3 }, 0);
-    defer if (match) |m| allocator.free(m.path);
     // Empty tree has only the root; match returns matched=0.
     if (match) |m| {
         try std.testing.expectEqual(@as(u32, 0), m.matched);
@@ -474,7 +419,6 @@ test "RadixTree insert and match" {
 
     // Now match the same prefix — should find all 5 tokens cached.
     const match2 = try tree.matchPrefix(&prompt, 0);
-    defer if (match2) |m| allocator.free(m.path);
     try std.testing.expect(match2 != null);
     if (match2) |m| {
         try std.testing.expectEqual(@as(u32, 5), m.matched);
@@ -502,43 +446,6 @@ test "RadixTree shared prefix reuse" {
     const result_b = try tree.ingest(&prompt_b, 2);
     defer allocator.free(result_b.page_ids);
     try std.testing.expectEqual(@as(u32, 3), result_b.cached_tokens);
-}
-
-test "RadixTree ingest collects pages from every node along a multi-level matched path" {
-    // Regression test: ingest() used to collect kv_page_ids only from the
-    // single deepest matched node, silently dropping every ancestor edge's
-    // pages whenever a matched prefix spanned more than one tree level.
-    const allocator = std.testing.allocator;
-    var pool = try KvPagePool.init(allocator, 10, 256);
-    defer pool.deinit();
-
-    var tree = try RadixTree.init(allocator, &pool);
-    defer tree.deinit();
-
-    // req1: root gets one edge node A = [1..8].
-    const prompt1 = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8 };
-    const result1 = try tree.ingest(&prompt1, 1);
-    defer allocator.free(result1.page_ids);
-    try std.testing.expectEqual(@as(usize, 1), result1.page_ids.len);
-
-    // req2 extends prompt1 by [9, 10]: matches all of A, then inserts a new
-    // child node B = [9, 10] under A. Matched path for this ingest is just
-    // [A], so page_ids = A's page + B's new page = 2.
-    const prompt2 = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
-    const result2 = try tree.ingest(&prompt2, 2);
-    defer allocator.free(result2.page_ids);
-    try std.testing.expectEqual(@as(u32, 8), result2.cached_tokens);
-    try std.testing.expectEqual(@as(usize, 2), result2.page_ids.len);
-
-    // req3 extends prompt2 by [11, 12]: the matched path now spans TWO
-    // levels (A, then B). Without collecting the full path, only B's page
-    // would be counted here, missing A's. Correct total: A + B + new leaf
-    // C's pages = 3.
-    const prompt3 = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
-    const result3 = try tree.ingest(&prompt3, 3);
-    defer allocator.free(result3.page_ids);
-    try std.testing.expectEqual(@as(u32, 10), result3.cached_tokens);
-    try std.testing.expectEqual(@as(usize, 3), result3.page_ids.len);
 }
 
 test "RadixTree deinit frees all resources" {

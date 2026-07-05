@@ -1,20 +1,46 @@
-# Engine Status — July 5, 2026
+# Engine Status
 
-## Production: C++23 Daemon → FLM Proxy (94 tok/s) ✅
+## Production: FLM Proxy (94 tok/s) ✅
 
-`npu-gpu-cpud` — C++23 zero-dep binary (110 KB). Proxies to FLM on port 52625.
+The NPU daemon proxies to FastFlowLM for production inference. Coherent output,
+OpenAI-compatible API, used by `1bit chat` and all integration clients.
 
-- **Port**: 9090 | **Model**: Qwen3-0.6B | **TTFT**: 529 ms | **Decode**: 94.4 tok/s
-- **Output**: Verified coherent | **Zero Python** in runtime path
+- **Port**: 9090
+- **Models**: Qwen3-0.6B (turbo)
+- **Status**: Verified, production stable
 
-## C++ Universal Engine (28 tok/s) ✅
+## C++ v12 Engine (97 tok/s) ⚠️ — Output Incoherent
 
-Auto-detects 5 models (NPU) + 22 multi-modal models. Coherence bug **FIXED** — root cause was missing AIE micro-tiling in xclbin generator (see [GEMM-KERNEL-CORRECTNESS-CONFIRMED.md](../docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md)). After
-8 rounds of host-side math fixes. The fused xclbin path is validated correct
-(max_abs=0.0078 vs CPU oracle) but runs at 4 tok/s.
+The open-source C++ engine achieves 97 tok/s decode on Qwen3-0.6B, but has
+**never produced coherent output**. All benchmarks measure throughput only —
+correctness has not been validated.
 
-## GPU ZINC (22 tok/s) ✅ | GPU llama.cpp 1-bit (70-381 tok/s) ✅
+### Known issues
+
+1. **Q4NX weight format**: Dequantization produces incorrect values. The
+   `dequant_q4nx.c` routine needs validation against FLM's reference output.
+2. **Attention path**: CPU OpenMP attention works but numerical accuracy vs
+   FLM's fused attention has not been verified.
+3. **LM head**: The final projection layer may introduce errors that compound
+   across tokens.
+
+### Fix history
+
+- 3 bugs found and fixed (details in [journey.md](journey.md#update-25))
+- Output still incoherent after all fixes
+- Root cause likely deeper — weight format or numerical path
+
+### Next steps
+
+- Lock-step comparison: run v12 and FLM side-by-side, dump activations per layer
+- Compare dequantized weights against known-good reference
+- Fused xclbin port (eliminates per-layer ioctl) may also fix correctness by
+  matching FLM's dispatch path
+
+## GPU ZINC Engine (22 tok/s) ✅
+
+Vulkan compute shaders via ZINC. Verified coherent output on Bonsai-1.7B-F16.
 
 ---
 
-*BENCHMARKS.md for full numbers. Daemon: `daemon/npu-gpu-cpud.cpp`.*
+*Last updated: July 4, 2026*

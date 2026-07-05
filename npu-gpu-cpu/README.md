@@ -30,6 +30,29 @@ No Python. No pip. No Docker. No MLIR-AIE toolchain. No torch. Just g++ and run.
 | Llama-3.1-8B | 4096 | 14336 | 5.7 GB | 100 ms/tok | 10 | 32/32 | ✅ |
 | Qwen3-8B | 4096 | 12288 | 6.0 GB | 127 ms/tok | 8 | 36/36 | ✅ |
 
+### Fused NPU+GPU Engine (`engine/fusion/`)
+
+The fused engine (`engine/fusion/`) wraps both NPU (XRT xclbin INT8 GEMM) and GPU
+(Vulkan flash attention) behind a single API with per-layer dispatch policies.
+
+**Build:** `cd engine/fusion && zig build -Doptimize=ReleaseFast`
+**Run:** `./zig-out/bin/fused-engine --model <model.q4nx> --port 8080 --policy auto`
+
+### Dispatch Policies
+
+| --policy | Description |
+|----------|-------------|
+| auto | FFN+QKV→NPU, Attention→GPU (best throughput) |
+| npu_only | All layers → NPU INT8 GEMM |
+| gpu_only | All layers → GPU flash attention |
+| attention_on_npu | Attention→NPU edge_attention, FFN→GPU DMMV |
+| ffn_on_npu | FFN→NPU INT8 GEMM, Attention→GPU flash attn |
+| prefill_npu_decode_gpu | Fast prefill on NPU, batch decode on GPU |
+
+The daemon (`npu-gpu-cpud.py`) auto-routes 2B-8B models to the fused engine when
+`fused_backend.py` is available. Prefix model name with `fused://` to force
+fused routing.
+
 ### Engine Evolution (Qwen3-0.6B)
 ```
 v3  (Jul 1): 244 ms/tok   baseline                      1.0×

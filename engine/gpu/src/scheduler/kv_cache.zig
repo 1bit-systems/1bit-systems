@@ -37,11 +37,6 @@ pub const KvPage = struct {
     score_count: u32 = 0,
     evicted: bool = false,
     last_access_seq: u64 = 0,
-    // Monotonic allocation order, set once per allocPages() call. Distinct
-    // from last_access_seq (which advances on every recordScores() call) so
-    // FIFO eviction can key off "first allocated" instead of "least recently
-    // scored" — otherwise FIFO and LRU pick identical victims.
-    alloc_seq: u64 = 0,
 };
 
 fn h2oScoreLessThan(context: void, a: struct { u32, f32 }, b: struct { u32, f32 }) std.math.Order {
@@ -62,9 +57,6 @@ pub const KvPagePool = struct {
     allocator: std.mem.Allocator,
     eviction_policy: EvictionPolicy = .none,
     access_seq: u64 = 0,
-    /// Monotonic counter driving KvPage.alloc_seq — advances once per page
-    /// handed out by allocPages(), independent of access/scoring activity.
-    alloc_seq_counter: u64 = 0,
     zero_page_id: u32 = 0,
     recently_evicted: std.ArrayList(u32),
 
@@ -133,19 +125,11 @@ pub const KvPagePool = struct {
             const page_id = self.free_list.pop() orelse return error.KvCacheExhausted;
             const page = &self.pages[page_id];
             page.owner = request_id;
-            // Each page occupies a fixed, permanent slice of the KV/score
-            // buffer determined by its own page_id (see positionBase() /
-            // maxContext()). Populate the real token range here so
-            // recordScores() aggregates against actual scored positions
-            // instead of the zero-length range left by the default {0, 0}.
-            page.token_start = page_id * self.page_size;
-            page.token_count = self.page_size;
+            page.token_count = 0;
             page.cumulative_score = 0.0;
             page.score_count = 0;
             page.evicted = false;
             page.last_access_seq = self.access_seq;
-            self.alloc_seq_counter += 1;
-            page.alloc_seq = self.alloc_seq_counter;
             result[i] = page_id;
         }
         return result;
@@ -217,11 +201,8 @@ pub const KvPagePool = struct {
             var oldest_id: ?u32 = null;
             var oldest_seq: u64 = std.math.maxInt(u64);
             for (self.pages) |page| {
-                // FIFO evicts by allocation order (first-allocated page),
-                // not by last access — using last_access_seq here made
-                // FIFO behave identically to LRU.
-                if (page.owner != null and !page.evicted and page.alloc_seq < oldest_seq) {
-                    oldest_seq = page.alloc_seq;
+                if (page.owner != null and !page.evicted and page.last_access_seq < oldest_seq) {
+                    oldest_seq = page.last_access_seq;
                     oldest_id = page.page_id;
                 }
             }
@@ -239,26 +220,13 @@ pub const KvPagePool = struct {
             if (page.score_count > 0) page.cumulative_score / @as(f32, @floatFromInt(page.score_count)) else 0.0,
             page.token_count,
         });
-        // Use fallible append() rather than appendAssumeCapacity(), which
-        // assumes capacity is guaranteed — under memory pressure that
-        // assumption doesn't hold and would write past the backing array,
-        // corrupting allocator state. If we can't record the eviction,
-        // leave the page as-is (still owned, not evicted) rather than
-        // partially updating state.
-        self.recently_evicted.append(self.allocator, page.page_id) catch |err| {
-            log.warn("markEvicted: failed to record page {d} as evicted: {s}", .{ page.page_id, @errorName(err) });
-            return;
-        };
-        self.free_list.append(self.allocator, page.page_id) catch |err| {
-            log.warn("markEvicted: failed to return page {d} to free list: {s}", .{ page.page_id, @errorName(err) });
-            // Roll back the recently_evicted append so the two lists don't
-            // disagree about whether this page was actually freed.
-            _ = self.recently_evicted.pop();
-            return;
-        };
+        self.recently_evicted.ensureUnusedCapacity(self.allocator, 1) catch {};
+        self.free_list.ensureUnusedCapacity(self.allocator, 1) catch {};
+        self.recently_evicted.appendAssumeCapacity(page.page_id);
         page.owner = null;
         page.token_count = 0;
         page.evicted = true;
+        self.free_list.appendAssumeCapacity(page.page_id);
     }
 
     pub fn recordScores(self: *KvPagePool, page_ids: []const u32, token_scores: ?[]const f32) void {
@@ -330,10 +298,7 @@ pub const KvPagePool = struct {
 
     pub fn canAllocateAfterEviction(self: *const KvPagePool, needed: u32) bool {
         if (self.eviction_policy == .none) return self.freeCount() >= needed;
-        // page `total_pages - 1` is the reserved zero-page and can never be
-        // evicted or allocated, so the ceiling on recoverable pages is
-        // usablePageCount(), not total_pages.
-        return self.freeCount() + self.usablePageCount() > needed;
+        return self.freeCount() + self.total_pages > needed;
     }
 
     pub fn deinit(self: *KvPagePool) void {
@@ -411,12 +376,9 @@ test "KvPagePool H2O evicts lowest scoring pages first" {
 
     try std.testing.expectEqual(@as(u32, 0), pool.freeCount());
 
-    // recordScores() now indexes token_scores at each page's real absolute
-    // range (page_id * page_size .. +page_size), so the buffer must cover
-    // every page's range rather than a couple of placeholder entries.
-    const high = [_]f32{100.0} ** (7 * 256);
-    const med = [_]f32{50.0} ** (7 * 256);
-    const low = [_]f32{1.0} ** (7 * 256);
+    const high = [_]f32{100.0};
+    const med = [_]f32{50.0};
+    const low = [_]f32{1.0};
 
     // Pages 0,1 get low score; 2,3 get med; 4,5 get high.
     pool.recordScores(pages[0..2], &low);

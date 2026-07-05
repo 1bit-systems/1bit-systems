@@ -1,27 +1,20 @@
 # Roadmap
 
-## ✅ Phase 1: INT8 Inference (complete)
+## Phase 1: INT8 Inference ⚠️ (dispatch speed verified, output coherence in progress)
 
 - [x] INT8 K-interleaving fix (dataReuse on ObjectFifo)
 - [x] 5 INT8 xclbins built and NPU-verified (QKV, O, GU, D, KV)
 - [x] Per-tensor symmetric INT8 quantization
-- [x] 8-live contexts with near-linear scaling (7.9× at 8 ctx)
+- [x] 4-live contexts (no swapping)
 - [x] Pre-loaded per-layer weight BOs
-- [x] NPU attention kernel compiled and verified
-- [x] **Coherence bug FIXED** — AIE micro-tiling root cause resolved
-- [x] 244→10 ms/tok (24× speedup) on Qwen3-0.6B
-- [x] Batched prefill, HTTP API, landing page, packaging
+- [x] NPU attention kernel compiled
+- [x] 244 ms/tok (4.1 tok/s) on Qwen3-0.6B
+- [x] Batched prefill: 20 ms/tok (13.5× faster)
+- [x] HTTP API server (OpenAI-compatible /v1/chat/completions)
+- [x] Landing page + live dashboard + PR-Agent
+- [x] Packaging: deb, snap, tarball, docker, ollama, AUR
 
-## ✅ Phase 2: Multi-Modal Engine (complete)
-
-- [x] Model-agnostic AgnosticPipeline — 22 models auto-detected
-- [x] 14 video models (Wan2.2, CogVideoX, HunyuanVideo, LTX, etc.)
-- [x] 5 image models (Flux, Flux Schnell, Flux.2, SDXL, SD3.5)
-- [x] 3 audio models (Stable Audio Open, AudioLDM2, LongCat-AudioDiT)
-- [x] Unified LoRA loading across all backends
-- [x] Single CLI: `--model` accepts any HF ID or alias
-
-## 📋 Phase 3: Speculative Decode
+## Phase 2: Speculative Decode 📋
 
 - [ ] Draft model selection (KQV-only or 1-layer variant of Qwen3-0.6B)
 - [ ] Draft loop: greedy-predict N tokens, queue for batch verify
@@ -30,45 +23,39 @@
 - [ ] Target: <50 ms/tok effective throughput
 - [ ] Reuse DeepSpec draft training pipeline at `/home/bcloud/DeepSpec/`
 
-### How speculative decoding works
+### How speculative decoding works for 1bit.systems
 
 ```
 Current:   token1(244ms) → token2(244ms) → token3(244ms) = 732ms for 3
 Spec:      draft 4 tokens → batch verify(300ms) ≈ 75ms/tok effective
 ```
 
-Reuses existing INT8 GEMMs at M=N. No new xclbins needed.
+The draft model runs cheaply (greedy single-token), then one batched INT8 forward
+pass verifies all candidates. High acceptance rates expected because the draft model
+is the same architecture. No new xclbins needed — reuses existing INT8 GEMMs at M=N.
 
-## ✅ Phase 4: 1-bit / BitNet (pipeline ready)
+## Phase 3: GGUF + Model Agnostic 📋
 
-- [x] Q2_0 → INT8 Q4NX converter (`tools/q2_0_to_q4nx.py`)
-- [x] Ternary MLIR generator (`engine/npu/kernel/n1_core_ternary.py`)
-- [x] Ternary xclbin build script (`engine/npu/build/build_ternary_xclbin.sh`)
-- [x] **279 tok/s GPU ternary** validated (Q2_0, Vulkan)
-- [x] GPU→NPU bridge: ternary weights → INT8 → existing xclbin pipeline
-- [ ] **Native ternary AIE kernel** — 2-bit packed ternary tile ops (4× density)
-- [ ] Native ternary xclbin — replace `mm_32x64x128.o` with `mm_ternary_32x64x128.o`
-- [ ] Target: <25 ms/tok on Strix Halo NPU (400+ tok/s est.)
+- [ ] GGUF Q8_0 model loading (eliminate Q4NX dependency)
+- [ ] Direct Q8_0 → INT8 BO packing (no intermediate dequant)
+- [ ] Multi-model support via xclbin parameterization
+- [ ] NPU attention dispatch for high-context (>32 tokens)
 
-## ✅ Phase 5: Productionization
+## Phase 4: 1-bit / BitNet 🔮
+
+- [ ] BitNet b1.58 model loading (ternary weights)
+- [ ] Ternary GEMV kernel — replaces INT8 GEMM for 1-bit
+- [ ] Hybrid precision: attention in BF16, weights in ternary
+- [ ] Target: <25 ms/tok on Strix Halo NPU
+- [ ] Bonsai-1.7B IQ1_S: 281 tok/s (historical, llama.cpp) — needs ZINC 1-bit support
+
+## Phase 5: Productionization ✅ (mostly done)
 
 - [x] HTTP API server (OpenAI-compatible, pure C++ sockets)
 - [x] Ollama Modelfile
 - [x] OpenAI SDK / LangChain / Open WebUI compatibility
-- [x] Docker image
+- [x] Docker image (Dockerfile ready)
 - [x] AUR package (PKGBUILD ready)
-- [x] Snap package (built)
-- [x] Debian package (built)
-
-## 🔮 Phase 6: NPU Native Ternary Kernel
-
-The last frontier. The Chess C++ kernel for 2-bit packed ternary weights on the AIE array.
-Requires:
-
-1. Write `mm_ternary_32x64x128.cpp` with ternary tile ops
-2. Compile: `xchesscc mm_ternary_32x64x128.cpp -o mm_ternary_32x64x128.o`
-3. Reference in `n1_core_ternary.py` (replace `mm_32x64x128.o`)
-4. Build xclbin: `bash engine/npu/build/build_ternary_xclbin.sh`
-5. Benchmark: expected 400+ tok/s on Strix Halo NPU
-
-Toolchain ready at `/home/bcloud/torch2aie/toolchain/`. All pipeline pieces in place.
+- [x] Snap package (built, 36 KB)
+- [x] Debian package (built, 35 KB)
+- [ ] Windows support (via AMD's XDNA 2 driver)
