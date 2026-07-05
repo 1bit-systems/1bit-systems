@@ -151,8 +151,12 @@ faster than venture capital.
 │   │   │   ├── npu_engine_profile.cpp  # Per-layer μs-accurate profiler
 │   │   │   ├── npu_engine_cb.cpp       # Continuous-batch baseline
 │   │   │   └── dequant_q4nx.c          # Q4NX weight dequantizer
-│   │   ├── kernel/edge_attention.cc    # NPU attention kernel (Chess C++)
-│   │   ├── build/                      # Pre-compiled objects + binaries
+│   │   ├── kernel/
+│   │   │   ├── edge_attention.cc       # NPU attention kernel (Chess C++)
+│   │   │   └── n1_core_ternary.py      # Ternary xclbin MLIR generator
+│   │   ├── build/
+│   │   │   ├── build_ternary_xclbin.sh  # Build ternary xclbin
+│   │   │   └── env.sh                   # Toolchain setup
 │   │   ├── BENCHMARKS.md               # Benchmark source of truth
 │   │   └── README.md
 │   └── gpu/                # Zig engine — GPU (Vulkan/CUDA/Metal)
@@ -164,8 +168,9 @@ faster than venture capital.
 │   └── assets/brand-lockup.svg
 ├── 1bit-site/              # Deploy mirror (synced from site/)
 ├── tools/
-│   └── video-lora/         # Multi-modal gen w/ LoRA (22 models, 3 modalities)
-│                           # + standalone Vulkan compute backend (Zig)
+│   ├── video-lora/         # Multi-modal gen w/ LoRA (22 models, 3 modalities)
+│   │                       # + standalone Vulkan compute backend (Zig)
+│   └── q2_0_to_q4nx.py     # Q2_0 ternary → INT8 Q4NX converter
 ├── docs/                   # Architecture, build guide, roadmap, journey
 ├── packaging/              # deb, snap, tarball, docker, ollama, AUR
 └── .github/workflows/      # CI benchmark + deploy + PR agent + video-lora CI
