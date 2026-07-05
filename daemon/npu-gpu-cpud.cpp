@@ -32,6 +32,8 @@
 #include <functional>
 #include <memory>
 #include <signal.h>
+#include <poll.h>
+#include <arpa/inet.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -423,6 +425,27 @@ struct FLMBackend {
     }
 
     bool start() {
+        // Quick check: is FLM already listening?
+        int sock = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+        if (sock >= 0) {
+            struct sockaddr_in addr;
+            memset(&addr, 0, sizeof(addr));
+            addr.sin_family = AF_INET;
+            addr.sin_port = htons(port);
+            addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            connect(sock, (struct sockaddr*)&addr, sizeof(addr));
+            struct pollfd pfd = {sock, POLLOUT, 0};
+            int pr = poll(&pfd, 1, 500); // 500ms timeout
+            if (pr > 0 && (pfd.revents & POLLOUT)) {
+                int err = 0; socklen_t elen = sizeof(err);
+                if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &err, &elen) == 0 && err == 0) {
+                    close(sock);
+                    printf("  FLM NPU backend already running on port %d\n", port);
+                    return true;
+                }
+            }
+            close(sock);
+        }
         printf("  Starting FLM NPU backend on port %d (pmode=%s)...\n", port, pmode.c_str());
         std::vector<std::string> cmd = {
             flm_bin, "serve", model,
