@@ -4,13 +4,13 @@
 
 ## Title
 
-> Zero Python, 120KB binary, 94 tok/s on a laptop NPU — 1bit.systems is open source
+> Zero Python, 74KB binary, 94 tok/s on a laptop NPU — 1bit.systems is open source
 
 ## Body
 
 We've been building **1bit.systems** — an open-source (MIT) inference engine for AMD Strix Halo laptops.
 
-What it does: one 120KB C++ binary auto-detects 5 models and runs at **94 tok/s** on the built-in XDNA 2 NPU. Zero Python, zero dependencies, single g++ command to build.
+What it does: one 74KB C++ binary auto-detects 5 models and runs at **94 tok/s** on the built-in XDNA 2 NPU. Zero Python, zero dependencies, single g++ command to build.
 
 **[GitHub](https://github.com/bong-water-water-bong/1bit-systems) · [Install](https://1bit.systems/) · [Benchmarks](https://1bit.systems/bench)**
 
