@@ -399,6 +399,94 @@
   </div>
 </section>
 
+<section id="models" class="block">
+  <span class="eyebrow">Model Inventory</span>
+  <h2 style="margin:16px 0 8px;">75+ models across 6 inference backends.</h2>
+  <p class="lead" style="margin-bottom:24px;">Every model the engine can serve — NPU, GPU, and multi-modal.</p>
+
+  <div style="margin-top:28px;">
+    <div class="card" style="padding:20px;margin-bottom:20px;">
+      <span class="tag npu" style="background:var(--pink);margin-bottom:12px;display:inline-block;">NPU · FLM</span>
+      <h3 style="font-size:18px;font-weight:800;color:var(--text);margin-bottom:8px;">38 models on XDNA 2 NPU</h3>
+      <div style="font-size:11px;color:var(--dim);line-height:1.7;">
+        <strong style="color:var(--muted);">Families:</strong> Qwen3 (0.6B–8B), Qwen3.5 (0.8B–9B, vision), Qwen2.5 (3B, VL 3B), Llama 3.1/3.2 (1B–8B),
+        Gemma3/4 (1B–4B, vision+audio+ASR), DeepSeek-R1 (8B), Phi-4 Mini (4B), GPT-OSS (20B),
+        LFM2/2.5 (1.2B–2.6B), Nanbeige (3B), Embed-Gemma (300M), Whisper-V3 (1B, ASR),
+        Med-Gemma (4B), Translate-Gemma (4B)
+      </div>
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+        <span class="pill ok" style="font-size:10px;"><span class="dot"></span>94 tok/s</span>
+        <span class="pill info" style="font-size:10px;"><span class="dot"></span>chat</span>
+        <span class="pill info" style="font-size:10px;"><span class="dot"></span>vision</span>
+        <span class="pill info" style="font-size:10px;"><span class="dot"></span>ASR</span>
+        <span class="pill info" style="font-size:10px;"><span class="dot"></span>embeddings</span>
+        <span class="pill info" style="font-size:10px;"><span class="dot"></span>reasoning</span>
+        <span class="pill info" style="font-size:10px;"><span class="dot"></span>tool-calling</span>
+      </div>
+    </div>
+
+    <div class="card" style="padding:20px;margin-bottom:20px;">
+      <span class="tag npu" style="background:var(--green);margin-bottom:12px;display:inline-block;">GPU · 1-bit / Ternary</span>
+      <h3 style="font-size:18px;font-weight:800;color:var(--text);margin-bottom:8px;">7 models at ≤1.5625 bpw</h3>
+      <div style="font-size:11px;color:var(--dim);line-height:1.7;">
+        <strong style="color:var(--muted);">381 → 70 tok/s:</strong> Qwen2 0.5B (IQ1_S, 296 MB, 381 tok/s) · Qwen3.5-0.8B (Q1_0, 268 MB, 312 tok/s) ·
+        Hy-MT2 1.8B (STQ1_0 ternary, 441 MB, 267 tok/s) · gemma-2-2b (IQ1_S, 788 MB, 158 tok/s) ·
+        gemma3 4B (IQ1_S, 1.05 GB, 122 tok/s) · Nemo 8B (IQ1_S, 1.97 GB, 79 tok/s) ·
+        Qwen3.5-9B (Q1_0, 1.82 GB, 70 tok/s)
+      </div>
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+        <span class="pill ok" style="font-size:10px;"><span class="dot"></span>381 tok/s peak</span>
+        <span class="pill info" style="font-size:10px;"><span class="dot"></span>Vulkan backend</span>
+      </div>
+    </div>
+
+    <div class="card" style="padding:20px;margin-bottom:20px;">
+      <span class="tag npu" style="background:var(--blue);margin-bottom:12px;display:inline-block;">Multi-modal · 22 models</span>
+      <h3 style="font-size:18px;font-weight:800;color:var(--text);margin-bottom:8px;">Video · Image · Audio generation</h3>
+      <div style="font-size:11px;color:var(--dim);line-height:1.7;">
+        <strong style="color:var(--muted);">Video (14):</strong> Wan2.2 · LTX-Video · LTX2 · CogVideoX · HunyuanVideo · AnimateDiff ·
+        Sana Video · Mochi · EasyAnimate · Cosmos · Allegro · Motif Video · ConsisID · SkyReels V2
+      </div>
+      <div style="font-size:11px;color:var(--dim);line-height:1.7;margin-top:4px;">
+        <strong style="color:var(--muted);">Audio (3):</strong> Stable Audio Open · AudioLDM2 · LongCat-AudioDiT
+      </div>
+      <div style="font-size:11px;color:var(--dim);line-height:1.7;margin-top:4px;">
+        <strong style="color:var(--muted);">Image (5):</strong> Flux.1 · Flux Schnell · Flux.2 · SDXL · SD3.5
+      </div>
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+        <span class="pill ok" style="font-size:10px;"><span class="dot"></span>all LoRA-compatible</span>
+        <span class="pill info" style="font-size:10px;"><span class="dot"></span>auto-detect pipeline</span>
+      </div>
+    </div>
+
+    <div class="card" style="padding:20px;margin-bottom:20px;">
+      <span class="tag npu" style="background:var(--pink);margin-bottom:12px;display:inline-block;">NPU Custom · C++23</span>
+      <h3 style="font-size:18px;font-weight:800;color:var(--text);margin-bottom:8px;">4 custom engines (INT8 xclbins)</h3>
+      <div style="font-size:11px;color:var(--dim);line-height:1.7;">
+        <strong style="color:var(--muted);">ALL:</strong> 5 NPU LLMs, 28 tok/s ·
+        <strong style="color:var(--muted);">v12:</strong> Qwen3-0.6B, 97 tok/s ·
+        <strong style="color:var(--muted);">BitNet:</strong> b1.58-2B-4T ternary, ~1 tok/s ·
+        <strong style="color:var(--muted);">Spec Decode:</strong> Eagle3 draft, ~100+ tok/s
+      </div>
+    </div>
+
+    <div class="card" style="padding:20px;margin-bottom:20px;">
+      <span class="tag npu" style="background:var(--green);margin-bottom:12px;display:inline-block;">GPU · F16 Standard</span>
+      <h3 style="font-size:18px;font-weight:800;color:var(--text);margin-bottom:8px;">Full-precision & AMD-native</h3>
+      <div style="font-size:11px;color:var(--dim);line-height:1.7;">
+        <strong style="color:var(--muted);">Bonsai-1.7B</strong> (F16, 3.3 GB, 22 tok/s) ·
+        <strong style="color:var(--muted);">Zaya 1.8B</strong> (Q2_0 AMD-native, ~18 tok/s) ·
+        <strong style="color:var(--muted);">BitNet b1.58</strong> (i2_s ternary, 132 MB, benchmarking)
+      </div>
+    </div>
+
+    <div class="card" style="padding:20px;background:var(--inner);border:1px solid var(--border2);text-align:center;">
+      <div style="font-size:20px;font-weight:900;color:var(--green);">75+ models total</div>
+      <div style="font-size:12px;color:var(--dim);margin-top:4px;">6 backends · 33 FLM tags · 7 GPU 1-bit · 4 GPU standard · 22 multi-modal · 4 NPU custom · auto-detect</div>
+    </div>
+  </div>
+</section>
+
 <section id="build" class="block" style="padding-top:20px;">
   <div class="cta-band">
     <h2 style="font-weight:900;">Build it on your own Strix Halo.</h2>
