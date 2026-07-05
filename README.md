@@ -2,13 +2,11 @@
 
 <img src="site/assets/brand-lockup.svg" alt="1bit.systems" width="540">
 
-# One binary to rule them all.
+# 120kb Binary to rule them all.
 
-**120 KB. Fused NPU+GPU+CPU. Model-agnostic. Zero dependencies.**
+**Generate video. Create images. Synthesize audio. Run LLMs.**  
+One 120KB binary. Zero Python. Your hardware.
 
-279 tok/s native ternary · 22 models · 3 modalities (video, image, audio) · MIT
-
-[![50 TOPS Verified](https://img.shields.io/badge/50%20TOPS-verified-00ff00.svg)](engine/npu/BENCHMARKS.md)
 [![279 tok/s ternary](https://img.shields.io/badge/279%20tok%2Fs-ternary-00ff00.svg)](engine/npu/BENCHMARKS.md)
 [![94 tok/s NPU](https://img.shields.io/badge/94%20tok%2Fs-NPU%20(FLM)-12a0ed.svg)](engine/npu/BENCHMARKS.md)
 [![120kb binary](https://img.shields.io/badge/binary-120kb-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
@@ -16,7 +14,6 @@
 [![C++23](https://img.shields.io/badge/runtime-C%2B%2B23-00ff00.svg)](engine/npu/src/npu_engine_all.cpp)
 [![Zero Python](https://img.shields.io/badge/deps-0-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
 [![MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
-[![Discord](https://img.shields.io/badge/discord-1bit.systems-f00fd2.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
 <br>
 <sub>curl · deb · snap · docker · AUR · homebrew · ollama</sub>
 
@@ -31,7 +28,20 @@
 
 ---
 
-### 🔑 The Unlock
+## What you can do
+
+```
+📹 video-lora generate --model wan --prompt "cinematic dolly zoom"
+📷 video-lora generate --model flux --prompt "portrait, soft lighting"
+🎵 video-lora generate --model stable-audio --prompt "rain on window" --audio-end-s 30
+💬 1bit chat
+```
+
+All from one 120KB binary. All LoRA-compatible. All auto-detected.
+
+---
+
+## 🔑 The Unlock
 
 AMD shipped Strix Halo with a 50 TOPS NPU but locked INT8 behind proprietary runtimes.
 I bought one. I got angry. I fixed it.
