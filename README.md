@@ -73,6 +73,7 @@ curl -X POST http://localhost:8081/v1/chat/completions \
 | **NPU ALL** | XDNA 2 · 32 tiles | INT8 | **28 tok/s** (36 ms/tok) | 5 models | 610 MB - 6 GB |
 | **NPU v12** | XDNA 2 · 32 tiles | INT8 | **97 tok/s** (10 ms/tok) | Qwen3-0.6B | 610 MB |
 | **GPU (ZINC)** | Radeon 8060S · 32 CUs | F16 | **22 tok/s** (46 ms/tok) | Bonsai-1.7B | 3.3 GB |
+| **Zaya** 🆕 | Radeon 8060S · 32 CUs | Q2_0 | **~18 tok/s** | Zaya (AMD-native) | varies |
 
 **55.7 TFLOPS raw INT8 GEMM** — exceeds AMD's 50 TOPS rating.  
 **5 models from one 120kb binary** — auto-detect, zero dependencies.  
@@ -102,8 +103,10 @@ FLM proxy at 94 tok/s in production.
 
 NPU engine (C++23 XRT direct), Vulkan engine (Zig GLSL→SPIR-V, port 8080),
 [Lemon MLX Engine](https://github.com/deepseek-ai/lemon-mlx-engine)
-(C++ on MLX, 50+ architectures, Apple Silicon + ROCm fork). NPU IRON backend
-on the roadmap.
+(C++ on MLX, 50+ architectures, Apple Silicon + ROCm fork).
+[**Zaya**](https://github.com/bong-water-water-bong/zaya-llama.cpp) — custom model architecture
+designed from the ground up for AMD hardware. CCA attention, MoE routing,
+AMD-native quantization. Served via `1bit zaya`.
 
 ### Why this exists
 
@@ -143,12 +146,14 @@ faster than venture capital.
 │   │   └── README.md
 │   └── gpu/                # Zig engine — GPU (Vulkan/CUDA/Metal)
 │       └── build.zig                   # Zig build system (WIP)
+├── zaya-llama.cpp/        # Zaya model architecture — AMD-native design
+│                           # CCA attention, MoE routing, Q2_0 ternary
 ├── site/                   # Landing page (Cloudflare Pages → 1bit.systems)
 │   ├── index.html
 │   └── assets/brand-lockup.svg
 ├── 1bit-site/              # Deploy mirror (synced from site/)
 ├── tools/
-│   └── video-lora/         # Video gen w/ LoRA (Wan2.2, LTX-Video, AnimateDiff, CogVideoX)
+│   └── video-lora/         # Multi-modal gen w/ LoRA (22 models, 3 modalities)
 │                           # + standalone Vulkan compute backend (Zig)
 ├── docs/                   # Architecture, build guide, roadmap, journey
 ├── packaging/              # deb, snap, tarball, docker, ollama, AUR
@@ -231,6 +236,7 @@ MIT — see [LICENSE](LICENSE).
 ```
 120KB binary  ·  fused engine  ·  model agnostic  ·  zero Python  ·  AMD NPU unlocked
 one binary to rule them all  ·  no vendor lock  ·  94 tok/s  ·  C++23 inference
+Zaya AMD-native architecture  ·  CCA attention  ·  MoE routing
 ```
 
 **Hashtags / SEO tags**
@@ -239,11 +245,13 @@ one binary to rule them all  ·  no vendor lock  ·  94 tok/s  ·  C++23 inferen
 #120kbBinary  #OneBinaryToRuleThemAll  #FusedEngine  #ModelAgnostic
 #NoPython  #ZeroDeps  #OpenSourceInference  #AMDNPU  #StrixHalo
 #AntiVendorLock  #Cpp23  #LocalAI  #4Days120KB  #TheUnlock
+#Zaya  #AMDnative  #CCA  #MoE
 ```
 
 ---
 
 *Built on Strix Halo. NPU + GPU + CPU. One chip. One binary. Every model.*
+*Zaya: AMD-native model architecture. CCA attention. MoE routing.*
 *244→10 ms/tok (24×) on C++. FLM proxy at 94 tok/s in production.*
 *22 models, 3 modalities (video, image, audio), auto-detected.*
 *Open source ships faster than vendor lock-in.*
