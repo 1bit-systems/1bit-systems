@@ -4,11 +4,12 @@
   "description": "1bit — your NPU-native coding agent. Fork of pi.dev, wired to local NPU.",
   "type": "module",
   "bin": {
-    "1bit": "dist/cli.js"
+    "1bit": "bin/1bit"
   },
   "main": "./dist/index.js",
   "files": [
     "dist",
+    "bin",
     "daemon",
     "extensions",
     "skills",

@@ -155,8 +155,9 @@ public:
         rms_norm(embed.data(), e_n.data(), w_.input_layernorm.data(), H);
 
         std::vector<float> x(2 * H);
-        std::copy(e_n.begin(), e_n.end(), x.begin());
-        std::copy(h_n.begin(), h_n.end(), x.begin() + H);
+        // Concat order: [hidden_normed | embed_normed] — matches Python training
+        std::copy(h_n.begin(), h_n.end(), x.begin());
+        std::copy(e_n.begin(), e_n.end(), x.begin() + H);
 
         std::vector<float> attn_out(H);
         self_attention(x.data(), pos, state, attn_out.data());
