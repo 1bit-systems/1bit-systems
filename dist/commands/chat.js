@@ -2,21 +2,34 @@ import { createInterface } from "readline";
 import { loadSettings } from "../branding/config.js";
 const VERSION = "2026.07.02";
 const NPU_ENDPOINT = "http://127.0.0.1:9090/v1";
+function c(code, text) {
+    // Simple ANSI color helper
+    const codes = {
+        green: "\x1b[32m",
+        pink: "\x1b[35m",
+        blue: "\x1b[34m",
+        cyan: "\x1b[36m",
+        dim: "\x1b[2m",
+        reset: "\x1b[0m",
+        bold: "\x1b[1m",
+    };
+    return `${codes[code] || ""}${text}${codes.reset}`;
+}
 function printBanner() {
     const banner = `
-  ╔══════════════════════════════════════════╗
-  ║                                          ║
-  ║    ████     ██████╗  ██╗  ████████╗        ║
-  ║     ██      ██╔══██╗  ██║  ╚══██╔══╝       ║
-  ║     ██      ██████╔╝  ██║     ██║          ║
-  ║     ██      ██╔══██╗  ██║     ██║          ║
-  ║   ██████    ██████╔╝  ██║     ██║          ║
-  ║   ╚════╝    ╚═════╝   ╚═╝     ╚═╝          ║
-  ║                                          ║
-  ║         NPU-native coding agent          ║
-  ║      50 TOPS · 94 tok/s · 0 cloud        ║
-  ║                v${VERSION}               ║
-  ╚══════════════════════════════════════════╝
+  ${c("cyan", "╔══════════════════════════════════════════════════╗")}
+  ${c("cyan", "║")}                                                ${c("cyan", "║")}
+  ${c("cyan", "║")}    ${c("pink", "██")}${c("green", "██")}${c("blue", "██")}     ${c("green", "██████")}  ${c("blue", "██")}  ${c("green", "████████")}        ${c("cyan", "║")}
+  ${c("cyan", "║")}     ${c("pink", "██")}      ${c("green", "██")}${c("dim", "╔══")}${c("green", "██")}  ${c("blue", "██")}  ${c("dim", "╚══")}${c("blue", "██")}${c("dim", "╔══╝")}       ${c("cyan", "║")}
+  ${c("cyan", "║")}     ${c("pink", "██")}      ${c("green", "██████")}${c("dim", "╔╝")}  ${c("blue", "██")}     ${c("blue", "██")}${c("dim", "║")}          ${c("cyan", "║")}
+  ${c("cyan", "║")}     ${c("pink", "██")}      ${c("green", "██")}${c("dim", "╔══")}${c("green", "██")}  ${c("blue", "██")}     ${c("blue", "██")}${c("dim", "║")}          ${c("cyan", "║")}
+  ${c("cyan", "║")}   ${c("pink", "██████")}    ${c("green", "██████")}${c("dim", "╔╝")}  ${c("blue", "██")}     ${c("blue", "██")}${c("dim", "║")}          ${c("cyan", "║")}
+  ${c("cyan", "║")}   ${c("dim", "╚════╝")}    ${c("dim", "╚═════╝")}   ${c("dim", "╚═╝")}     ${c("dim", "╚═╝")}          ${c("cyan", "║")}
+  ${c("cyan", "║")}                                                ${c("cyan", "║")}
+  ${c("cyan", "║")}        ${c("bold", "1bit.systems")} ${c("dim", "—")} ${c("green", "Fused")} ${c("blue", "NPU")}${c("green", "+")}${c("pink", "GPU")}${c("green", "+")}${c("cyan", "CPU")}          ${c("cyan", "║")}
+  ${c("cyan", "║")}     ${c("dim", "50 TOPS INT8 · 94 tok/s · 0 cloud")}         ${c("cyan", "║")}
+  ${c("cyan", "║")}                  ${c("dim", "v" + VERSION)}                 ${c("cyan", "║")}
+  ${c("cyan", "╚══════════════════════════════════════════════════╝")}
   `;
     console.log(banner);
 }
