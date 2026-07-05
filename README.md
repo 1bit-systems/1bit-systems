@@ -5,7 +5,7 @@
 # 120kb Binary to rule them all.
 
 **Generate video. Create images. Synthesize audio. Run LLMs.**  
-One 120KB binary. Zero Python. Your hardware.
+120kb binary. Zero Python. Your hardware.
 
 [![279 tok/s ternary](https://img.shields.io/badge/279%20tok%2Fs-ternary-00ff00.svg)](engine/npu/BENCHMARKS.md)
 [![94 tok/s NPU](https://img.shields.io/badge/94%20tok%2Fs-NPU%20(FLM)-12a0ed.svg)](engine/npu/BENCHMARKS.md)
@@ -37,7 +37,7 @@ One 120KB binary. Zero Python. Your hardware.
 💬 1bit chat
 ```
 
-All from one 120KB binary. All LoRA-compatible. All auto-detected.
+All from a 120kb binary. All LoRA-compatible. All auto-detected.
 
 ---
 
