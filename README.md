@@ -263,7 +263,7 @@ OMP_NUM_THREADS=16 ./npu_engine_v9 64
 
 ## Supported Models
 
-### NPU (XDNA 2 · FLM) — 38 models
+### NPU (XDNA 2 · FLM) — 36 models
 
 | Model Tag | Family | Params | Footprint | Capabilities | Installed |
 |-----------|--------|--------|-----------|-------------|-----------|
@@ -285,8 +285,8 @@ OMP_NUM_THREADS=16 ./npu_engine_v9 64
 | `llama3.1:8b` | Llama 3.1 | 8B | 5.4 GB | chat | ⬜ |
 | `gemma3:1b` | Gemma 3 | 1B | 1.2 GB | chat | ⬜ |
 | `gemma3:4b` | Gemma 3 | 4B | 4.5 GB | vision | ⬜ |
-| `gemma4-it:e2b` | Gemma 4 | 2B† | 6.0 GB | audio, vision, reasoning, tool-calling, ASR | ⬜ |
-| `gemma4-it:e4b` | Gemma 4 | 4B† | 9.1 GB | audio, vision, reasoning, tool-calling, ASR | ⬜ |
+| `gemma4-it:e2b` | Gemma 4 | 5B | 6.0 GB | audio, vision, reasoning, tool-calling, ASR | ⬜ |
+| `gemma4-it:e4b` | Gemma 4 | 8B | 9.1 GB | audio, vision, reasoning, tool-calling, ASR | ⬜ |
 | `deepseek-r1:8b` | DeepSeek-R1 | 8B | 5.4 GB | reasoning | ⬜ |
 | `deepseek-r1-0528:8b` | DeepSeek-R1-0528 | 8B | 5.6 GB | reasoning | ⬜ |
 | `phi4-mini-it:4b` | Phi-4 Mini | 4B | 3.4 GB | chat | ⬜ |
@@ -304,7 +304,7 @@ OMP_NUM_THREADS=16 ./npu_engine_v9 64
 | `medgemma1.5:4b` | Med-Gemma 1.5 | 4B | 4.5 GB | vision (medical) | ⬜ |
 | `translategemma:4b` | Translate-Gemma | 4B | 4.5 GB | vision (translation) | ⬜ |
 
-† Gemma4 E2B/E4B: "expert" params shown; total params include vision + audio encoders.
+
 
 ### GPU — 1-bit / Ternary (llama.cpp / ZINC Vulkan) — 7 models benchmarked
 
@@ -370,8 +370,8 @@ OMP_NUM_THREADS=16 ./npu_engine_v9 64
 
 ---
 
-**Total: 75+ models** across 6 backends (NPU FLM, NPU C++, GPU llama.cpp, GPU ZINC, GPU ggml, diffusers).
-33 FLM tags · 7 GPU 1-bit · 4 GPU standard · 1 video diffusion · 22 multi-modal · 4 NPU custom · 4+ auto-detectable
+**Total: 73+ models** across 6 backends (NPU FLM, NPU C++, GPU llama.cpp, GPU ZINC, GPU ggml, diffusers).
+36 FLM tags · 7 GPU 1-bit · 4 GPU standard · 1 video diffusion · 22 multi-modal · 4 NPU custom · 4+ auto-detectable
 
 ## Community
 
