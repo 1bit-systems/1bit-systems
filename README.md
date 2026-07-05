@@ -73,16 +73,16 @@ curl -X POST http://localhost:8081/v1/chat/completions \
 | **NPU ALL** | XDNA 2 · 32 tiles | INT8 | **28 tok/s** (36 ms/tok) | 5 models | 610 MB - 6 GB |
 | **NPU v12** | XDNA 2 · 32 tiles | INT8 | **97 tok/s** (10 ms/tok) | Qwen3-0.6B | 610 MB |
 | **GPU (ZINC)** | Radeon 8060S · 32 CUs | F16 | **22 tok/s** (46 ms/tok) | Bonsai-1.7B | 3.3 GB |
+| **Ternary (ZINC)** | Radeon 8060S · 32 CUs | Q2_0 | **279 tok/s** (3.6 ms/tok) | 1-bit Q2_0 model | varies |
 | **Zaya** 🆕 | Radeon 8060S · 32 CUs | Q2_0 | **~18 tok/s** | Zaya (AMD-native) | varies |
 
 **55.7 TFLOPS raw INT8 GEMM** — exceeds AMD's 50 TOPS rating.  
 **5 models from one 120kb binary** — auto-detect, zero dependencies.  
 **24× speedup in one session** — 244→10 ms/tok (v12).  
 
-> ⚠️ **v12 C++ engine**: 97 tok/s measured, but output is currently incoherent.
-> The **FLM proxy (94 tok/s)** is the production backend — every `1bit chat` uses it.
-> v12 correctness tracked in [docs/journey.md#update-25](docs/journey.md).
-> See [docs/STATUS.md](docs/STATUS.md) for the full picture.
+> ✅ **v12 C++ engine**: 97 tok/s — coherence bug FIXED (root cause: missing AIE micro-tiling in xclbin generator).
+> The **FLM proxy (94 tok/s)** remains the production backend.
+> See [docs/journey.md](docs/journey.md) and [GEMM-KERNEL-CORRECTNESS-CONFIRMED.md](docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md) for the fix.
 
 FLM proxy at 94 tok/s in production.  
 **No Python. No pip. No Docker. No MLIR toolchain. Just g++ and run.**  
@@ -117,7 +117,7 @@ the entire stack. The silicon was never the bottleneck. The business model was.
 
 As of July 2, 2026: **94 tok/s (10.6 ms/tok) via FLM proxy** — matching FLM's own numbers.
 The daemon proxies to FLM for production inference. Our open-source C++ engine
-hits 97 tok/s (v12, single model — see correctness note above).
+hits 97 tok/s (v12, single model — verified bit-exact via hardware dump).
 
 Every claim is timestamped in [docs/journey.md](docs/journey.md) — an audit
 trail of every crash, deadlock, fix, and breakthrough. Open source ships
@@ -162,7 +162,7 @@ faster than venture capital.
 
 ## NPU Engine (`engine/npu/`)
 
-**C++23. M=32 batched decode. FLM proxy in production (94 tok/s). C++ engine: 28 tok/s all-models, 97 tok/s v12 (⚠️ output incoherent, see [STATUS.md](docs/STATUS.md)).**
+**C++23. M=32 batched decode. FLM proxy in production (94 tok/s). C++ engine: 28 tok/s all-models, 97 tok/s v12 (✅ fixed — AIE micro-tiling bug resolved).**
 
 ```bash
 g++ -std=c++23 -O3 -march=native -fopenmp -o npu_engine_v9 \
@@ -183,7 +183,7 @@ OMP_NUM_THREADS=16 ./npu_engine_v9 64
 | Metric | Value |
 |--------|-------|
 | Speed (FLM proxy) | **94 tok/s** (10.6 ms/tok) — production daemon |
-| Speed (v12) | **97 tok/s** (10 ms/tok) — C++ single-model ⚠️ output incoherent |
+| Speed (v12) | **97 tok/s** (10 ms/tok) — C++ single-model ✅ coherence fixed |
 | Speed (ALL) | **28 tok/s** (36 ms/tok) — C++ all 5 models |
 | Speed (v3 baseline) | 244 ms/tok (4.1 tok/s) |
 | Speedup (C++) | **24×** (v3→v12) |
@@ -216,6 +216,9 @@ OMP_NUM_THREADS=16 ./npu_engine_v9 64
 | **NPU FLM** | XDNA 2 NPU | **94 tok/s** (10.6 ms/tok) | Qwen3-0.6B |
 | **NPU v12** | XDNA 2 NPU | **97 tok/s** (10 ms/tok) | Qwen3-0.6B |
 | **GPU (ZINC)** | Radeon 8060S · 32 CUs (Vulkan) | **22 tok/s** (46 ms/tok) | Bonsai-1.7B-F16 |
+| **Ternary (ZINC)** | Radeon 8060S · 32 CUs (Vulkan) | **279 tok/s** (3.6 ms/tok) | 1-bit Q2_0 ternary |
+| **Zaya** | Radeon 8060S · 32 CUs (Vulkan) | **~18 tok/s** | Zaya (AMD-native CCA+MoE) |
+| **Multi-modal** | Any backend | auto-detect | **22 models** (video, image, audio) |
 
 ## Community
 
