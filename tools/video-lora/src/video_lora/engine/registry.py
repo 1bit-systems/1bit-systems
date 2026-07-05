@@ -30,6 +30,9 @@ class ModelInfo:
         "num_inference_steps": 50,
     })
 
+    # Modality: "video" or "audio"
+    modality: str = "video"
+
     # Special setup: callable(pipe, device, model_id) → pipe
     setup_fn: Optional[Callable] = None
 
@@ -56,6 +59,13 @@ def _load_class(module_path: str, class_name: str) -> type:
 def _pipeline(module_path: str) -> type:
     """Import a diffusers pipeline class by direct module path."""
     return _load_class(module_path.rsplit(".", 1)[0], module_path.rsplit(".", 1)[1])
+
+
+def _diffusers_pipeline(module_path: str, class_name: str) -> type:
+    """Import a pipeline class from diffusers top-level (not pipelines submodule)."""
+    import importlib
+    mod = importlib.import_module("diffusers")
+    return getattr(mod, class_name)
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +258,43 @@ _register(ModelInfo(
         "Skywork/SkyReels-V2-T2V-14B-720P-Diffusers",
     ],
     defaults={"num_frames": 97, "width": 960, "height": 544, "guidance_scale": 6.0},
+))
+
+# ---------------------------------------------------------------------------
+# Audio models
+# ---------------------------------------------------------------------------
+
+_register(ModelInfo(
+    name="Stable Audio Open",
+    description="Stability AI, 44.1kHz stereo, up to 47s text-to-audio/SFX",
+    pipeline_class=_pipeline("diffusers.pipelines.stable_audio.pipeline_stable_audio.StableAudioPipeline"),
+    aliases=["stable-audio", "stableaudio", "audio"],
+    example_ids=["stabilityai/stable-audio-open-1.0"],
+    modality="audio",
+    defaults={"guidance_scale": 7.0, "num_inference_steps": 200,
+              "audio_end_in_s": 10.0, "audio_start_in_s": 0.0},
+))
+
+_register(ModelInfo(
+    name="AudioLDM2",
+    description="General text-to-audio (speech, music, SFX), mono/stereo",
+    pipeline_class=_pipeline("diffusers.pipelines.audioldm2.pipeline_audioldm2.AudioLDM2Pipeline"),
+    aliases=["audioldm", "audioldm2"],
+    example_ids=["cvssp/audioldm2"],
+    modality="audio",
+    defaults={"guidance_scale": 3.5, "num_inference_steps": 200,
+              "audio_length_in_s": 10.0},
+))
+
+_register(ModelInfo(
+    name="LongCat-AudioDiT",
+    description="Meituan, high-fidelity waveform diffusion TTS",
+    pipeline_class=_pipeline("diffusers.pipelines.longcat_audio_dit.pipeline_longcat_audio_dit.LongCatAudioDiTPipeline"),
+    aliases=["longcat", "longcataudiodit"],
+    example_ids=["ruixiangma/LongCat-AudioDiT-1B-Diffusers"],
+    modality="audio",
+    defaults={"guidance_scale": 5.0, "num_inference_steps": 100,
+              "audio_length_in_s": 10.0},
 ))
 
 

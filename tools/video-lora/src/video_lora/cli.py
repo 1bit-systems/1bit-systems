@@ -18,6 +18,10 @@ Usage::
     # Override defaults
     video-lora generate --model wan --prompt "cat" --frames 81 --width 1280 --height 720
 
+    # Audio generation
+    video-lora generate --model stable-audio --prompt "rain on window" --audio-end-s 30
+    video-lora generate --model audioldm2 --prompt "dog barking" --audio-length-s 5
+
     # List known models
     video-lora list-models
 """
@@ -34,7 +38,7 @@ from .engine.registry import all_known
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Video LoRA Generator — model-agnostic video generation",
+        description="Video LoRA Generator — model-agnostic video & audio generation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
@@ -43,6 +47,7 @@ def main() -> None:
             "  video-lora generate --model Wan-AI/Wan2.1-T2V-1.3B-Diffusers --prompt 'cat'\n"
             "  video-lora generate --model consisid --prompt 'smiling' --image face.jpg\n"
             "  video-lora generate --model cogvideo --prompt 'cat' --lora THUDM/CogVideoX-Fun-Video-LoRA\n"
+            "  video-lora generate --model stable-audio --prompt 'rain' --audio-end-s 30\n"
             "  video-lora list-models"
         ),
     )
@@ -75,9 +80,13 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "list-models":
-        print("Known video models:")
+        known = all_known()
+        audio_models = {k: v for k, v in known.items() if v.modality == "audio"}
+        video_models = {k: v for k, v in known.items() if v.modality == "video"}
+
+        print("Video models:")
         print()
-        for name, info in sorted(all_known().items()):
+        for name, info in sorted(video_models.items()):
             d = info.defaults
             aliases = ", ".join(info.aliases)
             print(f"  {name}")
@@ -89,6 +98,20 @@ def main() -> None:
                   f"{d.get('num_inference_steps', 50)} steps")
             if info.requires_image:
                 print(f"    Note:        Requires --image input")
+            print(f"    Examples:    {', '.join(info.example_ids)}")
+            print()
+
+        print("Audio models:")
+        print()
+        for name, info in sorted(audio_models.items()):
+            d = info.defaults
+            aliases = ", ".join(info.aliases)
+            print(f"  {name}")
+            print(f"    Aliases:     {aliases}")
+            print(f"    Description: {info.description}")
+            print(f"    Defaults:    {d.get('audio_end_in_s', d.get('audio_length_in_s', '?'))}s duration, "
+                  f"guidance {d['guidance_scale']}, "
+                  f"{d.get('num_inference_steps', 50)} steps")
             print(f"    Examples:    {', '.join(info.example_ids)}")
             print()
         return
