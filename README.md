@@ -2,32 +2,42 @@
 
 <img src="site/assets/brand-lockup.svg" alt="1bit.systems" width="540">
 
-# 120kb Binary to rule them all.
-## 94 tok/s on AMD Strix Halo.
-### Zero Python. Zero dependencies. Open source.
+# One binary to rule them all.
+
+**120 KB. Fused NPU+GPU+CPU. Model-agnostic. Zero dependencies.**
+
+94 tok/s · 22 models · 3 modalities (video, image, audio) · MIT
 
 [![50 TOPS Verified](https://img.shields.io/badge/50%20TOPS-verified-00ff00.svg)](engine/npu/BENCHMARKS.md)
-[![55.7 TFLOPS Peak](https://img.shields.io/badge/55.7%20TFLOPS-raw%20silicon-12a0ed.svg)](engine/npu/BENCHMARKS.md)
 [![94 tok/s NPU](https://img.shields.io/badge/94%20tok%2Fs-NPU%20(FLM)-00ff00.svg)](engine/npu/BENCHMARKS.md)
-[![22 tok/s GPU](https://img.shields.io/badge/22%20tok%2Fs-GPU%20(Vulkan)-12a0ed.svg)](engine/npu/BENCHMARKS.md)
-[![5 models](https://img.shields.io/badge/5%20models-auto--detect-00ff00.svg)](engine/npu/BENCHMARKS.md)
 [![120kb binary](https://img.shields.io/badge/binary-120kb-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
-<br>
-[![NPU install](https://img.shields.io/badge/curl%20%7C%20bash%20NPU--only-00ff00.svg)](packaging/npu-install.sh)
-[![Pure C++](https://img.shields.io/badge/runtime-C%2B%2B23-00ff00.svg)](engine/npu/src/npu_engine_all.cpp)
+[![22 models](https://img.shields.io/badge/22%20models-auto--detect-00ff00.svg)](tools/video-lora/)
+[![C++23](https://img.shields.io/badge/runtime-C%2B%2B23-00ff00.svg)](engine/npu/src/npu_engine_all.cpp)
 [![Zero Python](https://img.shields.io/badge/deps-0-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
 [![MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/discord-1bit.systems-f00fd2.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
 <br>
-<sub>Packaging: deb · snap · docker · AUR · homebrew · ollama — [in progress](packaging/)</sub>
+<sub>curl · deb · snap · docker · AUR · homebrew · ollama</sub>
 
 </div>
 
 ---
 
 > **I reverse-engineered AMD's proprietary NPU stack in 4 days.**
-> One binary. 120 KB. 94 tok/s. **Zero Python across the entire stack** — daemon, engine, CLI, all C++.
-> No Python. No pip. No Docker. Just your NPU and a C++ compiler. [MIT licensed](LICENSE).
+> One person. A free Chess license. A C++ compiler. **120 KB.**
+> Today: a fused NPU+GPU+CPU inference engine that auto-detects any model.
+> No Python. No Docker. No vendor lock. Your hardware. [MIT licensed](LICENSE).
+
+---
+
+### 🔑 The Unlock
+
+AMD shipped Strix Halo with a 50 TOPS NPU but locked INT8 behind proprietary runtimes.
+I bought one. I got angry. I fixed it.
+
+**4 days. 120 KB. 94 tok/s. Open source.**
+
+The silicon was never the bottleneck. The business model was.
 
 ---
 
@@ -216,5 +226,24 @@ MIT — see [LICENSE](LICENSE).
 
 ---
 
-*Built on Strix Halo. NPU + GPU. One chip. Two engines. Zero Python.*
-*244→10 ms/tok (24×) on C++. FLM proxy at 94 tok/s in production. Open source ships faster than vendor lock-in.*
+## Find this project
+
+```
+120KB binary  ·  fused engine  ·  model agnostic  ·  zero Python  ·  AMD NPU unlocked
+one binary to rule them all  ·  no vendor lock  ·  94 tok/s  ·  C++23 inference
+```
+
+**Hashtags / SEO tags**
+
+```
+#120kbBinary  #OneBinaryToRuleThemAll  #FusedEngine  #ModelAgnostic
+#NoPython  #ZeroDeps  #OpenSourceInference  #AMDNPU  #StrixHalo
+#AntiVendorLock  #Cpp23  #LocalAI  #4Days120KB  #TheUnlock
+```
+
+---
+
+*Built on Strix Halo. NPU + GPU + CPU. One chip. One binary. Every model.*
+*244→10 ms/tok (24×) on C++. FLM proxy at 94 tok/s in production.*
+*22 models, 3 modalities (video, image, audio), auto-detected.*
+*Open source ships faster than vendor lock-in.*
