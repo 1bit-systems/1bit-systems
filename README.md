@@ -105,7 +105,7 @@ FLM proxy at 94 tok/s in production.
 NPU engine (C++23 XRT direct), Vulkan engine (Zig GLSL→SPIR-V, port 8080),
 [Lemon MLX Engine](https://github.com/deepseek-ai/lemon-mlx-engine)
 (C++ on MLX, 50+ architectures, Apple Silicon + ROCm fork).
-[**Zaya**](engine/zaya/) — custom model architecture (submodule)
+[**Zaya**](https://www.zyphra.com/our-work/zaya1-8b-diffusion-preview) — custom model architecture designed for AMD hardware
 designed from the ground up for AMD hardware. CCA attention, MoE routing,
 AMD-native quantization. Served via `1bit zaya`.
 
