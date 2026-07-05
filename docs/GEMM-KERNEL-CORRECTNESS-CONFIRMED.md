@@ -342,6 +342,56 @@ verified). Candidates for the next investigation:
   into a separate, broader in-progress rewrite in the live checkout — needs to be
   isolated into its own commit.
 
+## Reconciling a Parallel Investigation (branch `fix/npu-hf-cache-i32-kernel`)
+
+A separate, concurrent session worked the same symptom on a branch built on top of
+this one's earlier commits (`fix/npu-hf-cache-i32-kernel`, commits `6608f5f3` /
+`060898fc`, not yet pushed/PR'd) and reached two conclusions that conflict with
+this doc's findings:
+
+1. *"`dequant_q4nx.c` produces weights 800x too large (wrong I8 format
+   interpretation)."* Bypassed by loading pre-packed weights from an
+   `/tmp/hf_weights_cache` (`engine/npu/src/i4_loader.h`,
+   `tools/chunk_dequant.py`) instead of calling `dequant_q4nx.c`.
+2. *"xclbin kernel still produces ~100x wrong GEMM output at layer 0 despite
+   correct BO data — suspected internal data tiling mismatch."*
+
+Both are contradicted by direct measurement:
+
+- **On (1)**: this doc already measured every dequantized weight tensor
+  (Q/K/V/O/gate/up/down) directly from `dequant_q4nx.c`'s output — all in normal
+  ranges (`±0.05` to `±1.3`), nowhere near 800x anything (see the `RAW qw/kw/vw/...`
+  measurements above). Further: their own bypass reports the identical
+  `QKV Cm[0]=910` this doc's `dequant_q4nx.c`-based pipeline also produces —
+  i.e., their "HF weights cache" arrives at the same numbers, which is strong
+  evidence the two weight sources agree and `dequant_q4nx.c` was never the
+  problem.
+- **On (2)**: re-ran the real-bytes dump-and-compare (Test B methodology) against
+  the *current* engine state (post-fix, using the `single_core`-generated xclbins,
+  real model weights, real activations) for QKV layer 0:
+  ```
+  Cm[0,0:8]  = [ 910  2257   616 -1773  -152  1359  1065   -57]
+  ref[0,0:8] = [ 910  2257   616 -1773  -152  1359  1065   -57]   (Am @ Bm in numpy)
+  max diff over real rows 0..8: 0        exact match: True
+  ```
+  Bit-for-bit exact. The "~100x wrong GEMM output" they observed
+  (`0.2997` actual vs. `0.0026` "expected") is fully explained by
+  `Cm * ascale * Bscale = 910 * 0.06489 * 0.005075 = 0.2997` — the raw kernel
+  output is provably correct; the discrepancy must be in whatever scale or
+  reference value their "expected" `0.0026` was computed against (most likely a
+  precision/scale mismatch specific to the new HF-weights-cache bypass path, or a
+  comparison against unquantized full-precision weights rather than the intended
+  INT8-quantized approximation) — not the xclbin kernel or its tiling.
+
+**Conclusion**: both of that branch's "still broken" theories should be retired.
+The real remaining issue is whatever's covered under "What's Left" above
+(attention/RoPE/residual details downstream of the now-verified-correct GEMM), not
+weight format or kernel tiling. Their `tools/layer_trace.py` (layer-by-layer
+diff against a real HuggingFace reference) and `tools/chunk_dequant.py` look
+genuinely useful for that next investigation and are worth keeping regardless of
+the weight-format theory being wrong — recommend consolidating onto this branch's
+history rather than continuing to extend the bypass approach.
+
 ## Reproduction
 
 Build xclbins with the fixed generator:
