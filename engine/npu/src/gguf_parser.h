@@ -347,6 +347,7 @@ struct GGUFModel {
         else if (suffix == ".attention.key_length") head_dim = iv;
         else if (suffix == ".attention.layer_norm_rms_epsilon") {}
         else if (suffix == ".context_length") {}
+        else if (key == "general.vocab_size" || suffix == ".vocab_size") vocab_size = iv;
     }
     
     // Check if a tensor exists
