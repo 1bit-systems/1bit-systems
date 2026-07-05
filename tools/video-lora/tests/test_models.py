@@ -6,7 +6,7 @@ from pathlib import Path
 def test_module_imports():
     """At minimum, all modules should import cleanly."""
     from video_lora import __version__, AgnosticPipeline, all_known, lookup
-    assert __version__ == "0.2.0"
+    assert __version__ == "0.3.0"
     assert AgnosticPipeline is not None
 
     # Registry should have known models
@@ -41,12 +41,30 @@ def test_module_imports():
     assert lookup("Tencent/HunyuanVideo") is not None
     assert lookup("Lightricks/LTX-Video") is not None
 
+    # Audio models should be registered
+    assert lookup("stable-audio") is not None
+    assert lookup("audioldm2") is not None
+    assert lookup("longcat") is not None
+
+    # Audio models should have modality="audio"
+    assert lookup("stable-audio").modality == "audio"
+    assert lookup("audioldm2").modality == "audio"
+    assert lookup("longcat").modality == "audio"
+
+    # Video models should have modality="video"
+    assert lookup("wan").modality == "video"
+    assert lookup("hunyuan").modality == "video"
+    assert lookup("sana").modality == "video"
+
     # Core modules still work
     from video_lora.core.pipeline import VideoPipeline
     assert VideoPipeline is not None
 
     from video_lora.core.lora_loader import load_lora_into_pipe
     assert load_lora_into_pipe is not None
+
+    from video_lora.utils.export import export_to_wav
+    assert export_to_wav is not None
 
 
 def test_cli_list_models():

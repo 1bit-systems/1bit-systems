@@ -1,22 +1,20 @@
-"""Agnostic pipeline — auto-detect and generate with any video model.
+"""Agnostic pipeline — auto-detect and generate with any video or audio model.
 
 Usage::
 
     from video_lora.engine.agnostic import AgnosticPipeline
 
-    # By alias
+    # Video by alias
     pipe = AgnosticPipeline("wan")
     pipe.generate("a cat walking")
 
+    # Audio by alias
+    pipe = AgnosticPipeline("stable-audio")
+    pipe.generate("128 BPM tech house drum loop", audio_end_in_s=30.0)
+
     # By HF model ID (auto-detected)
-    pipe = AgnosticPipeline("Wan-AI/Wan2.1-T2V-1.3B-Diffusers")
-    pipe.generate("a cat walking")
-
-    # With LoRA
-    pipe.generate("a cat walking", lora_path="alibaba-pai/Wan2.2-Fun-Reward-LoRAs")
-
-    # Override any default
-    pipe.generate("a cat walking", width=1280, height=720, num_frames=81)
+    pipe = AgnosticPipeline("stabilityai/stable-audio-open-1.0")
+    pipe.generate("rain on window", audio_end_in_s=10.0)
 """
 
 from __future__ import annotations
@@ -31,6 +29,7 @@ from diffusers.utils import export_to_video  # type: ignore[attr-defined]
 from PIL import Image
 
 from ..core.lora_loader import load_lora_into_pipe
+from ..utils.export import export_to_wav
 from .registry import ModelInfo, lookup
 from .resolver import resolve_pipeline_class
 
@@ -38,14 +37,15 @@ logger = logging.getLogger(__name__)
 
 
 class AgnosticPipeline:
-    """Model-agnostic video generation pipeline.
+    """Model-agnostic video and audio generation pipeline.
 
-    Accepts any model ID — short alias (``wan``), exact alias (``hunyuanvideo``),
-    HF repo ID (``Wan-AI/Wan2.1-T2V-1.3B-Diffusers``), or unknown model
+    Accepts any model ID — short alias (``wan``, ``stable-audio``),
+    HF repo ID (``Wan-AI/Wan2.1-T2V-1.3B-Diffusers``,
+    ``stabilityai/stable-audio-open-1.0``), or unknown model
     (auto-detected from config).
 
     Automatically applies per-model sensible defaults and handles special
-    setup (custom VAEs, parameter name differences, image inputs).
+    setup (custom VAEs, parameter name differences, image inputs, audio params).
     """
 
     def __init__(
@@ -88,6 +88,12 @@ class AgnosticPipeline:
         if self.model_info and self.model_info.setup_fn:
             self.pipe = self.model_info.setup_fn(self.pipe, self.device, model_id)
 
+    def _modality(self) -> str:
+        """Return the modality (``\"video\"`` or ``\"audio\"``)."""
+        if self.model_info:
+            return self.model_info.modality
+        return "video"
+
     def _get_defaults(self) -> dict[str, Any]:
         """Get sensible defaults for this model."""
         if self.model_info:
@@ -126,34 +132,85 @@ class AgnosticPipeline:
         seed: Optional[int] = None,
         output: Optional[Path] = None,
         image_path: Optional[Path] = None,
+        # Audio-specific params
+        audio_end_in_s: Optional[float] = None,
+        audio_start_in_s: Optional[float] = 0.0,
+        audio_length_in_s: Optional[float] = None,
         **extra_kwargs,
     ) -> Path:
-        """Generate a video from a text prompt.
+        """Generate a video or audio from a text prompt.
 
         Args:
             prompt: Text prompt.
             lora_path: Optional LoRA path (HF repo ID or ``.safetensors`` file).
             lora_weight: LoRA merge weight.
-            num_frames: Number of frames. Uses model default if not set.
-            width: Output width. Uses model default if not set.
-            height: Output height. Uses model default if not set.
+            num_frames: Number of frames (video only).
+            width: Output width (video only).
+            height: Output height (video only).
             seed: Random seed for reproducibility.
             output: Output file path. Auto-named if not set.
             image_path: Input image path (required for I2V models like ConsisID).
+            audio_end_in_s: End time in seconds (audio only).
+            audio_start_in_s: Start time in seconds (audio only, default 0).
+            audio_length_in_s: Duration in seconds (audio only, AudioLDM2).
             **extra_kwargs: Passed through to the pipeline's ``__call__``.
 
         Returns:
-            Path to the generated video file.
+            Path to the generated file (``.mp4`` for video, ``.wav`` for audio).
         """
+        modality = self._modality()
+
+        if modality == "audio":
+            return self._generate_audio(
+                prompt=prompt,
+                lora_path=lora_path,
+                lora_weight=lora_weight,
+                seed=seed,
+                output=output,
+                audio_end_in_s=audio_end_in_s,
+                audio_start_in_s=audio_start_in_s,
+                audio_length_in_s=audio_length_in_s,
+                **extra_kwargs,
+            )
+
+        return self._generate_video(
+            prompt=prompt,
+            lora_path=lora_path,
+            lora_weight=lora_weight,
+            num_frames=num_frames,
+            width=width,
+            height=height,
+            seed=seed,
+            output=output,
+            image_path=image_path,
+            **extra_kwargs,
+        )
+
+    # ------------------------------------------------------------------
+    # Video generation
+    # ------------------------------------------------------------------
+
+    def _generate_video(
+        self,
+        prompt: str,
+        lora_path: Optional[str] = None,
+        lora_weight: float = 0.7,
+        num_frames: Optional[int] = None,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        seed: Optional[int] = None,
+        output: Optional[Path] = None,
+        image_path: Optional[Path] = None,
+        **extra_kwargs,
+    ) -> Path:
+        """Generate a video from a text prompt."""
         if output is None:
             model_slug = self.model_id.replace("/", "-").replace(".", "-")
             output = Path(f"{model_slug}_output_{abs(hash(prompt))}.mp4")
 
-        # Apply defaults
         defaults = self._get_defaults()
         pipe_kwargs: dict[str, Any] = dict(defaults)
 
-        # Override with explicit params
         if num_frames is not None:
             pipe_kwargs["num_frames"] = num_frames
         if width is not None:
@@ -161,10 +218,8 @@ class AgnosticPipeline:
         if height is not None:
             pipe_kwargs["height"] = height
 
-        # Apply overrides from extra_kwargs
         pipe_kwargs.update(extra_kwargs)
 
-        # Handle image input (ConsisID, I2V models)
         requires_image = self.model_info and self.model_info.requires_image
         if image_path is not None:
             pipe_kwargs["image"] = Image.open(image_path).convert("RGB")
@@ -174,19 +229,14 @@ class AgnosticPipeline:
                 "Pass image_path=<Path> to generate()."
             )
 
-        # Load LoRA if specified
         if lora_path:
             load_lora_into_pipe(self.pipe, lora_path, lora_weight)
 
-        # Seed
         generator: Optional[torch.Generator] = None
         if seed is not None:
             generator = torch.Generator().manual_seed(seed)
 
-        # Remap parameter names (e.g., num_frames → frames for Sana)
         pipe_kwargs = self._remap_params(pipe_kwargs)
-
-        # Generate
         pipe_kwargs["prompt"] = prompt
         pipe_kwargs["generator"] = generator
 
@@ -195,6 +245,72 @@ class AgnosticPipeline:
 
         export_to_video(video, str(output))
         return output
+
+    # ------------------------------------------------------------------
+    # Audio generation
+    # ------------------------------------------------------------------
+
+    def _generate_audio(
+        self,
+        prompt: str,
+        lora_path: Optional[str] = None,
+        lora_weight: float = 0.7,
+        seed: Optional[int] = None,
+        output: Optional[Path] = None,
+        audio_end_in_s: Optional[float] = None,
+        audio_start_in_s: Optional[float] = 0.0,
+        audio_length_in_s: Optional[float] = None,
+        **extra_kwargs,
+    ) -> Path:
+        """Generate audio from a text prompt."""
+        if output is None:
+            model_slug = self.model_id.replace("/", "-").replace(".", "-")
+            output = Path(f"{model_slug}_output_{abs(hash(prompt))}.wav")
+
+        defaults = self._get_defaults()
+        pipe_kwargs: dict[str, Any] = dict(defaults)
+
+        # Audio-specific params
+        if audio_end_in_s is not None:
+            pipe_kwargs["audio_end_in_s"] = audio_end_in_s
+        if audio_start_in_s is not None:
+            pipe_kwargs["audio_start_in_s"] = audio_start_in_s
+        if audio_length_in_s is not None:
+            pipe_kwargs["audio_length_in_s"] = audio_length_in_s
+
+        # Strip video-only defaults
+        pipe_kwargs.pop("num_frames", None)
+        pipe_kwargs.pop("width", None)
+        pipe_kwargs.pop("height", None)
+
+        pipe_kwargs.update(extra_kwargs)
+
+        if lora_path:
+            load_lora_into_pipe(self.pipe, lora_path, lora_weight)
+
+        generator: Optional[torch.Generator] = None
+        if seed is not None:
+            generator = torch.Generator().manual_seed(seed)
+
+        pipe_kwargs["prompt"] = prompt
+        pipe_kwargs["generator"] = generator
+
+        result = self.pipe(**pipe_kwargs)
+        audio = result.audios
+
+        # result.audios shape: (batch, channels, samples) — take first
+        if isinstance(audio, (list, tuple)):
+            audio = audio[0]
+        elif hasattr(audio, "ndim") and audio.ndim == 3:
+            audio = audio[0]
+
+        sample_rate = getattr(self.pipe.vae.config, "sampling_rate", 44100)
+        export_to_wav(audio, str(output), sample_rate=sample_rate)
+        return output
+
+    # ------------------------------------------------------------------
+    # LoRA helpers
+    # ------------------------------------------------------------------
 
     def load_lora(self, lora_path: str, weight: float = 0.7) -> None:
         """Load a LoRA into the pipeline."""
