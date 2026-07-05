@@ -6,10 +6,11 @@
 
 **120 KB. Fused NPU+GPU+CPU. Model-agnostic. Zero dependencies.**
 
-94 tok/s · 22 models · 3 modalities (video, image, audio) · MIT
+279 tok/s native ternary · 22 models · 3 modalities (video, image, audio) · MIT
 
 [![50 TOPS Verified](https://img.shields.io/badge/50%20TOPS-verified-00ff00.svg)](engine/npu/BENCHMARKS.md)
-[![94 tok/s NPU](https://img.shields.io/badge/94%20tok%2Fs-NPU%20(FLM)-00ff00.svg)](engine/npu/BENCHMARKS.md)
+[![279 tok/s ternary](https://img.shields.io/badge/279%20tok%2Fs-ternary-00ff00.svg)](engine/npu/BENCHMARKS.md)
+[![94 tok/s NPU](https://img.shields.io/badge/94%20tok%2Fs-NPU%20(FLM)-12a0ed.svg)](engine/npu/BENCHMARKS.md)
 [![120kb binary](https://img.shields.io/badge/binary-120kb-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
 [![22 models](https://img.shields.io/badge/22%20models-auto--detect-00ff00.svg)](tools/video-lora/)
 [![C++23](https://img.shields.io/badge/runtime-C%2B%2B23-00ff00.svg)](engine/npu/src/npu_engine_all.cpp)
@@ -35,7 +36,7 @@
 AMD shipped Strix Halo with a 50 TOPS NPU but locked INT8 behind proprietary runtimes.
 I bought one. I got angry. I fixed it.
 
-**4 days. 120 KB. 94 tok/s. Open source.**
+**4 days. 120 KB. 279 tok/s ternary. Open source.**
 
 The silicon was never the bottleneck. The business model was.
 
