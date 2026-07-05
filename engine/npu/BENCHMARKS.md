@@ -46,3 +46,32 @@ is numerically verified but runs at 4 tok/s.
 ---
 
 *Benchmarks verified on-device July 5, 2026. Production daemon: C++23, 110 KB.*
+
+## BitNet b1.58-2B-4T on NPU (July 5, 2026)
+
+| Metric | Value |
+|--------|-------|
+| Model | BitNet b1.58-2B-4T (~2B params) |
+| Quant | TQ1_0 (1.6875 bpw ternary) |
+| Size | 2.6 GB Q4NX (1.1 GB GGUF source) |
+| Engine | C++ universal (single-core xclbins) |
+| Decode | **1 tok/s** (1458 ms/tok) |
+| Notes | First ternary model on XDNA 2 NPU |
+
+### Projections
+
+| Proj | Shape | Xclbin |
+|------|-------|--------|
+| QKV | 2560×3840 | 128×2560×3840 |
+| O | 2560×2560 | 128×2560×2560 |
+| G | 2560×6912 | 128×2560×6912 |
+| U | 2560×6912 | 128×2560×6912 |
+| D | 6912×2560 | 128×6912×2560 |
+
+### Speed targets
+
+| Configuration | Estimated tok/s |
+|--------------|-----------------|
+| Single-core (current) | 1 tok/s |
+| 8-column multi-core | ~8 tok/s |
+| Batched M=32 | ~24 tok/s |
