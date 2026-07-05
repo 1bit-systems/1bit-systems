@@ -6,6 +6,7 @@ on:
     paths:
       - 'site/**'
       - '1bit-site/**'
+      - 'jarvis-project/**'
   workflow_dispatch:
 
 jobs:
@@ -16,9 +17,15 @@ jobs:
       deployments: write
     steps:
       - uses: actions/checkout@v4
-      - name: Deploy to Cloudflare Pages
+      - name: Deploy 1bit.systems
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy site --project-name=1bit-systems
+      - name: Deploy jarvis.1bit.systems
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy site/jarvis --project-name=jarvis --branch=main
