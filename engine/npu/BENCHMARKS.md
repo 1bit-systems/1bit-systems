@@ -36,7 +36,7 @@ Zero Python dependency. Replaces the previous Python daemon.
 
 | Engine | Decode | Status |
 |--------|--------|--------|
-| Universal (5-model) | 17 tok/s | ⚠️ Runs, output coherence NOT verified |
+| Universal (5-model) | 28 tok/s | ✅ Coherent — AIE micro-tiling fix |
 | Fused xclbin | 4 tok/s | ✅ Validated (max_abs=0.0078 vs oracle), slow |
 
 The standalone INT8 xclbins have host-side math fixes applied (8 rounds) but

@@ -205,7 +205,7 @@ The project runs **three inference backends** — only one is truly open-source:
 - All code in `engine/npu/`
 - 97 tok/s on Qwen3-0.6B (v12 single-model)
 - 28 tok/s with all 5 models auto-detected
-- **⚠️ Output is currently incoherent** — see `docs/STATUS.md`
+- **✅ Output coherent** — v12 coherence bug fixed (AIE micro-tiling root cause)
 
 ### 3. GPU Engine (ZINC) — 22 tok/s
 ```
@@ -364,7 +364,7 @@ Each version is preserved in `/src/` as individual `.cpp` files — the evolutio
 | Metric | Value |
 |--------|-------|
 | FLM proxy (production) | **94 tok/s** (10.6 ms/tok) |
-| C++ v12 (single model) | **97 tok/s** (10 ms/tok) ⚠️ incoherent |
+| C++ v12 (single model) | **97 tok/s** (10 ms/tok) ✅ coherent |
 | C++ ALL (5 models) | **28 tok/s** (36 ms/tok) |
 | NPU raw GEMM | **55.7 TFLOPS** (INT8, XDNA 2) |
 | Dispatch overhead | 1,334 µs per kernel call |

@@ -7,9 +7,9 @@
 - **Port**: 9090 | **Model**: Qwen3-0.6B | **TTFT**: 529 ms | **Decode**: 94.4 tok/s
 - **Output**: Verified coherent | **Zero Python** in runtime path
 
-## C++ Universal Engine (17 tok/s) ⚠️
+## C++ Universal Engine (28 tok/s) ✅
 
-Auto-detects 5 models. Runs but coherent output **not yet confirmed** after
+Auto-detects 5 models (NPU) + 22 multi-modal models. Coherence bug **FIXED** — root cause was missing AIE micro-tiling in xclbin generator (see [GEMM-KERNEL-CORRECTNESS-CONFIRMED.md](../docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md)). After
 8 rounds of host-side math fixes. The fused xclbin path is validated correct
 (max_abs=0.0078 vs CPU oracle) but runs at 4 tok/s.
 
