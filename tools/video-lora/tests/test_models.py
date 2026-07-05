@@ -6,7 +6,7 @@ from pathlib import Path
 def test_module_imports():
     """At minimum, all modules should import cleanly."""
     from video_lora import __version__, AgnosticPipeline, all_known, lookup
-    assert __version__ == "0.3.0"
+    assert __version__ == "0.4.0"
     assert AgnosticPipeline is not None
 
     # Registry should have known models
@@ -50,6 +50,12 @@ def test_module_imports():
     assert lookup("stable-audio").modality == "audio"
     assert lookup("audioldm2").modality == "audio"
     assert lookup("longcat").modality == "audio"
+
+    # Image models should have modality="image"
+    assert lookup("flux").modality == "image"
+    assert lookup("flux-schnell").modality == "image"
+    assert lookup("sdxl").modality == "image"
+    assert lookup("sd3").modality == "image"
 
     # Video models should have modality="video"
     assert lookup("wan").modality == "video"

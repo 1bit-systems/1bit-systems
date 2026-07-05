@@ -89,7 +89,7 @@ class AgnosticPipeline:
             self.pipe = self.model_info.setup_fn(self.pipe, self.device, model_id)
 
     def _modality(self) -> str:
-        """Return the modality (``\"video\"`` or ``\"audio\"``)."""
+        """Return the modality (``\"video\"``, ``\"audio\"``, or ``\"image\"``)."""
         if self.model_info:
             return self.model_info.modality
         return "video"
@@ -138,25 +138,26 @@ class AgnosticPipeline:
         audio_length_in_s: Optional[float] = None,
         **extra_kwargs,
     ) -> Path:
-        """Generate a video or audio from a text prompt.
+        """Generate video, audio, or image from a text prompt.
 
         Args:
             prompt: Text prompt.
             lora_path: Optional LoRA path (HF repo ID or ``.safetensors`` file).
             lora_weight: LoRA merge weight.
             num_frames: Number of frames (video only).
-            width: Output width (video only).
-            height: Output height (video only).
+            width: Output width.
+            height: Output height.
             seed: Random seed for reproducibility.
             output: Output file path. Auto-named if not set.
-            image_path: Input image path (required for I2V models like ConsisID).
+            image_path: Input image path (for I2V / img2img models).
             audio_end_in_s: End time in seconds (audio only).
             audio_start_in_s: Start time in seconds (audio only, default 0).
             audio_length_in_s: Duration in seconds (audio only, AudioLDM2).
             **extra_kwargs: Passed through to the pipeline's ``__call__``.
 
         Returns:
-            Path to the generated file (``.mp4`` for video, ``.wav`` for audio).
+            Path to the generated file (``.mp4`` for video, ``.wav`` for audio,
+            ``.png`` for image).
         """
         modality = self._modality()
 
@@ -170,6 +171,18 @@ class AgnosticPipeline:
                 audio_end_in_s=audio_end_in_s,
                 audio_start_in_s=audio_start_in_s,
                 audio_length_in_s=audio_length_in_s,
+                **extra_kwargs,
+            )
+
+        if modality == "image":
+            return self._generate_image(
+                prompt=prompt,
+                lora_path=lora_path,
+                lora_weight=lora_weight,
+                width=width,
+                height=height,
+                seed=seed,
+                output=output,
                 **extra_kwargs,
             )
 
@@ -306,6 +319,55 @@ class AgnosticPipeline:
 
         sample_rate = getattr(self.pipe.vae.config, "sampling_rate", 44100)
         export_to_wav(audio, str(output), sample_rate=sample_rate)
+        return output
+
+    # ------------------------------------------------------------------
+    # Image generation
+    # ------------------------------------------------------------------
+
+    def _generate_image(
+        self,
+        prompt: str,
+        lora_path: Optional[str] = None,
+        lora_weight: float = 0.7,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        seed: Optional[int] = None,
+        output: Optional[Path] = None,
+        **extra_kwargs,
+    ) -> Path:
+        """Generate an image from a text prompt."""
+        if output is None:
+            model_slug = self.model_id.replace("/", "-").replace(".", "-")
+            output = Path(f"{model_slug}_output_{abs(hash(prompt))}.png")
+
+        defaults = self._get_defaults()
+        pipe_kwargs: dict[str, Any] = dict(defaults)
+
+        if width is not None:
+            pipe_kwargs["width"] = width
+        if height is not None:
+            pipe_kwargs["height"] = height
+
+        # Strip non-image defaults
+        pipe_kwargs.pop("num_frames", None)
+
+        pipe_kwargs.update(extra_kwargs)
+
+        if lora_path:
+            load_lora_into_pipe(self.pipe, lora_path, lora_weight)
+
+        generator: Optional[torch.Generator] = None
+        if seed is not None:
+            generator = torch.Generator().manual_seed(seed)
+
+        pipe_kwargs["prompt"] = prompt
+        pipe_kwargs["generator"] = generator
+
+        result = self.pipe(**pipe_kwargs)
+        image = result.images[0]
+
+        image.save(str(output))
         return output
 
     # ------------------------------------------------------------------

@@ -22,6 +22,10 @@ Usage::
     video-lora generate --model stable-audio --prompt "rain on window" --audio-end-s 30
     video-lora generate --model audioldm2 --prompt "dog barking" --audio-length-s 5
 
+    # Image / Photography
+    video-lora generate --model flux --prompt "cinematic portrait, soft lighting"
+    video-lora generate --model sdxl --prompt "mountain landscape at sunset"
+
     # List known models
     video-lora list-models
 """
@@ -38,7 +42,7 @@ from .engine.registry import all_known
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Video LoRA Generator — model-agnostic video & audio generation",
+        description="Video LoRA Generator — model-agnostic video, image & audio generation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
@@ -48,6 +52,7 @@ def main() -> None:
             "  video-lora generate --model consisid --prompt 'smiling' --image face.jpg\n"
             "  video-lora generate --model cogvideo --prompt 'cat' --lora THUDM/CogVideoX-Fun-Video-LoRA\n"
             "  video-lora generate --model stable-audio --prompt 'rain' --audio-end-s 30\n"
+            "  video-lora generate --model flux --prompt 'cinematic portrait'\n"
             "  video-lora list-models"
         ),
     )
@@ -83,6 +88,7 @@ def main() -> None:
         known = all_known()
         audio_models = {k: v for k, v in known.items() if v.modality == "audio"}
         video_models = {k: v for k, v in known.items() if v.modality == "video"}
+        image_models = {k: v for k, v in known.items() if v.modality == "image"}
 
         print("Video models:")
         print()
@@ -98,6 +104,20 @@ def main() -> None:
                   f"{d.get('num_inference_steps', 50)} steps")
             if info.requires_image:
                 print(f"    Note:        Requires --image input")
+            print(f"    Examples:    {', '.join(info.example_ids)}")
+            print()
+
+        print("Image / Photography models:")
+        print()
+        for name, info in sorted(image_models.items()):
+            d = info.defaults
+            aliases = ", ".join(info.aliases)
+            print(f"  {name}")
+            print(f"    Aliases:     {aliases}")
+            print(f"    Description: {info.description}")
+            print(f"    Defaults:    {d['width']}×{d['height']}, "
+                  f"guidance {d['guidance_scale']}, "
+                  f"{d.get('num_inference_steps', 50)} steps")
             print(f"    Examples:    {', '.join(info.example_ids)}")
             print()
 
