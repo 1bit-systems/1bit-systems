@@ -3,20 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>1bit.systems — 120KB binary fused NPU+GPU+CPU engine · 22 models · Model-agnostic</title>
-<meta name="description" content="120KB fused NPU+GPU+CPU inference engine. Model-agnostic: 22 models across video, image & audio auto-detected. 279 tok/s native ternary on AMD Strix Halo. Zero Python. Zero deps. Open source. Anti-vendor-lock.">
-<meta property="og:title" content="1bit.systems — 120KB binary, fused engine, every model. Yours.">
-<meta property="og:description" content="120KB fused NPU+GPU+CPU engine. 22 models auto-detected. 279 tok/s native ternary. Zero Python. Anti-vendor-lock. Open source.">
+<title>1bit.systems — 120kb Binary to rule them all · 5 models · 94 tok/s NPU (FLM) · 7.9× multi-context</title>
+<meta name="description" content="120kb Binary to rule them all. Five models. 120kb binary. 94 tok/s NPU via FLM proxy, 97 tok/s C++ v12. 22 tok/s GPU (ZINC Vulkan). 64 req/s at 7.9× concurrency. Zero Python. Zero deps. Open source.">
+<meta property="og:title" content="1bit.systems — 120kb NPU inference engine, 94 tok/s on AMD Strix Halo">
+<meta property="og:description" content="Zero Python. Zero dependencies. Open source. 94 tok/s on AMD Strix Halo NPU. One binary, 5 models, auto-detect.">
 <meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
 <meta property="og:url" content="https://1bit.systems">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="1bit.systems — 120KB fused engine. Every model. Your hardware.">
-<meta name="twitter:description" content="120KB. No Python. Fused NPU+GPU+CPU. 22 models auto-detected. 279 tok/s native ternary on AMD Strix Halo. MIT.">
-<meta name="keywords" content="120KB binary, fused engine, model agnostic, NPU inference, AMD Strix Halo, XDNA 2, C++23, zero Python, open source AI, local LLM, video generation, Flux, Stable Audio, one binary to rule them all, anti vendor lock, 279 tok/s ternary, 1-bit">
-<meta name="robots" content="index, follow">
-<meta name="googlebot" content="index, follow">
-<link rel="canonical" href="https://1bit.systems">
+<meta name="twitter:title" content="1bit.systems — 120kb NPU inference engine">
+<meta name="twitter:description" content="94 tok/s on AMD Strix Halo NPU. Zero Python. Zero deps. Open source.">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
 <link rel="alternate icon" href="/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -136,12 +132,12 @@
     <div>
       <span class="eyebrow">Strix Halo · Ryzen AI Max+ 395</span>
       <h1><span class="g">120kb Binary</span> to rule them all.</h1>
-      <h1 style="margin-top:4px;font-size:clamp(18px,2.4vw,28px);"><span class="b">Generate video.</span> <span class="g">Create images.</span> <span class="p">Synthesize audio.</span> Run LLMs.</h1>
-      <p class="sub">120kb binary. Zero Python. Auto-detects 22 models. 279 tok/s native ternary. No vendor lock. Just your hardware and a C++ compiler. MIT.</p>
+      <h1 style="margin-top:4px;"><span class="b">Open source.</span> Zero Python. <span class="p">Zero dependencies.</span></h1>
+      <p class="sub">Auto-detect. Zero dependencies. M=32 batch. 50 TOPS INT8 · 55.7 TFLOPS measured. No Python. No pip. No Docker. Just g++ and run. Open source. Pure C++.</p>
       <div class="row" style="margin-top:18px;">
         <span class="pill ok"><span class="dot"></span>verified on-device</span>
         <span class="pill dark"><span class="dot"></span>120kb binary · no Python · no pip</span>
-        <span class="pill info"><span class="dot"></span>22 models · auto-detect</span>
+        <span class="pill info"><span class="dot"></span>5 models · auto-detect</span>
         <span class="pill warn" style="margin-top:6px"><span class="dot"></span>Qwen3 · Llama · Gemma4</span>
       </div>
       <div class="cta-row">
@@ -151,7 +147,7 @@
     </div>
     <div class="panel">
       <div style="padding:20px 22px;">
-        <div class="console-hd"><span class="dots"><span style="background:var(--pink)"></span><span style="background:var(--blue)"></span><span style="background:var(--green)"></span></span><span class="mono" style="font-size:13px;color:var(--muted);">AgnosticPipeline — 22 models auto-detected</span><span style="flex:1"></span><span class="eyebrow">Offline</span></div>
+        <div class="console-hd"><span class="dots"><span style="background:var(--pink)"></span><span style="background:var(--blue)"></span><span style="background:var(--green)"></span></span><span class="mono" style="font-size:13px;color:var(--muted);">npu_engine_all — 5 models live</span><span style="flex:1"></span><span class="eyebrow">Offline</span></div>
         <div style="margin-top:20px;"><div class="caps" style="color:var(--dim);">Qwen3-0.6B · FLM proxy · 94 tok/s</div><div style="display:flex;align-items:baseline;gap:8px;margin-top:6px;"><span id="ms" class="mono" style="font-size:52px;font-weight:800;line-height:1;color:var(--green);font-variant-numeric:tabular-nums;">10.6</span><span class="mono" style="font-size:16px;font-weight:500;color:var(--muted);">ms / tok</span><span class="mono" style="font-size:14px;color:var(--green);font-weight:700;">(94 tok/s)</span></div></div>
         <div style="margin-top:8px;display:flex;gap:12px;"><span class="pill ok" style="font-size:11px;"><span class="dot"></span>0.6B · 8B · VL-4B · Llama · Gemma4</span><span class="pill info" style="font-size:11px;"><span class="dot"></span>FLM proxy · daemon port 9090</span></div>
         <div class="code" style="margin-top:18px;padding:14px 15px;font-size:12.5px;line-height:1.75;"><span class="g">$ curl -s http://127.0.0.1:9090/v1/chat/completions \</span>
@@ -159,7 +155,7 @@
 <span class="p">{"choices":[{"message":{"content":"How can I assist you today?"}}]}</span>
 <span class="b">usage: decode=94.2 tok/s  ttft=513ms  prefill=26.9 tok/s</span>
 <span class="b">=== 94 tok/s via FLM proxy ===</span></div>
-        <div style="display:flex;align-items:center;gap:10px;margin-top:16px;"><span class="mono" style="font-size:12px;color:var(--dim);">XDNA 2 · 32 tiles · FLM proxy (9090) · C++ engine: 97 tok/s v12 · 22 models · 3 modalities</span><span style="flex:1"></span><span class="pill dark"><span class="dot"></span>live</span></div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:16px;"><span class="mono" style="font-size:12px;color:var(--dim);">XDNA 2 · 32 tiles · FLM proxy (9090) · C++ engine: 97 tok/s v12 · 5 models</span><span style="flex:1"></span><span class="pill dark"><span class="dot"></span>live</span></div>
       </div>
     </div>
   </div>
@@ -177,28 +173,24 @@
 
 <section id="engines" class="block">
   <span class="eyebrow">The Engines</span>
-  <h2 style="margin:16px 0 8px;">Six engines. Zero Python. One person.</h2>
+  <h2 style="margin:16px 0 8px;">Five engines. Zero Python. One person.</h2>
   <p class="lead">Hand-written, dependency-free, benchmarked on the metal. Compile a binary; run it offline.</p>
   <div class="grid4" style="margin-top:28px;">
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag npu">NPU ALL</span><span class="mono" style="font-size:12px;color:var(--muted);">XDNA 2 · 32 tiles</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">Unified Engine</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">94 tok/s<span style="font-size:15px;color:var(--muted);font-weight:500;"> (FLM proxy)</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">Production daemon (94 tok/s). C++ engine: 97 tok/s v12 — coherence bug FIXED ✅ (AIE micro-tiling resolved). Multi-context pool: 64 req/s at 7.9× scaling. 22 models auto-detected.</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">AIE micro-tiling fix · 97 tok/s verified · 22 models</div></div>
+    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag npu">NPU ALL</span><span class="mono" style="font-size:12px;color:var(--muted);">XDNA 2 · 32 tiles</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">5-Model Engine</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">94 tok/s<span style="font-size:15px;color:var(--muted);font-weight:500;"> (FLM proxy)</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">Production daemon proxies to FLM (94 tok/s). C++ engine: 28 tok/s all-5, 97 tok/s v12. Multi-context pool: 64 req/s at 7.9× scaling.</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">5 models · 120kb binary · 8-context pool · 64 req/s</div></div>
     <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag gpu">GPU</span><span class="mono" style="font-size:12px;color:var(--muted);">RDNA 3.5 · 32 CUs</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">ZINC Engine</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">22 tok/s<span style="font-size:15px;color:var(--muted);font-weight:500;"> decode</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">Zig. GLSL compute → SPIR-V. GGUF native. Bonsai-1.7B-F16. <span style="color:var(--dim);">Hardware-limited: 256 GB/s memory wall caps F16 throughput at 22 tok/s. ZINC uses 99.6% of available bandwidth — ceiling hit, not a software gap.</span></p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">Vulkan · 32 CUs · 256 GB/s · 99.6% utilized</div></div>
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag oneb">TERNARY</span><span class="mono" style="font-size:12px;color:var(--muted);">RDNA 3.5 · 32 CUs</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">1-bit Q2_0</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">279 tok/s<span style="font-size:15px;color:var(--muted);font-weight:500;"> native ternary</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">Bit-exact Q2_0 (type 42) ternary GGUF decoder. Validated on Radeon 8060S. <span style="color:var(--dim);">3.6 ms/tok — an order of magnitude beyond INT8. Native ternary format designed for AMD hardware.</span></p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">Q2_0 ternary · 279 tok/s · 3.6 ms/tok · validated</div></div>
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag npu" style="background:var(--blue);">ZAYA</span><span class="mono" style="font-size:12px;color:var(--muted);">RDNA 3.5 · 32 CUs</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">AMD-Native Model</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">~18 tok/s<span style="font-size:15px;color:var(--muted);font-weight:500;"> Zaya</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;"><a href="https://www.zyphra.com/our-work/zaya1-8b-diffusion-preview" target="_blank" rel="noopener" style="color:var(--blue);font-weight:600;">Zaya</a> — custom model architecture built for AMD hardware. Compressed Convolutional Attention (CCA). MoE routing. Residual scaling. <span style="color:var(--dim);">Served via <code>1bit zaya</code> on port 8081.</span></p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">CCA attention · MoE · AMD-native · port 8081</div></div>
     <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag gpu">macOS</span><span class="mono" style="font-size:12px;color:var(--muted);">Metal + MLX</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">ZINC on Mac</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">Metal <span style="font-size:15px;color:var(--muted);font-weight:500;">backend</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">ZINC GPU engine with native Metal shaders. Runs on Apple Silicon — GGUF models, HTTP server. <span style="color:var(--dim);">Lemon MLX Engine for 50+ architectures. Testers needed — see issue #21.</span></p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">ZINC Metal · Apple Silicon ✅ · MLX upstream ✅ · testers welcome</div></div>
   </div>
 </section>
 
 <section id="benchmarks" class="block">
   <span class="eyebrow">Measured on-device</span>
-  <h2 style="margin:16px 0 24px;">The numbers, verified. 22 models.</h2>
+  <h2 style="margin:16px 0 24px;">The numbers, verified. 5 models.</h2>
   <div class="stats">
     <div class="stat"><span class="lbl caps">Peak throughput</span><span class="val">55.7 <span>TFLOPS</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>INT8 · XDNA 2 NPU</span></div>
     <div class="stat"><span class="lbl caps">GPU decode (F16)</span><span class="val">22 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>Bonsai-1.7B · ZINC Vulkan · 99.6% BW</span></div>
     <div class="stat"><span class="lbl caps">NPU FLM (0.6B)</span><span class="val">94 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>10.6 ms/tok · FLM proxy</span></div>
-    <div class="stat"><span class="lbl caps">NPU C++ (0.6B)</span><span class="val">97 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>v12 ✅ AIE micro-tiling fixed</span></div>
-    <div class="stat"><span class="lbl caps">Ternary decode</span><span class="val">279 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>Q2_0 · 3.6 ms/tok · validated</span></div>
-    <div class="stat"><span class="lbl caps">Models supported</span><span class="val">22</span><span class="foot"><span class="dot" style="background:var(--blue)"></span>video · image · audio · auto-detected</span></div>
-    <div class="stat"><span class="lbl caps">Zaya (AMD-native)</span><span class="val">~18 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>CCA attention · MoE · Q2_0</span></div>
+    <div class="stat"><span class="lbl caps">NPU C++ (0.6B)</span><span class="val">97 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--dim)"></span>10 ms/tok · v12 single-model</span></div>
+    <div class="stat"><span class="lbl caps">Models supported</span><span class="val">5</span><span class="foot"><span class="dot" style="background:var(--blue)"></span>Qwen3 · Llama · Gemma4</span></div>
     <div class="stat"><span class="lbl caps">Python deps</span><span class="val">0</span><span class="foot"><span class="dot" style="background:var(--green)"></span>pip-free · offline</span></div>
     <div class="stat"><span class="lbl caps">Engine speedup</span><span class="val">24<span>×</span></span><span class="foot"><span class="dot" style="background:var(--dim)"></span>244→10 ms/tok (v12) · one session</span></div>
     <div class="stat"><span class="lbl caps">Server throughput</span><span class="val">64 <span>req/s</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>40 concurrent · 8 contexts</span></div>
@@ -266,7 +258,7 @@
 <span class="t">  -d '{"model":"qwen3-0.6b-FLM","messages":[{"role":"user","content":"hello"}]}'</span>
 <span class="b">decode=94 tok/s  ttft=513ms  (FLM proxy on port 9090)</span>
 
-<span class="c"># NPU: one binary, 22 models, auto-detect (open-source C++ engine)</span>
+<span class="c"># NPU: one binary, 5 models, auto-detect (open-source C++ engine)</span>
 <span class="t">$ g++ -std=c++23 -O3 -march=native -fopenmp \</span>
 <span class="t">      -o npu_engine_all engine/npu/src/npu_engine_all.cpp \</span>
 <span class="t">      engine/npu/build/dequant_q4nx.o -lxrt_coreutil -luuid -lm</span>
@@ -292,9 +284,9 @@
   <div class="card" style="padding:24px;">
     <div class="verify-grid">
       <div class="check"><span class="ck">✓</span><span class="txt">All numbers verified on-device — no cloud, no simulator.</span></div>
-      <div class="check"><span class="ck">✓</span><span class="txt">22 models across video, image & audio — auto-detected from HF model ID.</span></div>
+      <div class="check"><span class="ck">✓</span><span class="txt">5 models running on one auto-detecting engine. 0 crashes.</span></div>
       <div class="check"><span class="ck">✓</span><span class="txt">24× speedup in one session — 244→10 ms/tok (v12 C++). FLM proxy at 94 tok/s in production.</span></div>
-      <div class="check"><span class="ck">✓</span><span class="txt">NPU v12 coherence bug FIXED — AIE micro-tiling root cause resolved.</span></div>
+      <div class="check"><span class="ck">✓</span><span class="txt">Qwen3-0.6B/8B/VL-4B + Llama-3.1-8B + Gemma4-E2B verified.</span></div>
       <div class="check"><span class="ck">✓</span><span class="txt">Full audit trail in <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/journey.md" target="_blank" rel="noopener">docs/journey.md</a>.</span></div>
     </div>
   </div>
@@ -386,13 +378,7 @@
     </div>
     <div class="foot-fine">
       <div>Built with DeepSeek v4 (99.9%) · Shipped with Claude (0.1%) · One human.</div>
-      <div>120KB fused NPU+GPU+CPU engine · 22 models · 3 modalities (video, image, audio) · Auto-detected</div>
-      <div>94 tok/s (FLM) · 97 tok/s (C++ v12) ✅ · 279 tok/s ternary · 55.7 TFLOPS · Zero Python · MIT · Your hardware</div>
-      <div style="margin-top:12px;font-size:11px;color:var(--dim);letter-spacing:.03em;">
-        #120kbBinary #OneBinaryToRuleThemAll #FusedEngine #ModelAgnostic
-        #NoPython #ZeroDeps #OpenSourceInference #AMDNPU #StrixHalo
-        #AntiVendorLock #Cpp23 #LocalAI #4Days120KB #TheUnlock
-      </div>
+      <div>120kb Binary to rule them all. Five models. 120kb binary. 94 tok/s (FLM). 97 tok/s (C++ v12). 55.7 TFLOPS. Open source.</div>
       <div style="margin-top:8px;">The final unlock is Vendor (Hint Hint).</div>
       <div>—bong-water-water-bong · <span class="p">"Sorry but not Sorry :)"</span></div>
       <div style="margin-top:8px;"><a href="mailto:admin@1bit.systems" style="color:var(--muted);">admin@1bit.systems</a></div>
@@ -404,8 +390,8 @@
   (function(){
     var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (reduce) return;
-    var frames = ["FLM proxy:     10.6 ms/tok (94 tok/s)","C++ v12:       10.3 ms/tok (97 tok/s) ✅","Ternary:        3.6 ms/tok (279 tok/s)","GPU (ZINC):     46 ms/tok (22 tok/s)","50 TOPS INT8 · 24× speedup · 22 models"];
-    var ms = [10.6,10.3,3.6,"46","24×"];
+    var frames = ["FLM proxy:     10.6 ms/tok (94 tok/s)","C++ v12:       10.3 ms/tok (97 tok/s)","C++ ALL 5 models: auto-detect engine","GPU (ZINC):     46 ms/tok (22 tok/s)","50 TOPS INT8 · 24× speedup"];
+    var ms = [10.6,10.3,"5","46","24×"];
     var i = 0;
     var msEl = document.getElementById('ms');
     setInterval(function(){i++;var m=ms[i%ms.length];msEl.textContent=m;},950);
