@@ -4,7 +4,7 @@
 # - One A acquire per K-tile iteration (no 4x inner loop)
 # - M-tiling handled by runtime sequence
 # - A_l1 = memref<m x k> (full M tile)
-# - Uses matmul_scalar_i8_i16 for correctness
+# - Uses matmul_i8_i32 (int32 accumulator matches host-side Cm buffer width)
 # - Kernel DIM_M=32, DIM_K=64, DIM_N=128
 import argparse
 import numpy as np
@@ -31,7 +31,7 @@ def my_matmul(M, K, N, m, k, n):
     n_aie_cols = 8
     n_aie_rows = 1
     dtype_in = np.int8
-    dtype_out = np.int16
+    dtype_out = np.int32
     mtk = 512  # L2 K dimension (how much K per L2 tile)
     
     @device(AIEDevice.npu2)
@@ -48,8 +48,8 @@ def my_matmul(M, K, N, m, k, n):
 
         # Kernel: vectorized with DIM_M=32, mac_8x8_8x8
         kernel_o = "mm_32x64x128.o"
-        zero = external_func("zero_i16", inputs=[C_l1_ty], link_with=kernel_o)
-        matmul = external_func("matmul_i8_i16", inputs=[A_l1_ty, B_l1_ty, C_l1_ty], link_with=kernel_o)
+        zero = external_func("zero_i32", inputs=[C_l1_ty], link_with=kernel_o)
+        matmul = external_func("matmul_i8_i32", inputs=[A_l1_ty, B_l1_ty, C_l1_ty], link_with=kernel_o)
 
         tiles = [[tile(col, row) for col in range(0, n_aie_cols)] for row in range(0, 3)]
         shim_tiles = tiles[0]

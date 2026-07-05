@@ -1654,3 +1654,20 @@ Also noticed `checkpoints/eagle3_qwen3_0.6b_10k/` (the name `run_full_pipeline.s
 ### NPU daemon verify
 
 Re-verified FLM proxy after the stop/restart: 91.6-93.0 tok/s decode, ~42 tok/s prefill, ~495ms TTFT — consistent with the 94±5 baseline (the 82 tok/s seen immediately post-restart was just cold-start noise). Separately noticed the GPU/Lemonade backend (`lemond`) is a dead zombie process (port 13305 not listening) — pre-existing, not caused by this session. Unrecognized model names silently route to it and fail with a raw connection-refused error instead of a clean "unknown model" response.
+
+### QKV weight cache corruption — the real root cause (July 5)
+
+**Background**: two parallel bugfixes happened in the same session:
+- Decode off-by-one (commit `21864a41`): decode loop ran LM-head AFTER forward, re-running layers on the prefill's finalized hidden state.
+- Prefill Q stride (commit `f668ef76`): `qo_b[pi*NH*HD+...]` should be `pi*4096`; only bit at npt>1.
+
+**New finding** (`docs/NPU-QKV-CACHE-WEIGHTS-BROKEN.md`): a `--trace` dump mode was added to `npu_engine_cb.cpp` that runs npt=1, token 100, layer 0 and dumps 17 substage intermediates as float32 binaries. This was diffed against the HF float reference from `tools/layer_trace.py` via `tools/cb_trace_diff.py`:
+- `h_ln1` (RMSNorm output) was bit-exact: cos_sim=1.000, max_abs=0.000
+- `q_flat` (QKV GEMM output) immediately blew up: cos_sim=-0.21
+
+Then `tools/cb_weight_compare.py` directly compared the engine's HF-cached INT8 QKV weights (`/tmp/hf_weights_cache/qkv_*.bin`, dequantized with the global scale wsc.qk) against the Q4NX INT4-dequant float reference:
+- Q block cos_sim = -0.237, K = -0.244, V = -0.244 for layer 0; same across layers 1-2.
+
+A negative cos_sim means the cached INT8 weights are essentially uncorrelated garbage — the cache generation script was wrong. This overrides the earlier theory that the stride was the sole root cause: the stride is real but only accounts for npt>1; the weight cache corruption accounts for ALL npt including the single-token case.
+
+The generator script that wrote `/tmp/hf_weights_cache/*.bin` is not in the repo. `docs/NPU-ENGINE-CORRECTNESS-STATUS.md` was updated to reflect this new finding.

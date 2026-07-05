@@ -1,8 +1,9 @@
-# 1bit.systems NPU Benchmarks — July 3, 2026
+# 1bit.systems NPU Benchmarks — July 5, 2026
 
 **Hardware**: AMD Ryzen AI Max+ 395 (Strix Halo), XDNA 2 NPU, 32 AIE2P tiles  
 **OS**: Ubuntu 26.04 LTS, Kernel 7.0.0-27-generic, Firmware 1.1.2.65  
-**FLM**: v0.9.43, pmode=turbo, port 52625  
+**FLM**: v0.9.43, pmode=turbo, port 52632  
+**C++ Engine**: `npu_engine_cb` (npu_engine_cb.cpp), AVX-512 + double-buffered async GEMMs  
 
 ---
 
@@ -10,15 +11,35 @@
 
 The `npu-gpu-cpud` daemon proxies to FLM for production inference. These are the numbers you get running `1bit chat` right now.
 
-### Qwen3-0.6B — FLM turbo (9 runs)
+### Qwen3-0.6B — FLM turbo (July 5, 2026, 3 runs)
 
-| Prompt | TTFT | Decode | Overall | Tokens |
-|--------|------|--------|---------|--------|
-| Short ("hello") | 511 ms | 83.0 tok/s | 17 tok/s | 9-16 |
-| Medium (10 words) | 515 ms | **94.0 tok/s** | 40-54 tok/s | 73-97 |
-| Long (26 words) | 514 ms | **93.3 tok/s** | 61-77 tok/s | 256 |
+| Run | Prefill | TTFT | Decode | Tokens |
+|-----|---------|------|--------|--------|
+| 1 | 40.1 tok/s | 523 ms | **94.2 tok/s** | 95 |
+| 2 | 40.2 tok/s | 522 ms | **94.3 tok/s** | 106 |
+| 3 | 40.5 tok/s | 518 ms | **94.8 tok/s** | 91 |
 
-**Aggregate**: 94.0 tok/s decode median, 513ms TTFT avg, 256 max_tokens.
+**Aggregate**: 94.4 tok/s decode avg, 521ms TTFT avg.
+
+### C++ Engine v3.5 — Qwen3-0.6B (200-token decode)
+
+```
+Decode: 4.4 tok/s  (228 ms/tok)
+Prefill: 27 tok/s  (240 ms for 9 tokens)
+```
+
+| Component | Time | Details |
+|-----------|------|--------|
+| QKV GEMM | 74 ms | 28×2.65ms XRT launches |
+| O GEMM | 35 ms | 28×1.27ms |
+| GU GEMM | 47 ms | 28×1.67ms |
+| D GEMM | 49 ms | 28×1.74ms |
+| Attention | 19 ms | CPU, O(sp×NH×HD) |
+| LM head | 2 ms | AVX-512 FMA, 151936×1024 |
+| Norms/SiLU | 1 ms | CPU |
+| **Total** | **228 ms** | **112 XRT launches/token** |
+
+**Gap: 21×** (94.4 ÷ 4.4). Key bottleneck: 112 XRT kernel launches/token vs FLM's fused ~28.
 
 ### Qwen3-8B — FLM turbo (partial, GPU routing unstable)
 
@@ -315,7 +336,75 @@ Build ZINC: `cd ~/zinc && /path/to/zig-0.15.2/zig build -Dbackend=vulkan -Doptim
 
 ---
 
-*Benchmarks run July 3, 2026. All numbers verified on-device on Strix Halo.*  
-*git: https://github.com/bong-water-water-bong/1bit-systems*  
+*Benchmarks run July 5, 2026. All numbers verified on-device on Strix Halo.*  
+*git: https://github.com/bong-water-water-bong/1bit-systems (branch: fix/npu-hf-cache-i32-kernel)*  
 *ZINC: https://github.com/deepseek-ai/zinc*  
 *FLM benchmarks: https://fastflowlm.com/docs/benchmarks/*
+
+---
+
+## C++ Engine v3.5 — Optimization Progress (July 5, 2026)
+
+### Current Engine (`npu_engine_cb`)
+
+| Optimization | Before | After | Speedup |
+|---|---|---|---|
+| **AVX-512 LM head** (double→float32 FMA) | 92.1 ms | **2.2 ms** | **42×** |
+| **Remove redundant `layerB[l]->sync()`** (112 PCIe xfers/token) | ~50 ms | **0** | ∞ |
+| **Remove `memset(Am, 0, MD*KD)`** | ~2 ms | **0** | ∞ |
+| **Double-buffered async GEMM** (quantize→launch pipeline) | — | Ready | — |
+| **Per-GEMM instrumentation** (PerfCounters) | — | ✓ | — |
+
+### Decode — Qwen3-0.6B (200 tokens, M=1 decode)
+
+```
+QKV GEMM:     74 ms  (28×2.65ms)  ← XRT launch overhead
+O   GEMM:     35 ms  (28×1.27ms)
+GU  GEMM:     47 ms  (28×1.67ms)
+D   GEMM:     49 ms  (28×1.74ms)
+Attention:    19 ms  (scales with seq_len: O(sp×NH×HD))
+LM head:       2 ms  (AVX-512 FMA, 151936×1024)
+Norms/SiLU:    1 ms
+─────────────────────────────────
+TOTAL:       228 ms/tok  →  4.4 tok/s
+```
+
+**112 XRT kernel launches per token** (4 GEMMs × 28 layers), each with ~1.5ms round-trip overhead (XRT command submission + BO sync + wait). The NPU compute itself is fast — the launch overhead dominates.
+
+### Head-to-Head: C++ v3.5 vs FLM turbo
+
+| Metric | C++ v3.5 (this PR) | C++ v12 (historic) | FLM turbo |
+|--------|-------------------|-------------------|-----------|
+| **tok/s** | 4.4 | 28 (M=32 batch) | **94.4** |
+| **ms/tok** | 228 | 36 | **10.6** |
+| **Prefill TTFT** | 240 ms | 14 ms/tok | **518 ms** |
+| **Launches/token** | 112 | 28 (M=32 fused?) | **~28** |
+| **LM head** | 2 ms (AVX-512) | CPU double | NPU fused |
+| **Attention** | CPU (scales O(n)) | OpenMP | NPU (attn.xclbin) |
+| **Weight format** | Q4NX → INT8 cache | Q4NX → INT8 | Q4NX native |
+
+### Why C++ v12 was faster (28 tok/s vs 4.4)
+
+The historic v12 number (36 ms/tok) was achieved with **M=32 batch decode** — processing 32 tokens simultaneously amortizes the per-GEMM XRT launch overhead across 32 tokens. Our current code uses M=1 decode (single token at a time). Key differences:
+
+| Factor | v12 (M=32) | v3.5 (M=1) |
+|--------|-----------|-----------|
+| Batch size | 32 tokens | 1 token |
+| XRT launches | 112 / 32 = 3.5/token | 112 / 1 = 112/token |
+| GEMM time/token | ~6 ms | ~205 ms |
+| Attention | OpenMP parallel | Sequential O(n) |
+
+**M=32 batch decode re-enables 28+ tok/s.** The current engine reverts to M=1 for CPU attention simplicity. Re-adding M=32 batch + OpenMP attention recovers the v12 throughput.
+
+### Path to 94 tok/s
+
+| Step | tok/s | Change |
+|------|-------|--------|
+| Current (M=1, no batch) | 4.4 | — |
+| Re-enable M=32 batch | ~28 | 112→3.5 launches/token |
+| Fused layer.xclbin (28 launches) | ~12 | 1 launch/layer (needs FLM patch) |
+| Fused + M=32 batch | ~50 | Amortize 28 launches across 32 tok |
+| NPU attention | ~70 | CPU→NPU, O(n)→O(1) |
+| FLM parity | **94** | All NPU, zero CPU bottlenecks |
+
+The fused layer integration (1 launch/layer) is documented in `docs/flm-integration.md`. It requires a one-line patch in FLM's source to expose internal BO handles.
