@@ -198,7 +198,7 @@ int main(int argc,char**argv){
     std::vector<float>h(H),qo(4096),ko(1024),vo(1024),at(2048),oo(H),lg(NV),sb(H),sc(4096);
     std::vector<float> sb_buf(XM*H);
     int sp=0;
-    int pt[]={151643,872,198,11852,151644,198,151643,77091,198};
+    int pt[]={151644,872,198,13048,151645,198,151644,77091,198}; // "<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n"
 
     // ===== PREFILL: batched, all tokens in one pass =====
     printf("=== Prefill %d (batched) ===\n",npt);
