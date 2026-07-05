@@ -140,6 +140,29 @@ faster than venture capital.
 *—bong-water-water-bong · "Sorry but not Sorry :)"*
 *admin@1bit.systems*
 
+## Ecosystem
+
+The Strix Halo NPU ecosystem is growing. Here's where 1bit.systems fits:
+
+| Layer | Project | What it does | Relationship |
+|-------|---------|-------------|--------------|
+| **Engine** | **1bit.systems** | Custom C++23/Zig inference — INT8 xclbins, Vulkan shaders, fused dispatch, H2O KV cache, speculative decoding | The foundation — kernel-level NPU+GPU+CPU engine |
+| **Platform** | [hal0](https://github.com/Hal0ai/hal0) | Container-based inference platform — FastAPI orchestration, dashboards, slot management, model registry | Wraps FLM in Podman containers for turnkey deployment |
+| **Runtime** | FastFlowLM (FLM) | AMD's closed-source NPU runtime — 94 tok/s, multi-model | Both projects use FLM; 1bit also builds custom engines that supplant it |
+
+1bit.systems is the **engine layer** — the lowest-level open-source NPU+GPU+CPU
+inference stack on Strix Halo. Projects like hal0 build platforms *on top*
+of the same FLM runtime 1bit.systems helped document, benchmark, and push
+past its limits. If you're building on this stack, we're glad — open source
+wins when we all build on each other's work.
+
+### Ecosystem milestones
+
+- **Mar 2026** — 1bit.systems: first open-source NPU engine on Strix Halo (C++, INT8 xclbins)
+- **May 2026** — 1bit.systems: fused NPU+GPU+CPU dispatch, H2O KV cache, 22 multi-modal models
+- **Jun 2026** — 1bit.systems: 97 tok/s v12 engine, speculative decoding, BitNet ternary
+- **Jul 2026** — [hal0](https://github.com/Hal0ai/hal0): first public beta — container platform using FLM on Strix Halo
+
 ## Architecture
 
 ```
