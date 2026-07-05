@@ -297,6 +297,65 @@ _register(ModelInfo(
               "audio_length_in_s": 10.0},
 ))
 
+# ---------------------------------------------------------------------------
+# Image / Photography models
+# ---------------------------------------------------------------------------
+
+_register(ModelInfo(
+    name="Flux",
+    description="Black Forest Labs, 12B, state-of-the-art photorealism",
+    pipeline_class=_pipeline("diffusers.pipelines.flux.pipeline_flux.FluxPipeline"),
+    aliases=["flux", "fluxdev"],
+    example_ids=["black-forest-labs/FLUX.1-dev"],
+    modality="image",
+    defaults={"guidance_scale": 3.5, "num_inference_steps": 28,
+              "width": 1024, "height": 1024},
+))
+
+_register(ModelInfo(
+    name="Flux Schnell",
+    description="Black Forest Labs, 12B, fast variant (4-step generation)",
+    pipeline_class=_pipeline("diffusers.pipelines.flux.pipeline_flux.FluxPipeline"),
+    aliases=["flux-schnell", "fluxschnell"],
+    example_ids=["black-forest-labs/FLUX.1-schnell"],
+    modality="image",
+    defaults={"guidance_scale": 0.0, "num_inference_steps": 4,
+              "width": 1024, "height": 1024},
+))
+
+_register(ModelInfo(
+    name="Flux.2",
+    description="Black Forest Labs, next-gen Flux with improved quality",
+    pipeline_class=_pipeline("diffusers.pipelines.flux2.pipeline_flux2.Flux2Pipeline"),
+    aliases=["flux2"],
+    example_ids=["black-forest-labs/FLUX.2-dev"],
+    modality="image",
+    defaults={"guidance_scale": 3.5, "num_inference_steps": 28,
+              "width": 1024, "height": 1024},
+))
+
+_register(ModelInfo(
+    name="SDXL",
+    description="Stability AI, 2.6B, largest community LoRA ecosystem",
+    pipeline_class=_pipeline("diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl.StableDiffusionXLPipeline"),
+    aliases=["sdxl", "sd-xl"],
+    example_ids=["stabilityai/stable-diffusion-xl-base-1.0"],
+    modality="image",
+    defaults={"guidance_scale": 7.5, "num_inference_steps": 30,
+              "width": 1024, "height": 1024},
+))
+
+_register(ModelInfo(
+    name="SD3.5",
+    description="Stability AI, latest text-to-image, best quality SD",
+    pipeline_class=_pipeline("diffusers.pipelines.stable_diffusion_3.pipeline_stable_diffusion_3.StableDiffusion3Pipeline"),
+    aliases=["sd3", "sd3.5", "sd35"],
+    example_ids=["stabilityai/stable-diffusion-3.5-medium"],
+    modality="image",
+    defaults={"guidance_scale": 7.0, "num_inference_steps": 28,
+              "width": 1024, "height": 1024},
+))
+
 
 def lookup(model_id: str) -> Optional[ModelInfo]:
     """Look up a model by short alias, exact HF ID, or HF ID prefix."""

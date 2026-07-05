@@ -7,8 +7,8 @@ allow-direct-references = true
 
 [project]
 name = "video-lora"
-version = "0.3.0"
-description = "Model-agnostic video & audio generation with LoRA support — 17+ models auto-detected"
+version = "0.4.0"
+description = "Model-agnostic video, image & audio generation with LoRA support — 22+ models auto-detected"
 requires-python = ">=3.11"
 dependencies = [
     "torch>=2.3",
