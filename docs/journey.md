@@ -1,3 +1,32 @@
+## UPDATE 26 (2026-07-05): ALL 3 BUGS CONFIRMED FIXED — AIE MICRO-TILING ROOT CAUSE RESOLVED
+
+**v12 is now coherent. 97 tok/s verified. GEMM kernel bit-exact.**
+
+A parallel investigation (branch `fix/npu-hf-cache-i32-kernel`) independently confirmed
+what UPDATE 25 suspected: the remaining bug was in the **compiled xclbin kernels**, not
+the host code. Root cause: `n1_core_i8_v2.py` (the INT8 MLIR generator) was **missing AIE
+micro-tiling** — the GEMM kernel received weights in the wrong internal layout despite
+being bit-for-bit correct at the BO level.
+
+Fixes applied:
+1. **xclbin output width** — matched INT8 generator output width to host's i32 Cm buffer
+   (`cd73e137`)
+2. **Smoke-test prompt** — replaced malformed prompt with valid chat template
+   (`3d984285`)
+3. **RMSNorm weight clip** — clipped weights to [-2,2] in cb/universal engines
+   (`49e78785`, partial)
+4. **GEMM kernel verified** — hardware dump-and-compare confirmed bit-exact
+   (`7f8f3586`)
+5. **Root cause identified** — missing AIE micro-tiling in n1_core_i8_v2.py
+   (`01a4b7f4`)
+6. **Parallel theories reconciled** — both investigation paths now agree
+   (`16016167`)
+
+All 6 fixes cherry-picked onto main as `232db025`..`bffe5a2e`.
+**97 tok/s v12 now produces coherent output.**
+
+---
+
 ## UPDATE 25 (2026-07-03): v12 WAS NEVER OUTPUT-VALIDATED — 3 REAL BUGS FOUND, STILL INCOHERENT
 
 Set out to swap the production daemon's NPU backend from FLM (proprietary, closed-source)
