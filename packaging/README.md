@@ -1,6 +1,6 @@
 # Packaging — 1bit.systems v2026.07.02-all5models
 
-**One binary. 5 NPU LLMs + 22 multi-modal. 120KB. 28 tok/s.** Auto-detect. Zero Python. Zero pip. No Docker required.
+**One binary. 5 models. 120KB. 28 tok/s.** Auto-detect. Zero Python. Zero pip. No Docker required.
 The HTTP server speaks OpenAI-compatible JSON — Ollama, Open WebUI, LangChain, anything that hits `/v1/chat/completions` just works.
 
 | Format | Status | Command |
@@ -22,14 +22,13 @@ The HTTP server speaks OpenAI-compatible JSON — Ollama, Open WebUI, LangChain,
 
 | Model | H | IM | NH | HD | Size | Decode | Status |
 |-------|---|----|----|----|------|--------|--------|
-| Qwen3-0.6B | 1024 | 3072 | 16 | 128 | 610 MB | 28 tok/s | ✅ coherent |
-| Gemma4-E2B | 1536 | 6144 | 8 | 256 | 4.7 GB | 16 tok/s | ✅ coherent |
-| Qwen3-VL-4B | 2560 | 9728 | 32 | 128 | 3.2 GB | 11 tok/s | ✅ coherent |
-| Llama-3.1-8B | 4096 | 14336 | 32 | 128 | 5.7 GB | 10 tok/s | ✅ coherent |
-| Qwen3-8B | 4096 | 12288 | 32 | 128 | 6.0 GB | 8 tok/s | ✅ coherent |
+| Qwen3-0.6B | 1024 | 3072 | 16 | 128 | 610 MB | 28 tok/s | ⚠️ output |
+| Gemma4-E2B | 1536 | 6144 | 8 | 256 | 4.7 GB | 16 tok/s | ⚠️ output |
+| Qwen3-VL-4B | 2560 | 9728 | 32 | 128 | 3.2 GB | 11 tok/s | ⚠️ output |
+| Llama-3.1-8B | 4096 | 14336 | 32 | 128 | 5.7 GB | 10 tok/s | ⚠️ output |
+| Qwen3-8B | 4096 | 12288 | 32 | 128 | 6.0 GB | 8 tok/s | ⚠️ output |
 
-> ✅ **Coherence bug FIXED** (v12). Root cause: missing AIE micro-tiling in xclbin generator.
-> See [docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md](../docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md) for details.
+> ⚠️ **Output status**: Tok/s numbers are real. All 5 models dispatch successfully. However, the C++ engine has not yet produced coherent output — see [docs/STATUS.md](../docs/STATUS.md). Production use should route through the FLM proxy (94 tok/s, coherent).
 
 ### Client Compatibility (same HTTP API, no SDK needed)
 
@@ -48,7 +47,7 @@ The HTTP server speaks OpenAI-compatible JSON — Ollama, Open WebUI, LangChain,
 
 | Binary | Purpose | Size |
 |--------|---------|------|
-| `1bit-npu` | CLI inference engine (5 NPU LLMs + 22 total, auto-detect) | 108 KB (stripped) |
+| `1bit-npu` | CLI inference engine (5 models, auto-detect) | 108 KB (stripped) |
 | `1bit-server` | HTTP API server (OpenAI-compatible) | 43 KB |
 | `dequant_q4nx.o` | Q4NX weight dequantizer | 2.8 KB |
 

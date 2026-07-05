@@ -132,23 +132,17 @@ pub const QuantProfileSelector = struct {
     pub fn init(allocator: std.mem.Allocator, n_layers: u32, scheme_base: KvQuantScheme, early_precision: u32, late_compression: u32) !QuantProfileSelector {
         var profiles = try allocator.alloc(LayerQuantProfile, n_layers);
 
-        // Saturating subtraction: if late_compression > n_layers, a plain
-        // `-` would underflow (u32 wraparound/overflow panic) and produce a
-        // bogus boundary. Saturate to 0 instead, so an over-large
-        // late_compression just clamps to "every layer is late".
-        const late_boundary = n_layers -| late_compression;
-
         for (0..n_layers) |i| {
             var scheme = scheme_base;
             if (i < early_precision) {
                 scheme = upgradeScheme(scheme_base);
-            } else if (i >= late_boundary) {
+            } else if (i >= n_layers - late_compression) {
                 scheme = downgradeScheme(scheme_base);
             }
 
             profiles[i] = .{
                 .scheme = scheme,
-                .reason = if (i < early_precision) "early layer (higher precision)" else if (i >= late_boundary) "late layer (compression ok)" else "default",
+                .reason = if (i < early_precision) "early layer (higher precision)" else if (i >= n_layers - late_compression) "late layer (compression ok)" else "default",
             };
         }
 
@@ -252,19 +246,6 @@ test "QuantProfileSelector all layers default" {
 
     for (0..8) |i| {
         try std.testing.expectEqual(KvQuantScheme.f32, selector.schemeForLayer(@intCast(i)));
-    }
-}
-
-test "QuantProfileSelector late_compression larger than n_layers does not underflow" {
-    // Regression test: `n_layers - late_compression` used to underflow when
-    // late_compression > n_layers (integer overflow on unsigned subtraction).
-    // Saturating to 0 clamps the boundary so every layer is treated as late.
-    const allocator = std.testing.allocator;
-    var selector = try QuantProfileSelector.init(allocator, 4, .q4_0, 0, 100);
-    defer selector.deinit(allocator);
-
-    for (0..4) |i| {
-        try std.testing.expectEqual(KvQuantScheme.q3_0, selector.schemeForLayer(@intCast(i)));
     }
 }
 

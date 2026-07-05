@@ -19,7 +19,9 @@ Usage:
 
 import argparse
 import json
+import math
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -28,6 +30,14 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional
 import urllib.request
 import urllib.error
+
+# Fused engine backend (NPU+GPU hybrid)
+FUSED_ENGINE_AVAILABLE = False
+try:
+    from fused_backend import FusedEngine
+    FUSED_ENGINE_AVAILABLE = True
+except ImportError:
+    FusedEngine = None
 
 def _reject_json_constant(value: str):
     raise ValueError(f"Invalid JSON constant: {value}")
@@ -219,11 +229,14 @@ class Handler(BaseHTTPRequestHandler):
                     "gpu": {"backend": "Lemonade (ROCm)", "port": backends["gpu"].port,
                             "available": backends["gpu"].process is not None},
                     "cpu": {"backend": "Lemonade (CPU)", "available": True},
+                    "fused": {"backend": "NPU+GPU fused engine",
+                              "available": backends.get("fused") is not None},
                 },
                 "policy": {
                     "< 2B params": "npu",
                     "2B-8B params": "gpu",
                     "> 8B params": "cpu",
+                    "fused:// prefix": "NPU+GPU hybrid (fused engine)",
                 },
             })
         elif self.path == "/v1/models":
@@ -260,15 +273,28 @@ class Handler(BaseHTTPRequestHandler):
             _ = stream  # consumed, ignored
 
             # Route — npu:// bypasses size estimation
-            if model.startswith("npu://"):
+            # fused:// prefix routes to the fused NPU+GPU engine
+            if model.startswith("fused://"):
+                device = "fused"
+                model_size = 0.6
+            elif model.startswith("npu://"):
                 device = "npu"
                 model_size = 0.6  # Qwen3-0.6B
             else:
                 model_size = estimate_model_size(model)
                 device = select_device(model_size)
+                # 2B-8B models can use fused engine if available
+                if device == "gpu" and FUSED_ENGINE_AVAILABLE and "fused" in backends and backends["fused"] is not None:
+                    device = "fused"
 
             try:
-                if device == "npu":
+                if device == "fused":
+                    if FUSED_ENGINE_AVAILABLE and backends.get("fused"):
+                        resp = backends["fused"].chat(model, messages, **extra_kwargs)
+                    else:
+                        # Fallback to NPU if fused unavailable
+                        resp = backends["npu"].chat(model, messages, **extra_kwargs)
+                elif device == "npu":
                     resp = backends["npu"].chat(model, messages, **extra_kwargs)
                 elif device == "gpu":
                     resp = backends["gpu"].chat(model, messages, **extra_kwargs)
@@ -370,20 +396,49 @@ def main():
     parser.add_argument("--port", type=int, default=8080, help="Gateway port")
     parser.add_argument("--npu-port", type=int, default=52625, help="NPU backend port")
     parser.add_argument("--gpu-port", type=int, default=13305, help="GPU backend port")
+    parser.add_argument("--fused-port", type=int, default=18080, help="Fused NPU+GPU engine port")
+    parser.add_argument("--fused-policy", default="auto",
+        choices=["auto", "npu_only", "gpu_only", "attention_on_npu", "ffn_on_npu", "qkv_on_npu"],
+        help="Fused engine dispatch policy")
     parser.add_argument("--no-auto", action="store_true", help="Don't auto-start backends")
     args = parser.parse_args()
 
     global backends
+    # Parse extra args
+    fused_policy = os.environ.get("FUSED_POLICY", "auto")
+
     backends = {
         "npu": NPUBackend(port=args.npu_port),
         "gpu": GPUBackend(port=args.gpu_port),
     }
+    if FUSED_ENGINE_AVAILABLE:
+        backends["fused"] = None  # lazy init
 
     print("=" * 60)
     print("  NPU + GPU + CPU = Unified Control Plane")
+    if FUSED_ENGINE_AVAILABLE:
+        print("  ★ Fused NPU+GPU engine available via fused:// prefix")
+        print(f"  ★ Dispatch policy: {fused_policy}")
     print("  Gateway: http://0.0.0.0:{}".format(args.port))
     print("=" * 60)
     print()
+
+    # Fused engine: lazy-initialize when first request arrives for fused://
+    fused_engine_ref = {"eng": None}
+
+    def get_fused_engine() -> Optional[FusedEngine]:
+        if not FUSED_ENGINE_AVAILABLE:
+            return None
+        if fused_engine_ref["eng"] is None:
+            try:
+                eng = FusedEngine(policy=fused_policy)
+                eng.start_server(args.fused_port)
+                fused_engine_ref["eng"] = eng
+                backends["fused"] = eng
+                print(f"  Fused NPU+GPU engine started (policy={fused_policy})")
+            except Exception as e:
+                print(f"  ⚠️  Fused engine failed: {e}")
+        return fused_engine_ref["eng"]
 
     if not args.no_auto:
         print("Starting backends...")
@@ -400,6 +455,8 @@ def main():
         print("\nShutting down...")
         backends["npu"].stop()
         backends["gpu"].stop()
+        if fused_engine_ref["eng"]:
+            fused_engine_ref["eng"].stop()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, shutdown)

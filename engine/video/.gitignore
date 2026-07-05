@@ -1,0 +1,9 @@
+build/
+*.o
+*.out
+video_engine
+video_engine.exe
+output*.mp4
+output*.ppm
+output*.webm
+*.gguf
