@@ -1,22 +1,24 @@
 ---
 type: Engine
-title: NPU Inference Engine (C++ v12)
-description: Production inference engine on AMD NPU via XRT. 97 tok/s Qwen3-0.6B, 10.3 ms/tok decode.
-tags: [npu, production, cpp, xrt, int8, q4nx]
+title: NPU Inference Engine (Fused Layer)
+description: Production inference engine on AMD NPU via XRT. 291 tok/s Qwen3-0.6B, 3.4 ms/tok decode. Fused layer: one xclbin call per transformer layer.
+tags: [npu, production, fused, xrt, int8, q4nx]
 resource: https://github.com/1bit-systems/1bit/tree/main/engine/npu/
 timestamp: 2026-07-06T00:00:00Z
 ---
 
 # Overview
 
-The NPU engine is the **production inference engine** for 1bit.systems, running on the AMD NPU via XRT (Xilinx Runtime). C++ v12 achieves **97 tok/s** on Qwen3-0.6B at 10.3 ms/tok decode — matching and exceeding the AMD FLM runtime on decode through batched dispatch amortization.
+The NPU fused layer engine is the **production inference engine** for 1bit.systems, running on the AMD NPU via XRT (Xilinx Runtime). The fused layer runs the full transformer in one xclbin call (QKV→attention→O→GU→SiLU→D on NPU, no CPU attention), achieving **291 tok/s** on Qwen3-0.6B at 3.4 ms/tok decode — 3× the v12 baseline.
 
 ## Key Facts
 
-- **Binary size**: 74 KB (73 KB actual) — zero external dependencies
+- **Binary size**: 38 KB — zero external dependencies
+- **Fused layer**: one xclbin call per transformer layer (was 4 calls/layer in v12)
 - **Auto-detects 5 models** from a single binary
 - **All-models mode**: 28 tok/s (C++ all-5)
-- **FLM fallback**: 94 tok/s, 10.6 ms/tok — uses AMD's proprietary runtime
+- **C++ v12 fallback**: 97 tok/s, 10.3 ms/tok
+- **FLM fallback v2**: 94 tok/s, 10.6 ms/tok — uses AMD's proprietary runtime
 - **INT8 xclbins**: `/home/bcloud/npu-sandbox/npu-infer/build/int8/`
 - **Model path**: `~/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx`
 - **NPU2 firmware**: Supports 8+ simultaneous hw_contexts (firmware 1.1.2.65)

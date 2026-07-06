@@ -1,7 +1,7 @@
 ---
 type: Engine
 title: Unified Serving Daemon
-description: Single 74 KB binary serving all models via a HTTP API (OpenAI-compatible), proxying through C++ v12 (NPU) or FLM fallback.
+description: Small binary serving all models via a HTTP API (OpenAI-compatible), proxying through fused NPU layer (291 tok/s), C++ v12 (97 tok/s), or FLM fallback.
 tags: [daemon, serving, api, openai-compatible, http]
 resource: https://github.com/1bit-systems/1bit/tree/main/npu-gpu-cpu/
 timestamp: 2026-07-06T00:00:00Z
@@ -9,7 +9,7 @@ timestamp: 2026-07-06T00:00:00Z
 
 # Overview
 
-The unified daemon (`npu-gpu-cpu/`) serves all inference engines through a single HTTP API. A 74 KB binary that auto-detects 5 models and routes requests to the optimal backend.
+The unified daemon (`npu-gpu-cpu/`) serves all inference engines through a single HTTP API. Auto-detects 5 models and routes requests to the optimal backend.
 
 ## Architecture
 
@@ -20,8 +20,10 @@ Client ──▶ HTTP API (:9090)
         ┌─────────────┐
         │   Router    │
         ├─────────────┤
-        │ C++ v12 NPU │──▶ Production path (97 tok/s)
-        │ FLM proxy   │──▶ Fallback path (94 tok/s)
+        │ Fused layer │──▶ Production path (291 tok/s)
+        │ C++ v12 NPU │──▶ Fallback path (97 tok/s)
+        │ FLM proxy   │──▶ Fallback v2 (94 tok/s)
+        │ FLM proxy   │──▶ Fallback v2 (94 tok/s)
         │ GPU backend │──▶ Vulkan/ROCm path
         └─────────────┘
               │
@@ -46,7 +48,7 @@ curl -s http://127.0.0.1:9090/v1/chat/completions \
 
 ## Models Auto-Detected
 
-The 74 KB binary auto-detects all 5 models from the filesystem without configuration.
+The 38 KB binary auto-detects all 5 models from the filesystem without configuration.
 
 ## Deployment
 
