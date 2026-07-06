@@ -1,6 +1,6 @@
 # CLAUDE.md — 1bit.systems
 
-**50 TOPS INT8 · 291 tok/s NPU (fused layer production) · 97 tok/s NPU (C++ v12 fallback) · 94 tok/s NPU (FLM fallback) · 113 tok/s ROCm · 28 tok/s C++ all-5 · 22 tok/s GPU · 279 tok/s ternary · 38 KB binary. On a consumer laptop.**
+**572 tok/s DSpark spec-decode (production) · 291 tok/s NPU fused (production) · 97 tok/s NPU v12 (fallback) · 94 tok/s NPU FLM (fallback) · 113 tok/s ROCm · 28 tok/s C++ all-5 · 22 tok/s GPU · 279 tok/s ternary · 38 KB binary · 15W. On a consumer laptop.**
 Contact: admin@1bit.systems
 
 **73+ models across 6 backends · 22 multi-modal (video, image, audio) · 55.7 TFLOPS INT8 GEMM · 72× speedup (244→3.4 ms/tok)**
