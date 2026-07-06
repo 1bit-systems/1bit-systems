@@ -8,7 +8,8 @@
 74kb binary. Zero Python. Your hardware.
 
 [![279 tok/s ternary](https://img.shields.io/badge/279%20tok%2Fs-ternary-00ff00.svg)](engine/npu/BENCHMARKS.md)
-[![94 tok/s NPU](https://img.shields.io/badge/94%20tok%2Fs-NPU%20(FLM)-12a0ed.svg)](engine/npu/BENCHMARKS.md)
+[![94 tok/s NPU](https://img.shields.io/badge/94%20tok%2Fs-FLM-12a0ed.svg)](engine/npu/BENCHMARKS.md)
+[![97 tok/s C++](https://img.shields.io/badge/97%20tok%2Fs-C%2B%2B%20v12-00ff00.svg)](engine/npu/BENCHMARKS.md)
 [![74kb binary](https://img.shields.io/badge/binary-74kb-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
 [![22 models](https://img.shields.io/badge/22%20models-auto--detect-00ff00.svg)](tools/video-lora/)
 [![C++23](https://img.shields.io/badge/runtime-C%2B%2B23-00ff00.svg)](engine/npu/src/npu_engine_all.cpp)
@@ -97,7 +98,7 @@ curl -X POST http://localhost:8081/v1/chat/completions \
 > The **FLM proxy (94 tok/s)** remains the production backend.
 > See [docs/journey.md](docs/journey.md) and [GEMM-KERNEL-CORRECTNESS-CONFIRMED.md](docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md) for the fix.
 
-C++ v12 at 97 tok/s in production. FLM proxy at 94 tok/s as fallback.  
+FLM proxy at 94 tok/s in production. C++ v12: 97 tok/s open-source engine within 3%.  
 **No Python. No pip. No Docker. No MLIR toolchain. Just g++ and run.**  
 [Full benchmarks →](engine/npu/BENCHMARKS.md)
 

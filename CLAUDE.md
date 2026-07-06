@@ -1,6 +1,6 @@
 # CLAUDE.md — 1bit.systems
 
-**50 TOPS INT8 · 97 tok/s NPU (C++ v12) · 94 tok/s NPU (FLM) · 22 tok/s GPU. On a consumer laptop.**
+**50 TOPS INT8 · 94 tok/s NPU (FLM) · 97 tok/s NPU (C++ v12, within 3%) · 22 tok/s GPU. On a consumer laptop.**
 Contact: admin@1bit.systems
 
 **Three inference engines, one chip, ONE cache, ONE serving path.**
@@ -48,7 +48,7 @@ Build: `cd engine/fusion && zig build -Doptimize=ReleaseFast`
    - Focus: INT8 quantization, NPU context lifecycle, BFP16 precision, C++ memory safety
 
 ## Engine: NPU (`engine/npu/`)
-C++ v12 engine: 97 tok/s production (Qwen3-0.6B, 10.3 ms/tok). FLM proxy daemon: 94 tok/s fallback. C++ all-5 engine: 28 tok/s multi-model. Daemon: 110 KB zero-dep binary.
+FLM is our production backend. The daemon proxies to FLM (94 tok/s, 10.6 ms/tok) using AMD's proprietary runtime — best per-request TTFT via fused xclbin streaming. C++ v12 engine: 97 tok/s (10.3 ms/tok) — open-source, within 3% of FLM on decode, matches via M=32 batched dispatch amortization. C++ ALL: 28 tok/s, auto-detects 5 models from a 120KB binary. Daemon: 110 KB zero-dep binary.
 - `engine/npu/src/npu_engine_cb.cpp` — Main loop (batched prefill + decode)
 - `engine/npu/src/dequant_q4nx.c` — Q4NX dequantizer
 - `engine/npu/kernel/edge_attention.cc` — NPU attention (Chess C++)

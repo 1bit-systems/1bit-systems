@@ -192,14 +192,36 @@
   <span class="eyebrow">Measured on-device</span>
   <h2 style="margin:16px 0 24px;">The numbers. Verified.</h2>
   <div class="stats">
-    <div class="stat"><span class="lbl caps">NPU C++ v12</span><span class="val">97 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>10.3 ms/tok · production</span></div>
-    <div class="stat"><span class="lbl caps">NPU FLM</span><span class="val">94 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--dim)"></span>10.6 ms/tok · fallback</span></div>
+    <div class="stat"><span class="lbl caps">NPU FLM</span><span class="val">94 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>10.6 ms/tok · production</span></div>
+    <div class="stat"><span class="lbl caps">NPU C++ v12</span><span class="val">97 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--dim)"></span>10.3 ms/tok · within 3%</span></div>
     <div class="stat"><span class="lbl caps">All-5 engine</span><span class="val">28 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>5 models · auto-detect</span></div>
     <div class="stat"><span class="lbl caps">GPU decode</span><span class="val">22 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>Bonsai-1.7B · Vulkan</span></div>
     <div class="stat"><span class="lbl caps">Peak NPU</span><span class="val">55.7 <span>TFLOPS</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>INT8 · XDNA 2</span></div>
     <div class="stat"><span class="lbl caps">Models</span><span class="val">73+</span><span class="foot"><span class="dot" style="background:var(--blue)"></span>6 backends · auto-detect</span></div>
   </div>
   <p style="margin-top:24px;text-align:center;"><a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/engine/npu/BENCHMARKS.md" class="btn btn-ghost btn-md" target="_blank" rel="noopener">Full benchmarks →</a></p>
+</section>
+
+<section id="compare" class="block">
+  <span class="eyebrow">Comparison</span>
+  <h2 style="margin:16px 0 8px;">1bit.systems vs FastFlowLM.</h2>
+  <p class="lead" style="margin-bottom:24px;">We both run on AMD's XDNA 2 NPU. The difference is how we got there.</p>
+  <div class="card" style="padding:20px;overflow-x:auto;">
+  <table style="width:100%;border-collapse:collapse;font-size:13px;line-height:1.6;">
+    <tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:10px 12px;color:var(--muted);font-weight:600;">Feature</th><th style="text-align:left;padding:10px 12px;color:var(--green);font-weight:700;">1bit.systems</th><th style="text-align:left;padding:10px 12px;color:var(--pink);font-weight:700;">FastFlowLM</th></tr>
+    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">Production engine</td><td style="padding:8px 12px;">FLM proxy (94.7 tok/s)</td><td style="padding:8px 12px;color:var(--dim);">FLM native</td></tr>
+    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">Open-source engine</td><td style="padding:8px 12px;">C++23, MIT, 97 tok/s</td><td style="padding:8px 12px;color:var(--dim);">❌</td></tr>
+    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">Models supported</td><td style="padding:8px 12px;">5 (0.6B, 8B, VL-4B, Llama, Gemma4)</td><td style="padding:8px 12px;color:var(--dim);">10+ (8B-focused)</td></tr>
+    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">Auto-detect</td><td style="padding:8px 12px;">Q4NX header parse</td><td style="padding:8px 12px;color:var(--dim);">Per-model Python build</td></tr>
+    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">Binary size</td><td style="padding:8px 12px;">120 KB</td><td style="padding:8px 12px;color:var(--dim);">Python + 114KB xclbins</td></tr>
+    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">Python deps</td><td style="padding:8px 12px;">0</td><td style="padding:8px 12px;color:var(--dim);">Full MLIR-AIE + torch</td></tr>
+    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">Daemon (HTTP API)</td><td style="padding:8px 12px;">OpenAI-compatible, port 9090</td><td style="padding:8px 12px;color:var(--dim);">Built-in</td></tr>
+    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">Systemd unit</td><td style="padding:8px 12px;">turbo by default</td><td style="padding:8px 12px;color:var(--dim);">Manual start</td></tr>
+    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">GPU engine</td><td style="padding:8px 12px;">Vulkan (22 tok/s)</td><td style="padding:8px 12px;color:var(--dim);">NPU only</td></tr>
+    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">1-bit models</td><td style="padding:8px 12px;">Bonsai IQ1_S (385 MB)</td><td style="padding:8px 12px;color:var(--dim);">❌</td></tr>
+    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">License</td><td style="padding:8px 12px;">MIT</td><td style="padding:8px 12px;color:var(--dim);">Proprietary</td></tr>
+  </table>
+  </div>
 </section>
 
 <section id="install" class="block">
