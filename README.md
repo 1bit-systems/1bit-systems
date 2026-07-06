@@ -97,7 +97,7 @@ curl -X POST http://localhost:8081/v1/chat/completions \
 > The **FLM proxy (94 tok/s)** remains the production backend.
 > See [docs/journey.md](docs/journey.md) and [GEMM-KERNEL-CORRECTNESS-CONFIRMED.md](docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md) for the fix.
 
-FLM proxy at 94 tok/s in production.  
+C++ v12 at 97 tok/s in production. FLM proxy at 94 tok/s as fallback.  
 **No Python. No pip. No Docker. No MLIR toolchain. Just g++ and run.**  
 [Full benchmarks →](engine/npu/BENCHMARKS.md)
 
@@ -223,8 +223,8 @@ OMP_NUM_THREADS=16 ./npu_engine_v9 64
 
 | Metric | Value |
 |--------|-------|
-| Speed (FLM proxy) | **94 tok/s** (10.6 ms/tok) — production daemon |
-| Speed (v12) | **97 tok/s** (10 ms/tok) — C++ single-model ✅ coherence fixed |
+| Speed (v12) | **97 tok/s** (10.3 ms/tok) — production C++ engine |
+| Speed (FLM proxy) | **94 tok/s** (10.6 ms/tok) — fallback daemon |
 | Speed (ALL) | **28 tok/s** (36 ms/tok) — C++ all 5 NPU LLMs |
 | Speed (v3 baseline) | 244 ms/tok (4.1 tok/s) |
 | Speedup (C++) | **24×** (v3→v12) |
@@ -408,6 +408,6 @@ Zaya AMD-native architecture  ·  CCA attention  ·  MoE routing
 
 *Built on Strix Halo. NPU + GPU + CPU. One chip. One binary. Every model.*
 *Zaya: AMD-native model architecture. CCA attention. MoE routing.*
-*244→10 ms/tok (24×) on C++. FLM proxy at 94 tok/s in production.*
+*244→10 ms/tok (24×) on C++ v12. Production engine at 97 tok/s.*
 *22 models, 3 modalities (video, image, audio), auto-detected.*
 *Open source ships faster than vendor lock-in.*
