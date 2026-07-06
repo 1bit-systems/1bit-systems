@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>1bit.systems — 74kb Binary · Fused NPU+GPU+CPU · 113 tok/s ROCm · Zaya · 73+ models</title>
-<meta name="description" content="74kb Binary. Fused NPU+GPU+CPU. 73+ models auto-detected. 94 tok/s NPU · 113 tok/s ROCm custom kernels · Zaya architecture. Zero Python. Open source.">
-<meta property="og:title" content="1bit.systems — 74kb Binary · Fused NPU+GPU+CPU · 113 tok/s ROCm · Zaya">
-<meta property="og:description" content="74kb Binary. Fused NPU+GPU+CPU. 73+ models auto-detected. 94 tok/s NPU · 113 tok/s ROCm custom kernels. Zero Python. Open source.">
+<title>1bit.systems — 74kb Binary · Fused NPU+GPU+CPU · 22 models · Model-agnostic</title>
+<meta name="description" content="74kb Binary. Fused NPU+GPU+CPU. 22 models auto-detected across video, image & audio. 94 tok/s (FLM) on AMD Strix Halo. Zero Python. Zero deps. Open source.">
+<meta property="og:title" content="1bit.systems — 74kb Binary · Fused NPU+GPU+CPU">
+<meta property="og:description" content="74kb Binary. Fused NPU+GPU+CPU. 22 models auto-detected. 94 tok/s (FLM) on AMD Strix Halo. Zero Python. Open source.">
 <meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
 <meta property="og:url" content="https://1bit.systems">
 <meta property="og:type" content="website">
@@ -144,7 +144,7 @@
 <nav>
   <div class="nav-in">
     <a class="brand" href="#top"><span class="mark">1bs</span><span class="wordmark"><span class="g">1</span>bit<span class="p">.</span>systems</span></a>
-    <div class="nav-links" id="navLinks"><a href="#benchmarks">Benchmarks</a><a href="#install">Install</a><a href="jarvis/">JARVIS</a><a href="store/">Store</a><a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/building.md">Build</a></div>
+    <div class="nav-links" id="navLinks"><a href="#benchmarks">Benchmarks</a><a href="#install">Install</a><a href="jarvis/">JARVIS</a><a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/building.md">Build</a></div>
     <div class="nav-cta"><a class="txt" href="https://discord.gg/dSyV646eBs" target="_blank" rel="noopener">Discord</a><a class="btn btn-primary btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">GitHub</a></div>
     <button class="hamburger" id="hamburger" aria-label="Menu"><span></span><span></span><span></span></button>
   </div>
@@ -161,9 +161,7 @@
       <div class="row" style="margin-top:18px;">
         <span class="pill ok"><span class="dot"></span>verified on-device</span>
         <span class="pill dark"><span class="dot"></span>74kb binary</span>
-        <span class="pill info"><span class="dot"></span>73+ models · auto-detect</span>
-        <span class="pill ok"><span class="dot"></span>113 tok/s ROCm</span>
-        <span class="pill warn"><span class="dot"></span>Zaya</span>
+        <span class="pill info"><span class="dot"></span>22 models · auto-detect</span>
       </div>
       <div class="cta-row">
         <a class="btn btn-primary btn-lg" href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">View on GitHub →</a>
@@ -186,7 +184,7 @@
   <p class="lead">The NPU AMD shipped locked. The GPU they already open. 1bit.systems drives both — from one mini PC, with no cloud in the loop.</p>
   <div class="grid2" style="margin-top:28px;">
     <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">NPU · XDNA 2</span><span class="pill warn"><span class="dot"></span>unlocked</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute tiles</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">50 TOPS INT8 AMD shipped disabled on consumer silicon. FLM proxy: 94 tok/s (Qwen3-0.6B). C++ v12: 97 tok/s open-source. 5 model families, one binary.</p></div>
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--blue);">GPU · RDNA 3.5</span><span class="pill info"><span class="dot"></span>open</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute units</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">Vulkan 1.3 compute · ZINC engine (Zig, GGUF).<br>ROCm HIP custom kernels (ggml-rocm):<br>Bonsai-1.7B TQ2 — <strong>113 tok/s</strong> (8.8 ms/tok).<br>100 kernel symbols — ternary GEMV, KV cache, prefill GEMM (28.4 TFlops).<br>Zaya model: CCA attention + MoE with EDA router.</p></div>
+    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--blue);">GPU · RDNA 3.5</span><span class="pill info"><span class="dot"></span>open</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute units</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">Vulkan 1.3 compute. ZINC engine (Zig, GGUF). 22 tok/s decode (Bonsai-1.7B F16). 256 GB/s memory bandwidth — 99.6% utilized.</p></div>
   </div>
 </section>
 
@@ -198,9 +196,8 @@
     <div class="stat"><span class="lbl caps">NPU C++ v12</span><span class="val">97 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--dim)"></span>10.3 ms/tok · within 3%</span></div>
     <div class="stat"><span class="lbl caps">All-5 engine</span><span class="val">28 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>5 models · auto-detect</span></div>
     <div class="stat"><span class="lbl caps">GPU decode</span><span class="val">22 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>Bonsai-1.7B · Vulkan</span></div>
-    <div class="stat"><span class="lbl caps">ROCm decode</span><span class="val">113 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>Bonsai TQ2 · HIP kernels</span></div>
     <div class="stat"><span class="lbl caps">Peak NPU</span><span class="val">55.7 <span>TFLOPS</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>INT8 · XDNA 2</span></div>
-    <div class="stat"><span class="lbl caps">Models</span><span class="val">73+</span><span class="foot"><span class="dot" style="background:var(--blue)"></span>7 backends · auto-detect</span></div>
+    <div class="stat"><span class="lbl caps">Models</span><span class="val">73+</span><span class="foot"><span class="dot" style="background:var(--blue)"></span>6 backends · auto-detect</span></div>
   </div>
   <p style="margin-top:24px;text-align:center;"><a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/engine/npu/BENCHMARKS.md" class="btn btn-ghost btn-md" target="_blank" rel="noopener">Full benchmarks →</a></p>
 </section>
@@ -220,8 +217,8 @@
     <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">Python deps</td><td style="padding:8px 12px;">0</td><td style="padding:8px 12px;color:var(--dim);">Full MLIR-AIE + torch</td></tr>
     <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">Daemon (HTTP API)</td><td style="padding:8px 12px;">OpenAI-compatible, port 9090</td><td style="padding:8px 12px;color:var(--dim);">Built-in</td></tr>
     <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">Systemd unit</td><td style="padding:8px 12px;">turbo by default</td><td style="padding:8px 12px;color:var(--dim);">Manual start</td></tr>
-    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">GPU engine</td><td style="padding:8px 12px;">Vulkan (22 tok/s) + ROCm HIP (113 tok/s)</td><td style="padding:8px 12px;color:var(--dim);">NPU only</td></tr>
-    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">1-bit / ternary models</td><td style="padding:8px 12px;">Bonsai TQ2 · Zaya · 7+ models (ROCm + Vulkan)</td><td style="padding:8px 12px;color:var(--dim);">❌</td></tr>
+    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">GPU engine</td><td style="padding:8px 12px;">Vulkan (22 tok/s)</td><td style="padding:8px 12px;color:var(--dim);">NPU only</td></tr>
+    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">1-bit models</td><td style="padding:8px 12px;">Bonsai IQ1_S (385 MB)</td><td style="padding:8px 12px;color:var(--dim);">❌</td></tr>
     <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">License</td><td style="padding:8px 12px;">MIT</td><td style="padding:8px 12px;color:var(--dim);">Proprietary</td></tr>
   </table>
   </div>
