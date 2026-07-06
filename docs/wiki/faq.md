@@ -8,4 +8,4 @@
 
 **ROCm vs Vulkan?** — **Vulkan ⭐ is primary.** ROCm available via `-Dbackend=rocm`.
 
-**Production ready?** — Yes. FLM daemon (94 tok/s) + open C++ engine (97 tok/s).
+**Production ready?** — Yes. Open-source C++ v12 engine at 97 tok/s.

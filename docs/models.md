@@ -5,7 +5,7 @@ Full list of every model tested with the 1bit.systems engine stack.
 
 ---
 
-## NPU (XDNA 2 · FLM) — 36 models
+## NPU (XDNA 2) — 36 models
 
 | Model Tag | Family | Params | Footprint | Capabilities | Installed |
 |-----------|--------|--------|-----------|-------------|-----------|

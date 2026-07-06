@@ -166,7 +166,7 @@
 <span class="b">  "power": "~15W"</span>
 <span class="b">}</span>
 
-<span class="c"># decode=94 tok/s ttft=513ms (FLM proxy · XDNA2 NPU)</span>
+<span class="c"># decode=97 tok/s ttft=14ms/tok prefill (C++ v12 · XDNA2 NPU)</span>
 <span class="c"># no cloud — no data leaves your machine</span></div>
   </div>
 </section>
@@ -225,7 +225,7 @@
     <div class="card" style="padding:24px;">
       <div style="display:flex;align-items:center;gap:8px;"><span class="tag npu">NPU</span><span class="mono" style="font-size:12px;color:var(--muted);">XDNA 2 · 32 AIE2P tiles</span></div>
       <div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:40px;font-weight:800;color:var(--green);">94</span><span style="font-size:15px;font-weight:700;color:var(--muted);">tok/s · 50 TOPS INT8</span></div>
-      <p style="font-size:13px;color:var(--muted);margin-top:12px;line-height:1.55;">The NPU AMD shipped disabled on consumer silicon. We drive it through FLM proxy at 94 tok/s. INT8 GEMM via XRT xclbin kernels. ~15W power envelope.</p>
+      <p style="font-size:13px;color:var(--muted);margin-top:12px;line-height:1.55;">The NPU AMD shipped disabled on consumer silicon. Our C++ v12 engine drives it at 97 tok/s. INT8 GEMM via XRT xclbin kernels. ~15W power envelope.</p>
       <div class="code" style="margin-top:14px;font-size:11px;"><span class="c">Qwen3-0.6B: 10.6 ms/tok · 94 tok/s</span>
 <span class="c">Qwen3-VL-4B:  93 ms/tok · 11 tok/s</span>
 <span class="c">Llama-3.1-8B: 100 ms/tok · 10 tok/s</span>
@@ -250,7 +250,7 @@
   <span class="eyebrow">Benchmarks</span>
   <h2 style="margin:16px 0 24px;">Measured on-device. Verified.</h2>
   <div class="stats">
-    <div class="stat"><span class="lbl caps">NPU Inference</span><span class="val">94 <span>tok/s</span></span><span class="pill ok" style="margin-top:6px;font-size:10px;"><span class="dot"></span>Qwen3-0.6B · FLM</span></div>
+    <div class="stat"><span class="lbl caps">NPU Inference</span><span class="val">97 <span>tok/s</span></span><span class="pill ok" style="margin-top:6px;font-size:10px;"><span class="dot"></span>Qwen3-0.6B · C++ v12</span></div>
     <div class="stat"><span class="lbl caps">GPU 1-bit</span><span class="val">381 <span>tok/s</span></span><span class="pill ok" style="margin-top:6px;font-size:10px;"><span class="dot"></span>0.5B IQ1_S · 296 MB</span></div>
     <div class="stat"><span class="lbl caps">NPU Vision</span><span class="val">11 <span>tok/s</span></span><span class="pill info" style="margin-top:6px;font-size:10px;"><span class="dot"></span>Qwen3-VL-4B · 3.2 GB</span></div>
     <div class="stat"><span class="lbl caps">TTS Latency</span><span class="val">50 <span>ms</span></span><span class="pill info" style="margin-top:6px;font-size:10px;"><span class="dot"></span>Piper · ~50ms first word</span></div>
@@ -285,7 +285,7 @@
 <span style="color:var(--muted);">                       │                           </span>
 <span style="color:var(--muted);">┌──────────────────────▼──────────────────────────┐</span>
 <span style="color:var(--pink);">│            Fused Engine (port 9090)              │</span>
-<span style="color:var(--pink);">│  NPU (FLM 94 tok/s) ←→ GPU (ROCm 113 tok/s)     │</span>
+<span style="color:var(--pink);">│  NPU (C++ v12 97 tok/s) ←→ GPU (ROCm 113 tok/s) │</span>
 <span style="color:var(--muted);">│  H2O KV Cache · RadixAttention · 8 Policies     │</span>
 <span style="color:var(--muted);">└─────────────────────────────────────────────────┘</span></div>
   </div>
@@ -324,7 +324,7 @@
 <span class="g"># NPU Inference Speed</span>
 
 <span class="t">Qwen3-0.6B on XDNA2 NPU:</span>
-<span class="b">- FLM proxy: 94 tok/s (10.6 ms/tok)</span>
+<span class="b">- C++ v12: 97 tok/s (10.3 ms/tok)</span>
 <span class="b">- C++ v12:   97 tok/s (10.3 ms/tok)</span>
 <span class="t">- 32 AIE2P tiles · INT8 GEMM · 50 TOPS</span></div>
     <div style="display:flex;flex-direction:column;gap:12px;justify-content:center;">

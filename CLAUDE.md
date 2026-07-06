@@ -1,6 +1,6 @@
 # CLAUDE.md — 1bit.systems
 
-**50 TOPS INT8 · 97 tok/s NPU (C++ v12) · 94 tok/s NPU (FLM proxy) · 113 tok/s ROCm · 22 tok/s GPU. On a consumer laptop.**
+**50 TOPS INT8 · 97 tok/s NPU (C++ v12) · 113 tok/s ROCm · 279 tok/s ternary · 22 tok/s GPU. On a consumer laptop.**
 Contact: admin@1bit.systems
 
 **Three inference engines, one chip, ONE cache, ONE serving path.**
@@ -46,7 +46,7 @@ Build: `cd engine/fusion && zig build -Doptimize=ReleaseFast`
 ## Agent Workflow (skills to invoke automatically)
 
 ### On every code change:
-1. **`/verify`** — Run `curl -s http://127.0.0.1:9090/v1/chat/completions -d '{"model":"qwen3:0.6b","messages":[{"role":"user","content":"hi"}],"max_tokens":1}'` and confirm FLM proxy responds (94 tok/s typical)
+1. **`/verify`** — Run `curl -s http://127.0.0.1:9090/v1/chat/completions -d '{"model":"qwen3:0.6b","messages":[{"role":"user","content":"hi"}],"max_tokens":1}'` and confirm daemon responds (C++ v12 at 97 tok/s, falls back to FLM at 94 tok/s)
 2. **`/code-review`** — Review diff for INT8 quantization bugs, context lifecycle issues, C++ memory safety
 
 ### On every push:
@@ -59,7 +59,7 @@ Build: `cd engine/fusion && zig build -Doptimize=ReleaseFast`
    - Focus: INT8 quantization, NPU context lifecycle, BFP16 precision, C++ memory safety
 
 ## Engine: NPU (`engine/npu/`)
-C++ v12 engine: 97 tok/s production (Qwen3-0.6B, 10.3 ms/tok). The daemon proxies through FLM (94 tok/s, 10.6 ms/tok) as fallback using AMD's proprietary runtime. C++ v12 matches/exceeds FLM on decode via M=32 batched dispatch amortization — FLM's advantage is per-request TTFT (fused xclbin eliminates per-layer ioctl). C++ ALL: 28 tok/s, auto-detects 5 models from a 120KB binary. Daemon: 110 KB zero-dep binary.
+C++ v12 engine: 97 tok/s production (Qwen3-0.6B, 10.3 ms/tok). C++ v12 uses M=32 batched dispatch amortization. C++ ALL: 28 tok/s, auto-detects 5 models from a 74 KB binary. Daemon: 74 KB zero-dep binary.
 - `engine/npu/src/npu_engine_cb.cpp` — Main loop (batched prefill + decode)
 - `engine/npu/src/dequant_q4nx.c` — Q4NX dequantizer
 - `engine/npu/kernel/edge_attention.cc` — NPU attention (Chess C++)

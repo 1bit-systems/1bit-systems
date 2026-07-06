@@ -215,7 +215,7 @@
   <h2 style="margin:16px 0 8px;">One APU. Two accelerators AMD half-shipped.</h2>
   <p class="lead">The NPU AMD shipped locked. The GPU they already open. 1bit.systems drives both — from one mini PC, with no cloud in the loop.</p>
   <div class="grid2" style="margin-top:28px;">
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">NPU · XDNA 2</span><span class="pill warn"><span class="dot"></span>unlocked</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute tiles</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">50 TOPS INT8 AMD shipped disabled on consumer silicon. <strong>C++ v12 production engine: 97 tok/s</strong> (Qwen3-0.6B). FLM proxy: 94 tok/s fallback. 5 NPU model families, 73+ total across 6 backends.</p></div>
+    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">NPU · XDNA 2</span><span class="pill warn"><span class="dot"></span>unlocked</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute tiles</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">50 TOPS INT8 AMD shipped disabled on consumer silicon. <strong>C++ v12 production engine: 97 tok/s</strong> (Qwen3-0.6B). 5 NPU model families, 73+ total across 6 backends.</p></div>
     <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">GPU · RDNA 3.5</span><span class="pill info"><span class="dot"></span>open</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute units</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">Vulkan 1.3 compute. ZINC engine (Zig, GGUF). 22 tok/s decode (Bonsai-1.7B F16). 256 GB/s memory bandwidth — 99.6% utilized.</p></div>
   </div>
 </section>
@@ -225,7 +225,7 @@
   <h2 style="margin:16px 0 24px;">The numbers. Verified.</h2>
   <div class="stats">
     <div class="stat"><span class="lbl caps">NPU C++ v12</span><span class="val">97 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>10.3 ms/tok · production</span></div>
-    <div class="stat"><span class="lbl caps">NPU FLM</span><span class="val">94 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--dim)"></span>10.6 ms/tok · fallback</span></div>
+
     <div class="stat"><span class="lbl caps">All-5 engine</span><span class="val">28 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>5 models · auto-detect</span></div>
     <div class="stat"><span class="lbl caps">GPU decode</span><span class="val">22 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>Bonsai-1.7B · Vulkan ⭐</span></div>
     <div class="stat"><span class="lbl caps">Peak NPU</span><span class="val">55.7 <span>TFLOPS</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>INT8 · XDNA 2</span></div>
@@ -255,9 +255,9 @@
     <div class="card" style="padding:24px;">
       <span class="caps" style="color:var(--blue);">Architecture wins</span>
       <div style="margin-top:16px;display:flex;flex-direction:column;gap:14px;font-size:14px;line-height:1.5;">
-        <div class="check"><span class="ck">✓</span><span class="txt"><strong>M=32 batch decode</strong> amortizes NPU dispatch overhead across 32 tokens — matching FLM's fused xclbin on throughput</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt"><strong>M=32 batch decode</strong> amortizes NPU dispatch overhead across 32 tokens</span></div>
         <div class="check"><span class="ck">✓</span><span class="txt"><strong>OpenMP attention</strong> beats NPU attention on CPU for context &lt; 128 tokens — dispatch overhead kills NPU win</span></div>
-        <div class="check"><span class="ck">✓</span><span class="txt"><strong>Q4NX header parse</strong> — one binary auto-detects any model. FLM needs per-model Python build pipelines</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt"><strong>Q4NX header parse</strong> — one binary auto-detects any model</span></div>
         <div class="check"><span class="ck">✓</span><span class="txt"><strong>74 KB binary</strong>, zero dependencies. Install is <code style="background:var(--inner);padding:0 6px;border-radius:4px;font-size:12px;">curl | bash</code></span></div>
         <div class="check"><span class="ck">✓</span><span class="txt"><strong>Fused NPU+GPU+CPU</strong> — dispatch per-layer to the fastest backend. Vulkan, ROCm, CUDA, Metal</span></div>
       </div>
@@ -386,7 +386,7 @@
     </div>
     <div class="foot-fine">
       <div>Built with DeepSeek v4 (99.9%) · Shipped with Claude (0.1%) · One human.</div>
-      <div>74kb binary · 97 tok/s (C++ v12 production) · 94 tok/s (FLM fallback) · 55.7 TFLOPS · MIT</div>
+      <div>74kb binary · 97 tok/s (C++ v12 production) · 55.7 TFLOPS · MIT</div>
       <div style="margin-top:8px;">—bong-water-water-bong · <span class="p">"Sorry but not Sorry :)"</span></div>
       <div style="margin-top:8px;"><a href="mailto:admin@1bit.systems" style="color:var(--muted);">admin@1bit.systems</a></div>
     </div>

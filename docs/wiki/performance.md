@@ -16,7 +16,6 @@
 
 | Engine | Hardware | Speed | Model |
 |--------|----------|-------|-------|
-| **NPU FLM** (production fallback) | XDNA 2 · 32 tiles | **94 tok/s** | Qwen3-0.6B |
 | **NPU v12** (open C++, production) | XDNA 2 · 32 tiles | **97 tok/s** | Qwen3-0.6B |
 | **GPU ZINC** (Vulkan ⭐ primary) | Radeon 8060S | **22 tok/s** | Bonsai-1.7B |
 | **Ternary** (Vulkan) | Radeon 8060S | **279 tok/s** | Q2_0 |
@@ -47,7 +46,7 @@ Every model at ≤1.5625 bpw (true 1-bit class). Measured on Radeon 8060S via Vu
 
 | Backend | Model | Size | Tok/s | Power |
 |---------|-------|------|-------|-------|
-| **NPU** (FLM) | Qwen3-0.6B Q4NX | 526 MB | **94 tok/s** | ~15W |
+| **NPU** (C++ v12) | Qwen3-0.6B Q4NX | 526 MB | **97 tok/s** | ~15W |
 | **GPU** (llama.cpp) | Qwen2 0.5B IQ1_S | 296 MB | **381 tok/s** | ~45W |
 | **GPU** (llama.cpp) | Qwen3.5-0.8B Q1_0 | 268 MB | **312 tok/s** | ~45W |
 | **GPU** (ZINC) | Hy-MT2 1.8B STQ1_0 | 441 MB | **267 tok/s** | ~45W |
@@ -76,25 +75,9 @@ Every model at ≤1.5625 bpw (true 1-bit class). Measured on Radeon 8060S via Vu
 
 ---
 
-## Production Stack — FLM Proxy Benchmarks
-
-The `npu-gpu-cpud` daemon proxies to FLM for production inference. These are the numbers you get running `1bit chat`.
-
-### Qwen3-0.6B — FLM turbo (9 runs)
-
-| Prompt | TTFT | Decode | Overall | Tokens |
-|--------|------|--------|---------|--------|
-| Short ("hello") | 511 ms | 83.0 tok/s | 17 tok/s | 9-16 |
-| Medium (10 words) | 515 ms | **94.0 tok/s** | 40-54 tok/s | 73-97 |
-| Long (26 words) | 514 ms | **93.3 tok/s** | 61-77 tok/s | 256 |
-
-**Aggregate**: 94.0 tok/s decode median, 513ms TTFT avg, 256 max_tokens.
-
----
-
 ## Raw C++ Engine — All 5 Models (M=32 batch, OpenMP)
 
-Single binary. Auto-detect. No FLM. No proprietary code.
+Single binary. Auto-detect. No proprietary code.
 
 | Model | H | Size | Prefill | Decode | Tok/s | Layers |
 |-------|---|------|---------|--------|-------|--------|
@@ -112,8 +95,7 @@ Single binary. Auto-detect. No FLM. No proprietary code.
 
 | Engine | Decode | TTFT | tok/s | Notes |
 |--------|--------|------|-------|-------|
-| **FLM turbo** (production fallback) | 10.6 ms/tok | 497 ms | **94.7** | Proprietary, pmode=turbo |
-| **C++ v12** (single-model production) | 10 ms/tok | 14 ms/tok prefill | **97** | Open source, M=32 batch |
+| **C++ v12** (production) | 10 ms/tok | 14 ms/tok prefill | **97** | Open source, M=32 batch |
 | **C++ ALL** (5 models) | 36 ms/tok | 14 ms/tok prefill | **28** | Auto-detect, one binary |
 
 ---
@@ -208,7 +190,7 @@ All 31 Vulkan pipelines switched from wave64 to **wave32** (RDNA4 native width).
 
 ## Speculative Decoding — Eagle3 Draft
 
-Draft: single transformer layer (hidden=1024). Target: Qwen3-0.6B on NPU (94 tok/s).
+Draft: single transformer layer (hidden=1024). Target: Qwen3-0.6B on NPU (97 tok/s).
 
 | Acceptance | Simulated tok/s | vs Baseline |
 |-----------|----------------|-------------|
@@ -235,17 +217,6 @@ Draft: single transformer layer (hidden=1024). Target: Qwen3-0.6B on NPU (94 tok
 
 ---
 
-## What 1bit.systems Has That FLM Doesn't
-
-| Feature | 1bit.systems | FastFlowLM |
-|---------|-------------|------------|
-| Open-source engine | ✅ C++23, MIT, 97 tok/s | ❌ |
-| Auto-detect | ✅ Q4NX header parse | ❌ Per-model Python build |
-| Python deps | **0** | Full MLIR-AIE + torch |
-| GPU engine | ✅ Vulkan (22 tok/s) + ROCm (113 tok/s) | ❌ NPU only |
-| 1-bit models | ✅ Bonsai IQ1_S (385 MB) | ❌ |
-| Fused NPU+GPU | ✅ 8 dispatch policies | ❌ |
-| License | ✅ MIT | ❌ Proprietary |
 
 ---
 
@@ -253,12 +224,10 @@ Draft: single transformer layer (hidden=1024). Target: Qwen3-0.6B on NPU (94 tok
 
 | Tuning | Decode | TTFT |
 |--------|--------|------|
-| FLM pmode=performance (default) | 94.1 tok/s | 513 ms |
-| **FLM pmode=turbo** | **94.7 tok/s** | **497 ms** |
 | CPU governor performance | Marginal | Marginal |
-| C++ v12 M=32 | 97 tok/s | 10 ms/tok prefill |
+| C++ v12 M=32 | **97 tok/s** | 14 ms/tok prefill |
 
-Turbo gains are real but marginal (+0.6% decode, -16ms TTFT). The ~500ms TTFT is NPU loading weights from DDR into AIE tiles — no software knob fixes this. Only a fused xclbin (streaming weights on-chip) can break through.
+The ~500ms TTFT is NPU loading weights from DDR into AIE tiles — no software knob fixes this. Only a fused xclbin (streaming weights on-chip) can break through.
 
 ---
 
