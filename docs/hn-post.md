@@ -1,7 +1,7 @@
 # Hacker News Post Draft
 
 ## Title:
-**120KB binary, 22 models, 94 tok/s: I reverse-engineered AMD's NPU stack in 4 days**
+**74KB binary, 22 models, 94 tok/s: I reverse-engineered AMD's NPU stack in 4 days**
 
 ## Body:
 
@@ -12,14 +12,14 @@ stack is deliberately crippled to sell their FastFlowLM license.
 
 I bought one. I got angry. I fixed it.
 
-**Today: a 120KB C++23 binary that runs 22 model architectures across
+**Today: a 74KB C++23 binary that runs 22 model architectures across
 video, image, audio, and text — all on your consumer laptop.**
 
 No Python. No Docker. No pip. No MLIR. Just g++ and run.
 
 ### What this is
 
-- **One binary (120KB)**: fused NPU + GPU + CPU inference engine
+- **One binary (74KB)**: fused NPU + GPU + CPU inference engine
 - **22 models auto-detected**: Wan2.2 (video), Flux (image), Stable Audio,
   HunyuanVideo, CogVideoX, SDXL, SD3.5, LTX-Video, Sana, Mochi, Cosmos,
   AnimateDiff, Qwen3 LLM, and more

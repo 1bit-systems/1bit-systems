@@ -89,7 +89,7 @@ npu-gpu-cpu/
 1. **BFP16 is abandoned** — v8bfp16ebs8 format gives 17% per-GEMM error, compounds to degenerate output
    - `docs/wiki/bfp16-engine-analysis.md` for full root cause
    - All production work uses INT8 xclbins (final_i8_*.xclbin)
-2. **INT8 engine fully working** — 5 models on one 120KB binary
+2. **INT8 engine fully working** — 5 models on one 74KB binary
    - Model-agnostic: auto-detects dims from Q4NX header
    - Build: `g++ -std=c++23 -O3 -mavx2 -mfma -mavx512f -ffast-math -march=native`
    - Source: `/home/bcloud/1bit-systems/engine/npu/src/npu_engine_all.cpp`

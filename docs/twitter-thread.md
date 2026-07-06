@@ -9,7 +9,7 @@ Then locked INT8 behind proprietary software.
 
 I bought one. I got angry. I fixed it.
 
-4 days. 120KB. 94 tok/s. Open source.
+4 days. 74KB. 94 tok/s. Open source.
 
 The silicon was never the bottleneck. The business model was. 👇
 
@@ -17,7 +17,7 @@ The silicon was never the bottleneck. The business model was. 👇
 
 **Tweet 2**
 
-120KB binary. Think about that.
+74KB binary. Think about that.
 
 Your browser's favicon is bigger.
 A 240p JPEG of a cat is bigger.
@@ -40,7 +40,7 @@ video-lora generate --model stable-audio --prompt "rain on window"
 
 Same CLI. Same engine. Auto-detected. LoRA on every backend.
 
-22 models, 3 modalities, one 120KB binary.
+22 models, 3 modalities, one 74KB binary.
 
 ---
 
@@ -85,5 +85,5 @@ Your hardware. Not AMD's.
 ---
 
 **Hashtags (in reply to last tweet):**
-#120kbBinary #OneBinaryToRuleThemAll #FusedEngine #ModelAgnostic
+#74kbBinary #OneBinaryToRuleThemAll #FusedEngine #ModelAgnostic
 #NoPython #ZeroDeps #AMDNPU #StrixHalo #AntiVendorLock #Cpp23 #TheUnlock

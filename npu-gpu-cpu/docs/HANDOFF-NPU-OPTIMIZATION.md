@@ -4,7 +4,7 @@
 
 **Tag:** `v2026.07.02-all5models`  
 **Release:** https://github.com/bong-water-water-bong/1bit-systems/releases/tag/v2026.07.02-all5models  
-**Site:** https://1bit.systems — "One binary to rule them all. 5 models. 120KB. 28 tok/s NPU."
+**Site:** https://1bit.systems — "One binary to rule them all. 5 models. 74KB. 28 tok/s NPU."
 
 ### The Pitch
 
@@ -17,7 +17,7 @@ g++ -std=c++23 -O3 -o npu_engine_all engine/npu/src/npu_engine_all.cpp \
 
 No Python. No pip. No Docker. No MLIR-AIE toolchain. No torch.
 No HuggingFace transformers. Just g++ and run. One binary, five models.
-120KB stripped. Auto-detect. Zero crashes.
+74KB stripped. Auto-detect. Zero crashes.
 
 ### All 5 Models — Verified Benches
 
@@ -38,7 +38,7 @@ FLM is 2.4× faster per-token. But:
 - FLM requires Python + torch + MLIR-AIE + per-model build pipeline
 - FLM is proprietary (closed source)
 - FLM's "8KB binary" is a Python launcher — their xclbins are 114KB+ each
-- We ship one 120KB C++ binary that auto-detects 5 models
+- We ship one 74KB C++ binary that auto-detects 5 models
 - We are open source (MIT)
 
 The speed gap is software architecture: FLM streams weights on NPU with
@@ -56,9 +56,9 @@ per-projection in_features (H for Q/K/V/G/U, NH×HD for O, IM for D).
 
 ### Website
 
-- Hero: "One binary to rule them all. 5 models. 120KB. 28 tok/s NPU."
+- Hero: "One binary to rule them all. 5 models. 74KB. 28 tok/s NPU."
 - Subtitle: "No Python. No pip. No Docker. Just g++ and run."
-- Engine card: 5-Model Engine, 28 tok/s, 120KB
+- Engine card: 5-Model Engine, 28 tok/s, 74KB
 - Stats: 5 models supported, 24× speedup
 - Ticker: cycles all 5 model speeds
 - Footer: "The final unlock is Vendor (Hint Hint)."

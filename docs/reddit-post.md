@@ -1,11 +1,11 @@
 # Reddit r/LocalLLaMA Post Draft
 
 ## Title:
-**120KB C++23 binary. 22 models. No Python. I unlocked AMD's NPU in 4 days.**
+**74KB C++23 binary. 22 models. No Python. I unlocked AMD's NPU in 4 days.**
 
 ## Body:
 
-**tl;dr**: 120KB binary runs 22+ model architectures (LLMs, video gen, image gen,
+**tl;dr**: 74KB binary runs 22+ model architectures (LLMs, video gen, image gen,
 audio gen) on an AMD Strix Halo NPU + GPU + CPU. Zero Python. MIT.
 
 ```
@@ -23,7 +23,7 @@ the software stack won't let you use it without paying for FastFlowLM.
 
 So I reverse-engineered it. Took 4 days.
 
-### What's in the 120KB
+### What's in the 74KB
 
 | Feature | Detail |
 |---------|--------|

@@ -4,14 +4,14 @@
 
 Folding `amdxdna` (XDNA 2 NPU) into `amdgpu` so the NPU, GPU, and CPU share one memory manager, one DRM file descriptor, and one ROCm compute API.
 
-**Live at [1bit.systems](https://1bit.systems)** — "One binary to rule them all. 5 models. 120KB. 28 tok/s NPU."
+**Live at [1bit.systems](https://1bit.systems)** — "One binary to rule them all. 5 models. 74KB. 28 tok/s NPU."
 
 ---
 
 ## 🔥 Production: 5-Model NPU Engine — One Binary, 28 tok/s
 
 **Release:** `v2026.07.02-all5models`  
-**Engine:** `npu_engine_all` — 120KB stripped C++ binary, auto-detects model dimensions from Q4NX header.
+**Engine:** `npu_engine_all` — 74KB stripped C++ binary, auto-detects model dimensions from Q4NX header.
 
 ```
 g++ -std=c++23 -O3 -o npu_engine_all npu_engine_all.cpp dequant_q4nx.o -lxrt_coreutil
