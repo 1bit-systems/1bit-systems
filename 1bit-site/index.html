@@ -3,10 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>1bit.systems — 38KB Binary · 291 tok/s Fused NPU+GPU+CPU · 73+ models · 6 backends</title>
-<meta name="description" content="38KB Binary. Fused NPU+GPU+CPU. 73+ models across 6 backends. 291 tok/s (fused layer production) on AMD Strix Halo. Zero Python. Zero deps. Open source.">
-<meta property="og:title" content="1bit.systems — 38KB Binary · 291 tok/s Fused NPU+GPU+CPU">
-<meta property="og:description" content="38KB Binary. Fused NPU+GPU+CPU. 73+ models across 6 backends. 291 tok/s (fused layer production) on AMD Strix Halo. Zero Python. Open source.">
+<title>1bit.systems — 38KB Binary · Fused NPU+GPU+CPU · 73+ models · 6 backends</title>
+<meta name="description" content="38KB Binary. Fused NPU+GPU+CPU. 73+ models across 6 backends. 291 tok/s (fused layer) on AMD Strix Halo. Zero Python. Zero deps. Open source.">
+<meta name="google-site-verification" content="REPLACE_WITH_YOUR_GSC_CODE">
+<meta name="keywords" content="AMD Strix Halo, NPU inference, 1-bit LLM, ternary inference, local AI, NPU GPU fused engine, ROCm, XDNA 2, C++ LLM inference, AI inference without Python">
+<meta property="og:title" content="1bit.systems — 38KB Binary · Fused NPU+GPU+CPU">
+<meta property="og:description" content="38KB Binary. Fused NPU+GPU+CPU. 73+ models across 6 backends. 291 tok/s (fused layer) on AMD Strix Halo. Zero Python. Open source.">
 <meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
 <meta property="og:url" content="https://1bit.systems">
 <meta property="og:type" content="website">
@@ -127,24 +129,68 @@
   @media (max-width:560px){.wrap,.nav-in{padding:0 20px;}.block{padding:44px 20px;}.hero{padding:52px 0 32px;}.cta-band{padding:32px 22px;}}
 </style>
 <script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  "name": "1bit.systems",
-  "description": "38KB Binary. Fused NPU+GPU+CPU. 73+ models across 6 backends. 291 tok/s (fused layer production) on AMD Strix Halo. Zero Python. Zero deps. Open source.",
-  "url": "https://1bit.systems",
-  "applicationCategory": "DeveloperApplication",
-  "operatingSystem": "Linux",
-  "author": {
-    "@type": "Person",
-    "name": "bong-water-water-bong"
+[
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "1bit.systems",
+    "description": "Fused NPU+GPU+CPU inference engine for AMD Strix Halo. 291 tok/s (fused layer). 38KB binary. 73+ models across 6 backends. Zero Python.",
+    "url": "https://1bit.systems",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Linux",
+    "author": { "@type": "Person", "name": "bong-water-water-bong" },
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "featureList": ["NPU inference", "291 tok/s", "38KB binary", "73+ models", "6 backends", "Fused NPU+GPU+CPU"]
   },
-  "offers": {
-    "@type": "Offer",
-    "price": "0",
-    "priceCurrency": "USD"
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://1bit.systems" },
+      { "@type": "ListItem", "position": 2, "name": "JARVIS AI", "item": "https://1bit.systems/jarvis/" },
+      { "@type": "ListItem", "position": 3, "name": "Store", "item": "https://1bit.systems/store/" },
+      { "@type": "ListItem", "position": 4, "name": "Live Benchmarks", "item": "https://1bit.systems/live.html" }
+    ]
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "What is 1bit.systems?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "A fused NPU+GPU+CPU inference engine for AMD Strix Halo. 38KB C++ binary, 291 tok/s on NPU, 73+ models across 6 backends. Zero Python. MIT licensed."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does 1bit.systems require Python?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. Zero Python at runtime. The engine is pure C++ and installs via curl | bash. No pip, no Docker, no compilation required."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What hardware does it run on?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "AMD Strix Halo (Ryzen AI Max+ 395) with XDNA 2 NPU and RDNA 3.5 GPU. 32 compute tiles NPU + 32 compute units GPU. Also supports ROCm and Vulkan backends."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How fast is NPU inference on Strix Halo?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "291 tok/s (3.4 ms/tok) with the fused layer production engine on Qwen3-0.6B. ROCm HIP backend reaches 113 tok/s, GPU Vulkan 22 tok/s."
+        }
+      }
+    ]
   }
-}
+]
 </script>
 </head>
 <body>
@@ -163,8 +209,8 @@
     <div>
       <span class="eyebrow">Strix Halo · Ryzen AI Max+ 395</span>
       <h1><span class="g">38KB Binary</span> to rule them all.</h1>
-      <h2 style="margin-top:4px;font-size:clamp(22px,2.8vw,34px);font-weight:800;letter-spacing:-.025em;line-height:1.04;"><span class="b">Fused</span></h2>
-      <h2 style="margin-top:2px;font-size:clamp(28px,3.6vw,44px);font-weight:800;letter-spacing:-.025em;line-height:1.04;"><span class="b">NPU+GPU+CPU</span></h2>
+      <p style="margin-top:2px;font-size:clamp(22px,2.8vw,34px);font-weight:800;letter-spacing:-.025em;line-height:1.04;color:var(--blue);">Fused NPU+GPU+CPU inference engine</p>
+      <p style="margin-top:8px;font-size:clamp(14px,1.2vw,16px);color:var(--dim);font-family:var(--mono);">AMD Strix Halo · 291 tok/s · 38KB · MIT</p>
       <p class="sub">Auto-detect. Zero dependencies. M=32 batch. 50 TOPS INT8. No Python. No pip. No Docker. Open source. Pure C++.</p>
       <blockquote class="hero-quote">
         <span class="qmark">"</span>
@@ -238,7 +284,7 @@
 <section id="engine" class="block">
   <span class="eyebrow">Fused Layer Engine</span>
   <h2 style="margin:16px 0 8px;">291 tok/s. 38 KB. MIT.</h2>
-  <p class="lead" style="margin-bottom:28px;">One person reverse-engineered AMD's NPU stack. The fused layer engine runs the full transformer in one xclbin call — 291 tok/s, 3× the v12 baseline, in a 38 KB binary.</p>
+  <p class="lead" style="margin-bottom:28px;">One person reverse-engineered AMD's NPU stack in 4 days. The open-source C++ engine now ships as the production backend — beating AMD's proprietary runtime on decode speed.</p>
   <div class="grid2" style="margin-top:0;">
     <div class="card" style="padding:24px;">
       <span class="caps" style="color:var(--green);">Engine evolution — 4 days</span>
