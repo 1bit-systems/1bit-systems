@@ -1,6 +1,6 @@
 # Packaging — 1bit.systems v2026.07.02-all5models
 
-**One binary. 5 models. 120KB. 28 tok/s.** Auto-detect. Zero Python. Zero pip. No Docker required.
+**One binary. 5 models. 74KB. 28 tok/s.** Auto-detect. Zero Python. Zero pip. No Docker required.
 The HTTP server speaks OpenAI-compatible JSON — Ollama, Open WebUI, LangChain, anything that hits `/v1/chat/completions` just works.
 
 | Format | Status | Command |

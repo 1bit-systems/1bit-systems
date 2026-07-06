@@ -2,14 +2,14 @@
 
 <img src="site/assets/brand-lockup.svg" alt="1bit.systems" width="540">
 
-# 120kb Binary to rule them all.
+# 74kb Binary to rule them all.
 
 **Generate video. Create images. Synthesize audio. Run LLMs.**  
-120kb binary. Zero Python. Your hardware.
+74kb binary. Zero Python. Your hardware.
 
 [![279 tok/s ternary](https://img.shields.io/badge/279%20tok%2Fs-ternary-00ff00.svg)](engine/npu/BENCHMARKS.md)
 [![94 tok/s NPU](https://img.shields.io/badge/94%20tok%2Fs-NPU%20(FLM)-12a0ed.svg)](engine/npu/BENCHMARKS.md)
-[![120kb binary](https://img.shields.io/badge/binary-120kb-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
+[![74kb binary](https://img.shields.io/badge/binary-74kb-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
 [![22 models](https://img.shields.io/badge/22%20models-auto--detect-00ff00.svg)](tools/video-lora/)
 [![C++23](https://img.shields.io/badge/runtime-C%2B%2B23-00ff00.svg)](engine/npu/src/npu_engine_all.cpp)
 [![Zero Python](https://img.shields.io/badge/deps-0-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
@@ -24,7 +24,7 @@
 ---
 
 > **I reverse-engineered AMD's proprietary NPU stack in 4 days.**
-> One person. A free Chess license. A C++ compiler. **120 KB.**
+> One person. A free Chess license. A C++ compiler. **74 KB.**
 > Today: a fused NPU+GPU+CPU inference engine that auto-detects any model.
 > No Python. No Docker. No vendor lock. Your hardware. [MIT licensed](LICENSE).
 
@@ -39,7 +39,7 @@
 💬 1bit chat
 ```
 
-All from a 120kb binary. All LoRA-compatible. All auto-detected.
+All from a 74kb binary. All LoRA-compatible. All auto-detected.
 
 ---
 
@@ -48,7 +48,7 @@ All from a 120kb binary. All LoRA-compatible. All auto-detected.
 AMD shipped Strix Halo with a 50 TOPS NPU but locked INT8 behind proprietary runtimes.
 I bought one. I got angry. I fixed it.
 
-**4 days. 120 KB. 279 tok/s ternary. Open source.**
+**4 days. 74 KB. 279 tok/s ternary. Open source.**
 
 The silicon was never the bottleneck. The business model was.
 
@@ -390,7 +390,7 @@ MIT — see [LICENSE](LICENSE).
 ## Find this project
 
 ```
-120KB binary  ·  fused engine  ·  model agnostic  ·  zero Python  ·  AMD NPU unlocked
+74KB binary  ·  fused engine  ·  model agnostic  ·  zero Python  ·  AMD NPU unlocked
 one binary to rule them all  ·  no vendor lock  ·  94 tok/s  ·  C++23 inference
 Zaya AMD-native architecture  ·  CCA attention  ·  MoE routing
 ```
@@ -398,9 +398,9 @@ Zaya AMD-native architecture  ·  CCA attention  ·  MoE routing
 **Hashtags / SEO tags**
 
 ```
-#120kbBinary  #OneBinaryToRuleThemAll  #FusedEngine  #ModelAgnostic
+#74kbBinary  #OneBinaryToRuleThemAll  #FusedEngine  #ModelAgnostic
 #NoPython  #ZeroDeps  #OpenSourceInference  #AMDNPU  #StrixHalo
-#AntiVendorLock  #Cpp23  #LocalAI  #4Days120KB  #TheUnlock
+#AntiVendorLock  #Cpp23  #LocalAI  #4Days74KB  #TheUnlock
 #Zaya  #AMDnative  #CCA  #MoE
 ```
 

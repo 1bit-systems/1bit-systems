@@ -97,6 +97,7 @@ Backend-agnostic KV cache infrastructure shared across NPU, GPU, and CPU paths:
 - Packaging: `packaging/` (deb + snap + tarball + docker + ollama)
 - Pre-commit: always run `/verify` before committing engine changes
 - **No Python in runtime paths** — CI enforces: `engine/npu/src/`, `engine/gpu/src/`, `engine/video/src/`, `spec-decode/engine/`, `spec-decode/draft/` must stay `.py`-free
+- **⚠️ Never use `git add -A` or `git add .`** — `.local/share/containers/` has permission-denied dirs that block the entire add. Always add specific files: `git add <file1> <file2>`.
 - PR description: use conventional commits, include ms/tok delta, tag [npu] or [gpu]
 - Release: `gh release create` + upload deb/snap/tarball + tag vYYYY.MM.DD
 

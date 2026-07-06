@@ -113,7 +113,7 @@ v12 (97 tok/s, standalone INT8 GEMM, zero Python) stays production. Full details
 
 Shipped: tag `v2026.07.02-all5models`, site updated to "One binary to rule them all." 5 model
 families verified, 0 crashes, 28 tok/s on Qwen3-0.6B (all-models auto-detect binary). vs FLM: 2.4×
-slower per-token, but open source, zero dependencies, 5 models from one 120KB binary. Fused xclbin
+slower per-token, but open source, zero dependencies, 5 models from one 74KB binary. Fused xclbin
 flagged as the path to close the gap (picked back up in Update 24, three sessions later).
 
 ---

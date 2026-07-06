@@ -28,7 +28,7 @@
 | **Documentation** | 6 wiki docs + handoff docs | ✅ Complete |
 | **Tests** | Device test, dma-buf, benchmark, HIP enumeration | ✅ All passing |
 | **Website** | https://1bit.systems — live with all5models numbers | ✅ Live |
-| **Release** | v2026.07.02-all5models — 5 models, one binary, 120KB | ✅ Tagged |
+| **Release** | v2026.07.02-all5models — 5 models, one binary, 74KB | ✅ Tagged |
 
 ### Key Files Map
 

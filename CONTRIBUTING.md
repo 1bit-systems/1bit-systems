@@ -1,6 +1,6 @@
 # Contributing to 1bit.systems
 
-Thanks for your interest! This is a solo-developed project that runs LLM inference on AMD XDNA 2 NPUs from a single 120 KB binary. Contributions are welcome — here's how to help.
+Thanks for your interest! This is a solo-developed project that runs LLM inference on AMD XDNA 2 NPUs from a single 74 KB binary. Contributions are welcome — here's how to help.
 
 ## Quick Start for Contributors
 
@@ -40,7 +40,7 @@ See [docs/building.md](docs/building.md) for prerequisites and [docs/getting-sta
 ## NPU Engine Design Principles
 
 - **Zero Python at runtime** — the binary must run without Python, pip, or any interpreter
-- **120 KB target** — every new feature should justify its binary size cost
+- **74 KB target** — every new feature should justify its binary size cost
 - **Single binary, many models** — auto-detect, no recompilation per model
 - **XRT direct** — no MLIR toolchain dependency at build time; link directly against `libxrt_coreutil`
 
