@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "label": "clones:stars",
-  "message": "262:1 (62:1 unique)",
-  "color": "blue",
-  "cacheSeconds": 0
+  "label": "clones",
+  "message": "3647 (723 unique)",
+  "color": "brightgreen",
+  "cacheSeconds": 86400
 }
