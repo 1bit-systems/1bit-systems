@@ -53,8 +53,8 @@ video-lora generate --model stable-audio --prompt "rain on window"
 
 | Engine | Hardware | Speed | Model |
 |--------|----------|-------|-------|
-| **NPU v12** (C++ open) | XDNA 2 · 32 tiles | **97 tok/s** | Qwen3-0.6B |
-| **NPU v12** (open C++) | XDNA 2 · 32 tiles | **97 tok/s** | Qwen3-0.6B |
+| **NPU fused** (production) | XDNA 2 · 32 tiles | **291 tok/s** | Qwen3-0.6B (fused layer) |
+| **NPU v12** (fallback) | XDNA 2 · 32 tiles | **97 tok/s** | Qwen3-0.6B (standalone) |
 | **GPU ZINC** (Vulkan ⭐) | Radeon 8060S | **22 tok/s** | Bonsai-1.7B |
 | **Ternary** (Vulkan) | Radeon 8060S | **279 tok/s** | Q2_0 |
 | **ROCm** (HIP) | Radeon 8060S | **113 tok/s** | Bonsai TQ2 |
