@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>1bit.systems — 74kb Binary · Fused NPU+GPU+CPU · 22 models · Model-agnostic</title>
-<meta name="description" content="74kb Binary. Fused NPU+GPU+CPU. 22 models auto-detected across video, image & audio. C++ v12: 97 tok/s on AMD Strix Halo. Zero Python. Zero deps. Open source.">
+<meta name="description" content="74kb Binary. Fused NPU+GPU+CPU. 22 models auto-detected across video, image & audio. 94 tok/s (FLM) on AMD Strix Halo. Zero Python. Zero deps. Open source.">
 <meta property="og:title" content="1bit.systems — 74kb Binary · Fused NPU+GPU+CPU">
-<meta property="og:description" content="74kb Binary. Fused NPU+GPU+CPU. 22 models auto-detected. C++ v12: 97 tok/s on AMD Strix Halo. Zero Python. Open source.">
+<meta property="og:description" content="74kb Binary. Fused NPU+GPU+CPU. 22 models auto-detected. 94 tok/s (FLM) on AMD Strix Halo. Zero Python. Open source.">
 <meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
 <meta property="og:url" content="https://1bit.systems">
 <meta property="og:type" content="website">
@@ -15,7 +15,7 @@
 <link rel="canonical" href="https://1bit.systems">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="1bit.systems — 74kb NPU inference engine">
-<meta name="twitter:description" content="97 tok/s C++ v12 on AMD Strix Halo NPU. Zero Python. Zero deps. Open source.">
+<meta name="twitter:description" content="94 tok/s (FLM) on AMD Strix Halo NPU. Zero Python. Zero deps. Open source.">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
 <link rel="alternate icon" href="/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -123,7 +123,7 @@
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "1bit.systems",
-  "description": "74kb Binary. Fused NPU+GPU+CPU. 22 models auto-detected across video, image & audio. C++ v12: 97 tok/s on AMD Strix Halo. Zero Python. Zero deps. Open source.",
+  "description": "74kb Binary. Fused NPU+GPU+CPU. 22 models auto-detected across video, image & audio. 94 tok/s (FLM) on AMD Strix Halo. Zero Python. Zero deps. Open source.",
   "url": "https://1bit.systems",
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Linux",
@@ -170,9 +170,9 @@
     </div>
     <div class="panel">
       <div style="padding:20px 22px;">
-        <div class="console-hd"><span class="dots"><span style="background:var(--pink)"></span><span style="background:var(--blue)"></span><span style="background:var(--green)"></span></span><span class="mono" style="font-size:13px;color:var(--muted);">C++ v12 · Qwen3-0.6B · 97 tok/s</span><span style="flex:1"></span><span class="eyebrow">production</span></div>
-        <div style="margin-top:20px;"><div class="caps" style="color:var(--dim);">C++ v12 · 10.3 ms/tok</div><div style="display:flex;align-items:baseline;gap:8px;margin-top:6px;"><span class="mono" style="font-size:52px;font-weight:800;line-height:1;color:var(--green);font-variant-numeric:tabular-nums;">97</span><span class="mono" style="font-size:16px;font-weight:500;color:var(--muted);">tok / s</span><span class="mono" style="font-size:14px;color:var(--green);font-weight:700;">(10.3 ms/tok)</span></div></div>
-        <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;"><span class="pill ok" style="font-size:10px;"><span class="dot"></span>Qwen3-0.6B</span><span class="pill info" style="font-size:10px;"><span class="dot"></span>FLM proxy: 94 tok/s</span><span class="pill info" style="font-size:10px;"><span class="dot"></span>all-5: 28 tok/s</span></div>
+        <div class="console-hd"><span class="dots"><span style="background:var(--pink)"></span><span style="background:var(--blue)"></span><span style="background:var(--green)"></span></span><span class="mono" style="font-size:13px;color:var(--muted);">FLM proxy · Qwen3-0.6B · 94 tok/s</span><span style="flex:1"></span><span class="eyebrow">production</span></div>
+        <div style="margin-top:20px;"><div class="caps" style="color:var(--dim);">Qwen3-0.6B via FLM · 10.6 ms/tok</div><div style="display:flex;align-items:baseline;gap:8px;margin-top:6px;"><span class="mono" style="font-size:52px;font-weight:800;line-height:1;color:var(--green);font-variant-numeric:tabular-nums;">97</span><span class="mono" style="font-size:16px;font-weight:500;color:var(--muted);">tok / s</span><span class="mono" style="font-size:14px;color:var(--green);font-weight:700;">(10.3 ms/tok)</span></div></div>
+        <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;"><span class="pill ok"><span class="dot"></span>FLM · production</span><span class="pill info"><span class="dot"></span>C++ v12: 97 tok/s</span><span class="pill info" style="font-size:10px;"><span class="dot"></span>all-5: 28 tok/s</span></div>
       </div>
     </div>
   </div>
@@ -183,7 +183,7 @@
   <h2 style="margin:16px 0 8px;">One APU. Two accelerators AMD half-shipped.</h2>
   <p class="lead">The NPU AMD shipped locked. The GPU they already open. 1bit.systems drives both — from one mini PC, with no cloud in the loop.</p>
   <div class="grid2" style="margin-top:28px;">
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">NPU · XDNA 2</span><span class="pill warn"><span class="dot"></span>unlocked</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute tiles</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">50 TOPS INT8 AMD shipped disabled on consumer silicon. C++ v12 engine: 97 tok/s (Qwen3-0.6B). FLM proxy: 94 tok/s. 5 model families, one binary.</p></div>
+    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">NPU · XDNA 2</span><span class="pill warn"><span class="dot"></span>unlocked</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute tiles</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">50 TOPS INT8 AMD shipped disabled on consumer silicon. FLM proxy: 94 tok/s (Qwen3-0.6B). C++ v12: 97 tok/s open-source. 5 model families, one binary.</p></div>
     <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--blue);">GPU · RDNA 3.5</span><span class="pill info"><span class="dot"></span>open</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute units</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">Vulkan 1.3 compute. ZINC engine (Zig, GGUF). 22 tok/s decode (Bonsai-1.7B F16). 256 GB/s memory bandwidth — 99.6% utilized.</p></div>
   </div>
 </section>
@@ -252,7 +252,7 @@
     </div>
     <div class="foot-fine">
       <div>Built with DeepSeek v4 (99.9%) · Shipped with Claude (0.1%) · One human.</div>
-      <div>74kb binary · 97 tok/s (C++ v12) · 94 tok/s (FLM) · 55.7 TFLOPS · MIT</div>
+      <div>74kb binary · 94 tok/s (FLM production) · 97 tok/s (C++ v12 open-source) · 55.7 TFLOPS · MIT</div>
       <div style="margin-top:8px;">—bong-water-water-bong · <span class="p">"Sorry but not Sorry :)"</span></div>
       <div style="margin-top:8px;"><a href="mailto:admin@1bit.systems" style="color:var(--muted);">admin@1bit.systems</a></div>
     </div>
