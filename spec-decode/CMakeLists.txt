@@ -11,20 +11,25 @@ find_package(OpenMP REQUIRED)
 # Options
 option(BUILD_TESTING "Build tests" ON)
 option(ENABLE_NPU "Enable NPU target" ON)
+option(ENABLE_CURL "Enable HTTP daemon with curl" OFF)
 
-# MTP Draft library (header-only)
+# DSpark Draft library (header-only) — DEFAULT draft model
+add_library(dspark_draft INTERFACE)
+target_include_directories(dspark_draft INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+
+# MTP Draft library (header-only — legacy Eagle3)
 add_library(mtp_draft INTERFACE)
 target_include_directories(mtp_draft INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Speculative Decode Engine (header-only)
+# Speculative Decode Engine (header-only, templated on draft model)
 add_library(spec_decode INTERFACE)
-target_link_libraries(spec_decode INTERFACE mtp_draft)
+target_link_libraries(spec_decode INTERFACE dspark_draft mtp_draft)
 target_include_directories(spec_decode INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/engine)
 
-# NPU Engine Integration
+# ── Single Binary: ALL capabilities merged ──
 if(ENABLE_NPU)
     add_executable(npu_spec_decode
-        engine/npu_spec_integration.cpp
+        engine/npu_single_binary.cpp
         /home/bcloud/engine/npu/src/dequant_q4nx.c
     )
     target_link_libraries(npu_spec_decode PRIVATE
@@ -34,9 +39,26 @@ if(ENABLE_NPU)
     target_include_directories(npu_spec_decode PRIVATE
         ${XRT_INCLUDE_DIR}
     )
+
+    # Install single binary
+    install(TARGETS npu_spec_decode
+        RUNTIME DESTINATION bin
+    )
 endif()
 
-# Benchmark tool
+# ── Legacy spec_proxy (optional, needs libcurl) ──
+if(ENABLE_CURL AND ENABLE_NPU)
+    add_executable(spec_proxy
+        engine/spec_proxy.cpp
+    )
+    target_link_libraries(spec_proxy PRIVATE
+        spec_decode
+        curl
+    )
+    install(TARGETS spec_proxy RUNTIME DESTINATION bin)
+endif()
+
+# ── Benchmark tool (simulated target, no NPU needed) ──
 add_executable(spec_decode_bench
     bench/spec_decode_bench.cpp
 )
@@ -45,10 +67,10 @@ target_link_libraries(spec_decode_bench PRIVATE
     OpenMP::OpenMP_CXX
 )
 
-# Test suite
+# ── Test suite ──
 if(BUILD_TESTING)
     enable_testing()
-    
+
     add_executable(test_draft_model
         tests/test_draft_model.cpp
     )
@@ -56,7 +78,7 @@ if(BUILD_TESTING)
         mtp_draft
     )
     add_test(NAME draft_model COMMAND test_draft_model)
-    
+
     add_executable(test_verify_loop
         tests/test_decode_loop.cpp
     )
@@ -66,12 +88,7 @@ if(BUILD_TESTING)
     add_test(NAME verify_loop COMMAND test_verify_loop)
 endif()
 
-# Install
-if(ENABLE_NPU)
-    install(TARGETS npu_spec_decode
-        RUNTIME DESTINATION bin
-    )
-endif()
+# ── Install headers ──
 install(DIRECTORY draft/ engine/
     DESTINATION include
     FILES_MATCHING PATTERN "*.h"

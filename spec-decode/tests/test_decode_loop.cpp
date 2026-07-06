@@ -1,16 +1,17 @@
-// Minimal spec decode loop test
-#include "../draft/mtp_draft.h"
+// Minimal spec decode loop test (DSpark draft)
+#include "../draft/dspark_draft.h"
 #include "../engine/spec_decode.h"
 #include <cstdio>
 #include <chrono>
 
 int main() {
-    printf("Minimal spec decode test\n");
+    printf("Minimal spec decode test (DSpark)\n");
     
-    MTPDraftConfig cfg;
-    MTPDraftModel draft(cfg);
-    MTPDraftState state;
-    state.resize(8, 128, 4096);
+    DSparkDraftConfig cfg;
+    cfg.num_draft_layers = 5;
+    DSparkDraftModel draft(cfg);
+    DSparkDraftState state;
+    state.resize(5, 8, 128, 4096);
     
     // Setup
     float trunk[5*1024] = {0.5f};
@@ -44,7 +45,7 @@ int main() {
     };
     
     SimpleTarget st;
-    MTPDraftModel dm(cfg);
+    DSparkDraftModel dm(cfg);
     SpecDecodeConfig sc;
     sc.vocab_size = 50000;
     sc.max_new_tokens = 256;
@@ -53,6 +54,7 @@ int main() {
     sc.num_kv_heads = 8;
     sc.head_dim = 128;
     sc.max_seq = 4096;
+    sc.num_draft_layers = 5;
     
     SpeculativeDecoder dec(st, dm, sc);
     
