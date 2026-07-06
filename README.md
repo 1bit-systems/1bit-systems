@@ -1,6 +1,6 @@
 > **I reverse-engineered AMD's proprietary NPU stack in 4 days.**
-> One person. A free Chess license. A C++ compiler. **38 KB.**
-> Today: a fused NPU+GPU+CPU inference engine at **291 tok/s**.
+> One person. A free Chess license. A C++ compiler. **401 KB (single binary).**
+> Today: a DSpark NPU+GPU+CPU inference engine at **572 tok/s** (5.90x spec-decode).
 > No Python. No Docker. No vendor lock. Your hardware. [MIT licensed](LICENSE).
 
 <div align="center">
@@ -8,16 +8,16 @@
 <img src="site/assets/brand-lockup.svg" alt="1bit.systems" width="460">
 
 **Generate video. Create images. Synthesize audio. Run LLMs.**  
-38 KB binary. Zero Python. Your hardware.
+401 KB single binary. All engines merged. Zero Python. Your hardware.
 
 [![279 tok/s ternary](https://img.shields.io/badge/279%20tok%2Fs-ternary-00ff00.svg)](docs/wiki/performance.md)
-[![291 tok/s fused layer](https://img.shields.io/badge/291%20tok%2Fs-fused%20layer-12a0ed.svg)](docs/wiki/performance.md)
-[![38kb binary](https://img.shields.io/badge/binary-38kb-f00fd2.svg)](engine/npu/src/npu_engine_fused.cpp)
+[![572 tok/s DSpark spec-decode](https://img.shields.io/badge/291%20tok%2Fs-fused%20layer-12a0ed.svg)](docs/wiki/performance.md)
+[![401 KB single binary](https://img.shields.io/badge/binary-401kb-00ff88.svg)](engine/npu/src/npu_engine_fused.cpp)
 [![Zero Python](https://img.shields.io/badge/deps-0-00ff00.svg)](docs/wiki/install.md)
 [![113 tok/s ROCm](https://img.shields.io/badge/113%20tok%2Fs-ROCm-ff0000.svg)](docs/wiki/performance.md)
 [![Vulkan ⭐](https://img.shields.io/badge/Vulkan-%E2%AD%90%20primary-b3802c.svg)](docs/wiki/engines.md)
 [![MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
-[![Discord](https://img.shields.io/badge/discord-1bit.systems-f00fd2.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
+[![Discord](https://img.shields.io/badge/discord-1bit.systems-00ff88.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
 [![clones today](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/daily-clones.json&cacheSeconds=3600)](https://github.com/bong-water-water-bong/1bit-systems/graphs/traffic)
 [![clones:stars](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/clones-stars.json)](https://github.com/bong-water-water-bong/1bit-systems/graphs/traffic)
 <br>
@@ -53,7 +53,7 @@ video-lora generate --model stable-audio --prompt "rain on window"
 
 | Engine | Hardware | Speed | Model |
 |--------|----------|-------|-------|
-| **NPU fused** (production) | XDNA 2 · 32 tiles | **291 tok/s** | Qwen3-0.6B (fused layer) |
+| **DSpark** (production) 🏆 | XDNA 2 · 32 tiles | **572 tok/s** | Qwen3-0.6B + 5-layer draft |
 | **NPU v12** (fallback) | XDNA 2 · 32 tiles | **97 tok/s** | Qwen3-0.6B (standalone) |
 | **GPU ZINC** (Vulkan ⭐) | Radeon 8060S | **22 tok/s** | Bonsai-1.7B |
 | **Ternary** (Vulkan) | Radeon 8060S | **279 tok/s** | Q2_0 |
@@ -66,7 +66,7 @@ video-lora generate --model stable-audio --prompt "rain on window"
 ## The Unlock
 
 AMD shipped Strix Halo with a 50 TOPS NPU but locked INT8 behind proprietary runtimes.
-**4 days. 38 KB. 279 tok/s ternary. Open source.**
+**4 days. 401 KB (single binary). 279 tok/s ternary. Open source.**
 The silicon was never the bottleneck. The business model was.
 
 ## Architecture
@@ -75,7 +75,7 @@ The silicon was never the bottleneck. The business model was.
 engine/
 ├── npu/       C++23 — NPU (XDNA 2, INT8 xclbins)
 ├── gpu/       Zig — GPU (Vulkan ⭐ / ROCm / CUDA / Metal)
-└── fusion/    Zig — NPU+GPU fused dispatch, 8 policies
+└── dspark/    C++ — DSpark spec-decode (5.90x), 8 policies
 ```
 
 One unified KV cache (H2O eviction, RadixAttention). One serving API.
