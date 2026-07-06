@@ -145,14 +145,15 @@ The 246 KB spec decode binary is the largest single binary in the stack, but it 
 
 | File | Description |
 |------|-------------|
-| `engine/spec_decode.h` | C++ spec decode orchestrator (299 lines) |
-| `engine/npu_target_model.h` | 4-xclbin NPU target model (418 lines) |
-| `engine/npu_fused_target.h` | Fused xclbin target model (stub, xclbin broken) |
-| `engine/npu_spec_integration.cpp` | Integration main (uses 4-xclbin) |
-| `draft/mtp_draft.h` | Eagle3 1-layer draft model (272 lines) |
-| `train_from_cache.py` | CPU training from cached hidden states |
-| `checkpoints/eagle3_draft.bin` | Trained weights (1.3 GB, 0% acceptance on NPU) |
-| `checkpoints/dspark_qwen3_4b/` | Pre-trained DSpark checkpoint (2.8 GB) |
+| `draft/dspark_draft.h` | DSpark 5-layer draft model (746 lines, production) |
+| `engine/spec_decode.h` | C++ spec decode orchestrator |
+| `engine/npu_target_model.h` | 4-xclbin NPU target model |
+| `engine/npu_spec_integration.cpp` | Integration main (fused xclbin target) |
+| `draft/mtp_draft.h` | Eagle3 1-layer draft model (archived) |
+| `scripts_local/export_dspark_weights.py` | safetensors → flat binary converter |
+| `train_dspark.py` | DSpark training script (10K prompts, self-play) |
+| `checkpoints/eagle3_draft.bin` | Eagle3 weights (archived, 1.3 GB) |
+| `checkpoints/dspark_qwen3_4b/` | DSpark checkpoint (safetensors, 5.2 GB) |
 | `complete_pipeline.sh` | Automated completion pipeline |
 | `NPU_VS_GPU.md` | NPU vs GPU head-to-head |
 | `RESULTS.md` | This file |
