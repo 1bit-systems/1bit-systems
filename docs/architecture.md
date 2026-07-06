@@ -379,7 +379,7 @@ Each version is preserved in `/src/` as individual `.cpp` files — the evolutio
 | C++ ALL (5 models) | **28 tok/s** (36 ms/tok) |
 | NPU raw GEMM | **55.7 TFLOPS** (INT8, XDNA 2) |
 | Dispatch overhead | 1,334 µs per kernel call |
-| Binary size | **74 KB** |
+| Binary size | **38 KB** |
 | Models supported | 5 (Qwen3-0.6B/8B, Qwen3-VL-4B, Llama-3.1-8B, Gemma4-E2B) |
 | Batch size | M=32 (M=1–128 configurable) |
 

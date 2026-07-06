@@ -86,15 +86,15 @@ struct I8Ctx {
         d.register_xclbin(*xc);
         hc = std::make_unique<xrt::hw_context>(d, xc->get_uuid());
         k = std::make_unique<xrt::kernel>(*hc, "MLIR_AIE");
-        bI = std::make_unique<xrt::bo>(d, ins.size()*4, XCL_BO_FLAGS_CACHEABLE, k->group_id(1));
+        bI = std::make_unique<xrt::bo>(*hc, ins.size()*4, xrt::bo::flags::cacheable, (xrt::memory_group)k->group_id(1));
         memcpy(bI->map(), ins.data(), ins.size()*4);
         bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        bA = std::make_unique<xrt::bo>(d, (size_t)MD*KD, XRT_BO_FLAGS_HOST_ONLY, k->group_id(3));
-        bC = std::make_unique<xrt::bo>(d, (size_t)MD*ND*2, XRT_BO_FLAGS_HOST_ONLY, k->group_id(5));
+        bA = std::make_unique<xrt::bo>(*hc, (size_t)MD*KD, xrt::bo::flags::host_only, (xrt::memory_group)k->group_id(3));
+        bC = std::make_unique<xrt::bo>(*hc, (size_t)MD*ND*2, xrt::bo::flags::host_only, (xrt::memory_group)k->group_id(5));
         Am = (int8_t*)bA->map(); Cm = (int16_t*)bC->map();
         layerB.resize(num_layers);
         for (int l=0;l<num_layers;l++)
-            layerB[l] = std::make_unique<xrt::bo>(d, (size_t)KD*ND, XRT_BO_FLAGS_HOST_ONLY, k->group_id(gid_B));
+            layerB[l] = std::make_unique<xrt::bo>(*hc, (size_t)KD*ND, xrt::bo::flags::host_only, (xrt::memory_group)k->group_id(gid_B));
         return true;
     }
     void packB(int l, const float* w, int K, int N, float& sout) {
