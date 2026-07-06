@@ -4,15 +4,31 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DSpark speculative decoding — 572 tok/s with a 5-layer draft model · 1bit.systems</title>
-<meta name="description" content="How DSpark speculative decoding achieves 572 tok/s on AMD Strix Halo by pairing a 5-layer draft model with the fused NPU target engine — a 5.90× speedup over baseline decode.">
-<meta name="keywords" content="speculative decoding, DSpark, MTP, multi-token prediction, Eagle3, NPU inference, AMD XDNA 2, Strix Halo">
+<meta name="description" content="How DSpark speculative decoding achieves 572 tok/s on AMD Strix Halo by pairing a 5-layer draft model with the fused NPU target engine — a 5.90× speedup over baseline decode. MIT licensed. 38 KB binary.">
+<meta name="keywords" content="speculative decoding, DSpark, MTP, multi-token prediction, Eagle3, NPU inference, AMD XDNA 2, Strix Halo, 5-layer draft model, rejection sampling, lossless inference, C++ NPU speculation">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="https://1bit.systems/blog/dspark-speculative-decoding-572-tok-per-second">
 <meta property="og:title" content="DSpark speculative decoding — 572 tok/s with a 5-layer draft model">
-<meta property="og:description" content="5.90× speedup. 572 tok/s. A 5-layer transformer draft on CPU verifies against the fused NPU target at 15W.">
+<meta property="og:description" content="5.90× speedup. 572 tok/s. A 5-layer transformer draft on CPU speculates against the fused NPU target at 15W. Lossless quality via rejection sampling. MIT open source.">
 <meta property="og:url" content="https://1bit.systems/blog/dspark-speculative-decoding-572-tok-per-second">
 <meta property="og:type" content="article">
+<meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
+<meta property="og:image:width" content="460">
+<meta property="og:image:height" content="60">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-07-06T16:51:15-03:00">
+<meta property="article:modified_time" content="2026-07-06T16:52:29-03:00">
+<meta property="article:author" content="bong-water-water-bong">
+<meta property="article:section" content="Engineering">
+<meta property="article:tag" content="speculative decoding">
+<meta property="article:tag" content="DSpark">
+<meta property="article:tag" content="NPU">
+<meta property="article:tag" content="AMD Strix Halo">
+<meta property="article:tag" content="C++">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="DSpark speculative decoding — 572 tok/s on AMD Strix Halo">
+<meta name="twitter:description" content="5.90× speedup. 572 tok/s. 5-layer draft model + fused NPU target. MIT.">
+<meta name="twitter:image" content="https://1bit.systems/assets/brand-lockup.svg">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
 <style>
   :root{
@@ -58,7 +74,21 @@
   @media (max-width:560px){.wrap{padding:0 16px;} article{padding:28px 0 40px;}}
 </style>
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"Article","headline":"DSpark speculative decoding — 572 tok/s with a 5-layer draft model","description":"5.90× speedup. 572 tok/s. How a tiny 5-layer draft model on the CPU speculates against the fused NPU target.","author":{"@type":"Person","name":"bong-water-water-bong"},"datePublished":"2026-07-06"}
+{
+  "@context":"https://schema.org",
+  "@type":"Article",
+  "headline":"DSpark speculative decoding — 572 tok/s with a 5-layer draft model",
+  "description":"5.90× speedup. 572 tok/s. A 5-layer transformer draft on CPU speculates against the fused NPU target at 15W. Lossless quality via rejection sampling.",
+  "author":{"@type":"Person","name":"bong-water-water-bong"},
+  "publisher":{"@type":"Organization","name":"1bit.systems","url":"https://1bit.systems","logo":{"@type":"ImageObject","url":"https://1bit.systems/assets/brand-lockup.svg"}},
+  "datePublished":"2026-07-06T16:51:15-03:00",
+  "dateModified":"2026-07-06T16:52:29-03:00",
+  "image":"https://1bit.systems/assets/brand-lockup.svg",
+  "mainEntityOfPage":{"@type":"WebPage","@id":"https://1bit.systems/blog/dspark-speculative-decoding-572-tok-per-second"},
+  "wordCount":1300,
+  "timeRequired":"PT5M",
+  "keywords":["speculative decoding","DSpark","NPU","AMD Strix Halo","multi-token prediction","C++ inference"]
+}
 </script>
 </head>
 <body>
