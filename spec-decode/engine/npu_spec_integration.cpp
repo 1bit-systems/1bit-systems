@@ -40,6 +40,10 @@ int main(int argc, char* argv[]) {
     printf("Loading target model + 4 GEMM xclbins...\n");
     auto t_load = std::chrono::steady_clock::now();
 
+    MTPDraftConfig draft_cfg;
+    MTPDraftModel draft_model(draft_cfg);
+    bool draft_trained = draft_model.load_weights(kDraftCheckpoint);
+
     SpecDecodeConfig spec_cfg;
     spec_cfg.max_new_tokens = max_new;
     // NPUQwen3Target::NC=28, H=1024 — keep target_layer_ids within [0,27].
@@ -47,10 +51,6 @@ int main(int argc, char* argv[]) {
 
     printf("  Loaded in %.0fms\n\n",
            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_load).count());
-
-    MTPDraftConfig draft_cfg;
-    MTPDraftModel draft_model(draft_cfg);
-    bool draft_trained = draft_model.load_weights(kDraftCheckpoint);
     if (draft_trained) {
         printf("Loaded trained draft checkpoint: %s\n", kDraftCheckpoint);
     } else {
