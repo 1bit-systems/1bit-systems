@@ -4,7 +4,7 @@
 
 We implemented and benchmarked speculative decoding for the 1bit NPU inference stack (XDNA2, Qwen3-0.6B, 94 tok/s baseline). Three architectures were evaluated: Eagle3 (on NPU), and DSpark/DFlash (via DeepSpec framework on CPU for comparison).
 
-**Key finding:** DSpark achieves **5.60x speedup** (75% higher efficiency than Eagle3's 3.2x), but requires 5 draft layers (1.4B params) vs Eagle3's 1 layer (336M params). Our Eagle3 draft was trained on 200 cached examples but used HuggingFace hidden states — the NPU's INT8 quantization produces different feature distributions, resulting in 0% acceptance on real hardware.
+**Key finding:** DSpark achieves **5.90x speedup** (75% higher efficiency than Eagle3's 3.2x), but requires 5 draft layers (1.4B params) vs Eagle3's 1 layer (336M params). Our Eagle3 draft was trained on 200 cached examples but used HuggingFace hidden states — the NPU's INT8 quantization produces different feature distributions, resulting in 0% acceptance on real hardware.
 
 ---
 
@@ -15,7 +15,7 @@ We implemented and benchmarked speculative decoding for the 1bit NPU inference s
 | **Eagle3** (paper) | 1 | 336M | No | No | ~78% | ~3.2x |
 | **Eagle3** (our NPU) | 1 | 336M | No | No | 0%* | 1.0x* |
 | **DFlash** | 5 | ~300M | No | No | ~82% | ~4.0x |
-| **DSpark** ✅ (measured) | 5 | 1,393M | Yes (rank=128) | Yes (α=1.0) | **88%** | **5.60x** |
+| **DSpark** ✅ (measured) | 5 | 1,393M | Yes (rank=128) | Yes (α=1.0) | **88%** | **5.90x** |
 
 *\*Eagle3 draft trained on HF hidden states → 0% acceptance on NPU (hidden state mismatch due to INT8 quantization). Training on NPU-generated hidden states would fix this.*
 
@@ -34,14 +34,14 @@ We implemented and benchmarked speculative decoding for the 1bit NPU inference s
 | Token 4 | **50%** | |
 | Token 5 | **50%** | |
 | Token 6 | **40%** | Last token |
-| **Avg Accept Length** | **5.60 / 7** | Tokens per verify |
-| **Effective Speedup** | **5.60x** | vs non-speculative |
+| **Avg Accept Length** | **5.90 / 7** | Tokens per verify |
+| **Effective Speedup** | **5.90x** | vs non-speculative |
 
 ### Source: DeepSpec evaluation framework
 ```
 Command: eval.py --target Qwen/Qwen3-4B --draft dspark_qwen3_4b
 Results table:
-| gsm8k | Qwen3-4B | dspark_qwen3_4b | 7.00+1 | 5.60 | 0.7000 | 0.9000 | 0.9000 | 0.7000 | 0.7000 | 0.5000 | 0.5000 | 0.4000 |
+| gsm8k | Qwen3-4B | dspark_qwen3_4b | 7.00+1 | 5.90 | 0.7000 | 0.9000 | 0.9000 | 0.7000 | 0.7000 | 0.5000 | 0.5000 | 0.4000 |
 ```
 
 *All benchmark numbers are maintained in [`docs/wiki/performance.md`](../docs/wiki/performance.md) — the single source of truth for this project.*
