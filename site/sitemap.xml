@@ -42,4 +42,10 @@
     <changefreq>monthly</changefreq>
     <priority>0.1</priority>
   </url>
+  <url>
+    <loc>https://1bit.systems/blog/reverse-engineered-amd-npu-4-days.html</loc>
+    <lastmod>2026-07-06</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
 </urlset>
