@@ -50,8 +50,9 @@ Full list of every model tested with the 1bit.systems engine stack.
 
 | Engine | Models | Speed | Precision |
 |--------|--------|-------|-----------|
-| **ALL** (4-xclbin swap) | Qwen3-0.6B, Llama-3.1-8B, Qwen3-VL-4B, Qwen3-8B, Gemma4-E2B | 28 tok/s | INT8 |
-| **v12** (single-model) | Qwen3-0.6B | **97 tok/s** | INT8 |
+| **fused** (production) | Qwen3-0.6B | **291 tok/s** (3.4 ms/tok) | INT8 fused layer |
+| **ALL** (4-xclbin swap, fallback) | Qwen3-0.6B, Llama-3.1-8B, Qwen3-VL-4B, Qwen3-8B, Gemma4-E2B | 28 tok/s | INT8 |
+| **v12** (fallback) | Qwen3-0.6B | **97 tok/s** | INT8 standalone |
 | **BitNet** (ternary) | BitNet b1.58-2B-4T | ~1 tok/s (8× w/ multi-core) | TQ1_0 ternary |
 | **Spec Decode** (Eagle3) | Qwen3-0.6B + draft | **~100+ tok/s** | INT8 + CPU draft |
 

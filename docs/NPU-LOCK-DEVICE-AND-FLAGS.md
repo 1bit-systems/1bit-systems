@@ -1,7 +1,8 @@
 # NPU Lock Device & Complete Flags Reference
 
-**Generated:** 2026-07-06  
-**Scope:** All NPU, GPU (ZINC), fused engine, and tooling flags, switches, env vars, and locking layers.
+**Generated:** 2026-07-06 (updated for fused layer engine at 291 tok/s)  
+**Scope:** All NPU, GPU (ZINC), fused engine, and tooling flags, switches, env vars, and locking layers.  
+**Primary engine:** Fused layer engine at 291 tok/s (3.4 ms/tok, 38 KB). C++ v12 (97 tok/s) is fallback.
 
 ---
 
@@ -66,10 +67,11 @@ run.wait();                                 // xrtRunWait — wait for completio
 ### Layer 3: Engine Init Lock (Zig/C++)
 
 Each inference engine locks the NPU at init:
+- **Fused layer engine** (`npu_engine_fused.cpp`): `xrt::device dev(0)`, one kernel context, one xclbin dispatch per layer
 - **Zig engine** (`main.zig`): `XrtDevice.open(0)` during `NpuEngine.init()`
-- **C++ engines**: `xrt::device dev(0)` at startup
-- **4 kernel contexts per engine:** QKV, O, GU/G, D (plus U if GU split)
-- Each allocates: instruction BO (cacheable), activation BO (host-only), output BO (host-only), per-layer weight BOs
+- **C++ engines (v12)**: `xrt::device dev(0)` at startup, 4 kernel contexts
+- **Fused layer**: 38 KB binary, single xclbin call per layer (QKV→attention→O→GU→SiLU→D on NPU), no CPU attention
+- **Legacy (v12)**: 4 kernel contexts per engine (QKV, O, GU/G, D), 112 xclbin dispatches per batch
 
 ### Layer 4: Cross-Process GPU Lock
 

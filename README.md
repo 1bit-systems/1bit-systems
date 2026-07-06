@@ -1,6 +1,6 @@
 > **I reverse-engineered AMD's proprietary NPU stack in 4 days.**
-> One person. A free Chess license. A C++ compiler. **74 KB.**
-> Today: a fused NPU+GPU+CPU inference engine that auto-detects any model.
+> One person. A free Chess license. A C++ compiler. **38 KB.**
+> Today: a fused NPU+GPU+CPU inference engine at **291 tok/s**.
 > No Python. No Docker. No vendor lock. Your hardware. [MIT licensed](LICENSE).
 
 <div align="center">
@@ -8,11 +8,11 @@
 <img src="site/assets/brand-lockup.svg" alt="1bit.systems" width="460">
 
 **Generate video. Create images. Synthesize audio. Run LLMs.**  
-74kb binary. Zero Python. Your hardware.
+38 KB binary. Zero Python. Your hardware.
 
 [![279 tok/s ternary](https://img.shields.io/badge/279%20tok%2Fs-ternary-00ff00.svg)](docs/wiki/performance.md)
-[![97 tok/s C++ v12](https://img.shields.io/badge/97%20tok%2Fs-C%2B%2B%20v12-12a0ed.svg)](docs/wiki/performance.md)
-[![74kb binary](https://img.shields.io/badge/binary-74kb-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
+[![291 tok/s fused layer](https://img.shields.io/badge/291%20tok%2Fs-fused%20layer-12a0ed.svg)](docs/wiki/performance.md)
+[![38kb binary](https://img.shields.io/badge/binary-38kb-f00fd2.svg)](engine/npu/src/npu_engine_fused.cpp)
 [![Zero Python](https://img.shields.io/badge/deps-0-00ff00.svg)](docs/wiki/install.md)
 [![113 tok/s ROCm](https://img.shields.io/badge/113%20tok%2Fs-ROCm-ff0000.svg)](docs/wiki/performance.md)
 [![Vulkan ⭐](https://img.shields.io/badge/Vulkan-%E2%AD%90%20primary-b3802c.svg)](docs/wiki/engines.md)

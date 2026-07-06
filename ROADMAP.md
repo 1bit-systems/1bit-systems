@@ -6,7 +6,8 @@
 
 | Phase | Focus | Status |
 |-------|-------|--------|
-| **Phase 1** | INT8 Inference on XDNA 2 NPU (5 models, 28-97 tok/s) | ✅ Complete |
+| **Phase 1** | INT8 Inference on XDNA 2 NPU (5 models, 28-291 tok/s) | ✅ Complete |
+| **Phase 1b** | Fused Layer Engine — one xclbin/call per layer, 291 tok/s, 38 KB binary | ✅ Complete |
 | **Phase 2** | Speculative Decode (target: <50 ms/tok effective) | 📋 Planned |
 | **Phase 3** | GGUF + Model Agnostic (Q8_0 loading, parameterized xclbins) | 📋 Planned |
 | **Phase 4** | 1-bit / BitNet b1.58 (ternary weights) | 🔮 Future |
