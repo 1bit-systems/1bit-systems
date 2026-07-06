@@ -1,8 +1,11 @@
+> **I reverse-engineered AMD's proprietary NPU stack in 4 days.**
+> One person. A free Chess license. A C++ compiler. **74 KB.**
+> Today: a fused NPU+GPU+CPU inference engine that auto-detects any model.
+> No Python. No Docker. No vendor lock. Your hardware. [MIT licensed](LICENSE).
+
 <div align="center">
 
-<img src="site/assets/brand-lockup.svg" alt="1bit.systems" width="540">
-
-# 74kb Binary to rule them all.
+<img src="site/assets/brand-lockup.svg" alt="1bit.systems" width="460">
 
 **Generate video. Create images. Synthesize audio. Run LLMs.**  
 74kb binary. Zero Python. Your hardware.
@@ -19,13 +22,6 @@
 <sub>deb · snap · docker · AUR · homebrew · ollama</sub>
 
 </div>
-
----
-
-> **I reverse-engineered AMD's proprietary NPU stack in 4 days.**
-> One person. A free Chess license. A C++ compiler. **74 KB.**
-> Today: a fused NPU+GPU+CPU inference engine that auto-detects any model.
-> No Python. No Docker. No vendor lock. Your hardware. [MIT licensed](LICENSE).
 
 ---
 

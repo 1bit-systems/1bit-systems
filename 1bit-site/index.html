@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>1bit.systems — 74kb Binary · Fused NPU+GPU+CPU · 22 models · Model-agnostic</title>
-<meta name="description" content="74kb Binary. Fused NPU+GPU+CPU. 22 models auto-detected across video, image & audio. 97 tok/s (C++ v12) on AMD Strix Halo. Zero Python. Zero deps. Open source.">
+<title>1bit.systems — 74kb Binary · Fused NPU+GPU+CPU · 73+ models · 6 backends</title>
+<meta name="description" content="74kb Binary. Fused NPU+GPU+CPU. 73+ models across 6 backends. 97 tok/s (C++ v12 production) on AMD Strix Halo. Zero Python. Zero deps. Open source.">
 <meta property="og:title" content="1bit.systems — 74kb Binary · Fused NPU+GPU+CPU">
-<meta property="og:description" content="74kb Binary. Fused NPU+GPU+CPU. 22 models auto-detected. 97 tok/s (C++ v12) on AMD Strix Halo. Zero Python. Open source.">
+<meta property="og:description" content="74kb Binary. Fused NPU+GPU+CPU. 73+ models across 6 backends. 97 tok/s (C++ v12 production) on AMD Strix Halo. Zero Python. Open source.">
 <meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
 <meta property="og:url" content="https://1bit.systems">
 <meta property="og:type" content="website">
@@ -15,7 +15,7 @@
 <link rel="canonical" href="https://1bit.systems">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="1bit.systems — 74kb NPU inference engine">
-<meta name="twitter:description" content="97 tok/s (C++ v12) on AMD Strix Halo NPU. Zero Python. Zero deps. Open source.">
+<meta name="twitter:description" content="97 tok/s C++ v12 production engine on AMD Strix Halo NPU. 73+ models. Zero Python. Zero deps. Open source.">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
 <link rel="alternate icon" href="/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -51,6 +51,12 @@
   .nav-cta{display:flex;align-items:center;gap:14px;}
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-family:var(--sans);font-weight:700;border-radius:999px;cursor:pointer;white-space:nowrap;transition:background .16s ease,box-shadow .18s ease,border-color .16s ease,transform .12s ease;border:1px solid transparent;}
   .btn:active{transform:scale(.99);}
+  .hero-quote{margin-top:24px;padding:18px 22px;border-radius:14px;background:var(--inner);border-left:3px solid var(--pink);display:flex;gap:12px;align-items:flex-start;}
+  .hero-quote .qmark{font-family:var(--mono);font-size:28px;font-weight:800;line-height:1;color:var(--pink);flex:none;margin-top:-2px;}
+  .hero-quote .qbody{font-size:14px;line-height:1.55;color:var(--muted);}
+  .hero-quote .qbody strong{color:var(--green);}
+  .hero-quote .qbody .nop{color:var(--pink);font-weight:600;}
+  .hero-quote .qbody a{color:var(--blue);font-weight:600;}
   .btn-primary{background:var(--green);color:var(--bg);box-shadow:0 2px 6px rgba(16,42,67,.2);}
   .btn-primary:hover{background:var(--green-d);box-shadow:0 6px 22px rgba(0,255,0,.30);}
   .btn-ghost{background:transparent;color:var(--text);border:1px solid var(--border2);}
@@ -123,7 +129,7 @@
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "1bit.systems",
-  "description": "74kb Binary. Fused NPU+GPU+CPU. 22 models auto-detected across video, image & audio. 97 tok/s (C++ v12) on AMD Strix Halo. Zero Python. Zero deps. Open source.",
+  "description": "74kb Binary. Fused NPU+GPU+CPU. 73+ models across 6 backends. 97 tok/s (C++ v12 production) on AMD Strix Halo. Zero Python. Zero deps. Open source.",
   "url": "https://1bit.systems",
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Linux",
@@ -144,7 +150,7 @@
 <nav>
   <div class="nav-in">
     <a class="brand" href="#top"><span class="mark">1bs</span><span class="wordmark"><span class="g">1</span>bit<span class="p">.</span>systems</span></a>
-    <div class="nav-links" id="navLinks"><a href="#benchmarks">Benchmarks</a><a href="#install">Install</a><a href="jarvis/">JARVIS</a><a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/building.md">Build</a></div>
+    <div class="nav-links" id="navLinks"><a href="#benchmarks">Benchmarks</a><a href="#install">Install</a><a href="jarvis/">JARVIS</a><a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/install.md">Install</a></div>
     <div class="nav-cta"><a class="txt" href="https://discord.gg/dSyV646eBs" target="_blank" rel="noopener">Discord</a><a class="btn btn-primary btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">GitHub</a></div>
     <button class="hamburger" id="hamburger" aria-label="Menu"><span></span><span></span><span></span></button>
   </div>
@@ -158,19 +164,28 @@
       <h2 style="margin-top:4px;font-size:clamp(22px,2.8vw,34px);font-weight:800;letter-spacing:-.025em;line-height:1.04;"><span class="b">Fused</span></h2>
       <h2 style="margin-top:2px;font-size:clamp(28px,3.6vw,44px);font-weight:800;letter-spacing:-.025em;line-height:1.04;"><span class="b">NPU+GPU+CPU</span></h2>
       <p class="sub">Auto-detect. Zero dependencies. M=32 batch. 50 TOPS INT8. No Python. No pip. No Docker. Open source. Pure C++.</p>
+      <blockquote class="hero-quote">
+        <span class="qmark">"</span>
+        <div class="qbody">
+          I reverse-engineered AMD's proprietary NPU stack in <strong>4 days</strong>.
+          One person. A free Chess license. A C++ compiler. <strong>74 KB</strong>.
+          <br>Today: a fused NPU+GPU+CPU inference engine that auto-detects any model.
+          <br><span class="nop">No Python. No Docker. No vendor lock.</span> Your hardware. <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/LICENSE">MIT licensed</a>.
+        </div>
+      </blockquote>
       <div class="row" style="margin-top:18px;">
         <span class="pill ok"><span class="dot"></span>verified on-device</span>
         <span class="pill dark"><span class="dot"></span>74kb binary</span>
-        <span class="pill info"><span class="dot"></span>22 models · auto-detect</span>
+        <span class="pill info"><span class="dot"></span>73+ models · 6 backends</span>
       </div>
       <div class="cta-row">
         <a class="btn btn-primary btn-lg" href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">View on GitHub →</a>
-        <a class="btn btn-ghost btn-lg" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/building.md" target="_blank" rel="noopener">Build Guide</a>
+        <a class="btn btn-ghost btn-lg" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/install.md" target="_blank" rel="noopener">Install Guide →</a>
       </div>
     </div>
     <div class="panel">
       <div style="padding:20px 22px;">
-        <div class="console-hd"><span class="dots"><span style="background:var(--pink)"></span><span style="background:var(--blue)"></span><span style="background:var(--green)"></span></span><span class="mono" style="font-size:13px;color:var(--muted);">C++ v12 · Qwen3-0.6B · 97 tok/s</span><span style="flex:1"></span><span class="eyebrow">production</span></div>
+        <div class="console-hd"><span class="dots"><span style="background:var(--pink)"></span><span style="background:var(--blue)"></span><span style="background:var(--green)"></span></span><span class="mono" style="font-size:13px;color:var(--muted);">C++ v12 engine · 97 tok/s</span><span style="flex:1"></span><span class="eyebrow">production</span></div>
         <div style="margin-top:20px;"><div class="caps" style="color:var(--dim);">C++ v12 · 10.3 ms/tok</div><div style="display:flex;align-items:baseline;gap:8px;margin-top:6px;"><span class="mono" style="font-size:52px;font-weight:800;line-height:1;color:var(--green);font-variant-numeric:tabular-nums;">97</span><span class="mono" style="font-size:16px;font-weight:500;color:var(--muted);">tok / s</span><span class="mono" style="font-size:14px;color:var(--green);font-weight:700;">(10.3 ms/tok)</span></div></div>
         <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;"><span class="pill ok"><span class="dot"></span>C++ v12 · production</span><span class="pill info"><span class="dot"></span>FLM proxy: 94 tok/s</span><span class="pill info" style="font-size:10px;"><span class="dot"></span>all-5: 28 tok/s</span></div>
       </div>
@@ -183,7 +198,7 @@
   <h2 style="margin:16px 0 8px;">One APU. Two accelerators AMD half-shipped.</h2>
   <p class="lead">The NPU AMD shipped locked. The GPU they already open. 1bit.systems drives both — from one mini PC, with no cloud in the loop.</p>
   <div class="grid2" style="margin-top:28px;">
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">NPU · XDNA 2</span><span class="pill warn"><span class="dot"></span>unlocked</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute tiles</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">50 TOPS INT8 AMD shipped disabled on consumer silicon. C++ v12 engine: 97 tok/s (Qwen3-0.6B). FLM proxy: 94 tok/s. 5 model families, one binary.</p></div>
+    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">NPU · XDNA 2</span><span class="pill warn"><span class="dot"></span>unlocked</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute tiles</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">50 TOPS INT8 AMD shipped disabled on consumer silicon. <strong>C++ v12 production engine: 97 tok/s</strong> (Qwen3-0.6B). FLM proxy: 94 tok/s fallback. 5 NPU model families, 73+ total across 6 backends.</p></div>
     <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--blue);">GPU · RDNA 3.5</span><span class="pill info"><span class="dot"></span>open</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute units</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">Vulkan 1.3 compute. ZINC engine (Zig, GGUF). 22 tok/s decode (Bonsai-1.7B F16). 256 GB/s memory bandwidth — 99.6% utilized.</p></div>
   </div>
 </section>
@@ -199,28 +214,39 @@
     <div class="stat"><span class="lbl caps">Peak NPU</span><span class="val">55.7 <span>TFLOPS</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>INT8 · XDNA 2</span></div>
     <div class="stat"><span class="lbl caps">Models</span><span class="val">73+</span><span class="foot"><span class="dot" style="background:var(--blue)"></span>6 backends · auto-detect</span></div>
   </div>
-  <p style="margin-top:24px;text-align:center;"><a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/engine/npu/BENCHMARKS.md" class="btn btn-ghost btn-md" target="_blank" rel="noopener">Full benchmarks →</a></p>
+  <p style="margin-top:24px;text-align:center;"><a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/performance.md" class="btn btn-ghost btn-md" target="_blank" rel="noopener">Full benchmarks →</a></p>
 </section>
 
-<section id="compare" class="block">
-  <span class="eyebrow">Comparison</span>
-  <h2 style="margin:16px 0 8px;">1bit.systems vs FastFlowLM.</h2>
-  <p class="lead" style="margin-bottom:24px;">We both run on AMD's XDNA 2 NPU. The difference is how we got there.</p>
-  <div class="card" style="padding:20px;overflow-x:auto;">
-  <table style="width:100%;border-collapse:collapse;font-size:13px;line-height:1.6;">
-    <tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:10px 12px;color:var(--muted);font-weight:600;">Feature</th><th style="text-align:left;padding:10px 12px;color:var(--green);font-weight:700;">1bit.systems</th><th style="text-align:left;padding:10px 12px;color:var(--pink);font-weight:700;">FastFlowLM</th></tr>
-    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">Production engine</td><td style="padding:8px 12px;">FLM proxy (94.7 tok/s)</td><td style="padding:8px 12px;color:var(--dim);">FLM native</td></tr>
-    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">Open-source engine</td><td style="padding:8px 12px;">C++23, MIT, 97 tok/s</td><td style="padding:8px 12px;color:var(--dim);">❌</td></tr>
-    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">Models supported</td><td style="padding:8px 12px;">5 (0.6B, 8B, VL-4B, Llama, Gemma4)</td><td style="padding:8px 12px;color:var(--dim);">10+ (8B-focused)</td></tr>
-    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">Auto-detect</td><td style="padding:8px 12px;">Q4NX header parse</td><td style="padding:8px 12px;color:var(--dim);">Per-model Python build</td></tr>
-    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">Binary size</td><td style="padding:8px 12px;">120 KB</td><td style="padding:8px 12px;color:var(--dim);">Python + 114KB xclbins</td></tr>
-    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">Python deps</td><td style="padding:8px 12px;">0</td><td style="padding:8px 12px;color:var(--dim);">Full MLIR-AIE + torch</td></tr>
-    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">Daemon (HTTP API)</td><td style="padding:8px 12px;">OpenAI-compatible, port 9090</td><td style="padding:8px 12px;color:var(--dim);">Built-in</td></tr>
-    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">Systemd unit</td><td style="padding:8px 12px;">turbo by default</td><td style="padding:8px 12px;color:var(--dim);">Manual start</td></tr>
-    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">GPU engine</td><td style="padding:8px 12px;">Vulkan (22 tok/s)</td><td style="padding:8px 12px;color:var(--dim);">NPU only</td></tr>
-    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">1-bit models</td><td style="padding:8px 12px;">Bonsai IQ1_S (385 MB)</td><td style="padding:8px 12px;color:var(--dim);">❌</td></tr>
-    <tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;color:var(--muted);">License</td><td style="padding:8px 12px;">MIT</td><td style="padding:8px 12px;color:var(--dim);">Proprietary</td></tr>
-  </table>
+<section id="engine" class="block">
+  <span class="eyebrow">C++ v12 Production Engine</span>
+  <h2 style="margin:16px 0 8px;">97 tok/s. 74 KB. MIT.</h2>
+  <p class="lead" style="margin-bottom:28px;">One person reverse-engineered AMD's NPU stack in 4 days. The open-source C++ engine now ships as the production backend — beating AMD's proprietary runtime on decode speed.</p>
+  <div class="grid2" style="margin-top:0;">
+    <div class="card" style="padding:24px;">
+      <span class="caps" style="color:var(--green);">Engine evolution — 4 days</span>
+      <div style="margin-top:14px;display:flex;flex-direction:column;gap:6px;font-size:13px;font-family:var(--mono);line-height:1.6;">
+        <div style="display:flex;gap:16px;"><span style="width:80px;color:var(--dim);">Jun 28</span><span style="color:var(--dim);">v7 BFP16</span><span style="flex:1;text-align:right;color:var(--pink);">1,930 ms/tok</span></div>
+        <div style="display:flex;gap:16px;"><span style="width:80px;color:var(--dim);">Jul 1</span><span style="color:var(--dim);">i8 swap</span><span style="flex:1;text-align:right;color:var(--muted);">244 ms/tok</span></div>
+        <div style="display:flex;gap:16px;"><span style="width:80px;color:var(--dim);">Jul 2</span><span style="color:var(--dim);">v6 batch-4</span><span style="flex:1;text-align:right;color:var(--muted);">50 ms/tok</span></div>
+        <div style="display:flex;gap:16px;"><span style="width:80px;color:var(--dim);">Jul 2</span><span style="color:var(--dim);">v9 M=16</span><span style="flex:1;text-align:right;color:var(--muted);">16 ms/tok</span></div>
+        <div style="display:flex;gap:16px;"><span style="width:80px;color:var(--green);">Jul 2</span><span style="color:var(--text);font-weight:700;">v12 M=32</span><span style="flex:1;text-align:right;color:var(--green);font-weight:700;">10 ms/tok</span></div>
+        <div style="display:flex;gap:16px;"><span style="width:80px;color:var(--green);">Jul 2</span><span style="color:var(--text);font-weight:700;">All 5 models</span><span style="flex:1;text-align:right;color:var(--green);font-weight:700;">auto-detect</span></div>
+      </div>
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);font-size:13px;color:var(--muted);">244 → 10 ms/tok · <strong class="g" style="color:var(--green);">24× speedup</strong> · zero Python · one session</div>
+    </div>
+    <div class="card" style="padding:24px;">
+      <span class="caps" style="color:var(--blue);">Architecture wins</span>
+      <div style="margin-top:16px;display:flex;flex-direction:column;gap:14px;font-size:14px;line-height:1.5;">
+        <div class="check"><span class="ck">✓</span><span class="txt"><strong>M=32 batch decode</strong> amortizes NPU dispatch overhead across 32 tokens — matching FLM's fused xclbin on throughput</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt"><strong>OpenMP attention</strong> beats NPU attention on CPU for context &lt; 128 tokens — dispatch overhead kills NPU win</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt"><strong>Q4NX header parse</strong> — one binary auto-detects any model. FLM needs per-model Python build pipelines</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt"><strong>74 KB binary</strong>, zero dependencies. Install is <code style="background:var(--inner);padding:0 6px;border-radius:4px;font-size:12px;">curl | bash</code></span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt"><strong>Fused NPU+GPU+CPU</strong> — dispatch per-layer to the fastest backend. Vulkan, ROCm, CUDA, Metal</span></div>
+      </div>
+    </div>
+  </div>
+  <div style="margin-top:24px;text-align:center;font-size:14px;color:var(--muted);">
+    The gap with proprietary runtimes is software architecture, not silicon. <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/journey.md" style="color:var(--blue);font-weight:600;">Read the full audit trail →</a>
   </div>
 </section>
 
@@ -244,8 +270,8 @@
       <span style="flex:1"></span>
       <div class="foot-links">
         <a href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">GitHub</a>
-        <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/building.md" target="_blank" rel="noopener">Build Guide</a>
-        <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/engine/npu/BENCHMARKS.md" target="_blank" rel="noopener">Benchmarks</a>
+        <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/install.md" target="_blank" rel="noopener">Install Guide</a>
+        <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/performance.md" target="_blank" rel="noopener">Benchmarks</a>
         <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/journey.md" target="_blank" rel="noopener">Audit Trail</a>
         <a href="https://discord.gg/dSyV646eBs" target="_blank" rel="noopener">Discord</a>
       </div>
