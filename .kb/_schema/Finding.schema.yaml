@@ -1,0 +1,61 @@
+$schema: "http://json-schema.org/draft-07/schema#"
+title: Finding
+description: >-
+  A raw, dated, falsifiable observation recorded by an agent or human at a
+  specific point in time. Findings are the atomic unit of empirical knowledge.
+
+  Use Finding when you have observed something non-trivial during debugging,
+  investigation, or experimentation and want to preserve that observation for
+  future agents. Do NOT use Finding for stable truths (use Concept), procedures
+  (use Playbook), or human-agreed standards (use Principle).
+
+  The body and claim are immutable once written. To correct a Finding, write a
+  new Finding with `contradicts` or `supersedes` pointing to the old one. The
+  only permitted edits to an existing Finding are lifecycle frontmatter:
+  `status` (active, contradicted, superseded), `contradicted_by`, and
+  `superseded_by`, appended by review.
+
+  Belongs to the Storage layer. Findings are promoted into Concepts or
+  Structures when they converge and stabilize. They may also support Principles.
+allOf:
+  - $ref: "Base.schema.yaml"
+  - type: object
+    properties:
+      type:
+        description: Document type — must be "Finding".
+        type: string
+        const: Finding
+      confidence:
+        description: How confident the reporter was at the time of recording.
+        type: string
+        enum: [low, medium, high, confirmed]
+      context:
+        description: >-
+          What the reporter believed and the situation at the time — the honest
+          basis for the finding, including assumptions that may later prove wrong.
+        type: string
+        minLength: 1
+      status:
+        description: Lifecycle state. Appended non-destructively; the body never changes.
+        type: string
+        enum: [active, contradicted, superseded]
+      derived_from:
+        description: ID of the Experiment whose run produced this finding, if any.
+        type: string
+      contradicts:
+        description: IDs of earlier Findings this finding contradicts.
+        type: array
+        items: { type: string }
+      supersedes:
+        description: IDs of earlier Findings this finding replaces.
+        type: array
+        items: { type: string }
+      contradicted_by:
+        description: IDs of later Findings that contradict this one (appended by review).
+        type: array
+        items: { type: string }
+      superseded_by:
+        description: IDs of later Findings that replace this one (appended by review).
+        type: array
+        items: { type: string }
+    required: [type, timestamp, confidence, context]
