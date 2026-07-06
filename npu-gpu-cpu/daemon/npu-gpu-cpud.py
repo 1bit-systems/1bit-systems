@@ -74,11 +74,35 @@ class NPUBackend:
     FLM_MODEL = os.environ.get("FLM_MODEL", "qwen3:0.6b")
     FLM_BIN = os.environ.get("FLM_BIN", "/usr/bin/flm")
     # FLM's internal port; we proxy from our port to FLM's API
+    # NOTE: FLM v0.9.44 has a bug in /v1/chat/completions (substr error in
+    # response serialization). /v1/completions works fine, so we convert chat
+    # messages to a text prompt using a lightweight Qwen3 chat template.
 
     def __init__(self, port: int = 52625):
         self.port = port
         self.process: Optional[subprocess.Popen] = None
-        self.flm_url = f"http://127.0.0.1:{port}/v1/chat/completions"
+        self.flm_url = f"http://127.0.0.1:{port}/v1/completions"
+
+    @staticmethod
+    def _apply_chat_template(messages: list) -> str:
+        """Lightweight Qwen3 chat template (no transformers dependency).
+        Handles: system, user, assistant roles. Uses <|im_start|>/<|im_end|> format.
+        """
+        prompt = ""
+        first_user_prompt = None
+        for i, msg in enumerate(messages):
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role == "system":
+                prompt += f"<|im_start|>system\n{content}<|im_end|>\n"
+            elif role == "user":
+                prompt += f"<|im_start|>user\n{content}<|im_end|>\n"
+                if first_user_prompt is None:
+                    first_user_prompt = i
+            elif role == "assistant":
+                prompt += f"<|im_start|>assistant\n{content}<|im_end|>\n"
+        prompt += "<|im_start|>assistant\n"
+        return prompt
 
     def start(self):
         print(f"  Starting FLM NPU backend on port {self.port}...")
@@ -123,12 +147,22 @@ class NPUBackend:
             self.process = None
 
     def chat(self, model: str, messages: list, **kwargs) -> dict:
-        """Proxy chat completion to FLM."""
+        """Proxy chat completion to FLM via /v1/completions.
+
+        FLM's /v1/chat/completions has a bug in response serialization
+        (basic_string::substr error). We work around it by converting
+        chat messages to a text prompt using a lightweight chat template
+        and calling /v1/completions instead.
+        """
+        try:
+            prompt = self._apply_chat_template(messages)
+        except Exception as e:
+            return {"error": f"Chat template error: {e}", "x-device": "npu"}
+
         req_body = {
             "model": self.FLM_MODEL,
-            "messages": messages,
+            "prompt": prompt,
             "max_tokens": kwargs.get("max_tokens", 256),
-            "stream": False,
         }
         try:
             data = json.dumps(req_body).encode()
@@ -137,9 +171,25 @@ class NPUBackend:
                     headers={"Content-Type": "application/json"}),
                 timeout=120)
             resp = json.loads(r.read())
-            resp["x-device"] = "npu"
-            resp["model"] = model  # preserve client-requested model name
-            return resp
+            # Convert text_completion response to chat_completion format
+            completion_text = resp.get("choices", [{}])[0].get("text", "")
+            chat_resp = {
+                "id": resp.get("id", "chatcmpl-npu"),
+                "object": "chat.completion",
+                "created": resp.get("created", int(time.time())),
+                "model": model,
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": completion_text,
+                    },
+                    "finish_reason": resp.get("choices", [{}])[0].get("finish_reason", "stop"),
+                }],
+                "usage": resp.get("usage", {}),
+                "x-device": "npu",
+            }
+            return chat_resp
         except Exception as e:
             return {"error": str(e), "x-device": "npu"}
 
