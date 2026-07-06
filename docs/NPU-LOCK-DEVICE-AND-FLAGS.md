@@ -110,12 +110,16 @@ In `zaya-llama.cpp/ggml/src/ggml-vulkan/ggml-vulkan.cpp`:
 | `XCLBIN_DIR` | `/home/bcloud/npu-sandbox/npu-infer/build/int8` | `main.zig` | Directory with xclbin + insts files |
 | `TOKENS` | `32` | `main.zig` | Max tokens to generate |
 | `KV_PAGES` | `1024` | `main.zig` | Total KV cache pages |
-| `NPU_MODEL_PATH` | engine default paths | `q4nx_stream.cpp`, `npu_engine_fused.cpp`, test files | Q4NX model (C++ engines) |
+| `NPU_MODEL_PATH` | engine default paths | `q4nx_stream.cpp`, test files | Q4NX model (C++ engines) |
 | `NPU_XCLBIN_DIR` | `/home/bcloud/npu-sandbox/npu-infer/build/int8` | `npu_engine_mt.cpp`, `npu_engine_all.cpp`, `npu_engine_spec_v3.cpp`, `bench_gemm.cpp`, `q4nx_stream.cpp` | XCLBIN dir override |
 | `NPU_GEN` | 0 (off) | `npu_engine_mt.cpp` | Auto-regressive decode count after prefill (0-64) |
 | `NPU_TEMP` | 0.8 | `npu_engine_mt.cpp` | Sampling temperature for decode |
 | `NPU_SPEC` | 0 | `npu_engine_spec_v3.cpp` | Speculative decode block size (0=off, 1-10) |
 | `NPU_FEAT_OUT` | (none) | `npu_engine_spec_v3.cpp` | Feature dump output path |
+| `FUSED_XCLBIN_DIR` | `/home/bcloud/torch2aie/examples/qwen3-decode-layer/build/qwen3-decode-layer-capacity-token127` | `npu_engine_fused.cpp` | Fused layer xclbin + instruction file directory |
+| `FUSED_WEIGHTS_DIR` | `/home/bcloud/npu-sandbox/npu-infer/build/int8` | `npu_engine_fused.cpp` | Fused weight binary files directory |
+| `FLM_MODEL` | `qwen3:0.6b` | `npu-gpu-cpud.py` | FLM model name for daemon proxy |
+| `FLM_BIN` | `/usr/bin/flm` | `npu-gpu-cpud.py` | FLM binary path for daemon proxy |
 
 ---
 
@@ -127,7 +131,7 @@ In `zaya-llama.cpp/ggml/src/ggml-vulkan/ggml-vulkan.cpp`:
 | `npu_engine_mt` | `<model.q4nx>` `<token1>` `<token2>` `...` | Model + up to 256 token IDs |
 | `npu_engine_all` | `<model.q4nx>` `[decode_tokens]` | Model + optional decode count |
 | `npu_engine_spec_v3` | `<model.q4nx>` `[decode_tokens]` | Same; `NPU_SPEC` env enables speculative |
-| `npu_engine_fused` | `<xclbin>` `<insts>` `<weight_dir>` `[max_new]` | Fused xclbin integration test |
+| `npu_engine_fused` | `<model.q4nx>` `[decode_tokens]` | Fused layer engine (291 tok/s). Uses `FUSED_XCLBIN_DIR` + `FUSED_WEIGHTS_DIR` env vars |
 | `wan_engine` | `<weights.bin>` `<meta.json>` `[layer=0]` | WAN 2.1 video model test |
 | `q4nx_stream` | `<model.q4nx>` `[output_dir]` | Weight stream packer |
 | `bench_gemm` | (none) | Uses `NPU_XCLBIN_DIR` env |
@@ -499,7 +503,12 @@ NPU_GEN=32 NPU_TEMP=0.9 ./npu_engine_mt "$MODEL_PATH" 151643 872
 # Speculative decode
 NPU_SPEC=5 ./npu_engine_spec_v3 "$MODEL_PATH" 32
 
-# Fused engine
+# Fused layer engine (291 tok/s — 3x v12)
+export FUSED_XCLBIN_DIR=/home/bcloud/torch2aie/examples/qwen3-decode-layer/build/qwen3-decode-layer-capacity-token127
+export FUSED_WEIGHTS_DIR=/home/bcloud/npu-sandbox/npu-infer/build/int8
+./npu_engine_fused "$MODEL_PATH" 64
+
+# Fused engine (dispatch policy)
 ./fused-engine --policy auto "Hello, world!"
 ./fused-engine --list-policies
 ./fused-engine --policy ffn_on_npu --max-tokens 128
