@@ -25,7 +25,7 @@ target_include_directories(spec_decode INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/eng
 if(ENABLE_NPU)
     add_executable(npu_spec_decode
         engine/npu_spec_integration.cpp
-        ../engine/npu/src/dequant_q4nx.c
+        /home/bcloud/engine/npu/src/dequant_q4nx.c
     )
     target_link_libraries(npu_spec_decode PRIVATE
         spec_decode
