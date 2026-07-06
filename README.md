@@ -11,7 +11,7 @@
 74kb binary. Zero Python. Your hardware.
 
 [![279 tok/s ternary](https://img.shields.io/badge/279%20tok%2Fs-ternary-00ff00.svg)](docs/wiki/performance.md)
-[![94 tok/s NPU](https://img.shields.io/badge/94%20tok%2Fs-FLM-12a0ed.svg)](docs/wiki/performance.md)
+[![97 tok/s C++ v12](https://img.shields.io/badge/97%20tok%2Fs-C%2B%2B%20v12-00ff00.svg)](docs/wiki/performance.md)
 [![74kb binary](https://img.shields.io/badge/binary-74kb-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
 [![Zero Python](https://img.shields.io/badge/deps-0-00ff00.svg)](docs/wiki/install.md)
 [![113 tok/s ROCm](https://img.shields.io/badge/113%20tok%2Fs-ROCm-ff0000.svg)](docs/wiki/performance.md)
