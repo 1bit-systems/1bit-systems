@@ -66,7 +66,7 @@ video-lora generate --model stable-audio --prompt "rain on window"
 ## The Unlock
 
 AMD shipped Strix Halo with a 50 TOPS NPU but locked INT8 behind proprietary runtimes.
-**4 days. 74 KB. 279 tok/s ternary. Open source.**
+**4 days. 38 KB. 279 tok/s ternary. Open source.**
 The silicon was never the bottleneck. The business model was.
 
 ## Architecture

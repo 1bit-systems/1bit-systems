@@ -215,7 +215,7 @@ These are the open-source C++ engine numbers — no FLM, no proprietary code. Si
 | Open-source engine | ✅ C++23, MIT, 97 tok/s | ❌ |
 | Models supported | **5** (0.6B, 8B, VL-4B, Llama, Gemma4) | 10+ (8B-focused) |
 | Auto-detect | ✅ Q4NX header parse | ❌ Per-model Python build |
-| Binary size | 120 KB | Python + 114KB xclbins |
+| Binary size | 38 KB (fused) / 120 KB (standalone) | Python + 114KB xclbins |
 | Python deps | **0** | Full MLIR-AIE + torch toolchain |
 | Daemon (HTTP API) | ✅ OpenAI-compatible, port 9090 | ✅ Built-in |
 | Systemd unit | ✅ turbo by default | ❌ Manual start |
