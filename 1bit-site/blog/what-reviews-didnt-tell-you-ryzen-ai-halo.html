@@ -3,16 +3,35 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>What the Ryzen AI Halo reviews didn't tell you — 1bit.systems on Strix Halo · 1bit.systems</title>
-<meta name="description" content="Every Ryzen AI Halo review benchmarks AMD's FLM NPU runtime at 11 tok/s and ROCm at 41 tok/s. None of them mention 1bit.systems — which hits 572 tok/s on the same hardware. Here's the full picture.">
-<meta name="keywords" content="Ryzen AI Halo, Strix Halo, AMD NPU, 1bit.systems, local AI, inference, ROCm, FLM, Radeon 8060S">
+<title>What the Ryzen AI Halo reviews didn't tell you — 572 tok/s on AMD Strix Halo · 1bit.systems</title>
+<meta name="description" content="AMD Ryzen AI Halo ships with a 50 TOPS NPU. AMD's FLM runtime gets 11 tok/s, ROCm gets 41 tok/s. 1bit.systems hits 572 tok/s on the same hardware — 52× faster. MIT licensed.">
+<meta name="keywords" content="Ryzen AI Halo, AMD Strix Halo, Ryzen AI Max+ 395, Radeon 8060S, NPU inference, 1-bit LLM, local AI, AMD vs NVIDIA, ROCm, FLM, XDNA 2, speculative decoding, DGX Spark comparison">
+<meta name="news_keywords" content="AMD Ryzen AI Halo, Strix Halo launch, local AI inference, AMD NPU, AI mini PC">
+<meta name="date" content="2026-07-06">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="https://1bit.systems/blog/what-reviews-didnt-tell-you-ryzen-ai-halo">
-<meta property="og:title" content="What the Ryzen AI Halo reviews didn't tell you">
-<meta property="og:description" content="AMD's $4,000 mini PC ships with a 50 TOPS NPU. AMD's runtime gets 11 tok/s. 1bit.systems gets 572 tok/s — on the exact same chip. The story no review covered.">
+<meta property="og:title" content="What the Ryzen AI Halo reviews didn't tell you — 572 tok/s on the same hardware">
+<meta property="og:description" content="AMD's $4,000 mini PC ships with a 50 TOPS NPU. AMD's runtime gets 11 tok/s. 1bit.systems gets 572 tok/s — on the exact same chip. 52× faster. 15W. MIT open source.">
 <meta property="og:url" content="https://1bit.systems/blog/what-reviews-didnt-tell-you-ryzen-ai-halo">
 <meta property="og:type" content="article">
+<meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
+<meta property="og:image:width" content="460">
+<meta property="og:image:height" content="60">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-07-06T15:00:00-03:00">
+<meta property="article:modified_time" content="2026-07-06T16:52:29-03:00">
+<meta property="article:author" content="bong-water-water-bong">
+<meta property="article:section" content="Industry Analysis">
+<meta property="article:tag" content="AMD Ryzen AI Halo">
+<meta property="article:tag" content="Strix Halo">
+<meta property="article:tag" content="NPU">
+<meta property="article:tag" content="local AI">
+<meta property="article:tag" content="benchmark comparison">
+<meta property="article:tag" content="NVIDIA RTX Spark">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="What the Ryzen AI Halo reviews didn't tell you — 572 tok/s possible">
+<meta name="twitter:description" content="11 tok/s stock vs 572 tok/s with 1bit.systems. The Ryzen AI Halo story no review covered. 52× faster. 15W. MIT.">
+<meta name="twitter:image" content="https://1bit.systems/assets/brand-lockup.svg">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
 <style>
   :root{
@@ -60,7 +79,21 @@
   @media (max-width:560px){.wrap{padding:0 16px;} article{padding:28px 0 40px;}}
 </style>
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"Article","headline":"What the Ryzen AI Halo reviews didn't tell you","description":"Every Ryzen AI Halo review benchmarks AMD's FLM NPU runtime at 11 tok/s and ROCm at 41 tok/s. 1bit.systems hits 572 tok/s on the same hardware.","author":{"@type":"Person","name":"bong-water-water-bong"},"datePublished":"2026-07-06"}
+{
+  "@context":"https://schema.org",
+  "@type":"Article",
+  "headline":"What the Ryzen AI Halo reviews didn't tell you — 572 tok/s on the same hardware",
+  "description":"AMD Ryzen AI Halo ships with a 50 TOPS NPU. AMD's FLM runtime gets 11 tok/s. 1bit.systems hits 572 tok/s — 52× faster. Full comparison of stock vs unlocked performance.",
+  "author":{"@type":"Person","name":"bong-water-water-bong"},
+  "publisher":{"@type":"Organization","name":"1bit.systems","url":"https://1bit.systems","logo":{"@type":"ImageObject","url":"https://1bit.systems/assets/brand-lockup.svg"}},
+  "datePublished":"2026-07-06T15:00:00-03:00",
+  "dateModified":"2026-07-06T16:52:29-03:00",
+  "image":"https://1bit.systems/assets/brand-lockup.svg",
+  "mainEntityOfPage":{"@type":"WebPage","@id":"https://1bit.systems/blog/what-reviews-didnt-tell-you-ryzen-ai-halo"},
+  "wordCount":1800,
+  "timeRequired":"PT7M",
+  "keywords":["AMD Ryzen AI Halo","Strix Halo","NPU inference","local AI","DGX Spark comparison","ROCm","FLM"]
+}
 </script>
 </head>
 <body>
