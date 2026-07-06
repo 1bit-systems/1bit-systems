@@ -46,6 +46,8 @@
 // ---------------------------------------------------------------------------
 static const char* ENV_STRIPE_SECRET     = "STRIPE_SECRET_KEY";
 static const char* ENV_STRIPE_WEBHOOK    = "STRIPE_WEBHOOK_SECRET";
+static const char* ENV_PRINTFUL_KEY      = "PRINTFUL_API_KEY";
+static const char* ENV_PRINTFUL_VARIANTS = "PRINTFUL_VARIANTS";
 static const char* ENV_NOTIFY_EMAIL      = "ORDER_NOTIFY_EMAIL";
 static const char* ENV_SMTP_HOST         = "SMTP_HOST";
 static const char* ENV_FLM_MODEL         = "FLM_MODEL";
@@ -894,7 +896,12 @@ int main(int argc, char** argv) {
     printf("  GET  /v1/models     — List available models\n");
     printf("  POST /v1/chat/completions — Route to NPU\n");
     printf("  POST /v1/batch/completions — Batch prefill (NPU multi-token)\n");
-    printf("  POST /api/checkout  — Stripe checkout (requires libcurl)\n\n");
+    printf("  POST /api/checkout  — Stripe checkout (requires libcurl)\n");
+    if (getenv(ENV_PRINTFUL_KEY) && *getenv(ENV_PRINTFUL_KEY))
+        printf("  ✅ Printful fulfillment configured\n");
+    else
+        printf("  ⚠️  Printful not configured (set PRINTFUL_API_KEY env var)\n");
+    printf("\n");
 
     // Event loop
     while (daemon.running) {
