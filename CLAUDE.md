@@ -1,12 +1,23 @@
 # CLAUDE.md — 1bit.systems
 
-**50 TOPS INT8 · 94 tok/s NPU (FLM) · 97 tok/s NPU (C++ v12, within 3%) · 22 tok/s GPU. On a consumer laptop.**
+**50 TOPS INT8 · 94 tok/s NPU (FLM) · 97 tok/s NPU (C++ v12, within 3%) · 113 tok/s ROCm · 22 tok/s GPU. On a consumer laptop.**
 Contact: admin@1bit.systems
 
 **Three inference engines, one chip, ONE cache, ONE serving path.**
-NPU (C++/Zig XRT) + GPU (Zig Vulkan/CUDA/Metal) + CPU (scheduler).
+NPU (C++/Zig XRT) + GPU (ROCm AMD clang++ / Zig Vulkan/CUDA/Metal) + CPU (scheduler).
 The H2O KV cache eviction layer and the **FusedEngine** (`engine/fusion/`) unify
 all three inference paths into one shared serving infrastructure.
+
+## ROCm Custom Kernel Backend (`ggml-rocm`)
+Custom HIP kernels for 1-bit/ternary inference on AMD Strix Halo (gfx1151).
+Folded into the `zaya-llama.cpp/` fork as `ggml/src/ggml-rocm/`.
+- ✅ **Zaya model architecture** (hybrid CCA + MoE with EDA router)
+- ✅ **100 exported C API symbols** — ternary GEMV, Bonsai Q1/TQ2, Sherry,
+  KV cache attention (prefill/decode/FD/I8/PQ3), prefill GEMM (28.4 TFlops),
+  Medusa tree attention, model loader, tokenizer
+- ✅ **Bonsai-1.7B TQ2**: 113 tok/s decode (8.8 ms/tok)
+- ✅ **TheRock 7.12** ROCm toolchain via nightly pip (ROCm 7.14.0a)
+- ✅ Built standalone (`1bit/build-rocm/librocm_cpp.so`) or as ggml backend
 
 ## Fused Engine (`engine/fusion/`)
 NPU+GPU hybrid inference engine. Dispatches per-layer or per-operation to NPU
@@ -86,6 +97,10 @@ Backend-agnostic KV cache infrastructure shared across NPU, GPU, and CPU paths:
   (XRT xclbin INT8 GEMM) and GPU (Vulkan flash attention/DMMV) behind a single
   API with per-layer dispatch. The unified H2O KV cache layer (`scheduler/`)
   is shared by all three inference paths.
+- **Zaya model architecture supported** in `zaya-llama.cpp/` fork.
+  Zaya is a hybrid CCA-attention + MoE architecture with EDA router.
+  Custom ROCm kernels (ternary GEMV, Bonsai, Sherry) folded into
+  `ggml/src/ggml-rocm/` as the ggml-rocm backend (100 exported symbols).
 - NPU2 supports 8+ simultaneous hw_contexts (firmware 1.1.2.65)
 - INT8 xclbins at `/home/bcloud/npu-sandbox/npu-infer/build/int8/`
 - Model at `~/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx`
@@ -100,6 +115,7 @@ Backend-agnostic KV cache infrastructure shared across NPU, GPU, and CPU paths:
 - **⚠️ Never use `git add -A` or `git add .`** — `.local/share/containers/` has permission-denied dirs that block the entire add. Always add specific files: `git add <file1> <file2>`.
 - PR description: use conventional commits, include ms/tok delta, tag [npu] or [gpu]
 - Release: `gh release create` + upload deb/snap/tarball + tag vYYYY.MM.DD
+- ROCm toolchain: TheRock 7.12 nightly pip at `/tmp/rocm-venv/` or system ROCm at `/opt/rocm`
 
 ## References
 - `/home/bcloud/npu-sandbox/` — NPU experiments
@@ -107,3 +123,6 @@ Backend-agnostic KV cache infrastructure shared across NPU, GPU, and CPU paths:
 - `/home/bcloud/zinc/` — Original GPU engine source
 - `/home/bcloud/engine/fusion/` — NPU+GPU fused engine
 - `/home/bcloud/npu-gpu-cpu/` — Shared memory (dma-buf/GTT) experiments + unified daemon
+- `/home/bcloud/zaya-llama.cpp/ggml/src/ggml-rocm/` — ROCm kernel backend
+- `/home/bcloud/1bit/` — Standalone kernel project
+- `/home/bcloud/1bit/build-rocm/` — TheRock 7.12 build
