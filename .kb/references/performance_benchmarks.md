@@ -15,17 +15,19 @@ Live-verified benchmark results from the July 6, 2026 refresh. Full source at th
 
 | Engine | tok/s | ms/tok | Notes |
 |--------|-------|--------|-------|
-| NPU C++ v12 | **97** | 10.3 | Production — M=32 batched dispatch |
-| FLM proxy | **94** | 10.6 | Production fallback — AMD proprietary |
+| NPU fused layer | **291** | 3.4 | Production — one xclbin call/layer, 38 KB binary |
+| NPU C++ v12 | **97** | 10.3 | Fallback — M=32 batched dispatch |
+| FLM proxy | **94** | 10.6 | Fallback v2 — AMD proprietary |
 | C++ all-5 | **28** | 35.7 | All 5 models auto-detected |
 | GPU (ROCm) | **22** | 45.5 | Via zaya-llama.cpp ggml-rocm |
 
-## 1-Bit Model Benchmarks (NPU C++ v12)
+## Benchmark — Fused Layer Engine
 
-| Model | BPW | Size | tok/s |
-|-------|-----|------|-------|
-| Qwen3-0.6B | Q4NX | ~350 MB | 97 |
-| Qwen3-0.6B (all-5) | Mixed | 74 KB binary | 28 |
+| Model | Engine | tok/s | Binary |
+|-------|--------|-------|--------|
+| Qwen3-0.6B | Fused layer | **291** | 38 KB |
+| Qwen3-0.6B | C++ v12 (fallback) | 97 | 104 KB |
+| Qwen3-0.6B (all-5) | All-5 | 28 | 117 KB |
 
 ## Full Benchmark Source
 
