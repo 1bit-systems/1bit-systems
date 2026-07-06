@@ -37,7 +37,7 @@
 | 🏆 **GPU** | Raw speed | 97 tok/s | **381 tok/s** (0.5B) | 3.9× faster |
 | 🏆 **NPU** | Power | **15W** | 45W | 3× less power |
 | 🏆 **GPU** | Model size | 0.6B max | **up to 9B** | 15× larger models |
-| 🏆 **NPU** | Binary size | **74 KB** | ~50 MB | 675× smaller |
+| 🏆 **NPU** | Binary size | **74 KB** (daemon) / **246 KB** (spec-decode) | ~50 MB | 200-675× smaller |
 
 ## Key Takeaways
 
