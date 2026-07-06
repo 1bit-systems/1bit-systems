@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>JARVIS — 1bit.systems</title>
-<meta name="description" content="JARVIS — your private AI assistant. Runs entirely on-device on 1bit.systems NPU+GPU+CPU. 94 tok/s. Chat, voice, vision, RAG, agents. Zero cloud. Zero subscriptions. Open source.">
+<meta name="description" content="JARVIS — your private AI assistant. Runs entirely on-device on 1bit.systems NPU+GPU+CPU. 94 tok/s NPU · 113 tok/s ROCm. Zaya model. Chat, voice, vision, RAG, agents. Zero cloud. Zero subscriptions. Open source.">
 <meta property="og:title" content="JARVIS — Private AI on 1bit.systems">
 <meta property="og:description" content="Your private AI assistant. NPU+GPU+CPU. 94 tok/s. Chat, voice, vision, RAG. Zero cloud. Open source.">
 <meta property="og:image" content="/assets/brand-lockup.svg">
@@ -273,35 +273,21 @@
       <span class="mono" style="font-size:12px;color:var(--muted);">System Architecture</span>
     </div>
     <div class="code" style="margin-top:16px;border:none;background:transparent;padding:0;font-size:12px;white-space:pre;">
-<span style="color:var(--muted);">┌────────────────────────────────────────────────────────────────────────┐</span>
-<span style="color:var(--muted);">│                      JARVIS Web UI (any browser)                       │</span>
-<span style="color:var(--muted);">│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │</span>
-<span style="color:var(--muted);">│  │ Chat     │  │ Voice    │  │ Vision   │  │ RAG      │  │ Status   │  │</span>
-<span style="color:var(--muted);">│  │ (stream) │  │ (mic/tts)│  │ (upload) │  │ (search) │  │ (sys)    │  │</span>
-<span style="color:var(--muted);">│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  │</span>
-<span style="color:var(--muted);">└───────┼─────────────┼─────────────┼─────────────┼─────────────┼────────┘</span>
-<span style="color:var(--muted);">        │             │             │             │             │         </span>
-<span style="color:var(--muted);">┌────────────────────────────────────────────────────────────────────────┐</span>
-<span style="color:var(--green);">│                  JARVIS Orchestrator (Python, :8080)                   │</span>
-<span style="color:var(--green);">│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │</span>
-<span style="color:var(--green);">│  │ Agent    │  │ Open     │  │ TTS      │  │ Tool     │  │ Conv     │  │</span>
-<span style="color:var(--green);">│  │ (LLM)    │  │ Knowledge│  │ (Piper)  │  │ Executor │  │ Memory   │  │</span>
-<span style="color:var(--green);">│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  │</span>
-<span style="color:var(--muted);">└───────┼─────────────┼─────────────┼─────────────┼─────────────┼────────┘</span>
-<span style="color:var(--muted);">        │             │             │             │             │         </span>
-<span style="color:var(--muted);">┌────────────────────────────────────────────────────────────────────────┐</span>
-<span style="color:var(--blue);">│                     Unified API Layer (port 9090)                      │</span>
-<span style="color:var(--blue);">│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │</span>
-<span style="color:var(--blue);">│  │ LLM      │  │ Whisper  │  │ Embed    │  │ Vision   │  │          │  │</span>
-<span style="color:var(--blue);">│  │ (daemon) │  │ (FLM)    │  │ (FLM)    │  │ (FLM)    │  │          │  │</span>
-<span style="color:var(--blue);">│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  │</span>
-<span style="color:var(--muted);">└───────┼─────────────┼─────────────┼─────────────┼─────────────┼────────┘</span>
-<span style="color:var(--muted);">        │             │             │             │             │         </span>
-<span style="color:var(--muted);">┌────────────────────────────────────────────────────────────────────────┐</span>
-<span style="color:var(--pink);">│                       Fused Engine (NPU+GPU+CPU)                       │</span>
-<span style="color:var(--pink);">│   XDNA2 NPU (94 tok/s)  ←→  Radeon 8060S (381 tok/s)  ←→  Zen 5 CPU    │</span>
-<span style="color:var(--muted);">│          H2O KV Cache · RadixAttention · 8 Dispatch Policies           │</span>
-<span style="color:var(--muted);">└────────────────────────────────────────────────────────────────────────┘</span></div>
+<span style="color:var(--muted);">┌─────────────────────────────────────────────────┐</span>
+<span style="color:var(--muted);">│              JARVIS Web UI (any browser)          │</span>
+<span style="color:var(--muted);">│  Chat · Voice · Vision · RAG · Tools · Status     │</span>
+<span style="color:var(--muted);">└──────────────────────┬──────────────────────────┘</span>
+<span style="color:var(--muted);">                       │ HTTP / WebSocket :8080       </span>
+<span style="color:var(--muted);">┌──────────────────────▼──────────────────────────┐</span>
+<span style="color:var(--green);">│            JARVIS Orchestrator (Python)           │</span>
+<span style="color:var(--green);">│  Agent · Open Knowledge · TTS/STT · Vision       │</span>
+<span style="color:var(--muted);">└──────────────────────┬──────────────────────────┘</span>
+<span style="color:var(--muted);">                       │                           </span>
+<span style="color:var(--muted);">┌──────────────────────▼──────────────────────────┐</span>
+<span style="color:var(--pink);">│            Fused Engine (port 9090)              │</span>
+<span style="color:var(--pink);">│  NPU (FLM 94 tok/s) ←→ GPU (ROCm 113 tok/s)     │</span>
+<span style="color:var(--muted);">│  H2O KV Cache · RadixAttention · 8 Policies     │</span>
+<span style="color:var(--muted);">└─────────────────────────────────────────────────┘</span></div>
   </div>
 </section>
 
