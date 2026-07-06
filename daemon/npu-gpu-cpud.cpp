@@ -460,6 +460,40 @@ static std::string stripe_api_post(const std::string& path,
 #endif
 
 // ---------------------------------------------------------------------------
+// Printful API (fulfillment)
+// ---------------------------------------------------------------------------
+#ifdef HAVE_LIBCURL
+static std::string printful_api_post(const std::string& path,
+                                      const std::string& body_json,
+                                      const std::string& auth) {
+    auto* curl = curl_easy_init();
+    if (!curl) return "";
+    std::string url = std::string("https://api.printful.com") + path;
+    std::string resp;
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body_json.c_str());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+    struct curl_slist* headers = nullptr;
+    headers = curl_slist_append(headers, ("Authorization: Bearer " + auth).c_str());
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_perform(curl);
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    return resp;
+}
+#else
+static std::string printful_api_post(const std::string& path,
+                                      const std::string& body_json,
+                                      const std::string& auth) {
+    (void)path; (void)body_json; (void)auth; return "";
+}
+#endif
+
+// ---------------------------------------------------------------------------
 // Email sender (sendmail)
 // ---------------------------------------------------------------------------
 static void send_email(const std::string& to, const std::string& subject,
@@ -735,6 +769,147 @@ private:
             if (!notify) notify = DEFAULT_NOTIFY_EMAIL;
             send_email(notify, "🛒 1bit Store Order — New Payment",
                       "A new order has been paid.\n\nCheck orders.json for details.");
+
+            // --- Printful fulfillment ---
+            // Extract customer & shipping from Stripe session
+            auto sess_data = json_str(req.body.c_str(), req.body.size(), "data");
+            auto sess = json_str(sess_data.c_str(), sess_data.size(), "object");
+            if (sess.empty()) sess = req.body;
+
+            auto cust = json_str(sess.c_str(), sess.size(), "customer_details");
+            auto addr = json_str(json_str(cust.c_str(), cust.size(), "address").c_str(),
+                                 json_str(cust.c_str(), cust.size(), "address").size(),
+                                 "dummy");
+            std::string name  = json_str(cust.c_str(), cust.size(), "name");
+            std::string email = json_str(cust.c_str(), cust.size(), "email");
+
+            // Get address from shipping or customer
+            auto ship = json_str(sess.c_str(), sess.size(), "shipping_details");
+            if (ship.empty()) ship = cust;
+            std::string ship_addr = json_str(ship.c_str(), ship.size(), "address");
+            std::string line1   = json_str(ship_addr.c_str(), ship_addr.size(), "line1");
+            std::string city    = json_str(ship_addr.c_str(), ship_addr.size(), "city");
+            std::string state   = json_str(ship_addr.c_str(), ship_addr.size(), "state");
+            std::string country = json_str(ship_addr.c_str(), ship_addr.size(), "country");
+            std::string postal  = json_str(ship_addr.c_str(), ship_addr.size(), "postal_code");
+
+            // Expand line items from Stripe session
+            auto sid = json_str(sess.c_str(), sess.size(), "id");
+            std::string items_url = "/v1/checkout/sessions/" + sid + "/line_items";
+            std::string items_resp = stripe_api_post(items_url, "", stripe_secret);
+
+            (void)addr; // quiet unused warning
+
+            std::vector<std::pair<std::string,int>> pf_items;
+            if (!items_resp.empty()) {
+                auto data = json_str(items_resp.c_str(), items_resp.size(), "data");
+                if (!data.empty()) {
+                    size_t p = 0;
+                    while ((p = data.find('{', p)) != std::string::npos) {
+                        auto end = data.find('}', p);
+                        if (end == std::string::npos) break;
+                        std::string item = data.substr(p, end - p + 1);
+                        auto desc = json_str(item.c_str(), item.size(), "description");
+                        auto qty_s = json_str(item.c_str(), item.size(), "quantity");
+                        int qty = qty_s.empty() ? 1 : atoi(qty_s.c_str());
+                        if (!desc.empty()) pf_items.push_back({desc, qty});
+                        p = end + 1;
+                    }
+                }
+            }
+
+            // Build variant_id map from env var
+            // PRINTFUL_VARIANTS='{"Sorry but not Sorry T-Shirt (S)":1234,"...":5678}'
+            std::unordered_map<std::string,int> vmap;
+            const char* vjson = getenv(ENV_PRINTFUL_VARIANTS);
+            if (vjson) {
+                std::string vs(vjson);
+                size_t pos = 0;
+                while ((pos = vs.find('"', pos)) != std::string::npos) {
+                    size_t ks = pos + 1;
+                    size_t ke = vs.find('"', ks);
+                    if (ke == std::string::npos) break;
+                    std::string k = vs.substr(ks, ke - ks);
+                    pos = vs.find(':', ke);
+                    if (pos == std::string::npos) break;
+                    ++pos;
+                    while (pos < vs.size() && isspace(vs[pos])) ++pos;
+                    char* ep = nullptr;
+                    int v = (int)strtol(vs.c_str() + pos, &ep, 10);
+                    if (ep == vs.c_str() + pos) break;
+                    vmap[k] = v;
+                    pos = ep - vs.c_str();
+                }
+            }
+
+            // Build Printful order
+            if (!pf_items.empty() && !line1.empty()) {
+                printf("  🛒 Fulfilling via Printful: %s (%s, %s)\n",
+                       name.c_str(), email.c_str(), line1.c_str());
+
+                std::string p_items = "[";
+                bool first = true;
+                for (auto& item : pf_items) {
+                    auto it = vmap.find(item.first);
+                    if (it == vmap.end()) {
+                        fprintf(stderr, "  ⚠️  No Printful variant for '%s' — set PRINTFUL_VARIANTS\n",
+                                item.first.c_str());
+                        continue;
+                    }
+                    if (!first) p_items += ",";
+                    first = false;
+                    char ib[256];
+                    snprintf(ib, sizeof(ib),
+                        "{\"sync_variant_id\":%d,\"quantity\":%d,\"retail_price\":\"0.00\"}",
+                        it->second, item.second);
+                    p_items += ib;
+                }
+                p_items += "]";
+
+                if (!first) {
+                    auto esc = [](const std::string& s) -> std::string {
+                        std::string r;
+                        for (char c : s) {
+                            if (c == '"') r += "\\\"";
+                            else if (c == '\\') r += "\\\\";
+                            else r += c;
+                        }
+                        return r;
+                    };
+
+                    char ob[4096];
+                    snprintf(ob, sizeof(ob),
+                        "{"
+                        "\"recipient\":{"
+                        "\"name\":\"%s\",\"address1\":\"%s\","
+                        "\"city\":\"%s\",\"state_code\":\"%s\","
+                        "\"country_code\":\"%s\",\"zip\":\"%s\","
+                        "\"email\":\"%s\"},"
+                        "\"items\":%s,"
+                        "\"shipping\":\"STANDARD\"}",
+                        esc(name).c_str(), esc(line1).c_str(),
+                        esc(city).c_str(), esc(state).c_str(),
+                        esc(country).c_str(), esc(postal).c_str(),
+                        esc(email).c_str(), p_items.c_str());
+
+                    const char* pfkey = getenv(ENV_PRINTFUL_KEY);
+                    std::string pf_resp;
+                    if (pfkey && *pfkey)
+                        pf_resp = printful_api_post("/orders", ob, pfkey);
+
+                    if (!pf_resp.empty() &&
+                        pf_resp.find("\"code\":2") == std::string::npos) {
+                        printf("  ✅ Printful order created!\n");
+                    } else if (!pf_resp.empty()) {
+                        fprintf(stderr, "  ⚠️  Printful error: %.200s\n", pf_resp.c_str());
+                    } else {
+                        fprintf(stderr, "  ⚠️  Printful API call failed\n");
+                    }
+                }
+            } else {
+                printf("  📝 Order logged (Printful: %s)\n",
+                       line1.empty() ? "no shipping address" : "no items");
+            }
         }
 
         Json j; j.obj().kv("ok", true).end_obj();
