@@ -224,8 +224,8 @@ OMP_NUM_THREADS=16 ./npu_engine_v9 64
 
 | Metric | Value |
 |--------|-------|
-| Speed (v12) | **97 tok/s** (10.3 ms/tok) — production C++ engine |
-| Speed (FLM proxy) | **94 tok/s** (10.6 ms/tok) — fallback daemon |
+| Speed (FLM proxy) | **94 tok/s** (10.6 ms/tok) — production daemon |
+| Speed (v12) | **97 tok/s** (10.3 ms/tok) — C++ open-source engine |
 | Speed (ALL) | **28 tok/s** (36 ms/tok) — C++ all 5 NPU LLMs |
 | Speed (v3 baseline) | 244 ms/tok (4.1 tok/s) |
 | Speedup (C++) | **24×** (v3→v12) |
