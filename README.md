@@ -14,6 +14,8 @@
 [![22 models](https://img.shields.io/badge/22%20models-auto--detect-00ff00.svg)](tools/video-lora/)
 [![C++23](https://img.shields.io/badge/runtime-C%2B%2B23-00ff00.svg)](engine/npu/src/npu_engine_all.cpp)
 [![Zero Python](https://img.shields.io/badge/deps-0-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
+[![113 tok/s ROCm](https://img.shields.io/badge/113%20tok%2Fs-ROCm-ff0000.svg)](1bit/CLAUDE.md)
+[![Zaya](https://img.shields.io/badge/model-zaya-f00fd2.svg)](https://www.zyphra.com/our-work/zaya1-8b-diffusion-preview)
 [![MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/discord-1bit.systems-f00fd2.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
 [![clones:stars](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/traffic-badge.json&color=blue)](https://github.com/bong-water-water-bong/1bit-systems/graphs/traffic)
@@ -88,6 +90,7 @@ curl -X POST http://localhost:8081/v1/chat/completions \
 | **NPU v12** | XDNA 2 · 32 tiles | INT8 | **97 tok/s** (10 ms/tok) | Qwen3-0.6B | 610 MB |
 | **GPU (ZINC)** | Radeon 8060S · 32 CUs | F16 | **22 tok/s** (46 ms/tok) | Bonsai-1.7B | 3.3 GB |
 | **Ternary (ZINC)** | Radeon 8060S · 32 CUs | Q2_0 | **279 tok/s** (3.6 ms/tok) | 1-bit Q2_0 model | varies |
+| **❤️ ROCm kernels** 🆕 | Radeon 8060S (custom HIP) | TQ2 ternary | **113 tok/s** (8.8 ms/tok) | Bonsai-1.7B (TQ2) | 1.6 GB |
 | **Zaya** 🆕 | Radeon 8060S · 32 CUs | Q2_0 | **~18 tok/s** | Zaya (AMD-native) | varies |
 
 **55.7 TFLOPS raw INT8 GEMM** — exceeds AMD's 50 TOPS rating.  
@@ -118,9 +121,17 @@ FLM proxy at 94 tok/s in production. C++ v12: 97 tok/s open-source engine within
 NPU engine (C++23 XRT direct), Vulkan engine (Zig GLSL→SPIR-V, port 8080),
 [Lemon MLX Engine](https://github.com/deepseek-ai/lemon-mlx-engine)
 (C++ on MLX, 50+ architectures, Apple Silicon + ROCm fork).
+
+**ROCm kernel backend (ggml-rocm):** Custom HIP kernels for 1-bit/ternary
+inference on Strix Halo — folded into `zaya-llama.cpp` as the ggml-rocm
+backend. 100 exported C API symbols: ternary GEMV, Bonsai Q1/TQ2 Sherry,
+KV cache attention (Flash-Decode), prefill GEMM (28.4 TFlops), Medusa tree
+attention, model loader, tokenizer. Built with TheRock 7.12 (ROCm 7.14).
+
 [**Zaya**](https://www.zyphra.com/our-work/zaya1-8b-diffusion-preview) — custom model architecture designed for AMD hardware
-designed from the ground up for AMD hardware. CCA attention, MoE routing,
-AMD-native quantization. Served via `1bit zaya`.
+from the ground up. CCA attention, MoE routing with EDA router,
+AMD-native quantization. Architecture supported in `zaya-llama.cpp` fork.
+Served via `1bit zaya`.
 
 ### Why this exists
 
