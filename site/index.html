@@ -150,7 +150,7 @@
 <nav>
   <div class="nav-in">
     <a class="brand" href="#top"><span class="mark">1bs</span><span class="wordmark"><span class="g">1</span>bit<span class="p">.</span>systems</span></a>
-    <div class="nav-links" id="navLinks"><a href="#benchmarks">Benchmarks</a><a href="#platform" style="color:var(--pink);font-weight:800;">JARVIS</a><a href="#install">Install</a><a href="store/">Store</a></div>
+    <div class="nav-links" id="navLinks"><a href="#benchmarks">Benchmarks</a><a href="#packages">Platform</a><a href="#platform" style="color:var(--pink);font-weight:800;">JARVIS</a><a href="#install">Install</a><a href="store/">Store</a></div>
     <div class="nav-cta"><a class="txt" href="https://discord.gg/dSyV646eBs" target="_blank" rel="noopener">Discord</a><a class="btn btn-primary btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">GitHub</a></div>
     <button class="hamburger" id="hamburger" aria-label="Menu"><span></span><span></span><span></span></button>
   </div>
@@ -295,6 +295,48 @@
 <span class="c"># Or one-command mobile access:</span>
 <span class="g">$ curl -fsSL 1bit.systems/mobile.sh | sh</span>
 <span class="b">→ ngrok tunnel + QR code for iOS/Android</span></div>
+  </div>
+</section>
+
+<section id="packages" class="block">
+  <span class="eyebrow">1bit Platform</span>
+  <h2 style="margin:16px 0 8px;">Coding agent. Mobile app. Extensions. Skills. Prompts.</h2>
+  <p class="lead" style="margin-bottom:24px;">A full ecosystem on top of the fused engine — terminal agent, mobile apps, and npm-delivered extensions. All running on your NPU+GPU+CPU.</p>
+  <div class="grid2" style="margin-top:28px;">
+    <div class="card" style="padding:24px;">
+      <div style="display:flex;align-items:center;gap:8px;"><span class="tag npu" style="background:var(--pink);">npm</span><span class="mono" style="font-size:12px;color:var(--muted);">global install</span></div>
+      <h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">/1bit Coding Agent</h3>
+      <div class="mono" style="font-size:14px;color:var(--muted);margin:8px 0;">Terminal-native AI coding harness. Read, bash, edit, write tools. Session management with branching.</div>
+      <div class="code" style="margin-top:12px;padding:10px 12px;font-size:12px;"><span class="g">npm install -g @1bit/1bit-coding-agent</span></div>
+      <div style="margin-top:12px;display:flex;gap:8px;"><span class="pill ok"><span class="dot"></span>MIT</span><span class="pill info"><span class="dot"></span>Node ≥ 22</span></div>
+    </div>
+    <div class="card" style="padding:24px;">
+      <div style="display:flex;align-items:center;gap:8px;"><span class="tag npu" style="background:var(--blue);">curl</span><span class="mono" style="font-size:12px;color:var(--muted);">no deps</span></div>
+      <h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">One-liner Install</h3>
+      <div class="mono" style="font-size:14px;color:var(--muted);margin:8px 0;">Single curl command. No Node.js knowledge needed.</div>
+      <div class="code" style="margin-top:12px;padding:10px 12px;font-size:12px;"><span class="g">curl -fsSL https://1bit.systems/agent.sh | sh</span></div>
+      <div style="margin-top:12px;display:flex;gap:8px;"><span class="pill ok"><span class="dot"></span>1 command</span><span class="pill info"><span class="dot"></span>auto-detects OS</span></div>
+    </div>
+    <div class="card" style="padding:24px;">
+      <div style="display:flex;align-items:center;gap:8px;"><span class="tag npu" style="background:var(--green);">ngrok</span><span class="mono" style="font-size:12px;color:var(--muted);">qr code</span></div>
+      <h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">1bit Mobile</h3>
+      <div class="mono" style="font-size:14px;color:var(--muted);margin:8px 0;">Connect your phone to your NPU. QR code pairing. iOS & Android.</div>
+      <div class="code" style="margin-top:12px;padding:10px 12px;font-size:12px;"><span class="g">curl -fsSL https://1bit.systems/mobile.sh | sh</span></div>
+      <div style="margin-top:12px;display:flex;gap:8px;"><span class="pill ok"><span class="dot"></span>ngrok tunnel</span><span class="pill info"><span class="dot"></span>QR code pairing</span></div>
+    </div>
+    <div class="card" style="padding:24px;">
+      <div style="display:flex;align-items:center;gap:8px;"><span class="tag npu" style="background:var(--pink);">Flutter</span><span class="mono" style="font-size:12px;color:var(--muted);">open source</span></div>
+      <h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">App Stores</h3>
+      <div class="mono" style="font-size:14px;color:var(--muted);margin:8px 0;">Native iOS & Android app. Chat with your NPU from anywhere.</div>
+      <div class="code" style="margin-top:12px;padding:10px 12px;font-size:12px;"><span class="g">App Store + Google Play</span></div>
+      <div style="margin-top:12px;display:flex;gap:8px;"><span class="pill ok"><span class="dot"></span>iOS</span><span class="pill info"><span class="dot"></span>Android</span></div>
+    </div>
+  </div>
+  <div class="grid4" style="margin-top:20px;">
+    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Extensions</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">TypeScript modules</div><div class="code" style="margin-top:10px;padding:8px 10px;font-size:10px;text-align:left;"><span class="g">1bit -e @1bit/1bit-npu-ext</span></div></div>
+    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Skills</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">On-demand capabilities</div><div class="code" style="margin-top:10px;padding:8px 10px;font-size:10px;text-align:left;"><span class="g">/npu-bench · /model-pull</span></div></div>
+    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Prompts</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">Reusable templates</div><div class="code" style="margin-top:10px;padding:8px 10px;font-size:10px;text-align:left;"><span class="g">/build-npu · /deploy-site</span></div></div>
+    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">NPU Extension</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">Coming soon</div><div class="code" style="margin-top:10px;padding:8px 10px;font-size:10px;text-align:left;"><span class="g">1bit-npu → auto-detect models</span></div></div>
   </div>
 </section>
 
