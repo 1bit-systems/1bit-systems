@@ -124,6 +124,23 @@ Despite training convergence (loss 12.1 → 5.87), the draft produces **0% accep
 
 ---
 
+## Binary Sizes
+
+| Binary | Unstripped | Stripped (est.) | Contents |
+|--------|:----------:|:---------------:|----------|
+| `npu_spec_decode` | **246 KB** | **~180 KB** | Spec decode + target model + draft model + dequant |
+| `npu_engine_fused` | 55 KB | ~40 KB | Fused xclbin raw dispatch test |
+| `spec_decode_bench` | 78 KB | ~55 KB | Simulated benchmark (no NPU) |
+| `test_draft_model` | 42 KB | ~30 KB | Draft model unit tests |
+
+Production daemon (`npu_engine_cb`): **74 KB** (73 KB actual) — for comparison.
+
+The 246 KB spec decode binary is the largest single binary in the stack, but it contains:
+- Full NPU 4-xclbin INT8 target engine (28 layers)
+- Eagle3 1-layer MTP draft transformer (336M params) 
+- Q4NX dequantizer
+- Speculative decode orchestrator with greedy acceptance
+
 ## Files
 
 | File | Description |
@@ -137,4 +154,5 @@ Despite training convergence (loss 12.1 → 5.87), the draft produces **0% accep
 | `checkpoints/eagle3_draft.bin` | Trained weights (1.3 GB, 0% acceptance on NPU) |
 | `checkpoints/dspark_qwen3_4b/` | Pre-trained DSpark checkpoint (2.8 GB) |
 | `complete_pipeline.sh` | Automated completion pipeline |
-| `RESUTS.md` | This file |
+| `NPU_VS_GPU.md` | NPU vs GPU head-to-head |
+| `RESULTS.md` | This file |
