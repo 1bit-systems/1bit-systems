@@ -1,5 +1,5 @@
 {
-  "updated": "2026-07-06T20:20:27Z",
+  "updated": "2026-07-06T20:50:00Z",
   "source": "docs/wiki/performance.md",
   "engines": {
     "npu_v12": {
@@ -31,10 +31,40 @@
       "label": "DSpark spec-decode (production)",
       "hw": "XDNA2 \u00b7 32 tiles",
       "model": "Qwen3-0.6B + 5-layer Markov"
+    },
+    "gpu_0.5b": {
+      "tok_s": 381,
+      "label": "GPU Vulkan (Qwen2-0.5B IQ1_S)",
+      "hw": "Radeon 8060S",
+      "model": "Qwen2-0.5B"
+    },
+    "gpu_0.8b": {
+      "tok_s": 312,
+      "label": "GPU Vulkan (Qwen3.5-0.8B Q1_0)",
+      "hw": "Radeon 8060S",
+      "model": "Qwen3.5-0.8B"
+    },
+    "gpu_4b": {
+      "tok_s": 122,
+      "label": "GPU Vulkan (gemma3-4B IQ1_S)",
+      "hw": "Radeon 8060S",
+      "model": "gemma3-4B"
     }
   },
   "system": {
     "tflops_int8": 55.7,
     "speedup": "72x"
-  }
+  },
+  "order": [
+    "dspark",
+    "npu_v12",
+    "npu_flm",
+    "gpu_0.5b",
+    "gpu_0.8b",
+    "gpu_4b",
+    "all_5",
+    "gpu_zinc",
+    "rocm_hip",
+    "ternary"
+  ]
 }

@@ -4,15 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>JARVIS — 1bit.systems</title>
-<meta name="description" content="JARVIS — your private AI assistant. Runs entirely on-device on 1bit.systems NPU+GPU+CPU. 291 tok/s. Chat, voice, vision, RAG, agents. Zero cloud. Zero subscriptions. Open source.">
+<meta name="description" content="JARVIS — your private AI assistant. Runs entirely on-device on 1bit.systems NPU+GPU+CPU. 94 tok/s. Chat, voice, vision, RAG, agents. Zero cloud. Zero subscriptions. Open source.">
 <meta property="og:title" content="JARVIS — Private AI on 1bit.systems">
-<meta property="og:description" content="Your private AI assistant. NPU+GPU+CPU. 291 tok/s. Chat, voice, vision, RAG. Zero cloud. Open source.">
+<meta property="og:description" content="Your private AI assistant. NPU+GPU+CPU. 94 tok/s. Chat, voice, vision, RAG. Zero cloud. Open source.">
 <meta property="og:image" content="/assets/brand-lockup.svg">
 <meta property="og:url" content="https://jarvis.1bit.systems">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="JARVIS — 1bit.systems">
-<meta name="twitter:description" content="Private AI on your hardware. 291 tok/s. Chat, voice, vision. Zero cloud.">
+<meta name="twitter:description" content="Private AI on your hardware. 94 tok/s. Chat, voice, vision. Zero cloud.">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="https://1bit.systems/jarvis/">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
@@ -464,7 +464,7 @@
 // Load live benchmark numbers from benchmarks.json
 (function(){
   fetch('/benchmarks.json').then(function(r){return r.json();}).then(function(d){
-    var fused = (d.engines.npu_fused && d.engines.npu_fused.tok_s) ? d.engines.npu_fused.tok_s : (d.engines.npu_v12 ? d.engines.npu_v12.tok_s : 291);
+    var v12 = d.engines.npu_v12.tok_s;
     var flm = d.engines.npu_flm.tok_s;
     var roc = d.engines.rocm_hip.tok_s;
     var ter = d.engines.ternary.tok_s;
@@ -472,13 +472,13 @@
     var zaya= d.engines.zaya.tok_s;
     var tflops = d.system.tflops_int8;
 
-    // Walk text nodes and replace stale "94 tok/s" in prose (not specific refs)
+    // Walk text nodes and replace stale "94 tok/s" in prose (not FLM-specific refs)
     var walk = document.createTreeWalker(document.body,4,null,false);
     var n;
     while(n=walk.nextNode()){
       var t = n.nodeValue;
       if(t.indexOf('94 tok/s')>=0 && t.indexOf('FLM proxy')<0 && t.indexOf('decode=')<0 && t.indexOf('flm serve')<0){
-        n.nodeValue = t.replace(/94 tok\/s/g, fused + ' tok/s');
+        n.nodeValue = t.replace(/94 tok\/s/g, v12 + ' tok/s');
       }
     }
 
@@ -498,7 +498,7 @@
       table.innerHTML = html;
     }
 
-    console.log('JARVIS: ' + d.order.length + ' engines loaded — fused='+fused+' tok/s, ROCm='+roc+' tok/s, ternary='+ter+' tok/s');
+    console.log('JARVIS: ' + d.order.length + ' engines loaded — v12='+v12+' tok/s, ROCm='+roc+' tok/s, ternary='+ter+' tok/s');
   }).catch(function(e){console.warn('JARVIS: benchmarks.json not available, using defaults');});
 })();
 </script>
