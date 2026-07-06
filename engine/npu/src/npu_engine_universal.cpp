@@ -110,14 +110,39 @@ inline void lm_topk_omp(const float*hidden,float*lg,int*top_ids,int K,int NV,int
     for(int b=0;b<K;b++)top_ids[b]=top[b].id;
 }
 
+// Get the directory containing the running executable
+static std::string get_self_dir(){
+    char buf[4096];
+    ssize_t len=readlink("/proc/self/exe",buf,sizeof(buf)-1);
+    if(len>0){buf[len]='\0';std::string p(buf);auto s=p.rfind('/');if(s!=std::string::npos)return p.substr(0,s);}
+    return ".";
+}
+
 int main(int argc,char**argv){
     setvbuf(stdout,NULL,_IONBF,0);
-    if(argc<2){printf("Usage: %s model.q4nx [decode_tokens] [input_tokens_file|-]\n",argv[0]);return 1;}
-    const char*mp=argv[1];int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
+    if(argc<2){printf("Usage: %s model.q4nx|model.gguf [decode_tokens] [input_tokens_file|-]\n",argv[0]);return 1;}
+
+    // Auto-convert GGUF → Q4NX if needed
+    const char*mp_orig=argv[1];
+    std::string mp_str=mp_orig;
+    std::string temp_q4nx;
+    bool is_gguf=(mp_str.size()>5&&mp_str.substr(mp_str.size()-5)==".gguf");
+    if(is_gguf){
+        printf("[AutoConvert] GGUF detected — converting to Q4NX...\n");
+        temp_q4nx="/tmp/_auto_q4nx_"+std::to_string(getpid())+".q4nx";
+        char cmd[2048];snprintf(cmd,sizeof(cmd),"%s/build/gguf_to_q4nx \"%s\" \"%s\" 2>&1",
+            get_self_dir().c_str(),mp_orig,temp_q4nx.c_str());
+        int rc=system(cmd);
+        if(rc!=0){fprintf(stderr,"[AutoConvert] Conversion failed (rc=%d)\n",rc);return 1;}
+        printf("[AutoConvert] Converted → %s\n",temp_q4nx.c_str());
+        argv[1]=(char*)temp_q4nx.c_str();
+    }
+
+    int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
     const char*input_tok_file=(argc>3&&argv[3][0]!='\0')?argv[3]:nullptr;
 
     // Model tag
-    std::string mp_s(mp),model_tag;auto ls=mp_s.rfind('/');auto sl=mp_s.rfind('/',ls-1);
+    const char*mp=argv[1];std::string mp_s(mp),model_tag;auto ls=mp_s.rfind('/');auto sl=mp_s.rfind('/',ls-1);
     model_tag=(sl!=std::string::npos&&ls!=std::string::npos)?mp_s.substr(sl+1,ls-sl-1):mp_s.substr(ls+1);
     for(auto&c:model_tag){c=tolower(c);if(c=='-'||c=='.')c='_';}
     const char*sfxs[]={"_npu2","_instruct","_it","_it_npu2"};

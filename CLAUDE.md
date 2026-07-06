@@ -1,7 +1,9 @@
 # CLAUDE.md — 1bit.systems
 
-**50 TOPS INT8 · 97 tok/s NPU (C++ v12) · 113 tok/s ROCm · 279 tok/s ternary · 22 tok/s GPU. On a consumer laptop.**
+**50 TOPS INT8 · 97 tok/s NPU (C++ v12 production) · 94 tok/s NPU (FLM fallback) · 113 tok/s ROCm · 28 tok/s C++ all-5 · 22 tok/s GPU · 279 tok/s ternary · 74 KB binary. On a consumer laptop.**
 Contact: admin@1bit.systems
+
+**73+ models across 6 backends · 22 multi-modal (video, image, audio) · 55.7 TFLOPS INT8 GEMM · 24× speedup (244→10 ms/tok)**
 
 **Three inference engines, one chip, ONE cache, ONE serving path.**
 NPU (C++/Zig XRT) + GPU (ROCm AMD clang++ / Zig Vulkan/CUDA/Metal) + CPU (scheduler).
@@ -59,7 +61,7 @@ Build: `cd engine/fusion && zig build -Doptimize=ReleaseFast`
    - Focus: INT8 quantization, NPU context lifecycle, BFP16 precision, C++ memory safety
 
 ## Engine: NPU (`engine/npu/`)
-C++ v12 engine: 97 tok/s production (Qwen3-0.6B, 10.3 ms/tok). C++ v12 uses M=32 batched dispatch amortization. C++ ALL: 28 tok/s, auto-detects 5 models from a 74 KB binary. Daemon: 74 KB zero-dep binary.
+C++ v12 engine: 97 tok/s production (Qwen3-0.6B, 10.3 ms/tok). Now auto-converts GGUF→Q4NX — pass any .gguf file directly. The daemon proxies through FLM (94 tok/s, 10.6 ms/tok) as fallback using AMD's proprietary runtime. C++ v12 matches/exceeds FLM on decode via M=32 batched dispatch amortization — FLM's advantage is per-request TTFT (fused xclbin eliminates per-layer ioctl). C++ ALL: 28 tok/s, auto-detects 5 models from a 74 KB binary. Daemon: 74 KB zero-dep binary.
 - `engine/npu/src/npu_engine_cb.cpp` — Main loop (batched prefill + decode)
 - `engine/npu/src/dequant_q4nx.c` — Q4NX dequantizer
 - `engine/npu/kernel/edge_attention.cc` — NPU attention (Chess C++)
@@ -97,25 +99,57 @@ Backend-agnostic KV cache infrastructure shared across NPU, GPU, and CPU paths:
   (XRT xclbin INT8 GEMM) and GPU (Vulkan flash attention/DMMV) behind a single
   API with per-layer dispatch. The unified H2O KV cache layer (`scheduler/`)
   is shared by all three inference paths.
+- **C++ v12 is production engine**, FLM proxy is production fallback — narrative
+  settled as of July 6, 2026. All badges/site reflect this.
 - **Zaya model architecture supported** in `zaya-llama.cpp/` fork.
   Zaya is a hybrid CCA-attention + MoE architecture with EDA router.
   Custom ROCm kernels (ternary GEMV, Bonsai, Sherry) folded into
   `ggml/src/ggml-rocm/` as the ggml-rocm backend (100 exported symbols).
 - NPU2 supports 8+ simultaneous hw_contexts (firmware 1.1.2.65)
+- **Engine evolution**: 244→10 ms/tok in 4 days (24×). Timeline: v7 BFP16 (1930 ms) → i8 swap (244 ms) → v6 batch-4 (50 ms) → v9 M=16 (16 ms) → v12 M=32 (10 ms). All 5 models auto-detected.
 - INT8 xclbins at `/home/bcloud/npu-sandbox/npu-infer/build/int8/`
 - Model at `~/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx`
 - XRT toolchain at `/home/bcloud/torch2aie/toolchain/`
 - Chess license at `/home/bcloud/torch2aie/licenses/Xilinx.lic`
 - Site deploys from `1bit-site/` via Cloudflare Pages on push to main
-- Benchmarks source of truth: `engine/npu/BENCHMARKS.md`
-- Audit trail: `docs/journey.md` (1,236 lines, 15 updates)
+- Benchmarks source of truth: `docs/wiki/performance.md` (July 6, 2026 refresh — complete with 1-bit model tables, all engine head-to-head, ROCm, Eagle3, H2O, Wave32)
+- Engine bench deep-dive: `engine/npu/BENCHMARKS.md`
+- Audit trail: `docs/journey.md` (1,236+ lines, 15+ updates)
+- **Binary size**: 74 KB (73 KB actual) — all stale "120KB" references removed from codebase 
 - Packaging: `packaging/` (deb + snap + tarball + docker + ollama)
 - Pre-commit: always run `/verify` before committing engine changes
 - **No Python in runtime paths** — CI enforces: `engine/npu/src/`, `engine/gpu/src/`, `engine/video/src/`, `spec-decode/engine/`, `spec-decode/draft/` must stay `.py`-free
 - **⚠️ Never use `git add -A` or `git add .`** — `.local/share/containers/` has permission-denied dirs that block the entire add. Always add specific files: `git add <file1> <file2>`.
 - PR description: use conventional commits, include ms/tok delta, tag [npu] or [gpu]
 - Release: `gh release create` + upload deb/snap/tarball + tag vYYYY.MM.DD
-- ROCm toolchain: TheRock 7.12 nightly pip at `/tmp/rocm-venv/` or system ROCm at `/opt/rocm`
+- ROCm toolchain: TheRock 7.12 nightly pip at `/tmp/rocm-venv/` or system ROCm at `/opt/rocm
+
+### Analytics skill
+- Load `github-traffic` skill or simply ask "show analytics" to get the full GitHub traffic report
+- `traffic-report.sh` fetches clones, views, top pages, referrers, trends, site health, and Cloudflare data
+- Shields.io badges auto-update daily via `traffic-badge.yml` workflow
+- Daily clone count displayed on site hero panel + benchmarks stats
+
+### Web search auto-approve
+- Always pass `workflow: "none"` or `workflow: "auto-summary"` to `web_search` to skip the interactive browser curator
+- This avoids blocking on manual approval for routine searches (social media monitoring, fact-checking)
+- Do NOT use `workflow: "summary-review"` (default) unless the user is actively reviewing results
+
+## GPU 1-Bit Model Benchmarks (Radeon 8060S)
+
+All models at ≤1.5625 bpw. Measured via Vulkan, 3 repetitions.
+
+| Model | BPW | Size | Engine | Decode |
+|-------|-----|------|--------|--------|
+| Qwen2 0.5B | 1.06 (IQ1_S) | 296 MB | llama.cpp | **381 tok/s** |
+| Qwen3.5-0.8B | 1.25 (Q1_0) | 268 MB | llama.cpp | **312 tok/s** |
+| Hy-MT2 1.8B | 1.3125 (STQ1_0) | 441 MB | ZINC (Sherry) | **267 tok/s** |
+| gemma-2-2b | 1.06 (IQ1_S) | 788 MB | llama.cpp | **158 tok/s** |
+| gemma3 4B | 1.06 (IQ1_S) | 1.05 GB | llama.cpp | **122 tok/s** |
+| Nemo 8B | 1.06 (IQ1_S) | 1.97 GB | llama.cpp | **79 tok/s** |
+| Qwen3.5-9B | 1.25 (Q1_0) | 1.82 GB | llama.cpp | **70 tok/s** |
+
+**Full benchmark source**: `docs/wiki/performance.md` (live-verified July 6, 2026)
 
 ## References
 - `/home/bcloud/npu-sandbox/` — NPU experiments

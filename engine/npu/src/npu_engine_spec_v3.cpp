@@ -225,7 +225,7 @@ int main(int argc,char**argv){
         co.go(l,at_b.data(),npt,NH*HD,dynamic_ascale(at_b.data(),npt*NH*HD),osc[l],oo_b.data(),H);cn(oo_b.data(),npt*H);
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]+=oo_b[pi*H+i];
         // Store hidden states for spec decode
-        for(int pi=0;pi<npt;pi++)all_layer_hidden[l*H+pi]=h_b[(npt-1)*H+pi];
+        memcpy(&all_layer_hidden[l*H],&h_b[(npt-1)*H],H*4);
         for(int pi=0;pi<npt;pi++)rn_c(&h_b[pi*H],&pa_n[l*H],H);
         int mlp_o=cfg.gu_split?IM:2*IM;
         cg.go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),gsc[l],gt_b.data(),mlp_o);cn(gt_b.data(),npt*mlp_o);
@@ -276,6 +276,17 @@ int main(int argc,char**argv){
     int cur_id=lm_argmax(sb_d.data(),lg_b.data(),NV,H);
     memcpy(h_data.data(),h0,H*4);sp++;step++;total_tokens++;
     printf("  [0] token=%d\n",cur_id);
+    
+    // Save NPU features + first token for draft training
+    const char* feat_out = getenv("NPU_FEAT_OUT");
+    if(feat_out && total_tokens == 1){
+        FILE* ff = fopen(feat_out, "ab");
+        if(ff){
+            fwrite(target_features.data(), sizeof(float), 5*H, ff);
+            fwrite(&cur_id, sizeof(int), 1, ff);
+            fclose(ff);
+        }
+    }
 
     // Main decode
     MTPDraftState ds; ds.resize(NKV,HD,block_size>0?block_size:1);
@@ -330,6 +341,9 @@ int main(int argc,char**argv){
                 else{for(int b=0;b<bs_vfy;b++){for(int i=0;i<IM;i++){float gv=gt_b[b*mo+i];su_b[b*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[b*mo+IM+i];}}}
                 cd.go(l,su_b.data(),bs_vfy,IM,dynamic_ascale(su_b.data(),bs_vfy*IM),dsc[l],dw_b.data(),H);cn(dw_b.data(),bs_vfy*H);
                 for(int b=0;b<bs_vfy;b++) for(int i=0;i<H;i++) h_b[b*H+i] += dw_b[b*H+i];
+                // Capture target hidden states at layers 1,6,12,18,24 for next draft round
+                for(int tl=0;tl<5;tl++) if(target_layer_ids[tl]==l)
+                    memcpy(&target_features[tl*H],&h_b[0],H*4);
             }
             
             // Get NPU argmax for each position

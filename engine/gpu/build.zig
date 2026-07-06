@@ -11,6 +11,7 @@ const Backend = enum {
     vulkan,
     metal,
     cuda,
+    rocm,
     zinc_rt,
 };
 
@@ -71,6 +72,28 @@ fn configureCudaModule(
     module.linkSystemLibrary("cudart", .{}); // cublas runtime dependency
 }
 
+fn configureRocmModule(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    module: *std.Build.Module,
+) void {
+    // ROCm/HIP backend — Linux + AMD GPU only. Mirrors configureCudaModule but
+    // links against libamdhip64.so (HIP runtime) instead of libcuda.so, and uses
+    // HIPRTC for runtime kernel compilation instead of NVRTC.
+    _ = target;
+    const rocm_home = b.graph.env_map.get("ROCM_HOME") orelse "/opt/rocm";
+    module.addCSourceFile(.{
+        .file = b.path("src/rocm/hip_shim.c"),
+        .flags = &.{"-std=c11"},
+    });
+    module.addIncludePath(b.path("src/rocm"));
+    module.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ rocm_home, "include" }) });
+    module.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ rocm_home, "lib" }) });
+    // HIP runtime + HIPRTC for runtime kernel compilation
+    module.linkSystemLibrary("amdhip64", .{});
+    module.linkSystemLibrary("hiprtc", .{});
+}
+
 fn resolveBunExe(b: *std.Build) []const u8 {
     if (b.graph.env_map.get("BUN_EXE")) |bun_exe| return bun_exe;
     if (std.fs.accessAbsolute("/root/.bun/bin/bun", .{})) |_| return "/root/.bun/bin/bun" else |_| {}
@@ -89,7 +112,7 @@ fn addBunDirToPath(b: *std.Build, run: *std.Build.Step.Run, bun_exe: []const u8)
 }
 
 pub fn build(b: *std.Build) void {
-    const requested_backend = b.option(Backend, "backend", "Select inference backend: auto, vulkan, metal, cuda, zinc_rt") orelse .auto;
+    const requested_backend = b.option(Backend, "backend", "Select inference backend: auto (default=vulkan), vulkan, metal, cuda, rocm, zinc_rt") orelse .auto;
     const target = b.standardTargetOptions(.{
         .default_target = if (requested_backend == .zinc_rt)
             .{ .cpu_model = .native }
@@ -132,6 +155,9 @@ pub fn build(b: *std.Build) void {
     }
     if (selected_backend == .cuda and !is_linux) {
         @panic("-Dbackend=cuda currently requires a Linux target (NVIDIA + CUDA toolkit)");
+    }
+    if (selected_backend == .rocm and !is_linux) {
+        @panic("-Dbackend=rocm currently requires a Linux target (AMD GPU + ROCm toolkit)");
     }
 
     const build_options = b.addOptions();
@@ -407,6 +433,8 @@ pub fn build(b: *std.Build) void {
         exe_mod.linkFramework("Foundation", .{});
     } else if (selected_backend == .cuda) {
         configureCudaModule(b, target, exe_mod);
+    } else if (selected_backend == .rocm) {
+        configureRocmModule(b, target, exe_mod);
     } else {
         configureVulkanModule(b, target, exe_mod);
     }
@@ -521,6 +549,27 @@ pub fn build(b: *std.Build) void {
         if (b.args) |args| run_cuda_dbg.addArgs(args);
         const cuda_dbg_step = b.step("cuda-dbg", "Build & run the CUDA per-layer debug dump (Linux/NVIDIA)");
         cuda_dbg_step.dependOn(&run_cuda_dbg.step);
+
+        // --- ROCm/HIP smoke test (Linux + AMD GPU only) ---
+        // Builds & runs src/rocm/smoke.zig standalone — independent of the main
+        // exe and the gpu/interface.zig dispatch — so the src/rocm/* primitive
+        // layer can be validated before any ROCm compute pipeline exists.
+        // `zig build rocm-smoke -Dbackend=rocm`.
+        const rocm_smoke_mod = b.createModule(.{
+            .root_source_file = b.path("src/rocm/smoke.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        configureRocmModule(b, target, rocm_smoke_mod);
+        const rocm_smoke_exe = b.addExecutable(.{
+            .name = "rocm-smoke",
+            .root_module = rocm_smoke_mod,
+        });
+        const run_rocm_smoke = b.addRunArtifact(rocm_smoke_exe);
+        if (b.args) |args| run_rocm_smoke.addArgs(args);
+        const rocm_smoke_step = b.step("rocm-smoke", "Build & run the ROCm/HIP primitive-layer smoke test (Linux/AMD)");
+        rocm_smoke_step.dependOn(&run_rocm_smoke.step);
     }
 
     // --- Documentation ---
@@ -696,6 +745,8 @@ pub fn build(b: *std.Build) void {
         test_mod.addIncludePath(b.path("src/metal"));
         test_mod.linkFramework("Metal", .{});
         test_mod.linkFramework("Foundation", .{});
+    } else if (selected_backend == .rocm) {
+        configureRocmModule(b, target, test_mod);
     } else {
         configureVulkanModule(b, target, test_mod);
     }
