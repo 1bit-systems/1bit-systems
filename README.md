@@ -7,18 +7,13 @@
 **Generate video. Create images. Synthesize audio. Run LLMs.**  
 74kb binary. Zero Python. Your hardware.
 
-[![279 tok/s ternary](https://img.shields.io/badge/279%20tok%2Fs-ternary-00ff00.svg)](engine/npu/BENCHMARKS.md)
-[![94 tok/s NPU](https://img.shields.io/badge/94%20tok%2Fs-FLM-12a0ed.svg)](engine/npu/BENCHMARKS.md)
-[![97 tok/s C++](https://img.shields.io/badge/97%20tok%2Fs-C%2B%2B%20v12-00ff00.svg)](engine/npu/BENCHMARKS.md)
+[![279 tok/s ternary](https://img.shields.io/badge/279%20tok%2Fs-ternary-00ff00.svg)](docs/wiki/performance.md)
+[![94 tok/s NPU](https://img.shields.io/badge/94%20tok%2Fs-FLM-12a0ed.svg)](docs/wiki/performance.md)
 [![74kb binary](https://img.shields.io/badge/binary-74kb-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
-[![22 models](https://img.shields.io/badge/22%20models-auto--detect-00ff00.svg)](tools/video-lora/)
-[![C++23](https://img.shields.io/badge/runtime-C%2B%2B23-00ff00.svg)](engine/npu/src/npu_engine_all.cpp)
-[![Zero Python](https://img.shields.io/badge/deps-0-f00fd2.svg)](engine/npu/src/npu_engine_all.cpp)
-[![113 tok/s ROCm](https://img.shields.io/badge/113%20tok%2Fs-ROCm-ff0000.svg)](1bit/CLAUDE.md)
-[![Zaya](https://img.shields.io/badge/model-zaya-f00fd2.svg)](https://www.zyphra.com/our-work/zaya1-8b-diffusion-preview)
+[![Zero Python](https://img.shields.io/badge/deps-0-f00fd2.svg)](docs/wiki/install.md)
+[![113 tok/s ROCm](https://img.shields.io/badge/113%20tok%2Fs-ROCm-ff0000.svg)](docs/wiki/performance.md)
 [![MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/discord-1bit.systems-f00fd2.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
-[![clones:stars](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/traffic-badge.json&color=blue)](https://github.com/bong-water-water-bong/1bit-systems/graphs/traffic)
 <br>
 <sub>deb · snap · docker · AUR · homebrew · ollama</sub>
 
@@ -33,365 +28,75 @@
 
 ---
 
-## What you can do
-
-```
-📹 video-lora generate --model wan --prompt "cinematic dolly zoom"
-📷 video-lora generate --model flux --prompt "portrait, soft lighting"
-🎵 video-lora generate --model stable-audio --prompt "rain on window" --audio-end-s 30
-💬 1bit chat
-```
-
-All from a 74kb binary. All LoRA-compatible. All auto-detected.
-
----
-
-## 🔑 The Unlock
-
-AMD shipped Strix Halo with a 50 TOPS NPU but locked INT8 behind proprietary runtimes.
-I bought one. I got angry. I fixed it.
-
-**4 days. 74 KB. 279 tok/s ternary. Open source.**
-
-The silicon was never the bottleneck. The business model was.
-
----
-
-## Install & Run (30 seconds)
+## Quick Start
 
 ```bash
-# Install NPU engine (zero dependencies — just bash and curl)
-curl -sL https://1bit.systems/npu-install.sh | bash
-
-# Download a model
+curl -sL https://1bit.systems/npu-install.sh | bash  # 30 seconds
 1bit pull qwen3-0.6b
-
-# Chat (auto-detects NPU → GPU → CPU)
-1bit chat
+1bit chat                                              # auto-detect NPU → GPU → CPU
 ```
 
-Or use the HTTP API (OpenAI-compatible):
-
+OpenAI-compatible API:
 ```bash
 1bit serve &
-curl -X POST http://localhost:8081/v1/chat/completions \
-  -H "Content-Type: application/json" \
+curl localhost:8081/v1/chat/completions \
   -d '{"model":"qwen3-0.6b","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
-> **No Python. No pip. No Docker. No MLIR toolchain. Just g++ and run.**
+Multi-modal:
+```bash
+video-lora generate --model wan --prompt "cinematic dolly zoom"
+video-lora generate --model flux --prompt "portrait, soft lighting"
+video-lora generate --model stable-audio --prompt "rain on window"
+```
 
-### What you get — right now, on one chip
+## Performance Highlights
 
-| Engine | Hardware | Precision | Speed | Model | Size |
-|--------|----------|-----------|-------|-------|------|
-| **NPU FLM** | XDNA 2 · 32 tiles | INT8 | **94 tok/s** (10.6 ms/tok) | Qwen3-0.6B | 610 MB |
-| **NPU ALL** | XDNA 2 · 32 tiles | INT8 | **28 tok/s** (36 ms/tok) | 5 NPU LLMs · 22 total | 610 MB - 6 GB |
-| **NPU v12** | XDNA 2 · 32 tiles | INT8 | **97 tok/s** (10 ms/tok) | Qwen3-0.6B | 610 MB |
-| **GPU (ZINC)** | Radeon 8060S · 32 CUs | F16 | **22 tok/s** (46 ms/tok) | Bonsai-1.7B | 3.3 GB |
-| **Ternary (ZINC)** | Radeon 8060S · 32 CUs | Q2_0 | **279 tok/s** (3.6 ms/tok) | 1-bit Q2_0 model | varies |
-| **❤️ ROCm kernels** 🆕 | Radeon 8060S (custom HIP) | TQ2 ternary | **113 tok/s** (8.8 ms/tok) | Bonsai-1.7B (TQ2) | 1.6 GB |
-| **Zaya** 🆕 | Radeon 8060S · 32 CUs | Q2_0 | **~18 tok/s** | Zaya (AMD-native) | varies |
+| Engine | Hardware | Speed | Model |
+|--------|----------|-------|-------|
+| **NPU FLM** | XDNA 2 · 32 tiles | **94 tok/s** | Qwen3-0.6B |
+| **NPU v12** (open C++) | XDNA 2 · 32 tiles | **97 tok/s** | Qwen3-0.6B |
+| **GPU ZINC** (Vulkan ⭐) | Radeon 8060S | **22 tok/s** | Bonsai-1.7B |
+| **Ternary** (Vulkan) | Radeon 8060S | **279 tok/s** | Q2_0 |
+| **ROCm** (HIP) | Radeon 8060S | **113 tok/s** | Bonsai TQ2 |
+| **Zaya** (AMD-native) | Radeon 8060S | **~18 tok/s** | Zaya 1.8B |
 
-**55.7 TFLOPS raw INT8 GEMM** — exceeds AMD's 50 TOPS rating.  
-**22 multi-modal + 5 NPU LLMs** — auto-detect, zero dependencies.  
-**24× speedup in one session** — 244→10 ms/tok (v12).  
+**73+ models** across 6 backends · **22 multi-modal** (video, image, audio)  
+**55.7 TFLOPS** INT8 GEMM · **24× speedup** (244→10 ms/tok)
 
-> ✅ **v12 C++ engine**: 97 tok/s — coherence bug FIXED (root cause: missing AIE micro-tiling in xclbin generator).
-> The **FLM proxy (94 tok/s)** remains the production backend.
-> See [docs/journey.md](docs/journey.md) and [GEMM-KERNEL-CORRECTNESS-CONFIRMED.md](docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md) for the fix.
+## The Unlock
 
-C++ v12 at 97 tok/s in production. FLM proxy at 94 tok/s as fallback.  
-**No Python. No pip. No Docker. No MLIR toolchain. Just g++ and run.**  
-[Full benchmarks →](engine/npu/BENCHMARKS.md)
-
-### Client Compatibility (OpenAI API → NPU)
-
-| Client | How |
-|--------|-----|
-| **vLLM** | `export OPENAI_API_BASE=http://localhost:9090/v1` |
-| **Ollama** | `ollama create qwen3-npu -f Modelfile` |
-| **OpenAI SDK** | `client = OpenAI(base_url="http://localhost:9090/v1")` |
-| **LangChain** | `ChatOpenAI(openai_api_base="http://localhost:9090/v1")` |
-| **Open WebUI** | Set `OPENAI_API_BASE` env var |
-| **curl** | `curl -d '{"messages":[...]}' localhost:9090/v1/chat/completions` |
-
-### Every backend, one person
-
-NPU engine (C++23 XRT direct), Vulkan engine (Zig GLSL→SPIR-V, port 8080),
-[Lemon MLX Engine](https://github.com/deepseek-ai/lemon-mlx-engine)
-(C++ on MLX, 50+ architectures, Apple Silicon + ROCm fork).
-
-**ROCm kernel backend (ggml-rocm):** Custom HIP kernels for 1-bit/ternary
-inference on Strix Halo — folded into `zaya-llama.cpp` as the ggml-rocm
-backend. 100 exported C API symbols: ternary GEMV, Bonsai Q1/TQ2 Sherry,
-KV cache attention (Flash-Decode), prefill GEMM (28.4 TFlops), Medusa tree
-attention, model loader, tokenizer. Built with TheRock 7.12 (ROCm 7.14).
-
-[**Zaya**](https://www.zyphra.com/our-work/zaya1-8b-diffusion-preview) — custom model architecture designed for AMD hardware
-from the ground up. CCA attention, MoE routing with EDA router,
-AMD-native quantization. Architecture supported in `zaya-llama.cpp` fork.
-Served via `1bit zaya`.
-
-### Why this exists
-
-AMD shipped the Strix Halo with a 50 TOPS NPU and a toolchain that soft-blocks
-INT8. They sold the FastFlowLM runtime — 93 tok/s, proprietary, closed-source.
-One person with a free Chess license, a C++ compiler, and 4 days reverse-engineered
-the entire stack. The silicon was never the bottleneck. The business model was.
-
-As of July 2, 2026: **94 tok/s (10.6 ms/tok) via FLM proxy** — matching FLM's own numbers.
-The daemon proxies to FLM for production inference. Our open-source C++ engine
-hits 97 tok/s (v12, single model — verified bit-exact via hardware dump).
-
-Every claim is timestamped in [docs/journey.md](docs/journey.md) — an audit
-trail of every crash, deadlock, fix, and breakthrough. Open source ships
-faster than venture capital.
-
-*Built with DeepSeek v4 (99.9%) · Shipped with Claude (0.1%) · One human.*
-*—bong-water-water-bong · "Sorry but not Sorry :)"*
-*admin@1bit.systems*
-
-## Ecosystem
-
-The Strix Halo NPU ecosystem is growing. Here's where 1bit.systems fits:
-
-| Layer | Project | What it does | Relationship |
-|-------|---------|-------------|--------------|
-| **Engine** | **1bit.systems** | Custom C++23/Zig inference — INT8 xclbins, Vulkan shaders, fused dispatch, H2O KV cache, speculative decoding | The foundation — kernel-level NPU+GPU+CPU engine |
-| **Platform** | [hal0](https://github.com/Hal0ai/hal0) | Container-based inference platform — FastAPI orchestration, dashboards, slot management, model registry | Wraps FLM in Podman containers for turnkey deployment |
-| **Runtime** | FastFlowLM (FLM) | AMD's closed-source NPU runtime — 94 tok/s, multi-model | Both projects use FLM; 1bit also builds custom engines that supplant it |
-
-1bit.systems is the **engine layer** — the lowest-level open-source NPU+GPU+CPU
-inference stack on Strix Halo. Projects like hal0 build platforms *on top*
-of the same FLM runtime 1bit.systems helped document, benchmark, and push
-past its limits. If you're building on this stack, we're glad — open source
-wins when we all build on each other's work.
-
-### Ecosystem milestones
-
-- **Mar 2026** — 1bit.systems: first open-source NPU engine on Strix Halo (C++, INT8 xclbins)
-- **May 2026** — 1bit.systems: fused NPU+GPU+CPU dispatch, H2O KV cache, 22 multi-modal models
-- **Jun 2026** — 1bit.systems: 97 tok/s v12 engine, speculative decoding, BitNet ternary
-- **Jul 2026** — [hal0](https://github.com/Hal0ai/hal0): first public beta — container platform using FLM on Strix Halo
+AMD shipped Strix Halo with a 50 TOPS NPU but locked INT8 behind proprietary runtimes.
+**4 days. 74 KB. 279 tok/s ternary. Open source.**
+The silicon was never the bottleneck. The business model was.
 
 ## Architecture
 
 ```
-1bit.systems/
-├── engine/
-│   ├── npu/                # C++23 INT8 engine — NPU (XDNA 2)
-│   │   ├── src/
-│   │   │   ├── npu_engine_v9.cpp       # M=16 batch decode (16 ms/tok)
-│   │   │   ├── npu_engine_v6.cpp       # Batch-4 decode (50 ms/tok)
-│   │   │   ├── npu_engine_v7.cpp       # μs-probe: ioctl vs r.wait breakdown
-│   │   │   ├── npu_engine_profile.cpp  # Per-layer μs-accurate profiler
-│   │   │   ├── npu_engine_cb.cpp       # Continuous-batch baseline
-│   │   │   └── dequant_q4nx.c          # Q4NX weight dequantizer
-│   │   ├── kernel/
-│   │   │   ├── edge_attention.cc       # NPU attention kernel (Chess C++)
-│   │   │   └── n1_core_ternary.py      # Ternary xclbin MLIR generator
-│   │   ├── build/
-│   │   │   ├── build_ternary_xclbin.sh  # Build ternary xclbin
-│   │   │   └── env.sh                   # Toolchain setup
-│   │   ├── BENCHMARKS.md               # Benchmark source of truth
-│   │   └── README.md
-│   └── gpu/                # Zig engine — GPU (Vulkan/CUDA/Metal)
-│       └── build.zig                   # Zig build system (WIP)
-├── engine/zaya/        # Zaya model architecture (submodule) — AMD-native design
-│                           # CCA attention, MoE routing, Q2_0 ternary
-├── site/                   # Landing page (Cloudflare Pages → 1bit.systems)
-│   ├── index.html
-│   └── assets/brand-lockup.svg
-├── 1bit-site/              # Deploy mirror (synced from site/)
-├── tools/
-│   ├── video-lora/         # Multi-modal gen w/ LoRA (22 models, 3 modalities)
-│   │                       # + standalone Vulkan compute backend (Zig)
-│   └── q2_0_to_q4nx.py     # Q2_0 ternary → INT8 Q4NX converter
-├── docs/                   # Architecture, build guide, roadmap, journey
-├── packaging/              # deb, snap, tarball, docker, ollama, AUR
-└── .github/workflows/      # CI benchmark + deploy + PR agent + video-lora CI
+engine/
+├── npu/       C++23 — NPU (XDNA 2, INT8 xclbins)
+├── gpu/       Zig — GPU (Vulkan ⭐ / ROCm / CUDA / Metal)
+└── fusion/    Zig — NPU+GPU fused dispatch, 8 policies
 ```
 
-## NPU Engine (`engine/npu/`)
+One unified KV cache (H2O eviction, RadixAttention). One serving API.
+Every model auto-detected. Fused Engine dispatches per-layer to the fastest backend.
 
-**C++23. M=32 batched decode. FLM proxy in production (94 tok/s). C++ engine: 28 tok/s all-models, 97 tok/s v12 (✅ fixed — AIE micro-tiling bug resolved).**
+## More
 
-```bash
-g++ -std=c++23 -O3 -march=native -fopenmp -o npu_engine_v9 \
-    engine/npu/src/npu_engine_v9.cpp engine/npu/build/dequant_q4nx.o \
-    -I$XRT/include -L$XRT/lib64 -lxrt_coreutil -luuid -lm -ldl
-OMP_NUM_THREADS=16 ./npu_engine_v9 64
-```
-
-```
-=== NPU Engine v9 — M=16 Batch Decode ===
-  [0] boot=127595 (157ms)
-  [1] batch=16 tok=78102 ms=180 (11 ms/tok)
-  [17] batch=16 tok=2619 ms=200 (13 ms/tok)
-  [33] batch=16 tok=480 ms=235 (15 ms/tok)
-=== 16.1 ms/tok effective ===
-```
-
-| Metric | Value |
-|--------|-------|
-| Speed (FLM proxy) | **94 tok/s** (10.6 ms/tok) — production daemon |
-| Speed (v12) | **97 tok/s** (10.3 ms/tok) — C++ open-source engine |
-| Speed (ALL) | **28 tok/s** (36 ms/tok) — C++ all 5 NPU LLMs |
-| Speed (v3 baseline) | 244 ms/tok (4.1 tok/s) |
-| Speedup (C++) | **24×** (v3→v12) |
-| Precision | INT8 (symmetric per-tensor) |
-| LM head | OpenMP f32 (67→6ms) |
-
-### Engine Evolution (one session, July 2, 2026)
-
-| Engine | Decode | Speedup | Breakthrough |
-|--------|--------|---------|-------------|
-| v3 CB | 244 ms/tok | 1.0× | Baseline |
-| v6 batch-4 | 50 ms/tok | 4.4× | Chained batch-4 + OpenMP LM head |
-| v7 probe | — | — | ioctl=9μs, r.wait=1334μs: NPU compute, not dispatch |
-| v8 M=8 | 27 ms/tok | 8.2× | M=8 batch decode |
-| **v9 M=16** | **16 ms/tok** | **15.2×** | **M=16 batch decode** |
-
-## GPU Engine (`engine/gpu/`)
-
-**Zig. Vulkan 1.3 compute shaders. GGUF native parser.**
-
-| Metric | Value |
-|--------|-------|
-| Backends | Vulkan (RDNA3/4), CUDA, Metal |
-| Decode (F16, 1.7B) | **46 ms/tok (22 tok/s)** — 99.6% BW utilization |
-
-## Performance
-
-| Engine | Hardware | Speed | Models |
-|--------|----------|-------|--------|
-| **NPU FLM** | XDNA 2 NPU | **94 tok/s** (10.6 ms/tok) | Qwen3-0.6B |
-| **NPU v12** | XDNA 2 NPU | **97 tok/s** (10 ms/tok) | Qwen3-0.6B |
-| **GPU (ZINC)** | Radeon 8060S · 32 CUs (Vulkan) | **22 tok/s** (46 ms/tok) | Bonsai-1.7B-F16 |
-| **Ternary (ZINC)** | Radeon 8060S · 32 CUs (Vulkan) | **279 tok/s** (3.6 ms/tok) | 1-bit Q2_0 ternary |
-| **Zaya** | Radeon 8060S · 32 CUs (Vulkan) | **~18 tok/s** | Zaya (AMD-native CCA+MoE) |
-| **Multi-modal** | Any backend | auto-detect | **22 models** (video, image, audio) |
-
-## Supported Models
-
-> **Full list (73+ models) → [docs/models.md](docs/models.md)**
-
-### NPU (XDNA 2 · FLM) — 36 models — [view all](docs/models.md#npu-xdna-2--flm--36-models)
-
-| Model Tag | Family | Params | Footprint | Capabilities | Installed |
-|-----------|--------|--------|-----------|-------------|-----------|
-| `qwen3:0.6b` | Qwen3 | 0.6B | 0.66 GB | chat, reasoning | ✅ |
-| `qwen3:1.7b` | Qwen3 | 1.7B | 1.6 GB | chat, reasoning | ⬜ |
-| `qwen3:4b` | Qwen3 | 4B | 3.1 GB | chat, reasoning, tool-calling | ⬜ |
-| `qwen3:8b` | Qwen3 | 8B | 5.6 GB | chat, reasoning, tool-calling | ⬜ |
-| `qwen3-it:4b` | Qwen3 Instruct | 4B | 3.1 GB | tool-calling | ⬜ |
-| `qwen3-tk:4b` | Qwen3 Thinking | 4B | 3.1 GB | reasoning, tool-calling | ⬜ |
-| `qwen3vl-it:4b` | Qwen3 VL | 4B | 3.9 GB | vision, tool-calling | ⬜ |
-| `qwen3.5:0.8b` | Qwen3.5 | 0.8B | 1.4 GB | vision, reasoning | ⬜ |
-| `qwen3.5:2b` | Qwen3.5 | 2B | 3.2 GB | vision, reasoning, tool-calling | ⬜ |
-| `llama3.2:1b` | Llama 3.2 | 1B | 1.3 GB | chat | ✅ |
-
-… and 26 more ([see full list](docs/models.md#npu-xdna-2--flm--36-models))
-
-### GPU — ROCm Custom Kernels (ggml-rocm)
-
-| Model | Format | BPW | Size | Engine | Decode |
-|-------|--------|-----|------|--------|--------|
-| Bonsai-1.7B | TQ2 (ternary) | 2-bit | 1.6 GB | ROCm HIP (ggml-rocm) | **113 tok/s** |
-
-### GPU — 1-bit / Ternary (llama.cpp / ZINC Vulkan) — 7 models
-
-| Model | Format | BPW | Size | Engine | Decode |
-|-------|--------|-----|------|--------|--------|
-| Qwen2 0.5B | IQ1_S | 1.06 | 296 MB | llama.cpp | **381 tok/s** |
-| Qwen3.5-0.8B | Q1_0 | 1.25 | 268 MB | llama.cpp | **312 tok/s** |
-| Hy-MT2 1.8B | STQ1_0 (ternary) | 1.3125 | 441 MB | ZINC (Sherry) | **267 tok/s** |
-| gemma-2-2b | IQ1_S | 1.06 | 788 MB | llama.cpp | **158 tok/s** |
-| gemma3 4B | IQ1_S | 1.06 | 1.05 GB | llama.cpp | **122 tok/s** |
-| Nemo 8B | IQ1_S | 1.06 | 1.97 GB | llama.cpp | **79 tok/s** |
-| Qwen3.5-9B | Q1_0 | 1.25 | 1.82 GB | llama.cpp | **70 tok/s** |
-
-### GPU — F16 / Standard (ZINC Vulkan)
-
-| Model | Format | Size | Engine | Decode |
-|-------|--------|------|--------|--------|
-| Bonsai-1.7B | F16 | 3.3 GB | ZINC Vulkan | **22 tok/s** |
-| Zaya 1.8B | Q2_0 (AMD-native) | varies | ZINC Vulkan / ROCm | **~18 tok/s** |
-| BitNet b1.58 2B | i2_s (ternary) | 132 MB | ZINC (planned) | _benchmarking_ |
-
-### GPU — Video Diffusion (C++ ggml, CUDA, Vulkan, Metal)
-
-| Model | Type | Backend | Parameters | Features |
-|-------|------|---------|-----------|----------|
-| Wan2.2 | T2V / I2V | ggml + optional NPU | 1.3B / 14B | Reward + Camera LoRAs |
-
-### Multi-modal — 22 Models (Diffusers) — [view all](docs/models.md#multi-modal--22-models-diffusers-via-video-lora)
-
-| Model | Type | Backend | LoRA | Notes |
-|-------|------|---------|------|-------|
-| **Wan2.2** | video | diffusers | Reward + Camera | 1.3B / 14B |
-| **LTX-Video** | video | diffusers | IC LoRA | 13B, V2V control |
-| **LTX2** | video | diffusers | IC LoRA + HDR | 2B, next-gen |
-| **CogVideoX** | video | diffusers | Fun LoRA | 2B / 5B, transformer |
-| **HunyuanVideo** | video | diffusers | — | 13B, Tencent flagship |
-| **AnimateDiff** | video | diffusers | 1000+ LoRAs | SD1.5 base, LCM |
-| **Sana Video** | video | diffusers | — | 2B, linear attention |
-| **Mochi** | video | diffusers | — | 10B, Genmo |
-| **Stable Audio Open** | audio | diffusers | — | 44.1kHz, up to 47s |
-| **Flux.1** | image | diffusers | ✓ | 12B, photorealistic |
-
-… and 12 more ([see full list](docs/models.md#multi-modal--22-models-diffusers-via-video-lora))
-
-### NPU Custom Engines (C++23 · XRT direct)
-
-| Engine | Models | Speed | Precision |
-|--------|--------|-------|-----------|
-| **ALL** (4-xclbin swap) | Qwen3-0.6B, Llama-3.1-8B, Qwen3-VL-4B, Qwen3-8B, Gemma4-E2B | 28 tok/s | INT8 |
-| **v12** (single-model) | Qwen3-0.6B | **97 tok/s** | INT8 |
-| **BitNet** (ternary) | BitNet b1.58-2B-4T | ~1 tok/s (8× w/ multi-core) | TQ1_0 ternary |
-| **Spec Decode** (Eagle3) | Qwen3-0.6B + draft | **~100+ tok/s** | INT8 + CPU draft |
-
----
-
-**Total: 73+ models** across 6 backends (NPU FLM, NPU C++, GPU ROCm, GPU llama.cpp, GPU ZINC, GPU ggml, diffusers).
-[Full list →](docs/models.md)
-
-## Community
-
-- [Getting Started Guide](docs/getting-started.md) — First-run in 30 seconds
-- [Architecture](docs/architecture.md) — How the NPU engine works, file structure, data flow
-- [Contributing](CONTRIBUTING.md) — How to help
-- [Security Policy](SECURITY.md) — Report vulnerabilities
-- [Roadmap](ROADMAP.md) — What's coming next
+| Topic | Link |
+|-------|------|
+| 🚀 **Install & Build** | [docs/wiki/install.md](docs/wiki/install.md) |
+| 📊 **Benchmarks & Models** | [docs/wiki/performance.md](docs/wiki/performance.md) |
+| ⚙️ **Engine Docs** | [docs/wiki/engines.md](docs/wiki/engines.md) |
+| 🌐 **Ecosystem & Clients** | [docs/wiki/ecosystem.md](docs/wiki/ecosystem.md) |
+| ❓ **FAQ** | [docs/wiki/faq.md](docs/wiki/faq.md) |
+| 📖 **Full Wiki** | [docs/wiki/landing.md](docs/wiki/landing.md) |
+| 📜 **Journey (audit trail)** | [docs/journey.md](docs/journey.md) |
+| 🤝 **Contributing** | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
-
----
-
-## Find this project
-
-```
-74KB binary  ·  fused engine  ·  model agnostic  ·  zero Python  ·  AMD NPU unlocked
-one binary to rule them all  ·  no vendor lock  ·  94 tok/s  ·  C++23 inference
-Zaya AMD-native architecture  ·  CCA attention  ·  MoE routing
-```
-
-**Hashtags / SEO tags**
-
-```
-#74kbBinary  #OneBinaryToRuleThemAll  #FusedEngine  #ModelAgnostic
-#NoPython  #ZeroDeps  #OpenSourceInference  #AMDNPU  #StrixHalo
-#AntiVendorLock  #Cpp23  #LocalAI  #4Days74KB  #TheUnlock
-#Zaya  #AMDnative  #CCA  #MoE
-```
-
----
-
-*Built on Strix Halo. NPU + GPU + CPU. One chip. One binary. Every model.*
-*Zaya: AMD-native model architecture. CCA attention. MoE routing.*
-*244→10 ms/tok (24×) on C++ v12. Production engine at 97 tok/s.*
-*22 models, 3 modalities (video, image, audio), auto-detected.*
-*Open source ships faster than vendor lock-in.*
+MIT — see [LICENSE](LICENSE).  
+*Built on Strix Halo. NPU + GPU + CPU. One chip. One binary. Every model.*  
+*admin@1bit.systems*
