@@ -101,7 +101,7 @@ curl -X POST http://localhost:8081/v1/chat/completions \
 > The **FLM proxy (94 tok/s)** remains the production backend.
 > See [docs/journey.md](docs/journey.md) and [GEMM-KERNEL-CORRECTNESS-CONFIRMED.md](docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md) for the fix.
 
-FLM proxy at 94 tok/s in production. C++ v12: 97 tok/s open-source engine within 3%.  
+C++ v12 at 97 tok/s in production. FLM proxy at 94 tok/s as fallback.  
 **No Python. No pip. No Docker. No MLIR toolchain. Just g++ and run.**  
 [Full benchmarks →](engine/npu/BENCHMARKS.md)
 
