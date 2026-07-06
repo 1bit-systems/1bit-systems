@@ -161,7 +161,8 @@ int main(int argc, char** argv) {
         
         // Run all 28 layers at position pi
         for (int l = 0; l < num_layers; l++) {
-            auto run = kernel((uint64_t)0, get_instr(pi), (uint32_t)1723,
+            auto& ibo2 = get_instr(pi);
+            auto run = kernel((uint64_t)3, ibo2, (uint32_t)ibo2.size(),
                              bKCache, bVCache, weight_bos[l], bOutput, bHidden);
             run.wait();
             
@@ -191,8 +192,8 @@ int main(int argc, char** argv) {
         
         // Run all 28 layers at position pos
         for (int l = 0; l < num_layers; l++) {
-            auto& ibo = get_instr(pos);
-            auto run = kernel((uint64_t)0, ibo, (uint32_t)1723,
+            auto& ibo2 = get_instr(pos);
+            auto run = kernel((uint64_t)3, ibo2, (uint32_t)ibo2.size(),
                              bKCache, bVCache, weight_bos[l], bOutput, bHidden);
             run.wait();
             
