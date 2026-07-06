@@ -1,9 +1,9 @@
 # CLAUDE.md — 1bit.systems
 
-**50 TOPS INT8 · 97 tok/s NPU (C++ v12 production) · 94 tok/s NPU (FLM fallback) · 113 tok/s ROCm · 28 tok/s C++ all-5 · 22 tok/s GPU · 279 tok/s ternary · 74 KB binary. On a consumer laptop.**
+**50 TOPS INT8 · 291 tok/s NPU (fused layer production) · 97 tok/s NPU (C++ v12 fallback) · 94 tok/s NPU (FLM fallback) · 113 tok/s ROCm · 28 tok/s C++ all-5 · 22 tok/s GPU · 279 tok/s ternary · 38 KB binary. On a consumer laptop.**
 Contact: admin@1bit.systems
 
-**73+ models across 6 backends · 22 multi-modal (video, image, audio) · 55.7 TFLOPS INT8 GEMM · 24× speedup (244→10 ms/tok)**
+**73+ models across 6 backends · 22 multi-modal (video, image, audio) · 55.7 TFLOPS INT8 GEMM · 72× speedup (244→3.4 ms/tok)**
 
 **Three inference engines, one chip, ONE cache, ONE serving path.**
 NPU (C++/Zig XRT) + GPU (ROCm AMD clang++ / Zig Vulkan/CUDA/Metal) + CPU (scheduler).
@@ -48,7 +48,7 @@ Build: `cd engine/fusion && zig build -Doptimize=ReleaseFast`
 ## Agent Workflow (skills to invoke automatically)
 
 ### On every code change:
-1. **`/verify`** — Run `curl -s http://127.0.0.1:9090/v1/chat/completions -d '{"model":"qwen3:0.6b","messages":[{"role":"user","content":"hi"}],"max_tokens":1}'` and confirm daemon responds (C++ v12 at 97 tok/s, falls back to FLM at 94 tok/s)
+1. **`/verify`** — Run `curl -s http://127.0.0.1:9090/v1/chat/completions -d '{"model":"qwen3:0.6b","messages":[{"role":"user","content":"hi"}],"max_tokens":1}'` and confirm daemon responds (fused layer at 291 tok/s, falls back to C++ v12 at 97 tok/s, then FLM at 94 tok/s)
 2. **`/code-review`** — Review diff for INT8 quantization bugs, context lifecycle issues, C++ memory safety
 
 ### On every push:
@@ -61,7 +61,7 @@ Build: `cd engine/fusion && zig build -Doptimize=ReleaseFast`
    - Focus: INT8 quantization, NPU context lifecycle, BFP16 precision, C++ memory safety
 
 ## Engine: NPU (`engine/npu/`)
-C++ v12 engine: 97 tok/s production (Qwen3-0.6B, 10.3 ms/tok). Now auto-converts GGUF→Q4NX — pass any .gguf file directly. The daemon proxies through FLM (94 tok/s, 10.6 ms/tok) as fallback using AMD's proprietary runtime. C++ v12 matches/exceeds FLM on decode via M=32 batched dispatch amortization — FLM's advantage is per-request TTFT (fused xclbin eliminates per-layer ioctl). C++ ALL: 28 tok/s, auto-detects 5 models from a 74 KB binary. Daemon: 74 KB zero-dep binary.
+Fused layer engine: 291 tok/s production (Qwen3-0.6B, 3.4 ms/tok). One xclbin call per transformer layer (QKV→attention→O→GU→SiLU→D on NPU, no CPU attention). Engine binary: 38 KB. Fallback: C++ v12 at 97 tok/s — auto-converts GGUF→Q4NX — pass any .gguf file directly. Second fallback: FLM proxy (94 tok/s, 10.6 ms/tok) via AMD's proprietary runtime. C++ ALL: 28 tok/s, auto-detects 5 models.
 - `engine/npu/src/npu_engine_cb.cpp` — Main loop (batched prefill + decode)
 - `engine/npu/src/dequant_q4nx.c` — Q4NX dequantizer
 - `engine/npu/kernel/edge_attention.cc` — NPU attention (Chess C++)
@@ -99,14 +99,14 @@ Backend-agnostic KV cache infrastructure shared across NPU, GPU, and CPU paths:
   (XRT xclbin INT8 GEMM) and GPU (Vulkan flash attention/DMMV) behind a single
   API with per-layer dispatch. The unified H2O KV cache layer (`scheduler/`)
   is shared by all three inference paths.
-- **C++ v12 is production engine**, FLM proxy is production fallback — narrative
-  settled as of July 6, 2026. All badges/site reflect this.
+- **Fused layer engine (291 tok/s) is production engine**, C++ v12 (97 tok/s) is fallback,
+  FLM proxy (94 tok/s) is secondary fallback — narrative updated July 6, 2026. All badges/site reflect this.
 - **Zaya model architecture supported** in `zaya-llama.cpp/` fork.
   Zaya is a hybrid CCA-attention + MoE architecture with EDA router.
   Custom ROCm kernels (ternary GEMV, Bonsai, Sherry) folded into
   `ggml/src/ggml-rocm/` as the ggml-rocm backend (100 exported symbols).
 - NPU2 supports 8+ simultaneous hw_contexts (firmware 1.1.2.65)
-- **Engine evolution**: 244→10 ms/tok in 4 days (24×). Timeline: v7 BFP16 (1930 ms) → i8 swap (244 ms) → v6 batch-4 (50 ms) → v9 M=16 (16 ms) → v12 M=32 (10 ms). All 5 models auto-detected.
+- **Engine evolution**: 244→3.4 ms/tok in 6 days (72×). Timeline: v7 BFP16 (1930 ms) → i8 swap (244 ms) → v6 batch-4 (50 ms) → v9 M=16 (16 ms) → v12 M=32 (10 ms) → fused layer M=32 (3.4 ms, 291 tok/s). All 5 models auto-detected.
 - INT8 xclbins at `/home/bcloud/npu-sandbox/npu-infer/build/int8/`
 - Model at `~/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx`
 - XRT toolchain at `/home/bcloud/torch2aie/toolchain/`
@@ -115,7 +115,7 @@ Backend-agnostic KV cache infrastructure shared across NPU, GPU, and CPU paths:
 - Benchmarks source of truth: `docs/wiki/performance.md` (July 6, 2026 refresh — complete with 1-bit model tables, all engine head-to-head, ROCm, Eagle3, H2O, Wave32)
 - Engine bench deep-dive: `engine/npu/BENCHMARKS.md`
 - Audit trail: `docs/journey.md` (1,236+ lines, 15+ updates)
-- **Binary size**: 74 KB (73 KB actual) — all stale "120KB" references removed from codebase 
+- **Binary size**: 38 KB (fused engine) — all stale "120KB" and "74KB" references removed from codebase 
 - Packaging: `packaging/` (deb + snap + tarball + docker + ollama)
 - Pre-commit: always run `/verify` before committing engine changes
 - **No Python in runtime paths** — CI enforces: `engine/npu/src/`, `engine/gpu/src/`, `engine/video/src/`, `spec-decode/engine/`, `spec-decode/draft/` must stay `.py`-free

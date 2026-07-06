@@ -1,6 +1,7 @@
 # Engines
 
-**NPU** — C++23, XDNA 2 INT8 xclbins, M=32 batch, 97 tok/s  
+**NPU** — C++23, XDNA 2 fused layer xclbin, one call per transformer layer,
+291 tok/s (3.4 ms/tok), 38 KB binary. Fallback: C++ v12 (97 tok/s), FLM proxy (94 tok/s).  
 → [`engine/npu/`](../engine/npu/)
 
 **GPU (Vulkan ⭐)** — Zig, GLSL compute shaders, flash attention, DMMV  

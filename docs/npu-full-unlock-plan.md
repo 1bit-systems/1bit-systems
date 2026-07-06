@@ -11,7 +11,7 @@
 | Power draw | ~66W |
 | Temperature | 43°C |
 | Columns | 8 (32 AIE2P tiles) |
-| Engine | C++ v12: 97 tok/s |
+| Engine | Fused layer: 291 tok/s (3.4 ms/tok) |
 | GEMM | BFP16: ~31 TFLOPS |
 | Silicon peak | 50 TOPS INT8 (58.98 theoretical) |
 
@@ -152,7 +152,7 @@ If ALL unlocks succeed:
 | Multi-core utilization | 1 tile (3%) | **32 tiles (100%)** | **32×** |
 | Weight overhead | 96% host time | **<1%** | **25×** |
 | Dispatch overhead | 112 calls/token | **28 calls/token** | **4×** |
-| **Estimated tok/s** | **97 tok/s** | **~300-500 tok/s** | **3-5×** |
+| **Estimated tok/s** | **291 tok/s (fused)** | **~300-500 tok/s** | **~1-1.7×** |
 
 **The CPU/GPU bottleneck:** At some point NPU decode speed becomes memory-bandwidth-bound (LPDDR5X-8000). The 512K L2 on the NPU and 64MB L3 on the iGPU set a ceiling. Expect diminishing returns past ~300 tok/s on a 0.6B model — the model is small enough that the NPU will saturate.
 

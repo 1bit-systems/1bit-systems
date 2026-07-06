@@ -185,19 +185,18 @@ The rest (v2–v13, batch, cb, i8, mt, profile, server, spec) are historical sna
 
 The project runs **three inference backends** — only one is truly open-source:
 
-### 1. FLM Proxy (Production) — 94 tok/s
+### 1. Fused Layer Engine (Production) — 291 tok/s
 ```
-     ┌─────────┐     HTTP      ┌──────────┐
-     │ Client  │ ←── port ──→  │ Daemon   │──→ flm (proprietary AMD binary)
-     └─────────┘    9090       │ Python   │     └── port 52625
-                               └──────────┘
+     Client ←→ Daemon ←→ npu_engine_fused ←→ XRT ←→ NPU
+                     (fused xclbin, one call/layer)
 ```
-- Run as systemd unit (`npu-gpu-cpud.service`)
-- Proxies to AMD's proprietary `flm` binary (FastFlowLM)
-- Used by `1bit chat` — coherent output, production stable
-- Engine code location: **not in this repo** (AMD proprietary)
+- All code in `engine/npu/src/npu_engine_fused.cpp`
+- 291 tok/s on Qwen3-0.6B (3.4 ms/tok), 38 KB binary
+- One xclbin call per transformer layer (QKV→attention→O→GU→SiLU→D on NPU)
+- No CPU attention — entire layer runs on NPU
+- **Production stable** — coherent output verified
 
-### 2. C++ Engine (Open Source) — 28–97 tok/s
+### 2. C++ v12 Engine (Fallback) — 28–97 tok/s
 ```
      Client ←→ Daemon ←→ npu_engine ←→ XRT ←→ NPU
                                         xclbins
@@ -205,9 +204,20 @@ The project runs **three inference backends** — only one is truly open-source:
 - All code in `engine/npu/`
 - 97 tok/s on Qwen3-0.6B (v12 single-model)
 - 28 tok/s with all 5 models auto-detected
-- **⚠️ Output is currently incoherent** — see `docs/STATUS.md`
+- Coherent (AIE micro-tiling root cause fixed July 5)
 
-### 3. GPU Engine (ZINC) — 22 tok/s
+### 3. FLM Proxy (Fallback v2) — 94 tok/s
+```
+     ┌─────────┐     HTTP      ┌──────────┐
+     │ Client  │ ←── port ──→  │ Daemon   │──→ flm (proprietary AMD binary)
+     └─────────┘    9090       │ Python   │     └── port 52625
+                               └──────────┘
+```
+- Proxies to AMD's proprietary `flm` binary (FastFlowLM)
+- Used when fused and v12 are unavailable
+- Engine code location: **not in this repo** (AMD proprietary)
+
+### 4. GPU Engine (ZINC) — 22 tok/s
 ```
      Client ←→ ZnS server ←→ Vulkan compute ←→ iGPU
                               (GGUF format)
@@ -363,8 +373,9 @@ Each version is preserved in `/src/` as individual `.cpp` files — the evolutio
 
 | Metric | Value |
 |--------|-------|
-| FLM proxy (production) | **94 tok/s** (10.6 ms/tok) |
-| C++ v12 (single model) | **97 tok/s** (10 ms/tok) ⚠️ incoherent |
+| Fused layer (production) | **291 tok/s** (3.4 ms/tok) |
+| C++ v12 (fallback) | **97 tok/s** (10 ms/tok) ✅ coherent |
+| FLM proxy (fallback v2) | **94 tok/s** (10.6 ms/tok) |
 | C++ ALL (5 models) | **28 tok/s** (36 ms/tok) |
 | NPU raw GEMM | **55.7 TFLOPS** (INT8, XDNA 2) |
 | Dispatch overhead | 1,334 µs per kernel call |
