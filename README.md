@@ -18,6 +18,8 @@
 [![Vulkan ⭐](https://img.shields.io/badge/Vulkan-%E2%AD%90%20primary-b3802c.svg)](docs/wiki/engines.md)
 [![MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/discord-1bit.systems-f00fd2.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
+[![clones today](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/daily-clones.json&cacheSeconds=3600)](https://github.com/bong-water-water-bong/1bit-systems/graphs/traffic)
+[![clones:stars](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/clones-stars.json)](https://github.com/bong-water-water-bong/1bit-systems/graphs/traffic)
 <br>
 <sub>deb · snap · docker · AUR · homebrew · ollama</sub>
 
