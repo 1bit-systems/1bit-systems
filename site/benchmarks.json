@@ -1,14 +1,16 @@
 {
-  "updated": "2026-07-06T11:50:14Z",
+  "updated": "2026-07-06T11:45:00Z",
   "source": "docs/wiki/performance.md",
   "engines": {
-    "npu_v12":     { "tok_s": 97, "label": "C++ v12 (production)" },
-    "npu_flm":     { "tok_s": 94, "label": "FLM proxy (fallback)" },
-    "all_5":       { "tok_s": 28,    "label": "C++ all-5 (auto-detect)" },
-    "gpu_zinc":    { "tok_s": 22,"label": "GPU Vulkan (ZINC)" },
-    "rocm_hip":    { "tok_s": 113,    "label": "GPU ROCm (HIP)" },
-    "ternary":     { "tok_s": 279,    "label": "Ternary (Vulkan)" }
+    "npu_v12":     { "tok_s": 97,  "label": "C++ v12 (open, production)",          "hw": "XDNA2 · 32 tiles", "model": "Qwen3-0.6B" },
+    "npu_flm":     { "tok_s": 94,  "label": "FLM proxy (fallback)",                "hw": "XDNA2 · 32 tiles", "model": "Qwen3-0.6B" },
+    "gpu_zinc":    { "tok_s": 22,  "label": "GPU Vulkan (ZINC ⭐ primary)",        "hw": "Radeon 8060S",     "model": "Bonsai-1.7B" },
+    "ternary":     { "tok_s": 279, "label": "Ternary (Vulkan)",                    "hw": "Radeon 8060S",     "model": "Q2_0" },
+    "rocm_hip":    { "tok_s": 113, "label": "ROCm (HIP kernels)",                  "hw": "Radeon 8060S",     "model": "Bonsai TQ2" },
+    "zaya":        { "tok_s": 18,  "label": "Zaya (AMD-native)",                   "hw": "Radeon 8060S",     "model": "Zaya 1.8B" },
+    "all_5":       { "tok_s": 28,  "label": "C++ all-5 (auto-detect)",             "hw": "XDNA2 · 32 tiles", "model": "Qwen3-0.6B" }
   },
+  "order": ["npu_v12","npu_flm","gpu_zinc","ternary","rocm_hip","zaya","all_5"],
   "system": {
     "tflops_int8": 55.7,
     "speedup": "24x"
