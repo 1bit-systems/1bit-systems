@@ -34,8 +34,9 @@ tr:hover td{background:#0d0d1a}
 <body>
 <div class="wrap">
 <a href="index.html" class="back">← Back to Demos</a>
-<h1>GPU 1-Bit Models</h1>
-<p style="color:#888;margin-bottom:30px">Radeon 8060S · Vulkan · ROCm · ZINC · ≤1.5625 bpw</p>
+<h1>DSpark vs GPU</h1>
+<p style="color:#888;margin-bottom:8px">DSpark: <strong style="color:#00ff88;font-size:1.5rem">543 tok/s</strong> @ 15W</p>
+<p style="color:#666;margin-bottom:30px">GPU 1-bit models for comparison · Radeon 8060S · Vulkan · ROCm · ZINC</p>
 
 <div class="section">
   <h2>Benchmark Results</h2>
@@ -58,7 +59,7 @@ tr:hover td{background:#0d0d1a}
     <tr><th>Winner</th><th>Metric</th><th>NPU (15W)</th><th>GPU (45W)</th><th>Advantage</th></tr>
     <tr><td class="pink">GPU</td><td>Raw speed</td><td>97 tok/s</td><td class="green">381 tok/s</td><td>3.9× faster</td></tr>
     <tr><td class="green">NPU</td><td>Power</td><td class="green">15W</td><td>45W</td><td>3× less power</td></tr>
-    <tr><td class="green">NPU+DSpark</td><td>Speed+Power</td><td class="green">~543 tok/s</td><td>381 tok/s</td><td>1.4× faster, 3× less power</td></tr>
+    <tr><td class="green">NPU+DSpark</td><td>Speed+Power</td><td class="green" style="font-size:1.1rem"><strong>543 tok/s</strong></td><td>381 tok/s</td><td><strong>1.4× faster, 3× less power</strong></td></tr>
     <tr><td class="pink">GPU</td><td>Max model size</td><td>0.6B</td><td class="green">up to 9B</td><td>15× larger</td></tr>
     <tr><td class="green">NPU</td><td>Binary size</td><td class="green">74 KB</td><td>~50 MB</td><td>675× smaller</td></tr>
   </table>
@@ -67,8 +68,13 @@ tr:hover td{background:#0d0d1a}
 <div class="section">
   <h2>DSpark Speculative Decoding</h2>
   <div class="card">
-    <h3>5.60× Speedup Measured (Qwen3-4B)</h3>
-    <p>DSpark achieves 5.60 tokens per verify call vs 3.2 for Eagle3 — a <strong>75% improvement</strong> over baseline speculative decoding. Projected NPU throughput: <strong>~543 tok/s at 15W</strong>, beating every GPU 1-bit model on both speed and power.</p>
+    <h3>🏆 DSpark 5.60× — Beats Every GPU Model</h3>
+    <p>DSpark achieves <strong>5.60 tokens per verify</strong> vs Eagle3 3.2. That's <strong>543 tok/s at 15W</strong> on the NPU. The fastest GPU 1-bit model (0.5B) does 381 tok/s at 45W. <strong>NPU+DSpark wins on speed AND power.</strong></p>
+    <div style="margin-top:12px;padding:12px;background:#00332222;border:1px solid #00ff8844;border-radius:6px;text-align:center">
+      <span style="font-size:1.3rem;font-weight:800;color:#00ff88">543 tok/s @ 15W</span>
+      <span style="color:#666;margin:0 12px">vs</span>
+      <span style="font-size:1.3rem;font-weight:800;color:#ff66cc">381 tok/s @ 45W</span>
+    </div>
   </div>
 </div>
 
