@@ -1,6 +1,6 @@
 #pragma once
 // Speculative Decoding Engine — orchestrates draft model + target NPU model
-// 
+//
 // Flow:
 //   1. Target model (NPU) generates first token + hidden states
 //   2. Draft model predicts N=block_size candidate tokens
@@ -9,6 +9,13 @@
 //   5. Update KV caches, repeat from step 2
 //
 // Expected speedup: 1.5x-2.5x on NPU (94 tok/s -> 141-235 tok/s)
+//
+// Template parameter DraftModelT must provide:
+//   - using State = ... (KV cache state type)
+//   - using Config = ... (config type)
+//   - forward(trunk_hidden, input_id, pos, state, draft_logits, draft_hidden)
+//   - weights_loaded()
+//   - load_weights(path)
 
 #include <cstdint>
 #include <vector>
@@ -17,7 +24,13 @@
 #include <cmath>
 #include <cstring>
 
-#include "../draft/mtp_draft.h"
+#include "../draft/dspark_draft.h"  // DSpark is the DEFAULT draft model
+#include "../draft/mtp_draft.h"     // MTP (Eagle3) for compatibility trait
+
+// Default alias — DSpark is the production draft
+using DefaultDraftConfig = DSparkDraftConfig;
+using DefaultDraftModel = DSparkDraftModel;
+using DefaultDraftState = DSparkDraftState;
 
 // Target model interface — implemented by the NPU engine
 struct TargetModelInterface {
@@ -71,6 +84,7 @@ struct SpecDecodeConfig {
     int32_t head_dim = 128;
     int32_t max_seq = 4096;
     int32_t num_target_layers = 5;
+    int32_t num_draft_layers = 5;   // draft backbone layers (DSpark=5, Eagle3=1)
     int32_t target_layer_ids[5] = {1, 6, 12, 18, 24};
     int32_t eos_token_id = 151645;
     uint64_t seed = 42;
@@ -88,23 +102,41 @@ struct SpecDecodeStats {
             : 0.0f;
     }
     float speedup_factor() const {
-        // 1 + accepted/per_verify * accept_rate
         return verify_calls > 0
             ? (float)total_tokens / verify_calls
             : 1.0f;
     }
 };
 
-class SpeculativeDecoder {
+// Resize trait — dispatches to the right resize() signature per draft state type
+template <typename T> struct StateResizeTraits;
+
+template <>
+struct StateResizeTraits<DSparkDraftState> {
+    static void resize(DSparkDraftState& s, int num_layers, int num_kv_heads, int head_dim, int block_size) {
+        s.resize(num_layers, num_kv_heads, head_dim, block_size);
+    }
+};
+
+template <>
+struct StateResizeTraits<MTPDraftState> {
+    static void resize(MTPDraftState& s, int /*num_layers*/, int num_kv_heads, int head_dim, int block_size) {
+        s.resize(num_kv_heads, head_dim, block_size);
+    }
+};
+
+// SpeculativeDecoder — templated on draft model type for flexibility
+template <typename DraftModelT = DefaultDraftModel,
+          typename DraftStateT = DefaultDraftState,
+          typename DraftConfigT = DefaultDraftConfig>
+class SpeculativeDecoderT {
 public:
-    SpeculativeDecoder(
+    SpeculativeDecoderT(
         TargetModelInterface& target,
-        MTPDraftModel& draft,
+        DraftModelT& draft,
         const SpecDecodeConfig& cfg
     ) : target_(target), draft_(draft), cfg_(cfg),
-        rng_(cfg.seed) {
-        state_.resize(cfg_.num_kv_heads, cfg_.head_dim, cfg_.max_seq);
-    }
+        rng_(cfg.seed) {}
 
     // Generate tokens with speculative decoding
     // prompt_ids: [prompt_len] input token IDs
@@ -157,20 +189,15 @@ public:
 
         // Speculative decoding loop
         while (generated < max_len) {
-            // 1. Draft: autoregress block_size candidate tokens. The draft has its own
-            // tiny attention window that resets each round (positions 0..block_size-1) —
-            // it only needs to model the immediate continuation, not full history; that's
-            // the target model's job. Each step embeds the previous step's token internally
-            // (real token id, not a stub) and reuses the same target_hidden trunk features
-            // for the whole round (matches training: one fc-projected feature set per round).
+            // 1. Draft: autoregress block_size candidate tokens
             std::vector<int32_t> draft_tokens(cfg_.block_size);
             std::vector<float> draft_logits(
                 (size_t)cfg_.block_size * cfg_.vocab_size
             );
             std::vector<float> draft_hidden_step(cfg_.hidden_size);
 
-            MTPDraftState draft_state;
-            draft_state.resize(cfg_.num_kv_heads, cfg_.head_dim, cfg_.block_size);
+            DraftStateT draft_state;
+            StateResizeTraits<DraftStateT>::resize(draft_state, cfg_.num_draft_layers, cfg_.num_kv_heads, cfg_.head_dim, cfg_.block_size);
             int32_t draft_input_id = output_ids[generated - 1];
             for (int i = 0; i < cfg_.block_size; i++) {
                 draft_.forward(
@@ -193,10 +220,8 @@ public:
             }
             stats_.total_draft_proposed += cfg_.block_size;
 
-            // 2. Verify: run target on [last_token | draft_tokens...] against the existing
-            // KV cache (past_len = generated - 1, since output_ids[generated-1] hasn't had
-            // its own KV entry written yet — see commit_accepted below).
-            int32_t verify_len = 1 + cfg_.block_size; // last + N draft
+            // 2. Verify: run target on [last_token | draft_tokens...] against existing KV cache
+            int32_t verify_len = 1 + cfg_.block_size;
             int32_t past_len = generated - 1;
             std::vector<int32_t> verify_input(verify_len);
             verify_input[0] = output_ids[generated - 1];
@@ -221,23 +246,18 @@ public:
             bool rejected_early = false;
             bool hit_eos = false;
             for (int i = 0; i < cfg_.block_size && generated < max_len; i++) {
-                // Greedy acceptance: if draft == argmax(target), accept
                 int32_t target_token = argmax(
                     verify_logits.data() + (size_t)i * cfg_.vocab_size,
                     cfg_.vocab_size
                 );
 
                 if (draft_tokens[i] == target_token) {
-                    // Accept draft token
                     output_ids[generated] = draft_tokens[i];
                     generated++;
                     n_accepted++;
                     stats_.total_tokens++;
                     if (draft_tokens[i] == cfg_.eos_token_id) { hit_eos = true; break; }
                 } else {
-                    // Reject: use target's token instead. Do NOT also emit a bonus token —
-                    // verify_logits[block_size] predicts what follows ALL draft tokens, which
-                    // is no longer a valid continuation once one of them was rejected.
                     output_ids[generated] = target_token;
                     generated++;
                     stats_.total_tokens++;
@@ -246,8 +266,7 @@ public:
                 }
             }
 
-            // Bonus token: target's prediction after all draft tokens were accepted.
-            // Only valid when nothing was rejected — always at verify_logits[block_size].
+            // Bonus token
             if (!rejected_early && !hit_eos && generated < max_len) {
                 int32_t bonus_token = argmax(
                     verify_logits.data() + (size_t)cfg_.block_size * cfg_.vocab_size,
@@ -262,9 +281,6 @@ public:
             stats_.accepted_draft_tokens += n_accepted;
             stats_.verify_calls++;
 
-            // Commit this round's KV cache: keep entries for the previously-uncached last
-            // token plus every accepted/corrective token (n_accepted+1 positions starting at
-            // past_len); the bonus token (if any) gets its own KV entry on the next round.
             target_.commit_accepted(past_len, n_accepted + 1);
 
             if (hit_eos) return generated;
@@ -287,8 +303,7 @@ public:
 
 private:
     TargetModelInterface& target_;
-    MTPDraftModel& draft_;
-    MTPDraftState state_;
+    DraftModelT& draft_;
     SpecDecodeConfig cfg_;
     std::mt19937 rng_;
     SpecDecodeStats stats_;
@@ -297,3 +312,6 @@ private:
         return std::distance(logits, std::max_element(logits, logits + n));
     }
 };
+
+// Default instantiation using DSpark
+using SpeculativeDecoder = SpeculativeDecoderT<DefaultDraftModel, DefaultDraftState, DefaultDraftConfig>;
