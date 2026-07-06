@@ -1,5 +1,5 @@
 {
-  "updated": "2026-07-06T10:57:27Z",
+  "updated": "2026-07-06T11:50:14Z",
   "source": "docs/wiki/performance.md",
   "engines": {
     "npu_v12":     { "tok_s": 97, "label": "C++ v12 (production)" },
