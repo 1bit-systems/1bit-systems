@@ -1,47 +1,16 @@
 {
-    "updated": "2026-07-06T19:33:50Z",
-    "source": "docs/wiki/performance.md",
-    "engines": {
-        "dspark_spec_decode": {
-            "tok_s": 572,
-            "label": "DSpark spec-decode (production)"
-        },
-        "npu_fused": {
-            "tok_s": 291,
-            "label": "NPU fused layer (production)"
-        },
-        "npu_v12": {
-            "tok_s": 97,
-            "label": "C++ v12 (fallback)"
-        },
-        "gpu_1bit_fastest": {
-            "tok_s": 381,
-            "label": "GPU 1-bit Qwen2-0.5B IQ1_S"
-        },
-        "npu_flm": {
-            "tok_s": 94,
-            "label": "FLM proxy (fallback)"
-        },
-        "all_5": {
-            "tok_s": 28,
-            "label": "C++ all-5 (auto-detect)"
-        },
-        "gpu_zinc": {
-            "tok_s": 22,
-            "label": "GPU Vulkan (ZINC)"
-        },
-        "rocm_hip": {
-            "tok_s": 113,
-            "label": "GPU ROCm (HIP)"
-        },
-        "ternary": {
-            "tok_s": 279,
-            "label": "Ternary (Vulkan)"
-        }
-    },
-    "system": {
-        "tflops_int8": 55.7,
-        "speedup": "72x",
-        "production_tok_s": 572
-    }
+  "updated": "2026-07-06T20:20:27Z",
+  "source": "docs/wiki/performance.md",
+  "engines": {
+    "npu_v12":     { "tok_s": 97, "label": "C++ v12 (production)" },
+    "npu_flm":     { "tok_s": 94, "label": "FLM proxy (fallback)" },
+    "all_5":       { "tok_s": 28,    "label": "C++ all-5 (auto-detect)" },
+    "gpu_zinc":    { "tok_s": 22,"label": "GPU Vulkan (ZINC)" },
+    "rocm_hip":    { "tok_s": 113,    "label": "GPU ROCm (HIP)" },
+    "ternary":     { "tok_s": 279,    "label": "Ternary (Vulkan)" }
+  },
+  "system": {
+    "tflops_int8": 55.7,
+    "speedup": "72x"
+  }
 }
