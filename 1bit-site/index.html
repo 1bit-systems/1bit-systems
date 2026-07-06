@@ -21,6 +21,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
+<!-- Cloudflare Web Analytics (privacy-first, no cookies) -->
+<script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "__CF_WA_TOKEN__"}'></script>
 <style>
   :root{
     --bg:#021621; --panel:#06222f; --tile:#06222f; --inner:#021018;
@@ -171,6 +173,7 @@
           One person. A free Chess license. A C++ compiler. <strong>74 KB</strong>.
           <br>Today: a fused NPU+GPU+CPU inference engine that auto-detects any model.
           <br><span class="nop">No Python. No Docker. No vendor lock.</span> Your hardware. <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/LICENSE">MIT licensed</a>.
+          <br><span style="color:var(--green);font-weight:700;font-size:13px;">▲ <span id="daily-clones-hero">—</span> cloned today · <a href="https://github.com/bong-water-water-bong/1bit-systems/graphs/traffic" style="color:var(--blue);">3,647 total</a></span>
         </div>
       </blockquote>
       <div class="row" style="margin-top:18px;">
@@ -197,6 +200,10 @@
           <span class="pill info" style="font-size:10px;"><span class="dot"></span>6 backends</span>
           <span class="pill warn" style="font-size:10px;"><span class="dot"></span>55.7 TFLOPS</span>
           <span class="pill dark" style="font-size:10px;"><span class="dot"></span>74 KB binary</span>
+          <span class="pill ok" style="font-size:10px;"><span class="dot"></span><span id="daily-clones-count">—</span> clones today</span>
+        </div>
+        <div style="margin-top:8px;font-size:10px;color:var(--dim);font-family:var(--mono);text-align:center;">
+          daily clones via <a href="https://github.com/bong-water-water-bong/1bit-systems/graphs/traffic" style="color:var(--blue);">GitHub traffic API</a> · updated daily
         </div>
       </div>
     </div>
@@ -223,6 +230,7 @@
     <div class="stat"><span class="lbl caps">GPU decode</span><span class="val">22 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>Bonsai-1.7B · Vulkan ⭐</span></div>
     <div class="stat"><span class="lbl caps">Peak NPU</span><span class="val">55.7 <span>TFLOPS</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>INT8 · XDNA 2</span></div>
     <div class="stat"><span class="lbl caps">Models</span><span class="val">73+</span><span class="foot"><span class="dot" style="background:var(--blue)"></span>6 backends · auto-detect</span></div>
+    <div class="stat"><span class="lbl caps">Daily clones</span><span class="val"><span id="daily-clones-stat">—</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>GitHub traffic API · <span id="daily-clones-total">3,647</span> total</span></div>
   </div>
   <p style="margin-top:24px;text-align:center;"><a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/performance.md" class="btn btn-ghost btn-md" target="_blank" rel="noopener">Full benchmarks →</a></p>
 </section>
@@ -390,6 +398,27 @@
     var ham=document.getElementById('hamburger'),nav=document.getElementById('navLinks');
     if(ham&&nav){ham.addEventListener('click',function(){ham.classList.toggle('open');nav.classList.toggle('open');});}
     var links=nav&&nav.querySelectorAll('a');for(var j=0;links&&j<links.length;j++){links[j].addEventListener('click',function(){ham.classList.remove('open');nav.classList.remove('open');});}
+  })();
+
+  // Fetch daily clones and populate all badges
+  (function(){
+    var x=new XMLHttpRequest();
+    x.open('GET','/daily-clones.json',true);
+    x.onload=function(){
+      try{
+        var d=JSON.parse(x.responseText);
+        var msg=d.message||'?';
+        document.getElementById('daily-clones-count')&&(document.getElementById('daily-clones-count').textContent=msg);
+        document.getElementById('daily-clones-hero')&&(document.getElementById('daily-clones-hero').textContent=msg+' clones');
+        document.getElementById('daily-clones-stat')&&(document.getElementById('daily-clones-stat').textContent=msg);
+      }catch(e){}
+    };
+    x.onerror=function(){
+      document.getElementById('daily-clones-count')&&(document.getElementById('daily-clones-count').textContent='?');
+      document.getElementById('daily-clones-hero')&&(document.getElementById('daily-clones-hero').textContent='? clones');
+      document.getElementById('daily-clones-stat')&&(document.getElementById('daily-clones-stat').textContent='?');
+    };
+    x.send();
   })();
 </script>
 </body>
