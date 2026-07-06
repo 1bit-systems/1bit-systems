@@ -2,12 +2,36 @@
   "updated": "2026-07-06T20:20:27Z",
   "source": "docs/wiki/performance.md",
   "engines": {
-    "npu_v12":     { "tok_s": 97, "label": "C++ v12 (production)" },
-    "npu_flm":     { "tok_s": 94, "label": "FLM proxy (fallback)" },
-    "all_5":       { "tok_s": 28,    "label": "C++ all-5 (auto-detect)" },
-    "gpu_zinc":    { "tok_s": 22,"label": "GPU Vulkan (ZINC)" },
-    "rocm_hip":    { "tok_s": 113,    "label": "GPU ROCm (HIP)" },
-    "ternary":     { "tok_s": 279,    "label": "Ternary (Vulkan)" }
+    "npu_v12": {
+      "tok_s": 97,
+      "label": "C++ v12 (production)"
+    },
+    "npu_flm": {
+      "tok_s": 94,
+      "label": "FLM proxy (fallback)"
+    },
+    "all_5": {
+      "tok_s": 28,
+      "label": "C++ all-5 (auto-detect)"
+    },
+    "gpu_zinc": {
+      "tok_s": 22,
+      "label": "GPU Vulkan (ZINC)"
+    },
+    "rocm_hip": {
+      "tok_s": 113,
+      "label": "GPU ROCm (HIP)"
+    },
+    "ternary": {
+      "tok_s": 279,
+      "label": "Ternary (Vulkan)"
+    },
+    "dspark": {
+      "tok_s": 572,
+      "label": "DSpark spec-decode (production)",
+      "hw": "XDNA2 \u00b7 32 tiles",
+      "model": "Qwen3-0.6B + 5-layer Markov"
+    }
   },
   "system": {
     "tflops_int8": 55.7,
