@@ -321,10 +321,29 @@ case "$MODE" in
     json)    show_json ;;
     graph)   show_graph ;;
     watch)
+        # Auto-show when agents are active, auto-hide when done
+        local was_visible=false
         while true; do
-            clear 2>/dev/null || true
-            show_compact
-            sleep 15
+            local has_active=false
+            while IFS='|' read -r sid status runtime_s stalls retries; do
+                case "$status" in
+                    running|retrying) has_active=true; break ;;
+                esac
+            done < <(get_sessions)
+
+            if [[ "$has_active" == true ]]; then
+                clear 2>/dev/null || true
+                show_compact
+                was_visible=true
+            elif [[ "$was_visible" == true ]]; then
+                # Agents all done — clear dashboard
+                clear 2>/dev/null || true
+                echo ""
+                echo -e "  ${GREEN}✅ All agents completed${NC}"
+                echo ""
+                was_visible=false
+            fi
+            sleep 5
         done
         ;;
 esac
