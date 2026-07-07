@@ -56,4 +56,4 @@ Be excellent to each other. This project is MIT-licensed and built for the open-
 
 ## Questions?
 
-Open a [Discussion](https://github.com/bong-water-water-bong/1bit-systems/discussions) or join the [Discord](https://discord.gg/dSyV646eBs).
+Open a [Discussion](https://github.com/bong-water-water-bong/1bit-systems/discussions).

@@ -29,5 +29,5 @@ We're also connecting this to **dflash** for speculative decoding ([DFlash: Bloc
 
 ---
 
-**Links**: [GitHub](https://github.com/bong-water-water-bong/1bit-systems) · [Install](https://1bit.systems/) (`curl -sL https://1bit.systems/install.sh | bash`) · [Discord](https://discord.gg/dSyV646eBs)  
+**Links**: [GitHub](https://github.com/bong-water-water-bong/1bit-systems) · [Install](https://1bit.systems/) (`curl -sL https://1bit.systems/install.sh | bash`)  
 **dflash**: [github.com/z-lab/dflash](https://github.com/z-lab/dflash) · [github.com/z-lab](https://github.com/z-lab)

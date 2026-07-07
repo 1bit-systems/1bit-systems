@@ -484,7 +484,6 @@ with QKV/O in one xclbin (FLM approach — 1 dispatch for 3 operations).
 - **https://1bit.systems** — 145 unique visitors. Two-line hero, consistent v12 numbers
 - **GitHub CI** — self-hosted runner on Strix Halo, push-to-benchmark
 - **PR-Agent** — Qodo + OpenCode GLM-5.2, 3 AI reviewers
-- **Discord** — discord.gg/dSyV646eBs
 
 ### Key Files (current)
 

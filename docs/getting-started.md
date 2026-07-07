@@ -140,4 +140,3 @@ docker run --device /dev/accel/accel0 -p 8081:8081 \
 - [Build from source guide](docs/building.md)
 - [Roadmap](docs/roadmap.md)
 - [Contributing](CONTRIBUTING.md)
-- [Discord community](https://discord.gg/dSyV646eBs)
