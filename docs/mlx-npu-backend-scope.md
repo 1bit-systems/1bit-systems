@@ -1,5 +1,13 @@
 # MLX IRON XDNA 2 NPU Backend — Scope
 
+> **Note**: the `engine/npu/` C++ files referenced below as "reusable"
+> (`platform.h`, `dequant_q4nx.c`, `npu_engine_universal.cpp`,
+> `n1_core_i8_v2.py`, `model_config.h`) were retired from this repo (commit
+> `cd232a091`) — superseded by the `spec-decode/` stack. This scope doc's
+> proposal would need to source that code from git history (pre-`cd232a091`)
+> or be re-scoped against `spec-decode/`'s NPU target model. The overall
+> architecture proposal below is otherwise unaffected.
+
 **Goal**: Add an NPU device backend to MLX so `mlx.core.default_device(Device(DeviceType::npu))` dispatches array operations to the XDNA 2 NPU.
 
 ---

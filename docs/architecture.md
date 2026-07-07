@@ -1,7 +1,16 @@
 # NPU Engine Architecture
 
 **One person reverse-engineered AMD's proprietary NPU stack in 4 days.**  
-This doc explains how the open-source replacement works.
+This doc explains how the open-source replacement worked.
+
+> **Retired (commit `cd232a091`)**: the standalone `engine/npu/` C++ engine
+> described below no longer exists in this repo — superseded by the
+> `spec-decode/` stack (FLM target + DSpark draft engine). This doc is kept as
+> a technical reference for how the NPU dispatch model worked, not as a
+> description of the current codebase. For current, accurate engine status see
+> [docs/wiki/performance.md](wiki/performance.md) (source of truth): the fused
+> and v12 engines discussed here were **raw throughput only, never coherent**
+> — production NPU inference runs via the FLM proxy (94 tok/s, coherent).
 
 ---
 
@@ -190,21 +199,22 @@ The project runs **three inference backends** — only one is truly open-source:
      Client ←→ Daemon ←→ npu_engine_fused ←→ XRT ←→ NPU
                      (fused xclbin, one call/layer)
 ```
-- All code in `engine/npu/src/npu_engine_fused.cpp`
+- All code was in `engine/npu/src/npu_engine_fused.cpp` (retired, see notice above)
 - 291 tok/s on Qwen3-0.6B (3.4 ms/tok), 38 KB binary
 - One xclbin call per transformer layer (QKV→attention→O→GU→SiLU→D on NPU)
 - No CPU attention — entire layer runs on NPU
-- **Production stable** — coherent output verified
+- **Raw throughput only — output was never coherent** (per `docs/wiki/performance.md`)
 
 ### 2. C++ v12 Engine (Fallback) — 28–97 tok/s
 ```
      Client ←→ Daemon ←→ npu_engine ←→ XRT ←→ NPU
                                         xclbins
 ```
-- All code in `engine/npu/`
+- All code was in `engine/npu/` (retired, see notice above)
 - 97 tok/s on Qwen3-0.6B (v12 single-model)
 - 28 tok/s with all 5 models auto-detected
-- Coherent (AIE micro-tiling root cause fixed July 5)
+- Raw throughput only — the AIE micro-tiling/GEMM bug was fixed July 5, but
+  decode output was still not coherent text (per `docs/wiki/performance.md`)
 
 ### 3. FLM Proxy (Fallback v2) — 94 tok/s
 ```
@@ -222,7 +232,8 @@ The project runs **three inference backends** — only one is truly open-source:
      Client ←→ ZnS server ←→ Vulkan compute ←→ iGPU
                               (GGUF format)
 ```
-- Code in `engine/gpu/`
+- Code was in `engine/gpu/` (retired, see notice above; GPU inference is now
+  ZINC/Vulkan, outside this repo's engine tree)
 - Written in Zig, Vulkan compute shaders
 - Bonsai-1.7B-F16 at 22 tok/s, 99.6% bandwidth utilization
 - Coherent output — this one works
@@ -389,15 +400,11 @@ Each version is preserved in `/src/` as individual `.cpp` files — the evolutio
 
 | I want to... | Go to... |
 |-------------|----------|
-| Build the engine | `engine/npu/build_npu.sh` or `engine/npu/CMakeLists.txt` |
-| Add a new model | `engine/npu/src/model_config.h` + new xclbins |
-| Fix output coherence | `engine/npu/src/npu_engine_universal.cpp` + `dequant_q4nx.c` |
-| Port to Windows | `engine/npu/src/platform.h` |
-| Understand Q4NX format | `engine/npu/src/dequant_q4nx.c` + `model_config.h` |
-| Benchmark the engine | `engine/npu/BENCHMARKS.md` |
+| Work on the current NPU/spec-decode stack | `spec-decode/` (retired `engine/npu/` files above are historical reference only) |
+| See current, honest benchmark status | `docs/wiki/performance.md` (source of truth) |
+| Benchmark the engine | `docs/wiki/performance.md` |
 | See the journey | `docs/journey.md` |
 | Check build prerequisites | `docs/building.md` |
-| Get the binary | `packaging/npu-install.sh` |
 
 ---
 

@@ -37,32 +37,11 @@ jobs:
           fi
           echo "version=$(echo ${GITHUB_REF_NAME} | sed 's/^v//')" >> $GITHUB_OUTPUT
 
-      - name: Build dequant object
-        run: |
-          gcc -c -std=c11 -O3 -o dequant_q4nx.o \
-            engine/npu/src/dequant_q4nx.c
-
-      - name: Build NPU engine (if XRT available)
-        run: |
-          if g++ -std=c++23 -O3 -march=x86-64 -fopenmp -ffast-math \
-            -o 1bit-npu \
-            engine/npu/src/npu_engine_all.cpp \
-            dequant_q4nx.o \
-            -Iengine/npu/src -lxrt_coreutil -luuid -lm -ldl \
-            2>/dev/null; then
-            echo "✅ NPU engine built (XRT available)"
-          elif g++ -std=c++23 -O3 -march=native -fopenmp -ffast-math \
-            -o 1bit-npu \
-            engine/npu/src/npu_engine_all.cpp \
-            dequant_q4nx.o \
-            -Iengine/npu -lxrt_coreutil -luuid -lm -ldl \
-            2>/dev/null; then
-            echo "✅ NPU engine built (XRT available, native arch)"
-          else
-            echo "⚠️ XRT not available on this runner — skipping NPU engine build"
-            echo "NPU engine can only be built on hardware with XRT SDK installed"
-            touch 1bit-npu  # placeholder so downstream steps don't fail
-          fi
+      # NOTE: the "Build dequant object" and "Build NPU engine" steps that used to
+      # live here compiled engine/npu/src/{dequant_q4nx.c,npu_engine_all.cpp}.
+      # engine/npu/ was retired in commit cd232a091 (superseded by the spec-decode/
+      # stack), so those steps — and the 1bit-npu binary they produced — were
+      # removed. Only the HTTP server binary is built/packaged below now.
 
       - name: Build HTTP server
         run: |
@@ -71,29 +50,22 @@ jobs:
 
       - name: Strip binaries
         run: |
-          test -f 1bit-npu && strip -s 1bit-npu 2>/dev/null || echo "NPU binary not present, skipping strip"
           strip -s 1bit-server 2>/dev/null || true
 
       - name: Build .deb package
         run: |
-          mkdir -p deb-pkg/DEBIAN deb-pkg/usr/bin deb-pkg/usr/lib/1bit
+          mkdir -p deb-pkg/DEBIAN deb-pkg/usr/bin
           cp packaging/deb/DEBIAN/control deb-pkg/DEBIAN/
           cp packaging/deb/DEBIAN/postinst deb-pkg/DEBIAN/ 2>/dev/null || true
-          cp 1bit-npu deb-pkg/usr/bin/
           cp 1bit-server deb-pkg/usr/bin/
-          cp dequant_q4nx.o deb-pkg/usr/lib/1bit/
           sed -i "s/Version:.*/Version: ${{ steps.version.outputs.version }}/" deb-pkg/DEBIAN/control
           dpkg-deb --build deb-pkg 1bit-systems_${{ steps.version.outputs.version }}_amd64.deb
 
       - name: Build tarball
         run: |
           PKG="1bit-systems-${{ steps.version.outputs.version }}-linux-amd64"
-          mkdir -p "${PKG}/bin" "${PKG}/lib"
-          cp 1bit-npu "${PKG}/bin/"
+          mkdir -p "${PKG}/bin"
           cp 1bit-server "${PKG}/bin/"
-          cp dequant_q4nx.o "${PKG}/lib/"
-          cp packaging/npu-install.sh "${PKG}/"
-          chmod +x "${PKG}/npu-install.sh"
           tar czf "${PKG}.tar.gz" "${PKG}/"
 
       - name: Generate checksums
@@ -112,7 +84,7 @@ jobs:
               1bit-systems_${{ steps.version.outputs.version }}_amd64.deb \
               1bit-systems-${{ steps.version.outputs.version }}-linux-amd64.tar.gz \
               checksums.txt \
-              1bit-npu 1bit-server \
+              1bit-server \
               --clobber
           else
             echo "Release ${{ steps.version.outputs.tag }} not found — not uploading (create release manually or use the tag trigger)"

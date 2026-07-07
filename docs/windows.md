@@ -3,12 +3,19 @@
 The AMD XDNA 2 NPU exists on Windows too (Ryzen AI 300 series, Strix Halo).
 Here's the path to get 1bit.systems running there.
 
+> Note: the standalone `engine/npu/` C++ engine and Zig-based `engine/gpu/`
+> (Zinc) referenced below were retired from this repo (commit `cd232a091`) —
+> superseded by the `spec-decode/` stack for NPU and Vulkan/ZINC (outside this
+> repo's engine tree) for GPU. This guide's toolchain/porting notes are still
+> useful background for anyone porting either stack to Windows, but the exact
+> source paths below no longer exist here.
+
 ## Current Status
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| NPU engine (C++23) | ❌ Untested | Requires XRT for Windows + MSVC/clang-cl |
-| GPU engine (Zinc) | ❌ Vulkan untested | Zinc has Vulkan backend but hasn't been tested on Windows |
+| NPU engine (C++23) | ❌ Untested | Requires XRT for Windows + MSVC/clang-cl; source retired from this repo |
+| GPU engine (Zinc) | ❌ Vulkan untested | Zinc has Vulkan backend but hasn't been tested on Windows; source retired from this repo |
 | HTTP server | ✅ Should work | Pure C++ sockets, no platform-specific code |
 | install.sh | ❌ | Bash script, needs PowerShell equivalent |
 

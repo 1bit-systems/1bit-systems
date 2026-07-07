@@ -12,9 +12,13 @@ confinement: strict
 base: core24
 
 apps:
-  npu:
-    command: bin/1bit-npu
-    plugs: [xrt, hardware-observe]
+  # `npu` app disabled: its source (engine/npu/src/npu_engine_all.cpp,
+  # engine/npu/src/dequant_q4nx.c) was retired in commit cd232a091, superseded
+  # by the spec-decode/ stack. Re-enable once spec-decode/ has an equivalent
+  # standalone CLI binary to package, or point this at the FLM-proxy client.
+  # npu:
+  #   command: bin/1bit-npu
+  #   plugs: [xrt, hardware-observe]
   server:
     command: bin/1bit-server
     daemon: simple
@@ -28,9 +32,13 @@ parts:
     build-packages: [g++, libxrt-dev]
     stage-packages: [libxrt2, libxrt-npu2]
     override-build: |
-      gcc -c -std=c11 -O3 -o engine/npu/build/dequant_q4nx.o engine/npu/src/dequant_q4nx.c
-      g++ -std=c++23 -O3 -march=native -fopenmp -ffast-math -o $SNAPCRAFT_PART_INSTALL/bin/1bit-npu \
-        engine/npu/src/npu_engine_all.cpp engine/npu/build/dequant_q4nx.o \
-        -Iengine/npu/src -lxrt_coreutil -luuid -lm -ldl
+      # NPU CLI build step removed: engine/npu/src/npu_engine_all.cpp and
+      # engine/npu/src/dequant_q4nx.c were retired in commit cd232a091
+      # (superseded by spec-decode/) and no longer exist at this source tag's
+      # path going forward — this step would fail `snapcraft` otherwise.
+      # gcc -c -std=c11 -O3 -o engine/npu/build/dequant_q4nx.o engine/npu/src/dequant_q4nx.c
+      # g++ -std=c++23 -O3 -march=native -fopenmp -ffast-math -o $SNAPCRAFT_PART_INSTALL/bin/1bit-npu \
+      #   engine/npu/src/npu_engine_all.cpp engine/npu/build/dequant_q4nx.o \
+      #   -Iengine/npu/src -lxrt_coreutil -luuid -lm -ldl
       g++ -std=c++23 -O3 -o $SNAPCRAFT_PART_INSTALL/bin/1bit-server \
         packaging/binary/server.cpp

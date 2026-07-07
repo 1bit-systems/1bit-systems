@@ -1,36 +1,43 @@
 # Engine Status
 
-## Production: Fused Layer Engine (291 tok/s, 3.4 ms/tok) ✅
+**The standalone `engine/npu/`, `engine/gpu/`, and `engine/fusion/` implementations
+described in earlier versions of this doc were retired** (commit `cd232a091`) —
+superseded by the `spec-decode/` stack. This page now reflects current status per
+the source of truth, [docs/wiki/performance.md](wiki/performance.md).
 
-The fused layer engine runs the full transformer layer in one xclbin call
-(QKV→attention→O→GU→SiLU→D on NPU, no CPU attention). Achieves 291 tok/s —
-3× the previous v12 engine at 97 tok/s. Engine binary: 38 KB.
+## Production: NPU FLM (94 tok/s) ✅
 
-- **Binary**: `engine/npu/src/npu_engine_fused.cpp` → 38 KB
-- **Models**: Qwen3-0.6B
-- **Status**: Verified, production stable
+AMD's proprietary FastFlowLM runtime, used as a proxy. Measured, coherent output.
+This is the only NPU path currently in production.
 
-## C++ v12 Engine (97 tok/s) ✅ — Fallback (coherent)
+- **Status**: ✅ measured, coherent — production
 
-The standalone INT8 GEMM engine is now a fallback path. Coherence fixed July 5
-(AIE micro-tiling root cause resolved). Runs at 97 tok/s on Qwen3-0.6B.
+## GPU ZINC / Ternary (Vulkan) ✅
 
-- **Binary**: `engine/npu/src/npu_engine_universal.cpp` → 117 KB
-- **Status**: Coherent, fallback path
+Vulkan compute shaders. Coherent output verified.
 
-## FLM Proxy (94 tok/s) — Fallback v2
+- **GPU ZINC** (Bonsai-1.7B-F16): 22 tok/s, ✅ measured, coherent
+- **GPU ternary** (Bonsai-1.7B Q2_0, 1.58-bit): 279 tok/s, ✅ measured, coherent
+- **GPU 1-bit** (llama.cpp, Qwen2-0.5B IQ1_S): 381 tok/s, measured (third-party tool)
 
-AMD's proprietary runtime. Used as third fallback when fused and v12 are
-unavailable.
+## NPU fused layer (291 tok/s) ⚙️ raw — not production
 
-- **Port**: 52625
-- **Models**: Qwen3-0.6B (turbo)
-- **Status**: Legacy fallback
+One xclbin call per transformer layer (QKV→attention→O→GU→SiLU→D on NPU).
+Raw kernel throughput only — **output is not yet coherent**. Retired along with
+the rest of `engine/npu/` in commit `cd232a091`; historical detail in
+`docs/FUSED-INTEGRATION-BLOCKER.md` and `docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md`.
 
-## GPU ZINC Engine (22 tok/s) ✅
+## C++ v12 (97 tok/s) ⚙️ raw — not production
 
-Vulkan compute shaders via ZINC. Verified coherent output on Bonsai-1.7B-F16.
+Standalone INT8 GEMM engine. Raw throughput only — output not yet coherent.
+Retired along with the rest of `engine/npu/` in commit `cd232a091`.
+
+## DSpark spec-decode — experimental, disproven projection
+
+The current active development direction (`spec-decode/`). The earlier "~572
+tok/s" projection was disproven by end-to-end measurement on 2026-07-07: 0.1–0.2
+tok/s at 0% draft acceptance. See `docs/wiki/performance.md` for full detail.
 
 ---
 
-*Last updated: July 6, 2026*
+*Last updated: 2026-07-07, to match `docs/wiki/performance.md` (source of truth).*
