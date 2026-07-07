@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo /home/bcloud)"
 
 SRC="docs/wiki/performance.md"
-SITE="site"; MIRROR="1bit-site"
+SITE="site"
 mkdir -p "$SITE"
 
 # tok/s extractor: first "**N tok/s**" on a row containing the given label text.
@@ -67,6 +67,4 @@ write_badge "bench-badge.json" "NPU C++ v12"             "${NPU_V12} tok/s (raw,
 write_badge "tok-badge.json"   "decode (validated)"     "${NPU_FLM} tok/s"          "brightgreen"
 write_badge "tflops-badge.json" "INT8 GEMM"              "${TFLOPS} TFLOPS"          "brightgreen"
 
-# keep the deploy mirror in sync
-if [ -d "$MIRROR" ]; then cp -f "$SITE"/benchmarks.json "$SITE"/*-badge.json "$MIRROR"/ 2>/dev/null || true; fi
 echo "✅ regenerated benchmarks.json + $(ls "$SITE"/*-badge.json | wc -l) badges (honest labels) | FLM=$NPU_FLM TERN=$TERN DSPARK=$DSPARK(proj) V12=$NPU_V12(raw)"

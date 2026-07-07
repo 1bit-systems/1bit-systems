@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "label": "clones today",
-  "message": "1102",
+  "label": "page views today",
+  "message": "0",
   "color": "brightgreen",
   "cacheSeconds": 86400
 }

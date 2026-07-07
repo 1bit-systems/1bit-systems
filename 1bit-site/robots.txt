@@ -1,7 +1,0 @@
-User-agent: *
-Allow: /
-Allow: /jarvis/
-Allow: /store/
-Allow: /blog/
-
-Sitemap: https://1bit.systems/sitemap.xml

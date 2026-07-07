@@ -53,7 +53,7 @@ jobs:
           # Inject token into HTML files
           if [ -n "$WA_TOKEN" ]; then
             echo "Injecting Web Analytics token into site files..."
-            for f in site/index.html 1bit-site/index.html; do
+            for f in site/index.html; do
               if [ -f "$f" ]; then
                 sed -i "s/__CF_WA_TOKEN__/$WA_TOKEN/g" "$f"
                 echo "  ✓ $f updated"
