@@ -3,6 +3,7 @@
  *  Weight format: Q4NX compact (9.4MB per layer, from pack_fused_weights.py).
  *  Target: 1 dispatch/layer vs 4. Then M=32 batch on top. */
 #include <cstdio>
+#include <string>
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
@@ -24,8 +25,11 @@ int main(int argc,char**argv){
     constexpr int KCACHE_SZ=KCACHE_DW*4, WEIGHT_SZ=WEIGHT_DW*4, OUT_SZ=OUT_DW*4, HID_SZ=HID_DW*4;
 
     // Xclbin path
-    const char*XCL="/home/bcloud/torch2aie/build/qwen3_06b_layer/design_full_layer.xclbin";
-    const char*INS="/home/bcloud/torch2aie/build/qwen3_06b_layer/insts_full_layer.txt";
+    std::string xd=[]{const char*e=getenv("NPU_XCLBIN_DIR");return e?std::string(e):std::string("/home/bcloud/torch2aie/build/qwen3_06b_layer");}();
+    std::string xcl_s=xd+"/design_full_layer.xclbin";
+    std::string ins_s=xd+"/insts_full_layer.txt";
+    const char*XCL=xcl_s.c_str();
+    const char*INS=ins_s.c_str();
 
     printf("Init NPU...\n");
     xrt::device dev(0);
