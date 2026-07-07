@@ -40,9 +40,9 @@ struct Flm {
     void (*mgr_register)(void*, const std::string&) = nullptr;
     
     bool load() {
-        lib = dlopen("/opt/fastflowlm/lib/flm/libqwen3_npu.so", RTLD_LAZY | RTLD_GLOBAL);
-        dlopen("/opt/fastflowlm/lib/flm/libgemm.so", RTLD_LAZY | RTLD_GLOBAL);
-        dlopen("/opt/fastflowlm/lib/flm/libmha.so", RTLD_LAZY | RTLD_GLOBAL);
+        lib = dlopen("/opt/fastflowlm/lib/libqwen3_npu.so", RTLD_LAZY | RTLD_GLOBAL);
+        dlopen("/opt/fastflowlm/lib/libgemm.so", RTLD_LAZY | RTLD_GLOBAL);
+        dlopen("/opt/fastflowlm/lib/libmha.so", RTLD_LAZY | RTLD_GLOBAL);
         if (!lib) { fprintf(stderr, "FAIL: dlopen\n"); return false; }
         
         auto sym = [](const char* n) { return dlsym(RTLD_DEFAULT, n); };

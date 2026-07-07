@@ -72,7 +72,7 @@ extern "C" void _ZN15npu_app_managerC1E10npu_devicePN3xrt6deviceENSt7__cxx1112ba
     // Lazily resolve real constructor on first call
     if (!real_app_mgr_ctor) {
         // Open the library directly to get the original constructor
-        void* lib = dlopen("/opt/fastflowlm/lib/flm/libqwen3_npu.so", RTLD_LAZY | RTLD_NOLOAD);
+        void* lib = dlopen("/opt/fastflowlm/lib/libqwen3_npu.so", RTLD_LAZY | RTLD_NOLOAD);
         if (lib) {
             real_app_mgr_ctor = (app_mgr_ctor_t)dlsym(lib, 
                 "_ZN15npu_app_managerC1E10npu_devicePN3xrt6deviceENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEb");
