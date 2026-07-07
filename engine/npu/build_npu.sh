@@ -48,6 +48,14 @@ echo "--- default (qwen3_0_6b) -> $BUILDDIR/npu_engine ---"
 $CXX -DMODEL_qwen3_0_6b $CXXFLAGS -o "$BUILDDIR/npu_engine" "$SRC" "$DEQUANT_O" $LIBS
 ls -lh "$BUILDDIR/npu_engine"
 
+# Fused engine (self-contained, no model variants)
+FUSED_SRC="$SRCDIR/src/npu_engine_fused.cpp"
+FUSED_BIN="$BUILDDIR/npu_engine_fused"
+echo ""
+echo "--- fused engine -> $FUSED_BIN ---"
+$CXX $CXXFLAGS -o "$FUSED_BIN" "$FUSED_SRC" $LIBS
+ls -lh "$FUSED_BIN"
+
 echo ""
 echo "=== All builds complete ==="
 ls -lh "$BUILDDIR"/npu_engine*
