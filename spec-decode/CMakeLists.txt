@@ -38,6 +38,7 @@ if(ENABLE_NPU)
     )
     target_include_directories(npu_spec_decode PRIVATE
         ${XRT_INCLUDE_DIR}
+        /home/bcloud/engine/npu/src
     )
 
     # Install single binary

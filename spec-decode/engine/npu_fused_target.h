@@ -423,14 +423,15 @@ private:
     // resets the array for the next dispatch. See also npu_engine_fused_server.cpp
     // commit f5bae4049.
     void reload_xclbin() {
-        // Reset the AIE2 array by re-registering the xclbin.
-        // Keep the same hw_context and kernel — BOs were allocated under them
-        // and re-registration without new context is sufficient for the reset.
-        // (If this doesn't work, the fused server pattern (commit f5bae4049) can
-        // be replicated, but requires recreating BOs in the new context too.)
+        // Reload the xclbin + recreate hw_context and kernel to reset AIE2 array.
+        // This is the proven pattern from npu_engine_fused_server.cpp (f5bae4049).
+        // Must use value types: kernel holds an internal ref to the hw_context,
+        // keeping it alive even after the local fresh_ctx goes out of scope.
         if (xclbin_bytes_.empty()) return;
         xrt::xclbin fresh_xc(xclbin_bytes_);
         dev_->register_xclbin(fresh_xc);
+        ctx_ = xrt::hw_context(*dev_, fresh_xc.get_uuid());
+        kernel_ = xrt::kernel(ctx_, "MLIR_AIE");
     }
 
     // Overwrite the position-dependent cos/sin slot (layer-independent, 256B) in every
