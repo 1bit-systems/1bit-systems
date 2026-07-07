@@ -57,11 +57,25 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
         Am=(int8_t*)bA->map();Cm=(int32_t*)bC->map();
         for(int l=0;l<NL;l++)layerB.emplace_back(std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B)));
         return true;}
-    void packB(int l,const float*w,int K,int N,float&sout){float amax=0;
+    // Tile-interleaved packB matching xclbin instruction layout.
+    // NPU tiles: kt=64, nt=128. B matrix [K,N] stored as [N/nt, K/kt, kt, nt].
+    void packB(int l,const float*w,int K,int N,float&sout){
+        float amax=0;
         for(int i=0;i<K*N;i++){float a=fabsf(w[i]);if(std::isfinite(a)&&a>amax)amax=a;}
         if(amax<1e-12f)amax=1.0f;sout=amax/127.0f;float is=127.0f/amax;auto*Bm=(int8_t*)layerB[l]->map();
-        for(int i=0;i<K*N;i++){float v=w[i];if(!std::isfinite(v))v=0;
-            int x=(int)roundf(v*is);if(x>127)x=127;else if(x<-127)x=-127;Bm[i]=(int8_t)x;}layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);}
+        const int kt=64, nt=128;
+        int kg_cnt=K/kt, ng_cnt=N/nt;
+        for(int k=0;k<K;k++){
+            int kg=k/kt, kk=k%kt;
+            for(int n=0;n<N;n++){
+                int ng=n/nt, j=n%nt;
+                float v=w[k*N+n];if(!std::isfinite(v))v=0;
+                int x=(int)roundf(v*is);if(x>127)x=127;else if(x<-127)x=-127;
+                int npu_idx=ng*kg_cnt*kt*nt+kg*kt*nt+kk*nt+j;
+                Bm[npu_idx]=(int8_t)x;
+            }
+        }
+        layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);}
     inline void go(int l,const float*A,int am,int ak,float /*ascale*/,float Bscale,float*C,int an){
         // Dynamic activation scale: prevents hidden-state explosion
         float a_amax=0;
