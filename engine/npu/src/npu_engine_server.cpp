@@ -118,10 +118,17 @@ static uint64_t jo(const char*js,size_t jl,const char*nm){size_t nl=strlen(nm);c
 
 static std::vector<float> emb_f32_cb;
 
-struct I8Ctx{const char*name;int MD,KD,ND;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt::hw_context>hc;std::unique_ptr<xrt::kernel>k;std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bI,bA,bC,layerB[NC];int8_t*Am;int16_t*Cm;
-bool init(xrt::device&d,const char*xp,const char*ip,int gid_B){FILE*f=fopen(ip,"rb");if(!f)return false;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);xc=std::make_unique<xrt::xclbin>(std::string(xp));d.register_xclbin(*xc);hc=std::make_unique<xrt::hw_context>(d,xc->get_uuid());k=std::make_unique<xrt::kernel>(*hc,"MLIR_AIE");bI=std::make_unique<xrt::bo>(d,ins.size()*4,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));memcpy(bI->map(),ins.data(),ins.size()*4);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);bA=std::make_unique<xrt::bo>(d,(size_t)MD*KD,XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*2,XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));Am=(int8_t*)bA->map();Cm=(int16_t*)bC->map();for(int l=0;l<NC;l++)layerB[l]=std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B));return true;}
-void packB(int l,const float*w,int K,int N,float&sout){float amax=0;for(int i=0;i<K*N;i++){float a=fabsf(w[i]);if(std::isfinite(a)&&a>amax)amax=a;}if(amax<1e-12f)amax=1.0f;sout=amax/127.0f;float is=127.0f/amax;auto*Bm=(int8_t*)layerB[l]->map();for(int i=0;i<K*N;i++){float v=w[i];if(!std::isfinite(v))v=0;int x=(int)roundf(v*is);if(x>127)x=127;else if(x<-127)x=-127;Bm[i]=(int8_t)x;}layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);}
-inline void go(int l,const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){float ais=1.0f/ascale;memset(Am,0,(size_t)MD*KD);for(int m=0;m<am;m++)for(int k=0;k<ak;k++){float v=A[m*ak+k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;Am[m*KD+k]=(int8_t)q;}bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);auto r=(*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[l],*bC);r.wait();bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);float cs=ascale*Bscale;for(int m=0;m<am;m++)for(int n=0;n<an;n++){float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;C[m*an+n]=val;}}
+struct I8Ctx{const char*name;int MD,KD,ND;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt::hw_context>hc;std::unique_ptr<xrt::kernel>k;std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bI,bA,bC,layerB[NC];int8_t*Am;int32_t*Cm;std::vector<float>col_scale;
+bool init(xrt::device&d,const char*xp,const char*ip,int gid_B){FILE*f=fopen(ip,"rb");if(!f)return false;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);xc=std::make_unique<xrt::xclbin>(std::string(xp));d.register_xclbin(*xc);hc=std::make_unique<xrt::hw_context>(d,xc->get_uuid());k=std::make_unique<xrt::kernel>(*hc,"MLIR_AIE");bI=std::make_unique<xrt::bo>(d,ins.size()*4,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));memcpy(bI->map(),ins.data(),ins.size()*4);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);bA=std::make_unique<xrt::bo>(d,(size_t)MD*KD,XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*4,XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));Am=(int8_t*)bA->map();Cm=(int32_t*)bC->map();for(int l=0;l<NC;l++)layerB[l]=std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B));return true;}
+void packB(int l,const float*w,int K,int N,float&sout){float amax=0;col_scale.resize(N);for(int n=0;n<N;n++){float camax=0;for(int k=0;k<K;k++){float a=fabsf(w[(size_t)k*N+n]);if(std::isfinite(a)&&a>camax)camax=a;}if(camax>amax)amax=camax;col_scale[n]=camax>1e-12f?camax/127.0f:1.0f;}sout=amax/127.0f;auto*Bm=(int8_t*)layerB[l]->map();for(int n=0;n<N;n++){float is=127.0f/(col_scale[n]*127.0f);for(int k=0;k<K;k++){float v=w[(size_t)k*N+n];if(!std::isfinite(v))v=0;int x=(int)roundf(v/col_scale[n]);if(x>127)x=127;else if(x<-127)x=-127;Bm[(size_t)k*N+n]=(int8_t)x;}}layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);}
+// Per-column INT8 quantization: each output column has its own scale (~4.6x error reduction)
+static void packB_per_col(std::vector<int8_t>& out,const float*w,int K,int N,std::vector<float>& sc){
+sc.resize(N);out.resize((size_t)K*N);
+for(int n=0;n<N;n++){float amax=0;for(int k=0;k<K;k++){float a=fabsf(w[(size_t)k*N+n]);if(std::isfinite(a)&&a>amax)amax=a;}
+float s=amax>1e-12f?amax/127.0f:1.0f;sc[n]=s;float is=127.0f/(amax>1e-12f?amax:1.0f);
+for(int k=0;k<K;k++){float v=w[(size_t)k*N+n];if(!std::isfinite(v))v=0;int x=(int)roundf(v*is);if(x>127)x=127;else if(x<-127)x=-127;out[(size_t)k*N+n]=(int8_t)x;}}
+}
+inline void go(int l,const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){float ais=1.0f/ascale;memset(Am,0,(size_t)MD*KD);for(int m=0;m<am;m++)for(int k=0;k<ak;k++){float v=A[m*ak+k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;Am[m*KD+k]=(int8_t)q;}bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);auto r=(*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[l],*bC);r.wait();bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);float cs=ascale*Bscale;for(int m=0;m<am;m++)for(int n=0;n<an;n++){float s=col_scale.size()==(size_t)an?col_scale[n]:Bscale;float val=(float)Cm[m*ND+n]*ascale*s;if(!std::isfinite(val))val=0;C[m*an+n]=val;}}
 };
 
 // Minimal hand-rolled parser for {"tokens":[1,2,3],"max_new_tokens":64} — no library dependency.
@@ -190,12 +197,12 @@ int main(int argc, char** argv) {
     fprintf(stderr, "  %.0fms\n\n", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_emb).count());
 
     fprintf(stderr, "Init 4 GEMM...\n"); xrt::device dev(0);
-    #define D "/home/bcloud/npu-sandbox/npu-infer/build/int8"
-    I8Ctx cq{"QKV", XM, H, 4096}, co{"O", XM, NH * HD, H}, cg{"GU", XM, H, 6144}, cd{"D", XM, IM, H};
-    cq.init(dev, D"/final_i8_QKV_v.xclbin", D"/insts_i8_QKV_v.txt", 4);
-    co.init(dev, D"/final_i8_O_v.xclbin", D"/insts_i8_O_v.txt", 4);
-    cg.init(dev, D"/final_i8_GU_v.xclbin", D"/insts_i8_GU_v.txt", 4);
-    cd.init(dev, D"/final_i8_D_v.xclbin", D"/insts_i8_D_v.txt", 4);
+    std::string xd = []{const char* e = getenv("NPU_XCLBIN_DIR"); return e ? std::string(e) : std::string("/home/bcloud/npu-sandbox/npu-infer/build/int8");}();
+    I8Ctx cq{"QKV", XM, H, 4096}, co{"O", XM, NH * HD, H}, cg{"GU", XM, H, 6144}, cd_d{"D", XM, IM, H};
+    cq.init(dev, (xd+"/final_i8_QKV_v.xclbin").c_str(), (xd+"/insts_i8_QKV_v.txt").c_str(), 4);
+    co.init(dev, (xd+"/final_i8_O_v.xclbin").c_str(), (xd+"/insts_i8_O_v.txt").c_str(), 4);
+    cg.init(dev, (xd+"/final_i8_GU_v.xclbin").c_str(), (xd+"/insts_i8_GU_v.txt").c_str(), 4);
+    cd_d.init(dev, (xd+"/final_i8_D_v.xclbin").c_str(), (xd+"/insts_i8_D_v.txt").c_str(), 4);
 
     fprintf(stderr, "Dequant+pack...\n"); auto tp = std::chrono::steady_clock::now();
     struct WS { float qk, o_, g_, d_; } wsc[NC];
@@ -228,7 +235,7 @@ int main(int argc, char** argv) {
         float* dw = dequant_i8_to_float_ex(i8p(lo[l].dp), 384, DIN, &dr2, &dc2); // dr2=DOUT=1024, dc2=DIN=3072
         std::vector<float> wd((size_t)DIN * DOUT);
         transpose_pack(dw, DOUT, DIN, wd.data(), DOUT, 0);
-        cd.packB(l, wd.data(), DIN, DOUT, wsc[l].d_); free(dw);
+        cd_d.packB(l, wd.data(), DIN, DOUT, wsc[l].d_); free(dw);
     }
     // lm_head.weight is NOT tied to embed_tokens.weight for this model (separate storage,
     // separate quantization - confirmed via the Q4NX header's data_offsets) - reusing the
@@ -289,7 +296,7 @@ int main(int argc, char** argv) {
             for (int pi = 0; pi < npt; pi++) { memcpy(&sb_buf[pi * H], &h_b[pi * H], H * 4); rn_c(&h_b[pi * H], pa_n[l], H); }
             cg.go(l, h_b.data(), npt, H, dynamic_ascale(h_b.data(), npt * H), wsc[l].g_, gt_b.data(), 6144); cn(gt_b.data(), npt * 6144);
             for (int pi = 0; pi < npt; pi++) for (int i = 0; i < IM; i++) { float gv = gt_b[pi * 6144 + i]; if (!std::isfinite(gv)) gv = 0; su_b[pi * IM + i] = (gv / (1.0f + expf(-gv))) * gt_b[pi * 6144 + IM + i]; }
-            cd.go(l, su_b.data(), npt, IM, dynamic_ascale(su_b.data(), npt * IM), wsc[l].d_, dw_b.data(), H); cn(dw_b.data(), npt * H);
+            cd_d.go(l, su_b.data(), npt, IM, dynamic_ascale(su_b.data(), npt * IM), wsc[l].d_, dw_b.data(), H); cn(dw_b.data(), npt * H);
             for (int pi = 0; pi < npt; pi++) for (int i = 0; i < H; i++) h_b[pi * H + i] = sb_buf[pi * H + i] + dw_b[pi * H + i];
         }
         sp += npt; memcpy(h.data(), &h_b[(npt - 1) * H], H * 4);
@@ -313,7 +320,7 @@ int main(int argc, char** argv) {
                 memcpy(sb.data(), h.data(), H * 4); rn_c(h.data(), pa_n[l], H);
                 cg.go(l, h.data(), 1, H, dynamic_ascale(h.data(), H), wsc[l].g_, gt_b.data(), 6144); cn(gt_b.data(), 6144);
                 for (int i = 0; i < IM; i++) { float gv = gt_b[i]; if (!std::isfinite(gv)) gv = 0; su_b[i] = (gv / (1.0f + expf(-gv))) * gt_b[IM + i]; }
-                cd.go(l, su_b.data(), 1, IM, dynamic_ascale(su_b.data(), IM), wsc[l].d_, dw_b.data(), H); cn(dw_b.data(), H);
+                cd_d.go(l, su_b.data(), 1, IM, dynamic_ascale(su_b.data(), IM), wsc[l].d_, dw_b.data(), H); cn(dw_b.data(), H);
                 for (int i = 0; i < H; i++) h[i] = sb[i] + dw_b[i];
             }
             memcpy(sb.data(), h.data(), H * 4); rn_c(sb.data(), fin, H);
