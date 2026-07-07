@@ -742,8 +742,8 @@ pub fn executeLayer(
         head_dim: u32,
         gqa_ratio: u32,
     ) void {
-        const k_cache = self.kv.getK(layer);
-        const v_cache = self.kv.getV(layer);
+        const k_cache = self.kv.k_cache[layer][0..@min(@as(usize, seq_len) * n_kv_heads * head_dim, self.kv.k_cache[layer].len)];
+        const v_cache = self.kv.v_cache[layer][0..@min(@as(usize, seq_len) * n_kv_heads * head_dim, self.kv.v_cache[layer].len)];
         const scale = 1.0 / @sqrt(@as(f32, @floatFromInt(head_dim)));
 
         for (0..n_heads) |h| {
