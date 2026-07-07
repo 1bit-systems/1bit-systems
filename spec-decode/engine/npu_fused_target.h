@@ -211,6 +211,14 @@ public:
     static constexpr int MAX_SEQ = 4096;
     static constexpr int MAX_INSTR_POS = 128;
     static constexpr int B = 2048;  // bytes per bf16 hidden block: 1024 * 2
+    // Numerics-enabled capacity-token127 build KV cache: kv_blocks(8) * CACHE_BLOCK_DWORDS(8192)
+    // = 65536 dwords per layer, per K and per V. Persistent across tokens, zeroed at reset.
+    static constexpr size_t KV_DWORDS = 65536;
+    static constexpr size_t KV_BYTES  = KV_DWORDS * 4;   // 262144
+    // Position-dependent cos/sin slot inside each layer's aux-prefixed weight buffer.
+    // aux dword layout: input_norm(512) post_norm(512) q_norm(64) k_norm(64) cos(32) sin(32).
+    static constexpr size_t ROPE_COSSIN_DWORD_OFFSET = 1152;
+    static constexpr size_t ROPE_COSSIN_DWORDS = 64;
 
     NpuFusedTarget(const char* model_path,
                    const char* xclbin_dir,
@@ -240,17 +248,25 @@ public:
         dev_->register_xclbin(xclbin);
         kernel_ = std::make_unique<xrt::kernel>(*dev_, xclbin.get_uuid(), "MLIR_AIE");
         
-        int dg = kernel_->group_id(3); // HOST DRAM bank
-        int ig = kernel_->group_id(1); // SRAM bank for instructions
-        
-        // Load instruction files (per-position)
+        // Per-arg memory banks (kernel args after the opcode/instr/count prefix):
+        //   arg3=k_cache arg4=v_cache arg5=weights arg6=output arg7=hidden ; instr=arg1.
+        int ig = kernel_->group_id(1);
+        int kg = kernel_->group_id(3);
+        int vg = kernel_->group_id(4);
+        int wg = kernel_->group_id(5);
+        int og = kernel_->group_id(6);
+        int hg = kernel_->group_id(7);
+
+        // Load instruction files (per-position). Numerics-enabled capacity build ships
+        // design-token127-to-token{pos}.bin for pos 0..126, all 1723 words.
         printf("[NpuFusedTarget] Loading instruction files...\n");
         auto generic_data = load_binary(std::string(xclbin_dir) + "/design.bin");
         generic_bo_ = std::make_unique<xrt::bo>(*dev_, generic_data.size(), xrt::bo::flags::cacheable, ig);
         memcpy(generic_bo_->map(), generic_data.data(), generic_data.size());
         generic_bo_->sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        
+
         instr_bos_.resize(MAX_INSTR_POS);
+        int instr_loaded = 0;
         for (int pos = 0; pos < MAX_INSTR_POS; pos++) {
             char fname[256];
             snprintf(fname, 256, "%s/design-token127-to-token%d.bin", xclbin_dir, pos);
@@ -260,39 +276,50 @@ public:
                 memcpy(bo->map(), data.data(), data.size());
                 bo->sync(XCL_BO_SYNC_BO_TO_DEVICE);
                 instr_bos_[pos] = std::move(bo);
+                instr_loaded++;
             }
         }
-        
-        // Load fused weight files (one per layer)
-        printf("[NpuFusedTarget] Loading fused weight files...\n");
+        printf("[NpuFusedTarget] Loaded %d per-position instruction streams\n", instr_loaded);
+
+        // Load reference-format per-layer weights (aux@pos0 + packed Q4NX), 9.835 MB each.
+        printf("[NpuFusedTarget] Loading reference-format weight files...\n");
         weight_bos_.resize(NC);
         for (int l = 0; l < NC; l++) {
             char fname[256];
-            snprintf(fname, 256, "%s/fused_weights_l%d.bin", weights_dir, l);
+            snprintf(fname, 256, "%s/wref_l%d.bin", weights_dir, l);
             auto data = load_binary(fname);
             if (data.empty()) {
-                fprintf(stderr, "Missing fused weights for layer %d\n", l);
+                fprintf(stderr, "Missing weights for layer %d (%s)\n", l, fname);
                 return;
             }
-            auto bo = std::make_unique<xrt::bo>(*dev_, data.size(), xrt::bo::flags::host_only, dg);
+            auto bo = std::make_unique<xrt::bo>(*dev_, data.size(), xrt::bo::flags::host_only, wg);
             memcpy(bo->map(), data.data(), data.size());
             bo->sync(XCL_BO_SYNC_BO_TO_DEVICE);
             weight_bos_[l] = std::move(bo);
         }
-        
-        // Create persistent BOs
-        printf("[NpuFusedTarget] Creating data BOs...\n");
-        bKCache_ = std::make_unique<xrt::bo>(*dev_, (size_t)MAX_SEQ * 4, xrt::bo::flags::host_only, dg);
-        bVCache_ = std::make_unique<xrt::bo>(*dev_, (size_t)MAX_SEQ * 4, xrt::bo::flags::host_only, dg);
-        bHidden_ = std::make_unique<xrt::bo>(*dev_, B, xrt::bo::flags::host_only, dg);
-        bOutput_ = std::make_unique<xrt::bo>(*dev_, B, xrt::bo::flags::host_only, dg);
-        
+
+        // Load the per-position cos/sin RoPE table (int32[MAX_INSTR_POS][ROPE_COSSIN_DWORDS]).
+        {
+            auto rt = load_binary(std::string(weights_dir) + "/rope_table.bin");
+            if (rt.empty()) { fprintf(stderr, "Missing rope_table.bin\n"); return; }
+            rope_table_.resize(rt.size() / 4);
+            memcpy(rope_table_.data(), rt.data(), rt.size());
+            printf("[NpuFusedTarget] rope_table: %zu positions\n", rope_table_.size() / ROPE_COSSIN_DWORDS);
+        }
+
+        // Per-layer persistent KV caches (256 KB each, one K + one V per layer).
+        printf("[NpuFusedTarget] Creating per-layer KV caches (%zu KB each) + data BOs...\n", KV_BYTES / 1024);
+        kCache_.resize(NC);
+        vCache_.resize(NC);
+        for (int l = 0; l < NC; l++) {
+            kCache_[l] = std::make_unique<xrt::bo>(*dev_, KV_BYTES, xrt::bo::flags::host_only, kg);
+            vCache_[l] = std::make_unique<xrt::bo>(*dev_, KV_BYTES, xrt::bo::flags::host_only, vg);
+        }
+        bHidden_ = std::make_unique<xrt::bo>(*dev_, B, xrt::bo::flags::host_only, hg);
+        bOutput_ = std::make_unique<xrt::bo>(*dev_, B, xrt::bo::flags::host_only, og);
+
         clear_kv_cache();
-        
-        // Pre-compute lm_head as float32 for fast logit computation
-        printf("[NpuFusedTarget] Loading lm_head for CPU logit computation...\n");
-        // lm_head is already loaded by model_.lm_head_f32
-        
+
         layer_hidden_snapshots_.resize(NC, std::vector<float>(H));
         
         printf("[NpuFusedTarget] Ready. %d layers, %d target layers for draft features\n",
@@ -342,10 +369,12 @@ private:
     }
     
     void clear_kv_cache() {
-        memset(bKCache_->map(), 0, (size_t)MAX_SEQ * 4);
-        memset(bVCache_->map(), 0, (size_t)MAX_SEQ * 4);
-        bKCache_->sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        bVCache_->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        for (int l = 0; l < NC; l++) {
+            memset(kCache_[l]->map(), 0, KV_BYTES);
+            memset(vCache_[l]->map(), 0, KV_BYTES);
+            kCache_[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            vCache_[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        }
     }
     
     // Core forward logic shared by prefill and verify
@@ -383,7 +412,7 @@ private:
                 auto t_l = std::chrono::steady_clock::now();
                 auto& ibo = get_instr_bo(pos);
                 auto run = (*kernel_)((uint64_t)0, ibo, (uint32_t)1723,
-                                     *bKCache_, *bVCache_, *weight_bos_[l],
+                                     *kCache_[l], *vCache_[l], *weight_bos_[l],
                                      *bOutput_, *bHidden_);
                 run.wait();
                 double xclbin_us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t_l).count();
@@ -494,7 +523,12 @@ private:
     std::unique_ptr<xrt::bo> generic_bo_;
     std::vector<std::unique_ptr<xrt::bo>> instr_bos_;
     std::vector<std::unique_ptr<xrt::bo>> weight_bos_;
-    std::unique_ptr<xrt::bo> bKCache_, bVCache_, bHidden_, bOutput_;
+    // Per-layer KV caches (one pair per layer, persistent across positions).
+    std::vector<std::unique_ptr<xrt::bo>> kCache_;
+    std::vector<std::unique_ptr<xrt::bo>> vCache_;
+    std::unique_ptr<xrt::bo> bHidden_, bOutput_;
+    // Per-position cos/sin RoPE table (loaded once, shared across layers).
+    std::vector<int32_t> rope_table_;
     std::vector<std::vector<float>> layer_hidden_snapshots_;
     std::vector<int32_t> target_layer_ids_;
 };
