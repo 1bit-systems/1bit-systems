@@ -5,18 +5,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include "platform.h"
 #include <vector>
 #include <algorithm>
 #include <chrono>
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <xrt/xrt_device.h>
-#include <xrt/xrt_bo.h>
-#include <xrt/xrt_kernel.h>
 extern "C" float* dequant_i8_to_float(const uint8_t*,int,int*,int*);
-static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:[&]{uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}();}
 static constexpr int H=1024,NC=28,NH=16,NKV=8,HD=128,IM=3072,NV=151936,GQA=2;
 static constexpr float EPS=1e-6f; static constexpr int XM=128, BS=16;
 static constexpr int LM_N=30720, LM_CHUNKS=5; // 5 chunks × 30720 = 153600 ≥ NV=151936
@@ -288,5 +281,5 @@ int main(int argc,char**argv){
     }
     double tts=std::chrono::duration<double>(std::chrono::steady_clock::now()-tgs).count();
     printf("\n=== %.1f ms/tok effective (boot=%.0fms, batches=%d) ===\n",tts*1000/ng,t_boot,n_batches);
-    munmap(md,st.st_size);return 0;
+    platform_munmap(md,st.st_size);return 0;
 }
