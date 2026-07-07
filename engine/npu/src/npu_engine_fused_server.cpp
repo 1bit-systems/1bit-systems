@@ -70,11 +70,16 @@ int main(int argc, char** argv) {
 
     printf("FUSED: Loading model %s\n", model_path);
     printf("FUSED: xclbin=%s weights=%s\n", xclbin_dir, weights_dir);
+    fflush(stdout);
 
     // Load model for embeddings + lm_head
+    printf("FUSED: opening model...\n"); fflush(stdout);
     auto fd = platform_open_read(model_path);
+    printf("FUSED: fd=%d\n", fd); fflush(stdout);
     platform_stat st; platform_fstat(fd, &st);
+    printf("FUSED: size=%lu\n", (unsigned long)st.st_size); fflush(stdout);
     auto* md = (const uint8_t*)platform_mmap((size_t)st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+    printf("FUSED: mmap=%p\n", (void*)md); fflush(stdout);
     platform_close(fd);
     uint64_t hsz; memcpy(&hsz, md, 8);
     uint64_t df = 8 + hsz;
@@ -102,10 +107,16 @@ int main(int argc, char** argv) {
     };
 
     auto i8p = [&](uint64_t o) { return md + df + o; };
+    // Find tensor INT8 rows
+    auto gi8 = [&](const char* k) -> int {
+        int r = 0; find_tensor_info(js, jl, k, &r); return r;
+    };
+    int lm_i8 = gi8("lm_head.weight");
+    printf("FUSED: lm_head i8_rows=%d\n", lm_i8);
     uint64_t lo = json_off("lm_head.weight");
-    if (lo) {
+    if (lo && lm_i8 > 0) {
         int lr = 0, lc = 0;
-        float* lm_raw = dequant_i8_to_float_ex(i8p(lo), 0, 0, &lr, &lc);
+        float* lm_raw = dequant_i8_to_float_ex(i8p(lo), lm_i8, H, &lr, &lc);
         if (lr > 0 && lc > 0) {
             g_lm_head_f32.assign(lm_raw, lm_raw + (size_t)lr * lc);
             free(lm_raw);
@@ -207,6 +218,9 @@ int main(int argc, char** argv) {
     printf("FUSED: READY\n");
     fflush(stdout);
 
+    // Pre-load xclbin bytes for AIE2 array reset between layers
+    auto xclbin_bytes = load_bin(std::string(xclbin_dir) + "/design.xclbin");
+
     char cmd[512];
     int last_rope_pos = -1;
     bool running = true;
@@ -256,6 +270,13 @@ int main(int argc, char** argv) {
                 last_rope_pos = pos;
             }
 
+            // Reload xclbin to reset AIE2 array (cores halt after each kernel run)
+            {
+                xrt::xclbin fresh_xc(xclbin_bytes);
+                dev.register_xclbin(fresh_xc);
+                xrt::hw_context fresh_hctx(dev, fresh_xc.get_uuid());
+                kernel = xrt::kernel(fresh_hctx, "MLIR_AIE");
+            }
             // Run fused kernel for this layer
             auto& ibo = pos < MAX_INSTR_POS && instr_bos[pos] ? instr_bos[pos] : generic_bo;
             unsigned opcode = 3;
