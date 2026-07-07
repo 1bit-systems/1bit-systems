@@ -1,9 +1,13 @@
 #pragma once
 /** NPU Fused Target — speculative-decode target model using the fused-layer xclbin.
  *
- * Uses design_full_layer.xclbin (one call per layer, QKV→attn→O→GU→SiLU→D all on NPU)
- * with 28 fused_weights_l*.bin weight files and 128 per-position instruction files.
- * Achieves ~500+ tok/s (vs 97 tok/s of the old 4-xclbin dispatch).
+ * Uses the numerics-enabled full-layer xclbin (qwen3-decode-layer-capacity-token127,
+ * one call per layer: QKV→attn→O→GU→SiLU→D all on NPU) with 28 reference-format
+ * wref_l*.bin weight files (aux@pos0 + packed Q4NX), per-position design-token127-to-token*.bin
+ * instruction streams, a per-position rope_table.bin (cos/sin patched per token), and
+ * per-layer 256 KB persistent KV caches. NOTE: the earlier weight-stream xclbin
+ * (md5 515b2af1) was numerics-DISABLED (compute replaced by consume/drop) — fast but
+ * incoherent; this driver targets the compute-real build (md5 2f0f0858).
  *
  * Conforms to TargetModelInterface for use with spec_decode.h's SpeculativeDecoder.
  *
@@ -246,7 +250,10 @@ public:
         dev_ = std::make_unique<xrt::device>(0);
         xrt::xclbin xclbin(xclbin_data);
         dev_->register_xclbin(xclbin);
-        kernel_ = std::make_unique<xrt::kernel>(*dev_, xclbin.get_uuid(), "MLIR_AIE");
+        // Explicit hw_context (matches the proven v12 GEMM path and the gate test) — the
+        // implicit device-context kernel stalls on the 2nd consecutive real-compute run.
+        ctx_ = std::make_unique<xrt::hw_context>(*dev_, xclbin.get_uuid());
+        kernel_ = std::make_unique<xrt::kernel>(*ctx_, "MLIR_AIE");
         
         // Per-arg memory banks (kernel args after the opcode/instr/count prefix):
         //   arg3=k_cache arg4=v_cache arg5=weights arg6=output arg7=hidden ; instr=arg1.
@@ -256,6 +263,9 @@ public:
         int wg = kernel_->group_id(5);
         int og = kernel_->group_id(6);
         int hg = kernel_->group_id(7);
+        if (getenv("FUSED_DBG"))
+            fprintf(stderr, "[dbg] group_id 1=%d 3=%d 4=%d 5=%d 6=%d 7=%d\n",
+                    ig, kg, vg, wg, og, hg);
 
         // Load instruction files (per-position). Numerics-enabled capacity build ships
         // design-token127-to-token{pos}.bin for pos 0..126, all 1723 words.
@@ -376,6 +386,22 @@ private:
             vCache_[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);
         }
     }
+
+    // Overwrite the position-dependent cos/sin slot (layer-independent, 256B) in every
+    // layer's weight buffer, syncing only that sub-range to device.
+    void patch_rope(int pos) {
+        size_t npos = rope_table_.size() / ROPE_COSSIN_DWORDS;
+        if (npos == 0) return;
+        if (pos < 0) pos = 0;
+        if ((size_t)pos >= npos) pos = (int)npos - 1;   // clamp to table (context cap)
+        const int32_t* cs = rope_table_.data() + (size_t)pos * ROPE_COSSIN_DWORDS;
+        for (int l = 0; l < NC; l++) {
+            int32_t* wmap = (int32_t*)weight_bos_[l]->map();
+            memcpy(wmap + ROPE_COSSIN_DWORD_OFFSET, cs, ROPE_COSSIN_DWORDS * 4);
+            weight_bos_[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE,
+                                 ROPE_COSSIN_DWORDS * 4, ROPE_COSSIN_DWORD_OFFSET * 4);
+        }
+    }
     
     // Core forward logic shared by prefill and verify
     void batch_forward(const int32_t* tokens, int n, int32_t start_pos,
@@ -392,64 +418,50 @@ private:
             per_pos_hidden.resize(n, std::vector<float>(H));
         }
         
-        // For each position, run all layers
-        auto t_pos_start = std::chrono::steady_clock::now();
+        // For each position, run all 28 layers.
         for (int pi = 0; pi < n; pi++) {
             int pos = start_pos + pi;
-            auto t_pi = std::chrono::steady_clock::now();
-            
-            // Embed lookup: copy bf16 embed to hidden BO
+
+            // Patch position-dependent RoPE cos/sin (layer-independent) into every
+            // layer's aux-prefixed weight buffer, sub-buffer sync only the 256B slot.
+            patch_rope(pos);
+
+            // Embed lookup: copy bf16 embedding into the hidden BO.
             uint16_t* hdata = (uint16_t*)bHidden_->map();
             model_.embed_lookup_bf16(tokens[pi], hdata);
-            printf("  [dbg] pi=%d token=%d embed[0..4]: %04x %04x %04x %04x %04x\n", pi, tokens[pi], hdata[0], hdata[1], hdata[2], hdata[3], hdata[4]);
             bHidden_->sync(XCL_BO_SYNC_BO_TO_DEVICE);
-            
-            double embed_us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t_pi).count();
-            if (n <= 2) printf("  [tm] pi=%d embed: %.0fus\n", pi, embed_us);
-            
-            // Run all 28 layers at this position
+
             for (int l = 0; l < NC; l++) {
-                auto t_l = std::chrono::steady_clock::now();
                 auto& ibo = get_instr_bo(pos);
-                auto run = (*kernel_)((uint64_t)0, ibo, (uint32_t)1723,
+                unsigned opcode = getenv("FUSED_OPCODE") ? atoi(getenv("FUSED_OPCODE")) : 3;
+                auto run = (*kernel_)(opcode, ibo, (uint32_t)1723,
                                      *kCache_[l], *vCache_[l], *weight_bos_[l],
                                      *bOutput_, *bHidden_);
                 run.wait();
-                double xclbin_us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t_l).count();
-                if (l < 3 || l >= NC-1 || xclbin_us > 200)
-                    printf("  [tm] pi=%d l=%d xclbin: %.0fus\n", pi, l, xclbin_us);
-                
-                // Snapshot hidden state at target layers for draft features
-                // (captures from the LAST position in the batch, which is what
-                //  the draft model needs — it projects the trunk hidden features)
-                bool is_target = false;
-                for (int ti = 0; ti < (int)target_layer_ids_.size(); ti++) {
-                    if (target_layer_ids_[ti] == l) { is_target = true; break; }
-                }
-                if (is_target) {
-                    uint16_t* odata = (uint16_t*)bOutput_->map();
-                    float* snap = layer_hidden_snapshots_[l].data();
-                    for (int i = 0; i < H; i++) snap[i] = bf16f(odata[i]);
-                }
-                
-                // Output becomes input for next layer
-                auto t_sync = std::chrono::steady_clock::now();
-                // Debug: check last layer output values
-                if ((l == 0 || l == NC - 1) && pi == 0) {
+                bOutput_->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+
+                if (getenv("FUSED_DBG") && pi == 0) {
                     uint16_t* od = (uint16_t*)bOutput_->map();
-                    printf("  [dbg] last layer output[0..4]: bf16=%04x %04x %04x %04x %04x\n", od[0], od[1], od[2], od[3], od[4]);
-                    printf("  [dbg]   as float: %.4f %.4f %.4f %.4f %.4f\n",
-                           bf16f(od[0]), bf16f(od[1]), bf16f(od[2]), bf16f(od[3]), bf16f(od[4]));
+                    fprintf(stderr, "[dbg] pos0 l=%d done out[%.4f %.4f %.4f]\n",
+                            l, bf16f(od[0]), bf16f(od[1]), bf16f(od[2]));
                 }
+
+                // Snapshot hidden at target layers for draft features.
+                for (int ti = 0; ti < (int)target_layer_ids_.size(); ti++) {
+                    if (target_layer_ids_[ti] == l) {
+                        uint16_t* odata = (uint16_t*)bOutput_->map();
+                        float* snap = layer_hidden_snapshots_[l].data();
+                        for (int i = 0; i < H; i++) snap[i] = bf16f(odata[i]);
+                        break;
+                    }
+                }
+
+                // Layer output becomes next layer's input.
                 memcpy(bHidden_->map(), bOutput_->map(), B);
                 bHidden_->sync(XCL_BO_SYNC_BO_TO_DEVICE);
-                double sync_us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t_sync).count();
-                if (sync_us > 100) printf("  [tm] pi=%d l=%d sync: %.0fus\n", pi, l, sync_us);
             }
-            double pi_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_pi).count();
-            if (n <= 2) printf("  [tm] pi=%d total: %.2fms\n", pi, pi_ms);
-            
-            // Capture this position's final hidden state
+
+            // Capture this position's final hidden state (for per-position logits).
             if (logits_all_positions && out_logits) {
                 uint16_t* od = (uint16_t*)bOutput_->map();
                 for (int i = 0; i < H; i++) per_pos_hidden[pi][i] = bf16f(od[i]);
@@ -467,7 +479,6 @@ private:
             }
         }
         
-        auto t_lm_start = std::chrono::steady_clock::now();
         // Compute logits: final RMSNorm + lm_head matmul on CPU
         if (out_logits) {
             int num_logit_positions = logits_all_positions ? n : 1;
@@ -501,24 +512,13 @@ private:
                     for (int k = 0; k < H; k++) s += (double)hsrc[k] * wrow[k];
                     lg[v] = (float)s;
                 }
-                // Debug: check output logits
-                int max_v = 0;
-                for (int v = 1; v < NV; v++) if (lg[v] > lg[max_v]) max_v = v;
-                printf("  [tm] logits[%d] max=%d val=%.2f, top5: %d(%.2f) %d(%.2f) %d(%.2f)\n",
-                       pi, max_v, lg[max_v],
-                       max_v > 0 ? max_v - 1 : 0, max_v > 0 ? lg[max_v-1] : 0,
-                       max_v + 1 < NV ? max_v + 1 : 0, max_v + 1 < NV ? lg[max_v+1] : 0,
-                       max_v + 2 < NV ? max_v + 2 : 0, max_v + 2 < NV ? lg[max_v+2] : 0);
             }
-        }
-        if (out_logits) {
-            double lm_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_lm_start).count();
-            printf("  [tm] lm_head total: %.1fms for %d positions\n", lm_ms, logits_all_positions ? n : 1);
         }
     }
 
     npu_fused_detail::Q4NXModel model_;
     std::unique_ptr<xrt::device> dev_;
+    std::unique_ptr<xrt::hw_context> ctx_;
     std::unique_ptr<xrt::kernel> kernel_;
     std::unique_ptr<xrt::bo> generic_bo_;
     std::vector<std::unique_ptr<xrt::bo>> instr_bos_;

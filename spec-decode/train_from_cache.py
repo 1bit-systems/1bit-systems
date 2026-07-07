@@ -117,7 +117,7 @@ def collate_fn(batch):
     return padded, features
 
 def train():
-    dataset = CachedDataset('target_cache_200.pt')
+    dataset = CachedDataset('target_cache_npu_1k.pt')
     loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0, collate_fn=collate_fn)
     
     model = Eagle3Draft().to(DEVICE)
@@ -163,25 +163,30 @@ def train():
         print(f"  Epoch {epoch+1} avg loss: {avg_loss:.4f} ({elapsed:.1f}m)")
     
     os.makedirs("checkpoints", exist_ok=True)
-    path = "checkpoints/eagle3_draft.bin"
+    path = "checkpoints/eagle3_draft_npu_1k.bin"
+    # Save as .pt first (for resume)
+    pt_path = path.replace('.bin', '.pt')
+    torch.save(model.state_dict(), pt_path)
+    print(f"  Saved state_dict to {pt_path}")
+    
     # Export in C++ MTPDraftWeights order: weights only, no biases
     fields = [
-        ('embed.weight', 'embed', (VOCAB, H)),
-        ('fc.weight', 'fc', (H, 5*H)),
-        ('hidden_norm.weight', 'hidden_norm', (H,)),
-        ('input_norm.weight', 'input_layernorm', (H,)),
-        ('q_proj.weight', 'q_proj', (NUM_HEADS*HEAD_DIM, 2*H)),
-        ('k_proj.weight', 'k_proj', (NUM_KV_HEADS*HEAD_DIM, 2*H)),
-        ('v_proj.weight', 'v_proj', (NUM_KV_HEADS*HEAD_DIM, 2*H)),
-        ('o_proj.weight', 'o_proj', (H, NUM_HEADS*HEAD_DIM)),
+        ('embed.weight', 'embed', (VOCAB, HIDDEN)),
+        ('fc.weight', 'fc', (HIDDEN, 5*HIDDEN)),
+        ('hidden_norm.weight', 'hidden_norm', (HIDDEN,)),
+        ('input_norm.weight', 'input_layernorm', (HIDDEN,)),
+        ('q_proj.weight', 'q_proj', (NUM_HEADS*HEAD_DIM, 2*HIDDEN)),
+        ('k_proj.weight', 'k_proj', (NUM_KV_HEADS*HEAD_DIM, 2*HIDDEN)),
+        ('v_proj.weight', 'v_proj', (NUM_KV_HEADS*HEAD_DIM, 2*HIDDEN)),
+        ('o_proj.weight', 'o_proj', (HIDDEN, NUM_HEADS*HEAD_DIM)),
         ('q_norm.weight', 'q_norm', (HEAD_DIM,)),
         ('k_norm.weight', 'k_norm', (HEAD_DIM,)),
-        ('post_attn_norm.weight', 'post_attention_layernorm', (H,)),
-        ('gate.weight', 'gate_proj', (INTER_DIM, H)),
-        ('up.weight', 'up_proj', (INTER_DIM, H)),
-        ('down.weight', 'down_proj', (H, INTER_DIM)),
-        ('norm.weight', 'norm', (H,)),
-        ('lm_head.weight', 'lm_head', (VOCAB, H)),
+        ('post_attn_norm.weight', 'post_attention_layernorm', (HIDDEN,)),
+        ('gate.weight', 'gate_proj', (INTER_DIM, HIDDEN)),
+        ('up.weight', 'up_proj', (INTER_DIM, HIDDEN)),
+        ('down.weight', 'down_proj', (HIDDEN, INTER_DIM)),
+        ('norm.weight', 'norm', (HIDDEN,)),
+        ('lm_head.weight', 'lm_head', (VOCAB, HIDDEN)),
     ]
     total_bytes = 0
     with open(path, 'wb') as f:

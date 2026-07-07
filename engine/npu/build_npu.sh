@@ -56,6 +56,22 @@ echo "--- fused engine -> $FUSED_BIN ---"
 $CXX $CXXFLAGS -o "$FUSED_BIN" "$FUSED_SRC" $LIBS
 ls -lh "$FUSED_BIN"
 
+# Split engine (server mode with component xclbins)
+SPLIT_SRC="$SRCDIR/src/npu_engine_split.cpp"
+SPLIT_BIN="$BUILDDIR/npu_engine_split"
+echo ""
+echo "--- split engine -> $SPLIT_BIN ---"
+$CXX $CXXFLAGS -o "$SPLIT_BIN" "$SPLIT_SRC" "$DEQUANT_O" $LIBS
+ls -lh "$SPLIT_BIN"
+
+# Fused pipeline test (QKV→Attention→FFN integration test)
+PIPE_SRC="$SRCDIR/src/npu_fused_pipeline.cpp"
+PIPE_BIN="$BUILDDIR/npu_fused_pipeline"
+echo ""
+echo "--- fused pipeline test -> $PIPE_BIN ---"
+$CXX $CXXFLAGS -o "$PIPE_BIN" "$PIPE_SRC" $LIBS
+ls -lh "$PIPE_BIN"
+
 echo ""
 echo "=== All builds complete ==="
 ls -lh "$BUILDDIR"/npu_engine*
