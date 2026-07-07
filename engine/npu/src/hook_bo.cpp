@@ -36,7 +36,7 @@ static std::set<void*> seen_impls; // dedup
 
 // Capture a newly constructed xrt::bo
 static void capture_bo(void* self, size_t size, int flags, unsigned int group_id) {
-    if (!capturing || size <= 512*1024) return;
+    if (!capturing) return;
     std::lock_guard<std::mutex> lk(mtx);
     if (!logf) { logf = fopen("/tmp/hook_bo.log", "w"); setbuf(logf, NULL); }
     void* impl = *(void**)self;
@@ -70,6 +70,53 @@ extern "C" void _ZN3xrt2boC1ERKNS_6deviceEmNS0_5flagsEj(
     if (!real_bo2) real_bo2 = (bo_ctor2_t)dlsym(RTLD_NEXT, "_ZN3xrt2boC1ERKNS_6deviceEmNS0_5flagsEj");
     real_bo2(self, dev, sz, flags, gid);
     capture_bo(self, sz, flags, gid);
+}
+
+// Intercept xrt::bo::bo(hw_context, size, group_id) — FLM uses this for weight BOs
+// _ZN3xrt2boC1ERKNS_10hw_contextEmj
+typedef void (*bo_ctor3_t)(void*, const void*, size_t, unsigned int);
+static bo_ctor3_t real_bo3 = nullptr;
+extern "C" void _ZN3xrt2boC1ERKNS_10hw_contextEmj(
+    void* self, const void* hwctx, size_t sz, unsigned int gid)
+{
+    if (!real_bo3) real_bo3 = (bo_ctor3_t)dlsym(RTLD_NEXT, "_ZN3xrt2boC1ERKNS_10hw_contextEmj");
+    real_bo3(self, hwctx, sz, gid);
+    capture_bo(self, sz, 0, gid);
+}
+
+// Intercept xrt::bo::bo(hw_context, size, flags, group_id)
+// _ZN3xrt2boC1ERKNS_10hw_contextEmNS0_5flagsEj
+typedef void (*bo_ctor4_t)(void*, const void*, size_t, int, unsigned int);
+static bo_ctor4_t real_bo4 = nullptr;
+extern "C" void _ZN3xrt2boC1ERKNS_10hw_contextEmNS0_5flagsEj(
+    void* self, const void* hwctx, size_t sz, int flags, unsigned int gid)
+{
+    if (!real_bo4) real_bo4 = (bo_ctor4_t)dlsym(RTLD_NEXT, "_ZN3xrt2boC1ERKNS_10hw_contextEmNS0_5flagsEj");
+    real_bo4(self, hwctx, sz, flags, gid);
+    capture_bo(self, sz, flags, gid);
+}
+
+// ─── FLM uses xrt::ext::bo — Different class! ───
+// _ZN3xrt3ext2boC1ERKNS_6deviceEm
+typedef void (*ext_bo1_t)(void*, const void*, size_t);
+static ext_bo1_t real_ext_bo1 = nullptr;
+extern "C" void _ZN3xrt3ext2boC1ERKNS_6deviceEm(
+    void* self, const void* dev, size_t sz)
+{
+    if (!real_ext_bo1) real_ext_bo1 = (ext_bo1_t)dlsym(RTLD_NEXT, "_ZN3xrt3ext2boC1ERKNS_6deviceEm");
+    real_ext_bo1(self, dev, sz);
+    capture_bo(self, sz, 0, 0);
+}
+
+// _ZN3xrt3ext2boC1ERKNS_10hw_contextEm
+typedef void (*ext_bo2_t)(void*, const void*, size_t);
+static ext_bo2_t real_ext_bo2 = nullptr;
+extern "C" void _ZN3xrt3ext2boC1ERKNS_10hw_contextEm(
+    void* self, const void* hwctx, size_t sz)
+{
+    if (!real_ext_bo2) real_ext_bo2 = (ext_bo2_t)dlsym(RTLD_NEXT, "_ZN3xrt3ext2boC1ERKNS_10hw_contextEm");
+    real_ext_bo2(self, hwctx, sz);
+    capture_bo(self, sz, 0, 0);
 }
 
 // ─── Also intercept xrt::bo move constructor (used when storing BOs in containers) ───

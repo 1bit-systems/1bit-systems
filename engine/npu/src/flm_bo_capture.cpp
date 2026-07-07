@@ -1,158 +1,78 @@
 /**
- * Override weak FLM symbols to capture BOs after weight loading.
+ * FLM BO Capture v3 — works by intercepting xrt::bo::sync (always called).
  *
- * npu_app_manager::npu_app_manager and npu_xclbin_manager::register_xclbin
- * are weak symbols in libqwen3_npu.so. We override them to:
- * 1. Track the xrt::device* used by FLM
- * 2. Capture the xrt::bo objects created during weight loading
- * 3. Generate fused instruction sequences using the captured BOs
- * 4. Submit to NPU via layer.xclbin (1 launch/layer instead of 4)
- *
- * Build:
- *   g++ -shared -fPIC -O2 -o flm_bo_capture.so flm_bo_capture.cpp \
- *       -I$XRT/include -L$XRT/lib64 -lxrt_coreutil -ldl
- *
- * Run:
- *   LD_PRELOAD=./flm_bo_capture.so flm serve qwen3:0.6b
+ * Build: g++ -shared -fPIC -std=c++23 -O2 -o flm_bo_capture.so flm_bo_capture.cpp -ldl
+ * Run:   LD_PRELOAD=./flm_bo_capture.so flm serve qwen3:0.6b
  */
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <cstdint>
 #include <string>
 #include <vector>
-#include <map>
-#include <set>
 #include <mutex>
-#include <thread>
 #include <dlfcn.h>
-#include <chrono>
+#include <atomic>
+#include <unistd.h>
 
-// ─── Forward declarations ───
-namespace xrt {
-class device;
-class bo;
+struct CapBO { void* self; void* impl; size_t sz; int dir; };
+static std::vector<CapBO> g_bos;
+static std::mutex g_mtx;
+static void* g_dev = nullptr;
+static std::atomic<int> g_syncs{0};
+static std::atomic<bool> g_ready{false};
+
+extern "C" {
+    void*  flm_dev()          { return g_dev; }
+    int    flm_bo_cnt()       { std::lock_guard<std::mutex> l(mtx); return (int)g_bos.size(); }
+    int    flm_ok()           { return g_ready ? 1 : 0; }
 }
 
-// We store BO info as opaque handles to avoid needing xrt::bo definition
-struct BOHandle {
-    void* impl;  // xrt::bo internal impl pointer
-    size_t size;
-    int group_id;
-    void* bo_self; // the this pointer of xrt::bo
-};
-
-// ─── Global state ───
-static FILE* logf = nullptr;
-static std::mutex mtx;
-static xrt::device* g_xrt_device = nullptr;
-static std::vector<BOHandle> g_weight_bos;  // captured weight BOs
-static bool g_weights_loaded = false;
-
-// ─── Override weak npu_app_manager constructor ───
-// Original: npu_app_manager::npu_app_manager(npu_device, xrt::device*, string, bool)
-// This is a WEAK symbol — our strong definition overrides it.
-// We save the device pointer and call the original via RTLD_NEXT.
-
-struct npu_app_manager {
-    // We don't need to know the layout — we just call the original
-    // constructor from the library via dlsym.
-};
-
-// Constructor type: npu_app_manager(void* this, int npu_dev, xrt::device* dev, 
-//                                     const std::string& xclbin, bool flag)
-typedef void (*app_mgr_ctor_t)(void*, int, void*, const std::string&, bool);
-static app_mgr_ctor_t real_app_mgr_ctor = nullptr;
-
-// Our override — strong symbol replaces weak
+// ─── npu_app_manager ctor → capture device ───
+typedef void (*app_mgr_t)(void*,int,void*,const std::string&,bool);
+static app_mgr_t _app_mgr;
 extern "C" void _ZN15npu_app_managerC1E10npu_devicePN3xrt6deviceENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEb(
-    void* self, int npu_dev, xrt::device* dev, 
-    const std::string& xclbin, bool flag)
+    void* s, int n, void* d, const std::string& x, bool f)
 {
-    // Lazily resolve real constructor on first call
-    if (!real_app_mgr_ctor) {
-        // Open the library directly to get the original constructor
-        void* lib = dlopen("/opt/fastflowlm/lib/libqwen3_npu.so", RTLD_LAZY | RTLD_NOLOAD);
-        if (lib) {
-            real_app_mgr_ctor = (app_mgr_ctor_t)dlsym(lib, 
-                "_ZN15npu_app_managerC1E10npu_devicePN3xrt6deviceENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEb");
-            dlclose(lib);
+    g_dev = d;
+    fprintf(stderr, "[capture] app_mgr dev=%p xclbin=%s\n", d, x.c_str());
+    if (!_app_mgr) {
+        void* lib = dlopen("/opt/fastflowlm/lib/libqwen3_npu.so", RTLD_LAZY|RTLD_NOLOAD);
+        if (lib) { _app_mgr = (app_mgr_t)dlsym(lib, __func__); dlclose(lib); }
+    }
+    if (_app_mgr) _app_mgr(s, n, d, x, f);
+}
+
+// ─── xrt::bo::sync → capture BO info ───
+typedef void (*sync_t)(void*,int,size_t,size_t);
+static sync_t _sync;
+extern "C" void _ZN3xrt2bo4syncE18xclBOSyncDirectionmm(
+    void* s, int dir, size_t off, size_t sz)
+{
+    if (!_sync) {
+        void* lib = dlopen("libxrt_coreutil.so.2", RTLD_LAZY|RTLD_NOLOAD);
+        if (lib) { _sync = (sync_t)dlsym(lib, __func__); dlclose(lib); }
+    }
+    if (_sync) _sync(s, dir, off, sz);
+
+    if (sz > 4096) {
+        g_syncs++;
+        void* impl = *(void**)s;
+        std::lock_guard<std::mutex> l(g_mtx);
+        bool found = false;
+        for (auto& b : g_bos) { if (b.self == s) { b.sz = sz; b.dir = dir; found = true; break; } }
+        if (!found) g_bos.push_back({s, impl, sz, dir});
+        if (g_syncs == 8) {
+            g_ready = true;
+            fprintf(stderr, "[capture] READY: %d syncs, %zu BOs, dev=%p\n",
+                g_syncs.load(), g_bos.size(), g_dev);
         }
     }
-    
-    // Save device for later use
-    g_xrt_device = (xrt::device*)dev;
-    
-    printf("[capture] npu_app_manager ctor: dev=%p xclbin=%s\n", 
-           (void*)dev, xclbin.c_str());
-    fflush(stdout);
-    
-    // Call original constructor (captured from the library, not via RTLD_NEXT)
-    if (real_app_mgr_ctor)
-        real_app_mgr_ctor(self, npu_dev, dev, xclbin, flag);
-    else
-        printf("[capture] WARNING: no original ctor found, NPU may not work\n");
 }
 
-// ─── Override npu_xclbin_manager::register_xclbin ───
-// Also a weak symbol. We intercept to capture BOs after registration.
-
-typedef void (*mgr_reg_t)(void*, const std::string&);
-static mgr_reg_t real_mgr_reg = nullptr;
-
-extern "C" void _ZN18npu_xclbin_manager15register_xclbinENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE(
-    void* self, const std::string& path)
-{
-    if (!real_mgr_reg)
-        real_mgr_reg = (mgr_reg_t)dlsym(RTLD_NEXT,
-            "_ZN18npu_xclbin_manager15register_xclbinENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE");
-    
-    printf("[capture] register_xclbin: path=%s\n", path.c_str());
-    fflush(stdout);
-    
-    if (real_mgr_reg)
-        real_mgr_reg(self, path);
+__attribute__((constructor)) static void _init() {
+    fprintf(stderr, "\n[capture-v3] pid=%d\n", getpid());
 }
-
-// ─── Override xrt::bo::sync to track when weights are uploaded ───
-// xrt::bo::sync(xclBOSyncDirection, size_t, size_t)
-// mangled: _ZN3xrt2bo4syncE18xclBOSyncDirectionmm
-
-typedef void (*bo_sync_t)(void*, int, size_t, size_t);
-static bo_sync_t real_bo_sync = nullptr;
-
-extern "C" void _ZN3xrt2bo4syncE18xclBOSyncDirectionmm(
-    void* self, int dir, size_t offset, size_t size)
-{
-    if (!real_bo_sync)
-        real_bo_sync = (bo_sync_t)dlsym(RTLD_NEXT, 
-            "_ZN3xrt2bo4syncE18xclBOSyncDirectionmm");
-    
-    // Log large uploads to device (BO_TO_DEVICE = 0)
-    if (dir == 0 && size > 1024*1024) {
-        printf("[capture] bo->sync(TO_DEVICE, off=%zu, sz=%zu=%.1fMB) self=%p impl=%p\n",
-               offset, size, size/1048576.0, self, *(void**)self);
-        fflush(stdout);
-    }
-    
-    if (real_bo_sync)
-        real_bo_sync(self, dir, offset, size);
-}
-
-// ─── Poll for completion and dump state ───
-__attribute__((destructor))
-void fini() {
-    printf("\n=== FLM BO Capture Summary ===\n");
-    printf("  XRT device: %p\n", (void*)g_xrt_device);
-    printf("  Weights loaded: %s\n", g_weights_loaded ? "yes" : "no");
-    printf("  Captured BOs: %zu\n", g_weight_bos.size());
-    printf("==============================\n");
-    fflush(stdout);
-}
-
-__attribute__((constructor))
-void init() {
-    printf("\n=== FLM BO Capture Loaded ===\n");
-    printf("Overriding weak FLM symbols to capture weight BOs...\n");
-    fflush(stdout);
+__attribute__((destructor)) static void _fini() {
+    fprintf(stderr, "[capture-v3] done: dev=%p BOs=%zu syncs=%d\n",
+        g_dev, g_bos.size(), g_syncs.load());
 }
