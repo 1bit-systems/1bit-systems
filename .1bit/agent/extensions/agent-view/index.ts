@@ -377,20 +377,37 @@ export default function (pi: ExtensionAPI) {
 	function renderWidget(ctx: any) {
 		if (!isTui) return;
 
-		ctx.ui.setWidget("agent-view", (_tui: any, theme: any) => {
-			const agents = store.getAll();
-			if (agents.length === 0) {
-				return {
-					render: () => [
-						theme.fg("dim", "Agent View: no agents. /av spawn <task> to start one."),
-						theme.fg("dim", "  /av spawn|list|close|output · or ask the LLM to spawn agents"),
-					],
-					invalidate: () => {},
-				};
-			}
+		const active = store.getActiveCount();
+		const agents = store.getAll();
 
+		// Hide widget completely when no agents are active
+		// (cleans up after all agents finish)
+		if (active === 0 && agents.length > 0) {
+			// Show a brief "all done" summary that auto-clears
+			const doneCount = agents.filter(a => a.status === "done").length;
+			const errCount = agents.filter(a => a.status === "error").length;
+			ctx.ui.setWidget("agent-view", (_tui: any, theme: any) => ({
+				render: () => [
+					theme.fg("dim", `Agent View: ${doneCount} done` + (errCount > 0 ? ` · ${errCount} failed` : "") + " · /av to view"),
+				],
+				invalidate: () => {},
+			}));
+			return;
+		}
+
+		if (active === 0 && agents.length === 0) {
+			ctx.ui.setWidget("agent-view", (_tui: any, theme: any) => ({
+				render: () => [
+					theme.fg("dim", "Agent View: no agents. /av spawn <task> to start one."),
+				],
+				invalidate: () => {},
+			}));
+			return;
+		}
+
+		// Full view: agents are active, show the list
+		ctx.ui.setWidget("agent-view", (_tui: any, theme: any) => {
 			const lines: string[] = [];
-			const active = store.getActiveCount();
 
 			// Header
 			lines.push(
