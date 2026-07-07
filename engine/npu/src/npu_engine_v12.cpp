@@ -25,8 +25,8 @@ static inline void cn(float*x,int n){for(int i=0;i<n;i++)if(!std::isfinite(x[i])
 static inline void sm(float*sc,int n){if(n<=0)return;cn(sc,n);float mx=sc[0];for(int i=1;i<n;i++)if(sc[i]>mx)mx=sc[i];double s=0;for(int i=0;i<n;i++){float d=sc[i]-mx;if(d>80)d=80;else if(d<-80)d=-80;sc[i]=expf(d);s+=sc[i];}if(s<=0){float iv=1.0f/n;for(int i=0;i<n;i++)sc[i]=iv;return;}float is=1.0f/(float)s;for(int i=0;i<n;i++)sc[i]*=is;}
 static inline void rn_c(float*x,const float*w,int n){cn(x,n);double ss=0;for(int i=0;i<n;i++)if(std::isfinite(x[i]))ss+=(double)x[i]*x[i];float ir=1.0f/sqrtf((float)(ss/n)+EPS);for(int i=0;i<n;i++)x[i]=std::isfinite(x[i])?x[i]*ir*w[i]:0.0f;}
 static inline void transpose_pack(const float* src, int out_f, int in_f, float* dst, int dst_stride, int dst_offset){for(int o=0;o<out_f;o++)for(int i=0;i<in_f;i++)dst[(size_t)i*dst_stride+dst_offset+o]=src[(size_t)o*in_f+i];}
-static std::vector<float>rc,rs;static void ri(int hd,float th,int mp){rc.resize(mp*hd);rs.resize(mp*hd);for(int p=0;p<mp;p++)for(int d=0;d<hd;d+=2){float f=1.0f/powf(th,(float)d/hd),a=p*f;rc[p*hd+d]=cosf(a);rs[p*hd+d]=sinf(a);rc[p*hd+d+1]=cosf(a);rs[p*hd+d+1]=sinf(a);}}
-static inline void ra(float*x,int hd,int p){for(int d=0;d<hd;d+=2){float a=x[d],b=x[d+1],c=rc[p*hd+d],s=rs[p*hd+d];x[d]=a*c-b*s;x[d+1]=b*c+a*s;}}
+static std::vector<float>rc,rs;static void ri(int hd,float th,int mp){int hd2=hd/2;rc.resize(mp*hd);rs.resize(mp*hd);for(int p=0;p<mp;p++)for(int d=0;d<hd2;d++){float f=1.0f/powf(th,(float)d/hd2),a=p*f;rc[p*hd+d]=cosf(a);rs[p*hd+d]=sinf(a);}}
+static inline void ra(float*x,int hd,int p){int hd2=hd/2;for(int d=0;d<hd2;d++){float a=x[d],b=x[d+hd2],c=rc[p*hd+d],s=rs[p*hd+d];x[d]=a*c-b*s;x[d+hd2]=b*c+a*s;}}
 static uint64_t jo(const char*js,size_t jl,const char*nm){size_t nl=strlen(nm);const char*p=js,*e=js+jl;while(p<e){auto q=(const char*)platform_memmem(p,e-p,nm,nl);if(!q)return 0;if(q>js&&*(q-1)=='"'&&*(q+nl)=='"'){auto o=strstr(q,"\"data_offsets\"");if(o){auto a=strchr(o,'[');if(a)return strtoull(a+1,NULL,10);}}p=q+1;}return 0;}
 static std::vector<float> emb_f32;
 static std::vector<float> lm_head_f32;
@@ -73,7 +73,7 @@ static inline void attn_omp(float*qo,float*at,int cl,const float*kv_k,const floa
         float mx=-1e30f;
         for(int p=0;p<cl;p++){
             if(p>=max_pos){scores[p]=-1e30f;continue;}
-            double s=0;int qoff=hh*HD,koff=kvh*NKV*HD+p*HD;
+            double s=0;int qoff=hh*HD,koff=p*NKV*HD+kvh*HD;
             #pragma omp simd reduction(+:s)
             for(int d=0;d<HD;d++)s+=(double)qo[qoff+d]*kv_k[koff+d];
             scores[p]=(float)(s*0.0883883476); // 1/sqrt(128)
@@ -85,7 +85,7 @@ static inline void attn_omp(float*qo,float*at,int cl,const float*kv_k,const floa
         float isw=sw>0?1.0f/(float)sw:1.0f/cl;
         for(int d=0;d<HD;d++){float acc=0;int aoff=hh*HD+d;
             #pragma omp simd reduction(+:acc)
-            for(int p=0;p<cl;p++)acc+=scores[p]*kv_v[kvh*NKV*HD+p*HD+d];
+            for(int p=0;p<cl;p++)acc+=scores[p]*kv_v[p*NKV*HD+kvh*HD+d];
             at[aoff]=acc*isw;}
     }
 }
@@ -105,8 +105,8 @@ int main(int argc,char**argv){
     for(int l=0;l<NC;l++){snprintf(b,128,"model.layers.%d.self_attn.q_proj.weight",l);lo[l].qp=jo(js,jl,b);snprintf(b,128,"model.layers.%d.self_attn.k_proj.weight",l);lo[l].kp=jo(js,jl,b);snprintf(b,128,"model.layers.%d.self_attn.v_proj.weight",l);lo[l].vp=jo(js,jl,b);snprintf(b,128,"model.layers.%d.self_attn.o_proj.weight",l);lo[l].op=jo(js,jl,b);snprintf(b,128,"model.layers.%d.mlp.gate_proj.weight",l);lo[l].gp=jo(js,jl,b);snprintf(b,128,"model.layers.%d.mlp.up_proj.weight",l);lo[l].up=jo(js,jl,b);snprintf(b,128,"model.layers.%d.mlp.down_proj.weight",l);lo[l].dp=jo(js,jl,b);snprintf(b,128,"model.layers.%d.input_layernorm.weight",l);lo[l].in_off=jo(js,jl,b);snprintf(b,128,"model.layers.%d.post_attention_layernorm.weight",l);lo[l].pa_off=jo(js,jl,b);snprintf(b,128,"model.layers.%d.self_attn.q_norm.weight",l);lo[l].qn_off=jo(js,jl,b);snprintf(b,128,"model.layers.%d.self_attn.k_norm.weight",l);lo[l].kn_off=jo(js,jl,b);}
     uint64_t no=jo(js,jl,"model.norm.weight"),lo_off=jo(js,jl,"lm_head.weight");
     float in_n[NC][H],pa_n[NC][H],fin[H],qn_w[NC][HD],kn_w[NC][HD];
-    for(int l=0;l<NC;l++){auto iw=(const uint16_t*)(md+df+lo[l].in_off),pw_=(const uint16_t*)(md+df+lo[l].pa_off),qw=(const uint16_t*)(md+df+lo[l].qn_off),kw=(const uint16_t*)(md+df+lo[l].kn_off);for(int i=0;i<H;i++){in_n[l][i]=bf16g(iw[i]);pa_n[l][i]=bf16g(pw_[i]);}for(int i=0;i<HD;i++){qn_w[l][i]=bf16g(qw[i]);kn_w[l][i]=bf16g(kw[i]);}}
-    {auto fw=(const uint16_t*)(md+df+no);for(int i=0;i<H;i++)fin[i]=bf16g(fw[i]);}
+    for(int l=0;l<NC;l++){auto iw=(const uint16_t*)(md+df+lo[l].in_off),pw_=(const uint16_t*)(md+df+lo[l].pa_off),qw=(const uint16_t*)(md+df+lo[l].qn_off),kw=(const uint16_t*)(md+df+lo[l].kn_off);for(int i=0;i<H;i++){in_n[l][i]=std::min(2.0f,std::max(-2.0f,bf16g(iw[i])));pa_n[l][i]=std::min(2.0f,std::max(-2.0f,bf16g(pw_[i])));}for(int i=0;i<HD;i++){qn_w[l][i]=bf16g(qw[i]);kn_w[l][i]=bf16g(kw[i]);}}
+    {auto fw=(const uint16_t*)(md+df+no);for(int i=0;i<H;i++)fin[i]=std::min(2.0f,std::max(-2.0f,bf16g(fw[i])));}
     printf("Pre-convert emb f32...\n");emb_f32.resize((size_t)NV*H);
     for(int n=0;n<NV;n++)for(int i=0;i<H;i++)emb_f32[(size_t)n*H+i]=bf16g(emb[n*H+i]);
     printf("Init 4 GEMM...\n");xrt::device dev(0);
@@ -189,6 +189,8 @@ int main(int argc,char**argv){
             cd.go(l,su.data(),1,IM,dynamic_ascale(su.data(),1*IM),wsc[l].d_,dwo.data(),H);cn(dwo.data(),H);for(int i=0;i<H;i++)h0[i]=sb_[i]+dwo[i];
         }
         memcpy(sb_.data(),h0,H*4);rn_c(sb_.data(),fin,H);
+        {double hn=0;for(int i=0;i<H;i++)hn+=(double)sb_[i]*sb_[i];float rl=-1e30f;for(int n=0;n<NV;n++){double s=0;const float*e=&lm_head_f32[(size_t)n*H];for(int i=0;i<H;i++)s+=(double)sb_[i]*e[i];float v=(float)s;if(v>rl)rl=v;}
+        printf("  [DBG] hnorm=%.3f toplogit=%.3f\n",sqrtf((float)(hn/H)),rl);}
         lm_topk_omp(sb_.data(),lg.data(),top_ids,BS);
         memcpy(h.data(),h0,H*4);sp++;total_accepted++;
         t_boot=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-ts).count();
