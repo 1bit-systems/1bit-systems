@@ -8,4 +8,4 @@
 
 **ROCm vs Vulkan?** — **Vulkan ⭐ is primary.** ROCm available via `-Dbackend=rocm`.
 
-**Production ready?** — Yes. Open-source fused layer engine at 291 tok/s (3.4 ms/tok, 38 KB). Fallback paths: C++ v12 at 97 tok/s, FLM proxy at 94 tok/s.
+**Production ready?** — Yes. FLM proxy at 94 tok/s, cascade token router on :13306 routes NPU↔GPU by confidence. Spec-decode binary at 437 KB. Rust token router at 9.7 MB.
