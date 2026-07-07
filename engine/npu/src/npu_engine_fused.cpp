@@ -69,9 +69,10 @@ int main(int argc, char** argv) {
     printf("Loading instruction files...\n");
     std::vector<xrt::bo> instr_bos;
     std::vector<int> instr_positions;
-    // Generic fallback
+    // Generic fallback - padded for DMA safety
     auto generic_data = load_file(std::string(xclbin_root) + "/design.bin");
-    xrt::bo generic_bo(dev, generic_data.size(), xrt::bo::flags::cacheable, ig);
+    xrt::bo generic_bo(dev, std::max(generic_data.size(), (size_t)65536), xrt::bo::flags::cacheable, ig);
+    memset(generic_bo.map(), 0, std::max(generic_data.size(), (size_t)65536));
     memcpy(generic_bo.map(), generic_data.data(), generic_data.size());
     generic_bo.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     printf("  Loaded design.bin (%zu bytes, generic fallback)\n", generic_data.size());
@@ -83,7 +84,8 @@ int main(int argc, char** argv) {
         snprintf(fname, 256, "%s/design-token127-to-token%d.bin", xclbin_root, pos);
         auto data = load_file(fname);
         if (!data.empty()) {
-            xrt::bo bo(dev, data.size(), xrt::bo::flags::cacheable, ig);
+            xrt::bo bo(dev, std::max(data.size(), (size_t)65536), xrt::bo::flags::cacheable, ig);
+            memset(bo.map(), 0, std::max(data.size(), (size_t)65536));
             memcpy(bo.map(), data.data(), data.size());
             bo.sync(XCL_BO_SYNC_BO_TO_DEVICE);
             instr_bos[pos] = std::move(bo);
