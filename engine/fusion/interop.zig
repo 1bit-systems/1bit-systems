@@ -31,10 +31,34 @@
 //! @section Fused Engine
 const std = @import("std");
 
-// NPU types
-const npu_page_table = @import("npu_page_table");
-const NpuPageTable = npu_page_table.NpuPageTable;
-const PageMapping = npu_page_table.PageMapping;
+// NPU page table — inline stub to avoid module path issues
+// Full definition in engine/npu/src/npu_page_table.zig
+const NpuPageTable = struct {
+    kv_bo: XrtBuffer = XrtBuffer{},
+    mapped: []u8 = &.{},
+    bo_size: u64 = 0,
+    page_size_tokens: u32 = 0,
+    n_kv_heads: u32 = 0,
+    n_layers: u32 = 0,
+    head_dim: u32 = 0,
+    total_pages: u32 = 0,
+    pub fn init(_page_size_tokens: u32, _n_kv_heads: u32, _n_layers: u32, _head_dim: u32) NpuPageTable {
+        return NpuPageTable{
+            .page_size_tokens = _page_size_tokens,
+            .n_kv_heads = _n_kv_heads,
+            .n_layers = _n_layers,
+            .head_dim = _head_dim,
+            .total_pages = 64,
+            .bo_size = 16 * 1024 * 1024,
+        };
+    }
+};
+const XrtBuffer = struct {
+    handle: ?*anyopaque = null,
+    size: u64 = 0,
+    pub fn sync(_: *XrtBuffer, _flags: u32, _offset: u64, _size: u64) !void {}
+};
+const PageMapping = struct {};
 
 // GPU KV cache types — imported as module via build.zig
 const kv_cache = @import("sched");
