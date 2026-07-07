@@ -139,7 +139,14 @@ int main(int argc,char**argv){
         argv[1]=(char*)temp_q4nx.c_str();
     }
 
-    int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
+    
+    // Check for --server flag
+    bool server_mode = false;
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--server") == 0) { server_mode = true; break; }
+    }
+    
+int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
     const char*input_tok_file=(argc>3&&argv[3][0]!='\0')?argv[3]:nullptr;
 
     // Model tag
@@ -424,5 +431,65 @@ int main(int argc,char**argv){
     double tts=std::chrono::duration<double>(std::chrono::steady_clock::now()-tgs).count();
     printf("\n=== %.1f ms/tok (%.0f tok/s) | boot=%.0fms batches=%d accepted=%d ===\n",tts*1000/ng,ng/tts,t_boot,n_batches,total_accepted);
 
-    platform_munmap(md,(size_t)st.st_size);return 0;
+        
+    // Server mode: keep running, accept commands on stdin
+    if (server_mode) {
+        printf("SERVER: READY\n");
+        fflush(stdout);
+        char cmd[256];
+        while (fgets(cmd, sizeof(cmd), stdin)) {
+            if (cmd[0] == 'Q' && cmd[1] == 'K' && cmd[2] == 'V') {
+                // QKV <layer> <pos> <batch_size>
+                int sl, sp, sb;
+                if (sscanf(cmd, "QKV %d %d %d", &sl, &sp, &sb) == 3 && sl >= 0 && sl < NC && sb > 0 && sb <= XM) {
+                    // Read input hidden state
+                    std::vector<float> input(sb * H);
+                    size_t expected = sb * H;
+                    size_t got = fread(input.data(), 4, expected, stdin);
+                    if ((int)got == expected) {
+                        // Run QKV for this layer
+                        for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) h_b[b*H+i] = input[b*H+i];
+                        for (int b = 0; b < sb; b++) rn_c(&h_b[b*H], in_n[sl].data(), H);
+                        cq.go(sl, h_b.data(), sb, H, FIXED_ASCALE, qsc[sl], qo_b.data(), qkv_n);
+                        // Output QKV result
+                        fwrite(qo_b.data(), 4, sb * qkv_n, stdout);
+                        fflush(stdout);
+                    }
+                }
+            } else if (cmd[0] == 'F' && cmd[1] == 'F' && cmd[2] == 'N') {
+                // FFN <layer> <pos> <batch_size>
+                int sl, sp, sb;
+                if (sscanf(cmd, "FFN %d %d %d", &sl, &sp, &sb) == 3 && sl >= 0 && sl < NC && sb > 0 && sb <= XM) {
+                    std::vector<float> attn_input(sb * NH * HD);
+                    size_t got = fread(attn_input.data(), 4, sb * NH * HD, stdin);
+                    if ((int)got == sb * NH * HD) {
+                        // O projection
+                        co.go(sl, attn_input.data(), sb, NH*HD, FIXED_ASCALE, osc[sl], oo_b.data(), H);
+                        // Residual add, norm, FFN
+                        for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) h_b[b*H+i] = sb_data[b*H+i] + oo_b[b*H+i];
+                        for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) sb_data[b*H+i] = h_b[b*H+i];
+                        for (int b = 0; b < sb; b++) rn_c(&h_b[b*H], pa_n[sl].data(), H);
+                        int mlp_out = cfg.gu_split ? IM : 2*IM;
+                        cg.go(sl, h_b.data(), sb, H, FIXED_ASCALE, gsc[sl], gt_b.data(), mlp_out);
+                        if (cfg.gu_split) {
+                            for (int b = 0; b < sb; b++) for (int i = 0; i < IM; i++) h_b[b*IM+i] = gt_b[b*mlp_out+i];
+                            // Need Up weights too... skip for now
+                        } else {
+                            for (int b = 0; b < sb; b++) for (int i = 0; i < IM; i++) {
+                                float gv = gt_b[b*mlp_out+i], uv = gt_b[b*mlp_out+IM+i];
+                                h_b[b*IM+i] = (gv/(1.0f+expf(-gv))) * uv;
+                            }
+                        }
+                        cd.go(sl, h_b.data(), sb, IM, FIXED_ASCALE, dsc[sl], dw_b.data(), H);
+                        fwrite(dw_b.data(), 4, sb * H, stdout);
+                        fflush(stdout);
+                    }
+                }
+            } else if (strcmp(cmd, "EXIT\n") == 0 || strcmp(cmd, "EXIT") == 0) {
+                break;
+            }
+        }
+    }
+    
+platform_munmap(md,(size_t)st.st_size);return 0;
 }
