@@ -58,6 +58,7 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
 
     const test_sources = [_][]const u8{
+        "interop.zig",
         "dispatcher.zig",
         "memory.zig",
         "flm_proxy.zig",
