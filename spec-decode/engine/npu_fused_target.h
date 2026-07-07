@@ -34,6 +34,7 @@
 #include <omp.h>
 #include <xrt/xrt_device.h>
 #include <xrt/xrt_kernel.h>
+#include "model_config.h"  // for find_tensor_info
 #include <xrt/xrt_bo.h>
 
 extern "C" float* dequant_i8_to_float(const uint8_t*, int, int*, int*);
@@ -174,22 +175,41 @@ struct Q4NXModel {
         uint64_t no = json_off("model.norm.weight");
         if (no) final_norm_w = load_bf16_vec(no, hidden);
         
-        // Load lm_head (dequantized I8 weight) — same as original engine
+        // Load lm_head using find_tensor_info for correct INT8 tile rows
         uint64_t lo = json_off("lm_head.weight");
-        {
-            int lr = 0, lc = 0;
-            float* raw = dequant_i8_to_float(base + data_off + lo, 18992, &lr, &lc);
-            if (raw && lr > 0 && lc > 0) {
-                lm_head_f32 = new float[(size_t)lr * lc];
-                memcpy(const_cast<float*>(lm_head_f32), raw, (size_t)lr * lc * sizeof(float));
-                lm_head_rows = lr;
-                lm_head_cols = lc;
-                vocab_size = lr;
-                free(raw);
-                printf("  lm_head: %dx%d (loaded via dequant, rows=%d cols=%d)\n", lr, lc, lm_head_rows, lm_head_cols);
-                printf("  lm_head[0][0..3]: %.4f %.4f %.4f %.4f\n",
-                       lm_head_f32[0], lm_head_f32[1], lm_head_f32[2], lm_head_f32[3]);
+        if (lo) {
+            int lm_i8 = 0;
+            find_tensor_info(js, jl, "lm_head.weight", &lm_i8);
+            if (lm_i8 > 0) {
+                int lr = 0, lc = 0;
+                float* raw = dequant_i8_to_float_ex((const uint8_t*)(base + data_off + lo), lm_i8, hidden, &lr, &lc);
+                if (raw && lr > 0 && lc > 0) {
+                    lm_head_f32 = new float[(size_t)lr * lc];
+                    memcpy(const_cast<float*>(lm_head_f32), raw, (size_t)lr * lc * sizeof(float));
+                    lm_head_rows = lr;
+                    lm_head_cols = lc;
+                    vocab_size = lr;
+                    free(raw);
+                    printf("  lm_head: %dx%d (i8_rows=%d)\n", lr, lc, lm_i8);
+                } else {
+                    fprintf(stderr, "  WARNING: lm_head dequant failed (i8_rows=%d)\n", lm_i8);
+                }
+            } else {
+                fprintf(stderr, "  WARNING: lm_head tensor info not found\n");
             }
+        } else {
+            fprintf(stderr, "  WARNING: lm_head.weight not found in model JSON\n");
+        }
+        if (!lm_head_f32) {
+            fprintf(stderr, "  FALLBACK: using embedding table for lm_head\n");
+            // Fallback: use embed_table (BF16) as lm_head
+            lm_head_f32 = new float[(size_t)vocab_size * hidden];
+            const uint16_t* emb_src = (const uint16_t*)(base + data_off);
+            for (int v = 0; v < vocab_size; v++)
+                for (int i = 0; i < hidden; i++)
+                    const_cast<float*>(lm_head_f32)[(size_t)v * hidden + i] = bf16f(emb_src[(size_t)v * hidden + i]);
+            lm_head_rows = vocab_size;
+            lm_head_cols = hidden;
         }
         
         return true;
@@ -403,21 +423,14 @@ private:
     // resets the array for the next dispatch. See also npu_engine_fused_server.cpp
     // commit f5bae4049.
     void reload_xclbin() {
-        // Re-register the xclbin to reset the AIE2 array between layer dispatches.
-        // IMPORTANT: keep the same hw_context and kernel — recreating them causes
-        // BO memory group mismatch since BOs were allocated under the original context.
-        // Just re-registering the xclbin is sufficient for AIE2 reset.
+        // Reset the AIE2 array by re-registering the xclbin.
+        // Keep the same hw_context and kernel — BOs were allocated under them
+        // and re-registration without new context is sufficient for the reset.
+        // (If this doesn't work, the fused server pattern (commit f5bae4049) can
+        // be replicated, but requires recreating BOs in the new context too.)
         if (xclbin_bytes_.empty()) return;
-        // Re-register xclbin + create fresh context and kernel to reset AIE2 array.
-        // Use value types (not unique_ptr) so the kernel outlives the local scope
-        // and keeps the context alive via its internal shared_ptr.
         xrt::xclbin fresh_xc(xclbin_bytes_);
         dev_->register_xclbin(fresh_xc);
-        auto fresh_ctx = xrt::hw_context(*dev_, fresh_xc.get_uuid());
-        // kernel_ and ctx_ are value types — assignment replaces them,
-        // keeping the hw_context alive through kernel_'s internal reference.
-        ctx_ = fresh_ctx;
-        kernel_ = xrt::kernel(ctx_, "MLIR_AIE");
     }
 
     // Overwrite the position-dependent cos/sin slot (layer-independent, 256B) in every
