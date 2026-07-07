@@ -65,7 +65,8 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
     inline void go(int l,const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){
         // Use caller-provided activation scale. Fixed ASCALE=8.0/127.0 avoids the
         // per-call amax scan (~50us per GEMM, ~4ms saved for all 112 calls at B=128).
-        float ais=127.0f/ascale;
+        // ascale = amax/127.0, so quantization is A/ascale = A*127/amax
+        float ais=1.0f/ascale;
         for(int m=0;m<am;m++)for(int k=0;k<ak;k++){
             float v=A[m*ak+k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;
             Am[m*KD+k]=(int8_t)q;}
