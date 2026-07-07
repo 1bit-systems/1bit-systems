@@ -263,7 +263,7 @@ int main(int argc, char** argv) {
     printf("Block size: %d\n\n", BLOCK_SIZE);
     
     SpecProxy proxy;
-    proxy.init("/home/bcloud/spec-decode/checkpoints/dspark_draft.bin",
+    proxy.init("/home/bcloud/spec-decode/checkpoints/eagle3_draft.bin",
                "127.0.0.1", flm_port);
     
     // Create socket

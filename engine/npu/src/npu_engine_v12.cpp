@@ -189,8 +189,6 @@ int main(int argc,char**argv){
             cd.go(l,su.data(),1,IM,dynamic_ascale(su.data(),1*IM),wsc[l].d_,dwo.data(),H);cn(dwo.data(),H);for(int i=0;i<H;i++)h0[i]=sb_[i]+dwo[i];
         }
         memcpy(sb_.data(),h0,H*4);rn_c(sb_.data(),fin,H);
-        {double hn=0;for(int i=0;i<H;i++)hn+=(double)sb_[i]*sb_[i];float rl=-1e30f;for(int n=0;n<NV;n++){double s=0;const float*e=&lm_head_f32[(size_t)n*H];for(int i=0;i<H;i++)s+=(double)sb_[i]*e[i];float v=(float)s;if(v>rl)rl=v;}
-        printf("  [DBG] hnorm=%.3f toplogit=%.3f\n",sqrtf((float)(hn/H)),rl);}
         lm_topk_omp(sb_.data(),lg.data(),top_ids,BS);
         memcpy(h.data(),h0,H*4);sp++;total_accepted++;
         t_boot=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-ts).count();
