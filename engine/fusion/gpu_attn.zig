@@ -315,11 +315,11 @@ pub const GpuAttention = struct {
         var path_buf: [512]u8 = undefined;
 
         const attn_path = std.fmt.bufPrint(&path_buf, "{s}/flash_attn.spv", .{shader_dir}) catch unreachable;
-        const pipeline = try createPipeline(device, attn_path, 6, @sizeOf(FlashAttnPush));
+        var pipeline = try createPipeline(device, attn_path, 6, @sizeOf(FlashAttnPush));
         errdefer pipeline.deinit();
 
         const attn_batched_path = std.fmt.bufPrint(&path_buf, "{s}/flash_attn_batched.spv", .{shader_dir}) catch unreachable;
-        const pipeline_batched = try createPipeline(device, attn_batched_path, 6, @sizeOf(FlashAttnBatchedPush));
+        var pipeline_batched = try createPipeline(device, attn_batched_path, 6, @sizeOf(FlashAttnBatchedPush));
         errdefer pipeline_batched.deinit();
 
         // ── 8. Create descriptor pool ──
@@ -863,34 +863,38 @@ fn createPipeline(
     binding_count: u32,
     push_constant_size: u32,
 ) !Pipeline {
-    // ── Read SPIR-V binary ──
-    const cwd = std.fs.cwd();
-    const file = cwd.openFile(spirv_path, .{}) catch |err| {
-        log.err("Cannot open SPIR-V '{s}': {s}", .{ spirv_path, @errorName(err) });
+    // ── Read SPIR-V binary via posix ──
+    var path_buf: [4096]u8 = undefined;
+    @memcpy(path_buf[0..spirv_path.len], spirv_path);
+    path_buf[spirv_path.len] = 0;
+    const path_ptr: [*:0]u8 = @ptrCast(&path_buf);
+    const fd_raw = std.os.linux.open(path_ptr, .{ .ACCMODE = .RDONLY }, 0);
+    if (std.os.linux.errno(fd_raw) != .SUCCESS) {
+        log.err("Cannot open SPIR-V '{s}'", .{spirv_path});
         return error.ShaderFileNotFound;
-    };
-    defer file.close();
+    }
+    const fd: i32 = @intCast(fd_raw);
+    defer _ = std.os.linux.close(fd);
 
-    const stat = try file.stat();
-    if (stat.size == 0) return error.ShaderReadIncomplete;
+    const file_end = std.os.linux.lseek(fd, 0, std.os.linux.SEEK.END);
+    if (std.os.linux.errno(file_end) != .SUCCESS) return error.ShaderReadIncomplete;
+    const file_size = @as(usize, @intCast(file_end));
+    _ = std.os.linux.lseek(fd, 0, std.os.linux.SEEK.SET);
 
-    // Stack-allocate up to 32 KB; heap-allocate larger.
-    const MaxStackSpv: usize = 32 * 1024;
-    const spv_code: []align(4) u8 = if (stat.size <= MaxStackSpv) blk: {
-        var buf: [MaxStackSpv]u8 align(4) = undefined;
-        break :blk buf[0..stat.size];
-    } else try std.heap.page_allocator.alloc(u8, stat.size);
-    defer if (stat.size > MaxStackSpv) std.heap.page_allocator.free(spv_code);
-
-    const bytes_read = try file.readAll(spv_code);
-    if (bytes_read != stat.size) return error.ShaderReadIncomplete;
+    // Read SPIR-V binary
+    const spv_code = try std.heap.page_allocator.alloc(u8, file_size);
+    defer std.heap.page_allocator.free(spv_code);
+    const nread = std.os.linux.read(fd, spv_code.ptr, file_size);
+    if (std.os.linux.errno(nread) != .SUCCESS or @as(usize, @intCast(nread)) != file_size) {
+        return error.ShaderReadIncomplete;
+    }
 
     // ── Create shader module ──
     const module_ci = vk.VkShaderModuleCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
         .pNext = null,
         .flags = 0,
-        .codeSize = stat.size,
+        .codeSize = file_size,
         .pCode = @ptrCast(@alignCast(spv_code.ptr)),
     };
     var shader_module: vk.VkShaderModule = null;

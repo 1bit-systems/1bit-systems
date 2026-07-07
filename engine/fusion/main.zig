@@ -128,9 +128,7 @@ pub fn main(init: std.process.Init) !void {
     });
 
     // ── Check NPU binary exists ──
-    _ = std.fs.cwd().statFile(opts.npu_engine) catch {
-        std.debug.print("  NPU engine not found at {s}\n", .{opts.npu_engine});
-    };
+    // NPU binary check skipped (path may not be null-terminated)
 
     // ── Initialize GPU attention (best-effort) ──
     std.debug.print("GPU attention init...\n", .{});
@@ -143,7 +141,7 @@ pub fn main(init: std.process.Init) !void {
 
     // ── Create FusedExecutor ──
     var executor = try FusedExecutor.init(
-        allocator, opts.policy, QWEN3_0_6B,
+        allocator, @as(fuse.DispatchPolicy, @enumFromInt(@intFromEnum(opts.policy))), QWEN3_0_6B,
         opts.model_path, opts.npu_engine,
         MAX_CONTEXT, opts.batch_size,
         model.emb_f32, model.lm_head_f32, model.tied_embeddings,
@@ -160,12 +158,18 @@ pub fn main(init: std.process.Init) !void {
 
     // ── Prefill ──
     std.debug.print("Prefilling {d} tokens...\n", .{prompt_tokens.len});
-    var timer = try std.time.Timer.start();
+    var ts: std.os.linux.timespec = undefined;
+    _ = std.os.linux.clock_gettime(std.os.linux.CLOCK.MONOTONIC, &ts);
+    const t_start = @as(i64, ts.sec) * 1_000_000_000 + @as(i64, ts.nsec);
     executor.prefill(prompt_tokens, 1) catch |err| {
         std.debug.print("  Prefill error: {s}\n", .{@errorName(err)});
         return;
     };
-    const prefill_ms = @as(f64, @floatFromInt(timer.lap())) / 1_000_000.0;
+    var ts2: std.os.linux.timespec = undefined;
+    _ = std.os.linux.clock_gettime(std.os.linux.CLOCK.MONOTONIC, &ts2);
+    const t_now = @as(i64, ts2.sec) * 1_000_000_000 + @as(i64, ts2.nsec);
+    const prefill_ns = t_now - t_start;
+    const prefill_ms = @as(f64, @floatFromInt(prefill_ns)) / 1_000_000.0;
     std.debug.print("  {d:.1}ms ({d:.1} ms/tok)\n", .{ prefill_ms, prefill_ms / @as(f64, @floatFromInt(prompt_tokens.len)) });
 
     // ── Decode ──
@@ -186,9 +190,13 @@ pub fn main(init: std.process.Init) !void {
         if (generated % 20 == 0) std.debug.print("\n", .{});
     }
 
-    const elapsed_ms = @as(f64, @floatFromInt(timer.read())) / 1_000_000.0;
-    const tok_s = if (elapsed_ms > 0) @as(f64, @floatFromInt(generated)) / (elapsed_ms / 1000.0) else 0;
-    std.debug.print("\n{d} tokens in {d:.1}ms ({d:.0} tok/s)\n", .{ generated, elapsed_ms, tok_s });
+    var ts3: std.os.linux.timespec = undefined;
+    _ = std.os.linux.clock_gettime(std.os.linux.CLOCK.MONOTONIC, &ts3);
+    const t_end = @as(i64, ts3.sec) * 1_000_000_000 + @as(i64, ts3.nsec);
+    const total_ns = t_end - t_start;
+    const total_ms = @as(f64, @floatFromInt(total_ns)) / 1_000_000.0;
+    const tok_s = if (total_ms > 0) @as(f64, @floatFromInt(generated)) / (total_ms / 1000.0) else 0;
+    std.debug.print("\n{d} tokens in {d:.0}ms ({d:.0} tok/s)\n", .{ generated, total_ms, tok_s });
 }
 
-pub const is_debug_mode: bool = false;
+pub var is_debug_mode: bool = false;
