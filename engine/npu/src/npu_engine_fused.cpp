@@ -119,14 +119,15 @@ int main(int argc, char** argv) {
     
     // --- Create persistent BOs for KV cache, hidden, output ---
     printf("Creating data BOs...\n");
-    xrt::bo bKCache(dev, 8192*4, xrt::bo::flags::host_only, dg);
-    xrt::bo bVCache(dev, 8192*4, xrt::bo::flags::host_only, dg);
-    xrt::bo bHidden(dev, 512*4, xrt::bo::flags::host_only, dg);
-    xrt::bo bOutput(dev, 512*4, xrt::bo::flags::host_only, dg);
+    const size_t safe_sz = 16*1024*1024; // 16MB for DMA safety
+    xrt::bo bKCache(dev, safe_sz, xrt::bo::flags::host_only, dg);
+    xrt::bo bVCache(dev, safe_sz, xrt::bo::flags::host_only, dg);
+    xrt::bo bHidden(dev, safe_sz, xrt::bo::flags::host_only, dg);
+    xrt::bo bOutput(dev, safe_sz, xrt::bo::flags::host_only, dg);
     
     // Initialize KV cache to zeros
-    memset(bKCache.map(), 0, 8192*4);
-    memset(bVCache.map(), 0, 8192*4);
+    memset(bKCache.map(), 0, safe_sz);
+    memset(bVCache.map(), 0, safe_sz);
     bKCache.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bVCache.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     
