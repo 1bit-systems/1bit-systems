@@ -57,22 +57,28 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
         Am=(int8_t*)bA->map();Cm=(int32_t*)bC->map();
         for(int l=0;l<NL;l++)layerB.emplace_back(std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B)));
         return true;}
-    // Tile-interleaved packB matching xclbin instruction layout.
-    // NPU tiles: kt=64, nt=128. B matrix [K,N] stored as [N/nt, K/kt, kt, nt].
+    // NPU tile-interleaved packB: matches MLIR-AIE 8-column data layout.
+    // B matrix [K,N] stored as: N-groups(8*nt) → AIE-columns(8) → K-tiles → rows → cols.
     void packB(int l,const float*w,int K,int N,float&sout){
         float amax=0;
         for(int i=0;i<K*N;i++){float a=fabsf(w[i]);if(std::isfinite(a)&&a>amax)amax=a;}
         if(amax<1e-12f)amax=1.0f;sout=amax/127.0f;float is=127.0f/amax;auto*Bm=(int8_t*)layerB[l]->map();
-        const int kt=64, nt=128;
-        int kg_cnt=K/kt, ng_cnt=N/nt;
-        for(int k=0;k<K;k++){
-            int kg=k/kt, kk=k%kt;
-            for(int n=0;n<N;n++){
-                int ng=n/nt, j=n%nt;
-                float v=w[k*N+n];if(!std::isfinite(v))v=0;
-                int x=(int)roundf(v*is);if(x>127)x=127;else if(x<-127)x=-127;
-                int npu_idx=ng*kg_cnt*kt*nt+kg*kt*nt+kk*nt+j;
-                Bm[npu_idx]=(int8_t)x;
+        const int kt=64, nt=128, tile_cols=8;
+        int k_tiles=K/kt, n_groups=N/(tile_cols*nt);
+        for(int ng=0;ng<n_groups;ng++){
+            for(int c=0;c<tile_cols;c++){
+                for(int kg=0;kg<k_tiles;kg++){
+                    for(int i=0;i<kt;i++){
+                        for(int j=0;j<nt;j++){
+                            int out_idx=ng*tile_cols*nt+c*nt+j;
+                            int in_idx=kg*kt+i;
+                            float v=w[(size_t)in_idx*N+out_idx];if(!std::isfinite(v))v=0;
+                            int x=(int)roundf(v*is);if(x>127)x=127;else if(x<-127)x=-127;
+                            int b_flat=ng*tile_cols*k_tiles*kt*nt+c*k_tiles*kt*nt+kg*kt*nt+i*nt+j;
+                            Bm[b_flat]=(int8_t)x;
+                        }
+                    }
+                }
             }
         }
         layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);}
