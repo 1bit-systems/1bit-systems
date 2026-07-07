@@ -453,6 +453,67 @@ static int run_fused(int prompt_len, int max_new) {
 }
 
 // ---------------------------------------------------------------------------
+// Mode 3b: Fused Spec Decode (fused xclbin + Eagle3 draft)
+// ---------------------------------------------------------------------------
+static int run_fused_spec_decode(int prompt_len, int max_new) {
+    print_banner();
+    printf("Mode: FUSED-SPEC-DECODE (fused xclbin + Eagle3 draft)\n");
+    printf("Model:  %s\n", kModelPath);
+    printf("XCLBINs: %s\n", kFusedXclbinDir);
+    printf("Prompt: %d tokens\n", prompt_len);
+    printf("Generate: %d tokens\n\n", max_new);
+
+    printf("Loading fused target model + Eagle3 draft...\n");
+    auto t_load = std::chrono::steady_clock::now();
+
+    MTPDraftConfig draft_cfg;
+    MTPDraftModel draft(draft_cfg);
+    bool draft_loaded = draft.load_weights(kFallbackCheckpoint);
+
+    SpecDecodeConfig spec_cfg;
+    spec_cfg.max_new_tokens = max_new;
+    spec_cfg.num_draft_layers = 1;  // Eagle3 = 1 layer
+
+    NpuFusedTarget target(kModelPath, kFusedXclbinDir, kFusedWeightDir,
+                           spec_cfg.target_layer_ids, spec_cfg.num_target_layers);
+
+    printf("  Loaded in %.0fms\n\n",
+           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_load).count());
+
+    if (draft_loaded) {
+        printf("Eagle3 draft: %s\n", kFallbackCheckpoint);
+    } else {
+        printf("No draft checkpoint — running untrained fast path.\n");
+    }
+
+    using FusedDecoder = SpeculativeDecoderT<MTPDraftModel, MTPDraftState, MTPDraftConfig>;
+    FusedDecoder decoder(target, draft, spec_cfg);
+
+    auto prompt = default_prompt();
+    if (prompt_len > (int)prompt.size()) prompt.resize(prompt_len, 0);
+    int actual_prompt = std::min(prompt_len, (int)prompt.size());
+    std::vector<int32_t> output(max_new + actual_prompt);
+
+    printf("Generating...\n");
+    auto t0 = std::chrono::high_resolution_clock::now();
+    int generated = decoder.generate(prompt.data(), actual_prompt,
+                                      output.data(), max_new);
+    auto t1 = std::chrono::high_resolution_clock::now();
+
+    double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    int new_tokens = generated - actual_prompt;
+
+    print_stats(new_tokens, ms, decoder.stats());
+
+    printf("\nTokens: ");
+    for (int i = actual_prompt; i < std::min(generated, actual_prompt + 20); i++)
+        printf("%d ", output[i]);
+    printf("%s\n", new_tokens > 20 ? "..." : "");
+
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
 // Mode 4: Benchmark (simulated target)
 // ---------------------------------------------------------------------------
 struct SimulatedTarget : TargetModelInterface {
@@ -695,6 +756,7 @@ static void print_usage(const char* prog) {
     printf("                           pl: prompt length (default: 9)\n");
     printf("                           n:  max new tokens (default: 64)\n");
     printf("  --fused [pl] [n]       Fused layer xclbin mode\n");
+    printf("  --fused-spec [pl] [n]  Fused xclbin + Eagle3 spec decode\n");
     printf("  --bench [bs]           Simulated benchmark (bs: block size, default: sweep)\n");
     printf("  --bench-real [pl] [n]  Real NPU benchmark (default: 9 64)\n");
     printf("\n");
@@ -725,7 +787,7 @@ int main(int argc, char* argv[]) {
     }
     else if (mode == "--daemon-fused" || mode == "-df") {
         int port = (argc > 2) ? atoi(argv[2]) : 9090;
-        return run_daemon(port, /*use_fused=*/true, /*spec_decode=*/false);
+        return run_daemon(port, /*use_fused=*/true, /*spec_decode=*/true);
     }
     else if (mode == "--daemon-lite" || mode == "-dl") {
         int port = (argc > 2) ? atoi(argv[2]) : 9090;
@@ -735,6 +797,11 @@ int main(int argc, char* argv[]) {
         int prompt_len = (argc > 2) ? atoi(argv[2]) : 9;
         int max_new = (argc > 3) ? atoi(argv[3]) : 64;
         return run_spec_decode(prompt_len, max_new);
+    }
+    else if (mode == "--fused-spec" || mode == "-fs") {
+        int prompt_len = (argc > 2) ? atoi(argv[2]) : 9;
+        int max_new = (argc > 3) ? atoi(argv[3]) : 64;
+        return run_fused_spec_decode(prompt_len, max_new);
     }
     else if (mode == "--fused" || mode == "-f") {
         int prompt_len = (argc > 2) ? atoi(argv[2]) : 9;

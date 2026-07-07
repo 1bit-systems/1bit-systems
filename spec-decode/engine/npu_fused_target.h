@@ -5,9 +5,14 @@
  * one call per layer: QKV→attn→O→GU→SiLU→D all on NPU) with 28 reference-format
  * wref_l*.bin weight files (aux@pos0 + packed Q4NX), per-position design-token127-to-token*.bin
  * instruction streams, a per-position rope_table.bin (cos/sin patched per token), and
- * per-layer 256 KB persistent KV caches. NOTE: the earlier weight-stream xclbin
- * (md5 515b2af1) was numerics-DISABLED (compute replaced by consume/drop) — fast but
- * incoherent; this driver targets the compute-real build (md5 2f0f0858).
+ * per-layer 256 KB persistent KV caches.
+ *
+ * NOTE: AIE2 cores halt after each fused kernel run in token-mode. The xclbin must
+ * be RELOADED between every layer dispatch to reset the array. See commit f5bae4049.
+ *
+ * NOTE: the earlier weight-stream xclbin (md5 515b2af1) was numerics-DISABLED
+ * (compute replaced by consume/drop) — fast but incoherent; this driver targets
+ * the compute-real build (md5 2f0f0858).
  *
  * Conforms to TargetModelInterface for use with spec_decode.h's SpeculativeDecoder.
  *
@@ -247,22 +252,28 @@ public:
             return;
         }
         
+        // Store xclbin bytes for AIE2 array reset between layers (commit f5bae4049)
+        xclbin_bytes_ = xclbin_data;
+
         dev_ = std::make_unique<xrt::device>(0);
-        xrt::xclbin xclbin(xclbin_data);
+        xrt::xclbin xclbin(xclbin_bytes_);
         dev_->register_xclbin(xclbin);
-        // Explicit hw_context (matches the proven v12 GEMM path and the gate test) — the
-        // implicit device-context kernel stalls on the 2nd consecutive real-compute run.
-        ctx_ = std::make_unique<xrt::hw_context>(*dev_, xclbin.get_uuid());
-        kernel_ = std::make_unique<xrt::kernel>(*ctx_, "MLIR_AIE");
+        // Explicit hw_context (value type) — matches the proven server pattern where
+        // the kernel keeps the context alive via internal shared_ptr.
+        ctx_ = xrt::hw_context(*dev_, xclbin.get_uuid());
+        kernel_ = xrt::kernel(ctx_, "MLIR_AIE");
+
+        printf("[NpuFusedTarget] xclbin stored (%zu KB) for AIE2 reset\n",
+               xclbin_bytes_.size() / 1024);
         
         // Per-arg memory banks (kernel args after the opcode/instr/count prefix):
         //   arg3=k_cache arg4=v_cache arg5=weights arg6=output arg7=hidden ; instr=arg1.
-        int ig = kernel_->group_id(1);
-        int kg = kernel_->group_id(3);
-        int vg = kernel_->group_id(4);
-        int wg = kernel_->group_id(5);
-        int og = kernel_->group_id(6);
-        int hg = kernel_->group_id(7);
+        int ig = kernel_.group_id(1);
+        int kg = kernel_.group_id(3);
+        int vg = kernel_.group_id(4);
+        int wg = kernel_.group_id(5);
+        int og = kernel_.group_id(6);
+        int hg = kernel_.group_id(7);
         if (getenv("FUSED_DBG"))
             fprintf(stderr, "[dbg] group_id 1=%d 3=%d 4=%d 5=%d 6=%d 7=%d\n",
                     ig, kg, vg, wg, og, hg);
@@ -387,6 +398,28 @@ private:
         }
     }
 
+    // Reload the xclbin to reset AIE2 array between layer dispatches.
+    // Cores halt after each fused kernel run in token-mode; reloading the xclbin
+    // resets the array for the next dispatch. See also npu_engine_fused_server.cpp
+    // commit f5bae4049.
+    void reload_xclbin() {
+        // Re-register the xclbin to reset the AIE2 array between layer dispatches.
+        // IMPORTANT: keep the same hw_context and kernel — recreating them causes
+        // BO memory group mismatch since BOs were allocated under the original context.
+        // Just re-registering the xclbin is sufficient for AIE2 reset.
+        if (xclbin_bytes_.empty()) return;
+        // Re-register xclbin + create fresh context and kernel to reset AIE2 array.
+        // Use value types (not unique_ptr) so the kernel outlives the local scope
+        // and keeps the context alive via its internal shared_ptr.
+        xrt::xclbin fresh_xc(xclbin_bytes_);
+        dev_->register_xclbin(fresh_xc);
+        auto fresh_ctx = xrt::hw_context(*dev_, fresh_xc.get_uuid());
+        // kernel_ and ctx_ are value types — assignment replaces them,
+        // keeping the hw_context alive through kernel_'s internal reference.
+        ctx_ = fresh_ctx;
+        kernel_ = xrt::kernel(ctx_, "MLIR_AIE");
+    }
+
     // Overwrite the position-dependent cos/sin slot (layer-independent, 256B) in every
     // layer's weight buffer, syncing only that sub-range to device.
     void patch_rope(int pos) {
@@ -432,11 +465,15 @@ private:
             bHidden_->sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
             for (int l = 0; l < NC; l++) {
+                // AIE2 array reset: reload xclbin between each layer dispatch
+                // (cores halt after each kernel run in token-mode, see commit f5bae4049)
+                reload_xclbin();
+
                 auto& ibo = get_instr_bo(pos);
                 unsigned opcode = getenv("FUSED_OPCODE") ? atoi(getenv("FUSED_OPCODE")) : 3;
-                auto run = (*kernel_)(opcode, ibo, (uint32_t)1723,
-                                     *kCache_[l], *vCache_[l], *weight_bos_[l],
-                                     *bOutput_, *bHidden_);
+                auto run = kernel_(opcode, ibo, (uint32_t)1723,
+                                    *kCache_[l], *vCache_[l], *weight_bos_[l],
+                                    *bOutput_, *bHidden_);
                 run.wait();
                 bOutput_->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
 
@@ -517,9 +554,10 @@ private:
     }
 
     npu_fused_detail::Q4NXModel model_;
+    std::vector<char> xclbin_bytes_;   // cached xclbin data for AIE2 reset
     std::unique_ptr<xrt::device> dev_;
-    std::unique_ptr<xrt::hw_context> ctx_;
-    std::unique_ptr<xrt::kernel> kernel_;
+    xrt::hw_context ctx_{xrt::hw_context{}};         // value type — kept alive by kernel_
+    xrt::kernel kernel_{};                           // value type — holds internal ref to ctx_
     std::unique_ptr<xrt::bo> generic_bo_;
     std::vector<std::unique_ptr<xrt::bo>> instr_bos_;
     std::vector<std::unique_ptr<xrt::bo>> weight_bos_;
