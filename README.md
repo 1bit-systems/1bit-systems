@@ -116,6 +116,8 @@ API keys and credentials are stored in the system keyring:
 | GitHub SSH | `~/.ssh/` |
 | Xilinx/XRT license | `~/torch2aie/licenses/` + `~/.flexlmrc` |
 | Pi settings | `~/.pi/agent/settings.json` |
+| Cloudflare API + Zone | GNOME Keyring (`secret-tool lookup service cloudflare-analytics`) — [docs](docs/analytics-keyring.md) |
+| Cloudflare Web Analytics | token injected into `site/index.html` via GH Actions workflow |
 
 ## License
 
