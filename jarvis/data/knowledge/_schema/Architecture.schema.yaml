@@ -1,9 +1,0 @@
-type: object
-required: [type, title, description, timestamp]
-properties:
-  type: {type: string, const: Architecture}
-  title: {type: string}
-  description: {type: string}
-  resource: {type: string}
-  tags: {type: array, items: {type: string}}
-  timestamp: {type: string}
