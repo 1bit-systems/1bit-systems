@@ -62,12 +62,17 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
         if(amax<1e-12f)amax=1.0f;sout=amax/127.0f;float is=127.0f/amax;auto*Bm=(int8_t*)layerB[l]->map();
         for(int i=0;i<K*N;i++){float v=w[i];if(!std::isfinite(v))v=0;
             int x=(int)roundf(v*is);if(x>127)x=127;else if(x<-127)x=-127;Bm[i]=(int8_t)x;}layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);}
-    inline void go(int l,const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){float ais=1.0f/ascale;
+    inline void go(int l,const float*A,int am,int ak,float /*ascale*/,float Bscale,float*C,int an){
+        // Dynamic activation scale: prevents hidden-state explosion
+        float a_amax=0;
+        for(int i=0;i<am*ak;i++){float a=fabsf(A[i]);if(std::isfinite(a)&&a>a_amax)a_amax=a;}
+        if(a_amax<1e-8f)a_amax=1e-8f;
+        float as_scale=a_amax/127.0f, ais=127.0f/a_amax;
         memset(Am,0,(size_t)am*KD);for(int m=0;m<am;m++)for(int k=0;k<ak;k++){
             float v=A[m*ak+k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;
             Am[m*KD+k]=(int8_t)q;}bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
         auto r=(*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[l],*bC);r.wait();bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
-        float cs=ascale*Bscale;for(int m=0;m<am;m++)for(int n=0;n<an;n++){
+        float cs=as_scale*Bscale;for(int m=0;m<am;m++)for(int n=0;n<an;n++){
             float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;C[m*an+n]=val;}}
 };
 
@@ -196,11 +201,23 @@ int main(int argc,char**argv){
     int lm_i8=gi8("lm_head.weight");
 
     // Load lm_head.weight separately — NOT tied to embed_tokens.weight for this model
-    if(lo&&lm_i8>0){int lr,lc;float*lm_raw=dequant_i8_to_float_ex(i8p(lo),lm_i8,H,&lr,&lc);if(lm_raw){
+    bool tied_embeddings = false;
+    if(lo){
+        // Check config.json for tie_word_embeddings
+        std::string cfg_path = cfg.model_dir + "/config.json";
+        FILE* cf = fopen(cfg_path.c_str(), "r");
+        if(cf){
+            fseek(cf, 0, SEEK_END); long csz = ftell(cf); fseek(cf, 0, SEEK_SET);
+            std::string cjs(csz, 0); fread(&cjs[0], 1, csz, cf); fclose(cf);
+            tied_embeddings = cjs.find("\"tie_word_embeddings\": true") != std::string::npos ||
+                              cjs.find("\"tie_word_embeddings\":true") != std::string::npos;
+        }
+    }
+    if(lo&&lm_i8>0&&!tied_embeddings){int lr,lc;float*lm_raw=dequant_i8_to_float_ex(i8p(lo),lm_i8,H,&lr,&lc);if(lm_raw){
         lm_head_f32.assign(lm_raw,lm_raw+(size_t)lr*lc);free(lm_raw);
         printf("  lm_head: %dx%d (loaded from JSON), using for final logits\n",lr,lc);
     }else{printf("  lm_head: dequant failed, falling back to emb\n");}}
-    if(lm_head_f32.empty()){printf("  lm_head: using emb_f32 (tied embeddings)\n");}
+    if(lm_head_f32.empty()){printf("  lm_head: using emb_f32 (%s)\n", tied_embeddings ? "tied embeddings" : "no separate lm_head");}
     const float* lm_emb = lm_head_f32.empty() ? emb_f32.data() : lm_head_f32.data();
 
     // Init NPU
@@ -375,7 +392,7 @@ int main(int argc,char**argv){
                 float*ks=&qo_b[b*qkv_n+cfg.qkv_k_offset+kvh*HD],*vs=&qo_b[b*qkv_n+cfg.qkv_v_offset+kvh*HD];
                 memcpy(&kv_caches[l].k[(sp+b)*NKV*HD+kvh*HD],ks,HD*4);memcpy(&kv_caches[l].v[(sp+b)*NKV*HD+kvh*HD],vs,HD*4);}
             kv_caches[l].n=sp+batch_size;int cl=kv_caches[l].n;
-            for(int b=0;b<batch_size;b++){attn_omp(&qo_b[b*qkv_n],&at_b[b*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA);}
+            for(int b=0;b<batch_size;b++){attn_omp(&qo_b[b*qkv_n],&at_b[b*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA,sp+b+1);}
             co.go(l,at_b.data(),batch_size,NH*HD,FIXED_ASCALE,osc[l],oo_b.data(),H);cn(oo_b.data(),batch_size*H);
             // Residual add: use saved pre-norm values
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=sb_data[b*H+i]+oo_b[b*H+i];
