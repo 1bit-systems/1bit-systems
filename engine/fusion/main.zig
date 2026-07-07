@@ -144,8 +144,17 @@ pub fn main(init: std.process.Init) !void {
     std.debug.print("  GPU flash attention ready!\n", .{});
 
     // ── Create FusedExecutor ──
+    // Map dispatcher policy to fuse policy by name
+    const fuse_policy: fuse.DispatchPolicy = switch (opts.policy) {
+        .npu_only => .npu_only,
+        .gpu_only => .gpu_only,
+        .ffn_on_npu => .ffn_on_npu,
+        .qkv_on_npu => .qkv_on_npu,
+        .attention_on_npu => .attention_on_npu,
+        else => .ffn_on_npu,
+    };
     var executor = try FusedExecutor.init(
-        allocator, init.io, @as(fuse.DispatchPolicy, @enumFromInt(@intFromEnum(opts.policy))), QWEN3_0_6B,
+        allocator, init.io, fuse_policy, QWEN3_0_6B,
         opts.model_path, opts.npu_engine,
         MAX_CONTEXT, opts.batch_size,
         model.emb_f32, model.lm_head_f32, model.tied_embeddings,
