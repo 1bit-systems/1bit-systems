@@ -39,3 +39,4 @@ engine/lora/adapters/
 *.lora
 zinc/
 zaya-llama.cpp/
+engine/fusion/gpu_attn.o

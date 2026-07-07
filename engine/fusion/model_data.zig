@@ -62,23 +62,21 @@ pub fn loadModel(allocator: std.mem.Allocator, model_path: []const u8, model_tag
     });
 
     // ── Open and mmap model file ──
-    const fd = try std.posix.open(model_path, .{ .RDONLY = true }, 0);
-    errdefer std.posix.close(fd);
+    const fd = try std.fs.cwd().openFile(model_path, .{ .mode = .read_only });
+    defer fd.close();
 
-    var st: std.posix.Stat = undefined;
-    _ = std.posix.fstat(fd, &st);
-    const file_size = @as(usize, @intCast(st.size));
+    const file_size = try fd.getEndPos();
+    const fd_handle = fd.handle();
 
     const mapping = try std.posix.mmap(
         null,
         file_size,
         .{ .READ = true },
         .{ .TYPE = .PRIVATE },
-        fd,
+        fd_handle,
         0,
     );
     errdefer std.posix.munmap(mapping);
-    std.posix.close(fd);
 
     if (mapping.len < 8) return error.InvalidModelFile;
 
