@@ -5,3 +5,7 @@
 [submodule "engine/video/stable-diffusion.cpp"]
 	path = engine/video/stable-diffusion.cpp
 	url = https://github.com/leejet/stable-diffusion.cpp
+
+[submodule "jarvis-mobile"]
+	path = jarvis-mobile
+	url = https://github.com/bong-water-water-bong/1bit-mobile.git
