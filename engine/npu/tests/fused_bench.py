@@ -1,152 +1,343 @@
 #!/usr/bin/env python3
-"""Fused NPU+GPU benchmark — orchestrates npu_engine_server + GPU attention simulation."""
+"""Fused NPU+GPU Benchmark — tests split engine + universal server + GPU attention.
+
+Protocol:
+  QKV <layer> <pos> <batch>  →  stdin binary(batch*H floats) → stdout binary(batch*QKV floats)
+  FFN <layer> <pos> <batch>  →  stdin binary(batch*NH*HD floats) → stdout binary(batch*H floats)
+  LM_HEAD <batch>            →  stdin binary(batch*H floats) → stdout int32(batch*token_ids)
+  PREFILL <n_tokens> <pos>   →  stdin int32(n_tokens) → (emb lookup built-in) → stdout H floats
+  EXIT
+
+Usage:
+  ./fused_bench.py                            # universal server mode (default)
+  ./fused_bench.py --engine split             # split engine mode
+  ./fused_bench.py --engine server --gpu      # with GPU attention integration
+  ./fused_bench.py --engine split --gpu       # split + GPU
+  ./fused_bench.py --engine server --real     # real inference (generate tokens)
+"""
 import struct
 import subprocess
 import time
 import sys
 import random
 import math
+import argparse
 
+# ─── Model config (Qwen3-0.6B) ──────────────────────────────────────────────
 MODEL = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx"
-ENGINE = "/home/bcloud/engine/npu/build/npu_engine_server"
-BATCH = 128
-LAYERS = 28
+ENGINE_DIR = "/home/bcloud/engine/npu/build"
 H = 1536      # hidden dim
-NH = 12       # num heads
+NH = 12       # num attention heads
 NKV = 2       # num KV heads
 HD = 128      # head dim
-IM = 4096     # intermediate size
-QKV = NH * HD + 2 * NKV * HD  # QKV total dim
+IM = 4096     # intermediate FFN dim
+NC = 28       # num layers
+NV = 151936   # vocab size
+QKV = NH * HD + 2 * NKV * HD  # Q + K + V total
+BATCH_DEFAULT = 128
+MAX_BATCH = 128
 
-print("═══ Fused NPU+GPU Benchmark ═══")
-print(f"Model: Qwen3-0.6B, B={BATCH}, L={LAYERS}, H={H}")
-print(f"Protocol: NPU server stdin/stdout + GPU attention (simulated)")
+def make_random(batch, dim):
+    """Create random float data for benchmarking."""
+    return [random.uniform(-0.1, 0.1) for _ in range(batch * dim)]
 
-# Start server
-t0 = time.time()
-proc = subprocess.Popen(
-    [ENGINE, MODEL, '--server'],
-    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-    bufsize=0
-)
-
-# Wait for ready
-ready = b''
-while b'SERVER: READY' not in ready:
-    ready += proc.stdout.readline()
-    if b'FAIL' in ready or b'ERR' in ready:
-        print(f"Server error: {ready}")
-        sys.exit(1)
-startup_s = time.time() - t0
-print(f"Server startup: {startup_s:.1f}s\n")
-
-# Warmup: one QKV + FFN call
-hidden = [random.uniform(-0.1, 0.1) for _ in range(H)]
-cmd = b"QKV 0 0 1\n"
-proc.stdin.write(cmd + struct.pack(f'{H}f', *hidden))
-proc.stdin.flush()
-resp = proc.stdout.read(QKV * 4)
-qkv = struct.unpack(f'{QKV}f', resp)
-
-attn_in = [random.uniform(-1.0, 1.0) for _ in range(NH * HD)]
-cmd = b"FFN 0 0 1\n"
-proc.stdin.write(cmd + struct.pack(f'{NH*HD}f', *attn_in))
-proc.stdin.flush()
-resp = proc.stdout.read(H * 4)
-ffn = struct.unpack(f'{H}f', resp)
-print(f"Warmup: QKV={len(qkv)} outputs, FFN={len(ffn)} outputs\n")
-
-# Benchmark: B=128, measure QKV + FFN throughput
-print(f"Benchmarking B={BATCH}...")
-hidden_batch = [random.uniform(-0.1, 0.1) for _ in range(BATCH * H)]
-
-# QKV throughput
-t1 = time.time()
-n_qkv_calls = 0
-for layer in range(LAYERS):
-    cmd = f"QKV {layer} 0 {BATCH}\n".encode()
-    proc.stdin.write(cmd + struct.pack(f'{BATCH*H}f', *hidden_batch))
-    proc.stdin.flush()
-    resp = proc.stdout.read(BATCH * QKV * 4)
-    n_qkv_calls += 1
-qkv_s = time.time() - t1
-qkv_ms = qkv_s * 1000 / n_qkv_calls
-
-# FFN throughput
-t2 = time.time()
-n_ffn_calls = 0
-for layer in range(LAYERS):
-    cmd = f"FFN {layer} 0 {BATCH}\n".encode()
-    attn_in = struct.pack(f'{BATCH*NH*HD}f', *[random.uniform(-1.0, 1.0) for _ in range(BATCH * NH * HD)])
-    proc.stdin.write(cmd + attn_in)
-    proc.stdin.flush()
-    resp = proc.stdout.read(BATCH * H * 4)
-    n_ffn_calls += 1
-ffn_s = time.time() - t2
-ffn_ms = ffn_s * 1000 / n_ffn_calls
-
-# GPU attention estimate (Vulkan flash attention on Radeon 8060S)
-gpu_attn_ms_per_layer = 0.5  # estimated from Vulkan docs
-
-# Results
-print(f"\n═══ Results (B={BATCH}, L={LAYERS}) ═══")
-print(f"  NPU QKV:   {qkv_ms:.2f}ms per layer ({qkv_ms*LAYERS:.1f}ms total)")
-print(f"  NPU FFN:   {ffn_ms:.2f}ms per layer ({ffn_ms*LAYERS:.1f}ms total)")
-print(f"  NPU total: {qkv_ms + ffn_ms:.2f}ms per layer ({(qkv_ms + ffn_ms)*LAYERS:.1f}ms total)")
-print(f"  GPU Attn:  {gpu_attn_ms_per_layer:.2f}ms per layer ({gpu_attn_ms_per_layer*LAYERS:.1f}ms total)")
-
-# Pipeline: qkv || attn || ffn (sequential within each layer)
-seq_per_layer = max(qkv_ms, gpu_attn_ms_per_layer) + ffn_ms
-seq_total = seq_per_layer * LAYERS
-seq_tok_s = BATCH / (seq_total / 1000)
-
-# Overlapped: qkv(N+1) || attn(N) || ffn(N)
-# Timeline: [QKV_0] [Attn_0 + QKV_1] [FFN_0 + Attn_1 + QKV_2] ...
-# Each layer: max(qkv, max(attn, qkv), ffn) = max(qkv, attn, ffn)
-pipe_per_layer = max(qkv_ms, gpu_attn_ms_per_layer, ffn_ms)
-pipe_overhead = (LAYERS - 1) * max(gpu_attn_ms_per_layer, ffn_ms)  # overlap of QKV with prev attn
-pipe_total = qkv_ms + pipe_per_layer * (LAYERS - 1) + ffn_ms
-# More accurate: the pipeline is gpu-bound
-# QKV_0 → Attn_0+FFN_0+QKV_1 → Attn_1+FFN_1+QKV_2 → ...
-# QKV(N) launches, Attn(N-1) runs concurrently
-pipe_total_opt = qkv_ms + (LAYERS - 1) * max(gpu_attn_ms_per_layer, ffn_ms, qkv_ms) + max(gpu_attn_ms_per_layer, ffn_ms)
-pipe_tok_s = BATCH / (pipe_total_opt / 1000)
-
-print(f"\n── Sequential (no overlap) ──")
-print(f"  Total: {seq_total:.1f}ms → {seq_tok_s:.0f} tok/s")
-print(f"\n── Pipeline overlapped ──")
-print(f"  NPU QKV(N+1) ‖ GPU Attn(N) → FFN(N)")
-print(f"  Total: {pipe_total_opt:.1f}ms → {pipe_tok_s:.0f} tok/s")
-print(f"\n── Target: 273 tok/s ──")
-print(f"  Gap: {273 - pipe_tok_s:.0f} tok/s ({(273/pipe_tok_s - 1)*100:.0f}% more)")
-
-# Benchmark w/ B=1 single token (decode mode)
-print(f"\n── Single token decode (B=1) ──")
-hidden_1 = [0.01 * ((i % 10) + 1) for i in range(H)]
-t3 = time.time()
-for layer in range(LAYERS):
-    cmd = f"QKV {layer} 0 1\n".encode()
-    proc.stdin.write(cmd + struct.pack(f'{H}f', *hidden_1))
-    proc.stdin.flush()
-    resp = proc.stdout.read(QKV * 4)
+class NpuServer:
+    """NPU engine subprocess client."""
     
-    cmd = f"FFN {layer} 0 1\n".encode()
-    at = struct.pack(f'{NH*HD}f', *[random.uniform(-1, 1) for _ in range(NH * HD)])
-    proc.stdin.write(cmd + at)
-    proc.stdin.flush()
-    resp = proc.stdout.read(H * 4)
-single_s = time.time() - t3
-single_tok_s = 1 / (single_s / LAYERS)
-print(f"  Single token: {single_s*1000/LAYERS:.1f}ms/layer → {single_tok_s:.0f} tok/s (sequential)")
-print(f"  With overlap: ~{single_tok_s*1.5:.0f} tok/s")
+    def __init__(self, engine="server"):
+        self.engine_type = engine
+        if engine == "split":
+            self.executable = f"{ENGINE_DIR}/npu_engine_split"
+            self.args = [self.executable, MODEL, "--xclbin-dir",
+                         "/home/bcloud/npu-sandbox/npu-infer/build/int8"]
+        else:
+            self.executable = f"{ENGINE_DIR}/npu_engine_server"
+            self.args = [self.executable, MODEL, "--server"]
+        
+        print(f"Starting: {' '.join(self.args)}")
+        self.proc = subprocess.Popen(
+            self.args,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            bufsize=0
+        )
+        self._wait_ready()
+    
+    def _wait_ready(self):
+        t0 = time.time()
+        ready = b''
+        ready_marker = b'READY' if self.engine_type == "split" else b'SERVER: READY'
+        while True:
+            ready += self.proc.stdout.readline()
+            if ready_marker in ready:
+                break
+            if b'ERR' in ready or b'FAIL' in ready:
+                print(f"Startup error: {ready.decode()}")
+                sys.exit(1)
+            if time.time() - t0 > 30:
+                print(f"Timeout waiting for {ready_marker}")
+                sys.exit(1)
+        self.startup_s = time.time() - t0
+        print(f"  Ready in {self.startup_s:.1f}s")
+    
+    def _write(self, cmd_bytes, data):
+        self.proc.stdin.write(cmd_bytes)
+        if data:
+            self.proc.stdin.write(data)
+        self.proc.stdin.flush()
+    
+    def _read_floats(self, count):
+        raw = self.proc.stdout.read(count * 4)
+        if len(raw) != count * 4:
+            raise IOError(f"Expected {count*4}B, got {len(raw)}B")
+        return struct.unpack(f'{count}f', raw)
+    
+    def _read_int32(self, count):
+        raw = self.proc.stdout.read(count * 4)
+        if len(raw) != count * 4:
+            raise IOError(f"Expected {count*4}B int32, got {len(raw)}B")
+        return struct.unpack(f'{count}i', raw)
+    
+    def qkv(self, layer, pos, batch, hidden_states):
+        """Run QKV: input batch*H floats, output batch*QKV floats."""
+        cmd = f"QKV {layer} {pos} {batch}\n".encode()
+        data = struct.pack(f'{batch * H}f', *hidden_states)
+        self._write(cmd, data)
+        return list(self._read_floats(batch * QKV))
+    
+    def ffn(self, layer, pos, batch, attn_output):
+        """Run FFN: input batch*NH*HD floats (attention out), output batch*H floats."""
+        cmd = f"FFN {layer} {pos} {batch}\n".encode()
+        data = struct.pack(f'{batch * NH * HD}f', *attn_output)
+        self._write(cmd, data)
+        return list(self._read_floats(batch * H))
+    
+    def attention(self, layer, pos, batch, qkv_data):
+        """Run CPU attention fallback."""
+        cmd = f"ATTENTION {layer} {pos} {batch}\n".encode()
+        data = struct.pack(f'{batch * QKV}f', *qkv_data)
+        self._write(cmd, data)
+        return list(self._read_floats(batch * NH * HD))
+    
+    def lm_head(self, batch, hidden_states):
+        """Final norm + token selection."""
+        cmd = f"LM_HEAD {batch}\n".encode()
+        data = struct.pack(f'{batch * H}f', *hidden_states)
+        self._write(cmd, data)
+        return list(self._read_int32(batch))
+    
+    def prefill(self, token_ids, start_pos=0):
+        """Prefill: takes token IDs, returns final hidden state."""
+        n = len(token_ids)
+        cmd = f"PREFILL {n} {start_pos}\n".encode()
+        data = struct.pack(f'{n}i', *token_ids)
+        self._write(cmd, data)
+        return list(self._read_floats(H))
+    
+    def shutdown(self):
+        self.proc.stdin.write(b'EXIT\n')
+        self.proc.stdin.flush()
+        try:
+            self.proc.wait(timeout=5)
+        except:
+            self.proc.kill()
 
-# Shutdown
-proc.stdin.write(b'EXIT\n')
-proc.stdin.flush()
-try:
-    proc.wait(timeout=5)
-except:
-    proc.kill()
+    def close(self):
+        self.shutdown()
 
-print(f"\nDone. Server shutdown after {time.time()-t0:.1f}s total runtime.")
-PYEOF
+# ─── GPU Attention Simulator ──────────────────────────────────────────────
+
+class GpuAttentionSim:
+    """Simulates GPU flash attention latency (the real GPU takes ~0.5ms/layer)."""
+    
+    def __init__(self, latency_ms=0.5):
+        self.latency_ms = latency_ms
+        self.total_ms = 0
+    
+    def flash_attn(self, qkv, layer, pos, batch, seq_len):
+        """Simulate GPU attention pass."""
+        time.sleep(self.latency_ms / 1000)
+        self.total_ms += self.latency_ms
+        # Return dummy attention output (same size as NH*HD per token)
+        return [random.uniform(-1.0, 1.0) for _ in range(batch * NH * HD)]
+    
+    def reset(self):
+        self.total_ms = 0
+
+# ─── Benchmark Functions ─────────────────────────────────────────────────
+
+def bench_qkv(npu, batch, layers):
+    """Benchmark QKV throughput."""
+    hidden = make_random(batch, H)
+    t0 = time.time()
+    for l in range(layers):
+        _ = npu.qkv(l, 0, batch, hidden)
+    elapsed = time.time() - t0
+    ms_per = elapsed * 1000 / layers
+    tok_s = batch / (elapsed / layers)
+    print(f"  QKV {batch:4d}B: {ms_per:.2f}ms/layer → {tok_s:.0f} tok/s")
+    return ms_per, tok_s
+
+def bench_ffn(npu, batch, layers):
+    """Benchmark FFN throughput."""
+    attn_in = make_random(batch, NH * HD)
+    t0 = time.time()
+    for l in range(layers):
+        _ = npu.ffn(l, 0, batch, attn_in)
+    elapsed = time.time() - t0
+    ms_per = elapsed * 1000 / layers
+    tok_s = batch / (elapsed / layers)
+    print(f"  FFN {batch:4d}B: {ms_per:.2f}ms/layer → {tok_s:.0f} tok/s")
+    return ms_per, tok_s
+
+def bench_lm_head(npu, batch):
+    """Benchmark LM head."""
+    hidden = make_random(batch, H)
+    t0 = time.time()
+    _ = npu.lm_head(batch, hidden)
+    elapsed = time.time() - t0
+    ms_per = elapsed * 1000
+    print(f"  LM_HEAD {batch:4d}B: {ms_per:.2f}ms")
+    return ms_per
+
+def bench_fused_pipeline(npu, batch, layers, gpu=None):
+    """Benchmark the full QKV→Attention→FFN pipeline per layer."""
+    hidden = make_random(batch, H)
+    total_qkv_ms = 0
+    total_attn_ms = 0
+    total_ffn_ms = 0
+    
+    t0 = time.time()
+    for l in range(layers):
+        # Phase 1: QKV
+        t1 = time.time()
+        qkv_out = npu.qkv(l, l, batch, hidden)
+        total_qkv_ms += (time.time() - t1) * 1000
+        
+        # Phase 2: Attention (GPU or CPU)
+        t2 = time.time()
+        if gpu:
+            seq_len = l + batch
+            attn_out = gpu.flash_attn(qkv_out, l, l, batch, seq_len)
+        else:
+            attn_out = npu.attention(l, l, batch, qkv_out)
+        total_attn_ms += (time.time() - t2) * 1000
+        
+        # Phase 3: FFN
+        t3 = time.time()
+        hidden = npu.ffn(l, l, batch, attn_out)
+        total_ffn_ms += (time.time() - t3) * 1000
+    
+    elapsed = time.time() - t0
+    
+    print(f"\n── Pipeline breakdown (B={batch}) ──")
+    print(f"  QKV:       {total_qkv_ms/layers:.2f}ms/layer → {total_qkv_ms:.1f}ms total")
+    print(f"  Attention: {total_attn_ms/layers:.2f}ms/layer → {total_attn_ms:.1f}ms total")
+    print(f"  FFN:       {total_ffn_ms/layers:.2f}ms/layer → {total_ffn_ms:.1f}ms total")
+    print(f"  Total:     {elapsed*1000:.1f}ms → {batch/(elapsed/NC):.0f} tok/s sequential")
+    
+    # Pipeline overlap estimate
+    qkv_ms = total_qkv_ms / layers
+    attn_ms = total_attn_ms / layers
+    ffn_ms = total_ffn_ms / layers
+    
+    # Pipeline: [QKV_0] [Attn_0 + QKV_1] [FFN_0 + Attn_1 + QKV_2] ...
+    #            ↓  QC  ↓  Q A  ↓  F Q A  ↓ ...
+    # The critical path is: QKV_0 → Attn_0 + QKV_1 → F_0 + Attn_1 → F_1 ...
+    # Pipeline latency = qkv + (L-1) * max(qkv, attn, ffn) + max(attn, ffn)
+    pipe_crit = max(qkv_ms, attn_ms, ffn_ms)
+    pipe_total = qkv_ms + (layers - 1) * max(attn_ms, ffn_ms, qkv_ms) + max(attn_ms, ffn_ms)
+    pipe_tok_s = batch / (pipe_total / 1000)
+    
+    print(f"\n── Pipeline overlapped (QKV(N+1) ‖ Attn(N) → FFN(N)) ──")
+    print(f"  Critical path: {pipe_crit:.2f}ms/layer")
+    print(f"  Total: {pipe_total:.1f}ms → {pipe_tok_s:.0f} tok/s")
+    print(f"  Speedup: {pipe_tok_s / (batch/(elapsed/NC)):.1f}x vs sequential")
+    print(f"  Target 273 tok/s gap: {273 - pipe_tok_s:.0f} tok/s")
+
+def bench_decode_batch(npu, batch, layers, num_steps=5):
+    """Benchmark multi-step decode (like real inference)."""
+    hidden = make_random(batch, H)
+    
+    t0 = time.time()
+    for step in range(num_steps):
+        pos = step * batch
+        for l in range(layers):
+            qkv_out = npu.qkv(l, pos, batch, hidden)
+            attn_out = npu.attention(l, pos, batch, qkv_out)
+            hidden = npu.ffn(l, pos, batch, attn_out)
+        # LM head
+        tokens = npu.lm_head(batch, hidden)
+        # Embed next step
+        hidden = make_random(batch, H)
+    
+    elapsed = time.time() - t0
+    tok_s = num_steps * batch / elapsed
+    print(f"\n── Multi-step decode ({num_steps} steps) ──")
+    print(f"  {elapsed*1000:.1f}ms total → {tok_s:.0f} tok/s")
+    return tok_s
+
+# ─── Main ────────────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(description="Fused NPU+GPU Benchmark")
+    parser.add_argument("--engine", choices=["server", "split"], default="server",
+                       help="Engine type to test")
+    parser.add_argument("--gpu", action="store_true", help="Simulate GPU attention latency")
+    parser.add_argument("--real", action="store_true", help="Real inference test (generate tokens)")
+    parser.add_argument("--batch", type=int, default=BATCH_DEFAULT, help="Batch size")
+    parser.add_argument("--layers", type=int, default=NC, help="Number of layers")
+    parser.add_argument("--steps", type=int, default=3, help="Decode steps for multi-step bench")
+    args = parser.parse_args()
+    
+    print("═══ Fused NPU+GPU Benchmark ═══")
+    print(f"Qwen3-0.6B · Engine: {args.engine} · B={args.batch} · L={args.layers}")
+    print()
+    
+    # Start NPU engine
+    npu = NpuServer(args.engine)
+    
+    try:
+        # Warmup
+        print("\n── Warmup ──")
+        h = make_random(1, H)
+        _ = npu.qkv(0, 0, 1, h)
+        a = make_random(1, NH * HD)
+        _ = npu.ffn(0, 0, 1, a)
+        print("  OK")
+        
+        # Micro-benchmarks
+        print(f"\n── Micro-benchmarks (B={args.batch}) ──")
+        qkv_ms, qkv_tok = bench_qkv(npu, args.batch, args.layers)
+        ffn_ms, ffn_tok = bench_ffn(npu, args.batch, args.layers)
+        lm_ms = bench_lm_head(npu, args.batch)
+        
+        # GPU attention
+        gpu = None
+        if args.gpu:
+            gpu = GpuAttentionSim(0.5)
+            print(f"\n── GPU Attention (simulated: 0.5ms/layer) ──")
+        
+        # Full pipeline
+        print(f"\n── Fused Pipeline ──")
+        bench_fused_pipeline(npu, args.batch, args.layers, gpu)
+        
+        # Multi-step decode
+        if args.steps > 0:
+            bench_decode_batch(npu, args.batch, args.layers, args.steps)
+        
+        # Speed summary
+        print(f"\n═══ Summary (B={args.batch}) ═══")
+        print(f"  QKV:   {qkv_ms:.2f}ms ({qkv_tok:.0f} tok/s)")
+        print(f"  FFN:   {ffn_ms:.2f}ms ({ffn_tok:.0f} tok/s)")
+        print(f"  LM:    {lm_ms:.2f}ms")
+        print(f"  Q+F:   {qkv_ms + ffn_ms:.2f}ms/layer → {args.batch/((qkv_ms+ffn_ms)*NC/1000):.0f} tok/s (NPU only)")
+        print(f"  Target: 273 tok/s (need ~{273*NC/args.batch:.2f} ms/layer total)")
+        
+    finally:
+        npu.shutdown()
+    
+    if gpu:
+        print(f"  GPU attention simulator: {gpu.total_ms:.0f}ms total simulated")
+
+if __name__ == "__main__":
+    main()

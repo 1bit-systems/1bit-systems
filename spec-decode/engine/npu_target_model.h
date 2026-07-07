@@ -351,10 +351,12 @@ public:
                 memcpy(sb.data(), &h_b[(size_t)pi*H], H*4);
                 rn_c(sb.data(), fin_.data(), H);
                 float* lg = out_logits + (size_t)(logits_for_all_positions ? pi : 0)*NV;
+                const float* sbp = sb.data();
+                #pragma omp parallel for schedule(static)
                 for (int v=0; v<NV; v++) {
-                    double s=0; const float* wrow = &lm_head_f32_[(size_t)v*H];
-                    for (int kk=0;kk<H;kk++) s+=(double)sb[kk]*wrow[kk];
-                    lg[v]=(float)s;
+                    float s=0; const float* wrow = &lm_head_f32_[(size_t)v*H];
+                    for (int kk=0;kk<H;kk++) s+=sbp[kk]*wrow[kk];
+                    lg[v]=s;
                 }
             }
         }
