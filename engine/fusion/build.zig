@@ -12,10 +12,19 @@ pub fn build(b: *std.Build) void {
 
     // ── Unified scheduler module (shared KV cache) ──
     const sched_module = b.createModule(.{
-        .root_source_file = b.path("../gpu/src/scheduler/scheduler.zig"),
+        .root_source_file = b.path("sched/scheduler.zig"),
         .target = target,
         .optimize = optimize,
     });
+
+    // ── NPU engine module (from engine/npu/src) ──
+    const npu_engine_module = b.createModule(.{
+        .root_source_file = b.path("../npu/src/npu_engine.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    npu_engine_module.addImport("sched", sched_module);
 
     // ── Fusion engine main module ──
     const root_mod = b.createModule(.{
@@ -26,6 +35,7 @@ pub fn build(b: *std.Build) void {
     });
 
     root_mod.addImport("sched", sched_module);
+    root_mod.addImport("npu_engine", npu_engine_module);
 
     // ── Executable ──
     const exe = b.addExecutable(.{

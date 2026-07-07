@@ -31,22 +31,22 @@ pub const Uuid = struct {
 // Extern declarations from libxrt_coreutil
 // ============================================================
 
-extern "xrt_coreutil" fn xrtDeviceOpen(index: u32) callconv(.C) ?*Device;
-extern "xrt_coreutil" fn xrtDeviceClose(handle: ?*Device) callconv(.C) void;
-extern "xrt_coreutil" fn xrtDeviceLoadXclbin(handle: ?*Device, xclbin_file: [*:0]const u8) callconv(.C) c_int;
-extern "xrt_coreutil" fn xrtDeviceLoadXclbinFile(handle: ?*Device, xclbin_file: [*:0]const u8) callconv(.C) c_int;
-extern "xrt_coreutil" fn xrtDeviceLoadXclbinHandle(handle: ?*Device, xclbin: ?*const anyopaque) callconv(.C) c_int;
+extern "xrt_coreutil" fn xrtDeviceOpen(index: u32) callconv(.c) ?*Device;
+extern "xrt_coreutil" fn xrtDeviceClose(handle: ?*Device) callconv(.c) void;
+extern "xrt_coreutil" fn xrtDeviceLoadXclbin(handle: ?*Device, xclbin_file: [*:0]const u8) callconv(.c) c_int;
+extern "xrt_coreutil" fn xrtDeviceLoadXclbinFile(handle: ?*Device, xclbin_file: [*:0]const u8) callconv(.c) c_int;
+extern "xrt_coreutil" fn xrtDeviceLoadXclbinHandle(handle: ?*Device, xclbin: ?*const anyopaque) callconv(.c) c_int;
 
-extern "xrt_coreutil" fn xrtXclbinLock(handle: ?*Device, uuid: ?*const Uuid) callconv(.C) c_int;
-extern "xrt_coreutil" fn xrtXclbinAlloc() callconv(.C) ?*anyopaque;
-extern "xrt_coreutil" fn xrtXclbinFree(xclbin: ?*anyopaque) callconv(.C) void;
-extern "xrt_coreutil" fn xrtXclbinGetUUID(xclbin: ?*const anyopaque, uuid: ?*Uuid) callconv(.C) c_int;
+extern "xrt_coreutil" fn xrtXclbinLock(handle: ?*Device, uuid: ?*const Uuid) callconv(.c) c_int;
+extern "xrt_coreutil" fn xrtXclbinAlloc() callconv(.c) ?*anyopaque;
+extern "xrt_coreutil" fn xrtXclbinFree(xclbin: ?*anyopaque) callconv(.c) void;
+extern "xrt_coreutil" fn xrtXclbinGetUUID(xclbin: ?*const anyopaque, uuid: ?*Uuid) callconv(.c) c_int;
 
-extern "xrt_coreutil" fn xrtHwContextCreate(device: ?*Device, uuid: ?*const Uuid) callconv(.C) ?*HwContext;
-extern "xrt_coreutil" fn xrtHwContextDestroy(hwctx: ?*HwContext) callconv(.C) void;
+extern "xrt_coreutil" fn xrtHwContextCreate(device: ?*Device, uuid: ?*const Uuid) callconv(.c) ?*HwContext;
+extern "xrt_coreutil" fn xrtHwContextDestroy(hwctx: ?*HwContext) callconv(.c) void;
 
-extern "xrt_coreutil" fn xrtKernelOpen(device: ?*Device, uuid: ?*const Uuid, name: [*:0]const u8) callconv(.C) ?*KernelHandle;
-extern "xrt_coreutil" fn xrtKernelClose(kernel: ?*KernelHandle) callconv(.C) void;
+extern "xrt_coreutil" fn xrtKernelOpen(device: ?*Device, uuid: ?*const Uuid, name: [*:0]const u8) callconv(.c) ?*KernelHandle;
+extern "xrt_coreutil" fn xrtKernelClose(kernel: ?*KernelHandle) callconv(.c) void;
 
 extern "xrt_coreutil" fn xrtKernelRun(
     kernel: ?*KernelHandle,
@@ -56,21 +56,21 @@ extern "xrt_coreutil" fn xrtKernelRun(
     arg3: ?*BufferObject,
     arg4: ?*BufferObject,
     arg5: ?*BufferObject,
-) callconv(.C) ?*RunHandle;
+) callconv(.c) ?*RunHandle;
 
-extern "xrt_coreutil" fn xrtRunClose(run: ?*RunHandle) callconv(.C) void;
-extern "xrt_coreutil" fn xrtRunWait(run: ?*RunHandle) callconv(.C) c_int;
+extern "xrt_coreutil" fn xrtRunClose(run: ?*RunHandle) callconv(.c) void;
+extern "xrt_coreutil" fn xrtRunWait(run: ?*RunHandle) callconv(.c) c_int;
 
 extern "xrt_coreutil" fn xrtBOAlloc(
     device: ?*Device,
     size: usize,
     flags: u64,
     group: u32,
-) callconv(.C) ?*BufferObject;
+) callconv(.c) ?*BufferObject;
 
-extern "xrt_coreutil" fn xrtBOFree(bo: ?*BufferObject) callconv(.C) void;
-extern "xrt_coreutil" fn xrtBOMap(bo: ?*BufferObject) callconv(.C) ?*anyopaque;
-extern "xrt_coreutil" fn xrtBOSync(bo: ?*BufferObject, dir: u32, offset: u64, size: u64) callconv(.C) c_int;
+extern "xrt_coreutil" fn xrtBOFree(bo: ?*BufferObject) callconv(.c) void;
+extern "xrt_coreutil" fn xrtBOMap(bo: ?*BufferObject) callconv(.c) ?*anyopaque;
+extern "xrt_coreutil" fn xrtBOSync(bo: ?*BufferObject, dir: u32, offset: u64, size: u64) callconv(.c) c_int;
 
 // ============================================================
 // Safe wrapper: Device
@@ -94,17 +94,17 @@ pub const XrtDevice = struct {
         if (alloc == null) return error.XrtXclbinAllocFailed;
         defer xrtXclbinFree(alloc);
 
-        // Read xclbin file into memory
-        const file = std.fs.openFileAbsolute(path, .{}) catch |err| {
+        const compat = @import("compat.zig");
+        const file = compat.File.openAbsolute(path) catch |err| {
             std.log.err("Cannot open xclbin: {s}", .{path});
             return err;
         };
         defer file.close();
 
         const file_size = try file.getEndPos();
-        const buf = try std.heap.page_allocator.alloc(u8, file_size);
+        const buf = try std.heap.page_allocator.alloc(u8, @intCast(file_size));
         defer std.heap.page_allocator.free(buf);
-        try file.readAll(buf);
+        _ = try file.readAll(buf);
 
         // Load from raw bytes
         const rc = xrtDeviceLoadXclbinHandle(self.handle, @ptrCast(buf.ptr));
@@ -122,21 +122,21 @@ pub const XrtDevice = struct {
     pub fn allocBO(self: XrtDevice, size: usize, flags: u64, group: u32) !*BufferObject {
         const bo = xrtBOAlloc(self.handle, size, flags, group);
         if (bo == null) return error.XrtBOAllocFailed;
-        return bo;
+        return bo.?;
     }
 
     /// Create a hardware context for the given UUID.
     pub fn createHwContext(self: XrtDevice, uuid: *const Uuid) !*HwContext {
         const ctx = xrtHwContextCreate(self.handle, uuid);
         if (ctx == null) return error.XrtHwContextCreateFailed;
-        return ctx;
+        return ctx.?;
     }
 
     /// Open a kernel by name.
     pub fn createKernel(self: XrtDevice, uuid: *const Uuid, name: [:0]const u8) !*KernelHandle {
         const k = xrtKernelOpen(self.handle, uuid, name.ptr);
         if (k == null) return error.XrtKernelOpenFailed;
-        return k;
+        return k.?;
     }
 
     /// Close the device.
@@ -160,7 +160,7 @@ pub const XrtBuffer = struct {
     pub fn map(self: XrtBuffer, size: usize) ![]u8 {
         const ptr = xrtBOMap(self.handle);
         if (ptr == null) return error.XrtBOMapFailed;
-        return @as([*]u8, @ptrCast(ptr))[0..size];
+        return @as([*]u8, @ptrCast(ptr.?))[0..size];
     }
 
     /// Sync buffer between device and host.
@@ -198,7 +198,7 @@ pub const XrtKernel = struct {
     ) !*RunHandle {
         const r = xrtKernelRun(self.handle, 3, instr, instr_count, act, weight, out);
         if (r == null) return error.XrtKernelRunFailed;
-        return r;
+        return r.?;
     }
 
     /// Close the kernel.

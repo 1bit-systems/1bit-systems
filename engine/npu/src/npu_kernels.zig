@@ -17,7 +17,7 @@ pub const XclbinKernel = struct {
     allocator: std.mem.Allocator,
 
     // XRT resources
-    device: ?*xrt.Device,
+    device: ?*xrt.XrtDevice,
     hw_context: ?*xrt.HwContext,
     kernel: xrt.XrtKernel,
 
@@ -66,7 +66,7 @@ pub const XclbinKernel = struct {
     /// allocate buffer objects, and load instructions.
     pub fn load(
         self: *XclbinKernel,
-        device: *xrt.Device,
+        device: *xrt.XrtDevice,
         xclbin_path: []const u8,
         insts_path: []const u8,
         md: u32,
@@ -276,15 +276,16 @@ pub const XclbinKernel = struct {
 /// Read a text file of instruction words (hex or decimal u32 values).
 /// Each line can contain one value, or values can be space-separated.
 fn readInstructionsFile(allocator: std.mem.Allocator, path: []const u8) ![]u32 {
-    const file = try std.fs.openFileAbsolute(path, .{});
+    const compat = @import("compat.zig");
+    const file = try compat.File.openAbsolute(path);
     defer file.close();
 
     const content = try file.readToEndAlloc(allocator, 1024 * 1024); // 1MB max
     defer allocator.free(content);
 
     // Parse whitespace-separated integers
-    var result = std.ArrayList(u32).init(allocator);
-    errdefer result.deinit();
+    var result = std.ArrayList(u32).empty;
+    errdefer result.deinit(allocator);
 
     var it = std.mem.tokenizeAny(u8, content, " \t\r\n");
     while (it.next()) |token| {
@@ -295,13 +296,13 @@ fn readInstructionsFile(allocator: std.mem.Allocator, path: []const u8) ![]u32 {
         const val = if (std.mem.startsWith(u8, trimmed, "0x") or std.mem.startsWith(u8, trimmed, "0X"))
             std.fmt.parseInt(u32, trimmed[2..], 16) catch {
                 // Try decimal
-                std.fmt.parseInt(u32, trimmed, 10) catch continue;
+                _ = std.fmt.parseInt(u32, trimmed, 10) catch continue;
                 continue;
             }
         else
             std.fmt.parseInt(u32, trimmed, 10) catch continue;
 
-        try result.append(val);
+        try result.append(allocator, val);
     }
 
     return result.toOwnedSlice(allocator);

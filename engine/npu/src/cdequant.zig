@@ -15,7 +15,7 @@ extern fn dequant_i8_to_float(
     i8_rows: c_int,
     out_rows: *c_int,
     out_cols: *c_int,
-) callconv(.C) [*]f32;
+) callconv(.c) ?[*]f32;
 
 /// Extended version with explicit in_features.
 extern fn dequant_i8_to_float_ex(
@@ -24,10 +24,10 @@ extern fn dequant_i8_to_float_ex(
     in_features: c_int,
     out_rows: *c_int,
     out_cols: *c_int,
-) callconv(.C) [*]f32;
+) callconv(.c) ?[*]f32;
 
 /// Free the buffer returned by dequant_i8_to_float.
-extern "c" fn free(ptr: ?*anyopaque) callconv(.C) void;
+extern "c" fn free(ptr: ?*anyopaque) callconv(.c) void;
 
 // ============================================================
 // Safe Zig wrappers
@@ -55,8 +55,8 @@ pub fn dequantToSlice(allocator: std.mem.Allocator, data: []const u8, i8_rows: u
 
     // Copy to a Zig-allocated slice, then free the C buffer
     const slice = try allocator.alloc(f32, len);
-    @memcpy(slice, result[0..len]);
-    free(result);
+    @memcpy(slice, result.?[0..len]);
+    free(@ptrCast(result.?));
 
     return .{ .data = slice, .rows = rows, .cols = cols };
 }

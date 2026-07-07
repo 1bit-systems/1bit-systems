@@ -93,16 +93,17 @@ pub const NpuEngine = struct {
             .{ H, NC, NH, NKV, HD, IM, NV, cfg.GQA, cfg.gu_split });
 
         // ---- Mmap model file ----
-        const fd = try std.fs.openFileAbsolute(model_path, .{});
+        const compat = @import("compat.zig");
+        const fd = try compat.File.openAbsolute(model_path);
         defer fd.close();
         const file_size = try fd.getEndPos();
         const model_map = try std.posix.mmap(
-            null, file_size, std.posix.PROT.READ,
-            std.posix.MAP.PRIVATE, fd.handle, 0,
+            null, file_size, .{ .READ = true },
+            .{ .TYPE = .PRIVATE }, fd.handle(), 0,
         );
         errdefer std.posix.munmap(model_map);
 
-        const hdr_size = std.mem.readInt(u64, model_map[0..8].*, .little);
+        const hdr_size = std.mem.readInt(u64, &model_map[0..8].*, .little);
         const data_start: usize = 8 + hdr_size;
         const js = model_map[8 .. 8 + hdr_size];
         const weight_data = model_map[data_start..];
@@ -483,8 +484,8 @@ pub const NpuEngine = struct {
 
     pub fn runSimple(self: *NpuEngine, prompt_tokens: []const u32, max_tokens: u32) ![]u32 {
         const a = self.allocator;
-        var generated = std.ArrayList(u32).init(a);
-        errdefer generated.deinit();
+        var generated = std.ArrayList(u32).empty;
+        errdefer generated.deinit(a);
 
         const H = self.config.H; const NC = self.config.NC;
         const NH = self.config.NH; const NKV = self.config.NKV;
@@ -565,7 +566,7 @@ pub const NpuEngine = struct {
                     const vh = qb[voff + kvh * HD .. voff + (kvh + 1) * HD];
                     const page_idx = pi / self.kv_page_size;
                     const t_in_page = pi % self.kv_page_size;
-                    self.page_table.writeKV(@intCast(l), mapping.page_ids[page_idx], t_in_page, kh, vh);
+                    self.page_table.writeKV(@intCast(l), mapping.page_ids[page_idx], @as(u32, @intCast(t_in_page)), kh, vh);
                 }
             }
 
@@ -663,7 +664,7 @@ pub const NpuEngine = struct {
             cpu_ops.rmsNorm(last_h, self.final_norm, eps);
             cpu_ops.lmHeadTopK(last_h, self.lm_head_f32, self.tok_ids, 32, NV, H);
         }
-        try generated.append(self.tok_ids[0]);
+        try generated.append(a, self.tok_ids[0]);
         self.recordH2OScores(&mapping);
 
         // ================================================================
@@ -726,7 +727,7 @@ pub const NpuEngine = struct {
                         }
                         cpu_ops.rope(kh, HD, pos, self.rope_rc, self.rope_rs);
                         const vh = self.qkv_buf[voff + kvh * HD .. voff + (kvh + 1) * HD];
-                        self.page_table.writeKV(@intCast(l), mapping.page_ids[page_idx], t_in_page, kh, vh);
+                        self.page_table.writeKV(@intCast(l), mapping.page_ids[page_idx], @as(u32, @intCast(t_in_page)), kh, vh);
                     }
                 }
 
@@ -794,7 +795,7 @@ pub const NpuEngine = struct {
             cpu_ops.lmHeadTopK(self.h_buf[0..H], self.lm_head_f32, self.tok_ids, 32, NV, H);
 
             const next_tok = self.tok_ids[0];
-            try generated.append(next_tok);
+            try generated.append(a, next_tok);
             mapping.token_count = pos + 1;
             self.recordH2OScores(&mapping);
 
