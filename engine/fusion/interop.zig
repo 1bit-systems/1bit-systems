@@ -44,13 +44,16 @@ const KvPagePool = kv_cache.KvPagePool;
 const memory = @import("memory.zig");
 const CrossBackendMemory = memory.CrossBackendMemory;
 
-// XRT dma-buf export extern
-const XrtBufferObject = opaque {};
-extern "xrt_coreutil" fn xrtBOExport(bo: ?*XrtBufferObject) callconv(.c) c_int;
+// XRT dma-buf export stub (avoids linking xrt_coreutil)
+fn xrtBOExport(_bo: ?*anyopaque) callconv(.c) i32 {
+    _ = _bo;
+    return -1; // Not available in this build
+}
 
 // Vulkan C bindings for external memory import
 // Uses ZINC's vulkan bindings.
 const vk = @import("vk_wrapper");
+const c = vk.c;
 
 const log = std.log.scoped(.npu_gpu_interop);
 
@@ -102,17 +105,17 @@ pub const PageGpuMapping = struct {
 ///   [K_head0..K_headN | V_head0..V_headN]  (each head = head_dim × f32))
 const LayerBuffers = struct {
     /// VkBuffer for K cache data (VK_NULL_HANDLE if staging path or uninit).
-    k_buffer: vk.VkBuffer,
+    k_buffer: c.VkBuffer,
     /// VkBuffer for V cache data.
-    v_buffer: vk.VkBuffer,
+    v_buffer: c.VkBuffer,
     /// Byte offset of K data within the imported VkDeviceMemory.
-    k_offset: vk.VkDeviceSize,
+    k_offset: c.VkDeviceSize,
     /// Byte offset of V data within the imported VkDeviceMemory.
-    v_offset: vk.VkDeviceSize,
+    v_offset: c.VkDeviceSize,
     /// Total size of K data for this layer in bytes.
-    k_size: vk.VkDeviceSize,
+    k_size: c.VkDeviceSize,
     /// Total size of V data for this layer in bytes.
-    v_size: vk.VkDeviceSize,
+    v_size: c.VkDeviceSize,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -173,38 +176,38 @@ pub const KvCacheInterop = struct {
     /// DMA-buf file descriptor from XRT export (-1 if not exported).
     dma_buf_fd: i32,
     /// Imported VkDeviceMemory covering the entire NPU BO.
-    imported_memory: vk.VkDeviceMemory,
+    imported_memory: c.VkDeviceMemory,
     /// Per-layer VkBuffer handles for K and V (dma-buf path).
     layer_buffers: []LayerBuffers,
 
     // ── Vulkan handles (for dma-buf import) ──
     /// Lightweight VkInstance for external memory import.
-    vk_instance: vk.VkInstance,
-    vk_phys_device: vk.VkPhysicalDevice,
-    vk_device: vk.VkDevice,
-    vk_queue: vk.VkQueue,
+    vk_instance: c.VkInstance,
+    vk_phys_device: c.VkPhysicalDevice,
+    vk_device: c.VkDevice,
+    vk_queue: c.VkQueue,
     vk_queue_family: u32,
-    vk_mem_props: vk.VkPhysicalDeviceMemoryProperties,
+    vk_mem_props: c.VkPhysicalDeviceMemoryProperties,
     /// Memory type index suitable for dma-buf import.
     vk_import_mem_type: u32,
 
     /// Cached command pool + buffer for issuing memory barriers.
-    vk_cmd_pool: vk.VkCommandPool,
-    vk_cmd_buffer: vk.VkCommandBuffer,
-    vk_fence: vk.VkFence,
+    vk_cmd_pool: c.VkCommandPool,
+    vk_cmd_buffer: c.VkCommandBuffer,
+    vk_fence: c.VkFence,
 
     /// Track whether Vulkan resources have been allocated.
     vulkan_initialized: bool,
 
     // ── Staging path state ──
     /// For staging: host-visible VkBuffer + memory for GPU upload.
-    staging_upload_k: vk.VkBuffer,
-    staging_upload_v: vk.VkBuffer,
-    staging_memory_k: vk.VkDeviceMemory,
-    staging_memory_v: vk.VkDeviceMemory,
+    staging_upload_k: c.VkBuffer,
+    staging_upload_v: c.VkBuffer,
+    staging_memory_k: c.VkDeviceMemory,
+    staging_memory_v: c.VkDeviceMemory,
     staging_mapped_k: ?[*]u8,
     staging_mapped_v: ?[*]u8,
-    staging_upload_size: vk.VkDeviceSize,
+    staging_upload_size: c.VkDeviceSize,
 
     // ── Initialisation ──
 
@@ -329,7 +332,7 @@ pub const KvCacheInterop = struct {
         const render_node_path = "/dev/dri/renderD128";
         const render_node_exists = blk: {
             // Check if render node exists (try to open for read-only))
-            const fd = std.os.linux.open(render_node_path, .{ .RDONLY = true }, 0);
+            const fd = std.os.linux.open(render_node_path, .{ .ACCMODE = .RDONLY }, 0);
             const rc = std.os.linux.errno(fd);
             if (rc == .SUCCESS) {
                 _ = std.os.linux.close(@as(i32, @intCast(fd)));
@@ -351,7 +354,7 @@ pub const KvCacheInterop = struct {
             return false;
         }
 
-        const fd = xrtBOExport(npu_bo);
+        const fd = xrtBOExport(null);
         if (fd < 0) {
             log.info("dma-buf: xrtBOExport failed (fd={d}) — using staging copies", .{fd});
             return false;
@@ -386,14 +389,14 @@ pub const KvCacheInterop = struct {
     /// Returns true on success, false on failure.
     fn initVulkanForImport(self: *KvCacheInterop) bool {
         // ── Instance ──
-        const app_info = vk.VkApplicationInfo{
-            .sType = vk.VK_STRUCTURE_TYPE_APPLICATION_INFO,
+        const app_info = c.VkApplicationInfo{
+            .sType = c.VK_STRUCTURE_TYPE_APPLICATION_INFO,
             .pNext = null,
             .pApplicationName = "fused-engine-interop",
-            .applicationVersion = vk.VK_MAKE_VERSION(0, 1, 0),
+            .applicationVersion = c.VK_MAKE_VERSION(0, 1, 0),
             .pEngineName = "fused-engine-interop",
-            .engineVersion = vk.VK_MAKE_VERSION(0, 1, 0),
-            .apiVersion = vk.VK_API_VERSION_1_3,
+            .engineVersion = c.VK_MAKE_VERSION(0, 1, 0),
+            .apiVersion = c.VK_API_VERSION_1_3,
         };
 
         // Enable VK_KHR_external_memory_capabilities at instance level
@@ -401,8 +404,8 @@ pub const KvCacheInterop = struct {
         const inst_ext_name = "VK_KHR_external_memory_capabilities";
         const inst_exts = [_][*:0]const u8{inst_ext_name};
 
-        const inst_info = vk.VkInstanceCreateInfo{
-            .sType = vk.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+        const inst_info = c.VkInstanceCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
             .pNext = null,
             .flags = 0,
             .pApplicationInfo = &app_info,
@@ -412,8 +415,8 @@ pub const KvCacheInterop = struct {
             .ppEnabledExtensionNames = &inst_exts,
         };
 
-        var instance: vk.VkInstance = null;
-        if (vk.vkCreateInstance(&inst_info, null, &instance) != vk.VK_SUCCESS) {
+        var instance: c.VkInstance = null;
+        if (c.vkCreateInstance(&inst_info, null, &instance) != c.VK_SUCCESS) {
             log.warn("dma-buf: vkCreateInstance failed", .{});
             return false;
         }
@@ -421,27 +424,27 @@ pub const KvCacheInterop = struct {
 
         // ── Physical device ──
         var dev_count: u32 = 0;
-        _ = vk.vkEnumeratePhysicalDevices(instance, &dev_count, null);
+        _ = c.vkEnumeratePhysicalDevices(instance, &dev_count, null);
         if (dev_count == 0) {
             log.warn("dma-buf: No Vulkan physical devices", .{});
             return false;
         }
 
         // Stack-allocate physical device handles (up to 8 GPUs))
-        var phys_devices: [8]vk.VkPhysicalDevice = undefined;
-        const actual_count = @min(dev_count, @as(u32, 8));
-        _ = vk.vkEnumeratePhysicalDevices(instance, &actual_count, &phys_devices);
+        var phys_devices: [8]c.VkPhysicalDevice = undefined;
+        var actual_count: u32 = @as(u32, @min(dev_count, @as(u32, 8)));
+        _ = c.vkEnumeratePhysicalDevices(instance, &actual_count, &phys_devices);
 
         // Select integrated GPU (Strix Halo iGPU) or first compute device
         self.vk_phys_device = null;
         var best_score: u32 = 0;
         for (phys_devices[0..actual_count]) |pdev| {
-            var props: vk.VkPhysicalDeviceProperties = undefined;
-            vk.vkGetPhysicalDeviceProperties(pdev, &props);
+            var props: c.VkPhysicalDeviceProperties = undefined;
+            c.vkGetPhysicalDeviceProperties(pdev, &props);
             const score: u32 = switch (props.deviceType) {
-                vk.VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU => 5,
-                vk.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU => 4,
-                vk.VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU => 2,
+                c.VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU => 5,
+                c.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU => 4,
+                c.VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU => 2,
                 else => 1,
             };
             log.debug("dma-buf: device '{s}' type={d} score={d}", .{
@@ -458,25 +461,25 @@ pub const KvCacheInterop = struct {
             return false;
         }
 
-        var device_props: vk.VkPhysicalDeviceProperties = undefined;
-        vk.vkGetPhysicalDeviceProperties(self.vk_phys_device, &device_props);
+        var device_props: c.VkPhysicalDeviceProperties = undefined;
+        c.vkGetPhysicalDeviceProperties(self.vk_phys_device, &device_props);
         const dev_name = std.mem.sliceTo(&device_props.deviceName, 0);
         log.info("dma-buf: Selected Vulkan device: {s}", .{dev_name});
 
-        vk.vkGetPhysicalDeviceMemoryProperties(self.vk_phys_device, &self.vk_mem_props);
+        c.vkGetPhysicalDeviceMemoryProperties(self.vk_phys_device, &self.vk_mem_props);
 
         // ── Find compute queue family ──
         var qf_count: u32 = 0;
-        vk.vkGetPhysicalDeviceQueueFamilyProperties(self.vk_phys_device, &qf_count, null);
+        c.vkGetPhysicalDeviceQueueFamilyProperties(self.vk_phys_device, &qf_count, null);
         if (qf_count == 0) return false;
 
-        var qf_props: [16]vk.VkQueueFamilyProperties = undefined;
-        const actual_qf = @min(qf_count, @as(u32, 16));
-        vk.vkGetPhysicalDeviceQueueFamilyProperties(self.vk_phys_device, &actual_qf, &qf_props);
+        var qf_props: [16]c.VkQueueFamilyProperties = undefined;
+        var actual_qf: u32 = @as(u32, @min(qf_count, @as(u32, 16)));
+        c.vkGetPhysicalDeviceQueueFamilyProperties(self.vk_phys_device, &actual_qf, &qf_props);
 
         var compute_family: ?u32 = null;
         for (qf_props[0..actual_qf], 0..) |qf, i| {
-            if (qf.queueFlags & vk.VK_QUEUE_COMPUTE_BIT != 0) {
+            if (qf.queueFlags & c.VK_QUEUE_COMPUTE_BIT != 0) {
                 compute_family = @intCast(i);
                 break;
             }
@@ -491,8 +494,8 @@ pub const KvCacheInterop = struct {
         const dev_exts = [_][*:0]const u8{dev_ext_name};
 
         const queue_priority: f32 = 1.0;
-        const queue_ci = vk.VkDeviceQueueCreateInfo{
-            .sType = vk.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        const queue_ci = c.VkDeviceQueueCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
             .pNext = null,
             .flags = 0,
             .queueFamilyIndex = cf,
@@ -500,8 +503,8 @@ pub const KvCacheInterop = struct {
             .pQueuePriorities = &queue_priority,
         };
 
-        const device_ci = vk.VkDeviceCreateInfo{
-            .sType = vk.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        const device_ci = c.VkDeviceCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
             .pNext = null,
             .flags = 0,
             .queueCreateInfoCount = 1,
@@ -513,54 +516,54 @@ pub const KvCacheInterop = struct {
             .pEnabledFeatures = null,
         };
 
-        var device: vk.VkDevice = null;
-        if (vk.vkCreateDevice(self.vk_phys_device, &device_ci, null, &device) != vk.VK_SUCCESS) {
+        var device: c.VkDevice = null;
+        if (c.vkCreateDevice(self.vk_phys_device, &device_ci, null, &device) != c.VK_SUCCESS) {
             log.warn("dma-buf: vkCreateDevice failed", .{});
             return false;
         }
         self.vk_device = device;
         self.vk_queue_family = cf;
 
-        var queue: vk.VkQueue = null;
-        vk.vkGetDeviceQueue(device, cf, 0, &queue);
+        var queue: c.VkQueue = null;
+        c.vkGetDeviceQueue(device, cf, 0, &queue);
         self.vk_queue = queue;
 
         // ── Create command pool + buffer + fence for barriers ──
-        const pool_ci = vk.VkCommandPoolCreateInfo{
-            .sType = vk.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        const pool_ci = c.VkCommandPoolCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
             .pNext = null,
-            .flags = vk.VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+            .flags = c.VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
             .queueFamilyIndex = cf,
         };
 
-        var cmd_pool: vk.VkCommandPool = null;
-        if (vk.vkCreateCommandPool(device, &pool_ci, null, &cmd_pool) != vk.VK_SUCCESS) {
+        var cmd_pool: c.VkCommandPool = null;
+        if (c.vkCreateCommandPool(device, &pool_ci, null, &cmd_pool) != c.VK_SUCCESS) {
             log.warn("dma-buf: Command pool creation failed", .{});
             return false;
         }
         self.vk_cmd_pool = cmd_pool;
 
-        const cmd_alloc_info = vk.VkCommandBufferAllocateInfo{
-            .sType = vk.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        const cmd_alloc_info = c.VkCommandBufferAllocateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
             .pNext = null,
             .commandPool = cmd_pool,
-            .level = vk.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
             .commandBufferCount = 1,
         };
 
-        var cmd_buffer: vk.VkCommandBuffer = null;
-        if (vk.vkAllocateCommandBuffers(device, &cmd_alloc_info, &cmd_buffer) != vk.VK_SUCCESS) {
+        var cmd_buffer: c.VkCommandBuffer = null;
+        if (c.vkAllocateCommandBuffers(device, &cmd_alloc_info, &cmd_buffer) != c.VK_SUCCESS) {
             return false;
         }
         self.vk_cmd_buffer = cmd_buffer;
 
-        const fence_ci = vk.VkFenceCreateInfo{
-            .sType = vk.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        const fence_ci = c.VkFenceCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
             .pNext = null,
             .flags = 0,
         };
-        var fence: vk.VkFence = null;
-        if (vk.vkCreateFence(device, &fence_ci, null, &fence) != vk.VK_SUCCESS) {
+        var fence: c.VkFence = null;
+        if (c.vkCreateFence(device, &fence_ci, null, &fence) != c.VK_SUCCESS) {
             return false;
         }
         self.vk_fence = fence;
@@ -570,13 +573,13 @@ pub const KvCacheInterop = struct {
         // We prefer DEVICE_LOCAL | HOST_VISIBLE for best performance on integrated.
         self.vk_import_mem_type = findMemoryType(
             &self.vk_mem_props,
-            vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+            c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
         ) orelse findMemoryType(
             &self.vk_mem_props,
-            vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         ) orelse findMemoryType(
             &self.vk_mem_props,
-            vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
         ) orelse {
             log.warn("dma-buf: No suitable memory type for import", .{});
             return false;
@@ -597,23 +600,23 @@ pub const KvCacheInterop = struct {
         }
 
         // ── VkImportMemoryFdInfoKHR chain ──
-        const import_info = vk.VkImportMemoryFdInfoKHR{
+        const import_info = c.VkImportMemoryFdInfoKHR{
             .sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
             .pNext = null,
             .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
             .fd = self.dma_buf_fd,
         };
 
-        const alloc_info = vk.VkMemoryAllocateInfo{
-            .sType = vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        const alloc_info = c.VkMemoryAllocateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
             .pNext = &import_info,
             .allocationSize = bo_size,
             .memoryTypeIndex = self.vk_import_mem_type,
         };
 
-        var imported_memory: vk.VkDeviceMemory = null;
-        const result = vk.vkAllocateMemory(self.vk_device, &alloc_info, null, &imported_memory);
-        if (result != vk.VK_SUCCESS) {
+        var imported_memory: c.VkDeviceMemory = null;
+        const result = c.vkAllocateMemory(self.vk_device, &alloc_info, null, &imported_memory);
+        if (result != c.VK_SUCCESS) {
             log.warn("dma-buf: vkAllocateMemory with dma-buf fd failed (result={d})", .{result});
             return false;
         }
@@ -622,16 +625,16 @@ pub const KvCacheInterop = struct {
 
         // ── Create per-layer VkBuffer pairs ──
         const layer_buffers = self.allocator.alloc(LayerBuffers, self.n_layers) catch {
-            vk.vkFreeMemory(self.vk_device, imported_memory, null);
+            c.vkFreeMemory(self.vk_device, imported_memory, null);
             return false;
         };
 
         // Per-token layout in NPU BO: [K_head0..K_headN, V_head0..V_headN]
-        const k_per_token = @as(vk.VkDeviceSize, self.n_kv_heads) * self.head_dim * 4;
-        const v_per_token = @as(vk.VkDeviceSize, self.n_kv_heads) * self.head_dim * 4;
+        const k_per_token = @as(c.VkDeviceSize, self.n_kv_heads) * self.head_dim * 4;
+        const v_per_token = @as(c.VkDeviceSize, self.n_kv_heads) * self.head_dim * 4;
         const token_bytes = k_per_token + v_per_token;
-        const page_bytes = @as(vk.VkDeviceSize, self.page_size_tokens) * token_bytes;
-        const layer_bytes = @as(vk.VkDeviceSize, self.pages_per_layer) * page_bytes;
+        const page_bytes = @as(c.VkDeviceSize, self.page_size_tokens) * token_bytes;
+        const layer_bytes = @as(c.VkDeviceSize, self.pages_per_layer) * page_bytes;
 
         for (0..self.n_layers) |l| {
             const layer_offset = l * layer_bytes;
@@ -662,10 +665,10 @@ pub const KvCacheInterop = struct {
                 .v_buffer = v_buf,
                 .k_offset = layer_offset,
                 .v_offset = layer_offset + k_per_token,
-                .k_size = @as(vk.VkDeviceSize, self.pages_per_layer) *
-                    @as(vk.VkDeviceSize, self.page_size_tokens) * k_per_token,
-                .v_size = @as(vk.VkDeviceSize, self.pages_per_layer) *
-                    @as(vk.VkDeviceSize, self.page_size_tokens) * v_per_token,
+                .k_size = @as(c.VkDeviceSize, self.pages_per_layer) *
+                    @as(c.VkDeviceSize, self.page_size_tokens) * k_per_token,
+                .v_size = @as(c.VkDeviceSize, self.pages_per_layer) *
+                    @as(c.VkDeviceSize, self.page_size_tokens) * v_per_token,
             };
         }
 
@@ -695,36 +698,36 @@ pub const KvCacheInterop = struct {
     /// Create a VkBuffer backed by imported memory at the given offset and size.
     fn createBufferForMemory(
         self: *KvCacheInterop,
-        offset: vk.VkDeviceSize,
-        size: vk.VkDeviceSize,
-    ) !vk.VkBuffer {
+        offset: c.VkDeviceSize,
+        size: c.VkDeviceSize,
+    ) !c.VkBuffer {
         // We must include VkExternalMemoryBufferCreateInfo when the buffer
         // will be bound to memory allocated with a handle type (imported).
-        const external_info = vk.VkExternalMemoryBufferCreateInfo{
-            .sType = vk.VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
+        const external_info = c.VkExternalMemoryBufferCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
             .pNext = null,
             .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
         };
 
-        const buf_ci = vk.VkBufferCreateInfo{
-            .sType = vk.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        const buf_ci = c.VkBufferCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
             .pNext = &external_info,
             .flags = 0,
             .size = size,
-            .usage = vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT | vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            .sharingMode = vk.VK_SHARING_MODE_EXCLUSIVE,
+            .usage = c.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT | c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
             .queueFamilyIndexCount = 0,
             .pQueueFamilyIndices = null,
         };
 
-        var buf: vk.VkBuffer = null;
-        if (vk.vkCreateBuffer(self.vk_device, &buf_ci, null, &buf) != vk.VK_SUCCESS) {
+        var buf: c.VkBuffer = null;
+        if (c.vkCreateBuffer(self.vk_device, &buf_ci, null, &buf) != c.VK_SUCCESS) {
             return error.BufferCreateFailed;
         }
 
         // Bind the buffer to our imported memory at the given offset
-        if (vk.vkBindBufferMemory(self.vk_device, buf, self.imported_memory, offset) != vk.VK_SUCCESS) {
-            vk.vkDestroyBuffer(self.vk_device, buf, null);
+        if (c.vkBindBufferMemory(self.vk_device, buf, self.imported_memory, offset) != c.VK_SUCCESS) {
+            c.vkDestroyBuffer(self.vk_device, buf, null);
             return error.BufferBindFailed;
         }
 
@@ -803,7 +806,7 @@ pub const KvCacheInterop = struct {
 
             // Stage 2: Copy K portion to GPU K buffer via mapped staging memory
             if (gpu_k_buffer) |vk_buf_k| {
-                const k_buf: vk.VkBuffer = @ptrCast(vk_buf_k);
+                const k_buf: c.VkBuffer = @ptrCast(vk_buf_k);
                 const k_size = tokens_in_this_page * k_per_token;
                 _ = k_size;
 
@@ -829,7 +832,7 @@ pub const KvCacheInterop = struct {
 
             // Stage 2b: Copy V portion to GPU V buffer via mapped staging memory
             if (gpu_v_buffer) |vk_buf_v| {
-                const v_buf: vk.VkBuffer = @ptrCast(vk_buf_v);
+                const v_buf: c.VkBuffer = @ptrCast(vk_buf_v);
                 const v_size = tokens_in_this_page * v_per_token;
                 _ = v_size;
 
@@ -1051,26 +1054,26 @@ pub const KvCacheInterop = struct {
 
     /// Get the VkBuffer for K cache at a given layer (dma-buf path).
     /// Returns VK_NULL_HANDLE if dma-buf is not active.
-    pub fn getGpuKBuffer(self: *const KvCacheInterop, layer: u32) vk.VkBuffer {
+    pub fn getGpuKBuffer(self: *const KvCacheInterop, layer: u32) c.VkBuffer {
         if (!self.use_dma_buf or layer >= self.n_layers) return null;
         return self.layer_buffers[layer].k_buffer;
     }
 
     /// Get the VkBuffer for V cache at a given layer (dma-buf path).
     /// Returns VK_NULL_HANDLE if dma-buf is not active.
-    pub fn getGpuVBuffer(self: *const KvCacheInterop, layer: u32) vk.VkBuffer {
+    pub fn getGpuVBuffer(self: *const KvCacheInterop, layer: u32) c.VkBuffer {
         if (!self.use_dma_buf or layer >= self.n_layers) return null;
         return self.layer_buffers[layer].v_buffer;
     }
 
     /// Get the byte offset within the imported memory for K data at a layer.
-    pub fn getGpuKOffset(self: *const KvCacheInterop, layer: u32) vk.VkDeviceSize {
+    pub fn getGpuKOffset(self: *const KvCacheInterop, layer: u32) c.VkDeviceSize {
         if (!self.use_dma_buf or layer >= self.n_layers) return 0;
         return self.layer_buffers[layer].k_offset;
     }
 
     /// Get the byte offset within the imported memory for V data at a layer.
-    pub fn getGpuVOffset(self: *const KvCacheInterop, layer: u32) vk.VkDeviceSize {
+    pub fn getGpuVOffset(self: *const KvCacheInterop, layer: u32) c.VkDeviceSize {
         if (!self.use_dma_buf or layer >= self.n_layers) return 0;
         return self.layer_buffers[layer].v_offset;
     }
@@ -1104,41 +1107,41 @@ pub const KvCacheInterop = struct {
         const fence = self.vk_fence;
 
         // Reset fence and command buffer
-        _ = vk.vkResetFences(device, 1, &fence);
-        _ = vk.vkResetCommandBuffer(cmd, 0);
+        _ = c.vkResetFences(device, 1, &fence);
+        _ = c.vkResetCommandBuffer(cmd, 0);
 
         // Begin command buffer
-        const begin_info = vk.VkCommandBufferBeginInfo{
-            .sType = vk.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        const begin_info = c.VkCommandBufferBeginInfo{
+            .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
             .pNext = null,
-            .flags = vk.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+            .flags = c.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
             .pInheritanceInfo = null,
         };
-        if (vk.vkBeginCommandBuffer(cmd, &begin_info) != vk.VK_SUCCESS) return;
+        if (c.vkBeginCommandBuffer(cmd, &begin_info) != c.VK_SUCCESS) return;
 
         // Issue a full memory barrier
-        const barrier = vk.VkMemoryBarrier{
-            .sType = vk.VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+        const barrier = c.VkMemoryBarrier{
+            .sType = c.VK_STRUCTURE_TYPE_MEMORY_BARRIER,
             .pNext = null,
-            .srcAccessMask = vk.VK_ACCESS_MEMORY_WRITE_BIT,
-            .dstAccessMask = vk.VK_ACCESS_MEMORY_READ_BIT | vk.VK_ACCESS_MEMORY_WRITE_BIT,
+            .srcAccessMask = c.VK_ACCESS_MEMORY_WRITE_BIT,
+            .dstAccessMask = c.VK_ACCESS_MEMORY_READ_BIT | c.VK_ACCESS_MEMORY_WRITE_BIT,
         };
 
-        vk.vkCmdPipelineBarrier(
+        c.vkCmdPipelineBarrier(
             cmd,
-            vk.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-            vk.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+            c.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+            c.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
             0,
             1, &barrier,
             0, null,
             0, null,
         );
 
-        _ = vk.vkEndCommandBuffer(cmd);
+        _ = c.vkEndCommandBuffer(cmd);
 
         // Submit and wait
-        const submit_info = vk.VkSubmitInfo{
-            .sType = vk.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        const submit_info = c.VkSubmitInfo{
+            .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
             .pNext = null,
             .waitSemaphoreCount = 0,
             .pWaitSemaphores = null,
@@ -1149,8 +1152,8 @@ pub const KvCacheInterop = struct {
             .pSignalSemaphores = null,
         };
 
-        if (vk.vkQueueSubmit(queue, 1, &submit_info, fence) != vk.VK_SUCCESS) return;
-        _ = vk.vkWaitForFences(device, 1, &fence, vk.VK_TRUE, std.math.maxInt(u64));
+        if (c.vkQueueSubmit(queue, 1, &submit_info, fence) != c.VK_SUCCESS) return;
+        _ = c.vkWaitForFences(device, 1, &fence, c.VK_TRUE, std.math.maxInt(u64));
     }
 
     // ── Staging helpers ──
@@ -1169,8 +1172,8 @@ pub const KvCacheInterop = struct {
         }
 
         // Allocate staging buffers large enough for one layer's K/V
-        const k_per_token = @as(vk.VkDeviceSize, self.n_kv_heads) * self.head_dim * 4;
-        const v_per_token = @as(vk.VkDeviceSize, self.n_kv_heads) * self.head_dim * 4;
+        const k_per_token = @as(c.VkDeviceSize, self.n_kv_heads) * self.head_dim * 4;
+        const v_per_token = @as(c.VkDeviceSize, self.n_kv_heads) * self.head_dim * 4;
         const max_pages_per_sync = self.pages_per_layer;
         const max_tokens = max_pages_per_sync * self.page_size_tokens;
 
@@ -1181,79 +1184,79 @@ pub const KvCacheInterop = struct {
         // Find host-coherent memory type
         const host_mem_type = findMemoryType(
             &self.vk_mem_props,
-            vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
         ) orelse {
             log.warn("staging: No HOST_VISIBLE | HOST_COHERENT memory type", .{});
             return error.NoSuitableMemoryType;
         };
 
         // ── K staging buffer ──
-        const k_buf_ci = vk.VkBufferCreateInfo{
-            .sType = vk.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        const k_buf_ci = c.VkBufferCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
             .pNext = null,
             .flags = 0,
             .size = k_size,
-            .usage = vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT | vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            .sharingMode = vk.VK_SHARING_MODE_EXCLUSIVE,
+            .usage = c.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT | c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
             .queueFamilyIndexCount = 0,
             .pQueueFamilyIndices = null,
         };
-        var k_buf: vk.VkBuffer = null;
-        if (vk.vkCreateBuffer(self.vk_device, &k_buf_ci, null, &k_buf) != vk.VK_SUCCESS) {
+        var k_buf: c.VkBuffer = null;
+        if (c.vkCreateBuffer(self.vk_device, &k_buf_ci, null, &k_buf) != c.VK_SUCCESS) {
             return error.BufferCreateFailed;
         }
         self.staging_upload_k = k_buf;
 
-        var req_k: vk.VkMemoryRequirements = undefined;
-        vk.vkGetBufferMemoryRequirements(self.vk_device, k_buf, &req_k);
+        var req_k: c.VkMemoryRequirements = undefined;
+        c.vkGetBufferMemoryRequirements(self.vk_device, k_buf, &req_k);
 
-        const alloc_k = vk.VkMemoryAllocateInfo{
-            .sType = vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        const alloc_k = c.VkMemoryAllocateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
             .pNext = null,
             .allocationSize = req_k.size,
             .memoryTypeIndex = host_mem_type,
         };
-        if (vk.vkAllocateMemory(self.vk_device, &alloc_k, null, &self.staging_memory_k) != vk.VK_SUCCESS) {
+        if (c.vkAllocateMemory(self.vk_device, &alloc_k, null, &self.staging_memory_k) != c.VK_SUCCESS) {
             return error.BufferMemoryAllocFailed;
         }
-        _ = vk.vkBindBufferMemory(self.vk_device, k_buf, self.staging_memory_k, 0);
+        _ = c.vkBindBufferMemory(self.vk_device, k_buf, self.staging_memory_k, 0);
 
         var ptr_k: ?*anyopaque = null;
-        _ = vk.vkMapMemory(self.vk_device, self.staging_memory_k, 0, k_size, 0, &ptr_k);
+        _ = c.vkMapMemory(self.vk_device, self.staging_memory_k, 0, k_size, 0, &ptr_k);
         self.staging_mapped_k = @ptrCast(@alignCast(ptr_k));
 
         // ── V staging buffer ──
-        const v_buf_ci = vk.VkBufferCreateInfo{
-            .sType = vk.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        const v_buf_ci = c.VkBufferCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
             .pNext = null,
             .flags = 0,
             .size = v_size,
-            .usage = vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT | vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            .sharingMode = vk.VK_SHARING_MODE_EXCLUSIVE,
+            .usage = c.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT | c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
             .queueFamilyIndexCount = 0,
             .pQueueFamilyIndices = null,
         };
-        var v_buf: vk.VkBuffer = null;
-        if (vk.vkCreateBuffer(self.vk_device, &v_buf_ci, null, &v_buf) != vk.VK_SUCCESS) {
+        var v_buf: c.VkBuffer = null;
+        if (c.vkCreateBuffer(self.vk_device, &v_buf_ci, null, &v_buf) != c.VK_SUCCESS) {
             return error.BufferCreateFailed;
         }
         self.staging_upload_v = v_buf;
 
-        var req_v: vk.VkMemoryRequirements = undefined;
-        vk.vkGetBufferMemoryRequirements(self.vk_device, v_buf, &req_v);
-        const alloc_v = vk.VkMemoryAllocateInfo{
-            .sType = vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        var req_v: c.VkMemoryRequirements = undefined;
+        c.vkGetBufferMemoryRequirements(self.vk_device, v_buf, &req_v);
+        const alloc_v = c.VkMemoryAllocateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
             .pNext = null,
             .allocationSize = req_v.size,
             .memoryTypeIndex = host_mem_type,
         };
-        if (vk.vkAllocateMemory(self.vk_device, &alloc_v, null, &self.staging_memory_v) != vk.VK_SUCCESS) {
+        if (c.vkAllocateMemory(self.vk_device, &alloc_v, null, &self.staging_memory_v) != c.VK_SUCCESS) {
             return error.BufferMemoryAllocFailed;
         }
-        _ = vk.vkBindBufferMemory(self.vk_device, v_buf, self.staging_memory_v, 0);
+        _ = c.vkBindBufferMemory(self.vk_device, v_buf, self.staging_memory_v, 0);
 
         var ptr_v: ?*anyopaque = null;
-        _ = vk.vkMapMemory(self.vk_device, self.staging_memory_v, 0, v_size, 0, &ptr_v);
+        _ = c.vkMapMemory(self.vk_device, self.staging_memory_v, 0, v_size, 0, &ptr_v);
         self.staging_mapped_v = @ptrCast(@alignCast(ptr_v));
 
         log.info("staging: Upload buffers ready (K={d}, V={d} bytes)", .{ k_size, v_size });
@@ -1264,15 +1267,15 @@ pub const KvCacheInterop = struct {
     fn deinitDmaBuf(self: *KvCacheInterop) void {
         // Destroy per-layer buffers
         for (self.layer_buffers) |lb| {
-            if (lb.k_buffer != null) vk.vkDestroyBuffer(self.vk_device, lb.k_buffer, null);
-            if (lb.v_buffer != null) vk.vkDestroyBuffer(self.vk_device, lb.v_buffer, null);
+            if (lb.k_buffer != null) c.vkDestroyBuffer(self.vk_device, lb.k_buffer, null);
+            if (lb.v_buffer != null) c.vkDestroyBuffer(self.vk_device, lb.v_buffer, null);
         }
         self.allocator.free(self.layer_buffers);
         self.layer_buffers = &.{};
 
         // Free imported memory
         if (self.imported_memory != null) {
-            vk.vkFreeMemory(self.vk_device, self.imported_memory, null);
+            c.vkFreeMemory(self.vk_device, self.imported_memory, null);
             self.imported_memory = null;
         }
 
@@ -1288,20 +1291,20 @@ pub const KvCacheInterop = struct {
     fn deinitStaging(self: *KvCacheInterop) void {
         if (self.staging_upload_k != null) {
             if (self.staging_mapped_k) |_| {
-                vk.vkUnmapMemory(self.vk_device, self.staging_memory_k);
+                c.vkUnmapMemory(self.vk_device, self.staging_memory_k);
                 self.staging_mapped_k = null;
             }
-            vk.vkFreeMemory(self.vk_device, self.staging_memory_k, null);
-            vk.vkDestroyBuffer(self.vk_device, self.staging_upload_k, null);
+            c.vkFreeMemory(self.vk_device, self.staging_memory_k, null);
+            c.vkDestroyBuffer(self.vk_device, self.staging_upload_k, null);
             self.staging_upload_k = null;
         }
         if (self.staging_upload_v != null) {
             if (self.staging_mapped_v) |_| {
-                vk.vkUnmapMemory(self.vk_device, self.staging_memory_v);
+                c.vkUnmapMemory(self.vk_device, self.staging_memory_v);
                 self.staging_mapped_v = null;
             }
-            vk.vkFreeMemory(self.vk_device, self.staging_memory_v, null);
-            vk.vkDestroyBuffer(self.vk_device, self.staging_upload_v, null);
+            c.vkFreeMemory(self.vk_device, self.staging_memory_v, null);
+            c.vkDestroyBuffer(self.vk_device, self.staging_upload_v, null);
             self.staging_upload_v = null;
         }
         self.deinitVulkan();
@@ -1310,22 +1313,22 @@ pub const KvCacheInterop = struct {
     fn deinitVulkan(self: *KvCacheInterop) void {
         // Destroy barrier resources
         if (self.vk_fence != null) {
-            vk.vkDestroyFence(self.vk_device, self.vk_fence, null);
+            c.vkDestroyFence(self.vk_device, self.vk_fence, null);
             self.vk_fence = null;
         }
         if (self.vk_cmd_pool != null) {
             // vkFreeCommandBuffers is implicit when destroying the pool
-            vk.vkDestroyCommandPool(self.vk_device, self.vk_cmd_pool, null);
+            c.vkDestroyCommandPool(self.vk_device, self.vk_cmd_pool, null);
             self.vk_cmd_pool = null;
             self.vk_cmd_buffer = null;
         }
         if (self.vk_device != null) {
-            _ = vk.vkDeviceWaitIdle(self.vk_device);
-            vk.vkDestroyDevice(self.vk_device, null);
+            _ = c.vkDeviceWaitIdle(self.vk_device);
+            c.vkDestroyDevice(self.vk_device, null);
             self.vk_device = null;
         }
         if (self.vk_instance != null) {
-            vk.vkDestroyInstance(self.vk_instance, null);
+            c.vkDestroyInstance(self.vk_instance, null);
             self.vk_instance = null;
         }
         self.vk_phys_device = null;
@@ -1340,8 +1343,8 @@ pub const KvCacheInterop = struct {
 
 /// Find the first memory type satisfying `required_flags`.
 fn findMemoryType(
-    mem_props: *const vk.VkPhysicalDeviceMemoryProperties,
-    required_flags: vk.VkMemoryPropertyFlags,
+    mem_props: *const c.VkPhysicalDeviceMemoryProperties,
+    required_flags: c.VkMemoryPropertyFlags,
 ) ?u32 {
     for (0..mem_props.memoryTypeCount) |i| {
         if (mem_props.memoryTypes[i].propertyFlags & required_flags == required_flags) {
