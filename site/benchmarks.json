@@ -10,7 +10,6 @@
  },
  "engines": {
   "npu_flm":  { "tok_s": 94,  "status": "validated", "label": "FLM proxy (production)" },
-  "ternary":  { "tok_s": 342,     "status": "validated", "label": "Ternary Vulkan (validated 1-bit)" },
   "gpu_1bit": { "tok_s": 383, "status": "measured",  "label": "GPU llama.cpp 1-bit (measured)" },
   "gpu_zinc": { "tok_s": 22, "status": "validated", "label": "GPU Vulkan ZINC F16 (validated)" },
   "dspark":   { "tok_s": 572,   "status": "projected", "label": "DSpark spec-decode (projected)" },

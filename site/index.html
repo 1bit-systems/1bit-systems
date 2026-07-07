@@ -4,11 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>1bit.systems — 38 KB Fused Layer · 291 tok/s NPU · 94 tok/s validated · 73+ models</title>
-<meta name="description" content="291 tok/s NPU fused on AMD Strix Halo; validated 94 tok/s NPU + 342 tok/s 1-bit GPU ternary + 383 tok/s GPU 1-bit. 38 KB fused layer binary. 73+ models across 6 backends. Zero Python. Open source.">
+<meta name="description" content="291 tok/s NPU fused on AMD Strix Halo; validated 94 tok/s NPU + 307 tok/s 1-bit GPU ternary + 383 tok/s GPU 1-bit. 38 KB fused layer binary. 73+ models across 6 backends. Zero Python. Open source.">
 <meta name="google-site-verification" content="REPLACE_WITH_YOUR_GSC_CODE">
 <meta name="keywords" content="AMD Strix Halo, NPU inference, 1-bit LLM, ternary inference, local AI, NPU GPU fused engine, ROCm, XDNA 2, C++ LLM inference, AI inference without Python">
 <meta property="og:title" content="1bit.systems — 38 KB Fused Layer · 291 tok/s NPU">
-<meta property="og:description" content="291 tok/s NPU fused on AMD Strix Halo. Validated: 94 tok/s NPU + 342 tok/s 1-bit GPU ternary + 383 tok/s GPU 1-bit. 73+ models. Zero Python. Open source.">
+<meta property="og:description" content="291 tok/s NPU fused on AMD Strix Halo. Validated: 94 tok/s NPU + 307 tok/s 1-bit GPU ternary + 383 tok/s GPU 1-bit. 73+ models. Zero Python. Open source.">
 <meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
 <meta property="og:url" content="https://1bit.systems">
 <meta property="og:type" content="website">
@@ -17,7 +17,7 @@
 <link rel="canonical" href="https://1bit.systems">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="1bit.systems — 437 KB NPU+GPU+CPU engine">
-<meta name="twitter:description" content="Validated: 94 tok/s NPU + 342 tok/s 1-bit GPU ternary + 383 tok/s GPU 1-bit on AMD Strix Halo. 291 tok/s NPU fused. 38 KB binary. 73+ models. Zero Python. Open source.">
+<meta name="twitter:description" content="Validated: 94 tok/s NPU + 307 tok/s 1-bit GPU ternary + 383 tok/s GPU 1-bit on AMD Strix Halo. 291 tok/s NPU fused. 38 KB binary. 73+ models. Zero Python. Open source.">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
 <link rel="alternate icon" href="/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -133,7 +133,7 @@
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "name": "1bit.systems",
-    "description": "NPU+GPU+CPU inference engine for AMD Strix Halo. 291 tok/s NPU fused; validated 94 tok/s NPU + 342 tok/s 1-bit GPU ternary + 383 tok/s GPU 1-bit. 38 KB fused layer. 73+ models across 6 backends. Zero Python.",
+    "description": "NPU+GPU+CPU inference engine for AMD Strix Halo. 291 tok/s NPU fused; validated 94 tok/s NPU + 307 tok/s 1-bit GPU ternary + 383 tok/s GPU 1-bit. 38 KB fused layer. 73+ models across 6 backends. Zero Python.",
     "url": "https://1bit.systems",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Linux",
@@ -160,7 +160,7 @@
         "name": "What is 1bit.systems?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "A NPU+GPU+CPU inference engine for AMD Strix Halo. 38 KB fused layer, 291 tok/s NPU fused (validated 94 tok/s NPU + 342 tok/s 1-bit GPU ternary + 383 tok/s GPU 1-bit), 73+ models across 6 backends. Zero Python. MIT licensed."
+          "text": "A NPU+GPU+CPU inference engine for AMD Strix Halo. 38 KB fused layer, 291 tok/s NPU fused (validated 94 tok/s NPU + 307 tok/s 1-bit GPU ternary + 383 tok/s GPU 1-bit), 73+ models across 6 backends. Zero Python. MIT licensed."
         }
       },
       {
@@ -184,7 +184,7 @@
         "name": "How fast is NPU inference on Strix Halo?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "291 tok/s NPU fused (raw) and a validated 94 tok/s NPU (FLM) on Qwen3-0.6B; validated 342 tok/s 1-bit GPU ternary on Bonsai-1.7B; 383 tok/s GPU 1-bit (Qwen2-0.5B IQ1_S via llama.cpp). ROCm HIP backend reaches 113 tok/s. 22 tok/s GPU ZINC on Bonsai-1.7B F16. (DSpark spec-decode earlier '572 tok/s' was a projection, disproven by end-to-end measurement — 0.1–0.2 tok/s at 0% acceptance.)"
+          "text": "291 tok/s NPU fused (raw) and a validated 94 tok/s NPU (FLM) on Qwen3-0.6B; validated 307 tok/s 1-bit GPU ternary on Bonsai-1.7B; 383 tok/s GPU 1-bit (Qwen2-0.5B IQ1_S via llama.cpp). ROCm HIP backend reaches 113 tok/s. 22 tok/s GPU ZINC on Bonsai-1.7B F16. (DSpark spec-decode earlier '572 tok/s' was a projection, disproven by end-to-end measurement — 0.1–0.2 tok/s at 0% acceptance.)"
         }
       }
     ]
@@ -262,7 +262,7 @@
   <h2 style="margin:16px 0 8px;">One APU. Two accelerators AMD half-shipped.</h2>
   <p class="lead">The NPU AMD shipped locked. The GPU they already open. 1bit.systems drives both — from one mini PC, with no cloud in the loop.</p>
   <div class="grid2" style="margin-top:28px;">
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">NPU · XDNA 2</span><span class="pill warn"><span class="dot"></span>unlocked</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute tiles</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">50 TOPS INT8 AMD shipped disabled on consumer silicon. <strong>Fused layer (raw throughput — output not yet coherent): 291 tok/s at 3.4 ms/tok</strong> (Qwen3-0.6B). <strong>Validated production: 94 tok/s NPU FLM + 342 tok/s GPU ternary</strong>. 5 NPU model families, 73+ total across 6 backends.</p></div>
+    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">NPU · XDNA 2</span><span class="pill warn"><span class="dot"></span>unlocked</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute tiles</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">50 TOPS INT8 AMD shipped disabled on consumer silicon. <strong>Fused layer (raw throughput — output not yet coherent): 291 tok/s at 3.4 ms/tok</strong> (Qwen3-0.6B). <strong>Validated production: 94 tok/s NPU FLM + 307 tok/s GPU ternary</strong>. 5 NPU model families, 73+ total across 6 backends.</p></div>
     <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">GPU · RDNA 3.5</span><span class="pill info"><span class="dot"></span>open</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute units</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">Vulkan 1.3 compute. ZINC engine (Zig, GGUF). 22 tok/s decode (Bonsai-1.7B F16). 256 GB/s memory bandwidth — 99.6% utilized.</p></div>
   </div>
 </section>

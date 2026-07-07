@@ -17,7 +17,7 @@
 | Engine | Hardware | Speed | Status | Power | Model |
 |--------|----------|:-----:|--------|:-----:|-------|
 | **NPU FLM** (production) | XDNA 2 · 32 tiles | **94 tok/s** | ✅ measured, coherent | ~15W | Qwen3-0.6B |
-| **GPU ternary** (Vulkan) | Radeon 8060S | **342 tok/s** | ✅ measured on-device 2026-07-07 (zinc, 2.9 ms/tok) | ~45W | Bonsai-1.7B Q2_0 (1.58-bit) |
+| **GPU ternary** (Vulkan) | Radeon 8060S | **307 tok/s** | ✅ measured on-device 2026-07-07 (zinc, 3.3 ms/tok) | ~45W | Bonsai-1.7B Q2_0 (1.58-bit) |
 | **GPU 1-bit** (llama.cpp) | Radeon 8060S | **383 tok/s** | measured (llama.cpp) | ~45W | Qwen2-0.5B IQ1_S |
 | **GPU ZINC** (Vulkan) | Radeon 8060S | **22 tok/s** | ✅ measured, coherent | ~45W | Bonsai-1.7B F16 |
 | **DSpark spec-decode** | XDNA 2 + Zen 5 | **0.1–0.2 tok/s** | ❌ measured end-to-end 2026-07-07: 0% draft acceptance — "~572" projection disproven | 15W | Qwen3-0.6B |
@@ -28,7 +28,7 @@
 
 **Status legend:** ✅ measured on-device with coherent output · *measured* = throughput measured via a third-party tool · 📊 *projected* = base engine × speculative-decode acceptance, not an end-to-end measurement · ❌ = a projection that has been disproven by end-to-end measurement · ⚙️ *raw throughput* = the kernel runs at this speed but the engine's output is not yet coherent (correctness WIP). Only ✅ numbers should be quoted as production.
 
-**73+ models across 6 backends · 22 multi-modal (video, image, audio) · validated production: 94 tok/s NPU (FLM) + 342 tok/s GPU 1.58-bit ternary + 22 tok/s GPU ZINC (coherent). DSpark's "572 tok/s" was a projection — end-to-end measurement (2026-07-07) gives 0.1–0.2 tok/s at 0% draft acceptance, disproving it. DSpark is experimental, not production.**
+**73+ models across 6 backends · 22 multi-modal (video, image, audio) · validated production: 94 tok/s NPU (FLM) + 307 tok/s GPU 1.58-bit ternary + 22 tok/s GPU ZINC (coherent). DSpark's "572 tok/s" was a projection — end-to-end measurement (2026-07-07) gives 0.1–0.2 tok/s at 0% draft acceptance, disproving it. DSpark is experimental, not production.**
 
 ---
 
@@ -107,7 +107,7 @@ Single binary. Auto-detect. No proprietary code.
 | **NPU FLM** ✅ | — | — | **94** | ~15W | measured, coherent — production |
 | **C++ ALL** (5 models) | 36 ms/tok | 14 ms/tok prefill | **28** | ~15W | Auto-detect, one binary |
 
-**Power efficiency:** the 38.1 tok/J figure previously attributed to DSpark was derived from the disproven 572 tok/s projection and does not hold — at 0% acceptance DSpark delivers no throughput gain over the base engine. The best *measured* efficiency here is NPU FLM (94 tok/s, coherent) and GPU ternary (342 tok/s at ~45W).
+**Power efficiency:** the 38.1 tok/J figure previously attributed to DSpark was derived from the disproven 572 tok/s projection and does not hold — at 0% acceptance DSpark delivers no throughput gain over the base engine. The best *measured* efficiency here is NPU FLM (94 tok/s, coherent) and GPU ternary (307 tok/s at ~45W).
 
 ---
 
@@ -249,7 +249,7 @@ On the **real NPU (Qwen3-0.6B INT8)** the measured acceptance is **0% at every p
 | GPU gemma3-4B IQ1_S | 122 | 45W | 2.7 |
 | GPU Qwen3.5-9B Q1_0 | 70 | 45W | 1.6 |
 
-> Note: DSpark's 572 was a projection and is **disproven** — measured end-to-end it is 0.1–0.2 tok/s at 0% acceptance. The GPU numbers are measured. The fastest *validated* number here is the GPU 383 tok/s (Qwen2-0.5B IQ1_S, llama.cpp) / 342 tok/s ternary (measured, coherent).
+> Note: DSpark's 572 was a projection and is **disproven** — measured end-to-end it is 0.1–0.2 tok/s at 0% acceptance. The GPU numbers are measured. The fastest *validated* number here is the GPU 386 tok/s (Qwen2-0.5B IQ1_S, llama.cpp) / 307 tok/s ternary (measured, coherent).
 
 ---
 
@@ -267,7 +267,7 @@ On the **real NPU (Qwen3-0.6B INT8)** the measured acceptance is **0% at every p
 | **Jul 6** | **DSpark spec-decode** | **~572 tok/s** (projected) | — | projection; later disproven — see Jul 7 |
 | **Jul 7** | **DSpark spec-decode** | **0.1–0.2 tok/s** (measured) | ❌ 1.0× | end-to-end on NPU: 0% draft acceptance; segfault fixed but path is not production |
 
-**Net: validated production is 94 tok/s NPU (FLM) + 342 tok/s GPU 1.58-bit ternary (zinc, measured 2026-07-07). Raw fused-layer throughput hit 3.4 ms/tok (291 tok/s) but is not yet coherent. DSpark's 572 tok/s was a projection, now disproven by end-to-end measurement (0.1–0.2 tok/s, 0% acceptance) — experimental, not production. Zero Python. Pure C++.**
+**Net: validated production is 94 tok/s NPU (FLM) + 307 tok/s GPU 1.58-bit ternary (zinc, measured 2026-07-07). Raw fused-layer throughput hit 3.4 ms/tok (291 tok/s) but is not yet coherent. DSpark's 572 tok/s was a projection, now disproven by end-to-end measurement (0.1–0.2 tok/s, 0% acceptance) — experimental, not production. Zero Python. Pure C++.**
 
 ---
 
