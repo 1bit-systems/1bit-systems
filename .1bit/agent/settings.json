@@ -1,0 +1,11 @@
+{
+  "lastChangelogVersion": "0.80.3",
+  "theme": "1bit",
+  "defaultProvider": "deepseek",
+  "defaultModel": "deepseek-v4-pro",
+  "defaultThinkingLevel": "high",
+  "packages": [
+    "git:github.com/tintinweb/pi-gitnexus"
+  ],
+  "hideThinkingBlock": true
+}
