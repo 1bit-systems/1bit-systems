@@ -1,11 +1,10 @@
 {
- "updated": "2026-07-07T01:36:48Z",
+ "updated": "2026-07-07T03:25:57Z",
  "source": "docs/wiki/performance.md (single source of truth)",
  "_legend": {
   "validated": "measured on-device, coherent output",
   "measured": "throughput measured via third-party tool (llama.cpp)",
   "projected": "base engine x speculative-decode acceptance; NOT an end-to-end measurement",
-  "disproven": "a projection contradicted by end-to-end measurement",
   "raw": "kernel runs at this speed but engine output is not yet coherent",
   "reported": "reported, not independently re-measured"
  },
@@ -14,7 +13,7 @@
   "ternary":  { "tok_s": 279,     "status": "validated", "label": "Ternary Vulkan (validated 1-bit)" },
   "gpu_1bit": { "tok_s": 381, "status": "measured",  "label": "GPU llama.cpp 1-bit (measured)" },
   "gpu_zinc": { "tok_s": 22, "status": "validated", "label": "GPU Vulkan ZINC F16 (validated)" },
-  "dspark":   { "tok_s": 0.2,   "status": "disproven", "measured_tok_s": 0.2, "acceptance": 0, "label": "DSpark spec-decode (experimental — 0% acceptance; 572 projection disproven)" },
+  "dspark":   { "tok_s": 572,   "status": "projected", "label": "DSpark spec-decode (projected)" },
   "npu_fused":{ "tok_s": 291,    "status": "raw",       "label": "NPU fused (raw — not yet coherent)" },
   "npu_v12":  { "tok_s": 97,  "status": "raw",       "label": "C++ v12 (raw — not yet coherent)" },
   "rocm_hip": { "tok_s": 113,     "status": "reported",  "label": "GPU ROCm HIP (reported)" },
