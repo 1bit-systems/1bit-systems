@@ -105,7 +105,7 @@ inline void lm_topk_omp(const float*hidden,float*lg,int*top_ids,int K,int NV,int
     for(int n=0;n<NV;n++){float d=lg[n]-mx;if(d<-80)d=-80;lg[n]=expf(d);sum+=lg[n];}
     float r=(float)rand()/RAND_MAX*(float)sum,acc=0;
     for(int n=0;n<NV;n++){acc+=lg[n];if(acc>=r){top_ids[0]=n;break;}}
-    struct TI{int id;float v;};TI top[32];
+    struct TI{int id;float v;};std::vector<TI> top(K);
     for(int b=0;b<K;b++){top[b].id=-1;top[b].v=-1e30f;}
     for(int n=0;n<NV;n++){float v=lg[n];for(int b=0;b<K;b++){if(v>top[b].v){memmove(&top[b+1],&top[b],(K-1-b)*sizeof(TI));top[b].id=n;top[b].v=v;break;}}}
     for(int b=0;b<K;b++)top_ids[b]=top[b].id;
@@ -270,7 +270,7 @@ int main(int argc,char**argv){
     int kv_dwords=NKV*HD/2;
 
     // v12: M=32 batch decode
-    int BS=32;
+    int BS=128;
     struct KVCache{std::vector<float>k,v;int n;KVCache(int size):k(size),v(size),n(0){}};
     int kv_size=4096*NKV*HD;
     std::vector<KVCache> kv_caches;for(int i=0;i<NC;i++)kv_caches.emplace_back(kv_size);
