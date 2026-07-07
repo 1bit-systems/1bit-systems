@@ -11,6 +11,26 @@
 
 ---
 
+## Headline Numbers — July 5-6, 2026 (single source of truth: docs/wiki/performance.md)
+
+| Engine | Speed | Status | Model |
+|--------|:-----:|--------|-------|
+| **NPU FLM** (production) | **94 tok/s** | ✅ measured, coherent | Qwen3-0.6B |
+| **GPU ternary** (Vulkan) | **279 tok/s** | ✅ measured, coherent | Bonsai-1.7B Q2_0 (1.58-bit) |
+| **GPU 1-bit** (llama.cpp) | **381 tok/s** | measured (llama.cpp) | Qwen2-0.5B IQ1_S |
+| **GPU ZINC** (Vulkan) | **22 tok/s** | ✅ measured, coherent | Bonsai-1.7B F16 |
+| **DSpark spec-decode** | **~572 tok/s** | 📊 projected (94×5.9; draft training) | Qwen3-0.6B |
+| **NPU fused** | **291 tok/s** | ⚙️ raw throughput — output not yet coherent | Qwen3-0.6B |
+| **NPU v12** | **97 tok/s** | ⚙️ raw throughput — output not yet coherent | Qwen3-0.6B |
+
+**Only ✅ numbers are quoted as production.** The validated 1-bit headline is
+**279 tok/s** native ternary on the Radeon 8060S (12.6× over the 22 tok/s F16 of
+the same model). DSpark 572 is a projection (5.90× acceptance is measured, the
+572 tok/s end-to-end is not). Fused 291 / v12 97 are raw kernel throughput on a
+path whose output is not yet coherent. See docs/wiki/performance.md.
+
+---
+
 ## 1-Bit Model Benchmarks — July 4, 2026 (refresh 2)
 
 Every model at ≤1.5625 bpw (true 1-bit class). Measured on **Radeon 8060S GPU** via Vulkan. All numbers fresh from live runs with 3 repetitions — no cached data.

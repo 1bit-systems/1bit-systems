@@ -1,1 +1,1 @@
-{"schemaVersion":1,"label":"NPU fused layer","message":"291 tok/s","color":"brightgreen","cacheSeconds":86400}
+{"schemaVersion":1,"label":"NPU C++ v12","message":"97 tok/s (raw, WIP)","color":"yellow","cacheSeconds":86400}

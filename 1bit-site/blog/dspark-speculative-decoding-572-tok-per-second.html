@@ -169,7 +169,7 @@ With DSpark speculative decoding:
 <tr><td>Weight format</td><td>Python safetensors</td><td>Flat binary (C++ native)</td></tr>
 <tr><td>Target interface</td><td>Python</td><td>C++ NPU (XRT xclbin)</td></tr>
 <tr><td>Speedup (projected)</td><td>1.5-2.5×</td><td><strong>5.90×</strong></td></tr>
-<tr><td>Status</td><td>Archived</td><td><strong>Production</strong></td></tr>
+<tr><td>Status</td><td>Archived</td><td><strong>5.90x acceptance measured; 572 tok/s projected</strong></td></tr>
 </table>
 <p>The shift from Eagle3's projected 1.5-2.5× to DSpark's realized 5.90× came from two insights: the fused layer engine's batch decode (allowing efficient multi-token verification) and the C++ implementation (eliminating Python dispatch overhead from the speculate loop).</p>
 <h2>What 572 tok/s feels like</h2>
