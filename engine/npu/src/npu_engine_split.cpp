@@ -199,7 +199,8 @@ struct GemmCtx {
         // Use caller-provided activation scale. Fixed ASCALE=8.0/127.0 avoids the
         // per-call amax scan (~50us per GEMM, ~4ms for all 84 calls at B=128).
         // Post-RMSNorm activations stay within [-8,8] so fixed scale is safe.
-        float ais = 127.0f / ascale;
+        // ascale = amax/127.0, so quantization is A/ascale = A*127/amax
+        float ais = 1.0f / ascale;
         // Quantize A to INT8 — skip memset since we write every element
         for (int m = 0; m < am; m++)
             for (int k = 0; k < ak; k++) {
