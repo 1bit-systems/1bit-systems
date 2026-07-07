@@ -51,6 +51,7 @@ static void transpose_pack(const float* src, int out_f, int in_f, float* dst, in
 }
 static constexpr int H=1024,NC=28,NH=16,NKV=8,HD=128,IM=3072,NV=151936,GQA=2;
 static constexpr float EPS=1e-6f; static constexpr int XM=128, AW=4, WQH=NH/AW, WKVH=NKV/AW;
+static constexpr float FIXED_ASCALE = 8.0f / 127.0f;
 static constexpr int EOS_TOKEN=151645;
 static constexpr int MAX_CONTEXT=4096;
 static constexpr int TOP_K=20;
@@ -102,12 +103,6 @@ static inline void cn(float*x,int n){for(int i=0;i<n;i++)if(!std::isfinite(x[i])
 // post-RMSNorm activations actually range as wide as [-8.24,7.01], so that fixed scale silently
 // clips/saturates values past +-5 to +-127, a real (and compounding, since it happens every
 // layer) source of error separate from the LM head and weight-transpose bugs.
-static inline float dynamic_ascale(const float* x, int n) {
-    float amax = 0;
-    for (int i = 0; i < n; i++) { float a = fabsf(x[i]); if (std::isfinite(a) && a > amax) amax = a; }
-    if (amax < 1e-12f) amax = 1.0f;
-    return amax / 127.0f;
-}
 static inline void sm(float*sc,int n){if(n<=0)return;cn(sc,n);float mx=sc[0];for(int i=1;i<n;i++)if(sc[i]>mx)mx=sc[i];double s=0;for(int i=0;i<n;i++){float d=sc[i]-mx;if(d>80)d=80;else if(d<-80)d=-80;sc[i]=expf(d);s+=sc[i];}if(s<=0){float iv=1.0f/n;for(int i=0;i<n;i++)sc[i]=iv;return;}float is=1.0f/(float)s;for(int i=0;i<n;i++)sc[i]*=is;}
 static inline void rn_c(float*x,const float*w,int n){cn(x,n);double ss=0;for(int i=0;i<n;i++)if(std::isfinite(x[i]))ss+=(double)x[i]*x[i];float ir=1.0f/sqrtf((float)(ss/n)+EPS);for(int i=0;i<n;i++)x[i]=std::isfinite(x[i])?x[i]*ir*w[i]:0.0f;}
 static std::vector<float>rc,rs;static void ri(int hd,float th,int mp){rc.resize(mp*hd);rs.resize(mp*hd);for(int p=0;p<mp;p++)for(int d=0;d<hd;d+=2){float f=1.0f/powf(th,(float)d/hd),a=p*f;rc[p*hd+d]=cosf(a);rs[p*hd+d]=sinf(a);rc[p*hd+d+1]=cosf(a);rs[p*hd+d+1]=sinf(a);}}
@@ -128,7 +123,7 @@ for(int n=0;n<N;n++){float amax=0;for(int k=0;k<K;k++){float a=fabsf(w[(size_t)k
 float s=amax>1e-12f?amax/127.0f:1.0f;sc[n]=s;float is=127.0f/(amax>1e-12f?amax:1.0f);
 for(int k=0;k<K;k++){float v=w[(size_t)k*N+n];if(!std::isfinite(v))v=0;int x=(int)roundf(v*is);if(x>127)x=127;else if(x<-127)x=-127;out[(size_t)k*N+n]=(int8_t)x;}}
 }
-inline void go(int l,const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){float ais=1.0f/ascale;memset(Am,0,(size_t)MD*KD);for(int m=0;m<am;m++)for(int k=0;k<ak;k++){float v=A[m*ak+k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;Am[m*KD+k]=(int8_t)q;}bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);auto r=(*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[l],*bC);r.wait();bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);float cs=ascale*Bscale;for(int m=0;m<am;m++)for(int n=0;n<an;n++){float s=col_scale.size()==(size_t)an?col_scale[n]:Bscale;float val=(float)Cm[m*ND+n]*ascale*s;if(!std::isfinite(val))val=0;C[m*an+n]=val;}}
+inline void go(int l,const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){float ais=127.0f/ascale;for(int m=0;m<am;m++)for(int k=0;k<ak;k++){float v=A[m*ak+k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;Am[m*KD+k]=(int8_t)q;}if(KD>ak){for(int m=0;m<am;m++)memset(Am+m*KD+ak,0,(size_t)(KD-ak));}bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);auto r=(*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[l],*bC);r.wait();bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);for(int m=0;m<am;m++)for(int n=0;n<an;n++){float s=col_scale.size()==(size_t)an?col_scale[n]:Bscale;float val=(float)Cm[m*ND+n]*ascale*s;if(!std::isfinite(val))val=0;C[m*an+n]=val;}}
 };
 
 // Minimal hand-rolled parser for {"tokens":[1,2,3],"max_new_tokens":64} — no library dependency.
@@ -273,7 +268,7 @@ int main(int argc, char** argv) {
         for (int pi = 0; pi < npt; pi++) for (int i = 0; i < H; i++) h_b[pi * H + i] = bf16g(emb[pt_v[pi] * H + i]);
         for (int l = 0; l < NC; l++) {
             for (int pi = 0; pi < npt; pi++) { memcpy(&sb_buf[pi * H], &h_b[pi * H], H * 4); rn_c(&h_b[pi * H], in_n[l], H); }
-            cq.go(l, h_b.data(), npt, H, dynamic_ascale(h_b.data(), npt * H), wsc[l].qk, qo_b.data(), 4096); cn(qo_b.data(), npt * 4096);
+            cq.go(l, h_b.data(), npt, H, FIXED_ASCALE, wsc[l].qk, qo_b.data(), 4096); cn(qo_b.data(), npt * 4096);
             float *qn = qn_w[l], *kn = kn_w[l];
             for (int pi = 0; pi < npt; pi++) {
                 for (int hh = 0; hh < NH; hh++) { double s = 0; for (int d = 0; d < HD; d++) s += qo_b[pi * NH * HD + hh * HD + d] * qo_b[pi * NH * HD + hh * HD + d]; float iq = 1.0f / sqrtf((float)(s / HD) + EPS); for (int d = 0; d < HD; d++) qo_b[pi * NH * HD + hh * HD + d] *= iq * qn[d]; ra(&qo_b[pi * NH * HD + hh * HD], HD, sp + pi); }
@@ -291,12 +286,12 @@ int main(int argc, char** argv) {
                     for (int p = 0; p < pi_limit; p++) { double s = 0; for (int d = 0; d < HD; d++) s += qo_b[pi * NH * HD + hh * HD + d] * kv[l].k[p * NKV * HD + kvh * HD + d]; ss[p] = (float)(s / sqrtf(HD)); }
                     sm(ss.data(), pi_limit); for (int d = 0; d < HD; d++) { float s = 0; for (int p = 0; p < pi_limit; p++) s += ss[p] * kv[l].v[p * NKV * HD + kvh * HD + d]; at_b[pi * NH * HD + hh * HD + d] = s; } }
             }
-            co.go(l, at_b.data(), npt, NH * HD, dynamic_ascale(at_b.data(), npt * NH * HD), wsc[l].o_, oo_b.data(), H); cn(oo_b.data(), npt * H);
+            co.go(l, at_b.data(), npt, NH * HD, FIXED_ASCALE, wsc[l].o_, oo_b.data(), H); cn(oo_b.data(), npt * H);
             for (int pi = 0; pi < npt; pi++) for (int i = 0; i < H; i++) h_b[pi * H + i] = sb_buf[pi * H + i] + oo_b[pi * H + i];
             for (int pi = 0; pi < npt; pi++) { memcpy(&sb_buf[pi * H], &h_b[pi * H], H * 4); rn_c(&h_b[pi * H], pa_n[l], H); }
-            cg.go(l, h_b.data(), npt, H, dynamic_ascale(h_b.data(), npt * H), wsc[l].g_, gt_b.data(), 6144); cn(gt_b.data(), npt * 6144);
+            cg.go(l, h_b.data(), npt, H, FIXED_ASCALE, wsc[l].g_, gt_b.data(), 6144); cn(gt_b.data(), npt * 6144);
             for (int pi = 0; pi < npt; pi++) for (int i = 0; i < IM; i++) { float gv = gt_b[pi * 6144 + i]; if (!std::isfinite(gv)) gv = 0; su_b[pi * IM + i] = (gv / (1.0f + expf(-gv))) * gt_b[pi * 6144 + IM + i]; }
-            cd_d.go(l, su_b.data(), npt, IM, dynamic_ascale(su_b.data(), npt * IM), wsc[l].d_, dw_b.data(), H); cn(dw_b.data(), npt * H);
+            cd_d.go(l, su_b.data(), npt, IM, FIXED_ASCALE, wsc[l].d_, dw_b.data(), H); cn(dw_b.data(), npt * H);
             for (int pi = 0; pi < npt; pi++) for (int i = 0; i < H; i++) h_b[pi * H + i] = sb_buf[pi * H + i] + dw_b[pi * H + i];
         }
         sp += npt; memcpy(h.data(), &h_b[(npt - 1) * H], H * 4);
@@ -304,7 +299,7 @@ int main(int argc, char** argv) {
         for (int step = 0; step < max_new; step++) {
             for (int l = 0; l < NC; l++) {
                 memcpy(sb.data(), h.data(), H * 4); rn_c(h.data(), in_n[l], H);
-                cq.go(l, h.data(), 1, H, dynamic_ascale(h.data(), H), wsc[l].qk, qo.data(), 4096); cn(qo.data(), 4096);
+                cq.go(l, h.data(), 1, H, FIXED_ASCALE, wsc[l].qk, qo.data(), 4096); cn(qo.data(), 4096);
                 memcpy(ko.data(), &qo[2048], 4096); memcpy(vo.data(), &qo[3072], 4096);
                 float *qn = qn_w[l], *kn = kn_w[l];
                 for (int hh = 0; hh < NH; hh++) {
@@ -316,11 +311,11 @@ int main(int argc, char** argv) {
                 for (int hh = 0; hh < NH; hh++) { int kvh = hh / GQA; std::vector<float> sc2(cl);
                     for (int p = 0; p < cl; p++) { double s = 0; for (int d = 0; d < HD; d++) s += qo[hh * HD + d] * kv[l].k[p * NKV * HD + kvh * HD + d]; sc2[p] = (float)(s / sqrtf(HD)); }
                     sm(sc2.data(), cl); for (int d = 0; d < HD; d++) { float s = 0; for (int p = 0; p < cl; p++) s += sc2[p] * kv[l].v[p * NKV * HD + kvh * HD + d]; at[hh * HD + d] = s; } }
-                co.go(l, at.data(), 1, NH * HD, dynamic_ascale(at.data(), NH * HD), wsc[l].o_, oo.data(), H); cn(oo.data(), H); for (int i = 0; i < H; i++) h[i] = sb[i] + oo[i];
+                co.go(l, at.data(), 1, NH * HD, FIXED_ASCALE, wsc[l].o_, oo.data(), H); cn(oo.data(), H); for (int i = 0; i < H; i++) h[i] = sb[i] + oo[i];
                 memcpy(sb.data(), h.data(), H * 4); rn_c(h.data(), pa_n[l], H);
-                cg.go(l, h.data(), 1, H, dynamic_ascale(h.data(), H), wsc[l].g_, gt_b.data(), 6144); cn(gt_b.data(), 6144);
+                cg.go(l, h.data(), 1, H, FIXED_ASCALE, wsc[l].g_, gt_b.data(), 6144); cn(gt_b.data(), 6144);
                 for (int i = 0; i < IM; i++) { float gv = gt_b[i]; if (!std::isfinite(gv)) gv = 0; su_b[i] = (gv / (1.0f + expf(-gv))) * gt_b[IM + i]; }
-                cd_d.go(l, su_b.data(), 1, IM, dynamic_ascale(su_b.data(), IM), wsc[l].d_, dw_b.data(), H); cn(dw_b.data(), H);
+                cd_d.go(l, su_b.data(), 1, IM, FIXED_ASCALE, wsc[l].d_, dw_b.data(), H); cn(dw_b.data(), H);
                 for (int i = 0; i < H; i++) h[i] = sb[i] + dw_b[i];
             }
             memcpy(sb.data(), h.data(), H * 4); rn_c(sb.data(), fin, H);
