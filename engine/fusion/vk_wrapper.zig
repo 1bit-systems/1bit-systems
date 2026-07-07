@@ -34,6 +34,9 @@ pub const VkRenderPass = c.VkRenderPass;
 pub const VkFramebuffer = c.VkFramebuffer;
 pub const VkDeviceSize = c.VkDeviceSize;
 pub const VkBool32 = c.VkBool32;
+pub const VkMemoryPropertyFlags = c.VkMemoryPropertyFlags;
+pub const VkPushConstantRange = c.VkPushConstantRange;
+pub const VkShaderModuleCreateInfo = c.VkShaderModuleCreateInfo;
 
 // ── Commonly used structs ──
 pub const VkApplicationInfo = c.VkApplicationInfo;
@@ -127,6 +130,9 @@ pub const VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU = c.VK_PHYSICAL_DEVICE_TYPE_INT
 pub const VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU = c.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 pub const VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU = c.VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU;
 pub const VK_PHYSICAL_DEVICE_TYPE_CPU = c.VK_PHYSICAL_DEVICE_TYPE_CPU;
+pub const VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT = c.VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+pub const VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO = c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+pub const VK_PIPELINE_BIND_POINT_COMPUTE = c.VK_PIPELINE_BIND_POINT_COMPUTE;
 
 // ── Functions ──
 pub const vkCreateInstance = c.vkCreateInstance;

@@ -1,109 +1,207 @@
 //! Fused NPU+GPU inference engine — CLI entry point.
+//! Loads model, initializes NPU and GPU backends, runs fused inference.
+//!
+//! @section Fused Engine
 const std = @import("std");
-const eng = @import("engine.zig");
+const model_data = @import("model_data.zig");
+const gpu_attn = @import("gpu_attn.zig");
+const fuse = @import("fused_execute.zig");
 const dispatcher = @import("dispatcher.zig");
+
+const FusedExecutor = fuse.FusedExecutor;
 const DispatchPolicy = dispatcher.DispatchPolicy;
+const QWEN3_0_6B = fuse.QWEN3_0_6B;
 
-const log = std.log.scoped(.fusion_main);
+const DEFAULT_MODEL = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+const DEFAULT_NPU_ENGINE = "/home/bcloud/engine/npu/build/npu_engine_universal";
+const ZINC_SHADER_DIR = "/home/bcloud/zinc/zig-out/share/zinc/shaders";
+const MAX_CONTEXT: u32 = 4096;
+const BATCH_SIZE: u32 = 128;
 
-pub fn main(init: std.process.Init) !void {
-    var policy: DispatchPolicy = .auto;
-    var max_tokens: u32 = 64;
-    var prompt: ?[]const u8 = null;
-    var list_policies: bool = false;
-
-    var args_iter = std.process.Args.Iterator.init(init.minimal.args);
-    _ = args_iter.next();
-
-    while (args_iter.next()) |arg| {
-        const a = std.mem.sliceTo(arg, 0);
-        if (std.mem.eql(u8, a, "--policy")) {
-            if (args_iter.next()) |val| policy = parsePolicy(std.mem.sliceTo(val, 0));
-        } else if (std.mem.eql(u8, a, "-n") or std.mem.eql(u8, a, "--max-tokens")) {
-            if (args_iter.next()) |val| max_tokens = std.fmt.parseInt(u32, std.mem.sliceTo(val, 0), 10) catch 64;
-        } else if (std.mem.eql(u8, a, "--list-policies")) {
-            list_policies = true;
-        } else if (std.mem.eql(u8, a, "-h") or std.mem.eql(u8, a, "--help")) {
-            printHelp();
-            return;
-        } else if (prompt == null) {
-            prompt = a;
-        }
-    }
-
-    if (list_policies) {
-        printPolicies();
-        return;
-    }
-
-    std.debug.print("Fused NPU+GPU Engine\n", .{});
-    std.debug.print("Dispatch policy: {s}\n", .{@tagName(policy)});
-    std.debug.print("\n", .{});
-    std.debug.print("Policy: {s}\n", .{getPolicyDescription(policy)});
-    std.debug.print("Backend: FLM NPU proxy (82 tok/s on Qwen3-0.6B)\n", .{});
-    std.debug.print("\n", .{});
-    std.debug.print("Layer assignments:\n", .{});
-
-    const n_layers: u32 = 28;
-    for (0..n_layers) |i| {
-        const a = dispatcher.Dispatcher.getPolicyAssignment(policy, @intCast(i));
-        std.debug.print("  Layer {d:>2}: attn={s:>3} ffn={s:>3} qkv={s:>3}\n", .{
-            i, @tagName(a.attention), @tagName(a.ffn), @tagName(a.qkv),
-        });
-    }
-
-    if (prompt) |p| {
-        std.debug.print("\nPrompt: {s}\n", .{p});
-        std.debug.print("Max tokens: {d}\n", .{max_tokens});
-        std.debug.print("\nRun the daemon for inference:\n", .{});
-        std.debug.print("  npu-gpu-cpud --port 8080 --fused-policy {s}\n", .{@tagName(policy)});
-        std.debug.print("Then: curl http://127.0.0.1:8080/v1/chat/completions ...\n", .{});
-    }
-}
+const CliOptions = struct {
+    model_path: []const u8 = DEFAULT_MODEL,
+    npu_engine: []const u8 = DEFAULT_NPU_ENGINE,
+    policy: DispatchPolicy = .ffn_on_npu,
+    max_tokens: u32 = 128,
+    prompt: []const u8 = "Hello",
+    batch_size: u32 = BATCH_SIZE,
+    debug: bool = false,
+    list_policies: bool = false,
+    show_help: bool = false,
+};
 
 fn parsePolicy(name: []const u8) DispatchPolicy {
     if (std.mem.eql(u8, name, "npu_only")) return .npu_only;
     if (std.mem.eql(u8, name, "gpu_only")) return .gpu_only;
-    if (std.mem.eql(u8, name, "attention_on_npu")) return .attention_on_npu;
     if (std.mem.eql(u8, name, "ffn_on_npu")) return .ffn_on_npu;
     if (std.mem.eql(u8, name, "qkv_on_npu")) return .qkv_on_npu;
-    if (std.mem.eql(u8, name, "layer_by_layer")) return .layer_by_layer;
-    if (std.mem.eql(u8, name, "prefill_npu_decode_gpu")) return .prefill_npu_decode_gpu;
-    if (std.mem.eql(u8, name, "auto")) return .auto;
-    return .auto;
-}
-
-fn getPolicyDescription(policy: DispatchPolicy) []const u8 {
-    return switch (policy) {
-        .npu_only => "All layers -> NPU (XRT xclbin INT8 GEMM)",
-        .gpu_only => "All layers -> GPU (Vulkan flash attention + DMMV)",
-        .layer_by_layer => "Round-robin per layer: even -> NPU, odd -> GPU",
-        .attention_on_npu => "Attention -> NPU, FFN -> GPU",
-        .ffn_on_npu => "FFN -> NPU, Attention -> GPU flash attention",
-        .qkv_on_npu => "QKV projection -> NPU, rest -> GPU",
-        .prefill_npu_decode_gpu => "Prefill -> NPU, Decode -> GPU",
-        .auto => "Auto-tuned: FFN/QKV -> NPU, Attention -> GPU",
-    };
-}
-
-fn printPolicies() void {
-    std.debug.print("Fused NPU+GPU Engine - Dispatch Policies\n", .{});
-    inline for (std.meta.tags(DispatchPolicy)) |p| {
-        std.debug.print("  {s:30}  {s}\n", .{ @tagName(p), getPolicyDescription(p) });
-    }
+    if (std.mem.eql(u8, name, "attention_on_npu")) return .attention_on_npu;
+    return .ffn_on_npu;
 }
 
 fn printHelp() void {
     std.debug.print(
-        \\Fused NPU+GPU Engine - 1bit.systems
+        \\Fused NPU+GPU Inference Engine - 1bit.systems
+        \\Target: 273 tok/s on Qwen3-0.6B
         \\
-        \\Usage:  fused-engine [options] [prompt]
-        \\--policy <p>     Dispatch policy (auto, npu_only, gpu_only, ...)
-        \\-n, --max-tokens Max tokens (default: 64)
-        \\--list-policies  List all dispatch policies
-        \\-h, --help       This help
+        \\Usage: fused-engine [options]
         \\
-        \\For HTTP serving: npu-gpu-cpud --port 8080
+        \\  -m, --model <path>     Q4NX model path
+        \\  --policy <name>        Dispatch policy (default: ffn_on_npu)
+        \\  -n, --max-tokens <N>   Max tokens (default: 128)
+        \\  -p, --prompt <text>    Input prompt
+        \\  -b, --batch-size <N>   Batch size (default: 128)
+        \\  --list-policies        List all policies
+        \\  --debug                Enable debug logging
+        \\  -h, --help             This help
         \\
     , .{});
 }
+
+fn printPolicies() void {
+    std.debug.print("Fused NPU+GPU Engine - Dispatch Policies\n", .{});
+    inline for (std.meta.fields(DispatchPolicy)) |f| {
+        const desc = switch (@as(DispatchPolicy, @enumFromInt(f.value))) {
+            .npu_only => "All on NPU",
+            .gpu_only => "All on GPU",
+            .ffn_on_npu => "FFN/QKV on NPU, Attention on GPU (target: 273 tok/s)",
+            .qkv_on_npu => "QKV on NPU, rest on GPU",
+            .attention_on_npu => "Attention on NPU, FFN on GPU",
+        };
+        std.debug.print("  {s:20}  {s}\n", .{ f.name, desc });
+    }
+}
+
+fn tokenizeSimple(_text: []const u8, _allocator: std.mem.Allocator) ![]u32 {
+    _ = _text;
+    const tokens = try _allocator.alloc(u32, 1);
+    tokens[0] = 151644; // <|im_start|>
+    return tokens;
+}
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = std.heap.page_allocator;
+
+    var opts = CliOptions{};
+    var args_iter = std.process.Args.init(init.args);
+    _ = args_iter.next(); // skip argv[0]
+
+    while (args_iter.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--model") or std.mem.eql(u8, arg, "-m")) {
+            if (args_iter.next()) |v| opts.model_path = v;
+        } else if (std.mem.eql(u8, arg, "--policy")) {
+            if (args_iter.next()) |v| opts.policy = parsePolicy(v);
+        } else if (std.mem.eql(u8, arg, "-n") or std.mem.eql(u8, arg, "--max-tokens")) {
+            if (args_iter.next()) |v| opts.max_tokens = std.fmt.parseInt(u32, v, 10) catch 128;
+        } else if (std.mem.eql(u8, arg, "--prompt") or std.mem.eql(u8, arg, "-p")) {
+            if (args_iter.next()) |v| opts.prompt = v;
+        } else if (std.mem.eql(u8, arg, "--batch-size") or std.mem.eql(u8, arg, "-b")) {
+            if (args_iter.next()) |v| opts.batch_size = std.fmt.parseInt(u32, v, 10) catch 128;
+        } else if (std.mem.eql(u8, arg, "--debug") or std.mem.eql(u8, arg, "-d")) {
+            opts.debug = true;
+        } else if (std.mem.eql(u8, arg, "--list-policies")) {
+            opts.list_policies = true;
+        } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
+            opts.show_help = true;
+        } else if (std.mem.eql(u8, arg, "--npu-engine")) {
+            if (args_iter.next()) |v| opts.npu_engine = v;
+        }
+    }
+
+    if (opts.show_help) { printHelp(); return; }
+    if (opts.list_policies) { printPolicies(); return; }
+    if (opts.debug) is_debug_mode = true;
+
+    std.debug.print("\n=== Fused NPU+GPU Engine ===\n", .{});
+    std.debug.print("Policy: {s}\n", .{@tagName(opts.policy)});
+
+    // ── Load model ──
+    std.debug.print("Loading model: {s}\n", .{opts.model_path});
+    var model = try model_data.loadModel(allocator, opts.model_path, "qwen3_0_6b");
+    defer model.deinit(allocator);
+
+    const cfg = model.config;
+    std.debug.print("  H={d} NC={d} NH={d} NKV={d} HD={d} IM={d} NV={d}\n", .{
+        cfg.H, cfg.NC, cfg.NH, cfg.NKV, cfg.HD, cfg.IM, cfg.NV,
+    });
+
+    // ── Check NPU binary exists ──
+    _ = std.fs.cwd().statFile(opts.npu_engine) catch {
+        std.debug.print("  NPU engine not found at {s}\n", .{opts.npu_engine});
+    };
+
+    // ── Initialize GPU attention (best-effort) ──
+    std.debug.print("GPU attention init...\n", .{});
+    var gpu_attn_instance = gpu_attn.GpuAttention.init(allocator, ZINC_SHADER_DIR) catch |err| {
+        std.debug.print("  GPU unavailable: {s} (CPU fallback)\n", .{@errorName(err)});
+        return error.GpuUnavailable;
+    };
+    defer gpu_attn_instance.deinit();
+    std.debug.print("  GPU flash attention ready!\n", .{});
+
+    // ── Create FusedExecutor ──
+    var executor = try FusedExecutor.init(
+        allocator, opts.policy, QWEN3_0_6B,
+        opts.model_path, opts.npu_engine,
+        MAX_CONTEXT, opts.batch_size,
+        model.emb_f32, model.lm_head_f32, model.tied_embeddings,
+        model.final_norm, model.in_norm, model.pa_norm,
+        model.rope_sin, model.rope_cos,
+    );
+    defer executor.deinit();
+    executor.gpu = gpu_attn_instance;
+
+    // ── Tokenize ──
+    const prompt_tokens = try tokenizeSimple(opts.prompt, allocator);
+    defer allocator.free(prompt_tokens);
+    std.debug.print("Prompt tokens: {any}\n", .{prompt_tokens});
+
+    // ── Prefill ──
+    std.debug.print("Prefilling {d} tokens...\n", .{prompt_tokens.len});
+    var timer = try std.time.Timer.start();
+    executor.prefill(prompt_tokens, 1) catch |err| {
+        std.debug.print("  Prefill error: {s}\n", .{@errorName(err)});
+        return;
+    };
+    const prefill_ms = @as(f64, @floatFromInt(timer.lap())) / 1_000_000.0;
+    std.debug.print("  {d:.1}ms ({d:.1} ms/tok)\n", .{ prefill_ms, prefill_ms / @as(f64, @floatFromInt(prompt_tokens.len)) });
+
+    // ── Decode ──
+    std.debug.print("Generating up to {d} tokens...\n", .{opts.max_tokens});
+    var generated: u32 = 0;
+    var token_buf: [128]u32 = undefined;
+
+    while (generated < opts.max_tokens) {
+        const batch = @min(opts.batch_size, opts.max_tokens - generated);
+        for (0..batch) |b| token_buf[b] = prompt_tokens[prompt_tokens.len - 1];
+
+        const next_token = executor.decodeBatch(token_buf[0..batch]) catch |err| {
+            std.debug.print("  Decode error at {d}: {s}\n", .{ generated, @errorName(err) });
+            break;
+        };
+        std.debug.print("{d} ", .{next_token});
+        generated += 1;
+        if (generated % 20 == 0) std.debug.print("\n", .{});
+    }
+
+    const elapsed_ms = @as(f64, @floatFromInt(timer.read())) / 1_000_000.0;
+    const tok_s = if (elapsed_ms > 0) @as(f64, @floatFromInt(generated)) / (elapsed_ms / 1000.0) else 0;
+    std.debug.print("\n{d} tokens in {d:.1}ms ({d:.0} tok/s)\n", .{ generated, elapsed_ms, tok_s });
+}
+
+pub var is_debug_mode: bool = false;
+
+pub const std_options = std.Options{
+    .log_level = .debug,
+    .logFn = struct {
+        fn logFn(
+            comptime level: std.log.Level,
+            comptime _scope: @TypeOf(.enum_literal),
+            comptime format: []const u8,
+            args: anytype,
+        ) void {
+            if (level == .debug and !is_debug_mode) return;
+            std.debug.print(format ++ "\n", args);
+        }
+    }.logFn,
+};
