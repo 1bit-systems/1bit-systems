@@ -1,5 +1,5 @@
 //! NPU↔GPU interop bridge with REAL KV cache sharing.
-//! Enables KV cache sharing between NPU (XRT BOs) and GPU (Vulkan buffers)
+//! Enables KV cache sharing between NPU (XRT BOs) and GPU (Vulkan buffers))
 //! with two code paths:
 //!
 //!   1. **Direct dma-buf** (Strix Halo UMA): Export NPU XRT BO fd via
@@ -32,11 +32,11 @@
 const std = @import("std");
 
 // NPU types
-const npu_page_table = @import("../npu/src/npu_page_table.zig");
+const npu_page_table = @import("npu_page_table");
 const NpuPageTable = npu_page_table.NpuPageTable;
 const PageMapping = npu_page_table.PageMapping;
 
-// GPU KV cache types
+// GPU KV cache types — imported as module via build.zig
 const kv_cache = @import("sched");
 const KvPagePool = kv_cache.KvPagePool;
 
@@ -44,18 +44,13 @@ const KvPagePool = kv_cache.KvPagePool;
 const memory = @import("memory.zig");
 const CrossBackendMemory = memory.CrossBackendMemory;
 
-// XRT FFI for dma-buf export
-const xrt = @import("../npu/src/xrt.zig");
-
 // XRT dma-buf export extern
-// Add to xrt.zig:
-//   extern "xrt_coreutil" fn xrtBOExport(bo: ?*BufferObject) callconv(.c) c_int;
-extern "xrt_coreutil" fn xrtBOExport(bo: ?*xrt.BufferObject) callconv(.c) c_int;
+const XrtBufferObject = opaque {};
+extern "xrt_coreutil" fn xrtBOExport(bo: ?*XrtBufferObject) callconv(.c) c_int;
 
 // Vulkan C bindings for external memory import
-const vk = @cImport({
-    @cInclude("vulkan/vulkan.h");
-});
+// Uses ZINC's vulkan bindings.
+const vk = @import("vk_wrapper");
 
 const log = std.log.scoped(.npu_gpu_interop);
 
@@ -99,12 +94,12 @@ pub const PageGpuMapping = struct {
 };
 
 /// Per-layer buffer handles for the GPU-accessible KV cache.
-/// In dma-buf mode, K and V share the same VkDeviceMemory (the imported NPU BO)
+/// In dma-buf mode, K and V share the same VkDeviceMemory (the imported NPU BO))
 /// but use separate VkBuffer handles pointing at different byte offsets within
 /// the shared allocation.
 ///
 /// Buffer layout per token within the NPU BO:
-///   [K_head0..K_headN | V_head0..V_headN]  (each head = head_dim × f32)
+///   [K_head0..K_headN | V_head0..V_headN]  (each head = head_dim × f32))
 const LayerBuffers = struct {
     /// VkBuffer for K cache data (VK_NULL_HANDLE if staging path or uninit).
     k_buffer: vk.VkBuffer,
@@ -235,7 +230,7 @@ pub const KvCacheInterop = struct {
         const staging = try allocator.alloc(u8, bytes_per_page);
         errdefer allocator.free(staging);
 
-        // Total pages in the pool (including the zero/eviction page)
+        // Total pages in the pool (including the zero/eviction page))
         const total_pages_in_pool = interop_gpu_page_pool.total_pages;
         const pages_per_layer = total_pages_in_pool;
 
@@ -316,7 +311,7 @@ pub const KvCacheInterop = struct {
     /// Try to enable dma-buf sharing.
     ///
     /// Probes by:
-    ///   1. Checking `/dev/dri/renderD128` exists (Strix Halo render node)
+    ///   1. Checking `/dev/dri/renderD128` exists (Strix Halo render node))
     ///   2. Trying to export the NPU BO via `xrtBOExport()`
     ///   3. Setting up Vulkan external memory import
     ///
@@ -333,8 +328,14 @@ pub const KvCacheInterop = struct {
         // ── Step 1: Check /dev/dri/renderD128 ──
         const render_node_path = "/dev/dri/renderD128";
         const render_node_exists = blk: {
-            std.fs.accessAbsolute(render_node_path, .{}) catch break :blk false;
-            break :blk true;
+            // Check if render node exists (try to open for read-only))
+            const fd = std.os.linux.open(render_node_path, .{ .RDONLY = true }, 0);
+            const rc = std.os.linux.errno(fd);
+            if (rc == .SUCCESS) {
+                _ = std.os.linux.close(@as(i32, @intCast(fd)));
+                break :blk true;
+            }
+            break :blk false;
         };
         if (!render_node_exists) {
             log.info("dma-buf: {s} not found — using staging copies", .{render_node_path});
@@ -361,7 +362,7 @@ pub const KvCacheInterop = struct {
         // ── Step 3: Set up Vulkan external memory import ──
         if (!self.initVulkanForImport()) {
             // Vulkan init failed — close the fd and fall back
-            _ = std.os.close(fd);
+            _ = std.os.linux.close(@as(i32, @intCast(fd)));
             self.dma_buf_fd = -1;
             return false;
         }
@@ -370,7 +371,7 @@ pub const KvCacheInterop = struct {
         if (!self.importDmaBuf()) {
             // Import failed — clean up
             self.deinitVulkan();
-            _ = std.os.close(self.dma_buf_fd);
+            _ = std.os.linux.close(@as(i32, @intCast(self.dma_buf_fd)));
             self.dma_buf_fd = -1;
             return false;
         }
@@ -396,8 +397,8 @@ pub const KvCacheInterop = struct {
         };
 
         // Enable VK_KHR_external_memory_capabilities at instance level
-        // (required by VK_KHR_external_memory_fd)
-        const inst_ext_name = "VK_KHR_external_memory_capabilities\0";
+        // (required by VK_KHR_external_memory_fd))
+        const inst_ext_name = "VK_KHR_external_memory_capabilities";
         const inst_exts = [_][*:0]const u8{inst_ext_name};
 
         const inst_info = vk.VkInstanceCreateInfo{
@@ -426,7 +427,7 @@ pub const KvCacheInterop = struct {
             return false;
         }
 
-        // Stack-allocate physical device handles (up to 8 GPUs)
+        // Stack-allocate physical device handles (up to 8 GPUs))
         var phys_devices: [8]vk.VkPhysicalDevice = undefined;
         const actual_count = @min(dev_count, @as(u32, 8));
         _ = vk.vkEnumeratePhysicalDevices(instance, &actual_count, &phys_devices);
@@ -486,7 +487,7 @@ pub const KvCacheInterop = struct {
         };
 
         // ── Create logical device with VK_KHR_external_memory_fd ──
-        const dev_ext_name = "VK_KHR_external_memory_fd\0";
+        const dev_ext_name = "VK_KHR_external_memory_fd";
         const dev_exts = [_][*:0]const u8{dev_ext_name};
 
         const queue_priority: f32 = 1.0;
@@ -804,6 +805,7 @@ pub const KvCacheInterop = struct {
             if (gpu_k_buffer) |vk_buf_k| {
                 const k_buf: vk.VkBuffer = @ptrCast(vk_buf_k);
                 const k_size = tokens_in_this_page * k_per_token;
+                _ = k_size;
 
                 // Write K data from staging to mapped staging memory
                 if (self.staging_mapped_k) |mapped_k| {
@@ -829,6 +831,7 @@ pub const KvCacheInterop = struct {
             if (gpu_v_buffer) |vk_buf_v| {
                 const v_buf: vk.VkBuffer = @ptrCast(vk_buf_v);
                 const v_size = tokens_in_this_page * v_per_token;
+                _ = v_size;
 
                 if (self.staging_mapped_v) |mapped_v| {
                     const staging_v_start: u64 = 0;
@@ -860,9 +863,11 @@ pub const KvCacheInterop = struct {
         layer: u32,
         page_ids: []const u32,
         token_count: u32,
-        gpu_k_buffer: ?*anyopaque,
-        gpu_v_buffer: ?*anyopaque,
+        _gpu_k_buffer: ?*anyopaque,
+        _gpu_v_buffer: ?*anyopaque,
     ) !void {
+        _ = _gpu_k_buffer;
+        _ = _gpu_v_buffer;
         if (self.use_dma_buf) {
             // DMA-BUF: reverse barrier to make GPU writes visible to NPU
             self.dmaBufBarrier();
@@ -927,9 +932,9 @@ pub const KvCacheInterop = struct {
                 }
             }
 
-            // Sync NPU BO to device (flush CPU writes to NPU)
+            // Sync NPU BO to device (flush CPU writes to NPU))
             self.npu_page_table.kv_bo.sync(
-                xrt.XCL_BO_SYNC_BO_TO_DEVICE,
+                0, // XCL_BO_SYNC_BO_TO_DEVICE
                 page_offset,
                 tokens_in_this_page * token_bytes,
             ) catch {
@@ -1256,7 +1261,7 @@ pub const KvCacheInterop = struct {
 
     // ── Deinit helpers ──
 
-    fn deinitDmaBuf(self: *KvCacheInterop) {
+    fn deinitDmaBuf(self: *KvCacheInterop) void {
         // Destroy per-layer buffers
         for (self.layer_buffers) |lb| {
             if (lb.k_buffer != null) vk.vkDestroyBuffer(self.vk_device, lb.k_buffer, null);
@@ -1273,14 +1278,14 @@ pub const KvCacheInterop = struct {
 
         // Close dma-buf fd
         if (self.dma_buf_fd >= 0) {
-            _ = std.os.close(self.dma_buf_fd);
+            _ = std.os.linux.close(@as(i32, @intCast(self.dma_buf_fd)));
             self.dma_buf_fd = -1;
         }
 
         self.deinitVulkan();
     }
 
-    fn deinitStaging(self: *KvCacheInterop) {
+    fn deinitStaging(self: *KvCacheInterop) void {
         if (self.staging_upload_k != null) {
             if (self.staging_mapped_k) |_| {
                 vk.vkUnmapMemory(self.vk_device, self.staging_memory_k);
@@ -1302,7 +1307,7 @@ pub const KvCacheInterop = struct {
         self.deinitVulkan();
     }
 
-    fn deinitVulkan(self: *KvCacheInterop) {
+    fn deinitVulkan(self: *KvCacheInterop) void {
         // Destroy barrier resources
         if (self.vk_fence != null) {
             vk.vkDestroyFence(self.vk_device, self.vk_fence, null);
@@ -1315,7 +1320,7 @@ pub const KvCacheInterop = struct {
             self.vk_cmd_buffer = null;
         }
         if (self.vk_device != null) {
-            vk.vkDeviceWaitIdle(self.vk_device);
+            _ = vk.vkDeviceWaitIdle(self.vk_device);
             vk.vkDestroyDevice(self.vk_device, null);
             self.vk_device = null;
         }
@@ -1374,7 +1379,7 @@ test "KvCacheInterop init and deinit" {
     defer interop.deinit();
 
     // Verify basic arithmetic
-    try std.testing.expectEqual(@as(u32, 0), interop.use_dma_buf);
+    try std.testing.expectEqual(false, interop.use_dma_buf);
     try std.testing.expectEqual(@as(u64, 8 * 128 * 4 * 2), interop.bytes_per_token);
     try std.testing.expectEqual(@as(u32, 16), interop.pages_per_layer);
     try std.testing.expectEqual(@as(u32, 16), interop.total_pages_in_pool);
