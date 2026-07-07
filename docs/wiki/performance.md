@@ -14,18 +14,21 @@
 
 ## At a Glance
 
-| Engine | Hardware | Speed | Power | Token/J | Model |
-|--------|----------|:-----:|:-----:|:-------:|-------|
-| **DSpark spec-decode** 🏆 (production) | XDNA 2 + Zen 5 | **572 tok/s** | **15W** | **38.1** | Qwen3-0.6B (fused + CPU draft) |
-| **NPU fused** (production) | XDNA 2 · 32 tiles | **291 tok/s** | ~20W | 14.6 | Qwen3-0.6B (one xclbin/layer) |
-| **NPU v12** (fallback) | XDNA 2 · 32 tiles | **97 tok/s** | ~15W | 6.5 | Qwen3-0.6B (standalone INT8) |
-| **GPU ternary** (Vulkan) | Radeon 8060S | **279 tok/s** | ~45W | 6.2 | Q2_0 |
-| **GPU 1-bit** (llama.cpp) | Radeon 8060S | **381 tok/s** | ~45W | 8.5 | Qwen2-0.5B IQ1_S |
-| **GPU ZINC** (Vulkan) | Radeon 8060S | **22 tok/s** | ~45W | 0.5 | Bonsai-1.7B-F16 |
-| **ROCm** (HIP kernels) | Radeon 8060S | **113 tok/s** | ~45W | 2.5 | Bonsai TQ2 |
-| **Zaya** (AMD-native) | Radeon 8060S | **~18 tok/s** | ~50W | 0.4 | Zaya 1.8B |
+| Engine | Hardware | Speed | Status | Power | Model |
+|--------|----------|:-----:|--------|:-----:|-------|
+| **NPU FLM** (production) | XDNA 2 · 32 tiles | **94 tok/s** | ✅ measured, coherent | ~15W | Qwen3-0.6B |
+| **GPU ternary** (Vulkan) | Radeon 8060S | **279 tok/s** | ✅ measured, coherent | ~45W | Bonsai-1.7B Q2_0 (1.58-bit) |
+| **GPU 1-bit** (llama.cpp) | Radeon 8060S | **381 tok/s** | measured (llama.cpp) | ~45W | Qwen2-0.5B IQ1_S |
+| **GPU ZINC** (Vulkan) | Radeon 8060S | **22 tok/s** | ✅ measured, coherent | ~45W | Bonsai-1.7B F16 |
+| **DSpark spec-decode** | XDNA 2 + Zen 5 | **~572 tok/s** | 📊 projected (97 raw×5.9; draft training) | 15W | Qwen3-0.6B |
+| **NPU fused** | XDNA 2 · 32 tiles | **291 tok/s** | ⚙️ raw throughput — output not yet coherent | ~20W | Qwen3-0.6B |
+| **NPU v12** | XDNA 2 · 32 tiles | **97 tok/s** | ⚙️ raw throughput — output not yet coherent | ~15W | Qwen3-0.6B |
+| **ROCm** (HIP) | Radeon 8060S | **113 tok/s** | reported | ~45W | Bonsai TQ2 |
+| **Zaya** (AMD-native) | Radeon 8060S | **~18 tok/s** | reported | ~50W | Zaya 1.8B |
 
-**73+ models across 6 backends · 22 multi-modal (video, image, audio) · 55.7 TFLOPS INT8 GEMM · 72× speedup (244→3.4 ms/tok) · 572 tok/s production**
+**Status legend:** ✅ measured on-device with coherent output · *measured* = throughput measured via a third-party tool · 📊 *projected* = base engine × speculative-decode acceptance, not an end-to-end measurement · ⚙️ *raw throughput* = the kernel runs at this speed but the engine's output is not yet coherent (correctness WIP). Only ✅ numbers should be quoted as production.
+
+**73+ models across 6 backends · 22 multi-modal (video, image, audio) · validated production: 94 tok/s NPU (FLM) + 279 tok/s GPU 1.58-bit ternary + 22 tok/s GPU ZINC (coherent). DSpark 572 tok/s is a projection (draft in training).**
 
 ---
 
@@ -98,9 +101,10 @@ Single binary. Auto-detect. No proprietary code.
 
 | Engine | Decode | TTFT | tok/s | Power | Notes |
 |--------|--------|------|:-----:|:-----:|-------|
-| **DSpark spec-decode** 🏆 | — | — | **572** | **15W** | 5.90× over fused, 5-layer CPU draft |
-| **Fused layer** (production) | 3.4 ms/tok | — | **291** | ~20W | One xclbin/layer, 38 KB |
-| **C++ v12** (fallback) | 10 ms/tok | 14 ms/tok prefill | **97** | ~15W | M=32 batch |
+| **DSpark spec-decode** 📊 | — | — | **~572** | **15W** | *projected* (97 raw × 5.9); 5.90× acceptance measured, draft training |
+| **Fused layer** ⚙️ | 3.4 ms/tok | — | **291** | ~20W | One xclbin/layer, 38 KB — raw throughput, output not yet coherent |
+| **C++ v12** ⚙️ | 10 ms/tok | 14 ms/tok prefill | **97** | ~15W | raw throughput — output not yet coherent, M=32 batch |
+| **NPU FLM** ✅ | — | — | **94** | ~15W | measured, coherent — production |
 | **C++ ALL** (5 models) | 36 ms/tok | 14 ms/tok prefill | **28** | ~15W | Auto-detect, one binary |
 
 **Power efficiency:** DSpark achieves **38.1 tok/J** — 4.5× more efficient than GPU (8.5 tok/J) and 2.6× more than fused layer alone (14.6 tok/J). The CPU draft model adds negligible power while delivering 2× the throughput.
@@ -195,9 +199,9 @@ All 31 Vulkan pipelines switched from wave64 to **wave32** (RDNA4 native width).
 
 ---
 
-## Speculative Decoding — DSpark (Production)
+## Speculative Decoding — DSpark (projected)
 
-**DSpark** is the production speculative decoding engine. It pairs a **5-layer C++ draft model** (running on Zen 5 CPU) with the **fused NPU target** (291 tok/s baseline), achieving **5.90× speedup** at **572 tok/s**.
+**DSpark** is a speculative-decoding draft engine (5-layer C++ draft on Zen 5 CPU + the NPU target). Measured: **5.90× acceptance** (5.90/7 blocks, 73.7%) on 10 gsm8k samples with Qwen3-0.6B; confidence-head AUC 0.912. The **~572 tok/s figure is a projection** (97 raw NPU tok/s × 5.90×) — the draft is still training and the number is not yet an end-to-end coherent measurement. Treat it as a projection, not a validated production number, until measured.
 
 ### Architecture
 
@@ -240,7 +244,7 @@ All 31 Vulkan pipelines switched from wave64 to **wave32** (RDNA4 native width).
 | GPU gemma3-4B IQ1_S | 122 | 45W | 2.7 |
 | GPU Qwen3.5-9B Q1_0 | 70 | 45W | 1.6 |
 
-**DSpark beats GPU on both speed and efficiency** — 1.5× faster and 4.5× more tok/J than the fastest GPU 1-bit model.
+> Note: DSpark's 572 is *projected*; the GPU numbers are measured. This is not an apples-to-apples comparison until DSpark is measured end-to-end. The fastest *validated* number here is the GPU 279 tok/s ternary (measured, coherent).
 
 ---
 
@@ -254,10 +258,10 @@ All 31 Vulkan pipelines switched from wave64 to **wave32** (RDNA4 native width).
 | Jul 2 | v9 M=16 | 16 ms/tok | 15.2× | M=16 + NPU LM head |
 | Jul 2 | v12 M=32 | 10 ms/tok | 24× | M=32 + OpenMP attention |
 | Jul 2 | ALL 5 models | 36-127 ms/tok | — | 5 models, 0 crashes, auto-detect |
-| **Jul 6** | **Fused layer** | **3.4 ms/tok** | **72×** | **One xclbin/layer, 38 KB, 291 tok/s** |
-| **Jul 6** | **DSpark spec-decode** | **572 tok/s** | **168×** | **5-layer CPU draft, 5.90× over fused, 15W** |
+| **Jul 6** | **Fused layer** | **3.4 ms/tok** | **72×** | One xclbin/layer, 38 KB, 291 tok/s — raw, output not yet coherent |
+| **Jul 6** | **DSpark spec-decode** | **~572 tok/s** (projected) | — | 5.90× acceptance measured; 572 is a projection, draft training |
 
-**Net: 1930→3.4 ms/tok on 0.6B. 168× in 8 days. 572 tok/s production. Zero Python. Pure C++.**
+**Net: validated production is 94 tok/s NPU (FLM) + 279 tok/s GPU 1.58-bit ternary. Raw fused-layer throughput hit 3.4 ms/tok (291 tok/s) but is not yet coherent; DSpark's 572 tok/s is a projection. Zero Python. Pure C++.**
 
 ---
 

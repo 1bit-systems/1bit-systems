@@ -478,7 +478,7 @@
     while(n=walk.nextNode()){
       var t = n.nodeValue;
       if(t.indexOf('94 tok/s')>=0 && t.indexOf('FLM proxy')<0 && t.indexOf('decode=')<0 && t.indexOf('flm serve')<0){
-        n.nodeValue = t.replace(/94 tok\/s/g, v12 + ' tok/s');
+        n.nodeValue = t.replace(/94 tok\/s/g, flm + ' tok/s'); // keep validated FLM number, not raw v12
       }
     }
 

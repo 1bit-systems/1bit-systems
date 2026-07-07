@@ -17,7 +17,7 @@
 <link rel="canonical" href="https://1bit.systems">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="1bit.systems — 401 KB NPU+DSpark engine">
-<meta name="twitter:description" content="572 tok/s DSpark spec-decode production engine on AMD Strix Halo NPU. 73+ models. Zero Python. Zero deps. Open source.">
+<meta name="twitter:description" content="Validated: 94 tok/s NPU + 279 tok/s 1-bit GPU on AMD Strix Halo. DSpark 572 tok/s projected. 73+ models. Zero Python. Zero deps. Open source.">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
 <link rel="alternate icon" href="/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -184,7 +184,7 @@
         "name": "How fast is NPU inference on Strix Halo?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "572 tok/s (3.4 ms/tok) with the DSpark spec-decode production engine on Qwen3-0.6B. ROCm HIP backend reaches 113 tok/s, GPU Vulkan 22 tok/s."
+          "text": "~572 tok/s projected for DSpark spec-decode (base NPU x 5.90x acceptance; draft training) on Qwen3-0.6B. ROCm HIP backend reaches 113 tok/s, GPU Vulkan 22 tok/s."
         }
       }
     ]
@@ -235,7 +235,7 @@
       <div style="padding:18px 20px;">
         <div class="console-hd"><span class="dots"><span style="background:var(--pink)"></span><span style="background:var(--blue)"></span><span style="background:var(--green)"></span></span><span class="mono" style="font-size:12px;color:var(--muted);">1bit.systems engine stats</span><span style="flex:1"></span><span class="eyebrow">Strix Halo</span></div>
         <div style="margin-top:14px;display:flex;flex-direction:column;gap:8px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--green);font-size:10px;">DSpark spec-decode (production)</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--green);">572 tok/s</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--green);font-size:10px;">DSpark spec-decode (projected)</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--green);">572 tok/s</span></div>
           <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--muted);font-size:10px;">C++ all-5 (auto-detect)</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--muted);">28 tok/s</span></div>
           <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--pink);font-size:10px;">GPU Vulkan (ZINC)</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--pink);">22 tok/s</span></div>
           <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--blue);font-size:10px;">GPU ROCm (HIP)</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--blue);">113 tok/s</span></div>
@@ -260,7 +260,7 @@
   <h2 style="margin:16px 0 8px;">One APU. Two accelerators AMD half-shipped.</h2>
   <p class="lead">The NPU AMD shipped locked. The GPU they already open. 1bit.systems drives both — from one mini PC, with no cloud in the loop.</p>
   <div class="grid2" style="margin-top:28px;">
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">NPU · XDNA 2</span><span class="pill warn"><span class="dot"></span>unlocked</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute tiles</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">50 TOPS INT8 AMD shipped disabled on consumer silicon. <strong>Fused layer production engine: 572 tok/s</strong> (Qwen3-0.6B). 5 NPU model families, 73+ total across 6 backends.</p></div>
+    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">NPU · XDNA 2</span><span class="pill warn"><span class="dot"></span>unlocked</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute tiles</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">50 TOPS INT8 AMD shipped disabled on consumer silicon. <strong>Fused layer (raw throughput — output not yet coherent) engine: 572 tok/s</strong> (Qwen3-0.6B). 5 NPU model families, 73+ total across 6 backends.</p></div>
     <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">GPU · RDNA 3.5</span><span class="pill info"><span class="dot"></span>open</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute units</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">Vulkan 1.3 compute. ZINC engine (Zig, GGUF). 22 tok/s decode (Bonsai-1.7B F16). 256 GB/s memory bandwidth — 99.6% utilized.</p></div>
   </div>
 </section>
