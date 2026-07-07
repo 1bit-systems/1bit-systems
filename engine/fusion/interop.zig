@@ -56,7 +56,7 @@ const NpuPageTable = struct {
 const XrtBuffer = struct {
     handle: ?*anyopaque = null,
     size: u64 = 0,
-    pub fn sync(_: *XrtBuffer, _flags: u32, _offset: u64, _size: u64) !void {}
+    pub fn sync(_: *XrtBuffer, _: u32, _: u64, _: u64) !void {}
 };
 const PageMapping = struct {};
 
