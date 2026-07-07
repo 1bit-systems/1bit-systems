@@ -17,8 +17,8 @@
 | Engine | Hardware | Speed | Status | Power | Model |
 |--------|----------|:-----:|--------|:-----:|-------|
 | **NPU FLM** (production) | XDNA 2 · 32 tiles | **94 tok/s** | ✅ measured, coherent | ~15W | Qwen3-0.6B |
-| **GPU ternary** (Vulkan) | Radeon 8060S | **279 tok/s** | ✅ measured, coherent | ~45W | Bonsai-1.7B Q2_0 (1.58-bit) |
-| **GPU 1-bit** (llama.cpp) | Radeon 8060S | **381 tok/s** | measured (llama.cpp) | ~45W | Qwen2-0.5B IQ1_S |
+| **GPU ternary** (Vulkan) | Radeon 8060S | **342 tok/s** | ✅ measured on-device 2026-07-07 (zinc, 2.9 ms/tok) | ~45W | Bonsai-1.7B Q2_0 (1.58-bit) |
+| **GPU 1-bit** (llama.cpp) | Radeon 8060S | **383 tok/s** | measured (llama.cpp) | ~45W | Qwen2-0.5B IQ1_S |
 | **GPU ZINC** (Vulkan) | Radeon 8060S | **22 tok/s** | ✅ measured, coherent | ~45W | Bonsai-1.7B F16 |
 | **DSpark spec-decode** | XDNA 2 + Zen 5 | **0.1–0.2 tok/s** | ❌ measured end-to-end 2026-07-07: 0% draft acceptance — "~572" projection disproven | 15W | Qwen3-0.6B |
 | **NPU fused** | XDNA 2 · 32 tiles | **291 tok/s** | ⚙️ raw throughput — output not yet coherent | ~20W | Qwen3-0.6B |
@@ -28,7 +28,7 @@
 
 **Status legend:** ✅ measured on-device with coherent output · *measured* = throughput measured via a third-party tool · 📊 *projected* = base engine × speculative-decode acceptance, not an end-to-end measurement · ❌ = a projection that has been disproven by end-to-end measurement · ⚙️ *raw throughput* = the kernel runs at this speed but the engine's output is not yet coherent (correctness WIP). Only ✅ numbers should be quoted as production.
 
-**73+ models across 6 backends · 22 multi-modal (video, image, audio) · validated production: 94 tok/s NPU (FLM) + 279 tok/s GPU 1.58-bit ternary + 22 tok/s GPU ZINC (coherent). DSpark's "572 tok/s" was a projection — end-to-end measurement (2026-07-07) gives 0.1–0.2 tok/s at 0% draft acceptance, disproving it. DSpark is experimental, not production.**
+**73+ models across 6 backends · 22 multi-modal (video, image, audio) · validated production: 94 tok/s NPU (FLM) + 342 tok/s GPU 1.58-bit ternary + 22 tok/s GPU ZINC (coherent). DSpark's "572 tok/s" was a projection — end-to-end measurement (2026-07-07) gives 0.1–0.2 tok/s at 0% draft acceptance, disproving it. DSpark is experimental, not production.**
 
 ---
 
@@ -40,11 +40,11 @@ Every model at ≤1.5625 bpw (true 1-bit class). Measured on Radeon 8060S via Vu
 
 | Model | BPW | Size | Params | Engine | Prefill | Decode | ms/tok |
 |-------|-----|------|--------|--------|---------|--------|--------|
-| Qwen2 0.5B | **1.06** (IQ1_S) | 296 MB | 494M | llama.cpp | 4,188 tok/s | **381 tok/s** | 2.6 |
+| Qwen2 0.5B | **1.06** (IQ1_S) | 296 MB | 494M | llama.cpp | 4,188 tok/s | **383 tok/s** | 2.6 |
 | gemma-2-2b | **1.06** (IQ1_S) | 788 MB | 2.6B | llama.cpp | 1,773 tok/s | **158 tok/s** | 6.3 |
-| Qwen3.5-0.8B | **1.25** (Q1_0) | 268 MB | 752M | llama.cpp | 3,883 tok/s | **312 tok/s** | 3.2 |
+| Qwen3.5-0.8B | **1.25** (Q1_0) | 268 MB | 752M | llama.cpp | 3,883 tok/s | **308 tok/s** | 3.3 |
 | gemma3 4B | **1.06** (IQ1_S) | 1.05 GB | 3.88B | llama.cpp | 1,247 tok/s | **122 tok/s** | 8.2 |
-| Qwen3.5-9B | **1.25** (Q1_0) | 1.82 GB | 8.95B | llama.cpp | 762 tok/s | **70 tok/s** | 14.3 |
+| Qwen3.5-9B | **1.25** (Q1_0) | 1.82 GB | 8.95B | llama.cpp | 762 tok/s | **74 tok/s** | 13.5 |
 | Nemo 8B | **1.06** (IQ1_S) | 1.97 GB | 8.41B | llama.cpp | 720 tok/s | **79 tok/s** | 12.7 |
 | Hy-MT2 1.8B | **1.3125** (STQ1_0) | 441 MB | 1.8B | ZINC (Sherry) | 238 tok/s | **267 tok/s** | 3.7 |
 
@@ -53,20 +53,20 @@ Every model at ≤1.5625 bpw (true 1-bit class). Measured on Radeon 8060S via Vu
 | Backend | Model | Size | Tok/s | Power |
 |---------|-------|------|-------|-------|
 | **NPU** (C++ v12) | Qwen3-0.6B Q4NX | 526 MB | **97 tok/s** | ~15W |
-| **GPU** (llama.cpp) | Qwen2 0.5B IQ1_S | 296 MB | **381 tok/s** | ~45W |
-| **GPU** (llama.cpp) | Qwen3.5-0.8B Q1_0 | 268 MB | **312 tok/s** | ~45W |
+| **GPU** (llama.cpp) | Qwen2 0.5B IQ1_S | 296 MB | **383 tok/s** | ~45W |
+| **GPU** (llama.cpp) | Qwen3.5-0.8B Q1_0 | 268 MB | **308 tok/s** | ~45W |
 | **GPU** (ZINC) | Hy-MT2 1.8B STQ1_0 | 441 MB | **267 tok/s** | ~45W |
 | **GPU** (llama.cpp) | gemma3 4B IQ1_S | 1.05 GB | **122 tok/s** | ~45W |
 | **GPU** (llama.cpp) | Nemo 8B IQ1_S | 1.97 GB | **79 tok/s** | ~45W |
 | **GPU** (llama.cpp) | gemma-2-2b IQ1_S | 788 MB | **158 tok/s** | ~45W |
-| **GPU** (llama.cpp) | Qwen3.5-9B Q1_0 | 1.82 GB | **70 tok/s** | ~45W |
+| **GPU** (llama.cpp) | Qwen3.5-9B Q1_0 | 1.82 GB | **74 tok/s** | ~45W |
 
 **Key Takeaways:**
-- **0.5B at 1.06 bits**: 381 tok/s, 296 MB — 4× NPU speed
-- **0.8B at 1.25 bits**: 312 tok/s, 268 MB — smallest file, 3.4× NPU
+- **0.5B at 1.06 bits**: 383 tok/s, 296 MB — 4.1× NPU speed
+- **0.8B at 1.25 bits**: 308 tok/s, 268 MB — smallest file, 3.3× NPU
 - **1.8B at 1.3125 bits**: 267 tok/s via ZINC Sherry ternary — 2.9× NPU
 - **3.88B at 1.06 bits**: 122 tok/s — gemma3 4B, 1.05 GB
-- **8.95B at 1.25 bits**: 70 tok/s — Qwen3.5-9B, 1.82 GB
+- **8.95B at 1.25 bits**: 74 tok/s — Qwen3.5-9B, 1.82 GB
 - NPU wins on power efficiency (~15W vs ~45W), GPU 1-bit is 1.3-4× faster
 
 ### Models Tested
@@ -107,7 +107,7 @@ Single binary. Auto-detect. No proprietary code.
 | **NPU FLM** ✅ | — | — | **94** | ~15W | measured, coherent — production |
 | **C++ ALL** (5 models) | 36 ms/tok | 14 ms/tok prefill | **28** | ~15W | Auto-detect, one binary |
 
-**Power efficiency:** the 38.1 tok/J figure previously attributed to DSpark was derived from the disproven 572 tok/s projection and does not hold — at 0% acceptance DSpark delivers no throughput gain over the base engine. The best *measured* efficiency here is NPU FLM (94 tok/s, coherent) and GPU ternary (279 tok/s at ~45W).
+**Power efficiency:** the 38.1 tok/J figure previously attributed to DSpark was derived from the disproven 572 tok/s projection and does not hold — at 0% acceptance DSpark delivers no throughput gain over the base engine. The best *measured* efficiency here is NPU FLM (94 tok/s, coherent) and GPU ternary (342 tok/s at ~45W).
 
 ---
 
@@ -249,7 +249,7 @@ On the **real NPU (Qwen3-0.6B INT8)** the measured acceptance is **0% at every p
 | GPU gemma3-4B IQ1_S | 122 | 45W | 2.7 |
 | GPU Qwen3.5-9B Q1_0 | 70 | 45W | 1.6 |
 
-> Note: DSpark's 572 was a projection and is **disproven** — measured end-to-end it is 0.1–0.2 tok/s at 0% acceptance. The GPU numbers are measured. The fastest *validated* number here is the GPU 381 tok/s (Qwen2-0.5B IQ1_S, llama.cpp) / 279 tok/s ternary (measured, coherent).
+> Note: DSpark's 572 was a projection and is **disproven** — measured end-to-end it is 0.1–0.2 tok/s at 0% acceptance. The GPU numbers are measured. The fastest *validated* number here is the GPU 383 tok/s (Qwen2-0.5B IQ1_S, llama.cpp) / 342 tok/s ternary (measured, coherent).
 
 ---
 
@@ -267,7 +267,7 @@ On the **real NPU (Qwen3-0.6B INT8)** the measured acceptance is **0% at every p
 | **Jul 6** | **DSpark spec-decode** | **~572 tok/s** (projected) | — | projection; later disproven — see Jul 7 |
 | **Jul 7** | **DSpark spec-decode** | **0.1–0.2 tok/s** (measured) | ❌ 1.0× | end-to-end on NPU: 0% draft acceptance; segfault fixed but path is not production |
 
-**Net: validated production is 94 tok/s NPU (FLM) + 279 tok/s GPU 1.58-bit ternary. Raw fused-layer throughput hit 3.4 ms/tok (291 tok/s) but is not yet coherent. DSpark's 572 tok/s was a projection, now disproven by end-to-end measurement (0.1–0.2 tok/s, 0% acceptance) — experimental, not production. Zero Python. Pure C++.**
+**Net: validated production is 94 tok/s NPU (FLM) + 342 tok/s GPU 1.58-bit ternary (zinc, measured 2026-07-07). Raw fused-layer throughput hit 3.4 ms/tok (291 tok/s) but is not yet coherent. DSpark's 572 tok/s was a projection, now disproven by end-to-end measurement (0.1–0.2 tok/s, 0% acceptance) — experimental, not production. Zero Python. Pure C++.**
 
 ---
 
