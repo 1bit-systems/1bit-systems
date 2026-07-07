@@ -1,6 +1,6 @@
 # 1bit.systems — NPU+GPU+CPU Inference Engine
 
-> **291 tok/s** NPU fused (raw) · **94 tok/s** NPU FLM (validated production) · **279 tok/s** GPU 1.58-bit ternary (validated) · **381 tok/s** GPU 1-bit (llama.cpp) · **38 KB** fused layer binary · **55.7 TFLOPS** INT8 GEMM peak · **73+ models** across 6 backends · **22 multi-modal** · Zero Python · MIT
+> **291 tok/s** NPU fused (raw) · **94 tok/s** NPU FLM (validated production) · **342 tok/s** GPU 1.58-bit ternary (validated) · **383 tok/s** GPU 1-bit (llama.cpp) · **38 KB** fused layer binary · **55.7 TFLOPS** INT8 GEMM peak · **73+ models** across 6 backends · **22 multi-modal** · Zero Python · MIT
 >
 > Source of truth: [docs/wiki/performance.md](docs/wiki/performance.md)
 
