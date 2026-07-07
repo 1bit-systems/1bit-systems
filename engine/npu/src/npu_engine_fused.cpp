@@ -146,6 +146,27 @@ int main(int argc, char** argv) {
     // Each fused layer call reads hidden state from BO, writes to output BO
     // For prefill: run layers sequentially, feeding output back as input
     
+    // Helper: run one layer with optional xclbin reload between layers
+    // AIE2 cores halt after aie.end; xclbin reload reinitializes the array.
+    auto run_layer = [&](int layer, int pos, bool reload) -> bool {
+        if (reload) {
+            // Reload the xclbin to reset AIE array state
+            xrt::xclbin fresh_xclbin(xclbin_data);
+            dev.register_xclbin(fresh_xclbin);
+            kernel = xrt::kernel(dev, fresh_xclbin.get_uuid(), "MLIR_AIE");
+        }
+        auto& ibo2 = get_instr(pos);
+        try {
+            auto run = kernel((uint64_t)3, ibo2, (uint32_t)(ibo2.size() / 4),
+                             bKCache, bVCache, weight_bos[layer], bOutput, bHidden);
+            run.wait();
+            return true;
+        } catch (const std::exception& e) {
+            fprintf(stderr, "  Layer %d failed: %s\n", layer, e.what());
+            return false;
+        }
+    };
+
     // --- Prefill ---
     printf("\n=== Prefill %d tokens ===\n", npt);
     auto t0 = std::chrono::steady_clock::now();
@@ -157,17 +178,22 @@ int main(int argc, char** argv) {
     
     // Prefill: for each prompt token, run all layers, updating KV cache
     for (int pi = 0; pi < npt; pi++) {
-        // Set hidden state from embedding (use constant for now, real impl would lookup embed table)
+        // Set hidden state from embedding
         uint16_t* hd = (uint16_t*)bHidden.map();
         for (int i = 0; i < 1024; i++) hd[i] = f2bf(0.01f * (1 + (pi + i) % 10));
         bHidden.sync(XCL_BO_SYNC_BO_TO_DEVICE);
         
+        // If this is the first layer of a new pos, reload xclbin (resets AIE cores)
+        // Subsequent layers for the same pos skip reload (data stays in place)
+        bool reload_first_layer = (pi == 0);  // reload for first prefill token
+        
         // Run all 28 layers at position pi
         for (int l = 0; l < num_layers; l++) {
-            auto& ibo2 = get_instr(pi);
-            auto run = kernel((uint64_t)3, ibo2, (uint32_t)(ibo2.size() / 4),
-                             bKCache, bVCache, weight_bos[l], bOutput, bHidden);
-            run.wait();
+            bool first_layer_at_pos = (l == 0);
+            if (!run_layer(l, pi, first_layer_at_pos && reload_first_layer)) {
+                fprintf(stderr, "Prefill token %d layer %d FAILED\n", pi, l);
+                return 1;
+            }
             
             // Output becomes input for next layer
             memcpy(bHidden.map(), bOutput.map(), 512*4);
@@ -184,21 +210,23 @@ int main(int argc, char** argv) {
     auto t1 = std::chrono::steady_clock::now();
     
     for (int step = 0; step < num_decode; step++) {
-        int pos = npt + step;  // current KV cache position
+        int pos = npt + step;
         
         auto ts = std::chrono::steady_clock::now();
         
-        // Set hidden state from embedding (constant for now)
+        // Set hidden state from embedding
         uint16_t* hd = (uint16_t*)bHidden.map();
         for (int i = 0; i < 1024; i++) hd[i] = f2bf(0.01f * (1 + (pos + step + i) % 10));
         bHidden.sync(XCL_BO_SYNC_BO_TO_DEVICE);
         
-        // Run all 28 layers at position pos
+        // Run all 28 layers at position pos with xclbin reload for the first layer
+        // Each new positions starts with a fresh xclbin load to reset AIE array
         for (int l = 0; l < num_layers; l++) {
-            auto& ibo2 = get_instr(pos);
-            auto run = kernel((uint64_t)3, ibo2, (uint32_t)(ibo2.size() / 4),
-                             bKCache, bVCache, weight_bos[l], bOutput, bHidden);
-            run.wait();
+            bool first_layer = (l == 0);
+            if (!run_layer(l, pos, first_layer)) {
+                fprintf(stderr, "Decode step %d layer %d FAILED\n", step, l);
+                return 1;
+            }
             
             // Output becomes input for next layer
             memcpy(bHidden.map(), bOutput.map(), 512*4);

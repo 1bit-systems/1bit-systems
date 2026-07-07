@@ -64,9 +64,12 @@ fn printPolicies() void {
         const desc = switch (@as(DispatchPolicy, @enumFromInt(f.value))) {
             .npu_only => "All on NPU",
             .gpu_only => "All on GPU",
+            .layer_by_layer => "Round-robin per layer",
+            .attention_on_npu => "Attention on NPU, FFN on GPU",
             .ffn_on_npu => "FFN/QKV on NPU, Attention on GPU (target: 273 tok/s)",
             .qkv_on_npu => "QKV on NPU, rest on GPU",
-            .attention_on_npu => "Attention on NPU, FFN on GPU",
+            .prefill_npu_decode_gpu => "Prefill NPU, Decode GPU",
+            .auto => "Auto-tuned",
         };
         std.debug.print("  {s:20}  {s}\n", .{ f.name, desc });
     }
@@ -83,9 +86,8 @@ pub fn main(init: std.process.Init) !void {
     const allocator = std.heap.page_allocator;
 
     var opts = CliOptions{};
-    var args_iter = std.process.Args.init(init.args);
+    var args_iter = std.process.Args.Iterator.init(init.minimal.args);
     _ = args_iter.next(); // skip argv[0]
-
     while (args_iter.next()) |arg| {
         if (std.mem.eql(u8, arg, "--model") or std.mem.eql(u8, arg, "-m")) {
             if (args_iter.next()) |v| opts.model_path = v;
@@ -189,19 +191,4 @@ pub fn main(init: std.process.Init) !void {
     std.debug.print("\n{d} tokens in {d:.1}ms ({d:.0} tok/s)\n", .{ generated, elapsed_ms, tok_s });
 }
 
-pub var is_debug_mode: bool = false;
-
-pub const std_options = std.Options{
-    .log_level = .debug,
-    .logFn = struct {
-        fn logFn(
-            comptime level: std.log.Level,
-            comptime _scope: @TypeOf(.enum_literal),
-            comptime format: []const u8,
-            args: anytype,
-        ) void {
-            if (level == .debug and !is_debug_mode) return;
-            std.debug.print(format ++ "\n", args);
-        }
-    }.logFn,
-};
+pub const is_debug_mode: bool = false;
