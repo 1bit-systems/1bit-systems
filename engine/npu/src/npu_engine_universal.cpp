@@ -63,6 +63,7 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
         for(int i=0;i<K*N;i++){float v=w[i];if(!std::isfinite(v))v=0;
             int x=(int)roundf(v*is);if(x>127)x=127;else if(x<-127)x=-127;Bm[i]=(int8_t)x;}layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);}
     inline void go(int l,const float*A,int am,int ak,float /*ascale*/,float Bscale,float*C,int an){
+        // Dynamic activation scale: prevents hidden-state explosion
         float a_amax=0;
         for(int i=0;i<am*ak;i++){float a=fabsf(A[i]);if(std::isfinite(a)&&a>a_amax)a_amax=a;}
         if(a_amax<1e-8f)a_amax=1e-8f;
@@ -316,11 +317,6 @@ int main(int argc,char**argv){
         // Causal attention: token pi attends only to positions [0, sp+pi]
         for(int pi=0;pi<npt;pi++){attn_omp(&qo_b[pi*qkv_n],&at_b[pi*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA,sp+pi+1);}
         co.go(l,at_b.data(),npt,NH*HD,FIXED_ASCALE,osc[l],oo_b.data(),H);cn(oo_b.data(),npt*H);
-        // Per-token residual scaling: match output norm to residual norm
-        for(int pi=0;pi<npt;pi++){double on=0,sn=0;
-            for(int i=0;i<H;i++){on+=(double)oo_b[pi*H+i]*oo_b[pi*H+i];sn+=(double)sb_data[pi*H+i]*sb_data[pi*H+i];}
-            float sc=sn>0&&on>0?sqrtf((float)(sn/on)):1.0f;
-            for(int i=0;i<H;i++)oo_b[pi*H+i]*=sc;}
         // Residual add: use saved pre-norm values
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=sb_data[pi*H+i]+oo_b[pi*H+i];
         // Save pre-FFN residuals before second rn_c
@@ -332,11 +328,6 @@ int main(int argc,char**argv){
             for(int pi=0;pi<npt;pi++){for(int i=0;i<IM;i++){float gv=gt_b[pi*IM+i];if(!std::isfinite(gv))gv=0;su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*su_b[pi*IM+i];}}}
         else{for(int pi=0;pi<npt;pi++){for(int i=0;i<IM;i++){float gv=gt_b[pi*mlp_out+i];if(!std::isfinite(gv))gv=0;su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[pi*mlp_out+IM+i];}}}
         cd.go(l,su_b.data(),npt,IM,FIXED_ASCALE,dsc[l],dw_b.data(),H);cn(dw_b.data(),npt*H);
-        // Per-token residual scaling for FFN
-        for(int pi=0;pi<npt;pi++){double on=0,sn=0;
-            for(int i=0;i<H;i++){on+=(double)dw_b[pi*H+i]*dw_b[pi*H+i];sn+=(double)sb_data[pi*H+i]*sb_data[pi*H+i];}
-            float sc=sn>0&&on>0?sqrtf((float)(sn/on)):1.0f;
-            for(int i=0;i<H;i++)dw_b[pi*H+i]*=sc;}
         // Residual add: use saved pre-FFN values
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=sb_data[pi*H+i]+dw_b[pi*H+i];
     }sp+=npt;{double ns=0;for(int i=0;i<H;i++)ns+=(double)h_b[(npt-1)*H+i]*h_b[(npt-1)*H+i];printf("Post-prefill |h|=%.4f first=%.4f\n",sqrt(ns),h_b[(npt-1)*H]);}
@@ -364,18 +355,14 @@ int main(int argc,char**argv){
                 memcpy(&kv_caches[l].k[sp*NKV*HD+kvh*HD],&ko_data[kvh*HD],HD*4);memcpy(&kv_caches[l].v[sp*NKV*HD+kvh*HD],&vo_data[kvh*HD],HD*4);}}
             kv_caches[l].n=sp+1;int cl=kv_caches[l].n;
             attn_omp(qo_data.data(),at_data.data(),cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA);
-            co.go(l,at_data.data(),1,NH*HD,FIXED_ASCALE,osc[l],oo_data.data(),H);cn(oo_data.data(),H);
-            {double on=0,sn=0;for(int i=0;i<H;i++){on+=(double)oo_data[i]*oo_data[i];sn+=(double)sb_data[i]*sb_data[i];}float sc=sn>0&&on>0?sqrtf((float)(sn/on)):1.0f;for(int i=0;i<H;i++)oo_data[i]*=sc;}
-            for(int i=0;i<H;i++)h0[i]=sb_data[i]+oo_data[i];
+            co.go(l,at_data.data(),1,NH*HD,FIXED_ASCALE,osc[l],oo_data.data(),H);cn(oo_data.data(),H);for(int i=0;i<H;i++)h0[i]=sb_data[i]+oo_data[i];
             memcpy(sb_data.data(),h0,H*4);rn_c(h0,pa_n[l].data(),H);
             int mlp_out=cfg.gu_split?IM:2*IM;
             cg.go(l,h0,1,H,FIXED_ASCALE,gsc[l],gt_data.data(),mlp_out);cn(gt_data.data(),mlp_out);
             if(cfg.gu_split){cu_ptr->go(l,h0,1,H,FIXED_ASCALE,usc[l],su_data.data(),IM);cn(su_data.data(),IM);
                 for(int i=0;i<IM;i++){float gv=gt_data[i];if(!std::isfinite(gv))gv=0;su_data[i]=(gv/(1.0f+expf(-gv)))*su_data[i];}}
             else{for(int i=0;i<IM;i++){float gv=gt_data[i];if(!std::isfinite(gv))gv=0;su_data[i]=(gv/(1.0f+expf(-gv)))*gt_data[IM+i];}}
-            cd.go(l,su_data.data(),1,IM,FIXED_ASCALE,dsc[l],dwo_data.data(),H);cn(dwo_data.data(),H);
-            {double on=0,sn=0;for(int i=0;i<H;i++){on+=(double)dwo_data[i]*dwo_data[i];sn+=(double)sb_data[i]*sb_data[i];}float sc=sn>0&&on>0?sqrtf((float)(sn/on)):1.0f;for(int i=0;i<H;i++)dwo_data[i]*=sc;}
-            for(int i=0;i<H;i++)h0[i]=sb_data[i]+dwo_data[i];
+            cd.go(l,su_data.data(),1,IM,FIXED_ASCALE,dsc[l],dwo_data.data(),H);cn(dwo_data.data(),H);for(int i=0;i<H;i++)h0[i]=sb_data[i]+dwo_data[i];
         }
         memcpy(sb_data.data(),h0,H*4);rn_c(sb_data.data(),fin_v.data(),H);
         lm_topk_omp(sb_data.data(),lg_buf.data(),top_ids,BS,NV,H,lm_emb);
@@ -409,11 +396,6 @@ int main(int argc,char**argv){
             kv_caches[l].n=sp+batch_size;int cl=kv_caches[l].n;
             for(int b=0;b<batch_size;b++){attn_omp(&qo_b[b*qkv_n],&at_b[b*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA,sp+b+1);}
             co.go(l,at_b.data(),batch_size,NH*HD,FIXED_ASCALE,osc[l],oo_b.data(),H);cn(oo_b.data(),batch_size*H);
-            // Per-batch residual scaling
-            for(int b=0;b<batch_size;b++){double on=0,sn=0;
-                for(int i=0;i<H;i++){on+=(double)oo_b[b*H+i]*oo_b[b*H+i];sn+=(double)sb_data[b*H+i]*sb_data[b*H+i];}
-                float sc=sn>0&&on>0?sqrtf((float)(sn/on)):1.0f;
-                for(int i=0;i<H;i++)oo_b[b*H+i]*=sc;}
             // Residual add: use saved pre-norm values
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=sb_data[b*H+i]+oo_b[b*H+i];
             // Save pre-FFN residuals before second rn_c
@@ -425,11 +407,6 @@ int main(int argc,char**argv){
                 for(int b=0;b<batch_size;b++){for(int i=0;i<IM;i++){float gv=gt_b[b*IM+i];if(!std::isfinite(gv))gv=0;su_b[b*IM+i]=(gv/(1.0f+expf(-gv)))*su_b[b*IM+i];}}}
             else{for(int b=0;b<batch_size;b++){for(int i=0;i<IM;i++){float gv=gt_b[b*mlp_out+i];if(!std::isfinite(gv))gv=0;su_b[b*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[b*mlp_out+IM+i];}}}
             cd.go(l,su_b.data(),batch_size,IM,FIXED_ASCALE,dsc[l],dw_b.data(),H);cn(dw_b.data(),batch_size*H);
-            // Per-batch FFN residual scaling
-            for(int b=0;b<batch_size;b++){double on=0,sn=0;
-                for(int i=0;i<H;i++){on+=(double)dw_b[b*H+i]*dw_b[b*H+i];sn+=(double)sb_data[b*H+i]*sb_data[b*H+i];}
-                float sc=sn>0&&on>0?sqrtf((float)(sn/on)):1.0f;
-                for(int i=0;i<H;i++)dw_b[b*H+i]*=sc;}
             // Residual add: use saved pre-FFN values
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=sb_data[b*H+i]+dw_b[b*H+i];
         }
