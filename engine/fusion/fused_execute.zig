@@ -12,7 +12,6 @@
 //!
 //! @section Fused Engine
 const std = @import("std");
-const eng = @import("engine.zig");
 const gpu_attn = @import("gpu_attn.zig");
 const interop = @import("interop.zig");
 
@@ -82,6 +81,10 @@ pub const SharedKVCache = struct {
     k_cache: [][]f32,
     /// Per-layer V: [layer][pos * n_kv_heads * head_dim]
     v_cache: [][]f32,
+    /// Flat backing storage for K data
+    k_flat: []f32,
+    /// Flat backing storage for V data
+    v_flat: []f32,
     /// Current sequence position.
     position: u32 = 0,
 
@@ -127,10 +130,14 @@ pub const SharedKVCache = struct {
             .max_context = max_context,
             .k_cache = k_slices,
             .v_cache = v_slices,
+            .k_flat = k_flat,
+            .v_flat = v_flat,
         };
     }
 
     pub fn deinit(self: *SharedKVCache) void {
+        self.allocator.free(self.v_flat);
+        self.allocator.free(self.k_flat);
         self.allocator.free(self.v_cache);
         self.allocator.free(self.k_cache);
     }
@@ -181,8 +188,9 @@ const NpuSubprocess = struct {
 
     /// Run one batch of QKV GEMM on NPU, parse output hidden state.
     /// Spawns npu_engine_universal as subprocess.
-    fn runQKV(self: *const NpuSubprocess, input: []const f32, batch_size: u32, hidden_dim: u32, qkv_out: []f32) !void {
+    fn runQKV(self: *const NpuSubprocess, input: []const f32, batch_size: u32, _hidden_dim: u32, qkv_out: []f32) !void {
         _ = input;
+        _ = _hidden_dim;
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
         const aa = arena.allocator();
@@ -413,6 +421,13 @@ pub const FusedExecutor = struct {
         aa.free(self.scratch.hidden);
         if (self.gpu) |*g| g.deinit();
         self.kv.deinit();
+        aa.free(self.emb_f32);
+        aa.free(self.final_norm);
+        aa.free(self.in_norm);
+        aa.free(self.pa_norm);
+        aa.free(self.rope_sin);
+        aa.free(self.rope_cos);
+        if (self.lm_head_f32) |lm| aa.free(lm);
     }
 
     /// Try to initialize the GPU attention backend.
@@ -459,9 +474,9 @@ pub const FusedExecutor = struct {
         layer: u32,
         batch_size: u32,
         output_hidden: []f32,
-        // For pipeline overlap, the next layer's input pre-norm is pre-computed
-        next_input: ?[]const f32,
+        _next_input: ?[]const f32,
     ) !void {
+        _ = _next_input;
         const dispatch = self.getLayerDispatch(layer);
         const H = self.config.hidden_dim;
         const NH = self.config.n_heads;
@@ -855,28 +870,21 @@ test "FusedExecutor dispatch policies" {
     const allocator = std.testing.allocator;
     const H: u32 = 1536;
 
-    var emb = try allocator.alloc(f32, 100 * H);
-    defer allocator.free(emb);
+    const emb = try allocator.alloc(f32, 100 * H);
     @memset(emb, 0);
-
-    var fnorm = try allocator.alloc(f32, H);
-    defer allocator.free(fnorm);
+    const fnorm = try allocator.alloc(f32, H);
     @memset(fnorm, 1.0);
 
     var innorm = try allocator.alloc([]f32, 4);
-    defer allocator.free(innorm);
     var panorm = try allocator.alloc([]f32, 4);
-    defer allocator.free(panorm);
     for (0..4) |l| {
         innorm[l] = fnorm;
         panorm[l] = fnorm;
     }
 
-    var rope_sin = try allocator.alloc(f32, 4096 * 128);
-    defer allocator.free(rope_sin);
+    const rope_sin = try allocator.alloc(f32, 4096 * 128);
     @memset(rope_sin, 0);
     var rope_cos = try allocator.alloc(f32, 4096 * 128);
-    defer allocator.free(rope_cos);
     for (0..4096 * 128) |i| rope_cos[i] = 1.0;
 
     var exec = try FusedExecutor.init(
@@ -937,23 +945,13 @@ test "silu produces expected values" {
 
 test "cpuAttention produces non-nan output" {
     const allocator = std.testing.allocator;
-    var kv = try SharedKVCache.init(allocator, 1, 2, 128, 64);
-    defer kv.deinit();
 
     var q: [1 * 128]f32 = undefined;
     var out: [1 * 128]f32 = undefined;
     @memset(&q, 0.5);
     @memset(&out, 0);
 
-    // Write one KV entry
-    var kd: [2 * 128]f32 = undefined;
-    var vd: [2 * 128]f32 = undefined;
-    @memset(&kd, 0.5);
-    @memset(&vd, 0.5);
-    kv.writeKV(0, 2, 128, &kd, &vd, 1);
-    kv.advance(1);
-
-    const exec = try FusedExecutor.init(
+    var exec = try FusedExecutor.init(
         allocator, .npu_only, QWEN3_0_6B,
         "/tmp/model.q4nx", "/tmp/npu_engine",
         64, 128,
@@ -965,14 +963,15 @@ test "cpuAttention produces non-nan output" {
         try allocator.alloc(f32, 64 * 128),
         try allocator.alloc(f32, 64 * 128),
     );
-    defer {
-        allocator.free(exec.emb_f32);
-        allocator.free(exec.final_norm);
-        allocator.free(exec.in_norm);
-        allocator.free(exec.pa_norm);
-        allocator.free(exec.rope_sin);
-        allocator.free(exec.rope_cos);
-    }
+    defer exec.deinit();
+
+    // Write one KV entry into the executor's shared cache
+    var kd: [2 * 128]f32 = undefined;
+    var vd: [2 * 128]f32 = undefined;
+    @memset(&kd, 0.5);
+    @memset(&vd, 0.5);
+    exec.kv.writeKV(0, 2, 128, &kd, &vd, 1);
+    exec.kv.advance(1);
 
     exec.cpuAttention(&q, &out, 0, 1, 1, 2, 128, 6);
     // Output should be finite

@@ -22,10 +22,8 @@
 
 const std = @import("std");
 
-// Vulkan C bindings — imported directly for a zero-dependency GPU path.
-const vk = @cImport({
-    @cInclude("vulkan/vulkan.h");
-});
+// Vulkan bindings — re-exported through vk_wrapper wrapper module.
+const vk = @import("vk_wrapper");
 
 const log = std.log.scoped(.gpu_attn);
 
@@ -631,7 +629,7 @@ pub const GpuAttention = struct {
         vk.vkDestroyFence(self.device, self.fence, null);
         vk.vkFreeCommandBuffers(self.device, self.command_pool, 1, &self.cmd_buffer);
         vk.vkDestroyCommandPool(self.device, self.command_pool, null);
-        vk.vkFreeDescriptorSets(self.device, self.descriptor_pool, 1, &self.descriptor_set);
+        _ = vk.vkFreeDescriptorSets(self.device, self.descriptor_pool, 1, &self.descriptor_set);
         vk.vkDestroyDescriptorPool(self.device, self.descriptor_pool, null);
         self.pipeline.deinit();
         self.pipeline_batched.deinit();
