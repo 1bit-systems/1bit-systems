@@ -88,18 +88,19 @@ struct I8Ctx {
         d.register_xclbin(*xc);
         hc = std::make_unique<xrt::hw_context>(d, xc->get_uuid());
         k = std::make_unique<xrt::kernel>(*hc, "MLIR_AIE");
-        // XCLBIN connectivity: arg1=SRAM(bank1), arg3-7=HOST(bank0)
-        // Instruction buffer goes to ARG 1 in SRAM bank
-        bI = std::make_unique<xrt::bo>(d, ins.size()*4, XCL_BO_FLAGS_CACHEABLE, 1);
+        // Memory groups MUST come from k->group_id(arg_index) (matches proven
+        // npu_engine_v12.cpp), not raw bank numbers — the shim binds each BO to
+        // the hw_context's per-arg memory bank via group_id. Hardcoding 0/1 leaves
+        // BOs untracked and corrupts the command buffer's bo_id map on teardown.
+        bI = std::make_unique<xrt::bo>(d, ins.size()*4, XCL_BO_FLAGS_CACHEABLE, k->group_id(1));
         memcpy(bI->map(), ins.data(), ins.size()*4);
         bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        // Data buffers go to ARGS 3-7 in HOST bank
-        bA = std::make_unique<xrt::bo>(d, (size_t)MD*KD, XRT_BO_FLAGS_HOST_ONLY, 0);
-        bC = std::make_unique<xrt::bo>(d, (size_t)MD*ND*2, XRT_BO_FLAGS_HOST_ONLY, 0);
+        bA = std::make_unique<xrt::bo>(d, (size_t)MD*KD, XRT_BO_FLAGS_HOST_ONLY, k->group_id(3));
+        bC = std::make_unique<xrt::bo>(d, (size_t)MD*ND*2, XRT_BO_FLAGS_HOST_ONLY, k->group_id(5));
         Am = (int8_t*)bA->map(); Cm = (int16_t*)bC->map();
         layerB.resize(num_layers);
         for (int l=0;l<num_layers;l++)
-            layerB[l] = std::make_unique<xrt::bo>(d, (size_t)KD*ND, XRT_BO_FLAGS_HOST_ONLY, 0);
+            layerB[l] = std::make_unique<xrt::bo>(d, (size_t)KD*ND, XRT_BO_FLAGS_HOST_ONLY, k->group_id(gid_B));
         return true;
     }
     void packB(int l, const float* w, int K, int N, float& sout) {
@@ -118,15 +119,11 @@ struct I8Ctx {
         }
         bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
         layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        // DPU kernel: set each arg at its correct connectivity index
-        // Connectivity: arg1=instr(SRAM), arg3-7=data(HOST)
-        auto r = xrt::run(*k);
-        r.set_arg(0, (unsigned)3);
-        r.set_arg(1, *bI);
-        r.set_arg(3, *bA);
-        r.set_arg(4, *layerB[l]);
-        r.set_arg(5, *bC);
-        r.start();
+        // DPU kernel positional args (matches proven npu_engine_v12.cpp):
+        //   arg0=opcode(3), arg1=instr BO, arg2=instr word count, arg3=A, arg4=B, arg5=C.
+        // The manual set_arg() path previously omitted arg2 (instruction count),
+        // producing a malformed command buffer that segfaulted on run teardown.
+        auto r = (*k)((unsigned)3, *bI, (unsigned)ins.size(), *bA, *layerB[l], *bC);
         r.wait();
         bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
         float cs = ascale*Bscale;
