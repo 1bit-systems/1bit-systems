@@ -186,8 +186,42 @@ if(NOT TARGET npu_engine)
     add_npu_engine(npu_engine MODEL_qwen3_0_6b)
 endif()
 
+# ---- Fused engine (self-contained, one xclbin call per layer) ----
+if(NPU_BUILD_ALL OR NPU_BUILD_FUSED)
+    add_executable(npu_engine_fused "${SRC_DIR}/npu_engine_fused.cpp")
+    target_include_directories(npu_engine_fused PRIVATE
+        "${SRC_DIR}"
+        "${XRT_INCLUDE_DIR}"
+    )
+    if(PLATFORM_LINUX)
+        target_link_directories(npu_engine_fused PRIVATE "${XRT_LIB_DIR}")
+        target_link_libraries(npu_engine_fused PRIVATE
+            xrt_coreutil
+            xrt_core
+            uuid
+            m
+            dl
+        )
+    elseif(PLATFORM_WIN32)
+        target_link_directories(npu_engine_fused PRIVATE "${XRT_LIB_DIR}")
+        target_link_libraries(npu_engine_fused PRIVATE
+            xrt_coreutil
+        )
+    endif()
+    if(PLATFORM_LINUX)
+        target_compile_options(npu_engine_fused PRIVATE
+            $<$<CONFIG:Release>:-O3 -march=native>
+        )
+    elseif(PLATFORM_WIN32)
+        target_compile_options(npu_engine_fused PRIVATE
+            $<$<CONFIG:Release>:/O2 /arch:AVX2>
+        )
+    endif()
+    install(TARGETS npu_engine_fused RUNTIME DESTINATION bin)
+endif()
+
 message(STATUS "NPU engine targets:")
-foreach(t IN ITEMS npu_engine_qwen3_0_6b npu_engine_qwen3_8b npu_engine_qwen3_vl_4b npu_engine_llama npu_engine_gemma4_e2b)
+foreach(t IN ITEMS npu_engine_qwen3_0_6b npu_engine_qwen3_8b npu_engine_qwen3_vl_4b npu_engine_llama npu_engine_gemma4_e2b npu_engine_fused)
     if(TARGET ${t})
         message(STATUS "  + ${t}")
     endif()

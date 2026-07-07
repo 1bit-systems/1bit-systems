@@ -21,6 +21,7 @@ const BATCH_SIZE: u32 = 128;
 const CliOptions = struct {
     model_path: []const u8 = DEFAULT_MODEL,
     npu_engine: []const u8 = DEFAULT_NPU_ENGINE,
+    shader_dir: []const u8 = ZINC_SHADER_DIR,
     policy: DispatchPolicy = .ffn_on_npu,
     max_tokens: u32 = 128,
     prompt: []const u8 = "Hello",
@@ -51,6 +52,7 @@ fn printHelp() void {
         \\  -n, --max-tokens <N>   Max tokens (default: 128)
         \\  -p, --prompt <text>    Input prompt
         \\  -b, --batch-size <N>   Batch size (default: 128)
+        \\  --shader-dir <path>   ZINC SPIR-V shader directory
         \\  --list-policies        List all policies
         \\  --debug                Enable debug logging
         \\  -h, --help             This help
@@ -107,6 +109,8 @@ pub fn main(init: std.process.Init) !void {
             opts.show_help = true;
         } else if (std.mem.eql(u8, arg, "--npu-engine")) {
             if (args_iter.next()) |v| opts.npu_engine = v;
+        } else if (std.mem.eql(u8, arg, "--shader-dir")) {
+            if (args_iter.next()) |v| opts.shader_dir = v;
         }
     }
 
@@ -141,7 +145,7 @@ pub fn main(init: std.process.Init) !void {
 
     // ── Create FusedExecutor ──
     var executor = try FusedExecutor.init(
-        allocator, @as(fuse.DispatchPolicy, @enumFromInt(@intFromEnum(opts.policy))), QWEN3_0_6B,
+        allocator, init.io, @as(fuse.DispatchPolicy, @enumFromInt(@intFromEnum(opts.policy))), QWEN3_0_6B,
         opts.model_path, opts.npu_engine,
         MAX_CONTEXT, opts.batch_size,
         model.emb_f32, model.lm_head_f32, model.tied_embeddings,

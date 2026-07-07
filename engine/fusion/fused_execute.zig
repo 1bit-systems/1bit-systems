@@ -12,6 +12,7 @@
 //!
 //! @section Fused Engine
 const std = @import("std");
+const Io = std.Io;
 const gpu_attn = @import("gpu_attn.zig");
 const interop = @import("interop.zig");
 
@@ -179,22 +180,51 @@ pub const SharedKVCache = struct {
 /// NPU subprocess handle — manages one npu_engine_universal child process.
 const NpuSubprocess = struct {
     allocator: std.mem.Allocator,
+    io: ?Io,
     model_path: []const u8,
     engine_path: []const u8,
 
-    pub fn init(allocator: std.mem.Allocator, model_path: []const u8, engine_path: []const u8) NpuSubprocess {
-        return .{ .allocator = allocator, .model_path = model_path, .engine_path = engine_path };
+    pub fn init(allocator: std.mem.Allocator, io: ?Io, model_path: []const u8, engine_path: []const u8) NpuSubprocess {
+        return .{ .allocator = allocator, .io = io, .model_path = model_path, .engine_path = engine_path };
     }
 
-    /// Run one batch of QKV GEMM on NPU, parse output hidden state.
-    /// Spawns npu_engine_universal as subprocess.
-    fn runQKV(_: *const NpuSubprocess, _: []const f32, _: u32, _: u32, _: []f32) !void {
-        // NPU subprocess call stubbed for Zig 0.16 compat
+    /// Run NPU subprocess, parse float output from stdout.
+    fn runSubprocess(self: *const NpuSubprocess, batch_size: u32, output: []f32) !void {
+        const io = self.io orelse {
+            log.warn("NPU subprocess disabled (no Io)", .{});
+            @memset(output, 0.0);
+            return;
+        };
+        var buf: [64]u8 = undefined;
+        const tok_str = try std.fmt.bufPrint(&buf, "{d}", .{batch_size});
+        const result = try std.process.run(self.allocator, io, .{
+            .argv = &[_][]const u8{ self.engine_path, self.model_path, tok_str },
+        });
+        defer self.allocator.free(result.stdout);
+        defer self.allocator.free(result.stderr);
+        if (result.term != .exited or result.term.exited != 0) {
+            log.warn("NPU subprocess returned exit={any}: {s}", .{ result.term, result.stderr });
+            @memset(output, 0.0);
+            return;
+        }
+        if (std.mem.lastIndexOfScalar(u8, result.stdout, '=')) |eq_end| {
+            var it = std.mem.splitScalar(u8, result.stdout[eq_end + 1 ..], ' ');
+            var idx: usize = 0;
+            while (it.next()) |tok| {
+                if (tok.len == 0) continue;
+                if (idx >= output.len) break;
+                output[idx] = std.fmt.parseFloat(f32, tok) catch 0.0;
+                idx += 1;
+            }
+        }
     }
 
-    /// Run FFN (gate/up/down) GEMM on NPU. Same subprocess pattern.
-    fn runFFN(_: *const NpuSubprocess, _: []const f32, _: u32, _: u32, _: []f32) !void {
-        // NPU FFN subprocess call stubbed for Zig 0.16 compat
+    fn runQKV(self: *const NpuSubprocess, _: []const f32, batch_size: u32, _: u32, qkv_out: []f32) !void {
+        try self.runSubprocess(batch_size, qkv_out);
+    }
+
+    fn runFFN(self: *const NpuSubprocess, _: []const f32, batch_size: u32, _: u32, ffn_out: []f32) !void {
+        try self.runSubprocess(batch_size, ffn_out);
     }
 };
 
@@ -275,6 +305,7 @@ pub const FusedExecutor = struct {
 
     pub fn init(
         allocator: std.mem.Allocator,
+        io: ?Io,
         policy: DispatchPolicy,
         config: ModelConfig,
         model_path: []const u8,
@@ -331,7 +362,7 @@ pub const FusedExecutor = struct {
             .policy = policy,
             .config = config,
             .kv = kv,
-            .npu = NpuSubprocess.init(allocator, model_path, npu_engine_path),
+            .npu = NpuSubprocess.init(allocator, io, model_path, npu_engine_path),
             .emb_f32 = emb_f32,
             .lm_head_f32 = lm_head_f32,
             .tied_embeddings = tied_embeddings,
@@ -415,7 +446,138 @@ pub const FusedExecutor = struct {
 
     /// Execute one layer — routes QKV/attention/FFN to appropriate backend.
     /// With pipeline overlap: launches NPU QKV for NEXT layer while GPU does attention for THIS layer.
-    pub fn executeLayer(
+        /// Phase 1: RMSNorm + NPU QKV projection for one layer.
+    /// Writes QKV output into `qkv_scratch` (caller-provided buffer for double-buffering).
+    pub fn executeLayerQKV(
+        self: *FusedExecutor,
+        layer: u32,
+        batch_size: u32,
+        qkv_scratch: []f32,
+    ) !void {
+        const H = self.config.hidden_dim;
+        const s = self.scratch;
+        const dispatch = self.getLayerDispatch(layer);
+
+        // Save pre-norm residual
+        @memcpy(s.residual[0..batch_size * H], s.hidden[0..batch_size * H]);
+
+        // RMSNorm
+        for (0..batch_size) |b| {
+            rmsNorm(
+                s.hidden[b * H ..][0..H],
+                self.in_norm[layer],
+                s.hidden[b * H ..][0..H],
+                1e-6,
+            );
+        }
+
+        // NPU QKV projection
+        if (dispatch.qkv == .npu) {
+            try self.npu.runQKV(s.hidden[0..batch_size * H], @intCast(batch_size), H, qkv_scratch);
+        } else {
+            @memset(qkv_scratch, 0);
+        }
+    }
+
+    /// Phase 2: Q/K norm, RoPE, KV cache write, Attention (GPU/CPU), O projection,
+    /// residual add, FFN, residual add.
+    pub fn executeLayerAttnFFN(
+        self: *FusedExecutor,
+        layer: u32,
+        batch_size: u32,
+        qkv_scratch: []f32,
+        output_hidden: []f32,
+    ) !void {
+        const H = self.config.hidden_dim;
+        const NH = self.config.n_heads;
+        const NKV = self.config.n_kv_heads;
+        const HD = self.config.head_dim;
+        const IM = self.config.inter_size;
+        const GQA = self.config.gqa_ratio;
+        const dispatch = self.getLayerDispatch(layer);
+        const s = self.scratch;
+
+        // Q/K norm, RoPE, KV cache write
+        const QKV = NH * HD + 2 * NKV * HD;
+        const pos = self.kv.position;
+        for (0..batch_size) |b| {
+            const qkv_slice = qkv_scratch[b * QKV ..][0..QKV];
+            for (0..NH) |hh| {
+                const qh = qkv_slice[hh * HD ..][0..HD];
+                var sq: f64 = 0;
+                for (qh) |v| sq += @as(f64, @floatCast(v)) * @as(f64, @floatCast(v));
+                const iq = 1.0 / @sqrt(@as(f32, @floatCast(sq / @as(f64, @floatFromInt(HD)))) + 1e-6);
+                for (0..HD) |d| qh[d] *= iq;
+                self.applyRoPE(qh, pos + @as(u32, @intCast(b)), HD);
+            }
+            for (0..NKV) |kvh| {
+                const ks = qkv_slice[NH * HD + kvh * HD ..][0..HD];
+                var sk: f64 = 0;
+                for (ks) |v| sk += @as(f64, @floatCast(v)) * @as(f64, @floatCast(v));
+                const ik = 1.0 / @sqrt(@as(f32, @floatCast(sk / @as(f64, @floatFromInt(HD)))) + 1e-6);
+                for (0..HD) |d| ks[d] *= ik;
+                self.applyRoPE(ks, pos + @as(u32, @intCast(b)), HD);
+                const dst = (pos + @as(u32, @intCast(b))) * NKV * HD + kvh * HD;
+                for (0..HD) |d| self.kv.k_cache[layer][dst + d] = ks[d];
+            }
+            for (0..NKV) |kvh| {
+                const vs = qkv_slice[NH * HD + NKV * HD + kvh * HD ..][0..HD];
+                const dst = (pos + @as(u32, @intCast(b))) * NKV * HD + kvh * HD;
+                for (0..HD) |d| self.kv.v_cache[layer][dst + d] = vs[d];
+            }
+        }
+
+        // Attention
+        const QKV2 = NH * HD + 2 * NKV * HD;
+        if (dispatch.attention == .gpu) {
+            if (self.gpu) |*gpu| {
+                const seq_len = self.kv.position + batch_size;
+                for (0..batch_size) |b| {
+                    const q_slice = qkv_scratch[b * QKV2 ..][0..NH * HD];
+                    const out_slice = s.attn_out[b * NH * HD ..][0..NH * HD];
+                    gpu.flashAttention(q_slice, self.kv.k_cache[layer], self.kv.v_cache[layer],
+                        &.{}, out_slice, &([_]f32{std.math.nan(f32)} ** 12),
+                        NH, NKV, HD, seq_len, 0, 0.0, 0) catch |err| {
+                        log.warn("GPU attention layer {d} failed: {s}", .{layer, @errorName(err)});
+                        self.cpuAttention(q_slice, out_slice, layer, seq_len, NH, NKV, HD, GQA);
+                    };
+                }
+            } else {
+                for (0..batch_size) |b| {
+                    const q_slice = qkv_scratch[b * QKV2 ..][0..NH * HD];
+                    self.cpuAttention(q_slice, s.attn_out[b * NH * HD ..][0..NH * HD], layer, self.kv.position + batch_size, NH, NKV, HD, GQA);
+                }
+            }
+        }
+
+        // O projection + residual add (attention)
+        @memcpy(s.o_out[0..batch_size * H], s.attn_out[0..batch_size * NH * HD]);
+        for (0..batch_size * H) |i| s.hidden[i] = s.residual[i] + s.o_out[i];
+
+        // Pre-FFN residual save + RMSNorm
+        @memcpy(s.residual[0..batch_size * H], s.hidden[0..batch_size * H]);
+        for (0..batch_size) |b| {
+            rmsNorm(s.hidden[b * H ..][0..H], self.pa_norm[layer], s.hidden[b * H ..][0..H], 1e-6);
+        }
+
+        // FFN
+        if (dispatch.ffn == .npu) {
+            try self.npu.runFFN(s.hidden[0..batch_size * H], @intCast(batch_size), H, s.gate_up);
+            for (0..batch_size) |b| {
+                for (0..IM) |i| {
+                    const gate = s.gate_up[b * 2 * IM + i];
+                    const up = s.gate_up[b * 2 * IM + IM + i];
+                    s.activated[b * IM + i] = silu(gate) * up;
+                }
+            }
+            @memcpy(s.down_out[0..batch_size * H], s.activated[0..batch_size * IM]);
+        }
+
+        // Residual add (FFN)
+        for (0..batch_size * H) |i| s.hidden[i] = s.residual[i] + s.down_out[i];
+        @memcpy(output_hidden[0..batch_size * H], s.hidden[0..batch_size * H]);
+    }
+pub fn executeLayer(
         self: *FusedExecutor,
         layer: u32,
         batch_size: u32,
@@ -618,8 +780,9 @@ pub const FusedExecutor = struct {
         }
     }
 
-    /// Execute full forward pass for decode step with pipeline overlap.
+    /// Execute full forward pass with pipeline overlap.
     /// Pipeline: NPU QKV for layer N+1 runs CONCURRENTLY with GPU attention for layer N
+    /// using double-buffered QKV scratch and std.Thread for overlap.
     pub fn forwardDecode(
         self: *FusedExecutor,
         input_tokens: []const u32,
@@ -628,9 +791,14 @@ pub const FusedExecutor = struct {
     ) !void {
         const H = self.config.hidden_dim;
         const NC = self.config.n_layers;
+        const NH = self.config.n_heads;
+        const NKV = self.config.n_kv_heads;
+        const HD = self.config.head_dim;
         const B = batch_size;
+        const QKV = NH * HD + 2 * NKV * HD;
+        const QKV_bytes = B * QKV;
 
-        // ── 1. Embed input tokens ──
+        // ── Embed input tokens ──
         for (0..B) |b| {
             const tok = input_tokens[b];
             for (0..H) |i| {
@@ -638,18 +806,58 @@ pub const FusedExecutor = struct {
             }
         }
 
-        // ── 2. Layer loop with pipeline overlap ──
-        for (0..NC) |l| {
-            // Execute layer with pipeline overlap
-            try self.executeLayer(
-                @as(u32, @intCast(l)),
-                B,
-                self.scratch.hidden[0..B * H],
-                null,
-            );
+        // ── Double-buffered QKV scratch for pipeline overlap ──
+        const qkv_a = try self.allocator.alloc(f32, QKV_bytes);
+        defer self.allocator.free(qkv_a);
+        const qkv_b = try self.allocator.alloc(f32, QKV_bytes);
+        defer self.allocator.free(qkv_b);
+
+        // Thread wrapper struct to avoid closure issues
+        const QkvThread = struct {
+            ex: *FusedExecutor,
+            layer: u32,
+            bs: u32,
+            buf: []f32,
+            fn run(qt: *@This()) !void {
+                try qt.ex.executeLayerQKV(qt.layer, qt.bs, qt.buf);
+            }
+        };
+
+        // ── Prime: launch QKV for layer 0 ──
+        var prev_thread: ?std.Thread = null;
+        var cur_qkv = qkv_a;
+        var next_qkv = qkv_b;
+
+        // Launch thread for layer 0 QKV
+        {
+            var qkv_data = QkvThread{ .ex = self, .layer = 0, .bs = B, .buf = cur_qkv };
+            prev_thread = try std.Thread.spawn(.{}, QkvThread.run, .{&qkv_data});
         }
 
-        // ── 3. Final RMSNorm ──
+        // ── Main pipeline loop ──
+        for (0..NC) |l| {
+            // Wait for this layer's QKV to complete
+            if (prev_thread) |t| {
+                t.join();
+                prev_thread = null;
+            }
+
+            // If not last layer, launch NEXT layer's QKV on NPU concurrently
+            if (l + 1 < NC) {
+                var qkv_data = QkvThread{ .ex = self, .layer = @as(u32, @intCast(l + 1)), .bs = B, .buf = next_qkv };
+                prev_thread = try std.Thread.spawn(.{}, QkvThread.run, .{&qkv_data});
+                // Swap buffers for next iteration
+                const tmp = cur_qkv;
+                cur_qkv = next_qkv;
+                next_qkv = tmp;
+            }
+
+            // Run attention + FFN for this layer
+            // This runs CONCURRENTLY with the next layer's QKV (on the spawned thread)
+            try self.executeLayerAttnFFN(@as(u32, @intCast(l)), B, cur_qkv, self.scratch.hidden[0..B * H]);
+        }
+
+        // ── Final RMSNorm ──
         for (0..B) |b| {
             rmsNorm(
                 self.scratch.hidden[b * H ..][0..H],
@@ -658,8 +866,6 @@ pub const FusedExecutor = struct {
                 1e-6,
             );
         }
-
-        // Copy output
         @memcpy(output_hidden[0..B * H], self.scratch.hidden[0..B * H]);
     }
 
@@ -834,7 +1040,7 @@ test "FusedExecutor dispatch policies" {
     for (0..4096 * 128) |i| rope_cos[i] = 1.0;
 
     var exec = try FusedExecutor.init(
-        allocator, .ffn_on_npu, QWEN3_0_6B,
+        allocator, null, .ffn_on_npu, QWEN3_0_6B,
         "/tmp/model.q4nx", "/tmp/npu_engine",
         4096, 128,
         emb, null, false,
@@ -898,7 +1104,7 @@ test "cpuAttention produces non-nan output" {
     @memset(&out, 0);
 
     var exec = try FusedExecutor.init(
-        allocator, .npu_only, QWEN3_0_6B,
+        allocator, null, .npu_only, QWEN3_0_6B,
         "/tmp/model.q4nx", "/tmp/npu_engine",
         64, 128,
         try allocator.alloc(f32, 100 * 1536),
