@@ -17,7 +17,6 @@ Zero Python. Your hardware.
 [![113 tok/s ROCm](https://img.shields.io/badge/113%20tok%2Fs-ROCm-ff0000.svg)](docs/wiki/performance.md)
 [![Vulkan ⭐](https://img.shields.io/badge/Vulkan-%E2%AD%90%20primary-b3802c.svg)](docs/wiki/engines.md)
 [![MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
-[![Discord](https://img.shields.io/badge/discord-1bit.systems-00ff88.svg?logo=discord&logoColor=white)](https://discord.gg/dSyV646eBs)
 [![clones today](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/daily-clones.json&cacheSeconds=3600)](https://github.com/bong-water-water-bong/1bit-systems/graphs/traffic)
 [![clones:stars](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/clones-stars.json)](https://github.com/bong-water-water-bong/1bit-systems/graphs/traffic)
 <br>
@@ -102,6 +101,21 @@ status of every engine.
 | 📖 **Full Wiki** | [docs/wiki/landing.md](docs/wiki/landing.md) |
 | 📜 **Journey (audit trail)** | [docs/journey.md](docs/journey.md) |
 | 🤝 **Contributing** | [CONTRIBUTING.md](CONTRIBUTING.md) |
+
+## Development
+
+API keys and credentials are stored in the system keyring:
+
+| Key | Location |
+|-----|----------|
+| Anthropic/Claude OAuth | `~/.claude/.credentials.json` |
+| DeepSeek API key | `~/.pi/agent/auth.json` |
+| OpenCode/Go API key | `~/.pi/agent/auth.json` |
+| ProtonMail bridge | `~/.pi/agent/mcp.json` |
+| Ollama (local) | `~/.pi/agent/models.json` |
+| GitHub SSH | `~/.ssh/` |
+| Xilinx/XRT license | `~/torch2aie/licenses/` + `~/.flexlmrc` |
+| Pi settings | `~/.pi/agent/settings.json` |
 
 ## License
 
