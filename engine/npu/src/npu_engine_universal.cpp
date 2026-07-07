@@ -52,10 +52,10 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
         hc=std::make_unique<xrt::hw_context>(d,xc->get_uuid());k=std::make_unique<xrt::kernel>(*hc,"MLIR_AIE");
         bI=std::make_unique<xrt::bo>(d,ins.size()*4,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));
         memcpy(bI->map(),ins.data(),ins.size()*4);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        bA=std::make_unique<xrt::bo>(d,(size_t)MD*KD,XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));
-        bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*4,XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));
+        bA=std::make_unique<xrt::bo>(d,std::max((size_t)MD*KD,(size_t)16*1024*1024),XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));
+        bC=std::make_unique<xrt::bo>(d,std::max((size_t)MD*ND*4,(size_t)16*1024*1024),XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));
         Am=(int8_t*)bA->map();Cm=(int32_t*)bC->map();
-        for(int l=0;l<NL;l++)layerB.emplace_back(std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B)));
+        for(int l=0;l<NL;l++)layerB.emplace_back(std::make_unique<xrt::bo>(d,std::max((size_t)KD*ND,(size_t)16*1024*1024),XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B)));
         return true;}
     void packB(int l,const float*w,int K,int N,float&sout){float amax=0;
         for(int i=0;i<K*N;i++){float a=fabsf(w[i]);if(std::isfinite(a)&&a>amax)amax=a;}
@@ -189,10 +189,10 @@ int main(int argc,char**argv){
     std::vector<std::vector<float>> in_n(NC,std::vector<float>(H)),pa_n(NC,std::vector<float>(H)),qn_w(NC,std::vector<float>(HD)),kn_w(NC,std::vector<float>(HD));
     std::vector<float> fin_v(H);
     for(int l=0;l<NC;l++){auto iw=(const uint16_t*)(md+df+in_off[l]),pw=(const uint16_t*)(md+df+pa_off[l]);
-        for(int i=0;i<H;i++){in_n[l][i]=std::min(2.0f,std::max(-2.0f,bf16g(iw[i])));pa_n[l][i]=std::min(2.0f,std::max(-2.0f,bf16g(pw[i])));}
+        for(int i=0;i<H;i++){in_n[l][i]=bf16g(iw[i]);pa_n[l][i]=bf16g(pw[i]);}
         if(cfg.has_q_norm&&qn_off[l]){auto qq=(const uint16_t*)(md+df+qn_off[l]);for(int i=0;i<HD;i++)qn_w[l][i]=bf16g(qq[i]);}
         if(cfg.has_k_norm&&kn_off[l]){auto kk=(const uint16_t*)(md+df+kn_off[l]);for(int i=0;i<HD;i++)kn_w[l][i]=bf16g(kk[i]);}}
-    {auto fw=(const uint16_t*)(md+df+no);for(int i=0;i<H;i++)fin_v[i]=std::min(2.0f,std::max(-2.0f,bf16g(fw[i])));}
+    {auto fw=(const uint16_t*)(md+df+no);for(int i=0;i<H;i++)fin_v[i]=bf16g(fw[i]);}
 
     // I8 tile rows
     auto gi8=[&](const char*k)->int{int r=0;find_tensor_info(js,jl,k,&r);return r;};
@@ -330,7 +330,8 @@ int main(int argc,char**argv){
         cd.go(l,su_b.data(),npt,IM,FIXED_ASCALE,dsc[l],dw_b.data(),H);cn(dw_b.data(),npt*H);
         // Residual add: use saved pre-FFN values
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=sb_data[pi*H+i]+dw_b[pi*H+i];
-    }sp+=npt;memcpy(h_data.data(),&h_b[(npt-1)*H],H*4);
+    }sp+=npt;{double ns=0;for(int i=0;i<H;i++)ns+=(double)h_b[(npt-1)*H+i]*h_b[(npt-1)*H+i];printf("Post-prefill |h|=%.4f first=%.4f\n",sqrt(ns),h_b[(npt-1)*H]);}
+    memcpy(h_data.data(),&h_b[(npt-1)*H],H*4);
     printf("Prefill: %.0fms (%.0f ms/tok)\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count(),std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count()/npt);
 
     // ===== v12: M=32 BATCHED DECODE =====
@@ -365,6 +366,7 @@ int main(int argc,char**argv){
         }
         memcpy(sb_data.data(),h0,H*4);rn_c(sb_data.data(),fin_v.data(),H);
         lm_topk_omp(sb_data.data(),lg_buf.data(),top_ids,BS,NV,H,lm_emb);
+        {double ns=0;for(int i=0;i<H;i++)ns+=(double)h0[i]*h0[i];printf("Post-boot |h|=%.4f first=%.4f\n",sqrt(ns),h0[0]);}
         memcpy(h_data.data(),h0,H*4);sp++;total_accepted++;
         t_boot=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-ts_boot).count();
         printf("  [0] boot=%d (%.0fms)\n",top_ids[0],t_boot);
