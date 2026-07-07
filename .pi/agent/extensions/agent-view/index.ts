@@ -25,8 +25,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ExtensionAPI, ToolResult } from "@earendil-works/pi-coding-agent";
-import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolResult } from "@1bit/1bit-coding-agent";
+import { CONFIG_DIR_NAME } from "@1bit/1bit-coding-agent";
 import { Type } from "typebox";
 
 // ─── Types ────────────────────────────────────────────────────────────────
@@ -546,7 +546,7 @@ export default function (pi: ExtensionAPI) {
 
 		if (ctx.mode === "tui" && ctx.hasUI) {
 			await ctx.ui.custom<void>((_tui: any, theme: any, _kb: any, done: () => void) => {
-				const { Container, Text, Spacer } = require("@earendil-works/pi-tui");
+				const { Container, Text, Spacer } = require("@1bit/1bit-tui");
 				const container = new Container();
 
 				const hdr = `${statusIcon(agent.status)} ${theme.fg("accent", agent.name)}` +
