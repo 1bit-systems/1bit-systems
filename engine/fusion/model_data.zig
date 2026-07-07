@@ -88,6 +88,7 @@ pub fn loadModel(allocator: std.mem.Allocator, model_path: []const u8, model_tag
 
     const js = mapping[8 .. 8 + hdr_size];
     const data_start: usize = 8 + @as(usize, @intCast(hdr_size));
+    _ = data_start;
 
     // Helper: get byte pointer to a tensor's data
     const tensorData = struct {
