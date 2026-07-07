@@ -31,6 +31,9 @@
 #include <algorithm>
 #include <utility>
 #include <chrono>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 extern "C" float* dequant_i8_to_float(const uint8_t*,int,int*,int*);
 extern "C" float* dequant_i8_to_float_ex(const uint8_t*,int,int,int*,int*);
 
@@ -248,7 +251,7 @@ int main(int argc, char** argv) {
     struct KVCache { std::vector<float> k, v; int n; KVCache() : k(MAX_CONTEXT * NKV * HD), v(MAX_CONTEXT * NKV * HD), n(0) {} };
     std::vector<KVCache> kv(NC);
     std::vector<float> h_b(XM * H), qo_b(XM * NH * HD), at_b(XM * NH * HD), oo_b(XM * H), gt_b(XM * 6144), su_b(XM * IM), dw_b(XM * H), sb_b(XM * H), sb_buf(XM * H);
-    std::vector<float> h(H), qo(4096), ko(1024), vo(1024), at(2048), oo(H), lg(NV), sb(H), sc(4096);
+    std::vector<float> h(H), qo(4096), ko(1024), vo(1024), at(2048), oo(H), lg(NV), sb(H), sc(MAX_CONTEXT);  // sc reused for attention scores
 
     fprintf(stderr, "Ready. Serving requests on stdin/stdout.\n");
 
@@ -280,18 +283,28 @@ int main(int argc, char** argv) {
                     memcpy(&kv[l].k[(sp + pi) * NKV * HD + kvh * HD], ks, HD * 4); memcpy(&kv[l].v[(sp + pi) * NKV * HD + kvh * HD], vs, HD * 4);
                 }
             }
-            kv[l].n = sp + npt; int cl = kv[l].n;
+            kv[l].n = sp + npt;
             for (int pi = 0; pi < npt; pi++) {
-                for (int hh = 0; hh < NH; hh++) { int kvh = hh / GQA; int pi_limit = sp + pi + 1; std::vector<float> ss(pi_limit);
-                    for (int p = 0; p < pi_limit; p++) { double s = 0; for (int d = 0; d < HD; d++) s += qo_b[pi * NH * HD + hh * HD + d] * kv[l].k[p * NKV * HD + kvh * HD + d]; ss[p] = (float)(s / sqrtf(HD)); }
-                    sm(ss.data(), pi_limit); for (int d = 0; d < HD; d++) { float s = 0; for (int p = 0; p < pi_limit; p++) s += ss[p] * kv[l].v[p * NKV * HD + kvh * HD + d]; at_b[pi * NH * HD + hh * HD + d] = s; } }
+                int pi_limit = sp + pi + 1;
+#ifdef _OPENMP
+                #pragma omp parallel for
+#endif
+                for (int hh = 0; hh < NH; hh++) { int kvh = hh / GQA;
+                    for (int p = 0; p < pi_limit; p++) { double s = 0; for (int d = 0; d < HD; d++) s += qo_b[pi * NH * HD + hh * HD + d] * kv[l].k[p * NKV * HD + kvh * HD + d]; sc[p] = (float)(s / sqrtf(HD)); }
+                    sm(sc.data(), pi_limit); for (int d = 0; d < HD; d++) { float s = 0; for (int p = 0; p < pi_limit; p++) s += sc[p] * kv[l].v[p * NKV * HD + kvh * HD + d]; at_b[pi * NH * HD + hh * HD + d] = s; } }
             }
             co.go(l, at_b.data(), npt, NH * HD, FIXED_ASCALE, wsc[l].o_, oo_b.data(), H); cn(oo_b.data(), npt * H);
             for (int pi = 0; pi < npt; pi++) for (int i = 0; i < H; i++) h_b[pi * H + i] = sb_buf[pi * H + i] + oo_b[pi * H + i];
             for (int pi = 0; pi < npt; pi++) { memcpy(&sb_buf[pi * H], &h_b[pi * H], H * 4); rn_c(&h_b[pi * H], pa_n[l], H); }
             cg.go(l, h_b.data(), npt, H, FIXED_ASCALE, wsc[l].g_, gt_b.data(), 6144); cn(gt_b.data(), npt * 6144);
+#ifdef _OPENMP
+            #pragma omp parallel for
+#endif
             for (int pi = 0; pi < npt; pi++) for (int i = 0; i < IM; i++) { float gv = gt_b[pi * 6144 + i]; if (!std::isfinite(gv)) gv = 0; su_b[pi * IM + i] = (gv / (1.0f + expf(-gv))) * gt_b[pi * 6144 + IM + i]; }
             cd_d.go(l, su_b.data(), npt, IM, FIXED_ASCALE, wsc[l].d_, dw_b.data(), H); cn(dw_b.data(), npt * H);
+#ifdef _OPENMP
+            #pragma omp parallel for
+#endif
             for (int pi = 0; pi < npt; pi++) for (int i = 0; i < H; i++) h_b[pi * H + i] = sb_buf[pi * H + i] + dw_b[pi * H + i];
         }
         sp += npt; memcpy(h.data(), &h_b[(npt - 1) * H], H * 4);
@@ -308,9 +321,12 @@ int main(int argc, char** argv) {
                     if (hh % GQA == 0) { int kvh = hh / GQA; double sk = 0; for (int d = 0; d < HD; d++) sk += ko[kvh * HD + d] * ko[kvh * HD + d]; float ik = 1.0f / sqrtf((float)(sk / HD) + EPS); for (int d = 0; d < HD; d++) ko[kvh * HD + d] *= ik * kn[d]; ra(&ko[kvh * HD], HD, sp); memcpy(&kv[l].k[sp * NKV * HD + kvh * HD], &ko[kvh * HD], HD * 4); memcpy(&kv[l].v[sp * NKV * HD + kvh * HD], &vo[kvh * HD], HD * 4); }
                 }
                 kv[l].n = sp + 1; int cl = kv[l].n;
-                for (int hh = 0; hh < NH; hh++) { int kvh = hh / GQA; std::vector<float> sc2(cl);
-                    for (int p = 0; p < cl; p++) { double s = 0; for (int d = 0; d < HD; d++) s += qo[hh * HD + d] * kv[l].k[p * NKV * HD + kvh * HD + d]; sc2[p] = (float)(s / sqrtf(HD)); }
-                    sm(sc2.data(), cl); for (int d = 0; d < HD; d++) { float s = 0; for (int p = 0; p < cl; p++) s += sc2[p] * kv[l].v[p * NKV * HD + kvh * HD + d]; at[hh * HD + d] = s; } }
+#ifdef _OPENMP
+                #pragma omp parallel for
+#endif
+                for (int hh = 0; hh < NH; hh++) { int kvh = hh / GQA;
+                    for (int p = 0; p < cl; p++) { double s = 0; for (int d = 0; d < HD; d++) s += qo[hh * HD + d] * kv[l].k[p * NKV * HD + kvh * HD + d]; sc[p] = (float)(s / sqrtf(HD)); }
+                    sm(sc.data(), cl); for (int d = 0; d < HD; d++) { float s = 0; for (int p = 0; p < cl; p++) s += sc[p] * kv[l].v[p * NKV * HD + kvh * HD + d]; at[hh * HD + d] = s; } }
                 co.go(l, at.data(), 1, NH * HD, FIXED_ASCALE, wsc[l].o_, oo.data(), H); cn(oo.data(), H); for (int i = 0; i < H; i++) h[i] = sb[i] + oo[i];
                 memcpy(sb.data(), h.data(), H * 4); rn_c(h.data(), pa_n[l], H);
                 cg.go(l, h.data(), 1, H, FIXED_ASCALE, wsc[l].g_, gt_b.data(), 6144); cn(gt_b.data(), 6144);
@@ -319,6 +335,9 @@ int main(int argc, char** argv) {
                 for (int i = 0; i < H; i++) h[i] = sb[i] + dw_b[i];
             }
             memcpy(sb.data(), h.data(), H * 4); rn_c(sb.data(), fin, H);
+#ifdef _OPENMP
+            #pragma omp parallel for
+#endif
             for (int n = 0; n < NV; n++) { double s = 0; const float* e = &lm_head_f32[(size_t)n * H]; for (int k = 0; k < H; k++) s += (double)sb[k] * e[k]; lg[n] = (float)s; }
             // Raw temp=1.0 sampling over the full 151936-vocab softmax with no
             // filtering (v12's original behavior) produces incoherent output —
