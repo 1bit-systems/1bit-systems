@@ -63,7 +63,7 @@ pub fn main() !void {
 
     _ = std.c.clock_gettime(@as(std.os.linux.clockid_t, @enumFromInt(1)), &ts);
     const init_ns = (@as(i64, ts.sec) * 1_000_000_000 + @as(i64, ts.nsec)) - t0;
-    std.debug.print("Init: {d}ms\n\n", .{init_ns / 1000000});
+    std.debug.print("Init: {d}ms\n\n", .{@divTrunc(init_ns, 1000000)});
 
     const out = try eng.runSimple(&TEST_TOKENS, tokens);
     defer a.free(out);
@@ -72,7 +72,7 @@ pub fn main() !void {
     const total_ns = (@as(i64, ts.sec) * 1_000_000_000 + @as(i64, ts.nsec)) - t0;
     std.debug.print("\n=== {d} tokens ===\nIDs:", .{out.len});
     for (out) |t| std.debug.print(" {d}", .{t});
-    const mspt = if (out.len > 0) @divTrunc(total_ns / 1000000, @as(i64, @intCast(out.len))) else 0;
-    const tps = if (mspt > 0) 1000 / mspt else 0;
-    std.debug.print("\n\nTotal: {d}ms  ms/tok: {d}  tok/s: {d}\n", .{total_ns / 1000000, mspt, tps});
+    const mspt = if (out.len > 0) @divTrunc(@divTrunc(total_ns, 1000000), @as(i64, @intCast(out.len))) else 0;
+    const tps = if (mspt > 0) @divTrunc(1000, mspt) else 0;
+    std.debug.print("\n\nTotal: {d}ms  ms/tok: {d}  tok/s: {d}\n", .{@divTrunc(total_ns, 1000000), mspt, tps});
 }

@@ -233,17 +233,19 @@ pub fn parseQ4nxHeader(model_path: []const u8, model_tag: []const u8) !ModelConf
         cfg.model_dir = model_path[0..slash];
     }
 
+    const compat = @import("compat.zig");
+
     // Open and mmap the model file
-    const fd = try std.fs.openFileAbsolute(model_path, .{});
+    const fd = try compat.File.openAbsolute(model_path);
     defer fd.close();
 
     const file_size = try fd.getEndPos();
     const mapping = try std.posix.mmap(
         null,
         file_size,
-        std.posix.PROT.READ,
-        std.posix.MAP.PRIVATE,
-        fd.handle,
+        .{ .READ = true },
+        .{ .TYPE = .PRIVATE },
+        fd.handle(),
         0,
     );
     defer std.posix.munmap(mapping);
@@ -251,7 +253,7 @@ pub fn parseQ4nxHeader(model_path: []const u8, model_tag: []const u8) !ModelConf
     if (mapping.len < 8) return error.InvalidModelFile;
 
     // Read 8-byte header size (little-endian u64)
-    const hdr_size = std.mem.readInt(u64, mapping[0..8].*, .little);
+    const hdr_size = std.mem.readInt(u64, &mapping[0..8].*, .little);
     if (hdr_size == 0 or 8 + hdr_size > mapping.len) return error.InvalidModelHeader;
 
     const json_start: usize = 8;
@@ -286,7 +288,7 @@ pub fn parseQ4nxHeader(model_path: []const u8, model_tag: []const u8) !ModelConf
                     };
                 }
                 while (i < js.len and (js[i] == ',' or js[i] == ' ')) i += 1;
-                const j = i;
+                var j = i;
                 while (j < js.len and (std.ascii.isDigit(js[j]) or js[j] == '-')) j += 1;
                 if (j > i) {
                     cfg.H = std.fmt.parseInt(u32, js[i..j], 10) catch {

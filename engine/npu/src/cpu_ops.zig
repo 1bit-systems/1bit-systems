@@ -28,7 +28,7 @@ pub fn rmsNorm(x: []f32, weight: []const f32, eps: f32) void {
         sum_sq += @as(f64, val) * @as(f64, val);
     }
 
-    const mean = sum_sq / @as(f64, n);
+    const mean = sum_sq / @as(f64, @floatFromInt(n));
     const inv_rms = 1.0 / @as(f64, @sqrt(mean + @as(f64, eps)));
 
     for (x, weight) |*val, w| {
@@ -259,7 +259,8 @@ pub fn lmHeadTopK(
     nv: usize,
     h: usize,
 ) void {
-    const allocator = std.heap.stackFallback(@sizeOf(f32) * 151936, std.heap.page_allocator).get();
+    var sfb = std.heap.stackFallback(@sizeOf(f32) * 151936, std.heap.page_allocator);
+    const allocator = sfb.get();
     // Note: stack allocation for logits is too large for 151K vocab — use heap
     // For simplicity with default small vocabs, we stack-allocate a reasonable buffer
     const max_vocab: usize = 200000;

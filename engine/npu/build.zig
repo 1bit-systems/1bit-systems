@@ -16,7 +16,7 @@ pub fn build(b: *std.Build) void {
     // Create a single module for the GPU scheduler (unified KV cache layer)
     // scheduler.zig is the entry point; it re-exports KvPagePool, Request, etc.
     const sched_module = b.createModule(.{
-        .root_source_file = b.path("../gpu/src/scheduler/scheduler.zig"),
+        .root_source_file = b.path("../fusion/sched/scheduler.zig"),
     });
 
     // ── Reusable NPU engine module (for fusion engine import) ──

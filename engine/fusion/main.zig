@@ -56,7 +56,7 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("\nPrompt: {s}\n", .{p});
         std.debug.print("Max tokens: {d}\n", .{max_tokens});
         std.debug.print("\nRun the daemon for inference:\n", .{});
-        std.debug.print("  npu-gpu-cpu/daemon/npu-gpu-cpud.py --port 8080 --fused-policy {s}\n", .{@tagName(policy)});
+        std.debug.print("  npu-gpu-cpud --port 8080 --fused-policy {s}\n", .{@tagName(policy)});
         std.debug.print("Then: curl http://127.0.0.1:8080/v1/chat/completions ...\n", .{});
     }
 }
@@ -103,7 +103,7 @@ fn printHelp() void {
         \\--list-policies  List all dispatch policies
         \\-h, --help       This help
         \\
-        \\For HTTP serving: npu-gpu-cpu/daemon/npu-gpu-cpud.py --port 8080
+        \\For HTTP serving: npu-gpu-cpud --port 8080
         \\
     , .{});
 }

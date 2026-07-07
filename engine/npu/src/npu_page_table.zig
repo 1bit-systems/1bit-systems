@@ -55,7 +55,7 @@ pub const NpuPageTable = struct {
         };
     }
 
-    pub fn allocKVBO(self: *NpuPageTable, device: *xrt.Device, total_pages: u32) !void {
+    pub fn allocKVBO(self: *NpuPageTable, device: *xrt.XrtDevice, total_pages: u32) !void {
         self.total_pages = total_pages;
 
         const total_bytes = self.bytesPerLayer() * self.n_layers;
