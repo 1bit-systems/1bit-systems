@@ -7,15 +7,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include "platform.h"
 #include <vector>
 #include <chrono>
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <xrt/xrt_device.h>
-#include <xrt/xrt_bo.h>
-#include <xrt/xrt_kernel.h>
 
 int main(int argc,char**argv){
     setvbuf(stdout,NULL,_IONBF,0);
@@ -83,7 +77,7 @@ int main(int argc,char**argv){
     {int fd=open(WF.c_str(),O_RDONLY);if(fd<0){printf("No packed weights, zeros\n");}
      else {struct stat st;fstat(fd,&st);
       size_t rs=std::min((size_t)st.st_size,(size_t)WEIGHT_SZ);
-      read(fd,bW->map(),rs);close(fd);
+      read(fd,bW->map(),rs);platform_close(fd);
       printf("  weights: %zu bytes loaded\n",rs);}}
 
     // Sync all
