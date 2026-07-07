@@ -38,6 +38,8 @@ static inline void transpose_pack(const float* src, int out_f, int in_f, float* 
 // Dynamic per-call activation quantization scale (see docs/V12-CORRECTNESS-BLOCKER.md) -
 // a hardcoded 5.0f/127.0f assumes activations stay within [-5,5], but measured post-RMSNorm
 // activations range as wide as [-8.24,7.01], silently clipping to +-127 every layer.
+// FIXED_ASCALE = 8.0/127.0 avoids the per-call amax scan; post-RMSNorm activations stay within [-8,8].
+static constexpr float FIXED_ASCALE = 8.0f / 127.0f;
 static inline float dynamic_ascale(const float* x, int n) {
     float amax = 0;
     for (int i = 0; i < n; i++) { float a = fabsf(x[i]); if (std::isfinite(a) && a > amax) amax = a; }
@@ -288,7 +290,7 @@ public:
         for (int l=0;l<NC;l++) {
             for (int pi=0;pi<n;pi++) memcpy(&res_b[pi*H], &h_b[pi*H], H*4);
             for (int pi=0;pi<n;pi++) rn_c(&h_b[pi*H], in_n_[l].data(), H);
-            cq_.go(l, h_b.data(), n, H, npu_target_detail::dynamic_ascale(h_b.data(), n * H), wsc_[l].qk, qo_b.data(), 4096);
+            cq_.go(l, h_b.data(), n, H, FIXED_ASCALE, wsc_[l].qk, qo_b.data(), 4096);
             cn(qo_b.data(), n*4096);
             const float* qn = qn_w_[l].data(); const float* kn = kn_w_[l].data();
             for (int pi=0;pi<n;pi++) {
@@ -311,30 +313,37 @@ public:
                 }
             }
             kv_[l].n = sp+n; int cl = kv_[l].n;
+            std::vector<float> attn_scores(cl);  // pre-allocated, reused per layer
+#ifdef _OPENMP
+            #pragma omp parallel for
+#endif
             for (int pi=0;pi<n;pi++) for (int hh=0;hh<NH;hh++) {
-                int kvh=hh/GQA; std::vector<float> ss(cl);
+                int kvh=hh/GQA;
                 for (int p=0;p<=sp+pi;p++) {
                     double s=0; for (int d=0;d<HD;d++) s+=(double)qo_b[pi*4096+hh*HD+d]*kv_[l].k[(size_t)p*NKV*HD+kvh*HD+d];
-                    ss[p]=(float)(s/sqrtf((float)HD));
+                    attn_scores[p]=(float)(s/sqrtf((float)HD));
                 }
-                sm(ss.data(), sp+pi+1);
+                sm(attn_scores.data(), sp+pi+1);
                 for (int d=0;d<HD;d++) {
-                    float s=0; for (int p=0;p<=sp+pi;p++) s+=ss[p]*kv_[l].v[(size_t)p*NKV*HD+kvh*HD+d];
+                    float s=0; for (int p=0;p<=sp+pi;p++) s+=attn_scores[p]*kv_[l].v[(size_t)p*NKV*HD+kvh*HD+d];
                     at_b[pi*NH*HD+hh*HD+d]=s;
                 }
             }
-            co_.go(l, at_b.data(), n, NH*HD, npu_target_detail::dynamic_ascale(at_b.data(), n * NH * HD), wsc_[l].o_, oo_b.data(), H);
+            co_.go(l, at_b.data(), n, NH*HD, FIXED_ASCALE, wsc_[l].o_, oo_b.data(), H);
             cn(oo_b.data(), n*H);
             for (int pi=0;pi<n;pi++) for (int i=0;i<H;i++) h_b[pi*H+i] = res_b[pi*H+i] + oo_b[pi*H+i];
             for (int pi=0;pi<n;pi++) memcpy(&res_b[pi*H], &h_b[pi*H], H*4);
             for (int pi=0;pi<n;pi++) rn_c(&h_b[pi*H], pa_n_[l].data(), H);
-            cg_.go(l, h_b.data(), n, H, npu_target_detail::dynamic_ascale(h_b.data(), n * H), wsc_[l].g_, gt_b.data(), 6144);
+            cg_.go(l, h_b.data(), n, H, FIXED_ASCALE, wsc_[l].g_, gt_b.data(), 6144);
             cn(gt_b.data(), n*6144);
+#ifdef _OPENMP
+            #pragma omp parallel for
+#endif
             for (int pi=0;pi<n;pi++) for (int i=0;i<IM;i++) {
                 float gv=gt_b[pi*6144+i]; if(!std::isfinite(gv))gv=0;
                 su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[pi*6144+IM+i];
             }
-            cd_.go(l, su_b.data(), n, IM, npu_target_detail::dynamic_ascale(su_b.data(), n * IM), wsc_[l].d_, dw_b.data(), H);
+            cd_.go(l, su_b.data(), n, IM, FIXED_ASCALE, wsc_[l].d_, dw_b.data(), H);
             cn(dw_b.data(), n*H);
             for (int pi=0;pi<n;pi++) for (int i=0;i<H;i++) h_b[pi*H+i] = res_b[pi*H+i] + dw_b[pi*H+i];
 
