@@ -42,3 +42,5 @@ zaya-llama.cpp/
 engine/fusion/gpu_attn.o
 engine/fusion/bench_fused
 engine/fusion/bench_main.zig
+engine/npu/build/npu_fused_pipeline
+engine/npu/tests/test_rope

@@ -9,3 +9,6 @@
 [submodule "jarvis-mobile"]
 	path = jarvis-mobile
 	url = https://github.com/bong-water-water-bong/1bit-mobile.git
+[submodule "token-router"]
+	path = token-router
+	url = ./token-router
