@@ -10,7 +10,7 @@
 ## Target Audience
 
 - Hacker News (r/programming, r/LocalLLaMA, r/MachineLearning)
-- AMD community (r/Amd, Strix Halo Discord, ROCm forums)
+- AMD community (r/Amd, ROCm forums)
 - AI infrastructure engineers (vLLM, Ollama, llama.cpp ecosystem)
 - Open source enthusiasts
 
@@ -19,7 +19,7 @@
 | Day | Action |
 |-----|--------|
 | **T-7** | Final polish — docs, README, release |
-| **T-3** | Post Show HN draft to Discord for feedback |
+| **T-3** | Post Show HN draft for feedback |
 | **T-1** | Push final release with packages attached |
 | **T-0** | **7:00 AM PT / 14:00 UTC — Post Show HN** |
 | **T+0** | Monitor comments, respond authentically |

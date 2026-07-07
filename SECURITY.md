@@ -11,7 +11,7 @@
 
 This is a small open-source project. If you find a security issue:
 
-1. **Do not open a public GitHub issue** — post in the `#security` channel on [Discord](https://discord.gg/dSyV646eBs) or email `admin@1bit.systems`
+1. **Do not open a public GitHub issue** — email `admin@1bit.systems`
 2. Include:
    - Description of the issue
    - Steps to reproduce (hardware, XRT version, command)
