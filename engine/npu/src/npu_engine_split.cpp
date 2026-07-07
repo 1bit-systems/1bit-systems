@@ -28,6 +28,9 @@
 #include <unistd.h>
 #include <xrt/xrt_device.h>
 #include <xrt/xrt_kernel.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 #include <xrt/xrt_bo.h>
 
 #include "platform.h"
@@ -234,11 +237,16 @@ struct GemmCtx {
 // GPT-style attention (CPU fallback — for when we need attention on NPU instead of GPU)
 static void attention_cpu(float* qo, float* out, int cl,
                           const float* kv_k, const float* kv_v,
-                          int NH, int NKV, int HD, int GQA, int max_pos) {
+                          int NH, int NKV, int HD, int GQA, int max_pos,
+                          std::vector<float>& scores_buf) {
     if (max_pos < 0) max_pos = cl;
+    scores_buf.resize(cl);
+#ifdef _OPENMP
+    #pragma omp parallel for
+#endif
     for (int hh = 0; hh < NH; hh++) {
         int kvh = hh / GQA;
-        std::vector<float> scores(cl);
+        float* scores = scores_buf.data();  // shared buffer via parallel; each iter recomputes
         float mx = -1e30f;
         for (int p = 0; p < cl; p++) {
             if (p >= max_pos) { scores[p] = -1e30f; continue; }
@@ -522,6 +530,7 @@ int main(int argc, char** argv) {
     std::vector<float> res_buf(XM * H);
     std::vector<float> qo_buf(XM * QKV);
     std::vector<float> at_buf(XM * NH * HD);
+    std::vector<float> attn_scores;  // reused across attention_cpu calls
     std::vector<float> oo_buf(XM * H);
     std::vector<float> gt_buf(XM * (cfg.gu_split ? IM : 2 * IM));
     std::vector<float> su_buf(XM * IM);
@@ -677,7 +686,7 @@ int main(int argc, char** argv) {
             for (int b = 0; b < batch; b++) {
                 attention_cpu(&qkv_in[b * QKV], &at_buf[b * NH * HD], cl,
                               kv_caches[layer].k.data(), kv_caches[layer].v.data(),
-                              NH, NKV, HD, GQA, pos + b + 1);
+                              NH, NKV, HD, GQA, pos + b + 1, attn_scores);
             }
 
             fwrite(at_buf.data(), sizeof(float), batch * NH * HD, stdout);
@@ -747,7 +756,7 @@ int main(int argc, char** argv) {
                     int cl = kv_caches[l].n;
                     attention_cpu(&qo_buf[pi * QKV], &at_buf[pi * NH * HD], cl,
                                   kv_caches[l].k.data(), kv_caches[l].v.data(),
-                                  NH, NKV, HD, GQA, sp + pi + 1);
+                                  NH, NKV, HD, GQA, sp + pi + 1, attn_scores);
                 }
 
                 // O + residual
