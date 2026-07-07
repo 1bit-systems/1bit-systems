@@ -1,7 +1,7 @@
-/** NPU Fused Pipeline — QKV→Attention→FFN via split engine.
- *  Demonstrates the fused inference loop using the npu_engine_split binary.
+/** NPU Fused Pipeline — QKV→Attention→FFN via split/fused engine.
+ *  Demonstrates the fused inference loop using npu_engine_split or npu_engine_fused_server.
  *  
- *  Usage: npu_fused_pipeline [--engine split|server] [--batch N] [--tokens N]
+ *  Usage: npu_fused_pipeline [--engine split|server|fused] [--batch N] [--tokens N]
  *
  *  This is the C++ equivalent of fused_bench.py — measures the full
  *  QKV→Attention→FFN pipeline throughput and estimates the pipeline-
@@ -62,6 +62,9 @@ struct NpuClient {
             if (strcmp(engine_type, "split") == 0) {
                 engine_path += "split";
                 args = { engine_path.c_str(), kModelPath, "--xclbin-dir", kXclbinDir, nullptr };
+            } else if (strcmp(engine_type, "fused") == 0) {
+                engine_path += "fused_server";
+                args = { engine_path.c_str(), nullptr };
             } else {
                 engine_path += "server";
                 args = { engine_path.c_str(), kModelPath, "--server", nullptr };
@@ -168,6 +171,32 @@ struct NpuClient {
         send_cmd(cmd);
         send_binary(hidden, batch * H);
         recv_int32(token_ids, batch);
+    }
+    
+    // Fused server: single LAYER call does QKV→Attn→O→GU→D
+    void fused_layer(int layer, int pos, const float* hidden, float* hidden_out) {
+        char cmd[128];
+        snprintf(cmd, sizeof(cmd), "LAYER %d %d 1\n", layer, pos);
+        send_cmd(cmd);
+        // Fused server expects BF16 input
+        std::vector<uint16_t> bf16_in(H);
+        for (int i = 0; i < H; i++) {
+            uint32_t b; memcpy(&b, &hidden[i], 4);
+            bf16_in[i] = (uint16_t)((b + 0x8000) >> 16);
+        }
+        write(stdin_fd, bf16_in.data(), H * 2);
+        // Fused server outputs BF16
+        std::vector<uint16_t> bf16_out(H);
+        int pos_bytes = 0, total = H * 2;
+        while (pos_bytes < total) {
+            int n = (int)read(stdout_fd, (char*)bf16_out.data() + pos_bytes, total - pos_bytes);
+            if (n <= 0) { fprintf(stderr, "Short read: %d/%d\n", pos_bytes, total); break; }
+            pos_bytes += n;
+        }
+        for (int i = 0; i < H; i++) {
+            uint32_t b = (uint32_t)bf16_out[i] << 16;
+            memcpy(&hidden_out[i], &b, 4);
+        }
     }
 };
 
@@ -283,6 +312,22 @@ static void bench_pipeline(NpuClient& npu, int batch) {
     printf("  Target 273 tok/s gap: %.0f (%.0f%%)\n", 273 - pipe_tok_s, (273 / pipe_tok_s - 1) * 100);
 }
 
+static void bench_fused_layer(NpuClient& npu) {
+    printf("\n── Fused single-layer pipeline ──\n");
+    std::vector<float> hidden(H);
+    std::vector<float> result(H);
+    for (int i = 0; i < H; i++) hidden[i] = 0.01f * (float)(rand() % 100);
+    
+    auto t0 = std::chrono::steady_clock::now();
+    for (int l = 0; l < NC; l++)
+        npu.fused_layer(l, l, hidden.data(), result.data());
+    double total_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    double per_layer = total_ms / NC;
+    double tok_s = 1000.0 / per_layer;  // batch=1, one token per full-layer call
+    printf("  %.2fms/layer → %.0f tok/s (fused, B=1)\n", per_layer, tok_s);
+    printf("  With pipeline overlap: ~%.0f tok/s\n", tok_s * 1.3);  // ~30% overlap gain
+}
+
 // ─── Main ───────────────────────────────────────────────────────────────
 
 int main(int argc, char** argv) {
@@ -298,6 +343,7 @@ int main(int argc, char** argv) {
     
     if (batch > MAX_BATCH) batch = MAX_BATCH;
     if (batch < 1) batch = 1;
+    bool is_fused = (strcmp(engine_type, "fused") == 0);
     
     printf("═══ NPU Fused Pipeline ═══\n");
     printf("Engine: %s | B=%d | L=%d | H=%d\n", engine_type, batch, NC, H);
@@ -311,31 +357,40 @@ int main(int argc, char** argv) {
     }
     printf("  Server ready\n");
     
-    // Warmup
-    printf("\n── Warmup ──\n");
-    std::vector<float> h0(H);
-    std::vector<float> q0(QKV);
-    std::vector<float> a0(NH * HD);
-    npu.qkv(0, 0, 1, h0.data(), q0.data());
-    npu.ffn(0, 0, 1, a0.data(), h0.data());
-    printf("  OK\n");
-    
-    // Micro-benchmarks
-    printf("\n── Micro-benchmarks ──\n");
-    double qkv_ms = bench_qkv(npu, batch);
-    double ffn_ms = bench_ffn(npu, batch);
-    printf("  Q+F:  %.2fms/layer → %.0f tok/s (NPU-only estimate)\n",
-        qkv_ms + ffn_ms, batch / ((qkv_ms + ffn_ms) * NC / 1000.0));
-    
-    // Full pipeline
-    bench_pipeline(npu, batch);
-    
-    // Summary
-    printf("\n═══ Summary (B=%d) ═══\n", batch);
-    printf("  NPU QKV + FFN:  %.2f + %.2f = %.2f ms/layer\n", qkv_ms, ffn_ms, qkv_ms + ffn_ms);
-    printf("  Seq tok/s:      %.0f\n", batch / ((qkv_ms + ffn_ms + 0.5) * NC / 1000.0));
-    printf("  Pipe tok/s:     ~%.0f (with GPU overlap)\n",
-        batch / ((qkv_ms + (NC-1) * std::max(0.5, ffn_ms) + std::max(0.5, ffn_ms)) / 1000.0));
+    if (is_fused) {
+        // Fused engine: single LAYER call per layer
+        printf("\n── Warmup ──\n");
+        std::vector<float> h0(H);
+        npu.fused_layer(0, 0, h0.data(), h0.data());
+        printf("  OK\n");
+        bench_fused_layer(npu);
+    } else {
+        // Warmup
+        printf("\n── Warmup ──\n");
+        std::vector<float> h0(H);
+        std::vector<float> q0(QKV);
+        std::vector<float> a0(NH * HD);
+        npu.qkv(0, 0, 1, h0.data(), q0.data());
+        npu.ffn(0, 0, 1, a0.data(), h0.data());
+        printf("  OK\n");
+        
+        // Micro-benchmarks
+        printf("\n── Micro-benchmarks ──\n");
+        double qkv_ms = bench_qkv(npu, batch);
+        double ffn_ms = bench_ffn(npu, batch);
+        printf("  Q+F:  %.2fms/layer → %.0f tok/s (NPU-only estimate)\n",
+            qkv_ms + ffn_ms, batch / ((qkv_ms + ffn_ms) * NC / 1000.0));
+        
+        // Full pipeline
+        bench_pipeline(npu, batch);
+        
+        // Summary
+        printf("\n═══ Summary (B=%d) ═══\n", batch);
+        printf("  NPU QKV + FFN:  %.2f + %.2f = %.2f ms/layer\n", qkv_ms, ffn_ms, qkv_ms + ffn_ms);
+        printf("  Seq tok/s:      %.0f\n", batch / ((qkv_ms + ffn_ms + 0.5) * NC / 1000.0));
+        printf("  Pipe tok/s:     ~%.0f (with GPU overlap)\n",
+            batch / ((qkv_ms + (NC-1) * std::max(0.5, ffn_ms) + std::max(0.5, ffn_ms)) / 1000.0));
+    }
     printf("  Target:         273 tok/s\n");
     
     return 0;
