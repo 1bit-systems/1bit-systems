@@ -66,7 +66,7 @@ If you're an XRT/XDNA low-level person, I could use the help.
 ### Links
 
 GitHub: https://github.com/1bit-systems/1bit  
-Benchmarks: engine/npu/BENCHMARKS.md  
+Benchmarks: docs/wiki/performance.md  
 Audit trail: docs/journey.md (1,200+ lines, every crash and fix)
 
 MIT. Open source. Your hardware. Not AMD's.

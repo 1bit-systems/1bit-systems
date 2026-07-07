@@ -1,10 +1,16 @@
 ---
 type: Reference
-title: Fused Engine Dispatch Policies
+title: "[RETIRED] Fused Engine Dispatch Policies"
 description: 8 dispatch policies for per-layer routing between NPU (XRT INT8 GEMM) and GPU (Vulkan flash attention/DMMV).
-tags: [fusion, dispatch, policies, npu, gpu]
+tags: [fusion, dispatch, policies, npu, gpu, retired]
 timestamp: 2026-07-06T00:00:00Z
 ---
+
+> **RETIRED (2026-07-07).** `engine/fusion/dispatcher.zig` was deleted in
+> commit `cd232a091` along with the rest of `engine/fusion/` and `engine/gpu/`
+> — superseded by the `spec-decode/` stack, which has no equivalent per-layer
+> NPU/GPU dispatch-policy mechanism. Kept for historical reverse-engineering
+> value only.
 
 # Overview
 

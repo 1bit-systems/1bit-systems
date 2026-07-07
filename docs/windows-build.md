@@ -2,6 +2,12 @@
 
 This guide documents how to build the NPU inference engine for Windows (AMD Strix Halo XDNA 2 NPU).
 
+> **Historical**: the `engine/npu/` C++ source this guide builds was retired
+> from this repo (commit `cd232a091`) — superseded by the `spec-decode/`
+> stack, which does not yet have an equivalent Windows port. Kept as a
+> reference for the XRT/toolchain setup steps, which still apply to any future
+> Windows port.
+
 ## Prerequisites
 
 ### 1. Hardware
@@ -155,7 +161,7 @@ npu_engine_qwen3_0_6b.exe %MODEL_PATH% 9
 ## See Also
 
 - [Build Guide (Linux)](building.md)
-- [Benchmarks](engine/npu/BENCHMARKS.md)
+- [Benchmarks](wiki/performance.md)
 - [NPU Driver Download](https://www.amd.com/en/products/software/ryzen-ai.html)
 - `NPU_RAI_376_WHQL.zip` — Windows NPU driver pack (26 MB)
 - `ryzen-ai-lt-1.8.0-beta.exe` — Ryzen AI LT toolkit (3.3 GB)

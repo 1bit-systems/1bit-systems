@@ -53,20 +53,12 @@ jobs:
       - run: pip install ruff
       - run: ruff check src/ 2>/dev/null || echo "::warning::ruff check skipped (no src/)"
 
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Verify binary size
-        run: |
-          # If the NPU engine binary is committed, check it stays under 75KB
-          if [ -f engine/npu/build/npu_engine ]; then
-            SIZE=$(stat -c%s engine/npu/build/npu_engine)
-            echo "NPU engine: $SIZE bytes"
-            if [ "$SIZE" -gt 75000 ]; then
-              echo "::warning::binary grew past 75KB"
-            fi
-          fi
+  # NOTE: this job used to be "build", and its only step checked that a
+  # committed engine/npu/build/npu_engine binary stayed under 75KB.
+  # engine/npu/ was retired in commit cd232a091 (superseded by the
+  # spec-decode/ stack), so that binary/check no longer exists — the job had
+  # no other purpose, so it was removed entirely rather than left as dead
+  # logic.
 
   test:
     runs-on: ubuntu-latest

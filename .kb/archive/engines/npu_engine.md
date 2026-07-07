@@ -1,11 +1,20 @@
 ---
 type: Engine
-title: NPU Inference Engine (Fused Layer)
+title: "[RETIRED] NPU Inference Engine (Fused Layer)"
 description: Production inference engine on AMD NPU via XRT. 291 tok/s Qwen3-0.6B, 3.4 ms/tok decode. Fused layer: one xclbin call per transformer layer.
-tags: [npu, production, fused, xrt, int8, q4nx]
+tags: [npu, production, fused, xrt, int8, q4nx, retired]
 resource: https://github.com/1bit-systems/1bit/tree/main/engine/npu/
 timestamp: 2026-07-06T00:00:00Z
 ---
+
+> **RETIRED (2026-07-07).** `engine/npu/` was deleted in commit `cd232a091`.
+> Its dispatch logic (4-xclbin INT8 GEMM pattern, RMSNorm/RoPE/attention/SwiGLU)
+> was ported forward into `spec-decode/engine/npu_target_model.h`
+> (`NPUQwen3Target`), which is the current NPU dispatch path. Note both the
+> "291 tok/s" (fused layer) and "97 tok/s" (v12) figures below were, per
+> `docs/wiki/performance.md`, **raw throughput with output not yet coherent**
+> — never a validated/production number, contrary to how this doc frames it.
+> Kept for historical reverse-engineering value only.
 
 # Overview
 

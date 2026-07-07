@@ -1,11 +1,19 @@
 ---
 type: Structure
-title: Unified KV Cache (H2O Eviction)
+title: "[RETIRED] Unified KV Cache (H2O Eviction)"
 description: Backend-agnostic KV cache with H2O eviction, RadixAttention prefix sharing, CPU offloading, and dynamic quantization profiles.
-tags: [kv-cache, h2o, radix-attention, scheduler, zig]
+tags: [kv-cache, h2o, radix-attention, scheduler, zig, retired]
 resource: https://github.com/1bit-systems/1bit/tree/main/engine/gpu/src/scheduler/
 timestamp: 2026-07-06T00:00:00Z
 ---
+
+> **RETIRED (2026-07-07).** `engine/gpu/src/scheduler/` was deleted in commit
+> `cd232a091`. The current NPU target (`spec-decode/engine/npu_target_model.h`,
+> class `NPUQwen3Target`) uses a much simpler per-layer `std::vector` KV cache
+> with no eviction, no RadixAttention prefix sharing, no CPU offload, and no
+> dynamic per-layer quantization profiles — none of the machinery described
+> below exists in the current codebase. Kept for historical reverse-
+> engineering value only.
 
 # Overview
 

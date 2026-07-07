@@ -62,14 +62,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build NPU engine
-        run: |
-          gcc -c -O3 -o dequant_q4nx.o engine/npu/src/dequant_q4nx.c 2>/dev/null || true
-          g++ -std=c++23 -O3 -o 1bit-npu \
-            engine/npu/src/npu_engine_all.cpp \
-            dequant_q4nx.o \
-            -Iengine/npu -lxrt_coreutil -luuid -lm -ldl 2>/dev/null || \
-          echo "::warning::NPU engine build requires XRT (not available in CI)"
+      # NOTE: this job used to also build the standalone NPU engine from
+      # engine/npu/src/{dequant_q4nx.c,npu_engine_all.cpp}. engine/npu/ was
+      # retired in commit cd232a091 (superseded by the spec-decode/ stack), so
+      # that step was removed — only the HTTP server is built below now.
       - name: Build fused engine server
         run: |
           # Build the HTTP server stub

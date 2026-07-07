@@ -21,10 +21,14 @@ This is a small open-source project. If you find a security issue:
 ## Scope
 
 The following are in scope:
-- The NPU engine (`engine/npu/src/`)
+- The spec-decode / NPU target stack (`spec-decode/`)
 - The HTTP API server (`packaging/binary/server.cpp`)
-- The GPU engine (`engine/gpu/`)
+- The GPU (Vulkan/ZINC) inference path
 - Build-time toolchain (XRT, Chess compiler)
+
+(The legacy standalone `engine/npu/`, `engine/gpu/`, and `engine/fusion/`
+implementations were retired in favor of the `spec-decode/` stack — see
+`docs/wiki/performance.md` for current engine status.)
 
 Out of scope:
 - Third-party models loaded onto the NPU

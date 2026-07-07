@@ -1,11 +1,19 @@
 ---
 type: Engine
-title: Fused Engine (NPU+GPU Hybrid)
+title: "[RETIRED] Fused Engine (NPU+GPU Hybrid)"
 description: Unified NPU+GPU hybrid inference engine dispatching per-layer to XRT (INT8 GEMM) or Vulkan (flash attention) through a single API.
-tags: [npu, gpu, fusion, hybrid, zig, dispatcher]
+tags: [npu, gpu, fusion, hybrid, zig, dispatcher, retired]
 resource: https://github.com/1bit-systems/1bit/tree/main/engine/fusion/
 timestamp: 2026-07-06T00:00:00Z
 ---
+
+> **RETIRED (2026-07-07).** `engine/fusion/` and `engine/gpu/` were deleted in
+> commit `cd232a091` — superseded by the `spec-decode/` stack (FLM proxy +
+> DSpark). Even while it existed, its "291 tok/s" figure was raw kernel
+> throughput with **output not yet coherent** (see
+> `docs/wiki/performance.md`) — it was never a validated production number.
+> Kept here only for historical reverse-engineering value; do not treat
+> anything below as describing current code.
 
 # Overview
 

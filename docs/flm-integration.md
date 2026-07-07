@@ -1,5 +1,13 @@
 # FLM Integration — Fused NPU Engine
 
+> **Historical**: this doc describes an early integration attempt against the
+> standalone `engine/npu/` C++ engine (v3, 4.7 tok/s), which was retired from
+> this repo (commit `cd232a091`) — superseded by the `spec-decode/` stack. The
+> numbers below predate and are superseded by later engine iterations (v12,
+> fused layer) and are far below current FLM production numbers — see
+> `docs/wiki/performance.md` for current, accurate status. Kept as a record of
+> the FLM reverse-engineering investigation.
+
 ## Overview
 
 The C++ NPU engine (npu_engine_cb) runs at **4.7 tok/s** on the XDNA 2 NPU. To reach **10–12 tok/s**, we need to reduce XRT kernel launches from **112 per token** (4 GEMMs × 28 layers) to **28 per token** (1 fused launch per layer).

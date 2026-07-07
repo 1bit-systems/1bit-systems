@@ -81,6 +81,12 @@ print(response.choices[0].message.content)
 
 ## Build from Source
 
+> The standalone `engine/npu/` C++ engine referenced by earlier versions of
+> this guide was retired (commit `cd232a091`) — superseded by the
+> `spec-decode/` stack. The build command below for the HTTP server still
+> applies; see [docs/wiki/performance.md](../docs/wiki/performance.md) for how
+> to run current, production NPU/GPU inference (FLM proxy / ZINC Vulkan).
+
 ```bash
 # Prerequisites
 sudo apt install g++ libxrt2 libxrt-npu2 libxrt-dev
@@ -89,17 +95,11 @@ sudo apt install g++ libxrt2 libxrt-npu2 libxrt-dev
 git clone https://github.com/bong-water-water-bong/1bit-systems
 cd 1bit-systems
 
-# Build the NPU engine (one command)
-g++ -std=c++23 -O3 -march=native -fopenmp -ffast-math \
-    -o npu_engine_all engine/npu/src/npu_engine_all.cpp \
-    engine/npu/build/dequant_q4nx.o \
-    -Iengine/npu/src -lxrt_coreutil
-
 # Build the HTTP server
 g++ -std=c++23 -O3 -o 1bit-server packaging/binary/server.cpp
 ```
 
-See [building.md](building.md) for detailed prerequisites and [architecture.md](architecture.md) for engine design.
+See [building.md](building.md) for detailed prerequisites and [architecture.md](architecture.md) for engine design (historical — describes the now-retired NPU engine).
 
 ## Performance Tuning
 
@@ -113,7 +113,7 @@ OMP_NUM_THREADS=16 1bit-npu model.q4nx 16
 # Single-token decode is slower (~4 tok/s)
 ```
 
-Full benchmarks at [BENCHMARKS.md](engine/npu/BENCHMARKS.md).
+Full benchmarks at [docs/wiki/performance.md](../docs/wiki/performance.md).
 
 ## Docker
 
@@ -135,8 +135,8 @@ docker run --device /dev/accel/accel0 -p 8081:8081 \
 ## Next Steps
 
 - [Full documentation](https://1bit.systems)
-- [Benchmarks](engine/npu/BENCHMARKS.md)
-- [Architecture overview](docs/architecture.md)
+- [Benchmarks](wiki/performance.md)
+- [Architecture overview](architecture.md)
 - [Build from source guide](docs/building.md)
 - [Roadmap](docs/roadmap.md)
 - [Contributing](CONTRIBUTING.md)

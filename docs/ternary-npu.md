@@ -1,6 +1,15 @@
 # 1.58-bit Ternary Inference on NPU
 
-**Status**: ✅ Pipeline ready — Q2_0 GGUF → INT8 Q4NX → NPU inference via proven INT8 GEMM
+> **Historical**: this pipeline targeted the standalone `engine/npu/`
+> (`npu_engine_universal`) C++ engine, which was retired from this repo
+> (commit `cd232a091`) — superseded by the `spec-decode/` stack. The
+> conversion tooling (`tools/q2_0_to_q4nx.py`) and the underlying idea (INT8
+> GEMM doesn't care whether the source weights were ternary) are still valid,
+> but the specific engine binary referenced below no longer exists here. The
+> current validated 1.58-bit ternary result (279 tok/s, coherent) runs on
+> GPU via Vulkan/ZINC — see `docs/wiki/performance.md` — not on NPU.
+
+**Status (historical)**: ✅ Pipeline ready — Q2_0 GGUF → INT8 Q4NX → NPU inference via proven INT8 GEMM
 
 ## Pipeline
 

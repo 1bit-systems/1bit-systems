@@ -2,7 +2,16 @@
 
 **Generated:** 2026-07-06 (updated for fused layer engine at 291 tok/s)  
 **Scope:** All NPU, GPU (ZINC), fused engine, and tooling flags, switches, env vars, and locking layers.  
-**Primary engine:** Fused layer engine at 291 tok/s (3.4 ms/tok, 38 KB). C++ v12 (97 tok/s) is fallback.
+**Primary engine (at time of writing):** Fused layer engine at 291 tok/s (3.4 ms/tok, 38 KB) — raw throughput, never coherent. C++ v12 (97 tok/s, also raw) was fallback.
+
+> **Retired (commit `cd232a091`)**: `engine/npu/`, `engine/gpu/`, and
+> `engine/fusion/` — referenced throughout this doc by file path — no longer
+> exist in this repo, superseded by the `spec-decode/` stack. This "primary
+> engine" framing predates that retirement and predates the discovery (see
+> `docs/wiki/performance.md`) that neither the fused nor v12 engine ever
+> produced coherent output; the only coherent, production NPU path is the FLM
+> proxy (94 tok/s). Kept as a historical reference for the firmware-unlock and
+> flag/env-var details, most of which are independent of engine retirement.
 
 ---
 

@@ -1,11 +1,18 @@
 ---
 type: Engine
-title: Unified Serving Daemon
+title: "[RETIRED] Unified Serving Daemon"
 description: Small binary serving all models via a HTTP API (OpenAI-compatible), proxying through fused NPU layer (291 tok/s), C++ v12 (97 tok/s), or FLM fallback.
-tags: [daemon, serving, api, openai-compatible, http]
+tags: [daemon, serving, api, openai-compatible, http, retired]
 resource: https://github.com/1bit-systems/1bit/tree/main/npu-gpu-cpu/
 timestamp: 2026-07-06T00:00:00Z
 ---
+
+> **RETIRED (2026-07-07).** `npu-gpu-cpu/` was deleted in commit `cd232a091`
+> — superseded by the `spec-decode/` stack. Current NPU serving goes through
+> the FLM daemon with `spec-decode/engine/spec_proxy.cpp` as a speculative-
+> decode proxy in front of it (see `spec-decode/README.md`); there is no
+> current single "unified" multi-backend HTTP daemon replacing this one.
+> Kept for historical reverse-engineering value only.
 
 # Overview
 

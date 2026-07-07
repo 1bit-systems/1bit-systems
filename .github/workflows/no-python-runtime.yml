@@ -1,18 +1,16 @@
 name: No Python in Runtime
+# NOTE: engine/npu/, engine/gpu/, and engine/video/ were retired in commit
+# cd232a091 (superseded by the spec-decode/ stack), so their path filters and
+# enforcement entries were removed below. spec-decode/engine/** and
+# spec-decode/draft/** remain covered.
 on:
   pull_request:
     paths:
-      - 'engine/npu/src/**'
-      - 'engine/gpu/src/**'
-      - 'engine/video/src/**'
       - 'spec-decode/engine/**'
       - 'spec-decode/draft/**'
   push:
     branches: [main]
     paths:
-      - 'engine/npu/src/**'
-      - 'engine/gpu/src/**'
-      - 'engine/video/src/**'
       - 'spec-decode/engine/**'
       - 'spec-decode/draft/**'
 
@@ -25,9 +23,6 @@ jobs:
         run: |
           FAIL=0
           RUNTIME_PATHS=(
-            "engine/npu/src"
-            "engine/gpu/src"
-            "engine/video/src"
             "spec-decode/engine"
             "spec-decode/draft"
           )
@@ -42,5 +37,5 @@ jobs:
             fi
           done
           # Also check no new .py files were added outside allowed tool paths
-          # Allow: engine/npu/kernel/ (MLIR generators), spec-decode/train*.py (training scripts)
+          # Allow: spec-decode/train*.py (training scripts)
           exit $FAIL
