@@ -19,15 +19,17 @@
 | **GPU ternary** (Vulkan) | **279 tok/s** | ✅ measured, coherent | Bonsai-1.7B Q2_0 (1.58-bit) |
 | **GPU 1-bit** (llama.cpp) | **381 tok/s** | measured (llama.cpp) | Qwen2-0.5B IQ1_S |
 | **GPU ZINC** (Vulkan) | **22 tok/s** | ✅ measured, coherent | Bonsai-1.7B F16 |
-| **DSpark spec-decode** | **~572 tok/s** | 📊 projected (94×5.9; draft training) | Qwen3-0.6B |
+| **DSpark spec-decode** | **0.1–0.2 tok/s** | ❌ measured end-to-end 2026-07-07: 0% acceptance — "~572" disproven | Qwen3-0.6B |
 | **NPU fused** | **291 tok/s** | ⚙️ raw throughput — output not yet coherent | Qwen3-0.6B |
 | **NPU v12** | **97 tok/s** | ⚙️ raw throughput — output not yet coherent | Qwen3-0.6B |
 
 **Only ✅ numbers are quoted as production.** The validated 1-bit headline is
 **279 tok/s** native ternary on the Radeon 8060S (12.6× over the 22 tok/s F16 of
-the same model). DSpark 572 is a projection (5.90× acceptance is measured, the
-572 tok/s end-to-end is not). Fused 291 / v12 97 are raw kernel throughput on a
-path whose output is not yet coherent. See docs/wiki/performance.md.
+the same model). DSpark's "572 tok/s" was a projection (94×5.9) — measured
+end-to-end on the NPU it is **0.1–0.2 tok/s at 0% draft acceptance** (the 5.90×
+acceptance was DeepSpec/Qwen3-4B, not the NPU), so the projection is disproven and
+DSpark is experimental, not production. Fused 291 / v12 97 are raw kernel throughput
+on a path whose output is not yet coherent. See docs/wiki/performance.md.
 
 ---
 

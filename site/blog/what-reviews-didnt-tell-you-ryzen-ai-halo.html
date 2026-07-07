@@ -3,15 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>What the Ryzen AI Halo reviews didn't tell you — 572 tok/s on AMD Strix Halo · 1bit.systems</title>
-<meta name="description" content="AMD Ryzen AI Halo ships with a 50 TOPS NPU. AMD's FLM runtime gets 11 tok/s, ROCm gets 41 tok/s. 1bit.systems hits 572 tok/s on the same hardware — 52× faster. MIT licensed.">
+<title>What the Ryzen AI Halo reviews didn't tell you — 291 tok/s on AMD Strix Halo · 1bit.systems</title>
+<meta name="description" content="AMD Ryzen AI Halo ships with a 50 TOPS NPU. AMD's FLM runtime gets 11 tok/s, ROCm gets 41 tok/s. 1bit.systems drives the same NPU at 291 tok/s (fused layer) — 26× more. MIT licensed.">
 <meta name="keywords" content="Ryzen AI Halo, AMD Strix Halo, Ryzen AI Max+ 395, Radeon 8060S, NPU inference, 1-bit LLM, local AI, AMD vs NVIDIA, ROCm, FLM, XDNA 2, speculative decoding, DGX Spark comparison">
 <meta name="news_keywords" content="AMD Ryzen AI Halo, Strix Halo launch, local AI inference, AMD NPU, AI mini PC">
 <meta name="date" content="2026-07-06">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="https://1bit.systems/blog/what-reviews-didnt-tell-you-ryzen-ai-halo">
-<meta property="og:title" content="What the Ryzen AI Halo reviews didn't tell you — 572 tok/s on the same hardware">
-<meta property="og:description" content="AMD's $4,000 mini PC ships with a 50 TOPS NPU. AMD's runtime gets 11 tok/s. 1bit.systems gets 572 tok/s — on the exact same chip. 52× faster. 15W. MIT open source.">
+<meta property="og:title" content="What the Ryzen AI Halo reviews didn't tell you — 291 tok/s on the same hardware">
+<meta property="og:description" content="AMD's $4,000 mini PC ships with a 50 TOPS NPU. AMD's runtime gets 11 tok/s. 1bit.systems drives the same NPU at 291 tok/s — 26× more. 20W. MIT open source.">
 <meta property="og:url" content="https://1bit.systems/blog/what-reviews-didnt-tell-you-ryzen-ai-halo">
 <meta property="og:type" content="article">
 <meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
@@ -29,8 +29,8 @@
 <meta property="article:tag" content="benchmark comparison">
 <meta property="article:tag" content="NVIDIA RTX Spark">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="What the Ryzen AI Halo reviews didn't tell you — 572 tok/s possible">
-<meta name="twitter:description" content="11 tok/s stock vs 572 tok/s with 1bit.systems. The Ryzen AI Halo story no review covered. 52× faster. 15W. MIT.">
+<meta name="twitter:title" content="What the Ryzen AI Halo reviews didn't tell you — 291 tok/s possible">
+<meta name="twitter:description" content="11 tok/s stock vs 291 tok/s with 1bit.systems. The Ryzen AI Halo story no review covered. 26× more. 20W. MIT.">
 <meta name="twitter:image" content="https://1bit.systems/assets/brand-lockup.svg">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
 <style>
@@ -82,12 +82,12 @@
 {
   "@context":"https://schema.org",
   "@type":"Article",
-  "headline":"What the Ryzen AI Halo reviews didn't tell you — 572 tok/s on the same hardware",
-  "description":"AMD Ryzen AI Halo ships with a 50 TOPS NPU. AMD's FLM runtime gets 11 tok/s. 1bit.systems hits 572 tok/s — 52× faster. Full comparison of stock vs unlocked performance.",
+  "headline":"What the Ryzen AI Halo reviews didn't tell you — 291 tok/s on the same hardware",
+  "description":"AMD Ryzen AI Halo ships with a 50 TOPS NPU. AMD's FLM runtime gets 11 tok/s. 1bit.systems drives the same NPU at 291 tok/s (fused layer) — 26× more. Full comparison of stock vs unlocked performance.",
   "author":{"@type":"Person","name":"bong-water-water-bong"},
   "publisher":{"@type":"Organization","name":"1bit.systems","url":"https://1bit.systems","logo":{"@type":"ImageObject","url":"https://1bit.systems/assets/brand-lockup.svg"}},
   "datePublished":"2026-07-06T15:00:00-03:00",
-  "dateModified":"2026-07-06T16:52:29-03:00",
+  "dateModified":"2026-07-07T00:00:00-03:00",
   "image":"https://1bit.systems/assets/brand-lockup.svg",
   "mainEntityOfPage":{"@type":"WebPage","@id":"https://1bit.systems/blog/what-reviews-didnt-tell-you-ryzen-ai-halo"},
   "wordCount":1800,
@@ -101,14 +101,14 @@
 <article class="wrap">
 <div class="meta"><span class="tag amd">AMD</span> <span class="tag dspark">Strix Halo</span> <span class="tag g">Local AI</span><br><br><strong style="color:var(--text);">bong-water-water-bong</strong> · July 6, 2026 · 7 min read</div>
 <h1>What the Ryzen AI Halo reviews didn't tell you</h1>
-<p><strong>tl;dr:</strong> Today, every major tech outlet published their Ryzen AI Halo review. Phoronix, ServeTheHome, XDA, The Register, Level1Techs — all of them. They benchmarked AMD's official FLM NPU runtime at <strong>11 tok/s</strong>. They benchmarked ROCm on the GPU at <strong>41 tok/s</strong>. Not a single one mentioned that <strong>1bit.systems hits 572 tok/s on the exact same hardware</strong>. Here's the gap between what AMD shipped and what the chip can actually do.</p>
+<p><strong>tl;dr:</strong> Today, every major tech outlet published their Ryzen AI Halo review. Phoronix, ServeTheHome, XDA, The Register, Level1Techs — all of them. They benchmarked AMD's official FLM NPU runtime at <strong>11 tok/s</strong>. They benchmarked ROCm on the GPU at <strong>41 tok/s</strong>. Not a single one mentioned that <strong>1bit.systems drives the same NPU at 291 tok/s</strong> (fused layer) — 26× more. Here's the gap between what AMD shipped and what the chip can actually do. <em>(An earlier version of this post led with a projected 572 tok/s DSpark number; that projection was disproven by end-to-end measurement — see note below.)</em></p>
 <hr>
 
 <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:24px 0;">
 <div class="stat"><span class="num">11</span><span class="lbl">Stock NPU (FLM)</span></div>
 <div class="stat"><span class="num">41</span><span class="lbl">GPU ROCm (Qwen3 8B)</span></div>
 <div class="stat"><span class="num">90</span><span class="lbl">GPU Vulkan (MoE)</span></div>
-<div class="stat"><span class="num" style="color:var(--blue);">572</span><span class="lbl">1bit.systems DSpark</span></div>
+<div class="stat"><span class="num" style="color:var(--blue);">291</span><span class="lbl">1bit.systems fused NPU</span></div>
 </div>
 
 <h2>The reviews landed. Here's what they found.</h2>
@@ -125,21 +125,21 @@
 <tr><td>AMD FLM (stock)</td><td>11 tok/s</td><td>Proprietary, closed-source, 20W NPU</td></tr>
 <tr><td>ROCm (GPU, Qwen3 8B)</td><td>41 tok/s</td><td>Best prefill, but immature toolchain</td></tr>
 <tr><td>Vulkan (GPU, MoE)</td><td>90 tok/s</td><td>Fastest GPU path on MoE models</td></tr>
-<tr><td style="color:var(--blue);font-weight:800;">1bit fused layer (NPU)</td><td><strong>291 tok/s</strong></td><td>One xclbin per transformer layer</td></tr>
-<tr><td style="color:var(--blue);font-weight:800;">1bit DSpark (NPU+CPU)</td><td><strong>572 tok/s</strong></td><td>Speculative decode, lossless quality</td></tr>
+<tr><td style="color:var(--blue);font-weight:800;">1bit fused layer (NPU)</td><td><strong>291 tok/s</strong></td><td>One xclbin per transformer layer (raw throughput)</td></tr>
+<tr><td style="color:var(--dim);">1bit DSpark (NPU+CPU) — experimental</td><td>0.1–0.2 tok/s</td><td>Spec-decode; 0% acceptance today (572 was a projection, disproven)</td></tr>
 </table>
 <p>The NPU is not a 11 tok/s chip. It is a <strong>50 TOPS INT8 dataflow engine</strong> running at 291 tok/s when properly programmed. AMD's own runtime leaves 96% of the performance on the table.</p>
 
-<h2>How 1bit.systems gets 52× more than AMD's runtime</h2>
-<p>This isn't a theoretical architecture paper. The 1bit.systems engine is a <strong>three-engine fused stack</strong> shipping today as a 38 KB binary:</p>
+<h2>How 1bit.systems gets 26× more than AMD's runtime</h2>
+<p>This isn't a theoretical architecture paper. The 1bit.systems engine is a <strong>three-engine fused stack</strong> shipping today as a 401 KB binary:</p>
 
 <h3>Layer 1: The fused NPU engine (291 tok/s)</h3>
 <p>Instead of dispatching 6 separate xclbin calls per transformer layer (Q_proj, K_proj, V_proj, O_proj, Gate+Up, Down) — each carrying ~50 μs of ioctl overhead — the fused engine packs the entire layer into <strong>one xclbin dispatch</strong>. The NPU receives input activations, streams them through QKV projection, attention, output projection, gate+up, SiLU, and down projection, and returns the final output. No CPU attention. No BO syncs. No Python anywhere in the runtime path.</p>
 <p><em>Details: <a href="/blog/fused-layer-engine-one-xclbin-per-layer">The fused layer engine →</a></em></p>
 
-<h3>Layer 2: DSpark speculative decoding (572 tok/s)</h3>
-<p>The fused engine is fast, but the NPU still processes one token at a time. DSpark pairs a 5-layer draft model (running on the Zen 5 CPU) with the fused NPU target. The draft speculates 5-8 tokens ahead; the NPU verifies all of them in a single batch pass. Rejection sampling guarantees lossless quality — every token is identical to what the target model would have produced, just <strong>5.90× faster</strong>.</p>
-<p><em>Details: <a href="/blog/dspark-speculative-decoding-572-tok-per-second">DSpark speculative decoding →</a></em></p>
+<h3>Layer 2: DSpark speculative decoding (experimental — projection disproven)</h3>
+<p>The fused engine is fast, but the NPU still processes one token at a time. DSpark pairs a 5-layer draft model (running on the Zen 5 CPU) with the NPU target: the draft speculates 5-8 tokens ahead, the NPU verifies them in one batch pass. It was <em>projected</em> to reach 572 tok/s (5.90× — a figure measured with DeepSpec on Qwen3-4B, not the NPU). <strong>End-to-end measurement on the real NPU disproved it: 0.1–0.2 tok/s at 0% draft acceptance</strong>, because the draft was trained on a different hidden-state distribution than the INT8 NPU produces. It's a work in progress, not a shipping number.</p>
+<p><em>Details: <a href="/blog/dspark-speculative-decoding-572-tok-per-second">DSpark speculative decoding — the 572 projection, disproven →</a></em></p>
 
 <h3>Layer 3: Multi-backend GPU support</h3>
 <p>The same binary targets Vulkan (Linux default), CUDA (NVIDIA), ROCm (AMD HIP), and Metal (Apple Silicon). On the Radeon 8060S, the Vulkan backend delivers <strong>279 tok/s</strong> with 1-bit ternary kernels — competitive with much larger GPUs at a fraction of the power. The cross-platform design means the same 38 KB engine runs on Strix Halo, NVIDIA RTX Spark, and Apple Silicon Macs.</p>
@@ -152,16 +152,15 @@
 <tr><td>ROCm GPU (Qwen3 8B)</td><td>41</td><td>~50W</td><td>0.82</td></tr>
 <tr><td>Vulkan GPU (1-bit ternary)</td><td>279</td><td>~45W</td><td>6.20</td></tr>
 <tr><td style="color:var(--blue);font-weight:800;">1bit fused NPU</td><td><strong>291</strong></td><td><strong>20W</strong></td><td><strong>14.55</strong></td></tr>
-<tr><td style="color:var(--green);font-weight:800;">1bit DSpark</td><td><strong>572</strong></td><td><strong>15W</strong></td><td><strong>38.13</strong></td></tr>
 </table>
-<p><strong>38 tokens per Joule.</strong> That's not a typo. Speculative decoding with a tiny CPU draft model actually <em>lowers</em> the total power draw because the NPU finishes its work faster and returns to idle sooner.</p>
+<p><strong>14.5 tokens per Joule</strong> on the fused NPU — 26× the stock FLM runtime's 0.55. (An earlier version of this table listed a DSpark row at 38.13 tok/J; that was derived from the disproven 572 tok/s projection and has been removed — measured DSpark is 0.1–0.2 tok/s at 0% acceptance.)</p>
 
 <h2>What this means for the AMD vs NVIDIA fight</h2>
 <p>The RTX Spark (DGX Spark / GB10) is NVIDIA's $4,699 answer to the same question: unified memory AI on the desktop. It has a Grace ARM CPU + Blackwell GPU at 273 GB/s bandwidth, no NPU. The Ryzen AI Halo is $3,999 with a Strix Halo APU at 256 GB/s bandwidth, a 50 TOPS NPU, and x86 compatibility.</p>
 <p>With the stock software stack, the comparison is close enough that the answer depends on whether you prefer CUDA maturity or AMD's open-source approach. <strong>With 1bit.systems, it's not close.</strong></p>
 <table>
 <tr><th></th><th>RTX Spark (stock)</th><th>Ryzen AI Halo (stock)</th><th>Ryzen AI Halo (+1bit)</th></tr>
-<tr><td>Effective tok/s</td><td>~90 (GPU)</td><td>~43 (GPU + NPU)</td><td><strong>572</strong></td></tr>
+<tr><td>Effective tok/s</td><td>~90 (GPU)</td><td>~43 (GPU + NPU)</td><td><strong>291</strong> (NPU fused)</td></tr>
 <tr><td>Max model size</td><td>~200B @ Q4</td><td>~200B @ Q4</td><td>~200B @ Q4</td></tr>
 <tr><td>Power consumption</td><td>~60W</td><td>~50W</td><td><strong>15W</strong></td></tr>
 <tr><td>Price</td><td>$4,699</td><td>$3,999</td><td>$3,999 + free</td></tr>
@@ -179,7 +178,7 @@
 
 <h2>The part the reviews left out</h2>
 <p>Every Ryzen AI Halo review published today told the truth: AMD's unified memory is compelling, the software needs work, and NVIDIA's CUDA moat is still real. What they missed is that the software gap has already been filled — not by AMD, not by a startup with VC funding and a cloud dependency, but by a <strong>38 KB, MIT-licensed binary written by one person in 4 days</strong>.</p>
-<blockquote>The Ryzen AI Halo is $4,000 of excellent hardware. 1bit.systems is the 38 KB key that unlocks it. <strong>572 tok/s. 15W. MIT. No cloud.</strong> The reviews shipped this morning. The engine was ready last week.</blockquote>
+<blockquote>The Ryzen AI Halo is $4,000 of excellent hardware. 1bit.systems is the 401 KB key that unlocks it. <strong>291 tok/s on the NPU (26× AMD's stock runtime). 20W. MIT. No cloud.</strong> The reviews shipped this morning. The engine was ready last week.</blockquote>
 <p>Try it yourself:</p>
 <pre><span class="g">curl -sL https://1bit.systems/install.sh | bash</span>
 1bit serve &

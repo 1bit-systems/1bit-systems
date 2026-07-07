@@ -1,6 +1,6 @@
 > **I reverse-engineered AMD's proprietary NPU stack in 4 days.**
 > One person. A free Chess license. A C++ compiler. **401 KB (single binary).**
-> Today: a DSpark NPU+GPU+CPU inference engine at **572 tok/s** (5.90x spec-decode).
+> Today: a NPU+GPU+CPU inference engine at **291 tok/s** (fused NPU layer, Qwen3-0.6B).
 > No Python. No Docker. No vendor lock. Your hardware. [MIT licensed](LICENSE).
 
 <div align="center">
@@ -11,7 +11,7 @@
 401 KB single binary. All engines merged. Zero Python. Your hardware.
 
 [![279 tok/s ternary](https://img.shields.io/badge/279%20tok%2Fs-ternary-00ff00.svg)](docs/wiki/performance.md)
-[![572 tok/s DSpark spec-decode](https://img.shields.io/badge/291%20tok%2Fs-fused%20layer-12a0ed.svg)](docs/wiki/performance.md)
+[![291 tok/s fused layer](https://img.shields.io/badge/291%20tok%2Fs-fused%20layer-12a0ed.svg)](docs/wiki/performance.md)
 [![401 KB single binary](https://img.shields.io/badge/binary-401kb-00ff88.svg)](engine/npu/src/npu_engine_fused.cpp)
 [![Zero Python](https://img.shields.io/badge/deps-0-00ff00.svg)](docs/wiki/install.md)
 [![113 tok/s ROCm](https://img.shields.io/badge/113%20tok%2Fs-ROCm-ff0000.svg)](docs/wiki/performance.md)
@@ -53,8 +53,9 @@ video-lora generate --model stable-audio --prompt "rain on window"
 
 | Engine | Hardware | Speed | Model |
 |--------|----------|-------|-------|
-| **DSpark** (production) 🏆 | XDNA 2 · 32 tiles | **572 tok/s** | Qwen3-0.6B + 5-layer draft |
+| **NPU fused** (production) 🏆 | XDNA 2 · 32 tiles | **291 tok/s** | Qwen3-0.6B (fused layer) |
 | **NPU v12** (fallback) | XDNA 2 · 32 tiles | **97 tok/s** | Qwen3-0.6B (standalone) |
+| **DSpark spec-decode** ⚠️ experimental | XDNA 2 + Zen 5 | **0.1–0.2 tok/s** (0% accept) | Qwen3-0.6B + 5-layer draft — WIP, not working |
 | **GPU ZINC** (Vulkan ⭐) | Radeon 8060S | **22 tok/s** | Bonsai-1.7B |
 | **Ternary** (Vulkan) | Radeon 8060S | **279 tok/s** | Q2_0 |
 | **ROCm** (HIP) | Radeon 8060S | **113 tok/s** | Bonsai TQ2 |

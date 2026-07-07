@@ -1784,6 +1784,24 @@ measurement — the draft is still training and rides on the NPU base engine. La
 it as a projection until measured; it is not a validated production number the way
 94 tok/s (FLM) and 279 tok/s (GPU ternary) are.
 
+### Update 2026-07-07 — DSpark measured end-to-end; 572 projection disproven
+
+Ran the C++ DSpark path (`npu_spec_decode --spec-decode`) end-to-end on the real
+NPU with the Qwen3-0.6B INT8 target. First it segfaulted in the XRT command-buffer
+teardown; root-caused to two bugs in `spec-decode/engine/npu_target_model.h`'s
+`I8Ctx` vs the proven `npu_engine_v12.cpp` dispatch — `go()` never set DPU kernel
+arg 2 (the instruction word count), and BOs used raw bank indices instead of
+`k->group_id(...)`. Fixed both (commit `90595d85a`); generation now runs.
+
+**Measured: 0.1–0.2 tok/s at 0% draft acceptance.** The draft, trained on
+HuggingFace FP hidden states, is rejected 100% of the time against the INT8 NPU
+target's feature distribution — exactly the risk flagged in spec-decode/STATUS.md.
+So speculation adds nothing, and the target forward itself (scalar-CPU attention +
+CPU lm_head, 4 xclbin launches/layer) runs far below the 97 tok/s v12 baseline. The
+"572 tok/s" projection (97 × 5.9) is **disproven** — both factors are false on this
+hardware. DSpark is experimental, not production. It still aborts at teardown and
+wedges the NPU per run (needs a device reset between runs).
+
 ### Honest status at session end
 
 - ✅ **NPU production (FLM proxy): 94 tok/s, coherent** — validated live.
@@ -1791,8 +1809,9 @@ it as a projection until measured; it is not a validated production number the w
 - ✅ **NPU INT8 GEMM kernel: root-caused and fixed** (bit-exact via AMD's generator).
 - ✅ **Q4NX + Q2_0 fully decoded**; GGUF→NPU pipeline architecture-agnostic.
 - ⚠️ C++ NPU `npu_engine_cb` and the ZINC-native Q2_0 path build/run *fast* but are
-  **not yet coherent**. "97 tok/s v12", "291 tok/s fused", and "572 tok/s DSpark"
-  are raw-throughput / projected figures on paths whose output was never validated
-  coherent — qualify them, don't market them as production alongside the two numbers
-  that are.
+  **not yet coherent**. "97 tok/s v12" and "291 tok/s fused" are raw-throughput
+  figures on paths whose output was never validated coherent. "572 tok/s DSpark" was
+  a projection, now **disproven** by end-to-end measurement (0.1–0.2 tok/s, 0%
+  acceptance — see 2026-07-07 update above). Qualify them; don't market them as
+  production alongside the two numbers that are.
 - ❌ `engine/fusion/main.zig` still prints a dispatch table and runs no inference.

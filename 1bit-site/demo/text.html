@@ -26,13 +26,13 @@ h1{font-size:2rem;font-weight:800;color:#00ff88;margin-bottom:8px}
 <div class="wrap">
 <a href="index.html" class="back">← Back to Demos</a>
 <h1>NPU Text Generation</h1>
-<p style="color:#888;margin-bottom:30px">DSpark: <strong style="color:#00ff88;font-size:1.4rem">572 tok/s</strong> · 5.90x over baseline · Eagle3: 310 tok/s · NPU: 97 tok/s</p>
+<p style="color:#888;margin-bottom:30px">NPU fused: <strong style="color:#00ff88;font-size:1.4rem">291 tok/s</strong> (raw) · 94 tok/s validated (FLM) · v12: 97 tok/s</p>
 
 <div class="section">
   <h2>Live Inference — Qwen3-0.6B on NPU</h2>
   <div class="code">
-<span class="meta"># DSpark spec-decode: 572 tok/s | Eagle3: 310 tok/s | NPU baseline: 97 tok/s</span>
-<span class="meta"># Model: qwen3:0.6b | Device: npu | Engine: DSpark 5.90x</span>
+<span class="meta"># NPU fused: 291 tok/s (raw) | FLM (validated): 94 tok/s | v12: 97 tok/s</span>
+<span class="meta"># Model: qwen3:0.6b | Device: npu | Engine: fused NPU layer</span>
 <span class="meta"># Engine: Fused NPU layer (one xclbin/layer) | Binary: 38 KB</span>
 <span class="meta"># Fallback: FLM proxy (AMD proprietary runtime)</span>
 
@@ -66,14 +66,14 @@ def quick_sort(arr):
 
 <div class="section">
   
-  <h2>Speculative Decoding — DSpark</h2>
+  <h2>Speculative Decoding — DSpark (experimental)</h2>
   <div class="code">
-<span class="meta"># DSpark: 5.90x speedup over baseline (measured via DeepSpec)</span>
-<span class="meta"># Eagle3: 3.2x | DSpark: 5.90x | Gain: +75% (paper claimed +66%)</span>
+<span class="meta"># DSpark 5.90x was measured via DeepSpec on Qwen3-4B (CPU/GPU) — NOT the NPU</span>
+<span class="meta"># Measured end-to-end on NPU (2026-07-07): 0.1-0.2 tok/s at 0% draft acceptance</span>
 
-<span class="tag npu" style="background:#003322">Eagle3</span>  Qwen3-0.6B + 1-layer draft    → ~310 tok/s
-<span class="tag" style="background:#003322;color:#00ff88;border:1px solid #00ff88">DSpark</span> Qwen3-0.6B + 5-layer Markov  → <strong>~572 tok/s</strong> 🏆
-<span class="tag" style="background:#002233;color:#00ccff;border:1px solid #00ccff">Fused+DSpark</span>  608 raw x 5.90x          → <strong>~3,400 tok/s</strong> (MLIR fix pending)
+<span class="tag npu" style="background:#003322">Eagle3</span>  Qwen3-0.6B + 1-layer draft    → 0% accept on NPU
+<span class="tag" style="background:#331100;color:#ff6666;border:1px solid #ff6666">DSpark</span> Qwen3-0.6B + 5-layer Markov  → <strong>0.1–0.2 tok/s measured</strong> (572 projection disproven)
+<span class="tag" style="background:#002233;color:#00ccff;border:1px solid #00ccff">NPU fused</span>  raw kernel throughput           → <strong>~291 tok/s</strong> (output not yet coherent)
   </div>
   
   <div class="section">

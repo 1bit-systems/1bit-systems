@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DSpark speculative decoding — 572 tok/s with a 5-layer draft model · 1bit.systems</title>
-<meta name="description" content="How DSpark speculative decoding achieves 572 tok/s on AMD Strix Halo by pairing a 5-layer draft model with the fused NPU target engine — a 5.90× speedup over baseline decode. MIT licensed. 38 KB binary.">
+<title>DSpark speculative decoding — the 572 tok/s projection, disproven · 1bit.systems</title>
+<meta name="description" content="DSpark speculative decoding was projected to hit 572 tok/s on AMD Strix Halo. End-to-end measurement on the NPU disproved it: 0.1–0.2 tok/s at 0% draft acceptance. How and why, and what it would take to fix. MIT licensed.">
 <meta name="keywords" content="speculative decoding, DSpark, MTP, multi-token prediction, Eagle3, NPU inference, AMD XDNA 2, Strix Halo, 5-layer draft model, rejection sampling, lossless inference, C++ NPU speculation">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="https://1bit.systems/blog/dspark-speculative-decoding-572-tok-per-second">
-<meta property="og:title" content="DSpark speculative decoding — 572 tok/s with a 5-layer draft model">
-<meta property="og:description" content="5.90× speedup. 572 tok/s. A 5-layer transformer draft on CPU speculates against the fused NPU target at 15W. Lossless quality via rejection sampling. MIT open source.">
+<meta property="og:title" content="DSpark speculative decoding — the 572 tok/s projection, disproven">
+<meta property="og:description" content="Projected 572 tok/s (5.90×); measured end-to-end on the NPU it is 0.1–0.2 tok/s at 0% acceptance. The 5.90× was a DeepSpec/Qwen3-4B result that doesn't transfer to the INT8 NPU target. MIT open source.">
 <meta property="og:url" content="https://1bit.systems/blog/dspark-speculative-decoding-572-tok-per-second">
 <meta property="og:type" content="article">
 <meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
@@ -17,7 +17,7 @@
 <meta property="og:image:height" content="60">
 <meta property="og:locale" content="en_US">
 <meta property="article:published_time" content="2026-07-06T16:51:15-03:00">
-<meta property="article:modified_time" content="2026-07-06T16:52:29-03:00">
+<meta property="article:modified_time" content="2026-07-07T00:00:00-03:00">
 <meta property="article:author" content="bong-water-water-bong">
 <meta property="article:section" content="Engineering">
 <meta property="article:tag" content="speculative decoding">
@@ -26,8 +26,8 @@
 <meta property="article:tag" content="AMD Strix Halo">
 <meta property="article:tag" content="C++">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="DSpark speculative decoding — 572 tok/s on AMD Strix Halo">
-<meta name="twitter:description" content="5.90× speedup. 572 tok/s. 5-layer draft model + fused NPU target. MIT.">
+<meta name="twitter:title" content="DSpark speculative decoding — the 572 tok/s projection, disproven">
+<meta name="twitter:description" content="Projected 572 tok/s; measured 0.1–0.2 tok/s at 0% acceptance on the NPU. 5-layer draft + NPU target. MIT.">
 <meta name="twitter:image" content="https://1bit.systems/assets/brand-lockup.svg">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
 <style>
@@ -77,12 +77,12 @@
 {
   "@context":"https://schema.org",
   "@type":"Article",
-  "headline":"DSpark speculative decoding — 572 tok/s with a 5-layer draft model",
-  "description":"5.90× speedup. 572 tok/s. A 5-layer transformer draft on CPU speculates against the fused NPU target at 15W. Lossless quality via rejection sampling.",
+  "headline":"DSpark speculative decoding — the 572 tok/s projection, disproven",
+  "description":"DSpark was projected to reach 572 tok/s (5.90×); end-to-end measurement on the NPU disproved it at 0.1–0.2 tok/s and 0% draft acceptance. The 5.90× was a DeepSpec/Qwen3-4B result that does not transfer to the INT8 NPU target.",
   "author":{"@type":"Person","name":"bong-water-water-bong"},
   "publisher":{"@type":"Organization","name":"1bit.systems","url":"https://1bit.systems","logo":{"@type":"ImageObject","url":"https://1bit.systems/assets/brand-lockup.svg"}},
   "datePublished":"2026-07-06T16:51:15-03:00",
-  "dateModified":"2026-07-06T16:52:29-03:00",
+  "dateModified":"2026-07-07T00:00:00-03:00",
   "image":"https://1bit.systems/assets/brand-lockup.svg",
   "mainEntityOfPage":{"@type":"WebPage","@id":"https://1bit.systems/blog/dspark-speculative-decoding-572-tok-per-second"},
   "wordCount":1300,
@@ -96,7 +96,8 @@
 <article class="wrap">
 <div class="meta"><span class="tag dspark">DSpark</span> <span class="tag npu">NPU</span> <span class="tag g">Speculative Decoding</span><br><br><strong style="color:var(--text);">bong-water-water-bong</strong> · July 6, 2026 · 6 min read</div>
 <h1>DSpark speculative decoding — 572 tok/s with a 5-layer draft model</h1>
-<p><strong>tl;dr:</strong> DSpark is a C++ speculative decoding engine that pairs a tiny <strong>5-layer transformer draft model</strong> (running on CPU) with the fused NPU target engine. The draft speculates 5-8 tokens ahead, the NPU verifies them in a single batch pass. Result: <strong>572 tok/s</strong> — a <strong>5.90× speedup</strong> over baseline NPU decode — at just <strong>15W</strong>.</p>
+<blockquote style="border-left-color:var(--pink);background:#33110022;"><strong>⚠️ Correction (2026-07-07):</strong> the "572 tok/s" in this post was a <strong>projection</strong> (base engine × a 5.90× acceptance figure measured with DeepSpec on <em>Qwen3-4B, CPU/GPU</em> — not the NPU). When the C++ DSpark path was finally run end-to-end on the real NPU with the Qwen3-0.6B INT8 target, it measured <strong>0.1–0.2 tok/s at 0% draft acceptance</strong>: the draft, trained on HuggingFace hidden states, is rejected 100% of the time against the INT8 target's feature distribution, so speculation yields no gain. The projection is <strong>disproven</strong>; DSpark is experimental, not production. The architecture description below is kept for reference. See the <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/performance.md">performance SSOT</a>.</blockquote>
+<p><strong>tl;dr:</strong> DSpark is a C++ speculative decoding engine that pairs a tiny <strong>5-layer transformer draft model</strong> (running on CPU) with the NPU target engine. The draft speculates 5-8 tokens ahead, the NPU verifies them in a single batch pass. It was <em>projected</em> to reach 572 tok/s (5.90× over baseline); <strong>end-to-end measurement disproved this — 0.1–0.2 tok/s at 0% acceptance</strong> (see correction above). The idea is sound; the current draft needs retraining on NPU-generated INT8 hidden states.</p>
 <hr>
 <h2>The problem: the NPU is idle while the CPU waits</h2>
 <p>The fused layer engine reaches 291 tok/s (3.4 ms/tok) — already the fastest NPU inference on Strix Halo by a wide margin. But the NPU operates as a synchronous co-processor: submit work, wait for completion, read results, submit next. During that wait, the NPU is busy but the CPU is idle, and during the CPU's token sampling and scheduling, the NPU is idle.</p>
@@ -145,21 +146,21 @@ With DSpark speculative decoding:
 <p>The magic is that the target NPU dispatch processes <strong>all N speculative tokens in a single batch</strong>. With M=32 batch decode, the overhead of verifying 5 draft tokens is barely more than verifying 1. At ~80% acceptance rate, the effective throughput approaches 5× the baseline.</p>
 <h2>The numbers: DSpark vs baseline</h2>
 <table>
-<tr><th>Metric</th><th>Baseline (fused layer)</th><th>DSpark spec-decode</th><th>Gain</th></tr>
-<tr><td>Throughput</td><td>97 tok/s (v12)</td><td><strong>572 tok/s</strong></td><td><strong>5.90×</strong></td></tr>
-<tr><td>Power</td><td>20W (NPU only)</td><td>15W (NPU + CPU draft)</td><td><strong>-25%</strong></td></tr>
-<tr><td>Acceptance rate</td><td>—</td><td>~80%</td><td>—</td></tr>
+<tr><th>Metric</th><th>Baseline (fused layer)</th><th>DSpark (projected → measured)</th><th>Result</th></tr>
+<tr><td>Throughput</td><td>97 tok/s (v12)</td><td>projected <strong>572</strong> → <strong>measured 0.1–0.2 tok/s</strong></td><td><strong>disproven</strong></td></tr>
+<tr><td>Power</td><td>20W (NPU only)</td><td>15W (NPU + CPU draft)</td><td>—</td></tr>
+<tr><td>Acceptance rate</td><td>—</td><td>projected ~80% → <strong>measured 0%</strong></td><td><strong>disproven</strong></td></tr>
 <tr><td>Speculative tokens</td><td>1</td><td>5-8</td><td><strong>5-8×</strong></td></tr>
 <tr><td>Output quality</td><td>Baseline</td><td>Lossless (rejection sampling)</td><td>Identical</td></tr>
 <tr><td>Binary size</td><td>38 KB (target only)</td><td>246 KB (spec-decode, 180 KB stripped)</td><td>Still tiny</td></tr>
 </table>
-<h2>Why 572 tok/s is different from 291 tok/s</h2>
-<p>The fused layer engine's 291 tok/s is <strong>single-token decode latency</strong> — how fast one token position moves through the NPU. DSpark's 572 tok/s is <strong>effective throughput</strong> — how many tokens per second the user actually sees. The distinction matters because:</p>
+<h2>The theory behind the 572 projection (why it didn't hold)</h2>
+<p>The fused layer engine's 291 tok/s is <strong>single-token decode latency</strong>. The 572 tok/s projection assumed DSpark would turn that into <strong>effective throughput</strong> — many tokens per verify — via a high acceptance rate. The theory:</p>
 <ul>
 <li><strong>291 tok/s</strong> = one fused dispatch generates one token. The NPU does everything but the CPU has nothing to overlap.</li>
-<li><strong>572 tok/s</strong> = the draft model speculates ahead while the NPU verifies in bulk. The NPU still takes 3.4 ms per verification pass, but each pass now covers 5-8 tokens.</li>
+<li><strong>Projected 572 tok/s</strong> = the draft speculates ahead while the NPU verifies in bulk, ~5.9 accepted tokens per verify.</li>
 </ul>
-<p>It's the same NPU, same power budget, same chip. The gain comes entirely from architecture: <strong>predict more, verify less, batch the verification.</strong></p>
+<p>That only works if the target <em>accepts</em> the draft's guesses. On the real NPU, acceptance is <strong>0%</strong> — the draft was trained on a different (HuggingFace FP) hidden-state distribution than the INT8 NPU produces, so every guess is rejected and the pipeline degenerates to slower-than-baseline decode. Same chip, sound idea, wrong draft.</p>
 <h2>How DSpark compares to Eagle3</h2>
 <p>The DSpark engine started as an Eagle3 implementation (3-layer draft) and evolved into its own C++ implementation (5-layer + Markov head + confidence head):</p>
 <table>
@@ -168,13 +169,13 @@ With DSpark speculative decoding:
 <tr><td>Training</td><td>10K prompts, self-play</td><td>10K prompts, self-play</td></tr>
 <tr><td>Weight format</td><td>Python safetensors</td><td>Flat binary (C++ native)</td></tr>
 <tr><td>Target interface</td><td>Python</td><td>C++ NPU (XRT xclbin)</td></tr>
-<tr><td>Speedup (projected)</td><td>1.5-2.5×</td><td><strong>5.90×</strong></td></tr>
-<tr><td>Status</td><td>Archived</td><td><strong>5.90x acceptance measured; 572 tok/s projected</strong></td></tr>
+<tr><td>Speedup (DeepSpec, Qwen3-4B)</td><td>1.5-2.5×</td><td>5.90× (not on NPU)</td></tr>
+<tr><td>Status</td><td>Archived</td><td><strong>Experimental — 0% acceptance on NPU, 572 disproven</strong></td></tr>
 </table>
-<p>The shift from Eagle3's projected 1.5-2.5× to DSpark's realized 5.90× came from two insights: the fused layer engine's batch decode (allowing efficient multi-token verification) and the C++ implementation (eliminating Python dispatch overhead from the speculate loop).</p>
-<h2>What 572 tok/s feels like</h2>
-<p>At 572 tok/s, inference stops feeling like "AI" and starts feeling like <strong>autocomplete</strong>. A 500-token response appears in under a second. Streaming is visually instant — tokens arrive faster than the eye can read them.</p>
-<blockquote><strong>572 tok/s. 15W. One NPU. One CPU core for the draft. Lossless quality.</strong> This is what local inference looks like when you stop treating the NPU as a discrete device and start treating it as a co-processor for a speculative pipeline.</blockquote>
+<p>The 5.90× came from the DeepSpec eval on Qwen3-4B (CPU/GPU). It does <strong>not</strong> transfer to the INT8 NPU 0.6B target: the draft was trained on HuggingFace FP hidden states, and the NPU's INT8 quantization produces a different feature distribution, so acceptance collapses to 0%.</p>
+<h2>What it would take to actually reach a high number</h2>
+<p>The architecture is sound — the reason it fails today is the draft/target mismatch, not the pipeline. To move throughput off 0.1–0.2 tok/s the draft must be <strong>retrained on NPU-generated INT8 hidden states</strong> (not HF FP), and the target forward must use the fast fused xclbin rather than the current scalar-CPU attention + CPU lm_head path.</p>
+<blockquote><strong>Measured reality: 0.1–0.2 tok/s at 0% acceptance.</strong> The 572 tok/s figure was a projection that end-to-end measurement disproved. Honest status lives in the <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/performance.md">performance SSOT</a>.</blockquote>
 <hr>
 <p style="font-size:14px;color:var(--dim);"><em>This post is part of the July 2026 engine series. Previous: <a href="/blog/fused-layer-engine-one-xclbin-per-layer">The fused layer engine →</a></em></p>
 <h3>Links</h3>

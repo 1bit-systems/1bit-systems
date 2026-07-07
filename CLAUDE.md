@@ -1,6 +1,7 @@
 # CLAUDE.md — 1bit.systems
 
-**572 tok/s DSpark spec-decode (production) · 291 tok/s NPU fused (production) · 97 tok/s NPU v12 (fallback) · 94 tok/s NPU FLM (fallback) · 113 tok/s ROCm · 28 tok/s C++ all-5 · 22 tok/s GPU · 279 tok/s ternary · 401 KB single binary · 15W. On a consumer laptop.**
+**291 tok/s NPU fused (production) · 97 tok/s NPU v12 (fallback) · 94 tok/s NPU FLM (fallback) · 113 tok/s ROCm · 28 tok/s C++ all-5 · 22 tok/s GPU · 279 tok/s ternary · 401 KB single binary · 15W. On a consumer laptop.**
+**⚠️ DSpark spec-decode is EXPERIMENTAL, not production.** End-to-end on the NPU (measured 2026-07-07) it runs at **0.1–0.2 tok/s with 0% draft acceptance** — the "572 tok/s" figure was a projection (97 × 5.9) and is now **disproven** on hardware. The draft needs retraining on NPU-generated INT8 hidden states before speculation yields any gain.
 Contact: admin@1bit.systems
 
 **73+ models across 6 backends · 22 multi-modal (video, image, audio) · 55.7 TFLOPS INT8 GEMM · 72× speedup (244→3.4 ms/tok)**

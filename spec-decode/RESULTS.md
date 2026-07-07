@@ -1,10 +1,39 @@
 # Speculative Decoding Results — 1bit.systems NPU
 
+## ⚠️ Measured on real NPU hardware (2026-07-07)
+
+The numbers below in the "Architecture Comparison" section come from the **DeepSpec
+framework on Qwen3-4B (CPU/GPU)** — they are *not* the NPU. When the C++ DSpark path
+(`npu_spec_decode --spec-decode`) is actually run end-to-end on the XDNA2 NPU with the
+Qwen3-0.6B INT8 target, the measured result is:
+
+| Metric | Value |
+|--------|------:|
+| Throughput | **0.1–0.2 tok/s** |
+| Draft acceptance | **0%** |
+| Effective speedup | **~1.0x** (no real gain — bonus token only) |
+| Stability | completes generation, then **crashes at teardown**; wedges the NPU per run |
+
+**Conclusion:** the previously-claimed **"572 tok/s, production"** was a projection
+(`97 tok/s v12 × 5.90x`), and **both factors are false on this hardware** — the C++
+DSpark target path runs far below the 97 tok/s v12 baseline (unoptimized scalar-CPU
+attention + CPU lm_head, 4 xclbin launches/layer), and acceptance is 0%, not 88%.
+This path is **not production** — it is a work-in-progress that needs (1) a draft
+retrained on NPU-generated INT8 hidden states to get acceptance off zero, and (2) a
+fast fused-xclbin target forward. See [`STATUS.md`](STATUS.md).
+
 ## Executive Summary
 
-We implemented and benchmarked speculative decoding for the 1bit NPU inference stack (XDNA2, Qwen3-0.6B, 94 tok/s baseline). Three architectures were evaluated: Eagle3 (on NPU), and DSpark/DFlash (via DeepSpec framework on CPU for comparison).
+We implemented speculative decoding for the 1bit NPU inference stack (XDNA2,
+Qwen3-0.6B, 94 tok/s baseline). Three architectures were evaluated: Eagle3 (on NPU),
+and DSpark/DFlash (via the DeepSpec framework on **Qwen3-4B, CPU/GPU** — for comparison,
+not on the NPU).
 
-**Key finding:** DSpark achieves **5.90x speedup** (75% higher efficiency than Eagle3's 3.2x), but requires 5 draft layers (1.4B params) vs Eagle3's 1 layer (336M params). Our Eagle3 draft was trained on 200 cached examples but used HuggingFace hidden states — the NPU's INT8 quantization produces different feature distributions, resulting in 0% acceptance on real hardware.
+**Key finding (DeepSpec / Qwen3-4B, not NPU):** DSpark achieves **5.90x speedup** in the
+DeepSpec eval, but requires 5 draft layers (1.4B params) vs Eagle3's 1 layer (336M params).
+On the **real NPU**, both our Eagle3 and DSpark drafts were trained on HuggingFace hidden
+states — the NPU's INT8 quantization produces different feature distributions, resulting in
+**0% acceptance on real hardware** (see measured section above).
 
 ---
 
@@ -48,11 +77,16 @@ Results table:
 
 ---
 
-## ✅ Completed Milestones
+## Milestones
 
-1. ✅ **Fused xclbin fixed** — Integrated via fused layer engine (291 tok/s, production)
-2. ✅ **DSpark ported to C++** — Full 5-layer draft + Markov head + confidence head in C++ (572 tok/s, production)
-3. ✅ **NPU-compatible training cache** — DSpark trained on target model self-play (10K prompts)
+1. ✅ **Fused xclbin** — Integrated via fused layer engine (291 tok/s, production)
+2. ✅ **DSpark ported to C++** — Full 5-layer draft + Markov head + confidence head in C++.
+   Segfault in the NPU target dispatch fixed 2026-07-07 (missing DPU arg 2 + BO memory
+   groups). ⚠️ **Not production**: runs end-to-end but measures **0.1–0.2 tok/s at 0%
+   acceptance** on the real NPU (see measured section at top). The "572 tok/s" figure was
+   a projection, never measured.
+3. 🔄 **NPU-compatible training** — draft must be retrained on NPU-generated INT8 hidden
+   states; current checkpoint (HF hidden states) yields 0% acceptance on hardware.
 
 ## Next Steps
 
