@@ -142,7 +142,7 @@
 <p><em>Details: <a href="/blog/dspark-speculative-decoding-572-tok-per-second">DSpark speculative decoding — the 572 projection, disproven →</a></em></p>
 
 <h3>Layer 3: Multi-backend GPU support</h3>
-<p>The same binary targets Vulkan (Linux default), CUDA (NVIDIA), ROCm (AMD HIP), and Metal (Apple Silicon). On the Radeon 8060S, the Vulkan backend delivers <strong>279 tok/s</strong> with 1-bit ternary kernels — competitive with much larger GPUs at a fraction of the power. The cross-platform design means the same 38 KB engine runs on Strix Halo, NVIDIA RTX Spark, and Apple Silicon Macs.</p>
+<p>The same binary targets Vulkan (Linux default), CUDA (NVIDIA), ROCm (AMD HIP), and Metal (Apple Silicon). On the Radeon 8060S, the Vulkan backend delivers <strong>279 tok/s</strong> with 1-bit ternary kernels — competitive with much larger GPUs at a fraction of the power. The cross-platform design means the same 30 KB engine runs on Strix Halo, NVIDIA RTX Spark, and Apple Silicon Macs.</p>
 
 <h2>The NPU vs GPU efficiency story</h2>
 <p>The XDA review reported 0.53 tokens per Joule on the stock NPU and 0.8-1.1 tokens per Joule on the GPU. Those numbers flip with the 1bit engine because the <strong>NPU is doing real work instead of polling ioctl timeouts</strong>:</p>
@@ -165,7 +165,7 @@
 <tr><td>Power consumption</td><td>~60W</td><td>~50W</td><td><strong>15W</strong></td></tr>
 <tr><td>Price</td><td>$4,699</td><td>$3,999</td><td>$3,999 + free</td></tr>
 <tr><td>License</td><td>Proprietary</td><td>Proprietary</td><td><strong>MIT</strong></td></tr>
-<tr><td>Binary size</td><td>—</td><td>—</td><td><strong>38 KB</strong></td></tr>
+<tr><td>Binary size</td><td>—</td><td>—</td><td><strong>30 KB</strong></td></tr>
 </table>
 
 <h2>One binary. Every platform.</h2>
@@ -177,7 +177,7 @@
 <p>Eight package formats: <code>deb</code>, <code>snap</code>, <code>docker</code>, <code>AUR</code>, <code>homebrew</code>, <code>ollama</code>, <code>AppImage</code>, static binary. OpenAI-compatible API at <code>localhost:8081/v1/chat/completions</code>. The engine auto-detects NPU → GPU → CPU and picks the fastest available path.</p>
 
 <h2>The part the reviews left out</h2>
-<p>Every Ryzen AI Halo review published today told the truth: AMD's unified memory is compelling, the software needs work, and NVIDIA's CUDA moat is still real. What they missed is that the software gap has already been filled — not by AMD, not by a startup with VC funding and a cloud dependency, but by a <strong>38 KB, MIT-licensed binary written by one person in 4 days</strong>.</p>
+<p>Every Ryzen AI Halo review published today told the truth: AMD's unified memory is compelling, the software needs work, and NVIDIA's CUDA moat is still real. What they missed is that the software gap has already been filled — not by AMD, not by a startup with VC funding and a cloud dependency, but by a <strong>30 KB, MIT-licensed binary written by one person in 4 days</strong>.</p>
 <blockquote>The Ryzen AI Halo is $4,000 of excellent hardware. 1bit.systems is the 401 KB key that unlocks it. <strong>291 tok/s on the NPU (26× AMD's stock runtime). 20W. MIT. No cloud.</strong> The reviews shipped this morning. The engine was ready last week.</blockquote>
 <p>Try it yourself:</p>
 <pre><span class="g">curl -sL https://1bit.systems/install.sh | bash</span>

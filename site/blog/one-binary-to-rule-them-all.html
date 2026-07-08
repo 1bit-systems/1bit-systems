@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>One binary to rule them all — 5 model families, auto-detect · 1bit.systems</title>
-<meta name="description" content="How a single 38KB C++ binary auto-detects 73+ models across 6 backends — NPU, ROCm, Vulkan, CUDA, Metal, CPU — from one Q4NX header parse.">
+<meta name="description" content="How a single 30KB C++ binary auto-detects 73+ models across 6 backends — NPU, ROCm, Vulkan, CUDA, Metal, CPU — from one Q4NX header parse.">
 <meta name="keywords" content="multi-model inference, GGUF, Q4NX, auto-detect, universal engine, AMD NPU, ROCm, Vulkan">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="https://1bit.systems/blog/one-binary-to-rule-them-all">
 <meta property="og:title" content="One binary to rule them all — 5 model families, auto-detect">
-<meta property="og:description" content="A single 38KB binary auto-detects 73+ models across 6 backends. No config files. No model registry.">
+<meta property="og:description" content="A single 30KB binary auto-detects 73+ models across 6 backends. No config files. No model registry.">
 <meta property="og:url" content="https://1bit.systems/blog/one-binary-to-rule-them-all">
 <meta property="og:type" content="article">
 <meta name="twitter:card" content="summary_large_image">
@@ -48,7 +48,7 @@
 <article class="wrap">
 <div class="meta"><span class="tag npu">NPU</span> <span class="tag g">Architecture</span> <span class="tag b">Multi-Platform</span><br><br><strong style="color:var(--text);">bong-water-water-bong</strong> · July 6, 2026 · 5 min read</div>
 <h1>One binary to rule them all — 5 model families, auto-detect</h1>
-<p><strong>tl;dr:</strong> A single 38KB binary reads the Q4NX header of any supported model, auto-detects architecture dimensions, and dispatches to the right backend. <strong>Zero config files.</strong></p>
+<p><strong>tl;dr:</strong> A single 30KB binary reads the Q4NX header of any supported model, auto-detects architecture dimensions, and dispatches to the right backend. <strong>Zero config files.</strong></p>
 <hr>
 <h2>The model explosion problem</h2>
 <p>73+ models across 6 backends. The naive approach: 73 config files. One per model. Each a maintenance nightmare.</p>
@@ -77,7 +77,7 @@
 </table>
 <h2>The one-line fix that unlocked 5 models</h2>
 <p><code>dequant_i8_to_float_ex</code> had <code>in_features</code> hardcoded to 1024 — only Qwen3-0.6B worked. Fixing it to read H, NH×HD, and IM per-projection from the header: <strong>one line. Five new models.</strong></p>
-<blockquote><strong>73+ models. 6 backends. One 38KB binary.</strong> The header knows what it is. The binary figures out the rest.</blockquote>
+<blockquote><strong>73+ models. 6 backends. One 30KB binary.</strong> The header knows what it is. The binary figures out the rest.</blockquote>
 <hr>
 <p style="font-size:14px;color:var(--dim);"><em>Post 5 of the series. <a href="/blog/three-bugs-broke-97-tok-per-second">Previous: Three bugs saga →</a></em></p>
 <h3>Links</h3>

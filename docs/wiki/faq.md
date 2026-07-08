@@ -1,6 +1,6 @@
 # FAQ
 
-**What is it?** — Fused NPU+GPU+CPU inference. 291 tok/s. 38 KB. Zero Python.
+**What is it?** — Fused NPU+GPU+CPU inference. 291 tok/s. 30 KB. Zero Python.
 
 **Do I need Strix Halo?** — NPU needs XDNA 2. GPU (Vulkan) runs anywhere.
 

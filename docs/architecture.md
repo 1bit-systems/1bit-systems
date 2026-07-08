@@ -200,7 +200,7 @@ The project runs **three inference backends** — only one is truly open-source:
                      (fused xclbin, one call/layer)
 ```
 - All code was in `engine/npu/src/npu_engine_fused.cpp` (retired, see notice above)
-- 291 tok/s on Qwen3-0.6B (3.4 ms/tok), 38 KB binary
+- 291 tok/s on Qwen3-0.6B (3.4 ms/tok), 30 KB binary
 - One xclbin call per transformer layer (QKV→attention→O→GU→SiLU→D on NPU)
 - No CPU attention — entire layer runs on NPU
 - **Raw throughput only — output was never coherent** (per `docs/wiki/performance.md`)
@@ -390,7 +390,7 @@ Each version is preserved in `/src/` as individual `.cpp` files — the evolutio
 | C++ ALL (5 models) | **28 tok/s** (36 ms/tok) |
 | NPU raw GEMM | **55.7 TFLOPS** (INT8, XDNA 2) |
 | Dispatch overhead | 1,334 µs per kernel call |
-| Binary size | **38 KB** |
+| Binary size | **30 KB** |
 | Models supported | 5 (Qwen3-0.6B/8B, Qwen3-VL-4B, Llama-3.1-8B, Gemma4-E2B) |
 | Batch size | M=32 (M=1–128 configurable) |
 

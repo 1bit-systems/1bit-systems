@@ -10,7 +10,7 @@
 **Generate video. Create images. Synthesize audio. Run LLMs.**  
 Zero Python. Your hardware.
 
-[![307 tok/s ternary](https://img.shields.io/badge/307%20tok%2Fs-ternary-00ff00.svg)](docs/wiki/performance.md)
+[![279 tok/s ternary](https://img.shields.io/badge/279%20tok%2Fs-ternary-00ff00.svg)](docs/wiki/performance.md)
 [![291 tok/s fused layer (raw)](https://img.shields.io/badge/291%20tok%2Fs-fused%20layer%20raw-12a0ed.svg)](docs/wiki/performance.md)
 [![94 tok/s NPU FLM](https://img.shields.io/badge/94%20tok%2Fs-NPU%20FLM-00ff88.svg)](docs/wiki/performance.md)
 [![Zero Python](https://img.shields.io/badge/deps-0-00ff00.svg)](docs/wiki/install.md)
@@ -69,7 +69,7 @@ Only ✅ numbers are production. See [docs/wiki/performance.md](docs/wiki/perfor
 ## The Unlock
 
 AMD shipped Strix Halo with a 50 TOPS NPU but locked INT8 behind proprietary runtimes.
-**4 days. 307 tok/s ternary (GPU, validated). 94 tok/s NPU (FLM, coherent). Open source.**
+**4 days. 279 tok/s ternary (GPU, validated). 94 tok/s NPU (FLM, coherent). Open source.**
 The silicon was never the bottleneck. The business model was.
 
 ## Architecture

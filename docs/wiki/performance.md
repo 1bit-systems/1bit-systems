@@ -102,7 +102,7 @@ Single binary. Auto-detect. No proprietary code.
 | Engine | Decode | TTFT | tok/s | Power | Notes |
 |--------|--------|------|:-----:|:-----:|-------|
 | **DSpark spec-decode** ❌ | 5000–10000 ms/tok | — | **0.1–0.2** | **15W** | measured end-to-end 2026-07-07: **0% draft acceptance**; "~572" projection (97×5.9) disproven — the 5.90× was DeepSpec/Qwen3-4B, does not transfer to the INT8 NPU 0.6B target |
-| **Fused layer** ⚙️ | 3.4 ms/tok | — | **291** | ~20W | One xclbin/layer, 38 KB — raw throughput, NaN at layers 24+ |
+| **Fused layer** ⚙️ | 3.4 ms/tok | — | **291** | ~20W | One xclbin/layer, 30 KB — raw throughput, NaN at layers 24+ |
 | **C++ v12** ⚙️ | 10 ms/tok | 14 ms/tok prefill | **97** | ~15W | raw throughput — output not yet coherent, M=32 batch |
 | **NPU FLM** ✅ | — | — | **94** | ~15W | measured, coherent — production |
 | **C++ ALL** (5 models) | 36 ms/tok | 14 ms/tok prefill | **28** | ~15W | Auto-detect, one binary |
@@ -211,7 +211,7 @@ All 31 Vulkan pipelines switched from wave64 to **wave32** (RDNA4 native width).
 |-----------|------|
 | Draft model | 5-layer transformer + Markov head + confidence head |
 | Draft params | 1,393M @ FP16 (5.2 GB flat binary, mmap'd) |
-| Target engine | `npu_spec_decode` 437 KB (4-xclbin) or fused layer 38 KB (one xclbin/layer) |
+| Target engine | `npu_spec_decode` 436 KB (4-xclbin) or fused layer 30 KB (one xclbin/layer) |
 | Acceptance | Rejection sampling — lossless, identical output |
 | Power | 15W total (NPU + CPU draft) |
 
@@ -263,7 +263,7 @@ On the **real NPU (Qwen3-0.6B INT8)** the measured acceptance is **0% at every p
 | Jul 2 | v9 M=16 | 16 ms/tok | 15.2× | M=16 + NPU LM head |
 | Jul 2 | v12 M=32 | 10 ms/tok | 24× | M=32 + OpenMP attention |
 | Jul 2 | ALL 5 models | 36-127 ms/tok | — | 5 models, 0 crashes, auto-detect |
-| **Jul 6** | **Fused layer** | **3.4 ms/tok** | **72×** | One xclbin/layer, 38 KB, 291 tok/s — raw, NaN at layers 24+ |
+| **Jul 6** | **Fused layer** | **3.4 ms/tok** | **72×** | One xclbin/layer, 30 KB, 291 tok/s — raw, NaN at layers 24+ |
 | **Jul 6** | **DSpark spec-decode** | **~572 tok/s** (projected) | — | projection; later disproven — see Jul 7 |
 | **Jul 7** | **DSpark spec-decode** | **0.1–0.2 tok/s** (measured) | ❌ 1.0× | end-to-end on NPU: 0% draft acceptance; segfault fixed but path is not production |
 
