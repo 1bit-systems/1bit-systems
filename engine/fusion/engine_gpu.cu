@@ -54,63 +54,17 @@ typedef struct {
 
 typedef struct { float *k, *v; int pos; } KVCache;
 
-/* ── GPU kernels ── */
 
-__global__ void rms_norm_kernel(float *x, const float *w, int n, float eps) {
-    int i = threadIdx.x + blockIdx.x * blockDim.x;
-    if (i >= n) return;
-    __shared__ float ssum[256];
-    float v = x[i]; ssum[threadIdx.x] = v * v;
-    if (!isfinite(v)) { x[i] = 0; ssum[threadIdx.x] = 0; }
-    __syncthreads();
-    for (int s = blockDim.x/2; s > 0; s >>= 1) {
-        if (threadIdx.x < s) ssum[threadIdx.x] += ssum[threadIdx.x + s];
-        __syncthreads();
-    }
-    if (threadIdx.x == 0) ssum[0] = rsqrtf(ssum[0] / n + eps);
-    __syncthreads();
-    x[i] *= ssum[0] * w[i];
+/* GPU attention kernel */
+__global__ void attn_gpu(const float *q, const float *kc, const float *vc, float *out, int sl) {
+    int h=blockIdx.x,d=threadIdx.x,kvh=h/GQA; if(h>=NH||d>=HD)return;
+    __shared__ float sc[4096];
+    for(int p=0;p<sl;p++){if(d==0)sc[p]=0;__syncthreads();atomicAdd(&sc[p],q[h*HD+d]*kc[p*NKV*HD+kvh*HD+d]);__syncthreads();}
+    if(d==0){float mx=-1e30f;for(int p=0;p<sl;p++)if(sc[p]>mx)mx=sc[p];float su=0;for(int p=0;p<sl;p++){float e=expf(sc[p]-mx);sc[p]=e;su+=e;}float iv=su>0?1.0f/su:0;for(int p=0;p<sl;p++)sc[p]*=iv;}
+    __syncthreads();float acc=0;for(int p=0;p<sl;p++)acc+=sc[p]*vc[p*NKV*HD+kvh*HD+d];out[h*HD+d]=acc;
 }
 
-__global__ void attn_gpu(const float *q, const float *kc, const float *vc,
-                          float *out, int seq_len) {
-    int h = blockIdx.x, d = threadIdx.x, kvh = h / GQA;
-    if (h >= NH || d >= HD) return;
-    __shared__ float scores[4096];
-    for (int p = 0; p < seq_len; p++) {
-        if (d == 0) scores[p] = 0;
-        __syncthreads();
-        atomicAdd(&scores[p], q[h*HD+d] * kc[p*NKV*HD + kvh*HD + d]);
-        __syncthreads();
-    }
-    if (d == 0) {
-        float mx = -1e30f;
-        for (int p = 0; p < seq_len; p++) if (scores[p] > mx) mx = scores[p];
-        float sum = 0;
-        for (int p = 0; p < seq_len; p++) { float e = expf(scores[p]-mx); scores[p] = e; sum += e; }
-        float iv = sum > 0 ? 1.0f/sum : 0;
-        for (int p = 0; p < seq_len; p++) scores[p] *= iv;
-    }
-    __syncthreads();
-    float acc = 0;
-    for (int p = 0; p < seq_len; p++) acc += scores[p] * vc[p*NKV*HD + kvh*HD + d];
-    out[h*HD + d] = acc;
-}
-
-__global__ void lm_head_gpu(const float *h, const float *emb, float *lg, int nv) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= nv) return;
-    double dot = 0;
-    const float *row = emb + (size_t)i * H;
-    for (int j = 0; j < H; j++) dot += (double)h[j] * (double)row[j];
-    lg[i] = (float)dot;
-}
-
-__global__ void residual_add(float *h, const float *res, int n) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= n) return;
-    h[i] += res[i];
-}
+/* ── Math kernels (CPU) ── */
 static float bf16(uint16_t v) { uint32_t b=(uint32_t)v<<16;float f;memcpy(&f,&b,4);return f; }
 
 static void rms(float *x, const float *w, int n) {
@@ -230,7 +184,11 @@ static void layer_fwd(Model *m, int l, int pos, float *h, float *res,
     for(int kh=0;kh<NKV;kh++){float *vs=qkv+NH*HD+NKV*HD+kh*HD;memcpy(vc_l+pos*NKV*HD+kh*HD,vs,HD*4);}
 
     int sl=pos+1;
-    attn(qkv, kc_l, vc_l, at, sl, sl);
+    hipMemcpyAsync(g->dkv_k+(size_t)l*MAX_CTX*NKV*HD,g->dout.ko,(size_t)NKV*HD*4,hipMemcpyDeviceToDevice,g->s);
+    hipMemcpyAsync(g->dkv_v+(size_t)l*MAX_CTX*NKV*HD,g->dout.vo,(size_t)NKV*HD*4,hipMemcpyDeviceToDevice,g->s);
+    hipLaunchKernelGGL(attn_gpu,dim3(NH),dim3(HD),0,g->s,g->dout.qo,g->dkv_k+(size_t)l*MAX_CTX*NKV*HD,g->dkv_v+(size_t)l*MAX_CTX*NKV*HD,g->dout.oo,sl);
+    hipMemcpyAsync(at,g->dout.oo,(size_t)NH*HD*4,hipMemcpyDeviceToHost,g->s);
+    hipStreamSynchronize(g->s);
 
     if (m->gpu.ok) {
         gpu_mm(m, at, H, NH*HD, h, m->gpu.l[l].o);

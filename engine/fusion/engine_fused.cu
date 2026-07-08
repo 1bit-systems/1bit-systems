@@ -39,7 +39,7 @@ __global__ void rms_norm(float *x, const float *w, int n) {
 
 __global__ void qk_norm_rope(float *q, float *k, const float *qn, const float *kn,
                               const float *rs, const float *rc, int pos, int nq, int nkv) {
-    extern __shared__ float ss[];
+    __shared__ float ss[128];
     int h = blockIdx.x, d = threadIdx.x, is_k = (h >= nq);
     float *vec = is_k ? (k + (h-nq)*HD) : (q + h*HD);
     const float *nw = is_k ? kn : qn;
@@ -183,7 +183,7 @@ static int fused_fwd(Model *m, uint32_t tok, int *pos, uint32_t *out, int oidx) 
         hipblasSgemv(h, HIPBLAS_OP_T, H, NKV*HD, &a, g->l[l].v, H, g->dh, 1, &b, g->dqkv+NH*HD+NKV*HD, 1);
 
         // Q/K norm + RoPE
-        hipLaunchKernelGGL(qk_norm_rope, dim3(NH+NKV), dim3(HD), HD*4, s,
+        hipLaunchKernelGGL(qk_norm_rope, dim3(NH+NKV), dim3(HD), 0, s,
             g->dqkv, g->dqkv+NH*HD, m->qn[l], m->kn[l], m->rs, m->rc, *pos, NH, NKV);
 
         // KV cache write (copy QKV's K and V portions)
