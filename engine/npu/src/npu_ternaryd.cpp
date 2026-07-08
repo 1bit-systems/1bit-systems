@@ -717,8 +717,9 @@ struct TernaryDaemon {
 
         fprintf(stderr, "[Daemon] All %d layers loaded. Ready.\n", model.num_layers);
 
-        // Init NPU lm_head if available
-        if (model.lm_head_M > 0) {{
+        // Init NPU lm_head (only for small-vocab models; large vocab
+        // like 151K requires 9K+ dispatches → keep CPU fallback)
+        if (model.lm_head_M > 0 && model.lm_head_M < 50000) {{
             lm_head_ctx = std::make_unique<TernaryCtx>();
             if (!lm_head_ctx->init(device, sc_uuid, sc_instr, mc_uuid, mc_instr,
                                    model.lm_head_weights, model.lm_head_scales,
