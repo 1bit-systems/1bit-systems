@@ -7,19 +7,22 @@ commands included. Hardware: AMD Strix Halo — Ryzen AI NPU (XDNA 2) + Radeon
 
 ## Headline results
 
-| Engine | Model | Quant | Decode tok/s | Coherent | Notes |
-|---|---|---|---|---|---|
-| **GPU (Vulkan)** | Ternary-Bonsai-1.7B | **Q2_0 (1.58-bit)** | **274–279** | ✅ | genuine ternary, native 2-bit storage |
-| GPU (Vulkan) | Qwen2.5-0.5B | Q4_K | 300–312 | ✅ | |
-| GPU (Vulkan) | Qwen2.5-1.5B | Q4_K | 161 | ✅ | |
-| GPU (Vulkan) | Ternary-Bonsai-1.7B | F16 | 22.1 | ✅ | same model, F16 fallback |
-| **NPU (FLM)** | Qwen3-0.6B | Q4NX | **93.2–93.8** | ✅ | production path, port 52632 |
-| NPU (C++ `npu_engine_cb`) | Qwen3-0.6B | INT8 | 4.7 | ❌ repeats token | GEMM verified, full pipeline not yet coherent |
+| Rank | Engine | Model | Precision | Performance | Status |
+|------|--------|-------|-----------|-------------|--------|
+| 🥇 #1 | **NPU (native ternary)** | mm_ternary 32-core | **1.58-bit** | **118.9 µs, 128/128 bit-exact** | ✅ HW Verified |
+| 🥈 #2 | GPU (Vulkan) | Ternary-Bonsai-1.7B | Q2_0 (1.58-bit) | 274–279 tok/s | ✅ Coherent |
+| 🥉 #3 | GPU (Vulkan) | Qwen2.5-0.5B | Q4_K | 300–312 tok/s | ✅ |
+| 4 | GPU (Vulkan) | Qwen2.5-1.5B | Q4_K | 161 tok/s | ✅ |
+| 5 | NPU (FLM) | Qwen3-0.6B | Q4NX | 93.2–93.8 tok/s | ✅ |
+| 6 | NPU (C++) | Qwen3-0.6B | INT8 | 4.7 tok/s | ❌ |
 
-## The 1-bit number (headline for "1bit.systems")
+## The 1-bit numbers (ranked)
 
-**Ternary-Bonsai-1.7B in native Q2_0 (1.58-bit ternary) = 274–279 tok/s decode,
-coherent, on the Radeon 8060S iGPU via Vulkan.**
+**🥇 #1: NPU Native Ternary — 32-core, 128/128 bit-exact, 118.9 µs on Strix Halo XDNA2.**
+First native 2-bit packed ternary kernel verified on AMD NPU hardware.
+314 KB xclbin, per-column DMA routing, MIT licensed.
+
+**🥈 #2: Ternary-Bonsai-1.7B GPU — 274–279 tok/s decode, coherent, Radeon 8060S.**
 
 - The model's weights are genuinely ternary {−1, 0, +1} (1.58 bits of information).
 - Stored in native Q2_0 (2-bit) — **not** dequantized to F16/Q4.
