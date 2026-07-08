@@ -240,7 +240,7 @@ For full model inference at native ternary density:
 2. **Multi-row support** ✅ — `n1_core_native_ternary_32core.py` (4×8=32 cores, row-broadcast + row_start/num_rows)
 3. **NPU deployment** ✅ — `NpuTernaryTarget` + `test_ternary_target.cpp` ready for Strix Halo
 4. **Model integration** ✅ — `spec-decode/engine/npu_ternary_target.h` (TargetModelInterface)
-5. **Daemon wiring** — connect `NpuTernaryTarget` into `daemon/npu-cppd.py` / `npu-gpu-cpud.cpp`
+5. **Daemon wiring** ✅ — `NativeTernaryBackend` in `daemon/npu-gpu-cpud.cpp` + `npu_ternary_serve` subprocess
 6. **Per-layer xclbins** — build optimized variants for each projection dimension (Q/K/V/O/Up/Gate/Down)
 7. **NPU hardware validation** — run on Strix Halo, verify bit-exactness, profile tok/s
 
