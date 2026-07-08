@@ -23,6 +23,7 @@ import numpy as np
 from aie.extras.context import mlir_mod_ctx
 from aie.dialects.aie import *
 from aie.dialects.aiex import *
+from aie.helpers.taplib import TensorTiler2D
 from aie.helpers.dialects.scf import _for as range_
 
 
@@ -91,20 +92,20 @@ def my_native_ternary(M, K_packed, dump=False):
             link_with=kernel_o,
         )
 
-        # Single column: shim(0,0) ↔ mem(0,1) ↔ core(0,2)
-        shim = tile(0, 0)
-        mem = tile(0, 1)
-        core = tile(0, 2)
+        # Single column: shim(0,0) ↔ mem(0,1) ↔ core_tile(0,2)
+        shim_tile = tile(0, 0)
+        mem_tile = tile(0, 1)
+        core_tile = tile(0, 2)
 
-        A_l3l2 = object_fifo("A_L3L2", shim, mem, 2, A_l2_ty)
-        A_l2l1 = object_fifo("A_L2L1", mem, core, 2, A_l1_ty)
+        A_l3l2 = object_fifo("A_L3L2", shim_tile, mem_tile, 2, A_l2_ty)
+        A_l2l1 = object_fifo("A_L2L1", mem_tile, core_tile, 2, A_l1_ty)
         object_fifo_link(A_l3l2, A_l2l1)
 
-        C_l1l2 = object_fifo("C_L1L2", core, mem, 1, C_l1_ty)
-        C_l2l3 = object_fifo("C_L2L3", mem, shim, 2, C_l2_ty)
+        C_l1l2 = object_fifo("C_L1L2", core_tile, mem_tile, 1, C_l1_ty)
+        C_l2l3 = object_fifo("C_L2L3", mem_tile, shim_tile, 2, C_l2_ty)
         object_fifo_link(C_l1l2, C_l2l3)
 
-        @core(core, stack_size=0xD00)
+        @core(core_tile, stack_size=0xD00)
         def core_body():
             for _ in range_(0xFFFFFFFF):
                 A = A_l2l1.acquire(ObjectFifoPort.Consume, 1)
@@ -118,13 +119,17 @@ def my_native_ternary(M, K_packed, dump=False):
             np.ndarray[(out_dwords,), np.dtype[dtype_in]],
         )
         def sequence(A_flat, C_flat):
+            # Single tile tap for full 1D buffer
+            A_taps = TensorTiler2D.group_tiler((in_dwords, 1), (in_dwords, 1), (1, 1))
+            C_taps = TensorTiler2D.group_tiler((out_dwords, 1), (out_dwords, 1), (1, 1))
+
             a_task = shim_dma_single_bd_task(
-                A_l3l2, A_flat, issue_token=False,
+                A_l3l2, A_flat, tap=A_taps[0], issue_token=False,
             )
             dma_start_task(a_task)
 
             c_task = shim_dma_single_bd_task(
-                C_l2l3, C_flat, issue_token=True,
+                C_l2l3, C_flat, tap=C_taps[0], issue_token=True,
             )
             dma_start_task(c_task)
 

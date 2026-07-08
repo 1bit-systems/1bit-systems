@@ -237,28 +237,38 @@ g++ -std=c++23 -O2 -o test_ternary_target \
 
 The native ternary backend is wired into the daemon via `NativeTernaryBackend`:
 
-```bash
-# Build the serve binary:
-g++ -std=c++23 -O2 -o npu_ternary_serve npu_ternary_serve.cpp \
-    -I/usr/include/xrt -I. -L/usr/lib/x86_64-linux-gnu \
-    -lxrt_coreutil -fopenmp -lm -luuid
+### Weight Conversion (Q2_0 GGUF → Packed Ternary)
 
-# Start the daemon (auto-starts native ternary if available):
-sudo ./daemon/npu-gpu-cpud [--port 9090] [--npu-port 52625]
+```bash
+# Convert Q2_0 ternary GGUF to native packed format:
+python tools/q2_0_to_packed.py model.gguf model.ternary/
+
+# Output: model.ternary/manifest.json + model.ternary/weights.bin
+```
+
+### Build and Run
+
+```bash
+# Build the native ternary daemon:
+bash engine/npu/build/build_ternary_daemon.sh
+
+# Start the daemon (native ternary backend):
+python daemon/npu-cppd.py --backend ternary --port 8080
 
 # Query via curl:
-curl -s http://localhost:9090/v1/health | jq .devices.npu_ternary
-
-# Use native ternary model:
-curl -s http://localhost:9090/v1/chat/completions \
+curl -s http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model":"Qwen3-0.6B-NativeTernary","messages":[{"role":"user","content":"Hello"}]}'
+  -d '{"model":"qwen3-0.6b-npu","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
 Environment variables:
-- `TERNARY_MODEL_PATH` — model file path (default: Qwen3-0.6B-NPU2/model.q4nx)
-- `TERNARY_XCLBIN_DIR` — xclbin directory (default: engine/npu/build/build/ternary)
-- `TERNARY_SERVE_BIN` — serve binary path (default: ./npu_ternary_serve)
+- `NPU_TERNARY_MODEL` — model directory from q2_0_to_packed.py (default: model.ternary/)
+- `NPU_TERNARY_XCLBIN` — xclbin directory (default: engine/npu/build/ternary_final_QKV/)
+
+Key files:
+- `engine/npu/src/npu_ternaryd.cpp` — C++ daemon, stdin/stdout JSON protocol
+- `engine/npu/build/build_ternary_daemon.sh` — one-command build
+- `daemon/npu-cppd.py` — HTTP API wrapper (supports --backend ternary)
 
 ## Next Steps (Future Work)
 
@@ -267,8 +277,8 @@ For full model inference at native ternary density:
 2. **Multi-row support** ✅ — `n1_core_native_ternary_32core.py` (4×8=32 cores, row-broadcast + row_start/num_rows)
 3. **NPU deployment** ✅ — `NpuTernaryTarget` + `test_ternary_target.cpp` ready for Strix Halo
 4. **Model integration** ✅ — `spec-decode/engine/npu_ternary_target.h` (TargetModelInterface)
-5. **Daemon wiring** ✅ — `NativeTernaryBackend` in `daemon/npu-gpu-cpud.cpp` + `npu_ternary_serve` subprocess
-6. **Per-layer xclbins** ✅ — single `mm_ternary_32x64x128` kernel tiles all dimensions (M in 32-row chunks, K in 256-ternary chunks). Multi-core variants (8-core, 32-core) built for future perf.
+5. **Daemon wiring** ✅ — `npu_ternaryd` C++ binary + `NativeTernaryBackend` in `daemon/npu-cppd.py`
+6. **Weight converter** ✅ — `tools/q2_0_to_packed.py` converts Q2_0 GGUF → packed ternary binary
 7. **NPU hardware validation** — run on Strix Halo, verify bit-exactness, profile tok/s
 
 ### Build Commands
