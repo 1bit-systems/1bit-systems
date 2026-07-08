@@ -137,7 +137,7 @@ def my_native_ternary_8core(M, K_packed, dump=False):
             )
             A_l2l1[col] = object_fifo(
                 f"A_L2L1_{col}",
-                mem_tiles[col], [core_tiles[0][col]],
+                mem_tiles[col], [core_tiles[col]],
                 2, A_l1_ty,
             )
             object_fifo_link(A_l3l2[col], A_l2l1[col])
@@ -148,7 +148,7 @@ def my_native_ternary_8core(M, K_packed, dump=False):
         for col in range(n_cols):
             C_l1l2[col] = object_fifo(
                 f"C_L1L2_{col}",
-                core_tiles[0][col], mem_tiles[col],
+                core_tiles[col], mem_tiles[col],
                 1, C_l1_ty,
             )
             C_l2l3[col] = object_fifo(
@@ -160,7 +160,7 @@ def my_native_ternary_8core(M, K_packed, dump=False):
 
         # ── Core bodies ─────────────────────────────────
         for col in range(n_cols):
-            @core(core_tiles[0][col], stack_size=0xD00)
+            @core(core_tiles[col], stack_size=0xD00)
             def core_body():
                 for _ in range_(0xFFFFFFFF):
                     A = A_l2l1[col].acquire(ObjectFifoPort.Consume, 1)
