@@ -106,22 +106,18 @@ def gguf_tensors(path):
         return f.read(r64(f)).decode("utf-8", errors="replace")
 
     def skip_val(f, typ):
-        if typ == 0:
+        if typ in (0, 1):       # uint8, int8
             f.read(1)
-        elif typ == 1:
-            f.read(1)
-        elif typ == 2:
+        elif typ == 2:          # uint16
             f.read(2)
-        elif typ == 3:
+        elif typ == 3:          # int16
+            f.read(2)
+        elif typ in (4, 5):     # uint32, int32
             f.read(4)
-        elif typ == 4:
+        elif typ == 6:          # float32
             f.read(4)
-        elif typ == 5:
-            f.read(8)
-        elif typ == 6:
-            f.read(8)
-        elif typ == 7:
-            f.read(8)
+        elif typ == 7:          # bool
+            f.read(1)
         elif typ == 8:          # STRING
             n = r64(f)
             f.read(n)
