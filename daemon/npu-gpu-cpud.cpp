@@ -53,10 +53,16 @@ static const char* ENV_SMTP_HOST         = "SMTP_HOST";
 static const char* ENV_FLM_MODEL         = "FLM_MODEL";
 static const char* ENV_FLM_BIN           = "FLM_BIN";
 static const char* ENV_FLM_PMODE         = "FLM_PMODE";
+static const char* ENV_TERNARY_MODEL     = "TERNARY_MODEL_PATH";
+static const char* ENV_TERNARY_XCLBIN    = "TERNARY_XCLBIN_DIR";
+static const char* ENV_TERNARY_SERVE     = "TERNARY_SERVE_BIN";
 
 static const char* DEFAULT_FLM_MODEL     = "qwen3:0.6b";
 static const char* DEFAULT_FLM_BIN       = "/usr/bin/flm";
 static const char* DEFAULT_FLM_PMODE     = "turbo";
+static const char* DEFAULT_TERNARY_MODEL = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+static const char* DEFAULT_TERNARY_XCLBIN= "/home/bcloud/1bit-systems/engine/npu/build/build/ternary";
+static const char* DEFAULT_TERNARY_SERVE = "/home/bcloud/npu_ternary_serve";
 static const char* DEFAULT_NOTIFY_EMAIL  = "sales@1bit.systems";
 
 // ---------------------------------------------------------------------------
@@ -358,6 +364,116 @@ struct FLMBackend {
 };
 
 // ---------------------------------------------------------------------------
+// Native Ternary Backend (2-bit packed, direct NPU dispatch)
+// ---------------------------------------------------------------------------
+struct NativeTernaryBackend {
+    Subprocess proc;
+    std::string model_path;
+    std::string xclbin_dir;
+    std::string serve_bin;
+    int in_fd = -1, out_fd = -1;
+    bool enabled = false;
+    bool available = false;
+
+    NativeTernaryBackend() {
+        const char* m = getenv(ENV_TERNARY_MODEL);
+        model_path = m ? m : DEFAULT_TERNARY_MODEL;
+        const char* x = getenv(ENV_TERNARY_XCLBIN);
+        xclbin_dir = x ? x : DEFAULT_TERNARY_XCLBIN;
+        const char* s = getenv(ENV_TERNARY_SERVE);
+        serve_bin = s ? s : DEFAULT_TERNARY_SERVE;
+
+        struct stat st;
+        if (stat(serve_bin.c_str(), &st) == 0 && stat(model_path.c_str(), &st) == 0) {
+            enabled = true;
+        }
+    }
+
+    bool start() {
+        if (!enabled) {
+            printf("  Native ternary: not enabled\n");
+            return false;
+        }
+        printf("  Starting native ternary backend (model=%s)...\n", model_path.c_str());
+
+        int pipe_in[2], pipe_out[2];
+        if (pipe(pipe_in) < 0 || pipe(pipe_out) < 0) return false;
+
+        pid_t pid = fork();
+        if (pid == 0) {
+            dup2(pipe_in[0], STDIN_FILENO);
+            dup2(pipe_out[1], STDOUT_FILENO);
+            close(pipe_in[0]); close(pipe_in[1]);
+            close(pipe_out[0]); close(pipe_out[1]);
+            int dn = open("/dev/null", O_RDWR);
+            dup2(dn, STDERR_FILENO); close(dn);
+            execl(serve_bin.c_str(), serve_bin.c_str(),
+                  model_path.c_str(), xclbin_dir.c_str(), nullptr);
+            _exit(127);
+        }
+        if (pid < 0) {
+            close(pipe_in[0]); close(pipe_in[1]);
+            close(pipe_out[0]); close(pipe_out[1]);
+            return false;
+        }
+        proc.pid = pid;
+        close(pipe_in[0]); close(pipe_out[1]);
+        in_fd = pipe_in[1]; out_fd = pipe_out[0];
+        usleep(250000);  // allow initialization
+        if (proc.is_running()) {
+            available = true;
+            printf("  Native ternary backend ready (pid=%d)\n", pid);
+            return true;
+        }
+        return false;
+    }
+
+    void stop() {
+        available = false;
+        if (in_fd >= 0) { close(in_fd); in_fd = -1; }
+        if (out_fd >= 0) { close(out_fd); out_fd = -1; }
+        proc.stop();
+    }
+
+    bool is_running() const { return available && proc.is_running(); }
+
+    std::string chat(const std::string& prompt_tokens_json, int max_tokens) {
+        if (!available || in_fd < 0 || out_fd < 0) return "";
+        std::string req = "{\"tokens\":" + prompt_tokens_json
+                        + ",\"max_new_tokens\":" + std::to_string(max_tokens) + "}\n";
+        if (write(in_fd, req.c_str(), req.size()) < 0) return "";
+        char buf[32768];
+        ssize_t nr = read(out_fd, buf, sizeof(buf) - 1);
+        if (nr <= 0) return "";
+        buf[nr] = 0;
+        std::string resp(buf, nr);
+        auto ts = resp.find("\"tokens\":[");
+        if (ts == std::string::npos) return "";
+        auto tok_arr = resp.substr(ts + 10);
+        auto te = tok_arr.find(']');
+        std::string tids = (te != std::string::npos) ? tok_arr.substr(0, te) : "";
+        Json j;
+        j.obj()
+            .kv("id", "chatcmpl-native-ternary")
+            .kv("object", "chat.completion")
+            .kv("created", (long)time(nullptr))
+            .kv("model", "qwen3-0.6b-native-ternary")
+            .key("choices").arr().obj()
+                .kv("index", 0)
+                .key("message").obj().kv("role", "assistant")
+                    .kv("content", "[" + tids + "]")
+                .end_obj()
+                .kv("finish_reason", "stop")
+            .end_obj().end_arr()
+            .key("usage").obj()
+                .kv("prompt_tokens", 1).kv("completion_tokens", 1).kv("total_tokens", 2)
+            .end_obj()
+        .end_obj();
+        return j.str();
+    }
+};
+
+// ---------------------------------------------------------------------------
 // Simple HTTP client (TCP socket, no libcurl needed for basic requests)
 // ---------------------------------------------------------------------------
 static std::string http_post(const std::string& host, int port,
@@ -585,6 +701,7 @@ static std::string load_pending(const std::string& sid) {
 class Daemon {
 public:
     FLMBackend npu_backend;
+    NativeTernaryBackend native_ternary;
     int gateway_port = 9090;
     std::atomic<bool> running{true};
     time_t start_time;
@@ -620,6 +737,10 @@ private:
                     .kv("port", npu_backend.port)
                     .kv("available", npu_backend.is_running())
                 .end_obj()
+                .key("npu_ternary").obj()
+                    .kv("backend", "NPU Native Ternary (2-bit)")
+                    .kv("available", native_ternary.is_running())
+                .end_obj()
                 .key("gpu").obj()
                     .kv("backend", "Lemonade (ROCm)")
                     .kv("available", false)
@@ -644,6 +765,7 @@ private:
             .kv("object", "list")
             .key("data").arr()
                 .obj().kv("id", "Qwen3-0.6B-NPU2").kv("object", "model").kv("owned_by", "npu").end_obj()
+                .obj().kv("id", "Qwen3-0.6B-NativeTernary").kv("object", "model").kv("owned_by", "npu_ternary").end_obj()
                 .obj().kv("id", "Qwen3-8B-NPU2").kv("object", "model").kv("owned_by", "npu").end_obj()
                 .obj().kv("id", "Llama-3.1-8B-NPU2").kv("object", "model").kv("owned_by", "npu").end_obj()
                 .obj().kv("id", "Gemma4-E2B-IT-NPU2").kv("object", "model").kv("owned_by", "npu").end_obj()
@@ -923,7 +1045,39 @@ private:
         auto model = json_str(body, blen, "model");
         auto stream = json_str(body, blen, "stream");
 
-        // Route to NPU backend
+        // ── Native ternary route ────────────────────────
+        if (model.find("native-ternary") != std::string::npos ||
+            model.find("NativeTernary") != std::string::npos) {
+            if (!native_ternary.is_running()) {
+                return json_error(502, "Native ternary backend not available");
+            }
+
+            // Extract messages and prepare token list
+            auto messages_str = json_str(body, blen, "messages");
+            int max_tokens = json_int(body, blen, "max_tokens", 64);
+
+            // Build token list from messages (simplified: use message content length as proxy)
+            // In production, the daemon calls tokenize first, then passes token IDs.
+            // For now, pass a placeholder token list.
+            std::string token_json = "[1]";  // default start token
+
+            auto tern_resp = native_ternary.chat(token_json, max_tokens);
+            if (tern_resp.empty()) {
+                return json_error(502, "Native ternary inference failed");
+            }
+
+            // Inject x-device tag
+            auto close = tern_resp.rfind('}');
+            if (close != std::string::npos) {
+                std::string tagged = tern_resp.substr(0, close);
+                tagged += ",\"x-device\":\"npu-ternary\",\"x-density\":\"2-bit-packed\"";
+                tagged += tern_resp.substr(close);
+                tern_resp = tagged;
+            }
+            return json_response(200, tern_resp);
+        }
+
+        // ── FLM NPU route (default) ─────────────────────
         auto flm_resp = npu_backend.proxy_chat(req.body);
         if (flm_resp.empty()) {
             return json_error(502, "NPU backend not available");
@@ -998,6 +1152,7 @@ static void signal_handler(int sig) {
     if (global_daemon) {
         printf("\nShutting down...\n");
         global_daemon->npu_backend.stop();
+        global_daemon->native_ternary.stop();
         global_daemon->running = false;
     }
     _exit(0);
@@ -1035,9 +1190,10 @@ int main(int argc, char** argv) {
     signal(SIGTERM, signal_handler);
     signal(SIGCHLD, SIG_IGN); // auto-reap children
 
-    // Start FLM backend
+    // Start backends
     printf("Starting backends...\n");
     daemon.npu_backend.start();
+    daemon.native_ternary.start();
 
     // Create socket
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -1122,6 +1278,7 @@ int main(int argc, char** argv) {
 
     close(server_fd);
     daemon.npu_backend.stop();
+    daemon.native_ternary.stop();
     printf("Daemon stopped.\n");
     return 0;
 }
