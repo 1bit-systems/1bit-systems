@@ -250,7 +250,7 @@ def main():
                            'lm_head' in hf_name or 'output.weight' == name)
 
                 if K == 1 or M == 1 or is_embed:
-                    # Store as raw f16 (like F32/F16 norm weights)
+                    # Store as raw f16 for CPU lookup (embed_token)
                     el_sz = 2  # f16
                     dtype_name = "F16"
                     gf.seek(offset)
@@ -264,6 +264,25 @@ def main():
                     weight_chunks.append(raw)
                     total_weight_bytes += len(raw)
                     print(f"  {hf_name}: {dtype_name} {list(shape)} (embed, raw)")
+
+                    # Also store packed ternary version for NPU lm_head GEMV
+                    if 'embed_tokens' in hf_name:
+                        gf.seek(offset)
+                        raw_q2 = gf.read((n_elems // QK_Q2_0) * BLOCK_BYTES_Q2_0)
+                        w, s = pack_q2_0_ternary(raw_q2, M, K)
+                        Kp = K // 4
+                        wb = w.tobytes()
+                        sb = s.astype(np.float16).tobytes()
+                        ow = total_weight_bytes
+                        os_ = ow + len(wb)
+                        weight_chunks.append(wb + sb)
+                        total_weight_bytes += len(wb) + len(sb)
+                        manifest["lm_head.weight"] = {
+                            "M": M, "K": K, "K_packed": Kp,
+                            "offset_weights": ow, "offset_scales": os_,
+                            "size_bytes": len(wb) + len(sb),
+                        }
+                        print(f"  lm_head.weight: packed ternary M={M} K={K} → {len(wb)+len(sb)} bytes (NPU)")
                     continue
 
                 gf.seek(offset)

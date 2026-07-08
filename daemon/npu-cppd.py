@@ -84,7 +84,7 @@ class NativeTernaryBackend:
             "NPU_TERNARY_MODEL", str(REPO_ROOT / "model.ternary"))
         self.xclbin_dir = xclbin_dir or os.environ.get(
             "NPU_TERNARY_XCLBIN",
-            str(REPO_ROOT / "engine/npu/build/ternary_m52_k64"))
+            str(REPO_ROOT / "engine/npu/build/ternary_32c_oneshot"))
         self.ready = False
         self.proc = None
 
