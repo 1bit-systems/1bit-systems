@@ -125,7 +125,8 @@ class AgentStore {
 		const statePath = path.join(this.stateDir, "state.json");
 		const stored: StoredAgent[] = [];
 		for (const a of this.agents.values()) {
-			if (a.status === "stopped" && a.exitCode === 0) continue; // prune completed
+			if (a.status === "stopped" && a.exitCode === 0) continue; // prune stopped
+			if (a.status === "done") continue; // prune completed (auto-clean)
 			stored.push(this.toStored(a));
 		}
 		fs.writeFileSync(statePath, JSON.stringify({ agents: stored, nextId: this.nextId }, null, 2));
@@ -378,45 +379,29 @@ export default function (pi: ExtensionAPI) {
 		if (!isTui) return;
 
 		const active = store.getActiveCount();
-		const agents = store.getAll();
+		const allAgents = store.getAll();
 
-		// Hide widget completely when no agents are active
-		// (cleans up after all agents finish)
-		if (active === 0 && agents.length > 0) {
-			// Show a brief "all done" summary that auto-clears
-			const doneCount = agents.filter(a => a.status === "done").length;
-			const errCount = agents.filter(a => a.status === "error").length;
-			ctx.ui.setWidget("agent-view", (_tui: any, theme: any) => ({
-				render: () => [
-					theme.fg("dim", `Agent View: ${doneCount} done` + (errCount > 0 ? ` · ${errCount} failed` : "") + " · /av to view"),
-				],
-				invalidate: () => {},
-			}));
+		// Only show non-done agents in the widget (running, spawning, errored)
+		const visibleAgents = allAgents.filter(a => a.status !== "done");
+
+		if (visibleAgents.length === 0) {
+			// Nothing to show — clear the widget entirely
+			ctx.ui.setWidget("agent-view", undefined);
 			return;
 		}
 
-		if (active === 0 && agents.length === 0) {
-			ctx.ui.setWidget("agent-view", (_tui: any, theme: any) => ({
-				render: () => [
-					theme.fg("dim", "Agent View: no agents. /av spawn <task> to start one."),
-				],
-				invalidate: () => {},
-			}));
-			return;
-		}
-
-		// Full view: agents are active, show the list
+		// Show only active/errored agents
 		ctx.ui.setWidget("agent-view", (_tui: any, theme: any) => {
 			const lines: string[] = [];
 
 			// Header
 			lines.push(
 				theme.fg("accent", "Agent View") +
-				theme.fg("dim", ` ${agents.length} agents · ${active} active`),
+				theme.fg("dim", ` ${visibleAgents.length} agents · ${active} active`),
 			);
 
 			// Agent list
-			for (const a of agents) {
+			for (const a of visibleAgents) {
 				const icon = statusIcon(a.status);
 				const name = theme.fg("text", a.name);
 				const idLabel = theme.fg("dim", `[${a.id}]`);
@@ -424,8 +409,6 @@ export default function (pi: ExtensionAPI) {
 				let right = "";
 				if (a.status === "running" || a.status === "spawning") {
 					right = theme.fg("dim", ` ${a.usage.turns > 0 ? `${a.usage.turns}t` : "..."}`);
-				} else if (a.status === "done") {
-					right = theme.fg("dim", ` ${fmtTokens(a.usage.input)}↑ ${fmtTokens(a.usage.output)}↓ $${a.usage.cost.toFixed(4)}`);
 				} else if (a.status === "error") {
 					right = theme.fg("error", ` exit:${a.exitCode ?? "?"}`);
 				}
