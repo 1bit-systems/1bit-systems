@@ -389,12 +389,14 @@ public:
     void get_layer_hidden(const float* /*all_hidden*/, int32_t /*num_layers*/,
                            const int32_t* target_layer_ids, int32_t num_target_layers,
                            float* out) override {
-        // Reads directly from the snapshot captured during the last batch_forward() call
-        // (all_hidden param is unused — real per-layer states live in layer_hidden_snapshot_,
-        // which the generic float* buffer in TargetModelInterface can't represent cleanly).
-        for (int i = 0; i < num_target_layers; i++) {
-            int layer = target_layer_ids[i];
-            memcpy(out + (size_t)i*H, layer_hidden_snapshot_[layer].data(), H*4);
+        // Interleave across layers: Python training uses shape [hidden_size, num_layers]
+        // then reshape(B, -1), which produces [l0_h0, l1_h0, l2_h0, l3_h0, l4_h0,
+        // l0_h1, l1_h1, ...]. The fc projection weights were trained on this layout.
+        for (int d = 0; d < H; d++) {
+            for (int i = 0; i < num_target_layers; i++) {
+                int layer = target_layer_ids[i];
+                out[(size_t)d * num_target_layers + i] = layer_hidden_snapshot_[layer][d];
+            }
         }
     }
 
