@@ -20,6 +20,7 @@ This project is indexed by GitNexus as **1bit-systems** (9623 symbols, 17639 rel
 - NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
 - NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
 - NEVER commit changes without running `detect_changes()` to check affected scope.
+- NEVER use HTTPS for GitHub remotes. SSH is configured globally via `git config --global url."git@github.com:".insteadOf "https://github.com/"`. All git push/pull/clone operations automatically use SSH with key `~/.ssh/id_ed25519`. No username/password prompts will ever appear. If a git operation hangs, check `ssh -T git@github.com` first.
 
 ## Resources
 

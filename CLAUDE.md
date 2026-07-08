@@ -35,6 +35,7 @@ This project is indexed by GitNexus as **1bit-systems** (9623 symbols, 17639 rel
 - NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
 - NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
 - NEVER commit changes without running `detect_changes()` to check affected scope.
+- NEVER use HTTPS for GitHub remotes. SSH is configured globally — all git operations auto-rewrite HTTPS to SSH via `git config --global url."git@github.com:".insteadOf`. No prompts.
 
 ## Resources
 
