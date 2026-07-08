@@ -94,17 +94,12 @@ struct MTPDraftWeights {
     }
 };
 
-// Runtime state: single KV cache entry for the draft block
+// Runtime state: minimal — no KV cache needed (single-position cross-head attention).
+// Kept for API compatibility with the spec decode engine's StateResizeTraits.
 struct MTPDraftState {
-    std::vector<float> k_cache; // [max_seq, num_kv_heads, head_dim]
-    std::vector<float> v_cache; // [max_seq, num_kv_heads, head_dim]
     int32_t seq_len = 0;
-    int32_t max_seq = 4096;
 
-    void resize(int32_t num_kv_heads, int32_t head_dim, int32_t max_len) {
-        max_seq = max_len;
-        k_cache.assign((size_t)num_kv_heads * max_len * head_dim, 0.0f);
-        v_cache.assign((size_t)num_kv_heads * max_len * head_dim, 0.0f);
+    void resize(int32_t /*num_kv_heads*/, int32_t /*head_dim*/, int32_t /*max_len*/) {
         seq_len = 0;
     }
 };
@@ -121,11 +116,15 @@ public:
     bool load_weights(const char* path) { return w_.load(path, cfg_); }
     bool weights_loaded() const { return !w_.empty(); }
 
-    // trunk_hidden: [num_target_layers, hidden_size] fp32 features from the target model
-    // (already fp32-converted by the caller). input_id: current token id (embedding is
-    // looked up internally). draft_logits: [vocab_size] output. draft_hidden: [hidden_size]
-    // output (fed back as trunk_hidden[0] substitute isn't needed — draft re-derives from
-    // target features each call in this integration's usage pattern).
+    // Matches Python train_from_cache.py Eagle3Draft.forward() exactly:
+    //   h = hidden_norm(fc(feat))          # Pos 0: project target features
+    //   for t in range(T):
+    //     x = cat([h, embed_normed])       # Concatenate hidden + token embedding
+    //     q,k,v = proj(x); attn = cross-head(q,k,v)  # No KV cache, cross-head only
+    //     h = h + attn; h = post_norm(h); h = h + swiglu(h)
+    //     h = norm(h)                      # Final norm for next step
+    //     logits = lm_head(h)
+    // Key: at pos>0, h already has norm() applied; no hidden_norm() re-application.
     void forward(
         const float* trunk_hidden,
         int32_t input_id,
@@ -136,44 +135,53 @@ public:
     ) {
         int H = cfg_.hidden_size;
         if (w_.empty()) {
-            // Fast path: no trained weights yet — passthrough so callers/tests don't crash.
             for (int i = 0; i < H; i++) draft_hidden[i] = trunk_hidden[i];
             draft_logits[0] = draft_hidden[0];
             return;
         }
 
-        std::vector<float> hidden(H);
-        linear(trunk_hidden, w_.fc.data(), hidden.data(), cfg_.num_target_layers * H, H);
+        // h: the autoregressive hidden state. At pos 0, project from target features.
+        // At pos > 0, trunk_hidden is draft_hidden from previous step (already norm'ed).
+        std::vector<float> h(H);
+        if (pos == 0) {
+            linear(trunk_hidden, w_.fc.data(), h.data(), cfg_.num_target_layers * H, H);
+            rms_norm(h.data(), h.data(), w_.hidden_norm.data(), H);
+        } else {
+            std::copy(trunk_hidden, trunk_hidden + H, h.begin());
+        }
 
         std::vector<float> embed(H);
         const float* erow = &w_.embed_tokens[(size_t)input_id * H];
         std::copy(erow, erow + H, embed.begin());
+        rms_norm(embed.data(), embed.data(), w_.input_layernorm.data(), H);
 
-        std::vector<float> residual(hidden);
-        std::vector<float> h_n(H), e_n(H);
-        rms_norm(hidden.data(), h_n.data(), w_.hidden_norm.data(), H);
-        rms_norm(embed.data(), e_n.data(), w_.input_layernorm.data(), H);
-
+        // x = cat([h, embed_normed]) — matches Python: cat([h.unsqueeze(1), e], dim=-1)
         std::vector<float> x(2 * H);
-        // Concat order: [hidden_normed | embed_normed] — matches Python training
-        std::copy(h_n.begin(), h_n.end(), x.begin());
-        std::copy(e_n.begin(), e_n.end(), x.begin() + H);
+        std::copy(h.begin(), h.end(), x.begin());
+        std::copy(embed.begin(), embed.end(), x.begin() + H);
 
+        // Attention + add: h = h + attn_out  (Python: h + o)
         std::vector<float> attn_out(H);
-        self_attention(x.data(), pos, state, attn_out.data());
-        for (int i = 0; i < H; i++) hidden[i] = residual[i] + attn_out[i];
+        self_attention(x.data(), pos, attn_out.data());
+        for (int i = 0; i < H; i++) h[i] += attn_out[i];
 
-        residual = hidden;
-        std::vector<float> post_n(H);
-        rms_norm(hidden.data(), post_n.data(), w_.post_attention_layernorm.data(), H);
-        std::vector<float> mlp_out(H);
-        swiglu_ffn(post_n.data(), mlp_out.data());
-        for (int i = 0; i < H; i++) hidden[i] = residual[i] + mlp_out[i];
+        // Post-attention norm: h2 = post_attn_norm(h + o)
+        std::vector<float> h2(H);
+        rms_norm(h.data(), h2.data(), w_.post_attention_layernorm.data(), H);
 
-        std::copy(hidden.begin(), hidden.end(), draft_hidden);
+        // FFN on normed value: ffn_out = swiglu(h2)
+        std::vector<float> ffn_out(H);
+        swiglu_ffn(h2.data(), ffn_out.data());
 
+        // h3 = h2 + ffn_out (Python: h3 = h2 + swiglu(h2))
+        std::vector<float> h3(H);
+        for (int i = 0; i < H; i++) h3[i] = h2[i] + ffn_out[i];
+
+        // Final norm: h = norm(h3). This norm'ed state feeds the next step.
         std::vector<float> final_n(H);
-        rms_norm(hidden.data(), final_n.data(), w_.norm.data(), H);
+        rms_norm(h3.data(), final_n.data(), w_.norm.data(), H);
+        std::copy(final_n.begin(), final_n.end(), draft_hidden);
+
         linear(final_n.data(), w_.lm_head.data(), draft_logits, H, cfg_.vocab_size);
     }
 
@@ -213,7 +221,13 @@ private:
         }
     }
 
-    void self_attention(const float* x /* [2*hidden] */, int pos, MTPDraftState& state, float* out) {
+    // Single-position cross-head attention. No KV cache — matches Python training:
+    //   q = q_norm(rope(q_proj(x)))   # [NH, D]
+    //   k = k_norm(rope(k_proj(x)))   # [NKV, D]
+    //   v = v_proj(x)                 # [NKV, D]
+    //   attn = softmax(q @ k^T * scale, dim=-1)  # [NH, NKV]
+    //   out = o_proj(attn @ v)        # [H]
+    void self_attention(const float* x /* [2*hidden] */, int pos, float* out) {
         int H = cfg_.hidden_size, NH = cfg_.num_heads, NKV = cfg_.num_kv_heads, D = cfg_.head_dim;
         std::vector<float> q(NH * D), k(NKV * D), v(NKV * D);
         linear(x, w_.q_proj.data(), q.data(), 2 * H, NH * D);
@@ -229,34 +243,46 @@ private:
             apply_rope(&k[h * D], D, pos);
         }
 
-        for (int h = 0; h < NKV; h++) {
-            std::copy(&k[h * D], &k[h * D] + D, &state.k_cache[((size_t)pos * NKV + h) * D]);
-            std::copy(&v[h * D], &v[h * D] + D, &state.v_cache[((size_t)pos * NKV + h) * D]);
-        }
-        state.seq_len = pos + 1;
-        int gqa = NH / NKV;
-        int ctx = pos + 1;
+        float scale = 1.0f / std::sqrt((float)D);
 
-        std::vector<float> attn_out(NH * D, 0.0f);
-        std::vector<float> scores(ctx);
+        // q @ k^T: [NH, D] x [D, NKV] = [NH, NKV]
+        // Each of NH query heads attends to all NKV key heads at THIS position only.
+        std::vector<float> scores(NH * NKV);
         for (int h = 0; h < NH; h++) {
-            int kvh = h / gqa;
-            for (int t = 0; t < ctx; t++) {
+            for (int kvh = 0; kvh < NKV; kvh++) {
                 double s = 0.0;
-                const float* krow = &state.k_cache[((size_t)t * NKV + kvh) * D];
-                for (int d = 0; d < D; d++) s += (double)q[h * D + d] * krow[d];
-                scores[t] = (float)(s / std::sqrt((float)D));
-            }
-            float mx = *std::max_element(scores.begin(), scores.end());
-            double sum = 0.0;
-            for (int t = 0; t < ctx; t++) { scores[t] = std::exp(scores[t] - mx); sum += scores[t]; }
-            float inv_sum = (float)(1.0 / sum);
-            for (int t = 0; t < ctx; t++) {
-                float p = scores[t] * inv_sum;
-                const float* vrow = &state.v_cache[((size_t)t * NKV + kvh) * D];
-                for (int d = 0; d < D; d++) attn_out[h * D + d] += p * vrow[d];
+                const float* qrow = &q[(size_t)h * D];
+                const float* krow = &k[(size_t)kvh * D];
+                for (int d = 0; d < D; d++) s += (double)qrow[d] * krow[d];
+                scores[(size_t)h * NKV + kvh] = (float)(s * scale);
             }
         }
+
+        // Softmax per query head (over NKV dimension)
+        std::vector<float> attn_weights(NH * NKV);
+        for (int h = 0; h < NH; h++) {
+            float* row = &scores[(size_t)h * NKV];
+            float mx = row[0];
+            for (int i = 1; i < NKV; i++) if (row[i] > mx) mx = row[i];
+            double sum = 0.0;
+            for (int i = 0; i < NKV; i++) { row[i] = std::exp(row[i] - mx); sum += row[i]; }
+            float inv_sum = (float)(1.0 / sum);
+            float* arow = &attn_weights[(size_t)h * NKV];
+            for (int i = 0; i < NKV; i++) arow[i] = row[i] * inv_sum;
+        }
+
+        // attn_weights @ v: [NH, NKV] x [NKV, D] = [NH, D]
+        std::vector<float> attn_out(NH * D, 0.0f);
+        for (int h = 0; h < NH; h++) {
+            const float* arow = &attn_weights[(size_t)h * NKV];
+            for (int kvh = 0; kvh < NKV; kvh++) {
+                float w = arow[kvh];
+                const float* vrow = &v[(size_t)kvh * D];
+                float* aout = &attn_out[(size_t)h * D];
+                for (int d = 0; d < D; d++) aout[d] += w * vrow[d];
+            }
+        }
+
         linear(attn_out.data(), w_.o_proj.data(), out, NH * D, H);
     }
 

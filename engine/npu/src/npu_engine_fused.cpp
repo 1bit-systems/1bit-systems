@@ -60,7 +60,11 @@ int main(int argc, char** argv) {
     xrt::device dev(0);
     xrt::xclbin xclbin(xclbin_data);
     dev.register_xclbin(xclbin);
-    xrt::kernel kernel(dev, xclbin.get_uuid(), "MLIR_AIE");
+    // Persistent hw_context + kernel — NO xclbin reload between positions.
+    // The AIE cores are re-programmed by the kernel dispatch (instruction BO
+    // contains the per-position AIE program). Driver handles core reset.
+    xrt::hw_context hwctx(dev, xclbin.get_uuid());
+    xrt::kernel kernel(hwctx, "MLIR_AIE");
     
     int dg = kernel.group_id(3); // HOST DRAM bank
     int ig = kernel.group_id(1); // SRAM bank for instructions
@@ -120,12 +124,19 @@ int main(int argc, char** argv) {
     printf("  %d weight files loaded (%zu MB each)\n", num_layers, weight_bytes / 1048576);
     
     // --- Create persistent BOs for KV cache, hidden, output ---
-    printf("Creating data BOs...\n");
+    // Use double-buffered hidden/output to avoid memcpy between layers:
+    //   layer 0: bBuf[0]=input, bBuf[1]=output
+    //   layer 1: bBuf[1]=input, bBuf[0]=output
+    //   ...swap each layer: no copy needed, just toggle the index.
+    printf("Creating data BOs (double-buffered)...\n");
     const size_t safe_sz = 16*1024*1024; // 16MB for DMA safety
     xrt::bo bKCache(dev, safe_sz, xrt::bo::flags::host_only, dg);
     xrt::bo bVCache(dev, safe_sz, xrt::bo::flags::host_only, dg);
-    xrt::bo bHidden(dev, safe_sz, xrt::bo::flags::host_only, dg);
-    xrt::bo bOutput(dev, safe_sz, xrt::bo::flags::host_only, dg);
+    xrt::bo bBuf[2] = {
+        xrt::bo(dev, safe_sz, xrt::bo::flags::host_only, dg),
+        xrt::bo(dev, safe_sz, xrt::bo::flags::host_only, dg)
+    };
+    int buf_idx = 0;  // bBuf[buf_idx] = input, bBuf[buf_idx^1] = output
     
     // Initialize KV cache to zeros
     memset(bKCache.map(), 0, safe_sz);
@@ -148,18 +159,19 @@ int main(int argc, char** argv) {
     
     // Helper: run one layer with optional xclbin reload between layers
     // AIE2 cores halt after aie.end; xclbin reload reinitializes the array.
-    auto run_layer = [&](int layer, int pos, bool reload) -> bool {
-        if (reload) {
-            // Reload the xclbin to reset AIE array state
-            xrt::xclbin fresh_xclbin(xclbin_data);
-            dev.register_xclbin(fresh_xclbin);
-            kernel = xrt::kernel(dev, fresh_xclbin.get_uuid(), "MLIR_AIE");
-        }
+    // Persistent dispatch: same kernel, same xclbin, NO reload between positions.
+    // The AIE cores are re-programmed by the kernel invocation (instruction BO
+    // delivers position-specific AIE instructions). Uses bBuf[buf_idx] as input,
+    // bBuf[buf_idx^1] as output, then flips for zero-copy layer chaining.
+    auto run_layer = [&](int layer, int pos) -> bool {
         auto& ibo2 = get_instr(pos);
         try {
             auto run = kernel((uint64_t)3, ibo2, (uint32_t)(ibo2.size() / 4),
-                             bKCache, bVCache, weight_bos[layer], bOutput, bHidden);
+                             bKCache, bVCache, weight_bos[layer],
+                             bBuf[buf_idx ^ 1],  // output BO
+                             bBuf[buf_idx]);      // input BO
             run.wait();
+            buf_idx ^= 1;  // output becomes input for next layer — zero copy
             return true;
         } catch (const std::exception& e) {
             fprintf(stderr, "  Layer %d failed: %s\n", layer, e.what());
@@ -172,32 +184,27 @@ int main(int argc, char** argv) {
     auto t0 = std::chrono::steady_clock::now();
     
     // Initialize hidden state from embed table (simplified: use constant)
-    uint16_t* hdata = (uint16_t*)bHidden.map();
+    buf_idx = 0;
+    uint16_t* hdata = (uint16_t*)bBuf[buf_idx].map();
     for (int i = 0; i < 1024; i++) hdata[i] = f2bf(0.01f);
-    bHidden.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    bBuf[buf_idx].sync(XCL_BO_SYNC_BO_TO_DEVICE);
     
     // Prefill: for each prompt token, run all layers, updating KV cache
     for (int pi = 0; pi < npt; pi++) {
         // Set hidden state from embedding
-        uint16_t* hd = (uint16_t*)bHidden.map();
+        uint16_t* hd = (uint16_t*)bBuf[buf_idx].map();
         for (int i = 0; i < 1024; i++) hd[i] = f2bf(0.01f * (1 + (pi + i) % 10));
-        bHidden.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        bBuf[buf_idx].sync(XCL_BO_SYNC_BO_TO_DEVICE);
         
-        // If this is the first layer of a new pos, reload xclbin (resets AIE cores)
-        // Subsequent layers for the same pos skip reload (data stays in place)
-        bool reload_first_layer = (pi == 0);  // reload for first prefill token
         
-        // Run all 28 layers at position pi
+        // Run all 28 layers at position pi using persistent kernel dispatch.
+        // run_layer flips buf_idx for zero-copy layer chaining.
         for (int l = 0; l < num_layers; l++) {
-            bool first_layer_at_pos = (l == 0);
-            if (!run_layer(l, pi, first_layer_at_pos && reload_first_layer)) {
+            if (!run_layer(l, pi)) {
                 fprintf(stderr, "Prefill token %d layer %d FAILED\n", pi, l);
                 return 1;
             }
-            
-            // Output becomes input for next layer
-            memcpy(bHidden.map(), bOutput.map(), 512*4);
-            bHidden.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            // No memcpy needed — buf_idx already flipped by run_layer
         }
     }
     
@@ -214,23 +221,19 @@ int main(int argc, char** argv) {
         
         auto ts = std::chrono::steady_clock::now();
         
-        // Set hidden state from embedding
-        uint16_t* hd = (uint16_t*)bHidden.map();
+        // Set hidden state from embedding (use current buf_idx)
+        buf_idx = 0;
+        uint16_t* hd = (uint16_t*)bBuf[buf_idx].map();
         for (int i = 0; i < 1024; i++) hd[i] = f2bf(0.01f * (1 + (pos + step + i) % 10));
-        bHidden.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        bBuf[buf_idx].sync(XCL_BO_SYNC_BO_TO_DEVICE);
         
-        // Run all 28 layers at position pos with xclbin reload for the first layer
-        // Each new positions starts with a fresh xclbin load to reset AIE array
+        // Run all 28 layers at position pos with persistent kernel dispatch.
+        // No xclbin reload, no memcpy — just dispatch and flip buf_idx.
         for (int l = 0; l < num_layers; l++) {
-            bool first_layer = (l == 0);
-            if (!run_layer(l, pos, first_layer)) {
+            if (!run_layer(l, pos)) {
                 fprintf(stderr, "Decode step %d layer %d FAILED\n", step, l);
                 return 1;
             }
-            
-            // Output becomes input for next layer
-            memcpy(bHidden.map(), bOutput.map(), 512*4);
-            bHidden.sync(XCL_BO_SYNC_BO_TO_DEVICE);
         }
         
         double step_ms = std::chrono::duration<double, std::milli>(

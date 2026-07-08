@@ -2,7 +2,7 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseFast });
+    const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSmall });
     const target = b.standardTargetOptions(.{ .default_target = .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu } });
 
     // Modules
@@ -22,6 +22,7 @@ pub fn build(b: *std.Build) void {
     root_mod.addImport("vk_wrapper", vk_mod);
 
     const exe = b.addExecutable(.{ .name = "fused-engine", .root_module = root_mod });
+    exe.linker_allow_shlib_undefined = true;
     b.installArtifact(exe);
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());

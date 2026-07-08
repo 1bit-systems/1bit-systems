@@ -16,7 +16,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **1bit-systems** (9623 symbols, 17639 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **1bit-systems** (19305 symbols, 34881 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -35,7 +35,6 @@ This project is indexed by GitNexus as **1bit-systems** (9623 symbols, 17639 rel
 - NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
 - NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
 - NEVER commit changes without running `detect_changes()` to check affected scope.
-- NEVER use HTTPS for GitHub remotes. SSH is configured globally — all git operations auto-rewrite HTTPS to SSH via `git config --global url."git@github.com:".insteadOf`. No prompts.
 
 ## Resources
 

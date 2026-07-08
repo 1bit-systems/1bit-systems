@@ -87,6 +87,23 @@ if(BUILD_TESTING)
         spec_decode
     )
     add_test(NAME verify_loop COMMAND test_verify_loop)
+
+    # NPU acceptance test (needs XRT + NPU hardware)
+    if(ENABLE_NPU)
+        add_executable(test_acceptance
+            tools/test_acceptance.cpp
+            /home/bcloud/engine/npu/src/dequant_q4nx.c
+        )
+        target_link_libraries(test_acceptance PRIVATE
+            spec_decode
+            XRT::xrt_coreutil
+        )
+        target_include_directories(test_acceptance PRIVATE
+            ${XRT_INCLUDE_DIR}
+            /home/bcloud/engine/npu/src
+        )
+        add_test(NAME acceptance COMMAND test_acceptance)
+    endif()
 endif()
 
 # ── Install headers ──

@@ -3,8 +3,17 @@
  *  Supports ALL models with tagged xclbins. Target: >80 tok/s on any model. */
 #include "platform.h"
 #include "model_config.h"
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <cstring>
 extern "C" float* dequant_i8_to_float_ex(const uint8_t*,int,int,int*,int*);
 static constexpr float EPS=1e-6f;
+static void *shm_ptr = nullptr;
+static size_t shm_size = 0;
+static float *shm_in, *shm_out;
+#define SHM_TOTAL (128 * 1024 * 1024)
+#define SHM_IN_OFF 0
+#define SHM_OUT_OFF (SHM_TOTAL / 2)
 static inline void cn(float*x,int n){for(int i=0;i<n;i++)if(!std::isfinite(x[i]))x[i]=0.0f;}
 static inline void sm(float*sc,int n){if(n<=0)return;cn(sc,n);float mx=sc[0];
     for(int i=1;i<n;i++)if(sc[i]>mx)mx=sc[i];double s=0;
@@ -142,10 +151,25 @@ int main(int argc,char**argv){
     }
 
     
-    // Check for --server flag
+    // Check for --server and --shm flags
     bool server_mode = false;
+    const char *shm_name = nullptr;
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--server") == 0) { server_mode = true; break; }
+        if (strcmp(argv[i], "--server") == 0) { server_mode = true; }
+        if (strcmp(argv[i], "--shm") == 0 && i + 1 < argc) { shm_name = argv[++i]; }
+    }
+
+    // Open shared memory for IPC if requested
+    if (shm_name) {
+        int shm_fd = shm_open(shm_name, O_RDWR, 0666);
+        if (shm_fd >= 0) {
+            shm_ptr = mmap(nullptr, SHM_TOTAL, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+            close(shm_fd);
+            if (shm_ptr != MAP_FAILED) {
+                shm_in = (float *)((uint8_t *)shm_ptr + SHM_IN_OFF);
+                shm_out = (float *)((uint8_t *)shm_ptr + SHM_OUT_OFF);
+            } else shm_ptr = nullptr;
+        }
     }
     
 int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
@@ -306,6 +330,9 @@ int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
     int npt=(int)pt_vec.size(); if(npt<1)npt=1;
     if(input_tok_file && npt > XM) npt = XM;
 
+    // In server mode, skip prefill+decode and enter command loop immediately
+    if (!server_mode) {
+
     // ===== PREFILL =====
     printf("=== Prefill %d ===\n",npt);auto t0=std::chrono::steady_clock::now();
     for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=emb_f32[pt_vec[pi]*H+i];
@@ -381,10 +408,17 @@ int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
         printf("  [0] boot=%d (%.0fms)\n",top_ids[0],t_boot);
     }
 
+    // Keep track of all generated tokens
+    std::vector<int> all_tokens;
+    all_tokens.push_back(top_ids[0]);  // boot token
+
     int step=1;
     while(step<ng){
         auto ts_batch=std::chrono::steady_clock::now();
         int batch_size=std::min(BS,ng-step);
+        // The input tokens are from the PREVIOUS step's top-k. top_ids[0] was
+        // already saved; save top_ids[1..batch_size-1] as new generated tokens.
+        for (int b = 1; b < batch_size; b++) all_tokens.push_back(top_ids[b]);
         for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=emb_f32[(size_t)top_ids[b]*H+i];
         for(int l=0;l<NC;l++){
             // Save pre-norm residuals before rn_c
@@ -423,6 +457,7 @@ int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
         // LM head on batch[0] → top-32 for next batch
         memcpy(sb_data.data(),&h_b[0],H*4);rn_c(sb_data.data(),fin_v.data(),H);
         lm_topk_omp(sb_data.data(),lg_buf.data(),top_ids,BS,NV,H,lm_emb);
+        all_tokens.push_back(top_ids[0]);  // new token from this batch
 
         total_accepted+=batch_size;sp+=batch_size;n_batches++;
         double batch_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-ts_batch).count();
@@ -433,58 +468,123 @@ int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
     double tts=std::chrono::duration<double>(std::chrono::steady_clock::now()-tgs).count();
     printf("\n=== %.1f ms/tok (%.0f tok/s) | boot=%.0fms batches=%d accepted=%d ===\n",tts*1000/ng,ng/tts,t_boot,n_batches,total_accepted);
 
-        
-    // Server mode: keep running, accept commands on stdin
+    // ── Machine-parseable token output ──
+    printf("TOKENS:");
+    for (int t : all_tokens) printf(" %d", t);
+    printf("\n");
+    }  // end !server_mode block
+
+    // -- Server mode --
     if (server_mode) {
         printf("SERVER: READY\n");
         fflush(stdout);
         char cmd[256];
         while (fgets(cmd, sizeof(cmd), stdin)) {
-            if (cmd[0] == 'Q' && cmd[1] == 'K' && cmd[2] == 'V') {
-                // QKV <layer> <pos> <batch_size>
-                int sl, sp, sb;
-                if (sscanf(cmd, "QKV %d %d %d", &sl, &sp, &sb) == 3 && sl >= 0 && sl < NC && sb > 0 && sb <= XM) {
-                    // Read input hidden state
-                    std::vector<float> input(sb * H);
-                    size_t expected = sb * H;
-                    size_t got = fread(input.data(), 4, expected, stdin);
-                    if ((int)got == expected) {
-                        // Run QKV for this layer
-                        for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) h_b[b*H+i] = input[b*H+i];
-                        for (int b = 0; b < sb; b++) rn_c(&h_b[b*H], in_n[sl].data(), H);
-                        cq.go(sl, h_b.data(), sb, H, FIXED_ASCALE, qsc[sl], qo_b.data(), qkv_n);
-                        // Output QKV result
-                        fwrite(qo_b.data(), 4, sb * qkv_n, stdout);
-                        fflush(stdout);
+            if (cmd[0] == 'P' && cmd[1] == 'R' && cmd[2] == 'E' && cmd[3] == 'Q') {
+                // PREQ N — QKV for all layers with batch=N (fast prefill)
+                int sb;
+                if (sscanf(cmd, "PREQ %d", &sb) == 1 && sb > 0 && sb <= XM) {
+                    const float *input_data = (shm_ptr && sb * H <= (int)(SHM_TOTAL / 2 / 4)) ? shm_in : nullptr;
+                    if (!input_data) continue;
+                    float *qkv_scratch = shm_out;  // output: N × NC × qkv_n
+                    for (int l = 0; l < NC; l++) {
+                        for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) h_b[b*H+i] = input_data[b*H+i];
+                        for (int b = 0; b < sb; b++) rn_c(&h_b[b*H], in_n[l].data(), H);
+                        cq.go(l, h_b.data(), sb, H, FIXED_ASCALE, qsc[l], qo_b.data(), qkv_n);
+                        cn(qo_b.data(), sb * qkv_n);
+                        memcpy(qkv_scratch + (size_t)l * sb * qkv_n, qo_b.data(), (size_t)sb * qkv_n * 4);
                     }
+                    fputc('\n', stdout); fflush(stdout);
                 }
-            } else if (cmd[0] == 'F' && cmd[1] == 'F' && cmd[2] == 'N') {
-                // FFN <layer> <pos> <batch_size>
-                int sl, sp, sb;
-                if (sscanf(cmd, "FFN %d %d %d", &sl, &sp, &sb) == 3 && sl >= 0 && sl < NC && sb > 0 && sb <= XM) {
-                    std::vector<float> attn_input(sb * NH * HD);
-                    size_t got = fread(attn_input.data(), 4, sb * NH * HD, stdin);
-                    if ((int)got == sb * NH * HD) {
-                        // O projection
-                        co.go(sl, attn_input.data(), sb, NH*HD, FIXED_ASCALE, osc[sl], oo_b.data(), H);
-                        // Residual add, norm, FFN
-                        for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) h_b[b*H+i] = sb_data[b*H+i] + oo_b[b*H+i];
-                        for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) sb_data[b*H+i] = h_b[b*H+i];
-                        for (int b = 0; b < sb; b++) rn_c(&h_b[b*H], pa_n[sl].data(), H);
+            } else if (cmd[0] == 'P' && cmd[1] == 'R' && cmd[2] == 'E' && cmd[3] == 'F') {
+                // PREF N — O+FFN for all layers with batch=N (fast prefill)
+                int sb;
+                if (sscanf(cmd, "PREF %d", &sb) == 1 && sb > 0 && sb <= XM) {
+                    const float *shm_in_f = (const float*)((uint8_t*)shm_ptr + SHM_IN_OFF);
+                    if (!shm_ptr || (size_t)sb * (H + NH * HD) > SHM_TOTAL / 2 / 4) continue;
+                    const float *res_data = shm_in_f;
+                    const float *attn_data = shm_in_f + sb * H;
+                    float *out_data = shm_out;
+                    for (int l = 0; l < NC; l++) {
+                        for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) h_b[b*H+i] = res_data[b*H+i];
+                        const float *at_batch = attn_data + (size_t)l * sb * NH * HD;
+                        co.go(l, at_batch, sb, NH*HD, FIXED_ASCALE, osc[l], oo_b.data(), H);
+                        cn(oo_b.data(), sb * H);
+                        for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) h_b[b*H+i] += oo_b[b*H+i];
+                        for (int b = 0; b < sb; b++) rn_c(&h_b[b*H], pa_n[l].data(), H);
                         int mlp_out = cfg.gu_split ? IM : 2*IM;
-                        cg.go(sl, h_b.data(), sb, H, FIXED_ASCALE, gsc[sl], gt_b.data(), mlp_out);
-                        if (cfg.gu_split) {
-                            for (int b = 0; b < sb; b++) for (int i = 0; i < IM; i++) h_b[b*IM+i] = gt_b[b*mlp_out+i];
-                            // Need Up weights too... skip for now
-                        } else {
+                        cg.go(l, h_b.data(), sb, H, FIXED_ASCALE, gsc[l], gt_b.data(), mlp_out);
+                        if (!cfg.gu_split) {
                             for (int b = 0; b < sb; b++) for (int i = 0; i < IM; i++) {
                                 float gv = gt_b[b*mlp_out+i], uv = gt_b[b*mlp_out+IM+i];
                                 h_b[b*IM+i] = (gv/(1.0f+expf(-gv))) * uv;
                             }
+                        } else {
+                            for (int b = 0; b < sb; b++) for (int i = 0; i < IM; i++) h_b[b*IM+i] = gt_b[b*mlp_out+i];
                         }
-                        cd.go(sl, h_b.data(), sb, IM, FIXED_ASCALE, dsc[sl], dw_b.data(), H);
-                        fwrite(dw_b.data(), 4, sb * H, stdout);
-                        fflush(stdout);
+                        cd.go(l, h_b.data(), sb, IM, FIXED_ASCALE, dsc[l], dw_b.data(), H);
+                        cn(dw_b.data(), sb * H);
+                        for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) dw_b[b*H+i] += res_data[b*H+i];
+                        memcpy(out_data + (size_t)l * sb * H, dw_b.data(), (size_t)sb * H * 4);
+                    }
+                    fputc('\n', stdout); fflush(stdout);
+                }
+            } else if (cmd[0] == 'Q' && cmd[1] == 'K' && cmd[2] == 'V') {
+                int sl, sp, sb; bool raw = (cmd[3] == 'R');
+                if (sscanf(cmd, raw ? "QKVR %d %d %d" : "QKV %d %d %d", &sl, &sp, &sb) == 3 && sl >= 0 && sl < NC && sb > 0 && sb <= XM) {
+                    const float *input_data = (shm_ptr && sb * H <= (int)(SHM_TOTAL / 2 / 4)) ? shm_in : nullptr;
+                    if (input_data) {
+                        for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) h_b[b*H+i] = input_data[b*H+i];
+                    } else {
+                        std::vector<float> input(sb * H);
+                        if ((int)fread(input.data(), 4, sb * H, stdin) != sb * H) continue;
+                        for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) h_b[b*H+i] = input[b*H+i];
+                    }
+                    if (!raw) for (int b = 0; b < sb; b++) rn_c(&h_b[b*H], in_n[sl].data(), H);
+                    cq.go(sl, h_b.data(), sb, H, FIXED_ASCALE, qsc[sl], qo_b.data(), qkv_n);
+                    if (shm_ptr && sb * qkv_n <= (int)(SHM_TOTAL / 2 / 4)) {
+                        memcpy(shm_out, qo_b.data(), (size_t)sb * qkv_n * 4);
+                        fputc('\n', stdout); fflush(stdout);
+                    } else {
+                        fwrite(qo_b.data(), 4, sb * qkv_n, stdout); fflush(stdout);
+                    }
+                }
+            } else if (cmd[0] == 'F' && cmd[1] == 'F' && cmd[2] == 'N') {
+                int sl, sp, sb;
+                if (sscanf(cmd, "FFN %d %d %d", &sl, &sp, &sb) == 3 && sl >= 0 && sl < NC && sb > 0 && sb <= XM) {
+                    const float *res_ptr, *attn_ptr;
+                    bool use_shm = shm_ptr && (2 * sb * H <= (int)(SHM_TOTAL / 2 / 4));
+                    if (use_shm) {
+                        res_ptr = shm_in;
+                        attn_ptr = shm_in + sb * H;
+                    } else {
+                        static std::vector<float> rbuf;
+                        rbuf.resize(sb * H + sb * NH * HD);
+                        if ((int)fread(rbuf.data(), 4, sb * H, stdin) != sb * H) continue;
+                        if ((int)fread(rbuf.data() + sb * H, 4, sb * NH * HD, stdin) != sb * NH * HD) continue;
+                        res_ptr = rbuf.data();
+                        attn_ptr = rbuf.data() + sb * H;
+                    }
+                    for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) h_b[b*H+i] = res_ptr[b*H+i];
+                    co.go(sl, attn_ptr, sb, NH*HD, FIXED_ASCALE, osc[sl], oo_b.data(), H);
+                    for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) h_b[b*H+i] += oo_b[b*H+i];
+                    for (int b = 0; b < sb; b++) rn_c(&h_b[b*H], pa_n[sl].data(), H);
+                    int mlp_out = cfg.gu_split ? IM : 2*IM;
+                    cg.go(sl, h_b.data(), sb, H, FIXED_ASCALE, gsc[sl], gt_b.data(), mlp_out);
+                    if (!cfg.gu_split) {
+                        for (int b = 0; b < sb; b++) for (int i = 0; i < IM; i++) {
+                            float gv = gt_b[b*mlp_out+i], uv = gt_b[b*mlp_out+IM+i];
+                            h_b[b*IM+i] = (gv/(1.0f+expf(-gv))) * uv;
+                        }
+                    } else {
+                        for (int b = 0; b < sb; b++) for (int i = 0; i < IM; i++) h_b[b*IM+i] = gt_b[b*mlp_out+i];
+                    }
+                    cd.go(sl, h_b.data(), sb, IM, FIXED_ASCALE, dsc[sl], dw_b.data(), H);
+                    if (use_shm) {
+                        memcpy(shm_out, dw_b.data(), (size_t)sb * H * 4);
+                        fputc('\n', stdout); fflush(stdout);
+                    } else {
+                        fwrite(dw_b.data(), 4, sb * H, stdout); fflush(stdout);
                     }
                 }
             } else if (strcmp(cmd, "EXIT\n") == 0 || strcmp(cmd, "EXIT") == 0) {

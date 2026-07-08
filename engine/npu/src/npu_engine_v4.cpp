@@ -8,6 +8,7 @@
 #include <cmath>
 #include "platform.h"
 #include <vector>
+#include <memory>
 #include <chrono>
 extern "C" float* dequant_i8_to_float(const uint8_t*,int,int*,int*);
 static constexpr int H=1024,NC=28,NH=16,NKV=8,HD=128,IM=3072,NV=151936,GQA=2;
@@ -29,6 +30,10 @@ static uint64_t jo(const char*js,size_t jl,const char*nm){size_t nl=strlen(nm);c
 
 // F32 pre-converted embeddings for fast LM head
 static std::vector<float> emb_f32;
+
+// RAII wrapper for malloc'd float buffers returned by dequant_i8_to_float
+struct free_deleter{void operator()(float*p)const{std::free(p);}};
+using float_owner=std::unique_ptr<float[],free_deleter>;
 
 // ===== I8Ctx v4: single weight sync at startup, never re-synced =====
 struct I8Ctx{const char*name;int MD,KD,ND;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt::hw_context>hc;std::unique_ptr<xrt::kernel>k;std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bI,bA,bC,layerB[NC];int8_t*Am;int32_t*Cm;
@@ -72,15 +77,15 @@ int main(int argc,char**argv){
     printf("Dequant+pack (weights synced ONCE)...\n");auto tp=std::chrono::steady_clock::now();
     struct WS{float qk,o_,g_,d_;}wsc[NC];
     for(int l=0;l<NC;l++){int qr,kr,vr,or_,gr,ur,dr,unused;
-        float*qw=dequant_i8_to_float(i8p(lo[l].qp),256,&qr,&unused),*kw=dequant_i8_to_float(i8p(lo[l].kp),128,&kr,&unused),*vw=dequant_i8_to_float(i8p(lo[l].vp),128,&vr,&unused);
-        int t=qr+kr+vr;std::vector<float>w((size_t)H*t);transpose_pack(qw,qr,H,w.data(),t,0);transpose_pack(kw,kr,H,w.data(),t,qr);transpose_pack(vw,vr,H,w.data(),t,qr+kr);
-        cq.packB(l,w.data(),H,t,wsc[l].qk);free(qw);free(kw);free(vw);
-        int o_in_f=NH*HD;float*ow=dequant_i8_to_float_ex(i8p(lo[l].op),256,o_in_f,&or_,&unused);std::vector<float>wo((size_t)o_in_f*H);transpose_pack(ow,H,o_in_f,wo.data(),H,0);co.packB(l,wo.data(),o_in_f,H,wsc[l].o_);free(ow);
-        float*gw=dequant_i8_to_float(i8p(lo[l].gp),384,&gr,&unused),*uw=dequant_i8_to_float(i8p(lo[l].up),384,&ur,&unused);
-        int t2=gr+ur;std::vector<float>w2((size_t)H*t2);transpose_pack(gw,gr,H,w2.data(),t2,0);transpose_pack(uw,ur,H,w2.data(),t2,gr);
-        cg.packB(l,w2.data(),H,t2,wsc[l].g_);free(gw);free(uw);
-        int d_in_f=IM;float*dw=dequant_i8_to_float_ex(i8p(lo[l].dp),384,d_in_f,&dr,&unused);std::vector<float>wd((size_t)d_in_f*H);transpose_pack(dw,H,d_in_f,wd.data(),H,0);cd.packB(l,wd.data(),d_in_f,H,wsc[l].d_);free(dw);}
-    int lr,lc;float* lm_raw=dequant_i8_to_float(i8p(lo_off),18992,&lr,&lc);std::vector<float> lm_head_f32((size_t)lr*lc);memcpy(lm_head_f32.data(),lm_raw,(size_t)lr*lc*sizeof(float));free(lm_raw);
+        float_owner qw(dequant_i8_to_float(i8p(lo[l].qp),256,&qr,&unused)),kw(dequant_i8_to_float(i8p(lo[l].kp),128,&kr,&unused)),vw(dequant_i8_to_float(i8p(lo[l].vp),128,&vr,&unused));
+        int t=qr+kr+vr;std::vector<float>w((size_t)H*t);transpose_pack(qw.get(),qr,H,w.data(),t,0);transpose_pack(kw.get(),kr,H,w.data(),t,qr);transpose_pack(vw.get(),vr,H,w.data(),t,qr+kr);
+        cq.packB(l,w.data(),H,t,wsc[l].qk);
+        int o_in_f=NH*HD;float_owner ow(dequant_i8_to_float_ex(i8p(lo[l].op),256,o_in_f,&or_,&unused));std::vector<float>wo((size_t)o_in_f*H);transpose_pack(ow.get(),H,o_in_f,wo.data(),H,0);co.packB(l,wo.data(),o_in_f,H,wsc[l].o_);
+        float_owner gw(dequant_i8_to_float(i8p(lo[l].gp),384,&gr,&unused)),uw(dequant_i8_to_float(i8p(lo[l].up),384,&ur,&unused));
+        int t2=gr+ur;std::vector<float>w2((size_t)H*t2);transpose_pack(gw.get(),gr,H,w2.data(),t2,0);transpose_pack(uw.get(),ur,H,w2.data(),t2,gr);
+        cg.packB(l,w2.data(),H,t2,wsc[l].g_);
+        int d_in_f=IM;float_owner dw(dequant_i8_to_float_ex(i8p(lo[l].dp),384,d_in_f,&dr,&unused));std::vector<float>wd((size_t)d_in_f*H);transpose_pack(dw.get(),H,d_in_f,wd.data(),H,0);cd.packB(l,wd.data(),d_in_f,H,wsc[l].d_);}
+    int lr,lc;float_owner lm_raw(dequant_i8_to_float(i8p(lo_off),18992,&lr,&lc));std::vector<float> lm_head_f32((size_t)lr*lc);memcpy(lm_head_f32.data(),lm_raw.get(),(size_t)lr*lc*sizeof(float));
     printf("  %.0fms\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-tp).count());
     ri(HD,1000000.0f,4096);
 
