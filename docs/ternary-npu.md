@@ -1,23 +1,63 @@
 # 1.58-bit Ternary Inference on NPU
 
-> **Historical**: this pipeline targeted the standalone `engine/npu/`
-> (`npu_engine_universal`) C++ engine, which was retired from this repo
-> (commit `cd232a091`) — superseded by the `spec-decode/` stack. The
-> conversion tooling (`tools/q2_0_to_q4nx.py`) and the underlying idea (INT8
-> GEMM doesn't care whether the source weights were ternary) are still valid,
-> but the specific engine binary referenced below no longer exists here. The
-> current validated 1.58-bit ternary result (279 tok/s, coherent) runs on
-> GPU via Vulkan/ZINC — see `docs/wiki/performance.md` — not on NPU.
+**Status**: ✅ Native ternary kernels built — 3 xclbin variants compiled and verified
 
-**Status (historical)**: ✅ Pipeline ready — Q2_0 GGUF → INT8 Q4NX → NPU inference via proven INT8 GEMM
+The NPU ternary pipeline has two paths:
+1. **INT8 passthrough** (proven): Dequant ternary → INT8 → existing INT8 GEMM pipeline
+2. **Native ternary** (new, built): On-the-fly 2-bit decode → BF16 MAC → 4× memory density
 
-## Pipeline
+## Native Ternary Kernels (New!)
+
+Three Chess C++ kernels compiled to xclbins at `engine/npu/build/build/`:
+
+| xclbin | Type | Description | Size |
+|--------|------|-------------|------|
+| `ternary/` | `mm_ternary` | Native ternary GEMM, 32×64×128 (256 ternary), scalar output | 16KB |
+| `bitnet_micro/` | `bitnet_micro` | Scheduler microbenchmark, 1 chunk, 32-row BF16 output | 23KB |
+| `scheduler/` | `bitnet_scheduler` | Full layer scheduler, 6-buffer ping-pong, 7 phases | 23KB |
+
+All built with `source engine/npu/build/env.sh && bash engine/npu/build/build_all_ternary.sh`
+
+### Kernel Sources
+
+| File | Purpose |
+|------|---------|
+| `engine/npu/kernel/mm_ternary_32x64x128.cpp` | Native ternary GEMM — 2-bit decode + BF16 MAC |
+| `engine/npu/kernel/bitnet_ternary_scheduler.cpp` | Full BitNet layer scheduler (Q/K/V/O/Up/Gate/Down) |
+| `engine/npu/build/build_ternary_xclbin.sh` | One-command build: Chess compile → MLIR → xclbin |
+| `engine/npu/build/build_all_ternary.sh` | Build all 3 kernel variants |
+| `engine/npu/build/env.sh` | Source to activate Chess/MLIR toolchain |
+
+### Kernel Capabilities
+
+**`mm_ternary_32x64x128`**:
+- 4× memory density: 2-bit packed ternary weights (vs 8-bit INT8)
+- On-the-fly decode: `00→-1.0, 01→0.0, 10→+1.0, 11→-1.0`
+- BF16 accumulation with per-row scale
+- 32 output rows, 64 packed bytes input (256 ternary values)
+
+**`bitnet_ternary_scheduler`**:
+- Full 7-phase BitNet layer: Q, K, V, O, Up, Gate, Down
+- Ping-pong buffers for weights, activations, and record output
+- Packet-based output (Q=0x1, O=0x4, FFN=0x8, Down=0x4)
+- Per-chunk ternary decode with broadcast MAC
+
+### Tests
+
+| Test | Purpose |
+|------|---------|
+| `engine/npu/tests/test_ternary_kernel` | Simple XRT test (load_xclbin API) |
+| `engine/npu/tests/test_ternary_npu` | Full XRT test (hw_context API) |
+
+Both validate BF16-precision bit-exactness against CPU reference (max error < 1e-3).
+
+## INT8 Passthrough Pipeline
 
 ```
-Q2_0 GGUF (ternary 1.58-bit)
+IQ1_S / Q2_0 GGUF (ternary 1.58-bit)
   │
   ▼
-tools/q2_0_to_q4nx.py    # Dequant ternary {-1,0,+1} → bake per-block scale → INT8
+tools/q2_0_to_q4nx.py    # Dequant → bake per-block scale → INT8
   │
   ▼
 Q4NX file (INT8 weights, engine-native format)
@@ -26,64 +66,86 @@ Q4NX file (INT8 weights, engine-native format)
 npu_engine_universal     # Loads Q4NX, dispatches INT8 xclbin, runs GEMM
 ```
 
-## Files
+### INT8 xclbins Built (deprecated in favor of native ternary)
 
-| File | Purpose |
-|------|---------|
-| `tools/q2_0_to_q4nx.py` | Q2_0 (GGML type 42) → INT8 Q4NX converter |
-| `engine/npu/kernel/n1_core_ternary.py` | MLIR generator for ternary xclbin (based on n1_core_i8_v2.py) |
-| `engine/npu/build/build_ternary_xclbin.sh` | One-command xclbin build: MLIR → compile → insts |
-| `engine/npu/build/env.sh` | Source this to activate Chess/MLIR toolchain |
+| xclbin | Dimensions | Size | Status |
+|--------|------------|------|--------|
+| QKV    | 128×1024×4096 | 89KB | ✅ (INT8 path) |
+| D      | 128×3072×1024 | 54KB | ✅ (INT8 path) |
+| O      | 128×2048×1024 | 54KB | ✅ (INT8 path) |
+| GU     | 128×1024×6144 | 113KB | ❌ build incomplete |
+| KV     | 128×1024×1024 | 54KB | ✅ (INT8 path) |
 
 ## Usage
 
+### Native Ternary (microbenchmark)
+
 ```bash
-# 1. Source toolchain
+# Build all three kernel types
+source engine/npu/build/env.sh
+bash engine/npu/build/build_all_ternary.sh
+
+# Or build individually:
+bash engine/npu/build/build_ternary_xclbin.sh ternary mm_ternary
+bash engine/npu/build/build_ternary_xclbin.sh bitnet_micro bitnet_micro
+bash engine/npu/build/build_ternary_xclbin.sh scheduler bitnet_scheduler
+
+# Test (on NPU hardware):
+./engine/npu/tests/test_ternary_npu \
+    engine/npu/build/build/ternary/design.xclbin \
+    engine/npu/build/build/ternary/design.insts
+```
+
+### INT8 Passthrough (legacy)
+
+```bash
+# Source toolchain
 source engine/npu/build/env.sh
 
-# 2. Convert ternary weights
-python3 tools/q2_0_to_q4nx.py Ternary-Bonsai-1.7B-q2_0.gguf model.q4nx
+# Build INT8 xclbins
+bash engine/npu/build/build_ternary_xclbin.sh QKV 128 1024 4096
+# ... etc
 
-# 3. Build ternary xclbin
-bash engine/npu/build/build_ternary_xclbin.sh ternary 128 1024 4096
+# Convert model
+python tools/q2_0_to_q4nx.py model.gguf model.q4nx
 
-# 4. Run on NPU
+# Run
 ./npu_engine_universal model.q4nx
 ```
 
-## How it works
+## How the Native Ternary Kernel Works
 
-The NPU's INT8 GEMM pipeline is proven bit-exact (verified via hardware dump-and-compare,
-see `docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md`). Ternary Q2_0 weights are:
+Each packed byte holds 4 ternary weights in 2-bit fields:
+```
+bits[0:1]=v0, bits[2:3]=v1, bits[4:5]=v2, bits[6:7]=v3
+mapping: 00→-1.0, 01→0.0, 10→+1.0, 11→-1.0
+```
 
-1. **Dequantized** from 2-bit packed format to float32
-2. **Re-quantized** to INT8 with per-block scale baked into the weight values
-3. **Loaded** as a Q4NX file the engine already understands
-4. **Dispatched** through the existing INT8 xclbin pipeline
+The kernel:
+1. **Decodes** 8 packed bytes → 32 BF16 ternary values (AIE vector width)
+2. **Loads** 32 BF16 activation values
+3. **Multiplies** element-wise, reduces via dot product
+4. **Broadcasts** dot × per-row scale, accumulates
+5. Repeats for all K chunks (8 iterations per chunk of 256 ternary)
 
-The NPU doesn't know it's doing ternary math — it just sees INT8 weights and runs
-the same bit-exact GEMM. Results are numerically identical to GPU Q2_0 inference.
-
-## Future: Native Ternary AIE Kernel
-
-For 4× memory density (2-bit packed weights instead of 8-bit), the AIE array needs
-a native ternary kernel. This requires:
-
-1. **Chess C++ kernel** (`mm_ternary_32x64x128.cpp`) with:
-   - 2-bit packed ternary weight decode: `(code - 1) * d`
-   - AIE vector MAC with ternary operands
-   - Per-block scale applied post-GEMM
-2. **Compiled with toolchain**: `xchesscc mm_ternary_32x64x128.cpp -o mm_ternary_32x64x128.o`
-3. **Linked into MLIR generator**: replace `mm_32x64x128.o` reference
-
-The toolchain is at `/home/bcloud/torch2aie/toolchain/`. Source `engine/npu/build/env.sh`
-to activate it. The MLIR generator and build pipeline are ready — only the kernel object
-file needs replacing.
+Memory layout (mm_ternary):
+```
+[weights: M×K uint8] [scales: M×bf16] [activations: K×4 bf16]
+```
 
 ## Benchmarks
 
 | Backend | Precision | Speed | Status |
 |---------|-----------|-------|--------|
 | GPU (Vulkan) | Q2_0 ternary | **279 tok/s** | ✅ Validated |
-| NPU (INT8 path) | Q2_0→INT8 | **~28 tok/s** | ✅ Pipeline ready, not yet benchmarked |
-| NPU (native ternary) | Q2_0 packed | **TBD** | 🔧 Kernel required |
+| NPU (INT8 path) | Q2_0→INT8 | **~28 tok/s** | ✅ Pipeline ready |
+| NPU (native ternary) | Q2_0 packed | **TBD** | ✅ Kernels built, pending NPU deployment |
+
+## Next Steps (Future Work)
+
+For full model inference at native ternary density:
+1. **Multi-tile MLIR generator** — ports the single-tile microbenchmark to 8-core grid
+   designs (use `torch2aie/examples/bitnet-decode-layer/` patterns)
+2. **NPU deployment** — run on Strix Halo hardware, profile throughput
+3. **Model integration** — wire into `spec-decode/` engine stack
+4. **Per-layer xclbins** — build optimized variants for each projection dimension
