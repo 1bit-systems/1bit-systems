@@ -43,11 +43,11 @@ KERNEL_ENTRY="mm_ternary_32x64x128"
 OBJ_FILE="$OUT_DIR/${KERNEL_ENTRY}.o"
 
 PER_CORE_M=$(( TOTAL_M / 32 ))   # e.g. 128/32 = 4
-PER_ROW_M=$(( TOTAL_M / 4 ))     # e.g. 128/4 = 32
+PER_COL_M=$(( TOTAL_M / 8 ))     # e.g. 128/8 = 16 rows per column buffer
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Native Ternary 32-Core xclbin Builder"
-echo "  total M=$TOTAL_M  per_core M=$PER_CORE_M  per_row M=$PER_ROW_M"
+echo "  total M=$TOTAL_M  per_core M=$PER_CORE_M  per_col M=$PER_COL_M"
 echo "  K_packed=$DIM_K  (K_ternary=$K_TERNARY)"
 echo "  Cores: 4 rows × 8 columns = 32"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -58,14 +58,14 @@ mkdir -p "$OUT_DIR"
 # Kernel is compiled with DIM_M=per_row_M so the buffer holds all rows
 # for the broadcast. Each core picks its slice via row_start/num_rows.
 echo ""
-echo "[1/3] Compiling mm_ternary kernel (DIM_M=$PER_ROW_M)..."
+echo "[1/3] Compiling mm_ternary kernel (DIM_M=$PER_COL_M)..."
 
 $CC aie2p \
     -I"$AIETOOLS_DIR/include" \
     -I"$MLIR_AIE_DIR/include" \
     -I"$MLIR_AIE_DIR/include/aie_kernels" \
     -I"$MLIR_AIE_DIR/include/aie_kernels/aie2p" \
-    -DDIM_M="$PER_ROW_M" \
+    -DDIM_M="$PER_COL_M" \
     -DDIM_K_PACKED="$DIM_K" \
     -DDIM_N=128 \
     -c "$SCRIPT_DIR/../../../1bit-systems/engine/npu/kernel/mm_ternary_32x64x128.cpp" \
