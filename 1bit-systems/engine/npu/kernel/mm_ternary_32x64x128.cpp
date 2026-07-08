@@ -120,31 +120,24 @@ compute_one_row(const uint8_t *__restrict weight_row,
 extern "C" {
 
 void mm_ternary_32x64x128(int32_t *__restrict input,
-                          bfloat16 *__restrict output,
-                          int32_t row_start,
-                          int32_t num_rows) {
+                          bfloat16 *__restrict output) {
   // Cast sub-regions
   const uint8_t  *weights = reinterpret_cast<const uint8_t *>(input);
   const bfloat16 *scales  = reinterpret_cast<const bfloat16 *>(input + kScaleOffset / 4);
   const bfloat16 *acts    = reinterpret_cast<const bfloat16 *>(input + kActOffset / 4);
 
-  // Zero output (only num_rows, not full kM)
-  for (int32_t i = 0; i < num_rows; i++) {
+  // Zero output
+  for (int32_t i = 0; i < kM; i++) {
     output[i] = 0.0f;
   }
 
-  // Clamp row range
-  int32_t end_row = row_start + num_rows;
-  if (end_row > kM) end_row = kM;
-  if (row_start >= kM) return;
-
-  // Process assigned row slice
-  for (int32_t row = row_start; row < end_row; row++) {
+  // Process each output row
+  for (int32_t row = 0; row < kM; row++) {
     const uint8_t *wt_row = weights + row * kKPacked;
     bfloat16 scale = scales[row];
 
     aie::vector<bfloat16, kVLen> row_result = compute_one_row(wt_row, acts, scale);
-    output[row - row_start] += aie::reduce_add(row_result);
+    output[row] += aie::reduce_add(row_result);
   }
 }
 
