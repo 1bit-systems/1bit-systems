@@ -70,7 +70,7 @@ $CC aie2p \
     -DDIM_M="$PER_CORE_M" \
     -DDIM_K_PACKED="$DIM_K" \
     -DDIM_N=128 \
-    -c "$KERNEL_DIR/mm_ternary_32x64x128.cpp" \
+    -c "$SCRIPT_DIR/../../../1bit-systems/engine/npu/kernel/mm_ternary_32x64x128.cpp" \
     -o "$OBJ_FILE"
 
 echo "  ✅ Kernel built: $(du -h "$OBJ_FILE" | cut -f1)"

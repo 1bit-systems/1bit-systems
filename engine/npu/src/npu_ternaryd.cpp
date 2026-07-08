@@ -20,9 +20,9 @@
  *   ├── manifest.json   — tensor metadata
  *   └── weights.bin     — packed ternary weights + bf16 scales + f16 norms
  *
- * Xclbin: single-shot single-core ternary_oneshot.xclbin
- *   Built via: bash engine/npu/build/build_oneshot_xclbin.sh
- *   One xclbin for all projections — host tiles M and K dimensions.
+ * Xclbin: 32-core single-shot ternary_32c_oneshot.xclbin (M=128 K=256)
+ *   Built via: bash engine/npu/build/build_32c_oneshot.sh
+ *   Also: single-core ternary_m52_k64.xclbin for partial tiles (M=52 K=256)
  */
 
 #include <cstdio>
@@ -139,12 +139,12 @@ struct RoPECache {
 struct TernaryCtx {
     static constexpr int K_TERNARY = 256;   // ternary values per kernel call
     static constexpr int K_PACKED  = 64;    // packed bytes for K=256
-    static constexpr int M_PER_CORE = 32;   // output rows per kernel call
+    static constexpr int M_PER_CORE = 52;   // output rows per kernel call (max that fits in AIE L1)
 
     int M_total, K_total;  // dimensions
+    int K_packed_total;     // K_total / 4 (actual packed bytes per row)
     xrt::device* device = nullptr;
 
-    std::unique_ptr<xrt::xclbin> xc;
     xrt::uuid xclbin_uuid;
     std::vector<uint32_t> instr;
 
@@ -157,32 +157,20 @@ struct TernaryCtx {
     static constexpr int TILE_OUT_BYTES = M_PER_CORE * 2;  // bf16
 
     bool init(xrt::device& dev,
-              const std::string& xclbin_path,
-              const std::string& instr_path,
+              const xrt::uuid& uuid,
+              const std::vector<uint32_t>& instr_data,
               const uint8_t* packed_weights,  // [M_total * K_packed]
               const uint16_t* weight_scales,  // [M_total] bf16
               int M, int K) {
         M_total = M; K_total = K;
+        K_packed_total = K_total / 4;
         device = &dev;
-
-        // Load xclbin once, cache uuid
-        std::ifstream xf(xclbin_path, std::ios::binary);
-        if (!xf) { fprintf(stderr, "  [TernaryCtx] xclbin not found: %s\n", xclbin_path.c_str()); return false; }
-        xf.seekg(0, std::ios::end); auto xs = (size_t)xf.tellg(); xf.seekg(0);
-        std::vector<char> xd(xs); xf.read(xd.data(), xs);
-        xc = std::make_unique<xrt::xclbin>(xd);
-        dev.register_xclbin(*xc);
-        xclbin_uuid = xc->get_uuid();
-
-        // Load instructions
-        std::ifstream nf(instr_path, std::ios::binary);
-        if (!nf) { fprintf(stderr, "  [TernaryCtx] instr not found: %s\n", instr_path.c_str()); return false; }
-        nf.seekg(0, std::ios::end); auto ns = (size_t)nf.tellg(); nf.seekg(0);
-        instr.resize(ns / 4 + 1);
-        nf.read((char*)instr.data(), ns);
+        xclbin_uuid = uuid;
+        instr = instr_data;
 
         // Upload packed weights (flat, sliced per-tile in gemv)
-        weights_bytes = (size_t)M_total * K_PACKED;
+        int K_packed_actual = K_total / 4;  // actual packed bytes per row
+        weights_bytes = (size_t)M_total * K_packed_actual;
         scales_bytes = (size_t)M_total * 2;
         bo_weights = std::make_unique<xrt::bo>(dev, weights_bytes + scales_bytes,
                                                 xrt::bo::flags::host_only, 0);
@@ -230,7 +218,7 @@ struct TernaryCtx {
                 uint8_t* in_map = (uint8_t*)bo_in->map();
 
                 // Copy weight slice
-                uint8_t* wt_src = (uint8_t*)wgt_map + (size_t)m_start * K_PACKED;
+                uint8_t* wt_src = (uint8_t*)wgt_map + (size_t)m_start * K_packed_total;
                 for (int r = 0; r < m_chunk; r++) {
                     memcpy(in_map + r * K_PACKED,
                            wt_src + r * ((size_t)K_total / 4) + k_start / 4,
@@ -309,18 +297,25 @@ struct PackedModel {
     struct LayerWeights {
         uint8_t* q_weights = nullptr;
         uint16_t* q_scales = nullptr;
+        int q_M = 0, q_K = 0;
         uint8_t* k_weights = nullptr;
         uint16_t* k_scales = nullptr;
+        int k_M = 0, k_K = 0;
         uint8_t* v_weights = nullptr;
         uint16_t* v_scales = nullptr;
+        int v_M = 0, v_K = 0;
         uint8_t* o_weights = nullptr;
         uint16_t* o_scales = nullptr;
+        int o_M = 0, o_K = 0;
         uint8_t* up_weights = nullptr;
         uint16_t* up_scales = nullptr;
+        int up_M = 0, up_K = 0;
         uint8_t* gate_weights = nullptr;
         uint16_t* gate_scales = nullptr;
+        int gate_M = 0, gate_K = 0;
         uint8_t* down_weights = nullptr;
         uint16_t* down_scales = nullptr;
+        int down_M = 0, down_K = 0;
     };
 
     std::vector<LayerWeights> layers;
@@ -358,19 +353,19 @@ struct PackedModel {
             char key[256];
 
             snprintf(key, 256, "model.layers.%d.self_attn.q_proj.weight", l);
-            load_packed_weights(key, &lw.q_weights, &lw.q_scales);
+            load_packed_weights(key, &lw.q_weights, &lw.q_scales, &lw.q_M, &lw.q_K);
             snprintf(key, 256, "model.layers.%d.self_attn.k_proj.weight", l);
-            load_packed_weights(key, &lw.k_weights, &lw.k_scales);
+            load_packed_weights(key, &lw.k_weights, &lw.k_scales, &lw.k_M, &lw.k_K);
             snprintf(key, 256, "model.layers.%d.self_attn.v_proj.weight", l);
-            load_packed_weights(key, &lw.v_weights, &lw.v_scales);
+            load_packed_weights(key, &lw.v_weights, &lw.v_scales, &lw.v_M, &lw.v_K);
             snprintf(key, 256, "model.layers.%d.self_attn.o_proj.weight", l);
-            load_packed_weights(key, &lw.o_weights, &lw.o_scales);
+            load_packed_weights(key, &lw.o_weights, &lw.o_scales, &lw.o_M, &lw.o_K);
             snprintf(key, 256, "model.layers.%d.mlp.up_proj.weight", l);
-            load_packed_weights(key, &lw.up_weights, &lw.up_scales);
+            load_packed_weights(key, &lw.up_weights, &lw.up_scales, &lw.up_M, &lw.up_K);
             snprintf(key, 256, "model.layers.%d.mlp.gate_proj.weight", l);
-            load_packed_weights(key, &lw.gate_weights, &lw.gate_scales);
+            load_packed_weights(key, &lw.gate_weights, &lw.gate_scales, &lw.gate_M, &lw.gate_K);
             snprintf(key, 256, "model.layers.%d.mlp.down_proj.weight", l);
-            load_packed_weights(key, &lw.down_weights, &lw.down_scales);
+            load_packed_weights(key, &lw.down_weights, &lw.down_scales, &lw.down_M, &lw.down_K);
 
             // Norm weights (f16 from GGUF)
             snprintf(key, 256, "model.layers.%d.input_layernorm.weight", l);
@@ -407,7 +402,8 @@ private:
         return strtoll(json.c_str() + p, nullptr, 10);
     }
 
-    void load_packed_weights(const char* name, uint8_t** out_weights, uint16_t** out_scales) {
+    void load_packed_weights(const char* name, uint8_t** out_weights, uint16_t** out_scales,
+                             int* out_M, int* out_K) {
         // Linear search in manifest JSON for name
         std::string needle = "\"" + std::string(name) + "\"";
         auto p = model_json.find(needle);
@@ -421,6 +417,9 @@ private:
         size_t off_s = (size_t)extract_int(model_json.substr(p), "offset_scales");
         *out_weights = model_base + off_w;
         *out_scales = (uint16_t*)(model_base + off_s);
+        *out_M = (int)extract_int(model_json.substr(p), "M");
+        *out_K = (int)extract_int(model_json.substr(p), "K_packed");
+        if (*out_K <= 0) *out_K = (int)extract_int(model_json.substr(p), "K") / 4;
     }
 
     void load_norm_weights(const char* name, std::vector<float>& out, int n) {
@@ -474,6 +473,7 @@ public:
 struct TernaryDaemon {
     PackedModel model;
     xrt::device device{0};
+    std::unique_ptr<xrt::xclbin> shared_xclbin;  // keep alive for uuid validity
 
     // One TernaryCtx per (projection, layer) — xclbin shared, weights differ
     struct LayerCtx {
@@ -509,7 +509,9 @@ struct TernaryDaemon {
         int kv_dim = NKV * HD; // 1024
 
         fprintf(stderr, "[Daemon] Loading %d layers of xclbins...\n", model.num_layers);
+        fflush(stderr);
         fprintf(stderr, "  Q: M=%d K=%d  K: M=%d K=%d  V: M=%d K=%d\n", q_dim, H, kv_dim, H, kv_dim, H);
+        fflush(stderr);
         fprintf(stderr, "  O: M=%d K=%d  Up: M=%d K=%d  Gate: M=%d K=%d  Down: M=%d K=%d\n",
                 H, q_dim, IM, H, IM, H, H, IM);
 
@@ -520,41 +522,58 @@ struct TernaryDaemon {
         // Down dims: M=H, K=IM
 
         // Single oneshot xclbin for all projections — host tiles M/K.
-        // Xclbin dir must contain: ternary_oneshot.xclbin + insts_ternary_oneshot.txt
-        std::string xclbin_file = xb + "ternary_oneshot.xclbin";
-        std::string instr_file  = xb + "insts_ternary_oneshot.txt";
+        // Xclbin dir must contain: ternary_m52_k64.xclbin + insts_ternary_m52_k64.txt
+        std::string xclbin_file = xb + "ternary_m52_k64.xclbin";
+        std::string instr_file  = xb + "insts_ternary_m52_k64.txt";
+
+        // Load xclbin once, share across all layers
+        std::ifstream xf(xclbin_file, std::ios::binary);
+        if (!xf) { fprintf(stderr, "xclbin not found: %s\n", xclbin_file.c_str()); return false; }
+        xf.seekg(0, std::ios::end); auto xs = (size_t)xf.tellg(); xf.seekg(0);
+        std::vector<char> xd(xs); xf.read(xd.data(), xs);
+        auto xc = std::make_unique<xrt::xclbin>(xd);
+        device.register_xclbin(*xc);
+        auto uuid = xc->get_uuid();
+        shared_xclbin = std::move(xc);  // keep alive
+
+        std::vector<uint32_t> shared_instr;
+        std::ifstream nf(instr_file, std::ios::binary);
+        if (!nf) { fprintf(stderr, "instr not found: %s\n", instr_file.c_str()); return false; }
+        nf.seekg(0, std::ios::end); auto ns = (size_t)nf.tellg(); nf.seekg(0);
+        shared_instr.resize(ns / 4 + 1);
+        nf.read((char*)shared_instr.data(), ns);
 
         for (int l = 0; l < model.num_layers; l++) {
             auto& lw = model.layers[l];
             auto& lc = layer_ctxs[l];
 
             lc.q = std::make_unique<TernaryCtx>();
-            if (!lc.q->init(device, xclbin_file, instr_file,
-                            lw.q_weights, lw.q_scales, q_dim, H)) return false;
+            if (!lc.q->init(device, uuid, shared_instr,
+                            lw.q_weights, lw.q_scales, lw.q_M, lw.q_K * 4)) return false;
 
             lc.k = std::make_unique<TernaryCtx>();
-            if (!lc.k->init(device, xclbin_file, instr_file,
-                            lw.k_weights, lw.k_scales, kv_dim, H)) return false;
+            if (!lc.k->init(device, uuid, shared_instr,
+                            lw.k_weights, lw.k_scales, lw.k_M, lw.k_K * 4)) return false;
 
             lc.v = std::make_unique<TernaryCtx>();
-            if (!lc.v->init(device, xclbin_file, instr_file,
-                            lw.v_weights, lw.v_scales, kv_dim, H)) return false;
+            if (!lc.v->init(device, uuid, shared_instr,
+                            lw.v_weights, lw.v_scales, lw.v_M, lw.v_K * 4)) return false;
 
             lc.o = std::make_unique<TernaryCtx>();
-            if (!lc.o->init(device, xclbin_file, instr_file,
-                            lw.o_weights, lw.o_scales, H, q_dim)) return false;
+            if (!lc.o->init(device, uuid, shared_instr,
+                            lw.o_weights, lw.o_scales, lw.o_M, lw.o_K * 4)) return false;
 
             lc.up = std::make_unique<TernaryCtx>();
-            if (!lc.up->init(device, xclbin_file, instr_file,
-                             lw.up_weights, lw.up_scales, IM, H)) return false;
+            if (!lc.up->init(device, uuid, shared_instr,
+                             lw.up_weights, lw.up_scales, lw.up_M, lw.up_K * 4)) return false;
 
             lc.gate = std::make_unique<TernaryCtx>();
-            if (!lc.gate->init(device, xclbin_file, instr_file,
-                               lw.gate_weights, lw.gate_scales, IM, H)) return false;
+            if (!lc.gate->init(device, uuid, shared_instr,
+                               lw.gate_weights, lw.gate_scales, lw.gate_M, lw.gate_K * 4)) return false;
 
             lc.down = std::make_unique<TernaryCtx>();
-            if (!lc.down->init(device, xclbin_file, instr_file,
-                               lw.down_weights, lw.down_scales, H, IM)) return false;
+            if (!lc.down->init(device, uuid, shared_instr,
+                               lw.down_weights, lw.down_scales, lw.down_M, lw.down_K * 4)) return false;
         }
 
         fprintf(stderr, "[Daemon] All %d layers loaded. Ready.\n", model.num_layers);
@@ -563,6 +582,7 @@ struct TernaryDaemon {
 
     void layer_forward(int l, float* hidden, std::vector<uint16_t>& buf_bf16,
                        int pos, RoPECache& rope) {
+        fprintf(stderr, "  [L%d] start\n", l);
         int H = model.hidden_size;
         int HD = model.head_dim;
         int NH = model.num_heads;
@@ -583,20 +603,26 @@ struct TernaryDaemon {
         for (int i = 0; i < H; i++) buf_bf16[i] = f2bf(hidden[i]);
         std::vector<uint16_t> q_out(q_dim);
         lc.q->gemv(buf_bf16.data(), q_out.data());
+        fprintf(stderr, "  [L%d] Q done\n", l);
 
         // ── K projection ──────────────────────────────────
         std::vector<uint16_t> k_out(kv_dim);
         lc.k->gemv(buf_bf16.data(), k_out.data());
+        fprintf(stderr, "  [L%d] K done\n", l);
 
         // ── V projection ──────────────────────────────────
         std::vector<uint16_t> v_out(kv_dim);
         lc.v->gemv(buf_bf16.data(), v_out.data());
+        fprintf(stderr, "  [L%d] V done\n", l);
 
         // Convert to f32 for attention
         std::vector<float> q_f32(q_dim), k_f32(kv_dim), v_f32(kv_dim);
+        fprintf(stderr, "  [L%d] q_out[0]=%f k_out[0]=%f v_out[0]=%f\n", l,
+                bf16f(q_out[0]), bf16f(k_out[0]), bf16f(v_out[0]));
         for (int i = 0; i < q_dim; i++) q_f32[i] = bf16f(q_out[i]);
         for (int i = 0; i < kv_dim; i++) k_f32[i] = bf16f(k_out[i]);
         for (int i = 0; i < kv_dim; i++) v_f32[i] = bf16f(v_out[i]);
+        fprintf(stderr, "  [L%d] f32 convert done\n", l);
 
         // Q/K norms + RoPE
         rms_norm(q_f32.data(), model.layer_q_norm[l].data(), HD);
@@ -635,6 +661,7 @@ struct TernaryDaemon {
         for (int i = 0; i < q_dim; i++) buf_bf16[i] = f2bf(attn_out[i]);
         std::vector<uint16_t> o_out(H);
         lc.o->gemv(buf_bf16.data(), o_out.data());
+        fprintf(stderr, "  [L%d] O done\n", l);
 
         // Residual + post-attention norm
         for (int i = 0; i < H; i++) {
@@ -648,7 +675,9 @@ struct TernaryDaemon {
 
         std::vector<uint16_t> up_out(IM), gate_out(IM);
         lc.up->gemv(buf_bf16.data(), up_out.data());
+        fprintf(stderr, "  [L%d] Up done\n", l);
         lc.gate->gemv(buf_bf16.data(), gate_out.data());
+        fprintf(stderr, "  [L%d] Gate done\n", l);
 
         // SwiGLU (CPU)
         for (int i = 0; i < IM; i++) {
@@ -661,6 +690,7 @@ struct TernaryDaemon {
 
         std::vector<uint16_t> down_out(H);
         lc.down->gemv(up_out.data(), down_out.data());
+        fprintf(stderr, "  [L%d] Down done\n", l);
 
         // Final residual
         for (int i = 0; i < H; i++)
