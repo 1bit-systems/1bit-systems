@@ -44,3 +44,115 @@ engine/fusion/bench_fused
 engine/fusion/bench_main.zig
 engine/npu/build/npu_fused_pipeline
 engine/npu/tests/test_rope
+
+# ── Home directory clutter (repo lives in $HOME) ──
+# Shell / personal config
+.bash_history
+.bashrc
+.profile
+.gitconfig
+.flexlmrc
+
+# Personal directories (some are tracked — handled via git rm separately)
+Desktop/
+Documents/
+Downloads/
+Music/
+Pictures/
+Public/
+Templates/
+Videos/
+.ssh/
+.gnupg/
+.lbdb/
+
+# Cache & package managers
+.cache/
+.cargo/
+.config/
+.local/
+.npm/
+.rustup/
+
+# Claude / Codex / AI tool state
+.claude/
+.claude.json
+.codex/
+
+# Gaia
+.gaia/
+.gaia-venv/
+
+# Pi / 1bit agent runtime state (not config)
+.pi/
+.1bit/agent-view/
+.1bit/agent/auth.json
+.1bit/agent/bin/
+.1bit/agent/git/
+.1bit/agent/npm/
+.1bit/agent/sessions/
+
+# External project checkouts (not part of this repo)
+amdxdna-dkms/
+DeepSpec/
+lemonade/
+lemonade-mobile-local/
+lemonade-security/
+lemonade-store/
+lemon-mlx-engine/
+mlir-aie/
+mlx/
+mlx-rocm-local/
+models/
+npu_re_workspace/
+SpecForge/
+strixhalo-npu-setup/
+torch2aie/
+video-lora/
+vllm-awq4-qwen/
+vllm-rocm/
+whisper.cpp/
+xdna-driver/
+xdna-driver-upstream/
+zyphra-vllm/
+jarvis-env/
+
+# Snap leaks (tracked dir, new untracked subdirs)
+snap/firefox/
+snap/firmware-updater/
+snap/prompting-client/
+snap/snapd-desktop-integration/
+snap/zig/
+
+# Misc
+1bit/
+1bit-env/
+1bit-systems/
+~
+.snapcraft/
+.benchmark_venv/
+.pytest_cache/
+.ruff_cache/
+.benchmark_venv/
+.pytest_cache/
+.ruff_cache/
+.snapcraft/
+bench.py
+benchmark_strix_halo.py
+benchmark_strix_halo.sh
+comp.spv
+test_args
+test_args2
+test_using.o
+verify_70plus_models.py
+*.snap
+!1bit-systems*.snap
+
+# NPU sandbox (build outputs, external checkouts)
+npu-sandbox/Triton-XDNA/
+npu-sandbox/npu-infer/
+npu-sandbox/vulkan-gevm/
+
+# Spec-decode binaries & logs
+spec-decode/*.bin
+spec-decode/training_*.log
