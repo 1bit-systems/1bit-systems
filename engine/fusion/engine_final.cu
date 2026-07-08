@@ -106,6 +106,7 @@ typedef struct {
     float *dkv_k, *dkv_v;     /* KV cache [NC*MAX_CTX*NKV*HD] */
     float *d_in[NC], *d_pa[NC], *d_qn[NC], *d_kn[NC];
     float *d_fn, *d_rs, *d_rc, *d_emb;
+    float *d_one, *d_zero;
     DevW *l; bool ok;
 } GPU;
 
@@ -177,9 +178,9 @@ static bool gpu_init(Model *m) {
 }
 
 /* ── Device matmul (same as gpu_mm but device→device, async) ── */
+/* Uses g->d_one/g->d_zero as device-side alpha/beta pointers */
 static __inline__ void d_mm(GPU *g, int od, int id, float *din, float *dout, const float *dw) {
-    float a=1.0f,b=0.0f;
-    hipblasSgemv(g->blas,HIPBLAS_OP_T,id,od,&a,dw,id,din,1,&b,dout,1);
+    hipblasSgemv(g->blas,HIPBLAS_OP_T,id,od,g->d_one,dw,id,din,1,g->d_zero,dout,1);
 }
 
 /* ── Layer forward on GPU stream ── */
@@ -228,9 +229,8 @@ static uint32_t decode_step(Model *m, uint32_t tok, int *pos) {
     for(int l=0;l<NC;l++) layer_fwd(g,l,*pos);
     hipLaunchKernelGGL(k_rms_norm_f32,dim3(CEILDIV(H,256)),dim3(256),0,s,g->dh,g->d_fn,H);
     
-    /* LM head via Sgemv */
-    float a=1.0f,b=0.0f;
-    hipblasSgemv(h,HIPBLAS_OP_T,H,NV,&a,g->d_emb,H,g->dh,1,&b,g->dlg,1);
+    /* LM head via Sgemv (device-side alpha/beta) */
+    hipblasSgemv(h,HIPBLAS_OP_T,H,NV,g->d_one,g->d_emb,H,g->dh,1,g->d_zero,g->dlg,1);
     hipStreamSynchronize(s);
     
     float *lg=(float*)malloc((size_t)NV*4);
