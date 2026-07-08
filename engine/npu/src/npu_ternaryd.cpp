@@ -217,64 +217,35 @@ struct TernaryCtx {
     void gemv(const uint16_t* activation_bf16, uint16_t* output_bf16) {
         int ig = k->group_id(1);
 
-        auto bo_instr = xrt::bo(*device, instr.size() * 4,
-                                XCL_BO_FLAGS_CACHEABLE, ig);
+        auto bo_instr = xrt::bo(*device, instr.size() * 4, XCL_BO_FLAGS_CACHEABLE, ig);
         memcpy(bo_instr.map(), instr.data(), instr.size() * 4);
         bo_instr.sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
-        memset(output_bf16, 0, (size_t)M_total * 2);
+        // Build flat input buffer from pre-loaded weights + caller activations
+        // IMPORTANT: AIE core runs infinite loop — ONE dispatch per context.
+        // For full-model inference, build xclbins sized to the projection
+        // dimensions (DIM_M = projection_M, DIM_K_PACKED = projection_K/4).
+        uint8_t* in_map = (uint8_t*)bo_in->map();
+        memcpy(in_map, bo_weights->map(), weights_bytes + scales_bytes);
+        uint16_t* act_dst = (uint16_t*)(in_map + weights_bytes + scales_bytes);
+        memcpy(act_dst, activation_bf16, (size_t)K_total * 2);
+        bo_in->sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
-        for (int m_start = 0; m_start < M_total; m_start += M_PER_CORE) {
-            int m_chunk = std::min(M_PER_CORE, M_total - m_start);
-
-            for (int k_start = 0; k_start < K_total; k_start += K_TERNARY) {
-                int k_act_count = std::min(K_TERNARY, K_total - k_start);
-                int k_packed_chunk = k_act_count / 4;
-
-                uint8_t* in_map = (uint8_t*)bo_in->map();
-                int wb = m_chunk * K_PACKED;
-                int sb = m_chunk * 2;
-
-                // Copy weights slice
-                uint8_t* wt_src = (uint8_t*)bo_weights->map() + (size_t)m_start * K_PACKED;
-                for (int r = 0; r < m_chunk; r++) {
-                    memcpy(in_map + r * K_PACKED,
-                           wt_src + r * ((size_t)K_total / 4) + k_start / 4,
-                           k_packed_chunk);
-                }
-                // Zero-pad if partial K chunk
-                if (k_packed_chunk < K_PACKED) {
-                    for (int r = 0; r < m_chunk; r++)
-                        memset(in_map + r * K_PACKED + k_packed_chunk, 0,
-                               (size_t)(K_PACKED - k_packed_chunk));
-                }
-
-                // Copy scales slice
-                uint16_t* sc_src = (uint16_t*)((char*)bo_weights->map()
-                    + weights_bytes) + m_start;
-                memcpy(in_map + wb, sc_src, sb);
-
-                // Copy activation slice
-                uint16_t* act_dst = (uint16_t*)(in_map + wb + sb);
-                memcpy(act_dst, activation_bf16 + k_start, k_act_count * 2);
-                if (k_act_count < K_TERNARY)
-                    memset(act_dst + k_act_count, 0, (K_TERNARY - k_act_count) * 2);
-
-                bo_in->sync(XCL_BO_SYNC_BO_TO_DEVICE);
-
-                // NOTE: instruction size is in int32 WORD count (not bytes)
-                auto run = (*k)((unsigned)3, bo_instr, (unsigned)instr.size(),
-                                *bo_in, *bo_out, 0, m_chunk);
-                run.wait();
-
-                bo_out->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
-                uint16_t* out_map = (uint16_t*)bo_out->map();
-                for (int r = 0; r < m_chunk; r++) {
-                    float partial = bf16f(out_map[r]);
-                    float cur = bf16f(output_bf16[m_start + r]);
-                    output_bf16[m_start + r] = f2bf(cur + partial);
-                }
-            }
+        if (M_total < M_PER_CORE) {
+            // Pad output buffer size to at least M_PER_CORE entries
+            std::vector<uint16_t> padded_out(M_PER_CORE);
+            auto run = (*k)((unsigned)3, bo_instr, (unsigned)instr.size(),
+                            *bo_in, *bo_out);
+            run.wait();
+            bo_out->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+            memcpy(padded_out.data(), bo_out->map(), M_PER_CORE * 2);
+            memcpy(output_bf16, padded_out.data(), (size_t)M_total * 2);
+        } else {
+            auto run = (*k)((unsigned)3, bo_instr, (unsigned)instr.size(),
+                            *bo_in, *bo_out);
+            run.wait();
+            bo_out->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+            memcpy(output_bf16, bo_out->map(), (size_t)M_total * 2);
         }
     }
 };
