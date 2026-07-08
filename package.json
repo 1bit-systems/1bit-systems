@@ -18,10 +18,11 @@
     "docs"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && bash scripts/measure-binary.sh",
     "dev": "tsx src/cli.ts",
     "watch": "tsc --watch",
-    "start": "node dist/cli.js"
+    "start": "node dist/cli.js",
+    "measure": "bash scripts/measure-binary.sh"
   },
   "keywords": [
     "1bit",
