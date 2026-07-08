@@ -74,10 +74,12 @@
 
 | Engine | Status | Result |
 |--------|--------|--------|
+| **NPU Ternary 32-core** | ✅ HW Verified | **128/128 bit-exact, 118.9 µs, 314 KB xclbin** |
 | NPU v12 (fused) | ✅ | Target: sustain >80 tok/s at long context |
 | NPU GGUF Engine | ⚠️ rc=1 | 0.0s |
 | NPU Fused INT8 | ✅ | === 186 ms/tok === |
 | NPU Infer | ✅ | [INFO]  Generated 16 tokens in 3488 ms (218.0 ms/tok) |
+| NPU Ternary 1-core | ✅ HW Verified | 68.3 µs, 16 KB xclbin |
 | ROCm Engine (iGPU) | ⚠️ rc=1 | 0.2s |
 | DSpark Spec Decode | ⚠️ rc=1 | 0.0s |
 
@@ -111,6 +113,7 @@
 
 | Achievement | Value | Context |
 |-------------|-------|---------|
+| **NPU Ternary 32-core** | **128/128 bit-exact, 118.9 µs** | 4×8 grid, per-column DMA, object_fifo, BF16, 314 KB xclbin |
 | NPU GEMM TFLOPS | **31.0 TFLOPS** | config2, 192×128×96 tiles, 32 cores, Chess kernel, BFP16 |
 | NPU Qwen3 0.6B | **1.93s/tok** | v7 engine, 1024×1024 BFP16 xclbin |
 | iGPU spec-decode | **381 tok/s @ 45W** | Radeon 8060S, measured coherent |

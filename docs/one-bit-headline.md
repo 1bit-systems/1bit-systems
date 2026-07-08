@@ -38,5 +38,6 @@ tensors from every layer — attention, FFN, embeddings. Decoder: `tools/q2_0_de
 | GPU (Vulkan, Radeon 8060S) | Ternary-Bonsai-1.7B | **1.58-bit** | **279 tok/s** |
 | GPU (Vulkan, Radeon 8060S) | Qwen2.5-0.5B | 4-bit | 300 tok/s |
 | NPU (XDNA 2, via FLM) | Qwen3-0.6B | INT4/NX | 94 tok/s |
+| **NPU (XDNA 2, native ternary)** | **mm_ternary** | **1.58-bit** | **118.9 µs/call** |
 
-*Numbers measured July 5, 2026 on AMD Strix Halo. See `docs/VALIDATED-BENCHMARKS-2026-07-05.md`.*
+*Numbers measured July 5–8, 2026 on AMD Strix Halo. NPU ternary: 32-core xclbin (314 KB), 128/128 bit-exact at -256.0000 on all-ones test. See `docs/VALIDATED-BENCHMARKS-2026-07-05.md` and `NPU_TERNARY_VERIFIED.md`.*

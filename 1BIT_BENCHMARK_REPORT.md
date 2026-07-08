@@ -6,7 +6,7 @@
 ### 1-bit / Ternary
 | Model | Size | Tensors | Format |
 |-------|------|---------|--------|
-| Bonsai-1.7B-Q1_0.gguf | 248 MB | 310 | Q1_0 (1-bit binary) |
+| Bonsai-1.7B-Q1_0.gguf | 250 MB | 310 | Q1_0 (1-bit binary) |
 
 ### Standard Quant (for reference)
 | Model | Size | Tensors |
@@ -110,7 +110,7 @@
 
 | Category | Count | Detail |
 |----------|-------|--------|
-| 1-bit GGUF models | 1 | Bonsai-1.7B-Q1_0 (248 MB) |
+| 1-bit GGUF models | 1 | Bonsai-1.7B-Q1_0 (250 MB) |
 | Standard GGUF models | 4 (ZAYA1-8B variants, 2048d, Q4_K/F32) | ZAYA1-8B variants |
 | Native ternary NPU xclbins | 6 | 15-310 KB, 1-32 cores |
 | HIP ternary kernel sources | 13 | 12 variants, 5 packing formats |
