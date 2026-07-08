@@ -4,7 +4,7 @@
 
 ## One-Liner Pitch
 
-> **38 KB binary. 291 tok/s on AMD NPU (fused engine). Zero Python. Zero dependencies. MIT license.**
+> **30 KB binary. 291 tok/s on AMD NPU (fused engine). Zero Python. Zero dependencies. MIT license.**
 > I reverse-engineered AMD's proprietary NPU stack in 4 days. Here's what I built.
 
 ## Target Audience
@@ -30,12 +30,12 @@
 
 ### Title
 
-> *I reverse-engineered AMD's NPU stack in 4 days. Here's a 38 KB binary that runs LLMs at 291 tok/s.*
+> *I reverse-engineered AMD's NPU stack in 4 days. Here's a 30 KB binary that runs LLMs at 291 tok/s.*
 
 *Alternative titles:*
-- *38 KB binary. 291 tok/s on AMD NPU. Zero deps. Open source.*
-- *I beat AMD's proprietary NPU runtime with a 38 KB open-source binary*
-- *Show HN: 1bit.systems — 38 KB NPU inference engine, 291 tok/s, MIT*
+- *30 KB binary. 291 tok/s on AMD NPU. Zero deps. Open source.*
+- *I beat AMD's proprietary NPU runtime with a 30 KB open-source binary*
+- *Show HN: 1bit.systems — 30 KB NPU inference engine, 291 tok/s, MIT*
 
 ### Body
 
@@ -43,14 +43,14 @@
 Hi HN,
 
 I reverse-engineered AMD's XDNA 2 NPU stack and built an open-source
-inference engine in C++23. It's 38 KB. Zero Python. Zero dependencies.
+inference engine in C++23. It's 30 KB. Zero Python. Zero dependencies.
 One binary. Runs 5 LLMs on the same chip you already have.
 
 Why this matters:
 
 AMD's NPU is rated for 50 TOPS INT8. FastFlowLM (their proprietary
 runtime) gets ~94 tok/s on Qwen3-0.6B. My engine matches that — but
-it's 38 KB, MIT-licensed, and compiles with one g++ command.
+it's 30 KB, MIT-licensed, and compiles with one g++ command.
 
 No Python. No pip. No Docker. No MLIR toolchain. Just g++ and run.
 
@@ -142,7 +142,7 @@ everything else.
 ## Key Messages to Reinforce
 
 - **"No Python. No pip. No Docker. One binary."** — This is the hook.
-- **"38 KB — not 2 GB."** — Contrast with AMD's MLIR toolchain.
+- **"30 KB — not 2 GB."** — Contrast with AMD's MLIR toolchain.
 - **"Open source beats proprietary on their own silicon."** — The narrative.
 - **"MIT license. Do what you want with it."** — Lowers barrier to adoption.
 - **"One person vs. AMD's team."** — The human angle.

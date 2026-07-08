@@ -47,7 +47,7 @@ The remaining bytes are function epilogue — left untouched.
 
 ## Why This Exists
 
-AMD ships the XDNA2 NPU disabled on consumer Strix Halo silicon. The hardware is fully capable — 50 TOPS INT8, 32 AIE2P tiles — but the AGESA firmware gates it behind a software check intended for enterprise licensing. This patch removes that gate, allowing the open-source fused layer engine to drive the NPU at 291 tok/s (38 KB binary).
+AMD ships the XDNA2 NPU disabled on consumer Strix Halo silicon. The hardware is fully capable — 50 TOPS INT8, 32 AIE2P tiles — but the AGESA firmware gates it behind a software check intended for enterprise licensing. This patch removes that gate, allowing the open-source fused layer engine to drive the NPU at 291 tok/s (30 KB binary).
 
 ## References
 

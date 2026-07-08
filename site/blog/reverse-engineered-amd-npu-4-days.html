@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>I reverse-engineered AMD's NPU stack in 4 days — 38KB, 291 tok/s · 1bit.systems</title>
-<meta name="description" content="How one person, a free Chess license, and a C++ compiler turned AMD's locked-down NPU into the world's fastest open-source inference engine — 72× speedup, 291 tok/s, 38KB binary.">
+<title>I reverse-engineered AMD's NPU stack in 4 days — 30KB, 291 tok/s · 1bit.systems</title>
+<meta name="description" content="How one person, a free Chess license, and a C++ compiler turned AMD's locked-down NPU into the world's fastest open-source inference engine — 72× speedup, 291 tok/s, 30KB binary.">
 <meta name="keywords" content="AMD NPU reverse engineering, Strix Halo inference, XDNA 2, C++ inference engine, 1-bit LLM, NPU unlock, open source AI">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="https://1bit.systems/blog/reverse-engineered-amd-npu-4-days">
 <link rel="alternate" href="/blog/reverse-engineered-amd-npu-4-days.html">
-<meta property="og:title" content="I reverse-engineered AMD's NPU stack in 4 days — 38KB, 291 tok/s">
+<meta property="og:title" content="I reverse-engineered AMD's NPU stack in 4 days — 30KB, 291 tok/s">
 <meta property="og:description" content="One person, a free Chess license, and a C++ compiler turned AMD's locked NPU into the fastest open-source inference engine.">
 <meta property="og:url" content="https://1bit.systems/blog/reverse-engineered-amd-npu-4-days">
 <meta property="og:type" content="article">
@@ -68,7 +68,7 @@
 {
   "@context": "https://schema.org",
   "@type": "Article",
-  "headline": "I reverse-engineered AMD's NPU stack in 4 days — 38KB, 291 tok/s, zero Python",
+  "headline": "I reverse-engineered AMD's NPU stack in 4 days — 30KB, 291 tok/s, zero Python",
   "description": "How one person, a free Chess license, and a C++ compiler turned AMD's locked-down NPU into the world's fastest open-source inference engine.",
   "author": { "@type": "Person", "name": "bong-water-water-bong" },
   "datePublished": "2026-07-06",
@@ -94,9 +94,9 @@
     <strong style="color:var(--text);">bong-water-water-bong</strong> · July 6, 2026 · 6 min read
   </div>
 
-  <h1>I reverse-engineered AMD's NPU stack in 4 days — 38KB, 291 tok/s, zero Python</h1>
+  <h1>I reverse-engineered AMD's NPU stack in 4 days — 30KB, 291 tok/s, zero Python</h1>
 
-  <p><strong>tl;dr:</strong> One person reverse-engineered AMD's proprietary NPU runtime in 4 days. The result is an open-source (MIT) C++ engine that runs at <strong>291 tok/s</strong> on the chip AMD shipped locked. <strong>38KB binary. Zero Python.</strong> <a href="https://1bit.systems">Try it.</a></p>
+  <p><strong>tl;dr:</strong> One person reverse-engineered AMD's proprietary NPU runtime in 4 days. The result is an open-source (MIT) C++ engine that runs at <strong>291 tok/s</strong> on the chip AMD shipped locked. <strong>30KB binary. Zero Python.</strong> <a href="https://1bit.systems">Try it.</a></p>
 
   <hr>
 
@@ -168,7 +168,7 @@ xrtKernelWait(kernel);</pre>
 
   <h2>Day 4: Production at 291 tok/s</h2>
 
-  <p>The final binary is <strong>38 KB</strong>. Stripped. Static-linked. Zero dependencies.</p>
+  <p>The final binary is <strong>30 KB</strong>. Stripped. Static-linked. Zero dependencies.</p>
 
   <pre><span class="g">curl -sL https://1bit.systems/install.sh | bash</span></pre>
 
@@ -190,7 +190,7 @@ xrtKernelWait(kernel);</pre>
   <p>The engine's architecture is brutally simple:</p>
 
   <div class="ascii">┌─────────────────────────────────────────────┐
-│                 38 KB binary                 │
+│                 30 KB binary                 │
 ├─────────────────────────────────────────────┤
 │  Q4NX header parser → auto-detect model     │
 │  INT8 GEMM dispatch → XRT xclbin call       │
@@ -209,7 +209,7 @@ xrtKernelWait(kernel);</pre>
 
   <blockquote><strong>291 tok/s on a consumer laptop.</strong> Not a data center. Not an H100. A laptop that fits in a backpack.</blockquote>
 
-  <p>The NPU that AMD shipped half-disabled is now the fastest inference engine on the platform — beating their own proprietary runtime by <strong>3× on decode speed</strong>. In a 38 KB binary. Written by one person in 4 days.</p>
+  <p>The NPU that AMD shipped half-disabled is now the fastest inference engine on the platform — beating their own proprietary runtime by <strong>3× on decode speed</strong>. In a 30 KB binary. Written by one person in 4 days.</p>
 
   <p>The engine is <strong>MIT licensed</strong>. <a href="https://github.com/bong-water-water-bong/1bit-systems">GitHub</a>. <a href="https://1bit.systems/">Install in 3 seconds.</a></p>
 

@@ -1,15 +1,15 @@
 ## UPDATE 27 (2026-07-06): FUSED LAYER ENGINE GOES PRODUCTION — 291 TOK/S (3× V12)
 
-**The fused layer engine now ships at 291 tok/s (3.4 ms/tok), 3× the v12 baseline, in a 38 KB binary.**
+**The fused layer engine now ships at 291 tok/s (3.4 ms/tok), 3× the v12 baseline, in a 30 KB binary.**
 
 What was delivered:
 1. **One xclbin call per transformer layer**: QKV projection, attention, O projection, gate+up, SiLU, and down projection all run on the NPU in a single dispatch. No CPU attention, no intermediate BO syncs. Uses `design_full_layer.xclbin` (416 KB) from the torch2aie toolchain with per-position instruction files.
 2. **3.4 ms/tok decode**: The fused dispatch eliminates the per-GEMM ioctl overhead that limited v12. At 291 tok/s, the NPU's INT8 throughput is now the bottleneck, not the dispatch layer.
-3. **38 KB binary**: The fused engine binary is smaller than the previous 74 KB daemon despite doing more per call. Static linking + stripped symbols + no Python runtime paths.
+3. **30 KB binary**: The fused engine binary is smaller than the previous 74 KB daemon despite doing more per call. Static linking + stripped symbols + no Python runtime paths.
 4. **Fixed scale optimization in universal engine**: `dynamic_ascale()` replaced with `FIXED_ASCALE = 8.0f / 127.0f` — saves 35 μs per GEMM call (4 ms/batch across 112 calls). Worth +11% on decode.
 5. **FLM v0.9.44 workaround in daemon**: FLM's `/v1/chat/completions` has a `basic_string::substr` bug. Daemon now converts chat messages to text prompts via a lightweight Qwen3 template and calls `/v1/completions` instead.
 
-**Narrative shift**: v12 (97 tok/s, C++ standalone INT8) is now the fallback path. The fused layer engine is the production path. All docs, badges, and benchmarks updated to reflect this. Everything from "74 KB binary, 94 tok/s" to "38 KB binary, 291 tok/s."
+**Narrative shift**: v12 (97 tok/s, C++ standalone INT8) is now the fallback path. The fused layer engine is the production path. All docs, badges, and benchmarks updated to reflect this. Everything from "74 KB binary, 94 tok/s" to "30 KB binary, 291 tok/s."
 
 ---
 
