@@ -1,5 +1,5 @@
 {
- "updated": "2026-07-08T22:39:21Z",
+ "updated": "2026-07-08T23:20:00Z",
  "source": "docs/wiki/performance.md (single source of truth)",
  "_legend": {
   "validated": "measured on-device, coherent output",
@@ -20,5 +20,6 @@
   "all_5":    { "tok_s": 28,     "status": "raw",       "label": "C++ all-5 (raw — not yet coherent)" }
  },
  "order": ["npu_flm","ternary","gpu_1bit","gpu_zinc","dspark","npu_fused","npu_v12","rocm_hip","all_5"],
- "system": { "tflops_int8": 55.7 }
+ "system": { "tflops_int8": 55.7, "tflops_wmma": 54.74, "tflops_fp32_vector": 3.1, "tflops_fp16_matrix": 7.9 },
+ "wmma_peak": { "tflops": 54.74, "status": "validated", "label": "WMMA matrix-core peak (confirmed)" }
 }
