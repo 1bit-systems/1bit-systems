@@ -1,6 +1,6 @@
 > **I reverse-engineered AMD's proprietary NPU stack in 4 days.**
 > One person. A free Chess license. A C++ compiler.
-> Today: **94 tok/s** coherent NPU (FLM) + **279 tok/s** GPU 1.58-bit ternary (validated), Qwen3-0.6B / Bonsai-1.7B.
+> Today: **94 tok/s** coherent NPU (FLM) + **279 tok/s** GPU 1.58-bit ternary (validated) + **118.9 µs** NPU native ternary 32-core (HW verified). Qwen3-0.6B / Bonsai-1.7B.
 > No Python. No Docker. No vendor lock. Your hardware. [MIT licensed](LICENSE).
 
 <div align="center">
@@ -11,6 +11,7 @@
 Zero Python. Your hardware.
 
 [![279 tok/s ternary](https://img.shields.io/badge/279%20tok%2Fs-ternary-00ff00.svg)](docs/wiki/performance.md)
+[![NPU ternary verified](https://img.shields.io/badge/NPU%2032--core-118.9%C2%B5s%20bit--exact-blue.svg)](docs/ternary-npu.md)
 [![291 tok/s fused layer (raw)](https://img.shields.io/badge/291%20tok%2Fs-fused%20layer%20raw-12a0ed.svg)](docs/wiki/performance.md)
 [![94 tok/s NPU FLM](https://img.shields.io/badge/94%20tok%2Fs-NPU%20FLM-00ff88.svg)](docs/wiki/performance.md)
 [![Zero Python](https://img.shields.io/badge/deps-0-00ff00.svg)](docs/wiki/install.md)
