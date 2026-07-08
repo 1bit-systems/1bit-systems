@@ -245,9 +245,25 @@ def main():
                 M = shape[0]  # out_features
                 K = shape[1] if len(shape) > 1 else 1  # in_features
 
-                if K == 1 or M == 1:
-                    # 1D tensor (norm weights, etc.) — skip for now
-                    print(f"  SKIP {hf_name} shape={shape} (1D)")
+                # Skip embeddings/lm_head — store as raw f16 for CPU access
+                is_embed = ('token_embd' in name or 'embed_tokens' in hf_name or
+                           'lm_head' in hf_name or 'output.weight' == name)
+
+                if K == 1 or M == 1 or is_embed:
+                    # Store as raw f16 (like F32/F16 norm weights)
+                    el_sz = 2  # f16
+                    dtype_name = "F16"
+                    gf.seek(offset)
+                    raw = gf.read(n_elems * el_sz)
+                    manifest[hf_name] = {
+                        "shape": list(shape),
+                        "dtype": dtype_name,
+                        "offset_bytes": total_weight_bytes,
+                        "size_bytes": len(raw),
+                    }
+                    weight_chunks.append(raw)
+                    total_weight_bytes += len(raw)
+                    print(f"  {hf_name}: {dtype_name} {list(shape)} (embed, raw)")
                     continue
 
                 gf.seek(offset)

@@ -404,15 +404,63 @@ struct PackedModel {
         model_base = (uint8_t*)mmap(nullptr, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
         close(fd);
 
-        // Parse manifest (simple key-value extraction — no full JSON parser needed)
+        model_json = mjson;
+
+        // ── Phase 1: auto-detect dimensions from manifest ────
+        // Count layers
+        int max_layer = -1;
+        for (size_t pos = 0; ; ) {
+            auto p = mjson.find("model.layers.", pos);
+            if (p == std::string::npos) break;
+            p += 14;  // skip "model.layers."
+            int layer_num = atoi(mjson.c_str() + p);
+            if (layer_num > max_layer) max_layer = layer_num;
+            pos = p;
+        }
+        num_layers = max_layer + 1;
+
+        // Detect dims from first Q-proj
+        auto qp = mjson.find("model.layers.0.self_attn.q_proj.weight");
+        if (qp != std::string::npos) {
+            hidden_size     = (int)extract_int(mjson.substr(qp), "K");
+            int q_out       = (int)extract_int(mjson.substr(qp), "M");
+            // Detect head_dim from q_norm
+            auto qnp = mjson.find("model.layers.0.self_attn.q_norm.weight");
+            if (qnp != std::string::npos) {
+                auto qn_shape = mjson.substr(qnp);
+                auto sp = qn_shape.find("\"shape\"");
+                if (sp != std::string::npos) {
+                    auto bp = qn_shape.find('[', sp);
+                    if (bp != std::string::npos)
+                        head_dim = atoi(qn_shape.c_str() + bp + 1);
+                }
+            }
+            num_heads = q_out / head_dim;
+            // K-proj M gives num_kv_heads * head_dim
+            auto kp = mjson.find("model.layers.0.self_attn.k_proj.weight");
+            if (kp != std::string::npos) {
+                int k_out = (int)extract_int(mjson.substr(kp), "M");
+                num_kv_heads = k_out / head_dim;
+            }
+            // Up-proj M gives intermediate_size
+            auto up = mjson.find("model.layers.0.mlp.up_proj.weight");
+            if (up != std::string::npos)
+                intermediate_size = (int)extract_int(mjson.substr(up), "M");
+            // Vocab from embed
+            auto emb = mjson.find("model.embed_tokens.weight");
+            if (emb != std::string::npos)
+                vocab_size = (int)extract_int(mjson.substr(emb), "M");
+        }
+
+        fprintf(stderr, "[PackedModel] Detected: L=%d H=%d IM=%d NH=%d NKV=%d HD=%d V=%d\n",
+                num_layers, hidden_size, intermediate_size, num_heads, num_kv_heads, head_dim, vocab_size);
+
+        // ── Phase 2: allocate and load ──────────────────────
         layers.resize(num_layers);
         layer_in_norm.resize(num_layers);
         layer_pa_norm.resize(num_layers);
         layer_q_norm.resize(num_layers);
         layer_k_norm.resize(num_layers);
-
-        // Extract tensor entries from manifest
-        // Format: {"tensor.name": {"M":..., "K":..., "offset_weights":..., ...}, ...}
 
         for (int l = 0; l < num_layers; l++) {
             auto& lw = layers[l];
@@ -433,7 +481,6 @@ struct PackedModel {
             snprintf(key, 256, "model.layers.%d.mlp.down_proj.weight", l);
             load_packed_weights(key, &lw.down_weights, &lw.down_scales, &lw.down_M, &lw.down_K);
 
-            // Norm weights (f16 from GGUF)
             snprintf(key, 256, "model.layers.%d.input_layernorm.weight", l);
             load_norm_weights(key, layer_in_norm[l], hidden_size);
             snprintf(key, 256, "model.layers.%d.post_attention_layernorm.weight", l);
@@ -444,23 +491,10 @@ struct PackedModel {
             load_norm_weights(key, layer_k_norm[l], head_dim);
         }
 
-        // Final norm
         load_norm_weights("model.norm.weight", final_norm_w, hidden_size);
-
-        // Embeddings / lm_head
         load_embed_table("model.embed_tokens.weight");
 
         rope.init(head_dim, rope_theta);
-
-        // Auto-detect architecture from first layer weights
-        if (!layers.empty() && layers[0].q_K > 0) {
-            hidden_size = layers[0].q_K * 4;  // K_packed * 4 = K (ternary values)
-            num_heads = layers[0].q_M / head_dim;
-            num_kv_heads = layers[0].k_M / head_dim;
-            if (layers[0].up_M > 0) intermediate_size = layers[0].up_M;
-            fprintf(stderr, "[PackedModel] Auto-detected: H=%d IM=%d NH=%d NKV=%d\n",
-                    hidden_size, intermediate_size, num_heads, num_kv_heads);
-        }
 
         fprintf(stderr, "[PackedModel] Loaded %d layers, H=%d NH=%d NKV=%d HD=%d\n",
                 num_layers, hidden_size, num_heads, num_kv_heads, head_dim);
