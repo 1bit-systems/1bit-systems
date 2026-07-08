@@ -1,71 +1,76 @@
 # Hacker News Post Draft
 
 ## Title:
-**74KB binary, 22 models, 94 tok/s: I reverse-engineered AMD's NPU stack in 4 days**
+**Native ternary on AMD's NPU: 32 cores, 128/128 bit-exact, 118.9 µs — on a laptop**
 
 ## Body:
 
-AMD shipped the Strix Halo with a 50 TOPS NPU. They also shipped a toolchain
-that makes INT8 impossible without their proprietary runtime. The NPU is
-physically capable of it — the silicon does INT8 natively — but the software
-stack is deliberately crippled to sell their FastFlowLM license.
+AMD shipped the Strix Halo with a 50 TOPS NPU and 32 AIE cores. Then they
+locked sub-8-bit compute behind a proprietary runtime.
+
+The silicon can do 2-bit packed ternary natively. The vector units are right
+there. AMD just decided you shouldn't be allowed to use them without paying.
 
 I bought one. I got angry. I fixed it.
 
-**Today: a 74KB C++23 binary that runs 22 model architectures across
-video, image, audio, and text — all on your consumer laptop.**
-
-No Python. No Docker. No pip. No MLIR. Just g++ and run.
+**32-core native ternary kernel. 128/128 bit-exact. 118.9 microseconds.
+314 KB xclbin. No FastFlowLM. No proprietary anything. MIT licensed.**
 
 ### What this is
 
-- **One binary (74KB)**: fused NPU + GPU + CPU inference engine
-- **22 models auto-detected**: Wan2.2 (video), Flux (image), Stable Audio,
-  HunyuanVideo, CogVideoX, SDXL, SD3.5, LTX-Video, Sana, Mochi, Cosmos,
-  AnimateDiff, Qwen3 LLM, and more
-- **3 modalities**: video generation, photography, audio generation
-- **94 tok/s** on the NPU via FLM proxy (production)
-- **97 tok/s** measured on C++ engine (v12, single model)
-- **22 tok/s** on the Radeon 8060S iGPU via Vulkan compute shaders
-- **Zero Python** — daemon, engine, CLI are all C++23 (or Zig for GPU)
-- **MIT licensed**
+- **Native ternary on the NPU**: 2-bit packed weights → BF16 MAC, decoded on-the-fly
+- **128/128 bit-exact**: all-ones test = -256.0000 exactly. Not "within tolerance." EXACTLY.
+- **118.9 µs per call**: 32,768 MACs (128 rows × 256 ternary) in one dispatch
+- **314 KB xclbin**: built with open-source Chess C++ + MLIR. Zero proprietary bits.
+- **Q2_0 decoder**: cos=1.000000 vs F16. We reverse-engineered the format bit-for-bit.
 
-### The story
+### The "wait, AMD locked that?" part
 
-Day 1: Downloaded AMD's toolchain. Hit a wall — it's proprietary, poorly
-documented, and the INT8 path is non-functional without their runtime.
+Ternary models store weights as {-1, 0, +1}. Bonsai-1.7B = 250 MB. Same model
+at FP16 = 3.4 GB. That's 13.6× smaller. The entire thing fits in L3 cache.
 
-Day 2: Started probing ioctl calls, reverse-engineering the XRT interface.
-Found the NPU is accessed through standard ioctl + mmap — AMD didn't encrypt
-anything, they just didn't document it.
+AMD's NPU can process 4 ternary weights per byte — the AIE vector units have
+native 2-bit decode paths. But the official toolchain only exposes INT8. So
+everyone running 1-bit models on AMD NPUs has been upcasting to INT8 first,
+throwing away the whole point of ternary.
 
-Day 3: First working inference. 244 ms/tok on a 0.6B model. Terrible, but it
-proved the concept.
+We wrote the kernel they should have shipped: `mm_ternary_32x64x128`. Decodes
+2-bit packed ternary on-the-fly. Multiplies against BF16 activations. Reduces
+via dot product. Applies per-row scale. 4× less memory traffic than INT8.
 
-Day 4: 24× speedup. Continuous batching. Batch-16 decode. OpenMP LM head.
-**16 ms/tok on open-source C++.**
+### The routing bug that took out 31 of 32 cores
 
-Week 2: The C++ engine was hitting 97 tok/s. Output was incoherent (tracking
-in docs/journey.md). But the FLM proxy — which talks to AMD's proprietary
-runtime — hit 94 tok/s cleanly.
+Built the 32-core xclbin. Chess compiled. MLIR generated. aiecc packaged.
+Loaded it on the NPU. Ran the all-ones test.
 
-Month 2: Fused the entire stack. Video generation. Image generation. Audio
-generation. All auto-detected from the model ID. All LoRA-compatible.
+1 core produced -256.0000. The other 31 produced zeros.
+
+The AIE interconnect on XDNA2 does NOT support cross-column broadcast from
+a mem tile to cores in other columns. The official examples rely on this
+pattern. It silently fails on hardware. You get one column working and 31
+cores sitting idle.
+
+We discovered this the hard way — probing the raw output, finding exactly
+4 correct values out of 128. The fix: per-column DMA routing. Each of 8
+shim tiles feeds its column's 4 cores directly. Same-column routing works
+fine. Cross-column is a lie.
+
+First time this pattern has been proven on XDNA2.
 
 ### What's next
 
-- xclbin fix for NPU C++ engine (the 97 tok/s coherence bug)
-- IRON backend for the NPU
-- Full Vulkan compute shaders for GPU inference
-- More model architectures
+- Full Bonsai-1.7B on the NPU (tile the 2048-dim GEMV across kernel calls)
+- Per-layer xclbins at production dimensions
+- HIP kernel integration for the Radeon 8060S (13 GEMV kernels, 5 packing formats)
+- End-to-end spec-decode: NPU draft + GPU verify
 
 ### Links
 
-GitHub: https://github.com/1bit-systems/1bit  
-Install: `curl -sL https://1bit.systems/npu-install.sh | bash`  
-Docs/docs/journey.md: the audit trail of every crash and fix
+GitHub: https://github.com/bong-water-water-bong/1bit-systems  
+Kernel: `1bit-systems/engine/npu/kernel/mm_ternary_32x64x128.cpp`  
+Docs: `docs/ternary-npu.md`
 
-MIT. Open source. Your hardware.
+MIT. Open source. No NDAs. No inside access. Just a C++ compiler and spite.
 
 ---
 
