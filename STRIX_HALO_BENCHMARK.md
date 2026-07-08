@@ -70,6 +70,16 @@
 | Q5_K_M | 33.7 | 29.7 |
 | Q8_0 | 21.0 | 47.6 |
 
+## ⚡ NPU — Native Ternary (Flagship)
+
+| Configuration | Latency | Throughput | GMACs/s | XCLBin | All-ones |
+|--------------|---------|------------|---------|--------|----------|
+| 1 core | 68.3 µs | 14,636 calls/s | 0.120 | 16 KB | 32/32 ✅ |
+| **32 cores** | **118.9 µs** | **8,410 calls/s** | **0.276** | **314 KB** | **128/128 ✅** |
+
+**1-bit monster**: 2-bit packed ternary weights, on-the-fly decode, BF16 MAC.
+4× memory density vs INT8. Per-column DMA routing proven on XDNA2.
+
 ## ⚡ NPU & Custom Engine Results
 
 | Engine | Status | Result |
@@ -109,11 +119,11 @@
 | codestral:22b | 15.1 | 200 |
 | qwen3.6:27b-q4_K_M | 11.2 | 981 |
 
-## 🏅 Known Peak Achievements (prior sessions)
+## 🏅 Known Peak Achievements
 
 | Achievement | Value | Context |
 |-------------|-------|---------|
-| **NPU Ternary 32-core** | **128/128 bit-exact, 118.9 µs** | 4×8 grid, per-column DMA, object_fifo, BF16, 314 KB xclbin |
+| **🏆 NPU Native Ternary 32-core** | **128/128 bit-exact, 118.9 µs** | 4×8 grid, per-column DMA, object_fifo, BF16, 314 KB xclbin, MIT |
 | NPU GEMM TFLOPS | **31.0 TFLOPS** | config2, 192×128×96 tiles, 32 cores, Chess kernel, BFP16 |
 | NPU Qwen3 0.6B | **1.93s/tok** | v7 engine, 1024×1024 BFP16 xclbin |
 | iGPU spec-decode | **381 tok/s @ 45W** | Radeon 8060S, measured coherent |

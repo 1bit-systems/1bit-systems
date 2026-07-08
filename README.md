@@ -1,6 +1,6 @@
 > **I reverse-engineered AMD's proprietary NPU stack in 4 days.**
 > One person. A free Chess license. A C++ compiler.
-> Today: **94 tok/s** coherent NPU (FLM) + **279 tok/s** GPU 1.58-bit ternary (validated) + **118.9 µs** NPU native ternary 32-core (HW verified). Qwen3-0.6B / Bonsai-1.7B.
+> Today: **🏆 118.9 µs** NPU native ternary 32-core (HW verified) + **279 tok/s** GPU 1.58-bit ternary + **94 tok/s** FLM NPU. 1bit monster on Strix Halo.
 > No Python. No Docker. No vendor lock. Your hardware. [MIT licensed](LICENSE).
 
 <div align="center">
