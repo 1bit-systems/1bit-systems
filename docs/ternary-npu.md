@@ -141,11 +141,123 @@ Memory layout (mm_ternary):
 | NPU (INT8 path) | Q2_0→INT8 | **~28 tok/s** | ✅ Pipeline ready |
 | NPU (native ternary) | Q2_0 packed | **TBD** | ✅ Kernels built, pending NPU deployment |
 
+## Multi-Tile Native Ternary (New!)
+
+### Python MLIR Generators
+
+| Generator | Cores | Pattern | Status |
+|-----------|-------|---------|--------|
+| `engine/npu/kernel/n1_core_native_ternary.py` | 1 (single) | object_fifo, flat buffer | ✅ Fixed |
+| `engine/npu/kernel/n1_core_native_ternary_8core.py` | 8 (1×8 grid) | object_fifo, column-parallel | ✅ New |
+| `engine/npu/kernel/n1_core_ternary.py` | 1×8 (INT8 path) | object_fifo, A/B/C streams | ✅ Existing |
+| `engine/npu/kernel/n1_core_ternary_4row.py` | 4×8 (INT8 path) | object_fifo, 32-core | ✅ Existing |
+
+### Dataflow: Single vs Multi-Core
+
+**Single-core** (`n1_core_native_ternary.py`):
+```
+shim → mem → core: flat buffer [weights | scales | activations]
+core: mm_ternary_32x64x128(input, output) → M bf16 scalars
+core → mem → shim: M bf16 values
+```
+
+**8-core** (`n1_core_native_ternary_8core.py`):
+```
+shim → mem tiles: broadcast flat buffer to all 8 columns
+mem → each core: per-column slice (unique weights+scales, shared activations)
+each core → mem → shim: M/8 bf16 values (gathered across columns)
+```
+
+Each core processes `M/8` weight rows against the full activation vector.
+The Chess kernel is compiled with `-DDIM_M=$(M/8)` so each core only
+processes its own row slice.
+
+### Build
+
+```bash
+source engine/npu/build/env.sh
+
+# Single-core (debug/verify):
+bash engine/npu/build/build_ternary_xclbin.sh ternary mm_ternary
+
+# 8-core (production):
+bash engine/npu/build/build_native_ternary_8core.sh 32 64
+# Or with custom dimensions:
+bash engine/npu/build/build_native_ternary_8core.sh 64 128 ternary_8core_64
+```
+
+### Runtime Buffer Layout (Caller Responsibility)
+
+The host must prepare a flat buffer per column:
+```
+A_flat = [col0_buf][col1_buf]...[col7_buf]
+
+colX_buf = [M/8 * K_packed bytes weights (uint8)]
+           [M/8 * 2 bytes scales (bf16)]
+           [K*4 * 2 bytes activations (bf16)]
+
+Output:  [col0_out][col1_out]...[col7_out]
+colX_out = M/8 bf16 scalars
+```
+
+## Model Integration (New!)
+
+### spec-decode Target
+
+`spec-decode/engine/npu_ternary_target.h` — `TargetModelInterface` implementation
+that dispatches native ternary xclbins for each projection.
+
+```
+Token → Embed(bf16) → [per layer]:
+  RMSNorm(CPU) → Q/K/V: ternary GEMV → RoPE(CPU) → Attention(CPU)
+  → O: ternary GEMV → Residual + RMSNorm(CPU)
+  → Up/Gate: ternary GEMV → SwiGLU(CPU) → Down: ternary GEMV → Residual
+→ Final RMSNorm(CPU) → lm_head(CPU)
+```
+
+The `NativeTernaryCtx` class handles xclbin dispatch:
+- `gemv(activation_bf16, output_bf16)`: M×K dot product (GEMV)
+- `gemm(activation_bf16, output_bf16)`: tiles N columns via repeated GEMV calls
+- K dimension chunked into 256-ternary slices per kernel call
+- M dimension chunked into 32-row slices per kernel call
+
+### Test Harness
+
+```bash
+# Build
+g++ -std=c++23 -O2 -o test_ternary_target \
+    spec-decode/engine/test_ternary_target.cpp \
+    -I$XRT/include -I. -L$XRT/lib64 -lxrt_coreutil -fopenmp -lm
+
+# Run
+./test_ternary_target model.q4nx ternary_8core/
+```
+
 ## Next Steps (Future Work)
 
 For full model inference at native ternary density:
-1. **Multi-tile MLIR generator** — ports the single-tile microbenchmark to 8-core grid
-   designs (use `torch2aie/examples/bitnet-decode-layer/` patterns)
-2. **NPU deployment** — run on Strix Halo hardware, profile throughput
-3. **Model integration** — wire into `spec-decode/` engine stack
-4. **Per-layer xclbins** — build optimized variants for each projection dimension
+1. **Multi-tile MLIR generator** ✅ — `n1_core_native_ternary_8core.py` (8-core grid, object_fifo)
+2. **Multi-row support** ✅ — `n1_core_native_ternary_32core.py` (4×8=32 cores, row-broadcast + row_start/num_rows)
+3. **NPU deployment** ✅ — `NpuTernaryTarget` + `test_ternary_target.cpp` ready for Strix Halo
+4. **Model integration** ✅ — `spec-decode/engine/npu_ternary_target.h` (TargetModelInterface)
+5. **Daemon wiring** — connect `NpuTernaryTarget` into `daemon/npu-cppd.py` / `npu-gpu-cpud.cpp`
+6. **Per-layer xclbins** — build optimized variants for each projection dimension (Q/K/V/O/Up/Gate/Down)
+7. **NPU hardware validation** — run on Strix Halo, verify bit-exactness, profile tok/s
+
+### Build Commands
+
+```bash
+source engine/npu/build/env.sh
+
+# Single-core (debug):
+bash engine/npu/build/build_ternary_xclbin.sh ternary mm_ternary
+
+# 8-core (column-parallel, separate buffers per column):
+bash engine/npu/build/build_native_ternary_8core.sh 32 64
+
+# 32-core (row+column tiling, row-broadcast + slice):
+bash engine/npu/build/build_native_ternary_32core.sh 128 64
+
+# Full BitNet scheduler (single-tile test):
+bash engine/npu/build/build_ternary_xclbin.sh scheduler bitnet_scheduler
+```

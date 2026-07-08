@@ -107,31 +107,44 @@ compute_one_row(const uint8_t *__restrict weight_row,
 // The kernel casts sub-regions to appropriate types.
 //
 // input:  [weights (ui8)] [scales (bf16)] [activations (bf16)]
-// output: [M] bf16
+//         Buffer sized for DIM_M rows (compile-time).
+// output: [num_rows] bf16 (0-indexed, independent of row_start)
+//
+// row_start, num_rows: process only rows [row_start, row_start+num_rows).
+//   Multi-core tiling: all cores in a row share one broadcast buffer
+//   (containing all M rows), each picks its slice via row_start.
+//   Single-core use: row_start=0, num_rows=DIM_M.
 //
 // The caller tiles over N_cols externally; this processes one N-slice.
 
 extern "C" {
 
 void mm_ternary_32x64x128(int32_t *__restrict input,
-                          bfloat16 *__restrict output) {
+                          bfloat16 *__restrict output,
+                          int32_t row_start,
+                          int32_t num_rows) {
   // Cast sub-regions
   const uint8_t  *weights = reinterpret_cast<const uint8_t *>(input);
   const bfloat16 *scales  = reinterpret_cast<const bfloat16 *>(input + kScaleOffset / 4);
   const bfloat16 *acts    = reinterpret_cast<const bfloat16 *>(input + kActOffset / 4);
 
-  // Zero output
-  for (int32_t i = 0; i < kM; i++) {
+  // Zero output (only num_rows, not full kM)
+  for (int32_t i = 0; i < num_rows; i++) {
     output[i] = 0.0f;
   }
 
-  // Process each output row
-  for (int32_t row = 0; row < kM; row++) {
+  // Clamp row range
+  int32_t end_row = row_start + num_rows;
+  if (end_row > kM) end_row = kM;
+  if (row_start >= kM) return;
+
+  // Process assigned row slice
+  for (int32_t row = row_start; row < end_row; row++) {
     const uint8_t *wt_row = weights + row * kKPacked;
     bfloat16 scale = scales[row];
 
     aie::vector<bfloat16, kVLen> row_result = compute_one_row(wt_row, acts, scale);
-    output[row] += aie::reduce_add(row_result);
+    output[row - row_start] += aie::reduce_add(row_result);
   }
 }
 
