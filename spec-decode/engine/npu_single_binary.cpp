@@ -18,6 +18,7 @@
 #include "npu_target_model.h"
 #include "npu_fused_target.h"
 #include "../draft/dspark_draft.h"
+#include "../draft/mtp_draft.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -44,6 +45,8 @@ static const char* kFusedXclbinDir = "/home/bcloud/torch2aie/examples/qwen3-deco
 static const char* kFusedWeightDir = "/home/bcloud/npu-sandbox/npu-infer/build/int8/capref";
 static const char* kDraftCheckpoint = "/home/bcloud/spec-decode/checkpoints/dspark_draft.bin";
 static const char* kFallbackCheckpoint = "/home/bcloud/spec-decode/checkpoints/eagle3_draft.bin";
+// NPU-trained Eagle3 — trained on real NPU INT8 hidden states (37.3% top-1 acc, ~20-30% est. acceptance)
+static const char* kNpuEagle3Checkpoint = "/home/bcloud/spec-decode/checkpoints/eagle3_draft_npu_1k.bin";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -386,7 +389,94 @@ static int run_spec_decode(int prompt_len, int max_new) {
 
     print_stats(new_tokens, ms, decoder.stats());
 
+    // Eagle3 NPU-trained fallback: if DSpark has 0% acceptance, retry with Eagle3
+    if (decoder.stats().acceptance_rate() < 0.01f && draft_loaded) {
+        printf("\n⚠️  DSpark: %.1f%% acceptance — falling back to Eagle3 NPU-trained draft\n",
+               decoder.stats().acceptance_rate() * 100);
+
+        MTPDraftConfig e3_cfg;
+        MTPDraftModel e3_draft(e3_cfg);
+        if (e3_draft.load_weights(kNpuEagle3Checkpoint)) {
+            spec_cfg.num_draft_layers = 1;
+            using Eagle3Decoder = SpeculativeDecoderT<MTPDraftModel, MTPDraftState, MTPDraftConfig>;
+            Eagle3Decoder e3_decoder(target, e3_draft, spec_cfg);
+
+            printf("Retrying with Eagle3 NPU-trained draft...\n");
+            auto e3_t0 = std::chrono::high_resolution_clock::now();
+            int e3_generated = e3_decoder.generate(prompt.data(), actual_prompt,
+                                                    output.data(), max_new);
+            auto e3_t1 = std::chrono::high_resolution_clock::now();
+
+            double e3_ms = std::chrono::duration<double, std::milli>(e3_t1 - e3_t0).count();
+            int e3_new = e3_generated - actual_prompt;
+            print_stats(e3_new, e3_ms, e3_decoder.stats());
+        } else {
+            printf("Eagle3 NPU checkpoint not found — skipping fallback\n");
+        }
+    }
+
     // Print generated tokens (first 20)
+    printf("\nTokens: ");
+    for (int i = actual_prompt; i < std::min(generated, actual_prompt + 20); i++)
+        printf("%d ", output[i]);
+    printf("%s\n", new_tokens > 20 ? "..." : "");
+
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Mode 2b: Spec-Decode with Eagle3 on NPU (trained on NPU INT8 hidden states)
+// ---------------------------------------------------------------------------
+static int run_spec_decode_e3(int prompt_len, int max_new) {
+    print_banner();
+    printf("Mode: SPEC-DECODE-E3 (4-xclbin + Eagle3 NPU-trained draft)\n");
+    printf("Model:  %s\n", kModelPath);
+    printf("XCLBINs: %s\n", kXclbinDir);
+    printf("Prompt: %d tokens\n", prompt_len);
+    printf("Generate: %d tokens\n\n", max_new);
+
+    printf("Loading target model + 4 GEMM xclbins...\n");
+    auto t_load = std::chrono::steady_clock::now();
+
+    MTPDraftConfig draft_cfg;
+    MTPDraftModel draft(draft_cfg);
+    bool draft_loaded = draft.load_weights(kNpuEagle3Checkpoint);
+
+    SpecDecodeConfig spec_cfg;
+    spec_cfg.max_new_tokens = max_new;
+    spec_cfg.num_draft_layers = 1;  // Eagle3 = 1 layer
+    NPUQwen3Target target(kModelPath, kXclbinDir,
+                           spec_cfg.target_layer_ids, spec_cfg.num_target_layers);
+
+    printf("  Loaded in %.0fms\n\n",
+           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_load).count());
+
+    if (draft_loaded) {
+        printf("Draft: Eagle3 NPU-trained (%s)\n", kNpuEagle3Checkpoint);
+    } else {
+        printf("ERROR: Failed to load NPU-trained Eagle3 checkpoint!\n");
+        return 1;
+    }
+
+    using Eagle3Decoder = SpeculativeDecoderT<MTPDraftModel, MTPDraftState, MTPDraftConfig>;
+    Eagle3Decoder decoder(target, draft, spec_cfg);
+
+    auto prompt = default_prompt();
+    if (prompt_len > (int)prompt.size()) prompt.resize(prompt_len, 0);
+    int actual_prompt = std::min(prompt_len, (int)prompt.size());
+    std::vector<int32_t> output(max_new + actual_prompt);
+
+    printf("Generating...\n");
+    auto t0 = std::chrono::high_resolution_clock::now();
+    int generated = decoder.generate(prompt.data(), actual_prompt,
+                                      output.data(), max_new);
+    auto t1 = std::chrono::high_resolution_clock::now();
+
+    double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    int new_tokens = generated - actual_prompt;
+
+    print_stats(new_tokens, ms, decoder.stats());
+
     printf("\nTokens: ");
     for (int i = actual_prompt; i < std::min(generated, actual_prompt + 20); i++)
         printf("%d ", output[i]);
@@ -753,6 +843,7 @@ static void print_usage(const char* prog) {
     printf("  --daemon [port]        Production HTTP daemon (default port: 9090)\n");
     printf("  --daemon-fused [port]  Daemon using fused layer xclbin\n");
     printf("  --spec-decode [pl] [n] Spec decode with 4-xclbin + DSpark draft\n");
+    printf("  --spec-decode-e3 [pl] [n] Spec decode with 4-xclbin + Eagle3 NPU-trained draft\n");
     printf("                           pl: prompt length (default: 9)\n");
     printf("                           n:  max new tokens (default: 64)\n");
     printf("  --fused [pl] [n]       Fused layer xclbin mode\n");
@@ -797,6 +888,11 @@ int main(int argc, char* argv[]) {
         int prompt_len = (argc > 2) ? atoi(argv[2]) : 9;
         int max_new = (argc > 3) ? atoi(argv[3]) : 64;
         return run_spec_decode(prompt_len, max_new);
+    }
+    else if (mode == "--spec-decode-e3" || mode == "-se") {
+        int prompt_len = (argc > 2) ? atoi(argv[2]) : 9;
+        int max_new = (argc > 3) ? atoi(argv[3]) : 64;
+        return run_spec_decode_e3(prompt_len, max_new);
     }
     else if (mode == "--fused-spec" || mode == "-fs") {
         int prompt_len = (argc > 2) ? atoi(argv[2]) : 9;

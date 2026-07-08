@@ -261,21 +261,33 @@ struct TernaryCtx {
         const uint16_t* sc  = (const uint16_t*)((const char*)bo_weights->map() + weights_bytes);
         uint8_t* in_map = (uint8_t*)bo_in->map();
 
-        // Per-column data layout
+        // Per-column data layout (matches kernel: [weights][scales][acts])
         for (int col = 0; col < N_COLS; col++) {
             uint8_t* col_ptr = in_map + col * col_in_dw * 4;
+            // All weights for this column's 4 cores (16 rows × 64 bytes)
             for (int row = 0; row < N_ROWS; row++) {
                 int rs = m_start + col * m_per_col + row * m_per_core;
                 if (rs < M_total) {
-                    memcpy(col_ptr, wgt + (size_t)rs * K_packed_total + k_start / 4, (size_t)m_per_core * K_PACKED);
+                    memcpy(col_ptr, wgt + (size_t)rs * K_packed_total + k_start / 4,
+                           (size_t)m_per_core * K_PACKED);
                     col_ptr += (size_t)m_per_core * K_PACKED;
+                } else {
+                    memset(col_ptr, 0, (size_t)m_per_core * K_PACKED);
+                    col_ptr += (size_t)m_per_core * K_PACKED;
+                }
+            }
+            // All scales for this column (16 bf16 values)
+            for (int row = 0; row < N_ROWS; row++) {
+                int rs = m_start + col * m_per_col + row * m_per_core;
+                if (rs < M_total) {
                     memcpy(col_ptr, sc + rs, (size_t)m_per_core * 2);
                     col_ptr += (size_t)m_per_core * 2;
                 } else {
-                    memset(col_ptr, 0, (size_t)m_per_core * (K_PACKED + 2));
-                    col_ptr += (size_t)m_per_core * (K_PACKED + 2);
+                    memset(col_ptr, 0, (size_t)m_per_core * 2);
+                    col_ptr += (size_t)m_per_core * 2;
                 }
             }
+            // Activations (shared by column)
             memcpy(col_ptr, act_slice, (size_t)k_act_count * 2);
             if (k_act_count < K_TERNARY)
                 memset(col_ptr + k_act_count * 2, 0, (K_TERNARY - k_act_count) * 2);
@@ -289,16 +301,17 @@ struct TernaryCtx {
         auto run = (*k)((unsigned)3, bo_instr, (unsigned)mc_instr.size(), *bo_in, *bo_out);
         run.wait();
 
-        // Read f32 output, reorder from per-column layout, accumulate as bf16
+        // Read bf16 output (kernel writes bfloat16, not float32)
+        // Layout: [col0_c0..c3 bf16][col1_c0..c3 bf16]...[col7_c0..c3 bf16]
         bo_out->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
-        const float* out_f32 = (const float*)bo_out->map();
+        const uint16_t* out_bf16 = (const uint16_t*)bo_out->map();
         for (int r = 0; r < M_MULTI && (m_start + r) < M_total; r++) {
             int col  = r / m_per_col;
             int ri   = r % m_per_col;
             int core = ri / m_per_core;
             int loc  = ri % m_per_core;
             size_t idx = (size_t)col * col_out_elems + (size_t)core * m_per_core + loc;
-            float partial = out_f32[idx];
+            float partial = bf16f(out_bf16[idx]);
             float cur = bf16f(output_bf16[m_start + r]);
             output_bf16[m_start + r] = f2bf(cur + partial);
         }
@@ -400,6 +413,7 @@ struct PackedModel {
         if (!mf) { fprintf(stderr, "manifest.json not found: %s\n", manifest_path.c_str()); return false; }
         std::string mjson((std::istreambuf_iterator<char>(mf)),
                           std::istreambuf_iterator<char>());
+        fprintf(stderr, "[PackedModel] manifest.json: %zu bytes\n", mjson.size());
 
         // mmap weights.bin
         int fd = open(weights_path.c_str(), O_RDONLY);
@@ -414,15 +428,17 @@ struct PackedModel {
         // ── Phase 1: auto-detect dimensions from manifest ────
         // Count layers
         int max_layer = -1;
-        for (size_t pos = 0; ; ) {
+        size_t pos = 0;
+        while (true) {
             auto p = mjson.find("model.layers.", pos);
             if (p == std::string::npos) break;
-            p += 14;  // skip "model.layers."
+            p += 13;  // skip "model.layers." (13 chars)
             int layer_num = atoi(mjson.c_str() + p);
             if (layer_num > max_layer) max_layer = layer_num;
-            pos = p;
+            pos = p + 1;  // advance past current match
         }
         num_layers = max_layer + 1;
+        fprintf(stderr, "[PackedModel] Scanned manifest, max_layer=%d, num_layers=%d\n", max_layer, num_layers);
 
         // Detect dims from first Q-proj
         auto qp = mjson.find("model.layers.0.self_attn.q_proj.weight");
