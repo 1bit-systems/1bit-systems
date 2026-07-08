@@ -233,6 +233,33 @@ g++ -std=c++23 -O2 -o test_ternary_target \
 ./test_ternary_target model.q4nx ternary_8core/
 ```
 
+### Daemon Integration
+
+The native ternary backend is wired into the daemon via `NativeTernaryBackend`:
+
+```bash
+# Build the serve binary:
+g++ -std=c++23 -O2 -o npu_ternary_serve npu_ternary_serve.cpp \
+    -I/usr/include/xrt -I. -L/usr/lib/x86_64-linux-gnu \
+    -lxrt_coreutil -fopenmp -lm -luuid
+
+# Start the daemon (auto-starts native ternary if available):
+sudo ./daemon/npu-gpu-cpud [--port 9090] [--npu-port 52625]
+
+# Query via curl:
+curl -s http://localhost:9090/v1/health | jq .devices.npu_ternary
+
+# Use native ternary model:
+curl -s http://localhost:9090/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"Qwen3-0.6B-NativeTernary","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+Environment variables:
+- `TERNARY_MODEL_PATH` — model file path (default: Qwen3-0.6B-NPU2/model.q4nx)
+- `TERNARY_XCLBIN_DIR` — xclbin directory (default: engine/npu/build/build/ternary)
+- `TERNARY_SERVE_BIN` — serve binary path (default: ./npu_ternary_serve)
+
 ## Next Steps (Future Work)
 
 For full model inference at native ternary density:
@@ -241,7 +268,7 @@ For full model inference at native ternary density:
 3. **NPU deployment** ✅ — `NpuTernaryTarget` + `test_ternary_target.cpp` ready for Strix Halo
 4. **Model integration** ✅ — `spec-decode/engine/npu_ternary_target.h` (TargetModelInterface)
 5. **Daemon wiring** ✅ — `NativeTernaryBackend` in `daemon/npu-gpu-cpud.cpp` + `npu_ternary_serve` subprocess
-6. **Per-layer xclbins** — build optimized variants for each projection dimension (Q/K/V/O/Up/Gate/Down)
+6. **Per-layer xclbins** ✅ — single `mm_ternary_32x64x128` kernel tiles all dimensions (M in 32-row chunks, K in 256-ternary chunks). Multi-core variants (8-core, 32-core) built for future perf.
 7. **NPU hardware validation** — run on Strix Halo, verify bit-exactness, profile tok/s
 
 ### Build Commands
