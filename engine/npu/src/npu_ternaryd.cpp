@@ -452,6 +452,16 @@ struct PackedModel {
 
         rope.init(head_dim, rope_theta);
 
+        // Auto-detect architecture from first layer weights
+        if (!layers.empty() && layers[0].q_K > 0) {
+            hidden_size = layers[0].q_K * 4;  // K_packed * 4 = K (ternary values)
+            num_heads = layers[0].q_M / head_dim;
+            num_kv_heads = layers[0].k_M / head_dim;
+            if (layers[0].up_M > 0) intermediate_size = layers[0].up_M;
+            fprintf(stderr, "[PackedModel] Auto-detected: H=%d IM=%d NH=%d NKV=%d\n",
+                    hidden_size, intermediate_size, num_heads, num_kv_heads);
+        }
+
         fprintf(stderr, "[PackedModel] Loaded %d layers, H=%d NH=%d NKV=%d HD=%d\n",
                 num_layers, hidden_size, num_heads, num_kv_heads, head_dim);
         return true;
