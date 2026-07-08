@@ -354,9 +354,14 @@ struct PackedModel {
     std::vector<std::vector<float>> layer_in_norm, layer_pa_norm;
     std::vector<std::vector<float>> layer_q_norm, layer_k_norm;
 
-    // Embeddings and lm_head (f16, read on-the-fly)
-    int embed_elems = 0;  // vocab_size * hidden_size
-    size_t embed_offset = 0;  // byte offset in model_base
+    // Embeddings (f16, read on-the-fly for embed_token)
+    int embed_elems = 0;
+    size_t embed_offset = 0;
+
+    // lm_head weights (packed ternary, for NPU dispatch)
+    uint8_t* lm_head_weights = nullptr;
+    uint16_t* lm_head_scales = nullptr;
+    int lm_head_M = 0, lm_head_K = 0;
 
     RoPECache rope;
 
@@ -494,6 +499,10 @@ struct PackedModel {
         load_norm_weights("model.norm.weight", final_norm_w, hidden_size);
         load_embed_table("model.embed_tokens.weight");
 
+        // Load packed ternary lm_head for NPU dispatch
+        load_packed_weights("lm_head.weight", &lm_head_weights, &lm_head_scales,
+                           &lm_head_M, &lm_head_K);
+
         rope.init(head_dim, rope_theta);
 
         fprintf(stderr, "[PackedModel] Loaded %d layers, H=%d NH=%d NKV=%d HD=%d\n",
@@ -591,7 +600,8 @@ struct TernaryDaemon {
         std::unique_ptr<TernaryCtx> q, k, v, o, up, gate, down;
     };
     std::vector<LayerCtx> layer_ctxs;
-    int max_pos = 32;  // max KV cache positions
+    std::unique_ptr<TernaryCtx> lm_head_ctx;  // NPU-powered lm_head
+    int max_pos = 32;
 
     bool init(const std::string& model_dir, const std::string& xclbin_dir) {
         // Load manifest JSON
@@ -706,6 +716,18 @@ struct TernaryDaemon {
         }
 
         fprintf(stderr, "[Daemon] All %d layers loaded. Ready.\n", model.num_layers);
+
+        // Init NPU lm_head if available
+        if (model.lm_head_M > 0) {{
+            lm_head_ctx = std::make_unique<TernaryCtx>();
+            if (!lm_head_ctx->init(device, sc_uuid, sc_instr, mc_uuid, mc_instr,
+                                   model.lm_head_weights, model.lm_head_scales,
+                                   model.lm_head_M, model.lm_head_K * 4)) {{
+                fprintf(stderr, "[Daemon] lm_head init failed, falling back to CPU\n");
+                lm_head_ctx.reset();
+            }}
+        }}
+
         return true;
     }
 
@@ -851,8 +873,16 @@ struct TernaryDaemon {
             memcpy(norm_hidden, hidden.data(), H * 4);
             rms_norm(norm_hidden, model.final_norm_w.data(), H);
 
-            // LM head → logits → argmax
-            model.lm_head(norm_hidden, logits.data());
+            // LM head → logits → argmax (NPU if available, CPU fallback)
+            if (lm_head_ctx) {{
+                // Convert hidden to bf16, dispatch NPU GEMV, convert back
+                for (int i = 0; i < H; i++) buf_bf16[i] = f2bf(norm_hidden[i]);
+                std::vector<uint16_t> lm_out(model.vocab_size);
+                lm_head_ctx->gemv(buf_bf16.data(), lm_out.data());
+                for (int v = 0; v < model.vocab_size; v++) logits[v] = bf16f(lm_out[v]);
+            }} else {{
+                model.lm_head(norm_hidden, logits.data());
+            }}
 
             float best = -1e30f;
             int best_tok = 0;
