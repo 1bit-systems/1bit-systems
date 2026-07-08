@@ -111,7 +111,7 @@
 | Category | Count | Detail |
 |----------|-------|--------|
 | 1-bit GGUF models | 1 | Bonsai-1.7B-Q1_0 (248 MB) |
-| Standard GGUF models | 4 | ZAYA1-8B variants |
+| Standard GGUF models | 4 (ZAYA1-8B variants, 2048d, Q4_K/F32) | ZAYA1-8B variants |
 | Native ternary NPU xclbins | 6 | 15-310 KB, 1-32 cores |
 | HIP ternary kernel sources | 13 | 12 variants, 5 packing formats |
 | HIP compiled objects | 16 | 14 .o files, RDNA 3.5 |
