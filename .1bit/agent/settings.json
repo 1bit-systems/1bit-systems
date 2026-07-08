@@ -7,5 +7,5 @@
   "packages": [
     "git:github.com/tintinweb/pi-gitnexus"
   ],
-  "hideThinkingBlock": true
+  "hideThinkingBlock": false
 }
