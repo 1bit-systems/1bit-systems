@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   pr_agent:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, strix-halo]
     if: github.event.repository.owner.login == 'bong-water-water-bong'
     steps:
       - uses: actions/checkout@v4
