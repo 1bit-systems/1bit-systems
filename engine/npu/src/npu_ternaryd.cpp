@@ -20,10 +20,9 @@
  *   ├── manifest.json   — tensor metadata
  *   └── weights.bin     — packed ternary weights + bf16 scales + f16 norms
  *
- * Xclbin dir (from rebuild_all_ternary_xclbins.sh):
- *   Q.xclbin   insts_Q.txt    — M=2048 K=1024  (Q, Up, Gate)
- *   KV.xclbin  insts_KV.txt   — M=1024 K=1024  (K, V)
- *   O.xclbin   insts_O.txt    — M=1024 K=2048  (O, Down)
+ * Xclbin: single-shot single-core ternary_oneshot.xclbin
+ *   Built via: bash engine/npu/build/build_oneshot_xclbin.sh
+ *   One xclbin for all projections — host tiles M and K dimensions.
  */
 
 #include <cstdio>
@@ -138,33 +137,24 @@ struct RoPECache {
 // ═══════════════════════════════════════════════════════════════
 
 struct TernaryCtx {
-    // 32-core grid: 8 columns × 4 rows = 32 AIE cores
-    static constexpr int N_COLS = 8;
-    static constexpr int N_ROWS = 4;
-    static constexpr int N_CORES = N_COLS * N_ROWS;  // 32
+    static constexpr int K_TERNARY = 256;   // ternary values per kernel call
+    static constexpr int K_PACKED  = 64;    // packed bytes for K=256
+    static constexpr int M_PER_CORE = 32;   // output rows per kernel call
 
-    int M_total, K_total;
-    int K_packed;      // K_total / 4  (packed ternary bytes)
-    int m_per_core;    // M_total / 32  (rows per core)
-    int m_per_col;     // M_total / 8   (rows per column)
-    size_t col_in_bytes;   // per-column input buffer bytes
-    size_t col_in_dwords;
-    size_t col_out_elems;  // per-column output floats
-
+    int M_total, K_total;  // dimensions
     xrt::device* device = nullptr;
 
     std::unique_ptr<xrt::xclbin> xc;
-    std::unique_ptr<xrt::hw_context> hc;
-    std::unique_ptr<xrt::kernel> k;
+    xrt::uuid xclbin_uuid;
     std::vector<uint32_t> instr;
 
     // Pre-loaded weight buffer: [M_total * K_packed uint8] [M_total * 2 bf16]
     std::unique_ptr<xrt::bo> bo_weights;
     size_t weights_bytes = 0, scales_bytes = 0;
 
-    // IO buffers: sized for 32-core per-column layout
-    std::unique_ptr<xrt::bo> bo_in, bo_out;
-    int in_bytes_per_M, out_bytes_per_M;
+    // IO buffer sizes per tile (fits single-tile data: M_PER_CORE rows × K_TERNARY values)
+    static constexpr int TILE_IN_BYTES  = M_PER_CORE * K_PACKED + M_PER_CORE * 2 + K_TERNARY * 2;
+    static constexpr int TILE_OUT_BYTES = M_PER_CORE * 2;  // bf16
 
     bool init(xrt::device& dev,
               const std::string& xclbin_path,
@@ -173,39 +163,16 @@ struct TernaryCtx {
               const uint16_t* weight_scales,  // [M_total] bf16
               int M, int K) {
         M_total = M; K_total = K;
-        K_packed = K_total / 4;  // K ternary values → K/4 packed bytes
-
-        if (M_total % N_CORES != 0) {
-            fprintf(stderr, "  [TernaryCtx] M=%d not divisible by %d cores\n", M_total, N_CORES);
-            return false;
-        }
-
-        m_per_core = M_total / N_CORES;
-        m_per_col  = m_per_core * N_ROWS;
-
-        // Per-column buffer: 4 cores' weights+scales + shared activations
-        // Column layout: [core0_w][core0_s][core1_w][core1_s][core2_w][core2_s][core3_w][core3_s][activations]
-        col_in_bytes   = (size_t)m_per_col * K_packed   // 4 cores × (m_per_core × K_packed)
-                       + (size_t)m_per_col * 2           // 4 cores × (m_per_core × 2)
-                       + (size_t)K_total * 2;            // shared activations (bf16)
-        col_in_dwords  = (col_in_bytes + 3) / 4;
-        in_bytes_per_M = col_in_dwords * N_COLS * 4;
-
-        // Output: per-core m_per_core f32, gathered per column (4 cores), across 8 columns
-        col_out_elems   = (size_t)m_per_core * N_ROWS;  // M_total/8 f32s per column
-        out_bytes_per_M = col_out_elems * N_COLS * 4;    // M_total f32s
-
         device = &dev;
 
-        // Load xclbin
+        // Load xclbin once, cache uuid
         std::ifstream xf(xclbin_path, std::ios::binary);
         if (!xf) { fprintf(stderr, "  [TernaryCtx] xclbin not found: %s\n", xclbin_path.c_str()); return false; }
         xf.seekg(0, std::ios::end); auto xs = (size_t)xf.tellg(); xf.seekg(0);
         std::vector<char> xd(xs); xf.read(xd.data(), xs);
         xc = std::make_unique<xrt::xclbin>(xd);
         dev.register_xclbin(*xc);
-        hc = std::make_unique<xrt::hw_context>(dev, xc->get_uuid());
-        k = std::make_unique<xrt::kernel>(*hc, "MLIR_AIE");
+        xclbin_uuid = xc->get_uuid();
 
         // Load instructions
         std::ifstream nf(instr_path, std::ios::binary);
@@ -214,80 +181,98 @@ struct TernaryCtx {
         instr.resize(ns / 4 + 1);
         nf.read((char*)instr.data(), ns);
 
-        // Create IO buffers sized for 32-core per-column layout
-        int wg = k->group_id(3);
-        int og = k->group_id(5);
-        bo_in  = std::make_unique<xrt::bo>(dev, in_bytes_per_M, xrt::bo::flags::host_only, wg);
-        bo_out = std::make_unique<xrt::bo>(dev, out_bytes_per_M, xrt::bo::flags::host_only, og);
-
-        // Upload packed weights (flat, sliced into per-column layout in gemv)
-        weights_bytes = (size_t)M_total * K_packed;
+        // Upload packed weights (flat, sliced per-tile in gemv)
+        weights_bytes = (size_t)M_total * K_PACKED;
         scales_bytes = (size_t)M_total * 2;
         bo_weights = std::make_unique<xrt::bo>(dev, weights_bytes + scales_bytes,
-                                                xrt::bo::flags::host_only, wg);
+                                                xrt::bo::flags::host_only, 0);
         memcpy(bo_weights->map(), packed_weights, weights_bytes);
         memcpy((char*)bo_weights->map() + weights_bytes, weight_scales, scales_bytes);
         bo_weights->sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
-        fprintf(stderr, "  [TernaryCtx] M=%d K=%d m_per_core=%d in=%d out=%d OK\n",
-                M, K, m_per_core, in_bytes_per_M, out_bytes_per_M);
+        fprintf(stderr, "  [TernaryCtx] M=%d K=%d weights=%zuB tile_in=%d OK\n",
+                M, K, weights_bytes + scales_bytes, TILE_IN_BYTES);
         return true;
     }
 
     /**
-     * Run native ternary GEMV via 32-core NPU xclbin.
+     * Tiled GEMV: out[m] = sum_k(dot(weight[m][k*K_TERNARY:(k+1)*K_TERNARY], act[k_chunk]) * scale[m])
      *
-     * Data layout (32-core native ternary, 8 cols × 4 rows):
-     *   bo_in = [col0_buf][col1_buf]...[col7_buf]
-     *   Each colN_buf = [core0_w][core0_s][core1_w][core1_s][core2_w][core2_s][core3_w][core3_s][activations]
-     *   bo_out = [col0_c0..c3 f32][col1_c0..c3 f32]...[col7_c0..c3 f32]
+     * Uses single-shot single-core xclbin (kernel exits after one input).
+     * Tiles M into M_PER_CORE chunks, K into K_TERNARY chunks.
+     * Fresh hw_context per dispatch avoids multi-dispatch crash.
      */
     void gemv(const uint16_t* activation_bf16, uint16_t* output_bf16) {
-        int ig = k->group_id(1);
+        memset(output_bf16, 0, (size_t)M_total * 2);
 
-        // Format per-column input buffers
-        uint8_t* in_map = (uint8_t*)bo_in->map();
         const uint8_t*  wgt_map = (const uint8_t*)bo_weights->map();
         const uint16_t* sc_map  = (const uint16_t*)((const char*)bo_weights->map() + weights_bytes);
 
-        for (int col = 0; col < N_COLS; col++) {
-            uint8_t* col_ptr = in_map + (size_t)col * col_in_dwords * 4;
+        for (int m_start = 0; m_start < M_total; m_start += M_PER_CORE) {
+            int m_chunk = std::min(M_PER_CORE, M_total - m_start);
 
-            // Copy weights + scales for all 4 cores in this column
-            for (int row = 0; row < N_ROWS; row++) {
-                int row_start = col * m_per_col + row * m_per_core;
-                memcpy(col_ptr, wgt_map + (size_t)row_start * K_packed, (size_t)m_per_core * K_packed);
-                col_ptr += (size_t)m_per_core * K_packed;
-                memcpy(col_ptr, sc_map + row_start, (size_t)m_per_core * 2);
-                col_ptr += (size_t)m_per_core * 2;
+            for (int k_start = 0; k_start < K_total; k_start += K_TERNARY) {
+                int k_act_count = std::min(K_TERNARY, K_total - k_start);
+                int k_packed_chunk = k_act_count / 4;
+
+                // Create per-dispatch hw_context + kernel (single-shot, exits cleanly)
+                auto hc = std::make_unique<xrt::hw_context>(*device, xclbin_uuid);
+                auto k  = std::make_unique<xrt::kernel>(*hc, "MLIR_AIE");
+
+                int wg = k->group_id(3);
+                int og = k->group_id(5);
+                int ig = k->group_id(1);
+
+                auto bo_in  = std::make_unique<xrt::bo>(*device, TILE_IN_BYTES, xrt::bo::flags::host_only, wg);
+                auto bo_out = std::make_unique<xrt::bo>(*device, TILE_OUT_BYTES, xrt::bo::flags::host_only, og);
+
+                // Build tile input: [m_chunk×K_packed weights | m_chunk×2 scales | k_act×2 activations]
+                uint8_t* in_map = (uint8_t*)bo_in->map();
+
+                // Copy weight slice
+                uint8_t* wt_src = (uint8_t*)wgt_map + (size_t)m_start * K_PACKED;
+                for (int r = 0; r < m_chunk; r++) {
+                    memcpy(in_map + r * K_PACKED,
+                           wt_src + r * ((size_t)K_total / 4) + k_start / 4,
+                           (size_t)k_packed_chunk);
+                }
+                // Zero-pad if partial K chunk
+                if (k_packed_chunk < K_PACKED) {
+                    for (int r = 0; r < m_chunk; r++)
+                        memset(in_map + r * K_PACKED + k_packed_chunk, 0,
+                               (size_t)(K_PACKED - k_packed_chunk));
+                }
+
+                // Copy scale slice
+                memcpy(in_map + M_PER_CORE * K_PACKED, sc_map + m_start, (size_t)m_chunk * 2);
+
+                // Copy activation slice
+                uint16_t* act_dst = (uint16_t*)(in_map + M_PER_CORE * K_PACKED + M_PER_CORE * 2);
+                memcpy(act_dst, activation_bf16 + k_start, (size_t)k_act_count * 2);
+                if (k_act_count < K_TERNARY)
+                    memset(act_dst + k_act_count, 0, (K_TERNARY - k_act_count) * 2);
+
+                bo_in->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+
+                // Instruction buffer
+                auto bo_instr = xrt::bo(*device, instr.size() * 4, XCL_BO_FLAGS_CACHEABLE, ig);
+                memcpy(bo_instr.map(), instr.data(), instr.size() * 4);
+                bo_instr.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+
+                // Dispatch single-shot kernel
+                auto run = (*k)((unsigned)3, bo_instr, (unsigned)instr.size(),
+                                *bo_in, *bo_out);
+                run.wait();
+
+                // Read back and accumulate
+                bo_out->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+                uint16_t* out_map = (uint16_t*)bo_out->map();
+                for (int r = 0; r < m_chunk; r++) {
+                    float partial = bf16f(out_map[r]);
+                    float cur = bf16f(output_bf16[m_start + r]);
+                    output_bf16[m_start + r] = f2bf(cur + partial);
+                }
             }
-
-            // Copy full activation vector (shared by all 4 cores in this column)
-            memcpy(col_ptr, activation_bf16, (size_t)K_total * 2);
-        }
-        bo_in->sync(XCL_BO_SYNC_BO_TO_DEVICE);
-
-        // Dispatch: opcode=3, instr, instr_word_count, in_bo, out_bo
-        auto bo_instr = xrt::bo(*device, instr.size() * 4, XCL_BO_FLAGS_CACHEABLE, ig);
-        memcpy(bo_instr.map(), instr.data(), instr.size() * 4);
-        bo_instr.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-
-        auto run = (*k)((unsigned)3, bo_instr, (unsigned)instr.size(),
-                        *bo_in, *bo_out);
-        run.wait();
-
-        // Read back f32 output, convert to bf16 and reorder
-        // Layout: [col0_c0..c3][col1_c0..c3]...[col7_c0..c3]
-        bo_out->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
-        const float* out_f32 = (const float*)bo_out->map();
-
-        for (int i = 0; i < M_total; i++) {
-            int col = i / m_per_col;
-            int r = i % m_per_col;
-            int core = r / m_per_core;
-            int local = r % m_per_core;
-            size_t idx = (size_t)col * col_out_elems + (size_t)core * m_per_core + local;
-            output_bf16[i] = f2bf(out_f32[idx]);
         }
     }
 };
@@ -534,41 +519,41 @@ struct TernaryDaemon {
         // Up/Gate dims: M=IM, K=H (same xclbin)
         // Down dims: M=H, K=IM
 
-        // Native ternary xclbins must be built per dimension set.
-        // Three variants needed (run build/rebuild_all_ternary_xclbins.sh):
-        //   Q.xclbin   : M=2048 K=1024  (for Q, Up, Gate projections)
-        //   KV.xclbin  : M=1024 K=1024  (for K, V projections)
-        //   O.xclbin   : M=1024 K=2048  (for O, Down projections)
+        // Single oneshot xclbin for all projections — host tiles M/K.
+        // Xclbin dir must contain: ternary_oneshot.xclbin + insts_ternary_oneshot.txt
+        std::string xclbin_file = xb + "ternary_oneshot.xclbin";
+        std::string instr_file  = xb + "insts_ternary_oneshot.txt";
+
         for (int l = 0; l < model.num_layers; l++) {
             auto& lw = model.layers[l];
             auto& lc = layer_ctxs[l];
 
             lc.q = std::make_unique<TernaryCtx>();
-            if (!lc.q->init(device, xb + "Q.xclbin", xb + "insts_Q.txt",
+            if (!lc.q->init(device, xclbin_file, instr_file,
                             lw.q_weights, lw.q_scales, q_dim, H)) return false;
 
             lc.k = std::make_unique<TernaryCtx>();
-            if (!lc.k->init(device, xb + "KV.xclbin", xb + "insts_KV.txt",
+            if (!lc.k->init(device, xclbin_file, instr_file,
                             lw.k_weights, lw.k_scales, kv_dim, H)) return false;
 
             lc.v = std::make_unique<TernaryCtx>();
-            if (!lc.v->init(device, xb + "KV.xclbin", xb + "insts_KV.txt",
+            if (!lc.v->init(device, xclbin_file, instr_file,
                             lw.v_weights, lw.v_scales, kv_dim, H)) return false;
 
             lc.o = std::make_unique<TernaryCtx>();
-            if (!lc.o->init(device, xb + "O.xclbin", xb + "insts_O.txt",
+            if (!lc.o->init(device, xclbin_file, instr_file,
                             lw.o_weights, lw.o_scales, H, q_dim)) return false;
 
             lc.up = std::make_unique<TernaryCtx>();
-            if (!lc.up->init(device, xb + "Q.xclbin", xb + "insts_Q.txt",
+            if (!lc.up->init(device, xclbin_file, instr_file,
                              lw.up_weights, lw.up_scales, IM, H)) return false;
 
             lc.gate = std::make_unique<TernaryCtx>();
-            if (!lc.gate->init(device, xb + "Q.xclbin", xb + "insts_Q.txt",
+            if (!lc.gate->init(device, xclbin_file, instr_file,
                                lw.gate_weights, lw.gate_scales, IM, H)) return false;
 
             lc.down = std::make_unique<TernaryCtx>();
-            if (!lc.down->init(device, xb + "O.xclbin", xb + "insts_O.txt",
+            if (!lc.down->init(device, xclbin_file, instr_file,
                                lw.down_weights, lw.down_scales, H, IM)) return false;
         }
 

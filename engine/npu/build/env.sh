@@ -7,9 +7,9 @@ ENGINE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 export TOOLCHAIN=/home/bcloud/torch2aie/toolchain
 export AIETOOLS_DIR=$TOOLCHAIN/aietools
 export MLIR_AIE_DIR=$TOOLCHAIN/mlir_aie
-export PATH=$TOOLCHAIN/bin:$AIETOOLS_DIR/bin:$TOOLCHAIN/mlir_aie/bin:$PATH
-export LD_LIBRARY_PATH=$TOOLCHAIN/mlir_aie/lib:$TOOLCHAIN/lib:$LD_LIBRARY_PATH
-export PYTHONPATH=$TOOLCHAIN/mlir_aie/python:$PYTHONPATH
+export PATH=$TOOLCHAIN/bin:$AIETOOLS_DIR/bin:$TOOLCHAIN/mlir_aie/bin${PATH:+:$PATH}
+export LD_LIBRARY_PATH=$TOOLCHAIN/mlir_aie/lib:$TOOLCHAIN/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+export PYTHONPATH=$TOOLCHAIN/mlir_aie/python${PYTHONPATH:+:$PYTHONPATH}
 export XCHESS=$TOOLCHAIN/bin/xchesscc
 
 echo "Toolchain ready:"
