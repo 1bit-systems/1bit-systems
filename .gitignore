@@ -1,7 +1,7 @@
 # Build artifacts
-engine/build/*.o
+engine/build/**/*.o
 engine/build/npu_engine
-engine/npu/build/*.o
+engine/npu/build/**/*.o
 engine/npu/build/npu_engine*
 *.xclbin
 *.insts
@@ -155,3 +155,14 @@ npu-sandbox/vulkan-gevm/
 # Spec-decode binaries & logs
 spec-decode/*.bin
 spec-decode/training_*.log
+
+# Build artifacts — not tracked
+engine/npu/build/
+engine/fusion/engine
+engine/fusion/engine.c
+*.o
+*.a
+*.so
+*.xclbin
+npu_ternaryd
+npu_ternaryd_dbg

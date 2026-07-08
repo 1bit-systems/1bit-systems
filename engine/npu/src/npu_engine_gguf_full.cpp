@@ -20,6 +20,7 @@
 #include <cmath>
 #include <string>
 #include <vector>
+#include <memory>
 #include <unordered_map>
 #include <chrono>
 #include <fcntl.h>
@@ -77,9 +78,9 @@ static void dequantize_q6_K(const block_q6_K* block, float* out, int n) {
 }
 
 // ─── Dequant tensor to float ───
-static float* dequantize_tensor(GGUFReader& r, const GGUFModel::Tensor& t, uint64_t data_off) {
+static std::unique_ptr<float[]> dequantize_tensor(GGUFReader& r, const GGUFModel::Tensor& t, uint64_t data_off) {
     int n_elems = 1; for (auto d : t.dims) n_elems *= d;
-    float* out = new float[n_elems];
+    auto out = std::make_unique<float[]>(n_elems);
     r.seek(data_off + t.file_offset);
     int bs = ggml_blck_size((ggml_type)t.type);
     int ts = ggml_type_size((ggml_type)t.type);
@@ -92,11 +93,11 @@ static float* dequantize_tensor(GGUFReader& r, const GGUFModel::Tensor& t, uint6
         case GGML_TYPE_Q4_1: for (int b=0;b<nb;b++){float d=r.read_f16(),m=r.read_f16();for(int j=0;j<16;j++){uint8_t by=r.read_u8();out[b*32+j*2]=d*(by>>4)+m;out[b*32+j*2+1]=d*(by&0xF)+m;}} break;
         case GGML_TYPE_Q5_0: for (int b=0;b<nb;b++){float d=r.read_f16();uint16_t h=r.read_u16();for(int j=0;j<16;j++){uint8_t by=r.read_u8();out[b*32+j*2]=d*(((by>>4)|((h>>j)&1<<4))-16);out[b*32+j*2+1]=d*(((by&0xF)|((h>>(j+16))&1<<4))-16);}} break;
         case GGML_TYPE_Q5_1: for (int b=0;b<nb;b++){float d=r.read_f16(),m=r.read_f16();uint16_t h=r.read_u16();for(int j=0;j<16;j++){uint8_t by=r.read_u8();out[b*32+j*2]=d*((by>>4)|((h>>j)&1<<4))+m;out[b*32+j*2+1]=d*((by&0xF)|((h>>(j+16))&1<<4))+m;}} break;
-        case GGML_TYPE_Q4_K: for (int b=0;b<nb;b++){dequantize_q4_K((const block_q4_K*)r.ptr(),out+b*256,n_elems-b*256);r.skip(ts);} break;
-        case GGML_TYPE_Q5_K: for (int b=0;b<nb;b++){dequantize_q5_K((const block_q5_K*)r.ptr(),out+b*256,n_elems-b*256);r.skip(ts);} break;
-        case GGML_TYPE_Q6_K: for (int b=0;b<nb;b++){dequantize_q6_K((const block_q6_K*)r.ptr(),out+b*256,n_elems-b*256);r.skip(ts);} break;
+        case GGML_TYPE_Q4_K: for (int b=0;b<nb;b++){dequantize_q4_K((const block_q4_K*)r.ptr(),out.get()+b*256,n_elems-b*256);r.skip(ts);} break;
+        case GGML_TYPE_Q5_K: for (int b=0;b<nb;b++){dequantize_q5_K((const block_q5_K*)r.ptr(),out.get()+b*256,n_elems-b*256);r.skip(ts);} break;
+        case GGML_TYPE_Q6_K: for (int b=0;b<nb;b++){dequantize_q6_K((const block_q6_K*)r.ptr(),out.get()+b*256,n_elems-b*256);r.skip(ts);} break;
         case GGML_TYPE_I8:   for (int i = 0; i < n_elems; i++) out[i]=(float)(int8_t)r.read_u8(); break;
-        default: fprintf(stderr,"Unsupported quant type %d\n",t.type); delete[] out; return nullptr;
+        default: fprintf(stderr,"Unsupported quant type %d\n",t.type); return nullptr;
     }
     return out;
 }
@@ -277,13 +278,11 @@ int main(int argc, char** argv) {
             auto tn = ModelDims::w_name(arch, l, proj);
             auto* t = info.get_tensor(tn.c_str());
             if (!t) return false;
-            float* f32 = dequantize_tensor(reader, *t, info.tensor_data_offset);
+            auto f32 = dequantize_tensor(reader, *t, info.tensor_data_offset);
             if (!f32) return false;
-            int8_t* i8 = new int8_t[(size_t)in_d * out_d];
-            quantize_to_i8(f32, i8, in_d * out_d, &sc);
-            delete[] f32;
-            ctx.load_weights(l, i8, in_d, out_d);
-            delete[] i8;
+            auto i8 = std::make_unique<int8_t[]>((size_t)in_d * out_d);
+            quantize_to_i8(f32.get(), i8.get(), in_d * out_d, &sc);
+            ctx.load_weights(l, i8.get(), in_d, out_d);
             return true;
         };
         int qo = dims.NH*dims.HD, ko = dims.NKV*dims.HD, vo = dims.NKV*dims.HD;
@@ -293,13 +292,12 @@ int main(int argc, char** argv) {
         auto tk = info.get_tensor(ModelDims::w_name(arch,l,"k_proj").c_str());
         auto tv = info.get_tensor(ModelDims::w_name(arch,l,"v_proj").c_str());
         if(tq&&tk&&tv){
-            float* fq=dequantize_tensor(reader,*tq,info.tensor_data_offset);
-            float* fk=dequantize_tensor(reader,*tk,info.tensor_data_offset);
-            float* fv=dequantize_tensor(reader,*tv,info.tensor_data_offset);
-            int8_t* qkv=new int8_t[(size_t)dims.H*total_qkv];
-            float sq,sk,sv; quantize_to_i8(fq,qkv,dims.H*qo,&sq); quantize_to_i8(fk,qkv+dims.H*qo,dims.H*ko,&sk); quantize_to_i8(fv,qkv+dims.H*(qo+ko),dims.H*vo,&sv);
-            delete[] fq; delete[] fk; delete[] fv;
-            cq.load_weights(l,qkv,dims.H,total_qkv); delete[] qkv;
+            auto fq=dequantize_tensor(reader,*tq,info.tensor_data_offset);
+            auto fk=dequantize_tensor(reader,*tk,info.tensor_data_offset);
+            auto fv=dequantize_tensor(reader,*tv,info.tensor_data_offset);
+            auto qkv=std::make_unique<int8_t[]>((size_t)dims.H*total_qkv);
+            float sq,sk,sv; quantize_to_i8(fq.get(),qkv.get(),dims.H*qo,&sq); quantize_to_i8(fk.get(),qkv.get()+dims.H*qo,dims.H*ko,&sk); quantize_to_i8(fv.get(),qkv.get()+dims.H*(qo+ko),dims.H*vo,&sv);
+            cq.load_weights(l,qkv.get(),dims.H,total_qkv);
             wsc[l].q=sq;wsc[l].k=sk;wsc[l].v=sv;
         }
         dq("o_proj",dims.H,dims.NH*dims.HD,co,wsc[l].o);
@@ -308,19 +306,18 @@ int main(int argc, char** argv) {
         auto tg = info.get_tensor(ModelDims::w_name(arch,l,"gate_proj").c_str());
         auto tu = info.get_tensor(ModelDims::w_name(arch,l,"up_proj").c_str());
         if(tg&&tu){
-            float*fg=dequantize_tensor(reader,*tg,info.tensor_data_offset);
-            float*fu=dequantize_tensor(reader,*tu,info.tensor_data_offset);
+            auto fg=dequantize_tensor(reader,*tg,info.tensor_data_offset);
+            auto fu=dequantize_tensor(reader,*tu,info.tensor_data_offset);
             int total_gu=dims.IM+dims.IM;
-            int8_t*gu=new int8_t[(size_t)dims.H*total_gu];
-            float sg,su; quantize_to_i8(fg,gu,dims.H*dims.IM,&sg); quantize_to_i8(fu,gu+dims.H*dims.IM,dims.H*dims.IM,&su);
-            delete[] fg; delete[] fu;
-            cg.load_weights(l,gu,dims.H,total_gu); delete[] gu;
+            auto gu=std::make_unique<int8_t[]>((size_t)dims.H*total_gu);
+            float sg,su; quantize_to_i8(fg.get(),gu.get(),dims.H*dims.IM,&sg); quantize_to_i8(fu.get(),gu.get()+dims.H*dims.IM,dims.H*dims.IM,&su);
+            cg.load_weights(l,gu.get(),dims.H,total_gu);
             wsc[l].g=sg;wsc[l].u=su;
         }
         auto tin = info.get_tensor(ModelDims::w_name(arch,l,"input_norm").c_str());
-        if(tin){float*f=dequantize_tensor(reader,*tin,info.tensor_data_offset);for(int i=0;i<dims.H;i++)in_n[l][i]=std::min(2.0f,std::max(-2.0f,f[i]));delete[] f;}
+        if(tin){auto f=dequantize_tensor(reader,*tin,info.tensor_data_offset);for(int i=0;i<dims.H;i++)in_n[l][i]=std::min(2.0f,std::max(-2.0f,f[i]));}
         auto tpa = info.get_tensor(ModelDims::w_name(arch,l,"post_norm").c_str());
-        if(tpa){float*f=dequantize_tensor(reader,*tpa,info.tensor_data_offset);for(int i=0;i<dims.H;i++)pa_n[l][i]=std::min(2.0f,std::max(-2.0f,f[i]));delete[] f;}
+        if(tpa){auto f=dequantize_tensor(reader,*tpa,info.tensor_data_offset);for(int i=0;i<dims.H;i++)pa_n[l][i]=std::min(2.0f,std::max(-2.0f,f[i]));}
         return true;
     };
     
@@ -333,13 +330,13 @@ int main(int argc, char** argv) {
     
     // Output norm
     auto tfin = info.get_tensor(ModelDims::w_name(info.arch.c_str(),-1,"norm").c_str());
-    if(tfin){float*f=dequantize_tensor(reader,*tfin,info.tensor_data_offset);for(int i=0;i<dims.H;i++)fin[i]=std::min(2.0f,std::max(-2.0f,f[i]));delete[] f;}
+    if(tfin){auto f=dequantize_tensor(reader,*tfin,info.tensor_data_offset);for(int i=0;i<dims.H;i++)fin[i]=std::min(2.0f,std::max(-2.0f,f[i]));}
     
     // Embeddings
     auto temb = info.get_tensor("token_embd.weight");
-    if(temb){float*f=dequantize_tensor(reader,*temb,info.tensor_data_offset);emb_f32.resize((size_t)dims.NV*dims.H);memcpy(emb_f32.data(),f,(size_t)dims.NV*dims.H*4);delete[] f;}
+    if(temb){auto f=dequantize_tensor(reader,*temb,info.tensor_data_offset);emb_f32.resize((size_t)dims.NV*dims.H);memcpy(emb_f32.data(),f.get(),(size_t)dims.NV*dims.H*4);}
     auto tout = info.get_tensor("output.weight");
-    if(tout){float*f=dequantize_tensor(reader,*tout,info.tensor_data_offset);lm_head_f32.resize((size_t)dims.NV*dims.H);memcpy(lm_head_f32.data(),f,(size_t)dims.NV*dims.H*4);delete[] f;}
+    if(tout){auto f=dequantize_tensor(reader,*tout,info.tensor_data_offset);lm_head_f32.resize((size_t)dims.NV*dims.H);memcpy(lm_head_f32.data(),f.get(),(size_t)dims.NV*dims.H*4);}
     else lm_head_f32 = emb_f32; // tied
     
     reader.close();

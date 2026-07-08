@@ -125,6 +125,33 @@ struct StateResizeTraits<MTPDraftState> {
     }
 };
 
+// ─── Scratch buffer arena (pre-allocated, reused across generate calls) ─────
+struct SpecDecodeArena {
+    std::vector<float> logits;             // [max_vocab]
+    std::vector<float> all_hidden;         // [max_model_layers * max_hidden]
+    std::vector<float> target_hidden;      // [max_target_layers * max_hidden]
+    std::vector<float> draft_logits;       // [max_block * max_vocab]
+    std::vector<float> draft_hidden_step;  // [max_hidden]
+    std::vector<int32_t> draft_tokens;     // [max_block]
+    std::vector<int32_t> verify_input;     // [1 + max_block]
+    std::vector<float> verify_hidden;      // [max_model_layers * max_hidden]
+    std::vector<float> verify_logits;      // [(1 + max_block) * max_vocab]
+
+    void ensure(int32_t block_size, int32_t hidden_size, int32_t vocab_size,
+                int32_t num_target_layers, int32_t num_model_layers) {
+        auto grow = [](auto& v, size_t n) { if (v.size() < n) v.resize(n); };
+        grow(logits,           (size_t)vocab_size);
+        grow(all_hidden,       (size_t)num_model_layers * hidden_size);
+        grow(target_hidden,    (size_t)num_target_layers * hidden_size);
+        grow(draft_logits,     (size_t)block_size * vocab_size);
+        grow(draft_hidden_step, (size_t)hidden_size);
+        grow(draft_tokens,     (size_t)block_size);
+        grow(verify_input,     (size_t)(1 + block_size));
+        grow(verify_hidden,    (size_t)num_model_layers * hidden_size);
+        grow(verify_logits,    (size_t)(1 + block_size) * vocab_size);
+    }
+};
+
 // SpeculativeDecoder — templated on draft model type for flexibility
 template <typename DraftModelT = DefaultDraftModel,
           typename DraftStateT = DefaultDraftState,
@@ -136,7 +163,10 @@ public:
         DraftModelT& draft,
         const SpecDecodeConfig& cfg
     ) : target_(target), draft_(draft), cfg_(cfg),
-        rng_(cfg.seed) {}
+        rng_(cfg.seed) {
+        // Pre-allocate all buffers at construction time
+        ensure_arena();
+    }
 
     // Generate tokens with speculative decoding
     // prompt_ids: [prompt_len] input token IDs
@@ -153,31 +183,29 @@ public:
         int32_t generated = prompt_len;
         int32_t max_len = prompt_len + max_output_len;
 
-        // Buffer for hidden states from target
+        // Ensure arena is sized for current config (grows only if sizes changed)
+        ensure_arena();
+
         const int32_t num_model_layers = 28; // Qwen3-0.6B full layers
-        std::vector<float> target_hidden(
-            cfg_.num_target_layers * cfg_.hidden_size
-        );
+        float* logits       = arena_.logits.data();
+        float* all_hidden   = arena_.all_hidden.data();
+        float* target_hidden = arena_.target_hidden.data();
 
         // Prefill: run target on full prompt
-        std::vector<float> logits(cfg_.vocab_size);
-        std::vector<float> all_hidden(
-            num_model_layers * cfg_.hidden_size
-        );
         target_.forward(
             prompt_ids, prompt_len,
-            logits.data(), all_hidden.data()
+            logits, all_hidden
         );
 
         // Extract target layer features for draft
         target_.get_layer_hidden(
-            all_hidden.data(), cfg_.num_target_layers,
+            all_hidden, cfg_.num_target_layers,
             cfg_.target_layer_ids, cfg_.num_target_layers,
-            target_hidden.data()
+            target_hidden
         );
 
-        // Sample first token greedily
-        int32_t next_token = argmax(logits.data(), cfg_.vocab_size);
+        // Sample first token greedily (avoid vector allocation — reuse logits buffer)
+        int32_t next_token = argmax_inline(logits, cfg_.vocab_size);
         if (next_token == cfg_.eos_token_id) {
             output_ids[prompt_len] = next_token;
             stats_.total_tokens = 1;
@@ -190,64 +218,58 @@ public:
         // Speculative decoding loop
         while (generated < max_len) {
             // 1. Draft: autoregress block_size candidate tokens
-            std::vector<int32_t> draft_tokens(cfg_.block_size);
-            std::vector<float> draft_logits(
-                (size_t)cfg_.block_size * cfg_.vocab_size
-            );
-            std::vector<float> draft_hidden_step(cfg_.hidden_size);
+            float* draft_logits      = arena_.draft_logits.data();
+            float* draft_hidden_step = arena_.draft_hidden_step.data();
+            int32_t* draft_tokens    = arena_.draft_tokens.data();
 
             DraftStateT draft_state;
             StateResizeTraits<DraftStateT>::resize(draft_state, cfg_.num_draft_layers, cfg_.num_kv_heads, cfg_.head_dim, cfg_.block_size);
             int32_t draft_input_id = output_ids[generated - 1];
             for (int i = 0; i < cfg_.block_size; i++) {
+                const float* draft_input_hidden = (i == 0) ? target_hidden : draft_hidden_step;
                 draft_.forward(
-                    target_hidden.data(),
+                    draft_input_hidden,
                     draft_input_id,
                     /*pos=*/i,
                     draft_state,
-                    draft_logits.data() + (size_t)i * cfg_.vocab_size,
-                    draft_hidden_step.data()
+                    draft_logits + (size_t)i * cfg_.vocab_size,
+                    draft_hidden_step
                 );
-                draft_input_id = argmax(
-                    draft_logits.data() + (size_t)i * cfg_.vocab_size, cfg_.vocab_size
+                draft_input_id = argmax_inline(
+                    draft_logits + (size_t)i * cfg_.vocab_size, cfg_.vocab_size
                 );
             }
 
             // Sample draft tokens greedily
             for (int i = 0; i < cfg_.block_size; i++) {
-                float* logits_i = draft_logits.data() + (size_t)i * cfg_.vocab_size;
-                draft_tokens[i] = argmax(logits_i, cfg_.vocab_size);
+                float* logits_i = draft_logits + (size_t)i * cfg_.vocab_size;
+                draft_tokens[i] = argmax_inline(logits_i, cfg_.vocab_size);
             }
             stats_.total_draft_proposed += cfg_.block_size;
 
             // 2. Verify: run target on [last_token | draft_tokens...] against existing KV cache
             int32_t verify_len = 1 + cfg_.block_size;
             int32_t past_len = generated - 1;
-            std::vector<int32_t> verify_input(verify_len);
+            int32_t* verify_input = arena_.verify_input.data();
             verify_input[0] = output_ids[generated - 1];
-            std::copy(draft_tokens.begin(), draft_tokens.end(),
-                      verify_input.begin() + 1);
+            std::copy(draft_tokens, draft_tokens + cfg_.block_size,
+                      verify_input + 1);
 
-            const int32_t num_model_layers = 28;
-            std::vector<float> verify_hidden(
-                num_model_layers * cfg_.hidden_size
-            );
-            std::vector<float> verify_logits(
-                (size_t)verify_len * cfg_.vocab_size
-            );
+            float* verify_hidden = arena_.verify_hidden.data();
+            float* verify_logits = arena_.verify_logits.data();
 
             target_.forward_with_kv(
-                verify_input.data(), verify_len, past_len,
-                verify_logits.data(), verify_hidden.data()
+                verify_input, verify_len, past_len,
+                verify_logits, verify_hidden
             );
 
-            // 3. Rejection sampling
+            // 3. Rejection sampling — inline argmax for the verify step
             int n_accepted = 0;
             bool rejected_early = false;
             bool hit_eos = false;
             for (int i = 0; i < cfg_.block_size && generated < max_len; i++) {
-                int32_t target_token = argmax(
-                    verify_logits.data() + (size_t)i * cfg_.vocab_size,
+                int32_t target_token = argmax_inline(
+                    verify_logits + (size_t)i * cfg_.vocab_size,
                     cfg_.vocab_size
                 );
 
@@ -268,8 +290,8 @@ public:
 
             // Bonus token
             if (!rejected_early && !hit_eos && generated < max_len) {
-                int32_t bonus_token = argmax(
-                    verify_logits.data() + (size_t)cfg_.block_size * cfg_.vocab_size,
+                int32_t bonus_token = argmax_inline(
+                    verify_logits + (size_t)cfg_.block_size * cfg_.vocab_size,
                     cfg_.vocab_size
                 );
                 output_ids[generated] = bonus_token;
@@ -287,9 +309,9 @@ public:
 
             // 4. Update target hidden states for next draft
             target_.get_layer_hidden(
-                verify_hidden.data(), cfg_.num_target_layers,
+                verify_hidden, cfg_.num_target_layers,
                 cfg_.target_layer_ids, cfg_.num_target_layers,
-                target_hidden.data()
+                target_hidden
             );
 
             if (output_ids[generated - 1] == cfg_.eos_token_id)
@@ -307,9 +329,24 @@ private:
     SpecDecodeConfig cfg_;
     std::mt19937 rng_;
     SpecDecodeStats stats_;
+    SpecDecodeArena arena_;
 
-    int32_t argmax(const float* logits, int32_t n) {
-        return std::distance(logits, std::max_element(logits, logits + n));
+    // Ensure arena is sized for the current config (grows only on config change)
+    void ensure_arena() {
+        arena_.ensure(cfg_.block_size, cfg_.hidden_size, cfg_.vocab_size,
+                      cfg_.num_target_layers, 28);
+    }
+
+    // Inline argmax — no function call overhead, no std::distance
+    static inline int32_t argmax_inline(const float* logits, int32_t n) {
+        if (n <= 0) return 0;
+        int32_t best_i = 0;
+        float best_v = logits[0];
+        for (int32_t i = 1; i < n; i++) {
+            float v = logits[i];
+            if (v > best_v) { best_v = v; best_i = i; }
+        }
+        return best_i;
     }
 };
 

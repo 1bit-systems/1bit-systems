@@ -16,7 +16,9 @@ int main() {
     const char* kModel = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
     const char* kXclbin = "/home/bcloud/npu-sandbox/npu-infer/build/int8";
     const char* kCheckpoint = "/home/bcloud/spec-decode/checkpoints/eagle3_draft_npu_1k.bin";
-    int prompt[9] = {151643, 872, 198, 11852, 151644, 198, 151643, 77091, 198};
+    // Real Qwen3-0.6B chat prompt tokens for "<|im_start|>user\nHello, what is 2+2?<|im_end|>\n<|im_start|>assistant\n"
+    int prompt[] = {151644, 872, 198, 9707, 11, 1128, 374, 220, 17, 10, 17, 30, 151645, 198, 151644, 77091, 198};
+    int prompt_len = 17;
 
     printf("═══ Acceptance Test ═══\n");
     printf("Draft: %s\n\n", kCheckpoint);
@@ -36,12 +38,12 @@ int main() {
 
     std::vector<int32_t> output(100);
     auto t0 = std::chrono::high_resolution_clock::now();
-    int gen = decoder.generate(prompt, 9, output.data(), 16);
+    int gen = decoder.generate(prompt, prompt_len, output.data(), 16);
     auto t1 = std::chrono::high_resolution_clock::now();
     auto& s = decoder.stats();
 
     double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-    printf("Generated: %d tokens in %.0f ms (%.1f tok/s)\n", gen - 9, ms, (gen - 9) / (ms / 1000));
+    printf("Generated: %d tokens in %.0f ms (%.1f tok/s)\n", gen - prompt_len, ms, (gen - prompt_len) / (ms / 1000));
     printf("Accept:   %.1f%%\n", s.acceptance_rate() * 100);
     printf("Speedup:  %.2fx (verifies: %ld)\n", s.speedup_factor(), (long)s.verify_calls);
     if (s.acceptance_rate() > 0.01f)
