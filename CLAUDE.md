@@ -4,6 +4,15 @@
 >
 > Source of truth: [docs/wiki/performance.md](docs/wiki/performance.md)
 
+## ⚠️ DISK SPACE — Never Run Out
+
+- **/usr/share/ollama** holds ~150GB of pulled models. Each new model costs GBs.
+- **Minimum safe free space: 50GB.** At 25GB the benchmark script aborts.
+- **If space is low:** `ollama rm <unused-model>` to free GBs quickly.
+- **/tmp is tmpfs (RAM), not disk.** Cleaning it frees RAM, not storage.
+- **Big disk consumers:** ollama models (150G), ZAYA1 models (74G), node_modules (172M)
+- **Bench script auto-cleans** when below 50GB free (`bench.py`).
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 

@@ -11,13 +11,19 @@ Usage:
 """
 
 import json
+import math
 import re
 import struct
 import sys
 import numpy as np
 
+# Q1_0 support (1-bit binary quantization)
+QK_Q1_0 = 128
+BLOCK_BYTES_Q1_0 = 18  # 2(fp16 scale) + 16(packed bits for 128 values)
+
+# Q2_0 support (2-bit ternary quantization)
 QK_Q2_0 = 128
-BLOCK_BYTES_Q2_0 = 34
+BLOCK_BYTES_Q2_0 = 34  # 2(fp16 scale) + 32(packed 2-bit codes for 128 values)
 
 # GGUF → HuggingFace name mapping (Qwen3/Bonsai)
 NAME_MAP = {
@@ -52,7 +58,12 @@ def map_name(gguf_name):
 
 
 def gguf_tensors(path):
-    """Yield (name, shape, dtype_code, offset) for all GGUF tensors."""
+    """Yield (name, shape, dtype_code, absolute_offset) for all GGUF tensors.
+    
+    GGUFv3 stores tensor offsets relative to the start of the tensor data
+    section (after all headers). This function adds the data section offset
+    to return absolute file positions.
+    """
 
     def r32(f):
         return struct.unpack("<I", f.read(4))[0]
@@ -90,15 +101,53 @@ def gguf_tensors(path):
             rstr(f)
             skip_val(f, r32(f))
 
-        # GGUFv3: no alignment between KV and tensor infos
-
+        # Read all tensor infos first (GGUFv3: no alignment)
+        tensor_infos = []
         for _ in range(n_tensors):
             name = rstr(f)
             ndim = r32(f)
             shape = tuple(reversed([r64(f) for _ in range(ndim)]))
             dtype = r32(f)
             offset = r64(f)
-            yield name, shape, dtype, offset
+            tensor_infos.append((name, shape, dtype, offset))
+
+        # Data section starts after 32-byte alignment
+        data_start = f.tell()
+        data_start = (data_start + 31) & ~31  # align to 32 bytes
+        
+        for name, shape, dtype, offset in tensor_infos:
+            yield name, shape, dtype, data_start + offset
+
+
+def decode_q1_0(data):
+    """Decode Q1_0 (1-bit, type 41) → f32 array (vectorized).
+    
+    Block layout (18 bytes per 128 values):
+      - 2 bytes: fp16 super-block scale d
+      - 16 bytes: packed bits (1 bit per value: 1→+d, 0→-d)
+    
+    This is 1-bit binary quantization — values are {-d, +d}.
+    """
+    n_blocks = len(data) // BLOCK_BYTES_Q1_0
+    if n_blocks == 0:
+        return np.zeros(0, dtype=np.float32)
+    
+    data = data[:n_blocks * BLOCK_BYTES_Q1_0]
+    
+    block_data = np.frombuffer(data, dtype=np.uint8).reshape(n_blocks, BLOCK_BYTES_Q1_0)
+    
+    # Super-block scales (fp16)
+    d_bytes = block_data[:, :2].copy()
+    d = np.frombuffer(d_bytes.tobytes(), dtype=np.float16).astype(np.float32)
+    d = np.nan_to_num(d, nan=0.0, posinf=0.0, neginf=0.0)
+    
+    # Packed bits: each byte has 8 values
+    packed = block_data[:, 2:18].copy()  # 16 bytes = 128 bits
+    bits = np.unpackbits(packed, axis=1, bitorder='little')  # (n_blocks, 128)
+    
+    # Decode: +d for bit=1, -d for bit=0
+    decoded = np.where(bits, d[:, np.newaxis], -d[:, np.newaxis]).astype(np.float32)
+    return decoded.ravel()
 
 
 def decode_q2_0(data):
@@ -112,6 +161,7 @@ def decode_q2_0(data):
         decoded[:, bit::4] = (val - 1.0)
     decoded *= scales[:, np.newaxis]
     return decoded.ravel()
+
 
 
 def main():
@@ -130,7 +180,7 @@ def main():
 
     with open(src, "rb") as gf:
         for name, shape, dtype, offset in tensors:
-            n_elems = int(np.prod(shape))
+            n_elems = int(math.prod(shape))
             hf_name = map_name(name)
 
             if dtype == 42:
@@ -138,6 +188,26 @@ def main():
                 gf.seek(offset)
                 raw = gf.read(n_elems // QK_Q2_0 * BLOCK_BYTES_Q2_0)
                 f32_vals = decode_q2_0(raw).reshape(shape)
+
+                abs_max = np.max(np.abs(f32_vals))
+                scale_f = abs_max / 127.0 if abs_max > 1e-10 else 1.0
+                i8_vals = np.clip(np.round(f32_vals / scale_f), -128, 127).astype(np.int8)
+                raw_data = i8_vals.tobytes()
+
+                header[hf_name] = {
+                    "dtype": "I8",
+                    "shape": list(shape),
+                    "data_offsets": [data_offset, data_offset + len(raw_data)],
+                    "scale": round(float(scale_f), 6),
+                }
+                data_blocks.append(raw_data)
+                data_offset += len(raw_data)
+
+            elif dtype == 41:
+                # Q1_0 (1-bit) → INT8
+                gf.seek(offset)
+                raw = gf.read(n_elems // QK_Q1_0 * BLOCK_BYTES_Q1_0)
+                f32_vals = decode_q1_0(raw).reshape(shape)
 
                 abs_max = np.max(np.abs(f32_vals))
                 scale_f = abs_max / 127.0 if abs_max > 1e-10 else 1.0
