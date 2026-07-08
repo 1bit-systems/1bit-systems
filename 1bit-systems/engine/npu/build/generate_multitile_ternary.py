@@ -135,7 +135,7 @@ def gen():
         w( "        next_bd = 0 : i32, out_of_order_id = 0 : i32,")
         w( "        packet_id = 0 : i32, packet_type = 0 : i32,")
         w(f"        row = 0 : i32, use_next_bd = 0 : i32, valid_bd = 1 : i32}}")
-        w(f"      aiex.npu.address_patch {{addr = {hex(base)} : ui32, arg_idx = {out_idx} : i32, arg_plus = 0 : i32}}")
+        w(f"      aiex.npu.address_patch {{addr = {hex(base)} : ui32, arg_idx = {out_idx + 4} : i32, arg_plus = 0 : i32}}")
 
         w(f"      aiex.npu.writebd {{bd_id = {in_idx} : i32, buffer_length = {BUF_DWORDS} : i32, buffer_offset = 0 : i32,")
         w(f"        burst_length = 64 : i32, column = {col} : i32,")
@@ -148,7 +148,7 @@ def gen():
         w( "        next_bd = 0 : i32, out_of_order_id = 0 : i32,")
         w( "        packet_id = 0 : i32, packet_type = 0 : i32,")
         w(f"        row = 0 : i32, use_next_bd = 0 : i32, valid_bd = 1 : i32}}")
-        w(f"      aiex.npu.address_patch {{addr = {hex(base + 0x20)} : ui32, arg_idx = {in_idx} : i32, arg_plus = 0 : i32}}")
+        w(f"      aiex.npu.address_patch {{addr = {hex(base + 0x20)} : ui32, arg_idx = {in_idx + 4} : i32, arg_plus = 0 : i32}}")
 
     w("")
     for col in COLS:

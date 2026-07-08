@@ -204,7 +204,7 @@ module {
         next_bd = 0 : i32, out_of_order_id = 0 : i32,
         packet_id = 0 : i32, packet_type = 0 : i32,
         row = 0 : i32, use_next_bd = 0 : i32, valid_bd = 1 : i32}
-      aiex.npu.address_patch {addr = 0x4001D004 : ui32, arg_idx = 1 : i32, arg_plus = 0 : i32}
+      aiex.npu.address_patch {addr = 0x4001D004 : ui32, arg_idx = 4 : i32, arg_plus = 0 : i32}
       aiex.npu.writebd {bd_id = 1 : i32, buffer_length = ${in_dwords} : i32, buffer_offset = 0 : i32,
         burst_length = 64 : i32, column = ${SHIM_COL} : i32,
         d0_size = 0 : i32, d0_stride = 0 : i32, d0_zero_after = 0 : i32, d0_zero_before = 0 : i32,
@@ -216,7 +216,7 @@ module {
         next_bd = 0 : i32, out_of_order_id = 0 : i32,
         packet_id = 0 : i32, packet_type = 0 : i32,
         row = 0 : i32, use_next_bd = 0 : i32, valid_bd = 1 : i32}
-      aiex.npu.address_patch {addr = 0x4001D024 : ui32, arg_idx = 0 : i32, arg_plus = 0 : i32}
+      aiex.npu.address_patch {addr = 0x4001D024 : ui32, arg_idx = 3 : i32, arg_plus = 0 : i32}
       aiex.npu.push_queue(${SHIM_COL}, 0, S2MM : 0) {bd_id = 0 : i32, issue_token = true, repeat_count = 0 : i32}
       aiex.npu.push_queue(${SHIM_COL}, 0, MM2S : 0) {bd_id = 1 : i32, issue_token = true, repeat_count = 0 : i32}
       aiex.npu.sync {channel = 0 : i32, column = ${SHIM_COL} : i32, column_num = 1 : i32, direction = 0 : i32, row = 0 : i32, row_num = 1 : i32}
@@ -323,7 +323,7 @@ module {
         next_bd = 0 : i32, out_of_order_id = 0 : i32,
         packet_id = 0 : i32, packet_type = 0 : i32,
         row = 0 : i32, use_next_bd = 0 : i32, valid_bd = 1 : i32}
-      aiex.npu.address_patch {addr = 0x4001D004 : ui32, arg_idx = 1 : i32, arg_plus = 0 : i32}
+      aiex.npu.address_patch {addr = 0x4001D004 : ui32, arg_idx = 4 : i32, arg_plus = 0 : i32}
       aiex.npu.writebd {bd_id = 1 : i32, buffer_length = ${in_dwords} : i32, buffer_offset = 0 : i32,
         burst_length = 64 : i32, column = ${SHIM_COL} : i32,
         d0_size = 0 : i32, d0_stride = 0 : i32, d0_zero_after = 0 : i32, d0_zero_before = 0 : i32,
@@ -335,7 +335,7 @@ module {
         next_bd = 0 : i32, out_of_order_id = 0 : i32,
         packet_id = 0 : i32, packet_type = 0 : i32,
         row = 0 : i32, use_next_bd = 0 : i32, valid_bd = 1 : i32}
-      aiex.npu.address_patch {addr = 0x4001D024 : ui32, arg_idx = 0 : i32, arg_plus = 0 : i32}
+      aiex.npu.address_patch {addr = 0x4001D024 : ui32, arg_idx = 3 : i32, arg_plus = 0 : i32}
       aiex.npu.push_queue(${SHIM_COL}, 0, S2MM : 0) {bd_id = 0 : i32, issue_token = true, repeat_count = 0 : i32}
       aiex.npu.push_queue(${SHIM_COL}, 0, MM2S : 0) {bd_id = 1 : i32, issue_token = true, repeat_count = 0 : i32}
       aiex.npu.sync {channel = 0 : i32, column = ${SHIM_COL} : i32, column_num = 1 : i32, direction = 0 : i32, row = 0 : i32, row_num = 1 : i32}
@@ -472,7 +472,7 @@ module {
         next_bd = 0 : i32, out_of_order_id = 0 : i32,
         packet_id = 0 : i32, packet_type = 0 : i32,
         row = 0 : i32, use_next_bd = 0 : i32, valid_bd = 1 : i32}
-      aiex.npu.address_patch {addr = 0x4001D004 : ui32, arg_idx = 1 : i32, arg_plus = 0 : i32}
+      aiex.npu.address_patch {addr = 0x4001D004 : ui32, arg_idx = 4 : i32, arg_plus = 0 : i32}
       aiex.npu.writebd {bd_id = 1 : i32, buffer_length = ${buf_dwords} : i32, buffer_offset = 0 : i32,
         burst_length = 64 : i32, column = ${SHIM_COL} : i32,
         d0_size = 0 : i32, d0_stride = 0 : i32, d0_zero_after = 0 : i32, d0_zero_before = 0 : i32,
@@ -484,7 +484,7 @@ module {
         next_bd = 0 : i32, out_of_order_id = 0 : i32,
         packet_id = 0 : i32, packet_type = 0 : i32,
         row = 0 : i32, use_next_bd = 0 : i32, valid_bd = 1 : i32}
-      aiex.npu.address_patch {addr = 0x4001D024 : ui32, arg_idx = 0 : i32, arg_plus = 0 : i32}
+      aiex.npu.address_patch {addr = 0x4001D024 : ui32, arg_idx = 3 : i32, arg_plus = 0 : i32}
       aiex.npu.push_queue(${SHIM_COL}, 0, S2MM : 0) {bd_id = 0 : i32, issue_token = true, repeat_count = 0 : i32}
       aiex.npu.push_queue(${SHIM_COL}, 0, MM2S : 0) {bd_id = 1 : i32, issue_token = true, repeat_count = 0 : i32}
       aiex.npu.sync {channel = 0 : i32, column = ${SHIM_COL} : i32, column_num = 1 : i32, direction = 0 : i32, row = 0 : i32, row_num = 1 : i32}
