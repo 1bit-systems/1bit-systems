@@ -127,7 +127,6 @@ snap/zig/
 # Misc
 1bit/
 1bit-env/
-1bit-systems/
 ~
 .snapcraft/
 .benchmark_venv/
