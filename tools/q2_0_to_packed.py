@@ -122,16 +122,16 @@ def gguf_tensors(path):
             f.read(8)
         elif typ == 7:
             f.read(8)
-        elif typ == 8:
+        elif typ == 8:          # STRING
             n = r64(f)
             f.read(n)
-        elif typ == 9:
-            rstr(f)
-        elif typ == 10:
-            n = r32(f)
+        elif typ == 9:          # ARRAY
+            elem_type = r32(f)
+            n = r64(f)
             for _ in range(n):
-                rstr(f)
-                skip_val(f, r32(f))
+                skip_val(f, elem_type)
+        else:
+            pass  # unknown type, skip
 
     with open(path, "rb") as f:
         magic = r32(f)
@@ -141,12 +141,16 @@ def gguf_tensors(path):
         n_tensors = r64(f)
         n_kv = r64(f)
 
-        # Skip metadata KV pairs
+        # Skip metadata KV pairs (n_kv may be overstated, stop on bad key_len)
         for _ in range(n_kv):
-            rstr(f)
+            key_len = r64(f)
+            if key_len > 10000 or key_len == 0:
+                f.seek(-8, 1)  # rewind key_len
+                break
+            f.read(key_len)  # key name
             skip_val(f, r32(f))
 
-        # Read tensor infos
+        # Read tensor infos (v3: 8-byte aligned between entries)
         tensor_infos = []
         for _ in range(n_tensors):
             name = rstr(f)
@@ -157,7 +161,10 @@ def gguf_tensors(path):
             tensor_infos.append((name, shape, dtype, offset))
 
         data_start = f.tell()
-        data_start = (data_start + 31) & ~31
+        if version >= 3:
+            data_start = (data_start + 63) & ~63  # v3: 64-byte alignment
+        else:
+            data_start = (data_start + 31) & ~31  # v1/v2: 32-byte alignment
 
         for name, shape, dtype, offset in tensor_infos:
             yield name, shape, dtype, data_start + offset
