@@ -21,7 +21,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy site --project-name=1bit-systems
+          command: pages deploy site --project-name=1bit-systems --branch=main
       - name: Deploy jarvis.1bit.systems
         uses: cloudflare/wrangler-action@v3
         with:
