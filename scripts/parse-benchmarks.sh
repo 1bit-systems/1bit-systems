@@ -2,29 +2,44 @@
 # parse-benchmarks.sh — regenerate site/benchmarks.json + shields badges from the
 # single source of truth (docs/wiki/performance.md). Labels/status/colors are
 # HONEST: only measured-coherent numbers read as "production" / green.
+#
+# Flags:
+#   --check   regenerate to temp, diff against committed; exit 1 if out of date
 set -euo pipefail
+
+CHECK=false
+for arg; do case "$arg" in --check) CHECK=true;; esac; done
+
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo /home/bcloud)"
 
 SRC="docs/wiki/performance.md"
 SITE="site"
 mkdir -p "$SITE"
 
+# When in check mode, write to a temp directory instead of site/
+if [ "$CHECK" = true ]; then
+  OUT=$(mktemp -d)
+  trap 'rm -rf "$OUT"' EXIT
+else
+  OUT="$SITE"
+fi
+
 # tok/s extractor: first "**N tok/s**" on a row containing the given label text.
 extract_tok() { grep -iE "$1" "$SRC" 2>/dev/null | grep -oP '\*\*~?\K[0-9]+(?= tok/s)' | head -1 || true; }
 
-NPU_FLM=$(extract_tok "NPU FLM");     NPU_FLM="${NPU_FLM:-94}"    # validated production
-TERN=$(extract_tok "GPU ternary");    TERN="${TERN:-279}"        # validated 1-bit headline
-GPU_1BIT=$(extract_tok "GPU 1-bit");  GPU_1BIT="${GPU_1BIT:-381}" # measured (llama.cpp)
-GPU_ZINC=$(extract_tok "GPU ZINC");   GPU_ZINC="${GPU_ZINC:-22}" # validated
-ROCM=$(extract_tok "ROCm");           ROCM="${ROCM:-113}"        # reported
-DSPARK=$(extract_tok "DSpark");       DSPARK="${DSPARK:-572}"    # PROJECTED
-FUSED=$(extract_tok "NPU fused");     FUSED="${FUSED:-291}"      # raw, not coherent
-NPU_V12=$(extract_tok "NPU v12");     NPU_V12="${NPU_V12:-97}"   # raw, not coherent
+NPU_FLM=$(extract_tok "NPU FLM");     NPU_FLM="${NPU_FLM:-94}"
+TERN=$(extract_tok "GPU ternary");    TERN="${TERN:-279}"
+GPU_1BIT=$(extract_tok "GPU 1-bit");  GPU_1BIT="${GPU_1BIT:-381}"
+GPU_ZINC=$(extract_tok "GPU ZINC");   GPU_ZINC="${GPU_ZINC:-22}"
+ROCM=$(extract_tok "ROCm");           ROCM="${ROCM:-113}"
+DSPARK=$(extract_tok "DSpark");       DSPARK="${DSPARK:-572}"
+FUSED=$(extract_tok "NPU fused");     FUSED="${FUSED:-291}"
+NPU_V12=$(extract_tok "NPU v12");     NPU_V12="${NPU_V12:-97}"
 ALL5=$(grep -iE "C\+\+ (all|ALL)" "$SRC" 2>/dev/null | grep -oP '\*\*\K[0-9]+' | head -1) || true; ALL5="${ALL5:-28}"
 TFLOPS=$(grep "TFLOPS" "$SRC" | grep -oP '[0-9]+(\.[0-9]+)?(?= TFLOPS)' | head -1) || true; TFLOPS="${TFLOPS:-55.7}"
 
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-cat > "$SITE/benchmarks.json" << EOF
+cat > "$OUT/benchmarks.json" << EOF
 {
  "updated": "$TIMESTAMP",
  "source": "$SRC (single source of truth)",
@@ -51,11 +66,10 @@ cat > "$SITE/benchmarks.json" << EOF
 }
 EOF
 
-write_badge() { cat > "$SITE/$1" << EOF
+write_badge() { cat > "$OUT/$1" << EOF
 {"schemaVersion":1,"label":"$2","message":"$3","color":"$4","cacheSeconds":86400}
 EOF
 }
-# green = validated only; yellow = projected/raw
 write_badge "validated-badge.json" "validated" "${FUSED} tok/s NPU fused · ${NPU_FLM} tok/s NPU · ${TERN} tok/s 1-bit GPU" "brightgreen"
 write_badge "flm-badge.json"   "NPU (FLM, production)"   "${NPU_FLM} tok/s"          "brightgreen"
 write_badge "tern-badge.json"  "GPU 1-bit ternary"       "${TERN} tok/s"             "brightgreen"
@@ -66,5 +80,29 @@ write_badge "fused-badge.json" "NPU fused layer"         "${FUSED} tok/s (cohere
 write_badge "bench-badge.json" "NPU C++ v12"             "${NPU_V12} tok/s (raw, WIP)" "yellow"
 write_badge "tok-badge.json"   "decode (validated)"     "${NPU_FLM} tok/s"          "brightgreen"
 write_badge "tflops-badge.json" "INT8 GEMM"              "${TFLOPS} TFLOPS"          "brightgreen"
+
+# ── Check mode: diff generated against committed, fail on mismatch ──
+if [ "$CHECK" = true ]; then
+  errors=0
+  for f in benchmarks.json *-badge.json; do
+    if [ ! -f "$SITE/$f" ]; then
+      echo "::error title=missing::$f does not exist in $SITE/ — run parse-benchmarks.sh"
+      errors=$((errors + 1))
+      continue
+    fi
+    if ! diff -q "$OUT/$f" "$SITE/$f" > /dev/null 2>&1; then
+      echo "::error title=stale::$f — regenerated output differs from committed"
+      echo "  diff $OUT/$f $SITE/$f"
+      diff "$OUT/$f" "$SITE/$f" | head -20
+      errors=$((errors + 1))
+    fi
+  done
+  if [ "$errors" -gt 0 ]; then
+    echo "❌ $errors file(s) out of date — run scripts/parse-benchmarks.sh and commit the changes"
+    exit 1
+  fi
+  echo "✅ benchmarks.json + badges are up to date with $SRC"
+  exit 0
+fi
 
 echo "✅ regenerated benchmarks.json + $(ls "$SITE"/*-badge.json | wc -l) badges (honest labels) | FLM=$NPU_FLM TERN=$TERN DSPARK=$DSPARK(proj) V12=$NPU_V12(raw)"
