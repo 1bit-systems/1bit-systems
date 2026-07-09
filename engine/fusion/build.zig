@@ -9,6 +9,7 @@ pub fn build(b: *std.Build) void {
     const sched_mod = b.createModule(.{ .root_source_file = b.path("sched/scheduler.zig"), .target = target, .optimize = optimize });
     const npu_mod = b.createModule(.{ .root_source_file = b.path("../npu/src/npu_engine.zig"), .target = target, .optimize = optimize, .link_libc = true });
     npu_mod.addImport("sched", sched_mod);
+    npu_mod.linkSystemLibrary("xrt_coreutil", .{});
 
     const vk_mod = b.createModule(.{ .root_source_file = b.path("vk_wrapper.zig"), .target = target, .optimize = optimize, .link_libc = true });
     vk_mod.linkSystemLibrary("vulkan", .{});
@@ -20,6 +21,7 @@ pub fn build(b: *std.Build) void {
     root_mod.addImport("sched", sched_mod);
     root_mod.addImport("npu_engine", npu_mod);
     root_mod.addImport("vk_wrapper", vk_mod);
+    root_mod.linkSystemLibrary("xrt_coreutil", .{});
 
     const exe = b.addExecutable(.{ .name = "fused-engine", .root_module = root_mod });
     exe.linker_allow_shlib_undefined = true;
@@ -31,7 +33,7 @@ pub fn build(b: *std.Build) void {
 
     // Tests
     const test_step = b.step("test", "Run unit tests");
-    for ([_] []const u8{ "dispatcher.zig", "memory.zig", "flm_proxy.zig" }) |src| {
+    for ([_][]const u8{ "dispatcher.zig", "memory.zig", "flm_proxy.zig" }) |src| {
         const m = b.createModule(.{ .root_source_file = b.path(src), .target = target, .optimize = optimize });
         const t = b.addTest(.{ .root_module = m });
         test_step.dependOn(&b.addRunArtifact(t).step);
@@ -43,6 +45,7 @@ pub fn build(b: *std.Build) void {
         m.addImport("sched", sched_mod);
         m.addImport("npu_engine", npu_mod);
         m.addImport("vk_wrapper", vk_mod);
+        m.linkSystemLibrary("xrt_coreutil", .{});
         const t = b.addTest(.{ .root_module = m });
         test_step.dependOn(&b.addRunArtifact(t).step);
     }
@@ -54,6 +57,7 @@ pub fn build(b: *std.Build) void {
         m.addImport("npu_engine", npu_mod);
         m.addImport("vk_wrapper", vk_mod);
         m.linkSystemLibrary("vulkan", .{});
+        m.linkSystemLibrary("xrt_coreutil", .{});
         m.addLibraryPath(.{ .cwd_relative = "/usr/lib/x86_64-linux-gnu" });
         const t = b.addTest(.{ .root_module = m });
         test_step.dependOn(&b.addRunArtifact(t).step);
