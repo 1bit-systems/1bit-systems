@@ -186,6 +186,9 @@ const ChildPipes = struct {
     stdout_fd: i32,
 };
 
+/// Spawns one npu_engine_universal --server --shm process with its own
+/// shared memory segment and pipe. Multiple instances can run concurrently
+/// for true NPU pipeline overlap (QKV ∥ FFN).
 const PersistentNpuServer = struct {
     allocator: std.mem.Allocator,
     child: ChildPipes,
@@ -378,8 +381,10 @@ pub const FusedExecutor = struct {
     /// Shared KV cache.
     kv: SharedKVCache,
 
-    /// Persistent NPU server handle.
-    npu: PersistentNpuServer,
+    /// QKV NPU server (one per pipeline stream for true overlap).
+    npu_qkv: PersistentNpuServer,
+    /// FFN NPU server (runs concurrently with QKV of next layer).
+    npu_ffn: PersistentNpuServer,
 
     /// GPU attention module (Vulkan flash attention).
     gpu: ?gpu_attn.GpuAttention = null,
@@ -489,7 +494,8 @@ pub const FusedExecutor = struct {
             .policy = policy,
             .config = config,
             .kv = kv,
-            .npu = try PersistentNpuServer.init(allocator, npu_engine_path, model_path),
+            .npu_qkv = try PersistentNpuServer.init(allocator, npu_engine_path, model_path),
+            .npu_ffn = try PersistentNpuServer.init(allocator, npu_engine_path, model_path),
             .emb_f32 = emb_f32,
             .lm_head_f32 = lm_head_f32,
             .tied_embeddings = tied_embeddings,
@@ -513,7 +519,8 @@ pub const FusedExecutor = struct {
     }
 
     pub fn deinit(self: *FusedExecutor) void {
-        self.npu.deinit();
+        self.npu_qkv.deinit();
+        self.npu_ffn.deinit();
         const aa = self.allocator;
         aa.free(self.scratch.logits);
         aa.free(self.scratch.activated);
@@ -601,7 +608,7 @@ pub const FusedExecutor = struct {
 
         // NPU QKV projection
         if (dispatch.qkv == .npu) {
-            try self.npu.runQKV(s.hidden[0..batch_size * H], @intCast(batch_size), layer, self.kv.position, qkv_scratch);
+            try self.npu_qkv.runQKV(s.hidden[0..batch_size * H], @intCast(batch_size), layer, self.kv.position, qkv_scratch);
         } else {
             @memset(qkv_scratch, 0);
         }
@@ -690,7 +697,7 @@ pub const FusedExecutor = struct {
         // FFN — server handles O proj + residual + RMSNorm + Gate/Up + SiLU + Down
         if (dispatch.ffn == .npu) {
             const attn_out = if (dispatch.attention == .gpu) s.attn_out else s.o_out;
-            try self.npu.runFFN(s.residual[0..batch_size * H], attn_out[0..batch_size * NH * HD], @intCast(batch_size), layer, self.kv.position, s.down_out);
+            try self.npu_ffn.runFFN(s.residual[0..batch_size * H], attn_out[0..batch_size * NH * HD], @intCast(batch_size), layer, self.kv.position, s.down_out);
         }
 
         // Residual add (FFN)
@@ -728,7 +735,7 @@ pub fn executeLayer(
 
         if (dispatch.qkv == .npu) {
             // NPU GEMM for QKV projection
-            try self.npu.runQKV(s.hidden[0..batch_size * H], @intCast(batch_size), layer, self.kv.position, s.qkv);
+            try self.npu_qkv.runQKV(s.hidden[0..batch_size * H], @intCast(batch_size), layer, self.kv.position, s.qkv);
         }
 
         // ── Step 3: Q/K norm, RoPE, KV cache write ──
@@ -829,7 +836,7 @@ pub fn executeLayer(
 
         // ── Step 8: FFN on NPU — server handles O + residual + SiLU + Down ──
         if (dispatch.ffn == .npu) {
-            try self.npu.runFFN(s.residual[0..batch_size * H], s.attn_out[0..batch_size * NH * HD], @intCast(batch_size), layer, self.kv.position, s.down_out);
+            try self.npu_ffn.runFFN(s.residual[0..batch_size * H], s.attn_out[0..batch_size * NH * HD], @intCast(batch_size), layer, self.kv.position, s.down_out);
         }
 
         // ── Step 9: Residual add (FFN) ──
@@ -1052,7 +1059,7 @@ pub fn executeLayer(
 
                 // RMSNorm + QKV
                 rmsNorm(hidden_slice, self.in_norm[l], hidden_slice, 1e-6);
-                try self.npu.runQKV(hidden_slice, @as(u32, @intCast(1)), @as(u32, @intCast(l)), self.kv.position, self.scratch.qkv);
+                try self.npu_qkv.runQKV(hidden_slice, @as(u32, @intCast(1)), @as(u32, @intCast(l)), self.kv.position, self.scratch.qkv);
 
                 // Q/K norm, RoPE, KV cache
                 const QKV = self.config.n_heads * self.config.head_dim + 2 * self.config.n_kv_heads * self.config.head_dim;
@@ -1100,7 +1107,7 @@ pub fn executeLayer(
                 // FFN — server handles full path including SiLU + Down
                 @memcpy(self.scratch.residual[@as(usize, @intCast(pi)) * H ..][0..H], hidden_slice);
                 rmsNorm(hidden_slice, self.pa_norm[l], hidden_slice, 1e-6);
-                try self.npu.runFFN(self.scratch.residual[@as(usize, @intCast(pi)) * H ..][0..H], self.scratch.attn_out[0..self.config.n_heads * self.config.head_dim], 1, @as(u32, @intCast(l)), self.kv.position, self.scratch.down_out);
+                try self.npu_ffn.runFFN(self.scratch.residual[@as(usize, @intCast(pi)) * H ..][0..H], self.scratch.attn_out[0..self.config.n_heads * self.config.head_dim], 1, @as(u32, @intCast(l)), self.kv.position, self.scratch.down_out);
                 for (0..self.config.inter_size) |i| {
                     const gate = self.scratch.gate_up[i];
                     const up = self.scratch.gate_up[self.config.inter_size + i];
