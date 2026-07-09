@@ -144,13 +144,49 @@ static void lm_head(const float *h, const float *e, float *lg, uint32_t *top, in
     for(int j=0;j<k;j++)top[j]=t[j].id;
 }
 
-/* ── GPU wrapper: matrix-vector multiply ── */
-static void gpu_mm(Model *m, const float *h, int od, int id, float *out, const float *dw) {
+/* ── Batched GPU wrappers: one upload, many gemvs, one sync ── */
+/* QKV: 3 matmuls from same input (normed hidden state), outputs to separate buffers */
+static void gpu_qkv(Model *m, const float *h, float *q, float *k, float *v,
+                     const float *wq, const float *wk, const float *wv) {
     GPU *g = &m->gpu;
-    hipMemcpyAsync(g->din, h, id*4, hipMemcpyHostToDevice, g->s);
     float a=1.0f, b=0.0f;
-    hipblasSgemv(g->h, HIPBLAS_OP_T, id, od, &a, dw, id, g->din, 1, &b, g->dout, 1);
-    hipMemcpyAsync(out, g->dout, od*4, hipMemcpyDeviceToHost, g->s);
+    hipMemcpyAsync(g->din, h, H*4, hipMemcpyHostToDevice, g->s);
+    hipblasSgemv(g->h, HIPBLAS_OP_T, H, NH*HD, &a, wq, H, g->din, 1, &b, g->dout, 1);
+    hipblasSgemv(g->h, HIPBLAS_OP_T, H, NKV*HD, &a, wk, H, g->din, 1, &b, g->dout+NH*HD, 1);
+    hipblasSgemv(g->h, HIPBLAS_OP_T, H, NKV*HD, &a, wv, H, g->din, 1, &b, g->dout+NH*HD+NKV*HD, 1);
+    hipMemcpyAsync(q, g->dout, NH*HD*4, hipMemcpyDeviceToHost, g->s);
+    hipMemcpyAsync(k, g->dout+NH*HD, NKV*HD*4, hipMemcpyDeviceToHost, g->s);
+    hipMemcpyAsync(v, g->dout+NH*HD+NKV*HD, NKV*HD*4, hipMemcpyDeviceToHost, g->s);
+    hipStreamSynchronize(g->s);
+}
+/* O: attention output → residual stream (single, kept for clarity) */
+static void gpu_o(Model *m, const float *h, float *out, const float *dw) {
+    GPU *g = &m->gpu;
+    float a=1.0f, b=0.0f;
+    hipMemcpyAsync(g->din, h, NH*HD*4, hipMemcpyHostToDevice, g->s);
+    hipblasSgemv(g->h, HIPBLAS_OP_T, NH*HD, H, &a, dw, NH*HD, g->din, 1, &b, g->dout, 1);
+    hipMemcpyAsync(out, g->dout, H*4, hipMemcpyDeviceToHost, g->s);
+    hipStreamSynchronize(g->s);
+}
+/* Gate+Up: 2 matmuls from same input (post-attn normed h), outputs to separate buffers */
+static void gpu_gu(Model *m, const float *h, float *gt, float *up,
+                    const float *wg, const float *wu) {
+    GPU *g = &m->gpu;
+    float a=1.0f, b=0.0f;
+    hipMemcpyAsync(g->din, h, H*4, hipMemcpyHostToDevice, g->s);
+    hipblasSgemv(g->h, HIPBLAS_OP_T, H, IM, &a, wg, H, g->din, 1, &b, g->dout, 1);
+    hipblasSgemv(g->h, HIPBLAS_OP_T, H, IM, &a, wu, H, g->din, 1, &b, g->dout+IM, 1);
+    hipMemcpyAsync(gt, g->dout, IM*4, hipMemcpyDeviceToHost, g->s);
+    hipMemcpyAsync(up, g->dout+IM, IM*4, hipMemcpyDeviceToHost, g->s);
+    hipStreamSynchronize(g->s);
+}
+/* Down: single matmul, act → residual stream (kept for consistency) */
+static void gpu_d(Model *m, const float *h, float *out, const float *dw) {
+    GPU *g = &m->gpu;
+    float a=1.0f, b=0.0f;
+    hipMemcpyAsync(g->din, h, IM*4, hipMemcpyHostToDevice, g->s);
+    hipblasSgemv(g->h, HIPBLAS_OP_T, IM, H, &a, dw, IM, g->din, 1, &b, g->dout, 1);
+    hipMemcpyAsync(out, g->dout, H*4, hipMemcpyDeviceToHost, g->s);
     hipStreamSynchronize(g->s);
 }
 
@@ -192,7 +228,9 @@ static bool gpu_init(Model *m) {
     hipStreamCreate(&g->s);
     hipblasSetStream(g->h, g->s);
     hipMalloc(&g->din, H*4);
-    hipMalloc(&g->dout, ((QT>IM)?QT:IM)*4);
+    /* Max batched output: GU batch = 2*IM = 6144, QKV batch = NH*HD+2*NKV*HD = 4096 */
+    int dout_sz = (NH*HD+2*NKV*HD) > (2*IM) ? (NH*HD+2*NKV*HD) : (2*IM);
+    hipMalloc(&g->dout, dout_sz*4);
     g->l = (DevW*)calloc(NC, sizeof(DevW));
     for (int l=0; l<NC; l++) {
         if(!upload_w(m,m->qo[l],m->qi[l],H,&g->l[l].q)) return false;
@@ -215,9 +253,9 @@ static void layer_fwd(Model *m, int l, int pos, float *h, float *res,
     rms(h, m->in[l], H);
 
     if (m->gpu.ok) {
-        gpu_mm(m, h, NH*HD, H, qkv, m->gpu.l[l].q);
-        gpu_mm(m, h, NKV*HD, H, qkv+NH*HD, m->gpu.l[l].k);
-        gpu_mm(m, h, NKV*HD, H, qkv+NH*HD+NKV*HD, m->gpu.l[l].v);
+        /* Batch QKV: one H2D, 3 gemvs, one sync */
+        gpu_qkv(m, h, qkv, qkv+NH*HD, qkv+NH*HD+NKV*HD,
+                m->gpu.l[l].q, m->gpu.l[l].k, m->gpu.l[l].v);
     } else {
         memset(qkv, 0, QT*4);
     }
@@ -233,14 +271,16 @@ static void layer_fwd(Model *m, int l, int pos, float *h, float *res,
     attn(qkv, kc_l, vc_l, at, sl, sl);
 
     if (m->gpu.ok) {
-        gpu_mm(m, at, H, NH*HD, h, m->gpu.l[l].o);
+        /* O projection: attn → hidden */
+        gpu_o(m, at, h, m->gpu.l[l].o);
         for(int i=0;i<H;i++)h[i]=res[i]+h[i];
         memcpy(res, h, H*4);
         rms(h, m->pa[l], H);
-        gpu_mm(m, h, IM, H, gt, m->gpu.l[l].g);
-        gpu_mm(m, h, IM, H, act, m->gpu.l[l].u);
+        /* Batch Gate+Up: one H2D, 2 gemvs, one sync */
+        gpu_gu(m, h, gt, act, m->gpu.l[l].g, m->gpu.l[l].u);
         for(int i=0;i<IM;i++){float gv=gt[i];act[i]=(gv/(1.0f+expf(-gv)))*act[i];}
-        gpu_mm(m, act, H, IM, h, m->gpu.l[l].d);
+        /* Down projection: activated → hidden */
+        gpu_d(m, act, h, m->gpu.l[l].d);
         for(int i=0;i<H;i++)h[i]=res[i]+h[i];
     } else {
         for(int i=0;i<H;i++)h[i]=res[i]+at[i];
