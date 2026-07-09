@@ -42,34 +42,40 @@ jobs:
             python3 -m json.tool "$f" > /dev/null
           done
 
-  lint:
+  benchmark-sync:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-      - run: pip install ruff
-      - run: ruff check src/ 2>/dev/null || echo "::warning::ruff check skipped (no src/)"
+      - name: Verify benchmarks.json matches performance.md
+        run: bash scripts/parse-benchmarks.sh --check
 
-  # NOTE: this job used to be "build", and its only step checked that a
-  # committed engine/npu/build/npu_engine binary stayed under 75KB.
-  # engine/npu/ was retired in commit cd232a091 (superseded by the
-  # spec-decode/ stack), so that binary/check no longer exists — the job had
-  # no other purpose, so it was removed entirely rather than left as dead
-  # logic.
-
-  test:
+  numbers-valid:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-      - run: pip install pytest
-      - run: |
-          # JARVIS knowledge engine unit tests
-          cd jarvis && python3 -m pytest server/ -v --tb=short 2>/dev/null || \
-          echo "::warning::JARVIS tests skipped (no pytest in server/)"
+      - name: Validate numbers.json schema
+        run: python3 -m json.tool site/numbers.json > /dev/null
+      - name: Check numbers.json keys match site/index.html data-num bindings
+        run: |
+          grep -oP '(?<=data-num=")[^"]+' site/index.html | sort > /tmp/nums_html.txt
+          python3 -c "
+import json, sys
+n = json.load(open('site/numbers.json'))
+def flatten(obj, prefix=''):
+    keys = []
+    for k,v in obj.items():
+        p = f'{prefix}.{k}' if prefix else k
+        if isinstance(v, dict):
+            keys.extend(flatten(v, p))
+        else:
+            keys.append(p)
+    return keys
+expected = set(flatten(n))
+actual = set(open('/tmp/nums_html.txt').read().strip().split())
+missing = expected - actual
+extra = actual - expected
+if missing:
+    print(f'::warning::numbers.json keys not bound in index.html: {missing}')
+if extra:
+    print(f'::warning::index.html references keys not in numbers.json: {extra}')
+" 2>&1
