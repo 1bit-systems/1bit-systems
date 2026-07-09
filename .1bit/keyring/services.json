@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "updated": "2026-07-08T23:59:00Z",
+  "namespaces": {
+    "github": {
+      "description": "GitHub API tokens",
+      "keys": {"token": "GitHub personal access token or OAuth token"},
+      "legacy": {"service": "gh:github.com", "username": "bong-water-water-bong"},
+      "env_var": "GITHUB_TOKEN"
+    },
+    "cloudflare": {
+      "description": "Cloudflare API tokens",
+      "keys": {
+        "token": "Cloudflare API token",
+        "zone": "Cloudflare zone ID for 1bit.systems",
+        "account-id": "Cloudflare account ID"
+      },
+      "legacy": {
+        "token": {"service": "cloudflare-analytics", "key": "token"},
+        "zone": {"service": "cloudflare-analytics", "key": "zone"},
+        "account-id": {"service": "cloudflare-analytics", "account": "account-id"}
+      }
+    },
+    "ai": {
+      "description": "AI provider API keys",
+      "keys": {
+        "deepseek": "DeepSeek API key",
+        "openai": "OpenAI API key",
+        "anthropic": "Anthropic API key",
+        "mistral": "Mistral API key",
+        "groq": "Groq API key",
+        "together": "Together AI API key"
+      },
+      "env_var": "AI_${KEY^^}"
+    },
+    "huggingface": {
+      "description": "Hugging Face tokens",
+      "keys": {"token": "Hugging Face access token"},
+      "env_var": "HF_TOKEN"
+    },
+    "docker": {
+      "description": "Docker registry credentials",
+      "keys": {"token": "Docker Hub personal access token"},
+      "env_var": "DOCKER_TOKEN"
+    },
+    "wallet": {
+      "description": "Cryptocurrency wallet keys",
+      "keys": {
+        "eth": "Ethereum wallet private key",
+        "solana": "Solana wallet private key",
+        "seed": "BIP39 seed phrase (all wallets)"
+      }
+    },
+    "protonmail": {
+      "description": "ProtonMail email credentials",
+      "keys": {
+        "imap": "IMAP password",
+        "smtp": "SMTP password",
+        "bridge-vault": "Bridge vault encryption key"
+      },
+      "legacy": {
+        "bridge-vault": {"server": "protonmail/bridge-v3/users/bridge-vault-key", "username": "bridge-vault-key"}
+      }
+    },
+    "server": {
+      "description": "Server SSH/login credentials",
+      "keys": {"bcloud": "bcloud server root/SSH credentials"}
+    },
+    "ssh": {
+      "description": "SSH key passwords",
+      "keys": {"id_ed25519": "SSH ed25519 key passphrase"}
+    },
+    "email": {
+      "description": "Email SMTP credentials",
+      "keys": {"smtp": "SMTP server password"}
+    }
+  }
+}
