@@ -62,7 +62,7 @@ video-lora generate --model stable-audio --prompt "rain on window"
 | **Ternary** (Vulkan) | Radeon 8060S | **279 tok/s** | Bonsai-1.7B Q2_0 — ✅ measured, coherent |
 | **GPU 1-bit** (llama.cpp) | Radeon 8060S | **381 tok/s** | Qwen2-0.5B IQ1_S — measured |
 | **GPU ZINC** (Vulkan) | Radeon 8060S | **22 tok/s** | Bonsai-1.7B F16 — ✅ measured, coherent |
-| **Zaya** (AMD-native) | Radeon 8060S | **~18 tok/s** | Zaya 1.8B — reported |
+| **Zaya** (ROCm) | Radeon 8060S | **~18 tok/s** | ZAYA1PREVIEW-74B-A4B-Q4_K_M — reported |
 
 Only ✅ numbers are production. See [docs/wiki/performance.md](docs/wiki/performance.md) for full status legend.
 
