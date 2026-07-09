@@ -177,54 +177,182 @@ pub const SharedKVCache = struct {
     }
 };
 
-/// NPU subprocess handle — manages one npu_engine_universal child process.
-const NpuSubprocess = struct {
+/// Persistent NPU server — keeps one npu_engine_universal --server process alive
+/// and communicates via POSIX shared memory + stdin/stdout commands.
+/// Eliminates the 5-10ms process spawn overhead per QKV/FFN call.
+const ChildPipes = struct {
+    pid: std.posix.pid_t,
+    stdin_fd: i32,
+    stdout_fd: i32,
+};
+
+const PersistentNpuServer = struct {
     allocator: std.mem.Allocator,
-    io: ?Io,
-    model_path: []const u8,
-    engine_path: []const u8,
+    child: ChildPipes,
+    shm_mem: []align(4096) u8,
+    shm_name: []u8,
 
-    pub fn init(allocator: std.mem.Allocator, io: ?Io, model_path: []const u8, engine_path: []const u8) NpuSubprocess {
-        return .{ .allocator = allocator, .io = io, .model_path = model_path, .engine_path = engine_path };
-    }
+    const SHM_SIZE = 128 * 1024 * 1024; // 128 MB — matches SHM_TOTAL in npu_engine_universal.cpp
+    const SHM_IN_OFF = 0;
+    const SHM_OUT_OFF = SHM_SIZE / 2;
 
-    /// Run NPU subprocess, parse float output from stdout.
-    fn runSubprocess(self: *const NpuSubprocess, batch_size: u32, output: []f32) !void {
-        const io = self.io orelse {
-            log.warn("NPU subprocess disabled (no Io)", .{});
-            @memset(output, 0.0);
-            return;
+    pub fn init(allocator: std.mem.Allocator, engine_path: []const u8, model_path: []const u8) !PersistentNpuServer {
+        // 1. Create POSIX shared memory (via C API)
+        const shm_name = try std.fmt.allocPrint(allocator, "/1bit-fused-{d}", .{std.c.getpid()});
+        errdefer allocator.free(shm_name);
+
+        const O_RDWR: c_uint = 2;
+        const O_CREAT: c_uint = 0o100;
+
+        const fd = std.c.shm_open(@ptrCast(shm_name.ptr), O_RDWR | O_CREAT, 0o666);
+        if (fd < 0) {
+            log.err("shm_open failed: errno={}", .{std.c._errno().*});
+            return error.ShmOpenFailed;
+        }
+        errdefer _ = std.c.shm_unlink(@ptrCast(shm_name.ptr));
+
+        if (std.c.ftruncate(fd, SHM_SIZE) < 0) {
+            log.err("ftruncate failed: errno={}", .{std.c._errno().*});
+            _ = std.c.close(fd);
+            return error.ShmTruncateFailed;
+        }
+        const shm_mem = try std.posix.mmap(
+            null,
+            SHM_SIZE,
+            std.posix.PROT{ .READ = true, .WRITE = true },
+            std.posix.MAP{ .TYPE = .SHARED },
+            @intCast(fd),
+            0,
+        );
+        _ = std.c.close(fd);
+
+        // 2. Spawn NPU server process via C fork/exec
+        var stdin_pipe: [2]c_int = undefined;
+        var stdout_pipe: [2]c_int = undefined;
+        if (std.c.pipe(&stdin_pipe) < 0 or std.c.pipe(&stdout_pipe) < 0) return error.PipeFailed;
+        const child_pid = std.c.fork();
+        if (child_pid < 0) return error.ForkFailed;
+        if (child_pid == 0) {
+            // Child: redirect stdin/stdout to pipes, then exec
+            _ = std.c.dup2(stdin_pipe[0], 0);
+            _ = std.c.dup2(stdout_pipe[1], 1);
+            _ = std.c.close(stdin_pipe[0]);
+            _ = std.c.close(stdin_pipe[1]);
+            _ = std.c.close(stdout_pipe[0]);
+            _ = std.c.close(stdout_pipe[1]);
+            _ = std.c.execve(
+                @ptrCast(@constCast(engine_path.ptr)),
+                @as([*:null]const ?[*:0]const u8, @ptrCast(@constCast(&[_]?[*:0]const u8{ @ptrCast(@constCast(engine_path.ptr)), @ptrCast(@constCast(model_path.ptr)), @ptrCast(@constCast("--server")), @ptrCast(@constCast("--shm")), @ptrCast(@constCast(shm_name.ptr)), null }))),
+                @as([*:null]const ?[*:0]const u8, @ptrCast(&[_]?[*:0]const u8{null})),
+            );
+            std.c.exit(1);
+        }
+        // Parent: close child's ends, keep our ends
+        _ = std.c.close(stdin_pipe[0]);
+        _ = std.c.close(stdout_pipe[1]);
+
+        // Build a minimal child struct to hold the pid and pipe handles
+        const child = ChildPipes{
+            .pid = child_pid,
+            .stdin_fd = stdin_pipe[1],
+            .stdout_fd = stdout_pipe[0],
         };
-        var buf: [64]u8 = undefined;
-        const tok_str = try std.fmt.bufPrint(&buf, "{d}", .{batch_size});
-        const result = try std.process.run(self.allocator, io, .{
-            .argv = &[_][]const u8{ self.engine_path, self.model_path, tok_str },
-        });
-        defer self.allocator.free(result.stdout);
-        defer self.allocator.free(result.stderr);
-        if (result.term != .exited or result.term.exited != 0) {
-            log.warn("NPU subprocess returned exit={any}: {s}", .{ result.term, result.stderr });
-            @memset(output, 0.0);
-            return;
+
+        // 3. Wait for "SERVER: READY" on stdout
+        var ready_buf: [32]u8 = undefined;
+        const n = std.c.read(child.stdout_fd, &ready_buf, ready_buf.len);
+        if (n < 0 or !std.mem.startsWith(u8, ready_buf[0..@as(usize, @intCast(n))], "SERVER: READY")) {
+            const nn = if (n < 0) @as(usize, 0) else @as(usize, @intCast(n));
+            log.err("NPU server did not start: {s}", .{ready_buf[0..nn]});
+            _ = std.c.close(child.stdin_fd);
+            _ = std.c.close(child.stdout_fd);
+            var ws: c_int = 0;
+            _ = std.c.waitpid(child_pid, &ws, 0);
+            return error.NpuServerStartFailed;
         }
-        if (std.mem.lastIndexOfScalar(u8, result.stdout, '=')) |eq_end| {
-            var it = std.mem.splitScalar(u8, result.stdout[eq_end + 1 ..], ' ');
-            var idx: usize = 0;
-            while (it.next()) |tok| {
-                if (tok.len == 0) continue;
-                if (idx >= output.len) break;
-                output[idx] = std.fmt.parseFloat(f32, tok) catch 0.0;
-                idx += 1;
-            }
-        }
+        log.info("NPU server ready (shm={s})", .{shm_name});
+
+        return PersistentNpuServer{
+            .allocator = allocator,
+            .child = child,
+            .shm_mem = shm_mem,
+            .shm_name = shm_name,
+        };
     }
 
-    fn runQKV(self: *const NpuSubprocess, _: []const f32, batch_size: u32, _: u32, qkv_out: []f32) !void {
-        try self.runSubprocess(batch_size, qkv_out);
+    pub fn deinit(self: *PersistentNpuServer) void {
+        // Send EXIT command to child
+        _ = std.c.write(self.child.stdin_fd, "EXIT\n", 5);
+        _ = std.c.close(self.child.stdin_fd);
+        _ = std.c.close(self.child.stdout_fd);
+        // Reap child process
+        var wstatus: c_int = undefined;
+        _ = std.c.waitpid(self.child.pid, &wstatus, 0);
+        std.posix.munmap(self.shm_mem);
+        _ = std.c.shm_unlink(@ptrCast(self.shm_name.ptr));
+        self.allocator.free(self.shm_name);
     }
 
-    fn runFFN(self: *const NpuSubprocess, _: []const f32, batch_size: u32, _: u32, ffn_out: []f32) !void {
-        try self.runSubprocess(batch_size, ffn_out);
+    /// Run QKV for one layer: write hidden states to shm, send command, read QKV output.
+    fn runQKV(
+        self: *PersistentNpuServer,
+        hidden: []const f32,
+        batch_size: u32,
+        layer: u32,
+        pos: u32,
+        qkv_out: []f32,
+    ) !void {
+        const shm_in = self.shm_mem[SHM_IN_OFF..][0..hidden.len * @sizeOf(f32)];
+        // Write hidden states to shared memory
+        const h_bytes = std.mem.sliceAsBytes(hidden);
+        @memcpy(shm_in[0..h_bytes.len], h_bytes);
+
+        // Send command directly via POSIX write
+        var cmd_buf: [64]u8 = undefined;
+        const cmd = try std.fmt.bufPrint(&cmd_buf, "QKV {d} {d} {d}\n", .{ layer, pos, batch_size });
+        _ = std.c.write(self.child.stdin_fd, cmd.ptr, cmd.len);
+
+        // Wait for ack (newline on stdout)
+        var ack: [1]u8 = undefined;
+        _ = std.c.read(self.child.stdout_fd, &ack, 1);
+
+        // Read output from shared memory
+        const shm_out = self.shm_mem[SHM_OUT_OFF..][0..qkv_out.len * @sizeOf(f32)];
+        const out_bytes = std.mem.sliceAsBytes(qkv_out);
+        @memcpy(out_bytes, shm_out[0..out_bytes.len]);
+    }
+
+    /// Run FFN for one layer: write residual+attention to shm, send command, read output.
+    fn runFFN(
+        self: *PersistentNpuServer,
+        residual: []const f32,
+        attn_out: []const f32,
+        batch_size: u32,
+        layer: u32,
+        pos: u32,
+        ffn_out: []f32,
+    ) !void {
+        // Write residual + attention output to shared memory
+        const res_bytes = std.mem.sliceAsBytes(residual);
+        const attn_bytes = std.mem.sliceAsBytes(attn_out);
+        const total = res_bytes.len + attn_bytes.len;
+        const shm_in = self.shm_mem[SHM_IN_OFF..][0..total];
+        @memcpy(shm_in[0..res_bytes.len], res_bytes);
+        @memcpy(shm_in[res_bytes.len..][0..attn_bytes.len], attn_bytes);
+
+        // Send command directly via POSIX write
+        var cmd_buf: [64]u8 = undefined;
+        const cmd = try std.fmt.bufPrint(&cmd_buf, "FFN {d} {d} {d}\n", .{ layer, pos, batch_size });
+        _ = std.c.write(self.child.stdin_fd, cmd.ptr, cmd.len);
+
+        // Wait for ack
+        var ack: [1]u8 = undefined;
+        _ = std.c.read(self.child.stdout_fd, &ack, 1);
+
+        // Read output from shared memory
+        const shm_out = self.shm_mem[SHM_OUT_OFF..][0..ffn_out.len * @sizeOf(f32)];
+        const out_bytes = std.mem.sliceAsBytes(ffn_out);
+        @memcpy(out_bytes, shm_out[0..out_bytes.len]);
     }
 };
 
@@ -250,8 +378,8 @@ pub const FusedExecutor = struct {
     /// Shared KV cache.
     kv: SharedKVCache,
 
-    /// NPU subprocess handle.
-    npu: NpuSubprocess,
+    /// Persistent NPU server handle.
+    npu: PersistentNpuServer,
 
     /// GPU attention module (Vulkan flash attention).
     gpu: ?gpu_attn.GpuAttention = null,
@@ -305,11 +433,10 @@ pub const FusedExecutor = struct {
 
     pub fn init(
         allocator: std.mem.Allocator,
-        io: ?Io,
         policy: DispatchPolicy,
         config: ModelConfig,
-        model_path: []const u8,
         npu_engine_path: []const u8,
+        model_path: []const u8,
         max_context: u32,
         batch_size: u32,
         emb_f32: []f32,
@@ -362,7 +489,7 @@ pub const FusedExecutor = struct {
             .policy = policy,
             .config = config,
             .kv = kv,
-            .npu = NpuSubprocess.init(allocator, io, model_path, npu_engine_path),
+            .npu = try PersistentNpuServer.init(allocator, npu_engine_path, model_path),
             .emb_f32 = emb_f32,
             .lm_head_f32 = lm_head_f32,
             .tied_embeddings = tied_embeddings,
@@ -386,6 +513,7 @@ pub const FusedExecutor = struct {
     }
 
     pub fn deinit(self: *FusedExecutor) void {
+        self.npu.deinit();
         const aa = self.allocator;
         aa.free(self.scratch.logits);
         aa.free(self.scratch.activated);
@@ -473,7 +601,7 @@ pub const FusedExecutor = struct {
 
         // NPU QKV projection
         if (dispatch.qkv == .npu) {
-            try self.npu.runQKV(s.hidden[0..batch_size * H], @intCast(batch_size), H, qkv_scratch);
+            try self.npu.runQKV(s.hidden[0..batch_size * H], @intCast(batch_size), layer, self.kv.position, qkv_scratch);
         } else {
             @memset(qkv_scratch, 0);
         }
@@ -492,7 +620,6 @@ pub const FusedExecutor = struct {
         const NH = self.config.n_heads;
         const NKV = self.config.n_kv_heads;
         const HD = self.config.head_dim;
-        const IM = self.config.inter_size;
         const GQA = self.config.gqa_ratio;
         const dispatch = self.getLayerDispatch(layer);
         const s = self.scratch;
@@ -560,17 +687,10 @@ pub const FusedExecutor = struct {
             rmsNorm(s.hidden[b * H ..][0..H], self.pa_norm[layer], s.hidden[b * H ..][0..H], 1e-6);
         }
 
-        // FFN
+        // FFN — server handles O proj + residual + RMSNorm + Gate/Up + SiLU + Down
         if (dispatch.ffn == .npu) {
-            try self.npu.runFFN(s.hidden[0..batch_size * H], @intCast(batch_size), H, s.gate_up);
-            for (0..batch_size) |b| {
-                for (0..IM) |i| {
-                    const gate = s.gate_up[b * 2 * IM + i];
-                    const up = s.gate_up[b * 2 * IM + IM + i];
-                    s.activated[b * IM + i] = silu(gate) * up;
-                }
-            }
-            @memcpy(s.down_out[0..batch_size * H], s.activated[0..batch_size * IM]);
+            const attn_out = if (dispatch.attention == .gpu) s.attn_out else s.o_out;
+            try self.npu.runFFN(s.residual[0..batch_size * H], attn_out[0..batch_size * NH * HD], @intCast(batch_size), layer, self.kv.position, s.down_out);
         }
 
         // Residual add (FFN)
@@ -590,7 +710,6 @@ pub fn executeLayer(
         const NH = self.config.n_heads;
         const NKV = self.config.n_kv_heads;
         const HD = self.config.head_dim;
-        const IM = self.config.inter_size;
         const GQA = self.config.gqa_ratio;
         const s = self.scratch;
 
@@ -609,7 +728,7 @@ pub fn executeLayer(
 
         if (dispatch.qkv == .npu) {
             // NPU GEMM for QKV projection
-            try self.npu.runQKV(s.hidden[0..batch_size * H], @intCast(batch_size), H, s.qkv);
+            try self.npu.runQKV(s.hidden[0..batch_size * H], @intCast(batch_size), layer, self.kv.position, s.qkv);
         }
 
         // ── Step 3: Q/K norm, RoPE, KV cache write ──
@@ -708,19 +827,9 @@ pub fn executeLayer(
             );
         }
 
-        // ── Step 8: FFN on NPU (Gate/Up + SiLU + Down) ──
+        // ── Step 8: FFN on NPU — server handles O + residual + SiLU + Down ──
         if (dispatch.ffn == .npu) {
-            try self.npu.runFFN(s.hidden[0..batch_size * H], @intCast(batch_size), H, s.gate_up);
-            // SiLU(gate) * up
-            for (0..batch_size) |b| {
-                for (0..IM) |i| {
-                    const gate = s.gate_up[b * 2 * IM + i];
-                    const up = s.gate_up[b * 2 * IM + IM + i];
-                    const g = if (std.math.isFinite(gate)) gate else 0.0;
-                    s.activated[b * IM + i] = silu(g) * up;
-                }
-            }
-            @memcpy(s.down_out[0..batch_size * H], s.activated[0..batch_size * IM]);
+            try self.npu.runFFN(s.residual[0..batch_size * H], s.attn_out[0..batch_size * NH * HD], @intCast(batch_size), layer, self.kv.position, s.down_out);
         }
 
         // ── Step 9: Residual add (FFN) ──
@@ -943,7 +1052,7 @@ pub fn executeLayer(
 
                 // RMSNorm + QKV
                 rmsNorm(hidden_slice, self.in_norm[l], hidden_slice, 1e-6);
-                try self.npu.runQKV(hidden_slice, 1, H, self.scratch.qkv);
+                try self.npu.runQKV(hidden_slice, @as(u32, @intCast(1)), @as(u32, @intCast(l)), self.kv.position, self.scratch.qkv);
 
                 // Q/K norm, RoPE, KV cache
                 const QKV = self.config.n_heads * self.config.head_dim + 2 * self.config.n_kv_heads * self.config.head_dim;
@@ -988,10 +1097,10 @@ pub fn executeLayer(
                 // Residual add
                 for (0..H) |i| hidden_slice[i] = self.scratch.residual[@as(usize, @intCast(pi)) * H + i] + self.scratch.attn_out[i];
 
-                // FFN
+                // FFN — server handles full path including SiLU + Down
                 @memcpy(self.scratch.residual[@as(usize, @intCast(pi)) * H ..][0..H], hidden_slice);
                 rmsNorm(hidden_slice, self.pa_norm[l], hidden_slice, 1e-6);
-                try self.npu.runFFN(hidden_slice, 1, H, self.scratch.gate_up);
+                try self.npu.runFFN(self.scratch.residual[@as(usize, @intCast(pi)) * H ..][0..H], self.scratch.attn_out[0..self.config.n_heads * self.config.head_dim], 1, @as(u32, @intCast(l)), self.kv.position, self.scratch.down_out);
                 for (0..self.config.inter_size) |i| {
                     const gate = self.scratch.gate_up[i];
                     const up = self.scratch.gate_up[self.config.inter_size + i];
@@ -1104,8 +1213,8 @@ test "cpuAttention produces non-nan output" {
     @memset(&out, 0);
 
     var exec = try FusedExecutor.init(
-        allocator, null, .npu_only, QWEN3_0_6B,
-        "/tmp/model.q4nx", "/tmp/npu_engine",
+        allocator, .npu_only, QWEN3_0_6B,
+        "/tmp/npu_engine", "/tmp/model.q4nx",
         64, 128,
         try allocator.alloc(f32, 100 * 1536),
         null, false,
