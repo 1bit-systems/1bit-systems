@@ -65,6 +65,12 @@ static inline void clamp_finite(float* x, int n) {
     for (int i = 0; i < n; i++) if (!std::isfinite(x[i])) x[i] = 0.0f;
 }
 
+// Clamp BF16 NaN/Inf to zero (prevents NaN propagation between layers)
+static inline void clamp_bf16_finite(uint16_t* data, int n) {
+    for (int i = 0; i < n; i++)
+        if ((data[i] & 0x7F80) == 0x7F80) data[i] = 0;
+}
+
 // Simple argmax
 static inline int argmax_f32(const float* logits, int n) {
     return (int)std::distance(logits, std::max_element(logits, logits + n));
@@ -497,7 +503,33 @@ private:
                             l, bf16f(od[0]), bf16f(od[1]), bf16f(od[2]));
                 }
 
-                // Snapshot hidden at target layers for draft features.
+                // Per-layer weight scale compensation (for BF16 overflow mitigation).
+                // When weights are scaled down by factor `ws`, the output is also
+                // scaled by `ws`. We must multiply by 1/ws to restore the correct
+                // scale. Scale factors defined in scale_fused_weights.py.
+                static constexpr float kWeightScaleFactor[NC] = {
+                    1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+                    1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+                    1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 2.0f, 2.0f,
+                    4.0f, 4.0f, 8.0f, 8.0f
+                };
+                const float comp = kWeightScaleFactor[l];
+                if (comp != 1.0f) {
+                    uint16_t* od = (uint16_t*)bOutput_->map();
+                    for (int i = 0; i < H; i++) {
+                        if ((od[i] & 0x7F80) != 0x7F80) {  // finite
+                            float v = bf16f(od[i]) * comp;
+                            od[i] = f2bf(v);
+                        }
+                    }
+                }
+
+                // Clamp BF16 NaN/Inf to prevent propagation — AIE2 BF16 overflow
+                // at layers 24-27 (STATUS.md) would otherwise cascade and zero all tokens.
+                clamp_bf16_finite((uint16_t*)bOutput_->map(), H);
+
+                // Snapshot hidden at target layers for draft features
+                // (after compensation+clamp to get correctly-scaled values).
                 for (int ti = 0; ti < (int)target_layer_ids_.size(); ti++) {
                     if (target_layer_ids_[ti] == l) {
                         uint16_t* odata = (uint16_t*)bOutput_->map();

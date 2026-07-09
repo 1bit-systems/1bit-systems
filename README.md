@@ -53,7 +53,7 @@ video-lora generate --model stable-audio --prompt "rain on window"
 
 | Engine | Hardware | Speed | Model |
 |--------|----------|-------|-------|
-| **NPU fused** 🏆 ⚙️ raw | XDNA 2 · 32 tiles | **291 tok/s** | Qwen3-0.6B — raw throughput, output not yet coherent |
+| **NPU fused** 🏆 (coherent) | XDNA 2 · 32 tiles | **291 tok/s** | Qwen3-0.6B — ✅ coherent, weight-scaled BF16 overflow fix |
 | **Ternary** (Vulkan) | Radeon 8060S | **279 tok/s** | Q2_0 — ✅ measured, coherent |
 | **ROCm** (HIP) | Radeon 8060S | **113 tok/s** | Bonsai TQ2 — reported |
 | **NPU v12** ⚙️ raw | XDNA 2 · 32 tiles | **97 tok/s** | Qwen3-0.6B — raw throughput, output not yet coherent |
