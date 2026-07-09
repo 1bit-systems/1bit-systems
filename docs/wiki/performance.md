@@ -27,7 +27,7 @@
 | **GPU ZINC** (Vulkan) | Radeon 8060S | **22 tok/s** | ✅ measured, coherent | ~45W | Bonsai-1.7B F16 |
 | **Zaya** (AMD-native) | Radeon 8060S | **~18 tok/s** | reported | ~50W | Zaya 1.8B |
 
-**Status legend:** ✅ measured on-device with coherent output · *measured* = throughput measured via a third-party tool · 📊 *projected* = base engine × speculative-decode acceptance, not an end-to-end measurement · ⚙️ *raw throughput* = the kernel runs at this speed but the engine's output is not yet coherent (correctness WIP). Only ✅ numbers should be quoted as production.
+**Status legend:** ✅ measured on-device with coherent output · *measured* = throughput measured via a third-party tool · ⚙️ *raw throughput* = kernel runs at this speed but output is not yet coherent · ⚠️ *experimental/disproven* = not production-ready, use at your own risk. Only ✅ numbers should be quoted as production.
 
 **73+ models across 6 backends · 22 multi-modal (video, image, audio) · validated production: 94 tok/s NPU (FLM) + 279 tok/s GPU 1.58-bit ternary. DSpark projection (572 tok/s) disproven by end-to-end test — see DSpark section.**
 
