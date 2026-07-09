@@ -157,8 +157,8 @@ static void gpu_mm(Model *m, const float *h, int od, int id, float *out, const f
 /* ── I8→FP32 dequant ── */
 static float* deq_i8(const uint8_t *d, int i8r, int id, int *or_, int *oc) {
     int ntc=id/256; if(ntc<1)ntc=1; int ntr=i8r/ntc;
-    *or_=ntr*32; *oc_=ntc*256;
-    float *o=(float*)calloc((size_t)(*or_)*(*oc_),4);
+    *or_=ntr*32; *oc=ntc*256;
+    float *o=(float*)calloc((size_t)(*or_)*(*oc),4);
     for(int ir=0;ir<i8r;ir++){
         const uint8_t *rd=d+ir*I8_ROW_B; int tr=ir/ntc,tc=ir%ntc;
         const uint16_t *sc=(const uint16_t*)rd,*zp=(const uint16_t*)(rd+512);
@@ -169,7 +169,7 @@ static float* deq_i8(const uint8_t *d, int i8r, int id, int *or_, int *oc) {
             for(int c=0;c<256;c++){int g=c/32;
                 float s=bf16(sc[g*32+lr]),z=bf16(zp[g*32+lr]);
                 uint8_t bv=ld[c*8+bi]; int cd=(ns==0)?(bv&0x0F):((bv>>4)&0x0F);
-                o[(tr*32+lr)*(*oc_)+(tc*256+c)]=(float)cd*s+z;
+                o[(tr*32+lr)*(*oc)+(tc*256+c)]=(float)cd*s+z;
             }
         }
     }
