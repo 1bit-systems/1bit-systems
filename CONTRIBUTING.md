@@ -47,7 +47,7 @@ Prerequisites: [docs/building.md](docs/building.md)  ·  First run: [docs/gettin
 ## NPU Engine Design Principles
 
 - **Zero Python at runtime** — the binary must run without Python, pip, or any interpreter
-- **Small binary target** — every new feature should justify its binary size cost (currently ~437 KB decode, ~30 KB fused layer)
+- **Small binary target** — every new feature should justify its binary size cost (currently ~437 KB decode, ~85 KB fused layer)
 - **Single binary, many models** — auto-detect, no recompilation per model
 - **XRT direct** — no MLIR toolchain dependency at build time; link directly against `libxrt_coreutil`
 

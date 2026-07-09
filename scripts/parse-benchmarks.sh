@@ -84,16 +84,18 @@ write_badge "tflops-badge.json" "INT8 GEMM"              "${TFLOPS} TFLOPS"     
 # ── Check mode: diff generated against committed, fail on mismatch ──
 if [ "$CHECK" = true ]; then
   errors=0
-  for f in benchmarks.json *-badge.json; do
-    if [ ! -f "$SITE/$f" ]; then
-      echo "::error title=missing::$f does not exist in $SITE/ — run parse-benchmarks.sh"
+  # Only check files this script generates (not external badges like pageviews)
+  GENERATED="benchmarks.json validated-badge.json flm-badge.json tern-badge.json gpu-badge.json rocm-badge.json dspark-badge.json fused-badge.json bench-badge.json tok-badge.json tflops-badge.json"
+  for base in $GENERATED; do
+    if [ ! -f "$SITE/$base" ]; then
+      echo "::error title=missing::$base does not exist in $SITE/ — run parse-benchmarks.sh"
       errors=$((errors + 1))
       continue
     fi
-    if ! diff -q "$OUT/$f" "$SITE/$f" > /dev/null 2>&1; then
-      echo "::error title=stale::$f — regenerated output differs from committed"
-      echo "  diff $OUT/$f $SITE/$f"
-      diff "$OUT/$f" "$SITE/$f" | head -20
+    # Strip timestamp line before diff
+    if ! diff <(grep -v '"updated"' "$OUT/$base") <(grep -v '"updated"' "$SITE/$base") > /dev/null 2>&1; then
+      echo "::error title=stale::$base — regenerated output differs from committed"
+      diff "$OUT/$base" "$SITE/$base" | head -20
       errors=$((errors + 1))
     fi
   done
