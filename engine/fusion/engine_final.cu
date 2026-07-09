@@ -222,6 +222,9 @@ static void layer_fwd(GPU *g, int l, int pos) {
 }
 
 /* ── Decode step: 1 sync per token ── */
+float g_decode_logit=0.0f;
+int json_mode=0;
+
 static uint32_t decode_step(Model *m, uint32_t tok, int *pos) {
     GPU *g=&m->gpu; hipStream_t s=g->s; hipblasHandle_t h=g->blas;
     
@@ -237,6 +240,7 @@ static uint32_t decode_step(Model *m, uint32_t tok, int *pos) {
     hipMemcpy(lg,g->dlg,(size_t)NV*4,hipMemcpyDeviceToHost);
     uint32_t best=0; float mx=lg[0];
     for(int i=1;i<NV;i++) if(lg[i]>mx) { mx=lg[i]; best=(uint32_t)i; }
+    g_decode_logit=mx;
     free(lg);
     (*pos)++; return best;
 }
@@ -279,24 +283,33 @@ static int tok(const char *t,uint32_t*tk,int mx){int n=0;if(n<mx)tk[n++]=151644;
 
 int main(int argc,char **argv){
     const char *mp=DEF_MODEL,*pr="Hello"; int mx=128;
-    for(int i=1;i<argc;i++){if(!strcmp(argv[i],"-h")){printf("engine_final — GPU-resident\n");return 0;}if((!strcmp(argv[i],"-m")||!strcmp(argv[i],"--model"))&&i+1<argc)mp=argv[++i];if((!strcmp(argv[i],"-p")||!strcmp(argv[i],"--prompt"))&&i+1<argc)pr=argv[++i];if((!strcmp(argv[i],"-n")||!strcmp(argv[i],"--max-tokens"))&&i+1<argc)mx=atoi(argv[++i]);}
+    for(int i=1;i<argc;i++){if(!strcmp(argv[i],"-h")){printf("engine_final — GPU-resident\n");return 0;}
+        if(!strcmp(argv[i],"--json")){json_mode=1;continue;}
+        if((!strcmp(argv[i],"-m")||!strcmp(argv[i],"--model"))&&i+1<argc)mp=argv[++i];
+        if((!strcmp(argv[i],"-p")||!strcmp(argv[i],"--prompt"))&&i+1<argc)pr=argv[++i];
+        if((!strcmp(argv[i],"-n")||!strcmp(argv[i],"--max-tokens"))&&i+1<argc)mx=atoi(argv[++i]);}
     
-    fprintf(stderr,"\n=== engine_final — Radeon 8060S ===\n");
+    if(!json_mode)fprintf(stderr,"\n=== engine_final — Radeon 8060S ===\n");
     Model m; memset(&m,0,sizeof(m)); if(!load_model(mp,&m)) return 1;
     int pos=0; uint32_t pt[4096]; int npt=tok(pr,pt,4096);
-    fprintf(stderr,"Prompt: %d tokens\n",npt);
+    if(!json_mode)fprintf(stderr,"Prompt: %d tokens\n",npt);
     if(!gpu_init(&m)){fprintf(stderr,"GPU init failed\n");return 1;}
     
     struct timespec ts; clock_gettime(CLOCK_MONOTONIC,&ts); double t0=ts.tv_sec*1e9+ts.tv_nsec;
     uint32_t *out=(uint32_t*)calloc((size_t)mx,4); int gen=0;
     
     for(int pi=0;pi<npt;pi++){decode_step(&m,pt[pi],&pos);}
-    fprintf(stderr,"Decoding %d...\n",mx);
+    if(!json_mode)fprintf(stderr,"Decoding %d...\n",mx);
     uint32_t ct=pt[npt-1];
-    while(gen<mx){out[gen]=decode_step(&m,ct,&pos); ct=out[gen]; gen++; if(gen%20==0)fprintf(stderr,"  %d/%d\r",gen,mx);}
+    while(gen<mx){
+        out[gen]=decode_step(&m,ct,&pos); ct=out[gen];
+        if(json_mode)printf("{\"token\":%u,\"logit\":%.4f}\n",ct,g_decode_logit);
+        gen++; if(!json_mode&&gen%20==0)fprintf(stderr,"  %d/%d\r",gen,mx);}
     
-    clock_gettime(CLOCK_MONOTONIC,&ts); double ms=(ts.tv_sec*1e9+ts.tv_nsec-t0)/1e6;
-    fprintf(stderr,"\n═══ %d tokens in %.0fms — %.0f tok/s ═══\n",gen,ms,gen/(ms/1000));
-    for(int i=0;i<gen;i++)printf("%u ",out[i]);printf("\n");
+    if(!json_mode){
+        clock_gettime(CLOCK_MONOTONIC,&ts); double ms=(ts.tv_sec*1e9+ts.tv_nsec-t0)/1e6;
+        fprintf(stderr,"\n═══ %d tokens in %.0fms — %.0f tok/s ═══\n",gen,ms,gen/(ms/1000));
+        for(int i=0;i<gen;i++)printf("%u ",out[i]);printf("\n");
+    }
     return 0;
 }
