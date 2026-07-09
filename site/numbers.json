@@ -1,6 +1,6 @@
 {
   "binary": {
-    "fused_kb": 30,
+    "fused_kb": 85,
     "decode_kb": 437,
     "decode_stripped_kb": 291,
     "tui_kb": 1072,
