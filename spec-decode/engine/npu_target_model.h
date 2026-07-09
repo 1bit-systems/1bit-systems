@@ -267,6 +267,8 @@ public:
         kv_.resize(NC);
         for (int l=0;l<NC;l++){ kv_[l].k.resize(4096*NKV*HD); kv_[l].v.resize(4096*NKV*HD); kv_[l].n=0; }
         layer_hidden_snapshot_.assign(NC, std::vector<float>(H));
+        layer_hidden_allpos_.assign(NC, std::vector<float>());
+        max_captured_positions_ = 0;
     }
 
     // start_pos=0 => fresh generation (resets KV cache). start_pos>0 => continue from
@@ -347,8 +349,14 @@ public:
             cn(dw_b.data(), n*H);
             for (int pi=0;pi<n;pi++) for (int i=0;i<H;i++) h_b[pi*H+i] = res_b[pi*H+i] + dw_b[pi*H+i];
 
-            // Snapshot last position's hidden state at this layer, for MTP draft feature taps.
+            // Snapshot last position's hidden state at this layer, for standard draft feature taps.
             memcpy(layer_hidden_snapshot_[l].data(), &h_b[(size_t)(n-1)*H], H*4);
+
+            // Capture ALL positions' hidden states for per-position draft training.
+            // Layer-major layout: [layer0_pos0..posN-1, layer1_pos0..posN-1, ...]
+            layer_hidden_allpos_[l].resize((sp + n) * H);
+            memcpy(&layer_hidden_allpos_[l][(size_t)sp * H], h_b.data(), (size_t)n * H * 4);
+            if (sp + n > max_captured_positions_) max_captured_positions_ = sp + n;
         }
 
         if (out_hidden) memcpy(out_hidden, h_b.data(), (size_t)n*H*4);
@@ -407,6 +415,20 @@ public:
         for (auto& c : kv_) c.n = start_pos + n_accept;
     }
 
+    // Get per-position hidden states from specific target layers, for draft training.
+    void get_layer_hidden_positions(
+        const int32_t* target_layer_ids, int32_t num_target_layers,
+        int32_t num_positions, float* position_major_out) {
+        for (int pi = 0; pi < num_positions; pi++) {
+            for (int li = 0; li < num_target_layers; li++) {
+                int layer = target_layer_ids[li];
+                memcpy(&position_major_out[(size_t)pi * num_target_layers * H + (size_t)li * H],
+                       &layer_hidden_allpos_[layer][(size_t)pi * H],
+                       (size_t)H * sizeof(float));
+            }
+        }
+    }
+
 private:
     struct WS { float qk, o_, g_, d_; };
     struct KVCache { std::vector<float> k, v; int n; };
@@ -437,5 +459,7 @@ private:
     std::vector<float> rope_cos_, rope_sin_;
     std::vector<KVCache> kv_;
     std::vector<std::vector<float>> layer_hidden_snapshot_;
+    std::vector<std::vector<float>> layer_hidden_allpos_;
+    int32_t max_captured_positions_ = 0;
     std::vector<int32_t> target_layer_ids_;
 };
