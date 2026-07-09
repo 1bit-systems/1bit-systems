@@ -43,11 +43,21 @@ def main():
     deploys = result.get("result", [])
     print(f"Total deployments: {len(deploys)}")
 
-    # Find main branch deployments
-    main_deps = [
-        d for d in deploys
-        if d.get("deployment_trigger", {}).get("branch", "") == "main"
-    ]
+    # Debug: show first deployment's structure
+    if deploys:
+        first = deploys[0]
+        print(f"Sample deployment keys: {list(first.keys())}")
+        print(f"deployment_trigger: {json.dumps(first.get('deployment_trigger', 'N/A'), indent=2)}")
+        print(f"environment: {first.get('environment', 'N/A')}")
+
+    # Find main branch deployments (check multiple possible fields)
+    main_deps = []
+    for d in deploys:
+        trigger = d.get("deployment_trigger", {}) or {}
+        branch = trigger.get("branch", "") or ""
+        # Also check the deployment directly
+        if branch == "main":
+            main_deps.append(d)
     print(f"Main branch deployments: {len(main_deps)}")
 
     if not main_deps:
