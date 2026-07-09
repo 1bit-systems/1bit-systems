@@ -16,6 +16,13 @@ jobs:
       deployments: write
     steps:
       - uses: actions/checkout@v4
+      - name: Set production branch to main
+        run: |
+          RESPONSE=$(curl -s -X PATCH "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/pages/projects/1bit-systems" \
+            -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            --data '{"production_branch":"main"}')
+          echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print('Success:',d.get('success')); print('Production branch:',d.get('result',{}).get('production_branch','unknown'))"
       - name: Deploy 1bit.systems
         uses: cloudflare/wrangler-action@v3
         with:
