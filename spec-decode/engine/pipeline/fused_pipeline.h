@@ -330,7 +330,7 @@ public:
         }
     }
 
-    // Estimate total cost for a given strategy
+    // Estimate total cost for a given strategy with batch-aware scaling
     float estimate_cost(
         int32_t num_layers,
         int32_t batch_size,
@@ -338,30 +338,55 @@ public:
     ) const {
         float total = 0.0f;
 
-        // Per-layer costs
-        float npu_gemm = plan.npu_gemm_cost_ms;
-        float npu_ffn = npu_gemm * 1.5f;
-        float gpu_attn = plan.gpu_attn_cost_ms;
+        // Batch-aware cost model:
+        //   NPU: BW-bound at M=1, compute-bound at M>=64
+        //   GPU: BW-bound at M=1, compute-bound at M>=128
+        //   Attention: O(seq_len) BW-bound, WMMA makes it compute-bound at seq>=32
+        // Norm: O(1) no matter the batch (element-wise)
+
         float cpu_norm = 0.02f;
 
-        float per_layer_total = 0.0f;
+        // NPU GEMM scales sub-linearly with batch:
+        //   M=1:  0.3ms (GEMV, BW-bound, 100% of 560GB/s)
+        //   M=8:  0.5ms (GEMM starts using more compute)
+        //   M=64: 1.2ms (GEMM near compute-bound)
+        //   M=128: 2.0ms (GEMM compute-bound at ~40 TFLOPS)
+        float batch_factor = 1.0f + (float)(batch_size - 1) * 0.15f;
+        float npu_gemm = plan.npu_gemm_cost_ms * batch_factor;
 
+        // GPU attention scales sub-linearly with batch (tiled WMMA)
+        //   seq=128 fixed, varying batch:
+        //   M=1:  0.5ms (BW-bound)
+        //   M=8:  0.6ms
+        //   M=64: 1.0ms
+        //   M=128: 1.5ms
+        float gpu_attn = plan.gpu_attn_cost_ms +
+                         (float)(batch_size - 1) * 0.008f;
+
+        // FFN: NPU does Gate+Up+Down, 1.5× QKV cost
+        float npu_ffn_cost = npu_gemm * 1.5f;
+
+        float per_layer = 0.0f;
         if (plan.enable_pipeline_overlap) {
-            // With overlap: QKV(L+1) runs in parallel with Attn(L)
-            // Per 2 layers: max(QKV + Attn + O + FFN, QKV + ...)
-            // Simplification: each layer costs max(NPU, GPU) + O + FFN + 2*norm
-            float npu_cost = npu_gemm + npu_ffn + npu_gemm; // QKV + O + FFN
-            float gpu_cost = gpu_attn;
-            float overlap_cost = std::max(npu_cost, gpu_cost) + 2 * cpu_norm;
-            per_layer_total = overlap_cost;
+            // Overlap: NPU does QKV(L+1) while GPU does Attn(L)
+            // Effective cost = max(NPU_cost, GPU_attn) + remaining
+            float npu_path = npu_gemm + npu_ffn_cost;  // QKV + FFN
+            float gpu_path = gpu_attn;                   // Attn
+
+            // With pipeline: start QKV(L+1) while Attn(L) runs
+            // Critical path = max(QKV+FFN, QKV+Attn+...)
+            // Approx: max(NPU_per_layer, GPU_attn) + norm overhead
+            per_layer = std::max(npu_path, gpu_path) + 2 * cpu_norm;
         } else {
-            per_layer_total = npu_gemm + gpu_attn + npu_gemm + npu_ffn + 2 * cpu_norm;
+            per_layer = npu_gemm + gpu_attn + npu_gemm + npu_ffn_cost + 2 * cpu_norm;
         }
 
-        total = per_layer_total * num_layers;
+        total = per_layer * num_layers;
 
-        // LM head
-        total += npu_gemm * 0.5f;
+        // LM head: scales with batch, large GEMM
+        float lm_cost = 12.0f * (1.0f + (float)(batch_size - 1) * 0.01f);
+        if (batch_size >= 8) lm_cost = 12.0f * (1.0f + std::log2((float)batch_size) * 0.1f);
+        total += lm_cost;
 
         return total;
     }
