@@ -57,25 +57,49 @@ class Handler(BaseHTTPRequestHandler):
             prompt = " ".join(m["content"] for m in body.get("messages",[]) if "content" in m) or "Hi"
             max_tokens = body.get("max_tokens", 50)
             need_logprobs = body.get("logprobs", False)
+            stream = body.get("stream", False)
             
-            tokens = []
-            for tok_id, logit in run_engine(prompt, max_tokens):
-                tokens.append((tok_id, logit))
-            
-            text = " ".join(str(t[0]) for t in tokens)
-            choice = {"index":0,"message":{"role":"assistant","content":text},"finish_reason":"stop"}
-            
-            if need_logprobs and tokens:
-                last_id, last_logit = tokens[-1]
-                lp = logit_to_logprob(last_logit)
-                choice["logprobs"] = {"content":[{"token":str(last_id),"logprob":lp,"bytes":None}]}
-            
-            resp = {
-                "id": f"chatcmpl-{uuid.uuid4().hex[:16]}","object":"chat.completion",
-                "created": int(time.time()),"model":"qwen3:0.6b","choices":[choice],
-                "usage":{"prompt_tokens":len(prompt)//4,"completion_tokens":len(tokens),"total_tokens":len(prompt)//4+len(tokens)}
-            }
-            self.send_json(resp)
+            if stream:
+                self.send_response(200)
+                self.send_header("Content-Type","text/event-stream")
+                self.send_header("Cache-Control","no-cache")
+                self.end_headers()
+                
+                for tok_id, logit in run_engine(prompt, max_tokens):
+                    lp = logit_to_logprob(logit)
+                    chunk = {
+                        "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": "qwen3:0.6b",
+                        "choices": [{
+                            "index": 0,
+                            "delta": {"content": str(tok_id)},
+                            "logprobs": {"content":[{"token":str(tok_id),"logprob":lp,"bytes":None}]},
+                            "finish_reason": None
+                        }]
+                    }
+                    self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
+                self.wfile.write(b"data: [DONE]\n\n")
+            else:
+                tokens = []
+                for tok_id, logit in run_engine(prompt, max_tokens):
+                    tokens.append((tok_id, logit))
+                
+                text = " ".join(str(t[0]) for t in tokens)
+                choice = {"index":0,"message":{"role":"assistant","content":text},"finish_reason":"stop"}
+                
+                if need_logprobs and tokens:
+                    last_id, last_logit = tokens[-1]
+                    lp = logit_to_logprob(last_logit)
+                    choice["logprobs"] = {"content":[{"token":str(last_id),"logprob":lp,"bytes":None}]}
+                
+                resp = {
+                    "id": f"chatcmpl-{uuid.uuid4().hex[:16]}","object":"chat.completion",
+                    "created": int(time.time()),"model":"qwen3:0.6b","choices":[choice],
+                    "usage":{"prompt_tokens":len(prompt)//4,"completion_tokens":len(tokens),"total_tokens":len(prompt)//4+len(tokens)}
+                }
+                self.send_json(resp)
         else:
             self.send_error(404)
     
