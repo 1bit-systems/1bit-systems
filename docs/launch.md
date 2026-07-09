@@ -142,7 +142,7 @@ everything else.
 ## Key Messages to Reinforce
 
 - **"No Python. No pip. No Docker. One binary."** — This is the hook.
-- **"30 KB — not 2 GB."** — Contrast with AMD's MLIR toolchain.
+- **"81 KB — not 2 GB."** — Contrast with AMD's MLIR toolchain.
 - **"Open source beats proprietary on their own silicon."** — The narrative.
 - **"MIT license. Do what you want with it."** — Lowers barrier to adoption.
 - **"One person vs. AMD's team."** — The human angle.

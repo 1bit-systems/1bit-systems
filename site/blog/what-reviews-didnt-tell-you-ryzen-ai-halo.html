@@ -131,7 +131,7 @@
 <p>The NPU is not a 11 tok/s chip. It is a <strong>50 TOPS INT8 dataflow engine</strong> running at 291 tok/s when properly programmed. AMD's own runtime leaves 96% of the performance on the table.</p>
 
 <h2>How 1bit.systems gets 26× more than AMD's runtime</h2>
-<p>This isn't a theoretical architecture paper. The 1bit.systems engine is a <strong>three-engine fused stack</strong> shipping today as a 401 KB binary:</p>
+<p>This isn't a theoretical architecture paper. The 1bit.systems engine is a <strong>three-engine fused stack</strong> shipping today as a 437 KB binary:</p>
 
 <h3>Layer 1: The fused NPU engine (291 tok/s)</h3>
 <p>Instead of dispatching 6 separate xclbin calls per transformer layer (Q_proj, K_proj, V_proj, O_proj, Gate+Up, Down) — each carrying ~50 μs of ioctl overhead — the fused engine packs the entire layer into <strong>one xclbin dispatch</strong>. The NPU receives input activations, streams them through QKV projection, attention, output projection, gate+up, SiLU, and down projection, and returns the final output. No CPU attention. No BO syncs. No Python anywhere in the runtime path.</p>
@@ -165,7 +165,7 @@
 <tr><td>Power consumption</td><td>~60W</td><td>~50W</td><td><strong>15W</strong></td></tr>
 <tr><td>Price</td><td>$4,699</td><td>$3,999</td><td>$3,999 + free</td></tr>
 <tr><td>License</td><td>Proprietary</td><td>Proprietary</td><td><strong>MIT</strong></td></tr>
-<tr><td>Binary size</td><td>—</td><td>—</td><td><strong>30 KB</strong></td></tr>
+<tr><td>Binary size</td><td>—</td><td>—</td><td><strong>81 KB</strong></td></tr>
 </table>
 
 <h2>One binary. Every platform.</h2>
@@ -177,8 +177,8 @@
 <p>Eight package formats: <code>deb</code>, <code>snap</code>, <code>docker</code>, <code>AUR</code>, <code>homebrew</code>, <code>ollama</code>, <code>AppImage</code>, static binary. OpenAI-compatible API at <code>localhost:8081/v1/chat/completions</code>. The engine auto-detects NPU → GPU → CPU and picks the fastest available path.</p>
 
 <h2>The part the reviews left out</h2>
-<p>Every Ryzen AI Halo review published today told the truth: AMD's unified memory is compelling, the software needs work, and NVIDIA's CUDA moat is still real. What they missed is that the software gap has already been filled — not by AMD, not by a startup with VC funding and a cloud dependency, but by a <strong>30 KB, MIT-licensed binary written by one person in 4 days</strong>.</p>
-<blockquote>The Ryzen AI Halo is $4,000 of excellent hardware. 1bit.systems is the 401 KB key that unlocks it. <strong>291 tok/s on the NPU (26× AMD's stock runtime). 20W. MIT. No cloud.</strong> The reviews shipped this morning. The engine was ready last week.</blockquote>
+<p>Every Ryzen AI Halo review published today told the truth: AMD's unified memory is compelling, the software needs work, and NVIDIA's CUDA moat is still real. What they missed is that the software gap has already been filled — not by AMD, not by a startup with VC funding and a cloud dependency, but by a <strong>81 KB, MIT-licensed binary written by one person in 4 days</strong>.</p>
+<blockquote>The Ryzen AI Halo is $4,000 of excellent hardware. 1bit.systems is the 437 KB key that unlocks it. <strong>291 tok/s on the NPU (26× AMD's stock runtime). 20W. MIT. No cloud.</strong> The reviews shipped this morning. The engine was ready last week.</blockquote>
 <p>Try it yourself:</p>
 <pre><span class="g">curl -sL https://1bit.systems/install.sh | bash</span>
 1bit serve &

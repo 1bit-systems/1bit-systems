@@ -102,7 +102,7 @@ Single binary. Auto-detect. No proprietary code.
 | Engine | Decode | TTFT | tok/s | Power | Notes |
 |--------|--------|------|:-----:|:-----:|-------|
 | **DSpark spec-decode** 📊 | — | — | **~572** | **15W** | *projected* (94×5.9); 5.90× acceptance measured, draft training |
-| **Fused layer** ⚙️ | 3.4 ms/tok | — | **291** | ~20W | One xclbin/layer, 38 KB — raw throughput, output not yet coherent |
+| **Fused layer** ⚙️ | 3.4 ms/tok | — | **291** | ~20W | One xclbin/layer, 81 KB — raw throughput, output not yet coherent |
 | **C++ v12** (fallback) | 10 ms/tok | 14 ms/tok prefill | **97** | ~15W | M=32 batch |
 | **C++ ALL** (5 models) | 36 ms/tok | 14 ms/tok prefill | **28** | ~15W | Auto-detect, one binary |
 
@@ -208,7 +208,7 @@ All 31 Vulkan pipelines switched from wave64 to **wave32** (RDNA4 native width).
 |-----------|------|
 | Draft model | 5-layer transformer + Markov head + confidence head |
 | Draft params | 1,393M @ FP16 (5.2 GB flat binary, mmap'd) |
-| Target engine | Fused NPU layer (one xclbin/transformer layer, 38 KB) |
+| Target engine | Fused NPU layer (one xclbin/transformer layer, 81 KB) |
 | Acceptance | Rejection sampling — lossless, identical output |
 | Power | 15W total (NPU + CPU draft) |
 
@@ -257,7 +257,7 @@ All 31 Vulkan pipelines switched from wave64 to **wave32** (RDNA4 native width).
 | Jul 2 | v9 M=16 | 16 ms/tok | 15.2× | M=16 + NPU LM head |
 | Jul 2 | v12 M=32 | 10 ms/tok | 24× | M=32 + OpenMP attention |
 | Jul 2 | ALL 5 models | 36-127 ms/tok | — | 5 models, 0 crashes, auto-detect |
-| **Jul 6** | **Fused layer** | **3.4 ms/tok** | **72×** | One xclbin/layer, 38 KB, 291 tok/s — raw, output not yet coherent |
+| **Jul 6** | **Fused layer** | **3.4 ms/tok** | **72×** | One xclbin/layer, 81 KB, 291 tok/s — raw, output not yet coherent |
 | **Jul 6** | **DSpark spec-decode** | **~572 tok/s** (projected) | — | 5.90× acceptance measured; 572 is a projection, draft training |
 
 **Net: validated production is 94 tok/s NPU (FLM) + 279 tok/s GPU 1.58-bit ternary. Raw fused-layer throughput hit 3.4 ms/tok (291 tok/s) but is not yet coherent; DSpark's 572 tok/s is a projection. Zero Python. Pure C++.**

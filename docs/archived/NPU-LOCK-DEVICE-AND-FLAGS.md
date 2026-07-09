@@ -2,7 +2,7 @@
 
 **Generated:** 2026-07-06 (updated for fused layer engine at 291 tok/s)  
 **Scope:** All NPU, GPU (ZINC), fused engine, and tooling flags, switches, env vars, and locking layers.  
-**Primary engine (at time of writing):** Fused layer engine at 291 tok/s (3.4 ms/tok, 81 KB) — raw throughput, never coherent. C++ v12 (97 tok/s, also raw) was fallback.
+**Primary engine (at time of writing):** Fused layer engine at 291 tok/s (3.4 ms/tok, 30 KB) — raw throughput, never coherent. C++ v12 (97 tok/s, also raw) was fallback.
 
 > **Retired (commit `cd232a091`)**: `engine/npu/`, `engine/gpu/`, and
 > `engine/fusion/` — referenced throughout this doc by file path — no longer
@@ -79,7 +79,7 @@ Each inference engine locks the NPU at init:
 - **Fused layer engine** (`npu_engine_fused.cpp`): `xrt::device dev(0)`, one kernel context, one xclbin dispatch per layer
 - **Zig engine** (`main.zig`): `XrtDevice.open(0)` during `NpuEngine.init()`
 - **C++ engines (v12)**: `xrt::device dev(0)` at startup, 4 kernel contexts
-- **Fused layer**: 81 KB binary, single xclbin call per layer (QKV→attention→O→GU→SiLU→D on NPU), no CPU attention
+- **Fused layer**: 30 KB binary, single xclbin call per layer (QKV→attention→O→GU→SiLU→D on NPU), no CPU attention
 - **Legacy (v12)**: 4 kernel contexts per engine (QKV, O, GU/G, D), 112 xclbin dispatches per batch
 
 ### Layer 4: Cross-Process GPU Lock

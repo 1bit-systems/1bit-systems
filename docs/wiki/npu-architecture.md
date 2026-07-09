@@ -40,7 +40,7 @@ Status: ✅ Working (0% error verified per-kernel with 16MB BOs)
 ```
 Kernel: MLIR_AIE (same arg layout)
 Args:   run(3), instr_bo, count, KCache, VCache, Weights, Output, Hidden
-Size:   416KB per xclbin (split) · 436 KB npu_spec_decode unified binary · 9.7 MB token router (Rust)
+Size:   416KB per xclbin (split) · 437 KB npu_spec_decode unified binary · 9.7 MB token router (Rust)
 Format: BF16 hidden state, BF16 pre-packed weights (65MB/layer)
 Instructions: 1723 words, token-transition format (token127→tokenN)
 Build:  torch2aie/examples/qwen3-decode-layer (design.py + run_full_layer.py)
