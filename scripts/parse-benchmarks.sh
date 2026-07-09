@@ -36,17 +36,17 @@ cat > "$SITE/benchmarks.json" << EOF
   "reported": "reported, not independently re-measured"
  },
  "engines": {
+  "npu_fused":{ "tok_s": $FUSED,    "status": "validated", "label": "NPU fused (coherent — BF16 overflow fix)" },
   "npu_flm":  { "tok_s": $NPU_FLM,  "status": "validated", "label": "FLM proxy (production)" },
-  "ternary":  { "tok_s": $TERN,     "status": "validated", "label": "Ternary Vulkan (validated 1-bit)" },
-  "gpu_1bit": { "tok_s": $GPU_1BIT, "status": "measured",  "label": "GPU llama.cpp 1-bit (measured)" },
-  "gpu_zinc": { "tok_s": $GPU_ZINC, "status": "validated", "label": "GPU Vulkan ZINC F16 (validated)" },
-  "dspark":   { "tok_s": $DSPARK,   "status": "projected", "label": "DSpark spec-decode (projected)" },
-  "npu_fused":{ "tok_s": $FUSED,    "status": "raw",       "label": "NPU fused (raw — not yet coherent)" },
   "npu_v12":  { "tok_s": $NPU_V12,  "status": "raw",       "label": "C++ v12 (raw — not yet coherent)" },
   "rocm_hip": { "tok_s": $ROCM,     "status": "reported",  "label": "GPU ROCm HIP (reported)" },
-  "all_5":    { "tok_s": $ALL5,     "status": "raw",       "label": "C++ all-5 (raw — not yet coherent)" }
+  "all_5":    { "tok_s": $ALL5,     "status": "raw",       "label": "C++ all-5 (raw — not yet coherent)" },
+  "dspark":   { "tok_s": $DSPARK,   "status": "projected", "label": "DSpark spec-decode (projected)" },
+  "ternary":  { "tok_s": $TERN,     "status": "validated", "label": "Ternary Vulkan (validated 1-bit)" },
+  "gpu_1bit": { "tok_s": $GPU_1BIT, "status": "measured",  "label": "GPU llama.cpp 1-bit (measured)" },
+  "gpu_zinc": { "tok_s": $GPU_ZINC, "status": "validated", "label": "GPU Vulkan ZINC F16 (validated)" }
  },
- "order": ["npu_flm","ternary","gpu_1bit","gpu_zinc","dspark","npu_fused","npu_v12","rocm_hip","all_5"],
+ "order": ["npu_fused","npu_flm","npu_v12","rocm_hip","all_5","dspark","ternary","gpu_1bit","gpu_zinc"],
  "system": { "tflops_int8": $TFLOPS }
 }
 EOF
@@ -56,13 +56,13 @@ write_badge() { cat > "$SITE/$1" << EOF
 EOF
 }
 # green = validated only; yellow = projected/raw
-write_badge "validated-badge.json" "validated" "${NPU_FLM} tok/s NPU · ${TERN} tok/s 1-bit GPU" "brightgreen"
+write_badge "validated-badge.json" "validated" "${FUSED} tok/s NPU fused · ${NPU_FLM} tok/s NPU · ${TERN} tok/s 1-bit GPU" "brightgreen"
 write_badge "flm-badge.json"   "NPU (FLM, production)"   "${NPU_FLM} tok/s"          "brightgreen"
 write_badge "tern-badge.json"  "GPU 1-bit ternary"       "${TERN} tok/s"             "brightgreen"
 write_badge "gpu-badge.json"   "GPU ZINC (F16)"          "${GPU_ZINC} tok/s"         "blue"
 write_badge "rocm-badge.json"  "GPU ROCm (reported)"     "${ROCM} tok/s"             "yellowgreen"
 write_badge "dspark-badge.json" "DSpark spec-decode"     "~${DSPARK} tok/s (projected)" "yellow"
-write_badge "fused-badge.json" "NPU fused layer"         "${FUSED} tok/s (raw, WIP)"  "yellow"
+write_badge "fused-badge.json" "NPU fused layer"         "${FUSED} tok/s (coherent)"  "brightgreen"
 write_badge "bench-badge.json" "NPU C++ v12"             "${NPU_V12} tok/s (raw, WIP)" "yellow"
 write_badge "tok-badge.json"   "decode (validated)"     "${NPU_FLM} tok/s"          "brightgreen"
 write_badge "tflops-badge.json" "INT8 GEMM"              "${TFLOPS} TFLOPS"          "brightgreen"

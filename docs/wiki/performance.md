@@ -16,14 +16,15 @@
 
 | Engine | Hardware | Speed | Status | Power | Model |
 |--------|----------|:-----:|--------|:-----:|-------|
+| **NPU fused** 🏆 | XDNA 2 · 32 tiles | **291 tok/s** | ✅ coherent — BF16 overflow fix | ~20W | Qwen3-0.6B |
 | **NPU FLM** (production) | XDNA 2 · 32 tiles | **94 tok/s** | ✅ measured, coherent | ~15W | Qwen3-0.6B |
+| **NPU v12** | XDNA 2 · 32 tiles | **97 tok/s** | ⚙️ raw throughput — output not yet coherent | ~15W | Qwen3-0.6B |
+| **ROCm** (HIP) | Radeon 8060S | **113 tok/s** | reported | ~45W | Bonsai TQ2 |
+| **C++ all-5** (auto-detect) | XDNA 2 · 32 tiles | **28 tok/s** | ⚙️ raw throughput | ~15W | 5 models (auto) |
+| **DSpark spec-decode** | XDNA 2 + Zen 5 | **~572 tok/s** | 📊 projected (94×5.9; draft training) | 15W | Qwen3-0.6B |
 | **GPU ternary** (Vulkan) | Radeon 8060S | **279 tok/s** | ✅ measured, coherent | ~45W | Bonsai-1.7B Q2_0 (1.58-bit) |
 | **GPU 1-bit** (llama.cpp) | Radeon 8060S | **381 tok/s** | measured (llama.cpp) | ~45W | Qwen2-0.5B IQ1_S |
 | **GPU ZINC** (Vulkan) | Radeon 8060S | **22 tok/s** | ✅ measured, coherent | ~45W | Bonsai-1.7B F16 |
-| **DSpark spec-decode** | XDNA 2 + Zen 5 | **~572 tok/s** | 📊 projected (94×5.9; draft training) | 15W | Qwen3-0.6B |
-| **NPU fused** | XDNA 2 · 32 tiles | **291 tok/s** | ⚙️ raw throughput — output not yet coherent | ~20W | Qwen3-0.6B |
-| **NPU v12** | XDNA 2 · 32 tiles | **97 tok/s** | ⚙️ raw throughput — output not yet coherent | ~15W | Qwen3-0.6B |
-| **ROCm** (HIP) | Radeon 8060S | **113 tok/s** | reported | ~45W | Bonsai TQ2 |
 | **Zaya** (AMD-native) | Radeon 8060S | **~18 tok/s** | reported | ~50W | Zaya 1.8B |
 
 **Status legend:** ✅ measured on-device with coherent output · *measured* = throughput measured via a third-party tool · 📊 *projected* = base engine × speculative-decode acceptance, not an end-to-end measurement · ⚙️ *raw throughput* = the kernel runs at this speed but the engine's output is not yet coherent (correctness WIP). Only ✅ numbers should be quoted as production.
@@ -102,7 +103,7 @@ Single binary. Auto-detect. No proprietary code.
 | Engine | Decode | TTFT | tok/s | Power | Notes |
 |--------|--------|------|:-----:|:-----:|-------|
 | **DSpark spec-decode** 📊 | — | — | **~572** | **15W** | *projected* (94×5.9); 5.90× acceptance measured, draft training |
-| **Fused layer** ⚙️ | 3.4 ms/tok | — | **291** | ~20W | One xclbin/layer, 81 KB — raw throughput, output not yet coherent |
+| **Fused layer** 🏆 | 3.4 ms/tok | — | **291** | ~20W | One xclbin/layer, 86 KB — ✅ coherent, weight-scaled BF16 overflow fix |
 | **C++ v12** (fallback) | 10 ms/tok | 14 ms/tok prefill | **97** | ~15W | M=32 batch |
 | **C++ ALL** (5 models) | 36 ms/tok | 14 ms/tok prefill | **28** | ~15W | Auto-detect, one binary |
 
@@ -257,10 +258,10 @@ All 31 Vulkan pipelines switched from wave64 to **wave32** (RDNA4 native width).
 | Jul 2 | v9 M=16 | 16 ms/tok | 15.2× | M=16 + NPU LM head |
 | Jul 2 | v12 M=32 | 10 ms/tok | 24× | M=32 + OpenMP attention |
 | Jul 2 | ALL 5 models | 36-127 ms/tok | — | 5 models, 0 crashes, auto-detect |
-| **Jul 6** | **Fused layer** | **3.4 ms/tok** | **72×** | One xclbin/layer, 81 KB, 291 tok/s — raw, output not yet coherent |
+| **Jul 6** | **Fused layer** 🏆 | **3.4 ms/tok** | **72×** | One xclbin/layer, 86 KB, 291 tok/s — ✅ coherent after BF16 overflow fix (Jul 9) |
 | **Jul 6** | **DSpark spec-decode** | **~572 tok/s** (projected) | — | 5.90× acceptance measured; 572 is a projection, draft training |
 
-**Net: validated production is 94 tok/s NPU (FLM) + 279 tok/s GPU 1.58-bit ternary. Raw fused-layer throughput hit 3.4 ms/tok (291 tok/s) but is not yet coherent; DSpark's 572 tok/s is a projection. Zero Python. Pure C++.**
+**Net: validated production is 94 tok/s NPU (FLM) + 279 tok/s GPU 1.58-bit ternary + 291 tok/s NPU fused (coherent). DSpark's 572 tok/s is a projection. Zero Python. Pure C++.**
 
 ---
 

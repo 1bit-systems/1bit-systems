@@ -53,14 +53,16 @@ video-lora generate --model stable-audio --prompt "rain on window"
 
 | Engine | Hardware | Speed | Model |
 |--------|----------|-------|-------|
-| **NPU fused** 🏆 (coherent) | XDNA 2 · 32 tiles | **291 tok/s** | Qwen3-0.6B — ✅ coherent, weight-scaled BF16 overflow fix |
-| **Ternary** (Vulkan) | Radeon 8060S | **279 tok/s** | Q2_0 — ✅ measured, coherent |
-| **ROCm** (HIP) | Radeon 8060S | **113 tok/s** | Bonsai TQ2 — reported |
+| **NPU fused** 🏆 | XDNA 2 · 32 tiles | **291 tok/s** | Qwen3-0.6B — ✅ coherent, weight-scaled BF16 overflow fix |
+| **NPU FLM** (production) | XDNA 2 · 32 tiles | **94 tok/s** | Qwen3-0.6B — ✅ measured, coherent |
 | **NPU v12** ⚙️ raw | XDNA 2 · 32 tiles | **97 tok/s** | Qwen3-0.6B — raw throughput, output not yet coherent |
-| **NPU FLM** (historical) | XDNA 2 · 32 tiles | **94 tok/s** | Qwen3-0.6B — ✅ measured, coherent |
-| **GPU ZINC** (Vulkan ⭐) | Radeon 8060S | **22 tok/s** | Bonsai-1.7B — ✅ measured, coherent |
-| **Zaya** (AMD-native) | Radeon 8060S | **~18 tok/s** | Zaya 1.8B — reported |
+| **ROCm** (HIP) | Radeon 8060S | **113 tok/s** | Bonsai TQ2 — reported |
+| **C++ all-5** ⚙️ raw | XDNA 2 · 32 tiles | **28 tok/s** | Auto-detect 5 models — raw throughput |
 | **DSpark spec-decode** ⚠️ experimental | XDNA 2 + Zen 5 | **0.1–0.2 tok/s** (0% accept) | Qwen3-0.6B + 5-layer draft — WIP, not working |
+| **Ternary** (Vulkan) | Radeon 8060S | **279 tok/s** | Bonsai-1.7B Q2_0 — ✅ measured, coherent |
+| **GPU 1-bit** (llama.cpp) | Radeon 8060S | **381 tok/s** | Qwen2-0.5B IQ1_S — measured |
+| **GPU ZINC** (Vulkan) | Radeon 8060S | **22 tok/s** | Bonsai-1.7B F16 — ✅ measured, coherent |
+| **Zaya** (AMD-native) | Radeon 8060S | **~18 tok/s** | Zaya 1.8B — reported |
 
 Only ✅ numbers are production. See [docs/wiki/performance.md](docs/wiki/performance.md) for full status legend.
 
