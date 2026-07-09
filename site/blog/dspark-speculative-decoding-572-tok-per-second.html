@@ -152,7 +152,7 @@ With DSpark speculative decoding:
 <tr><td>Acceptance rate</td><td>—</td><td>projected ~80% → <strong>measured 0%</strong></td><td><strong>disproven</strong></td></tr>
 <tr><td>Speculative tokens</td><td>1</td><td>5-8</td><td><strong>5-8×</strong></td></tr>
 <tr><td>Output quality</td><td>Baseline</td><td>Lossless (rejection sampling)</td><td>Identical</td></tr>
-<tr><td>Binary size</td><td>30 KB (target only)</td><td>246 KB (spec-decode, 180 KB stripped)</td><td>Still tiny</td></tr>
+<tr><td>Binary size</td><td>81 KB (target only)</td><td>246 KB (spec-decode, 180 KB stripped)</td><td>Still tiny</td></tr>
 </table>
 <h2>The theory behind the 572 projection (why it didn't hold)</h2>
 <p>The fused layer engine's 291 tok/s is <strong>single-token decode latency</strong>. The 572 tok/s projection assumed DSpark would turn that into <strong>effective throughput</strong> — many tokens per verify — via a high acceptance rate. The theory:</p>

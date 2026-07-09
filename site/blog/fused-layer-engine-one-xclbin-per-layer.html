@@ -66,7 +66,7 @@
 <article class="wrap">
 <div class="meta"><span class="tag npu">NPU</span> <span class="tag g">Architecture</span><br><br><strong style="color:var(--text);">bong-water-water-bong</strong> · July 6, 2026 · 5 min read</div>
 <h1>The fused layer engine — one xclbin call per transformer layer</h1>
-<p><strong>tl;dr:</strong> The fused layer engine combines QKV projection, attention, output projection, gate+up, SiLU, and down projection into <strong>one xclbin call</strong>. No CPU attention, no intermediate buffer syncs. Result: <strong>291 tok/s</strong> (3.4 ms/tok) in a 30 KB binary.</p>
+<p><strong>tl;dr:</strong> The fused layer engine combines QKV projection, attention, output projection, gate+up, SiLU, and down projection into <strong>one xclbin call</strong>. No CPU attention, no intermediate buffer syncs. Result: <strong>291 tok/s</strong> (3.4 ms/tok) in a 81 KB binary.</p>
 <hr>
 <h2>The bottleneck that killed v12</h2>
 <p>The v12 engine ran at 97 tok/s (10 ms/tok). Fast — but every transformer layer required <strong>6 separate xclbin dispatches</strong>: Q_proj, K_proj, V_proj, O_proj, Gate+Up, Down. Each dispatch carried ~50 μs of ioctl overhead. Across 28 layers and 32 batch tokens: <strong>2,688 ioctl calls per decode step</strong>.</p>
@@ -92,7 +92,7 @@
 <tr><td>xclbin calls per layer</td><td>6</td><td>1</td><td><strong>6×</strong></td></tr>
 <tr><td>Ioctl overhead per step</td><td>~135 μs</td><td>~22 μs</td><td><strong>6×</strong></td></tr>
 <tr><td>Decode latency</td><td>10.3 ms/tok</td><td>3.4 ms/tok</td><td><strong>3×</strong></td></tr>
-<tr><td>Binary size</td><td>74 KB</td><td>30 KB</td><td><strong>1.9× smaller</strong></td></tr>
+<tr><td>Binary size</td><td>74 KB</td><td>81 KB</td><td><strong>1.9× smaller</strong></td></tr>
 <tr><td>Throughput</td><td>97 tok/s</td><td>291 tok/s</td><td><strong>3×</strong></td></tr>
 </table>
 <h2>How the fused dispatch works</h2>
@@ -127,9 +127,9 @@
   <span class="g">1 fused xclbin dispatch → 32 tokens processed</span>
   NPU time: ~106 ms for 32 tokens
   Effective: <span class="b">3.4 ms/tok</span></pre>
-<h2>436 KB binary</h2>
+<h2>437 KB binary</h2>
 <p>The final binary is smaller than the previous 74 KB daemon despite doing more per call. Static linking + stripped symbols + zero Python runtime paths. The entire inference engine fits in a <strong>single Slack message</strong>.</p>
-<blockquote><strong>3.4 ms/tok. 30 KB. One xclbin call per layer.</strong> The NPU does the entire transformer in one pass — no CPU attention, no intermediate syncs, no Python anywhere.</blockquote>
+<blockquote><strong>3.4 ms/tok. 81 KB. One xclbin call per layer.</strong> The NPU does the entire transformer in one pass — no CPU attention, no intermediate syncs, no Python anywhere.</blockquote>
 <hr>
 <p style="font-size:14px;color:var(--dim);"><em>Post 2 of the series. <a href="/blog/reverse-engineered-amd-npu-4-days">Previous: The 4-day reverse engineering story →</a></em></p>
 <h3>Links</h3>
