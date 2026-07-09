@@ -154,8 +154,8 @@ pub fn main(init: std.process.Init) !void {
         else => .ffn_on_npu,
     };
     var executor = try FusedExecutor.init(
-        allocator, init.io, fuse_policy, QWEN3_0_6B,
-        opts.model_path, opts.npu_engine,
+        allocator, fuse_policy, QWEN3_0_6B,
+        opts.npu_engine, opts.model_path,
         MAX_CONTEXT, opts.batch_size,
         model.emb_f32, model.lm_head_f32, model.tied_embeddings,
         model.final_norm, model.in_norm, model.pa_norm,
