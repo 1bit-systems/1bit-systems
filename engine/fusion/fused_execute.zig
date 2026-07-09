@@ -861,39 +861,118 @@ pub fn executeLayer(
         const k_cache = self.kv.k_cache[layer][0..@min(@as(usize, seq_len) * n_kv_heads * head_dim, self.kv.k_cache[layer].len)];
         const v_cache = self.kv.v_cache[layer][0..@min(@as(usize, seq_len) * n_kv_heads * head_dim, self.kv.v_cache[layer].len)];
         const scale = 1.0 / @sqrt(@as(f32, @floatFromInt(head_dim)));
+        const max_seq = @min(seq_len, @as(u32, 4096));
 
-        for (0..n_heads) |h| {
-            const kvh = h / gqa_ratio;
-            const qh = q[h * head_dim ..][0..head_dim];
+        // Thread-parallel head processing (one chunk of heads per thread)
+        const num_threads = @min(n_heads, @as(u32, 16));
+        const HeadChunk = struct {
+            q: []const f32,
+            output: []f32,
+            k_cache: []const f32,
+            v_cache: []const f32,
+            n_kv_heads: u32,
+            head_dim: u32,
+            gqa_ratio: u32,
+            scale: f32,
+            max_seq: u32,
+            start_h: u32,
+            end_h: u32,
 
-            // Scores
-            var max_score: f32 = -std.math.inf(f32);
-            var scores: [4096]f32 = undefined;
-            const max_seq = @min(seq_len, @as(u32, 4096));
-            for (0..max_seq) |pos| {
-                const k_off = pos * n_kv_heads * head_dim + kvh * head_dim;
-                var dot: f32 = 0;
-                for (0..head_dim) |d| dot += qh[d] * k_cache[k_off + d];
-                const score = dot * scale;
-                scores[pos] = score;
-                if (score > max_score) max_score = score;
+            fn process(ctx: *@This()) void {
+                for (ctx.start_h..ctx.end_h) |h| {
+                    const kvh = h / ctx.gqa_ratio;
+                    const qh = ctx.q[h * ctx.head_dim ..][0..ctx.head_dim];
+
+                    var max_score: f32 = -std.math.inf(f32);
+                    var scores: [4096]f32 = undefined;
+                    for (0..ctx.max_seq) |pos| {
+                        const k_off = pos * ctx.n_kv_heads * ctx.head_dim + kvh * ctx.head_dim;
+                        var dot: f32 = 0;
+                        for (0..ctx.head_dim) |d| dot += qh[d] * ctx.k_cache[k_off + d];
+                        const score = dot * ctx.scale;
+                        scores[pos] = score;
+                        if (score > max_score) max_score = score;
+                    }
+
+                    var sum_exp: f32 = 0;
+                    for (0..ctx.max_seq) |pos| {
+                        scores[pos] = std.math.exp(scores[pos] - max_score);
+                        sum_exp += scores[pos];
+                    }
+                    const inv_sum = if (sum_exp > 0) 1.0 / sum_exp else 0;
+
+                    const out_h = ctx.output[h * ctx.head_dim ..][0..ctx.head_dim];
+                    @memset(out_h, 0);
+                    for (0..ctx.max_seq) |pos| {
+                        const w = scores[pos] * inv_sum;
+                        const v_off = pos * ctx.n_kv_heads * ctx.head_dim + kvh * ctx.head_dim;
+                        for (0..ctx.head_dim) |d| out_h[d] += w * ctx.v_cache[v_off + d];
+                    }
+                }
             }
+        };
 
-            var sum_exp: f32 = 0;
-            for (0..max_seq) |pos| {
-                scores[pos] = std.math.exp(scores[pos] - max_score);
-                sum_exp += scores[pos];
-            }
-            const inv_sum = if (sum_exp > 0) 1.0 / sum_exp else 0;
+        var chunks: [16]HeadChunk = undefined;
+        var threads: [16]std.Thread = undefined;
+        var thread_count: u32 = 0;
 
-            const out_h = output[h * head_dim ..][0..head_dim];
-            @memset(out_h, 0);
-            for (0..max_seq) |pos| {
-                const w = scores[pos] * inv_sum;
-                const v_off = pos * n_kv_heads * head_dim + kvh * head_dim;
-                for (0..head_dim) |d| out_h[d] += w * v_cache[v_off + d];
-            }
+        for (0..num_threads) |t| {
+            const start_h: u32 = @intCast((t * n_heads) / num_threads);
+            const end_h: u32 = @intCast(((t + 1) * n_heads) / num_threads);
+            if (start_h >= end_h) break;
+
+            chunks[t] = HeadChunk{
+                .q = q,
+                .output = output,
+                .k_cache = k_cache,
+                .v_cache = v_cache,
+                .n_kv_heads = n_kv_heads,
+                .head_dim = head_dim,
+                .gqa_ratio = gqa_ratio,
+                .scale = scale,
+                .max_seq = max_seq,
+                .start_h = start_h,
+                .end_h = end_h,
+            };
+            threads[thread_count] = std.Thread.spawn(.{}, HeadChunk.process, .{&chunks[t]}) catch {
+                // Spawn failed — process this chunk and remaining heads sequentially
+                for (start_h..n_heads) |h| {
+                    const kvh = h / gqa_ratio;
+                    const qh = q[h * head_dim ..][0..head_dim];
+
+                    var max_score: f32 = -std.math.inf(f32);
+                    var scores: [4096]f32 = undefined;
+                    for (0..max_seq) |pos| {
+                        const k_off = pos * n_kv_heads * head_dim + kvh * head_dim;
+                        var dot: f32 = 0;
+                        for (0..head_dim) |d| dot += qh[d] * k_cache[k_off + d];
+                        const score = dot * scale;
+                        scores[pos] = score;
+                        if (score > max_score) max_score = score;
+                    }
+
+                    var sum_exp: f32 = 0;
+                    for (0..max_seq) |pos| {
+                        scores[pos] = std.math.exp(scores[pos] - max_score);
+                        sum_exp += scores[pos];
+                    }
+                    const inv_sum = if (sum_exp > 0) 1.0 / sum_exp else 0;
+
+                    const out_h = output[h * head_dim ..][0..head_dim];
+                    @memset(out_h, 0);
+                    for (0..max_seq) |pos| {
+                        const w = scores[pos] * inv_sum;
+                        const v_off = pos * n_kv_heads * head_dim + kvh * head_dim;
+                        for (0..head_dim) |d| out_h[d] += w * v_cache[v_off + d];
+                    }
+                }
+                break;
+            };
+            thread_count += 1;
         }
+
+        // Join all spawned threads
+        for (0..thread_count) |i| threads[i].join();
     }
 
     /// Execute full forward pass with pipeline overlap.
