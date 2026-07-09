@@ -111,6 +111,123 @@ const Buffer = struct {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// StagingPool — persistent pre-allocated staging buffers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Pool of reusable host-visible staging buffers for attention inputs/outputs.
+/// Pre-allocates on first use, grows on demand, and avoids per-call
+/// vkCreateBuffer / vkAllocateMemory overhead on the hot path.
+///
+/// Indices map to descriptor bindings:
+///   0 = Q, 1 = K, 2 = V, 3 = page_table, 4 = output, 5 = sinks
+const StagingPool = struct {
+    const POOL_SIZE = 6;
+
+    const PoolEntry = struct {
+        buffer: Buffer = undefined,
+        capacity: vk.VkDeviceSize = 0,
+        initialized: bool = false,
+    };
+
+    entries: [POOL_SIZE]PoolEntry = undefined,
+    device: vk.VkDevice = null,
+    memory_type: u32 = 0,
+
+    /// Initialise the pool with a Vulkan device and the desired memory type.
+    /// No buffers are allocated until the first `acquire()` call.
+    fn init(self: *StagingPool, device: vk.VkDevice, memory_type: u32) void {
+        self.device = device;
+        self.memory_type = memory_type;
+        // Ensure all entries start as uninitialised (initialized = false).
+        for (&self.entries) |*e| {
+            e.* = .{};
+        }
+    }
+
+    /// Return a pointer to the pool buffer at `index`, ensuring it can hold
+    /// at least `required_size` bytes.  Grows (reallocates) if the current
+    /// capacity is insufficient.  Sets `buf.size = required_size` so that
+    /// descriptor-bind ranges reflect the active data size.
+    fn acquire(self: *StagingPool, index: usize, required_size: vk.VkDeviceSize) !*Buffer {
+        const entry = &self.entries[index];
+        if (entry.initialized and entry.capacity >= required_size) {
+            entry.buffer.size = required_size;
+            return &entry.buffer;
+        }
+        // Grow: destroy old allocation if present, then create a larger one.
+        if (entry.initialized) {
+            entry.buffer.deinit();
+        }
+        entry.buffer = try createPoolBuffer(self.device, required_size, self.memory_type);
+        entry.capacity = required_size;
+        entry.buffer.size = required_size;
+        entry.initialized = true;
+        return &entry.buffer;
+    }
+
+    /// Release all pool buffers.  Called from `GpuAttention.deinit()`.
+    fn deinit(self: *StagingPool) void {
+        for (&self.entries) |*e| {
+            if (e.initialized) {
+                e.buffer.deinit();
+            }
+        }
+        self.* = undefined;
+    }
+};
+
+/// Internal: create a host-visible staging buffer (used by StagingPool and
+/// as fallback when on-demand allocation is needed).
+fn createPoolBuffer(
+    device: vk.VkDevice,
+    size: vk.VkDeviceSize,
+    memory_type: u32,
+) !Buffer {
+    const buf_ci = vk.VkBufferCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .pNext = null,
+        .flags = 0,
+        .size = size,
+        .usage = vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT | vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        .sharingMode = vk.VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 0,
+        .pQueueFamilyIndices = null,
+    };
+    var buf_handle: vk.VkBuffer = null;
+    if (vk.vkCreateBuffer(device, &buf_ci, null, &buf_handle) != vk.VK_SUCCESS) {
+        return error.BufferCreateFailed;
+    }
+    errdefer vk.vkDestroyBuffer(device, buf_handle, null);
+
+    var req: vk.VkMemoryRequirements = undefined;
+    vk.vkGetBufferMemoryRequirements(device, buf_handle, &req);
+
+    const alloc_info = vk.VkMemoryAllocateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .pNext = null,
+        .allocationSize = req.size,
+        .memoryTypeIndex = memory_type,
+    };
+    var mem: vk.VkDeviceMemory = null;
+    if (vk.vkAllocateMemory(device, &alloc_info, null, &mem) != vk.VK_SUCCESS) {
+        return error.BufferMemoryAllocFailed;
+    }
+    errdefer vk.vkFreeMemory(device, mem, null);
+
+    if (vk.vkBindBufferMemory(device, buf_handle, mem, 0) != vk.VK_SUCCESS) {
+        return error.BufferBindFailed;
+    }
+
+    return Buffer{
+        .handle = buf_handle,
+        .memory = mem,
+        .size = size,
+        .device = device,
+        .mapped_ptr = null,
+    };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GpuAttention — public module
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -149,6 +266,9 @@ pub const GpuAttention = struct {
     host_coherent_type: u32,
     /// Index of a memory type that is DEVICE_LOCAL.
     device_local_type: u32,
+
+    // ── Persistent staging pool ──
+    staging_pool: StagingPool = .{},
 
     // ── Initialisation ──
 
@@ -311,6 +431,10 @@ pub const GpuAttention = struct {
         const device_local_type = findMemoryType(&mem_props,
             vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) orelse host_coherent_type;
 
+        // ── 6b. Initialise persistent staging pool (lazy allocation) ──
+        var staging_pool = StagingPool{};
+        staging_pool.init(device, host_coherent_type);
+
         // ── 7. Load shaders and create pipelines ──
         var path_buf: [512]u8 = undefined;
 
@@ -410,6 +534,7 @@ pub const GpuAttention = struct {
             .allocator = allocator,
             .host_coherent_type = host_coherent_type,
             .device_local_type = device_local_type,
+            .staging_pool = staging_pool,
         };
     }
 
@@ -452,30 +577,22 @@ pub const GpuAttention = struct {
     ) !void {
         const output_bytes = output.len * @sizeOf(f32);
 
-        // ── 1. Create host-visible staging buffers for inputs ──
-        var q_buf = try self.createStagingBuffer(@intCast(q.len * @sizeOf(f32)));
-        defer q_buf.deinit();
-        var k_buf = try self.createStagingBuffer(@intCast(k_cache.len * @sizeOf(f32)));
-        defer k_buf.deinit();
-        var v_buf = try self.createStagingBuffer(@intCast(v_cache.len * @sizeOf(f32)));
-        defer v_buf.deinit();
-        var pt_buf = try self.createStagingBuffer(@intCast(page_table.len * @sizeOf(u32)));
-        defer pt_buf.deinit();
-        var sinks_buf = try self.createStagingBuffer(@intCast(sinks.len * @sizeOf(f32)));
-        defer sinks_buf.deinit();
-
-        // Output buffer: host-visible so we can read back directly
-        var out_buf = try self.createStagingBuffer(output_bytes);
-        defer out_buf.deinit();
+        // ── 1. Acquire persistent staging buffers from pool ──
+        const q_buf = try self.staging_pool.acquire(0, @intCast(q.len * @sizeOf(f32)));
+        const k_buf = try self.staging_pool.acquire(1, @intCast(k_cache.len * @sizeOf(f32)));
+        const v_buf = try self.staging_pool.acquire(2, @intCast(v_cache.len * @sizeOf(f32)));
+        const pt_buf = try self.staging_pool.acquire(3, @intCast(page_table.len * @sizeOf(u32)));
+        const out_buf = try self.staging_pool.acquire(4, output_bytes);
+        const sinks_buf = try self.staging_pool.acquire(5, @intCast(sinks.len * @sizeOf(f32)));
 
         // ── 2. Upload data ──
-        uploadToBuffer(&q_buf, std.mem.sliceAsBytes(q));
-        uploadToBuffer(&k_buf, std.mem.sliceAsBytes(k_cache));
-        uploadToBuffer(&v_buf, std.mem.sliceAsBytes(v_cache));
-        uploadToBuffer(&pt_buf, std.mem.sliceAsBytes(page_table));
-        uploadToBuffer(&sinks_buf, std.mem.sliceAsBytes(sinks));
+        uploadToBuffer(q_buf, std.mem.sliceAsBytes(q));
+        uploadToBuffer(k_buf, std.mem.sliceAsBytes(k_cache));
+        uploadToBuffer(v_buf, std.mem.sliceAsBytes(v_cache));
+        uploadToBuffer(pt_buf, std.mem.sliceAsBytes(page_table));
+        uploadToBuffer(sinks_buf, std.mem.sliceAsBytes(sinks));
         // Output starts zeroed — the shader writes into it.
-        uploadToBuffer(&out_buf, std.mem.sliceAsBytes(output));
+        uploadToBuffer(out_buf, std.mem.sliceAsBytes(output));
 
         // ── 3. Build descriptor set writes ──
         const buffer_infos = [_]vk.VkDescriptorBufferInfo{
@@ -520,7 +637,7 @@ pub const GpuAttention = struct {
         try self.recordAndSubmit(push_bytes, n_heads, 1, 1);
 
         // ── 6. Read back output ──
-        readbackFromBuffer(&out_buf, std.mem.sliceAsBytes(output));
+        readbackFromBuffer(out_buf, std.mem.sliceAsBytes(output));
     }
 
     // ── Public API: batched flash attention ──
@@ -551,27 +668,21 @@ pub const GpuAttention = struct {
     ) !void {
         const output_bytes = output.len * @sizeOf(f32);
 
-        // ── 1. Create staging buffers ──
-        var q_buf = try self.createStagingBuffer(@intCast(q.len * @sizeOf(f32)));
-        defer q_buf.deinit();
-        var k_buf = try self.createStagingBuffer(@intCast(k_cache.len * @sizeOf(f32)));
-        defer k_buf.deinit();
-        var v_buf = try self.createStagingBuffer(@intCast(v_cache.len * @sizeOf(f32)));
-        defer v_buf.deinit();
-        var pt_buf = try self.createStagingBuffer(@intCast(page_table.len * @sizeOf(u32)));
-        defer pt_buf.deinit();
-        var sinks_buf = try self.createStagingBuffer(@intCast(sinks.len * @sizeOf(f32)));
-        defer sinks_buf.deinit();
-        var out_buf = try self.createStagingBuffer(output_bytes);
-        defer out_buf.deinit();
+        // ── 1. Acquire persistent staging buffers from pool ──
+        const q_buf = try self.staging_pool.acquire(0, @intCast(q.len * @sizeOf(f32)));
+        const k_buf = try self.staging_pool.acquire(1, @intCast(k_cache.len * @sizeOf(f32)));
+        const v_buf = try self.staging_pool.acquire(2, @intCast(v_cache.len * @sizeOf(f32)));
+        const pt_buf = try self.staging_pool.acquire(3, @intCast(page_table.len * @sizeOf(u32)));
+        const out_buf = try self.staging_pool.acquire(4, output_bytes);
+        const sinks_buf = try self.staging_pool.acquire(5, @intCast(sinks.len * @sizeOf(f32)));
 
         // ── 2. Upload ──
-        uploadToBuffer(&q_buf, std.mem.sliceAsBytes(q));
-        uploadToBuffer(&k_buf, std.mem.sliceAsBytes(k_cache));
-        uploadToBuffer(&v_buf, std.mem.sliceAsBytes(v_cache));
-        uploadToBuffer(&pt_buf, std.mem.sliceAsBytes(page_table));
-        uploadToBuffer(&sinks_buf, std.mem.sliceAsBytes(sinks));
-        uploadToBuffer(&out_buf, std.mem.sliceAsBytes(output));
+        uploadToBuffer(q_buf, std.mem.sliceAsBytes(q));
+        uploadToBuffer(k_buf, std.mem.sliceAsBytes(k_cache));
+        uploadToBuffer(v_buf, std.mem.sliceAsBytes(v_cache));
+        uploadToBuffer(pt_buf, std.mem.sliceAsBytes(page_table));
+        uploadToBuffer(sinks_buf, std.mem.sliceAsBytes(sinks));
+        uploadToBuffer(out_buf, std.mem.sliceAsBytes(output));
 
         // ── 3. Update descriptor set (re-use same slot layout) ──
         const buffer_infos = [_]vk.VkDescriptorBufferInfo{
@@ -616,7 +727,7 @@ pub const GpuAttention = struct {
         try self.recordAndSubmitBatched(push_bytes, n_heads, n_queries, 1);
 
         // ── 6. Readback ──
-        readbackFromBuffer(&out_buf, std.mem.sliceAsBytes(output));
+        readbackFromBuffer(out_buf, std.mem.sliceAsBytes(output));
     }
 
     // ── Teardown ──
@@ -631,6 +742,7 @@ pub const GpuAttention = struct {
         vk.vkDestroyCommandPool(self.device, self.command_pool, null);
         _ = vk.vkFreeDescriptorSets(self.device, self.descriptor_pool, 1, &self.descriptor_set);
         vk.vkDestroyDescriptorPool(self.device, self.descriptor_pool, null);
+        self.staging_pool.deinit();
         self.pipeline.deinit();
         self.pipeline_batched.deinit();
         vk.vkDestroyDevice(self.device, null);
@@ -790,51 +902,6 @@ pub const GpuAttention = struct {
         _ = vk.vkResetFences(self.device, 1, &self.fence);
     }
 
-    /// Create a host-visible, host-coherent staging buffer.
-    fn createStagingBuffer(self: *const GpuAttention, size: vk.VkDeviceSize) !Buffer {
-        const buf_ci = vk.VkBufferCreateInfo{
-            .sType = vk.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .pNext = null,
-            .flags = 0,
-            .size = size,
-            .usage = vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT | vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            .sharingMode = vk.VK_SHARING_MODE_EXCLUSIVE,
-            .queueFamilyIndexCount = 0,
-            .pQueueFamilyIndices = null,
-        };
-        var buf_handle: vk.VkBuffer = null;
-        if (vk.vkCreateBuffer(self.device, &buf_ci, null, &buf_handle) != vk.VK_SUCCESS) {
-            return error.BufferCreateFailed;
-        }
-        errdefer vk.vkDestroyBuffer(self.device, buf_handle, null);
-
-        var req: vk.VkMemoryRequirements = undefined;
-        vk.vkGetBufferMemoryRequirements(self.device, buf_handle, &req);
-
-        const alloc_info = vk.VkMemoryAllocateInfo{
-            .sType = vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            .pNext = null,
-            .allocationSize = req.size,
-            .memoryTypeIndex = self.host_coherent_type,
-        };
-        var mem: vk.VkDeviceMemory = null;
-        if (vk.vkAllocateMemory(self.device, &alloc_info, null, &mem) != vk.VK_SUCCESS) {
-            return error.BufferMemoryAllocFailed;
-        }
-        errdefer vk.vkFreeMemory(self.device, mem, null);
-
-        if (vk.vkBindBufferMemory(self.device, buf_handle, mem, 0) != vk.VK_SUCCESS) {
-            return error.BufferBindFailed;
-        }
-
-        return Buffer{
-            .handle = buf_handle,
-            .memory = mem,
-            .size = size,
-            .device = self.device,
-            .mapped_ptr = null,
-        };
-    }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
