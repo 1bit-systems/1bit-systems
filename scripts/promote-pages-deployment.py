@@ -43,19 +43,12 @@ def main():
     deploys = result.get("result", [])
     print(f"Total deployments: {len(deploys)}")
 
-    # Debug: show first deployment's structure
-    if deploys:
-        first = deploys[0]
-        print(f"Sample deployment keys: {list(first.keys())}")
-        print(f"deployment_trigger: {json.dumps(first.get('deployment_trigger', 'N/A'), indent=2)}")
-        print(f"environment: {first.get('environment', 'N/A')}")
-
-    # Find main branch deployments (check multiple possible fields)
+    # Find main branch deployments (branch is in metadata for ad_hoc deploys)
     main_deps = []
     for d in deploys:
         trigger = d.get("deployment_trigger", {}) or {}
-        branch = trigger.get("branch", "") or ""
-        # Also check the deployment directly
+        # Direct Upload deploys store branch in metadata.branch
+        branch = (trigger.get("metadata", {}) or {}).get("branch", "") or ""
         if branch == "main":
             main_deps.append(d)
     print(f"Main branch deployments: {len(main_deps)}")
