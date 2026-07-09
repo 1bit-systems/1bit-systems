@@ -2,7 +2,7 @@
 # Start the Zaya1 server on port 8081 using the Radeon 8060S iGPU
 # Uses the llama.cpp Zaya fork for 74B-A4B Q4_K_M inference
 
-MODEL="/home/bcloud/models/zaya1/ZAYA1PREVIEW-74B-A4B-Q4_K_M.gguf"
+MODEL="/home/bcloud/models/ZAYA1-8B/ggml-model-zaya.gguf"
 LLAMA_SERVER="/home/bcloud/zaya-llama.cpp/build/bin/llama-server"
 PORT=8081
 CTX=8192
@@ -26,7 +26,7 @@ fi
 echo "Starting Zaya1 server on port $PORT..."
 echo "  Model: $MODEL"
 echo "  Context: $CTX tokens"
-echo "  GPU: Full offload (ROCm)"
+echo "  GPU: Full offload (ROCm via ggml-hip, gfx1151)"
 echo "  Flash Attention: enabled"
 echo ""
 
@@ -38,3 +38,5 @@ $LLAMA_SERVER \
     --port "$PORT" \
     --host 127.0.0.1 \
     -fa 1
+
+# vLLM alternative (better Zaya support): /home/bcloud/bin/vllm-up
