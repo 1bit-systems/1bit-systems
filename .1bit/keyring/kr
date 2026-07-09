@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+set -euo pipefail
+KR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+
+kr_usage() {
+  cat <<EOF
+Usage: kr <command> [args]
+
+Commands:
+  kr set <ns> <key> [val]   Store a secret
+  kr get <ns> <key>         Retrieve a secret
+  kr list                   List all secrets
+  kr delete <ns> <key>      Delete a secret
+  kr setup                  Setup wizard
+
+Examples:
+  kr set github token ghp_xxx
+  kr get cloudflare key
+  kr list
+EOF
+}
+
+kr_find() {
+  local ns="$1" key="$2" v=""
+  # New pattern: service=<ns> key=<key>
+  v=$(secret-tool lookup service "$ns" key "$key" 2>/dev/null) || true
+  # Legacy: service=<ns> account=<key>
+  [[ -z "$v" ]] && v=$(secret-tool lookup service "$ns" account "$key" 2>/dev/null) || true
+  # Legacy: service=<ns> username=<key>
+  [[ -z "$v" ]] && v=$(secret-tool lookup service "$ns" username "$key" 2>/dev/null) || true
+  # Legacy: service=<ns> with just key attr
+  [[ -z "$v" ]] && v=$(secret-tool lookup service "$ns" "$key" 2>/dev/null) || true
+  # Legacy: gh:github.com pattern for "github" ns
+  if [[ -z "$v" && "$ns" == "github" ]]; then
+    v=$(secret-tool lookup service "gh:github.com" username "bong-water-water-bong" 2>/dev/null) || true
+  fi
+  # Legacy: cloudflare-analytics pattern for "cloudflare" ns
+  if [[ -z "$v" && "$ns" == "cloudflare" ]]; then
+    [[ -z "$v" ]] && v=$(secret-tool lookup service "cloudflare-analytics" key token 2>/dev/null) || true
+    [[ -z "$v" ]] && v=$(secret-tool lookup service "cloudflare-analytics" key zone 2>/dev/null) || true
+  fi
+  echo "$v"; [[ -n "$v" ]]
+}
+
+kr_set() {
+  local ns="${1:-}" key="${2:-}" val="${3:-}"
+  [[ -z "$ns" || -z "$key" ]] && { echo -e "${RED}Usage: kr set <ns> <key> [val]${NC}" >&2; return 1; }
+  local e; e=$(kr_find "$ns" "$key") || true
+  if [[ -n "$e" ]]; then
+    echo -e "${YELLOW}⚠ ${ns}/${key} exists (${e:0:8}...). Overwrite? [y/N]${NC}" >&2
+    read -r a; [[ "$a" =~ ^[Yy]$ ]] || { echo "  Skipped." >&2; return 0; }
+    secret-tool clear service "$ns" key "$key" 2>/dev/null || true
+  fi
+  if [[ -z "$val" ]]; then echo -n "  ${ns}/${key}: " >&2; read -rs val; echo >&2; fi
+  [[ -z "$val" ]] && { echo -e "${YELLOW}  Empty, skipped.${NC}" >&2; return 0; }
+  echo -n "$val" | secret-tool store --label="${ns}/${key}" service "$ns" key "$key"
+  echo -e "${GREEN}  ✓ ${ns}/${key} stored${NC}" >&2
+}
+
+kr_get() {
+  local ns="${1:-}" key="${2:-}"
+  [[ -z "$ns" || -z "$key" ]] && { echo -e "${RED}Usage: kr get <ns> <key>${NC}" >&2; return 1; }
+  local v; v=$(kr_find "$ns" "$key") || { echo -e "${RED}✗ ${ns}/${key} not found${NC}" >&2; return 1; }
+  echo "$v"
+}
+
+kr_list() {
+  local f="${1:-}"
+  echo -e "${BOLD}${CYAN}═══ 1bit Keyring ═══${NC}"
+  echo ""
+  printf "  %-35s %-30s\n" "Service" "Key/Account"
+  echo "  $(printf '%.0s─' {1..66})"
+  local n=0
+  for ipath in $(dbus-send --session --dest=org.freedesktop.secrets --type=method_call --print-reply \
+    /org/freedesktop/secrets/collection/login org.freedesktop.DBus.Properties.Get \
+    string:'org.freedesktop.Secret.Collection' string:'Items' 2>/dev/null | grep object | sed 's/.*"\(.*\)"/\1/'); do
+    [[ -z "$ipath" ]] && continue
+    local label="" svc="" acct=""
+    while IFS= read -r line; do
+      local k=$(echo "$line" | sed -n 's/.*string "\([^"]*\)".*/\1/p')
+      if [[ -n "$k" ]]; then
+        read -r vline
+        local v=$(echo "$vline" | sed -n 's/.*string "\([^"]*\)".*/\1/p')
+        case "$k" in
+          Label) label="$v";;
+          service) svc="$v";;
+          key|account|username) acct="$v";;
+        esac
+      fi
+    done < <(dbus-send --session --dest=org.freedesktop.secrets --type=method_call --print-reply \
+      "$ipath" org.freedesktop.DBus.Properties.GetAll \
+      string:'org.freedesktop.Secret.Item' 2>/dev/null)
+    [[ -z "$svc" ]] && svc="$label"
+    [[ -n "$f" && ! "${svc}${label}" =~ $f ]] && continue
+    printf "  %-35s %-30s\n" "${svc:0:35}" "${acct:0:30}"
+    n=$((n+1))
+  done
+  echo ""
+  [[ $n -eq 0 ]] && echo -e "  ${YELLOW}(empty)${NC}" || echo -e "  ${GREEN}${n} items${NC}"
+}
+
+kr_delete() {
+  local ns="${1:-}" key="${2:-}"
+  [[ -z "$ns" || -z "$key" ]] && { echo -e "${RED}Usage: kr delete <ns> <key>${NC}" >&2; return 1; }
+  secret-tool clear service "$ns" key "$key" 2>/dev/null && { echo -e "${GREEN}✓ deleted${NC}" >&2; return 0; }
+  echo -e "${RED}✗ not found${NC}" >&2; return 1
+}
+
+kr_setup() {
+  echo -e "${BOLD}${CYAN}═══ Keyring Setup ═══${NC}"
+  echo ""
+  if ! command -v secret-tool &>/dev/null; then
+    echo -e "${RED}Install: sudo apt install libsecret-tools${NC}" >&2; return 1
+  fi
+  if command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; then
+    local u; u=$(gh api user --jq '.login' 2>/dev/null) || u="?"
+    echo -e "  ${GREEN}✓ gh CLI: ${u}${NC}"
+    local t; t=$(gh auth token 2>/dev/null) || true
+    [[ -n "$t" ]] && echo -n "$t" | secret-tool store --label="GitHub token" service "github" key "token"
+    echo -e "  ${GREEN}✓ GitHub token migrated${NC}"
+  fi
+  echo ""
+  for entry in "ai:deepseek:DeepSeek API key" "ai:openai:OpenAI API key" "ai:anthropic:Anthropic API key" "huggingface:token:Hugging Face token"; do
+    IFS=':' read -r ns key desc <<< "$entry"
+    echo -e "${CYAN}${ns}/${key}${NC} — $desc"
+    kr_set "$ns" "$key" || true
+    echo ""
+  done
+  echo -e "${GREEN}Done.${NC}"
+}
+
+cmd="${1:-help}"
+case "$cmd" in
+  set) shift; kr_set "$@";;
+  get) shift; kr_get "$@";;
+  list|ls) shift; kr_list "$@";;
+  delete|rm) shift; kr_delete "$@";;
+  setup) kr_setup;;
+  *) kr_usage;;
+esac
