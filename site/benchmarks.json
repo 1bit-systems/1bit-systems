@@ -1,5 +1,6 @@
 {
  "updated": "2026-07-09T15:07:21Z",
+ "updated": "2026-07-09T15:17:15Z",
  "source": "docs/wiki/performance.md (single source of truth)",
  "_legend": {
   "validated": "measured on-device, coherent output",
@@ -14,7 +15,7 @@
   "npu_v12":  { "tok_s": 97,  "status": "raw",       "label": "C++ v12 (raw — not yet coherent)" },
   "rocm_hip": { "tok_s": 113,     "status": "reported",  "label": "GPU ROCm HIP (reported)" },
   "all_5":    { "tok_s": 28,     "status": "raw",       "label": "C++ all-5 (raw — not yet coherent)" },
-  "dspark":   { "tok_s": 572,   "status": "projected", "label": "DSpark spec-decode (projected)" },
+  "dspark":   { "tok_s": 0, "status": "disproven", "label": "DSpark spec-decode (disproven — 0.1–0.2 tok/s end-to-end)" },
   "ternary":  { "tok_s": 279,     "status": "validated", "label": "Ternary Vulkan (validated 1-bit)" },
   "gpu_1bit": { "tok_s": 381, "status": "measured",  "label": "GPU llama.cpp 1-bit (measured)" },
   "gpu_zinc": { "tok_s": 22, "status": "validated", "label": "GPU Vulkan ZINC F16 (validated)" }
