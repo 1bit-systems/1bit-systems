@@ -22,14 +22,14 @@
 | **ROCm** (HIP) | Radeon 8060S | **113 tok/s** | reported | ~45W | Bonsai TQ2 |
 | **C++ all-5** (auto-detect) | XDNA 2 · 32 tiles | **28 tok/s** | ⚙️ raw throughput | ~15W | 5 models (auto) |
 | **DSpark spec-decode** | XDNA 2 + Zen 5 | **0.1–0.2 tok/s** | ⚠️ disproven — 0% draft acceptance in end-to-end test (2026-07-07) | 15W | Qwen3-0.6B |
-| **GPU ternary** (Vulkan) | Radeon 8060S | **279 tok/s** | ✅ measured, coherent | ~45W | Bonsai-1.7B Q2_0 (1.58-bit) |
+| **GPU ternary** (Vulkan) | Radeon 8060S | **279 tok/s** | ✅ measured, coherent | ~45W | Bonsai-1.7B (Q2_0, 1.58-bit) |
 | **GPU 1-bit** (llama.cpp) | Radeon 8060S | **381 tok/s** | measured (llama.cpp) | ~45W | Qwen2-0.5B IQ1_S |
 | **GPU ZINC** (Vulkan) | Radeon 8060S | **22 tok/s** | ✅ measured, coherent | ~45W | Bonsai-1.7B F16 |
-| **Zaya** (AMD-native) | Radeon 8060S | **~18 tok/s** | reported | ~50W | Zaya 1.8B |
+| **Zaya** (ROCm) | Radeon 8060S | **~18 tok/s** | reported | ~50W | ZAYA1PREVIEW-74B-A4B-Q4_K_M |
 
 **Status legend:** ✅ measured on-device with coherent output · *measured* = throughput measured via a third-party tool · ⚙️ *raw throughput* = kernel runs at this speed but output is not yet coherent · ⚠️ *experimental/disproven* = not production-ready, use at your own risk. Only ✅ numbers should be quoted as production.
 
-**73+ models across 6 backends · 22 multi-modal (video, image, audio) · validated production: 94 tok/s NPU (FLM) + 279 tok/s GPU 1.58-bit ternary. DSpark projection (572 tok/s) disproven by end-to-end test — see DSpark section.**
+**73+ models across 6 backends · 22 multi-modal (video, image, audio) · validated production: 94 tok/s NPU (FLM) + 279 tok/s GPU ternary + 291 tok/s NPU fused. DSpark projection (572 tok/s) disproven — see DSpark section.**
 
 ---
 
@@ -79,6 +79,8 @@ Every model at ≤1.5625 bpw (true 1-bit class). Measured on Radeon 8060S via Vu
 | gemma-2-2b | [Ffftdtd5dtft/gemma-2-2b-IQ1_S-GGUF](https://huggingface.co/Ffftdtd5dtft/gemma-2-2b-IQ1_S-GGUF) | IQ1_S (1.06 bpw) |
 | Qwen3.5-9B | [WariHima/Qwen3.5-9B-Q1_0-GGUF](https://huggingface.co/WariHima/Qwen3.5-9B-Q1_0-GGUF) | Q1_0 (1.25 bpw) |
 | Qwen2 0.5B | [Ffftdtd5dtft/Qwen2-0.5B-IQ1_S-GGUF](https://huggingface.co/Ffftdtd5dtft/Qwen2-0.5B-IQ1_S-GGUF) | IQ1_S (~1.06 bpw) |
+| Nemo 8B | [brittlewylie12/Nemo-8B-IQ1_S-GGUF](https://huggingface.co/brittlewylie12/Nemo-8B-IQ1_S-GGUF) | IQ1_S (1.06 bpw) |
+| gemma3 4B | [Ffftdtd5dtft/gemma-3-4b-IQ1_S-GGUF](https://huggingface.co/Ffftdtd5dtft/gemma-3-4b-IQ1_S-GGUF) | IQ1_S (1.06 bpw) |
 
 ---
 
@@ -108,6 +110,19 @@ Single binary. Auto-detect. No proprietary code.
 | **C++ ALL** (5 models) | 36 ms/tok | 14 ms/tok prefill | **28** | ~15W | Auto-detect, one binary |
 
 **Power efficiency:** The DSpark projection of 38.1 tok/J was based on the disproven 572 tok/s figure. End-to-end measurement (0.1–0.2 tok/s) gives ~0.01 tok/J. DSpark is not production-ready.
+
+---
+
+## GPU Ternary (Vulkan) — Bonsai-1.7B Q2_0 (1.58-bit)
+
+| Metric | Value |
+|--------|-------|
+| Decode | **279 tok/s** (3.6 ms/tok) |
+| Model | Bonsai-1.7B Q2_0 (1.58-bit ternary) |
+| Backend | llama.cpp (Vulkan)
+| Prefill | 3,118 tok/s |
+
+Tested on Radeon 8060S via RADV Vulkan. 3 repetitions, no cached data.
 
 ---
 
@@ -261,7 +276,7 @@ All 31 Vulkan pipelines switched from wave64 to **wave32** (RDNA4 native width).
 | **Jul 6** | **Fused layer** 🏆 | **3.4 ms/tok** | **72×** | One xclbin/layer, 86 KB, 291 tok/s — ✅ coherent after BF16 overflow fix (Jul 9) |
 | **Jul 6** | **DSpark spec-decode** | **0.1–0.2 tok/s** (disproven) | — | End-to-end test showed 0% draft acceptance; 572 projection disproven |
 
-**Net: validated production is 94 tok/s NPU (FLM) + 279 tok/s GPU 1.58-bit ternary + 291 tok/s NPU fused (coherent). DSpark (0.1–0.2 tok/s) is WIP, not production. Zero Python. Pure C++.**
+**Net: validated production is 94 tok/s NPU (FLM) + 279 tok/s GPU ternary + 291 tok/s NPU fused (coherent). DSpark (0.1–0.2 tok/s) is WIP, not production. Zero Python. Pure C++.**
 
 ---
 
