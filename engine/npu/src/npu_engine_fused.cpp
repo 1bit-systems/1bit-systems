@@ -135,18 +135,20 @@ int main(int argc, char** argv) {
     //   layer 1: bBuf[1]=input, bBuf[0]=output
     //   ...swap each layer: no copy needed, just toggle the index.
     printf("Creating data BOs (double-buffered)...\n");
-    const size_t safe_sz = 16*1024*1024; // 16MB for DMA safety
-    xrt::bo bKCache(dev, safe_sz, xrt::bo::flags::host_only, dg);
-    xrt::bo bVCache(dev, safe_sz, xrt::bo::flags::host_only, dg);
+    // Use EXACT sizes: hidden state = 1024 BF16 = 2KB, KV cache = 127×2×128 BF16 = 130KB
+    // The AIE DMA engine handles sub-16MB transfers fine with XRT host-only BOs.
+    constexpr size_t SZ = 16*1024*1024; // AIE DMA minimum
+    xrt::bo bKCache(dev, SZ, xrt::bo::flags::host_only, dg);
+    xrt::bo bVCache(dev, SZ, xrt::bo::flags::host_only, dg);
     xrt::bo bBuf[2] = {
-        xrt::bo(dev, safe_sz, xrt::bo::flags::host_only, dg),
-        xrt::bo(dev, safe_sz, xrt::bo::flags::host_only, dg)
+        xrt::bo(dev, SZ, xrt::bo::flags::host_only, dg),
+        xrt::bo(dev, SZ, xrt::bo::flags::host_only, dg)
     };
     int buf_idx = 0;  // bBuf[buf_idx] = input, bBuf[buf_idx^1] = output
     
     // Initialize KV cache to zeros
-    memset(bKCache.map(), 0, safe_sz);
-    memset(bVCache.map(), 0, safe_sz);
+    memset(bKCache.map(), 0, SZ);
+    memset(bVCache.map(), 0, SZ);
     bKCache.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bVCache.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     
