@@ -1,7 +1,1 @@
-{
-  "schemaVersion": 1,
-  "label": "clones today",
-  "message": "1102",
-  "color": "brightgreen",
-  "cacheSeconds": 86400
-}
+{"schemaVersion":1,"label":"clones today","message":"687","color":"brightgreen","cacheSeconds":86400}
