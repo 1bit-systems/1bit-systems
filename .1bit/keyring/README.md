@@ -32,12 +32,17 @@ kr delete github token              # Remove
 
 ## How It Works
 
-Keys are stored in the **system keyring** (GNOME Keyring / D-Bus Secret Service)
-using `secret-tool`. This means:
-- ✅ Encrypted at rest (your login session unlocks it)
+**No custom vault.** Everything uses the **system keyring** that's already on your machine:
+- Ubuntu/GNOME: `gnome-keyring` via D-Bus Secret Service
+- KDE: `kwallet` via Secret Service adapter
+- Headless: `keepassxc` or `secretservice`
+
+The `kr` CLI is just a thin wrapper around `secret-tool` (libsecret).
+
+- ✅ Encrypted at rest by the OS (unlocked at login)
 - ✅ Survives reboots
-- ✅ Accessible from scripts via `_loader.sh`
-- ✅ No plaintext files with secrets
+- ✅ Same keyring Firefox, Chrome, and Git use
+- ✅ No custom encryption, no new daemons, no plaintext files
 
 Each service has a namespace. Common namespaces:
 
