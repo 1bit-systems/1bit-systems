@@ -69,6 +69,7 @@ extern "xrt_coreutil" fn xrtBOAlloc(
 ) callconv(.c) ?*BufferObject;
 
 extern "xrt_coreutil" fn xrtBOFree(bo: ?*BufferObject) callconv(.c) void;
+extern "xrt_coreutil" fn xrtBOExport(bo: ?*BufferObject) callconv(.c) c_int;
 extern "xrt_coreutil" fn xrtBOMap(bo: ?*BufferObject) callconv(.c) ?*anyopaque;
 extern "xrt_coreutil" fn xrtBOSync(bo: ?*BufferObject, dir: u32, offset: u64, size: u64) callconv(.c) c_int;
 
