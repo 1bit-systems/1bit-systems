@@ -16,19 +16,84 @@ jobs:
       deployments: write
     steps:
       - uses: actions/checkout@v4
-      - name: Set production branch to main
-        run: |
-          RESPONSE=$(curl -s -X PATCH "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/pages/projects/1bit-systems" \
-            -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            --data '{"production_branch":"main"}')
-          echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print('Success:',d.get('success')); print('Production branch:',d.get('result',{}).get('production_branch','unknown'))"
-      - name: Deploy 1bit.systems
+
+      - name: Deploy 1bit.systems (preview on main)
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy site --project-name=1bit-systems --branch=main
+
+      - name: Promote to production via API
+        run: |
+          set -euo pipefail
+          ACCOUNT="${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
+          TOKEN="${{ secrets.CLOUDFLARE_API_TOKEN }}"
+          AUTH="Authorization: Bearer $TOKEN"
+          BASE="https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/pages/projects/1bit-systems"
+
+          # 1. Set production_branch so future main deploys auto-promote
+          echo "=== Setting production_branch to main ==="
+          curl -s -X PATCH "$BASE" \
+            -H "$AUTH" -H "Content-Type: application/json" \
+            --data '{"production_branch":"main"}' | \
+            python3 -c "import json,sys; d=json.load(sys.stdin); print('OK' if d.get('success') else 'FAIL: '+str(d.get('errors',[])))"
+
+          # 2. List deployments
+          echo "=== Listing deployments ==="
+          DEPLOYS=$(curl -s "$BASE/deployments" -H "$AUTH")
+          echo "$DEPLOYS" | python3 -c "
+import json,sys
+d = json.load(sys.stdin)
+if not d.get('success'): print('ERR:'+str(d.get('errors'))); sys.exit(1)
+deploys = d.get('result',[])
+print(f'Total deployments: {len(deploys)}')
+main_deps = [x for x in deploys if x.get('deployment_trigger',{}).get('branch','') == 'main']
+print(f'Main branch: {len(main_deps)}')
+if not main_deps: print('ERR: No main deploys'); sys.exit(1)
+latest = max(main_deps, key=lambda x: x.get('created_on',''))
+print('LATEST_ID:'+latest['id'])
+print('LATEST_URL:'+latest.get('url',''))
+print('LATEST_ENV:'+latest.get('environment','?'))
+for dep in deploys:
+    if dep.get('environment') == 'production':
+        print('PROD_ID:'+dep['id'])
+"
+
+          # 3. Parse outputs
+          LATEST_ID=$(echo "$DEPLOYS" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+deploys=d.get('result',[])
+main_deps=[x for x in deploys if x.get('deployment_trigger',{}).get('branch','')=='main']
+if not main_deps: sys.exit(1)
+latest=max(main_deps, key=lambda x: x.get('created_on',''))
+print(latest['id'])
+" 2>/dev/null || echo "")
+
+          PROD_ID=$(echo "$DEPLOYS" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+for dep in d.get('result',[]):
+    if dep.get('environment')=='production':
+        print(dep['id']); sys.exit(0)
+print('NONE')
+" 2>/dev/null || echo "NONE")
+
+          echo "Latest main deployment: $LATEST_ID"
+          echo "Current production: $PROD_ID"
+
+          # 4. Delete old production deployment so latest main becomes production
+          if [ -n "$PROD_ID" ] && [ "$PROD_ID" != "NONE" ] && [ "$PROD_ID" != "$LATEST_ID" ]; then
+            echo "=== Deleting old production deployment $PROD_ID ==="
+            curl -s -X DELETE "$BASE/deployments/$PROD_ID" -H "$AUTH" | \
+              python3 -c "import json,sys; d=json.load(sys.stdin); print('Deleted:',d.get('success'))"
+          elif [ "$PROD_ID" = "$LATEST_ID" ] && [ -n "$LATEST_ID" ]; then
+            echo "Latest deployment is already production. Nothing to do."
+          else
+            echo "No production deployment to delete."
+          fi
+
       - name: Deploy jarvis.1bit.systems
         uses: cloudflare/wrangler-action@v3
         with:
