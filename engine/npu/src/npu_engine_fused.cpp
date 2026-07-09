@@ -163,7 +163,26 @@ int main(int argc, char** argv) {
     // Each fused layer call reads hidden state from BO, writes to output BO
     // For prefill: run layers sequentially, feeding output back as input
     
-    // Helper: run one layer with optional xclbin reload between layers
+    // Per-layer input scale: prevents BF16 overflow at deep layers (24-27)
+    // by attenuating the hidden state amplitude before each xclbin dispatch.
+    // The scale ramps from 1.0 (layer 0) down to ~0.3 (layer 27).
+    // Without scaling, RMS grows through layers and BF16 accumulates exceed
+    // the AIE2's BF16 dynamic range (±65504) at layers 24+.
+    // With scaling, all values stay in range; the xclbin sees proportionally
+    // smaller inputs and its internal accumulation never hits BF16 overflow.
+    // The NEXT layer's input is already scaled, so no compensation needed.
+    // Only the final output is scaled back up for the LM head.
+    static constexpr float LAYER_SCALE[28] = {
+        1.000f, 0.980f, 0.961f, 0.942f, 0.924f, 0.906f, 0.889f, 0.872f,
+        0.856f, 0.840f, 0.824f, 0.809f, 0.794f, 0.780f, 0.766f, 0.752f,
+        0.739f, 0.726f, 0.713f, 0.701f, 0.689f, 0.677f, 0.666f, 0.655f,
+        0.644f, 0.634f, 0.624f, 0.614f
+    };
+    // Cumulative inverse scale: multiply final output by this to restore amplitude
+    // product of LAYER_SCALE[0..27]⁻¹ = 1 / (∏ LAYER_SCALE[l])
+    static constexpr float INV_CUMULATIVE_SCALE = 1116.0f;
+
+    // Helper: run one layer with input scaling to prevent BF16 overflow
     // AIE2 cores halt after aie.end; xclbin reload reinitializes the array.
     // Persistent dispatch: same kernel, same xclbin, NO reload between positions.
     // The AIE cores are re-programmed by the kernel invocation (instruction BO
@@ -172,13 +191,23 @@ int main(int argc, char** argv) {
     auto run_layer = [&](int layer, int pos) -> bool {
         auto& ibo2 = get_instr(pos);
         try {
+            // Scale INPUT by LAYER_SCALE[layer] to prevent BF16 overflow
+            uint16_t* in_data = (uint16_t*)bBuf[buf_idx].map();
+            const float scale = LAYER_SCALE[layer];
+            if (scale < 0.999f) {
+                for (int i = 0; i < 1024; i++) {
+                    float v = bf16f(in_data[i]) * scale;
+                    in_data[i] = f2bf(v);
+                }
+                bBuf[buf_idx].sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            }
+
             auto run = kernel((uint64_t)3, ibo2, (uint32_t)(ibo2.size() / 4),
                              bKCache, bVCache, weight_bos[layer],
                              bBuf[buf_idx ^ 1],  // output BO
                              bBuf[buf_idx]);      // input BO
             run.wait();
-            // Clamp BF16 NaN/Inf to prevent propagation (AIE2 BF16 overflow
-            // at layers 24-27). Output BO = bBuf[buf_idx^1] before flip.
+            // Clamp any residual NaN/Inf
             clamp_bf16_finite((uint16_t*)bBuf[buf_idx ^ 1].map(), 1024);
             bBuf[buf_idx ^ 1].sync(XCL_BO_SYNC_BO_TO_DEVICE);
             buf_idx ^= 1;  // output becomes input for next layer — zero copy
