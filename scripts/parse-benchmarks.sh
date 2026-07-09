@@ -32,7 +32,8 @@ TERN=$(extract_tok "GPU ternary");    TERN="${TERN:-279}"
 GPU_1BIT=$(extract_tok "GPU 1-bit");  GPU_1BIT="${GPU_1BIT:-381}"
 GPU_ZINC=$(extract_tok "GPU ZINC");   GPU_ZINC="${GPU_ZINC:-22}"
 ROCM=$(extract_tok "ROCm");           ROCM="${ROCM:-113}"
-DSPARK=$(extract_tok "DSpark");       DSPARK="${DSPARK:-572}"
+# DSpark was projected at 572 tok/s but disproven (0.1–0.2 tok/s end-to-end).
+DSPARK=0
 FUSED=$(extract_tok "NPU fused");     FUSED="${FUSED:-291}"
 NPU_V12=$(extract_tok "NPU v12");     NPU_V12="${NPU_V12:-97}"
 ALL5=$(grep -iE "C\+\+ (all|ALL)" "$SRC" 2>/dev/null | grep -oP '\*\*\K[0-9]+' | head -1) || true; ALL5="${ALL5:-28}"
@@ -56,7 +57,7 @@ cat > "$OUT/benchmarks.json" << EOF
   "npu_v12":  { "tok_s": $NPU_V12,  "status": "raw",       "label": "C++ v12 (raw — not yet coherent)" },
   "rocm_hip": { "tok_s": $ROCM,     "status": "reported",  "label": "GPU ROCm HIP (reported)" },
   "all_5":    { "tok_s": $ALL5,     "status": "raw",       "label": "C++ all-5 (raw — not yet coherent)" },
-  "dspark":   { "tok_s": $DSPARK,   "status": "projected", "label": "DSpark spec-decode (projected)" },
+  "dspark":   { "tok_s": 0, "status": "disproven", "label": "DSpark spec-decode (disproven — 0.1–0.2 tok/s end-to-end)" },
   "ternary":  { "tok_s": $TERN,     "status": "validated", "label": "Ternary Vulkan (validated 1-bit)" },
   "gpu_1bit": { "tok_s": $GPU_1BIT, "status": "measured",  "label": "GPU llama.cpp 1-bit (measured)" },
   "gpu_zinc": { "tok_s": $GPU_ZINC, "status": "validated", "label": "GPU Vulkan ZINC F16 (validated)" }
@@ -75,7 +76,7 @@ write_badge "flm-badge.json"   "NPU (FLM, production)"   "${NPU_FLM} tok/s"     
 write_badge "tern-badge.json"  "GPU 1-bit ternary"       "${TERN} tok/s"             "brightgreen"
 write_badge "gpu-badge.json"   "GPU ZINC (F16)"          "${GPU_ZINC} tok/s"         "blue"
 write_badge "rocm-badge.json"  "GPU ROCm (reported)"     "${ROCM} tok/s"             "yellowgreen"
-write_badge "dspark-badge.json" "DSpark spec-decode"     "~${DSPARK} tok/s (projected)" "yellow"
+write_badge "dspark-badge.json" "DSpark spec-decode"     "disproven (0.1–0.2 tok/s)" "red"
 write_badge "fused-badge.json" "NPU fused layer"         "${FUSED} tok/s (coherent)"  "brightgreen"
 write_badge "bench-badge.json" "NPU C++ v12"             "${NPU_V12} tok/s (raw, WIP)" "yellow"
 write_badge "tok-badge.json"   "decode (validated)"     "${NPU_FLM} tok/s"          "brightgreen"
@@ -107,4 +108,4 @@ if [ "$CHECK" = true ]; then
   exit 0
 fi
 
-echo "✅ regenerated benchmarks.json + $(ls "$SITE"/*-badge.json | wc -l) badges (honest labels) | FLM=$NPU_FLM TERN=$TERN DSPARK=$DSPARK(proj) V12=$NPU_V12(raw)"
+echo "✅ regenerated benchmarks.json + $(ls "$SITE"/*-badge.json | wc -l) badges (honest labels) | FLM=$NPU_FLM TERN=$TERN V12=$NPU_V12(raw) DSPARK=disproven"
