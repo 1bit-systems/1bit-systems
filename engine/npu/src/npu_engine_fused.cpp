@@ -25,6 +25,12 @@ static inline float bf16f(uint16_t v) {
     memcpy(&r, &b, 4); return r;
 }
 
+// Clamp BF16 NaN/Inf to zero (prevents NaN propagation between layers)
+static inline void clamp_bf16_finite(uint16_t* data, int n) {
+    for (int i = 0; i < n; i++)
+        if ((data[i] & 0x7F80) == 0x7F80) data[i] = 0;
+}
+
 // Load a binary file
 static std::vector<char> load_file(const std::string& path) {
     std::ifstream f(path, std::ios::binary | std::ios::ate);
@@ -171,6 +177,10 @@ int main(int argc, char** argv) {
                              bBuf[buf_idx ^ 1],  // output BO
                              bBuf[buf_idx]);      // input BO
             run.wait();
+            // Clamp BF16 NaN/Inf to prevent propagation (AIE2 BF16 overflow
+            // at layers 24-27). Output BO = bBuf[buf_idx^1] before flip.
+            clamp_bf16_finite((uint16_t*)bBuf[buf_idx ^ 1].map(), 1024);
+            bBuf[buf_idx ^ 1].sync(XCL_BO_SYNC_BO_TO_DEVICE);
             buf_idx ^= 1;  // output becomes input for next layer — zero copy
             return true;
         } catch (const std::exception& e) {
