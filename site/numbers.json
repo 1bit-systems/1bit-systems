@@ -1,24 +1,19 @@
 {
   "binary": {
-    "decode_mb": 1600,
-    "lm_head_mb": 82,
-    "weight_read_mb": 436
+    "fused_kb": 85,
+    "decode_kb": 437,
+    "decode_stripped_kb": 291,
+    "tui_kb": 1072,
+    "tui_stripped_kb": 774
   },
   "benchmarks": {
-    "rocm_decode_tok_s": 113,
-    "rocm_decode_ms_tok": 8.8,
-    "rocm_prefill_tok_s": 98,
-    "rocm_prefill_ms_tok": 10.2,
-    "rocm_tflops": 28.4,
-    "rocm_gemv_bw_gbps": 48.5,
-    "rocm_gemv_tok_s": 3824,
-    "rocm_gemm_smallm_tok_s": 51779,
-    "sherry_gemv_bw_gbps": 19.3,
-    "sherry_gemv_tok_s": 2588,
-    "rocm_weight_read_mb": 436,
-    "rocm_lm_head_mb": 82,
-    "kernel_tests_pass": 5,
-    "kernel_tests_total": 6
+    "npu_fused_raw_tok_s": 291,
+    "npu_fused_ms_tok": 3.4,
+    "npu_validated_tok_s": 94,
+    "gpu_ternary_tok_s": 279,
+    "gpu_1bit_llama_tok_s": 381,
+    "gpu_f16_baseline_tok_s": 22,
+    "tflops": 55.7
   },
   "repo": {
     "stars": 9,
@@ -27,10 +22,10 @@
     "total_clones": 6113,
     "unique_cloners": 783,
     "owner": "bong-water-water-bong",
-    "name": "1bit"
+    "name": "1bit-systems"
   },
   "site": {
-    "models": 6,
-    "backends": 3
+    "models": 73,
+    "backends": 6
   }
 }
