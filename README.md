@@ -18,8 +18,9 @@ Zero Python. Your hardware.
 [![113 tok/s ROCm](https://img.shields.io/badge/113%20tok%2Fs-ROCm-ff0000.svg)](docs/wiki/performance.md)
 [![Vulkan ⭐](https://img.shields.io/badge/Vulkan-%E2%AD%90%20primary-b3802c.svg)](docs/wiki/engines.md)
 [![MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
-[![clones today](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/daily-clones.json&cacheSeconds=3600)](https://github.com/bong-water-water-bong/1bit-systems/graphs/traffic)
-[![clones:stars](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/clones-stars.json)](https://github.com/bong-water-water-bong/1bit-systems/graphs/traffic)
+[![unique visitors (14d)](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/visitors.json&cacheSeconds=3600)](https://github.com/bong-water-water-bong/1bit-systems/graphs/traffic)
+[![stars](https://img.shields.io/github/stars/bong-water-water-bong/1bit-systems?color=00ff88&label=stars)](https://github.com/bong-water-water-bong/1bit-systems/stargazers)
+[![forks](https://img.shields.io/github/forks/bong-water-water-bong/1bit-systems?color=12a0ed&label=forks)](https://github.com/bong-water-water-bong/1bit-systems/network/members)
 <br>
 <sub>deb · snap · docker · AUR · homebrew · ollama</sub>
 
