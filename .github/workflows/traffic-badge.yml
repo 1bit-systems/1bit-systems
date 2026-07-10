@@ -1,129 +1,72 @@
-name: Traffic Badge
+name: Audience Badge
 on:
   schedule:
     - cron: '0 6 * * *'   # daily at 6AM UTC
   workflow_dispatch:       # manual trigger
+
+# Publishes a unique-visitor badge from the GitHub traffic API.
+#
+# Deliberately NOT clone-based: Actions checkouts count as clones, and because
+# each hosted runner is a fresh VM they count as *unique* cloners too. Clone
+# counts therefore track our own CI volume, not adoption. Views/uniques are not
+# inflated that way, so they are what we publish.
 
 jobs:
   badge:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: read
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch traffic + stars
+      - name: Fetch traffic views + stars
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # === Full clone data (last 14 days) ===
-          CLONE_DATA=$(gh api repos/${{ github.repository }}/traffic/clones)
-          TOTAL_CLONES=$(echo "$CLONE_DATA" | jq '.count')
-          TOTAL_UNIQUE=$(echo "$CLONE_DATA" | jq '.uniques')
-          DAILY_COUNT=$(echo "$CLONE_DATA" | jq '.clones[-1].count')
-          DAILY_UNIQUE=$(echo "$CLONE_DATA" | jq '.clones[-1].uniques')
-          DAILY_DATE=$(echo "$CLONE_DATA" | jq -r '.clones[-1].timestamp[:10]')
-          PREV_COUNT=$(echo "$CLONE_DATA" | jq '.clones[-2].count // 0')
-          PREV_DATE=$(echo "$CLONE_DATA" | jq -r '.clones[-2].timestamp[:10] // "unknown"')
+          set -euo pipefail
 
-          # === Stars ===
+          VIEW_DATA=$(gh api repos/${{ github.repository }}/traffic/views)
+          UNIQUE_VISITORS=$(echo "$VIEW_DATA" | jq '.uniques')
+          TOTAL_VIEWS=$(echo "$VIEW_DATA" | jq '.count')
+
           STARS=$(gh api repos/${{ github.repository }} --jq '.stargazers_count')
           FORKS=$(gh api repos/${{ github.repository }} --jq '.forks_count')
 
-          # === Trend ===
-          if [ "$PREV_COUNT" -gt 0 ] 2>/dev/null; then
-            PCT_CHANGE=$(echo "scale=1; (($DAILY_COUNT - $PREV_COUNT) / $PREV_COUNT) * 100" | bc 2>/dev/null || echo "0")
-            if [ "$(echo "$PCT_CHANGE > 0" | bc 2>/dev/null)" = "1" ]; then
-              TREND="▲ +${PCT_CHANGE}%"
-              TREND_COLOR="brightgreen"
-            elif [ "$(echo "$PCT_CHANGE < 0" | bc 2>/dev/null)" = "1" ]; then
-              TREND="▼ ${PCT_CHANGE}%"
-              TREND_COLOR="red"
-            else
-              TREND="— 0%"
-              TREND_COLOR="yellow"
-            fi
-          else
-            TREND="—"
-            TREND_COLOR="blue"
+          if   [ "$UNIQUE_VISITORS" -ge 500 ]; then COLOR="brightgreen"
+          elif [ "$UNIQUE_VISITORS" -ge 100 ]; then COLOR="green"
+          elif [ "$UNIQUE_VISITORS" -ge 25  ]; then COLOR="yellowgreen"
+          else COLOR="yellow"
           fi
 
-          # === Daily badge color ===
-          if [ "$DAILY_COUNT" -ge 500 ]; then DAILY_COLOR="brightgreen"
-          elif [ "$DAILY_COUNT" -ge 100 ]; then DAILY_COLOR="green"
-          elif [ "$DAILY_COUNT" -ge 10 ]; then DAILY_COLOR="yellowgreen"
-          else DAILY_COLOR="yellow"
-          fi
-
-          # === Clones:stars ratio color ===
-          TOTAL_RATIO=$(echo "scale=0; $TOTAL_CLONES / $STARS" | bc 2>/dev/null || echo "$TOTAL_CLONES")
-          UNIQUE_RATIO=$(echo "scale=0; $TOTAL_UNIQUE / $STARS" | bc 2>/dev/null || echo "$TOTAL_UNIQUE")
-          if [ "$TOTAL_RATIO" -ge 100 ]; then RATIO_COLOR="brightgreen"
-          elif [ "$TOTAL_RATIO" -ge 50 ]; then RATIO_COLOR="green"
-          elif [ "$TOTAL_RATIO" -ge 20 ]; then RATIO_COLOR="yellowgreen"
-          else RATIO_COLOR="yellow"
-          fi
-
-          # Renamed exist badges
-          cat > site/traffic-badge.json << EOF
+          cat > site/visitors.json << EOF
           {
             "schemaVersion": 1,
-            "label": "clones",
-            "message": "${TOTAL_CLONES} (${TOTAL_UNIQUE} unique)",
-            "color": "${RATIO_COLOR}",
+            "label": "unique visitors (14d)",
+            "message": "${UNIQUE_VISITORS}",
+            "color": "${COLOR}",
             "cacheSeconds": 86400
           }
           EOF
 
-          # Daily clones badge — the bragging right
-          cat > site/daily-clones.json << EOF
+          cat > site/audience.json << EOF
           {
-            "schemaVersion": 1,
-            "label": "clones today",
-            "message": "${DAILY_COUNT}",
-            "color": "${DAILY_COLOR}",
-            "cacheSeconds": 86400
+            "unique_visitors_14d": ${UNIQUE_VISITORS},
+            "views_14d": ${TOTAL_VIEWS},
+            "stars": ${STARS},
+            "forks": ${FORKS},
+            "updated": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           }
           EOF
 
-          # Daily clones with unique + trend
-          cat > site/daily-clones-full.json << EOF
-          {
-            "schemaVersion": 1,
-            "label": "clones ${DAILY_DATE}",
-            "message": "${DAILY_COUNT} (${DAILY_UNIQUE} unique) ${TREND}",
-            "color": "${DAILY_COLOR}",
-            "cacheSeconds": 86400,
-            "style": "flat-square",
-            "logoSvg": "<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'><circle cx='7' cy='7' r='6' fill='%2300ff00' opacity='0.3'/><circle cx='7' cy='7' r='3' fill='%2300ff00'/></svg>"
-          }
-          EOF
-
-          # Clones:stars ratio
-          cat > site/clones-stars.json << EOF
-          {
-            "schemaVersion": 1,
-            "label": "clones:stars",
-            "message": "${TOTAL_RATIO}:1 (${UNIQUE_RATIO}:1 unique)",
-            "color": "${RATIO_COLOR}",
-            "cacheSeconds": 86400
-          }
-          EOF
-
-          echo "=== Daily Clones ==="
-          echo "  $DAILY_DATE: $DAILY_COUNT clones ($DAILY_UNIQUE unique) ${TREND}"
-          echo "   Previous ($PREV_DATE): $PREV_COUNT"
-          echo ""
-          echo "=== All-time ==="
-          echo "  Total: $TOTAL_CLONES clones · $TOTAL_UNIQUE unique"
-          echo "  Ratio: $TOTAL_RATIO:1 clones:stars"
+          echo "=== Audience (14d) ==="
+          echo "  Unique visitors: $UNIQUE_VISITORS"
+          echo "  Views:           $TOTAL_VIEWS"
           echo "  Stars: $STARS · Forks: $FORKS"
 
       - name: Commit badges
         run: |
           git config user.name "CI Fix Bot"
           git config user.email "ci-fixer@bot.com"
-          git add site/traffic-badge.json site/daily-clones.json site/daily-clones-full.json site/clones-stars.json
-          git diff --cached --quiet || git commit -m "chore: update traffic badges [skip ci]"
+          git add site/visitors.json site/audience.json
+          git diff --cached --quiet || git commit -m "chore: update audience badge [skip ci]"
           git push

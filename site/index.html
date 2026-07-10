@@ -217,7 +217,7 @@
           Custom HIP C++ ternary kernels on AMD Strix Halo. <strong>113 tok/s decode</strong> (8.8 ms/tok).
           <br><strong>28.4 TFlops</strong> prefill GEMM. <strong>48.5 GB/s</strong> GEMV bandwidth.
           <br><span class="nop">No hipBLAS. No Python. No cloud.</span> Your GPU. <a href="https://github.com/bong-water-water-bong/1bit/blob/main/LICENSE">MIT licensed</a>.
-          <br><span style="color:var(--green);font-weight:700;font-size:13px;">▲ <span id="daily-clones-hero">—</span> cloned today · <a href="https://github.com/bong-water-water-bong/1bit-systems/graphs/traffic" style="color:var(--blue);">6,459 total</a></span>
+          <br><span style="color:var(--green);font-weight:700;font-size:13px;">▲ <span id="visitors-hero">—</span> · <a href="https://github.com/bong-water-water-bong/1bit-systems/stargazers" style="color:var(--blue);"><span id="stars-hero">—</span> stars</a></span>
         </div>
       </blockquote>
       <div class="row" style="margin-top:18px;">
@@ -246,10 +246,10 @@
           <span class="pill info" style="font-size:10px;"><span class="dot"></span><span id="weight-read">436 MB</span>/tok</span>
           <span class="pill warn" style="font-size:10px;"><span class="dot"></span><span id="tflops">28.4 TFlops</span></span>
           <span class="pill dark" style="font-size:10px;"><span class="dot"></span><span id="fused-size2">82 MB</span> LM head</span>
-          <span class="pill ok" style="font-size:10px;"><span class="dot"></span><span id="daily-clones-count">—</span> clones today</span>
+          <span class="pill ok" style="font-size:10px;"><span class="dot"></span><span id="visitors-count">—</span> visitors (14d)</span>
         </div>
         <div style="margin-top:8px;font-size:10px;color:var(--dim);font-family:var(--mono);text-align:center;">
-          daily clones via <a href="https://github.com/bong-water-water-bong/1bit-systems/graphs/traffic" style="color:var(--blue);">GitHub traffic API</a> · updated daily
+          unique visitors via <a href="https://github.com/bong-water-water-bong/1bit-systems/graphs/traffic" style="color:var(--blue);">GitHub traffic API</a> · 14-day window · updated daily
         </div>
       </div>
     </div>
@@ -279,7 +279,7 @@
     <div class="stat"><span class="lbl caps">Weight read</span><span class="val">436 <span>MB</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>−54% vs FP16 LM head</span></div>
     <div class="stat"><span class="lbl caps">LM head</span><span class="val">82 <span>MB</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>TQ2 packed · was 621 MB</span></div>
     <div class="stat"><span class="lbl caps">Kernel tests</span><span class="val">5/6</span><span class="foot"><span class="dot" style="background:var(--green)"></span>RoPE fp16 tolerance</span></div>
-    <div class="stat"><span class="lbl caps">Daily clones</span><span class="val"><span id="daily-clones-stat">—</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>GitHub traffic API · <span id="daily-clones-total">6,459</span> total</span></div>
+    <div class="stat"><span class="lbl caps">Unique visitors</span><span class="val"><span id="visitors-stat">—</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>GitHub traffic API · 14d · <span id="views-total">—</span> views</span></div>
   </div>
   <p style="margin-top:24px;text-align:center;"><a href="https://github.com/bong-water-water-bong/1bit/blob/main/README.md" class="btn btn-ghost btn-md" target="_blank" rel="noopener">Full benchmarks →</a></p>
 </section>
@@ -448,7 +448,7 @@
     var links=nav&&nav.querySelectorAll('a');for(var j=0;links&&j<links.length;j++){links[j].addEventListener('click',function(){ham.classList.remove('open');nav.classList.remove('open');});}
   })();
 
-  // Single source of truth: /numbers.json + /daily-clones.json
+  // Single source of truth: /numbers.json + /audience.json
   (function(){
     var N={}; // populated from numbers.json
     var el=function(id){return document.getElementById(id);};
@@ -504,13 +504,19 @@
     };
     nx.send();
 
-    // Fetch daily clones badge (separate — updates daily)
+    // Fetch audience stats (separate — updates daily)
     var cx=new XMLHttpRequest();
-    cx.open('GET','/daily-clones.json',true);
+    cx.open('GET','/audience.json',true);
     cx.onload=function(){
-      try{var d=JSON.parse(cx.responseText),m=d.message||'?';set('daily-clones-count',m);set('daily-clones-hero',m+' clones');set('daily-clones-stat',m);}catch(e){}
+      try{
+        var d=JSON.parse(cx.responseText);
+        var v=d.unique_visitors_14d,s=d.stars,w=d.views_14d;
+        set('visitors-count',v);set('visitors-stat',v);
+        set('visitors-hero',v+' unique visitors (14d)');
+        set('stars-hero',s);set('views-total',w);
+      }catch(e){}
     };
-    cx.onerror=function(){set('daily-clones-count','?');set('daily-clones-hero','? clones');set('daily-clones-stat','?');};
+    cx.onerror=function(){set('visitors-count','?');set('visitors-hero','? unique visitors (14d)');set('visitors-stat','?');set('stars-hero','?');set('views-total','?');};
     cx.send();
   })();
 </script>
