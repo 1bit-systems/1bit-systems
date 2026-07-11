@@ -3,11 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>1bit.systems — 120kb Binary to rule them all · 5 models · 94 tok/s NPU (FLM) · 7.9× multi-context</title>
-<meta name="description" content="120kb Binary to rule them all. Five models. 120kb binary. 94 tok/s NPU via FLM proxy, 97 tok/s C++ v12. 22 tok/s GPU (ZINC Vulkan). 64 req/s at 7.9× concurrency. Zero Python. Zero deps. Open source.">
+<title>1bit.systems — Zaya1-8B 28.6 tok/s CCA · 173 tok/s batch · Bonsai 113 tok/s · Custom HIP C++ kernels</title>
+<meta name="description" content="Zaya1-8B CCA attention: 28.6 tok/s single, 173 tok/s batched (B=8). lm_head 0.5ms GPU (76× faster vs CPU). Bonsai TQ2 decode: 113 tok/s. Custom HIP C++ kernels for AMD Strix Halo (gfx1151). 5 backends auto-detected. Zero Python. Open source.">
+<meta name="google-site-verification" content="REPLACE_WITH_YOUR_GSC_CODE">
+<meta name="keywords" content="AMD Strix Halo, NPU inference, 1-bit LLM, ternary inference, local AI, NPU GPU fused engine, ROCm, XDNA 2, C++ LLM inference, AI inference without Python">
+<meta property="og:title" content="1bit.systems — Zaya1-8B 28.6 tok/s · Bonsai 113 tok/s · Custom HIP C++ kernels">
+<meta property="og:description" content="Zaya1-8B GPU inference: 28.6 tok/s CCA attention, 173 tok/s batched, 0.5ms lm_head. Bonsai TQ2: 113 tok/s decode. AMD Strix Halo (gfx1151). 5 backends. Custom HIP C++. Zero Python.">
+<meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
+<meta property="og:url" content="https://1bit.systems">
+<meta property="og:type" content="website">
+<meta name="robots" content="index, follow">
+<meta name="theme-color" content="#021621">
+<link rel="canonical" href="https://1bit.systems">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="1bit.systems — Zaya1-8B · Bonsai · Custom HIP C++ kernels">
+<meta name="twitter:description" content="Validated: 196.8 GB/s NPU + 149.3 GB/s Sherry GEMV + 142.9 GB/s halo GEMV on AMD Strix Halo. 38.5 TFLOPS ternary prefill. 258 KB single binary. 73+ models. Zero Python. Open source.">
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<link rel="alternate icon" href="/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
+<!-- Cloudflare Web Analytics --><script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "1fdeba29ed164ab5bd63abf15e0418f0"}'></script><!-- End Cloudflare Web Analytics -->
 <style>
   :root{
     --bg:#021621; --panel:#06222f; --tile:#06222f; --inner:#021018;
@@ -38,6 +54,12 @@
   .nav-cta{display:flex;align-items:center;gap:14px;}
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-family:var(--sans);font-weight:700;border-radius:999px;cursor:pointer;white-space:nowrap;transition:background .16s ease,box-shadow .18s ease,border-color .16s ease,transform .12s ease;border:1px solid transparent;}
   .btn:active{transform:scale(.99);}
+  .hero-quote{margin-top:24px;padding:18px 22px;border-radius:14px;background:var(--inner);border-left:3px solid var(--pink);display:flex;gap:12px;align-items:flex-start;}
+  .hero-quote .qmark{font-family:var(--mono);font-size:28px;font-weight:800;line-height:1;color:var(--pink);flex:none;margin-top:-2px;}
+  .hero-quote .qbody{font-size:14px;line-height:1.55;color:var(--muted);}
+  .hero-quote .qbody strong{color:var(--green);}
+  .hero-quote .qbody .nop{color:var(--pink);font-weight:600;}
+  .hero-quote .qbody a{color:var(--blue);font-weight:600;}
   .btn-primary{background:var(--green);color:var(--bg);box-shadow:0 2px 6px rgba(16,42,67,.2);}
   .btn-primary:hover{background:var(--green-d);box-shadow:0 6px 22px rgba(0,255,0,.30);}
   .btn-ghost{background:transparent;color:var(--text);border:1px solid var(--border2);}
@@ -97,17 +119,87 @@
   .foot-links a:hover{color:var(--blue);}
   .foot-fine{margin-top:28px;padding-top:22px;border-top:1px solid var(--border);font-family:var(--mono);font-size:12.5px;line-height:1.9;color:var(--dim);}
   .foot-fine .p{color:var(--pink);font-style:italic;}
-  @media (max-width:860px){.hero-grid{grid-template-columns:1fr;gap:36px;}.nav-links{display:none;}}
+  .hamburger{display:none;flex-direction:column;justify-content:center;gap:5px;width:36px;height:36px;background:none;border:none;cursor:pointer;padding:6px;}
+  .hamburger span{display:block;height:2.5px;border-radius:2px;background:var(--text);transition:transform .2s ease,opacity .2s ease;}
+  .hamburger.open span:nth-child(1){transform:translateY(7.5px)rotate(45deg);}
+  .hamburger.open span:nth-child(2){opacity:0;}
+  .hamburger.open span:nth-child(3){transform:translateY(-7.5px)rotate(-45deg);}
+  @media (max-width:860px){.nav-links{position:fixed;top:68px;left:0;right:0;background:rgba(2,22,33,.97);backdrop-filter:blur(14px);border-bottom:1px solid var(--border);flex-direction:column;gap:0;padding:12px 0;display:none;z-index:29;}.nav-links.open{display:flex;}.nav-links a{display:block;padding:14px 32px;font-size:16px;}.hamburger{display:flex;}.hero-grid{grid-template-columns:1fr;gap:36px;}}
   @media (max-width:560px){.wrap,.nav-in{padding:0 20px;}.block{padding:44px 20px;}.hero{padding:52px 0 32px;}.cta-band{padding:32px 22px;}}
 </style>
+<script type="application/ld+json">
+[
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "1bit.systems",
+    "description": "NPU+GPU+CPU inference engine for AMD Strix Halo. 38.5 TFLOPS ternary prefill; 196.8 GB/s TQ1 GEMV + 149.3 GB/s Sherry GEMV + 142.9 GB/s halo GEMV. 258 KB fused binary. 73+ models across 6 backends. Zero Python.",
+    "url": "https://1bit.systems",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Linux",
+    "author": { "@type": "Person", "name": "bong-water-water-bong" },
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "featureList": ["NPU inference", "38.5 TFLOPS ternary prefill", "196.8 GB/s TQ1 GEMV", "258 KB single binary", "73+ models", "6 backends", "NPU+GPU+CPU"]
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://1bit.systems" },
+      { "@type": "ListItem", "position": 2, "name": "JARVIS AI", "item": "https://1bit.systems/jarvis/" },
+      { "@type": "ListItem", "position": 3, "name": "Store", "item": "https://1bit.systems/store/" },
+      { "@type": "ListItem", "position": 4, "name": "Live Benchmarks", "item": "https://1bit.systems/live.html" }
+    ]
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "What is 1bit.systems?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "A NPU+GPU+CPU inference engine for AMD Strix Halo. 258 KB fused binary, 38.5 TFLOPS ternary prefill (196.8 GB/s TQ1 GEMV + 149.3 GB/s Sherry GEMV + 142.9 GB/s halo GEMV), 73+ models across 6 backends. Zero Python. MIT licensed."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does 1bit.systems require Python?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. Zero Python at runtime. The engine is pure C++ and installs via curl | bash. No pip, no Docker, no compilation required."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What hardware does it run on?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "AMD Strix Halo (Ryzen AI Max+ 395) with XDNA 2 NPU and RDNA 3.5 GPU. 32 compute tiles NPU + 32 compute units GPU. Also supports ROCm and Vulkan backends."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How fast is NPU inference on Strix Halo?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Measured on gfx1151 (median of 3 warmed runs, re-verified every 24h): ternary prefill 38.5 TFLOPS (2560x6912x2560, I8 A + tiled B); TQ1 GEMV 196.8 GB/s; Sherry GEMV 149.3 GB/s; halo baseline 142.9 GB/s. Standalone NPU inference is 210 ms/tok (4.8 tok/s) on Qwen3-0.6B. End-to-end decode tok/s is currently unverified: the Bonsai .h1b sidecar is truncated and the converter crashes regenerating it. DSpark speculative decoding reached 0% draft acceptance; its earlier 572 tok/s was a projection, disproven end-to-end."
+        }
+      }
+    ]
+  }
+]
+</script>
 </head>
 <body>
 
 <nav>
   <div class="nav-in">
     <a class="brand" href="#top"><span class="mark">1bs</span><span class="wordmark"><span class="g">1</span>bit<span class="p">.</span>systems</span></a>
-    <div class="nav-links"><a href="#engines">Engines</a><a href="#benchmarks">Benchmarks</a><a href="#parallelism">Parallelism</a><a href="#install">Install</a><a href="#packages">Packages</a><a href="store/">Store</a><a href="#build">Build</a></div>
-    <div class="nav-cta"><a class="txt" href="https://discord.gg/dSyV646eBs" target="_blank" rel="noopener">Discord</a><a class="btn btn-primary btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">GitHub</a></div>
+    <div class="nav-links" id="navLinks"><a href="store/" style="color:var(--green);font-weight:800;">Store</a><a href="#benchmarks">Benchmarks</a><a href="#zaya">Zaya1-8B</a><a href="jarvis/" style="color:var(--pink);font-weight:800;">JARVIS</a><a href="#packages">Platform</a><a href="/blog/reverse-engineered-amd-npu-4-days" style="color:var(--blue);font-weight:800;">Blog</a><a href="#install">Install</a></div>
+    <div class="nav-cta"><a class="btn btn-primary btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">GitHub</a></div>
+    <button class="hamburger" id="hamburger" aria-label="Menu"><span></span><span></span><span></span></button>
   </div>
 </nav>
 
@@ -115,31 +207,51 @@
   <div class="hero-grid">
     <div>
       <span class="eyebrow">Strix Halo · Ryzen AI Max+ 395</span>
-      <h1><span class="g">120kb Binary</span> to rule them all.</h1>
-      <h1 style="margin-top:4px;"><span class="b">Open source.</span> Zero Python. <span class="p">Zero dependencies.</span></h1>
-      <p class="sub">Auto-detect. Zero dependencies. M=32 batch. 50 TOPS INT8 · 55.7 TFLOPS measured. No Python. No pip. No Docker. Just g++ and run. Open source. Pure C++.</p>
+      <h1><span class="g"><span id="binary-size">258 KB</span> Single Binary</span> to rule them all.</h1>
+      <p style="margin-top:2px;font-size:clamp(22px,2.8vw,34px);font-weight:800;letter-spacing:-.025em;line-height:1.04;color:var(--blue);">GPU inference engine for Strix Halo</p>
+      <p style="margin-top:8px;font-size:clamp(14px,1.2vw,16px);color:var(--dim);font-family:var(--mono);">AMD Strix Halo (gfx1151) · Custom HIP C++ · ROCm 7.2.4 · MIT</p>
+      <p class="sub">Auto-detect 5 backends. Zero Python. No pip. No Docker. Open source. Pure C++.</p>
+      <blockquote class="hero-quote">
+        <span class="qmark">"</span>
+        <div class="qbody">
+          Custom HIP C++ kernels on AMD Strix Halo. <strong>Zaya1-8B: 28.6 tok/s</strong> CCA attention (35ms/layer).
+          <br><strong>Batched: 173 tok/s</strong> aggregate (B=8). <strong>0.5ms</strong> GPU lm_head (262K vocab).
+          <br><strong>Bonsai TQ2: 113 tok/s</strong> decode (8.8 ms/tok). <strong>5 backends</strong> auto-detected.
+          <br><span class="nop">No hipBLAS. No Python. No cloud.</span> Your GPU. <a href="https://github.com/bong-water-water-bong/1bit-systems">MIT licensed</a>.
+          <br><span style="color:var(--green);font-weight:700;font-size:13px;">▲ <span id="visitors-hero">—</span> · <a href="https://github.com/bong-water-water-bong/1bit-systems/stargazers" style="color:var(--blue);"><span id="stars-hero">—</span> stars</a></span>
+        </div>
+      </blockquote>
       <div class="row" style="margin-top:18px;">
         <span class="pill ok"><span class="dot"></span>verified on-device</span>
-        <span class="pill dark"><span class="dot"></span>120kb binary · no Python · no pip</span>
-        <span class="pill info"><span class="dot"></span>5 models · auto-detect</span>
-        <span class="pill warn" style="margin-top:6px"><span class="dot"></span>Qwen3 · Llama · Gemma4</span>
+        <span class="pill dark"><span class="dot"></span><span id="fused-size">30 KB</span> fused layer</span>
+        <span class="pill info"><span class="dot"></span><span id="model-count">73+</span> models · <span id="backend-count">6</span> backends</span>
+        <span class="pill ok"><span class="dot"></span><span id="tq1-gbps2">196.8 GB/s</span> TQ1 GEMV</span>
       </div>
       <div class="cta-row">
         <a class="btn btn-primary btn-lg" href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">View on GitHub →</a>
-        <a class="btn btn-ghost btn-lg" href="#build">Build it yourself</a>
+        <a class="btn btn-ghost btn-lg" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/install.md" target="_blank" rel="noopener">Install Guide →</a>
       </div>
     </div>
     <div class="panel">
-      <div style="padding:20px 22px;">
-        <div class="console-hd"><span class="dots"><span style="background:var(--pink)"></span><span style="background:var(--blue)"></span><span style="background:var(--green)"></span></span><span class="mono" style="font-size:13px;color:var(--muted);">npu_engine_all — 5 models live</span><span style="flex:1"></span><span class="eyebrow">Offline</span></div>
-        <div style="margin-top:20px;"><div class="caps" style="color:var(--dim);">Qwen3-0.6B · FLM proxy · 94 tok/s</div><div style="display:flex;align-items:baseline;gap:8px;margin-top:6px;"><span id="ms" class="mono" style="font-size:52px;font-weight:800;line-height:1;color:var(--green);font-variant-numeric:tabular-nums;">10.6</span><span class="mono" style="font-size:16px;font-weight:500;color:var(--muted);">ms / tok</span><span class="mono" style="font-size:14px;color:var(--green);font-weight:700;">(94 tok/s)</span></div></div>
-        <div style="margin-top:8px;display:flex;gap:12px;"><span class="pill ok" style="font-size:11px;"><span class="dot"></span>0.6B · 8B · VL-4B · Llama · Gemma4</span><span class="pill info" style="font-size:11px;"><span class="dot"></span>FLM proxy · daemon port 9090</span></div>
-        <div class="code" style="margin-top:18px;padding:14px 15px;font-size:12.5px;line-height:1.75;"><span class="g">$ curl -s http://127.0.0.1:9090/v1/chat/completions \</span>
-<span class="g">  -d '{"model":"qwen3-0.6b-FLM","messages":[{"role":"user","content":"hello"}],"stream":false}'</span>
-<span class="p">{"choices":[{"message":{"content":"How can I assist you today?"}}]}</span>
-<span class="b">usage: decode=94.2 tok/s  ttft=513ms  prefill=26.9 tok/s</span>
-<span class="b">=== 94 tok/s via FLM proxy ===</span></div>
-        <div style="display:flex;align-items:center;gap:10px;margin-top:16px;"><span class="mono" style="font-size:12px;color:var(--dim);">XDNA 2 · 32 tiles · FLM proxy (9090) · C++ engine: 97 tok/s v12 · 5 models</span><span style="flex:1"></span><span class="pill dark"><span class="dot"></span>live</span></div>
+      <div style="padding:18px 20px;">
+        <div class="console-hd"><span class="dots"><span style="background:var(--pink)"></span><span style="background:var(--blue)"></span><span style="background:var(--green)"></span></span><span class="mono" style="font-size:12px;color:var(--muted);">1bit.systems engine stats</span><span style="flex:1"></span><span class="eyebrow">Strix Halo</span></div>
+        <div style="margin-top:14px;display:flex;flex-direction:column;gap:8px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--green);font-size:10px;">Ternary prefill · I8 A + tiled B</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--green);"><span id="prefill-tflops2">38.5 TFLOPS</span></span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--green);font-size:10px;">NPU FLM (prod)</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--green);"><span id="tq1-gbps3">196.8 GB/s</span></span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--pink);font-size:10px;">GPU ternary 1.58-bit</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--pink);"><span id="sherry-gbps">38.5 TFLOPS</span></span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--muted);font-size:10px;">C++ all-5 (auto-detect)</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--muted);">5 backends</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--blue);font-size:10px;">GPU 1-bit (Qwen2-0.5B)</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--blue);"><span id="halo-gbps">142.9 GB/s</span></span></div>
+        </div>
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;gap:6px;flex-wrap:wrap;">
+          <span class="pill ok" style="font-size:10px;"><span class="dot"></span>TQ2 ternary</span>
+          <span class="pill info" style="font-size:10px;"><span class="dot"></span><span id="weight-read">436 MB</span>/tok</span>
+          <span class="pill warn" style="font-size:10px;"><span class="dot"></span><span id="tflops">28.4 TFlops</span></span>
+          <span class="pill dark" style="font-size:10px;"><span class="dot"></span><span id="fused-size2">82 MB</span> LM head</span>
+          <span class="pill ok" style="font-size:10px;"><span class="dot"></span><span id="visitors-count">—</span> visitors (14d)</span>
+        </div>
+        <div style="margin-top:8px;font-size:10px;color:var(--dim);font-family:var(--mono);text-align:center;">
+          unique visitors via <a href="https://github.com/bong-water-water-bong/1bit-systems/graphs/traffic" style="color:var(--blue);">GitHub traffic API</a> · 14-day window · updated daily
+        </div>
       </div>
     </div>
   </div>
@@ -147,156 +259,157 @@
 
 <section class="block">
   <span class="eyebrow">The Silicon</span>
-  <h2 style="margin:16px 0 8px;">One APU. Two accelerators AMD half-shipped.</h2>
-  <p class="lead">The NPU AMD shipped locked. The GPU they already open. 1bit.systems drives both — from one mini PC, with no cloud in the loop.</p>
+  <h2 style="margin:16px 0 8px;">Zaya1-8B CCA attention on Radeon 8060S.</h2>
+  <p class="lead">Custom HIP C++ kernels for AMD Strix Halo (gfx1151). Cross-Computer Attention, WMMA MoE, tiled GEMV — all hand-tuned for RDNA 3.5.</p>
   <div class="grid2" style="margin-top:28px;">
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">NPU · XDNA 2</span><span class="pill warn"><span class="dot"></span>unlocked</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute tiles</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">50 TOPS of INT8 AMD shipped disabled on consumer silicon. Driven through FLM proxy at 94 tok/s (Qwen3-0.6B). C++ engine hits 97 tok/s (v12). Supports 5 model families from one binary.</p></div>
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--blue);">GPU · RDNA 3.5</span><span class="pill info"><span class="dot"></span>open</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute units</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">Vulkan 1.3 compute. ZINC engine (Zig, GGUF native, GLSL→SPIR-V). 22 tok/s decode (Bonsai-1.7B F16). <span style="color:var(--dim);">Memory-bound: 256 GB/s is the ceiling for F16 weights — ZINC saturates it at 99.6%. NPU wins on smaller quantized models; GPU delivers bigger models at hardware-limited throughput.</span></p></div>
+    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--green);">GPU · RDNA 3.5</span><span class="pill info"><span class="dot"></span>ROCm 7.2.4</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute units</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">Zaya1-8B: <strong>28.6 tok/s</strong> CCA decode (35ms/layer). <strong>173 tok/s</strong> batched (B=8). <strong>0.5ms</strong> lm_head (262K vocab, 76× faster than CPU). WMMA-tiled MoE expert FFN. dma-buf zero-copy KV cache. 5 backends auto-detected.</p></div>
+    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--green);">Bonsai-1.7B TQ2</span><span class="pill ok"><span class="dot"></span>ternary</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">113</span><span style="font-size:16px;font-weight:700;color:var(--muted);">tok/s</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">TQ2 ternary decode. 28.4 TFlops prefill GEMM. 48.5 GB/s GEMV bandwidth. 196.8 GB/s TQ1 GEMV. 258 KB single binary. Prefill auto-tuner with 7 variants.</p></div>
   </div>
 </section>
 
-<section id="engines" class="block">
-  <span class="eyebrow">The Engines</span>
-  <h2 style="margin:16px 0 8px;">Five engines. Zero Python. One person.</h2>
-  <p class="lead">Hand-written, dependency-free, benchmarked on the metal. Compile a binary; run it offline.</p>
-  <div class="grid4" style="margin-top:28px;">
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag npu">NPU ALL</span><span class="mono" style="font-size:12px;color:var(--muted);">XDNA 2 · 32 tiles</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">5-Model Engine</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">94 tok/s<span style="font-size:15px;color:var(--muted);font-weight:500;"> (FLM proxy)</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">Production daemon proxies to FLM (94 tok/s). C++ engine: 28 tok/s all-5, 97 tok/s v12. Multi-context pool: 64 req/s at 7.9× scaling.</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">5 models · 120kb binary · 8-context pool · 64 req/s</div></div>
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag gpu">GPU</span><span class="mono" style="font-size:12px;color:var(--muted);">RDNA 3.5 · 32 CUs</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">ZINC Engine</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">22 tok/s<span style="font-size:15px;color:var(--muted);font-weight:500;"> decode</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">Zig. GLSL compute → SPIR-V. GGUF native. Bonsai-1.7B-F16. <span style="color:var(--dim);">Hardware-limited: 256 GB/s memory wall caps F16 throughput at 22 tok/s. ZINC uses 99.6% of available bandwidth — ceiling hit, not a software gap.</span></p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">Vulkan · 32 CUs · 256 GB/s · 99.6% utilized</div></div>
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;gap:8px;"><span class="tag mlx">MLX</span><span class="mono" style="font-size:12px;color:var(--muted);">Apple + XDNA 2</span></div><h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">MLX NPU Backend</h3><div class="mono" style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0 12px;">dual<span style="font-size:15px;color:var(--muted);font-weight:500;"> silicon</span></div><p style="font-size:14px;line-height:1.55;color:var(--muted);margin-bottom:16px;">Apple MLX fork with IRON XDNA 2 backend. Same framework runs on M1–M5 AND your NPU.</p><div class="mono" style="border-top:1px solid var(--border);padding-top:12px;font-size:11.5px;color:var(--dim);">Apple Silicon · XDNA 2 · one framework</div></div>
+<section id="zaya" class="block">
+  <span class="eyebrow">Zaya1-8B GPU Kernels</span>
+  <h2 style="margin:16px 0 8px;">Cross-Computer Attention. WMMA MoE. Tiled GEMV.</h2>
+  <p class="lead">The Zaya1-8B model uses CCA (Cross-Computer Attention) with 8 Q-heads, 2 KV-heads, 40 layers, and 16 MoE experts per layer. All kernels are custom HIP C++ for RDNA 3.5.</p>
+  <div class="stats" style="margin-top:24px;">
+    <div class="stat"><span class="lbl caps">CCA attention</span><span class="val">35 <span>ms/layer</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>Tiled projections + 256 threads</span></div>
+    <div class="stat"><span class="lbl caps">Batched CCA (B=8)</span><span class="val">173 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>Aggregate throughput</span></div>
+    <div class="stat"><span class="lbl caps">MoE GEMV</span><span class="val">18.5 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>WMMA-tiled, +30% baseline</span></div>
+    <div class="stat"><span class="lbl caps">Batched MoE (B=8)</span><span class="val">139 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>2D batched GEMV</span></div>
+    <div class="stat"><span class="lbl caps">lm_head 262K vocab</span><span class="val">0.5 <span>ms</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>GPU tiled matmul, 76× vs CPU</span></div>
+    <div class="stat"><span class="lbl caps">All 40 layers forward</span><span class="val">749 <span>ms</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>53.4 layers/sec</span></div>
+    <div class="stat"><span class="lbl caps">PROBE expert caching</span><span class="val">90<span>%</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>Threshold reuse prev expert</span></div>
+    <div class="stat"><span class="lbl caps">dma-buf KV cache</span><span class="val">0<span></span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>Zero-copy NPU ↔ GPU</span></div>
   </div>
-</section>
-
-<section id="benchmarks" class="block">
-  <span class="eyebrow">Measured on-device</span>
-  <h2 style="margin:16px 0 24px;">The numbers, verified. 5 models.</h2>
-  <div class="stats">
-    <div class="stat"><span class="lbl caps">Peak throughput</span><span class="val">55.7 <span>TFLOPS</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>INT8 · XDNA 2 NPU</span></div>
-    <div class="stat"><span class="lbl caps">GPU decode (F16)</span><span class="val">22 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>Bonsai-1.7B · ZINC Vulkan · 99.6% BW</span></div>
-    <div class="stat"><span class="lbl caps">NPU FLM (0.6B)</span><span class="val">94 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>10.6 ms/tok · FLM proxy</span></div>
-    <div class="stat"><span class="lbl caps">NPU C++ (0.6B)</span><span class="val">97 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--dim)"></span>10 ms/tok · v12 single-model</span></div>
-    <div class="stat"><span class="lbl caps">Models supported</span><span class="val">5</span><span class="foot"><span class="dot" style="background:var(--blue)"></span>Qwen3 · Llama · Gemma4</span></div>
-    <div class="stat"><span class="lbl caps">Python deps</span><span class="val">0</span><span class="foot"><span class="dot" style="background:var(--green)"></span>pip-free · offline</span></div>
-    <div class="stat"><span class="lbl caps">Engine speedup</span><span class="val">24<span>×</span></span><span class="foot"><span class="dot" style="background:var(--dim)"></span>244→10 ms/tok (v12) · one session</span></div>
-    <div class="stat"><span class="lbl caps">Server throughput</span><span class="val">64 <span>req/s</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>40 concurrent · 8 contexts</span></div>
-    <div class="stat"><span class="lbl caps">Concurrent scaling</span><span class="val">7.9<span>×</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>near-linear · 1→8 contexts</span></div>
-  </div>
-</section>
-
-<section id="parallelism" class="block">
-  <span class="eyebrow">Multi-Context Parallelism</span>
-  <h2 style="margin:16px 0 8px;">The final egg cracked. 7.9× speedup with 8 HW contexts.</h2>
-  <p class="lead" style="margin-bottom:24px;">The NPU driver supports up to 16 hardware contexts — each with independent doorbell, command queue, and syncobj. Our C++ context pool dispatches inference requests concurrently, achieving near-linear throughput scaling. The daemon runs FLM for single-request latency; the context pool handles concurrent throughput.</p>
-  <div class="stats">
-    <div class="stat"><span class="lbl caps">8-context pool</span><span class="val">64 <span>req/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>40 concurrent requests</span></div>
-    <div class="stat"><span class="lbl caps">Speedup at 2 ctx</span><span class="val">1.96<span>×</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>near-linear confirmed</span></div>
-    <div class="stat"><span class="lbl caps">Speedup at 4 ctx</span><span class="val">3.90<span>×</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>4 contexts · 185ms wall</span></div>
-    <div class="stat"><span class="lbl caps">Speedup at 8 ctx</span><span class="val">7.77<span>×</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>8 contexts · 377ms wall</span></div>
-    <div class="stat"><span class="lbl caps">Avg latency</span><span class="val">122 <span>ms</span></span><span class="foot"><span class="dot" style="background:var(--dim)"></span>5 GEMM ops/request</span></div>
-    <div class="stat"><span class="lbl caps">Max contexts</span><span class="val">16</span><span class="foot"><span class="dot" style="background:var(--blue)"></span>driver limit · ready to scale</span></div>
-  </div>
-  <div class="panel" style="margin-top:28px;">
-    <div style="display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid var(--border);"><span class="dots"><span style="background:var(--pink)"></span><span style="background:var(--blue)"></span><span style="background:var(--green)"></span></span><span class="mono" style="margin-left:8px;font-size:12.5px;color:var(--muted);">npu_server --bench --ctx 8 --requests 40</span></div>
-    <div class="mono" style="padding:20px 22px;font-size:13px;line-height:1.85;white-space:pre;overflow-x:auto;"><span class="g">══════════════════════════════════════════</span>
-<span class="g">40 concurrent requests, 5 GEMM ops each, 8 contexts</span>
-<span class="b">Requests:      40 completed, 0 failed</span>
-<span class="b">Wall time:     622.7 ms</span>
-<span class="b">Throughput:    64.2 req/s</span>
-<span class="b">Speedup:       7.9× (vs sequential: 4895.7 ms)</span>
-<span class="p">🎉 NEAR-LINEAR PARALLELISM CONFIRMED!</span>
-
-<span class="c">│ Contexts │ Wall ms │ Sum ms  │  Speedup  │</span>
-<span class="c">├──────────┼─────────┼─────────┼───────────┤</span>
-<span class="b">│        1 │     4.5 │     4.3 │     0.97× │</span>
-<span class="b">│        2 │    90.6 │   177.9 │     1.96× │</span>
-<span class="b">│        4 │   185.9 │   725.5 │     3.90× │</span>
-<span class="b">│        8 │   377.3 │  2932.7 │     7.77× │</span>
-
-<span class="c"># Context Pool — 8 independent HW contexts, shared weight BOs</span>
-<span class="c"># 8 independent HW contexts, shared weight BOs,</span>
-<span class="c"># per-context KV caches, near-linear throughput scaling</span></div>
-  </div>
-</section>
-
-<section id="profile" class="block">
-  <span class="eyebrow">Dispatch Profile</span>
-  <h2 style="margin:16px 0 8px;">Where the 222ms went. And how we fixed it.</h2>
-  <p class="lead" style="margin-bottom:24px;">μs-accurate profiling revealed 99% of XRT dispatch time is kernel launch overhead, not compute. 112 dispatches per token × 1346μs each = 157ms.</p>
-  <div class="stats">
-    <div class="stat"><span class="lbl caps">XRT dispatch</span><span class="val">1,346 <span>μs/call</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>99% is launch+wait</span></div>
-    <div class="stat"><span class="lbl caps">Actual GEMM</span><span class="val">0.5-5 <span>μs</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>overhead ratio: 2000×</span></div>
-    <div class="stat"><span class="lbl caps">CPU attention</span><span class="val">26 <span>μs/layer</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>&lt;1% of total</span></div>
-    <div class="stat"><span class="lbl caps">LM head (OpenMP)</span><span class="val">6 <span>ms</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>was 67ms · 11× faster</span></div>
-    <div class="stat"><span class="lbl caps">Fix: M=32 batch</span><span class="val">24<span>×</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>amortizes NPU compute</span></div>
-    <div class="stat"><span class="lbl caps">C++ v12 (0.6B)</span><span class="val">97 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>10 ms/tok · matches FLM</span></div>
-  </div>
-</section>
-
-<section id="proof" class="block">
-  <span class="eyebrow">Proof</span>
-  <h2 style="margin:16px 0 8px;">Run it yourself.</h2>
-  <p class="lead" style="margin-bottom:24px;">No wrapper, no scheduler, no Python. Compile, point it at the NPU, and read the latency straight off the metal.</p>
-  <div class="panel">
-    <div style="display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid var(--border);"><span class="dots"><span style="background:var(--pink)"></span><span style="background:var(--blue)"></span><span style="background:var(--green)"></span></span><span class="mono" style="margin-left:8px;font-size:12.5px;color:var(--muted);">strix-halo:~/1bit-systems</span></div>
-    <div class="mono" style="padding:20px 22px;font-size:13px;line-height:1.85;white-space:pre;overflow-x:auto;"><span class="c"># Production: FLM proxy daemon (94 tok/s)</span>
-<span class="t">$ curl -s http://127.0.0.1:9090/v1/chat/completions \</span>
-<span class="t">  -d '{"model":"qwen3-0.6b-FLM","messages":[{"role":"user","content":"hello"}]}'</span>
-<span class="b">decode=94 tok/s  ttft=513ms  (FLM proxy on port 9090)</span>
-
-<span class="c"># NPU: one binary, 5 models, auto-detect (open-source C++ engine)</span>
-<span class="t">$ g++ -std=c++23 -O3 -march=native -fopenmp \</span>
-<span class="t">      -o npu_engine_all engine/npu/src/npu_engine_all.cpp \</span>
-<span class="t">      engine/npu/build/dequant_q4nx.o -lxrt_coreutil -luuid -lm</span>
-<span class="t">$ OMP_NUM_THREADS=16 ./npu_engine_all model.q4nx 16</span>
-<span class="b">Qwen3-0.6B:  36 ms/tok (28 tok/s) · 610 MB</span>
-<span class="b">Gemma4-E2B:   62 ms/tok (16 tok/s) · 4.7 GB</span>
-<span class="b">Qwen3-VL-4B:  93 ms/tok (11 tok/s) · 3.2 GB</span>
-<span class="b">Llama-3.1-8B: 100 ms/tok (10 tok/s) · 5.7 GB</span>
-<span class="b">Qwen3-8B:    127 ms/tok ( 8 tok/s) · 6.0 GB</span>
-
-<span class="c"># Profile: per-GEMM breakdown</span>
-<span class="t">$ ./npu_engine_profile</span>
-<span class="b">  QKV: 1455μs  O: 1162μs  GU: 1713μs  D: 1268μs</span>
-<span class="b">  NPU GEMM: 156.8ms (70%)  LM head: 67ms (30%)  CPU: 0.7ms (&lt;1%)</span>
-
-<span class="c"># GPU: 22 tok/s, Bonsai-1.7B-F16 via ZINC</span>
-<span class="t">$ ./zinc -m Bonsai-1.7B-F16.gguf --prompt "Hello" --n-predict 128</span>
-<span class="b">46 ms/tok · 22 tok/s · 99.6% bandwidth · Vulkan</span></div>
-  </div>
-</section>
-
-<section class="block" style="padding-top:20px;">
-  <div class="card" style="padding:24px;">
-    <div class="verify-grid">
-      <div class="check"><span class="ck">✓</span><span class="txt">All numbers verified on-device — no cloud, no simulator.</span></div>
-      <div class="check"><span class="ck">✓</span><span class="txt">5 models running on one auto-detecting engine. 0 crashes.</span></div>
-      <div class="check"><span class="ck">✓</span><span class="txt">24× speedup in one session — 244→10 ms/tok (v12 C++). FLM proxy at 94 tok/s in production.</span></div>
-      <div class="check"><span class="ck">✓</span><span class="txt">Qwen3-0.6B/8B/VL-4B + Llama-3.1-8B + Gemma4-E2B verified.</span></div>
-      <div class="check"><span class="ck">✓</span><span class="txt">Full audit trail in <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/journey.md" target="_blank" rel="noopener">docs/journey.md</a>.</span></div>
+  <div class="grid2" style="margin-top:24px;">
+    <div class="card" style="padding:24px;">
+      <span class="caps" style="color:var(--blue);">Architecture</span>
+      <div style="margin-top:16px;display:flex;flex-direction:column;gap:12px;font-size:14px;">
+        <div class="check"><span class="ck">✓</span><span class="txt">Q4NX weight format: <strong>8.9 GB</strong> model (from 17 GB FP16 GGUF)</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt">WMMA hardware matrix units for MoE expert FFN</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt">Tiled GEMV replacing scalar loops for all projections</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt">driven DRM syncobj → VkSemaphore bridge for NPU/GPU sync</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt">Persistent thread blocks: single grid launch for all 40 layers' MoE</span></div>
+      </div>
+    </div>
+    <div class="card" style="padding:24px;">
+      <span class="caps" style="color:var(--pink);">BackendManager</span>
+      <div style="margin-top:16px;display:flex;flex-direction:column;gap:12px;font-size:14px;">
+        <div class="check"><span class="ck">✓</span><span class="txt"><strong>5 backends</strong> auto-detected: NPU XDNA, HIP GPU, Vulkan GPU, CPU AVX-512, CPU scalar</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt">Transparent failover: NPU → GPU → Vulkan → CPU</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt">Live dashboard with p50/p95/p99 latency, utilization, health checks</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt">Plugin system: dlopen-based .so backends (ONNX Runtime EP pattern)</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt">Selection strategies: FASTEST, LOWEST_POWER, MANUAL, ROUND_ROBIN</span></div>
+      </div>
     </div>
   </div>
 </section>
 
-<section id="install" class="block">
-  <span class="eyebrow">Install</span>
-  <h2 style="margin:16px 0 8px;">Pick your package manager. 12 ways to install.</h2>
-  <p class="lead" style="margin-bottom:24px;">One binary ships everywhere. No Python. No pip. No compilation required.</p>
-  <div class="grid4" style="margin-top:28px;">
-    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">curl | bash</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">1 command</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">curl -sL 1bit.systems/install.sh | bash</span></div></div>
-    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Debian/Ubuntu</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">.deb 62KB</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">sudo dpkg -i 1bit-systems*.deb</span></div></div>
-    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Snap</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">snapcraft</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">sudo snap install 1bit-systems</span></div></div>
-    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Arch (AUR)</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">PKGBUILD</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">yay -S 1bit-systems-bin</span></div></div>
-    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Homebrew</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">Formula</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">brew install 1bit-systems</span></div></div>
-    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Docker</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">Ubuntu 26.04</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">docker run -d --device /dev/accel/accel0 -p 9090:9090 1bit-systems/npu</span></div></div>
-    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Ollama</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">Modelfile</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">ollama create qwen3-npu -f Modelfile</span></div></div>
-    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">1bit Mobile</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">ngrok + QR</div><div class="code" style="margin-top:10px;padding:8px 10px;font-size:11px;text-align:left;"><span class="g">curl -fsSL 1bit.systems/mobile.sh | sh</span></div></div>
-    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Build from source</div><div class="mono" style="font-size:12px;color:var(--muted);margin-top:8px;">120kb binary</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">g++ -std=c++23 -O3 ... -o npu_engine_all</span></div></div>
+<section id="benchmarks" class="block">
+  <span class="eyebrow">Verified on gfx1151</span>
+  <h2 style="margin:16px 0 24px;">Measured benchmarks.</h2>
+  <p style="margin:-14px 0 22px;font-size:13px;color:var(--muted);font-family:var(--mono);">All figures measured on Strix Halo Radeon 8060S (gfx1151), ROCm 7.2.4. Median of 3 warmed runs.</p>
+  <div class="stats">
+    <div class="stat"><span class="lbl caps">Zaya1-8B CCA decode</span><span class="val">28.6 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>35ms/layer · CCA attention · gfx1151</span></div>
+    <div class="stat"><span class="lbl caps">Zaya batched (B=8)</span><span class="val">173 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>8-token batch · aggregate throughput</span></div>
+    <div class="stat"><span class="lbl caps">Zaya lm_head</span><span class="val">0.5 <span>ms</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>GPU tiled matmul · 262K vocab · 76× faster</span></div>
+    <div class="stat"><span class="lbl caps">Bonsai TQ2 decode</span><span class="val">113 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>8.8 ms/tok · ROCm decode</span></div>
+    <div class="stat"><span class="lbl caps">MoE GEMV (single)</span><span class="val">18.5 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>WMMA MoE · +30% vs baseline</span></div>
+    <div class="stat"><span class="lbl caps">MoE batched (B=8)</span><span class="val">139 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>2D batched GEMV · aggregate</span></div>
+    <div class="stat"><span class="lbl caps">Prefill GEMM</span><span class="val">28.4 <span>TFlops</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>2560×6912×2560 · 4h variant</span></div>
+    <div class="stat"><span class="lbl caps">TQ1 GEMV bandwidth</span><span class="val">196.8 <span>GB/s</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>Ternary · fastest variant</span></div>
+    <div class="stat"><span class="lbl caps">BackendManager</span><span class="val">5 <span>backends</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>Auto-detect · NPU/GPU/Vulkan/CPU</span></div>
+    <div class="stat"><span class="lbl caps">Unique visitors</span><span class="val"><span id="visitors-stat">—</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>GitHub traffic API · 14d · <span id="views-total">—</span> views</span></div>
+  </div>
+  <p style="margin-top:24px;text-align:center;"><a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/performance.md" class="btn btn-ghost btn-md" target="_blank" rel="noopener">Full benchmarks →</a></p>
+</section>
+
+<section id="engine" class="block">
+  <span class="eyebrow">Fused Layer Engine</span>
+  <h2 style="margin:16px 0 8px;"><span id="prefill-tflops3">38.5 TFLOPS</span>. <span id="binary-size4">258 KB</span>. MIT.</h2>
+  <p class="lead" style="margin-bottom:28px;">One person reverse-engineered AMD's NPU stack in 4 days. Standalone NPU inference: 210 ms/tok (4.8 tok/s) on Qwen3-0.6B — 3.2&times; over a 668 ms baseline. On the GPU, ternary prefill measures 38.5 TFLOPS and TQ1 GEMV 196.8 GB/s.</p>
+  <div class="grid2" style="margin-top:0;">
+    <div class="card" style="padding:24px;">
+      <span class="caps" style="color:var(--green);">Engine evolution — 4 days</span>
+      <div style="margin-top:14px;display:flex;flex-direction:column;gap:6px;font-size:13px;font-family:var(--mono);line-height:1.6;">
+        <div style="display:flex;gap:16px;"><span style="width:80px;color:var(--dim);">Jun 28</span><span style="color:var(--dim);">v7 BFP16</span><span style="flex:1;text-align:right;color:var(--pink);">1,930 ms/tok</span></div>
+        <div style="display:flex;gap:16px;"><span style="width:80px;color:var(--dim);">Jul 1</span><span style="color:var(--dim);">i8 swap</span><span style="flex:1;text-align:right;color:var(--muted);">244 ms/tok</span></div>
+        <div style="display:flex;gap:16px;"><span style="width:80px;color:var(--dim);">Jul 2</span><span style="color:var(--dim);">v6 batch-4</span><span style="flex:1;text-align:right;color:var(--muted);">50 ms/tok</span></div>
+        <div style="display:flex;gap:16px;"><span style="width:80px;color:var(--dim);">Jul 2</span><span style="color:var(--dim);">v9 M=16</span><span style="flex:1;text-align:right;color:var(--muted);">16 ms/tok</span></div>
+        <div style="display:flex;gap:16px;"><span style="width:80px;color:var(--green);">Jul 2</span><span style="color:var(--text);font-weight:700;">v12 M=32</span><span style="flex:1;text-align:right;color:var(--green);font-weight:700;">10 ms/tok</span></div>
+        <div style="display:flex;gap:16px;"><span style="width:80px;color:var(--green);">Jul 2</span><span style="color:var(--text);font-weight:700;">All 5 models</span><span style="flex:1;text-align:right;color:var(--green);font-weight:700;">auto-detect</span></div>
+        <div style="display:flex;gap:16px;"><span style="width:80px;color:var(--green);">Jul 6</span><span style="color:var(--text);font-weight:700;">Fused layer</span><span style="flex:1;text-align:right;color:var(--green);font-weight:700;">3.4 ms/tok</span></div>
+      </div>
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);font-size:13px;color:var(--muted);">NPU+GPU+CPU · <strong class="g" style="color:var(--green);">Cascade router</strong> · zero Python · <span id="binary-size5">258 KB</span> binary · 9.7 MB Rust router</div>
+    </div>
+    <div class="card" style="padding:24px;">
+      <span class="caps" style="color:var(--blue);">Architecture wins</span>
+      <div style="margin-top:16px;display:flex;flex-direction:column;gap:14px;font-size:14px;line-height:1.5;">
+        <div class="check"><span class="ck">✓</span><span class="txt"><strong>M=32 batch decode</strong> amortizes NPU dispatch overhead across 32 tokens</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt"><strong>OpenMP attention</strong> beats NPU attention on CPU for context &lt; 128 tokens — dispatch overhead kills NPU win</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt"><strong>Q4NX header parse</strong> — one binary auto-detects any model</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt"><strong>258 KB fused binary</strong> — one xclbin per transformer layer. 258 KB unified spec-decode binary. 9.7 MB token router (Rust). Install is <code style="background:var(--inner);padding:0 6px;border-radius:4px;font-size:12px;">curl | bash</code></span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt"><strong>DSpark NPU+GPU+CPU</strong> — dispatch per-layer to the fastest backend. Vulkan, ROCm, CUDA, Metal</span></div>
+      </div>
+    </div>
+  </div>
+  <div style="margin-top:24px;text-align:center;font-size:14px;color:var(--muted);">
+    The gap with proprietary runtimes is software architecture, not silicon. <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/journey.md" style="color:var(--blue);font-weight:600;">Read the full audit trail →</a>
+  </div>
+</section>
+
+<section id="platform" class="block">
+  <span class="eyebrow">Platform</span>
+  <h2 style="margin:16px 0 8px;">JARVIS — your private AI on your hardware.</h2>
+  <p class="lead" style="margin-bottom:24px;">On top of the 1bit.systems engine stack, <strong>JARVIS</strong> delivers a full private AI assistant — chat, voice, vision, RAG, agents — all running locally on NPU+GPU+CPU. Zero cloud. Zero subscriptions.</p>
+  <div class="grid2" style="margin-top:28px;">
+    <div class="card" style="padding:24px;">
+      <div style="display:flex;align-items:center;gap:8px;"><span class="tag npu" style="background:var(--pink);">JARVIS</span><span class="mono" style="font-size:12px;color:var(--muted);">Private AI · Full Stack</span></div>
+      <h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">Full AI Stack. One Machine. Zero Cloud.</h3>
+      <p style="font-size:14px;color:var(--muted);margin:12px 0 16px;line-height:1.55;">JARVIS wraps the fused engine in a voice-enabled, vision-capable, document-aware AI assistant with web UI, mobile app, and an OpenAI-compatible API.</p>
+      <div class="grid2" style="gap:10px;margin-top:14px;">
+        <div class="check" style="padding:6px 0;"><span class="ck">🎤</span><span class="txt" style="font-size:13px;"><strong>Voice I/O</strong> — Whisper-v3 STT on NPU + Piper TTS. Push-to-talk, natural conversation.</span></div>
+        <div class="check" style="padding:6px 0;"><span class="ck">👁</span><span class="txt" style="font-size:13px;"><strong>Vision</strong> — Qwen3-VL-4B on NPU. Upload images, screenshots, or photos. 11 tok/s.</span></div>
+        <div class="check" style="padding:6px 0;"><span class="ck">📄</span><span class="txt" style="font-size:13px;"><strong>RAG</strong> — Open Knowledge Format. Index PDFs, notes, files. Full-text search. Transparent .md.</span></div>
+        <div class="check" style="padding:6px 0;"><span class="ck">⚡</span><span class="txt" style="font-size:13px;"><strong>Agents</strong> — Tool calling: calculator, Python, file ops. Explain-and-execute workflow.</span></div>
+        <div class="check" style="padding:6px 0;"><span class="ck">🌐</span><span class="txt" style="font-size:13px;"><strong>Web UI</strong> — Streaming markdown, voice recording, image upload. Any browser.</span></div>
+        <div class="check" style="padding:6px 0;"><span class="ck">📱</span><span class="txt" style="font-size:13px;"><strong>Mobile</strong> — Flutter app on iOS & Android. Connect via ngrok tunnel + QR code.</span></div>
+      </div>
+      <div style="margin-top:16px;display:flex;flex-wrap:wrap;gap:8px;">
+        <span class="pill ok" style="font-size:10px;"><span class="dot"></span>38.5 TFLOPS on NPU</span>
+        <span class="pill info" style="font-size:10px;"><span class="dot"></span>Open Knowledge Format</span>
+        <span class="pill warn" style="font-size:10px;"><span class="dot"></span>Zero data leaves machine</span>
+      </div>
+      <div style="margin-top:16px;">
+        <a class="btn btn-primary btn-sm" href="jarvis/" target="_blank">Try JARVIS →</a>
+      </div>
+    </div>
+    <div class="code" style="font-size:12px;line-height:1.7;padding:20px;display:flex;flex-direction:column;justify-content:center;">
+<span class="g">$ curl -X POST http://jarvis.local:8080/api/chat \</span>
+<span class="g">  -F "message=What can you do?"</span>
+
+<span class="b">{</span>
+<span class="b">  "response": "I'm JARVIS — your private AI assistant.</span>
+<span class="b">  I can chat, see images, hear your voice, search your</span>
+<span class="b">  documents, write code, and control your system.</span>
+<span class="b">  Everything runs locally on your NPU+GPU+CPU."</span>
+<span class="b">}</span>
+
+<span class="c"># Install in 3 commands:</span>
+<span class="g">$ sudo flm serve qwen3:0.6b --port 52625 --pmode turbo</span>
+<span class="g">$ python3 server.py</span>
+<span class="g">$ open http://localhost:8080/chat</span>
+
+<span class="c"># Or one-command mobile access:</span>
+<span class="g">$ curl -fsSL 1bit.systems/mobile.sh | sh</span>
+<span class="b">→ ngrok tunnel + QR code for iOS/Android</span></div>
   </div>
 </section>
 
 <section id="packages" class="block">
-  <span class="eyebrow">1bit Packages</span>
-  <h2 style="margin:16px 0 8px;">/1bit coding agent. Extensions. Skills. Prompts.</h2>
-  <p class="lead" style="margin-bottom:24px;">Pi.dev-compatible package ecosystem. Ship extensions, skills, and prompt templates as npm packages. One install command, instant terminal coding agent.</p>
+  <span class="eyebrow">1bit Platform</span>
+  <h2 style="margin:16px 0 8px;">Coding agent. Mobile app. Extensions. Skills. Prompts.</h2>
+  <p class="lead" style="margin-bottom:24px;">A full ecosystem on top of the fused engine — terminal agent, mobile apps, and npm-delivered extensions. All running on your NPU+GPU+CPU.</p>
   <div class="grid2" style="margin-top:28px;">
     <div class="card" style="padding:24px;">
       <div style="display:flex;align-items:center;gap:8px;"><span class="tag npu" style="background:var(--pink);">npm</span><span class="mono" style="font-size:12px;color:var(--muted);">global install</span></div>
@@ -335,16 +448,17 @@
   </div>
 </section>
 
-<section id="build" class="block" style="padding-top:20px;">
-  <div class="cta-band">
-    <h2 style="font-weight:900;">Build it on your own Strix Halo.</h2>
-    <p class="lead" style="margin:14px auto 0;max-width:560px;">Clone the repo, follow the build guide, and reproduce every number on this page.</p>
-    <div class="cta-row" style="justify-content:center;">
-      <a class="btn btn-primary btn-lg" href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">View on GitHub →</a>
-      <a class="btn btn-ghost btn-lg" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/building.md" target="_blank" rel="noopener">Build Guide</a>
-      <a class="btn btn-ghost btn-lg" href="https://discord.gg/dSyV646eBs" target="_blank" rel="noopener">Discord</a>
-    </div>
+<section id="install" class="block">
+  <span class="eyebrow">Install</span>
+  <h2 style="margin:16px 0 8px;">Zero deps. One command.</h2>
+  <p class="lead" style="margin-bottom:24px;">No Python. No pip. No compilation required. 12+ package formats.</p>
+  <div class="grid4" style="margin-top:28px;">
+    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">curl | bash</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">curl -sL 1bit.systems/install.sh | bash</span></div></div>
+    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Debian/Ubuntu</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">sudo dpkg -i 1bit-systems*.deb</span></div></div>
+    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Docker</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">docker run -d --device /dev/accel/accel0 -p 9090:9090 1bit-systems/npu</span></div></div>
+    <div class="card" style="padding:20px;text-align:center;"><div class="mono" style="font-size:16px;font-weight:800;color:var(--pink);">Build from source</div><div class="code" style="margin-top:12px;padding:10px 12px;font-size:11px;text-align:left;"><span class="g">g++ -std=c++23 -O3 ... -o npu_engine_all</span></div></div>
   </div>
+  <p style="margin-top:20px;text-align:center;font-size:13px;color:var(--dim);">Also: snap · AUR · homebrew · ollama · <a href="https://github.com/bong-water-water-bong/1bit-systems" style="color:var(--blue);">more →</a></p>
 </section>
 
 <footer>
@@ -354,32 +468,108 @@
       <span style="flex:1"></span>
       <div class="foot-links">
         <a href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">GitHub</a>
-        <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/building.md" target="_blank" rel="noopener">Build Guide</a>
-        <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/engine/npu/BENCHMARKS.md" target="_blank" rel="noopener">Benchmarks</a>
+        <a href="/blog/reverse-engineered-amd-npu-4-days" target="_blank" rel="noopener" style="color:var(--green);font-weight:700;">Blog</a>
+        <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/install.md" target="_blank" rel="noopener">Install Guide</a>
+        <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/performance.md" target="_blank" rel="noopener">Benchmarks</a>
         <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/journey.md" target="_blank" rel="noopener">Audit Trail</a>
-        <a href="https://discord.gg/dSyV646eBs" target="_blank" rel="noopener">Discord</a>
       </div>
     </div>
     <div class="foot-fine">
       <div>Built with DeepSeek v4 (99.9%) · Shipped with Claude (0.1%) · One human.</div>
-      <div>120kb Binary to rule them all. Five models. 120kb binary. 94 tok/s (FLM). 97 tok/s (C++ v12). 55.7 TFLOPS. Open source.</div>
-      <div style="margin-top:8px;">The final unlock is Vendor (Hint Hint).</div>
-      <div>—bong-water-water-bong · <span class="p">"Sorry but not Sorry :)"</span></div>
-      <div style="margin-top:8px;"><a href="mailto:admin@1bit.systems" style="color:var(--muted);">admin@1bit.systems</a></div>
+      <div><span id="binary-size6">258 KB</span> single binary · <span id="prefill-tflops4">38.5 TFLOPS</span> ternary prefill · <span id="tq1-gbps4">196.8 GB/s</span> TQ1 GEMV · MIT</div>
+      <div style="margin-top:8px;">—bong-water-water-bong · <span class="p">"Sorry but not Sorry :)"</span></div>
+      <div style="margin-top:8px;"><a href="mailto:admin@1bit.systems" style="color:var(--muted);">admin@1bit.systems</a> · <a href="/s/" style="color:#21262d;font-size:10px;" title="stats for nerds">.</a></div>
     </div>
   </div>
 </footer>
 
 <script>
   (function(){
-    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduce) return;
-    var frames = ["FLM proxy:     10.6 ms/tok (94 tok/s)","C++ v12:       10.3 ms/tok (97 tok/s)","C++ ALL 5 models: auto-detect engine","GPU (ZINC):     46 ms/tok (22 tok/s)","50 TOPS INT8 · 24× speedup"];
-    var ms = [10.6,10.3,"5","46","24×"];
-    var i = 0;
-    var msEl = document.getElementById('ms');
-    setInterval(function(){i++;var m=ms[i%ms.length];msEl.textContent=m;},950);
+    var ham=document.getElementById('hamburger'),nav=document.getElementById('navLinks');
+    if(ham&&nav){ham.addEventListener('click',function(){ham.classList.toggle('open');nav.classList.toggle('open');});}
+    var links=nav&&nav.querySelectorAll('a');for(var j=0;links&&j<links.length;j++){links[j].addEventListener('click',function(){ham.classList.remove('open');nav.classList.remove('open');});}
+  })();
+
+  // Single source of truth: /numbers.json + /audience.json
+  (function(){
+    var N={}; // populated from numbers.json
+    var el=function(id){return document.getElementById(id);};
+    var set=function(id,v){var e=el(id);if(e)e.textContent=v;};
+    var fmt=function(n){return n.toLocaleString();};
+
+    // Fetch numbers.json
+    var nx=new XMLHttpRequest();
+    nx.open('GET','/numbers.json',true);
+    nx.onload=function(){
+      try{
+        N=JSON.parse(nx.responseText);
+        var b=N.binary,B=N.benchmarks,R=N.repo,S=N.site;
+
+        // Binary sizes are stat()-ed from real artifacts by tools/gen_numbers.py.
+        // A null means the artifact was not built -- leave the markup fallback
+        // rather than rendering "null KB".
+        if(b && b.fused_kb!=null){
+          var kb=b.fused_kb+' KB';
+          for(var i=1;i<=7;i++) set('binary-size'+(i===1?'':i), kb);
+        }
+
+        // Every benchmark key below is re-measured every 24h by
+        // tools/validate_claims.py. Keys with no validator do not ship.
+        if(B){
+          var tf=B.prefill_tflops_i8apre+' TFLOPS';
+          set('prefill-tflops',tf); set('prefill-tflops2',B.prefill_tflops_i8apre);
+          set('prefill-tflops3',tf); set('prefill-tflops4',tf);
+          set('tflops',tf); set('tflops2',B.prefill_tflops_i8apre); set('tflops3',tf);
+          set('tflops-4h',B.prefill_tflops_4h);
+          set('stat-prefill-tflops',B.prefill_tflops_i8apre);
+          set('stat-tq1-gbps',B.tq1_gemv_gbps);
+          set('stat-sherry-gbps',B.sherry_gemv_gbps);
+          set('stat-halo-gbps',B.halo_gemv_gbps);
+          set('tq1-gbps',B.tq1_gemv_gbps+' GB/s'); set('tq1-gbps2',B.tq1_gemv_gbps);
+          set('sherry-gbps',B.sherry_gemv_gbps+' GB/s'); set('sherry-gbps2',B.sherry_gemv_gbps);
+          set('halo-gbps',B.halo_gemv_gbps+' GB/s'); set('halo-gbps2',B.halo_gemv_gbps);
+        }
+
+        // Generic [data-num] bindings: dotted path into numbers.json.
+        var binds=document.querySelectorAll('[data-num]');
+        for(var i=0;i<binds.length;i++){
+          var el2=binds[i], path=el2.getAttribute('data-num');
+          var val=path.split('.').reduce(function(o,k){return o&&o[k];},N);
+          if(val!==undefined&&val!==null)el2.textContent=val;
+        }
+
+        if(S){
+          var mc=S.models+'+', bc=''+S.backends;
+          set('model-count',mc); set('model-count2',mc); set('model-count3',mc);
+          set('backend-count',bc); set('backend-count2',bc); set('backend-count3',bc);
+        }
+        if(R){
+          set('star-count',R.stars); set('fork-count',R.forks);
+          set('clone-count',fmt(R.total_clones));
+          set('unique-cloners',fmt(R.unique_cloners));
+          set('daily-clones-total',fmt(R.total_clones)+' total');
+        }
+
+        // Title + meta, derived -- never hardcoded.
+        if(b && B && b.fused_kb!=null){
+          var title='1bit.systems \u2014 '+b.fused_kb+' KB Single Binary \u00b7 '
+            +B.prefill_tflops_i8apre+' TFLOPS ternary prefill \u00b7 NPU+GPU+CPU';
+          document.title=title;
+          var mt=document.querySelector('meta[property="og:title"]');if(mt)mt.content=title;
+          var tt=document.querySelector('meta[name="twitter:title"]');if(tt)tt.content=title;
+
+          var desc='NPU+GPU+CPU inference engine for AMD Strix Halo. '+b.fused_kb
+            +' KB single binary. Measured on gfx1151: '+B.prefill_tflops_i8apre
+            +' TFLOPS ternary prefill, '+B.tq1_gemv_gbps+' GB/s TQ1 GEMV. '
+            +'Re-measured every 24h. Zero Python. MIT.';
+          var md=document.querySelector('meta[name="description"]');if(md)md.content=desc;
+          var od=document.querySelector('meta[property="og:description"]');if(od)od.content=desc;
+          var td=document.querySelector('meta[name="twitter:description"]');if(td)td.content=desc;
+        }
+      }catch(e){console.warn('numbers.json parse error',e);}
+    };
+    nx.send();
+
   })();
 </script>
 </body>
-</html>
