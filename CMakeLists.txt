@@ -465,14 +465,15 @@ add_executable(zaya_gpu_decode tests/zaya_gpu_decode.cpp kernels/zaya_cca_attn.h
 set_source_files_properties(tests/zaya_gpu_decode.cpp kernels/zaya_cca_attn.hip PROPERTIES LANGUAGE HIP)
 target_compile_options(zaya_gpu_decode PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_include_directories(zaya_gpu_decode PRIVATE /home/bcloud/1bit/include)
 target_link_libraries(zaya_gpu_decode PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(zaya_gpu_decode PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
 # -- tests/zaya_server : Zaya HTTP server (-CPU fallback, ROCm GPU path) --------
 # Build: cmake --build . --target zaya_server -j8
 # Run:   ./zaya_server
-add_executable(zaya_server tests/zaya_server.cpp kernels/zaya_cca_attn.hip kernels/zaya_router_moe.hip)
-set_source_files_properties(tests/zaya_server.cpp kernels/zaya_cca_attn.hip kernels/zaya_router_moe.hip PROPERTIES LANGUAGE HIP)
+add_executable(zaya_server tests/zaya_server.cpp)
+set_source_files_properties(tests/zaya_server.cpp PROPERTIES LANGUAGE HIP)
 target_compile_options(zaya_server PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(zaya_server PRIVATE rocm_cpp hip::host hip::device httplib::httplib nlohmann_json::nlohmann_json)
