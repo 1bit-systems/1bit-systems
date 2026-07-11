@@ -18,10 +18,21 @@ static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:bf16f(v);}
 static constexpr int H=1024,NC=28,NH=16,NKV=8,HD=128,IM=3072,NV=151936,GQA=2;
 static constexpr float EPS=1e-6f; static constexpr int XM=128, AW=4, WQH=NH/AW, WKVH=NKV/AW;
 static inline void cn(float*x,int n){for(int i=0;i<n;i++)if(!std::isfinite(x[i]))x[i]=0.0f;}
+// Dynamic per-call activation quantization scale, matching packB()'s amax-based approach for
+// weights. The original hardcoded 5.0f/127.0f assumes activations stay within [-5,5] - measured
+// post-RMSNorm activations actually range as wide as [-8.24,7.01], so that fixed scale silently
+// clips/saturates values past +-5 to +-127, a real (and compounding, since it happens every
+// layer) source of error separate from the LM head and weight-transpose bugs.
+static inline float dynamic_ascale(const float* x, int n) {
+    float amax = 0;
+    for (int i = 0; i < n; i++) { float a = fabsf(x[i]); if (std::isfinite(a) && a > amax) amax = a; }
+    if (amax < 1e-12f) amax = 1.0f;
+    return amax / 127.0f;
+}
 static inline void sm(float*sc,int n){if(n<=0)return;cn(sc,n);float mx=sc[0];for(int i=1;i<n;i++)if(sc[i]>mx)mx=sc[i];double s=0;for(int i=0;i<n;i++){float d=sc[i]-mx;if(d>80)d=80;else if(d<-80)d=-80;sc[i]=expf(d);s+=sc[i];}if(s<=0){float iv=1.0f/n;for(int i=0;i<n;i++)sc[i]=iv;return;}float is=1.0f/(float)s;for(int i=0;i<n;i++)sc[i]*=is;}
 static inline void rn_c(float*x,const float*w,int n){cn(x,n);double ss=0;for(int i=0;i<n;i++)if(std::isfinite(x[i]))ss+=(double)x[i]*x[i];float ir=1.0f/sqrtf((float)(ss/n)+EPS);for(int i=0;i<n;i++)x[i]=std::isfinite(x[i])?x[i]*ir*w[i]:0.0f;}
-static std::vector<float>rc,rs;static void ri(int hd,float th,int mp){rc.resize(mp*hd);rs.resize(mp*hd);for(int p=0;p<mp;p++)for(int d=0;d<hd;d+=2){float f=1.0f/powf(th,(float)d/hd),a=p*f;rc[p*hd+d]=cosf(a);rs[p*hd+d]=sinf(a);rc[p*hd+d+1]=cosf(a);rs[p*hd+d+1]=sinf(a);}}
-static inline void ra(float*x,int hd,int p){for(int d=0;d<hd;d+=2){float a=x[d],b=x[d+1],c=rc[p*hd+d],s=rs[p*hd+d];x[d]=a*c-b*s;x[d+1]=b*c+a*s;}}
+static std::vector<float>rc,rs;static void ri(int hd,float th,int mp){int hd2=hd/2;rc.resize(mp*hd);rs.resize(mp*hd);for(int p=0;p<mp;p++)for(int d=0;d<hd2;d++){float f=1.0f/powf(th,(float)d/hd2),a=p*f;rc[p*hd+d]=cosf(a);rs[p*hd+d]=sinf(a);}}
+static inline void ra(float*x,int hd,int p){int hd2=hd/2;for(int d=0;d<hd2;d++){float a=x[d],b=x[d+hd2],c=rc[p*hd+d],s=rs[p*hd+d];x[d]=a*c-b*s;x[d+hd2]=b*c+a*s;}}
 static uint64_t jo(const char*js,size_t jl,const char*nm){size_t nl=strlen(nm);const char*p=js,*e=js+jl;while(p<e){auto q=(const char*)memmem(p,e-p,nm,nl);if(!q)return 0;if(q>js&&*(q-1)=='"'&&*(q+nl)=='"'){auto o=strstr(q,"\"data_offsets\"");if(o){auto a=strchr(o,'[');if(a)return strtoull(a+1,NULL,10);}}p=q+1;}return 0;}
 
 struct I8Ctx{const char*name;int MD,KD,ND;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt::hw_context>hc;std::unique_ptr<xrt::kernel>k;std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bI,bA,bC,layerB[NC];int8_t*Am;int16_t*Cm;
@@ -106,7 +117,7 @@ int main(int argc,char**argv){
         // RMS norm — per-token (need separate norms since each token has different activation)
         for(int pi=0;pi<npt;pi++)rn_c(&h_batch[pi*H],in_n[l],H);
         // Batched QKV GEMM: [npt×1024] × W[1024×4096] → [npt×4096]
-        cq.go(l,h_batch.data(),npt,H,5.0f/127.0f,wsc[l].qk,q_batch.data(),4096);
+        cq.go(l,h_batch.data(),npt,H,dynamic_ascale(h_batch.data(),npt*H),wsc[l].qk,q_batch.data(),4096);
         cn(q_batch.data(),npt*4096);
         // Split Q [npt×2048], K [npt×1024], V [npt×1024]
         for(int pi=0;pi<npt;pi++){
@@ -127,16 +138,16 @@ int main(int argc,char**argv){
         // Batched CPU attention: Q[npt×NH×HD] dot K[sp+npt×NKV×HD] → atto[npt×NH×HD]
         int cl=kv[l].n;
         for(int pi=0;pi<npt;pi++){
-            for(int hh=0;hh<NH;hh++){int kvh=hh/GQA;
+            for(int hh=0;hh<NH;hh++){int kvh=hh/GQA;int pl=sp+pi+1;
                 std::vector<float>sc(cl);
-                for(int p=0;p<cl;p++){double s=0;for(int d=0;d<HD;d++)s+=q_batch[pi*NH*HD+hh*HD+d]*kv[l].k[p*NKV*HD+kvh*HD+d];sc[p]=(float)(s/sqrtf(HD));}
-                sm(sc.data(),cl);
-                for(int d=0;d<HD;d++){float s=0;for(int p=0;p<cl;p++)s+=sc[p]*kv[l].v[p*NKV*HD+kvh*HD+d];at_batch[pi*NH*HD+hh*HD+d]=s;}
+                for(int p=0;p<pl;p++){double s=0;for(int d=0;d<HD;d++)s+=q_batch[pi*NH*HD+hh*HD+d]*kv[l].k[p*NKV*HD+kvh*HD+d];sc[p]=(float)(s/sqrtf(HD));}
+                sm(sc.data(),pl);
+                for(int d=0;d<HD;d++){float s=0;for(int p=0;p<pl;p++)s+=sc[p]*kv[l].v[p*NKV*HD+kvh*HD+d];at_batch[pi*NH*HD+hh*HD+d]=s;}
             }
         }
 
         // Batched O GEMM: [npt×2048] × W[2048×1024] → [npt×1024]
-        co.go(l,at_batch.data(),npt,NH*HD,5.0f/127.0f,wsc[l].o_,oo_batch.data(),H);
+        co.go(l,at_batch.data(),npt,NH*HD,dynamic_ascale(at_batch.data(),npt*NH*HD),wsc[l].o_,oo_batch.data(),H);
         cn(oo_batch.data(),npt*H);
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_batch[pi*H+i]+=oo_batch[pi*H+i];
 
@@ -144,7 +155,7 @@ int main(int argc,char**argv){
         for(int pi=0;pi<npt;pi++)rn_c(&h_batch[pi*H],pa_n[l],H);
 
         // Batched GU GEMM: [npt×1024] × W[1024×6144] → [npt×6144]
-        cg.go(l,h_batch.data(),npt,H,5.0f/127.0f,wsc[l].g_,g_batch.data(),6144);
+        cg.go(l,h_batch.data(),npt,H,dynamic_ascale(h_batch.data(),npt*H),wsc[l].g_,g_batch.data(),6144);
         cn(g_batch.data(),npt*6144);
         for(int pi=0;pi<npt;pi++){
             int off=pi*IM;
@@ -152,7 +163,7 @@ int main(int argc,char**argv){
         }
 
         // Batched D GEMM: [npt×3072] × W[3072×1024] → [npt×1024]
-        cd.go(l,su_batch.data(),npt,IM,5.0f/127.0f,wsc[l].d_,dw_batch.data(),H);
+        cd.go(l,su_batch.data(),npt,IM,dynamic_ascale(su_batch.data(),npt*IM),wsc[l].d_,dw_batch.data(),H);
         cn(dw_batch.data(),npt*H);
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_batch[pi*H+i]+=dw_batch[pi*H+i];
 
@@ -170,7 +181,7 @@ int main(int argc,char**argv){
     for(int st=0;st<ng;st++){auto ts=std::chrono::steady_clock::now();
         for(int l=0;l<NC;l++){
             memcpy(sb.data(),h.data(),H*4);rn_c(h.data(),in_n[l],H);
-            cq.go(l,h.data(),1,H,5.0f/127.0f,wsc[l].qk,qo.data(),4096);cn(qo.data(),4096);
+            cq.go(l,h.data(),1,H,dynamic_ascale(h.data(),H),wsc[l].qk,qo.data(),4096);cn(qo.data(),4096);
             memcpy(ko.data(),&qo[2048],4096);memcpy(vo.data(),&qo[3072],4096);
             float*qn=qn_w[l],*kn=kn_w[l];
             for(int hh=0;hh<NH;hh++){double sq=0;for(int d=0;d<HD;d++)sq+=qo[hh*HD+d]*qo[hh*HD+d];float iq=1.0f/sqrtf((float)(sq/HD)+EPS);for(int d=0;d<HD;d++)qo[hh*HD+d]*=iq*qn[d];ra(&qo[hh*HD],HD,sp);
@@ -180,12 +191,12 @@ int main(int argc,char**argv){
                 float*Qw=&qo[w*WQH*HD],*Kw=&kv[l].k[w*WKVH*HD],*Vw=&kv[l].v[w*WKVH*HD];
                 cpu_attn_batch(1,Qw,Kw,Vw,cl,WQH,HD,&at[w*WQH*HD]);
             }
-            co.go(l,at.data(),1,NH*HD,5.0f/127.0f,wsc[l].o_,oo.data(),H);cn(oo.data(),H);
+            co.go(l,at.data(),1,NH*HD,dynamic_ascale(at.data(),NH*HD),wsc[l].o_,oo.data(),H);cn(oo.data(),H);
             for(int i=0;i<H;i++)h[i]=sb[i]+oo[i];
             memcpy(sb.data(),h.data(),H*4);rn_c(h.data(),pa_n[l],H);
-            cg.go(l,h.data(),1,H,5.0f/127.0f,wsc[l].g_,gt.data(),6144);cn(gt.data(),6144);
+            cg.go(l,h.data(),1,H,dynamic_ascale(h.data(),H),wsc[l].g_,gt.data(),6144);cn(gt.data(),6144);
             for(int i=0;i<IM;i++){float gv=gt[i];if(!std::isfinite(gv))gv=0;su[i]=(gv/(1.0f+expf(-gv)))*gt[IM+i];}
-            cd.go(l,su.data(),1,IM,5.0f/127.0f,wsc[l].d_,dwo.data(),H);cn(dwo.data(),H);
+            cd.go(l,su.data(),1,IM,dynamic_ascale(su.data(),IM),wsc[l].d_,dwo.data(),H);cn(dwo.data(),H);
             for(int i=0;i<H;i++)h[i]=sb[i]+dwo[i];
         }
         memcpy(sb.data(),h.data(),H*4);rn_c(sb.data(),fin,H);

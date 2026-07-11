@@ -20,6 +20,17 @@ static inline float bf16f(uint16_t v){uint32_t b=v<<16;float f;memcpy(&f,&b,4);r
 static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:bf16f(v);}
 static constexpr float EPS=1e-6f;
 static inline void cn(float*x,int n){for(int i=0;i<n;i++)if(!std::isfinite(x[i]))x[i]=0.0f;}
+// Dynamic per-call activation quantization scale, matching packB()'s amax-based approach for
+// weights. The original hardcoded 5.0f/127.0f assumes activations stay within [-5,5] - measured
+// post-RMSNorm activations actually range as wide as [-8.24,7.01], so that fixed scale silently
+// clips/saturates values past +-5 to +-127, a real (and compounding, since it happens every
+// layer) source of error separate from the LM head and weight-transpose bugs.
+static inline float dynamic_ascale(const float* x, int n) {
+    float amax = 0;
+    for (int i = 0; i < n; i++) { float a = fabsf(x[i]); if (std::isfinite(a) && a > amax) amax = a; }
+    if (amax < 1e-12f) amax = 1.0f;
+    return amax / 127.0f;
+}
 static inline void sm(float*sc,int n){if(n<=0)return;cn(sc,n);float mx=sc[0];for(int i=1;i<n;i++)if(sc[i]>mx)mx=sc[i];
     double s=0;for(int i=0;i<n;i++){float d=sc[i]-mx;if(d>80)d=80;else if(d<-80)d=-80;sc[i]=expf(d);s+=sc[i];}
     if(s<=0){float iv=1.0f/n;for(int i=0;i<n;i++)sc[i]=iv;return;}float is=1.0f/(float)s;for(int i=0;i<n;i++)sc[i]*=is;}
@@ -27,11 +38,11 @@ static inline void rn_c(float*x,const float*w,int n){cn(x,n);double ss=0;
     for(int i=0;i<n;i++)if(std::isfinite(x[i]))ss+=x[i]*x[i];float ir=1.0f/sqrtf((float)(ss/n)+EPS);
     for(int i=0;i<n;i++)x[i]=std::isfinite(x[i])?x[i]*ir*w[i]:0.0f;}
 static std::vector<float>rc,rs;
-static void ri(int hd,float th,int mp){rc.resize(mp*hd);rs.resize(mp*hd);
-    for(int p=0;p<mp;p++)for(int d=0;d<hd;d+=2){float f=1.0f/powf(th,(float)d/hd),a=p*f;
-        rc[p*hd+d]=cosf(a);rs[p*hd+d]=sinf(a);rc[p*hd+d+1]=cosf(a);rs[p*hd+d+1]=sinf(a);}}
-static inline void ra(float*x,int hd,int p){for(int d=0;d<hd;d+=2){
-    float a=x[d],b=x[d+1],c=rc[p*hd+d],s=rs[p*hd+d];x[d]=a*c-b*s;x[d+1]=b*c+a*s;}}
+static void ri(int hd,float th,int mp){int hd2=hd/2;rc.resize(mp*hd);rs.resize(mp*hd);
+    for(int p=0;p<mp;p++)for(int d=0;d<hd2;d++){float f=1.0f/powf(th,(float)d/hd2),a=p*f;
+        rc[p*hd+d]=cosf(a);rs[p*hd+d]=sinf(a);}}
+static inline void ra(float*x,int hd,int p){int hd2=hd/2;for(int d=0;d<hd2;d++){
+    float a=x[d],b=x[d+hd2],c=rc[p*hd+d],s=rs[p*hd+d];x[d]=a*c-b*s;x[d+hd2]=b*c+a*s;}}
 static std::vector<float> emb_f32;
 static uint64_t jo(const char*js,size_t jl,const char*nm){size_t nl=strlen(nm);const char*p=js,*e=js+jl;
     while(p<e){auto q=(const char*)memmem(p,e-p,nm,nl);if(!q)return 0;
@@ -68,11 +79,13 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
 };
 
 static inline void attn_omp(float*qo,float*at,int cl,const float*kv_k,const float*kv_v,
-    int NH,int NKV,int HD,int GQA){
+    int NH,int NKV,int HD,int GQA,int max_pos=-1){
+    if(max_pos<0)max_pos=cl;
     #pragma omp parallel for
     for(int hh=0;hh<NH;hh++){int kvh=hh/GQA;
         std::vector<float> scores(cl);float mx=-1e30f;
-        for(int p=0;p<cl;p++){double s=0;int qoff=hh*HD,koff=p*NKV*HD+kvh*HD;
+        for(int p=0;p<cl;p++){if(p>=max_pos){scores[p]=-1e30f;continue;}
+            double s=0;int qoff=hh*HD,koff=p*NKV*HD+kvh*HD;
             #pragma omp simd reduction(+:s)
             for(int d=0;d<HD;d++)s+=qo[qoff+d]*kv_k[koff+d];scores[p]=(float)(s*0.0883883476);if(scores[p]>mx)mx=scores[p];}
         double sw=0;for(int p=0;p<cl;p++){scores[p]=expf(scores[p]-mx);sw+=scores[p];}
@@ -209,7 +222,7 @@ int main(int argc,char**argv){
     for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=emb_f32[pt[pi]*H+i];
     for(int l=0;l<NC;l++){
         for(int pi=0;pi<npt;pi++)rn_c(&h_b[pi*H],&in_n[l*H],H);
-        cq.go(l,h_b.data(),npt,H,5.0f/127.0f,qsc[l],qo_b.data(),qkv_n);cn(qo_b.data(),npt*qkv_n);
+        cq.go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),qsc[l],qo_b.data(),qkv_n);cn(qo_b.data(),npt*qkv_n);
         float*qn=&qn_w[l*HD],*kn=&kn_w[l*HD];
         for(int pi=0;pi<npt;pi++){
             for(int hh=0;hh<NH;hh++){double s=0;for(int d=0;d<HD;d++)s+=qo_b[pi*qkv_n+hh*HD+d]*qo_b[pi*qkv_n+hh*HD+d];
@@ -220,16 +233,16 @@ int main(int argc,char**argv){
                 for(int d=0;d<HD;d++){ks[d]*=ik*(cfg.has_k_norm?kn[d]:1.0f);ra(ks,HD,sp+pi);}
                 memcpy(&kv_c[l].k[(sp+pi)*NKV*HD+kvh*HD],ks,HD*4);memcpy(&kv_c[l].v[(sp+pi)*NKV*HD+kvh*HD],vs,HD*4);}}
         kv_c[l].n=sp+npt;int cl=kv_c[l].n;
-        for(int pi=0;pi<npt;pi++){attn_omp(&qo_b[pi*qkv_n],&at_b[pi*NH*HD],cl,kv_c[l].k.data(),kv_c[l].v.data(),NH,NKV,HD,GQA);}
-        co.go(l,at_b.data(),npt,NH*HD,5.0f/127.0f,osc[l],oo_b.data(),H);cn(oo_b.data(),npt*H);
+        for(int pi=0;pi<npt;pi++){attn_omp(&qo_b[pi*qkv_n],&at_b[pi*NH*HD],cl,kv_c[l].k.data(),kv_c[l].v.data(),NH,NKV,HD,GQA,sp+pi+1);}
+        co.go(l,at_b.data(),npt,NH*HD,dynamic_ascale(at_b.data(),npt*NH*HD),osc[l],oo_b.data(),H);cn(oo_b.data(),npt*H);
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]+=oo_b[pi*H+i];
         for(int pi=0;pi<npt;pi++)rn_c(&h_b[pi*H],&pa_n[l*H],H);
         int mlp_o=cfg.gu_split?IM:2*IM;
-        cg.go(l,h_b.data(),npt,H,5.0f/127.0f,gsc[l],gt_b.data(),mlp_o);cn(gt_b.data(),npt*mlp_o);
-        if(cfg.gu_split){cu_ptr->go(l,h_b.data(),npt,H,5.0f/127.0f,usc[l],su_b.data(),IM);cn(su_b.data(),npt*IM);
+        cg.go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),gsc[l],gt_b.data(),mlp_o);cn(gt_b.data(),npt*mlp_o);
+        if(cfg.gu_split){cu_ptr->go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),usc[l],su_b.data(),IM);cn(su_b.data(),npt*IM);
             for(int pi=0;pi<npt;pi++){for(int i=0;i<IM;i++){float gv=gt_b[pi*IM+i];if(!std::isfinite(gv))gv=0;su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*su_b[pi*IM+i];}}}
         else{for(int pi=0;pi<npt;pi++){for(int i=0;i<IM;i++){float gv=gt_b[pi*mlp_o+i];if(!std::isfinite(gv))gv=0;su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[pi*mlp_o+IM+i];}}}
-        cd.go(l,su_b.data(),npt,IM,5.0f/127.0f,dsc[l],dw_b.data(),H);cn(dw_b.data(),npt*H);
+        cd.go(l,su_b.data(),npt,IM,dynamic_ascale(su_b.data(),npt*IM),dsc[l],dw_b.data(),H);cn(dw_b.data(),npt*H);
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]+=dw_b[pi*H+i];
     }sp+=npt;memcpy(h_data.data(),&h_b[(npt-1)*H],H*4);
     printf("Prefill: %.0fms (%.0f ms/tok)\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count(),std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count()/npt);
@@ -243,7 +256,7 @@ int main(int argc,char**argv){
     {auto ts_b=std::chrono::steady_clock::now();float h0[H];memcpy(h0,h_data.data(),H*4);
     for(int l=0;l<NC;l++){
         memcpy(sb_d.data(),h0,H*4);rn_c(h0,&in_n[l*H],H);
-        cq.go(l,h0,1,H,5.0f/127.0f,qsc[l],qo_d.data(),qkv_n);cn(qo_d.data(),qkv_n);
+        cq.go(l,h0,1,H,dynamic_ascale(h0,H),qsc[l],qo_d.data(),qkv_n);cn(qo_d.data(),qkv_n);
         memcpy(ko_d.data(),&qo_d[cfg.qkv_k_offset],NKV*HD*4);memcpy(vo_d.data(),&qo_d[cfg.qkv_v_offset],NKV*HD*4);
         float*qn=&qn_w[l*HD],*kn=&kn_w[l*HD];
         for(int hh=0;hh<NH;hh++){double sq=0;for(int d=0;d<HD;d++)sq+=qo_d[hh*HD+d]*qo_d[hh*HD+d];float iq=1.0f/sqrtf((float)(sq/HD)+EPS);
@@ -253,14 +266,14 @@ int main(int argc,char**argv){
             memcpy(&kv_c[l].k[sp*NKV*HD+kvh*HD],&ko_d[kvh*HD],HD*4);memcpy(&kv_c[l].v[sp*NKV*HD+kvh*HD],&vo_d[kvh*HD],HD*4);}}
         kv_c[l].n=sp+1;int cl=kv_c[l].n;
         attn_omp(qo_d.data(),at_d.data(),cl,kv_c[l].k.data(),kv_c[l].v.data(),NH,NKV,HD,GQA);
-        co.go(l,at_d.data(),1,NH*HD,5.0f/127.0f,osc[l],oo_d.data(),H);cn(oo_d.data(),H);for(int i=0;i<H;i++)h0[i]=sb_d[i]+oo_d[i];
+        co.go(l,at_d.data(),1,NH*HD,dynamic_ascale(at_d.data(),NH*HD),osc[l],oo_d.data(),H);cn(oo_d.data(),H);for(int i=0;i<H;i++)h0[i]=sb_d[i]+oo_d[i];
         memcpy(sb_d.data(),h0,H*4);rn_c(h0,&pa_n[l*H],H);
         int mlp_o=cfg.gu_split?IM:2*IM;
-        cg.go(l,h0,1,H,5.0f/127.0f,gsc[l],gt_d.data(),mlp_o);cn(gt_d.data(),mlp_o);
-        if(cfg.gu_split){cu_ptr->go(l,h0,1,H,5.0f/127.0f,usc[l],su_d.data(),IM);cn(su_d.data(),IM);
+        cg.go(l,h0,1,H,dynamic_ascale(h0,H),gsc[l],gt_d.data(),mlp_o);cn(gt_d.data(),mlp_o);
+        if(cfg.gu_split){cu_ptr->go(l,h0,1,H,dynamic_ascale(h0,H),usc[l],su_d.data(),IM);cn(su_d.data(),IM);
             for(int i=0;i<IM;i++){float gv=gt_d[i];if(!std::isfinite(gv))gv=0;su_d[i]=(gv/(1.0f+expf(-gv)))*su_d[i];}}
         else{for(int i=0;i<IM;i++){float gv=gt_d[i];if(!std::isfinite(gv))gv=0;su_d[i]=(gv/(1.0f+expf(-gv)))*gt_d[IM+i];}}
-        cd.go(l,su_d.data(),1,IM,5.0f/127.0f,dsc[l],dwo_d.data(),H);cn(dwo_d.data(),H);for(int i=0;i<H;i++)h0[i]=sb_d[i]+dwo_d[i];
+        cd.go(l,su_d.data(),1,IM,dynamic_ascale(su_d.data(),IM),dsc[l],dwo_d.data(),H);cn(dwo_d.data(),H);for(int i=0;i<H;i++)h0[i]=sb_d[i]+dwo_d[i];
     }
     memcpy(sb_d.data(),h0,H*4);rn_c(sb_d.data(),fin_v.data(),H);
     lm_topk_omp(sb_d.data(),lg_b.data(),top_ids,BS,NV,H);
@@ -274,7 +287,7 @@ int main(int argc,char**argv){
         for(int b=0;b<bs;b++)for(int i=0;i<H;i++)h_b[b*H+i]=emb_f32[(size_t)top_ids[b]*H+i];
         for(int l=0;l<NC;l++){
             for(int b=0;b<bs;b++)rn_c(&h_b[b*H],&in_n[l*H],H);
-            cq.go(l,h_b.data(),bs,H,5.0f/127.0f,qsc[l],qo_b.data(),qkv_n);cn(qo_b.data(),bs*qkv_n);
+            cq.go(l,h_b.data(),bs,H,dynamic_ascale(h_b.data(),bs*H),qsc[l],qo_b.data(),qkv_n);cn(qo_b.data(),bs*qkv_n);
             float*qn=&qn_w[l*HD],*kn=&kn_w[l*HD];
             for(int b=0;b<bs;b++){
                 for(int hh=0;hh<NH;hh++){double s=0;for(int d=0;d<HD;d++)s+=qo_b[b*qkv_n+hh*HD+d]*qo_b[b*qkv_n+hh*HD+d];
@@ -288,15 +301,15 @@ int main(int argc,char**argv){
                 memcpy(&kv_c[l].k[(sp+b)*NKV*HD+kvh*HD],ks,HD*4);memcpy(&kv_c[l].v[(sp+b)*NKV*HD+kvh*HD],vs,HD*4);}
             kv_c[l].n=sp+bs;int cl=kv_c[l].n;
             for(int b=0;b<bs;b++){attn_omp(&qo_b[b*qkv_n],&at_b[b*NH*HD],cl,kv_c[l].k.data(),kv_c[l].v.data(),NH,NKV,HD,GQA);}
-            co.go(l,at_b.data(),bs,NH*HD,5.0f/127.0f,osc[l],oo_b.data(),H);cn(oo_b.data(),bs*H);
+            co.go(l,at_b.data(),bs,NH*HD,dynamic_ascale(at_b.data(),bs*NH*HD),osc[l],oo_b.data(),H);cn(oo_b.data(),bs*H);
             for(int b=0;b<bs;b++)for(int i=0;i<H;i++)h_b[b*H+i]+=oo_b[b*H+i];
             for(int b=0;b<bs;b++)rn_c(&h_b[b*H],&pa_n[l*H],H);
             int mlp_o=cfg.gu_split?IM:2*IM;
-            cg.go(l,h_b.data(),bs,H,5.0f/127.0f,gsc[l],gt_b.data(),mlp_o);cn(gt_b.data(),bs*mlp_o);
-            if(cfg.gu_split){cu_ptr->go(l,h_b.data(),bs,H,5.0f/127.0f,usc[l],su_b.data(),IM);cn(su_b.data(),bs*IM);
+            cg.go(l,h_b.data(),bs,H,dynamic_ascale(h_b.data(),bs*H),gsc[l],gt_b.data(),mlp_o);cn(gt_b.data(),bs*mlp_o);
+            if(cfg.gu_split){cu_ptr->go(l,h_b.data(),bs,H,dynamic_ascale(h_b.data(),bs*H),usc[l],su_b.data(),IM);cn(su_b.data(),bs*IM);
                 for(int b=0;b<bs;b++){for(int i=0;i<IM;i++){float gv=gt_b[b*IM+i];if(!std::isfinite(gv))gv=0;su_b[b*IM+i]=(gv/(1.0f+expf(-gv)))*su_b[b*IM+i];}}}
             else{for(int b=0;b<bs;b++){for(int i=0;i<IM;i++){float gv=gt_b[b*mlp_o+i];if(!std::isfinite(gv))gv=0;su_b[b*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[b*mlp_o+IM+i];}}
-            cd.go(l,su_b.data(),bs,IM,5.0f/127.0f,dsc[l],dw_b.data(),H);cn(dw_b.data(),bs*H);
+            cd.go(l,su_b.data(),bs,IM,dynamic_ascale(su_b.data(),bs*IM),dsc[l],dw_b.data(),H);cn(dw_b.data(),bs*H);
             for(int b=0;b<bs;b++)for(int i=0;i<H;i++)h_b[b*H+i]+=dw_b[b*H+i];
         }
         memcpy(sb_d.data(),&h_b[0],H*4);rn_c(sb_d.data(),fin_v.data(),H);
