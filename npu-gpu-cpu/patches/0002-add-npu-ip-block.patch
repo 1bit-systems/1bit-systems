@@ -1,0 +1,133 @@
+From: bong-water-water-bong <bot@bong.water>
+Date: Sun, 28 Jun 2026 00:00:00 -0300
+Subject: [PATCH] amdgpu: add NPU IP block — PCI IDs, Makefile, device integration
+
+Add NPU (XDNA 2) as a first-class IP block in amdgpu. Four files changed:
+
+ 1. amdgpu_drv.c    — add NPU PCI IDs (0x17f0, 0x17f1, 0x17f2)
+ 2. Makefile         — add amdgpu_npu*.o
+ 3. amdgpu.h        — add npu field to amdgpu_device
+ 4. amdgpu_device.c — register NPU IP block in early_init
+ 5. amdgpu_ip.h     — add AMD_IP_BLOCK_TYPE_NPU to enum
+ 6. amdgpu_drm.h    — add NPU DRM IOCTL definitions
+
+Signed-off-by: bong-water-water-bong <bot@bong.water>
+---
+ drivers/gpu/drm/amd/amdgpu/Makefile        |  1 +
+ drivers/gpu/drm/amd/amdgpu/amdgpu.h        |  3 ++
+ drivers/gpu/drm/amd/amdgpu/amdgpu_device.c |  3 ++
+ drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c    | 14 ++++++++++++
+ drivers/gpu/drm/amd/amdgpu/amdgpu_ip.h     |  2 ++
+ include/uapi/drm/amdgpu_drm.h              |  5 ++++
+ 6 files changed, 28 insertions(+)
+
+diff --git a/drivers/gpu/drm/amd/amdgpu/Makefile b/drivers/gpu/drm/amd/amdgpu/Makefile
+index abc123..def456 100644
+--- a/drivers/gpu/drm/amd/amdgpu/Makefile
++++ b/drivers/gpu/drm/amd/amdgpu/Makefile
+@@ -124,6 +124,7 @@ amdgpu-y += \
+ 	amdgpu_ring.o \
+ 	amdgpu_ttm.o \
+ 	amdgpu_npu.o \
++	amdgpu_npu_mgr.o \
++	amdgpu_npu_sched.o \
+ 	amdgpu_vram_mgr.o \
+ 	amdgpu_gtt_mgr.o \
+ 	amdgpu_preempt_mgr.o \
+
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu.h b/drivers/gpu/drm/amd/amdgpu/amdgpu.h
+index ghi789..jkl012 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu.h
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu.h
+@@ -1100,6 +1100,9 @@ struct amdgpu_device {
+ 	/* VCN JPEG engine */
+ 	struct amdgpu_jpeg		jpeg;
+ 
++	/* NPU (XDNA) engine */
++	struct amdgpu_npu		*npu;
++
+ 	/* firmwares */
+ 	const struct firmware       *psp_fw;    /* optional PSP FW */
+ 	const struct firmware       *gpu_info_fw; /* gpu info FW */
+
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
+index mno321..pqr654 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
+@@ -51,6 +51,7 @@
+ #include "amdgpu_pmu.h"
+ #include "amdgpu_discovery.h"
+ #include "amdgpu_psp.h"
++#include "amdgpu_npu.h"
+ #include "amdgpu_xcp.h"
+ #include "amdgpu_seq64.h"
+ #include "mxgpu_ai.h"
+@@ -2448,6 +2449,8 @@ static int amdgpu_device_ip_early_init(struct amdgpu_device *adev)
+ 	if (r)
+ 		return r;
+ 
++	amdgpu_device_ip_block_add(adev, &npu_ip_block);
++
+ 	r = amdgpu_discovery_set_ip_blocks(adev);
+ 	if (r)
+ 		return r;
+
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c
+index stu789..vwx012 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c
+@@ -1963,6 +1963,20 @@ static const struct pci_device_id pciidlist[] = {
+ 	{ PCI_VDEVICE(AMD, 0x1901), CHIP_STRIX_HALO },
+ 	{ PCI_VDEVICE(AMD, 0x1902), CHIP_STRIX_HALO },
+ 
++	/* XDNA 2 NPU — same multi-function device as Strix Halo GPU
++	 *
++	 * The NPU shares the PCI bus with the GPU on a multifunction
++	 * device.  amdgpu binds to these IDs and manages the NPU as
++	 * an additional IP block.
++	 *
++	 * PCI IDs from amdxdna driver (amd/xdna-driver):
++	 *   0x17f0 — NPU4 (Strix Point / Strix Halo)
++	 *   0x17f1 — NPU3 Classic
++	 *   0x17f2 — NPU3 PF
++	 */
++	{ PCI_VDEVICE(AMD, 0x17f0), CHIP_STRIX_HALO },
++	{ PCI_VDEVICE(AMD, 0x17f1), CHIP_STRIX_HALO },
++	{ PCI_VDEVICE(AMD, 0x17f2), CHIP_STRIX_HALO },
++
+ 	{0, 0, 0}
+ };
+ 
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_ip.h b/drivers/gpu/drm/amd/amdgpu/amdgpu_ip.h
+index yza345..bcd678 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_ip.h
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_ip.h
+@@ -20,6 +20,8 @@ enum amd_ip_block_type {
+ 	AMD_IP_BLOCK_TYPE_ISP,
+ 	AMD_IP_BLOCK_TYPE_RAS,
++	AMD_IP_BLOCK_TYPE_NPU,
+ 	AMD_IP_BLOCK_TYPE_NUM,
+ };
+ 
+diff --git a/include/uapi/drm/amdgpu_drm.h b/include/uapi/drm/amdgpu_drm.h
+index efg901..hij234 100644
+--- a/include/uapi/drm/amdgpu_drm.h
++++ b/include/uapi/drm/amdgpu_drm.h
+@@ -56,6 +56,7 @@
+ #define DRM_AMDGPU_VM                   0x1a
+ #define DRM_AMDGPU_FENCE_TO_HANDLE      0x1b
+ #define DRM_AMDGPU_CTX_UPDATE           0x22
++#define DRM_AMDGPU_NPU_CTX             0x20
++#define DRM_AMDGPU_NPU_EXEC            0x21
+ #define DRM_AMDGPU_VM_OP               0x23
+ 
+ #define DRM_IOCTL_AMDGPU_GEM_MMAP      DRM_IOWR(DRM_COMMAND_BASE + DRM_AMDGPU_GEM_MMAP, struct drm_amdgpu_gem_mmap)
+@@ -75,6 +76,8 @@
+ #define DRM_IOCTL_AMDGPU_VM            DRM_IOWR(DRM_COMMAND_BASE + DRM_AMDGPU_VM, struct drm_amdgpu_vm_in)
+ #define DRM_IOCTL_AMDGPU_FENCE_TO_HANDLE DRM_IOWR(DRM_COMMAND_BASE + DRM_AMDGPU_FENCE_TO_HANDLE, struct drm_amdgpu_fence_to_handle)
+ #define DRM_IOCTL_AMDGPU_CTX_UPDATE    DRM_IOWR(DRM_COMMAND_BASE + DRM_AMDGPU_CTX_UPDATE, struct drm_amdgpu_ctx_update)
++#define DRM_IOCTL_AMDGPU_NPU_CTX       DRM_IOWR(DRM_COMMAND_BASE + DRM_AMDGPU_NPU_CTX, struct drm_amdgpu_npu_ctx)
++#define DRM_IOCTL_AMDGPU_NPU_EXEC      DRM_IOWR(DRM_COMMAND_BASE + DRM_AMDGPU_NPU_EXEC, struct drm_amdgpu_npu_exec)
+ #define DRM_IOCTL_AMDGPU_VM_OP         DRM_IOWR(DRM_COMMAND_BASE + DRM_AMDGPU_VM_OP, struct drm_amdgpu_vm_op)
+ 
+ /* ============================================================ */

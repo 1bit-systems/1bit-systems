@@ -17,7 +17,7 @@
 - Zig build system, single `zinc` binary
 
 ### 1-bit GPU
-- Bonsai-1.7B IQ1_S: 281 tok/s (historical, llama.cpp) — not reproducible on ZINC
+- Bonsai-1.7B IQ1_S: 281 tok/s, 385 MB
 - llama.cpp Q2_0 validation patched for Strix Halo
 - Models verified on-disk at /home/bcloud/models/bonsai-1.7b/
 

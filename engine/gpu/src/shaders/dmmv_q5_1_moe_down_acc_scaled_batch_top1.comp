@@ -1,0 +1,90 @@
+#version 460
+// ZINC - token-batched Gemma top-1 Q5_1 MoE down projection.
+//
+// The shader reads one selected expert per token, applies ffn_down_exps.scale,
+// and accumulates directly into token-major hidden.
+
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_clustered : require
+
+layout(local_size_x = 64) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+    uint expert_stride;
+    uint routing_stride;
+};
+
+layout(set = 0, binding = 0) readonly buffer MatrixA { uint8_t a_data[]; };
+layout(set = 0, binding = 1) readonly buffer VectorX { float x_data[]; };
+layout(set = 0, binding = 2) buffer Hidden { float y_data[]; };
+layout(set = 0, binding = 3) readonly buffer Routing { uint routing_data[]; };
+layout(set = 0, binding = 4) readonly buffer ExpertScales { float expert_scales[]; };
+
+const uint Q5_1_BLOCK_SIZE = 32u;
+const uint Q5_1_BYTES = 24u;
+const uint ROWS_PER_WG = 4u;
+const uint LANES_PER_ROW = 16u;
+
+float dot_q5_1_row(uint row, uint blk, uint blocks_per_row, uint expert_base, uint x_base) {
+    const uint byte_off = expert_base + row * blocks_per_row * Q5_1_BYTES + blk * Q5_1_BYTES;
+    const uint xb = x_base + blk * Q5_1_BLOCK_SIZE;
+
+    const uint d_bits = uint(a_data[byte_off]) | (uint(a_data[byte_off + 1u]) << 8);
+    const float d = unpackHalf2x16(d_bits).x;
+    const uint m_bits = uint(a_data[byte_off + 2u]) | (uint(a_data[byte_off + 3u]) << 8);
+    const float m = unpackHalf2x16(m_bits).x;
+
+    const uint qh = uint(a_data[byte_off + 4u])
+        | (uint(a_data[byte_off + 5u]) << 8)
+        | (uint(a_data[byte_off + 6u]) << 16)
+        | (uint(a_data[byte_off + 7u]) << 24);
+
+    float sum_qx = 0.0;
+    float sum_x = 0.0;
+    for (uint j = 0u; j < 16u; j++) {
+        const uint q_byte = uint(a_data[byte_off + 8u + j]);
+        const uint lo = q_byte & 0x0Fu;
+        const uint hi = q_byte >> 4;
+        const uint bit_lo = (qh >> j) & 1u;
+        const uint bit_hi = (qh >> (j + 16u)) & 1u;
+
+        const float x0 = x_data[xb + j];
+        const float x1 = x_data[xb + 16u + j];
+        sum_qx += float(lo | (bit_lo << 4)) * x0 + float(hi | (bit_hi << 4)) * x1;
+        sum_x += x0 + x1;
+    }
+
+    return d * sum_qx + m * sum_x;
+}
+
+void main() {
+    const uint tok = gl_WorkGroupID.y;
+    const uint tid = gl_LocalInvocationID.x;
+    const uint row_group = tid / LANES_PER_ROW;
+    const uint lane = tid - row_group * LANES_PER_ROW;
+    const uint row = gl_WorkGroupID.x * ROWS_PER_WG + row_group;
+    if (row >= M) return;
+
+    const uint blocks_per_row = K / Q5_1_BLOCK_SIZE;
+
+    const uint expert_id = routing_data[tok * routing_stride];
+    const float weight = expert_scales[expert_id];
+    const uint expert_base = expert_id * expert_stride;
+    const uint x_base = tok * K;
+
+    float sum = 0.0;
+    for (uint blk = lane; blk < blocks_per_row; blk += LANES_PER_ROW) {
+        sum += dot_q5_1_row(row, blk, blocks_per_row, expert_base, x_base);
+    }
+
+    sum = subgroupClusteredAdd(sum, LANES_PER_ROW);
+    if (lane == 0u) {
+        const uint y_base = tok * M;
+        y_data[y_base + row] += weight * sum;
+    }
+}

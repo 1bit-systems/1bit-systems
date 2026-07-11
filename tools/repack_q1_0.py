@@ -66,11 +66,12 @@ def pack_q1_0(raw_data, M, K):
     data = np.frombuffer(raw_data[:total_blocks * BLOCK_BYTES_Q1_0], dtype=np.uint8)
     blocks = data.reshape(total_blocks, BLOCK_BYTES_Q1_0)
     
-    # Extract d from bytes 0:2
+    # Extract per-block scales d from bytes 0:2
     d_bytes = blocks[:, :2].copy()
     d = np.frombuffer(d_bytes.tobytes(), dtype=np.float16).astype(np.float32)
     d = np.nan_to_num(d, nan=0.0, posinf=0.0, neginf=0.0).reshape(M, n_blocks_per_row)
-    row_scales = d.mean(axis=1).astype(np.float32)
+    # Per-block scales (NOT row-averaged — each block keeps its own scale)
+    block_scales = d.astype(np.float32)  # [M, n_blocks_per_row]
     
     # Extract 1-bit qs from bytes 2:34 (32 bytes = 256 bits)
     qs_raw = blocks[:, 2:34].copy()
@@ -87,7 +88,7 @@ def pack_q1_0(raw_data, M, K):
     # Reshape to [M, K_packed] by interleaving blocks across rows
     weights = packed.reshape(M, n_blocks_per_row, block_k_packed)
     weights = weights.reshape(M, K_packed)
-    return weights, row_scales
+    return weights, block_scales
 
 def main():
     src, out_dir = sys.argv[1], sys.argv[2]
@@ -99,8 +100,7 @@ def main():
         n_kv = struct.unpack('<Q', gf.read(8))[0]
         skip_kv(gf, n_kv)
         
-        data_start = (gf.tell() + 31) & ~31
-        
+        # First read ALL tensor metadata
         tensors = []
         for _ in range(n_tensors):
             nl = struct.unpack('<Q', gf.read(8))[0]
@@ -110,7 +110,10 @@ def main():
             dt = struct.unpack('<I', gf.read(4))[0]
             off = struct.unpack('<Q', gf.read(8))[0]
             tensors.append((name, dims, dt, off))
-
+        
+        # data_start is aligned position after ALL tensor metadata
+        data_start = (gf.tell() + 31) & ~31
+        
         manifest = {}
         chunks = []
         total_bytes = 0
@@ -150,19 +153,22 @@ def main():
                 gf.seek(data_start + off)
                 raw = gf.read(raw_size)
                 
-                weights, row_scales = pack_q1_0(raw, M, K)
+                weights, block_scales = pack_q1_0(raw, M, K)
                 K_packed = K // 4
+                n_blocks = K // 256
                 wb = weights.tobytes()
-                sb = row_scales.astype(np.float16).tobytes()
+                # Store per-block scales as BF16 (one per 256-weight block)
+                # block_scales shape: [M, n_blocks]
+                sb_flat = (block_scales.astype(np.float32).view(np.uint32) >> 16).astype(np.uint16).ravel().tobytes()
                 
                 off_w = total_bytes; off_s = off_w + len(wb)
-                chunks.append(wb + sb)
-                total_bytes += len(wb) + len(sb)
+                chunks.append(wb + sb_flat)
+                total_bytes += len(wb) + len(sb_flat)
                 
-                manifest[hf_name] = {"M": M, "K": K, "K_packed": K_packed,
+                manifest[hf_name] = {"M": M, "K": K, "K_packed": K_packed, "n_blocks": n_blocks,
                                      "offset_weights": off_w, "offset_scales": off_s,
-                                     "size_bytes": len(wb) + len(sb)}
-                print(f"  {hf_name}: M={M} K={K} → {len(wb)+len(sb)} bytes")
+                                     "size_bytes": len(wb) + len(sb_flat)}
+                print(f"  {hf_name}: M={M} K={K} n_blk={n_blocks} → {len(wb)+len(sb_flat)} bytes")
             
             elif dt in (0, 1):
                 el_sz = 4 if dt == 0 else 2

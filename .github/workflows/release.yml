@@ -1,91 +1,109 @@
-name: Release — Build & Publish Packages
+name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag to build packages for'
-        required: true
+    tags: ['v*']
 
 permissions:
   contents: write
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  server:
+    name: Build release (Rust server + HIP kernels)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      - name: Install build deps + ROCm
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential
+          wget -qO - https://repo.radeon.com/rocm/rocm.gpg.key \
+            | sudo gpg --dearmor -o /etc/apt/keyrings/rocm.gpg
+          # Use noble (Ubuntu 24.04) repo — jammy (22.04) repos may have
+          # missing or incompatible packages on the ubuntu-24.04 runner.
+          cat <<'ROCM_APT' | sudo tee /etc/apt/sources.list.d/rocm.list
+          deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.2 noble main
+          deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/graphics/7.2/ubuntu noble main
+          ROCM_APT
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rocm-dev hip-dev composablekernel-dev
+
+      # ── Kernel engine (HIP/C++): librocm_cpp.so + bitnet_decode ──
+      # This is the actual inference engine. The Rust server below is a proxy
+      # that spawns `bitnet_decode --server`, so the release must ship both.
+      - name: Build HIP kernels + decode server
+        run: |
+          cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151
+          ninja -C build rocm_cpp bitnet_decode bench_prefill_variants
+
+      # ── Rust proxy (OpenAI-compatible HTTP frontend) ──
+      - uses: dtolnay/rust-toolchain@1.96.0
+      - name: Build + test Rust server
+        working-directory: rust
+        run: |
+          cargo build --release
+          cargo test --release
+
+      - name: Package
+        run: |
+          mkdir -p dist/bin dist/lib
+          # Rust HTTP frontend (spawns the decode server as a subprocess)
+          cp rust/target/release/onebit dist/bin/
+          # HIP/C++ inference engine + OpenAI-compatible decode server
+          cp build/bitnet_decode dist/bin/
+          cp build/librocm_cpp.so dist/lib/
+          cp build/bench_prefill_variants dist/bin/ || true
+          # Docs + install + license
+          cp install.sh dist/
+          cp README.md dist/
+          cp LICENSE dist/
+          cp LICENSE-SHERRY.md dist/
+          cp site/assets/logo.png dist/
+          # A loader script so `onebit` finds librocm_cpp.so + bitnet_decode
+          # next to the tarball without the user hand-setting LD_LIBRARY_PATH.
+          cat > dist/run.sh <<'EOF'
+          #!/usr/bin/env bash
+          set -e
+          HERE="$(cd "$(dirname "$0")" && pwd)"
+          export LD_LIBRARY_PATH="$HERE/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export PATH="$HERE/bin:$PATH"
+          # onebit spawns bitnet_decode --server internally as a subprocess.
+          # No need to pass --server here; all CLI args are forwarded.
+          exec "$HERE/bin/onebit" "$@"
+          EOF
+          chmod +x dist/run.sh
+          tar czf 1bit-linux-x86_64.tar.gz -C dist .
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
         with:
-          fetch-depth: 0
+          files: 1bit-linux-x86_64.tar.gz
+          generate_release_notes: true
+          prerelease: false
+          body: |
+            ## 1bit — Monorepo Release
 
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y g++ gcc dpkg-dev snapcraft 2>/dev/null || true
+            Unified release: HIP/C++ kernels (`librocm_cpp.so` + `bitnet_decode`)
+            plus the Rust OpenAI-compatible HTTP frontend (`onebit`).
 
-      - name: Determine version
-        id: version
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-          else
-            echo "tag=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
-          fi
-          echo "version=$(echo ${GITHUB_REF_NAME} | sed 's/^v//')" >> $GITHUB_OUTPUT
+            ### Includes
+            - `bin/onebit` — Rust HTTP frontend (spawns the decode server)
+            - `bin/bitnet_decode` — HIP/C++ inference engine + OpenAI server
+            - `lib/librocm_cpp.so` — ternary GEMV/GEMM kernels
+            - `run.sh` — launcher (sets LD_LIBRARY_PATH + PATH for you)
+            - install script, docs, license
 
-      # NOTE: the "Build dequant object" and "Build NPU engine" steps that used to
-      # live here compiled engine/npu/src/{dequant_q4nx.c,npu_engine_all.cpp}.
-      # engine/npu/ was retired in commit cd232a091 (superseded by the spec-decode/
-      # stack), so those steps — and the 1bit-npu binary they produced — were
-      # removed. Only the HTTP server binary is built/packaged below now.
+            ### Requires
+            - AMD Strix Halo (gfx1151)
+            - ROCm 7.2+ runtime (libhsa-runtime64) on the target machine
+            - A `.h1b` model file
 
-      - name: Build HTTP server
-        run: |
-          g++ -std=c++23 -O3 -o 1bit-server \
-            packaging/binary/server.cpp
-
-      - name: Strip binaries
-        run: |
-          strip -s 1bit-server 2>/dev/null || true
-
-      - name: Build .deb package
-        run: |
-          mkdir -p deb-pkg/DEBIAN deb-pkg/usr/bin
-          cp packaging/deb/DEBIAN/control deb-pkg/DEBIAN/
-          cp packaging/deb/DEBIAN/postinst deb-pkg/DEBIAN/ 2>/dev/null || true
-          cp 1bit-server deb-pkg/usr/bin/
-          sed -i "s/Version:.*/Version: ${{ steps.version.outputs.version }}/" deb-pkg/DEBIAN/control
-          dpkg-deb --build deb-pkg 1bit-systems_${{ steps.version.outputs.version }}_amd64.deb
-
-      - name: Build tarball
-        run: |
-          PKG="1bit-systems-${{ steps.version.outputs.version }}-linux-amd64"
-          mkdir -p "${PKG}/bin"
-          cp 1bit-server "${PKG}/bin/"
-          tar czf "${PKG}.tar.gz" "${PKG}/"
-
-      - name: Generate checksums
-        run: |
-          sha256sum 1bit-systems_${{ steps.version.outputs.version }}_amd64.deb \
-            1bit-systems-${{ steps.version.outputs.version }}-linux-amd64.tar.gz \
-            > checksums.txt
-
-      - name: Upload release assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if gh release view "${{ steps.version.outputs.tag }}" --json tagName &>/dev/null; then
-            # Release exists — upload assets to it
-            gh release upload "${{ steps.version.outputs.tag }}" \
-              1bit-systems_${{ steps.version.outputs.version }}_amd64.deb \
-              1bit-systems-${{ steps.version.outputs.version }}-linux-amd64.tar.gz \
-              checksums.txt \
-              1bit-server \
-              --clobber
-          else
-            echo "Release ${{ steps.version.outputs.tag }} not found — not uploading (create release manually or use the tag trigger)"
-          fi
+            ### Quick Start
+            ```bash
+            tar xzf 1bit-linux-x86_64.tar.gz
+            export HSA_OVERRIDE_GFX_VERSION=11.5.1
+            export HSA_ENABLE_SDMA=0
+            ./run.sh --model model.h1b --port 13305 --tune-prefill --fp16-weights
+            ```
+            Then point any OpenAI client at `http://127.0.0.1:13305/v1`.

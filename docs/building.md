@@ -1,13 +1,6 @@
 # Building the INT8 Inference Engine
 
-## Build the NPU engine from source
-
-> **Note**: Building from source requires the AMD MLIR-AIE toolchain (Python-based).
-> Pre-compiled xclbins ship with the repo — `git clone` gives you everything needed
-> to run inference without any Python. The build toolchain is only needed if you
-> want to generate custom xclbins for new model architectures.
-
-### Prerequisites
+## Prerequisites
 
 - AMD Strix Halo (Ryzen AI Max+ 395) with NPU enabled
 - Ubuntu 26.04 LTS (kernel 7.0.0+)
@@ -115,21 +108,6 @@ The engine expects the Qwen3-0.6B Q4NX model at:
 
 This is the default FastFlowLM model cache location. To use a different path,
 edit the `mp` variable in `engine/src/npu_engine_i8.cpp`.
-
-## Daemon (C++, zero Python)
-
-```bash
-# Minimal build (no Stripe support)
-g++ -std=c++23 -O3 -o daemon/npu-gpu-cpud daemon/npu-gpu-cpud.cpp -lpthread
-
-# Full build (with Stripe checkout)
-g++ -std=c++23 -O3 -o daemon/npu-gpu-cpud daemon/npu-gpu-cpud.cpp -lpthread -lcurl
-
-# Run (requires root for FLM subprocess)
-sudo ./daemon/npu-gpu-cpud
-```
-
-The daemon provides OpenAI-compatible API on port 9090, routes to FLM (NPU) for production inference, and handles Stripe checkout + order management.
 
 ## Performance tuning
 

@@ -1,0 +1,22 @@
+name: Qodo Merge
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: write
+  statuses: write
+
+jobs:
+  qodo-merge:
+    runs-on: ubuntu-latest
+    name: Qodo Merge
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: Qodo Merge
+        uses: qodo-ai/qodo-merge@main
+        env:
+          QODO_API_KEY: ${{ secrets.QODO_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

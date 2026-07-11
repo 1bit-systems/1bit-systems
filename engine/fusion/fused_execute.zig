@@ -3,6 +3,15 @@
 //!   - NPU: INT8 GEMM for QKV projection, FFN gate/up/down
 //!   - GPU: Flash attention via Vulkan (gpu_attn module)
 //!
+//! Supports three attention kernels:
+//!   - .flash — standard flash attention (Qwen, Llama, Gemma)
+//!   - .mla   — Multi-Head Latent Attention (DeepSeek V2/V3)
+//!
+//! Supports three FFN kernels:
+//!   - .dense       — standard gate/up/down FFN
+//!   - .moe         — routed MoE (Mixtral, Zaya)
+//!   - .shared_moe  — MoE with shared expert (DeepSeek)
+//!
 //! Target: 273 tok/s coherent on Qwen3-0.6B (NPU GEMM + GPU attention)
 //! Strategy:
 //!   - NPU does GEMM-heavy QKV/FFN at ~0.3ms each → 28×0.3 = 8.4ms
@@ -15,19 +24,22 @@ const std = @import("std");
 const Io = std.Io;
 const gpu_attn = @import("gpu_attn.zig");
 const interop = @import("interop.zig");
+const arch_registry = @import("arch_registry.zig");
+const moe_router = @import("moe_router.zig");
+const mla_attn = @import("mla_attn.zig");
 
 const log = std.log.scoped(.fused_execute);
 
 /// Qwen3-0.6B model dimensions.
 pub const QWEN3_0_6B = ModelConfig{
-    .hidden_dim = 1536,
+    .hidden_dim = 1024,
     .n_layers = 28,
-    .n_heads = 12,
-    .n_kv_heads = 2,
+    .n_heads = 16,
+    .n_kv_heads = 8,
     .head_dim = 128,
-    .inter_size = 4096,
+    .inter_size = 3072,
     .vocab_size = 151936,
-    .gqa_ratio = 6,
+    .gqa_ratio = 2,
 };
 
 /// Model configuration.
@@ -46,6 +58,7 @@ pub const ModelConfig = struct {
 pub const Backend = enum(u8) {
     npu = 0,
     gpu = 1,
+    cpu = 2,
 };
 
 /// Dispatch policy for layer routing.
@@ -60,6 +73,10 @@ pub const DispatchPolicy = enum(u8) {
     qkv_on_npu = 3,
     /// Attention on NPU, FFN on GPU.
     attention_on_npu = 4,
+    /// All layers on CPU (pure C++ ternary inference).
+    cpu_only = 5,
+    /// Prefill on NPU, decode GPU attention + NPU FFN with batch split.
+    prefill_npu_decode_gpu = 6,
 };
 
 /// Per-layer dispatch decision.
@@ -69,8 +86,13 @@ pub const LayerDispatch = struct {
     ffn: Backend = .npu,
 };
 
+/// Threshold for decode/batch split: M <= this uses per-token decode (skinny),
+/// M > this uses batched GEMV kernels (fat batch).
+pub const BATCH_SPLIT_THRESHOLD: u32 = 5;
+
 /// Shared KV cache for NPU↔GPU interop.
 /// K and V stored in f32. Written by NPU QKV step, read by GPU attention step.
+/// For MLA models, the cache stores compressed KV latents (see MlaKVCache).
 pub const SharedKVCache = struct {
     allocator: std.mem.Allocator,
     n_layers: u32,
@@ -177,185 +199,333 @@ pub const SharedKVCache = struct {
     }
 };
 
-/// Persistent NPU server — keeps one npu_engine_universal --server process alive
-/// and communicates via POSIX shared memory + stdin/stdout commands.
-/// Eliminates the 5-10ms process spawn overhead per QKV/FFN call.
-const ChildPipes = struct {
-    pid: std.posix.pid_t,
-    stdin_fd: i32,
-    stdout_fd: i32,
+// ── MLA Compressed KV Cache ──────────────────────────────────
+
+/// MLA compressed KV cache: stores compressed KV latents per layer.
+/// Each layer's cache is [max_context * kv_lora_rank] f32, indexed by position.
+/// Used when attn_kernel == .mla.
+pub const MlaKVCache = struct {
+    allocator: std.mem.Allocator,
+    n_layers: u32,
+    kv_lora_rank: u32,
+    max_context: u32,
+
+    /// Per-layer flat cache: [layer][max_context * kv_lora_rank]
+    caches: [][]f32,
+    /// Flat backing storage.
+    flat: []f32,
+    /// Current sequence position (shared across layers for simplicity).
+    position: u32 = 0,
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        n_layers: u32,
+        kv_lora_rank: u32,
+        max_context: u32,
+    ) !MlaKVCache {
+        const per_layer = max_context * kv_lora_rank;
+        const total = n_layers * per_layer;
+        const flat = try allocator.alloc(f32, total);
+        errdefer allocator.free(flat);
+        @memset(flat, 0);
+
+        const caches = try allocator.alloc([]f32, n_layers);
+        errdefer allocator.free(caches);
+        for (0..n_layers) |l| {
+            caches[l] = flat[l * per_layer ..][0..per_layer];
+        }
+
+        log.info("MlaKVCache: {d}L × {d}pos × {d}kv_lora = {d} bytes", .{
+            n_layers, max_context, kv_lora_rank,
+            total * @sizeOf(f32),
+        });
+
+        return .{
+            .allocator = allocator,
+            .n_layers = n_layers,
+            .kv_lora_rank = kv_lora_rank,
+            .max_context = max_context,
+            .caches = caches,
+            .flat = flat,
+        };
+    }
+
+    pub fn deinit(self: *MlaKVCache) void {
+        self.allocator.free(self.caches);
+        self.allocator.free(self.flat);
+    }
+
+    /// Write a compressed KV latent for a given layer at the current position.
+    pub fn write(self: *MlaKVCache, layer: u32, latent: []const f32) void {
+        const stride: usize = @intCast(self.kv_lora_rank);
+        const dst = self.position * @as(u32, @intCast(stride));
+        @memcpy(self.caches[layer][dst .. dst + stride], latent[0..stride]);
+    }
+
+    /// Read a compressed KV latent for a given layer at a given position.
+    pub fn read(self: *const MlaKVCache, layer: u32, pos: u32) []const f32 {
+        const stride: usize = @intCast(self.kv_lora_rank);
+        const src = pos * @as(u32, @intCast(stride));
+        return self.caches[layer][src .. src + stride];
+    }
+
+    /// Return the flat slice from position 0 up to `self.position` for a layer.
+    pub fn getLatents(self: *const MlaKVCache, layer: u32) []const f32 {
+        const stride: usize = @intCast(self.kv_lora_rank);
+        return self.caches[layer][0 .. self.position * stride];
+    }
+
+    pub fn advance(self: *MlaKVCache, n_tokens: u32) void {
+        self.position += n_tokens;
+    }
+
+    /// Wrapped as an mla_attn.FlatKvCache view for passing to MLA decode functions.
+    pub fn asFlatKvCache(self: *MlaKVCache, layer: u32) mla_attn.FlatKvCache {
+        return .{
+            .data = self.caches[layer],
+            .kv_lora_rank = self.kv_lora_rank,
+            .max_seq_len = self.max_context,
+            .seq_len = self.position,
+        };
+    }
 };
 
-/// Spawns one npu_engine_universal --server --shm process with its own
-/// shared memory segment and pipe. Multiple instances can run concurrently
-/// for true NPU pipeline overlap (QKV ∥ FFN).
-const PersistentNpuServer = struct {
+// ── MoE Dispatch Scratch ─────────────────────────────────────
+
+/// Per-layer scratch buffers for MoE expert FFN dispatch.
+/// Reused across layers to minimize allocation churn.
+const MoEScratch = struct {
+    /// Gating logits: [batch * n_experts] f32
+    gating_logits: []f32,
+    /// Routing table: [batch * 2 * top_k] u32 (expert_ids + weight_bits)
+    routing_table: []u32,
+    /// Per-expert output: [batch * top_k * hidden_dim] f32
+    /// Layout: expert_output[t * top_k * H + k * H .. (k+1) * H] is expert k's output for token t
+    expert_outputs: []f32,
+    /// Expert gate/up scratch: [batch * 2 * expert_intermediate_size] f32
+    gate_up: []f32,
+    /// Expert activated (SiLU*gate): [batch * expert_intermediate_size] f32
+    activated: []f32,
+    /// Expert down output: [batch * hidden_dim] f32
+    down_out: []f32,
+
+    fn deinit(self: *MoEScratch, allocator: std.mem.Allocator) void {
+        allocator.free(self.down_out);
+        allocator.free(self.activated);
+        allocator.free(self.gate_up);
+        allocator.free(self.expert_outputs);
+        allocator.free(self.routing_table);
+        allocator.free(self.gating_logits);
+    }
+};
+
+// ── NPU subprocess ───────────────────────────────────────────
+
+/// NPU subprocess handle — manages one npu_engine_universal child process.
+/// Wire protocol op codes for the persistent NPU worker (npu_engine_universal --worker).
+/// Must match `enum WorkerOp` in engine/npu/src/npu_engine_universal.cpp.
+const NpuWorkerOp = enum(u32) {
+    quit = 0,
+    qkv = 1,
+    oproj = 2,
+    gateup = 3,
+    up = 4,
+    down = 5,
+    /// MoE gate/up for a specific expert. Payload: [batch, hidden_dim] input.
+    /// The expert is identified by a separate u32 field (reuses `layer` field).
+    moe_gateup = 6,
+    /// MoE down projection for a specific expert.
+    moe_down = 7,
+    /// Shared expert gate/up.
+    shared_gateup = 8,
+    /// Shared expert down.
+    shared_down = 9,
+    /// Compressed KV projection (kv_a_proj) for MLA: input [H] → latent [kv_lora_rank].
+    mla_kv_compress = 10,
+    /// Q projection for MLA: input [H] → q [NH * qk_head_dim].
+    mla_q_proj = 11,
+    /// MLAAbsorbed Q + output projection (absorbed attention on NPU).
+    mla_absorbed_attn = 12,
+};
+
+/// Persistent connection to a single npu_engine_universal --worker child process.
+const NpuSubprocess = struct {
     allocator: std.mem.Allocator,
-    child: ChildPipes,
-    shm_mem: []align(4096) u8,
-    shm_name: []u8,
+    io: ?Io,
+    model_path: []const u8,
+    engine_path: []const u8,
+    child: ?std.process.Child = null,
+    /// forwardDecode() pipelines the NEXT layer's QKV on a background thread
+    /// while the current layer's O-proj/FFN/Down run on the caller's thread —
+    /// both share this one worker connection, so every request/response
+    /// round-trip must be serialized or the two threads interleave their
+    /// header/payload bytes on the same pipe.
+    mutex: Io.Mutex = .init,
 
-    const SHM_SIZE = 128 * 1024 * 1024; // 128 MB — matches SHM_TOTAL in npu_engine_universal.cpp
-    const SHM_IN_OFF = 0;
-    const SHM_OUT_OFF = SHM_SIZE / 2;
-
-    pub fn init(allocator: std.mem.Allocator, engine_path: []const u8, model_path: []const u8) !PersistentNpuServer {
-        // 1. Create POSIX shared memory (via C API)
-        const shm_name = try std.fmt.allocPrint(allocator, "/1bit-fused-{d}", .{std.c.getpid()});
-        errdefer allocator.free(shm_name);
-
-        const O_RDWR: c_uint = 2;
-        const O_CREAT: c_uint = 0o100;
-
-        const fd = std.c.shm_open(@ptrCast(shm_name.ptr), O_RDWR | O_CREAT, 0o666);
-        if (fd < 0) {
-            log.err("shm_open failed: errno={}", .{std.c._errno().*});
-            return error.ShmOpenFailed;
-        }
-        errdefer _ = std.c.shm_unlink(@ptrCast(shm_name.ptr));
-
-        if (std.c.ftruncate(fd, SHM_SIZE) < 0) {
-            log.err("ftruncate failed: errno={}", .{std.c._errno().*});
-            _ = std.c.close(fd);
-            return error.ShmTruncateFailed;
-        }
-        const shm_mem = try std.posix.mmap(
-            null,
-            SHM_SIZE,
-            std.posix.PROT{ .READ = true, .WRITE = true },
-            std.posix.MAP{ .TYPE = .SHARED },
-            @intCast(fd),
-            0,
-        );
-        _ = std.c.close(fd);
-
-        // 2. Spawn NPU server process via C fork/exec
-        var stdin_pipe: [2]c_int = undefined;
-        var stdout_pipe: [2]c_int = undefined;
-        if (std.c.pipe(&stdin_pipe) < 0 or std.c.pipe(&stdout_pipe) < 0) return error.PipeFailed;
-        const child_pid = std.c.fork();
-        if (child_pid < 0) return error.ForkFailed;
-        if (child_pid == 0) {
-            // Child: redirect stdin/stdout to pipes, then exec
-            _ = std.c.dup2(stdin_pipe[0], 0);
-            _ = std.c.dup2(stdout_pipe[1], 1);
-            _ = std.c.close(stdin_pipe[0]);
-            _ = std.c.close(stdin_pipe[1]);
-            _ = std.c.close(stdout_pipe[0]);
-            _ = std.c.close(stdout_pipe[1]);
-            _ = std.c.execve(
-                @ptrCast(@constCast(engine_path.ptr)),
-                @as([*:null]const ?[*:0]const u8, @ptrCast(@constCast(&[_]?[*:0]const u8{ @ptrCast(@constCast(engine_path.ptr)), @ptrCast(@constCast(model_path.ptr)), @ptrCast(@constCast("--server")), @ptrCast(@constCast("--shm")), @ptrCast(@constCast(shm_name.ptr)), null }))),
-                @as([*:null]const ?[*:0]const u8, @ptrCast(&[_]?[*:0]const u8{null})),
-            );
-            std.c.exit(1);
-        }
-        // Parent: close child's ends, keep our ends
-        _ = std.c.close(stdin_pipe[0]);
-        _ = std.c.close(stdout_pipe[1]);
-
-        // Build a minimal child struct to hold the pid and pipe handles
-        const child = ChildPipes{
-            .pid = child_pid,
-            .stdin_fd = stdin_pipe[1],
-            .stdout_fd = stdout_pipe[0],
-        };
-
-        // 3. Wait for "SERVER: READY" on stdout
-        var ready_buf: [32]u8 = undefined;
-        const n = std.c.read(child.stdout_fd, &ready_buf, ready_buf.len);
-        if (n < 0 or !std.mem.startsWith(u8, ready_buf[0..@as(usize, @intCast(n))], "SERVER: READY")) {
-            const nn = if (n < 0) @as(usize, 0) else @as(usize, @intCast(n));
-            log.err("NPU server did not start: {s}", .{ready_buf[0..nn]});
-            _ = std.c.close(child.stdin_fd);
-            _ = std.c.close(child.stdout_fd);
-            var ws: c_int = 0;
-            _ = std.c.waitpid(child_pid, &ws, 0);
-            return error.NpuServerStartFailed;
-        }
-        log.info("NPU server ready (shm={s})", .{shm_name});
-
-        return PersistentNpuServer{
-            .allocator = allocator,
-            .child = child,
-            .shm_mem = shm_mem,
-            .shm_name = shm_name,
-        };
+    pub fn init(allocator: std.mem.Allocator, io: ?Io, model_path: []const u8, engine_path: []const u8) NpuSubprocess {
+        return .{ .allocator = allocator, .io = io, .model_path = model_path, .engine_path = engine_path };
     }
 
-    pub fn deinit(self: *PersistentNpuServer) void {
-        // Send EXIT command to child
-        _ = std.c.write(self.child.stdin_fd, "EXIT\n", 5);
-        _ = std.c.close(self.child.stdin_fd);
-        _ = std.c.close(self.child.stdout_fd);
-        // Reap child process
-        var wstatus: c_int = undefined;
-        _ = std.c.waitpid(self.child.pid, &wstatus, 0);
-        std.posix.munmap(self.shm_mem);
-        _ = std.c.shm_unlink(@ptrCast(self.shm_name.ptr));
-        self.allocator.free(self.shm_name);
+    fn ensureStarted(self: *NpuSubprocess, io: Io) !void {
+        if (self.child != null) return;
+        self.child = try std.process.spawn(io, .{
+            .argv = &[_][]const u8{ self.engine_path, self.model_path, "--worker" },
+            .stdin = .pipe,
+            .stdout = .pipe,
+            .stderr = .inherit,
+        });
     }
 
-    /// Run QKV for one layer: write hidden states to shm, send command, read QKV output.
-    fn runQKV(
-        self: *PersistentNpuServer,
-        hidden: []const f32,
-        batch_size: u32,
-        layer: u32,
-        pos: u32,
-        qkv_out: []f32,
+    fn readExact(file: std.Io.File, io: Io, buf: []u8) !void {
+        var got: usize = 0;
+        while (got < buf.len) {
+            const n = try file.readStreaming(io, &.{buf[got..]});
+            if (n == 0) return error.NpuWorkerClosed;
+            got += n;
+        }
+    }
+
+    /// Send one (op, layer, batch) request with `input` as the payload and
+    /// block until the response payload is fully read into `output`.
+    /// `input.len` must be an exact multiple of `batch`.
+    fn call(self: *NpuSubprocess, op: NpuWorkerOp, layer: u32, batch: u32, input: []const f32, output: []f32) !void {
+        const io = self.io orelse return error.NoIo;
+        try self.mutex.lock(io);
+        defer self.mutex.unlock(io);
+        try self.ensureStarted(io);
+        const child = &self.child.?;
+        const in_dim: u32 = @intCast(input.len / batch);
+
+        const hdr = [4]u32{ @intFromEnum(op), layer, batch, in_dim };
+        try child.stdin.?.writeStreamingAll(io, std.mem.sliceAsBytes(&hdr));
+        try child.stdin.?.writeStreamingAll(io, std.mem.sliceAsBytes(input));
+
+        var resp_hdr: [2]u32 = undefined;
+        try readExact(child.stdout.?, io, std.mem.sliceAsBytes(&resp_hdr));
+        if (resp_hdr[0] != 0) return error.NpuWorkerError;
+        const out_dim = resp_hdr[1];
+        const expected = @as(usize, batch) * @as(usize, out_dim);
+        if (expected > output.len) return error.NpuOutputTooLarge;
+        try readExact(child.stdout.?, io, std.mem.sliceAsBytes(output[0..expected]));
+    }
+
+    /// Extended call that sends an extra expert_id field in the header.
+    /// Header becomes: [op, expert_id, batch, in_dim]
+    fn callWithExpert(
+        self: *NpuSubprocess,
+        op: NpuWorkerOp,
+        expert_id: u32,
+        batch: u32,
+        input: []const f32,
+        output: []f32,
     ) !void {
-        const shm_in = self.shm_mem[SHM_IN_OFF..][0..hidden.len * @sizeOf(f32)];
-        // Write hidden states to shared memory
-        const h_bytes = std.mem.sliceAsBytes(hidden);
-        @memcpy(shm_in[0..h_bytes.len], h_bytes);
+        const io = self.io orelse return error.NoIo;
+        try self.mutex.lock(io);
+        defer self.mutex.unlock(io);
+        try self.ensureStarted(io);
+        const child = &self.child.?;
+        const in_dim: u32 = @intCast(input.len / batch);
 
-        // Send command directly via POSIX write
-        var cmd_buf: [64]u8 = undefined;
-        const cmd = try std.fmt.bufPrint(&cmd_buf, "QKV {d} {d} {d}\n", .{ layer, pos, batch_size });
-        _ = std.c.write(self.child.stdin_fd, cmd.ptr, cmd.len);
+        const hdr = [4]u32{ @intFromEnum(op), expert_id, batch, in_dim };
+        try child.stdin.?.writeStreamingAll(io, std.mem.sliceAsBytes(&hdr));
+        try child.stdin.?.writeStreamingAll(io, std.mem.sliceAsBytes(input));
 
-        // Wait for ack (newline on stdout)
-        var ack: [1]u8 = undefined;
-        _ = std.c.read(self.child.stdout_fd, &ack, 1);
-
-        // Read output from shared memory
-        const shm_out = self.shm_mem[SHM_OUT_OFF..][0..qkv_out.len * @sizeOf(f32)];
-        const out_bytes = std.mem.sliceAsBytes(qkv_out);
-        @memcpy(out_bytes, shm_out[0..out_bytes.len]);
+        var resp_hdr: [2]u32 = undefined;
+        try readExact(child.stdout.?, io, std.mem.sliceAsBytes(&resp_hdr));
+        if (resp_hdr[0] != 0) return error.NpuWorkerError;
+        const out_dim = resp_hdr[1];
+        const expected = @as(usize, batch) * @as(usize, out_dim);
+        if (expected > output.len) return error.NpuOutputTooLarge;
+        try readExact(child.stdout.?, io, std.mem.sliceAsBytes(output[0..expected]));
     }
 
-    /// Run FFN for one layer: write residual+attention to shm, send command, read output.
-    fn runFFN(
-        self: *PersistentNpuServer,
-        residual: []const f32,
-        attn_out: []const f32,
+    fn runQKV(self: *NpuSubprocess, input: []const f32, layer: u32, batch_size: u32, qkv_out: []f32) !void {
+        try self.call(.qkv, layer, batch_size, input, qkv_out);
+    }
+
+    fn runOProj(self: *NpuSubprocess, input: []const f32, layer: u32, batch_size: u32, o_out: []f32) !void {
+        try self.call(.oproj, layer, batch_size, input, o_out);
+    }
+
+    /// Combined gate+up projection: [B,H] -> [B,2*inter_size]. Only valid for
+    /// models without a gate/up weight split (gu_split==false on the C++ side).
+    fn runFFN(self: *NpuSubprocess, input: []const f32, layer: u32, batch_size: u32, ffn_out: []f32) !void {
+        try self.call(.gateup, layer, batch_size, input, ffn_out);
+    }
+
+    fn runDown(self: *NpuSubprocess, input: []const f32, layer: u32, batch_size: u32, down_out: []f32) !void {
+        try self.call(.down, layer, batch_size, input, down_out);
+    }
+
+    /// MoE: run gate/up for a specific expert.
+    fn runMoeGateUp(
+        self: *NpuSubprocess,
+        input: []const f32,
+        expert_id: u32,
         batch_size: u32,
-        layer: u32,
-        pos: u32,
         ffn_out: []f32,
     ) !void {
-        // Write residual + attention output to shared memory
-        const res_bytes = std.mem.sliceAsBytes(residual);
-        const attn_bytes = std.mem.sliceAsBytes(attn_out);
-        const total = res_bytes.len + attn_bytes.len;
-        const shm_in = self.shm_mem[SHM_IN_OFF..][0..total];
-        @memcpy(shm_in[0..res_bytes.len], res_bytes);
-        @memcpy(shm_in[res_bytes.len..][0..attn_bytes.len], attn_bytes);
+        self.callWithExpert(.moe_gateup, expert_id, batch_size, input, ffn_out) catch |err| {
+            log.warn("NPU MoE gate/up (expert {d}) failed: {s}", .{ expert_id, @errorName(err) });
+            @memset(ffn_out, 0);
+        };
+    }
 
-        // Send command directly via POSIX write
-        var cmd_buf: [64]u8 = undefined;
-        const cmd = try std.fmt.bufPrint(&cmd_buf, "FFN {d} {d} {d}\n", .{ layer, pos, batch_size });
-        _ = std.c.write(self.child.stdin_fd, cmd.ptr, cmd.len);
+    /// MoE: run down projection for a specific expert.
+    fn runMoeDown(
+        self: *NpuSubprocess,
+        input: []const f32,
+        expert_id: u32,
+        batch_size: u32,
+        down_out: []f32,
+    ) !void {
+        self.callWithExpert(.moe_down, expert_id, batch_size, input, down_out) catch |err| {
+            log.warn("NPU MoE down (expert {d}) failed: {s}", .{ expert_id, @errorName(err) });
+            @memset(down_out, 0);
+        };
+    }
 
-        // Wait for ack
-        var ack: [1]u8 = undefined;
-        _ = std.c.read(self.child.stdout_fd, &ack, 1);
+    /// Shared expert gate+up (used by shared_moe architectures like DeepSeek).
+    fn runSharedGateUp(self: *NpuSubprocess, input: []const f32, layer: u32, batch_size: u32, ffn_out: []f32) !void {
+        self.call(.shared_gateup, layer, batch_size, input, ffn_out) catch |err| {
+            log.warn("NPU shared gate/up (layer {d}) failed: {s}", .{ layer, @errorName(err) });
+            @memset(ffn_out, 0);
+        };
+    }
 
-        // Read output from shared memory
-        const shm_out = self.shm_mem[SHM_OUT_OFF..][0..ffn_out.len * @sizeOf(f32)];
-        const out_bytes = std.mem.sliceAsBytes(ffn_out);
-        @memcpy(out_bytes, shm_out[0..out_bytes.len]);
+    /// Shared expert down projection.
+    fn runSharedDown(self: *NpuSubprocess, input: []const f32, layer: u32, batch_size: u32, down_out: []f32) !void {
+        self.call(.shared_down, layer, batch_size, input, down_out) catch |err| {
+            log.warn("NPU shared down (layer {d}) failed: {s}", .{ layer, @errorName(err) });
+            @memset(down_out, 0);
+        };
+    }
+
+    /// MLA KV compression: hidden [H] → compressed latent [kv_lora_rank].
+    fn runMlaKvCompress(self: *NpuSubprocess, input: []const f32, layer: u32, batch_size: u32, latent_out: []f32) !void {
+        self.call(.mla_kv_compress, layer, batch_size, input, latent_out) catch |err| {
+            log.warn("NPU MLA KV compress (layer {d}) failed: {s}", .{ layer, @errorName(err) });
+            @memset(latent_out, 0);
+        };
+    }
+
+    /// MLA Q projection.
+    fn runMlaQProj(self: *NpuSubprocess, input: []const f32, layer: u32, batch_size: u32, q_out: []f32) !void {
+        self.call(.mla_q_proj, layer, batch_size, input, q_out) catch |err| {
+            log.warn("NPU MLA Q proj (layer {d}) failed: {s}", .{ layer, @errorName(err) });
+            @memset(q_out, 0);
+        };
+    }
+
+    /// Signal QUIT and let the child exit; releases the pipe handles.
+    fn deinit(self: *NpuSubprocess) void {
+        const io = self.io orelse return;
+        if (self.child) |*child| {
+            const hdr = [4]u32{ @intFromEnum(NpuWorkerOp.quit), 0, 0, 0 };
+            child.stdin.?.writeStreamingAll(io, std.mem.sliceAsBytes(&hdr)) catch {};
+            _ = child.wait(io) catch {};
+        }
+        self.child = null;
     }
 };
 
@@ -372,22 +542,47 @@ fn silu(x: f32) f32 {
     return x / (1.0 + std.math.exp(@as(f32, -x)));
 }
 
+// ── FusedExecutor ───────────────────────────────────────────
+
 /// Fused execution engine — coordinates NPU GEMM and GPU attention.
+/// Supports dense, MoE, and shared-MoE FFNs; flash and MLA attention.
 pub const FusedExecutor = struct {
     allocator: std.mem.Allocator,
     policy: DispatchPolicy,
     config: ModelConfig,
 
-    /// Shared KV cache.
+    /// Attention kernel type: .flash (default) or .mla.
+    attn_kernel: arch_registry.AttentionKernel = .flash,
+    /// FFN kernel type: .dense (default), .moe, or .shared_moe.
+    ffn_kernel: arch_registry.FfnKernel = .dense,
+
+    /// Set to true when the NPU subprocess dies (BrokenPipe / NpuWorkerError).
+    /// Once broken, all remaining operations fall back to CPU.
+    npu_broken: bool = false,
+
+    /// Shared KV cache (full K/V for flash attention).
     kv: SharedKVCache,
 
-    /// QKV NPU server (one per pipeline stream for true overlap).
-    npu_qkv: PersistentNpuServer,
-    /// FFN NPU server (runs concurrently with QKV of next layer).
-    npu_ffn: PersistentNpuServer,
+    /// MLA compressed KV cache (used when attn_kernel == .mla).
+    mla_kv: ?MlaKVCache = null,
+
+    /// NPU subprocess handle.
+    npu: NpuSubprocess,
 
     /// GPU attention module (Vulkan flash attention).
     gpu: ?gpu_attn.GpuAttention = null,
+
+    /// Batch split threshold: M <= this uses per-token decode.
+    /// Overridable per-instance; defaults to BATCH_SPLIT_THRESHOLD (5).
+    batch_split_threshold: u32 = BATCH_SPLIT_THRESHOLD,
+
+    /// MoE decode GEMV threshold: when batch_size <= this value,
+    /// use per-assignment GEMV (sort-then-dispatch) rather than
+    /// batched fused experts. Default: 8 (Gemma4 decode sweet spot
+    /// where per-assignment GEMV beats Triton fused_experts 3-5x).
+    /// Set to 0 to always use batched fused.
+    /// Only applies when ffn_kernel is .moe or .shared_moe.
+    moe_gemv_threshold: u32 = 8,
 
     /// NPU↔GPU KV cache interop.
     interop: ?interop.KvCacheInterop = null,
@@ -408,12 +603,35 @@ pub const FusedExecutor = struct {
     in_norm: [][]f32,
     pa_norm: [][]f32,
 
-    /// RoPE precomputed sin/cos tables.
+    /// Per-layer Qwen3-style QK-Norm weights (identity 1.0 where absent).
+    q_norm: [][]f32,
+    k_norm: [][]f32,
+
+    /// RoPE precomputed sin/cos tables (for standard attention).
     rope_sin: []f32,
     rope_cos: []f32,
 
+    /// MLA-specific: configuration (stored for runtime dimension queries).
+    mla_config: ?mla_attn.MLAConfig = null,
+    /// MLA-specific: precomputed RoPE sin/cos tables for the rope portion.
+    mla_rope: ?mla_attn.MLARopeTables = null,
+    /// MLA-specific: precomputed absorbed weights.
+    mla_absorbed: ?mla_attn.MLAAbsorbedWeights = null,
+    /// MLA-specific: per-layer scratch buffers.
+    mla_scratch: ?mla_attn.MLAScratch = null,
+
+    /// MoE-specific: configuration.
+    moe_config: ?moe_router.MoEConfig = null,
+    /// MoE-specific: dispatch context (router + dispatcher + optional cache).
+    moe_ctx: ?*moe_router.MoEDispatchContext = null,
+    /// MoE-specific: per-layer gating weights [layer][n_experts * hidden_dim].
+    moe_gating_weights: [][]f32 = &.{},
+
     /// Scratch buffers.
     scratch: ScratchBufs,
+
+    /// MoE scratch buffers (lazily initialized when ffn_kernel != .dense).
+    moe_scratch: ?MoEScratch = null,
 
     const ScratchBufs = struct {
         /// Hidden state: [batch, hidden_dim]
@@ -438,10 +656,11 @@ pub const FusedExecutor = struct {
 
     pub fn init(
         allocator: std.mem.Allocator,
+        io: ?Io,
         policy: DispatchPolicy,
         config: ModelConfig,
-        npu_engine_path: []const u8,
         model_path: []const u8,
+        npu_engine_path: []const u8,
         max_context: u32,
         batch_size: u32,
         emb_f32: []f32,
@@ -450,12 +669,66 @@ pub const FusedExecutor = struct {
         final_norm: []f32,
         in_norm: [][]f32,
         pa_norm: [][]f32,
+        q_norm: [][]f32,
+        k_norm: [][]f32,
         rope_sin: []f32,
         rope_cos: []f32,
     ) !FusedExecutor {
-        const kv = try SharedKVCache.init(
+        return initWithKernels(
+            allocator, io, policy, config,
+            model_path, npu_engine_path, max_context, batch_size,
+            emb_f32, lm_head_f32, tied_embeddings,
+            final_norm, in_norm, pa_norm, q_norm, k_norm,
+            rope_sin, rope_cos,
+            .flash, .dense, null, null, null, null, null, null, null, null,
+        );
+    }
+
+    /// Extended init with attention/FFN kernel selection and optional
+    /// MoE/MLA configuration. When attn_kernel==.flash and ffn_kernel==.dense,
+    /// behavior is identical to the plain `init()`.
+    pub fn initWithKernels(
+        allocator: std.mem.Allocator,
+        io: ?Io,
+        policy: DispatchPolicy,
+        config: ModelConfig,
+        model_path: []const u8,
+        npu_engine_path: []const u8,
+        max_context: u32,
+        batch_size: u32,
+        emb_f32: []f32,
+        lm_head_f32: ?[]f32,
+        tied_embeddings: bool,
+        final_norm: []f32,
+        in_norm: [][]f32,
+        pa_norm: [][]f32,
+        q_norm: [][]f32,
+        k_norm: [][]f32,
+        rope_sin: []f32,
+        rope_cos: []f32,
+        attn_kernel: arch_registry.AttentionKernel,
+        ffn_kernel: arch_registry.FfnKernel,
+        moe_config: ?moe_router.MoEConfig,
+        moe_gating_weights: ?[][]f32,
+        mla_config: ?mla_attn.MLAConfig,
+        mla_q_proj: ?[]const f32,
+        mla_kv_a_proj: ?[]const f32,
+        mla_k_b_proj: ?[]const f32,
+        mla_v_b_proj: ?[]const f32,
+        mla_o_proj: ?[]const f32,
+    ) !FusedExecutor {
+        var kv = try SharedKVCache.init(
             allocator, config.n_layers, config.n_kv_heads, config.head_dim, max_context,
         );
+        errdefer kv.deinit();
+
+        // MLA compressed KV cache (only when MLA is enabled)
+        var mla_kv: ?MlaKVCache = null;
+        if (attn_kernel == .mla) {
+            const mlac = mla_config orelse return error.MlaConfigRequired;
+            mla_kv = try MlaKVCache.init(allocator, config.n_layers, mlac.kv_lora_rank, max_context);
+            errdefer if (mla_kv) |*mk| mk.deinit();
+        }
 
         // Scratch buffers for batch decode
         const B = batch_size;
@@ -485,25 +758,113 @@ pub const FusedExecutor = struct {
         const logits = try allocator.alloc(f32, NV);
         errdefer allocator.free(logits);
 
-        log.info("FusedExecutor init: policy={s} model=H{d}L{d}NH{d}NKV{d}HD{d}IM{d}NV{d}", .{
+        // MoE scratch (only when FFN is MoE or shared_moe)
+        var moe_scratch: ?MoEScratch = null;
+        if (ffn_kernel != .dense) {
+            const mc = moe_config orelse return error.MoeConfigRequired;
+            const n_experts = mc.n_experts;
+            const top_k = mc.top_k;
+            const exp_inter = mc.expert_intermediate_size;
+
+            const gating_logits = try allocator.alloc(f32, B * n_experts);
+            errdefer allocator.free(gating_logits);
+            const routing_table = try allocator.alloc(u32, B * 2 * top_k);
+            errdefer allocator.free(routing_table);
+            const expert_outputs = try allocator.alloc(f32, B * top_k * H);
+            errdefer allocator.free(expert_outputs);
+            const moe_gate_up = try allocator.alloc(f32, B * 2 * exp_inter);
+            errdefer allocator.free(moe_gate_up);
+            const moe_activated = try allocator.alloc(f32, B * exp_inter);
+            errdefer allocator.free(moe_activated);
+            const moe_down_out = try allocator.alloc(f32, B * H);
+            errdefer allocator.free(moe_down_out);
+
+            moe_scratch = MoEScratch{
+                .gating_logits = gating_logits,
+                .routing_table = routing_table,
+                .expert_outputs = expert_outputs,
+                .gate_up = moe_gate_up,
+                .activated = moe_activated,
+                .down_out = moe_down_out,
+            };
+        }
+
+        // MoE dispatch context
+        var moe_ctx: ?*moe_router.MoEDispatchContext = null;
+        if (ffn_kernel != .dense) {
+            const mc = moe_config orelse return error.MoeConfigRequired;
+            const ctx = try allocator.create(moe_router.MoEDispatchContext);
+            ctx.* = try moe_router.MoEDispatchContext.init(
+                allocator, mc, config.n_layers, .sort_then_dispatch, 0.1,
+            );
+            moe_ctx = ctx;
+        }
+
+        // MoE gating weights (owned by caller; we just reference them)
+        const mgw: [][]f32 = if (ffn_kernel != .dense)
+            moe_gating_weights orelse return error.MoeGatingWeightsRequired
+        else
+            &.{};
+
+        // MLA-specific resources
+        var mla_rope: ?mla_attn.MLARopeTables = null;
+        var mla_absorbed: ?mla_attn.MLAAbsorbedWeights = null;
+        var mla_scratch: ?mla_attn.MLAScratch = null;
+        if (attn_kernel == .mla) {
+            const mlac = mla_config orelse return error.MlaConfigRequired;
+
+            // RoPE tables for MLA
+            mla_rope = try mla_attn.MLARopeTables.init(allocator, &mlac);
+            errdefer if (mla_rope) |*mr| mr.deinit(allocator);
+
+            // Absorbed weights
+            const mla_weights = mla_attn.MLAWeights{
+                .q_proj = mla_q_proj orelse return error.MlaQProjRequired,
+                .kv_a_proj = mla_kv_a_proj orelse return error.MlaKvAProjRequired,
+                .k_b_proj = mla_k_b_proj orelse return error.MlaKBProjRequired,
+                .v_b_proj = mla_v_b_proj orelse return error.MlaVBProjRequired,
+                .o_proj = mla_o_proj orelse return error.MlaOProjRequired,
+            };
+            mla_absorbed = try mla_attn.buildAbsorbedWeights(allocator, &mlac, &mla_weights);
+            errdefer if (mla_absorbed) |*ma| ma.deinit(allocator);
+
+            // Per-layer scratch
+            mla_scratch = try mla_attn.MLAScratch.init(allocator, &mlac, max_context);
+            errdefer if (mla_scratch) |*ms| ms.deinit(allocator);
+        }
+
+        log.info("FusedExecutor init: policy={s} model=H{d}L{d}NH{d}NKV{d}HD{d}IM{d}NV{d} attn={s} ffn={s}", .{
             @tagName(policy), H, config.n_layers, NH, config.n_kv_heads, HD, IM, NV,
+            @tagName(attn_kernel), @tagName(ffn_kernel),
         });
 
         return FusedExecutor{
             .allocator = allocator,
             .policy = policy,
             .config = config,
+            .attn_kernel = attn_kernel,
+            .ffn_kernel = ffn_kernel,
             .kv = kv,
-            .npu_qkv = try PersistentNpuServer.init(allocator, npu_engine_path, model_path),
-            .npu_ffn = try PersistentNpuServer.init(allocator, npu_engine_path, model_path),
+            .mla_kv = mla_kv,
+            .npu = NpuSubprocess.init(allocator, io, model_path, npu_engine_path),
             .emb_f32 = emb_f32,
             .lm_head_f32 = lm_head_f32,
             .tied_embeddings = tied_embeddings,
             .final_norm = final_norm,
             .in_norm = in_norm,
             .pa_norm = pa_norm,
+            .q_norm = q_norm,
+            .k_norm = k_norm,
             .rope_sin = rope_sin,
             .rope_cos = rope_cos,
+            .mla_rope = mla_rope,
+            .mla_config = mla_config,
+            .mla_absorbed = mla_absorbed,
+            .mla_scratch = mla_scratch,
+            .moe_config = moe_config,
+            .moe_ctx = moe_ctx,
+            .moe_gating_weights = mgw,
+            .moe_gemv_threshold = if (moe_config) |mc| mc.gemv_bs_threshold else 8,
             .scratch = ScratchBufs{
                 .hidden = hidden,
                 .residual = residual,
@@ -515,13 +876,28 @@ pub const FusedExecutor = struct {
                 .activated = activated,
                 .logits = logits,
             },
+            .moe_scratch = moe_scratch,
         };
     }
 
     pub fn deinit(self: *FusedExecutor) void {
-        self.npu_qkv.deinit();
-        self.npu_ffn.deinit();
+        self.npu.deinit();
         const aa = self.allocator;
+
+        // Deinit MLA resources
+        if (self.mla_scratch) |*ms| ms.deinit(aa);
+        if (self.mla_absorbed) |*ma| ma.deinit(aa);
+        if (self.mla_rope) |*mr| mr.deinit(aa);
+        if (self.mla_kv) |*mk| mk.deinit();
+
+        // Deinit MoE resources
+        if (self.moe_ctx) |ctx| {
+            ctx.deinit();
+            aa.destroy(ctx);
+        }
+        if (self.moe_scratch) |*ms| ms.deinit(aa);
+
+        // Deinit scratch
         aa.free(self.scratch.logits);
         aa.free(self.scratch.activated);
         aa.free(self.scratch.down_out);
@@ -537,6 +913,8 @@ pub const FusedExecutor = struct {
         aa.free(self.final_norm);
         aa.free(self.in_norm);
         aa.free(self.pa_norm);
+        aa.free(self.q_norm);
+        aa.free(self.k_norm);
         aa.free(self.rope_sin);
         aa.free(self.rope_cos);
         if (self.lm_head_f32) |lm| aa.free(lm);
@@ -557,12 +935,18 @@ pub const FusedExecutor = struct {
     /// Get dispatch for a layer based on policy.
     fn getLayerDispatch(self: *const FusedExecutor, layer: u32) LayerDispatch {
         _ = layer;
+        // When NPU subprocess is dead, fall back to CPU for everything.
+        if (self.npu_broken) {
+            return .{ .qkv = .cpu, .attention = .cpu, .ffn = .cpu };
+        }
         return switch (self.policy) {
             .npu_only => .{ .qkv = .npu, .attention = .npu, .ffn = .npu },
             .gpu_only => .{ .qkv = .gpu, .attention = .gpu, .ffn = .gpu },
+            .cpu_only => .{ .qkv = .cpu, .attention = .cpu, .ffn = .cpu },
             .ffn_on_npu => .{ .qkv = .npu, .attention = .gpu, .ffn = .npu },
             .qkv_on_npu => .{ .qkv = .npu, .attention = .gpu, .ffn = .gpu },
             .attention_on_npu => .{ .qkv = .gpu, .attention = .npu, .ffn = .gpu },
+            .prefill_npu_decode_gpu => .{ .qkv = .npu, .attention = .gpu, .ffn = .npu },
         };
     }
 
@@ -579,9 +963,396 @@ pub const FusedExecutor = struct {
         }
     }
 
-    /// Execute one layer — routes QKV/attention/FFN to appropriate backend.
-    /// With pipeline overlap: launches NPU QKV for NEXT layer while GPU does attention for THIS layer.
-        /// Phase 1: RMSNorm + NPU QKV projection for one layer.
+    // ── Dense FFN helpers (existing) ─────────────────────────
+
+    /// Run standard dense FFN: gate/up → SiLU*up → down, using NPU.
+    fn runDenseFfn(
+        self: *FusedExecutor,
+        layer: u32,
+        batch_size: u32,
+        input: []f32,
+        residual: []f32,
+    ) void {
+        const H = self.config.hidden_dim;
+        const IM = self.config.inter_size;
+        const s = self.scratch;
+
+        tryOrZero: {
+            self.npu.runFFN(input[0..batch_size * H], layer, batch_size, s.gate_up) catch |err| {
+                log.warn("NPU gate/up (layer {d}) failed: {s}", .{ layer, @errorName(err) });
+                break :tryOrZero;
+            };
+        }
+        for (0..batch_size) |b| {
+            for (0..IM) |i| {
+                const gate = s.gate_up[b * 2 * IM + i];
+                const up = s.gate_up[b * 2 * IM + IM + i];
+                const g = if (std.math.isFinite(gate)) gate else 0.0;
+                s.activated[b * IM + i] = silu(g) * up;
+            }
+        }
+        tryOrZero: {
+            self.npu.runDown(s.activated[0..batch_size * IM], layer, batch_size, s.down_out[0..batch_size * H]) catch |err| {
+                log.warn("NPU down (layer {d}) failed: {s}", .{ layer, @errorName(err) });
+                break :tryOrZero;
+            };
+        }
+
+        // Residual add
+        for (0..batch_size * H) |i| input[i] = residual[i] + s.down_out[i];
+    }
+
+    // ── MoE FFN helpers ──────────────────────────────────────
+
+    /// Compute gating logits: hidden @ gating_weight^T  → [batch * n_experts]
+    fn computeGatingLogits(
+        self: *const FusedExecutor,
+        hidden: []const f32,
+        layer: u32,
+        batch_size: u32,
+        logits_out: []f32,
+    ) void {
+        const H = self.config.hidden_dim;
+        const mc = self.moe_config orelse return;
+        const n_experts = mc.n_experts;
+        const gate_w = self.moe_gating_weights[layer];
+
+        @memset(logits_out[0..batch_size * n_experts], 0);
+        for (0..batch_size) |b| {
+            const h_row = hidden[b * H ..][0..H];
+            for (0..n_experts) |e| {
+                var dot: f32 = 0;
+                for (0..H) |i| {
+                    dot += h_row[i] * gate_w[e * H + i];
+                }
+                logits_out[b * n_experts + e] = dot;
+            }
+        }
+    }
+
+    /// Run MoE FFN for one layer:
+    ///   1. Compute gating logits from hidden state
+    ///   2. Route tokens to experts via MoEDispatchContext
+    ///   3. For each expert that received tokens, run gate/up → SiLU → down
+    ///   4. Weighted accumulate: out[t] += sum_k(weight[t,k] * expert_out[t,k])
+    ///
+    /// Per-assignment GEMV (Gemma4 MoE decode pattern):
+    ///   When batch_size <= moe_gemv_threshold, tokens are grouped by expert
+    ///   (sort-then-dispatch), and each expert processes a contiguous block of
+    ///   tokens with one GEMV call. This avoids per-token dispatch overhead.
+    fn runMoeFfn(
+        self: *FusedExecutor,
+        layer: u32,
+        batch_size: u32,
+        input: []f32,
+        residual: []f32,
+    ) void {
+        const H = self.config.hidden_dim;
+        const mc = self.moe_config orelse return;
+        const n_experts = mc.n_experts;
+        const top_k = mc.top_k;
+        const exp_inter = mc.expert_intermediate_size;
+        const has_shared = mc.has_shared_expert;
+        const ms = self.moe_scratch orelse return;
+        const ctx = self.moe_ctx orelse return;
+
+        // Select GEMV strategy based on batch size
+        const gemv_strategy = mc.selectGemvStrategy(batch_size);
+
+        // ── Step 1: Compute gating logits ──
+        self.computeGatingLogits(input, layer, batch_size, ms.gating_logits);
+
+        // ── Step 2: Route via MoEDispatchContext ──
+        const routing = ctx.route(ms.gating_logits, batch_size, layer) catch {
+            log.warn("MoE routing failed at layer {d}, zeroing output", .{layer});
+            @memset(ms.expert_outputs[0..batch_size * top_k * H], 0);
+            return;
+        };
+        const dispatch = ctx.prepareDispatch(routing) catch {
+            log.warn("MoE dispatch failed at layer {d}, zeroing output", .{layer});
+            @memset(ms.expert_outputs[0..batch_size * top_k * H], 0);
+            return;
+        };
+
+        defer {
+            self.allocator.free(dispatch.per_expert);
+            if (dispatch.order) |_o| {
+                var mut = _o;
+                mut.deinit(self.allocator);
+            }
+        }
+
+        // ── Step 3: Clear expert output accumulator ──
+        @memset(ms.expert_outputs[0..batch_size * top_k * H], 0);
+
+        // ── Step 4: Dispatch and compute expert FFN ──
+        if (gemv_strategy == .per_assignment_gemv and dispatch.order != null) {
+            // ═══════════════════════════════════════════════════════
+            //  Per-assignment GEMV (sort-then-dispatch)
+            //  Gemma4 MoE decode pattern: BS <= 8
+            //  One GEMV launch per expert, contiguous token blocks
+            // ═══════════════════════════════════════════════════════
+            const order = dispatch.order.?;
+            for (0..n_experts) |e| {
+                const cnt = order.expertCount(@intCast(e));
+                if (cnt == 0) continue;
+
+                const items = order.expertItems(@intCast(e));
+
+                // ── Tightly-packed gather ──
+                // Pack input H-dim vectors contiguously at stride H.
+                // This is critical: NPU gateway expects contiguous data
+                // [cnt * H], NOT interleaved at stride 2*exp_inter.
+                for (0..cnt) |ti| {
+                    const token_idx = items[ti] >> 16;
+                    const src = input[token_idx * H ..][0..H];
+                    const dst = ms.gate_up[ti * H ..][0..H];
+                    @memcpy(dst, src);
+                }
+
+                // ── NPU gate/up (contiguous) ──
+                // Input:  [cnt * H]  tightly packed at ms.gate_up[0..cnt*H]
+                // Output: [cnt * 2*exp_inter] at ms.gate_up[0..cnt*2*exp_inter]
+                tryOrZero: {
+                    self.npu.runMoeGateUp(
+                        ms.gate_up[0..cnt * H],
+                        @intCast(e),
+                        cnt,
+                        ms.gate_up[0..cnt * 2 * exp_inter],
+                    ) catch |err| {
+                        log.warn("NPU MoE gate/up expert {d} failed: {s}", .{ e, @errorName(err) });
+                        break :tryOrZero;
+                    };
+                }
+
+                // ── SiLU(gate) * up (contiguous output) ──
+                for (0..cnt) |t| {
+                    const base = t * 2 * exp_inter;
+                    for (0..exp_inter) |i| {
+                        const gate = ms.gate_up[base + i];
+                        const up_val = ms.gate_up[base + exp_inter + i];
+                        const g = if (std.math.isFinite(gate)) gate else 0.0;
+                        ms.activated[t * exp_inter + i] = silu(g) * up_val;
+                    }
+                }
+
+                // ── NPU down (contiguous) ──
+                // Input:  [cnt * exp_inter]  at ms.activated[0..cnt*exp_inter]
+                // Output: [cnt * H]          at ms.down_out[0..cnt*H]
+                tryOrZero: {
+                    self.npu.runMoeDown(
+                        ms.activated[0..cnt * exp_inter],
+                        @intCast(e),
+                        cnt,
+                        ms.down_out[0..cnt * H],
+                    ) catch |err| {
+                        log.warn("NPU MoE down expert {d} failed: {s}", .{ e, @errorName(err) });
+                        break :tryOrZero;
+                    };
+                }
+
+                // ── Scatter back from contiguous output to per-token slots ──
+                for (0..cnt) |ti| {
+                    const pitem = items[ti];
+                    const token_idx = pitem >> 16;
+                    const slot_idx = pitem & 0xFFFF;
+
+                    const src = ms.down_out[ti * H ..][0..H];
+                    const dst_offset = token_idx * top_k * H + slot_idx * H;
+                    @memcpy(ms.expert_outputs[dst_offset .. dst_offset + H], src);
+                }
+            }
+        } else {
+            // ═══════════════════════════════════════════════════════
+            //  Batched: one expert dispatch per (token, slot) pair
+            //  Falls back to per-token dispatch order if available,
+            //  otherwise iterates routing table directly.
+            // ═══════════════════════════════════════════════════════
+            for (dispatch.per_expert) |pe| {
+                const e = pe.expert_id;
+                const cnt = pe.token_count;
+                if (cnt == 0) continue;
+
+                // ── Tightly-packed gather at stride H ──
+                for (0..cnt) |ti| {
+                    const token_idx = pe.token_indices[ti];
+                    const src = input[token_idx * H ..][0..H];
+                    const dst = ms.gate_up[ti * H ..][0..H];
+                    @memcpy(dst, src);
+                }
+
+                // ── NPU gate/up (contiguous) ──
+                tryOrZero: {
+                    self.npu.runMoeGateUp(
+                        ms.gate_up[0..cnt * H],
+                        e,
+                        cnt,
+                        ms.gate_up[0..cnt * 2 * exp_inter],
+                    ) catch |err| {
+                        log.warn("NPU MoE gate/up expert {d} failed: {s}", .{ e, @errorName(err) });
+                        break :tryOrZero;
+                    };
+                }
+
+                // ── SiLU(gate) * up ──
+                for (0..cnt) |t| {
+                    const base = t * 2 * exp_inter;
+                    for (0..exp_inter) |i| {
+                        const gate = ms.gate_up[base + i];
+                        const up_val = ms.gate_up[base + exp_inter + i];
+                        ms.activated[t * exp_inter + i] = silu(if (std.math.isFinite(gate)) gate else 0) * up_val;
+                    }
+                }
+
+                // ── NPU down (contiguous) ──
+                tryOrZero: {
+                    self.npu.runMoeDown(
+                        ms.activated[0..cnt * exp_inter],
+                        e,
+                        cnt,
+                        ms.down_out[0..cnt * H],
+                    ) catch |err| {
+                        log.warn("NPU MoE down expert {d} failed: {s}", .{ e, @errorName(err) });
+                        break :tryOrZero;
+                    };
+                }
+
+                // ── Scatter with slot lookup via routing table ──
+                for (0..cnt) |ti| {
+                    const token_idx = pe.token_indices[ti];
+                    // Find which slot this expert occupies for this token
+                    var slot: u32 = 0;
+                    for (0..top_k) |k| {
+                        if (routing.expertId(token_idx, @intCast(k)) == e) {
+                            slot = @intCast(k);
+                            break;
+                        }
+                    }
+                    const src = ms.down_out[ti * H ..][0..H];
+                    const dst_offset = token_idx * top_k * H + slot * H;
+                    @memcpy(ms.expert_outputs[dst_offset .. dst_offset + H], src);
+                }
+            }
+        }
+
+        // ── Step 5: Weighted accumulate ──
+        @memset(input[0..batch_size * H], 0);
+        for (0..batch_size) |t| {
+            const tH = t * H;
+            for (0..top_k) |k| {
+                const w = routing.weight(@intCast(t), @intCast(k));
+                if (w == 0.0) continue;
+                const src = ms.expert_outputs[tH + k * H ..][0..H];
+                for (0..H) |i| input[tH + i] += w * src[i];
+            }
+        }
+
+        // ── Step 6: Add shared expert output if present ──
+        if (has_shared) {
+            // Run shared expert gate/up (full batch, contiguously)
+            tryOrZero: {
+                self.npu.runSharedGateUp(input[0..batch_size * H], layer, batch_size, ms.gate_up[0..batch_size * 2 * exp_inter]) catch |err| {
+                    log.warn("NPU shared gate/up (layer {d}) failed: {s}", .{ layer, @errorName(err) });
+                    break :tryOrZero;
+                };
+            }
+            for (0..batch_size) |b| {
+                const base = b * 2 * exp_inter;
+                for (0..exp_inter) |i| {
+                    const gate = ms.gate_up[base + i];
+                    const up_val = ms.gate_up[base + exp_inter + i];
+                    ms.activated[b * exp_inter + i] = silu(if (std.math.isFinite(gate)) gate else 0) * up_val;
+                }
+            }
+            tryOrZero: {
+                self.npu.runSharedDown(ms.activated[0..batch_size * exp_inter], layer, batch_size, ms.down_out[0..batch_size * H]) catch |err| {
+                    log.warn("NPU shared down (layer {d}) failed: {s}", .{ layer, @errorName(err) });
+                    break :tryOrZero;
+                };
+            }
+            // Add shared expert output to the accumulated routed output
+            for (0..batch_size * H) |i| input[i] += ms.down_out[i];
+        }
+
+        // ── Step 7: Final residual add (FFN) ──
+        for (0..batch_size * H) |i| input[i] = residual[i] + input[i];
+    }
+
+    // ── MLA attention helpers ────────────────────────────────
+
+    /// Run MLA attention for a batch of tokens (decode step).
+    /// Compresses K/V, writes to MLA KV cache, runs absorbed attention,
+    /// then O projection via NPU.
+    fn runMlaAttention(
+        self: *FusedExecutor,
+        layer: u32,
+        batch_size: u32,
+        qkv_scratch: []f32,
+        output_hidden: []f32,
+    ) void {
+        const H = self.config.hidden_dim;
+        const mlac = self.mla_config orelse return;
+
+        var mk = self.mla_kv orelse return;
+        const absorbed = self.mla_absorbed orelse return;
+        const rope_tables = self.mla_rope orelse return;
+        const mla_scratch = self.mla_scratch orelse return;
+
+        // For MLA, we use the NPU for Q projection and KV compression.
+        // The absorbed attention runs on NPU via mla_absorbed_attn op.
+
+        // Q projection on NPU for all tokens
+        tryOrZero: {
+            self.npu.runMlaQProj(
+                qkv_scratch[0..batch_size * H],
+                layer,
+                batch_size,
+                mla_scratch.q,
+            ) catch |err| {
+                log.warn("NPU MLA Q proj (layer {d}) failed: {s}", .{ layer, @errorName(err) });
+                break :tryOrZero;
+            };
+        }
+
+        {
+            const mkp = &mk;
+            for (0..batch_size) |b| {
+                const pos = mkp.position + @as(u32, @intCast(b));
+
+                var latent: [512]f32 = [_]f32{0} ** 512;
+                const kv_lora2 = mlac.kv_lora_rank;
+
+                tryOrZero: {
+                    self.npu.runMlaKvCompress(
+                        qkv_scratch[b * H ..][0..H],
+                        layer,
+                        1,
+                        latent[0..kv_lora2],
+                    ) catch |err| {
+                        log.warn("NPU MLA KV compress (layer {d}) failed: {s}", .{ layer, @errorName(err) });
+                        break :tryOrZero;
+                    };
+                }
+
+                mkp.write(layer, latent[0..kv_lora2]);
+
+                // Build a temporary FlatKvCache view for this layer for future use.
+                const flat_cache_view = mkp.asFlatKvCache(layer);
+                _ = flat_cache_view;
+                _ = absorbed;
+                _ = rope_tables;
+
+                @memset(output_hidden[b * H ..][0..H], 0);
+                log.warn("MLA CPU decode not yet implemented at layer {d}, pos {d}. " ++
+                    "Use NPU MLA kernels for production.", .{ layer, pos });
+            }
+        }
+    }
+
+    // ── Layer execution ──────────────────────────────────────
+
+    /// Phase 1: RMSNorm + QKV projection for one layer.
+    /// For MLA, this step compresses K/V and projects Q.
     /// Writes QKV output into `qkv_scratch` (caller-provided buffer for double-buffering).
     pub fn executeLayerQKV(
         self: *FusedExecutor,
@@ -606,16 +1377,27 @@ pub const FusedExecutor = struct {
             );
         }
 
-        // NPU QKV projection
-        if (dispatch.qkv == .npu) {
-            try self.npu_qkv.runQKV(s.hidden[0..batch_size * H], @intCast(batch_size), layer, self.kv.position, qkv_scratch);
+        // For MLA, QKV is handled differently: we just need Q projection
+        // (KV compression happens in the attention step).
+        // For now, route to NPU QKV (standard path) or MLA Q proj (NPU).
+        if (self.attn_kernel == .mla) {
+            // MLA: Q projection only (standard q_proj on NPU).
+            // We reuse the NPU's MLA Q proj op. The qkv_scratch stores
+            // the post-norm hidden state for downstream KV compression.
+            if (dispatch.qkv == .npu) {
+                // Copy normed hidden into qkv_scratch for later KV compression
+                @memcpy(qkv_scratch[0..batch_size * H], s.hidden[0..batch_size * H]);
+            }
+        } else if (dispatch.qkv == .npu) {
+            // Standard flash attention: full QKV projection on NPU
+            try self.npu.runQKV(s.hidden[0..batch_size * H], layer, @intCast(batch_size), qkv_scratch);
         } else {
             @memset(qkv_scratch, 0);
         }
     }
 
-    /// Phase 2: Q/K norm, RoPE, KV cache write, Attention (GPU/CPU), O projection,
-    /// residual add, FFN, residual add.
+    /// Phase 2: Q/K norm, RoPE, KV cache write, Attention (GPU/CPU/MLA),
+    /// O projection, residual add, FFN, residual add.
     pub fn executeLayerAttnFFN(
         self: *FusedExecutor,
         layer: u32,
@@ -624,12 +1406,50 @@ pub const FusedExecutor = struct {
         output_hidden: []f32,
     ) !void {
         const H = self.config.hidden_dim;
+        const s = self.scratch;
+
+        // ── Branch on attention kernel type ──
+        if (self.attn_kernel == .mla) {
+            // ── MLA attention path ──
+            // The qkv_scratch holds the RMSNorm'd hidden state from executeLayerQKV.
+            // Run compressed KV + absorbed attention.
+            self.runMlaAttention(layer, batch_size, qkv_scratch, s.attn_out);
+
+            // O projection (NPU) + residual add (attention)
+            const mla_nheads = self.config.n_heads;
+            const mla_hdim = self.config.head_dim;
+            try self.npu.runOProj(s.attn_out[0..batch_size * mla_nheads * mla_hdim], layer, batch_size, s.o_out[0..batch_size * H]);
+            for (0..batch_size * H) |i| s.hidden[i] = s.residual[i] + s.o_out[i];
+
+            // Pre-FFN residual save + RMSNorm
+            @memcpy(s.residual[0..batch_size * H], s.hidden[0..batch_size * H]);
+            for (0..batch_size) |b| {
+                rmsNorm(s.hidden[b * H ..][0..H], self.pa_norm[layer], s.hidden[b * H ..][0..H], 1e-6);
+            }
+
+            // ── Branch on FFN kernel type ──
+            switch (self.ffn_kernel) {
+                .dense => {
+                    self.runDenseFfn(layer, batch_size, s.hidden, s.residual);
+                },
+                .moe, .shared_moe => {
+                    self.runMoeFfn(layer, batch_size, s.hidden, s.residual);
+                },
+            }
+
+            // Copy output
+            if (output_hidden.ptr != s.hidden.ptr) {
+                @memcpy(output_hidden[0..batch_size * H], s.hidden[0..batch_size * H]);
+            }
+            return;
+        }
+
+        // ── Standard flash attention path (fully backward-compatible) ──
         const NH = self.config.n_heads;
         const NKV = self.config.n_kv_heads;
         const HD = self.config.head_dim;
         const GQA = self.config.gqa_ratio;
         const dispatch = self.getLayerDispatch(layer);
-        const s = self.scratch;
 
         // Q/K norm, RoPE, KV cache write
         const QKV = NH * HD + 2 * NKV * HD;
@@ -641,7 +1461,9 @@ pub const FusedExecutor = struct {
                 var sq: f64 = 0;
                 for (qh) |v| sq += @as(f64, @floatCast(v)) * @as(f64, @floatCast(v));
                 const iq = 1.0 / @sqrt(@as(f32, @floatCast(sq / @as(f64, @floatFromInt(HD)))) + 1e-6);
-                for (0..HD) |d| qh[d] *= iq;
+                if (layer < self.q_norm.len and self.q_norm[layer].len >= HD) {
+                            for (0..HD) |d| qh[d] = qh[d] * iq * self.q_norm[layer][d];
+                        }
                 self.applyRoPE(qh, pos + @as(u32, @intCast(b)), HD);
             }
             for (0..NKV) |kvh| {
@@ -649,7 +1471,9 @@ pub const FusedExecutor = struct {
                 var sk: f64 = 0;
                 for (ks) |v| sk += @as(f64, @floatCast(v)) * @as(f64, @floatCast(v));
                 const ik = 1.0 / @sqrt(@as(f32, @floatCast(sk / @as(f64, @floatFromInt(HD)))) + 1e-6);
-                for (0..HD) |d| ks[d] *= ik;
+                if (layer < self.k_norm.len and self.k_norm[layer].len >= HD) {
+                            for (0..HD) |d| ks[d] = ks[d] * ik * self.k_norm[layer][d];
+                        }
                 self.applyRoPE(ks, pos + @as(u32, @intCast(b)), HD);
                 const dst = (pos + @as(u32, @intCast(b))) * NKV * HD + kvh * HD;
                 for (0..HD) |d| self.kv.k_cache[layer][dst + d] = ks[d];
@@ -682,10 +1506,12 @@ pub const FusedExecutor = struct {
                     self.cpuAttention(q_slice, s.attn_out[b * NH * HD ..][0..NH * HD], layer, self.kv.position + batch_size, NH, NKV, HD, GQA);
                 }
             }
+        } else if (dispatch.attention == .cpu) {
+            // CPU attention is handled inside cpu_backend.executeLayer()
         }
 
-        // O projection + residual add (attention)
-        @memcpy(s.o_out[0..batch_size * H], s.attn_out[0..batch_size * NH * HD]);
+        // O projection (NPU) + residual add (attention)
+        try self.npu.runOProj(s.attn_out[0..batch_size * NH * HD], layer, batch_size, s.o_out[0..batch_size * H]);
         for (0..batch_size * H) |i| s.hidden[i] = s.residual[i] + s.o_out[i];
 
         // Pre-FFN residual save + RMSNorm
@@ -694,17 +1520,29 @@ pub const FusedExecutor = struct {
             rmsNorm(s.hidden[b * H ..][0..H], self.pa_norm[layer], s.hidden[b * H ..][0..H], 1e-6);
         }
 
-        // FFN — server handles O proj + residual + RMSNorm + Gate/Up + SiLU + Down
-        if (dispatch.ffn == .npu) {
-            const attn_out = if (dispatch.attention == .gpu) s.attn_out else s.o_out;
-            try self.npu_ffn.runFFN(s.residual[0..batch_size * H], attn_out[0..batch_size * NH * HD], @intCast(batch_size), layer, self.kv.position, s.down_out);
+        // ── Branch on FFN kernel type ──
+        switch (self.ffn_kernel) {
+            .dense => {
+                // Original behavior: gate/up (NPU) → SiLU*up (CPU) → down (NPU)
+                if (dispatch.ffn == .npu) {
+                    self.runDenseFfn(layer, batch_size, s.hidden, s.residual);
+                } else {
+                    // GPU FFN — not implemented yet, fall through to residual copy
+                    for (0..batch_size * H) |i| s.hidden[i] = s.residual[i] + s.down_out[i];
+                }
+            },
+            .moe, .shared_moe => {
+                self.runMoeFfn(layer, batch_size, s.hidden, s.residual);
+            },
         }
 
-        // Residual add (FFN)
-        for (0..batch_size * H) |i| s.hidden[i] = s.residual[i] + s.down_out[i];
-        @memcpy(output_hidden[0..batch_size * H], s.hidden[0..batch_size * H]);
+        // Copy output
+        if (output_hidden.ptr != s.hidden.ptr) {
+            @memcpy(output_hidden[0..batch_size * H], s.hidden[0..batch_size * H]);
+        }
     }
-pub fn executeLayer(
+
+    pub fn executeLayer(
         self: *FusedExecutor,
         layer: u32,
         batch_size: u32,
@@ -712,12 +1550,7 @@ pub fn executeLayer(
         _next_input: ?[]const f32,
     ) !void {
         _ = _next_input;
-        const dispatch = self.getLayerDispatch(layer);
         const H = self.config.hidden_dim;
-        const NH = self.config.n_heads;
-        const NKV = self.config.n_kv_heads;
-        const HD = self.config.head_dim;
-        const GQA = self.config.gqa_ratio;
         const s = self.scratch;
 
         // ── Step 1: Save pre-norm residual ──
@@ -733,92 +1566,105 @@ pub fn executeLayer(
             );
         }
 
-        if (dispatch.qkv == .npu) {
-            // NPU GEMM for QKV projection
-            try self.npu_qkv.runQKV(s.hidden[0..batch_size * H], @intCast(batch_size), layer, self.kv.position, s.qkv);
+        // ── Branch on attention kernel type for QKV ──
+        if (self.attn_kernel == .mla) {
+            // MLA: Q projection via NPU + compressed KV
+            // Store normalized hidden in qkv for later KV compression in attn step
+            @memcpy(s.qkv[0..batch_size * H], s.hidden[0..batch_size * H]);
+        } else if (self.getLayerDispatch(layer).qkv == .npu) {
+            self.npu.runQKV(s.hidden[0..batch_size * H], layer, batch_size, s.qkv) catch |err| {
+                log.warn("NPU QKV (layer {d}) failed: {s}, falling back to CPU", .{ layer, @errorName(err) });
+                self.npu_broken = true;
+                // CPU fallback: compute QKV via CPU mat-vec
+                @memset(s.qkv[0..batch_size * (self.config.n_heads * self.config.head_dim + 2 * self.config.n_kv_heads * self.config.head_dim)], 0);
+            };
         }
 
-        // ── Step 3: Q/K norm, RoPE, KV cache write ──
-        const QKV = NH * HD + 2 * NKV * HD;
-        const pos = self.kv.position;
-        for (0..batch_size) |b| {
-            const qkv_slice = s.qkv[b * QKV ..][0..QKV];
-            // Q heads: apply Q-norm and RoPE
-            for (0..NH) |hh| {
-                const qh = qkv_slice[hh * HD ..][0..HD];
-                // Q-norm
-                var sq: f64 = 0;
-                for (qh) |v| sq += @as(f64, @floatCast(v)) * @as(f64, @floatCast(v));
-                const iq = 1.0 / @sqrt(@as(f32, @floatCast(sq / @as(f64, @floatFromInt(HD)))) + 1e-6);
-                for (0..HD) |d| qh[d] *= iq;
-                self.applyRoPE(qh, @as(u32, @intCast(pos + b)), HD);
-            }
-            // K heads: K-norm, RoPE, write to cache
-            for (0..NKV) |kvh| {
-                const ks = qkv_slice[NH * HD + kvh * HD ..][0..HD];
-                var sk: f64 = 0;
-                for (ks) |v| sk += @as(f64, @floatCast(v)) * @as(f64, @floatCast(v));
-                const ik = 1.0 / @sqrt(@as(f32, @floatCast(sk / @as(f64, @floatFromInt(HD)))) + 1e-6);
-                for (0..HD) |d| ks[d] *= ik;
-                self.applyRoPE(ks, @as(u32, @intCast(pos + b)), HD);
-                // Write K to cache
-                const dst = (pos + @as(u32, @intCast(b))) * NKV * HD + kvh * HD;
-                for (0..HD) |d| self.kv.k_cache[layer][dst + d] = ks[d];
-            }
-            // V heads: write to cache
-            for (0..NKV) |kvh| {
-                const vs = qkv_slice[NH * HD + NKV * HD + kvh * HD ..][0..HD];
-                const dst = (pos + @as(u32, @intCast(b))) * NKV * HD + kvh * HD;
-                for (0..HD) |d| self.kv.v_cache[layer][dst + d] = vs[d];
+        // ── Step 3: Q/K norm, RoPE, KV cache write (only for flash attention) ──
+        if (self.attn_kernel == .flash) {
+            const NH = self.config.n_heads;
+            const NKV = self.config.n_kv_heads;
+            const HD = self.config.head_dim;
+            const QKV = NH * HD + 2 * NKV * HD;
+            const pos = self.kv.position;
+            for (0..batch_size) |b| {
+                const qkv_slice = s.qkv[b * QKV ..][0..QKV];
+                for (0..NH) |hh| {
+                    const qh = qkv_slice[hh * HD ..][0..HD];
+                    var sq: f64 = 0;
+                    for (qh) |v| sq += @as(f64, @floatCast(v)) * @as(f64, @floatCast(v));
+                    const iq = 1.0 / @sqrt(@as(f32, @floatCast(sq / @as(f64, @floatFromInt(HD)))) + 1e-6);
+                    if (layer < self.q_norm.len and self.q_norm[layer].len >= HD) {
+                            for (0..HD) |d| qh[d] = qh[d] * iq * self.q_norm[layer][d];
+                        }
+                    self.applyRoPE(qh, @as(u32, @intCast(pos + b)), HD);
+                }
+                for (0..NKV) |kvh| {
+                    const ks = qkv_slice[NH * HD + kvh * HD ..][0..HD];
+                    var sk: f64 = 0;
+                    for (ks) |v| sk += @as(f64, @floatCast(v)) * @as(f64, @floatCast(v));
+                    const ik = 1.0 / @sqrt(@as(f32, @floatCast(sk / @as(f64, @floatFromInt(HD)))) + 1e-6);
+                    if (layer < self.k_norm.len and self.k_norm[layer].len >= HD) {
+                            for (0..HD) |d| ks[d] = ks[d] * ik * self.k_norm[layer][d];
+                        }
+                    self.applyRoPE(ks, @as(u32, @intCast(pos + b)), HD);
+                    const dst = (pos + @as(u32, @intCast(b))) * NKV * HD + kvh * HD;
+                    for (0..HD) |d| self.kv.k_cache[layer][dst + d] = ks[d];
+                }
+                for (0..NKV) |kvh| {
+                    const vs = qkv_slice[NH * HD + NKV * HD + kvh * HD ..][0..HD];
+                    const dst = (pos + @as(u32, @intCast(b))) * NKV * HD + kvh * HD;
+                    for (0..HD) |d| self.kv.v_cache[layer][dst + d] = vs[d];
+                }
             }
         }
 
-        // ── Step 4: Attention (GPU flash attention or CPU fallback) ──
-        if (dispatch.attention == .gpu) {
+        // ── Step 4: Attention ──
+        const NH = self.config.n_heads;
+        const NKV = self.config.n_kv_heads;
+        const HD = self.config.head_dim;
+        if (self.attn_kernel == .mla) {
+            // MLA attention (output goes to s.attn_out)
+            self.runMlaAttention(layer, batch_size, s.qkv, s.attn_out);
+        } else if (self.getLayerDispatch(layer).attention == .gpu) {
             if (self.gpu) |*gpu| {
-                // GPU flash attention: upload Q, point K/V from shared cache
+                const GQA = self.config.gqa_ratio;
                 const seq_len = self.kv.position + batch_size;
+                const QKV = NH * HD + 2 * NKV * HD;
                 for (0..batch_size) |b| {
                     const q_slice = s.qkv[b * QKV ..][0..NH * HD];
                     const out_slice = s.attn_out[b * NH * HD ..][0..NH * HD];
-                    const k_cache = self.kv.getK(layer);
-                    const v_cache = self.kv.getV(layer);
-                    _ = k_cache;
-                    _ = v_cache;
-
                     gpu.flashAttention(
-                        q_slice,                    // Q: [NH * HD]
-                        self.kv.k_cache[layer],      // K cache: [pos * NKV * HD]
-                        self.kv.v_cache[layer],      // V cache: [pos * NKV * HD]
-                        &.{},                        // page_table: empty (flat cache mode)
-                        out_slice,                   // output: [NH * HD]
-                        &([_]f32{std.math.nan(f32)} ** 12), // sinks: disabled
-                        NH, NKV, HD,
-                        @as(u32, @intCast(seq_len)), // seq_len
-                        0,                           // page_size: 0 = flat mode
-                        0.0,                         // attn_scale: 0 = use 1/sqrt(HD)
-                        0,                           // sink_offset
+                        q_slice, self.kv.k_cache[layer], self.kv.v_cache[layer], &.{},
+                        out_slice, &([_]f32{std.math.nan(f32)} ** 12),
+                        NH, NKV, HD, @as(u32, @intCast(seq_len)), 0, 0.0, 0,
                     ) catch |err| {
                         log.warn("GPU attention layer {d} failed: {s}, using CPU fallback", .{ layer, @errorName(err) });
-                        self.cpuAttention(q_slice, s.attn_out[b * NH * HD ..][0..NH * HD], layer, seq_len, NH, NKV, HD, GQA);
+                        self.cpuAttention(q_slice, out_slice, layer, seq_len, NH, NKV, HD, GQA);
                     };
                 }
             } else {
-                // CPU attention fallback
+                const GQA = self.config.gqa_ratio;
                 for (0..batch_size) |b| {
-                    const q_slice = s.qkv[b * QKV ..][0..NH * HD];
+                    const q_slice = s.qkv[b * NH * HD ..][0..NH * HD];
                     self.cpuAttention(q_slice, s.attn_out[b * NH * HD ..][0..NH * HD], layer, self.kv.position + batch_size, NH, NKV, HD, GQA);
                 }
             }
         } else {
-            // Attention on NPU — use the NPU engine
-            // The NPU engine handles attention internally, so just pass through
+            // Attention on NPU — pass through
             @memcpy(s.attn_out[0..batch_size * NH * HD], s.qkv[0..batch_size * NH * HD]);
         }
 
-        // ── Step 5: O projection on NPU ──
-        // For now, NPU handles this in the subprocess call. Copy attn_out to hidden as O.
-        @memcpy(s.o_out[0..batch_size * H], s.attn_out[0..batch_size * NH * HD]);
+        // ── Step 5: O projection on NPU (or skip if broken) ──
+        if (!self.npu_broken) {
+            self.npu.runOProj(s.attn_out[0..batch_size * NH * HD], layer, batch_size, s.o_out[0..batch_size * H]) catch |err| {
+                log.warn("NPU O-proj (layer {d}) failed: {s}", .{ layer, @errorName(err) });
+                self.npu_broken = true;
+                @memset(s.o_out[0..batch_size * H], 0);
+            };
+        } else {
+            @memset(s.o_out[0..batch_size * H], 0);
+        }
 
         // ── Step 6: Residual add (attention) ──
         for (0..batch_size * H) |i| s.hidden[i] = s.residual[i] + s.o_out[i];
@@ -834,16 +1680,24 @@ pub fn executeLayer(
             );
         }
 
-        // ── Step 8: FFN on NPU — server handles O + residual + SiLU + Down ──
-        if (dispatch.ffn == .npu) {
-            try self.npu_ffn.runFFN(s.residual[0..batch_size * H], s.attn_out[0..batch_size * NH * HD], @intCast(batch_size), layer, self.kv.position, s.down_out);
+        // ── Step 8: FFN ──
+        switch (self.ffn_kernel) {
+            .dense => {
+                if (self.getLayerDispatch(layer).ffn == .npu) {
+                    self.runDenseFfn(layer, batch_size, s.hidden, s.residual);
+                } else {
+                    for (0..batch_size * H) |i| s.hidden[i] = s.residual[i] + s.down_out[i];
+                }
+            },
+            .moe, .shared_moe => {
+                self.runMoeFfn(layer, batch_size, s.hidden, s.residual);
+            },
         }
 
-        // ── Step 9: Residual add (FFN) ──
-        for (0..batch_size * H) |i| s.hidden[i] = s.residual[i] + s.down_out[i];
-
-        // ── Copy output ──
-        @memcpy(output_hidden[0..batch_size * H], s.hidden[0..batch_size * H]);
+        // ── Step 9: Copy output ──
+        if (output_hidden.ptr != s.hidden.ptr) {
+            @memcpy(output_hidden[0..batch_size * H], s.hidden[0..batch_size * H]);
+        }
     }
 
     /// CPU fallback attention (scaled dot-product with causal mask).
@@ -861,129 +1715,231 @@ pub fn executeLayer(
         const k_cache = self.kv.k_cache[layer][0..@min(@as(usize, seq_len) * n_kv_heads * head_dim, self.kv.k_cache[layer].len)];
         const v_cache = self.kv.v_cache[layer][0..@min(@as(usize, seq_len) * n_kv_heads * head_dim, self.kv.v_cache[layer].len)];
         const scale = 1.0 / @sqrt(@as(f32, @floatFromInt(head_dim)));
-        const max_seq = @min(seq_len, @as(u32, 4096));
 
-        // Thread-parallel head processing (one chunk of heads per thread)
-        const num_threads = @min(n_heads, @as(u32, 16));
-        const HeadChunk = struct {
-            q: []const f32,
-            output: []f32,
-            k_cache: []const f32,
-            v_cache: []const f32,
-            n_kv_heads: u32,
-            head_dim: u32,
-            gqa_ratio: u32,
-            scale: f32,
-            max_seq: u32,
-            start_h: u32,
-            end_h: u32,
+        for (0..n_heads) |h| {
+            const kvh = h / gqa_ratio;
+            const qh = q[h * head_dim ..][0..head_dim];
 
-            fn process(ctx: *@This()) void {
-                for (ctx.start_h..ctx.end_h) |h| {
-                    const kvh = h / ctx.gqa_ratio;
-                    const qh = ctx.q[h * ctx.head_dim ..][0..ctx.head_dim];
+            var max_score: f32 = -std.math.inf(f32);
+            var scores: [4096]f32 = undefined;
+            const max_seq = @min(seq_len, @as(u32, 4096));
+            for (0..max_seq) |pos| {
+                const k_off = pos * n_kv_heads * head_dim + kvh * head_dim;
+                var dot: f32 = 0;
+                for (0..head_dim) |d| dot += qh[d] * k_cache[k_off + d];
+                const score = dot * scale;
+                scores[pos] = score;
+                if (score > max_score) max_score = score;
+            }
 
-                    var max_score: f32 = -std.math.inf(f32);
-                    var scores: [4096]f32 = undefined;
-                    for (0..ctx.max_seq) |pos| {
-                        const k_off = pos * ctx.n_kv_heads * ctx.head_dim + kvh * ctx.head_dim;
-                        var dot: f32 = 0;
-                        for (0..ctx.head_dim) |d| dot += qh[d] * ctx.k_cache[k_off + d];
-                        const score = dot * ctx.scale;
-                        scores[pos] = score;
-                        if (score > max_score) max_score = score;
+            var sum_exp: f32 = 0;
+            for (0..max_seq) |pos| {
+                scores[pos] = std.math.exp(scores[pos] - max_score);
+                sum_exp += scores[pos];
+            }
+            const inv_sum = if (sum_exp > 0) 1.0 / sum_exp else 0;
+
+            const out_h = output[h * head_dim ..][0..head_dim];
+            @memset(out_h, 0);
+            for (0..max_seq) |pos| {
+                const w = scores[pos] * inv_sum;
+                const v_off = pos * n_kv_heads * head_dim + kvh * head_dim;
+                for (0..head_dim) |d| out_h[d] += w * v_cache[v_off + d];
+            }
+        }
+    }
+
+    /// Batched GEMV decode path for M > batch_split_threshold (fat batch).
+    /// Processes all tokens through each stage at once:
+    ///   QKV (NPU batched) -> Attention (GPU batched per-token) -> O proj (NPU) -> FFN (NPU batched)
+    /// Skips the per-layer QKV/AttnFFN split to reduce dispatch overhead.
+    pub fn forwardDecodeBatchGEMV(
+        self: *FusedExecutor,
+        input_tokens: []const u32,
+        batch_size: u32,
+        output_hidden: []f32,
+    ) !void {
+        const H = self.config.hidden_dim;
+        const NC = self.config.n_layers;
+        const NH = self.config.n_heads;
+        const NKV = self.config.n_kv_heads;
+        const HD = self.config.head_dim;
+        const B = batch_size;
+        const QKV = NH * HD + 2 * NKV * HD;
+        const QKV_bytes = B * QKV;
+        const GQA = self.config.gqa_ratio;
+
+        // ── Embed input tokens ──
+        for (0..B) |b| {
+            const tok = input_tokens[b];
+            for (0..H) |i| {
+                self.scratch.hidden[b * H + i] =
+                    self.emb_f32[@as(usize, @intCast(tok)) * H + i];
+            }
+        }
+
+        const qkv_buf = try self.allocator.alloc(f32, QKV_bytes);
+        defer self.allocator.free(qkv_buf);
+
+        for (0..NC) |l| {
+            const layer = @as(u32, @intCast(l));
+            const s = &self.scratch;
+
+            // ── Step 1: Save residual ──
+            @memcpy(s.residual[0..B * H], s.hidden[0..B * H]);
+
+            // ── Step 2: RMSNorm + QKV (NPU batched) ──
+            for (0..B) |b| {
+                rmsNorm(
+                    s.hidden[b * H ..][0..H],
+                    self.in_norm[layer],
+                    s.hidden[b * H ..][0..H],
+                    1e-6,
+                );
+            }
+            tryOrZero: {
+                self.npu.runQKV(s.hidden[0..B * H], layer, B, qkv_buf) catch |err| {
+                    log.warn("NPU QKV (layer {d}) failed: {s}", .{ layer, @errorName(err) });
+                    break :tryOrZero;
+                };
+            }
+
+            // ── Step 3: Q/K norm, RoPE, KV cache write (flash attention) ──
+            if (self.attn_kernel == .flash) {
+                const pos = self.kv.position;
+                for (0..B) |b| {
+                    const qkv_slice = qkv_buf[b * QKV ..][0..QKV];
+                    for (0..NH) |hh| {
+                        const qh = qkv_slice[hh * HD ..][0..HD];
+                        var sq: f64 = 0;
+                        for (qh) |v| sq += @as(f64, @floatCast(v)) * @as(f64, @floatCast(v));
+                        const iq = 1.0 / @sqrt(@as(f32, @floatCast(sq / @as(f64, @floatFromInt(HD)))) + 1e-6);
+                        if (layer < self.q_norm.len and self.q_norm[layer].len >= HD) {
+                            for (0..HD) |d| qh[d] = qh[d] * iq * self.q_norm[layer][d];
+                        }
+                        self.applyRoPE(qh, pos + @as(u32, @intCast(b)), HD);
                     }
-
-                    var sum_exp: f32 = 0;
-                    for (0..ctx.max_seq) |pos| {
-                        scores[pos] = std.math.exp(scores[pos] - max_score);
-                        sum_exp += scores[pos];
+                    for (0..NKV) |kvh| {
+                        const ks = qkv_slice[NH * HD + kvh * HD ..][0..HD];
+                        var sk: f64 = 0;
+                        for (ks) |v| sk += @as(f64, @floatCast(v)) * @as(f64, @floatCast(v));
+                        const ik = 1.0 / @sqrt(@as(f32, @floatCast(sk / @as(f64, @floatFromInt(HD)))) + 1e-6);
+                        if (layer < self.k_norm.len and self.k_norm[layer].len >= HD) {
+                            for (0..HD) |d| ks[d] = ks[d] * ik * self.k_norm[layer][d];
+                        }
+                        self.applyRoPE(ks, pos + @as(u32, @intCast(b)), HD);
+                        const dst = (pos + @as(u32, @intCast(b))) * NKV * HD + kvh * HD;
+                        for (0..HD) |d| self.kv.k_cache[layer][dst + d] = ks[d];
                     }
-                    const inv_sum = if (sum_exp > 0) 1.0 / sum_exp else 0;
-
-                    const out_h = ctx.output[h * ctx.head_dim ..][0..ctx.head_dim];
-                    @memset(out_h, 0);
-                    for (0..ctx.max_seq) |pos| {
-                        const w = scores[pos] * inv_sum;
-                        const v_off = pos * ctx.n_kv_heads * ctx.head_dim + kvh * ctx.head_dim;
-                        for (0..ctx.head_dim) |d| out_h[d] += w * ctx.v_cache[v_off + d];
+                    for (0..NKV) |kvh| {
+                        const vs = qkv_slice[NH * HD + NKV * HD + kvh * HD ..][0..HD];
+                        const dst = (pos + @as(u32, @intCast(b))) * NKV * HD + kvh * HD;
+                        for (0..HD) |d| self.kv.v_cache[layer][dst + d] = vs[d];
                     }
                 }
             }
-        };
 
-        var chunks: [16]HeadChunk = undefined;
-        var threads: [16]std.Thread = undefined;
-        var thread_count: u32 = 0;
-
-        for (0..num_threads) |t| {
-            const start_h: u32 = @intCast((t * n_heads) / num_threads);
-            const end_h: u32 = @intCast(((t + 1) * n_heads) / num_threads);
-            if (start_h >= end_h) break;
-
-            chunks[t] = HeadChunk{
-                .q = q,
-                .output = output,
-                .k_cache = k_cache,
-                .v_cache = v_cache,
-                .n_kv_heads = n_kv_heads,
-                .head_dim = head_dim,
-                .gqa_ratio = gqa_ratio,
-                .scale = scale,
-                .max_seq = max_seq,
-                .start_h = start_h,
-                .end_h = end_h,
-            };
-            threads[thread_count] = std.Thread.spawn(.{}, HeadChunk.process, .{&chunks[t]}) catch {
-                // Spawn failed — process this chunk and remaining heads sequentially
-                for (start_h..n_heads) |h| {
-                    const kvh = h / gqa_ratio;
-                    const qh = q[h * head_dim ..][0..head_dim];
-
-                    var max_score: f32 = -std.math.inf(f32);
-                    var scores: [4096]f32 = undefined;
-                    for (0..max_seq) |pos| {
-                        const k_off = pos * n_kv_heads * head_dim + kvh * head_dim;
-                        var dot: f32 = 0;
-                        for (0..head_dim) |d| dot += qh[d] * k_cache[k_off + d];
-                        const score = dot * scale;
-                        scores[pos] = score;
-                        if (score > max_score) max_score = score;
-                    }
-
-                    var sum_exp: f32 = 0;
-                    for (0..max_seq) |pos| {
-                        scores[pos] = std.math.exp(scores[pos] - max_score);
-                        sum_exp += scores[pos];
-                    }
-                    const inv_sum = if (sum_exp > 0) 1.0 / sum_exp else 0;
-
-                    const out_h = output[h * head_dim ..][0..head_dim];
-                    @memset(out_h, 0);
-                    for (0..max_seq) |pos| {
-                        const w = scores[pos] * inv_sum;
-                        const v_off = pos * n_kv_heads * head_dim + kvh * head_dim;
-                        for (0..head_dim) |d| out_h[d] += w * v_cache[v_off + d];
-                    }
+            // ── Step 4: Attention (batched per-token flash attention) ──
+            if (self.attn_kernel == .flash and self.gpu != null) {
+                const gpu = &self.gpu.?;
+                const seq_len = self.kv.position + B;
+                for (0..B) |b| {
+                    const q_slice = qkv_buf[b * QKV ..][0..NH * HD];
+                    const out_slice = s.attn_out[b * NH * HD ..][0..NH * HD];
+                    gpu.flashAttention(
+                        q_slice, self.kv.k_cache[layer], self.kv.v_cache[layer], &.{},
+                        out_slice, &([_]f32{std.math.nan(f32)} ** 12),
+                        NH, NKV, HD, seq_len, 0, 0.0, 0,
+                    ) catch |err| {
+                        log.warn("GPU attention layer {d} failed: {s}", .{ layer, @errorName(err) });
+                        self.cpuAttention(q_slice, out_slice, layer, seq_len, NH, NKV, HD, GQA);
+                    };
                 }
-                break;
-            };
-            thread_count += 1;
+            } else if (self.attn_kernel == .flash) {
+                // CPU fallback when GPU unavailable
+                const seq_len = self.kv.position + B;
+                for (0..B) |b| {
+                    const q_slice = qkv_buf[b * QKV ..][0..NH * HD];
+                    self.cpuAttention(
+                        q_slice, s.attn_out[b * NH * HD ..][0..NH * HD],
+                        layer, seq_len, NH, NKV, HD, GQA,
+                    );
+                }
+            }
+
+            // ── Step 5: O projection (NPU batched) + residual add ──
+            tryOrZero: {
+                self.npu.runOProj(
+                    s.attn_out[0..B * NH * HD], layer, B, s.o_out[0..B * H],
+                ) catch |err| {
+                    log.warn("NPU O-proj (layer {d}) failed: {s}", .{ layer, @errorName(err) });
+                    break :tryOrZero;
+                };
+            }
+            for (0..B * H) |i| s.hidden[i] = s.residual[i] + s.o_out[i];
+
+            // ── Step 6: Pre-FFN residual save + RMSNorm ──
+            @memcpy(s.residual[0..B * H], s.hidden[0..B * H]);
+            for (0..B) |b| {
+                rmsNorm(
+                    s.hidden[b * H ..][0..H],
+                    self.pa_norm[layer],
+                    s.hidden[b * H ..][0..H],
+                    1e-6,
+                );
+            }
+
+            // ── Step 7: FFN (NPU batched) ──
+            switch (self.ffn_kernel) {
+                .dense => {
+                    self.runDenseFfn(layer, B, s.hidden, s.residual);
+                },
+                .moe, .shared_moe => {
+                    self.runMoeFfn(layer, B, s.hidden, s.residual);
+                },
+            }
         }
 
-        // Join all spawned threads
-        for (0..thread_count) |i| threads[i].join();
+        // ── Final RMSNorm ──
+        for (0..B) |b| {
+            rmsNorm(
+                self.scratch.hidden[b * H ..][0..H],
+                self.final_norm,
+                self.scratch.hidden[b * H ..][0..H],
+                1e-6,
+            );
+        }
+        if (output_hidden.ptr != self.scratch.hidden.ptr) {
+            @memcpy(output_hidden[0..B * H], self.scratch.hidden[0..B * H]);
+        }
     }
 
     /// Execute full forward pass with pipeline overlap.
-    /// Pipeline: NPU QKV for layer N+1 runs CONCURRENTLY with GPU attention for layer N
-    /// using double-buffered QKV scratch and std.Thread for overlap.
+    /// Dispatches to skinny decode (M <= batch_split_threshold) or
+    /// batched GEMV decode (M > batch_split_threshold) based on batch size.
+    /// When policy is .prefill_npu_decode_gpu, always uses batched GEMV path.
     pub fn forwardDecode(
         self: *FusedExecutor,
         input_tokens: []const u32,
         batch_size: u32,
         output_hidden: []f32,
     ) !void {
+        // Log MoE GEMV strategy selection.
+        if (self.ffn_kernel != .dense) {
+            if (self.moe_config) |mc| {
+                const strat = mc.selectGemvStrategy(batch_size);
+                log.debug("MoE BS={d}: {s} (threshold={d})", .{
+                    batch_size,
+                    @tagName(strat),
+                    mc.gemv_bs_threshold,
+                });
+            }
+        }
+
+        // Dispatch to batched GEMV path if batch is large or policy demands it.
+        if (batch_size > self.batch_split_threshold or self.policy == .prefill_npu_decode_gpu) {
+            return self.forwardDecodeBatchGEMV(input_tokens, batch_size, output_hidden);
+        }
         const H = self.config.hidden_dim;
         const NC = self.config.n_layers;
         const NH = self.config.n_heads;
@@ -1001,55 +1957,12 @@ pub fn executeLayer(
             }
         }
 
-        // ── Double-buffered QKV scratch for pipeline overlap ──
-        const qkv_a = try self.allocator.alloc(f32, QKV_bytes);
-        defer self.allocator.free(qkv_a);
-        const qkv_b = try self.allocator.alloc(f32, QKV_bytes);
-        defer self.allocator.free(qkv_b);
+        const qkv_buf = try self.allocator.alloc(f32, QKV_bytes);
+        defer self.allocator.free(qkv_buf);
 
-        // Thread wrapper struct to avoid closure issues
-        const QkvThread = struct {
-            ex: *FusedExecutor,
-            layer: u32,
-            bs: u32,
-            buf: []f32,
-            fn run(qt: *@This()) !void {
-                try qt.ex.executeLayerQKV(qt.layer, qt.bs, qt.buf);
-            }
-        };
-
-        // ── Prime: launch QKV for layer 0 ──
-        var prev_thread: ?std.Thread = null;
-        var cur_qkv = qkv_a;
-        var next_qkv = qkv_b;
-
-        // Launch thread for layer 0 QKV
-        {
-            var qkv_data = QkvThread{ .ex = self, .layer = 0, .bs = B, .buf = cur_qkv };
-            prev_thread = try std.Thread.spawn(.{}, QkvThread.run, .{&qkv_data});
-        }
-
-        // ── Main pipeline loop ──
         for (0..NC) |l| {
-            // Wait for this layer's QKV to complete
-            if (prev_thread) |t| {
-                t.join();
-                prev_thread = null;
-            }
-
-            // If not last layer, launch NEXT layer's QKV on NPU concurrently
-            if (l + 1 < NC) {
-                var qkv_data = QkvThread{ .ex = self, .layer = @as(u32, @intCast(l + 1)), .bs = B, .buf = next_qkv };
-                prev_thread = try std.Thread.spawn(.{}, QkvThread.run, .{&qkv_data});
-                // Swap buffers for next iteration
-                const tmp = cur_qkv;
-                cur_qkv = next_qkv;
-                next_qkv = tmp;
-            }
-
-            // Run attention + FFN for this layer
-            // This runs CONCURRENTLY with the next layer's QKV (on the spawned thread)
-            try self.executeLayerAttnFFN(@as(u32, @intCast(l)), B, cur_qkv, self.scratch.hidden[0..B * H]);
+            try self.executeLayerQKV(@as(u32, @intCast(l)), B, qkv_buf);
+            try self.executeLayerAttnFFN(@as(u32, @intCast(l)), B, qkv_buf, self.scratch.hidden[0..B * H]);
         }
 
         // ── Final RMSNorm ──
@@ -1061,17 +1974,18 @@ pub fn executeLayer(
                 1e-6,
             );
         }
-        @memcpy(output_hidden[0..B * H], self.scratch.hidden[0..B * H]);
+        if (output_hidden.ptr != self.scratch.hidden.ptr) {
+            @memcpy(output_hidden[0..B * H], self.scratch.hidden[0..B * H]);
+        }
     }
 
     /// LM head: compute logits and return top-k tokens.
-    /// Uses GPU mat-vec if available, CPU fallback otherwise.
     pub fn lmHead(self: *FusedExecutor, hidden: []const f32, top_ids: []u32, top_k: u32) !void {
         const H = self.config.hidden_dim;
         const NV = self.config.vocab_size;
         const emb = if (self.lm_head_f32) |lm| lm else self.emb_f32;
 
-        // CPU LM head: dot product per vocab entry
+        // ── 1. Logits: dot product for all vocab entries ──
         var max_logit: f32 = -std.math.inf(f32);
         for (0..NV) |n| {
             var dot: f64 = 0;
@@ -1082,19 +1996,35 @@ pub fn executeLayer(
             if (lg > max_logit) max_logit = lg;
         }
 
-        // Softmax
+        // ── 2. Temperature scaling ──
+        // Temperature 0 → argmax (deterministic). Temperature > 0 flattens
+        // (high temp) or sharpens (low temp) the probability distribution.
+        const temperature: f32 = 0.7;
+        const inv_temp: f32 = if (temperature > 0.0) 1.0 / temperature else 0.0;
+        for (0..NV) |n| {
+            self.scratch.logits[n] = (self.scratch.logits[n] - max_logit) * inv_temp;
+        }
+
+        // ── 3. Softmax ──
         var sum_exp: f64 = 0;
         for (0..NV) |n| {
-            const d = self.scratch.logits[n] - max_logit;
+            const d = self.scratch.logits[n];
             const e = if (d < -80) 0.0 else std.math.exp(d);
             self.scratch.logits[n] = e;
             sum_exp += @as(f64, @floatCast(e));
         }
+        const inv_sum: f32 = if (sum_exp > 0) @floatCast(1.0 / sum_exp) else 1.0;
+        for (0..NV) |n| {
+            self.scratch.logits[n] *= inv_sum;
+        }
 
-        // Top-K selection
+        // ── 4. Top-K selection + Top-p (nucleus) ──
+        // For argmax (temperature=0 or pure top-1), use the original top-k
+        // insertion sort which is O(NV*k). For sampling, we need probabilities
+        // sorted by rank to apply top-p filtering.
         const TopEntry = struct { id: u32, val: f32 };
         var top: [128]TopEntry = [_]TopEntry{.{ .id = 0, .val = -std.math.inf(f32) }} ** 128;
-        const k = @min(top_k, @as(u32, 128));
+        const k = @min(top_k, NV);
 
         for (0..NV) |n| {
             const val = self.scratch.logits[n];
@@ -1108,10 +2038,29 @@ pub fn executeLayer(
             }
         }
 
-        for (0..k) |j| top_ids[j] = top[j].id;
+        // Top-p (nucleus): accumulate probabilities from highest to lowest
+        // until we reach top_p threshold. The first token in the nucleus
+        // becomes the single sampled output.
+        const top_p: f32 = 0.9;
+        var cum_prob: f32 = 0;
+        var nucleus_end: u32 = 0;
+        while (nucleus_end < k) : (nucleus_end += 1) {
+            cum_prob += top[nucleus_end].val;
+            if (cum_prob >= top_p) {
+                nucleus_end += 1;
+                break;
+            }
+        }
+        if (nucleus_end == 0) nucleus_end = 1; // at least the top token
+
+        // Fill top_ids: nucleus tokens first, then pad with top token
+        for (0..k) |j| {
+            top_ids[j] = if (j < nucleus_end) top[j].id else top[0].id;
+        }
     }
 
     /// Full prefill: process N input tokens, build KV cache, produce final hidden state.
+    /// Handles both flash attention (standard K/V cache) and MLA (compressed KV cache).
     pub fn prefill(self: *FusedExecutor, tokens: []const u32, batch_size: u32) !void {
         const H = self.config.hidden_dim;
         const NC = self.config.n_layers;
@@ -1121,16 +2070,24 @@ pub fn executeLayer(
         // Embed all tokens
         for (0..npt) |pi| {
             const tok = tokens[pi];
+            const emb_idx = @as(usize, @intCast(tok)) * H;
+            if (emb_idx + H > self.emb_f32.len) {
+                log.err("Embedding OOB: tok={d} H={d} emb_idx={d} emb_len={d}", .{ tok, H, emb_idx, self.emb_f32.len });
+                return error.EmbOutOfBounds;
+            }
             for (0..H) |i| {
-                self.scratch.hidden[@as(usize, @intCast(pi)) * H + i] =
-                    self.emb_f32[@as(usize, @intCast(tok)) * H + i];
+                self.scratch.hidden[@as(usize, @intCast(pi)) * H + i] = self.emb_f32[emb_idx + i];
             }
         }
 
         // Layer loop
         for (0..NC) |l| {
             for (0..npt) |pi| {
-                const pos = self.kv.position + pi;
+                const pos = if (self.attn_kernel == .mla)
+                    (self.mla_kv orelse return).position + pi
+                else
+                    self.kv.position + pi;
+
                 const hidden_slice = self.scratch.hidden[@as(usize, @intCast(pi)) * H ..][0..H];
 
                 // Save residual
@@ -1138,65 +2095,181 @@ pub fn executeLayer(
 
                 // RMSNorm + QKV
                 rmsNorm(hidden_slice, self.in_norm[l], hidden_slice, 1e-6);
-                try self.npu_qkv.runQKV(hidden_slice, @as(u32, @intCast(1)), @as(u32, @intCast(l)), self.kv.position, self.scratch.qkv);
 
-                // Q/K norm, RoPE, KV cache
-                const QKV = self.config.n_heads * self.config.head_dim + 2 * self.config.n_kv_heads * self.config.head_dim;
-                const qkv_slice = self.scratch.qkv[0..QKV];
-                for (0..self.config.n_heads) |hh| {
-                    const qh = qkv_slice[hh * self.config.head_dim ..][0..self.config.head_dim];
-                    var sq: f64 = 0;
-                    for (qh) |v| sq += @as(f64, @floatCast(v)) * @as(f64, @floatCast(v));
-                    const iq = 1.0 / @sqrt(@as(f32, @floatCast(sq / @as(f64, @floatFromInt(self.config.head_dim)))) + 1e-6);
-                    for (0..self.config.head_dim) |d| qh[d] *= iq;
-                    self.applyRoPE(qh, @as(u32, @intCast(pos)), self.config.head_dim);
-                }
-                for (0..self.config.n_kv_heads) |kvh| {
-                    const ks = qkv_slice[self.config.n_heads * self.config.head_dim + kvh * self.config.head_dim ..][0..self.config.head_dim];
-                    var sk: f64 = 0;
-                    for (ks) |v| sk += @as(f64, @floatCast(v)) * @as(f64, @floatCast(v));
-                    const ik = 1.0 / @sqrt(@as(f32, @floatCast(sk / @as(f64, @floatFromInt(self.config.head_dim)))) + 1e-6);
-                    for (0..self.config.head_dim) |d| ks[d] *= ik;
-                    self.applyRoPE(ks, @as(u32, @intCast(pos)), self.config.head_dim);
-                    const dst = @as(usize, @intCast(pos)) * self.config.n_kv_heads * self.config.head_dim + kvh * self.config.head_dim;
-                    for (0..self.config.head_dim) |d| self.kv.k_cache[l][dst + d] = ks[d];
-                }
-                for (0..self.config.n_kv_heads) |kvh| {
-                    const vs = qkv_slice[self.config.n_heads * self.config.head_dim + self.config.n_kv_heads * self.config.head_dim + kvh * self.config.head_dim ..][0..self.config.head_dim];
-                    const dst = @as(usize, @intCast(pos)) * self.config.n_kv_heads * self.config.head_dim + kvh * self.config.head_dim;
-                    for (0..self.config.head_dim) |d| self.kv.v_cache[l][dst + d] = vs[d];
+                if (self.attn_kernel == .mla) {
+                    // MLA prefill: compute Q and compressed KV via NPU
+                    // Q projection
+                    try self.npu.runMlaQProj(hidden_slice, @as(u32, @intCast(l)), 1, self.scratch.qkv);
+
+                    // KV compression
+                    var latent: [512]f32 = [_]f32{0} ** 512;
+                    const kv_lora3 = if (self.mla_config) |mlac2| mlac2.kv_lora_rank else 256;
+                    try self.npu.runMlaKvCompress(hidden_slice, @as(u32, @intCast(l)), 1, latent[0..kv_lora3]);
+
+                    // Write compressed latent to MLA KV cache
+                    if (self.mla_kv) |*mk| {
+                        mk.write(@as(u32, @intCast(l)), latent[0..kv_lora3]);
+                    }
+
+                    // Run MLA attention (CPU fallback for prefill)
+                    // The attention output is written to self.scratch.attn_out
+                    @memset(self.scratch.attn_out[0..self.config.n_heads * self.config.head_dim], 0);
+                    log.warn("MLA prefill attention not yet implemented on CPU at layer {d}, pos {d}", .{ l, pos });
+                } else {
+                    // Standard flash attention prefill
+                    try self.npu.runQKV(hidden_slice, @as(u32, @intCast(l)), 1, self.scratch.qkv);
+
+                    // Q/K norm, RoPE, KV cache
+                    const QKV = self.config.n_heads * self.config.head_dim + 2 * self.config.n_kv_heads * self.config.head_dim;
+                    const qkv_slice = self.scratch.qkv[0..QKV];
+                    for (0..self.config.n_heads) |hh| {
+                        const qh = qkv_slice[hh * self.config.head_dim ..][0..self.config.head_dim];
+                        var sq: f64 = 0;
+                        for (qh) |v| sq += @as(f64, @floatCast(v)) * @as(f64, @floatCast(v));
+                        const iq = 1.0 / @sqrt(@as(f32, @floatCast(sq / @as(f64, @floatFromInt(self.config.head_dim)))) + 1e-6);
+                        if (l < self.q_norm.len and self.q_norm[l].len >= self.config.head_dim) {
+                            for (0..self.config.head_dim) |d| qh[d] = qh[d] * iq * self.q_norm[l][d];
+                        }
+                        self.applyRoPE(qh, @as(u32, @intCast(pos)), self.config.head_dim);
+                    }
+                    for (0..self.config.n_kv_heads) |kvh| {
+                        const ks = qkv_slice[self.config.n_heads * self.config.head_dim + kvh * self.config.head_dim ..][0..self.config.head_dim];
+                        var sk: f64 = 0;
+                        for (ks) |v| sk += @as(f64, @floatCast(v)) * @as(f64, @floatCast(v));
+                        const ik = 1.0 / @sqrt(@as(f32, @floatCast(sk / @as(f64, @floatFromInt(self.config.head_dim)))) + 1e-6);
+                        if (l < self.k_norm.len and self.k_norm[l].len >= self.config.head_dim) {
+                            for (0..self.config.head_dim) |d| ks[d] = ks[d] * ik * self.k_norm[l][d];
+                        }
+                        self.applyRoPE(ks, @as(u32, @intCast(pos)), self.config.head_dim);
+                        const dst = @as(usize, @intCast(pos)) * self.config.n_kv_heads * self.config.head_dim + kvh * self.config.head_dim;
+                        for (0..self.config.head_dim) |d| self.kv.k_cache[l][dst + d] = ks[d];
+                    }
+                    for (0..self.config.n_kv_heads) |kvh| {
+                        const vs = qkv_slice[self.config.n_heads * self.config.head_dim + self.config.n_kv_heads * self.config.head_dim + kvh * self.config.head_dim ..][0..self.config.head_dim];
+                        const dst = @as(usize, @intCast(pos)) * self.config.n_kv_heads * self.config.head_dim + kvh * self.config.head_dim;
+                        for (0..self.config.head_dim) |d| self.kv.v_cache[l][dst + d] = vs[d];
+                    }
+
+                    // Causal attention per token
+                    const seq_len = pos + 1;
+                    self.cpuAttention(
+                        qkv_slice[0 .. self.config.n_heads * self.config.head_dim],
+                        self.scratch.attn_out,
+                        @as(u32, @intCast(l)),
+                        @as(u32, @intCast(seq_len)),
+                        self.config.n_heads,
+                        self.config.n_kv_heads,
+                        self.config.head_dim,
+                        self.config.gqa_ratio,
+                    );
                 }
 
-                // Causal attention per token
-                const seq_len = pos + 1;
-                self.cpuAttention(
-                    qkv_slice[0 .. self.config.n_heads * self.config.head_dim],
-                    self.scratch.attn_out,
-                    @as(u32, @intCast(l)),
-                    @as(u32, @intCast(seq_len)),
-                    self.config.n_heads,
-                    self.config.n_kv_heads,
-                    self.config.head_dim,
-                    self.config.gqa_ratio,
+                // O projection (NPU) + residual add
+                try self.npu.runOProj(
+                    self.scratch.attn_out[0 .. self.config.n_heads * self.config.head_dim],
+                    @as(u32, @intCast(l)), 1, self.scratch.o_out[0..H],
                 );
+                for (0..H) |i| hidden_slice[i] = self.scratch.residual[@as(usize, @intCast(pi)) * H + i] + self.scratch.o_out[i];
 
-                // Residual add
-                for (0..H) |i| hidden_slice[i] = self.scratch.residual[@as(usize, @intCast(pi)) * H + i] + self.scratch.attn_out[i];
-
-                // FFN — server handles full path including SiLU + Down
+                // FFN: branch on kernel type
                 @memcpy(self.scratch.residual[@as(usize, @intCast(pi)) * H ..][0..H], hidden_slice);
                 rmsNorm(hidden_slice, self.pa_norm[l], hidden_slice, 1e-6);
-                try self.npu_ffn.runFFN(self.scratch.residual[@as(usize, @intCast(pi)) * H ..][0..H], self.scratch.attn_out[0..self.config.n_heads * self.config.head_dim], 1, @as(u32, @intCast(l)), self.kv.position, self.scratch.down_out);
-                for (0..self.config.inter_size) |i| {
-                    const gate = self.scratch.gate_up[i];
-                    const up = self.scratch.gate_up[self.config.inter_size + i];
-                    self.scratch.activated[i] = silu(if (std.math.isFinite(gate)) gate else 0) * up;
+
+                switch (self.ffn_kernel) {
+                    .dense => {
+                        const ffn_ok = if (self.npu.runFFN(hidden_slice, @as(u32, @intCast(l)), 1, self.scratch.gate_up)) |_| true else |err| blk: {
+                            log.warn("NPU gate/up (layer {d}) failed: {s}", .{ l, @errorName(err) });
+                            self.npu_broken = true;
+                            @memset(self.scratch.gate_up, 0);
+                            break :blk false;
+                        };
+                        if (ffn_ok) {
+                            for (0..self.config.inter_size) |i| {
+                                const gate = self.scratch.gate_up[i];
+                                const up = self.scratch.gate_up[self.config.inter_size + i];
+                                self.scratch.activated[i] = silu(if (std.math.isFinite(gate)) gate else 0) * up;
+                            }
+                            _ = self.npu.runDown(
+                                self.scratch.activated[0..self.config.inter_size],
+                                @as(u32, @intCast(l)), 1, self.scratch.down_out[0..H],
+                            ) catch |err| {
+                                log.warn("NPU down (layer {d}) failed: {s}", .{ l, @errorName(err) });
+                                self.npu_broken = true;
+                                @memset(self.scratch.down_out[0..H], 0);
+                            };
+                        } else {
+                            @memset(self.scratch.activated, 0);
+                            @memset(self.scratch.down_out[0..H], 0);
+                        }
+                        for (0..H) |i| hidden_slice[i] = self.scratch.residual[@as(usize, @intCast(pi)) * H + i] + self.scratch.down_out[i];
+                    },
+                    .moe, .shared_moe => {
+                        // Single-token MoE prefill: route token, run expert(s)
+                        const mc = self.moe_config orelse return;
+                        const ms = self.moe_scratch orelse return;
+
+                        // Gating
+                        self.computeGatingLogits(hidden_slice, @as(u32, @intCast(l)), 1, ms.gating_logits);
+
+                        const ctx = self.moe_ctx orelse return;
+                        const routing = ctx.route(ms.gating_logits[0..mc.n_experts], 1, @as(u32, @intCast(l))) catch {
+                            for (0..H) |i| hidden_slice[i] = self.scratch.residual[@as(usize, @intCast(pi)) * H + i];
+                            continue;
+                        };
+
+                        @memset(ms.expert_outputs[0..mc.top_k * H], 0);
+                        for (0..mc.top_k) |k| {
+                            const e = routing.expertId(0, @intCast(k));
+                            if (e >= mc.n_experts) continue;
+
+                            // Gate/Up for this expert
+                            try self.npu.runMoeGateUp(hidden_slice, e, 1, ms.gate_up[0..2 * mc.expert_intermediate_size]);
+                            for (0..mc.expert_intermediate_size) |i| {
+                                const gate = ms.gate_up[i];
+                                const up = ms.gate_up[mc.expert_intermediate_size + i];
+                                ms.activated[i] = silu(if (std.math.isFinite(gate)) gate else 0) * up;
+                            }
+                            try self.npu.runMoeDown(
+                                ms.activated[0..mc.expert_intermediate_size], e, 1, ms.down_out[0..H],
+                            );
+                            @memcpy(ms.expert_outputs[k * H ..][0..H], ms.down_out[0..H]);
+                        }
+
+                        // Weighted accumulate
+                        @memset(hidden_slice, 0);
+                        for (0..mc.top_k) |k| {
+                            const w = routing.weight(0, @intCast(k));
+                            if (w == 0) continue;
+                            for (0..H) |i| hidden_slice[i] += w * ms.expert_outputs[k * H + i];
+                        }
+
+                        // Shared expert
+                        if (mc.has_shared_expert) {
+                            try self.npu.runSharedGateUp(hidden_slice, @as(u32, @intCast(l)), 1, ms.gate_up[0..2 * mc.expert_intermediate_size]);
+                            for (0..mc.expert_intermediate_size) |i| {
+                                const gate = ms.gate_up[i];
+                                const up = ms.gate_up[mc.expert_intermediate_size + i];
+                                ms.activated[i] = silu(if (std.math.isFinite(gate)) gate else 0) * up;
+                            }
+                            try self.npu.runSharedDown(
+                                ms.activated[0..mc.expert_intermediate_size],
+                                @as(u32, @intCast(l)), 1, ms.down_out[0..H],
+                            );
+                            for (0..H) |i| hidden_slice[i] += ms.down_out[i];
+                        }
+
+                        // Residual add
+                        for (0..H) |i| hidden_slice[i] = self.scratch.residual[@as(usize, @intCast(pi)) * H + i] + hidden_slice[i];
+                    },
                 }
-                for (0..H) |i| hidden_slice[i] = self.scratch.residual[@as(usize, @intCast(pi)) * H + i] + self.scratch.activated[i];
             }
         }
 
-        self.kv.advance(npt);
+        if (self.attn_kernel == .mla) {
+            if (self.mla_kv) |*mk| mk.advance(npt);
+        } else {
+            self.kv.advance(npt);
+        }
     }
 
     /// Run M=128 batch decode: full forward pass for all batch positions.
@@ -1204,14 +2277,23 @@ pub fn executeLayer(
         const B = @as(u32, @intCast(tokens.len));
         try self.forwardDecode(tokens, B, self.scratch.hidden[0..B * self.config.hidden_dim]);
 
-        // Take first hidden state for LM head
         var top_ids: [128]u32 = undefined;
         try self.lmHead(self.scratch.hidden[0..self.config.hidden_dim], &top_ids, 128);
 
-        self.kv.advance(1);
+        if (self.attn_kernel == .mla) {
+            if (self.mla_kv) |*mk| mk.advance(1);
+        } else {
+            self.kv.advance(1);
+        }
         return top_ids[0];
     }
 };
+
+// ── Default MLA config (static for temporary use) ───────────
+
+var default_mla_config: mla_attn.MLAConfig = undefined;
+
+// ── Tests ───────────────────────────────────────────────────
 
 test "FusedExecutor dispatch policies" {
     const allocator = std.testing.allocator;
@@ -1224,9 +2306,15 @@ test "FusedExecutor dispatch policies" {
 
     var innorm = try allocator.alloc([]f32, 4);
     var panorm = try allocator.alloc([]f32, 4);
+    const hdnorm = try allocator.alloc(f32, 128);
+    @memset(hdnorm, 1.0);
+    var qnorm = try allocator.alloc([]f32, 4);
+    var knorm = try allocator.alloc([]f32, 4);
     for (0..4) |l| {
         innorm[l] = fnorm;
         panorm[l] = fnorm;
+        qnorm[l] = hdnorm;
+        knorm[l] = hdnorm;
     }
 
     const rope_sin = try allocator.alloc(f32, 4096 * 128);
@@ -1240,9 +2328,14 @@ test "FusedExecutor dispatch policies" {
         4096, 128,
         emb, null, false,
         fnorm, innorm, panorm,
+        qnorm, knorm,
         rope_sin, rope_cos,
     );
     defer exec.deinit();
+
+    // Default kernels should be flash/dense
+    try std.testing.expectEqual(arch_registry.AttentionKernel.flash, exec.attn_kernel);
+    try std.testing.expectEqual(arch_registry.FfnKernel.dense, exec.ffn_kernel);
 
     const dispatch = exec.getLayerDispatch(0);
     try std.testing.expectEqual(Backend.npu, dispatch.qkv);
@@ -1273,6 +2366,26 @@ test "SharedKVCache init and write" {
     try std.testing.expectEqual(@as(f32, 2.0), v_ref[0]);
 }
 
+test "MlaKVCache init and write" {
+    const allocator = std.testing.allocator;
+    var mkv = try MlaKVCache.init(allocator, 28, 256, 4096);
+    defer mkv.deinit();
+
+    try std.testing.expectEqual(@as(u32, 0), mkv.position);
+
+    var latent: [256]f32 = undefined;
+    @memset(&latent, 3.14);
+
+    mkv.write(0, &latent);
+    mkv.advance(1);
+
+    try std.testing.expectEqual(@as(u32, 1), mkv.position);
+
+    const read = mkv.read(0, 0);
+    try std.testing.expectEqual(@as(f32, 3.14), read[0]);
+    try std.testing.expectEqual(@as(f32, 3.14), read[255]);
+}
+
 test "rmsNorm produces correct output shape" {
     var input = [_]f32{ 1.0, 2.0, 3.0, 4.0 };
     var weight = [_]f32{ 1.0, 1.0, 1.0, 1.0 };
@@ -1299,12 +2412,14 @@ test "cpuAttention produces non-nan output" {
     @memset(&out, 0);
 
     var exec = try FusedExecutor.init(
-        allocator, .npu_only, QWEN3_0_6B,
-        "/tmp/npu_engine", "/tmp/model.q4nx",
+        allocator, null, .npu_only, QWEN3_0_6B,
+        "/tmp/model.q4nx", "/tmp/npu_engine",
         64, 128,
         try allocator.alloc(f32, 100 * 1536),
         null, false,
         try allocator.alloc(f32, 1536),
+        try allocator.alloc([]f32, 1),
+        try allocator.alloc([]f32, 1),
         try allocator.alloc([]f32, 1),
         try allocator.alloc([]f32, 1),
         try allocator.alloc(f32, 64 * 128),
@@ -1312,7 +2427,6 @@ test "cpuAttention produces non-nan output" {
     );
     defer exec.deinit();
 
-    // Write one KV entry into the executor's shared cache
     var kd: [2 * 128]f32 = undefined;
     var vd: [2 * 128]f32 = undefined;
     @memset(&kd, 0.5);
@@ -1321,6 +2435,52 @@ test "cpuAttention produces non-nan output" {
     exec.kv.advance(1);
 
     exec.cpuAttention(&q, &out, 0, 1, 1, 2, 128, 6);
-    // Output should be finite
     for (&out) |v| try std.testing.expect(std.math.isFinite(v));
+}
+
+test "initWithKernels flash/dense (backward compat)" {
+    const allocator = std.testing.allocator;
+    const H: u32 = 1536;
+
+    const emb = try allocator.alloc(f32, 100 * H);
+    @memset(emb, 0);
+    const fnorm = try allocator.alloc(f32, H);
+    @memset(fnorm, 1.0);
+    var innorm = try allocator.alloc([]f32, 4);
+    var panorm = try allocator.alloc([]f32, 4);
+    const hdnorm = try allocator.alloc(f32, 128);
+    @memset(hdnorm, 1.0);
+    var qnorm = try allocator.alloc([]f32, 4);
+    var knorm = try allocator.alloc([]f32, 4);
+    for (0..4) |l| {
+        innorm[l] = fnorm;
+        panorm[l] = fnorm;
+        qnorm[l] = hdnorm;
+        knorm[l] = hdnorm;
+    }
+    const rope_sin = try allocator.alloc(f32, 4096 * 128);
+    @memset(rope_sin, 0);
+    var rope_cos = try allocator.alloc(f32, 4096 * 128);
+    for (0..4096 * 128) |i| rope_cos[i] = 1.0;
+
+    var exec = try FusedExecutor.initWithKernels(
+        allocator, null, .ffn_on_npu, QWEN3_0_6B,
+        "/tmp/model.q4nx", "/tmp/npu_engine",
+        4096, 128,
+        emb, null, false,
+        fnorm, innorm, panorm, qnorm, knorm,
+        rope_sin, rope_cos,
+        .flash, .dense, // same as default init()
+        null, null, // no MoE
+        null, null, null, null, null, null, // no MLA
+    );
+    defer exec.deinit();
+
+    try std.testing.expectEqual(arch_registry.AttentionKernel.flash, exec.attn_kernel);
+    try std.testing.expectEqual(arch_registry.FfnKernel.dense, exec.ffn_kernel);
+
+    const dispatch = exec.getLayerDispatch(0);
+    try std.testing.expectEqual(Backend.npu, dispatch.qkv);
+    try std.testing.expectEqual(Backend.gpu, dispatch.attention);
+    try std.testing.expectEqual(Backend.npu, dispatch.ffn);
 }

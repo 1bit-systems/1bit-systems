@@ -22,7 +22,7 @@
  *
  * Xclbin: 32-core single-shot ternary_32c_oneshot.xclbin (M=128 K=256)
  *   Built via: bash engine/npu/build/build_32c_oneshot.sh
- *   Also: single-core ternary_m52_k64.xclbin for partial tiles (M=52 K=256)
+ *   Also: single-core ternary_m52_k64.xclbin for partial tiles (M=52 K=256 ternary = K_packed=64)
  */
 
 #include <cstdio>
@@ -133,19 +133,48 @@ struct RoPECache {
 };
 
 // ═══════════════════════════════════════════════════════════════
+//  NPU kernel cache (globally shared, one per xclbin UUID)
+// ═══════════════════════════════════════════════════════════════
+struct KernelCache {
+    std::unique_ptr<xrt::hw_context> hc;
+    std::unique_ptr<xrt::kernel> k0, k1;
+};
+
+static KernelCache& get_sc_cache(xrt::device& dev, const xrt::uuid& uuid) {
+    static KernelCache c;
+    if (!c.k0) {
+        c.hc = std::make_unique<xrt::hw_context>(dev, uuid);
+        c.k0 = std::make_unique<xrt::kernel>(*c.hc, "MLIR_AIE");
+        c.k1 = std::make_unique<xrt::kernel>(*c.hc, "MLIR_AIE");
+    }
+    return c;
+}
+
+static KernelCache& get_mc_cache(xrt::device& dev, const xrt::uuid& uuid) {
+    static KernelCache c;
+    if (!c.k0) {
+        c.hc = std::make_unique<xrt::hw_context>(dev, uuid);
+        c.k0 = std::make_unique<xrt::kernel>(*c.hc, "MLIR_AIE");
+        c.k1 = std::make_unique<xrt::kernel>(*c.hc, "MLIR_AIE");
+    }
+    return c;
+}
+
+// ═══════════════════════════════════════════════════════════════
 //  Native Ternary xclbin context (one per projection)
 // ═══════════════════════════════════════════════════════════════
 
 struct TernaryCtx {
-    static constexpr int K_TERNARY = 256;   // ternary values per kernel call
-    static constexpr int K_PACKED  = 64;    // packed bytes for K=256
-    static constexpr int M_SINGLE  = 52;    // rows per single-core dispatch (max L1 fit)
-    static constexpr int M_MULTI   = 128;   // rows per 32-core dispatch
-    static constexpr int N_COLS    = 8;     // 32-core grid columns
-    static constexpr int N_ROWS    = 4;     // 32-core grid rows
+    static constexpr int K_TERNARY = 2048;  // ternary values per kernel call (full K)
+    static constexpr int K_PACKED  = 512;   // packed bytes for K=2048
+    static constexpr int M_SINGLE  = 52;    // rows per single-core dispatch (max static L1 fit)
+    static constexpr int M_MULTI   = 256;   // rows per 8-core dispatch (32 rows/core × 8 cols)
+    static constexpr int N_COLS    = 8;     // multi-core grid columns
+    static constexpr int N_ROWS    = 1;     // multi-core grid rows (1 core/col on NPU2)
 
     int M_total, K_total;  // dimensions
     int K_packed_total;    // K_total / 4 (actual packed bytes per row)
+    int n_blocks;          // K_total / 256 = blocks per row (8 for K=2048)
     xrt::device* device = nullptr;
 
     // Single-core xclbin (M=52, remainder tiles)
@@ -159,6 +188,8 @@ struct TernaryCtx {
     // Pre-loaded weight buffer: [M_total * K_packed uint8] [M_total * 2 bf16]
     std::unique_ptr<xrt::bo> bo_weights;
     size_t weights_bytes = 0, scales_bytes = 0;
+    const uint8_t* weights_host_ptr = nullptr;
+    const uint16_t* scales_host_ptr = nullptr;
 
     bool init(xrt::device& dev,
               const xrt::uuid& single_uuid, const std::vector<uint32_t>& single_instr,
@@ -168,12 +199,19 @@ struct TernaryCtx {
               int M, int K) {
         M_total = M; K_total = K;
         K_packed_total = K_total / 4;
+        n_blocks = K_total / 256;  // one scale per 256-weight Q1_0 block
         device = &dev;
         sc_uuid = single_uuid;  sc_instr = single_instr;
         mc_uuid = multi_uuid;   mc_instr = multi_instr;
 
         weights_bytes = (size_t)M_total * K_packed_total;
-        scales_bytes = (size_t)M_total * 2;
+        scales_bytes = (size_t)M_total * n_blocks * 2;
+        // Keep a HOST copy of weights/scales for reliable access
+        weights_host_ptr = new uint8_t[weights_bytes];
+        scales_host_ptr = new uint16_t[(size_t)M_total * n_blocks];
+        memcpy((void*)weights_host_ptr, packed_weights, weights_bytes);
+        memcpy((void*)scales_host_ptr, weight_scales, scales_bytes);
+        // Also create device BO for NPU access
         bo_weights = std::make_unique<xrt::bo>(dev, weights_bytes + scales_bytes,
                                                 xrt::bo::flags::host_only, 0);
         memcpy(bo_weights->map(), packed_weights, weights_bytes);
@@ -187,53 +225,58 @@ struct TernaryCtx {
 
     // ── dispatch helpers ─────────────────────────────────────
 
-    // Dispatch single-core kernel (flat buffer layout)
+    // Reusable BOs (prevents fresh alloc per dispatch)
+    std::unique_ptr<xrt::bo> sc_bo_instr, sc_bo_in, sc_bo_out;
+    std::unique_ptr<xrt::bo> mc_bo_instr, mc_bo_in, mc_bo_out;
+    int sc_toggle = 0;
+    int mc_toggle = 0;
+
     void dispatch_sc(const uint16_t* act_slice, int k_act_count, int m_chunk, int m_start,
                      int k_start, uint16_t* output_bf16) {
-        auto hc = std::make_unique<xrt::hw_context>(*device, sc_uuid);
-        auto k  = std::make_unique<xrt::kernel>(*hc, "MLIR_AIE");
-        int wg = k->group_id(3), og = k->group_id(5), ig = k->group_id(1);
+        auto& cache = get_sc_cache(*device, sc_uuid);
+        auto& k = (sc_toggle % 2 == 0) ? *cache.k0 : *cache.k1;
+        sc_toggle++;
+        int wg = k.group_id(3), og = k.group_id(4), ig = k.group_id(1);
 
-        int tile_in  = M_SINGLE * K_PACKED + M_SINGLE * 2 + K_TERNARY * 2;
+        int tile_in  = M_SINGLE * K_PACKED + M_SINGLE * n_blocks * 2 + K_TERNARY * 2;
         int tile_out = M_SINGLE * 2;
-        auto bo_in  = std::make_unique<xrt::bo>(*device, tile_in, xrt::bo::flags::host_only, wg);
-        auto bo_out = std::make_unique<xrt::bo>(*device, tile_out, xrt::bo::flags::host_only, og);
 
-        const uint8_t*  wgt = (const uint8_t*)bo_weights->map();
-        const uint16_t* sc  = (const uint16_t*)((const char*)bo_weights->map() + weights_bytes);
-        uint8_t* in_map = (uint8_t*)bo_in->map();
+        // Reuse BOs across dispatches
+        if (!sc_bo_instr) {
+            sc_bo_instr = std::make_unique<xrt::bo>(*device, sc_instr.size() * 4, XCL_BO_FLAGS_CACHEABLE, ig);
+            sc_bo_in  = std::make_unique<xrt::bo>(*device, tile_in, xrt::bo::flags::host_only, wg);
+            sc_bo_out = std::make_unique<xrt::bo>(*device, tile_out, xrt::bo::flags::host_only, og);
+        }
+        memcpy(sc_bo_instr->map(), sc_instr.data(), sc_instr.size() * 4);
+        sc_bo_instr->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+
+        const uint8_t*  wgt = weights_host_ptr;
+        const uint16_t* sc  = scales_host_ptr;
+        uint8_t* in_map = (uint8_t*)sc_bo_in->map();
         int k_packed_chunk = k_act_count / 4;
 
-        // Weight slice (from k_start offset within each row)
-        for (int r = 0; r < m_chunk; r++) {
+        memset(in_map, 0, tile_in);
+        for (int r = 0; r < m_chunk; r++)
             memcpy(in_map + r * K_PACKED,
                    wgt + (size_t)(m_start + r) * K_packed_total + k_start / 4,
                    (size_t)k_packed_chunk);
-        }
-        if (k_packed_chunk < K_PACKED)
-            for (int r = 0; r < m_chunk; r++)
-                memset(in_map + r * K_PACKED + k_packed_chunk, 0, K_PACKED - k_packed_chunk);
-
-        // Scale slice
-        memcpy(in_map + M_SINGLE * K_PACKED, sc + m_start, (size_t)m_chunk * 2);
-
-        // Activation slice
+        // Copy per-block scales (n_blocks per row)
+        memcpy(in_map + M_SINGLE * K_PACKED,
+               sc + (size_t)m_start * n_blocks,
+               (size_t)m_chunk * n_blocks * 2);
         uint16_t* act_dst = (uint16_t*)(in_map + M_SINGLE * K_PACKED + M_SINGLE * 2);
         memcpy(act_dst, act_slice, (size_t)k_act_count * 2);
         if (k_act_count < K_TERNARY)
             memset(act_dst + k_act_count, 0, (K_TERNARY - k_act_count) * 2);
 
-        bo_in->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        sc_bo_in->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        sc_bo_out->sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
-        auto bo_instr = xrt::bo(*device, sc_instr.size() * 4, XCL_BO_FLAGS_CACHEABLE, ig);
-        memcpy(bo_instr.map(), sc_instr.data(), sc_instr.size() * 4);
-        bo_instr.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-
-        auto run = (*k)((unsigned)3, bo_instr, (unsigned)sc_instr.size(), *bo_in, *bo_out);
+        auto run = k((unsigned)3, *sc_bo_instr, (unsigned)sc_instr.size(), *sc_bo_in, *sc_bo_out);
         run.wait();
 
-        bo_out->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
-        uint16_t* out_map = (uint16_t*)bo_out->map();
+        sc_bo_out->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+        uint16_t* out_map = (uint16_t*)sc_bo_out->map();
         for (int r = 0; r < m_chunk; r++) {
             float partial = bf16f(out_map[r]);
             float cur = bf16f(output_bf16[m_start + r]);
@@ -244,21 +287,23 @@ struct TernaryCtx {
     // Dispatch 32-core kernel (per-column data layout, f32 output)
     void dispatch_mc(const uint16_t* act_slice, int k_act_count, int m_start,
                      int k_start, uint16_t* output_bf16) {
-        auto hc = std::make_unique<xrt::hw_context>(*device, mc_uuid);
-        auto k  = std::make_unique<xrt::kernel>(*hc, "MLIR_AIE");
-        int wg = k->group_id(3), og = k->group_id(5), ig = k->group_id(1);
+        auto& cache = get_mc_cache(*device, mc_uuid);
+        auto& k = (mc_toggle % 2 == 0) ? *cache.k0 : *cache.k1;
+        mc_toggle++;
+        int wg = k.group_id(3), og = k.group_id(4), ig = k.group_id(1);
 
         int m_per_core = M_MULTI / (N_COLS * N_ROWS);  // 4
         int m_per_col  = m_per_core * N_ROWS;           // 16
-        size_t col_in  = (size_t)m_per_col * K_PACKED + (size_t)m_per_col * 2 + (size_t)K_TERNARY * 2;
+        size_t col_in  = (size_t)m_per_col * K_PACKED + (size_t)m_per_col * n_blocks * 2 + (size_t)K_TERNARY * 2;
         size_t col_in_dw = (col_in + 3) / 4;             // 392
         size_t col_out_elems = (size_t)m_per_core * N_ROWS; // 16 f32
 
         auto bo_in  = std::make_unique<xrt::bo>(*device, col_in_dw * N_COLS * 4, xrt::bo::flags::host_only, wg);
         auto bo_out = std::make_unique<xrt::bo>(*device, col_out_elems * N_COLS * 4, xrt::bo::flags::host_only, og);
 
-        const uint8_t*  wgt = (const uint8_t*)bo_weights->map();
-        const uint16_t* sc  = (const uint16_t*)((const char*)bo_weights->map() + weights_bytes);
+        // Use host copies (avoid BO coherence issues)
+        const uint8_t*  wgt = weights_host_ptr;
+        const uint16_t* sc  = scales_host_ptr;
         uint8_t* in_map = (uint8_t*)bo_in->map();
 
         // Per-column data layout (matches kernel: [weights][scales][acts])
@@ -280,11 +325,12 @@ struct TernaryCtx {
             for (int row = 0; row < N_ROWS; row++) {
                 int rs = m_start + col * m_per_col + row * m_per_core;
                 if (rs < M_total) {
-                    memcpy(col_ptr, sc + rs, (size_t)m_per_core * 2);
-                    col_ptr += (size_t)m_per_core * 2;
+                    // Copy per-block scales (n_blocks per row)
+                memcpy(col_ptr, sc + (size_t)rs * n_blocks, (size_t)m_per_core * n_blocks * 2);
+                    col_ptr += (size_t)m_per_core * n_blocks * 2;
                 } else {
-                    memset(col_ptr, 0, (size_t)m_per_core * 2);
-                    col_ptr += (size_t)m_per_core * 2;
+                    memset(col_ptr, 0, (size_t)m_per_core * n_blocks * 2);
+                    col_ptr += (size_t)m_per_core * n_blocks * 2;
                 }
             }
             // Activations (shared by column)
@@ -294,11 +340,12 @@ struct TernaryCtx {
         }
         bo_in->sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
+        // Control-kernel dispatch: (opcode=3, instr, instr_size, data_args...)
         auto bo_instr = xrt::bo(*device, mc_instr.size() * 4, XCL_BO_FLAGS_CACHEABLE, ig);
         memcpy(bo_instr.map(), mc_instr.data(), mc_instr.size() * 4);
         bo_instr.sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
-        auto run = (*k)((unsigned)3, bo_instr, (unsigned)mc_instr.size(), *bo_in, *bo_out);
+        auto run = k((unsigned)3, bo_instr, (unsigned)mc_instr.size(), *bo_in, *bo_out);
         run.wait();
 
         // Read bf16 output (kernel writes bfloat16, not float32)
@@ -467,10 +514,18 @@ struct PackedModel {
             auto up = mjson.find("model.layers.0.mlp.up_proj.weight");
             if (up != std::string::npos)
                 intermediate_size = (int)extract_int(mjson.substr(up), "M");
-            // Vocab from embed
+            // Vocab from embed shape[1]: "shape": [K, M]
             auto emb = mjson.find("model.embed_tokens.weight");
-            if (emb != std::string::npos)
-                vocab_size = (int)extract_int(mjson.substr(emb), "M");
+            if (emb != std::string::npos) {
+                auto sp = mjson.find("\"shape\"", emb);
+                if (sp != std::string::npos) {
+                    auto comma = mjson.find(',', sp);
+                    if (comma != std::string::npos) {
+                        int a = atoi(mjson.c_str() + comma + 1);
+                        if (a > 0) vocab_size = a;
+                    }
+                }
+            }
         }
 
         fprintf(stderr, "[PackedModel] Detected: L=%d H=%d IM=%d NH=%d NKV=%d HD=%d V=%d\n",
@@ -566,9 +621,21 @@ private:
             return;
         }
         size_t off = (size_t)extract_int(model_json.substr(p), "offset_bytes");
-        // Norm weights are f16 in GGUF
-        auto* src = (const uint16_t*)(model_base + off);
-        for (int i = 0; i < n; i++) out[i] = f16f(src[i]);
+        // In manifest: dtype is "F32" for float32, "F16" for float16
+        auto dq = model_json.find("\"dtype\"", p);
+        bool is_f32 = true;
+        if (dq != std::string::npos && dq < p + 300) {
+            auto dv = model_json.find('"', dq + 8);
+            if (dv != std::string::npos && dv + 2 < model_json.size())
+                is_f32 = (model_json[dv+1] == 'F' && model_json[dv+2] == '3');
+        }
+        if (is_f32) {
+            auto* src = (const float*)(model_base + off);
+            for (int i = 0; i < n; i++) out[i] = src[i];
+        } else {
+            auto* src = (const uint16_t*)(model_base + off);
+            for (int i = 0; i < n; i++) out[i] = f16f(src[i]);
+        }
     }
 
     void load_embed_table(const char* name) {
@@ -611,6 +678,13 @@ struct TernaryDaemon {
     std::unique_ptr<xrt::xclbin> sc_xclbin;   // single-core (M=52)
     std::unique_ptr<xrt::xclbin> mc_xclbin;   // 32-core (M=128)
 
+    // Shared KV cache buffer (imported dma-buf from GPU GTT allocation).
+    // When set, the daemon reads/writes KV cache in this shared BO instead
+    // of using local host buffers — enabling zero-copy GPU↔NPU handoff.
+    std::unique_ptr<xrt::bo> kv_cache_bo;
+    void*  kv_cache_ptr = nullptr;   // CPU mmap of the dma-buf
+    size_t kv_cache_size = 0;
+
     // One TernaryCtx per (projection, layer) — xclbin shared, weights differ
     struct LayerCtx {
         std::unique_ptr<TernaryCtx> q, k, v, o, up, gate, down;
@@ -618,6 +692,43 @@ struct TernaryDaemon {
     std::vector<LayerCtx> layer_ctxs;
     std::unique_ptr<TernaryCtx> lm_head_ctx;  // NPU-powered lm_head
     int max_pos = 32;
+
+    /// Import a dma-buf fd as the shared KV cache backing buffer.
+    /// The daemon will use this buffer for persistent KV cache storage,
+    /// accessible by both NPU (XRT) and GPU (via dma-buf).
+    bool import_kv_cache_dmabuf(int dma_buf_fd) {
+        if (dma_buf_fd < 0) return false;
+        fprintf(stderr, "[Daemon] Importing dma-buf fd=%d for KV cache\n", dma_buf_fd);
+
+        try {
+            // Import the dma-buf fd as an XRT BO.
+            // XRT handles DRM_IOCTL_PRIME_FD_TO_HANDLE internally.
+            auto bo = std::make_unique<xrt::bo>(device, dma_buf_fd);
+            if (!bo || !bo->size()) {
+                fprintf(stderr, "[Daemon] xrt::bo import failed (null or empty)\n");
+                return false;
+            }
+
+            kv_cache_bo = std::move(bo);
+            kv_cache_size = kv_cache_bo->size();
+            kv_cache_ptr  = kv_cache_bo->map();
+
+            if (!kv_cache_ptr) {
+                fprintf(stderr, "[Daemon] xrt::bo map failed\n");
+                kv_cache_bo.reset();
+                kv_cache_size = 0;
+                return false;
+            }
+
+            fprintf(stderr, "[Daemon] KV cache dma-buf imported: %zu bytes at %p\n",
+                    kv_cache_size, kv_cache_ptr);
+            return true;
+
+        } catch (const std::exception& e) {
+            fprintf(stderr, "[Daemon] xrt::bo import threw: %s\n", e.what());
+            return false;
+        }
+    }
 
     bool init(const std::string& model_dir, const std::string& xclbin_dir) {
         // Load manifest JSON
@@ -686,7 +797,7 @@ struct TernaryDaemon {
             std::ifstream nf(path, std::ios::binary);
             if (!nf) { fprintf(stderr, "instr not found: %s\n", path.c_str()); return false; }
             nf.seekg(0, std::ios::end); auto ns = (size_t)nf.tellg(); nf.seekg(0);
-            instr.resize(ns / 4 + 1);
+            instr.resize((ns + 3) / 4);
             nf.read((char*)instr.data(), ns);
             return true;
         };
@@ -770,8 +881,10 @@ struct TernaryDaemon {
         // Convert hidden (f32) → bf16
         for (int i = 0; i < H; i++) buf_bf16[i] = f2bf(hidden[i]);
         std::vector<uint16_t> q_out(q_dim);
+
         lc.q->gemv(buf_bf16.data(), q_out.data());
         fprintf(stderr, "  [L%d] Q done\n", l);
+
 
         // ── K projection ──────────────────────────────────
         std::vector<uint16_t> k_out(kv_dim);
@@ -891,15 +1004,29 @@ struct TernaryDaemon {
             rms_norm(norm_hidden, model.final_norm_w.data(), H);
 
             // LM head → logits → argmax (NPU if available, CPU fallback)
-            if (lm_head_ctx) {{
-                // Convert hidden to bf16, dispatch NPU GEMV, convert back
-                for (int i = 0; i < H; i++) buf_bf16[i] = f2bf(norm_hidden[i]);
-                std::vector<uint16_t> lm_out(model.vocab_size);
-                lm_head_ctx->gemv(buf_bf16.data(), lm_out.data());
-                for (int v = 0; v < model.vocab_size; v++) logits[v] = bf16f(lm_out[v]);
-            }} else {{
-                model.lm_head(norm_hidden, logits.data());
-            }}
+            model.lm_head(norm_hidden, logits.data());
+
+            // Debug: top-5 logits on first decode step
+            static bool first_log = true;
+            if (first_log) {
+                int top5[5] = {0,0,0,0,0};
+                float top5v[5] = {-1e30,-1e30,-1e30,-1e30,-1e30};
+                for (int v = 0; v < model.vocab_size; v++) {
+                    if (logits[v] > top5v[4]) {
+                        top5[4] = v; top5v[4] = logits[v];
+                        for (int j = 4; j > 0; j--) {
+                            if (top5v[j] > top5v[j-1]) {
+                                std::swap(top5[j], top5[j-1]);
+                                std::swap(top5v[j], top5v[j-1]);
+                            }
+                        }
+                    }
+                }
+                fprintf(stderr, "[DBG] Top-5 logits: ");
+                for (int i = 0; i < 5; i++) fprintf(stderr, "%d:%.1f ", top5[i], top5v[i]);
+                fprintf(stderr, "\n");
+                first_log = false;
+            }
 
             float best = -1e30f;
             int best_tok = 0;
@@ -931,6 +1058,19 @@ static int json_get_int(const char* js, size_t jl, const char* key) {
     p += kq.size();
     while (*p == ':' || *p == ' ') p++;
     return atoi(p);
+}
+
+static std::string json_get_string(const char* js, size_t jl, const char* key) {
+    std::string kq = "\"" + std::string(key) + "\"";
+    auto p = strstr(js, kq.c_str());
+    if (!p) return "";
+    p += kq.size();
+    while (*p == ':' || *p == ' ') p++;
+    if (*p != '\"') return "";
+    p++;
+    std::string result;
+    while (*p && *p != '\"') { result += *p; p++; }
+    return result;
 }
 
 static std::vector<int> json_get_int_array(const char* js, size_t jl, const char* key) {
@@ -985,6 +1125,30 @@ int main(int argc, char** argv) {
         size_t ll = strlen(line);
         while (ll > 0 && (line[ll-1] == '\n' || line[ll-1] == '\r')) line[--ll] = 0;
         if (ll == 0) continue;
+
+        // Check for control messages (non-inference commands).
+        // Control messages have a "type" field instead of "tokens".
+        std::string msg_type = json_get_string(line, ll, "type");
+        if (!msg_type.empty()) {
+            if (msg_type == "set_kv_cache") {
+                int dma_buf_fd = json_get_int(line, ll, "dma_buf_fd");
+                if (dma_buf_fd < 0) {
+                    printf("{\"type\":\"error\",\"message\":\"invalid dma_buf_fd\"}\n");
+                    continue;
+                }
+                if (daemon.import_kv_cache_dmabuf(dma_buf_fd)) {
+                    printf("{\"type\":\"ok\",\"fd\":%d}\n", dma_buf_fd);
+                } else {
+                    printf("{\"type\":\"error\",\"message\":\"import failed\"}\n");
+                }
+            } else if (msg_type == "shutdown") {
+                fprintf(stderr, "[npu_ternaryd] Shutdown requested\n");
+                break;
+            } else {
+                printf("{\"type\":\"error\",\"message\":\"unknown command: %s\"}\n", msg_type.c_str());
+            }
+            continue;
+        }
 
         auto tokens = json_get_int_array(line, ll, "tokens");
         int max_new = json_get_int(line, ll, "max_new_tokens");

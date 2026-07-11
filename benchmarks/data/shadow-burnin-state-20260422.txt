@@ -1,0 +1,12 @@
+# shadow-burnin.state — generated 2026-04-22T09:12:52Z
+rounds=6862
+exact_matches=6632
+prefix_only_matches=0
+no_match=229
+v1_unreachable=1
+v2_unreachable=1
+prefix_chars_total=732433
+v1_ms_total=5508577
+v2_ms_total=7605060
+started_at=2026-04-22T01:40:44Z
+last_ts=2026-04-22T09:12:49Z

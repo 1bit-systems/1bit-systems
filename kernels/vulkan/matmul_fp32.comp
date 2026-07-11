@@ -1,0 +1,52 @@
+#version 450
+// matmul_fp32.comp — Portable fp32 matmul for Zaya projections
+// out[M] = in[K] @ wt[M×K]^T
+// Works on any Vulkan 1.2+ device (AMD, NVIDIA, Intel, Apple)
+// Tile size: 64 rows × 16 cols per workgroup
+
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(local_size_x = 64) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+    uint in_offset;
+    uint wt_offset;
+    uint out_offset;
+};
+
+layout(set = 0, binding = 0) readonly buffer MatrixW { float wt[]; };
+layout(set = 0, binding = 1) readonly buffer VectorIn { float vec_in[]; };
+layout(set = 0, binding = 2) buffer VectorOut { float vec_out[]; };
+
+shared float tile_in[64];
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint row = gl_WorkGroupID.x * 64 + tid;
+    
+    if (row >= M) return;
+    
+    // Each thread handles one output row
+    float sum = 0.0;
+    uint base = row * K;
+    
+    // Tile over K in chunks of 64
+    for (uint k = 0; k < K; k += 64) {
+        // Load input tile
+        if (tid < 64 && k + tid < K)
+            tile_in[tid] = vec_in[in_offset + k + tid];
+        else
+            tile_in[tid] = 0.0;
+        barrier();
+        
+        // Accumulate
+        for (uint i = 0; i < 64 && k + i < K; i++)
+            sum += tile_in[i] * wt[wt_offset + base + k + i];
+        barrier();
+    }
+    
+    vec_out[out_offset + row] = sum;
+}

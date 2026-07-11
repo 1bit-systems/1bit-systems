@@ -1,0 +1,33 @@
+name: PR-Agent
+on:
+  pull_request_target:
+    types: [opened, ready_for_review, reopened]
+  issue_comment:
+    types: [created, edited]
+
+permissions:
+  pull-requests: write
+  issues: write
+  contents: read
+
+jobs:
+  pr-agent:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'pull_request_target' && github.event.action != 'closed') ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+       contains(github.event.comment.body, '/describe') ||
+       contains(github.event.comment.body, '/review') ||
+       contains(github.event.comment.body, '/improve') ||
+       contains(github.event.comment.body, '/ask'))
+    steps:
+      - name: PR-Agent
+        uses: codium-ai/pr-agent@v0.38.0
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          github_action_config.auto_describe: "true"
+          github_action_config.auto_review: "true"
+          github_action_config.auto_improve: "false"
+          github_action_config.enable_output: "true"
+          pr_agent.extra_config: ".pr_agent.toml"

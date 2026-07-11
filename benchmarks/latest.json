@@ -1,0 +1,129 @@
+{
+  "_comment": [
+    "Source of truth for every benchmark number shown on 1bit.systems.",
+    "",
+    "Binary SIZES are NOT here -- tools/gen_numbers.py stat()s the real binaries",
+    "on every build. Only numbers requiring hardware (ROCm GPU / XDNA2 NPU) live",
+    "here, and tools/validate_claims.py re-measures them every 24h.",
+    "",
+    "RULE: a number may appear in `benchmarks` only if validate_claims.py can",
+    "re-measure it. Anything else belongs in `_unverified` and must NOT ship."
+  ],
+  "_measured_on": {
+    "host": "AMD Ryzen AI MAX+ 395 w/ Radeon 8060S",
+    "gpu": "gfx1151 (RDNA 3.5, Wave32)",
+    "rocm": "7.2.4",
+    "date": "2026-07-10",
+    "note": "Medians of 3 warmed runs. bench_prefill_variants segfaults intermittently under back-to-back load (retried by validate_claims.py) -- see issue."
+  },
+  "benchmarks": {
+    "prefill_tflops_4h": 25.04,
+    "sherry_gemv_gbps": 149.3,
+    "tq1_gemv_gbps": 196.8,
+    "halo_gemv_gbps": 142.9,
+    "prefill_tflops_i8apre": 38.49
+  },
+  "_sources": {
+    "prefill_tflops_4h": "bench_prefill_variants 2560 6912 2560 -- variant 4h (64x64 cached A+B)",
+    "sherry_gemv_gbps": "bench_sherry -- M=6912 K=2560, sherry kernel, 256 iters",
+    "tq1_gemv_gbps": "bench_sherry -- tq1 kernel, fastest GEMV variant",
+    "halo_gemv_gbps": "bench_sherry -- halo baseline kernel",
+    "prefill_tflops_i8apre": "bench_prefill_variants 2560 6912 2560 -- variant 4i-I8-APRE (I8 A + tiled B), median of 3"
+  },
+  "_verify": {
+    "_comment": "How validate_claims.py re-measures each key. Median of --repeat runs; tolerance is fractional.",
+    "tolerance": 0.15,
+    "commands": {
+      "bench_prefill_variants": {
+        "argv": [
+          "./bench_prefill_variants",
+          "2560",
+          "6912",
+          "2560"
+        ],
+        "keys": [
+          "prefill_tflops_i8apre",
+          "prefill_tflops_4h"
+        ]
+      },
+      "bench_sherry": {
+        "argv": [
+          "./bench_sherry"
+        ],
+        "keys": [
+          "sherry_gemv_gbps",
+          "tq1_gemv_gbps",
+          "halo_gemv_gbps"
+        ]
+      }
+    }
+  },
+  "_unverified": {
+    "_comment": [
+      "Claims that cannot currently be re-measured from this repo.",
+      "They are deliberately absent from `benchmarks` and MUST NOT be published",
+      "until the blocker is fixed and validate_claims.py can measure them."
+    ],
+    "rocm_decode_tok_s": {
+      "claimed": 113,
+      "blocker": "Model unreproducible. ~/models/bonsai-1.7b/bonsai-f16.gguf sidecar is truncated (502 KB, 'short read on token_embd'). tools/gguf_to_h1b segfaults (exit 139) regenerating it: Bonsai-1.7B-F16.gguf is not F16 -- 197 of 310 tensors are dtype 41, and the converter only reads dtype 1 (F16), warns 'missing blk.N.*.weight' for every layer, writes a truncated sidecar, then crashes."
+    },
+    "rocm_prefill_tok_s": {
+      "claimed": 98,
+      "blocker": "Same as rocm_decode_tok_s -- requires a loadable .h1b model."
+    },
+    "rocm_tflops": {
+      "claimed": 28.4,
+      "blocker": "FALSIFIED. CLAUDE.md attributes 28.4 TFlops to variant 4h; 4h measures 25.67 TFlops. The fastest variant is 4i-I8-APRE at 35.57 TFlops. Superseded by prefill_tflops_best / prefill_tflops_4h."
+    },
+    "sherry_gemv_bw_gbps": {
+      "claimed": 19.3,
+      "blocker": "MISATTRIBUTED. 19.3 GB/s is close to sherry_ref (18.2 GB/s), the clean-room offline-only reference implementation -- not the shipped kernel, which measures 148.8 GB/s."
+    },
+    "npu_tok_s": {
+      "claimed": 4.8,
+      "blocker": "docs/npu/AGENTS.md reports 210 ms/tok on Qwen3-0.6B via the torch2aie/IRON toolchain. Not re-measurable here: no Q4NX model + xclbin harness wired into a benchmark binary."
+    },
+    "npu_fused_raw_tok_s": {
+      "claimed": 291,
+      "blocker": "NO SOURCE anywhere in the repo. Contradicted by docs/npu/AGENTS.md (4.8 tok/s). Was hardcoded into site/index.html's meta description as a string literal, bypassing numbers.json entirely."
+    },
+    "npu_validated_tok_s": {
+      "claimed": 94,
+      "blocker": "NO SOURCE. The string '94 tok/s' appears nowhere in the repository."
+    },
+    "tflops_55_7": {
+      "claimed": 55.7,
+      "blocker": "NO SOURCE. Measured ternary prefill peak is 35.57 TFlops."
+    },
+    "gpu_ternary_tok_s": {
+      "claimed": null,
+      "blocker": "NO SOURCE in repo."
+    },
+    "gpu_1bit_llama_tok_s": {
+      "claimed": null,
+      "blocker": "NO SOURCE in repo."
+    },
+    "gpu_f16_baseline_tok_s": {
+      "claimed": null,
+      "blocker": "NO SOURCE in repo."
+    },
+    "fused_kb_82": {
+      "claimed": 82,
+      "blocker": "UNIT ERROR. This was the LM head's 82 MB copied into a KB field. The fused engine measures 258 KB (264,000 bytes), now stat()-ed at build time by tools/gen_numbers.py."
+    }
+  },
+  "repo": {
+    "stars": 9,
+    "forks": 4,
+    "open_issues": 9,
+    "total_clones": 6113,
+    "unique_cloners": 783,
+    "owner": "bong-water-water-bong",
+    "name": "1bit-systems"
+  },
+  "site": {
+    "models": 73,
+    "backends": 6
+  }
+}

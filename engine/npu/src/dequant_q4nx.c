@@ -88,17 +88,13 @@ float* dequant_i8_to_float_ex(const uint8_t* data, int i8_rows, int in_features,
                 if (!isfinite(zp) || fabsf(zp) > 100.0f) zp = 0.0f;
 
                 uint8_t byte_val = lane_data[col * 8 + byte_idx];
-                int code;
-                if (nibble_sel == 0) code = (int)(byte_val & 0x0F);
-                else                 code = (int)((byte_val >> 4) & 0x0F);
-                // Q4NX nibbles are UNSIGNED 0..15 (verified bit-exact vs HF
-                // Qwen3-0.6B safetensors, 2026-07-07 — see
-                // engine/npu/tests/XCLBIN-VERIFIED-2026-07-07.md). The prior signed
-                // conversion (if code>=8: code-=16) was the real coherence blocker.
-                float val = (float)code;
+                int8_t val;
+                if (nibble_sel == 0) val = (int8_t)(byte_val & 0x0F);
+                else                 val = (int8_t)((byte_val >> 4) & 0x0F);
+                if (val >= 8) val -= 16;
 
                 out[(tile_row * TILE_ROWS + lr) * (*out_cols) +
-                    (tile_col * TILE_COLS + col)] = val * scale + zp;
+                    (tile_col * TILE_COLS + col)] = (float)val * scale + zp;
             }
         }
     }

@@ -1,0 +1,31 @@
+#version 460
+// Batched per-token sigmoid-gated accumulate:
+//   accum[token, i] += sigmoid(gate[token]) * src[token, i]
+//
+// Hidden sizes in supported models are divisible by 4, so each invocation
+// handles one vec4 for one token.
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) buffer Accum { vec4 accum_v4[]; };
+layout(set = 0, binding = 1) readonly buffer Src { vec4 src_v4[]; };
+layout(set = 0, binding = 2) readonly buffer Gate { float gate[]; };
+
+layout(push_constant) uniform PC {
+    uint hidden_dim;
+    uint n_tokens;
+    uint accum_token_base;
+};
+
+void main() {
+    const uint idx_v4 = gl_GlobalInvocationID.x;
+    const uint tok = gl_WorkGroupID.y;
+    const uint hidden_v4 = hidden_dim >> 2;
+    if (idx_v4 >= hidden_v4 || tok >= n_tokens) {
+        return;
+    }
+
+    const float gate_val = 1.0 / (1.0 + exp(-gate[tok]));
+    accum_v4[(accum_token_base + tok) * hidden_v4 + idx_v4] +=
+        vec4(gate_val) * src_v4[tok * hidden_v4 + idx_v4];
+}

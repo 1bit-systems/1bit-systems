@@ -1,72 +1,13 @@
-#!/usr/bin/env bash
-# 1bit — NPU-native coding agent. Full pi TUI with 1bit.systems theme.
-# EXACT copy of pi with different branding — all providers, all tools, all features.
+#!/bin/bash
+# 1bit CLI entry — lightweight bash wrapper
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-PI="/home/bcloud/.local/bin/pi"
-THEME="/home/bcloud/.pi/agent/themes/1bit.json"
-
-# NPU stack commands (non-TUI)
-case "${1:-}" in
-  up)
-    exec "$PI" --theme "$THEME" -p "Start the NPU stack: npu-gpu-cpud daemon + FLM proxy"
-    ;;
-  down)
-    exec sudo pkill -f "npu-gpu-cpud|flm serve" 2>/dev/null; echo "NPU stack stopped"; exit 0
-    ;;
-  status)
-    echo "  NPU Stack Status"
-    curl -s http://127.0.0.1:9090/v1/models >/dev/null 2>&1 && echo "  Fused Engine :9090    ✅" || echo "  Fused Engine :9090    ⬜"
-    curl -s http://127.0.0.1:52625/v1/models >/dev/null 2>&1 && echo "  NPU (FLM)    :52625   ✅ 94 tok/s" || echo "  NPU (FLM)    :52625   ⬜"
-    curl -s http://localhost:8080/api/status >/dev/null 2>&1 && echo "  JARVIS       :8080    ✅" || echo "  JARVIS       :8080    ⬜"
-    exit 0
-    ;;
-  build)
-    echo "Building NPU engine..."
-    cd /home/bcloud && g++ -std=c++23 -O3 -march=native -fopenmp \
-      -o engine/npu/build/npu_engine_all engine/npu/src/npu_engine_all.cpp \
-      engine/npu/build/dequant_q4nx.o -lxrt_coreutil -luuid -lm && \
-      echo "Done: engine/npu/build/npu_engine_all" || echo "Build failed"
-    exit 0
-    ;;
-  version|--version|-v)
-    echo "1bit.systems v2026.07.02"
-    exit 0
-    ;;
-  help|--help|-h)
-    echo "1bit — NPU-native coding agent (powered by pi)"
-    echo ""
-    echo "  Usage: 1bit [options] [@files...] [messages...]"
-    echo ""
-    echo "  All pi options and features are supported:"
-    echo "    --provider <name>       Provider (google, anthropic, openai, etc.)"
-    echo "    --model <pattern>       Model ID or pattern"
-    echo "    --api-key <key>         API key"
-    echo "    --thinking <level>      Thinking level (off|minimal|low|medium|high|xhigh)"
-    echo "    --print, -p             Non-interactive mode"
-    echo "    --continue, -c          Continue previous session"
-    echo "    --extension, -e <path>  Load extension"
-    echo "    ... and all other pi options"
-    echo ""
-    echo "  NPU stack commands:"
-    echo "    up        Start NPU stack"
-    echo "    down      Stop NPU stack"
-    echo "    status    Show NPU/JARVIS status"
-    echo "    build     Build NPU engine"
-    echo ""
-    echo "  Config & packages:"
-    echo "    1bit install <pkg>      Install extension/package"
-    echo "    1bit remove <pkg>       Remove package"
-    echo "    1bit list               List installed packages"
-    echo "    1bit config             Configure settings"
-    echo "    1bit update             Update pi/1bit"
-    echo ""
-    echo "  Links:"
-    echo "    https://1bit.systems"
-    echo "    https://github.com/bong-water-water-bong/1bit-systems"
-    exit 0
-    ;;
-esac
-
-# Everything else → launch full pi TUI with 1bit theme
-# All providers, tools, extensions, settings — identical to pi
-exec "$PI" --theme "$THEME" "$@"
+if [ -f "$PROJECT_ROOT/dist/cli.js" ]; then
+  node "$PROJECT_ROOT/dist/cli.js" "$@"
+elif [ -f "$PROJECT_ROOT/src/cli.ts" ]; then
+  npx --yes tsx "$PROJECT_ROOT/src/cli.ts" "$@"
+else
+  echo "Error: 1bit CLI not built. Run 'npm run build' in $PROJECT_ROOT" >&2
+  exit 1
+fi

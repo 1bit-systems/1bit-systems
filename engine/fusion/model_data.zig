@@ -1,261 +1,1420 @@
-//! Q4NX model data loader — extracts embeddings, norm weights, RoPE tables
-//! for the fused NPU+GPU execution engine.
-//! Inlines the minimal model_reader helpers to avoid module path conflicts.
+//! Model data structures and loader for Q4NX-format quantized models.
+//!
+//! Q4NX format layout:
+//!   1. [4 bytes] Magic: "Q4NX" (0x51344E58 as u32 BE)
+//!   2. [4 bytes] Reserved (flags)
+//!   3. [8 bytes] JSON header size (u64 LE)
+//!   4. [n bytes] JSON header: { "tensor_name": { "dtype": "BF16"|"I8", "shape": [...], "data_offsets": [start, end] }, ... }
+//!   5. [data]    Tensor payloads (relative to end of header)
+//!
+//! BF16 tensors: 2 bytes per element, stored as raw bfloat16 values.
+//! I8/Q4NX tensors: 5120-byte tiled blocks containing scales, zero-points, and packed 4-bit data.
+//!
+//! After loading, all weights are in f32. Large I8 projection weights (Q, K, V, O, gate, up, down)
+//! are not stored in ModelData — they are loaded directly by the NPU/CPU backends.
+//! ModelData holds only: embeddings, norms, and RoPE tables.
+//!
+//! @section Fused Engine
 
 const std = @import("std");
+const log = std.log.scoped(.model_data);
+const Io = std.Io;
 
-// ── BF16 → F32 ──
+/// Q4NX magic bytes as a 4-byte string literal.
+const Q4NX_MAGIC = [4]u8{ 0x18, 0x87, 0x00, 0x00 };
+
+// ── BF16 ↔ f32 conversion ─────────────────────────────────────
+
+/// Convert a bfloat16 value (stored as u16) to f32.
 fn bf16ToF32(v: u16) f32 {
     return @as(f32, @bitCast(@as(u32, v) << 16));
 }
 
-// ── Minimal JSON scanner ──
-fn findTensorOffset(js: []const u8, key: []const u8) ?u64 {
-    var pos: usize = 0;
-    while (pos < js.len) {
-        const f = std.mem.indexOfPos(u8, js, pos, key) orelse return null;
-        if (f > 0 and js[f - 1] == '"' and f + key.len < js.len and js[f + key.len] == '"') {
-            const ak = f + key.len;
-            const do_pos = std.mem.indexOfPos(u8, js, ak, "\"data_offsets\"") orelse { pos = f + 1; continue; };
-            const br = std.mem.indexOfPos(u8, js, do_pos, "[") orelse { pos = f + 1; continue; };
-            var i = br + 1;
-            while (i < js.len and (std.ascii.isDigit(js[i]) or js[i] == '-')) i += 1;
-            if (i > br + 1) return std.fmt.parseInt(u64, js[br + 1 .. i], 10) catch { pos = f + 1; continue; };
-        }
-        pos = f + 1;
-    }
-    return null;
+/// Convert an f32 value to bfloat16 (stored as u16), rounding to nearest even.
+fn f32ToBf16(f: f32) u16 {
+    const bits = @as(u32, @bitCast(f));
+    const rounding_bias = ((bits >> 16) & 1) + 0x7FFF;
+    return @as(u16, @intCast((bits +| rounding_bias) >> 16));
 }
 
-fn keyExists(js: []const u8, key: []const u8) bool {
-    return findTensorOffset(js, key) != null;
-}
+// ── Model configuration ──────────────────────────────────────
 
-fn tileRows(js: []const u8, key: []const u8) ?u32 {
-    var pos: usize = 0;
-    while (pos < js.len) {
-        const f = std.mem.indexOfPos(u8, js, pos, key) orelse return null;
-        if (f > 0 and js[f - 1] == '"' and f + key.len < js.len and js[f + key.len] == '"') {
-            const ak = f + key.len;
-            const sp = std.mem.indexOfPos(u8, js, ak, "\"shape\"") orelse { pos = f + 1; continue; };
-            const br = std.mem.indexOfPos(u8, js, sp, "[") orelse { pos = f + 1; continue; };
-            var i = br + 1;
-            while (i < js.len and (std.ascii.isDigit(js[i]) or js[i] == '-')) i += 1;
-            if (i > br + 1) return std.fmt.parseInt(u32, js[br + 1 .. i], 10) catch { pos = f + 1; continue; };
-        }
-        pos = f + 1;
-    }
-    return null;
-}
-
-// ── Model config ──
+/// Transformer model configuration.
+/// Short field names match the naming convention used across the fused engine.
 pub const ModelConfig = struct {
-    H: u32 = 0, NC: u32 = 0, NH: u32 = 0, NKV: u32 = 0,
-    HD: u32 = 0, IM: u32 = 0, NV: u32 = 0, GQA: u32 = 0,
-    has_q_norm: bool = false, has_k_norm: bool = false,
-    rope_theta: f32 = 1000000.0,
-    model_tag: []const u8 = "", model_dir: []const u8 = "",
-    pub fn valid(self: ModelConfig) bool {
-        return self.H > 0 and self.NC > 0 and self.NH > 0 and self.NKV > 0 and self.HD > 0 and self.IM > 0 and self.NV > 0;
+    H: u32, // hidden_dim
+    NC: u32, // n_layers
+    NH: u32, // n_heads
+    NKV: u32, // n_kv_heads
+    HD: u32, // head_dim
+    IM: u32, // intermediate_size (FFN hidden)
+    NV: u32, // vocab_size
+    max_seq_len: u32, // maximum supported sequence length
+};
+
+// ── Parsed tensor metadata from JSON header ──────────────────
+
+/// Tensor dtype stored in the Q4NX file.
+const TensorDtype = enum {
+    bf16,
+    i8_q4nx, // 4-bit block quantized in I8 tile format
+    unknown,
+
+    fn fromString(s: []const u8) TensorDtype {
+        if (std.ascii.eqlIgnoreCase(s, "BF16")) return .bf16;
+        if (std.ascii.eqlIgnoreCase(s, "I8") or std.ascii.eqlIgnoreCase(s, "I4")) return .i8_q4nx;
+        return .unknown;
     }
 };
 
-fn parseQ4nxHeader(model_path: []const u8, model_tag: []const u8) !ModelConfig {
-    const path_z = try std.fmt.allocPrint(std.heap.page_allocator, "{s}\x00", .{model_path});
-    defer std.heap.page_allocator.free(path_z);
-    const fd = std.os.linux.open(@as([*:0]const u8, @ptrCast(path_z.ptr)), .{ .ACCMODE = .RDONLY }, 0);
-    if (std.os.linux.errno(fd) != .SUCCESS) return error.FileOpenFailed;
-    const fdi: i32 = @intCast(fd);
-    defer _ = std.os.linux.close(fdi);
-    const end = std.os.linux.lseek(fdi, 0, std.os.linux.SEEK.END);
-    const sz = @as(usize, @intCast(end));
-    const map = try std.posix.mmap(null, sz, .{ .READ = true }, .{ .TYPE = .PRIVATE }, fdi, 0);
-    defer std.posix.munmap(map);
-    if (map.len < 8) return error.InvalidModel;
-    var hdr_b: [8]u8 = undefined;
-    @memcpy(&hdr_b, map[0..8]);
-    const hsz = std.mem.readInt(u64, &hdr_b, .little);
-    if (hsz == 0 or 8 + hsz > map.len) return error.InvalidHeader;
-    const js = map[8 .. 8 + @as(usize, hsz)];
+// ── Default configs by model tag ─────────────────────────────
 
-    var cfg = ModelConfig{ .model_tag = model_tag };
-    if (std.mem.lastIndexOfScalar(u8, model_path, '/')) |s| cfg.model_dir = model_path[0..s];
+/// Known model configurations keyed by tag.
+/// Add new models here as the codebase grows.
+const KNOWN_MODELS = std.StaticStringMap(ModelConfig).initComptime(.{
+    .{
+        "qwen3_0_6b",
+        ModelConfig{
+            .H = 1024,
+            .NC = 28,
+            .NH = 16,
+            .NKV = 8,
+            .HD = 128,
+            .IM = 3072,
+            .NV = 151936,
+            .max_seq_len = 4096,
+        },
+    },
+    .{
+        "qwen3_1_5b",
+        ModelConfig{
+            .H = 2048,
+            .NC = 28,
+            .NH = 16,
+            .NKV = 2,
+            .HD = 128,
+            .IM = 8192,
+            .NV = 151936,
+            .max_seq_len = 4096,
+        },
+    },
+    .{
+        "qwen3_7b",
+        ModelConfig{
+            .H = 4096,
+            .NC = 32,
+            .NH = 32,
+            .NKV = 8,
+            .HD = 128,
+            .IM = 16384,
+            .NV = 151936,
+            .max_seq_len = 8192,
+        },
+    },
+});
 
-    // Get dimensions from embed_tokens.weight
-    const et_off = findTensorOffset(js, "model.embed_tokens.weight") orelse return error.MissingEmbed;
-    // NV and H from shape
-    const et_tr = tileRows(js, "model.embed_tokens.weight") orelse return error.MissingEmbed;
-    // In the header, embed_tokens shape is [NV, H]. tile_rows = ceil(NV/32)*ceil(H/256) (I4 fmt)
-    // But for Q4NX, the first shape dim from data section tells us the size.
-    // We read it from the data size instead
-    // For Qwen3-0.6B: embed_tokens has 151936 x 1536 = 233,373,696 bf16 bytes
-    // We parse the data section's first value
-    _ = et_off;
-    _ = et_tr;
-
-    // Count layers
-    var max_layer: i32 = -1;
-    const target = "model.layers.";
-    var pp: usize = 0;
-    while (pp < js.len) {
-        const ff = std.mem.indexOfPos(u8, js, pp, target) orelse break;
-        const after = ff + target.len;
-        var ii = after;
-        while (ii < js.len and std.ascii.isDigit(js[ii])) ii += 1;
-        if (ii > after) {
-            const layer = std.fmt.parseInt(i32, js[after..ii], 10) catch { pp = ff + 1; continue; };
-            if (layer > max_layer) max_layer = layer;
-        }
-        pp = ff + 1;
-    }
-    cfg.NC = @intCast(@max(max_layer, 0) + 1);
-
-    // Get H from any layer's q_proj in_features
-    const q_tr = tileRows(js, "model.layers.0.self_attn.q_proj.weight") orelse 0;
-    const k_tr = tileRows(js, "model.layers.0.self_attn.k_proj.weight") orelse 0;
-
-    // For Qwen3-0.6B: hardcoded values (from model_reader.zig's parse logic)
-    cfg.H = 1536;
-    cfg.NH = 12;
-    cfg.NKV = 2;
-    cfg.HD = 128;
-    cfg.IM = 4096;
-    cfg.NV = 151936;
-    cfg.GQA = cfg.NH / cfg.NKV;
-    cfg.has_q_norm = keyExists(js, "model.layers.0.self_attn.q_norm.weight");
-    cfg.has_k_norm = keyExists(js, "model.layers.0.self_attn.k_norm.weight");
-    _ = q_tr;
-    _ = k_tr;
-
-    return cfg;
+/// Get the default configuration for a model tag.
+/// Returns null for unknown tags — caller should derive from tensor shapes.
+fn getDefaultConfig(tag: []const u8) ?ModelConfig {
+    return KNOWN_MODELS.get(tag);
 }
 
-const log = std.log.scoped(.model_data);
+// ── Loaded model data ────────────────────────────────────────
 
+/// All loaded model weights in f32, ready for inference.
+///
+/// Owns all slices. Call `deinit(allocator)` to free memory.
 pub const ModelData = struct {
     config: ModelConfig,
+
+    /// Token embeddings table: [NV * H] f32, row-major.
     emb_f32: []f32,
-    final_norm: []f32,
-    in_norm: [][]f32,
-    pa_norm: [][]f32,
-    rope_sin: []f32,
-    rope_cos: []f32,
-    lm_head_f32: ?[]f32,
+
+    /// Language model head weights: [NV * H] f32, row-major.
+    /// If `tied_embeddings` is true, this slice is empty and the engine
+    /// should use `emb_f32` for the LM head as well.
+    lm_head_f32: []f32,
+
+    /// Whether token embeddings and LM head share the same weight matrix.
     tied_embeddings: bool,
 
+    /// Final RMS normalization weights: [H] f32.
+    final_norm: []f32,
+
+    /// Per-layer input RMS normalization weights: [NC][H] f32.
+    in_norm: [][]f32,
+
+    /// Per-layer post-attention RMS normalization weights: [NC][H] f32.
+    pa_norm: [][]f32,
+
+    /// Precomputed RoPE sin table: [max_seq_len * HD] f32.
+    /// For position p and pair index i: sin(p * base^{-2i/HD}).
+    rope_sin: []f32,
+
+    /// Precomputed RoPE cos table: [max_seq_len * HD] f32.
+    rope_cos: []f32,
+
+    /// Free all owned memory.
     pub fn deinit(self: *ModelData, allocator: std.mem.Allocator) void {
-        if (self.lm_head_f32) |lm| allocator.free(lm);
-        allocator.free(self.rope_cos);
-        allocator.free(self.rope_sin);
-        for (self.pa_norm) |n| allocator.free(n);
-        allocator.free(self.pa_norm);
-        for (self.in_norm) |n| allocator.free(n);
-        allocator.free(self.in_norm);
-        allocator.free(self.final_norm);
+        log.debug("deinit: freeing model data", .{});
+
+        // Embeddings
         allocator.free(self.emb_f32);
+
+        // LM head (only free if separate from embeddings)
+        if (!self.tied_embeddings and self.lm_head_f32.len > 0) {
+            allocator.free(self.lm_head_f32);
+        }
+
+        // Final norm
+        allocator.free(self.final_norm);
+
+        // Per-layer input norms
+        for (self.in_norm) |slice| {
+            allocator.free(slice);
+        }
+        allocator.free(self.in_norm);
+
+        // Per-layer post-attention norms
+        for (self.pa_norm) |slice| {
+            allocator.free(slice);
+        }
+        allocator.free(self.pa_norm);
+
+        // RoPE tables
+        allocator.free(self.rope_sin);
+        allocator.free(self.rope_cos);
+
+        self.* = undefined;
     }
 };
 
-pub fn loadModel(allocator: std.mem.Allocator, model_path: []const u8, model_tag: []const u8) !ModelData {
-    const path_z = try std.fmt.allocPrint(allocator, "{s}\x00", .{model_path});
-    defer allocator.free(path_z);
-    const fd = std.os.linux.open(@as([*:0]const u8, @ptrCast(path_z.ptr)), .{ .ACCMODE = .RDONLY }, 0);
-    if (std.os.linux.errno(fd) != .SUCCESS) return error.FileOpenFailed;
-    const fdi: i32 = @intCast(fd);
-    defer _ = std.os.linux.close(fdi);
-    const end = std.os.linux.lseek(fdi, 0, std.os.linux.SEEK.END);
-    const sz = @as(usize, @intCast(end));
-    const map = try std.posix.mmap(null, sz, .{ .READ = true }, .{ .TYPE = .PRIVATE }, fdi, 0);
-    defer std.posix.munmap(map);
+// ── Q4NX I8 tile dequantization ─────────────────────────────
 
-    if (map.len < 8) return error.InvalidModelFile;
-    var hdr_b: [8]u8 = undefined;
-    @memcpy(&hdr_b, map[0..8]);
-    const hdr_size = std.mem.readInt(u64, &hdr_b, .little);
-    if (hdr_size == 0 or 8 + hdr_size > map.len) return error.InvalidModelHeader;
-    const js = map[8 .. 8 + @as(usize, hdr_size)];
-    const data_start: usize = 8 + @as(usize, hdr_size);
+/// Dequantize one 5120-byte I8 tile into the output matrix.
+///
+/// Each tile is a 32×256 block of 4-bit quantized values.
+/// Layout (per tile):
+///   [0..512)     = 256 BF16 scales (uint16), indexed as [g*32 + lr]
+///   [512..1024)  = 256 BF16 zero-points, indexed as [g*32 + lr]
+///   [1024..5120) = 4096 bytes packed I4 data
+///     For row lr (0..31):
+///       lane = lr / 16, lr2 = lr % 16, bi = lr2 / 2, ns = lr % 2
+///       packed_offset = lane * 2048 + col * 8 + bi
+///       ns==0 → low nibble, ns==1 → high nibble
+///     out[row][col] = nibble_value * scale + zero_point
+fn dequantizeI8Block(block: *const [5120]u8, out: []f32, tr: u32, tc: u32, out_rows: u32, out_cols: u32) void {
+    const scales: *const [256]u16 = @ptrCast(@alignCast(&block[0]));
+    const zps: *const [256]u16 = @ptrCast(@alignCast(&block[512]));
+    const packed_data = block[1024..];
 
-    const H: u32 = 1536;
-    const NC: u32 = 28;
-    const NV: u32 = 151936;
-    const HD: u32 = 128;
-    const MAX_CTX: u32 = 4096;
+    var lr: u32 = 0;
+    while (lr < 32) : (lr += 1) {
+        const row = tr * 32 + lr;
+        if (row >= out_rows) continue;
 
-    var cfg = ModelConfig{};
-    cfg.H = H; cfg.NC = NC; cfg.NV = NV; cfg.HD = HD;
-    cfg.NH = 12; cfg.NKV = 2; cfg.IM = 4096; cfg.GQA = 6;
-    cfg.rope_theta = 1000000.0;
-    if (std.mem.lastIndexOfScalar(u8, model_path, '/')) |s| cfg.model_dir = model_path[0..s];
-    cfg.model_tag = model_tag;
-    cfg.has_q_norm = keyExists(js, "model.layers.0.self_attn.q_norm.weight");
-    cfg.has_k_norm = keyExists(js, "model.layers.0.self_attn.k_norm.weight");
+        const lane = lr / 16;
+        const lr2 = lr % 16;
+        const bi = lr2 / 2;
+        const ns = lr % 2;
 
-    log.info("Model: H={d} NC={d} NH=12 NKV=2 HD={d} NV={d}", .{ H, NC, HD, NV });
+        var g: u32 = 0;
+        while (g < 8) : (g += 1) {
+            const s = bf16ToF32(scales[g * 32 + lr]);
+            const z = bf16ToF32(zps[g * 32 + lr]);
 
-    // Load embeddings
-    const emb_off = findTensorOffset(js, "model.embed_tokens.weight") orelse return error.MissingEmbedTokens;
-    const emb_raw = map[data_start + @as(usize, emb_off) ..];
-    const emb_f32 = try allocator.alloc(f32, @as(usize, NV) * H);
-    const emb_bf16 = std.mem.bytesAsSlice(u16, emb_raw[0..@min(emb_raw.len, @as(usize, NV) * H * 2)]);
-    const emb_count = @min(emb_bf16.len, emb_f32.len);
-    for (0..emb_count) |i| emb_f32[i] = bf16ToF32(emb_bf16[i]);
-    for (emb_count..emb_f32.len) |i| emb_f32[i] = 0.0;
+            var c: u32 = 0;
+            while (c < 32) : (c += 1) {
+                const col = tc * 256 + g * 32 + c;
+                if (col >= out_cols) continue;
 
-    // Load layer norms
-    var in_norm = try allocator.alloc([]f32, NC);
-    var pa_norm = try allocator.alloc([]f32, NC);
-    var bn: [128]u8 = undefined;
-    for (0..NC) |l| {
-        const in_key = try std.fmt.bufPrint(&bn, "model.layers.{d}.input_layernorm.weight", .{l});
-        const in_off = findTensorOffset(js, in_key) orelse return error.MissingLayerNorm;
-        const in_s = try allocator.alloc(f32, H);
-        const in_r = map[data_start + @as(usize, in_off) ..];
-        const in_b = std.mem.bytesAsSlice(u16, in_r[0..@min(in_r.len, H * 2)]);
-        for (0..H) |i| in_s[i] = bf16ToF32(in_b[i]);
-        in_norm[l] = in_s;
+                const bv = packed_data[lane * 2048 + c * 8 + bi];
+                const nibble: u32 = if (ns == 0) bv & 0x0F else (bv >> 4) & 0x0F;
+                out[row * out_cols + col] = @as(f32, @floatFromInt(nibble)) * s + z;
+            }
+        }
+    }
+}
 
-        const pa_key = try std.fmt.bufPrint(&bn, "model.layers.{d}.post_attention_layernorm.weight", .{l});
-        const pa_off = findTensorOffset(js, pa_key) orelse return error.MissingLayerNorm;
-        const pa_s = try allocator.alloc(f32, H);
-        const pa_r = map[data_start + @as(usize, pa_off) ..];
-        const pa_b = std.mem.bytesAsSlice(u16, pa_r[0..@min(pa_r.len, H * 2)]);
-        for (0..H) |i| pa_s[i] = bf16ToF32(pa_b[i]);
-        pa_norm[l] = pa_s;
+// ── JSON header parsing ──────────────────────────────────────
+
+/// Tensor descriptor extracted from the JSON header.
+const TensorDesc = struct {
+    name: []u8,
+    dtype: []u8,
+    shape: std.ArrayListUnmanaged(u32),
+    data_offsets: std.ArrayListUnmanaged(u64),
+};
+
+/// Parse a JSON integer array like "[1, 2, 3]" into an ArrayList.
+fn parseJsonInts(allocator: std.mem.Allocator, comptime T: type, s: []const u8) !std.ArrayListUnmanaged(T) {
+    var result: std.ArrayListUnmanaged(T) = .empty;
+    var i: usize = 0;
+
+    while (i < s.len and (s[i] == ' ' or s[i] == '\t' or s[i] == '\n' or s[i] == '[')) i += 1;
+
+    while (i < s.len and s[i] != ']') {
+        while (i < s.len and (s[i] == ' ' or s[i] == '\t' or s[i] == '\n' or s[i] == ',')) i += 1;
+        if (i >= s.len or s[i] == ']') break;
+
+        const start = i;
+        while (i < s.len and s[i] >= '0' and s[i] <= '9') i += 1;
+        if (i > start) {
+            const val = try std.fmt.parseInt(T, s[start..i], 10);
+            try result.append(allocator, val);
+        }
+    }
+    return result;
+}
+
+/// Simple JSON value scanner — jumps past a JSON value starting at `pos`,
+/// returns the end position (one past the value).
+fn skipJsonValue(s: []const u8, pos: usize) usize {
+    if (pos >= s.len) return pos;
+    var i = pos;
+    switch (s[i]) {
+        '"' => {
+            i += 1;
+            while (i < s.len) : (i += 1) {
+                if (s[i] == '\\') {
+                    i += 1;
+                    continue;
+                }
+                if (s[i] == '"') {
+                    i += 1;
+                    break;
+                }
+            }
+        },
+        '{', '[' => {
+            var depth: usize = 1;
+            i += 1;
+            while (i < s.len and depth > 0) : (i += 1) {
+                if (s[i] == '"') {
+                    i += 1;
+                    while (i < s.len and !(s[i] == '"' and s[i - 1] != '\\')) i += 1;
+                    continue;
+                }
+                if (s[i] == '{' or s[i] == '[') {
+                    depth += 1;
+                    continue;
+                }
+                if (s[i] == '}' or s[i] == ']') {
+                    depth -= 1;
+                    continue;
+                }
+            }
+        },
+        else => {
+            while (i < s.len and s[i] != ',' and s[i] != '}' and s[i] != ']' and s[i] != ' ' and s[i] != '\t' and s[i] != '\n') i += 1;
+        },
+    }
+    return i;
+}
+
+/// Extract a substring value for a given key from a JSON object string.
+fn jsonFindValue(s: []const u8, key: []const u8) ?[]const u8 {
+    var pos: usize = 0;
+
+    while (pos < s.len) {
+        const key_start = std.mem.indexOfScalarPos(u8, s, pos, '"') orelse return null;
+        if (key_start == 0) return null;
+
+        var pre = key_start;
+        while (pre > 0 and (s[pre - 1] == ' ' or s[pre - 1] == '\t' or s[pre - 1] == '\n')) pre -= 1;
+        if (pre == 0 or (s[pre - 1] != '{' and s[pre - 1] != ',')) {
+            pos = key_start + 1;
+            continue;
+        }
+
+        var ke = key_start + 1;
+        while (ke < s.len and s[ke] != '"') : (ke += 1) {
+            if (s[ke] == '\\') ke += 1;
+        }
+        if (ke >= s.len) return null;
+
+        if (!std.mem.eql(u8, s[key_start + 1 .. ke], key)) {
+            pos = ke + 1;
+            continue;
+        }
+
+        const colon = std.mem.indexOfScalarPos(u8, s, ke + 1, ':') orelse return null;
+
+        var vs = colon + 1;
+        while (vs < s.len and (s[vs] == ' ' or s[vs] == '\t' or s[vs] == '\n')) vs += 1;
+        if (vs >= s.len) return null;
+
+        const ve = skipJsonValue(s, vs);
+        return s[vs..ve];
+    }
+    return null;
+}
+
+/// Unquote a JSON string: "\"foo\"" -> "foo".
+fn jsonUnquote(s: []const u8) []const u8 {
+    if (s.len >= 2 and s[0] == '"' and s[s.len - 1] == '"') {
+        return s[1 .. s.len - 1];
+    }
+    return s;
+}
+
+/// Parse the JSON header into a list of tensor descriptors.
+fn parseJsonHeader(allocator: std.mem.Allocator, json_bytes: []const u8) !std.ArrayListUnmanaged(TensorDesc) {
+    var tensors: std.ArrayListUnmanaged(TensorDesc) = .empty;
+    errdefer {
+        for (tensors.items) |*t| {
+            allocator.free(t.name);
+            allocator.free(t.dtype);
+            t.shape.deinit(allocator);
+            t.data_offsets.deinit(allocator);
+        }
+        tensors.deinit(allocator);
     }
 
-    // Final norm
-    const fn_off = findTensorOffset(js, "model.norm.weight") orelse return error.MissingFinalNorm;
-    const final_norm = try allocator.alloc(f32, H);
-    const fn_r = map[data_start + @as(usize, fn_off) ..];
-    const fn_b = std.mem.bytesAsSlice(u16, fn_r[0..@min(fn_r.len, H * 2)]);
-    for (0..H) |i| final_norm[i] = bf16ToF32(fn_b[i]);
+    const s = json_bytes;
+    var pos: usize = 0;
 
-    // LM head
-    const lm_head_f32: ?[]f32 = null;
-    if (keyExists(js, "lm_head.weight")) {
-        log.info("lm_head found but using emb_f32 fallback", .{});
+    while (pos < s.len and (s[pos] == ' ' or s[pos] == '\t' or s[pos] == '\n')) pos += 1;
+    if (pos >= s.len or s[pos] != '{') {
+        log.err("JSON header does not start with '{{'", .{});
+        return error.InvalidJsonHeader;
+    }
+    pos += 1;
+
+    while (pos < s.len) {
+        while (pos < s.len and (s[pos] == ' ' or s[pos] == '\t' or s[pos] == '\n')) pos += 1;
+        if (pos >= s.len or s[pos] == '}') break;
+
+        if (s[pos] == ',') {
+            pos += 1;
+            continue;
+        }
+
+        if (s[pos] != '"') {
+            pos += 1;
+            continue;
+        }
+        var ke = pos + 1;
+        while (ke < s.len and s[ke] != '"') : (ke += 1) {
+            if (s[ke] == '\\') ke += 1;
+        }
+        if (ke >= s.len) break;
+        const key = s[pos + 1 .. ke];
+        pos = ke + 1;
+
+        while (pos < s.len and s[pos] != ':') pos += 1;
+        if (pos >= s.len) break;
+        pos += 1;
+
+        while (pos < s.len and (s[pos] == ' ' or s[pos] == '\t' or s[pos] == '\n')) pos += 1;
+        if (pos >= s.len) break;
+
+        if (s[pos] != '{') {
+            const ve = skipJsonValue(s, pos);
+            pos = ve;
+            continue;
+        }
+        const vs = pos;
+        const ve = skipJsonValue(s, vs);
+        const val_sub = s[vs..ve];
+        pos = ve;
+
+        if (std.mem.indexOf(u8, val_sub, "data_offsets") == null) continue;
+
+        const dtype_str = jsonUnquote(jsonFindValue(val_sub, "dtype") orelse continue);
+
+        const shape_str = jsonFindValue(val_sub, "shape") orelse continue;
+        var shape_list = try parseJsonInts(allocator, u32, shape_str);
+
+        const offsets_str = jsonFindValue(val_sub, "data_offsets") orelse {
+            shape_list.deinit(allocator);
+            continue;
+        };
+        var offsets_list = try parseJsonInts(allocator, u64, offsets_str);
+        if (offsets_list.items.len < 2) {
+            shape_list.deinit(allocator);
+            offsets_list.deinit(allocator);
+            continue;
+        }
+
+        const name_copy = try allocator.dupe(u8, key);
+        const dtype_copy = try allocator.dupe(u8, dtype_str);
+
+        try tensors.append(allocator, .{
+            .name = name_copy,
+            .dtype = dtype_copy,
+            .shape = shape_list,
+            .data_offsets = offsets_list,
+        });
     }
 
-    // RoPE
-    const rope_sin = try allocator.alloc(f32, @as(usize, MAX_CTX) * HD);
-    const rope_cos = try allocator.alloc(f32, @as(usize, MAX_CTX) * HD);
-    const hd2 = HD / 2;
-    for (0..MAX_CTX) |pos| {
-        for (0..hd2) |d| {
-            const freq = 1.0 / std.math.pow(f32, cfg.rope_theta, @as(f32, @floatFromInt(d)) / @as(f32, @floatFromInt(hd2)));
-            const a = @as(f32, @floatFromInt(pos)) * freq;
-            rope_sin[pos * HD + d] = @sin(a);
-            rope_cos[pos * HD + d] = @cos(a);
-            rope_sin[pos * HD + hd2 + d] = @sin(a);
-            rope_cos[pos * HD + hd2 + d] = @cos(a);
+    log.info("Parsed {d} tensors from JSON header ({d} bytes)", .{ tensors.items.len, s.len });
+    return tensors;
+}
+
+/// Find a tensor by name in the parsed list.
+fn findTensor(tensors: []const TensorDesc, name: []const u8) ?usize {
+    for (tensors, 0..) |t, i| {
+        if (std.mem.eql(u8, t.name, name)) return i;
+    }
+    return null;
+}
+
+/// Count layers from tensor names by finding the max layer index.
+fn countLayers(tensors: []const TensorDesc) u32 {
+    var max_layer: u32 = 0;
+    for (tensors) |t| {
+        if (std.mem.startsWith(u8, t.name, "model.layers.")) {
+            const rest = t.name["model.layers.".len..];
+            const dot_pos = std.mem.indexOfScalar(u8, rest, '.') orelse continue;
+            const layer_str = rest[0..dot_pos];
+            const layer = std.fmt.parseInt(u32, layer_str, 10) catch continue;
+            if (layer + 1 > max_layer) max_layer = layer + 1;
+        }
+    }
+    return max_layer;
+}
+
+/// Derive the number of tile columns from hidden_dim.
+fn tileCols(hidden_dim: u32) u32 {
+    return (hidden_dim + 255) / 256;
+}
+
+/// Derive model configuration from parsed tensor shapes.
+fn deriveConfig(tensors: []const TensorDesc, tag: []const u8) !ModelConfig {
+    const defaults = getDefaultConfig(tag) orelse return error.UnknownModelTag;
+
+    var H: u32 = defaults.H;
+    var NV: u32 = defaults.NV;
+    var NC: u32 = defaults.NC;
+    var NH: u32 = defaults.NH;
+    var NKV: u32 = defaults.NKV;
+    var HD: u32 = defaults.HD;
+    var IM: u32 = defaults.IM;
+    const max_seq_len: u32 = defaults.max_seq_len;
+
+    if (findTensor(tensors, "model.embed_tokens.weight")) |idx| {
+        const t = tensors[idx];
+        if (t.shape.items.len >= 2) {
+            NV = t.shape.items[0];
+            H = t.shape.items[1];
+            log.info("deriveConfig: embedding shape NV={d} H={d}", .{ NV, H });
+        }
+    }
+    log.info("deriveConfig: BEFORE q_proj H={d} NH={d} NKV={d} IM={d}", .{ H, NH, NKV, IM });
+
+    const layer_count = countLayers(tensors);
+    if (layer_count > 0) NC = layer_count;
+
+    if (findTensor(tensors, "model.layers.0.self_attn.q_proj.weight")) |idx| {
+        const t = tensors[idx];
+        if (t.shape.items.len >= 1 and H > 0) {
+            const n_blocks = t.shape.items[0];
+            const ntc = tileCols(H);
+            if (ntc > 0) {
+                const ntr = n_blocks / ntc;
+                const q_out = ntr * 32;
+                const hd_guess: u32 = 128;
+                NH = q_out / hd_guess;
+                HD = hd_guess;
+            }
         }
     }
 
-    return ModelData{
-        .config = cfg, .emb_f32 = emb_f32, .final_norm = final_norm,
-        .in_norm = in_norm, .pa_norm = pa_norm,
-        .rope_sin = rope_sin, .rope_cos = rope_cos,
-        .lm_head_f32 = lm_head_f32, .tied_embeddings = false,
+    if (findTensor(tensors, "model.layers.0.self_attn.k_proj.weight")) |idx| {
+        const t = tensors[idx];
+        if (t.shape.items.len >= 1 and H > 0) {
+            const n_blocks = t.shape.items[0];
+            const ntc = tileCols(H);
+            if (ntc > 0 and HD > 0) {
+                const ntr = n_blocks / ntc;
+                const k_out = ntr * 32;
+                NKV = k_out / HD;
+            }
+        }
+    }
+
+    if (findTensor(tensors, "model.layers.0.mlp.gate_proj.weight")) |idx| {
+        const t = tensors[idx];
+        if (t.shape.items.len >= 1 and H > 0) {
+            const n_blocks = t.shape.items[0];
+            const ntc = tileCols(H);
+            if (ntc > 0) {
+                const ntr = n_blocks / ntc;
+                IM = ntr * 32;
+            }
+        }
+    }
+
+    return ModelConfig{
+        .H = H,
+        .NC = NC,
+        .NH = NH,
+        .NKV = NKV,
+        .HD = HD,
+        .IM = IM,
+        .NV = NV,
+        .max_seq_len = max_seq_len,
     };
+}
+
+// ── RoPE table computation ───────────────────────────────────
+
+/// Precompute sinusoidal RoPE tables for all positions up to max_seq_len.
+fn computeRopeTables(allocator: std.mem.Allocator, head_dim: u32, max_seq_len: u32) !struct { sin_table: []f32, cos_table: []f32 } {
+    const total = max_seq_len * head_dim;
+    const sin_table = try allocator.alloc(f32, total);
+    errdefer allocator.free(sin_table);
+    const cos_table = try allocator.alloc(f32, total);
+    errdefer allocator.free(cos_table);
+
+    const base: f32 = 10000.0;
+    const inv_scale: f32 = @as(f32, @floatFromInt(head_dim));
+
+    var pos: u32 = 0;
+    while (pos < max_seq_len) : (pos += 1) {
+        const p = @as(f32, @floatFromInt(pos));
+        var i: u32 = 0;
+        while (i < head_dim / 2) : (i += 1) {
+            const theta = p * std.math.pow(f32, base, -2.0 * @as(f32, @floatFromInt(i)) / inv_scale);
+            const sin_val = @sin(theta);
+            const cos_val = @cos(theta);
+            const base_idx = pos * head_dim;
+            sin_table[base_idx + 2 * i] = sin_val;
+            sin_table[base_idx + 2 * i + 1] = sin_val;
+            cos_table[base_idx + 2 * i] = cos_val;
+            cos_table[base_idx + 2 * i + 1] = cos_val;
+        }
+    }
+
+    log.info("RoPE tables: {d} positions × {d} dim = {d} values each", .{ max_seq_len, head_dim, total });
+    return .{ .sin_table = sin_table, .cos_table = cos_table };
+}
+
+// ── Tensor loading helpers ───────────────────────────────────
+
+/// Load a BF16 tensor from the in-memory file data and convert to f32.
+fn loadBf16TensorFromMemory(file_data: []const u8, hdr_size: u64, data_offset: u64, data_size: u64, numel: usize, allocator: std.mem.Allocator) ![]f32 {
+    const file_offset: usize = 8 + @as(usize, @intCast(hdr_size)) + @as(usize, @intCast(data_offset));
+
+    if (file_offset + @as(usize, @intCast(data_size)) > file_data.len) {
+        log.err("Tensor data offset {d} + size {d} exceeds file size {d}", .{ file_offset, data_size, file_data.len });
+        return error.TensorOutOfBounds;
+    }
+
+    const bf16_bytes = file_data[file_offset .. file_offset + @as(usize, @intCast(data_size))];
+    const bf16_values = std.mem.bytesAsSlice(u16, bf16_bytes);
+
+    if (bf16_values.len != numel) {
+        log.warn("Tensor element count mismatch: expected {d}, got {d}", .{ numel, bf16_values.len });
+    }
+
+    const result = try allocator.alloc(f32, numel);
+    errdefer allocator.free(result);
+
+    const count = @min(bf16_values.len, numel);
+    for (bf16_values[0..count], 0..) |bf16, idx| {
+        result[idx] = bf16ToF32(bf16);
+    }
+    if (count < numel) {
+        @memset(result[count..], 0);
+    }
+
+    return result;
+}
+
+/// Load per-layer normalization weights (BF16) into a nested array.
+fn loadLayerNormsFromMemory(
+    file_data: []const u8,
+    hdr_size: u64,
+    tensors: []const TensorDesc,
+    prefix: []const u8,
+    n_layers: u32,
+    hidden_dim: u32,
+    allocator: std.mem.Allocator,
+) ![][]f32 {
+    const norms = try allocator.alloc([]f32, n_layers);
+    errdefer {
+        for (norms[0..]) |slice| allocator.free(slice);
+        allocator.free(norms);
+    }
+
+    var layer: u32 = 0;
+    while (layer < n_layers) : (layer += 1) {
+        const tensor_name = try std.fmt.allocPrint(allocator, "model.layers.{d}.{s}.weight", .{ layer, prefix });
+        defer allocator.free(tensor_name);
+
+        if (findTensor(tensors, tensor_name)) |idx| {
+            const t = tensors[idx];
+            const dtype_str = t.dtype;
+            const dtype = TensorDtype.fromString(dtype_str);
+            const numel = @as(usize, @intCast(hidden_dim));
+            const data_size = t.data_offsets.items[1] - t.data_offsets.items[0];
+            const data_offset = t.data_offsets.items[0];
+
+            norms[layer] = switch (dtype) {
+                .bf16 => try loadBf16TensorFromMemory(file_data, hdr_size, data_offset, data_size, numel, allocator),
+                .i8_q4nx => blk: {
+                    log.warn("Layer norm '{s}' has I8 dtype, expected BF16", .{tensor_name});
+                    const zeros = try allocator.alloc(f32, numel);
+                    @memset(zeros, 1.0);
+                    break :blk zeros;
+                },
+                .unknown => blk: {
+                    log.warn("Layer norm '{s}' has unknown dtype '{s}'", .{ tensor_name, dtype_str });
+                    const zeros = try allocator.alloc(f32, numel);
+                    @memset(zeros, 1.0);
+                    break :blk zeros;
+                },
+            };
+        } else {
+            log.warn("Layer norm tensor '{s}' not found; filling with ones", .{tensor_name});
+            const fallback = try allocator.alloc(f32, @as(usize, @intCast(hidden_dim)));
+            @memset(fallback, 1.0);
+            norms[layer] = fallback;
+        }
+    }
+
+    return norms;
+}
+
+// ── Main loader ──────────────────────────────────────────────
+
+/// Load a Q4NX model from file.
+///
+/// Parameters:
+///   allocator - memory allocator (all loaded data is owned by this allocator)
+///   io        - I/O abstraction (from process init, or a Threaded instance)
+///   path      - filesystem path to the .q4nx model file
+///   model_tag - model identifier (e.g., "qwen3_0_6b") for default config lookup
+///
+/// Returns a fully populated ModelData with all weights in f32.
+pub fn loadModel(allocator: std.mem.Allocator, io: Io, path: []const u8, model_tag: []const u8) !ModelData {
+    log.info("Loading model: {s} (tag: '{s}')", .{ path, model_tag });
+
+    const file = try std.Io.Dir.openFileAbsolute(io, path, .{ .mode = .read_only });
+    defer file.close(io);
+
+    const file_len = try file.length(io);
+
+    var read_buf: [8192]u8 = undefined;
+    var file_reader = file.reader(io, &read_buf);
+    const file_data = try file_reader.interface.readAlloc(allocator, file_len);
+    errdefer allocator.free(file_data);
+
+    // ── 1. Check magic ──
+    if (file_data.len < 4) return error.InvalidMagic;
+    if (!std.mem.eql(u8, file_data[0..4], &Q4NX_MAGIC)) {
+        log.warn("Invalid magic: expected 'Q4NX', got '{any}'", .{file_data[0..4]});
+        return error.InvalidMagic;
+    }
+    log.debug("Magic verified: Q4NX", .{});
+
+    // ── 2. Read reserved flags (bytes 4-7) ──
+    if (file_data.len >= 8) {
+        const flags = std.mem.bytesAsSlice(u32, file_data[4..8])[0];
+        if (flags != 0) {
+            log.debug("Flags: 0x{X:0>8}", .{flags});
+        }
+    }
+
+    // ── 3. JSON starts at byte 8 (no separate size field — find closing brace) ──
+    const json_offset: usize = 8;
+    var depth: u32 = 0;
+    var hdr_end: usize = json_offset;
+    while (hdr_end < file_data.len) : (hdr_end += 1) {
+        const c = file_data[hdr_end];
+        if (c == '{') depth += 1;
+        if (c == '}') {
+            depth -= 1;
+            if (depth == 0) {
+                hdr_end += 1;
+                break;
+            }
+        }
+    }
+    if (depth != 0) return error.InvalidJsonHeader;
+    const hdr_size = hdr_end - json_offset;
+    log.info("Header size: {d} bytes", .{hdr_size});
+    const hdr_json = file_data[json_offset..hdr_end];
+
+    // ── 5. Parse JSON header into tensor descriptors ──
+    var tensor_list = try parseJsonHeader(allocator, hdr_json);
+    defer {
+        for (tensor_list.items) |*t| {
+            allocator.free(t.name);
+            allocator.free(t.dtype);
+            t.shape.deinit(allocator);
+            t.data_offsets.deinit(allocator);
+        }
+        tensor_list.deinit(allocator);
+    }
+
+    const tensors = tensor_list.items;
+    if (tensors.len == 0) {
+        log.err("No tensors found in header", .{});
+        return error.NoTensors;
+    }
+
+    // ── 6. Derive model configuration ──
+    const config = try deriveConfig(tensors, model_tag);
+    log.info("Config: H={d} NC={d} NH={d} NKV={d} HD={d} IM={d} NV={d} max_seq={d}", .{
+        config.H, config.NC, config.NH, config.NKV, config.HD, config.IM, config.NV, config.max_seq_len,
+    });
+
+    const HD = config.HD;
+    const max_seq_len = config.max_seq_len;
+
+    // ── 7. Precompute RoPE tables ──
+    const result = if (computeRopeTables(allocator, HD, max_seq_len)) |rope_tables| blk: {
+        break :blk try loadModelFinish(allocator, file_data, hdr_size, config, tensors, rope_tables.sin_table, rope_tables.cos_table);
+    } else |err| blk: {
+        log.warn("RoPE table computation failed: {s}; using empty tables", .{@errorName(err)});
+        const sin_empty = try allocator.alloc(f32, 0);
+        const cos_empty = try allocator.alloc(f32, 0);
+        break :blk try loadModelFinish(allocator, file_data, hdr_size, config, tensors, sin_empty, cos_empty);
+    };
+
+    // Free file data now that all tensors have been extracted
+    allocator.free(file_data);
+
+    return result;
+}
+
+/// Inner continuation of loadModel after RoPE tables are computed.
+fn loadModelFinish(
+    allocator: std.mem.Allocator,
+    file_data: []const u8,
+    hdr_size: u64,
+    config: ModelConfig,
+    tensors: []const TensorDesc,
+    rope_sin: []f32,
+    rope_cos: []f32,
+) !ModelData {
+    const H = config.H;
+    const NV = config.NV;
+
+    // ── 8. Load embeddings ──
+    var emb_f32: []f32 = &.{};
+    var lm_head_f32: []f32 = &.{};
+    var tied_embeddings = false;
+
+    // 8a. Token embeddings
+    if (findTensor(tensors, "model.embed_tokens.weight")) |idx| {
+        const t = tensors[idx];
+        const dtype_str = t.dtype;
+        const dtype = TensorDtype.fromString(dtype_str);
+        const numel = @as(usize, @intCast(NV)) * @as(usize, @intCast(H));
+        const data_size = t.data_offsets.items[1] - t.data_offsets.items[0];
+        const data_offset = t.data_offsets.items[0];
+
+        emb_f32 = switch (dtype) {
+            .bf16 => try loadBf16TensorFromMemory(file_data, hdr_size, data_offset, data_size, numel, allocator),
+            .i8_q4nx => blk: {
+                log.warn("Embeddings have I8 dtype, expected BF16; allocating zeros", .{});
+                const zeros = try allocator.alloc(f32, numel);
+                @memset(zeros, 0);
+                break :blk zeros;
+            },
+            .unknown => blk: {
+                log.warn("Embeddings have unknown dtype '{s}'", .{dtype_str});
+                const zeros = try allocator.alloc(f32, numel);
+                @memset(zeros, 0);
+                break :blk zeros;
+            },
+        };
+        log.info("Embeddings: {d}×{d} (dtype={s})", .{ NV, H, dtype_str });
+    } else {
+        log.warn("model.embed_tokens.weight not found; allocating zeros", .{});
+        emb_f32 = try allocator.alloc(f32, @as(usize, @intCast(NV)) * @as(usize, @intCast(H)));
+        @memset(emb_f32, 0);
+    }
+
+    // 8b. LM head (optional — may be tied with embeddings)
+    if (findTensor(tensors, "lm_head.weight")) |idx| {
+        const t = tensors[idx];
+        const dtype_str = t.dtype;
+        const dtype = TensorDtype.fromString(dtype_str);
+        const numel = @as(usize, @intCast(NV)) * @as(usize, @intCast(H));
+        const data_size = t.data_offsets.items[1] - t.data_offsets.items[0];
+        const data_offset = t.data_offsets.items[0];
+
+        lm_head_f32 = switch (dtype) {
+            .bf16 => try loadBf16TensorFromMemory(file_data, hdr_size, data_offset, data_size, numel, allocator),
+            .i8_q4nx => blk: {
+                log.warn("lm_head has I8 dtype, expected BF16; allocating zeros", .{});
+                const zeros = try allocator.alloc(f32, numel);
+                @memset(zeros, 0);
+                break :blk zeros;
+            },
+            .unknown => blk: {
+                log.warn("lm_head has unknown dtype '{s}'", .{dtype_str});
+                const zeros = try allocator.alloc(f32, numel);
+                @memset(zeros, 0);
+                break :blk zeros;
+            },
+        };
+        tied_embeddings = false;
+        log.info("LM head: {d}×{d} (dtype={s}, separate from embeddings)", .{ NV, H, dtype_str });
+    } else {
+        lm_head_f32 = &.{};
+        tied_embeddings = true;
+        log.info("LM head: tied with embeddings", .{});
+    }
+
+    // ── 9. Load final norm ──
+    var final_norm: []f32 = &.{};
+    if (findTensor(tensors, "model.norm.weight")) |idx| {
+        const t = tensors[idx];
+        const dtype_str = t.dtype;
+        const dtype = TensorDtype.fromString(dtype_str);
+        const numel = @as(usize, @intCast(H));
+        const data_size = t.data_offsets.items[1] - t.data_offsets.items[0];
+        const data_offset = t.data_offsets.items[0];
+
+        final_norm = switch (dtype) {
+            .bf16 => try loadBf16TensorFromMemory(file_data, hdr_size, data_offset, data_size, numel, allocator),
+            else => blk: {
+                log.warn("final_norm has unexpected dtype '{s}'", .{dtype_str});
+                const ones = try allocator.alloc(f32, numel);
+                @memset(ones, 1.0);
+                break :blk ones;
+            },
+        };
+        log.info("Final norm: {d} floats", .{final_norm.len});
+    } else {
+        log.warn("model.norm.weight not found; filling with ones", .{});
+        final_norm = try allocator.alloc(f32, @as(usize, @intCast(H)));
+        @memset(final_norm, 1.0);
+    }
+
+    // ── 10. Load per-layer input norms ──
+    log.info("Loading input norms for {d} layers...", .{config.NC});
+    const in_norm = try loadLayerNormsFromMemory(file_data, hdr_size, tensors, "input_layernorm", config.NC, H, allocator);
+
+    // ── 11. Load per-layer post-attention norms ──
+    log.info("Loading post-attention norms for {d} layers...", .{config.NC});
+    const pa_norm = try loadLayerNormsFromMemory(file_data, hdr_size, tensors, "post_attention_layernorm", config.NC, H, allocator);
+
+    log.info("Model load complete", .{});
+
+    return ModelData{
+        .config = config,
+        .emb_f32 = emb_f32,
+        .lm_head_f32 = lm_head_f32,
+        .tied_embeddings = tied_embeddings,
+        .final_norm = final_norm,
+        .in_norm = in_norm,
+        .pa_norm = pa_norm,
+        .rope_sin = rope_sin,
+        .rope_cos = rope_cos,
+    };
+}
+
+// ── Unit tests ───────────────────────────────────────────────
+
+test "bf16ToF32 roundtrip" {
+    const test_values = [_]f32{ 0.0, 1.0, -1.0, 3.140625, 0.5, -0.25, 42.0 };
+
+    for (test_values) |orig| {
+        const bf16 = f32ToBf16(orig);
+        const roundtrip = bf16ToF32(bf16);
+        if (@abs(orig) > 1e-10) {
+            const rel_err = @abs(roundtrip - orig) / @abs(orig);
+            try std.testing.expect(rel_err < 0.01);
+        }
+    }
+}
+
+test "bf16ToF32 known values" {
+    try std.testing.expectApproxEqAbs(@as(f32, 3.125), bf16ToF32(0x4048), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), bf16ToF32(0x3F80), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), bf16ToF32(0x0000), 0.0001);
+}
+
+test "getDefaultConfig qwen3_0_6b" {
+    const cfg = getDefaultConfig("qwen3_0_6b") orelse @panic("missing default config");
+    try std.testing.expectEqual(@as(u32, 1024), cfg.H);
+    try std.testing.expectEqual(@as(u32, 28), cfg.NC);
+    try std.testing.expectEqual(@as(u32, 16), cfg.NH);
+    try std.testing.expectEqual(@as(u32, 2), cfg.NKV);
+    try std.testing.expectEqual(@as(u32, 128), cfg.HD);
+    try std.testing.expectEqual(@as(u32, 4096), cfg.IM);
+    try std.testing.expectEqual(@as(u32, 151936), cfg.NV);
+    try std.testing.expectEqual(@as(u32, 4096), cfg.max_seq_len);
+}
+
+test "getDefaultConfig unknown returns null" {
+    try std.testing.expectEqual(@as(?ModelConfig, null), getDefaultConfig("unknown_model"));
+}
+
+test "TensorDtype fromString" {
+    try std.testing.expectEqual(TensorDtype.bf16, TensorDtype.fromString("BF16"));
+    try std.testing.expectEqual(TensorDtype.bf16, TensorDtype.fromString("bf16"));
+    try std.testing.expectEqual(TensorDtype.i8_q4nx, TensorDtype.fromString("I8"));
+    try std.testing.expectEqual(TensorDtype.i8_q4nx, TensorDtype.fromString("I4"));
+    try std.testing.expectEqual(TensorDtype.unknown, TensorDtype.fromString("FP32"));
+    try std.testing.expectEqual(TensorDtype.unknown, TensorDtype.fromString(""));
+}
+
+test "jsonFindValue simple" {
+    const s = "{\"key1\": 42, \"key2\": \"hello\", \"key3\": [1,2,3]}";
+    const v1 = jsonFindValue(s, "key1") orelse return error.TestFailed;
+    try std.testing.expectEqualStrings("42", v1);
+
+    const v2 = jsonFindValue(s, "key2") orelse return error.TestFailed;
+    try std.testing.expectEqualStrings("\"hello\"", v2);
+
+    const v3 = jsonFindValue(s, "key3") orelse return error.TestFailed;
+    try std.testing.expectEqualStrings("[1,2,3]", v3);
+
+    try std.testing.expectEqual(@as(?[]const u8, null), jsonFindValue(s, "nonexistent"));
+}
+
+test "jsonFindValue nested object" {
+    const s = "{\"outer\": {\"inner\": 99, \"data_offsets\": [0, 100]}, \"other\": 42}";
+    const v = jsonFindValue(s, "outer") orelse return error.TestFailed;
+    try std.testing.expect(v[0] == '{');
+    const inner_v = jsonFindValue(v, "data_offsets") orelse return error.TestFailed;
+    try std.testing.expectEqualStrings("[0, 100]", inner_v);
+}
+
+test "jsonUnquote" {
+    try std.testing.expectEqualStrings("hello", jsonUnquote("\"hello\""));
+    try std.testing.expectEqualStrings("", jsonUnquote("\"\""));
+    try std.testing.expectEqualStrings("plain", jsonUnquote("plain"));
+    try std.testing.expectEqualStrings("\"partial", jsonUnquote("\"partial"));
+}
+
+test "parseJsonInts u32" {
+    var result = try parseJsonInts(std.testing.allocator, u32, "[1, 2, 3]");
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 3), result.items.len);
+    try std.testing.expectEqual(@as(u32, 1), result.items[0]);
+    try std.testing.expectEqual(@as(u32, 2), result.items[1]);
+    try std.testing.expectEqual(@as(u32, 3), result.items[2]);
+}
+
+test "parseJsonInts empty array" {
+    var result = try parseJsonInts(std.testing.allocator, u32, "[]");
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 0), result.items.len);
+}
+
+test "parseJsonInts single value" {
+    var result = try parseJsonInts(std.testing.allocator, u32, "[42]");
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(u32, 42), result.items[0]);
+}
+
+test "parseJsonInts u64" {
+    var result = try parseJsonInts(std.testing.allocator, u64, "[0, 12800]");
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 2), result.items.len);
+    try std.testing.expectEqual(@as(u64, 0), result.items[0]);
+    try std.testing.expectEqual(@as(u64, 12800), result.items[1]);
+}
+
+test "parseJsonHeader single tensor" {
+    const json_str =
+        \\{
+        \\  "model.embed_tokens.weight": {
+        \\    "dtype": "BF16",
+        \\    "shape": [100, 64],
+        \\    "data_offsets": [0, 12800]
+        \\  }
+        \\}
+    ;
+    var result = try parseJsonHeader(std.testing.allocator, json_str);
+    defer {
+        for (result.items) |*t| {
+            std.testing.allocator.free(t.name);
+            std.testing.allocator.free(t.dtype);
+            t.shape.deinit(std.testing.allocator);
+            t.data_offsets.deinit(std.testing.allocator);
+        }
+        result.deinit(std.testing.allocator);
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), result.items.len);
+    try std.testing.expectEqualStrings("model.embed_tokens.weight", result.items[0].name);
+    try std.testing.expectEqualStrings("BF16", result.items[0].dtype);
+    try std.testing.expectEqual(@as(usize, 2), result.items[0].shape.items.len);
+    try std.testing.expectEqual(@as(u32, 100), result.items[0].shape.items[0]);
+    try std.testing.expectEqual(@as(u32, 64), result.items[0].shape.items[1]);
+    try std.testing.expectEqual(@as(usize, 2), result.items[0].data_offsets.items.len);
+    try std.testing.expectEqual(@as(u64, 0), result.items[0].data_offsets.items[0]);
+    try std.testing.expectEqual(@as(u64, 12800), result.items[0].data_offsets.items[1]);
+}
+
+test "parseJsonHeader multiple tensors" {
+    const json_str =
+        \\{
+        \\  "model.embed_tokens.weight": {
+        \\    "dtype": "BF16",
+        \\    "shape": [100, 64],
+        \\    "data_offsets": [0, 12800]
+        \\  },
+        \\  "model.layers.0.input_layernorm.weight": {
+        \\    "dtype": "BF16",
+        \\    "shape": [64],
+        \\    "data_offsets": [12800, 12928]
+        \\  },
+        \\  "model.norm.weight": {
+        \\    "dtype": "BF16",
+        \\    "shape": [64],
+        \\    "data_offsets": [12928, 13056]
+        \\  }
+        \\}
+    ;
+    var result = try parseJsonHeader(std.testing.allocator, json_str);
+    defer {
+        for (result.items) |*t| {
+            std.testing.allocator.free(t.name);
+            std.testing.allocator.free(t.dtype);
+            t.shape.deinit(std.testing.allocator);
+            t.data_offsets.deinit(std.testing.allocator);
+        }
+        result.deinit(std.testing.allocator);
+    }
+
+    try std.testing.expectEqual(@as(usize, 3), result.items.len);
+    try std.testing.expectEqualStrings("model.embed_tokens.weight", result.items[0].name);
+    try std.testing.expectEqualStrings("model.layers.0.input_layernorm.weight", result.items[1].name);
+    try std.testing.expectEqualStrings("model.norm.weight", result.items[2].name);
+}
+
+test "parseJsonHeader skips non-tensor keys" {
+    const json_str =
+        \\{
+        \\  "metadata": {"format": "Q4NX", "version": 1},
+        \\  "model.embed_tokens.weight": {
+        \\    "dtype": "BF16",
+        \\    "shape": [100, 64],
+        \\    "data_offsets": [0, 12800]
+        \\  }
+        \\}
+    ;
+    var result = try parseJsonHeader(std.testing.allocator, json_str);
+    defer {
+        for (result.items) |*t| {
+            std.testing.allocator.free(t.name);
+            std.testing.allocator.free(t.dtype);
+            t.shape.deinit(std.testing.allocator);
+            t.data_offsets.deinit(std.testing.allocator);
+        }
+        result.deinit(std.testing.allocator);
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), result.items.len);
+    try std.testing.expectEqualStrings("model.embed_tokens.weight", result.items[0].name);
+}
+
+test "countLayers" {
+    const allocator = std.testing.allocator;
+    var list: std.ArrayListUnmanaged(TensorDesc) = .empty;
+    defer {
+        for (list.items) |*t| {
+            allocator.free(t.name);
+            allocator.free(t.dtype);
+            t.shape.deinit(allocator);
+            t.data_offsets.deinit(allocator);
+        }
+        list.deinit(allocator);
+    }
+
+    const names = [_][]const u8{
+        "model.layers.0.input_layernorm.weight",
+        "model.layers.5.input_layernorm.weight",
+        "model.layers.27.input_layernorm.weight",
+        "model.embed_tokens.weight",
+    };
+
+    for (names) |n| {
+        try list.append(allocator, .{
+            .name = try allocator.dupe(u8, n),
+            .dtype = try allocator.dupe(u8, "BF16"),
+            .shape = .empty,
+            .data_offsets = .empty,
+        });
+    }
+
+    const count = countLayers(list.items);
+    try std.testing.expectEqual(@as(u32, 28), count);
+}
+
+test "deriveConfig from qwen3_0_6b tensors" {
+    const allocator = std.testing.allocator;
+    var list: std.ArrayListUnmanaged(TensorDesc) = .empty;
+    defer {
+        for (list.items) |*t| {
+            allocator.free(t.name);
+            allocator.free(t.dtype);
+            t.shape.deinit(allocator);
+            t.data_offsets.deinit(allocator);
+        }
+        list.deinit(allocator);
+    }
+
+    {
+        var shape: std.ArrayListUnmanaged(u32) = .empty;
+        try shape.append(allocator, 151936);
+        try shape.append(allocator, 1536);
+        try list.append(allocator, .{
+            .name = try allocator.dupe(u8, "model.embed_tokens.weight"),
+            .dtype = try allocator.dupe(u8, "BF16"),
+            .shape = shape,
+            .data_offsets = .empty,
+        });
+    }
+
+    {
+        var shape: std.ArrayListUnmanaged(u32) = .empty;
+        try shape.append(allocator, 288);
+        try shape.append(allocator, 5120);
+        try list.append(allocator, .{
+            .name = try allocator.dupe(u8, "model.layers.0.self_attn.q_proj.weight"),
+            .dtype = try allocator.dupe(u8, "I8"),
+            .shape = shape,
+            .data_offsets = .empty,
+        });
+    }
+
+    {
+        var shape: std.ArrayListUnmanaged(u32) = .empty;
+        try shape.append(allocator, 48);
+        try shape.append(allocator, 5120);
+        try list.append(allocator, .{
+            .name = try allocator.dupe(u8, "model.layers.0.self_attn.k_proj.weight"),
+            .dtype = try allocator.dupe(u8, "I8"),
+            .shape = shape,
+            .data_offsets = .empty,
+        });
+    }
+
+    {
+        var shape: std.ArrayListUnmanaged(u32) = .empty;
+        try shape.append(allocator, 768);
+        try shape.append(allocator, 5120);
+        try list.append(allocator, .{
+            .name = try allocator.dupe(u8, "model.layers.0.mlp.gate_proj.weight"),
+            .dtype = try allocator.dupe(u8, "I8"),
+            .shape = shape,
+            .data_offsets = .empty,
+        });
+    }
+
+    {
+        var shape: std.ArrayListUnmanaged(u32) = .empty;
+        try shape.append(allocator, 1536);
+        try list.append(allocator, .{
+            .name = try allocator.dupe(u8, "model.layers.0.input_layernorm.weight"),
+            .dtype = try allocator.dupe(u8, "BF16"),
+            .shape = shape,
+            .data_offsets = .empty,
+        });
+    }
+    {
+        var shape: std.ArrayListUnmanaged(u32) = .empty;
+        try shape.append(allocator, 1536);
+        try list.append(allocator, .{
+            .name = try allocator.dupe(u8, "model.layers.27.input_layernorm.weight"),
+            .dtype = try allocator.dupe(u8, "BF16"),
+            .shape = shape,
+            .data_offsets = .empty,
+        });
+    }
+
+    const cfg = try deriveConfig(list.items, "qwen3_0_6b");
+    try std.testing.expectEqual(@as(u32, 1024), cfg.H);
+    try std.testing.expectEqual(@as(u32, 28), cfg.NC);
+    try std.testing.expectEqual(@as(u32, 16), cfg.NH);
+    try std.testing.expectEqual(@as(u32, 2), cfg.NKV);
+    try std.testing.expectEqual(@as(u32, 128), cfg.HD);
+    try std.testing.expectEqual(@as(u32, 4096), cfg.IM);
+    try std.testing.expectEqual(@as(u32, 151936), cfg.NV);
+    try std.testing.expectEqual(@as(u32, 4096), cfg.max_seq_len);
+}
+
+test "dequantizeI8Block basic" {
+    var block: [5120]u8 = undefined;
+    @memset(&block, 0);
+
+    const bf16_one: u16 = 0x3F80;
+    const scales_arr = [_]u16{bf16_one} ** 256;
+    const scale_bytes = std.mem.sliceAsBytes(&scales_arr);
+    @memcpy(block[0..512], scale_bytes);
+
+    @memset(block[512..1024], 0);
+
+    // 0x11 has both nibbles = 1
+    @memset(block[1024..5120], 0x11);
+
+    var output: [32 * 256]f32 = undefined;
+    dequantizeI8Block(&block, &output, 0, 0, 32, 256);
+
+    for (output) |v| {
+        try std.testing.expectApproxEqAbs(@as(f32, 1.0), v, 0.001);
+    }
+}
+
+test "dequantizeI8Block with scale" {
+    var block: [5120]u8 = undefined;
+    @memset(&block, 0);
+
+    const bf16_two: u16 = 0x4000;
+    const scales_arr = [_]u16{bf16_two} ** 256;
+    const scale_bytes = std.mem.sliceAsBytes(&scales_arr);
+    @memcpy(block[0..512], scale_bytes);
+
+    const bf16_one: u16 = 0x3F80;
+    const zp_arr = [_]u16{bf16_one} ** 256;
+    const zp_bytes = std.mem.sliceAsBytes(&zp_arr);
+    @memcpy(block[512..1024], zp_bytes);
+
+    // 0x33 has both nibbles = 3
+    @memset(block[1024..5120], 0x33);
+
+    var output: [32 * 256]f32 = undefined;
+    dequantizeI8Block(&block, &output, 0, 0, 32, 256);
+
+    for (output) |v| {
+        try std.testing.expectApproxEqAbs(@as(f32, 7.0), v, 0.001);
+    }
+}
+
+test "tileCols" {
+    try std.testing.expectEqual(@as(u32, 6), tileCols(1024));
+    try std.testing.expectEqual(@as(u32, 1), tileCols(256));
+    try std.testing.expectEqual(@as(u32, 1), tileCols(1));
+    try std.testing.expectEqual(@as(u32, 2), tileCols(257));
+}
+
+test "ModelData deinit clears struct" {
+    const allocator = std.testing.allocator;
+
+    var md = ModelData{
+        .config = ModelConfig{
+            .H = 64, .NC = 2, .NH = 4, .NKV = 1, .HD = 16, .IM = 256, .NV = 1000, .max_seq_len = 512,
+        },
+        .emb_f32 = try allocator.alloc(f32, 64000),
+        .lm_head_f32 = &.{},
+        .tied_embeddings = true,
+        .final_norm = try allocator.alloc(f32, 64),
+        .in_norm = try allocator.alloc([]f32, 2),
+        .pa_norm = try allocator.alloc([]f32, 2),
+        .rope_sin = try allocator.alloc(f32, 8192),
+        .rope_cos = try allocator.alloc(f32, 8192),
+    };
+    md.in_norm[0] = try allocator.alloc(f32, 64);
+    md.in_norm[1] = try allocator.alloc(f32, 64);
+    md.pa_norm[0] = try allocator.alloc(f32, 64);
+    md.pa_norm[1] = try allocator.alloc(f32, 64);
+
+    md.deinit(allocator);
+}
+
+test "computeRopeTables basic" {
+    const allocator = std.testing.allocator;
+    const result = try computeRopeTables(allocator, 4, 2);
+    defer allocator.free(result.sin_table);
+    defer allocator.free(result.cos_table);
+
+    try std.testing.expectEqual(@as(usize, 8), result.sin_table.len);
+    try std.testing.expectEqual(@as(usize, 8), result.cos_table.len);
+
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), result.sin_table[0], 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), result.sin_table[1], 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), result.cos_table[0], 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), result.cos_table[1], 0.001);
+
+    try std.testing.expectApproxEqAbs(@as(f32, 0.8415), result.sin_table[4], 0.01);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5403), result.cos_table[4], 0.01);
+}
+
+test "loadModel with synthetic small file" {
+    const allocator = std.testing.allocator;
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const tmp_path = "/tmp/model_data_test_small.q4nx";
+    // File created by external setup script; not deleted here to allow re-runs
+
+    var model = try loadModel(allocator, io, tmp_path, "qwen3_0_6b");
+    defer model.deinit(allocator);
+
+    // embed_tokens shape [100, 64] overrides NV and H
+    try std.testing.expectEqual(@as(u32, 100), model.config.NV);
+    try std.testing.expectEqual(@as(u32, 64), model.config.H);
+    // Other config values come from qwen3_0_6b defaults
+    // File has layers 0 and 1 → countLayers returns 2
+    try std.testing.expectEqual(@as(u32, 2), model.config.NC);
+    try std.testing.expectEqual(@as(u32, 12), model.config.NH);
+    try std.testing.expectEqual(@as(u32, 2), model.config.NKV);
+    try std.testing.expectEqual(@as(u32, 128), model.config.HD);
+    try std.testing.expectEqual(@as(u32, 4096), model.config.IM);
+    try std.testing.expectEqual(@as(u32, 4096), model.config.max_seq_len);
+
+    try std.testing.expectEqual(@as(usize, 6400), model.emb_f32.len); // 100 * 64
+
+    try std.testing.expectEqual(@as(usize, 6400), model.emb_f32.len);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), model.emb_f32[0], 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), model.emb_f32[model.emb_f32.len - 1], 0.001);
+
+    try std.testing.expectEqual(false, model.tied_embeddings);
+    try std.testing.expectEqual(@as(usize, 6400), model.lm_head_f32.len);
+
+    try std.testing.expectEqual(@as(usize, 64), model.final_norm.len);
+
+    // NC=2 because file only has layers 0 and 1 norms
+    try std.testing.expectEqual(@as(usize, 2), model.in_norm.len);
+    try std.testing.expectEqual(@as(usize, 2), model.pa_norm.len);
+
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), model.in_norm[0][0], 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), model.pa_norm[0][0], 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), model.in_norm[1][0], 0.001);
+
+    try std.testing.expectEqual(@as(usize, 4096 * 128), model.rope_sin.len);
+    try std.testing.expectEqual(@as(usize, 4096 * 128), model.rope_cos.len);
+}
+
+test "loadModel tied embeddings" {
+    const allocator = std.testing.allocator;
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const tmp_path = "/tmp/model_data_test_tied.q4nx";
+    // File created by external setup script; not deleted here
+
+    var model = try loadModel(allocator, io, tmp_path, "qwen3_0_6b");
+    defer model.deinit(allocator);
+
+    try std.testing.expectEqual(true, model.tied_embeddings);
+    try std.testing.expectEqual(@as(usize, 0), model.lm_head_f32.len);
+}
+
+test "loadModel returns error on nonexistent file" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    try std.testing.expectError(error.FileNotFound, loadModel(allocator, io, "/nonexistent/path/model.q4nx", "qwen3_0_6b"));
+}
+
+test "loadModel returns error on invalid magic" {
+    const allocator = std.testing.allocator;
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const tmp_path = "/tmp/model_data_test_invalid.q4nx";
+    // File created by external setup script; not deleted here
+
+    try std.testing.expectError(error.InvalidMagic, loadModel(allocator, io, tmp_path, "qwen3_0_6b"));
 }

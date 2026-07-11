@@ -23,7 +23,7 @@
 const std = @import("std");
 
 // Vulkan bindings — re-exported through vk_wrapper wrapper module.
-const vk = @import("vk_wrapper");
+const vk = @import("vulkan_c");
 
 const log = std.log.scoped(.gpu_attn);
 
@@ -132,12 +132,14 @@ const StagingPool = struct {
     entries: [POOL_SIZE]PoolEntry = undefined,
     device: vk.VkDevice = null,
     memory_type: u32 = 0,
+    mem_props: *const vk.VkPhysicalDeviceMemoryProperties = undefined,
 
     /// Initialise the pool with a Vulkan device and the desired memory type.
     /// No buffers are allocated until the first `acquire()` call.
-    fn init(self: *StagingPool, device: vk.VkDevice, memory_type: u32) void {
+    fn init(self: *StagingPool, device: vk.VkDevice, memory_type: u32, mem_props: *const vk.VkPhysicalDeviceMemoryProperties) void {
         self.device = device;
         self.memory_type = memory_type;
+        self.mem_props = mem_props;
         // Ensure all entries start as uninitialised (initialized = false).
         for (&self.entries) |*e| {
             e.* = .{};
@@ -158,7 +160,7 @@ const StagingPool = struct {
         if (entry.initialized) {
             entry.buffer.deinit();
         }
-        entry.buffer = try createPoolBuffer(self.device, required_size, self.memory_type);
+        entry.buffer = try createPoolBuffer(self.device, required_size, self.memory_type, self.mem_props);
         entry.capacity = required_size;
         entry.buffer.size = required_size;
         entry.initialized = true;
@@ -182,12 +184,15 @@ fn createPoolBuffer(
     device: vk.VkDevice,
     size: vk.VkDeviceSize,
     memory_type: u32,
+    mem_props: *const vk.VkPhysicalDeviceMemoryProperties,
 ) !Buffer {
+    // Vulkan requires buffers to have a non-zero size. Use at least 4 bytes.
+    const safe_size = @max(size, @as(vk.VkDeviceSize, 4));
     const buf_ci = vk.VkBufferCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .pNext = null,
         .flags = 0,
-        .size = size,
+        .size = safe_size,
         .usage = vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT | vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         .sharingMode = vk.VK_SHARING_MODE_EXCLUSIVE,
         .queueFamilyIndexCount = 0,
@@ -202,11 +207,31 @@ fn createPoolBuffer(
     var req: vk.VkMemoryRequirements = undefined;
     vk.vkGetBufferMemoryRequirements(device, buf_handle, &req);
 
+    // Find a memory type that is BOTH compatible with this buffer's
+    // memoryTypeBits AND has the desired HOST_VISIBLE | HOST_COHERENT flags.
+    // Using the caller-supplied memory_type as fallback.
+    var actual_type = memory_type;
+    {
+        const mask = req.memoryTypeBits;
+        for (0..32) |i| {
+            if (i >= mem_props.memoryTypeCount) break;
+            const bit: u5 = @truncate(i);
+            if ((mask & (@as(u32, 1) << bit)) != 0 and
+                (mem_props.memoryTypes[i].propertyFlags &
+                (vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) ==
+                (vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
+            {
+                actual_type = @intCast(i);
+                break;
+            }
+        }
+    }
+
     const alloc_info = vk.VkMemoryAllocateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
         .pNext = null,
         .allocationSize = req.size,
-        .memoryTypeIndex = memory_type,
+        .memoryTypeIndex = actual_type,
     };
     var mem: vk.VkDeviceMemory = null;
     if (vk.vkAllocateMemory(device, &alloc_info, null, &mem) != vk.VK_SUCCESS) {
@@ -222,6 +247,77 @@ fn createPoolBuffer(
         .handle = buf_handle,
         .memory = mem,
         .size = size,
+        .device = device,
+        .mapped_ptr = null,
+    };
+}
+
+/// Create a buffer with custom usage flags and memory type.
+/// Used for device-local KV cache buffers.
+fn createCustomBuffer(
+    device: vk.VkDevice,
+    size: vk.VkDeviceSize,
+    usage: u32,
+    memory_type: u32,
+    mem_props: *const vk.VkPhysicalDeviceMemoryProperties,
+) !Buffer {
+    const safe_size = @max(size, @as(vk.VkDeviceSize, 4));
+    const buf_ci = vk.VkBufferCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .pNext = null,
+        .flags = 0,
+        .size = safe_size,
+        .usage = usage,
+        .sharingMode = vk.VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 0,
+        .pQueueFamilyIndices = null,
+    };
+    var buf_handle: vk.VkBuffer = null;
+    if (vk.vkCreateBuffer(device, &buf_ci, null, &buf_handle) != vk.VK_SUCCESS) {
+        return error.BufferCreateFailed;
+    }
+    errdefer vk.vkDestroyBuffer(device, buf_handle, null);
+
+    var req: vk.VkMemoryRequirements = undefined;
+    vk.vkGetBufferMemoryRequirements(device, buf_handle, &req);
+
+    // Find a compatible memory type with the requested property flags
+    var actual_type = memory_type;
+    {
+        const mask = req.memoryTypeBits;
+        const target_flags = mem_props.memoryTypes[memory_type].propertyFlags;
+        for (0..32) |i| {
+            if (i >= mem_props.memoryTypeCount) break;
+            const bit: u5 = @truncate(i);
+            if ((mask & (@as(u32, 1) << bit)) != 0 and
+                (mem_props.memoryTypes[i].propertyFlags & target_flags) == target_flags)
+            {
+                actual_type = @intCast(i);
+                break;
+            }
+        }
+    }
+
+    const alloc_info = vk.VkMemoryAllocateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .pNext = null,
+        .allocationSize = req.size,
+        .memoryTypeIndex = actual_type,
+    };
+    var mem: vk.VkDeviceMemory = null;
+    if (vk.vkAllocateMemory(device, &alloc_info, null, &mem) != vk.VK_SUCCESS) {
+        return error.BufferMemoryAllocFailed;
+    }
+    errdefer vk.vkFreeMemory(device, mem, null);
+
+    if (vk.vkBindBufferMemory(device, buf_handle, mem, 0) != vk.VK_SUCCESS) {
+        return error.BufferBindFailed;
+    }
+
+    return Buffer{
+        .handle = buf_handle,
+        .memory = mem,
+        .size = safe_size,
         .device = device,
         .mapped_ptr = null,
     };
@@ -269,6 +365,12 @@ pub const GpuAttention = struct {
 
     // ── Persistent staging pool ──
     staging_pool: StagingPool = .{},
+
+    // ── Device-local KV cache buffers (persistent, avoid 938MB/step uploads) ──
+    kv_k_buffer: Buffer = undefined,
+    kv_v_buffer: Buffer = undefined,
+    kv_k_capacity: vk.VkDeviceSize = 0,
+    kv_v_capacity: vk.VkDeviceSize = 0,
 
     // ── Initialisation ──
 
@@ -433,7 +535,16 @@ pub const GpuAttention = struct {
 
         // ── 6b. Initialise persistent staging pool (lazy allocation) ──
         var staging_pool = StagingPool{};
-        staging_pool.init(device, host_coherent_type);
+        staging_pool.init(device, host_coherent_type, &mem_props);
+
+        // ── 6c. Create initial device-local KV cache buffers (minimum size) ──
+        // Grow on first updateKVCache() call. One-time pre-alloc to avoid null handles.
+        const kv_usage = vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        const kv_init_size: vk.VkDeviceSize = 4;
+        var kv_k = try createCustomBuffer(device, kv_init_size, kv_usage, host_coherent_type, &mem_props);
+        errdefer kv_k.deinit();
+        var kv_v = try createCustomBuffer(device, kv_init_size, kv_usage, host_coherent_type, &mem_props);
+        errdefer kv_v.deinit();
 
         // ── 7. Load shaders and create pipelines ──
         var path_buf: [512]u8 = undefined;
@@ -535,6 +646,10 @@ pub const GpuAttention = struct {
             .host_coherent_type = host_coherent_type,
             .device_local_type = device_local_type,
             .staging_pool = staging_pool,
+            .kv_k_buffer = kv_k,
+            .kv_v_buffer = kv_v,
+            .kv_k_capacity = kv_init_size,
+            .kv_v_capacity = kv_init_size,
         };
     }
 
@@ -577,31 +692,35 @@ pub const GpuAttention = struct {
     ) !void {
         const output_bytes = output.len * @sizeOf(f32);
 
-        // ── 1. Acquire persistent staging buffers from pool ──
-        const q_buf = try self.staging_pool.acquire(0, @intCast(q.len * @sizeOf(f32)));
-        const k_buf = try self.staging_pool.acquire(1, @intCast(k_cache.len * @sizeOf(f32)));
-        const v_buf = try self.staging_pool.acquire(2, @intCast(v_cache.len * @sizeOf(f32)));
-        const pt_buf = try self.staging_pool.acquire(3, @intCast(page_table.len * @sizeOf(u32)));
-        const out_buf = try self.staging_pool.acquire(4, output_bytes);
-        const sinks_buf = try self.staging_pool.acquire(5, @intCast(sinks.len * @sizeOf(f32)));
+        // ── 1. Upload K/V to device-local persistent cache ──
+        try self.updateKVCache(k_cache, v_cache);
 
-        // ── 2. Upload data ──
+        // ── 2. Acquire staging buffers for the small per-step data ──
+        const q_buf = try self.staging_pool.acquire(0, @intCast(q.len * @sizeOf(f32)));
+        const pt_buf = if (page_table.len > 0) try self.staging_pool.acquire(3, @intCast(page_table.len * @sizeOf(u32))) else null;
+        const out_buf = try self.staging_pool.acquire(4, output_bytes);
+        const sinks_buf = if (sinks.len > 0) try self.staging_pool.acquire(5, @intCast(sinks.len * @sizeOf(f32))) else null;
+
+        // ── 3. Upload small data ──
         uploadToBuffer(q_buf, std.mem.sliceAsBytes(q));
-        uploadToBuffer(k_buf, std.mem.sliceAsBytes(k_cache));
-        uploadToBuffer(v_buf, std.mem.sliceAsBytes(v_cache));
-        uploadToBuffer(pt_buf, std.mem.sliceAsBytes(page_table));
-        uploadToBuffer(sinks_buf, std.mem.sliceAsBytes(sinks));
-        // Output starts zeroed — the shader writes into it.
+        if (pt_buf) |pt| uploadToBuffer(pt, std.mem.sliceAsBytes(page_table));
+        if (sinks_buf) |sb| uploadToBuffer(sb, std.mem.sliceAsBytes(sinks));
         uploadToBuffer(out_buf, std.mem.sliceAsBytes(output));
 
-        // ── 3. Build descriptor set writes ──
+        // ── 4. Build descriptor set writes (K/V from device-local buffers) ──
         const buffer_infos = [_]vk.VkDescriptorBufferInfo{
             makeBufferInfo(q_buf.handle, q_buf.size),
-            makeBufferInfo(k_buf.handle, k_buf.size),
-            makeBufferInfo(v_buf.handle, v_buf.size),
-            makeBufferInfo(pt_buf.handle, pt_buf.size),
+            makeBufferInfo(self.kv_k_buffer.handle, self.kv_k_capacity),
+            makeBufferInfo(self.kv_v_buffer.handle, self.kv_v_capacity),
+            makeBufferInfo(
+                if (pt_buf) |pt| pt.handle else self.kv_k_buffer.handle,
+                if (pt_buf) |pt| pt.size else 4,
+            ),
             makeBufferInfo(out_buf.handle, out_buf.size),
-            makeBufferInfo(sinks_buf.handle, sinks_buf.size),
+            makeBufferInfo(
+                if (sinks_buf) |sb| sb.handle else self.kv_k_buffer.handle,
+                if (sinks_buf) |sb| sb.size else 4,
+            ),
         };
 
         var writes: [6]vk.VkWriteDescriptorSet = undefined;
@@ -730,6 +849,65 @@ pub const GpuAttention = struct {
         readbackFromBuffer(out_buf, std.mem.sliceAsBytes(output));
     }
 
+    // ── KV cache management ──
+
+    /// Ensure device-local K/V cache buffers can hold at least `k_bytes` and
+    /// `v_bytes`. Grows by reallocating if needed. On integrated GPUs
+    /// (Radeon 8060S unified memory) this is HOST_VISIBLE so memcpy is direct.
+    fn ensureKVCacheSize(self: *GpuAttention, k_bytes: vk.VkDeviceSize, v_bytes: vk.VkDeviceSize) !void {
+        const buf_usage = vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        
+        // Find a memory type that is DEVICE_LOCAL | HOST_VISIBLE | HOST_COHERENT
+        // (works on integrated GPUs with unified memory like Radeon 8060S)
+        var dl_host_type = self.host_coherent_type;
+        {
+            for (0..self.mem_props.memoryTypeCount) |i| {
+                const flags = self.mem_props.memoryTypes[i].propertyFlags;
+                if (flags & vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT != 0 and
+                    flags & vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT != 0 and
+                    flags & vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT != 0)
+                {
+                    dl_host_type = @intCast(i);
+                    break;
+                }
+            }
+        }
+
+        if (k_bytes > self.kv_k_capacity) {
+            if (self.kv_k_capacity > 0) self.kv_k_buffer.deinit();
+            const safe = @max(k_bytes, @as(vk.VkDeviceSize, 4));
+            self.kv_k_buffer = try createCustomBuffer(self.device, safe, buf_usage, dl_host_type, &self.mem_props);
+            self.kv_k_capacity = safe;
+        }
+        if (v_bytes > self.kv_v_capacity) {
+            if (self.kv_v_capacity > 0) self.kv_v_buffer.deinit();
+            const safe = @max(v_bytes, @as(vk.VkDeviceSize, 4));
+            self.kv_v_buffer = try createCustomBuffer(self.device, safe, buf_usage, dl_host_type, &self.mem_props);
+            self.kv_v_capacity = safe;
+        }
+    }
+
+    /// Upload K and V cache data to device-local memory.
+    /// On integrated GPUs this is a direct memcpy into mapped memory.
+    pub fn updateKVCache(self: *GpuAttention, k_data: []const f32, v_data: []const f32) !void {
+        const k_bytes = @as(vk.VkDeviceSize, k_data.len * @sizeOf(f32));
+        const v_bytes = @as(vk.VkDeviceSize, v_data.len * @sizeOf(f32));
+        try self.ensureKVCacheSize(k_bytes, v_bytes);
+
+        // Map + memcpy for K
+        {
+            const ptr = try self.kv_k_buffer.map(0, k_bytes);
+            defer self.kv_k_buffer.unmap();
+            @memcpy(ptr[0..k_bytes], std.mem.sliceAsBytes(k_data));
+        }
+        // Map + memcpy for V
+        {
+            const ptr = try self.kv_v_buffer.map(0, v_bytes);
+            defer self.kv_v_buffer.unmap();
+            @memcpy(ptr[0..v_bytes], std.mem.sliceAsBytes(v_data));
+        }
+    }
+
     // ── Teardown ──
 
     /// Release all Vulkan resources.
@@ -743,6 +921,8 @@ pub const GpuAttention = struct {
         _ = vk.vkFreeDescriptorSets(self.device, self.descriptor_pool, 1, &self.descriptor_set);
         vk.vkDestroyDescriptorPool(self.device, self.descriptor_pool, null);
         self.staging_pool.deinit();
+        if (self.kv_k_capacity > 0) self.kv_k_buffer.deinit();
+        if (self.kv_v_capacity > 0) self.kv_v_buffer.deinit();
         self.pipeline.deinit();
         self.pipeline_batched.deinit();
         vk.vkDestroyDevice(self.device, null);

@@ -1,0 +1,53 @@
+#version 460
+// Batched f32 MoE router matvec.
+//
+// Grid:
+//   x = router row / expert
+//   y = token
+//
+// Input activations are laid out token-major as [token][K]. Router weights are
+// f32 row-major [M][K]. Output logits are token-major [token][M].
+
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(local_size_x = 64) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+    uint n_tokens;
+    uint stride_x;
+    uint stride_y;
+};
+
+layout(set = 0, binding = 0) readonly buffer Input {
+    vec4 x_v4[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Weights {
+    vec4 w_v4[];
+};
+
+layout(set = 0, binding = 2) writeonly buffer Output {
+    float y[];
+};
+
+void main() {
+    uint row = gl_WorkGroupID.x;
+    uint tok = gl_WorkGroupID.y;
+    uint tid = gl_LocalInvocationID.x;
+    if (row >= M || tok >= n_tokens) return;
+
+    uint K_v4 = K >> 2;
+    uint x_base = tok * (stride_x >> 2);
+    uint w_base = row * K_v4;
+
+    float sum = 0.0;
+    for (uint k = tid; k < K_v4; k += 64u) {
+        sum += dot(x_v4[x_base + k], w_v4[w_base + k]);
+    }
+    sum = subgroupAdd(sum);
+    if (tid == 0u) {
+        y[tok * stride_y + row] = sum;
+    }
+}

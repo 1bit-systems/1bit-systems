@@ -298,10 +298,8 @@ bool build_fused_weights(const char*model_path, const char*output_path){
 }
 
 int main(int argc,char**argv){
-    const char*model=argc>1?argv[1]:[]{const char*e=getenv("NPU_MODEL_PATH");return e?e:"/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";}();
-    std::string xd=[]{const char*e=getenv("NPU_XCLBIN_DIR");return e?std::string(e):std::string("/home/bcloud/torch2aie/build/qwen3_06b_layer");}();
-    std::string out_s=xd+"/fused_weights_l0.bin";
-    const char*out=argc>2?argv[2]:out_s.c_str();
+    const char*model=argc>1?argv[1]:"/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+    const char*out=argc>2?argv[2]:"/home/bcloud/npu-sandbox/npu-infer/build/int8/fused_weights_l0.bin";
     printf("=== Q4NX Fused Weight Stream Packer ===\n\n");
     if(!build_fused_weights(model,out))return 1;
     printf("\n✅ DONE\n");

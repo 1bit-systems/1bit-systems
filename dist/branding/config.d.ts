@@ -1,7 +1,7 @@
 /** Path to 1bit's agent state directory (~/.1bit/) */
-export declare const ONE_BIT_DIR: any;
-export declare const AGENT_DIR: any;
-export declare const SETTINGS_PATH: any;
+export declare const ONE_BIT_DIR: string;
+export declare const AGENT_DIR: string;
+export declare const SETTINGS_PATH: string;
 export interface Settings {
     theme: string;
     defaultProvider: string;

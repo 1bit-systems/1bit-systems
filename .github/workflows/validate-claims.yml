@@ -1,0 +1,138 @@
+name: Validate claims
+
+# Every published number is re-measured on real gfx1151 hardware every 24h.
+# If a claim drifts beyond tolerance, this fails and opens an issue.
+#
+# Requires a self-hosted runner with:
+#   - /dev/kfd        (ROCm GPU, gfx1151)
+#   - /dev/accel/*    (XDNA2 NPU, optional -- reported but not yet asserted)
+#   - zig             (to build the fused engine we publish the size of)
+
+on:
+  schedule:
+    - cron: "17 4 * * *"   # 04:17 UTC daily
+  workflow_dispatch:
+    inputs:
+      repeat:
+        description: "Runs per benchmark (median is used)"
+        default: "3"
+  pull_request:
+    paths:
+      - "benchmarks/latest.json"
+      - "site/numbers.json"
+      - "tools/gen_numbers.py"
+      - "tools/validate_claims.py"
+      - "engine/fusion/**"
+
+concurrency:
+  group: validate-claims
+  cancel-in-progress: false
+
+jobs:
+  # Runs anywhere: proves numbers.json is exactly what the generator produces
+  # and that no unvalidated key is published. No hardware required.
+  consistency:
+    name: numbers.json is generated, not hand-edited
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Every published claim has a validator
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          d = json.load(open("benchmarks/latest.json"))
+          published = set(d["benchmarks"])
+          validated = set(sum((c["keys"] for c in d["_verify"]["commands"].values()), []))
+          orphans = sorted(published - validated)
+          if orphans:
+              print("FAIL: published but never re-measured:", orphans)
+              sys.exit(1)
+          print(f"ok: all {len(published)} published claims have a validator")
+          PY
+
+      - name: Retired claims must not reappear on the site
+        run: |
+          set -e
+          # Numbers deliberately quarantined in benchmarks/latest.json _unverified.
+          banned='291 tok/s|94 tok/s|307 tok/s|383 tok/s|55\.7 TFLOPS|437 KB'
+          if grep -nEo "$banned" site/index.html; then
+            echo "FAIL: an unsourced claim reappeared on the site (see benchmarks/latest.json _unverified)"
+            exit 1
+          fi
+          echo "ok: no retired claim on the site"
+
+      - name: site/numbers.json matches the generator
+        run: |
+          # decode/tui are absent on this runner, so they must be null either way.
+          python3 tools/gen_numbers.py --check || {
+            echo "::error::site/numbers.json is stale. Run: python3 tools/gen_numbers.py"
+            exit 1
+          }
+
+  # Requires the Strix Halo box.
+  measure:
+    name: Re-measure on gfx1151
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Hardware present
+        run: |
+          test -e /dev/kfd || { echo "::error::no /dev/kfd -- GPU missing"; exit 1; }
+          ls /dev/accel/accel* >/dev/null 2>&1 && echo "NPU present" || echo "::warning::no NPU"
+          command -v zig >/dev/null || { echo "::error::zig not on PATH"; exit 1; }
+
+      - name: Build fused engine (its size is a published claim)
+        working-directory: engine/fusion
+        run: zig build -Drelease
+
+      - name: Regenerate numbers.json from real artifacts
+        run: python3 tools/gen_numbers.py
+
+      - name: Re-measure every published benchmark
+        run: |
+          python3 tools/validate_claims.py \
+            --build-dir "${BUILD_DIR:-1bit/build}" \
+            --repeat "${{ github.event.inputs.repeat || 3 }}" \
+            --warmup 1 \
+            --json claims-report.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: claims-report
+          path: claims-report.json
+
+      - name: Open an issue if a claim drifted
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = 'A published claim drifted or a benchmark crashed. See the run log.';
+            try {
+              const r = JSON.parse(fs.readFileSync('claims-report.json', 'utf8'));
+              body = [
+                '## Claim validation failed',
+                '',
+                '**Drifted:**', ...(r.drifted.length ? r.drifted.map(x => `- ${x}`) : ['- none']),
+                '',
+                '**Failures:**', ...(r.failures.length ? r.failures.map(x => `- ${x}`) : ['- none']),
+                '',
+                '**Intermittent crashes:**', ...(r.crashes.length ? r.crashes.map(x => `- ${x}`) : ['- none']),
+                '',
+                '```json', JSON.stringify(r.measured, null, 2), '```',
+              ].join('\n');
+            } catch (e) {}
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Claim validation failed on ${new Date().toISOString().slice(0, 10)}`,
+              body,
+              labels: ['claims', 'automated'],
+            });

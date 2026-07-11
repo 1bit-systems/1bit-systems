@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/env.sh"
 
 M="${1:-128}"
-K="${2:-64}"
+K="${2:-512}"
 NAME="${3:-ternary_32c_oneshot}"
 OUT="$SCRIPT_DIR/$NAME"
 
@@ -14,7 +14,13 @@ KERNEL_SRC="$SCRIPT_DIR/../../../1bit-systems/engine/npu/kernel/mm_ternary_32x64
 MLIR_GEN="$SCRIPT_DIR/../kernel/n1_core_native_ternary_32core_oneshot.py"
 
 CC="${TOOLCHAIN}/bin/xchesscc_wrapper"
-AIECC="${TOOLCHAIN}/mlir_aie/bin/aiecc.py"
+# Use locally-built aiecc (toolchain's aie-opt lacks contiguous shim-DMA optimization)
+LOCAL_AIECC="/home/bcloud/mlir-aie/build/bin/aiecc"
+if [ -x "$LOCAL_AIECC" ]; then
+  AIECC="$LOCAL_AIECC"
+else
+  AIECC="${TOOLCHAIN}/mlir_aie/bin/aiecc.py"
+fi
 GEN_PYTHON="${TOOLCHAIN}/../.venv/bin/python3"
 
 echo "=== 32-Core Single-Shot xclbin (M=$M K_packed=$K) ==="

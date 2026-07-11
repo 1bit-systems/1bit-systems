@@ -1,0 +1,54 @@
+#version 460
+// ZINC — batched f32 dual DMMV for SSM alpha/beta projections.
+//
+// Computes, for each prompt token column:
+//   alpha[token,row] = dot(alpha_w[row], x[token])
+//   beta [token,row] = dot(beta_w [row], x[token])
+//
+// This replaces the per-token f32 alpha/beta DMMVs in the Qwen3.6-27B
+// layer-major SSM prefill path. X and outputs are column-major:
+// x[token * stride_x + k], out[token * stride_y + row].
+
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(local_size_x = 64) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+    uint stride_x;
+    uint stride_y;
+};
+
+layout(set = 0, binding = 0) readonly  buffer AlphaW   { vec4 alpha_w_v4[]; };
+layout(set = 0, binding = 1) readonly  buffer BetaW    { vec4 beta_w_v4[];  };
+layout(set = 0, binding = 2) readonly  buffer X        { vec4 x_v4[];       };
+layout(set = 0, binding = 3) writeonly buffer AlphaOut { float alpha_out[]; };
+layout(set = 0, binding = 4) writeonly buffer BetaOut  { float beta_out[];  };
+
+void main() {
+    uint row = gl_WorkGroupID.x;
+    uint tok = gl_WorkGroupID.y;
+    uint tid = gl_LocalInvocationID.x;
+    if (row >= M) return;
+
+    uint K_v4 = K >> 2;
+    uint x_base_v4 = (tok * stride_x) >> 2;
+    uint w_base_v4 = row * K_v4;
+
+    float sum_alpha = 0.0;
+    float sum_beta = 0.0;
+    for (uint i = tid; i < K_v4; i += 64u) {
+        vec4 xv = x_v4[x_base_v4 + i];
+        sum_alpha += dot(alpha_w_v4[w_base_v4 + i], xv);
+        sum_beta += dot(beta_w_v4[w_base_v4 + i], xv);
+    }
+
+    sum_alpha = subgroupAdd(sum_alpha);
+    sum_beta = subgroupAdd(sum_beta);
+    if (tid == 0u) {
+        uint out_idx = tok * stride_y + row;
+        alpha_out[out_idx] = sum_alpha;
+        beta_out[out_idx] = sum_beta;
+    }
+}

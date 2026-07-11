@@ -7,8 +7,8 @@ allow-direct-references = true
 
 [project]
 name = "video-lora"
-version = "0.4.0"
-description = "Model-agnostic video, image & audio generation with LoRA support — 22+ models auto-detected"
+version = "0.1.0"
+description = "Video generation with LoRA support — Wan2.2, LTX-Video, AnimateDiff, CogVideoX"
 requires-python = ">=3.11"
 dependencies = [
     "torch>=2.3",
@@ -18,7 +18,6 @@ dependencies = [
     "safetensors>=0.4",
     "opencv-python>=4.9",
     "pillow>=10.4",
-    "soundfile>=0.12",
 ]
 
 [project.optional-dependencies]
@@ -39,39 +38,6 @@ ltx = [
 ]
 animate = [
     "imageio[ffmpeg]>=2.34",
-]
-cogvideo = [
-    # CogVideoX is in diffusers core — no extra deps
-]
-hunyuan = [
-    # HunyuanVideo is in diffusers core — no extra deps
-]
-ltx2 = [
-    # LTX2 is in diffusers core — no extra deps
-]
-sana = [
-    # Sana Video is in diffusers core — no extra deps
-]
-mochi = [
-    # Mochi is in diffusers core — no extra deps
-]
-easyanimate = [
-    # EasyAnimate is in diffusers core — no extra deps
-]
-cosmos = [
-    # Cosmos is in diffusers core — no extra deps
-]
-allegro = [
-    # Allegro is in diffusers core — no extra deps
-]
-motif = [
-    # Motif Video is in diffusers core — no extra deps
-]
-consisid = [
-    # ConsisID is in diffusers core — no extra deps
-]
-skyreels = [
-    # SkyReels V2 is in diffusers core — no extra deps
 ]
 
 [tool.ruff]

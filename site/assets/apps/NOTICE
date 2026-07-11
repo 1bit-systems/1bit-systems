@@ -1,0 +1,38 @@
+App icons in this directory
+===========================
+
+These logos are mirrored from the Lemonade SDK marketplace at
+https://github.com/lemonade-sdk/marketplace (Apache-2.0). Each logo is a
+trademark of its respective project; we mirror them only to identify the
+projects we are compatible with, never to imply endorsement or
+sponsorship.
+
+If you are a maintainer of one of these projects and would like the icon
+removed or replaced, open an issue at
+https://github.com/bong-water-water-bong/1bit-systems and we will act
+within 48 hours.
+
+Source manifest: https://raw.githubusercontent.com/lemonade-sdk/marketplace/main/apps.json
+Snapshot date: 2026-04-24
+
+Apps mirrored (id : original logo URL)
+--------------------------------------
+ai-toolkit       : https://raw.githubusercontent.com/lemonade-sdk/marketplace/main/apps/ai-toolkit/logo.png
+anythingllm      : https://raw.githubusercontent.com/lemonade-sdk/marketplace/main/apps/anythingllm/logo.png
+claude-code      : https://raw.githubusercontent.com/lemonade-sdk/marketplace/main/apps/claude-code/logo.png
+codegpt          : https://raw.githubusercontent.com/lemonade-sdk/marketplace/main/apps/codegpt/logo.png
+continue         : https://raw.githubusercontent.com/lemonade-sdk/marketplace/main/apps/continue/logo.png
+deep-tutor       : https://raw.githubusercontent.com/lemonade-sdk/marketplace/main/apps/deep-tutor/logo.png
+dify             : https://raw.githubusercontent.com/lemonade-sdk/marketplace/main/apps/dify/logo.png
+fx-chatbot       : https://raw.githubusercontent.com/lemonade-sdk/marketplace/main/apps/fx-chatbot/logo.png
+gaia             : https://raw.githubusercontent.com/lemonade-sdk/marketplace/main/apps/gaia/logo.png
+github-copilot   : https://raw.githubusercontent.com/lemonade-sdk/marketplace/main/apps/github-copilot/logo.png
+hugging-face     : https://raw.githubusercontent.com/lemonade-sdk/marketplace/main/apps/hugging-face/logo.png
+infinity-arcade  : https://raw.githubusercontent.com/lemonade-sdk/marketplace/main/apps/infinity-arcade/logo.png
+iterate-ai       : https://raw.githubusercontent.com/lemonade-sdk/marketplace/main/apps/iterate-ai/logo.png
+lemon-zest       : https://raw.githubusercontent.com/lemonade-sdk/marketplace/main/apps/lemon-zest/logo.png
+morphik          : https://raw.githubusercontent.com/lemonade-sdk/marketplace/main/apps/morphik/logo.png
+n8n              : https://raw.githubusercontent.com/lemonade-sdk/marketplace/main/apps/n8n/logo.png
+open-webui       : https://raw.githubusercontent.com/lemonade-sdk/marketplace/main/apps/open-webui/logo.png
+openhands        : https://raw.githubusercontent.com/lemonade-sdk/marketplace/main/apps/openhands/logo.png
+perplexica       : https://raw.githubusercontent.com/lemonade-sdk/marketplace/main/apps/perplexica/logo.png

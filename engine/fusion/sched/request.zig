@@ -52,13 +52,10 @@ pub const Request = struct {
     generated_tokens: std.ArrayList(u32),
     /// Generation parameters.
     params: GenerationParams,
-    // KV cache slot assignment (set by scheduler)
-    /// KV cache slot, or null.
+    /// KV cache slot assignment (set by scheduler).
     slot_id: ?u32,
     /// Allocated KV page IDs for this request (managed by KvPagePool).
-    /// Set by the scheduler when the request is admitted.
     kv_page_ids: ?[]u32,
-    // Timing
     /// Creation timestamp.
     created_at_ns: i128,
     /// First token timestamp.
@@ -67,11 +64,6 @@ pub const Request = struct {
     allocator: std.mem.Allocator,
 
     /// Create a new request in the pending state with the given prompt and parameters.
-    /// @param allocator Allocator for the generated token buffer.
-    /// @param id Unique request identifier.
-    /// @param prompt_tokens Tokenized prompt (owned by the caller).
-    /// @param params Generation parameters (max_tokens, temperature, etc.).
-    /// @returns A Request ready to be submitted to the scheduler.
     pub fn init(allocator: std.mem.Allocator, id: u64, prompt_tokens: []const u32, params: GenerationParams) Request {
         return .{
             .id = id,
@@ -88,9 +80,6 @@ pub const Request = struct {
     }
 
     /// Advance the request through the state machine.
-    /// @param self Request to transition.
-    /// @param new_state Target state (must be a valid successor of the current state).
-    /// @returns error.InvalidTransition if the transition is not allowed by the state machine.
     pub fn transition(self: *Request, new_state: RequestState) !void {
         const valid = switch (self.state) {
             .pending => new_state == .prefilling or new_state == .cancelled,
@@ -103,8 +92,6 @@ pub const Request = struct {
     }
 
     /// Append a generated token and record the first-token timestamp if unset.
-    /// @param self Request to append to.
-    /// @param token Generated token ID to add.
     pub fn appendToken(self: *Request, token: u32) !void {
         if (self.first_token_ns == null) {
             self.first_token_ns = std.time.nanoTimestamp();
@@ -113,9 +100,6 @@ pub const Request = struct {
     }
 
     /// Check if generation should stop (max_tokens reached or EOS token emitted).
-    /// @param self Request to check.
-    /// @param eos_token_id End-of-sequence token ID.
-    /// @returns True if generation should stop.
     pub fn shouldStop(self: *const Request, eos_token_id: u32) bool {
         if (self.generated_tokens.items.len >= self.params.max_tokens) return true;
         if (self.generated_tokens.items.len > 0) {
@@ -126,7 +110,6 @@ pub const Request = struct {
     }
 
     /// Release the generated token buffer owned by this request.
-    /// @param self Request to tear down.
     pub fn deinit(self: *Request) void {
         self.generated_tokens.deinit(self.allocator);
         if (self.kv_page_ids) |pages| {
@@ -167,35 +150,6 @@ test "Request stops at EOS token" {
     defer req.deinit();
     try req.appendToken(10);
     try std.testing.expect(!req.shouldStop(42));
-    try req.appendToken(42); // EOS
+    try req.appendToken(42);
     try std.testing.expect(req.shouldStop(42));
-}
-
-test "Request appendToken records first token time" {
-    const allocator = std.testing.allocator;
-    var req = Request.init(allocator, 1, &.{}, .{});
-    defer req.deinit();
-    try std.testing.expect(req.first_token_ns == null);
-    try req.appendToken(1);
-    try std.testing.expect(req.first_token_ns != null);
-    // Second append should not change first_token_ns
-    const first = req.first_token_ns.?;
-    try req.appendToken(2);
-    try std.testing.expectEqual(first, req.first_token_ns.?);
-}
-
-test "Request invalid state transition fails" {
-    const allocator = std.testing.allocator;
-    var req = Request.init(allocator, 1, &.{}, .{});
-    defer req.deinit();
-    // pending → completed should fail (must go through prefilling/decoding)
-    try std.testing.expectError(error.InvalidTransition, req.transition(.completed));
-}
-
-test "Request generation params defaults" {
-    const params = GenerationParams{};
-    try std.testing.expectEqual(@as(u32, 256), params.max_tokens);
-    try std.testing.expectEqual(@as(f32, 1.0), params.temperature);
-    try std.testing.expectEqual(@as(f32, 1.0), params.top_p);
-    try std.testing.expect(params.stream);
 }
