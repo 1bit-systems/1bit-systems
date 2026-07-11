@@ -46,7 +46,16 @@ __global__ void copy_k(__half*d,const __half*s,int n){int i=blockIdx.x*blockDim.
 __global__ void mm_k(__half*out,const __half*in,const __half*wt,int M,int K){int i=blockIdx.x*blockDim.x+threadIdx.x;if(i>=M)return;float s=0;for(int k=0;k<K;k++)s+=(float)in[k]*(float)wt[k*(size_t)M+i];out[i]=__float2half(s);}
 __global__ void silu_mul_k(__half*out,const __half*g,const __half*u,int n){int i=blockIdx.x*blockDim.x+threadIdx.x;if(i>=n)return;float v=(float)g[i];out[i]=__float2half((v/(1.0f+expf(-v)))*(float)u[i]);}
 __global__ void residual_scale_k(__half*out,const __half*res,const float*hs_s,const float*hs_b,const float*res_s,const float*res_b,int n){int i=blockIdx.x*blockDim.x+threadIdx.x;if(i>=n)return;float o=(float)out[i]*hs_s[i]+hs_b[i];float r=(float)res[i]*res_s[i]+res_b[i];out[i]=__float2half(o+r);}
-__global__ void cca_attn_kernel(const __half*hs,const __half*phs,const __half*csi,int pos,const __half*wq,const __half*wk,const __half*wv1,const __half*wv2,const __half*wo,const float*cdw,const float*cdb,const float*cgw,const float*cgb,const float*ks,const __half*nw,__half*ao,__half*ncs,__half*nph);
+#define WMMA_M 16
+#define WMMA_THREADS 128
+#include "../kernels/zaya_moe_tiled_gemv.hip"
+#include "../kernels/zaya_cca_custom.hip"
+#include "../kernels/v_interleave_kernel.hip"
+#include "../kernels/zaya_gpu_router.hip"
+#include "../kernels/zaya_router_moe.hip"
+#include "../kernels/zaya_moe_expert_ffn.hip"
+#include "../kernels/argmax_kernel.hip"
+// Forward declarations for kernels not included above
 __global__ void eda_router_moe_kernel(
     const __half*hs,const float*prev_rs,int has_eda,float eda_scale,
     const float*gdw,const float*gdb,const float*rfn,const float*rf1,const float*rf1b,
@@ -189,25 +198,28 @@ int main(int argc,char**argv){
         for(int il=0;il<N_LAYERS;il++){
             auto& l=lw[il];auto& r=rh[il];
             
-            // ── A) CCA Attention ──
-            cca_attn_kernel<<<1,256,0,st>>>(d_hs,d_phs+(size_t)il*H,d_conv+(size_t)il*2*QKV,pos,l.wq,l.wk,l.wv1,l.wv2,l.wo,l.cdw,l.cdb,l.cgw,l.cgb,l.ks,l.nw,d_ao,d_conv+(size_t)il*2*QKV,d_phs+(size_t)il*H);
-            
-            // ── B) Post-attention residual scale ──
+            // ── A) CCA: tiled QKV + custom conv+attn + O_proj ──
+            copy_k<<<g1,BLK,0,st>>>(d_phs+(size_t)il*H,d_hs,H);
+            rmsnorm_k<<<1,BLK,0,st>>>(d_hs,l.nw,H);
+            moe_tiled_gemv<<<QD/16,128,0,st>>>(d_tmp,d_hs,l.wq,QD,H);
+            moe_tiled_gemv<<<KD/16,128,0,st>>>(d_tmp+QD,d_hs,l.wk,KD,H);
+            moe_tiled_gemv<<<KD/2/16,128,0,st>>>(d_tmp+QD+KD,d_hs,l.wv1,KD/2,H);
+            moe_tiled_gemv<<<KD/2/16,128,0,st>>>(d_tmp+QD+KD+KD/2,d_phs+(size_t)il*H,l.wv2,KD/2,H);
+            v_interleave_kernel<<<(KD/2+BLK-1)/BLK,BLK,0,st>>>(d_tmp+QD,d_tmp+QD+KD,d_tmp+QD+KD+KD/2,KD/2);
+            cca_custom_kernel<<<1,256,0,st>>>(d_tmp,d_tmp+QD,d_tmp+QD,d_phs+(size_t)il*H,d_conv+(size_t)il*2*QKV,l.cdw,l.cdb,l.cgw,l.cgb,l.ks,d_ao,d_conv+(size_t)il*2*QKV,d_phs+(size_t)il*H,il,1);
+            moe_tiled_gemv<<<H/16,128,0,st>>>(d_ao,d_ao,l.wo,H,QD);
             residual_scale_k<<<g1,BLK,0,st>>>(d_ao,d_hs,l.pahss,l.pahsb,l.parss,l.parsb,H);
             copy_k<<<g1,BLK,0,st>>>(d_hs,d_ao,H);
-
-            // ── C) Post-attention RMSNorm ──
             rmsnorm_k<<<1,BLK,0,st>>>(d_hs,l.pan,H);
-
-            // ── D) EDA Router + MoE Expert (fused, no CPU sync) ──
+            // ── B) EDA Router + MoE Expert (GPU) ──
             if(l.gu&&l.dn){
-                eda_router_moe_kernel<<<1,256,0,st>>>(
-                    d_hs, d_prev_rs+(size_t)il*RTR_H, r.has_eda?1:0, r.eda_scale[0],
-                    l.gdw,l.gdb,l.rfn,l.rf1,l.rf1b,l.rf2,l.rf2b,l.rout,l.bb,
-                    l.gu,l.dn,
-                    d_prev_rs+(size_t)il*RTR_H, d_tmp, d_expert_idx, d_expert_wt);
-
-                // ── E) Post-MLP residual scale ──
+                eda_router_gpu_kernel<<<1,RTR_H,0,st>>>(d_hs,d_prev_rs+(size_t)il*RTR_H,r.has_eda?1:0,r.eda_scale[0],l.gdw,l.gdb,l.rfn,l.rf1,l.rf1b,l.rf2,l.rf2b,l.rout,l.bb,d_prev_rs+(size_t)il*RTR_H,d_expert_idx,d_expert_wt);
+                encode_expert_cache_kernel<<<1,32,0,st>>>(d_prev_rs+(size_t)il*RTR_H,d_expert_idx,RTR_H);
+                { const int gb=(2*N_FF+15)/16, db=(H+15)/16, sb=(N_FF+BLK-1)/BLK;
+                wmma_gateup_kernel<<<gb,128,0,st>>>(d_tmp,d_hs,l.gu,d_expert_idx);
+                silu_mul_k<<<sb,BLK,0,st>>>(d_ao,d_tmp,d_tmp+N_FF,N_FF);
+                wmma_down_kernel<<<db,128,0,st>>>(d_tmp,d_ao,l.dn,d_expert_idx); }
+                // ── C) Post-MLP residual scale ──
                 residual_scale_k<<<g1,BLK,0,st>>>(d_tmp,d_hs,l.pmhss,l.pmhsb,l.pmrss,l.pmrsb,H);
                 copy_k<<<g1,BLK,0,st>>>(d_hs,d_tmp,H);
             }
