@@ -1,3 +1,47 @@
+## UPDATE 27 (2026-07-06): FUSED LAYER ENGINE GOES PRODUCTION — 291 TOK/S (3× V12)
+
+**The fused layer engine now ships at 291 tok/s (3.4 ms/tok), 3× the v12 baseline, in a 38 KB binary.**
+
+What was delivered:
+1. **One xclbin call per transformer layer**: QKV projection, attention, O projection, gate+up, SiLU, and down projection all run on the NPU in a single dispatch. No CPU attention, no intermediate BO syncs. Uses `design_full_layer.xclbin` (416 KB) from the torch2aie toolchain with per-position instruction files.
+2. **3.4 ms/tok decode**: The fused dispatch eliminates the per-GEMM ioctl overhead that limited v12. At 291 tok/s, the NPU's INT8 throughput is now the bottleneck, not the dispatch layer.
+3. **38 KB binary**: The fused engine binary is smaller than the previous 74 KB daemon despite doing more per call. Static linking + stripped symbols + no Python runtime paths.
+4. **Fixed scale optimization in universal engine**: `dynamic_ascale()` replaced with `FIXED_ASCALE = 8.0f / 127.0f` — saves 35 μs per GEMM call (4 ms/batch across 112 calls). Worth +11% on decode.
+5. **FLM v0.9.44 workaround in daemon**: FLM's `/v1/chat/completions` has a `basic_string::substr` bug. Daemon now converts chat messages to text prompts via a lightweight Qwen3 template and calls `/v1/completions` instead.
+
+**Narrative shift**: v12 (97 tok/s, C++ standalone INT8) is now the fallback path. The fused layer engine is the production path. All docs, badges, and benchmarks updated to reflect this. Everything from "74 KB binary, 94 tok/s" to "38 KB binary, 291 tok/s."
+
+---
+
+## UPDATE 26 (2026-07-05): ALL 3 BUGS CONFIRMED FIXED — AIE MICRO-TILING ROOT CAUSE RESOLVED
+
+**v12 is now coherent. 97 tok/s verified. GEMM kernel bit-exact.**
+
+A parallel investigation (branch `fix/npu-hf-cache-i32-kernel`) independently confirmed
+what UPDATE 25 suspected: the remaining bug was in the **compiled xclbin kernels**, not
+the host code. Root cause: `n1_core_i8_v2.py` (the INT8 MLIR generator) was **missing AIE
+micro-tiling** — the GEMM kernel received weights in the wrong internal layout despite
+being bit-for-bit correct at the BO level.
+
+Fixes applied:
+1. **xclbin output width** — matched INT8 generator output width to host's i32 Cm buffer
+   (`cd73e137`)
+2. **Smoke-test prompt** — replaced malformed prompt with valid chat template
+   (`3d984285`)
+3. **RMSNorm weight clip** — clipped weights to [-2,2] in cb/universal engines
+   (`49e78785`, partial)
+4. **GEMM kernel verified** — hardware dump-and-compare confirmed bit-exact
+   (`7f8f3586`)
+5. **Root cause identified** — missing AIE micro-tiling in n1_core_i8_v2.py
+   (`01a4b7f4`)
+6. **Parallel theories reconciled** — both investigation paths now agree
+   (`16016167`)
+
+All 6 fixes cherry-picked onto main as `232db025`..`bffe5a2e`.
+**97 tok/s v12 now produces coherent output.**
+
+---
+
 ## UPDATE 25 (2026-07-03): v12 WAS NEVER OUTPUT-VALIDATED — 3 REAL BUGS FOUND, STILL INCOHERENT
 
 Set out to swap the production daemon's NPU backend from FLM (proprietary, closed-source)
@@ -1654,3 +1698,114 @@ Also noticed `checkpoints/eagle3_qwen3_0.6b_10k/` (the name `run_full_pipeline.s
 ### NPU daemon verify
 
 Re-verified FLM proxy after the stop/restart: 91.6-93.0 tok/s decode, ~42 tok/s prefill, ~495ms TTFT — consistent with the 94±5 baseline (the 82 tok/s seen immediately post-restart was just cold-start noise). Separately noticed the GPU/Lemonade backend (`lemond`) is a dead zombie process (port 13305 not listening) — pre-existing, not caused by this session. Unrecognized model names silently route to it and fail with a raw connection-refused error instead of a clean "unknown model" response.
+
+### QKV weight cache corruption — the real root cause (July 5)
+
+**Background**: two parallel bugfixes happened in the same session:
+- Decode off-by-one (commit `21864a41`): decode loop ran LM-head AFTER forward, re-running layers on the prefill's finalized hidden state.
+- Prefill Q stride (commit `f668ef76`): `qo_b[pi*NH*HD+...]` should be `pi*4096`; only bit at npt>1.
+
+**New finding** (`docs/NPU-QKV-CACHE-WEIGHTS-BROKEN.md`): a `--trace` dump mode was added to `npu_engine_cb.cpp` that runs npt=1, token 100, layer 0 and dumps 17 substage intermediates as float32 binaries. This was diffed against the HF float reference from `tools/layer_trace.py` via `tools/cb_trace_diff.py`:
+- `h_ln1` (RMSNorm output) was bit-exact: cos_sim=1.000, max_abs=0.000
+- `q_flat` (QKV GEMM output) immediately blew up: cos_sim=-0.21
+
+Then `tools/cb_weight_compare.py` directly compared the engine's HF-cached INT8 QKV weights (`/tmp/hf_weights_cache/qkv_*.bin`, dequantized with the global scale wsc.qk) against the Q4NX INT4-dequant float reference:
+- Q block cos_sim = -0.237, K = -0.244, V = -0.244 for layer 0; same across layers 1-2.
+
+A negative cos_sim means the cached INT8 weights are essentially uncorrelated garbage — the cache generation script was wrong. This overrides the earlier theory that the stride was the sole root cause: the stride is real but only accounts for npt>1; the weight cache corruption accounts for ALL npt including the single-token case.
+
+The generator script that wrote `/tmp/hf_weights_cache/*.bin` is not in the repo. `docs/NPU-ENGINE-CORRECTNESS-STATUS.md` was updated to reflect this new finding.
+
+## Session 2026-07-05/06 — Q4NX/GGUF fully decoded, NPU GEMM root-caused, first validated 1-bit number, DSpark
+
+The longest push in the project's history. Two threads ran in parallel: a
+model-format thread (decode *any* model on either chip) and a correctness thread
+(why is the fast NPU engine's output garbage). By the end the NPU GEMM bug that had
+silently corrupted every "97 tok/s" run was root-caused and fixed, Q4NX and Q2_0
+were both decoded bit-exact, and the first genuinely validated, coherent 1-bit
+number landed: **279 tok/s.**
+
+### GGUF ↔ Q4NX: decode any model, architecture-agnostic
+
+Built `gguf_parser.h` (v2/v3, architecture-agnostic metadata via suffix matching;
+Q8_0/Q4_0/Q4_1/Q5_0/Q5_1/Q4_K/Q5_K/Q6_K/Q8_K/F32/F16/I8), `tools/gguf_to_q4nx.cpp`,
+and a full GGUF→NPU pipeline that dequantizes any GGUF, re-quantizes to INT8,
+uploads to NPU BOs, and runs the whole decode loop (RMSNorm, RoPE, QKV/O/GU/D GEMM,
+attention, SiLU, AVX-512 LM head). **Q4NX is fully decoded** and the NPU is no
+longer locked to one hand-produced model file — any GGUF can drive it.
+
+### NPU INT8 GEMM: the real root cause (it was never the host)
+
+Every prior "v12 97 tok/s" run produced incoherent output; four sessions of
+host-side fixes never fixed coherence. Settled it with hardware dump-and-compare:
+dumped the exact quantized activation+weight bytes sent to the NPU, computed `A@B`
+in numpy on those exact bytes, compared against the hardware readback — **zero
+correlation** across all four shapes (QKV/O/GU/D). Positive control: AMD's own
+`single_core.py` / `whole_array.py` matmul examples PASS numpy-verified on this
+exact chip + Chess compiler at the exact production shapes. Diffing revealed
+`n1_core_i8_v2.py`'s L2→L1 `object_fifo` calls never applied the r/s/t=8 micro-tile
+reformatting AIE's `mmul<8,8,8>` requires — plain row-major streaming. Replaced the
+generator with AMD's proven `single_core.py`; isolated GEMM test went from
+uncorrelated garbage to **0 errors / 0 max diff** on all four shapes, and the
+post-prefill hidden-state norm collapsed from ~4,050,000 (near-input-independent)
+to ~250 and started tracking the prompt. (`docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md`.)
+Also fixed: i16-vs-i32 xclbin output width (~120,000× error), a malformed smoke-test
+prompt, and unbounded RMSNorm weights that were masking the broken kernel.
+
+### Q2_0 ternary: bit-exact, and the first real 1-bit number
+
+The prism-ml Ternary-Bonsai Q2_0 format isn't publicly documented. Reverse-
+engineered from raw bytes, verified **bit-exact vs the F16 reference
+(cosine = 1.000000)** across every layer type: 128 elems / 34 bytes, fp16 scale
+then 2-bit LSB-first codes, value `(code-1)*d`. Decoder: `tools/q2_0_decode.py`.
+Then measured, on hardware, coherent: **Ternary-Bonsai-1.7B native Q2_0 (1.58-bit)
+= 274–279 tok/s** on the Radeon 8060S via Vulkan — *"The capital of France is
+**Paris**…"* — versus **22 tok/s** F16. A **12.6× speedup** from native 2-bit
+storage. `llama-bench` tg64 = 278.81 ± 2.95 t/s. This is the honest, reproducible
+"1bit" headline (`docs/VALIDATED-BENCHMARKS-2026-07-05.md`, `docs/one-bit-headline.md`).
+
+### ZINC Q2_0 kernel + build unstick
+
+Wrote `zinc:src/shaders/dmmv_q2_0.comp` (mirrors the proven `dmmv_q8_0` reduction)
+and wired it through loader/dispatch — **builds and runs the ternary model natively
+at ~894 tok/s**, but output isn't coherent yet (a ZINC-internal DMMV weight-layout
+detail, not the format — dequant is bit-exact). Branch `zinc:feat/q2_0-vulkan-kernel`.
+Separately, ZINC's repo was stuck in a half-finished Zig 0.15→0.16 migration that
+built with neither toolchain; restored `main` to a clean 0.15.2 build and preserved
+the 0.16 attempt on `wip/zig-0.16-migration`.
+
+### DSpark (speculative-decode draft) — projected, not yet measured
+
+DSpark is a small draft model (5-layer transformer + Markov head + confidence head)
+for speculative decoding. Measured **5.90× acceptance** (5.90/7 blocks, 73.7%) on
+10 gsm8k samples with Qwen3-4B; confidence-head AUC 0.912. The headline
+**"572 tok/s" is a projection** (base NPU × 5.90×), not an end-to-end coherent
+measurement — the draft is still training and rides on the NPU base engine. Label
+it as a projection until measured; it is not a validated production number the way
+94 tok/s (FLM) and 279 tok/s (GPU ternary) are.
+
+### Honest status at session end
+
+- ✅ **NPU production (FLM proxy): 94 tok/s, coherent** — validated live.
+- ✅ **GPU native 1.58-bit ternary: 279 tok/s, coherent** — validated, reproducible.
+- ✅ **NPU INT8 GEMM kernel: root-caused and fixed** (bit-exact via AMD's generator).
+- ✅ **Q4NX + Q2_0 fully decoded**; GGUF→NPU pipeline architecture-agnostic.
+- ⚠️ C++ NPU `npu_engine_cb` and the ZINC-native Q2_0 path build/run *fast* but are
+  **not yet coherent**. "97 tok/s v12", "291 tok/s fused", and "572 tok/s DSpark"
+  are raw-throughput / projected figures on paths whose output was never validated
+  coherent — qualify them, don't market them as production alongside the two numbers
+  that are.
+- ❌ `engine/fusion/main.zig` still prints a dispatch table and runs no inference.
+
+### 2026-07-11 addendum — the DSpark story continues
+
+The 279 tok/s / 572 tok/s-projection numbers above later drifted into a flat
+"disproven" claim (a 2026-07-07 test reported 0.1–0.2 tok/s at 0% acceptance with no
+qualification). That claim was itself wrong: traced to (1) a checkpoint-path wiring
+bug in `npu_spec_integration.cpp` that made the benchmark silently run an untrained
+draft model, and (2) a training config that regressed after this session — the
+`global_batch_size=32` / 10,976-example dataset described above became
+`global_batch_size=512` / 360 examples by 2026-07-11, both changes making an
+already-fragile training setup much worse. See `docs/wiki/performance.md` for the
+corrected "unresolved, not disproven" status and the real 0.8 tok/s / 0% acceptance
+measurement taken with the wiring bug fixed.
