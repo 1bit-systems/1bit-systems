@@ -107,6 +107,46 @@ void bonsai_q1_convert_aos_to_soa(
     int            N_out,
     int            K_in);
 
+// ── 1024-weight block variants (higher occupancy, better LDS reuse) ──────────
+// These are the same TQ2_0/Q1_0 kernels but with 1024-weight blocks instead of
+// the standard 128-weight blocks. Fewer blocks per row = fewer global loads.
+
+// TQ2_0_1024-block ternary GEMV. Same preconditions; weight row stride is
+// (K_in / 1024) * 34 * 8 bytes (8×128-weight blocks per 1024-weight block).
+void bonsai_tq2_1024_gemv_launch(
+    const uint8_t*  packed_weights,
+    const uint16_t* act_fp16,
+    uint16_t*       out_fp16,
+    int             N_out,
+    int             K_in,
+    void*           stream);
+
+// Convert TQ2_0 AoS weights (128-weight blocks) to 1024-weight blocks on device.
+// Allocates new device memory in *packed_1024 (caller must hipFree).
+void bonsai_tq2_convert_to_1024(
+    const uint8_t* packed_aos,
+    uint8_t**      packed_1024,
+    int            N_out,
+    int            K_in);
+
+// Q1_0_1024-block 1-bit GEMV. Same preconditions as bonsai_q1_gemv_launch;
+// weight row stride is (K_in / 1024) * 18 * 8 bytes.
+void bonsai_q1_1024_gemv_launch(
+    const uint8_t*  packed_weights,
+    const uint16_t* act_fp16,
+    uint16_t*       out_fp16,
+    int             N_out,
+    int             K_in,
+    void*           stream);
+
+// Convert Q1_0 AoS weights (128-weight blocks) to 1024-weight blocks on device.
+// Allocates new device memory in *packed_1024 (caller must hipFree).
+void bonsai_q1_convert_to_1024(
+    const uint8_t* packed_aos,
+    uint8_t**      packed_1024,
+    int            N_out,
+    int            K_in);
+
 #ifdef __cplusplus
 }
 #endif

@@ -465,7 +465,7 @@ add_executable(zaya_gpu_decode tests/zaya_gpu_decode.cpp kernels/zaya_cca_attn.h
 set_source_files_properties(tests/zaya_gpu_decode.cpp kernels/zaya_cca_attn.hip PROPERTIES LANGUAGE HIP)
 target_compile_options(zaya_gpu_decode PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_include_directories(zaya_gpu_decode PRIVATE /home/bcloud/1bit/include)
+target_include_directories(zaya_gpu_decode PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(zaya_gpu_decode PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(zaya_gpu_decode PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 

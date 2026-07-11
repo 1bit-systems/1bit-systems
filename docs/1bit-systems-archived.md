@@ -1,10 +1,20 @@
+> ## ⚠️ ARCHIVED — historical document, does not reflect the current project
+>
+> This describes an **early, abandoned architecture** (a Rust HTTP server runtime).
+> The current project is the opposite of what's described below: **pure C++,
+> zero Rust at runtime, zero Python at runtime.** See [README.md](../README.md)
+> and [CONTRIBUTING.md](../CONTRIBUTING.md) for the current architecture. Kept
+> only for historical reference — do not copy claims or numbers from this file.
+
+---
+
 <div align="center">
 
 <img src="../brand-lockup.svg" alt="1bit" width="540">
 
 # Local 1-bit inference, wired for Strix Halo.
 
-### Pure Rust. Zero Python.
+### Pure Rust. Zero Python. *(ARCHIVED — see banner above)*
 
 **[→ Project Wiki](docs/wiki/README.md)** — architecture, decisions, and agent onboarding.
 

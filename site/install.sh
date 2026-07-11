@@ -115,7 +115,7 @@ step "cloning 1bit"
 SRC="${HOME}/1bit"
 mkdir -p "${HOME}"
 if [ ! -d "$SRC/.git" ]; then
-  git clone --depth 1 https://github.com/bong-water-water-bong/1bit.git "$SRC"
+  git clone --depth 1 https://github.com/bong-water-water-bong/1bit-systems.git "$SRC"
   ok "cloned into $SRC"
 else
   info "repo already present — pulling latest"

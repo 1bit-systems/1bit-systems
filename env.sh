@@ -9,10 +9,11 @@ LINK_DIR="${1:-$DIR}"
 export HSA_OVERRIDE_GFX_VERSION=11.5.1
 export HSA_ENABLE_SDMA=0
 export LD_LIBRARY_PATH="$LINK_DIR/build:${LD_LIBRARY_PATH:-}"
-export PATH="$LINK_DIR/rust/target/release:$LINK_DIR/build:$PATH"
+export PATH="$LINK_DIR/build:$PATH"
 
 echo "[1bit] Environment ready:"
 echo "  HSA_OVERRIDE_GFX_VERSION=$HSA_OVERRIDE_GFX_VERSION"
 echo "  HSA_ENABLE_SDMA=$HSA_ENABLE_SDMA"
 echo "  LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
-echo "  Run: onebit --model model.h1b --port 13305 --tune-prefill --fp16-weights"
+echo "  Run: zaya_server"
+echo "  Or: zaya_gpu_decode model.q4nx --tokens 64"

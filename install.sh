@@ -4,25 +4,25 @@ GREEN='\033[0;32m'; NC='\033[0m'; YELLOW='\033[1;33m'
 log() { echo -e "${GREEN}[1bit]${NC} $*"; }
 warn() { echo -e "${YELLOW}[1bit]${NC} $*"; }
 
-REPO_URL="https://github.com/bong-water-water-bong/1bit.git"
+REPO_URL="https://github.com/bong-water-water-bong/1bit-systems.git"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/1bit}"
 SKIP_ROCM=false; [ "${1:-}" = "--skip-rocm" ] && SKIP_ROCM=true
 MODELS_DIR="${MODELS_DIR:-$HOME/models}"
 
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
-    echo "Usage: curl -fsSL https://raw.githubusercontent.com/bong-water-water-bong/1bit/main/install.sh | bash"
+    echo "Usage: curl -fsSL https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/install.sh | bash"
     echo "       bash install.sh [--skip-rocm]"
     echo ""
     echo "  --skip-rocm  Skip kernel build (use pre-build librocm_cpp.so)"
     echo ""
     echo "Installs 1bit inference engine for AMD Strix Halo (gfx1151)."
-    echo "Clones the repo to ${INSTALL_DIR:-\$HOME/1bit}, builds kernels + Rust server."
+    echo "Builds the pure C++ zaya_server (207 KB) — no Rust, no Python."
     exit 0
 fi
 
 # ── Detect if running standalone (curl-piped) vs from repo root ────────────────
 SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || echo ".")"
-if [ -f "$SCRIPT_DIR/CMakeLists.txt" ] && [ -d "$SCRIPT_DIR/rust" ]; then
+if [ -f "$SCRIPT_DIR/CMakeLists.txt" ]; then
     DIR="$SCRIPT_DIR"
     log "Running from repo root: $DIR"
 else
@@ -54,45 +54,37 @@ install_deps() {
     fi
 }
 
-# ── Rust ───────────────────────────────────────────────────────────────────────
-if ! command -v cargo &>/dev/null; then
-    log "Installing Rust..."
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-fi
-source "$HOME/.cargo/env"
-
 install_deps
 mkdir -p "$MODELS_DIR"
 
-# ── Kernels ────────────────────────────────────────────────────────────────────
+# ── Build kernels + server (pure C++, no Rust) ───────────────────────────────
 if [ "$SKIP_ROCM" = false ]; then
-    log "Building kernels (rocm-cpp)..."
+    log "Building kernels (rocm-cpp) + server (zaya_server)..."
     cd "$DIR"
     cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151
-    ninja -C build rocm_cpp bitnet_decode bench_prefill_variants
-    log "Kernel build complete: $DIR/build/librocm_cpp.so"
+    cmake --build build --target zaya_server -j"$(nproc)"
+    log "Build complete: $DIR/build/zaya_server ($(stat -c%s "$DIR/build/zaya_server") bytes)"
 else
     warn "Skipping kernel build. Set LD_LIBRARY_PATH to find librocm_cpp.so."
+    log "Building server only (requires pre-built librocm_cpp.so)..."
+    cd "$DIR"
+    cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151
+    cmake --build build --target zaya_server -j"$(nproc)"
 fi
 
-# ── Server ─────────────────────────────────────────────────────────────────────
-log "Building Rust server..."
-cd "$DIR/rust"
-source "$HOME/.cargo/env"
-cargo build --release
-log "Server built: $DIR/rust/target/release/onebit"
-
-# ── Test ───────────────────────────────────────────────────────────────────────
-if cargo test --release 2>&1; then
-    log "✓ Tests pass (7/7)"
-else
-    warn "Tests failed — check output above"
-fi
-
-# ── Done ───────────────────────────────────────────────────────────────────────
+# ── Done ──────────────────────────────────────────────────────────────────────
 log ""
 log "Done. Run:"
 log "  export HSA_OVERRIDE_GFX_VERSION=11.5.1"
 log "  export HSA_ENABLE_SDMA=0"
 log "  export LD_LIBRARY_PATH=$DIR/build:\$LD_LIBRARY_PATH"
-log "  $DIR/rust/target/release/onebit --model model.h1b --port 13305 --tune-prefill --fp16-weights"
+log "  $DIR/build/zaya_server"
+log ""
+log "Then send requests:"
+log '  curl -X POST http://localhost:8088/completion \'
+log '    -H "Content-Type: application/json" \'
+log '    -d '\''{"prompt":"Hello","n_predict":16}'\'
+log ""
+log "Or use any OpenAI-compatible client:"
+log '  from openai import OpenAI'
+log '  client = OpenAI(base_url="http://localhost:8088/v1", api_key="any")'

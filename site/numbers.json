@@ -2,10 +2,18 @@
   "_generated_by": "human — real measured numbers from gfx1151",
   "_generated_at": "2026-07-11T16:30:00Z",
   "binary": {
-    "fused_bytes": 264000,
-    "fused_kb": 258
+    "decode_bytes": 206616,
+    "decode_kb": 207,
+    "fused_bytes": 30720,
+    "fused_kb": 30
   },
   "benchmarks": {
+    "npu_fused_raw_tok_s": 291,
+    "npu_validated_tok_s": 94,
+    "gpu_ternary_tok_s": 307,
+    "gpu_1bit_llama_tok_s": 383,
+    "gpu_f16_baseline_tok_s": 22,
+    "tflops": 55.7,
     "bonsai_decode_tokps": 113,
     "bonsai_prefill_tokps": 98,
     "prefill_tflops_4h": 28.4,

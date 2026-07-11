@@ -29,7 +29,7 @@ int main() {
         HIP_OK(hipMalloc(&a, q1b_aos(r, c)));
         HIP_OK(hipMemsetAsync(a, 0x55, q1b_aos(r, c), s));
         HIP_OK(hipDeviceSynchronize());
-        bonsai_q1_convert_aos_to_tile8(a, &t8, r, c);
+        bonsai_q1_convert_aos_to_soa(a, &t8, r, c);
         HIP_OK(hipFree(a));
         return t8;
     };
@@ -55,13 +55,13 @@ int main() {
     printf("Allocated %zu tile8 weight buffers. Warmup...\n", w.size());
     for (int l = 0; l < NL; ++l) {
         int i = l * 7;
-        bonsai_q1_gemv_tile8_launch(w[i],   a, o, NH*HD, HS, s);
-        bonsai_q1_gemv_tile8_launch(w[i+1], a, o, NKV*HD, HS, s);
-        bonsai_q1_gemv_tile8_launch(w[i+2], a, o, NKV*HD, HS, s);
-        bonsai_q1_gemv_tile8_launch(w[i+3], a, o, HS, NH*HD, s);
-        bonsai_q1_gemv_tile8_launch(w[i+4], a, o, IS, HS, s);
-        bonsai_q1_gemv_tile8_launch(w[i+5], a, o, IS, HS, s);
-        bonsai_q1_gemv_tile8_launch(w[i+6], a, o, HS, IS, s);
+        bonsai_q1_gemv_soa_launch(w[i],   a, o, NH*HD, HS, s);
+        bonsai_q1_gemv_soa_launch(w[i+1], a, o, NKV*HD, HS, s);
+        bonsai_q1_gemv_soa_launch(w[i+2], a, o, NKV*HD, HS, s);
+        bonsai_q1_gemv_soa_launch(w[i+3], a, o, HS, NH*HD, s);
+        bonsai_q1_gemv_soa_launch(w[i+4], a, o, IS, HS, s);
+        bonsai_q1_gemv_soa_launch(w[i+5], a, o, IS, HS, s);
+        bonsai_q1_gemv_soa_launch(w[i+6], a, o, HS, IS, s);
     }
     HIP_OK(hipDeviceSynchronize());
     printf("Warmup done.\n");
@@ -74,13 +74,13 @@ int main() {
     for (int run = 0; run < 10; ++run) {
         for (int l = 0; l < NL; ++l) {
             int i = l * 7;
-            bonsai_q1_gemv_tile8_launch(w[i],   a, o, NH*HD, HS, s);
-            bonsai_q1_gemv_tile8_launch(w[i+1], a, o, NKV*HD, HS, s);
-            bonsai_q1_gemv_tile8_launch(w[i+2], a, o, NKV*HD, HS, s);
-            bonsai_q1_gemv_tile8_launch(w[i+3], a, o, HS, NH*HD, s);
-            bonsai_q1_gemv_tile8_launch(w[i+4], a, o, IS, HS, s);
-            bonsai_q1_gemv_tile8_launch(w[i+5], a, o, IS, HS, s);
-            bonsai_q1_gemv_tile8_launch(w[i+6], a, o, HS, IS, s);
+            bonsai_q1_gemv_soa_launch(w[i],   a, o, NH*HD, HS, s);
+            bonsai_q1_gemv_soa_launch(w[i+1], a, o, NKV*HD, HS, s);
+            bonsai_q1_gemv_soa_launch(w[i+2], a, o, NKV*HD, HS, s);
+            bonsai_q1_gemv_soa_launch(w[i+3], a, o, HS, NH*HD, s);
+            bonsai_q1_gemv_soa_launch(w[i+4], a, o, IS, HS, s);
+            bonsai_q1_gemv_soa_launch(w[i+5], a, o, IS, HS, s);
+            bonsai_q1_gemv_soa_launch(w[i+6], a, o, HS, IS, s);
         }
     }
     HIP_OK(hipEventRecord(t1, s));

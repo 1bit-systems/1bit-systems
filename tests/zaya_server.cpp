@@ -55,6 +55,7 @@ __global__ void residual_scale_k(__half*out,const __half*res,const float*hs_s,co
 #include "../kernels/zaya_router_moe.hip"
 #include "../kernels/zaya_moe_expert_ffn.hip"
 #include "../kernels/argmax_kernel.hip"
+#include "../kernels/lm_head_fused.hip"
 // Forward declarations for kernels not included above
 __global__ void eda_router_moe_kernel(
     const __half*hs,const float*prev_rs,int has_eda,float eda_scale,
@@ -226,23 +227,27 @@ int main(int argc,char**argv){
             // else: skip MoE, keep d_hs as is
         }
         rmsnorm_k<<<1,BLK,0,st>>>(d_hs,d_fnw,H);
-        hipStreamSynchronize(st);
 
-        // GPU lm_head: logits[v] = hs @ embed[v]^T  (all 262K in ~65 kernel launches)
+        // GPU lm_head: fused single-kernel launch (replaces 64 separate launches)
         static __half *d_all_logits = nullptr;
+        static int *d_best_idx = nullptr;
+        static float *d_best_val = nullptr;
         if(!d_all_logits){hipMalloc(&d_all_logits,(size_t)VOCAB*2);}
-        for(int v=0;v<VOCAB;v+=4096){int todo=std::min(4096,VOCAB-v);mm_k<<<todo,BLK,0,st>>>(d_all_logits+(size_t)v,d_hs,d_embed_gpu+(size_t)v*H,todo,H);}
+        if(!d_best_idx){hipMalloc(&d_best_idx,4);}
+        if(!d_best_val){hipMalloc(&d_best_val,4);}
+        // Single fused launch for all vocab — 1 kernel vs 64
+        lm_head_fused_kernel<<<VOCAB,256,0,st>>>(d_all_logits,d_hs,d_embed_gpu,H,VOCAB);
+        // GPU argmax — reads logits on device, writes single int
+        argmax_kernel<<<1,256,0,st>>>(d_all_logits,VOCAB,d_best_idx,d_best_val);
         hipStreamSynchronize(st);
-        std::vector<__half> logits_half(VOCAB);
-        hipMemcpy(logits_half.data(),d_all_logits,(size_t)VOCAB*2,hipMemcpyDeviceToHost);
-        logits.resize(VOCAB);
-        for(int v=0;v<VOCAB;v++)logits[v]=__half2float(logits_half[v]);
+        // Copy only the winning token index (4 bytes) instead of all 262K floats
+        int best = 0;
+        hipMemcpy(&best,d_best_idx,4,hipMemcpyDeviceToHost);
+        logits.resize(1);
+        logits[0] = (float)best;
     };
     
-    auto sample=[&](const std::vector<float>& logits)->int{
-        int best=0;for(int i=1;i<VOCAB;i++)if(logits[i]>logits[best])best=i;
-        return best;
-    };
+    // Now logits[0] = argmax token index (computed on GPU, no CPU-side search needed)
     
     printf("Ready on port %d\n",port);
     
@@ -306,7 +311,7 @@ int main(int argc,char**argv){
             int last_token=input.back();
             for(int i=0;i<np;i++){
                 forward(last_token,i,logits);
-                last_token=sample(logits);
+                last_token = (int)logits[0];  // GPU argmax result
                 output.push_back(last_token);
                 if(last_token==106)break;
             }
