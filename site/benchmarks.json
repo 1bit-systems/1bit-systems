@@ -7,14 +7,15 @@
   "projected": "base engine x speculative-decode acceptance; NOT an end-to-end measurement",
   "raw": "kernel runs at this speed but engine output is not yet coherent",
   "reported": "reported, not independently re-measured",
-  "disproven": "an earlier projection that was tested end-to-end and did not hold up"
+  "disproven": "an earlier projection that was tested end-to-end and did not hold up",
+  "unresolved": "blocked on a known, fixable issue (e.g. undertrained checkpoint) rather than disproven or production-ready"
  },
  "engines": {
   "npu_flm":  { "tok_s": 94,  "status": "validated", "label": "FLM proxy (production)" },
   "ternary":  { "tok_s": 307,     "status": "validated", "label": "Ternary Vulkan (validated 1-bit)" },
   "gpu_1bit": { "tok_s": 383, "status": "measured",  "label": "GPU llama.cpp 1-bit (measured)", "trophy": true },
   "gpu_zinc": { "tok_s": 22, "status": "validated", "label": "GPU Vulkan ZINC F16 (validated)" },
-  "dspark":   { "tok_s": 0.15,   "status": "disproven", "label": "DSpark spec-decode — disproven", "projected_tok_s": 572, "note": "Earlier ~572 tok/s projection (base engine x speculative-decode acceptance) was disproven by end-to-end measurement on 2026-07-07: 0.1–0.2 tok/s at 0% draft acceptance. Not production-ready." },
+  "dspark":   { "tok_s": 0.8,   "status": "unresolved", "label": "Eagle3/DSpark spec-decode — unresolved", "projected_tok_s": 572, "note": "Earlier ~572 tok/s projection and the 2026-07-07 '0% acceptance, disproven' conclusion were both wrong. Two real bugs found 2026-07-11: (1) a checkpoint-path wiring bug caused the benchmark to silently run untrained, (2) the checkpoint that does load was trained with a batch size (512) larger than the whole dataset (360 examples), so it's essentially untrained. Wiring is now fixed; honest current measurement is 0.8 tok/s / 0% acceptance pending a real training run." },
   "npu_fused":{ "tok_s": 291,    "status": "raw",       "label": "NPU fused (raw — not yet coherent)" },
   "npu_v12":  { "tok_s": 97,  "status": "raw",       "label": "C++ v12 (raw — not yet coherent)" },
   "rocm_hip": { "tok_s": 113,     "status": "reported",  "label": "GPU ROCm HIP (reported)" },

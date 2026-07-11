@@ -187,7 +187,7 @@
         "name": "How fast is NPU inference on Strix Halo?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "291 tok/s NPU fused (raw) and a validated 94 tok/s NPU (FLM) on Qwen3-0.6B; validated 307 tok/s 1-bit GPU ternary on Bonsai-1.7B; 383 tok/s GPU 1-bit (Qwen2-0.5B IQ1_S via llama.cpp). ROCm HIP backend reaches 113 tok/s. 22 tok/s GPU ZINC on Bonsai-1.7B F16. (DSpark spec-decode earlier '572 tok/s' was a projection, disproven by end-to-end measurement — 0.1–0.2 tok/s at 0% acceptance.)"
+          "text": "291 tok/s NPU fused (raw) and a validated 94 tok/s NPU (FLM) on Qwen3-0.6B; validated 307 tok/s 1-bit GPU ternary on Bonsai-1.7B; 383 tok/s GPU 1-bit (Qwen2-0.5B IQ1_S via llama.cpp). ROCm HIP backend reaches 113 tok/s. 22 tok/s GPU ZINC on Bonsai-1.7B F16. (Speculative decoding is unresolved — an earlier '572 tok/s' projection doesn't hold up yet, but that's an undertrained checkpoint, not a disproven architecture; training fix in progress.)"
         }
       }
     ]
