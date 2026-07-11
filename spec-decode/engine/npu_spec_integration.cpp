@@ -23,7 +23,7 @@
 
 static const char* kModelPath = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
 static const char* kXclbinDir = "/home/bcloud/npu-sandbox/npu-infer/build/int8";
-static const char* kDraftCheckpoint = "/home/bcloud/spec-decode/checkpoints/eagle3_draft.bin";
+static const char* kDraftCheckpoint = "/home/bcloud/spec-decode/checkpoints/eagle3_draft_npu_all.bin";
 
 int main(int argc, char* argv[]) {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -51,11 +51,16 @@ int main(int argc, char* argv[]) {
     MTPDraftConfig draft_cfg;
     MTPDraftModel draft_model(draft_cfg);
     bool draft_trained = draft_model.load_weights(kDraftCheckpoint);
-    if (draft_trained) {
-        printf("Loaded trained draft checkpoint: %s\n", kDraftCheckpoint);
-    } else {
-        printf("No draft checkpoint found at %s — running untrained fast path.\n", kDraftCheckpoint);
+    if (!draft_trained) {
+        // Hard-fail instead of silently falling back to the untrained passthrough path
+        // (mtp_draft.h always predicts token 0/1 with no weights loaded, which guarantees
+        // ~0% acceptance and previously got misreported as a real speculative-decode result).
+        fprintf(stderr, "ERROR: failed to load draft checkpoint at %s — refusing to run an "
+                        "untrained benchmark. Fix kDraftCheckpoint or train a checkpoint first.\n",
+                kDraftCheckpoint);
+        return 1;
     }
+    printf("Loaded trained draft checkpoint: %s\n", kDraftCheckpoint);
 
     SpeculativeDecoder decoder(target, draft_model, spec_cfg);
 

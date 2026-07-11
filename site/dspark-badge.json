@@ -1,1 +1,1 @@
-{"schemaVersion":1,"label":"DSpark spec-decode","message":"0.1-0.2 tok/s (disproven)","color":"red","cacheSeconds":86400}
+{"schemaVersion":1,"label":"Eagle3/DSpark spec-decode","message":"0.8 tok/s (untrained checkpoint)","color":"yellow","cacheSeconds":86400}

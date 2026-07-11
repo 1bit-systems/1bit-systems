@@ -30,11 +30,11 @@ from this document again.
 | **ROCm** (HIP) | Radeon 8060S | **113 tok/s** | reported | ~45W | Bonsai TQ2 ternary |
 | **GPU ZINC** (Vulkan F16) | Radeon 8060S | **22 tok/s** | ✅ validated | ~45W | Bonsai-1.7B F16 |
 | **C++ all-5** (auto-detect) | Q4NX header parse | **28 tok/s** | ⚙️ raw | ~15W | 5 models, one binary |
-| **DSpark spec-decode** ❌ | XDNA 2 + Zen 5 | **0.1–0.2 tok/s** | ❌ disproven end-to-end (0% draft acceptance) — earlier "~572 tok/s" was a projection | 15W | Qwen3-0.6B |
+| **Eagle3 spec-decode** ❌ | XDNA 2 + Zen 5 | **0.8 tok/s** | ❌ 0% draft acceptance — checkpoint undertrained (batch-size/dataset-size mismatch), not an architecture disproof | 15W | Qwen3-0.6B |
 
 **Status legend:** ✅ *validated* = measured on-device with coherent output · ✅ *measured* = throughput measured via a third-party tool (llama.cpp) · ⚙️ *raw* = the kernel runs at this speed but the engine's output is not yet fully coherent (correctness WIP) · *reported* = reported, not independently re-measured this pass · ❌ *disproven* = an earlier projection that was tested end-to-end and did not hold up. **Only ✅ numbers should be quoted as production.**
 
-**Net: 73+ models across 6 backends · 22 multi-modal (video, image, audio) · production-validated: 94 tok/s NPU (FLM) + 307 tok/s GPU ternary. DSpark's earlier "572 tok/s" was a projection (base engine × speculative-decode acceptance); end-to-end measurement gives 0.1–0.2 tok/s at 0% draft acceptance, disproving it. DSpark is experimental, not production.**
+**Net: 73+ models across 6 backends · 22 multi-modal (video, image, audio) · production-validated: 94 tok/s NPU (FLM) + 307 tok/s GPU ternary. Speculative decoding (Eagle3/DSpark) is unresolved, not disproven — see below.**
 
 ---
 
@@ -108,18 +108,38 @@ Chess-compiled INT8 xclbins. Verified on-device.
 
 ---
 
-## Speculative Decoding — DSpark (disproven)
+## Speculative Decoding — Eagle3/DSpark (unresolved, not disproven)
 
-**DSpark** is a speculative-decoding draft engine (5-layer C++ draft on Zen 5 CPU + the NPU
-target). An earlier **~572 tok/s projection** (base NPU throughput × 5.90× acceptance,
-measured on a small 10-sample gsm8k eval) was **disproven by end-to-end measurement**: the
-engine delivered **0.1–0.2 tok/s at 0% draft acceptance** in production use. The
-small-sample acceptance rate did not generalize. **DSpark remains experimental and must
-never be quoted as a production number.**
+Speculative decoding (Eagle3 1-layer draft + NPU target, `spec-decode/`) previously carried
+an earlier **~572 tok/s projection** (base NPU throughput × 5.90× acceptance, measured on a
+small 10-sample gsm8k eval) that was reported as "disproven" by a 2026-07-07 end-to-end run
+showing 0.1–0.2 tok/s at 0% draft acceptance. **That conclusion was wrong — two separate bugs
+were found on 2026-07-11, not an architecture failure:**
+
+1. **Wiring bug** (`spec-decode/engine/npu_spec_integration.cpp`): the benchmark hardcoded a
+   checkpoint path (`eagle3_draft.bin`) that didn't exist yet on 2026-07-07 — the symlink
+   wasn't created until 2026-07-10. `load_weights()` silently failed and the draft model fell
+   back to an untrained passthrough (`mtp_draft.h`, always predicts token 0/1 regardless of
+   context) instead of erroring out. Fixed: the integration now hard-fails instead of silently
+   running an untrained benchmark, and points at the checkpoint that actually exists.
+2. **Undertrained checkpoint**: even a checkpoint that *does* load successfully
+   (`eagle3_draft_npu_1k.bin`, confirmed loading in a 2026-07-10 test run) still measured 0%
+   acceptance. Root cause: the training config (`spec-decode/configs/eagle3_qwen3_0.6b.py`)
+   uses DeepSpec's stock `global_batch_size=512` — copied from configs meant for large
+   multi-GPU runs — against a local training set of only 360 examples
+   (`spec-decode/train_data/perfectblend_train.jsonl`). With a batch bigger than the whole
+   dataset, at most a handful of real gradient steps occur across all 10 epochs; the
+   checkpoint is close to random-init despite loading correctly.
+
+With both the wiring fixed and the correct checkpoint wired in, a real, honestly-measured
+run on this hardware gives **0.8 tok/s, 0% acceptance, 1.03× speedup** — consistent with an
+undertrained draft head, not a broken architecture. **Speculative decoding here is unresolved
+pending a real training run** (batch size sized to the dataset, and/or meaningfully more
+training data) — it should not be quoted as either "572 tok/s" or "disproven."
 
 | Engine | Tok/s | Power | Tok/J |
 |--------|:-----:|:-----:|:-----:|
-| NPU DSpark ❌ | **0.1–0.2** | 15W | ~0.01 |
+| NPU Eagle3 (undertrained) ❌ | **0.8** | 15W | ~0.05 |
 | GPU Qwen2-0.5B IQ1_S | 383 | 45W | 8.5 |
 | GPU Qwen3.5-0.8B Q1_0 | 312 | 45W | 6.9 |
 
@@ -134,7 +154,7 @@ never be quoted as a production number.**
 | Jul 2 | v9/v12, M=32 batch | 10 ms/tok | M=32 + OpenMP attention |
 | Jul 2 | All 5 models | 36–127 ms/tok | Auto-detect, 0 crashes |
 | Jul 6 | Fused layer | 3.4 ms/tok | One xclbin/transformer layer |
-| Jul 6 | DSpark spec-decode | 0.1–0.2 tok/s (disproven) | End-to-end test showed 0% draft acceptance |
+| Jul 6 | DSpark/Eagle3 spec-decode | 0.8 tok/s (unresolved) | 0% acceptance — wiring bug fixed Jul 11, undertrained checkpoint (batch-size/dataset-size mismatch) is the real blocker |
 
 ---
 
