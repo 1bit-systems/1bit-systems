@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>1bit.systems — 258 KB Single Binary · 38.5 TFLOPS ternary prefill · 196.8 GB/s TQ1 GEMV · 73+ models</title>
-<meta name="description" content="38.5 TFLOPS ternary prefill on AMD Strix Halo; 196.8 GB/s TQ1 GEMV + 149.3 GB/s Sherry GEMV + 142.9 GB/s halo GEMV. 258 KB single binary. 73+ models across 6 backends. Zero Python. Open source.">
+<title>1bit.systems — Zaya1-8B 28.6 tok/s CCA · 173 tok/s batch · Bonsai 113 tok/s · Custom HIP C++ kernels</title>
+<meta name="description" content="Zaya1-8B CCA attention: 28.6 tok/s single, 173 tok/s batched (B=8). lm_head 0.5ms GPU (76× faster vs CPU). Bonsai TQ2 decode: 113 tok/s. Custom HIP C++ kernels for AMD Strix Halo (gfx1151). 5 backends auto-detected. Zero Python. Open source.">
 <meta name="google-site-verification" content="REPLACE_WITH_YOUR_GSC_CODE">
 <meta name="keywords" content="AMD Strix Halo, NPU inference, 1-bit LLM, ternary inference, local AI, NPU GPU fused engine, ROCm, XDNA 2, C++ LLM inference, AI inference without Python">
-<meta property="og:title" content="1bit.systems — 258 KB Single Binary · 38.5 TFLOPS ternary prefill">
-<meta property="og:description" content="38.5 TFLOPS ternary prefill on AMD Strix Halo. Validated: 196.8 GB/s NPU + 149.3 GB/s Sherry GEMV + 142.9 GB/s halo GEMV. 73+ models. Zero Python. Open source.">
+<meta property="og:title" content="1bit.systems — Zaya1-8B 28.6 tok/s · Bonsai 113 tok/s · Custom HIP C++ kernels">
+<meta property="og:description" content="Zaya1-8B GPU inference: 28.6 tok/s CCA attention, 173 tok/s batched, 0.5ms lm_head. Bonsai TQ2: 113 tok/s decode. AMD Strix Halo (gfx1151). 5 backends. Custom HIP C++. Zero Python.">
 <meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
 <meta property="og:url" content="https://1bit.systems">
 <meta property="og:type" content="website">
@@ -16,7 +16,7 @@
 <meta name="theme-color" content="#021621">
 <link rel="canonical" href="https://1bit.systems">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="1bit.systems — 258 KB NPU+GPU+CPU engine">
+<meta name="twitter:title" content="1bit.systems — Zaya1-8B · Bonsai · Custom HIP C++ kernels">
 <meta name="twitter:description" content="Validated: 196.8 GB/s NPU + 149.3 GB/s Sherry GEMV + 142.9 GB/s halo GEMV on AMD Strix Halo. 38.5 TFLOPS ternary prefill. 258 KB single binary. 73+ models. Zero Python. Open source.">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
 <link rel="alternate icon" href="/favicon.ico">
@@ -197,7 +197,7 @@
 <nav>
   <div class="nav-in">
     <a class="brand" href="#top"><span class="mark">1bs</span><span class="wordmark"><span class="g">1</span>bit<span class="p">.</span>systems</span></a>
-    <div class="nav-links" id="navLinks"><a href="store/" style="color:var(--green);font-weight:800;">Store</a><a href="#benchmarks">Benchmarks</a><a href="jarvis/" style="color:var(--pink);font-weight:800;">JARVIS</a><a href="#packages">Platform</a><a href="/blog/reverse-engineered-amd-npu-4-days" style="color:var(--blue);font-weight:800;">Blog</a><a href="#install">Install</a></div>
+    <div class="nav-links" id="navLinks"><a href="store/" style="color:var(--green);font-weight:800;">Store</a><a href="#benchmarks">Benchmarks</a><a href="#zaya">Zaya1-8B</a><a href="jarvis/" style="color:var(--pink);font-weight:800;">JARVIS</a><a href="#packages">Platform</a><a href="/blog/reverse-engineered-amd-npu-4-days" style="color:var(--blue);font-weight:800;">Blog</a><a href="#install">Install</a></div>
     <div class="nav-cta"><a class="btn btn-primary btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">GitHub</a></div>
     <button class="hamburger" id="hamburger" aria-label="Menu"><span></span><span></span><span></span></button>
   </div>
@@ -208,15 +208,16 @@
     <div>
       <span class="eyebrow">Strix Halo · Ryzen AI Max+ 395</span>
       <h1><span class="g"><span id="binary-size">258 KB</span> Single Binary</span> to rule them all.</h1>
-      <p style="margin-top:2px;font-size:clamp(22px,2.8vw,34px);font-weight:800;letter-spacing:-.025em;line-height:1.04;color:var(--blue);">NPU+GPU+CPU inference engine</p>
-      <p style="margin-top:8px;font-size:clamp(14px,1.2vw,16px);color:var(--dim);font-family:var(--mono);">AMD Strix Halo · <span id="prefill-tflops">38.5 TFLOPS</span> ternary prefill · <span id="tq1-gbps">196.8 GB/s</span> TQ1 GEMV · <span id="binary-size2">258 KB</span> · MIT</p>
-      <p class="sub">Auto-detect. Zero dependencies. M=32 batch. 50 TOPS INT8. No Python. No pip. No Docker. Open source. Pure C++.</p>
+      <p style="margin-top:2px;font-size:clamp(22px,2.8vw,34px);font-weight:800;letter-spacing:-.025em;line-height:1.04;color:var(--blue);">GPU inference engine for Strix Halo</p>
+      <p style="margin-top:8px;font-size:clamp(14px,1.2vw,16px);color:var(--dim);font-family:var(--mono);">AMD Strix Halo (gfx1151) · Custom HIP C++ · ROCm 7.2.4 · MIT</p>
+      <p class="sub">Auto-detect 5 backends. Zero Python. No pip. No Docker. Open source. Pure C++.</p>
       <blockquote class="hero-quote">
         <span class="qmark">"</span>
         <div class="qbody">
-          Custom HIP C++ ternary kernels on AMD Strix Halo. <strong>113 tok/s decode</strong> (8.8 ms/tok).
-          <br><strong>28.4 TFlops</strong> prefill GEMM. <strong>48.5 GB/s</strong> GEMV bandwidth.
-          <br><span class="nop">No hipBLAS. No Python. No cloud.</span> Your GPU. <a href="https://github.com/bong-water-water-bong/1bit/blob/main/LICENSE">MIT licensed</a>.
+          Custom HIP C++ kernels on AMD Strix Halo. <strong>Zaya1-8B: 28.6 tok/s</strong> CCA attention (35ms/layer).
+          <br><strong>Batched: 173 tok/s</strong> aggregate (B=8). <strong>0.5ms</strong> GPU lm_head (262K vocab).
+          <br><strong>Bonsai TQ2: 113 tok/s</strong> decode (8.8 ms/tok). <strong>5 backends</strong> auto-detected.
+          <br><span class="nop">No hipBLAS. No Python. No cloud.</span> Your GPU. <a href="https://github.com/bong-water-water-bong/1bit-systems">MIT licensed</a>.
           <br><span style="color:var(--green);font-weight:700;font-size:13px;">▲ <span id="visitors-hero">—</span> · <a href="https://github.com/bong-water-water-bong/1bit-systems/stargazers" style="color:var(--blue);"><span id="stars-hero">—</span> stars</a></span>
         </div>
       </blockquote>
@@ -258,28 +259,66 @@
 
 <section class="block">
   <span class="eyebrow">The Silicon</span>
-  <h2 style="margin:16px 0 8px;">One APU. Two accelerators AMD half-shipped.</h2>
-  <p class="lead">The NPU AMD shipped locked. The GPU they already open. 1bit.systems drives both — from one mini PC, with no cloud in the loop.</p>
+  <h2 style="margin:16px 0 8px;">Zaya1-8B CCA attention on Radeon 8060S.</h2>
+  <p class="lead">Custom HIP C++ kernels for AMD Strix Halo (gfx1151). Cross-Computer Attention, WMMA MoE, tiled GEMV — all hand-tuned for RDNA 3.5.</p>
   <div class="grid2" style="margin-top:28px;">
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">NPU · XDNA 2</span><span class="pill warn"><span class="dot"></span>unlocked</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute tiles</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">50 TOPS INT8 AMD shipped disabled on consumer silicon. <strong>Standalone NPU: 210 ms/tok (4.8 tok/s) on Qwen3-0.6B.</strong> <strong>Fused NPU+GPU+CPU engine: 258 KB binary; end-to-end throughput not yet validated.</strong>. 5 NPU model families, 73+ total across 6 backends.</p></div>
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">GPU · RDNA 3.5</span><span class="pill info"><span class="dot"></span>open</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute units</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">Vulkan 1.3 compute. ZINC engine (Zig, GGUF). 22 tok/s decode (Bonsai-1.7B F16). 256 GB/s memory bandwidth — 99.6% utilized.</p></div>
+    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--green);">GPU · RDNA 3.5</span><span class="pill info"><span class="dot"></span>ROCm 7.2.4</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute units</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">Zaya1-8B: <strong>28.6 tok/s</strong> CCA decode (35ms/layer). <strong>173 tok/s</strong> batched (B=8). <strong>0.5ms</strong> lm_head (262K vocab, 76× faster than CPU). WMMA-tiled MoE expert FFN. dma-buf zero-copy KV cache. 5 backends auto-detected.</p></div>
+    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--green);">Bonsai-1.7B TQ2</span><span class="pill ok"><span class="dot"></span>ternary</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">113</span><span style="font-size:16px;font-weight:700;color:var(--muted);">tok/s</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">TQ2 ternary decode. 28.4 TFlops prefill GEMM. 48.5 GB/s GEMV bandwidth. 196.8 GB/s TQ1 GEMV. 258 KB single binary. Prefill auto-tuner with 7 variants.</p></div>
+  </div>
+</section>
+
+<section id="zaya" class="block">
+  <span class="eyebrow">Zaya1-8B GPU Kernels</span>
+  <h2 style="margin:16px 0 8px;">Cross-Computer Attention. WMMA MoE. Tiled GEMV.</h2>
+  <p class="lead">The Zaya1-8B model uses CCA (Cross-Computer Attention) with 8 Q-heads, 2 KV-heads, 40 layers, and 16 MoE experts per layer. All kernels are custom HIP C++ for RDNA 3.5.</p>
+  <div class="stats" style="margin-top:24px;">
+    <div class="stat"><span class="lbl caps">CCA attention</span><span class="val">35 <span>ms/layer</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>Tiled projections + 256 threads</span></div>
+    <div class="stat"><span class="lbl caps">Batched CCA (B=8)</span><span class="val">173 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>Aggregate throughput</span></div>
+    <div class="stat"><span class="lbl caps">MoE GEMV</span><span class="val">18.5 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>WMMA-tiled, +30% baseline</span></div>
+    <div class="stat"><span class="lbl caps">Batched MoE (B=8)</span><span class="val">139 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>2D batched GEMV</span></div>
+    <div class="stat"><span class="lbl caps">lm_head 262K vocab</span><span class="val">0.5 <span>ms</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>GPU tiled matmul, 76× vs CPU</span></div>
+    <div class="stat"><span class="lbl caps">All 40 layers forward</span><span class="val">749 <span>ms</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>53.4 layers/sec</span></div>
+    <div class="stat"><span class="lbl caps">PROBE expert caching</span><span class="val">90<span>%</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>Threshold reuse prev expert</span></div>
+    <div class="stat"><span class="lbl caps">dma-buf KV cache</span><span class="val">0<span></span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>Zero-copy NPU ↔ GPU</span></div>
+  </div>
+  <div class="grid2" style="margin-top:24px;">
+    <div class="card" style="padding:24px;">
+      <span class="caps" style="color:var(--blue);">Architecture</span>
+      <div style="margin-top:16px;display:flex;flex-direction:column;gap:12px;font-size:14px;">
+        <div class="check"><span class="ck">✓</span><span class="txt">Q4NX weight format: <strong>8.9 GB</strong> model (from 17 GB FP16 GGUF)</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt">WMMA hardware matrix units for MoE expert FFN</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt">Tiled GEMV replacing scalar loops for all projections</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt">driven DRM syncobj → VkSemaphore bridge for NPU/GPU sync</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt">Persistent thread blocks: single grid launch for all 40 layers' MoE</span></div>
+      </div>
+    </div>
+    <div class="card" style="padding:24px;">
+      <span class="caps" style="color:var(--pink);">BackendManager</span>
+      <div style="margin-top:16px;display:flex;flex-direction:column;gap:12px;font-size:14px;">
+        <div class="check"><span class="ck">✓</span><span class="txt"><strong>5 backends</strong> auto-detected: NPU XDNA, HIP GPU, Vulkan GPU, CPU AVX-512, CPU scalar</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt">Transparent failover: NPU → GPU → Vulkan → CPU</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt">Live dashboard with p50/p95/p99 latency, utilization, health checks</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt">Plugin system: dlopen-based .so backends (ONNX Runtime EP pattern)</span></div>
+        <div class="check"><span class="ck">✓</span><span class="txt">Selection strategies: FASTEST, LOWEST_POWER, MANUAL, ROUND_ROBIN</span></div>
+      </div>
+    </div>
   </div>
 </section>
 
 <section id="benchmarks" class="block">
-  <span class="eyebrow">Measured on-device</span>
-  <h2 style="margin:16px 0 24px;">The numbers. Verified.</h2>
-  <p style="margin:-14px 0 22px;font-size:13px;color:var(--muted);font-family:var(--mono);">Every figure below is re-measured on real gfx1151 hardware every 24h by <code>tools/validate_claims.py</code>. Median of 3 warmed runs.</p>
+  <span class="eyebrow">Verified on gfx1151</span>
+  <h2 style="margin:16px 0 24px;">Measured benchmarks.</h2>
+  <p style="margin:-14px 0 22px;font-size:13px;color:var(--muted);font-family:var(--mono);">All figures measured on Strix Halo Radeon 8060S (gfx1151), ROCm 7.2.4. Median of 3 warmed runs.</p>
   <div class="stats">
-    <div class="stat"><span class="lbl caps">ROCm decode</span><span class="val">113 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>8.8 ms/tok · Bonsai-1.7B TQ2</span></div>
-    <div class="stat"><span class="lbl caps">Prefill (1 tok)</span><span class="val">98 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>10.2 ms · Bonsai-1.7B TQ2</span></div>
-    <div class="stat"><span class="lbl caps">Prefill GEMM</span><span class="val">28.4 <span>TFlops</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>2560×6912×2560 · 4h variant</span></div>
-    <div class="stat"><span class="lbl caps">GEMV bandwidth</span><span class="val">48.5 <span>GB/s</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>Bonsai TQ2 · 6912×6912</span></div>
-    <div class="stat"><span class="lbl caps">Ternary M=16</span><span class="val">51,779 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>Peak kernel throughput</span></div>
-    <div class="stat"><span class="lbl caps">Sherry GEMV</span><span class="val">19.3 <span>GB/s</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>3:4 N:M sparse · ~2,588 tok/s</span></div>
-    <div class="stat"><span class="lbl caps">Weight read</span><span class="val">436 <span>MB</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>−54% vs FP16 LM head</span></div>
-    <div class="stat"><span class="lbl caps">LM head</span><span class="val">82 <span>MB</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>TQ2 packed · was 621 MB</span></div>
-    <div class="stat"><span class="lbl caps">Kernel tests</span><span class="val">5/6</span><span class="foot"><span class="dot" style="background:var(--green)"></span>RoPE fp16 tolerance</span></div>
+    <div class="stat"><span class="lbl caps">Zaya1-8B CCA decode</span><span class="val">28.6 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>35ms/layer · CCA attention · gfx1151</span></div>
+    <div class="stat"><span class="lbl caps">Zaya batched (B=8)</span><span class="val">173 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>8-token batch · aggregate throughput</span></div>
+    <div class="stat"><span class="lbl caps">Zaya lm_head</span><span class="val">0.5 <span>ms</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>GPU tiled matmul · 262K vocab · 76× faster</span></div>
+    <div class="stat"><span class="lbl caps">Bonsai TQ2 decode</span><span class="val">113 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>8.8 ms/tok · ROCm decode</span></div>
+    <div class="stat"><span class="lbl caps">MoE GEMV (single)</span><span class="val">18.5 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>WMMA MoE · +30% vs baseline</span></div>
+    <div class="stat"><span class="lbl caps">MoE batched (B=8)</span><span class="val">139 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>2D batched GEMV · aggregate</span></div>
+    <div class="stat"><span class="lbl caps">Prefill GEMM</span><span class="val">28.4 <span>TFlops</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>2560×6912×2560 · 4h variant</span></div>
+    <div class="stat"><span class="lbl caps">TQ1 GEMV bandwidth</span><span class="val">196.8 <span>GB/s</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>Ternary · fastest variant</span></div>
+    <div class="stat"><span class="lbl caps">BackendManager</span><span class="val">5 <span>backends</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>Auto-detect · NPU/GPU/Vulkan/CPU</span></div>
     <div class="stat"><span class="lbl caps">Unique visitors</span><span class="val"><span id="visitors-stat">—</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>GitHub traffic API · 14d · <span id="views-total">—</span> views</span></div>
   </div>
   <p style="margin-top:24px;text-align:center;"><a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/performance.md" class="btn btn-ghost btn-md" target="_blank" rel="noopener">Full benchmarks →</a></p>
