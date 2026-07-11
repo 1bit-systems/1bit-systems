@@ -1,1 +1,3 @@
-bmFtZSA9ICIxYml0LXN5c3RlbXMiCmNvbXBhdGliaWxpdHlfZGF0ZSA9ICIyMDI2LTA0LTIwIgpwYWdlc19idWlsZF9vdXRwdXRfZGlyID0gIi4iCg==
+name = "1bit-systems"
+compatibility_date = "2026-04-20"
+pages_build_output_dir = "."
