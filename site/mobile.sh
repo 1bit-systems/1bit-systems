@@ -40,7 +40,7 @@ if command -v ngrok >/dev/null 2>&1; then
 
     # Wait for ngrok to start and get URL
     echo "   Waiting for ngrok tunnel..."
-    for i in $(seq 1 10); do
+    for _i in $(seq 1 10); do
         NGROK_URL=$(curl -s http://localhost:4040/api/tunnels 2>/dev/null | grep -o '"public_url":"[^"]*"' | head -1 | cut -d'"' -f4)
         if [ -n "$NGROK_URL" ]; then
             break
