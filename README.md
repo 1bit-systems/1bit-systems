@@ -34,7 +34,7 @@ Measured on **AMD Strix Halo** (Ryzen AI Max+ 395) — 32 XDNA 2 NPU tiles + Rad
 | **GPU ZINC** (Vulkan) | Vulkan GLSL | Radeon 8060S | **22** | ✅ coherent |
 | **GPU Zaya** (ROCm HIP) | HIP kernels | Radeon 8060S | **10.6** | ✅ pure C++ server |
 
-See [full benchmark data](benchmarks/RESULTS-stack-2026-04-28.md) and the [live benchmarks](https://1bit.systems/live.html) page.
+See [full benchmark data](benchmarks/RESULTS-stack-2026-04-28.md).
 
 ---
 
