@@ -1,5 +1,1 @@
-# NOTE: Renamed to 1bit-legacy to avoid clobbering the 1bit-systems Pages project
-# which is now deployed from the bong-water-water-bong/1bit-systems monorepo.
-name = "1bit-legacy"
-compatibility_date = "2026-04-20"
-pages_build_output_dir = "."
+bmFtZSA9ICIxYml0LXN5c3RlbXMiCmNvbXBhdGliaWxpdHlfZGF0ZSA9ICIyMDI2LTA0LTIwIgpwYWdlc19idWlsZF9vdXRwdXRfZGlyID0gIi4iCg==
