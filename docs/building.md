@@ -1,117 +1,174 @@
-# Building the INT8 Inference Engine
+# Building zaya_server (C++ / ROCm)
+
+This document covers building **zaya_server** — a pure C++ inference server with optional
+GPU decoding support. No Rust, no Python at runtime. The host CPU is **AMD Strix Halo**
+(Ryzen AI Max+ 395) and GPU acceleration uses **ROCm 7.2.4** targeting `gfx1151`.
+
+---
 
 ## Prerequisites
 
-- AMD Strix Halo (Ryzen AI Max+ 395) with NPU enabled
-- Ubuntu 26.04 LTS (kernel 7.0.0+)
-- AMD XRT 2.21+ (`sudo apt install libxrt2 libxrt-npu2 libxrt-dev`)
-- GCC 15+ (for C++23 support)
-- Chess compiler license (free from [AMD Ryzen AI EA](https://account.amd.com/en/member/ryzenai-sw-ea.html))
-- Qwen3-0.6B Q4NX model (from FastFlowLM or extracted from FLM installation)
+| Package            | Version / Notes                                     |
+|--------------------|-----------------------------------------------------|
+| Ubuntu             | 24.04 LTS or later                                  |
+| ROCm               | 7.2.4                                               |
+| CMake              | ≥ 3.28                                              |
+| Ninja              | ≥ 1.12                                              |
+| GCC                | ≥ 13 (C++20) or ≥ 14 (C++23)                        |
+| Git                | —                                                   |
 
-## Step 1: Verify NPU
-
-```bash
-sudo xrt-smi examine
-# Expected: [0000:c6:00.1] |RyzenAI-npu5|
-lsmod | grep amdxdna
-# Expected: amdxdna module loaded
-```
-
-## Step 2: Set up torch2aie toolchain
-
-The torch2aie toolchain provides `aiecc` (MLIR-AIE compiler) and `xchesscc_wrapper` (Chess C++ compiler). These are needed to build xclbins.
+Install system dependencies:
 
 ```bash
-git clone https://github.com/taowen/torch2aie.git ~/torch2aie
-cd ~/torch2aie
-./scripts/setup_python.sh
-source scripts/env.sh
-
-# Place Chess license
-mkdir -p licenses/
-cp /path/to/Xilinx.lic licenses/
+sudo apt update
+sudo apt install -y cmake ninja-build build-essential git
 ```
 
-## Step 3: Build INT8 xclbins (one-time)
+---
 
-The engine uses 4 INT8 xclbins for QKV, O, GU, and D projections.
-Each is built with the K-interleaved-fixed generator.
+## ROCm 7.2.4
+
+Install ROCm via the official AMD repository or a local package install.
+
+**Example — repository install**
 
 ```bash
-cd engine/xclbins
-source ~/torch2aie/scripts/env.sh
+# Add AMD ROCm repository (adjust for your distro)
+curl -fsSL https://repo.radeon.com/rocm/rocm.gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/rocm.gpg
+echo "deb [signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.2.4 jammy main" \
+  | sudo tee /etc/apt/sources.list.d/rocm.list
+sudo apt update
+sudo apt install -y rocm-dev hipcc
 
-# Build kernel once
-xchesscc_wrapper aie2p -c \
-  -I $AIETOOLS_DIR/include -I $MLIR_AIE_DIR/include \
-  -DDIM_M=32 -DDIM_K=64 -DDIM_N=64 -Di8_i16_ONLY \
-  $MLIR_AIE_DIR/include/aie_kernels/aie2p/mm.cc \
-  -o ../build/mm_i8.o
-
-# Generate xclbins for each projection
-for shape in "128 1024 4096 QKV" "128 2048 1024 O" "128 1024 6144 GU" "128 3072 1024 D"; do
-    read M K N name <<< "$shape"
-    python3 n1_core_i8_v2.py -M $M -K $K -N $N > $name.mlir
-    aiecc --aietools=$AIETOOLS_DIR --alloc-scheme=basic-sequential \
-          --aie-generate-xclbin --no-compile-host \
-          --xclbin-name=../build/final_i8_${name}_v.xclbin \
-          --aie-generate-npu-insts --npu-insts-name=../build/insts_i8_${name}_v.txt \
-          $name.mlir
-done
+# Verify
+/opt/rocm/bin/rocminfo
+/opt/rocm/bin/hipconfig --full
 ```
 
-## Step 4: Build the dequantizer
+**Set `CMAKE_HIP_ARCHITECTURES`** so that HIP kernels are compiled for the Strix Halo GPU:
 
 ```bash
-gcc -c -O3 -o engine/build/dequant_q4nx.o engine/src/dequant_q4nx.c
+export CMAKE_HIP_ARCHITECTURES=gfx1151
 ```
 
-## Step 5: Build the engine
+It is convenient to add this to your shell profile:
 
 ```bash
-g++ -std=c++23 -O3 -o engine/build/npu_engine \
-    engine/src/npu_engine_i8.cpp \
-    engine/build/dequant_q4nx.o \
-    -I$XRT/include \
-    -L$XRT/lib64 \
-    -lxrt_coreutil -luuid -lm -ldl
+echo 'export CMAKE_HIP_ARCHITECTURES=gfx1151' >> ~/.bashrc
 ```
 
-## Step 6: Run
+---
+
+## Build: zaya_server (required)
+
+Clone the repository and build the main server binary:
 
 ```bash
-./engine/build/npu_engine
+# Clone (adjust URL to match your remote)
+cd ~
+git clone <your-repo-url> zaya
+cd zaya
+
+# Configure
+cmake -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_HIP_ARCHITECTURES=gfx1151 \
+  -DCMAKE_PREFIX_PATH=/opt/rocm
+
+# Build the server binary
+cmake --build build --target zaya_server
 ```
 
-Expected output:
+The resulting binary is `build/zaya_server`.
 
-```
-=== NPU Engine i8 + Attention ===
-Init 8 contexts...
-Dequant+pack: 4.5s
-=== Prefill 9 ===
-Done
-=== Generate ===
-  [0] 107325 (245ms)
-  [1] 40469 (241ms)
-  ...
-=== 243 ms/tok ===
-```
+---
 
-## Model location
+## Build: zaya_gpu_decode (optional)
 
-The engine expects the Qwen3-0.6B Q4NX model at:
-```
-/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx
+If your model uses the **Q4NX** quantisation format, you can build `zaya_gpu_decode`
+to offload the dequantisation and matmul steps to the GPU:
+
+```bash
+cmake -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_HIP_ARCHITECTURES=gfx1151 \
+  -DCMAKE_PREFIX_PATH=/opt/rocm \
+  -DZAYA_ENABLE_GPU_DECODE=ON
+
+cmake --build build --target zaya_gpu_decode
 ```
 
-This is the default FastFlowLM model cache location. To use a different path,
-edit the `mp` variable in `engine/src/npu_engine_i8.cpp`.
+The resulting shared library (or object) is `build/libzaya_gpu_decode.so`.
 
-## Performance tuning
+> **Note:** `zaya_server` will auto-detect the presence of this library at startup
+> and use it when loading Q4NX models. Building without `ZAYA_ENABLE_GPU_DECODE`
+> disables GPU decode; the server still runs, but inference stays entirely on CPU.
 
-- **4-live contexts**: All 4 GEMM contexts stay alive. No swapping overhead.
-- **Pre-loaded BOs**: Each layer's INT8 weights are uploaded once at startup.
-- **Activation scale**: Fixed at 5.0f/127.0f (verified on Strix Halo).
-- **NPU attention**: 4 attention xclbins registered. Falls back to CPU for <32 tokens.
+---
+
+## Build: llama.cpp with ROCm backend (optional)
+
+If the server depends on **llama.cpp** and you want its inference to use the same
+ROCm device:
+
+```bash
+# Either bundled in the zaya repo or standalone
+cd path/to/llama.cpp
+
+cmake -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_HIP_ARCHITECTURES=gfx1151 \
+  -DGGML_HIP=ON \
+  -DCMAKE_PREFIX_PATH=/opt/rocm
+
+cmake --build build --target llama
+```
+
+Then ensure `zaya_server`'s CMake configuration points to this build (e.g. via
+`-DLLAMA_DIR=/path/to/llama.cpp/build` during the zaya configure step).
+
+---
+
+## CMake option summary
+
+| Option                     | Default | Description                                |
+|----------------------------|---------|--------------------------------------------|
+| `ZAYA_ENABLE_GPU_DECODE`   | OFF     | Build `zaya_gpu_decode` for Q4NX GPU offload |
+| `ZAYA_USE_LLAMACPP_ROCM`   | OFF     | Link llama.cpp compiled with `GGML_HIP=ON` |
+| `CMAKE_HIP_ARCHITECTURES`  | —       | **Must** be set to `gfx1151`               |
+
+---
+
+## Running
+
+```bash
+./build/zaya_server --model /path/to/model
+```
+
+If `libzaya_gpu_decode.so` was built and is findable, the server will print a
+message at startup confirming GPU decode is active.
+
+---
+
+## Troubleshooting
+
+### `hipErrorNoBinaryForGPU`
+
+The `CMAKE_HIP_ARCHITECTURES` variable was not set, or was set to the wrong target.
+Ensure it is `gfx1151` and that ROCm 7.2.4 is installed (older ROCm releases may
+not include code-objects for gfx1151).
+
+### `cannot find -lamdhip64`
+
+ROCm is not on the linker path. Pass `-DCMAKE_PREFIX_PATH=/opt/rocm` during
+CMake configuration.
+
+### No GPU decode even though `zaya_gpu_decode` was built
+
+Check that the shared library is in the library search path:
+
+```bash
+export LD_LIBRARY_PATH=/path/to/zaya/build:$LD_LIBRARY_PATH
+```
+
+Also verify the model file is actually Q4NX (check the file header or extension).

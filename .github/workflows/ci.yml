@@ -11,27 +11,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  rust:
-    name: Rust (check + test)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: rust
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.96.0
-        with:
-          components: rustfmt, clippy
-      - name: Format
-        run: cargo fmt --all -- --check
-      - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
-      - name: Build
-        run: cargo build --release
-      - name: Test
-        run: cargo test --release
-
   cpp:
     name: C++ (cmake configure + build)
     runs-on: ubuntu-24.04
@@ -110,7 +89,7 @@ jobs:
   deploy:
     name: Deploy site
     if: always()
-    needs: [rust, cpp]
+    needs: [cpp]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
