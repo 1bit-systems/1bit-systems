@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - 'site/**'
-      - 'jarvis/**'
+      - '1bit-site/**'
   workflow_dispatch:
 
 jobs:
@@ -16,24 +16,9 @@ jobs:
       deployments: write
     steps:
       - uses: actions/checkout@v4
-
-      - name: Deploy 1bit.systems (preview on main)
+      - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy site --project-name=1bit-systems --branch=main
-
-      - name: Promote to production via API
-        run: |
-          python3 scripts/promote-pages-deployment.py \
-            "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" \
-            "${{ secrets.CLOUDFLARE_API_TOKEN }}" \
-            1bit-systems
-
-      - name: Deploy jarvis.1bit.systems
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy site/jarvis --project-name=jarvis --branch=main
+          command: pages deploy site --project-name=1bit-systems

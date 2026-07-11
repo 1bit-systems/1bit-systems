@@ -2,4 +2,3 @@ build/
 train-venv/
 checkpoints/
 target_cache/
-*.pt

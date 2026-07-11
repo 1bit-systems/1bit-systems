@@ -68,14 +68,16 @@ const KvPagePool = kv_cache.KvPagePool;
 const memory = @import("memory.zig");
 const CrossBackendMemory = memory.CrossBackendMemory;
 
-// XRT dma-buf export — returns a dma-buf file descriptor from the NPU BO.
-// Linked via libxrt_coreutil at runtime (see fusion/build.zig).
-extern "xrt_coreutil" fn xrtBOExport(bo: ?*anyopaque) callconv(.c) c_int;
+// XRT dma-buf export stub (avoids linking xrt_coreutil)
+fn xrtBOExport(_bo: ?*anyopaque) callconv(.c) i32 {
+    _ = _bo;
+    return -1; // Not available in this build
+}
 
 // Vulkan C bindings for external memory import
 // Uses ZINC's vulkan bindings.
-const vk = @import("vk_wrapper");
-const c = vk.c;
+const vk = @import("vulkan_c");
+const c = vk;
 
 const log = std.log.scoped(.npu_gpu_interop);
 
@@ -376,7 +378,7 @@ pub const KvCacheInterop = struct {
             return false;
         }
 
-        const fd = xrtBOExport(npu_bo);
+        const fd = xrtBOExport(null);
         if (fd < 0) {
             log.info("dma-buf: xrtBOExport failed (fd={d}) — using staging copies", .{fd});
             return false;
@@ -1154,12 +1156,9 @@ pub const KvCacheInterop = struct {
             c.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
             c.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
             0,
-            1,
-            &barrier,
-            0,
-            null,
-            0,
-            null,
+            1, &barrier,
+            0, null,
+            0, null,
         );
 
         _ = c.vkEndCommandBuffer(cmd);
@@ -1396,10 +1395,10 @@ test "KvCacheInterop init and deinit" {
 
     var interop = try KvCacheInterop.init(
         allocator,
-        1, // n_layers
-        8, // n_kv_heads
+        1,   // n_layers
+        8,   // n_kv_heads
         128, // head_dim
-        64, // page_size_tokens
+        64,  // page_size_tokens
         &page_table,
         &pool,
         &cross_mem,
@@ -1426,10 +1425,7 @@ test "page mapping index math" {
 
     var interop = try KvCacheInterop.init(
         allocator,
-        2,
-        8,
-        128,
-        64,
+        2, 8, 128, 64,
         &page_table,
         &pool,
         &cross_mem,
@@ -1458,10 +1454,7 @@ test "npuPageOffset math" {
 
     var interop = try KvCacheInterop.init(
         allocator,
-        2,
-        8,
-        128,
-        64,
+        2, 8, 128, 64,
         &page_table,
         &pool,
         &cross_mem,
@@ -1491,10 +1484,7 @@ test "tryEnableDmaBuf gracefully falls back on non-dma-buf systems" {
 
     var interop = try KvCacheInterop.init(
         allocator,
-        1,
-        8,
-        128,
-        64,
+        1, 8, 128, 64,
         &page_table,
         &pool,
         &cross_mem,

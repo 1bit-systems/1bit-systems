@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>1bit.systems · research</title>
+  <link rel="stylesheet" href="/assets/style.css?v=20260425k">
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 780px; margin: 0 auto; padding: 2rem 1.5rem; color: #c9d1d9; background: #0d1117; line-height: 1.65; }
+    a { color: #00d4ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    h1 { margin-bottom: 0.5rem; }
+    .muted { color: #8b949e; font-size: 0.92rem; }
+    ul.posts { list-style: none; padding: 0; }
+    ul.posts li { padding: 1rem 0; border-bottom: 1px solid #1f2630; }
+    .date { font-family: ui-monospace, monospace; font-size: 0.85rem; color: #8b949e; }
+  </style>
+</head>
+<body>
+  <p class="muted"><a href="/">1bit.systems</a> · research</p>
+  <h1>research</h1>
+  <p class="muted">Public notes on the work. Papers we steal from, benchmarks we run, things we ship.</p>
+  <ul class="posts">
+    <li>
+      <span class="date">2026-07-02</span> &middot;
+      <a href="/#agent">1bit Coding Agent released</a>
+      <p class="muted">Full pi.dev-compatible coding agent CLI with 7 commands, NPU-native inference, package management, extensions, skills, themes, and systemd service. Ships as part of the 1bit-systems monorepo.</p>
+    </li>
+    <li>
+      <span class="date">2026-07-02</span> &middot;
+      <a href="/#bench">NPU v12: M=32 batch decode at 97 tok/s</a>
+      <p class="muted">24× speedup in one session (244 → 10 ms/tok). Beats FLM Kraken Point by 46%. OpenMP attention + LM head. Full C++23, zero Python. <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/engine/npu/BENCHMARKS.md">Full report</a>.</p>
+    </li>
+    <li>
+      <span class="date">2026-04-28</span> &middot;
+      <a href="/#bench">Historical benchmark — both lanes green</a>
+      <p class="muted">Historical local run: one Lemonade endpoint, two compute lanes (iGPU <code>llamacpp:rocm</code> + NPU <code>flm:npu</code>), on Linux. Current public repair docs now start with toolbox-backed Strix Halo llama.cpp and keep the single control plane as roadmap work.</p>
+    </li>
+  </ul>
+</body>
+</html>

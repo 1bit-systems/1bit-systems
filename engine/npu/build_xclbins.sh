@@ -4,13 +4,13 @@
 # The engine will use INT8 data which the kernel handles internally.
 
 set -e
-CFG1="${TORCH2AIE_DIR:-/home/bcloud/torch2aie}/examples/gemm_asymmetric_tile_buffering/config1"
-INT8_DIR="${NPU_XCLBIN_DIR:-/home/bcloud/npu-sandbox/npu-infer/build/int8}"
+CFG1="/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1"
+INT8_DIR="/home/bcloud/npu-sandbox/npu-infer/build/int8"
 mk_dir="$CFG1/build"
 mkdir -p "$INT8_DIR"
 
-export PATH="${TORCH2AIE_DIR:-/home/bcloud/torch2aie}/toolchain/bin:$PATH"
-export PYTHONPATH="${TORCH2AIE_DIR:-/home/bcloud/torch2aie}/toolchain/mlir_aie/python"
+export PATH="/home/bcloud/torch2aie/toolchain/bin:$PATH"
+export PYTHONPATH="/home/bcloud/torch2aie/toolchain/mlir_aie/python"
 
 build() {
     local tag=$1 M=$2 K=$3 N=$4 label=$5
@@ -105,22 +105,3 @@ for tag in qwen3_0_6b qwen3_8b qwen3_vl_4b llama gemma4_e2b; do
     count=$(ls "${INT8_DIR}"/final_i8_*_${tag}.xclbin 2>/dev/null | wc -l)
     echo "  $tag: $count xclbins"
 done
-
-# === BitNet b1.58-2B-4T (H=2560, NH=20, NKV=5, HD=128, IM=6912) ===
-echo "=== BitNet b1.58-2B-4T ==="
-# QKV: K=H=2560, N=HD*(NH+2*NKV)=128*30=3840
-# O: K=NH*HD=2560, N=H=2560
-# G: K=H=2560, N=IM=6912 (split)
-# U: K=H=2560, N=IM=6912 (split)
-# D: K=IM=6912, N=H=2560
-TAG="bitnet"
-build "$TAG" 128 2560 3840  QKV
-build "$TAG" 128 2560 2560  O
-build "$TAG" 128 2560 6912  G
-build "$TAG" 128 2560 6912  U
-build "$TAG" 128 6912 2560  D
-
-echo ""
-echo "=== BitNet xclbins ==="
-count=$(ls "${INT8_DIR}"/final_i8_*_${TAG}.xclbin 2>/dev/null | wc -l)
-echo "  $TAG: $count xclbins"

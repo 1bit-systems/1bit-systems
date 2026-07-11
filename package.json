@@ -4,12 +4,11 @@
   "description": "1bit — your NPU-native coding agent. Fork of pi.dev, wired to local NPU.",
   "type": "module",
   "bin": {
-    "1bit": "bin/1bit"
+    "1bit": "dist/cli.js"
   },
   "main": "./dist/index.js",
   "files": [
     "dist",
-    "bin",
     "daemon",
     "extensions",
     "skills",
@@ -18,11 +17,10 @@
     "docs"
   ],
   "scripts": {
-    "build": "tsc && bash scripts/measure-binary.sh",
+    "build": "tsc",
     "dev": "tsx src/cli.ts",
     "watch": "tsc --watch",
-    "start": "node dist/cli.js",
-    "measure": "bash scripts/measure-binary.sh"
+    "start": "node dist/cli.js"
   },
   "keywords": [
     "1bit",

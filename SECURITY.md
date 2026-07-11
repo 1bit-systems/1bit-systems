@@ -11,7 +11,7 @@
 
 This is a small open-source project. If you find a security issue:
 
-1. **Do not open a public GitHub issue** — email `admin@1bit.systems`
+1. **Do not open a public GitHub issue** — post in the `#security` channel on [Discord](https://discord.gg/dSyV646eBs) or email `admin@1bit.systems`
 2. Include:
    - Description of the issue
    - Steps to reproduce (hardware, XRT version, command)
@@ -21,14 +21,10 @@ This is a small open-source project. If you find a security issue:
 ## Scope
 
 The following are in scope:
-- The spec-decode / NPU target stack (`spec-decode/`)
+- The NPU engine (`engine/npu/src/`)
 - The HTTP API server (`packaging/binary/server.cpp`)
-- The GPU (Vulkan/ZINC) inference path
+- The GPU engine (`engine/gpu/`)
 - Build-time toolchain (XRT, Chess compiler)
-
-(The legacy standalone `engine/npu/`, `engine/gpu/`, and `engine/fusion/`
-implementations were retired in favor of the `spec-decode/` stack — see
-`docs/wiki/performance.md` for current engine status.)
 
 Out of scope:
 - Third-party models loaded onto the NPU

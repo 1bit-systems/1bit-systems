@@ -30,7 +30,7 @@
   #define GU_FUSED 1  // 2*IM=6144 <= 14336
   #define BOS 151643
   #define EOS 151645
-  #define DEF_MP ([]{const char*e=getenv("NPU_MODEL_PATH");return e?e:"/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";}())
+  #define DEF_MP "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx"
   #define Q_I8R 256
   #define KV_I8R 128
   #define O_I8R 256
@@ -156,7 +156,7 @@
   #define GU_FUSED 1
   #define BOS 151643
   #define EOS 151645
-  #define DEF_MP ([]{const char*e=getenv("NPU_MODEL_PATH");return e?e:"/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";}())
+  #define DEF_MP "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx"
   #define Q_I8R 256
   #define KV_I8R 128
   #define O_I8R 256
@@ -174,7 +174,7 @@
 #define WKVH (NKV/AW)
 
 // XCLBIN directory
-#define XCLBIN_DIR ([]{const char*e=getenv("NPU_XCLBIN_DIR");return e?e:"/home/bcloud/npu-sandbox/npu-infer/build/int8";}())
+#define XCLBIN_DIR "/home/bcloud/npu-sandbox/npu-infer/build/int8"
 
 // xclbin name builder
 // QKV: final_i8_QKV_<suffix>.xclbin

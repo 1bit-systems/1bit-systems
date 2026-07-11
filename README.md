@@ -1,130 +1,130 @@
-> **I reverse-engineered AMD's proprietary NPU stack in 4 days.**
-> One person. A free Chess license. A C++ compiler.
-> Today: **🏆 118.9 µs** NPU native ternary 32-core (HW verified) + **279 tok/s** GPU 1.58-bit ternary + **94 tok/s** FLM NPU. 1bit monster on Strix Halo.
-> No Python. No Docker. No vendor lock. Your hardware. [MIT licensed](LICENSE).
-
 <div align="center">
 
-<img src="site/assets/brand-lockup.svg" alt="1bit.systems" width="460">
+<img src="site/assets/brand-lockup.svg" alt="1bit" width="540">
 
-**Generate video. Create images. Synthesize audio. Run LLMs.**  
-Zero Python. Your hardware.
+# 1-bit inference, wired for Strix Halo.
 
-[![279 tok/s ternary](https://img.shields.io/badge/279%20tok%2Fs-ternary-00ff00.svg)](docs/wiki/performance.md)
-[![NPU ternary verified](https://img.shields.io/badge/NPU%2032--core-118.9%C2%B5s%20bit--exact-blue.svg)](docs/ternary-npu.md)
-[![291 tok/s fused layer (raw)](https://img.shields.io/badge/291%20tok%2Fs-fused%20layer%20raw-12a0ed.svg)](docs/wiki/performance.md)
-[![94 tok/s NPU FLM](https://img.shields.io/badge/94%20tok%2Fs-NPU%20FLM-00ff88.svg)](docs/wiki/performance.md)
-[![Zero Python](https://img.shields.io/badge/deps-0-00ff00.svg)](docs/wiki/install.md)
-[![113 tok/s ROCm](https://img.shields.io/badge/113%20tok%2Fs-ROCm-ff0000.svg)](docs/wiki/performance.md)
-[![Vulkan ⭐](https://img.shields.io/badge/Vulkan-%E2%AD%90%20primary-b3802c.svg)](docs/wiki/engines.md)
-[![MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
-[![unique visitors (14d)](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/visitors.json&cacheSeconds=3600)](https://github.com/bong-water-water-bong/1bit-systems/graphs/traffic)
-[![stars](https://img.shields.io/github/stars/bong-water-water-bong/1bit-systems?color=00ff88&label=stars)](https://github.com/bong-water-water-bong/1bit-systems/stargazers)
-[![forks](https://img.shields.io/github/forks/bong-water-water-bong/1bit-systems?color=12a0ed&label=forks)](https://github.com/bong-water-water-bong/1bit-systems/network/members)
-<br>
-<sub>deb · snap · docker · AUR · homebrew · ollama</sub>
+### Pure Rust server. Custom HIP C++ kernels. One command.
+
+`1bit` is the unified monorepo for 1-bit/ternary inference on AMD Strix Halo (gfx1151). It merges the Rust HTTP server (formerly `1bit-engine`) and the HIP C++ kernels (formerly `rocm-cpp`) into a single repository with a single build.
+
+[![CI](https://github.com/bong-water-water-bong/1bit/actions/workflows/ci.yml/badge.svg)](https://github.com/bong-water-water-bong/1bit/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
+[![Site](https://img.shields.io/badge/site-1bit.systems-12a0ed.svg)](https://1bit.systems)
+[![Rust 1.96+](https://img.shields.io/badge/rust-1.96%2B-orange.svg)](https://rustup.rs)
+[![ROCm 7.2.4](https://img.shields.io/badge/rocm-7.2.4-blue.svg)](https://rocm.docs.amd.com)
+[![Zaya](https://img.shields.io/badge/model-zaya-f00fd2.svg)](https://huggingface.co/zaya)
+[![Strix Halo](https://img.shields.io/badge/strix%20halo-gfx1151%20%2B%20XDNA%202-12a0ed.svg)](https://www.amd.com/en/products/processors/laptop/ryzen/ai-max-series.html)
 
 </div>
 
 ---
 
-## Quick Start
-
-```bash
-curl -sL https://1bit.systems/npu-install.sh | bash  # 30 seconds
-1bit pull qwen3-0.6b
-1bit chat                                              # auto-detect NPU → GPU → CPU
-```
-
-OpenAI-compatible API:
-```bash
-1bit serve &
-curl localhost:8081/v1/chat/completions \
-  -d '{"model":"qwen3-0.6b","messages":[{"role":"user","content":"Hello!"}]}'
-```
-
-Multi-modal:
-```bash
-video-lora generate --model wan --prompt "cinematic dolly zoom"
-video-lora generate --model flux --prompt "portrait, soft lighting"
-video-lora generate --model stable-audio --prompt "rain on window"
-```
-
-## Performance Highlights
-
-| Engine | Hardware | Speed | Model |
-|--------|----------|-------|-------|
-| **NPU fused** 🏆 | XDNA 2 · 32 tiles | **291 tok/s** | Qwen3-0.6B — ✅ coherent, weight-scaled BF16 overflow fix |
-| **NPU FLM** (production) | XDNA 2 · 32 tiles | **94 tok/s** | Qwen3-0.6B — ✅ measured, coherent |
-| **NPU v12** ⚙️ raw | XDNA 2 · 32 tiles | **97 tok/s** | Qwen3-0.6B — raw throughput, output not yet coherent |
-| **ROCm** (HIP) | Radeon 8060S | **113 tok/s** | Bonsai TQ2 — reported |
-| **C++ all-5** ⚙️ raw | XDNA 2 · 32 tiles | **28 tok/s** | Auto-detect 5 models — raw throughput |
-| **DSpark spec-decode** ⚠️ experimental | XDNA 2 + Zen 5 | **0.1–0.2 tok/s** (0% accept) | Qwen3-0.6B + 5-layer draft — WIP, not working |
-| **Ternary** (Vulkan) | Radeon 8060S | **279 tok/s** | Bonsai-1.7B Q2_0 — ✅ measured, coherent |
-| **GPU 1-bit** (llama.cpp) | Radeon 8060S | **381 tok/s** | Qwen2-0.5B IQ1_S — measured |
-| **GPU ZINC** (Vulkan) | Radeon 8060S | **22 tok/s** | Bonsai-1.7B F16 — ✅ measured, coherent |
-| **Zaya** (ROCm) | Radeon 8060S | **~18 tok/s** | ZAYA1PREVIEW-74B-A4B-Q4_K_M — reported |
-
-Only ✅ numbers are production. See [docs/wiki/performance.md](docs/wiki/performance.md) for full status legend.
-
-**73+ models** across 6 backends · **22 multi-modal** (video, image, audio)  
-**55.7 TFLOPS** INT8 GEMM · **24× speedup** (244→10 ms/tok)
-
-## The Unlock
-
-AMD shipped Strix Halo with a 50 TOPS NPU but locked INT8 behind proprietary runtimes.
-**4 days. 279 tok/s ternary (GPU, validated). 94 tok/s NPU (FLM, coherent). Open source.**
-The silicon was never the bottleneck. The business model was.
-
 ## Architecture
 
-The old standalone `engine/npu/`, `engine/gpu/` (Zig), and `engine/fusion/` (Zig
-NPU+GPU dispatcher) implementations were retired — superseded by the
-`spec-decode/` stack (FLM target + DSpark draft engine). Current layout:
-
 ```
-spec-decode/
-├── draft/     C++ — DSpark draft engine (dspark_draft.h)
-└── engine/    C++ — spec-decode orchestrator (spec_decode.h)
+1bit/
+├── rust/          axum HTTP server → spawns bitnet_decode
+├── src/           HIP C++ kernels → ternary GEMV/GEMM
+├── include/       C API headers → prefill_tuner.h, ck_gemm.h
+├── kernels/       HIP implementations → phase5 decode, sherry, kv-cache
+├── engine/
+│   ├── npu/       C++23 INT8 engine — NPU (XDNA 2)
+│   └── gpu/       Zig engine — GPU (Vulkan/CUDA/Metal), sibling to npu/
+├── site/          1bit.systems website → static HTML
+│   └── assets/brand-lockup.svg
+├── 1bit-site/     Deploy mirror (synced from site/)
+├── tools/
+│   ├── video-lora/  Video gen w/ LoRA (Wan2.2, LTX-Video, AnimateDiff, CogVideoX)
+│   │                + standalone Vulkan compute backend (Zig)
+│   └── ...          Benchmarks, sweeps, model exporter
+├── docs/          Architecture, build guide, roadmap, journey
+├── packaging/     deb, snap, tarball, docker, ollama, AUR
+├── benchmarks/    Historical benchmark data
+└── .github/workflows/  CI benchmark + deploy + PR agent + video-lora CI
 ```
 
-NPU inference in production runs via the FLM proxy (94 tok/s, coherent). GPU
-inference runs via ZINC/Vulkan (22–381 tok/s depending on model/quant). See
-[docs/wiki/performance.md](docs/wiki/performance.md) for current, honest
-status of every engine.
+**One repo, one build, one binary.** `cmake` builds the kernels. `cargo` builds the server. `install.sh` does both.
 
-## More
+## Performance
 
-| Topic | Link |
-|-------|------|
-| 🚀 **Install & Build** | [docs/wiki/install.md](docs/wiki/install.md) |
-| 📊 **Benchmarks & Models** | [docs/wiki/performance.md](docs/wiki/performance.md) |
-| ⚙️ **Engine Docs** | [docs/wiki/engines.md](docs/wiki/engines.md) |
-| 🌐 **Ecosystem & Clients** | [docs/wiki/ecosystem.md](docs/wiki/ecosystem.md) |
-| ❓ **FAQ** | [docs/wiki/faq.md](docs/wiki/faq.md) |
-| 📖 **Full Wiki** | [docs/wiki/landing.md](docs/wiki/landing.md) |
-| 📜 **Journey (audit trail)** | [docs/journey.md](docs/journey.md) |
-| 🤝 **Contributing** | [CONTRIBUTING.md](CONTRIBUTING.md) |
+### Bonsai-1.7B (TQ2 Ternary) — Radeon 8060S
 
-## Development
+| Metric | Value |
+|---|---|
+| Decode | **113 tok/s** (8.8 ms/tok) |
+| Prefill (1 tok) | 98 tok/s (10.2 ms) |
+| Weight read per token | 436 MB (TQ2) |
+| Prefill GEMM 2560×6912×2560 | **28.4 TFlops** (4h variant) |
+| Ternary GEMM small M=16 | **51,779 tok/s** |
+| Bonsai TQ2 GEMV 6912×6912 | **48.5 GB/s** (~3,824 tok/s) |
+| Sherry GEMV 6912×6912 | **19.3 GB/s** (~2,588 tok/s) |
 
-API keys and credentials are stored in the system keyring:
+See [full benchmark data](benchmarks/RESULTS-stack-2026-04-28.md). *Strix Halo Radeon 8060S (gfx1151), 128 GB LPDDR5X.*
 
-| Key | Location |
-|-----|----------|
-| Anthropic/Claude OAuth | `~/.claude/.credentials.json` |
-| DeepSeek API key | `~/.pi/agent/auth.json` |
-| OpenCode/Go API key | `~/.pi/agent/auth.json` |
-| ProtonMail bridge | `~/.pi/agent/mcp.json` |
-| Ollama (local) | `~/.pi/agent/models.json` |
-| GitHub SSH | `~/.ssh/` |
-| Xilinx/XRT license | `~/torch2aie/licenses/` + `~/.flexlmrc` |
-| Pi settings | `~/.pi/agent/settings.json` |
-| Cloudflare API + Zone | GNOME Keyring (`secret-tool lookup service cloudflare-analytics`) — [docs](docs/analytics-keyring.md) |
-| Cloudflare Web Analytics | token injected into `site/index.html` via GH Actions workflow |
+## One-Command Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bong-water-water-bong/1bit/main/install.sh | bash
+```
+
+# After install, set up the environment:
+source ~/1bit/env.sh
+
+Installs Rust toolchain, ROCm build deps, clones and builds kernels + server. Supports Ubuntu 24.04, Arch, CachyoS, Fedora.
+
+```bash
+# After install, set up the environment and run:
+source ~/.cargo/env
+export HSA_OVERRIDE_GFX_VERSION=11.5.1
+export HSA_ENABLE_SDMA=0
+export LD_LIBRARY_PATH=~/1bit/build:$LD_LIBRARY_PATH
+~/1bit/rust/target/release/onebit --model model.h1b --port 13305 --tune-prefill --fp16-weights
+```
+
+## Connect Apps
+
+```python
+from openai import OpenAI
+client = OpenAI(base_url="http://127.0.0.1:13305/v1", api_key="any")
+print(client.chat.completions.create(
+    model="bitnet",
+    messages=[{"role":"user","content":"Hello"}],
+    max_tokens=20,
+).choices[0].message.content)
+```
+
+Any OpenAI-compatible client works — Open WebUI, AnythingLLM, Continue, Aider, Cline, n8n, Dify.
+
+## Build from Source
+
+```bash
+git clone https://github.com/bong-water-water-bong/1bit
+cd 1bit
+
+# Kernels (requires ROCm 7.2.4 — see [releases](https://github.com/ROCm/ROCm/releases))
+cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151
+ninja -C build rocm_cpp bitnet_decode bench_prefill_variants
+
+# Server (requires Rust 1.96+)
+cd rust && cargo build --release && cargo test --release  # 7/7 pass
+
+source env.sh
+```
+
+## History
+
+This monorepo merges four previously separate repositories (`rocm-cpp`, `1bit-engine`, `1bit-systems`, `1bit-lemonade`) into one. All development now happens here.
+
+## Documentation
+
+- [Kernel architecture](site/docs/architecture.html) — RDNA 3.5, ternary theory, packing
+- [Benchmark report](benchmarks/RESULTS-stack-2026-04-28.md) — Full data
+- [Kernel tuning guide](include/rocm_cpp/prefill_tuner.h) — Auto-tuner API
+- [Install guide](install.sh) — One-command setup
 
 ## License
 
-MIT — see [LICENSE](LICENSE).  
-*Built on Strix Halo. NPU + GPU + CPU. One chip. One binary. Every model.*  
-*admin@1bit.systems*
+MIT. See `LICENSE`.
+
+Sherry-specific kernels (3:4 N:M sparse ternary GEMV, tq1 packer): PolyForm Noncommercial 1.0.0. See `LICENSE-SHERRY.md`.

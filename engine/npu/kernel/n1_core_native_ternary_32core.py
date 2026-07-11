@@ -15,7 +15,7 @@ Each core gets the full column buffer, picks its slice via row_start/num_rows.
 Kernel compiled with DIM_M = 4 * M_PER_CORE (total rows per column).
 
 Usage:
-    python3 n1_core_native_ternary_32core.py -M 128 -K 64 > ternary_32core.mlir
+    python3 n1_core_native_ternary_32core.py -M 512 -K 512 > ternary_32core.mlir
 """
 
 import argparse
@@ -30,7 +30,7 @@ from aie.helpers.dialects.scf import _for as range_
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-M", type=int, default=128, help="Total output rows (multiple of 32)")
-    parser.add_argument("-K", type=int, default=64, help="Packed K bytes (K*4 = ternary values)")
+    parser.add_argument("-K", type=int, default=512, help="Packed K bytes (K*4 = ternary values; block scale layout)")
     parser.add_argument("--dump", action="store_true")
     args = parser.parse_args()
     assert args.M % 32 == 0, f"M={args.M} must be a multiple of 32"
@@ -46,10 +46,11 @@ def my_native_ternary_32core(M, K_packed, dump=False):
     m_per_core = M // (n_rows * n_cols)  # M/32 rows per core
     m_per_col = m_per_core * n_rows       # M/8 rows per column buffer
     k_ternary = K_packed * 4
+    n_blocks = k_ternary // 256              # blocks of 256 ternary values
 
     # Per-column buffer sizes (contains all 4 cores' data)
-    col_weight_bytes = m_per_col * K_packed   # 4*M_PR*64
-    col_scale_bytes = m_per_col * 2           # 4*M_PR*2
+    col_weight_bytes = m_per_col * K_packed   # 4*M_PR*512
+    col_scale_bytes = m_per_col * n_blocks * 2  # per-block scale (n_blocks scales per row)
     col_act_bytes = k_ternary * 2
     col_in_bytes = col_weight_bytes + col_scale_bytes + col_act_bytes
     col_in_dwords = (col_in_bytes + 3) // 4

@@ -1,0 +1,40 @@
+# Cloudflare Pages — redirect rules
+# Format: <from> <to> <status>
+
+# Short permalinks
+/discord      https://discord.gg/dSyV646eBs                                302
+/gh           https://github.com/bong-water-water-bong/1bit-systems        302
+/github       https://github.com/bong-water-water-bong/1bit-systems        302
+/wiki         https://github.com/bong-water-water-bong/1bit-systems/wiki   302
+/install      /#install                                                    302
+
+# 1bit coding agent
+/agent        /#agent                                                      301
+
+# Marketing site + single-page docs collapsed into ONE /index.html
+# 301! (with bang) forces the redirect even when legacy HTML is on disk
+/docs                       /                         301!
+/docs/                      /                         301!
+/docs/index.html            /                         301!
+/docs/install.html          /#install                 301!
+/docs/install               /#install                 301!
+/docs/quickstart.html       /#bench                   301!
+/docs/quickstart            /#bench                   301!
+/docs/troubleshooting.html  /#troubleshooting         301!
+/docs/troubleshooting       /#troubleshooting         301!
+/docs/faq.html              /#architecture            301!
+/docs/faq                   /#architecture            301!
+/docs/architecture.html     /#architecture            301!
+/docs/architecture          /#architecture            301!
+/docs/models.html           /#models                  301!
+/docs/models                /#models                  301!
+/docs/api.html              /#api                     301!
+/docs/api                   /#api                     301!
+/docs/benchmarks.html       /#bench                   301!
+/docs/benchmarks            /#bench                   301!
+/docs/why.html              /#stack                   301!
+/docs/why                   /#stack                   301!
+/docs/contributing.html     /#changelog               301!
+/docs/contributing          /#changelog               301!
+/docs/changelog.html        /#changelog               301!
+/docs/changelog             /#changelog               301!

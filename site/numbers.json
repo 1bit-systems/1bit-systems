@@ -1,26 +1,34 @@
 {
+  "_generated_by": "tools/gen_numbers.py",
+  "_generated_at": "2026-07-10T10:56:50Z",
+  "_warning": "Generated file. Do not hand-edit; run tools/gen_numbers.py.",
+  "_missing": [
+    "decode: build/bitnet_decode",
+    "tui: build/bitnet_tui"
+  ],
   "binary": {
-    "fused_kb": 82,
-    "decode_kb": 1600,
-    "decode_stripped_kb": 1200,
-    "tui_kb": 1072,
-    "tui_stripped_kb": 774
+    "fused_bytes": 264000,
+    "fused_kb": 258,
+    "decode_bytes": null,
+    "decode_kb": null,
+    "decode_stripped_kb": null,
+    "tui_bytes": null,
+    "tui_kb": null,
+    "tui_stripped_kb": null
   },
   "benchmarks": {
-    "rocm_decode_tok_s": 113,
-    "rocm_decode_ms_tok": 8.8,
-    "rocm_prefill_tok_s": 98,
-    "rocm_prefill_ms_tok": 10.2,
-    "rocm_tflops": 28.4,
-    "rocm_gemv_bw_gbps": 48.5,
-    "rocm_gemv_tok_s": 3824,
-    "rocm_gemm_smallm_tok_s": 51779,
-    "sherry_gemv_bw_gbps": 19.3,
-    "sherry_gemv_tok_s": 2588,
-    "rocm_weight_read_mb": 436,
-    "rocm_lm_head_mb": 82,
-    "kernel_tests_pass": 5,
-    "kernel_tests_total": 6
+    "prefill_tflops_4h": 25.04,
+    "sherry_gemv_gbps": 149.3,
+    "tq1_gemv_gbps": 196.8,
+    "halo_gemv_gbps": 142.9,
+    "prefill_tflops_i8apre": 38.49
+  },
+  "_sources": {
+    "prefill_tflops_4h": "bench_prefill_variants 2560 6912 2560 -- variant 4h (64x64 cached A+B)",
+    "sherry_gemv_gbps": "bench_sherry -- M=6912 K=2560, sherry kernel, 256 iters",
+    "tq1_gemv_gbps": "bench_sherry -- tq1 kernel, fastest GEMV variant",
+    "halo_gemv_gbps": "bench_sherry -- halo baseline kernel",
+    "prefill_tflops_i8apre": "bench_prefill_variants 2560 6912 2560 -- variant 4i-I8-APRE (I8 A + tiled B), median of 3"
   },
   "repo": {
     "stars": 9,

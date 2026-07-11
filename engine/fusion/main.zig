@@ -34,6 +34,7 @@ const CliOptions = struct {
 fn parsePolicy(name: []const u8) DispatchPolicy {
     if (std.mem.eql(u8, name, "npu_only")) return .npu_only;
     if (std.mem.eql(u8, name, "gpu_only")) return .gpu_only;
+    if (std.mem.eql(u8, name, "cpu_only")) return .cpu_only;
     if (std.mem.eql(u8, name, "ffn_on_npu")) return .ffn_on_npu;
     if (std.mem.eql(u8, name, "qkv_on_npu")) return .qkv_on_npu;
     if (std.mem.eql(u8, name, "attention_on_npu")) return .attention_on_npu;
@@ -72,6 +73,8 @@ fn printPolicies() void {
             .qkv_on_npu => "QKV on NPU, rest on GPU",
             .prefill_npu_decode_gpu => "Prefill NPU, Decode GPU",
             .auto => "Auto-tuned",
+            .cpu_only => "All on CPU ternary (pure C++, no accelerator needed)",
+            .cpu_fallback => "CPU fallback when NPU/GPU backends are unavailable",
         };
         std.debug.print("  {s:20}  {s}\n", .{ f.name, desc });
     }
@@ -123,7 +126,7 @@ pub fn main(init: std.process.Init) !void {
 
     // ── Load model ──
     std.debug.print("Loading model: {s}\n", .{opts.model_path});
-    var model = try model_data.loadModel(allocator, opts.model_path, "qwen3_0_6b");
+    var model = try model_data.loadModel(allocator, init.io, opts.model_path, "qwen3_0_6b");
     defer model.deinit(allocator);
 
     const cfg = model.config;
@@ -151,14 +154,15 @@ pub fn main(init: std.process.Init) !void {
         .ffn_on_npu => .ffn_on_npu,
         .qkv_on_npu => .qkv_on_npu,
         .attention_on_npu => .attention_on_npu,
+        .cpu_only => .cpu_only,
         else => .ffn_on_npu,
     };
     var executor = try FusedExecutor.init(
-        allocator, fuse_policy, QWEN3_0_6B,
-        opts.npu_engine, opts.model_path,
+        allocator, init.io, fuse_policy, QWEN3_0_6B,
+        opts.model_path, opts.npu_engine,
         MAX_CONTEXT, opts.batch_size,
         model.emb_f32, model.lm_head_f32, model.tied_embeddings,
-        model.final_norm, model.in_norm, model.pa_norm,
+        model.final_norm, model.in_norm, model.pa_norm, &.{}, &.{},
         model.rope_sin, model.rope_cos,
     );
     defer executor.deinit();

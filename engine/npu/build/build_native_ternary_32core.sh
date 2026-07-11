@@ -9,7 +9,7 @@
 #   source engine/npu/build/env.sh
 #   bash engine/npu/build/build_native_ternary_32core.sh [M] [K] [name]
 #
-# Defaults: M=128, K=64, name=ternary_32core
+# Defaults: M=128, K=64, name=ternary_32core (4×8 grid; K=512 for oneshot)
 
 set -euo pipefail
 
@@ -33,7 +33,13 @@ fi
 
 # Toolchain (matches env.sh exported vars)
 CC="${TOOLCHAIN}/bin/xchesscc_wrapper"
-AIECC="${TOOLCHAIN}/mlir_aie/bin/aiecc.py"
+# Use locally-built aiecc (toolchain's aie-opt lacks contiguous shim-DMA optimization)
+LOCAL_AIECC="/home/bcloud/mlir-aie/build/bin/aiecc"
+if [ -x "$LOCAL_AIECC" ]; then
+  AIECC="$LOCAL_AIECC"
+else
+  AIECC="${TOOLCHAIN}/mlir_aie/bin/aiecc.py"
+fi
 AIECC_PYTHON="${TOOLCHAIN}/../.venv/bin/python3"
 AIECC_PYTHONPATH="${MLIR_AIE_DIR}/python"
 GEN_PYTHON="${AIECC_PYTHON}"

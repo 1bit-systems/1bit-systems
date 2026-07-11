@@ -1,9 +1,3 @@
-# DISABLED: this workflow's entire purpose was building and benchmarking the
-# standalone engine/npu/ runtime, which was retired in commit cd232a091
-# (superseded by the spec-decode/ stack; logic carried forward into
-# spec-decode/engine/npu_target_model.h). There is nothing left here to build.
-# Left in place (rather than deleted) so the self-hosted benchmark harness is
-# easy to resurrect/retarget if a spec-decode NPU benchmark job is wanted later.
 name: NPU Benchmark
 
 on:
@@ -17,15 +11,68 @@ on:
         description: 'Decode tokens to generate'
         required: false
         default: '4'
+  push:
+    paths:
+      - 'engine/npu/src/**'
+      - 'engine/npu/kernel/**'
+      - 'engine/npu/xclbins/**'
 
 jobs:
   benchmark:
     runs-on: self-hosted
-    if: false  # disabled — engine/npu/ no longer exists, see comment at top of file
+    if: github.event.repository.owner.login == 'bong-water-water-bong'
     steps:
       - uses: actions/checkout@v4
 
-      - name: Disabled
+      - name: Check NPU driver
         run: |
-          echo "This job is disabled: engine/npu/ was removed in cd232a091."
-          exit 1
+          if ! ls /dev/accel/accel0 2>/dev/null; then
+            echo "::warning::NPU device not found — driver may need reload"
+            echo "DRIVER_OK=false" >> $GITHUB_ENV
+          else
+            echo "NPU device present"
+            echo "DRIVER_OK=true" >> $GITHUB_ENV
+          fi
+
+      - name: Check XRT
+        run: |
+          if ! ldconfig -p | grep -q xrt_coreutil; then
+            echo "::error::XRT not found in ldconfig"
+            exit 1
+          fi
+          echo "XRT found"
+
+      - name: Build dequantizer
+        run: gcc -c -O3 -o engine/npu/build/dequant_q4nx.o engine/npu/src/dequant_q4nx.c
+
+      - name: Build engine (continuous batch)
+        run: |
+          mkdir -p engine/npu/build
+          g++ -std=c++23 -O3 -march=native -fopenmp -ffast-math -o engine/npu/build/npu_engine_v12 \
+            engine/npu/src/npu_engine_v12.cpp engine/npu/build/dequant_q4nx.o \
+            -I/opt/xrt/include -L/opt/xrt/lib -lxrt_coreutil -luuid -lm -ldl
+
+      - name: Benchmark
+        if: env.DRIVER_OK == 'true'
+        run: |
+          M=${PRE:-9}; N=${DEC:-4}
+          echo "=== NPU Benchmark $(date -u) ==="
+          echo "Prefill tokens: $M, Decode tokens: $N"
+          cd engine/npu/build
+          OMP_NUM_THREADS=16 ./npu_engine_v12 $M $N 2>&1 | tee benchmark.log
+          echo "---"
+          grep "ms/tok" benchmark.log || echo "::warning::No ms/tok line found"
+
+      - name: Upload benchmark log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-log
+          path: engine/npu/build/benchmark.log
+          retention-days: 30
+
+      - name: Update BENCHMARKS.md timestamp
+        if: env.DRIVER_OK == 'true'
+        run: |
+          NOW=$(date -u +"%Y-%m-%d %H:%M UTC")
+          sed -i "s/^\*Benchmarks run.*/*Benchmarks run $NOW — CI-verified./" engine/npu/BENCHMARKS.md

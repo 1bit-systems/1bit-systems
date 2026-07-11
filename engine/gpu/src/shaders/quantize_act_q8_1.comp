@@ -1,0 +1,63 @@
+#version 460
+// ZINC — Q8_1-style activation quantizer for the int8 DP4a Q4_K dense FFN
+// gate+up+SwiGLU prefill GEMM (Qwen3.6-27B). Mirrors quantize_act_q8.comp but
+// also stores per-32-block d_sum = scale * sum_of_int8_lanes.
+//
+// Q4_K weights are stored as factor*nibble - bias (per row, per 32-sub-block).
+// The int8 dot only produces sum_k nibble*B_i8; the second term needs
+// sum_k(B_i8) per sub-block to subtract bias*d_sum. Computing dsum once during
+// the one-shot quantize avoids redoing it inside the per-(m,n) GEMM hot loop.
+//
+// Layout: src is token-major [token][K] f32 (dense-FFN scratch_norm).
+//   dst_packed:        token-major [token][K/4] uint, 4 int8 lanes per uint
+//   dst_scale_dsum:    token-major [token][K/32] vec2 (scale, scale*isum_i8)
+
+#extension GL_EXT_control_flow_attributes : require
+
+layout(local_size_x = 256) in;
+
+layout(push_constant) uniform PushConstants {
+    uint n_tokens;
+    uint K;
+    uint blocks_per_token;
+    uint total_blocks;
+};
+
+layout(set = 0, binding = 0) readonly buffer Src   { float src[]; };
+layout(set = 0, binding = 1) writeonly buffer Dst  { uint dst_packed[]; };
+layout(set = 0, binding = 2) writeonly buffer Scl  { vec2 dst_scale_dsum[]; };
+
+void main() {
+    const uint block = gl_GlobalInvocationID.x;
+    if (block >= total_blocks) return;
+
+    const uint token = block / blocks_per_token;
+    const uint blk_in_tok = block - token * blocks_per_token;
+    const uint base = token * K + blk_in_tok * 32u;
+
+    float vals[32];
+    float amax = 0.0;
+    [[unroll]] for (uint i = 0u; i < 32u; i++) {
+        float v = src[base + i];
+        vals[i] = v;
+        amax = max(amax, abs(v));
+    }
+
+    const float scale = amax / 127.0;
+    const float inv = (amax > 0.0) ? (127.0 / amax) : 0.0;
+
+    int isum = 0;
+    const uint out_base = base >> 2;
+    [[unroll]] for (uint p = 0u; p < 8u; p++) {
+        uint packed = 0u;
+        [[unroll]] for (uint b = 0u; b < 4u; b++) {
+            int q = int(round(vals[p * 4u + b] * inv));
+            q = clamp(q, -127, 127);
+            isum += q;
+            packed |= (uint(q) & 0xFFu) << (b * 8u);
+        }
+        dst_packed[out_base + p] = packed;
+    }
+
+    dst_scale_dsum[block] = vec2(scale, scale * float(isum));
+}

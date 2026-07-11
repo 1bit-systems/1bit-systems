@@ -15,7 +15,7 @@ Each core gets the full column buffer, picks its slice via row_start/num_rows.
 Kernel compiled with DIM_M = 4 * M_PER_CORE (total rows per column).
 
 Usage:
-    python3 n1_core_native_ternary_32core.py -M 128 -K 64 > ternary_32core.mlir
+    python3 n1_core_native_ternary_32core_oneshot.py -M 128 -K 512 > ternary_32core.mlir
 """
 
 import argparse
@@ -30,7 +30,7 @@ from aie.helpers.dialects.scf import _for as range_
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-M", type=int, default=128, help="Total output rows (multiple of 32)")
-    parser.add_argument("-K", type=int, default=64, help="Packed K bytes (K*4 = ternary values)")
+    parser.add_argument("-K", type=int, default=512, help="Packed K bytes (K*4 = ternary values; block scale layout)")
     parser.add_argument("--dump", action="store_true")
     args = parser.parse_args()
     assert args.M % 32 == 0, f"M={args.M} must be a multiple of 32"
@@ -42,14 +42,15 @@ def main():
 
 def my_native_ternary_32core(M, K_packed, dump=False):
     n_cols = 8
-    n_rows = 4
-    m_per_core = M // (n_rows * n_cols)  # M/32 rows per core
-    m_per_col = m_per_core * n_rows       # M/8 rows per column buffer
+    n_rows = 1  # Single core per column (NPU2 mem_tile output channel limitation)
+    m_per_core = M // n_cols  # 128/8 = 16 rows per core
+    m_per_col = m_per_core  # 16 rows per column buffer
     k_ternary = K_packed * 4
 
     # Per-column buffer sizes (contains all 4 cores' data)
-    col_weight_bytes = m_per_col * K_packed   # 4*M_PR*64
-    col_scale_bytes = m_per_col * 2           # 4*M_PR*2
+    n_blocks = k_ternary // 256              # blocks of 256 ternary values
+    col_weight_bytes = m_per_col * K_packed   # 4*M_PR*512 (K_packed max)
+    col_scale_bytes = m_per_col * n_blocks * 2  # per-block scale (n_blocks scales per row)
     col_act_bytes = k_ternary * 2
     col_in_bytes = col_weight_bytes + col_scale_bytes + col_act_bytes
     col_in_dwords = (col_in_bytes + 3) // 4
@@ -85,13 +86,10 @@ def my_native_ternary_32core(M, K_packed, dump=False):
             link_with=kernel_o,
         )
 
-        tiles = [
-            [tile(col, row) for col in range(n_cols)]
-            for row in range(6)
-        ]
-        shim_tiles = tiles[0]
-        mem_tiles = tiles[1]
-        core_tiles = tiles[2:]  # rows 2,3,4,5
+        # NPU2: only core rows 2 and 4 work with mem_tile row 1 (NPU2 limitation)
+        shim_tiles = [tile(c, 0) for c in range(n_cols)]
+        mem_tiles  = [tile(c, 1) for c in range(n_cols)]
+        core_tiles = [[tile(c, 2)] for c in range(n_cols)]  # 1 core/col
 
         # ── Per-column input: shim→mem→4 cores (same column only) ──
         A_l3l2 = [None] * n_cols
@@ -104,7 +102,7 @@ def my_native_ternary_32core(M, K_packed, dump=False):
             A_l2l1[col] = object_fifo(
                 f"A_L2L1_{col}",
                 mem_tiles[col],
-                [core_tiles[r][col] for r in range(n_rows)],
+                [core_tiles[col][r] for r in range(n_rows)],
                 2, A_l1_ty,
             )
             object_fifo_link(A_l3l2[col], A_l2l1[col])
@@ -116,7 +114,7 @@ def my_native_ternary_32core(M, K_packed, dump=False):
             for row in range(n_rows):
                 C_l1l2[row][col] = object_fifo(
                     f"C_L1L2_{col}_{row}",
-                    core_tiles[row][col], mem_tiles[col],
+                    core_tiles[col][row], mem_tiles[col],
                     1, C_l1_ty,
                 )
             C_l2l3[col] = object_fifo(
@@ -136,9 +134,9 @@ def my_native_ternary_32core(M, K_packed, dump=False):
                 core_row_start = row * m_per_core
                 core_num_rows = m_per_core
 
-                @core(core_tiles[row][col], stack_size=0xD00)
+                @core(core_tiles[col][row], stack_size=0x1000)
                 def core_body():
-                    for _ in range_(1):
+                    for _ in range_(0xFFFFFFFF):
                         A = A_l2l1[col].acquire(ObjectFifoPort.Consume, 1)
                         C = C_l1l2[row][col].acquire(ObjectFifoPort.Produce, 1)
                         native_ternary(A, C, core_row_start, core_num_rows)

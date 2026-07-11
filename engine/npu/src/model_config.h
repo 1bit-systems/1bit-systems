@@ -265,7 +265,7 @@ inline ModelConfig parse_q4nx_header(const char* model_path, const char* model_t
     cfg.xclbin_o_n = cfg.H;
     
     // GU split decision
-    cfg.gu_split = (cfg.IM * 2 > 14336) || cfg.model_tag.find("bitnet") != std::string::npos;
+    cfg.gu_split = (cfg.IM * 2 > 14336);
     if (cfg.gu_split) {
         cfg.xclbin_g_k = cfg.H;
         cfg.xclbin_g_n = cfg.IM;

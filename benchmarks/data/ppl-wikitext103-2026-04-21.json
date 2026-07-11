@@ -1,0 +1,83 @@
+{
+  "harness": "bitnet_decode --ppl",
+  "timestamp": "2026-04-21",
+  "dataset": "/home/bcloud/halo-ai/datasets/wikitext-103-test.txt",
+  "max_tokens": 4095,
+  "tokenizer": "/home/bcloud/halo-ai/models/halo-1bit-2b.htok",
+  "baseline_halo_v2_from_memory": 9.1607,
+  "tolerance_cutover": 0.05,
+  "note_on_baseline": "Memory's 9.1607 baseline is a prefix-window reading; at ~chunk 1024 the running PPL is ~9.19 for HaloV2 and ~9.16 for TQ1, matching memory. Full 4095-token PPL is monotonically higher by context-growth (RoPE-bug-adjacent? known issue: PPL rises with context per project_ppl_harness.md). All 5 models scored here at full 4095-token single-pass for apples-to-apples.",
+  "runs": [
+    {
+      "model_name": "halo-1bit-2b.tq1.h1b",
+      "model_path": "/home/bcloud/halo-ai/models/halo-1bit-2b.tq1.h1b",
+      "weight_format": "TQ1 base-3 1.6bpw (lossless ternary)",
+      "ppl": 11.993687,
+      "ppl_at_chunk_1024": 9.19,
+      "mean_nll": 2.484380,
+      "wall_seconds": 87.007,
+      "tok_per_s": 47.07,
+      "chunks_processed": 4095,
+      "notes": "Baseline. Running PPL crosses 9.16 at chunk 1024 matching memory's 9.1607 gen-1 figure. Full-context number drifts up to 11.99 per known context-growth issue."
+    },
+    {
+      "model_name": "halo-1bit-2b.h1b",
+      "model_path": "/home/bcloud/halo-ai/models/halo-1bit-2b.h1b",
+      "weight_format": "HALO_V2 2bpw int8-act",
+      "ppl": 11.975776,
+      "ppl_at_chunk_1024": 9.16,
+      "mean_nll": 2.482886,
+      "wall_seconds": 84.706,
+      "tok_per_s": 48.34,
+      "chunks_processed": 4095,
+      "delta_vs_tq1": -0.017911,
+      "gate_pass_vs_tq1": true,
+      "gate_tolerance": 0.05,
+      "notes": "PASS. HaloV2 within ±0.05 of TQ1 (|-0.018| < 0.05). Running PPL at chunk 1024 is 9.16, exactly matching gen-1's 9.1607 memory baseline."
+    },
+    {
+      "model_name": "halo-1bit-2b-sherry-v4.h1b",
+      "model_path": "/home/bcloud/halo-ai/models/halo-1bit-2b-sherry-v4.h1b",
+      "weight_format": "SHERRY (3:4 sparsity, 1.25bpw)",
+      "ppl": 128256.0,
+      "mean_nll": 11.761784,
+      "wall_seconds": 1.600,
+      "tok_per_s": 2559.62,
+      "chunks_processed": 4095,
+      "notes": "FAILED (as predicted). PPL = V = 128256 (vocab size) → model outputs uniform distribution, i.e. pure gibberish. 12.98% flip rate per memory is well past usable threshold. The 2559 tok/s is suspicious and suggests the sherry-v4 kernel path is short-circuiting or producing NaNs that collapse to uniform softmax — worth a separate investigation but not in scope for this read-only bench run."
+    },
+    {
+      "model_name": "bonsai-1.7b-tq2.h1b",
+      "model_path": "/home/bcloud/halo-ai/models/bonsai/bonsai-1.7b-tq2.h1b",
+      "weight_format": "BONSAI_TQ2 (Qwen3 arch, PrismML-trained-from-scratch)",
+      "ppl": null,
+      "wall_seconds": null,
+      "chunks_processed": 0,
+      "notes": "FAILED: segfault. 'Memory access fault by GPU node-1 on address 0x1f400000 — Page not present or supervisor privilege.' Model loaded OK (hs=2048 is=6144 L=28 nh=16 nkv=8 vocab=151669; sidecar GGUF hydrated 4×28 layer norms + output_norm + token_embd). Crash is on first forward pass. Using halo-1bit-2b.htok as tokenizer override since no .htok sidecar exists for Bonsai; likely tokenizer mismatch triggers OOB logits-gather (vocab 151669 vs tokenizer 128256). Not a kernel bug; dispatch-path issue per memory warning. Skipped per bench instructions (read-only, no fixes)."
+    },
+    {
+      "model_name": "halo-bitnet-2b-tq2.h1b",
+      "model_path": "/home/bcloud/halo-ai/models/halo-bitnet-2b-tq2.h1b",
+      "weight_format": "TQ2 post-hoc repack of MS BitNet",
+      "ppl": 128256.0,
+      "mean_nll": 11.761784,
+      "wall_seconds": 1.700,
+      "tok_per_s": 2408.97,
+      "chunks_processed": 4095,
+      "notes": "FAILED (predicted). PPL = V = 128256 → uniform distribution. Emitted repeated 'rcpp err 1 at bitnet_decode.cpp:692' during run. Consistent with the memo's warning: model goes through Bonsai dispatch path which assumes Qwen3 arch; arch-dispatch-split lane has not landed. Rerun deferred until that split is merged."
+    }
+  ],
+  "summary": {
+    "gates": {
+      "model_1_tq1_baseline": "reference (11.9937 full-ctx, 9.19 @ chunk 1024)",
+      "model_2_halov2_vs_tq1_tolerance_0.05": "PASS (delta -0.0179)",
+      "model_3_sherry_v4_expected_gibberish": "CONFIRMED (uniform output)",
+      "model_4_bonsai_tq2": "SEGFAULT (GPU memory fault on first forward)",
+      "model_5_halo_bitnet_tq2": "GIBBERISH (arch-dispatch-split not landed, as predicted)"
+    },
+    "cross_check_vs_memory_baseline_9.1607": {
+      "at_chunk_1024": "TQ1 9.19 / HaloV2 9.16 — matches gen-1 baseline 9.1607 and gen-2 9.1805 cited in CLAUDE.md",
+      "full_4095_ctx": "drifts to ~11.99 for both TQ1 and HaloV2 — known RoPE-adjacent / long-context PPL growth per project_ppl_harness.md"
+    }
+  }
+}

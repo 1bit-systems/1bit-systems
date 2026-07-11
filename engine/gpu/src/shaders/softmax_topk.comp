@@ -1,0 +1,103 @@
+#version 460
+// ZINC — Fused top-k + renormalized softmax for MoE expert routing.
+// Selects top-k experts directly from router logits, then computes normalized
+// weights only for the winners. This is equivalent to softmax-all + top-k
+// because softmax preserves logit ordering and the selected weights are
+// renormalized afterward. Replaces CPU topKSoftmax.
+// Optimized for AMD RDNA4 (wave64): workgroup = 64 threads = 1 full wave.
+// Single workgroup dispatch — n_experts (256) fits in shared memory.
+//
+// RADV compatibility: keeps winner selection in shared memory and avoids the
+// subgroup ballot/broadcast pattern that previously crashed on RDNA4.
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) readonly buffer Logits {
+    float logits[];
+};
+
+// Output: expert_ids[k] as uint, then expert_weights[k] as floatBitsToUint
+layout(set = 0, binding = 1) buffer RouterOutput {
+    uint output_data[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint n_experts;   // total experts (e.g. 256)
+    uint k;           // top-k to select (e.g. 8)
+};
+
+shared float s_logits[256];
+
+// Per-thread local max for top-k reduction
+shared float s_local_val[64];
+shared uint  s_local_idx[64];
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+
+    // --- Step 1: Stage logits in shared memory ---
+    for (uint i = tid; i < n_experts; i += 64) {
+        s_logits[i] = logits[i];
+    }
+    barrier();
+
+    // --- Step 2: Top-k selection directly on logits via shared memory reduction ---
+    // For each of k rounds: each thread finds its local max, writes to shared,
+    // thread 0 scans all 64 entries to find the global winner.
+    // No ballot/broadcast — fully RADV compatible. The selected logits are
+    // temporarily stored in output_data[k + i] and converted to weights later.
+    for (uint ki = 0; ki < k; ki++) {
+        // Each thread finds its local max across its strided elements
+        float best_val = -1.0 / 0.0;
+        uint best_idx = 0;
+        for (uint i = tid; i < n_experts; i += 64) {
+            if (s_logits[i] > best_val) {
+                best_val = s_logits[i];
+                best_idx = i;
+            }
+        }
+
+        // Write local max to shared memory
+        s_local_val[tid] = best_val;
+        s_local_idx[tid] = best_idx;
+        barrier();
+
+        // Thread 0 scans all 64 entries to find global winner
+        if (tid == 0) {
+            float global_best = -1.0 / 0.0;
+            uint global_idx = 0;
+            for (uint t = 0; t < 64; t++) {
+                if (s_local_val[t] > global_best) {
+                    global_best = s_local_val[t];
+                    global_idx = s_local_idx[t];
+                }
+            }
+            output_data[ki] = global_idx;
+            output_data[k + ki] = floatBitsToUint(global_best);
+            // Mask out selected expert
+            s_logits[global_idx] = -1.0 / 0.0;
+        }
+        barrier();
+    }
+
+    // --- Step 3: Convert selected logits to renormalized routing weights ---
+    if (tid == 0) {
+        float max_logit = -1.0 / 0.0;
+        for (uint i = 0; i < k; i++) {
+            max_logit = max(max_logit, uintBitsToFloat(output_data[k + i]));
+        }
+
+        float wsum_local = 0.0;
+        for (uint i = 0; i < k; i++) {
+            float w = exp(uintBitsToFloat(output_data[k + i]) - max_logit);
+            output_data[k + i] = floatBitsToUint(w);
+            wsum_local += w;
+        }
+
+        float inv_wsum = (wsum_local > 0.0) ? (1.0 / wsum_local) : 0.0;
+        for (uint i = 0; i < k; i++) {
+            float w = uintBitsToFloat(output_data[k + i]) * inv_wsum;
+            output_data[k + i] = floatBitsToUint(w);
+        }
+    }
+}

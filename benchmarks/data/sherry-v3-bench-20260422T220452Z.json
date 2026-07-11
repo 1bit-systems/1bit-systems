@@ -1,0 +1,14 @@
+{
+  "date": "2026-04-22",
+  "host": "strixhalo",
+  "arch": "gfx1151",
+  "model_file": "halo-1bit-2b-sherry-v3.h1b",
+  "weight_format": "Sherry 1.25 bpw (3:4 sparsity)",
+  "repacked_from": "bitnet-2b-bf16-sherryft/model.safetensors",
+  "packer_version": "requantize_bf16_to_sherry.py (per-row AbsMean scales, current HEAD)",
+  "decode_at_64_tok_sec": 75.3,
+  "latency_ms_mean": 850.8,
+  "quality": "BROKEN — outputs 'mass mass mass...' — confirms bug #2 (format cannot encode non-zp zeros; needs Sparse-BitNet retrain to match)",
+  "note_baseline_tq1": "halo-1bit-2b.tq1 on same harness: 83 tok/s @ 64 (gen-1 cached number). Sherry-v3 75 tok/s is slower — kernel dispatch not optimal here, or warmup overhead.",
+  "next_step": "Await Run 4 Sparse-BitNet completion on H200 pod; pack from those weights; re-bench."
+}

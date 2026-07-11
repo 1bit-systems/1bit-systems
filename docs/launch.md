@@ -4,13 +4,13 @@
 
 ## One-Liner Pitch
 
-> **30 KB binary. 291 tok/s on AMD NPU (fused engine). Zero Python. Zero dependencies. MIT license.**
+> **120 KB binary. 94 tok/s on AMD's NPU. Zero Python. Zero dependencies. MIT license.**
 > I reverse-engineered AMD's proprietary NPU stack in 4 days. Here's what I built.
 
 ## Target Audience
 
 - Hacker News (r/programming, r/LocalLLaMA, r/MachineLearning)
-- AMD community (r/Amd, ROCm forums)
+- AMD community (r/Amd, Strix Halo Discord, ROCm forums)
 - AI infrastructure engineers (vLLM, Ollama, llama.cpp ecosystem)
 - Open source enthusiasts
 
@@ -19,7 +19,7 @@
 | Day | Action |
 |-----|--------|
 | **T-7** | Final polish — docs, README, release |
-| **T-3** | Post Show HN draft for feedback |
+| **T-3** | Post Show HN draft to Discord for feedback |
 | **T-1** | Push final release with packages attached |
 | **T-0** | **7:00 AM PT / 14:00 UTC — Post Show HN** |
 | **T+0** | Monitor comments, respond authentically |
@@ -30,12 +30,12 @@
 
 ### Title
 
-> *I reverse-engineered AMD's NPU stack in 4 days. Here's a 30 KB binary that runs LLMs at 291 tok/s.*
+> *I reverse-engineered AMD's NPU stack in 4 days. Here's a 120 KB binary that runs LLMs at 94 tok/s.*
 
 *Alternative titles:*
-- *30 KB binary. 291 tok/s on AMD NPU. Zero deps. Open source.*
-- *I beat AMD's proprietary NPU runtime with a 30 KB open-source binary*
-- *Show HN: 1bit.systems — 30 KB NPU inference engine, 291 tok/s, MIT*
+- *120 KB binary. 94 tok/s on AMD NPU. Zero deps. Open source.*
+- *I beat AMD's proprietary NPU runtime with a 120 KB open-source binary*
+- *Show HN: 1bit.systems — 120 KB NPU inference engine, 94 tok/s, MIT*
 
 ### Body
 
@@ -43,14 +43,14 @@
 Hi HN,
 
 I reverse-engineered AMD's XDNA 2 NPU stack and built an open-source
-inference engine in C++23. It's 30 KB. Zero Python. Zero dependencies.
+inference engine in C++23. It's 120 KB. Zero Python. Zero dependencies.
 One binary. Runs 5 LLMs on the same chip you already have.
 
 Why this matters:
 
 AMD's NPU is rated for 50 TOPS INT8. FastFlowLM (their proprietary
 runtime) gets ~94 tok/s on Qwen3-0.6B. My engine matches that — but
-it's 30 KB, MIT-licensed, and compiles with one g++ command.
+it's 120 KB, MIT-licensed, and compiles with one g++ command.
 
 No Python. No pip. No Docker. No MLIR toolchain. Just g++ and run.
 
@@ -142,7 +142,7 @@ everything else.
 ## Key Messages to Reinforce
 
 - **"No Python. No pip. No Docker. One binary."** — This is the hook.
-- **"81 KB — not 2 GB."** — Contrast with AMD's MLIR toolchain.
+- **"120 KB — not 2 GB."** — Contrast with AMD's MLIR toolchain.
 - **"Open source beats proprietary on their own silicon."** — The narrative.
 - **"MIT license. Do what you want with it."** — Lowers barrier to adoption.
 - **"One person vs. AMD's team."** — The human angle.

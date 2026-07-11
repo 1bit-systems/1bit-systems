@@ -1,0 +1,148 @@
+{
+  "meta": {
+    "date": "2026-04-22",
+    "hosts": {
+      "strixhalo": {
+        "arch": "gfx1151",
+        "service": "http://127.0.0.1:8080/v1/",
+        "model": "halo-1bit-2b",
+        "device": "Strix Halo iGPU, LPDDR5 shared"
+      },
+      "ryzen": {
+        "arch": "gfx1201",
+        "service": "http://100.64.0.3:9080/v1/",
+        "model": "halo-1bit-2b",
+        "device": "AMD Radeon RX 9070 XT (card0), GDDR6 ~640 GB/s"
+      }
+    },
+    "notes": [
+      "Live base services on :8080 and :9080 were not disturbed.",
+      "Sherry-v3 on ryzen was a second bitnet_decode bound to :9081 using existing halo-1bit-2b.htok symlinked as halo-1bit-2b-sherry-v3.htok; killed after bench.",
+      "Power samples: card0 only (card1 on ryzen is the 9800X3D Raphael iGPU at ~0.01W, ignored).",
+      "rocm-smi reports Average Graphics Package Power on gfx1201 and Current Socket Graphics Package Power on gfx1151 — both treated as package power."
+    ]
+  },
+
+  "bench1_sherry_v3_gfx1201": {
+    "description": "Sherry-v3 64-tok decode on RX 9070 XT via :9081, 'Explain ternary quantization in three sentences.'",
+    "rsync": {
+      "from": "strixhalo:/home/bcloud/1bit-halo-models/models/halo-1bit-2b-sherry-v3.h1b",
+      "to": "ryzen:/home/bcloud/1bit-halo-models/models/halo-1bit-2b-sherry-v3.h1b",
+      "size_bytes": 1645004852,
+      "throughput_MBps": 213.76
+    },
+    "service_startup_log_snippets": [
+      "[rocm-cpp] .h1b v3 (Sherry 1.25 bpw, int8-act) — dispatching ternary GEMVs through sherry decoder.",
+      "[rocm-cpp] .h1b v3 flags=0x0: rope_theta=500000.0 rms_norm_eps=1.0e-05",
+      "[rocm-cpp] loading .h1b: hs=2560 is=6912 L=30 nh=20 nkv=5 hd=128 vocab=128256",
+      "[bitnet_decode] prefill 1 tok in 10.02 ms (99.8 tok/s) [pos=1]"
+    ],
+    "result": {
+      "prompt": "Explain ternary quantization in three sentences.",
+      "prompt_tokens": 16,
+      "completion_tokens": 64,
+      "latency_ms": 751.69653,
+      "curl_wall_time_s": 0.754241,
+      "tokps_total_request": 85.14,
+      "output_text": " mass mass mass mass mass mass mass mass mass mass mass mass mass mass mass mass mass cluster cluster cluster cluster mass mass mass mass mass mass mass mass mass mass mass mass mass mass mass mass mass mass mass mass mass cluster cluster cluster mass mass mass mass mass mass mass mass cluster mass mass mass mass mass mass mass mass mass mass",
+      "quality_verdict": "garbage (mass/cluster repetition) — matches strixhalo behaviour; format cannot encode non-zp zeros without Sparse-BitNet 3:4 retrain (pod Run 4)."
+    },
+    "comparison_vs_strixhalo_priors": {
+      "strixhalo_gfx1151_tokps_prior": 75,
+      "ryzen_gfx1201_tokps_measured": 85.14,
+      "ryzen_vs_strix_kernel_speedup": 1.135,
+      "conclusion": "Sherry-v3 kernel runs on gfx1201 (validated) at ~1.13x gfx1151 tok/s. Quality defect is format-level, not arch-specific."
+    },
+    "cleanup": "bitnet_decode PID 736667 on ryzen :9081 terminated (kill 736667 post-bench). Base :9080 untouched."
+  },
+
+  "bench2_power_perf_watt": {
+    "description": "rocm-smi --showpower samples: 1 idle + 3 mid-decode per host. Mid-decode used max_tokens=512 with a longer prompt so the GPU sat in steady-state for the samples.",
+    "strixhalo_gfx1151": {
+      "idle_W": 34.038,
+      "mid_decode_W": [50.07, 70.075, 76.061],
+      "steady_state_W_estimate": 73.0,
+      "decode_prompt_tokens": 42,
+      "decode_completion_tokens": 482,
+      "decode_latency_ms": 7303.00177,
+      "decode_tokps_total": 66.0,
+      "tokps_per_W_steady": 0.904,
+      "tokps_per_W_over_idle": 1.693
+    },
+    "ryzen_gfx1201_base": {
+      "idle_W_card0": 50.0,
+      "mid_decode_W": [51.0, 169.0, 184.0],
+      "steady_state_W_estimate": 176.5,
+      "decode_prompt_tokens": 42,
+      "decode_completion_tokens": 482,
+      "decode_latency_ms": 6217.292033,
+      "decode_tokps_total": 77.53,
+      "tokps_per_W_steady": 0.439,
+      "tokps_per_W_over_idle": 0.614,
+      "note": "First mid-sample (51W) was before steady-state; used 169/184W avg for efficiency calc."
+    },
+    "ryzen_gfx1201_sherry_v3": {
+      "idle_W_card0": 50.0,
+      "mid_decode_W": [64.0, 153.0, 169.0],
+      "steady_state_W_estimate": 161.0,
+      "decode_completion_tokens": 512,
+      "decode_latency_ms": 5778.325946,
+      "decode_tokps_total": 88.61,
+      "tokps_per_W_steady": 0.550
+    },
+    "summary": {
+      "strix_W_range": "34 idle / 50-76 loaded (~73W steady)",
+      "ryzen_W_range_card0": "50 idle / 169-184 loaded (~176W steady, sherry 153-169)",
+      "strix_is_2.06x_more_efficient_perf_watt": true,
+      "ryzen_is_1.17x_faster_absolute": true,
+      "verdict": "Strix Halo wins perf/W by ~2x; 9070 XT wins absolute tok/s by ~17% but burns ~2.4x the steady-state power."
+    }
+  },
+
+  "bench3_long_context_sweep": {
+    "description": "Padded prompt 'The quick brown fox jumps over the lazy dog.' repeated to hit target prompt_tokens; max_tokens=64, temperature=0. Max ctx=4096 on both builds so 8192 target hit context_length_exceeded and is excluded.",
+    "prefill_priors_tokps": {"strix_gfx1151": 600, "ryzen_gfx1201": 1000},
+    "points": [
+      {
+        "target_prompt_tokens": 128,
+        "strix": {"prompt_tokens": 127, "completion_tokens": 64, "latency_ms": 2525.24, "decode_only_tokps": 27.66, "total_tokps": 25.34},
+        "ryzen": {"prompt_tokens": 127, "completion_tokens": 64, "latency_ms": 2161.88, "decode_only_tokps": 31.45, "total_tokps": 29.60},
+        "ryzen_vs_strix_total_ratio": 1.168
+      },
+      {
+        "target_prompt_tokens": 512,
+        "strix": {"prompt_tokens": 497, "completion_tokens": 64, "latency_ms": 7828.08, "decode_only_tokps": 9.14, "total_tokps": 8.18},
+        "ryzen": {"prompt_tokens": 497, "completion_tokens": 64, "latency_ms": 6632.62, "decode_only_tokps": 10.43, "total_tokps": 9.65},
+        "ryzen_vs_strix_total_ratio": 1.180
+      },
+      {
+        "target_prompt_tokens": 1024,
+        "strix": {"prompt_tokens": 987, "completion_tokens": 64, "latency_ms": 14910.74, "decode_only_tokps": 4.82, "total_tokps": 4.29},
+        "ryzen": {"prompt_tokens": 987, "completion_tokens": 64, "latency_ms": 12637.38, "decode_only_tokps": 5.49, "total_tokps": 5.06},
+        "ryzen_vs_strix_total_ratio": 1.180
+      },
+      {
+        "target_prompt_tokens": 2048,
+        "strix": {"prompt_tokens": 1977, "completion_tokens": 64, "latency_ms": 29459.23, "decode_only_tokps": 2.45, "total_tokps": 2.17},
+        "ryzen": {"prompt_tokens": 1977, "completion_tokens": 64, "latency_ms": 24995.75, "decode_only_tokps": 2.78, "total_tokps": 2.56},
+        "ryzen_vs_strix_total_ratio": 1.179
+      },
+      {
+        "target_prompt_tokens": 4096,
+        "strix": {"prompt_tokens": 3947, "completion_tokens": 64, "latency_ms": 65644.98, "decode_only_tokps": 1.08, "total_tokps": 0.97},
+        "ryzen": {"prompt_tokens": 3947, "completion_tokens": 64, "latency_ms": 52624.84, "decode_only_tokps": 1.31, "total_tokps": 1.22},
+        "ryzen_vs_strix_total_ratio": 1.247
+      },
+      {
+        "target_prompt_tokens": 8192,
+        "error": "prompt exceeds context window (4101 >= 4096) on both builds; excluded from sweep"
+      }
+    ],
+    "crossover_analysis": {
+      "ratio_trend": "1.168 -> 1.180 -> 1.180 -> 1.179 -> 1.247",
+      "interpretation": "Within ctx <= 4096 the 9070 XT's bandwidth advantage does NOT level off against gfx1151 — the ratio is flat ~1.18x through 2k ctx and actually widens to ~1.25x at 4k. Both hosts decode ~O(L) per token due to single-block-per-head attention-past-Flash-Decoding being serialized over KV length; gfx1201's GDDR6 keeps pulling ahead as KV bytes per step dominate.",
+      "crossover_not_observed": true,
+      "implication": "Need a ctx >=8k harness (raise max_ctx in bitnet_decode or use split-KV eval) before an asymptote is visible. Prior hypothesis that gfx1151 compute might catch up at long ctx is not supported by this data."
+    }
+  }
+}

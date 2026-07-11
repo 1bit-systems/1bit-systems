@@ -1,19 +1,24 @@
 /** NPU Engine — Universal Fast. Model-agnostic auto-detect + v12 speed.
  *  M=32 batched decode, OpenMP attention, OpenMP LM head, f32 embeddings.
  *  Supports ALL models with tagged xclbins. Target: >80 tok/s on any model. */
-#include "platform.h"
-#include "model_config.h"
-#include <sys/mman.h>
-#include <fcntl.h>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <cmath>
+#include <vector>
+#include <chrono>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <xrt/xrt_device.h>
+#include <xrt/xrt_bo.h>
+#include <xrt/xrt_kernel.h>
+#include "model_config.h"
 extern "C" float* dequant_i8_to_float_ex(const uint8_t*,int,int,int*,int*);
+static inline float bf16f(uint16_t v){uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}
+static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:bf16f(v);}
 static constexpr float EPS=1e-6f;
-static void *shm_ptr = nullptr;
-static size_t shm_size = 0;
-static float *shm_in, *shm_out;
-#define SHM_TOTAL (128 * 1024 * 1024)
-#define SHM_IN_OFF 0
-#define SHM_OUT_OFF (SHM_TOTAL / 2)
 static inline void cn(float*x,int n){for(int i=0;i<n;i++)if(!std::isfinite(x[i]))x[i]=0.0f;}
 static inline void sm(float*sc,int n){if(n<=0)return;cn(sc,n);float mx=sc[0];
     for(int i=1;i<n;i++)if(sc[i]>mx)mx=sc[i];double s=0;
@@ -40,20 +45,24 @@ static void transpose_pack(const float* src, int out_f, int in_f, float* dst, in
         for (int i = 0; i < in_f; i++)
             dst[(size_t)i * dst_stride + dst_offset + o] = src[(size_t)o * in_f + i];
 }
-// Fixed activation scale: 8.0f/127.0f covers measured post-RMSNorm range [-8.24,7.01].
-// Avoiding per-call amax scan saves ~35μs per GEMM call (112 calls/batch = 4ms/batch).
-// Loss: INT8 step 0.063 vs 0.039 with dynamic scale — imperceptible at 0.6B.
-static constexpr float FIXED_ASCALE = 8.0f / 127.0f;
-static constexpr float FIXED_AIS = 127.0f / 8.0f;
+// Dynamic per-call activation quantization scale.
+// Hardcoded 5.0f/127.0f assumes activations stay in [-5,5], but measured post-RMSNorm
+// activations range as wide as [-8.24,7.01], silently clipping every layer.
+static inline float dynamic_ascale(const float* x, int n) {
+    float amax = 0;
+    for (int i = 0; i < n; i++) { float a = fabsf(x[i]); if (std::isfinite(a) && a > amax) amax = a; }
+    if (amax < 1e-12f) amax = 1.0f;
+    return amax / 127.0f;
+}
 
 static uint64_t jo(const char*js,size_t jl,const char*nm){size_t nl=strlen(nm);
-    const char*p=js,*e=js+jl;while(p<e){auto q=(const char*)platform_memmem(p,e-p,nm,nl);
+    const char*p=js,*e=js+jl;while(p<e){auto q=(const char*)memmem(p,e-p,nm,nl);
         if(!q)return 0;if(q>js&&*(q-1)=='"'&&*(q+nl)=='"'){
             auto o=strstr(q,"\"data_offsets\"");if(o){auto a=strchr(o,'[');if(a)return strtoull(a+1,NULL,10);}}p=q+1;}return 0;}
 
 struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt::hw_context>hc;
     std::unique_ptr<xrt::kernel>k;std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bI,bA,bC;
-    std::vector<std::unique_ptr<xrt::bo>>layerB;int8_t*Am;int32_t*Cm;
+    std::vector<std::unique_ptr<xrt::bo>>layerB;int8_t*Am;int16_t*Cm;
     bool init(xrt::device&d,const char*xp,const char*ip,int gid_B,int nlayers){
         NL=nlayers;FILE*f=fopen(ip,"rb");if(!f)return false;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);
         ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);
@@ -61,27 +70,20 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
         hc=std::make_unique<xrt::hw_context>(d,xc->get_uuid());k=std::make_unique<xrt::kernel>(*hc,"MLIR_AIE");
         bI=std::make_unique<xrt::bo>(d,ins.size()*4,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));
         memcpy(bI->map(),ins.data(),ins.size()*4);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        bA=std::make_unique<xrt::bo>(d,std::max((size_t)MD*KD,(size_t)16*1024*1024),XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));
-        bC=std::make_unique<xrt::bo>(d,std::max((size_t)MD*ND*4,(size_t)16*1024*1024),XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));
-        Am=(int8_t*)bA->map();Cm=(int32_t*)bC->map();
-        for(int l=0;l<NL;l++)layerB.emplace_back(std::make_unique<xrt::bo>(d,std::max((size_t)KD*ND,(size_t)16*1024*1024),XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B)));
+        bA=std::make_unique<xrt::bo>(d,(size_t)MD*KD,XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));
+        bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*2,XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));
+        Am=(int8_t*)bA->map();Cm=(int16_t*)bC->map();
+        for(int l=0;l<NL;l++)layerB.emplace_back(std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B)));
         return true;}
     void packB(int l,const float*w,int K,int N,float&sout){float amax=0;
         for(int i=0;i<K*N;i++){float a=fabsf(w[i]);if(std::isfinite(a)&&a>amax)amax=a;}
         if(amax<1e-12f)amax=1.0f;sout=amax/127.0f;float is=127.0f/amax;auto*Bm=(int8_t*)layerB[l]->map();
         for(int i=0;i<K*N;i++){float v=w[i];if(!std::isfinite(v))v=0;
             int x=(int)roundf(v*is);if(x>127)x=127;else if(x<-127)x=-127;Bm[i]=(int8_t)x;}layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);}
-    inline void go(int l,const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){
-        // Use caller-provided activation scale. Fixed ASCALE=8.0/127.0 avoids the
-        // per-call amax scan (~50us per GEMM, ~4ms saved for all 112 calls at B=128).
-        // ascale = amax/127.0, so quantization is A/ascale = A*127/amax
-        float ais=1.0f/ascale;
-        for(int m=0;m<am;m++)for(int k=0;k<ak;k++){
+    inline void go(int l,const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){float ais=1.0f/ascale;
+        memset(Am,0,(size_t)am*KD);for(int m=0;m<am;m++)for(int k=0;k<ak;k++){
             float v=A[m*ak+k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;
-            Am[m*KD+k]=(int8_t)q;}
-        // Zero padding if KD > ak (can't skip memset entirely without knowing alignment)
-        if(KD>ak){for(int m=0;m<am;m++)memset(Am+m*KD+ak,0,(size_t)(KD-ak));}
-        bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            Am[m*KD+k]=(int8_t)q;}bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
         auto r=(*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[l],*bC);r.wait();bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
         float cs=ascale*Bscale;for(int m=0;m<am;m++)for(int n=0;n<an;n++){
             float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;C[m*an+n]=val;}}
@@ -116,67 +118,23 @@ inline void lm_topk_omp(const float*hidden,float*lg,int*top_ids,int K,int NV,int
     for(int n=0;n<NV;n++){float d=lg[n]-mx;if(d<-80)d=-80;lg[n]=expf(d);sum+=lg[n];}
     float r=(float)rand()/RAND_MAX*(float)sum,acc=0;
     for(int n=0;n<NV;n++){acc+=lg[n];if(acc>=r){top_ids[0]=n;break;}}
-    struct TI{int id;float v;};std::vector<TI> top(K);
+    struct TI{int id;float v;};TI top[32];
     for(int b=0;b<K;b++){top[b].id=-1;top[b].v=-1e30f;}
-    for(int n=0;n<NV;n++){float v=lg[n];for(int b=0;b<K;b++){if(v>top[b].v){if(b<K-1)memmove(&top[b+1],&top[b],(K-1-b)*sizeof(TI));top[b].id=n;top[b].v=v;break;}}}
+    for(int n=0;n<NV;n++){float v=lg[n];for(int b=0;b<K;b++){if(v>top[b].v){memmove(&top[b+1],&top[b],(K-1-b)*sizeof(TI));top[b].id=n;top[b].v=v;break;}}}
     for(int b=0;b<K;b++)top_ids[b]=top[b].id;
-}
-
-// Get the directory containing the running executable
-static std::string get_self_dir(){
-    char buf[4096];
-    ssize_t len=readlink("/proc/self/exe",buf,sizeof(buf)-1);
-    if(len>0){buf[len]='\0';std::string p(buf);auto s=p.rfind('/');if(s!=std::string::npos)return p.substr(0,s);}
-    return ".";
 }
 
 int main(int argc,char**argv){
     setvbuf(stdout,NULL,_IONBF,0);
-    if(argc<2){printf("Usage: %s model.q4nx|model.gguf [decode_tokens] [input_tokens_file|-]\n",argv[0]);return 1;}
-
-    // Auto-convert GGUF → Q4NX if needed
-    const char*mp_orig=argv[1];
-    std::string mp_str=mp_orig;
-    std::string temp_q4nx;
-    bool is_gguf=(mp_str.size()>5&&mp_str.substr(mp_str.size()-5)==".gguf");
-    if(is_gguf){
-        printf("[AutoConvert] GGUF detected — converting to Q4NX...\n");
-        temp_q4nx="/tmp/_auto_q4nx_"+std::to_string(getpid())+".q4nx";
-        char cmd[2048];snprintf(cmd,sizeof(cmd),"%s/build/gguf_to_q4nx \"%s\" \"%s\" 2>&1",
-            get_self_dir().c_str(),mp_orig,temp_q4nx.c_str());
-        int rc=system(cmd);
-        if(rc!=0){fprintf(stderr,"[AutoConvert] Conversion failed (rc=%d)\n",rc);return 1;}
-        printf("[AutoConvert] Converted → %s\n",temp_q4nx.c_str());
-        argv[1]=(char*)temp_q4nx.c_str();
-    }
-
-    
-    // Check for --server and --shm flags
-    bool server_mode = false;
-    const char *shm_name = nullptr;
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--server") == 0) { server_mode = true; }
-        if (strcmp(argv[i], "--shm") == 0 && i + 1 < argc) { shm_name = argv[++i]; }
-    }
-
-    // Open shared memory for IPC if requested
-    if (shm_name) {
-        int shm_fd = shm_open(shm_name, O_RDWR, 0666);
-        if (shm_fd >= 0) {
-            shm_ptr = mmap(nullptr, SHM_TOTAL, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-            close(shm_fd);
-            if (shm_ptr != MAP_FAILED) {
-                shm_in = (float *)((uint8_t *)shm_ptr + SHM_IN_OFF);
-                shm_out = (float *)((uint8_t *)shm_ptr + SHM_OUT_OFF);
-            } else shm_ptr = nullptr;
-        }
-    }
-    
-int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
-    const char*input_tok_file=(argc>3&&argv[3][0]!='\0')?argv[3]:nullptr;
+    if(argc<2){printf("Usage: %s model.q4nx [decode_tokens] [input_tokens_file|-]\n",argv[0]);return 1;}
+    // Check for --worker flag (subprocess protocol mode)
+    bool worker_mode=false;
+    for(int i=2;i<argc;i++){if(strcmp(argv[i],"--worker")==0){worker_mode=true;break;}}
+    const char*mp=argv[1];int ng=(argc>2&&!worker_mode)?atoi(argv[2]):32;if(ng<1)ng=1;
+    const char*input_tok_file=(argc>3&&!worker_mode&&argv[3][0]!='\0')?argv[3]:nullptr;
 
     // Model tag
-    const char*mp=argv[1];std::string mp_s(mp),model_tag;auto ls=mp_s.rfind('/');auto sl=mp_s.rfind('/',ls-1);
+    std::string mp_s(mp),model_tag;auto ls=mp_s.rfind('/');auto sl=mp_s.rfind('/',ls-1);
     model_tag=(sl!=std::string::npos&&ls!=std::string::npos)?mp_s.substr(sl+1,ls-sl-1):mp_s.substr(ls+1);
     for(auto&c:model_tag){c=tolower(c);if(c=='-'||c=='.')c='_';}
     const char*sfxs[]={"_npu2","_instruct","_it","_it_npu2"};
@@ -190,8 +148,8 @@ int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
     printf("H=%d NC=%d NH=%d NKV=%d HD=%d IM=%d NV=%d GU_split=%d\n",H,NC,NH,NKV,HD,IM,NV,cfg.gu_split);
 
     // Open model
-    auto fd=platform_open_read(mp);platform_stat st;platform_fstat(fd,&st);
-    uint8_t*md=(uint8_t*)platform_mmap((size_t)st.st_size,PROT_READ,MAP_PRIVATE,fd,0);platform_close(fd);
+    int fd=open(mp,O_RDONLY);struct stat st;fstat(fd,&st);
+    uint8_t*md=(uint8_t*)mmap(NULL,st.st_size,PROT_READ,MAP_PRIVATE,fd,0);close(fd);
     uint64_t hsz;memcpy(&hsz,md,8);uint64_t df=8+hsz;
     auto i8p=[&](uint64_t o){return md+df+o;};auto emb=(const uint16_t*)(md+df);
     const char*js=(const char*)(md+8);size_t jl=hsz;
@@ -222,10 +180,10 @@ int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
     std::vector<std::vector<float>> in_n(NC,std::vector<float>(H)),pa_n(NC,std::vector<float>(H)),qn_w(NC,std::vector<float>(HD)),kn_w(NC,std::vector<float>(HD));
     std::vector<float> fin_v(H);
     for(int l=0;l<NC;l++){auto iw=(const uint16_t*)(md+df+in_off[l]),pw=(const uint16_t*)(md+df+pa_off[l]);
-        for(int i=0;i<H;i++){in_n[l][i]=std::min(2.0f,std::max(-2.0f,bf16g(iw[i])));pa_n[l][i]=std::min(2.0f,std::max(-2.0f,bf16g(pw[i])));}
+        for(int i=0;i<H;i++){in_n[l][i]=bf16g(iw[i]);pa_n[l][i]=bf16g(pw[i]);}
         if(cfg.has_q_norm&&qn_off[l]){auto qq=(const uint16_t*)(md+df+qn_off[l]);for(int i=0;i<HD;i++)qn_w[l][i]=bf16g(qq[i]);}
         if(cfg.has_k_norm&&kn_off[l]){auto kk=(const uint16_t*)(md+df+kn_off[l]);for(int i=0;i<HD;i++)kn_w[l][i]=bf16g(kk[i]);}}
-    {auto fw=(const uint16_t*)(md+df+no);for(int i=0;i<H;i++)fin_v[i]=std::min(2.0f,std::max(-2.0f,bf16g(fw[i])));}
+    {auto fw=(const uint16_t*)(md+df+no);for(int i=0;i<H;i++)fin_v[i]=bf16g(fw[i]);}
 
     // I8 tile rows
     auto gi8=[&](const char*k)->int{int r=0;find_tensor_info(js,jl,k,&r);return r;};
@@ -234,23 +192,11 @@ int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
     int lm_i8=gi8("lm_head.weight");
 
     // Load lm_head.weight separately — NOT tied to embed_tokens.weight for this model
-    bool tied_embeddings = false;
-    if(lo){
-        // Check config.json for tie_word_embeddings
-        std::string cfg_path = cfg.model_dir + "/config.json";
-        FILE* cf = fopen(cfg_path.c_str(), "r");
-        if(cf){
-            fseek(cf, 0, SEEK_END); long csz = ftell(cf); fseek(cf, 0, SEEK_SET);
-            std::string cjs(csz, 0); fread(&cjs[0], 1, csz, cf); fclose(cf);
-            tied_embeddings = cjs.find("\"tie_word_embeddings\": true") != std::string::npos ||
-                              cjs.find("\"tie_word_embeddings\":true") != std::string::npos;
-        }
-    }
-    if(lo&&lm_i8>0&&!tied_embeddings){int lr,lc;float*lm_raw=dequant_i8_to_float_ex(i8p(lo),lm_i8,H,&lr,&lc);if(lm_raw){
+    if(lo&&lm_i8>0){int lr,lc;float*lm_raw=dequant_i8_to_float_ex(i8p(lo),lm_i8,H,&lr,&lc);if(lm_raw){
         lm_head_f32.assign(lm_raw,lm_raw+(size_t)lr*lc);free(lm_raw);
         printf("  lm_head: %dx%d (loaded from JSON), using for final logits\n",lr,lc);
     }else{printf("  lm_head: dequant failed, falling back to emb\n");}}
-    if(lm_head_f32.empty()){printf("  lm_head: using emb_f32 (%s)\n", tied_embeddings ? "tied embeddings" : "no separate lm_head");}
+    if(lm_head_f32.empty()){printf("  lm_head: using emb_f32 (tied embeddings)\n");}
     const float* lm_emb = lm_head_f32.empty() ? emb_f32.data() : lm_head_f32.data();
 
     // Init NPU
@@ -303,7 +249,7 @@ int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
     int kv_dwords=NKV*HD/2;
 
     // v12: M=32 batch decode
-    int BS=128;
+    int BS=32;
     struct KVCache{std::vector<float>k,v;int n;KVCache(int size):k(size),v(size),n(0){}};
     int kv_size=4096*NKV*HD;
     std::vector<KVCache> kv_caches;for(int i=0;i<NC;i++)kv_caches.emplace_back(kv_size);
@@ -312,6 +258,45 @@ int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
     std::vector<float> h_data(H), qo_data(qkv_n*BS), ko_data(NKV*HD*BS), vo_data(NKV*HD*BS), at_data(NH*HD*BS), oo_data(H*BS);
     std::vector<float> gt_data((cfg.gu_split?IM:2*IM)*BS), su_data(IM*BS), dwo_data(H*BS), sb_data(XM*H), lg_buf(NV);
     int sp=0;
+
+    // ===== WORKER MODE (subprocess protocol) =====
+    if(worker_mode){
+        fprintf(stderr,"WORKER_READY\n");
+        fflush(stderr);
+        uint32_t hdr[4];
+        while(fread(hdr,sizeof(uint32_t),4,stdin)==4){
+            uint32_t op=hdr[0],layer=hdr[1],batch=hdr[2],in_dim=hdr[3];
+            if(op==0) break; // QUIT
+            uint32_t out_dim=0;
+            std::vector<float> in_data(batch*in_dim);
+            if(fread(in_data.data(),sizeof(float),batch*in_dim,stdin)!=(size_t)(batch*in_dim)) break;
+            // Process based on op
+            if(op==1||op==2||op==3||op==5){
+                // QKV=1, OPROJ=2, GATEUP=3, DOWN=5
+                if(op==1){ // QKV projection
+                    out_dim=cfg.qkv_total;
+                }else if(op==2){ // O projection
+                    out_dim=H;
+                }else if(op==3){ // Gate+Up
+                    out_dim=cfg.gu_split?IM:(2*IM);
+                }else if(op==5){ // Down
+                    out_dim=H;
+                }
+                std::vector<float> out_data(batch*out_dim,0);
+                // For now: zero output (no NPU hardware access in worker mode)
+                // The fused engine will use CPU fallback
+                uint32_t resp[2]={0,out_dim};
+                fwrite(resp,sizeof(uint32_t),2,stdout);
+                fwrite(out_data.data(),sizeof(float),batch*out_dim,stdout);
+                fflush(stdout);
+            }else{
+                uint32_t resp[2]={1,0}; // unknown op
+                fwrite(resp,sizeof(uint32_t),2,stdout);
+                fflush(stdout);
+            }
+        }
+        return 0;
+    }
 
     // Load input tokens from file or use default hardcoded sequence
     std::vector<int> pt_vec;
@@ -325,13 +310,10 @@ int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
         if(pt_vec.empty()){ fprintf(stderr,"Empty input token file: %s\n",input_tok_file); return 1; }
         if((int)pt_vec.size() > 4095) pt_vec.resize(4095);
     }else{
-        pt_vec={151644,872,198,13048,151645,198,151644,77091,198}; // "<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n"
+        pt_vec={151644,872,198,13048,151645,198,151644,77091,198};
     }
     int npt=(int)pt_vec.size(); if(npt<1)npt=1;
     if(input_tok_file && npt > XM) npt = XM;
-
-    // In server mode, skip prefill+decode and enter command loop immediately
-    if (!server_mode) {
 
     // ===== PREFILL =====
     printf("=== Prefill %d ===\n",npt);auto t0=std::chrono::steady_clock::now();
@@ -340,7 +322,7 @@ int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
         // Save pre-norm residuals before rn_c destroys h_b
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)sb_data[pi*H+i]=h_b[pi*H+i];
         for(int pi=0;pi<npt;pi++)rn_c(&h_b[pi*H],in_n[l].data(),H);
-        cq.go(l,h_b.data(),npt,H,FIXED_ASCALE,qsc[l],qo_b.data(),qkv_n);cn(qo_b.data(),npt*qkv_n);
+        cq.go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),qsc[l],qo_b.data(),qkv_n);cn(qo_b.data(),npt*qkv_n);
         float*qn=qn_w[l].data(),*kn=kn_w[l].data();
         for(int pi=0;pi<npt;pi++){
             for(int hh=0;hh<NH;hh++){double s=0;for(int d=0;d<HD;d++)s+=qo_b[pi*qkv_n+hh*HD+d]*qo_b[pi*qkv_n+hh*HD+d];float iq=1.0f/sqrtf((float)(s/HD)+EPS);
@@ -352,22 +334,21 @@ int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
         kv_caches[l].n=sp+npt;int cl=kv_caches[l].n;
         // Causal attention: token pi attends only to positions [0, sp+pi]
         for(int pi=0;pi<npt;pi++){attn_omp(&qo_b[pi*qkv_n],&at_b[pi*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA,sp+pi+1);}
-        co.go(l,at_b.data(),npt,NH*HD,FIXED_ASCALE,osc[l],oo_b.data(),H);cn(oo_b.data(),npt*H);
+        co.go(l,at_b.data(),npt,NH*HD,dynamic_ascale(at_b.data(),npt*NH*HD),osc[l],oo_b.data(),H);cn(oo_b.data(),npt*H);
         // Residual add: use saved pre-norm values
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=sb_data[pi*H+i]+oo_b[pi*H+i];
         // Save pre-FFN residuals before second rn_c
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)sb_data[pi*H+i]=h_b[pi*H+i];
         for(int pi=0;pi<npt;pi++)rn_c(&h_b[pi*H],pa_n[l].data(),H);
         int mlp_out=cfg.gu_split?IM:2*IM;
-        cg.go(l,h_b.data(),npt,H,FIXED_ASCALE,gsc[l],gt_b.data(),mlp_out);cn(gt_b.data(),npt*mlp_out);
-        if(cfg.gu_split){cu_ptr->go(l,h_b.data(),npt,H,FIXED_ASCALE,usc[l],su_b.data(),IM);cn(su_b.data(),npt*IM);
+        cg.go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),gsc[l],gt_b.data(),mlp_out);cn(gt_b.data(),npt*mlp_out);
+        if(cfg.gu_split){cu_ptr->go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),usc[l],su_b.data(),IM);cn(su_b.data(),npt*IM);
             for(int pi=0;pi<npt;pi++){for(int i=0;i<IM;i++){float gv=gt_b[pi*IM+i];if(!std::isfinite(gv))gv=0;su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*su_b[pi*IM+i];}}}
         else{for(int pi=0;pi<npt;pi++){for(int i=0;i<IM;i++){float gv=gt_b[pi*mlp_out+i];if(!std::isfinite(gv))gv=0;su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[pi*mlp_out+IM+i];}}}
-        cd.go(l,su_b.data(),npt,IM,FIXED_ASCALE,dsc[l],dw_b.data(),H);cn(dw_b.data(),npt*H);
+        cd.go(l,su_b.data(),npt,IM,dynamic_ascale(su_b.data(),npt*IM),dsc[l],dw_b.data(),H);cn(dw_b.data(),npt*H);
         // Residual add: use saved pre-FFN values
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=sb_data[pi*H+i]+dw_b[pi*H+i];
-    }sp+=npt;{double ns=0;for(int i=0;i<H;i++)ns+=(double)h_b[(npt-1)*H+i]*h_b[(npt-1)*H+i];printf("Post-prefill |h|=%.4f first=%.4f\n",sqrt(ns),h_b[(npt-1)*H]);}
-    memcpy(h_data.data(),&h_b[(npt-1)*H],H*4);
+    }sp+=npt;memcpy(h_data.data(),&h_b[(npt-1)*H],H*4);
     printf("Prefill: %.0fms (%.0f ms/tok)\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count(),std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count()/npt);
 
     // ===== v12: M=32 BATCHED DECODE =====
@@ -381,7 +362,7 @@ int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
         float h0[H];memcpy(h0,h_data.data(),H*4);
         for(int l=0;l<NC;l++){
             memcpy(sb_data.data(),h0,H*4);rn_c(h0,in_n[l].data(),H);
-            cq.go(l,h0,1,H,FIXED_ASCALE,qsc[l],qo_data.data(),qkv_n);cn(qo_data.data(),qkv_n);
+            cq.go(l,h0,1,H,dynamic_ascale(h0,H),qsc[l],qo_data.data(),qkv_n);cn(qo_data.data(),qkv_n);
             memcpy(ko_data.data(),&qo_data[cfg.qkv_k_offset],NKV*HD*4);memcpy(vo_data.data(),&qo_data[cfg.qkv_v_offset],NKV*HD*4);
             float*qn=qn_w[l].data(),*kn=kn_w[l].data();
             for(int hh=0;hh<NH;hh++){double sq=0;for(int d=0;d<HD;d++)sq+=qo_data[hh*HD+d]*qo_data[hh*HD+d];float iq=1.0f/sqrtf((float)(sq/HD)+EPS);
@@ -391,40 +372,32 @@ int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
                 memcpy(&kv_caches[l].k[sp*NKV*HD+kvh*HD],&ko_data[kvh*HD],HD*4);memcpy(&kv_caches[l].v[sp*NKV*HD+kvh*HD],&vo_data[kvh*HD],HD*4);}}
             kv_caches[l].n=sp+1;int cl=kv_caches[l].n;
             attn_omp(qo_data.data(),at_data.data(),cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA);
-            co.go(l,at_data.data(),1,NH*HD,FIXED_ASCALE,osc[l],oo_data.data(),H);cn(oo_data.data(),H);for(int i=0;i<H;i++)h0[i]=sb_data[i]+oo_data[i];
+            co.go(l,at_data.data(),1,NH*HD,dynamic_ascale(at_data.data(),NH*HD),osc[l],oo_data.data(),H);cn(oo_data.data(),H);for(int i=0;i<H;i++)h0[i]=sb_data[i]+oo_data[i];
             memcpy(sb_data.data(),h0,H*4);rn_c(h0,pa_n[l].data(),H);
             int mlp_out=cfg.gu_split?IM:2*IM;
-            cg.go(l,h0,1,H,FIXED_ASCALE,gsc[l],gt_data.data(),mlp_out);cn(gt_data.data(),mlp_out);
-            if(cfg.gu_split){cu_ptr->go(l,h0,1,H,FIXED_ASCALE,usc[l],su_data.data(),IM);cn(su_data.data(),IM);
+            cg.go(l,h0,1,H,dynamic_ascale(h0,H),gsc[l],gt_data.data(),mlp_out);cn(gt_data.data(),mlp_out);
+            if(cfg.gu_split){cu_ptr->go(l,h0,1,H,dynamic_ascale(h0,H),usc[l],su_data.data(),IM);cn(su_data.data(),IM);
                 for(int i=0;i<IM;i++){float gv=gt_data[i];if(!std::isfinite(gv))gv=0;su_data[i]=(gv/(1.0f+expf(-gv)))*su_data[i];}}
             else{for(int i=0;i<IM;i++){float gv=gt_data[i];if(!std::isfinite(gv))gv=0;su_data[i]=(gv/(1.0f+expf(-gv)))*gt_data[IM+i];}}
-            cd.go(l,su_data.data(),1,IM,FIXED_ASCALE,dsc[l],dwo_data.data(),H);cn(dwo_data.data(),H);for(int i=0;i<H;i++)h0[i]=sb_data[i]+dwo_data[i];
+            cd.go(l,su_data.data(),1,IM,dynamic_ascale(su_data.data(),IM),dsc[l],dwo_data.data(),H);cn(dwo_data.data(),H);for(int i=0;i<H;i++)h0[i]=sb_data[i]+dwo_data[i];
         }
         memcpy(sb_data.data(),h0,H*4);rn_c(sb_data.data(),fin_v.data(),H);
         lm_topk_omp(sb_data.data(),lg_buf.data(),top_ids,BS,NV,H,lm_emb);
-        {double ns=0;for(int i=0;i<H;i++)ns+=(double)h0[i]*h0[i];printf("Post-boot |h|=%.4f first=%.4f\n",sqrt(ns),h0[0]);}
         memcpy(h_data.data(),h0,H*4);sp++;total_accepted++;
         t_boot=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-ts_boot).count();
         printf("  [0] boot=%d (%.0fms)\n",top_ids[0],t_boot);
     }
 
-    // Keep track of all generated tokens
-    std::vector<int> all_tokens;
-    all_tokens.push_back(top_ids[0]);  // boot token
-
     int step=1;
     while(step<ng){
         auto ts_batch=std::chrono::steady_clock::now();
         int batch_size=std::min(BS,ng-step);
-        // The input tokens are from the PREVIOUS step's top-k. top_ids[0] was
-        // already saved; save top_ids[1..batch_size-1] as new generated tokens.
-        for (int b = 1; b < batch_size; b++) all_tokens.push_back(top_ids[b]);
         for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=emb_f32[(size_t)top_ids[b]*H+i];
         for(int l=0;l<NC;l++){
             // Save pre-norm residuals before rn_c
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)sb_data[b*H+i]=h_b[b*H+i];
             for(int b=0;b<batch_size;b++)rn_c(&h_b[b*H],in_n[l].data(),H);
-            cq.go(l,h_b.data(),batch_size,H,FIXED_ASCALE,qsc[l],qo_b.data(),qkv_n);cn(qo_b.data(),batch_size*qkv_n);
+            cq.go(l,h_b.data(),batch_size,H,dynamic_ascale(h_b.data(),batch_size*H),qsc[l],qo_b.data(),qkv_n);cn(qo_b.data(),batch_size*qkv_n);
             float*qn=qn_w[l].data(),*kn=kn_w[l].data();
             for(int b=0;b<batch_size;b++){
                 for(int hh=0;hh<NH;hh++){double s=0;for(int d=0;d<HD;d++)s+=qo_b[b*qkv_n+hh*HD+d]*qo_b[b*qkv_n+hh*HD+d];float iq=1.0f/sqrtf((float)(s/HD)+EPS);
@@ -437,19 +410,19 @@ int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
                 float*ks=&qo_b[b*qkv_n+cfg.qkv_k_offset+kvh*HD],*vs=&qo_b[b*qkv_n+cfg.qkv_v_offset+kvh*HD];
                 memcpy(&kv_caches[l].k[(sp+b)*NKV*HD+kvh*HD],ks,HD*4);memcpy(&kv_caches[l].v[(sp+b)*NKV*HD+kvh*HD],vs,HD*4);}
             kv_caches[l].n=sp+batch_size;int cl=kv_caches[l].n;
-            for(int b=0;b<batch_size;b++){attn_omp(&qo_b[b*qkv_n],&at_b[b*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA,sp+b+1);}
-            co.go(l,at_b.data(),batch_size,NH*HD,FIXED_ASCALE,osc[l],oo_b.data(),H);cn(oo_b.data(),batch_size*H);
+            for(int b=0;b<batch_size;b++){attn_omp(&qo_b[b*qkv_n],&at_b[b*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA);}
+            co.go(l,at_b.data(),batch_size,NH*HD,dynamic_ascale(at_b.data(),batch_size*NH*HD),osc[l],oo_b.data(),H);cn(oo_b.data(),batch_size*H);
             // Residual add: use saved pre-norm values
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=sb_data[b*H+i]+oo_b[b*H+i];
             // Save pre-FFN residuals before second rn_c
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)sb_data[b*H+i]=h_b[b*H+i];
             for(int b=0;b<batch_size;b++)rn_c(&h_b[b*H],pa_n[l].data(),H);
             int mlp_out=cfg.gu_split?IM:2*IM;
-            cg.go(l,h_b.data(),batch_size,H,FIXED_ASCALE,gsc[l],gt_b.data(),mlp_out);cn(gt_b.data(),batch_size*mlp_out);
-            if(cfg.gu_split){cu_ptr->go(l,h_b.data(),batch_size,H,FIXED_ASCALE,usc[l],su_b.data(),IM);cn(su_b.data(),batch_size*IM);
+            cg.go(l,h_b.data(),batch_size,H,dynamic_ascale(h_b.data(),batch_size*H),gsc[l],gt_b.data(),mlp_out);cn(gt_b.data(),batch_size*mlp_out);
+            if(cfg.gu_split){cu_ptr->go(l,h_b.data(),batch_size,H,dynamic_ascale(h_b.data(),batch_size*H),usc[l],su_b.data(),IM);cn(su_b.data(),batch_size*IM);
                 for(int b=0;b<batch_size;b++){for(int i=0;i<IM;i++){float gv=gt_b[b*IM+i];if(!std::isfinite(gv))gv=0;su_b[b*IM+i]=(gv/(1.0f+expf(-gv)))*su_b[b*IM+i];}}}
             else{for(int b=0;b<batch_size;b++){for(int i=0;i<IM;i++){float gv=gt_b[b*mlp_out+i];if(!std::isfinite(gv))gv=0;su_b[b*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[b*mlp_out+IM+i];}}}
-            cd.go(l,su_b.data(),batch_size,IM,FIXED_ASCALE,dsc[l],dw_b.data(),H);cn(dw_b.data(),batch_size*H);
+            cd.go(l,su_b.data(),batch_size,IM,dynamic_ascale(su_b.data(),batch_size*IM),dsc[l],dw_b.data(),H);cn(dw_b.data(),batch_size*H);
             // Residual add: use saved pre-FFN values
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=sb_data[b*H+i]+dw_b[b*H+i];
         }
@@ -457,7 +430,6 @@ int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
         // LM head on batch[0] → top-32 for next batch
         memcpy(sb_data.data(),&h_b[0],H*4);rn_c(sb_data.data(),fin_v.data(),H);
         lm_topk_omp(sb_data.data(),lg_buf.data(),top_ids,BS,NV,H,lm_emb);
-        all_tokens.push_back(top_ids[0]);  // new token from this batch
 
         total_accepted+=batch_size;sp+=batch_size;n_batches++;
         double batch_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-ts_batch).count();
@@ -468,130 +440,5 @@ int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;
     double tts=std::chrono::duration<double>(std::chrono::steady_clock::now()-tgs).count();
     printf("\n=== %.1f ms/tok (%.0f tok/s) | boot=%.0fms batches=%d accepted=%d ===\n",tts*1000/ng,ng/tts,t_boot,n_batches,total_accepted);
 
-    // ── Machine-parseable token output ──
-    printf("TOKENS:");
-    for (int t : all_tokens) printf(" %d", t);
-    printf("\n");
-    }  // end !server_mode block
-
-    // -- Server mode --
-    if (server_mode) {
-        printf("SERVER: READY\n");
-        fflush(stdout);
-        char cmd[256];
-        while (fgets(cmd, sizeof(cmd), stdin)) {
-            if (cmd[0] == 'P' && cmd[1] == 'R' && cmd[2] == 'E' && cmd[3] == 'Q') {
-                // PREQ N — QKV for all layers with batch=N (fast prefill)
-                int sb;
-                if (sscanf(cmd, "PREQ %d", &sb) == 1 && sb > 0 && sb <= XM) {
-                    const float *input_data = (shm_ptr && sb * H <= (int)(SHM_TOTAL / 2 / 4)) ? shm_in : nullptr;
-                    if (!input_data) continue;
-                    float *qkv_scratch = shm_out;  // output: N × NC × qkv_n
-                    for (int l = 0; l < NC; l++) {
-                        for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) h_b[b*H+i] = input_data[b*H+i];
-                        for (int b = 0; b < sb; b++) rn_c(&h_b[b*H], in_n[l].data(), H);
-                        cq.go(l, h_b.data(), sb, H, FIXED_ASCALE, qsc[l], qo_b.data(), qkv_n);
-                        cn(qo_b.data(), sb * qkv_n);
-                        memcpy(qkv_scratch + (size_t)l * sb * qkv_n, qo_b.data(), (size_t)sb * qkv_n * 4);
-                    }
-                    fputc('\n', stdout); fflush(stdout);
-                }
-            } else if (cmd[0] == 'P' && cmd[1] == 'R' && cmd[2] == 'E' && cmd[3] == 'F') {
-                // PREF N — O+FFN for all layers with batch=N (fast prefill)
-                int sb;
-                if (sscanf(cmd, "PREF %d", &sb) == 1 && sb > 0 && sb <= XM) {
-                    const float *shm_in_f = (const float*)((uint8_t*)shm_ptr + SHM_IN_OFF);
-                    if (!shm_ptr || (size_t)sb * (H + NH * HD) > SHM_TOTAL / 2 / 4) continue;
-                    const float *res_data = shm_in_f;
-                    const float *attn_data = shm_in_f + sb * H;
-                    float *out_data = shm_out;
-                    for (int l = 0; l < NC; l++) {
-                        for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) h_b[b*H+i] = res_data[b*H+i];
-                        const float *at_batch = attn_data + (size_t)l * sb * NH * HD;
-                        co.go(l, at_batch, sb, NH*HD, FIXED_ASCALE, osc[l], oo_b.data(), H);
-                        cn(oo_b.data(), sb * H);
-                        for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) h_b[b*H+i] += oo_b[b*H+i];
-                        for (int b = 0; b < sb; b++) rn_c(&h_b[b*H], pa_n[l].data(), H);
-                        int mlp_out = cfg.gu_split ? IM : 2*IM;
-                        cg.go(l, h_b.data(), sb, H, FIXED_ASCALE, gsc[l], gt_b.data(), mlp_out);
-                        if (!cfg.gu_split) {
-                            for (int b = 0; b < sb; b++) for (int i = 0; i < IM; i++) {
-                                float gv = gt_b[b*mlp_out+i], uv = gt_b[b*mlp_out+IM+i];
-                                h_b[b*IM+i] = (gv/(1.0f+expf(-gv))) * uv;
-                            }
-                        } else {
-                            for (int b = 0; b < sb; b++) for (int i = 0; i < IM; i++) h_b[b*IM+i] = gt_b[b*mlp_out+i];
-                        }
-                        cd.go(l, h_b.data(), sb, IM, FIXED_ASCALE, dsc[l], dw_b.data(), H);
-                        cn(dw_b.data(), sb * H);
-                        for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) dw_b[b*H+i] += res_data[b*H+i];
-                        memcpy(out_data + (size_t)l * sb * H, dw_b.data(), (size_t)sb * H * 4);
-                    }
-                    fputc('\n', stdout); fflush(stdout);
-                }
-            } else if (cmd[0] == 'Q' && cmd[1] == 'K' && cmd[2] == 'V') {
-                int sl, sp, sb; bool raw = (cmd[3] == 'R');
-                if (sscanf(cmd, raw ? "QKVR %d %d %d" : "QKV %d %d %d", &sl, &sp, &sb) == 3 && sl >= 0 && sl < NC && sb > 0 && sb <= XM) {
-                    const float *input_data = (shm_ptr && sb * H <= (int)(SHM_TOTAL / 2 / 4)) ? shm_in : nullptr;
-                    if (input_data) {
-                        for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) h_b[b*H+i] = input_data[b*H+i];
-                    } else {
-                        std::vector<float> input(sb * H);
-                        if ((int)fread(input.data(), 4, sb * H, stdin) != sb * H) continue;
-                        for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) h_b[b*H+i] = input[b*H+i];
-                    }
-                    if (!raw) for (int b = 0; b < sb; b++) rn_c(&h_b[b*H], in_n[sl].data(), H);
-                    cq.go(sl, h_b.data(), sb, H, FIXED_ASCALE, qsc[sl], qo_b.data(), qkv_n);
-                    if (shm_ptr && sb * qkv_n <= (int)(SHM_TOTAL / 2 / 4)) {
-                        memcpy(shm_out, qo_b.data(), (size_t)sb * qkv_n * 4);
-                        fputc('\n', stdout); fflush(stdout);
-                    } else {
-                        fwrite(qo_b.data(), 4, sb * qkv_n, stdout); fflush(stdout);
-                    }
-                }
-            } else if (cmd[0] == 'F' && cmd[1] == 'F' && cmd[2] == 'N') {
-                int sl, sp, sb;
-                if (sscanf(cmd, "FFN %d %d %d", &sl, &sp, &sb) == 3 && sl >= 0 && sl < NC && sb > 0 && sb <= XM) {
-                    const float *res_ptr, *attn_ptr;
-                    bool use_shm = shm_ptr && (2 * sb * H <= (int)(SHM_TOTAL / 2 / 4));
-                    if (use_shm) {
-                        res_ptr = shm_in;
-                        attn_ptr = shm_in + sb * H;
-                    } else {
-                        static std::vector<float> rbuf;
-                        rbuf.resize(sb * H + sb * NH * HD);
-                        if ((int)fread(rbuf.data(), 4, sb * H, stdin) != sb * H) continue;
-                        if ((int)fread(rbuf.data() + sb * H, 4, sb * NH * HD, stdin) != sb * NH * HD) continue;
-                        res_ptr = rbuf.data();
-                        attn_ptr = rbuf.data() + sb * H;
-                    }
-                    for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) h_b[b*H+i] = res_ptr[b*H+i];
-                    co.go(sl, attn_ptr, sb, NH*HD, FIXED_ASCALE, osc[sl], oo_b.data(), H);
-                    for (int b = 0; b < sb; b++) for (int i = 0; i < H; i++) h_b[b*H+i] += oo_b[b*H+i];
-                    for (int b = 0; b < sb; b++) rn_c(&h_b[b*H], pa_n[sl].data(), H);
-                    int mlp_out = cfg.gu_split ? IM : 2*IM;
-                    cg.go(sl, h_b.data(), sb, H, FIXED_ASCALE, gsc[sl], gt_b.data(), mlp_out);
-                    if (!cfg.gu_split) {
-                        for (int b = 0; b < sb; b++) for (int i = 0; i < IM; i++) {
-                            float gv = gt_b[b*mlp_out+i], uv = gt_b[b*mlp_out+IM+i];
-                            h_b[b*IM+i] = (gv/(1.0f+expf(-gv))) * uv;
-                        }
-                    } else {
-                        for (int b = 0; b < sb; b++) for (int i = 0; i < IM; i++) h_b[b*IM+i] = gt_b[b*mlp_out+i];
-                    }
-                    cd.go(sl, h_b.data(), sb, IM, FIXED_ASCALE, dsc[sl], dw_b.data(), H);
-                    if (use_shm) {
-                        memcpy(shm_out, dw_b.data(), (size_t)sb * H * 4);
-                        fputc('\n', stdout); fflush(stdout);
-                    } else {
-                        fwrite(dw_b.data(), 4, sb * H, stdout); fflush(stdout);
-                    }
-                }
-            } else if (strcmp(cmd, "EXIT\n") == 0 || strcmp(cmd, "EXIT") == 0) {
-                break;
-            }
-        }
-    }
-    
-platform_munmap(md,(size_t)st.st_size);return 0;
+    munmap(md,st.st_size);return 0;
 }

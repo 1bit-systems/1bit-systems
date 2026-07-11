@@ -19,8 +19,6 @@
 #include <xrt/xrt_device.h>
 #include <xrt/xrt_bo.h>
 #include <xrt/xrt_kernel.h>
-#include <xrt/experimental/xrt_ext.h>
-#include <xrt/experimental/xrt_kernel.h>
 
 extern "C" float* dequant_i8_to_float(const uint8_t*, int, int*, int*);
 extern "C" float* dequant_i8_to_float_ex(const uint8_t*, int, int, int*, int*);
@@ -38,8 +36,6 @@ static inline void transpose_pack(const float* src, int out_f, int in_f, float* 
 // Dynamic per-call activation quantization scale (see docs/V12-CORRECTNESS-BLOCKER.md) -
 // a hardcoded 5.0f/127.0f assumes activations stay within [-5,5], but measured post-RMSNorm
 // activations range as wide as [-8.24,7.01], silently clipping to +-127 every layer.
-// FIXED_ASCALE = 8.0/127.0 avoids the per-call amax scan; post-RMSNorm activations stay within [-8,8].
-static constexpr float FIXED_ASCALE = 8.0f / 127.0f;
 static inline float dynamic_ascale(const float* x, int n) {
     float amax = 0;
     for (int i = 0; i < n; i++) { float a = fabsf(x[i]); if (std::isfinite(a) && a > amax) amax = a; }
@@ -90,10 +86,6 @@ struct I8Ctx {
         d.register_xclbin(*xc);
         hc = std::make_unique<xrt::hw_context>(d, xc->get_uuid());
         k = std::make_unique<xrt::kernel>(*hc, "MLIR_AIE");
-        // Memory groups MUST come from k->group_id(arg_index) (matches proven
-        // npu_engine_v12.cpp), not raw bank numbers — the shim binds each BO to
-        // the hw_context's per-arg memory bank via group_id. Hardcoding 0/1 leaves
-        // BOs untracked and corrupts the command buffer's bo_id map on teardown.
         bI = std::make_unique<xrt::bo>(d, ins.size()*4, XCL_BO_FLAGS_CACHEABLE, k->group_id(1));
         memcpy(bI->map(), ins.data(), ins.size()*4);
         bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);
@@ -121,10 +113,6 @@ struct I8Ctx {
         }
         bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
         layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        // DPU kernel positional args (matches proven npu_engine_v12.cpp):
-        //   arg0=opcode(3), arg1=instr BO, arg2=instr word count, arg3=A, arg4=B, arg5=C.
-        // The manual set_arg() path previously omitted arg2 (instruction count),
-        // producing a malformed command buffer that segfaulted on run teardown.
         auto r = (*k)((unsigned)3, *bI, (unsigned)ins.size(), *bA, *layerB[l], *bC);
         r.wait();
         bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
@@ -267,8 +255,6 @@ public:
         kv_.resize(NC);
         for (int l=0;l<NC;l++){ kv_[l].k.resize(4096*NKV*HD); kv_[l].v.resize(4096*NKV*HD); kv_[l].n=0; }
         layer_hidden_snapshot_.assign(NC, std::vector<float>(H));
-        layer_hidden_allpos_.assign(NC, std::vector<float>());
-        max_captured_positions_ = 0;
     }
 
     // start_pos=0 => fresh generation (resets KV cache). start_pos>0 => continue from
@@ -292,7 +278,7 @@ public:
         for (int l=0;l<NC;l++) {
             for (int pi=0;pi<n;pi++) memcpy(&res_b[pi*H], &h_b[pi*H], H*4);
             for (int pi=0;pi<n;pi++) rn_c(&h_b[pi*H], in_n_[l].data(), H);
-            cq_.go(l, h_b.data(), n, H, FIXED_ASCALE, wsc_[l].qk, qo_b.data(), 4096);
+            cq_.go(l, h_b.data(), n, H, npu_target_detail::dynamic_ascale(h_b.data(), n * H), wsc_[l].qk, qo_b.data(), 4096);
             cn(qo_b.data(), n*4096);
             const float* qn = qn_w_[l].data(); const float* kn = kn_w_[l].data();
             for (int pi=0;pi<n;pi++) {
@@ -315,48 +301,35 @@ public:
                 }
             }
             kv_[l].n = sp+n; int cl = kv_[l].n;
-            std::vector<float> attn_scores(cl);  // pre-allocated, reused per layer
-#ifdef _OPENMP
-            #pragma omp parallel for
-#endif
             for (int pi=0;pi<n;pi++) for (int hh=0;hh<NH;hh++) {
-                int kvh=hh/GQA;
+                int kvh=hh/GQA; std::vector<float> ss(cl);
                 for (int p=0;p<=sp+pi;p++) {
                     double s=0; for (int d=0;d<HD;d++) s+=(double)qo_b[pi*4096+hh*HD+d]*kv_[l].k[(size_t)p*NKV*HD+kvh*HD+d];
-                    attn_scores[p]=(float)(s/sqrtf((float)HD));
+                    ss[p]=(float)(s/sqrtf((float)HD));
                 }
-                sm(attn_scores.data(), sp+pi+1);
+                sm(ss.data(), sp+pi+1);
                 for (int d=0;d<HD;d++) {
-                    float s=0; for (int p=0;p<=sp+pi;p++) s+=attn_scores[p]*kv_[l].v[(size_t)p*NKV*HD+kvh*HD+d];
+                    float s=0; for (int p=0;p<=sp+pi;p++) s+=ss[p]*kv_[l].v[(size_t)p*NKV*HD+kvh*HD+d];
                     at_b[pi*NH*HD+hh*HD+d]=s;
                 }
             }
-            co_.go(l, at_b.data(), n, NH*HD, FIXED_ASCALE, wsc_[l].o_, oo_b.data(), H);
+            co_.go(l, at_b.data(), n, NH*HD, npu_target_detail::dynamic_ascale(at_b.data(), n * NH * HD), wsc_[l].o_, oo_b.data(), H);
             cn(oo_b.data(), n*H);
             for (int pi=0;pi<n;pi++) for (int i=0;i<H;i++) h_b[pi*H+i] = res_b[pi*H+i] + oo_b[pi*H+i];
             for (int pi=0;pi<n;pi++) memcpy(&res_b[pi*H], &h_b[pi*H], H*4);
             for (int pi=0;pi<n;pi++) rn_c(&h_b[pi*H], pa_n_[l].data(), H);
-            cg_.go(l, h_b.data(), n, H, FIXED_ASCALE, wsc_[l].g_, gt_b.data(), 6144);
+            cg_.go(l, h_b.data(), n, H, npu_target_detail::dynamic_ascale(h_b.data(), n * H), wsc_[l].g_, gt_b.data(), 6144);
             cn(gt_b.data(), n*6144);
-#ifdef _OPENMP
-            #pragma omp parallel for
-#endif
             for (int pi=0;pi<n;pi++) for (int i=0;i<IM;i++) {
                 float gv=gt_b[pi*6144+i]; if(!std::isfinite(gv))gv=0;
                 su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[pi*6144+IM+i];
             }
-            cd_.go(l, su_b.data(), n, IM, FIXED_ASCALE, wsc_[l].d_, dw_b.data(), H);
+            cd_.go(l, su_b.data(), n, IM, npu_target_detail::dynamic_ascale(su_b.data(), n * IM), wsc_[l].d_, dw_b.data(), H);
             cn(dw_b.data(), n*H);
             for (int pi=0;pi<n;pi++) for (int i=0;i<H;i++) h_b[pi*H+i] = res_b[pi*H+i] + dw_b[pi*H+i];
 
-            // Snapshot last position's hidden state at this layer, for standard draft feature taps.
+            // Snapshot last position's hidden state at this layer, for MTP draft feature taps.
             memcpy(layer_hidden_snapshot_[l].data(), &h_b[(size_t)(n-1)*H], H*4);
-
-            // Capture ALL positions' hidden states for per-position draft training.
-            // Layer-major layout: [layer0_pos0..posN-1, layer1_pos0..posN-1, ...]
-            layer_hidden_allpos_[l].resize((sp + n) * H);
-            memcpy(&layer_hidden_allpos_[l][(size_t)sp * H], h_b.data(), (size_t)n * H * 4);
-            if (sp + n > max_captured_positions_) max_captured_positions_ = sp + n;
         }
 
         if (out_hidden) memcpy(out_hidden, h_b.data(), (size_t)n*H*4);
@@ -368,12 +341,10 @@ public:
                 memcpy(sb.data(), &h_b[(size_t)pi*H], H*4);
                 rn_c(sb.data(), fin_.data(), H);
                 float* lg = out_logits + (size_t)(logits_for_all_positions ? pi : 0)*NV;
-                const float* sbp = sb.data();
-                #pragma omp parallel for schedule(static)
                 for (int v=0; v<NV; v++) {
-                    float s=0; const float* wrow = &lm_head_f32_[(size_t)v*H];
-                    for (int kk=0;kk<H;kk++) s+=sbp[kk]*wrow[kk];
-                    lg[v]=s;
+                    double s=0; const float* wrow = &lm_head_f32_[(size_t)v*H];
+                    for (int kk=0;kk<H;kk++) s+=(double)sb[kk]*wrow[kk];
+                    lg[v]=(float)s;
                 }
             }
         }
@@ -397,14 +368,12 @@ public:
     void get_layer_hidden(const float* /*all_hidden*/, int32_t /*num_layers*/,
                            const int32_t* target_layer_ids, int32_t num_target_layers,
                            float* out) override {
-        // Interleave across layers: Python training uses shape [hidden_size, num_layers]
-        // then reshape(B, -1), which produces [l0_h0, l1_h0, l2_h0, l3_h0, l4_h0,
-        // l0_h1, l1_h1, ...]. The fc projection weights were trained on this layout.
-        for (int d = 0; d < H; d++) {
-            for (int i = 0; i < num_target_layers; i++) {
-                int layer = target_layer_ids[i];
-                out[(size_t)d * num_target_layers + i] = layer_hidden_snapshot_[layer][d];
-            }
+        // Reads directly from the snapshot captured during the last batch_forward() call
+        // (all_hidden param is unused — real per-layer states live in layer_hidden_snapshot_,
+        // which the generic float* buffer in TargetModelInterface can't represent cleanly).
+        for (int i = 0; i < num_target_layers; i++) {
+            int layer = target_layer_ids[i];
+            memcpy(out + (size_t)i*H, layer_hidden_snapshot_[layer].data(), H*4);
         }
     }
 
@@ -413,20 +382,6 @@ public:
     // past n_accept were written but kv_[l].n is simply not advanced past them.
     void commit_accepted(int32_t start_pos, int32_t n_accept) override {
         for (auto& c : kv_) c.n = start_pos + n_accept;
-    }
-
-    // Get per-position hidden states from specific target layers, for draft training.
-    void get_layer_hidden_positions(
-        const int32_t* target_layer_ids, int32_t num_target_layers,
-        int32_t num_positions, float* position_major_out) {
-        for (int pi = 0; pi < num_positions; pi++) {
-            for (int li = 0; li < num_target_layers; li++) {
-                int layer = target_layer_ids[li];
-                memcpy(&position_major_out[(size_t)pi * num_target_layers * H + (size_t)li * H],
-                       &layer_hidden_allpos_[layer][(size_t)pi * H],
-                       (size_t)H * sizeof(float));
-            }
-        }
     }
 
 private:
@@ -459,7 +414,5 @@ private:
     std::vector<float> rope_cos_, rope_sin_;
     std::vector<KVCache> kv_;
     std::vector<std::vector<float>> layer_hidden_snapshot_;
-    std::vector<std::vector<float>> layer_hidden_allpos_;
-    int32_t max_captured_positions_ = 0;
     std::vector<int32_t> target_layer_ids_;
 };

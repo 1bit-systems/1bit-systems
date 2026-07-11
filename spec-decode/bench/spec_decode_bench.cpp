@@ -79,19 +79,17 @@ int main(int argc, char* argv[]) {
     
     for (float ar : accept_rates) {
         for (int bs : block_sizes) {
-            // Setup (DSpark draft)
-            DSparkDraftConfig cfg;
+            // Setup
+            MTPDraftConfig cfg;
             cfg.block_size = bs;
-            cfg.num_draft_layers = 5;
             
             SimulatedTarget target(ar, 50000, 1024, 28);
-            DSparkDraftModel draft(cfg);
+            MTPDraftModel draft(cfg);
             
             SpecDecodeConfig spec_cfg;
             spec_cfg.block_size = bs;
             spec_cfg.vocab_size = 50000;
             spec_cfg.max_new_tokens = max_new;
-            spec_cfg.num_draft_layers = 5;
             
             SpeculativeDecoder decoder(target, draft, spec_cfg);
             

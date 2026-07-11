@@ -1,191 +1,41 @@
-# Build artifacts
-engine/build/**/*.o
-engine/build/npu_engine
-engine/npu/build/**/*.o
-engine/npu/build/npu_engine*
-*.xclbin
-*.insts
-*.mlir
-*.mlir.prj/
-
-# Python
-__pycache__/
+/build/
+/target/
+**/.zig-cache/
+**/*.o
+**/*.so
 *.pyc
-.venv/
+__pycache__/
+/rust/target
 
-# IDE
-.vscode/
-.idea/
+# Build artifacts that end up in tools/ or site
+tools/bench_gemm
+tools/bench_ternary
+tools/bench_ternary_v2
+tools/test_gemm_v2
+tools/test_v2
 
-# Node
-node_modules/
+# Cloudflare Pages build artifact
+site/docs/.build/
 
-# OS
+# Cloudflare Wrangler cache
+site/.wrangler/
+
+# ck-prefill build artifacts
+ck-prefill/build/
+
+# Editor / OS droppings
+.*.swp
+*.swo
+*~
 .DS_Store
-Thumbs.db
-
-# XRT / NPU
-*.xclbin
-*.insts
-/opt/
+# Zig build artifacts (fused engine)
+engine/fusion/zig-out/
+engine/fusion/.zig-cache/
 .zig-cache/
-zig-out/
-*.deb
-*.tar.gz
-!packaging/**/*.tar.gz
-1bit-agent/
-spec-decode/build/
-engine/lora/adapters/
-*.lora
-zinc/
-zaya-llama.cpp/
-engine/fusion/gpu_attn.o
-engine/fusion/bench_fused
-engine/fusion/bench_main.zig
-engine/npu/build/npu_fused_pipeline
-engine/npu/tests/test_rope
 
-# ── Home directory clutter (repo lives in $HOME) ──
-# Shell / personal config
-.bash_history
-.bashrc
-.profile
-.gitconfig
-.flexlmrc
-
-# Personal directories (some are tracked — handled via git rm separately)
-Desktop/
-Documents/
-Downloads/
-Music/
-Pictures/
-Public/
-Templates/
-Videos/
-.ssh/
-.gnupg/
-.lbdb/
-
-# Cache & package managers
-.cache/
-.cargo/
-.config/
-.local/
-.npm/
-.rustup/
-
-# Claude / Codex / AI tool state
-.claude/
-.claude.json
-.codex/
-
-# Gaia
-.gaia/
-.gaia-venv/
-
-# Pi / 1bit agent runtime state (not config)
+# Local agent config (contains local creds/tokens, per-machine worker state)
 .pi/
-.1bit/agent-view/
-.1bit/agent/auth.json
-.1bit/agent/bin/
-.1bit/agent/git/
-.1bit/agent/npm/
-.1bit/agent/sessions/
 
-# External project checkouts (not part of this repo)
-amdxdna-dkms/
-DeepSpec/
-lemonade/
-lemonade-mobile-local/
-lemonade-security/
-lemonade-store/
-lemon-mlx-engine/
-mlir-aie/
-mlx/
-mlx-rocm-local/
-models/
-npu_re_workspace/
-SpecForge/
-strixhalo-npu-setup/
-torch2aie/
-video-lora/
-vllm-awq4-qwen/
-vllm-rocm/
-whisper.cpp/
-xdna-driver/
-xdna-driver-upstream/
-zyphra-vllm/
-jarvis-env/
-
-# Snap leaks (tracked dir, new untracked subdirs)
-snap/firefox/
-snap/firmware-updater/
-snap/prompting-client/
-snap/snapd-desktop-integration/
-snap/zig/
-
-# Misc
-1bit/
-1bit-env/
-~
-.snapcraft/
-.benchmark_venv/
-.pytest_cache/
-.ruff_cache/
-.benchmark_venv/
-.pytest_cache/
-.ruff_cache/
-.snapcraft/
-bench.py
-benchmark_strix_halo.py
-benchmark_strix_halo.sh
-comp.spv
-test_args
-test_args2
-test_using.o
-verify_70plus_models.py
-*.snap
-!1bit-systems*.snap
-
-# NPU sandbox (build outputs, external checkouts)
-npu-sandbox/Triton-XDNA/
-npu-sandbox/npu-infer/
-npu-sandbox/vulkan-gevm/
-
-# Spec-decode binaries & logs
-spec-decode/*.bin
-spec-decode/training_*.log
-
-# Build artifacts — not tracked
-engine/npu/build/
-engine/fusion/engine
-engine/fusion/engine.c
-engine/fusion/engine_fast
-engine/fusion/engine_final
-engine/fusion/engine_final_clean
-engine/fusion/engine_final_working
-engine/fusion/engine_fused
-engine/fusion/engine_fused2
-engine/fusion/engine_fused_dbg
-engine/fusion/engine_gpu_v2
-engine/fusion/engine_i8
-engine/fusion/engine_peak
-engine/fusion/engine_peak_profile
-engine/fusion/debug_55t
-engine/fusion/debug_cmp
-engine/fusion/engine_55t
-engine/fusion/engine_55t_v2
-engine/fusion/engine_55t_v3
-engine/fusion/engine_55t_v4
-engine/fusion/hybrid_test
-engine/fusion/micro_bench
-engine/fusion/simple_test
-engine/fusion/verify_weights
-engine/fusion/wmma_peak
-engine/fusion/*.bak
-*.o
-*.a
-*.so
-*.xclbin
-npu_ternaryd
-npu_ternaryd_dbg
+# Self-hosted GitHub Actions runner (contains registration credentials — repo is public)
+actions-runner/
+.codex/

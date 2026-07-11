@@ -9,124 +9,49 @@ jobs:
   analytics:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Cloudflare Analytics — Pages + Web Analytics
+      - name: Fetch Cloudflare analytics
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          T="$CLOUDFLARE_API_TOKEN"; A="$CLOUDFLARE_ACCOUNT_ID"
-          OUT="site/analytics-data.json"
+          TOKEN="$CLOUDFLARE_API_TOKEN"
+          ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID"
 
-          echo "{" > "$OUT"
-
-          # === 1. Pages Project Info ===
-          PAGES=$(curl -s -H "Authorization: Bearer $T" \
-            "https://api.cloudflare.com/client/v4/accounts/$A/pages/projects/1bit-systems")
-          echo '"pages":' >> "$OUT"
-          echo "$PAGES" | jq '{ name: .result.name, domains: .result.domains, canonical_deployment: .result.canonical_deployment | { url, created_on, aliases } }' >> "$OUT"
-          echo ',' >> "$OUT"
-
-          # === 2. Check / create Web Analytics ===
-          echo '"web_analytics":' >> "$OUT"
-          WA_SITES=$(curl -s -H "Authorization: Bearer $T" \
-            "https://api.cloudflare.com/client/v4/accounts/$A/analytics/websites")
-          HAS_WA=$(echo "$WA_SITES" | jq '[.result[]? | select(.domain == "1bit.systems")] | length')
-          WA_TOKEN=""
-
-          if [ "$HAS_WA" -gt 0 ]; then
-            WA_TOKEN=$(echo "$WA_SITES" | jq -r '[.result[]? | select(.domain == "1bit.systems")][0].token_public // empty')
-            echo "$WA_SITES" | jq '[.result[]? | select(.domain == "1bit.systems") | { domain, id, auto_install, token_public }]' >> "$OUT"
-            echo "Web Analytics already configured ✓"
-          else
-            echo "Creating Cloudflare Web Analytics site..."
-            CREATE_WA=$(curl -s -X POST -H "Authorization: Bearer $T" \
-              -H "Content-Type: application/json" \
-              "https://api.cloudflare.com/client/v4/accounts/$A/analytics/websites" \
-              -d '{"domain":"1bit.systems","auto_install":false}')
-            WA_TOKEN=$(echo "$CREATE_WA" | jq -r '.result.token_public // empty')
-            echo "$CREATE_WA" | jq '{ created: .success, domain: .result.domain, token: .result.token_public, site_tag: .result.site_tag }' >> "$OUT"
-            echo "$CREATE_WA" | jq -r 'if .success then "✅ Web Analytics created — token: \(.result.token_public)" else "❌ Failed: \(.errors[0].message)" end'
-          fi
-
-          # Inject token into HTML files
-          if [ -n "$WA_TOKEN" ]; then
-            echo "Injecting Web Analytics token into site files..."
-            for f in site/index.html; do
-              if [ -f "$f" ]; then
-                sed -i "s/__CF_WA_TOKEN__/$WA_TOKEN/g" "$f"
-                echo "  ✓ $f updated"
-              fi
-            done
-          else
-            echo "⚠️ No Web Analytics token available — HTML placeholder left as-is"
-          fi
-          echo ',' >> "$OUT"
-
-          # === 3. Zones (for legacy dash analytics) ===
-          echo '"zones":' >> "$OUT"
-          ZONES=$(curl -s -H "Authorization: Bearer $T" \
-            "https://api.cloudflare.com/client/v4/zones?per_page=50")
-          echo "$ZONES" | jq '[.result[]? | { name, id, status, plan: .plan.name }]' >> "$OUT"
-          echo ',' >> "$OUT"
-
-          # === 4. Deployments (last 10) ===
-          echo '"deployments":' >> "$OUT"
-          curl -s -H "Authorization: Bearer $T" \
-            "https://api.cloudflare.com/client/v4/accounts/$A/pages/projects/1bit-systems/deployments?per_page=10" | \
-            jq '[.result[]? | { 
-              created_on: .created_on, 
-              url: .url,
-              aliases: .aliases,
-              latest_stage: ([.stages[]? | select(.ended_on == null) | .name] | first // "done"),
-              env: .env
-            }]' >> "$OUT"
-          echo ',' >> "$OUT"
-
-          # === 5. Account project summary ===
-          echo '"account_projects":' >> "$OUT"
-          curl -s -H "Authorization: Bearer $T" \
-            "https://api.cloudflare.com/client/v4/accounts/$A/pages/projects" | \
-            jq '[.result[]? | { name, subdomain }]' >> "$OUT"
-          echo '' >> "$OUT"
-
-          echo "}" >> "$OUT"
+          echo "=== Project Info ==="
+          curl -s -H "Authorization: Bearer $TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/pages/projects/1bit-systems" | \
+            jq '{ name: .result.name, domains: .result.domains }'
 
           echo ""
-          echo "=== Analytics data written to $OUT ==="
-          cat "$OUT" | jq '.'
+          echo "=== Deployments (last 5) ==="
+          curl -s -H "Authorization: Bearer $TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/pages/projects/1bit-systems/deployments?per_page=5" | \
+            jq '[.result[]? | { created_on, url, latest_stage: ([.stages[]? | select(.ended_on == null) | .name] | first // "done") }]'
 
-      - name: GitHub Traffic Snapshot
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          echo "=== GitHub Traffic (14d) ==="
-          CLONES=$(gh api repos/${{ github.repository }}/traffic/clones)
-          echo "Clones: $(echo "$CLONES" | jq '.count') total · $(echo "$CLONES" | jq '.uniques') unique"
-          echo "Last 24h: $(echo "$CLONES" | jq '.clones[-1].count') clones ($(echo "$CLONES" | jq '.clones[-1].uniques') unique)"
-          
-          VIEWS=$(gh api repos/${{ github.repository }}/traffic/views)
-          echo "Views: $(echo "$VIEWS" | jq '.count') total · $(echo "$VIEWS" | jq '.uniques') unique"
-          
-          REFERRERS=$(gh api repos/${{ github.repository }}/traffic/popular/referrers)
-          echo "Top referrers:"
-          echo "$REFERRERS" | jq -r '.[] | "  \(.referrer): \(.count) views (\(.uniques) unique)"'
-          
-          PATHS=$(gh api repos/${{ github.repository }}/traffic/popular/paths)
-          echo "Top paths:"
-          echo "$PATHS" | jq -r '.[] | "  \(.path): \(.count) views (\(.uniques) unique)"'
-          
-          STARS=$(gh api repos/${{ github.repository }} --jq '.stargazers_count')
-          FORKS=$(gh api repos/${{ github.repository }} --jq '.forks_count')
-          echo "Stars: $STARS · Forks: $FORKS"
+          echo ""
+          echo "=== Web Analytics (last 7d) ==="
+          # Find zone ID for 1bit.systems
+          ZONE_ID=$(curl -s -H "Authorization: Bearer $TOKEN" \
+            "https://api.cloudflare.com/client/v4/zones?name=1bit.systems" | \
+            jq -r '.result[0].id // empty')
 
-      - name: Commit analytics data
-        run: |
-          git config user.name "CI Fix Bot"
-          git config user.email "ci-fixer@bot.com"
-          git add site/analytics-data.json 2>/dev/null || true
-          git diff --cached --quiet || git commit -m "chore: update analytics snapshot [skip ci]"
-          # Rebase before push to avoid non-fast-forward rejection
-          git pull --rebase origin main 2>/dev/null || true
-          git push
+          if [ -n "$ZONE_ID" ]; then
+            echo "Zone: 1bit.systems (ID: $ZONE_ID)"
+            curl -s -H "Authorization: Bearer $TOKEN" \
+              "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/analytics/dashboard?since=-2592000&continuous=true" | \
+              jq '{ 
+                visitors: .result.totals.uniques.all, 
+                page_views: .result.totals.pageviews.all, 
+                requests: .result.totals.requests.all,
+                bandwidth: .result.totals.bandwidth.all,
+                threats: .result.totals.threats.all
+              }'
+          else
+            echo "No zone found for 1bit.systems — analytics only on Cloudflare dashboard"
+          fi
+
+          echo ""
+          echo "=== Account-level summary ==="
+          curl -s -H "Authorization: Bearer $TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/pages/projects" | \
+            jq '[.result[]? | { name, subdomain, pages: (.pages // 0) }]'

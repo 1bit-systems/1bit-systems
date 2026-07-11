@@ -1,3 +1,5 @@
-name = "1bit-systems"
-compatibility_date = "2026-07-05"
+# NOTE: Renamed to 1bit-legacy to avoid clobbering the 1bit-systems Pages project
+# which is now deployed from the bong-water-water-bong/1bit-systems monorepo.
+name = "1bit-legacy"
+compatibility_date = "2026-04-20"
 pages_build_output_dir = "."

@@ -1,0 +1,173 @@
+#version 460
+// ZINC - Q8_0 fused gate+up+SwiGLU plus shared-expert gate scalar.
+//
+// Extends dmmv_q8_0_fused_gate_up_swiglu.comp for Qwen MoE shared experts.
+// WG 0 additionally computes the f32 ffn_gate_inp_shexp dot product and
+// writes gate_out[0]. This removes a separate one-row f32 DMMV dispatch while
+// preserving the later barrier before shared down consumes both outputs.
+
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_EXT_shader_16bit_storage : require
+
+layout(local_size_x = 64) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+    uint a_offset;
+    uint x_offset;
+    uint y_offset;
+    uint acc_mode;
+};
+
+layout(set = 0, binding = 0) readonly buffer MatrixAGate { uint8_t a_gate_data[]; };
+layout(set = 0, binding = 1) readonly buffer MatrixAUp   { uint8_t a_up_data[];   };
+layout(set = 0, binding = 2) readonly buffer VectorX     { vec4 x_data[];         };
+layout(set = 0, binding = 3) writeonly buffer Swiglu     { float swiglu[];        };
+layout(set = 0, binding = 4) readonly buffer SharedGateW { vec4 shared_gate_w[];  };
+layout(set = 0, binding = 5) writeonly buffer SharedGateOut { float gate_out[];   };
+
+const uint NUM_ROWS = 2u;
+const uint Q8_0_BLOCK_SIZE = 32u;
+const uint Q8_0_BYTES = 34u;
+
+shared float s_sum_gate[4];
+shared float s_sum_up[4];
+shared float s_shared_gate[4];
+
+float dot_q8_block_gate(const uint qs_off, const uint x_base_v4) {
+    float block_sum = 0.0;
+    for (uint i = 0u; i < 8u; i++) {
+        const uint q_off = qs_off + i * 4u;
+        const ivec4 qv = ivec4(
+            int(int8_t(a_gate_data[q_off + 0u])),
+            int(int8_t(a_gate_data[q_off + 1u])),
+            int(int8_t(a_gate_data[q_off + 2u])),
+            int(int8_t(a_gate_data[q_off + 3u]))
+        );
+        const vec4 xv = x_data[x_base_v4 + i];
+        block_sum += dot(vec4(qv), xv);
+    }
+    return block_sum;
+}
+
+float dot_q8_block_up(const uint qs_off, const uint x_base_v4) {
+    float block_sum = 0.0;
+    for (uint i = 0u; i < 8u; i++) {
+        const uint q_off = qs_off + i * 4u;
+        const ivec4 qv = ivec4(
+            int(int8_t(a_up_data[q_off + 0u])),
+            int(int8_t(a_up_data[q_off + 1u])),
+            int(int8_t(a_up_data[q_off + 2u])),
+            int(int8_t(a_up_data[q_off + 3u]))
+        );
+        const vec4 xv = x_data[x_base_v4 + i];
+        block_sum += dot(vec4(qv), xv);
+    }
+    return block_sum;
+}
+
+void main() {
+    uint wg_id = gl_WorkGroupID.x;
+    uint tid = gl_LocalInvocationID.x;
+
+    uint row0 = wg_id * NUM_ROWS;
+    uint row1 = row0 + 1u;
+    uint blocks_per_row = K / Q8_0_BLOCK_SIZE;
+
+    float sum_gate0 = 0.0;
+    float sum_gate1 = 0.0;
+    float sum_up0 = 0.0;
+    float sum_up1 = 0.0;
+    float sum_shared_gate = 0.0;
+
+    for (uint blk = tid; blk < blocks_per_row; blk += 64u) {
+        uint x_base_v4 = x_offset / 16u + blk * 8u;
+
+        if (row0 < M) {
+            uint byte_off_g = a_offset + row0 * blocks_per_row * Q8_0_BYTES + blk * Q8_0_BYTES;
+            uint d_bits_g = uint(a_gate_data[byte_off_g]) | (uint(a_gate_data[byte_off_g + 1u]) << 8);
+            float d_g = unpackHalf2x16(d_bits_g).x;
+            sum_gate0 += d_g * dot_q8_block_gate(byte_off_g + 2u, x_base_v4);
+
+            uint byte_off_u = a_offset + row0 * blocks_per_row * Q8_0_BYTES + blk * Q8_0_BYTES;
+            uint d_bits_u = uint(a_up_data[byte_off_u]) | (uint(a_up_data[byte_off_u + 1u]) << 8);
+            float d_u = unpackHalf2x16(d_bits_u).x;
+            sum_up0 += d_u * dot_q8_block_up(byte_off_u + 2u, x_base_v4);
+        }
+
+        if (row1 < M) {
+            uint byte_off_g = a_offset + row1 * blocks_per_row * Q8_0_BYTES + blk * Q8_0_BYTES;
+            uint d_bits_g = uint(a_gate_data[byte_off_g]) | (uint(a_gate_data[byte_off_g + 1u]) << 8);
+            float d_g = unpackHalf2x16(d_bits_g).x;
+            sum_gate1 += d_g * dot_q8_block_gate(byte_off_g + 2u, x_base_v4);
+
+            uint byte_off_u = a_offset + row1 * blocks_per_row * Q8_0_BYTES + blk * Q8_0_BYTES;
+            uint d_bits_u = uint(a_up_data[byte_off_u]) | (uint(a_up_data[byte_off_u + 1u]) << 8);
+            float d_u = unpackHalf2x16(d_bits_u).x;
+            sum_up1 += d_u * dot_q8_block_up(byte_off_u + 2u, x_base_v4);
+        }
+
+        if (wg_id == 0u) {
+            for (uint i = 0u; i < 8u; i++) {
+                sum_shared_gate += dot(shared_gate_w[blk * 8u + i], x_data[x_base_v4 + i]);
+            }
+        }
+    }
+
+    sum_gate0 = subgroupAdd(sum_gate0);
+    sum_gate1 = subgroupAdd(sum_gate1);
+    sum_up0 = subgroupAdd(sum_up0);
+    sum_up1 = subgroupAdd(sum_up1);
+    sum_shared_gate = subgroupAdd(sum_shared_gate);
+
+    if (gl_NumSubgroups > 1u) {
+        if (subgroupElect()) {
+            s_sum_gate[gl_SubgroupID] = sum_gate0;
+            s_sum_up[gl_SubgroupID] = sum_up0;
+            s_shared_gate[gl_SubgroupID] = sum_shared_gate;
+        }
+        barrier();
+        if (tid == 0u) {
+            sum_gate0 = s_sum_gate[0];
+            sum_up0 = s_sum_up[0];
+            sum_shared_gate = s_shared_gate[0];
+            for (uint sg = 1u; sg < gl_NumSubgroups; sg++) {
+                sum_gate0 += s_sum_gate[sg];
+                sum_up0 += s_sum_up[sg];
+                sum_shared_gate += s_shared_gate[sg];
+            }
+        }
+        barrier();
+        if (subgroupElect()) {
+            s_sum_gate[gl_SubgroupID] = sum_gate1;
+            s_sum_up[gl_SubgroupID] = sum_up1;
+        }
+        barrier();
+        if (tid == 0u) {
+            sum_gate1 = s_sum_gate[0];
+            sum_up1 = s_sum_up[0];
+            for (uint sg = 1u; sg < gl_NumSubgroups; sg++) {
+                sum_gate1 += s_sum_gate[sg];
+                sum_up1 += s_sum_up[sg];
+            }
+        }
+    }
+
+    if (tid == 0u) {
+        uint y_base = y_offset / 4u;
+        if (row0 < M) {
+            float silu_g = sum_gate0 / (1.0 + exp(-sum_gate0));
+            swiglu[y_base + row0] = silu_g * sum_up0;
+        }
+        if (row1 < M) {
+            float silu_g = sum_gate1 / (1.0 + exp(-sum_gate1));
+            swiglu[y_base + row1] = silu_g * sum_up1;
+        }
+        if (wg_id == 0u) {
+            gate_out[0] = sum_shared_gate;
+        }
+    }
+}

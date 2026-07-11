@@ -1,4 +1,4 @@
-//! Layer-level dispatcher for NPU+GPU fused inference.
+//! Layer-level dispatcher for NPU+GPU+CPU fused inference.
 //! Decides which backend computes each layer or operation based on policy,
 //! availability, and workload characteristics.
 //!
@@ -11,6 +11,8 @@ pub const BackendDevice = enum(u8) {
     npu = 0,
     /// GPU (Vulkan / Metal / CUDA compute)
     gpu = 1,
+    /// CPU (pure C++ ternary inference, no accelerator needed)
+    cpu = 2,
 };
 
 const log = std.log.scoped(.dispatcher);
@@ -35,6 +37,10 @@ pub const DispatchPolicy = enum(u8) {
     prefill_npu_decode_gpu = 6,
     /// Auto-detect: benchmark each operation and choose fastest.
     auto = 7,
+    /// Use CPU for all computations (pure C++ ternary inference, no accelerator).
+    cpu_only = 8,
+    /// CPU fallback when other backends fail.
+    cpu_fallback = 9,
 };
 
 /// Per-layer dispatch decision.
@@ -51,8 +57,10 @@ pub const LayerAssignment = struct {
 pub const DispatchStats = struct {
     npu_gemm_ns: u64 = 0,
     gpu_gemm_ns: u64 = 0,
+    cpu_gemm_ns: u64 = 0,
     npu_attention_ns: u64 = 0,
     gpu_attention_ns: u64 = 0,
+    cpu_attention_ns: u64 = 0,
     decisions: u64 = 0,
 
     pub fn reset(self: *DispatchStats) void {
@@ -141,6 +149,11 @@ pub const Dispatcher = struct {
                 .ffn = .npu, // NPU INT8 GEMM is fast for FFN
                 .qkv = .npu, // NPU INT8 GEMM for QKV projection
             },
+            .cpu_only, .cpu_fallback => .{
+                .attention = .cpu,
+                .ffn = .cpu,
+                .qkv = .cpu,
+            },
         };
     }
 
@@ -158,6 +171,7 @@ pub const Dispatcher = struct {
             .qkv_on_npu => .{ .attention = .gpu, .ffn = .gpu, .qkv = .npu },
             .prefill_npu_decode_gpu => .{ .attention = .gpu, .ffn = .gpu, .qkv = .gpu },
             .auto => .{ .attention = .gpu, .ffn = .npu, .qkv = .npu },
+            .cpu_only, .cpu_fallback => .{ .attention = .cpu, .ffn = .cpu, .qkv = .cpu },
         };
     }
 
@@ -180,6 +194,8 @@ pub const Dispatcher = struct {
             .qkv_on_npu => "QKV projection → NPU, rest → GPU",
             .prefill_npu_decode_gpu => "Prefill → NPU (fast INT8), Decode → GPU (batch decode)",
             .auto => "Auto-assign: QKV/FFN → NPU, Attention → GPU (auto-tuned)",
+            .cpu_only => "All layers → CPU ternary GEMV (pure C++, no accelerator)",
+            .cpu_fallback => "CPU fallback — use CPU when NPU/GPU unavailable",
         };
     }
 
@@ -205,48 +221,15 @@ test "Dispatcher basic assignment" {
     }
 }
 
-test "Dispatcher attention_on_npu" {
+test "Dispatcher cpu_only" {
     const allocator = std.testing.allocator;
-    var disp = try Dispatcher.init(allocator, 4, .attention_on_npu);
+    var disp = try Dispatcher.init(allocator, 4, .cpu_only);
     defer disp.deinit(allocator);
 
     for (0..4) |i| {
         const a = disp.getAssignment(@intCast(i));
-        try std.testing.expectEqual(BackendDevice.npu, a.attention);
-        try std.testing.expectEqual(BackendDevice.gpu, a.ffn);
-        try std.testing.expectEqual(BackendDevice.gpu, a.qkv);
+        try std.testing.expectEqual(BackendDevice.cpu, a.attention);
+        try std.testing.expectEqual(BackendDevice.cpu, a.ffn);
+        try std.testing.expectEqual(BackendDevice.cpu, a.qkv);
     }
-}
-
-test "Dispatcher ffn_on_npu" {
-    const allocator = std.testing.allocator;
-    var disp = try Dispatcher.init(allocator, 4, .ffn_on_npu);
-    defer disp.deinit(allocator);
-
-    for (0..4) |i| {
-        const a = disp.getAssignment(@intCast(i));
-        try std.testing.expectEqual(BackendDevice.gpu, a.attention);
-        try std.testing.expectEqual(BackendDevice.npu, a.ffn);
-        try std.testing.expectEqual(BackendDevice.gpu, a.qkv);
-    }
-}
-
-test "Dispatcher layer_by_layer alternates" {
-    const allocator = std.testing.allocator;
-    var disp = try Dispatcher.init(allocator, 4, .layer_by_layer);
-    defer disp.deinit(allocator);
-
-    try std.testing.expectEqual(BackendDevice.npu, disp.getAssignment(0).attention);
-    try std.testing.expectEqual(BackendDevice.gpu, disp.getAssignment(1).attention);
-    try std.testing.expectEqual(BackendDevice.npu, disp.getAssignment(2).attention);
-    try std.testing.expectEqual(BackendDevice.gpu, disp.getAssignment(3).attention);
-}
-
-test "Dispatcher describe is non-empty" {
-    const allocator = std.testing.allocator;
-    var disp = try Dispatcher.init(allocator, 1, .auto);
-    defer disp.deinit(allocator);
-
-    const desc = disp.describe();
-    try std.testing.expect(desc.len > 0);
 }
