@@ -30,6 +30,7 @@ pub fn build(b: *std.Build) void {
     root_mod.addImport("vulkan_c", vulkan_c_mod);
     root_mod.addCSourceFile(.{ .file = b.path("cpu_layer.cpp"), .flags = &.{ "-O3", "-march=native", "-std=c++17" } });
     root_mod.addCSourceFile(.{ .file = b.path("../npu/src/dequant_q4nx.c"), .flags = &.{ "-O3", "-march=native", "-std=c11" } });
+    root_mod.addCSourceFile(.{ .file = b.path("tokenize.cpp"), .flags = &.{ "-O3", "-march=native", "-std=c++17", "-DTOKENIZER_NO_MAIN" } });
 
     const exe = b.addExecutable(.{ .name = "fused-engine", .root_module = root_mod });
     exe.linker_allow_shlib_undefined = true;
