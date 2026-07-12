@@ -646,14 +646,28 @@ std::string BackendManager::report() const {
 // GPU/NPU backends are loaded from the rocm_cpp shared library at runtime.
 // CPU backend is linked in directly (pure C++, no deps).
 #include <dlfcn.h>
+#include <unordered_map>
+
+// Cache dlopen handles so repeated backend (re-)creation doesn't grow the library
+// refcount forever (fixes #90). The handle is intentionally never dlclose'd: a
+// Backend's vtable lives in this library, so it must stay resident for the backend's
+// lifetime — closing it would be a use-after-free.
+static void* cached_dlopen(const char* lib) {
+    static std::unordered_map<std::string, void*> cache;
+    auto it = cache.find(lib);
+    if (it != cache.end()) return it->second;
+    void* h = dlopen(lib, RTLD_NOW | RTLD_LOCAL);
+    if (h) cache.emplace(lib, h);
+    return h;
+}
 
 static Backend* try_load_backend(const char* lib, const char* sym) {
-    void* h = dlopen(lib, RTLD_NOW | RTLD_LOCAL);
+    void* h = cached_dlopen(lib);
     if (!h) return nullptr;
     auto* fn = (Backend* (*)())dlsym(h, sym);
-    if (!fn) { dlclose(h); return nullptr; }
+    if (!fn) return nullptr;   // library stays cached; never dlclose
     Backend* b = fn();
-    if (!b) { dlclose(h); return nullptr; }
+    if (!b) return nullptr;
     return b;
 }
 
