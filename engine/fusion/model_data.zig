@@ -147,6 +147,12 @@ pub const ModelData = struct {
     /// Per-layer post-attention RMS normalization weights: [NC][H] f32.
     pa_norm: [][]f32,
 
+    /// Per-layer Qwen3-style QK-Norm weights (per-head RMSNorm applied to Q
+    /// and K before RoPE): [NC][HD] f32. Empty inner slices if the tensor
+    /// wasn't found in the file (older/non-Qwen3 architectures).
+    q_norm: [][]f32,
+    k_norm: [][]f32,
+
     /// Precomputed RoPE sin table: [max_seq_len * HD] f32.
     /// For position p and pair index i: sin(p * base^{-2i/HD}).
     rope_sin: []f32,
@@ -192,6 +198,16 @@ pub const ModelData = struct {
             allocator.free(slice);
         }
         allocator.free(self.pa_norm);
+
+        // Per-layer QK-norm weights
+        for (self.q_norm) |slice| {
+            allocator.free(slice);
+        }
+        allocator.free(self.q_norm);
+        for (self.k_norm) |slice| {
+            allocator.free(slice);
+        }
+        allocator.free(self.k_norm);
 
         // Per-layer projection weights
         inline for (.{ "q_weight", "k_weight", "v_weight", "o_weight", "gate_weight", "up_weight", "down_weight" }) |field| {
@@ -1043,11 +1059,16 @@ fn loadModelFinish(
     log.info("Loading post-attention norms for {d} layers...", .{config.NC});
     const pa_norm = try loadLayerNormsFromMemory(file_data, hdr_size, tensors, "post_attention_layernorm", config.NC, H, allocator);
 
-    // ── 12. Load per-layer projection weights (dequantized f32, for CPU GEMV) ──
+    // ── 11b. Load per-layer QK-norm weights (Qwen3 architecture) ──
     const NH = config.NH;
     const NKV = config.NKV;
     const HD = config.HD;
     const IM = config.IM;
+    log.info("Loading QK-norm weights for {d} layers...", .{config.NC});
+    const q_norm = try loadLayerNormsFromMemory(file_data, hdr_size, tensors, "self_attn.q_norm", config.NC, HD, allocator);
+    const k_norm = try loadLayerNormsFromMemory(file_data, hdr_size, tensors, "self_attn.k_norm", config.NC, HD, allocator);
+
+    // ── 12. Load per-layer projection weights (dequantized f32, for CPU GEMV) ──
     log.info("Loading per-layer projection weights for {d} layers (CPU dequant)...", .{config.NC});
     const q_weight = try loadLayerProjWeightsFromMemory(file_data, hdr_size, tensors, "self_attn.q_proj", config.NC, NH * HD, H, allocator);
     const k_weight = try loadLayerProjWeightsFromMemory(file_data, hdr_size, tensors, "self_attn.k_proj", config.NC, NKV * HD, H, allocator);
@@ -1067,6 +1088,8 @@ fn loadModelFinish(
         .final_norm = final_norm,
         .in_norm = in_norm,
         .pa_norm = pa_norm,
+        .q_norm = q_norm,
+        .k_norm = k_norm,
         .rope_sin = rope_sin,
         .rope_cos = rope_cos,
         .q_weight = q_weight,
@@ -1571,6 +1594,8 @@ test "ModelData deinit clears struct" {
         .final_norm = try allocator.alloc(f32, 64),
         .in_norm = try allocator.alloc([]f32, 2),
         .pa_norm = try allocator.alloc([]f32, 2),
+        .q_norm = &.{},
+        .k_norm = &.{},
         .rope_sin = try allocator.alloc(f32, 8192),
         .rope_cos = try allocator.alloc(f32, 8192),
         .q_weight = &.{},
