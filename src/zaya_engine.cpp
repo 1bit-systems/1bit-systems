@@ -73,8 +73,10 @@ static void upf32(const std::vector<float>& s,float*d,int n,hipStream_t h=0){
 // ── Public state ──
 struct ZayaState {
     __half *d_hs,*d_ao,*d_tmp,*d_fnw,*d_lm_out,*d_embed;
-    __half *d_conv,*d_phs; float *d_prev_rs;
-    int *d_expert_idx; float *d_expert_wt;
+    __half *d_conv,*d_phs,*d_lm_vocab; float *d_prev_rs;
+    int *d_argmax_idx; float *d_argmax_val;
+    int *d_expert_idx,*d_expert_wt;  // MoE dispatch
+    int *d_sorted_ids,*d_expert_counts,*d_expert_offsets;  // batched MoE sort (#59,#63)
     hipStream_t st;
     LayerW lw[N_LAYERS];
     bool has_eda[N_LAYERS];
@@ -104,6 +106,13 @@ ZayaState* zaya_init(const char* weights_dir = nullptr) {
     HIP_OK(hipMalloc(&s->d_hs,H*2)); HIP_OK(hipMalloc(&s->d_ao,H*2));
     HIP_OK(hipMalloc(&s->d_tmp,H*2)); HIP_OK(hipMalloc(&s->d_fnw,H*2));
     HIP_OK(hipMalloc(&s->d_lm_out,4096*2));
+    // lm-head / argmax / batching buffers — formerly static locals in forward functions (fixes #59,#63)
+    HIP_OK(hipMalloc(&s->d_lm_vocab,(size_t)VOCAB*2));
+    HIP_OK(hipMalloc(&s->d_argmax_idx,4));
+    HIP_OK(hipMalloc(&s->d_argmax_val,4));
+    HIP_OK(hipMalloc(&s->d_sorted_ids,(size_t)8*4));
+    HIP_OK(hipMalloc(&s->d_expert_counts,(size_t)17*4));
+    HIP_OK(hipMalloc(&s->d_expert_offsets,(size_t)17*4));
     HIP_OK(hipMalloc(&s->d_embed,(size_t)VOCAB*H*2));
     HIP_OK(hipMalloc(&s->d_conv,(size_t)N_LAYERS*2*QKV*2));
     HIP_OK(hipMalloc(&s->d_phs,(size_t)N_LAYERS*H*2));
@@ -212,13 +221,11 @@ void zaya_forward(ZayaState* s, int token_id, float* logits_out) {
     rmsnorm_k<<<1,BLK,0,s->st>>>(s->d_hs,s->d_fnw,H);
     hipStreamSynchronize(s->st);
     
-    // lm_head — tiled GEMV in a single launch
-    static __half *d_all = nullptr;
-    if(!d_all){hipMalloc(&d_all,(size_t)VOCAB*2);}
-    moe_tiled_gemv<<<(VOCAB+WMMA_M-1)/WMMA_M,WMMA_THREADS,0,s->st>>>(d_all,s->d_hs,s->d_embed,VOCAB,H);
+    // lm_head — tiled GEMV in a single launch; buffer allocated in zaya_init (fixes #59)
+    moe_tiled_gemv<<<(VOCAB+WMMA_M-1)/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_lm_vocab,s->d_hs,s->d_embed,VOCAB,H);
     hipStreamSynchronize(s->st);
     std::vector<__half> lh(VOCAB);
-    hipMemcpy(lh.data(),d_all,(size_t)VOCAB*2,hipMemcpyDeviceToHost);
+    hipMemcpy(lh.data(),s->d_lm_vocab,(size_t)VOCAB*2,hipMemcpyDeviceToHost);
     for(int v=0;v<VOCAB;v++)logits_out[v]=__half2float(lh[v]);
 }
 
@@ -258,17 +265,12 @@ int zaya_forward_greedy(ZayaState* s, int token_id) {
     }
     rmsnorm_k<<<1,BLK,0,s->st>>>(s->d_hs,s->d_fnw,H);
     
-    // lm_head + GPU argmax (no full logit copy)
-    static __half *d_all = nullptr;
-    static int *d_best_idx = nullptr;
-    static float *d_best_val = nullptr;
-    if(!d_all){hipMalloc(&d_all,(size_t)VOCAB*2);}
-    if(!d_best_idx){hipMalloc(&d_best_idx,4); hipMalloc(&d_best_val,4);}
-    moe_tiled_gemv<<<(VOCAB+WMMA_M-1)/WMMA_M,WMMA_THREADS,0,s->st>>>(d_all,s->d_hs,s->d_embed,VOCAB,H);
-    argmax_kernel<<<1,256,0,s->st>>>(d_all,VOCAB,d_best_idx,d_best_val);
+    // lm_head + GPU argmax (no full logit copy); buffers allocated in zaya_init (fixes #59)
+    moe_tiled_gemv<<<(VOCAB+WMMA_M-1)/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_lm_vocab,s->d_hs,s->d_embed,VOCAB,H);
+    argmax_kernel<<<1,256,0,s->st>>>(s->d_lm_vocab,VOCAB,s->d_argmax_idx,s->d_argmax_val);
     hipStreamSynchronize(s->st);
     int best;
-    hipMemcpy(&best,d_best_idx,4,hipMemcpyDeviceToHost);
+    hipMemcpy(&best,s->d_argmax_idx,4,hipMemcpyDeviceToHost);
     return best;
 }
 
@@ -333,27 +335,20 @@ void zaya_forward_batch(ZayaState* s, const int* token_ids, float* logits_out, i
                     s->d_expert_idx, s->d_expert_wt,
                     B);
 
-                // Phase 2: Sort token IDs by expert (histogram + prefix sum + scatter)
-                static int *d_sorted_ids = nullptr;
-                static int *d_expert_counts = nullptr;
-                static int *d_expert_offsets = nullptr;
-                if (!d_sorted_ids) {
-                    hipMalloc(&d_sorted_ids, (size_t)8 * 4);     // max B=8
-                    hipMalloc(&d_expert_counts, (size_t)17 * 4);  // N_EXP_T=17
-                    hipMalloc(&d_expert_offsets, (size_t)17 * 4);
-                }
+                // Phase 2: Sort token IDs by expert (histogram + prefix sum + scatter);
+                // buffers allocated in zaya_init (fixes #63).
                 moe_sort_histogram_kernel<<<1, 32, 0, s->st>>>(
-                    s->d_expert_idx, d_expert_counts, d_expert_offsets,
-                    d_sorted_ids, B);
+                    s->d_expert_idx, s->d_expert_counts, s->d_expert_offsets,
+                    s->d_sorted_ids, B);
 
                 // Phase 3: Expert FFN (sorted, one block per expert with count>0)
                 moe_sorted_expert_kernel<<<N_EXP, 256, 0, s->st>>>(
-                    s->d_hs, d_sorted_ids, d_expert_counts, d_expert_offsets,
+                    s->d_hs, s->d_sorted_ids, s->d_expert_counts, s->d_expert_offsets,
                     l.gu, l.dn, s->d_tmp, B);
 
                 // Phase 4: Handle MOD skip tokens (expert_idx == N_EXP = 16)
                 // These skip the expert FFN entirely (out = hs, identity).
-                if (d_expert_counts) {  // always true, keeps compiler happy
+                if (s->d_expert_counts) {  // always true, keeps compiler happy
                     moe_modskip_passthrough_kernel<<<(B + 255) / 256, 256, 0, s->st>>>(
                         s->d_tmp, s->d_hs, s->d_expert_idx, N_EXP, B);
                 }
@@ -387,40 +382,32 @@ void zaya_forward_batch(ZayaState* s, const int* token_ids, float* logits_out, i
     }
     hipStreamSynchronize(s->st);
 
-    // lm_head — tiled GEMV for each token
-    static __half* d_lm_batch = nullptr;
-    static size_t  d_lm_batch_sz = 0;
-    size_t need = (size_t)B * VOCAB * 2;
-    if (!d_lm_batch || d_lm_batch_sz < need) {
-        if (d_lm_batch) hipFree(d_lm_batch);
-        hipMalloc(&d_lm_batch, need);
-        d_lm_batch_sz = need;
+    // lm_head — tiled GEMV for each token; buffer allocated in zaya_init (fixes #63)
+    {
+        const size_t max_need = (size_t)8 * VOCAB * 2;  // B <= 8, allocated in zaya_init
+        #if __has_include(<rocwmma/rocwmma.hpp>)
+        if (B >= 2) {
+            const int grid_x = (VOCAB + WMMA_M - 1) / WMMA_M;
+            const int grid_y = (B + WMMA_N - 1) / WMMA_N;
+            wmma_batched_gemv<<<dim3(grid_x, grid_y, 1), 32, 0, s->st>>>(
+                s->d_lm_vocab, s->d_hs, s->d_embed, VOCAB, H, B);
+        } else {
+            moe_tiled_gemv<<<(VOCAB + WMMA_M - 1) / WMMA_M, WMMA_THREADS, 0, s->st>>>(
+                s->d_lm_vocab, s->d_hs, s->d_embed, VOCAB, H);
+        }
+        #else
+        for (int b = 0; b < B; b++) {
+            __half* hs_b = s->d_hs + (size_t)b * H;
+            moe_tiled_gemv<<<(VOCAB + WMMA_M - 1) / WMMA_M, WMMA_THREADS, 0, s->st>>>(
+                s->d_lm_vocab + (size_t)b * VOCAB, hs_b, s->d_embed, VOCAB, H);
+        }
+        #endif
     }
-    // Batched lm_head using WMMA hardware matrix units if available.
-    // For B >= 4, the batched WMMA kernel is more efficient than B sequential
-    // scalar-tiled launches because it amortizes weight loads across tokens.
-    #if __has_include(<rocwmma/rocwmma.hpp>)
-    if (B >= 2) {
-        const int grid_x = (VOCAB + WMMA_M - 1) / WMMA_M;
-        const int grid_y = (B + WMMA_N - 1) / WMMA_N;
-        wmma_batched_gemv<<<dim3(grid_x, grid_y, 1), 32, 0, s->st>>>(
-            d_lm_batch, s->d_hs, s->d_embed, VOCAB, H, B);
-    } else {
-        moe_tiled_gemv<<<(VOCAB + WMMA_M - 1) / WMMA_M, WMMA_THREADS, 0, s->st>>>(
-            d_lm_batch, s->d_hs, s->d_embed, VOCAB, H);
-    }
-    #else
-    for (int b = 0; b < B; b++) {
-        __half* hs_b = s->d_hs + (size_t)b * H;
-        moe_tiled_gemv<<<(VOCAB + WMMA_M - 1) / WMMA_M, WMMA_THREADS, 0, s->st>>>(
-            d_lm_batch + (size_t)b * VOCAB, hs_b, s->d_embed, VOCAB, H);
-    }
-    #endif
     hipStreamSynchronize(s->st);
 
     // Copy logits for all B tokens
     std::vector<__half> lh(B * VOCAB);
-    hipMemcpy(lh.data(), d_lm_batch, (size_t)B * VOCAB * 2, hipMemcpyDeviceToHost);
+    hipMemcpy(lh.data(), s->d_lm_vocab, (size_t)B * VOCAB * 2, hipMemcpyDeviceToHost);
     for (int b = 0; b < B; b++)
         for (int v = 0; v < VOCAB; v++)
             logits_out[b * (size_t)VOCAB + v] = __half2float(lh[b * (size_t)VOCAB + v]);
@@ -459,6 +446,8 @@ void zaya_destroy(ZayaState* s) {
         hipFree(l.pmhss); hipFree(l.pmhsb); hipFree(l.pmrss); hipFree(l.pmrsb);
     }
     hipStreamDestroy(s->st);
+    hipFree(s->d_lm_vocab); hipFree(s->d_argmax_idx); hipFree(s->d_argmax_val);
+    hipFree(s->d_sorted_ids); hipFree(s->d_expert_counts); hipFree(s->d_expert_offsets);
     delete s;
 }
 
