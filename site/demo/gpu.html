@@ -35,7 +35,7 @@ tr:hover td{background:#0d0d1a}
 <div class="wrap">
 <a href="index.html" class="back">← Back to Demos</a>
 <h1>NPU vs GPU</h1>
-<p style="color:#888;margin-bottom:8px">NPU fused: <strong style="color:#00ff88;font-size:1.5rem">291 tok/s</strong> @ ~20W (raw) · FLM 94 tok/s validated</p>
+<p style="color:#888;margin-bottom:8px">NPU v12: <strong style="color:#00ff88;font-size:1.5rem">110 tok/s</strong> @ ~15W (raw, tuned) · FLM 94 tok/s validated</p>
 <p style="color:#666;margin-bottom:30px">GPU 1-bit models for comparison · Radeon 8060S · Vulkan · ROCm · ZINC</p>
 
 <div class="section">
@@ -57,9 +57,9 @@ tr:hover td{background:#0d0d1a}
   <h2>NPU vs GPU Head-to-Head</h2>
   <table>
     <tr><th>Winner</th><th>Metric</th><th>NPU (15W)</th><th>GPU (45W)</th><th>Advantage</th></tr>
-    <tr><td class="pink">GPU</td><td>Raw speed</td><td>97 tok/s</td><td class="green">381 tok/s</td><td>3.9× faster</td></tr>
+    <tr><td class="pink">GPU</td><td>Raw speed</td><td>110 tok/s</td><td class="green">381 tok/s</td><td>3.5× faster</td></tr>
     <tr><td class="green">NPU</td><td>Power</td><td class="green">15W</td><td>45W</td><td>3× less power</td></tr>
-    <tr><td class="pink">GPU</td><td>Best measured</td><td>94 tok/s (FLM) / 291 raw</td><td class="green" style="font-size:1.1rem"><strong>381 tok/s</strong></td><td><strong>GPU fastest measured</strong></td></tr>
+    <tr><td class="pink">GPU</td><td>Best measured</td><td>94 tok/s (FLM) / 110 raw</td><td class="green" style="font-size:1.1rem"><strong>381 tok/s</strong></td><td><strong>GPU fastest measured</strong></td></tr>
     <tr><td class="pink">GPU</td><td>Max model size</td><td>0.6B</td><td class="green">up to 9B</td><td>15× larger</td></tr>
     <tr><td class="green">NPU</td><td>Binary size</td><td class="green">38 KB</td><td>~50 MB</td><td>1,300× smaller</td></tr>
   </table>

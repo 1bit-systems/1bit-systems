@@ -3,15 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>1bit.systems — 207 KB Single Binary · 97 tok/s NPU · 73+ models</title>
-<meta name="description" content="97 tok/s NPU V12 engine (validated on Qwen3-0.6B Q4NX). 38.5 TFLOPS prefill peak. 207 KB single binary. 73+ models across 6 backends. Zero Python. Open source.">
+<title>1bit.systems — 207 KB Single Binary · 110 tok/s NPU · 73+ models</title>
+<meta name="description" content="110 tok/s NPU V12 engine (measured 2026-07-12 after correctness fixes; throughput re-tuned, not yet independently confirmed coherent). 38.5 TFLOPS prefill peak. 207 KB single binary. 73+ models across 6 backends. Zero Python. Open source.">
 <!-- Google Search Console: verify at https://search.google.com/search-console -->
 <!-- Add site (URL prefix: https://1bit.systems), choose HTML tag method, -->
 <!-- then replace the content value below with your GSC-provided code: -->
 <!-- <meta name="google-site-verification" content="YOUR_GSC_CODE_HERE"> -->
 <meta name="keywords" content="AMD Strix Halo, NPU inference, 1-bit LLM, ternary inference, local AI, NPU GPU fused engine, ROCm, XDNA 2, C++ LLM inference, AI inference without Python">
-<meta property="og:title" content="1bit.systems — 207 KB Single Binary · 97 tok/s NPU">
-<meta property="og:description" content="97 tok/s NPU V12 engine (validated on Qwen3-0.6B Q4NX). 38.5 TFLOPS prefill peak. 207 KB single binary. 73+ models. Zero Python. Open source.">
+<meta property="og:title" content="1bit.systems — 207 KB Single Binary · 110 tok/s NPU">
+<meta property="og:description" content="110 tok/s NPU V12 engine (measured 2026-07-12 after correctness fixes; throughput re-tuned, not yet independently confirmed coherent). 38.5 TFLOPS prefill peak. 207 KB single binary. 73+ models. Zero Python. Open source.">
 <meta property="og:image" content="https://1bit.systems/assets/brand-lockup.svg">
 <meta property="og:url" content="https://1bit.systems">
 <meta property="og:type" content="website">
@@ -20,7 +20,7 @@
 <link rel="canonical" href="https://1bit.systems">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="1bit.systems — 207 KB NPU+GPU+CPU engine">
-<meta name="twitter:description" content="97 tok/s NPU V12 engine (validated on Qwen3-0.6B Q4NX). 38.5 TFLOPS prefill peak. 207 KB single binary. 73+ models. Zero Python. Open source.">
+<meta name="twitter:description" content="110 tok/s NPU V12 engine (measured 2026-07-12 after correctness fixes; throughput re-tuned, not yet independently confirmed coherent). 38.5 TFLOPS prefill peak. 207 KB single binary. 73+ models. Zero Python. Open source.">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
 <link rel="alternate icon" href="/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -136,13 +136,13 @@
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "name": "1bit.systems",
-    "description": "NPU+GPU+CPU inference engine for AMD Strix Halo. 97 tok/s NPU V12 engine (validated on Qwen3-0.6B Q4NX). 38.5 TFLOPS prefill peak. 207 KB single binary. 73+ models across 6 backends. Zero Python.",
+    "description": "NPU+GPU+CPU inference engine for AMD Strix Halo. 110 tok/s NPU V12 engine (measured 2026-07-12 after correctness fixes). 38.5 TFLOPS prefill peak. 207 KB single binary. 73+ models across 6 backends. Zero Python.",
     "url": "https://1bit.systems",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Linux",
     "author": { "@type": "Person", "name": "bong-water-water-bong" },
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-    "featureList": ["NPU inference", "97 tok/s NPU", "38.5 TFLOPS prefill", "207 KB single binary", "73+ models", "6 backends", "NPU+GPU+CPU"]
+    "featureList": ["NPU inference", "110 tok/s NPU", "38.5 TFLOPS prefill", "207 KB single binary", "73+ models", "6 backends", "NPU+GPU+CPU"]
   },
   {
     "@context": "https://schema.org",
@@ -163,7 +163,7 @@
         "name": "What is 1bit.systems?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "A NPU+GPU+CPU inference engine for AMD Strix Halo. 207 KB single binary, 97 tok/s NPU V12 engine (validated on Qwen3-0.6B Q4NX, 7 host-side bug fixes + xclbin kernel correctness confirmed), 73+ models across 6 backends. Zero Python. MIT licensed."
+          "text": "A NPU+GPU+CPU inference engine for AMD Strix Halo. 207 KB single binary, 110 tok/s NPU V12 engine (measured 2026-07-12: 3 real correctness bugs fixed in the RoPE/attention/quantization math on 2026-07-11, throughput re-measured and re-tuned the next day), 73+ models across 6 backends. Zero Python. MIT licensed."
         }
       },
       {
@@ -187,7 +187,7 @@
         "name": "How fast is NPU inference on Strix Halo?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "97 tok/s NPU V12 engine (validated on Qwen3-0.6B Q4NX). 38.5 TFLOPS prefill peak. 207 KB single binary. ROCm HIP backend reaches 113 tok/s. 22 tok/s GPU ZINC on Bonsai-1.7B F16. (Speculative decoding is unresolved — an earlier '572 tok/s' projection doesn't hold up yet, but that's an undertrained checkpoint, not a disproven architecture; training fix in progress.)"
+          "text": "110 tok/s NPU V12 engine (measured 2026-07-12 after correctness fixes to RoPE convention, causal masking, and quantization scale; requires OpenMP thread tuning to hit this speed — see repo issues for details). 38.5 TFLOPS prefill peak. 207 KB single binary. ROCm HIP backend reaches 113 tok/s. 22 tok/s GPU ZINC on Bonsai-1.7B F16. (Speculative decoding is unresolved — an earlier '572 tok/s' projection doesn't hold up yet, but that's an undertrained checkpoint, not a disproven architecture; training fix in progress.)"
         }
       }
     ]
@@ -212,7 +212,7 @@
       <span class="eyebrow">Strix Halo · Ryzen AI Max+ 395</span>
       <h1><span class="g"><span id="binary-size">207 KB</span> One Binary</span> to rule them all.</h1>
       <p style="margin-top:2px;font-size:clamp(22px,2.8vw,34px);font-weight:800;letter-spacing:-.025em;line-height:1.04;color:var(--blue);">NPU+GPU+CPU inference engine</p>
-      <p style="margin-top:8px;font-size:clamp(14px,1.2vw,16px);color:var(--dim);font-family:var(--mono);">AMD Strix Halo · <span id="npu-validated-tok">97 tok/s</span> NPU · <span id="tflops2-alt">38.5 TFLOPS</span> prefill · <span id="binary-size2">207 KB</span> · MIT</p>
+      <p style="margin-top:8px;font-size:clamp(14px,1.2vw,16px);color:var(--dim);font-family:var(--mono);">AMD Strix Halo · <span id="npu-validated-tok">110 tok/s</span> NPU · <span id="tflops2-alt">38.5 TFLOPS</span> prefill · <span id="binary-size2">207 KB</span> · MIT</p>
       <p class="sub">Auto-detect. Zero dependencies. M=32 batch. 50 TOPS INT8. No Python. No pip. No Docker. Open source. Pure C++.</p>
       <blockquote class="hero-quote">
         <span class="qmark">"</span>
@@ -228,7 +228,7 @@
         <span class="pill ok"><span class="dot"></span>verified on-device</span>
         <span class="pill dark"><span class="dot"></span><span id="fused-size">30 KB</span> fused layer</span>
         <span class="pill info"><span class="dot"></span><span id="model-count">73+</span> models · <span id="backend-count">6</span> backends</span>
-        <span class="pill ok"><span class="dot"></span><span id="npu-validated-tok2">97 tok/s</span> validated NPU</span>
+        <span class="pill ok"><span class="dot"></span><span id="npu-validated-tok2">110 tok/s</span> NPU (measured)</span>
       </div>
       <div class="cta-row">
         <a class="btn btn-primary btn-lg" href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">View on GitHub →</a>
@@ -239,7 +239,7 @@
       <div style="padding:18px 20px;">
         <div class="console-hd"><span class="dots"><span style="background:var(--pink)"></span><span style="background:var(--blue)"></span><span style="background:var(--green)"></span></span><span class="mono" style="font-size:12px;color:var(--muted);">1bit.systems engine stats</span><span style="flex:1"></span><span class="eyebrow">Strix Halo</span></div>
         <div style="margin-top:14px;display:flex;flex-direction:column;gap:8px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--green);font-size:10px;">NPU V12 — validated</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--green);"><span id="npu-validated-tok3">97 tok/s</span></span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--green);font-size:10px;">NPU V12 — measured, tuned</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--green);"><span id="npu-validated-tok3">110 tok/s</span></span></div>
           <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--pink);font-size:10px;">Prefill peak (4i-I8-APRE)</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--pink);"><span id="gpu-ternary-tok">38.5 TFLOPS</span></span></div>
           <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--muted);font-size:10px;">Token Router · all-5 auto-detect</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--muted);">28 tok/s</span></div>
           <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--blue);font-size:10px;">Single binary size</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--blue);"><span id="gpu-1bit-tok">207 KB</span></span></div>
@@ -264,7 +264,7 @@
   <h2 style="margin:16px 0 8px;">One APU. Two accelerators AMD half-shipped.</h2>
   <p class="lead">The NPU AMD shipped locked. The GPU they already open. 1bit.systems drives both — from one mini PC, with no cloud in the loop.</p>
   <div class="grid2" style="margin-top:28px;">
-    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">NPU · XDNA 2</span><span class="pill warn"><span class="dot"></span>unlocked</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute tiles</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">50 TOPS INT8 AMD shipped disabled on consumer silicon. <strong>V12 engine (validated on Qwen3-0.6B Q4NX): 97 tok/s</strong>. All 7 host-side bugs fixed, NPU xclbin kernel correctness confirmed. <strong>Prefill peak: 38.5 TFLOPS (4i-I8-APRE)</strong>. 5 NPU model families, 73+ total across 6 backends.</p></div>
+    <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">NPU · XDNA 2</span><span class="pill warn"><span class="dot"></span>unlocked</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute tiles</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">50 TOPS INT8 AMD shipped disabled on consumer silicon. <strong>V12 engine, re-measured 2026-07-12: 110 tok/s</strong>. RoPE convention, causal masking, and quantization-scale bugs fixed 2026-07-11; requires OpenMP thread tuning to reach this speed (default settings: 6-8 tok/s). <strong>Prefill peak: 38.5 TFLOPS (4i-I8-APRE)</strong>. 5 NPU model families, 73+ total across 6 backends.</p></div>
     <div class="card" style="padding:24px;"><div style="display:flex;align-items:center;justify-content:space-between;"><span class="caps" style="color:var(--pink);">GPU · RDNA 3.5</span><span class="pill info"><span class="dot"></span>open</span></div><div style="display:flex;align-items:baseline;gap:10px;margin-top:16px;"><span class="mono" style="font-size:46px;font-weight:800;line-height:1;color:var(--green);">32</span><span style="font-size:16px;font-weight:700;color:var(--muted);">compute units</span></div><p style="margin-top:14px;font-size:14.5px;line-height:1.5;color:var(--muted);">Vulkan 1.3 compute. ZINC engine (Zig, GGUF). 22 tok/s decode (Bonsai-1.7B F16). 256 GB/s memory bandwidth — 99.6% utilized.</p></div>
   </div>
 </section>
@@ -273,7 +273,7 @@
   <span class="eyebrow">Measured on-device</span>
   <h2 style="margin:16px 0 24px;">The numbers. Verified.</h2>
   <div class="stats">
-    <div class="stat"><span class="lbl caps">NPU fused (raw)</span><span class="val">291 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>3.4 ms/tok · raw throughput</span></div>
+    <div class="stat"><span class="lbl caps">NPU fused (broken)</span><span class="val">291 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>historical — hangs on real generation as of 2026-07-12</span></div>
     <div class="stat"><span class="lbl caps">NPU FLM (validated)</span><span class="val">94 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>production validated ⭐</span></div>
     <div class="stat"><span class="lbl caps">GPU ternary (validated)</span><span class="val">307 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>1.58-bit · Vulkan · validated ⭐</span></div>
     <div class="stat"><span class="lbl caps">GPU 1-bit</span><span class="val">383 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>Qwen2-0.5B IQ1_S · llama.cpp</span></div>
@@ -289,8 +289,8 @@
 
 <section id="engine" class="block">
   <span class="eyebrow">Fused Layer Engine</span>
-  <h2 style="margin:16px 0 8px;"><span id="npu-validated-tok5">97 tok/s</span>. <span id="binary-size4">207 KB</span>. MIT.</h2>
-  <p class="lead" style="margin-bottom:28px;">One person reverse-engineered AMD's NPU stack in 4 days. The V12 NPU engine runs at 97 tok/s (validated on Qwen3-0.6B Q4NX, all 7 host-side bugs fixed, xclbin kernels confirmed).</p>
+  <h2 style="margin:16px 0 8px;"><span id="npu-validated-tok5">110 tok/s</span>. <span id="binary-size4">207 KB</span>. MIT.</h2>
+  <p class="lead" style="margin-bottom:28px;">One person reverse-engineered AMD's NPU stack in 4 days. The V12 NPU engine measures 110 tok/s as of 2026-07-12, after fixing three real correctness bugs (RoPE convention, causal masking, quantization scale) and tuning OpenMP thread settings.</p>
   <div class="grid2" style="margin-top:0;">
     <div class="card" style="padding:24px;">
       <span class="caps" style="color:var(--green);">Engine evolution — 4 days</span>
@@ -319,6 +319,7 @@
   <div style="margin-top:24px;text-align:center;font-size:14px;color:var(--muted);">
     The gap with proprietary runtimes is software architecture, not silicon. <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/journey.md" style="color:var(--blue);font-weight:600;">Read the full audit trail →</a>
   </div>
+  <p style="margin-top:12px;text-align:center;font-size:12.5px;color:var(--pink);">Note: the fused-layer milestone above (3.4 ms/tok, Jul 6) is historical. As of 2026-07-12, running the fused engine end-to-end produces degenerate output and hangs — see open issues. The 110 tok/s V12 number in this section's headline is the currently-working, re-measured figure.</p>
 </section>
 
 <section id="router" class="block">
@@ -394,7 +395,7 @@
         <div class="check" style="padding:6px 0;"><span class="ck">📱</span><span class="txt" style="font-size:13px;"><strong>Mobile</strong> — Flutter app on iOS & Android. Connect via ngrok tunnel + QR code.</span></div>
       </div>
       <div style="margin-top:16px;display:flex;flex-wrap:wrap;gap:8px;">
-        <span class="pill ok" style="font-size:10px;"><span class="dot"></span>97 tok/s NPU</span>
+        <span class="pill ok" style="font-size:10px;"><span class="dot"></span>110 tok/s NPU</span>
         <span class="pill info" style="font-size:10px;"><span class="dot"></span>Open Knowledge Format</span>
         <span class="pill warn" style="font-size:10px;"><span class="dot"></span>Zero data leaves machine</span>
       </div>
@@ -484,7 +485,7 @@
   <div style="display:flex;flex-direction:column;gap:14px;max-width:760px;margin:0 auto;">
     <div class="card" style="padding:20px 24px;">
       <div style="font-weight:700;font-size:16px;color:var(--text);">What is 1bit.systems?</div>
-      <p style="margin-top:8px;font-size:14px;color:var(--muted);line-height:1.55;">A NPU+GPU+CPU inference engine for AMD Strix Halo. 207 KB single binary, 97 tok/s NPU V12 engine (validated), 38.5 TFLOPS prefill peak, 73+ models across 6 backends. Zero Python. MIT licensed.</p>
+      <p style="margin-top:8px;font-size:14px;color:var(--muted);line-height:1.55;">A NPU+GPU+CPU inference engine for AMD Strix Halo. 207 KB single binary, 110 tok/s NPU V12 engine (measured 2026-07-12), 38.5 TFLOPS prefill peak, 73+ models across 6 backends. Zero Python. MIT licensed.</p>
     </div>
     <div class="card" style="padding:20px 24px;">
       <div style="font-weight:700;font-size:16px;color:var(--text);">Does 1bit.systems require Python?</div>
@@ -523,7 +524,7 @@
     </div>
     <div class="foot-fine">
       <div>Built with DeepSeek v4 (99.9%) · Shipped with Claude (0.1%) · One human.</div>
-      <div><span id="binary-size6">207 KB</span> single binary · <span id="npu-validated-tok4">97 tok/s</span> NPU · <span id="tflops3">38.5 TFLOPS</span> prefill · MIT</div>
+      <div><span id="binary-size6">207 KB</span> single binary · <span id="npu-validated-tok4">110 tok/s</span> NPU · <span id="tflops3">38.5 TFLOPS</span> prefill · MIT</div>
       <div style="margin-top:8px;">—bong-water-water-bong · <span class="p">"Sorry but not Sorry :)"</span></div>
       <div style="margin-top:8px;"><a href="mailto:admin@1bit.systems" style="color:var(--muted);">admin@1bit.systems</a> · <a href="/s/" style="color:#21262d;font-size:10px;" title="stats for nerds">.</a></div>
     </div>
@@ -596,7 +597,7 @@
         set('daily-clones-total',fmt(R.total_clones)+' total');
 
         // Update meta description
-        var desc='97 tok/s NPU V12 engine (validated on Qwen3-0.6B Q4NX); '+b.decode_kb+' KB single binary. '+S.models+'+ models. Zero Python. Open source.';
+        var desc='110 tok/s NPU V12 engine (measured 2026-07-12); '+b.decode_kb+' KB single binary. '+S.models+'+ models. Zero Python. Open source.';
         var md=document.querySelector('meta[name="description"]');if(md)md.content=desc;
         var od=document.querySelector('meta[property="og:description"]');if(od)od.content=desc;
         var td=document.querySelector('meta[name="twitter:description"]');if(td)td.content=desc;

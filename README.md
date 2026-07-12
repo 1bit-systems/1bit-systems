@@ -27,12 +27,15 @@ Measured on **AMD Strix Halo** (Ryzen AI Max+ 395) — 32 XDNA 2 NPU tiles + Rad
 | Engine | Backend | Hardware | tok/s | Status |
 |--------|---------|----------|:-----:|--------|
 | **GPU 1-bit** (llama.cpp ROCm) 🏆 | ROCm HIP | Radeon 8060S | **383** | ✅ measured |
-| **NPU fused** | XDNA 2 xclbin | XDNA 2 · 32 tiles | **291** | ✅ coherent |
 | **GPU ternary** (Vulkan) | Vulkan GLSL | Radeon 8060S | **307** | ✅ coherent |
+| **NPU v12** | XDNA 2 xclbin | XDNA 2 · 32 tiles | **110** | ⚙️ raw, re-measured 2026-07-12 (see note) |
 | **NPU FLM** (production) | XDNA 2 xclbin | XDNA 2 · 32 tiles | **94** | ✅ validated |
-| **C++ all-5** (auto-detect) | Q4NX header parse | XDNA 2 · 32 tiles | **28** | ⚙️ raw |
+| **C++ all-5** (auto-detect) | Q4NX header parse | XDNA 2 · 32 tiles | **28** | ⚙️ raw, not yet re-verified (see note) |
 | **GPU ZINC** (Vulkan) | Vulkan GLSL | Radeon 8060S | **22** | ✅ coherent |
 | **GPU Zaya** (ROCm HIP) | HIP kernels | Radeon 8060S | **10.6** | ✅ pure C++ server |
+| **NPU fused** | XDNA 2 xclbin | XDNA 2 · 32 tiles | 291 (historical) | ❌ broken as of 2026-07-12 (see note) |
+
+> **2026-07-12 status update:** A 2026-07-11 fix corrected three real correctness bugs (RoPE convention, prefill causal masking, dynamic quantization scale) across 19 engine variants, but was merged without hardware validation. Re-testing on 2026-07-12 found: **NPU v12** now measures 110 tok/s (was 6-8 tok/s with default OpenMP settings — needs `OMP_NUM_THREADS=16 OMP_WAIT_POLICY=active OMP_PROC_BIND=close OMP_PLACES=cores` to reach this; the old 97 tok/s figure predates the fix and used different, buggy code). It also has an open intermittent hang bug (~1/3 of runs, at the boot-to-decode transition) — tracked in issues. **NPU fused** does not currently complete a real generation run — reproducibly generates all-zero tokens and hangs, even with a clean/uncontended NPU — despite a 2026-07-12 fix (#42) to its tokenizer and decode-loop wiring. **C++ all-5** hasn't been re-tested since the correctness fix and should not be trusted at its old number either. See open issues for tracking.
 
 See [full benchmark data](benchmarks/RESULTS-stack-2026-04-28.md).
 
@@ -49,11 +52,11 @@ The **token router** is the intelligence layer that dispatches every token to th
                        ▼
 ┌─ Token Router (9.7 MB) ───────────────────────────────┐
 │                                                        │
-│  1. NPU fused  ──► XDNA 2 xclbin   ──► 291 tok/s     │
-│                    (32 tiles, INT8)                    │
-│                                                        │
-│  2. GPU ternary ──► Vulkan compute  ──► 307 tok/s     │
+│  1. GPU ternary ──► Vulkan compute  ──► 307 tok/s     │
 │                    (1.58-bit, GLSL)                    │
+│                                                        │
+│  2. NPU v12    ──► XDNA 2 xclbin   ──► 110 tok/s     │
+│                    (32 tiles, INT8 — see note below)   │
 │                                                        │
 │  3. ROCm HIP   ──► HIP kernels      ──► 113 tok/s     │
 │                    (ternary GEMV/GEMM)                 │
@@ -68,6 +71,8 @@ The **token router** is the intelligence layer that dispatches every token to th
 ```
 
 The router profiles each backend at startup, then selects the fastest path per-layer. When NPU dispatch overhead outweighs the benefit (e.g. attention for contexts < 128 tokens), it gracefully falls back to the GPU or CPU. No configuration files. No manual tuning.
+
+> Note: this diagram describes the intended priority-routing design. A 2026-07-12 audit couldn't find this exact tiered NPU→GPU→ROCm→CPU priority list implemented in `tools/token_router.cpp` (which implements NPU-draft/GPU-verify speculative decoding, not this) or `unified-router.py` — treat it as architectural intent pending confirmation, not a verified description of live routing code.
 
 ---
 
@@ -163,7 +168,7 @@ Zero Python dependencies at inference time. No pip, no conda, no virtualenv. The
 
 | Model | Size | Hidden | Layers | NPU speed |
 |-------|------|--------|:------:|:---------:|
-| Qwen3-0.6B | 0.6B | 1,536 | 28 | **291 tok/s** |
+| Qwen3-0.6B | 0.6B | 1,536 | 28 | **110 tok/s** |
 | Qwen3-8B | 8B | 4,096 | 32 | 215 ms/tok |
 | Qwen3-VL-4B | 4B | 2,560 | 36 | 141 ms/tok |
 | Llama-3.1-8B | 8B | 4,096 | 32 | 185 ms/tok |
@@ -173,8 +178,8 @@ Zero Python dependencies at inference time. No pip, no conda, no virtualenv. The
 
 | Backend | API | Speed (0.6B) |
 |---------|-----|:------------:|
-| NPU fused | XDNA 2 xclbin | **291 tok/s** |
-| NPU v12 (FLM) | XDNA 2 xclbin | 97 tok/s |
+| NPU v12 | XDNA 2 xclbin | **110 tok/s** |
+| NPU fused | XDNA 2 xclbin | broken as of 2026-07-12 |
 | ROCm HIP | HIP kernels | 113 tok/s |
 | Vulkan | GLSL compute | 22 tok/s |
 | CUDA | llama.cpp | ~30 tok/s |
