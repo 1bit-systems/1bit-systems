@@ -27,15 +27,25 @@ Measured on **AMD Strix Halo** (Ryzen AI Max+ 395) — 32 XDNA 2 NPU tiles + Rad
 | Engine | Backend | Hardware | tok/s | Status |
 |--------|---------|----------|:-----:|--------|
 | **GPU 1-bit** (llama.cpp ROCm) 🏆 | ROCm HIP | Radeon 8060S | **383** | ✅ measured |
-| **GPU ternary** (Vulkan) | Vulkan GLSL | Radeon 8060S | **307** | ✅ coherent |
-| **NPU v12** | XDNA 2 xclbin | XDNA 2 · 32 tiles | **69** | ⚙️ raw, re-measured 2026-07-12 (see note) |
 | **NPU FLM** (production) | XDNA 2 xclbin | XDNA 2 · 32 tiles | **94** | ✅ validated |
-| **C++ all-5** (auto-detect) | Q4NX header parse | XDNA 2 · 32 tiles | **42** | ⚙️ raw, re-measured + bug fixed 2026-07-12 (see note) |
-| **GPU ZINC** (Vulkan) | Vulkan GLSL | Radeon 8060S | **22** | ✅ coherent |
-| **GPU Zaya** (ROCm HIP) | HIP kernels | Radeon 8060S | **10.6** | ✅ pure C++ server |
-| **NPU fused** | XDNA 2 xclbin | XDNA 2 · 32 tiles | 291 (historical) | ❌ broken as of 2026-07-12 (see note) |
+| **GPU ternary** (Vulkan) | Vulkan GLSL | Radeon 8060S | **307** | ✅ validated |
+| **GPU ZINC** (Vulkan) | Vulkan GLSL | Radeon 8060S | **22** | ✅ validated |
+| **NPU v12** | XDNA 2 xclbin | XDNA 2 · 32 tiles | **69** | ⚙️ raw (see note) |
+| **GPU ROCm HIP** (kernels) | ROCm HIP | Radeon 8060S | **113** | 📋 reported |
+| **C++ all-5** (auto-detect) | Q4NX header parse | XDNA 2 · 32 tiles | **42** | ⚙️ raw (see note) |
+| **NPU fused** | XDNA 2 xclbin | XDNA 2 · 32 tiles | **291** | ❌ broken (see note) |
+| **GPU Zaya** (ROCm HIP) | HIP kernels | Radeon 8060S | **10.6** | ✅ validated |
+| **DSpark** (spec-decode) | Speculative draft | XDNA 2 · 32 tiles | **0.8** | 🔶 unresolved (see note) |
 
-> **2026-07-12 status update:** A 2026-07-11 fix corrected three real correctness bugs (RoPE convention, prefill causal masking, dynamic quantization scale) across 19 engine variants, but was merged without hardware validation. Re-testing on 2026-07-12 found: **NPU v12**, actually rebuilt from current source (an earlier pass this same day mistakenly tested a stale pre-fix binary and reported 110 tok/s — corrected below), measures 49-70 tok/s depending on run length (69 tok/s typical) — was 6-8 tok/s with default OpenMP settings, needs `OMP_NUM_THREADS=16 OMP_WAIT_POLICY=active OMP_PROC_BIND=close OMP_PLACES=cores` to reach this; the old 97 tok/s figure predates the fix and used different, buggy code. It also has an open intermittent hang bug (~1/3-1/2 of runs, at the boot-to-decode transition) — tracked in issues. **NPU fused** does not currently complete a real generation run — reproducibly generates all-zero tokens and hangs, even with a clean/uncontended NPU — despite a 2026-07-12 fix (#42) to its tokenizer and decode-loop wiring. **C++ all-5** had its own bug (#52): a missing closing brace made the per-batch completion code (sampling, bookkeeping, the loop-advance counter) run once per layer instead of once per batch, so a requested 64-token run actually executed ~896 steps, averaging in ever-slower later steps and sampling from partially-computed hidden states 27 out of every 28 "tokens." Fixed; re-measured at 32-43 tok/s (42 typical) with the loop now correctly respecting the requested length. A separate `free(): invalid size` crash on exit at longer lengths (128+ tokens) remains open and unrelated to this fix. See open issues for tracking.
+> **NPU v12:** Re-measured 2026-07-12 after a 2026-07-11 correctness fix (RoPE convention, prefill causal mask, dynamic quant scale) that the fix's own commit admits was never validated against real hardware output before merging. Default OpenMP settings gave 6-8 tok/s (thread wake/sleep overhead dominating many small parallel regions); with OMP_NUM_THREADS=16 OMP_WAIT_POLICY=active OMP_PROC_BIND=close OMP_PLACES=cores, measured 49-70 tok/s depending on run length (69 tok/s typical, reproducible across 5 clean runs). An earlier pass this same day mistakenly re-tested a stale pre-fix binary and reported 110 tok/s -- wrong; confirmed the mistake by diffing binary hashes and rebuilding fresh from current source. Open issue: ~1/3-1/2 of runs hang at the boot-to-decode transition (a separate, pre-existing bug, not caused by this tuning). Old 97 tok/s figure was measured 2026-07-02, nine days before the correctness fix, on since-changed code.
+
+> **C++ all-5 (auto-detect):** Re-measured 2026-07-12. Found and fixed a missing closing brace (issue #52) that made per-batch completion code -- including the loop-advance counter -- run once per layer (28x) instead of once per batch, so a requested N-token run actually executed ~28N steps, sampling from partially-computed hidden states most of the time and averaging in ever-slower later steps. Old 28 tok/s figure predates this fix. Re-measured on fixed code: 32-43 tok/s depending on run length, 42 typical at 64 tokens. Separate open issue: free() invalid size crash on exit at 128+ tokens, unrelated to this fix (happens after the measurement completes and prints).
+
+> **NPU fused:** PR #42 (2026-07-12) fixed the tokenizer stub and decode-loop feedback (verified via a 5-token smoke test), but running the actual fused-engine CLI end-to-end (engine/fusion/main.zig) on 2026-07-12 reproducibly generates all-zero tokens and then hangs, even with a clean/uncontended NPU. The 291 tok/s figure predates this and is not currently reproducible on a working run.
+
+> **DSpark (spec-decode):** Earlier ~572 tok/s projection and the 2026-07-07 '0% acceptance, disproven' conclusion were both wrong. Two real bugs found and fixed 2026-07-11: (1) a checkpoint-path wiring bug that made the benchmark silently run untrained, (2) a global_batch_size (512) larger than the whole dataset (360 examples), preventing real gradient steps. Ran an actual 420-step training pass after fixing both (and a broken torch/ROCm venv) -- loss dropped 26.5 to ~7.5, confirming real learning now happens for the first time. Re-measured: still 0.8 tok/s / 0% acceptance -- perplexity ~1800 means 343 examples/420 steps is too little data for a from-scratch draft head, not a new bug. Bugs are fixed and validated; nonzero acceptance needs substantially more training data/steps.
+
+*Table auto-generated from [`site/benchmarks.json`](site/benchmarks.json) — last updated 2026-07-12*
 
 See [full benchmark data](benchmarks/RESULTS-stack-2026-04-28.md).
 
