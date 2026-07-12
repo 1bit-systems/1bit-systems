@@ -49,11 +49,7 @@ struct BackendInfo {
 
     std::shared_ptr<Backend> instance;  // shared_ptr enables lock-free inference (fixes #96)
     void* plugin_handle;       // dlopen handle if loaded as plugin
-    BackendInfo() = default;
-    BackendInfo(const BackendInfo&) = delete;
-    BackendInfo& operator=(const BackendInfo&) = delete;
-    BackendInfo(BackendInfo&&) = default;
-    BackendInfo& operator=(BackendInfo&&) = default;
+};
 
 // ── Fallback policy ──
 enum class FallbackPolicy : uint8_t {
