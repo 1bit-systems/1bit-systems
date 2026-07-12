@@ -659,6 +659,16 @@ fn computeRopeTables(allocator: std.mem.Allocator, head_dim: u32, max_seq_len: u
     const base: f32 = 10000.0;
     const inv_scale: f32 = @as(f32, @floatFromInt(head_dim));
 
+    // Layout must match applyRoPE's read pattern in fused_execute.zig, which
+    // rotates pairs (x[d], x[d + head_dim/2]) HuggingFace "rotate_half" style
+    // and reads a single cos/sin per frequency index d from
+    // table[pos*head_dim + d] for d in 0..head_dim/2 -- i.e. the table's
+    // first half must hold frequencies 0..head_dim/2-1 directly, in order.
+    // (Previously stored as interleaved-duplicate pairs -- table[2i]=table[2i+1]=freq_i
+    // -- which applyRoPE's flat per-index read silently reinterpreted as
+    // freq_(d/2), scrambling every frequency past index 0. Harmless as long
+    // as Q/K were always the zero vector upstream of this, which they were
+    // until the #56 fix started running real per-layer compute.)
     var pos: u32 = 0;
     while (pos < max_seq_len) : (pos += 1) {
         const p = @as(f32, @floatFromInt(pos));
@@ -668,10 +678,8 @@ fn computeRopeTables(allocator: std.mem.Allocator, head_dim: u32, max_seq_len: u
             const sin_val = @sin(theta);
             const cos_val = @cos(theta);
             const base_idx = pos * head_dim;
-            sin_table[base_idx + 2 * i] = sin_val;
-            sin_table[base_idx + 2 * i + 1] = sin_val;
-            cos_table[base_idx + 2 * i] = cos_val;
-            cos_table[base_idx + 2 * i + 1] = cos_val;
+            sin_table[base_idx + i] = sin_val;
+            cos_table[base_idx + i] = cos_val;
         }
     }
 
@@ -1597,6 +1605,36 @@ test "computeRopeTables basic" {
 
     try std.testing.expectApproxEqAbs(@as(f32, 0.8415), result.sin_table[4], 0.01);
     try std.testing.expectApproxEqAbs(@as(f32, 0.5403), result.cos_table[4], 0.01);
+}
+
+test "computeRopeTables layout matches applyRoPE's flat per-frequency read pattern" {
+    // Regression test for a bug where the table was written as interleaved-
+    // duplicate pairs (table[2i] == table[2i+1] == freq_i) but applyRoPE in
+    // fused_execute.zig reads it as a flat array (table[d] should equal
+    // freq_d directly, for d in 0..head_dim/2). With head_dim=4 the previous
+    // test's indices (0, 1, 4) all happened to land on frequency i=0 in both
+    // the correct and the buggy layout, so it never caught this. Use
+    // head_dim=8 (4 distinct frequencies) and check index 2 specifically,
+    // which is where the two layouts first disagree: correct layout has
+    // table[2] == freq_2; the old buggy layout had table[2] == freq_1.
+    const allocator = std.testing.allocator;
+    const head_dim: u32 = 8;
+    const result = try computeRopeTables(allocator, head_dim, 2);
+    defer allocator.free(result.sin_table);
+    defer allocator.free(result.cos_table);
+
+    const pos: f32 = 1.0;
+    const base: f32 = 10000.0;
+
+    var i: u32 = 0;
+    while (i < head_dim / 2) : (i += 1) {
+        const theta = pos * std.math.pow(f32, base, -2.0 * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(head_dim)));
+        const expected_sin = @sin(theta);
+        const expected_cos = @cos(theta);
+        // pos=1 block starts at index head_dim (=8) in the flat table.
+        try std.testing.expectApproxEqAbs(expected_sin, result.sin_table[head_dim + i], 0.0001);
+        try std.testing.expectApproxEqAbs(expected_cos, result.cos_table[head_dim + i], 0.0001);
+    }
 }
 
 test "loadModel with synthetic small file" {
