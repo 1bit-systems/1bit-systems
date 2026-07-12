@@ -275,9 +275,10 @@ int BackendManager::generate(int token_id) {
     }
 
     // Failover
+    size_t prev_idx = active_idx_;  // snapshot before failover() reassigns active_idx_ (fixes #89)
     if (failover()) {
         info = &backends_[active_idx_];
-        monitor_.record_fallback(backends_[active_idx_ == 0 ? 1 : 0].id, info->id);
+        monitor_.record_fallback(backends_[prev_idx].id, info->id);
         printf("BackendManager: failed over to %s\n", info->id.c_str());
         t0 = std::chrono::high_resolution_clock::now();
         int result = info->instance->generate(token_id);
@@ -450,6 +451,7 @@ void BackendManager::benchmark_all(int tokens) {
         if (needs_cleanup && info.instance) {
             delete info.instance;
             info.instance = nullptr;
+            info.functional = false;  // not selectable until re-instantiated (fixes #93)
         }
     }
 
