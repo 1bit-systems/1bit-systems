@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Unified NPU+GPU Router — lightweight proxy for lemond (port 13305).
+Unified NPU+GPU Router — proxies requests to the NPU or GPU inference backend.
 
-Routes requests to NPU (qwen3-0.6b-FLM) or GPU (MLX/Qwen3-8B) based on policy.
-Sits in front of lemond so apps see one endpoint.
+Routes requests to NPU (qwen3-0.6b-FLM) or GPU (MLX/Qwen3-8B) based on policy
+(see should_route_to_gpu). Sits in front of the upstream server so apps see one
+endpoint (fixes #70).
 """
 
 import argparse
@@ -65,12 +66,12 @@ def should_route_to_gpu(body: dict) -> bool:
 # ── HTTP handler ────────────────────────────────────────────────────
 
 class RouterHandler(BaseHTTPRequestHandler):
-    lemond_url = "http://127.0.0.1:13305"
+    backend_url = "http://127.0.0.1:13305"
 
     def _proxy_request(self, method: str):
-        """Forward request to lemond, return response."""
+        """Forward request to the inference backend."""
         path = self.path
-        url = f"{self.lemond_url}{path}"
+        url = f"{self.backend_url}{path}"
         body_bytes = None
 
         if method == "POST":
@@ -104,7 +105,7 @@ class RouterHandler(BaseHTTPRequestHandler):
             body["model"] = BIG_MODEL
 
         body_bytes = json.dumps(body).encode()
-        url = f"{self.lemond_url}/v1/chat/completions"
+        url = f"{self.backend_url}/v1/chat/completions"
         req = urllib.request.Request(
             url, data=body_bytes, method="POST",
             headers={"Content-Type": "application/json"},
@@ -149,9 +150,14 @@ class RouterHandler(BaseHTTPRequestHandler):
             self._handle_chat_completion(body)
         elif "/completions" in self.path:
             body = json.loads(body_bytes) if body_bytes else {}
-            if body.get("model") == ROUTER_NAME:
+            model = body.get("model", "")
+            if model == ROUTER_NAME or model == "auto":
                 body["model"] = BIG_MODEL if should_route_to_gpu(body) else SMALL_MODEL
-                body_bytes = json.dumps(body).encode()
+            elif model == "npu":
+                body["model"] = SMALL_MODEL
+            elif model == "gpu":
+                body["model"] = BIG_MODEL
+            body_bytes = json.dumps(body).encode()
             status, headers, data = self._proxy_request_with_body("POST", body_bytes)
             self.send_response(status)
             self.send_header("Content-Type", headers.get("Content-Type", "application/json"))
@@ -165,7 +171,7 @@ class RouterHandler(BaseHTTPRequestHandler):
             self.wfile.write(data)
 
     def _proxy_request_with_body(self, method: str, body_bytes: bytes):
-        url = f"{self.lemond_url}{self.path}"
+        url = f"{self.backend_url}{self.path}"
         req = urllib.request.Request(
             url, data=body_bytes, method=method,
             headers={"Content-Type": "application/json"},
@@ -187,22 +193,22 @@ def main():
     parser = argparse.ArgumentParser(description="Unified NPU+GPU Router")
     parser.add_argument("--port", type=int, default=13305, help="Router listen port")
     parser.add_argument("--backend", type=str, default="http://127.0.0.1:13305",
-                        help="lemond backend URL")
+                        help="inference backend backend URL")
     args = parser.parse_args()
 
-    RouterHandler.lemond_url = args.backend.rstrip("/")
+    RouterHandler.backend_url = args.backend.rstrip("/")
 
     print("=" * 56)
     print("  Unified NPU+GPU Router")
     print(f"  Listen:  http://0.0.0.0:{args.port}")
-    print(f"  Backend: {RouterHandler.lemond_url}")
+    print(f"  Backend: {RouterHandler.backend_url}")
     print("=" * 56)
     print()
     print("  Model routing:")
     print(f"    user.Unified / auto  → auto-route NPU ↔ GPU")
     print(f"    npu                  → {SMALL_MODEL} (NPU)")
     print(f"    gpu                  → {BIG_MODEL} (GPU)")
-    print(f"    <any other>          → pass-through to lemond")
+    print(f"    <any other>          → pass-through to inference backend")
     print()
 
     server = HTTPServer(("0.0.0.0", args.port), RouterHandler)
