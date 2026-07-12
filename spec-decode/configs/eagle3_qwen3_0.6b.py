@@ -33,11 +33,12 @@ train = dict(
     weight_decay=0.0,
     precision="bf16",
     local_batch_size=1,
-    # Was 512 -- larger than the entire 360-example dataset, so at most a
-    # handful of real gradient steps ever occurred across all 10 epochs
-    # (root cause of the "0% acceptance" checkpoints). Sized to the actual
-    # dataset: 360 examples / batch 8 = ~45 steps/epoch, ~450 steps total.
-    global_batch_size=8,
+    # 2026-07-12: dataset grew from 343 to 5400 valid samples (on-policy
+    # regen of a 5700-row PerfectBlend split, up from the earlier 360-row
+    # slice). Sized to the new dataset: 5400 / 16 = ~337 steps/epoch,
+    # ~3375 steps total over 10 epochs -- ~8x the gradient steps of the
+    # prior run and ~16x the unique examples per step.
+    global_batch_size=16,
     num_train_epochs=10,
     max_train_steps=None,
     max_grad_norm=1.0,
@@ -54,7 +55,7 @@ logging = dict(
 )
 
 data = dict(
-    target_cache_path=os.path.expanduser("~/spec-decode/target_cache/eagle3_qwen3_0.6b"),
+    target_cache_path=os.path.expanduser("~/spec-decode/target_cache/eagle3_qwen3_0.6b_v2"),
     chat_template="qwen",
     max_length=4096,
     num_workers=4,
