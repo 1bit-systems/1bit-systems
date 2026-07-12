@@ -47,9 +47,13 @@ struct BackendInfo {
     uint64_t failed_inferences;
     double cumulative_ms;      // total inference time in ms
 
-    Backend* instance;         // lazily created when selected
+    std::shared_ptr<Backend> instance;  // shared_ptr enables lock-free inference (fixes #96)
     void* plugin_handle;       // dlopen handle if loaded as plugin
-};
+    BackendInfo() = default;
+    BackendInfo(const BackendInfo&) = delete;
+    BackendInfo& operator=(const BackendInfo&) = delete;
+    BackendInfo(BackendInfo&&) = default;
+    BackendInfo& operator=(BackendInfo&&) = default;
 
 // ── Fallback policy ──
 enum class FallbackPolicy : uint8_t {

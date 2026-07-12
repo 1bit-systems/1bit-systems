@@ -166,11 +166,12 @@ bool BackendManager::init(const ModelConfig& cfg, const std::string& weights_dir
         printf("BackendManager: trying %s (%s)...\n", info.id.c_str(), info.description.c_str());
         // Try to create via dlsym (GPU/NPU backends live in librocm_cpp.so or standalone)
         // CPU backend is linked directly
-        info.instance = create_instance_rt(info);
-        if (!info.instance) {
+        auto* raw = create_instance_rt(info);
+        if (!raw) {
             printf("  → creation failed\n");
             continue;
         }
+        info.instance = std::shared_ptr<Backend>(raw);
 
         if (info.instance->init(cfg, weights_dir)) {
             if (!info.instance->can_infer()) {
@@ -245,7 +246,7 @@ bool BackendManager::select_backend(BackendType type) {
 
 Backend* BackendManager::active_backend() {
     if (active_idx_ >= backends_.size()) return nullptr;
-    return backends_[active_idx_].instance;
+    return backends_[active_idx_].instance.get();
 }
 
 const BackendInfo* BackendManager::active_info() const {
@@ -257,50 +258,77 @@ const BackendInfo* BackendManager::active_info() const {
 int BackendManager::generate(int token_id) {
     if (!initialized_ || backends_.empty()) return -1;
 
-    std::lock_guard<std::mutex> lock(mtx_);
-    auto t0 = std::chrono::high_resolution_clock::now();
-    auto* info = &backends_[active_idx_];
-
-    // Fast path
-    if (info->functional && info->instance) {
-        int result = info->instance->generate(token_id);
-        float ms = std::chrono::duration<float, std::milli>(
-            std::chrono::high_resolution_clock::now() - t0).count();
-
-        if (result >= 0) {
-            info->total_inferences++;
-            info->cumulative_ms += ms;
-            monitor_.record(info->id, ms, true);
-            return result;
+    // Phase 1: snapshot under lock (shared_ptr keeps Backend alive even if
+    // destroy() runs on another thread while we release the lock in Phase 2).
+    std::shared_ptr<Backend> snap;
+    bool need_failover = false;
+    size_t prev_idx = 0;
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        if (active_idx_ >= backends_.size()) return -1;
+        auto& info = backends_[active_idx_];
+        if (info.functional && info.instance) {
+            snap = info.instance;  // shared_ptr copy — keeps Backend alive
+        } else {
+            need_failover = true;
+            prev_idx = active_idx_;
         }
-
-        // Failed — record and fall over
-        info->failed_inferences++;
-        info->functional = false;
-        monitor_.record(info->id, ms, false);
-        monitor_.record_failure(info->id, "generate() returned -1");
-        fprintf(stderr, "BackendManager: %s failed on generate(), failing over...\n",
-                info->id.c_str());
     }
 
-    // Failover
-    size_t prev_idx = active_idx_;  // snapshot before failover() reassigns active_idx_ (fixes #89)
-    if (failover()) {
-        info = &backends_[active_idx_];
-        monitor_.record_fallback(backends_[prev_idx].id, info->id);
-        printf("BackendManager: failed over to %s\n", info->id.c_str());
-        t0 = std::chrono::high_resolution_clock::now();
-        int result = info->instance->generate(token_id);
+    // Phase 2: inference WITHOUT the lock — snap keeps the Backend alive.
+    if (snap) {
+        auto t0 = std::chrono::high_resolution_clock::now();
+        int result = snap->generate(token_id);
         float ms = std::chrono::duration<float, std::milli>(
             std::chrono::high_resolution_clock::now() - t0).count();
+
         if (result >= 0) {
-            info->total_inferences++;
-            info->cumulative_ms += ms;
-            monitor_.record(info->id, ms, true);
+            // Fast path — re-acquire lock briefly for stats
+            std::lock_guard<std::mutex> lock(mtx_);
+            if (active_idx_ < backends_.size()) {
+                auto* info = &backends_[active_idx_];
+                info->total_inferences++;
+                info->cumulative_ms += ms;
+                monitor_.record(info->id, ms, true);
+            }
             return result;
         }
-        info->failed_inferences++;
-        monitor_.record(info->id, ms, false);
+
+        // Failed — re-acquire lock for stats + failover
+        {
+            std::lock_guard<std::mutex> lock(mtx_);
+            if (active_idx_ < backends_.size()) {
+                auto* info = &backends_[active_idx_];
+                info->failed_inferences++;
+                info->functional = false;
+                monitor_.record(info->id, ms, false);
+                monitor_.record_failure(info->id, "generate() returned -1");
+            }
+            need_failover = true;
+            prev_idx = active_idx_;
+        }
+    }
+
+    // Phase 3: failover under lock
+    if (need_failover) {
+        std::lock_guard<std::mutex> lock(mtx_);
+        if (failover()) {
+            auto* info = &backends_[active_idx_];
+            monitor_.record_fallback(backends_[prev_idx < backends_.size() ? prev_idx : 0].id, info->id);
+            printf("BackendManager: failed over to %s\n", info->id.c_str());
+            auto t0 = std::chrono::high_resolution_clock::now();
+            int result = info->instance->generate(token_id);
+            float ms = std::chrono::duration<float, std::milli>(
+                std::chrono::high_resolution_clock::now() - t0).count();
+            if (result >= 0) {
+                info->total_inferences++;
+                info->cumulative_ms += ms;
+                monitor_.record(info->id, ms, true);
+                return result;
+            }
+            info->failed_inferences++;
+            monitor_.record(info->id, ms, false);
+        }
     }
 
     fprintf(stderr, "BackendManager: ALL BACKENDS FAILED\n");
@@ -374,8 +402,9 @@ bool BackendManager::failover() {
 
         // Create and init on-demand
         if (!info.instance) {
-            info.instance = create_instance_rt(info);
-            if (!info.instance) continue;
+            auto* raw = create_instance_rt(info);
+            if (!raw) continue;
+            info.instance = std::shared_ptr<Backend>(raw);
             if (!info.instance->init(cfg_, weights_dir_)) {
                 destroy_instance(info);
                 continue;
@@ -452,11 +481,12 @@ void BackendManager::benchmark_all(int tokens) {
         // Create instance if needed
         bool needs_cleanup = false;
         if (!info.instance) {
-            info.instance = create_instance_rt(info);
-            if (!info.instance) {
+            auto* raw = create_instance_rt(info);
+            if (!raw) {
                 printf("❌ (creation failed)\n");
                 continue;
             }
+            info.instance = std::shared_ptr<Backend>(raw);
             if (!info.instance->init(cfg_, weights_dir_)) {
                 printf("❌ (init failed)\n");
                 destroy_instance(info);
@@ -470,8 +500,7 @@ void BackendManager::benchmark_all(int tokens) {
         printf("%.1f ms/tok\n", ms);
 
         if (needs_cleanup && info.instance) {
-            delete info.instance;
-            info.instance = nullptr;
+            info.instance.reset();
             info.functional = false;  // not selectable until re-instantiated (fixes #93)
         }
     }
@@ -532,7 +561,7 @@ bool BackendManager::load_plugin(const std::string& so_path) {
     info.available = true;
     info.functional = false;
     info.score = 0;
-    info.instance = instance;
+    info.instance = std::shared_ptr<Backend>(instance);
     info.plugin_handle = (void*)loader;
     backends_.push_back(info);
 
@@ -569,7 +598,7 @@ int BackendManager::load_plugins(const std::string& directory) {
         info.priority = tier_priority(info.tier);
         info.available = true;
         info.functional = true; // presume functional
-        info.instance = instance;
+        info.instance = std::shared_ptr<Backend>(instance);
         info.plugin_handle = (void*)loader;
         backends_.push_back(info);
         loaded++;
@@ -713,12 +742,8 @@ Backend* BackendManager::create_instance_rt(const BackendInfo& info) {
 }
 
 void BackendManager::destroy_instance(BackendInfo& info) {
-    if (info.instance) {
-        // Delete triggers the destructor which calls destroy() — no need to call it twice.
-        // The virtual destructor chain ensures proper cleanup.
-        delete info.instance;
-        info.instance = nullptr;
-    }
+    // shared_ptr reset destroys the Backend; virtual destructor chain ensures cleanup.
+    info.instance.reset();
 }
 
 void BackendManager::rank_backends() {
