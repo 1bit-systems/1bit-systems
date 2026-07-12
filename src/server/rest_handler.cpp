@@ -18,7 +18,6 @@
 #include <iomanip>
 #include <locale>
 #include <random>
-#include <unordered_set>
 #include <cctype>
 #include <algorithm>
 #include "server.hpp"
@@ -509,74 +508,10 @@ void RestHandler::configure_chat_engine_parameters(const json& options, const js
     }
 }
 
-///@brief Tokenize text into approximate "tokens" by word boundaries for logprob estimation.
-///       In production, this would use the model's actual tokenizer + lm_head logits.
-///@param text The generated text
-///@return Vector of (token_text, token_offset) pairs
-static std::vector<std::pair<std::string, size_t>> simple_tokenize(const std::string& text) {
-    std::vector<std::pair<std::string, size_t>> tokens;
-    size_t i = 0;
-    while (i < text.size()) {
-        size_t start = i;
-        // Skip whitespace
-        while (i < text.size() && std::isspace(text[i])) i++;
-        if (i > start) {
-            tokens.push_back({" " + text.substr(start, i - start), start});
-        }
-        start = i;
-        // Grab word/punctuation
-        while (i < text.size() && !std::isspace(text[i])) i++;
-        if (i > start) {
-            tokens.push_back({text.substr(start, i - start), start});
-        }
-    }
-    return tokens;
-}
-
-///@brief Estimate log-probability for a token.
-///       Uses token length and character frequency as a proxy for likelihood.
-///       Common short tokens ("the", "a", "is") get high logprob (~-0.1).
-///       Longer/rarer tokens get lower logprob (~-1.0 to -3.0).
-///@param token The token text
-///@return Estimated log-probability (always negative, higher = more likely)
-static double estimate_logprob(const std::string& token) {
-    // Common English function words — always highly probable
-    static const std::unordered_set<std::string> common = {
-        "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-        "have", "has", "had", "do", "does", "did", "will", "would", "could",
-        "should", "may", "might", "can", "shall", "to", "of", "in", "for",
-        "on", "with", "at", "by", "from", "as", "into", "through", "during",
-        "before", "after", "above", "below", "between", "and", "or", "but",
-        "nor", "not", "so", "yet", "if", "because", "while", "that", "this",
-        "these", "those", "i", "you", "he", "she", "it", "we", "they",
-        "me", "him", "her", "us", "them", "my", "your", "his", "its",
-        "our", "their", "mine", "yours", "hers", "its", "ours", "theirs",
-        "no", "yes", "ok", "okay", "hello", "hi", "thanks", "please",
-        ".", ",", "!", "?", ":", ";", "\"", "'", "-", "\n",
-    };
-    
-    std::string clean;
-    for (char c : token) {
-        if (!std::isspace(c)) { clean += tolower(c); }
-    }
-    if (clean.empty()) return -0.05;
-    
-    // Function words get high probability
-    if (common.count(clean)) return -0.10;
-    
-    // Numbers
-    bool is_number = !clean.empty() && std::all_of(clean.begin(), clean.end(), ::isdigit);
-    if (is_number) return -0.50;
-    
-    // Short tokens (likely common)
-    if (clean.length() <= 2) return -0.30;
-    if (clean.length() <= 4) return -0.50;
-    if (clean.length() <= 6) return -0.80;
-    if (clean.length() <= 8) return -1.50;
-    
-    // Longer tokens — rarer, lower probability
-    return -3.00;
-}
+// NOTE (#81): real per-token logprobs require logits from the model's lm_head,
+// which the current ostream-based generate() path does not expose. build_nstream_response
+// emits logprobs: null (the OpenAI default) rather than fabricating values. Capturing
+// real logits to honor logprobs:true is tracked in #81.
 
 json RestHandler::build_nstream_response(std::string response_text) {
     // Get tool info
@@ -609,29 +544,14 @@ json RestHandler::build_nstream_response(std::string response_text) {
         message["content"] = result.content;
     }
 
-    // ── Build logprobs from estimated per-token probabilities ─────────
-    std::string content = result.content;
-    auto tokens = simple_tokenize(content);
-    json logprobs_content = json::array();
-    for (const auto& [tok, offset] : tokens) {
-        double lp = estimate_logprob(tok);
-        logprobs_content.push_back({
-            {"token", tok},
-            {"logprob", lp},
-            {"bytes", std::vector<uint8_t>(tok.begin(), tok.end())},
-            {"top_logprobs", nullptr}
-        });
-    }
-    json logprobs_obj = {
-        {"content", logprobs_content}
-    };
-
-    // Construct the final choice object
+    // Construct the final choice object.
+    // logprobs is null: we cannot compute real per-token logprobs from the model
+    // on this path (see #81). Emit the OpenAI default rather than fabricated data.
     return json::array({
         {
             {"index", 0},
             {"message", message},
-            {"logprobs", logprobs_obj},
+            {"logprobs", nullptr},
             {"finish_reason", is_tool_call ? "tool_calls" : "stop"}
         }
     });
