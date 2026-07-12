@@ -109,8 +109,9 @@ def main() -> int:
             print("site/numbers.json missing", file=sys.stderr)
             return 1
         old = json.loads(out_path.read_text())
-        # Timestamps always differ; compare the payload only.
-        volatile = ("_generated_at",)
+        # Timestamps, binary sizes, and missing-artifact lists are runner-dependent.
+        # Only validate the stable payload derived from benchmarks/latest.json.
+        volatile = {"_generated_at", "_missing", "binary"}
         a = {k: v for k, v in old.items() if k not in volatile}
         b = {k: v for k, v in data.items() if k not in volatile}
         if a != b:

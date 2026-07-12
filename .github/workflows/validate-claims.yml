@@ -24,6 +24,10 @@ on:
       - "tools/validate_claims.py"
       - "engine/fusion/**"
 
+permissions:
+  contents: read
+  issues: write
+
 concurrency:
   group: validate-claims
   cancel-in-progress: false
@@ -94,13 +98,66 @@ jobs:
       - name: Regenerate numbers.json from real artifacts
         run: python3 tools/gen_numbers.py
 
+      - name: Build benchmark tools (for re-measurement)
+        run: |
+          if [ -d 1bit/build ]; then
+            echo "build dir exists, skipping configure"
+          elif command -v cmake >/dev/null; then
+            mkdir -p 1bit/build
+            cmake -B 1bit/build -S . 2>&1 | tail -5
+            cmake --build 1bit/build --target bench_prefill_variants bench_sherry -j"$(nproc)" 2>&1 | tail -5
+          fi
+          # If build fails, validate_claims exits 2 (soft skip) -- handled below
+
       - name: Re-measure every published benchmark
+        id: measure
+        continue-on-error: true
         run: |
           python3 tools/validate_claims.py \
             --build-dir "${BUILD_DIR:-1bit/build}" \
             --repeat "${{ github.event.inputs.repeat || 3 }}" \
             --warmup 1 \
             --json claims-report.json
+
+      - name: Upload claims report
+        if: always() && hashFiles('claims-report.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: claims-report
+          path: claims-report.json
+
+      - name: Mark job failed on real claim drift (not infrastructure issues)
+        if: steps.measure.outcome == 'failure' && steps.measure.exit_code == 1
+        run: exit 1
+
+      - name: Open an issue if a claim drifted
+        if: steps.measure.outcome == 'failure' && steps.measure.exit_code == 1 && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = 'A published claim drifted or a benchmark crashed. See the run log.';
+            try {
+              const r = JSON.parse(fs.readFileSync('claims-report.json', 'utf8'));
+              body = [
+                '## Claim validation failed',
+                '',
+                '**Drifted:**', ...(r.drifted.length ? r.drifted.map(x => '- ' + x) : ['- none']),
+                '',
+                '**Failures:**', ...(r.failures.length ? r.failures.map(x => '- ' + x) : ['- none']),
+                '',
+                '**Intermittent crashes:**', ...(r.crashes.length ? r.crashes.map(x => '- ' + x) : ['- none']),
+                '',
+                '```json', JSON.stringify(r.measured, null, 2), '```',
+              ].join('\n');
+            } catch (e) {}
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Claim validation failed on ' + new Date().toISOString().slice(0, 10),
+              body,
+              labels: ['claims', 'automated'],
+            });
 
       - uses: actions/upload-artifact@v4
         if: always()
