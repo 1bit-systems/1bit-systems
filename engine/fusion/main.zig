@@ -171,7 +171,7 @@ pub fn main(init: std.process.Init) !void {
         opts.model_path, opts.npu_engine,
         MAX_CONTEXT, opts.batch_size,
         model.emb_f32, model.lm_head_f32, model.tied_embeddings,
-        model.final_norm, model.in_norm, model.pa_norm, &.{}, &.{},
+        model.final_norm, model.in_norm, model.pa_norm, model.q_norm, model.k_norm,
         model.rope_sin, model.rope_cos,
         .{
             .q = model.q_weight, .k = model.k_weight, .v = model.v_weight, .o = model.o_weight,
@@ -203,16 +203,23 @@ pub fn main(init: std.process.Init) !void {
     std.debug.print("  {d:.1}ms ({d:.1} ms/tok)\n", .{ prefill_ms, prefill_ms / @as(f64, @floatFromInt(prompt_tokens.len)) });
 
     // ── Decode ──
+    // One token per decodeBatch() call. decodeBatch(tokens) writes
+    // tokens.len distinct KV-cache positions (one per element) but always
+    // calls kv.advance(1) regardless of that length -- correct only when
+    // tokens.len == 1. The previous version filled a `batch`-sized buffer
+    // with `batch` copies of the same stale last_token and called
+    // decodeBatch once per outer-loop iteration, which wrote `batch`
+    // distinct (garbage, since every input was identical) cache slots but
+    // only advanced the position by 1 -- so the next call's writes mostly
+    // overlapped and overwrote what the previous call had just written.
+    // Real one-token-at-a-time decoding avoids this entirely: B=1 means
+    // exactly one cache slot is written and the advance-by-1 is correct.
     std.debug.print("Generating up to {d} tokens...\n", .{opts.max_tokens});
     var generated: u32 = 0;
     var last_token: u32 = prompt_tokens[prompt_tokens.len - 1];
-    var token_buf: [128]u32 = undefined;
 
     while (generated < opts.max_tokens) {
-        const batch = @min(opts.batch_size, opts.max_tokens - generated);
-        for (0..batch) |b| token_buf[b] = last_token;
-
-        const next_token = executor.decodeBatch(token_buf[0..batch]) catch |err| {
+        const next_token = executor.decodeBatch(&[_]u32{last_token}) catch |err| {
             std.debug.print("  Decode error at {d}: {s}\n", .{ generated, @errorName(err) });
             break;
         };
