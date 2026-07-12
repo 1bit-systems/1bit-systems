@@ -75,6 +75,11 @@ struct Backend {
 
     /// Benchmark: run N iterations, return ms/token.
     virtual float benchmark(int tokens = 10) = 0;
+
+    /// True if this backend can actually run inference (forward/lm_head/generate).
+    /// Defaults to true; stub backends that only detect hardware override to false
+    /// so BackendManager discovers them but never selects them for inference (#82).
+    virtual bool can_infer() const { return true; }
 };
 
 // ── Factory: auto-detect and create best available backend ──

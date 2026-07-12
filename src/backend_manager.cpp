@@ -173,6 +173,14 @@ bool BackendManager::init(const ModelConfig& cfg, const std::string& weights_dir
         }
 
         if (info.instance->init(cfg, weights_dir)) {
+            if (!info.instance->can_infer()) {
+                // Detected and initialized, but cannot actually run inference
+                // (e.g. the NPU stub). Report as available but not selectable (fixes #82).
+                printf("  → ⚠️  detected, but not inference-capable (can_infer()==false) — not selectable\n");
+                info.functional = false;
+                destroy_instance(info);
+                continue;
+            }
             info.functional = true;
             info.instance->reset();
             printf("  → ✅ initialized successfully\n");
@@ -368,6 +376,7 @@ bool BackendManager::failover() {
                 destroy_instance(info);
                 continue;
             }
+            if (!info.instance->can_infer()) continue;  // stub backend, not selectable (#82)
             info.functional = true;  // newly created + initialized → selectable (fixes #78)
         }
 
@@ -386,6 +395,10 @@ bool BackendManager::failover() {
 bool BackendManager::health_check() {
     auto* b = active_backend();
     if (!b) return false;
+    if (!b->can_infer()) {  // stub backend is never healthy (fixes #82)
+        if (active_idx_ < backends_.size()) backends_[active_idx_].functional = false;
+        return false;
+    }
 
     if (active_idx_ < backends_.size()) {
         auto& info = backends_[active_idx_];

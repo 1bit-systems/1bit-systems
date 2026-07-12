@@ -32,6 +32,12 @@ struct NPUBackend : Backend {
 
     ~NPUBackend() override { destroy(); }
 
+    // NPU inference (forward/lm_head/generate) is not implemented — this backend
+    // detects the XRT device only. can_infer()=false so BackendManager reports it as
+    // available but never selects it for inference (fixes #82). Real inference needs
+    // XRT/xclbin dispatch.
+    bool can_infer() const override { return false; }
+
     bool init(const ModelConfig& cfg, const std::string& weights_dir) override {
         this->cfg = cfg;
         printf("NPU: Initializing...\n");
@@ -52,6 +58,9 @@ struct NPUBackend : Backend {
         available = false;
 #endif
         initialized = available;
+        if (available) {
+            printf("NPU: device detected, but inference is NOT implemented — reporting as available but not inference-capable (see #82)\n");
+        }
         return available;
     }
 
