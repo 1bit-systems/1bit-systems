@@ -429,8 +429,10 @@ void RestHandler::ensure_asr_model_loaded(const std::string& model_tag) {
         this->whisper_engine->load_model(whisper_model_path, whisper_model_info, this->preemption);
     }
     catch (const std::exception& e) {
-        header_print("ERROR", "Failed to load ASR model: " + std::string(e.what()));
-        exit(EXIT_FAILURE);
+        header_print("ERROR", "Failed to load ASR model: " + std::string(e.what()) +
+                             " — ASR disabled, continuing without transcription support");
+        this->whisper_engine.reset();
+        this->asr = false;   // degrade gracefully instead of killing the server (fixes #91)
     }
 #else
     throw std::runtime_error("ASR models are not supported in this build");
@@ -453,8 +455,10 @@ void RestHandler::ensure_embed_model_loaded(const std::string& model_tag) {
         this->auto_embedding_engine->load_model(embedding_model_path, embedding_model_info, this->preemption);
     }
     catch (const std::exception& e) {
-        header_print("ERROR", "Failed to load embedding model: " + std::string(e.what()));
-        exit(EXIT_FAILURE);
+        header_print("ERROR", "Failed to load embedding model: " + std::string(e.what()) +
+                             " — embeddings disabled, continuing without embedding support");
+        this->auto_embedding_engine.reset();
+        this->embed = false;   // degrade gracefully (fixes #91)
     }
 #else
     throw std::runtime_error("Embedding models are not supported in this build");

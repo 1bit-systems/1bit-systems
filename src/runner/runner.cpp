@@ -109,8 +109,10 @@ Runner::Runner(model_list& supported_models, ModelDownloader& downloader, progra
                 this->whisper_engine->load_model(whisper_model_path, whisper_model_info, this->preemption);
             }
             catch (const std::exception& e) {
-                header_print("ERROR", "Failed to load ASR model: " + std::string(e.what()));
-                exit(EXIT_FAILURE);
+                header_print("ERROR", "Failed to load ASR model: " + std::string(e.what()) +
+                                     " — ASR disabled");
+                this->whisper_engine.reset();
+                this->asr = false;   // degrade gracefully (fixes #91)
             }
         }
         else {
@@ -431,28 +433,25 @@ void Runner::cmd_load(std::vector<std::string>& input_list) {
     model_name = auto_model.first;
 
     if (model_name != this->tag) {
-        this->tag = model_name;
-
-        if (!this->downloader.is_model_downloaded(this->tag)) {
-            this->downloader.pull_model(this->tag);
+        if (!this->downloader.is_model_downloaded(model_name)) {
+            this->downloader.pull_model(model_name);
         }
-        auto_chat_engine.reset();
-        if(model_name=="gpt-oss:20b")
-            std::this_thread::sleep_for(std::chrono::milliseconds(2800));
-        this->auto_chat_engine = std::move(auto_model.second);
-
-        auto [new_tag, model_info] = this->supported_models.get_model_info(this->tag);
-        this->auto_chat_engine->configure_parameter("img_pre_resize", this->img_pre_resize);
+        auto [new_tag, model_info] = this->supported_models.get_model_info(model_name);
+        auto_model.second->configure_parameter("img_pre_resize", this->img_pre_resize);
+        // Load the NEW model before discarding the current one, so a failed
+        // load leaves the working model intact instead of killing the REPL (fixes #91).
         try {
-            this->auto_chat_engine->load_model(this->supported_models.get_model_path(new_tag), model_info, this->ctx_length, this->preemption);
+            auto_model.second->load_model(this->supported_models.get_model_path(new_tag), model_info, this->ctx_length, this->preemption);
         }
         catch (const std::exception& e) {
-            header_print("ERROR", "Failed to load model: " + std::string(e.what()));
-            exit(EXIT_FAILURE);
+            header_print("ERROR", "Failed to load model: " + std::string(e.what()) + " — keeping current model");
+            return;
         }
-
+        if (model_name == "gpt-oss:20b")
+            std::this_thread::sleep_for(std::chrono::milliseconds(2800));
+        this->tag = model_name;
+        this->auto_chat_engine = std::move(auto_model.second);   // swap in only after successful load
         this->auto_chat_engine->configure_parameter("system_prompt", this->system_prompt);
-
     }
     else
         header_print("FLM", "Model already loaded: " << model_name);
@@ -597,8 +596,7 @@ void Runner::cmd_set(std::vector<std::string>& input_list) {
             this->auto_chat_engine->set_max_length(std::stoi(set_value));
         }
         catch (const std::exception& e) {
-            header_print("ERROR", "Failed to set context length: " + std::string(e.what()));
-            exit(EXIT_FAILURE);
+            header_print("ERROR", "Failed to set context length: " + std::string(e.what()) + " — value unchanged");
         }
     }
     else if (set_context == "gen-lim"){
