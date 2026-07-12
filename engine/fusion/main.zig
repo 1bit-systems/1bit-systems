@@ -7,6 +7,7 @@ const model_data = @import("model_data.zig");
 const gpu_attn = @import("gpu_attn.zig");
 const fuse = @import("fused_execute.zig");
 const dispatcher = @import("dispatcher.zig");
+const tokenizer = @import("tokenizer.zig");
 
 const FusedExecutor = fuse.FusedExecutor;
 const DispatchPolicy = dispatcher.DispatchPolicy;
@@ -15,6 +16,7 @@ const QWEN3_0_6B = fuse.QWEN3_0_6B;
 const DEFAULT_MODEL = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
 const DEFAULT_NPU_ENGINE = "/home/bcloud/engine/npu/build/npu_engine_universal";
 const ZINC_SHADER_DIR = "/home/bcloud/zinc/zig-out/share/zinc/shaders";
+const TOKENIZER_JSON = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.json";
 const MAX_CONTEXT: u32 = 4096;
 const BATCH_SIZE: u32 = 128;
 
@@ -80,10 +82,17 @@ fn printPolicies() void {
     }
 }
 
-fn tokenizeSimple(_text: []const u8, _allocator: std.mem.Allocator) ![]u32 {
-    _ = _text;
-    const tokens = try _allocator.alloc(u32, 1);
-    tokens[0] = 151644; // <|im_start|>
+/// Tokenize text using the real C++ BPE tokenizer (tokenize.cpp / tokenizer.zig).
+/// Returns u32 token IDs (converted from i32 — all valid token IDs are non-negative).
+fn tokenize(text: []const u8, allocator: std.mem.Allocator) ![]u32 {
+    var tok = try tokenizer.Tokenizer.init(allocator, TOKENIZER_JSON);
+    defer tok.deinit();
+    const ids_i32 = try tok.encode(text);
+    defer allocator.free(ids_i32);
+    const tokens = try allocator.alloc(u32, ids_i32.len);
+    for (ids_i32, 0..) |id, i| {
+        tokens[i] = @intCast(id);
+    }
     return tokens;
 }
 
@@ -169,9 +178,9 @@ pub fn main(init: std.process.Init) !void {
     executor.gpu = gpu_attn_instance;
 
     // ── Tokenize ──
-    const prompt_tokens = try tokenizeSimple(opts.prompt, allocator);
+    const prompt_tokens = try tokenize(opts.prompt, allocator);
     defer allocator.free(prompt_tokens);
-    std.debug.print("Prompt tokens: {any}\n", .{prompt_tokens});
+    std.debug.print("Prompt tokens ({d}): {any}\n", .{ prompt_tokens.len, prompt_tokens });
 
     // ── Prefill ──
     std.debug.print("Prefilling {d} tokens...\n", .{prompt_tokens.len});
@@ -192,17 +201,19 @@ pub fn main(init: std.process.Init) !void {
     // ── Decode ──
     std.debug.print("Generating up to {d} tokens...\n", .{opts.max_tokens});
     var generated: u32 = 0;
+    var last_token: u32 = prompt_tokens[prompt_tokens.len - 1];
     var token_buf: [128]u32 = undefined;
 
     while (generated < opts.max_tokens) {
         const batch = @min(opts.batch_size, opts.max_tokens - generated);
-        for (0..batch) |b| token_buf[b] = prompt_tokens[prompt_tokens.len - 1];
+        for (0..batch) |b| token_buf[b] = last_token;
 
         const next_token = executor.decodeBatch(token_buf[0..batch]) catch |err| {
             std.debug.print("  Decode error at {d}: {s}\n", .{ generated, @errorName(err) });
             break;
         };
         std.debug.print("{d} ", .{next_token});
+        last_token = next_token;
         generated += 1;
         if (generated % 20 == 0) std.debug.print("\n", .{});
     }
