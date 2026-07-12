@@ -357,7 +357,10 @@ int main(int argc,char**argv){
     // ===== v12: M=32 BATCHED DECODE =====
     printf("=== M=%d Batch Decode (%d tokens) ===\n",BS,ng);
     auto tgs=std::chrono::steady_clock::now();
-    int top_ids[BS]={0},total_accepted=0,n_batches=0;double t_boot=0;
+    // NOTE: this is greedy batched decode, NOT verified speculative decode — every
+    // drafted token is counted unconditionally (no draft/target comparison). The counter
+    // was renamed from total_accepted to reflect that (fixes #95).
+    int top_ids[BS]={0},total_generated=0,n_batches=0;double t_boot=0;
 
     // Boot: single-token decode → top-32 token IDs
     {
@@ -386,7 +389,7 @@ int main(int argc,char**argv){
         }
         memcpy(sb_data.data(),h0,H*4);rn_c(sb_data.data(),fin_v.data(),H);
         lm_topk_omp(sb_data.data(),lg_buf.data(),top_ids,BS,NV,H,lm_emb);
-        memcpy(h_data.data(),h0,H*4);sp++;total_accepted++;
+        memcpy(h_data.data(),h0,H*4);sp++;total_generated++;
         t_boot=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-ts_boot).count();
         printf("  [0] boot=%d (%.0fms)\n",top_ids[0],t_boot);
     }
@@ -434,14 +437,14 @@ int main(int argc,char**argv){
         memcpy(sb_data.data(),&h_b[0],H*4);rn_c(sb_data.data(),fin_v.data(),H);
         lm_topk_omp(sb_data.data(),lg_buf.data(),top_ids,BS,NV,H,lm_emb);
 
-        total_accepted+=batch_size;sp+=batch_size;n_batches++;
+        total_generated+=batch_size;sp+=batch_size;n_batches++;  // no verification step (see #95)
         double batch_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-ts_batch).count();
         printf("  [%d] batch=%d tok=%d %.0fms (%.0f ms/tok)\n",step,batch_size,top_ids[0],batch_ms,batch_ms/batch_size);
         step+=batch_size;
     }
 
     double tts=std::chrono::duration<double>(std::chrono::steady_clock::now()-tgs).count();
-    printf("\n=== %.1f ms/tok (%.0f tok/s) | boot=%.0fms batches=%d accepted=%d ===\n",tts*1000/ng,ng/tts,t_boot,n_batches,total_accepted);
+    printf("\n=== %.1f ms/tok (%.0f tok/s) | boot=%.0fms batches=%d generated=%d ===\n",tts*1000/ng,ng/tts,t_boot,n_batches,total_generated);
 
     munmap(md,st.st_size);return 0;
 }
