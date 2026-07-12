@@ -632,11 +632,16 @@ fn deriveConfig(tensors: []const TensorDesc, tag: []const u8) !ModelConfig {
     // stored as BF16 instead (shape = the real [out_features, in_features]
     // directly -- --precision bf16 in hf_to_q4nx.py does this for exact,
     // non-quantized weights). Branch on dtype so both are read correctly.
+    // hd_guess uses the model tag's own known head_dim (falling back to 128,
+    // the value every currently-registered KNOWN_MODELS tag happens to
+    // share) rather than a bare hardcoded 128 -- Llama-3.2-1B (HD=64) and
+    // other future non-128-head_dim tags would otherwise silently derive
+    // the wrong NH/NKV here.
+    const hd_guess: u32 = if (defaults.HD > 0) defaults.HD else 128;
     if (findTensor(tensors, "model.layers.0.self_attn.q_proj.weight")) |idx| {
         const t = tensors[idx];
         if (t.shape.items.len >= 1 and H > 0) {
             if (TensorDtype.fromString(t.dtype) == .bf16 and t.shape.items.len >= 2) {
-                const hd_guess: u32 = 128;
                 NH = t.shape.items[0] / hd_guess;
                 HD = hd_guess;
             } else {
@@ -645,7 +650,6 @@ fn deriveConfig(tensors: []const TensorDesc, tag: []const u8) !ModelConfig {
                 if (ntc > 0) {
                     const ntr = n_blocks / ntc;
                     const q_out = ntr * 32;
-                    const hd_guess: u32 = 128;
                     NH = q_out / hd_guess;
                     HD = hd_guess;
                 }
