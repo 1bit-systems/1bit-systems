@@ -55,12 +55,13 @@ struct LayerW{__half*nw,*wq,*wk,*wv1,*wv2,*wo,*pan;float*cdw,*cdb,*cgw,*cgb,*ks;
 
 static std::vector<float> load_bin(const std::string& p){
     std::ifstream f(p,std::ios::binary|std::ios::ate);
-    if(!f){fprintf(stderr,"Missing: %s\n",p.c_str());exit(1);}
+    if(!f){fprintf(stderr,"Missing: %s\n",p.c_str());return {};}
     size_t n=f.tellg()/sizeof(float);f.seekg(0);
     std::vector<float> d(n);f.read((char*)d.data(),n*sizeof(float));return d;
 }
 static std::string L(int i){return std::to_string(i);}
-#define W(N) load_bin(std::string("/tmp/zaya_weights/")+N)
+static std::string g_weights_dir = "/tmp/zaya_weights/";
+#define W(N) load_bin(g_weights_dir+N)
 static void upf16(const std::vector<float>& s,__half*d,int n,hipStream_t h=0){
     std::vector<__half>b(n);for(int i=0;i<n;i++)b[i]=__float2half(s[i]);
     hipMemcpyAsync(d,b.data(),n*2,hipMemcpyHostToDevice,h);
@@ -82,7 +83,8 @@ struct ZayaState {
 };
 
 // ── Init: load weights, allocate GPU memory ──
-ZayaState* zaya_init() {
+ZayaState* zaya_init(const char* weights_dir = nullptr) {
+    if (weights_dir) g_weights_dir = weights_dir;
     ZayaState* s = new ZayaState();
     HIP_OK(hipStreamCreate(&s->st));
     
@@ -90,7 +92,15 @@ ZayaState* zaya_init() {
     auto fnorm = W("model_norm_weight.bin");
     s->iscale = W("model_input_hidden_states_scale.bin");
     s->ibias = W("model_input_hidden_states_bias.bin");
-    
+
+    // If any of the four initial weight files is missing, abort init gracefully
+    // instead of crashing downstream (fixes #61).
+    if (s->embed.empty() || fnorm.empty() || s->iscale.empty() || s->ibias.empty()) {
+        fprintf(stderr, "zaya_init: failed to load one or more initial weight files — aborting init\n");
+        zaya_destroy(s);
+        return nullptr;
+    }
+
     HIP_OK(hipMalloc(&s->d_hs,H*2)); HIP_OK(hipMalloc(&s->d_ao,H*2));
     HIP_OK(hipMalloc(&s->d_tmp,H*2)); HIP_OK(hipMalloc(&s->d_fnw,H*2));
     HIP_OK(hipMalloc(&s->d_lm_out,4096*2));

@@ -27,12 +27,13 @@ constexpr float RMD_EPS=1e-5f;constexpr int BLK=256;
 
 static std::vector<float> load_bin(const std::string& p){
     std::ifstream f(p,std::ios::binary|std::ios::ate);
-    if(!f){fprintf(stderr,"Missing: %s\n",p.c_str());exit(1);}
+    if(!f){fprintf(stderr,"Missing: %s\n",p.c_str());return {};}
     size_t n=f.tellg()/sizeof(float);f.seekg(0);
     std::vector<float> d(n);f.read((char*)d.data(),n*sizeof(float));return d;
 }
 static std::string L(int i){return std::to_string(i);}
-#define W(N) load_bin(std::string("/tmp/zaya_weights/")+N)
+static std::string g_weights_dir = "/tmp/zaya_weights/";
+#define W(N) load_bin(g_weights_dir+N)
 static void upf16(const std::vector<float>& s,__half*d,int n,hipStream_t h=0){
     std::vector<__half>b(n);for(int i=0;i<n;i++)b[i]=__float2half(s[i]);
     hipMemcpyAsync(d,b.data(),n*2,hipMemcpyHostToDevice,h);
@@ -104,6 +105,7 @@ struct Tokenizer {
 int main(int argc,char**argv){
     setvbuf(stdout,NULL,_IONBF,0);  // unbuffered stdout for debug
     int port=argc>1?atoi(argv[1]):8088;
+    if (argc > 2) g_weights_dir = argv[2];  // optional: --weights-dir (fixes #61)
     printf("Zaya1-8B Server (pure C++, no Python/Rust)\n");
     
     auto embed=W("model_embed_tokens_weight.bin");
