@@ -153,7 +153,13 @@ void Runner::run() {
         }
 
         // Convert line (UTF-8 bytes) → wide string (Unicode codepoints)
-        std::wstring winput = utf8conv.from_bytes(input);
+        std::wstring winput;
+        try {
+            winput = utf8conv.from_bytes(input);   // throws std::range_error on bad UTF-8 (fixes #84)
+        } catch (const std::exception& e) {
+            header_print("Error", "input is not valid UTF-8; skipping this line");
+            continue;
+        }
 
         // Split on *any* Unicode whitespace
         std::wistringstream wiss(winput);
@@ -240,6 +246,10 @@ void Runner::run() {
                 std::cout << std::endl;
             }
             else if (first_token == "/pull") {
+                if (input_list.size() < 2) {
+                    std::cout << "Usage: /pull [model_name]" << std::endl;
+                    continue;
+                }
                 std::string model_name = input_list[1];
                 this->downloader.pull_model(model_name);
             }
@@ -250,6 +260,11 @@ void Runner::run() {
             int last_file_name_idx = 0;
             std::string audio_context = "";
             if (first_token == "/input") {
+                if (input_list.size() < 2) {
+                    std::cout << "Usage: /input [filename] [follow_up_prompt]" << std::endl;
+                    std::cout << "                                       If space is in the filename, use quotes to wrap it" << std::endl;
+                    continue;
+                }
                 input = "\n";
                 std::string filename;
                 if (input_list[1][0] == '\"'){
@@ -406,6 +421,10 @@ void Runner::cmd_status(std::vector<std::string>& input_list) {
 /// \brief Load a model
 /// \param input_list, std::vector<std::string>
 void Runner::cmd_load(std::vector<std::string>& input_list) {
+    if (input_list.size() < 2) {
+        std::cout << "Usage: /load [model_name]" << std::endl;
+        return;
+    }
     std::string model_name = input_list[1];
 
     std::pair<std::string, std::unique_ptr<AutoModel>> auto_model = get_auto_model(model_name, this->supported_models, &this->npu_device_inst);
