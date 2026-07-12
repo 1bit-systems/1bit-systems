@@ -219,9 +219,10 @@ void zaya_forward(ZayaState* s, int token_id, float* logits_out) {
         }
     }
     rmsnorm_k<<<1,BLK,0,s->st>>>(s->d_hs,s->d_fnw,H);
-    hipStreamSynchronize(s->st);
     
     // lm_head — tiled GEMV in a single launch; buffer allocated in zaya_init (fixes #59)
+    // No sync needed before the lm_head: both the RMSNorm and the lm_head GEMV are on
+    // the same stream, so the GEMV waits for the RMSNorm automatically (fixes perf).
     moe_tiled_gemv<<<(VOCAB+WMMA_M-1)/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_lm_vocab,s->d_hs,s->d_embed,VOCAB,H);
     hipStreamSynchronize(s->st);
     std::vector<__half> lh(VOCAB);
@@ -380,9 +381,10 @@ void zaya_forward_batch(ZayaState* s, const int* token_ids, float* logits_out, i
         __half* hs_b = s->d_hs + (size_t)b * H;
         rmsnorm_k<<<1, BLK, 0, s->st>>>(hs_b, s->d_fnw, H);
     }
-    hipStreamSynchronize(s->st);
 
-    // lm_head — tiled GEMV for each token; buffer allocated in zaya_init (fixes #63)
+    // lm_head — tiled GEMV for each token; buffer allocated in zaya_init (fixes #63).
+    // No sync needed before lm_head: same-stream ordering guarantees RMSNorm completes
+    // before the lm_head GEMV launches.
     {
         const size_t max_need = (size_t)8 * VOCAB * 2;  // B <= 8, allocated in zaya_init
         #if __has_include(<rocwmma/rocwmma.hpp>)
