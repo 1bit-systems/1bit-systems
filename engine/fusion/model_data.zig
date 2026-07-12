@@ -236,6 +236,56 @@ fn dequantizeI8Block(block: *const [5120]u8, out: []f32, tr: u32, tc: u32, out_r
     }
 }
 
+/// Dequantize a full I8/Q4NX tensor of shape [out_rows, out_cols] stored as
+/// row-major 32×256 tiles (tr outer, tc inner — matches `quantize_i8_tiled`
+/// in hf_to_q4nx.py) starting at `data_offset` within the file's tensor
+/// payload region.
+fn dequantizeI8TensorFromMemory(
+    file_data: []const u8,
+    hdr_size: u64,
+    data_offset: u64,
+    data_size: u64,
+    out_rows: u32,
+    out_cols: u32,
+    allocator: std.mem.Allocator,
+) ![]f32 {
+    const file_offset: usize = 8 + @as(usize, @intCast(hdr_size)) + @as(usize, @intCast(data_offset));
+
+    if (file_offset + @as(usize, @intCast(data_size)) > file_data.len) {
+        log.err("I8 tensor data offset {d} + size {d} exceeds file size {d}", .{ file_offset, data_size, file_data.len });
+        return error.TensorOutOfBounds;
+    }
+
+    const ntc = tileCols(out_cols);
+    const ntr = (out_rows + 31) / 32;
+    const expected_tiles = @as(usize, ntr) * @as(usize, ntc);
+    const available_tiles = @as(usize, @intCast(data_size)) / 5120;
+    const n_tiles = @min(expected_tiles, available_tiles);
+    if (n_tiles < expected_tiles) {
+        log.warn("I8 tensor has {d} tiles, expected {d}; remainder left as zero", .{ n_tiles, expected_tiles });
+    }
+
+    const numel = @as(usize, @intCast(out_rows)) * @as(usize, @intCast(out_cols));
+    const result = try allocator.alloc(f32, numel);
+    errdefer allocator.free(result);
+    @memset(result, 0);
+
+    const tile_data = file_data[file_offset..];
+
+    var tile_idx: usize = 0;
+    outer: for (0..ntr) |tr| {
+        for (0..ntc) |tc| {
+            if (tile_idx >= n_tiles) break :outer;
+            const block_start = tile_idx * 5120;
+            const block: *const [5120]u8 = @ptrCast(tile_data[block_start..][0..5120]);
+            dequantizeI8Block(block, result, @intCast(tr), @intCast(tc), out_rows, out_cols);
+            tile_idx += 1;
+        }
+    }
+
+    return result;
+}
+
 // ── JSON header parsing ──────────────────────────────────────
 
 /// Tensor descriptor extracted from the JSON header.
@@ -811,10 +861,8 @@ fn loadModelFinish(
         emb_f32 = switch (dtype) {
             .bf16 => try loadBf16TensorFromMemory(file_data, hdr_size, data_offset, data_size, numel, allocator),
             .i8_q4nx => blk: {
-                log.warn("Embeddings have I8 dtype, expected BF16; allocating zeros", .{});
-                const zeros = try allocator.alloc(f32, numel);
-                @memset(zeros, 0);
-                break :blk zeros;
+                log.info("Embeddings have I8 dtype; dequantizing {d} tiles", .{data_size / 5120});
+                break :blk try dequantizeI8TensorFromMemory(file_data, hdr_size, data_offset, data_size, NV, H, allocator);
             },
             .unknown => blk: {
                 log.warn("Embeddings have unknown dtype '{s}'", .{dtype_str});
@@ -842,10 +890,8 @@ fn loadModelFinish(
         lm_head_f32 = switch (dtype) {
             .bf16 => try loadBf16TensorFromMemory(file_data, hdr_size, data_offset, data_size, numel, allocator),
             .i8_q4nx => blk: {
-                log.warn("lm_head has I8 dtype, expected BF16; allocating zeros", .{});
-                const zeros = try allocator.alloc(f32, numel);
-                @memset(zeros, 0);
-                break :blk zeros;
+                log.info("lm_head has I8 dtype; dequantizing {d} tiles", .{data_size / 5120});
+                break :blk try dequantizeI8TensorFromMemory(file_data, hdr_size, data_offset, data_size, NV, H, allocator);
             },
             .unknown => blk: {
                 log.warn("lm_head has unknown dtype '{s}'", .{dtype_str});
@@ -1280,6 +1326,44 @@ test "dequantizeI8Block with scale" {
 
     for (output) |v| {
         try std.testing.expectApproxEqAbs(@as(f32, 7.0), v, 0.001);
+    }
+}
+
+test "dequantizeI8TensorFromMemory reconstructs a multi-tile row-major tensor" {
+    const allocator = std.testing.allocator;
+
+    // 8-byte file preamble (magic + flags) + two 5120-byte tiles, laid out
+    // row-major (tr=0,tc=0 then tr=0,tc=1), matching quantize_i8_tiled().
+    var file_data: [8 + 2 * 5120]u8 = undefined;
+    @memset(&file_data, 0);
+
+    // Tile (tr=0, tc=0): scale=1, zp=0, nibble=1 everywhere -> dequantized value 1.0
+    {
+        const block = file_data[8 .. 8 + 5120];
+        const scales_arr = [_]u16{0x3F80} ** 256;
+        @memcpy(block[0..512], std.mem.sliceAsBytes(&scales_arr));
+        @memset(block[512..1024], 0);
+        @memset(block[1024..5120], 0x11);
+    }
+    // Tile (tr=0, tc=1): scale=1, zp=0, nibble=2 everywhere -> dequantized value 2.0
+    {
+        const block = file_data[8 + 5120 .. 8 + 2 * 5120];
+        const scales_arr = [_]u16{0x3F80} ** 256;
+        @memcpy(block[0..512], std.mem.sliceAsBytes(&scales_arr));
+        @memset(block[512..1024], 0);
+        @memset(block[1024..5120], 0x22);
+    }
+
+    const result = try dequantizeI8TensorFromMemory(&file_data, 0, 0, 2 * 5120, 32, 512, allocator);
+    defer allocator.free(result);
+
+    for (0..32) |r| {
+        for (0..256) |c| {
+            try std.testing.expectApproxEqAbs(@as(f32, 1.0), result[r * 512 + c], 0.001);
+        }
+        for (256..512) |c| {
+            try std.testing.expectApproxEqAbs(@as(f32, 2.0), result[r * 512 + c], 0.001);
+        }
     }
 }
 

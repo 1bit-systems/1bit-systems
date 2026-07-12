@@ -1,0 +1,17 @@
+name: Validate Benchmark Table
+
+on:
+  pull_request:
+    paths:
+      - "site/benchmarks.json"
+      - "README.md"
+      - "scripts/generate_benchmark_table.py"
+  workflow_dispatch:
+
+jobs:
+  check-benchmark-table:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check README table matches benchmarks.json
+        run: python3 scripts/generate_benchmark_table.py --check
