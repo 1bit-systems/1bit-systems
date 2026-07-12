@@ -154,6 +154,18 @@ pub const ModelData = struct {
     /// Precomputed RoPE cos table: [max_seq_len * HD] f32.
     rope_cos: []f32,
 
+    /// Per-layer dequantized projection weights, row-major [out_features, in_features]
+    /// (PyTorch nn.Linear convention), for CPU-side GEMV. Empty slices (len 0) mean
+    /// the tensor wasn't found in the file. Populated for every load regardless of
+    /// dispatch policy — used by the `.cpu` backend in fused_execute.zig.
+    q_weight: [][]f32, // [NC][NH*HD * H]
+    k_weight: [][]f32, // [NC][NKV*HD * H]
+    v_weight: [][]f32, // [NC][NKV*HD * H]
+    o_weight: [][]f32, // [NC][H * NH*HD]
+    gate_weight: [][]f32, // [NC][IM * H]
+    up_weight: [][]f32, // [NC][IM * H]
+    down_weight: [][]f32, // [NC][H * IM]
+
     /// Free all owned memory.
     pub fn deinit(self: *ModelData, allocator: std.mem.Allocator) void {
         log.debug("deinit: freeing model data", .{});
@@ -180,6 +192,14 @@ pub const ModelData = struct {
             allocator.free(slice);
         }
         allocator.free(self.pa_norm);
+
+        // Per-layer projection weights
+        inline for (.{ "q_weight", "k_weight", "v_weight", "o_weight", "gate_weight", "up_weight", "down_weight" }) |field| {
+            for (@field(self, field)) |slice| {
+                allocator.free(slice);
+            }
+            allocator.free(@field(self, field));
+        }
 
         // RoPE tables
         allocator.free(self.rope_sin);
@@ -222,17 +242,24 @@ fn dequantizeI8Block(block: *const [5120]u8, out: []f32, tr: u32, tc: u32, out_r
         while (g < 8) : (g += 1) {
             const s_raw = bf16ToF32(scales[g * 32 + lr]);
             const z_raw = bf16ToF32(zps[g * 32 + lr]);
-            // Some Q4NX files carry a handful of NaN/Inf-encoded scale or
-            // zero-point values (observed: isolated corrupt bf16 patterns,
-            // ~0.005% of entries in real lm_head tensors). A single non-finite
-            // weight poisons an entire vocab row's dot product to NaN/Inf,
-            // which then wrecks argmax over the whole vocabulary. Zero out
-            // just the affected 32-element group instead of propagating it.
-            if (!std.math.isFinite(s_raw) or !std.math.isFinite(z_raw)) {
-                log.warn("Non-finite dequant scale/zp at row={d} group={d} (scale={d}, zp={d}); zeroing group", .{ row, g, s_raw, z_raw });
+            // Some Q4NX files carry a handful of corrupt scale/zero-point bf16
+            // values: either outright NaN/Inf bit patterns, or finite-but-wild
+            // magnitudes (bf16 shares f32's exponent range, so a corrupt byte
+            // can decode to something like 1e30 -- finite on its own, but
+            // `nibble * scale` then overflows to Inf during dequant). A real
+            // trained quantization scale for normalized weights is never
+            // remotely this large. Either way a single bad weight poisons an
+            // entire row's dot product downstream, wrecking argmax over the
+            // whole vocabulary (or QKV/FFN, for per-layer projection weights).
+            // Zero out just the affected 32-element group instead.
+            const plausible_max: f32 = 1000.0;
+            const s_bad = !std.math.isFinite(s_raw) or @abs(s_raw) > plausible_max;
+            const z_bad = !std.math.isFinite(z_raw) or @abs(z_raw) > plausible_max;
+            if (s_bad or z_bad) {
+                log.warn("Implausible dequant scale/zp at row={d} group={d} (scale={d}, zp={d}); zeroing group", .{ row, g, s_raw, z_raw });
             }
-            const s: f32 = if (std.math.isFinite(s_raw)) s_raw else 0;
-            const z: f32 = if (std.math.isFinite(z_raw)) z_raw else 0;
+            const s: f32 = if (s_bad) 0 else s_raw;
+            const z: f32 = if (z_bad) 0 else z_raw;
 
             var c: u32 = 0;
             while (c < 32) : (c += 1) {
@@ -739,6 +766,61 @@ fn loadLayerNormsFromMemory(
     return norms;
 }
 
+/// Load and dequantize one per-layer I8/Q4NX projection weight across all layers,
+/// row-major [out_features, in_features] (PyTorch nn.Linear convention). Used for
+/// CPU-side GEMV (`.cpu` dispatch backend) — the NPU/GPU backends load these
+/// tensors themselves and don't go through ModelData.
+fn loadLayerProjWeightsFromMemory(
+    file_data: []const u8,
+    hdr_size: u64,
+    tensors: []const TensorDesc,
+    tensor_suffix: []const u8,
+    n_layers: u32,
+    out_features: u32,
+    in_features: u32,
+    allocator: std.mem.Allocator,
+) ![][]f32 {
+    const weights = try allocator.alloc([]f32, n_layers);
+    errdefer {
+        for (weights[0..]) |slice| allocator.free(slice);
+        allocator.free(weights);
+    }
+
+    const numel = @as(usize, @intCast(out_features)) * @as(usize, @intCast(in_features));
+
+    var layer: u32 = 0;
+    while (layer < n_layers) : (layer += 1) {
+        const tensor_name = try std.fmt.allocPrint(allocator, "model.layers.{d}.{s}.weight", .{ layer, tensor_suffix });
+        defer allocator.free(tensor_name);
+
+        if (findTensor(tensors, tensor_name)) |idx| {
+            const t = tensors[idx];
+            const dtype_str = t.dtype;
+            const dtype = TensorDtype.fromString(dtype_str);
+            const data_size = t.data_offsets.items[1] - t.data_offsets.items[0];
+            const data_offset = t.data_offsets.items[0];
+
+            weights[layer] = switch (dtype) {
+                .i8_q4nx => try dequantizeI8TensorFromMemory(file_data, hdr_size, data_offset, data_size, out_features, in_features, allocator),
+                .bf16 => try loadBf16TensorFromMemory(file_data, hdr_size, data_offset, data_size, numel, allocator),
+                .unknown => blk: {
+                    log.warn("Projection weight '{s}' has unknown dtype '{s}'; zeroing", .{ tensor_name, dtype_str });
+                    const zeros = try allocator.alloc(f32, numel);
+                    @memset(zeros, 0);
+                    break :blk zeros;
+                },
+            };
+        } else {
+            log.warn("Projection weight tensor '{s}' not found; zeroing", .{tensor_name});
+            const fallback = try allocator.alloc(f32, numel);
+            @memset(fallback, 0);
+            weights[layer] = fallback;
+        }
+    }
+
+    return weights;
+}
+
 // ── Main loader ──────────────────────────────────────────────
 
 /// Load a Q4NX model from file.
@@ -953,6 +1035,20 @@ fn loadModelFinish(
     log.info("Loading post-attention norms for {d} layers...", .{config.NC});
     const pa_norm = try loadLayerNormsFromMemory(file_data, hdr_size, tensors, "post_attention_layernorm", config.NC, H, allocator);
 
+    // ── 12. Load per-layer projection weights (dequantized f32, for CPU GEMV) ──
+    const NH = config.NH;
+    const NKV = config.NKV;
+    const HD = config.HD;
+    const IM = config.IM;
+    log.info("Loading per-layer projection weights for {d} layers (CPU dequant)...", .{config.NC});
+    const q_weight = try loadLayerProjWeightsFromMemory(file_data, hdr_size, tensors, "self_attn.q_proj", config.NC, NH * HD, H, allocator);
+    const k_weight = try loadLayerProjWeightsFromMemory(file_data, hdr_size, tensors, "self_attn.k_proj", config.NC, NKV * HD, H, allocator);
+    const v_weight = try loadLayerProjWeightsFromMemory(file_data, hdr_size, tensors, "self_attn.v_proj", config.NC, NKV * HD, H, allocator);
+    const o_weight = try loadLayerProjWeightsFromMemory(file_data, hdr_size, tensors, "self_attn.o_proj", config.NC, H, NH * HD, allocator);
+    const gate_weight = try loadLayerProjWeightsFromMemory(file_data, hdr_size, tensors, "mlp.gate_proj", config.NC, IM, H, allocator);
+    const up_weight = try loadLayerProjWeightsFromMemory(file_data, hdr_size, tensors, "mlp.up_proj", config.NC, IM, H, allocator);
+    const down_weight = try loadLayerProjWeightsFromMemory(file_data, hdr_size, tensors, "mlp.down_proj", config.NC, H, IM, allocator);
+
     log.info("Model load complete", .{});
 
     return ModelData{
@@ -965,6 +1061,13 @@ fn loadModelFinish(
         .pa_norm = pa_norm,
         .rope_sin = rope_sin,
         .rope_cos = rope_cos,
+        .q_weight = q_weight,
+        .k_weight = k_weight,
+        .v_weight = v_weight,
+        .o_weight = o_weight,
+        .gate_weight = gate_weight,
+        .up_weight = up_weight,
+        .down_weight = down_weight,
     };
 }
 
@@ -1371,6 +1474,37 @@ test "dequantizeI8Block sanitizes a NaN-pattern scale instead of propagating NaN
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), output[3 * 256 + 0], 0.001);
 }
 
+test "dequantizeI8Block clamps a finite-but-implausibly-huge scale (overflow-to-Inf case)" {
+    var block: [5120]u8 = undefined;
+    @memset(&block, 0);
+
+    const bf16_one: u16 = 0x3F80;
+    var scales_arr = [_]u16{bf16_one} ** 256;
+    // Row lr=5, group g=0: a finite bf16 value (~1.7e38, near bf16/f32 max) --
+    // not NaN/Inf on its own, but `nibble * scale` overflows f32 to Inf. This
+    // is the second corruption signature found in a real model.q4nx's
+    // per-layer q_proj weights (isFinite() alone did not catch it).
+    scales_arr[0 * 32 + 5] = 0x7F00;
+    const scale_bytes = std.mem.sliceAsBytes(&scales_arr);
+    @memcpy(block[0..512], scale_bytes);
+
+    @memset(block[512..1024], 0);
+
+    // 0x11 has both nibbles = 1
+    @memset(block[1024..5120], 0x11);
+
+    var output: [32 * 256]f32 = undefined;
+    dequantizeI8Block(&block, &output, 0, 0, 32, 256);
+
+    for (output) |v| {
+        try std.testing.expect(std.math.isFinite(v));
+    }
+    for (0..32) |c| {
+        try std.testing.expectApproxEqAbs(@as(f32, 0.0), output[5 * 256 + c], 0.001);
+    }
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), output[3 * 256 + 0], 0.001);
+}
+
 test "dequantizeI8TensorFromMemory reconstructs a multi-tile row-major tensor" {
     const allocator = std.testing.allocator;
 
@@ -1431,6 +1565,13 @@ test "ModelData deinit clears struct" {
         .pa_norm = try allocator.alloc([]f32, 2),
         .rope_sin = try allocator.alloc(f32, 8192),
         .rope_cos = try allocator.alloc(f32, 8192),
+        .q_weight = &.{},
+        .k_weight = &.{},
+        .v_weight = &.{},
+        .o_weight = &.{},
+        .gate_weight = &.{},
+        .up_weight = &.{},
+        .down_weight = &.{},
     };
     md.in_norm[0] = try allocator.alloc(f32, 64);
     md.in_norm[1] = try allocator.alloc(f32, 64);

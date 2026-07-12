@@ -542,6 +542,30 @@ fn silu(x: f32) f32 {
     return x / (1.0 + std.math.exp(@as(f32, -x)));
 }
 
+/// y[out_dim] = W[out_dim, in_dim] @ x[in_dim] (row-major, PyTorch nn.Linear
+/// convention — matches the layout `dequantizeI8TensorFromMemory` produces).
+fn cpuGemv(w: []const f32, x: []const f32, y: []f32, out_dim: u32, in_dim: u32) void {
+    for (0..out_dim) |o| {
+        const row = w[o * in_dim ..][0..in_dim];
+        var acc: f64 = 0;
+        for (0..in_dim) |i| acc += @as(f64, x[i]) * @as(f64, row[i]);
+        y[o] = @floatCast(acc);
+    }
+}
+
+/// Per-layer dequantized projection weights for CPU-side GEMV, one slice per
+/// layer, row-major [out_features, in_features]. See ModelData in
+/// model_data.zig for the loader that populates these.
+pub const CpuLayerWeights = struct {
+    q: [][]f32 = &.{},
+    k: [][]f32 = &.{},
+    v: [][]f32 = &.{},
+    o: [][]f32 = &.{},
+    gate: [][]f32 = &.{},
+    up: [][]f32 = &.{},
+    down: [][]f32 = &.{},
+};
+
 // ── FusedExecutor ───────────────────────────────────────────
 
 /// Fused execution engine — coordinates NPU GEMM and GPU attention.
@@ -586,6 +610,11 @@ pub const FusedExecutor = struct {
 
     /// NPU↔GPU KV cache interop.
     interop: ?interop.KvCacheInterop = null,
+
+    /// Per-layer dequantized projection weights for the `.cpu` dispatch backend
+    /// (row-major [out_features, in_features], borrowed from ModelData — not
+    /// owned/freed here; ModelData.deinit() frees them).
+    cpu_weights: CpuLayerWeights = .{},
 
     /// f32 embeddings table: [vocab_size, hidden_dim]
     emb_f32: []f32,
@@ -673,13 +702,14 @@ pub const FusedExecutor = struct {
         k_norm: [][]f32,
         rope_sin: []f32,
         rope_cos: []f32,
+        cpu_weights: CpuLayerWeights,
     ) !FusedExecutor {
         return initWithKernels(
             allocator, io, policy, config,
             model_path, npu_engine_path, max_context, batch_size,
             emb_f32, lm_head_f32, tied_embeddings,
             final_norm, in_norm, pa_norm, q_norm, k_norm,
-            rope_sin, rope_cos,
+            rope_sin, rope_cos, cpu_weights,
             .flash, .dense, null, null, null, null, null, null, null, null,
         );
     }
@@ -706,6 +736,7 @@ pub const FusedExecutor = struct {
         k_norm: [][]f32,
         rope_sin: []f32,
         rope_cos: []f32,
+        cpu_weights: CpuLayerWeights,
         attn_kernel: arch_registry.AttentionKernel,
         ffn_kernel: arch_registry.FfnKernel,
         moe_config: ?moe_router.MoEConfig,
@@ -847,6 +878,7 @@ pub const FusedExecutor = struct {
             .kv = kv,
             .mla_kv = mla_kv,
             .npu = NpuSubprocess.init(allocator, io, model_path, npu_engine_path),
+            .cpu_weights = cpu_weights,
             .emb_f32 = emb_f32,
             .lm_head_f32 = lm_head_f32,
             .tied_embeddings = tied_embeddings,
@@ -972,16 +1004,26 @@ pub const FusedExecutor = struct {
         batch_size: u32,
         input: []f32,
         residual: []f32,
+        dispatch: LayerDispatch,
     ) void {
         const H = self.config.hidden_dim;
         const IM = self.config.inter_size;
         const s = self.scratch;
+        const cpu_ready = layer < self.cpu_weights.gate.len and layer < self.cpu_weights.up.len;
 
-        tryOrZero: {
-            self.npu.runFFN(input[0..batch_size * H], layer, batch_size, s.gate_up) catch |err| {
-                log.warn("NPU gate/up (layer {d}) failed: {s}", .{ layer, @errorName(err) });
-                break :tryOrZero;
-            };
+        if (dispatch.ffn == .cpu and cpu_ready) {
+            for (0..batch_size) |b| {
+                const x = input[b * H ..][0..H];
+                cpuGemv(self.cpu_weights.gate[layer], x, s.gate_up[b * 2 * IM ..][0..IM], IM, H);
+                cpuGemv(self.cpu_weights.up[layer], x, s.gate_up[b * 2 * IM + IM ..][0..IM], IM, H);
+            }
+        } else {
+            tryOrZero: {
+                self.npu.runFFN(input[0..batch_size * H], layer, batch_size, s.gate_up) catch |err| {
+                    log.warn("NPU gate/up (layer {d}) failed: {s}", .{ layer, @errorName(err) });
+                    break :tryOrZero;
+                };
+            }
         }
         for (0..batch_size) |b| {
             for (0..IM) |i| {
@@ -991,11 +1033,17 @@ pub const FusedExecutor = struct {
                 s.activated[b * IM + i] = silu(g) * up;
             }
         }
-        tryOrZero: {
-            self.npu.runDown(s.activated[0..batch_size * IM], layer, batch_size, s.down_out[0..batch_size * H]) catch |err| {
-                log.warn("NPU down (layer {d}) failed: {s}", .{ layer, @errorName(err) });
-                break :tryOrZero;
-            };
+        if (dispatch.ffn == .cpu and layer < self.cpu_weights.down.len) {
+            for (0..batch_size) |b| {
+                cpuGemv(self.cpu_weights.down[layer], s.activated[b * IM ..][0..IM], s.down_out[b * H ..][0..H], H, IM);
+            }
+        } else {
+            tryOrZero: {
+                self.npu.runDown(s.activated[0..batch_size * IM], layer, batch_size, s.down_out[0..batch_size * H]) catch |err| {
+                    log.warn("NPU down (layer {d}) failed: {s}", .{ layer, @errorName(err) });
+                    break :tryOrZero;
+                };
+            }
         }
 
         // Residual add
@@ -1430,7 +1478,7 @@ pub const FusedExecutor = struct {
             // ── Branch on FFN kernel type ──
             switch (self.ffn_kernel) {
                 .dense => {
-                    self.runDenseFfn(layer, batch_size, s.hidden, s.residual);
+                    self.runDenseFfn(layer, batch_size, s.hidden, s.residual, self.getLayerDispatch(layer));
                 },
                 .moe, .shared_moe => {
                     self.runMoeFfn(layer, batch_size, s.hidden, s.residual);
@@ -1507,11 +1555,21 @@ pub const FusedExecutor = struct {
                 }
             }
         } else if (dispatch.attention == .cpu) {
-            // CPU attention is handled inside cpu_backend.executeLayer()
+            const seq_len = self.kv.position + batch_size;
+            for (0..batch_size) |b| {
+                const q_slice = qkv_scratch[b * QKV2 ..][0..NH * HD];
+                self.cpuAttention(q_slice, s.attn_out[b * NH * HD ..][0..NH * HD], layer, seq_len, NH, NKV, HD, GQA);
+            }
         }
 
-        // O projection (NPU) + residual add (attention)
-        try self.npu.runOProj(s.attn_out[0..batch_size * NH * HD], layer, batch_size, s.o_out[0..batch_size * H]);
+        // O projection: CPU GEMV when dispatched there, NPU otherwise.
+        if (dispatch.attention == .cpu and layer < self.cpu_weights.o.len) {
+            for (0..batch_size) |b| {
+                cpuGemv(self.cpu_weights.o[layer], s.attn_out[b * NH * HD ..][0..NH * HD], s.o_out[b * H ..][0..H], H, NH * HD);
+            }
+        } else {
+            try self.npu.runOProj(s.attn_out[0..batch_size * NH * HD], layer, batch_size, s.o_out[0..batch_size * H]);
+        }
         for (0..batch_size * H) |i| s.hidden[i] = s.residual[i] + s.o_out[i];
 
         // Pre-FFN residual save + RMSNorm
@@ -1523,9 +1581,8 @@ pub const FusedExecutor = struct {
         // ── Branch on FFN kernel type ──
         switch (self.ffn_kernel) {
             .dense => {
-                // Original behavior: gate/up (NPU) → SiLU*up (CPU) → down (NPU)
-                if (dispatch.ffn == .npu) {
-                    self.runDenseFfn(layer, batch_size, s.hidden, s.residual);
+                if (dispatch.ffn == .npu or dispatch.ffn == .cpu) {
+                    self.runDenseFfn(layer, batch_size, s.hidden, s.residual, dispatch);
                 } else {
                     // GPU FFN — not implemented yet, fall through to residual copy
                     for (0..batch_size * H) |i| s.hidden[i] = s.residual[i] + s.down_out[i];
@@ -1684,7 +1741,7 @@ pub const FusedExecutor = struct {
         switch (self.ffn_kernel) {
             .dense => {
                 if (self.getLayerDispatch(layer).ffn == .npu) {
-                    self.runDenseFfn(layer, batch_size, s.hidden, s.residual);
+                    self.runDenseFfn(layer, batch_size, s.hidden, s.residual, self.getLayerDispatch(layer));
                 } else {
                     for (0..batch_size * H) |i| s.hidden[i] = s.residual[i] + s.down_out[i];
                 }
@@ -1784,11 +1841,12 @@ pub const FusedExecutor = struct {
         for (0..NC) |l| {
             const layer = @as(u32, @intCast(l));
             const s = &self.scratch;
+            const dispatch = self.getLayerDispatch(layer);
 
             // ── Step 1: Save residual ──
             @memcpy(s.residual[0..B * H], s.hidden[0..B * H]);
 
-            // ── Step 2: RMSNorm + QKV (NPU batched) ──
+            // ── Step 2: RMSNorm + QKV ──
             for (0..B) |b| {
                 rmsNorm(
                     s.hidden[b * H ..][0..H],
@@ -1797,7 +1855,16 @@ pub const FusedExecutor = struct {
                     1e-6,
                 );
             }
-            tryOrZero: {
+            const qkv_cpu_ready = layer < self.cpu_weights.q.len and layer < self.cpu_weights.k.len and layer < self.cpu_weights.v.len;
+            if (dispatch.qkv == .cpu and qkv_cpu_ready) {
+                for (0..B) |b| {
+                    const x = s.hidden[b * H ..][0..H];
+                    const qkv_slice = qkv_buf[b * QKV ..][0..QKV];
+                    cpuGemv(self.cpu_weights.q[layer], x, qkv_slice[0 .. NH * HD], NH * HD, H);
+                    cpuGemv(self.cpu_weights.k[layer], x, qkv_slice[NH * HD ..][0 .. NKV * HD], NKV * HD, H);
+                    cpuGemv(self.cpu_weights.v[layer], x, qkv_slice[NH * HD + NKV * HD ..][0 .. NKV * HD], NKV * HD, H);
+                }
+            } else tryOrZero: {
                 self.npu.runQKV(s.hidden[0..B * H], layer, B, qkv_buf) catch |err| {
                     log.warn("NPU QKV (layer {d}) failed: {s}", .{ layer, @errorName(err) });
                     break :tryOrZero;
@@ -1840,7 +1907,7 @@ pub const FusedExecutor = struct {
             }
 
             // ── Step 4: Attention (batched per-token flash attention) ──
-            if (self.attn_kernel == .flash and self.gpu != null) {
+            if (self.attn_kernel == .flash and dispatch.attention != .cpu and self.gpu != null) {
                 const gpu = &self.gpu.?;
                 const seq_len = self.kv.position + B;
                 for (0..B) |b| {
@@ -1856,7 +1923,7 @@ pub const FusedExecutor = struct {
                     };
                 }
             } else if (self.attn_kernel == .flash) {
-                // CPU fallback when GPU unavailable
+                // CPU fallback (GPU unavailable, or dispatch.attention == .cpu)
                 const seq_len = self.kv.position + B;
                 for (0..B) |b| {
                     const q_slice = qkv_buf[b * QKV ..][0..NH * HD];
@@ -1867,8 +1934,12 @@ pub const FusedExecutor = struct {
                 }
             }
 
-            // ── Step 5: O projection (NPU batched) + residual add ──
-            tryOrZero: {
+            // ── Step 5: O projection: CPU GEMV when dispatched there, NPU otherwise ──
+            if (dispatch.attention == .cpu and layer < self.cpu_weights.o.len) {
+                for (0..B) |b| {
+                    cpuGemv(self.cpu_weights.o[layer], s.attn_out[b * NH * HD ..][0 .. NH * HD], s.o_out[b * H ..][0..H], H, NH * HD);
+                }
+            } else tryOrZero: {
                 self.npu.runOProj(
                     s.attn_out[0..B * NH * HD], layer, B, s.o_out[0..B * H],
                 ) catch |err| {
@@ -1889,10 +1960,10 @@ pub const FusedExecutor = struct {
                 );
             }
 
-            // ── Step 7: FFN (NPU batched) ──
+            // ── Step 7: FFN ──
             switch (self.ffn_kernel) {
                 .dense => {
-                    self.runDenseFfn(layer, B, s.hidden, s.residual);
+                    self.runDenseFfn(layer, B, s.hidden, s.residual, dispatch);
                 },
                 .moe, .shared_moe => {
                     self.runMoeFfn(layer, B, s.hidden, s.residual);
@@ -2082,6 +2153,8 @@ pub const FusedExecutor = struct {
 
         // Layer loop
         for (0..NC) |l| {
+            const layer_u32 = @as(u32, @intCast(l));
+            const dispatch = self.getLayerDispatch(layer_u32);
             for (0..npt) |pi| {
                 const pos = if (self.attn_kernel == .mla)
                     (self.mla_kv orelse return).position + pi
@@ -2117,7 +2190,16 @@ pub const FusedExecutor = struct {
                     log.warn("MLA prefill attention not yet implemented on CPU at layer {d}, pos {d}", .{ l, pos });
                 } else {
                     // Standard flash attention prefill
-                    try self.npu.runQKV(hidden_slice, @as(u32, @intCast(l)), 1, self.scratch.qkv);
+                    const NH = self.config.n_heads;
+                    const NKV = self.config.n_kv_heads;
+                    const HD = self.config.head_dim;
+                    if (dispatch.qkv == .cpu and l < self.cpu_weights.q.len and l < self.cpu_weights.k.len and l < self.cpu_weights.v.len) {
+                        cpuGemv(self.cpu_weights.q[l], hidden_slice, self.scratch.qkv[0 .. NH * HD], NH * HD, H);
+                        cpuGemv(self.cpu_weights.k[l], hidden_slice, self.scratch.qkv[NH * HD ..][0 .. NKV * HD], NKV * HD, H);
+                        cpuGemv(self.cpu_weights.v[l], hidden_slice, self.scratch.qkv[NH * HD + NKV * HD ..][0 .. NKV * HD], NKV * HD, H);
+                    } else {
+                        try self.npu.runQKV(hidden_slice, layer_u32, 1, self.scratch.qkv);
+                    }
 
                     // Q/K norm, RoPE, KV cache
                     const QKV = self.config.n_heads * self.config.head_dim + 2 * self.config.n_kv_heads * self.config.head_dim;
@@ -2164,11 +2246,21 @@ pub const FusedExecutor = struct {
                     );
                 }
 
-                // O projection (NPU) + residual add
-                try self.npu.runOProj(
-                    self.scratch.attn_out[0 .. self.config.n_heads * self.config.head_dim],
-                    @as(u32, @intCast(l)), 1, self.scratch.o_out[0..H],
-                );
+                // O projection: CPU GEMV when dispatched there, NPU otherwise.
+                if (dispatch.attention == .cpu and l < self.cpu_weights.o.len) {
+                    cpuGemv(
+                        self.cpu_weights.o[l],
+                        self.scratch.attn_out[0 .. self.config.n_heads * self.config.head_dim],
+                        self.scratch.o_out[0..H],
+                        H,
+                        self.config.n_heads * self.config.head_dim,
+                    );
+                } else {
+                    try self.npu.runOProj(
+                        self.scratch.attn_out[0 .. self.config.n_heads * self.config.head_dim],
+                        layer_u32, 1, self.scratch.o_out[0..H],
+                    );
+                }
                 for (0..H) |i| hidden_slice[i] = self.scratch.residual[@as(usize, @intCast(pi)) * H + i] + self.scratch.o_out[i];
 
                 // FFN: branch on kernel type
@@ -2177,26 +2269,38 @@ pub const FusedExecutor = struct {
 
                 switch (self.ffn_kernel) {
                     .dense => {
-                        const ffn_ok = if (self.npu.runFFN(hidden_slice, @as(u32, @intCast(l)), 1, self.scratch.gate_up)) |_| true else |err| blk: {
-                            log.warn("NPU gate/up (layer {d}) failed: {s}", .{ l, @errorName(err) });
-                            self.npu_broken = true;
-                            @memset(self.scratch.gate_up, 0);
-                            break :blk false;
-                        };
-                        if (ffn_ok) {
-                            for (0..self.config.inter_size) |i| {
+                        const IM = self.config.inter_size;
+                        const ffn_cpu_ready = dispatch.ffn == .cpu and l < self.cpu_weights.gate.len and l < self.cpu_weights.up.len and l < self.cpu_weights.down.len;
+                        var gate_up_ok = true;
+                        if (ffn_cpu_ready) {
+                            cpuGemv(self.cpu_weights.gate[l], hidden_slice, self.scratch.gate_up[0..IM], IM, H);
+                            cpuGemv(self.cpu_weights.up[l], hidden_slice, self.scratch.gate_up[IM..][0..IM], IM, H);
+                        } else {
+                            self.npu.runFFN(hidden_slice, layer_u32, 1, self.scratch.gate_up) catch |err| {
+                                log.warn("NPU gate/up (layer {d}) failed: {s}", .{ l, @errorName(err) });
+                                self.npu_broken = true;
+                                @memset(self.scratch.gate_up, 0);
+                                gate_up_ok = false;
+                            };
+                        }
+                        if (gate_up_ok) {
+                            for (0..IM) |i| {
                                 const gate = self.scratch.gate_up[i];
-                                const up = self.scratch.gate_up[self.config.inter_size + i];
+                                const up = self.scratch.gate_up[IM + i];
                                 self.scratch.activated[i] = silu(if (std.math.isFinite(gate)) gate else 0) * up;
                             }
-                            _ = self.npu.runDown(
-                                self.scratch.activated[0..self.config.inter_size],
-                                @as(u32, @intCast(l)), 1, self.scratch.down_out[0..H],
-                            ) catch |err| {
-                                log.warn("NPU down (layer {d}) failed: {s}", .{ l, @errorName(err) });
-                                self.npu_broken = true;
-                                @memset(self.scratch.down_out[0..H], 0);
-                            };
+                            if (ffn_cpu_ready) {
+                                cpuGemv(self.cpu_weights.down[l], self.scratch.activated[0..IM], self.scratch.down_out[0..H], H, IM);
+                            } else {
+                                _ = self.npu.runDown(
+                                    self.scratch.activated[0..IM],
+                                    layer_u32, 1, self.scratch.down_out[0..H],
+                                ) catch |err| {
+                                    log.warn("NPU down (layer {d}) failed: {s}", .{ l, @errorName(err) });
+                                    self.npu_broken = true;
+                                    @memset(self.scratch.down_out[0..H], 0);
+                                };
+                            }
                         } else {
                             @memset(self.scratch.activated, 0);
                             @memset(self.scratch.down_out[0..H], 0);
@@ -2330,6 +2434,7 @@ test "FusedExecutor dispatch policies" {
         fnorm, innorm, panorm,
         qnorm, knorm,
         rope_sin, rope_cos,
+        .{},
     );
     defer exec.deinit();
 
@@ -2424,6 +2529,7 @@ test "cpuAttention produces non-nan output" {
         try allocator.alloc([]f32, 1),
         try allocator.alloc(f32, 64 * 128),
         try allocator.alloc(f32, 64 * 128),
+        .{},
     );
     defer exec.deinit();
 
@@ -2470,6 +2576,7 @@ test "initWithKernels flash/dense (backward compat)" {
         emb, null, false,
         fnorm, innorm, panorm, qnorm, knorm,
         rope_sin, rope_cos,
+        .{},
         .flash, .dense, // same as default init()
         null, null, // no MoE
         null, null, null, null, null, null, // no MLA
