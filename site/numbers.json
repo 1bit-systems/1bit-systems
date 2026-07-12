@@ -1,24 +1,27 @@
 {
   "_generated_by": "tools/gen_numbers.py",
-  "_generated_at": "2026-07-12T07:58:47Z",
+  "_generated_at": "2026-07-12T21:10:27Z",
   "_warning": "Generated file. Do not hand-edit; run tools/gen_numbers.py.",
-  "_missing": [],
+  "_missing": [
+    "decode: build/bitnet_decode",
+    "tui: build/bitnet_tui"
+  ],
   "binary": {
-    "fused_bytes": 17091165,
-    "fused_kb": 16691,
-    "decode_bytes": 703904,
-    "decode_kb": 687,
-    "decode_stripped_kb": 495,
-    "tui_bytes": 1098392,
-    "tui_kb": 1073,
-    "tui_stripped_kb": 774
+    "fused_bytes": 25235469,
+    "fused_kb": 24644,
+    "decode_bytes": null,
+    "decode_kb": null,
+    "decode_stripped_kb": null,
+    "tui_bytes": null,
+    "tui_kb": null,
+    "tui_stripped_kb": null
   },
   "benchmarks": {
-    "prefill_tflops_4h": 25.04,
-    "sherry_gemv_gbps": 149.3,
-    "tq1_gemv_gbps": 196.8,
-    "halo_gemv_gbps": 142.9,
-    "prefill_tflops_i8apre": 38.49
+    "prefill_tflops_4h": 26.49,
+    "sherry_gemv_gbps": 152.6,
+    "tq1_gemv_gbps": 198.3,
+    "halo_gemv_gbps": 149.9,
+    "prefill_tflops_i8apre": 43.33
   },
   "_sources": {
     "prefill_tflops_4h": "bench_prefill_variants 2560 6912 2560 -- variant 4h (64x64 cached A+B)",

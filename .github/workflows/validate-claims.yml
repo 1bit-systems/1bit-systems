@@ -127,7 +127,11 @@ jobs:
           path: claims-report.json
 
       - name: Mark job failed on real claim drift (not infrastructure)
-        if: failure()
+        # `continue-on-error: true` on the measure step makes its *conclusion*
+        # always "success" (so plain `failure()` here would never fire, no
+        # matter what validate_claims.py found -- see issue #75). `outcome`
+        # reflects what actually happened before continue-on-error masked it.
+        if: steps.measure.outcome == 'failure'
         run: |
           # Read claims report to distinguish drift (exit 1) from infra (exit 2)
           set +e

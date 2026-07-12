@@ -37,19 +37,23 @@ jobs:
 
           echo "benchmarks.json was modified. Checking status transitions..."
 
-          # Extract old and new statuses
-          python3 <<'PY'
+          # Fetch the base revision's benchmarks.json so old/new can actually
+          # be diffed (a prior version of this check tried to read the old
+          # file from stdin inside a `python3 <<'PY'` heredoc -- but the
+          # heredoc itself is what's fed to python's stdin, so by the time
+          # the script ran, stdin was already at EOF and `old` was always
+          # `{}`. That made every transition check silently inert. See #80.
+          git fetch origin "$BASE" 2>/dev/null || true
+          if git show "$BASE:site/benchmarks.json" > /tmp/old_benchmarks.json 2>/dev/null; then
+            python3 -c "
           import json, sys
-          from pathlib import Path
 
-          try:
-              old = json.loads(Path('/dev/stdin').read_text() if sys.stdin.isatty() else sys.stdin.read())
-          except:
-              old = {}
+          with open('/tmp/old_benchmarks.json') as f:
+              old = json.load(f)
           with open('site/benchmarks.json') as f:
               new = json.load(f)
 
-          old_engines = old.get('engines', {}) if old else {}
+          old_engines = old.get('engines', {})
           new_engines = new.get('engines', {})
 
           allowed_transitions = {
@@ -74,56 +78,21 @@ jobs:
                   transition = (old_status, new_status)
                   if transition not in allowed_transitions:
                       errors.append(
-                          f"{key}: {old_status} → {new_status} is not an allowed transition. "
-                          f"Upgrades (raw→validated, measured→validated) require "
-                          f"on-device validation evidence in the PR description."
+                          f'{key}: {old_status} -> {new_status} is not an allowed transition. '
+                          f'Upgrades (raw->validated, measured->validated) require '
+                          f'on-device validation evidence in the PR description.'
                       )
 
           if errors:
-              print("❌ Invalid benchmark status transitions:", file=sys.stderr)
+              print('XX Invalid benchmark status transitions:', file=sys.stderr)
               for e in errors:
-                  print(f"  - {e}", file=sys.stderr)
+                  print(f'  - {e}', file=sys.stderr)
               print(file=sys.stderr)
-              print("Allowed transitions: raw→broken, validated↔any, measured→reported", file=sys.stderr)
-              print("Upgrades (raw→validated, measured→validated) need hardware evidence.", file=sys.stderr)
+              print('Allowed transitions: raw->broken, validated<->any, measured->reported', file=sys.stderr)
+              print('Upgrades (raw->validated, measured->validated) need hardware evidence.', file=sys.stderr)
               sys.exit(1)
-          else:
-              print("✅ All benchmark status transitions are valid.")
-          PY
-
-          # Cannot read base revision's benchmarks.json in a simple checkout,
-          # so this will only catch the case where status changed AT ALL.
-          # Full validation requires fetching the base ref.
-          git fetch origin "$BASE" 2>/dev/null || true
-          if git show "$BASE:site/benchmarks.json" > /tmp/old_benchmarks.json 2>/dev/null; then
-            python3 -c "
-import json
-
-with open('/tmp/old_benchmarks.json') as f:
-    old = json.load(f)
-with open('site/benchmarks.json') as f:
-    new = json.load(f)
-
-old_engines = old.get('engines', {})
-new_engines = new.get('engines', {})
-
-forbidden = [('raw', 'validated'), ('measured', 'validated')]
-errors = []
-for key, entry in new_engines.items():
-    old_entry = old_engines.get(key, {})
-    old_status = old_entry.get('status', '')
-    new_status = entry.get('status', '')
-    if (old_status, new_status) in forbidden:
-        errors.append(f'{key}: {old_status} → {new_status}')
-
-if errors:
-    import sys
-    print('❌ Upgrade transitions require hardware evidence in PR body:', file=sys.stderr)
-    for e in errors:
-        print(f'  - {e}', file=sys.stderr)
-    sys.exit(1)
-print('✅ All transitions valid')
-"
-          else:
-            echo "Could not fetch base revision for full comparison."
+          print('OK: all benchmark status transitions are valid.')
+          "
+          else
+            echo "Could not fetch base revision -- skipping status-transition check."
           fi
