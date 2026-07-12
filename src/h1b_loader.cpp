@@ -49,6 +49,7 @@ void skip_fp32(std::ifstream& f, size_t n) {
 // Read a packed ternary weight (halo-1bit format: uint8[rows, (cols+3)/4] + float[rows] scales).
 int read_ternary(std::ifstream& f, int rows, int cols, void** packed_out, void** scales_out) {
     if (!f) return -1;
+    if (rows <= 0 || cols <= 0 || rows > (1 << 16) || cols > (1 << 16)) return -1;  // guard (fixes #94)
     const int packed_cols = (cols + 3) / 4;
     std::vector<uint8_t> packed((size_t)rows * packed_cols);
     f.read(reinterpret_cast<char*>(packed.data()), packed.size());
@@ -416,6 +417,24 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model) {
     out_model->max_seq_len       = cfg[6];
     out_model->tie_embeddings    = cfg[7];
     out_model->flags             = static_cast<unsigned int>(cfg[8]);
+
+    // Validate header before allocating — a crafted/corrupt .h1b could otherwise drive
+    // huge or wrap-around allocations in the read_* helpers below (fixes #94). Bounds
+    // are generous but finite; rows/cols of every weight tensor derive from these fields.
+    auto h1b_fail = [&](const char* why) -> rcpp_status_t {
+        fprintf(stderr, "[rocm-cpp] invalid .h1b header: %s (hs=%d is=%d L=%d nh=%d nkv=%d vocab=%d)\n",
+                why, out_model->hidden_size, out_model->intermediate_size,
+                out_model->num_layers, out_model->num_heads, out_model->num_kv_heads,
+                out_model->vocab_size);
+        return RCPP_INVALID_ARG;
+    };
+    if (out_model->num_layers <= 0 || out_model->num_layers > 4096)        return h1b_fail("num_layers out of range");
+    if (out_model->hidden_size <= 0 || out_model->hidden_size > (1 << 16)) return h1b_fail("hidden_size out of range");
+    if (out_model->intermediate_size <= 0 || out_model->intermediate_size > (1 << 18)) return h1b_fail("intermediate_size out of range");
+    if (out_model->num_heads <= 0 || out_model->num_kv_heads <= 0)         return h1b_fail("head count <= 0");
+    if (out_model->num_heads % out_model->num_kv_heads != 0)              return h1b_fail("num_heads not divisible by num_kv_heads");
+    if (out_model->hidden_size % out_model->num_heads != 0)               return h1b_fail("hidden_size not divisible by num_heads");
+    if (out_model->vocab_size <= 0 || out_model->vocab_size > (1 << 24))  return h1b_fail("vocab_size out of range");
 
     const bool sherry_fp16 = use_sherry
         && (out_model->flags & H1B_FLAG_SHERRY_FP16) != 0;
