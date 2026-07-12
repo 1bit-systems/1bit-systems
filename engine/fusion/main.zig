@@ -216,7 +216,19 @@ pub fn main(init: std.process.Init) !void {
     // exactly one cache slot is written and the advance-by-1 is correct.
     std.debug.print("Generating up to {d} tokens...\n", .{opts.max_tokens});
     var generated: u32 = 0;
-    var last_token: u32 = prompt_tokens[prompt_tokens.len - 1];
+
+    // The first generated token comes directly from prefill()'s own
+    // already-computed, correctly-positioned hidden state for the last
+    // prompt token -- not by re-embedding and reprocessing that token as if
+    // it were new input one position later (see firstDecodeToken's doc
+    // comment). Only tokens after this one go through the normal
+    // feed-the-previous-output-back decode loop.
+    var last_token: u32 = executor.firstDecodeToken(@intCast(prompt_tokens.len)) catch |err| {
+        std.debug.print("  Decode error at 0: {s}\n", .{@errorName(err)});
+        return;
+    };
+    std.debug.print("{d} ", .{last_token});
+    generated += 1;
 
     while (generated < opts.max_tokens) {
         const next_token = executor.decodeBatch(&[_]u32{last_token}) catch |err| {

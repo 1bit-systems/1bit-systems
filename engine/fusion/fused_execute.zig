@@ -2403,6 +2403,33 @@ pub const FusedExecutor = struct {
         }
         return top_ids[0];
     }
+
+    /// Predict the first generated token directly from prefill()'s
+    /// already-computed hidden state for the last prompt position, without
+    /// any redundant reprocessing.
+    ///
+    /// Calling decodeBatch(&.{last_prompt_token}) right after prefill() (the
+    /// naive way to get the first generated token) re-embeds and reprocesses
+    /// the last prompt token as if it were new input, at position
+    /// kv.position (== prompt_len, one past where prefill() actually placed
+    /// it: prompt_len - 1). RoPE encodes absolute position into the
+    /// rotation, so this feeds the model a token at the wrong position,
+    /// discarding the real, correctly-positioned hidden state prefill()
+    /// already computed for it -- prefill()'s per-position loop leaves that
+    /// state sitting in scratch.hidden[(prompt_len-1)*H..] unused.
+    pub fn firstDecodeToken(self: *FusedExecutor, prompt_len: u32) !u32 {
+        const H = self.config.hidden_dim;
+        // prefill() doesn't apply the final RMSNorm itself (only
+        // forwardDecode's tail does, right before its own lmHead call) --
+        // normalize a copy so lmHead sees the same kind of input either way.
+        var normed: [4096]f32 = undefined;
+        const src = self.scratch.hidden[(prompt_len - 1) * H ..][0..H];
+        rmsNorm(src, self.final_norm, normed[0..H], 1e-6);
+
+        var top_ids: [128]u32 = undefined;
+        try self.lmHead(normed[0..H], &top_ids, 128);
+        return top_ids[0];
+    }
 };
 
 // ── Default MLA config (static for temporary use) ───────────
