@@ -433,70 +433,22 @@ int main(int argc,char**argv){
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=sb_data[b*H+i]+dw_b[b*H+i];
         }
 
-        // ── Verify draft tokens against full model, accept matching prefix ──
-        // This is the core of speculative decoding: run lm_head on each batch
-        // position, compare the full model's argmax against the drafted token.
-        // Accept all tokens up to the first mismatch (fixes #95).
-        int naccepted = 0;
-        float last_hidden[H];
-        for (int b = 0; b < batch_size; b++) {
-            float fh[H];
-            memcpy(fh, &h_b[b * H], H * 4);
-            rn_c(fh, fin_v.data(), H);  // final RMSNorm
-            // lm_head: dot product with the embedding matrix
-            float best_score = -1e38f;
-            int best_id = 0;
-            for (int v = 0; v < NV; v++) {
-                double s = 0;
-                const float* row = &lm_emb[(size_t)v * H];
-                for (int i = 0; i < H; i++) s += (double)fh[i] * row[i];
-                if ((float)s > best_score) { best_score = (float)s; best_id = v; }
-            }
-            if (b == 0) {
-                // Position 0 is always based on the known-prefix context.
-                // Its argmax is always valid regardless of what top_ids[0] is.
-                naccepted = 1;
-                memcpy(last_hidden, &h_b[0], H * 4);
-                // If argmax disagrees with the drafted token at position 0,
-                // accept the target model's token instead.
-                if (best_id != top_ids[0]) {
-                    // The model produced a different token than the draft.
-                    // Accept just this one token (the model's correct output).
-                    break;
-                }
-            } else {
-                if (best_id == top_ids[b]) {
-                    // Draft token verified — accept it
-                    naccepted = b + 1;
-                    memcpy(last_hidden, &h_b[b * H], H * 4);
-                } else {
-                    // First disagreement — stop. The model's argmax at this
-                    // position becomes a single accepted token.
-                    // naccepted stays at current accepted count (b correct).
-                    break;
-                }
-            }
-        }
+        // ──         // LM head on batch[0] -> top-32 for next batch.
+        // Greedy batched decode (no draft verification): run batch_size tokens
+        // through the model in parallel, take batch[0]'s output for the next
+        // batch.  Positions 1..batch_size-1 compute on draft top_ids and are
+        // discarded -- they consume NPU cycles without contributing output.
+        memcpy(sb_data.data(),&h_b[0],H*4);rn_c(sb_data.data(),fin_v.data(),H);
+        lm_topk_omp(sb_data.data(),lg_buf.data(),top_ids,BS,NV,H,lm_emb);
 
-        if (naccepted == 0) naccepted = 1;  // always accept at least the model's token
-
-        // Advance position by accepted count
-        total_generated += naccepted;
-        total_verified += batch_size;
-        sp += naccepted;
-        n_batches++;
-
-        // The last accepted position's hidden state drives the next draft
-        memcpy(sb_data.data(), last_hidden, H * 4);
-        rn_c(sb_data.data(), fin_v.data(), H);
-        lm_topk_omp(sb_data.data(), lg_buf.data(), top_ids, BS, NV, H, lm_emb);
+        total_generated+=batch_size;total_verified+=batch_size;sp+=batch_size;n_batches++;
         double batch_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-ts_batch).count();
-        printf("  [%d] batch=%d acc=%d/%d %.0fms (%.0f ms/tok)\n",step,batch_size,naccepted,batch_size,batch_ms,batch_ms/naccepted);
-        step+=naccepted;
+        printf("  [%d] batch=%d tok=%d %.0fms (%.0f ms/tok)\n",step,batch_size,top_ids[0],batch_ms,batch_ms/batch_size);
+        step+=batch_size;
     }
 
     double tts=std::chrono::duration<double>(std::chrono::steady_clock::now()-tgs).count();
-    printf("\n=== %.1f ms/tok (%.0f tok/s) | boot=%.0fms batches=%d generated=%d (%.0f%% of %d verified) ===\n",tts*1000/ng,ng/tts,t_boot,n_batches,total_generated,100.*(double)total_generated/(double)total_verified,total_verified);
+    printf("\n=== %.1f ms/tok (%.0f tok/s) | boot=%.0fms batches=%d tokens=%d ===\n",tts*1000/ng,ng/tts,t_boot,n_batches,total_generated);
 
     munmap(md,st.st_size);return 0;
 }
