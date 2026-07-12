@@ -71,22 +71,18 @@ struct HIPBackend : Backend {
 
     int generate(int token_id) override {
         if (!zs || !initialized) return -1;
-        zaya_forward(zs, token_id, logits_buf);
-        int best = 0;
-        for (int i = 1; i < VOCAB; i++) if (logits_buf[i] > logits_buf[best]) best = i;
-        return best;
+        // zaya_forward_greedy does GPU argmax — copies only 4 bytes instead of
+        // 524 KB (VOCAB=262272 logits). Avoids the full-logit copy (fixes #64).
+        return zaya_forward_greedy(zs, token_id);
     }
 
     float benchmark(int tokens = 10) override {
         if (!zs) return 0;
         reset();
         auto t0 = std::chrono::high_resolution_clock::now();
-        // Use the server's forward function which does full pipeline
         int tok = 100;
         for (int i = 0; i < tokens; i++) {
-            zaya_forward(zs, tok, logits_buf);
-            tok = 0;
-            for (int v = 1; v < VOCAB; v++) if (logits_buf[v] > logits_buf[tok]) tok = v;
+            tok = zaya_forward_greedy(zs, tok);
         }
         float ms = std::chrono::duration<float, std::milli>(
             std::chrono::high_resolution_clock::now() - t0).count();
