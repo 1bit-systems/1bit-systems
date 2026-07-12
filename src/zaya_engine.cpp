@@ -72,12 +72,12 @@ static void upf32(const std::vector<float>& s,float*d,int n,hipStream_t h=0){
 
 // ── Public state ──
 struct ZayaState {
-    __half *d_hs,*d_ao,*d_tmp,*d_fnw,*d_lm_out,*d_embed;
-    __half *d_conv,*d_phs,*d_lm_vocab; float *d_prev_rs;
-    int *d_argmax_idx; float *d_argmax_val;
-    int *d_expert_idx,*d_expert_wt;  // MoE dispatch
-    int *d_sorted_ids,*d_expert_counts,*d_expert_offsets;  // batched MoE sort (#59,#63)
-    hipStream_t st;
+    __half *d_hs=nullptr,*d_ao=nullptr,*d_tmp=nullptr,*d_fnw=nullptr,*d_lm_out=nullptr,*d_embed=nullptr;
+    __half *d_conv=nullptr,*d_phs=nullptr,*d_lm_vocab=nullptr; float *d_prev_rs=nullptr;
+    int *d_argmax_idx=nullptr; float *d_argmax_val=nullptr;
+    int *d_expert_idx=nullptr,*d_expert_wt=nullptr;
+    int *d_sorted_ids=nullptr,*d_expert_counts=nullptr,*d_expert_offsets=nullptr;
+    hipStream_t st=nullptr;
     LayerW lw[N_LAYERS];
     bool has_eda[N_LAYERS];
     float eda_scale[N_LAYERS];
@@ -432,22 +432,23 @@ void zaya_reset(ZayaState* s) {
 // ── Destroy ──
 void zaya_destroy(ZayaState* s) {
     if (!s) return;
-    hipFree(s->d_hs); hipFree(s->d_ao); hipFree(s->d_tmp); hipFree(s->d_fnw);
-    hipFree(s->d_lm_out); hipFree(s->d_embed); hipFree(s->d_conv); hipFree(s->d_phs); 
-    hipFree(s->d_prev_rs); hipFree(s->d_expert_idx); hipFree(s->d_expert_wt);
+    auto safe = [](auto p) { if (p) (void)hipFree(p); };
+    safe(s->d_hs); safe(s->d_ao); safe(s->d_tmp); safe(s->d_fnw);
+    safe(s->d_lm_out); safe(s->d_embed); safe(s->d_conv); safe(s->d_phs);
+    safe(s->d_prev_rs); safe(s->d_expert_idx); safe(s->d_expert_wt);
     for (int i = 0; i < N_LAYERS; i++) {
         auto& l = s->lw[i];
-        hipFree(l.nw); hipFree(l.wq); hipFree(l.wk); hipFree(l.wv1); hipFree(l.wv2); hipFree(l.wo); hipFree(l.pan);
-        hipFree(l.cdw); hipFree(l.cdb); hipFree(l.cgw); hipFree(l.cgb); hipFree(l.ks);
-        hipFree(l.pahss); hipFree(l.pahsb); hipFree(l.parss); hipFree(l.parsb);
-        hipFree(l.gdw); hipFree(l.gdb); hipFree(l.rfn); hipFree(l.rf1); hipFree(l.rf1b);
-        hipFree(l.rf2); hipFree(l.rf2b); hipFree(l.rout); hipFree(l.bb);
-        if (l.gu) hipFree(l.gu); if (l.dn) hipFree(l.dn);
-        hipFree(l.pmhss); hipFree(l.pmhsb); hipFree(l.pmrss); hipFree(l.pmrsb);
+        safe(l.nw); safe(l.wq); safe(l.wk); safe(l.wv1); safe(l.wv2); safe(l.wo); safe(l.pan);
+        safe(l.cdw); safe(l.cdb); safe(l.cgw); safe(l.cgb); safe(l.ks);
+        safe(l.pahss); safe(l.pahsb); safe(l.parss); safe(l.parsb);
+        safe(l.gdw); safe(l.gdb); safe(l.rfn); safe(l.rf1); safe(l.rf1b);
+        safe(l.rf2); safe(l.rf2b); safe(l.rout); safe(l.bb);
+        safe(l.gu); safe(l.dn);
+        safe(l.pmhss); safe(l.pmhsb); safe(l.pmrss); safe(l.pmrsb);
     }
-    hipStreamDestroy(s->st);
-    hipFree(s->d_lm_vocab); hipFree(s->d_argmax_idx); hipFree(s->d_argmax_val);
-    hipFree(s->d_sorted_ids); hipFree(s->d_expert_counts); hipFree(s->d_expert_offsets);
+    if (s->st) hipStreamDestroy(s->st);
+    safe(s->d_lm_vocab); safe(s->d_argmax_idx); safe(s->d_argmax_val);
+    safe(s->d_sorted_ids); safe(s->d_expert_counts); safe(s->d_expert_offsets);
     delete s;
 }
 
