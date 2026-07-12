@@ -1436,6 +1436,18 @@ pub const FusedExecutor = struct {
                 // Copy normed hidden into qkv_scratch for later KV compression
                 @memcpy(qkv_scratch[0..batch_size * H], s.hidden[0..batch_size * H]);
             }
+        } else if (dispatch.qkv == .cpu and layer < self.cpu_weights.q.len and layer < self.cpu_weights.k.len and layer < self.cpu_weights.v.len) {
+            const NH = self.config.n_heads;
+            const NKV = self.config.n_kv_heads;
+            const HD = self.config.head_dim;
+            const QKV = NH * HD + 2 * NKV * HD;
+            for (0..batch_size) |b| {
+                const x = s.hidden[b * H ..][0..H];
+                const qkv_slice = qkv_scratch[b * QKV ..][0..QKV];
+                cpuGemv(self.cpu_weights.q[layer], x, qkv_slice[0 .. NH * HD], NH * HD, H);
+                cpuGemv(self.cpu_weights.k[layer], x, qkv_slice[NH * HD ..][0 .. NKV * HD], NKV * HD, H);
+                cpuGemv(self.cpu_weights.v[layer], x, qkv_slice[NH * HD + NKV * HD ..][0 .. NKV * HD], NKV * HD, H);
+            }
         } else if (dispatch.qkv == .npu) {
             // Standard flash attention: full QKV projection on NPU
             try self.npu.runQKV(s.hidden[0..batch_size * H], layer, @intCast(batch_size), qkv_scratch);
