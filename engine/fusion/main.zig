@@ -173,6 +173,10 @@ pub fn main(init: std.process.Init) !void {
         model.emb_f32, model.lm_head_f32, model.tied_embeddings,
         model.final_norm, model.in_norm, model.pa_norm, &.{}, &.{},
         model.rope_sin, model.rope_cos,
+        .{
+            .q = model.q_weight, .k = model.k_weight, .v = model.v_weight, .o = model.o_weight,
+            .gate = model.gate_weight, .up = model.up_weight, .down = model.down_weight,
+        },
     );
     defer executor.deinit();
     executor.gpu = gpu_attn_instance;
