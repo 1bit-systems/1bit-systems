@@ -79,9 +79,34 @@ def measure() -> tuple[dict, list[str]]:
     return binary, missing
 
 
+def _engine_benchmarks(benchmarks_path: Path) -> dict:
+    """Read site/benchmarks.json and map engine tok/s fields to the names the
+    site JS expects (see site/index.html lines ~557-586). These are the
+    hardware-validated performance numbers shown on the live site (fixes #49)."""
+    data = json.loads(benchmarks_path.read_text())
+    B = data.get("engines", {})
+    S = data.get("system", {})
+
+    # Field-name mapping from site/benchmarks.json engine keys to JS-expected names.
+    engine_map = {
+        "npu_fused_raw_tok_s":   B.get("npu_fused", {}).get("tok_s"),
+        "npu_validated_tok_s":   B.get("npu_flm",    {}).get("tok_s"),
+        "gpu_ternary_tok_s":     B.get("ternary",    {}).get("tok_s"),
+        "gpu_1bit_llama_tok_s":  B.get("gpu_1bit",   {}).get("tok_s"),
+        "gpu_f16_baseline_tok_s": B.get("gpu_zinc",  {}).get("tok_s"),
+        "tflops":                S.get("tflops_int8"),
+    }
+    return {k: v for k, v in engine_map.items() if v is not None}
+
+
 def build(bench_path: Path) -> dict:
     bench = json.loads(bench_path.read_text())
     binary, missing = measure()
+
+    # Add engine-performance fields from site/benchmarks.json (for site/index.html JS)
+    engine_path = REPO / "site/benchmarks.json"
+    if engine_path.is_file():
+        bench["benchmarks"].update(_engine_benchmarks(engine_path))
 
     return {
         "_generated_by": "tools/gen_numbers.py",
