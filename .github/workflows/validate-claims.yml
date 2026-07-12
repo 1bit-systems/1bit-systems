@@ -111,7 +111,9 @@ jobs:
 
       - name: Re-measure every published benchmark
         id: measure
-        continue-on-error: true
+        # continue-on-error was removed in #75 — it masked real drift by making
+        # every step conclusion 'success' even when validate_claims.py returned
+        # exit code 1 (real drift). The downstream steps check outcome instead.
         run: |
           python3 tools/validate_claims.py \
             --build-dir "${BUILD_DIR:-1bit/build}" \
@@ -145,7 +147,7 @@ jobs:
           fi
 
       - name: Open an issue if a claim drifted
-        if: failure() && github.event_name == 'schedule'
+        if: steps.measure.outcome == 'failure' && github.event_name == 'schedule'
         uses: actions/github-script@v7
         with:
           script: |

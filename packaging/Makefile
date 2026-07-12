@@ -21,10 +21,12 @@ package-deb: npu
 	mkdir -p packaging/deb/usr/bin packaging/deb/usr/lib/1bit
 	cp engine/npu/build/npu_engine_all packaging/deb/usr/bin/1bit-npu
 	cp engine/npu/build/dequant_q4nx.o packaging/deb/usr/lib/1bit/
+	cp packaging/binary/1bit-server packaging/deb/usr/bin/1bit-server
 	dpkg-deb --build packaging/deb 1bit-systems.deb
 
 package-snap: npu
 	cp engine/npu/build/npu_engine_all .
+	cp packaging/binary/1bit-server .
 	cp engine/npu/build/dequant_q4nx.o .
 	snapcraft
 
