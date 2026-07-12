@@ -1,14 +1,15 @@
 {
   "_generated_by": "tools/gen_numbers.py",
-  "_generated_at": "2026-07-12T21:10:27Z",
+  "_generated_at": "2026-07-12T21:53:26Z",
   "_warning": "Generated file. Do not hand-edit; run tools/gen_numbers.py.",
   "_missing": [
+    "fused: engine/fusion/zig-out/bin/fused-engine",
     "decode: build/bitnet_decode",
     "tui: build/bitnet_tui"
   ],
   "binary": {
-    "fused_bytes": 25235469,
-    "fused_kb": 24644,
+    "fused_bytes": null,
+    "fused_kb": null,
     "decode_bytes": null,
     "decode_kb": null,
     "decode_stripped_kb": null,
@@ -21,7 +22,13 @@
     "sherry_gemv_gbps": 152.6,
     "tq1_gemv_gbps": 198.3,
     "halo_gemv_gbps": 149.9,
-    "prefill_tflops_i8apre": 43.33
+    "prefill_tflops_i8apre": 43.33,
+    "npu_fused_raw_tok_s": 291,
+    "npu_validated_tok_s": 94,
+    "gpu_ternary_tok_s": 307,
+    "gpu_1bit_llama_tok_s": 383,
+    "gpu_f16_baseline_tok_s": 22,
+    "tflops": 55.7
   },
   "_sources": {
     "prefill_tflops_4h": "bench_prefill_variants 2560 6912 2560 -- variant 4h (64x64 cached A+B)",
