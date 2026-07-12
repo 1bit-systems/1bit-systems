@@ -478,7 +478,7 @@ void RestHandler::configure_chat_engine_parameters(const json& options, const js
         auto_chat_engine->set_topk(top_k);
     }
     if (request.contains("min_p")) {
-        int min_p = request["min_p"];
+        float min_p = request["min_p"];            // float in [0,1]; int would truncate to 0 (fixes #86)
         auto_chat_engine->set_minp(min_p);
     }
     if (request.contains("presence_penalty")) {
@@ -528,10 +528,15 @@ json RestHandler::build_nstream_response(std::string response_text) {
     }
 
     if (is_tool_call) {
+        // Unique per-call ID: time + monotonic counter (fixes #87). time(nullptr) alone
+        // collides for requests within the same second.
+        static std::atomic<unsigned long> call_seq{0};
+        const std::string call_id = "call_" + std::to_string(std::time(nullptr))
+                                  + "_" + std::to_string(call_seq.fetch_add(1));
         message["tool_calls"] = json::array({
             {
                 {"index", 0},
-                {"id", "call_" + std::to_string(std::time(nullptr))}, 
+                {"id", call_id}, 
                 {"type", "function"},
                 {"function", {
                     {"name", result.tool_name},
@@ -1171,7 +1176,20 @@ void RestHandler::handle_openai_chat_completion(const json& request,
                     if (meta_info.stop_reason == CANCEL_DETECTED || cancellation_token->cancelled()) {
                         meta_info.stop_reason = CANCEL_DETECTED;
                         header_print("❌ ", "Prefill Cancelled!");
-                        send_response(response);
+                        json cancel_response = {
+                            {"id", "fastflowlm-chat-completion"},
+                            {"object", "chat.completion"},
+                            {"created", static_cast<long long>(std::time(nullptr))},
+                            {"model", ""},
+                            {"choices", json::array()},
+                            {"usage", {{"prompt_tokens", 0}, {"completion_tokens", 0}, {"total_tokens", 0}}},
+                            {"error", {
+                                {"message", "Request cancelled during prefill."},
+                                {"type", "cancelled"},
+                                {"code", 499}
+                            }}
+                        };
+                        send_response(cancel_response);
                         this->auto_chat_engine->clear_context();
                         this->prompt_cache.reset();
                         return;
