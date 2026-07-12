@@ -220,8 +220,19 @@ fn dequantizeI8Block(block: *const [5120]u8, out: []f32, tr: u32, tc: u32, out_r
 
         var g: u32 = 0;
         while (g < 8) : (g += 1) {
-            const s = bf16ToF32(scales[g * 32 + lr]);
-            const z = bf16ToF32(zps[g * 32 + lr]);
+            const s_raw = bf16ToF32(scales[g * 32 + lr]);
+            const z_raw = bf16ToF32(zps[g * 32 + lr]);
+            // Some Q4NX files carry a handful of NaN/Inf-encoded scale or
+            // zero-point values (observed: isolated corrupt bf16 patterns,
+            // ~0.005% of entries in real lm_head tensors). A single non-finite
+            // weight poisons an entire vocab row's dot product to NaN/Inf,
+            // which then wrecks argmax over the whole vocabulary. Zero out
+            // just the affected 32-element group instead of propagating it.
+            if (!std.math.isFinite(s_raw) or !std.math.isFinite(z_raw)) {
+                log.warn("Non-finite dequant scale/zp at row={d} group={d} (scale={d}, zp={d}); zeroing group", .{ row, g, s_raw, z_raw });
+            }
+            const s: f32 = if (std.math.isFinite(s_raw)) s_raw else 0;
+            const z: f32 = if (std.math.isFinite(z_raw)) z_raw else 0;
 
             var c: u32 = 0;
             while (c < 32) : (c += 1) {
@@ -1327,6 +1338,37 @@ test "dequantizeI8Block with scale" {
     for (output) |v| {
         try std.testing.expectApproxEqAbs(@as(f32, 7.0), v, 0.001);
     }
+}
+
+test "dequantizeI8Block sanitizes a NaN-pattern scale instead of propagating NaN" {
+    var block: [5120]u8 = undefined;
+    @memset(&block, 0);
+
+    const bf16_one: u16 = 0x3F80;
+    var scales_arr = [_]u16{bf16_one} ** 256;
+    // Row lr=2, group g=0: real-world corrupt bf16 pattern observed in a
+    // production model.q4nx lm_head tensor (exponent all-1s => NaN).
+    scales_arr[0 * 32 + 2] = 0xFF9F;
+    const scale_bytes = std.mem.sliceAsBytes(&scales_arr);
+    @memcpy(block[0..512], scale_bytes);
+
+    @memset(block[512..1024], 0);
+
+    // 0x11 has both nibbles = 1
+    @memset(block[1024..5120], 0x11);
+
+    var output: [32 * 256]f32 = undefined;
+    dequantizeI8Block(&block, &output, 0, 0, 32, 256);
+
+    for (output) |v| {
+        try std.testing.expect(std.math.isFinite(v));
+    }
+    // Row 2, group 0 (columns 0..31) had its scale zeroed out; every other
+    // group/row is untouched and still dequantizes to 1.0.
+    for (0..32) |c| {
+        try std.testing.expectApproxEqAbs(@as(f32, 0.0), output[2 * 256 + c], 0.001);
+    }
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), output[3 * 256 + 0], 0.001);
 }
 
 test "dequantizeI8TensorFromMemory reconstructs a multi-tile row-major tensor" {
