@@ -84,16 +84,15 @@ struct AttnCtx{int NH,NKV,HD,block_sz,scratch_sz;
     std::unique_ptr<xrt::kernel>k;std::vector<uint32_t>ins;
     std::unique_ptr<xrt::bo>bI,bQ,bK,bV,bO,bS;
     uint8_t*qm,*km,*vm,*om,*sm;
-    bool init(xrt::device&d,const char*xp,const char*ip,int nh,int nkv,int hd){
+    bool init(xrt::device&d,const char*xp,int nh,int nkv,int hd){
         NH=nh;NKV=nkv;HD=hd;block_sz=2048;scratch_sz=560;
-        FILE*f=fopen(ip,"rb");if(!f)return false;
-        fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);
-        ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);
         xc=std::make_unique<xrt::xclbin>(std::string(xp));d.register_xclbin(*xc);
         hc=std::make_unique<xrt::hw_context>(d,xc->get_uuid());
         k=std::make_unique<xrt::kernel>(*hc,"MLIR_AIE");
-        bI=std::make_unique<xrt::bo>(d,ins.size()*4,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));
-        memcpy(bI->map(),ins.data(),ins.size()*4);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        // Attention xclbin has instructions embedded; no separate .txt file needed.
+        ins.resize(1);ins[0]=0;  // dummy instruction for kernel interface
+        bI=std::make_unique<xrt::bo>(d,4,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));
+        memcpy(bI->map(),ins.data(),4);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);
         size_t qb=(size_t)NH*HD*2;size_t kvb=(size_t)block_sz*NKV*HD*2;size_t scb=(size_t)scratch_sz*4;
         bQ=std::make_unique<xrt::bo>(d,qb,XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));
         bK=std::make_unique<xrt::bo>(d,kvb,XRT_BO_FLAGS_HOST_ONLY,k->group_id(4));
@@ -109,7 +108,7 @@ struct AttnCtx{int NH,NKV,HD,block_sz,scratch_sz;
         auto cp=[&](uint8_t*d,const float*s,int n){for(int i=0;i<n;i++){((uint16_t*)d)[i]=f32b(s[i]);}};
         cp(qm,Q,NH*HD);cp(km,Kb,bs*NKV*HD);cp(vm,Vb,bs*NKV*HD);
         bQ->sync(XCL_BO_SYNC_BO_TO_DEVICE);bK->sync(XCL_BO_SYNC_BO_TO_DEVICE);bV->sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        auto r=(*k)(3,*bI,(unsigned)ins.size(),*bQ,*bK,*bV,*bO,*bS);r.wait();
+        auto r=(*k)((unsigned)3,*bI,(unsigned)ins.size(),*bQ,*bK,*bV,*bO,*bS);r.wait();
         bO->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
         for(int i=0;i<NH*HD;i++)out[i]=bf32(((uint16_t*)om)[i]);}
 };
@@ -123,7 +122,7 @@ static inline void attn_omp(float*qo,float*at,int cl,const float*kv_k,const floa
 // Falls back to CPU attn_omp for longer sequences or when NPU is unavailable.
 static inline void attn_dispatch(AttnCtx*ca,bool ha,float*qo,float*at,int cl,
     const float*kv_k,const float*kv_v,int NH,int NKV,int HD,int GQA){
-    if(ha&&ca&&cl<=ca->block_sz){
+    if(ha&&ca&&cl>=256&&cl<=ca->block_sz){
         ca->go(qo,kv_k,kv_v,cl,at);
     }else{
         attn_omp(qo,at,cl,kv_k,kv_v,NH,NKV,HD,GQA,cl);
@@ -237,8 +236,8 @@ int main(int argc,char**argv){
     std::string attn_xd="/home/bcloud/fastflowlm-build/src/xclbins/"+orig_model_name+"/attn.xclbin";
     std::string attn_inst="/home/bcloud/npu-sandbox/npu-infer/build/chess_infer/attn_06b.o";
     AttnCtx ca;bool have_attn=false;
-    if(ca.init(dev,attn_xd.c_str(),attn_inst.c_str(),NH,NKV,HD)){
-        printf("  NPU Attention: enabled (block_sz=%d)\n",ca.block_sz);have_attn=true;
+    if(ca.init(dev,attn_xd.c_str(),NH,NKV,HD)){
+        printf("  NPU Attention: available (block_sz=%d) — use for seq_len>256\n",ca.block_sz);
     }else{printf("  NPU Attention: unavailable, using CPU fallback\n");}
     if(cfg.gu_split){cu_ptr=std::make_unique<I8Ctx>();cu_ptr->MD=XM;cu_ptr->KD=cfg.xclbin_u_k;cu_ptr->ND=cfg.xclbin_u_n;
         if(!cu_ptr->init(dev,xp("U").c_str(),ip("U").c_str(),4,NC)){printf("FAIL U\n");return 1;}}
