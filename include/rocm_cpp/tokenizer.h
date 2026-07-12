@@ -66,6 +66,19 @@ rcpp_tokenizer_decode(const rcpp_tokenizer_t* tok,
 int rcpp_tokenizer_bos_id(const rcpp_tokenizer_t* tok);
 int rcpp_tokenizer_eos_id(const rcpp_tokenizer_t* tok);
 
+// ── Logprob API — merge-rank-based token frequency scoring (fixes #81) ──
+
+/// Return the pseudo-logprob for a single token ID.
+double rcpp_tokenizer_logprob(const rcpp_tokenizer_t* tok, int token_id);
+
+/// Encode text and return per-token pseudo-logprobs.
+rcpp_status_t
+rcpp_tokenizer_encode_with_logprobs(const rcpp_tokenizer_t* tok,
+                                     const char* text, size_t text_len,
+                                     int add_bos,
+                                     int* ids_out, double* logprobs_out,
+                                     size_t max_out, size_t* out_count);
+
 #ifdef __cplusplus
 }
 #endif
