@@ -26,3 +26,8 @@
 ## Related Issues
 
 Closes #(issue)
+
+---
+*By submitting this PR, I confirm that any benchmark numbers or status
+changes accurately reflect real on-device measurements, or are explicitly
+marked `unvalidated` per the repo's process policy (see #54).*
