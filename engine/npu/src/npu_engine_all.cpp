@@ -78,6 +78,58 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
             float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;C[m*an+n]=val;}}
 };
 
+// ── BF16 Attention context (runs attention on NPU, fixes perf) ──
+struct AttnCtx{int NH,NKV,HD,block_sz,scratch_sz;
+    std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt::hw_context>hc;
+    std::unique_ptr<xrt::kernel>k;std::vector<uint32_t>ins;
+    std::unique_ptr<xrt::bo>bI,bQ,bK,bV,bO,bS;
+    uint8_t*qm,*km,*vm,*om,*sm;
+    bool init(xrt::device&d,const char*xp,const char*ip,int nh,int nkv,int hd){
+        NH=nh;NKV=nkv;HD=hd;block_sz=2048;scratch_sz=560;
+        FILE*f=fopen(ip,"rb");if(!f)return false;
+        fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);
+        ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);
+        xc=std::make_unique<xrt::xclbin>(std::string(xp));d.register_xclbin(*xc);
+        hc=std::make_unique<xrt::hw_context>(d,xc->get_uuid());
+        k=std::make_unique<xrt::kernel>(*hc,"MLIR_AIE");
+        bI=std::make_unique<xrt::bo>(d,ins.size()*4,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));
+        memcpy(bI->map(),ins.data(),ins.size()*4);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        size_t qb=(size_t)NH*HD*2;size_t kvb=(size_t)block_sz*NKV*HD*2;size_t scb=(size_t)scratch_sz*4;
+        bQ=std::make_unique<xrt::bo>(d,qb,XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));
+        bK=std::make_unique<xrt::bo>(d,kvb,XRT_BO_FLAGS_HOST_ONLY,k->group_id(4));
+        bV=std::make_unique<xrt::bo>(d,kvb,XRT_BO_FLAGS_HOST_ONLY,k->group_id(4));
+        bO=std::make_unique<xrt::bo>(d,qb,XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));
+        bS=std::make_unique<xrt::bo>(d,scb,XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));
+        qm=(uint8_t*)bQ->map();km=(uint8_t*)bK->map();
+        vm=(uint8_t*)bV->map();om=(uint8_t*)bO->map();sm=(uint8_t*)bS->map();
+        return true;}
+    static inline uint16_t f32b(float f){uint32_t u;memcpy(&u,&f,4);return u>>16;}
+    static inline float bf32(uint16_t b){uint32_t u=(uint32_t)b<<16;float f;memcpy(&f,&u,4);return f;}
+    void go(const float*Q,const float*Kb,const float*Vb,int bs,float*out){
+        auto cp=[&](uint8_t*d,const float*s,int n){for(int i=0;i<n;i++){((uint16_t*)d)[i]=f32b(s[i]);}};
+        cp(qm,Q,NH*HD);cp(km,Kb,bs*NKV*HD);cp(vm,Vb,bs*NKV*HD);
+        bQ->sync(XCL_BO_SYNC_BO_TO_DEVICE);bK->sync(XCL_BO_SYNC_BO_TO_DEVICE);bV->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        auto r=(*k)(3,*bI,(unsigned)ins.size(),*bQ,*bK,*bV,*bO,*bS);r.wait();
+        bO->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+        for(int i=0;i<NH*HD;i++)out[i]=bf32(((uint16_t*)om)[i]);}
+};
+
+// ── Forward declarations ──
+static inline void attn_omp(float*qo,float*at,int cl,const float*kv_k,const float*kv_v,
+    int NH,int NKV,int HD,int GQA,int max_pos);
+
+// ── NPU attention dispatch with CPU fallback ──
+// Uses NPU attention xclbin when available and seq_len fits in one block.
+// Falls back to CPU attn_omp for longer sequences or when NPU is unavailable.
+static inline void attn_dispatch(AttnCtx*ca,bool ha,float*qo,float*at,int cl,
+    const float*kv_k,const float*kv_v,int NH,int NKV,int HD,int GQA){
+    if(ha&&ca&&cl<=ca->block_sz){
+        ca->go(qo,kv_k,kv_v,cl,at);
+    }else{
+        attn_omp(qo,at,cl,kv_k,kv_v,NH,NKV,HD,GQA,cl);
+    }
+}
+
 static inline void attn_omp(float*qo,float*at,int cl,const float*kv_k,const float*kv_v,
     int NH,int NKV,int HD,int GQA,int max_pos=-1){
     if(max_pos<0)max_pos=cl;
@@ -116,9 +168,9 @@ int main(int argc,char**argv){
     setvbuf(stdout,NULL,_IONBF,0);
     if(argc<2){printf("Usage: %s model.q4nx [decode_tokens]\n",argv[0]);return 1;}
     const char*mp=argv[1];int ng=(argc>2)?atoi(argv[2]):32;
-    std::string mp_s(mp),model_tag;auto ls=mp_s.rfind('/');auto sl=mp_s.rfind('/',ls-1);
-    model_tag=(sl!=std::string::npos&&ls!=std::string::npos)?mp_s.substr(sl+1,ls-sl-1):mp_s.substr(ls+1);
-    for(auto&c:model_tag){c=tolower(c);if(c=='-'||c=='.')c='_';}
+    std::string mp_s(mp),model_tag,orig_model_name;auto ls=mp_s.rfind('/');auto sl=mp_s.rfind('/',ls-1);
+    orig_model_name=(sl!=std::string::npos&&ls!=std::string::npos)?mp_s.substr(sl+1,ls-sl-1):mp_s.substr(ls+1);
+    model_tag=orig_model_name;for(auto&c:model_tag){c=tolower(c);if(c=='-'||c=='.')c='_';}
     const char*sfxs[]={"_npu2","_instruct","_it","_it_npu2"};
     for(auto sf:sfxs){size_t l=strlen(sf);if(model_tag.size()>l&&model_tag.substr(model_tag.size()-l)==sf)model_tag=model_tag.substr(0,model_tag.size()-l);}
 
@@ -180,6 +232,14 @@ int main(int argc,char**argv){
     if(cfg.gu_split){if(!cg.init(dev,xp("G").c_str(),ip("G").c_str(),4,NC)){printf("FAIL G\n");return 1;}}else{if(!cg.init(dev,xp("GU").c_str(),ip("GU").c_str(),4,NC)){printf("FAIL GU\n");return 1;}}
     if(!cd.init(dev,xp("D").c_str(),ip("D").c_str(),4,NC)){printf("FAIL D\n");return 1;}
     std::unique_ptr<I8Ctx> cu_ptr;
+
+    // ── NPU Attention (optional, replaces CPU attn_omp) ──
+    std::string attn_xd="/home/bcloud/fastflowlm-build/src/xclbins/"+orig_model_name+"/attn.xclbin";
+    std::string attn_inst="/home/bcloud/npu-sandbox/npu-infer/build/chess_infer/attn_06b.o";
+    AttnCtx ca;bool have_attn=false;
+    if(ca.init(dev,attn_xd.c_str(),attn_inst.c_str(),NH,NKV,HD)){
+        printf("  NPU Attention: enabled (block_sz=%d)\n",ca.block_sz);have_attn=true;
+    }else{printf("  NPU Attention: unavailable, using CPU fallback\n");}
     if(cfg.gu_split){cu_ptr=std::make_unique<I8Ctx>();cu_ptr->MD=XM;cu_ptr->KD=cfg.xclbin_u_k;cu_ptr->ND=cfg.xclbin_u_n;
         if(!cu_ptr->init(dev,xp("U").c_str(),ip("U").c_str(),4,NC)){printf("FAIL U\n");return 1;}}
 
@@ -265,7 +325,7 @@ int main(int argc,char**argv){
             for(int d=0;d<HD;d++)ko_d[kvh*HD+d]*=ik*(cfg.has_k_norm?kn[d]:1.0f);ra(&ko_d[kvh*HD],HD,sp);
             memcpy(&kv_c[l].k[sp*NKV*HD+kvh*HD],&ko_d[kvh*HD],HD*4);memcpy(&kv_c[l].v[sp*NKV*HD+kvh*HD],&vo_d[kvh*HD],HD*4);}}
         kv_c[l].n=sp+1;int cl=kv_c[l].n;
-        attn_omp(qo_d.data(),at_d.data(),cl,kv_c[l].k.data(),kv_c[l].v.data(),NH,NKV,HD,GQA);
+        attn_dispatch(&ca,have_attn,qo_d.data(),at_d.data(),cl,kv_c[l].k.data(),kv_c[l].v.data(),NH,NKV,HD,GQA);
         co.go(l,at_d.data(),1,NH*HD,dynamic_ascale(at_d.data(),NH*HD),osc[l],oo_d.data(),H);cn(oo_d.data(),H);for(int i=0;i<H;i++)h0[i]=sb_d[i]+oo_d[i];
         memcpy(sb_d.data(),h0,H*4);rn_c(h0,&pa_n[l*H],H);
         int mlp_o=cfg.gu_split?IM:2*IM;
@@ -300,7 +360,7 @@ int main(int argc,char**argv){
                 float*ks=&qo_b[b*qkv_n+cfg.qkv_k_offset+kvh*HD],*vs=&qo_b[b*qkv_n+cfg.qkv_v_offset+kvh*HD];
                 memcpy(&kv_c[l].k[(sp+b)*NKV*HD+kvh*HD],ks,HD*4);memcpy(&kv_c[l].v[(sp+b)*NKV*HD+kvh*HD],vs,HD*4);}
             kv_c[l].n=sp+bs;int cl=kv_c[l].n;
-            for(int b=0;b<bs;b++){attn_omp(&qo_b[b*qkv_n],&at_b[b*NH*HD],cl,kv_c[l].k.data(),kv_c[l].v.data(),NH,NKV,HD,GQA);}
+            for(int b=0;b<bs;b++){attn_dispatch(&ca,have_attn,&qo_b[b*qkv_n],&at_b[b*NH*HD],cl,kv_c[l].k.data(),kv_c[l].v.data(),NH,NKV,HD,GQA);}
             co.go(l,at_b.data(),bs,NH*HD,dynamic_ascale(at_b.data(),bs*NH*HD),osc[l],oo_b.data(),H);cn(oo_b.data(),bs*H);
             for(int b=0;b<bs;b++)for(int i=0;i<H;i++)h_b[b*H+i]+=oo_b[b*H+i];
             for(int b=0;b<bs;b++)rn_c(&h_b[b*H],&pa_n[l*H],H);
