@@ -815,6 +815,14 @@ rcpp_bitnet_free(rcpp_bitnet_model_t* m) {
         f(L.gate_packed_dev);   f(L.gate_scales_dev);
         f(L.up_packed_dev);     f(L.up_scales_dev);
         f(L.down_packed_dev);   f(L.down_scales_dev);
+        // WMMA_I8 (v5) device buffers — separate fields from the ternary path (fixes #79)
+        f(L.q_i8_dev);          f(L.q_i8_scales_dev);
+        f(L.k_i8_dev);          f(L.k_i8_scales_dev);
+        f(L.v_i8_dev);          f(L.v_i8_scales_dev);
+        f(L.o_i8_dev);          f(L.o_i8_scales_dev);
+        f(L.gate_i8_dev);       f(L.gate_i8_scales_dev);
+        f(L.up_i8_dev);         f(L.up_i8_scales_dev);
+        f(L.down_i8_dev);       f(L.down_i8_scales_dev);
     }
     std::free(m->layers);
     std::memset(m, 0, sizeof(*m));
