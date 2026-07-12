@@ -52,26 +52,20 @@ struct HIPBackend : Backend {
     }
 
     bool forward(int token_id, float* hidden_out) override {
-        if (!zs || !initialized) return false;
-        // zaya_forward doesn't expose hidden state directly in the current API
-        // It outputs logits. Use the VOCAB-sized logits_buf member (allocated in
-        // init()) — a stack buffer would be overflowed: zaya_forward writes VOCAB
-        // (262272) entries, not 1000.
-        zaya_forward(zs, token_id, logits_buf);
-        // For now, we can't extract hidden state from the zaya engine easily.
-        // This is a limitation of the current zaya_engine API.
-        // We'd need to add a hidden state output to zaya_forward.
-        // For now, return false to indicate this path isn't fully wired.
-        (void)hidden_out;
-        pos++;
-        return false;  // TODO: wire hidden state output
+        (void)token_id; (void)hidden_out;
+        // The Backend forward()/lm_head() split is not wired for HIP: zaya_forward
+        // fuses forward+lm_head and does not expose the pre-head hidden state, so the
+        // split needs a zaya API change to implement correctly. generate() (the path
+        // BackendManager actually uses) IS implemented. Fail loudly here (fixes #82).
+        static bool warned = false;
+        if (!warned) { fprintf(stderr, "HIP Backend: forward() not implemented on the adapter (generate() works); see #82\n"); warned = true; }
+        return false;
     }
 
     bool lm_head(const float* hidden, float* logits, int* argmax) override {
-        (void)hidden;
-        (void)logits;
-        (void)argmax;
-        // TODO: implement GPU lm_head
+        (void)hidden; (void)logits; (void)argmax;
+        static bool warned = false;
+        if (!warned) { fprintf(stderr, "HIP Backend: lm_head() not implemented on the adapter (generate() works); see #82\n"); warned = true; }
         return false;
     }
 
