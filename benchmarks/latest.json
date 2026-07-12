@@ -17,11 +17,11 @@
     "note": "Medians of 3 warmed runs. bench_prefill_variants segfaults intermittently under back-to-back load (retried by validate_claims.py) -- see issue."
   },
   "benchmarks": {
-    "prefill_tflops_4h": 25.04,
-    "sherry_gemv_gbps": 149.3,
-    "tq1_gemv_gbps": 196.8,
-    "halo_gemv_gbps": 142.9,
-    "prefill_tflops_i8apre": 38.49
+    "prefill_tflops_4h": 26.49,
+    "sherry_gemv_gbps": 152.6,
+    "tq1_gemv_gbps": 198.3,
+    "halo_gemv_gbps": 149.9,
+    "prefill_tflops_i8apre": 43.33
   },
   "_sources": {
     "prefill_tflops_4h": "bench_prefill_variants 2560 6912 2560 -- variant 4h (64x64 cached A+B)",
