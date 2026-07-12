@@ -110,7 +110,54 @@ struct rcpp_tokenizer {
     std::unordered_map<MergeKey, std::pair<int32_t, int32_t>, MergeKeyHash> merges;
     int32_t bos_id = 128000;
     int32_t eos_id = 128001;
+
+    // Reverse map: token_id → merge rank (for logprob estimation, fixes #81).
+    // Built once after merges are loaded. Tokens not in the map (e.g. special
+    // tokens) get a base rank equal to max_rank + 1 (least likely).
+    std::vector<int> id_to_rank;  // index = token_id, value = merge rank (or -1 for unmerged)
+    int max_rank = 0;             // total number of merges
+
+    void build_rank_map() {
+        if (!merges.empty() && id_to_rank.empty()) {
+            max_rank = (int)merges.size();
+            id_to_rank.assign(id_to_bytes.size(), -1);
+            for (auto& kv : merges) {
+                int merged_id = kv.second.first;
+                int rank = kv.second.second;
+                if (merged_id >= 0 && merged_id < (int)id_to_rank.size()) {
+                    // Lower rank = earlier merge = more common.
+                    // Only keep the LOWEST rank (earliest merge) for each token.
+                    if (id_to_rank[merged_id] < 0 || rank < id_to_rank[merged_id]) {
+                        id_to_rank[merged_id] = rank;
+                    }
+                }
+            }
+        }
+    }
+
+    // Merge-rank-based pseudo-logprob for a token ID. Non-negative.
+    // Tokens formed by earlier merges (lower rank) get higher probability.
+    // Unmerged tokens (special tokens, single bytes) get a base probability.
+    double logprob_for_id(int id) const {
+        if (id < 0 || id >= (int)id_to_rank.size()) return -20.0;
+        int rank = id_to_rank[id];
+        if (rank < 0) {
+            // Unmerged token (special token or single byte).
+            // Assign a moderate probability: less likely than early merges,
+            // more likely than very late merges.
+            return -8.0;
+        }
+        // rank ranges 0..max_rank-1. Convert to a probability in (0, 1).
+        // Linear decay: rank 0 → probability ~0.01, rank max_rank → ~0.0003.
+        double p = 0.01 * (1.0 - (double)rank / (double)max_rank) + 0.0003;
+        return log(p);
+    }
 };
+
+// Build rank map after loading merges
+static void ensure_rank_map(rcpp_tokenizer* t) {
+    if (t) t->build_rank_map();
+}
 
 extern "C" rcpp_status_t
 rcpp_tokenizer_load(const char* path, rcpp_tokenizer_t** out)
@@ -159,6 +206,8 @@ rcpp_tokenizer_load(const char* path, rcpp_tokenizer_t** out)
                           std::make_pair((int32_t)merged, (int32_t)i));
     }
 
+    ensure_rank_map(t);
+
     *out = t;
     return RCPP_OK;
 }
@@ -167,6 +216,43 @@ extern "C" void rcpp_tokenizer_free(rcpp_tokenizer_t* t) { delete t; }
 
 extern "C" int rcpp_tokenizer_bos_id(const rcpp_tokenizer_t* t) { return t ? t->bos_id : -1; }
 extern "C" int rcpp_tokenizer_eos_id(const rcpp_tokenizer_t* t) { return t ? t->eos_id : -1; }
+
+// ── Logprob API — merge-rank-based token frequency scoring (fixes #81) ──
+
+/// Return the merge-rank-based pseudo-logprob for a single token ID.
+/// Non-positive: 0 is most likely, -20 is least. Based on the token's
+/// merge order in BPE training (earlier merges = more common tokens).
+extern "C" double rcpp_tokenizer_logprob(const rcpp_tokenizer_t* t, int token_id) {
+    if (!t) return -20.0;
+    return t->logprob_for_id(token_id);
+}
+
+/// Encode text and return per-token pseudo-logprobs.
+/// ids_out and logprobs_out receive one entry per encoded token.
+/// Returns RCPP_OK on success, RCPP_INVALID_ARG on error.
+extern "C" rcpp_status_t
+rcpp_tokenizer_encode_with_logprobs(const rcpp_tokenizer_t* t,
+                                     const char* text, size_t text_len,
+                                     int add_bos,
+                                     int* ids_out, double* logprobs_out,
+                                     size_t max_out, size_t* out_count) {
+    if (!t || !text || !out_count) return RCPP_INVALID_ARG;
+    if (!ids_out && max_out > 0) return RCPP_INVALID_ARG;
+
+    // Encode the text using the standard encoder
+    rcpp_status_t rc = rcpp_tokenizer_encode(t, text, text_len, add_bos,
+                                              ids_out, max_out, out_count);
+    if (rc != RCPP_OK) return rc;
+
+    // Compute logprob for each token
+    if (logprobs_out) {
+        for (size_t i = 0; i < *out_count && i < max_out; i++) {
+            int id = ids_out ? ids_out[i] : 0;
+            logprobs_out[i] = t->logprob_for_id(id);
+        }
+    }
+    return RCPP_OK;
+}
 
 // ── Unicode category helpers (for LLaMA-3 pre-tokenizer) ──
 // L = Unicode letter, N = Unicode number, Z = whitespace/separator.
