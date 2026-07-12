@@ -28,6 +28,9 @@ ck-prefill/build/
 *.swo
 *~
 .DS_Store
+
+# Agent config (system-level, not project)
+.1bit/
 # Zig build artifacts (fused engine)
 engine/fusion/zig-out/
 engine/fusion/.zig-cache/
