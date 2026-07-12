@@ -68,15 +68,14 @@ These are the open-source C++ engine numbers — no FLM, no proprietary code. Si
 | Engine | Decode | TTFT | tok/s | Notes |
 |--------|--------|------|-------|-------|
 | **FLM turbo** (production) | 10.6 ms/tok | 497 ms | **94.7** | Proprietary, pmode=turbo |
-| **C++ v12** (single-model) | ~9 ms/tok | 18 ms/tok prefill | **110** | Open source, M=32 batch — re-measured 2026-07-12, requires OpenMP tuning (see note) |
+| **C++ v12** (single-model) | ~14.5 ms/tok | 19 ms/tok prefill | **69** | Open source, M=32 batch — re-measured 2026-07-12, requires OpenMP tuning (see note) |
 | **C++ ALL** (5 models) | 36 ms/tok | 14 ms/tok prefill | **28** | Auto-detect, one binary — not re-measured since 2026-07-11 correctness fix, treat as unverified |
 
 ### How to read this
 
-> **2026-07-12 correction:** The 97 tok/s figure below was measured 2026-07-02, before a 2026-07-11 fix to three real correctness bugs (RoPE convention, prefill causal masking, dynamic quantization scale) that the fix's own commit admits was never validated against real hardware output. Re-tested 2026-07-12 on the corrected code: default OpenMP settings gave 6-8 tok/s (thread wake/sleep overhead across many small parallel regions); with `OMP_NUM_THREADS=16 OMP_WAIT_POLICY=active OMP_PROC_BIND=close OMP_PLACES=cores`, measured 71-126 tok/s depending on run length, 110 tok/s reproducible at 64 tokens. Open issue: ~1/3 of runs hang at the boot-to-decode transition (pre-existing, unrelated to this tuning). Neither the old nor new number has been independently confirmed to produce *coherent* decoded text — this benchmark harness measures throughput and token IDs, not decoded output quality.
+> **2026-07-12 correction:** The 97 tok/s figure below was measured 2026-07-02, before a 2026-07-11 fix to three real correctness bugs (RoPE convention, prefill causal masking, dynamic quantization scale) that the fix's own commit admits was never validated against real hardware output. Re-tested 2026-07-12: default OpenMP settings gave 6-8 tok/s (thread wake/sleep overhead across many small parallel regions); with `OMP_NUM_THREADS=16 OMP_WAIT_POLICY=active OMP_PROC_BIND=close OMP_PLACES=cores`, measured 49-70 tok/s depending on run length, 69 tok/s typical. (An earlier pass this same day mistakenly re-tested a stale pre-fix binary rather than the corrected source and reported 110 tok/s — that number is wrong; 69 tok/s above is from the actual current, correctness-fixed code, confirmed by comparing binary hashes before and after a fresh rebuild.) Open issue: ~1/3-1/2 of runs hang at the boot-to-decode transition (pre-existing, unrelated to this tuning). Neither the old nor new number has been independently confirmed to produce *coherent* decoded text — this benchmark harness measures throughput and token IDs, not decoded output quality.
 
-- **FLM is our production backend.** The daemon proxies to it. It's proprietary; our open-source C++ engine now measures faster on raw decode throughput (110 vs 94.7 tok/s) after the tuning above, though see the correction note for what that number does and doesn't establish.
-- **C++ v12 currently outpaces FLM on measured decode throughput** — 110 tok/s vs 94.7 tok/s, with the OpenMP tuning above. FLM's advantage is per-request TTFT (its fused xclbin streams weights on-chip, eliminating per-layer ioctl dispatch). Our C++ engine amortizes the dispatch with M=32 batched decode.
+- **FLM is our production backend.** The daemon proxies to it. It's proprietary, and currently faster than our open-source engine on measured decode throughput (94.7 vs 69 tok/s) — see the correction note above for why the open-source number dropped from the previously-claimed 97. FLM's advantage includes per-request TTFT (its fused xclbin streams weights on-chip, eliminating per-layer ioctl dispatch); our C++ engine amortizes dispatch with M=32 batched decode but hasn't closed the throughput gap on the corrected code yet.
 - **C++ ALL auto-detects 5 models from a 120KB binary.** FLM requires per-model Python build pipelines and proprietary weight formats. Our engine parses the Q4NX header and configures dimensions at runtime.
 - **The gap is software architecture, not silicon.** FLM's fused xclbin eliminates per-layer dispatch. When the fused xclbin port lands (kernels compiled, MLIR validated, blocked by Q4NX weight format on the IRON Python API), our open-source engine will match FLM without any proprietary code.
 
@@ -87,7 +86,7 @@ These are the open-source C++ engine numbers — no FLM, no proprietary code. Si
 | Feature | 1bit.systems | FastFlowLM |
 |---------|-------------|------------|
 | Production engine | ✅ FLM proxy (94.7 tok/s) | ✅ FLM native |
-| Open-source engine | ✅ C++23, MIT, 110 tok/s (see correction note above) | ❌ |
+| Open-source engine | ✅ C++23, MIT, 69 tok/s (see correction note above) | ❌ |
 | Models supported | **5** (0.6B, 8B, VL-4B, Llama, Gemma4) | 10+ (8B-focused) |
 | Auto-detect | ✅ Q4NX header parse | ❌ Per-model Python build |
 | Binary size | 120 KB | Python + 114KB xclbins |
@@ -159,7 +158,7 @@ These are the open-source C++ engine numbers — no FLM, no proprietary code. Si
 | CPU governor powersave | — | — | AMD default |
 | CPU governor performance | — | — | Marginal TTFT improvement |
 | GPU perf auto | 11.3 tok/s | 1714 ms | For 8B models routed to GPU |
-| C++ v12 M=32 | 110 tok/s | 18 ms/tok | Open-source ceiling (no fused xclbin); requires OpenMP tuning — see 2026-07-12 correction note above |
+| C++ v12 M=32 | 69 tok/s | 18 ms/tok | Open-source ceiling (no fused xclbin); requires OpenMP tuning — see 2026-07-12 correction note above |
 
 **Turbo gains are real but marginal (+0.6% decode, -16ms TTFT).** The 500ms TTFT is the NPU loading weights from DDR into AIE tiles — no software knob fixes this. Only a fused xclbin (streaming weights on-chip) can break through.
 

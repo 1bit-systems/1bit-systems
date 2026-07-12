@@ -663,7 +663,7 @@ static void handle_request(int cl, const std::string& req, const std::string& bo
     // ── GET /v1/models ──
     if (req.find("GET /v1/models") != std::string::npos) {
         std::string resp = "{\"object\":\"list\",\"data\":["
-            "{\"id\":\"npu-draft\",\"object\":\"model\",\"owned_by\":\"npu\",\"description\":\"Qwen3-0.6B NPU draft (110 tok/s)\"},"
+            "{\"id\":\"npu-draft\",\"object\":\"model\",\"owned_by\":\"npu\",\"description\":\"Qwen3-0.6B NPU draft (69 tok/s)\"},"
             "{\"id\":\"spec-decode\",\"object\":\"model\",\"owned_by\":\"router\",\"description\":\"NPU draft + GPU verify (speculative decode)\"},"
             "{\"id\":\"gpu-verify\",\"object\":\"model\",\"owned_by\":\"gpu\",\"description\":\"Zaya1 GPU verify backend\"}"
             "]}";
