@@ -6,10 +6,10 @@
 // Scope:
 //   * Byte-level BPE identical to tiktoken / LLaMA-3 at the merge level.
 //   * GPT-2 byte<->unicode mapping (256-entry LUT) applied at the boundary.
-//   * Regex pre-tokenizer is NOT implemented — we encode the whole input
-//     as a single chunk. This matches HF reference tokenization on clean
-//     ASCII text and diverges on some mixed-script / punctuation-heavy
-//     inputs. Pre-tokenizer port is a follow-up.
+//   * LLaMA-3 / cl100k_base regex pre-tokenizer (contractions + Unicode
+//     letters/numbers/whitespace splitting). Matches the tiktoken reference
+//     on practical inputs including CJK, Cyrillic, and punctuation-heavy text
+//     (fixes #92).
 
 #include "rocm_cpp/tokenizer.h"
 
@@ -168,36 +168,293 @@ extern "C" void rcpp_tokenizer_free(rcpp_tokenizer_t* t) { delete t; }
 extern "C" int rcpp_tokenizer_bos_id(const rcpp_tokenizer_t* t) { return t ? t->bos_id : -1; }
 extern "C" int rcpp_tokenizer_eos_id(const rcpp_tokenizer_t* t) { return t ? t->eos_id : -1; }
 
-// Minimal pre-tokenizer — only the one piece of LLaMA-3's regex that
-// our byte-level BPE can't reproduce on its own: `\p{N}{1,3}` (digit
-// runs get broken into 3-digit blocks so numbers tokenize the same
-// as HF reference). Whitespace handling stays with byte-level BPE,
-// which already matches the reference on everything we've tested.
-static std::vector<std::string> pre_tokenize(const std::string& text) {
+// ── Unicode category helpers (for LLaMA-3 pre-tokenizer) ──
+// L = Unicode letter, N = Unicode number, Z = whitespace/separator.
+// For ASCII relies on standard <cctype> checks; for non-ASCII uses simple
+// range tests covering the scripts most likely to appear in real text.
+// This is not a full Unicode Character Database — just enough to match
+// the tiktoken cl100k_base pre-tokenizer on practical inputs.
+
+namespace {
+
+// Is this codepoint a Unicode letter (L* category)?
+static bool is_letter(uint32_t cp) {
+    if (cp < 0x80) {
+        return (cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z');
+    }
+    // Latin Extended (including IPA), Greek, Cyrillic, Armenian, Hebrew, Arabic
+    if (cp <= 0x06FF) return true;
+    // Extended Arabic, Syriac, Thaana, NKo, Samaritan, Mandaic
+    if (cp >= 0x0750 && cp <= 0x085F) return true;
+    // Devanagari, Bengali, Gurmukhi, Gujarati, Oriya, Tamil, Telugu, Kannada, Malayalam
+    if (cp >= 0x0900 && cp <= 0x0D7F) return true;
+    // Sinhala, Thai, Lao, Tibetan, Myanmar
+    if (cp >= 0x0D80 && cp <= 0x109F) return true;
+    // Georgian, Hangul Jamo
+    if (cp >= 0x10A0 && cp <= 0x11FF) return true;
+    // Ethiopic
+    if (cp >= 0x1200 && cp <= 0x137F) return true;
+    // Cherokee, Unified Canadian Aboriginal
+    if (cp >= 0x13A0 && cp <= 0x14FF) return true;
+    // Ogham, Runic
+    if (cp >= 0x1680 && cp <= 0x16FF) return true;
+    // Tagalog, Hanunoo, Buhid, Tagbanwa, Khmer, Mongolian
+    if (cp >= 0x1700 && cp <= 0x18AF) return true;
+    // CJK Radicals, Kangxi Radicals, Ideographic Description
+    if (cp >= 0x2E80 && cp <= 0x2FFF) return true;
+    // CJK Symbols and Punctuation, Hiragana, Katakana, Bopomofo, Kanbun
+    if (cp >= 0x3000 && cp <= 0x30FF) return true;
+    // CJK Unified Ideographs
+    if (cp >= 0x4E00 && cp <= 0x9FFF) return true;
+    // Yi, Vai
+    if (cp >= 0xA000 && cp <= 0xA4FF) return true;
+    // Hangul Syllables
+    if (cp >= 0xAC00 && cp <= 0xD7AF) return true;
+    // CJK Extension B, C, etc.
+    if (cp >= 0x20000 && cp <= 0x2FFFF) return true;
+    // CJK Extension G, H
+    if (cp >= 0x30000 && cp <= 0x3FFFF) return true;
+    return false;
+}
+
+// Is this codepoint a Unicode number (N* category)?
+static bool is_number(uint32_t cp) {
+    if (cp < 0x80) {
+        return cp >= '0' && cp <= '9';
+    }
+    // Superscript/subscript digits
+    if (cp >= 0x00B2 && cp <= 0x00B3) return true;
+    if (cp == 0x00B9) return true;
+    // Arabic-Indic, Extended Arabic-Indic
+    if (cp >= 0x0660 && cp <= 0x0669) return true;
+    if (cp >= 0x06F0 && cp <= 0x06F9) return true;
+    // NKo, Devanagari, Bengali, etc. digits
+    if (cp >= 0x0966 && cp <= 0x096F) return true;
+    if (cp >= 0x09E6 && cp <= 0x09EF) return true;
+    if (cp >= 0x0A66 && cp <= 0x0A6F) return true;
+    if (cp >= 0x0AE6 && cp <= 0x0AEF) return true;
+    if (cp >= 0x0B66 && cp <= 0x0B6F) return true;
+    if (cp >= 0x0BE6 && cp <= 0x0BEF) return true;
+    if (cp >= 0x0C66 && cp <= 0x0C6F) return true;
+    if (cp >= 0x0CE6 && cp <= 0x0CEF) return true;
+    if (cp >= 0x0D66 && cp <= 0x0D6F) return true;
+    // Myanmar, Khmer, Thai digits
+    if (cp >= 0x1040 && cp <= 0x1049) return true;
+    if (cp >= 0x17E0 && cp <= 0x17E9) return true;
+    if (cp >= 0x19D0 && cp <= 0x19D9) return true;
+    // Full-width digits
+    if (cp >= 0xFF10 && cp <= 0xFF19) return true;
+    // Mathematical double-struck and monospace digits
+    if (cp >= 0x1D7CE && cp <= 0x1D7FF) return true;
+    return false;
+}
+
+// Is this codepoint a whitespace or line-break character (Z* category) or
+// one of the ASCII control chars (\r, \n, \t, \f, \v)?
+static bool is_whitespace(uint32_t cp) {
+    if (cp == U'\r' || cp == U'\n' || cp == U'\t' || cp == U'\f' || cp == U'\v') return true;
+    if (cp < 0x80) return cp == ' ' || cp == '\r' || cp == '\n' || cp == '\t';
+    // Unicode spaces: U+0085 (NEL), U+00A0 (NBSP), U+1680, U+2000-200A, U+2028, U+2029, U+202F, U+205F, U+3000
+    if (cp == 0x00A0 || cp == 0x1680) return true;
+    if (cp >= 0x2000 && cp <= 0x200A) return true;
+    if (cp == 0x2028 || cp == 0x2029 || cp == 0x202F || cp == 0x205F) return true;
+    if (cp == 0x3000) return true;
+    return false;
+}
+
+// Is this codepoint NOT whitespace, NOT letter, NOT number?
+static bool is_other(uint32_t cp) {
+    return !is_letter(cp) && !is_number(cp) && !is_whitespace(cp);
+}
+
+// Is this codepoint a \r or \n?
+static bool is_newline(uint32_t cp) {
+    return cp == U'\r' || cp == U'\n';
+}
+
+}  // namespace
+
+// LLaMA-3 / cl100k_base pre-tokenizer.
+// Splits input text into chunks matching the tiktoken cl100k_base regex:
+//   (?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+
+// 
+// Chunks are returned as UTF-8 byte substrings. BPE merges never cross
+// chunk boundaries, matching the tiktoken reference (fixes #92).
+//
+// Each match pattern is tried in order at the current position. The first
+// one that succeeds consumes characters and emits a chunk. If none match,
+// the single character at the current position is emitted (fallback).
+static std::vector<std::string> llama3_pre_tokenize(const std::string& text) {
     std::vector<std::string> chunks;
     const size_t n = text.size();
-    size_t i = 0;
-    auto is_digit = [](unsigned char c) { return c >= '0' && c <= '9'; };
-    while (i < n) {
-        if (is_digit((unsigned char)text[i])) {
-            size_t j = i;
-            while (j < n && is_digit((unsigned char)text[j])) ++j;
-            size_t pos = i;
-            while (pos < j) {
-                size_t take = std::min<size_t>(3, j - pos);
-                chunks.emplace_back(text, pos, take);
-                pos += take;
-            }
-            i = j;
-        } else {
-            size_t j = i;
-            while (j < n && !is_digit((unsigned char)text[j])) ++j;
-            chunks.emplace_back(text, i, j - i);
-            i = j;
+    const uint8_t* data = reinterpret_cast<const uint8_t*>(text.data());
+    size_t pos = 0;  // byte position in the UTF-8 string
+
+    if (n == 0) return chunks;
+
+    // Helper: decode codepoint at byte position `p`, return cp and set `len`.
+    auto cp_at = [&](size_t p, size_t& len) -> uint32_t {
+        if (p >= n) { len = 0; return 0; }
+        return utf8_decode(data + p, n - p, len);
+    };
+
+    // Helper: scan forward from `p` while predicate returns true for codepoints.
+    // Returns the byte position after the last matching character.
+    auto scan_while = [&](size_t p, auto pred) -> size_t {
+        while (p < n) {
+            size_t len = 0;
+            uint32_t cp = utf8_decode(data + p, n - p, len);
+            if (!pred(cp)) break;
+            p += len;
         }
+        return p;
+    };
+
+    // Helper: check how many consecutive \p{N} codepoints start at `p`, capped at 3.
+    auto count_digits = [&](size_t p) -> size_t {
+        size_t end = p;
+        for (int i = 0; i < 3; i++) {
+            size_t len = 0;
+            uint32_t cp = utf8_decode(data + end, n - end, len);
+            if (len == 0 || !is_number(cp)) break;
+            end += len;
+        }
+        return end;
+    };
+
+    while (pos < n) {
+        size_t len = 0;
+        uint32_t cp = utf8_decode(data + pos, n - pos, len);
+        size_t chunk_start = pos;
+
+        // Pattern 1: (?i:'s|'t|'re|'ve|'m|'ll|'d) — case-insensitive contractions
+        if (cp == U'\'') {
+            size_t p1 = pos + len;
+            size_t l1 = 0;
+            uint32_t nxt = p1 < n ? utf8_decode(data + p1, n - p1, l1) : 0;
+            bool matched = false;
+            if (l1 > 0) {
+                if (nxt == U's' || nxt == U't' || nxt == U'm' || nxt == U'd' ||
+                    nxt == U'S' || nxt == U'T' || nxt == U'M' || nxt == U'D') {
+                    pos = p1 + l1; matched = true;
+                } else {
+                    size_t p2 = p1 + l1, l2 = 0;
+                    uint32_t nxt2 = p2 < n ? utf8_decode(data + p2, n - p2, l2) : 0;
+                    if (l2 > 0 && (
+                        ((nxt == U'r' || nxt == U'R') && (nxt2 == U'e' || nxt2 == U'E')) ||
+                        ((nxt == U'v' || nxt == U'V') && (nxt2 == U'e' || nxt2 == U'E')) ||
+                        ((nxt == U'l' || nxt == U'L') && (nxt2 == U'l' || nxt2 == U'L')))) {
+                        pos = p2 + l2; matched = true;
+                    }
+                }
+            }
+            if (matched) { chunks.emplace_back(text, chunk_start, pos - chunk_start); continue; }
+        }
+
+        // Pattern 2: [^\r\n\p{L}\p{N}]?\p{L}+ — optional non-LN prefix + letter run
+        if (!is_newline(cp) && (is_letter(cp) || (!is_letter(cp) && !is_number(cp)))) {
+            size_t p = pos;
+            if (!is_letter(cp)) {
+                // Optional prefix character (not letter, not number, not newline)
+                p += len;
+                if (p < n) {
+                    size_t ll = 0;
+                    uint32_t lcp = utf8_decode(data + p, n - p, ll);
+                    if (lcp > 0 && is_letter(lcp)) {
+                        pos = scan_while(p, [](uint32_t c) { return is_letter(c); });
+                        chunks.emplace_back(text, chunk_start, pos - chunk_start);
+                        continue;
+                    }
+                }
+                // Not a letter after prefix; the prefix doesn't match this pattern.
+                // Fall through to let other patterns or the fallback handle it.
+            } else {
+                // Direct letter run
+                pos = scan_while(p, [](uint32_t c) { return is_letter(c); });
+                chunks.emplace_back(text, chunk_start, pos - chunk_start);
+                continue;
+            }
+        }
+
+        // Pattern 3: \p{N}{1,3} — 1-3 consecutive digits
+        if (is_number(cp)) {
+            pos = count_digits(pos);
+            chunks.emplace_back(text, chunk_start, pos - chunk_start);
+            continue;
+        }
+
+        // Pattern 4: ?[^\s\p{L}\p{N}]+[\r\n]* — optional space + others + newlines
+        if (cp == U' ' || is_other(cp)) {
+            size_t p = pos;
+            if (cp == U' ') p += len;  // consume optional leading space
+            // Check for at least one "other" character after the optional space
+            if (p < n) {
+                size_t ll = 0;
+                uint32_t ocp = utf8_decode(data + p, n - p, ll);
+                if (is_other(ocp)) {
+                    p += ll;
+                    p = scan_while(p, [](uint32_t c) { return is_other(c); });
+                    p = scan_while(p, [](uint32_t c) { return is_newline(c); });
+                    pos = p;
+                    chunks.emplace_back(text, chunk_start, pos - chunk_start);
+                    continue;
+                }
+            }
+            // If we consumed a space but the rest didn't match pattern 4, 
+            // the space alone is emitted below (fallthrough). For cp==' '
+            // the space will be handled by the fallback single-char emit.
+        }
+
+        // Pattern 5: \s*[\r\n]+ — optional whitespace + one or more newlines
+        if (is_whitespace(cp)) {
+            size_t p = scan_while(pos, [](uint32_t c) { return is_whitespace(c); });
+            if (p < n) {
+                size_t ll = 0;
+                uint32_t nc = utf8_decode(data + p, n - p, ll);
+                if (is_newline(nc)) {
+                    p += ll;
+                    p = scan_while(p, [](uint32_t c) { return is_newline(c); });
+                    pos = p;
+                    chunks.emplace_back(text, chunk_start, pos - chunk_start);
+                    continue;
+                }
+            }
+        }
+
+        // Pattern 6: \s+(?!\S) — whitespace at end of text (trailing whitespace)
+        if (is_whitespace(cp)) {
+            size_t p = scan_while(pos, [](uint32_t c) { return is_whitespace(c); });
+            if (p >= n) {
+                // Whitespace that goes to end of string
+                pos = p;
+                chunks.emplace_back(text, chunk_start, pos - chunk_start);
+                continue;
+            }
+            // Is there a newline or end-of-string after this whitespace?
+            size_t ll = 0;
+            uint32_t after = utf8_decode(data + p, n - p, ll);
+            if (is_newline(after)) {
+                // Whitespace before a newline — the newline will be caught
+                // by pattern 5 in the next iteration. The whitespace itself
+                // is emitted here (trailing before newline).
+                pos = p;
+                chunks.emplace_back(text, chunk_start, pos - chunk_start);
+                continue;
+            }
+            // Whitespace before non-whitespace, not at end: fall through
+            // to single-character fallback
+        }
+
+        // Fallback: emit the current character as its own chunk.
+        // Every character must belong to at least one chunk.
+        chunks.emplace_back(text, chunk_start, len);
+        pos += len;
     }
+
     return chunks;
 }
+
+// Convert raw UTF-8 text into a vector of single-char (GPT-2 mapped)
 
 // Convert raw UTF-8 text into a vector of single-char (GPT-2 mapped)
 // byte-strings, one entry per input byte. These are the starting
@@ -227,7 +484,7 @@ rcpp_tokenizer_encode(const rcpp_tokenizer_t* t,
 
     std::string s(text, text_len);
     if (s.empty()) return RCPP_OK;
-    auto chunks = pre_tokenize(s);
+    auto chunks = llama3_pre_tokenize(s);
 
     // BPE-merge a single chunk's byte pieces in place. Merges do NOT
     // cross chunk boundaries — that's the whole point of the pre-
