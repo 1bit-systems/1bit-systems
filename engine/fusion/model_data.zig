@@ -258,17 +258,23 @@ fn dequantizeI8Block(block: *const [5120]u8, out: []f32, tr: u32, tc: u32, out_r
         while (g < 8) : (g += 1) {
             const s_raw = bf16ToF32(scales[g * 32 + lr]);
             const z_raw = bf16ToF32(zps[g * 32 + lr]);
-            // Some Q4NX files carry a handful of corrupt scale/zero-point bf16
-            // values: either outright NaN/Inf bit patterns, or finite-but-wild
-            // magnitudes (bf16 shares f32's exponent range, so a corrupt byte
-            // can decode to something like 1e30 -- finite on its own, but
-            // `nibble * scale` then overflows to Inf during dequant). A real
-            // trained quantization scale for normalized weights is never
-            // remotely this large. Either way a single bad weight poisons an
-            // entire row's dot product downstream, wrecking argmax over the
-            // whole vocabulary (or QKV/FFN, for per-layer projection weights).
-            // Zero out just the affected 32-element group instead.
-            const plausible_max: f32 = 1000.0;
+            // This Q4NX file carries widespread corrupt scale/zero-point bf16
+            // values -- not just a handful of isolated NaN/Inf bit patterns,
+            // but a real tail of finite-but-wild magnitudes at every scale
+            // from ~10 up through ~1e38 (bf16 shares f32's exponent range).
+            // Sampling real lm_head scales shows a tight, well-behaved
+            // legitimate distribution (p50=0.008, p99=0.013 -- real
+            // zero-points top out under 0.2) with *no* natural continuum
+            // into larger values: it jumps straight from ~0.01 to
+            // astronomical between p99 and p99.9. There is no legitimate
+            // scale/zero-point anywhere near 1.0 in this model, let alone a
+            // "moderately large but real" outlier tier -- a single corrupt
+            // value (observed concretely: scale=-860 in one lm_head row,
+            // comfortably under a naively-chosen 1000 threshold) still
+            // dominates that row's entire dot product, wrecking argmax over
+            // the whole vocabulary (or QKV/FFN, for per-layer projection
+            // weights). Zero out just the affected 32-element group instead.
+            const plausible_max: f32 = 1.0;
             const s_bad = !std.math.isFinite(s_raw) or @abs(s_raw) > plausible_max;
             const z_bad = !std.math.isFinite(z_raw) or @abs(z_raw) > plausible_max;
             if (s_bad or z_bad) {
@@ -1453,13 +1459,17 @@ test "dequantizeI8Block with scale" {
     var block: [5120]u8 = undefined;
     @memset(&block, 0);
 
-    const bf16_two: u16 = 0x4000;
-    const scales_arr = [_]u16{bf16_two} ** 256;
+    // 0.5 and 0.25 -- must stay under the plausible_max=1.0 sanitization
+    // bound (real lm_head scales top out around p99=0.013; anything near
+    // 1.0 or above is corruption, see dequantizeI8Block's comment) or this
+    // test would get zeroed out by the sanitizer it isn't testing.
+    const bf16_half: u16 = 0x3F00;
+    const scales_arr = [_]u16{bf16_half} ** 256;
     const scale_bytes = std.mem.sliceAsBytes(&scales_arr);
     @memcpy(block[0..512], scale_bytes);
 
-    const bf16_one: u16 = 0x3F80;
-    const zp_arr = [_]u16{bf16_one} ** 256;
+    const bf16_quarter: u16 = 0x3E80;
+    const zp_arr = [_]u16{bf16_quarter} ** 256;
     const zp_bytes = std.mem.sliceAsBytes(&zp_arr);
     @memcpy(block[512..1024], zp_bytes);
 
@@ -1469,8 +1479,9 @@ test "dequantizeI8Block with scale" {
     var output: [32 * 256]f32 = undefined;
     dequantizeI8Block(&block, &output, 0, 0, 32, 256);
 
+    // 3 * 0.5 + 0.25 = 1.75
     for (output) |v| {
-        try std.testing.expectApproxEqAbs(@as(f32, 7.0), v, 0.001);
+        try std.testing.expectApproxEqAbs(@as(f32, 1.75), v, 0.001);
     }
 }
 
