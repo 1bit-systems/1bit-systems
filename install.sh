@@ -40,17 +40,23 @@ fi
 install_deps() {
     if command -v apt-get &>/dev/null; then
         log "Installing build deps (apt)..."
-        sudo apt-get update -qq && sudo apt-get install -y -qq build-essential cmake ninja-build git curl rocm-hip-sdk || true
-        [ ! -f /opt/rocm/bin/hipcc ] && [ -f /usr/bin/hipcc ] && sudo ln -sf /usr/bin/hipcc /opt/rocm/bin/hipcc 2>/dev/null || true
-        [ ! -f /opt/rocm/bin/hipconfig ] && [ -f /usr/bin/hipconfig ] && sudo ln -sf /usr/bin/hipconfig /opt/rocm/bin/hipconfig 2>/dev/null || true
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq build-essential cmake ninja-build git curl || true
+        # ROCm HIP SDK — try multiple package names across distro versions
+        sudo apt-get install -y -qq rocm-hip-libraries 2>/dev/null || \
+            sudo apt-get install -y -qq hip-sdk 2>/dev/null || \
+            sudo apt-get install -y -qq rocm-dev 2>/dev/null || \
+            warn "No ROCm HIP package found. Install manually: rocm-hip-libraries"
     elif command -v pacman &>/dev/null; then
         log "Installing build deps (pacman)..."
-        sudo pacman -Sy --noconfirm base-devel cmake ninja git curl rocm-hip-sdk
+        sudo pacman -Sy --noconfirm base-devel cmake ninja git curl rocm-hip-sdk 2>/dev/null || \
+            warn "ROCm HIP package not found. Install rocm-hip-sdk manually"
     elif command -v dnf &>/dev/null; then
         log "Installing build deps (dnf)..."
-        sudo dnf install -y gcc-c++ cmake ninja-build git curl rocm-hip-devel
+        sudo dnf install -y gcc-c++ cmake ninja-build git curl rocm-hip-devel 2>/dev/null || \
+            warn "ROCm HIP package not found. Install rocm-hip-devel manually"
     else
-        warn "Unknown package manager. Please install: cmake ninja git curl build-essential rocm-hip-sdk"
+        warn "Unknown package manager. Install: cmake ninja git curl build-essential + ROCm HIP SDK"
     fi
 }
 
@@ -61,15 +67,15 @@ mkdir -p "$MODELS_DIR"
 if [ "$SKIP_ROCM" = false ]; then
     log "Building kernels (rocm-cpp) + server (zaya_server)..."
     cd "$DIR"
-    cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151
-    cmake --build build --target zaya_server -j"$(nproc)"
+    cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151 || { warn "cmake configure failed"; exit 1; }
+    cmake --build build --target zaya_server -j"$(nproc)" || { warn "cmake build failed"; exit 1; }
     log "Build complete: $DIR/build/zaya_server ($(stat -c%s "$DIR/build/zaya_server") bytes)"
 else
     warn "Skipping kernel build. Set LD_LIBRARY_PATH to find librocm_cpp.so."
     log "Building server only (requires pre-built librocm_cpp.so)..."
     cd "$DIR"
-    cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151
-    cmake --build build --target zaya_server -j"$(nproc)"
+    cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151 || { warn "cmake configure failed"; exit 1; }
+    cmake --build build --target zaya_server -j"$(nproc)" || { warn "cmake build failed"; exit 1; }
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
