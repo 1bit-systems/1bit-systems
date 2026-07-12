@@ -33,7 +33,11 @@ train = dict(
     weight_decay=0.0,
     precision="bf16",
     local_batch_size=1,
-    global_batch_size=512,
+    # Was 512 -- larger than the entire 360-example dataset, so at most a
+    # handful of real gradient steps ever occurred across all 10 epochs
+    # (root cause of the "0% acceptance" checkpoints). Sized to the actual
+    # dataset: 360 examples / batch 8 = ~45 steps/epoch, ~450 steps total.
+    global_batch_size=8,
     num_train_epochs=10,
     max_train_steps=None,
     max_grad_norm=1.0,
@@ -43,11 +47,14 @@ train = dict(
 
 logging = dict(
     logging_steps=10,
-    checkpointing_steps=3000,
+    # Was 3000 -- higher than the entire training run (~450 steps), so no
+    # checkpoint was ever written. Sized to actually checkpoint during a run
+    # this short.
+    checkpointing_steps=50,
 )
 
 data = dict(
-    target_cache_path=None,
+    target_cache_path=os.path.expanduser("~/spec-decode/target_cache/eagle3_qwen3_0.6b"),
     chat_template="qwen",
     max_length=4096,
     num_workers=4,

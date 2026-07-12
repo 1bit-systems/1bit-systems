@@ -137,6 +137,22 @@ undertrained draft head, not a broken architecture. **Speculative decoding here 
 pending a real training run** (batch size sized to the dataset, and/or meaningfully more
 training data) — it should not be quoted as either "572 tok/s" or "disproven."
 
+**2026-07-11, later same day — ran an actual training pass to test this directly.** Fixed
+`global_batch_size` (512 → 8, matched to the 343-valid-sample dataset), fixed a broken
+torch+ROCm install (mismatched `torch`/gfx1151-kernel-package versions were causing GPU
+tensor placement to segfault — rebuilt the venv from AMD's matched TheRock nightly index),
+generated a real target-hidden-state cache, and ran 420 real training steps (10 epochs ×
+42 steps/epoch) on this machine's actual NPU/GPU hardware. Loss dropped from 26.5 → ~7.5, a
+genuine ~3.5× reduction confirming real learning occurred (this had never previously
+happened — every prior checkpoint was effectively random-init). **Re-benchmarked the
+resulting checkpoint anyway: still 0.8 tok/s, 0% acceptance.** This is not a regression or a
+new bug — cross-entropy loss 7.5 corresponds to perplexity ≈1,800, nowhere near converged for
+a from-scratch transformer, even a tiny 1-layer one. 343 examples over 420 steps is simply
+too little data/training for the draft head to produce useful predictions yet. The wiring and
+batch-size bugs are conclusively fixed and validated (training visibly works now); getting
+nonzero acceptance still requires substantially more training data and/or steps, which is a
+separate, larger undertaking from the bug fixes themselves.
+
 | Engine | Tok/s | Power | Tok/J |
 |--------|:-----:|:-----:|:-----:|
 | NPU Eagle3 (undertrained) ❌ | **0.8** | 15W | ~0.05 |

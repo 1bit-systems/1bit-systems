@@ -23,7 +23,7 @@
 
 static const char* kModelPath = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
 static const char* kXclbinDir = "/home/bcloud/npu-sandbox/npu-infer/build/int8";
-static const char* kDraftCheckpoint = "/home/bcloud/spec-decode/checkpoints/eagle3_draft_npu_all.bin";
+static const char* kDraftCheckpoint = "/home/bcloud/spec-decode/checkpoints/eagle3_draft_trained_420.bin";
 
 int main(int argc, char* argv[]) {
     setvbuf(stdout, NULL, _IONBF, 0);
