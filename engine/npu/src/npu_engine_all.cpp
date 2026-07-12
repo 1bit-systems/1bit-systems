@@ -311,7 +311,7 @@ int main(int argc,char**argv){
             else{for(int b=0;b<bs;b++){for(int i=0;i<IM;i++){float gv=gt_b[b*mlp_o+i];if(!std::isfinite(gv))gv=0;su_b[b*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[b*mlp_o+IM+i];}}
             cd.go(l,su_b.data(),bs,IM,dynamic_ascale(su_b.data(),bs*IM),dsc[l],dw_b.data(),H);cn(dw_b.data(),bs*H);
             for(int b=0;b<bs;b++)for(int i=0;i<H;i++)h_b[b*H+i]+=dw_b[b*H+i];
-        }
+        }}
         memcpy(sb_d.data(),&h_b[0],H*4);rn_c(sb_d.data(),fin_v.data(),H);
         lm_topk_omp(sb_d.data(),lg_b.data(),top_ids,BS,NV,H);
         total_acc+=bs;sp+=bs;n_bat++;
@@ -322,5 +322,4 @@ int main(int argc,char**argv){
     double tts=std::chrono::duration<double>(std::chrono::steady_clock::now()-tgs).count();
     printf("\n=== %.1f ms/tok (%.0f tok/s) | boot=%.0fms batches=%d ===\n",tts*1000/ng,ng/tts,t_boot,n_bat);
     munmap(md,st.st_size);return 0;
-}
 }
