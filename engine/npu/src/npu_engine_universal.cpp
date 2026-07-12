@@ -301,9 +301,12 @@ int main(int argc,char**argv){
     // Load input tokens from file or use default hardcoded sequence
     std::vector<int> pt_vec;
     if(input_tok_file){
-        FILE* tf=fopen(input_tok_file,"r");
-        if(!tf){ fprintf(stderr,"Cannot open input tokens: %s\n",input_tok_file); return 1; }
-        if(strcmp(input_tok_file,"-")==0) tf=stdin;
+        FILE* tf;
+        if(strcmp(input_tok_file,"-")==0) tf=stdin;  // stdin convention must precede fopen (fixes #88)
+        else {
+            tf=fopen(input_tok_file,"r");
+            if(!tf){ fprintf(stderr,"Cannot open input tokens: %s\n",input_tok_file); return 1; }
+        }
         int tid;
         while(fscanf(tf,"%d",&tid)==1) pt_vec.push_back(tid);
         if(tf!=stdin) fclose(tf);
