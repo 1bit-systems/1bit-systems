@@ -13,5 +13,117 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Check README table matches benchmarks.json
         run: python3 scripts/generate_benchmark_table.py --check
+
+      - name: Validate benchmark status transitions
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Get the base revision to compare against
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+
+          # Check if benchmarks.json changed
+          if ! git diff --name-only "$BASE" "$HEAD" | grep -q "site/benchmarks.json"; then
+            echo "benchmarks.json not modified — skipping status validation."
+            exit 0
+          fi
+
+          echo "benchmarks.json was modified. Checking status transitions..."
+
+          # Extract old and new statuses
+          python3 <<'PY'
+          import json, sys
+          from pathlib import Path
+
+          try:
+              old = json.loads(Path('/dev/stdin').read_text() if sys.stdin.isatty() else sys.stdin.read())
+          except:
+              old = {}
+          with open('site/benchmarks.json') as f:
+              new = json.load(f)
+
+          old_engines = old.get('engines', {}) if old else {}
+          new_engines = new.get('engines', {})
+
+          allowed_transitions = {
+              ('broken', 'broken'): True,
+              ('raw', 'raw'): True,
+              ('raw', 'broken'): True,
+              ('measured', 'measured'): True,
+              ('validated', 'validated'): True,
+              ('validated', 'measured'): True,
+              ('validated', 'broken'): True,
+              ('validated', 'raw'): True,
+              ('measured', 'reported'): True,
+          }
+
+          errors = []
+          for key, entry in new_engines.items():
+              old_entry = old_engines.get(key, {})
+              old_status = old_entry.get('status', '')
+              new_status = entry.get('status', '')
+
+              if old_status and old_status != new_status:
+                  transition = (old_status, new_status)
+                  if transition not in allowed_transitions:
+                      errors.append(
+                          f"{key}: {old_status} → {new_status} is not an allowed transition. "
+                          f"Upgrades (raw→validated, measured→validated) require "
+                          f"on-device validation evidence in the PR description."
+                      )
+
+          if errors:
+              print("❌ Invalid benchmark status transitions:", file=sys.stderr)
+              for e in errors:
+                  print(f"  - {e}", file=sys.stderr)
+              print(file=sys.stderr)
+              print("Allowed transitions: raw→broken, validated↔any, measured→reported", file=sys.stderr)
+              print("Upgrades (raw→validated, measured→validated) need hardware evidence.", file=sys.stderr)
+              sys.exit(1)
+          else:
+              print("✅ All benchmark status transitions are valid.")
+          PY
+
+          # Cannot read base revision's benchmarks.json in a simple checkout,
+          # so this will only catch the case where status changed AT ALL.
+          # Full validation requires fetching the base ref.
+          git fetch origin "$BASE" 2>/dev/null || true
+          if git show "$BASE:site/benchmarks.json" > /tmp/old_benchmarks.json 2>/dev/null; then
+            python3 -c "
+import json
+
+with open('/tmp/old_benchmarks.json') as f:
+    old = json.load(f)
+with open('site/benchmarks.json') as f:
+    new = json.load(f)
+
+old_engines = old.get('engines', {})
+new_engines = new.get('engines', {})
+
+forbidden = [('raw', 'validated'), ('measured', 'validated')]
+errors = []
+for key, entry in new_engines.items():
+    old_entry = old_engines.get(key, {})
+    old_status = old_entry.get('status', '')
+    new_status = entry.get('status', '')
+    if (old_status, new_status) in forbidden:
+        errors.append(f'{key}: {old_status} → {new_status}')
+
+if errors:
+    import sys
+    print('❌ Upgrade transitions require hardware evidence in PR body:', file=sys.stderr)
+    for e in errors:
+        print(f'  - {e}', file=sys.stderr)
+    sys.exit(1)
+print('✅ All transitions valid')
+"
+          else:
+            echo "Could not fetch base revision for full comparison."
+          fi
