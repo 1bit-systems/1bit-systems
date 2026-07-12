@@ -1,33 +1,31 @@
 {
-  "_generated_by": "human — real measured numbers from gfx1151",
-  "_generated_at": "2026-07-11T16:30:00Z",
+  "_generated_by": "tools/gen_numbers.py",
+  "_generated_at": "2026-07-12T07:58:47Z",
+  "_warning": "Generated file. Do not hand-edit; run tools/gen_numbers.py.",
+  "_missing": [],
   "binary": {
-    "decode_bytes": 206616,
-    "decode_kb": 207,
-    "fused_bytes": 30720,
-    "fused_kb": 30
+    "fused_bytes": 17091165,
+    "fused_kb": 16691,
+    "decode_bytes": 703904,
+    "decode_kb": 687,
+    "decode_stripped_kb": 495,
+    "tui_bytes": 1098392,
+    "tui_kb": 1073,
+    "tui_stripped_kb": 774
   },
   "benchmarks": {
-    "npu_fused_raw_tok_s": 291,
-    "npu_validated_tok_s": 94,
-    "gpu_ternary_tok_s": 307,
-    "gpu_1bit_llama_tok_s": 383,
-    "gpu_f16_baseline_tok_s": 22,
-    "tflops": 55.7,
-    "bonsai_decode_tokps": 113,
-    "bonsai_prefill_tokps": 98,
-    "prefill_tflops_4h": 28.4,
-    "prefill_tflops": 38.49,
-    "tq1_gemv_gbps": 196.8,
+    "prefill_tflops_4h": 25.04,
     "sherry_gemv_gbps": 149.3,
+    "tq1_gemv_gbps": 196.8,
     "halo_gemv_gbps": 142.9,
-    "zaya_decode_tokps": 28.6,
-    "zaya_batched_tokps": 173,
-    "zaya_lmhead_ms": 0.5,
-    "moe_gemv_tokps": 18.5,
-    "moe_batched_tokps": 139,
-    "zaya_layers_ms": 35,
-    "cpu_fallback_ms": 434
+    "prefill_tflops_i8apre": 38.49
+  },
+  "_sources": {
+    "prefill_tflops_4h": "bench_prefill_variants 2560 6912 2560 -- variant 4h (64x64 cached A+B)",
+    "sherry_gemv_gbps": "bench_sherry -- M=6912 K=2560, sherry kernel, 256 iters",
+    "tq1_gemv_gbps": "bench_sherry -- tq1 kernel, fastest GEMV variant",
+    "halo_gemv_gbps": "bench_sherry -- halo baseline kernel",
+    "prefill_tflops_i8apre": "bench_prefill_variants 2560 6912 2560 -- variant 4i-I8-APRE (I8 A + tiled B), median of 3"
   },
   "repo": {
     "stars": 9,
