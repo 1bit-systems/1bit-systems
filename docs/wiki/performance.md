@@ -25,8 +25,8 @@ from this document again.
 | **GPU 1-bit** (llama.cpp) 🏆 | Radeon 8060S | **383 tok/s** | ✅ measured via third-party tool | ~45W | Qwen2-0.5B IQ1_S |
 | **NPU FLM** (production) | XDNA 2 · 32 tiles | **94 tok/s** | ✅ validated, coherent | ~15W | Qwen3-0.6B |
 | **GPU ternary** (Vulkan) | Radeon 8060S | **307 tok/s** | ✅ validated on-device (3.3 ms/tok) | ~45W | Bonsai-1.7B Q2_0 (1.58-bit) |
-| **NPU fused** | XDNA 2 · 32 tiles | **291 tok/s** | ⚙️ raw throughput — output not yet fully coherent | ~20W | Qwen3-0.6B |
-| **NPU v12** (fallback) | XDNA 2 · 32 tiles | **97 tok/s** | ⚙️ raw | ~15W | Qwen3-0.6B |
+| **NPU v12** (fallback) | XDNA 2 · 32 tiles | **110 tok/s** | ⚙️ raw, re-measured 2026-07-12 — requires OpenMP tuning, ~1/3 of runs hit an open intermittent hang bug | ~15W | Qwen3-0.6B |
+| **NPU fused** | XDNA 2 · 32 tiles | 291 tok/s (historical) | ❌ broken as of 2026-07-12 — hangs/degenerate output on real generation, even after PR #42's tokenizer fix | ~20W | Qwen3-0.6B |
 | **ROCm** (HIP) | Radeon 8060S | **113 tok/s** | reported | ~45W | Bonsai TQ2 ternary |
 | **GPU ZINC** (Vulkan F16) | Radeon 8060S | **22 tok/s** | ✅ validated | ~45W | Bonsai-1.7B F16 |
 | **C++ all-5** (auto-detect) | Q4NX header parse | **28 tok/s** | ⚙️ raw | ~15W | 5 models, one binary |

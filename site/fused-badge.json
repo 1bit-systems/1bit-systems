@@ -1,1 +1,1 @@
-{"schemaVersion":1,"label":"NPU fused layer","message":"291 tok/s (raw, WIP)","color":"yellow","cacheSeconds":86400}
+{"schemaVersion":1,"label":"NPU fused layer","message":"broken (hangs, 2026-07-12)","color":"red","cacheSeconds":86400}

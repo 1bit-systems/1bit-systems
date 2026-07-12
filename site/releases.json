@@ -12,10 +12,11 @@
     },
     "npu-engine": {
       "version": "v12",
-      "decode": "97 tok/s",
-      "decode_latency": "10.3 ms/tok",
+      "decode": "110 tok/s",
+      "decode_latency": "9 ms/tok",
       "arch": "XDNA 2 (32 tiles)",
-      "speedup_vs_v3": "24×"
+      "speedup_vs_v3": "24×",
+      "note": "re-measured 2026-07-12 after correctness fixes; requires OpenMP tuning, open intermittent hang bug"
     }
   },
   "releases": [
