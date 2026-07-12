@@ -676,14 +676,12 @@ bool WebServer::handle_request(http::request<http::string_body>& req,
     // Decide if this handler needs exclusive NPU access.
     bool needs_npu = requires_npu_access(std::string(req.method_string()), std::string(req.target()));
 
-    // Store stable pointers for deferred execution to avoid reference lifetime issues.
-    auto* req_ptr = &req;
-    auto* res_ptr = &res;
-
-    // Define a task lambda with is_deferred flag
-    auto process_task = [this, it, req_ptr, res_ptr, session, needs_npu, key, is_json](bool is_deferred) {
-        auto& req_ref = *req_ptr;
-        auto& res_ref = *res_ptr;
+    // Define a task lambda with is_deferred flag.
+    // req_ and res_ are accessed via session-> (friend of WebServer), not raw pointers,
+    // so deferred execution remains safe even after handle_request returns (#62).
+    auto process_task = [this, it, session, needs_npu, key, is_json](bool is_deferred) {
+        auto& req_ref = session->req_;
+        auto& res_ref = session->res_;
 
         // Parse JSON request body
         json request_json;
@@ -726,8 +724,8 @@ bool WebServer::handle_request(http::request<http::string_body>& req,
         register_active_request(request_id, cancellation_token);
 
         // catch is_deferred 
-        auto send_response = [res_ptr, session, this, request_id, needs_npu, is_deferred, cancellation_token](const json& response_data) {
-            auto& response_ref = *res_ptr;
+        auto send_response = [session, this, request_id, needs_npu, is_deferred, cancellation_token](const json& response_data) {
+            auto& response_ref = session->res_;
             http::status status = http::status::ok;
 
             if (response_data.contains("error") &&

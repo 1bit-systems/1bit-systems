@@ -186,6 +186,7 @@ public:
     void write_response_from_callback();
     void set_cancellation_token(std::shared_ptr<CancellationToken> token);
 private:
+    friend class WebServer;  // for deferred-task access to req_/res_ (fixes #62)
     void read_request(bool cors);
     void handle_request(bool cors);
     void write_response();
