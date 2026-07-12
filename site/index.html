@@ -241,7 +241,7 @@
         <div style="margin-top:14px;display:flex;flex-direction:column;gap:8px;">
           <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--green);font-size:10px;">NPU V12 — measured, tuned</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--green);"><span id="npu-validated-tok3">69 tok/s</span></span></div>
           <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--pink);font-size:10px;">Prefill peak (4i-I8-APRE)</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--pink);"><span id="gpu-ternary-tok">38.5 TFLOPS</span></span></div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--muted);font-size:10px;">Token Router · all-5 auto-detect</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--muted);">28 tok/s</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--muted);font-size:10px;">Token Router · all-5 auto-detect</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--muted);">42 tok/s</span></div>
           <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--blue);font-size:10px;">Single binary size</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--blue);"><span id="gpu-1bit-tok">207 KB</span></span></div>
         </div>
         <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;gap:6px;flex-wrap:wrap;">
@@ -277,7 +277,7 @@
     <div class="stat"><span class="lbl caps">NPU FLM (validated)</span><span class="val">94 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>production validated ⭐</span></div>
     <div class="stat"><span class="lbl caps">GPU ternary (validated)</span><span class="val">307 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>1.58-bit · Vulkan · validated ⭐</span></div>
     <div class="stat"><span class="lbl caps">GPU 1-bit</span><span class="val">383 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>Qwen2-0.5B IQ1_S · llama.cpp</span></div>
-    <div class="stat"><span class="lbl caps">Token Router</span><span class="val">28 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>5 models · auto-detect all-5</span></div>
+    <div class="stat"><span class="lbl caps">Token Router</span><span class="val">42 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>5 models · auto-detect all-5</span></div>
     <div class="stat"><span class="lbl caps">ROCm HIP (GPU)</span><span class="val">113 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>GPU · ROCm backend</span></div>
     <div class="stat"><span class="lbl caps">Prefill peak</span><span class="val"><span id="tflops2">38.5</span> <span>TFLOPS</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>INT8 · XDNA 2 (4i-I8-APRE)</span></div>
     <div class="stat"><span class="lbl caps">Binary size</span><span class="val">437 <span>KB</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>unified spec-decode · NPU+GPU+CPU</span></div>
@@ -367,7 +367,7 @@
 <span class="t">[router] layer 0: matmul → NPU (2.1 ms)</span>
 <span class="t">[router] layer 0: attn → CPU (0.8 ms)</span>
 <span class="t">[router] layer 0: FFN → NPU (1.3 ms)</span>
-<span class="t">[router] aggregate: 28 tok/s</span>
+<span class="t">[router] aggregate: 42 tok/s</span>
 
 <span class="c"># No config files. No model registry.</span>
 <span class="c"># Just drop a GGUF file and go.</span></div>

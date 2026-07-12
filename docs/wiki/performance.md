@@ -29,7 +29,7 @@ from this document again.
 | **NPU fused** | XDNA 2 · 32 tiles | 291 tok/s (historical) | ❌ broken as of 2026-07-12 — hangs/degenerate output on real generation, even after PR #42's tokenizer fix | ~20W | Qwen3-0.6B |
 | **ROCm** (HIP) | Radeon 8060S | **113 tok/s** | reported | ~45W | Bonsai TQ2 ternary |
 | **GPU ZINC** (Vulkan F16) | Radeon 8060S | **22 tok/s** | ✅ validated | ~45W | Bonsai-1.7B F16 |
-| **C++ all-5** (auto-detect) | Q4NX header parse | **28 tok/s** | ⚙️ raw | ~15W | 5 models, one binary |
+| **C++ all-5** (auto-detect) | Q4NX header parse | **42 tok/s** | ⚙️ raw, re-measured + fixed a decode-loop bug 2026-07-12 | ~15W | 5 models, one binary |
 | **Eagle3 spec-decode** ❌ | XDNA 2 + Zen 5 | **0.8 tok/s** | ❌ 0% draft acceptance — checkpoint undertrained (batch-size/dataset-size mismatch), not an architecture disproof | 15W | Qwen3-0.6B |
 
 **Status legend:** ✅ *validated* = measured on-device with coherent output · ✅ *measured* = throughput measured via a third-party tool (llama.cpp) · ⚙️ *raw* = the kernel runs at this speed but the engine's output is not yet fully coherent (correctness WIP) · *reported* = reported, not independently re-measured this pass · ❌ *disproven* = an earlier projection that was tested end-to-end and did not hold up. **Only ✅ numbers should be quoted as production.**
