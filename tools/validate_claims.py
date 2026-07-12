@@ -192,7 +192,9 @@ def main() -> int:
         for c in crashes:
             print(f"  ! {c}")
 
+    exit_code = 1 if (failures or drifted) else 0
     report = {
+        "exit_code": exit_code,
         "gpu": have_gpu(), "npu": have_npu(),
         "measured": measured, "spread": {k: list(v) for k, v in spread.items()},
         "drifted": drifted, "failures": failures,
@@ -205,7 +207,7 @@ def main() -> int:
         print("\nFAILED:", file=sys.stderr)
         for f in failures + drifted:
             print(f"  - {f}", file=sys.stderr)
-        return 1
+        return exit_code
 
     print("\nall published claims re-measured within tolerance")
     return 0
