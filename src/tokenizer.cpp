@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <array>
 #include <climits>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -150,7 +151,7 @@ struct rcpp_tokenizer {
         // rank ranges 0..max_rank-1. Convert to a probability in (0, 1).
         // Linear decay: rank 0 → probability ~0.01, rank max_rank → ~0.0003.
         double p = 0.01 * (1.0 - (double)rank / (double)max_rank) + 0.0003;
-        return log(p);
+        return std::log(p);
     }
 };
 
