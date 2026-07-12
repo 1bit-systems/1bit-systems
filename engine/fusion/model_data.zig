@@ -240,8 +240,18 @@ pub const ModelData = struct {
 ///       ns==0 → low nibble, ns==1 → high nibble
 ///     out[row][col] = nibble_value * scale + zero_point
 fn dequantizeI8Block(block: *const [5120]u8, out: []f32, tr: u32, tc: u32, out_rows: u32, out_cols: u32) void {
-    const scales: *const [256]u16 = @ptrCast(@alignCast(&block[0]));
-    const zps: *const [256]u16 = @ptrCast(@alignCast(&block[512]));
+    // Read via std.mem.readInt rather than an aligned *const [256]u16 cast:
+    // `block` is a view into a file buffer at an arbitrary byte offset (this
+    // tensor's data_offset, which depends on the size of every tensor
+    // written before it and is not guaranteed even), so &block[0] is not
+    // guaranteed to be 2-byte aligned. A regenerated model.q4nx (different
+    // tensor ordering/sizes than the file this was first written against)
+    // hit exactly this and crashed with "incorrect alignment" at @alignCast.
+    const readU16 = struct {
+        fn get(b: *const [5120]u8, byte_off: usize) u16 {
+            return std.mem.readInt(u16, b[byte_off..][0..2], .little);
+        }
+    }.get;
     const packed_data = block[1024..];
 
     var lr: u32 = 0;
@@ -256,8 +266,8 @@ fn dequantizeI8Block(block: *const [5120]u8, out: []f32, tr: u32, tc: u32, out_r
 
         var g: u32 = 0;
         while (g < 8) : (g += 1) {
-            const s_raw = bf16ToF32(scales[g * 32 + lr]);
-            const z_raw = bf16ToF32(zps[g * 32 + lr]);
+            const s_raw = bf16ToF32(readU16(block, (g * 32 + lr) * 2));
+            const z_raw = bf16ToF32(readU16(block, 512 + (g * 32 + lr) * 2));
             // This Q4NX file carries widespread corrupt scale/zero-point bf16
             // values -- not just a handful of isolated NaN/Inf bit patterns,
             // but a real tail of finite-but-wild magnitudes at every scale

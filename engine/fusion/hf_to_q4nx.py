@@ -193,8 +193,13 @@ def detect_arch(config: dict) -> str:
 
     # ── Qwen3 ──
     if arch_type == "Qwen3ForCausalLM":
-        # HF Qwen3-0.6B has H=1024, IM=3072; NPU variant has H=1536, IM=4096
-        if h == 1536 or (h == 1024 and im == 4096):
+        # Standard HF Qwen3-0.6B has H=1024, IM=3072; a separate "NPU
+        # variant" config used elsewhere in this repo has H=1536, IM=4096.
+        # Both must be recognized -- this previously only checked for the
+        # NPU variant (or H=1024 paired with IM=4096, which no real config
+        # has), so converting an unmodified HF Qwen3-0.6B checkout fell
+        # through every branch to the "qwen3_7b" catch-all at the bottom.
+        if h == 1536 or (h == 1024 and im == 3072) or (h == 1024 and im == 4096):
             return "qwen3_0_6b"
         elif h == 2048 or (h == 1024 and im == 8192):
             return "qwen3_1_5b"
@@ -596,16 +601,15 @@ def convert_hf_to_q4nx(
 
     use_safetensors = len(safetensor_files) > 0
 
-    if use_safetensors:
-        if safe_open is None:
-            print("⚠️  safetensors package not installed. Run: pip install safetensors")
-            print("   Falling back to .bin files (if available).")
-            use_safetensors = False
-            weight_files = bin_files
-        else:
-            weight_files = safetensor_files
-    else:
-        weight_files = bin_files
+    # Tensors are always read via _read_safetensors_manual() below (numpy has
+    # no native bfloat16 dtype, so the safetensors package's own np/pt
+    # loaders can't be used directly regardless) -- that reader is pure
+    # struct/numpy and needs nothing from the `safetensors` package. The
+    # `safe_open`/`_SAFETENSORS_AVAILABLE` import at the top of this file is
+    # otherwise unused; gating weight-file selection on it here previously
+    # made a broken or missing `safetensors` install silently discard all
+    # *.safetensors files in favor of (usually nonexistent) *.bin ones.
+    weight_files = safetensor_files if use_safetensors else bin_files
 
     if not weight_files:
         raise FileNotFoundError(
@@ -625,7 +629,7 @@ def convert_hf_to_q4nx(
     all_tensors = {}
     tensor_data = {}
 
-    if use_safetensors and safe_open is not None:
+    if use_safetensors:
         for sf_path in weight_files:
             tensors = _read_safetensors_manual(sf_path)
             for key, (np_tensor, dtype_str) in tensors.items():
@@ -736,8 +740,21 @@ def convert_hf_to_q4nx(
         print(f"   Data: {current_offset} bytes")
         print(f"   Total: {total} bytes ({total / (1024*1024):.1f} MB)")
 
+    # File layout expected by engine/fusion/model_data.zig's loadModel():
+    #   [4 bytes] magic 0x18 0x87 0x00 0x00
+    #   [4 bytes] reserved flags (u32, currently unused -- 0)
+    #   [n bytes] JSON header, starting at byte 8, length determined by
+    #             brace-matching (no separate length-prefix field is read)
+    #   [data]    tensor payloads, offsets in the JSON relative to the end
+    #             of the JSON header
+    # This previously wrote a `<Q` (8-byte LE) header_size field instead of
+    # the magic+flags pair, which the loader would misread as `{ 0x15, 0x87,
+    # 0, 0 }` (the low bytes of the real header_size) and reject with
+    # InvalidMagic -- these two pieces of tooling had diverged.
+    Q4NX_MAGIC = bytes([0x18, 0x87, 0x00, 0x00])
     with open(output_path, "wb") as f:
-        f.write(struct.pack("<Q", header_size))
+        f.write(Q4NX_MAGIC)
+        f.write(struct.pack("<I", 0))  # reserved flags
         f.write(header_bytes)
         for name in sorted_names:
             if name in q4nx_tensors:
