@@ -394,15 +394,12 @@ void HttpSession::start_client_disconnect_monitor(std::shared_ptr<CancellationTo
 ///@param is_final the is final
 void HttpSession::write_streaming_response(const json& data, bool is_final) {
     if (!is_streaming_) {
-        // Initialize streaming response headers
+        // Initialize streaming response headers.
+        // Use text/event-stream (SSE) format for OpenAI/Ollama compatibility.
+        // Only the raw socket write matters; res_ object modifications are dead code
+        // when we write directly to the socket (see issue #66).
         is_streaming_ = true;
-        res_.result(http::status::ok);
-        res_.set(http::field::content_type, "application/x-ndjson");
-        res_.set(http::field::cache_control, "no-cache");
-        res_.set(http::field::connection, "keep-alive");
-        res_.set(http::field::transfer_encoding, "chunked");
         
-        // Send headers immediately using raw socket write
         std::string headers = "HTTP/1.1 200 OK\r\n";
         headers += "Content-Type: text/event-stream\r\n";
         headers += "Cache-Control: no-cache\r\n";
@@ -413,7 +410,7 @@ void HttpSession::write_streaming_response(const json& data, bool is_final) {
         headers += "Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With\r\n";
         headers += "\r\n";
         
-        // Send headers synchronously
+        // Send headers synchronously via raw socket write
         boost::system::error_code ec;
         net::write(socket_, net::buffer(headers), ec);
         if (ec) return;
