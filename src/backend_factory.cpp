@@ -79,13 +79,12 @@ static Backend* try_create_npu() {
 bool has_hip_gpu() {
     void* lib = dlopen("librocm_cpp.so", RTLD_NOW | RTLD_LOCAL);
     if (lib) { dlclose(lib); return true; }
-    // Check for render nodes as fallback probe
-    FILE* f = popen("ls /dev/dri/renderD* 2>/dev/null | head -1", "r");
-    if (!f) return false;
-    char buf[64] = {0};
-    fgets(buf, sizeof(buf), f);
-    pclose(f);
-    return strlen(buf) > 0;
+    // Check for render nodes via file I/O instead of popen (fixes #67)
+    struct stat st;
+    if (stat("/dev/dri/renderD128", &st) == 0) return true;
+    if (stat("/dev/dri/renderD129", &st) == 0) return true;
+    if (stat("/dev/dri/renderD130", &st) == 0) return true;
+    return false;
 }
 
 bool has_vulkan() {
@@ -120,13 +119,9 @@ bool has_npu() {
         struct stat st;
         if (stat("/dev/accel/accel0", &st) == 0 || stat("/sys/class/accel/accel0", &st) == 0)
             return true;
-        FILE* f = popen("ls /sys/bus/pci/drivers/amdxdna/ 2>/dev/null | grep -c '\\.' || echo 0", "r");
-        if (f) {
-            char buf[16] = {0};
-            fgets(buf, sizeof(buf), f);
-            pclose(f);
-            return atoi(buf) > 0;
-        }
+        // Check via sysfs file I/O instead of popen (fixes #67)
+        std::ifstream drv("/sys/bus/pci/drivers/amdxdna/uevent");
+        if (drv) return true;
         return false;
     }
     dlclose(lib);
@@ -134,12 +129,12 @@ bool has_npu() {
 }
 
 bool has_avx512() {
-    FILE* f = popen("grep 'avx512' /proc/cpuinfo 2>/dev/null | head -1 | wc -l", "r");
-    if (!f) return false;
-    char buf[16] = {0};
-    fgets(buf, sizeof(buf), f);
-    pclose(f);
-    return atoi(buf) > 0;
+    std::ifstream cpuinfo("/proc/cpuinfo");
+    if (!cpuinfo) return false;
+    std::string line;
+    while (std::getline(cpuinfo, line))
+        if (line.find("avx512") != std::string::npos) return true;
+    return false;
 }
 
 /// Detect all available backends, sorted by preference.
