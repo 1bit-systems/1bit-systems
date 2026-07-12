@@ -204,6 +204,7 @@ bool BackendManager::init(const ModelConfig& cfg, const std::string& weights_dir
 
 // ── Select active backend ──
 bool BackendManager::select_best() {
+    std::lock_guard<std::mutex> lock(mtx_);
     for (size_t i = 0; i < backends_.size(); i++) {
         if (backends_[i].available && backends_[i].functional) {
             active_idx_ = i;
@@ -307,6 +308,7 @@ int BackendManager::generate(int token_id) {
 }
 
 bool BackendManager::forward(int token_id, float* hidden_out) {
+    std::lock_guard<std::mutex> lock(mtx_);
     auto* b = active_backend();
     if (!b || !initialized_) return false;
 
@@ -329,12 +331,14 @@ bool BackendManager::forward(int token_id, float* hidden_out) {
 }
 
 bool BackendManager::lm_head(const float* hidden, float* logits, int* argmax) {
+    std::lock_guard<std::mutex> lock(mtx_);
     auto* b = active_backend();
     if (!b || !initialized_) return false;
     return b->lm_head(hidden, logits, argmax);
 }
 
 bool BackendManager::reset() {
+    std::lock_guard<std::mutex> lock(mtx_);
     auto* b = active_backend();
     if (!b) return false;
     bool ok = b->reset();
@@ -393,6 +397,7 @@ bool BackendManager::failover() {
 
 // ── Health ──
 bool BackendManager::health_check() {
+    std::lock_guard<std::mutex> lock(mtx_);
     auto* b = active_backend();
     if (!b) return false;
     if (!b->can_infer()) {  // stub backend is never healthy (fixes #82)
@@ -413,7 +418,9 @@ bool BackendManager::health_check() {
 }
 
 void BackendManager::monitor() {
+    // health_check acquires its own lock; failover needs us to hold the lock.
     if (!health_check()) {
+        std::lock_guard<std::mutex> lock(mtx_);
         fprintf(stderr, "BackendManager: health check failed, failing over...\n");
         failover();
     }
@@ -421,6 +428,7 @@ void BackendManager::monitor() {
 
 // ── Benchmarking ──
 void BackendManager::benchmark_all(int tokens) {
+    std::lock_guard<std::mutex> lock(mtx_);
     printf("\n╔══════════════════════════════════════════╗\n");
     printf("║   Backend Manager — Benchmark Suite      ║\n");
     printf("╚══════════════════════════════════════════╝\n");
@@ -480,6 +488,7 @@ void BackendManager::benchmark_all(int tokens) {
 }
 
 const BackendInfo* BackendManager::best_for_tier(BackendTier tier) const {
+    std::lock_guard<std::mutex> lock(mtx_);
     for (auto& info : backends_) {
         if (info.tier == tier && info.available && info.functional)
             return &info;
@@ -489,6 +498,7 @@ const BackendInfo* BackendManager::best_for_tier(BackendTier tier) const {
 
 // ── Plugins ──
 bool BackendManager::load_plugin(const std::string& so_path) {
+    std::lock_guard<std::mutex> lock(mtx_);
     std::string error;
     auto* loader = BackendPluginLoader::load(so_path, &error);
     if (!loader) {
@@ -533,6 +543,7 @@ bool BackendManager::load_plugin(const std::string& so_path) {
 }
 
 int BackendManager::load_plugins(const std::string& directory) {
+    std::lock_guard<std::mutex> lock(mtx_);
     std::vector<std::string> errors;
     auto loaders = BackendPluginLoader::scan_directory(directory, &errors);
     for (auto e : errors)
@@ -612,6 +623,7 @@ SelectionStrategy BackendManager::strategy() const {
 
 // ── Report ──
 std::string BackendManager::report() const {
+    std::lock_guard<std::mutex> lock(mtx_);
     std::string r;
     r += "╔══════════════════════════════════════════╗\n";
     r += "║   Backend Manager — Full Report          ║\n";
