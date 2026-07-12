@@ -54,9 +54,10 @@ struct HIPBackend : Backend {
     bool forward(int token_id, float* hidden_out) override {
         if (!zs || !initialized) return false;
         // zaya_forward doesn't expose hidden state directly in the current API
-        // It outputs logits. Let's use a workaround.
-        float logits[1000]; // small buffer
-        zaya_forward(zs, token_id, logits);
+        // It outputs logits. Use the VOCAB-sized logits_buf member (allocated in
+        // init()) — a stack buffer would be overflowed: zaya_forward writes VOCAB
+        // (262272) entries, not 1000.
+        zaya_forward(zs, token_id, logits_buf);
         // For now, we can't extract hidden state from the zaya engine easily.
         // This is a limitation of the current zaya_engine API.
         // We'd need to add a hidden state output to zaya_forward.
@@ -76,10 +77,9 @@ struct HIPBackend : Backend {
 
     int generate(int token_id) override {
         if (!zs || !initialized) return -1;
-        float logits[1000];
-        zaya_forward(zs, token_id, logits);
+        zaya_forward(zs, token_id, logits_buf);
         int best = 0;
-        for (int i = 1; i < 1000; i++) if (logits[i] > logits[best]) best = i;
+        for (int i = 1; i < VOCAB; i++) if (logits_buf[i] > logits_buf[best]) best = i;
         return best;
     }
 
@@ -90,10 +90,9 @@ struct HIPBackend : Backend {
         // Use the server's forward function which does full pipeline
         int tok = 100;
         for (int i = 0; i < tokens; i++) {
-            float logits[1000];
-            zaya_forward(zs, tok, logits);
+            zaya_forward(zs, tok, logits_buf);
             tok = 0;
-            for (int v = 1; v < 1000; v++) if (logits[v] > logits[tok]) tok = v;
+            for (int v = 1; v < VOCAB; v++) if (logits_buf[v] > logits_buf[tok]) tok = v;
         }
         float ms = std::chrono::duration<float, std::milli>(
             std::chrono::high_resolution_clock::now() - t0).count();
