@@ -126,44 +126,19 @@ jobs:
           name: claims-report
           path: claims-report.json
 
-      - name: Mark job failed on real claim drift (not infrastructure issues)
-        if: steps.measure.outcome == 'failure' && steps.measure.exit_code == 1
-        run: exit 1
-
-      - name: Open an issue if a claim drifted
-        if: steps.measure.outcome == 'failure' && steps.measure.exit_code == 1 && github.event_name == 'schedule'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            let body = 'A published claim drifted or a benchmark crashed. See the run log.';
-            try {
-              const r = JSON.parse(fs.readFileSync('claims-report.json', 'utf8'));
-              body = [
-                '## Claim validation failed',
-                '',
-                '**Drifted:**', ...(r.drifted.length ? r.drifted.map(x => '- ' + x) : ['- none']),
-                '',
-                '**Failures:**', ...(r.failures.length ? r.failures.map(x => '- ' + x) : ['- none']),
-                '',
-                '**Intermittent crashes:**', ...(r.crashes.length ? r.crashes.map(x => '- ' + x) : ['- none']),
-                '',
-                '```json', JSON.stringify(r.measured, null, 2), '```',
-              ].join('\n');
-            } catch (e) {}
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: 'Claim validation failed on ' + new Date().toISOString().slice(0, 10),
-              body,
-              labels: ['claims', 'automated'],
-            });
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: claims-report
-          path: claims-report.json
+      - name: Mark job failed on real claim drift (not infrastructure)
+        if: failure()
+        run: |
+          # Read claims report to distinguish drift (exit 1) from infra (exit 2)
+          set +e
+          EXIT_CODE=$(python3 -c "import json; r=json.load(open('claims-report.json')); print(r.get('exit_code',1))" 2>/dev/null || echo 1)
+          set -e
+          if [ "$EXIT_CODE" = 2 ]; then
+            echo "Exit code 2 = infrastructure issue (hw/missing build). Treating as soft skip, not drift."
+          else
+            echo "Exit code $EXIT_CODE = real claim drift. Failing."
+            exit 1
+          fi
 
       - name: Open an issue if a claim drifted
         if: failure() && github.event_name == 'schedule'
@@ -171,25 +146,27 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            let body = 'A published claim drifted or a benchmark crashed. See the run log.';
-            try {
-              const r = JSON.parse(fs.readFileSync('claims-report.json', 'utf8'));
-              body = [
-                '## Claim validation failed',
-                '',
-                '**Drifted:**', ...(r.drifted.length ? r.drifted.map(x => `- ${x}`) : ['- none']),
-                '',
-                '**Failures:**', ...(r.failures.length ? r.failures.map(x => `- ${x}`) : ['- none']),
-                '',
-                '**Intermittent crashes:**', ...(r.crashes.length ? r.crashes.map(x => `- ${x}`) : ['- none']),
-                '',
-                '```json', JSON.stringify(r.measured, null, 2), '```',
-              ].join('\n');
-            } catch (e) {}
+            const r = JSON.parse(fs.readFileSync('claims-report.json', 'utf8'));
+            // Do not open an issue for infrastructure problems (exit code 2)
+            if (r.exit_code === 2) {
+              console.log('Exit code 2 = infrastructure, skipping issue');
+              return;
+            }
+            let body = [
+              '## Claim validation failed',
+              '',
+              '**Drifted:**', ...(r.drifted.length ? r.drifted.map(x => '- ' + x) : ['- none']),
+              '',
+              '**Failures:**', ...(r.failures.length ? r.failures.map(x => '- ' + x) : ['- none']),
+              '',
+              '**Intermittent crashes:**', ...(r.crashes.length ? r.crashes.map(x => '- ' + x) : ['- none']),
+              '',
+              '```json', JSON.stringify(r.measured, null, 2), '```',
+            ].join('\n');
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `Claim validation failed on ${new Date().toISOString().slice(0, 10)}`,
+              title: 'Claim validation failed on ' + new Date().toISOString().slice(0, 10),
               body,
               labels: ['claims', 'automated'],
             });
