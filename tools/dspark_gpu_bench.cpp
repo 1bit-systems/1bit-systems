@@ -1,11 +1,12 @@
 // DSpark: CPU draft + GPU verify — full pipeline benchmark
-// Build: hipcc -O3 --offload-arch=gfx1151 -Iinclude -Iengine/fusion \
+// Build: hipcc -O3 --offload-arch=gfx1151 -Iinclude -Iengine/fusion -Ispec-decode/draft \
 //   -o tools/dspark_gpu_bench tools/dspark_gpu_bench.cpp \
 //   engine/fusion/cpu_layer.cpp -lm -Lbuild -lrocm_cpp
-// Run:  LD_LIBRARY_PATH=build ./tools/dspark_gpu_bench model.trg [draft_L] [M] [rounds]
+// Run:  LD_LIBRARY_PATH=build ./tools/dspark_gpu_bench model.trg [M] [rounds] [draft_path]
 
 #include "rocm_cpp/ck_gemm.h"
 #include "cpu_layer.h"
+#include "../spec-decode/draft/mtp_draft.h"
 #include <hip/hip_runtime.h>
 #include <cstdio>
 #include <cstring>
@@ -21,9 +22,8 @@
 
 int main(int argc, char** argv) {
     const char* path=argc>1?argv[1]:"/tmp/model.trg";
-    int draft_L=argc>2?atoi(argv[2]):2;
-    int M=argc>3?atoi(argv[3]):8;
-    int n_rounds=argc>4?atoi(argv[4]):10;
+    int M=argc>2?atoi(argv[2]):8;
+    int n_rounds=argc>3?atoi(argv[3]):10;
 
     int fd=open(path,O_RDONLY);
     size_t fsz=lseek(fd,0,SEEK_END);
@@ -40,7 +40,28 @@ int main(int argc, char** argv) {
     for(int i=7;i--;)per_layer+=ps[i];
     int per_sc=0;for(int i=7;i--;)per_sc+=rows[i];
 
-    printf("=== DSpark GPU Bench ===\n  H=%d L=%d draft=%dL M=%d\n\n",H,L,draft_L,M);
+    printf("=== DSpark GPU Bench ===\n  H=%d L=%d M=%d\n\n",H,L,M);
+
+    // ── Load trained Eagle3 draft checkpoint ──
+    const char* draft_path;
+    std::string fallback_draft_path;
+    if(argc>4){
+        draft_path=argv[4];
+    }else{
+        const char* home=getenv("HOME");
+        fallback_draft_path=std::string(home?home:"/tmp")+"/spec-decode/checkpoints/eagle3_draft_trained_420.bin";
+        draft_path=fallback_draft_path.c_str();
+    }
+    MTPDraftConfig draft_cfg;
+    MTPDraft draft;
+    if(!draft.load(draft_path,draft_cfg)){
+        fprintf(stderr,"Failed to load draft checkpoint: %s\n",draft_path);
+        fprintf(stderr,"Specify a path as argv[5] or place a trained .bin at ~/spec-decode/checkpoints/\n");
+        return 1;
+    }
+    MTPDraftState draft_state;
+    fprintf(stderr,"Draft checkpoint loaded: %s (vocab=%d hidden=%d target_layers=%d)\n",
+            draft_path,draft_cfg.vocab_size,draft_cfg.hidden_size,draft_cfg.num_target_layers);
 
     // ── GPU init ──
     hipStream_t s; hipStreamCreate(&s);
@@ -109,45 +130,49 @@ int main(int argc, char** argv) {
         hipMemcpy(hd,d_hf,H*4,hipMemcpyDeviceToHost);SYNC;
     };
 
-    // ── CPU draft forward ──
+    // ── CPU draft forward (real Eagle3) ──
+    int n_target = draft_cfg.num_target_layers;
     auto kcv=std::vector<float>(L*4096*NKV*HD,0),vcv=std::vector<float>(L*4096*NKV*HD,0);
     std::vector<float> qkvv(NH*HD+2*NKV*HD),atv(NH*HD),ffv(2*IM),acv(IM);
     std::vector<float> st(4096*HD),ct(4096*HD);
     for(int p2=0;p2<4096;p2++)for(int d=0;d<HD;d++){float th=p2/pow(10000.f,(2.f*(d/2))/HD);st[p2*HD+d]=sin(th);ct[p2*HD+d]=cos(th);}
-    auto cpu_draft=[&](float*hd,int pos,int nL){
-        for(int l=0;l<nL;l++){
-            float res[4096];memcpy(res,hd,H*4);
+    // Run first n_target target layers on CPU, collect intermediate hidden states,
+    // then feed them to the trained Eagle3 draft model for real spec-decode (fixes #57).
+    auto cpu_draft=[&](float*hd,int pos,int input_id)->int{
+        std::vector<float> layer_out(n_target*H);
+        float hidden[4096];memcpy(hidden,hd,H*4);
+        for(int l=0;l<n_target;l++){
+            float res[4096];memcpy(res,hidden,H*4);
             auto pw=U(o_pk)+l*per_layer;auto sw=F(o_sc)+l*per_sc;
-            cpu_rmsnorm(hd,F(o_norms)+l*H,hd,H,1e-6f);
-            cpu_ternary_gemv(pw,hd,sw,qkvv.data(),rows[0],KK[0]);pw+=ps[0];sw+=rows[0];
-            cpu_ternary_gemv(pw,hd,sw,qkvv.data()+NH*HD,rows[1],KK[1]);pw+=ps[1];sw+=rows[1];
-            cpu_ternary_gemv(pw,hd,sw,qkvv.data()+NH*HD+NKV*HD,rows[2],KK[2]);pw+=ps[2];sw+=rows[2];
+            cpu_rmsnorm(hidden,F(o_norms)+l*H,hidden,H,1e-6f);
+            cpu_ternary_gemv(pw,hidden,sw,qkvv.data(),rows[0],KK[0]);pw+=ps[0];sw+=rows[0];
+            cpu_ternary_gemv(pw,hidden,sw,qkvv.data()+NH*HD,rows[1],KK[1]);pw+=ps[1];sw+=rows[1];
+            cpu_ternary_gemv(pw,hidden,sw,qkvv.data()+NH*HD+NKV*HD,rows[2],KK[2]);pw+=ps[2];sw+=rows[2];
             for(int h=0;h<NH;h++)cpu_rmsnorm(qkvv.data()+h*HD,F(o_norms)+2*L*H+l*HD,qkvv.data()+h*HD,HD,1e-6f);
             cpu_rope(qkvv.data(),pos,NH,HD,st.data(),ct.data());
             for(int h=0;h<NKV;h++)cpu_rmsnorm(qkvv.data()+NH*HD+h*HD,F(o_norms)+2*L*H+L*HD+l*HD,qkvv.data()+NH*HD+h*HD,HD,1e-6f);
             cpu_rope(qkvv.data()+NH*HD,pos,NKV,HD,st.data(),ct.data());
             for(int h=0;h<NKV;h++){memcpy(&kcv[l*4096*NKV*HD+pos*NKV*HD+h*HD],qkvv.data()+NH*HD+h*HD,HD*4);memcpy(&vcv[l*4096*NKV*HD+pos*NKV*HD+h*HD],qkvv.data()+NH*HD+NKV*HD+h*HD,HD*4);}
             cpu_attention(qkvv.data(),&kcv[l*4096*NKV*HD],&vcv[l*4096*NKV*HD],atv.data(),NH,NKV,HD,pos+1,GQA);
-            cpu_ternary_gemv(pw,atv.data(),sw,hd,rows[3],KK[3]);pw+=ps[3];sw+=rows[3];
-            for(int i=0;i<H;i++)hd[i]=res[i]+hd[i];memcpy(res,hd,H*4);
-            cpu_rmsnorm(hd,F(o_norms)+L*H+l*H,hd,H,1e-6f);
-            cpu_ternary_gemv(pw,hd,sw,ffv.data(),rows[4],KK[4]);pw+=ps[4];sw+=rows[4];
-            cpu_ternary_gemv(pw,hd,sw,ffv.data()+IM,rows[5],KK[5]);pw+=ps[5];sw+=rows[5];
+            cpu_ternary_gemv(pw,atv.data(),sw,hidden,rows[3],KK[3]);pw+=ps[3];sw+=rows[3];
+            for(int i=0;i<H;i++)hidden[i]=res[i]+hidden[i];memcpy(res,hidden,H*4);
+            cpu_rmsnorm(hidden,F(o_norms)+L*H+l*H,hidden,H,1e-6f);
+            cpu_ternary_gemv(pw,hidden,sw,ffv.data(),rows[4],KK[4]);pw+=ps[4];sw+=rows[4];
+            cpu_ternary_gemv(pw,hidden,sw,ffv.data()+IM,rows[5],KK[5]);pw+=ps[5];sw+=rows[5];
             cpu_silu_glu(ffv.data(),ffv.data()+IM,acv.data(),IM);
-            cpu_ternary_gemv(pw,acv.data(),sw,hd,rows[6],KK[6]);
-            for(int i=0;i<H;i++)hd[i]=res[i]+hd[i];
+            cpu_ternary_gemv(pw,acv.data(),sw,hidden,rows[6],KK[6]);
+            for(int i=0;i<H;i++)hidden[i]=res[i]+hidden[i];
+            memcpy(&layer_out[(size_t)l*H],hidden,H*4);
         }
-        float th[4096];memcpy(th,hd,H*4);cpu_rmsnorm(th,F(o_fn),th,H,1e-6f);
-        std::vector<float> lg(V);cpu_lm_head(th,F(o_lm),lg.data(),V,H);
-        int b=0;for(int i=1;i<V;i++)if(lg[i]>lg[b])b=i;
-        // Overwrite hd with the probability of this token (not useful)
-        // Return token via the hd[0] hack... nah let me just use the return value
-        return b;
+        std::vector<float> draft_hidden(draft_cfg.hidden_size),draft_logits(draft_cfg.vocab_size);
+        draft.forward(layer_out.data(),input_id,pos,draft_state,draft_hidden.data(),draft_logits.data());
+        int best=0;for(int i=1;i<draft_cfg.vocab_size;i++)if(draft_logits[i]>draft_logits[best])best=i;
+        return best;
     };
 
     // ── DSpark loop ──
     float hd_saved[4096];memcpy(hd_saved,F(o_emb)+1*H,H*4);
-    int pos=1,total_acc=0;
+    int pos=1,total_acc=0,current_token=1;
     double t_draft=0,t_verify=0;
     std::mt19937_64 rng(42);
     std::uniform_real_distribution<float> u(0,1);
@@ -155,13 +180,12 @@ int main(int argc, char** argv) {
     // Prime GPU cache with first token
     float prime[4096];memcpy(prime,F(o_emb)+1*H,H*4);
     gpu_fwd(prime,0);
-    // Prime CPU cache  
+    // Prime CPU cache
     float cpu_p[4096];memcpy(cpu_p,F(o_emb)+1*H,H*4);
     for(int l=0;l<L;l++){
         auto pw=U(o_pk)+l*per_layer;auto sw=F(o_sc)+l*per_sc;
         cpu_rmsnorm(cpu_p,F(o_norms)+l*H,cpu_p,H,1e-6f);
-        cpu_ternary_gemv(pw,cpu_p,sw,qkvv.data(),NH*HD,H); // just compute RMSNorm + Q, that fills KV cache
-        // This is simplified — we just need the KV cache populated
+        cpu_ternary_gemv(pw,cpu_p,sw,qkvv.data(),NH*HD,H);
     }
 
     for(int r=0;r<n_rounds;r++){
@@ -169,31 +193,31 @@ int main(int argc, char** argv) {
         int dtok[32];
         auto t0=std::chrono::high_resolution_clock::now();
         for(int i=0;i<M;i++){
-            int tok=cpu_draft(dh,pos+i,draft_L);
+            int tok=cpu_draft(dh,pos+i,current_token);
             dtok[i]=tok;
+            current_token=tok;
         }
         auto t1=std::chrono::high_resolution_clock::now();
         t_draft+=std::chrono::duration<double,std::milli>(t1-t0).count();
 
         float gh[4096];memcpy(gh,hd_saved,H*4);
-        int nac=0;
+        int nac=0,last_acc_tok=current_token;
         t0=std::chrono::high_resolution_clock::now();
         for(int i=0;i<M;i++){
-            gpu_fwd(gh,pos+i); // returns FP32 hidden state
-            // CPU argmax on hidden state
+            gpu_fwd(gh,pos+i);
             float fh[4096];memcpy(fh,gh,H*4);cpu_rmsnorm(fh,F(o_fn),fh,H,1e-6f);
             std::vector<float>lg(V);cpu_lm_head(fh,F(o_lm),lg.data(),V,H);
             int b=0;for(int j=1;j<V;j++)if(lg[j]>lg[b])b=j;
-            if(b==dtok[i])nac++;else break;
+            if(b==dtok[i]){nac++;last_acc_tok=b;}else break;
         }
         t1=std::chrono::high_resolution_clock::now();
         t_verify+=std::chrono::duration<double,std::milli>(t1-t0).count();
         total_acc+=nac;
-        if(nac>0){memcpy(hd_saved,gh,H*4);pos+=nac;}
+        if(nac>0){memcpy(hd_saved,gh,H*4);pos+=nac;current_token=last_acc_tok;}
         double ts=pos/((t_draft+t_verify)/1000);
         if(r%5==0||r==n_rounds-1)printf("  R%2d: acc=%d/%d %.0f tok/s\n",r,nac,M,ts);
     }
     double ts=pos/((t_draft+t_verify)/1000);
-    printf("\n── Summary ──\n  Draft %dL CPU + Verify GPU\n  %.0f tok/s (%d tok in %.0f ms)\n  %.0f%% acceptance\n",
-           draft_L,ts,pos,t_draft+t_verify,100.*total_acc/(M*n_rounds));
+    printf("\n── Summary ──\n  Eagle3 Draft (CPU) + Verify (GPU)\n  %.0f tok/s (%d tok in %.0f ms)\n  %.0f%% acceptance\n",
+           ts,pos,t_draft+t_verify,100.*total_acc/(M*n_rounds));
 }
