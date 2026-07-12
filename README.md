@@ -43,36 +43,26 @@ See [full benchmark data](benchmarks/RESULTS-stack-2026-04-28.md).
 
 ## The Token Router
 
-The **token router** is the intelligence layer that dispatches every token to the highest-performance backend available, in priority order:
+There is no single tiered auto-fallback router that ranks all backends by throughput and picks the fastest available one. Three real, different routing mechanisms exist across two repos, each doing something more specific:
 
 ```
 ┌─ Request ─────────────────────────────────────────────┐
 │  POST /v1/chat/completions {"model":"zaya", ...}      │
 └──────────────────────┬────────────────────────────────┘
                        ▼
-┌─ Token Router (9.7 MB) ───────────────────────────────┐
-│                                                        │
-│  1. GPU ternary ──► Vulkan compute  ──► 307 tok/s     │
-│                    (1.58-bit, GLSL)                    │
-│                                                        │
-│  2. NPU v12    ──► XDNA 2 xclbin   ──► 110 tok/s     │
-│                    (32 tiles, INT8 — see note below)   │
-│                                                        │
-│  3. ROCm HIP   ──► HIP kernels      ──► 113 tok/s     │
-│                    (ternary GEMV/GEMM)                 │
-│                                                        │
-│  4. CPU        ──► OpenMP fallback  ──► ~5 tok/s      │
-│                    (Q4NX, any x86)                     │
-└──────────────────────┬────────────────────────────────┘
-                       ▼
-┌─ Response ────────────────────────────────────────────┐
-│  {"choices":[{"text":"Hello! ..."}]}                   │
-└────────────────────────────────────────────────────────┘
+              ┌────────┴────────┬──────────────────┐
+              ▼                 ▼                  ▼
+      cascade (per-token) spec_decode (draft+verify) content (keyword)
 ```
 
-The router profiles each backend at startup, then selects the fastest path per-layer. When NPU dispatch overhead outweighs the benefit (e.g. attention for contexts < 128 tokens), it gracefully falls back to the GPU or CPU. No configuration files. No manual tuning.
+| Strategy | What it does | Where |
+|---|---|---|
+| **cascade** | Streams from the NPU, watches per-token log-probs mid-stream, switches to the GPU when confidence drops below a threshold, switches back when it recovers — one SSE stream, backend chosen per token, not per request | [`token-router`](https://github.com/bong-water-water-bong/token-router)`/src/cascade.rs` (separate repo) |
+| **spec_decode** | NPU generates draft tokens, GPU verifies them in a batch (standard speculative decoding) | `tools/token_router.cpp` (this repo) |
+| **content** | Routes the *whole request* to a small NPU model or a large GPU model based on keywords in the prompt (`code`, `explain`, `debug`, etc.) | `unified-router.py` (this repo) |
+| **passthrough** | No routing — single fixed backend | `token-router`'s default strategy |
 
-> Note: this diagram describes the intended priority-routing design. A 2026-07-12 audit couldn't find this exact tiered NPU→GPU→ROCm→CPU priority list implemented in `tools/token_router.cpp` (which implements NPU-draft/GPU-verify speculative decoding, not this) or `unified-router.py` — treat it as architectural intent pending confirmation, not a verified description of live routing code.
+None of these is a static "rank backends by tok/s, always prefer the fastest one, fall back on unavailability" design — if you want that specific behavior, it doesn't exist yet. (Resolves #51 — a 2026-07-12 audit found the previously-documented 4-tier NPU→GPU→ROCm→CPU priority diagram didn't match any of the above; see the issue for the search that ruled it out.)
 
 ---
 
