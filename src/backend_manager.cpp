@@ -367,6 +367,7 @@ bool BackendManager::failover() {
                 destroy_instance(info);
                 continue;
             }
+            info.functional = true;  // newly created + initialized → selectable (fixes #78)
         }
 
         if (info.instance && info.functional) {
