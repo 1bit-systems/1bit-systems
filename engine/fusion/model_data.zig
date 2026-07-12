@@ -626,17 +626,29 @@ fn deriveConfig(tensors: []const TensorDesc, tag: []const u8) !ModelConfig {
     const layer_count = countLayers(tensors);
     if (layer_count > 0) NC = layer_count;
 
+    // These derivations originally assumed every projection tensor is I8/
+    // Q4NX (shape = [n_blocks, TILE_BYTES], out_features recovered via the
+    // tile-block math), which silently produced nonsense when a tensor is
+    // stored as BF16 instead (shape = the real [out_features, in_features]
+    // directly -- --precision bf16 in hf_to_q4nx.py does this for exact,
+    // non-quantized weights). Branch on dtype so both are read correctly.
     if (findTensor(tensors, "model.layers.0.self_attn.q_proj.weight")) |idx| {
         const t = tensors[idx];
         if (t.shape.items.len >= 1 and H > 0) {
-            const n_blocks = t.shape.items[0];
-            const ntc = tileCols(H);
-            if (ntc > 0) {
-                const ntr = n_blocks / ntc;
-                const q_out = ntr * 32;
+            if (TensorDtype.fromString(t.dtype) == .bf16 and t.shape.items.len >= 2) {
                 const hd_guess: u32 = 128;
-                NH = q_out / hd_guess;
+                NH = t.shape.items[0] / hd_guess;
                 HD = hd_guess;
+            } else {
+                const n_blocks = t.shape.items[0];
+                const ntc = tileCols(H);
+                if (ntc > 0) {
+                    const ntr = n_blocks / ntc;
+                    const q_out = ntr * 32;
+                    const hd_guess: u32 = 128;
+                    NH = q_out / hd_guess;
+                    HD = hd_guess;
+                }
             }
         }
     }
@@ -644,12 +656,16 @@ fn deriveConfig(tensors: []const TensorDesc, tag: []const u8) !ModelConfig {
     if (findTensor(tensors, "model.layers.0.self_attn.k_proj.weight")) |idx| {
         const t = tensors[idx];
         if (t.shape.items.len >= 1 and H > 0) {
-            const n_blocks = t.shape.items[0];
-            const ntc = tileCols(H);
-            if (ntc > 0 and HD > 0) {
-                const ntr = n_blocks / ntc;
-                const k_out = ntr * 32;
-                NKV = k_out / HD;
+            if (TensorDtype.fromString(t.dtype) == .bf16 and t.shape.items.len >= 2 and HD > 0) {
+                NKV = t.shape.items[0] / HD;
+            } else {
+                const n_blocks = t.shape.items[0];
+                const ntc = tileCols(H);
+                if (ntc > 0 and HD > 0) {
+                    const ntr = n_blocks / ntc;
+                    const k_out = ntr * 32;
+                    NKV = k_out / HD;
+                }
             }
         }
     }
@@ -657,11 +673,15 @@ fn deriveConfig(tensors: []const TensorDesc, tag: []const u8) !ModelConfig {
     if (findTensor(tensors, "model.layers.0.mlp.gate_proj.weight")) |idx| {
         const t = tensors[idx];
         if (t.shape.items.len >= 1 and H > 0) {
-            const n_blocks = t.shape.items[0];
-            const ntc = tileCols(H);
-            if (ntc > 0) {
-                const ntr = n_blocks / ntc;
-                IM = ntr * 32;
+            if (TensorDtype.fromString(t.dtype) == .bf16 and t.shape.items.len >= 2) {
+                IM = t.shape.items[0];
+            } else {
+                const n_blocks = t.shape.items[0];
+                const ntc = tileCols(H);
+                if (ntc > 0) {
+                    const ntr = n_blocks / ntc;
+                    IM = ntr * 32;
+                }
             }
         }
     }

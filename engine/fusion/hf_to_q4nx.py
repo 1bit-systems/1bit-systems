@@ -462,10 +462,19 @@ def is_norm_or_embedding(name: str) -> bool:
 
 
 def bf16_encode(np_tensor: np.ndarray) -> bytes:
-    """Convert a numpy float32 tensor to raw BF16 bytes."""
-    flat = np_tensor.flatten()
-    bf16_values = [f32_to_bf16(float(v)) for v in flat]
-    return struct.pack(f"<{len(bf16_values)}H", *bf16_values)
+    """Convert a numpy float32 tensor to raw BF16 bytes.
+
+    Vectorized equivalent of `f32_to_bf16` applied elementwise (verified
+    bit-identical against the scalar version, including inf/nan/extreme
+    values) -- needed once --precision bf16 started routing full projection
+    weight matrices (hundreds of millions of elements) through here instead
+    of just the much smaller norm/embedding tensors.
+    """
+    arr = np.ascontiguousarray(np_tensor, dtype=np.float32).reshape(-1)
+    i32 = arr.view(np.uint32).astype(np.uint64)
+    rounding_bias = ((i32 >> np.uint64(16)) & np.uint64(1)) + np.uint64(0x7FFF)
+    bf16 = ((i32 + rounding_bias) >> np.uint64(16)).astype(np.uint16)
+    return bf16.tobytes()
 
 
 def _read_safetensors_manual(path: str) -> dict:
@@ -514,11 +523,14 @@ def _read_safetensors_manual(path: str) -> dict:
                 raise ValueError(f"{path}: tensor '{key}' truncated")
 
             if dtype == "BF16" or dtype == "bfloat16":
-                # Convert bfloat16 (uint16) to float32
-                n = nbytes // 2
-                bf16_vals = struct.unpack(f"<{n}H", raw_bytes)
-                f32_vals = [bf16_to_f32(v) for v in bf16_vals]
-                np_tensor = np.array(f32_vals, dtype=np.float32).reshape(shape)
+                # Convert bfloat16 (uint16) to float32. Vectorized (bf16->f32
+                # is exact -- just left-shift into the high 16 bits of a u32
+                # and reinterpret as f32, no rounding involved -- verified
+                # against the scalar bf16_to_f32 across the full u16 range).
+                # Needed once large weight tensors started flowing through
+                # this reader too, not just small norm/embedding tensors.
+                bf16_u16 = np.frombuffer(raw_bytes, dtype="<u2")
+                np_tensor = (bf16_u16.astype(np.uint32) << np.uint32(16)).view(np.float32).reshape(shape).copy()
                 result[key] = (np_tensor, "BF16")
 
             elif dtype == "F32" or dtype == "float32":
@@ -563,9 +575,20 @@ def convert_hf_to_q4nx(
     model_dir: str,
     output_path: str,
     verbose: bool = False,
+    precision: str = "i8",
 ) -> dict:
     """
     Convert a HuggingFace model directory to Q4NX format.
+
+    precision: "i8" (default) quantizes projection weights (q/k/v/o_proj,
+    gate/up/down_proj) to the 4-bit Q4NX tile format -- small, lossy.
+    "bf16" stores them at the same near-lossless precision already used for
+    norms/embeddings instead of quantizing them at all. Confirmed via
+    tools/debug/reference_forward.py that "i8" introduces real, compounding
+    error (embedding output matches an f32 HuggingFace reference exactly;
+    by the last of 28 layers a Qwen3-0.6B model.q4nx's hidden-state RMS was
+    ~30x the reference's) -- "bf16" trades ~4x file size for eliminating
+    that as a source of divergence.
     """
     if verbose:
         print(f"📂 Reading model from: {model_dir}")
@@ -693,17 +716,26 @@ def convert_hf_to_q4nx(
                 continue
 
             out_rows, out_cols = np_tensor.shape
-            raw_bytes = quantize_i8_tiled(np_tensor, out_rows, out_cols)
-            ntc = (out_cols + TILE_C - 1) // TILE_C
-            ntr = (out_rows + TILE_R - 1) // TILE_R
-            n_blocks = ntr * ntc
-            dtype = "I8"
-            shape = [n_blocks, TILE_BYTES]
-            data_size = len(raw_bytes)
 
-            if verbose:
-                print(f"   ✓ I8:   {name} [{out_rows}×{out_cols}] → "
-                      f"{n_blocks} tiles x {TILE_BYTES}B = {data_size} bytes")
+            if precision == "bf16":
+                raw_bytes = bf16_encode(np_tensor)
+                dtype = "BF16"
+                shape = list(np_tensor.shape)
+                data_size = len(raw_bytes)
+                if verbose:
+                    print(f"   ✓ BF16: {name} [{out_rows}×{out_cols}] → {data_size} bytes")
+            else:
+                raw_bytes = quantize_i8_tiled(np_tensor, out_rows, out_cols)
+                ntc = (out_cols + TILE_C - 1) // TILE_C
+                ntr = (out_rows + TILE_R - 1) // TILE_R
+                n_blocks = ntr * ntc
+                dtype = "I8"
+                shape = [n_blocks, TILE_BYTES]
+                data_size = len(raw_bytes)
+
+                if verbose:
+                    print(f"   ✓ I8:   {name} [{out_rows}×{out_cols}] → "
+                          f"{n_blocks} tiles x {TILE_BYTES}B = {data_size} bytes")
 
         else:
             if verbose:
@@ -815,6 +847,15 @@ Supported architectures:
         "--list-archs", action="store_true",
         help="List all supported architectures and exit",
     )
+    parser.add_argument(
+        "--precision", choices=["i8", "bf16"], default="i8",
+        help="Projection weight (q/k/v/o_proj, gate/up/down_proj) precision: "
+             "'i8' quantizes to the 4-bit Q4NX tile format (default, small, "
+             "lossy); 'bf16' stores them near-losslessly instead (same "
+             "precision as norms/embeddings already use, ~4x larger file, "
+             "eliminates quantization error as a source of divergence from "
+             "the source model)",
+    )
 
     args = parser.parse_args()
 
@@ -846,6 +887,7 @@ Supported architectures:
             model_dir=args.model_dir,
             output_path=args.output,
             verbose=args.verbose,
+            precision=args.precision,
         )
     except Exception as e:
         print(f"❌ Error: {e}")
