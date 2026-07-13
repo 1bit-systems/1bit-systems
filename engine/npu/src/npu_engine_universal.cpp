@@ -91,6 +91,15 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
             Am[m*KD+k]=(int8_t)q;}
         return Am;
     }
+    // Sync A to device (non-blocking DMA, can overlap with NPU compute).
+    inline void sync_A(int l){
+        (void)l;
+        bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    }
+    // Launch kernel without sync (buffer must already be synced). Returns run handle.
+    inline xrt::run launch(int l){
+        return (*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[l],*bC);
+    }
     // Sync A to device and launch kernel. Returns run handle.
     inline xrt::run sync_and_launch(int l){
         bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
@@ -479,24 +488,31 @@ int main(int argc,char**argv){
             float cg_ascale=dynamic_ascale(h_b.data(),batch_size*H);
             cg.quantize_async(h_b.data(),batch_size,H,cg_ascale);
 
-            // ── CO-GU PARALLEL LAUNCH ──
-            // 1. Wait for O kernel (minimal — just NPU completion, no readback)
+            // ── CO-GU FULLY PARALLEL ──
+            // Phase 1: Submit GU's DMA sync WHILE O runs on NPU
+            //   bA->sync(to_device) uses MM2S DMA channel (independent of NPU compute)
+            //   This hides the sync latency behind O's NPU time.
+            cg.sync_A(l);  // non-blocking: cg.bA sync starts, DMA runs parallel to NPU
+
+            // Phase 2: Wait for O kernel completion (minimal)
             co.wait_kernel(r_co);
-            // 2. Immediately launch GU (already quantized, buffer ready)
-            //    GU starts on NPU as soon as O releases the hardware
-            auto r_cg=cg.sync_and_launch(l);
-            // 3. While GU runs on NPU, read back O's output + residual add + rn_c
+
+            // Phase 3: Submit GU kernel to NPU + start co readback SIMULTANEOUSLY
+            //   cg.launch() submits the kernel (queued behind O on NPU's compute)
+            //   co.bC->sync uses S2MM DMA channel (independent of MM2S for cg.bA)
+            auto r_cg=cg.launch(l);
             co.sync_back_and_dequant(oo_b.data(),batch_size,H,co_ascale,osc[l]);
             cn(oo_b.data(),batch_size*H);
+
+            // Phase 4: Residual add + rn_c (CPU work, overlaps with cg's NPU execution)
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=sb_data[b*H+i]+oo_b[b*H+i];
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)sb_data[b*H+i]=h_b[b*H+i];
             for(int b=0;b<batch_size;b++)rn_c(&h_b[b*H],pa_n[l].data(),H);
-
-            // ── Finish GU ──
-            // While GU runs, quantize U kernel input (gu_split only — uses same h_b)
             if(cfg.gu_split){
                 cu_ptr->quantize_async(h_b.data(),batch_size,H,cg_ascale);
             }
+
+            // Phase 5: Wait for GU, read back, dequant
             cg.wait_kernel(r_cg);
             cg.sync_back_and_dequant(gt_b.data(),batch_size,mlp_out,cg_ascale,gsc[l]);
             cn(gt_b.data(),batch_size*mlp_out);
