@@ -1,0 +1,32 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/bcloud/projects/1bit-systems/include/rocm_cpp/prefill_tuner.h
+cstdint
+-
+
+/home/bcloud/projects/1bit-systems/tools/bench_prefill_variants.cpp
+rocm_cpp/prefill_tuner.h
+/home/bcloud/projects/1bit-systems/tools/rocm_cpp/prefill_tuner.h
+hip/hip_runtime.h
+-
+hip/hip_fp16.h
+-
+cstdio
+-
+cstdlib
+-
+cstring
+-
+cmath
+-
+algorithm
+-
+vector
+-
+

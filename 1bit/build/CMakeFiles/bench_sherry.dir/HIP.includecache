@@ -1,0 +1,46 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/bcloud/projects/1bit-systems/include/rocm_cpp/ck_gemm.h
+stddef.h
+-
+stdint.h
+-
+
+/home/bcloud/projects/1bit-systems/include/rocm_cpp/sherry.h
+stddef.h
+-
+stdint.h
+-
+
+/home/bcloud/projects/1bit-systems/tools/bench_sherry.cpp
+rocm_cpp/ck_gemm.h
+/home/bcloud/projects/1bit-systems/tools/rocm_cpp/ck_gemm.h
+rocm_cpp/sherry.h
+/home/bcloud/projects/1bit-systems/tools/rocm_cpp/sherry.h
+hip/hip_runtime.h
+-
+hip/hip_fp16.h
+-
+cstdio
+-
+cstdlib
+-
+cstring
+-
+chrono
+-
+vector
+-
+cmath
+-
+cstdint
+-
+random
+-
+

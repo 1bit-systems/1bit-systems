@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/home/bcloud/projects/1bit-systems/1bit/build/_deps/cpp_httplib-subbuild/CMakeFiles/cpp_httplib-populate"
+		},
+		{
+			"file" : "/home/bcloud/projects/1bit-systems/1bit/build/_deps/cpp_httplib-subbuild/CMakeFiles/cpp_httplib-populate.rule"
+		},
+		{
+			"file" : "/home/bcloud/projects/1bit-systems/1bit/build/_deps/cpp_httplib-subbuild/CMakeFiles/cpp_httplib-populate-complete.rule"
+		},
+		{
+			"file" : "/home/bcloud/projects/1bit-systems/1bit/build/_deps/cpp_httplib-subbuild/cpp_httplib-populate-prefix/src/cpp_httplib-populate-stamp/cpp_httplib-populate-build.rule"
+		},
+		{
+			"file" : "/home/bcloud/projects/1bit-systems/1bit/build/_deps/cpp_httplib-subbuild/cpp_httplib-populate-prefix/src/cpp_httplib-populate-stamp/cpp_httplib-populate-configure.rule"
+		},
+		{
+			"file" : "/home/bcloud/projects/1bit-systems/1bit/build/_deps/cpp_httplib-subbuild/cpp_httplib-populate-prefix/src/cpp_httplib-populate-stamp/cpp_httplib-populate-download.rule"
+		},
+		{
+			"file" : "/home/bcloud/projects/1bit-systems/1bit/build/_deps/cpp_httplib-subbuild/cpp_httplib-populate-prefix/src/cpp_httplib-populate-stamp/cpp_httplib-populate-install.rule"
+		},
+		{
+			"file" : "/home/bcloud/projects/1bit-systems/1bit/build/_deps/cpp_httplib-subbuild/cpp_httplib-populate-prefix/src/cpp_httplib-populate-stamp/cpp_httplib-populate-mkdir.rule"
+		},
+		{
+			"file" : "/home/bcloud/projects/1bit-systems/1bit/build/_deps/cpp_httplib-subbuild/cpp_httplib-populate-prefix/src/cpp_httplib-populate-stamp/cpp_httplib-populate-patch.rule"
+		},
+		{
+			"file" : "/home/bcloud/projects/1bit-systems/1bit/build/_deps/cpp_httplib-subbuild/cpp_httplib-populate-prefix/src/cpp_httplib-populate-stamp/cpp_httplib-populate-test.rule"
+		},
+		{
+			"file" : "/home/bcloud/projects/1bit-systems/1bit/build/_deps/cpp_httplib-subbuild/cpp_httplib-populate-prefix/src/cpp_httplib-populate-stamp/cpp_httplib-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"cpp_httplib-populate"
+		],
+		"name" : "cpp_httplib-populate"
+	}
+}
