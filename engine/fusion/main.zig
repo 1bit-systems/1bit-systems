@@ -31,6 +31,14 @@ const CliOptions = struct {
     debug: bool = false,
     list_policies: bool = false,
     show_help: bool = false,
+    // Selects both which model_data.zig KNOWN_MODELS defaults to fall back
+    // on (deriveConfig() still re-derives most fields from the actual
+    // tensor shapes where it can) and, via modelConfigFromLoaded(), the
+    // runtime FusedExecutor config -- previously hardcoded to the
+    // Qwen3-0.6B-shaped QWEN3_0_6B constant regardless of what was
+    // actually loaded, so no other architecture's dimensions ever reached
+    // the executor even if the file itself loaded fine.
+    model_tag: []const u8 = "qwen3_0_6b",
 };
 
 fn parsePolicy(name: []const u8) DispatchPolicy {
@@ -51,6 +59,10 @@ fn printHelp() void {
         \\Usage: fused-engine [options]
         \\
         \\  -m, --model <path>     Q4NX model path
+        \\  -t, --model-tag <tag>  Architecture tag (default: qwen3_0_6b) --
+        \\                         e.g. qwen3_1_5b, qwen3_7b, llama3_2_1b,
+        \\                         llama3_2_3b, llama3_1_8b, gemma2_2b,
+        \\                         gemma2_9b, qwen2_5_7b, qwen2_5_32b
         \\  --policy <name>        Dispatch policy (default: ffn_on_npu)
         \\  -n, --max-tokens <N>   Max tokens (default: 128)
         \\  -p, --prompt <text>    Input prompt
@@ -123,6 +135,8 @@ pub fn main(init: std.process.Init) !void {
             if (args_iter.next()) |v| opts.npu_engine = v;
         } else if (std.mem.eql(u8, arg, "--shader-dir")) {
             if (args_iter.next()) |v| opts.shader_dir = v;
+        } else if (std.mem.eql(u8, arg, "--model-tag") or std.mem.eql(u8, arg, "-t")) {
+            if (args_iter.next()) |v| opts.model_tag = v;
         }
     }
 
@@ -134,14 +148,29 @@ pub fn main(init: std.process.Init) !void {
     std.debug.print("Policy: {s}\n", .{@tagName(opts.policy)});
 
     // ── Load model ──
-    std.debug.print("Loading model: {s}\n", .{opts.model_path});
-    var model = try model_data.loadModel(allocator, init.io, opts.model_path, "qwen3_0_6b");
+    std.debug.print("Loading model: {s} (tag: {s})\n", .{ opts.model_path, opts.model_tag });
+    var model = try model_data.loadModel(allocator, init.io, opts.model_path, opts.model_tag);
     defer model.deinit(allocator);
 
     const cfg = model.config;
     std.debug.print("  H={d} NC={d} NH={d} NKV={d} HD={d} IM={d} NV={d}\n", .{
         cfg.H, cfg.NC, cfg.NH, cfg.NKV, cfg.HD, cfg.IM, cfg.NV,
     });
+
+    // Runtime executor config derived from what actually loaded, not a
+    // hardcoded Qwen3-0.6B-shaped constant -- --model-tag alone wouldn't
+    // otherwise reach the executor even for a model whose file loaded fine.
+    if (cfg.NKV == 0) return error.InvalidModelConfig;
+    const runtime_config = fuse.ModelConfig{
+        .hidden_dim = cfg.H,
+        .n_layers = cfg.NC,
+        .n_heads = cfg.NH,
+        .n_kv_heads = cfg.NKV,
+        .head_dim = cfg.HD,
+        .inter_size = cfg.IM,
+        .vocab_size = cfg.NV,
+        .gqa_ratio = cfg.NH / cfg.NKV,
+    };
 
     // ── Check NPU binary exists ──
     // NPU binary check skipped (path may not be null-terminated)
@@ -167,7 +196,7 @@ pub fn main(init: std.process.Init) !void {
         else => .ffn_on_npu,
     };
     var executor = try FusedExecutor.init(
-        allocator, init.io, fuse_policy, QWEN3_0_6B,
+        allocator, init.io, fuse_policy, runtime_config,
         opts.model_path, opts.npu_engine,
         MAX_CONTEXT, opts.batch_size,
         model.emb_f32, model.lm_head_f32, model.tied_embeddings,

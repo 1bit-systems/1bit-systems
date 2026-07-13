@@ -111,6 +111,118 @@ const KNOWN_MODELS = std.StaticStringMap(ModelConfig).initComptime(.{
             .max_seq_len = 8192,
         },
     },
+    // Dense (non-MoE) architectures below, matching hf_to_q4nx.py's
+    // ARCH_CONFIGS table (see tools/debug/ for the reference-comparison
+    // approach used to verify qwen3_0_6b above -- these others are unverified
+    // against a real checkpoint, just transcribed from that same table, since
+    // no model of these architectures is available in this environment to
+    // cross-check against; deriveConfig() still re-derives H/NC/NH/NKV/IM
+    // from the actual loaded tensor shapes where possible, so these mainly
+    // matter for tags/tensors deriveConfig can't infer standalone).
+    .{
+        "qwen3_14b",
+        ModelConfig{
+            .H = 5120,
+            .NC = 40,
+            .NH = 40,
+            .NKV = 8,
+            .HD = 128,
+            .IM = 20480,
+            .NV = 152064,
+            .max_seq_len = 8192,
+        },
+    },
+    .{
+        "qwen2_5_7b",
+        ModelConfig{
+            .H = 4096,
+            .NC = 28,
+            .NH = 32,
+            .NKV = 8,
+            .HD = 128,
+            .IM = 11008,
+            .NV = 152064,
+            .max_seq_len = 4096,
+        },
+    },
+    .{
+        "qwen2_5_32b",
+        ModelConfig{
+            .H = 5120,
+            .NC = 64,
+            .NH = 40,
+            .NKV = 8,
+            .HD = 128,
+            .IM = 20480,
+            .NV = 152064,
+            .max_seq_len = 8192,
+        },
+    },
+    .{
+        "llama3_1_8b",
+        ModelConfig{
+            .H = 4096,
+            .NC = 32,
+            .NH = 32,
+            .NKV = 8,
+            .HD = 128,
+            .IM = 14336,
+            .NV = 128256,
+            .max_seq_len = 8192,
+        },
+    },
+    .{
+        "llama3_2_1b",
+        ModelConfig{
+            .H = 2048,
+            .NC = 16,
+            .NH = 16,
+            .NKV = 8,
+            .HD = 64,
+            .IM = 8192,
+            .NV = 128256,
+            .max_seq_len = 8192,
+        },
+    },
+    .{
+        "llama3_2_3b",
+        ModelConfig{
+            .H = 3072,
+            .NC = 28,
+            .NH = 24,
+            .NKV = 8,
+            .HD = 128,
+            .IM = 8192,
+            .NV = 128256,
+            .max_seq_len = 8192,
+        },
+    },
+    .{
+        "gemma2_2b",
+        ModelConfig{
+            .H = 2304,
+            .NC = 26,
+            .NH = 18,
+            .NKV = 2,
+            .HD = 128,
+            .IM = 9216,
+            .NV = 256128,
+            .max_seq_len = 8192,
+        },
+    },
+    .{
+        "gemma2_9b",
+        ModelConfig{
+            .H = 3584,
+            .NC = 42,
+            .NH = 16,
+            .NKV = 8,
+            .HD = 256,
+            .IM = 14336,
+            .NV = 256128,
+            .max_seq_len = 8192,
+        },
+    },
 });
 
 /// Get the default configuration for a model tag.
