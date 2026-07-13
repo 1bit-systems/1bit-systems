@@ -585,6 +585,29 @@ target_compile_options(bench_prefill_variants PRIVATE
 target_link_libraries(bench_prefill_variants PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(bench_prefill_variants PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
+# -- tools/unified_server : One binary, all backends, auto-failover ----------
+add_executable(unified_server
+    tools/unified_server.cpp
+    src/backend_hip.cpp
+    src/zaya_engine.cpp)
+set_source_files_properties(src/backend_hip.cpp PROPERTIES LANGUAGE HIP)
+set_source_files_properties(src/zaya_engine.cpp PROPERTIES LANGUAGE HIP)
+set_source_files_properties(tools/unified_server.cpp PROPERTIES LANGUAGE CXX)
+target_include_directories(unified_server PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+    $<INSTALL_INTERFACE:include>)
+target_compile_options(unified_server PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result -Wno-unused-parameter -Wno-unused-variable>
+    $<$<COMPILE_LANGUAGE:CXX>:-O3 -Wall -Wno-unused-result -std=c++17>)
+target_link_libraries(unified_server PRIVATE
+    backend_manager dl
+    httplib::httplib
+    nlohmann_json::nlohmann_json
+    rocm_cpp hip::host hip::device)
+target_link_options(unified_server PRIVATE -rdynamic)
+set_target_properties(unified_server PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+
 # -- tools/backend_demo : Backend Manager live dashboard (Task Manager NPU tab) ---
 # Pure C++ (no HIP) — demonstrates auto-detect, selection, failover, monitoring.
 add_executable(backend_demo tools/backend_demo.cpp)

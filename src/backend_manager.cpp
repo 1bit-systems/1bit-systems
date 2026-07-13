@@ -726,13 +726,24 @@ static Backend* try_load_backend(const char* lib, const char* sym) {
 }
 
 Backend* BackendManager::create_instance_rt(const BackendInfo& info) {
+    Backend* b = nullptr;
     switch (info.type) {
         case BackendType::HIP_GPU:
-            return try_load_backend("librocm_cpp.so", "create_hip_backend");
+            // Try direct call first (statically linked into binary via backend_hip.cpp)
+            b = create_hip_backend();
+            if (b) return b;
+            // Fallback: dlsym from shared library
+            b = try_load_backend("librocm_cpp.so", "create_hip_backend");
+            if (!b) b = try_load_backend("libhip_backend.so", "create_hip_backend");
+            return b;
         case BackendType::VULKAN:
-            return try_load_backend("librocm_cpp.so", "create_vulkan_backend");
+            b = try_load_backend("librocm_cpp.so", "create_vulkan_backend");
+            if (!b) b = try_load_backend("libvulkan_backend.so", "create_vulkan_backend");
+            return b;
         case BackendType::NPU_XRT:
-            return try_load_backend("librocm_cpp.so", "create_npu_backend");
+            b = try_load_backend("librocm_cpp.so", "create_npu_backend");
+            if (!b) b = try_load_backend("libnpu_backend.so", "create_npu_backend");
+            return b;
         case BackendType::CPU_AVX512:
         case BackendType::CPU_SCALAR:
             return create_cpu_backend();

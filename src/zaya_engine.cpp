@@ -14,7 +14,6 @@
 
 #define HIP_OK(e) do{auto _s=(e);if(_s!=hipSuccess){fprintf(stderr,"HIP Error %d\n",_s);abort();}}while(0)
 
-extern "C" {
 
 // ── Architecture ──
 static constexpr int H=2048,NQ=8,NKV=2,HD=128,QD=NQ*HD,KD=NKV*HD,QKV=QD+KD;
@@ -70,12 +69,24 @@ static void upf32(const std::vector<float>& s,float*d,int n,hipStream_t h=0){
     hipMemcpyAsync(d,s.data(),n*4,hipMemcpyHostToDevice,h);
 }
 
+extern "C" {
+
+// ── Forward declarations ──
+struct ZayaState;
+void zaya_destroy(ZayaState* s);
+
+// ── WMMA defines (redefined after zaya_moe_wmma_batched.hip undefs them) ──
+#define WMMA_M 16
+#define WMMA_N 16
+#define WMMA_K 64
+#define WMMA_THREADS 128
+
 // ── Public state ──
 struct ZayaState {
     __half *d_hs=nullptr,*d_ao=nullptr,*d_tmp=nullptr,*d_fnw=nullptr,*d_lm_out=nullptr,*d_embed=nullptr;
     __half *d_conv=nullptr,*d_phs=nullptr,*d_lm_vocab=nullptr; float *d_prev_rs=nullptr;
     int *d_argmax_idx=nullptr; float *d_argmax_val=nullptr;
-    int *d_expert_idx=nullptr,*d_expert_wt=nullptr;
+    int *d_expert_idx=nullptr; float *d_expert_wt=nullptr;
     int *d_sorted_ids=nullptr,*d_expert_counts=nullptr,*d_expert_offsets=nullptr;
     hipStream_t st=nullptr;
     LayerW lw[N_LAYERS];
