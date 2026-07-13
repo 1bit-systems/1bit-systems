@@ -105,6 +105,20 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
             float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;
             C[m*an+n]=val;}
     }
+    // Wait for NPU kernel completion without readback.
+    // Returns immediately after kernel finishes. Call sync_back_and_dequant() later.
+    inline void wait_kernel(xrt::run& r){
+        r.wait();
+    }
+    // Sync C back from device and dequantize (call after wait_kernel).
+    // This is CPU-only work that CAN overlap with the next kernel's NPU execution.
+    inline void sync_back_and_dequant(float*C,int am,int an,float ascale,float Bscale){
+        bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+        float cs=ascale*Bscale;
+        for(int m=0;m<am;m++)for(int n=0;n<an;n++){
+            float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;
+            C[m*an+n]=val;}
+    }
     // Synchronous go() — backwards compatible
     inline void go(int l,const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){
         quantize_async(A,am,ak,ascale);
@@ -465,22 +479,26 @@ int main(int argc,char**argv){
             float cg_ascale=dynamic_ascale(h_b.data(),batch_size*H);
             cg.quantize_async(h_b.data(),batch_size,H,cg_ascale);
 
-            // Wait for O to finish, then dequantize
-            co.dequantize(r_co,oo_b.data(),batch_size,H,co_ascale,osc[l]);
+            // ── CO-GU PARALLEL LAUNCH ──
+            // 1. Wait for O kernel (minimal — just NPU completion, no readback)
+            co.wait_kernel(r_co);
+            // 2. Immediately launch GU (already quantized, buffer ready)
+            //    GU starts on NPU as soon as O releases the hardware
+            auto r_cg=cg.sync_and_launch(l);
+            // 3. While GU runs on NPU, read back O's output + residual add + rn_c
+            co.sync_back_and_dequant(oo_b.data(),batch_size,H,co_ascale,osc[l]);
             cn(oo_b.data(),batch_size*H);
-
-            // Residual add + pre-FFN rn_c
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=sb_data[b*H+i]+oo_b[b*H+i];
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)sb_data[b*H+i]=h_b[b*H+i];
             for(int b=0;b<batch_size;b++)rn_c(&h_b[b*H],pa_n[l].data(),H);
 
-            // ── Launch GU (quantize already started above while O ran) ──
-            auto r_cg=cg.sync_and_launch(l);
-            // While GU runs on NPU, quantize U kernel input (gu_split only — uses same h_b)
+            // ── Finish GU ──
+            // While GU runs, quantize U kernel input (gu_split only — uses same h_b)
             if(cfg.gu_split){
                 cu_ptr->quantize_async(h_b.data(),batch_size,H,cg_ascale);
             }
-            cg.dequantize(r_cg,gt_b.data(),batch_size,mlp_out,cg_ascale,gsc[l]);
+            cg.wait_kernel(r_cg);
+            cg.sync_back_and_dequant(gt_b.data(),batch_size,mlp_out,cg_ascale,gsc[l]);
             cn(gt_b.data(),batch_size*mlp_out);
 
             // SiLU gate + U GEMM (gu_split) or combined gate*up
