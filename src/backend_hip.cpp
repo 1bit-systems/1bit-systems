@@ -11,14 +11,13 @@
 #include <chrono>
 #include <algorithm>
 
-// ── Include the existing Zaya HIP engine ──
-// This includes all kernel definitions from zaya_cca_attn.hip and zaya_gpu_router.hip
-#include "zaya_engine.cpp"  // reuse the whole C-callable HIP engine
+// ── Zaya engine API (declared in zaya_engine.h, compiled in zaya_engine.cpp) ──
+#include "zaya_engine.h"
 
 // ── HIP Backend implementation ──
 struct HIPBackend : Backend {
     ZayaState* zs = nullptr;
-    std::vector<float> embed, fnorm, iscale, ibias;
+    std::vector<float> embed, iscale, ibias;
     float* logits_buf = nullptr;
     int pos = 0;
 
@@ -29,16 +28,18 @@ struct HIPBackend : Backend {
     bool init(const ModelConfig& cfg, const std::string& weights_dir) override {
         this->cfg = cfg;
         printf("HIP: Initializing Zaya engine...\n");
-        zs = zaya_init();  // loads weights, allocates GPU memory
+        // Ensure trailing slash for zaya_engine.cpp's filename concatenation
+        std::string wd = weights_dir;
+        if (!wd.empty() && wd.back() != '/') wd += '/';
+        zs = zaya_init(wd.c_str());  // loads weights, allocates GPU memory
         if (!zs) { fprintf(stderr,"HIP: zaya_init failed\n"); return false; }
 
-        // Keep copies for lm_head (tied embeddings)
+        // Keep copies for lm_head (tied embeddings) — loaded by zaya_init
         embed = zs->embed;
-        fnorm = load_bin(weights_dir + "/model_norm_weight.bin");
         iscale = zs->iscale;
         ibias = zs->ibias;
 
-        logits_buf = new float[VOCAB];
+        logits_buf = new float[ZAYA_VOCAB];
         initialized = true;
         printf("HIP: Engine ready\n");
         return true;

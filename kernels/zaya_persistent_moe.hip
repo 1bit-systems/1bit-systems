@@ -127,7 +127,8 @@ __global__ void persistent_moe_kernel(
         while (load_flag(done_flags, layer, 0) == 0) {
             // Spin-wait for router to finish. In practice the router
             // launches before us and completes quickly.
-            __nanosleep(100); // 100ns backoff
+            // HIP doesn't have __nanosleep; use a volatile spin for ~100ns backoff
+            for (volatile int _spin = 0; _spin < 32; _spin++) {}
         }
     }
 
