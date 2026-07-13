@@ -26,6 +26,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cerrno>
 #include <string>
 #include <vector>
 #include <deque>
@@ -37,6 +38,9 @@
 #include <signal.h>
 #include <getopt.h>
 #include <fstream>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
 
 #include <httplib.h>
 #include <nlohmann/json.hpp>
@@ -284,6 +288,67 @@ static json generate_completion(BackendManager& mgr,
 }
 
 
+// ── Singleton guard ──
+// Only one unified_server should ever run at a time: each instance holds a
+// full model's worth of RAM, and dev iteration (rebuild + relaunch, often on
+// a different --port) otherwise leaves the old one running in the background
+// forever. On startup, stop whatever instance is already running before
+// taking over. The lock fd is kept open for the process lifetime so the OS
+// releases it automatically on exit or crash — no explicit cleanup needed.
+static const char* kLockPath = "/tmp/unified_server.lock";
+
+static bool pid_is_unified_server(pid_t pid) {
+    char comm_path[64];
+    snprintf(comm_path, sizeof(comm_path), "/proc/%d/comm", (int)pid);
+    FILE* f = fopen(comm_path, "r");
+    if (!f) return false;
+    char comm[64] = {0};
+    if (!fgets(comm, sizeof(comm), f)) { fclose(f); return false; }
+    fclose(f);
+    return strncmp(comm, "unified_server", 14) == 0;
+}
+
+static void acquire_singleton_lock() {
+    int fd = open(kLockPath, O_CREAT | O_RDWR, 0644);
+    if (fd < 0) {
+        fprintf(stderr, "Warning: could not open lock file %s (%s) — skipping singleton guard\n",
+                kLockPath, strerror(errno));
+        return;
+    }
+
+    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        char buf[32] = {0};
+        pread(fd, buf, sizeof(buf) - 1, 0);
+        pid_t old_pid = (pid_t)atoi(buf);
+
+        if (old_pid > 0 && pid_is_unified_server(old_pid)) {
+            fprintf(stderr, "Found existing unified_server instance (pid %d) — stopping it\n", (int)old_pid);
+            kill(old_pid, SIGTERM);
+            for (int i = 0; i < 50; i++) {  // wait up to 5s for graceful shutdown
+                if (kill(old_pid, 0) != 0) break;
+                usleep(100 * 1000);
+            }
+            if (kill(old_pid, 0) == 0) {
+                fprintf(stderr, "  pid %d didn't exit in time, sending SIGKILL\n", (int)old_pid);
+                kill(old_pid, SIGKILL);
+                usleep(200 * 1000);
+            }
+        }
+
+        // Retry now that the previous holder (if any) should be gone.
+        if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+            fprintf(stderr, "Warning: could not acquire singleton lock (%s) — continuing anyway\n",
+                    strerror(errno));
+        }
+    }
+
+    if (ftruncate(fd, 0) != 0) { /* best-effort */ }
+    char pid_buf[32];
+    int n = snprintf(pid_buf, sizeof(pid_buf), "%d", (int)getpid());
+    if (pwrite(fd, pid_buf, n, 0) != n) { /* best-effort */ }
+    // fd intentionally leaked (kept open) for the process lifetime.
+}
+
 // ════════════════════════════════════════════════════════════════════════
 //  Main
 // ════════════════════════════════════════════════════════════════════════
@@ -306,6 +371,8 @@ int main(int argc, char** argv) {
             case 'w': g_weights_dir = optarg; break;
         }
     }
+
+    acquire_singleton_lock();
 
     printf("\n");
     printf("╔═══════════════════════════════════════════════╗\n");
