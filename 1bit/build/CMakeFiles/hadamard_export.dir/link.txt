@@ -1,0 +1,1 @@
+/opt/rocm/lib/llvm/bin/amdclang++ -O3 -DNDEBUG -Xlinker --dependency-file=CMakeFiles/hadamard_export.dir/link.d CMakeFiles/hadamard_export.dir/tools/hadamard_export.cpp.o -o hadamard_export  -Wl,-rpath,/home/bcloud/projects/1bit-systems/1bit/build librocm_cpp.so

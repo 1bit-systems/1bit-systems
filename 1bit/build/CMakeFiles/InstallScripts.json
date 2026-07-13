@@ -1,0 +1,12 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/bcloud/projects/1bit-systems/1bit/build/cmake_install.cmake",
+		"/home/bcloud/projects/1bit-systems/1bit/build/_deps/cpp_httplib-build/cmake_install.cmake",
+		"/home/bcloud/projects/1bit-systems/1bit/build/_deps/nlohmann_json-build/cmake_install.cmake",
+		"/home/bcloud/projects/1bit-systems/1bit/build/_deps/ftxui-build/cmake_install.cmake",
+		"/home/bcloud/projects/1bit-systems/1bit/build/_deps/ftxui-build/examples/cmake_install.cmake",
+		"/home/bcloud/projects/1bit-systems/1bit/build/_deps/ftxui-build/doc/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

@@ -1,0 +1,2 @@
+/opt/rocm/lib/llvm/bin/llvm-ar qc libbackend_manager.a CMakeFiles/backend_manager.dir/src/backend_factory.cpp.o CMakeFiles/backend_manager.dir/src/backend_manager.cpp.o CMakeFiles/backend_manager.dir/src/backend_monitor.cpp.o CMakeFiles/backend_manager.dir/src/backend_plugin.cpp.o CMakeFiles/backend_manager.dir/src/backend_cpu.cpp.o
+/opt/rocm/lib/llvm/bin/llvm-ranlib libbackend_manager.a

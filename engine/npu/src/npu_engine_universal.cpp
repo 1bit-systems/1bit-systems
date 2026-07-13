@@ -80,13 +80,37 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
         if(amax<1e-12f)amax=1.0f;sout=amax/127.0f;float is=127.0f/amax;auto*Bm=(int8_t*)layerB[l]->map();
         for(int i=0;i<K*N;i++){float v=w[i];if(!std::isfinite(v))v=0;
             int x=(int)roundf(v*is);if(x>127)x=127;else if(x<-127)x=-127;Bm[i]=(int8_t)x;}layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);}
-    inline void go(int l,const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){float ais=1.0f/ascale;
-        memset(Am,0,(size_t)am*KD);for(int m=0;m<am;m++)for(int k=0;k<ak;k++){
-            float v=A[m*ak+k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;
-            Am[m*KD+k]=(int8_t)q;}bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        auto r=(*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[l],*bC);r.wait();bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
-        float cs=ascale*Bscale;for(int m=0;m<am;m++)for(int n=0;n<an;n++){
-            float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;C[m*an+n]=val;}}
+    // Async quantize: packs float activations into the A buffer without syncing
+    // Returns the quantized buffer pointer for later sync_and_launch.
+    inline int8_t* quantize_async(const float*A,int am,int ak,float ascale){
+        float ais=1.0f/ascale;
+        memset(Am,0,(size_t)am*KD);
+        for(int m=0;m<am;m++)for(int k=0;k<ak;k++){
+            float v=A[m*ak+k];if(!std::isfinite(v))v=0;
+            int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;
+            Am[m*KD+k]=(int8_t)q;}
+        return Am;
+    }
+    // Sync A to device and launch kernel. Returns run handle.
+    inline xrt::run sync_and_launch(int l){
+        bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        return (*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[l],*bC);
+    }
+    // Wait for run, sync C back, and dequantize.
+    inline void dequantize(xrt::run& r,float*C,int am,int an,float ascale,float Bscale){
+        r.wait();
+        bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+        float cs=ascale*Bscale;
+        for(int m=0;m<am;m++)for(int n=0;n<an;n++){
+            float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;
+            C[m*an+n]=val;}
+    }
+    // Synchronous go() — backwards compatible
+    inline void go(int l,const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){
+        quantize_async(A,am,ak,ascale);
+        auto r=sync_and_launch(l);
+        dequantize(r,C,am,an,ascale,Bscale);
+    }
 };
 
 // v12: OpenMP attention — parallelize across heads, with optional causal mask
@@ -399,11 +423,23 @@ int main(int argc,char**argv){
         auto ts_batch=std::chrono::steady_clock::now();
         int batch_size=std::min(BS,ng-step);
         for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=emb_f32[(size_t)top_ids[b]*H+i];
+        // ===== PIPELINED LAYER LOOP =====
+        // Overlaps CPU quantize with NPU kernel execution.
+        // Pattern: launch(N) → quantize(N+1) → wait(N) → dequantize(N) → sync+launch(N+1) → ...
+        // co and cg are independent (different inputs) → quantize cg WHILE co runs on NPU.
         for(int l=0;l<NC;l++){
             // Save pre-norm residuals before rn_c
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)sb_data[b*H+i]=h_b[b*H+i];
             for(int b=0;b<batch_size;b++)rn_c(&h_b[b*H],in_n[l].data(),H);
-            cq.go(l,h_b.data(),batch_size,H,dynamic_ascale(h_b.data(),batch_size*H),qsc[l],qo_b.data(),qkv_n);cn(qo_b.data(),batch_size*qkv_n);
+
+            // ── QKV GEMM ──
+            float cq_ascale=dynamic_ascale(h_b.data(),batch_size*H);
+            cq.quantize_async(h_b.data(),batch_size,H,cq_ascale);
+            auto r_cq=cq.sync_and_launch(l);
+            cq.dequantize(r_cq,qo_b.data(),batch_size,qkv_n,cq_ascale,qsc[l]);
+            cn(qo_b.data(),batch_size*qkv_n);
+
+            // ── Attention + RoPE + KV cache ──
             float*qn=qn_w[l].data(),*kn=kn_w[l].data();
             for(int b=0;b<batch_size;b++){
                 for(int hh=0;hh<NH;hh++){double s=0;for(int d=0;d<HD;d++)s+=qo_b[b*qkv_n+hh*HD+d]*qo_b[b*qkv_n+hh*HD+d];float iq=1.0f/sqrtf((float)(s/HD)+EPS);
@@ -417,19 +453,52 @@ int main(int argc,char**argv){
                 memcpy(&kv_caches[l].k[(sp+b)*NKV*HD+kvh*HD],ks,HD*4);memcpy(&kv_caches[l].v[(sp+b)*NKV*HD+kvh*HD],vs,HD*4);}
             kv_caches[l].n=sp+batch_size;int cl=kv_caches[l].n;
             for(int b=0;b<batch_size;b++){attn_omp(&qo_b[b*qkv_n],&at_b[b*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA);}
-            co.go(l,at_b.data(),batch_size,NH*HD,dynamic_ascale(at_b.data(),batch_size*NH*HD),osc[l],oo_b.data(),H);cn(oo_b.data(),batch_size*H);
-            // Residual add: use saved pre-norm values
+
+            // ── O GEMM ──
+            // Launch O, then quantize GU input WHILE O runs (overlapped)
+            float co_ascale=dynamic_ascale(at_b.data(),batch_size*NH*HD);
+            co.quantize_async(at_b.data(),batch_size,NH*HD,co_ascale);
+            auto r_co=co.sync_and_launch(l);
+
+            // ── GU GEMM: independent of O! Quantize GU input while O runs on NPU ──
+            int mlp_out=cfg.gu_split?IM:2*IM;
+            float cg_ascale=dynamic_ascale(h_b.data(),batch_size*H);
+            cg.quantize_async(h_b.data(),batch_size,H,cg_ascale);
+
+            // Wait for O to finish, then dequantize
+            co.dequantize(r_co,oo_b.data(),batch_size,H,co_ascale,osc[l]);
+            cn(oo_b.data(),batch_size*H);
+
+            // Residual add + pre-FFN rn_c
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=sb_data[b*H+i]+oo_b[b*H+i];
-            // Save pre-FFN residuals before second rn_c
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)sb_data[b*H+i]=h_b[b*H+i];
             for(int b=0;b<batch_size;b++)rn_c(&h_b[b*H],pa_n[l].data(),H);
-            int mlp_out=cfg.gu_split?IM:2*IM;
-            cg.go(l,h_b.data(),batch_size,H,dynamic_ascale(h_b.data(),batch_size*H),gsc[l],gt_b.data(),mlp_out);cn(gt_b.data(),batch_size*mlp_out);
-            if(cfg.gu_split){cu_ptr->go(l,h_b.data(),batch_size,H,dynamic_ascale(h_b.data(),batch_size*H),usc[l],su_b.data(),IM);cn(su_b.data(),batch_size*IM);
+
+            // ── Launch GU (quantize already started above while O ran) ──
+            auto r_cg=cg.sync_and_launch(l);
+            // While GU runs on NPU, quantize U kernel input (gu_split only — uses same h_b)
+            if(cfg.gu_split){
+                cu_ptr->quantize_async(h_b.data(),batch_size,H,cg_ascale);
+            }
+            cg.dequantize(r_cg,gt_b.data(),batch_size,mlp_out,cg_ascale,gsc[l]);
+            cn(gt_b.data(),batch_size*mlp_out);
+
+            // SiLU gate + U GEMM (gu_split) or combined gate*up
+            if(cfg.gu_split){
+                auto r_cu=cu_ptr->sync_and_launch(l);
+                cu_ptr->dequantize(r_cu,su_b.data(),batch_size,IM,cg_ascale,usc[l]);
+                cn(su_b.data(),batch_size*IM);
                 for(int b=0;b<batch_size;b++){for(int i=0;i<IM;i++){float gv=gt_b[b*IM+i];if(!std::isfinite(gv))gv=0;su_b[b*IM+i]=(gv/(1.0f+expf(-gv)))*su_b[b*IM+i];}}}
             else{for(int b=0;b<batch_size;b++){for(int i=0;i<IM;i++){float gv=gt_b[b*mlp_out+i];if(!std::isfinite(gv))gv=0;su_b[b*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[b*mlp_out+IM+i];}}}
-            cd.go(l,su_b.data(),batch_size,IM,dynamic_ascale(su_b.data(),batch_size*IM),dsc[l],dw_b.data(),H);cn(dw_b.data(),batch_size*H);
-            // Residual add: use saved pre-FFN values
+
+            // ── D GEMM ──
+            float cd_ascale=dynamic_ascale(su_b.data(),batch_size*IM);
+            cd.quantize_async(su_b.data(),batch_size,IM,cd_ascale);
+            auto r_cd=cd.sync_and_launch(l);
+            cd.dequantize(r_cd,dw_b.data(),batch_size,H,cd_ascale,dsc[l]);
+            cn(dw_b.data(),batch_size*H);
+
+            // Residual add
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=sb_data[b*H+i]+dw_b[b*H+i];
         }
 

@@ -1,0 +1,14 @@
+# Target labels
+ ftxui-populate
+# Source files and their labels
+/home/bcloud/projects/1bit-systems/1bit/build/_deps/ftxui-subbuild/CMakeFiles/ftxui-populate
+/home/bcloud/projects/1bit-systems/1bit/build/_deps/ftxui-subbuild/CMakeFiles/ftxui-populate.rule
+/home/bcloud/projects/1bit-systems/1bit/build/_deps/ftxui-subbuild/CMakeFiles/ftxui-populate-complete.rule
+/home/bcloud/projects/1bit-systems/1bit/build/_deps/ftxui-subbuild/ftxui-populate-prefix/src/ftxui-populate-stamp/ftxui-populate-build.rule
+/home/bcloud/projects/1bit-systems/1bit/build/_deps/ftxui-subbuild/ftxui-populate-prefix/src/ftxui-populate-stamp/ftxui-populate-configure.rule
+/home/bcloud/projects/1bit-systems/1bit/build/_deps/ftxui-subbuild/ftxui-populate-prefix/src/ftxui-populate-stamp/ftxui-populate-download.rule
+/home/bcloud/projects/1bit-systems/1bit/build/_deps/ftxui-subbuild/ftxui-populate-prefix/src/ftxui-populate-stamp/ftxui-populate-install.rule
+/home/bcloud/projects/1bit-systems/1bit/build/_deps/ftxui-subbuild/ftxui-populate-prefix/src/ftxui-populate-stamp/ftxui-populate-mkdir.rule
+/home/bcloud/projects/1bit-systems/1bit/build/_deps/ftxui-subbuild/ftxui-populate-prefix/src/ftxui-populate-stamp/ftxui-populate-patch.rule
+/home/bcloud/projects/1bit-systems/1bit/build/_deps/ftxui-subbuild/ftxui-populate-prefix/src/ftxui-populate-stamp/ftxui-populate-test.rule
+/home/bcloud/projects/1bit-systems/1bit/build/_deps/ftxui-subbuild/ftxui-populate-prefix/src/ftxui-populate-stamp/ftxui-populate-update.rule
