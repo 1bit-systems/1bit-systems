@@ -37,3 +37,24 @@ message(STATUS "npu-bf16-engine: XRT_CORE=${XRT_CORE}")
 
 # Install target
 install(TARGETS npu_engine_v2_bf16 DESTINATION bin)
+
+# Real gemm_atb_layout.h from mlir-aie (AMD AI Engine block data layout)
+# /home/bcloud/mlir-aie/programming_examples/ml/block_datatypes/gemm_asymmetric_tile_buffering
+set(NPU_MLIR_AIE_DIR "$ENV{HOME}/mlir-aie" CACHE PATH "Path to mlir-aie install")
+if(EXISTS "${NPU_MLIR_AIE_DIR}/programming_examples/ml/block_datatypes/gemm_asymmetric_tile_buffering/gemm_atb_layout.h")
+    target_include_directories(npu_engine_v2_bf16 PRIVATE
+        "${NPU_MLIR_AIE_DIR}/programming_examples/ml/block_datatypes/gemm_asymmetric_tile_buffering"
+    )
+    message(STATUS "npu-bf16-engine: using real gemm_atb_layout.h from mlir-aie")
+else()
+    message(WARNING "npu-bf16-engine: mlir-aie not found at ${NPU_MLIR_AIE_DIR} — using stub gemm_atb_layout.h")
+endif()
+
+# torch2aie examples (helper.h, test_bf16_npu.cpp deps)
+set(NPU_TORCH2AIE_DIR "$ENV{HOME}/torch2aie" CACHE PATH "Path to torch2aie install")
+if(EXISTS "${NPU_TORCH2AIE_DIR}/examples/helper.h")
+    target_include_directories(npu_engine_v2_bf16 PRIVATE
+        "${NPU_TORCH2AIE_DIR}/examples"
+    )
+    message(STATUS "npu-bf16-engine: using torch2aie headers at ${NPU_TORCH2AIE_DIR}/examples")
+endif()
