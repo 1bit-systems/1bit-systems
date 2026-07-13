@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:    # manual runs (branch builds) — Create Release is guarded to tag-only so no junk release is published
 
 permissions:
   contents: write
@@ -11,27 +12,20 @@ jobs:
   server:
     name: Build release (Rust server + HIP kernels)
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    container: rocm/dev-ubuntu-24.04:7.2.4-complete   # complete = all ROCm libs (rocwmma/CK/rocBLAS) so headers like rocwmma/rocwmma.hpp resolve
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
-      - name: Install build deps + ROCm
+      # The stock ubuntu-24.04 runner's apt ROCm 7.2 repo is broken on noble
+      # (rocm-dev/hip-dev/composablekernel-dev all hit "held broken packages" — #100),
+      # so the release builds inside the official AMD ROCm image instead. That
+      # image ships /opt/rocm (HIP + amdclang), which CMakeLists.txt auto-detects
+      # via its system-ROCm fallback (L52-57). No apt ROCm install => no conflict.
+      # CK is optional in the build (skips ck_gemm.cpp if composable_kernel not found).
+      - name: Install build tools (git cmake ninja)
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq cmake ninja-build build-essential
-          wget -qO - https://repo.radeon.com/rocm/rocm.gpg.key \
-            | sudo gpg --dearmor -o /etc/apt/keyrings/rocm.gpg
-          # Use noble (Ubuntu 24.04) repo — jammy (22.04) repos may have
-          # missing or incompatible packages on the ubuntu-24.04 runner.
-          cat <<'ROCM_APT' | sudo tee /etc/apt/sources.list.d/rocm.list
-          deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.2 noble main
-          deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/graphics/7.2/ubuntu noble main
-          ROCM_APT
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq rocm-dev hip-dev composablekernel-dev
-
-      # ── Kernel engine (HIP/C++): librocm_cpp.so + bitnet_decode ──
-      # This is the actual inference engine. The Rust server below is a proxy
-      # that spawns `bitnet_decode --server`, so the release must ship both.
+          apt-get update -qq
+          apt-get install -y -qq git cmake ninja-build build-essential
+      - uses: actions/checkout@v5
       - name: Build HIP kernels + decode server
         run: |
           cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151
@@ -76,6 +70,7 @@ jobs:
           tar czf 1bit-linux-x86_64.tar.gz -C dist .
 
       - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')   # only on real tag pushes; skip manual workflow_dispatch runs
         uses: softprops/action-gh-release@v2
         with:
           files: 1bit-linux-x86_64.tar.gz
