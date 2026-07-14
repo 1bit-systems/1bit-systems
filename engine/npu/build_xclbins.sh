@@ -4,13 +4,13 @@
 # The engine will use INT8 data which the kernel handles internally.
 
 set -e
-CFG1="/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1"
-INT8_DIR="/home/bcloud/npu-sandbox/npu-infer/build/int8"
+CFG1="${HOME}/torch2aie/examples/gemm_asymmetric_tile_buffering/config1"
+INT8_DIR="${HOME}/npu-sandbox/npu-infer/build/int8"
 mk_dir="$CFG1/build"
 mkdir -p "$INT8_DIR"
 
-export PATH="/home/bcloud/torch2aie/toolchain/bin:$PATH"
-export PYTHONPATH="/home/bcloud/torch2aie/toolchain/mlir_aie/python"
+export PATH="${HOME}/torch2aie/toolchain/bin:$PATH"
+export PYTHONPATH="${HOME}/torch2aie/toolchain/mlir_aie/python"
 
 build() {
     local tag=$1 M=$2 K=$3 N=$4 label=$5

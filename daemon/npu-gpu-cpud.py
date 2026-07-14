@@ -302,7 +302,7 @@ class NPUBackend:
     def start(self):
         if not os.path.exists(self.ENGINE_BIN):
             print(f"  ⚠️  NPU engine binary not found: {self.ENGINE_BIN}")
-            print(f"     Run: cd /home/bcloud/engine/npu && make")
+            print(f"     Run: cd os.path.expanduser("~/engine/npu && make")
             return
         if not os.path.exists(self.TOKENIZER_PATH):
             print(f"  ⚠️  Tokenizer not found: {self.TOKENIZER_PATH}")
@@ -696,14 +696,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(400, {"error": "Max 256 tokens"})
                 return
             model_path = req.get("model",
-                "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx")
+                os.path.expanduser("~/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx"))
             import subprocess
             env = os.environ.copy()
             env["LD_LIBRARY_PATH"] = (
-                "/home/bcloud/torch2aie/toolchain/mlir_aie.libs:"
-                "/home/bcloud/torch2aie/toolchain/sysroot/usr/lib64:" +
+                os.path.expanduser("~/torch2aie/toolchain/mlir_aie.libs:")
+                os.path.expanduser("~/torch2aie/toolchain/sysroot/usr/lib64:") +
                 env.get("LD_LIBRARY_PATH", ""))
-            engine = "/home/bcloud/npu-sandbox/npu-infer/build/npu_engine_mt"
+            engine = os.path.expanduser("~/npu-sandbox/npu-infer/build/npu_engine_mt")
             try:
                 proc = subprocess.run([engine, model_path] + [str(t) for t in tokens],
                     capture_output=True, text=True, env=env, timeout=600)

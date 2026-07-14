@@ -1,3 +1,4 @@
+/* Paths default to relative ./ — set $NPU_XCLBIN_DIR, $NPU_INSTS_DIR, $NPU_MODEL_PATH to override. */
 // Minimal test: verify 2-layer QKV xclbin processes N=8192 correctly
 #include <cstdio>
 #include <cstdlib>
@@ -17,7 +18,7 @@
 int main() {
     const int M=128, K=1024, N=8192;
     
-    FILE*f=fopen("/home/bcloud/npu-sandbox/npu-infer/build/int8/insts_i8_QKV_2layer.txt","rb");
+    FILE*f=fopen("int8/insts_i8_QKV_2layer.txt","rb");
     if(!f){fprintf(stderr,"FAIL: no insts\n");return 1;}
     fseek(f,0,2);long isz=ftell(f);fseek(f,0,0);
     std::vector<uint32_t>ins(isz/4);
@@ -27,7 +28,7 @@ int main() {
     
     xrt::device dev(0);
     
-    std::string xp="/home/bcloud/npu-sandbox/npu-infer/build/int8/final_i8_QKV_2layer.xclbin";
+    std::string xp="int8/final_i8_QKV_2layer.xclbin";
     auto xc=xrt::xclbin(xp);
     dev.register_xclbin(xc);
     auto hc=xrt::hw_context(dev,xc.get_uuid());

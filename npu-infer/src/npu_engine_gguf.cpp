@@ -61,7 +61,7 @@ static float load_scale_fixed(const char*path){FILE*f=fopen(path,"r");if(!f)retu
 
 int main(){
     setvbuf(stdout,NULL,_IONBF,0);
-    #define E "/home/bcloud/npu-sandbox/models/gguf_extracted"
+    #define E "gguf_extracted" /* set $GGUF_EXTRACT_DIR */
     printf("=== NPU Engine GGUF (extracted) ===\n\n");
 
     // Load embedding table (on-the-fly row dequant for token lookup)
@@ -75,7 +75,7 @@ int main(){
 
     // Init 4 NPU contexts
     printf("Init 4 INT8 contexts...\n");xrt::device dev(0);
-    #define D "/home/bcloud/npu-sandbox/npu-infer/build/int8"
+    #define D "int8" /* set $NPU_XCLBIN_DIR to override */
     I8Ctx cq{"QKV",XM,H,4096},co{"O",XM,NH*HD,H},cg{"GU",XM,H,6144},cd{"D",XM,IM,H};
     cq.init(dev,D"/final_i8_QKV_v.xclbin",D"/insts_i8_QKV_v.txt",4);
     co.init(dev,D"/final_i8_O_v.xclbin",  D"/insts_i8_O_v.txt",  4);

@@ -2,7 +2,7 @@
 # Extract ALL Zaya1-8B weights to /tmp/zaya_weights/ as float32 .bin files.
 # Usage: bash tools/extract_all_zaya_weights.sh
 set -e
-cd /home/bcloud
+cd ${HOME}
 WEIGHTS_DIR="${ZAYA_WEIGHTS_DIR:-/tmp/zaya_weights}"
 mkdir -p "$WEIGHTS_DIR"
 
@@ -22,7 +22,7 @@ import torch, os, sys, json, time
 from safetensors import safe_open
 import numpy as np
 
-MODEL_DIR = os.environ.get('ZAYA_MODEL_DIR', '/home/bcloud/models/ZAYA1-8B')
+MODEL_DIR = os.environ.get('ZAYA_MODEL_DIR', '${HOME}/models/ZAYA1-8B')
 WEIGHTS_DIR = os.environ.get('ZAYA_WEIGHTS_DIR', '/tmp/zaya_weights')
 os.makedirs(WEIGHTS_DIR, exist_ok=True)
 

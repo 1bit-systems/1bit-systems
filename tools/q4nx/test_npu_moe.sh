@@ -13,8 +13,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-ENGINE="${1:-/home/bcloud/engine/npu/build/npu_engine_universal}"
-MODEL="${2:-/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx}"
+ENGINE="${1:-${HOME}/engine/npu/build/npu_engine_universal}"
+MODEL="${2:-${HOME}/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx}"
 PYTEST="$(dirname "$0")/test_npu_moe.py"
 
 GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
@@ -26,7 +26,7 @@ pass() { echo -e "  ${GREEN}✓${NC} $1"; PASS=$((PASS+1)); }
 fail() { echo -e "  ${RED}✗${NC} $1"; FAIL=$((FAIL+1)); }
 skip() { echo -e "  ${YELLOW}⊘${NC} $1"; SKIP=$((SKIP+1)); }
 
-SRC="/home/bcloud/engine/npu/src/npu_engine_universal.cpp"
+SRC="${HOME}/engine/npu/src/npu_engine_universal.cpp"
 
 echo -e "${BOLD}${CYAN}═══ NPU MoE Worker Protocol Test Suite ═══${NC}"
 echo "Engine: $ENGINE"
@@ -154,7 +154,7 @@ fi
 # ============================================================================
 echo -e "\n${CYAN}Group 4: Infrastructure verification${NC}"
 
-XCLBIN_DIR="/home/bcloud/npu-sandbox/npu-infer/build/int8"
+XCLBIN_DIR="${HOME}/npu-sandbox/npu-infer/build/int8"
 for variant in GU G U D; do
     COUNT=$(ls "$XCLBIN_DIR"/final_i8_${variant}_*.xclbin 2>/dev/null | wc -l)
     if [[ "$COUNT" -gt 0 ]]; then

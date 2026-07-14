@@ -10,7 +10,7 @@
 set -euo pipefail
 
 ENGINE="${1:-./zig-out/bin/fused-engine}"
-MODEL_DIR="/home/bcloud/.config/flm/models"
+MODEL_DIR="${HOME}/.config/flm/models"
 TIMEOUT_PER_MODEL="${2:-120}"   # seconds per model
 MAX_TOKENS=10
 PROMPT="Hello"

@@ -22,8 +22,8 @@ extern "C" float* dequant_i8_to_float(const uint8_t*,int,int*,int*);
 extern "C" float bf16_to_float(uint16_t);
 extern "C" uint16_t float_to_bf16(float);
 static const int XM=2048,XK=2048,XN=2048,MT=128,KT=64,NT=128,NROWS=4;
-static const char*XCLBIN="/home/bcloud/npu-sandbox/npu-infer/build/qwen3_gemm/design_2048.xclbin";
-static const char*INSTRS="/home/bcloud/npu-sandbox/npu-infer/build/qwen3_gemm/design_2048.insts";
+static const char*XCLBIN=getenv("NPU_XCLBIN")?getenv("NPU_XCLBIN"):"qwen3_gemm/design_2048.xclbin";
+static const char*INSTRS=getenv("NPU_INSTS")?getenv("NPU_INSTS"):"qwen3_gemm/design_2048.insts";
 static float bf16f(uint16_t v){uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}
 static float bf16_g(uint16_t v){return((v&0x7F80)==0x7F80)?0:bf16f(v);}
 static uint16_t fbf16(float v){uint32_t b;memcpy(&b,&v,4);uint32_t r=((b>>16)&1)+0x7FFF;return(uint16_t)((b+r)>>16);}
@@ -127,7 +127,7 @@ static void forward_layer(Npu&npu,int l,int seq_pos,const LO&lo,const PW&pw,floa
 
 int main(){
     setvbuf(stdout,NULL,_IONBF,0);printf("=== NPU v3 — Qwen3-0.6B (2048×2048 xclbin) ===\n\n");
-    const char*mp="/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+    const char*mp=getenv("NPU_MODEL_PATH")?getenv("NPU_MODEL_PATH"):"model.q4nx";
     int fd=open(mp,O_RDONLY);struct stat st;fstat(fd,&st);
     uint8_t*d=(uint8_t*)mmap(NULL,st.st_size,PROT_READ,MAP_PRIVATE,fd,0);close(fd);
     uint64_t hsz;memcpy(&hsz,d,8);uint64_t df=8+hsz;

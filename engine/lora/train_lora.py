@@ -26,8 +26,8 @@ import logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
-BASE_MODEL = "/home/bcloud/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca"
-ADAPTER_DIR = "/home/bcloud/1bit-systems/engine/lora/adapters"
+BASE_MODEL = os.path.expanduser("~/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca"
+ADAPTER_DIR = os.path.expanduser("~/1bit-systems/engine/lora/adapters"
 MAX_SEQ_LEN = 512
 TARGET_MODULES = ['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj']
 

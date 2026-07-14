@@ -41,7 +41,7 @@ static void matmul(float* C, const float* A, const float* B,
 
 int main(int argc, char* argv[]) {
     const char* model_path = argc > 1 ? argv[1] 
-        : "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+        : getenv("NPU_MODEL_PATH")?getenv("NPU_MODEL_PATH"):"model.q4nx";
     
     LOG_INFO("Loading model from: %s", model_path);
     

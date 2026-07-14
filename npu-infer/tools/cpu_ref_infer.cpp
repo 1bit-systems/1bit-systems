@@ -108,7 +108,7 @@ static void softmax(float* x, int n) {
 static void silu(float* x, int n) { for(int i=0;i<n;i++) x[i]=x[i]/(1.0f+expf(-x[i])); }
 
 int main(int argc, char** argv) {
-    const char* mp = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+    const char* mp = getenv("NPU_MODEL_PATH")?getenv("NPU_MODEL_PATH"):"model.q4nx";
     if (argc>1) mp = argv[1];
 
     int fd = open(mp, O_RDONLY);

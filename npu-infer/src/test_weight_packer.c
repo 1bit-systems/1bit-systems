@@ -20,7 +20,7 @@ static void dump_bf16_hex(const char* label, const uint16_t* data, int count) {
 }
 
 int main(int argc, char** argv) {
-    const char* model_path = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+    const char* model_path = getenv("NPU_MODEL_PATH")?getenv("NPU_MODEL_PATH"):"model.q4nx";
     
     printf("=== NPU Weight Packer Test ===\n\n");
     

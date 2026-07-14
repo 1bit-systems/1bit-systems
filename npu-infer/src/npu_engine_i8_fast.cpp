@@ -141,7 +141,7 @@ int main(){
     printf("=== NPU Engine i8 FAST ===\n\n");
 
     // ---- Load model ----
-    const char* mp="/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+    const char* mp=getenv("NPU_MODEL_PATH")?getenv("NPU_MODEL_PATH"):"model.q4nx";
     int fd=open(mp,O_RDONLY); struct stat st; fstat(fd,&st);
     uint8_t* md=(uint8_t*)mmap(NULL,st.st_size,PROT_READ,MAP_PRIVATE,fd,0); close(fd);
     uint64_t hsz; memcpy(&hsz,md,8); uint64_t df=8+hsz;
@@ -181,7 +181,7 @@ int main(){
     // ---- Init NPU ----
     printf("Init NPU...\n");
     xrt::device dev(0);
-    #define D "/home/bcloud/npu-sandbox/npu-infer/build/int8"
+    #define D "int8" /* set $NPU_XCLBIN_DIR to override */
     I8Ctx cq{"QKV",D"/final_i8_QKV_v.xclbin",D"/insts_i8_QKV_v.txt",XM,H,4096};
     I8Ctx co{"O",  D"/final_i8_O_v.xclbin",  D"/insts_i8_O_v.txt",  XM,NH*HD,H};
     I8Ctx cg{"GU", D"/final_i8_GU_v.xclbin", D"/insts_i8_GU_v.txt", XM,H,6144};

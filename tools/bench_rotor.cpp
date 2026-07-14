@@ -12,7 +12,7 @@
 // `bitnet_decode --ppl --kv-rotor` once the kernel builds clean.
 //
 // Usage: bench_rotor [out_path]
-//   out_path defaults to "/home/bcloud/claude output/rotor_bench-<UTC>.txt"
+//   out_path defaults to getenv("HOME")?std::string(getenv("HOME"))+"/claude output/rotor_bench-<UTC>.txt"
 
 #include "rocm_cpp/ck_gemm.h"
 #include "rocm_cpp/kv_rotorquant.h"
@@ -92,7 +92,7 @@ int main(int argc, char** argv) {
 
     const std::string out_path = (argc > 1)
         ? std::string(argv[1])
-        : ("/home/bcloud/claude output/rotor_bench-" + utc_stamp() + ".txt");
+        : (getenv("HOME")?std::string(getenv("HOME"))+"/claude output/rotor_bench-" + utc_stamp() + ".txt");
 
     std::mt19937 rng(0xC0DEF00D);
     std::normal_distribution<float> nd(0.0f, 1.0f);

@@ -7,7 +7,7 @@ set -e
 MODEL="${1:-zaya}"
 PROMPT="${2:-Hello}"
 N="${3:-16}"
-cd /home/bcloud
+cd ${HOME}
 
 case "$MODEL" in
   zaya|zaya1|ZAYA)
@@ -50,19 +50,19 @@ case "$MODEL" in
 
   qwen|qwen3|fused)
     echo "→ Qwen3-0.6B (NPU+GPU Fused)"
-    BIN="/home/bcloud/engine/fusion/zig-out/bin/fused-engine"
+    BIN="${HOME}/engine/fusion/zig-out/bin/fused-engine"
     if [ ! -f "$BIN" ]; then
         echo "  Building fused engine..."
-        cd /home/bcloud/engine/fusion && zig build 2>&1 | tail -3
+        cd ${HOME}/engine/fusion && zig build 2>&1 | tail -3
     fi
-    $BIN --model /home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx \
+    $BIN --model ${HOME}/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx \
           --prompt "$PROMPT" --max-tokens $N
     ;;
 
   bitnet|BITNET)
     echo "→ BitNet b1.58 (C++ CPU) — build pending"
     echo "  Model downloaded, binary not yet available"
-    echo "  Try: cd /home/bcloud/bitnet.cpp && cmake --build build"
+    echo "  Try: cd ${HOME}/bitnet.cpp && cmake --build build"
     ;;
 
   list|help|*)

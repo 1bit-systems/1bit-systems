@@ -250,7 +250,7 @@ int main() {
     printf("=== NPU Fused INT8 — Qwen3-0.6B (28 layers, INT8 GEMMs, CPU attn) ===\n\n");
 
     // Open model
-    const char* mp = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+    const char* mp = getenv("NPU_MODEL_PATH")?getenv("NPU_MODEL_PATH"):"model.q4nx";
     int fd = open(mp, O_RDONLY);
     if (fd < 0) { perror("open model"); return 1; }
     struct stat st; fstat(fd, &st);
@@ -314,7 +314,7 @@ int main() {
     printf("Init INT8 GEMM contexts...\n");
     xrt::device dev(0);
 
-#define D "/home/bcloud/npu-sandbox/npu-infer/build/int8"
+#define D "int8" /* set $NPU_XCLBIN_DIR to override */
     I8Ctx cq{ "QKV", XM, H, 4096 };
     I8Ctx co{ "O",   XM, NH*HD, H };
     I8Ctx cg{ "GU",  XM, H, 6144 };

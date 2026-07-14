@@ -381,7 +381,7 @@ static void run_forward(TernaryModel& tm) {
 
 int main(int argc, char** argv) {
     const char* path = argc > 1 ? argv[1]
-        : "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+        : getenv("HOME")?std::string(getenv("HOME"))+"/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
 
     TernaryModel tm;
     if (!load_and_convert(path, tm)) return 1;

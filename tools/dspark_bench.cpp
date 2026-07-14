@@ -153,7 +153,7 @@ static float* verify_lm(void* ctx, const float* h, float* logits, int V, int H) 
 
 int main(int argc, char** argv) {
     const char* path = argc > 1 ? argv[1]
-        : "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+        : getenv("HOME")?std::string(getenv("HOME"))+"/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
     int draft_layers = argc > 2 ? atoi(argv[2]) : 4;
     int M = argc > 3 ? atoi(argv[3]) : 8;
 

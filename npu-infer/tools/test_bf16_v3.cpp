@@ -1,3 +1,4 @@
+/* Paths default to relative ./ — set $NPU_XCLBIN_DIR, $NPU_INSTS_DIR, $NPU_MODEL_PATH to override. */
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -12,8 +13,8 @@ static float bf16f(uint16_t v){uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f
 static uint16_t fbf16(float v){uint32_t b;memcpy(&b,&v,4);uint32_t r=((b>>16)&1)+0x7FFF;return(uint16_t)((b+r)>>16);}
 static const int MT=128,KT=64,NT=128,XM=2048,XK=2048,XN=2048;
 int main(){
-    const char*xp="/home/bcloud/npu-sandbox/npu-infer/bf16_kernel_dev/build/design_bf16_v3.xclbin";
-    const char*ip="/home/bcloud/npu-sandbox/npu-infer/bf16_kernel_dev/build/design_bf16_v3.insts";
+    const char*xp="bf16_kernel_dev/design_bf16_v3.xclbin";
+    const char*ip="bf16_kernel_dev/design_bf16_v3.insts";
     FILE*f=fopen(ip,"rb");if(!f){printf("No insts\n");return 1;}
     fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);
     std::vector<uint32_t>ins(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);

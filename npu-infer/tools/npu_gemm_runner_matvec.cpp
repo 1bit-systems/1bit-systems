@@ -1,3 +1,4 @@
+/* Paths default to relative ./ — set $NPU_XCLBIN_DIR, $NPU_INSTS_DIR, $NPU_MODEL_PATH to override. */
 /**
  * NPU GEMM Runner for custom M=128 single-token decode xclbin.
  *
@@ -71,8 +72,8 @@ static bool check_result_correct(const float* cpu_C, const float* npu_C, int row
 int main(int argc, char** argv) {
     printf("=== NPU GEMM Runner — M=128 matvec ===\n\n");
 
-    const char* xclbin_path = "/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/final_512x1024x2048_128x64x128.xclbin";
-    const char* instr_path = "/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/insts_512x1024x2048_128x64x128.txt";
+    const char* xclbin_path = "final_512x1024x2048_128x64x128.xclbin";
+    const char* instr_path = "insts_512x1024x2048_128x64x128.txt";
     if (argc > 1) xclbin_path = argv[1];
     if (argc > 2) instr_path = argv[2];
 

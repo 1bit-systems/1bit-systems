@@ -15,8 +15,8 @@ static void cpu_matmul(const float*A,const float*B,float*C,int M,int N,int K){
 }
 int main(){
     const int M=1024,K=1024,N=2048,mt=128,kt=64,nt=128;
-    const char*xp="/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/final_1024x1024x2048_128x64x128.xclbin";
-    const char*ip="/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/insts_1024x1024x2048_128x64x128.txt";
+    const char*xp="final_1024x1024x2048_128x64x128.xclbin";
+    const char*ip="insts_1024x1024x2048_128x64x128.txt";
     FILE*f=fopen(ip,"rb");if(!f)return 1;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);
     std::vector<uint32_t> ins(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);
     auto d=xrt::device(0);auto xc=xrt::xclbin(std::string(xp));d.register_xclbin(xc);

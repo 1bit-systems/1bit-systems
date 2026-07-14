@@ -39,7 +39,7 @@ done
 
 # ── Test 2: Config loading for each available Q4NX model ──
 echo -e "\n${CYAN}Group 2: Model loading (available Q4NX files)${NC}"
-MODEL_DIR="/home/bcloud/.config/flm/models"
+MODEL_DIR="${HOME}/.config/flm/models"
 declare -A MODEL_ARCH_MAP
 MODEL_ARCH_MAP["Qwen3-0.6B-NPU2"]="qwen3_0_6b"
 MODEL_ARCH_MAP["Qwen3-1.7B-NPU2"]="qwen3_1_5b"

@@ -22,11 +22,11 @@ static const int MT=128, KT=64, NT=128;
 
 struct VarInfo {const char *xclbin,*insts;int XK,XN;};
 static VarInfo VARIANTS[]={
-    {"/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/final_128x1024x1024_128x64x128.xclbin","/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/insts_128x1024x1024_128x64x128.txt",1024,1024},
-    {"/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/final_128x1024x2048_128x64x128.xclbin","/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/insts_128x1024x2048_128x64x128.txt",1024,2048},
-    {"/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/final_128x1024x3072_128x64x128.xclbin","/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/insts_128x1024x3072_128x64x128.txt",1024,3072},
-    {"/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/final_128x2048x1024_128x64x128.xclbin","/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/insts_128x2048x1024_128x64x128.txt",2048,1024},
-    {"/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/final_128x3072x1024_128x64x128.xclbin","/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/insts_128x3072x1024_128x64x128.txt",3072,1024}
+    {"final_128x1024x1024_128x64x128.xclbin","insts_128x1024x1024_128x64x128.txt",1024,1024},
+    {"final_128x1024x2048_128x64x128.xclbin","insts_128x1024x2048_128x64x128.txt",1024,2048},
+    {"final_128x1024x3072_128x64x128.xclbin","insts_128x1024x3072_128x64x128.txt",1024,3072},
+    {"final_128x2048x1024_128x64x128.xclbin","insts_128x2048x1024_128x64x128.txt",2048,1024},
+    {"final_128x3072x1024_128x64x128.xclbin","insts_128x3072x1024_128x64x128.txt",3072,1024}
 };
 
 int test_with_weights(int vi, float *weights, int out_feat, int in_feat, int deq_rows, bool debug=false) {
@@ -85,7 +85,7 @@ int test_with_weights(int vi, float *weights, int out_feat, int in_feat, int deq
 }
 
 int main() {
-    const char *mp="/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+    const char *mp=getenv("NPU_MODEL_PATH")?getenv("NPU_MODEL_PATH"):"model.q4nx";
     int fd=open(mp,O_RDONLY);struct stat st;fstat(fd,&st);
     uint8_t*d=(uint8_t*)mmap(NULL,st.st_size,PROT_READ,MAP_PRIVATE,fd,0);close(fd);
     uint64_t hsz;memcpy(&hsz,d,8);uint64_t df=8+hsz;

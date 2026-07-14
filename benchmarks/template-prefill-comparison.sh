@@ -22,7 +22,7 @@
 #   a scratch port (default 8182), once per HALO_CHAT_TEMPLATE value.
 #   Fire N requests at /v1/chat/completions, take the p50 of reported
 #   server-side tok/s plus the wall-clock tok/s measured by this
-#   script. Emit JSON to /home/bcloud/claude output/.
+#   script. Emit JSON to ${HOME}/claude output/.
 #
 #   This script is DOCUMENTATION and is intentionally not run as part
 #   of CI — it needs a real GPU, a loaded .h1b model, and the
@@ -56,7 +56,7 @@
 
 set -euo pipefail
 
-OUT_DIR="/home/bcloud/claude output"
+OUT_DIR="${HOME}/claude output"
 OUT_JSON="${OUT_DIR}/template-prefill-comparison.json"
 
 SERVER_BIN="${HALO_SERVER_BIN:-$HOME/.local/bin/1bit-halo-server-real}"

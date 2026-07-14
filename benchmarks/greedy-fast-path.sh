@@ -39,7 +39,7 @@
 #   0 — ran all three modes, emitted JSON
 #   2 — harness precondition missing (binary, model, port, jq)
 #
-# Output: /home/bcloud/claude output/greedy-fast-path.json
+# Output: ${HOME}/claude output/greedy-fast-path.json
 #
 # NOTE: the greedy path is selected automatically by the router when
 # `temperature == 0.0` and no streaming callback is set — see
@@ -52,7 +52,7 @@
 
 set -euo pipefail
 
-OUT_DIR="/home/bcloud/claude output"
+OUT_DIR="${HOME}/claude output"
 OUT_JSON="${OUT_DIR}/greedy-fast-path.json"
 
 SERVER_BIN="${HALO_SERVER_BIN:-$HOME/.local/bin/1bit-halo-server-real}"

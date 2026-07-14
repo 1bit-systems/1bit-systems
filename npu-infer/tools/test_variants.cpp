@@ -20,16 +20,16 @@ struct Variant {
     int XK, XN;
 };
 static const Variant VARIANTS[] = {
-    {"/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/final_128x1024x1024_128x64x128.xclbin",
-     "/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/insts_128x1024x1024_128x64x128.txt", 1024, 1024},
-    {"/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/final_128x1024x2048_128x64x128.xclbin",
-     "/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/insts_128x1024x2048_128x64x128.txt", 1024, 2048},
-    {"/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/final_128x1024x3072_128x64x128.xclbin",
-     "/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/insts_128x1024x3072_128x64x128.txt", 1024, 3072},
-    {"/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/final_128x2048x1024_128x64x128.xclbin",
-     "/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/insts_128x2048x1024_128x64x128.txt", 2048, 1024},
-    {"/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/final_128x3072x1024_128x64x128.xclbin",
-     "/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/insts_128x3072x1024_128x64x128.txt", 3072, 1024},
+    {"final_128x1024x1024_128x64x128.xclbin",
+     "insts_128x1024x1024_128x64x128.txt", 1024, 1024},
+    {"final_128x1024x2048_128x64x128.xclbin",
+     "insts_128x1024x2048_128x64x128.txt", 1024, 2048},
+    {"final_128x1024x3072_128x64x128.xclbin",
+     "insts_128x1024x3072_128x64x128.txt", 1024, 3072},
+    {"final_128x2048x1024_128x64x128.xclbin",
+     "insts_128x2048x1024_128x64x128.txt", 2048, 1024},
+    {"final_128x3072x1024_128x64x128.xclbin",
+     "insts_128x3072x1024_128x64x128.txt", 3072, 1024},
 };
 static const int NV = 5;
 static const int MT = 128, KT = 64, NT = 128, M_PAD = 128;

@@ -77,7 +77,7 @@ static uint64_t jo(const char*js,size_t jl,const char*nm){size_t nl=strlen(nm);c
 int main(){
     setvbuf(stdout,NULL,_IONBF,0);
     printf("=== NPU Engine i8 — Pre-loaded Weights ===\n\n");
-    const char*mp="/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+    const char*mp=getenv("NPU_MODEL_PATH")?getenv("NPU_MODEL_PATH"):"model.q4nx";
     int fd=open(mp,O_RDONLY);struct stat st;fstat(fd,&st);
     uint8_t*md=(uint8_t*)mmap(NULL,st.st_size,PROT_READ,MAP_PRIVATE,fd,0);close(fd);
     uint64_t hsz;memcpy(&hsz,md,8);uint64_t df=8+hsz;
@@ -105,7 +105,7 @@ int main(){
 
     printf("Init NPU + create 112 layer BOs...\n");
     xrt::device dev(0);
-    #define D "/home/bcloud/npu-sandbox/npu-infer/build/int8"
+    #define D "int8" /* set $NPU_XCLBIN_DIR to override */
     I8Slot slots[4];
     slots[0].name="QKV";slots[0].MD=XM;slots[0].KD=H;slots[0].ND=4096;slots[0].init(dev,D"/final_i8_QKV_v.xclbin",D"/insts_i8_QKV_v.txt",4);
     slots[1].name="O";  slots[1].MD=XM;slots[1].KD=NH*HD;slots[1].ND=H;slots[1].init(dev,D"/final_i8_O_v.xclbin",D"/insts_i8_O_v.txt",4);

@@ -48,7 +48,7 @@ struct AttnCPU{static void run(const float*Q,const float*K,const float*V,int nt,
 
 int main(int argc,char**argv){
     setvbuf(stdout,NULL,_IONBF,0); setvbuf(stdin,NULL,_IONBF,0);
-    const char*mp=argc>1?argv[1]:"/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+    const char*mp=argc>1?argv[1]:getenv("NPU_MODEL_PATH")?getenv("NPU_MODEL_PATH"):"model.q4nx";
 
     int fd=open(mp,O_RDONLY);struct stat st;fstat(fd,&st);
     uint8_t*md=(uint8_t*)mmap(NULL,st.st_size,PROT_READ,MAP_PRIVATE,fd,0);close(fd);
@@ -63,7 +63,7 @@ int main(int argc,char**argv){
     {auto fw=(const uint16_t*)(md+df+no);for(int i=0;i<H;i++)fin[i]=bf16g(fw[i]);}
 
     fprintf(stderr,"Init 4 contexts...\n");xrt::device dev(0);
-#define D "/home/bcloud/npu-sandbox/npu-infer/build/int8"
+#define D "int8" /* set $NPU_XCLBIN_DIR to override */
     I8Ctx cq{"QKV",XM,H,4096},co{"O",XM,NH*HD,H},cg{"GU",XM,H,6144},cd{"D",XM,IM,H};
     if(!cq.init(dev,D"/final_i8_QKV_qwen3_0_6b.xclbin",D"/insts_i8_QKV_qwen3_0_6b.txt",4)){fprintf(stderr,"FAIL QKV\n");return 1;}
     if(!co.init(dev,D"/final_i8_O_qwen3_0_6b.xclbin",  D"/insts_i8_O_qwen3_0_6b.txt",  4)){fprintf(stderr,"FAIL O\n");return 1;}

@@ -10,7 +10,7 @@
 # we cap drift sooner — if we can't hold 9.26 or better on wikitext-103 the
 # kernel is wrong or the requantizer's zero-choice heuristic is wrong.
 #
-# Output JSON lives at /home/bcloud/claude output/sherry-ppl.json (blessed
+# Output JSON lives at ${HOME}/claude output/sherry-ppl.json (blessed
 # per feedback_benchmark_output_folder.md). The script still writes the
 # JSON on failure so CI can read the actual number.
 #
@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-OUT_DIR="/home/bcloud/claude output"
+OUT_DIR="${HOME}/claude output"
 OUT_JSON="${OUT_DIR}/sherry-ppl.json"
 
 DEFAULT_MODEL="${HALO_SHERRY_MODEL:-/opt/halo-ai/models/halo-1bit-2b-sherry.h1b}"

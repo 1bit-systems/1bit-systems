@@ -20,7 +20,7 @@
 
 extern "C" float* dequant_i8_to_float(const uint8_t*, int, int*, int*);
 
-static const char* MODEL = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+static const char* MODEL = getenv("NPU_MODEL_PATH")?getenv("NPU_MODEL_PATH"):"model.q4nx";
 static const int H = 1024, IM = 3072;
 
 static std::vector<uint8_t> read_file(const char* path) {

@@ -1,59 +1,46 @@
 {
   "_generated_by": "tools/gen_numbers.py",
-  "_generated_at": "2026-07-15T01:24:38Z",
+  "_generated_at": "2026-07-14T23:45:26Z",
   "_warning": "Generated file. Do not hand-edit; run tools/gen_numbers.py.",
-  "_missing": [
-    "fused: engine/fusion/zig-out/bin/fused-engine",
-    "tui: build/bitnet_tui"
-  ],
+  "_missing": [],
   "binary": {
     "zaya_bytes": 288712,
     "zaya_kb": 282,
     "zaya_stripped_kb": 263,
-    "fused_bytes": null,
-    "fused_kb": null,
+    "fused_bytes": 25493389,
+    "fused_kb": 24896,
     "decode_bytes": 703904,
     "decode_kb": 687,
     "decode_stripped_kb": 495,
-    "tui_bytes": null,
-    "tui_kb": null,
-    "tui_stripped_kb": null
+    "tui_bytes": 1098392,
+    "tui_kb": 1073,
+    "tui_stripped_kb": 774
   },
   "benchmarks": {
-    "bonsai_end_to_end_decode": "PASS (argmax=76213, coherent logits)",
-    "bonsai_q1_1024_tok_s": 425,
-    "bonsai_tile8_tok_s": 76.9,
-    "bonsai_tq2_1024_tok_s": 358,
-    "fused_tq2_1024_individual_tok_s": 360,
-    "fused_tq2_1024_tok_s": 413,
-    "halo_gemv_gbps": 162.8,
-    "kv_cache_fd_speedup_2048": 12.65,
-    "kv_cache_i8_speedup_2048": 0.95,
-    "prefill_tflops_4h": 21.77,
-    "prefill_tflops_i8apre": 38.89,
-    "rotorquant_pq3_tok_s_2048": 9224,
-    "sherry_gemv_gbps": 153.0,
-    "tq1_gemv_gbps": 191.6,
-    "tflops": 38.89
+    "prefill_tflops_4h": 21.62,
+    "sherry_gemv_gbps": 144.5,
+    "tq1_gemv_gbps": 184.5,
+    "halo_gemv_gbps": 152.8,
+    "prefill_tflops_i8apre": 35.35
   },
   "_sources": {
-    "halo_gemv_gbps": "bench_sherry -- halo baseline kernel",
     "prefill_tflops_4h": "bench_prefill_variants 2560 6912 2560 -- variant 4h (64x64 cached A+B)",
-    "prefill_tflops_i8apre": "bench_prefill_variants 2560 6912 2560 -- variant 4i-I8-APRE (I8 A + tiled B), median of 3",
     "sherry_gemv_gbps": "bench_sherry -- M=6912 K=2560, sherry kernel, 256 iters",
-    "tq1_gemv_gbps": "bench_sherry -- tq1 kernel, fastest GEMV variant"
+    "tq1_gemv_gbps": "bench_sherry -- tq1 kernel, fastest GEMV variant",
+    "halo_gemv_gbps": "bench_sherry -- halo baseline kernel",
+    "prefill_tflops_i8apre": "bench_prefill_variants 2560 6912 2560 -- variant 4i-I8-APRE (I8 A + tiled B), median of 3"
   },
   "repo": {
-    "forks": 4,
-    "name": "1bit-systems",
-    "open_issues": 9,
-    "owner": "bong-water-water-bong",
     "stars": 9,
+    "forks": 4,
+    "open_issues": 9,
     "total_clones": 6113,
-    "unique_cloners": 783
+    "unique_cloners": 783,
+    "owner": "bong-water-water-bong",
+    "name": "1bit-systems"
   },
   "site": {
-    "backends": 6,
-    "models": 5
+    "models": 73,
+    "backends": 6
   }
 }

@@ -53,8 +53,8 @@ def _get_runner_path():
     print("Compiling npu_gemm_runner...")
     cmd = [
         "g++", "-std=c++23", "-O2", "-o", str(runner_bin), str(runner_src),
-        "-I/home/bcloud/torch2aie/examples",
-        "-I/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering",
+        "-Ios.path.expanduser("~/torch2aie/examples",
+        "-Ios.path.expanduser("~/torch2aie/examples/gemm_asymmetric_tile_buffering",
         "-lxrt_coreutil", "-lxrt_core", "-lpthread", "-ldl", "-luuid",
     ]
     r = subprocess.run(cmd, capture_output=True, text=True)

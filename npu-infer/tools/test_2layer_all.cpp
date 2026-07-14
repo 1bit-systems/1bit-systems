@@ -1,3 +1,4 @@
+/* Paths default to relative ./ — set $NPU_XCLBIN_DIR, $NPU_INSTS_DIR, $NPU_MODEL_PATH to override. */
 // Test all 2-layer xclbins
 #include <cstdio>
 #include <cstdlib>
@@ -57,14 +58,14 @@ static bool test(const char*label,const char*xp,const char*instp,
 int main(){
     int s;
     bool ok=true;
-    ok&=test("QKV_2layer","/home/bcloud/npu-sandbox/npu-infer/build/int8/final_i8_QKV_2layer.xclbin",
-             "/home/bcloud/npu-sandbox/npu-infer/build/int8/insts_i8_QKV_2layer.txt",
+    ok&=test("QKV_2layer","int8/final_i8_QKV_2layer.xclbin",
+             "int8/insts_i8_QKV_2layer.txt",
              128,1024,8192,s);
-    ok&=test("O_2layer","/home/bcloud/npu-sandbox/npu-infer/build/int8/final_i8_O_2layer.xclbin",
-             "/home/bcloud/npu-sandbox/npu-infer/build/int8/insts_i8_O_2layer.txt",
+    ok&=test("O_2layer","int8/final_i8_O_2layer.xclbin",
+             "int8/insts_i8_O_2layer.txt",
              128,2048,2048,s);
-    ok&=test("D_2layer","/home/bcloud/npu-sandbox/npu-infer/build/int8/final_i8_D_2layer.xclbin",
-             "/home/bcloud/npu-sandbox/npu-infer/build/int8/insts_i8_D_2layer.txt",
+    ok&=test("D_2layer","int8/final_i8_D_2layer.xclbin",
+             "int8/insts_i8_D_2layer.txt",
              128,3072,2048,s);
     printf("=== %s ===\n",ok?"ALL PASS":"SOME FAILED");
     return ok?0:1;

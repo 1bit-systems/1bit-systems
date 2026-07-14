@@ -29,8 +29,8 @@ def main():
     parser.add_argument("--output", default=None)
     args = parser.parse_args()
 
-    input_path = args.input or "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.json"
-    output_path = args.output or "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.tok"
+    input_path = args.input or os.path.expanduser("~/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.json"
+    output_path = args.output or os.path.expanduser("~/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.tok"
 
     with open(input_path) as f:
         tok = json.load(f)

@@ -13,8 +13,8 @@ static uint16_t fbf16(float v){uint32_t b;memcpy(&b,&v,4);uint32_t r=((b>>16)&1)
 static const int MT=128,KT=64,NT=128;
 int main(){
     const int M=256,K=1024,N=4096,mt=128,kt=64,nt=128;
-    const char*xp="/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/final_256x1024x4096_128x64x128.xclbin";
-    const char*ip="/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/insts_256x1024x4096_128x64x128.txt";
+    const char*xp="final_256x1024x4096_128x64x128.xclbin";
+    const char*ip="insts_256x1024x4096_128x64x128.txt";
     FILE*f=fopen(ip,"rb");if(!f)return 1;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);
     std::vector<uint32_t>ins(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);
     auto d=xrt::device(0);auto xc=xrt::xclbin(std::string(xp));d.register_xclbin(xc);

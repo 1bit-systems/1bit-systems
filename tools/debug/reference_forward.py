@@ -8,10 +8,10 @@ comparison against matching debug prints added to the Zig fused-engine
 exactly where the two implementations' numbers diverge.
 
 Requires a real torch + transformers install. On this machine that's
-/home/bcloud/venv-hf (the system default `python3`'s `torch`/`transformers`
+os.path.expanduser("~/venv-hf (the system default `python3`'s `torch`/`transformers`
 are broken stub installs missing their compiled extensions) -- run with:
 
-    /home/bcloud/venv-hf/bin/python3 tools/reference_forward.py \\
+    os.path.expanduser("~/venv-hf/bin/python3 tools/reference_forward.py \\
         [--model /path/to/hf/model/dir] [--prompt "text"] [--layers 0,1,2,13,26,27]
 
 Used to find the RoPE table layout bug, the QK-norm-never-loaded bug, and
@@ -25,7 +25,7 @@ import argparse
 import sys
 
 DEFAULT_MODEL = (
-    "/home/bcloud/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/"
+    os.path.expanduser("~/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/"
     "snapshots/c1899de289a04d12100db370d81485cdf75e47ca"
 )
 
@@ -54,7 +54,7 @@ def main():
     except ImportError as e:
         print(f"error: {e}", file=sys.stderr)
         print("Need a real torch+transformers install. Try:", file=sys.stderr)
-        print("  /home/bcloud/venv-hf/bin/python3 " + " ".join(sys.argv), file=sys.stderr)
+        print("  os.path.expanduser("~/venv-hf/bin/python3 " + " ".join(sys.argv), file=sys.stderr)
         sys.exit(1)
 
     layers = [int(x) for x in args.layers.split(",") if x.strip() != ""]

@@ -11,7 +11,7 @@
 //   5. Measure max-abs-diff between the two outputs (should be < 0.5 in fp16).
 //
 // Usage: bench_kv_i8 [out_path]
-//   out_path defaults to "/home/bcloud/claude output/kv_i8_bench-<UTC>.txt"
+//   out_path defaults to getenv("HOME")?std::string(getenv("HOME"))+"/claude output/kv_i8_bench-<UTC>.txt"
 
 #include "rocm_cpp/ck_gemm.h"
 
@@ -78,7 +78,7 @@ int main(int argc, char** argv) {
 
     const std::string out_path = (argc > 1)
         ? std::string(argv[1])
-        : ("/home/bcloud/claude output/kv_i8_bench-" + utc_stamp() + ".txt");
+        : (getenv("HOME")?std::string(getenv("HOME"))+"/claude output/kv_i8_bench-" + utc_stamp() + ".txt");
 
     std::mt19937 rng(0xC0DEF00D);
     // BitNet's post-RoPE Q/K magnitudes land roughly in [-4, 4]; V (post-proj)

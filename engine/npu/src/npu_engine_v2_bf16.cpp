@@ -177,7 +177,7 @@ struct NpuKernel {
 int main(int argc, char** argv) {
     printf("=== NPU Engine v2 — Qwen3-0.6B (torch2aie custom kernel) ===\n\n");
 
-    const char* model_path = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+    const char* model_path = getenv("NPU_MODEL_PATH")?getenv("NPU_MODEL_PATH"):"model.q4nx";
     if (argc > 1) model_path = argv[1];
 
     // 1. Load model

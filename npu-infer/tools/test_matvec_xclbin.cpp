@@ -41,8 +41,8 @@ static std::vector<uint32_t> load_instructions(const char* path) {
 }
 
 int main(int argc, char** argv) {
-    const char* xclbin_path = "/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/final_512x1024x2048_128x64x128.xclbin";
-    const char* instr_path = "/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/insts_512x1024x2048_128x64x128.txt";
+    const char* xclbin_path = "final_512x1024x2048_128x64x128.xclbin";
+    const char* instr_path = "insts_512x1024x2048_128x64x128.txt";
     if (argc > 1) xclbin_path = argv[1];
     if (argc > 2) instr_path = argv[2];
 

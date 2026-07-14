@@ -219,8 +219,8 @@ struct NPURunner {
     TQ1Kernel gate_up_k, down_k;
 
     bool init() {
-        const char *xclbin_dir = "/home/bcloud/npu-sandbox/npu-infer/build/int8";
-        const char *ternary_dir = "/home/bcloud/npu-sandbox/npu-infer/build/chess_infer";
+        const char *xclbin_dir = getenv("HOME")?std::string(getenv("HOME"))+"/npu-sandbox/npu-infer/build/int8";
+        const char *ternary_dir = getenv("HOME")?std::string(getenv("HOME"))+"/npu-sandbox/npu-infer/build/chess_infer";
 
         try {
             xrt_dev = xrt::device(0);  // NPU device 0

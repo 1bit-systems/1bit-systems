@@ -1,3 +1,4 @@
+/* Paths default to relative ./ — set $NPU_XCLBIN_DIR, $NPU_INSTS_DIR, $NPU_MODEL_PATH to override. */
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -8,8 +9,8 @@
 #include <xrt/xrt_kernel.h>
 static const int M=128,K=1024,N=4096;
 int main(){
-    const char*xp="/home/bcloud/npu-sandbox/npu-infer/build/int8/final_i8_QKV.xclbin";
-    const char*ip="/home/bcloud/npu-sandbox/npu-infer/build/int8/insts_i8_QKV.txt";
+    const char*xp="int8/final_i8_QKV.xclbin";
+    const char*ip="int8/insts_i8_QKV.txt";
     FILE*f=fopen(ip,"rb");if(!f){printf("No insts\n");return 1;}
     fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);
     std::vector<uint32_t>ins(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);

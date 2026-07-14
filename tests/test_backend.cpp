@@ -80,7 +80,7 @@ int main() {
     // ── 5. Tokenizer demo ──
     printf("\n─━─━─ 5. Tokenizer ─━─━─\n");
     BPETokenizer bpe;
-    if (bpe.load("/home/bcloud/models/ZAYA1-8B/tokenizer.json")) {
+    if (bpe.load(getenv("HOME")?std::string(getenv("HOME"))+"/models/ZAYA1-8B/tokenizer.json")) {
         const char* test_str = "Hello world!";
         auto encoded = bpe.encode(test_str);
         auto decoded = bpe.decode(encoded);

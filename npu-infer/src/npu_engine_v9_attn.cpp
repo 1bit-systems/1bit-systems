@@ -82,7 +82,7 @@ static uint64_t jo(const char*js,size_t jl,const char*nm){
 int main(){
     setvbuf(stdout,NULL,_IONBF,0);
     printf("=== v9 Activation-Scaled + NPU Attn + Temp=%.1f ===\n\n",TEMP);
-    const char*mp="/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+    const char*mp=getenv("NPU_MODEL_PATH")?getenv("NPU_MODEL_PATH"):"model.q4nx";
     int fd=open(mp,O_RDONLY);struct stat st;fstat(fd,&st);
     uint8_t*md=(uint8_t*)mmap(NULL,st.st_size,PROT_READ,MAP_PRIVATE,fd,0);close(fd);
     uint64_t hsz;memcpy(&hsz,md,8);uint64_t df=8+hsz;
@@ -104,7 +104,7 @@ int main(){
     }
     uint64_t no=jo(js,jl,"model.norm.weight"),lo_=jo(js,jl,"lm_head.weight");
     printf("Init...\n");xrt::device dev(0);
-    #define BB "/home/bcloud/npu-sandbox/npu-infer/build/chess_infer"
+    #define BB "chess_infer" /* set $NPU_CHESS_DIR */
     ChessCtx cq{"QKV",BB"/qkv/qwen3_qkv_chess.xclbin",BB"/qkv/qwen3_qkv_chess.insts",XM,H,4096};
     ChessCtx co{"O",  BB"/o/qwen3_o_chess.xclbin",    BB"/o/qwen3_o_chess.insts",    XM,2048,H};
     ChessCtx cg{"GU", BB"/gu/qwen3_gu_chess.xclbin",  BB"/gu/qwen3_gu_chess.insts",  XM,H,6144};

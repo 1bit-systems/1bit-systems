@@ -66,8 +66,8 @@ static size_t curl_write_cb(char* ptr, size_t size, size_t nmemb, void* userdata
 
 // ── Configuration ──
 static int listen_port = 13306;
-static std::string npu_engine_bin = "/home/bcloud/engine/npu/build/npu_engine_server";
-static std::string gpu_engine_bin = "/home/bcloud/build/zaya_server";  // GPU backend binary
+static std::string npu_engine_bin = getenv("HOME")?std::string(getenv("HOME"))+"/engine/npu/build/npu_engine_server";
+static std::string gpu_engine_bin = getenv("HOME")?std::string(getenv("HOME"))+"/build/zaya_server";  // GPU backend binary
 static std::string tokenizer_bin = "python3";
 static int max_workers = 4;
 
@@ -397,7 +397,7 @@ struct GpuEngine {
 static std::string tokenizer_script = R"(
 import sys, json
 from tokenizers import Tokenizer
-tok = Tokenizer.from_file("/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.json")
+tok = Tokenizer.from_file(getenv("HOME")?std::string(getenv("HOME"))+"/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.json")
 cmd = sys.argv[1]
 if cmd == "encode":
     text = sys.stdin.read()

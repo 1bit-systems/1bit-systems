@@ -18,11 +18,11 @@
 #   1 — int8 PPL drift exceeded tolerance
 #   2 — harness / binary / dataset / port missing
 #
-# Output: /home/bcloud/claude output/ppl-kv-dtype.json
+# Output: ${HOME}/claude output/ppl-kv-dtype.json
 
 set -euo pipefail
 
-OUT_DIR="/home/bcloud/claude output"
+OUT_DIR="${HOME}/claude output"
 OUT_JSON="${OUT_DIR}/ppl-kv-dtype.json"
 
 SERVER_BIN="${HALO_SERVER_BIN:-$HOME/.local/bin/1bit-halo-server-real}"

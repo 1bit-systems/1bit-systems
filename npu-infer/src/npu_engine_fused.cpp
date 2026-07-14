@@ -58,9 +58,9 @@ static const int KT = 64;       // k_tile
 static const int NT = 128;      // n_tile
 
 static const char *XCLBIN_BASE =
-    "/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build";
+    "config1_build" /* set $AIE_CONFIG1_DIR */;
 static const char *INST_BASE  =
-    "/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build";
+    "config1_build" /* set $AIE_CONFIG1_DIR */;
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -409,7 +409,7 @@ int main() {
     setvbuf(stdout, NULL, _IONBF, 0);
     printf("=== NPU v6 — Qwen3-0.6B (5-Variant Fused Backend) ===\n\n");
 
-    const char *mp = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+    const char *mp = getenv("NPU_MODEL_PATH")?getenv("NPU_MODEL_PATH"):"model.q4nx";
     int fd = open(mp, O_RDONLY);
     struct stat st;
     fstat(fd, &st);

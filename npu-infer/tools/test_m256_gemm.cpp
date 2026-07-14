@@ -1,3 +1,4 @@
+/* Paths default to relative ./ — set $NPU_XCLBIN_DIR, $NPU_INSTS_DIR, $NPU_MODEL_PATH to override. */
 // Minimal test: verify M=256 xclbin produces correct output for a single GEMM.
 // Uses the O_proj dimensions (K=2048, N=1024) to compare M=128 vs M=256 results.
 // With M=256, we pack 128 rows of actual data + 128 rows of zeros, then verify
@@ -50,11 +51,11 @@ struct XCLBIN {
 static bool load_xclbin(XCLBIN &v, int M, int K, int N, xrt::device &d) {
   char xp[256], ip[256];
   snprintf(xp, sizeof(xp),
-           "/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering"
+           getenv("HOME")?std::string(getenv("HOME"))+"/torch2aie/examples/gemm_asymmetric_tile_buffering"
            "/config1/build/final_%dx%dx%d_128x64x128.xclbin",
            M, K, N);
   snprintf(ip, sizeof(ip),
-           "/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering"
+           getenv("HOME")?std::string(getenv("HOME"))+"/torch2aie/examples/gemm_asymmetric_tile_buffering"
            "/config1/build/insts_%dx%dx%d_128x64x128.txt",
            M, K, N);
 

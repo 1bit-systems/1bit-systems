@@ -230,7 +230,7 @@ int main(int argc,char**argv){
     int o_i8=gi8("model.layers.0.self_attn.o_proj.weight"),g_i8=gi8("model.layers.0.mlp.gate_proj.weight"),u_i8=gi8("model.layers.0.mlp.up_proj.weight"),d_i8=gi8("model.layers.0.mlp.down_proj.weight");
 
     printf("Init NPU...\n");xrt::device dev(0);
-    std::string xd="/home/bcloud/npu-sandbox/npu-infer/build/int8";
+    const char* d=getenv("NPU_XCLBIN_DIR"); std::string xd=d?d:"int8";
     auto xp=[&](const char*t){return xd+"/final_i8_"+t+"_"+cfg.model_tag+".xclbin";};
     auto ip=[&](const char*t){return xd+"/insts_i8_"+t+"_"+cfg.model_tag+".txt";};
 
@@ -245,8 +245,8 @@ int main(int argc,char**argv){
     std::unique_ptr<I8Ctx> cu_ptr;
 
     // ── NPU Attention (optional, replaces CPU attn_omp) ──
-    std::string attn_xd="/home/bcloud/fastflowlm-build/src/xclbins/"+orig_model_name+"/attn.xclbin";
-    std::string attn_inst="/home/bcloud/npu-sandbox/npu-infer/build/chess_infer/attn_06b.o";
+    const char* ffx=getenv("FFLM_XCLBIN_DIR"); std::string attn_xd=ffx?ffx:"fastflowlm-build/src/xclbins/"; attn_xd+=+orig_model_name+"/attn.xclbin";
+    std::string attn_inst=std::string(d?d:"int8")+"/../chess_infer/attn_06b.o";
     AttnCtx ca;bool have_attn=false;
     if(ca.init(dev,attn_xd.c_str(),NH,NKV,HD)){
         printf("  NPU Attention: available (block_sz=%d) — use for seq_len>256\n",ca.block_sz);

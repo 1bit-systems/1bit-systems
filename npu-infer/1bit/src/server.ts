@@ -9,11 +9,11 @@ import { readFileSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
 
-const MODELS_BASE = "/home/bcloud/.config/flm/models";
-const MODELS_BASE_FALLBACK = "/home/bcloud/models";
-const ENGINE = "/home/bcloud/npu-sandbox/npu-infer/build/npu_engine_mt";
-const TOKENIZE_BIN = "/home/bcloud/1bit-systems/engine/npu/tokenizer/tokenize";
-const UI_DIR = "/home/bcloud/npu-sandbox/npu-infer/1bit/ui";
+const MODELS_BASE = "process.env.HOME + "/.config/flm/models";
+const MODELS_BASE_FALLBACK = "process.env.HOME + "/models";
+const ENGINE = "process.env.HOME + "/npu-sandbox/npu-infer/build/npu_engine_mt";
+const TOKENIZE_BIN = "process.env.HOME + "/1bit-systems/engine/npu/tokenizer/tokenize";
+const UI_DIR = "process.env.HOME + "/npu-sandbox/npu-infer/1bit/ui";
 
 // ── Model discovery ──────────────────────────────────────────────
 

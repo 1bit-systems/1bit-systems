@@ -30,7 +30,7 @@
   #define GU_FUSED 1  // 2*IM=6144 <= 14336
   #define BOS 151643
   #define EOS 151645
-  #define DEF_MP "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx"
+  #define DEF_MP NULL /* set $NPU_MODEL_PATH */
   #define Q_I8R 256
   #define KV_I8R 128
   #define O_I8R 256
@@ -55,7 +55,7 @@
   #define GU_FUSED 0  // 2*IM=24576 > 14336
   #define BOS 151643
   #define EOS 151645
-  #define DEF_MP "/home/bcloud/models/Qwen3-8B-NPU2/model.q4nx"
+  #define DEF_MP NULL /* set $NPU_MODEL_PATH */
   #define Q_I8R 2048
   #define KV_I8R 512
   #define O_I8R 2048
@@ -80,7 +80,7 @@
   #define GU_FUSED 0  // 2*IM=19456 > 14336
   #define BOS 151643
   #define EOS 151645
-  #define DEF_MP "/home/bcloud/.config/flm/models/Qwen3-VL-4B-Instruct-NPU2/model.q4nx"
+  #define DEF_MP NULL /* set $NPU_MODEL_PATH */
   #define Q_I8R 1280
   #define KV_I8R 320
   #define O_I8R 1280
@@ -105,7 +105,7 @@
   #define GU_FUSED 0  // 2*IM=28672 > 14336
   #define BOS 128000
   #define EOS 128001
-  #define DEF_MP "/home/bcloud/.config/flm/models/Llama-3.1-8B-NPU2/model.q4nx"
+  #define DEF_MP NULL /* set $NPU_MODEL_PATH */
   #define Q_I8R 2048
   #define KV_I8R 512
   #define O_I8R 2048
@@ -131,7 +131,7 @@
   #define GU_FUSED 1  // 2*IM=12288 <= 14336
   #define BOS 2
   #define EOS 1
-  #define DEF_MP "/home/bcloud/.config/flm/models/Gemma4-E2B-IT-NPU2/model.q4nx"
+  #define DEF_MP NULL /* set $NPU_MODEL_PATH */
   #define Q_I8R 384
   #define KV_I8R 48
   #define O_I8R 384
@@ -156,7 +156,7 @@
   #define GU_FUSED 1
   #define BOS 151643
   #define EOS 151645
-  #define DEF_MP "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx"
+  #define DEF_MP NULL /* set $NPU_MODEL_PATH */
   #define Q_I8R 256
   #define KV_I8R 128
   #define O_I8R 256
@@ -174,7 +174,7 @@
 #define WKVH (NKV/AW)
 
 // XCLBIN directory
-#define XCLBIN_DIR "/home/bcloud/npu-sandbox/npu-infer/build/int8"
+#define XCLBIN_DIR "int8" /* set $NPU_XCLBIN_DIR to override */
 
 // xclbin name builder
 // QKV: final_i8_QKV_<suffix>.xclbin

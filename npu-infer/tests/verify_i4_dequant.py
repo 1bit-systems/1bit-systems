@@ -2,8 +2,8 @@
 """Verify I4 dequantization matches captured FLM weight BO"""
 import json, struct, sys
 
-model_path = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx"
-cap_file = "/home/bcloud/npu-sandbox/xrt-direct/captured_bo_dump/h7_1MB_weight_prepack_layer0.bin"
+model_path = os.path.expanduser("~/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx"
+cap_file = os.path.expanduser("~/npu-sandbox/xrt-direct/captured_bo_dump/h7_1MB_weight_prepack_layer0.bin"
 
 # Load captured BO (pre-packed BF16 weights from FLM)
 with open(cap_file, "rb") as f:

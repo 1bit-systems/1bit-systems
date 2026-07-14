@@ -7,7 +7,7 @@ from safetensors import safe_open
 import numpy as np
 import os, sys, json, time
 
-MODEL_DIR = "/home/bcloud/models/albert-moe"
+MODEL_DIR = os.path.expanduser("~/models/albert-moe"
 DEVICE = "cpu"
 
 # ── Config ──

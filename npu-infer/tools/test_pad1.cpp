@@ -14,8 +14,8 @@ static uint16_t fbf16(float v){uint32_t b;memcpy(&b,&v,4);uint32_t r=((b>>16)&1)
 static const int MT=128, KT=64, NT=128;
 
 int main() {
-    const char *xp = "/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/final_128x1024x1024_128x64x128.xclbin";
-    const char *ip = "/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/insts_128x1024x1024_128x64x128.txt";
+    const char *xp = "final_128x1024x1024_128x64x128.xclbin";
+    const char *ip = "insts_128x1024x1024_128x64x128.txt";
     FILE *f = fopen(ip, "rb"); if (!f) return 1;
     fseek(f, 0, 2); long sz = ftell(f); fseek(f, 0, 0);
     std::vector<uint32_t> ins(sz/4); fread(ins.data(), 4, ins.size(), f); fclose(f);

@@ -20,7 +20,7 @@ namespace fs = std::filesystem;
 #include "xrt/xrt_kernel.h"
 
 static const char* XCLBIN_DIR = "/opt/fastflowlm/share/flm/xclbins/Qwen3-0.6B-NPU2";
-static const char* BO_DUMP_DIR = "/home/bcloud/npu-sandbox/xrt-direct/captured_bo_dump";
+static const char* BO_DUMP_DIR = getenv("NPU_BO_DUMP_DIR")?getenv("NPU_BO_DUMP_DIR"):"captured_bo_dump";
 
 struct CapturedBO {
     std::string label;

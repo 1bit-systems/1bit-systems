@@ -89,7 +89,7 @@ int main() {
     LMConfig* cfg = new (cfg_buf) LMConfig();
     
     // Set some reasonable values
-    cfg->s1 = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2";
+    cfg->s1 = getenv("NPU_MODEL_DIR")?getenv("NPU_MODEL_DIR"):"./models";
     cfg->s2 = "qwen3:0.6b";
     cfg->s3 = "Qwen3-0.6B";
     cfg->v1 = 0;

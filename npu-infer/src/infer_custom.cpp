@@ -390,9 +390,9 @@ void NpuGemm::run(const uint16_t* activation, int M, int K,
 int main(int argc, char** argv) {
     printf("=== Qwen3-0.6B NPU Inference (Custom torch2aie Kernel) ===\n\n");
 
-    const char* model_path = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
-    const char* xclbin_path = "/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/final_4096x4096x2048_128x64x128.xclbin";
-    const char* instr_path = "/home/bcloud/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/insts_4096x4096x2048_128x64x128.txt";
+    const char* model_path = getenv("NPU_MODEL_PATH")?getenv("NPU_MODEL_PATH"):"model.q4nx";
+    const char* xclbin_path = getenv("NPU_XCLBIN")?getenv("NPU_XCLBIN"):"final_4096x4096x2048.xclbin";
+    const char* instr_path = getenv("NPU_INSTS")?getenv("NPU_INSTS"):"insts_4096x4096x2048.txt";
 
     if (argc > 1) model_path = argv[1];
 

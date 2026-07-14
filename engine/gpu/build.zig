@@ -3,7 +3,7 @@
 const std = @import("std");
 pub fn build(b: *std.Build) void {
     _ = b;
-    @compileError("GPU engine builds from /home/bcloud/zinc/. Run: cd /home/bcloud/zinc && zig build -Doptimize=ReleaseFast");
+    @compileError("GPU engine builds from /home/$USER/zinc/. Run: cd /home/$USER/zinc && zig build -Doptimize=ReleaseFast");
 }
 
 const Backend = enum {

@@ -9,7 +9,7 @@
 //   4. Measure max-abs-diff fp16-vs-fd (should be < 0.05 fp16 units).
 //
 // Usage: bench_kv_fd [out_path]
-//   out_path defaults to "/home/bcloud/claude output/kv_fd_bench-<UTC>.txt"
+//   out_path defaults to getenv("HOME")?std::string(getenv("HOME"))+"/claude output/kv_fd_bench-<UTC>.txt"
 
 #include "rocm_cpp/ck_gemm.h"
 
@@ -76,7 +76,7 @@ int main(int argc, char** argv) {
 
     const std::string out_path = (argc > 1)
         ? std::string(argv[1])
-        : ("/home/bcloud/claude output/kv_fd_bench-" + utc_stamp() + ".txt");
+        : (getenv("HOME")?std::string(getenv("HOME"))+"/claude output/kv_fd_bench-" + utc_stamp() + ".txt");
 
     std::mt19937 rng(0xC0DEF00D);
     std::normal_distribution<float> nd(0.0f, 1.0f);

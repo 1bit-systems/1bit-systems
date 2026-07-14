@@ -219,7 +219,7 @@ int main(int argc,char**argv){
     co.MD=XM;co.KD=NH*HD;co.ND=H;
     cg.MD=XM;cg.KD=H;cg.ND=6144;
     cd.MD=XM;cd.KD=IM;cd.ND=H;
-#define D "/home/bcloud/npu-sandbox/npu-infer/build/int8"
+#define D "int8" /* set $NPU_XCLBIN_DIR to override */
     if(!cq2.init(dev,D"/final_i8_QKV_2layer.xclbin",D"/insts_i8_QKV_2layer.txt",4)||
        !co.init(dev,D"/final_i8_O_v.xclbin",D"/insts_i8_O_v.txt",4)||
        !cg.init(dev,D"/final_i8_GU_v.xclbin",D"/insts_i8_GU_v.txt",4)||

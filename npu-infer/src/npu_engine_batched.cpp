@@ -23,9 +23,9 @@
 static const int MT=128, KT=64, NT=128, XM=1024, XK=1024, XN=1024;
 
 static const char *XCLBIN =
-    "/home/bcloud/npu-sandbox/npu-infer/build/qwen3_gemm/design_1024_bfp16.xclbin";
+    "qwen3_gemm/design_1024_bfp16.xclbin" /* set $NPU_XCLBIN_DIR */;
 static const char *INSTS =
-    "/home/bcloud/npu-sandbox/npu-infer/build/qwen3_gemm/design_1024_bfp16.insts";
+    "qwen3_gemm/design_1024_bfp16.insts" /* set $NPU_INSTS_DIR */;
 
 static float bf16f(uint16_t v){uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}
 static uint16_t fbf16(float v){

@@ -276,7 +276,7 @@ int main(int argc,char**argv){
 
     fprintf(stderr,"Init NPU contexts (M=%d,XM=%d)...\n",M,XM);
     xrt::device dev(0);
-    std::string xd="/home/bcloud/npu-sandbox/npu-infer/build/int8";
+    const char* d=getenv("NPU_XCLBIN_DIR"); std::string xd=d?d:"int8";
     
     I8Ctx cq,co,cg,cd;
     cq.MD=XM;cq.KD=cfg.xclbin_qkv_k;cq.ND=cfg.xclbin_qkv_n;

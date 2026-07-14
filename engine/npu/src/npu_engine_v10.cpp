@@ -54,8 +54,8 @@ struct LMCtx{
     float es; // A input scale, computed dynamically per call in sample() (was fixed at 5.0/127)
 
     bool init(xrt::device&d){
-        const char*xp="/home/bcloud/npu-sandbox/npu-infer/build/int8/final_i8_LM_n30k.xclbin";
-        const char*ip="/home/bcloud/npu-sandbox/npu-infer/build/int8/insts_i8_LM_n30k.txt";
+        const char* bd10=getenv("NPU_XCLBIN_DIR")?getenv("NPU_XCLBIN_DIR"):"int8"; const char*xp=(std::string(bd10)+"/final_i8_LM_n30k.xclbin").c_str();
+        const char*ip=(std::string(bd10)+"/insts_i8_LM_n30k.txt").c_str();
         FILE*f=fopen(ip,"rb");if(!f)return false;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);
         ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);
         xc=std::make_unique<xrt::xclbin>(std::string(xp));d.register_xclbin(*xc);
@@ -132,7 +132,7 @@ int main(int argc,char**argv){
     setvbuf(stdout,NULL,_IONBF,0);
     int npt=9,ng=(argc>1)?atoi(argv[1]):16;
     printf("=== NPU Engine v10 — NPU LM head + M=%d Batch (M=%d) ===\n\n",BS,npt+1);
-    const char*mp="/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+    const char*mp=getenv("NPU_MODEL_PATH")?getenv("NPU_MODEL_PATH"):"model.q4nx";
     int fd=open(mp,O_RDONLY);struct stat st;fstat(fd,&st);
     uint8_t*md=(uint8_t*)mmap(NULL,st.st_size,PROT_READ,MAP_PRIVATE,fd,0);close(fd);
     uint64_t hsz;memcpy(&hsz,md,8);uint64_t df=8+hsz;
@@ -153,7 +153,7 @@ int main(int argc,char**argv){
      lm_head_f32.assign(lm_raw,lm_raw+(size_t)lm_r*lm_c);free(lm_raw);}
 
     printf("Init 5 GEMM (4 layer + LM head)...\n");xrt::device dev(0);
-    #define D "/home/bcloud/npu-sandbox/npu-infer/build/int8"
+    #define D "int8" /* set $NPU_XCLBIN_DIR to override */
     I8Ctx cq{"QKV",XM,H,4096},co{"O",XM,NH*HD,H},cg{"GU",XM,H,6144},cd{"D",XM,IM,H};
     cq.init(dev,D"/final_i8_QKV_v.xclbin",D"/insts_i8_QKV_v.txt",4);
     co.init(dev,D"/final_i8_O_v.xclbin",  D"/insts_i8_O_v.txt",  4);

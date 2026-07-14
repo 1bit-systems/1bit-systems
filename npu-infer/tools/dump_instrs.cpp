@@ -128,7 +128,7 @@ int main(int argc, char* argv[]) {
     memset(&config, 0, sizeof(config));
     
     // Set model info strings
-    config.str0 = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2";
+    config.str0 = getenv("NPU_MODEL_DIR")?getenv("NPU_MODEL_DIR"):".";
     config.str1 = "qwen3:0.6b";
     config.str2 = "/opt/fastflowlm/share/flm/xclbins/Qwen3-0.6B-NPU2";
     config.str3 = "/opt/fastflowlm/lib/flm";

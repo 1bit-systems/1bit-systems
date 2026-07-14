@@ -9,13 +9,13 @@
 #     benchmarks/q2_0-strix-halo-validate.sh --dry-run
 #
 #   Q2_MODEL=/models/Ternary-Bonsai-1.7B-Q2_0-g64.gguf \
-#     LLAMA_CPP_DIR=/home/bcloud/prism-llama.cpp \
+#     LLAMA_CPP_DIR=${HOME}/prism-llama.cpp \
 #     benchmarks/q2_0-strix-halo-validate.sh --build --bench --server-smoke
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LLAMA_CPP_DIR="${LLAMA_CPP_DIR:-/home/bcloud/prism-llama.cpp}"
+LLAMA_CPP_DIR="${LLAMA_CPP_DIR:-${HOME}/prism-llama.cpp}"
 BUILD_DIR="${BUILD_DIR:-$LLAMA_CPP_DIR/build-q2-hip}"
 Q2_MODEL="${Q2_MODEL:-}"
 Q2_FORMAT="${Q2_FORMAT:-unknown}"

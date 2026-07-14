@@ -58,7 +58,7 @@ static void cpu_attn_batch(int nQ,const float*Q,const float*K,const float*V,int 
 int main(int argc,char**argv){
     setvbuf(stdout,NULL,_IONBF,0);
     printf("=== NPU Engine v2 — Batched Prefill + NPU Attention ===\n\n");
-    const char*mp="/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+    const char*mp=getenv("NPU_MODEL_PATH")?getenv("NPU_MODEL_PATH"):"model.q4nx";
     int npt=(argc>1)?atoi(argv[1]):9;if(npt<1)npt=1;if(npt>9)npt=9;
     int ng=(argc>2)?atoi(argv[2]):8;
     int fd=open(mp,O_RDONLY);struct stat st;fstat(fd,&st);
@@ -74,7 +74,7 @@ int main(int argc,char**argv){
     {auto fw=(const uint16_t*)(md+df+no);for(int i=0;i<H;i++)fin[i]=bf16g(fw[i]);}
 
     printf("Init 4 GEMM contexts...\n");xrt::device dev(0);
-    #define D "/home/bcloud/npu-sandbox/npu-infer/build/int8"
+    #define D "int8" /* set $NPU_XCLBIN_DIR to override */
     I8Ctx cq{"QKV",XM,H,4096},co{"O",XM,NH*HD,H},cg{"GU",XM,H,6144},cd{"D",XM,IM,H};
     cq.init(dev,D"/final_i8_QKV_v.xclbin",D"/insts_i8_QKV_v.txt",4);
     co.init(dev,D"/final_i8_O_v.xclbin",  D"/insts_i8_O_v.txt",  4);

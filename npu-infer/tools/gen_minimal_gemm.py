@@ -19,13 +19,13 @@ import numpy as np
 from ml_dtypes import bfloat16
 
 # Path setup
-TORCH2AIE_ROOT = Path("/home/bcloud/torch2aie")
+TORCH2AIE_ROOT = Path(os.path.expanduser("~/torch2aie")
 TOOLCHAIN = TORCH2AIE_ROOT / "toolchain"
 AIETOOLS = TOOLCHAIN / "aietools"
 MLIR_AIE_DIR = TOOLCHAIN / "mlir_aie"
 XRT_DIR = TOOLCHAIN / "xrt"
 SYSROOT = TOOLCHAIN / "sysroot"
-BUILD_DIR = Path("/home/bcloud/npu-sandbox/npu-infer/build/qwen3_gemm")
+BUILD_DIR = Path(os.environ.get("NPU_BUILD_DIR", "."))
 
 # Environment
 for var, paths in [
