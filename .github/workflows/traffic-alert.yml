@@ -7,7 +7,7 @@ on:
 
 permissions:
   issues: write
-  contents: read
+  contents: write   # Traffic API requires push-level access
   pull-requests: read
 
 jobs:
@@ -25,33 +25,34 @@ jobs:
           API="https://api.github.com/repos/$OWNER/$REPO/traffic"
 
           # --- Clones ---
-          CLONE_JSON=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+          # Fetch traffic data. Fail loudly if API returns empty (likely permissions issue).
+          CLONE_RESP=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "$API/clones") || { echo "CLONE_JSON='{}'"; CLONE_JSON='{}'; }
-          echo "DEBUG: clone response: $(echo "$CLONE_JSON" | head -c 200)"
-          CLONE_COUNT=$(echo "$CLONE_JSON" | jq '.count // 0')
-          CLONE_UNIQUES=$(echo "$CLONE_JSON" | jq '.uniques // 0')
+            "$API/clones") || { echo "::error::Traffic API (clones) failed — check GITHUB_TOKEN permissions (need push-level access)"; exit 1; }
+          echo "DEBUG: clone response: $(echo "$CLONE_RESP" | head -c 200)"
+          CLONE_COUNT=$(echo "$CLONE_RESP" | jq '.count // 0')
+          CLONE_UNIQUES=$(echo "$CLONE_RESP" | jq '.uniques // 0')
 
           # Last 2 days
-          LEN=$(echo "$CLONE_JSON" | jq '.clones | length')
+          LEN=$(echo "$CLONE_RESP" | jq '.clones | length')
           if [ "$LEN" -ge 2 ]; then
-            YESTERDAY=$(echo "$CLONE_JSON" | jq '.clones[-2].count // 0')
-            YESTERDAY_UNIQ=$(echo "$CLONE_JSON" | jq '.clones[-2].uniques // 0')
+            YESTERDAY=$(echo "$CLONE_RESP" | jq '.clones[-2].count // 0')
+            YESTERDAY_UNIQ=$(echo "$CLONE_RESP" | jq '.clones[-2].uniques // 0')
           else
             YESTERDAY=0; YESTERDAY_UNIQ=0
           fi
           if [ "$LEN" -ge 3 ]; then
-            DAY_BEFORE=$(echo "$CLONE_JSON" | jq '.clones[-3].count // 0')
+            DAY_BEFORE=$(echo "$CLONE_RESP" | jq '.clones[-3].count // 0')
           else
             DAY_BEFORE=0
           fi
 
           # --- Views ---
-          VIEW_JSON=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+          VIEW_RESP=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "$API/views") || VIEW_JSON='{}'
-          VIEW_COUNT=$(echo "$VIEW_JSON" | jq '.count // 0')
-          VIEW_UNIQUES=$(echo "$VIEW_JSON" | jq '.uniques // 0')
+            "$API/views") || { echo "::warning::Traffic API (views) failed"; VIEW_RESP='{}'; }
+          VIEW_COUNT=$(echo "$VIEW_RESP" | jq '.count // 0')
+          VIEW_UNIQUES=$(echo "$VIEW_RESP" | jq '.uniques // 0')
 
           # --- Referrers ---
           REF_JSON=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \

@@ -1,3 +1,5 @@
+> **2026-07-14 update:** the compiler patch below is real and still useful groundwork, but it only reaches the *compiler*, not the hardware. `bf16_kernel_dev/STEP5-INT8-32TILE-PLAN.md` (2026-07-13, one commit later) found the actual blocker: **the NPU firmware/driver rejects `column_width > 8` with EINVAL at execution time**, independent of what the compiler is willing to emit. Don't read "Status: COMPLETE" below as "40 columns works on hardware" — the on-hardware test this doc lists under "Next Steps" is what hit that wall. Full writeup: `openspec/changes/stack-audit-2026-07-14/task3-decision.md`.
+
 # 40-Column NPU2 Compiler for Strix Halo (XDNA 2)
 
 > **Design Spec** — Building a custom MLIR-AIE compiler that supports 40 NPU columns for maximum prefill/batch throughput on AMD Strix Halo (XDNA 2).

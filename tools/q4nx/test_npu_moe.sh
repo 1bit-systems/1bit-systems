@@ -141,7 +141,7 @@ else
     echo -e "  ${YELLOW}  (spawns worker once, tests all ops in sequence)${NC}"
     echo ""
     # Run with output capture via file to avoid pipe deadlock
-    python3 "$PYTEST" "$ENGINE" "$MODEL" 40 > "$TMPDIR/py_out.txt" 2>&1
+    python3 "$PYTEST" "$ENGINE" "$MODEL" 40 > "$TMPDIR/py_out.txt" 2>&1 || true
     cat "$TMPDIR/py_out.txt"
     PY_PASS=$(grep -c "^  ✓" "$TMPDIR/py_out.txt" 2>/dev/null || echo 0)
     PY_FAIL=$(grep -c "^  ✗" "$TMPDIR/py_out.txt" 2>/dev/null || echo 0)

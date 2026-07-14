@@ -74,7 +74,7 @@ class CppEngineBackend:
         try:
             result = subprocess.run(
                 [python_bin, "-c",
-                 "import sys; sys.path.insert(0, os.environ.get('REPO_ROOT','')); "
+                 "import sys, os; sys.path.insert(0, os.environ.get('REPO_ROOT','')); "
                  "from tools.npu_runner import NPURunner; print('OK')"],
                 capture_output=True, text=True, timeout=120,
                 env={**self.env, "REPO_ROOT": str(REPO_ROOT)},

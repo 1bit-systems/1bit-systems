@@ -39,9 +39,10 @@ case "$MODEL" in
         cd /tmp/ternary-intelligence-stack/albert-moe-13
         cargo build --release --bin moe-test 2>&1 | tail -3
     fi
-    # Run benchmark with prompt
+    # Run benchmark with prompt (PROMPT passed via env var to prevent shell injection)
     echo "  Running benchmark... (use screen for interactive TUI)"
-    screen -dmS albert bash -c "cd /tmp/ternary-intelligence-stack/albert-moe-13 && echo '$PROMPT' | timeout 30 $BIN 2>&1 | tee /tmp/albert_out.log"
+    export PROMPT_VAL="$PROMPT" BIN_VAL="$BIN"
+    screen -dmS albert bash -c 'cd /tmp/ternary-intelligence-stack/albert-moe-13 && echo "$PROMPT_VAL" | timeout 30 "$BIN_VAL" 2>&1 | tee /tmp/albert_out.log'
     sleep 2
     echo "  Started in screen session 'albert'"
     echo "  View: screen -r albert"

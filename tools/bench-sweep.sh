@@ -5,7 +5,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROCM_CPP_DIR="${ROCM_CPP_DIR:-$SCRIPT_DIR}"
+# Default to repo root (parent of tools/), since CMakeLists.txt lives there
+ROCM_CPP_DIR="${ROCM_CPP_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 cd "$ROCM_CPP_DIR"
 

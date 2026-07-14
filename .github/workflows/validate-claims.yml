@@ -81,6 +81,9 @@ jobs:
   measure:
     name: Re-measure on gfx1151
     runs-on: [self-hosted, linux, x64]
+    # SECURITY: self-hosted runner — only run for same-repo PRs, not external forks.
+    # External contributors must submit benchmark changes for manual re-measurement.
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4

@@ -162,9 +162,10 @@ def _handle_stripe_webhook(body: bytes, sig_header: str) -> dict:
     # Verify signature if secret is configured
     if STRIPE_WEBHOOK_SECRET and sig_header:
         try:
-            timestamp, signature = sig_header.split(",", 1)
-            t = timestamp.split("=")[1]
-            s = signature.split("=")[1]
+            # Stripe signature format: t=<timestamp>,v1=<sig>,v0=<sig>,...
+            parts = dict(p.split("=", 1) for p in sig_header.split(","))
+            t = parts["t"]
+            s = parts["v1"]
             signed = f"{t}.{body.decode()}"
             expected = hmac.new(
                 STRIPE_WEBHOOK_SECRET.encode(), signed.encode(), hashlib.sha256
@@ -172,7 +173,7 @@ def _handle_stripe_webhook(body: bytes, sig_header: str) -> dict:
             if not hmac.compare_digest(expected, s):
                 return {"error": "Invalid signature", "status": 403}
         except Exception:
-            return {"error": "Bad signature header", "status": 400}
+            return {"error": "Bad signature header", "status": 403}
 
     if event_type == "checkout.session.completed":
         session = event.get("data", {}).get("object", {})
