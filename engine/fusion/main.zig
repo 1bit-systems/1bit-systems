@@ -150,7 +150,8 @@ pub fn main(init: std.process.Init) !void {
     // ── Load model ──
     std.debug.print("Loading model: {s} (tag: {s})\n", .{ opts.model_path, opts.model_tag });
     var model = try model_data.loadModel(allocator, init.io, opts.model_path, opts.model_tag);
-    defer model.deinit(allocator);
+    // Executor takes ownership of model weights (frees in its own deinit).
+    // Do NOT call model.deinit() separately — that would double-free.
 
     const cfg = model.config;
     std.debug.print("  H={d} NC={d} NH={d} NKV={d} HD={d} IM={d} NV={d}\n", .{
@@ -181,8 +182,8 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("  GPU unavailable: {s} (CPU fallback)\n", .{@errorName(err)});
         return error.GpuUnavailable;
     };
-    defer gpu_attn_instance.deinit();
     std.debug.print("  GPU flash attention ready!\n", .{});
+    // NOTE: no defer gpu_attn_instance.deinit() — executor owns it (assigned below)
 
     // ── Create FusedExecutor ──
     // Map dispatcher policy to fuse policy by name
