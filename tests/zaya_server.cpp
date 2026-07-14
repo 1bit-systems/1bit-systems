@@ -2,9 +2,10 @@
 //
 // ONE BINARY. Zero Python. Zero Rust at runtime.
 //
-// Auto-detects available hardware (ROCm HIP > CPU fallback).
+// Auto-detects available hardware (ROCm HIP > Vulkan > NPU > CPU fallback).
 // Auto-detects model architecture from .h1b header or model manifest.
 // TokenRouter dispatches to the best backend per request.
+// 6 routing strategies: auto, cascade, spec_decode, content, parallel_moe, passthrough.
 // OpenAI-compatible API: POST /v1/chat/completions
 //
 // Build: cmake --build . --target zaya_server -j8
@@ -186,6 +187,7 @@ int main(int argc, char** argv) {
             else if (s == "cascade") strategy = RouteStrategy::CASCADE;
             else if (s == "spec_decode") strategy = RouteStrategy::SPEC_DECODE;
             else if (s == "content") strategy = RouteStrategy::CONTENT;
+            else if (s == "parallel_moe") strategy = RouteStrategy::PARALLEL_MOE;
             else if (s == "passthrough") strategy = RouteStrategy::PASSTHROUGH;
         } else if (a == "--help" || a == "-h") {
             printf("zaya_server — Pure C++ multi-model, multi-backend inference server\n\n");
@@ -195,7 +197,7 @@ int main(int argc, char** argv) {
             printf("  --manifest PATH     Load model config from JSON manifest\n");
             printf("  --weights-dir DIR   Directory for weight .bin files\n\n");
             printf("Routing:\n");
-            printf("  --strategy auto|cascade|spec_decode|content|passthrough\n\n");
+            printf("  --strategy auto|cascade|spec_decode|content|parallel_moe|passthrough\n\n");
             printf("Server:\n");
             printf("  --port N            Listen port (default: 8088)\n\n");
             printf("Endpoints:\n");
@@ -242,10 +244,11 @@ int main(int argc, char** argv) {
     fprintf(stderr, "   GET  /v1/models          — model list\n");
     fprintf(stderr, "   POST /v1/chat/completions — OpenAI-compatible\n");
     fprintf(stderr, "   Strategy: %s\n\n",
-        strategy == RouteStrategy::AUTO ? "auto" :
-        strategy == RouteStrategy::CASCADE ? "cascade" :
-        strategy == RouteStrategy::SPEC_DECODE ? "spec_decode" :
-        strategy == RouteStrategy::CONTENT ? "content" : "passthrough");
+        strategy == RouteStrategy::AUTO ? "auto (fastest available)" :
+        strategy == RouteStrategy::CASCADE ? "cascade (per-token fallback)" :
+        strategy == RouteStrategy::SPEC_DECODE ? "spec_decode (draft+verify)" :
+        strategy == RouteStrategy::CONTENT ? "content (keyword-based)" :
+        strategy == RouteStrategy::PARALLEL_MOE ? "parallel_moe (GPU+NPU)" : "passthrough");
 
     SimpleTokenizer tok;
 
@@ -288,6 +291,14 @@ int main(int argc, char** argv) {
                 "\"hidden_size\":" + std::to_string(cfg.hidden_size) + ","
                 "\"layers\":" + std::to_string(cfg.num_layers) + ","
                 "\"vocab\":" + std::to_string(cfg.vocab_size) + ","
+                "\"strategy\":\"" +
+                (strategy == RouteStrategy::AUTO ? "auto" :
+                 strategy == RouteStrategy::CASCADE ? "cascade" :
+                 strategy == RouteStrategy::SPEC_DECODE ? "spec_decode" :
+                 strategy == RouteStrategy::CONTENT ? "content" :
+                 strategy == RouteStrategy::PARALLEL_MOE ? "parallel_moe" : "passthrough") +
+                "\","
+                "\"moe_pipeline\":" + std::string(router.moe_pipeline_.enabled_ ? "true" : "false") + ","
                 "\"version\":\"2026.07\"}";
             send_json(200, resp); continue;
         }
