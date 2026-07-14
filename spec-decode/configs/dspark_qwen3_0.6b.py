@@ -20,7 +20,7 @@ model = dict(
     mask_token_id=151669,
     num_anchors=512,
 
-    # Markov head — rank=64 for 0.6B (smaller vocab)
+    # Markov head — rank=128 (Qwen3-0.6B config, see dflash variant with markov_rank=0)
     markov_rank=128,
     markov_head_type='vanilla',
 

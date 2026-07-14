@@ -71,11 +71,16 @@ if [ "$SKIP_ROCM" = false ]; then
     cmake --build build --target zaya_server -j"$(nproc)" || { warn "cmake build failed"; exit 1; }
     log "Build complete: $DIR/build/zaya_server ($(stat -c%s "$DIR/build/zaya_server") bytes)"
 else
-    warn "Skipping kernel build. Set LD_LIBRARY_PATH to find librocm_cpp.so."
-    log "Building server only (requires pre-built librocm_cpp.so)..."
-    cd "$DIR"
-    cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151 || { warn "cmake configure failed"; exit 1; }
-    cmake --build build --target zaya_server -j"$(nproc)" || { warn "cmake build failed"; exit 1; }
+    warn "--skip-rocm: kernel build skipped."
+    warn "Make sure librocm_cpp.so is on LD_LIBRARY_PATH before running zaya_server."
+    log "Checking for pre-built server binary..."
+    if [ -f "$DIR/build/zaya_server" ]; then
+        log "Found existing build: $DIR/build/zaya_server"
+    else
+        warn "No pre-built server found at $DIR/build/zaya_server."
+        warn "Run without --skip-rocm on a ROCm-equipped machine, or"
+        warn "download a pre-built release from GitHub."
+    fi
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────

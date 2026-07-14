@@ -54,8 +54,11 @@ jobs:
 
       - name: Benchmark
         if: env.DRIVER_OK == 'true'
+        env:
+          PRE: ${{ github.event.inputs.prefill_tokens || '9' }}
+          DEC: ${{ github.event.inputs.decode_tokens || '4' }}
         run: |
-          M=${PRE:-9}; N=${DEC:-4}
+          M=$PRE; N=$DEC
           echo "=== NPU Benchmark $(date -u) ==="
           echo "Prefill tokens: $M, Decode tokens: $N"
           cd engine/npu/build
