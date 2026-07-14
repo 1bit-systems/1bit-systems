@@ -29,13 +29,14 @@ REPO = Path(__file__).resolve().parent.parent
 
 # label -> path of the artifact whose size we publish.
 ARTIFACTS = {
+    "zaya": REPO / "build/zaya_server",
     "fused": REPO / "engine/fusion/zig-out/bin/fused-engine",
     "decode": REPO / "build/bitnet_decode",
     "tui": REPO / "build/bitnet_tui",
 }
 
 # Artifacts we also report a stripped size for.
-STRIPPABLE = {"decode", "tui"}
+STRIPPABLE = {"zaya", "decode", "tui"}
 
 
 def stripped_size(path: Path) -> int | None:

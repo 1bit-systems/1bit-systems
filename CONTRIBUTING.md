@@ -1,6 +1,6 @@
 # Contributing to 1bit.systems
 
-**One Binary to rule them all.** A pure C++ LLM inference server that auto-detects every supported model architecture and dispatches tokens to the fastest available backend — NPU fused, GPU HIP, Vulkan, or CPU — from a single 207 KB binary. No Python at runtime. No Rust at runtime. Zero configuration files.
+**One Binary to rule them all.** A pure C++ LLM inference server that auto-detects every supported model architecture and dispatches tokens to the fastest available backend — NPU fused, GPU HIP, Vulkan, or CPU — from a single 282 KB binary. No Python at runtime. No Rust at runtime. Zero configuration files.
 
 This guide covers how to build, test, and contribute to the project.
 
@@ -32,7 +32,7 @@ This guide covers how to build, test, and contribute to the project.
 
 ```
                      ┌──────────────────────────────────────┐
-                     │       zaya_server  (207 KB)          │
+                     │       zaya_server  (282 KB)          │
                      │     Pure C++ · No Python · No Rust   │
                      └─────────────┬────────────────────────┘
                                    │
@@ -53,7 +53,7 @@ This guide covers how to build, test, and contribute to the project.
 
 | Metric | Value |
 |--------|-------|
-| Binary | `zaya_server` — **207 KB** |
+| Binary | `zaya_server` — **282 KB** |
 | Language | **C++23** (NPU engine), **C++20 with HIP** (GPU kernels), C++20 (server) |
 | Build system | **CMake** 3.21+ with **Ninja** |
 | GPU compiler | **HIP** via AMD ROCm **7.2.4** (TheRock `/ amdclang++`) |
@@ -140,7 +140,7 @@ cmake --build build --target zaya_server -j$(nproc)
 
 # Verify size
 ls -lh build/zaya_server
-# Expected: ~207 KB
+# Expected: ~282 KB (see site/numbers.json for the current auto-tracked value)
 ```
 
 ### Build NPU Engine
@@ -188,7 +188,7 @@ cmake --build build -j$(nproc)
 ```
 1bit-systems/
 ├── tests/
-│   └── zaya_server.cpp       ← THE ONE BINARY — 207 KB, 19 KB source
+│   └── zaya_server.cpp       ← THE ONE BINARY — 282 KB, 19 KB source
 ├── src/                       HIP C++ kernels (ternary GEMV/GEMM, prefill, KV cache)
 │   ├── bonsai_*.hip           Bonsai 1.58-bit ternary kernels
 │   ├── sherry_*.hip           Sherry 3:4 N:M sparse ternary kernels
@@ -306,9 +306,9 @@ No Rust runtime, Rust build tools, or Rust dynamic libraries may be required to 
 
 `zaya_server` reads the Q4NX header of any supported model at startup, auto-detects architecture dimensions (layers, heads, hidden size), allocates correct buffers, and dispatches to the right backend. **No configuration files. No model registry.** Every new model topology should work without recompilation.
 
-### 207 KB Target
+### Binary Size Budget
 
-Every new feature should justify its binary size cost. The server is 19 KB of C++ source compiling to a 207 KB static binary. Size regressions require strong justification. When adding code, ask: *"Does this belong in the one binary, or can it live in the NPU engine or a tool?"*
+Every new feature should justify its binary size cost. The server is 19 KB of C++ source; it originally compiled to a 207 KB static binary and is currently 282 KB (auto-tracked in `site/numbers.json` — see `tools/gen_numbers.py`). That 36% growth was never individually justified in a PR — it accumulated silently because nothing re-measured the binary size until an audit caught it. Size regressions require strong justification. When adding code, ask: *"Does this belong in the one binary, or can it live in the NPU engine or a tool?"*
 
 ### CMake-Driven Build
 
@@ -442,7 +442,7 @@ Be excellent to each other. This is a solo-developed open-source project built f
 - **Be respectful**: Everyone is learning. Assume good faith.
 - **Be constructive**: Critique code, not people. Offer alternatives.
 - **Be patient**: This is a small project with one primary maintainer. Reviews take time.
-- **Be size-conscious**: 207 KB is a feature. Every byte counts.
+- **Be size-conscious**: a small binary is a feature. Every byte counts (current: 282 KB, tracked in `site/numbers.json`).
 
 This project is MIT-licensed. Sherry-specific kernels in `src/sherry_*.hip` are PolyForm Noncommercial 1.0.0 (see [LICENSE-SHERRY.md](LICENSE-SHERRY.md)).
 

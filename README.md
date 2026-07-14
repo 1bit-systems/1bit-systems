@@ -4,7 +4,7 @@
 
 # One Binary to rule them all.
 
-### Pure C++ inference server · 207 KB · No Python · No Rust
+### Pure C++ inference server · 282 KB · No Python · No Rust
 
 Single binary that runs every model on every backend — NPU fused, GPU ternary, ROCm HIP, Vulkan, CPU. Auto-detects architecture from the model header. Zero configuration files.
 
@@ -12,7 +12,7 @@ Single binary that runs every model on every backend — NPU fused, GPU ternary,
 [![License: MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
 [![Site](https://img.shields.io/badge/site-1bit.systems-12a0ed.svg)](https://1bit.systems)
 [![ROCm 7.2.4](https://img.shields.io/badge/rocm-7.2.4-blue.svg)](https://rocm.docs.amd.com)
-[![Binary](https://img.shields.io/badge/binary-207%20KB-f00fd2.svg)](tests/zaya_server.cpp)
+[![Binary](https://img.shields.io/badge/binary-282%20KB-f00fd2.svg)](tests/zaya_server.cpp)
 [![Strix Halo](https://img.shields.io/badge/strix%20halo-gfx1151%20%2B%20XDNA%202-12a0ed.svg)](https://www.amd.com/en/products/processors/laptop/ryzen/ai-max-series.html)
 [![NPU fused](https://img.shields.io/badge/npu%20fused-broken-ff0000.svg)](https://github.com/bong-water-water-bong/1bit-systems/issues/56)
 
@@ -81,7 +81,7 @@ None of these is a static "rank backends by tok/s, always prefer the fastest one
 ```
 1bit/
 ├── tests/                  Pure C++ inference server
-│   └── zaya_server.cpp    ← THE ONE BINARY — 207 KB
+│   └── zaya_server.cpp    ← THE ONE BINARY — 282 KB
 ├── src/                    HIP C++ kernels → ternary GEMV/GEMM
 ├── include/                C API headers
 ├── kernels/                HIP implementations → zaya, bonsai, sherry, kv-cache
@@ -150,9 +150,9 @@ Any OpenAI-compatible client works — Open WebUI, AnythingLLM, Continue, Aider,
 
 ### One Binary, All Models
 
-`zaya_server.cpp` (19 KB of source, 207 KB compiled binary) reads the **Q4NX header** of any supported model at startup, auto-detects architecture dimensions (layers, heads, hidden size), allocates the correct buffers, and dispatches to the right backend. No config files. No model registry.
+`zaya_server.cpp` (19 KB of source, 282 KB compiled binary) reads the **Q4NX header** of any supported model at startup, auto-detects architecture dimensions (layers, heads, hidden size), allocates the correct buffers, and dispatches to the right backend. No config files. No model registry.
 
-> **73+ models. 6 backends. One 207 KB binary.** The header knows what it is. The binary figures out the rest.
+> **73+ models. 6 backends. One 282 KB binary.** The header knows what it is. The binary figures out the rest.
 >
 > — [Read the full blog post →](site/blog/one-binary-to-rule-them-all.html)
 

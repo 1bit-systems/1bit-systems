@@ -2,7 +2,7 @@
 
 ## ✅ Phase 1: One Binary to Rule Them All
 
-The **207 KB pure C++ binary** (`zaya_server.cpp`) auto-detects model architecture and loads weights from multiple formats. Backend matrix measured on **AMD Strix Halo** (Ryzen AI Max+ 395):
+The **282 KB pure C++ binary** (`zaya_server.cpp`) auto-detects model architecture and loads weights from multiple formats. Backend matrix measured on **AMD Strix Halo** (Ryzen AI Max+ 395):
 
 | Engine | Backend | tok/s | Status |
 |--------|---------|:-----:|--------|

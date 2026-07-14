@@ -14,7 +14,7 @@ from this document again.
 | GPU | Radeon 8060S (RADV), 32 CUs, 256 GB/s, Vulkan |
 | CPU | Zen 5, 16C/32T |
 | RAM | 128 GB unified |
-| Binary | `zaya_server` — 206,616 bytes (≈207 KB), Release build, gfx1151 — verified by direct measurement 2026-07-11 |
+| Binary | `zaya_server` — 288,712 bytes (≈282 KB), Release build, gfx1151 — verified by direct measurement 2026-07-14. Auto-tracked in site/numbers.json (tools/gen_numbers.py) as of this measurement; previously drifted unnoticed for several days since nothing re-measured it (see issue history). |
 
 ---
 

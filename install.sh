@@ -29,7 +29,7 @@ if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
     echo "  --skip-rocm  Skip kernel build (use pre-build librocm_cpp.so)"
     echo ""
     echo "Installs 1bit inference engine for AMD Strix Halo (gfx1151)."
-    echo "Builds the pure C++ zaya_server (207 KB) — no Rust, no Python."
+    echo "Builds the pure C++ zaya_server (282 KB) — no Rust, no Python."
     exit 0
 fi
 

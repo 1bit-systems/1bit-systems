@@ -1,9 +1,12 @@
 {
   "_generated_by": "tools/gen_numbers.py",
-  "_generated_at": "2026-07-14T23:06:11Z",
+  "_generated_at": "2026-07-14T23:57:34Z",
   "_warning": "Generated file. Do not hand-edit; run tools/gen_numbers.py.",
   "_missing": [],
   "binary": {
+    "zaya_bytes": 288712,
+    "zaya_kb": 282,
+    "zaya_stripped_kb": 263,
     "fused_bytes": 25493389,
     "fused_kb": 24896,
     "decode_bytes": 703904,
