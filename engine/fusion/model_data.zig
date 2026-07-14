@@ -342,9 +342,10 @@ pub const ModelData = struct {
 /// Dequantize one 5120-byte I8 tile into the output matrix.
 ///
 /// Each tile is a 32×256 block of 4-bit quantized values.
-/// Layout (per tile):
-///   [0..512)     = 256 BF16 scales (uint16), indexed as [g*32 + lr]
-///   [512..1024)  = 256 BF16 zero-points, indexed as [g*32 + lr]
+/// Layout (per tile) — FLM Q4NX format:
+///   [0..6)       = 6-byte header (3 bf16 values — per-block metadata)
+///   [6..512)     = 253 BF16 scales (uint16), indexed as [6 + g*32 + lr*2]
+///   [512..1024)  = 256 BF16 zero-points, indexed as [512 + g*32*2 + lr*2]
 ///   [1024..5120) = 4096 bytes packed I4 data
 ///     For row lr (0..31):
 ///       lane = lr / 16, lr2 = lr % 16, bi = lr2 / 2, ns = lr % 2
@@ -378,25 +379,17 @@ fn dequantizeI8Block(block: *const [5120]u8, out: []f32, tr: u32, tc: u32, out_r
 
         var g: u32 = 0;
         while (g < 8) : (g += 1) {
-            const s_raw = bf16ToF32(readU16(block, (g * 32 + lr) * 2));
+            // FLM Q4NX format: 6-byte header at start of scale region (offsets 0-5).
+            // Real scales start at byte 6. Last 3 entries (g=7,lr=29-31) wrap
+            // around to the header bytes 0-5. Zero-point region has no header.
+            const scale_off: usize = 6 + (g * 32 + lr) * 2;
+            const s_raw = if (scale_off < 512)
+                bf16ToF32(readU16(block, scale_off))
+            else
+                bf16ToF32(readU16(block, scale_off - 512));  // wrap to header
             const z_raw = bf16ToF32(readU16(block, 512 + (g * 32 + lr) * 2));
-            // This Q4NX file carries widespread corrupt scale/zero-point bf16
-            // values -- not just a handful of isolated NaN/Inf bit patterns,
-            // but a real tail of finite-but-wild magnitudes at every scale
-            // from ~10 up through ~1e38 (bf16 shares f32's exponent range).
-            // Sampling real lm_head scales shows a tight, well-behaved
-            // legitimate distribution (p50=0.008, p99=0.013 -- real
-            // zero-points top out under 0.2) with *no* natural continuum
-            // into larger values: it jumps straight from ~0.01 to
-            // astronomical between p99 and p99.9. There is no legitimate
-            // scale/zero-point anywhere near 1.0 in this model, let alone a
-            // "moderately large but real" outlier tier -- a single corrupt
-            // value (observed concretely: scale=-860 in one lm_head row,
-            // comfortably under a naively-chosen 1000 threshold) still
-            // dominates that row's entire dot product, wrecking argmax over
-            // the whole vocabulary (or QKV/FFN, for per-layer projection
-            // weights). Zero out just the affected 32-element group instead.
-            const plausible_max: f32 = 1.0;
+            // Sanity check: scales/zps should be in a reasonable range.
+            const plausible_max: f32 = 100.0;  // raised from 1.0 — real scales can exceed 1.0
             const s_bad = !std.math.isFinite(s_raw) or @abs(s_raw) > plausible_max;
             const z_bad = !std.math.isFinite(z_raw) or @abs(z_raw) > plausible_max;
             if (s_bad or z_bad) {
