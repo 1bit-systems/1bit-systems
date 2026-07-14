@@ -39,23 +39,25 @@ get_agent_name() {
 # Write payload as JSON to temp file, then have python3 merge it into awareness
 # This avoids all shell escaping issues with commit messages, filenames, etc.
 write_payload() {
-    local type="$1"   # "commit" or "checkout"
+    local type="$1"
+    local agent_name
+    agent_name="$(get_agent_name)"
     shift
-    # Remaining args are key=value pairs
-    python3 -c "
-import json, sys
+    # Pass all data via environment variables + sys.argv (no shell→Python injection)
+    AGENT_NAME="$agent_name" EVENT_TYPE="$type" python3 -c "
+import json, sys, os
+from datetime import datetime, timezone
 
-payload = {'type': '$type', 'agent': '$(get_agent_name)'}
-
+payload = {
+    'type': os.environ['EVENT_TYPE'],
+    'agent': os.environ['AGENT_NAME'],
+    'timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+}
 for arg in sys.argv[1:]:
     k, _, v = arg.partition('=')
     payload[k] = v
 
-# Get timestamp
-from datetime import datetime, timezone
-payload['timestamp'] = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-
-with open('$AWARENESS_PAYLOAD', 'w') as f:
+with open(os.environ['AWARENESS_PAYLOAD'], 'w') as f:
     json.dump(payload, f)
 " "$@" 2>/dev/null || true
 }

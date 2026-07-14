@@ -26,11 +26,7 @@ echo ""
 # ── Step 2: Record in awareness.json ──────────────────────────────────────
 # Append discoveries as events so agents see them at session start.
 record_discovery() {
-    local title="$1"
-    local url="$2"
-    local relevance="$3"
-    local tags="$4"
-    local summary="$5"
+    local title="$1" url="$2" relevance="$3" tags="$4" summary="$5"
     local now
     now="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo 'unknown')"
 
@@ -39,10 +35,13 @@ record_discovery() {
         printf '{"events":[],"lastSeen":{},"agents":{}}\n' > "$AWARENESS_FILE"
     fi
 
-    python3 -c "
-import json, sys
+    # Pass all data via env vars (no shell→Python injection)
+    EVENT_TITLE="$title" EVENT_URL="$url" EVENT_RELEVANCE="$relevance" \
+    EVENT_TAGS="$tags" EVENT_SUMMARY="$summary" EVENT_TIME="$now" \
+    AWARENESS_FILE="$AWARENESS_FILE" python3 -c "
+import json, os
 
-with open('$AWARENESS_FILE') as f:
+with open(os.environ['AWARENESS_FILE']) as f:
     data = json.load(f)
 
 data.setdefault('events', [])
@@ -51,24 +50,23 @@ next_id = max(ids, default=0) + 1
 
 data['events'].append({
     'id': next_id,
-    'timestamp': '$now',
+    'timestamp': os.environ['EVENT_TIME'],
     'type': 'discovery',
     'agent': 'jarvis',
-    'title': '$title',
-    'url': '$url',
-    'relevance': $relevance,
-    'tags': '$tags',
-    'message': '🌍 $summary'
+    'title': os.environ['EVENT_TITLE'],
+    'url': os.environ['EVENT_URL'],
+    'relevance': float(os.environ['EVENT_RELEVANCE']),
+    'tags': os.environ['EVENT_TAGS'],
+    'message': os.environ['EVENT_SUMMARY']
 })
 
-# Keep only last 500 events
 if len(data['events']) > 500:
     data['events'] = data['events'][-500:]
 
 data.setdefault('lastSeen', {})
 data['lastSeen']['jarvis'] = 'discovery-' + str(next_id)
 
-with open('$AWARENESS_FILE', 'w') as f:
+with open(os.environ['AWARENESS_FILE'], 'w') as f:
     json.dump(data, f, indent=2)
 " 2>/dev/null || true
 }

@@ -61,8 +61,9 @@ This guide covers how to build, test, and contribute to the project.
 | Target NPU | **XDNA 2** — 32 tiles, INT8, via C++23 engine + XRT 2.21+ |
 | CPU fallback | Any x86-64 with OpenMP |
 | Auto-detect | Reads Q4NX model header — no config files |
-| Linux kernel | Ubuntu 26.04+ / kernel 7.0.0+ |
+| Linux kernel | Ubuntu 26.04+ / kernel 7.0.0+ (6.18.22-lts recommended for stability) |
 | License | MIT (Sherry-specific kernels: PolyForm Noncommercial 1.0.0) |
+| ⚠️ Known issue | Kernel 6.19.x has an amdgpu OPTC CRTC hang under sustained NPU+GPU load on Strix Halo (gfx1151). Use 7.0.0+ or 6.18.22-lts. See issue #1. |
 
 ---
 

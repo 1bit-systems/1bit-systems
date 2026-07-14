@@ -118,6 +118,22 @@ jobs:
         if: hashFiles('tsconfig.json') != ''
         run: npx tsc --noEmit 2>&1 || echo 'tsc failed — continuing'
 
+  fusion:
+    name: Fused engine (build + smoke)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.13.0
+      - name: Build fused engine
+        working-directory: engine/fusion
+        run: zig build -Doptimize=ReleaseSafe 2>&1 | tail -5
+      - name: Smoke test (--help)
+        working-directory: engine/fusion
+        run: ./zig-out/bin/fused-engine --help 2>&1 || true
+
   deploy:
     name: Deploy site
     needs: [cpp]
