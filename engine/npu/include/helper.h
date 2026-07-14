@@ -17,7 +17,7 @@ static constexpr int XN = 4096;         // Output columns per tile
 // ATB (AI Engine Block) layout tile sizes
 static constexpr int M_TILE = 128;
 static constexpr int K_TILE = 8;
-static constexpr int N_TILE = 8;
+static constexpr int N_TILE = 16;   // 2 × 8×8 blocks for layout_inverse_2x2_8x8block
 static constexpr int N_AIE_ROWS = 4;   // from comment: N_AIE_ROWS * M_TILE = 512
 
 // XRT kernel argument group IDs

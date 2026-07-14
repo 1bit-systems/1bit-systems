@@ -60,7 +60,12 @@ struct NpuKernel {
     std::unique_ptr<xrt::kernel> kernel;
     std::vector<uint32_t> instrs;
 
+    // ATB block size — must match gemm_atb_layout.h expectations
+    static constexpr int ATB_BLOCK_M = 512; // 4 × M_TILE = L1 inverse block
+
     // Pre-allocated BOs (reused every GEMM call)
+    // Kernel writes XM rows; padding to ATB_BLOCK_M for layout is done in host memory
+    static constexpr int BO_ROWS = XM;
     std::unique_ptr<xrt::bo> bo_instr, bo_A, bo_B, bo_C;
     uint16_t* A_map = nullptr;
     uint8_t*  C_map = nullptr;
@@ -82,17 +87,17 @@ struct NpuKernel {
         hw_ctx = std::make_unique<xrt::hw_context>(device, xclbin->get_uuid());
         kernel = std::make_unique<xrt::kernel>(*hw_ctx, "MLIR_AIE");
 
-        // Pre-create BOs
+        // Pre-create BOs — sized for XM rows (kernel's native width)
         bo_instr = std::make_unique<xrt::bo>(device, instrs.size() * 4,
                                                XCL_BO_FLAGS_CACHEABLE,
                                                kernel->group_id(INSTR_GROUP_ID));
-        bo_A = std::make_unique<xrt::bo>(device, (size_t)XM * XK * 2,  // BF16
+        bo_A = std::make_unique<xrt::bo>(device, (size_t)BO_ROWS * XK * 2,  // BF16
                                            XRT_BO_FLAGS_HOST_ONLY,
                                            kernel->group_id(ACT_GROUP_ID));
         bo_B = std::make_unique<xrt::bo>(device, (size_t)XK * XN * 9 / 8, // BFP16
                                            XRT_BO_FLAGS_HOST_ONLY,
                                            kernel->group_id(WEIGHT_GROUP_ID));
-        bo_C = std::make_unique<xrt::bo>(device, (size_t)XM * XN * 2,  // BF16
+        bo_C = std::make_unique<xrt::bo>(device, (size_t)BO_ROWS * XN * 2,  // BF16
                                            XRT_BO_FLAGS_HOST_ONLY,
                                            kernel->group_id(OUT_GROUP_ID));
 
@@ -107,28 +112,25 @@ struct NpuKernel {
         return true;
     }
 
-    // Run GEMM: C[M,N] = A[M,K] @ B[K,N]
-    // M is padded to next multiple of N_AIE_ROWS * M_TILE = 512
-    static constexpr int M_PAD = 512; // 4 * 128
+    static constexpr int M_PAD = 512; // 4 * 128 = L1 block size for ATB inverse layout
 
     void gemm(const uint16_t* A, int M, int K,
               const BfpPackedWeight* B_packed,
               uint16_t* C_out, int N) {
-        // Pad M to multiple of M_PAD
-        int M_padded = ((M + M_PAD - 1) / M_PAD) * M_PAD;
-        if (M_padded > XM) M_padded = XM;
-        // 1. Pad activation to M_padded x XK, convert to float
-        std::vector<float> A_float(XM * XK);
+        // Use full ATB block size for layout functions; kernel writes XM rows
+        int work_m = ATB_BLOCK_M; // padding for inverse layout
+        // 1. Pad activation to work_m x XK, convert to float
+        std::vector<float> A_float(work_m * XK);
         for (int m = 0; m < M && m < XM; m++)
             for (int k = 0; k < K && k < XK; k++)
                 A_float[m * XK + k] = bf16_to_float(A[m * K + k]);
         // rest is zero-initialized
 
-        // 2. Shuffle A for ATB L1 layout (uses full XM, XK)
+        // 2. Shuffle A for ATB L1 layout (uses full work_m, XK)
         auto A_shuffled = gemm_atb::layout_A_L1_2x1_8x8block(
-            A_float, XM, XK, M_TILE, K_TILE);
+            A_float, work_m, XK, M_TILE, K_TILE);
 
-        // 3. Encode as BF16 and upload
+        // 3. Encode as BF16 and upload (only XM rows the kernel processes)
         for (int i = 0; i < XM * XK; i++)
             A_map[i] = float_to_bf16(A_shuffled[i]);
         bo_A->sync(XCL_BO_SYNC_BO_TO_DEVICE);
@@ -153,15 +155,16 @@ struct NpuKernel {
         auto run = (*kernel)(opcode, *bo_instr, instrs.size(), *bo_A, *bo_B, *bo_C);
         run.wait();
 
-        // 6. Read back, unshuffle
+        // 6. Read back, pad to ATB_BLOCK_M for inverse layout, unshuffle
         bo_C->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
         uint16_t* C_bf16 = (uint16_t*)bo_C->map();
-        std::vector<float> C_float(XM * XN);
+        std::vector<float> C_float(work_m * XN);
+        // Copy real XM rows from kernel output, rest stays zero (already initialized)
         for (int i = 0; i < XM * XN; i++)
             C_float[i] = bf16_to_float(C_bf16[i]);
 
         auto C_unshuffled = gemm_atb::layout_inverse_C_L1_2x2_8x8block(
-            C_float, XM, XN, 4 * M_TILE, N_TILE);
+            C_float, work_m, XN, work_m, N_TILE);
 
         // 7. Extract valid output (just M rows, N columns)
         for (int m = 0; m < M; m++)
