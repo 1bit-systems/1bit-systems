@@ -149,7 +149,7 @@ pub fn main(init: std.process.Init) !void {
 
     // ── Load model ──
     std.debug.print("Loading model: {s} (tag: {s})\n", .{ opts.model_path, opts.model_tag });
-    var model = try model_data.loadModel(allocator, init.io, opts.model_path, opts.model_tag);
+    const model = try model_data.loadModel(allocator, init.io, opts.model_path, opts.model_tag);
     // Executor takes ownership of model weights (frees in its own deinit).
     // Do NOT call model.deinit() separately — that would double-free.
 
@@ -178,7 +178,7 @@ pub fn main(init: std.process.Init) !void {
 
     // ── Initialize GPU attention (best-effort) ──
     std.debug.print("GPU attention init...\n", .{});
-    var gpu_attn_instance = gpu_attn.GpuAttention.init(allocator, ZINC_SHADER_DIR) catch |err| {
+    const gpu_attn_instance = gpu_attn.GpuAttention.init(allocator, ZINC_SHADER_DIR) catch |err| {
         std.debug.print("  GPU unavailable: {s} (CPU fallback)\n", .{@errorName(err)});
         return error.GpuUnavailable;
     };

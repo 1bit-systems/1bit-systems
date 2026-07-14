@@ -311,9 +311,9 @@ static bool pid_is_unified_server(pid_t pid) {
 static void acquire_singleton_lock() {
     int fd = open(kLockPath, O_CREAT | O_RDWR, 0644);
     if (fd < 0) {
-        fprintf(stderr, "Warning: could not open lock file %s (%s) — skipping singleton guard\n",
+        fprintf(stderr, "Fatal: could not open lock file %s (%s) — cannot guard against concurrent instances. Exiting.\n",
                 kLockPath, strerror(errno));
-        return;
+        exit(EXIT_FAILURE);
     }
 
     if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
@@ -337,8 +337,9 @@ static void acquire_singleton_lock() {
 
         // Retry now that the previous holder (if any) should be gone.
         if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
-            fprintf(stderr, "Warning: could not acquire singleton lock (%s) — continuing anyway\n",
+            fprintf(stderr, "Fatal: could not acquire singleton lock (%s) — another instance running. Exiting.\n",
                     strerror(errno));
+            exit(EXIT_FAILURE);
         }
     }
 

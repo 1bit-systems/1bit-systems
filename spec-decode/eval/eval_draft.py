@@ -147,13 +147,16 @@ def speculative_decode_greedy(
         # 1. Get hidden states from target for draft input
         hidden_states = out.hidden_states  # tuple of [layer+1, batch, seq, hidden]
         
-        # 2. Draft: predict block_size candidate tokens
-        # (simplified — uses dummy draft model; replace with actual)
+        # 2. Draft: predict block_size candidate tokens using the trained draft model
         draft_tokens = []
+        draft_hidden = hidden_states[-1]  # last layer hidden states
         for i in range(block_size):
-            # In production: draft_model.forward(hidden_states, last_token)
-            # For now, simulate with random tokens
-            draft_tokens.append(torch.randint(0, 100, (1,), device=device))
+            with torch.no_grad():
+                draft_logits = draft_model.forward(draft_hidden, next_token.unsqueeze(0))
+            draft_token = draft_logits[:, -1, :].argmax(dim=-1)  # greedy from draft
+            draft_tokens.append(draft_token.view(-1))
+            # Feed predicted token back as next draft step input
+            next_token = draft_token.view(-1)
         
         draft_ids = torch.cat([
             next_token.unsqueeze(0),

@@ -1436,7 +1436,8 @@ pub const FusedExecutor = struct {
                 // Copy normed hidden into qkv_scratch for later KV compression
                 @memcpy(qkv_scratch[0..batch_size * H], s.hidden[0..batch_size * H]);
             }
-        } else if (dispatch.qkv == .cpu and layer < self.cpu_weights.q.len and layer < self.cpu_weights.k.len and layer < self.cpu_weights.v.len) {
+        } else if ((dispatch.qkv == .cpu or dispatch.qkv == .gpu) and layer < self.cpu_weights.q.len and layer < self.cpu_weights.k.len and layer < self.cpu_weights.v.len) {
+            // CPU fallback for both .cpu and .gpu dispatch (no GPU QKV kernel yet — fix #56)
             const NH = self.config.n_heads;
             const NKV = self.config.n_kv_heads;
             const HD = self.config.head_dim;
@@ -1574,13 +1575,17 @@ pub const FusedExecutor = struct {
             }
         }
 
-        // O projection: CPU GEMV when dispatched there, NPU otherwise.
-        if (dispatch.attention == .cpu and layer < self.cpu_weights.o.len) {
+        // O projection: CPU GEMV when dispatched to CPU/GPU, NPU otherwise.
+        // GPU attention dispatch also needs CPU O proj (no GPU O proj kernel yet — fix #56).
+        if ((dispatch.attention == .cpu or dispatch.attention == .gpu) and layer < self.cpu_weights.o.len) {
             for (0..batch_size) |b| {
                 cpuGemv(self.cpu_weights.o[layer], s.attn_out[b * NH * HD ..][0..NH * HD], s.o_out[b * H ..][0..H], H, NH * HD);
             }
-        } else {
+        } else if (dispatch.attention == .npu) {
             try self.npu.runOProj(s.attn_out[0..batch_size * NH * HD], layer, batch_size, s.o_out[0..batch_size * H]);
+        } else {
+            // Fallback: CPU (shouldn't reach here if weights are loaded)
+            @memset(s.o_out[0..batch_size * H], 0);
         }
         for (0..batch_size * H) |i| s.hidden[i] = s.residual[i] + s.o_out[i];
 
@@ -1593,7 +1598,7 @@ pub const FusedExecutor = struct {
         // ── Branch on FFN kernel type ──
         switch (self.ffn_kernel) {
             .dense => {
-                if (dispatch.ffn == .npu or dispatch.ffn == .cpu) {
+                if (dispatch.ffn == .npu or dispatch.ffn == .cpu or dispatch.ffn == .gpu) {
                     self.runDenseFfn(layer, batch_size, s.hidden, s.residual, dispatch);
                 } else {
                     // GPU FFN — not implemented yet, fall through to residual copy
@@ -1946,18 +1951,20 @@ pub const FusedExecutor = struct {
                 }
             }
 
-            // ── Step 5: O projection: CPU GEMV when dispatched there, NPU otherwise ──
-            if (dispatch.attention == .cpu and layer < self.cpu_weights.o.len) {
+            // ── Step 5: O projection: CPU GEMV for cpu/gpu dispatch, NPU for npu dispatch ──
+            if ((dispatch.attention == .cpu or dispatch.attention == .gpu) and layer < self.cpu_weights.o.len) {
                 for (0..B) |b| {
                     cpuGemv(self.cpu_weights.o[layer], s.attn_out[b * NH * HD ..][0 .. NH * HD], s.o_out[b * H ..][0..H], H, NH * HD);
                 }
-            } else tryOrZero: {
+            } else if (dispatch.attention == .npu) tryOrZero: {
                 self.npu.runOProj(
                     s.attn_out[0..B * NH * HD], layer, B, s.o_out[0..B * H],
                 ) catch |err| {
                     log.warn("NPU O-proj (layer {d}) failed: {s}", .{ layer, @errorName(err) });
                     break :tryOrZero;
                 };
+            } else {
+                @memset(s.o_out[0..B * H], 0);
             }
             for (0..B * H) |i| s.hidden[i] = s.residual[i] + s.o_out[i];
 

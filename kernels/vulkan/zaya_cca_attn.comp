@@ -41,6 +41,8 @@ layout(set = 0, binding = 16) writeonly buffer BufNPH { float nph[]; };
 shared float red[32];
 shared float sqk[QKV];
 shared float dw0[QKV], dw1[QKV];
+shared float q_tmp[QD], k_tmp[KD], v_tmp[KD];
+shared float attn_out[H];
 
 float warp_sum(float v) {
     // Simple serial reduction (no subgroup shuffle needed)
@@ -82,7 +84,6 @@ void main() {
     // ── 2/3. QKV projections (each thread handles one Q or K or V dim) ──
     // Q: sqk[0:QD] = normed @ wq^T
     // K: sqk[QD:QKV] = normed @ wk^T (we'll overwrite after, store raw qk in temp)
-    float q_tmp[QD], k_tmp[KD], v_tmp[KD];
     if (tx < QD) {
         float s = 0;
         for (int j = 0; j < H; j++) s += sqk[j] * wq[tx * H + j];  // Actually wt is M×K with M=QD, K=H
@@ -184,7 +185,6 @@ void main() {
     barrier();
 
     // ── 9. Attention (single token → output = V) ──
-    float attn_out[H];
     for (int j = tx; j < H; j += 128) {
         int hh = j / HD, d = j % HD;
         int kv = hh / GQA;
