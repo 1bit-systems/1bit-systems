@@ -7,7 +7,7 @@ on:
 
 permissions:
   issues: write
-  contents: write   # Traffic API requires push-level access
+  contents: read   # downgraded from write — use TRAFFIC_PAT secret for API
   pull-requests: read
 
 jobs:
@@ -17,7 +17,7 @@ jobs:
       - name: Fetch GitHub Traffic Data
         id: traffic
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TRAFFIC_PAT || secrets.GITHUB_TOKEN }}
         run: |
           # Use github.repository (always available) and extract the repo name
           OWNER="${GITHUB_REPOSITORY_OWNER}"
@@ -128,7 +128,7 @@ jobs:
       - name: Create Spike Issue
         if: steps.traffic.outputs.SPIKE == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TRAFFIC_PAT || secrets.GITHUB_TOKEN }}
           CY: ${{ steps.traffic.outputs.CLONE_YESTERDAY }}
           CYU: ${{ steps.traffic.outputs.CLONE_YESTERDAY_UNIQ }}
         run: |
