@@ -9,6 +9,19 @@ INSTALL_DIR="${INSTALL_DIR:-$HOME/1bit}"
 SKIP_ROCM=false; [ "${1:-}" = "--skip-rocm" ] && SKIP_ROCM=true
 MODELS_DIR="${MODELS_DIR:-$HOME/models}"
 
+# ── Kernel version check ───────────────────────────────────────────────────────
+# amdgpu OPTC CRTC hang on Strix Halo (gfx1151) with kernel 6.19.x (issue #1)
+# Works fine on 6.18.x LTS and 7.x. Warn users on 6.19.x.
+KERNEL_RELEASE="$(uname -r)"
+if echo "$KERNEL_RELEASE" | grep -q '^6\.19\.'; then
+    warn "Kernel $KERNEL_RELEASE detected!"
+    warn "Strix Halo (gfx1151) systems running 6.19.x kernels may experience"
+    warn "an amdgpu OPTC CRTC hang during GPU inference (issue #1)."
+    warn "Recommended: use kernel 6.18.22-lts or 7.x instead."
+    warn "See: https://github.com/bong-water-water-bong/1bit-systems/issues/1"
+    echo ""
+fi
+
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
     echo "Usage: curl -fsSL https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/install.sh | bash"
     echo "       bash install.sh [--skip-rocm]"
