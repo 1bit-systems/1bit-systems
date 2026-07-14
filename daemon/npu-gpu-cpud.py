@@ -21,6 +21,7 @@ Part of 1bit-systems. Lives in daemon/ in the repo root.
 
 import argparse
 import json
+import math
 import os
 import signal
 import subprocess

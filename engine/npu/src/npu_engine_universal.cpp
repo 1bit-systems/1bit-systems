@@ -404,9 +404,8 @@ int main(int argc,char**argv){
     // ===== v12: M=32 BATCHED DECODE =====
     printf("=== M=%d Batch Decode (%d tokens) ===\n",BS,ng);
     auto tgs=std::chrono::steady_clock::now();
-    // NOTE: this is greedy batched decode with verification, NOT speculative decode — every
-    // batch position is verified against the full model's argmax, and only the matching
-    // prefix is accepted (fixes #95). total_verified tracks all tokens processed.
+    // NOTE: greedy batched decode — runs batch_size tokens per step, no draft verification.
+    // (fixes #95). total_verified tracks all tokens processed.
     int top_ids[BS]={0},total_generated=0,total_verified=0,n_batches=0;double t_boot=0;
 
     // Boot: single-token decode → top-32 token IDs
