@@ -33,6 +33,24 @@ __global__ void copy_k(__half* d, const __half* s, int n) { int i = blockIdx.x *
 __global__ void silu_mul_k(__half* out, const __half* g, const __half* u, int n) { int i = blockIdx.x * blockDim.x + threadIdx.x; if (i >= n) return; float v = (float)g[i]; out[i] = __float2half((v / (1.0f + expf(-v))) * (float)u[i]); }
 __global__ void residual_scale_k(__half* out, const __half* res, const float* hs_s, const float* hs_b, const float* res_s, const float* res_b, int n) { int i = blockIdx.x * blockDim.x + threadIdx.x; if (i >= n) return; out[i] = __float2half((float)out[i] * hs_s[i] + hs_b[i] + (float)res[i] * res_s[i] + res_b[i]); }
 
+// Compile-time constants needed by kernel headers (Zaya1-8B dimensions)
+// These must match the model the kernels were compiled for.
+#ifndef H
+#define H    2048
+#define NQ   8
+#define NKV  2
+#define HD   128
+#define QD   1024
+#define KD   256
+#define QKV  1280
+#define N_LAYERS 40
+#define VOCAB 262272
+#define N_EXP 16
+#define N_EXP_T 17
+#define N_FF  2048
+#define RTR_H 256
+#endif
+
 #define WMMA_M 16
 #define WMMA_THREADS 128
 #include "../../kernels/zaya_moe_tiled_gemv.hip"
@@ -43,6 +61,21 @@ __global__ void residual_scale_k(__half* out, const __half* res, const float* hs
 #include "../../kernels/zaya_moe_expert_ffn.hip"
 #include "../../kernels/argmax_kernel.hip"
 #include "../../kernels/lm_head_fused.hip"
+
+// Undefine compile-time constants — we use runtime config from ModelConfig
+#undef H
+#undef NQ
+#undef NKV
+#undef HD
+#undef QD
+#undef KD
+#undef QKV
+#undef N_LAYERS
+#undef VOCAB
+#undef N_EXP
+#undef N_EXP_T
+#undef N_FF
+#undef RTR_H
 
 __global__ void eda_router_moe_kernel(const __half* hs, const float* prev_rs, int has_eda, float eda_scale, const float* gdw, const float* gdb, const float* rfn, const float* rf1, const float* rf1b, const float* rf2, const float* rf2b, const float* rout, const float* bb, const __half* gu, const __half* dn, float* next_rs, __half* moe_out, int* expert_idx, float* expert_wt);
 
@@ -135,7 +168,7 @@ public:
         layers_.resize(N_LAYERS);
         auto A = [](auto& p, int n, const std::string& path) { HIP_OK(hipMalloc(&p, n*2)); auto d=load_bin(path); if(!d.empty()){std::vector<__half> h(n);for(int i=0;i<n;i++)h[i]=__float2half(d[i]);HIP_OK(hipMemcpy(p,h.data(),n*2,hipMemcpyHostToDevice));} };
         auto B = [](auto& p, int n, const std::string& path) { HIP_OK(hipMalloc(&p, n*4)); auto d=load_bin(path); if(!d.empty()) HIP_OK(hipMemcpy(p,d.data(),n*4,hipMemcpyHostToDevice)); };
-        std::string L(int i) { return "model_layers_" + std::to_string(i); }
+        auto L = [](int i) { return "model_layers_" + std::to_string(i); };
 
         for (int il = 0; il < N_LAYERS; il++) {
             auto& l = layers_[il];
@@ -257,7 +290,6 @@ public:
     }
 };
 
-// Factory — returns HIP backend(s) for aggregation
 std::vector<InferenceBackend*> detect_backends_hip() {
     std::vector<InferenceBackend*> backends;
     static HipBackend hip;

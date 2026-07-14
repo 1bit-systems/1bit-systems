@@ -61,7 +61,7 @@ public:
         embed_ = load_bin(W+"model_embed_tokens_weight.bin");
         fnorm_ = load_bin(W+"model_norm_weight.bin");
 
-        std::string L(int i) { return "model_layers_"+std::to_string(i); }
+        auto L = [](int i) { return "model_layers_"+std::to_string(i); };
         auto load_vec = [&](const std::string& name) { return load_bin(W+name); };
 
         for (int il = 0; il < N_LAYERS; il++) {
@@ -166,26 +166,25 @@ public:
 
 // ─── Factory registration ───────────────────────────────────────────
 // Each backend provides its own detect_* function; CPU aggregates them.
+// HIP is always compiled. Vulkan/NPU are optional — weak stubs below.
 extern std::vector<InferenceBackend*> detect_backends_hip();
-extern std::vector<InferenceBackend*> detect_backends_vulkan();
-extern std::vector<InferenceBackend*> detect_backends_npu();
+
+// Weak stubs for optional backends (real impls in backend_vulkan.cpp / backend_npu.cpp)
+__attribute__((weak)) std::vector<InferenceBackend*> detect_backends_vulkan() { return {}; }
+__attribute__((weak)) std::vector<InferenceBackend*> detect_backends_npu() { return {}; }
 
 std::vector<InferenceBackend*> detect_backends() {
     std::vector<InferenceBackend*> backends;
 
-    // Try HIP first (fastest on AMD)
     auto hip_backends = detect_backends_hip();
     for (auto* b : hip_backends) backends.push_back(b);
 
-    // Try Vulkan next (cross-platform GPU)
     auto vk_backends = detect_backends_vulkan();
     for (auto* b : vk_backends) backends.push_back(b);
 
-    // Try NPU (XDNA 2, Strix Halo)
     auto npu_backends = detect_backends_npu();
     for (auto* b : npu_backends) backends.push_back(b);
 
-    // CPU is always available as fallback
     static CpuBackend cpu_backend;
     backends.push_back(&cpu_backend);
 
