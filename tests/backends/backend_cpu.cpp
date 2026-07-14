@@ -168,6 +168,7 @@ public:
 // Each backend provides its own detect_* function; CPU aggregates them.
 extern std::vector<InferenceBackend*> detect_backends_hip();
 extern std::vector<InferenceBackend*> detect_backends_vulkan();
+extern std::vector<InferenceBackend*> detect_backends_npu();
 
 std::vector<InferenceBackend*> detect_backends() {
     std::vector<InferenceBackend*> backends;
@@ -179,6 +180,10 @@ std::vector<InferenceBackend*> detect_backends() {
     // Try Vulkan next (cross-platform GPU)
     auto vk_backends = detect_backends_vulkan();
     for (auto* b : vk_backends) backends.push_back(b);
+
+    // Try NPU (XDNA 2, Strix Halo)
+    auto npu_backends = detect_backends_npu();
+    for (auto* b : npu_backends) backends.push_back(b);
 
     // CPU is always available as fallback
     static CpuBackend cpu_backend;
