@@ -14,7 +14,7 @@ Single binary that runs every model on every backend — NPU fused, GPU ternary,
 [![ROCm 7.2.4](https://img.shields.io/badge/rocm-7.2.4-blue.svg)](https://rocm.docs.amd.com)
 [![Binary](https://img.shields.io/badge/binary-207%20KB-f00fd2.svg)](tests/zaya_server.cpp)
 [![Strix Halo](https://img.shields.io/badge/strix%20halo-gfx1151%20%2B%20XDNA%202-12a0ed.svg)](https://www.amd.com/en/products/processors/laptop/ryzen/ai-max-series.html)
-[![NPU fused](https://img.shields.io/badge/npu%20fused-291%20tok%2Fs-00ff00.svg)](https://github.com/bong-water-water-bong/1bit-systems)
+[![NPU fused](https://img.shields.io/badge/npu%20fused-broken-ff0000.svg)](https://github.com/bong-water-water-bong/1bit-systems/issues/56)
 
 </div>
 
