@@ -128,19 +128,23 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
             float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;
             C[m*an+n]=val;}
     }
-    // Synchronous go() — backwards compatible, with timeout
+    // Synchronous go() — simple, always works
     inline bool go(int l,const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){
         quantize_async(A,am,ak,ascale);
         auto r=sync_and_launch(l);
-        // Wait with 5-second timeout per NPU kernel call
-        try {
-            r.wait(5000); // 5 second timeout
-        } catch(const std::exception& e) {
-            fprintf(stderr,"\n  NPU timeout on layer %d: %s\n",l,e.what());
-            return false;
-        }
+        r.wait();
         dequantize(r,C,am,an,ascale,Bscale);
         return true;
+    }
+    // Fast path: launch, return run handle for later wait+dequant
+    inline xrt::run launch_async(int l,const float*A,int am,int ak,float ascale){
+        quantize_async(A,am,ak,ascale);
+        return sync_and_launch(l);
+    }
+    // Complete an async launch: wait + dequant
+    inline void finish_async(xrt::run& r,float*C,int am,int an,float ascale,float Bscale){
+        r.wait();
+        dequantize(r,C,am,an,ascale,Bscale);
     }
 };
 
@@ -256,7 +260,7 @@ int main(int argc,char**argv){
 
     // Init NPU
     printf("Init NPU...\n");xrt::device dev(0);
-    std::string xd="/home/bcloud/npu-sandbox/npu-infer/build/int8_32tile_v3";
+    std::string xd="/home/bcloud/npu-sandbox/npu-infer/build/int8";
     auto xp=[&](const char*t){return xd+"/final_i8_"+t+"_"+cfg.model_tag+".xclbin";};
     auto ip=[&](const char*t){return xd+"/insts_i8_"+t+"_"+cfg.model_tag+".txt";};
 
@@ -373,15 +377,20 @@ int main(int argc,char**argv){
     int npt=(int)pt_vec.size(); if(npt<1)npt=1;
     if(input_tok_file && npt > XM) npt = XM;
 
-    // ===== PREFILL =====
+    // ===== PREFILL (pipelined: parallel QKV+GU launch, overlapped dequant) =====
     printf("=== Prefill %d ===\n",npt);auto t0=std::chrono::steady_clock::now();fflush(stdout);
     for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=emb_f32[pt_vec[pi]*H+i];
+    xrt::run pending_gu; bool has_pending=false;
     for(int l=0;l<NC;l++){
         fprintf(stderr,"  L%d",l);fflush(stderr);
-        // Save pre-norm residuals before rn_c destroys h_b
+        // Save pre-norm residuals
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)sb_data[pi*H+i]=h_b[pi*H+i];
         for(int pi=0;pi<npt;pi++)rn_c(&h_b[pi*H],in_n[l].data(),H);
-        if(!cq.go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),qsc[l],qo_b.data(),qkv_n)){fprintf(stderr,"QKV timeout L%d\n",l);return 1;}cn(qo_b.data(),npt*qkv_n);
+        // Phase 1: Launch QKV on NPU
+        float qkv_ascale=dynamic_ascale(h_b.data(),npt*H);
+        auto r_qkv=cq.launch_async(l,h_b.data(),npt,H,qkv_ascale);
+        // Phase 2: Wait QKV + dequant (CPU attention runs after)
+        cq.finish_async(r_qkv,qo_b.data(),npt,qkv_n,qkv_ascale,qsc[l]);cn(qo_b.data(),npt*qkv_n);
         fprintf(stderr,"q");fflush(stderr);
         float*qn=qn_w[l].data(),*kn=kn_w[l].data();
         for(int pi=0;pi<npt;pi++){
@@ -394,18 +403,26 @@ int main(int argc,char**argv){
         kv_caches[l].n=sp+npt;int cl=kv_caches[l].n;
         // Causal attention: token pi attends only to positions [0, sp+pi]
         for(int pi=0;pi<npt;pi++){fprintf(stderr,"a");fflush(stderr);attn_omp(&qo_b[pi*qkv_n],&at_b[pi*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA,sp+pi+1);}
-        fprintf(stderr,"o");fflush(stderr);if(!co.go(l,at_b.data(),npt,NH*HD,dynamic_ascale(at_b.data(),npt*NH*HD),osc[l],oo_b.data(),H)){fprintf(stderr,"O timeout L%d\n",l);return 1;}cn(oo_b.data(),npt*H);
-        // Residual add: use saved pre-norm values
+        // Phase 3: Launch O + GU in parallel on NPU
+        int mlp_out=cfg.gu_split?IM:2*IM;
+        float o_ascale=dynamic_ascale(at_b.data(),npt*NH*HD);
+        float gu_ascale=dynamic_ascale(h_b.data(),npt*H);
+        auto r_o=co.launch_async(l,at_b.data(),npt,NH*HD,o_ascale);
+        auto r_gu=cg.launch_async(l,h_b.data(),npt,H,gu_ascale);
+        // Phase 4: Wait O, apply residual
+        co.finish_async(r_o,oo_b.data(),npt,H,o_ascale,osc[l]);cn(oo_b.data(),npt*H);
+        fprintf(stderr,"o");fflush(stderr);
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=sb_data[pi*H+i]+oo_b[pi*H+i];
-        // Save pre-FFN residuals before second rn_c
+        // Save pre-FFN residuals
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)sb_data[pi*H+i]=h_b[pi*H+i];
         for(int pi=0;pi<npt;pi++)rn_c(&h_b[pi*H],pa_n[l].data(),H);
-        int mlp_out=cfg.gu_split?IM:2*IM;
-        fprintf(stderr,"g");fflush(stderr);if(!cg.go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),gsc[l],gt_b.data(),mlp_out)){fprintf(stderr,"GU timeout L%d\n",l);return 1;}cn(gt_b.data(),npt*mlp_out);
+        // Phase 5: Wait GU (was launched in parallel with O), SiLU, launch D
+        cg.finish_async(r_gu,gt_b.data(),npt,mlp_out,gu_ascale,gsc[l]);cn(gt_b.data(),npt*mlp_out);
+        fprintf(stderr,"g");fflush(stderr);
         if(cfg.gu_split){cu_ptr->go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),usc[l],su_b.data(),IM);cn(su_b.data(),npt*IM);
             for(int pi=0;pi<npt;pi++){for(int i=0;i<IM;i++){float gv=gt_b[pi*IM+i];if(!std::isfinite(gv))gv=0;su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*su_b[pi*IM+i];}}}
         else{for(int pi=0;pi<npt;pi++){for(int i=0;i<IM;i++){float gv=gt_b[pi*mlp_out+i];if(!std::isfinite(gv))gv=0;su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[pi*mlp_out+IM+i];}}}
-        fprintf(stderr,"d");fflush(stderr);if(!cd.go(l,su_b.data(),npt,IM,dynamic_ascale(su_b.data(),npt*IM),dsc[l],dw_b.data(),H)){fprintf(stderr,"D timeout L%d\n",l);return 1;}cn(dw_b.data(),npt*H);
+        fprintf(stderr,"d");fflush(stderr);cd.go(l,su_b.data(),npt,IM,dynamic_ascale(su_b.data(),npt*IM),dsc[l],dw_b.data(),H);cn(dw_b.data(),npt*H);
         // Residual add: use saved pre-FFN values
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=sb_data[pi*H+i]+dw_b[pi*H+i];
         fprintf(stderr,"\n");fflush(stderr);
