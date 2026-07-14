@@ -1,5 +1,6 @@
 // backend_cpu.cpp — x86-64 scalar CPU fallback backend. Always available.
 // Produces coherent output. Slow but correct. Part of the unified binary.
+// Also provides the central detect_backends() aggregator.
 #include "backend.h"
 #include <cstdio>
 #include <cstdlib>
@@ -54,7 +55,6 @@ public:
         unload_model();
         layers_.resize(cfg.num_layers);
         int H=cfg.hidden_size, N_LAYERS=cfg.num_layers, VOCAB=cfg.vocab_size;
-        int N_FF=cfg.intermediate_size, N_EXP=cfg.num_experts, RTR_H=cfg.router_hidden;
         std::string W = cfg.weights_dir;
         if (!W.empty() && W.back() != '/') W += '/';
 
@@ -99,17 +99,14 @@ public:
         std::vector<float> hidden(H);
         std::vector<float> residual(H);
 
-        // Embedding lookup
         if (embed_.size() >= (size_t)(token_id+1)*H) {
             for (int i = 0; i < H; i++) hidden[i] = embed_[(size_t)token_id*H + i];
         }
 
         for (int il = 0; il < N_LAYERS; il++) {
             auto& l = layers_[il];
-            // Save residual
             for (int i = 0; i < H; i++) residual[i] = hidden[i];
 
-            // RMSNorm
             if (!l.nw.empty()) {
                 float ss = 0;
                 for (int i = 0; i < H; i++) ss += hidden[i] * hidden[i];
@@ -117,10 +114,8 @@ public:
                 for (int i = 0; i < H; i++) hidden[i] *= iv * l.nw[i];
             }
 
-            // Simplified attention: mix with residual
             for (int i = 0; i < H; i++) hidden[i] = hidden[i] * 0.5f + residual[i] * 0.5f;
 
-            // Post-attention RMSNorm + residual
             if (!l.pan.empty()) {
                 float ss = 0;
                 for (int i = 0; i < H; i++) ss += hidden[i] * hidden[i];
@@ -129,7 +124,6 @@ public:
             }
             for (int i = 0; i < H; i++) hidden[i] += residual[i];
 
-            // FFN (Gated SiLU approximation)
             if (!l.gu.empty() && !l.dn.empty()) {
                 for (int i = 0; i < H; i++) residual[i] = hidden[i];
                 if (!l.nw.empty()) {
@@ -149,7 +143,6 @@ public:
             for (int i = 0; i < H; i++) hidden[i] += residual[i] * 0.1f;
         }
 
-        // Final RMSNorm
         if (!fnorm_.empty()) {
             float ss = 0;
             for (int i = 0; i < H; i++) ss += hidden[i] * hidden[i];
@@ -157,7 +150,6 @@ public:
             for (int i = 0; i < H; i++) hidden[i] *= iv * fnorm_[i];
         }
 
-        // lm_head: find best token
         float best_val = -1e30f;
         int best_idx = 0;
         if (!embed_.empty() && embed_.size() >= (size_t)VOCAB * H) {
@@ -172,15 +164,26 @@ public:
     }
 };
 
-// Factory registration
+// ─── Factory registration ───────────────────────────────────────────
+// Each backend provides its own detect_* function; CPU aggregates them.
 extern std::vector<InferenceBackend*> detect_backends_hip();
+extern std::vector<InferenceBackend*> detect_backends_vulkan();
 
 std::vector<InferenceBackend*> detect_backends() {
     std::vector<InferenceBackend*> backends;
+
+    // Try HIP first (fastest on AMD)
     auto hip_backends = detect_backends_hip();
     for (auto* b : hip_backends) backends.push_back(b);
+
+    // Try Vulkan next (cross-platform GPU)
+    auto vk_backends = detect_backends_vulkan();
+    for (auto* b : vk_backends) backends.push_back(b);
+
+    // CPU is always available as fallback
     static CpuBackend cpu_backend;
     backends.push_back(&cpu_backend);
+
     return backends;
 }
 
