@@ -16,6 +16,14 @@
 #include <algorithm>
 #include <vector>
 
+#define HIP_CHECK(x) do { \
+    hipError_t _e = (x); \
+    if (_e != hipSuccess) { \
+        fprintf(stderr, "%s:%d: %s failed: %s\n", __FILE__, __LINE__, #x, hipGetErrorString(_e)); \
+        exit(1); \
+    } \
+} while (0)
+
 using launch_fn = void (*)(const void*, const void*, void*, int, int, int, void*);
 
 extern "C" {
@@ -123,12 +131,12 @@ int main(int argc, char** argv) {
     int8_t *B_i8_tiled_d;
     int8_t *A_i8_d;          // pre-quantized INT8 activations
 
-    hipMalloc(&A_d, a_bytes);
-    hipMalloc(&A_i8_d, a_bytes);  // INT8 A same size as FP16 A (same values as bytes)
-    hipMalloc(&B_d, b_bytes);
-    hipMalloc(&C_d, c_bytes);
-    hipMalloc(&B_fp16_d, b_fp16_bytes);
-    hipMalloc(&B_i8_tiled_d, b_i8_tiled_bytes);
+    HIP_CHECK(hipMalloc(&A_d, a_bytes));
+    HIP_CHECK(hipMalloc(&A_i8_d, a_bytes));  // INT8 A same size as FP16 A (same values as bytes)
+    HIP_CHECK(hipMalloc(&B_d, b_bytes));
+    HIP_CHECK(hipMalloc(&C_d, c_bytes));
+    HIP_CHECK(hipMalloc(&B_fp16_d, b_fp16_bytes));
+    HIP_CHECK(hipMalloc(&B_i8_tiled_d, b_i8_tiled_bytes));
 
     // Fill with random data
     std::vector<__half> A_host(M*K);

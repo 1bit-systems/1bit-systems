@@ -66,3 +66,4 @@ npu-infer/build/
 
 # Node dependencies (npm ci)
 node_modules/
+engine/fusion/bench_fused

@@ -729,10 +729,14 @@ Backend* BackendManager::create_instance_rt(const BackendInfo& info) {
     Backend* b = nullptr;
     switch (info.type) {
         case BackendType::HIP_GPU:
-            // Try direct call first (statically linked into binary via backend_hip.cpp)
+            // Load HIP backend from shared library (keeps backend_manager HIP-free,
+            // so pure-C++ consumers like backend_demo can link without HIP symbols).
+            // If static linking is desired, compile with -DROCM_CPP_STATIC_HIP
+            // and link src/backend_hip.cpp directly into the target.
+#ifdef ROCM_CPP_STATIC_HIP
             b = create_hip_backend();
             if (b) return b;
-            // Fallback: dlsym from shared library
+#endif
             b = try_load_backend("librocm_cpp.so", "create_hip_backend");
             if (!b) b = try_load_backend("libhip_backend.so", "create_hip_backend");
             return b;
