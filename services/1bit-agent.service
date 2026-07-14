@@ -5,8 +5,8 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/home/bcloud/1bit-systems/bin/1bit chat
-WorkingDirectory=/home/bcloud/1bit-systems
+ExecStart=__REPO_ROOT__/bin/1bit chat
+WorkingDirectory=__REPO_ROOT__
 Restart=on-failure
 RestartSec=5
 Environment=NODE_ENV=production

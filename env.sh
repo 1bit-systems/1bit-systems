@@ -4,6 +4,13 @@ set -euo pipefail
 # 1bit environment setup — source this before running the engine.
 # Usage: source env.sh
 #    or: source env.sh /path/to/1bit  # override install dir
+#
+# NOTE: this file is meant to be `source`d, so `set -e` is applied only when
+# it is executed directly (not sourced) — otherwise an error here would kill
+# the caller's interactive shell. See issue #171.
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+  set -euo pipefail
+fi
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LINK_DIR="${1:-$DIR}"

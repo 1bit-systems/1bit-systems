@@ -6,12 +6,12 @@ Routes inference requests to NPU, GPU, or CPU based on policy.
 Backends:
   NPU: Open-source C++ engine (MIT, 97 tok/s Qwen3-0.6B)
   GPU: ROCm/WMMA GPU engine
-  CPU: Lemonade CPU (lemond --backend cpu)
+  CPU: not implemented — >8B requests fall back to GPU (see #147)
 
 Policy (model_size → device):
   < 2B params  → NPU (lowest power)
-  2B-8B params → GPU (fastest compute)
-  > 8B params  → CPU (fallback)
+  >= 2B params → GPU (fastest compute; also the >8B fallback until a
+                 real CPU backend exists — see #147)
 
 Usage:
   sudo ./daemon/npu-gpu-cpud.py [--port PORT] [--npu-port PORT] [--gpu-port PORT]
@@ -505,13 +505,17 @@ def estimate_model_size(model_name: str) -> float:
     return 7  # default
 
 def select_device(model_size_b: float) -> str:
-    """Returns 'npu', 'gpu', or 'cpu' based on model size."""
+    """Returns 'npu' or 'gpu' based on model size.
+
+    NOTE: there is no CPU backend implemented in this daemon. Models >8B are
+    routed to GPU rather than a nonexistent CPU path (#147). Restore a 'cpu'
+    branch here only once a real CPUBackend is added and registered in
+    `backends`.
+    """
     if model_size_b < 2:
         return "npu"
-    elif model_size_b <= 8:
-        return "gpu"
     else:
-        return "cpu"
+        return "gpu"
 
 # ---------------------------------------------------------------------------
 # HTTP handler
@@ -534,12 +538,12 @@ class Handler(BaseHTTPRequestHandler):
                             "available": backends["npu"].process is not None},
                     "gpu": {"backend": "ROCm/WMMA GPU engine", "port": backends["gpu"].port,
                             "available": backends["gpu"].process is not None},
-                    "cpu": {"backend": "Lemonade (CPU)", "available": True},
+                    "cpu": {"backend": "not implemented", "available": False},
                 },
                 "policy": {
                     "< 2B params": "npu",
-                    "2B-8B params": "gpu",
-                    "> 8B params": "cpu",
+                    ">= 2B params": "gpu",
+                    "> 8B params": "gpu (no CPU backend yet — see #147)",
                 },
             })
         elif self.path == "/v1/models":
@@ -651,9 +655,9 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if device == "npu":
                     resp = backends["npu"].chat(model, messages, **extra_kwargs)
-                elif device == "gpu":
-                    resp = backends["gpu"].chat(model, messages, **extra_kwargs)
                 else:
+                    # 'gpu' (and any future unmatched device) — select_device
+                    # never returns 'cpu' since no CPU backend exists (#147).
                     resp = backends["gpu"].chat(model, messages, **extra_kwargs)
 
                 # Tag response with routing info

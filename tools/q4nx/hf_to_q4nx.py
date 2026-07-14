@@ -355,7 +355,12 @@ def quantize_block(block_f32: np.ndarray) -> bytes:
             ns = lr % 2
 
             for c in range(32):
-                idx = lane * 2048 + c * 8 + bi
+                # Use the GLOBAL column within the tile (g*32 + c, 0..255), not
+                # the within-group column c (0..31). With c alone all 8 groups
+                # aliased onto the first 256 bytes of each lane, corrupting
+                # 7/8 of every tile (issue #153). This matches the on-disk
+                # FLM-produced models, which populate all 2048 bytes/lane.
+                idx = lane * 2048 + (g * 32 + c) * 8 + bi
                 nibble = int(qvals[c])
                 if ns == 0:
                     packed[idx] = (packed[idx] & 0xF0) | nibble

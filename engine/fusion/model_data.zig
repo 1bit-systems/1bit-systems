@@ -388,12 +388,19 @@ fn dequantizeI8Block(block: *const [5120]u8, out: []f32, tr: u32, tc: u32, out_r
             else
                 bf16ToF32(readU16(block, scale_off - 512));  // wrap to header
             const z_raw = bf16ToF32(readU16(block, 512 + (g * 32 + lr) * 2));
-            // Sanity check: scales/zps should be in a reasonable range.
-            const plausible_max: f32 = 100.0;  // raised from 1.0 — real scales can exceed 1.0
-            const s_bad = !std.math.isFinite(s_raw) or @abs(s_raw) > plausible_max;
-            const z_bad = !std.math.isFinite(z_raw) or @abs(z_raw) > plausible_max;
+            // The earlier "widespread corrupt scale" diagnosis (issue #153) was
+            // wrong: on-disk models carry a clean scale distribution (0 out of
+            // 18992 lm_head tiles have |scale| > 1.0). The degenerate output
+            // came from the packed-nibble index bug fixed below, not scales.
+            // So only guard against genuinely unusable non-finite values
+            // (NaN/Inf can't be multiplied through) -- do NOT silently zero
+            // finite-but-large scales, which are legitimate for other models
+            // and would hide real errors. If a finite scale ever looks wrong,
+            // that's a data/format bug to surface, not paper over.
+            const s_bad = !std.math.isFinite(s_raw);
+            const z_bad = !std.math.isFinite(z_raw);
             if (s_bad or z_bad) {
-                log.warn("Implausible dequant scale/zp at row={d} group={d} (scale={d}, zp={d}); zeroing group", .{ row, g, s_raw, z_raw });
+                log.warn("Non-finite dequant scale/zp at row={d} group={d} (scale={d}, zp={d}); zeroing group", .{ row, g, s_raw, z_raw });
             }
             const s: f32 = if (s_bad) 0 else s_raw;
             const z: f32 = if (z_bad) 0 else z_raw;
@@ -403,7 +410,16 @@ fn dequantizeI8Block(block: *const [5120]u8, out: []f32, tr: u32, tc: u32, out_r
                 const col = tc * 256 + g * 32 + c;
                 if (col >= out_cols) continue;
 
-                const bv = packed_data[lane * 2048 + c * 8 + bi];
+                // Packed I4 index must use the GLOBAL column within the tile
+                // (g*32 + c, range 0..255), NOT the within-group column c
+                // (0..31). Using c alone made all 8 column-groups alias onto
+                // the first 256 bytes of each lane, so only the last-written
+                // group (g=7) survived and groups 0..6 decoded garbage --
+                // 87.5% of every tile's weights. That, not any scale misread,
+                // is what produced degenerate generation (issue #153).
+                // Verified against on-disk models: the full 2048 bytes/lane
+                // are populated, and this index round-trips at 4-bit error.
+                const bv = packed_data[lane * 2048 + (g * 32 + c) * 8 + bi];
                 const nibble: u32 = if (ns == 0) bv & 0x0F else (bv >> 4) & 0x0F;
                 out[row * out_cols + col] = @as(f32, @floatFromInt(nibble)) * s + z;
             }

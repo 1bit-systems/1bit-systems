@@ -94,7 +94,11 @@ def _engine_benchmarks(benchmarks_path: Path) -> dict:
         "gpu_ternary_tok_s":     B.get("ternary",    {}).get("tok_s"),
         "gpu_1bit_llama_tok_s":  B.get("gpu_1bit",   {}).get("tok_s"),
         "gpu_f16_baseline_tok_s": B.get("gpu_zinc",  {}).get("tok_s"),
-        "tflops":                S.get("tflops_int8"),
+        # NOTE: the standalone "tflops" (55.7) is quarantined in
+        # benchmarks/latest.json._unverified (tflops_55_7: "NO SOURCE; measured
+        # ternary prefill peak is 35.57"). It is NOT published. The verified,
+        # sourced TFLOPS figures are prefill_tflops_4h / prefill_tflops_i8apre,
+        # which come straight from benchmarks/latest.json. (issue #107)
     }
     return {k: v for k, v in engine_map.items() if v is not None}
 
@@ -107,6 +111,19 @@ def build(bench_path: Path) -> dict:
     engine_path = REPO / "site/benchmarks.json"
     if engine_path.is_file():
         bench["benchmarks"].update(_engine_benchmarks(engine_path))
+
+    # Quarantine gate (issue #107): benchmarks/latest.json._unverified lists
+    # every claim that has NO reproducible source in this repo and "MUST NOT be
+    # published". Strip any of those keys before they can reach numbers.json --
+    # they were leaking in via _engine_benchmarks() overlaying site/
+    # benchmarks.json. This is the structural fix, not a one-off scrub.
+    unverified = set(bench.get("_unverified", {}))
+    unverified.discard("_comment")
+    dropped = [k for k in list(bench["benchmarks"]) if k in unverified]
+    for k in dropped:
+        bench["benchmarks"].pop(k, None)
+    if dropped:
+        print(f"gen_numbers: dropped unverified/quarantined keys: {sorted(dropped)}")
 
     return {
         "_generated_by": "tools/gen_numbers.py",

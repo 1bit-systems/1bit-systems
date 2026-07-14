@@ -86,13 +86,30 @@ jobs:
           scandir: '.'
           severity: error
 
+  version:
+    name: Version consistency
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v5
+      - name: All manifests match root VERSION
+        run: bash scripts/sync-version.sh --check
+      - name: Q4NX quant round-trip (issue #153 layout guard)
+        run: |
+          python3 -m pip install --quiet numpy
+          python3 tools/q4nx/test_q4nx_roundtrip.py
+
   rust:
     name: Rust proxy (build + test)
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
+      # If rust/rust-toolchain.toml exists it pins the MSRV and this action
+      # honors it automatically; otherwise falls back to stable. (#161)
       - uses: dtolnay/rust-toolchain@stable
+      # Cache registry + target dir so we don't rebuild every dependency from
+      # scratch on each run (#161).
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
@@ -134,20 +151,8 @@ jobs:
         working-directory: engine/fusion
         run: ./zig-out/bin/fused-engine --help 2>&1 || true
 
-  deploy:
-    name: Deploy site
-    needs: [cpp]
-    if: needs.cpp.result == 'success'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      deployments: write
-    steps:
-      - uses: actions/checkout@v5
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy site --project-name=1bit-systems --branch=main
+  # NOTE: site deployment lives in the dedicated `deploy.yml`, which is path-
+  # filtered to `site/**` so an unrelated Rust/TS failure never blocks a site
+  # deploy (and a code-only change never triggers a needless deploy). The
+  # duplicate deploy job that used to live here (needs: [cpp, rust, ts]) was
+  # removed for that reason. See issue #161.

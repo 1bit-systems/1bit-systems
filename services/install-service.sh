@@ -6,13 +6,16 @@ set -euo pipefail
 SERVICE_NAME="1bit-agent"
 SERVICE_SRC="$(dirname "$0")/1bit-agent.service"
 SERVICE_DEST="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/1bit-agent.service"
+# Resolve the actual repo root so the unit works regardless of checkout location (#148).
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 mkdir -p "$(dirname "$SERVICE_DEST")"
 
 case "${1:-install}" in
   install)
-    echo "  → Installing $SERVICE_NAME systemd user service..."
-    cp "$SERVICE_SRC" "$SERVICE_DEST"
+    echo "  → Installing $SERVICE_NAME systemd user service (repo: $REPO_ROOT)..."
+    # Substitute the templated path with this checkout's actual location (#148).
+    sed "s#__REPO_ROOT__#${REPO_ROOT}#g" "$SERVICE_SRC" > "$SERVICE_DEST"
     systemctl --user daemon-reload
     systemctl --user enable "$SERVICE_NAME"
     systemctl --user start "$SERVICE_NAME"

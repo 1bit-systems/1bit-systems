@@ -1,6 +1,6 @@
 #!/bin/sh
 set -e
-echo "1bit.systems v2026.07.02 — 5 models, 28 tok/s NPU"
+echo "1bit.systems v2026.07.14 — 5 models, 28 tok/s NPU"
 echo ""
 if [ -f /dev/accel/accel0 ]; then
     echo "✅ NPU device detected"

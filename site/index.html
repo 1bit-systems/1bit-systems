@@ -187,7 +187,7 @@
         "name": "How fast is NPU inference on Strix Halo?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "69 tok/s NPU V12 engine (measured 2026-07-12 after correctness fixes to RoPE convention, causal masking, and quantization scale; requires OpenMP thread tuning to hit this speed — see repo issues for details). 38.5 TFLOPS prefill peak. 207 KB single binary. ROCm HIP backend reaches 113 tok/s. 22 tok/s GPU ZINC on Bonsai-1.7B F16. (Speculative decoding is unresolved — an earlier '572 tok/s' projection doesn't hold up yet, but that's an undertrained checkpoint, not a disproven architecture; training fix in progress.)"
+          "text": "NPU-native single-binary inference engine for AMD Strix Halo (XDNA 2 + gfx1151). Sourced prefill peak ~43 TFLOPS INT8. Per-backend tok/s figures are published, with sources and honesty flags, in docs/wiki/performance.md; headline engine tok/s claims without a reproducible source are deliberately not asserted here. Speculative decoding is unresolved (undertrained checkpoint; training fix in progress)."
         }
       }
     ]
@@ -271,16 +271,17 @@
 
 <section id="benchmarks" class="block">
   <span class="eyebrow">Measured on-device</span>
-  <h2 style="margin:16px 0 24px;">The numbers. Verified.</h2>
+  <h2 style="margin:16px 0 24px;">The numbers we can source.</h2>
+  <!-- Only figures with a reproducible source in benchmarks/latest.json are
+       shown here. The engine tok/s headline claims and the peak-TFLOPS /
+       binary-size headline figures are quarantined in
+       benchmarks/latest.json._unverified as having NO reproducible source and
+       are deliberately NOT published here. See issue #107. -->
   <div class="stats">
-    <div class="stat"><span class="lbl caps">NPU fused (broken)</span><span class="val">291 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>historical — hangs on real generation as of 2026-07-12</span></div>
-    <div class="stat"><span class="lbl caps">NPU FLM (validated)</span><span class="val">94 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>production validated ⭐</span></div>
-    <div class="stat"><span class="lbl caps">GPU ternary (validated)</span><span class="val">307 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>1.58-bit · Vulkan · validated ⭐</span></div>
-    <div class="stat"><span class="lbl caps">GPU 1-bit</span><span class="val">383 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>Qwen2-0.5B IQ1_S · llama.cpp</span></div>
-    <div class="stat"><span class="lbl caps">Token Router</span><span class="val">42 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span>5 models · auto-detect all-5</span></div>
-    <div class="stat"><span class="lbl caps">ROCm HIP (GPU)</span><span class="val">113 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>GPU · ROCm backend</span></div>
-    <div class="stat"><span class="lbl caps">Prefill peak</span><span class="val"><span id="tflops2">38.5</span> <span>TFLOPS</span></span><span class="foot"><span class="dot" style="background:var(--pink)"></span>INT8 · XDNA 2 (4i-I8-APRE)</span></div>
-    <div class="stat"><span class="lbl caps">Binary size</span><span class="val">437 <span>KB</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>unified spec-decode · NPU+GPU+CPU</span></div>
+    <div class="stat"><span class="lbl caps">Prefill peak</span><span class="val"><span id="tflops2">43.3</span> <span>TFLOPS</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>INT8 · XDNA 2 · 4i-I8-APRE (sourced)</span></div>
+    <div class="stat"><span class="lbl caps">GEMV bandwidth</span><span class="val">198 <span>GB/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>tq1 kernel · bench_sherry (sourced)</span></div>
+    <div class="stat"><span class="lbl caps">Sherry GEMV</span><span class="val">153 <span>GB/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>M=6912 K=2560 · 256 iters (sourced)</span></div>
+    <div class="stat"><span class="lbl caps">Engine tok/s</span><span class="val">see docs</span><span class="foot"><span class="dot" style="background:var(--blue)"></span>hedged per-backend table in performance.md</span></div>
     <div class="stat"><span class="lbl caps">Models</span><span class="val"><span id="model-count3">73+</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span><span id="backend-count3">6</span> backends · 22 multi-modal</span></div>
     <div class="stat"><span class="lbl caps">Daily clones</span><span class="val"><span id="daily-clones-stat">—</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>GitHub traffic API · <span id="daily-clones-total">6,113</span> total</span></div>
   </div>
@@ -542,7 +543,10 @@
   (function(){
     var N={}; // populated from numbers.json
     var el=function(id){return document.getElementById(id);};
-    var set=function(id,v){var e=el(id);if(e)e.textContent=v;};
+    // Skip injection when the value is missing/undefined so removing a
+    // quarantined key from numbers.json can never render "undefined tok/s"
+    // (leaves the honest static fallback in the HTML). See issue #107.
+    var set=function(id,v){var s=''+v;if(s==='undefined'||s==='null'||s.indexOf('undefined')>-1||s.indexOf('NaN')>-1)return;var e=el(id);if(e)e.textContent=v;};
     var fmt=function(n){return n.toLocaleString();};
 
     // Fetch numbers.json

@@ -1,6 +1,6 @@
 {
   "name": "1bit-systems",
-  "version": "2026.07.02",
+  "version": "2026.07.14",
   "description": "1bit — your NPU-native coding agent. Fork of pi.dev, wired to local NPU.",
   "type": "module",
   "bin": {

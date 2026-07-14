@@ -19,6 +19,8 @@
 // @section Fused Engine
 #pragma once
 
+#pragma once
+
 #include "cpu_layer.h"
 #include <cstdio>
 #include <cstdlib>

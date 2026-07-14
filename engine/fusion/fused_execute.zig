@@ -941,15 +941,13 @@ pub const FusedExecutor = struct {
         aa.free(self.scratch.hidden);
         if (self.gpu) |*g| g.deinit();
         self.kv.deinit();
-        aa.free(self.emb_f32);
-        aa.free(self.final_norm);
-        aa.free(self.in_norm);
-        aa.free(self.pa_norm);
-        aa.free(self.q_norm);
-        aa.free(self.k_norm);
-        aa.free(self.rope_sin);
-        aa.free(self.rope_cos);
-        if (self.lm_head_f32) |lm| aa.free(lm);
+        // NOTE: emb_f32, lm_head_f32, final_norm, in_norm, pa_norm, q_norm,
+        // k_norm, rope_sin, rope_cos and cpu_weights are all BORROWED from
+        // ModelData (see the field docs above). ModelData.deinit() is the
+        // single owner and frees them (plus the per-layer projection weights
+        // and inner norm slices, which were never freed here). Freeing them
+        // here as well double-freed the shared buffers and leaked everything
+        // else (#144, #113). Do not re-add frees for borrowed buffers.
     }
 
     /// Try to initialize the GPU attention backend.
@@ -1453,6 +1451,9 @@ pub const FusedExecutor = struct {
             // Standard flash attention: full QKV projection on NPU
             try self.npu.runQKV(s.hidden[0..batch_size * H], layer, @intCast(batch_size), qkv_scratch);
         } else {
+            // No backend matched this QKV dispatch and no CPU weights loaded.
+            // Zeroing here would silently corrupt output (#145) — make it loud.
+            log.warn("QKV dispatch {any} unhandled at layer {d} (cpu_weights loaded={any}); zeroing — output will be degenerate", .{ dispatch.qkv, layer, layer < self.cpu_weights.q.len });
             @memset(qkv_scratch, 0);
         }
     }
@@ -1584,7 +1585,9 @@ pub const FusedExecutor = struct {
         } else if (dispatch.attention == .npu) {
             try self.npu.runOProj(s.attn_out[0..batch_size * NH * HD], layer, batch_size, s.o_out[0..batch_size * H]);
         } else {
-            // Fallback: CPU (shouldn't reach here if weights are loaded)
+            // No matching O-proj backend/weights. Zeroing silently reintroduces
+            // the #56 degenerate-output bug (#145) — make it loud.
+            log.warn("O-proj dispatch {any} unhandled at layer {d} (cpu_weights.o loaded={any}); zeroing — output will be degenerate", .{ dispatch.attention, layer, layer < self.cpu_weights.o.len });
             @memset(s.o_out[0..batch_size * H], 0);
         }
         for (0..batch_size * H) |i| s.hidden[i] = s.residual[i] + s.o_out[i];
@@ -1964,6 +1967,7 @@ pub const FusedExecutor = struct {
                     break :tryOrZero;
                 };
             } else {
+                log.warn("O-proj dispatch {any} unhandled at layer {d} (cpu_weights.o loaded={any}); zeroing — output will be degenerate (#145)", .{ dispatch.attention, layer, layer < self.cpu_weights.o.len });
                 @memset(s.o_out[0..B * H], 0);
             }
             for (0..B * H) |i| s.hidden[i] = s.residual[i] + s.o_out[i];

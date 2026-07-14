@@ -35,29 +35,36 @@ record_discovery() {
         printf '{"events":[],"lastSeen":{},"agents":{}}\n' > "$AWARENESS_FILE"
     fi
 
-    # Pass all data via env vars (no shell→Python injection)
-    EVENT_TITLE="$title" EVENT_URL="$url" EVENT_RELEVANCE="$relevance" \
-    EVENT_TAGS="$tags" EVENT_SUMMARY="$summary" EVENT_TIME="$now" \
-    AWARENESS_FILE="$AWARENESS_FILE" python3 -c "
+    # All fields (title/url/tags/summary may be untrusted external text from
+    # web_search) are passed via environment, not interpolated into Python
+    # source — prevents SyntaxError swallowing and code injection (#128).
+    D_FILE="$AWARENESS_FILE" D_NOW="$now" D_TITLE="$title" D_URL="$url" \
+    D_RELEVANCE="$relevance" D_TAGS="$tags" D_SUMMARY="$summary" \
+    python3 -c "
 import json, os
 
-with open(os.environ['AWARENESS_FILE']) as f:
+with open(os.environ['D_FILE']) as f:
     data = json.load(f)
 
 data.setdefault('events', [])
 ids = [e.get('id', 0) for e in data['events']]
 next_id = max(ids, default=0) + 1
 
+try:
+    relevance = float(os.environ.get('D_RELEVANCE', '0') or '0')
+except ValueError:
+    relevance = 0
+
 data['events'].append({
     'id': next_id,
-    'timestamp': os.environ['EVENT_TIME'],
+    'timestamp': os.environ.get('D_NOW', ''),
     'type': 'discovery',
     'agent': 'jarvis',
-    'title': os.environ['EVENT_TITLE'],
-    'url': os.environ['EVENT_URL'],
-    'relevance': float(os.environ['EVENT_RELEVANCE']),
-    'tags': os.environ['EVENT_TAGS'],
-    'message': os.environ['EVENT_SUMMARY']
+    'title': os.environ.get('D_TITLE', ''),
+    'url': os.environ.get('D_URL', ''),
+    'relevance': relevance,
+    'tags': os.environ.get('D_TAGS', ''),
+    'message': '🌍 ' + os.environ.get('D_SUMMARY', '')
 })
 
 if len(data['events']) > 500:
@@ -66,7 +73,7 @@ if len(data['events']) > 500:
 data.setdefault('lastSeen', {})
 data['lastSeen']['jarvis'] = 'discovery-' + str(next_id)
 
-with open(os.environ['AWARENESS_FILE'], 'w') as f:
+with open(os.environ['D_FILE'], 'w') as f:
     json.dump(data, f, indent=2)
 " 2>/dev/null || true
 }

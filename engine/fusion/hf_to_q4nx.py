@@ -360,7 +360,10 @@ def quantize_block(block_f32: np.ndarray) -> bytes:
             ns = lr % 2
 
             for c in range(32):
-                idx = lane * 2048 + c * 8 + bi
+                # Global column within the tile (g*32 + c), not within-group c.
+                # See issue #153: c alone aliased all 8 groups onto 256 bytes
+                # per lane and corrupted 7/8 of every tile.
+                idx = lane * 2048 + (g * 32 + c) * 8 + bi
                 nibble = int(qvals[c])
                 if ns == 0:
                     packed[idx] = (packed[idx] & 0xF0) | nibble

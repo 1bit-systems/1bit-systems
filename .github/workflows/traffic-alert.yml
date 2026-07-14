@@ -5,6 +5,12 @@ on:
   schedule:
     - cron: '0 8 * * *'   # daily at 8AM UTC
 
+# Minimal built-in token: this workflow only needs to create spike issues.
+# The GitHub Traffic API requires push-level access, but instead of elevating
+# the built-in GITHUB_TOKEN to `contents: write` on a schedule-triggered
+# workflow (a supply-chain risk — see issue #159), we read traffic with a
+# fine-grained PAT (secrets.TRAFFIC_PAT) scoped to `Administration: read` /
+# traffic only. The built-in token keeps its least-privilege scope below.
 permissions:
   issues: write
   contents: read   # downgraded from write — use TRAFFIC_PAT secret for API
@@ -17,8 +23,14 @@ jobs:
       - name: Fetch GitHub Traffic Data
         id: traffic
         env:
+          # Fine-grained PAT scoped to traffic (repo Administration: read) only.
+          # Falls back to GITHUB_TOKEN so the workflow still parses if the
+          # secret is unset, but the API calls will then fail loudly (see #159).
           GH_TOKEN: ${{ secrets.TRAFFIC_PAT || secrets.GITHUB_TOKEN }}
         run: |
+          if [ -z "${{ secrets.TRAFFIC_PAT }}" ]; then
+            echo "::warning::TRAFFIC_PAT secret not set — falling back to GITHUB_TOKEN, which no longer has push-level access; traffic reads will fail. Add a fine-grained PAT scoped to Administration:read. (#159)"
+          fi
           # Use github.repository (always available) and extract the repo name
           OWNER="${GITHUB_REPOSITORY_OWNER}"
           REPO="${GITHUB_REPOSITORY#*/}"
@@ -128,7 +140,8 @@ jobs:
       - name: Create Spike Issue
         if: steps.traffic.outputs.SPIKE == 'true'
         env:
-          GH_TOKEN: ${{ secrets.TRAFFIC_PAT || secrets.GITHUB_TOKEN }}
+          # Issue creation uses the built-in token (issues: write is enough).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CY: ${{ steps.traffic.outputs.CLONE_YESTERDAY }}
           CYU: ${{ steps.traffic.outputs.CLONE_YESTERDAY_UNIQ }}
         run: |

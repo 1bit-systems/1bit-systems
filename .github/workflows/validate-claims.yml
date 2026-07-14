@@ -62,34 +62,38 @@ jobs:
         run: |
           set -e
           # Numbers deliberately quarantined in benchmarks/latest.json _unverified.
-          banned='291 tok/s|94 tok/s|307 tok/s|383 tok/s|55\.7 TFLOPS|437 KB'
-          failed=false
-          # Check site/numbers.json (runtime data source, not affected by HTML markup)
-          echo "Checking site/numbers.json..."
-          if grep -nEo "$banned" site/numbers.json; then
-            echo "FAIL: unsourced claim in site/numbers.json"
-            failed=true
+          # Match digits and unit even when separated by nested HTML tags, and
+          # scan the RENDERED text of index.html plus the JSON payloads the page
+          # fetches at runtime (numbers.json + all *-badge.json). The old check
+          # grepped raw index.html only, so `291<span>tok/s` slipped past it
+          # (issue #107). Patterns are matched against tag-stripped text.
+          banned='291 *tok/s|94 *tok/s|307 *tok/s|383 *tok/s|55\.7 *TFLOPS|437 *KB'
+          fail=0
+          # (1) Present-as-current-fact surfaces: index.html rendered text +
+          #     the JSON payloads the page fetches. These must be CLEAN.
+          {
+            sed 's/<[^>]*>//g' site/index.html
+            cat site/numbers.json site/*-badge.json 2>/dev/null
+          } > /tmp/site_fact.txt
+          if grep -nEo "$banned" /tmp/site_fact.txt; then
+            echo "FAIL: a quarantined claim reappeared on index.html / numbers.json / a badge (benchmarks/latest.json _unverified)"
+            fail=1
           fi
-          # Check site/index.html after stripping HTML tags (fixes html-escaping bypass)
-          echo "Checking site/index.html (stripped)..."
-          stripped=$(sed 's/<[^>]*>//g' site/index.html)
-          if echo "$stripped" | grep -nEo "$banned"; then
-            echo "FAIL: unsourced claim in site/index.html"
-            failed=true
-          fi
-          # Check badge JSON endpoints
-          for f in site/*-badge.json site/blog/*.html; do
+          # (2) Dated blog posts may reference a historical number, but only if
+          #     they carry a correction banner (the pattern the DSpark post
+          #     uses). Any post that cites a quarantined number without the
+          #     word "Correction" fails.
+          for f in site/blog/*.html; do
             [ -f "$f" ] || continue
-            if grep -nEo "$banned" "$f" 2>/dev/null; then
-              echo "FAIL: unsourced claim in $f"
-              failed=true
+            if sed 's/<[^>]*>//g' "$f" | grep -qEo "$banned"; then
+              if ! grep -qi 'Correction' "$f"; then
+                echo "FAIL: $f cites a quarantined number but has no correction banner (issue #107)"
+                fail=1
+              fi
             fi
           done
-          if $failed; then
-            echo "FAIL: an unsourced/unverified claim reappeared (see benchmarks/latest.json _unverified)"
-            exit 1
-          fi
-          echo "ok: no retired claim on the site"
+          [ "$fail" -eq 0 ] && echo "ok: index/JSON clean; every blog post citing a historical number carries a correction banner"
+          exit $fail
 
       - name: site/numbers.json matches the generator
         run: |

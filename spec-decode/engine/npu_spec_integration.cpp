@@ -21,12 +21,21 @@
 #include <vector>
 #include <chrono>
 
-static const char* kModelPath = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
-static const char* kXclbinDir = "/home/bcloud/npu-sandbox/npu-infer/build/int8";
-static const char* kDraftCheckpoint = "/home/bcloud/spec-decode/checkpoints/eagle3_draft_trained_420.bin";
+// Paths are configurable via environment variables so the benchmark is not
+// tied to one machine (#154). Defaults preserve the historical values.
+static const char* env_or(const char* name, const char* fallback) {
+    const char* v = getenv(name);
+    return (v && *v) ? v : fallback;
+}
+static const char* kModelPath = nullptr;
+static const char* kXclbinDir = nullptr;
+static const char* kDraftCheckpoint = nullptr;
 
 int main(int argc, char* argv[]) {
     setvbuf(stdout, NULL, _IONBF, 0);
+    kModelPath = env_or("SPEC_MODEL_PATH", "models/Qwen3-0.6B-NPU2/model.q4nx");
+    kXclbinDir = env_or("SPEC_XCLBIN_DIR", "npu-infer/build/int8");
+    kDraftCheckpoint = env_or("SPEC_DRAFT_CHECKPOINT", "spec-decode/checkpoints/eagle3_draft_trained_420.bin");
     int prompt_len = argc > 1 ? atoi(argv[1]) : 9;
     int max_new = argc > 2 ? atoi(argv[2]) : 64;
 

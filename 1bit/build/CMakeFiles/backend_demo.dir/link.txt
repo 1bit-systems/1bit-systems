@@ -1,1 +1,0 @@
-/opt/rocm/lib/llvm/bin/amdclang++ -O3 -DNDEBUG -Xlinker --dependency-file=CMakeFiles/backend_demo.dir/link.d CMakeFiles/backend_demo.dir/tools/backend_demo.cpp.o -o backend_demo  libbackend_manager.a -ldl

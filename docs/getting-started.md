@@ -12,7 +12,14 @@ Max+ 395) with ROCm GPU acceleration.
 |---------------|-------------------------------------------------------------------|
 | **Hardware**  | AMD Ryzen AI Max+ 395 (Strix Halo, gfx1151)                       |
 | **OS**        | Ubuntu 24.04 LTS or later                                         |
+| **Kernel**    | **6.18.22-lts or 7.x** — avoid 6.19.x (see warning below)         |
 | **ROCm**      | 7.2.4 (HIP runtime + device library)                              |
+
+> ⚠️ **Kernel warning (issue #1).** On Strix Halo (gfx1151), Linux **6.19.x**
+> kernels have a reproducible `amdgpu` OPTC CRTC hang under sustained NPU/GPU
+> load — the display pipe locks up mid-inference. Confirmed-stable kernels are
+> **6.18.22-lts** and the **7.x** series. `install.sh` detects a 6.19.x kernel
+> and warns. Check yours with `uname -r` before running GPU inference.
 | **CMake**     | ≥ 3.28                                                            |
 | **Ninja**     | ≥ 1.12                                                            |
 | **Compiler**  | GCC ≥ 13 (C++17) + ROCm's `amdclang++` for HIP                    |

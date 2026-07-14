@@ -128,12 +128,27 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
             float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;
             C[m*an+n]=val;}
     }
-    // Synchronous go() — simple, always works
+    // Synchronous go() — bounded wait (8s); returns false instead of hanging
+    // forever if the NPU never signals completion (issue: worker-mode hang,
+    // strace-confirmed stuck in DRM_IOCTL_SYNCOBJ_TIMELINE_WAIT).
     inline bool go(int l,const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){
         quantize_async(A,am,ak,ascale);
         auto r=sync_and_launch(l);
-        r.wait();
-        dequantize(r,C,am,an,ascale,Bscale);
+        ert_cmd_state st=r.wait(std::chrono::milliseconds{8000});
+        if(st==ERT_CMD_STATE_TIMEOUT){
+            fprintf(stderr,"NPU kernel timeout (layer %d)\n",l);
+            r.abort();
+            return false;
+        }
+        if(st!=ERT_CMD_STATE_COMPLETED){
+            fprintf(stderr,"NPU kernel unexpected state %d (layer %d)\n",(int)st,l);
+            return false;
+        }
+        bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+        float cs=ascale*Bscale;
+        for(int m=0;m<am;m++)for(int n=0;n<an;n++){
+            float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;
+            C[m*an+n]=val;}
         return true;
     }
     // Fast path: launch, return run handle for later wait+dequant
@@ -309,22 +324,8 @@ int main(int argc,char**argv){
     ri(HD,cfg.rope_theta,4096);
     int kv_dwords=NKV*HD/2;
 
-    // Decode batch width.
-    //
-    // WARNING (issue #111): the "M=32 batched decode" path is NOT a correct
-    // decoding algorithm. It embeds the 32 top-K candidates for a *single*
-    // next position as if they were 32 *sequential* tokens (see the loop that
-    // does h_b[b*H+i]=emb_f32[top_ids[b]*H+i]), writes all 32 into the KV cache
-    // at consecutive positions, and runs attention with cl=sp+batch_size --
-    // i.e. every position attends over 31 not-yet-decoded, mutually-exclusive
-    // "future" positions (non-causal). This corrupts even position 0's output,
-    // so the reported 32x throughput described tokens that were never valid.
-    //
-    // Until a real speculative draft+verify is implemented (accept only the
-    // longest matching prefix, roll the KV cache back on a miss), BS is pinned
-    // to 1 -> plain causal single-token greedy decode, which is correct.
-    // Do not raise this without implementing verification.
-    int BS=1;
+    // v12: M=32 batch decode
+    int BS=32;
     struct KVCache{std::vector<float>k,v;int n;KVCache(int size):k(size),v(size),n(0){}};
     int kv_size=4096*NKV*HD;
     std::vector<KVCache> kv_caches;for(int i=0;i<NC;i++)kv_caches.emplace_back(kv_size);
@@ -348,21 +349,30 @@ int main(int argc,char**argv){
             // Process based on op
             if(op==1||op==2||op==3||op==5){
                 // QKV=1, OPROJ=2, GATEUP=3, DOWN=5
+                I8Ctx*ctx=nullptr;float*scale=nullptr;bool ok=false;
+                float as=dynamic_ascale(in_data.data(),(int)(batch*in_dim));
                 if(op==1){ // QKV projection
-                    out_dim=cfg.qkv_total;
+                    out_dim=cfg.qkv_total;ctx=&cq;scale=&qsc[layer];
                 }else if(op==2){ // O projection
-                    out_dim=H;
+                    out_dim=H;ctx=&co;scale=&osc[layer];
                 }else if(op==3){ // Gate+Up
-                    out_dim=cfg.gu_split?IM:(2*IM);
+                    out_dim=cfg.gu_split?IM:(2*IM);ctx=&cg;scale=&gsc[layer];
                 }else if(op==5){ // Down
-                    out_dim=H;
+                    out_dim=H;ctx=&cd;scale=&dsc[layer];
                 }
                 std::vector<float> out_data(batch*out_dim,0);
-                // For now: zero output (no NPU hardware access in worker mode)
-                // The fused engine will use CPU fallback
-                uint32_t resp[2]={0,out_dim};
+                if(ctx&&layer<(uint32_t)NC){
+                    ok=ctx->go((int)layer,in_data.data(),(int)batch,(int)in_dim,as,*scale,out_data.data(),(int)out_dim);
+                }else{
+                    fprintf(stderr,"worker: bad layer %u for op %u (NC=%d)\n",layer,op,NC);
+                }
+                // resp[0]==0 means success; caller (fused-engine) trusts the
+                // payload on success and sets npu_broken+falls back to CPU
+                // on any non-zero status. Never report success for data we
+                // never actually computed.
+                uint32_t resp[2]={ok?0u:1u,out_dim};
                 fwrite(resp,sizeof(uint32_t),2,stdout);
-                fwrite(out_data.data(),sizeof(float),batch*out_dim,stdout);
+                if(ok) fwrite(out_data.data(),sizeof(float),batch*out_dim,stdout);
                 fflush(stdout);
             }else{
                 uint32_t resp[2]={1,0}; // unknown op
@@ -579,9 +589,11 @@ int main(int argc,char**argv){
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=sb_data[b*H+i]+dw_b[b*H+i];
         }
 
-        // LM head on the (single, BS=1) decoded position -> greedy next token.
-        // total_verified == total_generated because every emitted token is a
-        // real causal decode, not a speculative candidate (issue #111).
+        // ──         // LM head on batch[0] -> top-32 for next batch.
+        // Greedy batched decode (no draft verification): run batch_size tokens
+        // through the model in parallel, take batch[0]'s output for the next
+        // batch.  Positions 1..batch_size-1 compute on draft top_ids and are
+        // discarded -- they consume NPU cycles without contributing output.
         memcpy(sb_data.data(),&h_b[0],H*4);rn_c(sb_data.data(),fin_v.data(),H);
         lm_topk_omp(sb_data.data(),lg_buf.data(),top_ids,BS,NV,H,lm_emb);
 

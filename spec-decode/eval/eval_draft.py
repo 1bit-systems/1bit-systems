@@ -150,17 +150,24 @@ def speculative_decode_greedy(
         # 2. Draft: predict block_size candidate tokens using the trained draft model
         draft_tokens = []
         draft_hidden = hidden_states[-1]  # last layer hidden states
+        # `next_token` is the target model's real next-token argmax (the anchor).
+        # Keep it intact; use a separate variable for the per-step draft input so
+        # we don't clobber the anchor mid-loop (#146).
+        draft_input = next_token
         for i in range(block_size):
             with torch.no_grad():
-                draft_logits = draft_model.forward(draft_hidden, next_token.unsqueeze(0))
+                draft_logits = draft_model.forward(draft_hidden, draft_input.unsqueeze(0))
             draft_token = draft_logits[:, -1, :].argmax(dim=-1)  # greedy from draft
             draft_tokens.append(draft_token.view(-1))
             # Feed predicted token back as next draft step input
-            next_token = draft_token.view(-1)
-        
+            draft_input = draft_token.view(-1)
+
+        # Standard spec-decode layout: [verified_anchor, draft_0, draft_1, ...].
+        # Use torch.cat on the list of [1]-shaped tensors (torch.tensor(list-of-
+        # tensors) is invalid and raises).
         draft_ids = torch.cat([
             next_token.unsqueeze(0),
-            torch.tensor(draft_tokens, device=device).unsqueeze(0)
+            torch.cat(draft_tokens).unsqueeze(0)
         ], dim=1)
         
         # 3. Verify with target model

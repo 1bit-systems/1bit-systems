@@ -43,21 +43,27 @@ write_payload() {
     local agent_name
     agent_name="$(get_agent_name)"
     shift
-    # Pass all data via environment variables + sys.argv (no shell→Python injection)
-    AGENT_NAME="$agent_name" EVENT_TYPE="$type" python3 -c "
-import json, sys, os
+    # Pass ALL untrusted values (type, agent name, and the key=value args) as
+    # process arguments / environment, never interpolated into Python source.
+    # A commit author name (or filename/message) containing a quote or
+    # backslash previously broke the literal or allowed code injection (#128).
+    PAYLOAD_TYPE="$type" \
+    PAYLOAD_AGENT="$agent_name" \
+    PAYLOAD_OUT="$AWARENESS_PAYLOAD" \
+    python3 -c "
+import json, os, sys
 from datetime import datetime, timezone
 
 payload = {
-    'type': os.environ['EVENT_TYPE'],
-    'agent': os.environ['AGENT_NAME'],
-    'timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    'type': os.environ['PAYLOAD_TYPE'],
+    'agent': os.environ['PAYLOAD_AGENT'],
+    'timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
 }
 for arg in sys.argv[1:]:
     k, _, v = arg.partition('=')
     payload[k] = v
 
-with open(os.environ['AWARENESS_PAYLOAD'], 'w') as f:
+with open(os.environ['PAYLOAD_OUT'], 'w') as f:
     json.dump(payload, f)
 " "$@" 2>/dev/null || true
 }

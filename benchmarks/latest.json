@@ -13,15 +13,15 @@
     "host": "AMD Ryzen AI MAX+ 395 w/ Radeon 8060S",
     "gpu": "gfx1151 (RDNA 3.5, Wave32)",
     "rocm": "7.2.4",
-    "date": "2026-07-10",
-    "note": "Medians of 3 warmed runs. bench_prefill_variants segfaults intermittently under back-to-back load (retried by validate_claims.py) -- see issue."
+    "date": "2026-07-14",
+    "note": "Medians of 5 warmed runs. bench_prefill_variants segfaults intermittently under back-to-back load (retried by validate_claims.py) -- see issue #179. Prefill TFLOPS figures are sensitive to GPU DVFS ramp timing within a run."
   },
   "benchmarks": {
-    "prefill_tflops_4h": 26.49,
-    "sherry_gemv_gbps": 152.6,
-    "tq1_gemv_gbps": 198.3,
-    "halo_gemv_gbps": 149.9,
-    "prefill_tflops_i8apre": 43.33
+    "prefill_tflops_4h": 21.62,
+    "sherry_gemv_gbps": 144.5,
+    "tq1_gemv_gbps": 184.5,
+    "halo_gemv_gbps": 152.8,
+    "prefill_tflops_i8apre": 35.35
   },
   "_sources": {
     "prefill_tflops_4h": "bench_prefill_variants 2560 6912 2560 -- variant 4h (64x64 cached A+B)",

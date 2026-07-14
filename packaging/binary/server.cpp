@@ -16,10 +16,18 @@
 #include <sstream>
 
 static std::string run_engine(const std::string& prompt, int max_tokens=8) {
-    std::string cmd = "LD_LIBRARY_PATH=/home/bcloud/torch2aie/toolchain/xrt/lib64:"
-                      "/home/bcloud/torch2aie/toolchain/mlir_aie.libs:"
-                      "/home/bcloud/torch2aie/toolchain/sysroot/usr/lib64 "
-                      "./engine/npu/build/npu_engine_cb 9 " + std::to_string(max_tokens) + " 2>/dev/null";
+    // Paths are configurable so the shipped binary isn't tied to one machine (#149).
+    //   NPU_ENGINE_BIN        — path to the npu_engine_cb binary (default: relative)
+    //   NPU_LD_LIBRARY_PATH   — extra dirs for the XRT/MLIR-AIE shared libraries
+    // NOTE: the engine CLI takes token counts, not text; wiring the user's
+    // `prompt` through requires a tokenizer this single binary does not embed.
+    (void)prompt;
+    const char* engine = getenv("NPU_ENGINE_BIN");
+    if (!engine || !*engine) engine = "./engine/npu/build/npu_engine_cb";
+    const char* libpath = getenv("NPU_LD_LIBRARY_PATH");
+    std::string cmd;
+    if (libpath && *libpath) cmd += std::string("LD_LIBRARY_PATH=") + libpath + " ";
+    cmd += std::string(engine) + " 9 " + std::to_string(max_tokens) + " 2>/dev/null";
     FILE* f = popen(cmd.c_str(), "r");
     if (!f) return "{\"error\": \"engine not found\"}";
     char buf[8192]; std::string out;
@@ -57,14 +65,22 @@ static std::string run_engine(const std::string& prompt, int max_tokens=8) {
 }
 
 static void handle_client(int fd) {
+    // Loop the read so requests larger than one buffer / split across TCP
+    // segments aren't truncated (#149). Cap total to a sane limit.
+    std::string req;
     char buf[4096];
-    ssize_t n = read(fd, buf, sizeof(buf) - 1);
-    if (n <= 0) { close(fd); return; }
-    buf[n] = 0;
+    for (int i = 0; i < 64; i++) { // up to 256 KiB
+        ssize_t n = read(fd, buf, sizeof(buf));
+        if (n <= 0) break;
+        req.append(buf, n);
+        // Stop once we have headers + any body and the socket has no more queued.
+        if (n < (ssize_t)sizeof(buf)) break;
+    }
+    if (req.empty()) { close(fd); return; }
 
     std::string prompt = "Hello";
     // Quick parse: look for "content" in JSON body
-    if (auto p = strstr(buf, "\"content\"")) {
+    if (auto p = strstr(req.c_str(), "\"content\"")) {
         auto start = strchr(p, '"');
         if (start) {
             start = strchr(start + 1, '"');
@@ -95,9 +111,12 @@ int main(int argc, char** argv) {
     int opt = 1;
     setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
+    // Bind to loopback by default (unauthenticated exec-spawning server); set
+    // ONEBIT_BIND_ALL=1 to expose on 0.0.0.0 intentionally (#149).
     struct sockaddr_in addr = {};
     addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;
+    const char* bind_all = getenv("ONEBIT_BIND_ALL");
+    addr.sin_addr.s_addr = (bind_all && *bind_all == '1') ? INADDR_ANY : htonl(INADDR_LOOPBACK);
     addr.sin_port = htons(port);
     bind(sock, (struct sockaddr*)&addr, sizeof(addr));
     listen(sock, 5);

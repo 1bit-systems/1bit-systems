@@ -11,6 +11,7 @@ GPU decoding support. No Rust, no Python at runtime. The host CPU is **AMD Strix
 | Package            | Version / Notes                                     |
 |--------------------|-----------------------------------------------------|
 | Ubuntu             | 24.04 LTS or later (CachyOS / Arch also works)      |
+| Kernel             | 6.18.22-lts or 7.x — **not** 6.19.x (issue #1 hang) |
 | ROCm               | 7.2.4                                               |
 | CMake              | ≥ 3.28                                              |
 | Ninja              | ≥ 1.12                                              |

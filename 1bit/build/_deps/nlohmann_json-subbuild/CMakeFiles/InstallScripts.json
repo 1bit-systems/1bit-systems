@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/home/bcloud/projects/1bit-systems/1bit/build/_deps/nlohmann_json-subbuild/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

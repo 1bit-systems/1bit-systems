@@ -1,5 +1,5 @@
 name: 1bit-systems
-version: '2026.07.02-all5models'
+version: '2026.07.14'
 summary: One binary to rule them all — 5 models, 120KB, 28 tok/s NPU
 description: |
   1bit.systems is a pure native inference stack for the AMD Ryzen AI Max+ 395.

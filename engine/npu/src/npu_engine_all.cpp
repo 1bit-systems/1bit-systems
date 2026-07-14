@@ -16,6 +16,16 @@
 #include "model_config.h"
 
 extern "C" float* dequant_i8_to_float_ex(const uint8_t*,int,int,int*,int*);
+// dequant_i8_to_float_ex returns row-major [out_features, in_features]
+// (PyTorch nn.Linear layout). packB()/the NPU GEMM need the transpose
+// [in_features, out_features] since it computes A[tokens,in] @ B[in,out].
+// Ported from npu_engine_universal.cpp to fix issue #109 (this binary used
+// to pack QKV/O/Gate-Up/Down without transposing -> scrambled weights).
+static void transpose_pack(const float* src,int out_f,int in_f,float* dst,int dst_stride,int dst_offset){
+    for(int o=0;o<out_f;o++)
+        for(int i=0;i<in_f;i++)
+            dst[(size_t)i*dst_stride+dst_offset+o]=src[(size_t)o*in_f+i];
+}
 static inline float bf16f(uint16_t v){uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}
 static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:bf16f(v);}
 static constexpr float EPS=1e-6f;
@@ -30,14 +40,6 @@ static inline float dynamic_ascale(const float* x, int n) {
     for (int i = 0; i < n; i++) { float a = fabsf(x[i]); if (std::isfinite(a) && a > amax) amax = a; }
     if (amax < 1e-12f) amax = 1.0f;
     return amax / 127.0f;
-}
-// dequant_i8_to_float(_ex) returns row-major [out_features, in_features] (PyTorch nn.Linear);
-// packB() needs the transpose — [in_features, out_features] — since the GEMM computes
-// A[tokens,in] @ B[in,out]. Without this, every projection past the first uses scrambled weights.
-static void transpose_pack(const float* src, int out_f, int in_f, float* dst, int dst_stride, int dst_offset) {
-    for (int o = 0; o < out_f; o++)
-        for (int i = 0; i < in_f; i++)
-            dst[(size_t)i * dst_stride + dst_offset + o] = src[(size_t)o * in_f + i];
 }
 static inline void sm(float*sc,int n){if(n<=0)return;cn(sc,n);float mx=sc[0];for(int i=1;i<n;i++)if(sc[i]>mx)mx=sc[i];
     double s=0;for(int i=0;i<n;i++){float d=sc[i]-mx;if(d>80)d=80;else if(d<-80)d=-80;sc[i]=expf(d);s+=sc[i];}
@@ -176,7 +178,7 @@ inline void lm_topk_omp(const float*hidden,float*lg,int*top_ids,int K,int NV,int
 int main(int argc,char**argv){
     setvbuf(stdout,NULL,_IONBF,0);
     if(argc<2){printf("Usage: %s model.q4nx [decode_tokens]\n",argv[0]);return 1;}
-    const char*mp=argv[1];int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;if(ng>4096)ng=4096; // clamp to KV cache size (fixes #112)
+    const char*mp=argv[1];int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;if(ng>4096)ng=4096; // cap to KV cache size (issue #112/#142)
     std::string mp_s(mp),model_tag,orig_model_name;auto ls=mp_s.rfind('/');auto sl=mp_s.rfind('/',ls-1);
     orig_model_name=(sl!=std::string::npos&&ls!=std::string::npos)?mp_s.substr(sl+1,ls-sl-1):mp_s.substr(ls+1);
     model_tag=orig_model_name;for(auto&c:model_tag){c=tolower(c);if(c=='-'||c=='.')c='_';}
@@ -258,6 +260,7 @@ int main(int argc,char**argv){
     int o_in_f=NH*HD;
     std::vector<float> qsc(NC),osc(NC),gsc(NC),dsc(NC),usc(NC);
     for(int l=0;l<NC;l++){int qr,kr,vr,or_,gr,ur,dr,unused;
+        // QKV: dequant returns [out, in=H]; transpose to [H, out] and concat.
         float*qw=dq(qp[l],q_i8,H,&qr,&unused);
         float*kw=dq(kp[l],k_i8,H,&kr,&unused);
         float*vw=dq(vp[l],v_i8,H,&vr,&unused);
@@ -267,32 +270,35 @@ int main(int argc,char**argv){
         transpose_pack(kw,kr,H,w.data(),t,qr);
         transpose_pack(vw,vr,H,w.data(),t,qr+kr);
         cq.packB(l,w.data(),H,t,qsc[l]);free(qw);free(kw);free(vw);
+        // O-proj: dequant [out, in=o_in_f]; transpose to [o_in_f, out].
         float*ow=dq(op[l],o_i8,o_in_f,&or_,&unused);
-        // O-proj transpose: dequant returns [O_out, O_in], need [O_in, O_out]
-        std::vector<float>wo((size_t)o_in_f*or_);
-        transpose_pack(ow,or_,o_in_f,wo.data(),or_,0);
+        std::vector<float>wo((size_t)o_in_f*or_);transpose_pack(ow,or_,o_in_f,wo.data(),or_,0);
         co.packB(l,wo.data(),o_in_f,or_,osc[l]);free(ow);
+        // Gate/Up: dequant [out, in=H]; transpose to [H, out].
         float*gw=dq(gp[l],g_i8,H,&gr,&unused);
         if(cfg.gu_split){float*uw=dq(up[l],u_i8,H,&ur,&unused);
-            std::vector<float>wg((size_t)H*gr);
-            transpose_pack(gw,gr,H,wg.data(),gr,0);
-            std::vector<float>wu((size_t)H*ur);
-            transpose_pack(uw,ur,H,wu.data(),ur,0);
-            cg.packB(l,wg.data(),H,gr,gsc[l]);cu_ptr->packB(l,wu.data(),H,ur,usc[l]);free(uw);}
+            std::vector<float>wg((size_t)H*gr);transpose_pack(gw,gr,H,wg.data(),gr,0);
+            cg.packB(l,wg.data(),H,gr,gsc[l]);
+            std::vector<float>wu((size_t)H*ur);transpose_pack(uw,ur,H,wu.data(),ur,0);
+            cu_ptr->packB(l,wu.data(),H,ur,usc[l]);free(uw);}
         else{float*uw=dq(up[l],u_i8,H,&ur,&unused);
             int t2=gr+ur;std::vector<float>w2((size_t)H*t2);
             transpose_pack(gw,gr,H,w2.data(),t2,0);
             transpose_pack(uw,ur,H,w2.data(),t2,gr);
             cg.packB(l,w2.data(),H,t2,gsc[l]);free(uw);}free(gw);
+        // Down-proj: dequant [out, in=IM]; transpose to [IM, out].
         float*dw=dq(dp[l],d_i8,IM,&dr,&unused);
-        std::vector<float>wd((size_t)IM*dr);
-        transpose_pack(dw,dr,IM,wd.data(),dr,0);
+        std::vector<float>wd((size_t)IM*dr);transpose_pack(dw,dr,IM,wd.data(),dr,0);
         cd.packB(l,wd.data(),IM,dr,dsc[l]);free(dw);}
     printf("  %.0fms\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-tp).count());
     ri(HD,cfg.rope_theta,4096);
 
-    // v12: M=32 batch decode
-    int BS=32,qkv_n=cfg.qkv_total;
+    // Decode batch width. Pinned to 1 (correct causal single-token greedy).
+    // The old M=32 "batch decode" here has the same defect as
+    // npu_engine_universal.cpp (issue #111): it embeds the 32 top-K candidates
+    // for one position as 32 sequential tokens and attends over them
+    // non-causally, corrupting output. Do not raise without real draft-verify.
+    int BS=1,qkv_n=cfg.qkv_total;
     struct KVCache{std::vector<float>k,v;int n;KVCache(int s):k(s),v(s),n(0){}};
     int kv_sz=4096*NKV*HD;std::vector<KVCache> kv_c;for(int i=0;i<NC;i++)kv_c.emplace_back(kv_sz);
     std::vector<float> h_b(XM*H),qo_b(XM*qkv_n),at_b(XM*NH*HD),oo_b(XM*H);

@@ -1,34 +1,24 @@
 {
   "_generated_by": "tools/gen_numbers.py",
-  "_generated_at": "2026-07-12T21:53:26Z",
+  "_generated_at": "2026-07-14T23:06:11Z",
   "_warning": "Generated file. Do not hand-edit; run tools/gen_numbers.py.",
-  "_missing": [
-    "fused: engine/fusion/zig-out/bin/fused-engine",
-    "decode: build/bitnet_decode",
-    "tui: build/bitnet_tui"
-  ],
+  "_missing": [],
   "binary": {
-    "fused_bytes": null,
-    "fused_kb": null,
-    "decode_bytes": null,
-    "decode_kb": null,
-    "decode_stripped_kb": null,
-    "tui_bytes": null,
-    "tui_kb": null,
-    "tui_stripped_kb": null
+    "fused_bytes": 25493389,
+    "fused_kb": 24896,
+    "decode_bytes": 703904,
+    "decode_kb": 687,
+    "decode_stripped_kb": 495,
+    "tui_bytes": 1098392,
+    "tui_kb": 1073,
+    "tui_stripped_kb": 774
   },
   "benchmarks": {
-    "prefill_tflops_4h": 26.49,
-    "sherry_gemv_gbps": 152.6,
-    "tq1_gemv_gbps": 198.3,
-    "halo_gemv_gbps": 149.9,
-    "prefill_tflops_i8apre": 43.33,
-    "npu_fused_raw_tok_s": 291,
-    "npu_validated_tok_s": 94,
-    "gpu_ternary_tok_s": 307,
-    "gpu_1bit_llama_tok_s": 383,
-    "gpu_f16_baseline_tok_s": 22,
-    "tflops": 55.7
+    "prefill_tflops_4h": 21.62,
+    "sherry_gemv_gbps": 144.5,
+    "tq1_gemv_gbps": 184.5,
+    "halo_gemv_gbps": 152.8,
+    "prefill_tflops_i8apre": 35.35
   },
   "_sources": {
     "prefill_tflops_4h": "bench_prefill_variants 2560 6912 2560 -- variant 4h (64x64 cached A+B)",
