@@ -112,7 +112,7 @@ pub const Tokenizer = struct {
 
 // ── Tests ───────────────────────────────────────────────────────────────────
 
-const model_default = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.json";
+const model_default = "tokenizer.json";  // override with -m/--model
 
 test "tokenizer encode basic" {
     const alloc = std.testing.allocator;

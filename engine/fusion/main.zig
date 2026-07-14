@@ -13,10 +13,10 @@ const FusedExecutor = fuse.FusedExecutor;
 const DispatchPolicy = dispatcher.DispatchPolicy;
 const QWEN3_0_6B = fuse.QWEN3_0_6B;
 
-const DEFAULT_MODEL = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
-const DEFAULT_NPU_ENGINE = "/home/bcloud/engine/npu/build/npu_engine_universal";
-const ZINC_SHADER_DIR = "/home/bcloud/zinc/zig-out/share/zinc/shaders";
-const TOKENIZER_JSON = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.json";
+const DEFAULT_MODEL = "model.q4nx";  // override with --model
+const DEFAULT_NPU_ENGINE = "./npu_engine_universal";  // override with --npu-engine
+const ZINC_SHADER_DIR = "./shaders";  // override with --shader-dir
+const TOKENIZER_JSON = "tokenizer.json";  // override with --tokenizer
 const MAX_CONTEXT: u32 = 4096;
 const BATCH_SIZE: u32 = 128;
 

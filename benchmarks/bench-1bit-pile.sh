@@ -6,8 +6,8 @@ set -euo pipefail
 # Output: $OUT_DIR/bench-1bit-<DATE>.json (one JSON object per model)
 set -uo pipefail
 
-LLAMA_BENCH="${LLAMA_BENCH:-/home/bcloud/.cache/lemonade/bin/llamacpp/vulkan/llama-bench}"
-PILE_ROOT="${PILE_ROOT:-/home/bcloud/halo-ai/models/ternary-test}"
+LLAMA_BENCH="${LLAMA_BENCH:-llama-bench}"
+PILE_ROOT="${PILE_ROOT:-./models}"
 OUT_DIR="${OUT_DIR:-$HOME/claude-output}"
 TS="$(date +%Y%m%d-%H%M%S)"
 JSON_OUT="${OUT_DIR}/bench-1bit-${TS}.json"

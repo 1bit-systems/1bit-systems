@@ -9,8 +9,8 @@ const fuse = @import("fused_execute.zig");
 
 const FusedExecutor = fuse.FusedExecutor;
 
-const DEFAULT_MODEL = "/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
-const DEFAULT_NPU_ENGINE = "/home/bcloud/engine/npu/build/npu_engine_universal";
+const DEFAULT_MODEL = "model.q4nx";  // override with -m/--model
+const DEFAULT_NPU_ENGINE = "./npu_engine_universal";  // override with --npu-engine
 const MAX_CONTEXT: u32 = 4096;
 const BATCH_SIZE: u32 = 128;
 
