@@ -469,11 +469,13 @@ target_include_directories(zaya_gpu_decode PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/i
 target_link_libraries(zaya_gpu_decode PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(zaya_gpu_decode PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
-# -- tests/zaya_server : Zaya HTTP server (-CPU fallback, ROCm GPU path) --------
+# -- tests/zaya_server : Zaya HTTP server (multi-backend: HIP + CPU fallback) --
 # Build: cmake --build . --target zaya_server -j8
 # Run:   ./zaya_server
-add_executable(zaya_server tests/zaya_server.cpp)
-set_source_files_properties(tests/zaya_server.cpp PROPERTIES LANGUAGE HIP)
+# The unified binary compiles HIP + CPU backends and auto-detects hardware.
+add_executable(zaya_server tests/zaya_server.cpp tests/backends/backend_cpu.cpp tests/backends/backend_hip.cpp tests/backends/backend_npu.cpp)
+set_source_files_properties(tests/zaya_server.cpp tests/backends/backend_hip.cpp PROPERTIES LANGUAGE HIP)
+target_include_directories(zaya_server PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/tests/backends)
 target_compile_options(zaya_server PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(zaya_server PRIVATE rocm_cpp hip::host hip::device httplib::httplib nlohmann_json::nlohmann_json)

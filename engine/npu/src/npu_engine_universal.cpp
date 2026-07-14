@@ -128,11 +128,19 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
             float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;
             C[m*an+n]=val;}
     }
-    // Synchronous go() — backwards compatible
-    inline void go(int l,const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){
+    // Synchronous go() — backwards compatible, with timeout
+    inline bool go(int l,const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){
         quantize_async(A,am,ak,ascale);
         auto r=sync_and_launch(l);
+        // Wait with 5-second timeout per NPU kernel call
+        try {
+            r.wait(5000); // 5 second timeout
+        } catch(const std::exception& e) {
+            fprintf(stderr,"\n  NPU timeout on layer %d: %s\n",l,e.what());
+            return false;
+        }
         dequantize(r,C,am,an,ascale,Bscale);
+        return true;
     }
 };
 
@@ -248,7 +256,7 @@ int main(int argc,char**argv){
 
     // Init NPU
     printf("Init NPU...\n");xrt::device dev(0);
-    std::string xd="/home/bcloud/npu-sandbox/npu-infer/build/int8";
+    std::string xd="/home/bcloud/npu-sandbox/npu-infer/build/int8_32tile_v3";
     auto xp=[&](const char*t){return xd+"/final_i8_"+t+"_"+cfg.model_tag+".xclbin";};
     auto ip=[&](const char*t){return xd+"/insts_i8_"+t+"_"+cfg.model_tag+".txt";};
 
@@ -366,13 +374,15 @@ int main(int argc,char**argv){
     if(input_tok_file && npt > XM) npt = XM;
 
     // ===== PREFILL =====
-    printf("=== Prefill %d ===\n",npt);auto t0=std::chrono::steady_clock::now();
+    printf("=== Prefill %d ===\n",npt);auto t0=std::chrono::steady_clock::now();fflush(stdout);
     for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=emb_f32[pt_vec[pi]*H+i];
     for(int l=0;l<NC;l++){
+        fprintf(stderr,"  L%d",l);fflush(stderr);
         // Save pre-norm residuals before rn_c destroys h_b
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)sb_data[pi*H+i]=h_b[pi*H+i];
         for(int pi=0;pi<npt;pi++)rn_c(&h_b[pi*H],in_n[l].data(),H);
-        cq.go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),qsc[l],qo_b.data(),qkv_n);cn(qo_b.data(),npt*qkv_n);
+        if(!cq.go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),qsc[l],qo_b.data(),qkv_n)){fprintf(stderr,"QKV timeout L%d\n",l);return 1;}cn(qo_b.data(),npt*qkv_n);
+        fprintf(stderr,"q");fflush(stderr);
         float*qn=qn_w[l].data(),*kn=kn_w[l].data();
         for(int pi=0;pi<npt;pi++){
             for(int hh=0;hh<NH;hh++){double s=0;for(int d=0;d<HD;d++)s+=qo_b[pi*qkv_n+hh*HD+d]*qo_b[pi*qkv_n+hh*HD+d];float iq=1.0f/sqrtf((float)(s/HD)+EPS);
@@ -383,21 +393,22 @@ int main(int argc,char**argv){
                 memcpy(&kv_caches[l].k[(sp+pi)*NKV*HD+kvh*HD],ks,HD*4);memcpy(&kv_caches[l].v[(sp+pi)*NKV*HD+kvh*HD],vs,HD*4);}}
         kv_caches[l].n=sp+npt;int cl=kv_caches[l].n;
         // Causal attention: token pi attends only to positions [0, sp+pi]
-        for(int pi=0;pi<npt;pi++){attn_omp(&qo_b[pi*qkv_n],&at_b[pi*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA,sp+pi+1);}
-        co.go(l,at_b.data(),npt,NH*HD,dynamic_ascale(at_b.data(),npt*NH*HD),osc[l],oo_b.data(),H);cn(oo_b.data(),npt*H);
+        for(int pi=0;pi<npt;pi++){fprintf(stderr,"a");fflush(stderr);attn_omp(&qo_b[pi*qkv_n],&at_b[pi*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA,sp+pi+1);}
+        fprintf(stderr,"o");fflush(stderr);if(!co.go(l,at_b.data(),npt,NH*HD,dynamic_ascale(at_b.data(),npt*NH*HD),osc[l],oo_b.data(),H)){fprintf(stderr,"O timeout L%d\n",l);return 1;}cn(oo_b.data(),npt*H);
         // Residual add: use saved pre-norm values
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=sb_data[pi*H+i]+oo_b[pi*H+i];
         // Save pre-FFN residuals before second rn_c
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)sb_data[pi*H+i]=h_b[pi*H+i];
         for(int pi=0;pi<npt;pi++)rn_c(&h_b[pi*H],pa_n[l].data(),H);
         int mlp_out=cfg.gu_split?IM:2*IM;
-        cg.go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),gsc[l],gt_b.data(),mlp_out);cn(gt_b.data(),npt*mlp_out);
+        fprintf(stderr,"g");fflush(stderr);if(!cg.go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),gsc[l],gt_b.data(),mlp_out)){fprintf(stderr,"GU timeout L%d\n",l);return 1;}cn(gt_b.data(),npt*mlp_out);
         if(cfg.gu_split){cu_ptr->go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),usc[l],su_b.data(),IM);cn(su_b.data(),npt*IM);
             for(int pi=0;pi<npt;pi++){for(int i=0;i<IM;i++){float gv=gt_b[pi*IM+i];if(!std::isfinite(gv))gv=0;su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*su_b[pi*IM+i];}}}
         else{for(int pi=0;pi<npt;pi++){for(int i=0;i<IM;i++){float gv=gt_b[pi*mlp_out+i];if(!std::isfinite(gv))gv=0;su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[pi*mlp_out+IM+i];}}}
-        cd.go(l,su_b.data(),npt,IM,dynamic_ascale(su_b.data(),npt*IM),dsc[l],dw_b.data(),H);cn(dw_b.data(),npt*H);
+        fprintf(stderr,"d");fflush(stderr);if(!cd.go(l,su_b.data(),npt,IM,dynamic_ascale(su_b.data(),npt*IM),dsc[l],dw_b.data(),H)){fprintf(stderr,"D timeout L%d\n",l);return 1;}cn(dw_b.data(),npt*H);
         // Residual add: use saved pre-FFN values
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=sb_data[pi*H+i]+dw_b[pi*H+i];
+        fprintf(stderr,"\n");fflush(stderr);
     }sp+=npt;memcpy(h_data.data(),&h_b[(npt-1)*H],H*4);
     printf("Prefill: %.0fms (%.0f ms/tok)\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count(),std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count()/npt);
 

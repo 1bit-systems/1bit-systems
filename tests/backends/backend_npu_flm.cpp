@@ -52,25 +52,9 @@ public:
 
     bool is_available() override {
         if (available_) return true;
-        // Check for NPU via multiple methods
-        bool hw = false;
-        // Method 1: amdxdna kernel module (Strix Halo)
-        std::ifstream m("/proc/modules");
-        if (m.good()) {
-            std::string line;
-            while (std::getline(m, line))
-                if (line.find("amdxdna") != std::string::npos) { hw = true; break; }
-        }
-        // Method 2: XRT device node
-        if (!hw) hw = (access("/dev/xclmgmt", F_OK) == 0);
-        // Method 3: sysfs drivers
-        if (!hw) hw = (access("/sys/bus/pci/drivers/amd_npu", F_OK) == 0 ||
-                       access("/sys/bus/pci/drivers/xdna", F_OK) == 0);
-        // Method 4: XRT can find device
-        if (!hw) {
-            FILE* p = popen("xrt-smi examine 2>/dev/null | grep -q RyzenAI && echo yes", "r");
-            if (p) { char buf[4]={0}; fread(buf,1,3,p); pclose(p); if(buf[0]=='y') hw=true; }
-        }
+        bool hw = access("/dev/xclmgmt", F_OK) == 0 ||
+                  access("/sys/bus/pci/drivers/amd_npu", F_OK) == 0 ||
+                  access("/sys/bus/pci/drivers/xdna", F_OK) == 0;
         if (!hw) { fprintf(stderr, "  NPU: no XDNA 2 detected\n"); return false; }
         if (access(flm_bin_.c_str(), X_OK) != 0) {
             flm_bin_ = "/usr/bin/flm";
