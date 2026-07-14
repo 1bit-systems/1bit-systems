@@ -1,14 +1,16 @@
 version: '3.8'
 services:
   npu:
-    build: .
+    build:
+      context: ../..    # repo root (this file lives in packaging/docker/)
+      dockerfile: packaging/docker/Dockerfile
     ports:
       - "8081:8081"
     devices:
       - /dev/accel/accel0:/dev/accel/accel0
     volumes:
-      - ${HOME}/.config/flm/models:/models:ro
-      - /home/bcloud/npu-sandbox/npu-infer/build/int8:/xclbins:ro
+      - ${HOME:-.}/.config/flm/models:/models:ro
+      - ${XCLBIN_DIR:-./xclbins}:/xclbins:ro
     environment:
       - NPU_MODEL_PATH=/models/Qwen3-0.6B-NPU2/model.q4nx
       - NPU_XCLBIN_DIR=/xclbins

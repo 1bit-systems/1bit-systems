@@ -190,9 +190,8 @@ const CART = new Map(); // productId -> {product, size, qty}
 let stripe = null;
 
 // API base — daemon runs on port 9090 on the Strix Halo
-const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  // Checkout only works from the Strix Halo machine itself (daemon on port 9090)
-  ? '' : '';  // Remote checkout not yet available — see issue #23
+// Remote checkout not yet available (issue #23) — show checkout as disabled on live site
+const API_BASE = '';
 
 document.addEventListener('DOMContentLoaded', () => {
   stripe = Stripe('pk_live_51TUvAmJnXt3bWED8N2qz5VRr63btuJjUeB8awZ6bJVWJvk0dWIgKBuXk56QRvUx4OItBsvkpooVZWwFgVcoJAuHp00aKGHfX7U');
@@ -244,6 +243,9 @@ function removeFromCart(key) {
 
 async function checkout() {
   if (CART.size === 0) return msg('Cart is empty', 'err');
+  if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    return msg('Checkout is only available from the local machine (issue #23). Remote checkout coming soon.', 'err');
+  }
 
   const items = [];
   for (const [key, item] of CART) {

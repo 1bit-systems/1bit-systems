@@ -49,3 +49,12 @@ engine/fusion/.zig-cache/
 # Self-hosted GitHub Actions runner (contains registration credentials — repo is public)
 actions-runner/
 .codex/
+
+# Release packaging artifacts (published via GitHub Releases, not git)
+*.deb
+*.snap
+*.AppImage
+
+# NPU engine build artifacts
+engine/npu/build/
+npu-infer/build/

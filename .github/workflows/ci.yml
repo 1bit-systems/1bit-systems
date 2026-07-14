@@ -86,10 +86,38 @@ jobs:
           scandir: '.'
           severity: error
 
+  rust:
+    name: Rust proxy (build + test)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        working-directory: rust
+        run: cargo build --release 2>&1 | tail -5
+      - name: Test
+        working-directory: rust
+        run: cargo test --release 2>&1 | tail -10
+
+  ts:
+    name: TypeScript CLI (type-check)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci 2>&1 | tail -5
+      - name: Type-check
+        run: npx tsc --noEmit 2>&1 | tail -10
+
   deploy:
     name: Deploy site
     if: needs.cpp.result == 'success'
-    needs: [cpp]
+    needs: [cpp, rust, ts]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
