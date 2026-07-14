@@ -260,7 +260,9 @@ int main(int argc,char**argv){
 
     // Init NPU
     printf("Init NPU...\n");xrt::device dev(0);
-    std::string xd="/home/bcloud/npu-sandbox/npu-infer/build/int8";
+    // Xclbin directory: respect NPU_XCLBIN_DIR env var, fall back to repo-relative path
+    const char* env_xd = getenv("NPU_XCLBIN_DIR");
+    std::string xd = env_xd ? env_xd : "engine/npu/xclbins";
     auto xp=[&](const char*t){return xd+"/final_i8_"+t+"_"+cfg.model_tag+".xclbin";};
     auto ip=[&](const char*t){return xd+"/insts_i8_"+t+"_"+cfg.model_tag+".txt";};
 
