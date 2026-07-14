@@ -710,6 +710,59 @@ def convert_hf_to_q4nx(
                 print(f"   ✓ BF16: {name} {np_tensor.shape}")
 
         elif is_projection_weight(name):
+            if np_tensor.ndim == 3:
+                # Fused MoE expert tensors are commonly stored as a single
+                # [n_experts, out, in] (or [n_experts, in, out]) block rather
+                # than one 2D tensor per expert. model_data.zig has no MoE
+                # loading support yet, so there is nothing downstream to
+                # confirm the on-disk convention against -- write each
+                # expert's slice out as its own ordinary 2D tensor entry
+                # (suffixed ".expertN") using the exact same per-tensor
+                # encoding as every other projection weight, so a future
+                # MoE-aware loader can pick them up per-layer/per-expert
+                # without this converter needing to change again.
+                n_experts = np_tensor.shape[0]
+                for e in range(n_experts):
+                    expert_slice = np_tensor[e]
+                    if expert_slice.ndim != 2:
+                        if verbose:
+                            print(f"   ⚠️  Skipping non-2D expert slice: "
+                                  f"{name}[{e}] {expert_slice.shape}")
+                        continue
+                    expert_slice = np.ascontiguousarray(expert_slice)
+                    out_rows, out_cols = expert_slice.shape
+                    expert_name = f"{name}.expert{e}"
+
+                    if precision == "bf16":
+                        raw_bytes = bf16_encode(expert_slice)
+                        dtype = "BF16"
+                        shape = list(expert_slice.shape)
+                        data_size = len(raw_bytes)
+                        if verbose:
+                            print(f"   ✓ BF16: {expert_name} "
+                                  f"[{out_rows}×{out_cols}] → {data_size} bytes")
+                    else:
+                        raw_bytes = quantize_i8_tiled(expert_slice, out_rows, out_cols)
+                        ntc = (out_cols + TILE_C - 1) // TILE_C
+                        ntr = (out_rows + TILE_R - 1) // TILE_R
+                        n_blocks = ntr * ntc
+                        dtype = "I8"
+                        shape = [n_blocks, TILE_BYTES]
+                        data_size = len(raw_bytes)
+                        if verbose:
+                            print(f"   ✓ I8:   {expert_name} "
+                                  f"[{out_rows}×{out_cols}] → "
+                                  f"{n_blocks} tiles x {TILE_BYTES}B = {data_size} bytes")
+
+                    q4nx_tensors[expert_name] = {
+                        "dtype": dtype,
+                        "shape": shape,
+                        "data_offsets": [current_offset, current_offset + data_size],
+                        "raw_bytes": raw_bytes,
+                    }
+                    current_offset += data_size
+                continue
+
             if np_tensor.ndim != 2:
                 if verbose:
                     print(f"   ⚠️  Skipping non-2D: {name} {np_tensor.shape}")
@@ -788,9 +841,14 @@ def convert_hf_to_q4nx(
         f.write(Q4NX_MAGIC)
         f.write(struct.pack("<I", 0))  # reserved flags
         f.write(header_bytes)
-        for name in sorted_names:
-            if name in q4nx_tensors:
-                f.write(q4nx_tensors[name]["raw_bytes"])
+        # Write in q4nx_tensors' insertion order, not sorted_names: MoE
+        # expert tensors are stored under suffixed keys ("name.expertN")
+        # that never appear in sorted_names, but q4nx_tensors is populated
+        # in exactly the order current_offset was accumulated, for both
+        # plain and expert-split tensors, so this always matches the
+        # data_offsets written into the header above.
+        for info in q4nx_tensors.values():
+            f.write(info["raw_bytes"])
 
     stats = {
         "tag": tag,
