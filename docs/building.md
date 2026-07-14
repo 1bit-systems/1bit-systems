@@ -10,7 +10,7 @@ GPU decoding support. No Rust, no Python at runtime. The host CPU is **AMD Strix
 
 | Package            | Version / Notes                                     |
 |--------------------|-----------------------------------------------------|
-| Ubuntu             | 24.04 LTS or later                                  |
+| Ubuntu             | 24.04 LTS or later (CachyOS / Arch also works)      |
 | ROCm               | 7.2.4                                               |
 | CMake              | ≥ 3.28                                              |
 | Ninja              | ≥ 1.12                                              |
@@ -172,3 +172,16 @@ export LD_LIBRARY_PATH=/path/to/zaya/build:$LD_LIBRARY_PATH
 ```
 
 Also verify the model file is actually Q4NX (check the file header or extension).
+
+### Kernel hang on first inference on Strix Halo (issue #1)
+
+Strix Halo (gfx1151) systems may hit an amdgpu OPTC hang on the first GPU kernel launch
+after cold boot. The hang is intermittent (~1 in 5 boots).
+
+**Symptoms:** first inference call hangs; `dmesg` shows OPTC lockup messages; reboot required.
+
+**Mitigation:**
+```bash
+export HSA_ENABLE_SDMA=0   # avoids the triggering OPTC code path
+```
+See [issue #1](https://github.com/bong-water-water-bong/1bit-systems/issues/1) for details.
