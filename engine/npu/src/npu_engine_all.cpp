@@ -168,7 +168,7 @@ inline void lm_topk_omp(const float*hidden,float*lg,int*top_ids,int K,int NV,int
 int main(int argc,char**argv){
     setvbuf(stdout,NULL,_IONBF,0);
     if(argc<2){printf("Usage: %s model.q4nx [decode_tokens]\n",argv[0]);return 1;}
-    const char*mp=argv[1];int ng=(argc>2)?atoi(argv[2]):32;
+    const char*mp=argv[1];int ng=(argc>2)?atoi(argv[2]):32;if(ng<1)ng=1;if(ng>4096)ng=4096; // clamp to KV cache size (fixes #112)
     std::string mp_s(mp),model_tag,orig_model_name;auto ls=mp_s.rfind('/');auto sl=mp_s.rfind('/',ls-1);
     orig_model_name=(sl!=std::string::npos&&ls!=std::string::npos)?mp_s.substr(sl+1,ls-sl-1):mp_s.substr(ls+1);
     model_tag=orig_model_name;for(auto&c:model_tag){c=tolower(c);if(c=='-'||c=='.')c='_';}

@@ -1,4 +1,4 @@
-// cpu_q4nx_loader.cpp — Load Q4NX model file into CPU backend FP32 weight arrays.
+// cpu_q4nx_loader.h — Load Q4NX model file into CPU backend FP32 weight arrays.
 //
 // Q4NX format (from FLM/aie-rt):
 //   1. [u64] JSON header size
@@ -17,6 +17,7 @@
 // Build: g++ -O3 -std=c++17 -c cpu_q4nx_loader.cpp
 //
 // @section Fused Engine
+#pragma once
 
 #include "cpu_layer.h"
 #include <cstdio>
@@ -172,7 +173,13 @@ static void dequant_i8_block(
         int ns = lr % 2;
 
         for (int g = 0; g < 8; g++) {  // 8 groups of 32 cols = 256
-            float s = bf16_to_f32(scales[g * 32 + lr]);
+            // FLM Q4NX: 6-byte header at offsets 0-5, real scales start at byte 6
+            // scales are uint16 at offsets [6..512), with last 3 entries wrapping to [0..6)
+            int scale_idx = g * 32 + lr;
+            int scale_byte_off = 6 + scale_idx * 2;
+            if (scale_byte_off >= 512) scale_byte_off -= 512;  // wrap to header
+            const uint16_t* scales_ptr = (const uint16_t*)block;
+            float s = bf16_to_f32(((const uint16_t*)(block + scale_byte_off))[0]);
             float z = bf16_to_f32(zps[g * 32 + lr]);
             for (int c = 0; c < 32; c++) {
                 int col = g * 32 + c;
