@@ -85,6 +85,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Clean stale CMake build artifacts (prevents git submodule confusion)
+        run: |
+          rm -rf 1bit/build
+
       - name: Hardware present
         run: |
           test -e /dev/kfd || { echo "::error::no /dev/kfd -- GPU missing"; exit 1; }
