@@ -63,8 +63,30 @@ jobs:
           set -e
           # Numbers deliberately quarantined in benchmarks/latest.json _unverified.
           banned='291 tok/s|94 tok/s|307 tok/s|383 tok/s|55\.7 TFLOPS|437 KB'
-          if grep -nEo "$banned" site/index.html; then
-            echo "FAIL: an unsourced claim reappeared on the site (see benchmarks/latest.json _unverified)"
+          failed=false
+          # Check site/numbers.json (runtime data source, not affected by HTML markup)
+          echo "Checking site/numbers.json..."
+          if grep -nEo "$banned" site/numbers.json; then
+            echo "FAIL: unsourced claim in site/numbers.json"
+            failed=true
+          fi
+          # Check site/index.html after stripping HTML tags (fixes html-escaping bypass)
+          echo "Checking site/index.html (stripped)..."
+          stripped=$(sed 's/<[^>]*>//g' site/index.html)
+          if echo "$stripped" | grep -nEo "$banned"; then
+            echo "FAIL: unsourced claim in site/index.html"
+            failed=true
+          fi
+          # Check badge JSON endpoints
+          for f in site/*-badge.json site/blog/*.html; do
+            [ -f "$f" ] || continue
+            if grep -nEo "$banned" "$f" 2>/dev/null; then
+              echo "FAIL: unsourced claim in $f"
+              failed=true
+            fi
+          done
+          if $failed; then
+            echo "FAIL: an unsourced/unverified claim reappeared (see benchmarks/latest.json _unverified)"
             exit 1
           fi
           echo "ok: no retired claim on the site"
