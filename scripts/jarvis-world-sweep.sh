@@ -1,3 +1,5 @@
+#!/bin/bash
+set -euo pipefail
 #!/bin/sh
 # jarvis-world-sweep.sh — JARVIS world awareness sweep
 #

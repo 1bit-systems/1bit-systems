@@ -31,6 +31,14 @@ static inline float dynamic_ascale(const float* x, int n) {
     if (amax < 1e-12f) amax = 1.0f;
     return amax / 127.0f;
 }
+// dequant_i8_to_float(_ex) returns row-major [out_features, in_features] (PyTorch nn.Linear);
+// packB() needs the transpose — [in_features, out_features] — since the GEMM computes
+// A[tokens,in] @ B[in,out]. Without this, every projection past the first uses scrambled weights.
+static void transpose_pack(const float* src, int out_f, int in_f, float* dst, int dst_stride, int dst_offset) {
+    for (int o = 0; o < out_f; o++)
+        for (int i = 0; i < in_f; i++)
+            dst[(size_t)i * dst_stride + dst_offset + o] = src[(size_t)o * in_f + i];
+}
 static inline void sm(float*sc,int n){if(n<=0)return;cn(sc,n);float mx=sc[0];for(int i=1;i<n;i++)if(sc[i]>mx)mx=sc[i];
     double s=0;for(int i=0;i<n;i++){float d=sc[i]-mx;if(d>80)d=80;else if(d<-80)d=-80;sc[i]=expf(d);s+=sc[i];}
     if(s<=0){float iv=1.0f/n;for(int i=0;i<n;i++)sc[i]=iv;return;}float is=1.0f/(float)s;for(int i=0;i<n;i++)sc[i]*=is;}
@@ -254,17 +262,32 @@ int main(int argc,char**argv){
         float*kw=dq(kp[l],k_i8,H,&kr,&unused);
         float*vw=dq(vp[l],v_i8,H,&vr,&unused);
         int t=qr+kr+vr;std::vector<float>w((size_t)H*t);
-        for(int k=0;k<H;k++){memcpy(&w[k*t],&qw[k*qr],qr*4);memcpy(&w[k*t+qr],&kw[k*kr],kr*4);memcpy(&w[k*t+qr+kr],&vw[k*vr],vr*4);}
+        // QKV pack with proper transpose (fixes #109)
+        transpose_pack(qw,qr,H,w.data(),t,0);
+        transpose_pack(kw,kr,H,w.data(),t,qr);
+        transpose_pack(vw,vr,H,w.data(),t,qr+kr);
         cq.packB(l,w.data(),H,t,qsc[l]);free(qw);free(kw);free(vw);
-        float*ow=dq(op[l],o_i8,o_in_f,&or_,&unused);co.packB(l,ow,or_,H,osc[l]);free(ow);
+        float*ow=dq(op[l],o_i8,o_in_f,&or_,&unused);
+        // O-proj transpose: dequant returns [O_out, O_in], need [O_in, O_out]
+        std::vector<float>wo((size_t)o_in_f*or_);
+        transpose_pack(ow,or_,o_in_f,wo.data(),or_,0);
+        co.packB(l,wo.data(),o_in_f,or_,osc[l]);free(ow);
         float*gw=dq(gp[l],g_i8,H,&gr,&unused);
         if(cfg.gu_split){float*uw=dq(up[l],u_i8,H,&ur,&unused);
-            cg.packB(l,gw,H,gr,gsc[l]);cu_ptr->packB(l,uw,H,ur,usc[l]);free(uw);}
+            std::vector<float>wg((size_t)H*gr);
+            transpose_pack(gw,gr,H,wg.data(),gr,0);
+            std::vector<float>wu((size_t)H*ur);
+            transpose_pack(uw,ur,H,wu.data(),ur,0);
+            cg.packB(l,wg.data(),H,gr,gsc[l]);cu_ptr->packB(l,wu.data(),H,ur,usc[l]);free(uw);}
         else{float*uw=dq(up[l],u_i8,H,&ur,&unused);
             int t2=gr+ur;std::vector<float>w2((size_t)H*t2);
-            for(int k=0;k<H;k++){memcpy(&w2[k*t2],&gw[k*gr],gr*4);memcpy(&w2[k*t2+gr],&uw[k*ur],ur*4);}
+            transpose_pack(gw,gr,H,w2.data(),t2,0);
+            transpose_pack(uw,ur,H,w2.data(),t2,gr);
             cg.packB(l,w2.data(),H,t2,gsc[l]);free(uw);}free(gw);
-        float*dw=dq(dp[l],d_i8,IM,&dr,&unused);cd.packB(l,dw,dr,H,dsc[l]);free(dw);}
+        float*dw=dq(dp[l],d_i8,IM,&dr,&unused);
+        std::vector<float>wd((size_t)IM*dr);
+        transpose_pack(dw,dr,IM,wd.data(),dr,0);
+        cd.packB(l,wd.data(),IM,dr,dsc[l]);free(dw);}
     printf("  %.0fms\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-tp).count());
     ri(HD,cfg.rope_theta,4096);
 

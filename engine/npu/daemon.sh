@@ -1,3 +1,5 @@
+#!/bin/bash
+set -euo pipefail
 #!/usr/bin/env bash
 # 1bit.systems live daemon — runs NPU engine and serves output for live dashboard
 # Usage: ./daemon.sh [port]  (default: 8001)

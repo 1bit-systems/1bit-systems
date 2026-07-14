@@ -1,3 +1,5 @@
+#!/bin/bash
+set -euo pipefail
 #!/usr/bin/env bash
 # 1bit environment setup — source this before running the engine.
 # Usage: source env.sh

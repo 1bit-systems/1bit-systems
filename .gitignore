@@ -58,3 +58,5 @@ actions-runner/
 # NPU engine build artifacts
 engine/npu/build/
 npu-infer/build/
+1bit/build/
+dist/

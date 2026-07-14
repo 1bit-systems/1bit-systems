@@ -1,3 +1,5 @@
+#!/bin/bash
+set -euo pipefail
 #!/usr/bin/env bash
 # 1bit.systems bootstrap — GAIA + Lemonade + FastFlowLM on Strix Halo.
 #
