@@ -1499,6 +1499,100 @@ pub const FusedExecutor = struct {
 
     /// Phase 2: Q/K norm, RoPE, KV cache write, Attention (GPU/CPU/MLA),
     /// O projection, residual add, FFN, residual add.
+    /// Execute attention only (no FFN). Used by batch NPU decode path.
+    pub fn executeLayerAttnOnly(
+        self: *FusedExecutor,
+        layer: u32,
+        batch_size: u32,
+        qkv_scratch: []f32,
+        output_hidden: []f32,
+    ) !void {
+        _ = output_hidden;
+        const H = self.config.hidden_dim;
+        const s = self.scratch;
+        const NH = self.config.n_heads;
+        const NKV = self.config.n_kv_heads;
+        const HD = self.config.head_dim;
+        const GQA = self.config.gqa_ratio;
+        const dispatch = self.getLayerDispatch(layer);
+
+        @memcpy(s.residual[0..batch_size * H], s.hidden[0..batch_size * H]);
+
+        const QKV = NH * HD + 2 * NKV * HD;
+        const pos = self.kv.position;
+        for (0..batch_size) |b| {
+            var qkv = qkv_scratch[b * QKV ..][0..QKV];
+            for (0..NH) |hh| {
+                var qh = qkv[hh * HD ..][0..HD];
+                var sq: f64 = 0;
+                for (qh) |v| sq += @as(f64, @floatCast(v)) * @as(f64, @floatCast(v));
+                const iq = 1.0 / @sqrt(@as(f32, @floatCast(sq / @as(f64, @floatFromInt(HD)))) + 1e-6);
+                if (layer < self.q_norm.len and self.q_norm[layer].len >= HD)
+                    for (0..HD) |d| qh[d] = qh[d] * iq * self.q_norm[layer][d];
+                self.applyRoPE(qh, pos + @as(u32, @intCast(b)), HD);
+            }
+            for (0..NKV) |kvh| {
+                var ks = qkv[NH * HD + kvh * HD ..][0..HD];
+                var sk: f64 = 0;
+                for (ks) |v| sk += @as(f64, @floatCast(v)) * @as(f64, @floatCast(v));
+                const ik = 1.0 / @sqrt(@as(f32, @floatCast(sk / @as(f64, @floatFromInt(HD)))) + 1e-6);
+                if (layer < self.k_norm.len and self.k_norm[layer].len >= HD) {
+                    var ks2 = ks;
+                    for (0..HD) |d| ks2[d] = ks2[d] * ik * self.k_norm[layer][d];
+                    ks = ks2;
+                }
+                var ks_mut = ks;
+                self.applyRoPE(ks_mut, pos + @as(u32, @intCast(b)), HD);
+                const dst = (pos + @as(u32, @intCast(b))) * NKV * HD + kvh * HD;
+                for (0..HD) |d| self.kv.k_cache[layer][dst + d] = ks[d];
+            }
+            for (0..NKV) |kvh| {
+                const vs_copy = qkv[NH * HD + NKV * HD + kvh * HD ..][0..HD];
+                var vs = vs_copy;
+                const dst = (pos + @as(u32, @intCast(b))) * NKV * HD + kvh * HD;
+                for (0..HD) |d| self.kv.v_cache[layer][dst + d] = vs[d];
+            }
+        }
+
+        // Attention
+        const QKV2 = NH * HD + 2 * NKV * HD;
+        const seq_len = self.kv.position + batch_size;
+        if (dispatch.attention == .gpu) {
+            if (self.gpu) |*gpu| {
+                for (0..batch_size) |b| {
+                    const q_slice = qkv_scratch[b * QKV2 ..][0..NH * HD];
+                    const out_slice = s.attn_out[b * NH * HD ..][0..NH * HD];
+                    gpu.flashAttention(q_slice, self.kv.k_cache[layer], self.kv.v_cache[layer],
+                        &.{}, out_slice, &([_]f32{std.math.nan(f32)} ** 12),
+                        NH, NKV, HD, seq_len, 0, 0.0, 0) catch |err| {
+                        self.cpuAttention(q_slice, out_slice, layer, seq_len, NH, NKV, HD, GQA);
+                    };
+                }
+            } else {
+                for (0..batch_size) |b| {
+                    self.cpuAttention(qkv_scratch[b * QKV2 ..][0..NH * HD],
+                        s.attn_out[b * NH * HD ..][0..NH * HD], layer, seq_len, NH, NKV, HD, GQA);
+                }
+            }
+        } else {
+            for (0..batch_size) |b| {
+                self.cpuAttention(qkv_scratch[b * QKV2 ..][0..NH * HD],
+                    s.attn_out[b * NH * HD ..][0..NH * HD], layer, seq_len, NH, NKV, HD, GQA);
+            }
+        }
+
+        // O projection
+        if ((dispatch.attention == .cpu or dispatch.attention == .gpu) and layer < self.cpu_weights.o.len) {
+            for (0..batch_size) |b| {
+                cpuGemv(self.cpu_weights.o[layer], s.attn_out[b * NH * HD ..][0..NH * HD], s.o_out[b * H ..][0..H], H, NH * HD);
+            }
+        } else if (dispatch.attention == .npu) {
+            self.npu.runOProj(s.attn_out[0..batch_size * NH * HD], layer, batch_size, s.o_out[0..batch_size * H]) catch {};
+        }
+
+        for (0..batch_size * H) |i| s.hidden[i] = s.residual[i] + s.o_out[i];
+    }
+
     pub fn executeLayerAttnFFN(
         self: *FusedExecutor,
         layer: u32,
@@ -2095,6 +2189,80 @@ pub const FusedExecutor = struct {
         const qkv_buf = try self.allocator.alloc(f32, QKV_bytes);
         defer self.allocator.free(qkv_buf);
 
+        // Batch NPU: send all layers' QKV in one call, then attn per layer
+        if (!self.npu_broken and B == 1) {
+            const IM = self.config.inter_size;
+            const all_qkv = try self.allocator.alloc(f32, @as(usize, NC) * QKV_bytes);
+            defer self.allocator.free(all_qkv);
+
+            // Step 1: RMSNorm all layers, pack into all_qkv buffer
+            for (0..NC) |l| {
+                rmsNorm(self.scratch.hidden[0..H], self.in_norm[l], self.scratch.hidden[0..H], 1e-6);
+                @memcpy(all_qkv[l * QKV_bytes ..][0..H], self.scratch.hidden[0..H]);
+                @memcpy(self.scratch.hidden[0..H], self.scratch.residual[0..H]);
+            }
+
+            // Step 2: One NPU call for ALL layers' QKV
+            self.npu.runAllQKV(all_qkv[0..NC * H], B, all_qkv) catch {
+                self.npu_broken = true;
+            };
+
+            if (!self.npu_broken) {
+                // Step 3: Per-layer attention using batch QKV results
+                for (0..NC) |l| {
+                    try self.executeLayerAttnOnly(@as(u32, @intCast(l)), B,
+                        all_qkv[l * QKV_bytes ..][0..QKV_bytes],
+                        self.scratch.hidden[0..B * H]);
+                }
+
+                // Step 4: Collect FFN inputs, send all
+                const ffn_size = 2 * IM;
+                const all_ffn = try self.allocator.alloc(f32, @as(usize, NC) * B * ffn_size);
+                defer self.allocator.free(all_ffn);
+                for (0..NC) |l| {
+                    @memcpy(self.scratch.residual[0..H], self.scratch.hidden[0..H]);
+                    rmsNorm(self.scratch.hidden[0..H], self.pa_norm[l], self.scratch.hidden[0..H], 1e-6);
+                    @memcpy(all_ffn[l * H ..][0..H], self.scratch.hidden[0..H]);
+                    @memcpy(self.scratch.hidden[0..H], self.scratch.residual[0..H]);
+                }
+
+                self.npu.runAllFFN(all_ffn[0..NC * H], B, all_ffn) catch {
+                    self.npu_broken = true;
+                };
+
+                if (!self.npu_broken) {
+                    // Step 5: SiLU activation, collect Down inputs, send all
+                    const all_down = try self.allocator.alloc(f32, @as(usize, NC) * B * IM);
+                    defer self.allocator.free(all_down);
+                    for (0..NC) |l| {
+                        const gu = all_ffn[l * ffn_size ..][0..B * ffn_size];
+                        for (0..B) |_| {
+                            for (0..IM) |i| {
+                                const g = gu[i];
+                                const u = gu[IM + i];
+                                const act = g / (1.0 + std.math.exp(-g));
+                                self.scratch.activated[i] = act * u;
+                            }
+                        }
+                        @memcpy(all_down[l * IM ..][0..B * IM], self.scratch.activated[0..B * IM]);
+                    }
+
+                    self.npu.runAllDown(all_down[0..NC * IM], B, all_down) catch {
+                        self.npu_broken = true;
+                    };
+
+                    if (!self.npu_broken) {
+                        for (0..NC) |l| {
+                            const down = all_down[l * H ..][0..B * H];
+                            for (0..B * H) |i| self.scratch.hidden[i] += down[i];
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Fallback: per-layer NPU calls
         for (0..NC) |l| {
             try self.executeLayerQKV(@as(u32, @intCast(l)), B, qkv_buf);
             try self.executeLayerAttnFFN(@as(u32, @intCast(l)), B, qkv_buf, self.scratch.hidden[0..B * H]);

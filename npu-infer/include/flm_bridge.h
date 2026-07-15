@@ -51,6 +51,11 @@ public:
     std::vector<uint32_t> gen_gemm_instrs(uint32_t M, uint32_t N, uint32_t K,
                                            int activation_type = 0);
     
+    // Generate MHA (multi-head attention) instruction sequence
+    // Calls: qwen3_npu_sequence::gen_mha_engine_seq(npu_seq, L_begin, L_end)
+    // L_begin/L_end define the causal range (for decode: L_begin=L_end=seq_len)
+    std::vector<uint32_t> gen_attn_instrs(uint32_t L_begin, uint32_t L_end);
+
     // Convenience: generate instructions for specific projection types
     std::vector<uint32_t> gen_qkv_instrs(uint32_t N) { 
         return gen_gemm_instrs(cfg_.batch_padded, N, cfg_.hidden_size); 

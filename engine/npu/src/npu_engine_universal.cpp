@@ -22,6 +22,7 @@
 #include <aiebu/aiebu_assembler.h>
 #include <omp.h>
 #include "model_config.h"
+#include "../../npu-infer/include/flm_bridge.h"
 extern "C" float* dequant_i8_to_float_ex(const uint8_t*,int,int,int*,int*);
 static inline float bf16f(uint16_t v){uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}
 static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:bf16f(v);}
@@ -181,6 +182,150 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
         r.wait();
         dequantize(r,C,am,an,ascale,Bscale);
     }
+
+    // Alternative init that takes pre-generated instructions instead of a file.
+    // Used for attention instructions generated at runtime by FlmBridge.
+    bool init_with_instrs(xrt::device& d, const char* xp,
+                          const std::vector<uint32_t>& pregen_instrs,
+                          int nlayers, int mdim, int kdim, int ndim) {
+        NL = nlayers;
+        MD = mdim; KD = kdim; ND = ndim;
+        ins = pregen_instrs;
+        try {
+            std::vector<char> iraw((char*)ins.data(),
+                                   (char*)ins.data() + ins.size() * sizeof(uint32_t));
+            aiebu::aiebu_assembler asmblr(
+                aiebu::aiebu_assembler::buffer_type::blob_instr_transaction, iraw);
+            auto e = asmblr.get_elf();
+            xc = std::make_unique<xrt::xclbin>(std::string(xp));
+            d.register_xclbin(*xc);
+            hc = std::make_unique<xrt::hw_context>(d, xc->get_uuid());
+            elf = std::make_unique<xrt::elf>(e.data(), e.size());
+        } catch (std::exception& ex) {
+            fprintf(stderr, "  aiebu ELF gen failed (instrs): %s\n", ex.what());
+            return false;
+        }
+        mdl = std::make_unique<xrt::module>(*elf);
+        k = std::make_unique<xrt::ext::kernel>(*hc, *mdl, "MLIR_AIE");
+        // Data BOs created by caller for attention (different layout)
+        initialized = true;
+        return true;
+    }
+};
+
+// AttnCtx — NPU attention context with 4 BOs (Q, K, V, output).
+// The attn.xclbin kernel signature (from EMBEDDED_METADATA):
+//   args: opcode, instr, ninstr, bo0..bo4
+//   bo0=Q (i8, NH*HD), bo1=K (i8, max_seq*NKV*HD),
+//   bo2=V (i8, max_seq*NKV*HD), bo3=output (i16, NH*HD)
+// Instructions are generated at runtime via FlmBridge (seq_len-dependent).
+struct AttnCtx {
+    int max_seq, NH, NKV, HD, XM;
+    std::unique_ptr<xrt::xclbin> xc;
+    std::unique_ptr<xrt::hw_context> hc;
+    std::unique_ptr<xrt::module> mdl;
+    std::unique_ptr<xrt::elf> elf;
+    std::unique_ptr<xrt::ext::kernel> k;
+    std::unique_ptr<xrt::bo> bQ, bK, bV, bOut;
+    bool initialized = false;
+
+    ~AttnCtx() {}
+    bool isReady() { return initialized && k && bQ && bK && bV && bOut; }
+
+    // Initialize with xclbin + runtime-generated instructions.
+    // Pre-allocates BOs at max_seq dimensions — only the first `seq_len`
+    // entries of K/V are valid per call (quantize K/V for the active range).
+    bool init(xrt::device& d, const char* xp,
+              const std::vector<uint32_t>& instrs,
+              int max_seq_len, int nh, int nkv, int hd, int xm) {
+        max_seq = max_seq_len;
+        NH = nh; NKV = nkv; HD = hd; XM = xm;
+        try {
+            std::vector<char> iraw((char*)instrs.data(),
+                                   (char*)instrs.data() + instrs.size() * sizeof(uint32_t));
+            aiebu::aiebu_assembler asmblr(
+                aiebu::aiebu_assembler::buffer_type::blob_instr_transaction, iraw);
+            auto e = asmblr.get_elf();
+            xc = std::make_unique<xrt::xclbin>(std::string(xp));
+            d.register_xclbin(*xc);
+            hc = std::make_unique<xrt::hw_context>(d, xc->get_uuid());
+            elf = std::make_unique<xrt::elf>(e.data(), e.size());
+        } catch (std::exception& ex) {
+            fprintf(stderr, "  AttnCtx ELF gen failed: %s\n", ex.what());
+            return false;
+        }
+        mdl = std::make_unique<xrt::module>(*elf);
+        k = std::make_unique<xrt::ext::kernel>(*hc, *mdl, "MLIR_AIE");
+        // Pre-allocate BOs at max dimensions
+        size_t q_bytes = (size_t)XM * NH * HD;            // Q: batch * NH * HD
+        size_t kv_bytes = (size_t)max_seq * NKV * HD;     // K/V: max_seq * NKV * HD
+        size_t out_bytes = (size_t)XM * NH * HD * 2;       // output: i16
+        bQ = std::make_unique<xrt::bo>(d, q_bytes, XRT_BO_FLAGS_HOST_ONLY, 0);
+        bK = std::make_unique<xrt::bo>(d, kv_bytes, XRT_BO_FLAGS_HOST_ONLY, 0);
+        bV = std::make_unique<xrt::bo>(d, kv_bytes, XRT_BO_FLAGS_HOST_ONLY, 0);
+        bOut = std::make_unique<xrt::bo>(d, out_bytes, XRT_BO_FLAGS_HOST_ONLY, 0);
+        initialized = true;
+        return true;
+    }
+
+    // Quantize Q (f32) → BO (i8), sync, and launch attention.
+    // K/V caches are f32 on host — quantizes the active range [0, seq_len).
+    // Returns run handle for later wait+dequant.
+    xrt::run launch(const float* Q_f32, const float* K_cache, const float* V_cache,
+                    int seq_len, int batch, float q_scale, float kv_scale) {
+        // Quantize Q
+        auto* q_i8 = (int8_t*)bQ->map();
+        float q_is = 1.0f / q_scale;
+        for (int i = 0; i < batch * NH * HD; i++) {
+            float v = Q_f32[i];
+            if (!std::isfinite(v)) v = 0;
+            int q = (int)roundf(v * q_is);
+            if (q > 127) q = 127; else if (q < -127) q = -127;
+            q_i8[i] = (int8_t)q;
+        }
+        bQ->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+
+        // Quantize K cache [0, seq_len)
+        auto* k_i8 = (int8_t*)bK->map();
+        float kv_is = 1.0f / kv_scale;
+        size_t kv_len = (size_t)seq_len * NKV * HD;
+        for (size_t i = 0; i < kv_len; i++) {
+            float v = K_cache[i];
+            if (!std::isfinite(v)) v = 0;
+            int q = (int)roundf(v * kv_is);
+            if (q > 127) q = 127; else if (q < -127) q = -127;
+            k_i8[i] = (int8_t)q;
+        }
+        bK->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+
+        // Quantize V cache [0, seq_len)
+        auto* v_i8 = (int8_t*)bV->map();
+        for (size_t i = 0; i < kv_len; i++) {
+            float v = V_cache[i];
+            if (!std::isfinite(v)) v = 0;
+            int q = (int)roundf(v * kv_is);
+            if (q > 127) q = 127; else if (q < -127) q = -127;
+            v_i8[i] = (int8_t)q;
+        }
+        bV->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+
+        // Launch: bo0=Q, bo1=K, bo2=V, bo3=output
+        return k->operator()(3, 0, 0, *bQ, *bK, *bV, *bOut);
+    }
+
+    // Wait for completion and dequantize output to f32
+    void finish(xrt::run& r, float* out, int batch,
+                float q_scale, float kv_scale) {
+        r.wait();
+        bOut->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+        auto* out_i16 = (int16_t*)bOut->map();
+        float cs = q_scale * kv_scale;
+        for (int i = 0; i < batch * NH * HD; i++) {
+            float val = (float)out_i16[i] * cs;
+            if (!std::isfinite(val)) val = 0;
+            out[i] = val;
+        }
+    }
 };
 
 // v12: OpenMP attention — parallelize across heads, with optional causal mask
@@ -329,18 +474,42 @@ int main(int argc,char**argv){
     if(!cd.init(dev,xp("D").c_str(),ip("D").c_str(),4,NC)){fprintf(stderr,"FAIL D\n");return 1;}
     if(cfg.gu_split){cu_ptr=std::make_unique<I8Ctx>();cu_ptr->MD=XM;cu_ptr->KD=cfg.xclbin_u_k;cu_ptr->ND=cfg.xclbin_u_n;if(!cu_ptr->init(dev,xp("U").c_str(),ip("U").c_str(),4,NC)){fprintf(stderr,"FAIL U\n");return 1;}}
     // Optional NPU attention context (uses FLM attn.xclbin when available)
-    // Currently CPU attention (attn_omp) is used as fallback. Set NPU_ATTN=1 env
-    // to attempt NPU attention (requires attn.xclbin at the expected path).
+    // Set NPU_ATTN=1 to enable NPU attention (requires FlmBridge + FLM libraries).
     bool use_npu_attn = getenv("NPU_ATTN") && atoi(getenv("NPU_ATTN")) > 0;
     if(use_npu_attn){
-        ca_ptr=std::make_unique<I8Ctx>();
-        // Attention uses QK=NH*HD, V=NKV*HD, computes attention output of NH*HD
-        ca_ptr->MD=XM;ca_ptr->KD=NH*HD;ca_ptr->ND=NH*HD;
-        if(!ca_ptr->init(dev,xp("ATTN").c_str(),ip("ATTN").c_str(),4,NC)){
-            fprintf(stderr,"WARN: NPU attention init failed, falling back to CPU attn\n");
-            use_npu_attn=false; ca_ptr.reset();
+        // Initialize FlmBridge for attention instruction generation
+        FlmBridge::Config flm_cfg;
+        flm_cfg.hidden_size = H;
+        flm_cfg.num_heads = NH;
+        flm_cfg.num_kv_heads = NKV;
+        flm_cfg.num_layers = NC;
+        flm_cfg.intermediate_size = IM;
+        flm_cfg.max_seq_len = 4096;
+        flm_cfg.vocab_size = NV;
+        flm_cfg.head_dim = HD;
+        flm_cfg.batch_padded = XM;
+        flm_cfg.xclbin_path = xd;  // same xclbin dir as GEMM
+
+        if (FlmBridge::instance().init(flm_cfg)) {
+            // Generate attention instructions for initial seq_len=1
+            auto attn_instrs = FlmBridge::instance().gen_attn_instrs(0, 1);
+            if (!attn_instrs.empty()) {
+                ca_ptr = std::make_unique<AttnCtx>();
+                if (ca_ptr->init(dev, xp("ATTN").c_str(), attn_instrs,
+                                 4096, NH, NKV, HD, XM)) {
+                    fprintf(stderr, "NPU attention enabled (FlmBridge)\n");
+                } else {
+                    fprintf(stderr, "WARN: AttnCtx init failed, CPU fallback\n");
+                    use_npu_attn = false;
+                    ca_ptr.reset();
+                }
+            } else {
+                fprintf(stderr, "WARN: FlmBridge attn instrs empty, CPU fallback\n");
+                use_npu_attn = false;
+            }
         } else {
-            fprintf(stderr,"NPU attention enabled (experimental)\n");
+            fprintf(stderr, "WARN: FlmBridge init failed, CPU attention fallback\n");
+            use_npu_attn = false;
         }
     }
 
@@ -581,39 +750,52 @@ int main(int argc,char**argv){
                 for(int d=0;d<HD;d++)ks[d]*=ik*(cfg.has_k_norm?kn[d]:1.0f);ra(ks,HD,sp+pi);
                 memcpy(&kv_caches[l].k[(sp+pi)*NKV*HD+kvh*HD],ks,HD*4);memcpy(&kv_caches[l].v[(sp+pi)*NKV*HD+kvh*HD],vs,HD*4);}}
         kv_caches[l].n=sp+npt;int cl=kv_caches[l].n;
-        // Attention: CPU (default) or NPU (experimental, NPU_ATTN=1)
+        // Attention: NPU (via FlmBridge) or CPU fallback
         //
-        // NPU ATTENTION STATUS (#208): attn.xclbin loads but the instruction
-        // format (blob_instr_transaction) is undocumented — FLM (closed source)
-        // generates attention instructions at runtime based on seq_len because
-        // attention is variable-length (unlike fixed-shape GEMM).
+        // NPU attention uses FlmBridge to generate seq_len-specific instructions
+        // at runtime via FLM's libmha.so (MHA::generate_mha_sequence). The
+        // attn.xclbin kernel takes Q, K, V as i8 inputs and produces i16 output.
+        // K and V caches are quantized from f32 on each step.
         //
-        // To wire NPU attention, generate instructions at runtime via:
-        //   1. Use aiebu_assembler to compile AIE assembly for the attention
-        //      kernel (Q@K^T softmax * V) with variable seq_len.
-        //   2. The instruction format is the same blob_instr_transaction used
-        //      by the 4 GEMM xclbins — but seq_len must be a runtime parameter.
-        //   3. Approach: pre-compile attention instructions for powers of 2
-        //      (64, 128, 256, ..., max_seq_len) and select at runtime, OR
-        //      use aiebu_assembler::buffer_type::blob_instr_transaction to
-        //      construct instructions on-the-fly.
-        //   4. The xclbin kernel signature (from MLIR_AIE) expects:
-        //      input[0] = Q[(NQ*HD) x i8]  (quantized)
-        //      input[1] = K[(seq*NKV*HD) x i8]
-        //      input[2] = V[(seq*NKV*HD) x i8]
-        //      output[0] = attn_out[(NQ*HD) x i16] (dequant accumulator)
-        //
-        // Until implemented, CPU attn_omp() is used as fallback:
-        //   Prefill: ~0.5 tok/s (bottleneck — needs NPU attention)
-        //   FLM production: 57 tok/s (closed-source, full NPU attention)
+        // CPU attn_omp() fallback is always available.
         if(use_npu_attn && ca_ptr && ca_ptr->isReady()){
-            fprintf(stderr,"W"); // CPU fallback: O(NH*HD*cl) softmax
-        }
-        // CPU attention (always available as fallback)
-        #pragma omp parallel for
-        for(int pi=0;pi<npt;pi++){
-            if (omp_get_thread_num() == 0) { fprintf(stderr,"a"); fflush(stderr); }
-            attn_omp(&qo_b[pi*qkv_n],&at_b[pi*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA,sp+pi+1);
+            // Regenerate instructions for current seq_len
+            auto attn_instrs = FlmBridge::instance().gen_attn_instrs(0, cl);
+            if (!attn_instrs.empty()) {
+                // Compute dynamic scales for Q and K/V quantization
+                float q_ascale = dynamic_ascale(qo_b.data(), npt * NH * HD);
+                float kv_ascale = 0;
+                for (int i = 0; i < (size_t)cl * NKV * HD; i++) {
+                    float a = fabsf(kv_caches[l].k[i]);
+                    if (std::isfinite(a) && a > kv_ascale) kv_ascale = a;
+                }
+                if (kv_ascale < 1e-12f) kv_ascale = 1.0f;
+                kv_ascale = kv_ascale / 127.0f;
+
+                // Launch NPU attention kernel
+                auto r_attn = ca_ptr->launch(
+                    qo_b.data(), kv_caches[l].k.data(), kv_caches[l].v.data(),
+                    cl, npt, q_ascale, kv_ascale);
+
+                // Wait + dequantize into attention output buffer
+                ca_ptr->finish(r_attn, at_b.data(), npt, q_ascale, kv_ascale);
+                cn(at_b.data(), npt * NH * HD);
+                fprintf(stderr,"A"); fflush(stderr);
+            } else {
+                // Instr generation failed — fall back to CPU
+                #pragma omp parallel for
+                for(int pi=0;pi<npt;pi++){
+                    if (omp_get_thread_num() == 0) { fprintf(stderr,"a"); fflush(stderr); }
+                    attn_omp(&qo_b[pi*qkv_n],&at_b[pi*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA,sp+pi+1);
+                }
+            }
+        } else {
+            // CPU attention (default fallback)
+            #pragma omp parallel for
+            for(int pi=0;pi<npt;pi++){
+                if (omp_get_thread_num() == 0) { fprintf(stderr,"a"); fflush(stderr); }
+                attn_omp(&qo_b[pi*qkv_n],&at_b[pi*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA,sp+pi+1);
+            }
         }
         // Phase 3: Launch O + GU in parallel on NPU
         int mlp_out=cfg.gu_split?IM:2*IM;
@@ -663,7 +845,16 @@ int main(int argc,char**argv){
                 for(int d=0;d<HD;d++)ko_data[kvh*HD+d]*=ik*(cfg.has_k_norm?kn[d]:1.0f);ra(&ko_data[kvh*HD],HD,sp);
                 memcpy(&kv_caches[l].k[sp*NKV*HD+kvh*HD],&ko_data[kvh*HD],HD*4);memcpy(&kv_caches[l].v[sp*NKV*HD+kvh*HD],&vo_data[kvh*HD],HD*4);}}
             kv_caches[l].n=sp+1;int cl=kv_caches[l].n;
-            attn_omp(qo_data.data(),at_data.data(),cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA);
+            if(use_npu_attn && ca_ptr && ca_ptr->isReady()){
+                auto ai = FlmBridge::instance().gen_attn_instrs(0, cl);
+                if(!ai.empty()){
+                    float qs=dynamic_ascale(qo_data.data(),NH*HD);
+                    float ks=0;for(int i=0;i<cl*NKV*HD;i++){float a=fabsf(kv_caches[l].k[i]);if(a>ks)ks=a;}
+                    ks=ks<1e-12f?1.0f:ks/127.0f;
+                    auto r=ca_ptr->launch(qo_data.data(),kv_caches[l].k.data(),kv_caches[l].v.data(),cl,1,qs,ks);
+                    ca_ptr->finish(r,at_data.data(),1,qs,ks);cn(at_data.data(),NH*HD);
+                }else{attn_omp(qo_data.data(),at_data.data(),cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA);}
+            }else{attn_omp(qo_data.data(),at_data.data(),cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA);}
             co.go(l,at_data.data(),1,NH*HD,dynamic_ascale(at_data.data(),NH*HD),osc[l],oo_data.data(),H);cn(oo_data.data(),H);for(int i=0;i<H;i++)h0[i]=sb_data[i]+oo_data[i];
             memcpy(sb_data.data(),h0,H*4);rn_c(h0,pa_n[l].data(),H);
             int mlp_out=cfg.gu_split?IM:2*IM;
@@ -714,7 +905,16 @@ int main(int argc,char**argv){
                 float*ks=&qo_b[b*qkv_n+cfg.qkv_k_offset+kvh*HD],*vs=&qo_b[b*qkv_n+cfg.qkv_v_offset+kvh*HD];
                 memcpy(&kv_caches[l].k[(sp+b)*NKV*HD+kvh*HD],ks,HD*4);memcpy(&kv_caches[l].v[(sp+b)*NKV*HD+kvh*HD],vs,HD*4);}
             kv_caches[l].n=sp+batch_size;int cl=kv_caches[l].n;
-            for(int b=0;b<batch_size;b++){attn_omp(&qo_b[b*qkv_n],&at_b[b*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA);}
+            if(use_npu_attn && ca_ptr && ca_ptr->isReady()){
+                auto ai = FlmBridge::instance().gen_attn_instrs(0, cl);
+                if(!ai.empty()){
+                    float qs=dynamic_ascale(qo_b.data(),batch_size*NH*HD);
+                    float ks=0;for(int i=0;i<cl*NKV*HD;i++){float a=fabsf(kv_caches[l].k[i]);if(a>ks)ks=a;}
+                    ks=ks<1e-12f?1.0f:ks/127.0f;
+                    auto r=ca_ptr->launch(qo_b.data(),kv_caches[l].k.data(),kv_caches[l].v.data(),cl,batch_size,qs,ks);
+                    ca_ptr->finish(r,at_b.data(),batch_size,qs,ks);cn(at_b.data(),batch_size*NH*HD);
+                }else{for(int b=0;b<batch_size;b++){attn_omp(&qo_b[b*qkv_n],&at_b[b*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA);}}
+            }else{for(int b=0;b<batch_size;b++){attn_omp(&qo_b[b*qkv_n],&at_b[b*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA);}}
 
             // ── O GEMM ──
             // Launch O, then quantize GU input WHILE O runs (overlapped)

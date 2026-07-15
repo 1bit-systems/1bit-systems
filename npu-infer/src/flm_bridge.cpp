@@ -71,11 +71,13 @@ bool FlmBridge::init(const Config& cfg) {
         sym("_ZN4Gemm12generate_seqEP12npu_sequencejjjjbNS_17Activation_Type_tEj");
     cmds2seq_ = (void(*)(void*))
         sym("_ZN12npu_sequence8cmds2seqEv");
+    gen_mha_seq_ = (void(*)(void*, void*, unsigned, unsigned))
+        sym("_ZN18qwen3_npu_sequence18gen_mha_engine_seqEP12npu_sequencejj");
     
     // Verify all loaded
     bool ok = qwen3_npu_seq_c1_ && qwen3_npu_seq_d1_ && gemm_c1_ && gemm_d1_ &&
               send_rope_rms_ && send_rms_ && gen_dequant_ && send_x_ &&
-              move_weights_ && gemm_generate_seq_ && cmds2seq_;
+              move_weights_ && gemm_generate_seq_ && cmds2seq_ && gen_mha_seq_;
     
     if (!ok) {
         LOG_ERROR("Missing FLM symbols:");
@@ -91,6 +93,7 @@ bool FlmBridge::init(const Config& cfg) {
         CHECK(move_weights_, "move_weights");
         CHECK(gemm_generate_seq_, "generate_seq");
         CHECK(cmds2seq_, "cmds2seq");
+        CHECK(gen_mha_seq_, "gen_mha_engine_seq");
         #undef CHECK
         return false;
     }
@@ -212,6 +215,59 @@ std::vector<uint32_t> FlmBridge::gen_gemm_instrs(uint32_t M, uint32_t N, uint32_
     
     LOG_DEBUG("GEMM instrs (M=%u, N=%u, K=%u, act=%d): %zu",
               actual_M, N, K, activation_type, result.size());
+    
+    return result;
+}
+
+// ============================================================================
+// Generate MHA (attention) instructions
+// ============================================================================
+
+std::vector<uint32_t> FlmBridge::gen_attn_instrs(uint32_t L_begin, uint32_t L_end) {
+    if (!initialized_) return {};
+    
+    // Create LM_Config
+    LmConfigBuf cfg_buf;
+    cfg_buf.init(cfg_);
+    
+    // Create qwen3_npu_sequence object (owns model context + npu_sequence)
+    char seq_buf[4096] = {};
+    qwen3_npu_seq_c1_(seq_buf, &cfg_buf.data, (unsigned)cfg_.max_seq_len);
+    
+    auto *seq = (void*)seq_buf;
+    auto *impl = *(void**)seq_buf;  // First field = Impl pointer
+    
+    if (!impl) {
+        LOG_ERROR("Sequence constructor failed: Impl pointer is null");
+        qwen3_npu_seq_d1_(seq_buf);
+        return {};
+    }
+    
+    // Send RoPE + RMS norm weights (needed before attention sequence gen)
+    send_rope_rms_(impl, seq);
+    send_rms_(impl, seq);
+    
+    // Generate MHA engine sequence for position range [L_begin, L_end)
+    gen_mha_seq_(seq, seq, L_begin, L_end);
+    cmds2seq_(seq);
+    
+    // Extract instructions from npu_sequence inside qwen3_npu_sequence
+    // The npu_sequence's npu_seq vector begin/end pointers are at offsets 0x40/0x50
+    uint32_t** vb = (uint32_t**)(seq_buf + 0x40);
+    uint32_t** ve = (uint32_t**)(seq_buf + 0x50);
+    
+    std::vector<uint32_t> result;
+    if (vb && ve && *vb && *ve && *ve > *vb) {
+        size_t count = *ve - *vb;
+        if (count > 0 && count < 1000000) {
+            result.assign(*vb, *ve);
+        }
+    }
+    
+    // Cleanup
+    qwen3_npu_seq_d1_(seq_buf);
+    
+    LOG_DEBUG("MHA instrs (L=[%u,%u)): %zu", L_begin, L_end, result.size());
     
     return result;
 }
