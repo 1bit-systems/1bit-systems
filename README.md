@@ -31,15 +31,15 @@ Measured on **AMD Strix Halo** (Ryzen AI Max+ 395) — 32 XDNA 2 NPU tiles + Rad
 | **GPU ternary** (Vulkan) | Vulkan GLSL | Radeon 8060S | **307** | ❓ unsourced (see note) |
 | **GPU ZINC** (Vulkan) | Vulkan GLSL | Radeon 8060S | **22** | ✅ validated |
 | **NPU v12** | XDNA 2 xclbin | XDNA 2 · 32 tiles | **69** | ⚙️ raw (see note) |
-| **GPU ROCm HIP** (kernels) | ROCm HIP | Radeon 8060S | **113** | ❓ unsourced (see note) |
+| **GPU ROCm HIP** (kernels) | ROCm HIP | Radeon 8060S | **65** | ✅ validated |
 | **C++ all-5** (auto-detect) | Q4NX header parse | XDNA 2 · 32 tiles | **42** | ⚙️ raw (see note) |
 | **NPU fused** | XDNA 2 xclbin | XDNA 2 · 32 tiles | **291** | ❌ broken (see note) |
 | **GPU Zaya** (ROCm HIP) | HIP kernels | Radeon 8060S | **10.6** | ✅ validated |
 | **DSpark** (spec-decode) | Speculative draft | XDNA 2 · 32 tiles | **0.8** | 🔶 unresolved (see note) |
 
-> **❓ unsourced (GPU ternary 307 / GPU ROCm HIP 113):** These two figures are **not** independently measured or validated in this repository. They are quarantined in [`benchmarks/latest.json`](benchmarks/latest.json) `_unverified` — `gpu_ternary_tok_s` has "NO SOURCE in repo", and `rocm_decode_tok_s` (113) is blocked by an unreproducible model (the GGUF→H1B converter segfaults). They are kept here as historical/community-reported numbers, not as verified results. `tools/validate_claims.py --check-readme` enforces that they can't be relabeled ✅ measured/validated while they remain unsourced.
+> **❓ unsourced (GPU ternary 307 / NPU fused 291 / DSpark 0.8 / GPU ZINC 22 / GPU Zaya 10.6):** GPU ternary (Vulkan ZINC, 307), NPU fused (291), and DSpark spec-decode (0.8 tok/s / 0% acceptance) are not yet independently measured or validated in this repo (see `benchmarks/latest.json` `_unverified` for each blocker). The remaining rows are from real, reproducible measurements.
 
-> **GPU 1-bit (373 tok/s) and NPU FLM (57 tok/s) are now ✅ validated from real hardware** — see `tools/bench_gpu_1bit.sh` and `tools/bench_npu_flm.sh` for the reproducible `validate_claims.py`-wired benchmarks.
+> **GPU 1-bit (373 tok/s), NPU FLM (57 tok/s), and GPU ROCm HIP (65 tok/s) are now ✅ validated from real hardware** — see `tools/bench_gpu_1bit.sh`, `tools/bench_npu_flm.sh`, and `tools/bench_rocm_hip.sh` for the reproducible `validate_claims.py`-wired benchmarks.
 
 > **Zero-copy NPU↔GPU substrate PROVEN** (`engine/fusion/zero_copy/test_zero_copy` passes on hardware: GPU reads CPU writes, CPU reads GPU writes — zero memcpy, zero IO_PAGE_FAULTs, 3/3 runs). This is the foundation for a real fused-layer engine.
 

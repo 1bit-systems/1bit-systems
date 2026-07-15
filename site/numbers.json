@@ -1,6 +1,6 @@
 {
   "_generated_by": "tools/gen_numbers.py",
-  "_generated_at": "2026-07-15T00:35:27Z",
+  "_generated_at": "2026-07-15T00:42:01Z",
   "_warning": "Generated file. Do not hand-edit; run tools/gen_numbers.py.",
   "_missing": [],
   "binary": {
@@ -24,6 +24,7 @@
     "prefill_tflops_i8apre": 38.21,
     "gpu_1bit_tok_s": 373,
     "npu_flm_tok_s": 57,
+    "rocm_hip_tok_s": 65,
     "npu_validated_tok_s": 57,
     "gpu_1bit_llama_tok_s": 373,
     "tflops": 38.21
@@ -35,7 +36,8 @@
     "halo_gemv_gbps": "bench_sherry -- halo baseline kernel",
     "prefill_tflops_i8apre": "bench_prefill_variants 2560 6912 2560 -- variant 4i-I8-APRE (I8 A + tiled B), median of 3",
     "gpu_1bit_tok_s": "tools/bench_gpu_1bit.sh -- llama.cpp/ROCm on Ternary-Bonsai-1.7B-Q2_0 (1.58-bit), Radeon 8060S (gfx1151). Decode tok/s, median of 3.",
-    "npu_flm_tok_s": "tools/bench_npu_flm.sh -- FastFlowLM FLM engine, qwen3:0.6b (Qwen3-0.6B-NPU2 q4nx), XDNA2 NPU, 128-token completion, end-to-end wall time excluding prefill."
+    "npu_flm_tok_s": "tools/bench_npu_flm.sh -- FastFlowLM FLM engine, qwen3:0.6b (Qwen3-0.6B-NPU2 q4nx), XDNA2 NPU, 128-token completion, end-to-end wall time excluding prefill.",
+    "rocm_hip_tok_s": "tools/bench_rocm_hip.sh -- bitnet_decode bench mode, Bonsai-1.7B ternary .h1b via rocm_cpp HIP kernels (bonsai_tq2_gemv_launch), Radeon 8060S. Median of 3."
   },
   "repo": {
     "stars": 9,
