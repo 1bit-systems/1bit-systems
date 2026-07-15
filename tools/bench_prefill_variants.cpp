@@ -1,4 +1,11 @@
-// bench_prefill_variants -- benchmark all ternary prefill GEMM kernels
+// bench_prefill_variants — benchmark all ternary prefill GEMM kernels
+// on the BitNet FFN shapes that matter. Reports timings + TFlops + rankings.
+//
+// Build:
+//   cmake -B build && ninja -C build bench_prefill_variants
+// Run:
+//   ./build/bench_prefill_variants [M N K] [warmup] [timed]
+
 #include "rocm_cpp/prefill_tuner.h"
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
@@ -9,7 +16,13 @@
 #include <algorithm>
 #include <vector>
 
-#define HIP_CHECK(x) do { hipError_t _e = (x); if (_e != hipSuccess) { fprintf(stderr, "%s:%d: %s failed: %s\n", __FILE__, __LINE__, #x, hipGetErrorString(_e)); exit(1); } } while(0)
+#define HIP_CHECK(x) do { \
+    hipError_t _e = (x); \
+    if (_e != hipSuccess) { \
+        fprintf(stderr, "%s:%d: %s failed: %s\n", __FILE__, __LINE__, #x, hipGetErrorString(_e)); \
+        exit(1); \
+    } \
+} while (0)
 
 using launch_fn = void (*)(const void*, const void*, void*, int, int, int, void*);
 
@@ -21,8 +34,51 @@ void rcpp_standalone_launch_wmma_2x2wave(const void*, const void*, void*, int, i
 void rcpp_standalone_launch_fp16b(const void*, const void*, void*, int, int, int, void*);
 void rcpp_standalone_launch_wmma_2x4(const void*, const void*, void*, int, int, int, void*);
 void rcpp_standalone_launch_wmma_4x4(const void*, const void*, void*, int, int, int, void*);
+void rcpp_decode_pk_i4_to_fp16_launch(const void*, void*, int, int, void*);
 void rcpp_standalone_launch_wmma_4x4_vec_i8_tiled(const void*, const void*, void*, int, int, int, void*);
 void rcpp_standalone_launch_wmma_4x4_vec_i8_apre_tiled(const void*, const void*, void*, int, int, int, void*);
+}
+
+struct Variant {
+    const char* name;
+    launch_fn   launch;
+    bool        needs_fp16_b;
+    bool        geom_ok;    // set to false if shape requirement not met
+};
+
+static Variant make_var(const char* n, launch_fn f, bool fp16 = false) {
+    return {n, f, fp16, true};
+}
+
+static double tflops(double ms, int M, int N, int K) {
+    double ops = 2.0 * (double)M * (double)N * (double)K;
+    return ops / (ms * 1e-3) / 1e12;
+}
+
+static std::vector<Variant> make_variants(int M, int N, int K) {
+    std::vector<Variant> vs;
+    vs.push_back(make_var("4i  (64x64 vec A)",        rcpp_standalone_launch_wmma_4x4_vec));
+    vs.push_back(make_var("4h  (64x64 cached A+B)",    rcpp_standalone_launch_wmma_4x4_cached));
+    vs.push_back(make_var("4c  (32x64)",               rcpp_standalone_launch_wmma_2x4));
+    vs.push_back(make_var("4g  (64x64 4x4 acc)",       rcpp_standalone_launch_wmma_4x4));
+    if (M >= 64 && N >= 32) {
+        vs.push_back(make_var("4k  (LDS ping-pong 64x32)", rcpp_standalone_launch_lds_pingpong));
+    } else {
+        auto v = make_var("4k  (LDS ping-pong 64x32)", rcpp_standalone_launch_lds_pingpong);
+        v.geom_ok = false;
+        vs.push_back(v);
+    }
+    if (M >= 64 && N >= 64) {
+        vs.push_back(make_var("4f  (2x2 wave 64x64 LDS)", rcpp_standalone_launch_wmma_2x2wave));
+    } else {
+        auto v = make_var("4f  (2x2 wave 64x64 LDS)", rcpp_standalone_launch_wmma_2x2wave);
+        v.geom_ok = false;
+        vs.push_back(v);
+    }
+    vs.push_back(make_var("4i-I8-T (int8 WMMA tiled)", rcpp_standalone_launch_wmma_4x4_vec_i8_tiled, true));
+    vs.push_back(make_var("4i-I8-APRE (I8 A+ tiled B)", rcpp_standalone_launch_wmma_4x4_vec_i8_apre_tiled, true));
+    vs.push_back(make_var("FP16-B (pre-decoded B)",     rcpp_standalone_launch_fp16b, true));
+    return vs;
 }
 
 double bench_one(launch_fn fn, const void* A, const void* B, void* C,
@@ -42,22 +98,143 @@ double bench_one(launch_fn fn, const void* A, const void* B, void* C,
     return (double)ms / timed;
 }
 
+struct Result {
+    const char* name;
+    double ms;
+    double tf;
+    bool   ok;
+};
+
 int main(int argc, char** argv) {
-    int M = 2560, N = 6912, K = 2560, warmup = 5, timed = 20;
-    if (argc >= 4) { M = atoi(argv[1]); N = atoi(argv[2]); K = atoi(argv[3]); }
-    if (argc >= 5) warmup = atoi(argv[4]);
-    if (argc >= 6) timed = atoi(argv[5]);
+    int M = (argc > 1) ? atoi(argv[1]) : 2560;
+    int N = (argc > 2) ? atoi(argv[2]) : 6912;
+    int K = (argc > 3) ? atoi(argv[3]) : 2560;
+    int warmup = (argc > 4) ? atoi(argv[4]) : 5;
+    int timed  = (argc > 5) ? atoi(argv[5]) : 20;
+
     printf("=== Prefill Variant Benchmark (%d x %d x %d) ===\n", M, N, K);
     printf("Warmup: %d, Timed: %d\n\n", warmup, timed);
-    // ... rest of benchmark logic unchanged
-    printf("\n");
-    // Find winner
-    double best = 1e30; int best_i = -1;
-    for (size_t i = 0; i < results.size(); ++i) {
-        if (!results[i].valid) continue;
-        if (results[i].ms < best) { best = results[i].ms; best_i = i; }
+
+    hipStream_t stream;
+    HIP_CHECK(hipStreamCreate(&stream));
+
+    // Allocate
+    size_t a_bytes = (size_t)M * K * sizeof(__half);
+    size_t b_bytes = (size_t)K * N / 2;   // pk_i4: 2 vals per byte
+    size_t c_bytes = (size_t)M * N * sizeof(__half);
+    size_t b_fp16_bytes = (size_t)K * N * sizeof(__half);
+    size_t b_i8_tiled_bytes = (size_t)(K / 32) * N * 32;  // tiled INT8: [K0, N, 32]
+
+    __half *A_d, *C_d;
+    uint8_t *B_d;
+    __half *B_fp16_d;
+    int8_t *B_i8_tiled_d;
+    int8_t *A_i8_d;          // pre-quantized INT8 activations
+
+    HIP_CHECK(hipMalloc(&A_d, a_bytes));
+    HIP_CHECK(hipMalloc(&A_i8_d, a_bytes));  // INT8 A same size as FP16 A (same values as bytes)
+    HIP_CHECK(hipMalloc(&B_d, b_bytes));
+    HIP_CHECK(hipMalloc(&C_d, c_bytes));
+    HIP_CHECK(hipMalloc(&B_fp16_d, b_fp16_bytes));
+    HIP_CHECK(hipMalloc(&B_i8_tiled_d, b_i8_tiled_bytes));
+
+    // Fill with random data
+    std::vector<__half> A_host(M*K);
+    std::vector<int8_t> A_i8_host(M*K);  // pre-quantized INT8 A
+    std::vector<uint8_t> B_host(K*N/2);
+    std::vector<int8_t> B_i8_tiled_host(b_i8_tiled_bytes);
+    for (size_t i = 0; i < A_host.size(); ++i) {
+        float v = (float)rand() * (1.0f / (float)RAND_MAX) - 0.5f;
+        A_host[i] = __float2half(v);
+        // Pre-quantize to INT8 for the apre variant
+        int q = (int)(v * 127.0f + 0.5f);
+        if (q > 127) q = 127; if (q < -127) q = -127;
+        A_i8_host[i] = (int8_t)q;
     }
-    if (best_i >= 0)
-        printf("--- Winner ---\nFastest variant: %d = %s (%.2f TFLOPS)\n", best_i, results[best_i].name, 2.0*M*N*K/(best*1e-3)/1e12);
+    for (size_t i = 0; i < B_host.size(); ++i) B_host[i] = (uint8_t)(rand() & 0xFF);
+    // Generate tiled INT8 B: random ternary values {-1, 0, +1}
+    for (size_t i = 0; i < b_i8_tiled_bytes; ++i) B_i8_tiled_host[i] = (int8_t)((rand() % 3) - 1);
+    HIP_CHECK(hipMemcpy(A_d, A_host.data(), a_bytes, hipMemcpyHostToDevice));
+    HIP_CHECK(hipMemcpy(A_i8_d, A_i8_host.data(), a_bytes, hipMemcpyHostToDevice));
+    HIP_CHECK(hipMemcpy(B_d, B_host.data(), b_bytes, hipMemcpyHostToDevice));
+    HIP_CHECK(hipMemcpy(B_i8_tiled_d, B_i8_tiled_host.data(), b_i8_tiled_bytes, hipMemcpyHostToDevice));
+
+    // Decode B to FP16 once for FP16-B variant
+    rcpp_decode_pk_i4_to_fp16_launch(B_d, B_fp16_d, K, N, stream);
+    HIP_CHECK(hipStreamSynchronize(stream));
+
+    auto variants = make_variants(M, N, K);
+
+    // Dispatch table: which B buffer each variant uses
+    // (default B_d, fp16-B = B_fp16_d, i8-tiled = B_i8_tiled_d)
+    auto b_for_variant = [&](int idx) -> const void* {
+        const char* name = variants[idx].name;
+        if (strstr(name, "I8-APRE")) return (const void*)B_i8_tiled_d;
+        if (strstr(name, "I8-T"))    return (const void*)B_i8_tiled_d;
+        if (variants[idx].needs_fp16_b) return (const void*)B_fp16_d;
+        return (const void*)B_d;
+    };
+    // A-buffer dispatch: I8-APRE variants use A_i8_d, others use A_d
+    auto a_for_variant = [&](int idx) -> const void* {
+        const char* name = variants[idx].name;
+        if (strstr(name, "I8-APRE")) return (const void*)A_i8_d;
+        return (const void*)A_d;
+    };
+
+    // Warmup all variants (triggers JIT)
+    printf("Warming up all variants...\n");
+    for (size_t i = 0; i < variants.size(); ++i) {
+        auto& v = variants[i];
+        if (!v.geom_ok) continue;
+        const void* b = b_for_variant((int)i);
+        const void* a = a_for_variant((int)i);
+        for (int w = 0; w < 2; ++w) v.launch(a, b, C_d, M, N, K, stream);
+    }
+    HIP_CHECK(hipStreamSynchronize(stream));
+    printf("Ready.\n\n");
+
+    // Benchmark
+    std::vector<Result> results;
+    for (size_t i = 0; i < variants.size(); ++i) {
+        auto& v = variants[i];
+        if (!v.geom_ok) {
+            results.push_back({v.name, 0, 0, false});
+            continue;
+        }
+        const void* b = b_for_variant((int)i);
+        const void* a = a_for_variant((int)i);
+        double ms = bench_one(v.launch, a, b, C_d, M, N, K, warmup, timed, stream);
+        double tf = tflops(ms, M, N, K);
+        results.push_back({v.name, ms, tf, true});
+    }
+
+    // Sort by TFlops descending
+    std::sort(results.begin(), results.end(), [](const Result& a, const Result& b) {
+        return a.tf > b.tf;
+    });
+
+    printf("%-35s %10s %10s\n", "Variant", "Time (ms)", "TFlops");
+    printf("%s\n", std::string(57, '-').c_str());
+    for (auto& r : results) {
+        if (r.ok) {
+            printf("%-35s %10.4f %10.2f\n", r.name, r.ms, r.tf);
+        } else {
+            printf("%-35s %10s %10s  (shape incompatible)\n", r.name, "—", "—");
+        }
+    }
+
+    // Pick winner from our own results (auto-tuner only knows FP16/pk_i4 variants)
+    printf("\n--- Winner ---\n");
+    int best_idx = 0;
+    double best_tf = 0;
+    for (int i = 0; i < (int)results.size(); i++) {
+        if (results[i].ok && results[i].tf > best_tf) { best_tf = results[i].tf; best_idx = i; }
+    }
+    printf("Fastest variant: %d = %s (%.2f TFLOPS)\n", best_idx, results[best_idx].name, best_tf);
+    // Stamp into auto-tuner cache so production dispatch also benefits
+    rcpp_prefill_tune(A_d, B_d, C_d, M, N, K, warmup, timed, stream);
+
+    HIP_CHECK(hipFree(A_d)); HIP_CHECK(hipFree(B_d)); HIP_CHECK(hipFree(C_d)); HIP_CHECK(hipFree(B_fp16_d));
+    HIP_CHECK(hipStreamDestroy(stream));
     return 0;
 }

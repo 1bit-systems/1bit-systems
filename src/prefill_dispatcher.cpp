@@ -85,14 +85,15 @@ static const int BITNET_FFN_DN_M   = 2560;
 static const int BITNET_FFN_DN_N   = 2560;
 static const int BITNET_FFN_DN_K   = 6912;
 
-int rcpp_prefill_tune(const void* A_dev, const void* B_packed_dev, void* C_dev,
-                      int M, int N, int K, void* stream) {
+extern "C" int rcpp_prefill_tune(const void* A_dev, const void* B_packed_dev, void* C_dev,
+                      int M, int N, int K,
+                      int warmup_iters, int timed_iters,
+                      void* stream) {
     ShapeKey key = {M, N, K};
     auto it = s_best_variant.find(key);
     if (it != s_best_variant.end()) return it->second;
 
     auto viables = viable_variants(M, N, K);
-    int warmup_iters = 3, timed_iters = 10;
 
     void* B_fp16_dev = nullptr;
     bool has_fp16b = false;
@@ -132,8 +133,8 @@ int rcpp_prefill_tune(const void* A_dev, const void* B_packed_dev, void* C_dev,
     return best_variant;
 }
 
-void rcpp_prefill_dispatch(const void* A_dev, const void* B_packed_dev, void* C_dev,
+extern "C" void rcpp_prefill_dispatch(const void* A_dev, const void* B_packed_dev, void* C_dev,
                            int M, int N, int K, void* stream) {
-    int variant = rcpp_prefill_tune(A_dev, B_packed_dev, C_dev, M, N, K, stream);
+    int variant = rcpp_prefill_tune(A_dev, B_packed_dev, C_dev, M, N, K, 3, 10, stream);
     s_variants[variant](A_dev, B_packed_dev, C_dev, M, N, K, stream);
 }
