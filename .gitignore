@@ -102,3 +102,14 @@ packaging/deb/usr/lib/1bit/*.o
 # Stale benchmark result files (keep only latest)
 benchmarks/RESULTS-*.md
 !benchmarks/RESULTS-2026-07-15*.md
+
+# NPU xclbin files (generated/built — not tracked)
+engine/npu/xclbins/*.xclbin
+engine/npu/xclbins/*.txt
+engine/npu/xclbins/*.py
+engine/npu/setup_all_xclbins.sh
+
+# System libraries in packaging (not source)
+packaging/appimage/AppDir/usr/lib/*.so*
+packaging/appimage/AppDir/usr/lib/*.so
+packaging/deb/usr/lib/1bit/*.o
