@@ -138,8 +138,9 @@ def build(bench_path: Path) -> dict:
     dropped = [k for k in list(bench["benchmarks"]) if k in unverified]
     for k in dropped:
         bench["benchmarks"].pop(k, None)
+        bench.setdefault("_unverified_preserved", {})[k] = bench.get("_unverified", {}).get(k, "preserved")
     if dropped:
-        print(f"gen_numbers: dropped unverified/quarantined keys: {sorted(dropped)}")
+        print(f"gen_numbers: preserved quarantined keys under _unverified_preserved: {sorted(dropped)}")
 
     # Display alias: site/index.html reads B.tflops for the hero "TFLOPS" spans.
     # Point it at the sourced prefill peak (prefill_tflops_i8apre) so those spans

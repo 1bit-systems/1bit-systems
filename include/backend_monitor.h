@@ -68,13 +68,14 @@ private:
 struct PerBackendMetrics {
     std::string backend_id;
 
-    // Lifetime counters
+    // Lifetime counters (atomic: safe from multiple threads)
     std::atomic<uint64_t> inferences{0};
     std::atomic<uint64_t> failures{0};
     std::atomic<uint64_t> fallbacks{0};
 
     // Timing (most recent and windowed)
     std::atomic<float> last_ms{0};
+    // MetricWindow is NOT thread-safe; protected by mutex in BackendMonitor
     MetricWindow<256> recent_ms;
 
     // Throughput
@@ -88,7 +89,7 @@ struct PerBackendMetrics {
     std::atomic<uint64_t> last_health_check{0};
     std::string last_error;
 
-    // Tracking state (internal)
+    // Tracking state (internal) — only accessed under BackendMonitor lock
     std::chrono::steady_clock::time_point window_start;
     uint64_t window_inferences;
 

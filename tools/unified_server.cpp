@@ -331,15 +331,27 @@ static void acquire_singleton_lock() {
             if (kill(old_pid, 0) == 0) {
                 fprintf(stderr, "  pid %d didn't exit in time, sending SIGKILL\n", (int)old_pid);
                 kill(old_pid, SIGKILL);
-                usleep(200 * 1000);
+                usleep(500 * 1000);  // longer wait for SIGKILL to process (fixes #fix)
             }
         }
 
         // Retry now that the previous holder (if any) should be gone.
+        // If flock still fails, the lock file may be stale from a before-SIGKILL state.
+        // Remove and recreate it rather than failing immediately.
         if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
-            fprintf(stderr, "Fatal: could not acquire singleton lock (%s) — another instance running. Exiting.\n",
-                    strerror(errno));
-            exit(EXIT_FAILURE);
+            fprintf(stderr, "Warning: lock held after killing old instance — removing stale lock\n");
+            close(fd);
+            unlink(kLockPath);
+            fd = open(kLockPath, O_CREAT | O_RDWR, 0644);
+            if (fd < 0) {
+                fprintf(stderr, "Fatal: could not recreate lock file (%s)\n", strerror(errno));
+                exit(EXIT_FAILURE);
+            }
+            if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+                fprintf(stderr, "Fatal: could not acquire singleton lock (%s) — another instance running. Exiting.\n",
+                        strerror(errno));
+                exit(EXIT_FAILURE);
+            }
         }
     }
 

@@ -153,9 +153,12 @@ struct TokenRouter {
 
             case RouteStrategy::CASCADE: {
                 InferenceBackend* fallback = nullptr;
+                float best_tok_s = 0;
                 for (auto* b : backends) {
-                    if (b != primary && b->is_available() && b->is_coherent()) {
-                        fallback = b; break;
+                    if (b != primary && b->is_available() && b->is_coherent()
+                        && b->estimated_tok_s() > best_tok_s) {
+                        fallback = b;
+                        best_tok_s = b->estimated_tok_s();
                     }
                 }
                 bool on_primary = true;
@@ -163,10 +166,18 @@ struct TokenRouter {
                 for (int i = 0; i < max_tokens; i++) {
                     int next = current->forward(on_primary ? last_token : (out_tokens.empty() ? last_token : out_tokens.back()), i);
                     out_tokens.push_back(next);
-                    if (on_primary && fallback && out_tokens.size() >= 4) {
-                        bool repeating = true;
-                        for (size_t j = out_tokens.size() - 3; j < out_tokens.size(); j++)
-                            if (out_tokens[j] != out_tokens.back()) { repeating = false; break; }
+                    if (on_primary && fallback && out_tokens.size() >= 6) {
+                        // Detect any 3+ repeated token (AAA...) or alternating pattern (ABAB...)
+                        bool repeating = false;
+                        size_t n = out_tokens.size();
+                        // Check AAA pattern (last 3 identical)
+                        if (out_tokens[n-1] == out_tokens[n-2] && out_tokens[n-2] == out_tokens[n-3])
+                            repeating = true;
+                        // Check ABAB pattern (last 4 alternating)
+                        if (!repeating && n >= 4 &&
+                            out_tokens[n-1] == out_tokens[n-3] &&
+                            out_tokens[n-2] == out_tokens[n-4])
+                            repeating = true;
                         if (repeating) {
                             fprintf(stderr, "  [cascade] switching to fallback\n");
                             on_primary = false; current = fallback;

@@ -67,7 +67,7 @@ set(CMAKE_HIP_COMPILER "${_RC_LLVM_BIN}/amdclang++" CACHE FILEPATH "HIP compiler
 set(CMAKE_C_COMPILER   "${_RC_LLVM_BIN}/amdclang"   CACHE FILEPATH "C compiler")
 set(CMAKE_CXX_COMPILER "${_RC_LLVM_BIN}/amdclang++" CACHE FILEPATH "C++ compiler")
 
-project(rocm_cpp LANGUAGES C CXX HIP)
+project(1bit-systems LANGUAGES C CXX HIP)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -153,6 +153,8 @@ endif()
 # wired into bitnet_decode.cpp yet; see docs/vulkan-backend.md-style notes
 # in tests/test_vulkan_gemv.cpp for why.
 option(USE_VULKAN "Build the portable Vulkan backend proof (test_vulkan_gemv)" OFF)
+# Note: Vulkan is OFF by default. The README's claimed Vulkan backend (22 tok/s)
+# requires USE_VULKAN=ON at cmake configure time. Without it, only ROCm HIP is active.
 set(RCPP_HAVE_VULKAN FALSE)
 if(USE_VULKAN)
     find_package(Vulkan QUIET)

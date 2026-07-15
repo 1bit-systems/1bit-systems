@@ -320,8 +320,9 @@ public:
                 }
             }
         } else {
-            // Fallback: CPU dot product
-            for (int v = 0; v < std::min(VOCAB, 1000); v++) {
+            // Fallback: CPU dot product over ALL vocab
+            // (fixed: previously only scanned first 1000 tokens)
+            for (int v = 0; v < VOCAB; v++) {
                 float dot = 0;
                 const float* emb_row = embed_.data() + (size_t)v * H;
                 for (int i = 0; i < H; i++) dot += hidden[i] * emb_row[i];

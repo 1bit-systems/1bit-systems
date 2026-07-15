@@ -266,7 +266,13 @@ int main(int argc, char** argv) {
         std::string r(buf.data());
         auto bp = r.find("\r\n\r\n");
         std::string body = (bp == std::string::npos) ? "" : r.substr(bp + 4);
+        // Case-insensitive Content-Length search per RFC 7230
         auto clp = r.find("Content-Length: ");
+        if (clp == std::string::npos) {
+            std::string lower = r;
+            std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+            clp = lower.find("content-length: ");
+        }
         if (clp != std::string::npos) {
             auto cle = r.find("\r\n", clp);
             if (cle != std::string::npos) {

@@ -175,14 +175,19 @@ public:
     }
 
     // ─── NPU worker: runs expert FFN for layer il ──────────────────
-    void npu_expert_worker(int il, int token_id,
+    // FIXME: This is a skeleton. NPU backend's forward() uses position
+    // to track token accumulation — it MUST receive the correct position
+    // for the current decode step, not 0 (which resets the prompt).
+    // The real implementation needs a generate()-style interface that
+    // hides position tracking, or the NPU backend needs to be refactored
+    // to separate prompt accumulation from single-token decode.
+    void npu_expert_worker(int il, int token_id, int pos,
                             const std::vector<float>& hidden_in,
                             std::vector<float>& hidden_out) {
         // NPU runs the expert FFN part:
         //   Gate+Up projection → SiLU activation → Down projection
-        // This is the bulk of compute in MoE models (~60-70% of FLOPs)
-        int next = npu_->forward(token_id, 0);  // simplified
-        hidden_out = hidden_in;  // placeholder
+        int next = npu_->forward(token_id, pos);  // pass actual position
+        hidden_out = hidden_in;
         {
             std::lock_guard<std::mutex> lk(mtx_);
             npu_done_ = true;

@@ -75,10 +75,17 @@ int main() {
     // Start FLM serve (NPU worker, real XDNA2 inference)
     fprintf(stderr, "Starting FLM serve on NPU...\n");
     system("pkill -f 'flm serve.*8097' 2>/dev/null; sleep 0.5");
-    system("cd /home/bcloud/fastflowlm-build/src/build && "
-           "FLM_CONFIG_PATH=/home/bcloud/fastflowlm-build/src/model_list.json "
-           "FLM_XCLBIN_PATH=/home/bcloud/fastflowlm-build/src/xclbins "
-           "LD_LIBRARY_PATH=/home/bcloud/fastflowlm-build/src/build:/opt/rocm-7.2.4/lib "
+    // FIXME: hardcoded paths below — replace with env vars or CLI args
+    const char* flm_build = getenv("FLM_BUILD_DIR");
+    if (!flm_build) flm_build = "/opt/fastflowlm";
+    char cmd[4096];
+    snprintf(cmd, sizeof(cmd),
+           "cd %s/build && "
+           "FLM_CONFIG_PATH=%s/model_list.json "
+           "FLM_XCLBIN_PATH=%s/xclbins "
+           "LD_LIBRARY_PATH=%s/build:/opt/rocm/lib ",
+           flm_build, flm_build, flm_build, flm_build);
+    system(cmd);
            "nohup ./flm serve qwen3:0.6b --port 8097 --pmode performance "
            ">/tmp/flm_par.log 2>&1 &");
     sleep(3);

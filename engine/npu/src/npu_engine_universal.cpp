@@ -38,16 +38,16 @@ static void ri(int hd,float th,int mp){int hd2=hd/2;rc.resize(mp*hd);rs.resize(m
 static inline void ra(float*x,int hd,int p){int hd2=hd/2;for(int d=0;d<hd2;d++){
     float a=x[d],b=x[d+hd2],c=rc[p*hd+d],s=rs[p*hd+d];x[d]=a*c-b*s;x[d+hd2]=b*c+a*s;}}
 // Safety net: if glibc's malloc detects heap corruption (free(): invalid size)
-// during decode, SIGABRT is raised. This handler does emergency _exit(0) to
-// suppress the crash dump — all measured data was already printed before exit.
-// The heap corruption itself (likely buffer overflow in weight metadata or
-// XRT dma-buf interaction) has not been root-caused despite investigation.
-// See issue #202, README, and BENCHMARKS.md for details.
-static void sigabrt_handler(int) {
+// SIGABRT handler: prints diagnostic, then re-raises for default core dump
+// so the heap corruption root cause can be debugged. The measured results
+// are flushed to stderr before the re-raise.
+static void sigabrt_handler(int sig) {
     fprintf(stderr, "\n[NPU engine] caught SIGABRT (likely heap corruption from free(): invalid size)\n");
-    fprintf(stderr, "[NPU engine] calling _exit(0) — measured results already printed above\n");
+    fprintf(stderr, "[NPU engine] re-raising for core dump — see core.{pid} for backtrace\n");
     fflush(stderr);
-    _exit(0);
+    // Reset handler to default and re-raise to get a core dump
+    signal(SIGABRT, SIG_DFL);
+    raise(SIGABRT);
 }
 
 static std::vector<float> emb_f32; // f32 embeddings for fast LM head

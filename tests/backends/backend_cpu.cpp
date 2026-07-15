@@ -193,8 +193,14 @@ std::vector<InferenceBackend*> detect_backends() {
 
 InferenceBackend* select_best_backend() {
     auto backends = detect_backends();
+    InferenceBackend* best = nullptr;
+    float best_tok_s = 0;
     for (auto* b : backends) {
-        if (b->is_available()) return b;
+        if (b->is_available() && b->estimated_tok_s() > best_tok_s) {
+            best = b;
+            best_tok_s = b->estimated_tok_s();
+        }
     }
+    if (best) return best;
     return backends.empty() ? nullptr : backends[0];
 }

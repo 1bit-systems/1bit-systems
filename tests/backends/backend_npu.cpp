@@ -155,7 +155,7 @@ public:
         }
 
         loaded_ = true;
-        fprintf(stderr, "  NPU: FLM ready (%s, %.1f tok/s)\\n",
+        fprintf(stderr, "  NPU: FLM ready (%s, %.1f tok/s)\n",
                 model_tag_.c_str(), estimated_tok_s());
         return true;
     }
@@ -168,7 +168,9 @@ public:
             close(stdin_fd_); close(stdout_fd_); close(stderr_fd_);
             kill(pid_, SIGTERM); usleep(200000);
             kill(pid_, SIGKILL);
-            waitpid(pid_, nullptr, WNOHANG);
+            // Reap child to prevent zombie. WNOHANG first, then wait if still alive.
+            if (waitpid(pid_, nullptr, WNOHANG) == 0)
+                waitpid(pid_, nullptr, 0);
             pid_ = 0;
         }
         stdin_fd_ = stdout_fd_ = stderr_fd_ = -1;
@@ -222,6 +224,8 @@ public:
         return resp;
     }
 
+    // Forward: returns chars as token IDs matching SimpleTokenizer::decode() range
+    // (100-199 for printable ASCII). NPU FLM returns raw chars -> shift to match.
     int forward(int token_id, int pos) override {
         if (!loaded_) return 106;
 
@@ -230,14 +234,12 @@ public:
 
         // On first call (pos==0) or when cache exhausted, query FLM
         if (pos == 0 || generated_pos_ >= generated_text_.size()) {
-            // Build prompt text from accumulated token IDs
-            std::string prompt = "Hello";  // fallback
+            std::string prompt = "Hello";
             if (!pending_prompt_.empty()) {
-                // Simple decode: token IDs 100+ are ASCII chars
                 prompt.clear();
                 for (int t : pending_prompt_) {
-                    if (t == 2) continue; // BOS
-                    if (t == 106) break;  // EOS
+                    if (t == 2) continue;
+                    if (t == 106) break;
                     if (t > 100 && t < 200) prompt += (char)(t - 100);
                 }
                 if (prompt.empty()) prompt = "Hello";
@@ -247,9 +249,12 @@ public:
             generated_pos_ = 0;
         }
 
-        // Return characters from cached response as pseudo-token IDs
-        if (generated_pos_ < generated_text_.size())
-            return (unsigned char)generated_text_[generated_pos_++];
+        // Return characters shifted to SimpleTokenizer-compatible range (100-199)
+        if (generated_pos_ < generated_text_.size()) {
+            unsigned char c = (unsigned char)generated_text_[generated_pos_++];
+            if (c >= 32 && c <= 126) return c + 100;  // printable ASCII -> 132-226
+            return (int)c + 200;  // non-printable: > 200 (decode shows [N])
+        }
         return 106; // EOS
     }
 

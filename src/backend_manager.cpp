@@ -184,8 +184,11 @@ bool BackendManager::init(const ModelConfig& cfg, const std::string& weights_dir
             }
             info.functional = true;
             info.instance->reset();
-            printf("  → ✅ initialized successfully\n");
             initialized_ = true;
+            // Set active_idx_ to this backend so generate() works immediately
+            // without requiring the caller to manually call select_backend() (#fix #17).
+            active_idx_ = &info - backends_.data();
+            printf("  → ✅ initialized successfully\n");
 
             // Create monitor entry
             auto* pm = monitor_.for_backend(info.id);
