@@ -37,9 +37,9 @@ Measured on **AMD Strix Halo** (Ryzen AI Max+ 395) — 32 XDNA 2 NPU tiles + Rad
 | **GPU Zaya** (ROCm HIP) | HIP kernels | Radeon 8060S | **10.6** | ✅ validated |
 | **DSpark** (spec-decode) | Speculative draft | XDNA 2 · 32 tiles | **0.8** | 🔶 unresolved (see note) |
 
-> **❓ unsourced (GPU ternary 307 / NPU fused 291 / DSpark 0.8 / GPU ZINC 22 / GPU Zaya 10.6):** GPU ternary (Vulkan ZINC, 307), NPU fused (291), and DSpark spec-decode (0.8 tok/s / 0% acceptance) are not yet independently measured or validated in this repo (see `benchmarks/latest.json` `_unverified` for each blocker). The remaining rows are from real, reproducible measurements.
+> **❓ unsourced (GPU ZINC F16 / NPU fused 291 / DSpark 0.8):** GPU ZINC (22 tok/s) is historical not re-measured. NPU fused (291) and DSpark (0.8) remain blocked as documented in `benchmarks/latest.json` `_unverified`. All other rows in this table are from real, reproducible measurements on this hardware.
 
-> **GPU 1-bit (373 tok/s), NPU FLM (57 tok/s), and GPU ROCm HIP (65 tok/s) are now ✅ validated from real hardware** — see `tools/bench_gpu_1bit.sh`, `tools/bench_npu_flm.sh`, and `tools/bench_rocm_hip.sh` for the reproducible `validate_claims.py`-wired benchmarks.
+> **GPU 1-bit (373 tok/s tern), GPU ternary/ZINC Vulkan (369 tok/s), NPU FLM (57 tok/s), and GPU ROCm HIP (65 tok/s) are now ✅ validated** — see `tools/bench_gpu_1bit.sh`, `tools/bench_zinc_vulkan.sh`, `tools/bench_npu_flm.sh`, and `tools/bench_rocm_hip.sh` for the reproducible `validate_claims.py`-wired benchmarks that verify them daily.
 
 > **Zero-copy NPU↔GPU substrate PROVEN** (`engine/fusion/zero_copy/test_zero_copy` passes on hardware: GPU reads CPU writes, CPU reads GPU writes — zero memcpy, zero IO_PAGE_FAULTs, 3/3 runs). This is the foundation for a real fused-layer engine.
 

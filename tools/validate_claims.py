@@ -119,6 +119,7 @@ def parse_shell_bench(out: str) -> dict[str, float]:
 PARSERS["bench_gpu_1bit"] = parse_shell_bench
 PARSERS["bench_npu_flm"] = parse_shell_bench
 PARSERS["bench_rocm_hip"] = parse_shell_bench
+PARSERS["bench_zinc_vulkan"] = parse_shell_bench
 
 
 # README benchmark-table engines whose tok/s figures live in
