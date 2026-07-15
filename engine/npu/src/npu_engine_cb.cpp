@@ -1,4 +1,4 @@
-/** NPU Engine v6 — FLM mm.xclbin, opcode=3, no instruction BO
+/** NPU Engine v6 -- FLM mm.xclbin, opcode=3, no instruction BO
  *  FLM's xclbin expects opcode=3 with instr=0, ninstr=0.
  *  Weights must be in tile SRAM (pre-loaded via DMA).
  *  This version passes weights as kernel args to see if FLM's 
@@ -160,7 +160,7 @@ int main(int argc, char** argv) {
     B_bo.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     fprintf(stderr, "  BOs written and synced.\n");
     auto run = xrt::run(krnl);
-    run.set_arg(0, 0);          // instr_bo (null — using default FLM instruction)
+    run.set_arg(0, 0);          // instr_bo (null -- using default FLM instruction)
     run.set_arg(1, A_bo);       // A
     run.set_arg(2, B_bo);       // B
     run.set_arg(3, C_bo);       // C
