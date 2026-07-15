@@ -1,25 +1,19 @@
-// common.h — Shared types for both backend interfaces
-// Included by both tests/backends/backend.h and src/backend.h
-// This is the canonical definition of BackendType and ModelConfig.
 #pragma once
 #include <cstdint>
 #include <string>
 #include <vector>
 
-// ── Backend type ──
-// Single source of truth for all backend type values.
-// Tests/ and src/ both include this header.
 enum class BackendType : uint8_t {
     NONE = 0,
-    HIP_GPU = 1,      // AMD ROCm GPU via HIP
-    HIP = 1,          // Alias
-    VULKAN = 2,       // Any Vulkan 1.2+ GPU
-    Vulkan = 2,       // Alias
-    NPU_XRT = 3,      // AMD XDNA NPU via XRT
-    NPU = 3,          // Alias
-    CPU_AVX512 = 4,   // CPU with AVX-512
-    CPU = 4,          // Alias
-    CPU_SCALAR = 5,   // CPU fallback (any x86)
+    HIP_GPU = 1,
+    HIP = 1,
+    VULKAN = 2,
+    Vulkan = 2,
+    NPU_XRT = 3,
+    NPU = 3,
+    CPU_AVX512 = 4,
+    CPU = 4,
+    CPU_SCALAR = 5,
 };
 
 inline const char* backend_name(BackendType t) {
@@ -33,12 +27,7 @@ inline const char* backend_name(BackendType t) {
     }
 }
 
-// ── Model configuration ──
-// Contains ALL fields needed by both backend interfaces.
-// Canonical short names are the primary fields; compatibility
-// long names are aliases that are always kept in sync.
 struct ModelConfig {
-    // Primary fields (src/ backends)
     int hidden            = 2048;
     int n_heads           = 8;
     int n_kv_heads        = 2;
@@ -50,7 +39,6 @@ struct ModelConfig {
     int router_hidden     = 256;
     int qkv_dim           = 1280;
 
-    // Compatibility fields (tests/ backends) — same values as above
     int hidden_size       = 2048;
     int num_heads         = 8;
     int num_kv_heads      = 2;
@@ -58,7 +46,7 @@ struct ModelConfig {
     int vocab_size        = 262272;
     int intermediate_size = 2048;
     int num_experts       = 16;
-    int num_experts_top   = 17;
+    int num_experts_top   = 2;
     int num_attention_heads = 8;
     bool has_q_norm = false;
     bool has_k_norm = false;
