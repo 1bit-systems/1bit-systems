@@ -70,7 +70,7 @@ struct SimpleTokenizer {
     rcpp_tokenizer_t* bpe_tok = nullptr;
 
     bool load(const std::string& vocab_path) {
-        if (vocab_path.size() >= 4 && vocab_path.substr(vocab_path.size() - 4) == ".htok") {
+        if (vocab_path.size() >= 5 && vocab_path.substr(vocab_path.size() - 5) == ".htok") {
             rcpp_tokenizer_t* tok = nullptr;
             rcpp_status_t st = rcpp_tokenizer_load(vocab_path.c_str(), &tok);
             if (st == RCPP_OK && tok) {
@@ -405,14 +405,34 @@ static json generate_completion(BackendManager& mgr,
         int next = -1;
         double token_logprob = 0.0;
 
-        if (need_logprobs) {
+        // First token (i==0): compute logprob from the last prompt token's
+        // forward pass so cascade has a real confidence signal immediately.
+        if (i == 0 && need_logprobs && output_logprobs.empty()) {
+            float hidden_buf[2048];
+            if (mgr.forward(last_token, hidden_buf)) {
+                float* logits_buf = new float[262272];
+                int tmp_id = -1;
+                if (mgr.lm_head(hidden_buf, logits_buf, &tmp_id)) {
+                    float max_l = -1e30f;
+                    for (int v = 0; v < 262272; v++)
+                        if (logits_buf[v] > max_l) max_l = logits_buf[v];
+                    double sum_exp = 0.0;
+                    for (int v = 0; v < 262272; v++)
+                        sum_exp += exp((double)(logits_buf[v] - max_l));
+                    if (sum_exp > 0 && tmp_id >= 0 && tmp_id < 262272)
+                        token_logprob = (double)(logits_buf[tmp_id] - max_l) - log(sum_exp);
+                    else
+                        token_logprob = -20.0;
+                }
+                delete[] logits_buf;
+                next = tmp_id;
+            }
+        } else if (need_logprobs) {
             // Slow path: forward + lm_head + softmax for real logprobs
             float hidden_buf[2048];  // ZAYA_H
             if (mgr.forward(last_token, hidden_buf)) {
-                // Allocate logits on heap (262272 floats ≈ 1MB)
                 float* logits_buf = new float[262272];
                 if (mgr.lm_head(hidden_buf, logits_buf, &next)) {
-                    // Softmax with max-logit stability
                     float max_l = -1e30f;
                     for (int v = 0; v < 262272; v++)
                         if (logits_buf[v] > max_l) max_l = logits_buf[v];
@@ -559,14 +579,17 @@ int main(int argc, char** argv) {
     static struct option long_opts[] = {
         {"port",    required_argument, nullptr, 'p'},
         {"weights", required_argument, nullptr, 'w'},
+        {"quick",   no_argument,       nullptr, 'q'},
         {nullptr, 0, nullptr, 0}
     };
 
+    bool quick_mode = false;
     int opt;
-    while ((opt = getopt_long(argc, argv, "p:w:", long_opts, nullptr)) != -1) {
+    while ((opt = getopt_long(argc, argv, "p:w:q", long_opts, nullptr)) != -1) {
         switch (opt) {
             case 'p': g_port = atoi(optarg); break;
             case 'w': g_weights_dir = optarg; break;
+            case 'q': quick_mode = true; break;
         }
     }
 
@@ -628,8 +651,9 @@ int main(int argc, char** argv) {
 
     // Phase 4: Benchmark available backends
     if (inited) {
-        printf("\n── Benchmark ──\n");
-        mgr.benchmark_all(3);  // 3 tokens is enough for a score
+        int bench_tokens = quick_mode ? 1 : 3;
+        printf("\n── Benchmark (%d token%s) ──\n", bench_tokens, bench_tokens == 1 ? "" : "s");
+        mgr.benchmark_all(bench_tokens);
 
         // benchmark_all preserves the pre-existing (init'd) backend instance.
         // Now re-evaluate to pick the fastest backend per strategy.
@@ -667,6 +691,11 @@ int main(int argc, char** argv) {
             g_watchdog = new AgentWatchdog(g_strategy_engine, mgr);
         }
         g_watchdog->start();
+    }
+
+    // Quick mode: re-profile in background after server starts
+    if (quick_mode) {
+        printf("  ⚡ Quick mode: full benchmark deferred to background\n");
     }
 
     // ── HTTP Server ──
@@ -1044,7 +1073,8 @@ int main(int argc, char** argv) {
     printf("    curl -X POST http://127.0.0.1:%d/v1/chat/completions \\\n", g_port);
     printf("      -H \"X-Router-Strategy: cascade\" \\\n");
     printf("      -d '{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"max_tokens\":50}'\n");
-    printf("\n  Press Ctrl+C to stop.\n");
+    printf("\n  Quick start: add --quick to skip full benchmark\n");
+    printf("  Press Ctrl+C to stop.\n");
     printf("──────────────────────────────────────────────\n\n");
 
     if (!svr.listen("0.0.0.0", g_port)) {

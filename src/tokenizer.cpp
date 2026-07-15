@@ -171,7 +171,8 @@ rcpp_tokenizer_load(const char* path, rcpp_tokenizer_t** out)
     f.read(magic, 4);
     if (std::strncmp(magic, "HTOK", 4) != 0) { fprintf(stderr, "bad .htok magic\n"); return RCPP_INVALID_ARG; }
 
-    uint32_t vocab_size = 0, num_merges = 0, bos = 0, eos = 0;
+    uint32_t version = 0, vocab_size = 0, num_merges = 0, bos = 0, eos = 0;
+    f.read(reinterpret_cast<char*>(&version), 4);   // format version
     f.read(reinterpret_cast<char*>(&vocab_size), 4);
     f.read(reinterpret_cast<char*>(&num_merges), 4);
     f.read(reinterpret_cast<char*>(&bos), 4);

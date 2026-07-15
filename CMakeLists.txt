@@ -563,6 +563,7 @@ target_link_libraries(zaya_agent PRIVATE
     nlohmann_json::nlohmann_json
     rocm_cpp hip::host hip::device)
 target_link_options(zaya_agent PRIVATE -rdynamic)
+target_link_options(zaya_agent PRIVATE "-Wl,-rpath,\$ORIGIN")
 set_target_properties(zaya_agent PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
 # -- tools/backend_demo : Backend Manager live dashboard (Task Manager NPU tab) ---
