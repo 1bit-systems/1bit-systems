@@ -159,6 +159,11 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model);
 rcpp_status_t
 rcpp_bitnet_load_gguf(const char* path, rcpp_bitnet_model_t* out_model);
 
+// Load an ONNX model file and extract weight tensors.
+// Supports F32, F16, BF16, INT8, INT32 weight types.
+rcpp_status_t
+rcpp_bitnet_load_onnx(const char* path, rcpp_bitnet_model_t* out_model);
+
 // Release all device buffers + layer array.
 void
 rcpp_bitnet_free(rcpp_bitnet_model_t* model);

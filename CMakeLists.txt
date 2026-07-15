@@ -189,6 +189,7 @@ set(RCPP_SOURCES
     src/kv_rotorquant.cpp
     src/h1b_loader.cpp
     src/gguf_loader.cpp
+    src/onnx_loader.cpp
     src/tokenizer.cpp
     src/ternary_gemm_smallm.hip
     src/ternary_gemm_smallm_scalar_ref.hip
