@@ -1,0 +1,76 @@
+#version 460
+// Group Normalization — used in SD1.5 UNet
+// One workgroup = one group (32 channels per group)
+
+layout(local_size_x = 32) in;
+
+layout(set = 0, binding = 0) buffer Data { float data[]; };
+
+layout(push_constant) uniform PushConstants {
+    uint N;     // batch size
+    uint C;     // total channels
+    uint H;     // height
+    uint W;     // width
+    uint G;     // groups (32 for SD1.5)
+    float eps;  // epsilon (1e-5)
+    float gamma;
+    float beta;
+};
+
+shared float shmem[32]; // shared for reduction
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x; // group index within this workgroup's tile
+    uint n = gl_WorkGroupID.x;          // batch
+    uint g = gl_WorkGroupID.y;          // group index (0..G-1)
+
+    uint group_channels = C / G;
+    uint total_elements = group_channels * H * W;
+
+    // Compute mean
+    float sum = 0.0;
+    for (uint i = gid; i < total_elements; i += gl_WorkGroupSize.x) {
+        uint idx = n * C * H * W + g * group_channels * H * W + i;
+        sum += data[idx];
+    }
+    shmem[gid] = sum;
+    barrier();
+
+    // Parallel reduction (sum)
+    for (uint s = gl_WorkGroupSize.x / 2; s > 0; s >>= 1) {
+        if (gid < s) shmem[gid] += shmem[gid + s];
+        barrier();
+    }
+
+    float mean = shmem[0] / float(total_elements);
+    barrier();
+
+    // Compute variance
+    sum = 0.0;
+    for (uint i = gid; i < total_elements; i += gl_WorkGroupSize.x) {
+        uint idx = n * C * H * W + g * group_channels * H * W + i;
+        float diff = data[idx] - mean;
+        sum += diff * diff;
+    }
+    shmem[gid] = sum;
+    barrier();
+
+    for (uint s = gl_WorkGroupSize.x / 2; s > 0; s >>= 1) {
+        if (gid < s) shmem[gid] += shmem[gid + s];
+        barrier();
+    }
+
+    float var = shmem[0] / float(total_elements);
+    float inv_std = inversesqrt(var + eps);
+
+    // Normalize
+    for (uint i = gid; i < total_elements; i += gl_WorkGroupSize.x) {
+        uint idx = n * C * H * W + g * group_channels * H * W + i;
+        float normalized = (data[idx] - mean) * inv_std;
+        // Apply learned affine (gamma, beta per channel)
+        uint c = g * group_channels + (i / (H * W)) % group_channels;
+        // For now: simple normalize with gamma/beta
+        // Full: data[idx] = gamma_scale[c] * normalized + gamma_bias[c];
+        data[idx] = normalized * gamma + beta;
+    }
+}

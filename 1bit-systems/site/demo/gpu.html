@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>1bit.systems — GPU 1-Bit Models Demo</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:#0a0a0f;color:#e0e0e0;line-height:1.6}
+.wrap{max-width:900px;margin:0 auto;padding:40px 20px}
+h1{font-size:2rem;font-weight:800;color:#ff66cc;margin-bottom:8px}
+.back{color:#666;text-decoration:none;font-size:.85rem;display:inline-block;margin-bottom:20px}
+.back:hover{color:#ff66cc}
+.section{margin:30px 0}
+.section h2{font-size:1.3rem;color:#ccc;margin-bottom:12px;border-bottom:1px solid #1e1e2e;padding-bottom:8px}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th{text-align:left;padding:10px 12px;color:#888;border-bottom:1px solid #1e1e2e;font-weight:600}
+td{padding:10px 12px;border-bottom:1px solid #111;color:#ccc}
+tr:hover td{background:#0d0d1a}
+.num{font-family:'SF Mono',monospace;text-align:right}
+.green{color:#00ff88}
+.pink{color:#ff66cc}
+.blue{color:#4488ff}
+.warn{color:#ffaa44}
+.badge{display:inline-block;padding:2px 6px;border-radius:3px;font-size:.7rem;font-weight:600}
+.badge.vulkan{background:#330022;color:#ff66cc}
+.badge.rocm{background:#002244;color:#4488ff}
+.badge.zinc{background:#222200;color:#cccc44}
+.card{background:#13131f;border:1px solid #1e1e2e;border-radius:8px;padding:20px;margin:16px 0}
+.card h3{color:#ccc;margin-bottom:8px;font-size:1rem}
+.card p{color:#888;font-size:.85rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+<a href="index.html" class="back">← Back to Demos</a>
+<h1>NPU vs GPU</h1>
+<p style="color:#888;margin-bottom:8px">NPU v12: <strong style="color:#00ff88;font-size:1.5rem">69 tok/s</strong> @ ~15W (raw, tuned) · FLM 94 tok/s validated</p>
+<p style="color:#666;margin-bottom:30px">GPU 1-bit models for comparison · Radeon 8060S · Vulkan · ROCm · ZINC</p>
+
+<div class="section">
+  <h2>Benchmark Results</h2>
+  <table>
+    <tr><th>Model</th><th>Quant</th><th>BPW</th><th>Size</th><th>Engine</th><th style="text-align:right">Decode</th></tr>
+    <tr><td>Qwen2-0.5B</td><td>IQ1_S</td><td>1.06</td><td>296 MB</td><td><span class="badge vulkan">Vulkan</span></td><td class="num green">381 tok/s</td></tr>
+    <tr><td>Qwen3.5-0.8B</td><td>Q1_0</td><td>1.25</td><td>268 MB</td><td><span class="badge vulkan">Vulkan</span></td><td class="num green">312 tok/s</td></tr>
+    <tr><td>Hy-MT2-1.8B</td><td>STQ1_0</td><td>1.31</td><td>441 MB</td><td><span class="badge zinc">ZINC</span></td><td class="num blue">267 tok/s</td></tr>
+    <tr><td>gemma-2-2B</td><td>IQ1_S</td><td>1.06</td><td>788 MB</td><td><span class="badge vulkan">Vulkan</span></td><td class="num blue">158 tok/s</td></tr>
+    <tr><td>gemma3-4B</td><td>IQ1_S</td><td>1.06</td><td>1.05 GB</td><td><span class="badge vulkan">Vulkan</span></td><td class="num">122 tok/s</td></tr>
+    <tr><td>Bonsai-1.7B</td><td>TQ2</td><td>—</td><td>—</td><td><span class="badge rocm">ROCm</span></td><td class="num blue">113 tok/s</td></tr>
+    <tr><td>Qwen3.5-9B</td><td>Q1_0</td><td>1.25</td><td>1.82 GB</td><td><span class="badge vulkan">Vulkan</span></td><td class="num warn">70 tok/s</td></tr>
+    <tr><td>Nemo-8B</td><td>IQ1_S</td><td>1.06</td><td>1.97 GB</td><td><span class="badge vulkan">Vulkan</span></td><td class="num warn">79 tok/s</td></tr>
+  </table>
+</div>
+
+<div class="section">
+  <h2>NPU vs GPU Head-to-Head</h2>
+  <table>
+    <tr><th>Winner</th><th>Metric</th><th>NPU (15W)</th><th>GPU (45W)</th><th>Advantage</th></tr>
+    <tr><td class="pink">GPU</td><td>Raw speed</td><td>69 tok/s</td><td class="green">381 tok/s</td><td>5.5× faster</td></tr>
+    <tr><td class="green">NPU</td><td>Power</td><td class="green">15W</td><td>45W</td><td>3× less power</td></tr>
+    <tr><td class="pink">GPU</td><td>Best measured</td><td>94 tok/s (FLM) / 69 raw</td><td class="green" style="font-size:1.1rem"><strong>381 tok/s</strong></td><td><strong>GPU fastest measured</strong></td></tr>
+    <tr><td class="pink">GPU</td><td>Max model size</td><td>0.6B</td><td class="green">up to 9B</td><td>15× larger</td></tr>
+    <tr><td class="green">NPU</td><td>Binary size</td><td class="green">38 KB</td><td>~50 MB</td><td>1,300× smaller</td></tr>
+  </table>
+</div>
+
+<div class="section">
+  <h2>DSpark Speculative Decoding — experimental</h2>
+  <div class="card">
+    <h3>⚠️ DSpark: 572 tok/s was a projection — disproven on hardware</h3>
+    <p>The 5.90 tokens-per-verify figure was measured with DeepSpec on <strong>Qwen3-4B (CPU/GPU)</strong>, not the NPU. The "572 tok/s" number was a projection (base × 5.90×). Measured end-to-end on the real NPU (2026-07-07, Qwen3-0.6B INT8): <strong>0.1–0.2 tok/s at 0% draft acceptance</strong> — the draft, trained on HF hidden states, is rejected 100% of the time against the INT8 target. DSpark is a work in progress, not production.</p>
+    <div style="margin-top:12px;padding:12px;background:#33110022;border:1px solid #ff666644;border-radius:6px;text-align:center">
+      <span style="font-size:1.3rem;font-weight:800;color:#ff6666">DSpark 0.1–0.2 tok/s (measured, 0% accept)</span>
+      <span style="color:#666;margin:0 12px">vs</span>
+      <span style="font-size:1.3rem;font-weight:800;color:#00ff88">GPU 381 tok/s @ 45W (measured)</span>
+    </div>
+  </div>
+</div>
+
+<p style="color:#444;margin-top:30px;font-size:.8rem">
+Source: docs/wiki/performance.md (verified July 6, 2026)
+</p>
+</div>
+</body>
+</html>

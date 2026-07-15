@@ -1,0 +1,96 @@
+#version 460
+// Batched (token-major) fused RMS normalization x SiLU gating for SSM layers.
+// Mirrors src/shaders/ssm_gated_norm.comp but accepts the token index via
+// gl_WorkGroupID.y so all tokens for one layer-major SSM segment dispatch in a
+// single vkCmdDispatch instead of the previous per-token loop. Saves ~280
+// pushDescAndDispatch records per SSM layer-major segment in the Qwen3.6-27B
+// prefill path (context-medium prompt ~280 tokens, ~48 SSM segments).
+//
+// Each workgroup processes one head (head_v_dim elements, 2 per thread on
+// wave64; one full wave covers the 64 lanes). Grid:
+//   gl_WorkGroupID.x = head index   (0..dt_rank-1)
+//   gl_WorkGroupID.y = token index  (0..n_tok-1)
+//
+// Buffer layouts are token-major contiguous: delta_net_output / z_gate /
+// out_buf are [token][d_inner] float, norm_weight is either per-head
+// (d_inner floats) or shared (d_state floats) and does NOT stride by token.
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) readonly buffer DeltaNetOutput {
+    float delta_net_output[];
+};
+
+layout(set = 0, binding = 1) readonly buffer ZGate {
+    float z_gate[];
+};
+
+layout(set = 0, binding = 2) readonly buffer NormWeights {
+    float norm_weight[];
+};
+
+layout(set = 0, binding = 3) writeonly buffer Output {
+    float out_buf[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint d_inner;       // total elements per token (dt_rank * head_v_dim)
+    uint dt_rank;       // number of heads
+    uint head_v_dim;    // elements per head
+    uint d_state;       // shared norm stride
+    uint norm_per_head; // 1 = per-head (d_inner weights), 0 = shared (d_state)
+};
+
+shared float s_partial[64];
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint h = gl_WorkGroupID.x;            // head index
+    uint token = gl_WorkGroupID.y;        // token index
+    uint head_base = h * head_v_dim;      // per-head offset
+    uint data_base = token * d_inner + head_base; // per-token per-head data offset
+
+    // Pass 1: sum of squares for RMS over this head's slice of delta_net_output.
+    float sum_sq = 0.0;
+    for (uint i = tid; i < head_v_dim; i += 64) {
+        float val = delta_net_output[data_base + i];
+        sum_sq += val * val;
+    }
+
+    // Reduce within the subgroup (wave64 covers the full workgroup on RDNA4).
+    sum_sq = subgroupAdd(sum_sq);
+
+    // Fallback for architectures where subgroup size < workgroup size.
+    if (gl_SubgroupSize < 64) {
+        s_partial[tid] = sum_sq;
+        barrier();
+        if (tid == 0) {
+            float total = 0.0;
+            uint num_subgroups = (64 + gl_SubgroupSize - 1) / gl_SubgroupSize;
+            for (uint s = 0; s < num_subgroups; s++) {
+                total += s_partial[s * gl_SubgroupSize];
+            }
+            s_partial[0] = total;
+        }
+        barrier();
+        sum_sq = s_partial[0];
+    }
+
+    float rms_inv = inversesqrt(sum_sq / float(head_v_dim) + 1e-6);
+
+    // Pass 2: normalize, apply norm weight, and SiLU-gate against z.
+    for (uint i = tid; i < head_v_dim; i += 64) {
+        float nv = delta_net_output[data_base + i] * rms_inv;
+
+        // norm_weight is layer-scoped, NOT per token: per-head uses head_base + i,
+        // shared uses i % d_state.
+        uint norm_idx = (norm_per_head != 0) ? (head_base + i) : (i % d_state);
+        nv *= norm_weight[norm_idx];
+
+        float zv = z_gate[data_base + i];
+        float gate = zv / (1.0 + exp(-zv));
+
+        out_buf[data_base + i] = nv * gate;
+    }
+}

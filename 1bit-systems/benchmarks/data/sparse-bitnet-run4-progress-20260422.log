@@ -1,0 +1,28 @@
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Using optimized Triton mask_creator
+[cfg] layers=24 d_model=896 seq=2048 sparse=3:4 bitlinear=True
+[model] params=494.0M
+[mask] monitoring enabled
+[opt-step     50] loss=11.0786 lr=7.50e-05 tok/s=48838 tokens=52.4M
+[opt-step    100] loss=8.7121 lr=1.50e-04 tok/s=49076 tokens=104.9M
+[ckpt] saved at opt-step 100
+[opt-step    150] loss=7.2740 lr=2.25e-04 tok/s=49092 tokens=157.3M
+[opt-step    200] loss=6.7504 lr=3.00e-04 tok/s=49158 tokens=209.7M
+[ckpt] saved at opt-step 200
+[opt-step    250] loss=6.4723 lr=3.00e-04 tok/s=49153 tokens=262.1M
+[opt-step    300] loss=6.2786 lr=3.00e-04 tok/s=49183 tokens=314.6M
+[ckpt] saved at opt-step 300
+[opt-step    350] loss=6.1307 lr=3.00e-04 tok/s=49167 tokens=367.0M
+[opt-step    400] loss=6.0074 lr=3.00e-04 tok/s=49178 tokens=419.4M
+[ckpt] saved at opt-step 400
+Token indices sequence length is longer than the specified maximum sequence length for this model (149235 > 131072). Running this sequence through the model will result in indexing errors
+[opt-step    450] loss=5.8807 lr=2.99e-04 tok/s=49164 tokens=471.9M
+[opt-step    500] loss=5.7685 lr=2.99e-04 tok/s=49175 tokens=524.3M
+[mask-verify] opt-step 500: 96 tensors ok (3:4)
+[ckpt] saved at opt-step 500
+[opt-step    550] loss=5.6644 lr=2.99e-04 tok/s=49182 tokens=576.7M
+[opt-step    600] loss=5.5596 lr=2.99e-04 tok/s=49204 tokens=629.1M
+[ckpt] saved at opt-step 600
+[opt-step    650] loss=5.4712 lr=2.98e-04 tok/s=49208 tokens=681.6M
+[opt-step    700] loss=5.3968 lr=2.98e-04 tok/s=49212 tokens=734.0M
+[ckpt] saved at opt-step 700

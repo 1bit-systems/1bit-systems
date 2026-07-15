@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[project]
+name = "video-lora"
+version = "0.1.0"
+description = "Video generation with LoRA support — Wan2.2, LTX-Video, AnimateDiff, CogVideoX"
+requires-python = ">=3.11"
+dependencies = [
+    "torch>=2.3",
+    "diffusers>=0.32",
+    "transformers>=4.46",
+    "accelerate>=1.0",
+    "safetensors>=0.4",
+    "opencv-python>=4.9",
+    "pillow>=10.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+wan = [
+    # videox-fun from git (install manually)
+]
+vulkan = [
+    # zig build -p $PWD/install  (builds video-lora-vk binary)
+    # No Python deps — pure Zig + GLSL
+]
+ltx = [
+    "ltx-video>=0.9",
+]
+animate = [
+    "imageio[ffmpeg]>=2.34",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/video_lora"]

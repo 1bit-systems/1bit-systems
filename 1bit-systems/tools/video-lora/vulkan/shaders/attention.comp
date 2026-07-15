@@ -1,0 +1,49 @@
+#version 460
+// Scaled dot-product attention for SD1.5 UNet
+// Head dimension = 64 (C / num_heads)
+// One workgroup = one output position
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) readonly buffer Q { float q[]; };
+layout(set = 0, binding = 1) readonly buffer K { float k[]; };
+layout(set = 0, binding = 2) readonly buffer V { float v[]; };
+layout(set = 0, binding = 3) buffer O { float o[]; };
+
+layout(push_constant) uniform PushConstants {
+    uint N;         // sequence length (H*W for spatial, or frames for temporal)
+    uint dim;       // total channel dim (C)
+    uint num_heads;
+    uint head_dim;  // = dim / num_heads
+    float scale;    // 1/sqrt(head_dim)
+};
+
+shared float K_shared[64];   // K vector for one head (cached in shmem)
+shared float V_shared[64];   // V vector for one head
+shared float attn_scores[256]; // attention scores (max N=256 for 16x16 spatial)
+
+void main() {
+    uint hidx = gl_LocalInvocationID.x;  // index within head (0..head_dim-1)
+    uint h = gl_WorkGroupID.y;           // head index
+    uint pos = gl_WorkGroupID.x;         // query position (0..N-1)
+
+    if (h >= num_heads || pos >= N) return;
+
+    // Q vector for this position and head
+    float q_val = q[(pos * num_heads + h) * head_dim + hidx];
+
+    // Compute attention scores: Q · K^T for all positions
+    float score = 0.0;
+    for (uint t = 0; t < N; t++) {
+        // Load K[t, h] into shared — only one thread loads, then broadcast
+        if (hidx < head_dim) {
+            // Each thread already has part of K for the current t
+            // Full implementation uses shmem + reduction
+        }
+    }
+
+    // Simplified: single-head, single-position attention
+    // Full implementation does the full N×N attention matrix with softmax
+    // For now, output 0 for scaffolding
+    o[(pos * num_heads + h) * head_dim + hidx] = q_val * scale;
+}

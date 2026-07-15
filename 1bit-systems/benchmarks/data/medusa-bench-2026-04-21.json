@@ -1,0 +1,25 @@
+{
+  "date": "2026-04-21",
+  "bench": "medusa-sequential-verify",
+  "prompt": "The capital of France is",
+  "max_new_tokens": 64,
+  "without_medusa": {
+    "tokens_generated": 64,
+    "wall_seconds": 0.843727,
+    "tokens_per_second": 75.854
+  },
+  "with_medusa": {
+    "tokens_generated": 64,
+    "wall_seconds": 1.394599,
+    "tokens_per_second": 45.891,
+    "verify_steps": 31,
+    "mean_accepted_prefix_len": 0.0323,
+    "per_head_rate": [0.0323, 0.0000, 0.0000, 0.0000]
+  },
+  "derived": {
+    "tokens_per_cycle": 2.0323,
+    "backbone_calls_per_cycle": 2.0323,
+    "tokens_per_backbone_call": 1.0000
+  },
+  "notes": "sequential verify (no tree-attention) → tokens_per_backbone_call converges to 1.0; the 2.0+ target from the upstream Medusa README requires the batched tree-attention verify kernel which is not yet wired."
+}

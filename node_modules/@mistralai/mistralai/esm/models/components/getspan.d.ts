@@ -1,0 +1,81 @@
+import * as z from "zod/v4";
+import { OpenEnum } from "../../types/enums.js";
+import { Result as SafeParseResult } from "../../types/fp.js";
+import { SDKValidationError } from "../errors/sdkvalidationerror.js";
+export declare const GetSpanStatusCode: {
+    readonly Error: "Error";
+    readonly Ok: "Ok";
+    readonly Unset: "Unset";
+};
+export type GetSpanStatusCode = OpenEnum<typeof GetSpanStatusCode>;
+export type GetSpan = {
+    customerId: string;
+    organizationId: string;
+    workspaceId: string;
+    userId: string;
+    traceId: string;
+    spanId: string;
+    parentSpanId: string;
+    traceState: string;
+    startTime: Date;
+    endTime: Date;
+    durationNs: number;
+    spanName: string;
+    spanKind: string;
+    serviceName: string;
+    statusCode: GetSpanStatusCode;
+    statusMessage: string;
+    errorType: string;
+    operationName: string;
+    providerName: string;
+    requestModel: string;
+    responseModel: string;
+    responseId: string;
+    outputType: string;
+    conversationId: string;
+    dataSourceId: string;
+    agentId: string;
+    agentName: string;
+    agentVersion: string;
+    agentDescription: string;
+    workflowName: string;
+    promptName: string;
+    toolName: string;
+    toolType: string;
+    toolCallId: string;
+    inputMessages: string;
+    outputMessages: string;
+    systemInstructions: string;
+    toolDefinitions: string;
+    toolCallArguments: string;
+    toolCallResult: string;
+    requestChoiceCount: number;
+    requestMaxTokens: number;
+    requestTemperature: number | null;
+    requestTopP: number | null;
+    requestTopK: number | null;
+    requestPresencePenalty: number | null;
+    requestFrequencyPenalty: number | null;
+    requestSeed: number;
+    requestStopSequences: Array<string>;
+    requestEncodingFormats: Array<string>;
+    responseFinishReasons: Array<string>;
+    usageInputTokens: number;
+    usageOutputTokens: number;
+    usageCacheReadInputTokens: number;
+    usageCacheCreationInputTokens: number;
+    resourceAttributes: {
+        [k: string]: string;
+    };
+    spanAttributes: {
+        [k: string]: string;
+    };
+    scopeName: string;
+    scopeVersion: string;
+};
+/** @internal */
+export declare const GetSpanStatusCode$inboundSchema: z.ZodType<GetSpanStatusCode, unknown>;
+/** @internal */
+export declare const GetSpan$inboundSchema: z.ZodType<GetSpan, unknown>;
+export declare function getSpanFromJSON(jsonString: string): SafeParseResult<GetSpan, SDKValidationError>;
+//# sourceMappingURL=getspan.d.ts.map

@@ -46,7 +46,7 @@ __global__ void residual_scale_k(__half* out, const __half* res, const float* hs
 #define N_LAYERS 40
 #define VOCAB 262272
 #define N_EXP 16
-#define N_EXP_T 17
+#define N_EXP_T 2
 #define N_FF  2048
 #define RTR_H 256
 #endif

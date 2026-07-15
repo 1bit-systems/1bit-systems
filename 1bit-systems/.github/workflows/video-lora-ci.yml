@@ -1,0 +1,54 @@
+name: video-lora CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/video-lora/**'
+      - '.github/workflows/video-lora-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/video-lora/**'
+      - '.github/workflows/video-lora-ci.yml'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: tools/video-lora
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: ruff check src/
+
+  type:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: mypy src/
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: pytest -v

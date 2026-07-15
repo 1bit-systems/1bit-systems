@@ -1,0 +1,72 @@
+#version 460
+// ZINC — F32 DMMV with K-parallel reduction.
+// Each workgroup of 64 threads computes ONE output row cooperatively:
+// threads stripe across K columns, then reduce via subgroupAdd.
+// This gives M workgroups (one per row) instead of ceil(M/64),
+// dramatically improving GPU utilization for small M (e.g. MoE router
+// with M=256 gets 256 workgroups = 4 per CU on RDNA4's 64 CUs).
+//
+// Memory access is perfectly coalesced: adjacent threads read adjacent
+// weight elements within the same row.
+
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(local_size_x = 64) in;
+
+layout(constant_id = 1) const uint SPEC_K = 4096;
+
+layout(set = 0, binding = 0) readonly buffer Weight { float w[]; };
+layout(set = 0, binding = 1) readonly buffer Input  { float x[]; };
+layout(set = 0, binding = 2) buffer Output { float y[]; };
+
+layout(push_constant) uniform PC {
+    uint M;         // output rows
+    uint K;         // input columns
+    uint a_offset;  // byte offset into weight buffer
+    uint x_offset;  // byte offset into input buffer
+    uint y_offset;  // byte offset into output buffer
+    uint acc_mode;  // 0 = overwrite, 1 = accumulate
+};
+
+shared float s_x[SPEC_K];
+// For cross-subgroup reduction when gl_NumSubgroups > 1 (e.g. Intel Xe2 SIMD16).
+shared float s_sg_sums[4];
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint row = gl_WorkGroupID.x;
+    if (row >= M) return;
+
+    // Cooperatively load input vector into shared memory
+    uint x_base = x_offset / 4;
+    for (uint i = tid; i < K; i += 64u) {
+        s_x[i] = x[x_base + i];
+    }
+    barrier();
+
+    // K-parallel dot product: each thread handles K/64 strided elements
+    // Adjacent threads read adjacent memory addresses → perfect coalescing
+    uint w_base = a_offset / 4 + row * K;
+    float partial = 0.0;
+    for (uint j = tid; j < K; j += 64u) {
+        partial += w[w_base + j] * s_x[j];
+    }
+
+    float sum = subgroupAdd(partial);
+    if (gl_NumSubgroups > 1u) {
+        if (subgroupElect()) s_sg_sums[gl_SubgroupID] = sum;
+        barrier();
+        if (tid == 0u) {
+            for (uint sg = 1u; sg < gl_NumSubgroups; sg++) sum += s_sg_sums[sg];
+        }
+        barrier();
+    }
+
+    if (tid == 0u) {
+        if (acc_mode != 0u)
+            y[y_offset / 4 + row] += sum;
+        else
+            y[y_offset / 4 + row] = sum;
+    }
+}

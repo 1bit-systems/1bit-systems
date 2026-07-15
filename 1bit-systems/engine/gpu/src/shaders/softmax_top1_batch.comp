@@ -1,0 +1,85 @@
+#version 460
+// ZINC - batched top-1 MoE router fast path.
+//
+// For k=1, selected-only softmax normalization is exactly 1.0, so each
+// workgroup only finds one token's argmax expert and writes the compact
+// token-major router layout:
+//   output_data[out_base + 0] = expert_id
+//   output_data[out_base + 1] = floatBitsToUint(1.0)
+
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) readonly buffer Logits {
+    float logits[];
+};
+
+layout(set = 0, binding = 1) buffer RouterOutput {
+    uint output_data[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint n_experts;
+    uint k;
+    uint scale_bits;
+    uint token_base;
+    uint n_tokens;
+    uint logits_stride;
+    uint output_stride;
+};
+
+const uint MAX_PER_THREAD = 4u;
+
+shared uint s_subgroup_winner[4];
+shared uint s_global_winner;
+
+uint sortable(float f) {
+    uint ui = floatBitsToUint(f);
+    return (ui & 0x80000000u) != 0u ? ~ui : (ui ^ 0x80000000u);
+}
+
+void main() {
+    const uint local_tok = gl_WorkGroupID.x;
+    const uint tid = gl_LocalInvocationID.x;
+    if (local_tok >= n_tokens) return;
+
+    const uint tok = token_base + local_tok;
+    const uint logits_base = tok * logits_stride;
+    const uint out_base = tok * output_stride;
+
+    float best_val = -1.0 / 0.0;
+    uint best_idx = 0u;
+    for (uint i = 0u; i < MAX_PER_THREAD; i++) {
+        const uint idx = tid + i * 64u;
+        if (idx < n_experts) {
+            const float v = logits[logits_base + idx];
+            if (v > best_val) {
+                best_val = v;
+                best_idx = idx;
+            }
+        }
+    }
+
+    const uint packed = (sortable(best_val) & 0xFFFFFF00u) | (255u - (best_idx & 0xFFu));
+    const uint subgroup_winner = subgroupMax(packed);
+    if (subgroupElect()) {
+        s_subgroup_winner[gl_SubgroupID] = subgroup_winner;
+    }
+    barrier();
+
+    if (tid == 0u) {
+        uint winner = s_subgroup_winner[0];
+        for (uint sg = 1u; sg < gl_NumSubgroups; sg++) {
+            winner = max(winner, s_subgroup_winner[sg]);
+        }
+        s_global_winner = winner;
+    }
+    barrier();
+
+    if (tid == 0u) {
+        output_data[out_base] = 255u - (s_global_winner & 0xFFu);
+        output_data[out_base + 1u] = floatBitsToUint(1.0);
+    }
+}

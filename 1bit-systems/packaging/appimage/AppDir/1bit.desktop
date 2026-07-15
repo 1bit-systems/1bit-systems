@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=1bit Systems
+Comment=One binary to rule them all — 5 models, 28 tok/s NPU
+Exec=1bit-engine
+Icon=1bit
+Type=Application
+Categories=Development;

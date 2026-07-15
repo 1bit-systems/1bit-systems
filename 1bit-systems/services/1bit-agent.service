@@ -1,0 +1,15 @@
+[Unit]
+Description=1bit NPU-native coding agent
+Documentation=https://1bit.systems
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=__REPO_ROOT__/bin/1bit chat
+WorkingDirectory=__REPO_ROOT__
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=default.target

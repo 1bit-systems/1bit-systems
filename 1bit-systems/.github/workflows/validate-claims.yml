@@ -1,0 +1,241 @@
+name: Validate claims
+
+# Every published number is re-measured on real gfx1151 hardware every 24h.
+# If a claim drifts beyond tolerance, this fails and opens an issue.
+#
+# Requires a self-hosted runner with:
+#   - /dev/kfd        (ROCm GPU, gfx1151)
+#   - /dev/accel/*    (XDNA2 NPU, optional -- reported but not yet asserted)
+#   - zig             (to build the fused engine we publish the size of)
+
+on:
+  schedule:
+    - cron: "17 4 * * *"   # 04:17 UTC daily
+  workflow_dispatch:
+    inputs:
+      repeat:
+        description: "Runs per benchmark (median is used)"
+        default: "3"
+  pull_request:
+    paths:
+      - "benchmarks/latest.json"
+      - "site/numbers.json"
+      - "tools/gen_numbers.py"
+      - "tools/validate_claims.py"
+      - "engine/fusion/**"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: validate-claims
+  cancel-in-progress: false
+
+jobs:
+  # Runs anywhere: proves numbers.json is exactly what the generator produces
+  # and that no unvalidated key is published. No hardware required.
+  consistency:
+    name: numbers.json is generated, not hand-edited
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Every published claim has a validator
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          d = json.load(open("benchmarks/latest.json"))
+          published = set(d["benchmarks"])
+          validated = set(sum((c["keys"] for c in d["_verify"]["commands"].values()), []))
+          orphans = sorted(published - validated)
+          if orphans:
+              print("FAIL: published but never re-measured:", orphans)
+              sys.exit(1)
+          print(f"ok: all {len(published)} published claims have a validator")
+          PY
+
+      - name: README benchmark statuses match _unverified
+        run: |
+          # README.md must not stamp a tok/s figure as measured/validated/
+          # reported for an engine that benchmarks/latest.json has quarantined
+          # in _unverified. Hardware-free. (issues #185, #190)
+          python3 tools/validate_claims.py --check-readme
+
+      - name: Retired claims must not reappear on the site
+        run: |
+          set -e
+          # Numbers deliberately quarantined in benchmarks/latest.json _unverified.
+          # Match digits and unit even when separated by nested HTML tags, and
+          # scan the RENDERED text of index.html plus the JSON payloads the page
+          # fetches at runtime (numbers.json + all *-badge.json). The old check
+          # grepped raw index.html only, so `291<span>tok/s` slipped past it
+          # (issue #107). Patterns are matched against tag-stripped text.
+          banned='291 *tok/s|94 *tok/s|307 *tok/s|383 *tok/s|55\.7 *TFLOPS|437 *KB'
+          fail=0
+          # (1) Present-as-current-fact surfaces: index.html rendered text +
+          #     the JSON payloads the page fetches. These must be CLEAN.
+          {
+            sed 's/<[^>]*>//g' site/index.html
+            cat site/numbers.json site/*-badge.json 2>/dev/null
+          } > /tmp/site_fact.txt
+          if grep -nEo "$banned" /tmp/site_fact.txt; then
+            echo "FAIL: a quarantined claim reappeared on index.html / numbers.json / a badge (benchmarks/latest.json _unverified)"
+            fail=1
+          fi
+          # (2) Dated blog posts may reference a historical number, but only if
+          #     they carry a correction banner (the pattern the DSpark post
+          #     uses). Any post that cites a quarantined number without the
+          #     word "Correction" fails.
+          for f in site/blog/*.html; do
+            [ -f "$f" ] || continue
+            if sed 's/<[^>]*>//g' "$f" | grep -qEo "$banned"; then
+              if ! grep -qi 'Correction' "$f"; then
+                echo "FAIL: $f cites a quarantined number but has no correction banner (issue #107)"
+                fail=1
+              fi
+            fi
+          done
+          # (3) Blog SEO/social meta tags (content="...") are what crawlers and
+          #     link-previews render. A human-facing "Correction" banner does
+          #     NOT clean these, so a quarantined number in a meta tag fails
+          #     regardless of any banner. (issue #190)
+          for f in site/blog/*.html; do
+            [ -f "$f" ] || continue
+            meta_hits=$(grep -oE 'content="[^"]*"' "$f" | grep -Eo "$banned" | sort -u)
+            if [ -n "$meta_hits" ]; then
+              echo "FAIL: $f meta/og/twitter tags cite a quarantined number to crawlers (a Correction banner does not cover meta tags): $meta_hits"
+              fail=1
+            fi
+          done
+          [ "$fail" -eq 0 ] && echo "ok: index/JSON clean; every blog post citing a historical number carries a correction banner"
+          exit $fail
+
+      - name: site/numbers.json matches the generator
+        run: |
+          # decode/tui are absent on this runner, so they must be null either way.
+          python3 tools/gen_numbers.py --check || {
+            echo "::error::site/numbers.json is stale. Run: python3 tools/gen_numbers.py"
+            exit 1
+          }
+
+  # Requires the Strix Halo box.
+  measure:
+    name: Re-measure on gfx1151
+    runs-on: [self-hosted, linux, x64]
+    # SECURITY: self-hosted runner — only run for same-repo PRs, not external forks.
+    # External contributors must submit benchmark changes for manual re-measurement.
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clean stale CMake build artifacts (prevents git submodule confusion)
+        run: |
+          rm -rf 1bit/build
+
+      - name: Hardware present
+        run: |
+          test -e /dev/kfd || { echo "::error::no /dev/kfd -- GPU missing"; exit 1; }
+          ls /dev/accel/accel* >/dev/null 2>&1 && echo "NPU present" || echo "::warning::no NPU"
+          command -v zig >/dev/null || { echo "::error::zig not on PATH"; exit 1; }
+
+      - name: Build fused engine (its size is a published claim)
+        working-directory: engine/fusion
+        run: zig build -Drelease
+
+      - name: Regenerate numbers.json from real artifacts
+        run: python3 tools/gen_numbers.py
+
+      - name: Build benchmark tools (for re-measurement)
+        run: |
+          if [ -d 1bit/build ]; then
+            echo "build dir exists, skipping configure"
+          elif command -v cmake >/dev/null; then
+            mkdir -p 1bit/build
+            cmake -B 1bit/build -S . 2>&1 | tail -5
+            cmake --build 1bit/build --target bench_prefill_variants bench_sherry -j"$(nproc)" 2>&1 | tail -5
+          fi
+          # If build fails, validate_claims exits 2 (soft skip) -- handled below
+
+      - name: Published binary sizes match the real build
+        run: |
+          # gen_numbers.py --check fails when a tracked artifact that IS present
+          # (built) has a size disagreeing with site/numbers.json. Catches the
+          # class of bug where a binary silently drifts -- e.g. the stale
+          # 25 MB fused-engine that was committed while a clean release build
+          # is 622 KB. The fused engine is always built above; the cmake-built
+          # zaya/decode/tui binaries are checked too when present in build/.
+          # (issue #186)
+          python3 tools/gen_numbers.py --check
+
+      - name: Re-measure every published benchmark
+        id: measure
+        # continue-on-error was removed in #75 — it masked real drift by making
+        # every step conclusion 'success' even when validate_claims.py returned
+        # exit code 1 (real drift). The downstream steps check outcome instead.
+        run: |
+          python3 tools/validate_claims.py \
+            --build-dir "${BUILD_DIR:-1bit/build}" \
+            --repeat "${{ github.event.inputs.repeat || 3 }}" \
+            --warmup 1 \
+            --json claims-report.json
+
+      - name: Upload claims report
+        if: always() && hashFiles('claims-report.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: claims-report
+          path: claims-report.json
+
+      - name: Mark job failed on real claim drift (not infrastructure)
+        # `continue-on-error: true` on the measure step makes its *conclusion*
+        # always "success" (so plain `failure()` here would never fire, no
+        # matter what validate_claims.py found -- see issue #75). `outcome`
+        # reflects what actually happened before continue-on-error masked it.
+        if: steps.measure.outcome == 'failure'
+        run: |
+          # Read claims report to distinguish drift (exit 1) from infra (exit 2)
+          set +e
+          EXIT_CODE=$(python3 -c "import json; r=json.load(open('claims-report.json')); print(r.get('exit_code',1))" 2>/dev/null || echo 1)
+          set -e
+          if [ "$EXIT_CODE" = 2 ]; then
+            echo "Exit code 2 = infrastructure issue (hw/missing build). Treating as soft skip, not drift."
+          else
+            echo "Exit code $EXIT_CODE = real claim drift. Failing."
+            exit 1
+          fi
+
+      - name: Open an issue if a claim drifted
+        if: steps.measure.outcome == 'failure' && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const r = JSON.parse(fs.readFileSync('claims-report.json', 'utf8'));
+            // Do not open an issue for infrastructure problems (exit code 2)
+            if (r.exit_code === 2) {
+              console.log('Exit code 2 = infrastructure, skipping issue');
+              return;
+            }
+            let body = [
+              '## Claim validation failed',
+              '',
+              '**Drifted:**', ...(r.drifted.length ? r.drifted.map(x => '- ' + x) : ['- none']),
+              '',
+              '**Failures:**', ...(r.failures.length ? r.failures.map(x => '- ' + x) : ['- none']),
+              '',
+              '**Intermittent crashes:**', ...(r.crashes.length ? r.crashes.map(x => '- ' + x) : ['- none']),
+              '',
+              '```json', JSON.stringify(r.measured, null, 2), '```',
+            ].join('\n');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Claim validation failed on ' + new Date().toISOString().slice(0, 10),
+              body,
+              labels: ['claims', 'automated'],
+            });

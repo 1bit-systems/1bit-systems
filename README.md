@@ -4,7 +4,7 @@
 
 # 1bit.systems
 
-### 282 KB single binary · NPU + GPU + CPU · Zero Python
+### 398 KB single binary · NPU + GPU + CPU · Zero Python
 
 [![CI](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml/badge.svg)](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
@@ -79,7 +79,7 @@ print(client.chat.completions.create(model="zaya", messages=[{"role":"user","con
 
 ```
 1bit/
-  tests/zaya_server.cpp    282 KB binary
+  tests/zaya_server.cpp    398 KB binary (stripped)
   src/                     HIP/C++ kernels (GEMV, prefill, attention)
   include/                 C API headers
   kernels/                 GPU kernels: bonsai, sherry, MoE

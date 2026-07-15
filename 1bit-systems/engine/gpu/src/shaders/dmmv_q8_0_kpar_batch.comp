@@ -1,0 +1,147 @@
+#version 460
+// ZINC - Q8_0 K-parallel batch DMMV for multi-column prefill.
+//
+// One workgroup (64 threads) processes ONE output row. When acc_mode > 1,
+// the shader computes dot products for min(acc_mode, MAX_BATCH_COLS) input
+// columns (tokens) in a single pass, reusing the weight data across all
+// columns. This replaces O(n_tokens) per-token dispatches with a single
+// dispatch of M workgroups.
+//
+// Layout: X[K, num_cols] column-major, Y[M, num_cols] column-major.
+//   X[col][k] = x_data[x_offset/4 + col*K + k]
+//   Y[col][row] = y_data[y_offset/4 + col*M + row]
+//
+// acc_mode = 0: single-column overwrite (y[row] = dot)
+// acc_mode = 1: single-column accumulate (y[row] += dot)
+// acc_mode > 1: batch mode, num_cols = min(acc_mode, MAX_BATCH_COLS)
+
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_control_flow_attributes : require
+
+layout(local_size_x = 64) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+    uint a_offset;
+    uint x_offset;
+    uint y_offset;
+    uint acc_mode;
+};
+
+layout(set = 0, binding = 0) readonly buffer MatrixA { uint8_t a_data[]; };
+layout(set = 0, binding = 1) readonly buffer VectorX { vec4 x_v4[]; };
+layout(set = 0, binding = 2) writeonly buffer VectorY { float y_data[]; };
+
+const uint Q8_0_BLOCK_SIZE = 32u;
+const uint Q8_0_BYTES = 34u;
+const uint MAX_BATCH_COLS = 40u;
+
+shared float s_reduce[64];
+
+void main() {
+    uint row = gl_WorkGroupID.x;
+    if (row >= M) return;
+    uint tid = gl_LocalInvocationID.x;
+
+    uint blocks_per_row = K / Q8_0_BLOCK_SIZE;
+    uint row_base = a_offset + row * blocks_per_row * Q8_0_BYTES;
+    uint x_base = x_offset / 16u;
+    uint y_base = y_offset / 4u;
+    uint K_v4 = K / 4u;
+
+    if (acc_mode <= 1u) {
+        float sum = 0.0;
+        for (uint blk = tid; blk < blocks_per_row; blk += 64u) {
+            uint byte_off = row_base + blk * Q8_0_BYTES;
+            float d = unpackHalf2x16(
+                uint(a_data[byte_off]) | (uint(a_data[byte_off + 1u]) << 8)
+            ).x;
+            uint qs = byte_off + 2u;
+            uint x_blk = x_base + blk * 8u;
+            for (uint i = 0u; i < 8u; i++) {
+                ivec4 qv = ivec4(
+                    int(int8_t(a_data[qs + i * 4u + 0u])),
+                    int(int8_t(a_data[qs + i * 4u + 1u])),
+                    int(int8_t(a_data[qs + i * 4u + 2u])),
+                    int(int8_t(a_data[qs + i * 4u + 3u]))
+                );
+                sum += d * dot(vec4(qv), x_v4[x_blk + i]);
+            }
+        }
+
+        sum = subgroupAdd(sum);
+        if (gl_NumSubgroups > 1u) {
+            if (gl_SubgroupInvocationID == 0u)
+                s_reduce[gl_SubgroupID] = sum;
+            barrier();
+            if (tid == 0u) {
+                float total = 0.0;
+                for (uint s = 0u; s < gl_NumSubgroups; s++)
+                    total += s_reduce[s];
+                s_reduce[0] = total;
+            }
+            barrier();
+            sum = s_reduce[0];
+        }
+
+        if (tid == 0u) {
+            if (acc_mode != 0u)
+                y_data[y_base + row] += sum;
+            else
+                y_data[y_base + row] = sum;
+        }
+        return;
+    }
+
+    uint num_cols = min(acc_mode, MAX_BATCH_COLS);
+    float sums[MAX_BATCH_COLS];
+    [[unroll]] for (uint c = 0u; c < MAX_BATCH_COLS; c++) {
+        if (c < num_cols) sums[c] = 0.0;
+    }
+
+    for (uint blk = tid; blk < blocks_per_row; blk += 64u) {
+        uint byte_off = row_base + blk * Q8_0_BYTES;
+        float d = unpackHalf2x16(
+            uint(a_data[byte_off]) | (uint(a_data[byte_off + 1u]) << 8)
+        ).x;
+        uint qs = byte_off + 2u;
+
+        for (uint c = 0u; c < num_cols; c++) {
+            uint x_blk = x_base + c * K_v4 + blk * 8u;
+            float col_sum = 0.0;
+            [[unroll]] for (uint i = 0u; i < 8u; i++) {
+                ivec4 qv = ivec4(
+                    int(int8_t(a_data[qs + i * 4u + 0u])),
+                    int(int8_t(a_data[qs + i * 4u + 1u])),
+                    int(int8_t(a_data[qs + i * 4u + 2u])),
+                    int(int8_t(a_data[qs + i * 4u + 3u]))
+                );
+                col_sum += dot(vec4(qv), x_v4[x_blk + i]);
+            }
+            sums[c] += d * col_sum;
+        }
+    }
+
+    for (uint c = 0u; c < num_cols; c++) {
+        float reduced = subgroupAdd(sums[c]);
+        if (gl_NumSubgroups > 1u) {
+            if (gl_SubgroupInvocationID == 0u)
+                s_reduce[gl_SubgroupID] = reduced;
+            barrier();
+            if (tid == 0u) {
+                float total = 0.0;
+                for (uint s = 0u; s < gl_NumSubgroups; s++)
+                    total += s_reduce[s];
+                s_reduce[0] = total;
+            }
+            barrier();
+            reduced = s_reduce[0];
+        }
+        if (tid == 0u)
+            y_data[y_base + c * M + row] = reduced;
+    }
+}

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>1bit.systems — Interactive Demo</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:#0a0a0f;color:#e0e0e0;line-height:1.6}
+.wrap{max-width:900px;margin:0 auto;padding:40px 20px}
+h1{font-size:2.5rem;font-weight:800;background:linear-gradient(135deg,#00ff88,#00ccff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px}
+.sub{color:#888;font-size:1.1rem;margin-bottom:40px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;margin-top:30px}
+.card{background:#13131f;border:1px solid #1e1e2e;border-radius:12px;padding:24px;transition:transform .2s,border-color .2s}
+.card:hover{transform:translateY(-2px);border-color:#00ff8844}
+.card h3{font-size:1.2rem;margin-bottom:8px}
+.card p{color:#888;font-size:.9rem;margin-bottom:16px}
+.badge{display:inline-block;padding:3px 8px;border-radius:4px;font-size:.75rem;font-weight:600}
+.badge.npu{background:#003322;color:#00ff88}
+.badge.gpu{background:#330022;color:#ff66cc}
+.badge.multi{background:#002233;color:#00ccff}
+.badge.audio{background:#220033;color:#cc66ff}
+.btn{display:inline-block;padding:8px 16px;border-radius:6px;text-decoration:none;font-size:.85rem;font-weight:600}
+.btn.green{background:#00ff8822;color:#00ff88;border:1px solid #00ff8844}
+.btn.green:hover{background:#00ff8833}
+.hero{text-align:center;padding:60px 0 20px}
+.pills{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:16px 0}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:30px 0}
+.stat{background:#13131f;border:1px solid #1e1e2e;border-radius:8px;padding:16px;text-align:center}
+.stat .val{font-size:1.8rem;font-weight:800;color:#00ff88}
+.stat .lbl{font-size:.75rem;color:#666;margin-top:4px}
+footer{text-align:center;padding:40px 0;color:#444;font-size:.8rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="hero">
+  <h1>1bit.systems</h1>
+  <div style="display:inline-block;background:#003322;border:1px solid #00ff88;border-radius:8px;padding:4px 14px;margin-bottom:12px"><span style="color:#00ff88;font-weight:700;font-size:.85rem">✦ NPU v12 — 69 tok/s @ ~15W ✦</span></div>
+  <p class="sub">NPU · GPU · CPU · 69 tok/s NPU v12 · 94 tok/s validated · 401 KB</p>
+  <div class="pills">
+    <span class="badge npu">NPU XDNA2</span>
+    <span class="badge" style="background:#003322;color:#00ff88;border:1px solid #00ff8844">NPU v12 69</span>
+    <span class="badge" style="background:#003322;color:#00ff88;border:1px solid #00ff8844">FLM 94 validated</span>
+    <span class="badge gpu">GPU Radeon 8060S</span>
+    <span class="badge multi">Multi-Modal</span>
+    <span class="badge audio" style="background:#220033;color:#cc66ff">Audio</span>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="val">69</div><div class="lbl">NPU v12 tok/s (raw)</div></div>
+  <div class="stat"><div class="val">381</div><div class="lbl">GPU tok/s</div></div>
+  <div class="stat"><div class="val">94</div><div class="lbl">NPU validated (FLM)</div></div>
+  <div class="stat"><div class="val">38 KB</div><div class="lbl">Binary size</div></div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <span class="badge npu">NPU</span>
+    <h3>Text Generation</h3>
+    <p>Qwen3-0.6B NPU v12: <strong>69 tok/s</strong> (raw, tuned) · 94 tok/s validated (FLM). Zero Python.</p>
+    <a href="text.html" class="btn green">Run Demo →</a>
+  </div>
+
+  <div class="card">
+    <span class="badge multi">Vision</span>
+    <h3>Image & Video</h3>
+    <p>Qwen3-VL-4B. Whisper STT. Multi-modal on NPU.</p>
+    <a href="vision.html" class="btn green">View Demo →</a>
+  </div>
+
+  <div class="card">
+    <span class="badge gpu">GPU</span>
+    <h3>1-Bit GPU Models</h3>
+    <p>IQ1_S, Q1_0 quantized models. 0.5B to 9B. Vulkan/ROCm.</p>
+    <a href="gpu.html" class="btn green">View Benchmarks →</a>
+  </div>
+</div>
+
+<footer>
+MIT License · <a href="https://github.com/bong-water-water-bong/1bit-systems" style="color:#555">GitHub</a> · Built on AMD Strix Halo
+</footer>
+</div>
+</body>
+</html>

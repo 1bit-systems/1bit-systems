@@ -1,0 +1,19 @@
+[Unit]
+Description=1bit-systems NPU Companion — Speculative Decoding Draft Model
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/1bit-systems/integrations/vllm-toolbox/npu-companion.py
+Restart=always
+RestartSec=5
+Environment=OMP_NUM_THREADS=16
+Environment=OMP_WAIT_POLICY=active
+Environment=OMP_PROC_BIND=close
+Environment=OMP_PLACES=cores
+DeviceAllow=/dev/accel/accel0 rw
+DeviceAllow=/dev/dri/renderD128 rw
+SupplementaryGroups=render
+
+[Install]
+WantedBy=multi-user.target

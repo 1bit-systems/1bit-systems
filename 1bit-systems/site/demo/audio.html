@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>1bit.systems — Audio Demo</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:#0a0a0f;color:#e0e0e0;line-height:1.6}
+.wrap{max-width:900px;margin:0 auto;padding:40px 20px}
+h1{font-size:2rem;font-weight:800;color:#cc66ff;margin-bottom:8px}
+.back{color:#666;text-decoration:none;font-size:.85rem;display:inline-block;margin-bottom:20px}
+.back:hover{color:#cc66ff}
+.section{margin:30px 0}
+.section h2{font-size:1.3rem;color:#ccc;margin-bottom:12px;border-bottom:1px solid #1e1e2e;padding-bottom:8px}
+.code{background:#0d0d1a;border:1px solid #1e1e2e;border-radius:8px;padding:16px;font-family:'SF Mono','Cascadia Code',monospace;font-size:.82rem;overflow-x:auto;white-space:pre-wrap;line-height:1.5}
+.tag{display:inline-block;padding:2px 6px;border-radius:3px;font-size:.7rem;font-weight:600}
+.tag.stt{background:#220033;color:#cc66ff}
+.tag.tts{background:#003322;color:#00ff88}
+.tag.npu{background:#002233;color:#00ccff}
+.tag.pipe{background:#332200;color:#ffcc44}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0}
+.card{background:#13131f;border:1px solid #1e1e2e;border-radius:8px;padding:20px}
+.card h3{color:#ccc;margin-bottom:8px;font-size:1rem}
+.card p{color:#888;font-size:.85rem;line-height:1.5}
+.card .stat{font-size:1.5rem;font-weight:800;color:#cc66ff;margin:8px 0}
+.card .stat.green{color:#00ff88}
+.card .stat.blue{color:#4488ff}
+.flow{display:flex;align-items:center;justify-content:center;gap:12px;margin:24px 0;flex-wrap:wrap}
+.flow .step{background:#13131f;border:1px solid #1e1e2e;border-radius:8px;padding:12px 16px;text-align:center;font-size:.8rem;min-width:100px}
+.flow .step .icon{font-size:1.5rem;margin-bottom:4px}
+.flow .step .lbl{color:#888}
+.flow .arrow{color:#444;font-size:1.2rem}
+.pipeline{background:#0d0d1a;border:1px solid #1e1e2e;border-radius:8px;padding:20px;margin:16px 0}
+.pipeline .row{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:.85rem}
+.pipeline .row .idx{color:#444;min-width:24px}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th{text-align:left;padding:10px 12px;color:#888;border-bottom:1px solid #1e1e2e;font-weight:600}
+td{padding:10px 12px;border-bottom:1px solid #111;color:#ccc}
+tr:hover td{background:#0d0d1a}
+.num{font-family:'SF Mono',monospace;text-align:right}
+.green{color:#00ff88}
+</style>
+</head>
+<body>
+<div class="wrap">
+<a href="index.html" class="back">← Back to Demos</a>
+<h1>Audio Pipeline</h1>
+<p style="color:#888;margin-bottom:30px">Speech-to-Text · Text-to-Speech · Full voice pipeline on NPU</p>
+
+<div class="section">
+  <h2>End-to-End Voice Pipeline</h2>
+  <div class="flow">
+    <div class="step"><div class="icon">🎤</div><div class="lbl">Microphone</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="icon">📝</div><div class="lbl">Whisper STT</div><div class="stat" style="font-size:.9rem">NPU</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="icon">🧠</div><div class="lbl">Qwen3 LLM</div><div class="stat green" style="font-size:.9rem">69 tok/s</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="icon">🔊</div><div class="lbl">Piper TTS</div><div class="stat blue" style="font-size:.9rem">50ms</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="icon">🎧</div><div class="lbl">Speaker</div></div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Speech-to-Text — Whisper-V3-Turbo</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3><span class="tag stt">STT</span> Whisper-V3-Turbo</h3>
+      <div class="stat">1.5s</div>
+      <p>Latency to first word. Real-time transcription on NPU. Handles multiple languages, noisy environments, and technical vocabulary.</p>
+    </div>
+    <div class="card">
+      <h3><span class="tag stt">STT</span> Model Details</h3>
+      <div class="stat" style="font-size:1rem">NPU · ~15W</div>
+      <p>Runs entirely on the XDNA2 NPU. No cloud dependency. No data leaves the device. ~1.5s for first word, then streams continuously.</p>
+    </div>
+  </div>
+  <div class="code">
+<span class="meta"># Whisper STT on NPU — real-time transcription</span>
+
+<span class="tag stt">STT</span> <strong>Input:</strong>  [ 16kHz PCM audio stream ]
+<span class="tag stt">STT</span> <strong>Model:</strong> Whisper-V3-Turbo (NPU)
+<span class="tag stt">STT</span> <strong>Latency:</strong> ~1.5s first word
+<span class="tag stt">STT</span> <strong>Output:</strong> "Hello, how can I help you today?"
+  </div>
+</div>
+
+<div class="section">
+  <h2>Text-to-Speech — Piper TTS</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3><span class="tag tts">TTS</span> Piper TTS</h3>
+      <div class="stat green">50ms</div>
+      <p>Latency to first audio sample. Edge TTS engine running locally. Multiple voices available. No cloud API calls.</p>
+    </div>
+    <div class="card">
+      <h3><span class="tag tts">TTS</span> Voice Models</h3>
+      <div class="stat" style="font-size:1rem">~50ms · CPU</div>
+      <p>Piper runs on CPU (not NPU). ~50ms latency means the voice starts speaking almost instantly after the LLM generates the first token.</p>
+    </div>
+  </div>
+  <div class="code">
+<span class="meta"># Piper TTS on CPU — instant voice synthesis</span>
+
+<span class="tag tts">TTS</span> <strong>Input:</strong>  "The capital of France is Paris."
+<span class="tag tts">TTS</span> <strong>Model:</strong> Piper (CPU, ~50ms latency)
+<span class="tag tts">TTS</span> <strong>Voice:</strong> en_US-lessac-medium (default)
+<span class="tag tts">TTS</span> <strong>Output:</strong> [ 22kHz PCM audio stream → speaker ]
+  </div>
+</div>
+
+<div class="section">
+  <h2>Full Pipeline Benchmarks</h2>
+  <table>
+    <tr><th>Stage</th><th>Model</th><th>Hardware</th><th>Latency</th><th style="text-align:right">Throughput</th></tr>
+    <tr><td>Speech-to-Text</td><td>Whisper-V3-Turbo</td><td><span class="tag stt">NPU</span></td><td>~1.5s first word</td><td class="num" style="color:#cc66ff">Real-time</td></tr>
+    <tr><td>LLM Inference</td><td>Qwen3-0.6B</td><td><span class="tag npu">NPU</span></td><td>~9 ms/tok</td><td class="num green">69 tok/s</td></tr>
+    <tr><td>Text-to-Speech</td><td>Piper</td><td><span class="tag pipe">CPU</span></td><td>~50ms</td><td class="num green">Real-time</td></tr>
+    <tr><td><strong>End-to-End</strong></td><td>STT → LLM → TTS</td><td>NPU+CPU</td><td>~2s total</td><td class="num green">Streaming</td></tr>
+  </table>
+</div>
+
+<div class="section">
+  <h2>Example: Voice Query "What is the capital of France?"</h2>
+  <div class="pipeline">
+    <div class="row"><span class="idx">🎤</span> <strong>Mic input:</strong> "What is the capital of France?" (spoken, 1.2s audio)</div>
+    <div class="row"><span class="idx">📝</span> <span class="tag stt">STT</span> Whisper transcribes → "What is the capital of France?"</div>
+    <div class="row"><span class="idx">🧠</span> <span class="tag npu">NPU</span> Qwen3 infers → "The capital of France is Paris." (6 tokens, 62ms)</div>
+    <div class="row"><span class="idx">🔊</span> <span class="tag tts">TTS</span> Piper speaks → "The capital of France is Paris." (~0.5s audio)</div>
+    <div class="row"><span class="idx">✅</span> <strong>Total:</strong> ~2s from spoken question to spoken answer. Fully local. No cloud.</div>
+  </div>
+</div>
+
+<p style="color:#444;margin-top:30px;font-size:.8rem">
+Powered by 1bit.systems · AMD Strix Halo · NPU + CPU · Whisper + Piper + Qwen3
+</p>
+</div>
+</body>
+</html>

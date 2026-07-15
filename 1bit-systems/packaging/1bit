@@ -1,0 +1,294 @@
+#!/usr/bin/env bash
+# 1bit.systems — Unified Launcher
+# Auto-detects available hardware and runs the fastest engine.
+#
+# Usage:
+#   1bit [command] [options]
+#
+# Commands:
+#   chat      Interactive chat session
+#   serve     Start HTTP API server
+#   pull      Download a model
+#   list      List installed models
+#   status    Show hardware detection and engine status
+#   help      Show this help
+#
+# Examples:
+#   1bit chat                    # auto-detect, pick best engine
+#   1bit serve --port 8081       # HTTP server on port 8081
+#   1bit pull qwen3-0.6b         # download model
+#   1bit status                  # check hardware
+#
+# Hardware detection order:
+#   1. NPU (XDNA 2) — fastest, INT8, 28-97 tok/s
+#   2. GPU (Vulkan) — Zinc engine, 22 tok/s on Radeon 8060S
+#   3. CPU (OpenMP) — fallback, ~4 tok/s
+
+set -euo pipefail
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; YELLOW='\033[1;33m'; NC='\033[0m'
+say()  { printf "${GREEN}✓${NC} %s\n" "$*"; }
+warn() { printf "${YELLOW}!${NC} %s\n" "$*"; }
+die()  { printf "${RED}✗${NC} %s\n" "$*"; exit 1; }
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BIN_DIR="${HOME}/.local/bin"
+MODEL_DIR="${HOME}/.local/share/1bit/models"
+CONFIG_DIR="${HOME}/.config/1bit"
+VERBOSE=false
+
+# ── Parse global options ──
+for arg in "$@"; do
+  [ "$arg" = "--verbose" ] || [ "$arg" = "-v" ] && VERBOSE=true
+done
+
+# ── Detect hardware ──
+detect_hardware() {
+  local HAS_NPU=false HAS_GPU=false HAS_XRT=false
+
+  # NPU check
+  if lspci 2>/dev/null | grep -qi "XDNA\|NPU\|AIE\|ACCEL"; then
+    HAS_NPU=true
+  fi
+
+  # XRT check (needed for NPU)
+  if ldconfig -p 2>/dev/null | grep -q libxrt_coreutil; then
+    HAS_XRT=true
+  fi
+
+  # GPU (Vulkan) check
+  if command -v vulkaninfo &>/dev/null; then
+    HAS_GPU=true
+  elif command -v glxinfo &>/dev/null && glxinfo -B 2>/dev/null | grep -qi "vulkan"; then
+    HAS_GPU=true
+  fi
+
+  # Zinc engine check
+  local ZINC_BIN=""
+  if [ -f "${BIN_DIR}/zinc" ]; then
+    ZINC_BIN="${BIN_DIR}/zinc"
+  elif [ -f "${SCRIPT_DIR}/../engine/gpu/zinc" ]; then
+    ZINC_BIN="${SCRIPT_DIR}/../engine/gpu/zinc"
+  fi
+
+  # NPU engine check
+  local NPU_BIN=""
+  if [ -f "${BIN_DIR}/1bit-npu" ]; then
+    NPU_BIN="${BIN_DIR}/1bit-npu"
+  elif [ -f "${SCRIPT_DIR}/../bin/1bit-npu" ]; then
+    NPU_BIN="${SCRIPT_DIR}/../bin/1bit-npu"
+  fi
+
+  # Determine best engine
+  if $HAS_NPU && $HAS_XRT && [ -n "$NPU_BIN" ]; then
+    echo "npu"
+  elif $HAS_GPU && [ -n "$ZINC_BIN" ]; then
+    echo "gpu"
+  else
+    echo "cpu"
+  fi
+}
+
+# ── Status ──
+cmd_status() {
+  echo ""
+  printf "${CYAN}╔══════════════════════════════════════════╗${NC}\n"
+  printf "${CYAN}║  1bit.systems — System Status           ║${NC}\n"
+  printf "${CYAN}╚══════════════════════════════════════════╝${NC}\n"
+  echo ""
+
+  # NPU
+  if lspci 2>/dev/null | grep -qi "XDNA\|NPU\|AIE\|ACCEL"; then
+    NPU_DEV=$(lspci 2>/dev/null | grep -i "XDNA\|NPU\|AIE\|ACCEL" | head -1)
+    say "NPU:    ${NPU_DEV}"
+  else
+    warn "NPU:    Not detected"
+  fi
+
+  # XRT
+  if ldconfig -p 2>/dev/null | grep -q libxrt_coreutil; then
+    say "XRT:    Found"
+  else
+    warn "XRT:    Not found (install libxrt2 libxrt-npu2)"
+  fi
+
+  # GPU
+  if command -v vulkaninfo &>/dev/null; then
+    say "GPU:    Vulkan available"
+  else
+    warn "GPU:    Vulkan not detected"
+  fi
+
+  # Engines
+  [ -f "${BIN_DIR}/1bit-npu" ] && say "NPU engine:  ${BIN_DIR}/1bit-npu ($(stat -c%s "${BIN_DIR}/1bit-npu" 2>/dev/null || echo "?") bytes)"
+  [ -f "${BIN_DIR}/zinc" ] && say "GPU engine:  ${BIN_DIR}/zinc"
+
+  # Models
+  local MODEL_COUNT=0
+  if [ -d "$MODEL_DIR" ]; then
+    MODEL_COUNT=$(find "$MODEL_DIR" -name "*.q4nx" 2>/dev/null | wc -l)
+  fi
+  [ "$MODEL_COUNT" -gt 0 ] && say "Models:  ${MODEL_COUNT} installed in ${MODEL_DIR}" || warn "Models:  None installed (run '1bit pull')"
+
+  # Best engine
+  local BEST
+  BEST=$(detect_hardware)
+  say "Best engine: ${BEST}"
+
+  # Version
+  if [ -f "${BIN_DIR}/1bit-npu" ]; then
+    "${BIN_DIR}/1bit-npu" --version 2>/dev/null || echo "  (no --version flag, but binary exists)"
+  fi
+  echo ""
+}
+
+# ── Pull model ──
+cmd_pull() {
+  local MODEL="${1:-}"
+  local DL_SCRIPT="${SCRIPT_DIR}/model-download.sh"
+  if [ ! -f "$DL_SCRIPT" ]; then
+    DL_SCRIPT="$(dirname "$SCRIPT_DIR")/model-download.sh"
+  fi
+  if [ ! -f "$DL_SCRIPT" ]; then
+    die "model-download.sh not found. Install packaging tools."
+  fi
+  bash "$DL_SCRIPT" "${MODEL:-}"
+}
+
+# ── List models ──
+cmd_list() {
+  if [ ! -d "$MODEL_DIR" ]; then
+    warn "No models directory at ${MODEL_DIR}"
+    echo "  Download a model: 1bit pull qwen3-0.6b"
+    exit 0
+  fi
+  local COUNT=0
+  echo ""
+  printf "${CYAN}Installed models in ${MODEL_DIR}:${NC}\n"
+  for F in "${MODEL_DIR}"/*.q4nx; do
+    [ -f "$F" ] || continue
+    COUNT=$((COUNT + 1))
+    local SIZE
+    SIZE=$(stat -c%s "$F" 2>/dev/null)
+    local NAME
+    NAME=$(basename "$F" .q4nx)
+    printf "  ${GREEN}%-20s${NC} %s\n" "$NAME" "$(numfmt --to=iec $SIZE 2>/dev/null || echo "${SIZE} bytes")"
+  done
+  [ "$COUNT" -eq 0 ] && warn "No models found. Run '1bit pull qwen3-0.6b'"
+  echo ""
+}
+
+# ── Chat ──
+cmd_chat() {
+  local ENGINE
+  ENGINE=$(detect_hardware)
+  say "Using engine: ${ENGINE}"
+
+  case "$ENGINE" in
+    npu)
+      local NPU_BIN="${BIN_DIR}/1bit-npu"
+      [ ! -f "$NPU_BIN" ] && NPU_BIN="${SCRIPT_DIR}/../bin/1bit-npu"
+      if [ ! -f "$NPU_BIN" ]; then
+        die "NPU engine not found. Run: 1bit pull (if in package) or build from source."
+      fi
+
+      # Find a model
+      local MODEL=""
+      if [ -d "$MODEL_DIR" ]; then
+        MODEL=$(find "$MODEL_DIR" -name "*.q4nx" 2>/dev/null | head -1)
+      fi
+      if [ -z "$MODEL" ]; then
+        die "No model found. Run: 1bit pull qwen3-0.6b"
+      fi
+
+      say "Running ${NPU_BIN} with ${MODEL}"
+      OMP_NUM_THREADS=16 "${NPU_BIN}" "$MODEL" 16
+      ;;
+    gpu)
+      local ZINC_BIN="${BIN_DIR}/zinc"
+      [ ! -f "$ZINC_BIN" ] && ZINC_BIN="${SCRIPT_DIR}/../engine/gpu/zinc"
+      if [ ! -f "$ZINC_BIN" ]; then
+        die "GPU engine (zinc) not found. Build: cd engine/gpu && zig build -Doptimize=ReleaseFast"
+      fi
+      say "Launching Zinc GPU engine..."
+      "${ZINC_BIN}" chat
+      ;;
+    cpu)
+      die "No NPU or GPU detected. CPU fallback not yet implemented."
+      ;;
+  esac
+}
+
+# ── Serve (HTTP API) ──
+cmd_serve() {
+  local PORT="${1:-8081}"
+  local ENGINE
+  ENGINE=$(detect_hardware)
+
+  local SERVER_BIN="${BIN_DIR}/1bit-server"
+  [ ! -f "$SERVER_BIN" ] && SERVER_BIN="${SCRIPT_DIR}/../bin/1bit-server"
+
+  if [ ! -f "$SERVER_BIN" ]; then
+    die "1bit-server not found. Install the NPU engine package."
+  fi
+
+  say "Starting HTTP API server on port ${PORT} (engine: ${ENGINE})"
+  say "OpenAI-compatible endpoint: http://localhost:${PORT}/v1/chat/completions"
+  echo ""
+
+  "${SERVER_BIN}" "$PORT"
+}
+
+# ── Help ──
+cmd_help() {
+  echo ""
+  printf "${CYAN}1bit.systems — Unified NPU/GPU Inference${NC}\n"
+  echo ""
+  echo "  Usage: 1bit <command> [options]"
+  echo ""
+  echo "  Commands:"
+  echo "    chat               Interactive chat session (auto-selects engine)"
+  echo "    serve [port]       Start HTTP API server (default port: 8081)"
+  echo "    pull [model]       Download a model (qwen3-0.6b, qwen3-8b, etc.)"
+  echo "    list               List installed models"
+  echo "    status             Show hardware detection and engine status"
+  echo "    help               Show this help"
+  echo ""
+  echo "  Examples:"
+  echo "    1bit chat              # chat with auto-detected engine"
+  echo "    1bit serve 9090        # HTTP server on port 9090"
+  echo "    1bit pull qwen3-0.6b   # download model"
+  echo "    1bit status            # check what hardware is available"
+  echo ""
+}
+
+# ── Main ──
+mkdir -p "$MODEL_DIR" "$CONFIG_DIR"
+
+case "${1:-help}" in
+  chat|interactive)
+    shift 1
+    cmd_chat "$@"
+    ;;
+  serve|server|api)
+    shift 1
+    cmd_serve "$@"
+    ;;
+  pull|download|get)
+    shift 1
+    cmd_pull "${1:-}"
+    ;;
+  list|models|ls)
+    cmd_list
+    ;;
+  status|info|check)
+    cmd_status
+    ;;
+  help|--help|-h)
+    cmd_help
+    ;;
+  *)
+    cmd_help
+    exit 1
+    ;;
+esac

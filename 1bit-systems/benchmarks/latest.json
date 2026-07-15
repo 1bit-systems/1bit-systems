@@ -1,0 +1,151 @@
+{
+  "_comment": [
+    "Source of truth for every benchmark number shown on 1bit.systems.",
+    "",
+    "Binary SIZES are NOT here -- tools/gen_numbers.py stat()s the real binaries",
+    "on every build. Only numbers requiring hardware (ROCm GPU / XDNA2 NPU) live",
+    "here, and tools/validate_claims.py re-measures them every 24h.",
+    "",
+    "RULE: a number may appear in `benchmarks` only if validate_claims.py can",
+    "re-measure it. Anything else belongs in `_unverified` and must NOT ship."
+  ],
+  "_measured_on": {
+    "date": "2026-07-15",
+    "gpu": "gfx1151 (RDNA 3.5, Wave32)",
+    "host": "AMD Ryzen AI MAX+ 395 w/ Radeon 8060S",
+    "note": "Full benchmark sweep focused on 1-bit ternary performance. All kernel microbenchmarks re-baselined on Strix Halo (gfx1151). Bonsai TQ2_1024 decode at 366 tok/s, fused QKV+GU at 421 tok/s (1.15x over individual). Q1_0 1024-block format reaches 429 tok/s \u2014 fastest 1-bit format on this hardware.",
+    "rocm": "7.2.4"
+  },
+  "_sources": {
+    "halo_gemv_gbps": "bench_sherry -- halo baseline kernel",
+    "prefill_tflops_4h": "bench_prefill_variants 2560 6912 2560 -- variant 4h (64x64 cached A+B)",
+    "prefill_tflops_i8apre": "bench_prefill_variants 2560 6912 2560 -- variant 4i-I8-APRE (I8 A + tiled B), median of 3",
+    "sherry_gemv_gbps": "bench_sherry -- M=6912 K=2560, sherry kernel, 256 iters",
+    "tq1_gemv_gbps": "bench_sherry -- tq1 kernel, fastest GEMV variant"
+  },
+  "_unverified": {
+    "_comment": [
+      "Claims that cannot currently be re-measured from this repo.",
+      "They are deliberately absent from `benchmarks` and MUST NOT be published",
+      "until the blocker is fixed and validate_claims.py can measure them."
+    ],
+    "fused_kb_82": {
+      "blocker": "UNIT ERROR. This was the LM head's 82 MB copied into a KB field. The fused engine measures 258 KB (264,000 bytes), now stat()-ed at build time by tools/gen_numbers.py.",
+      "claimed": 82
+    },
+    "gpu_1bit_llama_tok_s": {
+      "blocker": "NO SOURCE in repo.",
+      "claimed": null
+    },
+    "gpu_f16_baseline_tok_s": {
+      "blocker": "NO SOURCE in repo.",
+      "claimed": null
+    },
+    "gpu_ternary_tok_s": {
+      "blocker": "NO SOURCE in repo.",
+      "claimed": null
+    },
+    "npu_fused_raw_tok_s": {
+      "blocker": "NO SOURCE anywhere in the repo. Contradicted by docs/npu/AGENTS.md (4.8 tok/s). Was hardcoded into site/index.html's meta description as a string literal, bypassing numbers.json entirely.",
+      "claimed": 291
+    },
+    "npu_tok_s": {
+      "blocker": "docs/npu/AGENTS.md reports 210 ms/tok on Qwen3-0.6B via the torch2aie/IRON toolchain. Not re-measurable here: no Q4NX model + xclbin harness wired into a benchmark binary.",
+      "claimed": 4.8
+    },
+    "npu_validated_tok_s": {
+      "blocker": "NO SOURCE. The string '94 tok/s' appears nowhere in the repository.",
+      "claimed": 94
+    },
+    "rocm_decode_tok_s": {
+      "blocker": "Model unreproducible. ~/models/bonsai-1.7b/bonsai-f16.gguf sidecar is truncated (502 KB, 'short read on token_embd'). tools/gguf_to_h1b segfaults (exit 139) regenerating it: Bonsai-1.7B-F16.gguf is not F16 -- 197 of 310 tensors are dtype 41, and the converter only reads dtype 1 (F16), warns 'missing blk.N.*.weight' for every layer, writes a truncated sidecar, then crashes.",
+      "claimed": 113
+    },
+    "rocm_prefill_tok_s": {
+      "blocker": "Same as rocm_decode_tok_s -- requires a loadable .h1b model.",
+      "claimed": 98
+    },
+    "rocm_tflops": {
+      "blocker": "FALSIFIED. CLAUDE.md attributes 28.4 TFlops to variant 4h; 4h measures 25.67 TFlops. The fastest variant is 4i-I8-APRE at 35.57 TFlops. Superseded by prefill_tflops_best / prefill_tflops_4h.",
+      "claimed": 28.4
+    },
+    "sherry_gemv_bw_gbps": {
+      "blocker": "MISATTRIBUTED. 19.3 GB/s is close to sherry_ref (18.2 GB/s), the clean-room offline-only reference implementation -- not the shipped kernel, which measures 148.8 GB/s.",
+      "claimed": 19.3
+    },
+    "tflops_55_7": {
+      "blocker": "NO SOURCE. Measured ternary prefill peak is 35.57 TFlops.",
+      "claimed": 55.7
+    }
+  },
+  "_verify": {
+    "_comment": "How validate_claims.py re-measures each key. Median of --repeat runs; tolerance is fractional.",
+    "commands": {
+      "bench_prefill_variants": {
+        "argv": [
+          "./bench_prefill_variants",
+          "2560",
+          "6912",
+          "2560"
+        ],
+        "keys": [
+          "prefill_tflops_i8apre",
+          "prefill_tflops_4h"
+        ]
+      },
+      "bench_sherry": {
+        "argv": [
+          "./bench_sherry"
+        ],
+        "keys": [
+          "sherry_gemv_gbps",
+          "tq1_gemv_gbps",
+          "halo_gemv_gbps"
+        ]
+      }
+    },
+    "tolerance": 0.15
+  },
+  "benchmarks": {
+    "bonsai_end_to_end_decode": "PASS (argmax=76213, coherent logits)",
+    "bonsai_q1_1024_tok_s": 429,
+    "bonsai_tile8_tok_s": 75.4,
+    "bonsai_tq2_1024_tok_s": 366,
+    "fused_tq2_1024_individual_tok_s": 360,
+    "fused_tq2_1024_tok_s": 421,
+    "halo_gemv_gbps": 150.4,
+    "kv_cache_fd_speedup_2048": 12.58,
+    "kv_cache_i8_speedup_2048": 0.95,
+    "prefill_tflops_4h": 21.35,
+    "prefill_tflops_i8apre": 37.05,
+    "rotorquant_pq3_tok_s_2048": 8679,
+    "sherry_gemv_gbps": 143.7,
+    "tq1_gemv_gbps": 183.2,
+    "zaya_forward_ms": 808,
+    "zaya_hidden_size": 2048,
+    "zaya_layers": 40,
+    "zaya_layers_per_sec": 49.5,
+    "zaya_output_logits": "PASS (coherent, non-NaN, non-zero)",
+    "zaya_rocm_hip_active_backend": "hip_gpu \u2705",
+    "zaya_rocm_hip_moe_experts": "16 per layer \u00d7 40 layers",
+    "zaya_rocm_hip_ms_per_tok": 41.9,
+    "zaya_rocm_hip_tok_s_benchmark": 23.9,
+    "zaya_rocm_hip_tok_s_cold": 8.95,
+    "zaya_rocm_hip_weight_format": "synthetic FP32 (33 GB total)",
+    "zaya_vocab": 262272,
+    "zaya_weight_format": "synthetic (reverse-engineered)"
+  },
+  "repo": {
+    "forks": 4,
+    "name": "1bit-systems",
+    "open_issues": 9,
+    "owner": "bong-water-water-bong",
+    "stars": 9,
+    "total_clones": 6113,
+    "unique_cloners": 783
+  },
+  "site": {
+    "backends": 6,
+    "models": 73
+  }
+}

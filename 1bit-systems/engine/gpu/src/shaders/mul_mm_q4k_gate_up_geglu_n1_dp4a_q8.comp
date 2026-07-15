@@ -1,0 +1,213 @@
+#version 460
+// ZINC - single-token Gemma GEGLU producer for Q4_K gate/up weights.
+//
+// The batched DP4a gate/up shader is tiled for BN=8 even in decode. This
+// sibling is fixed to one token: one workgroup owns 32 output rows, two lanes
+// per row cover the two 16-value halves of each Q4_K sub-block, and the
+// finished 32-row GEGLU block is written directly as Q8_0-style activation
+// for the Q6_K dense-down consumer.
+
+#include "dp4a_compat.glsl"
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(local_size_x = 64) in;
+
+layout(constant_id = 0) const uint SPEC_K = 0u;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint N;
+    uint K;
+    uint stride_b_packed;
+    uint stride_b_scale;
+    uint stride_d_packed;
+    uint stride_d_scale;
+    uint a_offset;
+    uint b_packed_offset;
+    uint b_scale_offset;
+    uint d_packed_offset;
+    uint d_scale_offset;
+};
+
+layout(set = 0, binding = 0) readonly buffer GateA { uint gate_u32[]; };
+layout(set = 0, binding = 1) readonly buffer UpA { uint up_u32[]; };
+layout(set = 0, binding = 2) readonly buffer ActB { uint b_packed[]; };
+layout(set = 0, binding = 3) readonly buffer SclB { vec2 b_scale_dsum[]; };
+layout(set = 0, binding = 4) writeonly buffer DstPacked { uint d_packed[]; };
+layout(set = 0, binding = 5) writeonly buffer DstScale { float d_scale[]; };
+
+const uint Q4K_BLOCK_U32 = 36u;
+
+shared int s_gate_half[64];
+shared int s_up_half[64];
+shared float s_act[32];
+shared float s_sg_max[4];
+shared float s_global_max;
+
+uint q4k_scale_byte(uint sc0, uint sc1, uint sc2, uint idx) {
+    uint word = (idx < 4u) ? sc0 : ((idx < 8u) ? sc1 : sc2);
+    return (word >> ((idx & 3u) * 8u)) & 0xFFu;
+}
+
+void q4k_scale_min(uint sb, uint sc0, uint sc1, uint sc2, out float sc_val, out float mn_val) {
+    if (sb < 4u) {
+        const uint b0 = q4k_scale_byte(sc0, sc1, sc2, sb);
+        const uint b4 = q4k_scale_byte(sc0, sc1, sc2, sb + 4u);
+        sc_val = float(b0 & 63u);
+        mn_val = float(b4 & 63u);
+    } else {
+        const uint b = q4k_scale_byte(sc0, sc1, sc2, sb);
+        const uint b4 = q4k_scale_byte(sc0, sc1, sc2, sb + 4u);
+        const uint bm4 = q4k_scale_byte(sc0, sc1, sc2, sb - 4u);
+        sc_val = float((b4 & 0xFu) | ((bm4 >> 6) << 4));
+        mn_val = float(((b4 >> 4) & 0xFu) | ((b >> 6) << 4));
+    }
+}
+
+float fast_gelu(float x) {
+    const float g3 = x * x * x;
+    float inner = 0.7978845608 * (x + 0.044715 * g3);
+    inner = clamp(inner, -15.0, 15.0);
+    return 0.5 * x * (1.0 + tanh(inner));
+}
+
+void q4k_half_dot(
+    uint row_global,
+    uint k_outer,
+    uint tile_half,
+    uint blocks_per_row,
+    out int gate_isum,
+    out int up_isum,
+    out float gate_factor,
+    out float gate_bias,
+    out float up_factor,
+    out float up_bias
+) {
+    const uint super_block = k_outer >> 8u;
+    const uint sb = (k_outer & 255u) >> 5u;
+    const uint chunk = sb >> 1u;
+    const uint nibble_choice = sb & 1u;
+    const uint k_in_tile = tile_half * 16u;
+    const uint a_base_u32 = a_offset >> 2u;
+    const uint blk_u32 = a_base_u32
+        + row_global * blocks_per_row * Q4K_BLOCK_U32
+        + super_block * Q4K_BLOCK_U32;
+
+    uint d_dmin = gate_u32[blk_u32];
+    float d_val = unpackHalf2x16(d_dmin & 0xFFFFu).x;
+    float dmin_val = unpackHalf2x16(d_dmin >> 16).x;
+    uint sc0 = gate_u32[blk_u32 + 1u];
+    uint sc1 = gate_u32[blk_u32 + 2u];
+    uint sc2 = gate_u32[blk_u32 + 3u];
+    float sc_val, mn_val;
+    q4k_scale_min(sb, sc0, sc1, sc2, sc_val, mn_val);
+    gate_factor = d_val * sc_val;
+    gate_bias = dmin_val * mn_val;
+
+    d_dmin = up_u32[blk_u32];
+    d_val = unpackHalf2x16(d_dmin & 0xFFFFu).x;
+    dmin_val = unpackHalf2x16(d_dmin >> 16).x;
+    sc0 = up_u32[blk_u32 + 1u];
+    sc1 = up_u32[blk_u32 + 2u];
+    sc2 = up_u32[blk_u32 + 3u];
+    q4k_scale_min(sb, sc0, sc1, sc2, sc_val, mn_val);
+    up_factor = d_val * sc_val;
+    up_bias = dmin_val * mn_val;
+
+    const uint qs_byte_base = chunk * 32u + k_in_tile;
+    const uint qs_u32_idx = blk_u32 + 4u + (qs_byte_base >> 2u);
+    const uint b_base = b_packed_offset + ((k_outer + k_in_tile) >> 2u);
+    gate_isum = 0;
+    up_isum = 0;
+    [[unroll]] for (uint p = 0u; p < 4u; p++) {
+        uint gate_word = gate_u32[qs_u32_idx + p];
+        uint up_word = up_u32[qs_u32_idx + p];
+        gate_word = (nibble_choice == 0u) ? (gate_word & 0x0F0F0F0Fu) : ((gate_word >> 4) & 0x0F0F0F0Fu);
+        up_word = (nibble_choice == 0u) ? (up_word & 0x0F0F0F0Fu) : ((up_word >> 4) & 0x0F0F0F0Fu);
+        const uint act_word = b_packed[b_base + p];
+        gate_isum = dotPacked4x8AccSatEXT(int(gate_word), int(act_word), gate_isum);
+        up_isum = dotPacked4x8AccSatEXT(int(up_word), int(act_word), up_isum);
+    }
+}
+
+void main() {
+    const uint tid = gl_LocalInvocationID.x;
+    const uint row_block = gl_WorkGroupID.x;
+    const uint row_local = tid >> 1u;
+    const uint tile_half = tid & 1u;
+    const uint row_global = row_block * 32u + row_local;
+    if (row_global >= M) return;
+
+    const uint k_limit = (SPEC_K != 0u) ? SPEC_K : K;
+    const uint blocks_per_row = k_limit >> 8u;
+    float sum_gate = 0.0;
+    float sum_up = 0.0;
+
+    for (uint k_outer = 0u; k_outer < k_limit; k_outer += 32u) {
+        int gate_half;
+        int up_half;
+        float gate_factor;
+        float gate_bias;
+        float up_factor;
+        float up_bias;
+        q4k_half_dot(row_global, k_outer, tile_half, blocks_per_row, gate_half, up_half, gate_factor, gate_bias, up_factor, up_bias);
+
+        const uint half_idx = row_local * 2u + tile_half;
+        s_gate_half[half_idx] = gate_half;
+        s_up_half[half_idx] = up_half;
+        barrier();
+
+        if (tile_half == 0u) {
+            const uint base = row_local * 2u;
+            const vec2 b_sd = b_scale_dsum[b_scale_offset + (k_outer >> 5u)];
+            const int gate_full = s_gate_half[base] + s_gate_half[base + 1u];
+            const int up_full = s_up_half[base] + s_up_half[base + 1u];
+            sum_gate += b_sd.x * gate_factor * float(gate_full) - gate_bias * b_sd.y;
+            sum_up += b_sd.x * up_factor * float(up_full) - up_bias * b_sd.y;
+        }
+        barrier();
+    }
+
+    float local_max = 0.0;
+    if (tile_half == 0u) {
+        const float v = fast_gelu(sum_gate) * sum_up;
+        s_act[row_local] = v;
+        local_max = abs(v);
+    }
+
+    const float subgroup_max = subgroupMax(local_max);
+    if (subgroupElect()) {
+        s_sg_max[gl_SubgroupID] = subgroup_max;
+    }
+    barrier();
+    if (tid == 0u) {
+        float m = s_sg_max[0];
+        for (uint sg = 1u; sg < gl_NumSubgroups; sg++) {
+            m = max(m, s_sg_max[sg]);
+        }
+        s_global_max = m;
+    }
+    barrier();
+
+    const float global_max = s_global_max;
+    const float scale = global_max / 127.0;
+    const float inv = (global_max > 0.0) ? (127.0 / global_max) : 0.0;
+
+    if (tile_half == 0u && (row_local & 3u) == 0u) {
+        uint packed = 0u;
+        [[unroll]] for (uint i = 0u; i < 4u; i++) {
+            int q = int(round(s_act[row_local + i] * inv));
+            q = clamp(q, -127, 127);
+            packed |= (uint(q) & 0xFFu) << (i * 8u);
+        }
+        const uint pack_idx = row_local >> 2u;
+        d_packed[d_packed_offset + row_block * 8u + pack_idx] = packed;
+        if (row_local == 0u) {
+            d_scale[d_scale_offset + row_block] = scale;
+        }
+    }
+}

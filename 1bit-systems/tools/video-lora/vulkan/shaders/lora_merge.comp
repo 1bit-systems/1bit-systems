@@ -1,0 +1,31 @@
+#version 460
+// Fuse LoRA weights into base weights: W' = W + alpha * (B @ A)
+// For a single linear layer: out = x @ W + alpha * (x @ A) @ B
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) readonly buffer A_weights { float a[]; };
+layout(set = 0, binding = 1) readonly buffer B_weights { float b[]; };
+layout(set = 0, binding = 2) buffer Base_weights { float base[]; };
+
+layout(push_constant) uniform PushConstants {
+    uint out_dim;  // B shape [out_dim, rank]
+    uint in_dim;   // A shape [rank, in_dim]
+    uint rank;     // LoRA rank
+    float alpha;   // LoRA scaling factor
+};
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= out_dim * in_dim) return;
+
+    uint i = idx / in_dim; // output dim index
+    uint j = idx % in_dim; // input dim index
+
+    float lora_delta = 0.0;
+    for (uint r = 0; r < rank; r++) {
+        lora_delta += b[i * rank + r] * a[r * in_dim + j];
+    }
+
+    base[idx] += lora_delta * alpha;
+}

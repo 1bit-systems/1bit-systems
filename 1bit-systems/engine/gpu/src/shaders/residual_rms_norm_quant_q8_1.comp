@@ -1,0 +1,137 @@
+#version 460
+// ZINC — fused residual-add + RMS norm + Q8_1 activation quantize for the
+// Qwen3.6-27B dense FFN prefill DP4a path.
+//
+// Replaces the (residual_rms_norm → barrier → quantize_act_q8_1) chain that
+// sits between an SSM-segment's residual_add+RMS at the SSM-out tail and the
+// downstream layer-major dense-FFN gate+up DP4a GEMM. The chain runs once
+// per SSM-fed layer-major segment, so this fusion removes one dispatch +
+// one compute-compute barrier per such layer and eliminates one f32 reread
+// of the rms-normed activation (the standalone quantize used to read each
+// scratch_norm value back from global memory).
+//
+// Semantics (matches residual_rms_norm.comp + quantize_act_q8_1.comp pair):
+//   hidden[i]      += scale * residual[i];           // in place
+//   norm_out[i]     = weights[i] * hidden[i] * rsqrt(mean(hidden^2)+eps);
+//   packed_i8[blk]  = packed Q8_0-style lanes of (norm_out / block_amax * 127)
+//   scale_dsum[blk] = vec2(block_amax/127, scale*sum_of_int8_lanes)
+//
+// Layout:
+//   hidden, residual, norm_out, weights : token-major [token][n] f32
+//   packed_i8                           : token-major [token][n/4] uint
+//   scale_dsum                          : token-major [token][n/32] vec2
+//
+// Workgroup: local_size_x = 256, one workgroup per token.
+// Requires n to be a multiple of 256 so that every iter cleanly covers 8
+// adjacent 32-blocks; for hidden_dim=5120 that gives 20 iters/token.
+
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_shuffle : require
+#extension GL_KHR_shader_subgroup_clustered : require
+
+layout(local_size_x = 256) in;
+
+layout(push_constant) uniform PushConstants {
+    uint  n;                  // hidden_dim, multiple of 256
+    float eps;
+    float scale;
+    uint  blocks_per_token;   // n/32
+    uint  stride_packed;      // n/4 (uints per token in packed_i8)
+    uint  write_norm_out;     // 0 when the next DP4a GEMM consumes only packed_i8
+};
+
+layout(set = 0, binding = 0)          buffer Hidden    { float hidden[]; };
+layout(set = 0, binding = 1) readonly buffer Residual  { float residual[]; };
+layout(set = 0, binding = 2) writeonly buffer NormOut  { float norm_out[]; };
+layout(set = 0, binding = 3) readonly buffer Weights   { float weights[]; };
+layout(set = 0, binding = 4) writeonly buffer Packed   { uint  packed_i8[]; };
+layout(set = 0, binding = 5) writeonly buffer ScaleDsum { vec2 scale_dsum[]; };
+
+shared float s_partial[8];   // up to 8 subgroups for 256-thread WG on wave32
+
+void main() {
+    const uint tid   = gl_LocalInvocationID.x;
+    const uint token = gl_WorkGroupID.x;
+    const uint base  = token * n;
+    const uint WG    = 256u;
+
+    // --- Pass 1: residual add (in place) + sum of squares ---
+    float sum_sq = 0.0;
+    for (uint i = tid; i < n; i += WG) {
+        float h = fma(scale, residual[base + i], hidden[base + i]);
+        hidden[base + i] = h;
+        sum_sq += h * h;
+    }
+
+    float total = subgroupAdd(sum_sq);
+    if (gl_NumSubgroups > 1u) {
+        if (gl_SubgroupInvocationID == 0u) s_partial[gl_SubgroupID] = total;
+        barrier();
+        if (tid == 0u) {
+            float merged = 0.0;
+            for (uint sg = 0u; sg < gl_NumSubgroups; sg++) merged += s_partial[sg];
+            s_partial[0] = merged;
+        }
+        barrier();
+        total = s_partial[0];
+    }
+
+    const float rms_inv = inversesqrt(total / float(n) + eps);
+
+    // --- Pass 2: normalize + write f32 norm_out + per-32-block Q8_1 quantize ---
+    //
+    // Each iter processes WG=256 elements = 8 adjacent 32-blocks. Within a
+    // 32-block, the 32 lanes share a subgroupClusteredMax cluster (cluster
+    // size 32). On RDNA4 wave64 each subgroup is 64 lanes = exactly two
+    // 32-clusters = two 32-blocks; on wave32 each subgroup is exactly one
+    // 32-cluster. In either case subgroupClustered* with cluster 32 gives
+    // the correct per-block reduction and subgroupShuffle to a sibling lane
+    // within the same cluster is well-defined.
+    //
+    // n must be a multiple of WG so every block is fully covered with no
+    // out-of-bounds threads. The host enforces (n % 256) == 0 via dispatch.
+    const uint sub_inv = gl_SubgroupInvocationID;
+    const uint iters   = n / WG;
+    for (uint iter = 0u; iter < iters; iter++) {
+        const uint idx = iter * WG + tid;
+        const float v = weights[idx] * hidden[base + idx] * rms_inv;
+        if (write_norm_out != 0u) {
+            norm_out[base + idx] = v;
+        }
+
+        const float local_amax = abs(v);
+        const float block_amax = subgroupClusteredMax(local_amax, 32u);
+        const float inv = (block_amax > 0.0) ? (127.0 / block_amax) : 0.0;
+        const float scale_q = block_amax * (1.0 / 127.0);
+        int q = int(round(v * inv));
+        q = clamp(q, -127, 127);
+        const int q_sum_block = subgroupClusteredAdd(q, 32u);
+
+        // global block index = iter*8 + tid/32, since tid 0..255 == 8 blocks
+        const uint block_in_iter = tid >> 5u;
+        const uint global_block = iter * 8u + block_in_iter;
+
+        // Gather 4 lanes' q values into one packed uint via subgroupShuffle
+        // within the 32-lane cluster. Every lane reads its 4 neighbours; the
+        // 4 lanes (0,1,2,3) (4,5,6,7) ... all produce identical results, so
+        // only the cluster-aligned lane (lane % 4 == 0) writes.
+        const uint base_in_sub = sub_inv & ~3u;
+        const int q0 = subgroupShuffle(q, base_in_sub + 0u);
+        const int q1 = subgroupShuffle(q, base_in_sub + 1u);
+        const int q2 = subgroupShuffle(q, base_in_sub + 2u);
+        const int q3 = subgroupShuffle(q, base_in_sub + 3u);
+        const uint packed = (uint(q0) & 0xFFu)
+                          | ((uint(q1) & 0xFFu) << 8u)
+                          | ((uint(q2) & 0xFFu) << 16u)
+                          | ((uint(q3) & 0xFFu) << 24u);
+
+        const uint lane_in_block = tid & 31u;
+        if ((lane_in_block & 3u) == 0u) {
+            const uint u_in_block = lane_in_block >> 2u;
+            packed_i8[token * stride_packed + global_block * 8u + u_in_block] = packed;
+        }
+        if (lane_in_block == 0u) {
+            scale_dsum[token * blocks_per_token + global_block] = vec2(scale_q, scale_q * float(q_sum_block));
+        }
+    }
+}

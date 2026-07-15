@@ -511,6 +511,8 @@ set_target_properties(bench_prefill_variants PROPERTIES HIP_ARCHITECTURES "${CMA
 # -- tools/unified_server : One binary, all backends, auto-failover ----------
 add_executable(unified_server
     tools/unified_server.cpp
+    src/strategy_engine.cpp
+    src/agent_watchdog.cpp
     src/backend_hip.cpp
     src/zaya_engine.cpp
     src/backend_npu.cpp)

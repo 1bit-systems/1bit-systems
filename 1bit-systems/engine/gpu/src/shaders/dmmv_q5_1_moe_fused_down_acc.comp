@@ -1,0 +1,122 @@
+#version 460
+// ZINC - Q5_1 MoE down projection fused across selected experts.
+//
+// Each workgroup owns two output rows and loops over all routed experts
+// internally. This replaces eight serialized down+acc dispatches in Gemma 4
+// CPU-routed MoE with one dispatch and one final write per output row.
+
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_EXT_shader_16bit_storage : require
+
+layout(local_size_x = 64) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+    uint expert_stride;
+    uint x_expert_stride;
+    uint x_offset;
+    uint y_offset;
+    uint n_used;
+};
+
+layout(set = 0, binding = 0) readonly buffer MatrixA { uint8_t a_data[]; };
+layout(set = 0, binding = 1) readonly buffer VectorX { float x_data[]; };
+layout(set = 0, binding = 2) buffer VectorY { float y_data[]; };
+layout(set = 0, binding = 3) readonly buffer MoeRouting { uint routing_data[]; };
+
+const uint Q5_1_BLOCK_SIZE = 32u;
+const uint Q5_1_BYTES = 24u;
+
+shared float s_sum0[4];
+shared float s_sum1[4];
+
+float dot_q5_1_row(uint row, uint blk, uint blocks_per_row, uint expert_base, uint x_base) {
+    uint byte_off = expert_base + row * blocks_per_row * Q5_1_BYTES + blk * Q5_1_BYTES;
+    uint xb = x_base + blk * Q5_1_BLOCK_SIZE;
+
+    uint d_bits = uint(a_data[byte_off]) | (uint(a_data[byte_off + 1u]) << 8);
+    float d = unpackHalf2x16(d_bits).x;
+    uint m_bits = uint(a_data[byte_off + 2u]) | (uint(a_data[byte_off + 3u]) << 8);
+    float m = unpackHalf2x16(m_bits).x;
+
+    uint qh = uint(a_data[byte_off + 4u])
+            | (uint(a_data[byte_off + 5u]) << 8)
+            | (uint(a_data[byte_off + 6u]) << 16)
+            | (uint(a_data[byte_off + 7u]) << 24);
+
+    float sum_qx = 0.0;
+    float sum_x = 0.0;
+    for (uint j = 0u; j < 16u; j++) {
+        uint q_byte = uint(a_data[byte_off + 8u + j]);
+        uint lo = q_byte & 0x0Fu;
+        uint hi = q_byte >> 4;
+        uint bit_lo = (qh >> j) & 1u;
+        uint bit_hi = (qh >> (j + 16u)) & 1u;
+
+        float x0 = x_data[xb + j];
+        float x1 = x_data[xb + 16u + j];
+        sum_qx += float(lo | (bit_lo << 4)) * x0 + float(hi | (bit_hi << 4)) * x1;
+        sum_x += x0 + x1;
+    }
+
+    return d * sum_qx + m * sum_x;
+}
+
+void main() {
+    uint wg_id = gl_WorkGroupID.x;
+    uint row0 = wg_id * 2u;
+    uint row1 = row0 + 1u;
+    uint tid = gl_LocalInvocationID.x;
+    uint blocks_per_row = K / Q5_1_BLOCK_SIZE;
+
+    float acc0 = 0.0;
+    float acc1 = 0.0;
+
+    for (uint e = 0u; e < n_used; e++) {
+        uint expert_id = routing_data[e];
+        float weight = uintBitsToFloat(routing_data[n_used + e]);
+        uint expert_base = expert_id * expert_stride;
+        uint x_base = x_offset / 4u + e * x_expert_stride;
+
+        float sum0 = 0.0;
+        float sum1 = 0.0;
+        for (uint blk = tid; blk < blocks_per_row; blk += 64u) {
+            if (row0 < M) sum0 += dot_q5_1_row(row0, blk, blocks_per_row, expert_base, x_base);
+            if (row1 < M) sum1 += dot_q5_1_row(row1, blk, blocks_per_row, expert_base, x_base);
+        }
+
+        sum0 = subgroupAdd(sum0);
+        sum1 = subgroupAdd(sum1);
+
+        if (gl_NumSubgroups > 1u) {
+            if (subgroupElect()) {
+                s_sum0[gl_SubgroupID] = sum0;
+                s_sum1[gl_SubgroupID] = sum1;
+            }
+            barrier();
+            if (tid == 0u) {
+                sum0 = s_sum0[0];
+                sum1 = s_sum1[0];
+                for (uint sg = 1u; sg < gl_NumSubgroups; sg++) {
+                    sum0 += s_sum0[sg];
+                    sum1 += s_sum1[sg];
+                }
+            }
+            barrier();
+        }
+
+        if (tid == 0u) {
+            acc0 += weight * sum0;
+            acc1 += weight * sum1;
+        }
+    }
+
+    if (tid == 0u) {
+        uint y_base = y_offset / 4u;
+        if (row0 < M) y_data[y_base + row0] = acc0;
+        if (row1 < M) y_data[y_base + row1] = acc1;
+    }
+}

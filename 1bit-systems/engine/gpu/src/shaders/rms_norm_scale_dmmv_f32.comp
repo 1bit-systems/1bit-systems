@@ -1,0 +1,57 @@
+#version 460
+// ZINC — fused Gemma router RMS norm + scale + f32 DMMV.
+//
+// Gemma 4 MoE routes on unit-RMS-normalized hidden state, then applies the
+// per-layer ffn_gate_inp.scale vector before the f32 router matvec. This
+// shader folds the current rms_norm_mul + mul_elementwise + router DMMV
+// sequence into one dispatch for the per-token MoE router path.
+//
+// Bindings:
+//   0 hidden         (f32, K=hidden_dim, indexed as vec4)
+//   1 router_scale   (f32, K, indexed as vec4; ffn_gate_inp.scale)
+//   2 router_weights (f32, M*K row-major, indexed as vec4)
+//   3 router_logits  (f32, M)
+
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(local_size_x = 64) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+    uint eps_bits;
+};
+
+layout(set = 0, binding = 0) readonly  buffer Hidden        { vec4 hidden_v4[]; };
+layout(set = 0, binding = 1) readonly  buffer RouterScale   { vec4 scale_v4[]; };
+layout(set = 0, binding = 2) readonly  buffer RouterWeights { vec4 router_w_v4[]; };
+layout(set = 0, binding = 3) writeonly buffer RouterLogits  { float router_out[]; };
+
+void main() {
+    uint row = gl_WorkGroupID.x;
+    uint tid = gl_LocalInvocationID.x;
+    if (row >= M) return;
+
+    float eps = uintBitsToFloat(eps_bits);
+    uint K_v4 = K >> 2;
+
+    float sum_sq = 0.0;
+    for (uint i = tid; i < K_v4; i += 64u) {
+        vec4 v = hidden_v4[i];
+        sum_sq += dot(v, v);
+    }
+    sum_sq = subgroupAdd(sum_sq);
+
+    float rms_inv = inversesqrt(sum_sq / float(K) + eps);
+    uint w_base_v4 = row * K_v4;
+
+    float sum = 0.0;
+    for (uint k_v4 = tid; k_v4 < K_v4; k_v4 += 64u) {
+        vec4 x = hidden_v4[k_v4] * rms_inv * scale_v4[k_v4];
+        sum += dot(x, router_w_v4[w_base_v4 + k_v4]);
+    }
+    sum = subgroupAdd(sum);
+    if (tid == 0u) {
+        router_out[row] = sum;
+    }
+}

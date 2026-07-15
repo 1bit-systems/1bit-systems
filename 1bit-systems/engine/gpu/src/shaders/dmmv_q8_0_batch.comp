@@ -1,0 +1,63 @@
+#version 460
+// ZINC - Q8_0 batch-style DMMV for very tall matrices.
+//
+// One thread computes one output row serially across K. This trades the
+// generic Q8_0 shader's K-parallel row reduction for far fewer workgroups.
+// Target: Qwen A3B Q8_0 LM head (M ~= 248k, K = 2048).
+
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_EXT_shader_16bit_storage : require
+
+layout(local_size_x = 64) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+    uint a_offset;
+    uint x_offset;
+    uint y_offset;
+    uint acc_mode;
+};
+
+layout(set = 0, binding = 0) readonly buffer MatrixA { uint8_t a_data[]; };
+layout(set = 0, binding = 1) readonly buffer VectorX { vec4 x_data[]; };
+layout(set = 0, binding = 2) buffer VectorY { float y_data[]; };
+
+const uint Q8_0_BLOCK_SIZE = 32u;
+const uint Q8_0_BYTES = 34u;
+
+void main() {
+    uint row = gl_WorkGroupID.x * 64u + gl_LocalInvocationID.x;
+    if (row >= M) return;
+
+    uint blocks_per_row = K / Q8_0_BLOCK_SIZE;
+    uint row_base = a_offset + row * blocks_per_row * Q8_0_BYTES;
+    uint x_base_v4 = x_offset / 16u;
+
+    float sum = 0.0;
+    for (uint blk = 0u; blk < blocks_per_row; blk++) {
+        uint byte_off = row_base + blk * Q8_0_BYTES;
+        uint d_bits = uint(a_data[byte_off]) | (uint(a_data[byte_off + 1u]) << 8);
+        float d = unpackHalf2x16(d_bits).x;
+        uint qs = byte_off + 2u;
+        uint x_blk = x_base_v4 + blk * 8u;
+
+        for (uint i = 0u; i < 8u; i++) {
+            uint q_off = qs + i * 4u;
+            ivec4 qv = ivec4(
+                int(int8_t(a_data[q_off + 0u])),
+                int(int8_t(a_data[q_off + 1u])),
+                int(int8_t(a_data[q_off + 2u])),
+                int(int8_t(a_data[q_off + 3u]))
+            );
+            sum += d * dot(vec4(qv), x_data[x_blk + i]);
+        }
+    }
+
+    uint out_idx = y_offset / 4u + row;
+    if (acc_mode != 0u) {
+        y_data[out_idx] += sum;
+    } else {
+        y_data[out_idx] = sum;
+    }
+}

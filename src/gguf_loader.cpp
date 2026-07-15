@@ -251,7 +251,7 @@ struct GgufReader {
     std::string read_string() {
         uint64_t len;
         f.read(reinterpret_cast<char*>(&len), 8);
-        std::string s(len, '\\0');
+        std::string s(len, '\0');
         if (len > 0) f.read(&s[0], len);
         return s;
     }

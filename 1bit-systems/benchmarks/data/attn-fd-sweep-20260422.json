@@ -1,0 +1,28 @@
+{
+  "_meta": {
+    "utc": "2026-04-22",
+    "shape": {"num_q_heads": 20, "num_kv_heads": 5, "head_dim": 128, "gqa_ratio": 4, "note": "BitNet-2B-4T"},
+    "kernels": {
+      "single_block": "rcpp_kv_cache_attn_decode (src/kv_cache_attn.hip)",
+      "fd": "rcpp_kv_cache_attn_decode_fd (src/kv_cache_attn_fd.hip), TILE=128 along K"
+    },
+    "harness": "tools/attn_fd_sweep.cpp (3 warmup + 5 timed per cell, median wall-ns)",
+    "units": {"single_ms": "ms/call", "fd_ms": "ms/call", "speedup": "single/fd", "max_abs_diff": "|fp16_single - fp16_fd| max over NH*HD outputs"},
+    "correctness_gate": "<0.05 fp16 units (kernel contract from bench_kv_fd). All cells ~1 ULP drift from online-softmax reorder; NOT byte-exact; far inside gate.",
+    "data_distribution": "Q/K/V drawn from standard normal N(0,1), seeded 0xC0DEF00D"
+  },
+  "gfx1151": {
+    "512":  {"single_ms": 0.316628, "fd_ms": 0.103536, "speedup":  3.058144, "max_abs_diff": 0.000031},
+    "1024": {"single_ms": 0.613366, "fd_ms": 0.107196, "speedup":  5.721911, "max_abs_diff": 0.000061},
+    "2048": {"single_ms": 1.190914, "fd_ms": 0.116225, "speedup": 10.246625, "max_abs_diff": 0.000031},
+    "4096": {"single_ms": 2.348778, "fd_ms": 0.205222, "speedup": 11.445059, "max_abs_diff": 0.000008},
+    "8192": {"single_ms": 4.702146, "fd_ms": 0.392644, "speedup": 11.975596, "max_abs_diff": 0.000031}
+  },
+  "gfx1201": {
+    "512":  {"single_ms": 0.380566, "fd_ms": 0.117359, "speedup":  3.242751, "max_abs_diff": 0.000031},
+    "1024": {"single_ms": 0.745152, "fd_ms": 0.120118, "speedup":  6.203500, "max_abs_diff": 0.000061},
+    "2048": {"single_ms": 1.666032, "fd_ms": 0.157718, "speedup": 10.563360, "max_abs_diff": 0.000031},
+    "4096": {"single_ms": 3.279285, "fd_ms": 0.247587, "speedup": 13.244981, "max_abs_diff": 0.000008},
+    "8192": {"single_ms": 6.455932, "fd_ms": 0.293157, "speedup": 22.022097, "max_abs_diff": 0.000031}
+  }
+}

@@ -1,0 +1,29 @@
+name: PR Agent
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+  issue_comment:
+    types: [created, edited]
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: write
+
+jobs:
+  pr_agent:
+    runs-on: ubuntu-latest
+    # Only run for same-repo PRs and trusted commenters (not external forks)
+    if: |
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'issue_comment' && github.event.comment.author_association == 'OWNER')
+    steps:
+      - uses: actions/checkout@v4
+      - name: PR Agent
+        uses: qodo-ai/pr-agent@v0.30
+        env:
+          OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_BASE: "https://api.opencode.ai/v1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CONFIG_FILE: .pr_agent.toml

@@ -1,0 +1,55 @@
+# Build artifacts
+build/
+*.o
+*.obj
+*.exe
+*.out
+*.app
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Rust
+target/
+
+# Zig
+zig-cache/
+zig-out/
+
+# ROCm compiler artifacts
+*.hipfb
+
+# Test data / large binaries
+**/test_data/
+**/test_models/
+*.gguf
+*.h1b
+*.bin
+*.npz
+*.pt
+
+# Live collaborative workspace lock files
+.workspace/
+
+# Machine-specific MCP config (absolute paths)
+.mcp.json
+
+# Cloudflare Pages build artifact
+site/docs/.build/
+
+# temp files
+*.bak
+*.tmp

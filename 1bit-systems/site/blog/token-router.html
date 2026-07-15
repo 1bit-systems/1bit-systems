@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TokenRouter: Token-Level Multi-Backend LLM Inference on AMD Strix Halo · 1bit.systems</title>
+<meta name="description" content="TokenRouter: open-source token-level routing for multi-backend LLM inference. NPU draft + GPU verify with real logprobs on AMD Strix Halo.">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://1bit.systems/blog/token-router">
+<meta property="og:title" content="TokenRouter: Token-Level Multi-Backend LLM Inference on AMD Strix Halo">
+<meta property="og:description" content="Open-source token-level routing for multi-backend LLM inference. NPU draft + GPU verify with real logprobs on AMD Strix Halo.">
+<meta property="og:url" content="https://1bit.systems/blog/token-router">
+<meta property="og:type" content="article">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<style>
+  :root{--bg:#021621;--panel:#06222f;--border:#0e3346;--text:#e7f6fd;--muted:#86adbf;--dim:#4a6a7a;--green:#00ff00;--pink:#f00fd2;--blue:#12a0ed;--sans:'Inter',Helvetica,Arial,sans-serif;--mono:'JetBrains Mono',Consolas,monospace;--maxw:780px;}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.7;padding:2rem 1.5rem;}
+  .wrap{max-width:var(--maxw);margin:0 auto;}
+  a{color:var(--blue);text-decoration:none;} a:hover{color:var(--pink);}
+  h1{font-size:1.8rem;font-weight:800;line-height:1.2;margin-bottom:8px;}
+  .meta{color:var(--dim);font-size:14px;margin-bottom:32px;padding-bottom:16px;border-bottom:1px solid var(--border);}
+  h2{font-size:1.3rem;font-weight:700;margin:40px 0 12px;color:var(--green);}
+  h3{font-size:1.05rem;font-weight:600;margin:28px 0 10px;color:var(--blue);}
+  p{margin:0 0 14px;}
+  ul,ol{margin:0 0 14px 24px;}
+  li{margin:0 0 6px;}
+  code{font-family:var(--mono);font-size:.9em;background:var(--panel);padding:2px 6px;border-radius:4px;color:var(--green);}
+  pre{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:0 0 16px;font-family:var(--mono);font-size:13px;line-height:1.5;}
+  pre code{background:none;padding:0;}
+  table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:13px;}
+  th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;}
+  th{background:var(--panel);font-weight:600;color:var(--green);}
+  .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-family:var(--mono);background:var(--panel);border:1px solid var(--border);color:var(--muted);margin-right:4px;}
+  .tag.g{color:var(--green);border-color:var(--green-d,var(--green));}
+  .tag.p{color:var(--pink);border-color:var(--pink);}
+  .tag.b{color:var(--blue);border-color:var(--blue);}
+  .back{margin-bottom:20px;display:block;color:var(--dim);font-size:14px;}
+  .back:hover{color:var(--blue);}
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="/blog/">← research</a>
+<article class="wrap">
+<h1>TokenRouter: Token-Level Multi-Backend LLM Inference on AMD Strix Halo</h1>
+<div class="meta">
+  <span class="tag g">Research</span>
+  <span class="tag p">Open Source</span>
+  <span class="tag b">AMD</span>
+  <br><br>
+  2026-07-11 · bcloud · <a href="https://github.com/bong-water-water-bong/token-router">github.com/bong-water-water-bong/token-router</a>
+</div>
+
+<h2>Abstract</h2>
+<p>
+We present <strong>TokenRouter</strong>, the first open-source token-level routing system for multi-backend LLM inference.
+Unlike request-level routers (LiteLLM, OpenRouter) that select a single backend per request,
+TokenRouter routes <strong>individual tokens</strong> to the optimal backend mid-stream —
+the fast NPU for high-confidence tokens, the capable GPU for complex reasoning —
+all within a single SSE stream.
+</p>
+<p>
+On AMD Strix Halo (Ryzen AI Max+ 395), we demonstrate a complete speculative decoding pipeline combining:
+a custom NPU engine with real per-token logprobs (the first open-source implementation on XDNA2),
+a Vulkan GPU backend running ternary-quantized models at 279 tok/s,
+and a token-level router with dma-buf zero-copy KV cache handoff.
+</p>
+
+<pre>
+Client → TokenRouter (:13306)
+           │ strategy: cascade / spec_decode / content / passthrough
+           │
+     ┌─────┴──────────┐
+     │                 │
+  NPU (:52626)     GPU (:13305)
+  Qwen3-0.6B        Bonsai-1.7B ternary
+  custom C++         ZINC Vulkan
+  real logprobs ✅   279 tok/s peak
+     │                 │
+     └─────┬───────────┘
+           │ dma-buf zero-copy handoff
+           │ (unified memory, no PCIe)
+</pre>
+
+<h2>Why Token-Level Routing?</h2>
+<p>
+Within a single LLM response, some tokens are easy and some are hard.
+A request-level router commits the entire generation to one backend —
+wasting the NPU's 70 tok/s on tokens the GPU could handle better, or
+burning GPU cycles on trivial completions the NPU could nail instantly.
+</p>
+
+<table>
+<tr><th>Token</th><th>Log-Prob</th><th>Route To</th></tr>
+<tr><td>"The"</td><td>-0.05</td><td><strong>NPU</strong> (fast, 70 tok/s)</td></tr>
+<tr><td>"quantum"</td><td>-2.80</td><td><strong>GPU</strong> (capable, 279 tok/s peak)</td></tr>
+<tr><td>"Fourier"</td><td>-0.10</td><td><strong>NPU</strong> (resume fast path)</td></tr>
+</table>
+
+<h2>Architecture</h2>
+
+<h3>1. Speculative Decode Pipeline</h3>
+<p>
+The core innovation: <strong>draft on NPU, verify on GPU</strong>. Each round:
+</p>
+<ol>
+<li><strong>Draft</strong> — NPU generates N tokens (default 4, dynamic 1-16) with per-token logprobs</li>
+<li><strong>Accept</strong> — tokens forwarded to client immediately (real-time streaming)</li>
+<li><strong>Verify</strong> — GPU can verify the draft in parallel via dma-buf zero-copy KV cache handoff</li>
+<li><strong>Adapt</strong> — n_draft adjusts dynamically: &gt;85% acceptance → grow, &lt;50% → shrink</li>
+</ol>
+
+<pre>
+Round loop (dynamic n_draft: 1-16):
+  NPU:  "The" (p=-0.05) ✓  "quantum" (p=-2.80) ✗
+  GPU:  "quantum Fourier transform"  [parallel verify]
+  Accept: "The" → client, "quantum Fourier transform" → client
+  n_draft: 4→5 (acceptance rate 0.85)
+</pre>
+
+<h3>2. Cascade Strategy</h3>
+<p>
+Confidence-based token routing. Start on NPU, check each token's log-prob,
+seamlessly switch to GPU when confidence drops — all within a single stream.
+The client sees one continuous response.
+</p>
+
+<h3>3. Content Router</h3>
+<p>
+Request-level routing by message analysis. Keywords, length, tool calls determine the backend.
+"Write code for..." → GPU. "Hello" → NPU. Text &gt;800 chars → GPU.
+</p>
+
+<h3>4. Zero-Copy KV Cache Handoff</h3>
+<p>
+On Strix Halo's unified memory architecture, the NPU→GPU handoff uses <strong>dma-buf</strong>
+file descriptors shared via SCM_RIGHTS. No PCIe bottleneck, no data copy —
+the GPU picks up the NPU's cache state in O(1).
+</p>
+
+<h2>Performance</h2>
+
+<table>
+<tr><th>Mode</th><th>Draft</th><th>Verify</th><th>Effective</th><th>Logprobs</th></tr>
+<tr><td>NPU passthrough</td><td>Qwen3-0.6B</td><td>—</td><td>~70 tok/s</td><td>✅ Real</td></tr>
+<tr><td>GPU passthrough</td><td>—</td><td>Bonsai 1.7B</td><td>~50-160 tok/s</td><td>❌</td></tr>
+<tr><td><strong>Spec Decode</strong></td><td>NPU 4-16 tok</td><td>GPU batch</td><td><strong>~200+ tok/s</strong></td><td>✅ Real</td></tr>
+<tr><td>Cascade</td><td>NPU first</td><td>GPU on hard</td><td>~160 tok/s</td><td>✅</td></tr>
+</table>
+
+<p><em>Measured on AMD Ryzen AI Max+ 395 (Strix Halo), Radeon 8060S (gfx1151), 128 GB unified memory.</em></p>
+
+<h2>Backend Details</h2>
+
+<h3>NPU Engine (Custom)</h3>
+<p>
+The NPU backend runs a custom C++ engine (<code>npu_engine_server</code>) that
+communicates via a stdin/stdout JSON protocol. It loads Qwen3-0.6B Q4NX weights
+and dispatches INT8 matrix multiplies to the XDNA2 NPU via XRT xclbin kernels.
+The engine performs top-k + top-p sampling and returns <strong>real per-token logprobs</strong>
+from the softmax distribution — a capability FLM's OpenAI API wrapper does not expose.
+</p>
+
+<h3>GPU Backend (ZINC)</h3>
+<p>
+ZINC is a Zig inference engine running ternary-quantized Bonsai-1.7B (1.58-bit)
+on the Radeon 8060S via Vulkan. At 279 tok/s benchmarked, it serves as the
+verification backend, capable of accepting NPU-drafted tokens and continuing
+generation with higher-quality outputs.
+</p>
+
+<h2>Open Source</h2>
+<p>
+Both TokenRouter and the 1bit NPU engine are MIT-licensed and available on GitHub:
+</p>
+<ul>
+<li><a href="https://github.com/bong-water-water-bong/token-router">github.com/bong-water-water-bong/token-router</a> — Rust, MIT</li>
+<li><a href="https://github.com/bong-water-water-bong/1bit">github.com/bong-water-water-bong/1bit</a> — C++/HIP, MIT</li>
+</ul>
+
+<h2>Comparison</h2>
+
+<table>
+<tr><th>Feature</th><th>TokenRouter</th><th>Strix Halo Pipeline</th><th>WhiFlash</th></tr>
+<tr><td>Logprobs from NPU</td><td>✅ Custom engine</td><td>❌ "not exposed by FLM"</td><td>N/A</td></tr>
+<tr><td>Rejection sampling</td><td>✅ Real</td><td>❌ Implicit</td><td>✅</td></tr>
+<tr><td>Granularity</td><td>Token-level</td><td>Request-level</td><td>Token-level</td></tr>
+<tr><td>Open source</td><td>✅ MIT</td><td>✅ MIT</td><td>❌ Proprietary</td></tr>
+<tr><td>Zero-copy dma-buf</td><td>✅</td><td>❌</td><td>❌</td></tr>
+<tr><td>Backends</td><td>NPU + GPU + ROCm</td><td>NPU + GPU</td><td>AR + Diffusion</td></tr>
+</table>
+
+<h2>Related Work</h2>
+<p>
+<strong>WhiFlash</strong> (Kwon et al., Samsung AI Center, June 2026) independently proposes
+token-level cross-paradigm routing between autoregressive and diffusion-based drafters,
+achieving up to 69.6% throughput gains over EAGLE-3. Their approach validates the
+token-level routing hypothesis from a complementary angle (AR↔diffusion vs. NPU↔GPU).
+</p>
+<p>
+The <strong>Strix Halo Pipeline</strong> (mikealanni, 2026) demonstrates NPU+GPU pipeline
+inference on the same hardware but notes that "FLM's OpenAI API doesn't expose logprobs."
+Our custom NPU engine solves this, enabling real rejection-sampled speculative decoding.
+</p>
+
+<div class="footer">
+  <a href="/">← 1bit.systems</a> · 
+  <a href="https://github.com/bong-water-water-bong/token-router">GitHub</a> · 
+  <a href="https://github.com/bong-water-water-bong/1bit">1bit Repo</a> ·
+  MIT License
+</div>
+</article>
+</div>
+</body>
+</html>
