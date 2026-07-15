@@ -85,3 +85,20 @@ engine/fusion/zero_copy/probe_contexts
 engine/fusion/zero_copy/probe_multi_xclbin
 engine/fusion/zero_copy/xclbin_health
 engine/fusion/zero_copy/test_parallel_real
+
+# Model files (too large for git — use external download/symlink)
+*.q4nx
+*.h1b
+*.gguf
+*.safetensors
+*.bin
+
+# Binary artifacts in packaging (not source)
+packaging/appimage/AppDir/usr/lib/*.a
+packaging/appimage/AppDir/usr/lib/*.so*
+packaging/appimage/AppDir/usr/lib/x86_64-linux-gnu/*
+packaging/deb/usr/lib/1bit/*.o
+
+# Stale benchmark result files (keep only latest)
+benchmarks/RESULTS-*.md
+!benchmarks/RESULTS-2026-07-15*.md

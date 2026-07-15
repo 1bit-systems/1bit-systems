@@ -1,0 +1,1 @@
+/home/bcloud/1bit-systems/packaging/appimage/AppDir/usr/lib/1bit/xclbins/insts_i8_O_qwen3_0_6b.txt
