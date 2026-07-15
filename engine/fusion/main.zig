@@ -182,12 +182,13 @@ pub fn main(init: std.process.Init) !void {
 
     // ── Initialize GPU attention (best-effort) ──
     std.debug.print("GPU attention init...\n", .{});
-    const gpu_attn_instance = gpu_attn.GpuAttention.init(allocator, ZINC_SHADER_DIR) catch |err| {
-        std.debug.print("  GPU unavailable: {s} (CPU fallback)\n", .{@errorName(err)});
-        return error.GpuUnavailable;
-    };
-    std.debug.print("  GPU flash attention ready!\n", .{});
-    // NOTE: no defer gpu_attn_instance.deinit() — executor owns it (assigned below)
+    var gpu_attn_instance: ?gpu_attn.GpuAttention = null;
+    if (gpu_attn.GpuAttention.init(allocator, ZINC_SHADER_DIR)) |gpu| {
+        gpu_attn_instance = gpu;
+        std.debug.print("  GPU flash attention ready!\n", .{});
+    } else |err| {
+        std.debug.print("  GPU unavailable: {s} (proceeding with NPU+CPU)\n", .{@errorName(err)});
+    }
 
     // ── Create FusedExecutor ──
     // Map dispatcher policy to fuse policy by name

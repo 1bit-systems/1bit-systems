@@ -7,6 +7,7 @@
 #include <cmath>
 #include <vector>
 #include <chrono>
+#include <exception>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -63,6 +64,9 @@ static uint64_t jo(const char*js,size_t jl,const char*nm){size_t nl=strlen(nm);
 struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt::hw_context>hc;
     std::unique_ptr<xrt::kernel>k;std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bI,bA,bC;
     std::vector<std::unique_ptr<xrt::bo>>layerB;int8_t*Am;int16_t*Cm;
+    bool initialized=false;
+    ~I8Ctx(){/* Am/Cm are mapped from bA/bC — destroyed by unique_ptr dtors */}
+    bool isReady(){return initialized&&k&&bA&&bC;}
     bool init(xrt::device&d,const char*xp,const char*ip,int gid_B,int nlayers){
         NL=nlayers;FILE*f=fopen(ip,"rb");if(!f)return false;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);
         ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);
@@ -74,7 +78,7 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
         bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*2,XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));
         Am=(int8_t*)bA->map();Cm=(int16_t*)bC->map();
         for(int l=0;l<NL;l++)layerB.emplace_back(std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B)));
-        return true;}
+        initialized=true;return true;}
     void packB(int l,const float*w,int K,int N,float&sout){float amax=0;
         for(int i=0;i<K*N;i++){float a=fabsf(w[i]);if(std::isfinite(a)&&a>amax)amax=a;}
         if(amax<1e-12f)amax=1.0f;sout=amax/127.0f;float is=127.0f/amax;auto*Bm=(int8_t*)layerB[l]->map();
@@ -185,7 +189,7 @@ inline void lm_topk_omp(const float*hidden,float*lg,int*top_ids,int K,int NV,int
 
 int main(int argc,char**argv){
     setvbuf(stdout,NULL,_IONBF,0);
-    if(argc<2){printf("Usage: %s model.q4nx [decode_tokens] [input_tokens_file|-]\n",argv[0]);return 1;}
+    if(argc<2){fprintf(stderr,"Usage: %s model.q4nx [decode_tokens] [input_tokens_file|-]\n",argv[0]);return 1;}
     // Check for --worker flag (subprocess protocol mode)
     bool worker_mode=false;
     for(int i=2;i<argc;i++){if(strcmp(argv[i],"--worker")==0){worker_mode=true;break;}}
@@ -201,10 +205,10 @@ int main(int argc,char**argv){
 
     // Parse config
     ModelConfig cfg=parse_q4nx_header(mp,model_tag.c_str());
-    if(!cfg.valid()){printf("ERR: invalid model config\n");return 1;}
+    if(!cfg.valid()){fprintf(stderr,"ERR: invalid model config\n");return 1;}
     int H=cfg.H,NC=cfg.NC,NH=cfg.NH,NKV=cfg.NKV,HD=cfg.HD,IM=cfg.IM,NV=cfg.NV,GQA=cfg.GQA,XM=cfg.XM;
-    printf("=== NPU Engine Universal — %s ===\n",model_tag.c_str());
-    printf("H=%d NC=%d NH=%d NKV=%d HD=%d IM=%d NV=%d GU_split=%d\n",H,NC,NH,NKV,HD,IM,NV,cfg.gu_split);
+    fprintf(stderr,"=== NPU Engine Universal — %s ===\n",model_tag.c_str());
+    fprintf(stderr,"H=%d NC=%d NH=%d NKV=%d HD=%d IM=%d NV=%d GU_split=%d\n",H,NC,NH,NKV,HD,IM,NV,cfg.gu_split);
 
     // Open model
     int fd=open(mp,O_RDONLY);struct stat st;fstat(fd,&st);
@@ -214,10 +218,10 @@ int main(int argc,char**argv){
     const char*js=(const char*)(md+8);size_t jl=hsz;
 
     // Pre-convert embeddings f32 (v12 optimization)
-    printf("Pre-convert emb f32...\n");auto te=std::chrono::steady_clock::now();
+    fprintf(stderr,"Pre-convert emb f32...\n");auto te=std::chrono::steady_clock::now();
     emb_f32.resize((size_t)NV*H);
     for(int n=0;n<NV;n++)for(int i=0;i<H;i++)emb_f32[(size_t)n*H+i]=bf16g(emb[n*H+i]);
-    printf("  %.0fms\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-te).count());
+    fprintf(stderr,"  %.0fms\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-te).count());
 
     // Norm weights
     std::vector<uint64_t> in_off(NC),pa_off(NC),qn_off(NC),kn_off(NC),qp(NC),kp(NC),vp(NC),op(NC),gp(NC),up(NC),dp(NC);
@@ -253,13 +257,13 @@ int main(int argc,char**argv){
     // Load lm_head.weight separately — NOT tied to embed_tokens.weight for this model
     if(lo&&lm_i8>0){int lr,lc;float*lm_raw=dequant_i8_to_float_ex(i8p(lo),lm_i8,H,&lr,&lc);if(lm_raw){
         lm_head_f32.assign(lm_raw,lm_raw+(size_t)lr*lc);free(lm_raw);
-        printf("  lm_head: %dx%d (loaded from JSON), using for final logits\n",lr,lc);
-    }else{printf("  lm_head: dequant failed, falling back to emb\n");}}
-    if(lm_head_f32.empty()){printf("  lm_head: using emb_f32 (tied embeddings)\n");}
+        fprintf(stderr,"  lm_head: %dx%d (loaded from JSON), using for final logits\n",lr,lc);
+    }else{fprintf(stderr,"  lm_head: dequant failed, falling back to emb\n");}}
+    if(lm_head_f32.empty()){fprintf(stderr,"  lm_head: using emb_f32 (tied embeddings)\n");}
     const float* lm_emb = lm_head_f32.empty() ? emb_f32.data() : lm_head_f32.data();
 
     // Init NPU
-    printf("Init NPU...\n");xrt::device dev(0);
+    fprintf(stderr,"Init NPU...\n");xrt::device dev(0);
     // Xclbin directory: respect NPU_XCLBIN_DIR env var, fall back to repo-relative path
     const char* env_xd = getenv("NPU_XCLBIN_DIR");
     std::string xd = env_xd ? env_xd : "engine/npu/xclbins";
@@ -268,14 +272,14 @@ int main(int argc,char**argv){
 
     I8Ctx cq,co,cg,cd;cq.MD=XM;cq.KD=cfg.xclbin_qkv_k;cq.ND=cfg.xclbin_qkv_n;co.MD=XM;co.KD=cfg.xclbin_o_k;co.ND=cfg.xclbin_o_n;cd.MD=XM;cd.KD=cfg.xclbin_d_k;cd.ND=cfg.xclbin_d_n;
     if(cfg.gu_split){cg.MD=XM;cg.KD=cfg.xclbin_g_k;cg.ND=cfg.xclbin_g_n;}else{cg.MD=XM;cg.KD=cfg.xclbin_gu_k;cg.ND=cfg.xclbin_gu_n;}
-    if(!cq.init(dev,xp("QKV").c_str(),ip("QKV").c_str(),4,NC)){printf("FAIL QKV\n");return 1;}
-    if(!co.init(dev,xp("O").c_str(),ip("O").c_str(),4,NC)){printf("FAIL O\n");return 1;}
-    if(cfg.gu_split){if(!cg.init(dev,xp("G").c_str(),ip("G").c_str(),4,NC)){printf("FAIL G\n");return 1;}}else{if(!cg.init(dev,xp("GU").c_str(),ip("GU").c_str(),4,NC)){printf("FAIL GU\n");return 1;}}
-    if(!cd.init(dev,xp("D").c_str(),ip("D").c_str(),4,NC)){printf("FAIL D\n");return 1;}
+    if(!cq.init(dev,xp("QKV").c_str(),ip("QKV").c_str(),4,NC)){fprintf(stderr,"FAIL QKV\n");return 1;}
+    if(!co.init(dev,xp("O").c_str(),ip("O").c_str(),4,NC)){fprintf(stderr,"FAIL O\n");return 1;}
+    if(cfg.gu_split){if(!cg.init(dev,xp("G").c_str(),ip("G").c_str(),4,NC)){fprintf(stderr,"FAIL G\n");return 1;}}else{if(!cg.init(dev,xp("GU").c_str(),ip("GU").c_str(),4,NC)){fprintf(stderr,"FAIL GU\n");return 1;}}
+    if(!cd.init(dev,xp("D").c_str(),ip("D").c_str(),4,NC)){fprintf(stderr,"FAIL D\n");return 1;}
     std::unique_ptr<I8Ctx> cu_ptr;
-    if(cfg.gu_split){cu_ptr=std::make_unique<I8Ctx>();cu_ptr->MD=XM;cu_ptr->KD=cfg.xclbin_u_k;cu_ptr->ND=cfg.xclbin_u_n;if(!cu_ptr->init(dev,xp("U").c_str(),ip("U").c_str(),4,NC)){printf("FAIL U\n");return 1;}}
+    if(cfg.gu_split){cu_ptr=std::make_unique<I8Ctx>();cu_ptr->MD=XM;cu_ptr->KD=cfg.xclbin_u_k;cu_ptr->ND=cfg.xclbin_u_n;if(!cu_ptr->init(dev,xp("U").c_str(),ip("U").c_str(),4,NC)){fprintf(stderr,"FAIL U\n");return 1;}}
 
-    printf("Dequant+pack...\n");auto tp=std::chrono::steady_clock::now();
+    fprintf(stderr,"Dequant+pack...\n");auto tp=std::chrono::steady_clock::now();
     std::vector<float> qsc(NC),osc(NC),gsc(NC),dsc(NC),usc(NC);
     const int QOUT=NH*HD,KVOUT=NKV*HD;   // QKV out_features, in_features=H (default dequant correct)
     const int OOUT=H,OIN=NH*HD;          // O: out=H, in=NH*HD — dequant needs OIN
@@ -303,7 +307,7 @@ int main(int argc,char**argv){
         int dr2,dc2;float*dw=dequant_i8_to_float_ex(i8p(dp[l]),d_i8,DIN,&dr2,&dc2);
         std::vector<float>wd((size_t)DIN*DOUT);transpose_pack(dw,DOUT,DIN,wd.data(),DOUT,0);
         cd.packB(l,wd.data(),DIN,DOUT,dsc[l]);free(dw);}
-    printf("  %.0fms\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-tp).count());
+    fprintf(stderr,"  %.0fms\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-tp).count());
 
     // RoPE
     ri(HD,cfg.rope_theta,4096);
@@ -333,8 +337,11 @@ int main(int argc,char**argv){
     std::vector<float> h_data(H), qo_data(qkv_n*BS), ko_data(NKV*HD*BS), vo_data(NKV*HD*BS), at_data(NH*HD*BS), oo_data(H*BS);
     std::vector<float> gt_data((cfg.gu_split?IM:2*IM)*BS), su_data(IM*BS), dwo_data(H*BS), sb_data(XM*H), lg_buf(NV);
     int sp=0;
-
     // ===== WORKER MODE (subprocess protocol) =====
+    // The Zig fused executor (fused_execute.zig) sends individual GEMM
+    // operations (QKV, OPROJ, GATEUP, DOWN) via this protocol. Each request
+    // is header[4] (op, layer, batch, in_dim) followed by float input data.
+    // Response is header[2] (0=ok, out_dim) followed by float output data.
     if(worker_mode){
         fprintf(stderr,"WORKER_READY\n");
         fflush(stderr);
@@ -342,35 +349,82 @@ int main(int argc,char**argv){
         while(fread(hdr,sizeof(uint32_t),4,stdin)==4){
             uint32_t op=hdr[0],layer=hdr[1],batch=hdr[2],in_dim=hdr[3];
             if(op==0) break; // QUIT
-            uint32_t out_dim=0;
+
+            // Input validation: batch and in_dim must be reasonable
+            if(batch==0||batch>XM||in_dim==0||in_dim>4096||layer>=(uint32_t)NC){
+                uint32_t resp[2]={1,0};
+                fwrite(resp,sizeof(uint32_t),2,stdout);
+                fflush(stdout);
+                // Drain input payload
+                std::vector<float> drain(batch*in_dim);
+                fread(drain.data(),sizeof(float),batch*in_dim,stdin);
+                continue;
+            }
+
             std::vector<float> in_data(batch*in_dim);
             if(fread(in_data.data(),sizeof(float),batch*in_dim,stdin)!=(size_t)(batch*in_dim)) break;
-            // Process based on op
-            if(op==1||op==2||op==3||op==5){
-                // QKV=1, OPROJ=2, GATEUP=3, DOWN=5
-                if(op==1){ // QKV projection
+
+            uint32_t out_dim=0;
+            std::vector<float> out_data;
+            bool ok=true;
+
+            try{
+                if(op==1&&cq.isReady()){ // QKV projection
                     out_dim=cfg.qkv_total;
-                }else if(op==2){ // O projection
+                    out_data.resize(batch*out_dim,0);
+                    float ascale=dynamic_ascale(in_data.data(),batch*in_dim);
+                    cq.go(layer,in_data.data(),batch,(int)in_dim,ascale,qsc[layer],out_data.data(),(int)out_dim);
+                }else if(op==2&&co.isReady()){ // O projection
                     out_dim=H;
-                }else if(op==3){ // Gate+Up
+                    out_data.resize(batch*out_dim,0);
+                    float ascale=dynamic_ascale(in_data.data(),batch*in_dim);
+                    co.go(layer,in_data.data(),batch,(int)in_dim,ascale,osc[layer],out_data.data(),(int)out_dim);
+                }else if(op==3&&cg.isReady()){ // Gate+Up
                     out_dim=cfg.gu_split?IM:(2*IM);
-                }else if(op==5){ // Down
+                    out_data.resize(batch*out_dim,0);
+                    float ascale=dynamic_ascale(in_data.data(),batch*in_dim);
+                    cg.go(layer,in_data.data(),batch,(int)in_dim,ascale,gsc[layer],out_data.data(),(int)out_dim);
+                }else if(op==4&&cfg.gu_split&&cu_ptr&&cu_ptr->isReady()){ // Up
+                    out_dim=IM;
+                    out_data.resize(batch*out_dim,0);
+                    float ascale=dynamic_ascale(in_data.data(),batch*in_dim);
+                    cu_ptr->go(layer,in_data.data(),batch,(int)in_dim,ascale,usc[layer],out_data.data(),(int)out_dim);
+                }else if(op==5&&cd.isReady()){ // Down
                     out_dim=H;
+                    out_data.resize(batch*out_dim,0);
+                    float ascale=dynamic_ascale(in_data.data(),batch*in_dim);
+                    cd.go(layer,in_data.data(),batch,(int)in_dim,ascale,dsc[layer],out_data.data(),(int)out_dim);
+                }else{
+                    ok=false;
                 }
-                std::vector<float> out_data(batch*out_dim,0);
-                // For now: zero output (no NPU hardware access in worker mode)
-                // The fused engine will use CPU fallback
-                uint32_t resp[2]={0,out_dim};
-                fwrite(resp,sizeof(uint32_t),2,stdout);
-                fwrite(out_data.data(),sizeof(float),batch*out_dim,stdout);
-                fflush(stdout);
-            }else{
-                uint32_t resp[2]={1,0}; // unknown op
-                fwrite(resp,sizeof(uint32_t),2,stdout);
-                fflush(stdout);
+            }catch(std::exception&e){
+                fprintf(stderr,"NPU worker op %u layer %u batch %u: %s\n",op,layer,batch,e.what());
+                fflush(stderr);
+                ok=false;
+            }catch(...){
+                fprintf(stderr,"NPU worker op %u layer %u batch %u: unknown error\n",op,layer,batch);
+                fflush(stderr);
+                ok=false;
             }
+
+            if(!ok){
+                uint32_t resp[2]={1,0}; // error
+                fwrite(resp,sizeof(uint32_t),2,stdout);
+                fflush(stdout);
+                continue;
+            }
+
+            // Success: send response code + output
+            uint32_t resp[2]={0,out_dim};
+            fwrite(resp,sizeof(uint32_t),2,stdout);
+            fwrite(out_data.data(),sizeof(float),batch*out_dim,stdout);
+            fflush(stdout);
         }
-        return 0;
+        // Use _exit() to skip destructor cleanup — XRT's BO destructors can
+        // corrupt glibc's heap when vectors containing GB-scale weight data
+        // (emb_f32 ~594MB, lm_head_f32 ~594MB, kv_caches ~896MB) race with
+        // XRT dma-buf teardown during normal exit() destructor chain.
+        _exit(0);
     }
 
     // Load input tokens from file or use default hardcoded sequence
@@ -594,5 +648,9 @@ int main(int argc,char**argv){
     double tts=std::chrono::duration<double>(std::chrono::steady_clock::now()-tgs).count();
     printf("\n=== %.1f ms/tok (%.0f tok/s) | boot=%.0fms batches=%d tokens=%d ===\n",tts*1000/ng,ng/tts,t_boot,n_batches,total_generated);
 
-    munmap(md,st.st_size);return 0;
+    // Graceful exit: the XRT BO destructors (unique_ptr cleanup) can corrupt
+    // glibc's heap when GB-scale vectors race with dma-buf teardown.
+    // Use _exit() to skip the destructor chain entirely — the OS reclaims
+    // all resources on process exit anyway.
+    munmap(md,st.st_size);fflush(stdout);fflush(stderr);_exit(0);
 }

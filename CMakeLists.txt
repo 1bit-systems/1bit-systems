@@ -236,6 +236,7 @@ target_include_directories(backend_manager PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
     $<INSTALL_INTERFACE:include>)
 target_link_libraries(backend_manager PUBLIC dl)
+target_compile_definitions(backend_manager PRIVATE ROCM_CPP_STATIC_HIP=1)
 target_compile_options(backend_manager PRIVATE -O3 -Wall -Wno-unused-result -std=c++17)
 
 set(RCPP_HIP_SOURCES
@@ -604,6 +605,7 @@ target_include_directories(unified_server PRIVATE
 target_compile_options(unified_server PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result -Wno-unused-parameter -Wno-unused-variable>
     $<$<COMPILE_LANGUAGE:CXX>:-O3 -Wall -Wno-unused-result -std=c++17>)
+target_compile_definitions(unified_server PRIVATE ROCM_CPP_STATIC_HIP=1)
 target_link_libraries(unified_server PRIVATE
     backend_manager dl
     httplib::httplib

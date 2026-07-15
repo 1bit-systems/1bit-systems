@@ -13,7 +13,7 @@
     "date": "2026-07-15",
     "gpu": "gfx1151 (RDNA 3.5, Wave32)",
     "host": "AMD Ryzen AI MAX+ 395 w/ Radeon 8060S",
-    "note": "Full benchmark suite after BackendManager routing fix. All kernel benchmarks within 15% tolerance of prior values. Bonsai E2E decode validated on real TQ2 model (argmax=76213, coherent). KV Flash-Decoding shows 12.65x speedup at seq_len=2048.",
+    "note": "Zaya engine benchmark with full MoE expert weights on Radeon 8060S. Synthetic FP32 weights (33 GB). BackendManager correctly selected hip_gpu as fastest backend. Benchmark warm: 23.9 tok/s. Cold inference: 8.95 tok/s.",
     "rocm": "7.2.4"
   },
   "_sources": {
@@ -126,6 +126,12 @@
     "zaya_layers": 40,
     "zaya_layers_per_sec": 44.9,
     "zaya_output_logits": "PASS (coherent, non-NaN, non-zero)",
+    "zaya_rocm_hip_active_backend": "hip_gpu \u2705",
+    "zaya_rocm_hip_moe_experts": "enabled (16 per layer \u00d7 40 layers)",
+    "zaya_rocm_hip_ms_per_tok": 41.9,
+    "zaya_rocm_hip_tok_s_benchmark": 23.9,
+    "zaya_rocm_hip_tok_s_cold": 8.95,
+    "zaya_rocm_hip_weight_format": "synthetic FP32 (33 GB total)",
     "zaya_vocab": 262272,
     "zaya_weight_format": "synthetic (reverse-engineered)"
   },

@@ -372,8 +372,24 @@ const NpuSubprocess = struct {
             .argv = &[_][]const u8{ self.engine_path, self.model_path, "--worker" },
             .stdin = .pipe,
             .stdout = .pipe,
-            .stderr = .inherit,
+            .stderr = .pipe,
         });
+        // Wait for WORKER_READY on stderr — the NPU engine takes 5-7 seconds
+        // to initialize (load model, init XRT, pack weights into NPU buffers).
+        // The first request must not be sent until the worker loop is actually
+        // accepting commands on its stdin, or the request bytes arrive in the
+        // pipe before the C++ code enters fread() and get consumed by some
+        // other scanf/fread call, or get discarded.
+        var line_buf: [128]u8 = undefined;
+        var got: usize = 0;
+        while (got < line_buf.len) {
+            const n = try self.child.?.stderr.?.readStreaming(io, &.{line_buf[got..]});
+            if (n == 0) return error.NpuWorkerNeverReady;
+            got += n;
+            if (std.mem.containsAtLeast(u8, line_buf[0..got], 1, "WORKER_READY")) {
+                break;
+            }
+        }
     }
 
     fn readExact(file: std.Io.File, io: Io, buf: []u8) !void {
@@ -1018,7 +1034,8 @@ pub const FusedExecutor = struct {
         } else {
             tryOrZero: {
                 self.npu.runFFN(input[0..batch_size * H], layer, batch_size, s.gate_up) catch |err| {
-                    log.warn("NPU gate/up (layer {d}) failed: {s}", .{ layer, @errorName(err) });
+                    log.warn("NPU gate/up (layer {d}) failed: {s} - falling back to CPU for remaining layers", .{ layer, @errorName(err) });
+                    self.npu_broken = true;
                     break :tryOrZero;
                 };
             }
@@ -1038,7 +1055,8 @@ pub const FusedExecutor = struct {
         } else {
             tryOrZero: {
                 self.npu.runDown(s.activated[0..batch_size * IM], layer, batch_size, s.down_out[0..batch_size * H]) catch |err| {
-                    log.warn("NPU down (layer {d}) failed: {s}", .{ layer, @errorName(err) });
+                    log.warn("NPU down (layer {d}) failed: {s} - falling back to CPU for remaining layers", .{ layer, @errorName(err) });
+                    self.npu_broken = true;
                     break :tryOrZero;
                 };
             }
@@ -1886,7 +1904,8 @@ pub const FusedExecutor = struct {
                 }
             } else tryOrZero: {
                 self.npu.runQKV(s.hidden[0..B * H], layer, B, qkv_buf) catch |err| {
-                    log.warn("NPU QKV (layer {d}) failed: {s}", .{ layer, @errorName(err) });
+                    log.warn("NPU QKV (layer {d}) failed: {s} - falling back to CPU for remaining layers", .{ layer, @errorName(err) });
+                    self.npu_broken = true;
                     break :tryOrZero;
                 };
             }
@@ -1963,7 +1982,8 @@ pub const FusedExecutor = struct {
                 self.npu.runOProj(
                     s.attn_out[0..B * NH * HD], layer, B, s.o_out[0..B * H],
                 ) catch |err| {
-                    log.warn("NPU O-proj (layer {d}) failed: {s}", .{ layer, @errorName(err) });
+                    log.warn("NPU O-proj (layer {d}) failed: {s} - falling back to CPU for remaining layers", .{ layer, @errorName(err) });
+                    self.npu_broken = true;
                     break :tryOrZero;
                 };
             } else {
