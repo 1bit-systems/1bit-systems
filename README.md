@@ -13,8 +13,8 @@
 [![Strix Halo](https://img.shields.io/badge/strix%20halo-gfx1151%20%2B%20XDNA%202-12a0ed.svg)](https://www.amd.com/en/products/processors/laptop/ryzen/ai-max-series.html)
 [![GPU Kernels](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/badge_gpu.json)](site/benchmarks.json)
 [![NPU Engine](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/badge_npu.json)](site/benchmarks.json)
-[![GGUF](https://img.shields.io/badge/GGUF-Qwen2%20%7C%20Llama%20%7C%20Mistral-f00fd2)](src/gguf_loader.cpp)
-[![ONNX](https://img.shields.io/badge/ONNX-supported-00ff00)](src/onnx_loader.cpp)
+[![GGUF](https://img.shields.io/badge/GGUF-Qwen2%20%7C%20Llama%20%7C%20Mistral-00ff00)](src/gguf_loader.cpp)
+[![ONNX](https://img.shields.io/badge/ONNX-supported-f00fd2)](src/onnx_loader.cpp)
 [![Tests](https://img.shields.io/badge/tests-11%2F11-00ff00)](tests/)
 
 **One binary, all backends, all models.** Auto-detects model architecture from the model header — no config files, no model registry.
