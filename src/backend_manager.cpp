@@ -203,16 +203,80 @@ bool BackendManager::init(const ModelConfig& cfg, const std::string& weights_dir
     return false;
 }
 
-// ── Select active backend ──
+// ── Select active backend by strategy ──
 bool BackendManager::select_best() {
     std::lock_guard<std::mutex> lock(mtx_);
-    for (size_t i = 0; i < backends_.size(); i++) {
-        if (backends_[i].available && backends_[i].functional) {
-            active_idx_ = i;
-            return true;
+
+    switch (strategy_) {
+        case SelectionStrategy::FASTEST: {
+            // Pick the backend with the best (lowest) benchmark score
+            size_t best_idx = backends_.size();
+            float best_score = 1e30f;
+            for (size_t i = 0; i < backends_.size(); i++) {
+                auto& b = backends_[i];
+                if (!b.available || !b.functional) continue;
+                if (b.score > 0 && b.score < best_score) {
+                    best_score = b.score;
+                    best_idx = i;
+                }
+            }
+            // If no backend has a score, fall back to first available+functional
+            if (best_idx == backends_.size()) {
+                for (size_t i = 0; i < backends_.size(); i++) {
+                    if (backends_[i].available && backends_[i].functional) {
+                        best_idx = i;
+                        break;
+                    }
+                }
+            }
+            if (best_idx < backends_.size()) {
+                active_idx_ = best_idx;
+                printf("BackendManager: selected %s (%.1f ms/tok)\n",
+                       backends_[best_idx].id.c_str(), backends_[best_idx].score);
+                return true;
+            }
+            return false;
         }
+
+        case SelectionStrategy::LOWEST_POWER: {
+            // Pick the highest-priority available+functional backend (NPU > GPU > CPU)
+            for (size_t i = 0; i < backends_.size(); i++) {
+                if (backends_[i].available && backends_[i].functional) {
+                    active_idx_ = i;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        case SelectionStrategy::ROUND_ROBIN: {
+            // Cycle to the next available+functional backend
+            size_t start = (active_idx_ + 1) % backends_.size();
+            for (size_t i = 0; i < backends_.size(); i++) {
+                size_t idx = (start + i) % backends_.size();
+                if (backends_[idx].available && backends_[idx].functional) {
+                    active_idx_ = idx;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        case SelectionStrategy::MANUAL:
+        default:
+            // Don't auto-change — user controls it via select_backend()
+            if (active_idx_ < backends_.size() &&
+                backends_[active_idx_].available && backends_[active_idx_].functional)
+                return true;
+            // Fallback to first available
+            for (size_t i = 0; i < backends_.size(); i++) {
+                if (backends_[i].available && backends_[i].functional) {
+                    active_idx_ = i;
+                    return true;
+                }
+            }
+            return false;
     }
-    return false;
 }
 
 bool BackendManager::select_backend(const std::string& id) {
@@ -290,6 +354,12 @@ int BackendManager::generate(int token_id) {
                 info->total_inferences++;
                 info->cumulative_ms += ms;
                 monitor_.record(info->id, ms, true);
+                // Update running score as exponential moving average
+                // so re_evaluate() can use live performance data
+                float ema = (info->score > 0)
+                    ? 0.9f * info->score + 0.1f * ms
+                    : ms;
+                info->score = ema;
             }
             return result;
         }
@@ -479,7 +549,6 @@ void BackendManager::benchmark_all(int tokens) {
         fflush(stdout);
 
         // Create instance if needed
-        bool needs_cleanup = false;
         if (!info.instance) {
             auto* raw = create_instance_rt(info);
             if (!raw) {
@@ -492,17 +561,12 @@ void BackendManager::benchmark_all(int tokens) {
                 destroy_instance(info);
                 continue;
             }
-            needs_cleanup = true;
         }
 
         float ms = info.instance->benchmark(tokens);
         info.score = ms;
+        info.functional = true;  // benchmarked and ready to use
         printf("%.1f ms/tok\n", ms);
-
-        if (needs_cleanup && info.instance) {
-            info.instance.reset();
-            info.functional = false;  // not selectable until re-instantiated (fixes #93)
-        }
     }
 
     rank_backends();
@@ -514,6 +578,106 @@ void BackendManager::benchmark_all(int tokens) {
         }
     }
     printf("\n");
+}
+
+// ── Re-evaluate: check if a better backend is available per strategy ──
+bool BackendManager::re_evaluate() {
+    std::lock_guard<std::mutex> lock(mtx_);
+    size_t old_idx = active_idx_;
+    std::string old_id = (old_idx < backends_.size())
+        ? backends_[old_idx].id : "none";
+
+    // Keep the list sorted per current strategy, then re-select.
+    // Use unlocked helper: rank_backends sorts backends_ in-place.
+    // We hold the lock, so this is safe.
+    // Temporarily save/restore active_idx_ because the sort may move it.
+    rank_backends();
+
+    // Find the best backend per strategy
+    size_t best_idx = backends_.size();
+
+    switch (strategy_) {
+        case SelectionStrategy::FASTEST: {
+            float best_score = 1e30f;
+            for (size_t i = 0; i < backends_.size(); i++) {
+                auto& b = backends_[i];
+                if (!b.available || !b.functional) continue;
+                if (b.score > 0 && b.score < best_score) {
+                    best_score = b.score;
+                    best_idx = i;
+                }
+            }
+            if (best_idx == backends_.size()) {
+                // No scored backends — pick first available+functional
+                for (size_t i = 0; i < backends_.size(); i++) {
+                    if (backends_[i].available && backends_[i].functional) {
+                        best_idx = i;
+                        break;
+                    }
+                }
+            }
+            break;
+        }
+
+        case SelectionStrategy::LOWEST_POWER: {
+            for (size_t i = 0; i < backends_.size(); i++) {
+                if (backends_[i].available && backends_[i].functional) {
+                    best_idx = i;
+                    break;
+                }
+            }
+            break;
+        }
+
+        case SelectionStrategy::ROUND_ROBIN: {
+            // Find the current backend's position in the sorted list, then
+            // pick the next available+functional one.
+            size_t current_pos = backends_.size();
+            for (size_t i = 0; i < backends_.size(); i++) {
+                if (backends_[i].id == old_id) {
+                    current_pos = i;
+                    break;
+                }
+            }
+            for (size_t i = 1; i <= backends_.size(); i++) {
+                size_t idx = (current_pos + i) % backends_.size();
+                if (backends_[idx].available && backends_[idx].functional) {
+                    best_idx = idx;
+                    break;
+                }
+            }
+            if (best_idx == backends_.size()) {
+                for (size_t i = 0; i < backends_.size(); i++) {
+                    if (backends_[i].available && backends_[i].functional) {
+                        best_idx = i;
+                        break;
+                    }
+                }
+            }
+            break;
+        }
+
+        case SelectionStrategy::MANUAL:
+        default:
+            // Don't auto-change
+            if (old_idx < backends_.size() &&
+                backends_[old_idx].available && backends_[old_idx].functional)
+                best_idx = old_idx;
+            break;
+    }
+
+    if (best_idx < backends_.size()) {
+        active_idx_ = best_idx;
+        if (best_idx != old_idx || backends_[best_idx].id != old_id) {
+            printf("BackendManager: re-evaluated → switched %s → %s (%.1f ms/tok)\n",
+                   old_id.c_str(),
+                   backends_[best_idx].id.c_str(),
+                   backends_[best_idx].score);
+            return true;
+        }
+    }
+
+    return false;
 }
 
 const BackendInfo* BackendManager::best_for_tier(BackendTier tier) const {
@@ -633,15 +797,18 @@ void BackendManager::set_strategy(SelectionStrategy s) {
     switch (s) {
         case SelectionStrategy::FASTEST:
             printf("BackendManager: strategy → FASTEST (best benchmark score)\n");
+            re_evaluate();
             break;
         case SelectionStrategy::LOWEST_POWER:
             printf("BackendManager: strategy → LOWEST POWER (NPU > GPU > CPU)\n");
+            re_evaluate();
             break;
         case SelectionStrategy::MANUAL:
             printf("BackendManager: strategy → MANUAL (user-selected)\n");
             break;
         case SelectionStrategy::ROUND_ROBIN:
             printf("BackendManager: strategy → ROUND ROBIN\n");
+            re_evaluate();
             break;
     }
 }
@@ -762,14 +929,29 @@ void BackendManager::destroy_instance(BackendInfo& info) {
 }
 
 void BackendManager::rank_backends() {
-    // Sort by priority descending (highest first), then by score ascending
+    // Sort by strategy: FASTEST uses score first, LOWEST_POWER uses tier priority first.
     std::sort(backends_.begin(), backends_.end(),
-        [](const BackendInfo& a, const BackendInfo& b) {
+        [this](const BackendInfo& a, const BackendInfo& b) {
+            // Available always beats unavailable
             if (a.available != b.available) return a.available > b.available;
+            // Functional always beats non-functional
             if (a.functional != b.functional) return a.functional > b.functional;
+
+            if (strategy_ == SelectionStrategy::FASTEST) {
+                // Primary sort: benchmark score (lower ms/tok = better)
+                // Secondary sort: priority as tiebreaker
+                bool a_scored = (a.score > 0);
+                bool b_scored = (b.score > 0);
+                if (a_scored != b_scored) return a_scored > b_scored;
+                if (a_scored && b_scored && a.score != b.score)
+                    return a.score < b.score;  // lower ms = faster
+                return a.priority > b.priority;
+            }
+
+            // LOWEST_POWER, MANUAL, ROUND_ROBIN: priority first, score as tiebreaker
             if (a.priority != b.priority) return a.priority > b.priority;
-            if (a.score > 0 && b.score > 0) return a.score < b.score; // lower ms = better
-            return a.score > b.score; // untested goes last
+            if (a.score > 0 && b.score > 0) return a.score < b.score;
+            return a.score > b.score;
         });
 }
 

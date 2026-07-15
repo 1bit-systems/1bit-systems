@@ -41,3 +41,15 @@
 - BitNet-2B-4T end-to-end decode at 82 tok/s
 - Prefill 30.15 TFlops at 1.02x TheRock rocBLAS
 - Decode GEMV 4.9-7.2x rocBLAS
+
+## 2026.07.15
+
+- fix(backend_manager): rank_backends now uses benchmark score as primary sort when FASTEST strategy
+- fix(backend_manager): select_best respects strategy (FASTEST, LOWEST_POWER, ROUND_ROBIN, MANUAL)
+- fix(backend_manager): benchmark_all keeps all benchmarked instances alive so re_evaluate can switch
+- fix(backend_manager): generate() updates info.score with EMA so live latency feeds routing
+- fix(backend_manager): set_strategy triggers re_evaluate for automatic strategies
+- fix(backend_manager): added re_evaluate() — re-ranks and re-selects active backend
+- fix(unified_server): removed post-benchmark re-init hack, now uses re_evaluate()
+- chore(benchmarks): re-measured kernel benchmarks on Strix Halo (2026-07-15)
+

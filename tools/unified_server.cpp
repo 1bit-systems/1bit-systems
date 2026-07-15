@@ -434,23 +434,15 @@ int main(int argc, char** argv) {
         printf("\n── Benchmark ──\n");
         mgr.benchmark_all(3);  // 3 tokens is enough for a score
 
-        // benchmark_all() destroys instances and marks them non-functional (fixes #93).
-        // Re-init the fastest backend so the server starts functional.
-        printf("\n── Re-initialize best backend ──\n");
-        // Re-init the backend that benchmark destroyed (fixes #93 cleanup)
-        // Find the backend with the best score and re-init it
-        std::string best_id;
-        float best_score = 99999;
-        for (auto& b : mgr.backends()) {
-            if (b.score > 0 && b.score < best_score) {
-                best_score = b.score;
-                best_id = b.id;
-            }
-        }
-        mgr.init(cfg, g_weights_dir);
-        if (!best_id.empty() && mgr.select_backend(best_id)) {
-            printf("  \u2713  Active: %s (%.1f ms/tok)\n",
-                   best_id.c_str(), best_score);
+        // benchmark_all preserves the pre-existing (init'd) backend instance.
+        // Now re-evaluate to pick the fastest backend per strategy.
+        printf("\n── Select best backend ──\n");
+        mgr.set_strategy(SelectionStrategy::FASTEST);
+
+        auto* active = mgr.active_info();
+        if (active) {
+            printf("  Active: %s (%.1f ms/tok)\n",
+                   active->id.c_str(), active->score);
         }
     }
 

@@ -128,6 +128,13 @@ public:
     /// Check all backends; trigger failover if active is unhealthy
     void monitor();
 
+    /// Re-evaluate active backend against strategy and current scores.
+    /// For FASTEST: switches to the backend with best (lowest) benchmark score.
+    /// For ROUND_ROBIN: cycles to the next available backend.
+    /// For LOWEST_POWER: switches to the highest-priority available backend.
+    /// Returns true if the active backend changed.
+    bool re_evaluate();
+
     // ── Benchmarking ──
     /// Run benchmark on all backends, updating their scores
     void benchmark_all(int tokens = 10);
