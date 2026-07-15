@@ -218,6 +218,12 @@ set(RCPP_SOURCES
 if(RCPP_HAVE_CK)
     list(APPEND RCPP_SOURCES src/ck_gemm.cpp)
 endif()
+# NOTE: Some source files listed in RCPP_SOURCES are governed by the PolyForm
+# Noncommercial License (see LICENSE-SHERRY.md and SHERRY-FILES.txt).
+# The repo's overall license is MIT, but those specific files are restricted
+# to noncommercial use. The 'halo' kernel path (not sherry) is the MIT fallback.
+# To build without sherry-restricted files, exclude the files listed in SHERRY-FILES.txt
+# from RCPP_SOURCES (see docs/ for instructions).
 add_library(rocm_cpp SHARED ${RCPP_SOURCES})
 if(ROCWMMA_FOUND)
     target_include_directories(rocm_cpp SYSTEM PRIVATE "${ROCWMMA_INCLUDE_DIR}")
