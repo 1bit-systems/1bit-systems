@@ -15,10 +15,46 @@
 #define HIP_OK(e) do{auto _s=(e);if(_s!=hipSuccess){fprintf(stderr,"HIP Error %d\n",_s);abort();}}while(0)
 
 
-// ── Architecture ──
+// ── Architecture (compile-time constants for kernels ──
 static constexpr int H=2048,NQ=8,NKV=2,HD=128,QD=NQ*HD,KD=NKV*HD,QKV=QD+KD;
 static constexpr int N_LAYERS=40,VOCAB=262272,N_EXP=16,N_EXP_T=17,N_FF=2048,RTR_H=256;
 static constexpr float RMD_EPS=1e-5f; static constexpr int BLK=256;
+
+// ── Runtime config (host code uses these) ──
+// Set by zaya_init before calling zaya_forward. Uses separate names
+// from the compile-time constants to avoid shadowing.
+#define _H H
+#define _NQ NQ
+#define _NKV NKV
+#define _HD HD
+#define _QD QD
+#define _KD KD
+#define _QKV QKV
+#define _N_LAYERS N_LAYERS
+#define _VOCAB VOCAB
+#define _N_EXP N_EXP
+#define _N_EXP_T N_EXP_T
+#define _N_FF N_FF
+#define _RTR_H RTR_H
+static struct {
+    int h=_H, nq=_NQ, nkv=_NKV, hd=_HD;
+    int qd=_QD, kd=_KD, qkv=_QKV;
+    int n_layers=_N_LAYERS, vocab=_VOCAB;
+    int n_exp=_N_EXP, n_exp_t=_N_EXP_T, n_ff=_N_FF, rtr_h=_RTR_H;
+} eng;
+#undef _H
+#undef _NQ
+#undef _NKV
+#undef _HD
+#undef _QD
+#undef _KD
+#undef _QKV
+#undef _N_LAYERS
+#undef _VOCAB
+#undef _N_EXP
+#undef _N_EXP_T
+#undef _N_FF
+#undef _RTR_H
 
 // ── Helper kernels ──
 __global__ void rmsnorm_k(__half*x,const __half*w,int n){__shared__ float r[32];int tx=threadIdx.x,wid=tx/32,l=tx%32;float ss=0;for(int i=tx;i<n;i+=blockDim.x)ss+=(float)x[i]*(float)x[i];for(int o=16;o>0;o>>=1)ss+=__shfl_xor(ss,o);if(l==0)r[wid]=ss;__syncthreads();if(wid==0){ss=(l<(256/32))?r[l]:0;for(int o=16;o>0;o>>=1)ss+=__shfl_xor(ss,o);if(l==0)r[0]=ss;}__syncthreads();float iv=1.0f/sqrtf(r[0]/n+1e-5f);for(int i=tx;i<n;i+=blockDim.x)x[i]=__float2half((float)x[i]*iv*(float)w[i]);}
@@ -89,9 +125,9 @@ struct ZayaState {
     int *d_expert_idx=nullptr; float *d_expert_wt=nullptr;
     int *d_sorted_ids=nullptr,*d_expert_counts=nullptr,*d_expert_offsets=nullptr;
     hipStream_t st=nullptr;
-    LayerW lw[N_LAYERS];
-    bool has_eda[N_LAYERS];
-    float eda_scale[N_LAYERS];
+    std::vector<LayerW> lw;
+    std::vector<bool> has_eda;
+    std::vector<float> eda_scale;
     std::vector<float> embed, ibias, iscale;
 };
 
@@ -114,75 +150,75 @@ ZayaState* zaya_init(const char* weights_dir = nullptr) {
         return nullptr;
     }
 
-    HIP_OK(hipMalloc(&s->d_hs,H*2)); HIP_OK(hipMalloc(&s->d_ao,H*2));
-    HIP_OK(hipMalloc(&s->d_tmp,H*2)); HIP_OK(hipMalloc(&s->d_fnw,H*2));
+    HIP_OK(hipMalloc(&s->d_hs,eng.h*2)); HIP_OK(hipMalloc(&s->d_ao,eng.h*2));
+    HIP_OK(hipMalloc(&s->d_tmp,eng.h*2)); HIP_OK(hipMalloc(&s->d_fnw,eng.h*2));
     HIP_OK(hipMalloc(&s->d_lm_out,4096*2));
     // lm-head / argmax / batching buffers — formerly static locals in forward functions (fixes #59,#63)
-    HIP_OK(hipMalloc(&s->d_lm_vocab,(size_t)VOCAB*2));
+    HIP_OK(hipMalloc(&s->d_lm_vocab,(size_t)eng.vocab*2));
     HIP_OK(hipMalloc(&s->d_argmax_idx,4));
     HIP_OK(hipMalloc(&s->d_argmax_val,4));
     HIP_OK(hipMalloc(&s->d_sorted_ids,(size_t)8*4));
     HIP_OK(hipMalloc(&s->d_expert_counts,(size_t)17*4));
     HIP_OK(hipMalloc(&s->d_expert_offsets,(size_t)17*4));
-    HIP_OK(hipMalloc(&s->d_embed,(size_t)VOCAB*H*2));
-    HIP_OK(hipMalloc(&s->d_conv,(size_t)N_LAYERS*2*QKV*2));
-    HIP_OK(hipMalloc(&s->d_phs,(size_t)N_LAYERS*H*2));
-    HIP_OK(hipMalloc(&s->d_prev_rs,(size_t)N_LAYERS*RTR_H*4));
+    HIP_OK(hipMalloc(&s->d_embed,(size_t)eng.vocab*eng.h*2));
+    HIP_OK(hipMalloc(&s->d_conv,(size_t)eng.n_layers*2*eng.qkv*2));
+    HIP_OK(hipMalloc(&s->d_phs,(size_t)eng.n_layers*eng.h*2));
+    HIP_OK(hipMalloc(&s->d_prev_rs,(size_t)eng.n_layers*eng.rtr_h*4));
     HIP_OK(hipMalloc(&s->d_expert_idx,4)); HIP_OK(hipMalloc(&s->d_expert_wt,4));
     
-    upf16(s->embed,s->d_embed,VOCAB*H,s->st);
-    std::vector<__half>hf(H);for(int i=0;i<H;i++)hf[i]=__float2half(fnorm[i]);
-    HIP_OK(hipMemcpy(s->d_fnw,hf.data(),H*2,hipMemcpyHostToDevice));
+    upf16(s->embed,s->d_embed,eng.vocab*eng.h,s->st);
+    std::vector<__half>hf(eng.h);for(int i=0;i<eng.h;i++)hf[i]=__float2half(fnorm[i]);
+    HIP_OK(hipMemcpy(s->d_fnw,hf.data(),eng.h*2,hipMemcpyHostToDevice));
     
     auto A=[&](auto&p,int n){HIP_OK(hipMalloc(&p,n*2));};
     auto B=[&](auto&p,int n){HIP_OK(hipMalloc(&p,n*4));};
     
-    for(int il=0;il<N_LAYERS;il++){
+    for(int il=0;il<eng.n_layers;il++){
         auto& l=s->lw[il];
-        A(l.nw,H);upf16(W("model_layers_"+L(il)+"_input_layernorm_weight.bin"),l.nw,H,s->st);
-        A(l.wq,QD*H);upf16(W("model_layers_"+L(il)+"_self_attn_qkv_proj_q_proj_weight.bin"),l.wq,QD*H,s->st);
-        A(l.wk,KD*H);upf16(W("model_layers_"+L(il)+"_self_attn_qkv_proj_k_proj_weight.bin"),l.wk,KD*H,s->st);
-        A(l.wv1,(KD/2)*H);upf16(W("model_layers_"+L(il)+"_self_attn_qkv_proj_v_proj_current_weight.bin"),l.wv1,(KD/2)*H,s->st);
-        A(l.wv2,(KD/2)*H);upf16(W("model_layers_"+L(il)+"_self_attn_qkv_proj_v_proj_delayed_weight.bin"),l.wv2,(KD/2)*H,s->st);
-        A(l.wo,H*QD);upf16(W("model_layers_"+L(il)+"_self_attn_o_proj_weight.bin"),l.wo,H*QD,s->st);
-        B(l.cdw,QKV*2);upf32(W("model_layers_"+L(il)+"_self_attn_qkv_proj_conv_qk_depthwise_weight.bin"),l.cdw,QKV*2,s->st);
-        B(l.cdb,QKV);upf32(W("model_layers_"+L(il)+"_self_attn_qkv_proj_conv_qk_depthwise_bias.bin"),l.cdb,QKV,s->st);
-        B(l.cgw,QKV*128*2);upf32(W("model_layers_"+L(il)+"_self_attn_qkv_proj_conv_qk_grouped_weight.bin"),l.cgw,QKV*128*2,s->st);
-        B(l.cgb,QKV);upf32(W("model_layers_"+L(il)+"_self_attn_qkv_proj_conv_qk_grouped_bias.bin"),l.cgb,QKV,s->st);
-        B(l.ks,NKV);upf32(W("model_layers_"+L(il)+"_self_attn_qk_norm_temp.bin"),l.ks,NKV,s->st);
-        B(l.pahss,H);upf32(W("model_layers_"+L(il)+"_post_attention_residual_scale_hidden_states_scale.bin"),l.pahss,H,s->st);
-        B(l.pahsb,H);upf32(W("model_layers_"+L(il)+"_post_attention_residual_scale_hidden_states_bias.bin"),l.pahsb,H,s->st);
-        B(l.parss,H);upf32(W("model_layers_"+L(il)+"_post_attention_residual_scale_residual_scale.bin"),l.parss,H,s->st);
-        B(l.parsb,H);upf32(W("model_layers_"+L(il)+"_post_attention_residual_scale_residual_bias.bin"),l.parsb,H,s->st);
-        A(l.pan,H);upf16(W("model_layers_"+L(il)+"_post_attention_layernorm_weight.bin"),l.pan,H,s->st);
-        // gdw stored transposed [H, RTR_H] for cache-friendly GPU access
-        // (each thread reads stride-1 floats in the inner loop instead of stride H).
-        // Upstream PyTorch saves it as [RTR_H, H] — we transpose on load.
-        B(l.gdw,H*RTR_H);
+        A(l.nw,eng.h);upf16(W("model_layers_"+L(il)+"_input_layernorm_weight.bin"),l.nw,eng.h,s->st);
+        A(l.wq,eng.qd*eng.h);upf16(W("model_layers_"+L(il)+"_self_attn_qkv_proj_q_proj_weight.bin"),l.wq,eng.qd*eng.h,s->st);
+        A(l.wk,eng.kd*eng.h);upf16(W("model_layers_"+L(il)+"_self_attn_qkv_proj_k_proj_weight.bin"),l.wk,eng.kd*eng.h,s->st);
+        A(l.wv1,(eng.kd/2)*eng.h);upf16(W("model_layers_"+L(il)+"_self_attn_qkv_proj_v_proj_current_weight.bin"),l.wv1,(eng.kd/2)*eng.h,s->st);
+        A(l.wv2,(eng.kd/2)*eng.h);upf16(W("model_layers_"+L(il)+"_self_attn_qkv_proj_v_proj_delayed_weight.bin"),l.wv2,(eng.kd/2)*eng.h,s->st);
+        A(l.wo,eng.h*eng.qd);upf16(W("model_layers_"+L(il)+"_self_attn_o_proj_weight.bin"),l.wo,eng.h*eng.qd,s->st);
+        B(l.cdw,eng.qkv*2);upf32(W("model_layers_"+L(il)+"_self_attn_qkv_proj_conv_qk_depthwise_weight.bin"),l.cdw,eng.qkv*2,s->st);
+        B(l.cdb,eng.qkv);upf32(W("model_layers_"+L(il)+"_self_attn_qkv_proj_conv_qk_depthwise_bias.bin"),l.cdb,eng.qkv,s->st);
+        B(l.cgw,eng.qkv*128*2);upf32(W("model_layers_"+L(il)+"_self_attn_qkv_proj_conv_qk_grouped_weight.bin"),l.cgw,eng.qkv*128*2,s->st);
+        B(l.cgb,eng.qkv);upf32(W("model_layers_"+L(il)+"_self_attn_qkv_proj_conv_qk_grouped_bias.bin"),l.cgb,eng.qkv,s->st);
+        B(l.ks,eng.nkv);upf32(W("model_layers_"+L(il)+"_self_attn_qk_norm_temp.bin"),l.ks,eng.nkv,s->st);
+        B(l.pahss,eng.h);upf32(W("model_layers_"+L(il)+"_post_attention_residual_scale_hidden_states_scale.bin"),l.pahss,eng.h,s->st);
+        B(l.pahsb,eng.h);upf32(W("model_layers_"+L(il)+"_post_attention_residual_scale_hidden_states_bias.bin"),l.pahsb,eng.h,s->st);
+        B(l.parss,eng.h);upf32(W("model_layers_"+L(il)+"_post_attention_residual_scale_residual_scale.bin"),l.parss,eng.h,s->st);
+        B(l.parsb,eng.h);upf32(W("model_layers_"+L(il)+"_post_attention_residual_scale_residual_bias.bin"),l.parsb,eng.h,s->st);
+        A(l.pan,eng.h);upf16(W("model_layers_"+L(il)+"_post_attention_layernorm_weight.bin"),l.pan,eng.h,s->st);
+        // gdw stored transposed [eng.h, eng.rtr_h] for cache-friendly GPU access
+        // (each thread reads stride-1 floats in the inner loop instead of stride eng.h).
+        // Upstream PyTorch saves it as [eng.rtr_h, eng.h] — we transpose on load.
+        B(l.gdw,eng.h*eng.rtr_h);
         {
             auto raw=W("model_layers_"+L(il)+"_mlp_gate_down_proj_weight.bin");
-            std::vector<float> tr(H*RTR_H);
-            for(int i=0;i<RTR_H;i++)for(int j=0;j<H;j++)tr[j*RTR_H+i]=raw[i*H+j];
-            upf32(tr,l.gdw,H*RTR_H,s->st);
+            std::vector<float> tr(eng.h*eng.rtr_h);
+            for(int i=0;i<eng.rtr_h;i++)for(int j=0;j<eng.h;j++)tr[j*eng.rtr_h+i]=raw[i*eng.h+j];
+            upf32(tr,l.gdw,eng.h*eng.rtr_h,s->st);
         }
-        B(l.gdb,RTR_H);upf32(W("model_layers_"+L(il)+"_mlp_gate_down_proj_bias.bin"),l.gdb,RTR_H,s->st);
-        B(l.rfn,RTR_H);upf32(W("model_layers_"+L(il)+"_mlp_gate_router_mlp_norm_weight.bin"),l.rfn,RTR_H,s->st);
-        B(l.rf1,RTR_H*RTR_H);upf32(W("model_layers_"+L(il)+"_mlp_gate_router_mlp_fc1_weight.bin"),l.rf1,RTR_H*RTR_H,s->st);
-        B(l.rf1b,RTR_H);upf32(W("model_layers_"+L(il)+"_mlp_gate_router_mlp_fc1_bias.bin"),l.rf1b,RTR_H,s->st);
-        B(l.rf2,RTR_H*RTR_H);upf32(W("model_layers_"+L(il)+"_mlp_gate_router_mlp_fc2_weight.bin"),l.rf2,RTR_H*RTR_H,s->st);
-        B(l.rf2b,RTR_H);upf32(W("model_layers_"+L(il)+"_mlp_gate_router_mlp_fc2_bias.bin"),l.rf2b,RTR_H,s->st);
-        B(l.rout,N_EXP_T*RTR_H);upf32(W("model_layers_"+L(il)+"_mlp_gate_router_mlp_out_proj_weight.bin"),l.rout,N_EXP_T*RTR_H,s->st);
-        B(l.bb,N_EXP_T);upf32(W("model_layers_"+L(il)+"_mlp_gate_balancing_biases.bin"),l.bb,N_EXP_T,s->st);
-        auto sz_gu=N_EXP*2*N_FF*H;auto sz_dn=N_EXP*H*N_FF;
+        B(l.gdb,eng.rtr_h);upf32(W("model_layers_"+L(il)+"_mlp_gate_down_proj_bias.bin"),l.gdb,eng.rtr_h,s->st);
+        B(l.rfn,eng.rtr_h);upf32(W("model_layers_"+L(il)+"_mlp_gate_router_mlp_norm_weight.bin"),l.rfn,eng.rtr_h,s->st);
+        B(l.rf1,eng.rtr_h*eng.rtr_h);upf32(W("model_layers_"+L(il)+"_mlp_gate_router_mlp_fc1_weight.bin"),l.rf1,eng.rtr_h*eng.rtr_h,s->st);
+        B(l.rf1b,eng.rtr_h);upf32(W("model_layers_"+L(il)+"_mlp_gate_router_mlp_fc1_bias.bin"),l.rf1b,eng.rtr_h,s->st);
+        B(l.rf2,eng.rtr_h*eng.rtr_h);upf32(W("model_layers_"+L(il)+"_mlp_gate_router_mlp_fc2_weight.bin"),l.rf2,eng.rtr_h*eng.rtr_h,s->st);
+        B(l.rf2b,eng.rtr_h);upf32(W("model_layers_"+L(il)+"_mlp_gate_router_mlp_fc2_bias.bin"),l.rf2b,eng.rtr_h,s->st);
+        B(l.rout,eng.n_exp_t*eng.rtr_h);upf32(W("model_layers_"+L(il)+"_mlp_gate_router_mlp_out_proj_weight.bin"),l.rout,eng.n_exp_t*eng.rtr_h,s->st);
+        B(l.bb,eng.n_exp_t);upf32(W("model_layers_"+L(il)+"_mlp_gate_balancing_biases.bin"),l.bb,eng.n_exp_t,s->st);
+        auto sz_gu=eng.n_exp*2*eng.n_ff*eng.h;auto sz_dn=eng.n_exp*eng.h*eng.n_ff;
         auto e1=hipMalloc(&l.gu,sz_gu*2);auto e2=hipMalloc(&l.dn,sz_dn*2);
         if(e1!=hipSuccess||e2!=hipSuccess){l.gu=nullptr;l.dn=nullptr;}else{
             upf16(W("model_layers_"+L(il)+"_mlp_experts_gate_up_proj.bin"),l.gu,sz_gu,s->st);
             upf16(W("model_layers_"+L(il)+"_mlp_experts_down_proj.bin"),l.dn,sz_dn,s->st);
         }
-        B(l.pmhss,H);upf32(W("model_layers_"+L(il)+"_post_mlp_residual_scale_hidden_states_scale.bin"),l.pmhss,H,s->st);
-        B(l.pmhsb,H);upf32(W("model_layers_"+L(il)+"_post_mlp_residual_scale_hidden_states_bias.bin"),l.pmhsb,H,s->st);
-        B(l.pmrss,H);upf32(W("model_layers_"+L(il)+"_post_mlp_residual_scale_residual_scale.bin"),l.pmrss,H,s->st);
-        B(l.pmrsb,H);upf32(W("model_layers_"+L(il)+"_post_mlp_residual_scale_residual_bias.bin"),l.pmrsb,H,s->st);
+        B(l.pmhss,eng.h);upf32(W("model_layers_"+L(il)+"_post_mlp_residual_scale_hidden_states_scale.bin"),l.pmhss,eng.h,s->st);
+        B(l.pmhsb,eng.h);upf32(W("model_layers_"+L(il)+"_post_mlp_residual_scale_hidden_states_bias.bin"),l.pmhsb,eng.h,s->st);
+        B(l.pmrss,eng.h);upf32(W("model_layers_"+L(il)+"_post_mlp_residual_scale_residual_scale.bin"),l.pmrss,eng.h,s->st);
+        B(l.pmrsb,eng.h);upf32(W("model_layers_"+L(il)+"_post_mlp_residual_scale_residual_bias.bin"),l.pmrsb,eng.h,s->st);
         
         std::string ep="/tmp/zaya_weights/model_layers_"+L(il)+"_mlp_gate_router_states_scale.bin";
         std::ifstream ff(ep,std::ios::binary);
@@ -194,92 +230,92 @@ ZayaState* zaya_init(const char* weights_dir = nullptr) {
 
 // ── Forward: token in, logits out ──
 void zaya_forward(ZayaState* s, int token_id, float* logits_out) {
-    int g1 = (H+BLK-1)/BLK;
-    std::vector<__half> hh(H);
-    for(int i=0;i<H;i++){float raw=s->embed[token_id*(size_t)H+i];hh[i]=__float2half((raw+s->ibias[i])*s->iscale[i]);}
-    hipMemcpyAsync(s->d_hs,hh.data(),H*2,hipMemcpyHostToDevice,s->st);
+    int g1 = (eng.h+BLK-1)/BLK;
+    std::vector<__half> hh(eng.h);
+    for(int i=0;i<eng.h;i++){float raw=s->embed[token_id*(size_t)eng.h+i];hh[i]=__float2half((raw+s->ibias[i])*s->iscale[i]);}
+    hipMemcpyAsync(s->d_hs,hh.data(),eng.h*2,hipMemcpyHostToDevice,s->st);
     
-    for(int il=0;il<N_LAYERS;il++){
+    for(int il=0;il<eng.n_layers;il++){
         auto& l=s->lw[il];
-        // Tiled CCA: QKV proj (tiled GEMV) + custom (conv+attn) + O_proj
-        copy_k<<<g1,BLK,0,s->st>>>(s->d_phs+(size_t)il*H,s->d_hs,H);
-        rmsnorm_k<<<1,BLK,0,s->st>>>(s->d_hs,l.nw,H);
-        moe_tiled_gemv<<<QD/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_hs,l.wq,QD,H);
-        moe_tiled_gemv<<<KD/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_tmp+QD,s->d_hs,l.wk,KD,H);
-        moe_tiled_gemv<<<KD/2/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_tmp+QD+KD,s->d_hs,l.wv1,KD/2,H);
-        moe_tiled_gemv<<<KD/2/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_tmp+QD+KD+KD/2,s->d_phs+(size_t)il*H,l.wv2,KD/2,H);
-        v_interleave_kernel<<<(KD/2+BLK-1)/BLK,BLK,0,s->st>>>(s->d_tmp+QD,s->d_tmp+QD+KD,s->d_tmp+QD+KD+KD/2,KD/2);
-        cca_custom_kernel<<<1,256,0,s->st>>>(s->d_tmp,s->d_tmp+QD,s->d_tmp+QD,s->d_phs+(size_t)il*H,s->d_conv+(size_t)il*2*QKV,l.cdw,l.cdb,l.cgw,l.cgb,l.ks,s->d_ao,s->d_conv+(size_t)il*2*QKV,s->d_phs+(size_t)il*H,il,1);
-        moe_tiled_gemv<<<H/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_ao,s->d_ao,l.wo,H,QD);
-        residual_scale_k<<<g1,BLK,0,s->st>>>(s->d_ao,s->d_hs,l.pahss,l.pahsb,l.parss,l.parsb,H);
-        copy_k<<<g1,BLK,0,s->st>>>(s->d_hs,s->d_ao,H);
-        rmsnorm_k<<<1,BLK,0,s->st>>>(s->d_hs,l.pan,H);
+        // Tiled CCA: eng.qkv proj (tiled GEMV) + custom (conv+attn) + O_proj
+        copy_k<<<g1,BLK,0,s->st>>>(s->d_phs+(size_t)il*eng.h,s->d_hs,eng.h);
+        rmsnorm_k<<<1,BLK,0,s->st>>>(s->d_hs,l.nw,eng.h);
+        moe_tiled_gemv<<<eng.qd/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_hs,l.wq,eng.qd,eng.h);
+        moe_tiled_gemv<<<eng.kd/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_tmp+eng.qd,s->d_hs,l.wk,eng.kd,eng.h);
+        moe_tiled_gemv<<<eng.kd/2/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_tmp+eng.qd+eng.kd,s->d_hs,l.wv1,eng.kd/2,eng.h);
+        moe_tiled_gemv<<<eng.kd/2/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_tmp+eng.qd+eng.kd+eng.kd/2,s->d_phs+(size_t)il*eng.h,l.wv2,eng.kd/2,eng.h);
+        v_interleave_kernel<<<(eng.kd/2+BLK-1)/BLK,BLK,0,s->st>>>(s->d_tmp+eng.qd,s->d_tmp+eng.qd+eng.kd,s->d_tmp+eng.qd+eng.kd+eng.kd/2,eng.kd/2);
+        cca_custom_kernel<<<1,256,0,s->st>>>(s->d_tmp,s->d_tmp+eng.qd,s->d_tmp+eng.qd,s->d_phs+(size_t)il*eng.h,s->d_conv+(size_t)il*2*eng.qkv,l.cdw,l.cdb,l.cgw,l.cgb,l.ks,s->d_ao,s->d_conv+(size_t)il*2*eng.qkv,s->d_phs+(size_t)il*eng.h,il,1);
+        moe_tiled_gemv<<<eng.h/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_ao,s->d_ao,l.wo,eng.h,eng.qd);
+        residual_scale_k<<<g1,BLK,0,s->st>>>(s->d_ao,s->d_hs,l.pahss,l.pahsb,l.parss,l.parsb,eng.h);
+        copy_k<<<g1,BLK,0,s->st>>>(s->d_hs,s->d_ao,eng.h);
+        rmsnorm_k<<<1,BLK,0,s->st>>>(s->d_hs,l.pan,eng.h);
         if(l.gu&&l.dn){
-            eda_router_gpu_kernel<<<1,RTR_H,0,s->st>>>(s->d_hs,s->d_prev_rs+(size_t)il*RTR_H,s->has_eda[il]?1:0,s->eda_scale[il],l.gdw,l.gdb,l.rfn,l.rf1,l.rf1b,l.rf2,l.rf2b,l.rout,l.bb,s->d_prev_rs+(size_t)il*RTR_H,s->d_expert_idx,s->d_expert_wt);
-            encode_expert_cache_kernel<<<1,32,0,s->st>>>(s->d_prev_rs+(size_t)il*RTR_H,s->d_expert_idx,RTR_H);
-            const int gb=(2*N_FF+WMMA_M-1)/WMMA_M;
-            const int db=(H+WMMA_M-1)/WMMA_M;
-            const int sb=(N_FF+BLK-1)/BLK;
+            eda_router_gpu_kernel<<<1,eng.rtr_h,0,s->st>>>(s->d_hs,s->d_prev_rs+(size_t)il*eng.rtr_h,s->has_eda[il]?1:0,s->eda_scale[il],l.gdw,l.gdb,l.rfn,l.rf1,l.rf1b,l.rf2,l.rf2b,l.rout,l.bb,s->d_prev_rs+(size_t)il*eng.rtr_h,s->d_expert_idx,s->d_expert_wt);
+            encode_expert_cache_kernel<<<1,32,0,s->st>>>(s->d_prev_rs+(size_t)il*eng.rtr_h,s->d_expert_idx,eng.rtr_h);
+            const int gb=(2*eng.n_ff+WMMA_M-1)/WMMA_M;
+            const int db=(eng.h+WMMA_M-1)/WMMA_M;
+            const int sb=(eng.n_ff+BLK-1)/BLK;
             wmma_gateup_kernel<<<gb,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_hs,l.gu,s->d_expert_idx);
-            silu_mul_k<<<sb,BLK,0,s->st>>>(s->d_ao,s->d_tmp,s->d_tmp+N_FF,N_FF);
+            silu_mul_k<<<sb,BLK,0,s->st>>>(s->d_ao,s->d_tmp,s->d_tmp+eng.n_ff,eng.n_ff);
             wmma_down_kernel<<<db,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_ao,l.dn,s->d_expert_idx);
-            residual_scale_k<<<g1,BLK,0,s->st>>>(s->d_tmp,s->d_hs,l.pmhss,l.pmhsb,l.pmrss,l.pmrsb,H);
-            copy_k<<<g1,BLK,0,s->st>>>(s->d_hs,s->d_tmp,H);
+            residual_scale_k<<<g1,BLK,0,s->st>>>(s->d_tmp,s->d_hs,l.pmhss,l.pmhsb,l.pmrss,l.pmrsb,eng.h);
+            copy_k<<<g1,BLK,0,s->st>>>(s->d_hs,s->d_tmp,eng.h);
         }else{
-            copy_k<<<g1,BLK,0,s->st>>>(s->d_tmp,s->d_hs,H);
+            copy_k<<<g1,BLK,0,s->st>>>(s->d_tmp,s->d_hs,eng.h);
         }
     }
-    rmsnorm_k<<<1,BLK,0,s->st>>>(s->d_hs,s->d_fnw,H);
+    rmsnorm_k<<<1,BLK,0,s->st>>>(s->d_hs,s->d_fnw,eng.h);
     
     // lm_head — tiled GEMV in a single launch; buffer allocated in zaya_init (fixes #59)
     // No sync needed before the lm_head: both the RMSNorm and the lm_head GEMV are on
     // the same stream, so the GEMV waits for the RMSNorm automatically (fixes perf).
-    moe_tiled_gemv<<<(VOCAB+WMMA_M-1)/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_lm_vocab,s->d_hs,s->d_embed,VOCAB,H);
+    moe_tiled_gemv<<<(eng.vocab+WMMA_M-1)/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_lm_vocab,s->d_hs,s->d_embed,eng.vocab,eng.h);
     hipStreamSynchronize(s->st);
-    std::vector<__half> lh(VOCAB);
-    hipMemcpy(lh.data(),s->d_lm_vocab,(size_t)VOCAB*2,hipMemcpyDeviceToHost);
-    for(int v=0;v<VOCAB;v++)logits_out[v]=__half2float(lh[v]);
+    std::vector<__half> lh(eng.vocab);
+    hipMemcpy(lh.data(),s->d_lm_vocab,(size_t)eng.vocab*2,hipMemcpyDeviceToHost);
+    for(int v=0;v<eng.vocab;v++)logits_out[v]=__half2float(lh[v]);
 }
 
 // ── Forward greedy: same as forward but only returns argmax (much faster) ──
 int zaya_forward_greedy(ZayaState* s, int token_id) {
-    int g1 = (H+BLK-1)/BLK;
-    std::vector<__half> hh(H);
-    for(int i=0;i<H;i++){float raw=s->embed[token_id*(size_t)H+i];hh[i]=__float2half((raw+s->ibias[i])*s->iscale[i]);}
-    hipMemcpyAsync(s->d_hs,hh.data(),H*2,hipMemcpyHostToDevice,s->st);
+    int g1 = (eng.h+BLK-1)/BLK;
+    std::vector<__half> hh(eng.h);
+    for(int i=0;i<eng.h;i++){float raw=s->embed[token_id*(size_t)eng.h+i];hh[i]=__float2half((raw+s->ibias[i])*s->iscale[i]);}
+    hipMemcpyAsync(s->d_hs,hh.data(),eng.h*2,hipMemcpyHostToDevice,s->st);
     
-    for(int il=0;il<N_LAYERS;il++){
+    for(int il=0;il<eng.n_layers;il++){
         auto& l=s->lw[il];
-        copy_k<<<g1,BLK,0,s->st>>>(s->d_phs+(size_t)il*H,s->d_hs,H);
-        rmsnorm_k<<<1,BLK,0,s->st>>>(s->d_hs,l.nw,H);
-        moe_tiled_gemv<<<QD/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_hs,l.wq,QD,H);
-        moe_tiled_gemv<<<KD/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_tmp+QD,s->d_hs,l.wk,KD,H);
-        moe_tiled_gemv<<<KD/2/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_tmp+QD+KD,s->d_hs,l.wv1,KD/2,H);
-        moe_tiled_gemv<<<KD/2/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_tmp+QD+KD+KD/2,s->d_phs+(size_t)il*H,l.wv2,KD/2,H);
-        v_interleave_kernel<<<(KD/2+BLK-1)/BLK,BLK,0,s->st>>>(s->d_tmp+QD,s->d_tmp+QD+KD,s->d_tmp+QD+KD+KD/2,KD/2);
-        cca_custom_kernel<<<1,256,0,s->st>>>(s->d_tmp,s->d_tmp+QD,s->d_tmp+QD,s->d_phs+(size_t)il*H,s->d_conv+(size_t)il*2*QKV,l.cdw,l.cdb,l.cgw,l.cgb,l.ks,s->d_ao,s->d_conv+(size_t)il*2*QKV,s->d_phs+(size_t)il*H,il,1);
-        moe_tiled_gemv<<<H/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_ao,s->d_ao,l.wo,H,QD);
-        residual_scale_k<<<g1,BLK,0,s->st>>>(s->d_ao,s->d_hs,l.pahss,l.pahsb,l.parss,l.parsb,H);
-        copy_k<<<g1,BLK,0,s->st>>>(s->d_hs,s->d_ao,H);
-        rmsnorm_k<<<1,BLK,0,s->st>>>(s->d_hs,l.pan,H);
+        copy_k<<<g1,BLK,0,s->st>>>(s->d_phs+(size_t)il*eng.h,s->d_hs,eng.h);
+        rmsnorm_k<<<1,BLK,0,s->st>>>(s->d_hs,l.nw,eng.h);
+        moe_tiled_gemv<<<eng.qd/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_hs,l.wq,eng.qd,eng.h);
+        moe_tiled_gemv<<<eng.kd/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_tmp+eng.qd,s->d_hs,l.wk,eng.kd,eng.h);
+        moe_tiled_gemv<<<eng.kd/2/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_tmp+eng.qd+eng.kd,s->d_hs,l.wv1,eng.kd/2,eng.h);
+        moe_tiled_gemv<<<eng.kd/2/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_tmp+eng.qd+eng.kd+eng.kd/2,s->d_phs+(size_t)il*eng.h,l.wv2,eng.kd/2,eng.h);
+        v_interleave_kernel<<<(eng.kd/2+BLK-1)/BLK,BLK,0,s->st>>>(s->d_tmp+eng.qd,s->d_tmp+eng.qd+eng.kd,s->d_tmp+eng.qd+eng.kd+eng.kd/2,eng.kd/2);
+        cca_custom_kernel<<<1,256,0,s->st>>>(s->d_tmp,s->d_tmp+eng.qd,s->d_tmp+eng.qd,s->d_phs+(size_t)il*eng.h,s->d_conv+(size_t)il*2*eng.qkv,l.cdw,l.cdb,l.cgw,l.cgb,l.ks,s->d_ao,s->d_conv+(size_t)il*2*eng.qkv,s->d_phs+(size_t)il*eng.h,il,1);
+        moe_tiled_gemv<<<eng.h/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_ao,s->d_ao,l.wo,eng.h,eng.qd);
+        residual_scale_k<<<g1,BLK,0,s->st>>>(s->d_ao,s->d_hs,l.pahss,l.pahsb,l.parss,l.parsb,eng.h);
+        copy_k<<<g1,BLK,0,s->st>>>(s->d_hs,s->d_ao,eng.h);
+        rmsnorm_k<<<1,BLK,0,s->st>>>(s->d_hs,l.pan,eng.h);
         if(l.gu&&l.dn){
-            eda_router_gpu_kernel<<<1,RTR_H,0,s->st>>>(s->d_hs,s->d_prev_rs+(size_t)il*RTR_H,s->has_eda[il]?1:0,s->eda_scale[il],l.gdw,l.gdb,l.rfn,l.rf1,l.rf1b,l.rf2,l.rf2b,l.rout,l.bb,s->d_prev_rs+(size_t)il*RTR_H,s->d_expert_idx,s->d_expert_wt);
-            encode_expert_cache_kernel<<<1,32,0,s->st>>>(s->d_prev_rs+(size_t)il*RTR_H,s->d_expert_idx,RTR_H);
-            const int gb=(2*N_FF+WMMA_M-1)/WMMA_M;
-            const int db=(H+WMMA_M-1)/WMMA_M;
-            const int sb=(N_FF+BLK-1)/BLK;
+            eda_router_gpu_kernel<<<1,eng.rtr_h,0,s->st>>>(s->d_hs,s->d_prev_rs+(size_t)il*eng.rtr_h,s->has_eda[il]?1:0,s->eda_scale[il],l.gdw,l.gdb,l.rfn,l.rf1,l.rf1b,l.rf2,l.rf2b,l.rout,l.bb,s->d_prev_rs+(size_t)il*eng.rtr_h,s->d_expert_idx,s->d_expert_wt);
+            encode_expert_cache_kernel<<<1,32,0,s->st>>>(s->d_prev_rs+(size_t)il*eng.rtr_h,s->d_expert_idx,eng.rtr_h);
+            const int gb=(2*eng.n_ff+WMMA_M-1)/WMMA_M;
+            const int db=(eng.h+WMMA_M-1)/WMMA_M;
+            const int sb=(eng.n_ff+BLK-1)/BLK;
             wmma_gateup_kernel<<<gb,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_hs,l.gu,s->d_expert_idx);
-            silu_mul_k<<<sb,BLK,0,s->st>>>(s->d_ao,s->d_tmp,s->d_tmp+N_FF,N_FF);
+            silu_mul_k<<<sb,BLK,0,s->st>>>(s->d_ao,s->d_tmp,s->d_tmp+eng.n_ff,eng.n_ff);
             wmma_down_kernel<<<db,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_ao,l.dn,s->d_expert_idx);
-            residual_scale_k<<<g1,BLK,0,s->st>>>(s->d_tmp,s->d_hs,l.pmhss,l.pmhsb,l.pmrss,l.pmrsb,H);
-            copy_k<<<g1,BLK,0,s->st>>>(s->d_hs,s->d_tmp,H);
-        }else{copy_k<<<g1,BLK,0,s->st>>>(s->d_tmp,s->d_hs,H);}
+            residual_scale_k<<<g1,BLK,0,s->st>>>(s->d_tmp,s->d_hs,l.pmhss,l.pmhsb,l.pmrss,l.pmrsb,eng.h);
+            copy_k<<<g1,BLK,0,s->st>>>(s->d_hs,s->d_tmp,eng.h);
+        }else{copy_k<<<g1,BLK,0,s->st>>>(s->d_tmp,s->d_hs,eng.h);}
     }
-    rmsnorm_k<<<1,BLK,0,s->st>>>(s->d_hs,s->d_fnw,H);
+    rmsnorm_k<<<1,BLK,0,s->st>>>(s->d_hs,s->d_fnw,eng.h);
     
     // lm_head + GPU argmax (no full logit copy); buffers allocated in zaya_init (fixes #59)
-    moe_tiled_gemv<<<(VOCAB+WMMA_M-1)/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_lm_vocab,s->d_hs,s->d_embed,VOCAB,H);
-    argmax_kernel<<<1,256,0,s->st>>>(s->d_lm_vocab,VOCAB,s->d_argmax_idx,s->d_argmax_val);
+    moe_tiled_gemv<<<(eng.vocab+WMMA_M-1)/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_lm_vocab,s->d_hs,s->d_embed,eng.vocab,eng.h);
+    argmax_kernel<<<1,256,0,s->st>>>(s->d_lm_vocab,eng.vocab,s->d_argmax_idx,s->d_argmax_val);
     hipStreamSynchronize(s->st);
     int best;
     hipMemcpy(&best,s->d_argmax_idx,4,hipMemcpyDeviceToHost);
@@ -290,45 +326,45 @@ int zaya_forward_greedy(ZayaState* s, int token_id) {
 // Uses batched router + batch-union MoE for expert dedup.
 // B <= 8 recommended (constrained by shared memory in union kernel).
 void zaya_forward_batch(ZayaState* s, const int* token_ids, float* logits_out, int B) {
-    int g1 = (H+BLK-1)/BLK;
+    int g1 = (eng.h+BLK-1)/BLK;
     if (B > 8) B = 8; // safety cap
 
     // ── Embedding lookup for all B tokens ──
-    std::vector<__half> hh(B * H);
+    std::vector<__half> hh(B * eng.h);
     for (int b = 0; b < B; b++) {
         int tid = token_ids[b];
-        for (int i = 0; i < H; i++) {
-            float raw = s->embed[tid * (size_t)H + i];
-            hh[b * (size_t)H + i] = __float2half((raw + s->ibias[i]) * s->iscale[i]);
+        for (int i = 0; i < eng.h; i++) {
+            float raw = s->embed[tid * (size_t)eng.h + i];
+            hh[b * (size_t)eng.h + i] = __float2half((raw + s->ibias[i]) * s->iscale[i]);
         }
     }
-    hipMemcpyAsync(s->d_hs, hh.data(), B * H * 2, hipMemcpyHostToDevice, s->st);
+    hipMemcpyAsync(s->d_hs, hh.data(), B * eng.h * 2, hipMemcpyHostToDevice, s->st);
 
-    for (int il = 0; il < N_LAYERS; il++) {
+    for (int il = 0; il < eng.n_layers; il++) {
         auto& l = s->lw[il];
 
         // CCA attention — one launch per token in batch (or batched CCA kernel)
         // For now, sequential CCA per token (can be optimized with batched CCA)
         for (int b = 0; b < B; b++) {
-            __half* hs_b = s->d_hs + (size_t)b * H;
+            __half* hs_b = s->d_hs + (size_t)b * eng.h;
             cca_attn_kernel<<<1, 256, 0, s->st>>>(
-                hs_b, s->d_phs + (size_t)il * H,
-                s->d_conv + (size_t)il * 2 * QKV, il,
+                hs_b, s->d_phs + (size_t)il * eng.h,
+                s->d_conv + (size_t)il * 2 * eng.qkv, il,
                 l.wq, l.wk, l.wv1, l.wv2, l.wo,
                 l.cdw, l.cdb, l.cgw, l.cgb, l.ks, l.nw,
-                s->d_ao + (size_t)b * H,
-                s->d_conv + (size_t)il * 2 * QKV,
-                s->d_phs + (size_t)il * H);
+                s->d_ao + (size_t)b * eng.h,
+                s->d_conv + (size_t)il * 2 * eng.qkv,
+                s->d_phs + (size_t)il * eng.h);
         }
 
         // Post-attention residual + RMSNorm (per token)
         for (int b = 0; b < B; b++) {
-            __half* hs_b  = s->d_hs + (size_t)b * H;
-            __half* ao_b  = s->d_ao + (size_t)b * H;
+            __half* hs_b  = s->d_hs + (size_t)b * eng.h;
+            __half* ao_b  = s->d_ao + (size_t)b * eng.h;
             residual_scale_k<<<g1, BLK, 0, s->st>>>(ao_b, hs_b,
-                l.pahss, l.pahsb, l.parss, l.parsb, H);
-            copy_k<<<g1, BLK, 0, s->st>>>(hs_b, ao_b, H);
-            rmsnorm_k<<<1, BLK, 0, s->st>>>(hs_b, l.pan, H);
+                l.pahss, l.pahsb, l.parss, l.parsb, eng.h);
+            copy_k<<<g1, BLK, 0, s->st>>>(hs_b, ao_b, eng.h);
+            rmsnorm_k<<<1, BLK, 0, s->st>>>(hs_b, l.pan, eng.h);
         }
 
         // Batched router + batch-union MoE
@@ -339,11 +375,11 @@ void zaya_forward_batch(ZayaState* s, const int* token_ids, float* logits_out, i
             if (B >= 4) {
                 // Phase 1: Route all B tokens (GPU-resident)
                 batched_moe_router_kernel<<<B, 256, 0, s->st>>>(
-                    s->d_hs, s->d_prev_rs + (size_t)il * RTR_H,
+                    s->d_hs, s->d_prev_rs + (size_t)il * eng.rtr_h,
                     s->has_eda[il] ? 1 : 0, s->eda_scale[il],
                     l.gdw, l.gdb, l.rfn, l.rf1, l.rf1b,
                     l.rf2, l.rf2b, l.rout, l.bb,
-                    s->d_prev_rs + (size_t)il * RTR_H,
+                    s->d_prev_rs + (size_t)il * eng.rtr_h,
                     s->d_expert_idx, s->d_expert_wt,
                     B);
 
@@ -354,92 +390,92 @@ void zaya_forward_batch(ZayaState* s, const int* token_ids, float* logits_out, i
                     s->d_sorted_ids, B);
 
                 // Phase 3: Expert FFN (sorted, one block per expert with count>0)
-                moe_sorted_expert_kernel<<<N_EXP, 256, 0, s->st>>>(
+                moe_sorted_expert_kernel<<<eng.n_exp, 256, 0, s->st>>>(
                     s->d_hs, s->d_sorted_ids, s->d_expert_counts, s->d_expert_offsets,
                     l.gu, l.dn, s->d_tmp, B);
 
-                // Phase 4: Handle MOD skip tokens (expert_idx == N_EXP = 16)
+                // Phase 4: Handle MOD skip tokens (expert_idx == eng.n_exp = 16)
                 // These skip the expert FFN entirely (out = hs, identity).
                 if (s->d_expert_counts) {  // always true, keeps compiler happy
                     moe_modskip_passthrough_kernel<<<(B + 255) / 256, 256, 0, s->st>>>(
-                        s->d_tmp, s->d_hs, s->d_expert_idx, N_EXP, B);
+                        s->d_tmp, s->d_hs, s->d_expert_idx, eng.n_exp, B);
                 }
             } else {
                 batched_moe_fused_kernel<<<B, 256, 0, s->st>>>(
-                    s->d_hs, s->d_prev_rs + (size_t)il * RTR_H,
+                    s->d_hs, s->d_prev_rs + (size_t)il * eng.rtr_h,
                     s->has_eda[il] ? 1 : 0, s->eda_scale[il],
                     l.gdw, l.gdb, l.rfn, l.rf1, l.rf1b,
                     l.rf2, l.rf2b, l.rout, l.bb,
                     l.gu, l.dn,
-                    s->d_prev_rs + (size_t)il * RTR_H,
+                    s->d_prev_rs + (size_t)il * eng.rtr_h,
                     s->d_tmp, s->d_expert_idx, s->d_expert_wt,
                     B);
             }
 
             // Post-MLP residual scale (per token)
             for (int b = 0; b < B; b++) {
-                __half* hs_b  = s->d_hs + (size_t)b * H;
-                __half* tmp_b = s->d_tmp + (size_t)b * H;
+                __half* hs_b  = s->d_hs + (size_t)b * eng.h;
+                __half* tmp_b = s->d_tmp + (size_t)b * eng.h;
                 residual_scale_k<<<g1, BLK, 0, s->st>>>(tmp_b, hs_b,
-                    l.pmhss, l.pmhsb, l.pmrss, l.pmrsb, H);
-                copy_k<<<g1, BLK, 0, s->st>>>(hs_b, tmp_b, H);
+                    l.pmhss, l.pmhsb, l.pmrss, l.pmrsb, eng.h);
+                copy_k<<<g1, BLK, 0, s->st>>>(hs_b, tmp_b, eng.h);
             }
         }
     }
 
     // Final RMSNorm (per token)
     for (int b = 0; b < B; b++) {
-        __half* hs_b = s->d_hs + (size_t)b * H;
-        rmsnorm_k<<<1, BLK, 0, s->st>>>(hs_b, s->d_fnw, H);
+        __half* hs_b = s->d_hs + (size_t)b * eng.h;
+        rmsnorm_k<<<1, BLK, 0, s->st>>>(hs_b, s->d_fnw, eng.h);
     }
 
     // lm_head — tiled GEMV for each token; buffer allocated in zaya_init (fixes #63).
     // No sync needed before lm_head: same-stream ordering guarantees RMSNorm completes
     // before the lm_head GEMV launches.
     {
-        const size_t max_need = (size_t)8 * VOCAB * 2;  // B <= 8, allocated in zaya_init
+        const size_t max_need = (size_t)8 * eng.vocab * 2;  // B <= 8, allocated in zaya_init
         #if __has_include(<rocwmma/rocwmma.hpp>)
         if (B >= 2) {
-            const int grid_x = (VOCAB + WMMA_M - 1) / WMMA_M;
+            const int grid_x = (eng.vocab + WMMA_M - 1) / WMMA_M;
             const int grid_y = (B + WMMA_N - 1) / WMMA_N;
             wmma_batched_gemv<<<dim3(grid_x, grid_y, 1), 32, 0, s->st>>>(
-                s->d_lm_vocab, s->d_hs, s->d_embed, VOCAB, H, B);
+                s->d_lm_vocab, s->d_hs, s->d_embed, eng.vocab, eng.h, B);
         } else {
-            moe_tiled_gemv<<<(VOCAB + WMMA_M - 1) / WMMA_M, WMMA_THREADS, 0, s->st>>>(
-                s->d_lm_vocab, s->d_hs, s->d_embed, VOCAB, H);
+            moe_tiled_gemv<<<(eng.vocab + WMMA_M - 1) / WMMA_M, WMMA_THREADS, 0, s->st>>>(
+                s->d_lm_vocab, s->d_hs, s->d_embed, eng.vocab, eng.h);
         }
         #else
         for (int b = 0; b < B; b++) {
-            __half* hs_b = s->d_hs + (size_t)b * H;
-            moe_tiled_gemv<<<(VOCAB + WMMA_M - 1) / WMMA_M, WMMA_THREADS, 0, s->st>>>(
-                s->d_lm_vocab + (size_t)b * VOCAB, hs_b, s->d_embed, VOCAB, H);
+            __half* hs_b = s->d_hs + (size_t)b * eng.h;
+            moe_tiled_gemv<<<(eng.vocab + WMMA_M - 1) / WMMA_M, WMMA_THREADS, 0, s->st>>>(
+                s->d_lm_vocab + (size_t)b * eng.vocab, hs_b, s->d_embed, eng.vocab, eng.h);
         }
         #endif
     }
     hipStreamSynchronize(s->st);
 
     // Copy logits for all B tokens
-    std::vector<__half> lh(B * VOCAB);
-    hipMemcpy(lh.data(), s->d_lm_vocab, (size_t)B * VOCAB * 2, hipMemcpyDeviceToHost);
+    std::vector<__half> lh(B * eng.vocab);
+    hipMemcpy(lh.data(), s->d_lm_vocab, (size_t)B * eng.vocab * 2, hipMemcpyDeviceToHost);
     for (int b = 0; b < B; b++)
-        for (int v = 0; v < VOCAB; v++)
-            logits_out[b * (size_t)VOCAB + v] = __half2float(lh[b * (size_t)VOCAB + v]);
+        for (int v = 0; v < eng.vocab; v++)
+            logits_out[b * (size_t)eng.vocab + v] = __half2float(lh[b * (size_t)eng.vocab + v]);
 }
 
 // ── Reset state (new sequence) ──
 // ── Set sentinel for expert caching (no previous expert for any layer) ──
 __global__ void init_expert_cache_sentinel(float* prev_rs, int n_layers, int rtr_h) {
-    // Set prev_rs[layer * rtr_h + rtr_h - 1] = bit-cast N_EXP (sentinel)
+    // Set prev_rs[layer * rtr_h + rtr_h - 1] = bit-cast eng.n_exp (sentinel)
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n_layers) return;
-    ((int*)&prev_rs[i * rtr_h + rtr_h - 1])[0] = 16; // N_EXP = 16 (invalid expert, no previous)
+    ((int*)&prev_rs[i * rtr_h + rtr_h - 1])[0] = 16; // eng.n_exp = 16 (invalid expert, no previous)
 }
 
 void zaya_reset(ZayaState* s) {
-    HIP_OK(hipMemsetAsync(s->d_conv,0,(size_t)N_LAYERS*2*QKV*2,s->st));
-    HIP_OK(hipMemsetAsync(s->d_phs,0,(size_t)N_LAYERS*H*2,s->st));
-    HIP_OK(hipMemsetAsync(s->d_prev_rs,0,(size_t)N_LAYERS*RTR_H*4,s->st));
-    init_expert_cache_sentinel<<<1, 64, 0, s->st>>>(s->d_prev_rs, N_LAYERS, RTR_H);
+    HIP_OK(hipMemsetAsync(s->d_conv,0,(size_t)eng.n_layers*2*eng.qkv*2,s->st));
+    HIP_OK(hipMemsetAsync(s->d_phs,0,(size_t)eng.n_layers*eng.h*2,s->st));
+    HIP_OK(hipMemsetAsync(s->d_prev_rs,0,(size_t)eng.n_layers*eng.rtr_h*4,s->st));
+    init_expert_cache_sentinel<<<1, 64, 0, s->st>>>(s->d_prev_rs, eng.n_layers, eng.rtr_h);
 }
 
 // ── Destroy ──
@@ -449,7 +485,7 @@ void zaya_destroy(ZayaState* s) {
     safe(s->d_hs); safe(s->d_ao); safe(s->d_tmp); safe(s->d_fnw);
     safe(s->d_lm_out); safe(s->d_embed); safe(s->d_conv); safe(s->d_phs);
     safe(s->d_prev_rs); safe(s->d_expert_idx); safe(s->d_expert_wt);
-    for (int i = 0; i < N_LAYERS; i++) {
+    for (int i = 0; i < eng.n_layers; i++) {
         auto& l = s->lw[i];
         safe(l.nw); safe(l.wq); safe(l.wk); safe(l.wv1); safe(l.wv2); safe(l.wo); safe(l.pan);
         safe(l.cdw); safe(l.cdb); safe(l.cgw); safe(l.cgb); safe(l.ks);
