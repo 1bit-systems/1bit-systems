@@ -268,8 +268,23 @@ pub fn main(init: std.process.Init) !void {
     std.debug.print("{d} ", .{last_token});
     generated += 1;
 
+    // Batch decode pipeline: for B > 1, we would accumulate draft tokens
+    // from the NPU and verify them with the GPU. Currently B=1 correct.
+    var batch_buf: [128]u32 = undefined;
+
     while (generated < opts.max_tokens) {
-        const next_token = executor.decodeBatch(&[_]u32{last_token}) catch |err| {
+        // Build a batch: start with the token we just generated,
+        // then speculatively extend with the NPU's next-token predictions.
+        // For now, just do batch=1 but pipeline the NPU calls.
+        var b: u32 = 0;
+        batch_buf[0] = last_token;
+        b = 1;
+
+        // For batch > 1 we would speculatively fill the remaining slots
+        // with the NPU's draft tokens, then verify them with GPU.
+        // Currently restricted to B=1 for correctness.
+
+        const next_token = executor.decodeBatch(batch_buf[0..b]) catch |err| {
             std.debug.print("  Decode error at {d}: {s}\n", .{ generated, @errorName(err) });
             break;
         };

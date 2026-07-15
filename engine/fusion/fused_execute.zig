@@ -2419,15 +2419,23 @@ pub const FusedExecutor = struct {
     /// Run M=128 batch decode: full forward pass for all batch positions.
     pub fn decodeBatch(self: *FusedExecutor, tokens: []const u32) !u32 {
         const B = @as(u32, @intCast(tokens.len));
-        try self.forwardDecode(tokens, B, self.scratch.hidden[0..B * self.config.hidden_dim]);
+        const H = self.config.hidden_dim;
 
+        // Forward all B tokens through the model (processes them in parallel
+        // where possible, or sequentially with pipelined NPU+GPU operations).
+        // Each token at position i writes its hidden state to hidden[i*H..(i+1)*H].
+        try self.forwardDecode(tokens, B, self.scratch.hidden[0..B * H]);
+
+        // Sample from the LAST token in the batch (autoregressive generation:
+        // token[i+1] depends on token[i], so only the last token is new output).
         var top_ids: [128]u32 = undefined;
-        try self.lmHead(self.scratch.hidden[0..self.config.hidden_dim], &top_ids, 128);
+        try self.lmHead(self.scratch.hidden[(B - 1) * H .. B * H], &top_ids, 128);
 
+        // Advance KV cache by B positions (each token consumed its own cache slot)
         if (self.attn_kernel == .mla) {
-            if (self.mla_kv) |*mk| mk.advance(1);
+            if (self.mla_kv) |*mk| mk.advance(B);
         } else {
-            self.kv.advance(1);
+            self.kv.advance(B);
         }
         return top_ids[0];
     }
