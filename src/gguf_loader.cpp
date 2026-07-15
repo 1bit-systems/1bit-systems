@@ -100,6 +100,7 @@ struct GgufReader {
     bool open(const std::string& path) {
         f.open(path, std::ios::binary);
         if (!f) return false;
+        f.exceptions(std::ifstream::badbit | std::ifstream::failbit);
         
         char magic[4];
         f.read(magic, 4);
@@ -115,10 +116,51 @@ struct GgufReader {
         f.read(reinterpret_cast<char*>(&n_tensors), 8);
         f.read(reinterpret_cast<char*>(&n_kv), 8);
         
+        // Read all KV pairs. If any KV fails to parse (e.g. custom metadata
+        // added by PrismML/ternary converters), we save the file position
+        // before reading and use a fallback scan to find the tensor data.
+        std::streampos kv_safe_pos = f.tellg();
         for (uint64_t i = 0; i < n_kv; ++i) {
+            kv_safe_pos = f.tellg();
             std::string key = read_string();
             uint32_t vt;
             f.read(reinterpret_cast<char*>(&vt), 4);
+            
+            // Skip general.sampling KVs — not needed for inference and may use
+            // custom array types that we can't parse
+            if (key.find("general.sampling") == 0) {
+                f.seekg(kv_safe_pos, std::ios::beg);
+                // Read key again to measure its length
+                uint64_t key_len; f.read(reinterpret_cast<char*>(&key_len), 8); f.seekg(key_len, std::ios::cur);
+                uint32_t val_type; f.read(reinterpret_cast<char*>(&val_type), 4);
+                // Skip value: for arrays, skip header + content
+                if (val_type == 5) {
+                    uint32_t at; f.read(reinterpret_cast<char*>(&at), 4);
+                    uint64_t an;
+                    if (version >= 3) f.read(reinterpret_cast<char*>(&an), 8);
+                    else { uint32_t an32; f.read(reinterpret_cast<char*>(&an32), 4); an = an32; }
+                    // Skip all elements by reading up to the next KV
+                    // We scan for a valid string length (< 10000)
+                    while (f.good()) {
+                        uint64_t test_len; 
+                        auto check_pos = f.tellg();
+                        f.read(reinterpret_cast<char*>(&test_len), 8);
+                        if (test_len > 0 && test_len < 10000) {
+                            f.seekg(-8, std::ios::cur);
+                            break;
+                        }
+                    }
+                    f.seekg(-8, std::ios::cur); // un-read the length
+                } else {
+                    // Skip simple types by size
+                    if (val_type == 0) f.seekg(4, std::ios::cur);
+                    else if (val_type == 2 || val_type == 3) f.seekg(8, std::ios::cur);
+                    else if (val_type == 4 || val_type == 8) { uint64_t sl; f.read((char*)&sl, 8); f.seekg(sl, std::ios::cur); }
+                    else if (val_type == 12) f.seekg(1, std::ios::cur);
+                    else f.seekg(8, std::ios::cur);
+                }
+                continue;
+            }
             
             if (vt == 0) { // uint32
                 uint32_t v; f.read(reinterpret_cast<char*>(&v), 4); kv_uint32[key] = v;
@@ -130,14 +172,36 @@ struct GgufReader {
                 kv_string[key] = read_string();
             } else if (vt == 5) { // array
                 uint32_t at; f.read(reinterpret_cast<char*>(&at), 4);
-                uint32_t an; f.read(reinterpret_cast<char*>(&an), 4);
-                for (uint32_t j = 0; j < an; ++j) {
-                    if (at == 0) { uint32_t v; f.read(reinterpret_cast<char*>(&v), 4); }
-                    else if (at == 4 || at == 8) { read_string(); }
-                    else if (at == 2) { int64_t v; f.read(reinterpret_cast<char*>(&v), 8); }
-                    else if (at == 3) { double v; f.read(reinterpret_cast<char*>(&v), 8); }
+                uint64_t an;
+                if (version >= 3) { f.read(reinterpret_cast<char*>(&an), 8); }
+                else { uint32_t an32; f.read(reinterpret_cast<char*>(&an32), 4); an = an32; }
+                // For known element types, read all elements
+                // For unknown types, skip this KV (just read and discard)
+                if (an > 0 && an < 10000000) {
+                    if (at == 0 || at == 1) f.seekg(an * 4, std::ios::cur);
+                    else if (at == 2 || at == 3) f.seekg(an * 8, std::ios::cur);
+                    else if (at == 4 || at == 8) {
+                        for (uint64_t _j = 0; _j < an && f.good(); ++_j) {
+                            uint64_t _sl; f.read((char*)&_sl, 8);
+                            if (_sl < 10000000) f.seekg(_sl, std::ios::cur);
+                        }
+                    }
+                    else if (at == 6 || at == 12) f.seekg(an, std::ios::cur);
+                    else {
+                        // Unknown element type — scan forward to find next KV
+                        // by looking for a plausible string length
+                        for (int scan = 0; scan < 100000 && f.good(); ++scan) {
+                            uint64_t test_len;
+                            auto save = f.tellg();
+                            f.read(reinterpret_cast<char*>(&test_len), 8);
+                            if (test_len > 0 && test_len < 10000) {
+                                f.seekg(-8, std::ios::cur);
+                                break;
+                            }
+                        }
+                    }
                 }
-            } else if (vt == 12) { // bool
+            } else if (vt == 6 || vt == 12) { // bool (GGUF type 6 == bool)
                 uint8_t v; f.read(reinterpret_cast<char*>(&v), 1);
             } else {
                 // unknown type — skip
@@ -185,18 +249,27 @@ struct GgufReader {
         // Skip value based on type
         uint8_t tmp[256];
         if (vt == 0) f.read(reinterpret_cast<char*>(tmp), 4);
-        else if (vt == 2) f.read(reinterpret_cast<char*>(tmp), 8);
-        else if (vt == 3) f.read(reinterpret_cast<char*>(tmp), 8);
+        else if (vt == 2 || vt == 3) f.read(reinterpret_cast<char*>(tmp), 8);
         else if (vt == 4 || vt == 8) { read_string(); }
         else if (vt == 5) {
             uint32_t at; f.read(reinterpret_cast<char*>(&at), 4);
-            uint32_t an; f.read(reinterpret_cast<char*>(&an), 4);
-            for (uint32_t j = 0; j < an; ++j) {
-                if (at == 0) f.read(reinterpret_cast<char*>(tmp), 4);
-                else if (at == 2) f.read(reinterpret_cast<char*>(tmp), 8);
-                else if (at == 3) f.read(reinterpret_cast<char*>(tmp), 8);
-                else if (at == 4 || at == 8) read_string();
+            uint64_t an;
+            if (version >= 3) { f.read(reinterpret_cast<char*>(&an), 8); }
+            else { uint32_t an32; f.read(reinterpret_cast<char*>(&an32), 4); an = an32; }
+            if (an < 10000000) {
+                for (uint64_t j = 0; j < an; ++j) {
+                    if (at == 0 || at == 1) f.read(reinterpret_cast<char*>(tmp), 4);
+                    else if (at == 2 || at == 3) f.read(reinterpret_cast<char*>(tmp), 8);
+                    else if (at == 4 || at == 8) read_string();
+                    else if (at == 5) { /* nested array */ f.read(reinterpret_cast<char*>(tmp), 8); }
+                    else if (at == 6 || at == 12) f.read(reinterpret_cast<char*>(tmp), 1);
+                    else f.read(reinterpret_cast<char*>(tmp), 8); // unknown element type
+                }
             }
+        } else if (vt == 6 || vt == 12) {
+            uint8_t v; f.read(reinterpret_cast<char*>(&v), 1);
+        } else {
+            f.read(reinterpret_cast<char*>(tmp), 8);
         }
     }
     
