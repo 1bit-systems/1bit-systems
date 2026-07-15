@@ -355,6 +355,7 @@ const NpuSubprocess = struct {
     model_path: []const u8,
     engine_path: []const u8,
     child: ?std.process.Child = null,
+    model_tag: []const u8 = "",
     /// forwardDecode() pipelines the NEXT layer's QKV on a background thread
     /// while the current layer's O-proj/FFN/Down run on the caller's thread —
     /// both share this one worker connection, so every request/response
@@ -363,6 +364,7 @@ const NpuSubprocess = struct {
     mutex: Io.Mutex = .init,
 
     pub fn init(allocator: std.mem.Allocator, io: ?Io, model_path: []const u8, engine_path: []const u8) NpuSubprocess {
+        _ = model_tag;
         return .{ .allocator = allocator, .io = io, .model_path = model_path, .engine_path = engine_path };
     }
 
@@ -893,7 +895,7 @@ pub const FusedExecutor = struct {
             .ffn_kernel = ffn_kernel,
             .kv = kv,
             .mla_kv = mla_kv,
-            .npu = NpuSubprocess.init(allocator, io, model_path, npu_engine_path),
+            .npu = NpuSubprocess.init(allocator, io, model_path, npu_engine_path){.model_tag = model_tag},
             .cpu_weights = cpu_weights,
             .emb_f32 = emb_f32,
             .lm_head_f32 = lm_head_f32,

@@ -128,7 +128,7 @@ public:
         hipError_t e = hipGetDeviceCount(&count);
         if (e != hipSuccess || count == 0) { fprintf(stderr, "  HIP: no devices (error %d)\n", e); return false; }
         hipDeviceProp_t props;
-        hipGetDeviceProperties(&props, 0);
+        HIP_OK(hipGetDeviceProperties(&props, 0));
         fprintf(stderr, "  HIP: found %s (%d CU, %zu MB)\n", props.name, props.multiProcessorCount, props.totalGlobalMem / (1024*1024));
         return true;
     }
@@ -220,7 +220,7 @@ public:
     }
 
     void unload_model() override {
-        auto f = [](void* p) { if (p) hipFree(p); };
+        auto f = [](void* p) { if (p) { hipError_t _e = hipFree(p); if(_e != hipSuccess) fprintf(stderr, "hipFree failed: %s\n", hipGetErrorString(_e)); } };
         f(d_hs); f(d_ao); f(d_tmp); f(d_fnw); f(d_embed_gpu);
         f(d_conv); f(d_phs); f(d_prev_rs); f(d_expert_idx); f(d_expert_wt);
         f(d_all_logits); f(d_best_idx); f(d_best_val);
@@ -233,7 +233,7 @@ public:
             for (auto* p : {&l.cdw,&l.cdb,&l.cgw,&l.cgb,&l.ks,&l.pahss,&l.pahsb,&l.parss,&l.parsb,&l.gdw,&l.gdb,&l.rfn,&l.rf1,&l.rf1b,&l.rf2,&l.rf2b,&l.rout,&l.bb,&l.pmhss,&l.pmhsb,&l.pmrss,&l.pmrsb}) f(*p);
         }
         layers_.clear(); embed_loaded_ = false; loaded_ = false;
-        if (st_) { hipStreamDestroy(st_); st_ = 0; }
+        if (st_) { HIP_OK(hipStreamDestroy(st_)); st_ = 0; }
     }
 
     void reset_state() override {
@@ -254,7 +254,7 @@ public:
         int N_FF=cfg_.intermediate_size, RTR_H=cfg_.router_hidden;
         int g1 = (H+BLK-1)/BLK;
         __half* src = embed_cpu_.data() + (size_t)token_id * H;
-        hipMemcpyAsync(d_hs, src, H * 2, hipMemcpyHostToDevice, st_);
+        HIP_OK(hipMemcpyAsync(d_hs, src, H * 2, hipMemcpyHostToDevice, st_));
         for (int il = 0; il < N_LAYERS; il++) {
             auto& l = layers_[il];
             copy_k<<<g1, BLK, 0, st_>>>(d_phs + (size_t)il*H, d_hs, H);
@@ -283,9 +283,9 @@ public:
         rmsnorm_k<<<1, BLK, 0, st_>>>(d_hs, d_fnw, H);
         lm_head_fused_kernel<<<VOCAB, 256, 0, st_>>>(d_all_logits, d_hs, d_embed_gpu, H, VOCAB);
         argmax_kernel<<<1, 256, 0, st_>>>(d_all_logits, VOCAB, d_best_idx, d_best_val);
-        hipStreamSynchronize(st_);
+        HIP_OK(hipStreamSynchronize(st_));
         int best = 0;
-        hipMemcpy(&best, d_best_idx, 4, hipMemcpyDeviceToHost);
+        HIP_OK(hipMemcpy(&best, d_best_idx, 4, hipMemcpyDeviceToHost));
         return best;
     }
 };

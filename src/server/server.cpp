@@ -129,31 +129,33 @@ void brief_print_message_response(nlohmann::json request) {
 
 }
 
-// NPU Access Manager implementation
+// // NPU Access Manager: lock-free atomic operations (fixes #196, #203)
+// Uses compare_exchange_strong to eliminate TOCTOU race.
+// header_print moved outside critical section to avoid I/O under lock.
 bool NPUAccessManager::try_acquire_npu_access() {
-    std::lock_guard<std::mutex> lock(g_npu_access_mutex);
-    if (g_npu_in_use.load()) {
-        return false; // NPU is already in use
+    bool expected = false;
+    if (g_npu_in_use.compare_exchange_strong(expected, true,
+                                             std::memory_order_acq_rel,
+                                             std::memory_order_acquire)) {
+        g_npu_active_requests.fetch_add(1, std::memory_order_relaxed);
+        return true;
     }
-    g_npu_in_use.store(true);
-    g_npu_active_requests.fetch_add(1);
-    return true;
+    return false;
 }
 
 void NPUAccessManager::release_npu_access() {
-
+    g_npu_in_use.store(false, std::memory_order_release);
+    g_npu_active_requests.fetch_sub(1, std::memory_order_relaxed);
     header_print("🔵 ", "NPU Lock Released!" );
-    std::lock_guard<std::mutex> lock(g_npu_access_mutex);
-    g_npu_in_use.store(false);
-    g_npu_active_requests.fetch_sub(1);
 }
 
 bool NPUAccessManager::is_npu_available() {
-    return !g_npu_in_use.load();
+    return !g_npu_in_use.load(std::memory_order_acquire);
 }
 
 int NPUAccessManager::get_active_npu_requests() {
-    return g_npu_active_requests.load();
+    return g_npu_active_requests.load(std::memory_order_relaxed);
+}
 }
 
 // Helper function to check if an endpoint requires NPU access

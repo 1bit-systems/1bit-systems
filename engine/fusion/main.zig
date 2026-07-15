@@ -24,6 +24,7 @@ const CliOptions = struct {
     model_path: []const u8 = DEFAULT_MODEL,
     npu_engine: []const u8 = DEFAULT_NPU_ENGINE,
     shader_dir: []const u8 = ZINC_SHADER_DIR,
+    tokenizer_path: []const u8 = TOKENIZER_JSON,
     policy: DispatchPolicy = .ffn_on_npu,
     max_tokens: u32 = 128,
     prompt: []const u8 = "Hello",
@@ -96,8 +97,8 @@ fn printPolicies() void {
 
 /// Tokenize text using the real C++ BPE tokenizer (tokenize.cpp / tokenizer.zig).
 /// Returns u32 token IDs (converted from i32 — all valid token IDs are non-negative).
-fn tokenize(text: []const u8, allocator: std.mem.Allocator) ![]u32 {
-    var tok = try tokenizer.Tokenizer.init(allocator, TOKENIZER_JSON);
+fn tokenize(text: []const u8, tokenizer_path: []const u8, allocator: std.mem.Allocator) ![]u32 {
+    var tok = try tokenizer.Tokenizer.init(allocator, tokenizer_path);
     defer tok.deinit();
     const ids_i32 = try tok.encode(text);
     defer allocator.free(ids_i32);
@@ -135,6 +136,8 @@ pub fn main(init: std.process.Init) !void {
             if (args_iter.next()) |v| opts.npu_engine = v;
         } else if (std.mem.eql(u8, arg, "--shader-dir")) {
             if (args_iter.next()) |v| opts.shader_dir = v;
+        } else if (std.mem.eql(u8, arg, "--tokenizer")) {
+            if (args_iter.next()) |v| opts.tokenizer_path = v;
         } else if (std.mem.eql(u8, arg, "--model-tag") or std.mem.eql(u8, arg, "-t")) {
             if (args_iter.next()) |v| opts.model_tag = v;
         }
@@ -217,7 +220,7 @@ pub fn main(init: std.process.Init) !void {
     executor.gpu = gpu_attn_instance;
 
     // ── Tokenize ──
-    const prompt_tokens = try tokenize(opts.prompt, allocator);
+    const prompt_tokens = try tokenize(opts.prompt, opts.tokenizer_path, allocator);
     defer allocator.free(prompt_tokens);
     std.debug.print("Prompt tokens ({d}): {any}\n", .{ prompt_tokens.len, prompt_tokens });
 

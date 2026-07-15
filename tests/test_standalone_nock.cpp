@@ -33,9 +33,9 @@ static void cpu_ref(const _Float16* A, const int8_t* B_packed,
                 // odd k = low nibble, even k = high nibble
                 int byte_idx = k / 2;
                 int nibble = (k & 1) ? (B_packed[byte_idx] & 0x0F) : ((B_packed[byte_idx] >> 4) & 0x0F);
-                // PK_I4 mapping: 0..7 -> 1, 8..15 -> -1
-                // (follows the convention from rcpp_ternary_pack_pk_i4)
-                int w = (nibble < 8) ? 1 : -1;
+                // PK_I4 value = nibble - 8: 0x7->-1, 0x8->0, 0x9->+1
+                // Matches prefill_standalone.hip:14 convention.
+                int w = (int)(nibble) - 8;
                 acc += (int32_t)((float)A[(size_t)m * K + k] * w);
             }
             C[(size_t)m * N + n] = (_Float16)(float)acc;

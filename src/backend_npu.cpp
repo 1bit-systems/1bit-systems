@@ -28,7 +28,7 @@ struct NPUBackend : Backend {
     std::vector<xrt::kernel> kernels;
 #endif
 
-    NPUBackend() { type = BackendType::NPU_XRT; name = "NPU XDNA (XRT)"; }
+    NPUBackend() { type = BackendType::NPU_XRT; name = "NPU XDNA (XRT) [STUB]"; }
 
     ~NPUBackend() override { destroy(); }
 
@@ -40,26 +40,29 @@ struct NPUBackend : Backend {
 
     bool init(const ModelConfig& cfg, const std::string& weights_dir) override {
         this->cfg = cfg;
-        printf("NPU: Initializing...\n");
+        printf("NPU[stub]: Initializing (detection only -- no inference)...\n");
 
         // Try to open NPU device via XRT
 #ifdef HAS_XRT
         try {
             xrt_dev = xrt::device(0);
-            printf("NPU: Device found: %s\n",
+            printf("NPU[stub]: XRT device found: %s\n",
                    xrt_dev.get_info<xrt::info::device::name>().c_str());
+            printf("NPU[stub]: >>> Inference NOT available via this backend. <<<\n");
+            printf("NPU[stub]: Real NPU inference uses engine/npu/npu_engine_universal via subprocess.\n");
             available = true;
         } catch (const std::exception& e) {
-            printf("NPU: No device: %s\n", e.what());
+            printf("NPU[stub]: No XRT device: %s\n", e.what());
             available = false;
         }
 #else
-        printf("NPU: Built without XRT support\n");
+        printf("NPU[stub]: Built without XRT support -- NPU detection unavailable\n");
         available = false;
 #endif
         initialized = available;
+        // NPU[stub]: inference not available - can_infer()=false
         if (available) {
-            printf("NPU: device detected, but inference is NOT implemented — reporting as available but not inference-capable (see #82)\n");
+            printf("NPU[stub]: device detected, but inference NOT available via this backend — reporting as available but not inference-capable (see #82)\n");
         }
         return available;
     }

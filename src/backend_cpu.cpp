@@ -309,7 +309,7 @@ static void eda_router_moe_cpu(float* h, const float* gate_down_w, const float* 
 
     // MoE expert FFN
     memset(moe_out, 0, H * sizeof(float));
-    if (best < N_EXP) {
+    if (best < N_EXP && gu && dn) {
         // gate_up
         float gate_up[2*N_FF];
         matmul_t(gate_up, h, &gu[(size_t)best*2*N_FF*H], 2*N_FF, H);
@@ -383,6 +383,7 @@ struct CPUBackend : Backend {
     float moe_out[H];
     int pos = 0;
 
+    bool moe_weights_available_ = false;
     std::string weights_dir;
 
     CPUBackend() { type = BackendType::CPU_SCALAR; name = "CPU (scalar)"; }
@@ -462,10 +463,16 @@ struct CPUBackend : Backend {
             l.dn_mmap = mmap_file(wd + "/" + B + "mlp_experts_down_proj.bin", &l.dn_size);
             if (!l.gu_mmap) fprintf(stderr,"WARN: mmap gate_up layer %d failed\n",il);
             if (!l.dn_mmap) fprintf(stderr,"WARN: mmap down layer %d failed\n",il);
+            if (l.gu_mmap && l.dn_mmap) moe_weights_available_ = true;
             load(l.pmhss, B + "post_mlp_residual_scale_hidden_states_scale.bin");
             load(l.pmhsb, B + "post_mlp_residual_scale_hidden_states_bias.bin");
             load(l.pmrss, B + "post_mlp_residual_scale_residual_scale.bin");
             load(l.pmrsb, B + "post_mlp_residual_scale_residual_bias.bin");
+        }
+        if (!moe_weights_available_) {
+            printf("CPU: FATAL - no MoE expert weights loaded (missing weight files?)\n");
+            initialized = false;
+            return false;
         }
         printf("CPU: %d layers loaded\n", N_LAYERS);
         initialized = true;

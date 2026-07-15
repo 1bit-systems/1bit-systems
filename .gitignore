@@ -29,6 +29,11 @@ site/.wrangler/
 # ck-prefill build artifacts
 ck-prefill/build/
 
+# Packaging build artifacts (object files, shared libs)
+packaging/**/*.o
+packaging/**/*.so
+packaging/**/*.a
+
 # Editor / OS droppings
 .*.swp
 *.swo
@@ -58,6 +63,7 @@ actions-runner/
 # NPU engine build artifacts
 engine/npu/build/
 npu-infer/build/
+npu-infer/**/build/
 
 # CMake build trees + compiled JS output (fixes #103 #143 #150 #151 #163 #174 #175)
 /1bit/build/

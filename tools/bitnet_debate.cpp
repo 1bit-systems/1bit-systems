@@ -226,8 +226,8 @@ int main(int argc, char** argv) {
 
     // --- Cleanup ---
     for (int l = 0; l < L; ++l) {
-        hipFree(pro.K[l]); hipFree(pro.V[l]);
-        hipFree(con.K[l]); hipFree(con.V[l]);
+        HIP_OK(hipFree(pro.K[l])); HIP_OK(hipFree(pro.V[l]));
+        HIP_OK(hipFree(con.K[l])); HIP_OK(hipFree(con.V[l]));
     }
     rcpp_tokenizer_free(tok);
     rcpp_bitnet_free(&m);

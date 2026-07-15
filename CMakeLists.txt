@@ -236,7 +236,10 @@ target_include_directories(backend_manager PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
     $<INSTALL_INTERFACE:include>)
 target_link_libraries(backend_manager PUBLIC dl)
-target_compile_definitions(backend_manager PRIVATE ROCM_CPP_STATIC_HIP=1)
+# backend_manager stays HIP-free (no ROCM_CPP_STATIC_HIP) so pure-C++
+# consumers like backend_demo can link without HIP symbols.
+# ROCM_CPP_STATIC_HIP is set only on targets (e.g., unified_server)
+# that also link src/backend_hip.cpp directly.
 target_compile_options(backend_manager PRIVATE -O3 -Wall -Wno-unused-result -std=c++17)
 
 set(RCPP_HIP_SOURCES

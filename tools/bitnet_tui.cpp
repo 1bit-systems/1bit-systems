@@ -24,8 +24,6 @@
 //   │ > _                                                      │
 //   └ Enter send · Ctrl-C quit ────────────────────────────────┘
 
-#define CPPHTTPLIB_OPENSSL_SUPPORT  // harmless if not linked; we won't use https
-
 #include <ftxui/component/captured_mouse.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>

@@ -252,14 +252,18 @@ int main(int argc, char** argv) {
 
     SimpleTokenizer tok;
 
+    // Maximum request body size: 1MB (fixes #197: stack buffer + incomplete read + no limit)
+    const size_t MAX_BODY_BYTES = 1 * 1024 * 1024;
+
     while (true) {
         int cl = accept(sock, nullptr, nullptr);
         if (cl < 0) continue;
-        char buf[262144];
-        int n = read(cl, buf, sizeof(buf) - 1);
+        // Use heap-allocated buffer instead of 256KB stack buffer
+        std::vector<char> buf(32768);
+        int n = read(cl, buf.data(), buf.size() - 1);
         if (n <= 0) { close(cl); continue; }
         buf[n] = 0;
-        std::string r(buf);
+        std::string r(buf.data());
         auto bp = r.find("\r\n\r\n");
         std::string body = (bp == std::string::npos) ? "" : r.substr(bp + 4);
         auto clp = r.find("Content-Length: ");
@@ -267,9 +271,32 @@ int main(int argc, char** argv) {
             auto cle = r.find("\r\n", clp);
             if (cle != std::string::npos) {
                 int bl = atoi(r.substr(clp + 16, cle - clp - 16).c_str());
-                if ((int)body.size() < bl) {
-                    int more = read(cl, buf + bp + 4 + body.size(), bl - (int)body.size());
-                    if (more > 0) body.append(buf + bp + 4 + body.size(), more);
+                // Enforce maximum body size
+                if (bl > (int)MAX_BODY_BYTES) {
+                    const char* err = "HTTP/1.1 413 Payload Too Large\r\nContent-Length: 47\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Request payload too large\"}\n";
+                    write(cl, err, strlen(err)); close(cl); continue;
+                }
+                // Loop until all Content-Length bytes are received
+                while ((int)body.size() < bl) {
+                    if (body.empty()) {
+                        // Body wasn't in first read; need to read from start
+                        int remaining = bl;
+                        std::vector<char> bbuf(remaining + 1, 0);
+                        int got = 0;
+                        while (got < remaining) {
+                            int nr = read(cl, bbuf.data() + got, remaining - got);
+                            if (nr <= 0) break;
+                            got += nr;
+                        }
+                        body = std::string(bbuf.data(), got);
+                        break;
+                    } else {
+                        // Read remaining bytes
+                        std::vector<char> extra(bl - body.size() + 1, 0);
+                        int nr = read(cl, extra.data(), bl - body.size());
+                        if (nr <= 0) break;
+                        body.append(extra.data(), nr);
+                    }
                 }
             }
         }
@@ -345,21 +372,21 @@ int main(int argc, char** argv) {
             if (!result.tokens.empty() && result.tokens.back() != 106 && (int)result.tokens.size() >= max_tokens)
                 finish_reason = "length";
 
-            char resp_buf[65536];
-            snprintf(resp_buf, sizeof(resp_buf),
-                "{\"id\":\"chatcmpl-%lld\",\"object\":\"chat.completion\",\"created\":%lld,"
-                "\"model\":\"%s\","
-                "\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"%s\"},"
-                "\"finish_reason\":\"%s\"}],"
-                "\"usage\":{\"prompt_tokens\":%d,\"completion_tokens\":%d,\"total_tokens\":%d},"
-                "\"x-backend\":\"%s\",\"x-ms\":%.0f,\"x-tok-s\":%.1f}",
-                (long long)time(nullptr), (long long)time(nullptr),
-                json_escape(cfg.model_name).c_str(),
-                json_escape(text).c_str(), finish_reason.c_str(),
-                (int)tokens.size(), (int)result.tokens.size(), (int)(tokens.size() + result.tokens.size()),
-                router.primary ? router.primary->name() : "none",
-                result.gen_ms, result.tok_s);
-            send_json(200, resp_buf);
+            // Dynamic buffer -- no fixed-size limit (fixes #194: truncation of long output)
+            std::string resp_body =
+                std::string("{\"id\":\"chatcmpl-") + std::to_string((long long)time(nullptr)) +
+                "\",\"object\":\"chat.completion\",\"created\":" + std::to_string((long long)time(nullptr)) +
+                ",\"model\":\"" + json_escape(cfg.model_name) +
+                "\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"" +
+                json_escape(text) +
+                "\"},\"finish_reason\":\"" + finish_reason +
+                "\"}],\"usage\":{\"prompt_tokens\":" + std::to_string((int)tokens.size()) +
+                ",\"completion_tokens\":" + std::to_string((int)result.tokens.size()) +
+                ",\"total_tokens\":" + std::to_string((int)(tokens.size() + result.tokens.size())) +
+                "},\"x-backend\":\"" + (router.primary ? router.primary->name() : "none") +
+                "\",\"x-ms\":" + std::to_string((long long)result.gen_ms) +
+                ",\"x-tok-s\":" + std::to_string((double)result.tok_s) + "}";
+            send_json(200, resp_body);
             fprintf(stderr, "  ← %d tokens in %.0fms (%.1f tok/s) [%s]\n",
                     (int)result.tokens.size(), result.gen_ms, result.tok_s,
                     router.primary ? router.primary->name() : "none");
