@@ -1,22 +1,29 @@
-// backend.h — Unified inference backend interface (tests/ version)
+// backend.h — Inference backend interface (tests/ version)
 //
-// NOTE: This is a simplified interface parallel to src/backend.h (struct Backend).
-// The two should eventually be unified. Key differences:
-//   - InferenceBackend::forward() fuses forward+lm_head (returns token_id)
-//   - src/Backend::forward() returns hidden state, has separate generate()
-//   - BackendType enum values overlap but are not identical
+// NOTE: This is a SIMPLIFIED interface for zaya_server and test backends.
+// The CANONICAL backend interface lives in src/backend.h (struct Backend).
+// This file is NOT merged with src/backend.h due to conflicting function
+// signatures (detect_backends() returns different types).
 //
-// TODO(#unify): merge into src/backend.h, make this an adapter
+// Key difference:
+//   InferenceBackend::forward() = fuse forward+lm_head -> returns token_id
+//   src::Backend::forward()     = returns hidden state, separate lm_head()+generate()
+//
+// BackendType values MUST match src/backend.h (verified by static_assert below).
+// TODO(#unify): reconcile detect_backends() signatures
 #pragma once
 #include <vector>
 #include <string>
 #include <cstdio>
+#include <cstdint>
 
-enum class BackendType {
-    HIP,        // AMD ROCm HIP (Radeon / RDNA 3.5+)
-    Vulkan,     // Cross-platform GPU (GLSL compute shaders)
-    NPU,        // AMD XDNA 2 NPU (Strix Halo)
-    CPU,        // x86-64 scalar fallback (always available)
+// ── Backend type ──
+// Values MUST match src/backend.h (HIP_GPU=1, VULKAN=2, NPU_XRT=3, CPU_AVX512=4).
+enum class BackendType : uint8_t {
+    HIP = 1,        // AMD ROCm GPU via HIP (canonical: HIP_GPU)
+    Vulkan = 2,     // Any Vulkan 1.2+ GPU (canonical: VULKAN)
+    NPU = 3,        // AMD XDNA NPU via XRT (canonical: NPU_XRT)
+    CPU = 4,        // CPU with AVX-512 (canonical: CPU_AVX512)
 };
 
 struct ModelConfig {

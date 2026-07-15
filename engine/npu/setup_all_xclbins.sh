@@ -188,6 +188,30 @@ for label in G U; do
     setup_insts  "$label" "llama"
 done
 
+# Qwen3-1.7B (tag: qwen3_1_7b, GU need detection)
+echo ""
+echo "=== Qwen3-1.7B ==="
+for label in QKV O GU D; do
+    setup_xclbin "$label" "qwen3_1_7b" "Qwen3-1.7B-NPU2"
+    setup_insts  "$label" "qwen3_1_7b"
+done
+
+# Qwen3-4B (tag: qwen3_4b, GU need detection)
+echo ""
+echo "=== Qwen3-4B ==="
+for label in QKV O GU D; do
+    setup_xclbin "$label" "qwen3_4b" "Qwen3-4B-NPU2"
+    setup_insts  "$label" "qwen3_4b"
+done
+
+# Phi4-mini-Instruct (tag: phi4, GU need detection)
+echo ""
+echo "=== Phi4-mini-Instruct ==="
+for label in QKV O GU D; do
+    setup_xclbin "$label" "phi4" "Phi4-mini-Instruct-NPU2"
+    setup_insts  "$label" "phi4"
+done
+
 # Gemma4-E2B (tag: gemma4_e2b, GU_FUSED=1 → GU fused)
 echo ""
 echo "=== Gemma4-E2B (GU_FUSED=1) ==="
