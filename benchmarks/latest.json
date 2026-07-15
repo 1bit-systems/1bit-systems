@@ -120,7 +120,14 @@
     "prefill_tflops_i8apre": 38.89,
     "rotorquant_pq3_tok_s_2048": 9224,
     "sherry_gemv_gbps": 153.0,
-    "tq1_gemv_gbps": 191.6
+    "tq1_gemv_gbps": 191.6,
+    "zaya_forward_ms": 891,
+    "zaya_hidden_size": 2048,
+    "zaya_layers": 40,
+    "zaya_layers_per_sec": 44.9,
+    "zaya_output_logits": "PASS (coherent, non-NaN, non-zero)",
+    "zaya_vocab": 262272,
+    "zaya_weight_format": "synthetic (reverse-engineered)"
   },
   "repo": {
     "forks": 4,
