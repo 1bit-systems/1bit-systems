@@ -13,7 +13,7 @@ find_package(XRT QUIET)
 set(NPU_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 set(NPU_ENGINE_SOURCES
-    ${NPU_SRC_DIR}/npu_engine_all.cpp
+    
     ${NPU_SRC_DIR}/npu_engine_batch.cpp
     ${NPU_SRC_DIR}/npu_engine_cb.cpp
     ${NPU_SRC_DIR}/npu_engine_i8.cpp

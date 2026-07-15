@@ -368,7 +368,7 @@ const NpuSubprocess = struct {
         return .{ .allocator = allocator, .io = io, .model_path = model_path, .engine_path = engine_path, .model_tag = model_tag };
     }
 
-    fn ensureStarted(self: *NpuSubprocess, io: Io) !void {
+        fn ensureStarted(self: *NpuSubprocess, io: Io) !void {
         if (self.child != null) return;
         self.child = try std.process.spawn(io, .{
             .argv = if (self.model_tag.len > 0) &[_][]const u8{ self.engine_path, self.model_path, "--worker", "--model-tag", self.model_tag } else &[_][]const u8{ self.engine_path, self.model_path, "--worker" },
@@ -376,30 +376,57 @@ const NpuSubprocess = struct {
             .stdout = .pipe,
             .stderr = .pipe,
         });
-        // Wait for the NPU worker to finish initialization.
-        // The engine prints "=== NPU Engine Universal ===" on startup,
-        // then loads/dequants weights (5-15s), then enters the worker loop.
-        // We detect readiness by watching for the initiation of the
-        // request-handling loop: the engine outputs "=== Prefill 9 ==="
-        // or the older "WORKER_READY" marker after it's done loading.
-        var line_buf: [256]u8 = undefined;
-        var got: usize = 0;
-        while (got < line_buf.len) {
-            const n = try self.child.?.stderr.?.readStreaming(io, &.{line_buf[got..]});
-            if (n == 0) return error.NpuWorkerNeverReady;
-            got += n;
-            // Accept any of the known ready markers
-            const ready_markers = [_][]const u8{ "WORKER_READY", "=== Prefill", "Dequant+pack" };
-            for (ready_markers) |marker| {
-                if (std.mem.containsAtLeast(u8, line_buf[0..got], 1, marker)) {
-                    log.debug("NPU worker ready (marker: {s})", .{marker});
+        // Wait up to 120s for NPU worker initialization.
+        // Drain stderr until we see "=== Prefill" (model loaded, worker loop ready).
+        var buf: [1024]u8 = undefined;
+        var timeout_ms: i64 = 120000;
+        var poll_ms: i64 = 0;
+        while (poll_ms < timeout_ms) {
+            // Check if stderr has data
+            var fds: std.os.linux.pollfd = undefined;
+            fds.fd = self.child.?.stderr.?.fd;
+            fds.events = std.os.linux.POLL.IN;
+            fds.revents = 0;
+            const rc = std.os.linux.poll(&fds, 1, 100);
+            if (rc > 0 and (fds.revents & std.os.linux.POLL.IN) != 0) {
+                const n = self.child.?.stderr.?.read(io, &.{buf[0..]}) catch |err| {
+                    log.err("NPU stderr read error: {s}", .{@errorName(err)});
+                    return error.NpuWorkerNeverReady;
+                };
+                if (n == 0) {
+                    // Process died? Check exit status
+                    _ = self.child.?.wait(io) catch {};
+                    return error.NpuWorkerNeverReady;
+                }
+                // Log what we got for debugging
+                log.debug("NPU stderr: {s}", .{buf[0..@min(n, buf.len)]});
+                // Check for ready markers in the buffer
+                const s = buf[0..n];
+                if (std.mem.indexOf(u8, s, "=== Prefill") != null) {
+                    log.debug("NPU worker ready (marker: === Prefill)", .{});
                     return;
                 }
+                if (std.mem.indexOf(u8, s, "WORKER_READY") != null) {
+                    log.debug("NPU worker ready (marker: WORKER_READY)", .{});
+                    return;
+                }
+            } else if (rc == 0) {
+                // Timeout on poll — no data yet. Keep waiting.
+                poll_ms += 100;
+            } else if (rc < 0) {
+                // Poll error
+                if (std.os.linux.errno(@as(std.os.linux.uint, @bitCast(@as(isize, rc)))) == .INTR) {
+                    continue;
+                }
+                log.err("NPU worker poll error: {}", .{rc});
+                return error.NpuWorkerNeverReady;
             }
         }
+        log.err("NPU worker did not become ready within 120s", .{});
+        return error.NpuWorkerNeverReady;
     }
 
-    fn readExact(file: std.Io.File, io: Io, buf: []u8) !void {
+fn readExact(file: std.Io.File, io: Io, buf: []u8) !void {
         var got: usize = 0;
         while (got < buf.len) {
             const n = try file.readStreaming(io, &.{buf[got..]});
