@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Why the NPU is 132× more efficient than the GPU for LLMs · 1bit.systems</title>
-<meta name="description" content="The XDNA 2 NPU delivers 145 tok/s/W vs 1.1 tok/s/W on the GPU — a 132× efficiency advantage. Architecture, power breakdown, and what it means for local AI.">
+<title>Retracted: “the NPU is 132× more efficient than the GPU” was unsourced · 1bit.systems</title>
+<meta name="description" content="Retraction: the ‘NPU is 132× more efficient than the GPU’ efficiency claim was built on an unsourced throughput figure and a power breakdown with no measurement behind it. See the correction and benchmarks/latest.json _unverified.">
 <meta name="keywords" content="NPU efficiency, GPU vs NPU, power efficiency, tok/s/W, local AI, AMD Strix Halo">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="https://1bit.systems/blog/npu-132x-more-efficient-than-gpu">
 <meta property="og:title" content="Why the NPU is 132× more efficient than the GPU for LLMs">
-<meta property="og:description" content="145 tok/s/W on NPU vs 1.1 tok/s/W on GPU. Why the NPU wins for local AI.">
+<meta property="og:description" content="Retraction of the 132× efficiency claim — it was built on unsourced figures. See correction.">
 <meta property="og:url" content="https://1bit.systems/blog/npu-132x-more-efficient-than-gpu">
 <meta property="og:type" content="article">
 <meta name="twitter:card" content="summary_large_image">
@@ -49,32 +49,26 @@
 <blockquote style="border-left-color:var(--pink);background:#33110022;"><strong>&#9888;&#65039; Correction:</strong> Performance figures in this post are historical and may not reflect current, source-backed numbers. Several headline engine figures were later found to have no reproducible source and are quarantined in <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/benchmarks/latest.json">benchmarks/latest.json</a> (the NPU-fused path does not currently produce validated generation). For current, sourced numbers see the <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/performance.md">performance SSOT</a>. (issue #107)</blockquote>
 
 <div class="meta"><span class="tag npu">NPU</span> <span class="tag b">Architecture</span> <span class="tag g">Deep Dive</span><br><br><strong style="color:var(--text);">bong-water-water-bong</strong> · July 6, 2026 · 5 min read</div>
-<h1>Why the NPU is 132× more efficient than the GPU for LLMs</h1>
-<p><strong>tl;dr:</strong> The XDNA 2 NPU delivers <strong>145 tok/s/W</strong> vs the GPU's <strong>1.1 tok/s/W</strong> — a 132× efficiency advantage. The NPU is not "a weaker GPU." It's a fundamentally different architecture.</p>
+<h1>Retracted: “the NPU is 132× more efficient than the GPU”</h1>
+<p><strong>tl;dr:</strong> This post's central claim — that the XDNA 2 NPU delivers 145 tok/s/W vs the GPU's 1.1 tok/s/W, a 132× efficiency advantage — is <strong>retracted</strong>. Every number it depended on is either unsourced in this repository or contradicted by it, and the per-component watt breakdown was presented as measurement with no measurement behind it. The post is kept here for history, rewritten to say that.</p>
 <hr>
-<h2>The headline numbers</h2>
-<table>
-<tr><th>Metric</th><th>NPU (~2W)</th><th>GPU (~20W)</th><th>Ratio</th></tr>
-<tr><td>LLM throughput</td><td><strong>291 tok/s</strong></td><td>22 tok/s</td><td><strong>13×</strong></td></tr>
-<tr><td>tok/s per watt</td><td><strong>145</strong></td><td>1.1</td><td><strong>132×</strong></td></tr>
-<tr><td>TFLOPS</td><td><strong>55.7</strong></td><td>~12</td><td><strong>4.6×</strong></td></tr>
-<tr><td>TFLOPS per watt</td><td><strong>27.8</strong></td><td>0.6</td><td><strong>46×</strong></td></tr>
-</table>
-<p>Measured on a Ryzen AI Max+ 395 — NPU vs Radeon 8060S GPU, same die, same memory, same model.</p>
-<h2>Why the NPU wins</h2>
-<h3>1. Spatial dataflow, not SIMD</h3>
-<p>A GPU spends significant power on instruction fetch/decode, warp scheduling, and register file access. The XDNA 2 NPU is a <strong>spatial dataflow architecture</strong> — compute tiles are configured with a fixed dataflow graph at load time. Data streams through 32 AIE tiles directly. <strong>Zero instruction overhead during compute.</strong></p>
-<h3>2. SRAM locality</h3>
-<p>Each AIE tile has 64KB local SRAM. The Chess compiler maps operations so intermediate results stay local — no trips to system memory. A GPU's "local" memory is shared L1/L2 cache with hundreds of threads competing. For a transformer layer, the NPU keeps the entire activation vector (6KB at INT8) in local tile memory through the entire pipeline.</p>
-<h3>3. No kernel launch overhead</h3>
-<p>GPU inference requires a kernel launch for every operation. The NPU fused layer does <strong>all operations in one xclbin call</strong>. No driver round-trips between operations.</p>
-<h2>The power breakdown</h2>
-<p><strong>GPU ~20W:</strong> Memory controller ~4W, shader array ~10W, cache hierarchy ~4W, driver overhead ~2W, actual compute ~2W. <strong>~85% on infrastructure.</strong></p>
-<p><strong>NPU ~2W:</strong> Compute tiles ~1.2W, SRAM access ~0.5W, interface ~0.3W. <strong>~60% on actual compute.</strong></p>
-<h2>What this means</h2>
-<p>Running NPU inference at 291 tok/s: <strong>~0.6W additional draw, no fan noise, runs 24/7 on battery.</strong></p>
-<p>Running GPU inference: <strong>~18W, fan spins up, 2-3h battery vs 20+ hours.</strong></p>
-<blockquote><strong>132× more tok/s per watt.</strong> The NPU isn't competing with the GPU. It's making the GPU irrelevant for local LLM inference.</blockquote>
+<h2>What was wrong</h2>
+<p>The 132× ratio reduces arithmetically to <code>(291 / 2) / (22 / 20)</code> — i.e. it is entirely dependent on the NPU's <em>291 tok/s</em> fused-layer figure and on the <em>~2 W</em> / <em>~20 W</em> power figures. All three are problems:</p>
+<ul>
+<li><strong>291 tok/s (NPU fused)</strong> — <code>benchmarks/latest.json</code> <code>_unverified.npu_fused_raw_tok_s</code>: “NO SOURCE anywhere in the repo. Contradicted by docs/npu/AGENTS.md (4.8 tok/s).” The README itself marks the NPU-fused path “broken” and “not currently reproducible”.</li>
+<li><strong>55.7 TFLOPS</strong> — <code>_unverified.tflops_55_7</code>: “NO SOURCE. Measured ternary prefill peak is 35.57 TFlops.”</li>
+<li><strong>The watt breakdown</strong> (“Memory controller ~4W, shader array ~10W, cache ~4W, driver ~2W, compute ~2W” for the GPU; “compute tiles ~1.2W, SRAM ~0.5W, interface ~0.3W” for the NPU) — there is no <code>rapl</code>/<code>powertop</code>/HSA power read or any power-measurement methodology anywhere in the repo. These numbers were fabricated for the post.</li>
+</ul>
+<p>Remove 291 tok/s — which the repo has — and the 132× collapses. The architectural arguments below (spatial dataflow, SRAM locality, single xclbin dispatch) are plausibly <em>directionally</em> true and are the real reason an NPU can be efficient for this workload, but they were dressed up here with specific tok/s/W and watt numbers that this project cannot substantiate.</p>
+<h2>What would be needed to make the claim</h2>
+<p>A real comparison requires: (1) a currently-reproducible NPU tok/s figure from a verified-correct run (the fused path does not currently produce validated generation), and (2) sustained wall-power measurement during that run and an equivalent GPU run, with methodology recorded in <code>benchmarks/</code>. Neither exists. Until they do, no tok/s/W or “N× more efficient” claim should appear on this site as fact.</p>
+<h2>The original (architectural) argument, kept for context</h2>
+<h3>Spatial dataflow, not SIMD</h3>
+<p>The XDNA 2 NPU is a spatial dataflow architecture — compute tiles are configured with a fixed dataflow graph at load time and data streams through the AIE tiles, rather than spending per-instruction fetch/decode/scheduling power as a GPU SIMD unit does.</p>
+<h3>SRAM locality and single dispatch</h3>
+<p>Each AIE tile has local SRAM, and the fused layer does all per-layer operations in one xclbin call, avoiding driver round-trips between operations. These are reasonable reasons an NPU can win on efficiency — but “by 132×” is not something this repo can currently back.</p>
+<hr>
+<p style="font-size:14px;color:var(--dim);"><em>Retracted 2026-07-14. See <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/benchmarks/latest.json">benchmarks/latest.json</a> <code>_unverified</code> for the quarantine log. <a href="/blog/npu-benchmarks-55-tflops">Previous post (also corrected) →</a></em></p>
 <hr>
 <p style="font-size:14px;color:var(--dim);"><em>Final post of the series. <a href="/blog/npu-benchmarks-55-tflops">Previous: Benchmarks →</a> · <a href="/blog/reverse-engineered-amd-npu-4-days">Start from the beginning →</a></em></p>
 <h3>Links</h3>

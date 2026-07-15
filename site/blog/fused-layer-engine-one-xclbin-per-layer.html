@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>The fused layer engine — one xclbin call per transformer layer · 1bit.systems</title>
-<meta name="description" content="How the fused layer engine achieves 291 tok/s by combining QKV, attention, and FFN into a single NPU dispatch — eliminating 5/6 of per-layer xclbin calls.">
+<meta name="description" content="How the fused layer engine combines QKV, attention, and FFN into a single NPU dispatch — eliminating 5/6 of per-layer xclbin calls. (Throughput figures in this post are historical and quarantined as unsourced — see correction.)">
 <meta name="keywords" content="fused layer NPU, transformer inference, xclbin, AMD XDNA 2, INT8 GEMM, batched decode">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="https://1bit.systems/blog/fused-layer-engine-one-xclbin-per-layer">
 <meta property="og:title" content="The fused layer engine — one xclbin call per transformer layer">
-<meta property="og:description" content="291 tok/s by combining QKV, attention, and FFN into one NPU dispatch.">
+<meta property="og:description" content="How the fused layer engine combines QKV, attention, and FFN into one NPU dispatch. (Historical post; throughput figures unsourced — see correction.)">
 <meta property="og:url" content="https://1bit.systems/blog/fused-layer-engine-one-xclbin-per-layer">
 <meta property="og:type" content="article">
 <meta name="twitter:card" content="summary_large_image">
