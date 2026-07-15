@@ -393,19 +393,53 @@ static json generate_completion(BackendManager& mgr,
             per_token_backend.push_back(decision.backend);
         }
 
-        // ── Generate the token ──
-        int next = mgr.generate(last_token);
+        // ── Generate token ──
+        // When strategy engine needs logprobs (cascade/adaptive), use
+        // forward()+lm_head() separately for real model confidence.
+        // Otherwise, use fast generate() which does both in one call.
+        bool need_logprobs = strategy_engine && (
+            strategy_engine->name() == std::string("cascade") ||
+            strategy_engine->name() == std::string("adaptive")
+        );
+
+        int next = -1;
+        double token_logprob = 0.0;
+
+        if (need_logprobs) {
+            // Slow path: forward + lm_head + softmax for real logprobs
+            float hidden_buf[2048];  // ZAYA_H
+            if (mgr.forward(last_token, hidden_buf)) {
+                // Allocate logits on heap (262272 floats ≈ 1MB)
+                float* logits_buf = new float[262272];
+                if (mgr.lm_head(hidden_buf, logits_buf, &next)) {
+                    // Softmax with max-logit stability
+                    float max_l = -1e30f;
+                    for (int v = 0; v < 262272; v++)
+                        if (logits_buf[v] > max_l) max_l = logits_buf[v];
+                    double sum_exp = 0.0;
+                    for (int v = 0; v < 262272; v++)
+                        sum_exp += exp((double)(logits_buf[v] - max_l));
+                    if (sum_exp > 0 && next >= 0 && next < 262272)
+                        token_logprob = (double)(logits_buf[next] - max_l) - log(sum_exp);
+                    else
+                        token_logprob = -20.0;
+                }
+                delete[] logits_buf;
+            }
+        } else {
+            // Fast path: generate() does forward+lm_head+argmax in one call
+            next = mgr.generate(last_token);
+        }
+
         if (next < 0) {
-            // Backend failed — try fallback
-            if (strategy_engine && mgr.backends().size() > 1) {
-                // Find first functional backend as fallback
+            // Backend failed — try fallback with generate()
+            if (mgr.backends().size() > 1) {
                 for (auto& b : mgr.backends()) {
                     if (b.available && b.functional && b.instance) {
                         mgr.select_backend(b.id);
                         active_backend_id = b.id;
-                        // Re-try
                         next = mgr.generate(last_token);
-                        if (next >= 0) break;
+                        if (next >= 0) { token_logprob = -5.0; break; }
                     }
                 }
             }
@@ -413,16 +447,8 @@ static json generate_completion(BackendManager& mgr,
         }
 
         output_tokens.push_back(next);
+        output_logprobs.push_back(token_logprob);
         last_token = next;
-
-        // Extract logprob if tokenizer supports it (approximate from BPE)
-        if (g_tokenizer.use_bpe && g_tokenizer.bpe_tok) {
-            // Use token's BPE rank as proxy for logprob
-            double lp = rcpp_tokenizer_logprob(g_tokenizer.bpe_tok, next);
-            output_logprobs.push_back(lp);
-        } else {
-            output_logprobs.push_back(0.0);
-        }
 
         if (next == g_tokenizer.eos_id) break;
     }
@@ -615,6 +641,32 @@ int main(int argc, char** argv) {
             printf("  Active: %s (%.1f ms/tok)\n",
                    active->id.c_str(), active->score);
         }
+    }
+
+    // ── Phase 5: Initialize Strategy Engine ──
+    printf("\n── Strategy Engine ──\n");
+    {
+        auto perf_table = build_performance_table(mgr, "zaya");
+        printf("  Performance table (%zu backends):\n", perf_table.size());
+        for (auto& r : perf_table) {
+            printf("    %-20s -> %-12s (%.0f tok/s)\n",
+                   r.model_pattern.c_str(), r.backend.c_str(), r.speed_tok_s);
+        }
+        // Default to adaptive strategy (the "true agent")
+        g_strategy_engine.init("adaptive", mgr, perf_table);
+        printf("  Active strategy: %s\n", g_strategy_engine.name());
+        printf("     Per-token routing: set X-Router-Strategy header\n");
+        printf("     Change at runtime: POST /v1/strategy/select\n");
+        printf("     Status:            GET /v1/router\n");
+    }
+
+    // ── Phase 6: Start Agent Watchdog ──
+    printf("\n── Agent Watchdog ──\n");
+    {
+        if (!g_watchdog) {
+            g_watchdog = new AgentWatchdog(g_strategy_engine, mgr);
+        }
+        g_watchdog->start();
     }
 
     // ── HTTP Server ──
