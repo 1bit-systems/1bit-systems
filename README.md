@@ -11,8 +11,13 @@
 [![Site](https://img.shields.io/badge/site-1bit.systems-12a0ed.svg)](https://1bit.systems)
 [![ROCm 7.2.4](https://img.shields.io/badge/rocm-7.2.4-blue.svg)](https://rocm.docs.amd.com)
 [![Strix Halo](https://img.shields.io/badge/strix%20halo-gfx1151%20%2B%20XDNA%202-12a0ed.svg)](https://www.amd.com/en/products/processors/laptop/ryzen/ai-max-series.html)
+[![GPU Kernels](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/badge_gpu.json)](site/benchmarks.json)
+[![NPU Engine](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/badge_npu.json)](site/benchmarks.json)
+[![GGUF](https://img.shields.io/badge/GGUF-Qwen2%20%7C%20Llama%20%7C%20Mistral-00ff00)](src/gguf_loader.cpp)
+[![ONNX](https://img.shields.io/badge/ONNX-supported-00ff00)](src/onnx_loader.cpp)
+[![Tests](https://img.shields.io/badge/tests-11%2F11-00ff00)](tests/)
 
-**One binary, all backends, all models.** Auto-detects model architecture from the `.h1b` header — no config files, no model registry.
+**One binary, all backends, all models.** Auto-detects model architecture from the model header — no config files, no model registry.
 
 </div>
 
@@ -20,40 +25,18 @@
 
 ## Benchmarks
 
-Measured **2026-07-15** on **AMD Strix Halo** (Ryzen AI Max+ 395, Radeon 8060S, 128 GB LPDDR5X). All numbers are **decode** (generation) tok/s unless noted.
+*Numbers auto-update from [`site/benchmarks.json`](site/benchmarks.json) on every push.*
 
-### 1bit.systems — Kernel Throughput (our HIP/Vulkan kernels)
-
-| Benchmark | tok/s | TFLOPS | Notes |
-|-----------|:-----:|:------:|-------|
-| Q1 GEMV (28-layer model) | **417** | — | Q1_0 128B blocks |
-| Fused TQ2 (QKV+GU) | **415** | — | 1.15× over individual |
-| TQ2 GEMV (28-layer model) | **355** | — | TQ2_0 g128 |
-| Sherry 3:4 sparse | **1.57×** over Halo | — | 37.5% bytes-reduction |
-| Prefill I8 WMMA | — | **42.2** | Fastest variant (APRE) |
-
-### 1bit.systems — Full Inference (end-to-end decode)
-
-| Engine | Backend | tok/s | Measured |
-|--------|---------|:-----:|:--------:|
-| Q1 GEMV (Bonsai) | ROCm HIP | **417** | this build |
-| GPU ternary (ZINC) | Vulkan | **318** | bench_zinc_vulkan.sh |
-| NPU v12 | XDNA 2 xclbin | **69** | validated |
-| GPU ROCm HIP (kernels) | ROCm HIP | **64** | bench_rocm_hip.sh |
-| NPU FLM | XDNA 2 xclbin | **57** | validated |
-| C++ all-5 (auto-detect) | CPU/NPU | **42** | verified |
-| GPU Zaya (ROCm HIP) | ROCm HIP | **10.6** | validated |
-
-### llama.cpp ROCm on Same Hardware (for comparison)
-
-| Model | Size | Backend | Quant | tok/s | Source |
-|-------|:----:|---------|:-----:|:-----:|--------|
-| Ternary-Bonsai-1.7B | 1.7B | PrismML ROCm | Q2_0 | **229** | bench_gpu_1bit.sh (corrected) |
-| Qwen3.5-35B-A3B | 35B | llama.cpp ROCm | MXFP4 | **47.3** | community |
-| Qwen3.6-35B-A3B | 35B | llama.cpp ROCm | BF16 | **23.7** | community |
-| Qwen3.6-35B-A3B | 35B | llama.cpp Vulkan | Q4_K_M | **60.4** | community |
-
-> Why 1bit.systems beats llama.cpp on small models: Our 1.7B ternary model does **417 tok/s** via native HIP kernels vs **229 tok/s** via llama.cpp ROCm running the same model. The gap comes from hand-tuned WMMA GEMV kernels vs llama.cpp general-purpose GEMM path.
+| Benchmark | tok/s | Backend |
+|-----------|:-----:|---------|
+| Q1 GEMV | **417** | ROCm HIP (fused kernel) |
+| Fused TQ2 | **415** | ROCm HIP (QKV+GU fused) |
+| GPU ternary | **318** | Vulkan ZINC |
+| TQ2 GEMV | **355** | ROCm HIP |
+| NPU v12 | **69** | XDNA 2 (32 tiles) |
+| Prefill | **42.2 TFLOPS** | INT8 WMMA |
+| ROCm HIP | **64** | ROCm HIP (kernels) |
+| llama.cpp ROCm | **229** | PrismML on same hardware |
 
 ---
 
@@ -64,7 +47,7 @@ git clone https://github.com/bong-water-water-bong/1bit-systems
 cd 1bit-systems
 cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151
 cmake --build build --target zaya_server -j8
-./build/zaya_server  # Starts on port 8088
+./build/zaya_server
 ```
 
 ```python
@@ -79,7 +62,7 @@ print(client.chat.completions.create(model="zaya", messages=[{"role":"user","con
 
 ```
 1bit/
-  tests/zaya_server.cpp    398 KB binary (stripped)
+  tests/zaya_server.cpp    398 KB binary
   src/                     HIP/C++ kernels (GEMV, prefill, attention)
   include/                 C API headers
   kernels/                 GPU kernels: bonsai, sherry, MoE
@@ -92,6 +75,19 @@ print(client.chat.completions.create(model="zaya", messages=[{"role":"user","con
   benchmarks/              Historical data
 ```
 
+### Loaders
+
+- **GGUF** — Qwen2, Llama, Mistral, DeepSeek (F32/F16/Q8_0/Q4_0/Q5_1/Q5_K/Q8_K)
+- **ONNX** — Protobuf wire format (F32/F16/BF16/INT8/INT32)
+- **Q4NX** — FLM native format (311 tensors)
+- **H1B** — Legacy ternary format
+
+### Backends
+
+- **NPU** — XDNA 2 (32 tiles) via subprocess protocol
+- **GPU** — Radeon 8060S via Vulkan SPIR-V + ROCm HIP
+- **CPU** — Fallback (scalar / AVX-512)
+
 ---
 
 ## License
@@ -101,5 +97,5 @@ MIT. Sherry-specific kernels: PolyForm Noncommercial 1.0.0.
 ---
 
 <div align="center">
-<a href="https://1bit.systems">Website</a>  <a href="https://github.com/bong-water-water-bong/1bit-systems/issues">Issues</a>  <a href="site/blog/one-binary-to-rule-them-all.html">Blog</a>
+<a href="https://1bit.systems">Website</a> · <a href="site/blog/one-binary-to-rule-them-all.html">Blog</a> · <a href="site/demo/">Demo</a>
 </div>
