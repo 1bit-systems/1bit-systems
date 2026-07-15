@@ -57,7 +57,7 @@ struct ModelConfig {
     int num_layers        = 40;
     int vocab_size        = 262272;
     int intermediate_size = 2048;
-    int num_experts_alias = 16;
+    int num_experts       = 16;
     int num_experts_top   = 17;
     int max_seq_len       = 2048;
     float rope_theta      = 500000.0f;

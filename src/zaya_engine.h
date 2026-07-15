@@ -19,7 +19,33 @@
 #include <vector>
 #include <string>
 
-// ── Architecture constants (single-architecture: Zaya1-8B only) ──
+// ── Runtime configuration for Zaya engine ──
+// The engine is compiled for Zaya1-8B (H=2048, L=40, etc.).
+// This struct describes the architecture to the host code;
+// the device kernels still require the compile-time constants above.
+// TODO: When kernels are templated, this will be the primary config.
+struct ZayaConfig {
+    int H = ZAYA_H;
+    int N_LAYERS = ZAYA_N_LAYERS;
+    int NQ = ZAYA_NQ;
+    int NKV = ZAYA_NKV;
+    int HD = ZAYA_HD;
+    int QD = ZAYA_QD;
+    int KD = ZAYA_KD;
+    int QKV = ZAYA_QKV;
+    int VOCAB = ZAYA_VOCAB;
+    int N_EXP = ZAYA_N_EXP;
+    int N_EXP_T = ZAYA_N_EXP_T;
+    int N_FF = ZAYA_N_FF;
+    int RTR_H = ZAYA_RTR_H;
+};
+
+// ── Architecture constants (Zaya1-8B — single architecture) ──
+// The kernels in zaya_engine.cpp are compiled with these hardcoded values.
+// Host-side code uses ZayaConfig for runtime flexibility, but the device
+// kernels still require these exact compile-time constants. To support
+// multiple architectures, the kernels need to be templated or rewritten
+// with dynamic shared memory.
 enum {
     ZAYA_H = 2048,
     ZAYA_NQ = 8,
