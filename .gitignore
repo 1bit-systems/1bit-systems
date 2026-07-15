@@ -74,10 +74,15 @@ actions-runner/
 *.snap
 *.AppImage
 
-# NPU engine build artifacts
+# NPU engine build artifacts + symlink to build binary
 engine/npu/build/
 npu-infer/build/
 npu-infer/**/build/
+engine/fusion/npu_engine_universal
+
+# Python cache in any subdirectory (not just root)
+**/__pycache__/
+**/*.pyc
 
 # CMake build trees + compiled JS output (fixes #103 #143 #150 #151 #163 #174 #175)
 /1bit/build/
@@ -112,6 +117,8 @@ packaging/appimage/AppDir/usr/lib/*.a
 packaging/appimage/AppDir/usr/lib/*.so*
 packaging/appimage/AppDir/usr/lib/x86_64-linux-gnu/*
 packaging/deb/usr/lib/1bit/*.o
+packaging/appimage/AppDir/usr/lib/1bit/*.o
+packaging/*.o
 
 # Stale benchmark result files (keep only latest)
 benchmarks/RESULTS-*.md
