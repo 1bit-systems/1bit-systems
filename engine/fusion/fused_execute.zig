@@ -346,6 +346,14 @@ const NpuWorkerOp = enum(u32) {
     mla_q_proj = 11,
     /// MLAAbsorbed Q + output projection (absorbed attention on NPU).
     mla_absorbed_attn = 12,
+    /// QKV for ALL layers in one call. Input: NC*B*H floats, Output: NC*B*qkv_total floats.
+    qkv_all = 20,
+    /// O projection for ALL layers in one call.
+    oproj_all = 21,
+    /// Gate+Up for ALL layers in one call.
+    gateup_all = 22,
+    /// Down projection for ALL layers in one call.
+    down_all = 23,
 };
 
 /// Persistent connection to a single npu_engine_universal --worker child process.
@@ -466,6 +474,22 @@ fn readExact(file: std.Io.File, io: Io, buf: []u8) !void {
 
     fn runDown(self: *NpuSubprocess, input: []const f32, layer: u32, batch_size: u32, down_out: []f32) !void {
         try self.call(.down, layer, batch_size, input, down_out);
+    }
+
+    /// Batch operations: process ALL layers in a single NPU call.
+    /// Input is NC*B*H floats (all layers concatenated).
+    /// Output is NC*B*out_dim floats.
+    fn runAllQKV(self: *NpuSubprocess, ctx: []const f32, batch_size: u32, qkv_out: []f32) !void {
+        try self.call(.qkv_all, 0, batch_size, ctx, qkv_out);
+    }
+    fn runAllOProj(self: *NpuSubprocess, ctx: []const f32, batch_size: u32, o_out: []f32) !void {
+        try self.call(.oproj_all, 0, batch_size, ctx, o_out);
+    }
+    fn runAllFFN(self: *NpuSubprocess, ctx: []const f32, batch_size: u32, ffn_out: []f32) !void {
+        try self.call(.gateup_all, 0, batch_size, ctx, ffn_out);
+    }
+    fn runAllDown(self: *NpuSubprocess, ctx: []const f32, batch_size: u32, down_out: []f32) !void {
+        try self.call(.down_all, 0, batch_size, ctx, down_out);
     }
 
     /// MoE: run gate/up for a specific expert.

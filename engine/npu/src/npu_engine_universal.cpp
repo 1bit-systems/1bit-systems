@@ -468,6 +468,42 @@ int main(int argc,char**argv){
                     // For now, just pass through Q as output (identity attention)
                     // FIXME: actual NPU attention kernel call when instruction format is known
                     memcpy(out_data.data(), in_data.data(), batch * qd * sizeof(float));
+                }else if(op==20&&cq.isReady()){ // QKV all layers (batch, op=20)
+                    int n_layers = NC;
+                    out_dim = cfg.qkv_total;
+                    out_data.resize(batch * out_dim * (size_t)n_layers, 0);
+                    for (int l = 0; l < n_layers; l++) {
+                        float ascale = dynamic_ascale(in_data.data() + (size_t)l * batch * in_dim, batch * in_dim);
+                        cq.go(l, in_data.data() + (size_t)l * batch * in_dim, batch, (int)in_dim,
+                              ascale, qsc[l], out_data.data() + (size_t)l * batch * out_dim, (int)out_dim);
+                    }
+                }else if(op==21&&co.isReady()){ // O all layers (batch)
+                    int n_layers = NC;
+                    out_dim = H;
+                    out_data.resize(batch * out_dim * (size_t)n_layers, 0);
+                    for (int l = 0; l < n_layers; l++) {
+                        float ascale = dynamic_ascale(in_data.data() + (size_t)l * batch * in_dim, batch * in_dim);
+                        co.go(l, in_data.data() + (size_t)l * batch * in_dim, batch, (int)in_dim,
+                              ascale, osc[l], out_data.data() + (size_t)l * batch * out_dim, (int)out_dim);
+                    }
+                }else if(op==22&&cg.isReady()){ // Gate+Up all layers (batch)
+                    int n_layers = NC;
+                    out_dim = cfg.gu_split ? IM : (2 * IM);
+                    out_data.resize(batch * out_dim * (size_t)n_layers, 0);
+                    for (int l = 0; l < n_layers; l++) {
+                        float ascale = dynamic_ascale(in_data.data() + (size_t)l * batch * in_dim, batch * in_dim);
+                        cg.go(l, in_data.data() + (size_t)l * batch * in_dim, batch, (int)in_dim,
+                              ascale, gsc[l], out_data.data() + (size_t)l * batch * out_dim, (int)out_dim);
+                    }
+                }else if(op==23&&cd.isReady()){ // Down all layers (batch)
+                    int n_layers = NC;
+                    out_dim = H;
+                    out_data.resize(batch * out_dim * (size_t)n_layers, 0);
+                    for (int l = 0; l < n_layers; l++) {
+                        float ascale = dynamic_ascale(in_data.data() + (size_t)l * batch * in_dim, batch * in_dim);
+                        cd.go(l, in_data.data() + (size_t)l * batch * in_dim, batch, (int)in_dim,
+                              ascale, dsc[l], out_data.data() + (size_t)l * batch * out_dim, (int)out_dim);
+                    }
                 }else{
                     ok=false;
                 }
