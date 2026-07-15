@@ -153,6 +153,12 @@ typedef struct {
 rcpp_status_t
 rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model);
 
+// Load a GGUF model file and upload all weights to the GPU.
+// Supports F32, F16, Q8_0, Q4_0, Q4_K_M, Q5_K_M, Q6_K quantization.
+// Other quantization types are dequantized on CPU to FP16.
+rcpp_status_t
+rcpp_bitnet_load_gguf(const char* path, rcpp_bitnet_model_t* out_model);
+
 // Release all device buffers + layer array.
 void
 rcpp_bitnet_free(rcpp_bitnet_model_t* model);
