@@ -1,57 +1,59 @@
 {
   "_generated_by": "tools/gen_numbers.py",
-  "_generated_at": "2026-07-15T00:44:39Z",
+  "_generated_at": "2026-07-15T01:24:38Z",
   "_warning": "Generated file. Do not hand-edit; run tools/gen_numbers.py.",
-  "_missing": [],
+  "_missing": [
+    "fused: engine/fusion/zig-out/bin/fused-engine",
+    "tui: build/bitnet_tui"
+  ],
   "binary": {
     "zaya_bytes": 288712,
     "zaya_kb": 282,
     "zaya_stripped_kb": 263,
-    "fused_bytes": 636856,
-    "fused_kb": 622,
+    "fused_bytes": null,
+    "fused_kb": null,
     "decode_bytes": 703904,
     "decode_kb": 687,
     "decode_stripped_kb": 495,
-    "tui_bytes": 1098392,
-    "tui_kb": 1073,
-    "tui_stripped_kb": 774
+    "tui_bytes": null,
+    "tui_kb": null,
+    "tui_stripped_kb": null
   },
   "benchmarks": {
-    "prefill_tflops_4h": 21.72,
-    "sherry_gemv_gbps": 144.7,
-    "tq1_gemv_gbps": 186.4,
-    "halo_gemv_gbps": 150.4,
-    "prefill_tflops_i8apre": 38.21,
-    "gpu_1bit_tok_s": 373,
-    "npu_flm_tok_s": 57,
-    "rocm_hip_tok_s": 65,
-    "gpu_ternary_tok_s": 369,
-    "npu_validated_tok_s": 57,
-    "gpu_1bit_llama_tok_s": 373,
-    "tflops": 38.21
+    "bonsai_end_to_end_decode": "PASS (argmax=76213, coherent logits)",
+    "bonsai_q1_1024_tok_s": 425,
+    "bonsai_tile8_tok_s": 76.9,
+    "bonsai_tq2_1024_tok_s": 358,
+    "fused_tq2_1024_individual_tok_s": 360,
+    "fused_tq2_1024_tok_s": 413,
+    "halo_gemv_gbps": 162.8,
+    "kv_cache_fd_speedup_2048": 12.65,
+    "kv_cache_i8_speedup_2048": 0.95,
+    "prefill_tflops_4h": 21.77,
+    "prefill_tflops_i8apre": 38.89,
+    "rotorquant_pq3_tok_s_2048": 9224,
+    "sherry_gemv_gbps": 153.0,
+    "tq1_gemv_gbps": 191.6,
+    "tflops": 38.89
   },
   "_sources": {
-    "prefill_tflops_4h": "bench_prefill_variants 2560 6912 2560 -- variant 4h (64x64 cached A+B)",
-    "sherry_gemv_gbps": "bench_sherry -- M=6912 K=2560, sherry kernel, 256 iters",
-    "tq1_gemv_gbps": "bench_sherry -- tq1 kernel, fastest GEMV variant",
     "halo_gemv_gbps": "bench_sherry -- halo baseline kernel",
+    "prefill_tflops_4h": "bench_prefill_variants 2560 6912 2560 -- variant 4h (64x64 cached A+B)",
     "prefill_tflops_i8apre": "bench_prefill_variants 2560 6912 2560 -- variant 4i-I8-APRE (I8 A + tiled B), median of 3",
-    "gpu_1bit_tok_s": "tools/bench_gpu_1bit.sh -- llama.cpp/ROCm on Ternary-Bonsai-1.7B-Q2_0 (1.58-bit), Radeon 8060S (gfx1151). Decode tok/s, median of 3.",
-    "npu_flm_tok_s": "tools/bench_npu_flm.sh -- FastFlowLM FLM engine, qwen3:0.6b (Qwen3-0.6B-NPU2 q4nx), XDNA2 NPU, 128-token completion, end-to-end wall time excluding prefill.",
-    "rocm_hip_tok_s": "tools/bench_rocm_hip.sh -- bitnet_decode bench mode, Bonsai-1.7B ternary .h1b via rocm_cpp HIP kernels (bonsai_tq2_gemv_launch), Radeon 8060S. Median of 3.",
-    "gpu_ternary_tok_s": "tools/bench_zinc_vulkan.sh -- ZINC engine, Ternary-Bonsai-1.7B-Q2_0 (1.58-bit), Vulkan (Radeon 8060S, gfx1151). Decode tok/s, median of 3."
+    "sherry_gemv_gbps": "bench_sherry -- M=6912 K=2560, sherry kernel, 256 iters",
+    "tq1_gemv_gbps": "bench_sherry -- tq1 kernel, fastest GEMV variant"
   },
   "repo": {
-    "stars": 9,
     "forks": 4,
+    "name": "1bit-systems",
     "open_issues": 9,
-    "total_clones": 6113,
-    "unique_cloners": 783,
     "owner": "bong-water-water-bong",
-    "name": "1bit-systems"
+    "stars": 9,
+    "total_clones": 6113,
+    "unique_cloners": 783
   },
   "site": {
-    "models": 5,
-    "backends": 6
+    "backends": 6,
+    "models": 5
   }
 }

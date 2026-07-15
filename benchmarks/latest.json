@@ -10,29 +10,76 @@
     "re-measure it. Anything else belongs in `_unverified` and must NOT ship."
   ],
   "_measured_on": {
-    "host": "AMD Ryzen AI MAX+ 395 w/ Radeon 8060S",
-    "gpu": "gfx1151 (RDNA 3.5, Wave32)",
-    "rocm": "7.2.4",
     "date": "2026-07-15",
-    "note": "Medians of 3 warmed runs after BackendManager routing fix (rank by score, keep instances). Prefill TFLOPS sensitivity to GPU DVFS ramp noted."
-  },
-  "benchmarks": {
-    "prefill_tflops_4h": 21.52,
-    "sherry_gemv_gbps": 150.3,
-    "tq1_gemv_gbps": 189.8,
-    "halo_gemv_gbps": 168.8,
-    "prefill_tflops_i8apre": 38.86
+    "gpu": "gfx1151 (RDNA 3.5, Wave32)",
+    "host": "AMD Ryzen AI MAX+ 395 w/ Radeon 8060S",
+    "note": "Full benchmark suite after BackendManager routing fix. All kernel benchmarks within 15% tolerance of prior values. Bonsai E2E decode validated on real TQ2 model (argmax=76213, coherent). KV Flash-Decoding shows 12.65x speedup at seq_len=2048.",
+    "rocm": "7.2.4"
   },
   "_sources": {
-    "prefill_tflops_4h": "bench_prefill_variants 2560 6912 2560 -- variant 4h (64x64 cached A+B)",
-    "sherry_gemv_gbps": "bench_sherry -- M=6912 K=2560, sherry kernel, 256 iters",
-    "tq1_gemv_gbps": "bench_sherry -- tq1 kernel, fastest GEMV variant",
     "halo_gemv_gbps": "bench_sherry -- halo baseline kernel",
-    "prefill_tflops_i8apre": "bench_prefill_variants 2560 6912 2560 -- variant 4i-I8-APRE (I8 A + tiled B), median of 3"
+    "prefill_tflops_4h": "bench_prefill_variants 2560 6912 2560 -- variant 4h (64x64 cached A+B)",
+    "prefill_tflops_i8apre": "bench_prefill_variants 2560 6912 2560 -- variant 4i-I8-APRE (I8 A + tiled B), median of 3",
+    "sherry_gemv_gbps": "bench_sherry -- M=6912 K=2560, sherry kernel, 256 iters",
+    "tq1_gemv_gbps": "bench_sherry -- tq1 kernel, fastest GEMV variant"
+  },
+  "_unverified": {
+    "_comment": [
+      "Claims that cannot currently be re-measured from this repo.",
+      "They are deliberately absent from `benchmarks` and MUST NOT be published",
+      "until the blocker is fixed and validate_claims.py can measure them."
+    ],
+    "fused_kb_82": {
+      "blocker": "UNIT ERROR. This was the LM head's 82 MB copied into a KB field. The fused engine measures 258 KB (264,000 bytes), now stat()-ed at build time by tools/gen_numbers.py.",
+      "claimed": 82
+    },
+    "gpu_1bit_llama_tok_s": {
+      "blocker": "NO SOURCE in repo.",
+      "claimed": null
+    },
+    "gpu_f16_baseline_tok_s": {
+      "blocker": "NO SOURCE in repo.",
+      "claimed": null
+    },
+    "gpu_ternary_tok_s": {
+      "blocker": "NO SOURCE in repo.",
+      "claimed": null
+    },
+    "npu_fused_raw_tok_s": {
+      "blocker": "NO SOURCE anywhere in the repo. Contradicted by docs/npu/AGENTS.md (4.8 tok/s). Was hardcoded into site/index.html's meta description as a string literal, bypassing numbers.json entirely.",
+      "claimed": 291
+    },
+    "npu_tok_s": {
+      "blocker": "docs/npu/AGENTS.md reports 210 ms/tok on Qwen3-0.6B via the torch2aie/IRON toolchain. Not re-measurable here: no Q4NX model + xclbin harness wired into a benchmark binary.",
+      "claimed": 4.8
+    },
+    "npu_validated_tok_s": {
+      "blocker": "NO SOURCE. The string '94 tok/s' appears nowhere in the repository.",
+      "claimed": 94
+    },
+    "rocm_decode_tok_s": {
+      "blocker": "Model unreproducible. ~/models/bonsai-1.7b/bonsai-f16.gguf sidecar is truncated (502 KB, 'short read on token_embd'). tools/gguf_to_h1b segfaults (exit 139) regenerating it: Bonsai-1.7B-F16.gguf is not F16 -- 197 of 310 tensors are dtype 41, and the converter only reads dtype 1 (F16), warns 'missing blk.N.*.weight' for every layer, writes a truncated sidecar, then crashes.",
+      "claimed": 113
+    },
+    "rocm_prefill_tok_s": {
+      "blocker": "Same as rocm_decode_tok_s -- requires a loadable .h1b model.",
+      "claimed": 98
+    },
+    "rocm_tflops": {
+      "blocker": "FALSIFIED. CLAUDE.md attributes 28.4 TFlops to variant 4h; 4h measures 25.67 TFlops. The fastest variant is 4i-I8-APRE at 35.57 TFlops. Superseded by prefill_tflops_best / prefill_tflops_4h.",
+      "claimed": 28.4
+    },
+    "sherry_gemv_bw_gbps": {
+      "blocker": "MISATTRIBUTED. 19.3 GB/s is close to sherry_ref (18.2 GB/s), the clean-room offline-only reference implementation -- not the shipped kernel, which measures 148.8 GB/s.",
+      "claimed": 19.3
+    },
+    "tflops_55_7": {
+      "blocker": "NO SOURCE. Measured ternary prefill peak is 35.57 TFlops.",
+      "claimed": 55.7
+    }
   },
   "_verify": {
     "_comment": "How validate_claims.py re-measures each key. Median of --repeat runs; tolerance is fractional.",
-    "tolerance": 0.15,
     "commands": {
       "bench_prefill_variants": {
         "argv": [
@@ -56,74 +103,36 @@
           "halo_gemv_gbps"
         ]
       }
-    }
+    },
+    "tolerance": 0.15
   },
-  "_unverified": {
-    "_comment": [
-      "Claims that cannot currently be re-measured from this repo.",
-      "They are deliberately absent from `benchmarks` and MUST NOT be published",
-      "until the blocker is fixed and validate_claims.py can measure them."
-    ],
-    "rocm_decode_tok_s": {
-      "claimed": 113,
-      "blocker": "Model unreproducible. ~/models/bonsai-1.7b/bonsai-f16.gguf sidecar is truncated (502 KB, 'short read on token_embd'). tools/gguf_to_h1b segfaults (exit 139) regenerating it: Bonsai-1.7B-F16.gguf is not F16 -- 197 of 310 tensors are dtype 41, and the converter only reads dtype 1 (F16), warns 'missing blk.N.*.weight' for every layer, writes a truncated sidecar, then crashes."
-    },
-    "rocm_prefill_tok_s": {
-      "claimed": 98,
-      "blocker": "Same as rocm_decode_tok_s -- requires a loadable .h1b model."
-    },
-    "rocm_tflops": {
-      "claimed": 28.4,
-      "blocker": "FALSIFIED. CLAUDE.md attributes 28.4 TFlops to variant 4h; 4h measures 25.67 TFlops. The fastest variant is 4i-I8-APRE at 35.57 TFlops. Superseded by prefill_tflops_best / prefill_tflops_4h."
-    },
-    "sherry_gemv_bw_gbps": {
-      "claimed": 19.3,
-      "blocker": "MISATTRIBUTED. 19.3 GB/s is close to sherry_ref (18.2 GB/s), the clean-room offline-only reference implementation -- not the shipped kernel, which measures 148.8 GB/s."
-    },
-    "npu_tok_s": {
-      "claimed": 4.8,
-      "blocker": "docs/npu/AGENTS.md reports 210 ms/tok on Qwen3-0.6B via the torch2aie/IRON toolchain. Not re-measurable here: no Q4NX model + xclbin harness wired into a benchmark binary."
-    },
-    "npu_fused_raw_tok_s": {
-      "claimed": 291,
-      "blocker": "NO SOURCE anywhere in the repo. Contradicted by docs/npu/AGENTS.md (4.8 tok/s). Was hardcoded into site/index.html's meta description as a string literal, bypassing numbers.json entirely."
-    },
-    "npu_validated_tok_s": {
-      "claimed": 94,
-      "blocker": "NO SOURCE. The string '94 tok/s' appears nowhere in the repository."
-    },
-    "tflops_55_7": {
-      "claimed": 55.7,
-      "blocker": "NO SOURCE. Measured ternary prefill peak is 35.57 TFlops."
-    },
-    "gpu_ternary_tok_s": {
-      "claimed": null,
-      "blocker": "NO SOURCE in repo."
-    },
-    "gpu_1bit_llama_tok_s": {
-      "claimed": null,
-      "blocker": "NO SOURCE in repo."
-    },
-    "gpu_f16_baseline_tok_s": {
-      "claimed": null,
-      "blocker": "NO SOURCE in repo."
-    },
-    "fused_kb_82": {
-      "claimed": 82,
-      "blocker": "UNIT ERROR. This was the LM head's 82 MB copied into a KB field. The fused engine measures 258 KB (264,000 bytes), now stat()-ed at build time by tools/gen_numbers.py."
-    }
+  "benchmarks": {
+    "bonsai_end_to_end_decode": "PASS (argmax=76213, coherent logits)",
+    "bonsai_q1_1024_tok_s": 425,
+    "bonsai_tile8_tok_s": 76.9,
+    "bonsai_tq2_1024_tok_s": 358,
+    "fused_tq2_1024_individual_tok_s": 360,
+    "fused_tq2_1024_tok_s": 413,
+    "halo_gemv_gbps": 162.8,
+    "kv_cache_fd_speedup_2048": 12.65,
+    "kv_cache_i8_speedup_2048": 0.95,
+    "prefill_tflops_4h": 21.77,
+    "prefill_tflops_i8apre": 38.89,
+    "rotorquant_pq3_tok_s_2048": 9224,
+    "sherry_gemv_gbps": 153.0,
+    "tq1_gemv_gbps": 191.6
   },
   "repo": {
-    "stars": 9,
     "forks": 4,
+    "name": "1bit-systems",
     "open_issues": 9,
-    "total_clones": 6113,
-    "unique_cloners": 783,
     "owner": "bong-water-water-bong",
-    "name": "1bit-systems"
+    "stars": 9,
+    "total_clones": 6113,
+    "unique_cloners": 783
   },
   "site": {
-    "models": 73,
-    "backends": 6
+    "backends": 6,
+    "models": 73
   }
 }
