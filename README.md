@@ -19,6 +19,10 @@
 
 **One binary, all backends, all models.** Auto-detects model architecture from the model header — no config files, no model registry.
 
+Reverse-engineered AMD's XDNA 2 NPU in 4 days with no documentation. Built the first open-source fused NPU+GPU inference engine. 1800+ hours of engineering across 28 layers of GEMM kernels, Vulkan flash attention, and a self-healing agent watchdog.
+
+**[Read the full journey &rarr;](docs/journey.md)**
+
 </div>
 
 ---
