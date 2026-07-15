@@ -221,9 +221,14 @@ int main(int argc,char**argv){
     const char*input_tok_file=(argc>3&&!worker_mode&&argv[3][0]!='\0')?argv[3]:nullptr;
 
     // Model tag
-    std::string mp_s(mp),model_tag;auto ls=mp_s.rfind('/');auto sl=mp_s.rfind('/',ls-1);
-    model_tag=(sl!=std::string::npos&&ls!=std::string::npos)?mp_s.substr(sl+1,ls-sl-1):mp_s.substr(ls+1);
-    for(auto&c:model_tag){c=tolower(c);if(c=='-'||c=='.')c='_';}
+    // Accept --model-tag CLI override (passed by the Zig fused executor)
+    std::string mp_s(mp),model_tag;
+    for(int i=2;i<argc-1;i++){if(strcmp(argv[i],"--model-tag")==0){model_tag=argv[i+1];break;}}
+    if(model_tag.empty()){
+        auto ls=mp_s.rfind('/');model_tag=(ls!=std::string::npos)?mp_s.substr(ls+1):mp_s;
+        auto dot=model_tag.rfind('.');if(dot!=std::string::npos)model_tag=model_tag.substr(0,dot);
+    }
+    for(auto&c:model_tag){c=tolower(c);if(c=='-'||c=='.'||c=='\\')c='_';}
     const char*sfxs[]={"_npu2","_instruct","_it","_it_npu2"};
     for(auto sf:sfxs){size_t sl=strlen(sf);if(model_tag.size()>sl&&model_tag.substr(model_tag.size()-sl)==sf)model_tag=model_tag.substr(0,model_tag.size()-sl);}
 

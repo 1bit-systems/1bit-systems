@@ -206,7 +206,7 @@ pub fn main(init: std.process.Init) !void {
     };
     var executor = try FusedExecutor.init(
         allocator, init.io, fuse_policy, runtime_config,
-        opts.model_path, opts.npu_engine,
+        opts.model_path, opts.npu_engine, opts.model_tag,
         MAX_CONTEXT, opts.batch_size,
         model.emb_f32, model.lm_head_f32, model.tied_embeddings,
         model.final_norm, model.in_norm, model.pa_norm, model.q_norm, model.k_norm,

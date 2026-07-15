@@ -363,15 +363,15 @@ const NpuSubprocess = struct {
     /// header/payload bytes on the same pipe.
     mutex: Io.Mutex = .init,
 
-    pub fn init(allocator: std.mem.Allocator, io: ?Io, model_path: []const u8, engine_path: []const u8) NpuSubprocess {
-        _ = model_tag;
-        return .{ .allocator = allocator, .io = io, .model_path = model_path, .engine_path = engine_path };
+    pub fn init(allocator: std.mem.Allocator, io: ?Io, model_path: []const u8, engine_path: []const u8, model_tag: []const u8) NpuSubprocess {
+
+        return .{ .allocator = allocator, .io = io, .model_path = model_path, .engine_path = engine_path, .model_tag = model_tag };
     }
 
     fn ensureStarted(self: *NpuSubprocess, io: Io) !void {
         if (self.child != null) return;
         self.child = try std.process.spawn(io, .{
-            .argv = &[_][]const u8{ self.engine_path, self.model_path, "--worker" },
+            .argv = if (self.model_tag.len > 0) &[_][]const u8{ self.engine_path, self.model_path, "--worker", "--model-tag", self.model_tag } else &[_][]const u8{ self.engine_path, self.model_path, "--worker" },
             .stdin = .pipe,
             .stdout = .pipe,
             .stderr = .pipe,
@@ -708,6 +708,7 @@ pub const FusedExecutor = struct {
         config: ModelConfig,
         model_path: []const u8,
         npu_engine_path: []const u8,
+        model_tag: []const u8,
         max_context: u32,
         batch_size: u32,
         emb_f32: []f32,
@@ -724,7 +725,7 @@ pub const FusedExecutor = struct {
     ) !FusedExecutor {
         return initWithKernels(
             allocator, io, policy, config,
-            model_path, npu_engine_path, max_context, batch_size,
+            model_path, npu_engine_path, model_tag, max_context, batch_size,
             emb_f32, lm_head_f32, tied_embeddings,
             final_norm, in_norm, pa_norm, q_norm, k_norm,
             rope_sin, rope_cos, cpu_weights,
@@ -742,6 +743,7 @@ pub const FusedExecutor = struct {
         config: ModelConfig,
         model_path: []const u8,
         npu_engine_path: []const u8,
+        model_tag: []const u8,
         max_context: u32,
         batch_size: u32,
         emb_f32: []f32,
@@ -895,7 +897,7 @@ pub const FusedExecutor = struct {
             .ffn_kernel = ffn_kernel,
             .kv = kv,
             .mla_kv = mla_kv,
-            .npu = NpuSubprocess.init(allocator, io, model_path, npu_engine_path){.model_tag = model_tag},
+            .npu = NpuSubprocess.init(allocator, io, model_path, npu_engine_path, model_tag),
             .cpu_weights = cpu_weights,
             .emb_f32 = emb_f32,
             .lm_head_f32 = lm_head_f32,
