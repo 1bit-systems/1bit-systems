@@ -15,6 +15,7 @@ One server binary (`zaya_server`) runs every supported model across its backends
 [![Binary](https://img.shields.io/badge/binary-282%20KB-f00fd2.svg)](tests/zaya_server.cpp)
 [![Strix Halo](https://img.shields.io/badge/strix%20halo-gfx1151%20%2B%20XDNA%202-12a0ed.svg)](https://www.amd.com/en/products/processors/laptop/ryzen/ai-max-series.html)
 [![NPU fused](https://img.shields.io/badge/npu%20fused-broken-ff0000.svg)](https://github.com/bong-water-water-bong/1bit-systems/issues/56)
+[![NPU↔GPU zero-copy](https://img.shields.io/endpoint?url=https://1bit.systems/zero-copy-badge.json&color=00ff00)](engine/fusion/zero_copy/test_parallel_real.hip)
 
 </div>
 
