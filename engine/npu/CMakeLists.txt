@@ -1,60 +1,90 @@
-cmake_minimum_required(VERSION 3.16)
-project(npu-bf16-engine C CXX)
+cmake_minimum_required(VERSION 3.21)
+project(npu-engine LANGUAGES C CXX)
 
+# ── Toolchain ────────────────────────────────────────────────────
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Find XRT (AMD NPU runtime — xrt_coreutil, xrt_core)
-find_library(XRT_COREUTIL xrt_coreutil)
-find_library(XRT_CORE  xrt_core)
+# ROCm/HIP used for TheRock amdclang++ runtime (tools only, not the engine)
+find_package(hip REQUIRED)
+find_package(XRT QUIET)
 
-# Sources: model loader + BF16 engine variant
-set(NPU_BF16_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../npu-infer/src/model.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/npu_engine_v2_bf16.cpp
+# ── npu_engine_universal (flagship — all ops: QKV, O, GU, D, attention) ──
+set(NPU_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+set(NPU_ENGINE_SOURCES
+    ${NPU_SRC_DIR}/npu_engine_all.cpp
+    ${NPU_SRC_DIR}/npu_engine_batch.cpp
+    ${NPU_SRC_DIR}/npu_engine_cb.cpp
+    ${NPU_SRC_DIR}/npu_engine_i8.cpp
+    ${NPU_SRC_DIR}/npu_engine_mt.cpp
+    ${NPU_SRC_DIR}/npu_engine_profile.cpp
+    ${NPU_SRC_DIR}/npu_engine_server.cpp
+    ${NPU_SRC_DIR}/npu_engine_universal.cpp
+    ${NPU_SRC_DIR}/dequant_q4nx.c
 )
 
-add_executable(npu_engine_v2_bf16 ${NPU_BF16_SOURCES})
+add_executable(npu_engine_universal ${NPU_ENGINE_SOURCES})
 
-target_include_directories(npu_engine_v2_bf16 PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include                    # helper.h, gemm_atb_layout.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../npu-infer/include     # common.h, model.h
+target_include_directories(npu_engine_universal PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../npu-infer/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../include   # npu_instr.hpp, npu_app.hpp
 )
 
-target_link_libraries(npu_engine_v2_bf16
-    ${XRT_COREUTIL}
-    ${XRT_CORE}
+if(XRT_FOUND)
+    target_include_directories(npu_engine_universal PRIVATE ${XRT_INCLUDE_DIR})
+    target_link_libraries(npu_engine_universal ${XRT_LIBRARY})
+    target_compile_definitions(npu_engine_universal PRIVATE -DXRT_ENABLE)
+endif()
+
+target_link_libraries(npu_engine_universal
     m dl pthread
 )
 
-target_compile_options(npu_engine_v2_bf16 PRIVATE
+target_compile_options(npu_engine_universal PRIVATE
     -O3 -ffast-math -march=native -funroll-loops -fno-math-errno
     -Wno-unused-parameter -Wno-unused-variable
 )
 
-message(STATUS "npu-bf16-engine: XRT_COREUTIL=${XRT_COREUTIL}")
-message(STATUS "npu-bf16-engine: XRT_CORE=${XRT_CORE}")
+install(TARGETS npu_engine_universal DESTINATION bin)
 
-# Install target
-install(TARGETS npu_engine_v2_bf16 DESTINATION bin)
-
-# Real gemm_atb_layout.h from mlir-aie (AMD AI Engine block data layout)
-# /home/bcloud/mlir-aie/programming_examples/ml/block_datatypes/gemm_asymmetric_tile_buffering
-set(NPU_MLIR_AIE_DIR "$ENV{HOME}/mlir-aie" CACHE PATH "Path to mlir-aie install")
-if(EXISTS "${NPU_MLIR_AIE_DIR}/programming_examples/ml/block_datatypes/gemm_asymmetric_tile_buffering/gemm_atb_layout.h")
-    target_include_directories(npu_engine_v2_bf16 PRIVATE
-        "${NPU_MLIR_AIE_DIR}/programming_examples/ml/block_datatypes/gemm_asymmetric_tile_buffering"
-    )
-    message(STATUS "npu-bf16-engine: using real gemm_atb_layout.h from mlir-aie")
-else()
-    message(WARNING "npu-bf16-engine: mlir-aie not found at ${NPU_MLIR_AIE_DIR} — using stub gemm_atb_layout.h")
-endif()
-
-# torch2aie examples (helper.h, test_bf16_npu.cpp deps)
-set(NPU_TORCH2AIE_DIR "$ENV{HOME}/torch2aie" CACHE PATH "Path to torch2aie install")
+# ── Optional: torch2aie integration for bf16 kernel generation ──
+set(NPU_TORCH2AIE_DIR "$ENV{HOME}/torch2aie" CACHE PATH "Path to torch2aie repo root")
 if(EXISTS "${NPU_TORCH2AIE_DIR}/examples/helper.h")
-    target_include_directories(npu_engine_v2_bf16 PRIVATE
-        "${NPU_TORCH2AIE_DIR}/examples"
+    target_include_directories(npu_engine_universal PRIVATE
+        ${NPU_TORCH2AIE_DIR}/iron
+        ${NPU_TORCH2AIE_DIR}/examples
     )
+    target_compile_definitions(npu_engine_universal PRIVATE NPU_HAVE_TORCH2AIE=1)
     message(STATUS "npu-bf16-engine: using torch2aie headers at ${NPU_TORCH2AIE_DIR}/examples")
 endif()
+
+# ── npu_engine_cb (v4) — dynamic instructions, xrt::ext::kernel ──
+find_library(AIEBU aiebu REQUIRED)
+find_library(XRT_COREUTIL xrt_coreutil)
+
+set(NPU_CB_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/npu_engine_cb.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dequant_q4nx.c
+)
+
+add_executable(npu_engine_cb ${NPU_CB_SOURCES})
+
+target_include_directories(npu_engine_cb PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../npu-infer/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../include   # npu_instr.hpp, npu_app.hpp
+)
+
+target_link_libraries(npu_engine_cb
+    ${XRT_COREUTIL}
+    m dl pthread
+)
+
+target_compile_options(npu_engine_cb PRIVATE
+    -O3 -ffast-math -march=native -funroll-loops -fno-math-errno
+    -Wno-unused-parameter -Wno-unused-variable
+)
+
+install(TARGETS npu_engine_cb DESTINATION bin)
