@@ -18,7 +18,7 @@
 #include <signal.h>
 #include <curl/curl.h>
 
-struct CurlBuffer { std::string data; bool headers_done = false; };
+struct CurlBuffer { std::string data; bool headers_done; };
 static size_t curl_write_cb(char* ptr, size_t size, size_t nmemb, void* userdata) {
     size_t total = size * nmemb; auto* buf = (CurlBuffer*)userdata;
     buf->data.append(ptr, total); return total;
@@ -42,13 +42,7 @@ static std::string http_post(const std::string& url, const std::string& body, lo
 
 static void send_json(int cl, int code, const std::string& body) {
     const char* reason = "OK";
-    switch (code) {
-        case 200: reason = "OK"; break;
-        case 400: reason = "Bad Request"; break;
-        case 404: reason = "Not Found"; break;
-        case 413: reason = "Payload Too Large"; break;
-        case 500: reason = "Internal Server Error"; break;
-    }
+    switch (code) { case 200: reason = "OK"; break; case 400: reason = "Bad Request"; break; case 404: reason = "Not Found"; break; case 413: reason = "Payload Too Large"; break; case 500: reason = "Internal Server Error"; break; }
     std::string header = "HTTP/1.1 " + std::to_string(code) + " " + reason + "\r\n"
         "Content-Type: application/json\r\n" "Access-Control-Allow-Origin: *\r\n"
         "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
