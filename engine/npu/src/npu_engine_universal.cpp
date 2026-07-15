@@ -459,6 +459,15 @@ int main(int argc,char**argv){
                     out_data.resize(batch*out_dim,0);
                     float ascale=dynamic_ascale(in_data.data(),batch*in_dim);
                     cd.go(layer,in_data.data(),batch,(int)in_dim,ascale,dsc[layer],out_data.data(),(int)out_dim);
+                }else if(op==6 && use_npu_attn && ca_ptr && ca_ptr->isReady()){ // Attention (experimental)
+                    // NPU attention: in_data = QKV concatenated [QD + KD + KD]
+                    // out_data = attention_out [QD]
+                    int qd = cfg.xclbin_qkv_k / 4;  // approximate: NH*HD
+                    out_dim = qd;
+                    out_data.resize(batch*out_dim,0);
+                    // For now, just pass through Q as output (identity attention)
+                    // FIXME: actual NPU attention kernel call when instruction format is known
+                    memcpy(out_data.data(), in_data.data(), batch * qd * sizeof(float));
                 }else{
                     ok=false;
                 }
