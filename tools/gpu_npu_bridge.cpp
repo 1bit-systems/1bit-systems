@@ -1,9 +1,27 @@
 // gpu_npu_bridge.cpp — GPU+NPU fused inference for Zaya1-8B
-// Architecture:
-//   GPU: CCA attention (all 40 layers) via HIP
-//   NPU: TQ1 MoE expert FFN (all 40 layers) via XRT ternary xclbins
-//   Memory: dma-buf zero-copy between GPU GTT BO and NPU XRT BO
-//   Pipeline: GPU attn(Ln) ‖ NPU MoE(Ln-1) — overlapping execution
+// Architecture (CURRENT — GPU-only loop; NPU integration is aspirational):
+//   GPU:  CCA attention + MoE (all 40 layers) via HIP — WORKS (Phase 1 baseline)
+//   NPU:  Placeholder only — NPURunner::run_expert_ffn() returns `false`.
+//         Real NPU integration was never completed; the ternary xclbins
+//         needed by the TQ1 path were never built/verified for Zaya.
+//   Memory: THE DMA-BUF ZERO-COPY APPROACH BELOW DOES NOT COMPILE.
+//         ROCm 7.2.4 HIP lacks `hipExternalMemoryHandleTypeDmaBuf` (enum value
+//         absent).  Even if it compiled, the GPU-owner→NPU-importer direction
+//         produces AMD-Vi IO_PAGE_FAULTs (verified on Strix Halo).
+//         The proven zero-copy architecture (see engine/fusion/zero_copy/):
+//           NPU (amdxdna) owns the buffer as XRT HOST_ONLY BO,
+//           exports dma-buf fd -> imported into GPU via Vulkan dma-buf import
+//           (HIP can't do this; Vulkan CAN via VK_KHR_external_memory_fd).
+//         Host maps the BO directly — all three alias the same pages, no copy.
+//   Pipeline: Still aspirational — the overlap code is GPU-only sequential.
+//         Real NPU+GPU overlap requires the 2-slot pipeline skeleton in
+//         engine/fusion/zero_copy/pipeline_overlap.h.
+//
+// Summary: THIS FILE IS A HISTORIC REFERENCE, NOT A PRODUCTION FUSION ENGINE.
+//          Its GPU baseline loop (Phase 1) is still correct reference code.
+//          The dead import_to_hip()/import_to_xrt() methods have been removed;
+//          the NPURunner is a stub.  See engine/fusion/zero_copy/ for the
+//          proven zero-copy substrate and pipeline pattern.
 //
 // Build: g++ -O3 -std=c++20 tools/gpu_npu_bridge.cpp -o build/gpu_npu_bridge \
 //   -I/opt/rocm-7.2.4/include -L/opt/rocm-7.2.4/lib -lamdhip64 \
@@ -74,23 +92,6 @@ struct DmaBuf {
 
         printf("  dma-buf: fd=%d size=%zu cpu=%p\n", fd, size, cpu_ptr);
         return true;
-    }
-
-    // Import into NPU XRT BO
-    xrt::bo import_to_xrt(xrt::device &xrt_dev, int group_id) {
-        return xrt::bo(xrt_dev, fd, group_id);
-    }
-
-    // Get HIP handle for GPU access
-    hipExternalMemory_t import_to_hip() {
-        hipExternalMemoryHandleDesc desc = {};
-        desc.type = hipExternalMemoryHandleTypeDmaBuf;
-        desc.fd = fd;
-        desc.size = size;
-        desc.flags = 0;
-        hipExternalMemory_t ext_mem;
-        HIP_OK(hipImportExternalMemory(&ext_mem, &desc));
-        return ext_mem;
     }
 
     ~DmaBuf() {

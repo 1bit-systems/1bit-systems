@@ -67,3 +67,14 @@ npu-infer/build/
 # Node dependencies (npm ci)
 node_modules/
 engine/fusion/bench_fused
+1bit/build/
+dist/
+
+# Zero-copy NPU↔GPU fusion substrate — built binaries (source in engine/fusion/zero_copy/)
+engine/fusion/zero_copy/*.o
+engine/fusion/zero_copy/*.a
+engine/fusion/zero_copy/test_zero_copy
+engine/fusion/zero_copy/test_pipeline
+engine/fusion/zero_copy/probe_contexts
+engine/fusion/zero_copy/probe_multi_xclbin
+engine/fusion/zero_copy/xclbin_health
