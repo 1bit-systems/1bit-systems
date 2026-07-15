@@ -78,3 +78,4 @@ engine/fusion/zero_copy/test_pipeline
 engine/fusion/zero_copy/probe_contexts
 engine/fusion/zero_copy/probe_multi_xclbin
 engine/fusion/zero_copy/xclbin_health
+engine/fusion/zero_copy/test_parallel_real
