@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 #include <variant>
+#include <memory>
 #include <atomic>
 #include <chrono>
 
@@ -58,6 +59,30 @@ struct ModelRoute {
     double speed_tok_s;            // measured decode speed
 };
 
+// ── Agent adaptation state (shared between watchdog and strategies) ───
+// All mutable state that the watchdog writes and route() reads lives here.
+// Shared via std::shared_ptr so the variant alternatives remain copyable.
+
+struct AgentState {
+    // Cascade adaptation
+    std::atomic<double> cascade_threshold_override{-999.0};
+    std::atomic<size_t> cascade_count{0};
+    std::atomic<size_t> total_tokens_routed{0};
+
+    // Spec decode adaptation
+    std::atomic<double> acceptance_rate{0.85};
+    std::atomic<int> dynamic_n_draft{4};
+
+    // Backend health (adaptive strategy)
+    std::atomic<double> npu_load_share{0.7};
+    std::atomic<bool> npu_disabled{false};
+    std::atomic<bool> gpu_disabled{false};
+    std::atomic<double> adaptive_cascade_threshold{-2.5};
+
+    // Re-profile flag
+    std::atomic<bool> force_reprofile{false};
+};
+
 // ── Strategy configs (each is a std::variant alternative) ──────────────
 
 struct CascadeConfig {
@@ -67,46 +92,36 @@ struct CascadeConfig {
     double confidence_threshold = -2.5; // log-prob below this → route to large
     size_t min_context_for_large = 50;  // always use large after N tokens
 
-    // Live adaptation state (modified by watchdog)
-    std::atomic<double> threshold_override{-999.0}; // -999 = use default
-    std::atomic<size_t> cascade_count{0};
-    std::atomic<size_t> total_tokens_routed{0};
+    // Shared adaptation state (nullptr if not using agent watchdog)
+    std::shared_ptr<AgentState> agent;
 
     RoutingDecision route(const TokenContext& ctx) const noexcept;
 };
 
 struct PerformanceConfig {
-    // Config (set at boot from live benchmarks)
     std::string default_backend;
-    std::vector<ModelRoute> live_table;  // populated by microbenchmark
-
-    // Live adaptation state
-    std::atomic<bool> force_reprofile{false};
+    std::vector<ModelRoute> live_table;
 
     RoutingDecision route(const TokenContext& ctx) const noexcept;
     std::string best_backend_for_model(const std::string& model) const;
 };
 
 struct SpecDecodeConfig {
-    // Config
     std::string draft_backend;
     std::string target_backend;
     int n_draft = 4;
     double acceptance_threshold = 0.8;
 
-    // Live adaptation state
-    std::atomic<double> acceptance_rate{0.85}; // EMA of acceptance rate
-    std::atomic<int> dynamic_n_draft{4};
+    std::shared_ptr<AgentState> agent;
 
     RoutingDecision route(const TokenContext& ctx) const noexcept;
 };
 
 struct ContentRouterConfig {
-    // Config
     std::string small_backend;
     std::string large_backend;
     std::vector<std::string> gpu_keywords;
-    size_t max_small_tokens = 2000;  // tokens before forced switch to large
+    size_t max_small_tokens = 2000;
 
     RoutingDecision route(const TokenContext& ctx) const noexcept;
 
@@ -117,25 +132,12 @@ private:
 struct AdaptiveConfig {
     // The adaptive strategy wraps another strategy and applies
     // monitor-driven adjustments. This is the "true agent" entry point.
-    //
-    // At route() time, it checks BackendMonitor live metrics and
-    // adjusts behavior:
-    //   - GPU temp > 85°C → shift to NPU more aggressively
-    //   - NPU failure rate > 10% → stop routing to NPU
-    //   - GPU latency P95 > 2× baseline → cascade earlier
-    //   - Load balance: keep both busy if both healthy
 
-    std::string primary_backend;   // preferred
-    std::string secondary_backend; // fallback
-    std::string fallback_backend;  // CPU / always-available
+    std::string primary_backend;
+    std::string secondary_backend;
+    std::string fallback_backend;
 
-    // Dynamic thresholds (modified by watchdog)
-    std::atomic<double> cascade_threshold{-2.5};
-    std::atomic<double> npu_load_share{0.7};  // 0-1: fraction to send to NPU
-    std::atomic<bool> npu_disabled{false};
-    std::atomic<bool> gpu_disabled{false};
-
-    // Reference to monitor for live adaptation
+    std::shared_ptr<AgentState> agent;
     BackendMonitor* monitor = nullptr;
 
     RoutingDecision route(const TokenContext& ctx) const noexcept;
@@ -143,22 +145,23 @@ struct AdaptiveConfig {
 
 // ── Strategy variant (zero-overhead dispatch) ─────────────────────────
 
+struct PassthroughConfig {
+    std::string backend;
+
+    RoutingDecision route(const TokenContext& ctx) const noexcept {
+        (void)ctx;
+        return RoutingDecision{backend, false, "", 0};
+    }
+};
+
 using StrategyVariant = std::variant<
     CascadeConfig,
     PerformanceConfig,
     SpecDecodeConfig,
     ContentRouterConfig,
     AdaptiveConfig,
-    struct PassthroughConfig  // forward-declared below
+    PassthroughConfig
 >;
-
-struct PassthroughConfig {
-    std::string backend;
-
-    RoutingDecision route(const TokenContext& ctx) const noexcept {
-        return RoutingDecision{backend, false, "", 0};
-    }
-};
 
 // ── Strategy engine — wraps the variant with runtime management ───────
 
@@ -181,9 +184,11 @@ public:
     const char* name() const noexcept;
 
     /// Get a mutable pointer to the variant for watchdog updates.
-    /// The watchdog can visit() and modify strategy params.
     StrategyVariant* mutable_variant() noexcept { return &strategy_; }
     const StrategyVariant& variant() const noexcept { return strategy_; }
+
+    /// Access the shared agent state for watchdog adaptation
+    std::shared_ptr<AgentState> agent_state() const noexcept { return agent_; }
 
     /// Serialize current strategy state for metrics endpoint
     std::string state_json() const;
@@ -191,14 +196,12 @@ public:
 private:
     StrategyVariant strategy_;
     std::string strategy_name_;
+    std::shared_ptr<AgentState> agent_;  // shared across strategies
 };
 
 // ── Convenience: build a PerformanceConfig from BackendManager benchmarks ──
 
-/// Build a live performance table by benchmarking all available backends.
-/// Returns the table and the fastest backend ID.
 std::vector<ModelRoute> build_performance_table(BackendManager& mgr,
                                                  const std::string& model_pattern);
 
-/// Get backend tier name for a backend ID (for observability)
 const char* backend_tier_name(const std::string& backend_id);

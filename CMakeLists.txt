@@ -532,6 +532,38 @@ target_link_libraries(unified_server PRIVATE
 target_link_options(unified_server PRIVATE -rdynamic)
 set_target_properties(unified_server PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
+# -- tools/zaya_agent : One binary to rule them all — strategy engine + agent watchdog
+# Fuses BackendManager + tokenizer + strategy dispatch + watchog adaptation.
+# Set strategy with X-Router-Strategy header or POST /v1/strategy/select.
+add_executable(zaya_agent
+    tools/unified_server.cpp
+    src/strategy_engine.cpp
+    src/agent_watchdog.cpp
+    src/backend_hip.cpp
+    src/zaya_engine.cpp
+    src/backend_npu.cpp)
+set_source_files_properties(src/backend_hip.cpp PROPERTIES LANGUAGE HIP)
+set_source_files_properties(src/zaya_engine.cpp PROPERTIES LANGUAGE HIP)
+set_source_files_properties(tools/unified_server.cpp PROPERTIES LANGUAGE CXX)
+set_source_files_properties(src/strategy_engine.cpp PROPERTIES LANGUAGE CXX)
+set_source_files_properties(src/agent_watchdog.cpp PROPERTIES LANGUAGE CXX)
+set_source_files_properties(src/backend_npu.cpp PROPERTIES LANGUAGE CXX)
+target_include_directories(zaya_agent PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+    $<INSTALL_INTERFACE:include>)
+target_compile_options(zaya_agent PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result -Wno-unused-parameter -Wno-unused-variable>
+    $<$<COMPILE_LANGUAGE:CXX>:-O3 -Wall -Wno-unused-result -std=c++17>)
+target_compile_definitions(zaya_agent PRIVATE ROCM_CPP_STATIC_HIP=1 ROCM_CPP_STATIC_NPU=1)
+target_link_libraries(zaya_agent PRIVATE
+    backend_manager dl
+    httplib::httplib
+    nlohmann_json::nlohmann_json
+    rocm_cpp hip::host hip::device)
+target_link_options(zaya_agent PRIVATE -rdynamic)
+set_target_properties(zaya_agent PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+
 # -- tools/backend_demo : Backend Manager live dashboard (Task Manager NPU tab) ---
 # Pure C++ (no HIP) — demonstrates auto-detect, selection, failover, monitoring.
 add_executable(backend_demo tools/backend_demo.cpp)

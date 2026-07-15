@@ -43,6 +43,9 @@
 #include <sys/file.h>
 #include <unistd.h>
 
+#include "strategy_engine.h"
+#include "agent_watchdog.h"
+
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 
@@ -52,6 +55,10 @@ using json = nlohmann::json;
 static std::atomic<bool> keep_running{true};
 static std::string g_weights_dir = "/tmp/zaya_weights";
 static int g_port = 8088;
+
+// ── Strategy engine + agent watchdog (global for HTTP handler access) ──
+static StrategyEngine g_strategy_engine;
+static AgentWatchdog* g_watchdog = nullptr;
 
 // ── Tokenizer: uses RCPP BPE tokenizer (.htok) when available, falls back
 // to SimpleTokenizer (ASCII + UTF-8 byte passthrough) when not.
@@ -106,6 +113,31 @@ struct SimpleTokenizer {
                 r.push_back((int)c + 200);
         }
         return r;
+    }
+
+    /// Encode with per-token log-probabilities (for cascade strategy).
+    /// Returns token IDs and fills logprobs_out with corresponding logprobs.
+    std::vector<int> encode_with_logprobs(const std::string& text,
+                                           std::vector<double>& logprobs_out) {
+        logprobs_out.clear();
+        if (use_bpe && bpe_tok) {
+            std::vector<int> r(4096);
+            std::vector<double> lp(4096);
+            size_t out_n = 0;
+            rcpp_status_t st = rcpp_tokenizer_encode_with_logprobs(
+                bpe_tok, text.c_str(), text.size(),
+                1, r.data(), lp.data(), r.size(), &out_n);
+            if (st == RCPP_OK && out_n > 0) {
+                r.resize(out_n);
+                logprobs_out.assign(lp.begin(), lp.begin() + out_n);
+                return r;
+            }
+            return {bos_id};
+        }
+        // Fallback: encode without logprobs
+        auto tokens = encode(text);
+        logprobs_out.resize(tokens.size(), -1.0);
+        return tokens;
     }
 
     std::string decode(const std::vector<int>& tokens) {
@@ -190,6 +222,15 @@ static SelectionStrategy resolve_strategy(const httplib::Request& req) {
     return SelectionStrategy::FASTEST;  // default
 }
 
+// ── Resolve strategy engine name from header or query param ──
+static std::string resolve_strategy_name(const httplib::Request& req) {
+    if (req.has_header("X-Router-Strategy"))
+        return req.get_header_value("X-Router-Strategy");
+    if (req.has_param("strategy"))
+        return req.get_param_value("strategy");
+    return "";  // use default
+}
+
 // ── Build model info JSON ──
 static json model_info_json(const BackendInfo* active) {
     json j;
@@ -259,24 +300,45 @@ static json health_json(BackendManager& mgr) {
     return j;
 }
 
-// ── Generate completion ──
+// ── Generate completion with per-token strategy routing ──
 // Returns { text, tokens, backend_used, ms_per_tok, tok_s }
+// When strategy_engine is provided, routes each token through the strategy
+// instead of using a fixed backend.
 static json generate_completion(BackendManager& mgr,
                                  const std::vector<int>& prompt_tokens,
+                                 const std::vector<double>& prompt_logprobs,
                                  int max_tokens,
-                                 const std::string& backend_id) {
+                                 const std::string& backend_id,
+                                 StrategyEngine* strategy_engine = nullptr,
+                                 const std::string& user_message = "") {
     json result;
 
-    // Select backend if specified
-    if (backend_id != "auto") {
+    // Select fixed backend if specified (overrides strategy routing)
+    if (backend_id != "auto" && backend_id != "") {
         mgr.select_backend(backend_id);
     }
 
+    // ── Pre-generate: pick initial backend via strategy ──
+    std::string active_backend_id;
+    if (strategy_engine) {
+        // Use strategy to pick initial backend
+        // For the first token, we don't have logprobs yet
+        TokenContext init_ctx{-1, 0.0, -1.0, 0,
+                             prompt_tokens.size(), (size_t)max_tokens,
+                             user_message};
+        auto decision = strategy_engine->route(init_ctx);
+        active_backend_id = decision.backend;
+        if (!decision.draft_backend.empty()) {
+            active_backend_id = decision.draft_backend;
+        }
+        mgr.select_backend(active_backend_id);
+    } else {
+        active_backend_id = backend_id;
+    }
+
     auto* active = mgr.active_info();
-    if (active)
-        result["backend_used"] = active->id;
-    else
-        result["backend_used"] = "none";
+    result["backend_used"] = active ? active->id : "none";
+    result["strategy"] = strategy_engine ? strategy_engine->name() : "none";
 
     // Reset backend state for new sequence
     if (!mgr.reset()) {
@@ -287,33 +349,81 @@ static json generate_completion(BackendManager& mgr,
     }
 
     std::vector<int> output_tokens;
+    std::vector<double> output_logprobs;
     auto t0 = std::chrono::high_resolution_clock::now();
+    int last_token = prompt_tokens.empty() ? g_tokenizer.bos_id : prompt_tokens.back();
 
-    // Prefill: run the prompt through the model
-    // For the Backend interface, we call generate() per token
-    // which handles forward + lm_head internally
-    int last_token = prompt_tokens.back();
-
-    // First, process all prompt tokens (prefill) without generating output
+    // Prefill: process prompt tokens
     for (size_t i = 0; i + 1 < prompt_tokens.size(); i++) {
         int result_id = mgr.generate(prompt_tokens[i]);
         if (result_id < 0) {
-            // Backend failed mid-prefill
             float ms = std::chrono::duration<float, std::milli>(
                 std::chrono::high_resolution_clock::now() - t0).count();
             result["error"] = "Backend failed during prefill at token " + std::to_string(i);
             result["gen_ms"] = ms;
-            result["gen_tokens"] = output_tokens.size();
+            result["gen_tokens"] = (int)output_tokens.size();
             return result;
         }
     }
 
-    // Now generate new tokens
+    // ── Generate new tokens with per-token strategy routing ──
+    // Track which backend each token goes to
+    std::vector<std::string> per_token_backend;
     for (int i = 0; i < max_tokens; i++) {
+        // ── Strategically choose backend for this token ──
+        if (strategy_engine) {
+            // Build logprob/entropy from last generated output
+            double last_lp = 0.0;
+            double last_entropy = -1.0;
+            if (!output_logprobs.empty()) {
+                last_lp = output_logprobs.back();
+            } else if (!prompt_logprobs.empty()) {
+                last_lp = prompt_logprobs.back();
+            }
+
+            TokenContext ctx{last_token, last_lp, last_entropy,
+                            (size_t)i, prompt_tokens.size(), (size_t)max_tokens,
+                            user_message};
+            auto decision = strategy_engine->route(ctx);
+
+            // Select the decided backend
+            if (mgr.select_backend(decision.backend)) {
+                active_backend_id = decision.backend;
+            }
+            per_token_backend.push_back(decision.backend);
+        }
+
+        // ── Generate the token ──
         int next = mgr.generate(last_token);
-        if (next < 0) break;  // backend failed
+        if (next < 0) {
+            // Backend failed — try fallback
+            if (strategy_engine && mgr.backends().size() > 1) {
+                // Find first functional backend as fallback
+                for (auto& b : mgr.backends()) {
+                    if (b.available && b.functional && b.instance) {
+                        mgr.select_backend(b.id);
+                        active_backend_id = b.id;
+                        // Re-try
+                        next = mgr.generate(last_token);
+                        if (next >= 0) break;
+                    }
+                }
+            }
+            if (next < 0) break;
+        }
+
         output_tokens.push_back(next);
         last_token = next;
+
+        // Extract logprob if tokenizer supports it (approximate from BPE)
+        if (g_tokenizer.use_bpe && g_tokenizer.bpe_tok) {
+            // Use token's BPE rank as proxy for logprob
+            double lp = rcpp_tokenizer_logprob(g_tokenizer.bpe_tok, next);
+            output_logprobs.push_back(lp);
+        } else {
+            output_logprobs.push_back(0.0);
+        }
+
         if (next == g_tokenizer.eos_id) break;
     }
 
@@ -324,6 +434,7 @@ static json generate_completion(BackendManager& mgr,
     result["text"] = g_tokenizer.decode(output_tokens);
     result["gen_ms"] = ms;
     result["gen_tokens"] = (int)output_tokens.size();
+    result["per_token_backend"] = per_token_backend;
     if (ms > 0) {
         result["tok_s"] = (float)output_tokens.size() / (ms / 1000.0f);
         result["ms_per_tok"] = ms / (float)output_tokens.size();
@@ -549,6 +660,8 @@ int main(int argc, char** argv) {
     });
 
     // ── POST /v1/chat/completions — OpenAI-compatible chat ──
+    // Uses the strategy engine for per-token routing when X-Router-Strategy
+    // header is set, or falls back to single-backend selection.
     svr.Post("/v1/chat/completions", [&](const httplib::Request& req, httplib::Response& res) {
         json body;
         try {
@@ -564,8 +677,13 @@ int main(int argc, char** argv) {
         SelectionStrategy strategy = resolve_strategy(req);
         mgr.set_strategy(strategy);
 
-        // Extract messages and build prompt
+        // Check for strategy engine routing
+        std::string strategy_name = resolve_strategy_name(req);
+        bool use_strategy_engine = !strategy_name.empty();
+
+        // Extract messages and build prompt + user message for content routing
         std::string prompt;
+        std::string last_user_msg;
         if (body.contains("messages") && body["messages"].is_array()) {
             for (auto& msg : body["messages"]) {
                 std::string role = msg.value("role", "user");
@@ -573,7 +691,6 @@ int main(int argc, char** argv) {
                 if (msg["content"].is_string()) {
                     content = msg["content"].get<std::string>();
                 } else if (msg["content"].is_array()) {
-                    // Handle multi-modal content (text parts only)
                     for (auto& part : msg["content"]) {
                         if (part.value("type", "") == "text") {
                             content += part.value("text", "");
@@ -581,22 +698,33 @@ int main(int argc, char** argv) {
                     }
                 }
                 prompt += role + ": " + content + "\n";
+                if (role == "user") last_user_msg = content;
             }
         } else if (body.contains("prompt")) {
             prompt = body["prompt"].get<std::string>();
+            last_user_msg = prompt;
         }
 
         int max_tokens = body.value("max_tokens", 256);
         float temperature = body.value("temperature", 0.7f);
 
-        // Tokenize
-        std::vector<int> prompt_tokens = g_tokenizer.encode(prompt);
+        // Tokenize with logprobs for cascade strategy
+        std::vector<int> prompt_tokens;
+        std::vector<double> prompt_logprobs;
+        if (use_strategy_engine) {
+            prompt_tokens = g_tokenizer.encode_with_logprobs(prompt, prompt_logprobs);
+        } else {
+            prompt_tokens = g_tokenizer.encode(prompt);
+        }
         if (prompt_tokens.empty()) {
             prompt_tokens = {g_tokenizer.bos_id};
         }
 
-        // Generate
-        json gen_result = generate_completion(mgr, prompt_tokens, max_tokens, backend_id);
+        // Generate with strategy-aware routing
+        StrategyEngine* se = use_strategy_engine ? &g_strategy_engine : nullptr;
+        json gen_result = generate_completion(mgr, prompt_tokens, prompt_logprobs,
+                                               max_tokens, backend_id,
+                                               se, last_user_msg);
 
         // Build OpenAI-compatible response
         json response;
@@ -621,23 +749,29 @@ int main(int argc, char** argv) {
         response["choices"] = json::array({choice});
         response["usage"] = usage;
 
-        // Add backend metadata as headers
+        // Add routing metadata as headers
         res.set_header("X-Backend-Id", gen_result.value("backend_used", "unknown"));
+        res.set_header("X-Strategy", gen_result.value("strategy", "none"));
         char tok_s_buf[32];
         snprintf(tok_s_buf, sizeof(tok_s_buf), "%.1f", gen_result.value("tok_s", 0.0f));
         res.set_header("X-Backend-Tok-s", tok_s_buf);
+
+        // Include per-token backend info when using strategy engine
+        if (use_strategy_engine && gen_result.contains("per_token_backend")) {
+            response["per_token_backend"] = gen_result["per_token_backend"];
+        }
 
         res.set_content(response.dump(2), "application/json");
         add_cors(res);
 
         // Log to stdout
-        auto* active = mgr.active_info();
-        printf("  [%s] %d tokens → %d tokens (%.1f tok/s, backend: %s)\n",
+        printf("  [%s] %d tokens → %d tokens (%.1f tok/s, backend: %s, strategy: %s)\n",
                backend_id.c_str(),
                (int)prompt_tokens.size(),
                gen_result.value("gen_tokens", 0),
                gen_result.value("tok_s", 0.0f),
-               gen_result.value("backend_used", "?").c_str());
+               gen_result.value("backend_used", "?").c_str(),
+               gen_result.value("strategy", "none").c_str());
     });
 
     // ── POST /v1/completions — Legacy completion endpoint ──
@@ -670,7 +804,9 @@ int main(int argc, char** argv) {
         int max_tokens = body.value("n_predict", 256);
         float temperature = body.value("temperature", 0.7f);
 
-        json gen_result = generate_completion(mgr, prompt_tokens, max_tokens, backend_id);
+        std::vector<double> empty_logprobs;
+        json gen_result = generate_completion(mgr, prompt_tokens, empty_logprobs,
+                                               max_tokens, backend_id);
 
         json response;
         response["tokens"] = gen_result["tokens"];
@@ -681,6 +817,66 @@ int main(int argc, char** argv) {
 
         res.set_header("X-Backend-Id", gen_result.value("backend_used", "unknown"));
         res.set_content(response.dump(2), "application/json");
+        add_cors(res);
+    });
+
+    // ── GET /v1/router — Strategy engine status ──
+    svr.Get("/v1/router", [&](const httplib::Request&, httplib::Response& res) {
+        json j;
+        j["strategy"] = g_strategy_engine.name();
+        j["state"] = json::parse(g_strategy_engine.state_json());
+        j["watchdog_running"] = g_watchdog ? g_watchdog->running() : false;
+
+        // Add backend metrics
+        json backends = json::array();
+        for (auto* pm : mgr.monitor_stats()->all_metrics()) {
+            json bj;
+            bj["id"] = pm->backend_id;
+            bj["inferences"] = pm->inferences.load();
+            bj["failures"] = pm->failures.load();
+            bj["fallbacks"] = pm->fallbacks.load();
+            bj["tokens_per_second"] = pm->tokens_per_second.load();
+            bj["avg_ms"] = pm->recent_ms.avg();
+            bj["p50_ms"] = pm->recent_ms.p50();
+            bj["p95_ms"] = pm->recent_ms.p95();
+            bj["healthy"] = pm->healthy.load();
+            backends.push_back(bj);
+        }
+        j["backends"] = backends;
+
+        res.set_content(j.dump(2), "application/json");
+        add_cors(res);
+    });
+
+    // ── POST /v1/strategy/select — Change strategy at runtime ──
+    svr.Post("/v1/strategy/select", [&](const httplib::Request& req, httplib::Response& res) {
+        json body;
+        try {
+            body = json::parse(req.body);
+        } catch (...) {
+            json err = {{"error", "Invalid JSON body"}};
+            res.status = 400;
+            res.set_content(err.dump(), "application/json");
+            return;
+        }
+
+        std::string name = body.value("strategy", "");
+        if (name.empty()) {
+            json err = {{"error", "Missing 'strategy' field"}};
+            res.status = 400;
+            res.set_content(err.dump(), "application/json");
+            return;
+        }
+
+        // Build performance table for strategy init
+        auto perf_table = build_performance_table(mgr, "zaya");
+        bool ok = g_strategy_engine.init(name, mgr, perf_table);
+
+        json j;
+        j["ok"] = ok;
+        j["strategy"] = name;
+        j["state"] = json::parse(g_strategy_engine.state_json());
+        res.set_content(j.dump(2), "application/json");
         add_cors(res);
     });
 
@@ -719,6 +915,8 @@ int main(int argc, char** argv) {
     // ── GET /v1/backend/status — Full backend report ──
     svr.Get("/v1/backend/status", [&](const httplib::Request& req, httplib::Response& res) {
         json j;
+        j["strategy"] = g_strategy_engine.name();
+        j["watchdog_running"] = g_watchdog ? g_watchdog->running() : false;
         j["report"] = mgr.report();
 
         json backends = json::array();
@@ -749,17 +947,20 @@ int main(int argc, char** argv) {
         add_cors(res);
     });
 
-    // ── GET / — Root health check ──
+    // ---- GET / --- Root health check ----
     svr.Get("/", [&](const httplib::Request& req, httplib::Response& res) {
         json j;
-        j["service"] = "1bit-systems unified inference server";
+        j["service"] = "1bit.systems --- One binary, all backends, intelligent routing";
         j["version"] = "1.0";
         j["status"] = mgr.active_backend() ? "ready" : "initializing";
+        j["strategy"] = g_strategy_engine.name();
         j["endpoints"] = {
             "/v1/health",
             "/v1/models",
             "/v1/chat/completions",
             "/v1/completions",
+            "/v1/router",
+            "/v1/strategy/select",
             "/v1/backend/select",
             "/v1/backend/status"
         };
@@ -769,20 +970,28 @@ int main(int argc, char** argv) {
 
     // ── Start server ──
     printf("\n──────────────────────────────────────────────\n");
-    printf("  Server starting on port %d\n", g_port);
-    printf("  API: http://127.0.0.1:%d/v1\n", g_port);
-    printf("  Health: http://127.0.0.1:%d/v1/health\n", g_port);
-    printf("  Chat:   POST http://127.0.0.1:%d/v1/chat/completions\n", g_port);
+    printf("  1bit.systems — Agent Inference Server\n");
+    printf("──────────────────────────────────────────────\n");
+    printf("  Port:    %d\n", g_port);
+    printf("  Backend: %s\n", mgr.active_info() ? mgr.active_info()->id.c_str() : "none");
+    printf("  Strategy: %s\n", g_strategy_engine.name());
+    printf("  Watchdog: %s\n", (g_watchdog && g_watchdog->running()) ? "running" : "stopped");
+    printf("──────────────────────────────────────────────\n");
+    printf("  Endpoints:\n");
+    printf("    GET  /v1/health            — Backend status + metrics\n");
+    printf("    GET  /v1/models            — List available models\n");
+    printf("    POST /v1/chat/completions  — Chat with strategy routing\n");
+    printf("    POST /v1/completions       — Legacy completion\n");
+    printf("    GET  /v1/router            — Strategy engine status\n");
+    printf("    POST /v1/strategy/select   — Change strategy at runtime\n");
+    printf("    POST /v1/backend/select    — Select specific backend\n");
+    printf("    GET  /v1/backend/status    — Full backend report\n");
     printf("──────────────────────────────────────────────\n");
     printf("\n  Try it:\n");
-    printf("    curl http://127.0.0.1:%d/v1/health\n", g_port);
-    printf("    curl -X POST http://127.0.0.1:%d/v1/completions \\\n", g_port);
-    printf("      -H \"Content-Type: application/json\" \\\n");
-    printf("      -d '{\"prompt\":\"Hello\",\"n_predict\":20}'\n");
-    printf("\n  Select backend:\n");
+    printf("    curl http://127.0.0.1:%d/v1/router\n", g_port);
     printf("    curl -X POST http://127.0.0.1:%d/v1/chat/completions \\\n", g_port);
-    printf("      -H \"X-Backend: npu_xrt\" \\\n");
-    printf("      -d '{\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}],\"max_tokens\":20}'\n");
+    printf("      -H \"X-Router-Strategy: cascade\" \\\n");
+    printf("      -d '{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"max_tokens\":50}'\n");
     printf("\n  Press Ctrl+C to stop.\n");
     printf("──────────────────────────────────────────────\n\n");
 
@@ -793,6 +1002,11 @@ int main(int argc, char** argv) {
 
     // ── Cleanup ──
     printf("\nShutting down...\n");
+    if (g_watchdog) {
+        g_watchdog->stop();
+        delete g_watchdog;
+        g_watchdog = nullptr;
+    }
     mgr.destroy();
     printf("Done.\n");
     return 0;

@@ -1,8 +1,8 @@
 // strategy_engine.cpp — Per-token routing strategy implementations
 //
 // Each strategy's route() call is a pure function — no side effects,
-// no locks, no I/O. The agent watchdog modifies strategy state from
-// a background thread; route() reads atomics and is lock-free.
+// no locks, no I/O. The agent watchdog modifies agent state via atomics;
+// route() reads atomics and is lock-free.
 
 #include "strategy_engine.h"
 #include <algorithm>
@@ -15,22 +15,29 @@
 // ══════════════════════════════════════════════════════════════════════
 
 RoutingDecision CascadeConfig::route(const TokenContext& ctx) const noexcept {
-    total_tokens_routed.fetch_add(1, std::memory_order_relaxed);
+    if (agent) {
+        agent->total_tokens_routed.fetch_add(1, std::memory_order_relaxed);
+    }
 
     // After N tokens, always use large backend
     if (ctx.position >= min_context_for_large) {
         return RoutingDecision{large_backend, false, "", 0};
     }
 
-    // Use threshold_override if set (by watchdog), else config default
-    double threshold = threshold_override.load(std::memory_order_relaxed);
-    if (threshold < -900.0) {  // sentinel: no override
-        threshold = confidence_threshold;
+    // Determine threshold: use agent override if set, otherwise config default
+    double threshold = confidence_threshold;
+    if (agent) {
+        double override = agent->cascade_threshold_override.load(std::memory_order_relaxed);
+        if (override > -900.0) {  // sentinel check
+            threshold = override;
+        }
     }
 
     // Check log-prob against threshold
     if (ctx.log_prob > -1e9 && ctx.log_prob < threshold) {
-        cascade_count.fetch_add(1, std::memory_order_relaxed);
+        if (agent) {
+            agent->cascade_count.fetch_add(1, std::memory_order_relaxed);
+        }
         return RoutingDecision{large_backend, false, "", 0};
     }
 
@@ -63,11 +70,6 @@ std::string PerformanceConfig::best_backend_for_model(const std::string& model) 
 }
 
 RoutingDecision PerformanceConfig::route(const TokenContext& ctx) const noexcept {
-    // Performance routing is stateless per-token — just return default
-    // In practice, the BackendManager is set to FASTEST strategy and
-    // picks the best backend automatically.
-    //
-    // But this gives us an explicit decision for the agent to log/adapt.
     (void)ctx;
     return RoutingDecision{default_backend, false, "", 0};
 }
@@ -82,9 +84,12 @@ RoutingDecision SpecDecodeConfig::route(const TokenContext& ctx) const noexcept 
         return RoutingDecision{draft_backend, false, "", 0};
     }
 
-    // Use dynamic n_draft if available, else config default
-    int nd = dynamic_n_draft.load(std::memory_order_relaxed);
-    if (nd <= 0) nd = n_draft;
+    // Use dynamic n_draft from agent if available, else config default
+    int nd = n_draft;
+    if (agent) {
+        int dynamic = agent->dynamic_n_draft.load(std::memory_order_relaxed);
+        if (dynamic > 0) nd = dynamic;
+    }
 
     return RoutingDecision{
         target_backend,
@@ -101,7 +106,6 @@ RoutingDecision SpecDecodeConfig::route(const TokenContext& ctx) const noexcept 
 bool ContentRouterConfig::has_gpu_keywords(const std::string& text) const noexcept {
     if (text.empty()) return false;
 
-    // Case-insensitive keyword search
     std::string lower;
     lower.resize(text.size());
     std::transform(text.begin(), text.end(), lower.begin(),
@@ -140,53 +144,55 @@ RoutingDecision ContentRouterConfig::route(const TokenContext& ctx) const noexce
 // ══════════════════════════════════════════════════════════════════════
 
 RoutingDecision AdaptiveConfig::route(const TokenContext& ctx) const noexcept {
+    double npu_share = 0.7;
+    bool npu_off = false;
+    bool gpu_off = false;
+    double threshold = -2.5;
+
+    if (agent) {
+        npu_share = agent->npu_load_share.load(std::memory_order_relaxed);
+        npu_off = agent->npu_disabled.load(std::memory_order_relaxed);
+        gpu_off = agent->gpu_disabled.load(std::memory_order_relaxed);
+        threshold = agent->adaptive_cascade_threshold.load(std::memory_order_relaxed);
+    }
+
     // ── 1. Check if any backend is disabled by watchdog ──
-    if (npu_disabled.load(std::memory_order_relaxed) &&
-        gpu_disabled.load(std::memory_order_relaxed)) {
-        // Both disabled → CPU fallback
+    if (npu_off && gpu_off) {
         return RoutingDecision{fallback_backend, false, "", 0};
     }
-
-    if (npu_disabled.load(std::memory_order_relaxed)) {
+    if (npu_off) {
         return RoutingDecision{secondary_backend, false, "", 0};
     }
-
-    if (gpu_disabled.load(std::memory_order_relaxed)) {
+    if (gpu_off) {
         return RoutingDecision{primary_backend, false, "", 0};
     }
 
     // ── 2. Cascade: check confidence with dynamic threshold ──
-    double threshold = cascade_threshold.load(std::memory_order_relaxed);
     if (ctx.log_prob > -1e9 && ctx.log_prob < threshold) {
         return RoutingDecision{secondary_backend, false, "", 0};
     }
 
     // ── 3. Load-balanced routing ──
-    // If both backends are healthy, split load by npu_load_share
-    if (monitor) {
+    if (agent && monitor) {
         auto* npu_metrics = monitor->for_backend(primary_backend);
         auto* gpu_metrics = monitor->for_backend(secondary_backend);
         if (npu_metrics && gpu_metrics) {
             double npu_tps = npu_metrics->tokens_per_second.load(std::memory_order_relaxed);
             double gpu_tps = gpu_metrics->tokens_per_second.load(std::memory_order_relaxed);
-            double share = npu_load_share.load(std::memory_order_relaxed);
 
-            // If GPU is significantly faster, bias toward it
-            if (gpu_tps > npu_tps * 1.5) share = 0.3;
-            // If NPU is significantly faster, bias toward it
-            if (npu_tps > gpu_tps * 1.5) share = 0.8;
+            // Adjust share based on relative throughput
+            if (gpu_tps > npu_tps * 1.5) npu_share = 0.3;
+            else if (npu_tps > gpu_tps * 1.5) npu_share = 0.8;
 
-            // Use position mod to approximate load balancing
-            // (deterministic per-position, no RNG needed)
+            // Use position mod for deterministic load balancing
             double pos_norm = (ctx.position % 100) / 100.0;
-            if (pos_norm < share) {
+            if (pos_norm < npu_share) {
                 return RoutingDecision{primary_backend, false, "", 0};
             }
             return RoutingDecision{secondary_backend, false, "", 0};
         }
     }
 
-    // Default: primary
     return RoutingDecision{primary_backend, false, "", 0};
 }
 
@@ -197,6 +203,7 @@ RoutingDecision AdaptiveConfig::route(const TokenContext& ctx) const noexcept {
 StrategyEngine::StrategyEngine()
     : strategy_(PassthroughConfig{"default"})
     , strategy_name_("passthrough")
+    , agent_(std::make_shared<AgentState>())
 {}
 
 bool StrategyEngine::init(const std::string& strategy_name,
@@ -204,7 +211,7 @@ bool StrategyEngine::init(const std::string& strategy_name,
                           const std::vector<ModelRoute>& perf_table) {
     strategy_name_ = strategy_name;
 
-    // Discover available backends
+    // Discover available backends by ID pattern
     std::string npu_id, gpu_id, cpu_id;
     for (auto& b : mgr.backends()) {
         if (!b.available) continue;
@@ -214,9 +221,8 @@ bool StrategyEngine::init(const std::string& strategy_name,
         else if (b.id.find("cpu") != std::string::npos) cpu_id = b.id;
     }
 
-    // Fallback defaults
-    if (npu_id.empty() && !mgr.backends().empty()) {
-        // Pick first available
+    // Fallback: use first available
+    if (npu_id.empty()) {
         for (auto& b : mgr.backends()) {
             if (b.available) { npu_id = b.id; break; }
         }
@@ -224,39 +230,55 @@ bool StrategyEngine::init(const std::string& strategy_name,
     if (gpu_id.empty()) gpu_id = npu_id;
     if (cpu_id.empty()) cpu_id = npu_id;
 
+    // Reset agent state for fresh start
+    agent_ = std::make_shared<AgentState>();
+
     // ── Build the requested strategy ──
     if (strategy_name == "cascade") {
-        strategy_ = CascadeConfig{
-            npu_id, gpu_id, -2.5, 50
-        };
+        CascadeConfig cfg;
+        cfg.small_backend = npu_id;
+        cfg.large_backend = gpu_id;
+        cfg.confidence_threshold = -2.5;
+        cfg.min_context_for_large = 50;
+        cfg.agent = agent_;
+        strategy_ = std::move(cfg);
     }
     else if (strategy_name == "performance") {
-        std::string default_b = perf_table.empty() ? npu_id : perf_table[0].backend;
-        strategy_ = PerformanceConfig{default_b, perf_table};
-        // Also tell the BackendManager
+        PerformanceConfig cfg;
+        cfg.default_backend = perf_table.empty() ? npu_id : perf_table[0].backend;
+        cfg.live_table = perf_table;
+        strategy_ = std::move(cfg);
         mgr.set_strategy(SelectionStrategy::FASTEST);
     }
     else if (strategy_name == "spec_decode") {
-        strategy_ = SpecDecodeConfig{
-            npu_id, gpu_id, 4, 0.8
-        };
+        SpecDecodeConfig cfg;
+        cfg.draft_backend = npu_id;
+        cfg.target_backend = gpu_id;
+        cfg.n_draft = 4;
+        cfg.acceptance_threshold = 0.8;
+        cfg.agent = agent_;
+        strategy_ = std::move(cfg);
     }
     else if (strategy_name == "content") {
-        strategy_ = ContentRouterConfig{
-            npu_id, gpu_id,
-            {"code", "explain", "analyze", "debug", "refactor",
-             "implement", "function", "algorithm", "write", "fix",
-             "design", "architecture", "test", "review", "optimize"},
-            2000
+        ContentRouterConfig cfg;
+        cfg.small_backend = npu_id;
+        cfg.large_backend = gpu_id;
+        cfg.gpu_keywords = {
+            "code", "explain", "analyze", "debug", "refactor",
+            "implement", "function", "algorithm", "write", "fix",
+            "design", "architecture", "test", "review", "optimize"
         };
+        cfg.max_small_tokens = 2000;
+        strategy_ = std::move(cfg);
     }
     else if (strategy_name == "adaptive") {
-        AdaptiveConfig acfg;
-        acfg.primary_backend = npu_id;
-        acfg.secondary_backend = gpu_id;
-        acfg.fallback_backend = cpu_id;
-        acfg.monitor = mgr.monitor_stats();
-        strategy_ = std::move(acfg);
+        AdaptiveConfig cfg;
+        cfg.primary_backend = npu_id;
+        cfg.secondary_backend = gpu_id;
+        cfg.fallback_backend = cpu_id;
+        cfg.agent = agent_;
+        cfg.monitor = mgr.monitor_stats();
+        strategy_ = std::move(cfg);
     }
     else { // passthrough (default)
         strategy_ = PassthroughConfig{npu_id};
@@ -285,29 +307,37 @@ std::string StrategyEngine::state_json() const {
             json += ",\"small_backend\":\"" + s.small_backend + "\"";
             json += ",\"large_backend\":\"" + s.large_backend + "\"";
             json += ",\"confidence_threshold\":" + std::to_string(s.confidence_threshold);
-            json += ",\"cascade_rate\":" +
-                std::to_string(s.total_tokens_routed.load() > 0
-                    ? (double)s.cascade_count.load() / s.total_tokens_routed.load()
-                    : 0.0);
+            if (s.agent) {
+                double rate = s.agent->total_tokens_routed.load() > 0
+                    ? (double)s.agent->cascade_count.load() / s.agent->total_tokens_routed.load()
+                    : 0.0;
+                json += ",\"cascade_rate\":" + std::to_string(rate);
+            }
         }
         else if constexpr (std::is_same_v<T, AdaptiveConfig>) {
             json += ",\"primary\":\"" + s.primary_backend + "\"";
             json += ",\"secondary\":\"" + s.secondary_backend + "\"";
             json += ",\"fallback\":\"" + s.fallback_backend + "\"";
-            json += ",\"npu_disabled\":" +
-                std::string(s.npu_disabled.load() ? "true" : "false");
-            json += ",\"gpu_disabled\":" +
-                std::string(s.gpu_disabled.load() ? "true" : "false");
-            json += ",\"cascade_threshold\":" +
-                std::to_string(s.cascade_threshold.load());
+            if (s.agent) {
+                json += ",\"npu_disabled\":" +
+                    std::string(s.agent->npu_disabled.load() ? "true" : "false");
+                json += ",\"gpu_disabled\":" +
+                    std::string(s.agent->gpu_disabled.load() ? "true" : "false");
+                json += ",\"cascade_threshold\":" +
+                    std::to_string(s.agent->adaptive_cascade_threshold.load());
+                json += ",\"npu_load_share\":" +
+                    std::to_string(s.agent->npu_load_share.load());
+            }
         }
         else if constexpr (std::is_same_v<T, SpecDecodeConfig>) {
             json += ",\"draft_backend\":\"" + s.draft_backend + "\"";
             json += ",\"target_backend\":\"" + s.target_backend + "\"";
-            json += ",\"acceptance_rate\":" +
-                std::to_string(s.acceptance_rate.load());
-            json += ",\"n_draft\":" +
-                std::to_string(s.dynamic_n_draft.load());
+            if (s.agent) {
+                json += ",\"acceptance_rate\":" +
+                    std::to_string(s.agent->acceptance_rate.load());
+                json += ",\"n_draft\":" +
+                    std::to_string(s.agent->dynamic_n_draft.load());
+            }
         }
         else if constexpr (std::is_same_v<T, PerformanceConfig>) {
             json += ",\"default_backend\":\"" + s.default_backend + "\"";
@@ -338,8 +368,7 @@ std::vector<ModelRoute> build_performance_table(BackendManager& mgr,
     for (auto& b : mgr.backends()) {
         if (!b.available || !b.functional) continue;
         double speed = b.score > 0 ? (1000.0 / b.score) : 0.0; // ms→tok/s
-        ModelRoute route{model_pattern, b.id, speed};
-        table.push_back(std::move(route));
+        table.push_back({model_pattern, b.id, speed});
     }
 
     // Sort by speed descending

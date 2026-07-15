@@ -17,7 +17,6 @@
 // ══════════════════════════════════════════════════════════════════════
 
 double read_gpu_temp_c() {
-    // Try common sysfs paths for AMD GPUs
     static const char* paths[] = {
         "/sys/class/drm/card1/device/hwmon/hwmon4/temp1_input",
         "/sys/class/drm/card0/device/hwmon/hwmon3/temp1_input",
@@ -39,14 +38,12 @@ double read_gpu_temp_c() {
         }
     }
 
-    // Try AMD-specific ROCm sysfs path
     std::ifstream f("/sys/kernel/debug/dri/0/amdgpu_pm_info");
     if (f.is_open()) {
         std::string line;
         while (std::getline(f, line)) {
             if (line.find("temperature") != std::string::npos ||
                 line.find("temp") != std::string::npos) {
-                // Parse "XX.X°C" or "XX C" patterns
                 size_t pos = line.find_first_of("0123456789");
                 if (pos != std::string::npos) {
                     double t = std::atof(line.c_str() + pos);
@@ -56,7 +53,7 @@ double read_gpu_temp_c() {
         }
     }
 
-    return -1.0;  // not available
+    return -1.0;
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -70,11 +67,10 @@ AgentWatchdog::AgentWatchdog(StrategyEngine& engine, BackendManager& mgr)
 {}
 
 void AgentWatchdog::start() {
-    if (running_.exchange(true)) return;  // already running
+    if (running_.exchange(true)) return;
     stop_ = false;
     thread_ = std::thread(&AgentWatchdog::run, this);
 
-    // Set thread name for observability
 #if defined(__linux__)
     pthread_setname_np(thread_.native_handle(), "agent-watchdog");
 #endif
@@ -103,17 +99,16 @@ void AgentWatchdog::run() {
         std::this_thread::sleep_for(std::chrono::seconds(10));
         cycle++;
 
-        // ── Get current strategy variant ──
-        StrategyVariant* var = engine_.mutable_variant();
-        if (!var) continue;
+        // ── Get shared agent state for lock-free adaptation ──
+        auto agent = engine_.agent_state();
+        if (!agent) continue;
 
-        // ── Get monitor ──
         BackendMonitor* monitor = mgr_.monitor_stats();
         if (!monitor) continue;
 
         // ── 1. Thermal check ──
         double gpu_temp = read_gpu_temp_c();
-        if (gpu_temp > 0) {
+        if (gpu_temp > 0 && (cycle % 3 == 0)) {
             printf("  🌡️  GPU temp: %.1f°C\n", gpu_temp);
         }
 
@@ -147,135 +142,92 @@ void AgentWatchdog::run() {
             }
         }
 
-        // ── 4. Apply adaptations based on strategy type ──
-        std::visit([&](auto&& s) -> void {
-            using T = std::decay_t<decltype(s)>;
+        // ── 4. Apply adaptations via AgentState (lock-free atomics) ──
 
-            // ── Cascade strategy adaptation ──
-            if constexpr (std::is_same_v<T, CascadeConfig>) {
-                // If GPU is thermal throttling, make cascade less aggressive
-                // (keep more tokens on NPU)
-                if (gpu_temp > 85.0 && gpu_temp > 0) {
-                    double new_threshold = s.confidence_threshold - 1.0;
-                    s.threshold_override.store(new_threshold, std::memory_order_relaxed);
-                    printf("  🔥 GPU at %.1f°C — cascade threshold adjusted to %.1f (less GPU)\n",
-                           gpu_temp, new_threshold);
-                }
-                // If GPU temp normalizes, restore default
-                else if (gpu_temp < 70.0 && gpu_temp > 0) {
-                    s.threshold_override.store(-999.0, std::memory_order_relaxed); // reset
-                    printf("  ✅ GPU temp normal (%.1f°C) — cascade threshold restored\n",
-                           gpu_temp);
-                }
+        // ── Thermal: GPU temp > 85°C → more load on NPU ──
+        if (gpu_temp > 85.0 && gpu_temp > 0) {
+            agent->npu_load_share.store(0.9, std::memory_order_relaxed);
+            agent->adaptive_cascade_threshold.store(-1.0, std::memory_order_relaxed);
+            agent->cascade_threshold_override.store(-1.0, std::memory_order_relaxed);
+            if (cycle % 2 == 0)
+                printf("  🔥 GPU at %.1f°C — shifted load to NPU (90%%)\n", gpu_temp);
+        }
+        // ── GPU temp normal → restore balance ──
+        else if (gpu_temp < 70.0 && gpu_temp > 0) {
+            agent->npu_load_share.store(0.6, std::memory_order_relaxed);
+            agent->adaptive_cascade_threshold.store(-2.5, std::memory_order_relaxed);
+            agent->cascade_threshold_override.store(-999.0, std::memory_order_relaxed); // reset
+            if (cycle % 3 == 0)
+                printf("  ✅ GPU temp normal (%.1f°C) — load balance restored\n", gpu_temp);
+        }
 
-                // If NPU failure rate is high, bypass cascade and use GPU
-                if (npu_fail_rate > 0.10 && npu_infs > 20) {
-                    printf("  ⚠️  NPU failure rate %.1f%% — forcing GPU for all tokens\n",
-                           npu_fail_rate * 100.0);
-                    // Flip to GPU-only by setting threshold to +inf
-                    s.threshold_override.store(999.0, std::memory_order_relaxed);
-                } else if (npu_fail_rate < 0.02 && npu_infs > 50) {
-                    // NPU recovered — let the temp override stand but clear fail override
-                    if (gpu_temp < 70.0 || gpu_temp < 0) {
-                        s.threshold_override.store(-999.0, std::memory_order_relaxed);
-                    }
-                }
+        // ── Failure rate → disable backend ──
+        if (npu_fail_rate > 0.10 && npu_infs > 20) {
+            if (!agent->npu_disabled.load()) {
+                printf("  ⛔ NPU failure rate %.1f%% — DISABLING NPU\n", npu_fail_rate * 100.0);
+                agent->npu_disabled.store(true, std::memory_order_relaxed);
             }
-
-            // ── Adaptive strategy ──
-            if constexpr (std::is_same_v<T, AdaptiveConfig>) {
-                // Thermal throttling
-                if (gpu_temp > 85.0 && gpu_temp > 0) {
-                    // Shift more load to NPU
-                    s.npu_load_share.store(0.9, std::memory_order_relaxed);
-                    printf("  🔥 GPU at %.1f°C — shifting load to NPU (90%%)\n", gpu_temp);
-                } else if (gpu_temp < 70.0 && gpu_temp > 0) {
-                    // Restore balanced load
-                    s.npu_load_share.store(0.6, std::memory_order_relaxed);
-                    printf("  ✅ GPU temp normal — restoring balanced load (60/40)\n");
-                }
-
-                // Failure spike → disable backend
-                if (npu_fail_rate > 0.10 && npu_infs > 20) {
-                    if (!s.npu_disabled.load()) {
-                        printf("  ⛔ NPU failure rate %.1f%% — DISABLING NPU\n",
-                               npu_fail_rate * 100.0);
-                        s.npu_disabled.store(true, std::memory_order_relaxed);
-                    }
-                }
-                if (gpu_fail_rate > 0.10 && gpu_infs > 20) {
-                    if (!s.gpu_disabled.load()) {
-                        printf("  ⛔ GPU failure rate %.1f%% — DISABLING GPU\n",
-                               gpu_fail_rate * 100.0);
-                        s.gpu_disabled.store(true, std::memory_order_relaxed);
-                    }
-                }
-
-                // Re-enable if failure rate drops and enough samples
-                if (s.npu_disabled.load() && npu_infs > 50 && npu_fail_rate < 0.02) {
-                    printf("  ✅ NPU recovered — re-enabling\n");
-                    s.npu_disabled.store(false, std::memory_order_relaxed);
-                }
-                if (s.gpu_disabled.load() && gpu_infs > 50 && gpu_fail_rate < 0.02) {
-                    printf("  ✅ GPU recovered — re-enabling\n");
-                    s.gpu_disabled.store(false, std::memory_order_relaxed);
-                }
-
-                // Load balancing by throughput
-                if (npu_tps > 0 && gpu_tps > 0) {
-                    double ratio = gpu_tps / npu_tps;
-                    if (ratio > 1.5) {
-                        // GPU is significantly faster → send more to GPU
-                        s.npu_load_share.store(0.3, std::memory_order_relaxed);
-                    } else if (ratio < 0.67) {
-                        // NPU is significantly faster → send more to NPU
-                        s.npu_load_share.store(0.8, std::memory_order_relaxed);
-                    }
-                    // else: roughly equal, keep current balance
-                }
-
-                // Latency degradation check
-                if (npu_p95 > 0 && baseline_established_.load()) {
-                    double npu_baseline = npu_baseline_p50_.load();
-                    if (npu_baseline > 0 && npu_p95 > npu_baseline * 3.0) {
-                        printf("  ⚠️  NPU P95 (%.1fms) > 3× baseline (%.1fms) — deprioritizing\n",
-                               npu_p95, npu_baseline);
-                        s.npu_load_share.store(0.2, std::memory_order_relaxed);
-                    }
-                }
-                if (gpu_p95 > 0 && baseline_established_.load()) {
-                    double gpu_baseline = gpu_baseline_p50_.load();
-                    if (gpu_baseline > 0 && gpu_p95 > gpu_baseline * 3.0) {
-                        printf("  ⚠️  GPU P95 (%.1fms) > 3× baseline (%.1fms) — deprioritizing\n",
-                               gpu_p95, gpu_baseline);
-                        s.npu_load_share.store(0.9, std::memory_order_relaxed);
-                    }
-                }
-
-                // Cascade threshold adaptation: if GPU is slow/temp-throttled,
-                // make cascade more aggressive (NPU keeps more tokens)
-                if (gpu_temp > 80.0 || gpu_p95 > 15.0) {
-                    s.cascade_threshold.store(-1.0, std::memory_order_relaxed);
-                } else {
-                    s.cascade_threshold.store(-2.5, std::memory_order_relaxed);
-                }
+        }
+        if (gpu_fail_rate > 0.10 && gpu_infs > 20) {
+            if (!agent->gpu_disabled.load()) {
+                printf("  ⛔ GPU failure rate %.1f%% — DISABLING GPU\n", gpu_fail_rate * 100.0);
+                agent->gpu_disabled.store(true, std::memory_order_relaxed);
             }
+        }
 
-            // ── Speculative decode strategy adaptation ──
-            if constexpr (std::is_same_v<T, SpecDecodeConfig>) {
-                // Adjust n_draft based on acceptance rate
-                double rate = s.acceptance_rate.load(std::memory_order_relaxed);
-                if (rate > 0.9 && s.dynamic_n_draft.load() < 8) {
-                    s.dynamic_n_draft.fetch_add(1, std::memory_order_relaxed);
-                    printf("  📈 Spec decode acceptance %.0f%% — increasing n_draft to %d\n",
-                           rate * 100.0, s.dynamic_n_draft.load());
-                } else if (rate < 0.6 && s.dynamic_n_draft.load() > 2) {
-                    s.dynamic_n_draft.fetch_sub(1, std::memory_order_relaxed);
-                    printf("  📉 Spec decode acceptance %.0f%% — decreasing n_draft to %d\n",
-                           rate * 100.0, s.dynamic_n_draft.load());
-                }
+        // ── Re-enable if recovered ──
+        if (agent->npu_disabled.load() && npu_infs > 50 && npu_fail_rate < 0.02) {
+            printf("  ✅ NPU recovered — re-enabling\n");
+            agent->npu_disabled.store(false, std::memory_order_relaxed);
+        }
+        if (agent->gpu_disabled.load() && gpu_infs > 50 && gpu_fail_rate < 0.02) {
+            printf("  ✅ GPU recovered — re-enabling\n");
+            agent->gpu_disabled.store(false, std::memory_order_relaxed);
+        }
+
+        // ── Throughput-based load balancing ──
+        if (npu_tps > 0 && gpu_tps > 0) {
+            double ratio = gpu_tps / npu_tps;
+            if (ratio > 1.5) {
+                agent->npu_load_share.store(0.3, std::memory_order_relaxed);
+            } else if (ratio < 0.67) {
+                agent->npu_load_share.store(0.8, std::memory_order_relaxed);
             }
-        }, *var);
+        }
+
+        // ── Latency degradation ──
+        if (npu_p95 > 0 && baseline_established_.load()) {
+            double baseline = npu_baseline_p50_.load();
+            if (baseline > 0 && npu_p95 > baseline * 3.0) {
+                printf("  ⚠️  NPU P95 (%.1fms) > 3× baseline (%.1fms)\n", npu_p95, baseline);
+                agent->npu_load_share.store(0.2, std::memory_order_relaxed);
+            }
+        }
+        if (gpu_p95 > 0 && baseline_established_.load()) {
+            double baseline = gpu_baseline_p50_.load();
+            if (baseline > 0 && gpu_p95 > baseline * 3.0) {
+                printf("  ⚠️  GPU P95 (%.1fms) > 3× baseline (%.1fms)\n", gpu_p95, baseline);
+                agent->npu_load_share.store(0.9, std::memory_order_relaxed);
+            }
+        }
+
+        // ── Speculative decode: adjust n_draft by acceptance rate ──
+        double accept_rate = agent->acceptance_rate.load(std::memory_order_relaxed);
+        if (accept_rate > 0.9) {
+            int nd = agent->dynamic_n_draft.load();
+            if (nd < 8) {
+                agent->dynamic_n_draft.store(nd + 1, std::memory_order_relaxed);
+                printf("  📈 Spec decode acceptance %.0f%% — n_draft increased to %d\n",
+                       accept_rate * 100.0, nd + 1);
+            }
+        } else if (accept_rate < 0.6) {
+            int nd = agent->dynamic_n_draft.load();
+            if (nd > 2) {
+                agent->dynamic_n_draft.store(nd - 1, std::memory_order_relaxed);
+                printf("  📉 Spec decode acceptance %.0f%% — n_draft decreased to %d\n",
+                       accept_rate * 100.0, nd - 1);
+            }
+        }
 
         // ── 5. Record baseline after first 100 inferences ──
         if (!baseline_established_.load()) {
@@ -299,8 +251,7 @@ void AgentWatchdog::run() {
 
         // ── 6. Re-profile if stable for 5 minutes ──
         double stable_seconds = seconds_since_reprofile();
-        if (stable_seconds > 300.0) {  // 5 minutes
-            // Check all backends are healthy and aggregate error is low
+        if (stable_seconds > 300.0) {
             bool all_healthy = true;
             for (auto* pm : monitor->all_metrics()) {
                 if (!pm->healthy.load(std::memory_order_relaxed)) {
@@ -308,33 +259,21 @@ void AgentWatchdog::run() {
                     break;
                 }
             }
-
             if (all_healthy) {
                 printf("  📊 Re-profiling all backends (stable for %.0fs)...\n", stable_seconds);
                 mgr_.benchmark_all(10);
                 last_reprofile_ = std::chrono::steady_clock::now();
-
-                // Update performance table if needed
-                auto table = build_performance_table(mgr_, "zaya");
-                std::visit([&](auto&& s) {
-                    using T = std::decay_t<decltype(s)>;
-                    if constexpr (std::is_same_v<T, PerformanceConfig>) {
-                        s.live_table = table;
-                        printf("  ✅ Performance table updated (%zu entries)\n", table.size());
-                    }
-                }, *var);
             }
         }
 
-        // ── 7. Periodic status line ──
-        if (cycle % 3 == 0) {  // every 30 seconds
+        // ── 7. Periodic status ──
+        if (cycle % 3 == 0) {
             printf("  📊 [watchdog] strategy=%s npu=%.0f tok/s gpu=%.0f tok/s "
                    "npu_fail=%.1f%% gpu_fail=%.1f%%",
-                   engine_.name(),
-                   npu_tps, gpu_tps,
+                   engine_.name(), npu_tps, gpu_tps,
                    npu_fail_rate * 100.0, gpu_fail_rate * 100.0);
             if (gpu_temp > 0) printf(" gpu_temp=%.1f°C", gpu_temp);
             printf("\n");
         }
-    }  // end while
+    }
 }

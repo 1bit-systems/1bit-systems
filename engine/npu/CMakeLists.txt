@@ -13,6 +13,8 @@ find_package(XRT QUIET)
 set(NPU_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 set(NPU_ENGINE_SOURCES
+    ${NPU_SRC_DIR}/npu_engine_cb.cpp
+    ${NPU_SRC_DIR}/npu_engine_i8.cpp
     ${NPU_SRC_DIR}/npu_engine_universal.cpp
     ${NPU_SRC_DIR}/dequant_q4nx.c
 )
@@ -26,13 +28,15 @@ target_include_directories(npu_engine_universal PRIVATE
 )
 
 if(XRT_FOUND)
-    target_include_directories(npu_engine_universal PRIVATE ${XRT_INCLUDE_DIR})
-    target_link_libraries(npu_engine_universal ${XRT_LIBRARY})
+    target_include_directories(npu_engine_universal PRIVATE ${XRT_INCLUDE_DIRS})
+    target_link_libraries(npu_engine_universal ${XRT_CORE_LIBRARIES})
     target_compile_definitions(npu_engine_universal PRIVATE -DXRT_ENABLE)
 endif()
 
 target_link_libraries(npu_engine_universal
     m dl pthread
+    OpenMP::OpenMP_CXX
+    aiebu
 )
 
 target_compile_options(npu_engine_universal PRIVATE
