@@ -59,6 +59,10 @@ struct ModelConfig {
     int intermediate_size = 2048;
     int num_experts       = 16;
     int num_experts_top   = 17;
+    int num_attention_heads = 8;
+    bool has_q_norm = false;
+    bool has_k_norm = false;
+    bool gu_split = false;
     int max_seq_len       = 2048;
     float rope_theta      = 500000.0f;
     float rms_norm_eps    = 1e-5f;

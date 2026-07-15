@@ -45,7 +45,7 @@ struct Q4nxReader {
         fstat(fd, &st);
         data = (const char*)mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
         size = st.st_size;
-        close(fd);
+        ::close(fd);  // global POSIX close, not the member function
         if (data == MAP_FAILED) { perror("NPU: mmap model"); data = nullptr; return false; }
         return true;
     }
