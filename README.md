@@ -2,9 +2,9 @@
 
 <img src="site/assets/brand-lockup.svg" alt="1bit.systems" width="540">
 
-# 1bit.systems
+# One Binary to rule them all
 
-### 398 KB single binary · NPU + GPU + CPU · Zero Python
+### 1bit.systems · 398 KB · NPU + GPU + CPU · Zero Python
 
 [![CI](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml/badge.svg)](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
