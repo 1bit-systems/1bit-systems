@@ -906,14 +906,26 @@ Backend* BackendManager::create_instance_rt(const BackendInfo& info) {
 #endif
             b = try_load_backend("librocm_cpp.so", "create_hip_backend");
             if (!b) b = try_load_backend("libhip_backend.so", "create_hip_backend");
+            // Last resort: lookup in the main executable itself (statically linked
+            // via unified_server with -rdynamic). The `self` handle is NOT cached
+            // because repeated dlopen(NULL) just bumps the refcount — safe.
+            if (!b) { void* self = dlopen(NULL, RTLD_NOW|RTLD_LOCAL);
+                if (self) { auto* fn = (Backend*(*)())dlsym(self, "create_hip_backend");
+                    if (fn) b = fn(); } }
             return b;
         case BackendType::VULKAN:
             b = try_load_backend("librocm_cpp.so", "create_vulkan_backend");
             if (!b) b = try_load_backend("libvulkan_backend.so", "create_vulkan_backend");
+            if (!b) { void* self = dlopen(NULL, RTLD_NOW|RTLD_LOCAL);
+                if (self) { auto* fn = (Backend*(*)())dlsym(self, "create_vulkan_backend");
+                    if (fn) b = fn(); } }
             return b;
         case BackendType::NPU_XRT:
             b = try_load_backend("librocm_cpp.so", "create_npu_backend");
             if (!b) b = try_load_backend("libnpu_backend.so", "create_npu_backend");
+            if (!b) { void* self = dlopen(NULL, RTLD_NOW|RTLD_LOCAL);
+                if (self) { auto* fn = (Backend*(*)())dlsym(self, "create_npu_backend");
+                    if (fn) b = fn(); } }
             return b;
         case BackendType::CPU_AVX512:
         case BackendType::CPU_SCALAR:
