@@ -1,4 +1,15 @@
 // zaya_engine.h — Zaya inference engine declarations
+//
+// LIMITATION: Architecture is hardcoded at compile time (ZAYA_H=2048, etc.).
+// The kernels in zaya_engine.cpp use compile-time constants for shared memory
+// sizes and loop bounds. To support multiple architectures, the engine needs:
+//   1. Template the kernel functions on dimensions (requires HIP)
+//   2. Or compile separate engine versions per architecture (multi-target build)
+//   3. Or rewrite kernels to use runtime parameters (may reduce perf)
+//
+// For now, the dimension validation in src/backend_hip.cpp rejects mismatched
+// models at load time instead of producing silent garbage.
+//
 // The implementation lives in zaya_engine.cpp (compiled as HIP).
 #pragma once
 
@@ -8,7 +19,7 @@
 #include <vector>
 #include <string>
 
-// ── Architecture constants ──
+// ── Architecture constants (single-architecture: Zaya1-8B only) ──
 enum {
     ZAYA_H = 2048,
     ZAYA_NQ = 8,

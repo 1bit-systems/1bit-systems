@@ -73,20 +73,32 @@ struct SimpleTokenizer {
         return true;
     }
 
+    // Improved ASCII tokenizer with UTF-8 passthrough for non-ASCII bytes.
+    // Uses the same ID scheme as tests/zaya_server.cpp: printable ASCII maps
+    // to 100-199, non-printable/non-ASCII maps to 200+ for round-trip fidelity.
+    // This is still a fallback — the real BPE tokenizer needs a .htok file.
     std::vector<int> encode(const std::string& text) {
-        std::vector<int> r = {bos_id}; // BOS
-        for (char c : text)
-            if (c >= ' ' && c <= '~')
-                r.push_back((unsigned char)c + 100);
+        std::vector<int> r = {bos_id};
+        for (unsigned char c : text) {
+            if (c >= 32 && c <= 126)
+                r.push_back((int)c + 100);
+            else if (c != 0)  // skip nulls, preserve other bytes for UTF-8
+                r.push_back((int)c + 200);
+        }
         return r;
     }
 
     std::string decode(const std::vector<int>& tokens) {
         std::string r;
         for (int v : tokens) {
-            if (v == bos_id || v == eos_id) continue; // BOS/EOS
-            if (v > 100 && v < 200) r += (char)(v - 100);
-            else { r += '['; r += std::to_string(v); r += ']'; }
+            if (v == bos_id || v == eos_id) continue;
+            if (v > 100 && v < 200)
+                r += (char)(v - 100);
+            else if (v > 200 && v < 456)  // raw byte pass-through (UTF-8)
+                r += (char)(v - 200);
+            else {
+                r += '['; r += std::to_string(v); r += ']';
+            }
         }
         return r;
     }

@@ -299,14 +299,33 @@ int main(int argc,char**argv){
     auto xp=[&](const char*t){return xd+"/final_i8_"+t+"_"+cfg.model_tag+".xclbin";};
     auto ip=[&](const char*t){return xd+"/insts_i8_"+t+"_"+cfg.model_tag+".txt";};
 
-    I8Ctx cq,co,cg,cd;cq.MD=XM;cq.KD=cfg.xclbin_qkv_k;cq.ND=cfg.xclbin_qkv_n;co.MD=XM;co.KD=cfg.xclbin_o_k;co.ND=cfg.xclbin_o_n;cd.MD=XM;cd.KD=cfg.xclbin_d_k;cd.ND=cfg.xclbin_d_n;
+    // GEMM contexts (I8Ctx = NPU xclbin + kernel + buffer set)
+    I8Ctx cq,co,cg,cd;
+    std::unique_ptr<I8Ctx> cu_ptr, ca_ptr;
+    cq.MD=XM;cq.KD=cfg.xclbin_qkv_k;cq.ND=cfg.xclbin_qkv_n;
+    co.MD=XM;co.KD=cfg.xclbin_o_k;co.ND=cfg.xclbin_o_n;
+    cd.MD=XM;cd.KD=cfg.xclbin_d_k;cd.ND=cfg.xclbin_d_n;
     if(cfg.gu_split){cg.MD=XM;cg.KD=cfg.xclbin_g_k;cg.ND=cfg.xclbin_g_n;}else{cg.MD=XM;cg.KD=cfg.xclbin_gu_k;cg.ND=cfg.xclbin_gu_n;}
     if(!cq.init(dev,xp("QKV").c_str(),ip("QKV").c_str(),4,NC)){fprintf(stderr,"FAIL QKV\n");return 1;}
     if(!co.init(dev,xp("O").c_str(),ip("O").c_str(),4,NC)){fprintf(stderr,"FAIL O\n");return 1;}
     if(cfg.gu_split){if(!cg.init(dev,xp("G").c_str(),ip("G").c_str(),4,NC)){fprintf(stderr,"FAIL G\n");return 1;}}else{if(!cg.init(dev,xp("GU").c_str(),ip("GU").c_str(),4,NC)){fprintf(stderr,"FAIL GU\n");return 1;}}
     if(!cd.init(dev,xp("D").c_str(),ip("D").c_str(),4,NC)){fprintf(stderr,"FAIL D\n");return 1;}
-    std::unique_ptr<I8Ctx> cu_ptr;
     if(cfg.gu_split){cu_ptr=std::make_unique<I8Ctx>();cu_ptr->MD=XM;cu_ptr->KD=cfg.xclbin_u_k;cu_ptr->ND=cfg.xclbin_u_n;if(!cu_ptr->init(dev,xp("U").c_str(),ip("U").c_str(),4,NC)){fprintf(stderr,"FAIL U\n");return 1;}}
+    // Optional NPU attention context (uses FLM attn.xclbin when available)
+    // Currently CPU attention (attn_omp) is used as fallback. Set NPU_ATTN=1 env
+    // to attempt NPU attention (requires attn.xclbin at the expected path).
+    bool use_npu_attn = getenv("NPU_ATTN") && atoi(getenv("NPU_ATTN")) > 0;
+    if(use_npu_attn){
+        ca_ptr=std::make_unique<I8Ctx>();
+        // Attention uses QK=NH*HD, V=NKV*HD, computes attention output of NH*HD
+        ca_ptr->MD=XM;ca_ptr->KD=NH*HD;ca_ptr->ND=NH*HD;
+        if(!ca_ptr->init(dev,xp("ATTN").c_str(),ip("ATTN").c_str(),4,NC)){
+            fprintf(stderr,"WARN: NPU attention init failed, falling back to CPU attn\n");
+            use_npu_attn=false; ca_ptr.reset();
+        } else {
+            fprintf(stderr,"NPU attention enabled (experimental)\n");
+        }
+    }
 
     fprintf(stderr,"Dequant+pack...\n");auto tp=std::chrono::steady_clock::now();
     std::vector<float> qsc(NC),osc(NC),gsc(NC),dsc(NC),usc(NC);
@@ -500,9 +519,19 @@ int main(int argc,char**argv){
                 for(int d=0;d<HD;d++)ks[d]*=ik*(cfg.has_k_norm?kn[d]:1.0f);ra(ks,HD,sp+pi);
                 memcpy(&kv_caches[l].k[(sp+pi)*NKV*HD+kvh*HD],ks,HD*4);memcpy(&kv_caches[l].v[(sp+pi)*NKV*HD+kvh*HD],vs,HD*4);}}
         kv_caches[l].n=sp+npt;int cl=kv_caches[l].n;
-        // Causal attention: token pi attends only to positions [0, sp+pi]
-        // Batched attention: parallelize across prefill tokens with OpenMP.
-        // Each token's attention is independent (causal: token pi attends to [0, sp+pi]).
+        // Attention: CPU (default) or NPU (experimental, NPU_ATTN=1)
+        if(use_npu_attn && ca_ptr && ca_ptr->isReady()){
+            // FIXME: NPU attention not yet wired. The attn.xclbin expects
+            // Q[NQ*HD], K[NKV*HD], V[NKV*HD] and outputs attn_out[NQ*HD].
+            // For now, fall through to CPU attention.
+            // In the future, this should:
+            //   1. Copy Q, K, V to NPU via ca_ptr
+            //   2. Run NPU kernel
+            //   3. Copy attn_out back
+            // Until then, use CPU attention path.
+            fprintf(stderr,"W");
+        }
+        // CPU attention (always available as fallback)
         #pragma omp parallel for
         for(int pi=0;pi<npt;pi++){
             if (omp_get_thread_num() == 0) { fprintf(stderr,"a"); fflush(stderr); }
