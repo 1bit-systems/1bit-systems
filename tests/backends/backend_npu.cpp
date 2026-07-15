@@ -187,12 +187,13 @@ public:
     }
 
     // Send accumulated prompt to FLM, get full response
+    // FLM uses ">>> " as its prompt delimiter. This function reads until
+    // it sees ">>> " at the START of a line, which distinguishes it from
+    // ">>> " that may appear mid-response (the actual bug this fixes).
     std::string query_flm(const std::string& prompt) {
-        // Send prompt (FLM reads a line, generates response)
         std::string req = prompt + "\n";
         write(stdin_fd_, req.c_str(), req.size());
 
-        // Read until next ">>> " prompt
         std::string resp;
         char c;
         auto t0 = std::chrono::steady_clock::now();
@@ -203,19 +204,27 @@ public:
             if (select(stdout_fd_ + 1, &fds, nullptr, nullptr, &tv) > 0) {
                 if (read(stdout_fd_, &c, 1) > 0) {
                     resp += c;
-                    if (resp.size() >= 4 && resp.substr(resp.size()-4) == ">>> ")
-                        break;
+                    // Only match ">>> " at the START of a line (preceded by \n
+                    // or at position 0). This prevents mid-content ">>> " from
+                    // being mistaken for FLM's prompt delimiter.
+                    if (resp.size() >= 4) {
+                        size_t pos = resp.rfind('\n');
+                        size_t check_start = (pos == std::string::npos) ? 0 : pos + 1;
+                        if (resp.substr(check_start) == ">>> ")
+                            break;
+                    }
                 }
             } else break;
         }
 
-        // Strip ">>> " suffix
-        if (resp.size() >= 4 && resp.substr(resp.size()-4) == ">>> ")
-            resp = resp.substr(0, resp.size() - 4);
-
-        // Strip leading ">>> " if any
-        if (resp.size() >= 4 && resp.substr(0, 4) == ">>> ")
+        // Find the last newline before ">>> " and strip everything from there
+        size_t prompt_pos = resp.rfind("\n>>> ");
+        if (prompt_pos != std::string::npos) {
+            resp = resp.substr(0, prompt_pos);
+        } else if (resp.size() >= 4 && resp.substr(0, 4) == ">>> ") {
+            // Leading prompt
             resp = resp.substr(4);
+        }
 
         // Remove trailing whitespace
         while (!resp.empty() && (resp.back() == '\n' || resp.back() == ' '))
