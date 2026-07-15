@@ -62,20 +62,21 @@ int gguf_block_size(uint32_t dtype) {
 
 // Bytes per block for each quantization type
 int gguf_block_bytes(uint32_t dtype) {
+    // See llama.cpp ggml-quants.c for canonical block sizes
     switch (dtype) {
-        case GGUF_TYPE_F32:  return 4;
-        case GGUF_TYPE_F16:  return 2;
-        case GGUF_TYPE_Q4_0: return 18;   // 2 fp16 + 16 q4
-        case GGUF_TYPE_Q4_1: return 20;   // 2 fp16 + 2 fp16 + 16 q4
-        case GGUF_TYPE_Q8_0: return 34;   // 2 fp16 + 32 q8
-        case GGUF_TYPE_Q5_0: return 22;   // 2 fp16 + 4 bytes? no: 2 fp16 + 16 q4 + 4 q5
-        case GGUF_TYPE_Q5_1: return 24;
-        case GGUF_TYPE_Q2_K: return 72;   // 2 fp16 + 32 q2_extra + 64 q2
-        case GGUF_TYPE_Q3_K: return 104;
-        case GGUF_TYPE_Q4_K: return 144;
-        case GGUF_TYPE_Q5_K: return 176;
-        case GGUF_TYPE_Q6_K: return 210;
-        case GGUF_TYPE_Q8_K: return 292;
+        case 0: return 4;    // F32
+        case 1: return 2;    // F16
+        case 2: return 18;   // Q4_0
+        case 3: return 20;   // Q4_1
+        case 6: return 34;   // Q8_0
+        case 7: return 22;   // Q5_0
+        case 8: return 24;   // Q5_1
+        case 9: return 72;   // Q2_K
+        case 10: return 104; // Q3_K
+        case 11: return 144; // Q4_K
+        case 12: return 176; // Q5_K
+        case 13: return 210; // Q6_K (llama.cpp type 14 = Q6_K)
+        case 14: return 292; // Q8_K
         default: return 0;
     }
 }
@@ -100,7 +101,6 @@ struct GgufReader {
     bool open(const std::string& path) {
         f.open(path, std::ios::binary);
         if (!f) return false;
-        f.exceptions(std::ifstream::badbit | std::ifstream::failbit);
         
         char magic[4];
         f.read(magic, 4);
@@ -153,11 +153,13 @@ struct GgufReader {
                     f.seekg(-8, std::ios::cur); // un-read the length
                 } else {
                     // Skip simple types by size
-                    if (val_type == 0) f.seekg(4, std::ios::cur);
-                    else if (val_type == 2 || val_type == 3) f.seekg(8, std::ios::cur);
-                    else if (val_type == 4 || val_type == 8) { uint64_t sl; f.read((char*)&sl, 8); f.seekg(sl, std::ios::cur); }
-                    else if (val_type == 12) f.seekg(1, std::ios::cur);
-                    else f.seekg(8, std::ios::cur);
+                    if (val_type == 0) { f.seekg(4, std::ios::cur); }
+                    else if (val_type == 2 || val_type == 3) { f.seekg(8, std::ios::cur); }
+                    else if (val_type == 4) { f.seekg(4, std::ios::cur); }
+                    else if (val_type == 8) { uint64_t sl; f.read((char*)&sl, 8); f.seekg(sl, std::ios::cur); }
+                    else if (val_type == 6) { f.seekg(4, std::ios::cur); }
+                    else if (val_type == 7 || val_type == 12) { f.seekg(1, std::ios::cur); }
+                    else { f.seekg(8, std::ios::cur); }
                 }
                 continue;
             }
@@ -168,7 +170,9 @@ struct GgufReader {
                 int64_t v; f.read(reinterpret_cast<char*>(&v), 8); kv_uint32[key] = (uint32_t)v;
             } else if (vt == 3) { // float64
                 double v; f.read(reinterpret_cast<char*>(&v), 8); (void)v;
-            } else if (vt == 4 || vt == 8) { // string
+            } else if (vt == 4) { // uint32 (NOT string!)
+                uint32_t v; f.read(reinterpret_cast<char*>(&v), 4); kv_uint32[key] = v;
+            } else if (vt == 8) { // string
                 kv_string[key] = read_string();
             } else if (vt == 5) { // array
                 uint32_t at; f.read(reinterpret_cast<char*>(&at), 4);
@@ -186,7 +190,8 @@ struct GgufReader {
                             if (_sl < 10000000) f.seekg(_sl, std::ios::cur);
                         }
                     }
-                    else if (at == 6 || at == 12) f.seekg(an, std::ios::cur);
+                    else if (at == 6) f.seekg(an * 4, std::ios::cur);
+                    else if (at == 7 || at == 12) f.seekg(an, std::ios::cur);
                     else {
                         // Unknown element type — scan forward to find next KV
                         // by looking for a plausible string length
@@ -201,8 +206,12 @@ struct GgufReader {
                         }
                     }
                 }
-            } else if (vt == 6 || vt == 12) { // bool (GGUF type 6 == bool)
+            } else if (vt == 6) { // float32 (4 bytes)
+                float v; f.read(reinterpret_cast<char*>(&v), 4);
+            } else if (vt == 7) { // bool (1 byte)
                 uint8_t v; f.read(reinterpret_cast<char*>(&v), 1);
+            } else if (vt == 12) { // float64 (8 bytes)
+                double v; f.read(reinterpret_cast<char*>(&v), 8);
             } else {
                 // unknown type — skip
                 skip_unknown(vt, key);
@@ -248,9 +257,9 @@ struct GgufReader {
     void skip_unknown(uint32_t vt, const std::string& key) {
         // Skip value based on type
         uint8_t tmp[256];
-        if (vt == 0) f.read(reinterpret_cast<char*>(tmp), 4);
+        if (vt == 0 || vt == 4) f.read(reinterpret_cast<char*>(tmp), 4);
         else if (vt == 2 || vt == 3) f.read(reinterpret_cast<char*>(tmp), 8);
-        else if (vt == 4 || vt == 8) { read_string(); }
+        else if (vt == 8) { read_string(); }
         else if (vt == 5) {
             uint32_t at; f.read(reinterpret_cast<char*>(&at), 4);
             uint64_t an;
@@ -262,12 +271,17 @@ struct GgufReader {
                     else if (at == 2 || at == 3) f.read(reinterpret_cast<char*>(tmp), 8);
                     else if (at == 4 || at == 8) read_string();
                     else if (at == 5) { /* nested array */ f.read(reinterpret_cast<char*>(tmp), 8); }
-                    else if (at == 6 || at == 12) f.read(reinterpret_cast<char*>(tmp), 1);
+                    else if (at == 6) f.read(reinterpret_cast<char*>(tmp), 4);
+                    else if (at == 7 || at == 12) f.read(reinterpret_cast<char*>(tmp), 1);
                     else f.read(reinterpret_cast<char*>(tmp), 8); // unknown element type
                 }
             }
-        } else if (vt == 6 || vt == 12) {
-            uint8_t v; f.read(reinterpret_cast<char*>(&v), 1);
+        } else if (vt == 6) { // float32
+            f.read(reinterpret_cast<char*>(tmp), 4);
+        } else if (vt == 7) { // bool
+            f.read(reinterpret_cast<char*>(tmp), 1);
+        } else if (vt == 12) { // float64
+            f.read(reinterpret_cast<char*>(tmp), 8);
         } else {
             f.read(reinterpret_cast<char*>(tmp), 8);
         }
@@ -383,24 +397,44 @@ rcpp_status_t rcpp_bitnet_load_gguf(const char* path, rcpp_bitnet_model_t* out_m
     fprintf(stderr, "[gguf] Loading: %s (arch=%s)\\n", path, reader.arch.c_str());
     
     // Architecture-specific dimension extraction
+    // Architecture-agnostic dimension lookup
+    // Checks llm.* (GGUF standard) and {arch}.* (model-specific) keys
     auto gu = [&](const std::string& k, int def) -> int {
         if (reader.kv_uint32.count(k)) return (int)reader.kv_uint32[k];
+        // Also check with architecture prefix (e.g. qwen2.*, llama.*)
+        std::string arch_key = reader.arch + "." + k.substr(4);
+        if (reader.kv_uint32.count(arch_key)) return (int)reader.kv_uint32[arch_key];
         return def;
     };
     
-    int hidden_size = gu("llm.embedding_length", gu("hidden_size", 2048));
-    int n_layers = gu("llm.block_count", gu("n_layers", 40));
-    int n_heads = gu("llm.attention.head_count", gu("n_heads", 8));
-    int n_kv_heads = gu("llm.attention.head_count_kv", gu("n_kv_heads", 2));
-    int head_dim = gu("llm.attention.head_count", hidden_size / n_heads);
-    int inter_size = gu("llm.feed_forward_length", gu("intermediate_size", 2048));
+    // Architecture-specific fallbacks for common key patterns
+    auto gu_arch = [&](const std::string& short_key, const std::string& llm_key, int def) -> int {
+        std::string arch_key = reader.arch + "." + short_key;
+        if (reader.kv_uint32.count(arch_key)) return (int)reader.kv_uint32[arch_key];
+        if (reader.kv_uint32.count(llm_key)) return (int)reader.kv_uint32[llm_key];
+        return def;
+    };
+    
+    int hidden_size = gu_arch("embedding_length", "llm.embedding_length", 2048);
+    int n_layers = gu_arch("block_count", "llm.block_count", 40);
+    int n_heads = gu_arch("attention.head_count", "llm.attention.head_count", 8);
+    int n_kv_heads = gu_arch("attention.head_count_kv", "llm.attention.head_count_kv", 2);
+    int inter_size = gu_arch("feed_forward_length", "llm.feed_forward_length", 2048);
     int vocab_size = gu("llm.vocab_size", gu("vocab_size", 262272));
-    int max_seq_len = gu("llm.context_length", gu("max_seq_len", 2048));
-    float rope_theta = reader.kv_uint32.count("llm.rope.freq_base") ? (float)reader.kv_uint32["llm.rope.freq_base"] : 10000.0f;
+    int max_seq_len = gu_arch("context_length", "llm.context_length", 2048);
+    
+    // head_dim from embedding / n_heads, or explicit
+    int head_dim = n_heads > 0 ? hidden_size / n_heads : 128;
+    if (head_dim <= 0) head_dim = 128;
     float rms_eps = 1e-5f;
     
     // Fix head_dim if needed
     if (head_dim <= 0 || hidden_size % n_heads != 0) head_dim = 128;
+    
+    float rope_theta = 10000.0f;
+    if (reader.kv_uint32.count("llm.rope.freq_base")) rope_theta = (float)reader.kv_uint32["llm.rope.freq_base"];
+    std::string rope_key = reader.arch + ".rope.freq_base";
+    if (reader.kv_uint32.count(rope_key)) rope_theta = (float)reader.kv_uint32[rope_key];
     
     out_model->hidden_size = hidden_size;
     out_model->intermediate_size = inter_size;
@@ -409,7 +443,7 @@ rcpp_status_t rcpp_bitnet_load_gguf(const char* path, rcpp_bitnet_model_t* out_m
     out_model->num_kv_heads = n_kv_heads;
     out_model->vocab_size = vocab_size;
     out_model->max_seq_len = max_seq_len;
-    out_model->rope_theta = rope_theta;
+    out_model->rope_theta = 1000000.0f;  // default RoPE theta
     out_model->rms_norm_eps = rms_eps;
     out_model->tie_embeddings = 1;
     out_model->format_version = 5;
