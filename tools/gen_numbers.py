@@ -80,6 +80,21 @@ def measure() -> tuple[dict, list[str]]:
     return binary, missing
 
 
+def _managed_model_count() -> int | None:
+    """Count managed models declared in the ZINC catalog.
+
+    `site.models` used to be a hand-set literal ("73") that matched nothing in
+    the tree. The catalog (`engine/gpu/src/model/catalog.zig`) is the real list,
+    so count its entries directly. Returns None if the catalog can't be read
+    (caller leaves the existing value untouched). (issue #188)
+    """
+    catalog = REPO / "engine/gpu/src/model/catalog.zig"
+    if not catalog.is_file():
+        return None
+    import re
+    return len(re.findall(r'\.id\s*=\s*"', catalog.read_text()))
+
+
 def _engine_benchmarks(benchmarks_path: Path) -> dict:
     """Read site/benchmarks.json and map engine tok/s fields to the names the
     site JS expects (see site/index.html lines ~557-586). These are the
@@ -126,6 +141,21 @@ def build(bench_path: Path) -> dict:
     if dropped:
         print(f"gen_numbers: dropped unverified/quarantined keys: {sorted(dropped)}")
 
+    # Display alias: site/index.html reads B.tflops for the hero "TFLOPS" spans.
+    # Point it at the sourced prefill peak (prefill_tflops_i8apre) so those spans
+    # can never drift from a measured value. Previously B.tflops was undefined,
+    # so the JS silently left a stale hardcoded "38.5 TFLOPS" in the HTML.
+    # (issue #184)
+    if "prefill_tflops_i8apre" in bench["benchmarks"]:
+        bench["benchmarks"]["tflops"] = bench["benchmarks"]["prefill_tflops_i8apre"]
+
+    # site.models: derive from the ZINC catalog, not a hand-set literal. The old
+    # value ("73") matched no list in the repo; the catalog has the real count.
+    # (issue #188)
+    managed = _managed_model_count()
+    if managed is not None:
+        bench.setdefault("site", {})["models"] = managed
+
     return {
         "_generated_by": "tools/gen_numbers.py",
         "_generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -152,13 +182,36 @@ def main() -> int:
             print("site/numbers.json missing", file=sys.stderr)
             return 1
         old = json.loads(out_path.read_text())
-        # Timestamps, binary sizes, and missing-artifact lists are runner-dependent.
-        # Only validate the stable payload derived from benchmarks/latest.json.
-        volatile = {"_generated_at", "_missing", "binary"}
+        # Only the build timestamp and the missing-artifact list are truly
+        # runner-dependent. Binary SIZES are runner-dependent only in
+        # *presence*: a runner with no build artifacts reports null. So where
+        # we could not measure (None), carry the committed value forward (no
+        # constraint); where we DID measure, the size must match what's
+        # committed. This catches real drift (e.g. a stale 25 MB artifact)
+        # without false-failing on CI runners that don't build. (issue #186)
+        volatile = {"_generated_at", "_missing"}
+        committed_binary = old.get("binary", {})
+        fresh_binary = data["binary"]
+        merged_binary = {
+            k: (fresh_binary[k] if fresh_binary.get(k) is not None
+                else committed_binary.get(k))
+            for k in (set(committed_binary) | set(fresh_binary))
+        }
         a = {k: v for k, v in old.items() if k not in volatile}
+        a["binary"] = committed_binary
         b = {k: v for k, v in data.items() if k not in volatile}
+        b["binary"] = merged_binary
         if a != b:
-            print("site/numbers.json is STALE -- run tools/gen_numbers.py", file=sys.stderr)
+            drifted = sorted(
+                k for k in merged_binary
+                if merged_binary.get(k) is not None
+                and merged_binary.get(k) != committed_binary.get(k)
+            )
+            print("site/numbers.json is STALE -- run tools/gen_numbers.py",
+                  file=sys.stderr)
+            for k in drifted:
+                print(f"  binary {k}: committed {committed_binary.get(k)} "
+                      f"vs measured {merged_binary.get(k)}", file=sys.stderr)
             return 1
         print("site/numbers.json is up to date")
         return 0

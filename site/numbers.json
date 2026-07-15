@@ -1,14 +1,14 @@
 {
   "_generated_by": "tools/gen_numbers.py",
-  "_generated_at": "2026-07-14T23:57:34Z",
+  "_generated_at": "2026-07-15T00:16:37Z",
   "_warning": "Generated file. Do not hand-edit; run tools/gen_numbers.py.",
   "_missing": [],
   "binary": {
     "zaya_bytes": 288712,
     "zaya_kb": 282,
     "zaya_stripped_kb": 263,
-    "fused_bytes": 25493389,
-    "fused_kb": 24896,
+    "fused_bytes": 636856,
+    "fused_kb": 622,
     "decode_bytes": 703904,
     "decode_kb": 687,
     "decode_stripped_kb": 495,
@@ -21,7 +21,8 @@
     "sherry_gemv_gbps": 144.5,
     "tq1_gemv_gbps": 184.5,
     "halo_gemv_gbps": 152.8,
-    "prefill_tflops_i8apre": 35.35
+    "prefill_tflops_i8apre": 35.35,
+    "tflops": 35.35
   },
   "_sources": {
     "prefill_tflops_4h": "bench_prefill_variants 2560 6912 2560 -- variant 4h (64x64 cached A+B)",
@@ -40,7 +41,7 @@
     "name": "1bit-systems"
   },
   "site": {
-    "models": 73,
+    "models": 5,
     "backends": 6
   }
 }
