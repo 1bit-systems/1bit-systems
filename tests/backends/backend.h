@@ -1,5 +1,12 @@
-// backend.h — Unified inference backend interface
-// One binary compiles all backends; runtime auto-detects the best available.
+// backend.h — Unified inference backend interface (tests/ version)
+//
+// NOTE: This is a simplified interface parallel to src/backend.h (struct Backend).
+// The two should eventually be unified. Key differences:
+//   - InferenceBackend::forward() fuses forward+lm_head (returns token_id)
+//   - src/Backend::forward() returns hidden state, has separate generate()
+//   - BackendType enum values overlap but are not identical
+//
+// TODO(#unify): merge into src/backend.h, make this an adapter
 #pragma once
 #include <vector>
 #include <string>

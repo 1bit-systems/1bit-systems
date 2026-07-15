@@ -1,6 +1,11 @@
-// backend.h — Universal backend abstraction for Zaya1-8B inference
-// Each backend implements the same ops: init, forward_layer, lm_head, destroy
-// Auto-detected and selected at runtime by token_router
+// backend.h — Universal backend abstraction for inference
+//
+// This is the CANONICAL backend interface. The tests/backends/backend.h
+// (InferenceBackend) is a separate parallel interface that should eventually
+// be unified with this one (see TODO in that file).
+//
+// Each backend implements: init, forward, lm_head, generate, benchmark, destroy
+// Auto-detected and selected at runtime by BackendManager.
 
 #pragma once
 #include <cstdint>

@@ -612,3 +612,16 @@ target_link_libraries(bitnet_tui PRIVATE
 if(RCPP_HAVE_CK)
     add_subdirectory(ck-prefill)
 endif()
+
+# ── Helper: create a HIP test/bench executable ────────────────────────
+# Usage: rocm_hip_target(name source1 [source2 ...])
+# Creates an executable linked against rocm_cpp + HIP with standard flags.
+function(rocm_hip_target TARGET)
+    add_executable(${TARGET} ${ARGN})
+    set_source_files_properties(${ARGN} PROPERTIES LANGUAGE HIP)
+    target_compile_options(${TARGET} PRIVATE
+        $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+    target_link_libraries(${TARGET} PRIVATE rocm_cpp hip::host hip::device)
+    set_target_properties(${TARGET} PROPERTIES
+        HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+endfunction()
