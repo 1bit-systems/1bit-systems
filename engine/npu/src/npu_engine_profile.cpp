@@ -236,5 +236,5 @@ int main(int argc,char**argv){
     printf("  LM head:   %.0f ms\n",t_lm);
     printf("  TOTAL:     %.1f ms (%.0f ms/tok)\n",(t_gemm+t_cpu)/1000+t_lm,(t_gemm+t_cpu)/1000+t_lm);
     printf("  Token:     %d\n",tok);
-    munmap(md,st.st_size);return 0;
+    munmap(md,st.st_size);fflush(stdout);fflush(stderr);_exit(0);
 }

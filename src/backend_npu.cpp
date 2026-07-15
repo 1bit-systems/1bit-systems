@@ -1,95 +1,568 @@
-// backend_npu.cpp — NPU XRT backend for Zaya1-8B
-// Uses pre-compiled ternary TQ1 xclbins on AMD XDNA NPU
+// backend_npu.cpp — Real NPU inference backend via subprocess worker protocol.
+//
+// Spawns engine/npu/npu_engine_universal as a subprocess in --worker mode
+// and communicates via its stdin/stdout binary protocol for GEMM operations.
+// CPU-side handles: attention, RoPE, RMSNorm, residual add, SiLU gating,
+// KV cache management, and lm_head.
+//
+// Model weights: loads only embed + norm tables directly from the model file
+// (small ~few MB). The GB-scale GEMM weights are managed by the worker engine.
+//
+// Env vars:
+//   NPU_MODEL_PATH   — path to model.q4nx (required)
+//   NPU_ENGINE_BIN   — path to npu_engine_universal binary
+//   NPU_XCLBIN_DIR   — xclbin directory (passed through to worker)
 
 #include "backend.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cmath>
 #include <vector>
 #include <string>
 #include <fstream>
 #include <chrono>
 #include <algorithm>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <signal.h>
 
-// ── NPU XRT headers ──
-// These are only included when XRT is available at build time
-#ifdef HAS_XRT
-#include <xrt/xrt_device.h>
-#include <xrt/xrt_bo.h>
-#include <xrt/xrt_kernel.h>
-#endif
+// ── Q4NX model reader ──
+// Reads float32 weights from the mmap'd model file by JSON key lookup.
+// The model file is an indexed format: JSON header with data_offsets, then
+// raw float32 weight data at those offsets.
+struct Q4nxReader {
+    const char* data = nullptr;
+    size_t size = 0;
 
-struct NPUBackend : Backend {
-    bool available = false;
+    bool open(const std::string& path) {
+        int fd = ::open(path.c_str(), O_RDONLY);
+        if (fd < 0) { perror("NPU: open model"); return false; }
+        struct stat st;
+        fstat(fd, &st);
+        data = (const char*)mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+        size = st.st_size;
+        close(fd);
+        if (data == MAP_FAILED) { perror("NPU: mmap model"); data = nullptr; return false; }
+        return true;
+    }
 
-    // XRT state (only valid when HAS_XRT)
-#ifdef HAS_XRT
-    xrt::device xrt_dev;
-    std::vector<xrt::kernel> kernels;
-#endif
+    void close() {
+        if (data && size > 0) { munmap((void*)data, size); data = nullptr; size = 0; }
+    }
 
-    NPUBackend() { type = BackendType::NPU_XRT; name = "NPU XDNA (XRT) [STUB]"; }
-
-    ~NPUBackend() override { destroy(); }
-
-    // NPU inference (forward/lm_head/generate) is not implemented — this backend
-    // detects the XRT device only. can_infer()=false so BackendManager reports it as
-    // available but never selects it for inference (fixes #82). Real inference needs
-    // XRT/xclbin dispatch.
-    bool can_infer() const override { return false; }
-
-    bool init(const ModelConfig& cfg, const std::string& weights_dir) override {
-        this->cfg = cfg;
-        printf("NPU[stub]: Initializing (detection only -- no inference)...\n");
-
-        // Try to open NPU device via XRT
-#ifdef HAS_XRT
-        try {
-            xrt_dev = xrt::device(0);
-            printf("NPU[stub]: XRT device found: %s\n",
-                   xrt_dev.get_info<xrt::info::device::name>().c_str());
-            printf("NPU[stub]: >>> Inference NOT available via this backend. <<<\n");
-            printf("NPU[stub]: Real NPU inference uses engine/npu/npu_engine_universal via subprocess.\n");
-            available = true;
-        } catch (const std::exception& e) {
-            printf("NPU[stub]: No XRT device: %s\n", e.what());
-            available = false;
+    // Find data offset for a JSON key in the model header
+    uint64_t find_offset(const char* key) const {
+        if (!data) return 0;
+        size_t kl = strlen(key);
+        const char* p = data;
+        const char* e = data + (size > 65536 ? 65536 : size); // header within first 64KB
+        while (p < e) {
+            const char* q = (const char*)memmem(p, e - p, key, kl);
+            if (!q) return 0;
+            if (q > data && *(q - 1) == '"' && *(q + kl) == '"') {
+                const char* o = strstr(q, "\"data_offsets\"");
+                if (o) {
+                    const char* a = strchr(o, '[');
+                    if (a) return strtoull(a + 1, NULL, 10);
+                }
+            }
+            p = q + 1;
         }
-#else
-        printf("NPU[stub]: Built without XRT support -- NPU detection unavailable\n");
-        available = false;
-#endif
-        initialized = available;
-        // NPU[stub]: inference not available - can_infer()=false
-        if (available) {
-            printf("NPU[stub]: device detected, but inference NOT available via this backend — reporting as available but not inference-capable (see #82)\n");
-        }
-        return available;
-    }
-
-    bool reset() override { return true; }
-
-    bool forward(int token_id, float* hidden_out) override {
-        (void)token_id; (void)hidden_out;
-        return false; // TODO: implement NPU forward (needs xclbins)
-    }
-
-    bool lm_head(const float* hidden, float* logits, int* argmax) override {
-        (void)hidden; (void)logits; (void)argmax;
-        return false; // TODO: implement NPU lm_head
-    }
-
-    int generate(int token_id) override {
-        (void)token_id;
-        return -1; // TODO: implement NPU generate
-    }
-
-    float benchmark(int tokens = 10) override {
-        (void)tokens;
         return 0;
     }
 
+    // Read float32 array at offset into a vector
+    std::vector<float> read_floats(uint64_t offset, size_t count) const {
+        std::vector<float> v;
+        if (!data || offset == 0 || offset + count * 4 > size) return v;
+        v.resize(count);
+        memcpy(v.data(), data + offset, count * sizeof(float));
+        return v;
+    }
+};
+
+// ── Math helpers (CPU fallback ops) ──
+static constexpr float EPS = 1e-6f;
+static inline void cn(float* x, int n) {
+    for (int i = 0; i < n; i++) if (!std::isfinite(x[i])) x[i] = 0.0f;
+}
+static inline void rmsnorm(float* x, const float* w, int n) {
+    cn(x, n); double ss = 0;
+    for (int i = 0; i < n; i++) if (std::isfinite(x[i])) ss += (double)x[i] * x[i];
+    float ir = 1.0f / sqrtf((float)(ss / n) + EPS);
+    for (int i = 0; i < n; i++) x[i] = std::isfinite(x[i]) ? x[i] * ir * w[i] : 0.0f;
+}
+static inline void softmax(float* x, int n) {
+    cn(x, n); float mx = x[0];
+    for (int i = 1; i < n; i++) if (x[i] > mx) mx = x[i];
+    double s = 0;
+    for (int i = 0; i < n; i++) {
+        float d = x[i] - mx; if (d > 80) d = 80; else if (d < -80) d = -80;
+        x[i] = expf(d); s += x[i];
+    }
+    if (s <= 0) { float iv = 1.0f / n; for (int i = 0; i < n; i++) x[i] = iv; return; }
+    float is = 1.0f / (float)s; for (int i = 0; i < n; i++) x[i] *= is;
+}
+static inline float silu(float x) { return x / (1.0f + expf(-x)); }
+
+// RoPE cache (built once at init)
+static std::vector<float> cos_cache, sin_cache;
+static int rope_hd = 0;
+static void build_rope_cache(int max_pos, int head_dim, float theta) {
+    if (head_dim == rope_hd && !cos_cache.empty()) return; // already built
+    rope_hd = head_dim;
+    int hd2 = head_dim / 2;
+    cos_cache.resize(max_pos * head_dim);
+    sin_cache.resize(max_pos * head_dim);
+    for (int p = 0; p < max_pos; p++) {
+        for (int d = 0; d < hd2; d++) {
+            float f = 1.0f / powf(theta, (float)d / hd2);
+            float a = p * f;
+            cos_cache[p * head_dim + d] = cosf(a);
+            sin_cache[p * head_dim + d] = sinf(a);
+        }
+    }
+}
+static inline void rope(float* x, int head_dim, int pos) {
+    int hd2 = head_dim / 2;
+    for (int d = 0; d < hd2; d++) {
+        float a = x[d], b = x[d + hd2];
+        float c = cos_cache[pos * head_dim + d];
+        float s = sin_cache[pos * head_dim + d];
+        x[d] = a * c - b * s;
+        x[d + hd2] = b * c + a * s;
+    }
+}
+
+// CPU attention: Q[NQ,HD] @ K[seq,NKV,HD] -> scores, softmax, weighted V
+static void attn_cpu(float* qo, float* at, int seq_len,
+                     const float* kv_k, const float* kv_v,
+                     int NQ, int NKV, int HD, int GQA) {
+    #pragma omp parallel for
+    for (int hh = 0; hh < NQ; hh++) {
+        int kvh = hh / GQA;
+        std::vector<float> scores(seq_len);
+        float mx = -1e30f;
+        for (int p = 0; p < seq_len; p++) {
+            double s = 0;
+            for (int d = 0; d < HD; d++)
+                s += (double)qo[hh * HD + d] * kv_k[(size_t)p * NKV * HD + (size_t)kvh * HD + d];
+            scores[p] = (float)(s / sqrtf((float)HD));
+            if (scores[p] > mx) mx = scores[p];
+        }
+        double sw = 0;
+        for (int p = 0; p < seq_len; p++) { scores[p] = expf(scores[p] - mx); sw += scores[p]; }
+        float isw = sw > 0 ? 1.0f / (float)sw : 1.0f / seq_len;
+        for (int d = 0; d < HD; d++) {
+            float acc = 0;
+            for (int p = 0; p < seq_len; p++)
+                acc += scores[p] * kv_v[(size_t)p * NKV * HD + (size_t)kvh * HD + d];
+            at[hh * HD + d] = acc * isw;
+        }
+    }
+}
+
+// ── NPU Worker subprocess ──
+struct NpuWorker {
+    pid_t pid = -1;
+    int stdin_fd = -1;   // write to worker's stdin
+    int stdout_fd = -1;  // read from worker's stdout
+    bool ready = false;
+
+    bool spawn(const std::string& model_path) {
+        const char* engine_bin = getenv("NPU_ENGINE_BIN");
+        std::string bin = engine_bin ? engine_bin : "./npu_engine_universal";
+
+        int to_child[2], from_child[2];
+        if (pipe(to_child) < 0 || pipe(from_child) < 0) { perror("NPU: pipe"); return false; }
+
+        pid = fork();
+        if (pid < 0) { perror("NPU: fork"); close(to_child[0]); close(to_child[1]); close(from_child[0]); close(from_child[1]); return false; }
+
+        if (pid == 0) {
+            // Child: npu_engine_universal process
+            close(to_child[1]); dup2(to_child[0], STDIN_FILENO); close(to_child[0]);
+            close(from_child[0]); dup2(from_child[1], STDOUT_FILENO); close(from_child[1]);
+            int devnull = open("/dev/null", O_WRONLY);
+            if (devnull >= 0) dup2(devnull, STDERR_FILENO);
+            execlp(bin.c_str(), bin.c_str(), model_path.c_str(), "--worker", (char*)nullptr);
+            fprintf(stderr, "NPU: failed to exec %s\n", bin.c_str());
+            _exit(1);
+        }
+
+        close(to_child[0]); close(from_child[1]);
+        stdin_fd = to_child[1];
+        stdout_fd = from_child[0];
+        ready = true;
+        return true;
+    }
+
+    // Send a GEMM operation, read back result. out_data auto-resized.
+    bool gemm(int op, int layer, int batch, int in_dim,
+              const float* in_data, std::vector<float>& out_data) {
+        if (!ready || stdin_fd < 0 || stdout_fd < 0) return false;
+        uint32_t hdr[4] = {(uint32_t)op, (uint32_t)layer, (uint32_t)batch, (uint32_t)in_dim};
+        if (write(stdin_fd, hdr, sizeof(hdr)) != (ssize_t)sizeof(hdr)) return false;
+        if (write(stdin_fd, in_data, (size_t)batch * in_dim * sizeof(float)) !=
+            (ssize_t)((size_t)batch * in_dim * sizeof(float))) return false;
+        uint32_t resp[2];
+        if (read(stdout_fd, resp, sizeof(resp)) != (ssize_t)sizeof(resp)) return false;
+        if (resp[0] != 0) return false;
+        uint32_t out_dim = resp[1];
+        out_data.resize((size_t)batch * out_dim);
+        return read(stdout_fd, out_data.data(), (size_t)batch * out_dim * sizeof(float)) ==
+               (ssize_t)((size_t)batch * out_dim * sizeof(float));
+    }
+
+    void shutdown() {
+        if (pid > 0) {
+            uint32_t quit[4] = {0, 0, 0, 0};
+            if (stdin_fd >= 0) write(stdin_fd, quit, sizeof(quit));
+            close(stdin_fd); close(stdout_fd);
+            int status;
+            waitpid(pid, &status, WNOHANG);
+            kill(pid, SIGTERM);
+            pid = -1;
+        }
+        stdin_fd = stdout_fd = -1;
+        ready = false;
+    }
+
+    ~NpuWorker() { shutdown(); }
+};
+
+// ── NPU Backend ──
+struct NPUBackend : Backend {
+    NpuWorker worker;
+    Q4nxReader model;
+
+    // Model dimensions
+    int H = 0, NQ = 0, NKV = 0, HD = 0, GQA = 0, NV = 0, NC = 0;
+    int qkv_total = 0, mlp_dim = 0;
+    float rope_theta = 1000000.0f;
+    int max_seq_len = 4096;
+
+    // Weights loaded from model file (small: embed + norms)
+    std::vector<float> embed;
+    std::vector<float> final_norm;
+    std::vector<std::vector<float>> in_norms;     // per-layer input norm
+    std::vector<std::vector<float>> post_attn_norms; // per-layer post-attn norm
+    std::vector<std::vector<float>> q_norms;       // per-layer Q norm (optional)
+    std::vector<std::vector<float>> k_norms;       // per-layer K norm (optional)
+
+    // KV cache
+    struct KVCache { std::vector<float> k, v; int seq_len = 0; };
+    std::vector<KVCache> kv_caches;
+
+    // State buffers
+    std::vector<float> hidden;
+    std::vector<float> qkv_buf, attn_buf, o_buf, gateup_buf, up_buf, down_buf;
+    std::vector<float> residual_buf, logits_buf;
+    int pos = 0;
+
+    bool has_q_norm = false, has_k_norm = false, gu_split = false;
+
+    NPUBackend() { type = BackendType::NPU_XRT; name = "NPU XDNA (worker subprocess)"; }
+    ~NPUBackend() override { destroy(); }
+    bool can_infer() const override { return initialized; }
+
+    bool init(const ModelConfig& cfg, const std::string& weights_dir) override {
+        this->cfg = cfg;
+        printf("NPU: Initializing worker subprocess...\n");
+
+        const char* model_path = getenv("NPU_MODEL_PATH");
+        if (!model_path) {
+            // Try weights_dir
+            std::string fallback = weights_dir + "/model.q4nx";
+            fprintf(stderr, "NPU: set NPU_MODEL_PATH (tried: %s)\n", fallback.c_str());
+            return false;
+        }
+
+        // Read model dimensions from config
+        H = cfg.hidden_size;
+        NQ = cfg.num_attention_heads;
+        NKV = cfg.num_kv_heads;
+        HD = cfg.head_dim;
+        GQA = NQ / NKV;
+        NV = cfg.vocab_size;
+        NC = cfg.num_layers;
+        qkv_total = NQ * HD + NKV * HD * 2;
+        mlp_dim = cfg.intermediate_size;
+        rope_theta = cfg.rope_theta > 0 ? cfg.rope_theta : 1000000.0f;
+        max_seq_len = cfg.max_seq_len > 0 ? cfg.max_seq_len : 4096;
+        has_q_norm = cfg.has_q_norm;
+        has_k_norm = cfg.has_k_norm;
+        gu_split = cfg.gu_split;
+
+        // Spawn NPU worker (must happen after dimensions known)
+        if (!worker.spawn(model_path)) {
+            fprintf(stderr, "NPU: failed to spawn worker engine\n");
+            return false;
+        }
+
+        // Load embed + norm weights from model file
+        if (!model.open(model_path)) {
+            fprintf(stderr, "NPU: failed to open model file\n");
+            worker.shutdown();
+            return false;
+        }
+
+        // Embed table (tied lm_head)
+        {
+            // JSON keys used by Q4NX format
+            uint64_t emb_off = model.find_offset("model_embed_tokens_weight");
+            if (!emb_off) emb_off = model.find_offset("gte");
+            if (emb_off) {
+                embed = model.read_floats(emb_off, (size_t)NV * H);
+                printf("NPU: loaded embed %zu floats\n", embed.size());
+            } else {
+                fprintf(stderr, "NPU: cannot find embed in model\n");
+            }
+        }
+
+        // Final norm
+        {
+            uint64_t fn_off = model.find_offset("model_norm_weight");
+            if (!fn_off) fn_off = model.find_offset("model.norm.weight");
+            if (fn_off) {
+                final_norm = model.read_floats(fn_off, H);
+                printf("NPU: loaded final_norm %zu floats\n", final_norm.size());
+            }
+        }
+
+        // Per-layer norms
+        in_norms.resize(NC);
+        post_attn_norms.resize(NC);
+        q_norms.resize(NC);
+        k_norms.resize(NC);
+        for (int l = 0; l < NC; l++) {
+            char key[256];
+            // Input layer norm
+            snprintf(key, sizeof(key), "model.layers.%d.input_layernorm.weight", l);
+            uint64_t off = model.find_offset(key);
+            if (!off) { snprintf(key, sizeof(key), "model.layers.%d.self_attn.input_layernorm.weight", l); off = model.find_offset(key); }
+            if (off) in_norms[l] = model.read_floats(off, H);
+
+            // Post-attention norm
+            snprintf(key, sizeof(key), "model.layers.%d.post_attention_layernorm.weight", l);
+            off = model.find_offset(key);
+            if (off) post_attn_norms[l] = model.read_floats(off, H);
+
+            // Q norm (optional)
+            if (has_q_norm) {
+                snprintf(key, sizeof(key), "model.layers.%d.self_attn.q_norm.weight", l);
+                off = model.find_offset(key);
+                if (off) q_norms[l] = model.read_floats(off, HD);
+            }
+            // K norm (optional)
+            if (has_k_norm) {
+                snprintf(key, sizeof(key), "model.layers.%d.self_attn.k_norm.weight", l);
+                off = model.find_offset(key);
+                if (off) k_norms[l] = model.read_floats(off, HD);
+            }
+        }
+
+        // Build RoPE cache
+        build_rope_cache(max_seq_len, HD, rope_theta);
+
+        // Allocate KV cache
+        kv_caches.resize(NC);
+        for (int i = 0; i < NC; i++) {
+            kv_caches[i].k.resize((size_t)max_seq_len * NKV * HD, 0);
+            kv_caches[i].v.resize((size_t)max_seq_len * NKV * HD, 0);
+        }
+
+        // Allocate state buffers
+        hidden.resize(H);
+        qkv_buf.resize((size_t)qkv_total);
+        attn_buf.resize((size_t)NQ * HD);
+        o_buf.resize(H);
+        gateup_buf.resize((size_t)mlp_dim * 2);
+        up_buf.resize(gu_split ? (size_t)mlp_dim : 0);
+        down_buf.resize(H);
+        residual_buf.resize(H);
+        logits_buf.resize(NV);
+
+        printf("NPU: ready — %d layers, H=%d, V=%d, embed=%zu\n", NC, H, NV, embed.size());
+        initialized = true;
+        return true;
+    }
+
+    bool reset() override {
+        pos = 0;
+        for (auto& kv : kv_caches) kv.seq_len = 0;
+        return true;
+    }
+
+    bool forward(int token_id, float* hidden_out) override {
+        if (!initialized) return false;
+        if (embed.empty()) return false;
+
+        // Embedding lookup
+        if (token_id >= 0 && (size_t)token_id * H < embed.size())
+            memcpy(hidden.data(), &embed[(size_t)token_id * H], H * sizeof(float));
+        else
+            memset(hidden.data(), 0, H * sizeof(float));
+
+        for (int l = 0; l < NC; l++) {
+            // Save residual
+            memcpy(residual_buf.data(), hidden.data(), H * sizeof(float));
+
+            // Input RMSNorm
+            if (!in_norms[l].empty())
+                rmsnorm(hidden.data(), in_norms[l].data(), H);
+
+            // ── QKV GEMM ──
+            if (!worker.gemm(1, l, 1, H, hidden.data(), qkv_buf)) {
+                fprintf(stderr, "NPU: QKV gemm failed layer %d\n", l);
+                return false;
+            }
+            cn(qkv_buf.data(), qkv_total);
+
+            // ── Q/K norm + RoPE + KV cache store ──
+            for (int hh = 0; hh < NQ; hh++) {
+                float* q = qkv_buf.data() + hh * HD;
+                double sq = 0;
+                for (int d = 0; d < HD; d++) sq += (double)q[d] * q[d];
+                float iq = 1.0f / sqrtf((float)(sq / HD) + EPS);
+                const float* qn = (!q_norms.empty() && !q_norms[l].empty()) ? q_norms[l].data() : nullptr;
+                for (int d = 0; d < HD; d++) q[d] *= iq * (qn ? qn[d] : 1.0f);
+                rope(q, HD, pos);
+            }
+            for (int kvh = 0; kvh < NKV; kvh++) {
+                float* k = qkv_buf.data() + NQ * HD + kvh * HD;
+                double sk = 0;
+                for (int d = 0; d < HD; d++) sk += (double)k[d] * k[d];
+                float ik = 1.0f / sqrtf((float)(sk / HD) + EPS);
+                const float* kn = (!k_norms.empty() && !k_norms[l].empty()) ? k_norms[l].data() : nullptr;
+                for (int d = 0; d < HD; d++) k[d] *= ik * (kn ? kn[d] : 1.0f);
+                rope(k, HD, pos);
+            }
+            // Store KV
+            int sp = kv_caches[l].seq_len;
+            float* kv_k = kv_caches[l].k.data();
+            float* kv_v = kv_caches[l].v.data();
+            for (int kvh = 0; kvh < NKV; kvh++) {
+                memcpy(&kv_k[(size_t)sp * NKV * HD + (size_t)kvh * HD],
+                       qkv_buf.data() + NQ * HD + kvh * HD, HD * sizeof(float));
+                memcpy(&kv_v[(size_t)sp * NKV * HD + (size_t)kvh * HD],
+                       qkv_buf.data() + NQ * HD + NKV * HD + kvh * HD, HD * sizeof(float));
+            }
+            kv_caches[l].seq_len = sp + 1;
+            int seq = kv_caches[l].seq_len;
+
+            // ── CPU Attention ──
+            attn_cpu(qkv_buf.data(), attn_buf.data(), seq,
+                     kv_k, kv_v, NQ, NKV, HD, GQA);
+
+            // ── O projection ──
+            if (!worker.gemm(2, l, 1, NQ * HD, attn_buf.data(), o_buf)) {
+                fprintf(stderr, "NPU: O gemm failed layer %d\n", l);
+                return false;
+            }
+            cn(o_buf.data(), H);
+
+            // Residual add
+            for (int i = 0; i < H; i++) hidden[i] = residual_buf[i] + o_buf[i];
+
+            // Post-attention RMSNorm
+            memcpy(residual_buf.data(), hidden.data(), H * sizeof(float));
+            if (!post_attn_norms.empty() && l < (int)post_attn_norms.size() && !post_attn_norms[l].empty())
+                rmsnorm(hidden.data(), post_attn_norms[l].data(), H);
+
+            // ── Gate+Up projection ──
+            if (!worker.gemm(3, l, 1, H, hidden.data(), gateup_buf)) {
+                fprintf(stderr, "NPU: GATEUP gemm failed layer %d\n", l);
+                return false;
+            }
+            cn(gateup_buf.data(), mlp_dim * 2);
+
+            // ── Up (if split) + SiLU gate ──
+            if (gu_split) {
+                if (!worker.gemm(4, l, 1, H, hidden.data(), up_buf)) {
+                    fprintf(stderr, "NPU: UP gemm failed layer %d\n", l);
+                    return false;
+                }
+                cn(up_buf.data(), mlp_dim);
+                for (int i = 0; i < mlp_dim; i++)
+                    gateup_buf[i] = silu(gateup_buf[i]) * up_buf[i];
+            } else {
+                for (int i = 0; i < mlp_dim; i++)
+                    gateup_buf[i] = silu(gateup_buf[i]) * gateup_buf[mlp_dim + i];
+            }
+
+            // ── Down projection ──
+            if (!worker.gemm(5, l, 1, mlp_dim, gateup_buf.data(), down_buf)) {
+                fprintf(stderr, "NPU: DOWN gemm failed layer %d\n", l);
+                return false;
+            }
+            cn(down_buf.data(), H);
+
+            // Residual add
+            for (int i = 0; i < H; i++) hidden[i] = residual_buf[i] + down_buf[i];
+        }
+
+        memcpy(hidden_out, hidden.data(), H * sizeof(float));
+        pos++;
+        return true;
+    }
+
+    bool lm_head(const float* hidden, float* logits, int* argmax) override {
+        if (!initialized || embed.empty()) return false;
+
+        // Final norm
+        float tmp[8192];
+        if (H > 8192) return false;
+        memcpy(tmp, hidden, H * sizeof(float));
+        if (!final_norm.empty())
+            rmsnorm(tmp, final_norm.data(), H);
+
+        // LM head: dot product with embed table
+        #pragma omp parallel for
+        for (int v = 0; v < NV; v++) {
+            double s = 0;
+            const float* row = embed.data() + (size_t)v * H;
+            for (int i = 0; i < H; i++) s += (double)tmp[i] * row[i];
+            logits[v] = (float)s;
+        }
+        if (argmax) {
+            *argmax = 0;
+            for (int v = 1; v < NV; v++)
+                if (logits[v] > logits[*argmax]) *argmax = v;
+        }
+        return true;
+    }
+
+    int generate(int token_id) override {
+        float hidden[8192];
+        if (H > 8192) return -1;
+        if (!forward(token_id, hidden)) return -1;
+        int result;
+        lm_head(hidden, logits_buf.data(), &result);
+        return result;
+    }
+
+    float benchmark(int tokens = 10) override {
+        if (!initialized) return 0;
+        reset();
+        auto t0 = std::chrono::high_resolution_clock::now();
+        int tok = 100;
+        for (int i = 0; i < tokens; i++) {
+            tok = generate(tok);
+            if (tok < 0) break;
+        }
+        float ms = std::chrono::duration<float, std::milli>(
+            std::chrono::high_resolution_clock::now() - t0).count();
+        return ms / tokens;
+    }
+
     void destroy() override {
+        worker.shutdown();
+        model.close();
         initialized = false;
     }
 };

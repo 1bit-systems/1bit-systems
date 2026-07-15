@@ -88,8 +88,8 @@ static std::vector<float> load_bin(const std::string& p) {
     f.read((char*)d.data(), n * sizeof(float));
     return d;
 }
-static void upf16(const std::vector<float>& s, __half* d, int n, hipStream_t h = 0) { std::vector<__half> b(n); for (int i = 0; i < n; i++) b[i] = __float2half(s[i]); hipMemcpyAsync(d, b.data(), n * 2, hipMemcpyHostToDevice, h); }
-static void upf32(const std::vector<float>& s, float* d, int n, hipStream_t h = 0) { hipMemcpyAsync(d, s.data(), n * 4, hipMemcpyHostToDevice, h); }
+static void upf16(const std::vector<float>& s, __half* d, int n, hipStream_t h = 0) { std::vector<__half> b(n); for (int i = 0; i < n; i++) b[i] = __float2half(s[i]); HIP_OK(hipMemcpyAsync(d, b.data(), n * 2, hipMemcpyHostToDevice, h)); }
+static void upf32(const std::vector<float>& s, float* d, int n, hipStream_t h = 0) { HIP_OK(hipMemcpyAsync(d, s.data(), n * 4, hipMemcpyHostToDevice, h)); }
 
 struct HipLayer {
     __half *nw=nullptr,*wq=nullptr,*wk=nullptr,*wv1=nullptr,*wv2=nullptr,*wo=nullptr,*pan=nullptr;

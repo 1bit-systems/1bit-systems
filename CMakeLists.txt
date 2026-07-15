@@ -510,10 +510,12 @@ set_target_properties(bench_prefill_variants PROPERTIES HIP_ARCHITECTURES "${CMA
 add_executable(unified_server
     tools/unified_server.cpp
     src/backend_hip.cpp
-    src/zaya_engine.cpp)
+    src/zaya_engine.cpp
+    src/backend_npu.cpp)
 set_source_files_properties(src/backend_hip.cpp PROPERTIES LANGUAGE HIP)
 set_source_files_properties(src/zaya_engine.cpp PROPERTIES LANGUAGE HIP)
 set_source_files_properties(tools/unified_server.cpp PROPERTIES LANGUAGE CXX)
+set_source_files_properties(src/backend_npu.cpp PROPERTIES LANGUAGE CXX)
 target_include_directories(unified_server PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
@@ -521,7 +523,7 @@ target_include_directories(unified_server PRIVATE
 target_compile_options(unified_server PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result -Wno-unused-parameter -Wno-unused-variable>
     $<$<COMPILE_LANGUAGE:CXX>:-O3 -Wall -Wno-unused-result -std=c++17>)
-target_compile_definitions(unified_server PRIVATE ROCM_CPP_STATIC_HIP=1)
+target_compile_definitions(unified_server PRIVATE ROCM_CPP_STATIC_HIP=1 ROCM_CPP_STATIC_NPU=1)
 target_link_libraries(unified_server PRIVATE
     backend_manager dl
     httplib::httplib

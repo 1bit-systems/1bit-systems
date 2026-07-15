@@ -346,5 +346,5 @@ int main(int argc, char** argv) {
         printf("]}\n");
     }
     munmap(md, st.st_size);
-    return 0;
+    fflush(stdout);fflush(stderr);_exit(0);
 }

@@ -669,5 +669,5 @@ int main(int argc,char**argv){
         fprintf(stderr,"  Decode: %.0fms (%.1f ms/tok)\n", dms, dms/gen_count);
     }
 
-    munmap(md,st.st_size);return 0;
+    munmap(md,st.st_size);fflush(stdout);fflush(stderr);_exit(0);
 }

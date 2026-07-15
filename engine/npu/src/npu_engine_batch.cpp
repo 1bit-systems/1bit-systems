@@ -157,5 +157,5 @@ int main(int argc,char**argv){
     }
     double tts=std::chrono::duration<double>(std::chrono::steady_clock::now()-tgs).count();
     printf("\n=== %.0f ms/tok ===\n",tts*1000/ng);
-    munmap(md,st.st_size);return 0;
+    munmap(md,st.st_size);fflush(stdout);fflush(stderr);_exit(0);
 }

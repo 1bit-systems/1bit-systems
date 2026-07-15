@@ -394,6 +394,18 @@ struct CPUBackend : Backend {
         this->cfg = cfg;
         this->wd = wd;
 
+        // Validate that ModelConfig dimensions match hardcoded constants.
+        // The CPU backend uses compile-time sizes; if config differs, all
+        // pointer arithmetic would go out of bounds -> SIGSEGV.
+        if (cfg.hidden_size != H || cfg.num_layers != N_LAYERS ||
+            cfg.vocab_size > VOCAB || cfg.head_dim != HD) {
+            fprintf(stderr, "CPU: model config mismatch - need H=%d, L=%d, V<=%d, HD=%d "
+                            "but got H=%d, L=%d, V=%d, HD=%d\n",
+                    H, N_LAYERS, VOCAB, HD,
+                    cfg.hidden_size, cfg.num_layers, cfg.vocab_size, cfg.head_dim);
+            return false;
+        }
+
         auto W = [&](const std::string& name) -> std::vector<float> {
             std::ifstream f(wd + "/" + name, std::ios::binary | std::ios::ate);
             if (!f) { fprintf(stderr,"CPU: missing %s\n", (wd+"/"+name).c_str()); return {}; }
@@ -553,6 +565,10 @@ struct CPUBackend : Backend {
     }
 
     float benchmark(int tokens = 10) override {
+        if (!initialized || !embed || !lw) {
+            fprintf(stderr, "CPU: benchmark called but not initialized — skipping\n");
+            return 0.0f;
+        }
         reset();
         auto t0 = std::chrono::high_resolution_clock::now();
         int tok = 100;

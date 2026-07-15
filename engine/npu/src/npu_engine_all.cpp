@@ -411,5 +411,9 @@ int main(int argc,char**argv){
     }
     double tts=std::chrono::duration<double>(std::chrono::steady_clock::now()-tgs).count();
     printf("\n=== %.1f ms/tok (%.0f tok/s) | boot=%.0fms batches=%d ===\n",tts*1000/ng,ng/tts,t_boot,n_bat);
-    munmap(md,st.st_size);return 0;
+    // Use _exit() to skip the C++ destructor chain (vectors ~896MB KV cache,
+    // XRT BO dma-buf teardown). XRT's BO destructors can corrupt glibc's heap
+    // by racing dma-buf release with vector heap free() during normal exit().
+    // The OS reclaims all resources on process exit regardless.
+    munmap(md,st.st_size);fflush(stdout);fflush(stderr);_exit(0);
 }

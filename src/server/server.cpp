@@ -16,7 +16,6 @@
 
 
 // Global NPU access control
-std::mutex g_npu_access_mutex;
 std::atomic<bool> g_npu_in_use{false};
 
 std::atomic<int> g_npu_active_requests{0};

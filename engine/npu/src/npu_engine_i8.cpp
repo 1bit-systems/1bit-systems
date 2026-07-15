@@ -154,5 +154,5 @@ int main(int argc,char**argv){
         printf("  [%d] %d (%.0fms)\n",st,tok,mss);for(int i=0;i<H;i++)h[i]=bf16g(emb[tok*H+i]);sp++;}
     double tts=std::chrono::duration<double>(std::chrono::steady_clock::now()-tgs).count();
     printf("\n=== %.0f ms/tok ===\n",tts*1000/ng);
-    munmap(md,st.st_size);return 0;
+    munmap(md,st.st_size);fflush(stdout);fflush(stderr);_exit(0);
 }

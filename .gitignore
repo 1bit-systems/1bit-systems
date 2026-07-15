@@ -40,6 +40,20 @@ packaging/**/*.a
 *~
 .DS_Store
 
+# Python bytecode (already gitignored at root, but need explicit rm for nested)
+npu-infer/**/__pycache__/
+npu-infer/**/*.pyc
+
+# Object files in packaging (build artifacts)
+packaging/**/*.o
+packaging/**/*.lo
+packaging/**/*.la
+packaging/**/*.obj
+
+# Generated instruction files (too large, build artifacts)
+npu-infer/**/insts_*.txt
+npu-infer/**/*.xclbin
+
 # Agent config (system-level, not project)
 .1bit/
 skills/

@@ -22,20 +22,41 @@ extern "C" void rcpp_standalone_launch_wmma(const void*, const void*, void*, int
 #define HIP_OK(e) do { auto _s=(e); if(_s!=hipSuccess){fprintf(stderr,"HIP err %d %s:%d\n",_s,__FILE__,__LINE__); std::abort();}} while(0)
 #define RC_OK(e)  do { auto _s=(e); if(_s!=RCPP_OK){fprintf(stderr,"rcpp err %d %s:%d\n",(int)_s,__FILE__,__LINE__); std::abort();}} while(0)
 
-// CPU reference: fp16 activations x ternary weights (packed pk_i4)
+// CPU reference: fp16 activations x ternary weights (packed pk_i4).
+// The packed format is block-reshaped [K0, N, K1] with K1=32 and a within-8
+// nibble permute (01234567 -> 20643175). This matches the layout produced by
+// rcpp_ternary_pack_pk_i4 and consumed by the GPU kernels in prefill_standalone.hip.
+//
+// WARNING: Do NOT read B_packed as a flat col-major [K,N] array here — the
+// block-reshape interleaves columns every K1_BYTES=16 bytes, so naive byte_idx=k/2
+// reads the wrong column for k >= 32. Must apply the same decode as the GPU kernels.
 static void cpu_ref(const _Float16* A, const int8_t* B_packed,
                     _Float16* C, int M, int N, int K) {
+    constexpr int K1 = 32;
+    constexpr int K1_BYTES = K1 / 2;
+    // Inverse permute: maps output slot -> input slot (input slot -> output slot = {1,5,0,4,3,7,2,6})
+    // Forward permute: output slot holds nibble from forward_perm[output_slot] = {2,0,6,4,3,1,7,5}
+    const int inv_perm[8] = {1, 5, 0, 4, 3, 7, 2, 6};
+
     for (int m = 0; m < M; m++) {
         for (int n = 0; n < N; n++) {
             int32_t acc = 0;
             for (int k = 0; k < K; k++) {
-                // Unpack pk_i4: byte b = (k/2) encodes two 4-bit values
-                // odd k = low nibble, even k = high nibble
-                int byte_idx = k / 2;
-                int nibble = (k & 1) ? (B_packed[byte_idx] & 0x0F) : ((B_packed[byte_idx] >> 4) & 0x0F);
+                int j  = k / K1;                 // K-block index
+                int jj = k % K1;                  // position within K-block
+                int grp = (jj / 8) * 8;
+                int slot_in  = jj & 7;            // input slot within group of 8
+                int slot_out = inv_perm[slot_in]; // output slot in permuted pack
+                int perm_jj = grp + slot_out;     // permuted position (0..31)
+
+                int byte_idx = j * N * K1_BYTES + n * K1_BYTES + (perm_jj >> 1);
+                int nibble = ((perm_jj & 1) == 0)
+                    ? ((B_packed[byte_idx] >> 4) & 0x0F)   // even -> hi nibble
+                    : (B_packed[byte_idx] & 0x0F);          // odd  -> lo nibble
+
                 // PK_I4 value = nibble - 8: 0x7->-1, 0x8->0, 0x9->+1
                 // Matches prefill_standalone.hip:14 convention.
-                int w = (int)(nibble) - 8;
+                int w = (int)nibble - 8;
                 acc += (int32_t)((float)A[(size_t)m * K + k] * w);
             }
             C[(size_t)m * N + n] = (_Float16)(float)acc;

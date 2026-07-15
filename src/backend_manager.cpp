@@ -924,6 +924,10 @@ Backend* BackendManager::create_instance_rt(const BackendInfo& info) {
                     if (fn) b = fn(); } }
             return b;
         case BackendType::NPU_XRT:
+#ifdef ROCM_CPP_STATIC_NPU
+            b = create_npu_backend();
+            if (b) return b;
+#endif
             b = try_load_backend("librocm_cpp.so", "create_npu_backend");
             if (!b) b = try_load_backend("libnpu_backend.so", "create_npu_backend");
             if (!b) { void* self = dlopen(NULL, RTLD_NOW|RTLD_LOCAL);

@@ -32,7 +32,7 @@ def find_tokenizer_json():
     paths = [
         os.path.expanduser("~/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.json"),
         os.path.expanduser("~/.config/flm/models/Qwen3-1.7B-NPU2/tokenizer.json"),
-        "/home/bcloud/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/*/tokenizer.json",
+        os.path.expanduser("~/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/*/tokenizer.json"),
     ]
     for p in paths:
         if "*" in p:

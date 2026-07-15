@@ -116,7 +116,7 @@ int main(int argc, char** argv) {
     printf("Warmup: %d, Timed: %d\n\n", warmup, timed);
 
     hipStream_t stream;
-    hipStreamCreate(&stream);
+    HIP_CHECK(hipStreamCreate(&stream));
 
     // Allocate
     size_t a_bytes = (size_t)M * K * sizeof(__half);
@@ -154,14 +154,14 @@ int main(int argc, char** argv) {
     for (size_t i = 0; i < B_host.size(); ++i) B_host[i] = (uint8_t)(rand() & 0xFF);
     // Generate tiled INT8 B: random ternary values {-1, 0, +1}
     for (size_t i = 0; i < b_i8_tiled_bytes; ++i) B_i8_tiled_host[i] = (int8_t)((rand() % 3) - 1);
-    hipMemcpy(A_d, A_host.data(), a_bytes, hipMemcpyHostToDevice);
-    hipMemcpy(A_i8_d, A_i8_host.data(), a_bytes, hipMemcpyHostToDevice);
-    hipMemcpy(B_d, B_host.data(), b_bytes, hipMemcpyHostToDevice);
-    hipMemcpy(B_i8_tiled_d, B_i8_tiled_host.data(), b_i8_tiled_bytes, hipMemcpyHostToDevice);
+    HIP_CHECK(hipMemcpy(A_d, A_host.data(), a_bytes, hipMemcpyHostToDevice));
+    HIP_CHECK(hipMemcpy(A_i8_d, A_i8_host.data(), a_bytes, hipMemcpyHostToDevice));
+    HIP_CHECK(hipMemcpy(B_d, B_host.data(), b_bytes, hipMemcpyHostToDevice));
+    HIP_CHECK(hipMemcpy(B_i8_tiled_d, B_i8_tiled_host.data(), b_i8_tiled_bytes, hipMemcpyHostToDevice));
 
     // Decode B to FP16 once for FP16-B variant
     rcpp_decode_pk_i4_to_fp16_launch(B_d, B_fp16_d, K, N, stream);
-    hipStreamSynchronize(stream);
+    HIP_CHECK(hipStreamSynchronize(stream));
 
     auto variants = make_variants(M, N, K);
 
@@ -234,7 +234,7 @@ int main(int argc, char** argv) {
     // Stamp into auto-tuner cache so production dispatch also benefits
     rcpp_prefill_tune(A_d, B_d, C_d, M, N, K, warmup, timed, stream);
 
-    hipFree(A_d); hipFree(B_d); hipFree(C_d); hipFree(B_fp16_d);
-    hipStreamDestroy(stream);
+    HIP_CHECK(hipFree(A_d)); HIP_CHECK(hipFree(B_d)); HIP_CHECK(hipFree(C_d)); HIP_CHECK(hipFree(B_fp16_d));
+    HIP_CHECK(hipStreamDestroy(stream));
     return 0;
 }

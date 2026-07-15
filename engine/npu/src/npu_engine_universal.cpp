@@ -546,16 +546,32 @@ int main(int argc,char**argv){
                 memcpy(&kv_caches[l].k[(sp+pi)*NKV*HD+kvh*HD],ks,HD*4);memcpy(&kv_caches[l].v[(sp+pi)*NKV*HD+kvh*HD],vs,HD*4);}}
         kv_caches[l].n=sp+npt;int cl=kv_caches[l].n;
         // Attention: CPU (default) or NPU (experimental, NPU_ATTN=1)
+        //
+        // NPU ATTENTION STATUS (#208): attn.xclbin loads but the instruction
+        // format (blob_instr_transaction) is undocumented — FLM (closed source)
+        // generates attention instructions at runtime based on seq_len because
+        // attention is variable-length (unlike fixed-shape GEMM).
+        //
+        // To wire NPU attention, generate instructions at runtime via:
+        //   1. Use aiebu_assembler to compile AIE assembly for the attention
+        //      kernel (Q@K^T softmax * V) with variable seq_len.
+        //   2. The instruction format is the same blob_instr_transaction used
+        //      by the 4 GEMM xclbins — but seq_len must be a runtime parameter.
+        //   3. Approach: pre-compile attention instructions for powers of 2
+        //      (64, 128, 256, ..., max_seq_len) and select at runtime, OR
+        //      use aiebu_assembler::buffer_type::blob_instr_transaction to
+        //      construct instructions on-the-fly.
+        //   4. The xclbin kernel signature (from MLIR_AIE) expects:
+        //      input[0] = Q[(NQ*HD) x i8]  (quantized)
+        //      input[1] = K[(seq*NKV*HD) x i8]
+        //      input[2] = V[(seq*NKV*HD) x i8]
+        //      output[0] = attn_out[(NQ*HD) x i16] (dequant accumulator)
+        //
+        // Until implemented, CPU attn_omp() is used as fallback:
+        //   Prefill: ~0.5 tok/s (bottleneck — needs NPU attention)
+        //   FLM production: 57 tok/s (closed-source, full NPU attention)
         if(use_npu_attn && ca_ptr && ca_ptr->isReady()){
-            // FIXME: NPU attention not yet wired. The attn.xclbin expects
-            // Q[NQ*HD], K[NKV*HD], V[NKV*HD] and outputs attn_out[NQ*HD].
-            // For now, fall through to CPU attention.
-            // In the future, this should:
-            //   1. Copy Q, K, V to NPU via ca_ptr
-            //   2. Run NPU kernel
-            //   3. Copy attn_out back
-            // Until then, use CPU attention path.
-            fprintf(stderr,"W");
+            fprintf(stderr,"W"); // CPU fallback: O(NH*HD*cl) softmax
         }
         // CPU attention (always available as fallback)
         #pragma omp parallel for
