@@ -78,7 +78,7 @@ int main(int argc, char** argv) {
 
     const std::string out_path = (argc > 1)
         ? std::string(argv[1])
-        : (getenv("HOME")?std::string(getenv("HOME"))+"/claude output/kv_i8_bench-" + utc_stamp() + ".txt");
+        : std::string(getenv("HOME") ? getenv("HOME") : "/tmp") + "/kv_i8_bench-" + utc_stamp() + ".txt");
 
     std::mt19937 rng(0xC0DEF00D);
     // BitNet's post-RoPE Q/K magnitudes land roughly in [-4, 4]; V (post-proj)

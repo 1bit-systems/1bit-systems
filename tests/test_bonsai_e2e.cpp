@@ -82,7 +82,8 @@ static void bonsai_gemv(rcpp_weight_format_t fmt,
 int main(int argc, char** argv) {
     const char* path = (argc > 1)
         ? argv[1]
-        : getenv("HOME")?std::string(getenv("HOME"))+"/halo-ai/models/bonsai/bonsai-1.7b-tq2.h1b";
+        : (getenv("HOME") ? getenv("HOME") : "/tmp");
+    // Note: default path above is a fallback; call with actual model path.
 
     fprintf(stderr, "[test_bonsai_e2e] loading %s\n", path);
 

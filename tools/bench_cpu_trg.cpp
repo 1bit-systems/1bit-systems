@@ -155,7 +155,7 @@ struct BenchModel {
 
 int main(int argc, char** argv) {
     const char* path = argc > 1 ? argv[1]
-        : getenv("HOME")?std::string(getenv("HOME"))+"/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+        : std::string(getenv("HOME") ? getenv("HOME") : "/tmp") +"/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
 
     printf("=== CPU TRG Benchmark ===\n\n");
 
