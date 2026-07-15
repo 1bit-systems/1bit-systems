@@ -1,3 +1,4 @@
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
 // bench_bonsai_q1_1024.cpp — benchmark for the new Q1_1024 1024-weight block format
 #include <hip/hip_runtime.h>
 #include <cstdio>

@@ -1,3 +1,6 @@
+#include <cstdio>
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+
 // TQ1 base-3 ternary GEMV — halo-1bit v4 packing (Lane B' of rocprof plan).
 //
 // Packing: 5 ternaries per byte via base-3 encoding (3^5 = 243 < 256).
@@ -57,7 +60,7 @@ static void init_tq1_lut(hipStream_t stream) {
     }
     hipMemcpyToSymbolAsync(HIP_SYMBOL(tq1_lut_lo), lo, sizeof(lo), 0, hipMemcpyHostToDevice, stream);
     hipMemcpyToSymbolAsync(HIP_SYMBOL(tq1_lut_hi), hi, sizeof(hi), 0, hipMemcpyHostToDevice, stream);
-    hipStreamSynchronize(stream);
+    HIP_CHECK(hipStreamSynchronize(stream));
 }
 
 // ── Kernel ──────────────────────────────────────────────────────────────────

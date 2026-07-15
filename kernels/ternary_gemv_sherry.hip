@@ -1,3 +1,6 @@
+#include <cstdio>
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+
 // SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
 // Sherry — see LICENSE-SHERRY.md and SHERRY-FILES.txt at the repo root.
 // Commercial use requires a separate license.
@@ -63,7 +66,7 @@ static void init_sherry_lut(hipStream_t stream) {
     for (uint32_t v = 0; v < 32; ++v) host_lut[v] = build_sherry_entry(v);
     hipMemcpyToSymbolAsync(HIP_SYMBOL(sherry_unpack_lut), host_lut,
                            sizeof(host_lut), 0, hipMemcpyHostToDevice, stream);
-    hipStreamSynchronize(stream);
+    HIP_CHECK(hipStreamSynchronize(stream));
 }
 
 // ── Kernel ──────────────────────────────────────────────────────────────────

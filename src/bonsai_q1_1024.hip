@@ -1,3 +1,6 @@
+#include <cstdio>
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+
 // bonsai_q1_1024.hip — Q1_1024: 1-bit GEMV with 1024-weight / 128-byte blocks
 //
 // Problem: the original Q1_0_g128 format uses 18-byte blocks (2B scale + 16B

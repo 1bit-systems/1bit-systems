@@ -1,3 +1,6 @@
+#include <cstdio>
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+
 // Zaya MoE Ternary GEMV — expert-sparse ternary compute for Zaya's hybrid
 // CCA + MoE architecture with EDA router.
 //
@@ -59,7 +62,7 @@ static void init_zaya_tq1_lut(hipStream_t stream) {
     }
     hipMemcpyToSymbolAsync(HIP_SYMBOL(zaya_tq1_lut_lo), lo, sizeof(lo), 0, hipMemcpyHostToDevice, stream);
     hipMemcpyToSymbolAsync(HIP_SYMBOL(zaya_tq1_lut_hi), hi, sizeof(hi), 0, hipMemcpyHostToDevice, stream);
-    hipStreamSynchronize(stream);
+    HIP_CHECK(hipStreamSynchronize(stream));
 }
 
 // ── Zaya MoE Ternary GEMV Kernel ────────────────────────────────────────────

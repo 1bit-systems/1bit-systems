@@ -1,3 +1,6 @@
+#include <cstdio>
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+
 // bonsai_q1_gemv_soa.hip — SoA Q1_0 GEMV, 4 rows per CTA, gfx1151 wave32.
 //
 // SoA layout per row (K/128 blocks × 128 weights):
@@ -152,13 +155,13 @@ extern "C" void bonsai_q1_convert_aos_to_soa(
 
     // Allocate SoA buffer (same size!)
     uint8_t* d_soa = nullptr;
-    hipMalloc(&d_soa, total_bytes);
+    HIP_CHECK(hipMalloc(&d_soa, total_bytes));
     *packed_soa = d_soa;
 
     // Host-side conversion
     std::vector<uint8_t> h_aos(total_bytes);
     std::vector<uint8_t> h_soa(total_bytes);
-    hipMemcpy(h_aos.data(), packed_aos, total_bytes, hipMemcpyDeviceToHost);
+    HIP_CHECK(hipMemcpy(h_aos.data(), packed_aos, total_bytes, hipMemcpyDeviceToHost));
 
     for (int r = 0; r < N_out; ++r) {
         const uint8_t* src_row = h_aos.data() + (size_t)r * row_bytes;
@@ -179,7 +182,7 @@ extern "C" void bonsai_q1_convert_aos_to_soa(
         }
     }
 
-    hipMemcpy(d_soa, h_soa.data(), total_bytes, hipMemcpyHostToDevice);
+    HIP_CHECK(hipMemcpy(d_soa, h_soa.data(), total_bytes, hipMemcpyHostToDevice));
 }
 
 extern "C" void bonsai_q1_gemv_soa_launch(

@@ -1,3 +1,6 @@
+#include <cstdio>
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+
 // bonsai_tq2_1024.hip — TQ2_1024: ternary 2-bit GEMV with 1024-weight blocks
 //
 // Problem: original TQ2_0_g128 uses 34-byte blocks (2B scale + 32B 2-bit codes
