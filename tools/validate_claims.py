@@ -94,6 +94,54 @@ PARSERS = {
 }
 
 
+# README benchmark-table engines whose tok/s figures live in
+# benchmarks/latest.json _unverified (i.e. have NO reproducible source in this
+# repo). If the README marks any of these as measured/validated/reported, that
+# is a false claim -- the honest status is one of the hedged markers
+# (⚙️ raw / ❌ broken / 🔶 unresolved / ❓ unsourced). (issue #185, #190)
+README_ENGINES_WITHOUT_SOURCE = {
+    "GPU 1-bit": "gpu_1bit_llama_tok_s",
+    "NPU FLM": "npu_validated_tok_s",
+    "GPU ternary": "gpu_ternary_tok_s",
+    "GPU ROCm HIP": "rocm_decode_tok_s",
+    "NPU fused": "npu_fused_raw_tok_s",
+}
+
+
+def check_readme_consistency() -> list[str]:
+    """Fail if README.md stamps a tok/s figure as measured/validated/reported
+    for an engine that benchmarks/latest.json has quarantined in _unverified.
+
+    Hardware-free: safe to run on any CI runner (see --check-readme)."""
+    readme = REPO / "README.md"
+    if not readme.is_file():
+        return ["README.md missing"]
+    spec = json.loads(BENCH.read_text())
+    unverified = set(spec.get("_unverified", {})) - {"_comment"}
+
+    violations: list[str] = []
+    # Data rows end with: | **<num>** | <status> |
+    row = re.compile(r"\|\s*\*\*([0-9.]+)\*\*\s*\|\s*([^|]+?)\s*\|\s*$")
+    for line in readme.read_text().splitlines():
+        for engine, key in README_ENGINES_WITHOUT_SOURCE.items():
+            if engine not in line:
+                continue
+            if key not in unverified:
+                continue
+            m = row.search(line)
+            if not m:
+                continue
+            num, status = m.group(1), m.group(2).strip()
+            positive = any(p in status for p in ("measured", "validated", "reported"))
+            if positive:
+                violations.append(
+                    f'ReADME marks "{engine}" {num} tok/s as "{status}", but '
+                    f"{key} is quarantined in _unverified (no reproducible source). "
+                    "Use a hedged status instead."
+                )
+    return violations
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--build-dir", default="1bit/build")
@@ -103,7 +151,20 @@ def main() -> int:
                     help="runs per benchmark; the median is used (default 3)")
     ap.add_argument("--warmup", type=int, default=1,
                     help="discarded warmup runs per benchmark (default 1)")
+    ap.add_argument("--check-readme", action="store_true",
+                    help="hardware-free: fail if README marks an _unverified "
+                         "engine as measured/validated/reported (issue #185)")
     args = ap.parse_args()
+
+    if args.check_readme:
+        violations = check_readme_consistency()
+        if violations:
+            print("README/_unverified consistency check FAILED:", file=sys.stderr)
+            for v in violations:
+                print(f"  - {v}", file=sys.stderr)
+            return 1
+        print("README benchmark statuses are consistent with _unverified")
+        return 0
 
     build_dir = (REPO / args.build_dir).resolve()
     spec = json.loads(BENCH.read_text())
