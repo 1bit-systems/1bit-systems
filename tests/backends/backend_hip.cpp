@@ -136,6 +136,22 @@ public:
     bool load_model(const ModelConfig& cfg) override {
         cfg_ = cfg;
         unload_model();
+
+        // Dimension validation: the compiled HIP kernels have hardcoded dimensions
+        // (#define H 2048 etc.). Runtime config is read but the kernels ignore it.
+        // This guard prevents silent wrong output for unsupported models.
+        // FIXME: to support multiple architectures, these kernels need templating
+        // or runtime dimension parameters.
+        if (cfg.hidden_size != 2048 || cfg.num_heads != 8 || cfg.num_kv_heads != 2 ||
+            cfg.head_dim != 128 || cfg.num_layers != 40 || cfg.vocab_size != 262272) {
+            fprintf(stderr, "  HIP: kernel dimensions are hardcoded to Zaya1-8B (H=2048, L=40, "
+                    "NH=8, NKV=2, V=262272). Model has H=%d, L=%d, NH=%d, NKV=%d, V=%d.\n",
+                    cfg.hidden_size, cfg.num_layers, cfg.num_heads, cfg.num_kv_heads,
+                    cfg.vocab_size);
+            fprintf(stderr, "  HIP: refusing to load — would produce silent garbage.\n");
+            return false;
+        }
+
         HIP_OK(hipStreamCreate(&st_));
         int H=cfg.hidden_size, NQ=cfg.num_heads, NKV=cfg.num_kv_heads, HD=cfg.head_dim;
         int QD=NQ*HD, KD=NKV*HD, QKV=QD+KD;

@@ -27,6 +27,17 @@ struct HIPBackend : Backend {
 
     bool init(const ModelConfig& cfg, const std::string& weights_dir) override {
         this->cfg = cfg;
+        // Zaya engine has hardcoded dimensions (ZAYA_H=2048, ZAYA_N_LAYERS=40, etc.)
+        // Validate at load time instead of producing silent garbage.
+        if (cfg.hidden != 2048 || cfg.n_layers != 40 || cfg.n_heads != 8 ||
+            cfg.n_kv_heads != 2 || cfg.head_dim != 128 || cfg.vocab != 262272) {
+            fprintf(stderr, "HIP: Zaya engine is hardcoded to Zaya1-8B architecture "
+                    "(H=%d, L=%d, NH=%d, NKV=%d, V=%d). Model H=%d, L=%d, NH=%d, NKV=%d, V=%d.\n",
+                    2048, 40, 8, 2, 262272,
+                    cfg.hidden, cfg.n_layers, cfg.n_heads, cfg.n_kv_heads, cfg.vocab);
+            fprintf(stderr, "HIP: refusing to load — would produce silent garbage.\n");
+            return false;
+        }
         printf("HIP: Initializing Zaya engine...\n");
         // Ensure trailing slash for zaya_engine.cpp's filename concatenation
         std::string wd = weights_dir;
