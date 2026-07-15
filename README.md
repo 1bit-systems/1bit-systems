@@ -4,9 +4,9 @@
 
 # One Binary to rule them all.
 
-### Pure C++ inference server · 282 KB · No Python · No Rust
+### Pure C++ inference server · 282 KB · auto-detects every model
 
-Single binary that runs every model on every backend — NPU fused, GPU ternary, ROCm HIP, Vulkan, CPU. Auto-detects architecture from the model header. Zero configuration files.
+One server binary (`zaya_server`) runs every supported model across its backends — NPU fused, GPU ternary, ROCm HIP, Vulkan, CPU — auto-detecting the architecture from the model header.
 
 [![CI](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml/badge.svg)](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
@@ -26,16 +26,18 @@ Measured on **AMD Strix Halo** (Ryzen AI Max+ 395) — 32 XDNA 2 NPU tiles + Rad
 
 | Engine | Backend | Hardware | tok/s | Status |
 |--------|---------|----------|:-----:|--------|
-| **GPU 1-bit** (llama.cpp ROCm) 🏆 | ROCm HIP | Radeon 8060S | **383** | ✅ measured |
-| **NPU FLM** (production) | XDNA 2 xclbin | XDNA 2 · 32 tiles | **94** | ✅ validated |
-| **GPU ternary** (Vulkan) | Vulkan GLSL | Radeon 8060S | **307** | ✅ validated |
+| **GPU 1-bit** (llama.cpp ROCm) | ROCm HIP | Radeon 8060S | **383** | ❓ unsourced (see note) |
+| **NPU FLM** (production) | XDNA 2 xclbin | XDNA 2 · 32 tiles | **94** | ❓ unsourced (see note) |
+| **GPU ternary** (Vulkan) | Vulkan GLSL | Radeon 8060S | **307** | ❓ unsourced (see note) |
 | **GPU ZINC** (Vulkan) | Vulkan GLSL | Radeon 8060S | **22** | ✅ validated |
 | **NPU v12** | XDNA 2 xclbin | XDNA 2 · 32 tiles | **69** | ⚙️ raw (see note) |
-| **GPU ROCm HIP** (kernels) | ROCm HIP | Radeon 8060S | **113** | 📋 reported |
+| **GPU ROCm HIP** (kernels) | ROCm HIP | Radeon 8060S | **113** | ❓ unsourced (see note) |
 | **C++ all-5** (auto-detect) | Q4NX header parse | XDNA 2 · 32 tiles | **42** | ⚙️ raw (see note) |
 | **NPU fused** | XDNA 2 xclbin | XDNA 2 · 32 tiles | **291** | ❌ broken (see note) |
 | **GPU Zaya** (ROCm HIP) | HIP kernels | Radeon 8060S | **10.6** | ✅ validated |
 | **DSpark** (spec-decode) | Speculative draft | XDNA 2 · 32 tiles | **0.8** | 🔶 unresolved (see note) |
+
+> **❓ unsourced (GPU 1-bit 383 / NPU FLM 94 / GPU ternary 307 / GPU ROCm HIP 113):** These four figures are **not** independently measured or validated in this repository. They are quarantined in [`benchmarks/latest.json`](benchmarks/latest.json) `_unverified` — `gpu_1bit_llama_tok_s` / `npu_validated_tok_s` / `gpu_ternary_tok_s` have "NO SOURCE in repo", and `rocm_decode_tok_s` (113) is blocked by an unreproducible model (the GGUF→H1B converter segfaults). They are kept here as historical/community-reported numbers, not as verified results. `tools/validate_claims.py --check-readme` enforces that they can't be relabeled ✅ measured/validated while they remain unsourced.
 
 > **NPU v12:** Re-measured 2026-07-12 after a 2026-07-11 correctness fix (RoPE convention, prefill causal mask, dynamic quant scale) that the fix's own commit admits was never validated against real hardware output before merging. Default OpenMP settings gave 6-8 tok/s (thread wake/sleep overhead dominating many small parallel regions); with OMP_NUM_THREADS=16 OMP_WAIT_POLICY=active OMP_PROC_BIND=close OMP_PLACES=cores, measured 49-70 tok/s depending on run length (69 tok/s typical, reproducible across 5 clean runs). An earlier pass this same day mistakenly re-tested a stale pre-fix binary and reported 110 tok/s -- wrong; confirmed the mistake by diffing binary hashes and rebuilding fresh from current source. Open issue: ~1/3-1/2 of runs hang at the boot-to-decode transition (a separate, pre-existing bug, not caused by this tuning). Old 97 tok/s figure was measured 2026-07-02, nine days before the correctness fix, on since-changed code.
 
@@ -98,7 +100,7 @@ None of these is a static "rank backends by tok/s, always prefer the fastest one
 └── benchmarks/             Historical benchmark data
 ```
 
-**One repo, one build, one binary.** `cmake` builds the kernels and the server. No language runtimes required.
+**The C++ server and HIP kernels build with one `cmake` invocation** (producing `zaya_server`, the `rocm_cpp` kernel library, and ~30 `test_*`/`bench_*` tools). The optional Zig (`engine/`), Rust (`rust/`, `npu-infer/rust/`), and TypeScript (`package.json`) components each have their own build systems and are not required to run the server.
 
 ---
 
@@ -152,17 +154,19 @@ Any OpenAI-compatible client works — Open WebUI, AnythingLLM, Continue, Aider,
 
 `zaya_server.cpp` (19 KB of source, 282 KB compiled binary) reads the **Q4NX header** of any supported model at startup, auto-detects architecture dimensions (layers, heads, hidden size), allocates the correct buffers, and dispatches to the right backend. No config files. No model registry.
 
-> **73+ models. 6 backends. One 282 KB binary.** The header knows what it is. The binary figures out the rest.
+> **5 managed models in the catalog · 6 backends.** The header knows what it is; the binary figures out the rest. (The loader auto-detects additional GGUF architecture families beyond the 5 managed entries.)
 >
 > — [Read the full blog post →](site/blog/one-binary-to-rule-them-all.html)
 
-### No Rust at Runtime
+### Runtime dependencies
 
-The server is **pure C++** (zaya_server.cpp, compiled via CMake with HIP). Zero Rust dependencies. Zero Rust runtime. Zero Rust build tools required.
+The inference server `zaya_server` is C++17 compiled with HIP. It links the HIP/HSA runtime and cpp-httplib's transitive dependencies (OpenSSL, brotli, zlib) — run `ldd build/zaya_server` for the full list. It is **not** "HIP and libc only", and it has **no Python and no Rust runtime dependency**.
 
-### No Python at Runtime
+The wider repo is polyglot; those parts are optional and not required to build or run `zaya_server`:
 
-Zero Python dependencies at inference time. No pip, no conda, no virtualenv. The binary links against HIP and libc — nothing else. (Python is used only in `tools/` for model conversion and benchmarking.)
+- **Rust** — `rust/` is an OpenAI-compatible HTTP proxy in front of `bitnet_decode`; `npu-infer/rust/` is an FFI bridge.
+- **Python** — model conversion, benchmarking, and training (`tools/`, `spec-decode/`, `engine/lora/`, `tools/video-lora/`).
+- **TypeScript** — the `1bit` terminal coding agent (`src/`, `package.json`), based on [pi](https://github.com/earendil-works/pi-coding-agent).
 
 ### Verified Model Families
 
@@ -205,3 +209,7 @@ Zero Python dependencies at inference time. No pip, no conda, no virtualenv. The
 MIT. See `LICENSE`.
 
 Sherry-specific kernels (3:4 N:M sparse ternary GEMV, TQ1 packer): PolyForm Noncommercial 1.0.0. See `LICENSE-SHERRY.md`.
+
+## Acknowledgements
+
+The `1bit` terminal coding agent (`src/`, `package.json`) is based on [pi](https://github.com/earendil-works/pi-coding-agent) (MIT, © Earendil Works). "NPU-native" describes the inference engines in `engine/` and `tests/zaya_server.cpp`, **not** the coding-agent front-end, which is a cloud-LLM client like any other pi/OpenAI-compatible agent.

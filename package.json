@@ -1,7 +1,7 @@
 {
   "name": "1bit-systems",
   "version": "2026.07.14",
-  "description": "1bit — your NPU-native coding agent. Fork of pi.dev, wired to local NPU.",
+  "description": "1bit — terminal coding agent (based on pi) for the 1bit.systems NPU+GPU+CPU inference stack.",
   "type": "module",
   "bin": {
     "1bit": "dist/cli.js"
