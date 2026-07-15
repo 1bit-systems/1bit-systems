@@ -94,9 +94,10 @@ static void sherry_gemv(const void* packed, const void* act_fp16,
 }
 
 int main(int argc, char** argv) {
-    const char* path = (argc > 1)
+    std::string path_str = (argc > 1)
         ? argv[1]
         : std::string(getenv("HOME") ? getenv("HOME") : "/tmp") + "/halo-ai/models/halo-1bit-2b-sherry-v4.h1b";
+    const char* path = path_str.c_str();
 
     fprintf(stderr, "[test_sherry_e2e] loading %s\n", path);
 
