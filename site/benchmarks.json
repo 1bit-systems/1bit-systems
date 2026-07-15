@@ -1,29 +1,117 @@
 {
  "updated": "2026-07-15",
- "source": "on-device measurement (2026-07-15 rebuild)",
+ "source": "validated on cold GPU (single-agent, no contention)",
  "engines": {
-  "q1_gemv":    { "tok_s": 417, "status": "validated", "label": "Q1_0 GEMV kernel (28-layer model, 128B blocks)" },
-  "fused_tq2":  { "tok_s": 415, "status": "validated", "label": "Fused TQ2 kernel (QKV+GU, 1.15x speedup)" },
-  "ternary":    { "tok_s": 318, "status": "validated", "label": "GPU ternary ZINC Vulkan (bench_zinc_vulkan.sh)" },
-  "tq2_gemv":   { "tok_s": 355, "status": "validated", "label": "TQ2_0 GEMV kernel (28-layer model, g128)" },
-  "npu_v12":    { "tok_s": 69,  "status": "validated", "label": "NPU v12 (69 tok/s, OMP tuned)" },
-  "rocm_hip":   { "tok_s": 64,  "status": "validated", "label": "GPU ROCm HIP kernels (bench_rocm_hip.sh)" },
-  "npu_flm":    { "tok_s": 57,  "status": "validated", "label": "NPU FLM engine (bench_npu_flm.sh)" },
-  "all_5":      { "tok_s": 42,  "status": "raw",       "label": "C++ all-5 auto-detect" },
-  "gpu_zinc":   { "tok_s": 22,  "status": "validated", "label": "GPU Vulkan ZINC F16" },
-  "zaya":       { "tok_s": 10.6,"status": "validated", "label": "Zaya pure C++ server" },
-  "prefill_i8": { "tok_s": 0,   "status": "validated", "label": "Prefill I8-APRE: 42.2 TFLOPS INT8 WMMA" },
-  "gpu_1bit":   { "tok_s": 229, "status": "corrected", "label": "llama.cpp ROCm decode (corrected 2026-07-15: was measuring prompt eval)" },
-  "dspark":     { "tok_s": 0.8, "status": "unresolved","label": "Spec-decode draft (blocked: undertrained)" },
-  "npu_fused":  { "tok_s": 0,   "status": "broken",    "label": "NPU fused (hangs)" }
+  "q1_gemv": {
+   "tok_s": 417,
+   "status": "validated",
+   "label": "Q1_0 GEMV kernel (28-layer model, 128B blocks)"
+  },
+  "fused_tq2": {
+   "tok_s": 415,
+   "status": "validated",
+   "label": "Fused TQ2 kernel (QKV+GU, 1.15x speedup)"
+  },
+  "ternary": {
+   "tok_s": 318,
+   "status": "validated",
+   "label": "GPU ternary ZINC Vulkan (bench_zinc_vulkan.sh)"
+  },
+  "tq2_gemv": {
+   "tok_s": 355,
+   "status": "validated",
+   "label": "TQ2_0 GEMV kernel (28-layer model, g128)"
+  },
+  "npu_v12": {
+   "tok_s": 69,
+   "status": "validated",
+   "label": "NPU v12 (69 tok/s, OMP tuned)"
+  },
+  "rocm_hip": {
+   "tok_s": 64,
+   "status": "validated",
+   "label": "GPU ROCm HIP kernels (bench_rocm_hip.sh)"
+  },
+  "npu_flm": {
+   "tok_s": 57,
+   "status": "validated",
+   "label": "NPU FLM engine (bench_npu_flm.sh)"
+  },
+  "all_5": {
+   "tok_s": 42,
+   "status": "raw",
+   "label": "C++ all-5 auto-detect"
+  },
+  "gpu_zinc": {
+   "tok_s": 22,
+   "status": "validated",
+   "label": "GPU Vulkan ZINC F16"
+  },
+  "zaya": {
+   "tok_s": 10.6,
+   "status": "validated",
+   "label": "Zaya pure C++ server"
+  },
+  "prefill_i8": {
+   "tok_s": 0,
+   "status": "validated",
+   "label": "Prefill I8-APRE: 42.2 TFLOPS INT8 WMMA"
+  },
+  "gpu_1bit": {
+   "tok_s": 229,
+   "status": "corrected",
+   "label": "llama.cpp ROCm decode (corrected 2026-07-15)"
+  },
+  "dspark": {
+   "tok_s": 0.8,
+   "status": "unresolved",
+   "label": "Spec-decode draft (blocked: undertrained)"
+  },
+  "npu_fused": {
+   "tok_s": 0,
+   "status": "broken",
+   "label": "NPU fused (hangs)"
+  }
  },
  "_comparisons": {
   "sources": [
-    {"name": "llama.cpp ROCm",  "model": "Ternary-Bonsai-1.7B Q2_0", "tok_s": 229, "source": "bench_gpu_1bit.sh (corrected)"},
-    {"name": "llama.cpp ROCm",  "model": "Qwen3.5-35B-A3B MXFP4",    "tok_s": 47.3,"source": "strix-halo-guide"},
-    {"name": "llama.cpp Vulkan","model": "Qwen3.6-35B-A3B Q4_K_M",  "tok_s": 60.4,"source": "precision inversion"}
+   {
+    "name": "llama.cpp ROCm",
+    "model": "Ternary-Bonsai-1.7B Q2_0",
+    "tok_s": 229,
+    "source": "bench_gpu_1bit.sh (corrected)"
+   },
+   {
+    "name": "llama.cpp ROCm",
+    "model": "Qwen3.5-35B-A3B MXFP4",
+    "tok_s": 47.3,
+    "source": "strix-halo-guide"
+   },
+   {
+    "name": "llama.cpp Vulkan",
+    "model": "Qwen3.6-35B-A3B Q4_K_M",
+    "tok_s": 60.4,
+    "source": "precision inversion"
+   }
   ]
  },
- "order": ["q1_gemv","fused_tq2","ternary","tq2_gemv","npu_v12","rocm_hip","npu_flm","all_5","prefill_i8","gpu_zinc","gpu_1bit","zaya","dspark","npu_fused"],
- "system": { "tflops_int8": 42.21 }
+ "order": [
+  "q1_gemv",
+  "fused_tq2",
+  "ternary",
+  "tq2_gemv",
+  "npu_v12",
+  "rocm_hip",
+  "npu_flm",
+  "all_5",
+  "prefill_i8",
+  "gpu_zinc",
+  "gpu_1bit",
+  "zaya",
+  "dspark",
+  "npu_fused"
+ ],
+ "system": {
+  "tflops_int8": 42.21
+ }
 }
