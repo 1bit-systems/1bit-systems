@@ -244,42 +244,11 @@ target_link_libraries(backend_manager PUBLIC dl)
 # that also link src/backend_hip.cpp directly.
 target_compile_options(backend_manager PRIVATE -O3 -Wall -Wno-unused-result -std=c++17)
 
-set(RCPP_HIP_SOURCES
-    src/ternary_gemv_launchers.hip
-    src/prefill_standalone.hip
-    src/prefill_dispatcher.cpp
-    src/wmma_peak_probe.hip
-    src/prim_kernels.hip
-    src/kv_cache_attn.hip
-    src/kv_cache_attn_i8.hip
-    src/kv_cache_attn_fd.hip
-    src/kv_cache_attn_fd_rotor.hip
-    src/ternary_gemm_smallm.hip
-    src/ternary_gemm_smallm_scalar_ref.hip
-    src/sherry_gemv.hip
-    src/sherry_gemv_scalar_ref.hip
-    src/bonsai_q1_gemv.hip
-    kernels/bonsai_q1_gemv_soa.hip
-    src/bonsai_tq2_gemv.hip
-    src/bonsai_gemv_scalar_ref.hip
-    src/medusa_tree_attn.hip
-    src/medusa_small_m_gemv.hip
-    kernels/ternary_gemv_phase5_dot4.hip
-    kernels/ternary_gemv_phase5_halo.hip
-    kernels/ternary_gemv_sherry.hip
-    kernels/ternary_gemv_tq1_halo.hip
-    kernels/ternary_gemv_wmma.hip
-    kernels/rotorquant_pack.hip
-    kernels/hadamard_rotate_butterfly.hip
-    kernels/zaya_moe_ternary_gemv.hip
-    kernels/zaya_moe_tiled_gemv.hip
-    kernels/zaya_moe_wmma_batched.hip
-    kernels/wmma_i8_gemv.hip
-    src/zaya_moe_launcher.hip
-    src/bonsai_q1_1024.hip
-    src/bonsai_tq2_1024.hip
-    src/fused_gemv_tq2_1024.hip
-    src/bonsai_tq2_1024_opt.hip)
+# Derive HIP source list from RCPP_SOURCES to avoid maintaining a duplicate list.
+# Files with .hip extension need LANGUAGE HIP. prefill_dispatcher.cpp uses HIP
+# runtime calls and is added separately via target_sources, so include it too.
+set(RCPP_HIP_SOURCES ${RCPP_SOURCES} src/prefill_dispatcher.cpp)
+list(FILTER RCPP_HIP_SOURCES INCLUDE REGEX "\\.hip$|prefill_dispatcher\\.cpp$")
 if(RCPP_HAVE_CK)
     list(APPEND RCPP_HIP_SOURCES src/ck_gemm.cpp)
 endif()
