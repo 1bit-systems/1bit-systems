@@ -27,6 +27,9 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <nlohmann/json.hpp>
+using json = nlohmann::json;
+
 // ─── .h1b header auto-detection (no external deps) ────────────────
 static bool detect_from_h1b(const std::string& path, ModelConfig& cfg) {
     std::ifstream f(path, std::ios::binary);
@@ -69,33 +72,36 @@ static bool detect_from_h1b(const std::string& path, ModelConfig& cfg) {
 static bool detect_from_manifest(const std::string& path, ModelConfig& cfg) {
     std::ifstream f(path);
     if (!f) return false;
-    std::string json((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-    f.close();
-    using namespace json_helpers;
-    cfg.hidden_size       = get_int(json, "hidden_size", 2048);
-    cfg.num_heads         = get_int(json, "num_heads", 16);
-    cfg.num_kv_heads      = get_int(json, "num_kv_heads", 2);
-    cfg.head_dim          = get_int(json, "head_dim", 128);
-    cfg.num_layers        = get_int(json, "num_layers", 40);
-    cfg.vocab_size        = get_int(json, "vocab_size", 262272);
-    cfg.intermediate_size = get_int(json, "intermediate_size", 2048);
-    cfg.max_seq_len       = get_int(json, "max_seq_len", 2048);
-    cfg.num_experts       = get_int(json, "num_experts", 16);
-    cfg.router_hidden     = get_int(json, "router_hidden", 256);
-    cfg.num_experts_top   = get_int(json, "num_experts_top", 17);
-    cfg.rope_theta        = get_float(json, "rope_theta", 500000.0f);
-    cfg.rms_norm_eps      = get_float(json, "rms_norm_eps", 1e-5f);
-    cfg.model_name        = get_str(json, "name");
-    cfg.weights_dir       = get_str(json, "weights_dir");
-    if (cfg.model_name.empty()) {
-        auto slash = path.find_last_of('/');
-        cfg.model_name = (slash != std::string::npos) ? path.substr(slash + 1) : path;
+    try {
+        json j = json::parse(f);
+        cfg.hidden_size       = j.value("hidden_size", 2048);
+        cfg.num_heads         = j.value("num_heads", 16);
+        cfg.num_kv_heads      = j.value("num_kv_heads", 2);
+        cfg.head_dim          = j.value("head_dim", 128);
+        cfg.num_layers        = j.value("num_layers", 40);
+        cfg.vocab_size        = j.value("vocab_size", 262272);
+        cfg.intermediate_size = j.value("intermediate_size", 2048);
+        cfg.max_seq_len       = j.value("max_seq_len", 2048);
+        cfg.num_experts       = j.value("num_experts", 16);
+        cfg.router_hidden     = j.value("router_hidden", 256);
+        cfg.num_experts_top   = j.value("num_experts_top", 17);
+        cfg.rope_theta        = j.value("rope_theta", 500000.0f);
+        cfg.rms_norm_eps      = j.value("rms_norm_eps", 1e-5f);
+        cfg.model_name        = j.value("name", std::string());
+        cfg.weights_dir       = j.value("weights_dir", std::string());
+        if (cfg.model_name.empty()) {
+            auto slash = path.find_last_of('/');
+            cfg.model_name = (slash != std::string::npos) ? path.substr(slash + 1) : path;
+        }
+        if (cfg.weights_dir.empty()) cfg.weights_dir = "/tmp/zaya_weights/";
+        fprintf(stderr, "  Loaded manifest: %s\n", cfg.model_name.c_str());
+        fprintf(stderr, "    hidden=%d layers=%d heads=%d vocab=%d\n",
+                cfg.hidden_size, cfg.num_layers, cfg.num_heads, cfg.vocab_size);
+        return true;
+    } catch (const json::exception& e) {
+        fprintf(stderr, "  Manifest parse error: %s\n", e.what());
+        return false;
     }
-    if (cfg.weights_dir.empty()) cfg.weights_dir = "/tmp/zaya_weights/";
-    fprintf(stderr, "  Loaded manifest: %s\n", cfg.model_name.c_str());
-    fprintf(stderr, "    hidden=%d layers=%d heads=%d vocab=%d\n",
-            cfg.hidden_size, cfg.num_layers, cfg.num_heads, cfg.vocab_size);
-    return true;
 }
 
 static std::string json_escape(const std::string& s) {
@@ -116,40 +122,33 @@ static std::string json_escape(const std::string& s) {
 }
 
 static std::string build_chatml(const std::string& body) {
-    size_t msgs_start = body.find("\"messages\"");
-    if (msgs_start == std::string::npos) {
-        std::string prompt = json_helpers::get_str(body, "prompt");
-        if (!prompt.empty()) return "<|im_start|>user\n" + prompt + "<|im_end|>\n<|im_start|>assistant\n";
-        return "";
-    }
-    msgs_start = body.find('[', msgs_start);
-    if (msgs_start == std::string::npos) return "";
-    std::string result;
-    size_t pos = msgs_start;
-    while (pos < body.size()) {
-        size_t obj_start = body.find('{', pos);
-        if (obj_start == std::string::npos) break;
-        int depth = 1;
-        size_t obj_end = obj_start + 1;
-        while (obj_end < body.size() && depth > 0) {
-            if (body[obj_end] == '{') depth++;
-            else if (body[obj_end] == '}') depth--;
-            obj_end++;
+    try {
+        json j = json::parse(body);
+
+        // Check messages array
+        if (j.contains("messages") && j["messages"].is_array()) {
+            std::string result;
+            for (auto& msg : j["messages"]) {
+                std::string role = msg.value("role", std::string());
+                std::string content = msg.value("content", std::string());
+                if (!role.empty() && !content.empty())
+                    result += "<|im_start|>" + role + "\n" + content + "<|im_end|>\n";
+            }
+            if (!result.empty())
+                result += "<|im_start|>assistant\n";
+            return result;
         }
-        if (depth != 0) break;
-        obj_end--;
-        std::string msg = body.substr(obj_start, obj_end - obj_start + 1);
-        std::string role = json_helpers::get_str(msg, "role");
-        std::string content = json_helpers::get_str(msg, "content");
-        if (!role.empty() && !content.empty())
-            result += "<|im_start|>" + role + "\n" + content + "<|im_end|>\n";
-        pos = obj_end + 1;
-        if (pos >= body.size()) break;
-        if (body.find(']', pos) < body.find('{', pos)) break;
+
+        // Fallback to prompt field
+        if (j.contains("prompt") && j["prompt"].is_string()) {
+            std::string prompt = j["prompt"];
+            if (!prompt.empty())
+                return "<|im_start|>user\n" + prompt + "<|im_end|>\n<|im_start|>assistant\n";
+        }
+    } catch (const json::exception& e) {
+        fprintf(stderr, "  ChatML parse error: %s\n", e.what());
     }
-    if (result.empty()) return result;
-    result += "<|im_start|>assistant\n";
-    return result;
+    return "";
 }
 
 struct SimpleTokenizer {
@@ -347,24 +346,32 @@ int main(int argc, char** argv) {
         }
 
         if (r.find("POST /v1/chat/completions") != std::string::npos) {
-            int max_tokens = json_helpers::get_int(body, "max_tokens", 256);
+            int max_tokens = 256;
+            try {
+                json jbody = json::parse(body);
+                max_tokens = jbody.value("max_tokens", 256);
+            } catch (...) {}
+
             RouteStrategy use_strat = strategy;
             if (use_strat == RouteStrategy::CONTENT) {
-                std::string user_msg = json_helpers::get_str(body, "content");
-                if (user_msg.empty()) {
-                    auto ms = body.find("\"messages\"");
-                    if (ms != std::string::npos) {
-                        auto cs = body.find("\"content\"", ms);
-                        if (cs != std::string::npos) user_msg = json_helpers::get_str(body.substr(cs), "content");
-                    }
-                }
+                std::string user_msg;
+                try {
+                    json jbody = json::parse(body);
+                    if (jbody.contains("messages") && jbody["messages"].is_array() && !jbody["messages"].empty())
+                        user_msg = jbody["messages"][0].value("content", std::string());
+                    else
+                        user_msg = jbody.value("content", std::string());
+                } catch (...) {}
                 fprintf(stderr, "  [content] routing: %s\n", should_use_large_model(user_msg) ? "large model" : "small model (NPU)");
                 use_strat = RouteStrategy::AUTO;
             }
 
             std::string prompt = build_chatml(body);
             if (prompt.empty()) {
-                prompt = json_helpers::get_str(body, "prompt");
+                try {
+                    json jbody = json::parse(body);
+                    prompt = jbody.value("prompt", std::string());
+                } catch (...) {}
                 if (prompt.empty()) { send_json(400, "{\"error\":\"No messages or prompt\"}"); continue; }
                 prompt = "<|im_start|>user\n" + prompt + "<|im_end|>\n<|im_start|>assistant\n";
             }
@@ -400,26 +407,28 @@ int main(int argc, char** argv) {
         }
 
         if (r.find("POST /completion") != std::string::npos) {
-            auto jtokens = [](const std::string& b) -> std::vector<int> {
-                std::vector<int> r;
-                auto p = b.find("\"tokens\"");
-                if (p == std::string::npos) return r;
-                p = b.find('[', p); if (p == std::string::npos) return r;
-                p++;
-                while (p < b.size() && b[p] != ']') {
-                    while (p < b.size() && (b[p]==' '||b[p]==','||b[p]=='\"')) p++;
-                    if (p >= b.size() || b[p]==']') break;
-                    char* e; r.push_back((int)strtol(&b[p],&e,10)); p=e-b.data();
+            std::vector<int> input;
+            int np = 16;
+            try {
+                json jbody = json::parse(body);
+                if (jbody.contains("tokens") && jbody["tokens"].is_array()) {
+                    for (auto& t : jbody["tokens"])
+                        input.push_back(t.get<int>());
                 }
-                return r;
-            };
-            std::vector<int> input = jtokens(body);
+                if (input.empty() && jbody.contains("prompt") && jbody["prompt"].is_string()) {
+                    input = tok.encode(jbody["prompt"].get<std::string>());
+                }
+                np = jbody.value("n_predict", 16);
+            } catch (...) {}
             if (input.empty()) {
-                std::string prompt = json_helpers::get_str(body, "prompt");
+                std::string prompt;
+                try {
+                    json jbody = json::parse(body);
+                    prompt = jbody.value("prompt", std::string());
+                } catch (...) {}
                 if (prompt.empty()) { send_json(400, "{\"error\":\"need prompt or tokens\"}"); continue; }
                 input = tok.encode(prompt);
             }
-            int np = json_helpers::get_int(body, "n_predict", 16);
             InferenceResult result = router.infer(input, np, RouteStrategy::AUTO);
             std::string text = tok.decode(result.tokens);
             std::string rsp = "{\"tokens\":[";
