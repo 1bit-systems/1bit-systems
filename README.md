@@ -9,11 +9,11 @@
 [![CI](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml/badge.svg)](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
 [![Site](https://img.shields.io/badge/site-1bit.systems-12a0ed.svg)](https://1bit.systems)
-[![ROCm 7.2.4](https://img.shields.io/badge/rocm-7.2.4-blue.svg)](https://rocm.docs.amd.com)
+[![ROCm 7.2.4](https://img.shields.io/badge/rocm-7.2.4-f00fd2.svg)](https://rocm.docs.amd.com)
 [![Strix Halo](https://img.shields.io/badge/strix%20halo-gfx1151%20%2B%20XDNA%202-12a0ed.svg)](https://www.amd.com/en/products/processors/laptop/ryzen/ai-max-series.html)
 [![GPU Kernels](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/badge_gpu.json)](site/benchmarks.json)
 [![NPU Engine](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/badge_npu.json)](site/benchmarks.json)
-[![GGUF](https://img.shields.io/badge/GGUF-Qwen2%20%7C%20Llama%20%7C%20Mistral-00ff00)](src/gguf_loader.cpp)
+[![GGUF](https://img.shields.io/badge/GGUF-Qwen2%20%7C%20Llama%20%7C%20Mistral-f00fd2)](src/gguf_loader.cpp)
 [![ONNX](https://img.shields.io/badge/ONNX-supported-00ff00)](src/onnx_loader.cpp)
 [![Tests](https://img.shields.io/badge/tests-11%2F11-00ff00)](tests/)
 
