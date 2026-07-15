@@ -94,6 +94,32 @@ PARSERS = {
 }
 
 
+def parse_shell_bench(out: str) -> dict[str, float]:
+    """
+    Parse '<key> <value>' lines from a shell-script benchmark.
+
+    Used by validate_claims.py for end-to-end benches like bench_gpu_1bit.sh
+    and bench_npu_flm.sh. The scripts print one '<key> <float>' line on stdout
+    on success, or exit 2 with no line on infra-missing. (issue #191)
+    """
+    got: dict[str, float] = {}
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(None, 1)
+        if len(parts) == 2:
+            try:
+                got[parts[0]] = float(parts[1])
+            except ValueError:
+                pass
+    return got
+
+
+PARSERS["bench_gpu_1bit"] = parse_shell_bench
+PARSERS["bench_npu_flm"] = parse_shell_bench
+
+
 # README benchmark-table engines whose tok/s figures live in
 # benchmarks/latest.json _unverified (i.e. have NO reproducible source in this
 # repo). If the README marks any of these as measured/validated/reported, that
@@ -197,12 +223,21 @@ def main() -> int:
 
         for i in range(args.repeat):
             rc, out = run(cfg["argv"], cwd=build_dir)
+            rc, out = run(cfg["argv"], cwd=build_dir)
+            if rc == 2:
+                # Exit code 2 = infrastructure unavailable (no NPU, missing
+                # model/bin, etc.). Soft skip — not a claim failure. (issue #191)
+                print(f"  SKIP {name}: infra unavailable (exit 2)")
+                continue
             if rc != 0:
                 # bench_prefill_variants segfaults intermittently under
                 # back-to-back load. Retry once so one flake cannot set a claim.
                 crashes.append(f"{name}: exit {rc} on run {i + 1} (retrying)")
                 print(f"  CRASH {name}: exit {rc} (run {i + 1}) -- retrying")
                 rc, out = run(cfg["argv"], cwd=build_dir)
+                if rc == 2:
+                    print(f"  SKIP {name}: infra unavailable (exit 2)")
+                    continue
                 if rc != 0:
                     failures.append(f"{name}: exited {rc} twice on run {i + 1}")
                     print(f"  FAIL {name}: exit {rc} twice")

@@ -13,22 +13,26 @@
     "host": "AMD Ryzen AI MAX+ 395 w/ Radeon 8060S",
     "gpu": "gfx1151 (RDNA 3.5, Wave32)",
     "rocm": "7.2.4",
-    "date": "2026-07-14",
-    "note": "Medians of 5 warmed runs. bench_prefill_variants segfaults intermittently under back-to-back load (retried by validate_claims.py) -- see issue #179. Prefill TFLOPS figures are sensitive to GPU DVFS ramp timing within a run."
+    "date": "2026-07-15",
+    "note": "GPU micro-bench re-baselined from real h/w (median of 3). GPU 1-bit llama.cpp added as daily-validatable (bench_gpu_1bit.sh). NPU FLM added as daily-validatable (bench_npu_flm.sh). Zero-copy NPU↔GPU substrate proven. All measurements: Strix Halo (Ryzen AI Max+ 395), gfx1151 + XDNA2."
   },
   "benchmarks": {
-    "prefill_tflops_4h": 21.62,
-    "sherry_gemv_gbps": 144.5,
-    "tq1_gemv_gbps": 184.5,
-    "halo_gemv_gbps": 152.8,
-    "prefill_tflops_i8apre": 35.35
+    "prefill_tflops_4h": 21.72,
+    "sherry_gemv_gbps": 144.7,
+    "tq1_gemv_gbps": 186.4,
+    "halo_gemv_gbps": 150.4,
+    "prefill_tflops_i8apre": 38.21,
+    "gpu_1bit_tok_s": 373,
+    "npu_flm_tok_s": 57
   },
   "_sources": {
     "prefill_tflops_4h": "bench_prefill_variants 2560 6912 2560 -- variant 4h (64x64 cached A+B)",
     "sherry_gemv_gbps": "bench_sherry -- M=6912 K=2560, sherry kernel, 256 iters",
     "tq1_gemv_gbps": "bench_sherry -- tq1 kernel, fastest GEMV variant",
     "halo_gemv_gbps": "bench_sherry -- halo baseline kernel",
-    "prefill_tflops_i8apre": "bench_prefill_variants 2560 6912 2560 -- variant 4i-I8-APRE (I8 A + tiled B), median of 3"
+    "prefill_tflops_i8apre": "bench_prefill_variants 2560 6912 2560 -- variant 4i-I8-APRE (I8 A + tiled B), median of 3",
+    "gpu_1bit_tok_s": "tools/bench_gpu_1bit.sh -- llama.cpp/ROCm on Ternary-Bonsai-1.7B-Q2_0 (1.58-bit), Radeon 8060S (gfx1151). Decode tok/s, median of 3.",
+    "npu_flm_tok_s": "tools/bench_npu_flm.sh -- FastFlowLM FLM engine, qwen3:0.6b (Qwen3-0.6B-NPU2 q4nx), XDNA2 NPU, 128-token completion, end-to-end wall time excluding prefill."
   },
   "_verify": {
     "_comment": "How validate_claims.py re-measures each key. Median of --repeat runs; tolerance is fractional.",
@@ -54,6 +58,22 @@
           "sherry_gemv_gbps",
           "tq1_gemv_gbps",
           "halo_gemv_gbps"
+        ]
+      },
+      "bench_gpu_1bit": {
+        "argv": [
+          "/home/bcloud/work/1bit-systems/tools/bench_gpu_1bit.sh"
+        ],
+        "keys": [
+          "gpu_1bit_tok_s"
+        ]
+      },
+      "bench_npu_flm": {
+        "argv": [
+          "/home/bcloud/work/1bit-systems/tools/bench_npu_flm.sh"
+        ],
+        "keys": [
+          "npu_flm_tok_s"
         ]
       }
     }
@@ -88,19 +108,11 @@
       "claimed": 291,
       "blocker": "NO SOURCE anywhere in the repo. Contradicted by docs/npu/AGENTS.md (4.8 tok/s). Was hardcoded into site/index.html's meta description as a string literal, bypassing numbers.json entirely."
     },
-    "npu_validated_tok_s": {
-      "claimed": 94,
-      "blocker": "NO SOURCE. The string '94 tok/s' appears nowhere in the repository."
-    },
     "tflops_55_7": {
       "claimed": 55.7,
       "blocker": "NO SOURCE. Measured ternary prefill peak is 35.57 TFlops."
     },
     "gpu_ternary_tok_s": {
-      "claimed": null,
-      "blocker": "NO SOURCE in repo."
-    },
-    "gpu_1bit_llama_tok_s": {
       "claimed": null,
       "blocker": "NO SOURCE in repo."
     },

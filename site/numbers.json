@@ -1,6 +1,6 @@
 {
   "_generated_by": "tools/gen_numbers.py",
-  "_generated_at": "2026-07-15T00:16:37Z",
+  "_generated_at": "2026-07-15T00:35:27Z",
   "_warning": "Generated file. Do not hand-edit; run tools/gen_numbers.py.",
   "_missing": [],
   "binary": {
@@ -17,19 +17,25 @@
     "tui_stripped_kb": 774
   },
   "benchmarks": {
-    "prefill_tflops_4h": 21.62,
-    "sherry_gemv_gbps": 144.5,
-    "tq1_gemv_gbps": 184.5,
-    "halo_gemv_gbps": 152.8,
-    "prefill_tflops_i8apre": 35.35,
-    "tflops": 35.35
+    "prefill_tflops_4h": 21.72,
+    "sherry_gemv_gbps": 144.7,
+    "tq1_gemv_gbps": 186.4,
+    "halo_gemv_gbps": 150.4,
+    "prefill_tflops_i8apre": 38.21,
+    "gpu_1bit_tok_s": 373,
+    "npu_flm_tok_s": 57,
+    "npu_validated_tok_s": 57,
+    "gpu_1bit_llama_tok_s": 373,
+    "tflops": 38.21
   },
   "_sources": {
     "prefill_tflops_4h": "bench_prefill_variants 2560 6912 2560 -- variant 4h (64x64 cached A+B)",
     "sherry_gemv_gbps": "bench_sherry -- M=6912 K=2560, sherry kernel, 256 iters",
     "tq1_gemv_gbps": "bench_sherry -- tq1 kernel, fastest GEMV variant",
     "halo_gemv_gbps": "bench_sherry -- halo baseline kernel",
-    "prefill_tflops_i8apre": "bench_prefill_variants 2560 6912 2560 -- variant 4i-I8-APRE (I8 A + tiled B), median of 3"
+    "prefill_tflops_i8apre": "bench_prefill_variants 2560 6912 2560 -- variant 4i-I8-APRE (I8 A + tiled B), median of 3",
+    "gpu_1bit_tok_s": "tools/bench_gpu_1bit.sh -- llama.cpp/ROCm on Ternary-Bonsai-1.7B-Q2_0 (1.58-bit), Radeon 8060S (gfx1151). Decode tok/s, median of 3.",
+    "npu_flm_tok_s": "tools/bench_npu_flm.sh -- FastFlowLM FLM engine, qwen3:0.6b (Qwen3-0.6B-NPU2 q4nx), XDNA2 NPU, 128-token completion, end-to-end wall time excluding prefill."
   },
   "repo": {
     "stars": 9,

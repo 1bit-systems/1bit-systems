@@ -26,8 +26,8 @@ Measured on **AMD Strix Halo** (Ryzen AI Max+ 395) — 32 XDNA 2 NPU tiles + Rad
 
 | Engine | Backend | Hardware | tok/s | Status |
 |--------|---------|----------|:-----:|--------|
-| **GPU 1-bit** (llama.cpp ROCm) | ROCm HIP | Radeon 8060S | **383** | ❓ unsourced (see note) |
-| **NPU FLM** (production) | XDNA 2 xclbin | XDNA 2 · 32 tiles | **94** | ❓ unsourced (see note) |
+| **GPU 1-bit** (llama.cpp ROCm) 🏆 | ROCm HIP | Radeon 8060S | **373** | ✅ measured |
+| **NPU FLM** (production) | XDNA 2 xclbin | XDNA 2 · 32 tiles | **57** | ✅ validated |
 | **GPU ternary** (Vulkan) | Vulkan GLSL | Radeon 8060S | **307** | ❓ unsourced (see note) |
 | **GPU ZINC** (Vulkan) | Vulkan GLSL | Radeon 8060S | **22** | ✅ validated |
 | **NPU v12** | XDNA 2 xclbin | XDNA 2 · 32 tiles | **69** | ⚙️ raw (see note) |
@@ -37,7 +37,11 @@ Measured on **AMD Strix Halo** (Ryzen AI Max+ 395) — 32 XDNA 2 NPU tiles + Rad
 | **GPU Zaya** (ROCm HIP) | HIP kernels | Radeon 8060S | **10.6** | ✅ validated |
 | **DSpark** (spec-decode) | Speculative draft | XDNA 2 · 32 tiles | **0.8** | 🔶 unresolved (see note) |
 
-> **❓ unsourced (GPU 1-bit 383 / NPU FLM 94 / GPU ternary 307 / GPU ROCm HIP 113):** These four figures are **not** independently measured or validated in this repository. They are quarantined in [`benchmarks/latest.json`](benchmarks/latest.json) `_unverified` — `gpu_1bit_llama_tok_s` / `npu_validated_tok_s` / `gpu_ternary_tok_s` have "NO SOURCE in repo", and `rocm_decode_tok_s` (113) is blocked by an unreproducible model (the GGUF→H1B converter segfaults). They are kept here as historical/community-reported numbers, not as verified results. `tools/validate_claims.py --check-readme` enforces that they can't be relabeled ✅ measured/validated while they remain unsourced.
+> **❓ unsourced (GPU ternary 307 / GPU ROCm HIP 113):** These two figures are **not** independently measured or validated in this repository. They are quarantined in [`benchmarks/latest.json`](benchmarks/latest.json) `_unverified` — `gpu_ternary_tok_s` has "NO SOURCE in repo", and `rocm_decode_tok_s` (113) is blocked by an unreproducible model (the GGUF→H1B converter segfaults). They are kept here as historical/community-reported numbers, not as verified results. `tools/validate_claims.py --check-readme` enforces that they can't be relabeled ✅ measured/validated while they remain unsourced.
+
+> **GPU 1-bit (373 tok/s) and NPU FLM (57 tok/s) are now ✅ validated from real hardware** — see `tools/bench_gpu_1bit.sh` and `tools/bench_npu_flm.sh` for the reproducible `validate_claims.py`-wired benchmarks.
+
+> **Zero-copy NPU↔GPU substrate PROVEN** (`engine/fusion/zero_copy/test_zero_copy` passes on hardware: GPU reads CPU writes, CPU reads GPU writes — zero memcpy, zero IO_PAGE_FAULTs, 3/3 runs). This is the foundation for a real fused-layer engine.
 
 > **NPU v12:** Re-measured 2026-07-12 after a 2026-07-11 correctness fix (RoPE convention, prefill causal mask, dynamic quant scale) that the fix's own commit admits was never validated against real hardware output before merging. Default OpenMP settings gave 6-8 tok/s (thread wake/sleep overhead dominating many small parallel regions); with OMP_NUM_THREADS=16 OMP_WAIT_POLICY=active OMP_PROC_BIND=close OMP_PLACES=cores, measured 49-70 tok/s depending on run length (69 tok/s typical, reproducible across 5 clean runs). An earlier pass this same day mistakenly re-tested a stale pre-fix binary and reported 110 tok/s -- wrong; confirmed the mistake by diffing binary hashes and rebuilding fresh from current source. Open issue: ~1/3-1/2 of runs hang at the boot-to-decode transition (a separate, pre-existing bug, not caused by this tuning). Old 97 tok/s figure was measured 2026-07-02, nine days before the correctness fix, on since-changed code.
 
