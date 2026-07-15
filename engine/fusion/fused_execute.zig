@@ -376,20 +376,25 @@ const NpuSubprocess = struct {
             .stdout = .pipe,
             .stderr = .pipe,
         });
-        // Wait for WORKER_READY on stderr — the NPU engine takes 5-7 seconds
-        // to initialize (load model, init XRT, pack weights into NPU buffers).
-        // The first request must not be sent until the worker loop is actually
-        // accepting commands on its stdin, or the request bytes arrive in the
-        // pipe before the C++ code enters fread() and get consumed by some
-        // other scanf/fread call, or get discarded.
-        var line_buf: [128]u8 = undefined;
+        // Wait for the NPU worker to finish initialization.
+        // The engine prints "=== NPU Engine Universal ===" on startup,
+        // then loads/dequants weights (5-15s), then enters the worker loop.
+        // We detect readiness by watching for the initiation of the
+        // request-handling loop: the engine outputs "=== Prefill 9 ==="
+        // or the older "WORKER_READY" marker after it's done loading.
+        var line_buf: [256]u8 = undefined;
         var got: usize = 0;
         while (got < line_buf.len) {
             const n = try self.child.?.stderr.?.readStreaming(io, &.{line_buf[got..]});
             if (n == 0) return error.NpuWorkerNeverReady;
             got += n;
-            if (std.mem.containsAtLeast(u8, line_buf[0..got], 1, "WORKER_READY")) {
-                break;
+            // Accept any of the known ready markers
+            const ready_markers = [_][]const u8{ "WORKER_READY", "=== Prefill", "Dequant+pack" };
+            for (ready_markers) |marker| {
+                if (std.mem.containsAtLeast(u8, line_buf[0..got], 1, marker)) {
+                    log.debug("NPU worker ready (marker: {s})", .{marker});
+                    return;
+                }
             }
         }
     }

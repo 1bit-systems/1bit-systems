@@ -186,7 +186,7 @@ pub fn main(init: std.process.Init) !void {
     // ── Initialize GPU attention (best-effort) ──
     std.debug.print("GPU attention init...\n", .{});
     var gpu_attn_instance: ?gpu_attn.GpuAttention = null;
-    if (gpu_attn.GpuAttention.init(allocator, ZINC_SHADER_DIR)) |gpu| {
+    if (gpu_attn.GpuAttention.init(allocator, opts.shader_dir)) |gpu| {
         gpu_attn_instance = gpu;
         std.debug.print("  GPU flash attention ready!\n", .{});
     } else |err| {

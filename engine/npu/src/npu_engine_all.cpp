@@ -245,7 +245,7 @@ int main(int argc,char**argv){
     std::unique_ptr<I8Ctx> cu_ptr;
 
     // ── NPU Attention (optional, replaces CPU attn_omp) ──
-    const char* ffx=getenv("FFLM_XCLBIN_DIR"); std::string attn_xd=ffx?ffx:"fastflowlm-build/src/xclbins/"; attn_xd+=+orig_model_name+"/attn.xclbin";
+    const char* ffx=getenv("FFLM_XCLBIN_DIR"); std::string attn_xd=ffx?ffx:"fastflowlm-build/src/xclbins/"; attn_xd+=orig_model_name+"/attn.xclbin";
     std::string attn_inst=std::string(d?d:"int8")+"/../chess_infer/attn_06b.o";
     AttnCtx ca;bool have_attn=false;
     if(ca.init(dev,attn_xd.c_str(),NH,NKV,HD)){

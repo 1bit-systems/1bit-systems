@@ -1030,40 +1030,19 @@ pub fn loadModel(allocator: std.mem.Allocator, io: Io, path: []const u8, model_t
     const file_data = try file_reader.interface.readAlloc(allocator, file_len);
     errdefer allocator.free(file_data);
 
-    // ── 1. Check magic ──
-    if (file_data.len < 4) return error.InvalidMagic;
-    if (!std.mem.eql(u8, file_data[0..4], &Q4NX_MAGIC)) {
-        log.warn("Invalid magic: expected 'Q4NX', got '{any}'", .{file_data[0..4]});
-        return error.InvalidMagic;
-    }
-    log.debug("Magic verified: Q4NX", .{});
+    // ── 1. Read header size from first 8 bytes (little-endian uint64) ──
+    // The Q4NX format stores the JSON header size as a u64 prefix, followed
+    // by the JSON metadata, followed by aligned tensor data. This is the same
+    // layout as safetensors with a different file extension.
+    if (file_data.len < 8) return error.InvalidMagic;
+    const hdr_size = std.mem.bytesToValue(u64, file_data[0..8]);
+    if (hdr_size == 0 or hdr_size > file_data.len - 8) return error.InvalidMagic;
+    log.debug("Q4NX header size: {d} bytes", .{hdr_size});
 
-    // ── 2. Read reserved flags (bytes 4-7) ──
-    if (file_data.len >= 8) {
-        const flags = std.mem.bytesAsSlice(u32, file_data[4..8])[0];
-        if (flags != 0) {
-            log.debug("Flags: 0x{X:0>8}", .{flags});
-        }
-    }
-
-    // ── 3. JSON starts at byte 8 (no separate size field — find closing brace) ──
+    // ── 2. JSON header starts at byte 8 ──
     const json_offset: usize = 8;
-    var depth: u32 = 0;
-    var hdr_end: usize = json_offset;
-    while (hdr_end < file_data.len) : (hdr_end += 1) {
-        const c = file_data[hdr_end];
-        if (c == '{') depth += 1;
-        if (c == '}') {
-            depth -= 1;
-            if (depth == 0) {
-                hdr_end += 1;
-                break;
-            }
-        }
-    }
-    if (depth != 0) return error.InvalidJsonHeader;
-    const hdr_size = hdr_end - json_offset;
-    log.info("Header size: {d} bytes", .{hdr_size});
+    const hdr_end = json_offset + hdr_size;
+    if (hdr_end > file_data.len) return error.InvalidJsonHeader;
     const hdr_json = file_data[json_offset..hdr_end];
 
     // ── 5. Parse JSON header into tensor descriptors ──
