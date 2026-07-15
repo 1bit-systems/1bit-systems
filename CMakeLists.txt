@@ -291,85 +291,46 @@ if(RCPP_HAVE_CK)
     set_target_properties(test_standalone PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 endif()
 
+
+function(rocm_hip_target TARGET)
+    add_executable(${TARGET} ${ARGN})
+    set_source_files_properties(${ARGN} PROPERTIES LANGUAGE HIP)
+    target_compile_options(${TARGET} PRIVATE
+        $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+    target_link_libraries(${TARGET} PRIVATE rocm_cpp hip::host hip::device)
+    set_target_properties(${TARGET} PROPERTIES
+        HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+endfunction()
+
 # -- tests/test_standalone_nock : standalone kernels vs CPU reference ----------
 # Always compiled; replaces test_standalone when CK is unavailable.
-add_executable(test_standalone_nock tests/test_standalone_nock.cpp)
-set_source_files_properties(tests/test_standalone_nock.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(test_standalone_nock PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_link_libraries(test_standalone_nock PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(test_standalone_nock PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+rocm_hip_target(test_standalone_nock tests/test_standalone_nock.cpp)
 
-add_executable(test_prim_and_attn tests/test_prim_and_attn.cpp)
-set_source_files_properties(tests/test_prim_and_attn.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(test_prim_and_attn PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_link_libraries(test_prim_and_attn PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(test_prim_and_attn PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+rocm_hip_target(test_prim_and_attn tests/test_prim_and_attn.cpp)
 
 # -- tests/test_ternary_gemm_smallm : tiled small-M ternary GEMM parity + timing
-add_executable(test_ternary_gemm_smallm tests/test_ternary_gemm_smallm.cpp)
-set_source_files_properties(tests/test_ternary_gemm_smallm.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(test_ternary_gemm_smallm PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_link_libraries(test_ternary_gemm_smallm PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(test_ternary_gemm_smallm PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+rocm_hip_target(test_ternary_gemm_smallm tests/test_ternary_gemm_smallm.cpp)
 
 # -- tests/test_sherry_gemv : Sherry 1.25-bpw GEMV differential test ----------
-add_executable(test_sherry_gemv tests/test_sherry_gemv.cpp)
-set_source_files_properties(tests/test_sherry_gemv.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(test_sherry_gemv PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_link_libraries(test_sherry_gemv PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(test_sherry_gemv PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+rocm_hip_target(test_sherry_gemv tests/test_sherry_gemv.cpp)
 
 # -- tests/test_bonsai_gemv : Bonsai Q1 / TQ2 GEMV differential test ---------
-add_executable(test_bonsai_gemv tests/test_bonsai_gemv.cpp)
-set_source_files_properties(tests/test_bonsai_gemv.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(test_bonsai_gemv PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_link_libraries(test_bonsai_gemv PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(test_bonsai_gemv PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+rocm_hip_target(test_bonsai_gemv tests/test_bonsai_gemv.cpp)
 
 # -- tests/bench_bonsai_tile8 : Q1_0 tile8-interleaved GEMV benchmark -------
-add_executable(bench_bonsai_tile8 tests/bench_bonsai_tile8.cpp)
-set_source_files_properties(tests/bench_bonsai_tile8.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(bench_bonsai_tile8 PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_link_libraries(bench_bonsai_tile8 PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(bench_bonsai_tile8 PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+rocm_hip_target(bench_bonsai_tile8 tests/bench_bonsai_tile8.cpp)
 
 # -- tests/bench_bonsai_tile8_model : full 28-layer model with tile8 GEMVs ---
-add_executable(bench_bonsai_tile8_model tests/bench_bonsai_tile8_model.cpp)
-set_source_files_properties(tests/bench_bonsai_tile8_model.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(bench_bonsai_tile8_model PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_link_libraries(bench_bonsai_tile8_model PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(bench_bonsai_tile8_model PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+rocm_hip_target(bench_bonsai_tile8_model tests/bench_bonsai_tile8_model.cpp)
 
 # -- tests/bench_bonsai_q1_1024 : Q1_1024 1024-weight block format benchmark --
-add_executable(bench_bonsai_q1_1024 tests/bench_bonsai_q1_1024.cpp)
-set_source_files_properties(tests/bench_bonsai_q1_1024.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(bench_bonsai_q1_1024 PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_link_libraries(bench_bonsai_q1_1024 PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(bench_bonsai_q1_1024 PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+rocm_hip_target(bench_bonsai_q1_1024 tests/bench_bonsai_q1_1024.cpp)
 
 # -- tests/bench_bonsai_tq2_1024 : TQ2_1024 1024-weight block benchmark ------
-add_executable(bench_bonsai_tq2_1024 tests/bench_bonsai_tq2_1024.cpp)
-set_source_files_properties(tests/bench_bonsai_tq2_1024.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(bench_bonsai_tq2_1024 PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_link_libraries(bench_bonsai_tq2_1024 PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(bench_bonsai_tq2_1024 PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+rocm_hip_target(bench_bonsai_tq2_1024 tests/bench_bonsai_tq2_1024.cpp)
 
 # -- tests/bench_fused_tq2_1024 : Fused QKV + Gate/Up TQ2_1024 benchmark -----
-add_executable(bench_fused_tq2_1024 tests/bench_fused_tq2_1024.cpp)
-set_source_files_properties(tests/bench_fused_tq2_1024.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(bench_fused_tq2_1024 PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_link_libraries(bench_fused_tq2_1024 PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(bench_fused_tq2_1024 PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+rocm_hip_target(bench_fused_tq2_1024 tests/bench_fused_tq2_1024.cpp)
 
 # -- tests/bench_cb_compare : cache-blocking vs original comparison ----------
 add_executable(bench_cb_compare tests/bench_cb_compare.cpp)
@@ -408,20 +369,10 @@ endif()
 # Loads the real halo-1bit-2b-sherry-v4.h1b file, runs one decode token
 # through the fp16-Sherry dispatch path, asserts finite + non-trivial logits.
 # Build-only by default; executable is run by hand on the strix-halo box.
-add_executable(test_sherry_e2e tests/test_sherry_e2e.cpp)
-set_source_files_properties(tests/test_sherry_e2e.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(test_sherry_e2e PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_link_libraries(test_sherry_e2e PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(test_sherry_e2e PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+rocm_hip_target(test_sherry_e2e tests/test_sherry_e2e.cpp)
 
 # -- tests/test_zaya_moe_gemv : Zaya MoE ternary GEMV functional test ---------
-add_executable(test_zaya_moe_gemv tests/test_zaya_moe_gemv.cpp)
-set_source_files_properties(tests/test_zaya_moe_gemv.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(test_zaya_moe_gemv PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_link_libraries(test_zaya_moe_gemv PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(test_zaya_moe_gemv PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+rocm_hip_target(test_zaya_moe_gemv tests/test_zaya_moe_gemv.cpp)
 
 # -- tests/test_cca_attn : Zaya CCA attention kernel test ---------------------
 add_executable(test_cca_attn tests/test_cca_attn.cpp kernels/zaya_cca_attn.hip)
@@ -434,12 +385,7 @@ set_target_properties(test_cca_attn PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_AR
 # -- tests/zaya_full : Complete Zaya full GPU inference (40-layer loop) ---------
 # Build: cmake --build . --target zaya_full -j8
 # Run:   ./zaya_full
-add_executable(zaya_full tests/zaya_full.cpp)
-set_source_files_properties(tests/zaya_full.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(zaya_full PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_link_libraries(zaya_full PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(zaya_full PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+rocm_hip_target(zaya_full tests/zaya_full.cpp)
 
 # -- tests/zaya_gpu_decode : Zaya GPU Decode Engine — loads Q4NX, autoregressive gen -
 # Build: cmake --build . --target zaya_gpu_decode -j8
@@ -473,12 +419,7 @@ set_target_properties(zaya_server PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCH
 # Verifies Hadamard-rotated INT8 decode against scalar reference.
 # Build: cmake --build . --target test_wmma_i8_gemv -j8
 # Run:   ./test_wmma_i8_gemv
-add_executable(test_wmma_i8_gemv tests/test_wmma_i8_gemv.cpp)
-set_source_files_properties(tests/test_wmma_i8_gemv.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(test_wmma_i8_gemv PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_link_libraries(test_wmma_i8_gemv PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(test_wmma_i8_gemv PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+rocm_hip_target(test_wmma_i8_gemv tests/test_wmma_i8_gemv.cpp)
 
 # -- tests/test_bonsai_e2e : Bonsai (Qwen3) loader + decode smoke test --------
 # Loads bonsai-1.7b-tq2.h1b + sidecar GGUF, runs one decode token through
@@ -487,12 +428,7 @@ set_target_properties(test_wmma_i8_gemv PROPERTIES HIP_ARCHITECTURES "${CMAKE_HI
 # zero + finite logits. Works even when the sibling HIP kernel pass hasn't
 # landed — the bonsai_*_gemv_launch symbols are weak, dispatch short-
 # circuits to zeros, and the test still validates the loader + sidecar.
-add_executable(test_bonsai_e2e tests/test_bonsai_e2e.cpp)
-set_source_files_properties(tests/test_bonsai_e2e.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(test_bonsai_e2e PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_link_libraries(test_bonsai_e2e PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(test_bonsai_e2e PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+rocm_hip_target(test_bonsai_e2e tests/test_bonsai_e2e.cpp)
 
 # -- tests/test_medusa_skeleton : ABI/link smoke for Medusa kernel stubs ------
 # Scope-pass test (2026-04-24): both launchers return RCPP_NOT_IMPLEMENTED.
@@ -616,12 +552,4 @@ endif()
 # ── Helper: create a HIP test/bench executable ────────────────────────
 # Usage: rocm_hip_target(name source1 [source2 ...])
 # Creates an executable linked against rocm_cpp + HIP with standard flags.
-function(rocm_hip_target TARGET)
-    add_executable(${TARGET} ${ARGN})
-    set_source_files_properties(${ARGN} PROPERTIES LANGUAGE HIP)
-    target_compile_options(${TARGET} PRIVATE
-        $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-    target_link_libraries(${TARGET} PRIVATE rocm_cpp hip::host hip::device)
-    set_target_properties(${TARGET} PROPERTIES
-        HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
-endfunction()
+

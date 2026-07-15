@@ -22,6 +22,7 @@
 #include "backend_monitor.h"
 #include "backend_plugin.h"
 #include "backend.h"
+#include "rocm_cpp/tokenizer.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -52,49 +53,80 @@ static std::atomic<bool> keep_running{true};
 static std::string g_weights_dir = "/tmp/zaya_weights";
 static int g_port = 8088;
 
-// ── Simple ASCII tokenizer (no HIP, no Python, no external deps) ──
-// Matches the zaya_server.cpp inline tokenizer pattern.
-// Supports BOS/EOS and ASCII passthrough. Production deployments
-// should swap this for a proper BPE tokenizer.
+// ── Tokenizer: uses RCPP BPE tokenizer (.htok) when available, falls back
+// to SimpleTokenizer (ASCII + UTF-8 byte passthrough) when not.
+// The RCPP tokenizer is linked via librocm_cpp and reads .htok binary format.
 struct SimpleTokenizer {
-    // Map token ID to string for output
-    std::vector<std::string> id_to_token;
     int bos_id = 2;
     int eos_id = 1;
-    int vocab_size = 0;
+    bool use_bpe = false;
+    rcpp_tokenizer_t* bpe_tok = nullptr;
 
     bool load(const std::string& vocab_path) {
-        std::ifstream f(vocab_path, std::ios::binary);
-        if (!f) {
-            fprintf(stderr, "No vocab at %s — using fallback ASCII tokenizer\n", vocab_path.c_str());
-            return false;
+        if (vocab_path.size() >= 4 && vocab_path.substr(vocab_path.size() - 4) == ".htok") {
+            rcpp_tokenizer_t* tok = nullptr;
+            rcpp_status_t st = rcpp_tokenizer_load(vocab_path.c_str(), &tok);
+            if (st == RCPP_OK && tok) {
+                bpe_tok = tok;
+                use_bpe = true;
+                bos_id = rcpp_tokenizer_bos_id(bpe_tok);
+                eos_id = rcpp_tokenizer_eos_id(bpe_tok);
+                fprintf(stderr, "Loaded BPE tokenizer from %s (BOS=%d, EOS=%d)\n",
+                        vocab_path.c_str(), bos_id, eos_id);
+                return true;
+            }
+            fprintf(stderr, "Failed to load BPE tokenizer from %s\n", vocab_path.c_str());
         }
-        fprintf(stderr, "Loaded vocab from %s\n", vocab_path.c_str());
-        return true;
+        fprintf(stderr, "No .htok at %s — using fallback ASCII tokenizer\n", vocab_path.c_str());
+        return false;
     }
 
-    // Improved ASCII tokenizer with UTF-8 passthrough for non-ASCII bytes.
-    // Uses the same ID scheme as tests/zaya_server.cpp: printable ASCII maps
-    // to 100-199, non-printable/non-ASCII maps to 200+ for round-trip fidelity.
-    // This is still a fallback — the real BPE tokenizer needs a .htok file.
+    ~SimpleTokenizer() {
+        if (bpe_tok) rcpp_tokenizer_free(bpe_tok);
+    }
+
     std::vector<int> encode(const std::string& text) {
+        if (use_bpe && bpe_tok) {
+            std::vector<int> r(4096);
+            size_t out_n = 0;
+            rcpp_status_t st = rcpp_tokenizer_encode(bpe_tok, text.c_str(), text.size(),
+                                                      1, r.data(), r.size(), &out_n);
+            if (st == RCPP_OK && out_n > 0) {
+                r.resize(out_n);
+                return r;
+            }
+            return {bos_id};
+        }
+        // Fallback: ASCII + UTF-8 byte passthrough
         std::vector<int> r = {bos_id};
         for (unsigned char c : text) {
             if (c >= 32 && c <= 126)
                 r.push_back((int)c + 100);
-            else if (c != 0)  // skip nulls, preserve other bytes for UTF-8
+            else if (c != 0)
                 r.push_back((int)c + 200);
         }
         return r;
     }
 
     std::string decode(const std::vector<int>& tokens) {
+        if (use_bpe && bpe_tok) {
+            std::string r(4096, '\0');
+            size_t out_len = 0;
+            rcpp_status_t st = rcpp_tokenizer_decode(bpe_tok, tokens.data(), tokens.size(),
+                                                      r.data(), r.size(), &out_len);
+            if (st == RCPP_OK && out_len > 0) {
+                r.resize(out_len);
+                return r;
+            }
+            return "";
+        }
+        // Fallback: ASCII + UTF-8 byte passthrough
         std::string r;
         for (int v : tokens) {
             if (v == bos_id || v == eos_id) continue;
             if (v > 100 && v < 200)
                 r += (char)(v - 100);
-            else if (v > 200 && v < 456)  // raw byte pass-through (UTF-8)
+            else if (v > 200 && v < 456)
                 r += (char)(v - 200);
             else {
                 r += '['; r += std::to_string(v); r += ']';
@@ -113,6 +145,10 @@ static void handle_sigint(int) {
 
 // ── Helpers ──
 static std::string tokenizer_path() {
+    // Prefer .htok (BPE tokenizer from RCPP). Fall back to tokenizer.json for diagnostics.
+    std::string htok = g_weights_dir + "/tokenizer.htok";
+    std::ifstream f(htok, std::ios::binary);
+    if (f.good()) return htok;
     return g_weights_dir + "/tokenizer.json";
 }
 
@@ -417,7 +453,7 @@ int main(int argc, char** argv) {
         printf("  ⚠  Tokenizer not found at %s\n", tok_path.c_str());
         printf("     Using fallback tokenizer (ASCII passthrough)\n");
     } else {
-        printf("  ✓  Tokenizer loaded (%d tokens)\n", g_tokenizer.vocab_size);
+        printf("  ✓  Tokenizer loaded\n");
     }
 
     // ── Create BackendManager ──

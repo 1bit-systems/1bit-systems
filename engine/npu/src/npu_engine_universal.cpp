@@ -16,6 +16,11 @@
 #include <xrt/xrt_device.h>
 #include <xrt/xrt_bo.h>
 #include <xrt/xrt_kernel.h>
+#include <xrt/experimental/xrt_ext.h>
+#include <xrt/experimental/xrt_module.h>
+#include <xrt/experimental/xrt_elf.h>
+#include <aiebu/aiebu_assembler.h>
+#include <omp.h>
 #include "model_config.h"
 extern "C" float* dequant_i8_to_float_ex(const uint8_t*,int,int,int*,int*);
 static inline float bf16f(uint16_t v){uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}
@@ -76,7 +81,8 @@ static uint64_t jo(const char*js,size_t jl,const char*nm){size_t nl=strlen(nm);
             auto o=strstr(q,"\"data_offsets\"");if(o){auto a=strchr(o,'[');if(a)return strtoull(a+1,NULL,10);}}p=q+1;}return 0;}
 
 struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt::hw_context>hc;
-    std::unique_ptr<xrt::kernel>k;std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bI,bA,bC;
+    std::unique_ptr<xrt::module>mdl;std::unique_ptr<xrt::elf>elf;
+    std::unique_ptr<xrt::ext::kernel>k;std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bA,bC;
     std::vector<std::unique_ptr<xrt::bo>>layerB;int8_t*Am;int16_t*Cm;
     bool initialized=false;
     ~I8Ctx(){/* Am/Cm are mapped from bA/bC — destroyed by unique_ptr dtors */}
@@ -84,14 +90,23 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
     bool init(xrt::device&d,const char*xp,const char*ip,int gid_B,int nlayers){
         NL=nlayers;FILE*f=fopen(ip,"rb");if(!f)return false;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);
         ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);
-        xc=std::make_unique<xrt::xclbin>(std::string(xp));d.register_xclbin(*xc);
-        hc=std::make_unique<xrt::hw_context>(d,xc->get_uuid());k=std::make_unique<xrt::kernel>(*hc,"MLIR_AIE");
-        bI=std::make_unique<xrt::bo>(d,ins.size()*4,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));
-        memcpy(bI->map(),ins.data(),ins.size()*4);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        bA=std::make_unique<xrt::bo>(d,(size_t)MD*KD,XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));
-        bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*2,XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));
+        // Convert instructions to ELF module for extended kernel API
+        try{
+            std::vector<char> iraw((char*)ins.data(),(char*)ins.data()+ins.size()*sizeof(uint32_t));
+            aiebu::aiebu_assembler asmblr(aiebu::aiebu_assembler::buffer_type::blob_instr_transaction,iraw);
+            auto e=asmblr.get_elf();
+            xc=std::make_unique<xrt::xclbin>(std::string(xp));d.register_xclbin(*xc);
+            hc=std::make_unique<xrt::hw_context>(d,xc->get_uuid());
+            elf=std::make_unique<xrt::elf>(e.data(),e.size());
+        }catch(std::exception&ex){
+            fprintf(stderr,"  aiebu ELF gen failed: %s\n",ex.what());return false;}
+        mdl=std::make_unique<xrt::module>(*elf);
+        k=std::make_unique<xrt::ext::kernel>(*hc,*mdl,"MLIR_AIE");
+        // Create data BOs (instruction BO not needed — embedded in ELF)
+        bA=std::make_unique<xrt::bo>(d,(size_t)MD*KD,XRT_BO_FLAGS_HOST_ONLY,0);
+        bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*2,XRT_BO_FLAGS_HOST_ONLY,0);
         Am=(int8_t*)bA->map();Cm=(int16_t*)bC->map();
-        for(int l=0;l<NL;l++)layerB.emplace_back(std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B)));
+        for(int l=0;l<NL;l++)layerB.emplace_back(std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,0));
         initialized=true;return true;}
     void packB(int l,const float*w,int K,int N,float&sout){float amax=0;
         for(int i=0;i<K*N;i++){float a=fabsf(w[i]);if(std::isfinite(a)&&a>amax)amax=a;}
@@ -114,15 +129,17 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
         (void)l;
         bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
     }
-    // Launch kernel without sync (buffer must already be synced). Returns run handle.
+    // Launch kernel via extended module API (instructions embedded in ELF).
+    // Args: mode=3, ctrl=0, reserved=0, then data BOs: A, weights B, output C.
     inline xrt::run launch(int l){
-        return (*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[l],*bC);
+        return k->operator()(3,0,0,*bA,*layerB[l],*bC);
     }
     // Sync A to device and launch kernel. Returns run handle.
     inline xrt::run sync_and_launch(int l){
         bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        return (*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[l],*bC);
+        return k->operator()(3,0,0,*bA,*layerB[l],*bC);
     }
+
     // Wait for run, sync C back, and dequantize.
     inline void dequantize(xrt::run& r,float*C,int am,int an,float ascale,float Bscale){
         r.wait();

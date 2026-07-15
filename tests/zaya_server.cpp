@@ -13,6 +13,7 @@
 
 #include "backends/backend.h"
 #include "backends/token_router.h"
+#include "rocm_cpp/tokenizer.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -152,16 +153,64 @@ static std::string build_chatml(const std::string& body) {
 }
 
 struct SimpleTokenizer {
+    int bos_id = 2;
+    int eos_id = 106;
+    bool use_bpe = false;
+    rcpp_tokenizer_t* bpe_tok = nullptr;
+
+    ~SimpleTokenizer() { if (bpe_tok) rcpp_tokenizer_free(bpe_tok); }
+
+    bool load_htok(const std::string& path) {
+        rcpp_tokenizer_t* tok = nullptr;
+        rcpp_status_t st = rcpp_tokenizer_load(path.c_str(), &tok);
+        if (st == RCPP_OK && tok) {
+            bpe_tok = tok;
+            use_bpe = true;
+            bos_id = rcpp_tokenizer_bos_id(bpe_tok);
+            eos_id = rcpp_tokenizer_eos_id(bpe_tok);
+            fprintf(stderr, "  BPE tokenizer: BOS=%d EOS=%d\n", bos_id, eos_id);
+            return true;
+        }
+        return false;
+    }
+
     std::vector<int> encode(const std::string& text) {
-        std::vector<int> r = {2};
-        for (char c : text) if (c >= ' ' && c <= '~') r.push_back((unsigned char)c + 100);
+        if (use_bpe && bpe_tok) {
+            std::vector<int> r(4096);
+            size_t out_n = 0;
+            rcpp_status_t st = rcpp_tokenizer_encode(bpe_tok, text.c_str(), text.size(),
+                                                      1, r.data(), r.size(), &out_n);
+            if (st == RCPP_OK && out_n > 0) {
+                r.resize(out_n);
+                return r;
+            }
+            return {bos_id};
+        }
+        std::vector<int> r = {bos_id};
+        for (unsigned char c : text) {
+            if (c >= 32 && c <= 126) r.push_back((int)c + 100);
+            else if (c != 0) r.push_back((int)c + 200);
+        }
         return r;
     }
+
     std::string decode(const std::vector<int>& tokens) {
+        if (use_bpe && bpe_tok) {
+            std::string r(4096, '\0');
+            size_t out_len = 0;
+            rcpp_status_t st = rcpp_tokenizer_decode(bpe_tok, tokens.data(), tokens.size(),
+                                                      r.data(), r.size(), &out_len);
+            if (st == RCPP_OK && out_len > 0) {
+                r.resize(out_len);
+                return r;
+            }
+            return "";
+        }
         std::string r;
         for (int v : tokens) {
-            if (v == 2 || v == 106) continue;
+            if (v == bos_id || v == eos_id) continue;
             if (v > 100 && v < 200) r += (char)(v - 100);
+            else if (v > 200 && v < 456) r += (char)(v - 200);
             else { r += '['; r += std::to_string(v); r += ']'; }
         }
         return r;
@@ -382,7 +431,7 @@ int main(int argc, char** argv) {
             InferenceResult result = router.infer(tokens, max_tokens, use_strat);
             std::string text = tok.decode(result.tokens);
             std::string finish_reason = "stop";
-            if (!result.tokens.empty() && result.tokens.back() != 106 && (int)result.tokens.size() >= max_tokens)
+            if (!result.tokens.empty() && result.tokens.back() != tok.eos_id && (int)result.tokens.size() >= max_tokens)
                 finish_reason = "length";
 
             // Dynamic buffer -- no fixed-size limit (fixes #194: truncation of long output)
