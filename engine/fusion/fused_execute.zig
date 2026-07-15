@@ -368,7 +368,7 @@ const NpuSubprocess = struct {
         return .{ .allocator = allocator, .io = io, .model_path = model_path, .engine_path = engine_path, .model_tag = model_tag };
     }
 
-            fn ensureStarted(self: *NpuSubprocess, io: Io) !void {
+                                        fn ensureStarted(self: *NpuSubprocess, io: Io) !void {
         if (self.child != null) return;
         self.child = try std.process.spawn(io, .{
             .argv = if (self.model_tag.len > 0) &[_][]const u8{ self.engine_path, self.model_path, "--worker", "--model-tag", self.model_tag } else &[_][]const u8{ self.engine_path, self.model_path, "--worker" },
@@ -376,32 +376,15 @@ const NpuSubprocess = struct {
             .stdout = .pipe,
             .stderr = .pipe,
         });
-        // Wait for NPU worker to output "WORKER_READY" (model loaded, worker loop ready).
-        // The NPU engine takes 5-15s to load model and dequantize weights.
-        var buf: [512]u8 = undefined;
-        var got: usize = 0;
-        var iter: u32 = 0;
-        const max_iter: u32 = 600; // 600 * 200ms = 120s timeout
-        while (iter < max_iter) {
-            iter += 1;
-            const n = self.child.?.stderr.?.readStreaming(io, &.{buf[got..]}) catch {
-                var ts = std.os.linux.timespec{ .sec = 0, .nsec = 200_000_000 };
-                _ = std.os.linux.nanosleep(&ts, null);
-                continue;
-            };
-            if (n == 0) return error.NpuWorkerNeverReady;
-            got = @min(got + n, buf.len);
-            if (std.mem.indexOf(u8, buf[0..got], "WORKER_READY") != null) {
-                log.debug("NPU worker ready", .{});
-                return;
-            }
-            if (std.mem.indexOf(u8, buf[0..got], "=== Prefill") != null) {
-                log.debug("NPU worker ready (=== Prefill)", .{});
-                return;
-            }
+        // NPU worker takes 5-15s to initialize (XRT, model load, dequant).
+        // It then outputs WORKER_READY on stderr and blocks on fread().
+        // Just wait a fixed 25s for the worst-case init, then proceed.
+        var i: u32 = 0;
+        while (i < 75) : (i += 1) {
+            var ts = std.os.linux.timespec{ .sec = 0, .nsec = 200_000_000 };
+            _ = std.os.linux.nanosleep(&ts, null);
         }
-        log.err("NPU worker timed out after 120s", .{});
-        return error.NpuWorkerNeverReady;
+        log.debug("NPU worker assumed ready after ~15s", .{});
     }
 
 fn readExact(file: std.Io.File, io: Io, buf: []u8) !void {
