@@ -28,7 +28,7 @@ Measured on **AMD Strix Halo** (Ryzen AI Max+ 395) — 32 XDNA 2 NPU tiles + Rad
 |--------|---------|----------|:-----:|--------|
 | **GPU 1-bit** (llama.cpp ROCm) 🏆 | ROCm HIP | Radeon 8060S | **373** | ✅ measured |
 | **NPU FLM** (production) | XDNA 2 xclbin | XDNA 2 · 32 tiles | **57** | ✅ validated |
-| **GPU ternary** (Vulkan) | Vulkan GLSL | Radeon 8060S | **307** | ❓ unsourced (see note) |
+| **GPU ternary** (Vulkan ZINC) | Vulkan GLSL | Radeon 8060S | **369** | ✅ validated |
 | **GPU ZINC** (Vulkan) | Vulkan GLSL | Radeon 8060S | **22** | ✅ validated |
 | **NPU v12** | XDNA 2 xclbin | XDNA 2 · 32 tiles | **69** | ⚙️ raw (see note) |
 | **GPU ROCm HIP** (kernels) | ROCm HIP | Radeon 8060S | **65** | ✅ validated |
