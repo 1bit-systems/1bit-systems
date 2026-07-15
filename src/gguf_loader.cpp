@@ -174,7 +174,9 @@ struct GgufReader {
                 uint32_t v; f.read(reinterpret_cast<char*>(&v), 4); kv_uint32[key] = v;
             } else if (vt == 8) { // string
                 kv_string[key] = read_string();
-            } else if (vt == 5) { // array
+            } else if (vt == 5) { // int32 (4 bytes)
+                int32_t v; f.read(reinterpret_cast<char*>(&v), 4); kv_uint32[key] = (uint32_t)v;
+            } else if (vt == 9) { // array
                 uint32_t at; f.read(reinterpret_cast<char*>(&at), 4);
                 uint64_t an;
                 if (version >= 3) { f.read(reinterpret_cast<char*>(&an), 8); }
