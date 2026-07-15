@@ -1,51 +1,18 @@
-// backend.h — Universal backend abstraction for inference
+// backend.h — Canonical backend interface
 //
-// This is the CANONICAL backend interface. The tests/backends/backend.h
-// (InferenceBackend) is a separate parallel interface that should eventually
-// be unified with this one (see TODO in that file).
+// Uses the canonical BackendType and ModelConfig from include/common.h.
+// This is the CANONICAL backend interface used by BackendManager.
+// The simplified InferenceBackend (tests/ version) is a parallel interface
+// that shares the same types via include/common.h.
 //
 // Each backend implements: init, forward, lm_head, generate, benchmark, destroy
-// Auto-detected and selected at runtime by BackendManager.
 
 #pragma once
-#include <cstdint>
+#include "../include/common.h"
 #include <string>
 #include <vector>
 
-// ── Common types ──
-struct ModelConfig {
-    int hidden = 2048;
-    int n_heads = 8;
-    int n_kv_heads = 2;
-    int head_dim = 128;
-    int n_layers = 40;
-    int n_experts = 16;
-    int n_ff = 2048;
-    int vocab = 262272;
-    int router_hidden = 256;
-    int qkv_dim = 1280;  // QD + KD = 1024 + 256
-};
-
-// ── Backend type ──
-enum class BackendType : uint8_t {
-    NONE = 0,
-    HIP_GPU = 1,      // AMD ROCm GPU via HIP
-    VULKAN = 2,       // Any Vulkan 1.2+ GPU (AMD, NVIDIA, Intel, Apple)
-    NPU_XRT = 3,      // AMD XDNA NPU via XRT
-    CPU_AVX512 = 4,   // CPU with AVX-512
-    CPU_SCALAR = 5,   // CPU fallback (any x86)
-};
-
-inline const char* backend_name(BackendType t) {
-    switch(t) {
-        case BackendType::HIP_GPU: return "HIP GPU (ROCm)";
-        case BackendType::VULKAN: return "Vulkan GPU (portable)";
-        case BackendType::NPU_XRT: return "NPU XDNA (XRT)";
-        case BackendType::CPU_AVX512: return "CPU AVX-512";
-        case BackendType::CPU_SCALAR: return "CPU (scalar)";
-        default: return "none";
-    }
-}
+// BackendType and ModelConfig are defined in include/common.h
 
 // ── Backend interface ──
 // All backends must implement this. Ops return true on success.

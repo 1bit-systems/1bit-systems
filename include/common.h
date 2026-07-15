@@ -1,0 +1,68 @@
+// common.h — Shared types for both backend interfaces
+// Included by both tests/backends/backend.h and src/backend.h
+// This is the canonical definition of BackendType and ModelConfig.
+#pragma once
+#include <cstdint>
+#include <string>
+#include <vector>
+
+// ── Backend type ──
+// Single source of truth for all backend type values.
+// Tests/ and src/ both include this header.
+enum class BackendType : uint8_t {
+    NONE = 0,
+    HIP_GPU = 1,      // AMD ROCm GPU via HIP
+    HIP = 1,          // Alias
+    VULKAN = 2,       // Any Vulkan 1.2+ GPU
+    Vulkan = 2,       // Alias
+    NPU_XRT = 3,      // AMD XDNA NPU via XRT
+    NPU = 3,          // Alias
+    CPU_AVX512 = 4,   // CPU with AVX-512
+    CPU = 4,          // Alias
+    CPU_SCALAR = 5,   // CPU fallback (any x86)
+};
+
+inline const char* backend_name(BackendType t) {
+    switch(t) {
+        case BackendType::HIP_GPU: return "HIP GPU (ROCm)";
+        case BackendType::VULKAN: return "Vulkan GPU (portable)";
+        case BackendType::NPU_XRT: return "NPU XDNA (XRT)";
+        case BackendType::CPU_AVX512: return "CPU AVX-512";
+        case BackendType::CPU_SCALAR: return "CPU (scalar)";
+        default: return "none";
+    }
+}
+
+// ── Model configuration ──
+// Contains ALL fields needed by both backend interfaces.
+// Canonical short names are the primary fields; compatibility
+// long names are aliases that are always kept in sync.
+struct ModelConfig {
+    // Primary fields (src/ backends)
+    int hidden            = 2048;
+    int n_heads           = 8;
+    int n_kv_heads        = 2;
+    int head_dim          = 128;
+    int n_layers          = 40;
+    int n_experts         = 16;
+    int n_ff              = 2048;
+    int vocab             = 262272;
+    int router_hidden     = 256;
+    int qkv_dim           = 1280;
+
+    // Compatibility fields (tests/ backends) — same values as above
+    int hidden_size       = 2048;
+    int num_heads         = 8;
+    int num_kv_heads      = 2;
+    int num_layers        = 40;
+    int vocab_size        = 262272;
+    int intermediate_size = 2048;
+    int num_experts_alias = 16;
+    int num_experts_top   = 17;
+    int max_seq_len       = 2048;
+    float rope_theta      = 500000.0f;
+    float rms_norm_eps    = 1e-5f;
+    std::string model_name = "unknown";
+    std::string model_path;
+    std::string weights_dir;
+};

@@ -1,49 +1,18 @@
 // backend.h — Inference backend interface (tests/ version)
 //
-// NOTE: This is a SIMPLIFIED interface for zaya_server and test backends.
-// The CANONICAL backend interface lives in src/backend.h (struct Backend).
-// This file is NOT merged with src/backend.h due to conflicting function
-// signatures (detect_backends() returns different types).
+// Uses the canonical BackendType and ModelConfig from include/common.h.
+// This file provides the simplified InferenceBackend interface used by
+// zaya_server. The canonical src::Backend interface is in src/backend.h.
 //
 // Key difference:
 //   InferenceBackend::forward() = fuse forward+lm_head -> returns token_id
-//   src::Backend::forward()     = returns hidden state, separate lm_head()+generate()
+//   src::Backend::forward()     = returns hidden state, separate lm_head+generate
 //
-// BackendType values MUST match src/backend.h (verified by static_assert below).
-// TODO(#unify): reconcile detect_backends() signatures
 #pragma once
+#include "../../include/common.h"
 #include <vector>
 #include <string>
 #include <cstdio>
-#include <cstdint>
-
-// ── Backend type ──
-// Values MUST match src/backend.h (HIP_GPU=1, VULKAN=2, NPU_XRT=3, CPU_AVX512=4).
-enum class BackendType : uint8_t {
-    HIP = 1,        // AMD ROCm GPU via HIP (canonical: HIP_GPU)
-    Vulkan = 2,     // Any Vulkan 1.2+ GPU (canonical: VULKAN)
-    NPU = 3,        // AMD XDNA NPU via XRT (canonical: NPU_XRT)
-    CPU = 4,        // CPU with AVX-512 (canonical: CPU_AVX512)
-};
-
-struct ModelConfig {
-    int hidden_size       = 2048;
-    int num_heads         = 16;
-    int num_kv_heads      = 2;
-    int head_dim          = 128;
-    int num_layers        = 40;
-    int vocab_size        = 262272;
-    int intermediate_size = 2048;
-    int num_experts       = 16;
-    int num_experts_top   = 17;
-    int router_hidden     = 256;
-    float rope_theta      = 500000.0f;
-    float rms_norm_eps    = 1e-5f;
-    int max_seq_len       = 2048;
-    std::string model_name = "unknown";
-    std::string model_path;
-    std::string weights_dir;
-};
 
 struct InferenceResult {
     std::vector<int> tokens;
