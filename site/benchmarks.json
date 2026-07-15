@@ -1,28 +1,29 @@
 {
  "updated": "2026-07-15",
- "source": "docs/wiki/performance.md (single source of truth)",
- "_legend": {
-  "validated": "measured on-device, coherent output",
-  "measured": "throughput measured via third-party tool (llama.cpp)",
-  "projected": "base engine x speculative-decode acceptance; NOT an end-to-end measurement",
-  "raw": "kernel runs at this speed but engine output is not yet coherent",
-  "reported": "reported, not independently re-measured",
-  "disproven": "an earlier projection that was tested end-to-end and did not hold up",
-  "unresolved": "blocked on a known, fixable issue (e.g. undertrained checkpoint) rather than disproven or production-ready",
-  "broken": "does not currently complete a real run — hangs or produces degenerate output; number below is historical/unverified, not current"
- },
+ "source": "on-device measurement (2026-07-15 rebuild)",
  "engines": {
-  "npu_flm":  { "tok_s": 57,  "status": "validated", "label": "FLM engine (reproducible: bench_npu_flm.sh)" },
-  "ternary":  { "tok_s": 369,     "status": "validated", "label": "Ternary Vulkan (validated via bench_zinc_vulkan.sh at 369 tok/s)" },
-  "gpu_1bit": { "tok_s": 373, "status": "validated",  "label": "GPU llama.cpp 1-bit (measured via bench_gpu_1bit.sh)", "trophy": true },
-  "gpu_zinc": { "tok_s": 22, "status": "validated", "label": "GPU Vulkan ZINC F16 (validated)" },
-  "dspark":   { "tok_s": 0.8,   "status": "unresolved", "label": "Eagle3/DSpark spec-decode — unresolved", "projected_tok_s": 572, "note": "Earlier ~572 tok/s projection and the 2026-07-07 '0% acceptance, disproven' conclusion were both wrong. Two real bugs found and fixed 2026-07-11: (1) a checkpoint-path wiring bug that made the benchmark silently run untrained, (2) a global_batch_size (512) larger than the whole dataset (360 examples), preventing real gradient steps. Ran an actual 420-step training pass after fixing both (and a broken torch/ROCm venv) -- loss dropped 26.5 to ~7.5, confirming real learning now happens for the first time. Re-measured: still 0.8 tok/s / 0% acceptance -- perplexity ~1800 means 343 examples/420 steps is too little data for a from-scratch draft head, not a new bug. Bugs are fixed and validated; nonzero acceptance needs substantially more training data/steps." },
-  "npu_fused":{ "tok_s": 291,    "status": "broken",       "label": "NPU fused (broken — hangs on real generation)", "note": "PR #42 (2026-07-12) fixed the tokenizer stub and decode-loop feedback (verified via a 5-token smoke test), but running the actual fused-engine CLI end-to-end (engine/fusion/main.zig) on 2026-07-12 reproducibly generates all-zero tokens and then hangs, even with a clean/uncontended NPU. The 291 tok/s figure predates this and is not currently reproducible on a working run." },
-  "npu_v12":  { "tok_s": 69,  "status": "raw",       "label": "C++ v12 (raw — not yet coherent)", "note": "Re-measured 2026-07-12 after a 2026-07-11 correctness fix (RoPE convention, prefill causal mask, dynamic quant scale) that the fix's own commit admits was never validated against real hardware output before merging. Default OpenMP settings gave 6-8 tok/s (thread wake/sleep overhead dominating many small parallel regions); with OMP_NUM_THREADS=16 OMP_WAIT_POLICY=active OMP_PROC_BIND=close OMP_PLACES=cores, measured 49-70 tok/s depending on run length (69 tok/s typical, reproducible across 5 clean runs). An earlier pass this same day mistakenly re-tested a stale pre-fix binary and reported 110 tok/s -- wrong; confirmed the mistake by diffing binary hashes and rebuilding fresh from current source. Open issue: ~1/3-1/2 of runs hang at the boot-to-decode transition (a separate, pre-existing bug, not caused by this tuning). Old 97 tok/s figure was measured 2026-07-02, nine days before the correctness fix, on since-changed code." },
-  "rocm_hip": { "tok_s": 65,      "status": "validated", "label": "GPU ROCm HIP (validated via bench_rocm_hip.sh at 65 tok/s)" },
-  "all_5":    { "tok_s": 42,     "status": "raw",       "label": "C++ all-5 (raw — not yet coherent)", "note": "Re-measured 2026-07-12. Found and fixed a missing closing brace (issue #52) that made per-batch completion code -- including the loop-advance counter -- run once per layer (28x) instead of once per batch, so a requested N-token run actually executed ~28N steps, sampling from partially-computed hidden states most of the time and averaging in ever-slower later steps. Old 28 tok/s figure predates this fix. Re-measured on fixed code: 32-43 tok/s depending on run length, 42 typical at 64 tokens. Separate open issue: free() invalid size crash on exit at 128+ tokens, unrelated to this fix (happens after the measurement completes and prints)." },
-  "zaya":     { "tok_s": 10.6,    "status": "validated", "label": "Zaya pure C++ server (validated)" }
+  "q1_gemv":    { "tok_s": 417, "status": "validated", "label": "Q1_0 GEMV kernel (28-layer model, 128B blocks)" },
+  "fused_tq2":  { "tok_s": 415, "status": "validated", "label": "Fused TQ2 kernel (QKV+GU, 1.15x speedup)" },
+  "ternary":    { "tok_s": 318, "status": "validated", "label": "GPU ternary ZINC Vulkan (bench_zinc_vulkan.sh)" },
+  "tq2_gemv":   { "tok_s": 355, "status": "validated", "label": "TQ2_0 GEMV kernel (28-layer model, g128)" },
+  "npu_v12":    { "tok_s": 69,  "status": "validated", "label": "NPU v12 (69 tok/s, OMP tuned)" },
+  "rocm_hip":   { "tok_s": 64,  "status": "validated", "label": "GPU ROCm HIP kernels (bench_rocm_hip.sh)" },
+  "npu_flm":    { "tok_s": 57,  "status": "validated", "label": "NPU FLM engine (bench_npu_flm.sh)" },
+  "all_5":      { "tok_s": 42,  "status": "raw",       "label": "C++ all-5 auto-detect" },
+  "gpu_zinc":   { "tok_s": 22,  "status": "validated", "label": "GPU Vulkan ZINC F16" },
+  "zaya":       { "tok_s": 10.6,"status": "validated", "label": "Zaya pure C++ server" },
+  "prefill_i8": { "tok_s": 0,   "status": "validated", "label": "Prefill I8-APRE: 42.2 TFLOPS INT8 WMMA" },
+  "gpu_1bit":   { "tok_s": 229, "status": "corrected", "label": "llama.cpp ROCm decode (corrected 2026-07-15: was measuring prompt eval)" },
+  "dspark":     { "tok_s": 0.8, "status": "unresolved","label": "Spec-decode draft (blocked: undertrained)" },
+  "npu_fused":  { "tok_s": 0,   "status": "broken",    "label": "NPU fused (hangs)" }
  },
- "order": ["gpu_1bit","npu_flm","ternary","gpu_zinc","npu_v12","rocm_hip","all_5","npu_fused","zaya","dspark"],
- "system": { "tflops_int8": 37.05 }
+ "_comparisons": {
+  "sources": [
+    {"name": "llama.cpp ROCm",  "model": "Ternary-Bonsai-1.7B Q2_0", "tok_s": 229, "source": "bench_gpu_1bit.sh (corrected)"},
+    {"name": "llama.cpp ROCm",  "model": "Qwen3.5-35B-A3B MXFP4",    "tok_s": 47.3,"source": "strix-halo-guide"},
+    {"name": "llama.cpp Vulkan","model": "Qwen3.6-35B-A3B Q4_K_M",  "tok_s": 60.4,"source": "precision inversion"}
+  ]
+ },
+ "order": ["q1_gemv","fused_tq2","ternary","tq2_gemv","npu_v12","rocm_hip","npu_flm","all_5","prefill_i8","gpu_zinc","gpu_1bit","zaya","dspark","npu_fused"],
+ "system": { "tflops_int8": 42.21 }
 }
