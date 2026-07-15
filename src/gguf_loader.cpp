@@ -337,15 +337,13 @@ struct GgufReader {
             
             f.read(reinterpret_cast<char*>(block_data.data()), block_bytes);
             
-            if (ti.dtype == GGUF_TYPE_Q8_0) {
-                // Q8_0: [fp16 scale, int8[32]]
+            if (ti.dtype == 6 || ti.dtype == GGUF_TYPE_Q8_0) { // Q8_0
                 __half scale_h;
                 memcpy(&scale_h, block_data.data(), 2);
                 float scale = (float)scale_h;
                 int8_t* q = (int8_t*)(block_data.data() + 2);
                 for (uint64_t i = 0; i < count; ++i) out[start + i] = q[i] * scale;
-            } else if (ti.dtype == GGUF_TYPE_Q4_0) {
-                // Q4_0: [fp16 scale, uint8[16]]
+            } else if (ti.dtype == GGUF_TYPE_Q4_0) { // Q4_0
                 __half scale_h;
                 memcpy(&scale_h, block_data.data(), 2);
                 float scale = (float)scale_h;
@@ -354,8 +352,34 @@ struct GgufReader {
                     int8_t nib = (i & 1) ? (q[i >> 1] & 0x0F) : (q[i >> 1] >> 4);
                     out[start + i] = (nib - 8) * scale;
                 }
-            } else {
-                // Fallback: zero-init for unsupported quant types
+            } else if (ti.dtype == 8) { // Q5_1
+                __half d_h, m_h;
+                memcpy(&d_h, block_data.data(), 2);
+                memcpy(&m_h, block_data.data() + 2, 2);
+                float d = (float)d_h, m = (float)m_h;
+                for (uint64_t i = 0; i < count && i < 32; ++i) {
+                    int low = (block_data[4 + i/2] >> (4 * (i & 1))) & 0x0F;
+                    int high = (block_data[20 + i/8] >> (i & 7)) & 1;
+                    out[start + i] = ((low | (high << 4)) * d) + m;
+                }
+            } else if (ti.dtype == 12) { // Q5_K
+                uint16_t d16; memcpy(&d16, block_data.data() + 160, 2);
+                __half d_h; memcpy(&d_h, &d16, 2); float d = (float)d_h;
+                int16_t m16; memcpy(&m16, block_data.data() + 162, 2);
+                float m = (float)m16;
+                for (uint64_t i = 0; i < count && i < 256; ++i) {
+                    int low = (block_data[12 + i/2] >> (4 * (i & 1))) & 0x0F;
+                    int high = (block_data[140 + i/8] >> (i & 7)) & 1;
+                    out[start + i] = ((low | (high << 4)) * d) + m;
+                }
+            } else if (ti.dtype == 14) { // Q8_K
+                __half d_h; memcpy(&d_h, block_data.data() + 12, 2);
+                float d = (float)d_h;
+                int8_t* q = (int8_t*)(block_data.data() + 14);
+                for (uint64_t i = 0; i < count && i < 256; ++i) {
+                    out[start + i] = q[i] * d;
+                }
+            } else {                // Fallback: zero-init for unsupported quant types
                 fprintf(stderr, "[gguf] %s: dtype %u not directly supported, zero-filling\\n", name.c_str(), ti.dtype);
                 for (uint64_t i = 0; i < count; ++i) out[start + i] = 0;
             }
@@ -464,10 +488,11 @@ rcpp_status_t rcpp_bitnet_load_gguf(const char* path, rcpp_bitnet_model_t* out_m
         if (!reader.read_tensor("token_embd.weight", emb) && !reader.read_tensor("model.embed_tokens.weight", emb)) {
             RC_FAIL("missing embedding tensor");
         }
-        if (emb.size() != (size_t)vocab_size * hidden_size) {
-            fprintf(stderr, "[gguf] emb size mismatch: %zu vs %d\\n", emb.size(), vocab_size * hidden_size);
-            // Resize if needed
-            emb.resize((size_t)vocab_size * hidden_size, 0);
+        // Derive vocab_size from embedding tensor shape (most reliable)
+        if (vocab_size <= 0 || (size_t)vocab_size * hidden_size != emb.size()) {
+            vocab_size = (int)(emb.size() / hidden_size);
+            out_model->vocab_size = vocab_size;
+            fprintf(stderr, "[gguf]  vocab_size from embedding: %d\n", vocab_size);
         }
         std::vector<_Float16> emb_f16(emb.size());
         for (size_t i = 0; i < emb.size(); ++i) emb_f16[i] = (_Float16)emb[i];
