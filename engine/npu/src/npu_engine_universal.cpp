@@ -501,7 +501,13 @@ int main(int argc,char**argv){
                 memcpy(&kv_caches[l].k[(sp+pi)*NKV*HD+kvh*HD],ks,HD*4);memcpy(&kv_caches[l].v[(sp+pi)*NKV*HD+kvh*HD],vs,HD*4);}}
         kv_caches[l].n=sp+npt;int cl=kv_caches[l].n;
         // Causal attention: token pi attends only to positions [0, sp+pi]
-        for(int pi=0;pi<npt;pi++){fprintf(stderr,"a");fflush(stderr);attn_omp(&qo_b[pi*qkv_n],&at_b[pi*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA,sp+pi+1);}
+        // Batched attention: parallelize across prefill tokens with OpenMP.
+        // Each token's attention is independent (causal: token pi attends to [0, sp+pi]).
+        #pragma omp parallel for
+        for(int pi=0;pi<npt;pi++){
+            if (omp_get_thread_num() == 0) { fprintf(stderr,"a"); fflush(stderr); }
+            attn_omp(&qo_b[pi*qkv_n],&at_b[pi*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA,sp+pi+1);
+        }
         // Phase 3: Launch O + GU in parallel on NPU
         int mlp_out=cfg.gu_split?IM:2*IM;
         float o_ascale=dynamic_ascale(at_b.data(),npt*NH*HD);
