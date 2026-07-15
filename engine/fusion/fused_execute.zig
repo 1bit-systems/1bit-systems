@@ -1510,51 +1510,61 @@ pub const FusedExecutor = struct {
         _ = output_hidden;
         const H = self.config.hidden_dim;
         const s = self.scratch;
+        @memcpy(s.residual[0..batch_size * H], s.hidden[0..batch_size * H]);
+
         const NH = self.config.n_heads;
         const NKV = self.config.n_kv_heads;
         const HD = self.config.head_dim;
         const GQA = self.config.gqa_ratio;
         const dispatch = self.getLayerDispatch(layer);
-
-        @memcpy(s.residual[0..batch_size * H], s.hidden[0..batch_size * H]);
-
-        const QKV = NH * HD + 2 * NKV * HD;
         const pos = self.kv.position;
+
+        // RoPE, QK norm, KV cache write
+        const QKV = NH * HD + 2 * NKV * HD;
         for (0..batch_size) |b| {
-            var qkv = qkv_scratch[b * QKV ..][0..QKV];
+            var qkv_slice: []f32 = qkv_scratch[b * QKV ..][0..QKV];
+            // Q head loop
             for (0..NH) |hh| {
-                var qh = qkv[hh * HD ..][0..HD];
+                var qh_buf: [256]f32 = undefined;
+                for (0..HD) |di| qh_buf[di] = qkv_slice[hh * HD + di];
                 var sq: f64 = 0;
-                for (qh) |v| sq += @as(f64, @floatCast(v)) * @as(f64, @floatCast(v));
+                for (0..HD) |di| sq += @as(f64, @floatCast(qh_buf[di])) * @as(f64, @floatCast(qh_buf[di]));
                 const iq = 1.0 / @sqrt(@as(f32, @floatCast(sq / @as(f64, @floatFromInt(HD)))) + 1e-6);
-                if (layer < self.q_norm.len and self.q_norm[layer].len >= HD)
-                    for (0..HD) |d| qh[d] = qh[d] * iq * self.q_norm[layer][d];
-                self.applyRoPE(qh, pos + @as(u32, @intCast(b)), HD);
+                if (layer < self.q_norm.len and self.q_norm[layer].len >= HD) {
+                    for (0..HD) |di| {
+                        qh_buf[di] = qh_buf[di] * iq * self.q_norm[layer][di];
+                    }
+                }
+                self.applyRoPE(qh_buf[0..HD], pos + @as(u32, @intCast(b)), HD);
+                // Write back modified Q
+                for (0..HD) |di| qkv_slice[hh * HD + di] = qh_buf[di];
             }
+            // K head loop
             for (0..NKV) |kvh| {
-                var ks = qkv[NH * HD + kvh * HD ..][0..HD];
+                var ks_buf: [256]f32 = undefined;
+                for (0..HD) |di| ks_buf[di] = qkv_slice[NH * HD + kvh * HD + di];
                 var sk: f64 = 0;
-                for (ks) |v| sk += @as(f64, @floatCast(v)) * @as(f64, @floatCast(v));
+                for (0..HD) |di| sk += @as(f64, @floatCast(ks_buf[di])) * @as(f64, @floatCast(ks_buf[di]));
                 const ik = 1.0 / @sqrt(@as(f32, @floatCast(sk / @as(f64, @floatFromInt(HD)))) + 1e-6);
                 if (layer < self.k_norm.len and self.k_norm[layer].len >= HD) {
-                    var ks2 = ks;
-                    for (0..HD) |d| ks2[d] = ks2[d] * ik * self.k_norm[layer][d];
-                    ks = ks2;
+                    for (0..HD) |di| {
+                        ks_buf[di] = ks_buf[di] * ik * self.k_norm[layer][di];
+                    }
                 }
-                var ks_mut = ks;
-                self.applyRoPE(ks_mut, pos + @as(u32, @intCast(b)), HD);
+                self.applyRoPE(ks_buf[0..HD], pos + @as(u32, @intCast(b)), HD);
                 const dst = (pos + @as(u32, @intCast(b))) * NKV * HD + kvh * HD;
-                for (0..HD) |d| self.kv.k_cache[layer][dst + d] = ks[d];
+                for (0..HD) |di| self.kv.k_cache[layer][dst + di] = ks_buf[di];
+                // Write back modified K to qkv_slice (so O proj sees post-RoPE K)
+                for (0..HD) |di| qkv_slice[NH * HD + kvh * HD + di] = ks_buf[di];
             }
+            // V copy
             for (0..NKV) |kvh| {
-                const vs_copy = qkv[NH * HD + NKV * HD + kvh * HD ..][0..HD];
-                var vs = vs_copy;
                 const dst = (pos + @as(u32, @intCast(b))) * NKV * HD + kvh * HD;
-                for (0..HD) |d| self.kv.v_cache[layer][dst + d] = vs[d];
+                for (0..HD) |di| self.kv.v_cache[layer][dst + di] = qkv_slice[NH * HD + NKV * HD + kvh * HD + di];
             }
         }
 
-        // Attention
+        // Flash attention (GPU or CPU)
         const QKV2 = NH * HD + 2 * NKV * HD;
         const seq_len = self.kv.position + batch_size;
         if (dispatch.attention == .gpu) {
@@ -1565,6 +1575,7 @@ pub const FusedExecutor = struct {
                     gpu.flashAttention(q_slice, self.kv.k_cache[layer], self.kv.v_cache[layer],
                         &.{}, out_slice, &([_]f32{std.math.nan(f32)} ** 12),
                         NH, NKV, HD, seq_len, 0, 0.0, 0) catch |err| {
+                        log.warn("GPU attn layer {d} failed: {s}", .{layer, @errorName(err)});
                         self.cpuAttention(q_slice, out_slice, layer, seq_len, NH, NKV, HD, GQA);
                     };
                 }
@@ -1584,12 +1595,14 @@ pub const FusedExecutor = struct {
         // O projection
         if ((dispatch.attention == .cpu or dispatch.attention == .gpu) and layer < self.cpu_weights.o.len) {
             for (0..batch_size) |b| {
-                cpuGemv(self.cpu_weights.o[layer], s.attn_out[b * NH * HD ..][0..NH * HD], s.o_out[b * H ..][0..H], H, NH * HD);
+                cpuGemv(self.cpu_weights.o[layer], s.attn_out[b * NH * HD ..][0..NH * HD],
+                    s.o_out[b * H ..][0..H], H, NH * HD);
             }
         } else if (dispatch.attention == .npu) {
             self.npu.runOProj(s.attn_out[0..batch_size * NH * HD], layer, batch_size, s.o_out[0..batch_size * H]) catch {};
         }
 
+        // Residual add (attention only, no FFN)
         for (0..batch_size * H) |i| s.hidden[i] = s.residual[i] + s.o_out[i];
     }
 
