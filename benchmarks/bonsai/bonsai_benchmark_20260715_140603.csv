@@ -1,0 +1,1366 @@
+model,params,quant,backend,category,question,correct_answer,response,is_correct,gen_tps,prompt_tps,tokens_out,wall_time,error
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),General Knowledge,What is the capital of France?,Paris,"The capital of France is **Paris**. It is also known as the ""City of Light"" and serves as the political, economic, and cultural center of the country.",True,237.6,695.5,36,1.431,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),General Knowledge,Who wrote Romeo and Juliet?,William Shakespeare,"*Romeo and Juliet* was written by **William Shakespeare**, an English playwright, poet, and actor. It is one of the most famous works in English literature and has been performed for centuries.
+
+The play is set in Verona, Italy, during a time of political conflict between the Montagues and the Capulets. It explores themes such as love, jealousy, family, and fate. The story follows two young lovers whose families are locked in a feud that leads to their deaths.
+
+Shakespeare wrote this play in the early 16th century, and it was first performed in 1597. It is",True,237.3,1347.6,128,0.711,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),General Knowledge,What is the largest planet in our solar system?,Jupiter,"The largest planet in our solar system is **Jupiter**. 
+
+- **Size**: Jupiter is approximately 14 times the diameter of Earth.
+- **Mass**: It is about 308 times the mass of Earth.
+- **Orbit**: Jupiter is the most massive planet and has the longest orbital period among the planets, making it one of the slowest to rotate.
+
+Other large planets include:
+- **Saturn** (diameter ~9.5 times Earth's)
+- **Uranus** (diameter ~2.8 times Earth's)
+- **Neptune** (diameter ~1.4",True,237.7,1250.3,128,0.709,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),General Knowledge,What year did World War II end?,1945,"World War II ended in **1945**, which was the first day of the atomic bombing of Hiroshima and the second day of the atomic bombing of Nagasaki. The war officially ended on August 6, 1945, when the United States dropped an atomic bomb on the city of Hiroshima, followed by a second bomb on the city of Nagasaki on August 9, 1945.
+
+The end of World War II was also marked by the **D-Day invasion** in June 1944, which led to the liberation of Normandy and the beginning of the Allied campaign against Nazi",True,238.0,1904.2,128,0.7,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),General Knowledge,What is the chemical symbol for gold?,Au,"The chemical symbol for gold is **Au**. 
+
+Gold is a metal with the atomic number 79 and is commonly represented by the symbol **Au** in chemical notation. It has a malleable, ductile, and malleable luster, making it highly valuable in jewelry and industry.",True,238.5,1935.4,63,0.425,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Mathematics,What is 15 × 7?,105,"To find the product of 15 and 7, we can use the standard multiplication method:
+
+$$
+15 \times 7 = (10 + 5) \times 7 = 10 \times 7 + 5 \times 7
+$$
+
+Now calculate each part:
+
+- $10 \times 7 = 70$
+- $5 \times 7 = 35$
+
+Add them together:
+
+$$
+70 + 35 = 105
+$$
+
+### Final Answer:
+**15 × 7 = 105**",True,239.6,2001.3,125,0.684,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Mathematics,What is 144 divided by 12?,12,"To find the result of dividing 144 by 12, we perform the following calculation:
+
+$$
+\frac{144}{12} = 12
+$$
+
+So, the answer is **12**.",True,238.0,1364.6,51,0.389,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Mathematics,What is the square root of 81?,9,"The square root of 81 is **9**.
+
+This is because:
+
+$$
+9 \times 9 = 81
+$$
+
+So, the square root of 81 is **9**.",True,241.1,1254.2,45,0.349,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Mathematics,"If x + 5 = 12, what is x?",7,"We are given the equation:
+
+$$
+x + 5 = 12
+$$
+
+To solve for $ x $, we need to isolate it on one side of the equation.
+
+### Step 1: Subtract 5 from both sides
+
+$$
+x + 5 - 5 = 12 - 5
+$$
+
+Simplify:
+
+$$
+x = 7
+$$
+
+### ✅ Final Answer:
+$$
+\boxed{7}
+$$",True,239.6,1469.5,96,0.563,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Mathematics,What is 25% of 200?,50,"To find **25% of 200**, we can use the formula:
+
+$$
+\text{Percentage} = \frac{\text{Part}}{\text{Whole}} \times 100
+$$
+
+Here,  
+- Percentage = 25%  
+- Part = 200 (the number we want to find 25% of)  
+- Whole = 100 (to convert the percentage to a decimal)
+
+So:
+
+$$
+25\% \times 200 = \frac{200}{100} \times 25 = ",False,239.3,1360.5,128,0.696,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Coding,"In Python, how do you print 'Hello, World!'?",print(,"To print `'Hello, World!'` in Python, you can use the `print()` function. Here's a simple example:
+
+```python
+print('Hello, World!')
+```
+
+### Explanation:
+- The `print()` function is used to output text.
+- `'Hello, World!'` is a string literal that contains the desired message.
+- You can also pass parameters to `print()` if you want to format the output.
+
+### Example with Different Parameters:
+```python
+print('Hello, World!', 'Python', 123)
+```
+
+This will print:
+```
+Hello, World!
+Python
+123
+",True,238.0,1419.1,128,0.7,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Coding,What does the len() function do in Python?,returns the length,"The `len()` function in Python is used to **get the length of an object**. It returns the number of elements that are present in the object, or the count of characters if it's a string.
+
+### What it does:
+- For **strings**: Returns the number of characters in the string.
+- For **lists, tuples, dictionaries**, and other iterable objects: Returns the number of items in the object.
+- It also works for **other types** like sets, but not as effectively as strings or lists.
+
+---
+
+## Example
+
+```python
+# String example
+s = ""Hello""
+print(len(s))  #",True,238.2,1252.8,128,0.699,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Coding,What keyword is used to define a function in Python?,def,"In Python, the keyword used to define a function is **`def`**.
+
+Here's an example:
+
+```python
+def greet(name):
+    print(f""Hello, {name}!"")
+```
+
+This line defines a function named `greet` that takes one parameter called `name`, and prints a greeting.",True,238.8,1301.0,65,0.431,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Coding,What data structure uses key-value pairs in Python?,dict,"In Python, the data structure that uses **key-value pairs** is the **dictionary**, which is a built-in data type.
+
+### Key Features of Dictionaries:
+- Each element is a **pair** (key-value pair).
+- Keys can be **hashable** (e.g., strings, numbers, tuples) and **unique**.
+- Values can be any data type, including other dictionaries, lists, or even other dictionaries.
+- You can access values using keys by using the key in the dictionary.
+
+### Example:
+```python
+my_dict = {
+    'name': 'Alice',
+    'age': 30,
+",True,238.1,1239.0,128,0.699,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Coding,What loop runs at least once in most languages?,do-while,"In most programming languages, the **most common loop** that runs at least once is the **`for` loop**.
+
+### Why `for` Loop Runs At Least Once:
+- The `for` loop executes a block of code **once for each iteration**, and it will run at least once if the loop condition is true.
+- It typically has three parts: initialization, condition, and increment/decrement (or termination).
+
+### Example in Python:
+```python
+for i in range(5):
+    print(i)
+```
+This loop runs 5 times, so it runs **at least once**.
+
+### Other Common Loops",False,238.3,1255.1,128,0.698,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),History,Who was the first President of the United States?,George Washington,"The first President of the United States was **George Washington**, who served from 1789 to 1797. He was elected as the second president after Thomas Jefferson, who had died in office before him.
+
+Washington's presidency marked a significant shift toward centralization and military strength, which would later shape American political structure and national identity. His leadership during the Revolutionary War (1775–1783) also played a crucial role in securing independence from Britain.
+
+While George Washington was the first president to serve in office, he did not hold the title of ""President"" as we know it today. The",True,237.6,1247.0,128,0.706,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),History,In what year did the Titanic sink?,1912,"The Titanic sank on **April 15, 1912**, during its maiden voyage from Southampton, England, to New York City. It was a British passenger ship that had been carrying over 300 passengers and crew, including many wealthy individuals and diplomats. The sinking occurred due to a collision with an iceberg in the North Atlantic Ocean, which caused the ship to sink into the water.
+
+The incident is widely recognized as one of the most tragic maritime disasters in history. It resulted in the deaths of **1,500 people**, including 1,225 women and children, and left thousands of survivors",True,237.2,1139.9,128,0.71,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),History,Who discovered America in 1492?,Christopher Columbus,"The discovery of America by Christopher Columbus is widely recognized as the event that led to European colonization and exploration of the Americas. However, it's important to clarify that **Columbus did not discover America**; rather, he was a navigator who sailed from Europe to the New World in 1492.
+
+The actual discovery of the Americas by Europeans occurred much later. In 1519, Ferdinand and Isabella of Spain discovered the island of Hispaniola (modern-day Haiti) while exploring the Caribbean Sea. This event marked the beginning of European colonization in the Americas, as they established permanent settlements and trade routes.
+
+In summary",True,237.3,1253.8,128,0.699,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),History,Which ancient civilization built the pyramids?,Egyptians,"The pyramids of Egypt were constructed by the ancient civilization known as **Egyptians**. They are among the most famous and enduring structures in human history, with their construction dating back to around 2580 BCE.
+
+### Key Points:
+- **Location**: The pyramids were built on the banks of the Nile River in modern-day Egypt.
+- **Purpose**: They served as monumental tombs for pharaohs, who were believed to live after death and needed a safe place to rest.
+- **Construction Methods**: The pyramids were built using massive stone blocks, often transported by sledges or water carriers. They were also designed",True,240.3,1140.3,128,0.711,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),History,What empire was ruled by Genghis Khan?,Mongol Empire,"Genghis Khan was the ruler of the **Golden Horde**, which was a vast empire that spanned much of Eastern Europe, Central Asia, and parts of the Middle East. The empire was established in 1206 after he defeated the Mongol tribes at the Battle of Borodino, marking the beginning of his conquests.
+
+While Genghis Khan himself ruled the **Golden Horde**, it is important to note that the term ""empire"" can be misleading in this context. The Golden Horde was a loose coalition of various tribes and states rather than a single centralized empire. It consisted of several key regions:
+
+- **",False,235.1,1248.4,128,0.708,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Logical Reasoning,All cats are mammals. Whiskers is a cat. Is Whiskers a mammal?,yes,"Yes, Whiskers is a mammal.
+
+Here's the reasoning:
+
+- **All cats are mammals**: This is a general statement about the classification of cats and mammals.
+- **Whiskers is a cat**: This confirms that Whiskers belongs to the category of cats.
+- Therefore, since all cats are mammals, Whiskers must also be a mammal.
+
+So, **Whiskers is a mammal**.",True,238.1,1772.0,89,0.538,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Logical Reasoning,"If it is raining, the ground is wet. The ground is wet. Does that mean it must have rained?",no,"No, it does not necessarily mean it has rained. Here's why:
+
+1. **The statement ""If it is raining, the ground is wet""** is a conditional statement — it tells us that if rain occurs, then the ground will be wet. This is a logical implication.
+
+2. **The statement ""The ground is wet.""** is a factual statement about the current state of the ground.
+
+3. **Logical implications do not imply causation.** Just because two statements are logically connected (i.e., one implies the other) does not mean that one caused the other. There could be other reasons for the ground",True,236.0,2176.1,128,0.706,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Logical Reasoning,A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?,5 cents,"Let's solve this step by step.
+
+We are told:
+
+- A **bat** and a **ball** cost **$1.10** in total.
+- The **bat** costs **$1.00 more than the ball**.
+
+---
+
+### Step 1: Define variables
+
+Let:
+- $ x $ = cost of the **ball**
+- Then, the **bat** costs $ x + 1.00 $
+
+So we can write the equation:
+
+$$
+x + (x + 1.00) = 1.10
+$$
+
+---
+
+### Step 2: Simplify the",False,237.7,2767.1,128,0.711,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Logical Reasoning,"What number comes next: 1, 1, 2, 3, 5, 8, ?",13,"Let's analyze the sequence step by step:
+
+### Given:
+**1, 1, 2, 3, 5, 8, ?**
+
+### Step 1: Look for patterns in differences
+- Between **1 and 1**: difference = 0  
+- Between **1 and 2**: difference = +1  
+- Between **2 and 3**: difference = +1  
+- Between **3 and 5**: difference = +2  
+- Between **5 and 8**: difference = +3  
+
+So the differences are:  
+**0, 1, 1, 2, 3",False,239.2,2217.0,128,0.706,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Logical Reasoning,"If you rearrange the letters 'CIFAIPC', you get the name of what ocean?",Pacific,"To determine what ocean is formed by rearranging the letters in the word **""CIFAIPC""**, we need to:
+
+1. Count the frequency of each letter.
+2. Arrange the letters to form a meaningful word or phrase.
+3. Identify which ocean name fits this arrangement.
+
+---
+
+### Step 1: Count the Letters
+
+Let's count the occurrences of each letter in ""CIFAIPC"":
+
+- **C** – appears 1 time  
+- **I** – appears 1 time  
+- **F** – appears 1 time  
+- **A** – appears 1 time  
+- **P** – appears ",False,236.8,1712.2,128,0.708,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Language Understanding,What is the past tense of 'run'?,ran,"The **past tense** of the verb ""to run"" is:
+
+**ran**
+
+This is formed by adding **-ed** to the base form of the verb, which is **run**. 
+
+So, in English, the past tense of ""run"" is **ran**.
+
+For example:
+- I ran to school.
+- She ran through the forest.
+
+Let me know if you'd like help with other verbs or tenses!",True,238.5,1191.6,90,0.554,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Language Understanding,What is a synonym for 'happy'?,joyful,"A synonym for ""happy"" could be:
+
+- **Joyful**
+- **Happy**
+- **Glad**
+- **Content**
+- **Energetic**
+- **Delighted**
+
+Some of these words are more commonly used or have different connotations depending on the context. For example, ""joyful"" is often associated with happiness, while ""glad"" can also be used to describe feeling happy.",True,236.7,1897.5,84,0.53,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Language Understanding,What is an antonym for 'hot'?,cold,"An antonym for the word **'hot'** would be a word that means **cold**, such as:
+
+- **Cold**
+- **Cool**
+- **Frozen**
+- **Hypothermic**
+- **Tired**
+
+Other possible antonyms could include **frigid**, **cool**, or **dull**, depending on context. For example, the opposite of 'hot' in a physical sense is 'cold'.",True,239.2,2013.8,87,0.532,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Language Understanding,"In grammar, what is a noun?",person place or thing,"In grammar, a **noun** is a word or phrase that names a person, place, thing, idea, or concept. Nouns are the most basic and common parts of speech in English.
+
+### Key Characteristics of Nouns:
+1. **Noun Phrase**: A noun phrase consists of a single noun (or a combination of nouns) and any modifiers (adjectives, adverbs, prepositions, etc.) that describe it.
+2. **Function**: Nouns function as the subject or object of a sentence, or they can be the direct object in some cases.
+3. **Types**:
+   - **Common Nouns",False,237.6,1143.0,128,0.698,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Language Understanding,What figure of speech compares two things using 'like' or 'as'?,simile,"The figure of speech that compares two things using **""like""** or **""as""** is called a **metaphor**.
+
+### Explanation:
+- A **metaphor** is a figure of speech in which one thing is compared to another, usually by saying one is ""like"" or ""as if.""
+- For example:  
+  - *She is as brave as a lion.*  
+    (This compares her bravery to that of a lion.)
+
+### Other related figures of speech:
+- **Simile**: Uses ""like"" or ""as"" to compare two things by saying one is similar to another.  
+",True,238.0,1512.0,128,0.709,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Persian,پایتخت ایران کجاست؟,تهران,"پایتخت ایران **دیگر** است. در حال حاضر، پایتخت ایران به عنوان **آباد** (که در سال ۲۰۱۹ توسط دفتر رسمی ایران به عنوان جمهوری آباد تغییر کرد) قرار است. این شهر، بزرگ‌ترین شهر و مرکز حضوری ایران است.
+
+در سال ۲۰۱۹، دفتر رسمی ایران به",False,237.7,1300.1,128,0.716,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Persian,رنگ پرچم ایران چیست؟,سبز,"رنگ پرچم ایران، **بزرگ‌ترین رنگ** در ساختارهای معماری و فناوری است. این رنگ به دلیل تولیدشده توسط شرکت‌های مختلف از کشور، به عنوان یک نماد مهم برای همه جامعه ایرانی است.
+
+### چرا رنگ پرچم ایران مورد توجه است؟
+
+1. **رنگ بزرگ و قابل‌شناسی**",False,237.4,1456.0,128,0.702,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Persian,کوچکترین عدد طبیعی چیست؟,1,"**کوچکترین عدد طبیعی**، به معنای **کوچک‌ترین عدد طبیعی که می‌تواند توسط اعداد بزرگ‌تر تولید شود**، یعنی **عددی کوچکترین که نمی‌تواند توسط اعداد بزرگ‌تر تولید شود**، **۱** است.
+
+---
+
+### 🔍 منطق ریاضی
+
+در زیر، مفاهیم را به صورت س",False,238.2,1616.0,128,0.716,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Persian,حاصلضرب ۵ ضربدر ۶ چند می‌شود؟,30,"اگر ۵ ضرب در ۶ بیندازید، این به معنا است که:
+
+**۵ × ۶ = ۳۰**
+
+پاسخ: **۳۰**",False,239.8,1827.6,52,0.384,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Ollama (ROCm),Persian,زبان رسمی ایران چیست؟,فارسی,"زبان رسمی ایران، **آردو** است. آردو به عنوان زبان رسمی در سال ۱۹۸۰ توسط حکومت اسلامی ایران (پاکستان) به عنوان مدارنده‌ای برای نوشتن و فرماندهی کاربردی است. این زبان، همچنان در سطح رسمی، به عنوان زبان عمومی و تعلیمی استفاده می‌شود.
+
+در حالی ک",False,237.8,1416.1,128,0.7,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),General Knowledge,What is the capital of France?,Paris,The capital of France is Paris.,True,149.3,474.2,8,1.049,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),General Knowledge,Who wrote Romeo and Juliet?,William Shakespeare,"Romeo and Juliet was written by William Shakespeare. He is widely regarded as the greatest playwright in English literature, and this tragedy is one of his most famous works. It was first performed in 1603 at the Globe Theatre in London.",True,143.7,935.9,52,0.529,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),General Knowledge,What is the largest planet in our solar system?,Jupiter,"The largest planet in our solar system is **Jupiter**. It is a gas giant and significantly larger than all other planets, with a diameter about 11 times that of Earth. Jupiter is also the most massive object in the solar system, with a mass roughly 300 times greater than Earth.
+
+Other notable facts:
+- Jupiter has the most prominent Great Red Spot (a massive storm) and the largest known planet.
+- It has over 90 moons, including the large one **Ganymede**, which is the largest moon in the solar system.
+- Jupiter's atmosphere is mostly hydrogen and helium, with a",True,141.9,704.6,128,1.082,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),General Knowledge,What year did World War II end?,1945,"World War II ended in **1945**. The war officially concluded with the surrender of Nazi Germany on May 7, 1945 (V-E Day), and Japan on September 2, 1945 (Hiroshima and Nagasaki).",True,142.6,1042.6,58,0.592,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),General Knowledge,What is the chemical symbol for gold?,Au,The chemical symbol for gold is **Au**.,True,148.9,1047.8,11,0.227,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Mathematics,What is 15 × 7?,105,15 × 7 = 105. ✅,True,145.3,1110.7,14,0.262,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Mathematics,What is 144 divided by 12?,12,"To divide 144 by 12:
+
+$$
+144 \div 12 = 12
+$$
+
+✅ The answer is **12**.",True,141.7,764.8,38,0.455,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Mathematics,What is the square root of 81?,9,"The square root of 81 is **9**.
+
+✅ Because:  
+$ 9 \times 9 = 81 $
+
+So, $ \sqrt{81} = 9 $. ✅",True,142.4,703.0,44,0.495,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Mathematics,"If x + 5 = 12, what is x?",7,"We are given the equation:
+
+$$
+x + 5 = 12
+$$
+
+To solve for $ x $, subtract 5 from both sides:
+
+$$
+x = 12 - 5
+$$
+
+$$
+x = 7
+$$
+
+✅ Final Answer: $ \boxed{7} $",True,141.6,801.8,67,0.658,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Mathematics,What is 25% of 200?,50,"To find 25% of 200:
+
+1. Convert the percentage to a decimal:  
+   25% = 25 ÷ 100 = 0.25
+
+2. Multiply:  
+   0.25 × 200 = 50
+
+✅ So, **25% of 200 is 50**.",True,141.4,759.8,84,0.784,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Coding,"In Python, how do you print 'Hello, World!'?",print(,"In Python, you can print ""Hello, World!"" using the `print()` function. Here's how:
+
+```python
+print(""Hello, World!"")
+```
+
+This will output:
+```
+Hello, World!
+```
+
+You can also use f-strings (Python 3.6+) for a more modern approach:
+
+```python
+print(f""Hello, {world}!"")
+```
+
+But the simplest and most common way is using the basic `print()` function with a string literal.
+
+Note: The original question says ""In Python,"" but ""world"" appears in the example — it's likely a typo. If you meant to",True,140.1,785.3,128,1.093,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Coding,What does the len() function do in Python?,returns the length,"The `len()` function in Python returns the **number of items** in an object. It works with various data types, including:
+
+- Strings (e.g., `""hello""` → 5)
+- Lists and tuples (e.g., `[1, 2, 3]` → 3)
+- Dictionaries (e.g., `{""a"": 1}` → 2)
+- Sets (e.g., `{1, 2, 3}` → 3)
+- Functions (returns the number of lines in the code)
+
+### Examples:
+```python
+print(len(""hello""))           # Output: 5",False,140.5,697.7,128,1.094,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Coding,What keyword is used to define a function in Python?,def,"The keyword used to define a function in Python is **`def`**.
+
+Example:
+```python
+def hello():
+    print(""Hello, world!"")
+```
+
+This `def` statement begins the definition of a new function named `hello`.",True,141.9,724.9,50,0.537,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Coding,What data structure uses key-value pairs in Python?,dict,"In Python, the **dictionary** is the data structure that uses key-value pairs.
+
+Dictionaries are unordered collections of key-value pairs, where:
+- Keys are unique identifiers (usually strings or integers)
+- Values can be any immutable or mutable object
+- Accessing values is done using the key with square brackets `[]`
+
+Example:
+```python
+student = {""name"": ""Alice"", ""age"": 20, ""grade"": ""A""}
+print(student[""name""])  # Output: Alice
+```
+
+Dictionaries are implemented as hash tables and provide efficient average-case lookup, insertion, and deletion operations (O(1)",True,141.2,703.0,128,1.087,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Coding,What loop runs at least once in most languages?,do-while,"The **`for` loop** runs at least once in most programming languages.
+
+### Explanation:
+- The `for` loop is one of the most fundamental and commonly used loops in programming.
+- It typically has three parts: initialization, condition checking, and increment/decrement.
+- Even if the loop body is empty or the condition never evaluates to true, it **still runs at least once** — specifically, the initialization and condition check happen before the loop body begins.
+- In many languages (like Python, Java, C++, JavaScript, etc.), a `for` loop will execute **zero times** if the condition is always false,",False,139.8,700.9,128,1.111,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),History,Who was the first President of the United States?,George Washington,"The first President of the United States was George Washington. He served from 1789 to 1797, and he is also known for being the country's first elected president and the only one who served two non-consecutive terms.",True,140.7,695.0,52,0.547,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),History,In what year did the Titanic sink?,1912,"The RMS Titanic sank in the year **1912**. It struck an iceberg on its maiden voyage from Southampton, England to New York City on April 15, 1912, and sank on April 17, 1912.",True,140.5,632.4,57,0.583,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),History,Who discovered America in 1492?,Christopher Columbus,"In 1492, Christopher Columbus is credited with the first sustained European contact with the Americas. However, it's important to note that **Columbus did not ""discover"" America**—the term ""discovery"" is often used in a colonial context to emphasize that Europeans had previously encountered other lands and were now claiming them for their own use.
+
+The truth is more nuanced: **Europeans had already reached the Americas before Columbus**, but they had not been able to establish permanent settlements or widespread contact. The indigenous peoples of the Americas had lived there for thousands of years, long before Columbus arrived. He was a navigator who",True,139.9,700.5,128,1.103,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),History,Which ancient civilization built the pyramids?,Egyptians,"The ancient civilization that built the pyramids is **Egypt**.
+
+Specifically, the Great Pyramid of Giza was constructed during the **Old Kingdom period**, around **2580–2460 BCE**, by the pharaoh **Khufu** (also known as Cheops). The construction involved a massive effort involving thousands of workers and laborers, organized under the direction of the Egyptian state.
+
+Pyramids were part of ancient Egyptian funerary architecture, designed to help the deceased pharaoh ascend to the afterlife. Over time, other pyramids were built by successive pharaohs, including **Khafre**",True,139.6,639.2,128,1.093,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),History,What empire was ruled by Genghis Khan?,Mongol Empire,"Genghis Khan founded the **Mongol Empire**, which became the largest contiguous land empire in history. It spanned from Eastern Europe to China and parts of Central Asia, covering an area of approximately 24 million square kilometers (about 9.3 million square miles) at its peak.
+
+The Mongol Empire was established in the early 13th century by Genghis Khan (born Temujin), who unified the various nomadic tribes of the Eurasian Steppe. After defeating his rivals and expanding through military conquest, diplomacy, and strategic alliances, he launched a series of invasions that brought together diverse peoples",True,139.4,700.0,128,1.098,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Logical Reasoning,All cats are mammals. Whiskers is a cat. Is Whiskers a mammal?,yes,"Yes, Whiskers is a mammal.
+
+Here's the reasoning:
+
+- All cats are mammals.  
+- Whiskers is a cat.  
+
+Since all cats are mammals, and Whiskers is a cat, it logically follows that Whiskers is a mammal.
+
+✅ Final answer: **Yes, Whiskers is a mammal.**",True,142.3,988.3,74,0.71,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Logical Reasoning,"If it is raining, the ground is wet. The ground is wet. Does that mean it must have rained?",no,"No, if it is raining, the ground is wet — but **wet ground does not necessarily mean it has rained**.
+
+Here's why:
+
+- **If it is raining**, then the ground becomes wet (this is a true conditional: *If it rains, the ground is wet*).
+- But **the ground could be wet for other reasons**:  
+  - A sprinkler turned on.  
+  - A hose was used to water it.  
+  - It rained earlier and the water still soaked in.  
+  - The ground is naturally damp from a leaky pipe or a nearby stream.
+
+So, the",True,141.4,1320.5,128,1.094,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Logical Reasoning,A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?,5 cents,"Let's solve the problem step by step.
+
+We are told:
+
+- A bat and a ball cost **$1.10** in total.
+- The **bat costs $1.00 more than the ball**.
+
+Let’s define:
+- Let the cost of the **ball** be **x** dollars.
+- Then, the cost of the **bat** is **x + 1.00** dollars.
+
+Now, add them together:
+
+$$
+\text{Bat} + \text{Ball} = (x + 1.00) + x = 2x + 1.00",False,142.1,1650.0,128,1.084,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Logical Reasoning,"What number comes next: 1, 1, 2, 3, 5, 8, ?",13,"The sequence you've given is:
+
+**1, 1, 2, 3, 5, 8, ?**
+
+This is the **Fibonacci sequence**, where each number is the sum of the two preceding numbers.
+
+Let's verify:
+
+- 1 + 1 = 2 → next term
+- 1 + 2 = 3 → matches
+- 2 + 3 = 5 → matches
+- 3 + 5 = 8 → matches
+- 5 + 8 = **13**
+
+So, the number that comes next is:
+
+👉 **13**
+
+✅ Final",True,142.1,1324.7,128,1.063,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Logical Reasoning,"If you rearrange the letters 'CIFAIPC', you get the name of what ocean?",Pacific,"Let's look at the letters: **C, I, F, A, C, I, P**
+
+We are to rearrange these letters to form the name of an **ocean**.
+
+First, let's count the frequency of each letter:
+
+- C appears **twice**
+- I appears **twice**
+- F appears **once**
+- A appears **once**
+- P appears **once**
+
+So the multiset is:  
+C, C, I, I, F, A, P
+
+Now, think about common ocean names and see if we can form one from these letters.
+
+Common ocean names:
+
+1.",False,142.3,967.9,128,1.073,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Language Understanding,What is the past tense of 'run'?,ran,"The past tense of ""run"" is **ran**.
+
+- Present: run  
+- Past tense (simple): ran  
+- Past participle: runneth (archaic) or runt (modern, informal)
+
+So, in standard English, the correct answer is: **ran**. ✅",True,142.2,667.2,63,0.619,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Language Understanding,What is a synonym for 'happy'?,joyful,"A synonym for ""happy"" is **joyful**.  
+
+Other synonyms include:  
+- pleased  
+- content  
+- elated  
+- ecstatic  
+- delighted  
+- joyful  
+- blissful  
+
+Each carries a slightly different nuance, but all convey a positive emotional state.",True,143.2,1049.3,58,0.571,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Language Understanding,What is an antonym for 'hot'?,cold,"An antonym for ""hot"" is **cold**.  
+
+Other possible antonyms depending on context include:
+
+- **Cold** (most direct opposite in temperature)
+- **Frosty** (opposite in a more abstract or sensory sense, e.g., cold and icy)
+- **Cooled** (in a specific context, like something that has been cooled down)
+
+But the simplest and most general antonym is **cold**. ✅",True,142.0,1114.9,92,0.819,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Language Understanding,"In grammar, what is a noun?",person place or thing,"In grammar, a **noun** is a word that names a person, place, thing, animal, or idea. Nouns are one of the main parts of speech in English and serve as the subjects or objects of sentences.
+
+### Examples of Nouns:
+- **People**: *teacher*, *student*, *friend*
+- **Places**: *school*, *city*, *park*
+- **Things**: *book*, *car*, *phone*
+- **Animals**: *dog*, *cat*, *bird*
+- **Ideas or concepts**: *freedom*, *justice*, *hope*
+
+### Key Features of Nouns",False,141.9,642.7,128,1.076,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Language Understanding,What figure of speech compares two things using 'like' or 'as'?,simile,"The figure of speech that compares two things using ""like"" or ""as"" is called a **metaphor**.
+
+In a metaphor, one thing is described as another to emphasize similarities. For example:
+
+- *""She's a firework.""* (This means she is energetic and bright, like a firework.)
+
+While the words ""like"" or ""as"" are used in this comparison, they are not part of the definition of a metaphor—they are **conjunctions** that introduce the analogy.
+
+So to clarify:
+
+- **Metaphor**: A figure of speech where two things are compared using ""like"" or """,False,141.0,846.7,128,1.085,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Persian,پایتخت ایران کجاست؟,تهران,پایتخت ایران، تهران است.,True,145.9,726.5,14,0.284,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Persian,رنگ پرچم ایران چیست؟,سبز,"رنگ پرچم ایران، که در سال ۱۳۵۲ توسط ملکت علی شاه دوم ایرانی به کار رفته است، شامل **سه رنگ** است: **قرمز (حمر)**، **سبز (بیابن)** و **سیاه**. این پرچم در سال ۱۳۵۲ توسط ملکت علی شاه دوم به کار رفته است.
+
+این پرچم با",True,141.4,820.4,128,1.08,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Persian,کوچکترین عدد طبیعی چیست؟,1,"کوچکترین عدد طبیعی **۰** است.
+
+در تعریف عدد طبیعی، اغلب به عنوان مجموعه‌ای از عدد‌ها که شامل صفر و هر عددی که بیشتر از ۰ است، شناخته می‌شود. بنابراین، **۰** در تعریف دقیق‌تر از آن قرار دارد.
+
+هرچند برخی منابع به صورت ساده ""عدد طبی",False,141.5,905.7,128,1.085,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Persian,حاصلضرب ۵ ضربدر ۶ چند می‌شود؟,30,"5 × 6 = 30
+
+جواب: **30** ✅",True,145.8,1013.6,19,0.336,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Ollama (ROCm),Persian,زبان رسمی ایران چیست؟,فارسی,زبان رسمی ایران، فارسی است. فارسی به عنوان زبان ملی در کشور ایران توسط قانون ۱۳۹۶ (۲۰۱۴) و سپس با قانون ۱۴۰۵ (۲۰۱۵) رسمی شد. فارسی در کل از دسته‌های زبان‌های متنوع، شامل فارسی، فارسی آزاد و فارسی,True,141.9,789.1,128,1.069,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),General Knowledge,What is the capital of France?,Paris,The capital of France is Paris.,True,110.8,287.3,8,1.329,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),General Knowledge,Who wrote Romeo and Juliet?,William Shakespeare,"*Romeo and Juliet* was written by **William Shakespeare**. It is one of his most famous plays, first published in the First Folio in 1623. The story is a tragic love tale set in Verona, Italy, involving two young lovers from feuding families.",True,103.2,568.6,61,0.776,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),General Knowledge,What is the largest planet in our solar system?,Jupiter,"The largest planet in our solar system is **Jupiter**. It is a gas giant, meaning it is mostly made of hydrogen and helium, and it has no solid surface. Jupiter is also known for its Great Red Spot, which is a massive storm that has been raging for at least 350 years.
+
+Here are some key facts about Jupiter:
+
+- **Diameter**: Approximately 139,822 kilometers (86,881 miles)
+- **Mass**: About 318 times that of Earth
+- **Orbit Period**: Around 10 hours
+- **Moons**: Has",True,102.4,408.2,128,1.462,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),General Knowledge,What year did World War II end?,1945,"World War II ended in **1945**. The war officially concluded with the **surrender of Nazi Germany** on **August 15, 1945**, and the **surrender of Japan** on **September 2, 1945**, following the atomic bombings of Hiroshima and Nagasaki.",True,103.2,628.3,72,0.896,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),General Knowledge,What is the chemical symbol for gold?,Au,The chemical symbol for gold is **Au**.,True,108.6,627.1,11,0.293,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Mathematics,What is 15 × 7?,105,"To calculate $ 15 \times 7 $, you can break it down as follows:
+
+$$
+15 \times 7 = (10 + 5) \times 7 = 10 \times 7 + 5 \times 7 = 70 + 35 = 105
+$$
+
+So, the result is **105**.",True,105.3,660.5,83,0.975,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Mathematics,What is 144 divided by 12?,12,"To divide 144 by 12:
+
+$$
+144 \div 12 = 12
+$$
+
+**Answer: 12** ✅",True,107.0,448.2,38,0.559,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Mathematics,What is the square root of 81?,9,"The square root of 81 is **9**.
+
+$$
+\sqrt{81} = 9
+$$",True,108.9,410.9,26,0.436,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Mathematics,"If x + 5 = 12, what is x?",7,"We are given the equation:
+
+$$
+x + 5 = 12
+$$
+
+To solve for $ x $, subtract 5 from both sides:
+
+$$
+x = 12 - 5
+$$
+
+$$
+x = 7
+$$
+
+**Answer: $ \boxed{7} $**",True,108.1,481.2,67,0.812,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Mathematics,What is 25% of 200?,50,"To find **25% of 200**, you can use the formula:
+
+$$
+\text{Percentage} = \frac{\text{Part}}{\text{Whole}} \times 100
+$$
+
+So:
+
+$$
+25\% \text{ of } 200 = \frac{25}{100} \times 200 = 0.25 \times 200 = 50
+$$
+
+**Answer: 50**",True,107.9,445.7,108,1.205,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Coding,"In Python, how do you print 'Hello, World!'?",print(,"In Python, you can print ""Hello, World!"" using the `print()` function like this:
+
+```python
+print(""Hello, World!"")
+```
+
+This will output:
+
+```
+Hello, World!
+```",True,108.7,463.5,43,0.597,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Coding,What does the len() function do in Python?,returns the length,"The `len()` function in Python is used to **return the number of items in a sequence or object**.
+
+### What it does:
+- It can be used with **strings**, **lists**, **tuples**, **dictionaries**, **sets**, and other iterable objects.
+- It returns the **length** (number of elements) of the object.
+
+---
+
+### Examples:
+
+```python
+# String
+print(len(""hello""))  # Output: 5
+
+# List
+print(len([1, 2, 3]))  # Output: 3
+
+# Tuple
+print(len((1, 2, 3",False,107.3,410.8,128,1.402,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Coding,What keyword is used to define a function in Python?,def,"In Python, the keyword used to define a function is:
+
+**`def`**
+
+For example:
+
+```python
+def greet():
+    print(""Hello!"")
+```
+
+This defines a function named `greet` that prints ""Hello!"" when called.",True,108.3,428.6,51,0.676,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Coding,What data structure uses key-value pairs in Python?,dict,"In Python, the data structure that uses **key-value pairs** is the **dictionary**.
+
+### Dictionary (dict)
+- A dictionary is an unordered collection of **key-value pairs**.
+- Keys are unique and used to access values.
+- Dictionaries are written with curly braces `{}` and use colons `:` to separate keys from their corresponding values.
+
+#### Example:
+```python
+person = {
+    ""name"": ""Alice"",
+    ""age"": 30,
+    ""city"": ""New York""
+}
+```
+
+In this example:
+- `""name""` is the key, and `""Alice""` is the value.
+-",True,107.2,412.0,128,1.384,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Coding,What loop runs at least once in most languages?,do-while,"The loop that **runs at least once in most programming languages** is the **`while` loop**.
+
+### Why `while`?
+- A `while` loop checks a condition **before** executing the loop body.
+- If the condition is true, the loop runs **at least once**.
+- This behavior is consistent across many common languages like:
+  - C
+  - C++
+  - Java
+  - Python
+  - JavaScript
+  - Ruby
+  - PHP
+  - etc.
+
+### Example in Python:
+```python
+count = 0
+while count < 5:
+    print(count)
+   ",False,107.6,411.7,128,1.38,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),History,Who was the first President of the United States?,George Washington,The first President of the United States was **George Washington**. He served from 1789 to 1797 and is widely regarded as the foundational figure in American history.,True,108.9,411.0,40,0.58,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),History,In what year did the Titanic sink?,1912,"The Titanic sank in **1912**. It was a British passenger liner that collided with an iceberg in the North Atlantic Ocean on April 14, 1912, and sank two days later on April 15, 1912.",True,108.3,375.0,57,0.725,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),History,Who discovered America in 1492?,Christopher Columbus,"In 1492, **Christopher Columbus** is often credited with ""discovering"" America. He was an Italian explorer who sailed under the Spanish flag and reached the Caribbean islands, which are now part of the United States and other countries in the Americas.
+
+However, it's important to note that:
+
+- **Americas were already inhabited by Indigenous peoples** long before Columbus arrived.
+- **Other explorers and civilizations had reached the Americas long before 1492**, such as the Norse (who may have settled in Newfoundland around 1000 CE).
+- The term ""discovering"" is historically controversial, as",True,106.3,410.7,128,1.405,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),History,Which ancient civilization built the pyramids?,Egyptians,"The pyramids were built by the **Ancient Egyptians**. The most famous of these is the **Great Pyramid of Giza**, which was constructed as a tomb for Pharaoh **Khufu** (also known as Cheops) during the Fourth Dynasty, around 2580–2560 BCE.
+
+The ancient Egyptians are well-known for their monumental architecture, including pyramids, temples, and other structures. Their pyramid-building techniques were highly advanced for their time, and they built several pyramids at Giza, with the Great Pyramid being the largest and most enduring.",True,104.9,373.9,120,1.366,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),History,What empire was ruled by Genghis Khan?,Mongol Empire,"Genghis Khan ruled the **Mongol Empire**, which was the largest contiguous land empire in history. He founded the empire in 1206 and became its first Great Khan, uniting various Mongol tribes under his leadership.
+
+The Mongol Empire eventually expanded to include much of Asia, parts of Eastern Europe, and even into the Middle East. It was known for its military strength and the Pax Mongolica, a period of relative peace and stability across the vast territories it controlled.",True,102.8,406.6,102,1.211,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Logical Reasoning,All cats are mammals. Whiskers is a cat. Is Whiskers a mammal?,yes,"Yes, **Whiskers is a mammal**.
+
+Here's why:
+
+- All **cats** are **mammals**.
+- **Whiskers** is a **cat**.
+
+So, by the definition of ""all cats are mammals,"" and since Whiskers is a cat, it logically follows that **Whiskers is a mammal**.",True,103.1,580.9,76,0.948,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Logical Reasoning,"If it is raining, the ground is wet. The ground is wet. Does that mean it must have rained?",no,"No, it does not necessarily mean it must have rained.
+
+Let's break this down:
+
+- **""If it is raining, then the ground is wet.""**  
+  This is a conditional statement:  
+  If P (it is raining), then Q (the ground is wet).  
+  So, **P → Q**.
+
+- **""The ground is wet.""**  
+  This is just the conclusion of the conditional — Q is true.
+
+Now, we are asking: **Does Q being true mean that P must be true?**
+
+This is a classic example of **affirming the consequent**, which is",True,103.6,746.3,128,1.443,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Logical Reasoning,A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?,5 cents,"Let's solve this step by step.
+
+We are told:
+
+- A **bat** and a **ball** together cost **$1.10**.
+- The **bat** costs **$1.00 more** than the **ball**.
+
+---
+
+### Step 1: Define variables
+
+Let the cost of the **ball** be $ x $ dollars.
+
+Then the cost of the **bat** is $ x + 1.00 $ dollars (since it's $1.00 more).
+
+---
+
+### Step 2: Set up the equation
+
+The total cost is:
+
+$$
+x + (x +",False,104.3,948.3,128,1.443,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Logical Reasoning,"What number comes next: 1, 1, 2, 3, 5, 8, ?",13,"The sequence you've given is:
+
+**1, 1, 2, 3, 5, 8, ?**
+
+This is the **Fibonacci sequence**, where each number is the sum of the two preceding ones.
+
+Let's verify the pattern:
+
+- 1 + 1 = **2**
+- 1 + 2 = **3**
+- 2 + 3 = **5**
+- 3 + 5 = **8**
+- 5 + 8 = **13**
+
+So, the next number in the sequence is:
+
+**13** ✅
+
+✅ Answer: **13",True,107.6,756.5,128,1.403,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Logical Reasoning,"If you rearrange the letters 'CIFAIPC', you get the name of what ocean?",Pacific,"To solve this, we need to **rearrange the letters** in **""CIFAIPC""** and see if they form the name of an **ocean**.
+
+Let's first count the letters:
+
+- C  
+- I  
+- F  
+- A  
+- I  
+- P  
+- C  
+
+So the letters are: **C, I, F, A, I, P, C**
+
+Now let's count how many times each letter appears:
+
+- C: 2  
+- I: 2  
+- F: 1  
+- A: 1  
+- P: 1
+
+We now look",False,107.6,568.6,128,1.394,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Language Understanding,What is the past tense of 'run'?,ran,"The past tense of **""run""** is **""ran""**.
+
+For example:
+- I **ran** to catch the bus.
+- She **ran** across the field.
+
+Let me know if you'd like help with other tenses or forms!",True,108.4,392.5,54,0.701,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Language Understanding,What is a synonym for 'happy'?,joyful,"A synonym for ""happy"" is **joyful**. Other synonyms include:
+
+- Content
+- Elated
+- Cheerful
+- Glad
+- Pleased
+- Joyful
+- Breezy (in some contexts)
+- Upbeat
+
+Let me know if you'd like more options or a specific tone!",True,108.1,637.1,66,0.794,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Language Understanding,What is an antonym for 'hot'?,cold,"An antonym for **""hot""** is **""cold.""**
+
+Other possible antonyms, depending on the context, include:
+
+- **Cold** (general opposite)
+- **Cool** (can be used in a similar way to ""hot,"" but it's more neutral or even positive in some contexts)
+- **Frosty** (in a specific, more literal sense)
+
+Let me know if you're looking for an antonym in a particular context!",True,107.5,664.5,95,1.064,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Language Understanding,"In grammar, what is a noun?",person place or thing,"In grammar, a **noun** is a word that names a **person**, **place**, **thing**, or **idea**. Nouns are the **subjects** and **objects** of sentences.
+
+### Key Characteristics of Nouns:
+- They **name** something.
+- They can be **countable** (e.g., *books*, *cars*) or **uncountable** (e.g., *water*, *information*).
+- They often appear as the **subject** of a sentence (e.g., *The cat is on the mat*).
+- They can also act as the **object** (e.g",False,107.6,374.3,128,1.388,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Language Understanding,What figure of speech compares two things using 'like' or 'as'?,simile,"The figure of speech that compares two things using **""like""** or **""as""** is called a **simile**.
+
+### Simile:
+- A simile is a type of **comparative figurative language**.
+- It uses the words **""like""** or **""as""** to draw an analogy between two different things.
+- Example: *""Her smile was like the sun.""*
+
+### Key Characteristics of a Simile:
+- Uses **""like""** or **""as""** for comparison.
+- Compares **two different things**.
+- Often used to create vivid imagery or emphasize",True,107.4,498.8,128,1.384,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Persian,پایتخت ایران کجاست؟,تهران,پایتخت ایران **تهران** است.,True,112.1,427.4,15,0.33,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Persian,رنگ پرچم ایران چیست؟,سبز,"پرچم ایران شامل سه قسمت است:
+
+1. **نخستین قسمت**:  
+   این قسمت به رنگ **قرمز** (به فارسی: *قمرز*) می‌آید و در آن ۱۲ ستاره نوروز (فرداخت) قرار دارد. ستاره‌ها به شکل چهارده‌گونه هستند و این رمز ایرانی است که برای تقویم سال می‌آ",True,107.1,481.7,128,1.392,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Persian,کوچکترین عدد طبیعی چیست؟,1,"کوچکترین عدد طبیعی **1** است.
+
+### توضیح:
+- **عدد طبیعی** به اعداد مثبت و صفر اشاره دارد (در برخی موارد، فقط 0 را شامل می‌شود).
+- بنابراین، کوچکترین عدد طبیعی **1** است.
+
+### نکته:
+اگر به معنای ""کوچکترین عدد طبیعی"" اشاره دارید و فقط 0 را شامل",True,107.2,534.7,128,1.395,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Persian,حاصلضرب ۵ ضربدر ۶ چند می‌شود؟,30,"ضرب ۵ در ۶ به معنای **5 × 6** است.
+
+برای حساب:
+
+$$
+5 \times 6 = 30
+$$
+
+پاسخ: **۳۰**.",True,108.2,601.9,51,0.664,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Ollama (ROCm),Persian,زبان رسمی ایران چیست؟,فارسی,"زبان رسمی ایران **فارسی** است. 
+
+فرسی به عنوان زبان ارتباطی و رسمی در تمام کشور ایران مطرح شده است، و در حکومت، آموزش، رسانه و سایر فعالیت‌های رسمی از آن استفاده می‌شود.",True,106.8,463.1,89,1.025,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),General Knowledge,What is the capital of France?,Paris,"Here's a thinking process:
+
+1.  **Identify the User's Question**: The user asks ""What is the capital of France?""
+2.  **Retrieve Knowledge**: I know from general knowledge that the capital of France is Paris.
+3.  **Verify Accuracy**: This is a well-established, factual piece of information. No ambiguity or controversy exists.
+4.  **Formulate Response**: Keep it direct and accurate: ""The capital of France is Paris.""
+5.  **Output Generation**: Provide the response.✅
+</think>
+
+The capital of France is Paris.",True,32.1,115.6,122,5.811,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),General Knowledge,Who wrote Romeo and Juliet?,William Shakespeare,"Here's a thinking process:
+
+1.  **Identify the core question**: The user is asking ""Who wrote Romeo and Juliet?""
+2.  **Recall knowledge**: Romeo and Juliet is one of the most famous plays in English literature. It was written by William Shakespeare.
+3.  **Verify information**: 
+   - Author: William Shakespeare (1564–1616)
+   - Genre: Tragedy
+   - First performed: Around 1597-1598
+   - Published: 1609 in The Complete Works of William Shakespeare
+  ",True,32.6,109.5,128,4.355,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),General Knowledge,What is the largest planet in our solar system?,Jupiter,"Here's a thinking process:
+
+1.  **Identify the core question**: The user asks ""What is the largest planet in our solar system?""
+2.  **Recall factual knowledge**: 
+   - Planets in our solar system (in order from Sun): Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptune.
+   - Compare sizes: Jupiter is significantly larger than all others.
+   - Key facts about Jupiter: It's a gas giant, has the largest mass and diameter of any planet in the solar system.
+3.  **Verify accuracy**: 
+   - Diameter of",True,32.5,132.9,128,4.372,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),General Knowledge,What year did World War II end?,1945,"Here's a thinking process:
+
+1.  **Identify the core question**: The user is asking ""What year did World War II end?""
+2.  **Retrieve knowledge**: I know that World War II ended in 1945. Specifically, Europe was liberated in May 1945 (V-E Day), and Japan surrendered on September 2, 1945 (V-J Day).
+3.  **Formulate answer**: State clearly that World War II ended in 1945. Optionally add specific dates for completeness (May 8 for Europe, September 2 for the",True,32.4,122.5,128,4.395,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),General Knowledge,What is the chemical symbol for gold?,Au,"Thinking Process:
+
+1.  **Identify the core question:** The user is asking for the chemical symbol of gold.
+2.  **Retrieve knowledge:** Access general chemistry knowledge regarding elements and their symbols.
+    *   Element: Gold
+    *   Atomic number: 79
+    *   Symbol origin: Latin name ""Aurum"" -> Au.
+3.  **Formulate the answer:** State the symbol clearly.
+4.  **Final Output Generation:** ""The chemical symbol for gold is Au."" (or just ""Au"").
+
+*Self-Correction/Refinement:* Keep it",True,32.3,120.6,128,4.408,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Mathematics,What is 15 × 7?,105,"Here's a thinking process:
+
+1.  **Analyze User Input:** The user asks ""What is 15 × 7?""
+2.  **Identify Operation:** Multiplication of two integers: 15 and 7.
+3.  **Perform Calculation:** 
+   - 15 × 7 = (10 × 7) + (5 × 7) = 70 + 35 = 105
+   - Alternatively, standard multiplication: 5×7=35 (write 5, carry 3), 1×7=7, plus",True,32.4,129.4,128,4.388,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Mathematics,What is 144 divided by 12?,12,"Here's a thinking process:
+
+1.  **Analyze User Input:** The user asks ""What is 144 divided by 12?""
+2.  **Identify Mathematical Operation:** Division: 144 ÷ 12
+3.  **Perform Calculation:** 
+   - I know that 12 × 10 = 120
+   - 144 - 120 = 24
+   - 12 × 2 = 24
+   - So, 12 × (10 + 2) = 12",True,32.4,89.1,128,4.491,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Mathematics,What is the square root of 81?,9,"Here's a thinking process:
+
+1.  **Analyze User Input:** The user asks ""What is the square root of 81?""
+2.  **Identify Key Mathematical Concept:** Square root of a number x means finding y such that y² = x. For positive numbers, we typically refer to the principal (non-negative) square root unless specified otherwise.
+3.  **Calculate/Verify:** 
+   - What number multiplied by itself equals 81?
+   - 9 × 9 = 81
+   - Therefore, √81 = 9
+4.  **",True,32.3,136.1,128,4.429,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Mathematics,"If x + 5 = 12, what is x?",7,"Here's a thinking process:
+
+1.  **Analyze User Input:** The user asks a simple algebraic equation: ""If x + 5 = 12, what is x?""
+2.  **Identify the Goal:** Solve for x in the given equation.
+3.  **Perform the Math:**
+   - Equation: x + 5 = 12
+   - Subtract 5 from both sides to isolate x: x = 12 - 5
+   - Calculate: x = 7
+4.  **Formulate Response:** State the answer clearly and concisely.",True,32.4,101.1,128,4.482,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Mathematics,What is 25% of 200?,50,"Here's a thinking process:
+
+1.  **Understand the User's Question**: The user is asking for 25% of 200.
+2.  **Identify Key Mathematical Operation**: Percentage calculation: (Percentage / 100) * Number
+3.  **Apply the Formula**: 
+   - Percentage = 25%
+   - Number = 200
+   - Calculation: (25 / 100) * 200
+4.  **Simplify/Calculate**:
+   - 25 / 100 = 0.",False,32.4,93.3,128,4.49,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Coding,"In Python, how do you print 'Hello, World!'?",print(,"Here's a thinking process:
+
+1.  **Understand User Query**: The user is asking how to print ""Hello, World!"" in Python.
+2.  **Identify Core Concept**: This is a fundamental programming question about the `print()` function in Python.
+3.  **Determine Answer**: In Python, you use the built-in `print()` function with the string argument `'Hello, World!'`.
+4.  **Formulate Response**: 
+   - Provide the exact code snippet.
+   - Explain briefly how it works.
+   - Mention that it's a common first program in programming.",True,32.2,97.2,128,4.488,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Coding,What does the len() function do in Python?,returns the length,"Here's a thinking process:
+
+1.  **Understand User Question**: The user is asking about the `len()` function in Python and what it does.
+
+2.  **Identify Core Concept**: `len()` is a built-in Python function that returns the number of items in an object. It works on various data types like strings, lists, tuples, dictionaries, sets, etc.
+
+3.  **Key Points to Cover**:
+   - Basic definition/purpose
+   - Syntax: `len(object)`
+   - Examples with different data types (string, list, tuple, dict, set)
+  ",False,32.2,136.6,128,4.407,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Coding,What keyword is used to define a function in Python?,def,"Here's a thinking process that leads to the answer:
+
+1.  **Analyze the Request:** The user is asking for the specific keyword used to define a function in Python.
+
+2.  **Recall Knowledge about Python Syntax:**
+    *   How do I write a function in Python?
+    *   Example: `def my_function():`
+    *   What is the keyword here? It's ""def"".
+
+3.  **Verify the Keyword:**
+    *   Is it `function`? No, that's not valid syntax for defining (though used in some contexts like decorators or specific libraries",True,32.2,88.8,128,4.477,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Coding,What data structure uses key-value pairs in Python?,dict,"Here's a thinking process that leads to the answer:
+
+1.  **Analyze the Request:**
+    *   **Question:** What data structure uses key-value pairs in Python?
+    *   **Key terms:** ""Data structure"", ""key-value pairs"", ""Python"".
+
+2.  **Identify the Primary Candidate:**
+    *   In Python, the most common and built-in data structure designed specifically for storing and retrieving data using unique keys is the `dict` (dictionary).
+
+3.  **Consider Alternatives/Related Structures:**
+    *   While `dict` is the standard answer, are",True,32.2,136.3,128,4.406,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Coding,What loop runs at least once in most languages?,do-while,"Here's a thinking process:
+
+1.  **Analyze User Question:** The user asks: ""What loop runs at least once in most languages?"" This is a straightforward programming question about loop types that guarantee execution of the loop body at least one time.
+
+2.  **Identify Key Concepts:** 
+   - Loops that run at least once
+   - Common across most programming languages
+   - Examples: `do-while`, `loop` (Ruby), `repeat-until` (Pascal/Delphi)
+
+3.  **Determine the Best Answer:** The most widely recognized and commonly used loop that",True,32.1,135.5,128,4.408,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),History,Who was the first President of the United States?,George Washington,"Here's a thinking process:
+
+1.  **Identify the core question**: The user is asking ""Who was the first President of the United States?""
+2.  **Retrieve knowledge**: I know from historical facts that George Washington was the first President of the United States, serving from 1789 to 1797.
+3.  **Verify accuracy**: This is a well-established historical fact. No controversy or ambiguity exists.
+4.  **Formulate response**: Keep it direct and accurate. ""George Washington was the first President of the United States."" Optionally add his term dates for completeness,",True,32.2,136.3,128,4.394,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),History,In what year did the Titanic sink?,1912,"Here's a thinking process:
+
+1.  **Identify the core question**: The user is asking for the year the Titanic sank.
+2.  **Retrieve knowledge**: I know that the RMS Titanic sank on April 15, 1912, after hitting an iceberg in the North Atlantic Ocean.
+3.  **Verify accuracy**: Cross-check with historical facts: Titanic disaster occurred in 1912. This is a well-established historical fact.
+4.  **Formulate response**: State clearly that the Titanic sank in 1912. Optionally add the exact date for completeness, but",True,32.2,122.2,128,4.412,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),History,Who discovered America in 1492?,Christopher Columbus,"Here's a thinking process:
+
+1.  **Analyze User Question:** The user asks ""Who discovered America in 1492?""
+2.  **Identify Key Historical Facts:**
+   - Year: 1492
+   - Event: Arrival/discovery of the Americas
+   - Common answer: Christopher Columbus
+   - Important context/nuance: 
+     - Columbus didn't actually ""discover"" America in the sense that it was unknown to everyone. Indigenous peoples had lived there for thousands of years.
+     - Other Europeans may have arrived earlier (e.g., Leif Erikson around",True,32.2,135.5,128,4.426,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),History,Which ancient civilization built the pyramids?,Egyptians,"Here's a thinking process:
+
+1.  **Analyze User Question:** The user asks ""Which ancient civilization built the pyramids?""
+2.  **Identify Key Concepts:** 
+   - ""Ancient civilization""
+   - ""Pyramids"" (typically refers to Egyptian pyramids, but could be ambiguous)
+3.  **Determine Primary Answer:** The most famous and well-known pyramids were built by the ancient Egyptians. Specifically, the Old Kingdom period (c. 2686–2181 BCE).
+4.  **Consider Nuances/Context:** 
+   - Other civilizations",True,32.1,122.7,128,4.409,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),History,What empire was ruled by Genghis Khan?,Mongol Empire,"Here's a thinking process:
+
+1.  **Identify the core entity and question**: The user asks ""What empire was ruled by Genghis Khan?""
+2.  **Recall historical facts**: 
+   - Genghis Khan (born Temüjin) was a Mongol leader who united the nomadic tribes of the Mongolian steppe.
+   - He founded the Mongol Empire in 1206.
+   - The empire expanded rapidly under his rule and continued to grow after his death, eventually becoming the largest contiguous land empire in history.
+3.  **Formulate the answer**:",True,32.1,131.7,128,4.414,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Logical Reasoning,All cats are mammals. Whiskers is a cat. Is Whiskers a mammal?,yes,"Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - Premise 1: All cats are mammals.
+   - Premise 2: Whiskers is a cat.
+   - Question: Is Whiskers a mammal?
+
+2.  **Identify Logical Structure:**
+   - This is a classic syllogism (specifically, a categorical syllogism).
+   - Form: 
+     - All A are B. (All cats are mammals)
+     - C is A. (Whiskers is a cat)
+     - Therefore, C is",False,32.2,114.6,128,4.541,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Logical Reasoning,"If it is raining, the ground is wet. The ground is wet. Does that mean it must have rained?",no,"Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - Premise 1: If it is raining, the ground is wet. (Formal logic: R → W)
+   - Premise 2: The ground is wet. (W)
+   - Question: Does that mean it must have rained? (Does W → R?)
+
+2.  **Identify Logical Structure:**
+   - This is a classic logical fallacy: Affirming the consequent.
+   - Form: If P, then Q. Q is true. Therefore, P is true.",False,32.2,140.1,128,4.508,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Logical Reasoning,A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?,5 cents,"Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - Items: Bat and Ball
+   - Total cost: $1.10
+   - Relationship: Bat costs $1.00 more than the ball
+   - Question: How much does the ball cost?
+
+2.  **Identify Key Variables & Equations:**
+   Let B = cost of the bat
+   Let b = cost of the ball
+   Given:
+   B + b = 1.10
+   B = b + 1.00
+
+3.  **Solve the",False,32.0,207.9,128,4.499,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Logical Reasoning,"What number comes next: 1, 1, 2, 3, 5, 8, ?",13,"Here's a thinking process:
+
+1.  **Analyze the Input:** The user provides a sequence of numbers: 1, 1, 2, 3, 5, 8, ? and asks for the next number.
+
+2.  **Identify the Pattern:** 
+   - Look at the differences between consecutive terms:
+     - 1 to 1: +0
+     - 1 to 2: +1
+     - 2 to 3: +1
+     - 3 to 5: +2
+     - 5 to 8: +3
+  ",False,31.4,139.3,128,4.61,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Logical Reasoning,"If you rearrange the letters 'CIFAIPC', you get the name of what ocean?",Pacific,"Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - Input string: 'CIFAIPC'
+   - Task: Rearrange the letters to form the name of an ocean.
+   - Question: What ocean is it?
+
+2.  **Identify Key Constraints/Clues:**
+   - The rearranged letters must spell a well-known ocean name.
+   - Letters available: C, I, F, A, I, P, C (7 letters total)
+   - Let's count the frequency of each letter:
+     - C: 2
+     -",False,32.0,118.1,128,4.541,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Language Understanding,What is the past tense of 'run'?,ran,"Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - Question: ""What is the past tense of 'run'?""
+   - Target word: ""run""
+   - Desired form: Past tense
+
+2.  **Identify Key Linguistic Facts:**
+   - The verb ""run"" is an irregular verb in English.
+   - Present tense: run
+   - Past tense: ran
+   - Past participle: run (same as present)
+   - This is a standard, well-known fact in English grammar.
+
+3.  **Formulate Response:**
+",True,31.3,126.4,128,4.537,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Language Understanding,What is a synonym for 'happy'?,joyful,"Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - **Question:** ""What is a synonym for 'happy'?""
+   - **Key Term:** ""happy""
+   - **Request:** Synonym(s)
+
+2.  **Identify Core Task:** Provide one or more synonyms for the word ""happy"".
+
+3.  **Brainstorm Synonyms for ""happy"":**
+   - Joyful
+   - Cheerful
+   - Glad
+   - Delighted
+   - Content
+   - Ecstatic
+   - Thrilled
+   - Elated
+   -",True,31.6,118.5,128,4.496,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Language Understanding,What is an antonym for 'hot'?,cold,"Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - Question: ""What is an antonym for 'hot'?""
+   - Key word: ""hot""
+   - Request: Antonym (opposite)
+
+2.  **Identify Meanings of ""Hot"":**
+   - Temperature/heat: warm, heated, high temperature
+   - Popularity/appeal: trendy, fashionable, exciting (""hot topic"", ""hot movie"")
+   - Emotion/intensity: passionate, angry, intense
+   - Food/cooking: spicy, cooked
+
+3. ",False,31.4,129.5,128,4.543,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Language Understanding,"In grammar, what is a noun?",person place or thing,"Here's a thinking process:
+
+1.  **Understand User Query**: The user asks ""In grammar, what is a noun?"" This is a straightforward definition question about basic grammar.
+
+2.  **Identify Key Concepts**: 
+   - Definition of a noun
+   - Function in sentences (subject, object, etc.)
+   - Types/categories of nouns (common, proper, countable, uncountable, collective, etc.)
+   - Examples
+   - How to identify them (questions they answer)
+
+3.  **Formulate Core Definition**: A noun is a word that names a person, place",False,30.6,88.5,128,4.689,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Language Understanding,What figure of speech compares two things using 'like' or 'as'?,simile,"Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - Question: ""What figure of speech compares two things using 'like' or 'as'?""
+   - Key elements: Figure of speech, compares two things, uses ""like"" or ""as"".
+
+2.  **Identify Core Concept:**
+   - The definition matches the standard literary device known as a ""simile.""
+   - Similes explicitly use words like ""like"" or ""as"" to draw a comparison between two unlike things.
+
+3.  **Verify Definition:**
+   - Check standard definitions: A",True,31.0,103.7,128,4.668,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Persian,پایتخت ایران کجاست؟,تهران,"We need to answer the question: ""پایتخت ایران کجاست؟"" which is Persian for ""What is the capital of Iran?"" The answer is Tehran. In Persian, it's تهران. So the answer should be in Persian as well, since the question is in Persian.
+
+I'll respond: پایتخت ایران تهران است.
+
+But let's make sure: The question is ""پایتخت ایران کجاست؟"" which has a typo: ""کجاست"" should be ""کجا است"". But it's clear. So answer: تهران.
+
+I'll provide the answer in Persian.
+</think>",True,30.9,120.1,128,4.587,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Persian,رنگ پرچم ایران چیست؟,سبز,"We need to answer: ""رنگ پرچم ایران چیست؟"" which is Persian for ""What are the colors of the Iranian flag?"" The Iranian flag consists of three horizontal stripes: green on top, white in the middle, and red at the bottom. Additionally, there is a black circle with a red star in the center. So the answer should mention these colors.
+
+The question is in Persian, so the answer should be in Persian as well. I'll provide the answer in Persian.
+
+Let me write: پرچم ایران از سه نوار horizontال تشکیل شده است: سبز در بالا، سفید در",True,30.9,117.4,128,4.595,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Persian,کوچکترین عدد طبیعی چیست؟,1,"We need to answer: ""کوچکترین عدد طبیعی چیست؟"" which is Persian for ""What is the smallest natural number?"" In mathematics, natural numbers are typically defined as positive integers starting from 1. However, some definitions include 0. The question is in Persian, so we should consider the common definition in Iranian education. In many contexts, especially in Iran, natural numbers (أعداد طبیعی) usually start from 1. But sometimes 0 is included. I need to check standard Persian mathematical terminology. Typically, in Persian, ""عدد طبیعی"" refers to positive integers: 1, 2, 3,",True,30.9,119.1,128,4.593,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Persian,حاصلضرب ۵ ضربدر ۶ چند می‌شود؟,30,"We need to compute the product of 5 and 6. The question is in Persian: ""حاصلضرب ۵ ضربدر ۶ چند می‌شود؟"" which translates to ""What is the product of 5 multiplied by 6?"" So we just need to multiply 5 by 6.
+
+5 × 6 = 30.
+
+The answer should be in Persian or maybe just the number. Since the question is in Persian, likely the answer is expected in Persian numerals or Arabic numerals. But typically, we can answer with ""۳۰"" or ""30",True,30.4,114.0,128,4.755,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Ollama (ROCm),Persian,زبان رسمی ایران چیست؟,فارسی,"We need to answer the question: ""زبان رسمی ایران چیست؟"" which is Persian for ""What is the official language of Iran?"" The answer should be in Persian, as the question is in Persian. The official language of Iran is Persian (also known as Farsi). In Persian, it's called ""فارسی"" or ""پارسی"". But officially, it's Persian. So the answer should be: زبان رسمی ایران فارسی است. Or more precisely: فارسی (پارسی) زبان رسمی ایران است.
+
+I'll provide a clear and concise answer in Persian.
+</think>
+
+زبان رسمی ایران **",True,30.4,107.8,128,4.66,
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,General Knowledge,What is the capital of France?,Paris,,False,0,0,0,0.005,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,General Knowledge,Who wrote Romeo and Juliet?,William Shakespeare,,False,0,0,0,0.006,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,General Knowledge,What is the largest planet in our solar system?,Jupiter,,False,0,0,0,0.004,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,General Knowledge,What year did World War II end?,1945,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,General Knowledge,What is the chemical symbol for gold?,Au,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Mathematics,What is 15 × 7?,105,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Mathematics,What is 144 divided by 12?,12,,False,0,0,0,0.004,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Mathematics,What is the square root of 81?,9,,False,0,0,0,0.004,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Mathematics,"If x + 5 = 12, what is x?",7,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Mathematics,What is 25% of 200?,50,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Coding,"In Python, how do you print 'Hello, World!'?",print(,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Coding,What does the len() function do in Python?,returns the length,,False,0,0,0,0.005,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Coding,What keyword is used to define a function in Python?,def,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Coding,What data structure uses key-value pairs in Python?,dict,,False,0,0,0,0.005,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Coding,What loop runs at least once in most languages?,do-while,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,History,Who was the first President of the United States?,George Washington,,False,0,0,0,0.005,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,History,In what year did the Titanic sink?,1912,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,History,Who discovered America in 1492?,Christopher Columbus,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,History,Which ancient civilization built the pyramids?,Egyptians,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,History,What empire was ruled by Genghis Khan?,Mongol Empire,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Logical Reasoning,All cats are mammals. Whiskers is a cat. Is Whiskers a mammal?,yes,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Logical Reasoning,"If it is raining, the ground is wet. The ground is wet. Does that mean it must have rained?",no,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Logical Reasoning,A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?,5 cents,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Logical Reasoning,"What number comes next: 1, 1, 2, 3, 5, 8, ?",13,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Logical Reasoning,"If you rearrange the letters 'CIFAIPC', you get the name of what ocean?",Pacific,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Language Understanding,What is the past tense of 'run'?,ran,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Language Understanding,What is a synonym for 'happy'?,joyful,,False,0,0,0,0.004,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Language Understanding,What is an antonym for 'hot'?,cold,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Language Understanding,"In grammar, what is a noun?",person place or thing,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Language Understanding,What figure of speech compares two things using 'like' or 'as'?,simile,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Persian,پایتخت ایران کجاست؟,تهران,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Persian,رنگ پرچم ایران چیست؟,سبز,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Persian,کوچکترین عدد طبیعی چیست؟,1,,False,0,0,0,0.004,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Persian,حاصلضرب ۵ ضربدر ۶ چند می‌شود؟,30,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-1.7b-q2_0,1.7B,Q2_0 ternary,llama-server ROCm,Persian,زبان رسمی ایران چیست؟,فارسی,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,General Knowledge,What is the capital of France?,Paris,,False,0,0,0,0.004,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,General Knowledge,Who wrote Romeo and Juliet?,William Shakespeare,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,General Knowledge,What is the largest planet in our solar system?,Jupiter,,False,0,0,0,0.004,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,General Knowledge,What year did World War II end?,1945,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,General Knowledge,What is the chemical symbol for gold?,Au,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Mathematics,What is 15 × 7?,105,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Mathematics,What is 144 divided by 12?,12,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Mathematics,What is the square root of 81?,9,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Mathematics,"If x + 5 = 12, what is x?",7,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Mathematics,What is 25% of 200?,50,,False,0,0,0,0.004,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Coding,"In Python, how do you print 'Hello, World!'?",print(,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Coding,What does the len() function do in Python?,returns the length,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Coding,What keyword is used to define a function in Python?,def,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Coding,What data structure uses key-value pairs in Python?,dict,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Coding,What loop runs at least once in most languages?,do-while,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,History,Who was the first President of the United States?,George Washington,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,History,In what year did the Titanic sink?,1912,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,History,Who discovered America in 1492?,Christopher Columbus,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,History,Which ancient civilization built the pyramids?,Egyptians,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,History,What empire was ruled by Genghis Khan?,Mongol Empire,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Logical Reasoning,All cats are mammals. Whiskers is a cat. Is Whiskers a mammal?,yes,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Logical Reasoning,"If it is raining, the ground is wet. The ground is wet. Does that mean it must have rained?",no,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Logical Reasoning,A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?,5 cents,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Logical Reasoning,"What number comes next: 1, 1, 2, 3, 5, 8, ?",13,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Logical Reasoning,"If you rearrange the letters 'CIFAIPC', you get the name of what ocean?",Pacific,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Language Understanding,What is the past tense of 'run'?,ran,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Language Understanding,What is a synonym for 'happy'?,joyful,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Language Understanding,What is an antonym for 'hot'?,cold,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Language Understanding,"In grammar, what is a noun?",person place or thing,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Language Understanding,What figure of speech compares two things using 'like' or 'as'?,simile,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Persian,پایتخت ایران کجاست؟,تهران,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Persian,رنگ پرچم ایران چیست؟,سبز,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Persian,کوچکترین عدد طبیعی چیست؟,1,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Persian,حاصلضرب ۵ ضربدر ۶ چند می‌شود؟,30,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-4b-q2_0,4B,Q2_0 ternary,llama-server ROCm,Persian,زبان رسمی ایران چیست؟,فارسی,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,General Knowledge,What is the capital of France?,Paris,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,General Knowledge,Who wrote Romeo and Juliet?,William Shakespeare,,False,0,0,0,0.004,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,General Knowledge,What is the largest planet in our solar system?,Jupiter,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,General Knowledge,What year did World War II end?,1945,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,General Knowledge,What is the chemical symbol for gold?,Au,,False,0,0,0,0.004,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Mathematics,What is 15 × 7?,105,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Mathematics,What is 144 divided by 12?,12,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Mathematics,What is the square root of 81?,9,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Mathematics,"If x + 5 = 12, what is x?",7,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Mathematics,What is 25% of 200?,50,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Coding,"In Python, how do you print 'Hello, World!'?",print(,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Coding,What does the len() function do in Python?,returns the length,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Coding,What keyword is used to define a function in Python?,def,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Coding,What data structure uses key-value pairs in Python?,dict,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Coding,What loop runs at least once in most languages?,do-while,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,History,Who was the first President of the United States?,George Washington,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,History,In what year did the Titanic sink?,1912,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,History,Who discovered America in 1492?,Christopher Columbus,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,History,Which ancient civilization built the pyramids?,Egyptians,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,History,What empire was ruled by Genghis Khan?,Mongol Empire,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Logical Reasoning,All cats are mammals. Whiskers is a cat. Is Whiskers a mammal?,yes,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Logical Reasoning,"If it is raining, the ground is wet. The ground is wet. Does that mean it must have rained?",no,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Logical Reasoning,A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?,5 cents,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Logical Reasoning,"What number comes next: 1, 1, 2, 3, 5, 8, ?",13,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Logical Reasoning,"If you rearrange the letters 'CIFAIPC', you get the name of what ocean?",Pacific,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Language Understanding,What is the past tense of 'run'?,ran,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Language Understanding,What is a synonym for 'happy'?,joyful,,False,0,0,0,0.005,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Language Understanding,What is an antonym for 'hot'?,cold,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Language Understanding,"In grammar, what is a noun?",person place or thing,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Language Understanding,What figure of speech compares two things using 'like' or 'as'?,simile,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Persian,پایتخت ایران کجاست؟,تهران,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Persian,رنگ پرچم ایران چیست؟,سبز,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Persian,کوچکترین عدد طبیعی چیست؟,1,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Persian,حاصلضرب ۵ ضربدر ۶ چند می‌شود؟,30,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)
+ternary-bonsai-8b-q2_0,8B,Q2_0 ternary,llama-server ROCm,Persian,زبان رسمی ایران چیست؟,فارسی,,False,0,0,0,0.003,Expecting value: line 1 column 1 (char 0)

@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+echo "1bit.systems v2026.07.16 — 5 models, 28 tok/s NPU"
+echo ""
+if [ -f /dev/accel/accel0 ]; then
+    echo "✅ NPU device detected"
+else
+    echo "⚠️  No NPU device found. Run: sudo modprobe amdxdna"
+fi
+echo ""
+echo "Usage: 1bit-npu /path/to/model.q4nx [decode_tokens]"
+echo "Models: Qwen3-0.6B/8B/VL-4B, Llama-3.1-8B, Gemma4-E2B"
+echo "Docs:   https://1bit.systems"
+echo "Source: https://github.com/bong-water-water-bong/1bit-systems"

@@ -1,0 +1,123 @@
+#version 450
+// dmmv_tq2_bonsai.comp — TQ2_0_g128 Bonsai ternary GEMV, portable Vulkan
+// path for the 1bit engine. Mirrors src/bonsai_tq2_gemv.hip's block format
+// exactly (34 bytes / 128 weights, d-first, linear (code-1)*d decode,
+// verified bit-exact against real weight data this session), but uses a
+// subgroup-size-agnostic 2-rows/workgroup topology (cross-subgroup LDS
+// fold) so it runs correctly on any Vulkan 1.2+ device -- AMD, NVIDIA, or
+// Intel -- not just wave32 hardware. A faster wave32-pinned variant is a
+// later optimization once there's real non-AMD hardware to validate
+// against; this is the baseline that must always work.
+//
+// Block layout (34 bytes, 128 weights):
+//   [fp16 d : 2 bytes][qs[32] : 32 bytes, 2-bit codes LSB-first, 4/byte]
+//   value(code) = code - 1 -> {-1, 0, +1, +2}.
+//
+// Activations are passed as raw fp16 bytes (matching bonsai_tq2_gemv_launch's
+// real uint16_t* act_fp16 contract) and manually unpacked via
+// unpackHalf2x16 -- avoids requiring GL_EXT_shader_16bit_storage, which
+// not every driver supports; only GL_EXT_shader_explicit_arithmetic_types
+// (for uint8_t byte access) and core subgroup ops are needed.
+
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(local_size_x = 64) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+    uint a_offset;
+    uint x_offset;
+    uint y_offset;
+    uint acc_mode;
+};
+
+layout(set = 0, binding = 0) readonly buffer MatrixA { uint8_t a_data[]; };
+layout(set = 0, binding = 1) readonly buffer VectorX { uint8_t x_data[]; };
+layout(set = 0, binding = 2) buffer VectorY { float y_data[]; };
+
+const uint BLOCK_WEIGHTS = 128u;
+const uint BLOCK_BYTES = 34u;
+const uint QS_OFFSET = 2u;
+
+// Sized for the smallest realistic subgroup width (Intel: 8) at the
+// largest workgroup here (64 threads) -> up to 8 subgroups/workgroup.
+shared float s_sum0[8];
+shared float s_sum1[8];
+
+float fp16ToFloat(uint lo, uint hi) {
+    return unpackHalf2x16(lo | (hi << 8u)).x;
+}
+
+// value(code) = code - 1.
+float codeValue(uint code) {
+    // Code map: 0b00→-d, 0b01→0, 0b10→+d, 0b11→0 (reserved, per bonsai.h)
+    return code == 3 ? 0.0 : float(code) - 1.0;
+}
+
+void main() {
+    uint wg_id = gl_WorkGroupID.x;
+    uint row0 = wg_id * 2u;
+    uint row1 = row0 + 1u;
+    uint tid = gl_LocalInvocationID.x;
+
+    uint blocks_per_row = K / BLOCK_WEIGHTS;
+
+    float sum0 = 0.0;
+    float sum1 = 0.0;
+
+    uint row0_base = a_offset + row0 * blocks_per_row * BLOCK_BYTES;
+    uint row1_base = a_offset + row1 * blocks_per_row * BLOCK_BYTES;
+
+    for (uint blk = 0u; blk < blocks_per_row; blk++) {
+        uint x_base = x_offset + blk * BLOCK_WEIGHTS;
+        for (uint hh = 0u; hh < 2u; hh++) {
+            uint j = tid + hh * 64u;
+            uint byte_idx = QS_OFFSET + (j >> 2u);
+            uint bit_off = (j & 3u) * 2u;
+            uint xj_off = (x_base + j) * 2u;
+            float xj = fp16ToFloat(uint(x_data[xj_off]), uint(x_data[xj_off + 1u]));
+
+            if (row0 < M) {
+                uint blk_base = row0_base + blk * BLOCK_BYTES;
+                float d = fp16ToFloat(uint(a_data[blk_base]), uint(a_data[blk_base + 1u]));
+                uint code = (uint(a_data[blk_base + byte_idx]) >> bit_off) & 3u;
+                sum0 += codeValue(code) * d * xj;
+            }
+            if (row1 < M) {
+                uint blk_base = row1_base + blk * BLOCK_BYTES;
+                float d = fp16ToFloat(uint(a_data[blk_base]), uint(a_data[blk_base + 1u]));
+                uint code = (uint(a_data[blk_base + byte_idx]) >> bit_off) & 3u;
+                sum1 += codeValue(code) * d * xj;
+            }
+        }
+    }
+
+    // Intra-subgroup reduction, then cross-subgroup fold via shared memory
+    // -- correct regardless of subgroup width (32, 64, or otherwise).
+    sum0 = subgroupAdd(sum0);
+    sum1 = subgroupAdd(sum1);
+    if (subgroupElect()) {
+        uint sg_idx = gl_SubgroupID;
+        s_sum0[sg_idx] = sum0;
+        s_sum1[sg_idx] = sum1;
+    }
+    memoryBarrierShared();
+    barrier();
+
+    if (tid == 0u) {
+        float total0 = 0.0;
+        float total1 = 0.0;
+        uint n_sg = (gl_WorkGroupSize.x + gl_SubgroupSize - 1u) / gl_SubgroupSize;
+        for (uint i = 0u; i < n_sg && i < 8u; i++) {
+            total0 += s_sum0[i];
+            total1 += s_sum1[i];
+        }
+        uint y0 = y_offset / 4u + row0;
+        uint y1 = y_offset / 4u + row1;
+        if (row0 < M) { if (acc_mode == 0u) y_data[y0] = total0; else y_data[y0] += total0; }
+        if (row1 < M) { if (acc_mode == 0u) y_data[y1] = total1; else y_data[y1] += total1; }
+    }
+}

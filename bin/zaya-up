@@ -1,0 +1,40 @@
+#!/bin/bash
+# Start the Zaya1 server on port 8081 using the Radeon 8060S iGPU
+# Uses the llama.cpp Zaya fork for 74B-A4B Q4_K_M inference
+
+MODEL="/home/bcloud/models/zaya1/ZAYA1PREVIEW-74B-A4B-Q4_K_M.gguf"
+LLAMA_SERVER="/home/bcloud/zaya-llama.cpp/build/bin/llama-server"
+PORT=8081
+CTX=8192
+
+if [ ! -f "$MODEL" ]; then
+    echo "ERROR: Model not found at $MODEL"
+    exit 1
+fi
+
+if [ ! -f "$LLAMA_SERVER" ]; then
+    echo "ERROR: llama-server not found at $LLAMA_SERVER"
+    exit 1
+fi
+
+# Check if already running
+if ss -tlnp 2>/dev/null | grep -q ":$PORT "; then
+    echo "Zaya server already running on port $PORT"
+    exit 0
+fi
+
+echo "Starting Zaya1 server on port $PORT..."
+echo "  Model: $MODEL"
+echo "  Context: $CTX tokens"
+echo "  GPU: Full offload (ROCm)"
+echo "  Flash Attention: enabled"
+echo ""
+
+$LLAMA_SERVER \
+    -m "$MODEL" \
+    -ngl 99 \
+    --no-mmap \
+    -c "$CTX" \
+    --port "$PORT" \
+    --host 127.0.0.1 \
+    -fa 1

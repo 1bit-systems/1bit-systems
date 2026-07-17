@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>1bit.systems — Multi-Modal Demo</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:#0a0a0f;color:#e0e0e0;line-height:1.6}
+.wrap{max-width:900px;margin:0 auto;padding:40px 20px}
+h1{font-size:2rem;font-weight:800;color:#00ccff;margin-bottom:8px}
+.back{color:#666;text-decoration:none;font-size:.85rem;display:inline-block;margin-bottom:20px}
+.back:hover{color:#00ccff}
+.section{margin:30px 0}
+.section h2{font-size:1.3rem;color:#ccc;margin-bottom:12px;border-bottom:1px solid #1e1e2e;padding-bottom:8px}
+.code{background:#0d0d1a;border:1px solid #1e1e2e;border-radius:8px;padding:16px;font-family:'SF Mono','Cascadia Code',monospace;font-size:.82rem;overflow-x:auto;white-space:pre-wrap;line-height:1.5}
+.tag{display:inline-block;padding:2px 6px;border-radius:3px;font-size:.7rem;font-weight:600}
+.tag.vision{background:#002233;color:#00ccff}
+.tag.audio{background:#220033;color:#cc66ff}
+.tag.npu{background:#003322;color:#00ff88}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0}
+.card{background:#13131f;border:1px solid #1e1e2e;border-radius:8px;padding:20px}
+.card h3{color:#ccc;margin-bottom:8px;font-size:1rem}
+.card p{color:#888;font-size:.85rem}
+.placeholder{background:#0d0d1a;border:1px dashed #1e1e2e;border-radius:8px;height:200px;display:flex;align-items:center;justify-content:center;color:#444;font-size:.8rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+<a href="index.html" class="back">← Back to Demos</a>
+<h1>Multi-Modal Inference</h1>
+<p style="color:#888;margin-bottom:30px">Vision, Audio, and Text — all on the NPU</p>
+
+<div class="section">
+  <h2>Vision — Qwen3-VL-4B</h2>
+  <div class="code">
+<span class="meta"># Model: qwen3-vl:4b | Device: npu | Speed: 11 tok/s</span>
+<span class="meta"># 3.2 GB model, vision encoder + LLM decoder</span>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <h3><span class="tag vision">Image</span> Captioning</h3>
+      <div class="placeholder">[ Image Input ]</div>
+      <p style="margin-top:8px;font-size:.8rem">Qwen3-VL processes images through a vision encoder, then generates text descriptions via the NPU LLM decoder.</p>
+    </div>
+    <div class="card">
+      <h3><span class="tag vision">Video</span> Frame Analysis</h3>
+      <div class="placeholder">[ Video Frames ]</div>
+      <p style="margin-top:8px;font-size:.8rem">Extract frames from video, analyze with vision model. Multi-frame understanding at 11 tok/s.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Audio — Whisper-V3-Turbo</h2>
+  <div class="code">
+<span class="meta"># Model: whisper:v3-turbo | Device: npu</span>
+<span class="meta"># Speech-to-text, real-time latency (~1.5s first word)</span>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <h3><span class="tag audio">STT</span> Speech-to-Text</h3>
+      <p>Whisper-V3-Turbo on NPU. Real-time transcription. ~1.5s latency to first word.</p>
+    </div>
+    <div class="card">
+      <h3><span class="tag audio">TTS</span> Text-to-Speech</h3>
+      <p>Piper TTS. ~50ms latency. Edge voices. No cloud.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>End-to-End Pipeline</h2>
+  <div class="code">
+<span class="meta"># Voice → NPU → Voice (full local pipeline)</span>
+
+<span class="tag audio">Audio</span> Microphone → Whisper STT (NPU)
+<span class="tag npu">NPU</span>    Text → Qwen3-0.6B inference (69 tok/s)
+<span class="tag audio">Audio</span> Response → Piper TTS (50ms)
+</div>
+</div>
+
+<p style="color:#444;margin-top:30px;font-size:.8rem">
+Powered by 1bit.systems · AMD Strix Halo · NPU + GPU + CPU
+</p>
+</div>
+</body>
+</html>

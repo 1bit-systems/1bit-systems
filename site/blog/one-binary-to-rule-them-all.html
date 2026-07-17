@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>One binary to rule them all — 5 model families, auto-detect · 1bit.systems</title>
+<meta name="description" content="How a single 38KB C++ binary auto-detects 73+ models across 6 backends — NPU, ROCm, Vulkan, CUDA, Metal, CPU — from one Q4NX header parse.">
+<meta name="keywords" content="multi-model inference, GGUF, Q4NX, auto-detect, universal engine, AMD NPU, ROCm, Vulkan">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://1bit.systems/blog/one-binary-to-rule-them-all">
+<meta property="og:title" content="One binary to rule them all — 5 model families, auto-detect">
+<meta property="og:description" content="A single 38KB binary auto-detects 73+ models across 6 backends. No config files. No model registry.">
+<meta property="og:url" content="https://1bit.systems/blog/one-binary-to-rule-them-all">
+<meta property="og:type" content="article">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<style>
+  :root{--bg:#021621;--panel:#06222f;--border:#0e3346;--text:#e7f6fd;--muted:#86adbf;--dim:#4a6a7a;--green:#00ff00;--pink:#f00fd2;--blue:#12a0ed;--sans:'Inter',Helvetica,Arial,sans-serif;--mono:'JetBrains Mono',Consolas,monospace;--maxw:780px;}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.7;}
+  a{color:var(--blue);font-weight:600;text-decoration:none;}a:hover{color:var(--green);}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px;}
+  nav{position:sticky;top:0;backdrop-filter:blur(14px);background:rgba(2,22,33,.78);border-bottom:1px solid var(--border);}
+  .nav-in{max-width:1180px;margin:0 auto;padding:0 32px;height:60px;display:flex;align-items:center;gap:12px;}
+  .mark{width:32px;height:32px;border-radius:999px;background:var(--bg);border:2px solid var(--pink);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;color:var(--green);}
+  .wordmark{font-size:15px;font-weight:800;letter-spacing:-.025em;}.wordmark .g{color:var(--green);}.wordmark .p{color:var(--pink);}
+  article{padding:48px 0 64px;}
+  h1{font-size:clamp(26px,3.6vw,42px);font-weight:900;line-height:1.08;margin:16px 0 8px;}
+  .meta{font-family:var(--mono);font-size:13px;color:var(--dim);margin-bottom:32px;padding-bottom:20px;border-bottom:1px solid var(--border);}
+  h2{font-size:clamp(20px,2.4vw,28px);font-weight:800;margin:36px 0 12px;color:var(--green);}
+  p{margin:16px 0;font-size:16px;color:var(--muted);line-height:1.7;}p strong{color:var(--text);}
+  ul{margin:12px 0;padding-left:24px;color:var(--muted);font-size:16px;}li{margin:6px 0;}
+  code{background:var(--inner);padding:2px 7px;border-radius:5px;font-family:var(--mono);font-size:14px;color:var(--green);border:1px solid var(--border);}
+  pre{background:var(--inner);border:1px solid var(--border);border-radius:12px;padding:16px 18px;overflow-x:auto;margin:16px 0;font-family:var(--mono);font-size:13px;color:var(--muted);}
+  pre .g{color:var(--green);}pre .c{color:var(--dim);}pre .r{color:var(--pink);}
+  blockquote{border-left:3px solid var(--pink);padding:12px 18px;margin:20px 0;background:var(--panel);border-radius:0 10px 10px 0;}
+  hr{border:none;border-top:1px solid var(--border);margin:32px 0;}
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px;}
+  th,td{padding:8px 12px;border:1px solid var(--border);text-align:left;}
+  th{background:var(--panel);color:var(--text);}td{color:var(--muted);}
+  .tag{display:inline-flex;height:22px;padding:0 10px;border-radius:5px;font-size:10px;font-weight:800;text-transform:uppercase;color:var(--bg);margin-right:6px;}
+  .tag.npu{background:var(--pink);}.tag.g{background:var(--green);color:var(--bg);}.tag.b{background:var(--blue);color:var(--bg);}
+  .foot{border-top:1px solid var(--border);padding:24px 0 40px;text-align:center;font-size:13px;color:var(--dim);}
+</style>
+</head>
+<body>
+<nav><div class="nav-in"><a class="mark" href="/">1bs</a><a class="wordmark" href="/"><span class="g">1</span>bit<span class="p">.</span>systems</a><span style="flex:1"></span><a href="/" style="font-size:13px;color:var(--muted);">← Home</a></div></nav>
+<article class="wrap">
+<blockquote style="border-left-color:var(--pink);background:#33110022;"><strong>&#9888;&#65039; Correction:</strong> Performance figures in this post are historical and may not reflect current, source-backed numbers. Several headline engine figures were later found to have no reproducible source and are quarantined in <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/benchmarks/latest.json">benchmarks/latest.json</a> (the NPU-fused path does not currently produce validated generation). For current, sourced numbers see the <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/performance.md">performance SSOT</a>. (issue #107)</blockquote>
+
+<div class="meta"><span class="tag npu">NPU</span> <span class="tag g">Architecture</span> <span class="tag b">Multi-Platform</span><br><br><strong style="color:var(--text);">bong-water-water-bong</strong> · July 6, 2026 · 5 min read</div>
+<h1>One binary to rule them all — 5 model families, auto-detect</h1>
+<p><strong>tl;dr:</strong> A single 38KB binary reads the Q4NX header of any supported model, auto-detects architecture dimensions, and dispatches to the right backend. <strong>Zero config files.</strong></p>
+<hr>
+<h2>The model explosion problem</h2>
+<p>73+ models across 6 backends. The naive approach: 73 config files. One per model. Each a maintenance nightmare.</p>
+<p>Better approach: <strong>read the model's own header</strong>.</p>
+<h2>The Q4NX header</h2>
+<p>AMD's Q4NX format packs everything needed to reconstruct the model: <code>num_layers</code>, <code>hidden_size</code>, <code>num_heads</code>, <code>num_kv_heads</code>, <code>head_dim</code>, <code>intermediate_size</code>, <code>vocab_size</code>, <code>rope_theta</code>, <code>norm_eps</code>, and <code>data_offsets</code> for every weight tensor.</p>
+<p>The engine parses these at startup, allocates the right buffers, and dispatches to the correct GEMM kernels. The same binary that runs Qwen3-0.6B (1,536 hidden, 12 layers) also runs Llama-3.1-8B (4,096 hidden, 32 layers).</p>
+<h2>The 5 verified model families</h2>
+<table>
+<tr><th>Model</th><th>Size</th><th>Hidden</th><th>Layers</th><th>NPU speed</th></tr>
+<tr><td>Qwen3-0.6B</td><td>0.6B</td><td>1,536</td><td>28</td><td><strong>291 tok/s</strong></td></tr>
+<tr><td>Qwen3-8B</td><td>8B</td><td>4,096</td><td>32</td><td>215 ms/tok</td></tr>
+<tr><td>Qwen3-VL-4B</td><td>4B</td><td>2,560</td><td>36</td><td>141 ms/tok</td></tr>
+<tr><td>Llama-3.1-8B</td><td>8B</td><td>4,096</td><td>32</td><td>185 ms/tok</td></tr>
+<tr><td>Gemma4-E2B</td><td>2B</td><td>2,304</td><td>26</td><td>117 ms/tok</td></tr>
+</table>
+<h2>6 backends</h2>
+<table>
+<tr><th>Backend</th><th>API</th><th>Speed (0.6B)</th></tr>
+<tr><td>🟢 NPU fused</td><td>XRT xclbin</td><td><strong>291 tok/s</strong></td></tr>
+<tr><td>🔵 NPU v12</td><td>XRT xclbin</td><td>97 tok/s</td></tr>
+<tr><td>🟣 ROCm HIP</td><td>HIP kernels</td><td>113 tok/s</td></tr>
+<tr><td>🟡 Vulkan</td><td>GLSL compute</td><td>22 tok/s</td></tr>
+<tr><td>⚪ CUDA</td><td>llama.cpp</td><td>~30 tok/s</td></tr>
+<tr><td>⚪ Metal</td><td>llama.cpp</td><td>~15 tok/s</td></tr>
+</table>
+<h2>The one-line fix that unlocked 5 models</h2>
+<p><code>dequant_i8_to_float_ex</code> had <code>in_features</code> hardcoded to 1024 — only Qwen3-0.6B worked. Fixing it to read H, NH×HD, and IM per-projection from the header: <strong>one line. Five new models.</strong></p>
+<blockquote><strong>73+ models. 6 backends. One 38KB binary.</strong> The header knows what it is. The binary figures out the rest.</blockquote>
+<hr>
+<p style="font-size:14px;color:var(--dim);"><em>Post 5 of the series. <a href="/blog/three-bugs-broke-97-tok-per-second">Previous: Three bugs saga →</a></em></p>
+<h3>Links</h3>
+<ul><li><a href="https://1bit.systems">1bit.systems</a></li><li><a href="https://github.com/bong-water-water-bong/1bit-systems">GitHub</a></li></ul>
+</article>
+<div class="foot wrap"><a href="/">← back to 1bit.systems</a> · MIT</div>
+</body>
+</html>

@@ -1,0 +1,159 @@
+#version 460
+// ZINC — branchless full-tile Q6_K GEMM for batched prefill, fused-residual
+// variant. Identical to mul_mm_q6k_full.comp except the output write
+// ACCUMULATES into d_data (d[idx] += result) instead of overwriting. This
+// eliminates the standalone barrier + scale_accumulate dispatch that adds
+// the dense-FFN residual (hidden += down_out), saving one pipeline barrier
+// and one dispatch per dense-FFN layer.
+
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_control_flow_attributes : require
+
+const uint BM = 32u;
+const uint BN = 32u;
+const uint BK = 32u;
+const uint TM = 4u;
+const uint TN = 4u;
+const uint WG_SIZE = 64u;
+const uint TPR_M = BM / TM;
+const uint TPR_N = BN / TN;
+
+const uint Q6K_BLOCK_SIZE = 256u;
+const uint Q6K_BYTES = 210u;
+const uint STRIDE_A = BK + 1u;
+const uint STRIDE_B = BK + 1u;
+
+layout(local_size_x = WG_SIZE) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint N;
+    uint K;
+    uint stride_b;
+    uint stride_d;
+    uint a_offset;
+    uint b_offset;
+    uint d_offset;
+};
+
+layout(set = 0, binding = 0) readonly buffer MatA { uint8_t a_data[]; };
+layout(set = 0, binding = 1) readonly buffer MatB { float b_data[]; };
+layout(set = 0, binding = 2) buffer MatD { float d_data[]; };
+
+shared float16_t buf_a[BM * STRIDE_A];
+shared float buf_b[BN * STRIDE_B];
+
+int signed_i8(uint b) {
+    return int(b) - (b >= 128u ? 256 : 0);
+}
+
+void load_q6k_run(uint byte_off, uint kb, out float vals[16]) {
+    const uint half_id = kb >> 7;
+    const uint rem0 = kb & 127u;
+    const uint group = rem0 >> 5;
+    const uint l0 = rem0 & 31u;
+    const uint is = l0 >> 4;
+
+    const uint ql_base = byte_off + half_id * 64u;
+    const uint qh_base = byte_off + 128u + half_id * 32u;
+    const uint sc_base = byte_off + 192u + half_id * 8u;
+
+    const bool hi_nibble = (group >= 2u);
+    const uint ql_off = ql_base + l0 + (((group & 1u) != 0u) ? 32u : 0u);
+    const uint qh_off = qh_base + l0;
+    const uint qh_shift = group * 2u;
+    const uint scale_idx = is + group * 2u;
+
+    const uint d_bits = uint(a_data[byte_off + 208u]) | (uint(a_data[byte_off + 209u]) << 8);
+    const float d = unpackHalf2x16(d_bits).x;
+    const float s = d * float(signed_i8(uint(a_data[sc_base + scale_idx])));
+
+    [[unroll]] for (uint i = 0u; i < 16u; i++) {
+        const uint ql_raw = uint(a_data[ql_off + i]);
+        const uint ql_nib = hi_nibble ? (ql_raw >> 4) : (ql_raw & 0xFu);
+        const uint qh_raw = uint(a_data[qh_off + i]);
+        const int q = int(ql_nib | (((qh_raw >> qh_shift) & 3u) << 4)) - 32;
+        vals[i] = s * float(q);
+    }
+}
+
+void main() {
+    const uint tid = gl_LocalInvocationID.x;
+    const uint ir = gl_WorkGroupID.x;
+    const uint ic = gl_WorkGroupID.y;
+
+    const uint tiwr = tid % TPR_M;
+    const uint tiwc = tid / TPR_M;
+
+    float sums[TM][TN];
+    [[unroll]] for (uint m = 0u; m < TM; m++) {
+        [[unroll]] for (uint n = 0u; n < TN; n++) {
+            sums[m][n] = 0.0;
+        }
+    }
+
+    const uint blocks_per_row = K / Q6K_BLOCK_SIZE;
+
+    for (uint k_outer = 0u; k_outer < K; k_outer += BK) {
+        {
+            const uint row_local = tid / 2u;
+            const uint k_in_tile = (tid & 1u) * 16u;
+            const uint row_global = ir * BM + row_local;
+            const uint k_base = k_outer + k_in_tile;
+            const uint super_block = k_base >> 8;
+            const uint byte_off = a_offset
+                + row_global * blocks_per_row * Q6K_BYTES
+                + super_block * Q6K_BYTES;
+            const uint k_block_base = k_base & 255u;
+
+            float vals[16];
+            load_q6k_run(byte_off, k_block_base, vals);
+
+            const uint base_a = row_local * STRIDE_A + k_in_tile;
+            [[unroll]] for (uint i = 0u; i < 16u; i++) {
+                buf_a[base_a + i] = float16_t(vals[i]);
+            }
+        }
+
+        {
+            const uint col_local = tid / 2u;
+            const uint k_in_tile_b = (tid & 1u) * 16u;
+            const uint col_global = ic * BN + col_local;
+            const uint b_col_base = b_offset + col_global * stride_b;
+            const uint base_b = col_local * STRIDE_B + k_in_tile_b;
+
+            [[unroll]] for (uint i = 0u; i < 16u; i++) {
+                buf_b[base_b + i] = b_data[b_col_base + k_outer + k_in_tile_b + i];
+            }
+        }
+
+        barrier();
+
+        [[unroll]] for (uint k = 0u; k < BK; k++) {
+            float16_t a_reg[TM];
+            [[unroll]] for (uint m = 0u; m < TM; m++) {
+                a_reg[m] = buf_a[(tiwr * TM + m) * STRIDE_A + k];
+            }
+            float b_reg[TN];
+            [[unroll]] for (uint n = 0u; n < TN; n++) {
+                b_reg[n] = buf_b[(tiwc * TN + n) * STRIDE_B + k];
+            }
+            [[unroll]] for (uint m = 0u; m < TM; m++) {
+                [[unroll]] for (uint n = 0u; n < TN; n++) {
+                    sums[m][n] = fma(float(a_reg[m]), b_reg[n], sums[m][n]);
+                }
+            }
+        }
+
+        barrier();
+    }
+
+    [[unroll]] for (uint m = 0u; m < TM; m++) {
+        [[unroll]] for (uint n = 0u; n < TN; n++) {
+            const uint row_g = ir * BM + tiwr * TM + m;
+            const uint col_g = ic * BN + tiwc * TN + n;
+            d_data[d_offset + col_g * stride_d + row_g] += sums[m][n];
+        }
+    }
+}

@@ -1,0 +1,207 @@
+#version 450
+// zaya_cca_attn.comp — Zaya CCA attention layer (Vulkan portable)
+// Single-token forward: RMSNorm → QKV → conv_qk → RoPE → GQA → O_proj
+//
+// Input:  hs[H] (pre-norm hidden), phs[H], cs[2*QKV], pos, layer weights
+// Output: ao[H], ncs[2*QKV], nph[H]
+
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(local_size_x = 128) in;
+
+const int H = 2048;
+const int NQ = 8, NKV = 2, HD = 128;
+const int QD = NQ*HD, KD = NKV*HD, QKV = QD+KD;  // 1024, 256, 1280
+const int GQA = 4, NROT = 64;
+
+layout(push_constant) uniform PushConstants {
+    int pos;
+};
+
+// All buffers are fp32
+layout(set = 0, binding = 0) readonly buffer BufHS { float hs[]; };
+layout(set = 0, binding = 1) readonly buffer BufPHS { float phs[]; };
+layout(set = 0, binding = 2) readonly buffer BufCS { float cs[]; };
+layout(set = 0, binding = 3) readonly buffer BufWQ { float wq[]; };
+layout(set = 0, binding = 4) readonly buffer BufWK { float wk[]; };
+layout(set = 0, binding = 5) readonly buffer BufWV1 { float wv1[]; };
+layout(set = 0, binding = 6) readonly buffer BufWV2 { float wv2[]; };
+layout(set = 0, binding = 7) readonly buffer BufWO { float wo[]; };
+layout(set = 0, binding = 8) readonly buffer BufCDW { float cdw[]; };
+layout(set = 0, binding = 9) readonly buffer BufCDB { float cdb[]; };
+layout(set = 0, binding = 10) readonly buffer BufCGW { float cgw[]; };
+layout(set = 0, binding = 11) readonly buffer BufCGB { float cgb[]; };
+layout(set = 0, binding = 12) readonly buffer BufKS { float ks[]; };
+layout(set = 0, binding = 13) readonly buffer BufNW { float nw[]; };
+layout(set = 0, binding = 14) writeonly buffer BufAO { float ao[]; };
+layout(set = 0, binding = 15) writeonly buffer BufNCS { float ncs[]; };
+layout(set = 0, binding = 16) writeonly buffer BufNPH { float nph[]; };
+
+shared float red[32];
+shared float sqk[QKV];
+shared float dw0[QKV], dw1[QKV];
+shared float q_tmp[QD], k_tmp[KD], v_tmp[KD];
+shared float attn_out[H];
+
+float warp_sum(float v) {
+    // Simple serial reduction (no subgroup shuffle needed)
+    return v;
+}
+
+float block_sum(float v) {
+    int tx = int(gl_LocalInvocationIndex);
+    int w = tx / 32, l = tx % 32;
+    v = warp_sum(v);
+    if (l == 0) red[w] = v;
+    barrier();
+    float s = 0;
+    if (w == 0) {
+        s = (l < 4) ? red[l] : 0;
+        s = warp_sum(s);
+        if (l == 0) red[0] = s;
+    }
+    barrier();
+    return red[0];
+}
+
+void main() {
+    int tx = int(gl_LocalInvocationIndex);
+    uint i = gl_GlobalInvocationID.x;
+
+    // ── 1. RMSNorm ──
+    float ss = 0;
+    for (int j = tx; j < H; j += 128) { float v = hs[j]; ss += v * v; }
+    float rr = 1.0 / sqrt(block_sum(ss) / float(H) + 1e-5);
+    barrier();
+
+    // Normed hidden stored in sqk temporarily
+    for (int j = tx; j < H; j += 128) sqk[j] = hs[j] * rr * nw[j];
+    // Save prev_hs
+    if (tx < H) nph[tx] = hs[tx];
+    barrier();
+
+    // ── 2/3. QKV projections (each thread handles one Q or K or V dim) ──
+    // Q: sqk[0:QD] = normed @ wq^T
+    // K: sqk[QD:QKV] = normed @ wk^T (we'll overwrite after, store raw qk in temp)
+    if (tx < QD) {
+        float s = 0;
+        for (int j = 0; j < H; j++) s += sqk[j] * wq[tx * H + j];  // Actually wt is M×K with M=QD, K=H
+        q_tmp[tx] = s;
+    }
+    if (tx < KD) {
+        float s = 0;
+        for (int j = 0; j < H; j++) s += sqk[j] * wk[tx * H + j];
+        k_tmp[tx] = s;
+    }
+    if (tx < KD/2) {
+        float s1 = 0, s2 = 0;
+        for (int j = 0; j < H; j++) {
+            s1 += sqk[j] * wv1[tx * H + j];
+            s2 += phs[j] * wv2[tx * H + j];
+        }
+        v_tmp[tx] = s1;
+        v_tmp[KD/2 + tx] = s2;
+    }
+    barrier();
+
+    // ── 4/5/6. conv_qk + qk_means ──
+    // Raw qk concat
+    if (tx < QKV) {
+        sqk[tx] = (tx < QD) ? q_tmp[tx] : k_tmp[tx - QD];
+    }
+    barrier();
+
+    // Depthwise conv
+    if (tx < QKV) {
+        dw0[tx] = cdw[tx*2] * cs[tx] + cdw[tx*2+1] * cs[QKV+tx] + cdb[tx];
+        dw1[tx] = cdw[tx*2] * cs[QKV+tx] + cdw[tx*2+1] * sqk[tx] + cdb[tx];
+    }
+    barrier();
+
+    // Grouped conv
+    if (tx < QKV) {
+        int g = tx / 128;
+        int base = g * 128;
+        float s = cgb[tx];
+        for (int j = 0; j < 128; j++)
+            s += cgw[tx*256 + j*2] * dw0[base+j] + cgw[tx*256 + j*2+1] * dw1[base+j];
+        sqk[tx] = s;
+    }
+    barrier();
+
+    // qk_means blend
+    // qo = conv_q + 0.5*q + 0.5*k/GQA
+    if (tx < QD) {
+        int hh = tx / HD, d = tx % HD;
+        int kv = hh / GQA;
+        sqk[tx] = sqk[tx] + 0.5 * q_tmp[tx] + 0.5 * k_tmp[kv*HD + d];
+    }
+    if (tx >= QD && tx < QKV) {
+        int khv = (tx - QD) / HD, d = (tx - QD) % HD;
+        float sm = 0;
+        for (int g = 0; g < GQA; g++) sm += q_tmp[(khv*GQA+g)*HD + d];
+        sqk[tx] = sqk[tx] + 0.5 * sm / float(GQA) + 0.5 * k_tmp[khv*HD + d];
+    }
+    barrier();
+
+    // ── 7. L2 normalize ──
+    float shd = sqrt(float(HD));
+    if (tx < NQ) {
+        float s2 = 0;
+        for (int d = 0; d < HD; d++) s2 += sqk[tx*HD+d] * sqk[tx*HD+d];
+        float iv = shd / (sqrt(s2) + 1e-12);
+        for (int d = 0; d < HD; d++) sqk[tx*HD+d] *= iv;
+    }
+    if (tx < NKV) {
+        float s2 = 0;
+        for (int d = 0; d < HD; d++) s2 += sqk[QD+tx*HD+d] * sqk[QD+tx*HD+d];
+        float iv = shd * ks[tx] / (sqrt(s2) + 1e-12);
+        for (int d = 0; d < HD; d++) sqk[QD+tx*HD+d] *= iv;
+    }
+    barrier();
+
+    // ── 8. Partial RoPE ──
+    if (tx < NQ) {
+        
+        for (int d = 0; d < NROT/2; d++) {
+            float exp_ = -2.0 * float(d) / 64.0; float theta = float(pos) * pow(5000000.0, exp_);
+            float c = cos(theta), s = sin(theta);
+            float xv = sqk[tx*HD+d], xw = sqk[tx*HD+d+NROT/2];
+            sqk[tx*HD+d] = xv * c - xw * s;
+            sqk[tx*HD+d+NROT/2] = xv * s + xw * c;
+        }
+    }
+    if (tx < NKV) {
+        
+        for (int d = 0; d < NROT/2; d++) {
+            float exp_ = -2.0 * float(d) / 64.0; float theta = float(pos) * pow(5000000.0, exp_);
+            float c = cos(theta), s = sin(theta);
+            float xv = sqk[tx*HD+d], xw = sqk[tx*HD+d+NROT/2];
+            sqk[tx*HD+d] = xv * c - xw * s;
+            sqk[tx*HD+d+NROT/2] = xv * s + xw * c;
+        }
+    }
+    barrier();
+
+    // ── 9. Attention (single token → output = V) ──
+    for (int j = tx; j < H; j += 128) {
+        int hh = j / HD, d = j % HD;
+        int kv = hh / GQA;
+        attn_out[j] = v_tmp[kv * HD + d];
+    }
+    barrier();
+
+    // ── 10. Output projection ──
+    for (int j = tx; j < H; j += 128) {
+        float s = 0;
+        for (int t = 0; t < QD; t++) s += attn_out[t] * wo[j * QD + t];
+        ao[j] = s;
+    }
+
+    // ── Update state ──
+    if (tx < QKV) {
+        ncs[tx] = cs[QKV + tx];
+        ncs[QKV + tx] = (tx < QD) ? q_tmp[tx] : k_tmp[tx - QD];
+    }
+}

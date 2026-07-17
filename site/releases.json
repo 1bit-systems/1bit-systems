@@ -1,0 +1,42 @@
+{
+  "latest": {
+    "version": "2026.07.02",
+    "type": "coding-agent",
+    "url": "https://github.com/bong-water-water-bong/1bit-systems/releases/tag/v2026.07.02",
+    "published_at": "2026-07-02T14:45:00Z"
+  },
+  "channels": {
+    "stable": {
+      "version": "2026.07.02",
+      "url": "https://github.com/bong-water-water-bong/1bit-systems"
+    },
+    "npu-engine": {
+      "version": "v12",
+      "decode": "69 tok/s",
+      "decode_latency": "14.5 ms/tok",
+      "arch": "XDNA 2 (32 tiles)",
+      "speedup_vs_v3": "24×",
+      "note": "re-measured 2026-07-12 after correctness fixes; requires OpenMP tuning, open intermittent hang bug"
+    }
+  },
+  "releases": [
+    {
+      "version": "2026.07.02",
+      "type": "coding-agent",
+      "name": "1bit Coding Agent v2026.07.02",
+      "description": "Full pi.dev-compatible CLI: chat, install/remove/list/update packages, config, NPU stack management, extensions, skills, themes, systemd service."
+    },
+    {
+      "version": "2026.07.02",
+      "type": "npu-engine-v12",
+      "name": "NPU Engine v12",
+      "description": "M=32 batch decode, 97 tok/s (10.3 ms/tok), 24× vs v3, beats FLM Kraken Point."
+    },
+    {
+      "version": "2026.07.01",
+      "type": "npu-engine-v9",
+      "name": "NPU Engine v9",
+      "description": "M=16 batch + NPU LM head, ~16 ms/tok."
+    }
+  ]
+}

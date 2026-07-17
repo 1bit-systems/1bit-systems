@@ -1,0 +1,84 @@
+name: NPU Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      prefill_tokens:
+        description: 'Prefill tokens (M)'
+        required: false
+        default: '9'
+      decode_tokens:
+        description: 'Decode tokens to generate'
+        required: false
+        default: '4'
+  push:
+    paths:
+      - 'engine/npu/src/**'
+      - 'engine/npu/kernel/**'
+      - 'engine/npu/xclbins/**'
+
+jobs:
+  benchmark:
+    runs-on: self-hosted
+    if: github.event.repository.owner.login == 'bong-water-water-bong'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check NPU driver
+        run: |
+          if ! ls /dev/accel/accel0 2>/dev/null; then
+            echo "::warning::NPU device not found — driver may need reload"
+            echo "DRIVER_OK=false" >> $GITHUB_ENV
+          else
+            echo "NPU device present"
+            echo "DRIVER_OK=true" >> $GITHUB_ENV
+          fi
+
+      - name: Check XRT
+        run: |
+          if ! ldconfig -p | grep -q xrt_coreutil; then
+            echo "::error::XRT not found in ldconfig"
+            exit 1
+          fi
+          echo "XRT found"
+
+      - name: Build dequantizer
+        run: gcc -c -O3 -o engine/npu/build/dequant_q4nx.o engine/npu/src/dequant_q4nx.c
+
+      - name: Build engine (continuous batch)
+        run: |
+          mkdir -p engine/npu/build
+          # npu_engine_v12.cpp is a struct-only header — the actual engine
+          # with main() is npu_engine_all.cpp
+          g++ -std=c++23 -O3 -march=native -fopenmp -ffast-math \
+            -o engine/npu/build/npu_engine_v12 \
+            engine/npu/src/npu_engine_all.cpp engine/npu/build/dequant_q4nx.o \
+            -I/opt/xrt/include -L/opt/xrt/lib -lxrt_coreutil -luuid -lm -ldl
+
+      - name: Benchmark
+        if: env.DRIVER_OK == 'true'
+        env:
+          PRE: ${{ github.event.inputs.prefill_tokens || '9' }}
+          DEC: ${{ github.event.inputs.decode_tokens || '4' }}
+        run: |
+          M=$PRE; N=$DEC
+          echo "=== NPU Benchmark $(date -u) ==="
+          echo "Prefill tokens: $M, Decode tokens: $N"
+          cd engine/npu/build
+          OMP_NUM_THREADS=16 ./npu_engine_v12 $M $N 2>&1 | tee benchmark.log
+          echo "---"
+          grep "ms/tok" benchmark.log || echo "::warning::No ms/tok line found"
+
+      - name: Upload benchmark log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-log
+          path: engine/npu/build/benchmark.log
+          retention-days: 30
+
+      - name: Update BENCHMARKS.md timestamp
+        if: env.DRIVER_OK == 'true'
+        run: |
+          NOW=$(date -u +"%Y-%m-%d %H:%M UTC")
+          sed -i "s/^\*Benchmarks run.*/*Benchmarks run $NOW — CI-verified./" engine/npu/BENCHMARKS.md

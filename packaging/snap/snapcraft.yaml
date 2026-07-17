@@ -1,0 +1,36 @@
+name: 1bit-systems
+version: '2026.07.16'
+summary: One binary to rule them all — 5 models, 120KB, 28 tok/s NPU
+description: |
+  1bit.systems is a pure native inference stack for the AMD Ryzen AI Max+ 395.
+  Runs Qwen3-0.6B/8B/VL-4B, Llama-3.1-8B and Gemma4-E2B on the XDNA 2 NPU.
+  Auto-detect. One binary. 120KB. 28 tok/s on Qwen3-0.6B (M=32 batch + OpenMP).
+  Zero Python at runtime. Zero pip. Zero Docker. Just g++ and run.
+
+grade: stable
+confinement: strict
+base: core24
+
+apps:
+  npu:
+    command: bin/1bit-npu
+    plugs: [xrt, hardware-observe]
+  server:
+    command: bin/1bit-server
+    daemon: simple
+    plugs: [network-bind, xrt, hardware-observe]
+
+parts:
+  1bit-systems:
+    plugin: make
+    source: https://github.com/bong-water-water-bong/1bit-systems.git
+    source-tag: v2026.07.02-all5models
+    build-packages: [g++, libxrt-dev]
+    stage-packages: [libxrt2, libxrt-npu2]
+    override-build: |
+      gcc -c -std=c11 -O3 -o engine/npu/build/dequant_q4nx.o engine/npu/src/dequant_q4nx.c
+      g++ -std=c++23 -O3 -march=native -fopenmp -ffast-math -o $SNAPCRAFT_PART_INSTALL/bin/1bit-npu \
+        engine/npu/src/npu_engine_all.cpp engine/npu/build/dequant_q4nx.o \
+        -Iengine/npu/src -lxrt_coreutil -luuid -lm -ldl
+      g++ -std=c++23 -O3 -o $SNAPCRAFT_PART_INSTALL/bin/1bit-server \
+        packaging/binary/server.cpp

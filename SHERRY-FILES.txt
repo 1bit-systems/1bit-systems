@@ -1,0 +1,34 @@
+# Sherry-licensed source files
+#
+# These files are governed by the PolyForm Noncommercial License 1.0.0
+# (see LICENSE-SHERRY.md). All other source in this repo is MIT-licensed.
+#
+# Files are listed relative to repo root.
+
+kernels/ternary_gemv_sherry.hip
+kernels/rotorquant_pack.hip
+src/sherry_gemv.hip
+src/sherry_gemv_scalar_ref.hip
+src/bonsai_q1_gemv.hip
+src/bonsai_tq2_gemv.hip
+src/h1b_loader.cpp
+src/ck_gemm.cpp
+src/bonsai_gemv_scalar_ref.hip
+include/rocm_cpp/sherry.h
+include/rocm_cpp/bonsai.h
+include/rocm_cpp/kv_rotorquant.h
+src/kv_rotorquant.cpp
+src/bonsai_q1_1024.hip
+src/bonsai_tq2_1024.hip
+src/bonsai_tq2_1024_opt.hip
+kernels/bonsai_q1_gemm_coalesced.hip
+kernels/bonsai_q1_gemm_m8.hip
+kernels/bonsai_q1_gemm_m8n64.hip
+kernels/bonsai_q1_gemm_m8n64_v2.hip
+kernels/bonsai_q1_gemm_smallm.hip
+kernels/bonsai_q1_gemv_fused.hip
+kernels/bonsai_q1_gemv_m4.hip
+kernels/bonsai_q1_gemv_soa.hip
+kernels/bonsai_q1_gemv_soa1.hip
+kernels/vulkan/dmmv_q1_bonsai.comp
+kernels/vulkan/dmmv_tq2_bonsai.comp

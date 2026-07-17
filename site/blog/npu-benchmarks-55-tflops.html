@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>50 TOPS on a laptop — benchmarking the XDNA 2 NPU · 1bit.systems</title>
+<meta name="description" content="Historical NPU benchmark notes. The headline INT8-GEMM TFLOPS and fused-layer tok/s figures were later found unsourced and are quarantined in benchmarks/latest.json _unverified — see the correction banner.">
+<meta name="keywords" content="NPU benchmark, XDNA 2, AMD Strix Halo, INT8 GEMM, TFLOPS, inference benchmark">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://1bit.systems/blog/npu-benchmarks-55-tflops">
+<meta property="og:title" content="50 TOPS on a laptop — benchmarking the XDNA 2 NPU">
+<meta property="og:description" content="Historical NPU benchmark notes; headline figures later quarantined as unsourced. See the correction banner.">
+<meta property="og:url" content="https://1bit.systems/blog/npu-benchmarks-55-tflops">
+<meta property="og:type" content="article">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<style>
+  :root{--bg:#021621;--panel:#06222f;--border:#0e3346;--text:#e7f6fd;--muted:#86adbf;--dim:#4a6a7a;--green:#00ff00;--pink:#f00fd2;--blue:#12a0ed;--sans:'Inter',Helvetica,Arial,sans-serif;--mono:'JetBrains Mono',Consolas,monospace;--maxw:780px;}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.7;}
+  a{color:var(--blue);font-weight:600;text-decoration:none;}a:hover{color:var(--green);}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px;}
+  nav{position:sticky;top:0;backdrop-filter:blur(14px);background:rgba(2,22,33,.78);border-bottom:1px solid var(--border);}
+  .nav-in{max-width:1180px;margin:0 auto;padding:0 32px;height:60px;display:flex;align-items:center;gap:12px;}
+  .mark{width:32px;height:32px;border-radius:999px;background:var(--bg);border:2px solid var(--pink);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;color:var(--green);}
+  .wordmark{font-size:15px;font-weight:800;letter-spacing:-.025em;}.wordmark .g{color:var(--green);}.wordmark .p{color:var(--pink);}
+  article{padding:48px 0 64px;}
+  h1{font-size:clamp(26px,3.6vw,42px);font-weight:900;line-height:1.08;margin:16px 0 8px;}
+  .meta{font-family:var(--mono);font-size:13px;color:var(--dim);margin-bottom:32px;padding-bottom:20px;border-bottom:1px solid var(--border);}
+  h2{font-size:clamp(20px,2.4vw,28px);font-weight:800;margin:36px 0 12px;color:var(--green);}
+  p{margin:16px 0;font-size:16px;color:var(--muted);line-height:1.7;}p strong{color:var(--text);}
+  ul{margin:12px 0;padding-left:24px;color:var(--muted);font-size:16px;}li{margin:6px 0;}
+  blockquote{border-left:3px solid var(--pink);padding:12px 18px;margin:20px 0;background:var(--panel);border-radius:0 10px 10px 0;}
+  hr{border:none;border-top:1px solid var(--border);margin:32px 0;}
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px;font-family:var(--mono);}
+  th,td{padding:8px 12px;border:1px solid var(--border);text-align:left;}
+  th{background:var(--panel);color:var(--text);}td{color:var(--muted);}
+  .tag{display:inline-flex;height:22px;padding:0 10px;border-radius:5px;font-size:10px;font-weight:800;text-transform:uppercase;color:var(--bg);margin-right:6px;}
+  .tag.npu{background:var(--pink);}.tag.g{background:var(--green);color:var(--bg);}.tag.b{background:var(--blue);color:var(--bg);}
+  .foot{border-top:1px solid var(--border);padding:24px 0 40px;text-align:center;font-size:13px;color:var(--dim);}
+</style>
+</head>
+<body>
+<nav><div class="nav-in"><a class="mark" href="/">1bs</a><a class="wordmark" href="/"><span class="g">1</span>bit<span class="p">.</span>systems</a><span style="flex:1"></span><a href="/" style="font-size:13px;color:var(--muted);">← Home</a></div></nav>
+<article class="wrap">
+<blockquote style="border-left-color:var(--pink);background:#33110022;"><strong>&#9888;&#65039; Correction:</strong> Performance figures in this post are historical and may not reflect current, source-backed numbers. Several headline engine figures were later found to have no reproducible source and are quarantined in <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/benchmarks/latest.json">benchmarks/latest.json</a> (the NPU-fused path does not currently produce validated generation). For current, sourced numbers see the <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/performance.md">performance SSOT</a>. (issue #107)</blockquote>
+
+<div class="meta"><span class="tag npu">NPU</span> <span class="tag g">Benchmarks</span><br><br><strong style="color:var(--text);">bong-water-water-bong</strong> · July 6, 2026 · 5 min read</div>
+<h1>50 TOPS on a laptop — benchmarking the XDNA 2 NPU</h1>
+<p><strong>tl;dr:</strong> The XDNA 2 NPU delivers <strong>55.7 TFLOPS</strong> INT8 GEMM — exceeding AMD's 50 TOPS spec by 11%. Measured on-device, verified with hardware dump-and-compare.</p>
+<hr>
+<h2>The numbers</h2>
+<table>
+<tr><th>Metric</th><th>Measured</th><th>AMD Spec</th><th>vs Spec</th></tr>
+<tr><td>Peak INT8 GEMM</td><td><strong>55.7 TFLOPS</strong></td><td>50 TOPS</td><td>+11%</td></tr>
+<tr><td>Config2 design</td><td><strong>31.0 TFLOPS</strong></td><td>—</td><td>62% of peak</td></tr>
+<tr><td>Fused layer decode</td><td><strong>291 tok/s</strong></td><td>—</td><td>Qwen3-0.6B</td></tr>
+</table>
+<h2>Config2 peak: 31 TFLOPS</h2>
+<p>Matrix: 3072×4096×1536 (M×K×N), tile: 192×128×96, 32 cores (8 cols × 4 rows), Chess-compiled.</p>
+<pre><span class="g">Avg: 31.0 TFLOPS · Max: 31.5 TFLOPS</span></pre>
+<h2>LLM inference (Qwen3-0.6B)</h2>
+<table>
+<tr><th>Mode</th><th>Latency</th><th>Throughput</th><th>Power</th><th>Efficiency</th></tr>
+<tr><td>Decode (fused)</td><td>3.4 ms</td><td><strong>291 tok/s</strong></td><td>~2W</td><td>145 tok/s/W</td></tr>
+<tr><td>Decode (v12)</td><td>10.3 ms</td><td>97 tok/s</td><td>~2W</td><td>48 tok/s/W</td></tr>
+<tr><td>Prefill M=9</td><td>179 ms</td><td>50 tok/s</td><td>~2W</td><td>25 tok/s/W</td></tr>
+</table>
+<h2>GPU 1-bit models (Radeon 8060S, Vulkan)</h2>
+<table>
+<tr><th>Model</th><th>BPW</th><th>Decode</th></tr>
+<tr><td>Qwen2-0.5B IQ1_S</td><td>1.06</td><td><strong>381 tok/s</strong></td></tr>
+<tr><td>Qwen3.5-0.8B Q1_0</td><td>1.25</td><td>312 tok/s</td></tr>
+<tr><td>gemma-2-2B IQ1_S</td><td>1.06</td><td>158 tok/s</td></tr>
+<tr><td>gemma3-4B IQ1_S</td><td>1.06</td><td>122 tok/s</td></tr>
+<tr><td>Nemo-8B IQ1_S</td><td>1.06</td><td>79 tok/s</td></tr>
+</table>
+<h2>Power efficiency: NPU vs GPU</h2>
+<table>
+<tr><th>Metric</th><th>NPU (~2W)</th><th>GPU (~20W)</th><th>Advantage</th></tr>
+<tr><td>tok/s</td><td>291</td><td>22</td><td><strong>13×</strong></td></tr>
+<tr><td>tok/s/W</td><td>145</td><td>1.1</td><td><strong>132×</strong></td></tr>
+<tr><td>TFLOPS/W</td><td>3.57</td><td>0.57</td><td><strong>6×</strong></td></tr>
+</table>
+<blockquote><strong>55.7 TFLOPS at 2W.</strong> The NPU is a completely different efficiency class. The GPU burns 10× the power for 1/13th the throughput.</blockquote>
+<hr>
+<p style="font-size:14px;color:var(--dim);"><em>Post 6 of the series. <a href="/blog/one-binary-to-rule-them-all">Previous: One binary →</a></em></p>
+<h3>Links</h3>
+<ul><li><a href="https://1bit.systems">Live benchmarks</a></li><li><a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/performance.md">Full benchmark table</a></li></ul>
+</article>
+<div class="foot wrap"><a href="/">← back to 1bit.systems</a></div>
+</body>
+</html>

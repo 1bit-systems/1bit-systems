@@ -1,0 +1,314 @@
+// GGUF model loader — pure C++ + HIP, no Python.
+// Reads GGUF format models and uploads weights to GPU for inference.
+#include "rocm_cpp/bitnet_model.h"
+#include "block_scaled_ternary.h"
+#include <hip/hip_runtime.h>
+#include <hip/hip_fp16.h>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <fstream>
+#include <map>
+#include <string>
+#include <vector>
+#include <unordered_map>
+
+#define HIP_CHECK(e) do { auto _s=(e); if(_s!=hipSuccess){fprintf(stderr,"HIP %d %s:%d\n",_s,__FILE__,__LINE__); return RCPP_HIP_ERROR;}} while(0)
+#define RC_FAIL(s) do { fprintf(stderr,"[gguf] %s\n",s); return RCPP_INVALID_ARG; } while(0)
+
+namespace {
+
+enum gguf_dtype : uint32_t {
+    GGUF_TYPE_F32     = 0,
+    GGUF_TYPE_F16     = 1,
+    GGUF_TYPE_Q4_0    = 2,
+    GGUF_TYPE_Q4_1    = 3,
+    GGUF_TYPE_Q8_0    = 7,
+    GGUF_TYPE_Q5_0    = 8,
+    GGUF_TYPE_Q5_1    = 9,
+    GGUF_TYPE_Q2_K    = 10,
+    GGUF_TYPE_Q3_K    = 11,
+    GGUF_TYPE_Q4_K    = 12,
+    GGUF_TYPE_Q5_K    = 13,
+    GGUF_TYPE_Q6_K    = 14,
+    GGUF_TYPE_Q8_K    = 15,
+    GGUF_TYPE_BLOCK_SCALED_TERNARY = 16,
+};
+
+int gguf_block_size(uint32_t dtype) {
+    switch (dtype) {
+        case GGUF_TYPE_F32:  return 1;
+        case GGUF_TYPE_F16:  return 1;
+        case GGUF_TYPE_Q4_0: return 32;
+        case GGUF_TYPE_Q4_1: return 32;
+        case GGUF_TYPE_Q8_0: return 32;
+        case GGUF_TYPE_Q5_0: return 32;
+        case GGUF_TYPE_Q5_1: return 32;
+        case GGUF_TYPE_Q2_K: return 256;
+        case GGUF_TYPE_Q3_K: return 256;
+        case GGUF_TYPE_Q4_K: return 256;
+        case GGUF_TYPE_Q5_K: return 256;
+        case GGUF_TYPE_Q6_K: return 256;
+        case GGUF_TYPE_Q8_K: return 256;
+        case GGUF_TYPE_BLOCK_SCALED_TERNARY: return BST_BLOCK_K;
+        default: return 0;
+    }
+}
+
+int gguf_block_bytes(uint32_t dtype) {
+    switch (dtype) {
+        case GGUF_TYPE_F32:  return 4;
+        case GGUF_TYPE_F16:  return 2;
+        case GGUF_TYPE_Q4_0: return 18;
+        case GGUF_TYPE_Q4_1: return 20;
+        case GGUF_TYPE_Q8_0: return 34;
+        case GGUF_TYPE_Q5_0: return 22;
+        case GGUF_TYPE_Q5_1: return 24;
+        case GGUF_TYPE_Q2_K: return 72;
+        case GGUF_TYPE_Q3_K: return 104;
+        case GGUF_TYPE_Q4_K: return 144;
+        case GGUF_TYPE_Q5_K: return 176;
+        case GGUF_TYPE_Q6_K: return 210;
+        case GGUF_TYPE_Q8_K: return 292;
+        case GGUF_TYPE_BLOCK_SCALED_TERNARY: return BST_BLOCK_BYTES;
+        default: return 0;
+    }
+}
+
+struct GgufReader {
+    std::ifstream f;
+    std::string arch;
+    uint32_t version = 0;
+    uint64_t alignment = 32;
+    uint64_t tensor_data_start = 0;
+    bool has_bst_tensor = false;  // true if any tensor uses GGUF_TYPE_BLOCK_SCALED_TERNARY
+    
+    struct TensorInfo {
+        std::vector<uint64_t> shape;
+        uint32_t dtype;
+        uint64_t offset;
+        uint64_t file_offset;
+    };
+    std::unordered_map<std::string, TensorInfo> tensors;
+    std::map<std::string, std::string> kv_string;
+    std::map<std::string, uint32_t> kv_uint32;
+    
+    bool open(const std::string& path) {
+        f.open(path, std::ios::binary);
+        if (!f) return false;
+        char magic[4];
+        f.read(magic, 4);
+        if (std::strncmp(magic, "GGUF", 4) != 0) return false;
+        f.read(reinterpret_cast<char*>(&version), 4);
+        if (version != 2 && version != 3) return false;
+        uint64_t n_tensors, n_kv;
+        f.read(reinterpret_cast<char*>(&n_tensors), 8);
+        f.read(reinterpret_cast<char*>(&n_kv), 8);
+        for (uint64_t i = 0; i < n_kv; ++i) {
+            std::string key = read_string();
+            uint32_t vt;
+            f.read(reinterpret_cast<char*>(&vt), 4);
+            if (vt == 0) { uint32_t v; f.read(reinterpret_cast<char*>(&v), 4); kv_uint32[key] = v; }
+            else if (vt == 8) { kv_string[key] = read_string(); }
+            else if (vt == 4) { uint32_t v; f.read(reinterpret_cast<char*>(&v), 4); kv_uint32[key] = v; }
+            else { skip_unknown(vt, key); }
+        }
+        if (kv_string.count("general.architecture")) arch = kv_string["general.architecture"];
+        if (kv_uint32.count("general.alignment")) alignment = kv_uint32["general.alignment"];
+        if (alignment < 32) alignment = 32;
+        for (uint64_t i = 0; i < n_tensors; ++i) {
+            std::string name = read_string();
+            uint32_t ndim;
+            f.read(reinterpret_cast<char*>(&ndim), 4);
+            TensorInfo ti;
+            ti.shape.resize(ndim);
+            for (uint32_t d = 0; d < ndim; ++d)
+                f.read(reinterpret_cast<char*>(&ti.shape[d]), 8);
+            f.read(reinterpret_cast<char*>(&ti.dtype), 4);
+            f.read(reinterpret_cast<char*>(&ti.offset), 8);
+            if (ti.dtype == GGUF_TYPE_BLOCK_SCALED_TERNARY)
+                has_bst_tensor = true;
+            tensors[name] = std::move(ti);
+        }
+        tensor_data_start = (uint64_t)f.tellg();
+        uint64_t rem = tensor_data_start % alignment;
+        if (rem) tensor_data_start += alignment - rem;
+        for (auto& [name, ti] : tensors)
+            ti.file_offset = tensor_data_start + ti.offset;
+        return true;
+    }
+    
+    std::string read_string() {
+        uint64_t len;
+        f.read(reinterpret_cast<char*>(&len), 8);
+        std::string s(len, '\0');
+        if (len > 0) f.read(&s[0], len);
+        return s;
+    }
+    
+    void skip_unknown(uint32_t vt, const std::string& key) {
+        uint8_t tmp[256];
+        if (vt == 0 || vt == 4) f.read(reinterpret_cast<char*>(tmp), 4);
+        else if (vt == 2 || vt == 3) f.read(reinterpret_cast<char*>(tmp), 8);
+        else if (vt == 8) { read_string(); }
+        else if (vt == 5) {
+            uint32_t at; f.read(reinterpret_cast<char*>(&at), 4);
+            uint64_t an;
+            if (version >= 3) { f.read(reinterpret_cast<char*>(&an), 8); }
+            else { uint32_t an32; f.read(reinterpret_cast<char*>(&an32), 4); an = an32; }
+            if (an < 10000000) {
+                for (uint64_t j = 0; j < an; ++j) {
+                    if (at == 0 || at == 1) f.read(reinterpret_cast<char*>(tmp), 4);
+                    else if (at == 4 || at == 8) read_string();
+                    else f.read(reinterpret_cast<char*>(tmp), 8);
+                }
+            }
+        } else if (vt == 6) { f.read(reinterpret_cast<char*>(tmp), 4); }
+        else if (vt == 7) { f.read(reinterpret_cast<char*>(tmp), 1); }
+        else { f.read(reinterpret_cast<char*>(tmp), 8); }
+    }
+    
+    bool read_tensor(const std::string& name, std::vector<float>& out) {
+        auto it = tensors.find(name);
+        if (it == tensors.end()) return false;
+        auto& ti = it->second;
+        uint64_t numel = 1;
+        for (auto d : ti.shape) numel *= d;
+        out.resize(numel);
+        f.seekg(ti.file_offset);
+        int block_size = gguf_block_size(ti.dtype);
+        int block_bytes = gguf_block_bytes(ti.dtype);
+        if (block_size <= 0) return false;
+        if (ti.dtype == GGUF_TYPE_F32) {
+            f.read(reinterpret_cast<char*>(out.data()), numel * 4); return true;
+        }
+        if (ti.dtype == GGUF_TYPE_F16) {
+            std::vector<uint16_t> f16(numel);
+            f.read(reinterpret_cast<char*>(f16.data()), numel * 2);
+            for (uint64_t i = 0; i < numel; ++i) {
+                uint32_t bits = (uint32_t)f16[i] << 16;
+                float v; memcpy(&v, &bits, 4); out[i] = v;
+            }
+            return true;
+        }
+        if (ti.dtype == GGUF_TYPE_BLOCK_SCALED_TERNARY) {
+            uint64_t n_blocks = (numel + block_size - 1) / block_size;
+            std::vector<uint8_t> bd(block_bytes);
+            for (uint64_t b = 0; b < n_blocks; ++b) {
+                uint64_t start = b * block_size;
+                uint64_t end = std::min(start + block_size, numel);
+                f.read(reinterpret_cast<char*>(bd.data()), block_bytes);
+                block_scaled_ternary_dequant_row(bd.data(), out.data() + start, (int)(end - start));
+            }
+            return true;
+        }
+        uint64_t n_blocks = (numel + block_size - 1) / block_size;
+        std::vector<uint8_t> bd(block_bytes);
+        for (uint64_t b = 0; b < n_blocks; ++b) {
+            uint64_t start = b * block_size;
+            uint64_t end = std::min(start + block_size, numel);
+            uint64_t count = end - start;
+            f.read(reinterpret_cast<char*>(bd.data()), block_bytes);
+            if (ti.dtype == GGUF_TYPE_Q8_0) {
+                __half scale_h; memcpy(&scale_h, bd.data(), 2);
+                float scale = (float)scale_h;
+                int8_t* q = (int8_t*)(bd.data() + 2);
+                for (uint64_t i = 0; i < count; ++i) out[start + i] = q[i] * scale;
+            } else if (ti.dtype == GGUF_TYPE_Q4_0) {
+                __half scale_h; memcpy(&scale_h, bd.data(), 2);
+                float scale = (float)scale_h;
+                uint8_t* q = bd.data() + 2;
+                for (uint64_t i = 0; i < count; ++i) {
+                    int8_t nib = (i & 1) ? (q[i >> 1] & 0x0F) : (q[i >> 1] >> 4);
+                    out[start + i] = (nib - 8) * scale;
+                }
+            } else {
+                for (uint64_t i = 0; i < count; ++i) out[start + i] = 0;
+            }
+        }
+        return true;
+    }
+};
+} // anonymous namespace
+
+extern "C" {
+
+rcpp_status_t rcpp_bitnet_load_gguf(const char* path, rcpp_bitnet_model_t* out_model) {
+    if (!path || !out_model) return RCPP_INVALID_ARG;
+    memset(out_model, 0, sizeof(*out_model));
+    GgufReader reader;
+    if (!reader.open(path)) return RCPP_INVALID_ARG;
+    fprintf(stderr, "[gguf] Loading: %s\n", path);
+    
+    auto gu = [&](const std::string& k, int def) -> int {
+        if (reader.kv_uint32.count(k)) return (int)reader.kv_uint32[k];
+        return def;
+    };
+    
+    int hidden_size = gu("llm.embedding_length", 2048);
+    int n_layers = gu("llm.block_count", 40);
+    int n_heads = gu("llm.attention.head_count", 8);
+    int inter_size = gu("llm.feed_forward_length", 2048);
+    int vocab_size = gu("llm.vocab_size", 262272);
+    int head_dim = hidden_size / n_heads;
+    
+    out_model->hidden_size = hidden_size;
+    out_model->intermediate_size = inter_size;
+    out_model->num_layers = n_layers;
+    out_model->num_heads = n_heads;
+    out_model->vocab_size = vocab_size;
+    // Auto-detect weight format: if any tensor uses BLOCK_SCALED_TERNARY, select that format
+    out_model->weight_format = reader.has_bst_tensor
+        ? RCPP_WEIGHT_FORMAT_BLOCK_SCALED_TERNARY
+        : RCPP_WEIGHT_FORMAT_HALO_V2;
+    if (reader.has_bst_tensor)
+        out_model->flags |= H1B_FLAG_BLOCK_SCALED;
+    out_model->arch = RCPP_ARCH_QWEN3;
+    out_model->is_qwen3 = 1;
+    
+    {
+        std::vector<float> emb;
+        if (!reader.read_tensor("token_embd.weight", emb))
+            reader.read_tensor("model.embed_tokens.weight", emb);
+        std::vector<_Float16> f16(emb.size());
+        for (size_t i = 0; i < emb.size(); ++i) f16[i] = (_Float16)emb[i];
+        HIP_CHECK(hipMalloc(&out_model->embedding_dev, f16.size() * sizeof(_Float16)));
+        HIP_CHECK(hipMemcpy(out_model->embedding_dev, f16.data(), f16.size() * sizeof(_Float16), hipMemcpyHostToDevice));
+    }
+    {
+        std::vector<float> fn;
+        reader.read_tensor("output_norm.weight", fn);
+        std::vector<_Float16> f16(fn.size());
+        for (size_t i = 0; i < fn.size(); ++i) f16[i] = (_Float16)fn[i];
+        HIP_CHECK(hipMalloc(&out_model->final_norm_weight_dev, f16.size() * sizeof(_Float16)));
+        HIP_CHECK(hipMemcpy(out_model->final_norm_weight_dev, f16.data(), f16.size() * sizeof(_Float16), hipMemcpyHostToDevice));
+    }
+    out_model->layers = new rcpp_bitnet_layer_t[n_layers]();
+    for (int l = 0; l < n_layers; ++l) {
+        auto& layer = out_model->layers[l];
+        auto prefix = [&](const char* n) -> std::string {
+            return std::string("model.layers.") + std::to_string(l) + "." + n;
+        };
+        auto lw = [&](const std::string& gn, void** dev, int r, int c) {
+            std::vector<float> data;
+            if (!reader.read_tensor(gn, data)) return;
+            std::vector<_Float16> f16(data.size());
+            for (size_t i = 0; i < data.size(); ++i) f16[i] = (_Float16)data[i];
+            HIP_CHECK(hipMalloc(dev, f16.size() * sizeof(_Float16)));
+            HIP_CHECK(hipMemcpy(*dev, f16.data(), f16.size() * sizeof(_Float16), hipMemcpyHostToDevice));
+        };
+        lw(prefix("input_layernorm.weight"), &layer.input_norm_dev, hidden_size, 1);
+        lw(prefix("post_attention_layernorm.weight"), &layer.post_attn_norm_dev, hidden_size, 1);
+        lw(prefix("self_attn.q_proj.weight"), &layer.q_packed_dev, n_heads * head_dim, hidden_size);
+        lw(prefix("self_attn.k_proj.weight"), &layer.k_packed_dev, hidden_size, hidden_size);
+        lw(prefix("self_attn.v_proj.weight"), &layer.v_packed_dev, hidden_size, hidden_size);
+        lw(prefix("self_attn.o_proj.weight"), &layer.o_packed_dev, hidden_size, n_heads * head_dim);
+        lw(prefix("mlp.gate_proj.weight"), &layer.gate_packed_dev, inter_size, hidden_size);
+        lw(prefix("mlp.up_proj.weight"), &layer.up_packed_dev, inter_size, hidden_size);
+        lw(prefix("mlp.down_proj.weight"), &layer.down_packed_dev, hidden_size, inter_size);
+    }
+    fprintf(stderr, "[gguf] Model load complete\n");
+    return RCPP_OK;
+}
+} // extern "C"

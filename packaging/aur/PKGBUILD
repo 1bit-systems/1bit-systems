@@ -1,0 +1,23 @@
+# Maintainer: bong-water-water-bong <admin@1bit.systems>
+pkgname=1bit-systems-bin
+pkgver=2026.07.02
+pkgrel=1
+pkgdesc="50 TOPS INT8 NPU inference engine for AMD Strix Halo"
+arch=('x86_64')
+url="https://1bit.systems"
+license=('MIT')
+depends=('libxrt' 'gcc-libs')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/bong-water-water-bong/1bit-systems/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+  cd "$srcdir/1bit-systems-$pkgver"
+  gcc -c -O3 -o engine/npu/build/dequant_q4nx.o engine/npu/src/dequant_q4nx.c
+  g++ -std=c++23 -O3 -o "$pkgdir/usr/bin/1bit-npu" \
+    engine/npu/src/npu_engine_all.cpp engine/npu/build/dequant_q4nx.o \
+      -Iengine/npu/src -march=native -fopenmp -ffast-math \
+    -lxrt_coreutil -luuid -lm -ldl
+  g++ -std=c++23 -O3 -o "$pkgdir/usr/bin/1bit-server" \
+    packaging/binary/server.cpp
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

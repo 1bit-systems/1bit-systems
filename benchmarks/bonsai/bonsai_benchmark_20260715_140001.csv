@@ -1,0 +1,1886 @@
+model,params,quant,category,question,correct_answer,response,is_correct,gen_tps,prompt_tps,tokens_out,wall_time,error
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),General Knowledge,What is the capital of France?,Paris,"The capital of France is **Paris**. It is also known as the ""City of Light"" and serves as the political, economic, and cultural center of the country.",True,243.9,749.2,36,0.902,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),General Knowledge,Who wrote Romeo and Juliet?,William Shakespeare,"*Romeo and Juliet* was written by **William Shakespeare**, an English playwright, poet, and actor. He is credited with writing the play, which was first performed in 1597 at the Globe Theatre in London.
+
+The play is a classic example of tragedy, centered around two young lovers whose families are locked in conflict. It is one of the most famous works of English literature and has been adapted into numerous films, television shows, and other media throughout history.",True,237.6,1435.8,98,0.569,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),General Knowledge,What is the largest planet in our solar system?,Jupiter,"The largest planet in our solar system is **Jupiter**. 
+
+- Jupiter is the second-largest planet by mass.
+- It has a diameter of approximately 139,820 kilometers (87,060 miles).
+- It is composed primarily of hydrogen and helium, with a thick atmosphere and numerous moons.
+
+Other planets in our solar system include:
+- **Saturn** (third largest)
+- **Uranus** (fourth largest by mass)
+- **Neptune** (fifth largest by mass)
+
+Jupiter's size and mass make it the planet that is often referred to as the ""giant"" or ""greatest"" in terms of planetary size.",True,241.5,1262.8,142,0.755,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),General Knowledge,What year did World War II end?,1945,"World War II ended in **1945**, which was the year of the atomic bombings of Hiroshima and Nagasaki. The war officially ended on August 15, 1945, when the United States dropped the first atomic bomb on Hiroshima, followed by the second on Nagasaki.
+
+Before this date, the war had already been declared in **September 1939**, following Germany's invasion of Poland. The conflict was a global war involving most of Europe and Asia, with significant involvement from the Soviet Union, Japan, and other Allied powers. The war ended with the surrender of Nazi Germany on **V-E Day** (June 22), 1945, marking the end of World War II in terms of military conflict.",True,241.2,1960.8,158,0.82,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),General Knowledge,What is the chemical symbol for gold?,Au,"The chemical symbol for gold is **Au**. 
+
+Gold is a metal with the atomic number 79 and is commonly represented by the symbol **Au** in chemical notation. It has a malleable, ductile, and highly conductive metallic luster. 
+
+It is one of the most valuable metals in the world and is used in jewelry, coins, and various industrial applications.",True,242.3,1947.6,80,0.495,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Mathematics,What is 15 × 7?,105,"To find the product of 15 and 7, we can use multiplication:
+
+$$
+15 \times 7 = (10 + 5) \times 7 = 10 \times 7 + 5 \times 7
+$$
+
+Now calculate each part:
+
+- $10 \times 7 = 70$
+- $5 \times 7 = 35$
+
+Add them together:
+
+$$
+70 + 35 = 105
+$$
+
+### Final Answer:
+**15 × 7 = 105**",True,229.3,2057.0,122,0.691,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Mathematics,What is 144 divided by 12?,12,"To find the result of dividing 144 by 12, we can perform the division:
+
+$$
+\frac{144}{12} = 12
+$$
+
+So, the answer is **12**.",True,242.9,1378.2,51,0.389,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Mathematics,What is the square root of 81?,9,"The square root of 81 is **9**.
+
+This is because:
+
+$$
+9 \times 9 = 81
+$$
+
+So, the square root of 81 is **9**.",True,242.8,1261.8,45,0.359,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Mathematics,"If x + 5 = 12, what is x?",7,"We are given the equation:
+
+$$
+x + 5 = 12
+$$
+
+To solve for $ x $, we need to isolate it on one side of the equation.
+
+### Step 1: Subtract 5 from both sides
+
+$$
+x + 5 - 5 = 12 - 5
+$$
+
+Simplify:
+
+$$
+x = 7
+$$
+
+### ✅ Final Answer:
+$$
+\boxed{x = 7}
+$$",True,240.6,1473.4,98,0.591,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Mathematics,What is 25% of 200?,50,"To find **25% of 200**, we can use the formula:
+
+$$
+\text{Percentage} = \frac{\text{Part}}{\text{Whole}} \times 100
+$$
+
+Here,  
+- Percentage = 25%  
+- Part = 200 (the number we want to find 25% of)  
+- Whole = 100 (to convert the percentage to a decimal)
+
+So:
+
+$$
+25\% \times 200 = \frac{200}{100} \times 25 = 2 \times 25 = 50
+$$
+
+### ✅ Answer: **50**",True,242.5,1364.3,151,0.805,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Coding,"In Python, how do you print 'Hello, World!'?","print(""Hello, World!"")","To print `'Hello, World!'` in Python, you can use the `print()` function. Here's a simple example:
+
+```python
+print('Hello, World!')
+```
+
+### Explanation:
+- The string `'Hello, World!'` is enclosed in quotes.
+- The `print()` function outputs this string to the console.
+
+If you want to print it on a new line (i.e., with a newline), you can use the `print()` function with an argument like:
+
+```python
+print('Hello, World!', end='\n')
+```
+
+This will add a newline character after the printed text.",True,240.1,1407.3,125,0.694,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Coding,What does the len() function do in Python?,returns the length,"The `len()` function in Python is used to **get the length of an object**. It returns the number of elements that are present in the object, or the number of characters if it's a string.
+
+### What it does:
+- For **strings**: Returns the number of characters in the string.
+- For **lists, tuples, dictionaries, and other iterable objects**: Returns the number of items in the object (i.e., the length of the object).
+- It also works for **custom classes** if they implement `__len__()` method.
+
+### Example:
+```python
+my_list = [1, 2, 3]
+print(len(my_list))  # Output: 3
+
+my_string = ""Hello""
+print(len(my_string))  # Output: 5
+
+my_dict = {'a': 1, 'b': 2}
+print(len(my_dict))  # Output: 2
+```
+
+### Key Points:
+- `len()` is a built-in function.
+- It's used to check the size of an object.
+- It doesn't modify the original object (it returns its length instead).
+- For strings, it's often more efficient than using `len(str)` because it directly counts characters.
+
+Let me know if",True,239.0,1255.1,256,1.248,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Coding,What keyword is used to define a function in Python?,def,"In Python, the keyword used to define a function is **`def`**.
+
+Here's an example:
+
+```python
+def add_numbers(a, b):
+    return a + b
+```
+
+This line defines a function called `add_numbers` that takes two parameters and returns their sum.",True,242.2,1310.8,60,0.439,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Coding,What data structure uses key-value pairs in Python?,dict,"In Python, the **data structure that uses key-value pairs** is the **dictionary**, which is a built-in data type.
+
+### Key-Value Pairs in Dictionaries:
+A dictionary in Python is an unordered collection of key-value pairs. Each key is unique and maps to a value, and the order of the keys is not guaranteed (it depends on the implementation).
+
+### Example:
+```python
+my_dict = {
+    'name': 'Alice',
+    'age': 30,
+    'city': 'New York'
+}
+```
+
+### Key Points:
+- Dictionaries are used to store data in a way that allows for fast access by key.
+- You can use the `dict()` constructor to create dictionaries from other data structures (like lists or tuples).
+- The order of dictionary keys is not guaranteed, but it's often preserved in versions 3.7 and above.
+
+### Other Data Structures with Key-Value Pairs:
+- **Sets** – Use `set` objects, which are unordered collections of unique elements.
+- **Tuples** – Similar to sets, tuples are also unordered and contain unique elements.
+- **Lists** – Can be used as dictionaries (e.g., using a dictionary comprehension), but lists do not support key-value pairs",True,239.9,1264.8,256,1.238,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Coding,What loop runs at least once in most languages?,do-while,"The loop that runs **at least once** in most programming languages is the **`for` loop**.
+
+### Why `for` loops run at least once:
+- In many languages, such as C, C++, Java, Python, JavaScript, and Ruby, a `for` loop is used to iterate over a range of values or perform a fixed number of operations.
+- For example, in **C**, you can write:
+  ```c
+  for (int i = 0; i < 5; i++) {
+      printf(""%d\n"", i);
+  }
+  ```
+  This loop runs at least once because the condition `i < 5` is true when `i` starts from 0 and ends before reaching 5.
+
+### Other common loops:
+- **`while`** loops run as long as a condition is true.
+- **`do-while`** loops run at least once if the body of the loop is executed.
+- **`for`** loops are the most common for iteration in most languages.
+
+### Summary:
+The loop that runs **at least once** in most programming languages is the `for` loop. It is widely used and has a consistent structure across many languages.",True,239.0,1254.6,250,1.239,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),History,Who was the first President of the United States?,George Washington,"The first President of the United States was **George Washington**, who served from 1789 to 1797. He was elected as the second president in 1789 after Thomas Jefferson resigned due to his involvement with the Revolutionary War.
+
+Washington's presidency marked a significant shift toward central government and military strength, setting the precedent for future U.S. presidents. His leadership during the early years of the nation helped establish the Constitution and laid the foundation for the United States as a republic.",True,240.3,1256.8,103,0.606,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),History,In what year did the Titanic sink?,1912,"The Titanic sank on **April 15, 1912**, during its maiden voyage from Southampton, England, to New York City. It was a British passenger ship that had been designed for comfort and speed, but it ran aground in the North Atlantic Ocean due to a collision with an iceberg.
+
+The sinking of the Titanic is widely regarded as one of the most tragic maritime disasters in history. It resulted in the loss of **1,500 lives**, including passengers, crew, and some aldershot survivors. The incident led to significant changes in maritime safety regulations, such as the establishment of the **International Safety Convention (ISC)** in 1914.
+
+The Titanic's sinking is also commemorated annually on **April 15th** as **World War I Day**, a day dedicated to remembering the victims and the sacrifices made during World War I.",True,239.2,1146.2,180,0.936,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),History,Who discovered America in 1492?,Christopher Columbus,"The discovery of America by Christopher Columbus is widely recognized as the event that led to European colonization. However, it's important to clarify that **Columbus did not discover America**; rather, he was a navigator who sailed from Europe to the Americas in 1492.
+
+The actual discovery of the continent occurred on **December 7, 1492**, when Columbus reached the shores of what is now New York City. He landed on the island of Hispaniola (modern-day Haiti), which had been inhabited by indigenous peoples for centuries. The first European to set foot in America was **James Cook**, who arrived in 1768 and explored the region further.
+
+In summary:
+- **Christopher Columbus** sailed from Europe to the Americas.
+- He landed on **Haiti** (modern-day Haiti) on **December 7, 1492**.
+- **James Cook** was the first European to explore the area in 1768.",True,240.8,1251.8,202,1.01,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),History,Which ancient civilization built the pyramids?,Egyptians,"The pyramids of Egypt were constructed by the ancient civilization known as **Egyptians**. They are among the most famous and enduring structures in human history, with their construction dating back to around 2580 BCE.
+
+### Key Points:
+- **Location**: The pyramids were built on the banks of the Nile River in the region of Giza.
+- **Purpose**: They were primarily used for **burial** purposes. The most famous are the **Great Pyramid of Khufu**, which was built around 2580 BCE, and the **Pyramid of Khafre**, which dates back to around 2560 BCE.
+- **Construction Techniques**: The pyramids utilized a combination of labor, engineering, and construction methods that were advanced for their time. They were built using **stone blocks** and **ladders**.
+- **Timeline**: The construction of the pyramids began in the 13th Dynasty (circa 2580 BCE) and continued until the 14th Dynasty (circa 2560 BCE), with the final pyramid being completed around 2525 BCE.
+
+These structures were not only monumental feats of engineering but also served as **temples**, **burial sites**,",True,243.1,1143.6,256,1.229,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),History,What empire was ruled by Genghis Khan?,Mongol Empire,"Genghis Khan was the ruler of the **Golden Horde**, an empire that spanned much of Eastern Europe, Central Asia, and parts of the Middle East. He established this empire in 1206 after defeating the Mongol tribes at the Battle of Borodino, which marked the beginning of his conquests.
+
+The empire was ruled by a centralized bureaucratic system known as the **Mongol Empire**, which was characterized by the integration of various ethnic and religious groups into a single political entity. Genghis Khan's rule was defined by the consolidation of power through military campaigns, the establishment of a bureaucratic structure, and the eventual unification of the Mongol tribes under his leadership.
+
+While the term ""Empire"" is often used to describe large-scale political entities, the **Golden Horde** itself was not an empire in the traditional sense. It was a vast network of independent states that were governed by Genghis Khan's military and administrative policies. The empire eventually collapsed after the death of Genghis Khan in 1234, leading to the fragmentation of the Mongol territories into smaller principalities.
+
+In summary, Genghis Khan ruled the **Golden Horde**, an empire that was not a single centralized state but rather a vast network of independent",True,239.1,1256.0,256,1.253,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Logical Reasoning,All cats are mammals. Whiskers is a cat. Is Whiskers a mammal?,yes,"Yes, Whiskers is a mammal.
+
+**Explanation:**
+
+- All cats are mammals.
+- Whiskers is a cat.
+- Therefore, Whiskers is also a mammal.
+
+This is a classic example of **inference from generalization**. The statement ""All cats are mammals"" establishes a universal relationship between cats and mammals. Since Whiskers is a cat, it follows that Whiskers must be a mammal.
+
+So, the answer is: **Yes, Whiskers is a mammal.**",True,239.9,1739.9,110,0.638,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Logical Reasoning,"If it is raining, the ground is wet. The ground is wet. Does that mean it must have rained?",no,"No, it does not necessarily mean it has rained. Here's why:
+
+1. **Raining and Wet Ground**:  
+   If it is raining, the ground can be wet due to water being absorbed into the soil or carried away by the rain. However, this doesn't necessarily mean that the ground was already wet before the rain started.
+
+2. **Contradiction in Logic**:  
+   The statement ""If it is raining, the ground is wet"" creates a logical contradiction if we assume that the ground is already wet. If the ground is wet and it is raining, then the ground must have been wet *before* the rain started, which would mean that the rain **did** cause the ground to become wet.
+
+3. **Inductive Reasoning**:  
+   Inductive reasoning involves making generalizations based on specific observations. The statement ""If it is raining, the ground is wet"" is an example of inductive reasoning, but it does not guarantee that the ground must have rained.
+
+4. **Possible Causes of Wet Ground**:  
+   Other causes of wet ground include:  
+   - A sprinkler or hose being turned on  
+   - Heavy rain falling and pooling  
+   - A leaky faucet or plumbing issue  
+   - A garden",True,235.6,2172.3,256,1.261,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Logical Reasoning,A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?,5 cents,"Let's solve this step by step.
+
+We are told:
+
+- A **bat** and a **ball** cost **$1.10** in total.
+- The **bat** costs **$1.00 more than the ball**.
+
+Let’s define variables:
+
+Let $ x $ be the cost of the **ball**.
+
+Then, the cost of the **bat** is $ x + 1.00 $ (since it's $1.00 more).
+
+Now, we can write the equation for the total cost:
+
+$$
+x + (x + 1.00) = 1.10
+$$
+
+Simplify:
+
+$$
+2x + 1.00 = 1.10
+$$
+
+Subtract 1.00 from both sides:
+
+$$
+2x = 0.10
+$$
+
+Divide by 2:
+
+$$
+x = 0.05
+$$
+
+So, the **ball** costs **$0.05**.
+
+Let’s verify:
+
+- Ball: $0.05
+- Bat: $0.05 + $1.00 = $1.05
+- Total cost: $0.05 +",True,239.4,2759.0,256,1.246,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Logical Reasoning,"What number comes next: 1, 1, 2, 3, 5, 8, ?",13,"Let's analyze the sequence:
+
+**Given sequence:**  
+1, 1, 2, 3, 5, 8, ?
+
+We can look for a pattern in the differences between consecutive numbers.
+
+### Step 1: Calculate the differences between consecutive terms:
+- $1 \rightarrow 1$: difference = 0
+- $1 \rightarrow 2$: difference = 1
+- $2 \rightarrow 3$: difference = 1
+- $3 \rightarrow 5$: difference = 2
+- $5 \rightarrow 8$: difference = 3
+
+So the differences are:  
+**0, 1, 1, 2, 3**
+
+### Step 2: Observe the pattern of differences:
+The differences are:  
+**0, 1, 1, 2, 3**
+
+This sequence is **increasing by 1 each time**, but with a **jump of 1 in the third difference** (from 1 to 2), which suggests that the pattern may not be linear.
+
+Let’s try to find a **recursive or mathematical formula** for this sequence.
+
+---
+
+### Step 3: Try to find a recursive formula
+
+We can look at the differences and see if they follow a",False,240.7,2231.6,256,1.245,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Logical Reasoning,"If you rearrange the letters 'CIFAIPC', you get the name of what ocean?",Pacific,"To determine what ocean is formed by rearranging the letters in the word **""CIFAIPC""**, we first need to count the number of each letter and then identify a possible name.
+
+### Step 1: Count the letters in ""CIFAIPC""
+Let's list all the letters:
+
+- C
+- I
+- F
+- A
+- P
+- I
+- C
+
+So, the counts are:
+- **C**: 2
+- **I**: 3
+- **F**: 1
+- **A**: 1
+- **P**: 1
+- **C**: 1 (repeated)
+
+### Step 2: Find a name that matches the letter count
+We can look for an ocean whose name has the same number of letters as ""CIFAIPC"" and the same distribution of letters.
+
+Let’s consider some possible ocean names:
+
+#### Option 1: **Atlantic Ocean**
+- Letters: A, T, I, N, E, C, O, R, M
+- Not matching (length is different)
+
+#### Option 2: **Indian Ocean**
+- Letters: I, N, O, R, E, D, A, L
+- Length: 9 letters
+- Not matching",False,239.4,1710.5,256,1.26,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Language Understanding,What is the past tense of 'run'?,ran,"The **past tense** of the verb **""run""** is **""ran""**.
+
+Here's a breakdown:
+
+- **Present tense**: run  
+- **Past tense**: ran (used with ""had"" or ""hadn't"")  
+- **Future tense**: will run (if you're planning to do it in the future)  
+
+So, the past tense of ""run"" is **ran**.",True,241.5,1201.5,86,0.535,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Language Understanding,What is a synonym for 'happy'?,joyful,"A synonym for ""happy"" could be:
+
+- **Joyful**
+- **Happy**
+- **Glad**
+- **Energetic**
+- **Content**
+
+Among these, the most direct and commonly used synonyms are:
+
+- **Joyful** (often used as a synonym for happy)
+- **Happy** (the word itself)
+
+If you're looking for something more specific or formal, ""content"" or ""satisfied"" could also be considered synonyms.",True,241.2,1963.7,94,0.562,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Language Understanding,What is an antonym for 'hot'?,cold,"An antonym for the word **'hot'** would be a word or phrase that means **not hot**, typically indicating **cold, chilly, or cooler**.
+
+Some common antonyms for 'hot' include:
+
+- **Cold**
+- **Chilly**
+- **Cool**
+- **Mild**
+- **Warm**
+- **Hypothermic**
+- **Frosted**
+
+For example:
+- ""The room was cold and quiet.""
+- ""She felt very hot in the sun.""
+
+Let me know if you're looking for a specific type of antonym (e.g., adjective, noun, or verb)!",True,241.2,2010.5,127,0.687,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Language Understanding,"In grammar, what is a noun?",person place or thing,"In grammar, a **noun** is a word or phrase that names a person, place, thing, idea, or concept. Nouns are the basic units of language and serve as the subject of sentences.
+
+### Key Points About Nouns:
+- **Nouns can be singular or plural** (e.g., ""dog"" vs. ""dogs"").
+- They can be **proper nouns** (specific names like ""New York City"") or **common nouns** (general names like ""book"").
+- Nouns are used to refer to **entities** in the world, such as people, places, objects, ideas, and events.
+- Nouns are often **used with verbs** to form sentences:  
+  - *She reads a book.*  
+  - *The sun rises every morning.*
+
+### Examples:
+- **Noun phrases**: ""A beautiful sunset,"" ""The cat sat on the mat.""
+- **Nouns alone**: ""Dog,"" ""Book,"" ""City.""
+
+Nouns are essential for constructing complete sentences and understanding the structure of language.",False,240.0,1147.8,214,1.07,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Language Understanding,What figure of speech compares two things using 'like' or 'as'?,simile,"The figure of speech that compares two things using **""like""** or **""as""** is called a **metaphor**.
+
+### Example:
+- ""Her smile was like the sun.""  
+  (This metaphor uses ""like"" to compare her smile to the sun.)
+
+### Key Points:
+- A **metaphor** directly compares two things by saying one is the same as another.
+- It does not use words like ""like,"" ""as,"" or ""but.""
+- Metaphors are often used in poetry and literary writing to create vivid imagery.
+
+Other similar figures of speech include **simile**, which uses ""like"" or ""as"" to compare two things, and **alliteration** (though that's more about rhythm than comparison).",True,239.4,1526.1,156,0.839,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Persian,پایتخت ایران کجاست؟ (What is the capital of Iran?),تهران,"پایتخت ایران **دموکراتیک** است. آن را به عنوان گذرنامه‌ای برای شهرهای بزرگ و مدنی که در سراسر این شهر قرار دارند، توصیف می‌کنید. ایران پایتخت خود را در **دموکراتیک** (در حال حاضر به عنوان گذرنامهٔ شهرهای بزرگ و مدنی که در سراسر این شهر قرار دارند) توصیف می‌کنید. 
+
+در حالی که **دموکراتیک** به معنا ""پایتخت"" است، ایران پایتخت خود را در **دموکراتیک** (به عنوان گذرنامهٔ شهرهای بزرگ و مدنی که در سراسر این شهر قرار دارند) توصیف می‌کنید. این معنا نسبتاً مناسب است، زیرا پایتخت خ",False,237.2,1727.4,256,1.254,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Persian,رنگ پرچم ایران چیست؟ (What color is Iran's flag?),سبز، سفید، قرمز,"رنگ پرچم ایران، **سنگ** است. این رنگ به عنوان نمایش‌گذاری اصلی برای تاریخ و ثقافت ایران مورد استفاده قرار گرفته است.
+
+در سال ۱۹۸۰، پرچم ایران به عنوان رنگ بزرگ‌تر در نظر گرفت. این رنگ برای تاریخ و ثقافت ایران مورد استفاده قرار گرفته است. از آنجا که سال ۱۹۸۰ به عنوان رنگ بزرگ‌تر در نظر گرفت، این رنگ همچنان برای تاریخ و ثقافت ایران مورد استفاده قرار گرفته است.
+
+به طور خاص، پرچم ایران به عنوان **سنگ** (کوچک‌ترین رنگ) در نظر گرفته شده است. این رنگ برای تار",False,237.8,1882.7,256,1.245,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Persian,کوچکترین عدد طبیعی چیست؟ (What is the smallest natural number?),1,"**کوچکترین عدد طبیعی** به معنای **عدد کوچک‌ترین** و **تعدادی کوچک‌ترین** در زیر است.
+
+### تعریف:
+- **عدد طبیعی** (Natural Number) یعنی عددی که از **1** شروع می‌شود.
+- **کوچکترین عدد طبیعی** به معنای **عدد کوچک‌ترین** و **تعدادی کوچک‌ترین** در زیر است.
+
+### نمونه:
+- 1 (کوچکترین)
+- 2 (کوچکترین)
+- 3 (کوچکترین)
+- ...
+- **فقط 1** به عنوان عددی کوچک‌ترین و تعدادی کوچک‌ترین است.
+
+### نتیجه:
+**کوچکترین عدد طبیعی** = **۱**
+
+---
+
+آیا می‌خواهید درباره چیز دیگری بدانید",True,240.0,2272.7,256,1.234,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Persian,حاصلضرب ۵ ضربدر ۶ چند می‌شود؟ (What is 5 times 6?),30,"۵ ضربدر ۶:
+
+$$
+5 \times 6 = 30
+$$
+
+**جواب:** ۳۰.",True,245.3,2554.7,34,0.305,
+bonsai-1.7b-q1_0,1.7B,Q1_0 (1-bit),Persian,زبان رسمی ایران چیست؟ (What is the official language of Iran?),فارسی,لغات رسمی ایران شامل **فارسی** است. فارسی، زبان رسمی و معمولی این کشور است. در حالی که دو لغت دیگر (شورویی و چندین زبان غربی) وجود دارد، اما آنها به عنوان لغات رسمی نمی‌باشند؛ هر دو فقط برای استفاده در سازمان‌های دولتی و مدارک رسمی استفاده می‌شوند. فارسی به طور کلی تلقی شده، اما بخشی از آن به زبان چینی (پنجا) و همچنین به زبان سرگرمی (کوچک) تبدیل می‌شود.,True,239.8,1894.3,198,0.981,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),General Knowledge,What is the capital of France?,Paris,The capital of France is Paris.,True,148.6,143.2,8,1.16,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),General Knowledge,Who wrote Romeo and Juliet?,William Shakespeare,"Romeo and Juliet was written by William Shakespeare. He was an English playwright and poet, widely regarded as the greatest writer in the English language. The play was first performed in 1603 and is one of his most famous works. It is a tragedy that explores themes of love, family conflict, and fate.",True,142.1,942.6,67,0.645,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),General Knowledge,What is the largest planet in our solar system?,Jupiter,"The largest planet in our solar system is **Jupiter**. It is a gas giant and significantly larger than all other planets, with a diameter about 11 times that of Earth. Jupiter is also the most massive object in the solar system, making it the primary influence on the orbits of the other planets.",True,144.0,681.0,64,0.629,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),General Knowledge,What year did World War II end?,1945,"World War II ended in **1945**. The war officially concluded with the surrender of Nazi Germany on May 7, 1945 (V-E Day), and Japan on September 2, 1945 (Hiroshima and Nagasaki).",True,144.6,1060.8,58,0.572,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),General Knowledge,What is the chemical symbol for gold?,Au,The chemical symbol for gold is **Au**.,True,151.7,1054.2,11,0.244,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Mathematics,What is 15 × 7?,105,15 × 7 = 105. ✅,True,150.2,1111.7,14,0.255,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Mathematics,What is 144 divided by 12?,12,"To divide 144 by 12:
+
+$$
+144 \div 12 = 12
+$$
+
+✅ The answer is **12**.",True,145.1,762.3,38,0.461,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Mathematics,What is the square root of 81?,9,"The square root of 81 is **9**.
+
+Because $ 9 \times 9 = 81 $, and 81 is a perfect square.
+
+✅ Answer: **9** ✅",True,144.9,697.0,44,0.496,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Mathematics,"If x + 5 = 12, what is x?",7,"We are given the equation:
+
+$$
+x + 5 = 12
+$$
+
+To solve for $ x $, subtract 5 from both sides:
+
+$$
+x = 12 - 5
+$$
+
+$$
+x = 7
+$$
+
+✅ Final Answer: $ \boxed{7} $",True,144.2,814.6,67,0.641,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Mathematics,What is 25% of 200?,50,"To find 25% of 200:
+
+1. Convert the percentage to a decimal:  
+   25% = 25 / 100 = 0.25
+
+2. Multiply:  
+   0.25 × 200 = 50
+
+✅ So, 25% of 200 is **50**.",True,144.7,757.6,83,0.756,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Coding,"In Python, how do you print 'Hello, World!'?","print(""Hello, World!"")","In Python, you can print ""Hello, World!"" using the `print()` function. Here's how:
+
+```python
+print(""Hello, World!"")
+```
+
+This will output:
+```
+Hello, World!
+```
+
+You don't need any special syntax or additional commands—just place the string inside quotes and call `print()` with it.
+
+💡 Tip: The `print()` function is one of the most basic and commonly used functions in Python. It's perfect for displaying messages, debugging, or simply outputting text to the console.",True,143.0,785.6,110,0.948,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Coding,What does the len() function do in Python?,returns the length,"The `len()` function in Python returns the **number of items** in an object. It works with various data types, including:
+
+- Strings (returns character count)
+- Lists and tuples (returns number of elements)
+- Dictionaries (returns number of key-value pairs)
+- Sets (returns number of unique elements)
+- Objects (returns the number of attributes or methods)
+
+### Examples:
+```python
+# Strings
+print(len(""hello""))  # Output: 5
+
+# Lists
+print(len([1, 2, 3]))  # Output: 3
+
+# Tuples
+print(len((1, 2, 3)))  # Output: 3
+
+# Dictionaries
+print(len({""a"": 1, ""b"": 2}))  # Output: 2
+
+# Sets
+print(len({1, 2, 3}))  # Output: 3
+
+# Functions (returns number of parameters)
+def greet(name):
+    return f""Hello, {name}!""
+
+print(len(greet))  # Output: 1 (it's a function with one parameter)
+```
+
+### Important Notes:
+- `len()` does **not** work on objects like functions or classes directly — it only works on objects that",False,142.7,694.0,256,1.985,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Coding,What keyword is used to define a function in Python?,def,"The keyword used to define a function in Python is **`def`**.
+
+Example:
+```python
+def hello():
+    print(""Hello, world!"")
+```
+
+This line begins the definition of a function named `hello`, which takes no arguments and prints ""Hello, world!"".",True,143.8,713.4,57,0.577,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Coding,What data structure uses key-value pairs in Python?,dict,"In Python, the **dictionary** is the data structure that uses key-value pairs.
+
+Dictionaries are unordered collections of key-value pairs, where each key is unique and maps to a value. They provide fast access (O(1) average time complexity) to values using their keys.
+
+### Example:
+```python
+student = {
+    ""name"": ""Alice"",
+    ""age"": 20,
+    ""grade"": ""A""
+}
+print(student[""name""])  # Output: Alice
+```
+
+### Key Features:
+- **Keys**: Must be immutable (e.g., strings, numbers, tuples).
+- **Values**: Can be any Python data type.
+- **Order**: Since Python 3.7+, dictionaries maintain insertion order.
+
+✅ So, the correct answer is: **dictionary** ✅
+
+Let me know if you'd like to explore other data structures or their differences!",True,142.6,693.5,181,1.457,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Coding,What loop runs at least once in most languages?,do-while,"The **for loop** runs at least once in most programming languages.
+
+### Explanation:
+- A **for loop** is a control structure that allows you to execute a block of code repeatedly.
+- It typically consists of three parts: initialization, condition checking, and increment/decrement operations.
+- The loop **starts with the initialization**, which sets up variables (like counters).
+- If the condition evaluates to `true`, the loop body executes.
+- After each iteration, the loop updates the counter or variable.
+
+### Why it runs at least once:
+- Even if the loop condition is initially false, the loop will still run **once** during the initialization phase.
+- This ensures that the code inside the loop runs **at least once**, regardless of whether the loop body executes again or not.
+
+### Example (in Python):
+```python
+for i in range(0, 1):
+    print(i)
+```
+Output:
+```
+0
+```
+
+Even though `range(0, 1)` produces an empty sequence, the loop still runs once — at the initialization step.
+
+---
+
+✅ So, **the for loop** is the one that runs at least once in most programming languages. ✅
+
+> Note: While some loops (like while loops) may not run",False,138.7,694.4,256,2.049,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),History,Who was the first President of the United States?,George Washington,"The first President of the United States was George Washington. He served from 1789 to 1797, serving two terms as president. Washington is notable for being the only person to serve in both the presidency and the office of Commander-in-Chief of the Army during the American Revolutionary War.",True,135.3,684.3,64,0.674,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),History,In what year did the Titanic sink?,1912,"The RMS Titanic sank in the year **1912**. It struck an iceberg on its maiden voyage on April 15, 1912, and sank on April 17, 1912, after colliding with it at approximately 2:40 a.m. local time.",True,136.6,619.6,67,0.684,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),History,Who discovered America in 1492?,Christopher Columbus,"In 1492, Christopher Columbus is credited with the first sustained European contact with the Americas. However, it's important to note that **Columbus did not ""discover"" America**—the term ""discovery"" is often used loosely or inaccurately in historical contexts.
+
+Here’s a more accurate explanation:
+
+- **Christopher Columbus** arrived in the Caribbean on **October 12, 1492**, aboard the *Santa Maria*. He was sailing under the Spanish flag and believed he had reached Asia (specifically India) when he saw land. He named it ""America"" after the Italian word for ""land.""
+- Before Columbus, indigenous peoples across the Americas had been living in complex societies for thousands of years—many with advanced cultures, technologies, and civilizations such as the Maya, Aztec, Inca, and others.
+- The arrival of Europeans marked the beginning of **contact between the Old World (Europe) and the New World (the Americas)**, but it was not a ""discovery"" in the sense of finding something previously unknown or uncharted.
+
+**Historical perspective:**
+The term *discovery* is often used to describe the first time Europeans saw the continent. However, **no indigenous people had ever seen Europeans",True,134.0,676.9,256,2.1,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),History,Which ancient civilization built the pyramids?,Egyptians,"The ancient civilization that built the pyramids is **Egypt**.
+
+Specifically, the Great Pyramid of Giza was constructed during the **Old Kingdom period**, around **2580–2460 BCE**, by the pharaoh **Khufu** (also known as Cheops). The construction involved a massive effort involving thousands of workers and laborers, as well as advanced engineering and organization.
+
+Pyramids were built primarily for royal burial, symbolizing the eternal power and divine status of the pharaoh. Over time, other pyramids were constructed by successive rulers, including **Khafre**, **Menkaure**, and **Horemheb**.
+
+So, to answer your question: ✅ **Egypt** built the pyramids.",False,134.8,619.3,153,1.331,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),History,What empire was ruled by Genghis Khan?,Mongol Empire,"Genghis Khan founded the **Mongol Empire**, which became the largest contiguous land empire in history. It spanned from Eastern Europe to China and parts of Central Asia, covering an area of approximately 24 million square kilometers (about 9.3 million square miles) at its peak.
+
+The Mongol Empire was established in the early 13th century by Genghis Khan, who unified the various nomadic tribes of the Eurasian steppes. After defeating his rivals and expanding through military conquests, he created a vast empire that included:
+
+- **Central Asia** (modern-day Kazakhstan, Uzbekistan, Kyrgyzstan)
+- **The Middle East** (Iraq, Persia, parts of Turkey)
+- **China** (the Yuan Dynasty, which Genghis Khan established in 1271)
+- **Japan** (via the Ashikaga shogunate after a brief invasion in 1281)
+- **Korea** (under the Joseon Dynasty after a period of Mongol occupation)
+
+The empire was characterized by its vast size, administrative efficiency, and use of a standardized script (the *Chagatau Script*). It played a major role in global trade during the ""Age of Discovery""",True,134.1,676.8,256,2.099,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Logical Reasoning,All cats are mammals. Whiskers is a cat. Is Whiskers a mammal?,yes,"Yes, Whiskers is a mammal.
+
+Here's the reasoning:
+
+- All cats are mammals.  
+- Whiskers is a cat.  
+
+Since all cats are mammals, and Whiskers is a cat, by logical inference, Whiskers must also be a mammal.
+
+✅ Final answer: **Yes, Whiskers is a mammal.**",True,137.2,951.9,76,0.744,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Logical Reasoning,"If it is raining, the ground is wet. The ground is wet. Does that mean it must have rained?",no,"The statement ""If it is raining, the ground is wet"" is a conditional:  
+**If R, then G** (if it is raining, the ground is wet).  
+
+We are told: **G** (the ground is wet).  
+
+Does this mean **R** (it must have rained)?  
+
+Not necessarily.  
+
+Here's why:
+
+- The statement only says that *if* it rains, the ground becomes wet — it does not say that *only* when it rains.
+- It could be that the ground became wet for other reasons: someone sprayed water on it, a sprinkler went off, or it just got soaked from a leak in the pipes.
+
+So, **G** (ground is wet) is a sufficient condition for R (it rained), but not a necessary one.  
+
+In logic:  
+- G → R (if it rains, ground is wet)  
+- But R → G is not true — the ground could be wet without rain.
+
+Therefore, from ""If it is raining, the ground is wet"" and ""The ground is wet,"" we **cannot conclude** that it must have rained.  
+
+✅ Answer: **No**, it does not mean it must have rained.  
+It only means",True,142.5,1324.3,256,1.985,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Logical Reasoning,A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?,5 cents,"Let's solve the problem step by step.
+
+We are told:
+
+- A bat and a ball cost **$1.10** in total.
+- The **bat costs $1.00 more than the ball**.
+
+Let’s define:
+
+- Let the cost of the **ball** be **x** dollars.
+- Then, the cost of the **bat** is **x + 1.00** dollars.
+
+Now, add them together and set equal to $1.10:
+
+$$
+x + (x + 1.00) = 1.10
+$$
+
+Simplify:
+
+$$
+2x + 1.00 = 1.10
+$$
+
+Subtract 1.00 from both sides:
+
+$$
+2x = 0.10
+$$
+
+Divide by 2:
+
+$$
+x = 0.05
+$$
+
+So, the ball costs **$0.05**.
+
+✅ Final Answer: **$0.05**
+
+This is a classic riddle — many people assume the ball costs $0.10 (since ""bat and ball"" sounds like $1.10), but that leads to inconsistency: if the ball were $",True,143.3,1633.6,256,1.979,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Logical Reasoning,"What number comes next: 1, 1, 2, 3, 5, 8, ?",13,"The sequence you've given is:
+
+**1, 1, 2, 3, 5, 8, ?**
+
+This is the **Fibonacci sequence**, where each number is the sum of the two preceding numbers.
+
+Let's verify:
+
+- 1 + 1 = 2 → matches
+- 1 + 2 = 3 → matches
+- 2 + 3 = 5 → matches
+- 3 + 5 = 8 → matches
+
+So, the next number should be:
+
+**8 + 5 = 13**
+
+✅ Answer: **13** ✅",True,144.2,1324.6,128,1.087,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Logical Reasoning,"If you rearrange the letters 'CIFAIPC', you get the name of what ocean?",Pacific,"Let's look at the letters: **C, I, F, A, C, I, P**
+
+We are to rearrange these letters to form the name of an **ocean**.
+
+First, list all the letters:
+
+- C, I, F, A, C, I, P
+
+So we have:
+- C appears twice
+- I appears twice
+- F appears once
+- A appears once
+- P appears once
+
+Now, think about common ocean names and see if they contain these letters.
+
+Common oceans:  
+- Pacific  
+- Atlantic  
+- Indian  
+- Southern (Antarctic)  
+- Arctic  
+
+Let’s check each:
+
+---
+
+**Pacific**:  
+P, A, C, I, F, C, P →  
+Letters: P, A, C, I, F, C, P  
+Compare with original: C, I, F, A, C, I, P  
+Yes — matches in order and count!
+
+Wait — the original letters are: **C, I, F, A, C, I, P**
+
+So we need to rearrange them into a word that is a valid ocean name.
+
+Let’s see if ""Pacific"" fits:
+
+P, A, C, I, F, C",True,142.9,927.6,256,1.979,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Language Understanding,What is the past tense of 'run'?,ran,"The past tense of ""run"" depends on the subject and context:
+
+- **I ran**  
+- **You ran**  
+- **He/She/It ran**  
+- **We ran**  
+- **They ran**
+
+In general, for singular subjects (like *he*, *she*, *it*), the past tense is formed by adding **-ed** to the base form: *ran*.
+
+For plural subjects or when using ""we"" or ""they,"" the past tense is often **-s**:  
+- *We ran*  
+- *They ran*
+
+So, in summary:
+- Singular: **ran**
+- Plural (with ""we""): **ran**
+- Plural (with ""they""): **ran**
+
+Note: In American English, ""ran"" is used for singular subjects and plural subjects with ""we"" or ""they."" In British English, ""went"" is more common for singular subjects in the past tense.
+
+✅ Final Answer: **ran** (for singular subjects)  
+✅ Plural forms: **ran** (with ""we"") or **went** (with ""they"")
+
+But since you asked for the *past tense of 'run'""* without specifying subject, the most accurate general answer is:
+
+👉",True,138.8,662.1,256,2.025,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Language Understanding,What is a synonym for 'happy'?,joyful,"A synonym for ""happy"" is **joyful**.  
+
+Other synonyms include:  
+- pleased  
+- content  
+- elated  
+- ecstatic  
+- delighted  
+- joyful  
+- blissful  
+
+Each carries a slightly different nuance, but all convey a positive emotional state.",True,139.8,1050.9,58,0.608,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Language Understanding,What is an antonym for 'hot'?,cold,"An antonym for ""hot"" is **cold**.  
+
+Other possible antonyms depending on context include:
+
+- **Cold** (most direct opposite in temperature)  
+- **Frosty** (opposite in a more abstract or sensory way, e.g., cold and icy)  
+- **Cooled** (in a specific sense, like something that has been cooled down)
+
+But the most straightforward antonym is **cold**. ✅",True,129.5,1140.0,92,0.889,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Language Understanding,"In grammar, what is a noun?",person place or thing,"In grammar, a **noun** is a word that names a person, place, thing, animal, or idea. Nouns are one of the main parts of speech and serve as the subject or object in a sentence.
+
+### Examples of Nouns:
+- **Person**: *John*, *Sarah*
+- **Place**: *New York*, *Paris*
+- **Thing/Object**: *book*, *car*, *table*
+- **Animal**: *dog*, *cat*, *elephant*
+- **Idea/Concept**: *freedom*, *justice*, *hope*
+
+### Key Features of Nouns:
+1. **Name a thing or person** — they identify what is being spoken about.
+2. **Can be used as subjects** (the doer of the action) or **objects** (what the action is applied to).
+3. **Often have a count** — nouns can be singular (one item) or plural (more than one item), such as *cat* (singular) and *cats* (plural).
+
+### Examples in Sentences:
+- *The cat sat on the mat.* → ""cat"" is the subject.
+- *I bought a book.* → ""book"" is the object.
+
+Nouns are essential for forming",False,60.3,630.3,256,4.435,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Language Understanding,What figure of speech compares two things using 'like' or 'as'?,simile,"The figure of speech that compares two things using ""like"" or ""as"" is called a **metaphor**.
+
+In a metaphor, one thing is described as another to emphasize similarities. For example:
+
+- ""She's a firework"" (compares her energy to a firework)
+- ""He's as smart as a bee"" (compares his intelligence to a bee)
+
+While ""like"" or ""as"" are often used in comparisons, they are part of a **simile**, which is a figure of speech that uses ""like"" or ""as"" to draw a comparison. So:
+
+- **Metaphor**: direct comparison without ""like"" or ""as""
+- **Simile**: includes ""like"" or ""as""
+
+Therefore, the correct answer is: **metaphor**.
+
+✅ Final Answer: **metaphor** ✅",True,134.7,57.9,178,1.976,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Persian,پایتخت ایران کجاست؟ (What is the capital of Iran?),تهران,پایتخت ایران، تهران است.,True,87.9,549.3,14,0.393,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Persian,رنگ پرچم ایران چیست؟ (What color is Iran's flag?),سبز، سفید، قرمز,"Iran's national flag consists of a green field with a white crescent and star on it. The green background symbolizes the country's natural resources, while the white crescent and star represent the Islamic faith and the unity of the nation. This flag was adopted in 1941 and has remained unchanged since then.
+
+The colors are:
+- **Green** (background)
+- **White** (crescent and star)
+
+This design is based on the traditional Iranian flag, which features a green field with a white crescent and star.",False,124.3,603.6,111,1.119,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Persian,کوچکترین عدد طبیعی چیست؟ (What is the smallest natural number?),1,"کوچکترین عدد طبیعی **۰** است.
+
+اما باید توضیح دهم که از نظر ریاضی و مفاهیم، چگونه به این نتیجه می‌رسد:
+
+- در ریاضیات، **عدد طبیعی** (natural numbers) معمولاً اعدادی هستند که **از صفر شروع می‌شوند** و **به صورت ترتیبی افزایش می‌کنند**.
+- بنابراین، از نظر تعریف رسمی:  
+  **عدد طبیعی = ۰، ۱، ۲، ۳، ...**
+
+بنابراین، کوچکترین عدد طبیعی **۰** است.
+
+✅ پاسخ: **۰**",False,134.7,1300.4,210,1.739,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Persian,حاصلضرب ۵ ضربدر ۶ چند می‌شود؟ (What is 5 times 6?),30,"5 × 6 = 30
+
+پاسخ: **30** ✅",True,113.6,1193.8,20,0.379,
+bonsai-4b-q1_0,4B,Q1_0 (1-bit),Persian,زبان رسمی ایران چیست؟ (What is the official language of Iran?),فارسی,زبان رسمی ایران **فارسی** است. فارسی، زبان ملی این کشور است و به عنوان زبان رسمی در تمام سطوح دولت، آموزش، تجارب و ارتباطات بین‌المللی استفاده می‌شود.,True,111.7,716.5,78,0.9,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),General Knowledge,What is the capital of France?,Paris,The capital of France is Paris.,True,95.1,225.4,8,1.154,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),General Knowledge,Who wrote Romeo and Juliet?,William Shakespeare,"*Romeo and Juliet* was written by **William Shakespeare**. It is one of his most famous plays, first published in the 16th century as part of his collection of works known as *The First Folio*. The play is a classic example of tragic romance and is set in Verona, Italy, where two young lovers from feuding families must overcome their differences to be together.",True,81.6,502.2,82,1.203,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),General Knowledge,What is the largest planet in our solar system?,Jupiter,"The largest planet in our solar system is **Jupiter**. It is a gas giant, meaning it is mostly made of hydrogen and helium, and it has no solid surface. Jupiter is also known for its Great Red Spot, which is a massive storm that has been raging for at least 350 years.
+
+Here are some key facts about Jupiter:
+
+- **Diameter**: About 139,822 kilometers (86,881 miles)
+- **Mass**: Approximately 318 times that of Earth
+- **Orbit Period**: About 10 hours to complete one full orbit around the Sun
+- **Moons**: Has more than 79 known moons, including the large moon **Io**, which is the most volcanically active body in the solar system
+
+Jupiter is located in the outer part of our solar system, beyond the asteroid belt.",True,92.7,312.7,183,2.209,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),General Knowledge,What year did World War II end?,1945,"World War II ended in **1945**. The war officially concluded with the **surrender of Nazi Germany** on **August 15, 1945**, and the **surrender of Japan** on **September 2, 1945**, following the atomic bombings of Hiroshima and Nagasaki.",True,104.4,620.3,72,0.885,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),General Knowledge,What is the chemical symbol for gold?,Au,The chemical symbol for gold is **Au**.,True,110.2,623.4,11,0.295,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Mathematics,What is 15 × 7?,105,"To calculate $ 15 \times 7 $, you can break it down as follows:
+
+$$
+15 \times 7 = (10 + 5) \times 7 = 10 \times 7 + 5 \times 7 = 70 + 35 = 105
+$$
+
+So, the result is **105**.",True,105.9,658.6,83,0.973,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Mathematics,What is 144 divided by 12?,12,"To divide 144 by 12:
+
+$$
+144 \div 12 = 12
+$$
+
+So, the answer is **12**.",True,106.2,440.3,39,0.592,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Mathematics,What is the square root of 81?,9,"The square root of 81 is **9**.
+
+$$
+\sqrt{81} = 9
+$$",True,106.8,403.1,26,0.456,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Mathematics,"If x + 5 = 12, what is x?",7,"We are given the equation:
+
+$$
+x + 5 = 12
+$$
+
+To solve for $ x $, subtract 5 from both sides:
+
+$$
+x = 12 - 5
+$$
+
+$$
+x = 7
+$$
+
+**Answer: $ \boxed{7} $**",True,106.8,472.2,67,0.849,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Mathematics,What is 25% of 200?,50,"To find **25% of 200**, you can use the formula:
+
+$$
+\text{Percentage} = \frac{\text{Part}}{\text{Whole}} \times 100
+$$
+
+So:
+
+$$
+25\% \text{ of } 200 = \frac{25}{100} \times 200 = 0.25 \times 200 = 50
+$$
+
+**Answer: 50**",True,106.1,436.5,108,1.227,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Coding,"In Python, how do you print 'Hello, World!'?","print(""Hello, World!"")","In Python, you can print ""Hello, World!"" using the `print()` function like this:
+
+```python
+print(""Hello, World!"")
+```
+
+This will output:
+
+```
+Hello, World!
+```",True,107.3,453.5,43,0.616,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Coding,What does the len() function do in Python?,returns the length,"The `len()` function in Python is used to **determine the length of a sequence or object**.
+
+### What it does:
+- It returns the number of items in an iterable (like a list, tuple, string, dictionary, etc.).
+- It can also be used with a single argument to get the length of a string.
+
+---
+
+### Examples:
+
+```python
+# Length of a list
+my_list = [1, 2, 3]
+print(len(my_list))  # Output: 3
+
+# Length of a tuple
+my_tuple = (10, 20, 30)
+print(len(my_tuple))  # Output: 3
+
+# Length of a string
+my_string = ""hello""
+print(len(my_string))  # Output: 5
+
+# Length of a dictionary
+my_dict = {""a"": 1, ""b"": 2}
+print(len(my_dict))  # Output: 2
+```
+
+---
+
+### Notes:
+- `len()` is a built-in function in Python.
+- It works with any object that has a defined length (like strings, lists, tuples, etc.).
+- For custom objects, you must define the `__len__()` method to make them work with",True,105.4,399.8,256,2.635,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Coding,What keyword is used to define a function in Python?,def,"In Python, the keyword used to define a function is:
+
+**`def`**
+
+For example:
+
+```python
+def greet():
+    print(""Hello!"")
+```
+
+This defines a function named `greet` that prints ""Hello!"" when called.",True,106.3,420.1,51,0.693,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Coding,What data structure uses key-value pairs in Python?,dict,"In Python, the data structure that uses **key-value pairs** is the **dictionary**.
+
+### Dictionary (dict)
+- A dictionary is an unordered collection of **key-value pairs**.
+- Keys are unique and used to access values.
+- Dictionaries are written with curly braces `{}` and use colons `:` to separate keys from their corresponding values.
+
+#### Example:
+```python
+person = {
+    ""name"": ""Alice"",
+    ""age"": 30,
+    ""city"": ""New York""
+}
+```
+
+In this example:
+- `""name""`, `""age""`, and `""city""` are the **keys**.
+- `""Alice""`, `30`, and `""New York""` are the corresponding **values**.
+
+### Other structures in Python
+While dictionaries are the primary data structure for key-value pairs, here are some other structures that can be used in similar contexts:
+
+| Data Structure | Key-Value Usage | Notes |
+|----------------|------------------|-------|
+| **OrderedDict** (from `collections`) | Yes | Maintains insertion order. |
+| **Tuples of tuples** | Indirectly | Can simulate a dictionary with tuples as keys. |
+| **Classes with attributes** | Indirectly | Attributes can be",True,105.1,403.1,256,2.641,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Coding,What loop runs at least once in most languages?,do-while,"The loop that **runs at least once in most programming languages** is the **`while` loop**.
+
+### Why `while`?
+- A `while` loop checks a condition **before** executing the loop body.
+- If the condition is true, the loop runs **at least once**.
+- This behavior is consistent across many common languages like:
+  - C
+  - C++
+  - Java
+  - Python
+  - JavaScript
+  - Ruby
+  - PHP
+  - etc.
+
+### Example in Python:
+```python
+i = 0
+while i < 5:
+    print(i)
+    i += 1
+```
+This loop will run **at least once** (when `i` is 0), and then increment `i` until it's no longer less than 5.
+
+### Other Loops That May Run at Least Once:
+- **`for` loops** can also run at least once, depending on the initialization.
+- **`do-while` loops** (used in some languages like Java, C#, and JavaScript) always execute the loop body **at least once**, regardless of the condition.
+
+### Summary:
+The **`while` loop** is the most general and commonly used loop that runs",True,105.3,402.3,256,2.655,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),History,Who was the first President of the United States?,George Washington,The first President of the United States was **George Washington**. He served from 1789 to 1797 and is widely regarded as the founding father of the nation.,True,107.6,401.5,40,0.584,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),History,In what year did the Titanic sink?,1912,"The Titanic sank in **1912**. It was a British passenger liner that collided with an iceberg in the North Atlantic Ocean on April 14, 1912, and sank two days later on April 15, 1912.",True,106.8,367.4,57,0.73,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),History,Who discovered America in 1492?,Christopher Columbus,"In 1492, **Christopher Columbus** is often credited with ""discovering"" America. He was an Italian explorer who sailed under the Spanish flag and reached the Caribbean islands, which are part of the Americas.
+
+However, it's important to note that:
+
+- **Americas were already inhabited by Indigenous peoples** long before Columbus arrived.
+- **Other explorers and civilizations had reached the Americas long before 1492**, such as the Norse (who may have settled in Vinland around 1000 CE), the Chinese, and the Polynesians.
+- The term ""discovering"" is historically controversial because it implies that Columbus was the first to arrive, which is not accurate.
+
+So while **Christopher Columbus** is the most commonly associated with the year 1492, he did not discover America in the sense of being the first to reach it.",True,106.7,402.0,181,1.91,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),History,Which ancient civilization built the pyramids?,Egyptians,"The pyramids were built by the **Ancient Egyptians**. The most famous of these is the **Great Pyramid of Giza**, which was constructed as a tomb for Pharaoh **Khufu** (also known as Cheops) during the 26th century BCE.",True,107.4,366.1,58,0.753,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),History,What empire was ruled by Genghis Khan?,Mongol Empire,"Genghis Khan ruled the **Mongol Empire**, which was the largest contiguous land empire in history. He founded the empire in 1206 and became its ruler, uniting various Mongol tribes under his leadership.
+
+The Mongol Empire eventually expanded to include vast territories across Asia and parts of Eastern Europe, with its capital at **Karakorum** (modern-day Mongolia). Genghis Khan is widely regarded as one of the most influential leaders in history due to the empire's extensive reach and the impact of its conquests on global trade and culture.",True,106.8,403.1,116,1.295,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Logical Reasoning,All cats are mammals. Whiskers is a cat. Is Whiskers a mammal?,yes,"Yes, **Whiskers is a mammal**.
+
+Here's why:
+
+- All **cats** are **mammals** (this is a general rule).
+- **Whiskers** is a **cat**.
+- Therefore, by the **transitive property**, **Whiskers is a mammal**.
+
+This is a classic example of deductive reasoning.",True,107.2,575.8,77,0.937,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Logical Reasoning,"If it is raining, the ground is wet. The ground is wet. Does that mean it must have rained?",no,"No, it does not necessarily mean it must have rained.
+
+Let's break this down:
+
+- **""If it is raining, then the ground is wet.""**  
+  This is a conditional statement:  
+  If A (it is raining), then B (the ground is wet).  
+  It tells us that **raining implies the ground being wet**, but it doesn't say that **the ground being wet implies it rained**.
+
+- **""The ground is wet.""**  
+  This is a factual statement — we know the ground is wet.
+
+Now, using logic:
+
+From the conditional ""If A then B"", and knowing B (the ground is wet), we cannot conclude A (it rained) for sure.  
+This is known as **affirming the consequent**, which is a logical fallacy.
+
+So, even though the ground is wet, it could be due to other reasons — like a sprinkler, a broken pipe, or someone walking on it.
+
+### Conclusion:
+**No**, the fact that the ground is wet does not mean it must have rained.",True,106.1,750.9,225,2.326,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Logical Reasoning,A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?,5 cents,"Let's solve this step by step.
+
+We are told:
+
+- A **bat** and a **ball** together cost **$1.10**.
+- The **bat** costs **$1.00 more** than the **ball**.
+
+---
+
+### Step 1: Define variables
+
+Let the **cost of the ball** be $ x $ dollars.
+
+Then, the **cost of the bat** is $ x + 1.00 $ dollars (since it's $1.00 more).
+
+---
+
+### Step 2: Set up the equation
+
+The total cost is:
+
+$$
+x + (x + 1.00) = 1.10
+$$
+
+Simplify:
+
+$$
+2x + 1.00 = 1.10
+$$
+
+Subtract $1.00$ from both sides:
+
+$$
+2x = 0.10
+$$
+
+Divide by 2:
+
+$$
+x = 0.05
+$$
+
+---
+
+### ✅ Final Answer:
+
+The **ball** costs **$0.05**.
+
+This is a classic problem that often trips people up because they might intuitively think the ball costs $0.10, but that",True,106.0,945.2,256,2.625,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Logical Reasoning,"What number comes next: 1, 1, 2, 3, 5, 8, ?",13,"The sequence you've given is:
+
+**1, 1, 2, 3, 5, 8, ?**
+
+This is the **Fibonacci sequence**, where each number is the sum of the two preceding ones.
+
+Let's verify the pattern:
+
+- 1 + 1 = 2 ✅
+- 1 + 2 = 3 ✅
+- 2 + 3 = 5 ✅
+- 3 + 5 = 8 ✅
+
+So, to find the next number, we add the last two numbers:
+
+**8 + 5 = 13**
+
+### ✅ Answer: **13**",True,106.5,749.3,137,1.489,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Logical Reasoning,"If you rearrange the letters 'CIFAIPC', you get the name of what ocean?",Pacific,"Let's solve this step by step.
+
+We are given the letters: **C I F A I P C**
+
+First, let's count how many times each letter appears:
+
+- **C**: 2  
+- **I**: 2  
+- **F**: 1  
+- **A**: 1  
+- **P**: 1  
+- **C**: 1 (Wait — we already counted one C)
+
+So the full count is:
+
+- **C**: 2  
+- **I**: 2  
+- **F**: 1  
+- **A**: 1  
+- **P**: 1  
+
+Now, let's look at the letters and see if they can be rearranged to form a name of an ocean.
+
+Let’s consider possible ocean names that use these letters:
+
+Try: **CIFAPIC**
+
+Wait — we have **C I F A I P C** — that's **8 letters**, so it must be one word (not two words like ""Cape Cod"" or something).
+
+Let’s look at the letters again:
+
+- C, I, F, A, I, P, C
+
+Now, let's try to think of ocean names with these letters.
+
+Try: **Cape** — but we don’t",False,105.5,558.3,256,2.636,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Language Understanding,What is the past tense of 'run'?,ran,"The past tense of **""run""** is **""ran""**.
+
+- **Present tense**: run  
+- **Past tense**: ran  
+- **Past participle**: run (used with auxiliary verbs like ""have,"" ""has,"" or ""did"")
+
+For example:
+- I **run** every morning.  
+- I **ran** every morning last year.  
+- She **has run** several marathons.",True,107.3,384.8,88,1.026,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Language Understanding,What is a synonym for 'happy'?,joyful,"A synonym for **""happy""** is **""joyful.""** Other possible synonyms include:
+
+- **Content**
+- **Elated**
+- **Pleased**
+- **Cheerful**
+- **Breezy**
+- **Upbeat**
+- **Glad**
+
+Let me know if you'd like a more specific synonym for a particular context!",True,107.5,632.3,73,0.867,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Language Understanding,What is an antonym for 'hot'?,cold,"An antonym for **""hot""** is **""cold.""**
+
+Other possible antonyms depending on context include:
+
+- **Cold** (general opposite)
+- **Cool** (can be used in a more neutral or positive sense)
+- **Temperate** (in the context of climate or weather)
+- **Frosty** (specific to cold weather)
+
+Let me know if you're looking for an antonym in a specific context!",True,107.1,658.8,92,1.05,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Language Understanding,"In grammar, what is a noun?",person place or thing,"In grammar, a **noun** is a word that names a **person**, **place**, **thing**, or **idea**. Nouns are the **subjects** and **objects** of sentences, and they often answer the questions:
+
+- **Who**?
+- **What**?
+- **Where**?
+- **When**?
+- **Why**?
+
+### Examples of Nouns:
+- **People**: *She*, *they*, *the students*
+- **Places**: *Paris*, *school*, *forest*
+- **Things**: *book*, *car*, *table*
+- **Ideas**: *freedom*, *happiness*, *justice*
+
+### Types of Nouns:
+1. **Common (or Countable) Nouns** – These are general names for people, places, things, or ideas.
+   - *dog*, *Paris*, *book*
+
+2. **Proper Nouns** – These are specific names for particular people, places, or things.
+   - *John*, *France*, *New York*
+
+3. **Concrete Nouns** – These refer to physical objects or tangible entities.
+   - *chair*, *water*, *tree*
+
+4. **Abstract Nouns** – These refer to ideas, concepts,",False,106.2,366.7,256,2.621,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Language Understanding,What figure of speech compares two things using 'like' or 'as'?,simile,"The figure of speech that compares two things using **""like""** or **""as""** is called a **simile**.
+
+### Simile:
+- A simile is a type of **comparative figurative language**.
+- It uses the words **""like""** or **""as""** to draw a comparison between two different things.
+- Example: *""Her smile was like the sun.""*
+
+### Key Characteristics of a Simile:
+- Uses **""like""** or **""as""** for comparison.
+- Compares **two different things** (not just one thing with itself).
+- Helps make abstract ideas more concrete or vivid.
+
+If you're comparing two similar things using ""like"" or ""as,"" it's definitely a simile.",True,106.1,488.3,159,1.715,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Persian,پایتخت ایران کجاست؟ (What is the capital of Iran?),تهران,پایتخت ایران **تهران** است.,True,110.7,557.2,15,0.344,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Persian,رنگ پرچم ایران چیست؟ (What color is Iran's flag?),سبز، سفید، قرمز,"پرچم ایران شامل سه قسمت است:
+
+1. **نخستین قسمت** – آبی (آبی-سیاه)  
+2. **دومین قسمت** – سیاه (سیاه-قرمز)  
+3. **سومین قسمت** – قرمز (قرمز-شکم)
+
+در این پرچم، نخستین قسمت آبی است که به دلیل تاریخ و فرهنگ ایرانی، معمولاً در سمت چپ قرار دارد. سیاه و قرمز در قسمت‌های بعدی قرار دارند.
+
+بنابراین، **رنگ پرچم ایران** به صورت کامل:  
+**آبی-سیاه-قرمز** است.",False,104.8,609.0,199,2.108,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Persian,کوچکترین عدد طبیعی چیست؟ (What is the smallest natural number?),1,"کوچکترین عدد طبیعی **1** است.
+
+### توضیح:
+- **عدد طبیعی** به اعداد مثبت و صفر اشاره دارد. برخی اوقات، فقط **صفر** را شامل می‌شود، در این حالت کوچکترین عدد طبیعی **0** است.
+- با این حال، در بسیاری از موارد، به خصوص در ریاضیات و علوم کامپیوتر، **1** به عنوان کوچکترین عدد طبیعی (بدون صفر) تعریف می‌شود.
+
+### پاسخ:
+- اگر صفر را شامل نمی‌شود: **1**
+- اگر صفر را شامل می‌شود: **0**
+
+در بسیاری از سیستم‌های ریاضی، **1** به عنوان کوچکترین عدد طبیعی (بدون صفر) در نظر گرفته می‌",True,90.5,772.9,256,3.043,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Persian,حاصلضرب ۵ ضربدر ۶ چند می‌شود؟ (What is 5 times 6?),30,5 ضرب در ۶ برابر **30** است.,True,104.9,811.6,17,0.375,
+bonsai-8b-q1_0,8B,Q1_0 (1-bit),Persian,زبان رسمی ایران چیست؟ (What is the official language of Iran?),فارسی,"زبان رسمی ایران **فارسی** است. 
+
+فرسی در سراسر کشور به عنوان زبان رسمی و ملی شناخته می‌شود و در تمامی نهادهای دولتی، آموزش، رسانه و حقوق مدنی ایران به عنوان زبان اصلی استفاده می‌شود.",True,103.8,600.7,93,1.092,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),General Knowledge,What is the capital of France?,Paris,"Here's a thinking process:
+
+1.  **Identify the User's Question**: The user asks ""What is the capital of France?""
+2.  **Retrieve Knowledge**: I know that the capital of France is Paris. This is a basic, well-established fact.
+3.  **Formulate Response**: Keep it direct and accurate. ""The capital of France is Paris.""
+4.  **Verify**: Double-check for accuracy. Yes, Paris is definitively the capital of France. No ambiguity or recent changes.
+5.  **Output Generation**: Provide the concise answer.✅
+</think>
+
+The capital of France is Paris.",True,26.3,98.4,133,6.886,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),General Knowledge,Who wrote Romeo and Juliet?,William Shakespeare,"Here's a thinking process:
+
+1.  **Identify the core question**: The user is asking ""Who wrote Romeo and Juliet?""
+2.  **Recall knowledge**: Romeo and Juliet is one of the most famous plays in English literature. It was written by William Shakespeare.
+3.  **Verify information**: 
+   - Author: William Shakespeare
+   - Genre: Tragedy
+   - First performed: Around 1597 (at the Globe Theatre)
+   - Published: 1609 in The Complete Works of William Shakespeare
+4.  **Formulate response**: Keep it direct and accurate. ""Romeo and Juliet was written by William Shakespeare."" Optionally add a brief note about its significance or publication date if helpful, but keep it concise.
+5.  **Final check**: Does it directly answer the question? Yes. Is it accurate? Yes. Any potential confusion? No. Ready.✅
+</think>
+
+**Romeo and Juliet** was written by **William Shakespeare**. It is one of his most famous tragedies, first performed in London around 1597 and published in print in 1609.",True,29.7,93.9,242,8.638,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),General Knowledge,What is the largest planet in our solar system?,Jupiter,"Here's a thinking process:
+
+1.  **Identify the core question**: The user asks ""What is the largest planet in our solar system?""
+2.  **Recall factual knowledge**: 
+   - Planets in our solar system (in order from Sun): Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptune.
+   - Compare sizes: Jupiter is significantly larger than all others.
+   - Key facts about Jupiter: It's a gas giant, has the largest mass and diameter of any planet, can fit over 1,300 Earths inside it.
+3.  **Formulate answer**: State clearly that Jupiter is the largest planet in our solar system. Optionally add brief supporting details (like its size comparison to Earth or classification as a gas giant) for completeness, but keep it direct.
+4.  **Verify accuracy**: Cross-check with known astronomical facts. Yes, Jupiter is definitively the largest planet by both diameter and mass.
+5.  **Draft response**: ""The largest planet in our solar system is Jupiter."" (Can add a bit more context if helpful, but keep it concise.)
+6.  **Final output generation**: Match the drafted response. Ensure tone is informative",True,30.0,128.3,256,9.011,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),General Knowledge,What year did World War II end?,1945,"Here's a thinking process:
+
+1.  **Identify the core question**: The user is asking ""What year did World War II end?""
+2.  **Recall/verify historical fact**: World War II ended in 1945. Specifically, Europe was liberated on May 8, 1945 (V-E Day), and Japan surrendered on August 15, 1945, with the formal signing of surrender documents on September 2, 1945.
+3.  **Formulate answer**: State clearly that World War II ended in 1945. Optionally add brief context (Europe vs. Pacific) if helpful, but keep it concise as the question is straightforward.
+4.  **Check accuracy**: Yes, 1945 is universally recognized as the end year of WWII.
+5.  **Output generation**: ""World War II ended in 1945."" (Can add a bit more detail if needed, but keep it direct.)✅
+</think>
+
+World War II ended in **1945**. The European theater concluded with Germany's surrender on May 8, 1945, and the Pacific theater ended with Japan's formal surrender",True,30.0,118.3,256,8.989,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),General Knowledge,What is the chemical symbol for gold?,Au,"Thinking Process:
+
+1.  **Identify the core question:** The user is asking for the chemical symbol of gold.
+2.  **Retrieve knowledge:** Access general chemistry knowledge regarding elements and their symbols.
+3.  **Fact check:** Gold's atomic number is 79. Its symbol is derived from its Latin name, ""Aurum"". Therefore, the symbol is Au.
+4.  **Formulate answer:** State the symbol clearly.
+
+*Self-Correction/Verification:* Is it G? No, that's not standard. Is it GO? No. It is definitely Au.
+
+5.  **Final Output Generation:** ""The chemical symbol for gold is **Au**."" (Derived from the Latin word *aurum*).
+</think>
+
+The chemical symbol for gold is **Au**.
+
+It comes from the Latin name for gold, *aurum*.",True,30.2,117.3,183,6.525,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Mathematics,What is 15 × 7?,105,"Thinking Process:
+
+1.  **Identify the core question**: The user is asking for the product of 15 and 7.
+2.  **Perform the calculation**:
+    *   $15 \times 7$
+    *   Break it down: $(10 \times 7) + (5 \times 7)$
+    *   $10 \times 7 = 70$
+    *   $5 \times 7 = 35$
+    *   $70 + 35 = 105$
+3.  **Formulate the answer**: State the result clearly.
+
+*Self-Correction/Verification*:
+$15 \times 2 = 30$
+$30 \times 3 = 90$ (This is $15 \times 6$)
+$90 + 15 = 105$ ($15 \times 7$)
+Calculation is correct.
+
+4.  **Final Output**: ""105"" or ""The answer is 105.""
+</think>
+
+15 × 7 = 105",True,30.2,125.0,250,8.746,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Mathematics,What is 144 divided by 12?,12,"Here's a thinking process:
+
+1.  **Analyze User Input:** The user asks ""What is 144 divided by 12?""
+2.  **Identify Mathematical Operation:** Division: 144 ÷ 12
+3.  **Perform Calculation:** 
+   - I know that 12 × 10 = 120
+   - 144 - 120 = 24
+   - 12 × 2 = 24
+   - So, 12 × (10 + 2) = 12 × 12 = 144
+   - Therefore, 144 ÷ 12 = 12
+4.  **Verify:** 12 * 12 = 144. Correct.
+5.  **Formulate Response:** State the answer clearly and concisely. ""144 divided by 12 is 12."" Optionally add a brief explanation if needed, but it's straightforward enough to just give the answer.
+6.  **Final Output Generation:** ""144 divided by 12 equals 12.""✅
+</think>
+
+1",True,30.1,90.0,256,9.059,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Mathematics,What is the square root of 81?,9,"Here's a thinking process:
+
+1.  **Analyze User Input:** The user asks ""What is the square root of 81?""
+2.  **Identify Key Mathematical Concept:** Square root of a number x is a value y such that y * y = x. For positive numbers, we typically refer to the principal (non-negative) square root unless specified otherwise.
+3.  **Calculate/Verify:** 
+   - What number multiplied by itself equals 81?
+   - 9 * 9 = 81
+   - Therefore, √81 = 9
+4.  **Consider Potential Nuances:** 
+   - Mathematically, there are two square roots: +9 and -9. However, in standard contexts (especially without specifying ""all square roots""), the principal square root is expected.
+   - I should state the answer clearly as 9, and optionally mention that -9 is also a square root if needed for completeness, but keep it concise.
+5.  **Formulate Response:** 
+   - Direct answer: The square root of 81 is 9.
+   - Add brief clarification if helpful: (Note: While both 9 and -9 multiply to",True,29.2,130.4,256,9.203,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Mathematics,"If x + 5 = 12, what is x?",7,"Here's a thinking process:
+
+1.  **Analyze User Input:** The user asks a simple algebraic equation: ""If x + 5 = 12, what is x?""
+2.  **Identify the Goal:** Solve for x in the given equation.
+3.  **Apply Algebraic Principles:** 
+   - Equation: x + 5 = 12
+   - To isolate x, subtract 5 from both sides of the equation.
+   - x = 12 - 5
+   - x = 7
+4.  **Verify:** Plug x = 7 back into the original equation: 7 + 5 = 12. This is correct.
+5.  **Formulate Response:** State the answer clearly and concisely. Optionally show the step for clarity.
+   - ""To solve for x, subtract 5 from both sides: x = 12 - 5, so x = 7.""
+6.  **Final Output Generation:** Keep it direct as requested. ""x = 7"" is sufficient, but a brief explanation is helpful. I'll provide the direct answer with a short step.✅
+</think>
+
+To solve for \( x \",True,29.0,97.7,256,9.391,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Mathematics,What is 25% of 200?,50,"Here's a thinking process:
+
+1.  **Understand the User's Question**: The user is asking for 25% of 200.
+2.  **Identify Key Mathematical Operation**: To find a percentage of a number, multiply the number by the percentage (expressed as a decimal or fraction).
+   - Percentage: 25% = 0.25 or 1/4
+   - Number: 200
+3.  **Perform Calculation**:
+   - Method 1: Decimal multiplication → 200 × 0.25 = 50
+   - Method 2: Fraction multiplication → 200 × (1/4) = 200 ÷ 4 = 50
+   - Method 3: Mental math shortcut → 25% is a quarter, so divide by 4 → 200 ÷ 4 = 50
+4.  **Verify Result**: All methods give 50. The calculation is correct.
+5.  **Formulate Response**: State the answer clearly and concisely. Optionally show the quick method for clarity.
+   - ""25% of 200",True,28.8,88.9,256,9.431,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Coding,"In Python, how do you print 'Hello, World!'?","print(""Hello, World!"")","Here's a thinking process:
+
+1.  **Understand User Query**: The user is asking how to print ""Hello, World!"" in Python.
+2.  **Identify Core Concept**: This is a basic Python programming question about the `print()` function.
+3.  **Determine Answer**: In Python, you use the built-in `print()` function with the string argument. The exact syntax is: `print(""Hello, World!"")` or `print('Hello, World!')`.
+4.  **Formulate Response**: Keep it concise and direct. Provide the code snippet and maybe a brief explanation if needed.
+   - Code: `print(""Hello, World!"")`
+   - Explanation: Use the built-in `print()` function with the desired string as an argument. Single or double quotes work the same way in Python.
+5.  **Check Accuracy**: Yes, this is correct and standard for Python 3 (and also works in Python 2, though syntax differs slightly in Py2 if not imported, but modern context assumes Py3). I'll stick to the standard Python 3 approach.
+6.  **Draft Response**: 
+   In Python, you can print ""Hello, World!"" using the",True,28.8,94.5,256,9.43,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Coding,What does the len() function do in Python?,returns the length,"Here's a thinking process:
+
+1.  **Understand User Question**: The user is asking about the `len()` function in Python and what it does.
+
+2.  **Identify Core Concept**: `len()` is a built-in Python function that returns the number of items in an object. It works on various data types like strings, lists, tuples, dictionaries, sets, etc.
+
+3.  **Key Points to Cover**:
+   - Basic definition/purpose
+   - Syntax: `len(object)`
+   - Examples with different data types (string, list, tuple, dict, set)
+   - Important notes/limitations (doesn't work on all objects, raises TypeError for unsupported types, returns integer)
+   - Under the hood (calls `__len__` method if available)
+
+4.  **Draft Response (Mental Refinement)**:
+   The `len()` function in Python is a built-in function that returns the number of items in an object. It works with various data types like strings, lists, tuples, dictionaries, sets, and more.
+
+   Syntax: `len(object)`
+
+   Examples:
+   - `len(""hello"")` → 5 (counts characters)
+   -",False,28.6,128.6,256,9.417,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Coding,What keyword is used to define a function in Python?,def,"Here's a thinking process that leads to the answer:
+
+1.  **Analyze the Request:** The user is asking for the specific keyword used to define a function in Python.
+
+2.  **Recall Knowledge about Python Syntax:**
+    *   How do I write a function in Python?
+    *   Example: `def my_function():`
+    *   What is the keyword here? It's ""def"".
+
+3.  **Verify the Keyword:**
+    *   Is it `function`? No, that's not valid syntax for defining (though used in some contexts like decorators or documentation).
+    *   Is it `func`? No.
+    *   Is it `def`? Yes. It stands for ""definition"".
+
+4.  **Formulate the Answer:**
+    *   Direct answer: `def`.
+    *   Context (optional but helpful): Mention that it stands for ""definition"" and provide a tiny example to be clear.
+
+5.  **Final Output Generation:** (Drafting the response)
+    *   ""The keyword is `def`.""
+
+6.  **Refining for the User:** Keep it simple and direct as per the specific question.
+
+   ",True,29.0,86.3,256,9.419,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Coding,What data structure uses key-value pairs in Python?,dict,"Here's a thinking process that leads to the answer:
+
+1.  **Analyze the Request:**
+    *   **Question:** What data structure uses key-value pairs in Python?
+    *   **Key concepts:** ""Data structure"", ""key-value pairs"", ""Python"".
+
+2.  **Identify the Primary Answer:**
+    *   The most fundamental and common data structure for this purpose in Python is the `dict` (dictionary).
+
+3.  **Consider Alternatives/Related Structures:**
+    *   While `dict` is the standard, are there others?
+        *   `collections.OrderedDict`: A subclass of dict that maintains insertion order (though standard dicts do this now in Python 3.7+).
+        *   `collections.defaultdict`: A subclass of dict with a default factory.
+        *   `collections.Counter`: A subclass of dict for counting hashable objects.
+        *   `namedtuple` / `dataclass`: Can hold key-value-like data but aren't strictly ""key-value pair"" structures in the same way (they are more like records).
+        *   `set`: Stores unique values, not pairs.
+        *   `list`/`tuple`: Store",True,28.2,125.9,256,9.578,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Coding,What loop runs at least once in most languages?,do-while,"Here's a thinking process:
+
+1.  **Analyze User Question:** The user asks: ""What loop runs at least once in most languages?"" This is a straightforward programming question about loop types that guarantee execution of the loop body at least one time.
+
+2.  **Identify Key Concepts:** 
+   - Loops that run at least once
+   - Common across most programming languages
+   - Examples: `do-while`, `loop` (Ruby), `foreach`/`for-each` (when iterable is non-empty, but not guaranteed), `while(true)` with break (not a standard loop type)
+
+3.  **Determine the Best Answer:** 
+   - The classic answer is the `do-while` loop.
+   - In many languages, it's called `do-while`, `loop`, or similar.
+   - It executes the body first, then checks the condition to decide whether to repeat.
+   - This guarantees at least one execution.
+
+4.  **Consider Language Variations:**
+   - C/C++/Java/JavaScript: `do { ... } while (condition);`
+   - Ruby: `loop do ... end` or `begin ... ensure ... end` with",True,28.5,128.6,256,9.461,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),History,Who was the first President of the United States?,George Washington,"Here's a thinking process:
+
+1.  **Identify the core question**: The user is asking ""Who was the first President of the United States?""
+2.  **Retrieve knowledge**: I know from historical facts that George Washington was the first President of the United States, serving from 1789 to 1797.
+3.  **Verify accuracy**: This is a well-established historical fact. No controversy or ambiguity exists.
+4.  **Formulate response**: Keep it direct and accurate. ""The first President of the United States was George Washington."" Optionally add his term dates for completeness, but keep it concise.
+5.  **Final output generation**: Match the formulated response.✅
+</think>
+
+The first President of the United States was **George Washington**, who served from 1789 to 1797.",True,28.1,127.4,179,6.849,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),History,In what year did the Titanic sink?,1912,"Here's a thinking process:
+
+1.  **Identify the core question**: The user is asking for the year the Titanic sank.
+2.  **Retrieve knowledge**: I know from historical facts that the RMS Titanic sank on April 15, 1912.
+3.  **Verify accuracy**: Cross-check with reliable historical records. Yes, the sinking occurred in 1912.
+4.  **Formulate response**: State clearly and concisely: ""The Titanic sank in 1912."" Optionally add the exact date for completeness, but keep it direct.
+5.  **Final output generation**: Match the response to the user's question precisely. Ensure tone is factual and helpful.✅
+</think>
+
+The Titanic sank in **1912** (specifically on April 15, 1912).",True,28.9,115.2,181,6.766,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),History,Who discovered America in 1492?,Christopher Columbus,"Here's a thinking process:
+
+1.  **Analyze User Question:** The user asks ""Who discovered America in 1492?""
+2.  **Identify Key Historical Facts:**
+   - Year: 1492
+   - Event: Arrival of European explorers in the Americas
+   - Common answer: Christopher Columbus
+   - Important nuance: Columbus didn't actually ""discover"" America in the sense that it was unknown to everyone. Indigenous peoples had lived there for thousands of years. Also, other Europeans (like Leif Erikson) arrived earlier (~1000 CE). The term ""discovery"" is historically problematic and Eurocentric.
+3.  **Formulate Response:**
+   - Acknowledge the common answer: Christopher Columbus
+   - Provide historical context/nuance: 
+     - Indigenous peoples had been living in the Americas for tens of thousands of years before 1492
+     - Leif Erikson and Norse explorers reached North America around 1000 CE
+     - Columbus's voyage was part of European efforts to find a sea route to Asia, not specifically to ""discover"" the Americas
+   - Keep it factual, respectful, and clear
+4.",True,28.9,131.1,256,9.326,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),History,Which ancient civilization built the pyramids?,Egyptians,"Here's a thinking process:
+
+1.  **Analyze User Question:** The user asks ""Which ancient civilization built the pyramids?""
+2.  **Identify Key Concepts:** 
+   - ""Ancient civilization""
+   - ""Pyramids"" (typically refers to Egyptian pyramids, but could be ambiguous)
+3.  **Determine Primary Answer:** The most famous and well-known pyramids are those of ancient Egypt. Specifically, the Old Kingdom period (c. 2686–2181 BCE).
+4.  **Consider Ambiguity/Context:** 
+   - Other civilizations built pyramid-like structures (e.g., Maya in Mesoamerica, Nubia, China's Great Wall isn't pyramids but has pyramid tombs, etc.)
+   - However, without qualification, ""the pyramids"" almost universally refers to the Egyptian ones.
+5.  **Formulate Response:** 
+   - State clearly that ancient Egyptians built them.
+   - Provide context: specifically during the Old Kingdom period (c. 2686–2181 BCE).
+   - Mention famous examples like the Giza pyramids.
+   - Briefly acknowledge other pyramid-building cultures if relevant",True,28.6,116.6,256,9.397,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),History,What empire was ruled by Genghis Khan?,Mongol Empire,"Here's a thinking process:
+
+1.  **Identify the core question**: The user asks ""What empire was ruled by Genghis Khan?""
+2.  **Recall historical facts**: 
+   - Genghis Khan (born Temüjin) was a Mongol leader who united the nomadic tribes of the Mongolian steppes.
+   - He founded the Mongol Empire in 1206.
+   - The empire expanded rapidly under his rule and continued after his death, eventually becoming the largest contiguous land empire in history.
+3.  **Formulate the answer**: 
+   - Direct answer: The Mongol Empire.
+   - Add brief context if helpful (founded in 1206, largest contiguous land empire, etc.) but keep it concise as per the question.
+4.  **Verify accuracy**: 
+   - Genghis Khan → Mongol Empire ✓
+   - Dates: 1206–1227 ✓
+   - Commonly known as the Mongol Empire or Great Mongol Empire ✓
+5.  **Draft response**: Genghis Khan ruled the **Mongol Empire**, which he founded in 1206 and which became the",True,29.0,129.6,256,9.258,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Logical Reasoning,All cats are mammals. Whiskers is a cat. Is Whiskers a mammal?,yes,"Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - Premise 1: All cats are mammals.
+   - Premise 2: Whiskers is a cat.
+   - Question: Is Whiskers a mammal?
+
+2.  **Identify Logical Structure:**
+   - This is a classic syllogism (specifically, a categorical syllogism).
+   - Form: 
+     - All A are B. (All cats are mammals)
+     - C is an A. (Whiskers is a cat)
+     - Therefore, C is a B. (Therefore, Whiskers is a mammal)
+
+3.  **Evaluate Validity:**
+   - The logical form is valid. If all members of set A belong to set B, and a specific item C belongs to set A, then C must also belong to set B.
+   - In this case: All cats ⊆ mammals. Whiskers ∈ cats. Therefore, Whiskers ∈ mammals.
+
+4.  **Formulate Answer:**
+   - State the conclusion clearly: Yes, Whiskers is a mammal.
+   - Briefly explain the reasoning using the given",True,28.8,122.0,256,9.443,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Logical Reasoning,"If it is raining, the ground is wet. The ground is wet. Does that mean it must have rained?",no,"Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - Premise 1: If it is raining, the ground is wet. (P → Q)
+   - Premise 2: The ground is wet. (Q)
+   - Question: Does that mean it must have rained? (Does Q → P?)
+
+2.  **Identify Logical Structure:**
+   - This is a classic logical fallacy example: Affirming the consequent.
+   - Form: If P, then Q. Q is true. Therefore, P is true. (Invalid)
+   - In this case: If raining → wet ground. Wet ground is observed. Does that mean it rained? Not necessarily.
+
+3.  **Consider Real-World Context/Counterexamples:**
+   - The ground can be wet for many reasons besides rain:
+     - Sprinklers/watering systems
+     - Spilled water from a broken pipe or bucket
+     - Floods/tidal surges
+     - Dew/mist (though usually not ""wet"" in the same sense, but possible)
+     - Recent cleaning/spraying
+     - Snowmelt
+   - So, wet ground",True,28.1,136.1,256,9.646,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Logical Reasoning,A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?,5 cents,"Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - Items: Bat and Ball
+   - Total cost: $1.10
+   - Relationship: Bat costs $1.00 more than the ball
+   - Question: How much does the ball cost?
+
+2.  **Identify Key Variables & Equations:**
+   Let B = cost of the bat
+   Let b = cost of the ball
+   Given:
+   B + b = 1.10
+   B = b + 1.00
+
+3.  **Solve the System of Equations:**
+   Substitute the second equation into the first:
+   (b + 1.00) + b = 1.10
+   2b + 1.00 = 1.10
+   2b = 0.10
+   b = 0.05
+
+4.  **Verify:**
+   If ball costs $0.05, bat costs $0.05 + $1.00 = $1.05
+   Total: $1.05 + $0.05 = $1.1",True,28.7,202.0,256,9.412,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Logical Reasoning,"What number comes next: 1, 1, 2, 3, 5, 8, ?",13,"Here's a thinking process:
+
+1.  **Analyze the Input:** The user provides a sequence of numbers: 1, 1, 2, 3, 5, 8, ? and asks for the next number.
+
+2.  **Identify the Pattern:** 
+   - Look at the differences between consecutive terms:
+     - 1 to 1: +0
+     - 1 to 2: +1
+     - 2 to 3: +1
+     - 3 to 5: +2
+     - 5 to 8: +3
+   - This looks like the Fibonacci sequence, where each number is the sum of the two preceding ones.
+   - Let's verify: 
+     - F(0) = 0 (sometimes starts here)
+     - F(1) = 1
+     - F(2) = 1
+     - F(3) = 2 (1+1)
+     - F(4) = 3 (1+2)
+     - F(5) = 5 (2+3)
+     - F(6) = 8 (3+5)
+     - Next should be",False,27.7,136.7,256,9.784,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Logical Reasoning,"If you rearrange the letters 'CIFAIPC', you get the name of what ocean?",Pacific,"Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - Input string: ""CIFAIPC""
+   - Task: Rearrange the letters to form the name of an ocean.
+   - Question: What ocean is it?
+
+2.  **Identify Key Constraints/Clues:**
+   - Letters available: C, I, F, A, I, P, C
+   - Target: Name of an ocean
+   - Common oceans: Pacific, Atlantic, Arctic, Indian, Southern (or Antarctic), Caribbean, Mediterranean (not typically called just ""ocean"" in this context)
+
+3.  **Check Letter Counts:**
+   - Input: C(2), I(2), F(1), A(1), P(1)
+   - Let's check each ocean name against these letters:
+     - Pacific: P, A, C, I, F, I, C -> P(1), A(1), C(2), I(2), F(1) -> Matches exactly!
+     - Atlantic: A, T, L, A, N, T, I, C -> Needs T, L, N (not in input)
+     - Arctic",True,26.5,115.9,256,10.222,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Language Understanding,What is the past tense of 'run'?,ran,"Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - Question: ""What is the past tense of 'run'?""
+   - Target word: ""run""
+   - Desired form: Past tense
+
+2.  **Identify Key Linguistic Facts:**
+   - The verb ""run"" is an irregular verb in English.
+   - Present tense: run
+   - Past tense: ran
+   - Past participle: run (same as present)
+   - This is a well-known irregular verb pattern (like ""cut/cut"", ""put/put"", etc.)
+
+3.  **Formulate Response:**
+   - Direct answer: The past tense of ""run"" is ""ran"".
+   - Keep it concise and accurate.
+   - Optionally add brief context if helpful, but not necessary for this straightforward question.
+
+4.  **Self-Correction/Verification:**
+   - Check: Is ""ran"" correct? Yes.
+   - Any exceptions or nuances? No, it's consistently irregular in standard English.
+   - Response matches standard grammar references.
+
+5.  **Final Output Generation:**
+   - State clearly: The past tense of ""run"" is",True,26.4,120.4,256,10.171,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Language Understanding,What is a synonym for 'happy'?,joyful,"Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - **Question:** ""What is a synonym for 'happy'?""
+   - **Key Term:** ""happy""
+   - **Request:** Synonym
+
+2.  **Identify Core Task:** Provide one or more synonyms for the word ""happy"".
+
+3.  **Brainstorm Synonyms for ""happy"":**
+   - Joyful
+   - Cheerful
+   - Glad
+   - Delighted
+   - Ecstatic
+   - Content
+   - Thrilled
+   - Elated
+   - Pleasant
+   - Satisfied
+   - Uplifted
+
+4.  **Select Best/Most Common Synonyms:** 
+   - ""Joyful"", ""cheerful"", ""glad"", ""delighted"" are all strong, common synonyms.
+   - I should provide a few options to give the user variety, but keep it concise as requested.
+
+5.  **Formulate Response:**
+   - Direct answer first: ""Joyful"" or ""cheerful""
+   - Add a few more for context/options
+   - Keep it clear and helpful
+
+   Draft: ""Some common synonyms for 'happy",True,26.5,114.0,256,10.138,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Language Understanding,What is an antonym for 'hot'?,cold,"Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - Question: ""What is an antonym for 'hot'?""
+   - Key term: ""hot""
+   - Request: Antonym (opposite word)
+
+2.  **Identify Meanings of ""Hot"":**
+   - Temperature/heat: warm, heated, high temperature
+   - Popularity/attractiveness: trendy, fashionable, desirable, passionate
+   - Food/cooking: spicy, cooked at high heat
+   - General: intense, vigorous
+
+3.  **Determine Antonyms Based on Context:**
+   - For temperature: cold, cool, freezing, icy
+   - For attractiveness/popularity: boring, uncool, unpopular, bland
+   - For food/spiciness: mild, not spicy, bland
+   - General/intensity: calm, gentle, weak
+
+4.  **Select the Most Common/Primary Antonym:**
+   - The most direct and universally recognized antonym for ""hot"" (in terms of temperature) is ""cold"".
+   - I should mention context-dependent alternatives to be thorough and accurate.
+
+5.  **Formulate Response:**
+   - Start with the primary",True,27.1,118.2,256,9.912,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Language Understanding,"In grammar, what is a noun?",person place or thing,"Here's a thinking process:
+
+1.  **Understand User Query**: The user asks ""In grammar, what is a noun?"" This is a straightforward definition question about basic grammar.
+
+2.  **Identify Key Concepts**: 
+   - Definition of a noun
+   - Function in sentences (subject, object, etc.)
+   - Types/categories of nouns (common, proper, countable, uncountable, collective, etc.)
+   - Examples to illustrate
+   - Pronunciation/usage notes if relevant
+
+3.  **Formulate Core Definition**: A noun is a word that names a person, place, thing, or idea. It typically functions as the subject of a sentence or clause, or as an object of a verb/preposition.
+
+4.  **Expand with Key Details**:
+   - **Function**: Nouns can be subjects (who/what the sentence is about), objects (what receives the action), or complements.
+   - **Types**: 
+     - Common vs. Proper
+     - Countable vs. Uncountable
+     - Mass nouns
+     - Collective nouns
+     - Compound nouns
+     - Demonstrative, possessive, interrogative, etc. (maybe keep it simple)
+",False,27.2,109.1,256,9.91,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Language Understanding,What figure of speech compares two things using 'like' or 'as'?,simile,"Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - Question: ""What figure of speech compares two things using 'like' or 'as'?""
+   - Key elements: Figure of speech, compares two things, uses ""like"" or ""as"".
+
+2.  **Identify Core Concept:**
+   - The definition directly matches the standard literary term for a comparison using ""like"" or ""as"".
+   - That term is ""simile"".
+
+3.  **Verify Definition:**
+   - Simile: A figure of speech that makes a direct comparison between two unlike things, typically beginning with the words ""like"" or ""as"".
+   - Example: ""Her smile was like sunshine."" / ""He ran as fast as a cheetah.""
+   - Matches perfectly.
+
+4.  **Formulate Response:**
+   - State the term clearly.
+   - Provide a brief definition/example if helpful (optional but good for completeness).
+   - Keep it concise as per the question's directness.
+
+   Draft: The figure of speech you're referring to is a **simile**. It makes a direct comparison between two unlike things using the words ""like"" or ""as",True,27.0,94.9,256,10.077,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Persian,پایتخت ایران کجاست؟ (What is the capital of Iran?),تهران,"We need to answer the question: ""پایتخت ایران کجاست؟"" which is Persian for ""What is the capital of Iran?"" The answer should be in Persian, as the question is in Persian. The capital of Iran is Tehran. In Persian, it's written as تهران. So the answer should be: تهران.
+
+But let's make sure: The question is in Persian, so the answer should be in Persian. Also, note that sometimes people might write it with a period or something, but just the word is fine.
+
+So final answer: تهران
+</think>
+
+پایتخت ایران، **تهران** است.",True,27.5,102.0,131,5.337,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Persian,رنگ پرچم ایران چیست؟ (What color is Iran's flag?),سبز، سفید، قرمز,"We need to answer: ""رنگ پرچم ایران چیست؟"" which is Persian for ""What color is Iran's flag?"" The question is in Persian, so the answer should be in Persian as well. But since the user wrote in both Persian and English, maybe they expect an answer in Persian or English? The instruction says: ""Alright, let me try to solve"" but that's just my internal thought. I need to provide the answer.
+
+Iran's flag consists of three horizontal bands: green on top, white in the middle, and red at the bottom. There is also a black circle with a white star and a Persian script (the word ""Allah"") in the center. So the colors are green, white, and red.
+
+In Persian, the colors are: سبز (green), سفید (white), قرمز (red). The flag is known as پرچم ایران or پرچم جمهوری اسلامی ایران.
+
+So the answer should be: پرچم ایران سه نوار horizonti است: سبز، سفید و قرمز. Or simply: سبز، سفید و قرمز.
+
+Since the question is ""رنگ پرچم ایران چیست؟"" it asks for the colors. I'll answer in",False,27.3,99.7,256,9.986,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Persian,کوچکترین عدد طبیعی چیست؟ (What is the smallest natural number?),1,"We need to answer: ""کوچکترین عدد طبیعی چیست؟"" which is Persian for ""What is the smallest natural number?"" The question is in Persian, but we should answer appropriately. In mathematics, there is sometimes debate about whether natural numbers start from 0 or 1. In many contexts, especially in set theory and computer science, natural numbers include 0. However, in traditional arithmetic, natural numbers often start from 1. The question is in Persian, so we might consider the common usage in Persian mathematics education. In Iran, typically natural numbers are considered to start from 1. But I should verify. Actually, in many sources, the smallest natural number is 0 or 1 depending on definition. However, the question likely expects a specific answer. Since it's a simple question, probably the expected answer is 1. But let's think: In Persian, ""عدد طبیعی"" means natural numbers. I recall that in Iranian textbooks, natural numbers are usually defined as positive integers starting from 1. So the smallest is 1. However, some modern definitions include 0. To be safe, I can mention both, but the question likely expects a single answer. Since it's a straightforward question, I'll answer with 1.",True,27.1,102.5,256,10.018,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Persian,حاصلضرب ۵ ضربدر ۶ چند می‌شود؟ (What is 5 times 6?),30,"We need to answer: ""حاصلضرب ۵ ضربدر ۶ چند می‌شود؟ (What is 5 times 6?)"" This is in Persian. It asks for the product of 5 and 6. So 5 * 6 = 30. The answer should be 30. But we need to respond appropriately. Since it's a simple math question, we can just state the answer. Possibly in Persian or English? The user wrote in Persian, so maybe answer in Persian. But as an AI, I can answer in either. I'll answer with the number and maybe a brief explanation.
+
+The instruction: ""حاصلضرب ۵ ضربدر ۶ چند می‌شود؟"" means ""What is 5 times 6?"" So answer: ۳۰ (thirty). In Persian numerals, it's ۳۰. But I can also write 30.
+
+I'll respond in Persian to match the question.
+
+Thus final answer: حاصلضرب ۵ و ۶، یعنی ۵ ضربدر ۶، برابر است با ۳۰.
+
+But keep it concise.
+
+Given that",True,27.1,160.7,256,9.986,
+bonsai-27b-q1_0,27B,Q1_0 (1-bit),Persian,زبان رسمی ایران چیست؟ (What is the official language of Iran?),فارسی,"We need to answer: ""زبان رسمی ایران چیست؟ (What is the official language of Iran?)"" The question is in Persian, asking for the official language of Iran. The answer should be in Persian or possibly bilingual? Since the user asked in Persian, it's appropriate to answer in Persian. But as an AI, I can provide both. However, the instruction is to solve, so I'll just give the answer.
+
+The official language of Iran is Persian (Farsi). In Persian: فارسی. Sometimes also called Iranian Persian. But officially it's Persian.
+
+So answer: فارسی (Persian)
+
+I should respond in Persian as per the question.
+
+Thus: زبان رسمی ایران فارسی است.
+
+But to be precise, I'll state it clearly.
+
+Given that this is a straightforward fact, I'll provide the answer.
+</think>
+
+زبان رسمی ایران **فارسی** است.",True,27.2,98.5,189,7.533,

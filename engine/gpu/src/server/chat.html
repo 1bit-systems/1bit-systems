@@ -1,0 +1,1871 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZINC Chat</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<style>
+:root{--bg:#0d0d0f;--bg2:#18181b;--bg3:#1e1e22;--border:#27272a;--text:#c9c9d1;--muted:#7a7a88;--accent:#e8722a;--accent2:#d35400;--user:#3d2410}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column}
+header{padding:12px 20px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+header h1{font-size:17px;font-weight:700;letter-spacing:-.3px}
+header h1 span{color:var(--accent)}
+.badge{font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid var(--border);color:var(--muted)}
+.badge.ok{border-color:#3fb950;color:#3fb950}
+.spacer{flex:1}
+.model-controls{display:flex;align-items:center;gap:8px;flex:0 1 auto}
+.model-select{background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px;min-width:220px;max-width:100%}
+.model-select:focus{outline:none;border-color:var(--accent)}
+.model-select:disabled{opacity:.5}
+.model-action{background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;min-width:86px;transition:border-color .15s,color .15s,background .15s}
+.model-action:hover{border-color:var(--accent);color:#fff}
+.model-action.download{border-color:var(--accent);color:var(--accent)}
+.model-action.active{opacity:.7;cursor:default}
+.model-action:disabled{opacity:.4;cursor:not-allowed}
+.thinking-toggle{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:6px 10px;user-select:none}
+.thinking-toggle input{accent-color:var(--accent)}
+.thinking-toggle.disabled{opacity:.5}
+.thinking-toggle.disabled input{cursor:not-allowed}
+.model-tag{font-size:12px;color:var(--muted);background:var(--bg3);padding:3px 10px;border-radius:6px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+.model-tag .model-icon{width:14px;height:14px;flex-shrink:0;display:inline-block;vertical-align:middle}
+.model-tag .model-icon svg{width:14px;height:14px}
+.stats{font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+.top-status{padding:8px 20px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.model-progress{position:relative;flex:1 1 220px;min-width:180px;height:8px;background:var(--bg3);border:1px solid var(--border);border-radius:999px;overflow:hidden}
+.model-progress[hidden]{display:none}
+.model-progress-fill{height:100%;width:0;background:linear-gradient(90deg,var(--accent),#ffb15c);transition:width .2s ease}
+.model-progress.indeterminate .model-progress-fill{width:35%;animation:slide 1.15s linear infinite}
+@keyframes slide{from{transform:translateX(-120%)}to{transform:translateX(320%)}}
+#messages{flex:1;overflow-y:auto;padding:20px;scroll-behavior:smooth}
+.msg{display:flex;gap:10px;margin-bottom:14px;max-width:960px;margin-left:auto;margin-right:auto;animation:fadeIn .2s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.msg.u{justify-content:flex-end}
+.msg .av{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;margin-top:2px}
+.msg.a .av{background:var(--accent);color:#fff}
+.msg.u .av{background:var(--user);color:var(--accent);order:2}
+.msg .bbl{padding:10px 14px;border-radius:12px;line-height:1.6;font-size:14px;max-width:85%}
+.msg.u .bbl{background:var(--user);border:1px solid var(--accent2);border-bottom-right-radius:4px;white-space:pre-wrap;word-break:break-word}
+.msg.a .bbl{background:var(--bg2);border:1px solid var(--border);border-bottom-left-radius:4px;width:85%;max-width:85%}
+.msg.a .bbl.streaming .stream-text{white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal}
+.msg.a .bbl.streaming .reasoning-summary::before{transition:none}
+.msg.a .bbl p{margin:0 0 8px}
+.msg.a .bbl p:last-child{margin:0}
+.msg.a .bbl h1,.msg.a .bbl h2,.msg.a .bbl h3,.msg.a .bbl h4{margin:0 0 10px;color:#fff;line-height:1.25}
+.msg.a .bbl h1{font-size:20px}
+.msg.a .bbl h2{font-size:18px}
+.msg.a .bbl h3,.msg.a .bbl h4{font-size:16px}
+.msg.a .bbl ol{margin:0 0 10px 22px;padding:0;list-style:decimal outside}
+.msg.a .bbl ul{margin:0 0 10px 22px;padding:0;list-style:disc outside}
+.msg.a .bbl li{margin:0 0 4px}
+.msg.a .bbl li:last-child{margin-bottom:0}
+.msg.a .bbl strong{color:#fff}
+.msg.a .bbl em{color:var(--accent)}
+.msg.a .bbl code{background:var(--bg3);padding:1px 5px;border-radius:4px;font-family:'SF Mono','Fira Code',Consolas,monospace;font-size:13px}
+.msg.a .bbl .code-block{position:relative;margin:8px 0;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.msg.a .bbl .code-header{display:flex;justify-content:space-between;align-items:center;padding:4px 12px;background:var(--bg3);border-bottom:1px solid var(--border);font-size:11px;color:var(--muted)}
+.msg.a .bbl .code-header .copy-btn{background:none;border:1px solid var(--border);color:var(--muted);padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px}
+.msg.a .bbl .code-header .copy-btn:hover{color:var(--text);border-color:var(--text)}
+.msg.a .bbl .code-header .copy-btn.copied{color:var(--accent);border-color:var(--accent)}
+.msg.a .bbl pre{background:var(--bg);padding:10px 12px;margin:0;overflow-x:auto;border-radius:0}
+.msg.a .bbl pre code{background:none;padding:0;font-size:13px}
+.msg.a .bbl pre code.hljs{background:none;padding:0}
+.msg.a .bbl .reasoning-block{margin-bottom:8px;border:1px solid rgba(255,255,255,.08);border-radius:8px;background:rgba(255,255,255,.03);overflow:hidden}
+.msg.a .bbl .reasoning-block[open]{border-color:rgba(255,255,255,.12)}
+.msg.a .bbl .reasoning-block summary{cursor:pointer;list-style:none;user-select:none;padding:5px 8px}
+.msg.a .bbl .reasoning-block summary::-webkit-details-marker{display:none}
+.msg.a .bbl .reasoning-summary{display:flex;align-items:center;gap:6px;min-width:0}
+.msg.a .bbl .reasoning-summary::before{content:'▸';font-size:10px;color:var(--muted);transition:transform .15s ease}
+.msg.a .bbl .reasoning-block[open] .reasoning-summary::before{transform:rotate(90deg)}
+.msg.a .bbl .reasoning-state{font-size:10px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}
+.msg.a .bbl .reasoning-state.live{color:var(--accent)}
+.msg.a .bbl .reasoning-preview{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--muted);opacity:.7}
+.msg.a .bbl .reasoning-body{font-size:12px;color:var(--muted);padding:6px 8px 8px;line-height:1.5;border-top:1px solid rgba(255,255,255,.06);max-height:min(60vh,520px);overflow-y:auto}
+.msg.a .bbl .reasoning-body strong{color:#ccc}
+.msg.a .bbl .reasoning-body code{background:rgba(255,255,255,.04)}
+.msg.a .bbl .assistant-note{margin-top:12px;padding:10px 12px;border-radius:10px;border:1px solid var(--border);font-size:13px;line-height:1.5}
+.msg.a .bbl .assistant-note strong{display:block;margin-bottom:4px;color:#fff}
+.msg.a .bbl .assistant-note.warn{border-color:rgba(232,114,42,.42);background:rgba(232,114,42,.1);color:#ffd8bc}
+.msg.a .bbl .assistant-note.error{border-color:rgba(244,63,94,.42);background:rgba(244,63,94,.08);color:#ffd2dc}
+.msg .meta{font-size:11px;color:var(--muted);margin-top:4px}
+.cursor{display:inline-block;width:7px;height:1.1em;background:var(--accent);margin-left:1px;vertical-align:text-bottom;border-radius:1px;opacity:.85}
+.empty{text-align:center;color:var(--muted);margin-top:25vh;line-height:2}
+.empty strong{color:var(--accent);font-size:20px;display:block;margin-bottom:4px}
+.model-picker{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;padding:20px;animation:fadeIn .3s ease}
+.model-picker h2{font-size:22px;font-weight:700;color:var(--text);margin-bottom:4px}
+.model-picker .picker-sub{font-size:13px;color:var(--muted);margin-bottom:24px}
+.model-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;width:100%;max-width:600px}
+.model-card{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px;cursor:pointer;transition:border-color .15s,transform .1s,box-shadow .15s;display:flex;gap:14px;align-items:flex-start}
+.model-card:hover{border-color:var(--accent);transform:translateY(-1px);box-shadow:0 4px 20px rgba(232,114,42,.1)}
+.model-card.disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
+.model-card.disabled:hover{border-color:var(--border);transform:none;box-shadow:none}
+.model-card.active-card{border-color:var(--accent);background:rgba(232,114,42,.06)}
+.model-card .card-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden}
+.model-card .card-icon svg{width:28px;height:28px}
+.model-card .card-body{flex:1;min-width:0}
+.model-card .card-name{font-size:14px;font-weight:600;color:var(--text);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.model-card .card-detail{font-size:11px;color:var(--muted);line-height:1.6}
+.model-card .card-badge{display:inline-block;font-size:10px;font-weight:600;padding:2px 7px;border-radius:6px;margin-top:6px;letter-spacing:.02em;text-transform:uppercase}
+.model-card .card-badge.download{background:rgba(232,114,42,.15);color:var(--accent)}
+.model-card .card-badge.installed{background:rgba(63,185,80,.12);color:#3fb950}
+.model-card .card-badge.active{background:rgba(63,185,80,.2);color:#3fb950}
+.model-card .card-badge.too-large{background:rgba(244,63,94,.1);color:#f43f5e}
+.model-card .card-badge.downloading{background:rgba(232,114,42,.12);color:var(--accent)}
+@media (max-width:720px){
+.model-grid{grid-template-columns:1fr}
+.model-picker{min-height:auto;margin-top:10vh}
+}
+#ia{padding:12px 20px;background:var(--bg2);border-top:1px solid var(--border)}
+#ia .in{max-width:960px;margin:0 auto;display:flex;gap:8px;align-items:flex-end}
+#ia textarea{flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:10px;font-size:14px;font-family:inherit;resize:none;min-height:42px;max-height:140px;line-height:1.5;transition:border-color .15s}
+#ia textarea:focus{outline:none;border-color:var(--accent)}
+#ia textarea::placeholder{color:var(--muted)}
+#ia .actions{display:flex;gap:8px;align-items:flex-end}
+#ia .btn{border:none;height:42px;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,border-color .15s,color .15s;white-space:nowrap}
+#ia .btn-send{background:var(--accent);color:#fff;width:42px;font-size:18px}
+#ia .btn-send:hover{background:var(--accent2)}
+#ia .btn-send.stop{background:#7a3020}
+#ia .btn-send.stop:hover{background:#8f3926}
+#ia .btn-clear{background:var(--bg3);color:var(--muted);border:1px solid var(--border);padding:0 14px;font-size:12px;font-weight:600}
+#ia .btn-clear:hover{border-color:var(--accent);color:#fff}
+#ia .btn:disabled{opacity:.25;cursor:not-allowed}
+.hint{text-align:center;font-size:11px;color:var(--muted);margin-top:6px;max-width:960px;margin-left:auto;margin-right:auto}
+@media (max-width:720px){
+body{height:100dvh}
+header{padding:10px 12px;gap:8px}
+.spacer{display:none}
+#stats{width:100%}
+.model-controls{width:100%;flex:1 1 100%}
+.model-select{min-width:0;flex:1 1 auto}
+.model-action{min-width:78px}
+.model-tag{width:100%}
+.top-status{padding:8px 12px;gap:8px}
+.top-status .stats{flex:1 1 100%}
+.model-progress{min-width:0;flex:1 1 100%}
+#messages{padding:14px 12px}
+.msg{max-width:none}
+.msg .bbl{max-width:100%}
+#ia{padding:10px 12px}
+#ia .in{align-items:stretch}
+#ia textarea{min-height:44px}
+#ia .actions{align-self:stretch}
+#ia .btn-send{width:44px;height:44px}
+#ia .btn-clear{height:44px;padding:0 12px}
+}
+</style>
+</head>
+<body>
+<header>
+<h1><span>ZINC</span> Chat</h1>
+<span id="st" class="badge">...</span>
+<span class="spacer"></span>
+<span id="stats" class="stats"></span>
+<div class="model-controls">
+<select id="ms" class="model-select" title="Model"></select>
+<button id="mbtn" class="model-action active" type="button">Active</button>
+<label id="tw" class="thinking-toggle" title="Enable model reasoning when supported"><input id="th" type="checkbox"><span id="tl">Thinking</span></label>
+</div>
+<a id="mn" class="model-tag" href="https://huggingface.co/" target="_blank" rel="noopener noreferrer" style="text-decoration:none;color:var(--muted)">-</a>
+</header>
+<div class="top-status">
+<span id="gpu" class="stats"></span>
+<span id="dl" class="stats"></span>
+<div id="mp" class="model-progress" hidden><div id="mpf" class="model-progress-fill"></div></div>
+</div>
+<div id="messages">
+<div class="empty" id="w"><strong>ZINC Inference Engine</strong>AMD RDNA4 GPU &middot; Vulkan Compute<br>Type a message to start</div>
+</div>
+<div id="ia">
+<div class="in">
+<textarea id="i" placeholder="Message ZINC..." rows="1"></textarea>
+<div class="actions">
+<button id="cb" class="btn btn-clear" type="button" title="Clear conversation">Clear</button>
+<button id="b" class="btn btn-send" onclick="send()" title="Send">&#x2191;</button>
+</div>
+</div>
+<div class="hint">Enter to send or stop &middot; Shift+Enter for new line</div>
+</div>
+<script>
+const M=document.getElementById('messages'),I=document.getElementById('i'),B=document.getElementById('b'),CB=document.getElementById('cb');
+const ST=document.getElementById('st'),MN=document.getElementById('mn'),SS=document.getElementById('stats'),MS=document.getElementById('ms');
+const MB=document.getElementById('mbtn'),GM=document.getElementById('gpu'),DL=document.getElementById('dl'),MP=document.getElementById('mp'),MPF=document.getElementById('mpf');
+const TW=document.getElementById('tw'),TH=document.getElementById('th'),TL=document.getElementById('tl');
+const readyEmptyHtml='<div class="empty" id="w"><strong>ZINC Inference Engine</strong>Type a message to start</div>';
+
+const ICON_QWEN='<svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M174.82 108.75L155.38 75L165.64 57.75C166.46 56.31 166.46 54.53 165.64 53.09L155.38 35.84C154.86 34.91 153.87 34.33 152.78 34.33H114.88L106.14 19.03C105.62 18.1 104.63 17.52 103.54 17.52H83.3C82.21 17.52 81.22 18.1 80.7 19.03L61.26 52.77H41.02C39.93 52.77 38.94 53.35 38.42 54.28L28.16 71.53C27.34 72.97 27.34 74.75 28.16 76.19L45.52 107.5L36.78 122.8C35.96 124.24 35.96 126.02 36.78 127.46L47.04 144.71C47.56 145.64 48.55 146.22 49.64 146.22H87.54L96.28 161.52C96.8 162.45 97.79 163.03 98.88 163.03H119.12C120.21 163.03 121.2 162.45 121.72 161.52L141.16 127.78H158.52C159.61 127.78 160.6 127.2 161.12 126.27L171.38 109.02C172.2 107.58 172.2 105.8 171.38 104.36L174.82 108.75Z" fill="url(#qic0)"/><path d="M119.12 163.03H98.88L87.54 144.71H49.64L61.26 126.39H80.7L38.42 55.29H61.26L83.3 19.03L93.56 37.35L83.3 55.29H161.58L151.32 72.54L170.76 106.28H151.32L141.16 88.34L101.18 163.03H119.12Z" fill="white"/><path d="M127.86 79.83H76.14L101.18 122.11L127.86 79.83Z" fill="url(#qic1)"/><defs><radialGradient id="qic0" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(100 100) rotate(90) scale(100)"><stop stop-color="#665CEE"/><stop offset="1" stop-color="#332E91"/></radialGradient><radialGradient id="qic1" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(100 100) rotate(90) scale(100)"><stop stop-color="#665CEE"/><stop offset="1" stop-color="#332E91"/></radialGradient></defs></svg>';
+const ICON_GOOGLE='<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09a6.97 6.97 0 0 1 0-4.17V7.07H2.18A11.97 11.97 0 0 0 0 12c0 1.94.46 3.77 1.28 5.4l3.56-2.77.01-.54z" fill="#FBBC05"/><path d="M12 4.75c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 1.09 14.97 0 12 0 7.7 0 3.99 2.47 2.18 6.07l3.66 2.84c.87-2.6 3.3-4.16 6.16-4.16z" fill="#EA4335"/></svg>';
+const ICON_DEFAULT='<svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="50" r="46" fill="#1a1a40"/><rect x="30" y="35" width="40" height="30" rx="6" stroke="#a78bfa" stroke-width="5" fill="none"/><circle cx="50" cy="50" r="6" fill="#a78bfa"/></svg>';
+
+function modelFamilyFromName(name){
+  const f=(name||'').toLowerCase();
+  if(f.includes('qwen')) return 'qwen';
+  if(f.includes('gemma')) return 'google';
+  return 'default';
+}
+function modelFamilyIcon(family){
+  const f=modelFamilyFromName(family);
+  if(f==='qwen') return ICON_QWEN;
+  if(f==='google') return ICON_GOOGLE;
+  return ICON_DEFAULT;
+}
+
+function renderModelPicker(){
+  let html='<div class="model-picker"><h2>Choose a model</h2><div class="picker-sub">Select a model to get started with ZINC</div><div class="model-grid">';
+  for(let m of models){
+    if(!m.managed||!m.supported_on_current_gpu) continue;
+    let badge='',badgeClass='download',clickable=true;
+    if(m.active){badge='Active';badgeClass='active'}
+    else if(m.downloading){badge='Downloading...';badgeClass='downloading';clickable=false}
+    else if(m.download_phase==='verifying'){badge='Verifying...';badgeClass='downloading';clickable=false}
+    else if(m.installed){badge='Installed \u00b7 click to load';badgeClass='installed'}
+    else if(!m.fits_current_gpu){badge='Too large for GPU';badgeClass='too-large';clickable=false}
+    else{badge='Download \u00b7 '+(m.size_bytes/(1024*1024*1024)).toFixed(1)+' GB';badgeClass='download'}
+    let vram=(m.required_vram_bytes/(1024*1024*1024)).toFixed(0);
+    let cardClass='model-card'+(m.active?' active-card':'')+(clickable?'':' disabled');
+    html+='<div class="'+cardClass+'" data-model-id="'+esc(m.id)+'" data-installed="'+(m.installed?'1':'0')+'">';
+    html+='<div class="card-icon">'+modelFamilyIcon(m.family||m.display_name)+'</div>';
+    html+='<div class="card-body">';
+    html+='<div class="card-name">'+esc(m.display_name||m.id)+'</div>';
+    html+='<div class="card-detail">'+esc(m.quantization||m.format||'')+' \u00b7 '+vram+' GB VRAM'+(m.thinking_stable?' \u00b7 Thinking':'')+'</div>';
+    html+='<span class="card-badge '+badgeClass+'">'+badge+'</span>';
+    html+='</div></div>';
+  }
+  html+='</div></div>';
+  M.innerHTML=html;
+  M.querySelectorAll('.model-card:not(.disabled)').forEach(card=>{
+    card.addEventListener('click',async()=>{
+      let id=card.getAttribute('data-model-id');
+      let installed=card.getAttribute('data-installed')==='1';
+      let m=models.find(x=>x.id===id);
+      if(!m||m.active) return;
+      card.style.pointerEvents='none';card.style.opacity='.6';
+      try{
+        if(installed){
+          await fetch(base+'/models/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:id})});
+        }else{
+          await fetch(base+'/models/pull',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:id})});
+        }
+        await refreshModels();
+        updateEmptyState();
+      }catch(e){card.style.pointerEvents='';card.style.opacity=''}
+    });
+  });
+}
+
+function updateEmptyState(){
+  if(H.length>0) return;
+  let active=activeModel();
+  if(active&&active.active){
+    M.innerHTML=readyEmptyHtml;
+  }else{
+    renderModelPicker();
+  }
+}
+const chatStateKey='zinc.chat.state.v3';
+const chatPrefsKey='zinc.chat.prefs.v1';
+let H=[],base=location.origin+'/v1',activeController=null,isGenerating=false,stopRequested=false,models=[],modelPollTimer=null,healthPollTimer=null;
+let chatSessionId='',userScrolledUp=false;
+M.addEventListener('scroll',function(){
+  if(!isGenerating)return;
+  let nearBottom=M.scrollHeight-M.scrollTop-M.clientHeight<80;
+  userScrolledUp=!nearBottom;
+},{passive:true});
+function autoScroll(){if(!userScrolledUp)M.scrollTop=M.scrollHeight}
+function autoScrollReasoning(bbl){let rb=bbl.querySelector('.reasoning-body');if(rb)rb.scrollTop=rb.scrollHeight}
+let renderTimer=null,pendingRender=null;
+function scheduleRender(fn){
+  pendingRender=fn;
+  if(renderTimer!==null)return;
+  renderTimer=setTimeout(function(){
+    renderTimer=null;
+    let f=pendingRender;pendingRender=null;
+    if(f)f();
+  },80);
+}
+function flushPendingRender(){
+  if(renderTimer!==null){clearTimeout(renderTimer);renderTimer=null}
+  if(pendingRender){let f=pendingRender;pendingRender=null;f()}
+}
+
+function newChatSessionId(){
+  try{
+    if(window.crypto&&typeof window.crypto.randomUUID==='function')return window.crypto.randomUUID();
+  }catch(e){}
+  return 'chat-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
+}
+
+function readStorage(key){
+  try{
+    return localStorage&&typeof localStorage.getItem==='function'?localStorage.getItem(key):null;
+  }catch(e){return null}
+}
+
+function writeStorage(key,value){
+  try{
+    if(localStorage&&typeof localStorage.setItem==='function')localStorage.setItem(key,value);
+  }catch(e){}
+}
+
+function removeStorage(key){
+  try{
+    if(localStorage&&typeof localStorage.removeItem==='function')localStorage.removeItem(key);
+  }catch(e){}
+}
+
+function sanitizeMessage(msg){
+  if(!msg||typeof msg!=='object')return null;
+  if(msg.role!=='user'&&msg.role!=='assistant')return null;
+  const content=typeof msg.content==='string'?msg.content:'';
+  const raw=typeof msg.raw==='string'?msg.raw:'';
+  const transport=typeof msg.transport==='string'?msg.transport:'';
+  const partial=msg.partial===true;
+  const incomplete=msg.incomplete===true;
+  const noticeKind=msg.notice_kind==='error'?'error':(msg.notice_kind==='warn'?'warn':'');
+  const noticeTitle=typeof msg.notice_title==='string'?msg.notice_title:'';
+  const noticeMessage=typeof msg.notice_message==='string'?msg.notice_message:'';
+  if(!content&&!raw)return null;
+  let cleaned={role:msg.role,content,transport};
+  if(raw)cleaned.raw=raw;
+  if(partial)cleaned.partial=true;
+  if(incomplete)cleaned.incomplete=true;
+  if(noticeKind)cleaned.notice_kind=noticeKind;
+  if(noticeTitle)cleaned.notice_title=noticeTitle;
+  if(noticeMessage)cleaned.notice_message=noticeMessage;
+  return cleaned;
+}
+
+function readChatState(){
+  let raw=readStorage(chatStateKey);
+  if(!raw)return{messages:[],input:'',sessionId:newChatSessionId()};
+  try{
+    let parsed=JSON.parse(raw);
+    let messages=Array.isArray(parsed.messages)?parsed.messages.map(sanitizeMessage).filter(Boolean).filter(m=>!(m.role==='assistant'&&m.partial)).slice(-128):[];
+    let input=typeof parsed.input==='string'?parsed.input.slice(0,8000):'';
+    let sessionId=typeof parsed.sessionId==='string'&&parsed.sessionId?parsed.sessionId:newChatSessionId();
+    return{messages,input,sessionId};
+  }catch(e){return{messages:[],input:'',sessionId:newChatSessionId()}}
+}
+
+function readChatPrefs(){
+  let raw=readStorage(chatPrefsKey);
+  if(!raw)return{thinkingEnabled:true};
+  try{
+    let parsed=JSON.parse(raw);
+    return{thinkingEnabled:parsed.thinkingEnabled!==false};
+  }catch(e){return{thinkingEnabled:true}}
+}
+
+let chatPrefs=readChatPrefs();
+
+function saveChatPrefs(){
+  writeStorage(chatPrefsKey,JSON.stringify({thinkingEnabled:chatPrefs.thinkingEnabled!==false}));
+}
+
+function saveChatState(){
+  writeStorage(chatStateKey,JSON.stringify({messages:H.slice(-128),input:(I.value||'').slice(0,8000),sessionId:chatSessionId||newChatSessionId()}));
+}
+
+function showEmptyState(){
+  updateEmptyState();
+}
+
+function switchableModels(){
+  return models.filter(m=>m.managed&&m.installed&&m.supported_on_current_gpu&&m.fits_current_gpu);
+}
+
+function fmtGiB(bytes){
+  return (bytes/(1024*1024*1024)).toFixed(2);
+}
+
+function selectedModel(){
+  return models.find(m=>m.id===MS.value)||models.find(m=>m.active)||models[0]||null;
+}
+
+function activeModel(){
+  return models.find(m=>m.active)||models[0]||null;
+}
+
+function activeModelSupportsThinking(){
+  let m=activeModel();
+  return !!(m&&m.supports_thinking_toggle);
+}
+
+function hasActiveDownload(){
+  return models.some(m=>m.downloading||m.download_phase==='verifying');
+}
+
+function currentDownloadModel(){
+  return models.find(m=>m.downloading||m.download_phase==='verifying'||m.download_phase==='failed')||null;
+}
+
+function scheduleModelRefresh(delay){
+  clearTimeout(modelPollTimer);
+  modelPollTimer=setTimeout(()=>refreshModels().catch(()=>{}),delay);
+}
+
+function stopModelRefresh(){
+  clearTimeout(modelPollTimer);
+  modelPollTimer=null;
+}
+
+function scheduleHealthRefresh(delay){
+  clearTimeout(healthPollTimer);
+  healthPollTimer=setTimeout(()=>refreshHealth().catch(()=>{}),delay);
+}
+
+function modelHrefForName(name){
+  const n=(name||'').toLowerCase();
+  if(n.includes('qwen3.5')||n.includes('qwen35-9b')) return 'https://huggingface.co/unsloth/Qwen3.5-9B-GGUF';
+  if(n.includes('qwen3.6-35b')||n.includes('qwen3.6-35b-a3b')) return 'https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF';
+  if(n.includes('qwen3-30b-a3b')) return 'https://huggingface.co/unsloth/Qwen3-30B-A3B-GGUF';
+  if(n.includes('qwen2.5-32b')||n.includes('qwen2-32b')) return 'https://huggingface.co/unsloth/Qwen2.5-32B-Instruct-GGUF';
+  return 'https://huggingface.co/';
+}
+
+function setModelTag(name){
+  const label=name&&name.trim()?name:'-';
+  const fam=modelFamilyFromName(label);
+  const icon=fam!=='default'?'<span class="model-icon">'+modelFamilyIcon(label)+'</span>':'';
+  MN.innerHTML=icon+label;
+  MN.href=modelHrefForName(label);
+}
+
+function resetConversation(note){
+  H=[];
+  chatSessionId=newChatSessionId();
+  saveChatState();
+  showEmptyState();
+  if(note)addMsg('assistant',note);
+}
+
+function requestMessagesFromHistory(supportsThinking){
+  return H.filter(m=>!(m.role==='assistant'&&(m.partial||m.incomplete))).map(m=>{
+    if(m.role!=='assistant')return{role:m.role,content:m.content};
+    let answer=typeof m.content==='string'?m.content:'';
+    let raw=typeof m.raw==='string'?m.raw:'';
+    let transport=historyTransportContent(answer,raw,activeModelSupportsThinking()&&TH.checked,!!supportsThinking);
+    return{role:m.role,content:transport||m.transport||answer};
+  });
+}
+
+const historyAnswerCharLimit=640;
+
+function compactHistoryAnswer(answer){
+  let text=(answer||'').trim();
+  if(text.length<=historyAnswerCharLimit)return text;
+  let end=historyAnswerCharLimit;
+  let floor=Math.floor(historyAnswerCharLimit*0.6);
+  for(let i=historyAnswerCharLimit;i>floor;i--){
+    let ch=text[i-1];
+    if(ch==='\n'||ch==='.'||ch==='!'||ch==='?'||ch===' '){
+      end=i;
+      break;
+    }
+  }
+  return text.slice(0,end).trim();
+}
+
+function historyTransportContent(answer,raw,enableThinking,supportsThinking){
+  let compact=compactHistoryAnswer(answer);
+  if(!compact)return '';
+  if(!supportsThinking)return compact;
+  return '<think>\n\n</think>\n\n'+compact;
+}
+
+function chatMaxTokens(enableThinking){
+  return enableThinking?16384:2048;
+}
+
+function assistantHtmlFromRaw(raw,isThinking){
+  let view=normalizeDisplayView(splitDisplayContent(raw,isThinking));
+  let html='';
+  if(view.showReasoning)html+=renderReasoning(view.reasoning,view.isThinking,view.collapsedReasoning);
+  if(view.answer)html+=md(view.answer);
+  if(!html&&raw&&!view.suppressedReasoning&&!view.collapsedReasoning&&!view.promotedReasoning)html=md(stripTrailingArtifacts(raw));
+  return{html,view};
+}
+
+function assistantLiveHtmlFromRaw(raw,isThinking){
+  // Do not run Markdown while a stream is still incomplete: partial lists,
+  // headings, and code fences repeatedly change DOM shape and make text rewrap.
+  // The final render path applies Markdown once the response is complete.
+  let view=splitDisplayContent(raw,isThinking);
+  let html='';
+  if(view.showReasoning)html+=renderLiveReasoning(view.reasoning,view.isThinking,view.collapsedReasoning);
+  if(view.answer)html+=renderLiveText(view.answer);
+  if(!html&&raw)html=renderLiveText(raw);
+  return{html,view};
+}
+
+function renderAssistantNotice(kind,title,message){
+  let tone=kind==='error'?'error':'warn';
+  let safeTitle=esc(title||(tone==='error'?'Request failed':'Notice'));
+  let safeMessage=esc(message||'');
+  return '<div class="assistant-note '+tone+'"><strong>'+safeTitle+'</strong>'+(safeMessage?'<span>'+safeMessage+'</span>':'')+'</div>';
+}
+
+function completionNotice(state){
+  let hasAnswer=!!state.hasAnswer;
+  if(state.errorMessage){
+    return {
+      kind:'error',
+      title:hasAnswer?'Response interrupted':'Request failed',
+      message:state.errorMessage,
+    };
+  }
+  if(state.finishReason==='length'){
+    return {
+      kind:'warn',
+      title:'Token limit reached',
+      message:hasAnswer
+        ? 'Response stopped at the current token limit. Ask to continue if you want the rest.'
+        : 'Response hit the token limit before a final answer was returned.',
+    };
+  }
+  if(state.missingFinishReason){
+    return {
+      kind:'warn',
+      title:hasAnswer?'Response interrupted':'Connection interrupted',
+      message:hasAnswer
+        ? 'The stream ended before the server reported a clean finish.'
+        : 'The stream ended before any final answer was returned.',
+    };
+  }
+  if(state.suppressedReasoning&&!hasAnswer){
+    return {
+      kind:'warn',
+      title:'No final answer',
+      message:'The model only produced a trivial reasoning stub and no usable final answer.',
+    };
+  }
+  if(state.showReasoning&&!hasAnswer){
+    return {
+      kind:'warn',
+      title:'No final answer',
+      message:'The model returned reasoning but no final answer.',
+    };
+  }
+  if(!state.hadOutput){
+    return {
+      kind:'warn',
+      title:'Empty response',
+      message:'The model returned no visible content.',
+    };
+  }
+  return null;
+}
+
+function persistAssistantNotice(message,notice,incomplete){
+  if(!message)return;
+  if(notice){
+    message.notice_kind=notice.kind;
+    message.notice_title=notice.title;
+    message.notice_message=notice.message;
+  }else{
+    delete message.notice_kind;
+    delete message.notice_title;
+    delete message.notice_message;
+  }
+  if(incomplete)message.incomplete=true;
+  else delete message.incomplete;
+}
+
+async function fetchRecoveredAnswer(model,messages){
+  let r=await fetch(base+'/chat/completions',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      model,
+      messages,
+      stream:false,
+      max_tokens:512,
+      temperature:1.0,
+      enable_thinking:false
+    })
+  });
+  if(!r.ok){
+    let e=await r.json().catch(()=>({}));
+    throw new Error(e.error?.message||r.statusText);
+  }
+  let body=await r.json();
+  let choice=body?.choices?.[0];
+  let content=choice?.message?.content||'';
+  return{
+    content:stripTrailingArtifacts(stripInlineTransportArtifacts(content)),
+    finishReason:choice?.finish_reason||'stop'
+  };
+}
+
+function renderStoredAssistant(message){
+  let bbl=addMsg('assistant','');
+  if(message.raw){
+    let rendered=assistantHtmlFromRaw(message.raw,false);
+    bbl.innerHTML=rendered.html||(message.content?md(message.content):'<p><em>Partial response.</em></p>');
+  }else{
+    bbl.innerHTML=message.content?md(message.content):'';
+  }
+  if(message.notice_message){
+    bbl.insertAdjacentHTML('beforeend',renderAssistantNotice(message.notice_kind,message.notice_title,message.notice_message));
+  }
+  if(message.partial){
+    let meta=document.createElement('div');meta.className='meta';
+    meta.textContent='Restored partial response after refresh';
+    bbl.parentElement.appendChild(meta);
+  }else if(message.incomplete){
+    let meta=document.createElement('div');meta.className='meta';
+    meta.textContent='Previous response was incomplete and is excluded from follow-up history';
+    bbl.parentElement.appendChild(meta);
+  }
+}
+
+function renderConversation(){
+  M.innerHTML='';
+  if(!H.length){showEmptyState();return}
+  for(let message of H){
+    if(message.role==='user')addMsg('user',message.content||'');
+    else renderStoredAssistant(message);
+  }
+  highlightAll();
+  M.scrollTop=M.scrollHeight;
+}
+
+function restoreChatState(){
+  let state=readChatState();
+  H=state.messages;
+  chatSessionId=state.sessionId||newChatSessionId();
+  renderConversation();
+  I.value=state.input;
+  I.style.height='auto';
+  I.style.height=Math.max(42,Math.min(I.scrollHeight||42,140))+'px';
+}
+
+function setCurrentModel(model){
+  if(!model){setModelTag('-');return}
+  const label=model.display_name||model.id;
+  const fam=modelFamilyFromName(label);
+  const icon=fam!=='default'?'<span class="model-icon">'+modelFamilyIcon(label)+'</span>':'';
+  MN.innerHTML=icon+label;
+  MN.href=model.homepage_url||modelHrefForName(label);
+}
+
+function setGpuMemory(info,budgetArg){
+  let used=0,budget=0,ctxReserved=0,ctxActive=0,ctxTokens=0,ctxCapacity=0;
+  if(typeof info==='object'&&info){
+    used=info.gpu_memory_used_bytes||info.active_memory_used_bytes||0;
+    budget=info.gpu_memory_budget_bytes||info.active_memory_budget_bytes||0;
+    ctxReserved=info.gpu_context_reserved_bytes||info.active_context_reserved_bytes||0;
+    ctxActive=info.gpu_context_active_bytes||info.active_context_active_bytes||0;
+    ctxTokens=info.gpu_context_tokens||info.active_context_tokens||0;
+    ctxCapacity=info.gpu_context_capacity_tokens||info.active_context_capacity_tokens||0;
+  }else{
+    used=info||0;
+    budget=budgetArg||0;
+  }
+  if(!used||!budget){GM.textContent='';GM.title='';return}
+  let text='VRAM '+fmtGiB(used)+' / '+fmtGiB(budget)+' GiB';
+  if(ctxReserved>0&&ctxCapacity>0){
+    if(ctxTokens>0||ctxActive>0){
+      text+=' · ctx '+fmtGiB(ctxActive)+' / '+fmtGiB(ctxReserved)+' GiB ('+ctxTokens+'/'+ctxCapacity+' tok)';
+    }else{
+      text+=' · ctx reserved '+fmtGiB(ctxReserved)+' GiB ('+ctxCapacity+' tok cap)';
+    }
+  }
+  GM.textContent=text;
+  if(ctxReserved>0&&ctxCapacity>0){
+    GM.title='The total VRAM number includes the full reserved KV context budget. Active ctx shows how much of that reserved space the current chat is actually using.';
+  }else{
+    GM.title='';
+  }
+}
+
+function updateDownloadUi(){
+  let m=currentDownloadModel();
+  if(!m){
+    DL.textContent='';
+    MP.hidden=true;
+    MP.classList.remove('indeterminate');
+    MPF.style.width='0%';
+    stopModelRefresh();
+    return;
+  }
+  if(m.download_phase==='failed'){
+    DL.textContent='Download failed: '+(m.download_error||m.display_name||m.id);
+    MP.hidden=true;
+    stopModelRefresh();
+    return;
+  }
+  if(m.download_phase==='verifying'){
+    DL.textContent='Verifying '+(m.display_name||m.id)+'...';
+    MP.hidden=false;
+    MP.classList.add('indeterminate');
+    MPF.style.width='35%';
+    scheduleModelRefresh(800);
+    return;
+  }
+  let done=m.downloaded_bytes||0,total=m.download_total_bytes||0;
+  DL.textContent='Downloading '+(m.display_name||m.id)+(total>0?' · '+Math.max(0,Math.min(100,Math.round(done*100/total)))+'%':'');
+  MP.hidden=false;
+  if(total>0){
+    MP.classList.remove('indeterminate');
+    MPF.style.width=Math.max(2,Math.min(100,done*100/total))+'%';
+  }else{
+    MP.classList.add('indeterminate');
+    MPF.style.width='35%';
+  }
+  scheduleModelRefresh(800);
+}
+
+function updateModelAction(){
+  let m=selectedModel();
+  MB.hidden=!m;
+  if(!m){MB.textContent='Model';MB.disabled=true;return}
+  MB.className='model-action';
+  if(!m.managed){
+    MB.textContent='Manual';
+    MB.disabled=true;
+    MB.classList.add('active');
+    return;
+  }
+  if(m.download_phase==='failed'){
+    MB.textContent='Retry';
+    MB.disabled=hasActiveDownload();
+    MB.classList.add('download');
+    return;
+  }
+  if(m.downloading){
+    MB.textContent='Downloading';
+    MB.disabled=true;
+    MB.classList.add('download');
+    return;
+  }
+  if(m.download_phase==='verifying'){
+    MB.textContent='Verifying';
+    MB.disabled=true;
+    MB.classList.add('download');
+    return;
+  }
+  if(m.active){
+    MB.textContent='Active';
+    MB.disabled=true;
+    MB.classList.add('active');
+    return;
+  }
+  if(m.installed){
+    MB.textContent='Switch';
+    MB.disabled=isGenerating||hasActiveDownload();
+    return;
+  }
+  MB.textContent='Download';
+  MB.disabled=hasActiveDownload();
+  MB.classList.add('download');
+}
+
+function updateThinkingUi(){
+  let supported=activeModelSupportsThinking();
+  TH.checked=supported?chatPrefs.thinkingEnabled!==false:false;
+  TH.disabled=!supported||isGenerating;
+  TW.classList.toggle('disabled',!supported||isGenerating);
+  TL.textContent=supported?'Thinking':'Thinking n/a';
+  TW.title=supported?'Enable model reasoning in chat responses':'The active model does not expose a thinking toggle';
+}
+
+async function refreshModels(){
+  let mr=await fetch(base+'/models');let md=await mr.json();
+  models=Array.isArray(md.data)?md.data:[];
+  let selectedId=MS.value;
+  let current=activeModel();
+  let selected=models.find(m=>m.id===selectedId)||current||models[0]||null;
+  MS.innerHTML='';
+  if(!models.length){
+    let opt=document.createElement('option');opt.value='';opt.textContent='No models available';MS.appendChild(opt);
+  }
+  for(let m of models){
+    let opt=document.createElement('option');
+    opt.value=m.id;
+    let label=m.display_name||m.id;
+    if(m.active)label+=' · active';
+    else if(!m.managed)label+=' · manual';
+    else if(m.downloading)label+=' · downloading';
+    else if(m.download_phase==='verifying')label+=' · verifying';
+    else if(m.installed)label+=' · installed';
+    else label+=' · download';
+    opt.textContent=label;
+    if(selected&&selected.id===m.id)opt.selected=true;
+    MS.appendChild(opt);
+  }
+  setGpuMemory(md);
+  setCurrentModel(current);
+  updateDownloadUi();
+  updateModelAction();
+  updateThinkingUi();
+  MS.disabled=isGenerating||models.length<=1;
+  if(H.length===0) updateEmptyState();
+}
+
+async function refreshHealth(){
+  try{
+    let r=await fetch(base.replace('/v1','/health'));let d=await r.json();
+    if(d.status==='ok'){
+      ST.textContent='online';ST.className='badge ok';setModelTag(d.model);
+      setGpuMemory(d);
+    }else throw new Error('health unavailable');
+  }catch(e){ST.textContent='offline';ST.className='badge'}
+  finally{scheduleHealthRefresh(2000)}
+}
+
+async function init(){
+  restoreChatState();
+  updateThinkingUi();
+  await Promise.allSettled([refreshHealth(),refreshModels()]);
+}
+
+function esc(s){
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function setGenerating(v){
+  isGenerating=v;
+  B.classList.toggle('stop',v);
+  B.innerHTML=v?'&#x25A0;':'&#x2191;';
+  B.title=v?'Stop generating':'Send';
+  MS.disabled=v||models.length<=1;
+  CB.disabled=v;
+  updateModelAction();
+  updateThinkingUi();
+}
+
+function stopGeneration(){
+  if(!activeController||stopRequested)return;
+  stopRequested=true;
+  SS.textContent='stopping...';
+  activeController.abort();
+}
+
+function fmtInline(s){
+  s=s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  s=s.replace(/`([^`]+)`/g,'<code>$1</code>');
+  s=s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+  s=s.replace(/(?<!\*)\*([^\*]+?)\*(?!\*)/g,'<em>$1</em>');
+  return s;
+}
+
+function renderParagraph(lines){
+  return '<p>'+lines.map(fmtInline).join('<br>')+'</p>';
+}
+
+function renderNestedList(items,ordered){
+  if(!items.length)return '';
+  let tag=ordered?'ol':'ul';
+  return '<'+tag+'>'+items.map(item=>'<li>'+item.map(fmtInline).join('<br>')+'</li>').join('')+'</'+tag+'>';
+}
+
+function renderList(lines,ordered){
+  let items=[],current=null;
+  let marker=ordered?/^\s*\d+\.\s+(.*)$/:/^\s*[-*]\s+(.*)$/;
+  function pushCurrent(){
+    if(!current)return;
+    items.push(current);
+    current=null;
+  }
+  for(let line of lines){
+    if(!line.trim())continue;
+    let match=line.match(marker);
+    if(match){
+      pushCurrent();
+      current={lines:[match[1]],nestedUnordered:[],nestedOrdered:[]};
+      continue;
+    }
+    if(!current)return '';
+    let nestedUnordered=line.match(/^\s*[-*]\s+(.*)$/);
+    if(ordered&&nestedUnordered){
+      let last=current.nestedUnordered[current.nestedUnordered.length-1];
+      if(last&&line.match(/^\s{2,}\S/)&&!line.match(/^\s{2,}[-*]\s+/)){
+        last.push(line.trim());
+      }else{
+        current.nestedUnordered.push([nestedUnordered[1]]);
+      }
+      continue;
+    }
+    let nestedOrdered=line.match(/^\s*\d+\.\s+(.*)$/);
+    if(!ordered&&nestedOrdered){
+      let last=current.nestedOrdered[current.nestedOrdered.length-1];
+      if(last&&line.match(/^\s{2,}\S/)&&!line.match(/^\s{2,}\d+\.\s+/)){
+        last.push(line.trim());
+      }else{
+        current.nestedOrdered.push([nestedOrdered[1]]);
+      }
+      continue;
+    }
+    if(current.nestedUnordered.length&&line.match(/^\s{2,}\S/)){
+      current.nestedUnordered[current.nestedUnordered.length-1].push(line.trim());
+      continue;
+    }
+    if(current.nestedOrdered.length&&line.match(/^\s{2,}\S/)){
+      current.nestedOrdered[current.nestedOrdered.length-1].push(line.trim());
+      continue;
+    }
+    current.lines.push(line.trim());
+  }
+  pushCurrent();
+  if(!items.length)return '';
+  let tag=ordered?'ol':'ul';
+  return '<'+tag+'>'+items.map(item=>{
+    let html=item.lines.map(fmtInline).join('<br>');
+    html+=renderNestedList(item.nestedUnordered,false);
+    html+=renderNestedList(item.nestedOrdered,true);
+    return '<li>'+html+'</li>';
+  }).join('')+'</'+tag+'>';
+}
+
+function renderBlock(block){
+  let trimmed=block.trim();
+  if(!trimmed)return '';
+  if(/^\x00BLOCK\d+\x00$/.test(trimmed))return trimmed;
+  let heading=trimmed.match(/^(#{1,4})\s+(.+)$/);
+  if(heading){
+    let level=heading[1].length;
+    return '<h'+level+'>'+fmtInline(heading[2])+'</h'+level+'>';
+  }
+  let lines=block.split('\n');
+  if(/^\s*\d+\.\s+/.test(trimmed)){
+    let list=renderList(lines,true);
+    if(list)return list;
+  }
+  if(/^\s*[-*]\s+/.test(trimmed)){
+    let list=renderList(lines,false);
+    if(list)return list;
+  }
+  return renderParagraph(lines);
+}
+
+function normalizeListSpacing(text){
+  let lines=(text||'').split('\n');
+  let out=[];
+  for(let i=0;i<lines.length;i++){
+    let line=lines[i];
+    if(line.trim()){
+      out.push(line);
+      continue;
+    }
+    let prev='';
+    for(let j=out.length-1;j>=0;j--){
+      if(out[j].trim()){
+        prev=out[j];
+        break;
+      }
+    }
+    let next='';
+    for(let j=i+1;j<lines.length;j++){
+      if(lines[j].trim()){
+        next=lines[j];
+        break;
+      }
+    }
+    let prevOrdered=/^\s*\d+\.\s+/.test(prev);
+    let nextOrdered=/^\s*\d+\.\s+/.test(next);
+    let prevUnordered=/^\s*[-*]\s+/.test(prev);
+    let nextUnordered=/^\s*[-*]\s+/.test(next);
+    if((prevOrdered&&nextOrdered)||(prevUnordered&&nextUnordered)) continue;
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
+function normalizeHeadingSpacing(text){
+  let lines=(text||'').split('\n');
+  let out=[];
+  for(let i=0;i<lines.length;i++){
+    let line=lines[i];
+    let trimmed=line.trim();
+    if(!/^#{1,4}\s+\S/.test(trimmed)){
+      out.push(line);
+      continue;
+    }
+    let prev=out.length?out[out.length-1]:'';
+    if(prev.trim()) out.push('');
+    out.push(line);
+    let next='';
+    for(let j=i+1;j<lines.length;j++){
+      if(lines[j].trim()||j===lines.length-1){
+        next=lines[j];
+        break;
+      }
+    }
+    if(next.trim()) out.push('');
+  }
+  return out.join('\n');
+}
+
+function splitMarkdownBlocks(text){
+  let lines=(text||'').split('\n');
+  let blocks=[];
+  let i=0;
+
+  function kindOf(line){
+    if(!line.trim()) return 'blank';
+    if(/^\s*\d+\.\s+/.test(line)) return 'ordered';
+    if(/^\s*[-*]\s+/.test(line)) return 'unordered';
+    if(/^\s{2,}\S/.test(line)) return 'indented';
+    if(/^#{1,4}\s+\S/.test(line.trim())) return 'heading';
+    return 'text';
+  }
+
+  while(i<lines.length){
+    while(i<lines.length&&!lines[i].trim()) i++;
+    if(i>=lines.length) break;
+    let start=i;
+    let mode=kindOf(lines[i]);
+    if(mode!=='ordered'&&mode!=='unordered'){
+      i++;
+      while(i<lines.length&&lines[i].trim()) i++;
+      blocks.push(lines.slice(start,i).join('\n'));
+      continue;
+    }
+
+    i++;
+    let prevBlank=false;
+    while(i<lines.length){
+      let kind=kindOf(lines[i]);
+      if(kind==='blank'){
+        prevBlank=true;
+        i++;
+        continue;
+      }
+      if(kind===mode||kind==='indented'||(mode==='ordered'&&kind==='unordered')){
+        prevBlank=false;
+        i++;
+        continue;
+      }
+      if(kind==='text'&&!prevBlank){
+        i++;
+        continue;
+      }
+      break;
+    }
+    blocks.push(lines.slice(start,i).join('\n'));
+  }
+
+  return blocks;
+}
+
+function md(s){
+  // Extract code blocks BEFORE escaping HTML (complete and incomplete)
+  let blocks=[];
+  function makeBlock(lang,code,complete){
+    let esc=code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    let label=lang||'code';
+    let copyAttr=complete?'onclick="copyCode(this)"':'';
+    let btn=complete?'<button class="copy-btn" '+copyAttr+'>Copy</button>':'';
+    return '<div class="code-block"><div class="code-header"><span>'+label+'</span>'+btn+'</div><pre><code class="language-'+(lang||'plaintext')+'">'+esc+'</code></pre></div>';
+  }
+  // Complete code blocks: ```lang\ncode```
+  s=s.replace(/```(\w*)\n?([\s\S]*?)```/g,function(_,lang,code){
+    let i=blocks.length;blocks.push(makeBlock(lang,code,true));return '\x00BLOCK'+i+'\x00';
+  });
+  // Incomplete code block (streaming — opened but not yet closed)
+  s=s.replace(/```(\w*)\n?([\s\S]*)$/,function(_,lang,code){
+    let i=blocks.length;blocks.push(makeBlock(lang,code,false));return '\x00BLOCK'+i+'\x00';
+  });
+  // Now escape remaining HTML
+  s=s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  s=normalizeListSpacing(s);
+  s=normalizeHeadingSpacing(s);
+  s=splitMarkdownBlocks(s).map(renderBlock).filter(Boolean).join('');
+  if(!s)return '';
+  // Restore code blocks
+  for(let i=0;i<blocks.length;i++) s=s.replace('\x00BLOCK'+i+'\x00',blocks[i]);
+  return s;
+}
+
+function hasStructuredReasoning(text){
+  return /(?:^|\n)\s*(?:\d+\.\s+|[-*]\s+|#{1,4}\s+)/.test(text||'');
+}
+
+function reasoningPreview(text){
+  let compact=(text||'')
+    .split('\n')
+    .map(line=>line.replace(/^\s*(?:\d+\.\s+|[-*]\s+)/,'').trim())
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g,' ')
+    .trim();
+  if(!compact)return '';
+  return compact.length>96?compact.slice(0,95)+'…':compact;
+}
+
+function renderReasoning(thinkText,isThinking,collapsed){
+  let structured=hasStructuredReasoning(thinkText);
+  let open=collapsed?'':(isThinking||structured)?' open':'';
+  let liveText=(thinkText||'').trim();
+  let body=isThinking?(liveText?md(liveText):'<p><em>Thinking...</em></p>'):md(liveText);
+  let preview=isThinking?(liveText?(structured?'':reasoningPreview(liveText)):'Live reasoning stream'):(structured?'':reasoningPreview(thinkText));
+  let stateClass=isThinking?'reasoning-state live':'reasoning-state';
+  let stateText=isThinking?'Thinking':'Reasoning';
+  let previewHtml=preview?'<span class="reasoning-preview">'+esc(preview)+'</span>':'';
+  return '<details'+open+' class="reasoning-block"><summary><span class="reasoning-summary"><span class="'+stateClass+'">'+stateText+'</span>'+previewHtml+'</span></summary><div class="reasoning-body">'+body+'</div></details>';
+}
+
+function renderLiveText(text){
+  let s=stripTrailingArtifacts(text||'');
+  return s?'<div class="stream-text">'+esc(s)+'</div>':'';
+}
+
+function renderLiveReasoning(thinkText,isThinking,collapsed){
+  let open=collapsed?'':isThinking?' open':'';
+  let body=(thinkText||'').trim();
+  let stateClass=isThinking?'reasoning-state live':'reasoning-state';
+  let stateText=isThinking?'Thinking':'Reasoning';
+  let bodyHtml=body?'<div class="stream-text">'+esc(body)+'</div>':'<p><em>Thinking...</em></p>';
+  return '<details'+open+' class="reasoning-block"><summary><span class="reasoning-summary"><span class="'+stateClass+'">'+stateText+'</span></span></summary><div class="reasoning-body">'+bodyHtml+'</div></details>';
+}
+
+function stripTrailingStandaloneQuote(text){
+  let s=(text||'').replace(/\s+$/,'');
+  if(/(?:^|\r?\n)\s*"\s*$/u.test(s)) s=s.replace(/(?:^|\r?\n)\s*"\s*$/u,'').replace(/\s+$/,'');
+  if(s.endsWith('"')){
+    let body=s.slice(0,-1).replace(/\uFFFD+$/gu,'').replace(/\s+$/,'');
+    let quoteCount=(body.match(/"/g)||[]).length;
+    if(body&&quoteCount%2===0) s=body;
+  }
+  return s;
+}
+
+function stripLeadingStandaloneQuote(text){
+  let s=text||'';
+  if(/^\s*"\s*(?:\n\s*)+/u.test(s)) s=s.replace(/^\s*"\s*(?:\n\s*)+/u,'');
+  return s;
+}
+
+function stripTrailingDanglingHeading(text){
+  let s=(text||'').replace(/\s+$/,'');
+  if(/(?:^|\n)#{1,4}\s*$/u.test(s)) s=s.replace(/(?:^|\n)#{1,4}\s*$/u,'').replace(/\s+$/,'');
+  return s;
+}
+
+function stripTrailingDanglingListMarker(text){
+  let s=(text||'').replace(/\s+$/,'');
+  if(/(?:^|\n)[-*]\s*$/u.test(s)) s=s.replace(/(?:^|\n)[-*]\s*$/u,'').replace(/\s+$/,'');
+  return s;
+}
+
+function stripTrailingArtifacts(text){
+  let s=text||'';
+  while(true){
+    let next=s;
+    next=stripLeadingStandaloneQuote(next);
+    next=next.replace(/(?:<\|im_end\|>|<\|im_start\|>assistant)\s*$/u,'');
+    next=next.replace(/<\|endoftext\|>\s*$/u,'');
+    next=next.replace(/(?:[\s\uFFFD])+$/gu,'');
+    next=stripTrailingStandaloneQuote(next);
+    next=stripTrailingDanglingHeading(next);
+    next=stripTrailingDanglingListMarker(next);
+    if(next===s) return next;
+    s=next;
+  }
+}
+
+function stripInlineTransportArtifacts(text){
+  return (text||'')
+    .replace(/<\|im_end\|>/gu,'')
+    .replace(/<\|im_start\|>assistant/gu,'')
+    .replace(/<\|im_start\|>/gu,'')
+    .replace(/<\|endoftext\|>assistant/gu,'')
+    .replace(/<\|endoftext\|>/gu,'');
+}
+
+function findInlineStopArtifactStart(text){
+  let s=text||'';
+  let markers=['<|endoftext|>','<|im_end|>','<|im_start|>assistant','<|im_start|>'];
+  let first=-1;
+  for(let marker of markers){
+    let idx=s.indexOf(marker);
+    if(idx!==-1&&(first===-1||idx<first))first=idx;
+  }
+  return first;
+}
+
+function hasInlineStopArtifact(text){
+  return findInlineStopArtifactStart(text)!==-1;
+}
+
+function looksLikeRepeatedParagraphLoop(text){
+  let lines=(text||'')
+    .split(/\n+/u)
+    .map(line=>line.toLowerCase().replace(/[^a-z0-9 ]+/gu,' ').replace(/\s+/gu,' ').trim())
+    .filter(line=>line.length>=80);
+  if(lines.length<3)return false;
+  let counts=new Map();
+  for(let line of lines){
+    let key=line.slice(0,48);
+    if(key.length<40)continue;
+    let count=(counts.get(key)||0)+1;
+    if(count>=3)return true;
+    counts.set(key,count);
+  }
+  return false;
+}
+
+function hasRepeatedPhraseLoop(text){
+  let s=text||'';
+  if(s.length<80)return false;
+  // Collect sentence-boundary starts
+  let starts=[0];
+  for(let i=0;i+1<s.length&&starts.length<64;i++){
+    if(s[i]==='.'&&s[i+1]===' ')starts.push(i+2);
+  }
+  for(let start of starts){
+    if(start+20>s.length)continue;
+    for(let plen=20;plen<=Math.min(60,s.length-start);plen+=5){
+      let phrase=s.slice(start,start+plen);
+      let count=1,from=start+plen;
+      while(from+plen<=s.length){
+        let idx=s.indexOf(phrase,from);
+        if(idx===-1||idx+plen>s.length)break;
+        count++;
+        if(count>=3)return true;
+        from=idx+plen;
+      }
+    }
+  }
+  return false;
+}
+
+function findRestartedAnswerStart(text){
+  let s=text||'';
+  if(s.length<160)return -1;
+  let prefixLen=Math.min(s.length,96);
+  if(prefixLen<48)return -1;
+  let prefix=s.slice(0,prefixLen);
+  let searchFrom=prefixLen+64;
+  while(searchFrom+prefixLen<=s.length){
+    let idx=s.indexOf(prefix,searchFrom);
+    if(idx===-1)return -1;
+    let atLineStart=idx>0&&s[idx-1]==='\n';
+    let atParagraphStart=idx>1&&s[idx-2]==='\n'&&s[idx-1]==='\n';
+    if(atLineStart||atParagraphStart)return idx;
+    searchFrom=idx+1;
+  }
+  return -1;
+}
+
+function trimRestartedAnswer(text){
+  let s=text||'';
+  let idx=findRestartedAnswerStart(s);
+  return idx===-1?s:s.slice(0,idx).replace(/\s+$/u,'');
+}
+
+function findLeakedReasoningStart(text){
+  let s=text||'';
+  let markers=[
+    '\n\nThe user is asking',
+    "\n\nThe user's request",
+    '\n\nHere is the response:',
+    '\n\nI will provide a direct answer',
+    '\n\nI will provide the response',
+    '\n\nI will answer directly',
+    '\nSince I am acting as the assistant',
+    ' Since I am acting as the assistant',
+    '\nHowever, looking at the prompt structure',
+    ' However, looking at the prompt structure',
+    '\nWait, looking closely at the prompt structure',
+    ' Wait, looking closely at the prompt structure',
+  ];
+  let first=-1;
+  for(let marker of markers){
+    let idx=s.indexOf(marker);
+    if(idx>=48&&(first===-1||idx<first))first=idx;
+  }
+  return first;
+}
+
+function startsWithLeakedReasoning(text){
+  let s=(text||'').trimStart().toLowerCase();
+  return /^(the user is asking|the user's (request|question)|i need to (provide|answer|respond|complete|continue|help)|i should (answer|provide|respond|help)|i will (provide|answer|respond)|let me (answer|provide|respond|think|analyze))/.test(s);
+}
+
+function trimLeakedNoThinkingOutput(text){
+  let s=text||'';
+  if(startsWithLeakedReasoning(s)){
+    // Entire output is leaked reasoning — look for where the actual answer starts
+    let answerStart=s.search(/\n\n(?=[A-Z](?!.*(I need|I should|The user|Let me)))/u);
+    if(answerStart>=0)return s.slice(answerStart+2);
+    return '';
+  }
+  let idx=findLeakedReasoningStart(s);
+  return idx===-1?s:s.slice(0,idx).replace(/\s+$/u,'');
+}
+
+function findUnexpectedThinkingTailStart(text){
+  let s=text||'';
+  let searchFrom=0;
+  // If text starts with <think>, skip past the first </think> so we detect REOPENED blocks
+  if(s.trimStart().startsWith('<think>')){
+    let closeIdx=s.indexOf('</think>');
+    if(closeIdx===-1)return -1;
+    searchFrom=closeIdx+'</think>'.length;
+  }
+  let idx=s.indexOf('<think>',searchFrom);
+  if(idx===-1)return -1;
+  let prefix=s.slice(0,idx).trim();
+  return prefix?idx:-1;
+}
+
+function trimUnexpectedThinkingTail(text){
+  let s=text||'';
+  let idx=findUnexpectedThinkingTailStart(s);
+  if(idx===-1)return s;
+  let trimmed=s.slice(0,idx).replace(/\s+$/u,'');
+  return trimmed?trimmed:s;
+}
+
+function sanitizeAnswerTail(text){
+  return trimRestartedAnswer(stripTrailingArtifacts(trimLeakedNoThinkingOutput(trimUnexpectedThinkingTail(text||'')).trim()));
+}
+
+function looksLikeGenuineReasoning(text){
+  let s=(text||'').trim().toLowerCase();
+  return /^(the user |the question |i need to |i should |i will |let me |this is |okay,? |alright,? |so,? the user)/u.test(s);
+}
+
+function looksLikePlainReasoning(text){
+  let s=(text||'').trimStart();
+  return s.startsWith('Thinking Process:')||
+    /^\d+\.\s+\*\*Analyze the Request:\*\*/.test(s)||
+    /^\d+\.\s+Analyze the Request:/.test(s);
+}
+
+function reasoningIsLowSignal(text){
+  let s=(text||'').trim();
+  if(!s)return false;
+  let lower=s.toLowerCase();
+  let metaStart=/^(i need to|i should|let me|the user is asking|i will|first,? i need to|to answer this,? i need to)\b/u.test(lower);
+  if(metaStart&&!s.includes('\n')&&s.length<=320)return true;
+  if(s.length>140||s.includes('\n')||/[0-9]/.test(s)||/[-*`]/.test(s))return false;
+  let exactPatterns=[
+    /^i need to complete the response\.?$/u,
+    /^i need to continue the response\.?$/u,
+    /^i need to finish the response\.?$/u,
+    /^i need to answer the question\.?$/u,
+    /^i need to provide the answer\.?$/u,
+    /^i should answer directly\.?$/u,
+    /^let me think\.?$/u,
+  ];
+  if(exactPatterns.some(re=>re.test(lower)))return true;
+  return /^(i need to|i should|let me|the user is asking|i will)\b/u.test(lower) &&
+    /\b(response|answer|question|reply|respond|continue|complete|finish|provide)\b/u.test(lower);
+}
+
+function reasoningLooksLikeAnswer(text){
+  let s=(text||'').trim();
+  if(s.length<120)return false;
+  if(hasStructuredReasoning(s)||looksLikePlainReasoning(s))return false;
+  if(/\b(i need|i should|let me|check|compare|verify|inspect|plan|think)\b/iu.test(s))return false;
+  let sentences=s.split(/[.!?](?:\s+|$)/u).map(part=>part.trim()).filter(Boolean);
+  if(sentences.length<2)return false;
+  return /^[A-Z]/u.test(s);
+}
+
+function normalizeReasoningText(text){
+  return (text||'').toLowerCase().replace(/\s+/gu,' ').trim();
+}
+
+function sharedPrefixLen(a,b){
+  let limit=Math.min(a.length,b.length);
+  let i=0;
+  while(i<limit&&a.charCodeAt(i)===b.charCodeAt(i))i++;
+  return i;
+}
+
+function reasoningDuplicatesAnswer(reasoning,answer){
+  let r=normalizeReasoningText(reasoning);
+  let a=normalizeReasoningText(answer);
+  if(!r||!a)return false;
+  if(r===a)return true;
+  let shorter=Math.min(r.length,a.length);
+  if(shorter>=80&&(r.includes(a)||a.includes(r)))return true;
+  let prefix=sharedPrefixLen(r,a);
+  // Early streaming detection: if the entire answer so far matches the reasoning start
+  if(a.length>=40&&r.length>a.length&&r.startsWith(a))return true;
+  return prefix>=120&&prefix/shorter>=0.6;
+}
+
+function normalizeDisplayView(view){
+  if(!view)return view;
+  if(view.showReasoning&&!view.isThinking&&!(view.reasoning||'').trim()){
+    return {
+      reasoning:'',
+      answer:view.answer,
+      showReasoning:false,
+      isThinking:false,
+      suppressedReasoning:true,
+    };
+  }
+  // When reasoning IS the answer, promote it — evaporate the thinking wrapper.
+  // (a) No separate answer, reasoning has substantial content, and it's not genuine meta-reasoning.
+  // (b) Answer duplicates reasoning: promote.
+  // (c) Reasoning looks like an answer and is longer than actual answer: promote.
+  if(view.showReasoning&&!view.isThinking&&(view.reasoning||'').trim().length>=80&&!view.answer&&!reasoningIsLowSignal(view.reasoning)&&!looksLikeGenuineReasoning(view.reasoning)){
+    return {
+      reasoning:'',
+      answer:view.reasoning,
+      showReasoning:false,
+      isThinking:false,
+      promotedReasoning:true,
+    };
+  }
+  if(view.showReasoning&&!view.isThinking&&reasoningLooksLikeAnswer(view.reasoning)){
+    let best=(!view.answer||view.reasoning.length>=view.answer.length)?view.reasoning:view.answer;
+    return {
+      reasoning:'',
+      answer:best,
+      showReasoning:false,
+      isThinking:false,
+      promotedReasoning:true,
+    };
+  }
+  if(reasoningDuplicatesAnswer(view.reasoning,view.answer)){
+    return {
+      reasoning:'',
+      answer:view.answer,
+      showReasoning:false,
+      isThinking:false,
+      promotedReasoning:true,
+    };
+  }
+  if(view.showReasoning&&view.isThinking&&!view.answer&&reasoningLooksLikeAnswer(view.reasoning)){
+    return {
+      reasoning:'',
+      answer:'',
+      showReasoning:true,
+      isThinking:true,
+      deferredReasoning:true,
+    };
+  }
+  if(!view.showReasoning||!reasoningIsLowSignal(view.reasoning))return view;
+  if(view.isThinking){
+    return {
+      reasoning:'',
+      answer:view.answer,
+      showReasoning:true,
+      isThinking:true,
+      deferredReasoning:true,
+      suppressedReasoning:true,
+    };
+  }
+  return {
+    reasoning:'',
+    answer:view.answer,
+    showReasoning:false,
+    isThinking:view.isThinking,
+    suppressedReasoning:true,
+  };
+}
+
+function splitDisplayContent(raw,isThinking){
+  let text=raw||'';
+  if(!isThinking)text=trimLeakedNoThinkingOutput(text);
+  let thinkMatch=text.match(/<think>([\s\S]*?)<\/think>/);
+  let thinkPartial=!thinkMatch&&text.match(/<think>([\s\S]*)$/);
+  let implicitThinkClose=!thinkMatch&&!thinkPartial&&text.includes('</think>')&&!text.includes('<think>');
+  let answer=sanitizeAnswerTail(
+    text.replace(/<think>[\s\S]*?<\/think>\s*/g,'').replace(/<think>[\s\S]*$/,'').trim()
+  );
+  if(thinkMatch||thinkPartial){
+    return {
+      reasoning:(thinkMatch?thinkMatch[1]:(thinkPartial?thinkPartial[1]:'')).trim(),
+      answer,
+      showReasoning:true,
+      isThinking,
+    };
+  }
+  if(implicitThinkClose){
+    let parts=text.split('</think>');
+    return {
+      reasoning:stripTrailingArtifacts((parts[0]||'').trim()),
+      answer:sanitizeAnswerTail(parts.slice(1).join('</think>').trim()),
+      showReasoning:true,
+      isThinking:false,
+    };
+  }
+  let trimmed=sanitizeAnswerTail(text.trim());
+  if(looksLikePlainReasoning(trimmed)){
+    if(!isThinking){
+      return {
+        reasoning:'',
+        answer:trimmed,
+        showReasoning:false,
+        isThinking:false,
+      };
+    }
+    return {
+      reasoning:trimmed,
+      answer:'',
+      showReasoning:true,
+      isThinking:true,
+    };
+  }
+  return {
+    reasoning:'',
+    answer:trimmed,
+    showReasoning:false,
+    isThinking:false,
+  };
+}
+
+function addMsg(role,text){
+  let w=document.getElementById('w');if(w)w.remove();
+  let d=document.createElement('div');d.className='msg '+(role==='user'?'u':'a');
+  let av=role==='user'?'U':'Z';
+  d.innerHTML='<div class="av">'+av+'</div><div class="bbl"></div>';
+  let bbl=d.querySelector('.bbl');
+  if(role==='user'){bbl.textContent=text||''}
+  else{bbl.innerHTML=text?md(text):''}
+  M.appendChild(d);M.scrollTop=M.scrollHeight;
+  return bbl;
+}
+
+function clearConversation(){
+  if(isGenerating)return;
+  I.value='';
+  I.style.height='auto';
+  removeStorage(chatStateKey);
+  resetConversation();
+  SS.textContent='conversation cleared';
+  I.focus();
+}
+
+async function send(){
+  if(isGenerating){stopGeneration();return}
+  let t=I.value.trim();if(!t)return;
+  I.value='';I.style.height='auto';userScrolledUp=false;
+  addMsg('user',t);H.push({role:'user',content:t});saveChatState();
+  let bbl=addMsg('assistant','');
+  bbl.classList.add('streaming');
+  let liveMeta=document.createElement('div');liveMeta.className='meta';liveMeta.textContent='generating...';
+  bbl.parentElement.appendChild(liveMeta);
+  let cur=document.createElement('span');cur.className='cursor';bbl.appendChild(cur);
+  let raw='',tokens=0,t0=performance.now(),thinking=false,stopped=false,draftEntry=null,finishReason='stop';
+  let selectedModelId='zinc';
+  let enableThinking=false;
+  let supportsThinkingForHistory=false;
+  let requestMessages=[];
+  let errorMessage='';
+  let sawFinishReason=false;
+  let stallTimer=null;
+  function clearStallTimer(){
+    if(stallTimer!==null){
+      clearTimeout(stallTimer);
+      stallTimer=null;
+    }
+  }
+  function armStallTimer(){
+    clearStallTimer();
+    stallTimer=setTimeout(()=>{
+      if(!activeController||stopRequested||errorMessage)return;
+      errorMessage='Response timed out — the server is still processing a long prompt. Try a shorter message or wait and retry.';
+      activeController.abort();
+    },120000);
+  }
+  activeController=new AbortController();stopRequested=false;setGenerating(true);
+  try{
+    let currentModel=selectedModel();
+    selectedModelId=currentModel?.id||MN.textContent||'zinc';
+    enableThinking=activeModelSupportsThinking()&&TH.checked;
+    supportsThinkingForHistory=!!currentModel?.supports_thinking_toggle;
+    let maxTokens=chatMaxTokens(enableThinking);
+    thinking=enableThinking;
+    requestMessages=requestMessagesFromHistory(supportsThinkingForHistory);
+    let r=await fetch(base+'/chat/completions',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model:selectedModelId,session_id:chatSessionId,messages:requestMessages,stream:true,max_tokens:maxTokens,temperature:1.0,enable_thinking:enableThinking}),
+      signal:activeController.signal});
+    if(!r.ok){let e=await r.json().catch(()=>({}));throw new Error(e.error?.message||r.statusText)}
+    if(!r.body)throw new Error('Streaming response missing body');
+    armStallTimer();
+    let rd=r.body.getReader(),dc=new TextDecoder(),buf='';
+    stream:while(true){
+      let{done,value}=await rd.read();if(done)break;
+      armStallTimer();
+      buf+=dc.decode(value,{stream:true});let ls=buf.split('\n');buf=ls.pop()||'';
+      for(let l of ls){
+        if(!l.startsWith('data: '))continue;let p=l.slice(6);if(p==='[DONE]')break stream;
+        try{
+          let choice=JSON.parse(p).choices?.[0];
+          if(choice?.finish_reason){finishReason=choice.finish_reason;sawFinishReason=true}
+          let c=choice?.delta?.content;
+          if(c){tokens++;
+            let sawInlineStop=hasInlineStopArtifact(c);
+            let cleanChunk=stripInlineTransportArtifacts(c);
+            if(!cleanChunk){
+              if(sawInlineStop){
+                finishReason='stop';
+                sawFinishReason=true;
+                activeController.abort();
+                break stream;
+              }
+              continue;
+            }
+            armStallTimer();
+            raw+=cleanChunk;
+            let reopenedThinkIdx=findUnexpectedThinkingTailStart(raw);
+            if(reopenedThinkIdx!==-1){
+              raw=raw.slice(0,reopenedThinkIdx).replace(/\s+$/u,'');
+              if(raw&&!draftEntry){
+                draftEntry={role:'assistant',content:'',raw:'',transport:'',partial:true};
+                H.push(draftEntry);
+              }
+              let rendered=assistantLiveHtmlFromRaw(raw,false);
+              if(draftEntry){
+                draftEntry.raw=raw;
+                draftEntry.content=rendered.view.answer||stripTrailingArtifacts(raw);
+                draftEntry.transport='';
+                saveChatState();
+              }
+              let html=rendered.html;
+              flushPendingRender();
+              if(html){bbl.innerHTML=html;bbl.appendChild(cur);autoScroll()}
+              finishReason='stop';
+              sawFinishReason=true;
+              try{rd.cancel();}catch(_e){}
+              break stream;
+            }
+            let inlineStopIdx=findInlineStopArtifactStart(raw);
+            if(inlineStopIdx!==-1){
+              raw=raw.slice(0,inlineStopIdx);
+              if(raw&&!draftEntry){
+                draftEntry={role:'assistant',content:'',raw:'',transport:'',partial:true};
+                H.push(draftEntry);
+              }
+              let rendered=assistantLiveHtmlFromRaw(raw,false);
+              if(draftEntry){
+                draftEntry.raw=raw;
+                draftEntry.content=rendered.view.answer||stripTrailingArtifacts(raw);
+                draftEntry.transport='';
+                saveChatState();
+              }
+              let html=rendered.html;
+              flushPendingRender();
+              if(html){bbl.innerHTML=html;bbl.appendChild(cur);autoScroll()}
+              finishReason='stop';
+              sawFinishReason=true;
+              try{rd.cancel();}catch(_e){}
+              break stream;
+            }
+            // Track <think>...</think> reasoning blocks
+            if(!thinking&&raw.includes('<think>')){thinking=true}
+            if(thinking&&raw.includes('</think>')){thinking=false}
+            if(!draftEntry){
+              draftEntry={role:'assistant',content:'',raw:'',transport:'',partial:true};
+              H.push(draftEntry);
+            }
+            draftEntry.raw=raw;
+            draftEntry.transport='';
+            let visibleAnswer=(splitDisplayContent(raw,thinking).answer)||stripTrailingArtifacts(raw);
+            scheduleRender(function(){
+              let rendered=assistantLiveHtmlFromRaw(raw,thinking);
+              draftEntry.content=rendered.view.answer||stripTrailingArtifacts(raw);
+              saveChatState();
+              let html=rendered.html;
+              if(html){bbl.innerHTML=html;bbl.appendChild(cur);autoScroll();autoScrollReasoning(bbl)}
+            });
+            if(findRestartedAnswerStart(visibleAnswer)!==-1){
+              errorMessage='Response started repeating itself and was stopped early.';
+              activeController.abort();
+              break stream;
+            }
+            if(looksLikeRepeatedParagraphLoop(visibleAnswer)||hasRepeatedPhraseLoop(raw)){
+              errorMessage='Response started looping and was stopped early.';
+              activeController.abort();
+              break stream;
+            }
+            if(sawInlineStop){
+              finishReason='stop';
+              sawFinishReason=true;
+              activeController.abort();
+              break stream;
+            }
+            let el=(performance.now()-t0)/1000;
+            if(el>0.3){
+              let tps=(tokens/el).toFixed(1);
+              SS.textContent=tps+' tok/s · generating';
+              liveMeta.textContent=tokens+' tokens · '+tps+' tok/s · generating';
+            }
+          }
+        }catch(e){}
+      }
+    }
+  }catch(e){
+    if(stopRequested){stopped=true}
+    else if(e.name==='AbortError'&&!errorMessage){stopped=true}
+    else errorMessage=errorMessage||(e?.message||'Request failed')
+  }
+  clearStallTimer();
+  flushPendingRender();
+  if(cur.parentNode)cur.remove();
+  bbl.classList.remove('streaming');
+  highlightAll();
+  activeController=null;stopRequested=false;setGenerating(false);I.focus();
+  let finalView=normalizeDisplayView(splitDisplayContent(raw,false));
+  let cleanAnswer=finalView.answer;
+  let finalRendered=assistantHtmlFromRaw(raw,false);
+  let hadOutput=!!stripTrailingArtifacts(raw).trim();
+  let missingFinishReason=!stopped&&!errorMessage&&!sawFinishReason;
+  if(!stopped&&enableThinking&&finishReason==='length'&&!cleanAnswer&&finalView.showReasoning){
+    try{
+      SS.textContent='recovering final answer...';
+      let recovered=await fetchRecoveredAnswer(selectedModelId,requestMessages);
+      if(recovered.content){
+        raw=raw+(raw.endsWith('\n')?'':'\n')+'</think>\n'+recovered.content;
+        finalView=normalizeDisplayView(splitDisplayContent(raw,false));
+        cleanAnswer=finalView.answer;
+        finalRendered=assistantHtmlFromRaw(raw,false);
+        finishReason=recovered.finishReason||'stop';
+        sawFinishReason=true;
+        missingFinishReason=false;
+        hadOutput=!!stripTrailingArtifacts(raw).trim();
+      }
+    }catch(_e){}
+  }
+  let notice=stopped?null:completionNotice({
+    hasAnswer:!!cleanAnswer,
+    finishReason,
+    errorMessage,
+    missingFinishReason,
+    showReasoning:finalView.showReasoning,
+    suppressedReasoning:finalView.suppressedReasoning===true,
+    hadOutput,
+  });
+  let incomplete=stopped||!!notice;
+  if(draftEntry){
+    if(cleanAnswer){
+      draftEntry.content=cleanAnswer;
+      draftEntry.transport=historyTransportContent(cleanAnswer,raw,enableThinking,supportsThinkingForHistory);
+      draftEntry.raw=raw;
+      delete draftEntry.partial;
+      persistAssistantNotice(draftEntry,notice,incomplete);
+      if(!incomplete&&!finalView.showReasoning)delete draftEntry.raw;
+    }else if(raw.trim()){
+      let incompleteNotice=notice||{
+        kind:'warn',
+        title:'Incomplete response',
+        message:'The reply ended before it was complete.',
+      };
+      draftEntry.content=finalView.reasoning||stripTrailingArtifacts(raw);
+      draftEntry.transport='';
+      draftEntry.raw=raw;
+      delete draftEntry.partial;
+      persistAssistantNotice(draftEntry,incompleteNotice,true);
+    }else{
+      H=H.filter(m=>m!==draftEntry);
+    }
+    saveChatState();
+  }
+  if(stopped){
+    if(cleanAnswer){
+      bbl.innerHTML=finalRendered.html||md(cleanAnswer);
+      bbl.insertAdjacentHTML('beforeend',renderAssistantNotice('warn','Generation stopped','Stopped before the reply finished.'));
+      highlightAll();
+    }else{
+      bbl.innerHTML=renderAssistantNotice('warn','Generation stopped','Stopped before any final answer was returned.');
+    }
+    let el=(performance.now()-t0)/1000;
+    if(cleanAnswer){
+      SS.textContent=tokens+' tokens \u00b7 stopped';
+      liveMeta.textContent=tokens+' tokens \u00b7 stopped \u00b7 '+el.toFixed(1)+'s';
+    }else{
+      SS.textContent='stopped';
+      liveMeta.textContent='stopped \u00b7 '+el.toFixed(1)+'s';
+    }
+    return;
+  }
+  if(!cleanAnswer&&notice){
+    let body='';
+    if(finalView.showReasoning)body+=renderReasoning(finalView.reasoning,false);
+    body+=renderAssistantNotice(notice.kind,notice.title,notice.message);
+    bbl.innerHTML=body;
+    highlightAll();
+    SS.textContent=notice.kind==='error'?'request failed':'incomplete response';
+    let el=(performance.now()-t0)/1000;
+    liveMeta.textContent=(tokens?tokens+' tokens \u00b7 ':'')+el.toFixed(1)+'s \u00b7 '+notice.title.toLowerCase();
+  }else if(cleanAnswer){
+    if(finalRendered.html){
+      bbl.innerHTML=finalRendered.html;
+      highlightAll();
+    }
+    if(notice){
+      bbl.insertAdjacentHTML('beforeend',renderAssistantNotice(notice.kind,notice.title,notice.message));
+    }
+    let el=(performance.now()-t0)/1000,tps=tokens/el;
+    let statusSuffix='';
+    if(notice)statusSuffix=notice.kind==='error'?' \u00b7 interrupted':' \u00b7 incomplete';
+    SS.textContent=tokens+' tokens \u00b7 '+tps.toFixed(1)+' tok/s'+statusSuffix;
+    liveMeta.textContent=tokens+' tokens \u00b7 '+tps.toFixed(1)+' tok/s \u00b7 '+el.toFixed(1)+'s'+(notice?' \u00b7 '+notice.title.toLowerCase():'');
+  }else{
+    let fallbackNotice=notice||completionNotice({
+      hasAnswer:false,
+      finishReason,
+      errorMessage,
+      missingFinishReason,
+      showReasoning:false,
+      hadOutput:false,
+    });
+    bbl.innerHTML=renderAssistantNotice(fallbackNotice.kind,fallbackNotice.title,fallbackNotice.message);
+    SS.textContent=fallbackNotice.kind==='error'?'request failed':'empty response';
+    liveMeta.textContent=fallbackNotice.title.toLowerCase();
+  }
+  saveChatState();
+}
+
+function copyCode(btn){
+  let pre=btn.closest('.code-block').querySelector('code');
+  navigator.clipboard.writeText(pre.textContent).then(()=>{
+    btn.textContent='Copied!';btn.classList.add('copied');
+    setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied')},1500);
+  });
+}
+function highlightAll(){document.querySelectorAll('pre code[class^="language-"]').forEach(el=>{
+  if(!el.dataset.highlighted){try{hljs.highlightElement(el)}catch(e){}}
+})}
+TH.addEventListener('change',()=>{
+  chatPrefs.thinkingEnabled=TH.checked;
+  saveChatPrefs();
+  updateThinkingUi();
+});
+MS.addEventListener('change',()=>{
+  updateDownloadUi();
+  updateModelAction();
+});
+CB.addEventListener('click',clearConversation);
+MB.addEventListener('click',async()=>{
+  let m=selectedModel();if(!m||!m.managed||m.active||m.downloading||m.download_phase==='verifying')return;
+  MB.disabled=true;
+  try{
+    if(m.installed){
+      SS.textContent='switching model...';
+      let r=await fetch(base+'/models/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:m.id})});
+      if(!r.ok){let er=await r.json().catch(()=>({}));throw new Error(er.error?.message||r.statusText)}
+      await refreshModels();
+      let active=models.find(x=>x.active);
+      resetConversation('Switched to **'+esc(active?.display_name||m.id)+'**. Started a new conversation.');
+      SS.textContent='model switched';
+      return;
+    }
+    SS.textContent='starting download...';
+    let r=await fetch(base+'/models/pull',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:m.id})});
+    if(!r.ok){let er=await r.json().catch(()=>({}));throw new Error(er.error?.message||r.statusText)}
+    await refreshModels();
+    SS.textContent='download started';
+  }catch(err){
+    SS.textContent='model action failed';
+    alert(err.message||String(err));
+    await refreshModels().catch(()=>{});
+  }
+});
+I.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});
+I.addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,140)+'px';saveChatState()});
+init();setGenerating(false);I.focus();
+</script>
+</body>
+</html>

@@ -1,0 +1,230 @@
+#version 460
+// ZINC — int8 DP4a full-tile Q5_K GEMM. Targets the Qwen3.6-27B SSM out
+// projection (M=hidden_dim, K=d_inner) and mirrors mul_mm_q4k_full_dp4a.comp's
+// structure: 32x32 tile, 4x4 micro-tile, DP4a inner product against pre-
+// quantized Q8_1 activations.
+//
+// Q5_K math (per row m, per 32-sub-block sb):
+//   weight[m,k] = factor[m,sb] * q5(m,k) - bias[m,sb]
+// where q5(m,k) ∈ [0..31] is the 5-bit weight (low nibble of qs combined
+// with one high bit from qh). With activations Q8_1-quantized per 32-block
+// (scale s[n,sb], dsum d[n,sb]):
+//   sum_k W[m,k]*B[k,n] over one 32-block
+//     = s[n,sb] * factor[m,sb] * idot(q5_i8, b_i8)
+//       - bias[m,sb] * d[n,sb]                      (d = s * isum precomputed)
+//
+// Identical to Q4_K DP4a once the weight is unpacked — q5 ∈ [0..31] fits in
+// signed int8 (always positive), so the dot interpretation is unchanged.
+//
+// Host may only dispatch supported full-token tiles with M and K aligned.
+
+#include "dp4a_compat.glsl"
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_control_flow_attributes : require
+
+const uint BM = 32u;
+const uint BK = 32u;
+const uint TM = 4u;
+const uint WG_SIZE = 64u;
+const uint TPR_M = BM / TM;  // 8
+
+layout(constant_id = 0) const uint SPEC_K = 0u;
+layout(constant_id = 1) const uint SPEC_BN = 32u;
+layout(constant_id = 3) const uint SPEC_BK_STEP = 1u;
+
+const uint BN = SPEC_BN;
+const uint BK_STEP = SPEC_BK_STEP;
+const uint TPR_N = WG_SIZE / TPR_M;  // 8
+const uint TN = BN / TPR_N;
+
+const uint Q5K_BLOCK_U32 = 44u;  // 176 bytes / 4
+// 8 packed uints (=32 int8) per BM/BN row, +1 pad uint so strided LDS reads in
+// the dot loop avoid bank conflicts on the 32-bank LDS.
+const uint SPACK = 9u;
+
+layout(local_size_x = WG_SIZE) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint N;
+    uint K;
+    uint stride_b_packed;  // per-column uints in packed activation = K/4
+    uint stride_b_scale;   // per-column vec2s (scale, dsum)         = K/32
+    uint stride_d;         // per-column floats in output             = M
+    uint a_offset;         // byte offset into the Q5_K weight SSBO
+    uint d_offset;         // float offset into output
+};
+
+layout(set = 0, binding = 0) readonly buffer MatA  { uint a_u32[]; };
+layout(set = 0, binding = 1) readonly buffer ActB  { uint b_packed[]; };
+layout(set = 0, binding = 2) readonly buffer SclB  { vec2 b_scale_dsum[]; };
+layout(set = 0, binding = 3) writeonly buffer MatD { float d_data[]; };
+
+shared uint  buf_a[BK_STEP * BM * SPACK];
+shared vec2  buf_a_fb[BK_STEP * BM];      // (factor, bias) per row
+shared uint  buf_b[BK_STEP * BN * SPACK];
+shared vec2  buf_b_sd[BK_STEP * BN];      // (scale, dsum)  per column
+
+void main() {
+    const uint tid = gl_LocalInvocationID.x;
+    const uint ir = gl_WorkGroupID.x;
+    const uint ic = gl_WorkGroupID.y;
+
+    const uint tiwr = tid % TPR_M;
+    const uint tiwc = tid / TPR_M;
+
+    float sums[TM][TN];
+    [[unroll]] for (uint m = 0u; m < TM; m++) {
+        [[unroll]] for (uint n = 0u; n < TN; n++) sums[m][n] = 0.0;
+    }
+
+    const uint a_base_u32 = a_offset / 4u;
+    const uint k_limit = (SPEC_K != 0u) ? SPEC_K : K;
+    const uint blocks_per_row = k_limit / 256u;
+    const uint b_stride_packed = (SPEC_K != 0u) ? (SPEC_K / 4u) : stride_b_packed;
+    const uint b_stride_scale = (SPEC_K != 0u) ? (SPEC_K / 32u) : stride_b_scale;
+
+    for (uint k_outer = 0u; k_outer < k_limit; k_outer += BK * BK_STEP) {
+        // ---- load Q5_K weights for the BM rows in this tile ----
+        [[unroll]] for (uint ks = 0u; ks < BK_STEP; ks++) {
+            const uint k_step_base = k_outer + ks * BK;
+            const uint super_block = k_step_base / 256u;
+            const uint sb_offset = k_step_base & 0xFFu;
+            const uint sb = sb_offset >> 5;         // 0..7 within the 256-block
+            const uint chunk = sb >> 1;             // 0..3
+            const uint nibble_choice = sb & 1u;     // 0 = low nibble, 1 = high nibble
+            const uint row_local = tid / 2u;
+            const uint tile_half = tid & 1u;          // 0 -> k 0..15, 1 -> k 16..31
+            const uint k_in_tile = tile_half * 16u;
+            const uint row_global = ir * BM + row_local;
+
+            const uint blk_u32 = a_base_u32
+                + row_global * blocks_per_row * Q5K_BLOCK_U32
+                + super_block * Q5K_BLOCK_U32;
+
+            // d, dmin from u32[0] (same as Q4_K).
+            uint d_dmin = a_u32[blk_u32];
+            float d_val = unpackHalf2x16(d_dmin & 0xFFFFu).x;
+            float dmin_val = unpackHalf2x16(d_dmin >> 16).x;
+
+            // 12 scale bytes packed into 3 u32 (identical encoding to Q4_K).
+            uint sc0 = a_u32[blk_u32 + 1u];
+            uint sc1 = a_u32[blk_u32 + 2u];
+            uint sc2 = a_u32[blk_u32 + 3u];
+            uint bytes[12];
+            bytes[0]  = sc0 & 0xFFu;
+            bytes[1]  = (sc0 >> 8) & 0xFFu;
+            bytes[2]  = (sc0 >> 16) & 0xFFu;
+            bytes[3]  = (sc0 >> 24) & 0xFFu;
+            bytes[4]  = sc1 & 0xFFu;
+            bytes[5]  = (sc1 >> 8) & 0xFFu;
+            bytes[6]  = (sc1 >> 16) & 0xFFu;
+            bytes[7]  = (sc1 >> 24) & 0xFFu;
+            bytes[8]  = sc2 & 0xFFu;
+            bytes[9]  = (sc2 >> 8) & 0xFFu;
+            bytes[10] = (sc2 >> 16) & 0xFFu;
+            bytes[11] = (sc2 >> 24) & 0xFFu;
+            float sc_val, mn_val;
+            if (sb < 4u) {
+                sc_val = float(bytes[sb] & 63u);
+                mn_val = float(bytes[sb + 4u] & 63u);
+            } else {
+                sc_val = float((bytes[sb + 4u] & 0xFu) | ((bytes[sb - 4u] >> 6) << 4));
+                mn_val = float(((bytes[sb + 4u] >> 4) & 0xFu) | ((bytes[sb] >> 6) << 4));
+            }
+            const float a_factor = d_val * sc_val;
+            const float a_bias = dmin_val * mn_val;
+
+            // qs region starts at u32[12] (the extra 4..11 u32s are qh, 32 bytes).
+            // Same chunk/k_in_tile addressing as Q4_K.
+            uint qs_byte_base = chunk * 32u + k_in_tile;
+            uint qs_u32_idx = blk_u32 + 12u + (qs_byte_base >> 2);
+
+            // qh region starts at u32[4]. Each byte covers one in-super-block
+            // position p ∈ [0..31]; bit sb of qh[p] is the high bit for element
+            // sb*32+p. For this half-tile (16 elements at positions
+            // k_in_tile..k_in_tile+15), we read 16 qh bytes = 4 u32.
+            uint qh_u32_idx = blk_u32 + 4u + (k_in_tile >> 2);
+
+            uint a_packed[4];
+            [[unroll]] for (uint w = 0u; w < 4u; w++) {
+                uint qs_word = a_u32[qs_u32_idx + w];
+                uint qh_word = a_u32[qh_u32_idx + w];
+                // Extract the chosen nibble from each byte (4 nibbles per word).
+                uint nib = (nibble_choice == 0u) ? (qs_word & 0x0F0F0F0Fu)
+                                                 : ((qs_word >> 4) & 0x0F0F0F0Fu);
+                // Per byte of qh_word, take bit `sb` and shift it to bit 4 (=16).
+                // The result is `nib_byte + 16 * hi_byte` packed lane-by-lane;
+                // q5 ∈ [0..31] fits in low 5 bits of each int8 lane.
+                uint hi_x16 = ((qh_word >> sb) & 0x01010101u) << 4u;
+                a_packed[w] = nib | hi_x16;
+            }
+            const uint base_a = ks * BM * SPACK + row_local * SPACK + tile_half * 4u;
+            [[unroll]] for (uint w = 0u; w < 4u; w++) buf_a[base_a + w] = a_packed[w];
+
+            // factor/bias is row-scalar — only one of the row's two threads
+            // needs to write it.
+            if (tile_half == 0u) {
+                buf_a_fb[ks * BM + row_local] = vec2(a_factor, a_bias);
+            }
+        }
+
+        // ---- load pre-quantized Q8_1 activation half-tile + (scale, dsum) ----
+        [[unroll]] for (uint ks = 0u; ks < BK_STEP; ks++) {
+            const uint k_step_base = k_outer + ks * BK;
+            const uint tile_half = tid & 1u;
+            const uint k_in_tile = tile_half * 16u;
+            [[unroll]] for (uint cbase = 0u; cbase < BN; cbase += 32u) {
+                const uint col_local = cbase + tid / 2u;
+                if (col_local < BN) {
+                    const uint col_global = ic * BN + col_local;
+                    const uint src = col_global * b_stride_packed + ((k_step_base + k_in_tile) >> 2);
+                    const uint base_b = ks * BN * SPACK + col_local * SPACK + tile_half * 4u;
+                    [[unroll]] for (uint w = 0u; w < 4u; w++) buf_b[base_b + w] = b_packed[src + w];
+                    if (tile_half == 0u) {
+                        buf_b_sd[ks * BN + col_local] = b_scale_dsum[col_global * b_stride_scale + (k_step_base >> 5)];
+                    }
+                }
+            }
+        }
+
+        barrier();
+
+        // ---- int8 dot4 accumulate ----
+        [[unroll]] for (uint ks = 0u; ks < BK_STEP; ks++) {
+            uint a_reg[TM][8];
+            vec2 a_fb_reg[TM];
+            [[unroll]] for (uint m = 0u; m < TM; m++) {
+                const uint wrow = ks * BM * SPACK + (tiwr * TM + m) * SPACK;
+                [[unroll]] for (uint p = 0u; p < 8u; p++) a_reg[m][p] = buf_a[wrow + p];
+                a_fb_reg[m] = buf_a_fb[ks * BM + tiwr * TM + m];
+            }
+            [[unroll]] for (uint n = 0u; n < TN; n++) {
+                const uint acol = ks * BN * SPACK + (tiwc * TN + n) * SPACK;
+                uint breg[8];
+                [[unroll]] for (uint p = 0u; p < 8u; p++) breg[p] = buf_b[acol + p];
+                const vec2 b_sd = buf_b_sd[ks * BN + tiwc * TN + n]; // (scale, dsum)
+                [[unroll]] for (uint m = 0u; m < TM; m++) {
+                    int a_isum = 0;
+                    [[unroll]] for (uint p = 0u; p < 8u; p++) {
+                        a_isum = dotPacked4x8AccSatEXT(int(a_reg[m][p]), int(breg[p]), a_isum);
+                    }
+                    // contribution = b_scale * factor * idot - bias * dsum.
+                    sums[m][n] += b_sd.x * a_fb_reg[m].x * float(a_isum)
+                                - a_fb_reg[m].y * b_sd.y;
+                }
+            }
+        }
+
+        barrier();
+    }
+
+    [[unroll]] for (uint m = 0u; m < TM; m++) {
+        [[unroll]] for (uint n = 0u; n < TN; n++) {
+            const uint row_g = ir * BM + tiwr * TM + m;
+            const uint col_g = ic * BN + tiwc * TN + n;
+            d_data[d_offset + col_g * stride_d + row_g] = sums[m][n];
+        }
+    }
+}

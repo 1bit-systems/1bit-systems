@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:    # manual runs (branch builds) — Create Release is guarded to tag-only so no junk release is published
+
+permissions:
+  contents: write
+
+jobs:
+  server:
+    name: Build release (Rust server + HIP kernels)
+    runs-on: ubuntu-24.04
+    container: rocm/dev-ubuntu-24.04:7.2.4-complete   # complete = all ROCm libs (rocwmma/CK/rocBLAS) so headers like rocwmma/rocwmma.hpp resolve
+    timeout-minutes: 60
+    steps:
+      # The stock ubuntu-24.04 runner's apt ROCm 7.2 repo is broken on noble
+      # (rocm-dev/hip-dev/composablekernel-dev all hit "held broken packages" — #100),
+      # so the release builds inside the official AMD ROCm image instead. That
+      # image ships /opt/rocm (HIP + amdclang), which CMakeLists.txt auto-detects
+      # via its system-ROCm fallback (L52-57). No apt ROCm install => no conflict.
+      # CK is optional in the build (skips ck_gemm.cpp if composable_kernel not found).
+      - name: Install build tools (git cmake ninja)
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq git cmake ninja-build build-essential
+      - uses: actions/checkout@v5
+      - name: Build HIP kernels + decode server
+        run: |
+          cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151
+          ninja -C build rocm_cpp bitnet_decode bench_prefill_variants
+
+      # ── Rust proxy (OpenAI-compatible HTTP frontend) ──
+      - uses: dtolnay/rust-toolchain@1.96.0
+      - name: Build + test Rust server
+        working-directory: rust
+        run: |
+          cargo build --release
+          cargo test --release
+
+      - name: Package
+        run: |
+          mkdir -p dist/bin dist/lib
+          # Rust HTTP frontend (spawns the decode server as a subprocess)
+          cp rust/target/release/onebit dist/bin/
+          # HIP/C++ inference engine + OpenAI-compatible decode server
+          cp build/bitnet_decode dist/bin/
+          cp build/librocm_cpp.so dist/lib/
+          cp build/bench_prefill_variants dist/bin/ || true
+          # Docs + install + license
+          cp install.sh dist/
+          cp README.md dist/
+          cp LICENSE dist/
+          cp LICENSE-SHERRY.md dist/
+          cp site/assets/logo.png dist/
+          # A loader script so `onebit` finds librocm_cpp.so + bitnet_decode
+          # next to the tarball without the user hand-setting LD_LIBRARY_PATH.
+          cat > dist/run.sh <<'EOF'
+          #!/usr/bin/env bash
+          set -e
+          HERE="$(cd "$(dirname "$0")" && pwd)"
+          export LD_LIBRARY_PATH="$HERE/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export PATH="$HERE/bin:$PATH"
+          # onebit spawns bitnet_decode --server internally as a subprocess.
+          # No need to pass --server here; all CLI args are forwarded.
+          exec "$HERE/bin/onebit" "$@"
+          EOF
+          chmod +x dist/run.sh
+          tar czf 1bit-linux-x86_64.tar.gz -C dist .
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')   # only on real tag pushes; skip manual workflow_dispatch runs
+        uses: softprops/action-gh-release@v2
+        with:
+          files: 1bit-linux-x86_64.tar.gz
+          generate_release_notes: true
+          prerelease: false
+          body: |
+            ## 1bit — Monorepo Release
+
+            Unified release: HIP/C++ kernels (`librocm_cpp.so` + `bitnet_decode`)
+            plus the Rust OpenAI-compatible HTTP frontend (`onebit`).
+
+            ### Includes
+            - `bin/onebit` — Rust HTTP frontend (spawns the decode server)
+            - `bin/bitnet_decode` — HIP/C++ inference engine + OpenAI server
+            - `lib/librocm_cpp.so` — ternary GEMV/GEMM kernels
+            - `run.sh` — launcher (sets LD_LIBRARY_PATH + PATH for you)
+            - install script, docs, license
+
+            ### Requires
+            - AMD Strix Halo (gfx1151)
+            - ROCm 7.2+ runtime (libhsa-runtime64) on the target machine
+            - A `.h1b` model file
+
+            ### Quick Start
+            ```bash
+            tar xzf 1bit-linux-x86_64.tar.gz
+            export HSA_OVERRIDE_GFX_VERSION=11.5.1
+            export HSA_ENABLE_SDMA=0
+            ./run.sh --model model.h1b --port 13305 --tune-prefill --fp16-weights
+            ```
+            Then point any OpenAI client at `http://127.0.0.1:13305/v1`.

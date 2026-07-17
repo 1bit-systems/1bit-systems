@@ -1,0 +1,57 @@
+name: Site Analytics
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * *'
+
+jobs:
+  analytics:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Cloudflare analytics
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          TOKEN="$CLOUDFLARE_API_TOKEN"
+          ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID"
+
+          echo "=== Project Info ==="
+          curl -s -H "Authorization: Bearer $TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/pages/projects/1bit-systems" | \
+            jq '{ name: .result.name, domains: .result.domains }'
+
+          echo ""
+          echo "=== Deployments (last 5) ==="
+          curl -s -H "Authorization: Bearer $TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/pages/projects/1bit-systems/deployments?per_page=5" | \
+            jq '[.result[]? | { created_on, url, latest_stage: ([.stages[]? | select(.ended_on == null) | .name] | first // "done") }]'
+
+          echo ""
+          echo "=== Web Analytics (last 7d) ==="
+          # Find zone ID for 1bit.systems
+          ZONE_ID=$(curl -s -H "Authorization: Bearer $TOKEN" \
+            "https://api.cloudflare.com/client/v4/zones?name=1bit.systems" | \
+            jq -r '.result[0].id // empty')
+
+          if [ -n "$ZONE_ID" ]; then
+            echo "Zone: 1bit.systems (ID: $ZONE_ID)"
+            curl -s -H "Authorization: Bearer $TOKEN" \
+              "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/analytics/dashboard?since=-2592000&continuous=true" | \
+              jq '{ 
+                visitors: .result.totals.uniques.all, 
+                page_views: .result.totals.pageviews.all, 
+                requests: .result.totals.requests.all,
+                bandwidth: .result.totals.bandwidth.all,
+                threats: .result.totals.threats.all
+              }'
+          else
+            echo "No zone found for 1bit.systems — analytics only on Cloudflare dashboard"
+          fi
+
+          echo ""
+          echo "=== Account-level summary ==="
+          curl -s -H "Authorization: Bearer $TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/pages/projects" | \
+            jq '[.result[]? | { name, subdomain, pages: (.pages // 0) }]'

@@ -1,0 +1,44 @@
+#version 460
+// Token-batched deinterleave: split per-head [Q(head_dim), gate(head_dim)]
+// blocks for n_tokens tokens into separate Q and gate buffers.
+//
+// Input layout per (token, head):
+//     [Q_0, Q_1, ..., Q_{hd-1}, gate_0, gate_1, ..., gate_{hd-1}]
+// Output layout per (token, head):
+//     Q:    [Q_0, Q_1, ..., Q_{hd-1}]
+//     gate: [gate_0, gate_1, ..., gate_{hd-1}]
+//
+// Dispatch grid: ((head_dim * n_heads + 63) / 64, n_tokens, 1)
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) readonly buffer Input { float x[]; };
+layout(set = 0, binding = 1) writeonly buffer OutQ { float q[]; };
+layout(set = 0, binding = 2) writeonly buffer OutG { float g[]; };
+
+layout(push_constant) uniform PC {
+    uint head_dim;
+    uint n_heads;
+};
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint token = gl_GlobalInvocationID.y;
+    uint total = head_dim * n_heads;
+    if (i >= total) return;
+
+    uint head = i / head_dim;
+    uint dim = i % head_dim;
+
+    uint in_token_stride = 2u * head_dim * n_heads;
+    uint out_token_stride = head_dim * n_heads;
+
+    uint head_base = head * head_dim * 2u;
+    uint in_idx_q = token * in_token_stride + head_base + dim;
+    uint in_idx_g = in_idx_q + head_dim;
+
+    uint out_idx = token * out_token_stride + i;
+
+    q[out_idx] = x[in_idx_q];
+    g[out_idx] = x[in_idx_g];
+}

@@ -1,0 +1,39 @@
+#version 460
+// Batched route-major MoE weighted accumulate.
+//
+// src is laid out as [(token * k + slot) * hidden_dim + i].
+// routing is token-major softmax_topk output with ids first, then weights.
+// accum is token-major hidden and may start at accum_token_base.
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) buffer Accum { float accum[]; };
+layout(set = 0, binding = 1) readonly buffer Src { float src[]; };
+layout(set = 0, binding = 2) readonly buffer Routing { uint routing[]; };
+
+layout(push_constant) uniform PC {
+    uint hidden_dim;
+    uint n_tokens;
+    uint n_used;
+    uint routing_stride;
+    uint routing_token_base;
+    uint accum_token_base;
+};
+
+void main() {
+    const uint i = gl_GlobalInvocationID.x;
+    const uint tok = gl_WorkGroupID.y;
+    if (i >= hidden_dim || tok >= n_tokens) {
+        return;
+    }
+
+    const uint route_base = tok * n_used;
+    const uint routing_base = (routing_token_base + tok) * routing_stride;
+    float sum = 0.0;
+    for (uint slot = 0u; slot < n_used; slot++) {
+        const float weight = uintBitsToFloat(routing[routing_base + n_used + slot]);
+        sum += weight * src[(route_base + slot) * hidden_dim + i];
+    }
+
+    accum[(accum_token_base + tok) * hidden_dim + i] += sum;
+}

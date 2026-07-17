@@ -1,0 +1,57 @@
+#version 460
+// ZINC - vec4 fused RMS norm + residual accumulate.
+//
+// Semantics match rms_norm_add.comp:
+//   hidden[i] += weights[i] * src[i] * rsqrt(mean(src^2) + eps)
+//
+// This sibling processes four contiguous f32 values per lane iteration for
+// dimensions divisible by 4, reducing scalar load/store and loop overhead in
+// Gemma decode post-norm tails.
+
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(local_size_x = 64) in;
+
+layout(push_constant) uniform PushConstants {
+    uint n;
+    float eps;
+};
+
+layout(set = 0, binding = 0) buffer Hidden { vec4 hidden_v4[]; };
+layout(set = 0, binding = 1) readonly buffer Src { vec4 src_v4[]; };
+layout(set = 0, binding = 2) readonly buffer Weights { vec4 weights_v4[]; };
+
+shared float s_partial[64];
+
+void main() {
+    const uint tid = gl_LocalInvocationID.x;
+    const uint token = gl_WorkGroupID.x;
+    const uint n4 = n >> 2u;
+    const uint base4 = token * n4;
+
+    float sum_sq = 0.0;
+    for (uint i = tid; i < n4; i += 64u) {
+        const vec4 s = src_v4[base4 + i];
+        sum_sq += dot(s, s);
+    }
+
+    float total = subgroupAdd(sum_sq);
+    if (gl_NumSubgroups > 1u) {
+        if (gl_SubgroupInvocationID == 0u) s_partial[gl_SubgroupID] = total;
+        barrier();
+        if (tid == 0u) {
+            float merged = 0.0;
+            for (uint sg = 0u; sg < gl_NumSubgroups; sg++) merged += s_partial[sg];
+            s_partial[0] = merged;
+        }
+        barrier();
+        total = s_partial[0];
+    }
+
+    const float rms_inv = inversesqrt((total / float(n)) + eps);
+
+    for (uint i = tid; i < n4; i += 64u) {
+        const uint idx = base4 + i;
+        hidden_v4[idx] += weights_v4[i] * src_v4[idx] * rms_inv;
+    }
+}

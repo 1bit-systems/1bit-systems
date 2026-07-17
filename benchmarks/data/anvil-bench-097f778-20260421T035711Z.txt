@@ -1,0 +1,8 @@
+N=   64  [bitnet_decode] prefill 8 tok in 255.17 ms (31.4 tok/s) [pos=8]
+[bitnet_decode] decode 64 tok in 1617.18 ms (25.27 ms/tok, 39.6 tok/s)
+N=  256  [bitnet_decode] prefill 8 tok in 249.41 ms (32.1 tok/s) [pos=8]
+[bitnet_decode] decode 256 tok in 4398.74 ms (17.18 ms/tok, 58.2 tok/s)
+N=  512  [bitnet_decode] prefill 8 tok in 89.59 ms (89.3 tok/s) [pos=8]
+[bitnet_decode] decode 512 tok in 8627.71 ms (16.85 ms/tok, 59.3 tok/s)
+N= 1024  [bitnet_decode] prefill 8 tok in 90.52 ms (88.4 tok/s) [pos=8]
+[bitnet_decode] decode 1024 tok in 17923.47 ms (17.50 ms/tok, 57.1 tok/s)

@@ -1,0 +1,75 @@
+#version 460
+// ZINC - top-1 MoE router fast path.
+//
+// For k=1, selected-only softmax normalization always produces weight 1.0.
+// This shader therefore only finds the argmax expert and writes the compact
+// router layout used by the MoE DMMV kernels:
+//   output_data[0] = expert_id
+//   output_data[1] = floatBitsToUint(1.0)
+
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) readonly buffer Logits {
+    float logits[];
+};
+
+layout(set = 0, binding = 1) buffer RouterOutput {
+    uint output_data[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint n_experts;
+    uint k;
+    uint scale_bits;
+};
+
+const uint MAX_PER_THREAD = 4u;
+
+shared uint s_subgroup_winner[4];
+shared uint s_global_winner;
+
+uint sortable(float f) {
+    uint ui = floatBitsToUint(f);
+    return (ui & 0x80000000u) != 0u ? ~ui : (ui ^ 0x80000000u);
+}
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+
+    float best_val = -1.0 / 0.0;
+    uint best_idx = 0u;
+    for (uint i = 0u; i < MAX_PER_THREAD; i++) {
+        uint idx = tid + i * 64u;
+        if (idx < n_experts) {
+            float v = logits[idx];
+            if (v > best_val) {
+                best_val = v;
+                best_idx = idx;
+            }
+        }
+    }
+
+    uint packed = (sortable(best_val) & 0xFFFFFF00u) | (255u - (best_idx & 0xFFu));
+    uint subgroup_winner = subgroupMax(packed);
+    if (subgroupElect()) {
+        s_subgroup_winner[gl_SubgroupID] = subgroup_winner;
+    }
+    barrier();
+
+    if (tid == 0u) {
+        uint winner = s_subgroup_winner[0];
+        for (uint sg = 1u; sg < gl_NumSubgroups; sg++) {
+            winner = max(winner, s_subgroup_winner[sg]);
+        }
+        s_global_winner = winner;
+    }
+    barrier();
+
+    if (tid == 0u) {
+        output_data[0] = 255u - (s_global_winner & 0xFFu);
+        output_data[1] = floatBitsToUint(1.0);
+    }
+}

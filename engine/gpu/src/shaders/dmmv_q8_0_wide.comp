@@ -1,0 +1,100 @@
+#version 460
+// ZINC - Q8_0 wide-vocab matrix-vector multiply.
+//
+// LM-head specialization for very tall Q8_0 matrices. It keeps the generic
+// shader's two output rows per workgroup, but loads each vec4 chunk of the
+// input vector once and reuses it for both rows.
+
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_EXT_shader_16bit_storage : require
+
+layout(local_size_x = 64) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+    uint a_offset;
+    uint x_offset;
+    uint y_offset;
+    uint acc_mode;
+};
+
+layout(set = 0, binding = 0) readonly buffer MatrixA { uint8_t a_data[]; };
+layout(set = 0, binding = 1) readonly buffer VectorX { vec4 x_data[];    };
+layout(set = 0, binding = 2) buffer VectorY { float y_data[];  };
+
+const uint Q8_0_BLOCK_SIZE = 32u;
+const uint Q8_0_BYTES = 34u;
+
+shared float s_sum0[4];
+shared float s_sum1[4];
+
+ivec4 load_q8_ivec4(uint qs_off, uint i) {
+    const uint q_off = qs_off + i * 4u;
+    return ivec4(
+        int(int8_t(a_data[q_off + 0u])),
+        int(int8_t(a_data[q_off + 1u])),
+        int(int8_t(a_data[q_off + 2u])),
+        int(int8_t(a_data[q_off + 3u]))
+    );
+}
+
+void main() {
+    const uint tid = gl_LocalInvocationID.x;
+    const uint row0 = gl_WorkGroupID.x * 2u;
+    const uint row1 = row0 + 1u;
+    const uint blocks_per_row = K / Q8_0_BLOCK_SIZE;
+    const uint row_stride_bytes = blocks_per_row * Q8_0_BYTES;
+
+    float sum0 = 0.0;
+    float sum1 = 0.0;
+
+    for (uint blk = tid; blk < blocks_per_row; blk += 64u) {
+        const uint x_base_v4 = x_offset / 16u + blk * 8u;
+
+        const uint byte_off0 = a_offset + row0 * row_stride_bytes + blk * Q8_0_BYTES;
+        const uint byte_off1 = a_offset + row1 * row_stride_bytes + blk * Q8_0_BYTES;
+        const float d0 = (row0 < M) ? unpackHalf2x16(uint(a_data[byte_off0]) | (uint(a_data[byte_off0 + 1u]) << 8)).x : 0.0;
+        const float d1 = (row1 < M) ? unpackHalf2x16(uint(a_data[byte_off1]) | (uint(a_data[byte_off1 + 1u]) << 8)).x : 0.0;
+        const uint qs0 = byte_off0 + 2u;
+        const uint qs1 = byte_off1 + 2u;
+
+        for (uint i = 0u; i < 8u; i++) {
+            const vec4 xv = x_data[x_base_v4 + i];
+            if (row0 < M) sum0 += d0 * dot(vec4(load_q8_ivec4(qs0, i)), xv);
+            if (row1 < M) sum1 += d1 * dot(vec4(load_q8_ivec4(qs1, i)), xv);
+        }
+    }
+
+    sum0 = subgroupAdd(sum0);
+    sum1 = subgroupAdd(sum1);
+
+    if (gl_NumSubgroups > 1u) {
+        if (subgroupElect()) {
+            s_sum0[gl_SubgroupID] = sum0;
+            s_sum1[gl_SubgroupID] = sum1;
+        }
+        barrier();
+        if (tid == 0u) {
+            sum0 = s_sum0[0];
+            sum1 = s_sum1[0];
+            for (uint sg = 1u; sg < gl_NumSubgroups; sg++) {
+                sum0 += s_sum0[sg];
+                sum1 += s_sum1[sg];
+            }
+        }
+    }
+
+    if (tid == 0u) {
+        const uint y_base = y_offset / 4u;
+        if (acc_mode != 0u) {
+            if (row0 < M) y_data[y_base + row0] += sum0;
+            if (row1 < M) y_data[y_base + row1] += sum1;
+        } else {
+            if (row0 < M) y_data[y_base + row0] = sum0;
+            if (row1 < M) y_data[y_base + row1] = sum1;
+        }
+    }
+}

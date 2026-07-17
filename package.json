@@ -1,0 +1,65 @@
+{
+  "name": "1bit-systems",
+  "version": "2026.07.16",
+  "description": "1bit — terminal coding agent (based on pi) for the 1bit.systems NPU+GPU+CPU inference stack.",
+  "type": "module",
+  "bin": {
+    "1bit": "dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "daemon",
+    "extensions",
+    "skills",
+    "prompts",
+    "themes",
+    "docs"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "watch": "tsc --watch",
+    "start": "node dist/cli.js"
+  },
+  "keywords": [
+    "1bit",
+    "coding-agent",
+    "ai",
+    "npu",
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts"
+    ],
+    "themes": [
+      "./themes"
+    ],
+    "configDir": ".pi"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "^0.80.3",
+    "@earendil-works/pi-ai": "^0.80.3",
+    "@earendil-works/pi-tui": "^0.80.3",
+    "chalk": "^5.6.2",
+    "minimatch": "^10.2.5",
+    "semver": "^7.8.0",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.4",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "license": "MIT"
+}

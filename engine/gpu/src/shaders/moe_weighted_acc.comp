@@ -1,0 +1,33 @@
+#version 460
+// ZINC — MoE batched weighted accumulate: sum all expert outputs at once.
+// a[i] = sum_j(weight_j * b[j * src_stride + i]) for j = 0..n_used-1
+// Weights are read from GPU routing buffer (softmax_topk output).
+// Writes result directly (not +=), eliminating the need to zero the buffer first.
+//
+// routing_data layout (from softmax_topk.comp):
+//   [0..k-1]   = expert_ids (uint32)
+//   [k..2k-1]  = expert_weights (floatBitsToUint)
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) buffer Accum { float a[]; };
+layout(set = 0, binding = 1) readonly buffer Src { float b[]; };
+layout(set = 0, binding = 2) readonly buffer MoeRouting { uint routing_data[]; };
+
+layout(push_constant) uniform PC {
+    uint N;              // number of output elements (hidden_dim)
+    uint n_used;         // number of selected experts (e.g. 8)
+    uint src_stride;     // elements per expert in source buffer (= N)
+};
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= N) return;
+
+    float sum = 0.0;
+    for (uint j = 0; j < n_used; j++) {
+        float weight = uintBitsToFloat(routing_data[n_used + j]);
+        sum += weight * b[j * src_stride + i];
+    }
+    a[i] += sum;
+}

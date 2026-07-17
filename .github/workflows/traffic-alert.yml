@@ -1,0 +1,164 @@
+name: Traffic Alert
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 8 * * *'   # daily at 8AM UTC
+
+# Minimal built-in token: this workflow only needs to create spike issues.
+# The GitHub Traffic API requires push-level access, but instead of elevating
+# the built-in GITHUB_TOKEN to `contents: write` on a schedule-triggered
+# workflow (a supply-chain risk — see issue #159), we read traffic with a
+# fine-grained PAT (secrets.TRAFFIC_PAT) scoped to `Administration: read` /
+# traffic only. The built-in token keeps its least-privilege scope below.
+permissions:
+  issues: write
+  contents: read   # downgraded from write — use TRAFFIC_PAT secret for API
+  pull-requests: read
+
+jobs:
+  check-traffic:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch GitHub Traffic Data
+        id: traffic
+        env:
+          GH_TOKEN: ${{ secrets.TRAFFIC_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -z "${{ secrets.TRAFFIC_PAT }}" ]; then
+            echo "::warning::TRAFFIC_PAT not set — falling back to GITHUB_TOKEN (may lack traffic permissions)"
+          fi
+          # Use github.repository (always available) and extract the repo name
+          OWNER="${GITHUB_REPOSITORY_OWNER}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+          API="https://api.github.com/repos/$OWNER/$REPO/traffic"
+
+          # --- Clones ---
+          # Fetch traffic data. Fail loudly if API returns empty (likely permissions issue).
+          CLONE_RESP=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$API/clones") || { echo "::error::Traffic API (clones) failed — check GITHUB_TOKEN permissions (need push-level access)"; exit 1; }
+          echo "DEBUG: clone response: $(echo "$CLONE_RESP" | head -c 200)"
+          CLONE_COUNT=$(echo "$CLONE_RESP" | jq '.count // 0')
+          CLONE_UNIQUES=$(echo "$CLONE_RESP" | jq '.uniques // 0')
+
+          # Last 2 days
+          LEN=$(echo "$CLONE_RESP" | jq '.clones | length')
+          if [ "$LEN" -ge 2 ]; then
+            YESTERDAY=$(echo "$CLONE_RESP" | jq '.clones[-2].count // 0')
+            YESTERDAY_UNIQ=$(echo "$CLONE_RESP" | jq '.clones[-2].uniques // 0')
+          else
+            YESTERDAY=0; YESTERDAY_UNIQ=0
+          fi
+          if [ "$LEN" -ge 3 ]; then
+            DAY_BEFORE=$(echo "$CLONE_RESP" | jq '.clones[-3].count // 0')
+          else
+            DAY_BEFORE=0
+          fi
+
+          # --- Views ---
+          VIEW_RESP=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$API/views") || { echo "::warning::Traffic API (views) failed"; VIEW_RESP='{}'; }
+          VIEW_COUNT=$(echo "$VIEW_RESP" | jq '.count // 0')
+          VIEW_UNIQUES=$(echo "$VIEW_RESP" | jq '.uniques // 0')
+
+          # --- Referrers ---
+          REF_JSON=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$API/popular/referrers") || REF_JSON='[]'
+          TOP_REF=$(echo "$REF_JSON" | jq -r '.[0] | "\(.referrer): \(.count) (\(.uniques) unique)" // "none"')
+
+          # --- Top paths ---
+          PATH_JSON=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$API/popular/paths") || PATH_JSON='[]'
+          TOP_PATH=$(echo "$PATH_JSON" | jq -r '.[0] | "\(.path) — \(.count) views" // "none"')
+
+          # --- Spike detection ---
+          SPIKE=false
+          SPIKE_MSG=""
+          if [ "$YESTERDAY" -gt 0 ] && [ "$DAY_BEFORE" -gt 0 ]; then
+            RATIO=$(( YESTERDAY / DAY_BEFORE ))
+            if [ "$RATIO" -ge 3 ]; then
+              SPIKE=true
+              SPIKE_MSG="SPIKE: ${YESTERDAY} clones yesterday vs ${DAY_BEFORE} day before (${RATIO}x increase)"
+            fi
+          fi
+          if [ "$YESTERDAY" -gt 200 ]; then
+            SPIKE=true
+            SPIKE_MSG="${SPIKE_MSG} HIGH_VOLUME: ${YESTERDAY} clones in a single day"
+          fi
+
+          # --- Save outputs (use delimiter only when non-empty) ---
+          {
+            echo "CLONE_14D=$CLONE_COUNT"
+            echo "CLONE_UNIQUES_14D=$CLONE_UNIQUES"
+            echo "CLONE_YESTERDAY=$YESTERDAY"
+            echo "CLONE_YESTERDAY_UNIQ=$YESTERDAY_UNIQ"
+            echo "VIEW_14D=$VIEW_COUNT"
+            echo "VIEW_UNIQUES_14D=$VIEW_UNIQUES"
+            echo "TOP_REFERRER=$TOP_REF"
+            echo "TOP_PATH=$TOP_PATH"
+            echo "SPIKE=$SPIKE"
+            echo "SPIKE_MSG<<SPIKE_EOF"
+            echo "$SPIKE_MSG"
+            echo "SPIKE_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Report to Job Summary
+        env:
+          C: ${{ steps.traffic.outputs.CLONE_14D }}
+          CU: ${{ steps.traffic.outputs.CLONE_UNIQUES_14D }}
+          CY: ${{ steps.traffic.outputs.CLONE_YESTERDAY }}
+          CYU: ${{ steps.traffic.outputs.CLONE_YESTERDAY_UNIQ }}
+          V: ${{ steps.traffic.outputs.VIEW_14D }}
+          VU: ${{ steps.traffic.outputs.VIEW_UNIQUES_14D }}
+          REF: ${{ steps.traffic.outputs.TOP_REFERRER }}
+          PATH: ${{ steps.traffic.outputs.TOP_PATH }}
+          SPIKE: ${{ steps.traffic.outputs.SPIKE }}
+          SPIKE_MSG: ${{ steps.traffic.outputs.SPIKE_MSG }}
+        run: |
+          echo "## Traffic Report — ${GITHUB_REPOSITORY}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Clones (14d) | $C ($CU unique) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Yesterday | $CY clones ($CYU unique) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Views (14d) | $V ($VU unique) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Top referrer | $REF |" >> $GITHUB_STEP_SUMMARY
+          echo "| Top path | $PATH |" >> $GITHUB_STEP_SUMMARY
+          echo "| Spike detected | $SPIKE |" >> $GITHUB_STEP_SUMMARY
+          if [ "$SPIKE" = "true" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Alert: $SPIKE_MSG" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Create Spike Issue
+        if: steps.traffic.outputs.SPIKE == 'true'
+        env:
+          # Issue creation uses the built-in token (issues: write is enough).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CY: ${{ steps.traffic.outputs.CLONE_YESTERDAY }}
+          CYU: ${{ steps.traffic.outputs.CLONE_YESTERDAY_UNIQ }}
+        run: |
+          # Ensure the label exists
+          gh label create traffic-spike 2>/dev/null || true
+          EXISTING=$(gh issue list --label traffic-spike --state open --json number --jq 'length')
+          if [ "$EXISTING" -gt 0 ]; then
+            echo "Spike issue already open — skipping"
+            exit 0
+          fi
+          {
+            echo "## Traffic Spike Detected"
+            echo ""
+            echo "**Yesterday:** $CY clones ($CYU unique)"
+            echo ""
+            echo "Please investigate the source and update README / docs accordingly."
+            echo ""
+            echo "Report: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } > /tmp/spike_body.md
+          gh issue create \
+            --title "Traffic spike: $CY clones ($CYU unique) yesterday" \
+            --label traffic-spike \
+            --body-file /tmp/spike_body.md

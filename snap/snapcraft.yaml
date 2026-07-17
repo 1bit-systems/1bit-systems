@@ -1,0 +1,26 @@
+name: 1bit-systems
+version: '2026.07.16'
+summary: 50 TOPS INT8 NPU inference engine for AMD Strix Halo
+description: |
+  Pure native inference for AMD Strix Halo. Qwen3-0.6B at 244 ms/tok
+  on XDNA 2 NPU. Three engines — NPU + 1-bit GPU + Vulkan GPU.
+  Zero Python at runtime. One C++23 binary.
+
+grade: stable
+confinement: classic
+base: core
+
+apps:
+  npu:
+    command: bin/1bit-npu
+  server:
+    command: bin/1bit-server
+    daemon: simple
+
+parts:
+  binaries:
+    plugin: dump
+    source: packaging/binary
+    organize:
+      1bit-npu: bin/1bit-npu
+      1bit-server: bin/1bit-server

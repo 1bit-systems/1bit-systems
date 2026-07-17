@@ -1,0 +1,64 @@
+# Strix Halo Model Catalog
+
+Models fine-tuned and optimized for **AMD Ryzen AI Max+ 395 (Strix Halo)** with
+ROCm TheRock 7.15a. Every model in this catalog is tested on the 1bit.systems
+inference engine and achieves verified performance on this hardware.
+
+## Zyphra Family
+
+| Model | Base | Params | Format | Strix Halo Performance | Status |
+|-------|------|--------|--------|----------------------|--------|
+| Zamba2-1.2B-Strix | Zyphra/Zamba2-1.2B | 0.71B | Q4_0 GGUF | ~1800 tok/s GEMV | ✅ Training |
+| Zamba2-2.7B-Strix | Zyphra/Zamba2-2.7B | 2.7B | Q4_0 GGUF | ~900 tok/s GEMV | 🔲 Planned |
+| Zamba2-7B-Strix | Zyphra/Zamba2-7B | 7B | Q4_0 GGUF | ~350 tok/s GEMV | 🔲 Planned |
+| **ZR1-1.5B-Strix** 🏆 | Zyphra/ZR1-1.5B | 1.5B | LoRA adapter | 1.86s/it training | ✅ **Done** |
+| Zamba2-1.2B-Strix | Zyphra/Zamba2-1.2B | 0.71B | Q4_0 GGUF | ~1800 tok/s GEMV | ⚠️ Mamba2 ROCm-limited |
+| Zamba2-2.7B-Strix | Zyphra/Zamba2-2.7B | 2.7B | Q4_0 GGUF | ~900 tok/s GEMV | 🔲 Planned |
+| Zamba2-7B-Strix | Zyphra/Zamba2-7B | 7B | Q4_0 GGUF | ~350 tok/s GEMV | 🔲 Planned |
+| Zaya1-8B-Strix | Proprietary | 8B | Q4_K_M GGUF | ~64 tok/s decode | ✅ Available |
+
+## How to Use
+
+```bash
+# Download a model
+huggingface-cli download bong-water-water-bong/Zamba2-1.2B-Strix --local-dir models/
+
+# Run with 1bit.systems engine
+./build/run_zamba2 models/zamba2-1.2b-strix-q4_0.gguf "Your prompt here"
+
+# Or via llama.cpp
+llama-cli -m models/zamba2-1.2b-strix-q4_0.gguf -p "Your prompt here"
+```
+
+## Fine-Tuning Pipeline
+
+All models are fine-tuned on **AMD ROCm TheRock 7.15a** using PyTorch 2.11 + PEFT LoRA.
+
+### ZR1-1.5B (standard attention — recommended)
+```bash
+# Fine-tune ZR1-1.5B (200 steps, Alpaca instruct, 6.2 min on Strix Halo)
+source /opt/rocm-therock/activate.sh
+source /tmp/therock-train/bin/activate
+python scripts/finetune_zr1.py
+
+# Push to Hugging Face
+bash scripts/push_to_hub.sh ZR1-1.5B-Strix /tmp/zr1-1.5b-finetune
+```
+
+### Zamba2 (Mamba2 — ROCm fallback, slow)
+```bash
+# Fine-tune Zamba2-1.2B (200 steps, ~3 hours on Strix Halo)
+bash scripts/finetune_zamba2.sh 1.2b
+```
+
+> **Note:** Zamba2 uses Mamba2 SSD layers which lack optimized ROCm kernels.
+> The PyTorch fallback is 73× slower than standard attention.
+> For best ROCm performance, use ZR1-1.5B (Qwen2 arch) instead.
+
+## Hardware
+
+- **CPU**: AMD Ryzen AI Max+ 395 (32 threads, Zen 5)
+- **GPU**: Radeon 8060S (gfx1151, RDNA 3.5, 128 GB unified memory)
+- **NPU**: AMD XDNA 2 (40 columns unlocked)
+- **ROCm**: TheRock 7.15.0a (Clang 23.0.0)
+- **RAM**: 128 GB unified LPDDR5X

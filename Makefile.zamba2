@@ -1,0 +1,77 @@
+# Makefile.zamba2 — Standalone Zamba2 build (no ROCm/HIP required)
+# Builds the CPU reference implementation for testing on any platform.
+#
+# Usage:
+#   make -f Makefile.zamba2
+#   ./build/run_zamba2 model.gguf "Your prompt"
+
+CXX ?= g++
+CXXFLAGS ?= -std=c++17 -O3 -march=native -flto
+CXXFLAGS += -Wall -Wextra -Wno-unused-parameter
+LDFLAGS ?= -flto
+
+BUILD_DIR = build
+SRC_DIR = src
+TOOLS_DIR = tools
+
+# Sources
+MAMBA2_SRCS = $(SRC_DIR)/mamba2_kernels.cpp $(SRC_DIR)/zamba2_engine.cpp
+TOOL_SRCS = $(TOOLS_DIR)/run_zamba2.cpp
+ALL_SRCS = $(MAMBA2_SRCS) $(TOOL_SRCS)
+
+# Objects
+MAMBA2_OBJS = $(MAMBA2_SRCS:$(SRC_DIR)/%.cpp=$(BUILD_DIR)/%.o)
+TOOL_OBJS = $(TOOL_SRCS:$(TOOLS_DIR)/%.cpp=$(BUILD_DIR)/%.o)
+ALL_OBJS = $(MAMBA2_OBJS) $(TOOL_OBJS)
+
+# Targets
+TARGET = $(BUILD_DIR)/run_zamba2
+
+all: $(BUILD_DIR) $(TARGET)
+
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp $(SRC_DIR)/mamba2_kernels.h $(SRC_DIR)/zamba2_engine.h
+	$(CXX) $(CXXFLAGS) -I. -I$(SRC_DIR) -c $< -o $@
+
+$(BUILD_DIR)/%.o: $(TOOLS_DIR)/%.cpp
+	$(CXX) $(CXXFLAGS) -I. -I$(SRC_DIR) -c $< -o $@
+
+$(TARGET): $(ALL_OBJS)
+	$(CXX) $(LDFLAGS) -o $@ $^ -lm
+	@echo ""
+	@echo "╔══════════════════════════════════════╗"
+	@echo "║   Zamba2 build complete              ║"
+	@echo "╠══════════════════════════════════════╣"
+	@echo "║  ./$(TARGET) <model.gguf> [prompt]   ║"
+	@echo "╚══════════════════════════════════════╝"
+
+# ZR1-1.5B test (Qwen2 arch, should work via llama.cpp today)
+test-zr1:
+	@echo "=== ZR1-1.5B Test ==="
+	@echo "This model is standard Qwen2 architecture."
+	@echo "Run it via llama.cpp (already in your benchmarks at 229 tok/s):"
+	@echo "  llama-cli -m models/Zyphra_ZR1-1.5B-Q4_K_M.gguf -p 'Hello'"
+
+# Quick download + test
+demo: $(BUILD_DIR)
+	@mkdir -p models
+	@echo "Downloading Zamba2-2.7B Q4_0..."
+	@bash scripts/download_zamba2.sh zamba2-2.7b q4_0
+	@echo ""
+	@echo "Running model..."
+	@$(TARGET) models/zamba2-2.7b-instruct-v2-q4_0.gguf "Hello, how are you?"
+
+# Zamba2 performance benchmark (runs N tokens, reports tok/s)
+bench: $(TARGET)
+	@echo "Benchmarking Zamba2..."
+	@for model in models/*.gguf; do \
+		echo "--- $$model ---"; \
+		time $(TARGET) "$$model" "Once upon a time" 2>&1 | grep -E "Speed|Tokens generated"; \
+	done
+
+clean:
+	rm -rf $(BUILD_DIR)
+
+.PHONY: all clean test-zr1 demo bench

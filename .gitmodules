@@ -1,0 +1,3 @@
+[submodule "integrations/lemon-mlx-engine"]
+	path = integrations/lemon-mlx-engine
+	url = https://github.com/lemonade-sdk/lemon-mlx-engine.git
