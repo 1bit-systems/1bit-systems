@@ -14,11 +14,11 @@ SIGNAL_SCRIPT="${HOME}/scripts/signal-agent-awareness.sh"
 TIMESTAMP="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 DATE_STR="$(date -u '+%Y-%m-%d')"
 
-mkdir -p "$(dirname "$AWARENESS_FILE")"
-echo "📊 JARVIS Analytics Sweep — $DATE_STR"
-
 # Export so python3 heredoc can read them
 export TIMESTAMP DATE_STR AWARENESS_FILE
+
+mkdir -p "$(dirname "$AWARENESS_FILE")" "$ANALYTICS_DIR"
+echo "📊 JARVIS Analytics Sweep — $DATE_STR"
 
 # Run analytics to temp files (strip ANSI codes)
 GH_TMP="/tmp/jarvis-gh-output.txt"

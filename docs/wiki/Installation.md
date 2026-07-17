@@ -39,8 +39,18 @@ cd 1bit-systems
 ./install.sh          # warns on a 6.19.x kernel; use --skip-rocm to reuse prebuilt libs
 ```
 
+## ⚠️ NPU 40-column unlock
+
+On Strix Halo the NPU defaults to **8 columns** (32 tiles). To unlock the
+full **40 columns** (160 tiles) without disabling Secure Boot, pass
+`amdxdna.aie2_max_col=40` via the kernel command line in GRUB.
+
+See the [full boot configuration guide](boot-configuration.md) for
+step-by-step instructions.
+
 ## See also
 
 - [Getting Started](../getting-started.md)
 - [Building from source](../building.md)
+- [Boot Configuration](boot-configuration.md) — 40-column NPU unlock
 - [Network Topology](Network-Topology.md)
