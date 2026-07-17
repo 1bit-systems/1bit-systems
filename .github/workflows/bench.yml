@@ -3,14 +3,14 @@ name: NPU Benchmark
 on:
   workflow_dispatch:
     inputs:
-      prefill_tokens:
-        description: 'Prefill tokens (M)'
+      model_path:
+        description: 'Path to Q4NX model file'
         required: false
-        default: '9'
+        default: ''
       decode_tokens:
         description: 'Decode tokens to generate'
         required: false
-        default: '4'
+        default: '32'
   push:
     paths:
       - 'engine/npu/src/**'
@@ -52,20 +52,41 @@ jobs:
           # with main() is npu_engine_all.cpp
           g++ -std=c++23 -O3 -march=native -fopenmp -ffast-math \
             -o engine/npu/build/npu_engine_v12 \
-            engine/npu/src/npu_engine_all.cpp engine/npu/build/dequant_q4nx.o \
-            -I/opt/xrt/include -L/opt/xrt/lib -lxrt_coreutil -luuid -lm -ldl
+            engine/npu/src/npu_engine_universal.cpp engine/npu/build/dequant_q4nx.o \
+            -I/opt/xrt/include -Iengine/npu -I. \
+            -L/opt/xrt/lib -lxrt_coreutil -luuid -lm -ldl
 
       - name: Benchmark
         if: env.DRIVER_OK == 'true'
         env:
-          PRE: ${{ github.event.inputs.prefill_tokens || '9' }}
-          DEC: ${{ github.event.inputs.decode_tokens || '4' }}
+          MODEL_PATH: ${{ github.event.inputs.model_path || '' }}
+          DEC: ${{ github.event.inputs.decode_tokens || '32' }}
         run: |
-          M=$PRE; N=$DEC
+          # Auto-detect model if not specified
+          if [ -z "$MODEL_PATH" ]; then
+            for candidate in \
+              "$HOME/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx" \
+              "$HOME/.config/flm/models/Qwen3-1.7B-NPU2/model.q4nx" \
+              "$HOME/.config/flm/models/Qwen3-4B-NPU2/model.q4nx" \
+              "$HOME/models/qwen3-0.6b.q4nx" \
+              "$HOME/models/zaya1-8b.q4nx"; do
+              if [ -f "$candidate" ]; then
+                MODEL_PATH="$candidate"
+                echo "Auto-detected model: $MODEL_PATH"
+                break
+              fi
+            done
+          fi
+          if [ -z "$MODEL_PATH" ] || [ ! -f "$MODEL_PATH" ]; then
+            echo "::error::No Q4NX model found. Pass model_path via workflow_dispatch or place a .q4nx model on the runner."
+            exit 1
+          fi
+          N=$DEC
           echo "=== NPU Benchmark $(date -u) ==="
-          echo "Prefill tokens: $M, Decode tokens: $N"
+          echo "Model: $MODEL_PATH"
+          echo "Decode tokens: $N"
           cd engine/npu/build
-          OMP_NUM_THREADS=16 ./npu_engine_v12 $M $N 2>&1 | tee benchmark.log
+          OMP_NUM_THREADS=16 ./npu_engine_v12 "$MODEL_PATH" $N 2>&1 | tee benchmark.log
           echo "---"
           grep "ms/tok" benchmark.log || echo "::warning::No ms/tok line found"
 

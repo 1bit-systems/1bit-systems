@@ -25,7 +25,7 @@ jobs:
         run: |
           apt-get update -qq
           apt-get install -y -qq git cmake ninja-build build-essential
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
       - name: Build HIP kernels + decode server
         run: |
           cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151
