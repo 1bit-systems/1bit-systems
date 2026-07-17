@@ -89,24 +89,15 @@ set(CMAKE_HIP_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Register the test_* targets with CTest (issue #233). Tests that need a
-# physical gfx1151 GPU or a model file are labeled so CI can run only the
-# headless subset (ctest -L host) and leave gpu_required / model_required
-# tests for the Strix Halo self-hosted runner.
 enable_testing()
 
-# CK's host-tensor reference code uses 1D access into 2D tensors — only valid
-# when assertions are disabled. Match upstream Release build.
 add_compile_definitions(NDEBUG)
 
-# ROCm dist root (CK, HIP, rocBLAS) — TheRock if present, else system ROCm.
 set(ROCM_ROOT "${_RC_ROCM_DEFAULT}" CACHE PATH "ROCm install root")
 list(PREPEND CMAKE_PREFIX_PATH "${ROCM_ROOT}" "${ROCM_ROOT}/lib/cmake")
 
 find_package(hip REQUIRED CONFIG PATHS "${ROCM_ROOT}")
 
-# rocWMMA header library — locate the include path for hardware matrix unit intrinsics.
-# Search in: pip TheRock SDK, legacy therock, and system ROCm.
 set(ROCWMMA_FOUND FALSE)
 foreach(_rc_base "${_RC_PIP_PATH}" "${_RC_THEROCK_DIR}" "${_RC_THEROCK_LEGACY}" "/opt/rocm")
     if(_rc_base AND EXISTS "${_rc_base}/include/rocwmma/rocwmma.hpp")
@@ -115,7 +106,6 @@ foreach(_rc_base "${_RC_PIP_PATH}" "${_RC_THEROCK_DIR}" "${_RC_THEROCK_LEGACY}" 
         message(STATUS "rocm-cpp: rocWMMA found at ${ROCWMMA_INCLUDE_DIR}")
         break()
     endif()
-    # TheRock pip SDK: rocWMMA lives under _rocm_sdk_devel/include/
     if(_rc_base AND EXISTS "${_rc_base}/lib/python3.14/site-packages/_rocm_sdk_devel/include/rocwmma/rocwmma.hpp")
         set(ROCWMMA_INCLUDE_DIR "${_rc_base}/lib/python3.14/site-packages/_rocm_sdk_devel/include")
         set(ROCWMMA_FOUND TRUE)
@@ -124,7 +114,6 @@ foreach(_rc_base "${_RC_PIP_PATH}" "${_RC_THEROCK_DIR}" "${_RC_THEROCK_LEGACY}" 
     endif()
 endforeach()
 if(NOT ROCWMMA_FOUND)
-    # Fallback: search in pip site-packages under ~/.local
     file(GLOB_RECURSE _RC_ROCWMMA_HPP "$ENV{HOME}/.local/lib/python*/site-packages/_rocm_sdk_devel/include/rocwmma/rocwmma.hpp")
     list(LENGTH _RC_ROCWMMA_HPP _RC_ROCWMMA_N)
     if(_RC_ROCWMMA_N GREATER 0)
@@ -140,8 +129,6 @@ if(NOT ROCWMMA_FOUND)
 endif()
 
 
-# Header-only HTTP + JSON for bitnet_server's OpenAI-compatible API.
-# Pulled at configure time; no runtime deps added beyond libc + pthreads.
 include(FetchContent)
 FetchContent_Declare(cpp_httplib
     GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
@@ -157,9 +144,6 @@ set(FTXUI_BUILD_EXAMPLES OFF CACHE INTERNAL "")
 set(FTXUI_BUILD_TESTS    OFF CACHE INTERNAL "")
 FetchContent_MakeAvailable(cpp_httplib nlohmann_json ftxui)
 
-# CK is needed for the device-side GEMM template (header-only) in ck_gemm.cpp.
-# Option B phases 1-4 will replace it entirely. Make it optional: if CK is
-# available, build ck_gemm.cpp; otherwise fall back to the standalone prefill.
 set(RCPP_HAVE_CK FALSE)
 find_package(composable_kernel QUIET CONFIG PATHS "${ROCM_ROOT}")
 if(composable_kernel_FOUND)
@@ -169,14 +153,7 @@ else()
     message(STATUS "rocm-cpp: composable_kernel NOT found — skipping ck_gemm.cpp, using standalone prefill")
 endif()
 
-# Portable Vulkan backend proof (test_vulkan_gemv): standalone correctness +
-# throughput tool for the TQ2/Q1 Bonsai formats on Vulkan, alongside the
-# existing ROCm path. Off by default -- opt in with -DUSE_VULKAN=ON. Not
-# wired into bitnet_decode.cpp yet; see docs/vulkan-backend.md-style notes
-# in tests/test_vulkan_gemv.cpp for why.
 option(USE_VULKAN "Build the portable Vulkan backend proof (test_vulkan_gemv)" OFF)
-# Note: Vulkan is OFF by default. The README's claimed Vulkan backend (22 tok/s)
-# requires USE_VULKAN=ON at cmake configure time. Without it, only ROCm HIP is active.
 set(RCPP_HAVE_VULKAN FALSE)
 if(USE_VULKAN)
     find_package(Vulkan QUIET)
@@ -189,16 +166,9 @@ if(USE_VULKAN)
     endif()
 endif()
 
-# GPU arch(es) to build for. Default is Strix Halo; overridable from the
-# command line with -DCMAKE_HIP_ARCHITECTURES="gfx1151;gfx1201" to produce
-# a multi-arch binary (HIP bundles code objects per-arch, runtime picks).
 set(CMAKE_HIP_ARCHITECTURES "gfx1151" CACHE STRING "GPU arch(es) to build")
 
 # -- librocm_cpp : shared library exposing the C API ----------------------------
-# Host packer is pure C++ (no CK). Device kernel uses CK headers only — no
-# libutility.a link. Once we vendor the device kernel (Phase 1+), this target
-# has no CK dependency at all.
-# Collect all sources; conditionally include ck_gemm.cpp if CK is available.
 set(RCPP_SOURCES
     src/ternary_gemv_launchers.hip
     src/prefill_standalone.hip
@@ -243,12 +213,6 @@ set(RCPP_SOURCES
 if(RCPP_HAVE_CK)
     list(APPEND RCPP_SOURCES src/ck_gemm.cpp)
 endif()
-# NOTE: Some source files listed in RCPP_SOURCES are governed by the PolyForm
-# Noncommercial License (see LICENSE-SHERRY.md and SHERRY-FILES.txt).
-# The repo's overall license is MIT, but those specific files are restricted
-# to noncommercial use. The 'halo' kernel path (not sherry) is the MIT fallback.
-# To build without sherry-restricted files, exclude the files listed in SHERRY-FILES.txt
-# from RCPP_SOURCES (see docs/ for instructions).
 add_library(rocm_cpp SHARED ${RCPP_SOURCES})
 if(ROCWMMA_FOUND)
     target_include_directories(rocm_cpp SYSTEM PRIVATE "${ROCWMMA_INCLUDE_DIR}")
@@ -256,8 +220,6 @@ endif()
 target_sources(rocm_cpp PRIVATE src/prefill_dispatcher.cpp)
 
 # -- libbackend_manager : Pure C++ backend abstraction layer (no HIP) ---------
-# Windows ML-style orchestrator: auto-detect, select, failover, monitor, plugins.
-# Standalone library — no GPU dependencies. Links against libdl for plugin loading.
 add_library(backend_manager STATIC
     src/backend_factory.cpp
     src/backend_manager.cpp
@@ -265,25 +227,15 @@ add_library(backend_manager STATIC
     src/backend_plugin.cpp
     src/backend_cpu.cpp
     src/backend_generic.cpp
-    src/model_discovery.cpp)     # model file scanner + GGUF header reader
+    src/model_discovery.cpp)
 target_include_directories(backend_manager PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
-# src/ is PRIVATE because src/backend.h includes common.h (which transitively
-# includes hip_runtime.h in GPU builds). Pure-C++ consumers of backend_manager
-# should include <backend_manager.h> and <backend.h> from src/.
 target_include_directories(backend_manager PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>)
 target_link_libraries(backend_manager PUBLIC dl)
-# backend_manager stays HIP-free (no ROCM_CPP_STATIC_HIP) so pure-C++
-# consumers like backend_demo can link without HIP symbols.
-# ROCM_CPP_STATIC_HIP is set only on targets (e.g., unified_server)
-# that also link src/backend_hip.cpp directly.
 target_compile_options(backend_manager PRIVATE -O3 -Wall -Wno-unused-result -std=c++17)
 
-# Derive HIP source list from RCPP_SOURCES to avoid maintaining a duplicate list.
-# Files with .hip extension need LANGUAGE HIP. prefill_dispatcher.cpp uses HIP
-# runtime calls and is added separately via target_sources, so include it too.
 set(RCPP_HIP_SOURCES ${RCPP_SOURCES} src/prefill_dispatcher.cpp)
 list(FILTER RCPP_HIP_SOURCES INCLUDE REGEX "\\.hip$|prefill_dispatcher\\.cpp$")
 if(RCPP_HAVE_CK)
@@ -300,24 +252,18 @@ target_compile_options(rocm_cpp PRIVATE
 target_link_libraries(rocm_cpp PRIVATE hip::host hip::device)
 set_target_properties(rocm_cpp PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
-# -- tests/test_ck_gemm : end-to-end functional proof (requires CK) -------------
 if(RCPP_HAVE_CK)
     add_executable(test_ck_gemm tests/test_ck_gemm.cpp)
     set_source_files_properties(tests/test_ck_gemm.cpp PROPERTIES LANGUAGE HIP)
-    target_compile_options(test_ck_gemm PRIVATE
-        $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+    target_compile_options(test_ck_gemm PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
     target_link_libraries(test_ck_gemm PRIVATE rocm_cpp hip::host hip::device)
     set_target_properties(test_ck_gemm PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 endif()
 
-# -- tests/test_standalone : correctness diff CK vs standalone kernel ----------
-# Only built when CK is available (guarded by RCPP_HAVE_CK above).
-# Otherwise, test_standalone_nock replaces it with a CPU reference.
 if(RCPP_HAVE_CK)
     add_executable(test_standalone tests/test_standalone.cpp)
     set_source_files_properties(tests/test_standalone.cpp PROPERTIES LANGUAGE HIP)
-    target_compile_options(test_standalone PRIVATE
-        $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+    target_compile_options(test_standalone PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
     target_link_libraries(test_standalone PRIVATE rocm_cpp hip::host hip::device)
     set_target_properties(test_standalone PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 endif()
@@ -326,115 +272,68 @@ endif()
 function(rocm_hip_target TARGET)
     add_executable(${TARGET} ${ARGN})
     set_source_files_properties(${ARGN} PROPERTIES LANGUAGE HIP)
-    target_compile_options(${TARGET} PRIVATE
-        $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+    target_compile_options(${TARGET} PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
     target_link_libraries(${TARGET} PRIVATE rocm_cpp hip::host hip::device)
-    set_target_properties(${TARGET} PROPERTIES
-        HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+    set_target_properties(${TARGET} PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 endfunction()
 
-# -- tests/test_standalone_nock : standalone kernels vs CPU reference ----------
-# Always compiled; replaces test_standalone when CK is unavailable.
 rocm_hip_target(test_standalone_nock tests/test_standalone_nock.cpp)
-
 rocm_hip_target(test_prim_and_attn tests/test_prim_and_attn.cpp)
-
-# -- tests/test_ternary_gemm_smallm : tiled small-M ternary GEMM parity + timing
 rocm_hip_target(test_ternary_gemm_smallm tests/test_ternary_gemm_smallm.cpp)
-
-# -- tests/test_sherry_gemv : Sherry 1.25-bpw GEMV differential test ----------
 rocm_hip_target(test_sherry_gemv tests/test_sherry_gemv.cpp)
-
-# -- tests/test_bonsai_gemv : Bonsai Q1 / TQ2 GEMV differential test ---------
 rocm_hip_target(test_bonsai_gemv tests/test_bonsai_gemv.cpp)
-
-# -- tests/bench_bonsai_tile8 : Q1_0 tile8-interleaved GEMV benchmark -------
 rocm_hip_target(bench_bonsai_tile8 tests/bench_bonsai_tile8.cpp)
-
-# -- tests/bench_bonsai_tile8_model : full 28-layer model with tile8 GEMVs ---
 rocm_hip_target(bench_bonsai_tile8_model tests/bench_bonsai_tile8_model.cpp)
-
-# -- tests/bench_bonsai_q1_1024 : Q1_1024 1024-weight block format benchmark --
 rocm_hip_target(bench_bonsai_q1_1024 tests/bench_bonsai_q1_1024.cpp)
-
-# -- tests/bench_bonsai_tq2_1024 : TQ2_1024 1024-weight block benchmark ------
 rocm_hip_target(bench_bonsai_tq2_1024 tests/bench_bonsai_tq2_1024.cpp)
-
-# -- tests/bench_fused_tq2_1024 : Fused QKV + Gate/Up TQ2_1024 benchmark -----
 rocm_hip_target(bench_fused_tq2_1024 tests/bench_fused_tq2_1024.cpp)
 
-# -- tests/bench_cb_compare : cache-blocking vs original comparison ----------
 add_executable(bench_cb_compare tests/bench_cb_compare.cpp)
 set_source_files_properties(tests/bench_cb_compare.cpp PROPERTIES LANGUAGE HIP)
 target_compile_options(bench_cb_compare PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(bench_cb_compare PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(bench_cb_compare PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
-# -- tests/test_vulkan_gemv : portable Vulkan TQ2/Q1 GEMV correctness+bench --
 if(RCPP_HAVE_VULKAN)
     set(VK_SHADER_DIR "${CMAKE_BINARY_DIR}/shaders")
     file(MAKE_DIRECTORY "${VK_SHADER_DIR}")
-    set(VK_SHADER_SOURCES
-        kernels/vulkan/dmmv_tq2_bonsai.comp
-        kernels/vulkan/dmmv_q1_bonsai.comp)
+    set(VK_SHADER_SOURCES kernels/vulkan/dmmv_tq2_bonsai.comp kernels/vulkan/dmmv_q1_bonsai.comp)
     set(VK_SHADER_SPVS "")
     foreach(_vk_src ${VK_SHADER_SOURCES})
         get_filename_component(_vk_name "${_vk_src}" NAME_WE)
         set(_vk_spv "${VK_SHADER_DIR}/${_vk_name}.spv")
-        add_custom_command(
-            OUTPUT "${_vk_spv}"
+        add_custom_command(OUTPUT "${_vk_spv}"
             COMMAND "${GLSLC_EXECUTABLE}" --target-env=vulkan1.2 -O -o "${_vk_spv}" "${CMAKE_SOURCE_DIR}/${_vk_src}"
             DEPENDS "${CMAKE_SOURCE_DIR}/${_vk_src}"
             COMMENT "glslc ${_vk_src} -> ${_vk_name}.spv")
         list(APPEND VK_SHADER_SPVS "${_vk_spv}")
     endforeach()
     add_custom_target(vulkan_shaders DEPENDS ${VK_SHADER_SPVS})
-
     add_executable(test_vulkan_gemv tests/test_vulkan_gemv.cpp)
     target_link_libraries(test_vulkan_gemv PRIVATE Vulkan::Vulkan)
     target_compile_definitions(test_vulkan_gemv PRIVATE VK_SHADER_DIR="${VK_SHADER_DIR}")
     add_dependencies(test_vulkan_gemv vulkan_shaders)
 endif()
 
-# -- tests/test_sherry_e2e : fp16-Sherry loader + decode smoke test -----------
-# Loads the real halo-1bit-2b-sherry-v4.h1b file, runs one decode token
-# through the fp16-Sherry dispatch path, asserts finite + non-trivial logits.
-# Build-only by default; executable is run by hand on the strix-halo box.
 rocm_hip_target(test_sherry_e2e tests/test_sherry_e2e.cpp)
-
-# -- tests/test_zaya_moe_gemv : Zaya MoE ternary GEMV functional test ---------
 rocm_hip_target(test_zaya_moe_gemv tests/test_zaya_moe_gemv.cpp)
-
-# -- test_block_scaled_ternary : Block-scaled ternary GEMV functional test ----
 rocm_hip_target(test_block_scaled_ternary tests/test_block_scaled_ternary.cpp)
 
-# -- tests/test_cca_attn : Zaya CCA attention kernel test ---------------------
 add_executable(test_cca_attn tests/test_cca_attn.cpp kernels/zaya_cca_attn.hip)
 set_source_files_properties(tests/test_cca_attn.cpp kernels/zaya_cca_attn.hip PROPERTIES LANGUAGE HIP)
-target_compile_options(test_cca_attn PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_compile_options(test_cca_attn PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(test_cca_attn PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(test_cca_attn PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
-# -- tests/zaya_full : Complete Zaya full GPU inference (40-layer loop) ---------
-# Build: cmake --build . --target zaya_full -j8
-# Run:   ./zaya_full
 rocm_hip_target(zaya_full tests/zaya_full.cpp)
 
-# -- tests/zaya_gpu_decode : Zaya GPU Decode Engine — loads Q4NX, autoregressive gen -
-# Build: cmake --build . --target zaya_gpu_decode -j8
-# Run:   ./zaya_gpu_decode /path/to/model.q4nx [--prompt N] [--tokens N]
 add_executable(zaya_gpu_decode tests/zaya_gpu_decode.cpp kernels/zaya_cca_attn.hip)
 set_source_files_properties(tests/zaya_gpu_decode.cpp kernels/zaya_cca_attn.hip PROPERTIES LANGUAGE HIP)
-target_compile_options(zaya_gpu_decode PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_compile_options(zaya_gpu_decode PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_include_directories(zaya_gpu_decode PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(zaya_gpu_decode PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(zaya_gpu_decode PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
-# -- tests/test_lora_merge : LoRA adapter merge smoke test --
-# Build: cmake --build . --target test_lora_merge -j8
-# Run:   ./test_lora_merge <weights_dir> [lora_path]
 add_executable(test_lora_merge tests/test_lora_merge.cpp src/zaya_engine.cpp)
 set_source_files_properties(tests/test_lora_merge.cpp src/zaya_engine.cpp PROPERTIES LANGUAGE HIP)
 target_include_directories(test_lora_merge PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/include)
@@ -442,50 +341,20 @@ target_compile_options(test_lora_merge PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wn
 target_link_libraries(test_lora_merge PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(test_lora_merge PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
-# -- tests/zaya_server : Zaya HTTP server (multi-backend: HIP + CPU fallback) --
-# Build: cmake --build . --target zaya_server -j8
-# Run:   ./zaya_server
-# The unified binary compiles HIP + CPU backends and auto-detects hardware.
 add_executable(zaya_server tests/zaya_server.cpp tests/backends/backend_cpu.cpp tests/backends/backend_hip.cpp tests/backends/backend_npu.cpp)
 set_source_files_properties(tests/zaya_server.cpp tests/backends/backend_hip.cpp PROPERTIES LANGUAGE HIP)
 target_include_directories(zaya_server PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/tests/backends)
-target_compile_options(zaya_server PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_compile_options(zaya_server PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(zaya_server PRIVATE rocm_cpp hip::host hip::device httplib::httplib nlohmann_json::nlohmann_json)
 set_target_properties(zaya_server PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
-# -- tests/test_wmma_i8_gemv : WMMA INT8*INT8 GEMV functional test -------------
-# Verifies Hadamard-rotated INT8 decode against scalar reference.
-# Build: cmake --build . --target test_wmma_i8_gemv -j8
-# Run:   ./test_wmma_i8_gemv
 rocm_hip_target(test_wmma_i8_gemv tests/test_wmma_i8_gemv.cpp)
-
-# -- tests/test_bonsai_e2e : Bonsai (Qwen3) loader + decode smoke test --------
-# Loads bonsai-1.7b-tq2.h1b + sidecar GGUF, runs one decode token through
-# the Qwen3-flavored dispatch path (per-head q/k norms, SwiGLU, tied LM
-# head via the dequantized TQ2 embedding). Asserts no launch error + non-
-# zero + finite logits. Works even when the sibling HIP kernel pass hasn't
-# landed — the bonsai_*_gemv_launch symbols are weak, dispatch short-
-# circuits to zeros, and the test still validates the loader + sidecar.
 rocm_hip_target(test_bonsai_e2e tests/test_bonsai_e2e.cpp)
 
-# -- tests/test_medusa_skeleton : ABI/link smoke for Medusa kernel stubs ------
-# Scope-pass test (2026-04-24): both launchers return RCPP_NOT_IMPLEMENTED.
-# Replaced by a proper differential test once the kernel bodies are authored.
-# No GPU device required; this test exercises only the host-side launcher
-# early-return path. Plain C++17 TU — no HIP language tagging needed.
 add_executable(test_medusa_skeleton tests/test_medusa_skeleton.cpp)
 target_compile_options(test_medusa_skeleton PRIVATE -Wall -Wextra -Wno-unused-result)
 target_link_libraries(test_medusa_skeleton PRIVATE rocm_cpp)
 
-# --- CTest registration (issue #233) ---
-# Labels:
-#   host           — no GPU / no model: always runnable (the CI gate).
-#   gpu_required   — links HIP kernels; needs a physical gfx1151 to pass.
-#   model_required — needs an external .h1b model path (see cache vars below);
-#                    returns SKIP code 77 when none is supplied, so `ctest`
-#                    reports SKIPPED instead of failing.
-# The two e2e tests default their model arg from these cache vars:
 set(BONSAI_H1B_MODEL "" CACHE FILEPATH "Path to a Bonsai .h1b model for test_bonsai_e2e (empty = skip)")
 set(SHERRY_H1B_MODEL "" CACHE FILEPATH "Path to a Sherry .h1b model for test_sherry_e2e (empty = skip)")
 
@@ -516,65 +385,46 @@ set_tests_properties(test_bonsai_e2e       PROPERTIES LABELS "gpu_required;model
 add_test(NAME test_sherry_e2e              COMMAND test_sherry_e2e ${SHERRY_H1B_MODEL})
 set_tests_properties(test_sherry_e2e       PROPERTIES LABELS "gpu_required;model_required;e2e" SKIP_RETURN_CODE 77)
 
-# -- tools/bitnet_decode : end-to-end MVP decode CLI ---------------------------
 add_executable(bitnet_decode tools/bitnet_decode.cpp)
 set_source_files_properties(tools/bitnet_decode.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(bitnet_decode PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_link_libraries(bitnet_decode PRIVATE rocm_cpp hip::host hip::device
-                                            httplib::httplib nlohmann_json::nlohmann_json)
+target_compile_options(bitnet_decode PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_link_libraries(bitnet_decode PRIVATE rocm_cpp hip::host hip::device httplib::httplib nlohmann_json::nlohmann_json)
 set_target_properties(bitnet_decode PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
-# -- tools/hadamard_export : F16 GGUF -> Hadamard-rotated INT8 .h1b converter --
 add_executable(hadamard_export tools/hadamard_export.cpp)
 target_compile_options(hadamard_export PRIVATE -O3 -Wall -Wno-unused-result -std=c++17)
 target_link_libraries(hadamard_export PRIVATE rocm_cpp)
 
-# -- tools/bitnet_debate : two BitNet instances arguing a topic ----------------
 add_executable(bitnet_debate tools/bitnet_debate.cpp)
 set_source_files_properties(tools/bitnet_debate.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(bitnet_debate PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_compile_options(bitnet_debate PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(bitnet_debate PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(bitnet_debate PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
-# -- tools/bench_sherry : Lane B microbench — halo v2 vs Sherry v3 packing ---
 add_executable(bench_sherry tools/bench_sherry.cpp)
 set_source_files_properties(tools/bench_sherry.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(bench_sherry PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_compile_options(bench_sherry PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(bench_sherry PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(bench_sherry PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
-# -- tools/bench_kv_i8 : INT8 KV cache decode attention microbench ------------
 add_executable(bench_kv_i8 tools/bench_kv_i8.cpp)
 set_source_files_properties(tools/bench_kv_i8.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(bench_kv_i8 PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_compile_options(bench_kv_i8 PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(bench_kv_i8 PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(bench_kv_i8 PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
-# -- tools/bench_kv_fd : split-KV Flash-Decoding attention microbench ---------
 add_executable(bench_kv_fd tools/bench_kv_fd.cpp)
 set_source_files_properties(tools/bench_kv_fd.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(bench_kv_fd PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_compile_options(bench_kv_fd PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(bench_kv_fd PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(bench_kv_fd PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
-# -- tools/bench_rotor : rotorquant PlanarQuant-3 KV compression microbench --
 add_executable(bench_rotor tools/bench_rotor.cpp)
 set_source_files_properties(tools/bench_rotor.cpp PROPERTIES LANGUAGE HIP)
-target_compile_options(bench_rotor PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_compile_options(bench_rotor PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(bench_rotor PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(bench_rotor PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
-# -- tools/bench_prefill_variants : benchmark all prefill kernel variants -------
-# Uses the same -O3/-ffast-math/-munsafe-fp-atomics kernel flags as
-# librocm_cpp so the bench binary measures the same codegen it produces.
-# (Inlined in the genex rather than a CMake list var, matching every other
-# target in this file and avoiding the "-O" arg-split footgun.)
 add_executable(bench_prefill_variants tools/bench_prefill_variants.cpp)
 set_source_files_properties(tools/bench_prefill_variants.cpp PROPERTIES LANGUAGE HIP)
 target_compile_options(bench_prefill_variants PRIVATE
@@ -583,7 +433,6 @@ target_compile_options(bench_prefill_variants PRIVATE
 target_link_libraries(bench_prefill_variants PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(bench_prefill_variants PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
-# -- tools/unified_server : One binary, all backends, auto-failover ----------
 add_executable(unified_server
     tools/unified_server.cpp
     src/strategy_engine.cpp
@@ -613,72 +462,55 @@ target_link_libraries(unified_server PRIVATE
 target_link_options(unified_server PRIVATE -rdynamic)
 set_target_properties(unified_server PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
-# -- tools/zaya_agent : Alias for unified_server (same binary + rpath).
-# Build with: cmake --build build --target zaya_agent
 add_custom_target(zaya_agent ALL
     DEPENDS unified_server
     COMMAND ${CMAKE_COMMAND} -E copy
         "$<TARGET_FILE:unified_server>"
         "${CMAKE_BINARY_DIR}/zaya_agent"
     COMMENT "Creating zaya_agent -> unified_server copy")
-# Add rpath to unified_server for standalone deployment
 set_property(TARGET unified_server APPEND PROPERTY
     LINK_OPTIONS "-Wl,-rpath,\$ORIGIN")
 
 
-# -- tools/backend_demo : Backend Manager live dashboard (Task Manager NPU tab) ---
-# Pure C++ (no HIP) — demonstrates auto-detect, selection, failover, monitoring.
 add_executable(backend_demo tools/backend_demo.cpp)
 target_include_directories(backend_demo PRIVATE src/)
 target_compile_options(backend_demo PRIVATE -O3 -Wall -Wno-unused-result -std=c++17)
 target_link_libraries(backend_demo PRIVATE backend_manager dl)
 
-# -- tools/bitnet_tui : FTXUI terminal UI (talks to bitnet_decode --server) ---
 add_executable(bitnet_tui tools/bitnet_tui.cpp)
 target_link_libraries(bitnet_tui PRIVATE
     httplib::httplib
     nlohmann_json::nlohmann_json
     ftxui::screen ftxui::dom ftxui::component)
 
-# -- ck-prefill : research binaries (kept building for tuning) ------------------
-# ck-prefill requires composable_kernel; skip it when CK is unavailable.
 if(RCPP_HAVE_CK)
     add_subdirectory(ck-prefill)
 endif()
 
-# --- Helper: create a HIP test/bench executable ---
-# Usage: rocm_hip_target(name source1 [source2 ...])
-# Creates an executable linked against rocm_cpp + HIP with standard flags.
-
 
 # -- npu_engine_hybrid : NPU+GPU hybrid inference engine ------------------
-# NPU: INT8 GEMMs via XRT xclbins (QKV, O, GU, KV, D)
-# GPU: MoE FFN via HIP kernels (router, gate/up, down)
-# CPU: OpenMP attention + LM head
-add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/gpu_moe.o
-    COMMAND ${_RC_ROCM_DEFAULT}/bin/hipcc --rocm-device-lib-path=${_RC_ROCM_DEFAULT}/lib/python3.14/site-packages/_rocm_sdk_core/lib/llvm/amdgcn/bitcode -std=c++20 -O3 -c -o ${CMAKE_BINARY_DIR}/gpu_moe.o
-        ${CMAKE_SOURCE_DIR}/engine/npu/src/gpu_moe.hip
-        -I${CMAKE_SOURCE_DIR} -I${CMAKE_SOURCE_DIR}/engine/npu
-        -D__HIP_PLATFORM_AMD__ --offload-arch=gfx1151
-    DEPENDS ${CMAKE_SOURCE_DIR}/engine/npu/src/gpu_moe.hip
-    COMMENT "Compiling GPU MoE wrapper (hipcc)"
-)
-add_executable(npu_engine_hybrid
-    engine/npu/src/npu_engine_hybrid.cpp
-    engine/npu/build/dequant_q4nx.o
-    ${CMAKE_BINARY_DIR}/gpu_moe.o)
-target_include_directories(npu_engine_hybrid PRIVATE
-    ${CMAKE_SOURCE_DIR}/engine/npu
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR})
-target_compile_options(npu_engine_hybrid PRIVATE
-    -O3 -march=native -ffast-math -std=c++23 -fopenmp)
-target_link_libraries(npu_engine_hybrid PRIVATE
-    xrt_coreutil uuid rt pthread)
-target_link_options(npu_engine_hybrid PRIVATE
-    -L${_RC_ROCM_DEFAULT}/lib/python3.14/site-packages/_rocm_sdk_devel/lib -lamdhip64 -Wl,-rpath,${_RC_ROCM_DEFAULT}/lib/python3.14/site-packages/_rocm_sdk_devel/lib -fopenmp)
-set_target_properties(npu_engine_hybrid PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/engine/npu/build)
+# Guarded: requires a pre-built dequant_q4nx.o from the FastFlowLM toolchain
+# which may not exist in all clones. Skipped silently when absent.
+if(EXISTS "${CMAKE_SOURCE_DIR}/engine/npu/build/dequant_q4nx.o")
+    add_executable(npu_engine_hybrid
+        engine/npu/src/npu_engine_hybrid.cpp
+        engine/npu/build/dequant_q4nx.o
+) else()
+    message(STATUS "npu_engine_hybrid: engine/npu/build/dequant_q4nx.o not found — skipping NPU hybrid target")
+endif()
+if(TARGET npu_engine_hybrid)
+    target_include_directories(npu_engine_hybrid PRIVATE
+        ${CMAKE_SOURCE_DIR}/engine/npu
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR})
+    target_compile_options(npu_engine_hybrid PRIVATE
+        -O3 -march=native -ffast-math -std=c++23 -fopenmp)
+    target_link_libraries(npu_engine_hybrid PRIVATE xrt_coreutil uuid rt pthread)
+    target_link_options(npu_engine_hybrid PRIVATE
+        -L${_RC_ROCM_DEFAULT}/lib/python3.14/site-packages/_rocm_sdk_devel/lib -lamdhip64 -Wl,-rpath,${_RC_ROCM_DEFAULT}/lib/python3.14/site-packages/_rocm_sdk_devel/lib -fopenmp)
+    set_target_properties(npu_engine_hybrid PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/engine/npu/build)
+endif()
 
 # -- DSpark full pipeline: Eagle3 draft (NPU/CPU) + GPU verify ---------------
 add_executable(dspark_full
