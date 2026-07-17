@@ -64,6 +64,19 @@ extern "C" rcpp_status_t rcpp_ternary_gemv_block_scaled(const void* packed, cons
     return RCPP_OK;
 }
 
+// Standard-arity wrapper matching rcpp_ternary_gemv_* dispatch convention.
+// row_scales is unused (BST has per-block scales inline in packed data).
+extern "C" rcpp_status_t rcpp_ternary_gemv_bst(
+    const void* packed, const void* x_i8, float x_scale,
+    const void* row_scales, void* y, int M, int K, void* stream)
+{
+    (void)row_scales;
+    if(!packed || !x_i8 || !y) return RCPP_INVALID_ARG;
+    if(M <= 0 || K <= 0) return RCPP_INVALID_ARG;
+    ternary_gemv_block_scaled_launch(packed, x_i8, x_scale, y, M, K, stream);
+    return RCPP_OK;
+}
+
 extern "C" rcpp_status_t rcpp_ternary_gemv_wmma(const void* packed, const void* x_i8, float x_scale, const void* row_scales, void* y_f16, int M, int K, void* stream) {
     if(!packed || !x_i8 || !row_scales || !y_f16) return RCPP_INVALID_ARG;
     if(M <= 0 || K <= 0) return RCPP_INVALID_ARG;
