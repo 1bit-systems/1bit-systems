@@ -21,7 +21,7 @@ static constexpr uint8_t FP8_E4M3_NAN = 0xFF;
 
 // Precomputed FP32 normal bit patterns for FP8 E4M3 subnormal mantissas (e=0).
 // For m in 1..7: value = m/8 * 2^(-6). These are encoded as FP32 normals.
-BST_HOST_DEVICE static const uint32_t FP8_SUBNORM_FP32[8] = {
+static const uint32_t FP8_SUBNORM_FP32[8] = {
     0,           // m=0 -> 0.0
     0x3B000000u, // m=1 -> 1/8 * 2^-6 = 2^-9
     0x3B800000u, // m=2 -> 2/8 * 2^-6 = 2^-8
