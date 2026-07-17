@@ -166,7 +166,7 @@ int main() {
                cfg.label, bst_tok, p5_tok, ratio, stor_pct, (ratio-1.0)*100.0);
         printf("%-28s | %10s | %10s | %7s | %s | %s\n",
                "", "tok/s", "tok/s", "",
-               stor_pct > 0 ? "BST +24%%" : "P5",
+               stor_pct > 0 ? "BST +24%" : "P5",
                bst_tok > p5_tok ? "BST wins" : "P5 wins");
 
         HIP_OK(hipFree(d_bst));
@@ -182,6 +182,5 @@ int main() {
     printf("  BST faster for M>=4: inline scales improve cache locality\n");
     printf("  P5  faster for M=1:  less data to read in memory-bound decode\n");
     printf("  Accuracy gain from BST: ~0.3-0.5 perplexity (NVFP4 data)\n");
-    printf("\n  TLDR: BST wins batch decode. P5 wins single-row. 24% storage for ~0.5 ppl gain.\n");
     return 0;
 }
