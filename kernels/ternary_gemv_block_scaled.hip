@@ -1,7 +1,8 @@
 // Block-Scaled Ternary GEMV — multiplication-free ternary with per-block FP8 scale.
 // 16 ternary values per block, one FP8 E4M3 scale per block.
-// No multiply on hot path (conditional add/subtract), one scale FMA per 16 elements.
+// FP8 conversion uses block_scaled_ternary.h (single source of truth).
 
+#include "block_scaled_ternary.h"
 #include <hip/hip_runtime.h>
 #include <cstdint>
 #include <cstring>
@@ -9,21 +10,7 @@
 #define BLOCK_SIZE  128
 #define WARP_SIZE   32
 #define NUM_WARPS   (BLOCK_SIZE / WARP_SIZE)
-#define BST_BLOCK_K   16
-#define BST_BLOCK_BYTES 5
 #define LDS_TILE_I8   2048
-
-__device__ __forceinline__ float fp8e4m3_to_f32(uint8_t fp8) {
-    // Uses precomputed FP32 subnormal table from include/block_scaled_ternary.h
-    if (fp8 == 0xFF) { uint32_t b = 0x7FC00000u; float r; __builtin_memcpy(&r,&b,4); return r; }
-    uint32_t s=(fp8>>7)&1,e=(fp8>>3)&0xF,m=fp8&0x7;
-    uint32_t b;
-    if(e==0){
-        static const uint32_t tbl[8]={0,0x3B000000u,0x3B800000u,0x3BC00000u,0x3C000000u,0x3C200000u,0x3C400000u,0x3C600000u};
-        b = tbl[m] | (s<<31);
-    } else b = (s<<31)|((e+120)<<23)|(m<<20);
-    float r; __builtin_memcpy(&r,&b,4); return r;
-}
 
 __attribute__((amdgpu_flat_work_group_size(BLOCK_SIZE, BLOCK_SIZE)))
 __global__ void ternary_gemv_block_scaled_kernel(
@@ -33,7 +20,6 @@ __global__ void ternary_gemv_block_scaled_kernel(
     int row = blockIdx.x;
     if (row >= M) return;
     int tid = threadIdx.x, lane = tid & (WARP_SIZE-1), warp_id = tid / WARP_SIZE;
-    // Ceiling division — handles K not multiple of 16
     int blocks_per_row = (K + BST_BLOCK_K - 1) / BST_BLOCK_K;
     const uint8_t* row_w = packed + (size_t)row * blocks_per_row * BST_BLOCK_BYTES;
     __shared__ int8_t xs[LDS_TILE_I8];
@@ -41,7 +27,6 @@ __global__ void ternary_gemv_block_scaled_kernel(
     int kb_max = ((K + LDS_TILE_I8 - 1) / LDS_TILE_I8) * LDS_TILE_I8;
     for (int kb = 0; kb < kb_max; kb += LDS_TILE_I8) {
         __syncthreads();
-        // Load activations with zero-padding at tail
         int ks = kb + tid * 16;
         for (int b = 0; b < 16; ++b) {
             int k = ks + b;
@@ -56,7 +41,8 @@ __global__ void ternary_gemv_block_scaled_kernel(
             uint32_t w; uint8_t sb;
             __builtin_memcpy(&w, bp, 4);
             sb = bp[4];
-            float bs = x_scale * fp8e4m3_to_f32(sb);
+            // fp8e4m3_to_fp32 comes from block_scaled_ternary.h — single source
+            float bs = x_scale * fp8e4m3_to_fp32(sb);
             int32_t ba = 0;
             int xo = b * BST_BLOCK_K;
             int ve = (xo + BST_BLOCK_K <= K) ? BST_BLOCK_K : (K - xo);
