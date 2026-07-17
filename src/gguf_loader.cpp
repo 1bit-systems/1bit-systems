@@ -82,7 +82,7 @@ struct GgufReader {
     uint32_t version = 0;
     uint64_t alignment = 32;
     uint64_t tensor_data_start = 0;
-    bool has_bst_tensor = false;  // true if any tensor uses GGUF_TYPE_BLOCK_SCALED_TERNARY
+    bool has_bst_tensor = false;
     
     struct TensorInfo {
         std::vector<uint64_t> shape;
@@ -258,7 +258,6 @@ rcpp_status_t rcpp_bitnet_load_gguf(const char* path, rcpp_bitnet_model_t* out_m
     out_model->num_layers = n_layers;
     out_model->num_heads = n_heads;
     out_model->vocab_size = vocab_size;
-    // Auto-detect weight format: if any tensor uses BLOCK_SCALED_TERNARY, select that format
     out_model->weight_format = reader.has_bst_tensor
         ? RCPP_WEIGHT_FORMAT_BLOCK_SCALED_TERNARY
         : RCPP_WEIGHT_FORMAT_HALO_V2;
@@ -290,23 +289,27 @@ rcpp_status_t rcpp_bitnet_load_gguf(const char* path, rcpp_bitnet_model_t* out_m
         auto prefix = [&](const char* n) -> std::string {
             return std::string("model.layers.") + std::to_string(l) + "." + n;
         };
-        auto lw = [&](const std::string& gn, void** dev, int r, int c) {
+        // Select target pointers based on weight format
+        // BST format writes to bst_*_packed_dev, standard writes to *_packed_dev
+        auto lw = [&](const std::string& gn, void** std_ptr, void** bst_ptr, int r, int c) {
             std::vector<float> data;
             if (!reader.read_tensor(gn, data)) return;
             std::vector<_Float16> f16(data.size());
             for (size_t i = 0; i < data.size(); ++i) f16[i] = (_Float16)data[i];
-            HIP_CHECK(hipMalloc(dev, f16.size() * sizeof(_Float16)));
-            HIP_CHECK(hipMemcpy(*dev, f16.data(), f16.size() * sizeof(_Float16), hipMemcpyHostToDevice));
+            void** target = reader.has_bst_tensor ? bst_ptr : std_ptr;
+            HIP_CHECK(hipMalloc(target, f16.size() * sizeof(_Float16)));
+            HIP_CHECK(hipMemcpy(*target, f16.data(), f16.size() * sizeof(_Float16), hipMemcpyHostToDevice));
         };
-        lw(prefix("input_layernorm.weight"), &layer.input_norm_dev, hidden_size, 1);
-        lw(prefix("post_attention_layernorm.weight"), &layer.post_attn_norm_dev, hidden_size, 1);
-        lw(prefix("self_attn.q_proj.weight"), &layer.q_packed_dev, n_heads * head_dim, hidden_size);
-        lw(prefix("self_attn.k_proj.weight"), &layer.k_packed_dev, hidden_size, hidden_size);
-        lw(prefix("self_attn.v_proj.weight"), &layer.v_packed_dev, hidden_size, hidden_size);
-        lw(prefix("self_attn.o_proj.weight"), &layer.o_packed_dev, hidden_size, n_heads * head_dim);
-        lw(prefix("mlp.gate_proj.weight"), &layer.gate_packed_dev, inter_size, hidden_size);
-        lw(prefix("mlp.up_proj.weight"), &layer.up_packed_dev, inter_size, hidden_size);
-        lw(prefix("mlp.down_proj.weight"), &layer.down_packed_dev, hidden_size, inter_size);
+        lw(prefix("input_layernorm.weight"), &layer.input_norm_dev, &layer.input_norm_dev, hidden_size, 1);
+        lw(prefix("post_attention_layernorm.weight"), &layer.post_attn_norm_dev, &layer.post_attn_norm_dev, hidden_size, 1);
+        // Weight projections: select pointer based on format
+        lw(prefix("self_attn.q_proj.weight"), &layer.q_packed_dev, &layer.bst_q_packed_dev, n_heads * head_dim, hidden_size);
+        lw(prefix("self_attn.k_proj.weight"), &layer.k_packed_dev, &layer.bst_k_packed_dev, hidden_size, hidden_size);
+        lw(prefix("self_attn.v_proj.weight"), &layer.v_packed_dev, &layer.bst_v_packed_dev, hidden_size, hidden_size);
+        lw(prefix("self_attn.o_proj.weight"), &layer.o_packed_dev, &layer.bst_o_packed_dev, hidden_size, n_heads * head_dim);
+        lw(prefix("mlp.gate_proj.weight"), &layer.gate_packed_dev, &layer.bst_gate_packed_dev, inter_size, hidden_size);
+        lw(prefix("mlp.up_proj.weight"), &layer.up_packed_dev, &layer.bst_up_packed_dev, inter_size, hidden_size);
+        lw(prefix("mlp.down_proj.weight"), &layer.down_packed_dev, &layer.bst_down_packed_dev, hidden_size, inter_size);
     }
     fprintf(stderr, "[gguf] Model load complete\n");
     return RCPP_OK;
