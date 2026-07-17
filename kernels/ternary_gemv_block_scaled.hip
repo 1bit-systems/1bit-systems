@@ -76,17 +76,3 @@ extern "C" void ternary_gemv_block_scaled_launch(
         dim3(M,1,1), dim3(BLOCK_SIZE,1,1), 0, (hipStream_t)stream,
         (const uint8_t*)packed, (int8_t*)x_i8, x_scale, (float*)y, M, K);
 }
-
-// Standard-arity wrapper matching the `rcpp_ternary_gemv_*` dispatch pattern.
-// row_scales is unused (BST has per-block scales inline), but must match
-// the calling convention so bitnet_decode can select this via weight_format.
-extern "C" rcpp_status_t rcpp_ternary_gemv_bst(
-    const void* packed, const void* x_i8, float x_scale,
-    const void* row_scales, void* y, int M, int K, void* stream)
-{
-    (void)row_scales;
-    if (!packed || !x_i8 || !y) return RCPP_INVALID_ARG;
-    if (M <= 0 || K <= 0) return RCPP_INVALID_ARG;
-    ternary_gemv_block_scaled_launch(packed, x_i8, x_scale, y, M, K, stream);
-    return RCPP_OK;
-}
