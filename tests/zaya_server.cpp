@@ -14,6 +14,7 @@
 #include "backends/backend.h"
 #include "backends/token_router.h"
 #include "rocm_cpp/tokenizer.h"
+#include "a2a_client.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -215,11 +216,152 @@ struct SimpleTokenizer {
     }
 };
 
+// ─── A2A (Agent-to-Agent) Protocol v1.0 support ───────────────
+// Google's open standard for agent interoperability.
+// Agent Card + task-based inference via /a2a/v1/message:send
+
+static std::string a2a_agent_card(const ModelConfig& cfg, int port) {
+    json card = {
+        {"name", "1bit-systems Inference Agent"},
+        {"description", "Multi-backend AI inference server with auto-detection (ROCm HIP > Vulkan > NPU > CPU). Supports text generation, speculative decoding, cascade routing, and MoE parallel pipeline across heterogeneous hardware."},
+        {"version", "1.0.0"},
+        {"protocolVersion", "1.0"},
+        {"documentationUrl", "https://github.com/bong-water-water-bong/1bit-systems"},
+        {"provider", {{"organization", "1bit.systems"}, {"url", "https://1bit.systems"}}},
+        {"capabilities", {{"streaming", true}, {"pushNotifications", false}}},
+        {"securitySchemes", json::object()},
+        {"defaultInputModes", json::array({"application/json", "text/plain"})},
+        {"defaultOutputModes", json::array({"application/json", "text/plain"})},
+        {"supportedInterfaces", json::array({{
+            {"url", "http://127.0.0.1:" + std::to_string(port) + "/a2a/v1"},
+            {"protocolBinding", "JSONRPC"},
+            {"protocolVersion", "1.0"}
+        }})},
+        {"skills", json::array({
+            {{
+                {"id", "text-generation"},
+                {"name", "Text Generation"},
+                {"description", "Generates text given a prompt or chat messages. Supports system prompts, temperature, top-k sampling, and max tokens. Routes to the fastest available backend."},
+                {"tags", json::array({"inference", "llm", "text", "generation", "chat"})},
+                {"inputModes", json::array({"application/json", "text/plain"})},
+                {"outputModes", json::array({"application/json", "text/plain"})},
+                {"examples", json::array({
+                    "Write a poem about neural networks",
+                    "Translate 'hello' to French"
+                })},
+                {"configuration", {{
+                    {"maxTokens", 4096},
+                    {"temperature", {{"type", "number"}, {"default", 0.7}, {"description", "Sampling temperature (0.0 = greedy)"}}},
+                    {"topK", {{"type", "integer"}, {"default", 40}, {"description", "Top-k sampling"}}},
+                    {"strategy", {{"type", "string"}, {"default", "auto"}, {"enum", json::array({"auto", "cascade", "spec_decode", "parallel_moe"})}}}
+                }}}
+            }},
+            {{
+                {"id", "model-discovery"},
+                {"name", "Model Discovery"},
+                {"description", "Lists all loaded models and their configurations (hidden size, layers, heads, backend)."},
+                {"tags", json::array({"models", "discovery", "config"})},
+                {"inputModes", json::array({"application/json"})},
+                {"outputModes", json::array({"application/json"})}
+            }}
+        })}
+    };
+    return card.dump(2);
+}
+
+// Build A2A task response from inference result
+static std::string a2a_task_response(const std::string& task_id, const std::string& context_id,
+                                       const std::string& state, const std::string& text,
+                                       int prompt_tokens, int completion_tokens) {
+    json resp = {
+        {"task", {{
+            {"id", task_id},
+            {"contextId", context_id},
+            {"status", {{"state", state}}},
+            {"artifacts", json::array({{
+                {"artifactId", task_id + "-artifact"},
+                {"name", "generation-result"},
+                {"parts", json::array({{
+                    {"text", text}
+                }})},
+                {"metadata", {{
+                    {"promptTokens", prompt_tokens},
+                    {"completionTokens", completion_tokens}
+                }}}
+            }})}
+        }}}
+    };
+    return resp.dump();
+}
+
+static std::string a2a_task_status(const std::string& task_id, const std::string& context_id,
+                                    const std::string& state, const std::string& msg) {
+    json resp = {
+        {"task", {{
+            {"id", task_id},
+            {"contextId", context_id},
+            {"status", {{
+                {"state", state},
+                {"message", {{"role", "ROLE_AGENT"}, {"parts", json::array({{"text", msg}})}}}
+            }}}
+        }}}
+    };
+    return resp.dump();
+}
+
+static std::string a2a_handle_message(const std::string& body, const std::string& task_id,
+                                        TokenRouter& router, SimpleTokenizer& tok, bool model_loaded) {
+    if (!model_loaded) {
+        return a2a_task_status(task_id, "ctx-" + task_id, "TASK_STATE_FAILED",
+                               "No model loaded. Restart with --model <path.h1b>");
+    }
+
+    try {
+        json j = json::parse(body);
+        std::string user_text;
+        int max_tokens = 256;
+
+        if (j.contains("message") && j["message"].contains("parts") && j["message"]["parts"].is_array()) {
+            for (auto& part : j["message"]["parts"]) {
+                if (part.contains("text"))
+                    user_text += part["text"].get<std::string>();
+            }
+        }
+
+        if (j.contains("configuration")) {
+            auto& config = j["configuration"];
+            if (config.contains("maxTokens")) max_tokens = config["maxTokens"].get<int>();
+        }
+
+        if (user_text.empty()) {
+            return a2a_task_status(task_id, "ctx-" + task_id, "TASK_STATE_INPUT_REQUIRED",
+                                   "Please provide a message with text content.");
+        }
+
+        std::string prompt = "<|im_start|>user\n" + user_text + "<|im_end|>\n<|im_start|>assistant\n";
+        std::vector<int> tokens = tok.encode(prompt);
+        InferenceResult result = router.infer(tokens, max_tokens, RouteStrategy::AUTO);
+        std::string text = tok.decode(result.tokens);
+
+        return a2a_task_response(task_id, "ctx-" + task_id, "TASK_STATE_COMPLETED",
+                                  text, (int)tokens.size(), (int)result.tokens.size());
+    } catch (const std::exception& e) {
+        return a2a_task_status(task_id, "ctx-" + task_id, "TASK_STATE_FAILED",
+                               std::string("Internal error: ") + e.what());
+    }
+}
+
+static std::string a2a_new_task_id() {
+    return "task-" + std::to_string((long long)time(nullptr)) + "-" + std::to_string(rand() % 10000);
+}
+
 int main(int argc, char** argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
     int port = 8088;
     std::string model_arg, manifest_arg, weights_dir = "/tmp/zaya_weights/", lora_path;
     RouteStrategy strategy = RouteStrategy::AUTO;
+    A2AClient a2a;
+    std::vector<std::string> a2a_peers;
 
     for (int i = 1; i < argc; i++) {
         std::string a(argv[i]);
@@ -227,6 +369,7 @@ int main(int argc, char** argv) {
         else if (a == "--model" && i+1 < argc) model_arg = argv[++i];
         else if (a == "--manifest" && i+1 < argc) manifest_arg = argv[++i];
         else if (a == "--weights-dir" && i+1 < argc) weights_dir = argv[++i];
+        else if (a == "--a2a-peer" && i+1 < argc) a2a_peers.push_back(argv[++i]);
         else if (a == "--strategy" && i+1 < argc) {
             std::string s(argv[++i]);
             if (s == "auto") strategy = RouteStrategy::AUTO;
@@ -243,12 +386,17 @@ int main(int argc, char** argv) {
             printf("  --manifest PATH     Load model config from JSON manifest\n");
             printf("  --weights-dir DIR   Directory for weight .bin files\n\n");
             printf("Routing:\n");
-            printf("  --strategy auto|cascade|spec_decode|content|parallel_moe|passthrough\n\n");
+            printf("  --strategy auto|cascade|spec_decode|content|parallel_moe|passthrough\n");
+            printf("  --a2a-peer URL       Register remote A2A agent peer (can repeat)\n\n");
             printf("Server:\n");
             printf("  --port N            Listen port (default: 8088)\n\n");
             printf("Endpoints:\n");
             printf("  GET  /v1/models                      List loaded models\n");
             printf("  POST /v1/chat/completions            OpenAI-compatible chat\n");
+            printf("  GET  /.well-known/agent-card.json    A2A Agent Card (Google A2A v1.0)\n");
+            printf("  POST /a2a/v1/message:send            A2A send message (task-based)\n");
+            printf("  POST /a2a/v1/message:sendStream      A2A streaming (SSE)\n");
+            printf("  POST /a2a/v1/tasks:route             A2A route to best peer by skill\n");
             printf("  GET  /                               Server health\n");
             return 0;
         } else if (a[0] != '-' && model_arg.empty()) port = atoi(argv[i]);
@@ -313,15 +461,32 @@ int main(int argc, char** argv) {
     });
 
     fprintf(stderr, "\nListening on http://127.0.0.1:%d\n", port);
-    fprintf(stderr, "   GET  /                  — health\n");
-    fprintf(stderr, "   GET  /v1/models          — model list\n");
-    fprintf(stderr, "   POST /v1/chat/completions — OpenAI-compatible\n");
-    fprintf(stderr, "   Strategy: %s\n\n",
+    fprintf(stderr, "   GET  /                      — health\n");
+    fprintf(stderr, "   GET  /v1/models              — model list\n");
+    fprintf(stderr, "   GET  /.well-known/agent-card — A2A Agent Card (v1.0)\n");
+    fprintf(stderr, "   POST /a2a/v1/message:send     — A2A task inference\n");
+    fprintf(stderr, "   POST /a2a/v1/tasks:route      — A2A route to peer agent\n");
+    fprintf(stderr, "   POST /v1/chat/completions     — OpenAI-compatible\n");
+    fprintf(stderr, "   Strategy: %s\n",
         strategy == RouteStrategy::AUTO ? "auto (fastest available)" :
         strategy == RouteStrategy::CASCADE ? "cascade (per-token fallback)" :
         strategy == RouteStrategy::SPEC_DECODE ? "spec_decode (draft+verify)" :
         strategy == RouteStrategy::CONTENT ? "content (keyword-based)" :
         strategy == RouteStrategy::PARALLEL_MOE ? "parallel_moe (GPU+NPU)" : "passthrough");
+
+    // Discover A2A peers
+    for (const auto& peer_url : a2a_peers) {
+        fprintf(stderr, "  [a2a] discovering peer: %s\n", peer_url.c_str());
+        if (!a2a.discover(peer_url)) {
+            fprintf(stderr, "  [a2a] WARNING: could not discover %s\n", peer_url.c_str());
+        }
+    }
+    if (!a2a_peers.empty()) {
+        fprintf(stderr, "   A2A peers:\n");
+        for (auto& p : a2a.peers)
+            fprintf(stderr, "     - %s @ %s (%zu skills)\n", p.name.c_str(), p.base_url.c_str(), p.skill_ids.size());
+    }
+    fprintf(stderr, "\n");
 
     SimpleTokenizer tok;
 
@@ -339,6 +504,7 @@ int main(int argc, char** argv) {
              strategy == RouteStrategy::PARALLEL_MOE ? "parallel_moe" : "passthrough") +
             "\","
             "\"moe_pipeline\":" + std::string(router.moe_pipeline_.enabled_ ? "true" : "false") + ","
+            "\"agentCard\":\"/.well-known/agent-card.json\","
             "\"version\":\"2026.07\"}";
         res.set_content(resp, "application/json");
     });
@@ -351,6 +517,75 @@ int main(int argc, char** argv) {
         }
         resp += "]}";
         res.set_content(resp, "application/json");
+    });
+
+    svr.Get("/.well-known/agent-card.json", [&](const httplib::Request&, httplib::Response& res) {
+        res.set_content(a2a_agent_card(cfg, port), "application/json");
+    });
+
+    svr.Post("/a2a/v1/message:send", [&](const httplib::Request& req, httplib::Response& res) {
+        std::string task_id = a2a_new_task_id();
+        res.set_content(a2a_handle_message(req.body, task_id, router, tok, model_loaded), "application/json");
+    });
+
+    svr.Post("/a2a/v1/message:sendStream", [&](const httplib::Request& req, httplib::Response& res) {
+        std::string task_id = a2a_new_task_id();
+        std::string body = req.body;
+        res.set_chunked_content_provider("text/event-stream",
+            [task_id, body, &router, &tok, model_loaded](size_t, httplib::DataSink& sink) {
+                std::string e1 = "event: taskStatus\ndata: " + a2a_task_status(task_id, "ctx-" + task_id, "TASK_STATE_SUBMITTED", "Task accepted") + "\n\n";
+                sink.write(e1.data(), e1.size());
+
+                std::string e2 = "event: taskStatus\ndata: " + a2a_task_status(task_id, "ctx-" + task_id, "TASK_STATE_WORKING", "Processing inference") + "\n\n";
+                sink.write(e2.data(), e2.size());
+
+                std::string result = a2a_handle_message(body, task_id, router, tok, model_loaded);
+                std::string e3 = "event: taskArtifact\ndata: " + result + "\n\n";
+                sink.write(e3.data(), e3.size());
+
+                std::string e4 = "event: taskStatus\ndata: " + a2a_task_status(task_id, "ctx-" + task_id, "TASK_STATE_COMPLETED", "Done") + "\n\n";
+                sink.write(e4.data(), e4.size());
+
+                sink.done();
+                return true;
+            });
+    });
+
+    svr.Post("/a2a/v1/tasks:route", [&](const httplib::Request& req, httplib::Response& res) {
+        if (a2a.peers.empty()) {
+            res.status = 503;
+            res.set_content("{\"error\":\"No A2A peers. Use --a2a-peer\"}", "application/json");
+            return;
+        }
+        try {
+            json jbody = json::parse(req.body);
+            std::string skill = jbody.value("skill", "");
+            std::string text;
+            int mt = jbody.value("maxTokens", 256);
+            if (jbody.contains("message") && jbody["message"].contains("parts"))
+                for (auto& p : jbody["message"]["parts"])
+                    if (p.contains("text")) text += p["text"].get<std::string>();
+            if (text.empty()) {
+                res.status = 400;
+                res.set_content("{\"error\":\"empty message\"}", "application/json");
+                return;
+            }
+            auto r2 = a2a.route_by_skill(text, skill, mt);
+            if (r2.success) {
+                json resp = {{"task", {{"id", r2.task_id}, {"status", {{"state", "TASK_STATE_COMPLETED"}}},
+                    {"artifacts", json::array({{{"parts", json::array({{{"text", r2.text}}})},
+                        {"metadata", {{"promptTokens", r2.prompt_tokens}, {"completionTokens", r2.completion_tokens}}}
+                    }})}
+                }}};
+                res.set_content(resp.dump(), "application/json");
+            } else {
+                res.status = 502;
+                res.set_content(json({{"error", r2.error}}).dump(), "application/json");
+            }
+        } catch (const std::exception& e) {
+            res.status = 500;
+            res.set_content(json({{"error", std::string(e.what())}}).dump(), "application/json");
+        }
     });
 
     svr.Post("/v1/chat/completions", [&](const httplib::Request& req, httplib::Response& res) {
