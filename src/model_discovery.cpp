@@ -3,6 +3,7 @@
 
 #include "model_discovery.h"
 #include "q4nx_reader.h"
+#include "safetensors_reader.h"
 #include <cstdio>
 #include <cstring>
 #include <cmath>
@@ -96,11 +97,18 @@ static bool read_gguf_metadata(const std::string& path, ModelConfig& cfg) {
     cfg.max_seq_len = 2048;
     cfg.rope_theta = 10000.0f;
     cfg.rms_norm_eps = 1e-6f;
+    // 0 experts means "dense, not MoE" — distinct from ModelConfig's default
+    // constructor value (16), which exists only for the hardcoded Zaya .bin
+    // path. A real MoE GGUF overwrites this via general.expert_count below.
+    cfg.n_experts = cfg.num_experts = 0;
+    cfg.num_experts_top = 0;
     cfg.model_path = path;
     cfg.format = ModelFormat::GGUF;
     auto slash = path.find_last_of('/');
     auto dot = path.find_last_of('.');
     cfg.model_name = path.substr(slash + 1, dot - slash - 1);
+
+    bool explicit_head_dim = false;
 
     // Parse metadata key-value pairs
     char key_buf[256];
@@ -169,28 +177,49 @@ static bool read_gguf_metadata(const std::string& path, ModelConfig& cfg) {
             } else if (ends_with(".embedding_length")) { 
                 cfg.hidden = cfg.hidden_size = read_u32(); 
             } else if (ends_with(".rope.freq_base")) { cfg.rope_theta = read_f32(); }
+            else if (ends_with(".expert_count")) { cfg.n_experts = cfg.num_experts = read_u32(); }
+            else if (ends_with(".expert_used_count")) { cfg.num_experts_top = read_u32(); }
+            else if (ends_with(".attention.key_length")) {
+                // Authoritative head_dim when present — some architectures
+                // (e.g. Qwen3: hidden=1024, heads=16, but head_dim=128) are
+                // NOT hidden/n_heads. Falls back to that derivation below
+                // only when this key is absent.
+                cfg.head_dim = read_u32();
+                explicit_head_dim = true;
+            }
             else { matched = false; }
         if (!matched) {
-            // Skip unknown values based on type
+            // Skip unknown values based on type. GGUF value types: 0=u8,
+            // 1=i8, 2=u16, 3=i16, 4=u32, 5=i32, 6=f32, 7=bool, 8=string
+            // (length-prefixed, NOT fixed-size — a prior version of this
+            // switch treated it as a fixed 8-byte int64 and silently desynced
+            // every subsequent KV read whenever a real-world GGUF file had
+            // any unmatched string key, e.g. general.type/general.size_label
+            // — verified against a real llama.cpp-converted Qwen3 GGUF,
+            // where this corrupted parsing badly enough that every dimension
+            // field silently fell back to defaults), 9=array, 10=u64,
+            // 11=i64, 12=f64. Matches the already-correct skip logic in
+            // read_gguf_tensor()/read_gguf_vocab() below.
             switch (val_type) {
-                case 0: break; // uint8
-                case 1: { uint8_t v; fread(&v, 1, 1, f); break; }
-                case 2: { int8_t v; fread(&v, 1, 1, f); break; }
-                case 3: { uint16_t v; fread(&v, 2, 1, f); break; }
-                case 4: { uint32_t v; fread(&v, 4, 1, f); break; }
-                case 5: { int32_t v; fread(&v, 4, 1, f); break; }
-                case 6: { float v; fread(&v, 4, 1, f); break; }
-                case 7: { uint64_t v; fread(&v, 8, 1, f); break; }
-                case 8: { int64_t v; fread(&v, 8, 1, f); break; }
+                case 0: case 1: fseek(f, 1, SEEK_CUR); break;
+                case 2: case 3: fseek(f, 2, SEEK_CUR); break;
+                case 4: case 5: case 6: fseek(f, 4, SEEK_CUR); break;
+                case 7: fseek(f, 1, SEEK_CUR); break; // bool
+                case 8: { uint64_t slen; fread(&slen, 8, 1, f); fseek(f, slen, SEEK_CUR); break; } // string
                 case 9: { // array
-                    uint32_t atype, an; fread(&atype, 4, 1, f); fread(&an, 4, 1, f);
-                    fseek(f, an * 4, SEEK_CUR);
+                    uint32_t atype; uint64_t an;
+                    fread(&atype, 4, 1, f); fread(&an, 8, 1, f);
+                    if (atype == 8) {
+                        for (uint64_t j = 0; j < an; j++) { uint64_t sl; fread(&sl, 8, 1, f); fseek(f, sl, SEEK_CUR); }
+                    } else {
+                        int sz = 4;
+                        if (atype <= 7) { static const int s[] = {1,1,2,2,4,4,4,1}; sz = s[atype]; }
+                        else if (atype >= 10 && atype <= 12) sz = 8;
+                        fseek(f, an * sz, SEEK_CUR);
+                    }
                     break;
                 }
-                case 10: { // string (already handled above for known keys)
-                    uint64_t slen; fread(&slen, 8, 1, f); fseek(f, slen, SEEK_CUR);
-                    break;
-                }
+                case 10: case 11: case 12: fseek(f, 8, SEEK_CUR); break;
                 default: break;
             }
         }
@@ -198,8 +227,9 @@ static bool read_gguf_metadata(const std::string& path, ModelConfig& cfg) {
 
     }
 
-    // Derive head_dim from hidden / heads
-    cfg.head_dim = cfg.hidden / cfg.n_heads;
+    // Derive head_dim from hidden / heads — unless the file gave an explicit
+    // attention.key_length (authoritative; not always equal to hidden/heads).
+    if (!explicit_head_dim) cfg.head_dim = cfg.hidden / cfg.n_heads;
     // Default KV heads to full if not set
     if (cfg.n_kv_heads == 0) cfg.n_kv_heads = cfg.n_heads;
     cfg.num_kv_heads = cfg.n_kv_heads;
@@ -237,6 +267,7 @@ std::vector<ModelConfig> discover_models(const std::string& dir) {
         if (ext == ".gguf") ok = read_gguf_metadata(full, cfg);
         else if (ext == ".h1b") ok = read_gguf_metadata(full, cfg);
         else if (ext == ".q4nx") ok = read_q4nx_metadata(full, cfg);
+        else if (ext == ".safetensors") ok = read_safetensors_metadata(full, cfg);
         else if (ext == ".bin") {
             // .bin files: use the directory name as model name, Zaya defaults
             cfg.model_name = dir.substr(dir.find_last_of('/') + 1);
@@ -324,7 +355,8 @@ bool read_gguf_header(const std::string& path, ModelConfig& cfg) {
 
 // ── Read a GGUF tensor's data ──────────────────────────────────────────────
 // Uses the same GGUF header parsing as read_gguf_metadata, then reads the actual
-// tensor data at the correct offset. Handles F32, F16, Q4_0, Q4_K, Q5_K, Q6_K, Q8_0.
+// tensor data at the correct offset. Handles F32, F16, Q4_0, Q5_0, Q5_1, Q8_0,
+// Q2_K, Q3_K, Q4_K, Q5_K, Q6_K, Q8_K, BF16.
 bool read_gguf_tensor(const std::string& path, const std::string& tensor_name,
                       std::vector<float>& output, size_t* out_n) {
     FILE* f = fopen(path.c_str(), "rb");
@@ -556,6 +588,155 @@ bool read_gguf_tensor(const std::string& path, const std::string& tensor_name,
                     qhp += 32;
                     sc += 8;
                 }
+            }
+            break;
+        }
+        case 10: { // Q2_K: 256-elem superblock, 84 bytes: scales[16] + qs[64] + d(2) + dmin(2)
+            // Reference layout: ggml's block_q2_K. 2-bit quants; each 16-elem
+            // sub-block has a 4-bit scale + 4-bit min packed into one scales[] byte.
+            uint64_t nb = (target->n + 255) / 256;
+            for (uint64_t b = 0; b < nb; b++) {
+                uint8_t scales[16]; fread(scales, 1, 16, f);
+                uint8_t qs[64]; fread(qs, 1, 64, f);
+                float d = rd_f16();
+                float dmin = rd_f16();
+
+                size_t base = b * 256;
+                size_t pos = 0;
+                int is = 0;
+                const uint8_t* q = qs;
+                for (int n = 0; n < 256; n += 128) {
+                    int shift = 0;
+                    for (int j = 0; j < 4; j++) {
+                        uint8_t sc = scales[is++];
+                        float dl = d * (sc & 0xF), ml = dmin * (sc >> 4);
+                        for (int l = 0; l < 16; l++, pos++)
+                            if (base + pos < target->n) output[base + pos] = dl * ((q[l] >> shift) & 3) - ml;
+                        sc = scales[is++];
+                        dl = d * (sc & 0xF); ml = dmin * (sc >> 4);
+                        for (int l = 0; l < 16; l++, pos++)
+                            if (base + pos < target->n) output[base + pos] = dl * ((q[l + 16] >> shift) & 3) - ml;
+                        shift += 2;
+                    }
+                    q += 32;
+                }
+            }
+            break;
+        }
+        case 11: { // Q3_K: 256-elem superblock, 110 bytes: hmask[32] + qs[64] + scales[12] + d(2)
+            // Reference layout: ggml's block_q3_K. 3-bit quants (2 low bits from qs,
+            // 1 high bit from hmask); scales are 6-bit values packed across 12 bytes
+            // via 32-bit-word manipulation (see ggml-quants.c dequantize_row_q3_K).
+            uint64_t nb = (target->n + 255) / 256;
+            for (uint64_t b = 0; b < nb; b++) {
+                uint8_t hmask[32]; fread(hmask, 1, 32, f);
+                uint8_t qs[64]; fread(qs, 1, 64, f);
+                uint8_t scales_raw[12]; fread(scales_raw, 1, 12, f);
+                float d_all = rd_f16();
+
+                const uint32_t kmask1 = 0x03030303, kmask2 = 0x0f0f0f0f;
+                uint32_t aux[4] = {0, 0, 0, 0};
+                memcpy(aux, scales_raw, 12);
+                uint32_t tmp = aux[2];
+                aux[2] = ((aux[0] >> 4) & kmask2) | (((tmp >> 4) & kmask1) << 4);
+                aux[3] = ((aux[1] >> 4) & kmask2) | (((tmp >> 6) & kmask1) << 4);
+                aux[0] = (aux[0] & kmask2) | (((tmp >> 0) & kmask1) << 4);
+                aux[1] = (aux[1] & kmask2) | (((tmp >> 2) & kmask1) << 4);
+                int8_t scales[16];
+                memcpy(scales, aux, 16);
+                for (int j = 0; j < 16; j++) scales[j] -= 32;
+
+                size_t base = b * 256;
+                size_t pos = 0;
+                int is = 0;
+                const uint8_t* q = qs;
+                const uint8_t* hm = hmask;
+                uint8_t m = 1;
+                for (int n = 0; n < 256; n += 128) {
+                    int shift = 0;
+                    for (int j = 0; j < 4; j++) {
+                        float dl = d_all * scales[is++];
+                        for (int l = 0; l < 16; l++, pos++)
+                            if (base + pos < target->n)
+                                output[base + pos] = dl * (((int8_t)((q[l] >> shift) & 3)) - ((hm[l] & m) ? 0 : 4));
+                        dl = d_all * scales[is++];
+                        for (int l = 0; l < 16; l++, pos++)
+                            if (base + pos < target->n)
+                                output[base + pos] = dl * (((int8_t)((q[l + 16] >> shift) & 3)) - ((hm[l + 16] & m) ? 0 : 4));
+                        shift += 2;
+                        m <<= 1;
+                    }
+                    q += 32;
+                }
+            }
+            break;
+        }
+        case 13: { // Q5_K: 256-elem superblock, 176 bytes: d(2) + dmin(2) + scales[12] + qh[32] + qs[128]
+            // Reference layout: ggml's block_q5_K. Same 6-bit scale/min packing as
+            // Q4_K (get_scale_min_k4); 5-bit quants (4 low bits from qs, 1 high bit from qh).
+            uint64_t nb = (target->n + 255) / 256;
+            for (uint64_t b = 0; b < nb; b++) {
+                float d = rd_f16();
+                float dmin = rd_f16();
+                uint8_t scales[12]; fread(scales, 1, 12, f);
+                uint8_t qh[32]; fread(qh, 1, 32, f);
+                uint8_t qs[128]; fread(qs, 1, 128, f);
+
+                auto get_scale_min = [&](int j, uint8_t& sc, uint8_t& m) {
+                    if (j < 4) {
+                        sc = scales[j] & 63;
+                        m = scales[j + 4] & 63;
+                    } else {
+                        sc = (uint8_t)((scales[j + 4] & 0xF) | ((scales[j - 4] >> 6) << 4));
+                        m = (uint8_t)((scales[j + 4] >> 4) | ((scales[j] >> 6) << 4));
+                    }
+                };
+
+                size_t base = b * 256;
+                size_t pos = 0;
+                int is = 0;
+                const uint8_t* ql = qs;
+                uint8_t u1 = 1, u2 = 2;
+                for (int off = 0; off < 256; off += 64) {
+                    uint8_t sc, m;
+                    get_scale_min(is + 0, sc, m);
+                    float d1 = d * sc, m1 = dmin * m;
+                    get_scale_min(is + 1, sc, m);
+                    float d2 = d * sc, m2 = dmin * m;
+                    for (int l = 0; l < 32; l++, pos++)
+                        if (base + pos < target->n)
+                            output[base + pos] = d1 * ((ql[l] & 0xF) + ((qh[l] & u1) ? 16 : 0)) - m1;
+                    for (int l = 0; l < 32; l++, pos++)
+                        if (base + pos < target->n)
+                            output[base + pos] = d2 * ((ql[l] >> 4) + ((qh[l] & u2) ? 16 : 0)) - m2;
+                    ql += 32;
+                    is += 2;
+                    u1 <<= 2; u2 <<= 2;
+                }
+            }
+            break;
+        }
+        case 15: { // Q8_K: 256-elem superblock, 292 bytes: d(4, f32) + qs[256] int8 + bsums[16] int16
+            // Reference layout: ggml's block_q8_K. Note d is a full f32 here (not f16
+            // like every other K-quant) — bsums are precomputed dot-product sums, not
+            // needed for dequantization.
+            uint64_t nb = (target->n + 255) / 256;
+            for (uint64_t b = 0; b < nb; b++) {
+                float d; fread(&d, 4, 1, f);
+                int8_t qs[256]; fread(qs, 1, 256, f);
+                fseek(f, 32, SEEK_CUR); // skip bsums[16] (int16)
+                size_t base = b * 256;
+                for (int l = 0; l < 256 && base + l < target->n; l++)
+                    output[base + l] = d * (float)qs[l];
+            }
+            break;
+        }
+        case 30: { // BF16: 1 elem, 2 bytes/block — top 16 bits of an f32 (1 sign + 8 exp + 7 mantissa)
+            for (size_t i = 0; i < target->n; i++) {
+                uint16_t h; fread(&h, 2, 1, f);
+                uint32_t bits = (uint32_t)h << 16;
+                float v; memcpy(&v, &bits, 4);
+                output[i] = v;
             }
             break;
         }

@@ -124,3 +124,9 @@ __global__ void silu_fused_kernel(__half* buf, int N) {
     float u = __half2float(buf[N + i]);
     buf[i] = __float2half((g / (1.0f + expf(-g))) * u);
 }
+
+// WMMA_K is not referenced elsewhere in this file — undef so
+// zaya_moe_wmma_batched.hip's own WMMA_K=16 definition (included later into
+// the same translation unit) doesn't silently redefine this file's WMMA_K=64
+// (issue #285).
+#undef WMMA_K

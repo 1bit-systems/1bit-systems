@@ -127,10 +127,10 @@ static std::string g_weights_dir = "/tmp/zaya_weights/";
 #define W(N) load_bin(g_weights_dir+N)
 static void upf16(const std::vector<float>& s,__half*d,int n,hipStream_t h=0){
     std::vector<__half>b(n);for(int i=0;i<n;i++)b[i]=__float2half(s[i]);
-    hipMemcpyAsync(d,b.data(),n*2,hipMemcpyHostToDevice,h);
+    HIP_OK_V(hipMemcpyAsync(d,b.data(),n*2,hipMemcpyHostToDevice,h));
 }
 static void upf32(const std::vector<float>& s,float*d,int n,hipStream_t h=0){
-    hipMemcpyAsync(d,s.data(),n*4,hipMemcpyHostToDevice,h);
+    HIP_OK_V(hipMemcpyAsync(d,s.data(),n*4,hipMemcpyHostToDevice,h));
 }
 
 extern "C" {
@@ -332,8 +332,8 @@ void zaya_forward(ZayaState* s, int token_id, float* logits_out) {
     int g1 = (eng.h+BLK-1)/BLK;
     std::vector<__half> hh(eng.h);
     for(int i=0;i<eng.h;i++){float raw=s->embed[token_id*(size_t)eng.h+i];hh[i]=__float2half((raw+s->ibias[i])*s->iscale[i]);}
-    hipMemcpyAsync(s->d_hs,hh.data(),eng.h*2,hipMemcpyHostToDevice,s->st);
-    
+    HIP_OK_V(hipMemcpyAsync(s->d_hs,hh.data(),eng.h*2,hipMemcpyHostToDevice,s->st));
+
     for(int il=0;il<eng.n_layers;il++){
         auto& l=s->lw[il];
         // ── CCA attention: q/k/v proj → cca_prep → KV-cache stash → flash-decode → o_proj ──
@@ -360,8 +360,8 @@ void zaya_forward(ZayaState* s, int token_id, float* logits_out) {
             eda_router_gpu_kernel<<<1,eng.rtr_h,0,s->st>>>(s->d_hs,s->d_prev_rs+(size_t)il*eng.rtr_h,s->has_eda[il]?1:0,s->eda_scale[il],l.gdw,l.gdb,l.rfn,l.rf1,l.rf1b,l.rf2,l.rf2b,l.rout,l.bb,s->d_prev_rs+(size_t)il*eng.rtr_h,s->d_expert_idx,s->d_expert_wt);
             encode_expert_cache_kernel<<<1,32,0,s->st>>>(s->d_prev_rs+(size_t)il*eng.rtr_h,s->d_expert_idx,eng.rtr_h);
             fixup_skip_expert_kernel<<<1,256,0,s->st>>>(s->d_expert_idx,s->d_tmp,s->d_skip_flag,eng.n_exp,eng.n_exp_t,eng.h);
-            hipStreamSynchronize(s->st);
-            int was_skip; hipMemcpy(&was_skip,s->d_skip_flag,4,hipMemcpyDeviceToHost);
+            HIP_OK_V(hipStreamSynchronize(s->st));
+            int was_skip; HIP_OK_V(hipMemcpy(&was_skip,s->d_skip_flag,4,hipMemcpyDeviceToHost));
             if(!was_skip){
                 const int gb=(2*eng.n_ff+WMMA_M-1)/WMMA_M;
                 const int db=(eng.h+WMMA_M-1)/WMMA_M;
@@ -377,14 +377,14 @@ void zaya_forward(ZayaState* s, int token_id, float* logits_out) {
         }
     }
     rmsnorm_k<<<1,BLK,0,s->st>>>(s->d_hs,s->d_fnw,eng.h);
-    
+
     // lm_head — tiled GEMV in a single launch; buffer allocated in zaya_init (fixes #59)
     // No sync needed before the lm_head: both the RMSNorm and the lm_head GEMV are on
     // the same stream, so the GEMV waits for the RMSNorm automatically (fixes perf).
     moe_tiled_gemv<<<(eng.vocab+WMMA_M-1)/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_lm_vocab,s->d_hs,s->d_embed,eng.vocab,eng.h);
-    hipStreamSynchronize(s->st);
+    HIP_OK_V(hipStreamSynchronize(s->st));
     std::vector<__half> lh(eng.vocab);
-    hipMemcpy(lh.data(),s->d_lm_vocab,(size_t)eng.vocab*2,hipMemcpyDeviceToHost);
+    HIP_OK_V(hipMemcpy(lh.data(),s->d_lm_vocab,(size_t)eng.vocab*2,hipMemcpyDeviceToHost));
     for(int v=0;v<eng.vocab;v++)logits_out[v]=__half2float(lh[v]);
     if(s->pos < s->max_seq-1) s->pos++;
 }
@@ -394,8 +394,8 @@ int zaya_forward_greedy(ZayaState* s, int token_id) {
     int g1 = (eng.h+BLK-1)/BLK;
     std::vector<__half> hh(eng.h);
     for(int i=0;i<eng.h;i++){float raw=s->embed[token_id*(size_t)eng.h+i];hh[i]=__float2half((raw+s->ibias[i])*s->iscale[i]);}
-    hipMemcpyAsync(s->d_hs,hh.data(),eng.h*2,hipMemcpyHostToDevice,s->st);
-    
+    HIP_OK_R(hipMemcpyAsync(s->d_hs,hh.data(),eng.h*2,hipMemcpyHostToDevice,s->st), -1);
+
     for(int il=0;il<eng.n_layers;il++){
         auto& l=s->lw[il];
         // ── CCA attention: q/k/v proj → cca_prep → KV-cache stash → flash-decode → o_proj ──
@@ -422,8 +422,8 @@ int zaya_forward_greedy(ZayaState* s, int token_id) {
             eda_router_gpu_kernel<<<1,eng.rtr_h,0,s->st>>>(s->d_hs,s->d_prev_rs+(size_t)il*eng.rtr_h,s->has_eda[il]?1:0,s->eda_scale[il],l.gdw,l.gdb,l.rfn,l.rf1,l.rf1b,l.rf2,l.rf2b,l.rout,l.bb,s->d_prev_rs+(size_t)il*eng.rtr_h,s->d_expert_idx,s->d_expert_wt);
             encode_expert_cache_kernel<<<1,32,0,s->st>>>(s->d_prev_rs+(size_t)il*eng.rtr_h,s->d_expert_idx,eng.rtr_h);
             fixup_skip_expert_kernel<<<1,256,0,s->st>>>(s->d_expert_idx,s->d_tmp,s->d_skip_flag,eng.n_exp,eng.n_exp_t,eng.h);
-            hipStreamSynchronize(s->st);
-            int was_skip; hipMemcpy(&was_skip,s->d_skip_flag,4,hipMemcpyDeviceToHost);
+            HIP_OK_R(hipStreamSynchronize(s->st), -1);
+            int was_skip; HIP_OK_R(hipMemcpy(&was_skip,s->d_skip_flag,4,hipMemcpyDeviceToHost), -1);
             if(!was_skip){
                 const int gb=(2*eng.n_ff+WMMA_M-1)/WMMA_M;
                 const int db=(eng.h+WMMA_M-1)/WMMA_M;
@@ -437,13 +437,13 @@ int zaya_forward_greedy(ZayaState* s, int token_id) {
         }else{copy_k<<<g1,BLK,0,s->st>>>(s->d_tmp,s->d_hs,eng.h);}
     }
     rmsnorm_k<<<1,BLK,0,s->st>>>(s->d_hs,s->d_fnw,eng.h);
-    
+
     // lm_head + GPU argmax (no full logit copy); buffers allocated in zaya_init (fixes #59)
     moe_tiled_gemv<<<(eng.vocab+WMMA_M-1)/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_lm_vocab,s->d_hs,s->d_embed,eng.vocab,eng.h);
     argmax_kernel<<<1,256,0,s->st>>>(s->d_lm_vocab,eng.vocab,s->d_argmax_idx,s->d_argmax_val);
-    hipStreamSynchronize(s->st);
+    HIP_OK_R(hipStreamSynchronize(s->st), -1);
     int best;
-    hipMemcpy(&best,s->d_argmax_idx,4,hipMemcpyDeviceToHost);
+    HIP_OK_R(hipMemcpy(&best,s->d_argmax_idx,4,hipMemcpyDeviceToHost), -1);
     if(s->pos < s->max_seq-1) s->pos++;
     return best;
 }
@@ -467,7 +467,7 @@ void zaya_forward_batch(ZayaState* s, const int* token_ids, float* logits_out, i
             hh[b * (size_t)eng.h + i] = __float2half((raw + s->ibias[i]) * s->iscale[i]);
         }
     }
-    hipMemcpyAsync(s->d_hs, hh.data(), B * eng.h * 2, hipMemcpyHostToDevice, s->st);
+    HIP_OK_V(hipMemcpyAsync(s->d_hs, hh.data(), B * eng.h * 2, hipMemcpyHostToDevice, s->st));
 
     for (int il = 0; il < eng.n_layers; il++) {
         auto& l = s->lw[il];
@@ -581,11 +581,11 @@ void zaya_forward_batch(ZayaState* s, const int* token_ids, float* logits_out, i
         }
         #endif
     }
-    hipStreamSynchronize(s->st);
+    HIP_OK_V(hipStreamSynchronize(s->st));
 
     // Copy logits for all B tokens
     std::vector<__half> lh(B * eng.vocab);
-    hipMemcpy(lh.data(), s->d_lm_vocab, (size_t)B * eng.vocab * 2, hipMemcpyDeviceToHost);
+    HIP_OK_V(hipMemcpy(lh.data(), s->d_lm_vocab, (size_t)B * eng.vocab * 2, hipMemcpyDeviceToHost));
     for (int b = 0; b < B; b++)
         for (int v = 0; v < eng.vocab; v++)
             logits_out[b * (size_t)eng.vocab + v] = __half2float(lh[b * (size_t)eng.vocab + v]);
@@ -815,7 +815,13 @@ void zaya_destroy(ZayaState* s) {
         safe(l.gu); safe(l.dn);
         safe(l.pmhss); safe(l.pmhsb); safe(l.pmrss); safe(l.pmrsb);
     }
-    if (s->st) hipStreamDestroy(s->st);
+    if (s->st) {
+        // Log rather than HIP_OK_V's early-return here — this is cleanup,
+        // the remaining frees and delete s below must still run regardless.
+        hipError_t _st = hipStreamDestroy(s->st);
+        if (_st != hipSuccess)
+            fprintf(stderr, "HIP Error %d at %s:%d — %s\n", _st, __FILE__, __LINE__, hipGetErrorString(_st));
+    }
     safe(s->d_lm_vocab); safe(s->d_argmax_idx); safe(s->d_argmax_val);
     safe(s->d_sorted_ids); safe(s->d_expert_counts); safe(s->d_expert_offsets);
     delete s;

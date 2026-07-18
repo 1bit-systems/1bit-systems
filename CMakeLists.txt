@@ -33,7 +33,7 @@ if(NOT _RC_LLVM_BIN AND DEFINED ENV{THEROCK_PIP_ROOT})
     endif()
 endif()
 
-# 2. Lemonade cache
+# 3. Lemonade cache
 if(NOT _RC_LLVM_BIN)
     file(GLOB _RC_THEROCK_DIRS LIST_DIRECTORIES true "${_RC_LEMONADE_THEROCK}/gfx*")
     list(SORT _RC_THEROCK_DIRS)
@@ -49,7 +49,7 @@ if(NOT _RC_LLVM_BIN)
     endif()
 endif()
 
-# 3. Legacy therock path
+# 4. Legacy therock path
 if(NOT _RC_LLVM_BIN)
     if(EXISTS "${_RC_THEROCK_LEGACY}/lib/llvm/bin/clang++")
         set(_RC_LLVM_BIN "${_RC_THEROCK_LEGACY}/lib/llvm/bin")
@@ -58,7 +58,7 @@ if(NOT _RC_LLVM_BIN)
     endif()
 endif()
 
-# 4. System ROCm
+# 5. System ROCm
 if(NOT _RC_LLVM_BIN)
     if(EXISTS "${_RC_SYSTEM_BIN}/amdclang++")
         set(_RC_LLVM_BIN "${_RC_SYSTEM_BIN}")
@@ -375,6 +375,7 @@ set_target_properties(test_cca_attn PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_AR
 
 rocm_hip_target(zaya_full tests/zaya_full.cpp)
 
+# -- zaya_gpu_decode : GPU decode benchmarking tool (not a test) -------------
 add_executable(zaya_gpu_decode tests/zaya_gpu_decode.cpp kernels/zaya_cca_attn.hip)
 set_source_files_properties(tests/zaya_gpu_decode.cpp kernels/zaya_cca_attn.hip PROPERTIES LANGUAGE HIP)
 target_compile_options(zaya_gpu_decode PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
@@ -389,12 +390,15 @@ target_compile_options(test_lora_merge PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wn
 target_link_libraries(test_lora_merge PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(test_lora_merge PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
+# -- zaya_server : multi-model multi-backend inference server (main binary,
+#    NOT a test — not registered with add_test(), see install() below) ------
 add_executable(zaya_server tests/zaya_server.cpp tests/backends/backend_cpu.cpp tests/backends/backend_hip.cpp tests/backends/backend_npu.cpp)
 set_source_files_properties(tests/zaya_server.cpp tests/backends/backend_hip.cpp PROPERTIES LANGUAGE HIP)
 target_include_directories(zaya_server PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/tests/backends)
 target_compile_options(zaya_server PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(zaya_server PRIVATE rocm_cpp hip::host hip::device httplib::httplib nlohmann_json::nlohmann_json)
 set_target_properties(zaya_server PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+install(TARGETS zaya_server RUNTIME DESTINATION bin)
 
 rocm_hip_target(test_wmma_i8_gemv tests/test_wmma_i8_gemv.cpp)
 rocm_hip_target(test_bonsai_e2e tests/test_bonsai_e2e.cpp)

@@ -149,3 +149,8 @@ __global__ void cca_attn_kernel(
     // For now, let's just process in a single warp
     // Rest of CCA attention will be implemented in stages
 }
+
+// GQA is not referenced elsewhere in this file — undef so later .hip files
+// #include'd into the same translation unit (zaya_engine.cpp) that also
+// define GQA don't trigger a silent macro-redefinition (issue #285).
+#undef GQA

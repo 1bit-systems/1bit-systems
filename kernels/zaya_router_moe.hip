@@ -193,3 +193,9 @@ __global__ void eda_router_moe_kernel(
         for(int i=tx; i<H; i+=blockDim.x) moe_out[i] = hs[i];
     }
 }
+
+// GQA is not referenced elsewhere in this file — undef so later .hip files
+// #include'd into the same translation unit don't inherit this hardcoded
+// value in place of zaya_cca_attn.hip's dynamic (N_HEADS/N_KV_HEADS)
+// definition (issue #285).
+#undef GQA

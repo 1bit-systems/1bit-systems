@@ -1,7 +1,10 @@
 // backend_generic.cpp — Universal CPU inference backend
 // Reads ModelConfig from any discovered GGUF/H1B/BIN model and runs inference.
-// Supports Llama, Mistral, Qwen2, Gemma, Phi architectures with:
-//   RMSNorm / LayerNorm, RoPE (partial/full), GQA/MHA, SiLU/SwiGLU/GeGLU, KV cache
+// Supports Llama, Mistral, Qwen2, Qwen3, Gemma, Phi architectures with:
+//   RMSNorm / LayerNorm, RoPE (partial/full), GQA/MHA, SiLU/SwiGLU/GeGLU, KV cache,
+//   optional QKV bias, optional per-head Q/K-norm (Qwen3), MoE FFN routing
+//   (top-k softmax gating over "_exps" stacked expert tensors — Qwen2-MoE/
+//   Qwen3-MoE/Mixtral convention; no shared-expert or expert-bias support).
 
 #include "backend.h"
 #include <sys/stat.h>
@@ -17,6 +20,7 @@
 #include <cstring>
 #include <chrono>
 #include <cstdint>
+#include <algorithm>
 
 static float fp16_to_fp32(uint16_t h) {
     uint32_t sign = (h >> 15) & 1;
@@ -321,9 +325,22 @@ struct GenericBackend : Backend {
     // some other architectures use biased attention projections, unlike
     // Llama) — SIZE_MAX means "not present in this model", distinct from a
     // legitimate index 0 into flat_weights.
+    // q_norm/k_norm: optional per-head QK RMSNorm (Qwen3 and others), applied
+    // to each head's head_dim-sized slice with a shared [head_dim] weight,
+    // right after QKV bias and before RoPE.
+    // moe_*: present only on MoE layers (cfg.n_experts > 0). w1/w2/w3 are
+    // unused for such layers — the FFN routes through the expert tensors
+    // instead. moe_gate_exps/moe_up_exps/moe_down_exps are flat [n_expert *
+    // n_ff * hidden]-sized blocks (GGUF's stacked "_exps" 3D tensors); expert
+    // e's slice starts at index e * n_ff * hidden and is row-major [n_ff,
+    // hidden] — i.e. the exact same layout matmul() already expects for the
+    // dense case, just offset per-expert.
     struct LayerW {
-        size_t wq, wk, wv, wo, w1, w2, w3, rms_attn, rms_ffn;
+        size_t wq, wk, wv, wo, rms_attn, rms_ffn;
+        size_t w1 = SIZE_MAX, w2 = SIZE_MAX, w3 = SIZE_MAX;
         size_t bq = SIZE_MAX, bk = SIZE_MAX, bv = SIZE_MAX;
+        size_t q_norm = SIZE_MAX, k_norm = SIZE_MAX;
+        size_t moe_gate_inp = SIZE_MAX, moe_gate_exps = SIZE_MAX, moe_up_exps = SIZE_MAX, moe_down_exps = SIZE_MAX;
     };
     std::vector<LayerW> layers;
 
@@ -470,6 +487,7 @@ struct GenericBackend : Backend {
             return idx;
         };
 
+        int NE = cfg.n_experts;
         for (int i = 0; i < L; i++) {
             std::string p = "blk." + std::to_string(i) + ".";
             LayerW lw;
@@ -479,18 +497,34 @@ struct GenericBackend : Backend {
             lw.wk = load_tensor(p + "attn_k.weight", NKV*HD*H);
             lw.wv = load_tensor(p + "attn_v.weight", NKV*HD*H);
             lw.wo = load_tensor(p + "attn_output.weight", H*NH*HD);
-            lw.w1 = load_tensor(p + "ffn_gate.weight", FF*H);
-            lw.w2 = load_tensor(p + "ffn_up.weight", FF*H);
-            lw.w3 = load_tensor(p + "ffn_down.weight", H*FF);
+            if (NE > 0) {
+                // MoE layer: no dense ffn_gate/up/down — route through the
+                // stacked per-expert "_exps" tensors instead.
+                lw.moe_gate_inp  = load_tensor(p + "ffn_gate_inp.weight", (size_t)NE*H);
+                lw.moe_gate_exps = load_tensor(p + "ffn_gate_exps.weight", (size_t)NE*FF*H);
+                lw.moe_up_exps   = load_tensor(p + "ffn_up_exps.weight", (size_t)NE*FF*H);
+                lw.moe_down_exps = load_tensor(p + "ffn_down_exps.weight", (size_t)NE*H*FF);
+            } else {
+                lw.w1 = load_tensor(p + "ffn_gate.weight", FF*H);
+                lw.w2 = load_tensor(p + "ffn_up.weight", FF*H);
+                lw.w3 = load_tensor(p + "ffn_down.weight", H*FF);
+            }
             lw.bq = load_tensor_optional(p + "attn_q.bias", NH*HD);
             lw.bk = load_tensor_optional(p + "attn_k.bias", NKV*HD);
             lw.bv = load_tensor_optional(p + "attn_v.bias", NKV*HD);
+            lw.q_norm = load_tensor_optional(p + "attn_q_norm.weight", HD);
+            lw.k_norm = load_tensor_optional(p + "attn_k_norm.weight", HD);
             layers[i] = lw;
         }
         {
-            int with_bias = 0;
-            for (auto& lw : layers) if (lw.bq != SIZE_MAX) with_bias++;
+            int with_bias = 0, with_qknorm = 0;
+            for (auto& lw : layers) {
+                if (lw.bq != SIZE_MAX) with_bias++;
+                if (lw.q_norm != SIZE_MAX) with_qknorm++;
+            }
             if (with_bias > 0) printf("Generic: %d/%d layers have biased QKV projections\n", with_bias, L);
+            if (with_qknorm > 0) printf("Generic: %d/%d layers have Q/K-norm\n", with_qknorm, L);
+            if (NE > 0) printf("Generic: MoE model — %d experts, %d used per token\n", NE, cfg.num_experts_top);
         }
         
         printf("Generic: loaded %zu layers, embed=%zu, final_norm=%zu\n",
@@ -596,13 +630,11 @@ struct GenericBackend : Backend {
         float eps = cfg.rms_norm_eps, theta = cfg.rope_theta;
         int rot_dim = cfg.head_dim;  // full RoPE by default
 
-        fprintf(stderr, "fwd: start\n");
         std::vector<float> x(H), x2(H), q(NH*HD), k(NKV*HD), v(NKV*HD), scores(HD);
         std::vector<float> att(NH*HD);
         std::vector<float> gate_up(FF*2);
 
         // Embed
-        fprintf(stderr, "fwd: embed token=%d\n", token);
         for (int i = 0; i < H; i++) x[i] = embed[token * (size_t)H + i];
 
         for (int il = 0; il < cfg.n_layers; il++) {
@@ -620,6 +652,18 @@ struct GenericBackend : Backend {
             if (l.bq != SIZE_MAX) { float* b = w(l.bq); for (int i = 0; i < NH*HD; i++) q[i] += b[i]; }
             if (l.bk != SIZE_MAX) { float* b = w(l.bk); for (int i = 0; i < NKV*HD; i++) k[i] += b[i]; }
             if (l.bv != SIZE_MAX) { float* b = w(l.bv); for (int i = 0; i < NKV*HD; i++) v[i] += b[i]; }
+
+            // Optional per-head QK-norm (Qwen3 and others): RMSNorm applied
+            // independently to each head's head_dim-sized slice with a
+            // shared [head_dim] weight. Must happen before RoPE.
+            if (l.q_norm != SIZE_MAX) {
+                float* qn = w(l.q_norm);
+                for (int h = 0; h < NH; h++) rmsnorm(&q[h*HD], &q[h*HD], qn, HD, eps);
+            }
+            if (l.k_norm != SIZE_MAX) {
+                float* kn = w(l.k_norm);
+                for (int h = 0; h < NKV; h++) rmsnorm(&k[h*HD], &k[h*HD], kn, HD, eps);
+            }
 
             // RoPE
             rope(q.data(), k.data(), pos, NH, NKV, HD, rot_dim, theta);
@@ -657,14 +701,51 @@ struct GenericBackend : Backend {
             // Residual
             for (int i = 0; i < H; i++) x[i] += x2[i];
 
-            // FFN: RMSNorm → gate/up → SiLU → down → residual
+            // FFN: RMSNorm → gate/up → SiLU → down → residual (dense), or
+            // RMSNorm → router top-k → per-expert gate/up/SiLU/down,
+            // weighted sum → residual (MoE).
             rmsnorm(x2.data(), x.data(), w(l.rms_ffn), H, eps);
-            matmul(gate_up.data(), x2.data(), w(l.w1), FF, H);
-            matmul(&gate_up[FF], x2.data(), w(l.w2), FF, H);
-            std::vector<float> silu_buf(FF);
-            silu(silu_buf.data(), gate_up.data(), &gate_up[FF], FF);
-            matmul(x2.data(), silu_buf.data(), w(l.w3), H, FF);
-            for (int i = 0; i < H; i++) x[i] += x2[i];
+            if (l.moe_gate_inp != SIZE_MAX) {
+                int NE = cfg.n_experts, NEU = cfg.num_experts_top;
+                std::vector<float> router_probs(NE);
+                matmul(router_probs.data(), x2.data(), w(l.moe_gate_inp), NE, H);
+                softmax(router_probs.data(), NE);
+
+                // Top-k expert selection by router probability (descending),
+                // then renormalize just the selected weights to sum to 1 —
+                // matches llama.cpp's build_moe_ffn with norm_w=true (the
+                // convention used by Qwen2-MoE/Qwen3-MoE/Mixtral).
+                std::vector<int> idx(NE);
+                for (int e = 0; e < NE; e++) idx[e] = e;
+                std::partial_sort(idx.begin(), idx.begin() + NEU, idx.end(),
+                                   [&](int a, int b) { return router_probs[a] > router_probs[b]; });
+                float wsum = 0.0f;
+                for (int t = 0; t < NEU; t++) wsum += router_probs[idx[t]];
+                if (wsum < 6.103515625e-5f) wsum = 6.103515625e-5f; // match ggml's clamp
+
+                std::vector<float> ffn_acc(H, 0.0f);
+                std::vector<float> gate_buf(FF), up_buf(FF), silu_buf(FF), down_buf(H);
+                for (int t = 0; t < NEU; t++) {
+                    int e = idx[t];
+                    float we = router_probs[e] / wsum;
+                    float* wg = w(l.moe_gate_exps) + (size_t)e * FF * H;
+                    float* wu = w(l.moe_up_exps)   + (size_t)e * FF * H;
+                    float* wd = w(l.moe_down_exps) + (size_t)e * H * FF;
+                    matmul(gate_buf.data(), x2.data(), wg, FF, H);
+                    matmul(up_buf.data(), x2.data(), wu, FF, H);
+                    silu(silu_buf.data(), gate_buf.data(), up_buf.data(), FF);
+                    matmul(down_buf.data(), silu_buf.data(), wd, H, FF);
+                    for (int i = 0; i < H; i++) ffn_acc[i] += we * down_buf[i];
+                }
+                for (int i = 0; i < H; i++) x[i] += ffn_acc[i];
+            } else {
+                matmul(gate_up.data(), x2.data(), w(l.w1), FF, H);
+                matmul(&gate_up[FF], x2.data(), w(l.w2), FF, H);
+                std::vector<float> silu_buf(FF);
+                silu(silu_buf.data(), gate_up.data(), &gate_up[FF], FF);
+                matmul(x2.data(), silu_buf.data(), w(l.w3), H, FF);
+                for (int i = 0; i < H; i++) x[i] += x2[i];
+            }
         }
 
         // Final RMSNorm

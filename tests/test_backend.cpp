@@ -19,11 +19,19 @@ static float cosim(const float* a, const float* b, int n) {
     return d / (sqrtf(na) * sqrtf(nb) + 1e-12f);
 }
 
-int main() {
+int main(int argc, char** argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
     printf("╔════════════════════════════════════════╗\n");
     printf("║  Zaya1-8B Universal Backend Test Suite ║\n");
     printf("╚════════════════════════════════════════╝\n\n");
+
+    std::string weights_dir = argc > 1 ? argv[1] : "/tmp/zaya_weights";
+    std::string tokenizer_path;
+    if (argc > 2) {
+        tokenizer_path = argv[2];
+    } else if (const char* home = getenv("HOME")) {
+        tokenizer_path = std::string(home) + "/models/ZAYA1-8B/tokenizer.json";
+    }
 
     ModelConfig cfg;
 
@@ -35,8 +43,11 @@ int main() {
     // ── 2. CPU Backend (always available, reference) ──
     printf("─━─━─ 2. CPU Backend (reference) ─━─━─\n");
     Backend* cpu = create_cpu_backend();
-    if (!cpu->init(cfg, "/tmp/zaya_weights")) {
-        printf("  ❌ CPU init failed\n");
+    if (!cpu->init(cfg, weights_dir)) {
+        printf("  ❌ CPU init failed — weights not found at %s\n\n", weights_dir.c_str());
+        printf("  Usage: %s [weights-dir] [tokenizer.json]\n", argv[0]);
+        printf("  Download a ZAYA1-8B model and extract its weights to:\n");
+        printf("    %s\n", weights_dir.c_str());
         delete cpu;
         return 1;
     }
@@ -80,7 +91,7 @@ int main() {
     // ── 5. Tokenizer demo ──
     printf("\n─━─━─ 5. Tokenizer ─━─━─\n");
     BPETokenizer bpe;
-    if (bpe.load(getenv("HOME")?std::string(getenv("HOME"))+"/models/ZAYA1-8B/tokenizer.json")) {
+    if (!tokenizer_path.empty() && bpe.load(tokenizer_path)) {
         const char* test_str = "Hello world!";
         auto encoded = bpe.encode(test_str);
         auto decoded = bpe.decode(encoded);

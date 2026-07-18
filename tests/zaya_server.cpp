@@ -24,10 +24,8 @@
 #include <string>
 #include <chrono>
 #include <algorithm>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
+#include <httplib.h>
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
 
@@ -296,11 +294,23 @@ int main(int argc, char** argv) {
 
     if (model_loaded && !router.load_model(cfg)) { fprintf(stderr, "FATAL: Failed to load model\n"); return 1; }
 
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-    int opt = 1; setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-    struct sockaddr_in addr = {AF_INET, htons((uint16_t)port), {INADDR_ANY}};
-    if (bind(sock, (sockaddr*)&addr, sizeof(addr)) < 0) { perror("bind"); return 1; }
-    listen(sock, 8);
+    httplib::Server svr;
+
+    // Maximum request body size: 1MB (fixes #197: stack buffer + incomplete read + no limit)
+    const size_t MAX_BODY_BYTES = 1 * 1024 * 1024;
+    svr.set_payload_max_length(MAX_BODY_BYTES);
+
+    svr.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+        if (req.method == "OPTIONS") {
+            res.status = 200;
+            res.set_content("{\"ok\":true}", "application/json");
+            return httplib::Server::HandlerResponse::Handled;
+        }
+        return httplib::Server::HandlerResponse::Unhandled;
+    });
 
     fprintf(stderr, "\nListening on http://127.0.0.1:%d\n", port);
     fprintf(stderr, "   GET  /                  — health\n");
@@ -315,219 +325,160 @@ int main(int argc, char** argv) {
 
     SimpleTokenizer tok;
 
-    // Maximum request body size: 1MB (fixes #197: stack buffer + incomplete read + no limit)
-    const size_t MAX_BODY_BYTES = 1 * 1024 * 1024;
+    svr.Get("/", [&](const httplib::Request&, httplib::Response& res) {
+        std::string resp = "{\"status\":\"" + std::string(model_loaded ? "ok" : "no_model") + "\",\"model_loaded\":" + (model_loaded ? "true" : "false") + ",\"model\":\"" + json_escape(cfg.model_name) + "\","
+            "\"backend\":\"" + std::string(router.primary ? router.primary->name() : "none") + "\","
+            "\"hidden_size\":" + std::to_string(cfg.hidden_size) + ","
+            "\"layers\":" + std::to_string(cfg.num_layers) + ","
+            "\"vocab\":" + std::to_string(cfg.vocab_size) + ","
+            "\"strategy\":\"" +
+            (strategy == RouteStrategy::AUTO ? "auto" :
+             strategy == RouteStrategy::CASCADE ? "cascade" :
+             strategy == RouteStrategy::SPEC_DECODE ? "spec_decode" :
+             strategy == RouteStrategy::CONTENT ? "content" :
+             strategy == RouteStrategy::PARALLEL_MOE ? "parallel_moe" : "passthrough") +
+            "\","
+            "\"moe_pipeline\":" + std::string(router.moe_pipeline_.enabled_ ? "true" : "false") + ","
+            "\"version\":\"2026.07\"}";
+        res.set_content(resp, "application/json");
+    });
 
-    while (true) {
-        int cl = accept(sock, nullptr, nullptr);
-        if (cl < 0) continue;
-        // Use heap-allocated buffer instead of 256KB stack buffer
-        std::vector<char> buf(32768);
-        int n = read(cl, buf.data(), buf.size() - 1);
-        if (n <= 0) { close(cl); continue; }
-        buf[n] = 0;
-        std::string r(buf.data());
-        auto bp = r.find("\r\n\r\n");
-        std::string body = (bp == std::string::npos) ? "" : r.substr(bp + 4);
-        // Case-insensitive Content-Length search per RFC 7230
-        auto clp = r.find("Content-Length: ");
-        if (clp == std::string::npos) {
-            std::string lower = r;
-            std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-            clp = lower.find("content-length: ");
+    svr.Get("/v1/models", [&](const httplib::Request&, httplib::Response& res) {
+        std::string resp = "{\"object\":\"list\",\"data\":[";
+        for (size_t i = 0; i < router.loaded_models.size(); i++) {
+            if (i) resp += ",";
+            resp += "{\"id\":\"" + json_escape(router.loaded_models[i].model_name) + "\",\"object\":\"model\",\"owned_by\":\"1bit-systems\"}";
         }
-        if (clp != std::string::npos) {
-            auto cle = r.find("\r\n", clp);
-            if (cle != std::string::npos) {
-                int bl = atoi(r.substr(clp + 16, cle - clp - 16).c_str());
-                // Enforce maximum body size
-                if (bl > (int)MAX_BODY_BYTES) {
-                    const char* err = "HTTP/1.1 413 Payload Too Large\r\nContent-Length: 47\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Request payload too large\"}\n";
-                    write(cl, err, strlen(err)); close(cl); continue;
-                }
-                // Loop until all Content-Length bytes are received
-                while ((int)body.size() < bl) {
-                    if (body.empty()) {
-                        // Body wasn't in first read; need to read from start
-                        int remaining = bl;
-                        std::vector<char> bbuf(remaining + 1, 0);
-                        int got = 0;
-                        while (got < remaining) {
-                            int nr = read(cl, bbuf.data() + got, remaining - got);
-                            if (nr <= 0) break;
-                            got += nr;
-                        }
-                        body = std::string(bbuf.data(), got);
-                        break;
-                    } else {
-                        // Read remaining bytes
-                        std::vector<char> extra(bl - body.size() + 1, 0);
-                        int nr = read(cl, extra.data(), bl - body.size());
-                        if (nr <= 0) break;
-                        body.append(extra.data(), nr);
-                    }
-                }
-            }
+        resp += "]}";
+        res.set_content(resp, "application/json");
+    });
+
+    svr.Post("/v1/chat/completions", [&](const httplib::Request& req, httplib::Response& res) {
+        const std::string& body = req.body;
+        // No real model loaded → return an actionable error instead of an
+        // empty 200 (issue #232). The CPU fallback always "loads", so we
+        // gate on whether a model path/manifest was actually provided.
+        if (!model_loaded) {
+            res.status = 503;
+            res.set_content(
+                "{\"error\":{\"message\":\"No model loaded. Restart with --model "
+                "<path.h1b> or --manifest <model.json> (the README quick-start runs "
+                "without weights by default).\",\"type\":\"no_model\","
+                "\"code\":\"model_not_loaded\"}}", "application/json");
+            return;
         }
+        int max_tokens = 256;
+        try {
+            json jbody = json::parse(body);
+            max_tokens = jbody.value("max_tokens", 256);
+        } catch (...) {}
 
-        auto send_json = [&](int code, const std::string& j) {
-            const char* reason = "OK";
-            switch (code) {
-                case 200: reason = "OK"; break;
-                case 400: reason = "Bad Request"; break;
-                case 404: reason = "Not Found"; break;
-                case 413: reason = "Payload Too Large"; break;
-                case 500: reason = "Internal Server Error"; break;
-            }
-            std::string h = "HTTP/1.1 " + std::to_string(code) + " " + reason + "\r\n"
-                "Content-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n"
-                "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
-                "Access-Control-Allow-Headers: Content-Type, Authorization\r\n"
-                "Content-Length: " + std::to_string(j.size()) + "\r\nConnection: close\r\n\r\n" + j;
-            write(cl, h.data(), h.size()); close(cl);
-        };
-
-        if (r.find("OPTIONS") == 0) { send_json(200, "{\"ok\":true}"); continue; }
-
-        if (r.find("GET / ") != std::string::npos || r.find("GET / HTTP") != std::string::npos) {
-            std::string resp = "{\"status\":\"" + std::string(model_loaded ? "ok" : "no_model") + "\",\"model_loaded\":" + (model_loaded ? "true" : "false") + ",\"model\":\"" + json_escape(cfg.model_name) + "\","
-                "\"backend\":\"" + std::string(router.primary ? router.primary->name() : "none") + "\","
-                "\"hidden_size\":" + std::to_string(cfg.hidden_size) + ","
-                "\"layers\":" + std::to_string(cfg.num_layers) + ","
-                "\"vocab\":" + std::to_string(cfg.vocab_size) + ","
-                "\"strategy\":\"" +
-                (strategy == RouteStrategy::AUTO ? "auto" :
-                 strategy == RouteStrategy::CASCADE ? "cascade" :
-                 strategy == RouteStrategy::SPEC_DECODE ? "spec_decode" :
-                 strategy == RouteStrategy::CONTENT ? "content" :
-                 strategy == RouteStrategy::PARALLEL_MOE ? "parallel_moe" : "passthrough") +
-                "\","
-                "\"moe_pipeline\":" + std::string(router.moe_pipeline_.enabled_ ? "true" : "false") + ","
-                "\"version\":\"2026.07\"}";
-            send_json(200, resp); continue;
-        }
-
-        if (r.find("GET /v1/models") != std::string::npos) {
-            std::string resp = "{\"object\":\"list\",\"data\":[";
-            for (size_t i = 0; i < router.loaded_models.size(); i++) {
-                if (i) resp += ",";
-                resp += "{\"id\":\"" + json_escape(router.loaded_models[i].model_name) + "\",\"object\":\"model\",\"owned_by\":\"1bit-systems\"}";
-            }
-            resp += "]}";
-            send_json(200, resp); continue;
-        }
-
-        if (r.find("POST /v1/chat/completions") != std::string::npos) {
-            // No real model loaded → return an actionable error instead of an
-            // empty 200 (issue #232). The CPU fallback always "loads", so we
-            // gate on whether a model path/manifest was actually provided.
-            if (!model_loaded) {
-                send_json(503,
-                    "{\"error\":{\"message\":\"No model loaded. Restart with --model "
-                    "<path.h1b> or --manifest <model.json> (the README quick-start runs "
-                    "without weights by default).\",\"type\":\"no_model\","
-                    "\"code\":\"model_not_loaded\"}}");
-                continue;
-            }
-            int max_tokens = 256;
+        RouteStrategy use_strat = strategy;
+        if (use_strat == RouteStrategy::CONTENT) {
+            std::string user_msg;
             try {
                 json jbody = json::parse(body);
-                max_tokens = jbody.value("max_tokens", 256);
+                if (jbody.contains("messages") && jbody["messages"].is_array() && !jbody["messages"].empty())
+                    user_msg = jbody["messages"][0].value("content", std::string());
+                else
+                    user_msg = jbody.value("content", std::string());
             } catch (...) {}
+            fprintf(stderr, "  [content] routing: %s\n", should_use_large_model(user_msg) ? "large model" : "small model (NPU)");
+            use_strat = RouteStrategy::AUTO;
+        }
 
-            RouteStrategy use_strat = strategy;
-            if (use_strat == RouteStrategy::CONTENT) {
-                std::string user_msg;
-                try {
-                    json jbody = json::parse(body);
-                    if (jbody.contains("messages") && jbody["messages"].is_array() && !jbody["messages"].empty())
-                        user_msg = jbody["messages"][0].value("content", std::string());
-                    else
-                        user_msg = jbody.value("content", std::string());
-                } catch (...) {}
-                fprintf(stderr, "  [content] routing: %s\n", should_use_large_model(user_msg) ? "large model" : "small model (NPU)");
-                use_strat = RouteStrategy::AUTO;
-            }
-
-            std::string prompt = build_chatml(body);
+        std::string prompt = build_chatml(body);
+        if (prompt.empty()) {
+            try {
+                json jbody = json::parse(body);
+                prompt = jbody.value("prompt", std::string());
+            } catch (...) {}
             if (prompt.empty()) {
-                try {
-                    json jbody = json::parse(body);
-                    prompt = jbody.value("prompt", std::string());
-                } catch (...) {}
-                if (prompt.empty()) { send_json(400, "{\"error\":\"No messages or prompt\"}"); continue; }
-                prompt = "<|im_start|>user\n" + prompt + "<|im_end|>\n<|im_start|>assistant\n";
+                res.status = 400;
+                res.set_content("{\"error\":\"No messages or prompt\"}", "application/json");
+                return;
             }
-
-            std::vector<int> tokens = tok.encode(prompt);
-            fprintf(stderr, "  → %d prompt tokens, max %d new\n", (int)tokens.size(), max_tokens);
-
-            InferenceResult result = router.infer(tokens, max_tokens, use_strat);
-            std::string text = tok.decode(result.tokens);
-            std::string finish_reason = "stop";
-            if (!result.tokens.empty() && result.tokens.back() != tok.eos_id && (int)result.tokens.size() >= max_tokens)
-                finish_reason = "length";
-
-            // Dynamic buffer -- no fixed-size limit (fixes #194: truncation of long output)
-            std::string resp_body =
-                std::string("{\"id\":\"chatcmpl-") + std::to_string((long long)time(nullptr)) +
-                "\",\"object\":\"chat.completion\",\"created\":" + std::to_string((long long)time(nullptr)) +
-                ",\"model\":\"" + json_escape(cfg.model_name) +
-                "\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"" +
-                json_escape(text) +
-                "\"},\"finish_reason\":\"" + finish_reason +
-                "\"}],\"usage\":{\"prompt_tokens\":" + std::to_string((int)tokens.size()) +
-                ",\"completion_tokens\":" + std::to_string((int)result.tokens.size()) +
-                ",\"total_tokens\":" + std::to_string((int)(tokens.size() + result.tokens.size())) +
-                "},\"x-backend\":\"" + (router.primary ? router.primary->name() : "none") +
-                "\",\"x-ms\":" + std::to_string((long long)result.gen_ms) +
-                ",\"x-tok-s\":" + std::to_string((double)result.tok_s) + "}";
-            send_json(200, resp_body);
-            fprintf(stderr, "  ← %d tokens in %.0fms (%.1f tok/s) [%s]\n",
-                    (int)result.tokens.size(), result.gen_ms, result.tok_s,
-                    router.primary ? router.primary->name() : "none");
-            continue;
+            prompt = "<|im_start|>user\n" + prompt + "<|im_end|>\n<|im_start|>assistant\n";
         }
 
-        if (r.find("POST /completion") != std::string::npos) {
-            std::vector<int> input;
-            int np = 16;
+        std::vector<int> tokens = tok.encode(prompt);
+        fprintf(stderr, "  → %d prompt tokens, max %d new\n", (int)tokens.size(), max_tokens);
+
+        InferenceResult result = router.infer(tokens, max_tokens, use_strat);
+        std::string text = tok.decode(result.tokens);
+        std::string finish_reason = "stop";
+        if (!result.tokens.empty() && result.tokens.back() != tok.eos_id && (int)result.tokens.size() >= max_tokens)
+            finish_reason = "length";
+
+        // Dynamic buffer -- no fixed-size limit (fixes #194: truncation of long output)
+        std::string resp_body =
+            std::string("{\"id\":\"chatcmpl-") + std::to_string((long long)time(nullptr)) +
+            "\",\"object\":\"chat.completion\",\"created\":" + std::to_string((long long)time(nullptr)) +
+            ",\"model\":\"" + json_escape(cfg.model_name) +
+            "\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"" +
+            json_escape(text) +
+            "\"},\"finish_reason\":\"" + finish_reason +
+            "\"}],\"usage\":{\"prompt_tokens\":" + std::to_string((int)tokens.size()) +
+            ",\"completion_tokens\":" + std::to_string((int)result.tokens.size()) +
+            ",\"total_tokens\":" + std::to_string((int)(tokens.size() + result.tokens.size())) +
+            "},\"x-backend\":\"" + (router.primary ? router.primary->name() : "none") +
+            "\",\"x-ms\":" + std::to_string((long long)result.gen_ms) +
+            ",\"x-tok-s\":" + std::to_string((double)result.tok_s) + "}";
+        res.set_content(resp_body, "application/json");
+        fprintf(stderr, "  ← %d tokens in %.0fms (%.1f tok/s) [%s]\n",
+                (int)result.tokens.size(), result.gen_ms, result.tok_s,
+                router.primary ? router.primary->name() : "none");
+    });
+
+    svr.Post("/completion", [&](const httplib::Request& req, httplib::Response& res) {
+        const std::string& body = req.body;
+        std::vector<int> input;
+        int np = 16;
+        try {
+            json jbody = json::parse(body);
+            if (jbody.contains("tokens") && jbody["tokens"].is_array()) {
+                for (auto& t : jbody["tokens"])
+                    input.push_back(t.get<int>());
+            }
+            if (input.empty() && jbody.contains("prompt") && jbody["prompt"].is_string()) {
+                input = tok.encode(jbody["prompt"].get<std::string>());
+            }
+            np = jbody.value("n_predict", 16);
+        } catch (...) {}
+        if (input.empty()) {
+            std::string prompt;
             try {
                 json jbody = json::parse(body);
-                if (jbody.contains("tokens") && jbody["tokens"].is_array()) {
-                    for (auto& t : jbody["tokens"])
-                        input.push_back(t.get<int>());
-                }
-                if (input.empty() && jbody.contains("prompt") && jbody["prompt"].is_string()) {
-                    input = tok.encode(jbody["prompt"].get<std::string>());
-                }
-                np = jbody.value("n_predict", 16);
+                prompt = jbody.value("prompt", std::string());
             } catch (...) {}
-            if (input.empty()) {
-                std::string prompt;
-                try {
-                    json jbody = json::parse(body);
-                    prompt = jbody.value("prompt", std::string());
-                } catch (...) {}
-                if (prompt.empty()) { send_json(400, "{\"error\":\"need prompt or tokens\"}"); continue; }
-                input = tok.encode(prompt);
+            if (prompt.empty()) {
+                res.status = 400;
+                res.set_content("{\"error\":\"need prompt or tokens\"}", "application/json");
+                return;
             }
-            InferenceResult result = router.infer(input, np, RouteStrategy::AUTO);
-            std::string text = tok.decode(result.tokens);
-            std::string rsp = "{\"tokens\":[";
-            for (size_t i = 0; i < result.tokens.size(); i++) {
-                if (i) rsp += ",";
-                rsp += std::to_string(result.tokens[i]);
-            }
-            rsp += "],\"text\":\"" + json_escape(text) + "\",\"gen_ms\":" +
-                   std::to_string(result.gen_ms) + ",\"tok_s\":" +
-                   std::to_string(result.tok_s) + "}";
-            send_json(200, rsp);
-            continue;
+            input = tok.encode(prompt);
         }
+        InferenceResult result = router.infer(input, np, RouteStrategy::AUTO);
+        std::string text = tok.decode(result.tokens);
+        std::string rsp = "{\"tokens\":[";
+        for (size_t i = 0; i < result.tokens.size(); i++) {
+            if (i) rsp += ",";
+            rsp += std::to_string(result.tokens[i]);
+        }
+        rsp += "],\"text\":\"" + json_escape(text) + "\",\"gen_ms\":" +
+               std::to_string(result.gen_ms) + ",\"tok_s\":" +
+               std::to_string(result.tok_s) + "}";
+        res.set_content(rsp, "application/json");
+    });
 
-        send_json(404, "{\"error\":\"not found\"}");
+    svr.set_error_handler([](const httplib::Request&, httplib::Response& res) {
+        if (res.status == 404)
+            res.set_content("{\"error\":\"not found\"}", "application/json");
+    });
+
+    if (!svr.listen("0.0.0.0", port)) {
+        fprintf(stderr, "FATAL: failed to bind/listen on port %d\n", port);
+        return 1;
     }
-    close(sock);
     return 0;
 }
