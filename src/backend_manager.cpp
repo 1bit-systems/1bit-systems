@@ -51,10 +51,17 @@ void BackendManager::discover() {
         info.priority = tier_priority(info.tier) + 50;
         info.available = has_npu();
         info.functional = false;  // needs init to confirm
-        // Compiled INT8 GEMM kernels are confirmed producing wrong output on real
-        // hardware (docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md) — never auto-select
-        // until that's resolved. NPU inference goes through the FLM backend instead.
-        info.auto_selectable = false;
+        // INT8 GEMM kernels: single-core xclbins verified bit-perfect on real
+        // hardware (2026-07-17). O and D were separately verified working at
+        // 8-core (2.47x faster). QKV and GU's instruction streams were reworked
+        // to fix the multi-N-group sequencing bug that broke 8-core for those two
+        // shapes (see docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md), but that fix
+        // landed on a different branch than the O/D 8-core work and this exact
+        // combination (all 4 shapes at 8-core, together) has NOT been
+        // independently re-run against the INT32 oracle on hardware — only the
+        // two changes separately. Treat "all 4 shapes at 8-core" as an unverified
+        // claim until that combined re-run happens.
+        info.auto_selectable = true;
         info.score = 0;
         info.total_inferences = 0;
         info.failed_inferences = 0;
