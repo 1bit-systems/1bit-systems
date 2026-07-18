@@ -13,10 +13,9 @@ find_package(XRT QUIET)
 set(NPU_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 set(NPU_ENGINE_SOURCES
-    ${NPU_SRC_DIR}/npu_engine_cb.cpp
-    ${NPU_SRC_DIR}/npu_engine_i8.cpp
     ${NPU_SRC_DIR}/npu_engine_universal.cpp
     ${NPU_SRC_DIR}/dequant_q4nx.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../npu-infer/src/flm_bridge.cpp
 )
 
 add_executable(npu_engine_universal ${NPU_ENGINE_SOURCES})
