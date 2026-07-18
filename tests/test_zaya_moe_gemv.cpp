@@ -17,6 +17,8 @@
 #include <vector>
 #include <cassert>
 
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+
 // Reference: naive CPU ternary MoE (matches kernel: includes x_scale)
 static void ref_zaya_moe(
     const int8_t* weights,       // [num_experts][K]
@@ -70,7 +72,7 @@ static void pack_tq1(const int8_t* ternary, uint32_t* packed, int K, int K_padde
 }
 
 int main() {
-    hipSetDevice(0);
+    HIP_CHECK(hipSetDevice(0));
 
     // Test parameters — match small Zaya MoE layer
     const int num_experts = 8;
@@ -80,7 +82,7 @@ int main() {
     const int K_padded = ((K + 19) / 20) * 20;  // round up to mult of 20
 
     hipStream_t stream;
-    hipStreamCreate(&stream);
+    HIP_CHECK(hipStreamCreate(&stream));
 
     printf("Zaya MoE Ternary GEMV test\n");
     printf("  num_experts=%d top_k=%d K=%d K_padded=%d tokens=%d\n",
@@ -128,12 +130,12 @@ int main() {
     float*    d_weights_moe;
     __half*   d_y;
 
-    hipMalloc(&d_packed, packed_bytes);
-    hipMalloc(&d_x, tokens * K_padded * sizeof(int8_t));
-    hipMalloc(&d_scales, num_experts * sizeof(float));
-    hipMalloc(&d_indices, tokens * top_k * sizeof(int32_t));
-    hipMalloc(&d_weights_moe, tokens * top_k * sizeof(float));
-    hipMalloc(&d_y, (size_t)tokens * num_experts * sizeof(__half));
+    HIP_CHECK(hipMalloc(&d_packed, packed_bytes));
+    HIP_CHECK(hipMalloc(&d_x, tokens * K_padded * sizeof(int8_t)));
+    HIP_CHECK(hipMalloc(&d_scales, num_experts * sizeof(float)));
+    HIP_CHECK(hipMalloc(&d_indices, tokens * top_k * sizeof(int32_t)));
+    HIP_CHECK(hipMalloc(&d_weights_moe, tokens * top_k * sizeof(float)));
+    HIP_CHECK(hipMalloc(&d_y, (size_t)tokens * num_experts * sizeof(__half)));
 
     // Pack weights into TQ1 format
     std::vector<uint32_t> h_packed(num_experts * n_u32_per_expert, 0);
@@ -150,15 +152,15 @@ int main() {
     }
 
     // Copy to device
-    hipMemcpy(d_packed, h_packed.data(), packed_bytes, hipMemcpyHostToDevice);
-    hipMemcpy(d_x, h_x_padded.data(), tokens * K_padded * sizeof(int8_t), hipMemcpyHostToDevice);
-    hipMemcpy(d_scales, h_scales.data(), num_experts * sizeof(float), hipMemcpyHostToDevice);
+    HIP_CHECK(hipMemcpy(d_packed, h_packed.data(), packed_bytes, hipMemcpyHostToDevice));
+    HIP_CHECK(hipMemcpy(d_x, h_x_padded.data(), tokens * K_padded * sizeof(int8_t), hipMemcpyHostToDevice));
+    HIP_CHECK(hipMemcpy(d_scales, h_scales.data(), num_experts * sizeof(float), hipMemcpyHostToDevice));
 
     std::vector<int32_t> h_indices_i32(tokens * top_k);
     for (int i = 0; i < tokens * top_k; i++)
         h_indices_i32[i] = h_indices[i];
-    hipMemcpy(d_indices, h_indices_i32.data(), tokens * top_k * sizeof(int32_t), hipMemcpyHostToDevice);
-    hipMemcpy(d_weights_moe, h_weights_moe.data(), tokens * top_k * sizeof(float), hipMemcpyHostToDevice);
+    HIP_CHECK(hipMemcpy(d_indices, h_indices_i32.data(), tokens * top_k * sizeof(int32_t), hipMemcpyHostToDevice));
+    HIP_CHECK(hipMemcpy(d_weights_moe, h_weights_moe.data(), tokens * top_k * sizeof(float), hipMemcpyHostToDevice));
 
     // Run kernel
     const float x_scale = 1.0f / 127.0f;
@@ -167,11 +169,11 @@ int main() {
         d_indices, d_weights_moe, d_y,
         tokens, num_experts, top_k, K_padded, stream);
 
-    hipStreamSynchronize(stream);
+    HIP_CHECK(hipStreamSynchronize(stream));
 
     // Read back results
     std::vector<__half> h_y(tokens * num_experts);
-    hipMemcpy(h_y.data(), d_y, (size_t)tokens * num_experts * sizeof(__half), hipMemcpyDeviceToHost);
+    HIP_CHECK(hipMemcpy(h_y.data(), d_y, (size_t)tokens * num_experts * sizeof(__half), hipMemcpyDeviceToHost));
 
     // Reference computation (token 0 only)
     printf("\nToken 0 results:\n");
@@ -237,13 +239,13 @@ int main() {
     }
 
     // Cleanup
-    hipStreamDestroy(stream);
-    hipFree(d_packed);
-    hipFree(d_x);
-    hipFree(d_scales);
-    hipFree(d_indices);
-    hipFree(d_weights_moe);
-    hipFree(d_y);
+    HIP_CHECK(hipStreamDestroy(stream));
+    HIP_CHECK(hipFree(d_packed));
+    HIP_CHECK(hipFree(d_x));
+    HIP_CHECK(hipFree(d_scales));
+    HIP_CHECK(hipFree(d_indices));
+    HIP_CHECK(hipFree(d_weights_moe));
+    HIP_CHECK(hipFree(d_y));
 
     printf("\n%s\n", pass ? "PASS" : "FAIL");
     return pass ? 0 : 1;

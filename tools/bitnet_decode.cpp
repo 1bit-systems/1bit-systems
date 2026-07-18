@@ -43,6 +43,8 @@
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+
 // Bonsai Q1_0_g128 / TQ2_0_g128 ternary GEMV launchers — forward-declared
 // here (the HIP port agent's rocm_cpp/bonsai.h hasn't landed yet).
 // `__attribute__((weak))` lets us link even when the kernels haven't been
@@ -1095,12 +1097,12 @@ int main(int argc, char** argv) {
                scored, mean_nll, std::exp(mean_nll), el, scored / el);
         for (int l = 0; l < L; ++l) {
             if (kv_int8) {
-                hipFree(K_caches_i8[l]); hipFree(V_caches_i8[l]);
-                hipFree(K_scales[l]);    hipFree(V_scales[l]);
+                HIP_CHECK(hipFree(K_caches_i8[l])); HIP_CHECK(hipFree(V_caches_i8[l]));
+                HIP_CHECK(hipFree(K_scales[l]));    HIP_CHECK(hipFree(V_scales[l]));
             } else if (kv_rotor) {
-                hipFree(K_caches_pq3[l]); hipFree(V_caches_pq3[l]);
+                HIP_CHECK(hipFree(K_caches_pq3[l])); HIP_CHECK(hipFree(V_caches_pq3[l]));
             } else {
-                hipFree(K_caches[l]); hipFree(V_caches[l]);
+                HIP_CHECK(hipFree(K_caches[l])); HIP_CHECK(hipFree(V_caches[l]));
             }
         }
         return 0;
@@ -1369,12 +1371,12 @@ int main(int argc, char** argv) {
     // Cleanup
     for (int l = 0; l < L; ++l) {
         if (kv_int8) {
-            hipFree(K_caches_i8[l]); hipFree(V_caches_i8[l]);
-            hipFree(K_scales[l]);    hipFree(V_scales[l]);
+            HIP_CHECK(hipFree(K_caches_i8[l])); HIP_CHECK(hipFree(V_caches_i8[l]));
+            HIP_CHECK(hipFree(K_scales[l]));    HIP_CHECK(hipFree(V_scales[l]));
         } else if (kv_rotor) {
-            hipFree(K_caches_pq3[l]); hipFree(V_caches_pq3[l]);
+            HIP_CHECK(hipFree(K_caches_pq3[l])); HIP_CHECK(hipFree(V_caches_pq3[l]));
         } else {
-            hipFree(K_caches[l]); hipFree(V_caches[l]);
+            HIP_CHECK(hipFree(K_caches[l])); HIP_CHECK(hipFree(V_caches[l]));
         }
     }
     rcpp_bitnet_free(&m);

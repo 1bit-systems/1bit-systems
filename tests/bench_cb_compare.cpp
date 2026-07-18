@@ -2,6 +2,8 @@
 #include <cstdio>
 #include <vector>
 #include "rocm_cpp/bonsai.h"
+
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
 #define HIP_OK(e) do { hipError_t _s = (e); if(_s!=hipSuccess) { fprintf(stderr,"HIP err %d at %s:%d\n",(int)_s,__FILE__,__LINE__); exit(1); }} while(0)
 extern "C" void bonsai_tq2_1024_cb_launch(const uint8_t*,const uint16_t*,uint16_t*,int,int,void*);
 
@@ -36,5 +38,5 @@ int main() {
     double t2=bench(+bonsai_tq2_1024_cb_launch,"CacheBlk");
     printf("  Speedup: %.2f×\n",t2/t1);
 
-    for(auto p:w) hipFree(p);hipFree(a);hipFree(o);HIP_OK(hipStreamDestroy(s));
+    for(auto p:w) HIP_CHECK(hipFree(p));HIP_CHECK(hipFree(a));HIP_CHECK(hipFree(o));HIP_OK(hipStreamDestroy(s));
 }

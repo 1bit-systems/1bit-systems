@@ -22,6 +22,8 @@
 
 #include "rocm_cpp/oscar.h"
 
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+
 namespace {
 
 constexpr int WARP         = 32;
@@ -247,8 +249,8 @@ extern "C" void rcpp_oscar_quantize_launch(
     // Upload rotation matrix to GPU constant memory (statically allocated)
     // For now, pass as kernel argument (fits in constant cache for HD<=128)
     float* R_dev = nullptr;
-    hipMalloc(&R_dev, HD * HD * sizeof(float));
-    hipMemcpy(R_dev, R_host, HD * HD * sizeof(float), hipMemcpyHostToDevice);
+    HIP_CHECK(hipMalloc(&R_dev, HD * HD * sizeof(float)));
+    HIP_CHECK(hipMemcpy(R_dev, R_host, HD * HD * sizeof(float), hipMemcpyHostToDevice));
 
     dim3 grid(seq_len, num_kv_heads);
     int smem = 2 * MAX_HD * sizeof(float); // s_row + s_rot
@@ -256,8 +258,8 @@ extern "C" void rcpp_oscar_quantize_launch(
                        (const __half*)in_fp16, (uint8_t*)out_idx, (__half*)out_scale,
                        seq_len, num_kv_heads, HD, layer_idx, R_dev);
 
-    hipStreamSynchronize((hipStream_t)stream);
-    hipFree(R_dev);
+    HIP_CHECK(hipStreamSynchronize((hipStream_t)stream));
+    HIP_CHECK(hipFree(R_dev));
 }
 
 // ── Host-side launcher: attention decode ────────────────────────────────────
@@ -274,10 +276,10 @@ extern "C" int rcpp_oscar_attn_decode_launch(
     if (HD > MAX_HD) return -1;
 
     float *R_K_dev, *R_V_dev;
-    hipMalloc(&R_K_dev, HD * HD * sizeof(float));
-    hipMalloc(&R_V_dev, HD * HD * sizeof(float));
-    hipMemcpy(R_K_dev, R_K_host, HD * HD * sizeof(float), hipMemcpyHostToDevice);
-    hipMemcpy(R_V_dev, R_V_host, HD * HD * sizeof(float), hipMemcpyHostToDevice);
+    HIP_CHECK(hipMalloc(&R_K_dev, HD * HD * sizeof(float)));
+    HIP_CHECK(hipMalloc(&R_V_dev, HD * HD * sizeof(float)));
+    HIP_CHECK(hipMemcpy(R_K_dev, R_K_host, HD * HD * sizeof(float), hipMemcpyHostToDevice));
+    HIP_CHECK(hipMemcpy(R_V_dev, R_V_host, HD * HD * sizeof(float), hipMemcpyHostToDevice));
 
     int num_tiles = (seq_len + TILE - 1) / TILE;
     dim3 grid(num_q_heads, num_tiles);
@@ -290,8 +292,8 @@ extern "C" int rcpp_oscar_attn_decode_launch(
                        layer_idx, scale,
                        R_K_dev, R_V_dev);
 
-    hipStreamSynchronize((hipStream_t)stream);
-    hipFree(R_K_dev);
-    hipFree(R_V_dev);
+    HIP_CHECK(hipStreamSynchronize((hipStream_t)stream));
+    HIP_CHECK(hipFree(R_K_dev));
+    HIP_CHECK(hipFree(R_V_dev));
     return 0;
 }

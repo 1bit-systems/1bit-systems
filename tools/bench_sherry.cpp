@@ -26,6 +26,8 @@
 #include <cstdint>
 #include <random>
 
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+
 #define HC(cmd) do { hipError_t e = cmd; if (e != hipSuccess) { \
     fprintf(stderr, "HIP error %d at %s:%d: %s\n", e, __FILE__, __LINE__, \
             hipGetErrorString(e)); std::exit(1); } } while(0)
@@ -298,7 +300,7 @@ int main(int argc, char** argv) {
     printf("[bench_sherry] sherry vs sherry_ref:  %.2fx faster (regression tripwire — alert if <1.5x)\n",
            sherry_ref_us / sherry_us);
 
-    hipFree(d_halo); hipFree(d_sherry); hipFree(d_tq1); hipFree(d_x); hipFree(d_x_fp16); hipFree(d_scales);
-    hipFree(d_y_halo); hipFree(d_y_sherry); hipFree(d_y_tq1); hipFree(d_y_sherry_ref);
+    HIP_CHECK(hipFree(d_halo)); HIP_CHECK(hipFree(d_sherry)); HIP_CHECK(hipFree(d_tq1)); HIP_CHECK(hipFree(d_x)); HIP_CHECK(hipFree(d_x_fp16)); HIP_CHECK(hipFree(d_scales));
+    HIP_CHECK(hipFree(d_y_halo)); HIP_CHECK(hipFree(d_y_sherry)); HIP_CHECK(hipFree(d_y_tq1)); HIP_CHECK(hipFree(d_y_sherry_ref));
     return 0;
 }

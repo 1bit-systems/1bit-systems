@@ -19,8 +19,10 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#define SYNC hipStreamSynchronize(s)
 #include <hipblas/hipblas.h>
+
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+#define SYNC HIP_CHECK(hipStreamSynchronize(s))
 
 int main(int argc, char** argv) {
     const char* path=argc>1?argv[1]:"/tmp/model.trg";
@@ -71,8 +73,8 @@ int main(int argc, char** argv) {
         draft_path=fallback_draft_path.c_str();
     }
     // GPU warmup
-    hipSetDevice(0);
-    {hipStream_t ws;hipStreamCreate(&ws);float*wb;hipMalloc(&wb,64<<20);hipStreamSynchronize(ws);hipFree(wb);hipStreamDestroy(ws);}
+    HIP_CHECK(hipSetDevice(0));
+    {hipStream_t ws;HIP_CHECK(hipStreamCreate(&ws));float*wb;HIP_CHECK(hipMalloc(&wb,64<<20));HIP_CHECK(hipStreamSynchronize(ws));HIP_CHECK(hipFree(wb));HIP_CHECK(hipStreamDestroy(ws));}
 
     MTPDraftConfig draft_cfg;
     MTPDraftModel draft(draft_cfg);
@@ -88,7 +90,7 @@ int main(int argc, char** argv) {
 
     fprintf(stderr, "Starting GPU init...\n");
     // ── GPU init ──
-    hipStream_t s; hipStreamCreate(&s);
+    hipStream_t s; HIP_CHECK(hipStreamCreate(&s));
     float *d_pk,*d_sc,*d_inorm,*d_pan,*d_qn,*d_kn,*d_fn,*d_lm,*d_hf,*d_xs;
     _Float16 *d_h,*d_q,*d_at,*d_ffg,*d_ag,*d_kc,*d_vc; int8_t *d_i8; float xsh;
     #define HIPM(p,s) do{hipError_t _e=hipMalloc(&(p),(size_t)(s));if(_e!=hipSuccess){fprintf(stderr,"HIP OOM %s:%d\n",__FILE__,__LINE__);exit(1);}}while(0)
@@ -111,8 +113,8 @@ int main(int argc, char** argv) {
     HIPM(d_i8,(size_t)H);
     HIPM(d_xs,4);
     int MP=4096;
-    HIPM(d_kc,(size_t)L*MP*NKV*HD*2); hipMemset(d_kc,0,(size_t)L*MP*NKV*HD*2);
-    HIPM(d_vc,(size_t)L*MP*NKV*HD*2); hipMemset(d_vc,0,(size_t)L*MP*NKV*HD*2);
+    HIPM(d_kc,(size_t)L*MP*NKV*HD*2); HIP_CHECK(hipMemset(d_kc,0,(size_t)L*MP*NKV*HD*2));
+    HIPM(d_vc,(size_t)L*MP*NKV*HD*2); HIP_CHECK(hipMemset(d_vc,0,(size_t)L*MP*NKV*HD*2));
     HIPMS();
     // Aligned temp buffer for GPU DMA (page-aligned source avoids GPU memcpy issues)
     #define ALIGNED_UPLOAD(dst,src,nbytes) do{ \
@@ -121,8 +123,8 @@ int main(int argc, char** argv) {
         void* _b=aligned_alloc(4096,_a?_a:4096); \
         if(!_b){fprintf(stderr,"aligned_alloc(%zu) failed\\n",_a);exit(1);} \
         memcpy(_b,(src),_n); \
-        hipMemcpy((dst),_b,_n,hipMemcpyHostToDevice); \
-        hipStreamSynchronize(s); \
+        HIP_CHECK(hipMemcpy((dst),_b,_n,hipMemcpyHostToDevice)); \
+        HIP_CHECK(hipStreamSynchronize(s)); \
         free(_b); \
     }while(0)
     ALIGNED_UPLOAD(d_pk,U(o_pk),(size_t)L*per_layer*4);
@@ -137,12 +139,12 @@ int main(int argc, char** argv) {
     // GPU forward lambda — runs full model on GPU, returns logits in d_logits
     hipblasHandle_t blas; hipblasCreate(&blas);
     auto gpu_fwd=[&](float*hd,int pos){
-            hipMemcpy(d_hf,hd,H*4,hipMemcpyHostToDevice);hipStreamSynchronize(s);rcpp_fp32_to_fp16(d_hf,d_h,H,s);SYNC;
+            HIP_CHECK(hipMemcpy(d_hf,hd,H*4,hipMemcpyHostToDevice));HIP_CHECK(hipStreamSynchronize(s));rcpp_fp32_to_fp16(d_hf,d_h,H,s);SYNC;
         for(int l=0;l<L;l++){
-            hipMemcpy(d_ffg,d_h,H*2,hipMemcpyDeviceToDevice);SYNC;
+            HIP_CHECK(hipMemcpy(d_ffg,d_h,H*2,hipMemcpyDeviceToDevice));SYNC;
             rcpp_rmsnorm_fp16(d_h,d_inorm+l*H,d_h,1e-6f,H,s);SYNC;
             rcpp_quantize_fp16_to_i8(d_h,d_i8,d_xs,H,s);SYNC;
-            hipMemcpy(&xsh,d_xs,4,hipMemcpyDeviceToHost);SYNC;
+            HIP_CHECK(hipMemcpy(&xsh,d_xs,4,hipMemcpyDeviceToHost));SYNC;
             auto wp=(const uint32_t*)((const char*)d_pk+l*per_layer*4);
             auto ws=d_sc+l*per_sc;
             rcpp_ternary_gemv(wp,d_i8,xsh,ws,d_hf,NH*HD,H,s);SYNC;wp+=ps[0];ws+=rows[0];
@@ -157,24 +159,24 @@ int main(int argc, char** argv) {
             rcpp_rope_fp16(d_q+NH*HD,pos,1000000.0f,NKV,HD,s);SYNC;
             _Float16*kl=d_kc+l*MP*NKV*HD+pos*NKV*HD;
             _Float16*vl=d_vc+l*MP*NKV*HD+pos*NKV*HD;
-            hipMemcpy(kl,d_q+NH*HD,NKV*HD*2,hipMemcpyDeviceToDevice);SYNC;
-            hipMemcpy(vl,d_q+NH*HD+NKV*HD,NKV*HD*2,hipMemcpyDeviceToDevice);SYNC;
+            HIP_CHECK(hipMemcpy(kl,d_q+NH*HD,NKV*HD*2,hipMemcpyDeviceToDevice));SYNC;
+            HIP_CHECK(hipMemcpy(vl,d_q+NH*HD+NKV*HD,NKV*HD*2,hipMemcpyDeviceToDevice));SYNC;
             rcpp_kv_cache_attn_decode_fd(d_q,d_kc+l*MP*NKV*HD,d_vc+l*MP*NKV*HD,d_at,NH,NKV,HD,pos+1,1.0f/sqrtf(HD),s);SYNC;
             rcpp_quantize_fp16_to_i8(d_at,d_i8,d_xs,NH*HD,s);SYNC;
-            hipMemcpy(&xsh,d_xs,4,hipMemcpyDeviceToHost);SYNC;
+            HIP_CHECK(hipMemcpy(&xsh,d_xs,4,hipMemcpyDeviceToHost));SYNC;
             rcpp_ternary_gemv(wp,d_i8,xsh,ws,d_hf,H,NH*HD,s);SYNC;wp+=ps[3];ws+=rows[3];
             rcpp_fp32_to_fp16(d_hf,d_h,H,s);SYNC;
             rcpp_residual_add_fp16(d_h,d_ffg,H,s);SYNC;
             rcpp_rmsnorm_fp16(d_h,d_pan+l*H,d_h,1e-6f,H,s);SYNC;
             rcpp_quantize_fp16_to_i8(d_h,d_i8,d_xs,H,s);SYNC;
-            hipMemcpy(&xsh,d_xs,4,hipMemcpyDeviceToHost);SYNC;
+            HIP_CHECK(hipMemcpy(&xsh,d_xs,4,hipMemcpyDeviceToHost));SYNC;
             rcpp_ternary_gemv(wp,d_i8,xsh,ws,d_hf,IM,H,s);SYNC;wp+=ps[4];ws+=rows[4];
             rcpp_fp32_to_fp16(d_hf,d_ffg,IM,s);SYNC;
             rcpp_ternary_gemv(wp,d_i8,xsh,ws,d_hf,IM,H,s);SYNC;wp+=ps[5];ws+=rows[5];
             rcpp_fp32_to_fp16(d_hf,d_ffg+IM,IM,s);SYNC;
             rcpp_silu_glu_fp16(d_ffg+IM,d_ffg,d_ag,IM,s);SYNC;
             rcpp_quantize_fp16_to_i8(d_ag,d_i8,d_xs,IM,s);SYNC;
-            hipMemcpy(&xsh,d_xs,4,hipMemcpyDeviceToHost);SYNC;
+            HIP_CHECK(hipMemcpy(&xsh,d_xs,4,hipMemcpyDeviceToHost));SYNC;
             rcpp_ternary_gemv(wp,d_i8,xsh,ws,d_hf,H,IM,s);SYNC;
             rcpp_fp32_to_fp16(d_hf,d_h,H,s);SYNC;
             rcpp_residual_add_fp16(d_h,d_ffg,H,s);SYNC;
@@ -188,7 +190,7 @@ int main(int argc, char** argv) {
         // In column-major terms: same layout, so op(A)=N, A is V×H, x is H, y is V
         float _a=1.0f,_b=0.0f;
         hipblasSgemv(blas,HIPBLAS_OP_N,V,H,&_a,d_lm,V,d_hf,1,&_b,d_logits,1);
-        hipStreamSynchronize(s);
+        HIP_CHECK(hipStreamSynchronize(s));
     };
 
     // ── CPU draft forward (real Eagle3) ──
@@ -268,7 +270,7 @@ int main(int argc, char** argv) {
             gpu_fwd(gh,pos+i);
             // Read GPU-computed logits directly (avoids CPU lm_head, 311M matmul)
             std::vector<float> lg(V);
-            hipMemcpy(lg.data(),d_logits,(size_t)V*4,hipMemcpyDeviceToHost);hipStreamSynchronize(s);
+            HIP_CHECK(hipMemcpy(lg.data(),d_logits,(size_t)V*4,hipMemcpyDeviceToHost));HIP_CHECK(hipStreamSynchronize(s));
             int b=0;for(int j=1;j<V;j++)if(lg[j]>lg[b])b=j;
             if(b==dtok[i]){nac++;last_acc_tok=b;}else break;
         }

@@ -121,8 +121,8 @@ int main() {
     printf("  vs TQ2 best:    %.1fx speedup\n", ts / 143.0 * (273.0 * 0.52) / bw);
     printf("═══════════════════════════════════════════════\n");
 
-    for (auto p : w) hipFree(p);
-    hipFree(a); hipFree(o);
+    for (auto p : w) HIP_CHECK(hipFree(p));
+    HIP_CHECK(hipFree(a)); HIP_CHECK(hipFree(o));
     HIP_OK(hipEventDestroy(t0));
     HIP_OK(hipEventDestroy(t1));
     HIP_OK(hipStreamDestroy(s));

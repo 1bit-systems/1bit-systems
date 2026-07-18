@@ -9,6 +9,8 @@
 
 #include "rocm_cpp/bonsai.h"
 
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+
 #define HIP_OK(e) do { \
     hipError_t _s = (e); \
     if (_s != hipSuccess) { \
@@ -141,10 +143,10 @@ int main() {
     printf("════════════════════════════════════════════\n");
 
     for (int l = 0; l < NL; ++l) {
-        hipFree(q[l]); hipFree(k[l]); hipFree(v[l]); hipFree(o_[l]);
-        hipFree(gate[l]); hipFree(up[l]); hipFree(down[l]);
+        HIP_CHECK(hipFree(q[l])); HIP_CHECK(hipFree(k[l])); HIP_CHECK(hipFree(v[l])); HIP_CHECK(hipFree(o_[l]));
+        HIP_CHECK(hipFree(gate[l])); HIP_CHECK(hipFree(up[l])); HIP_CHECK(hipFree(down[l]));
     }
-    hipFree(d_act); hipFree(d_out);
+    HIP_CHECK(hipFree(d_act)); HIP_CHECK(hipFree(d_out));
     HIP_OK(hipEventDestroy(t0));
     HIP_OK(hipEventDestroy(t1));
     HIP_OK(hipStreamDestroy(stream));

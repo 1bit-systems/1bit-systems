@@ -17,6 +17,8 @@
 #include <fstream>
 #include <chrono>
 
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+
 #define HIP_OK(e) do { auto _s=(e); if(_s!=hipSuccess){fprintf(stderr,"HIP Error %d\n",_s); abort();}} while(0)
 
 constexpr int H=2048, NQ=8, NKV=2, HD=128, QD=NQ*HD, KD=NKV*HD, QKV=QD+KD;
@@ -127,8 +129,8 @@ int main() {
     printf("\nTo compare with PyTorch:\n");
     printf("  python3 /tmp/zaya_full_forward2.py\n");
     
-    hipFree(d_in); hipFree(d_out); hipFree(d_norm);
-    hipFree(d_wq); hipFree(d_nw); hipStreamDestroy(s);
+    HIP_CHECK(hipFree(d_in)); HIP_CHECK(hipFree(d_out)); HIP_CHECK(hipFree(d_norm));
+    HIP_CHECK(hipFree(d_wq)); HIP_CHECK(hipFree(d_nw)); HIP_CHECK(hipStreamDestroy(s));
     printf("\nPASS\n");
     return 0;
 }

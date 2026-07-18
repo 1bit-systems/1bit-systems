@@ -44,10 +44,10 @@ struct HipBuf {
     size_t n = 0;
     HipBuf() = default;
     explicit HipBuf(size_t bytes) : n(bytes) { HIP_CHECK(hipMalloc(&p, bytes)); }
-    ~HipBuf() { if (p) hipFree(p); }
+    ~HipBuf() { if (p) HIP_CHECK(hipFree(p)); }
     HipBuf(HipBuf&& o) noexcept : p(o.p), n(o.n) { o.p = nullptr; o.n = 0; }
     HipBuf& operator=(HipBuf&& o) noexcept {
-        if (this != &o) { if (p) hipFree(p); p = o.p; n = o.n; o.p = nullptr; o.n = 0; }
+        if (this != &o) { if (p) HIP_CHECK(hipFree(p)); p = o.p; n = o.n; o.p = nullptr; o.n = 0; }
         return *this;
     }
     HipBuf(const HipBuf&) = delete;

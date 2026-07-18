@@ -8,6 +8,8 @@
 #include <vector>
 #include <cstdint>
 
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+
 static void hadamard_cpu(const float* x, float* y, int K, int B) {
     int nb = K / B;
     for (int b = 0; b < nb; ++b) {
@@ -31,7 +33,7 @@ static float quant_i8(const float* x, int8_t* out, int K) {
 }
 
 int main() {
-    hipSetDevice(0); hipStream_t s; hipStreamCreate(&s);
+    HIP_CHECK(hipSetDevice(0)); hipStream_t s; HIP_CHECK(hipStreamCreate(&s));
     const int M=256, K=2048, B=128;
     printf("Full pipeline: M=%d K=%d B=%d\n", M, K, B);
 
@@ -59,19 +61,19 @@ int main() {
 
     // ── GPU ──
     _Float16 *dx, *dxr; int8_t *dxi, *dWi; float *dsdev, *dsc; __half *dy;
-    hipMalloc(&dx,K*2); hipMalloc(&dxr,K*2); hipMalloc(&dxi,K); hipMalloc(&dsdev,4);
-    hipMalloc(&dWi,(size_t)M*K); hipMalloc(&dsc,M*4); hipMalloc(&dy,M*2);
+    HIP_CHECK(hipMalloc(&dx,K*2)); HIP_CHECK(hipMalloc(&dxr,K*2)); HIP_CHECK(hipMalloc(&dxi,K)); HIP_CHECK(hipMalloc(&dsdev,4));
+    HIP_CHECK(hipMalloc(&dWi,(size_t)M*K)); HIP_CHECK(hipMalloc(&dsc,M*4)); HIP_CHECK(hipMalloc(&dy,M*2));
     std::vector<_Float16> hXf16(K); for(int i=0;i<K;++i)hXf16[i]=(_Float16)hX[i];
-    hipMemcpy(dx,hXf16.data(),K*2,hipMemcpyHostToDevice);
-    hipMemcpy(dWi,hWi8.data(),(size_t)M*K,hipMemcpyHostToDevice);
-    hipMemcpy(dsc,hSc.data(),M*4,hipMemcpyHostToDevice);
+    HIP_CHECK(hipMemcpy(dx,hXf16.data(),K*2,hipMemcpyHostToDevice));
+    HIP_CHECK(hipMemcpy(dWi,hWi8.data(),(size_t)M*K,hipMemcpyHostToDevice));
+    HIP_CHECK(hipMemcpy(dsc,hSc.data(),M*4,hipMemcpyHostToDevice));
 
     rcpp_hadamard_rotate_fp16(dx,dxr,K,s);
     rcpp_quantize_fp16_to_i8(dxr,dxi,dsdev,K,s);
-    float xs_gpu; hipMemcpy(&xs_gpu,dsdev,4,hipMemcpyDeviceToHost);
+    float xs_gpu; HIP_CHECK(hipMemcpy(&xs_gpu,dsdev,4,hipMemcpyDeviceToHost));
     rcpp_wmma_i8_gemv(dWi,dxi,xs_gpu,dsc,dy,M,K,s);
-    hipStreamSynchronize(s);
-    std::vector<__half> hY(M); hipMemcpy(hY.data(),dy,M*2,hipMemcpyDeviceToHost);
+    HIP_CHECK(hipStreamSynchronize(s));
+    std::vector<__half> hY(M); HIP_CHECK(hipMemcpy(hY.data(),dy,M*2,hipMemcpyDeviceToHost));
 
     // ── Compare ──
     int pass=1; float mae=0,mre=0; int fails=0;
@@ -83,7 +85,7 @@ int main() {
     printf("scales: cpu=%.6f gpu=%.6f  mae=%.4f mre=%.4f fails=%d  %s\n",
            xs_cpu,xs_gpu,mae,mre,fails,fails==0?"PASS":"FAIL");
 
-    hipStreamDestroy(s);
-    hipFree(dx);hipFree(dxr);hipFree(dxi);hipFree(dsdev);hipFree(dWi);hipFree(dsc);hipFree(dy);
+    HIP_CHECK(hipStreamDestroy(s));
+    HIP_CHECK(hipFree(dx));HIP_CHECK(hipFree(dxr));HIP_CHECK(hipFree(dxi));HIP_CHECK(hipFree(dsdev));HIP_CHECK(hipFree(dWi));HIP_CHECK(hipFree(dsc));HIP_CHECK(hipFree(dy));
     return fails==0?0:1;
 }
