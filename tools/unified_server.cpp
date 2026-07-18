@@ -23,7 +23,8 @@
 #include "backend_plugin.h"
 #include "backend.h"
 #include "model_discovery.h"
-#include "rocm_cpp/tokenizer.h"
+#include "model_router.h"
+#include "simple_tokenizer.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -64,112 +65,9 @@ static AgentWatchdog* g_watchdog = nullptr;
 // ── Tokenizer: uses RCPP BPE tokenizer (.htok) when available, falls back
 // to SimpleTokenizer (ASCII + UTF-8 byte passthrough) when not.
 // The RCPP tokenizer is linked via librocm_cpp and reads .htok binary format.
-struct SimpleTokenizer {
-    int bos_id = 2;
-    int eos_id = 1;
-    bool use_bpe = false;
-    rcpp_tokenizer_t* bpe_tok = nullptr;
-
-    bool load(const std::string& vocab_path) {
-        if (vocab_path.size() >= 5 && vocab_path.substr(vocab_path.size() - 5) == ".htok") {
-            rcpp_tokenizer_t* tok = nullptr;
-            rcpp_status_t st = rcpp_tokenizer_load(vocab_path.c_str(), &tok);
-            if (st == RCPP_OK && tok) {
-                bpe_tok = tok;
-                use_bpe = true;
-                bos_id = rcpp_tokenizer_bos_id(bpe_tok);
-                eos_id = rcpp_tokenizer_eos_id(bpe_tok);
-                fprintf(stderr, "Loaded BPE tokenizer from %s (BOS=%d, EOS=%d)\n",
-                        vocab_path.c_str(), bos_id, eos_id);
-                return true;
-            }
-            fprintf(stderr, "Failed to load BPE tokenizer from %s\n", vocab_path.c_str());
-        }
-        fprintf(stderr, "No .htok at %s — using fallback ASCII tokenizer\n", vocab_path.c_str());
-        return false;
-    }
-
-    ~SimpleTokenizer() {
-        if (bpe_tok) rcpp_tokenizer_free(bpe_tok);
-    }
-
-    std::vector<int> encode(const std::string& text) {
-        if (use_bpe && bpe_tok) {
-            std::vector<int> r(4096);
-            size_t out_n = 0;
-            rcpp_status_t st = rcpp_tokenizer_encode(bpe_tok, text.c_str(), text.size(),
-                                                      1, r.data(), r.size(), &out_n);
-            if (st == RCPP_OK && out_n > 0) {
-                r.resize(out_n);
-                return r;
-            }
-            return {bos_id};
-        }
-        // Fallback: ASCII + UTF-8 byte passthrough
-        std::vector<int> r = {bos_id};
-        for (unsigned char c : text) {
-            if (c >= 32 && c <= 126)
-                r.push_back((int)c + 100);
-            else if (c != 0)
-                r.push_back((int)c + 200);
-        }
-        return r;
-    }
-
-    /// Encode with per-token log-probabilities (for cascade strategy).
-    /// Returns token IDs and fills logprobs_out with corresponding logprobs.
-    std::vector<int> encode_with_logprobs(const std::string& text,
-                                           std::vector<double>& logprobs_out) {
-        logprobs_out.clear();
-        if (use_bpe && bpe_tok) {
-            std::vector<int> r(4096);
-            std::vector<double> lp(4096);
-            size_t out_n = 0;
-            rcpp_status_t st = rcpp_tokenizer_encode_with_logprobs(
-                bpe_tok, text.c_str(), text.size(),
-                1, r.data(), lp.data(), r.size(), &out_n);
-            if (st == RCPP_OK && out_n > 0) {
-                r.resize(out_n);
-                logprobs_out.assign(lp.begin(), lp.begin() + out_n);
-                return r;
-            }
-            return {bos_id};
-        }
-        // Fallback: encode without logprobs
-        auto tokens = encode(text);
-        logprobs_out.resize(tokens.size(), -1.0);
-        return tokens;
-    }
-
-    std::string decode(const std::vector<int>& tokens) {
-        if (use_bpe && bpe_tok) {
-            std::string r(4096, '\0');
-            size_t out_len = 0;
-            rcpp_status_t st = rcpp_tokenizer_decode(bpe_tok, tokens.data(), tokens.size(),
-                                                      r.data(), r.size(), &out_len);
-            if (st == RCPP_OK && out_len > 0) {
-                r.resize(out_len);
-                return r;
-            }
-            return "";
-        }
-        // Fallback: ASCII + UTF-8 byte passthrough
-        std::string r;
-        for (int v : tokens) {
-            if (v == bos_id || v == eos_id) continue;
-            if (v > 100 && v < 200)
-                r += (char)(v - 100);
-            else if (v > 200 && v < 456)
-                r += (char)(v - 200);
-            else {
-                r += '['; r += std::to_string(v); r += ']';
-            }
-        }
-        return r;
-    }
-};
-
-static SimpleTokenizer g_tokenizer;
+// SimpleTokenizer itself lives in include/simple_tokenizer.h; g_tokenizer is
+// defined once in src/simple_tokenizer.cpp (part of backend_manager) so any
+// backend that needs it (e.g. FlmBackend) can link against the same instance.
 
 // ── Signal handler ──
 static void handle_sigint(int) {
@@ -656,7 +554,7 @@ int main(int argc, char** argv) {
     // Phase 2.5: Scan for model files
     printf("\n── Model Discovery ──\n");
     static std::vector<ModelConfig> discovered = discover_models(g_weights_dir);
-    static ModelConfig current_cfg = default_model_config();
+    static ModelConfig current_cfg = discovered.empty() ? default_model_config() : discovered.front();
     for (auto& m : discovered) {
         printf("  ✓  %s (%s)\n", m.model_name.c_str(), m.model_path.c_str());
     }
@@ -667,7 +565,14 @@ int main(int argc, char** argv) {
     // Phase 3: Initialize
     printf("\n── Initialize ──\n");
     ModelConfig cfg = current_cfg;
-    bool inited = mgr.init(cfg, g_weights_dir);
+    // Prefer the model's own embedded GGUF vocab over the fixed .htok/ASCII
+    // tokenizer loaded above — correct per-model tokenization matters as
+    // much as backend routing for arbitrary (non-Zaya) models. Falls back
+    // silently (keeps whatever tokenizer was already loaded) if unavailable.
+    g_tokenizer.load_from_gguf(cfg.model_path);
+    BackendRoute route = select_backend_route(cfg);
+    printf("  Router: %s\n", route.reason.c_str());
+    bool inited = mgr.init(cfg, g_weights_dir, route.backend_ids_in_order);
     if (inited) {
         // Ensure active_idx_ points to the initialized backend
         // (init() returns true but doesn't update active_idx_)
@@ -826,7 +731,9 @@ int main(int argc, char** argv) {
                     printf("[model] switching to %s (%d layers, %d hidden)\n",
                            dm.model_name.c_str(), dm.n_layers, dm.hidden);
                     current_cfg = dm;
-                    mgr.init(current_cfg, g_weights_dir);
+                    g_tokenizer.load_from_gguf(current_cfg.model_path);
+                    BackendRoute swrt = select_backend_route(current_cfg);
+                    mgr.init(current_cfg, g_weights_dir, swrt.backend_ids_in_order);
                     break;
                 }
             }

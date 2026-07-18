@@ -291,14 +291,15 @@ rcpp_status_t rcpp_bitnet_load_gguf(const char* path, rcpp_bitnet_model_t* out_m
         };
         // Select target pointers based on weight format
         // BST format writes to bst_*_packed_dev, standard writes to *_packed_dev
-        auto lw = [&](const std::string& gn, void** std_ptr, void** bst_ptr, int r, int c) {
+        auto lw = [&](const std::string& gn, void** std_ptr, void** bst_ptr, int r, int c) -> rcpp_status_t {
             std::vector<float> data;
-            if (!reader.read_tensor(gn, data)) return;
+            if (!reader.read_tensor(gn, data)) return RCPP_OK;
             std::vector<_Float16> f16(data.size());
             for (size_t i = 0; i < data.size(); ++i) f16[i] = (_Float16)data[i];
             void** target = reader.has_bst_tensor ? bst_ptr : std_ptr;
             HIP_CHECK(hipMalloc(target, f16.size() * sizeof(_Float16)));
             HIP_CHECK(hipMemcpy(*target, f16.data(), f16.size() * sizeof(_Float16), hipMemcpyHostToDevice));
+            return RCPP_OK;
         };
         lw(prefix("input_layernorm.weight"), &layer.input_norm_dev, &layer.input_norm_dev, hidden_size, 1);
         lw(prefix("post_attention_layernorm.weight"), &layer.post_attn_norm_dev, &layer.post_attn_norm_dev, hidden_size, 1);

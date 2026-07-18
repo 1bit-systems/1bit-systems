@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <thread>
 #include <chrono>
+#include <unistd.h>
 
 // ── Backend priority by tier ──
 static int tier_priority(BackendTier t) {
@@ -50,6 +51,10 @@ void BackendManager::discover() {
         info.priority = tier_priority(info.tier) + 50;
         info.available = has_npu();
         info.functional = false;  // needs init to confirm
+        // Compiled INT8 GEMM kernels are confirmed producing wrong output on real
+        // hardware (docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md) — never auto-select
+        // until that's resolved. NPU inference goes through the FLM backend instead.
+        info.auto_selectable = false;
         info.score = 0;
         info.total_inferences = 0;
         info.failed_inferences = 0;
@@ -57,6 +62,54 @@ void BackendManager::discover() {
         info.instance = nullptr;
         info.plugin_handle = nullptr;
         printf("  %-25s %s\n", "NPU XDNA (XRT)", info.available ? "✅ detected" : "❌ not available");
+        backends_.push_back(info);
+    }
+
+    // 1b. NPU via FastFlowLM subprocess — the actually-correct NPU path while
+    // npu_xrt's in-process kernels remain broken (see docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md).
+    {
+        BackendInfo info;
+        info.id = "npu_flm";
+        info.type = BackendType::NPU_FLM;
+        info.tier = BackendTier::T1_ACCELERATOR;
+        info.description = "NPU via FastFlowLM";
+        info.priority = tier_priority(info.tier) + 40;
+        bool flm_bin = access("/opt/fastflowlm/bin/flm", X_OK) == 0 ||
+                       access("/usr/bin/flm", X_OK) == 0;
+        info.available = has_npu() && flm_bin;
+        info.functional = false;
+        info.score = 0;
+        info.total_inferences = 0;
+        info.failed_inferences = 0;
+        info.cumulative_ms = 0;
+        info.instance = nullptr;
+        info.plugin_handle = nullptr;
+        printf("  %-25s %s\n", "NPU via FastFlowLM", info.available ? "✅ detected" : "❌ not available");
+        backends_.push_back(info);
+    }
+
+    // 1c. ZINC GPU — general GGUF, multi-architecture/multi-quant (see model_router.h;
+    // this is the default GPU path for non-Zaya, non-qwen3 GGUF models).
+    {
+        BackendInfo info;
+        info.id = "zinc_gpu";
+        info.type = BackendType::ZINC_GPU;
+        info.tier = BackendTier::T2_GPU;
+        info.description = "ZINC GPU (Vulkan, multi-arch)";
+        info.priority = tier_priority(info.tier) + 40;
+#ifdef ZINC_DISABLED
+        info.available = false;
+#else
+        info.available = has_vulkan() || has_hip_gpu();
+#endif
+        info.functional = false;
+        info.score = 0;
+        info.total_inferences = 0;
+        info.failed_inferences = 0;
+        info.cumulative_ms = 0;
+        info.instance = nullptr;
+        info.plugin_handle = nullptr;
+        printf("  %-25s %s\n", "ZINC GPU (Vulkan)", info.available ? "✅ detected" : "❌ not available");
         backends_.push_back(info);
     }
 
@@ -140,6 +193,29 @@ void BackendManager::discover() {
         backends_.push_back(info);
     }
 
+    // 6. CPU generic — general-purpose GGUF backend (Llama/Mistral/Qwen2/Gemma/Phi),
+    // unlike cpu_avx512/cpu_scalar (CPUBackend) which only accept the hardcoded
+    // Zaya1-8B dims. Always available; the router (model_router.h) is what actually
+    // prefers this for non-Zaya models — see select_backend_route().
+    {
+        BackendInfo info;
+        info.id = "cpu_generic";
+        info.type = BackendType::GENERIC;
+        info.tier = BackendTier::T3_CPU;
+        info.description = "Generic CPU (GGUF)";
+        info.priority = tier_priority(info.tier) + 20;
+        info.available = true;  // always
+        info.functional = false;
+        info.score = 0;
+        info.total_inferences = 0;
+        info.failed_inferences = 0;
+        info.cumulative_ms = 0;
+        info.instance = nullptr;
+        info.plugin_handle = nullptr;
+        printf("  %-25s %s\n", "CPU Generic (GGUF)", "✅ always available");
+        backends_.push_back(info);
+    }
+
     // Rack 'em
     rank_backends();
     active_idx_ = 0;
@@ -159,9 +235,46 @@ bool BackendManager::init(const ModelConfig& cfg, const std::string& weights_dir
         return false;
     }
 
-    // Try each backend in priority order until one initializes
-    for (auto& info : backends_) {
-        if (!info.available) continue;
+    std::vector<size_t> order(backends_.size());
+    for (size_t i = 0; i < order.size(); i++) order[i] = i;
+    return init_in_order(cfg, weights_dir, order);
+}
+
+bool BackendManager::init(const ModelConfig& cfg, const std::string& weights_dir,
+                           const std::vector<std::string>& preferred_ids) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    cfg_ = cfg;
+    weights_dir_ = weights_dir;
+
+    if (backends_.empty()) {
+        fprintf(stderr, "BackendManager: no backends discovered. Run discover() first.\n");
+        return false;
+    }
+
+    // Preferred ids first (in the order given), then everything else in the
+    // usual priority order. Unknown preferred ids are silently skipped.
+    std::vector<size_t> order;
+    std::vector<bool> used(backends_.size(), false);
+    for (const auto& id : preferred_ids) {
+        for (size_t i = 0; i < backends_.size(); i++) {
+            if (!used[i] && backends_[i].id == id) {
+                order.push_back(i);
+                used[i] = true;
+                break;
+            }
+        }
+    }
+    for (size_t i = 0; i < backends_.size(); i++) if (!used[i]) order.push_back(i);
+
+    return init_in_order(cfg, weights_dir, order);
+}
+
+bool BackendManager::init_in_order(const ModelConfig& cfg, const std::string& weights_dir,
+                                    const std::vector<size_t>& order) {
+    // Try each backend in the given order until one initializes.
+    for (size_t idx : order) {
+        auto& info = backends_[idx];
+        if (!info.available || !info.auto_selectable) continue;
 
         printf("BackendManager: trying %s (%s)...\n", info.id.c_str(), info.description.c_str());
         // Try to create via dlsym (GPU/NPU backends live in librocm_cpp.so or standalone)
@@ -187,7 +300,7 @@ bool BackendManager::init(const ModelConfig& cfg, const std::string& weights_dir
             initialized_ = true;
             // Set active_idx_ to this backend so generate() works immediately
             // without requiring the caller to manually call select_backend() (#fix #17).
-            active_idx_ = &info - backends_.data();
+            active_idx_ = idx;
             printf("  → ✅ initialized successfully\n");
 
             // Create monitor entry
@@ -217,7 +330,7 @@ bool BackendManager::select_best() {
             float best_score = 1e30f;
             for (size_t i = 0; i < backends_.size(); i++) {
                 auto& b = backends_[i];
-                if (!b.available || !b.functional) continue;
+                if (!b.available || !b.functional || !b.auto_selectable) continue;
                 if (b.score > 0 && b.score < best_score) {
                     best_score = b.score;
                     best_idx = i;
@@ -226,7 +339,7 @@ bool BackendManager::select_best() {
             // If no backend has a score, fall back to first available+functional
             if (best_idx == backends_.size()) {
                 for (size_t i = 0; i < backends_.size(); i++) {
-                    if (backends_[i].available && backends_[i].functional) {
+                    if (backends_[i].available && backends_[i].functional && backends_[i].auto_selectable) {
                         best_idx = i;
                         break;
                     }
@@ -244,7 +357,7 @@ bool BackendManager::select_best() {
         case SelectionStrategy::LOWEST_POWER: {
             // Pick the highest-priority available+functional backend (NPU > GPU > CPU)
             for (size_t i = 0; i < backends_.size(); i++) {
-                if (backends_[i].available && backends_[i].functional) {
+                if (backends_[i].available && backends_[i].functional && backends_[i].auto_selectable) {
                     active_idx_ = i;
                     return true;
                 }
@@ -257,7 +370,7 @@ bool BackendManager::select_best() {
             size_t start = (active_idx_ + 1) % backends_.size();
             for (size_t i = 0; i < backends_.size(); i++) {
                 size_t idx = (start + i) % backends_.size();
-                if (backends_[idx].available && backends_[idx].functional) {
+                if (backends_[idx].available && backends_[idx].functional && backends_[idx].auto_selectable) {
                     active_idx_ = idx;
                     return true;
                 }
@@ -937,6 +1050,16 @@ Backend* BackendManager::create_instance_rt(const BackendInfo& info) {
         case BackendType::CPU_AVX512:
         case BackendType::CPU_SCALAR:
             return create_cpu_backend();
+        case BackendType::GENERIC:
+            return create_generic_backend();
+        case BackendType::NPU_FLM:
+            return create_flm_backend();
+        case BackendType::ZINC_GPU:
+#ifdef ZINC_DISABLED
+            return nullptr;
+#else
+            return create_zinc_backend();
+#endif
         default:
             return nullptr;
     }

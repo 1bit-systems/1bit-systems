@@ -219,6 +219,44 @@ if(ROCWMMA_FOUND)
 endif()
 target_sources(rocm_cpp PRIVATE src/prefill_dispatcher.cpp)
 
+# -- libzinc : ZINC GPU backend (github.com/zolotukhin/zinc, forked at
+#    /home/$USER/zinc — a genuinely separate project, NOT the stale vendored
+#    copy under engine/gpu in this repo). Built via its own C ABI shim
+#    (src/c_abi.zig in that checkout) into a shared library, linked into
+#    backend_zinc.cpp below. ------------------------------------------------
+set(ZINC_REPO_DIR "$ENV{HOME}/zinc" CACHE PATH "Path to the ZINC checkout")
+# zinc's build.zig currently requires Zig 0.15.x specifically (build.zig.zon:
+# minimum_zig_version 0.15.2) — newer 0.16+ toolchains hit real build.zig API
+# breaks (e.g. b.graph.env_map moved). Prefer a pinned 0.15.2 toolchain over
+# whatever `zig` resolves to on PATH, since that's commonly a newer version
+# via package managers that auto-track a "latest" channel.
+find_program(ZIG_0_15_EXECUTABLE zig
+    HINTS "$ENV{HOME}/.local/zig-0.15.2"
+    NO_DEFAULT_PATH)
+if(NOT ZIG_0_15_EXECUTABLE)
+    find_program(ZIG_0_15_EXECUTABLE zig)
+endif()
+set(ZINC_ENABLED FALSE)
+if(ZIG_0_15_EXECUTABLE AND EXISTS "${ZINC_REPO_DIR}/build.zig")
+    set(ZINC_ENABLED TRUE)
+    set(ZINC_LIB "${ZINC_REPO_DIR}/zig-out/lib/libzinc.so")
+    # zinc's full `zig build` also builds unrelated, currently-broken training
+    # shader targets (missing .comp source files, pre-existing and unrelated
+    # to inference/libzinc.so) that make the overall command exit nonzero even
+    # when libzinc.so itself built fine. Don't propagate that unrelated
+    # failure — just verify the one artifact we actually need exists after.
+    add_custom_command(
+        OUTPUT "${ZINC_LIB}"
+        COMMAND sh -c "'${ZIG_0_15_EXECUTABLE}' build -Doptimize=ReleaseFast; test -f '${ZINC_LIB}'"
+        WORKING_DIRECTORY "${ZINC_REPO_DIR}"
+        DEPENDS "${ZINC_REPO_DIR}/src/c_abi.zig" "${ZINC_REPO_DIR}/build.zig"
+        COMMENT "Building libzinc.so from ${ZINC_REPO_DIR} (zig build)"
+        VERBATIM)
+    add_custom_target(zinc_lib DEPENDS "${ZINC_LIB}")
+else()
+    message(STATUS "ZINC backend disabled: need a Zig 0.15.x toolchain and a checkout at ${ZINC_REPO_DIR} (git clone https://github.com/zolotukhin/zinc)")
+endif()
+
 # -- libbackend_manager : Pure C++ backend abstraction layer (no HIP) ---------
 add_library(backend_manager STATIC
     src/backend_factory.cpp
@@ -227,14 +265,24 @@ add_library(backend_manager STATIC
     src/backend_plugin.cpp
     src/backend_cpu.cpp
     src/backend_generic.cpp
+    src/backend_flm.cpp
+    src/simple_tokenizer.cpp
     src/model_discovery.cpp)
 target_include_directories(backend_manager PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
 target_include_directories(backend_manager PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>)
-target_link_libraries(backend_manager PUBLIC dl)
+target_link_libraries(backend_manager PUBLIC dl rocm_cpp)
 target_compile_options(backend_manager PRIVATE -O3 -Wall -Wno-unused-result -std=c++17)
+
+if(ZINC_ENABLED)
+    target_sources(backend_manager PRIVATE src/backend_zinc.cpp)
+    add_dependencies(backend_manager zinc_lib)
+    target_link_libraries(backend_manager PUBLIC "${ZINC_LIB}")
+else()
+    target_compile_definitions(backend_manager PRIVATE ZINC_DISABLED=1)
+endif()
 
 set(RCPP_HIP_SOURCES ${RCPP_SOURCES} src/prefill_dispatcher.cpp)
 list(FILTER RCPP_HIP_SOURCES INCLUDE REGEX "\\.hip$|prefill_dispatcher\\.cpp$")
@@ -440,12 +488,16 @@ add_executable(unified_server
     src/backend_hip.cpp
     src/zaya_engine.cpp
     src/backend_npu.cpp
-    src/backend_generic.cpp)
+    src/backend_generic.cpp
+    src/model_router.cpp
+    src/backend_flm.cpp)
 set_source_files_properties(src/backend_hip.cpp PROPERTIES LANGUAGE HIP)
 set_source_files_properties(src/zaya_engine.cpp PROPERTIES LANGUAGE HIP)
 set_source_files_properties(src/backend_generic.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(tools/unified_server.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(src/backend_npu.cpp PROPERTIES LANGUAGE CXX)
+set_source_files_properties(src/model_router.cpp PROPERTIES LANGUAGE CXX)
+set_source_files_properties(src/backend_flm.cpp PROPERTIES LANGUAGE CXX)
 target_include_directories(unified_server PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
@@ -461,6 +513,11 @@ target_link_libraries(unified_server PRIVATE
     rocm_cpp hip::host hip::device)
 target_link_options(unified_server PRIVATE -rdynamic)
 set_target_properties(unified_server PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+if(ZINC_ENABLED)
+    set_target_properties(unified_server PROPERTIES
+        INSTALL_RPATH "${ZINC_REPO_DIR}/zig-out/lib"
+        BUILD_RPATH "${ZINC_REPO_DIR}/zig-out/lib")
+endif()
 
 add_custom_target(zaya_agent ALL
     DEPENDS unified_server
@@ -476,6 +533,11 @@ add_executable(backend_demo tools/backend_demo.cpp)
 target_include_directories(backend_demo PRIVATE src/)
 target_compile_options(backend_demo PRIVATE -O3 -Wall -Wno-unused-result -std=c++17)
 target_link_libraries(backend_demo PRIVATE backend_manager dl)
+if(ZINC_ENABLED)
+    set_target_properties(backend_demo PROPERTIES
+        INSTALL_RPATH "${ZINC_REPO_DIR}/zig-out/lib"
+        BUILD_RPATH "${ZINC_REPO_DIR}/zig-out/lib")
+endif()
 
 add_executable(bitnet_tui tools/bitnet_tui.cpp)
 target_link_libraries(bitnet_tui PRIVATE

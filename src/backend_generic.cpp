@@ -317,11 +317,17 @@ struct GenericBackend : Backend {
     int pos = 0;
     std::vector<float> logits_buf;
 
-    // Per-layer weight indices
-    struct LayerW { size_t wq, wk, wv, wo, w1, w2, w3, rms_attn, rms_ffn; };
+    // Per-layer weight indices. bq/bk/bv are optional QKV biases (Qwen2 and
+    // some other architectures use biased attention projections, unlike
+    // Llama) — SIZE_MAX means "not present in this model", distinct from a
+    // legitimate index 0 into flat_weights.
+    struct LayerW {
+        size_t wq, wk, wv, wo, w1, w2, w3, rms_attn, rms_ffn;
+        size_t bq = SIZE_MAX, bk = SIZE_MAX, bv = SIZE_MAX;
+    };
     std::vector<LayerW> layers;
 
-    GenericBackend() { type = BackendType::CPU_AVX512; name = "Generic CPU (AVX-512)"; }
+    GenericBackend() { type = BackendType::GENERIC; name = "Generic CPU (GGUF)"; }
 
     void load_weights(const std::string& base) {
         // Weights stored as flat float vectors: model_layers_N_name.bin
@@ -451,7 +457,19 @@ struct GenericBackend : Backend {
             flat_weights.insert(flat_weights.end(), buf.begin(), buf.end());
             return idx;
         };
-        
+        // Like load_tensor, but returns SIZE_MAX (not 0) when the tensor
+        // simply isn't present — for genuinely optional tensors (QKV bias),
+        // where "absent" and "present at index 0" must stay distinguishable.
+        auto load_tensor_optional = [&](const std::string& name, size_t expected) -> size_t {
+            std::vector<float> buf;
+            size_t n = 0;
+            if (!read_gguf_tensor(path, name, buf, &n)) return SIZE_MAX;
+            if (n != expected) { fprintf(stderr, "  %s: expected %zu, got %zu\n", name.c_str(), expected, n); return SIZE_MAX; }
+            size_t idx = flat_weights.size();
+            flat_weights.insert(flat_weights.end(), buf.begin(), buf.end());
+            return idx;
+        };
+
         for (int i = 0; i < L; i++) {
             std::string p = "blk." + std::to_string(i) + ".";
             LayerW lw;
@@ -464,7 +482,15 @@ struct GenericBackend : Backend {
             lw.w1 = load_tensor(p + "ffn_gate.weight", FF*H);
             lw.w2 = load_tensor(p + "ffn_up.weight", FF*H);
             lw.w3 = load_tensor(p + "ffn_down.weight", H*FF);
+            lw.bq = load_tensor_optional(p + "attn_q.bias", NH*HD);
+            lw.bk = load_tensor_optional(p + "attn_k.bias", NKV*HD);
+            lw.bv = load_tensor_optional(p + "attn_v.bias", NKV*HD);
             layers[i] = lw;
+        }
+        {
+            int with_bias = 0;
+            for (auto& lw : layers) if (lw.bq != SIZE_MAX) with_bias++;
+            if (with_bias > 0) printf("Generic: %d/%d layers have biased QKV projections\n", with_bias, L);
         }
         
         printf("Generic: loaded %zu layers, embed=%zu, final_norm=%zu\n",
@@ -492,22 +518,34 @@ struct GenericBackend : Backend {
         for (int i = 0; i < n; i++) o[i] = x[i] * r * w[i];
     }
 
+    // NeoX-style (half-split) RoPE — the convention GGUF/llama.cpp-family
+    // models (Llama, Qwen, Mistral, ...) actually use: pairs element i with
+    // i+rot_dim/2, not adjacent elements (i, i+1). Cross-checked against
+    // ZINC's shaders (src/shaders/rope_fused.comp and siblings, all
+    // independently confirm half_rot = rope_dim/2 pairing) since ZINC is
+    // independently verified to produce coherent output on these same
+    // models — this file's previous adjacent-pair version was the GPT-J
+    // convention, wrong for this model family, and produced incoherent
+    // (real-vocabulary but semantically scrambled) output as a result.
     static void rope(float* q, float* k, int pos, int n_heads, int n_kv, int hd, int rot_dim, float theta) {
+        int half = rot_dim / 2;
         for (int h = 0; h < n_heads; h++) {
-            for (int d = 0; d < rot_dim; d += 2) {
-                float freq = pos / powf(theta, d / (float)rot_dim);
-                float cosv = cosf(freq), sinv = sinf(freq);
-                int i0 = h * hd + d, i1 = h * hd + d + 1;
+            for (int i = 0; i < half; i++) {
+                float freq = 1.0f / powf(theta, (2.0f * i) / (float)rot_dim);
+                float t = pos * freq;
+                float cosv = cosf(t), sinv = sinf(t);
+                int i0 = h * hd + i, i1 = h * hd + i + half;
                 float q0 = q[i0], q1 = q[i1];
                 q[i0] = q0 * cosv - q1 * sinv;
                 q[i1] = q0 * sinv + q1 * cosv;
             }
         }
         for (int h = 0; h < n_kv; h++) {
-            for (int d = 0; d < rot_dim; d += 2) {
-                float freq = pos / powf(theta, d / (float)rot_dim);
-                float cosv = cosf(freq), sinv = sinf(freq);
-                int i0 = h * hd + d, i1 = h * hd + d + 1;
+            for (int i = 0; i < half; i++) {
+                float freq = 1.0f / powf(theta, (2.0f * i) / (float)rot_dim);
+                float t = pos * freq;
+                float cosv = cosf(t), sinv = sinf(t);
+                int i0 = h * hd + i, i1 = h * hd + i + half;
                 float k0 = k[i0], k1 = k[i1];
                 k[i0] = k0 * cosv - k1 * sinv;
                 k[i1] = k0 * sinv + k1 * cosv;
@@ -576,6 +614,12 @@ struct GenericBackend : Backend {
             matmul(q.data(), x2.data(), w(l.wq), NH*HD, H);
             matmul(k.data(), x2.data(), w(l.wk), NKV*HD, H);
             matmul(v.data(), x2.data(), w(l.wv), NKV*HD, H);
+
+            // Optional QKV bias (Qwen2 and others use biased attention
+            // projections; absent for architectures like Llama).
+            if (l.bq != SIZE_MAX) { float* b = w(l.bq); for (int i = 0; i < NH*HD; i++) q[i] += b[i]; }
+            if (l.bk != SIZE_MAX) { float* b = w(l.bk); for (int i = 0; i < NKV*HD; i++) k[i] += b[i]; }
+            if (l.bv != SIZE_MAX) { float* b = w(l.bv); for (int i = 0; i < NKV*HD; i++) v[i] += b[i]; }
 
             // RoPE
             rope(q.data(), k.data(), pos, NH, NKV, HD, rot_dim, theta);

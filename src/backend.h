@@ -71,6 +71,13 @@ extern "C" Backend* create_hip_backend();
 // ── NPU backend ──
 Backend* create_npu_backend();
 
+// ── NPU via FastFlowLM subprocess (see docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md
+// for why this exists instead of the in-process NPU kernels) ──
+extern "C" Backend* create_flm_backend();
+
+// ── ZINC backend (general GGUF, multi-arch/multi-quant, via libzinc.so) ──
+Backend* create_zinc_backend();
+
 // ── Zamba2 backend ──
 Backend* create_zamba2_backend();
 

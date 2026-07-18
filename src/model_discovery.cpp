@@ -2,8 +2,11 @@
 // and read their headers to populate ModelConfig without loading full weights.
 
 #include "model_discovery.h"
+#include "q4nx_reader.h"
 #include <cstdio>
 #include <cstring>
+#include <cmath>
+#include <limits>
 #include <dirent.h>
 #include <sys/stat.h>
 
@@ -11,6 +14,32 @@
 // Reads just enough of a GGUF file to extract architecture + dimensions.
 // The GGUF spec: magic(4) + version(4) + tensor_count(8) + metadata_kv_count(8)
 // Then kv pairs: key_length(8) + key_data + value_type(4) + value_data
+
+// Best-effort mapping of GGUF's general.file_type (ggml_ftype) to a human-readable
+// quantization tag. Not exhaustive — covers the common cases, falls back to a
+// numbered "unknown" tag for anything else rather than silently guessing.
+static std::string ggml_ftype_name(uint32_t ft) {
+    switch (ft) {
+        case 0:  return "F32";
+        case 1:  return "F16";
+        case 2:  return "Q4_0";
+        case 3:  return "Q4_1";
+        case 7:  return "Q8_0";
+        case 8:  return "Q5_0";
+        case 9:  return "Q5_1";
+        case 10: return "Q2_K";
+        case 11: return "Q3_K_S";
+        case 12: return "Q3_K_M";
+        case 13: return "Q3_K_L";
+        case 14: return "Q4_K_S";
+        case 15: return "Q4_K_M";
+        case 16: return "Q5_K_S";
+        case 17: return "Q5_K_M";
+        case 18: return "Q6_K";
+        case 32: return "BF16";
+        default: return "unknown(" + std::to_string(ft) + ")";
+    }
+}
 
 static bool read_gguf_metadata(const std::string& path, ModelConfig& cfg) {
     FILE* f = fopen(path.c_str(), "rb");
@@ -41,6 +70,7 @@ static bool read_gguf_metadata(const std::string& path, ModelConfig& cfg) {
         cfg.head_dim = hs / n_heads;
         cfg.max_seq_len = max_seq ? max_seq : 2048;
         cfg.model_path = path;
+        cfg.format = ModelFormat::H1B;
         // Derive name from filename
         auto slash = path.find_last_of('/');
         auto dot = path.find_last_of('.');
@@ -67,6 +97,7 @@ static bool read_gguf_metadata(const std::string& path, ModelConfig& cfg) {
     cfg.rope_theta = 10000.0f;
     cfg.rms_norm_eps = 1e-6f;
     cfg.model_path = path;
+    cfg.format = ModelFormat::GGUF;
     auto slash = path.find_last_of('/');
     auto dot = path.find_last_of('.');
     cfg.model_name = path.substr(slash + 1, dot - slash - 1);
@@ -103,13 +134,14 @@ static bool read_gguf_metadata(const std::string& path, ModelConfig& cfg) {
         };
 
         std::string key(key_buf);
-        if (key == "general.architecture") { 
-            cfg.model_name = read_str(); 
-            // Build architecture-specific key prefix for later checks
+        if (key == "general.architecture") {
+            // Keep separate from model_name (general.name), which commonly appears
+            // later in the same file and would otherwise clobber this value.
+            cfg.architecture = read_str();
         }
         else if (key == "general.name") { cfg.model_name = read_str(); }
         else if (key == "tokenizer.ggml.model") { /* ignore */ }
-        else if (key == "general.file_type") { /* ignore */ }
+        else if (key == "general.file_type") { cfg.quantization = ggml_ftype_name(read_u32()); }
         else {
             // Check for dimension keys (architecture-agnostic by checking suffixes)
             auto ends_with = [&](const std::string& s) -> bool {
@@ -194,7 +226,7 @@ std::vector<ModelConfig> discover_models(const std::string& dir) {
         auto dot = name.find_last_of('.');
         if (dot == std::string::npos) continue;
         std::string ext = name.substr(dot);
-        if (ext != ".gguf" && ext != ".h1b" && ext != ".safetensors" && ext != ".bin") continue;
+        if (ext != ".gguf" && ext != ".h1b" && ext != ".safetensors" && ext != ".bin" && ext != ".q4nx") continue;
 
         std::string full = dir + "/" + name;
         struct stat st;
@@ -204,10 +236,13 @@ std::vector<ModelConfig> discover_models(const std::string& dir) {
         bool ok = false;
         if (ext == ".gguf") ok = read_gguf_metadata(full, cfg);
         else if (ext == ".h1b") ok = read_gguf_metadata(full, cfg);
+        else if (ext == ".q4nx") ok = read_q4nx_metadata(full, cfg);
         else if (ext == ".bin") {
             // .bin files: use the directory name as model name, Zaya defaults
             cfg.model_name = dir.substr(dir.find_last_of('/') + 1);
             cfg.model_path = full;
+            cfg.format = ModelFormat::RAW_BIN;
+            cfg.architecture = "zaya1";
             cfg.hidden = cfg.hidden_size = 2048;
             cfg.n_layers = cfg.num_layers = 40;
             cfg.n_heads = cfg.num_heads = cfg.num_attention_heads = 8;
@@ -222,9 +257,12 @@ std::vector<ModelConfig> discover_models(const std::string& dir) {
 
         if (ok) {
             models.push_back(cfg);
-            printf("  📦 %-30s %d layers, %d hidden, %d heads%s\n",
+            printf("  📦 %-30s %d layers, %d hidden, %d heads%s — %s/%s/%s\n",
                    cfg.model_name.c_str(), cfg.n_layers, cfg.hidden, cfg.n_heads,
-                   cfg.n_kv_heads != cfg.n_heads ? " (GQA)" : "");
+                   cfg.n_kv_heads != cfg.n_heads ? " (GQA)" : "",
+                   ext.c_str(),
+                   cfg.architecture.empty() ? "?" : cfg.architecture.c_str(),
+                   cfg.quantization.empty() ? "?" : cfg.quantization.c_str());
         }
     }
     closedir(d);
@@ -349,11 +387,25 @@ bool read_gguf_tensor(const std::string& path, const std::string& tensor_name,
     output.resize(target->n);
     fseek(f, target->data_off, SEEK_SET);
     
-    // Helper: read fp16 from file
+    // Helper: read fp16 from file. Handles subnormals correctly — the naive
+    // "rebias the exponent bits" trick silently produces wrong values when
+    // exp==0 (subnormal), which real quantization scale factors do hit in
+    // practice (verified: a real Q6_K super-block scale in a downloaded
+    // model was off by ~2.3x from the naive conversion until this fix).
     auto rd_f16 = [&]() -> float {
         uint16_t h; fread(&h, 2, 1, f);
-        uint32_t f32 = ((h & 0x8000)<<16) | ((((h>>10)&0x1f)-15+127)<<23) | ((h&0x3ff)<<13);
-        float r; memcpy(&r, &f32, 4); return r;
+        int sign = (h & 0x8000) ? -1 : 1;
+        int exp = (h >> 10) & 0x1F;
+        int mant = h & 0x3FF;
+        float val;
+        if (exp == 0) {
+            val = std::ldexp((float)mant, -24); // subnormal (incl. zero): mant * 2^-24
+        } else if (exp == 0x1F) {
+            val = mant ? std::numeric_limits<float>::quiet_NaN() : std::numeric_limits<float>::infinity();
+        } else {
+            val = std::ldexp((float)(mant | 0x400), exp - 25); // (1.mant) * 2^(exp-15-10)
+        }
+        return sign * val;
     };
 
     switch (target->dtype) {
@@ -364,41 +416,61 @@ bool read_gguf_tensor(const std::string& path, const std::string& tensor_name,
             break;
         }
         case 2: { // Q4_0: 32 elems, 2 bytes scale + 16 bytes nibbles = 18 bytes/block
+            // ggml's block_q4_0 de-interleaves nibbles into two halves, NOT
+            // sequential (j, j+1, j+2...): output[j] is qs[j]'s low nibble,
+            // output[j+16] is qs[j]'s high nibble (see dequantize_row_q4_0
+            // in ggml-quants.c). Verified against the independent `gguf`
+            // Python reference (bit-exact) for Q4_K/Q6_K — same verification
+            // needed here caught this was using the wrong pattern.
             uint64_t nb = (target->n + 31) / 32;
             for (uint64_t b = 0; b < nb; b++) {
                 float scale = rd_f16();
                 uint8_t q[16]; fread(q, 1, 16, f);
-                for (int j = 0; j < 32 && b*32+j < target->n; j++) {
-                    int8_t v = (j&1) ? (q[j>>1]>>4) : (q[j>>1]&0xf);
-                    output[b*32+j] = (v - 8) * scale;
+                for (int j = 0; j < 16; j++) {
+                    size_t i0 = b*32+j, i1 = b*32+j+16;
+                    if (i0 < target->n) output[i0] = ((int)(q[j] & 0xF) - 8) * scale;
+                    if (i1 < target->n) output[i1] = ((int)(q[j] >> 4) - 8) * scale;
                 }
             }
             break;
         }
-        case 6: { // Q5_0: 32 elems, 2 bytes scale + 16 bytes ql + 4 bytes qh = 22 bytes/block
+        case 6: { // Q5_0: 32 elems, 2 bytes scale + 4 bytes qh + 16 bytes qs = 22 bytes/block
+            // Same de-interleaved low/high split as Q4_0, plus a 5th bit from
+            // qh (read as one little-endian u32, bit j for the low half,
+            // bit j+16 for the high half — see dequantize_row_q5_0).
             uint64_t nb = (target->n + 31) / 32;
             for (uint64_t b = 0; b < nb; b++) {
                 float d = rd_f16();
-                uint8_t ql[16]; fread(ql, 1, 16, f);
-                uint8_t qh[4]; fread(qh, 1, 4, f);
-                for (int j = 0; j < 32 && b*32+j < target->n; j++) {
-                    uint8_t lo = (ql[j/2] >> (4*(j%2))) & 0xF;
-                    uint8_t hi = (qh[j/8] >> (j%8)) & 1;
-                    output[b*32+j] = (float)((int)(lo | (hi << 4)) - 16) * d;
+                uint8_t qh_bytes[4]; fread(qh_bytes, 1, 4, f);
+                uint32_t qh; memcpy(&qh, qh_bytes, 4);
+                uint8_t qs[16]; fread(qs, 1, 16, f);
+                for (int j = 0; j < 16; j++) {
+                    uint8_t xh_0 = (uint8_t)(((qh >> j) << 4) & 0x10);
+                    uint8_t xh_1 = (uint8_t)((qh >> (j + 12)) & 0x10);
+                    int32_t x0 = (int32_t)((qs[j] & 0xF) | xh_0) - 16;
+                    int32_t x1 = (int32_t)((qs[j] >> 4) | xh_1) - 16;
+                    size_t i0 = b*32+j, i1 = b*32+j+16;
+                    if (i0 < target->n) output[i0] = x0 * d;
+                    if (i1 < target->n) output[i1] = x1 * d;
                 }
             }
             break;
         }
-        case 7: { // Q5_1: 32 elems, 2 bytes d + 2 bytes m + 4 bytes qh + 16 bytes ql = 24 bytes/block
+        case 7: { // Q5_1: 32 elems, 2 bytes d + 2 bytes m + 4 bytes qh + 16 bytes qs = 24 bytes/block
             uint64_t nb = (target->n + 31) / 32;
             for (uint64_t b = 0; b < nb; b++) {
                 float d = rd_f16(); float m = rd_f16();
-                uint8_t qh[4]; fread(qh, 1, 4, f);
-                uint8_t ql[16]; fread(ql, 1, 16, f);
-                for (int j = 0; j < 32 && b*32+j < target->n; j++) {
-                    int lo = (ql[j/2] >> (4*(j%2))) & 0xF;
-                    int hi = (qh[j/8] >> (j%8)) & 1;
-                    output[b*32+j] = (float)((lo | (hi << 4)) - 16) * d + m;
+                uint8_t qh_bytes[4]; fread(qh_bytes, 1, 4, f);
+                uint32_t qh; memcpy(&qh, qh_bytes, 4);
+                uint8_t qs[16]; fread(qs, 1, 16, f);
+                for (int j = 0; j < 16; j++) {
+                    uint8_t xh_0 = (uint8_t)(((qh >> j) << 4) & 0x10);
+                    uint8_t xh_1 = (uint8_t)((qh >> (j + 12)) & 0x10);
+                    int32_t x0 = (int32_t)((qs[j] & 0xF) | xh_0);
+                    int32_t x1 = (int32_t)((qs[j] >> 4) | xh_1);
+                    size_t i0 = b*32+j, i1 = b*32+j+16;
+                    if (i0 < target->n) output[i0] = x0 * d + m;
+                    if (i1 < target->n) output[i1] = x1 * d + m;
                 }
             }
             break;
@@ -413,24 +485,77 @@ bool read_gguf_tensor(const std::string& path, const std::string& tensor_name,
             }
             break;
         }
-        case 12: { // Q4_K: 256 elems, 144 bytes/block
+        case 12: { // Q4_K: 256-elem superblock, 144 bytes: d(2) + dmin(2) + scales[12] + qs[128]
+            // Reference layout: ggml's block_q4_K / get_scale_min_k4 (llama.cpp ggml-quants.c).
+            // Sub-block (32-elem) scale/min are 6-bit values packed across 12 bytes; qs holds
+            // 4-bit quants, low/high nibble = elements [0..32)/[32..64) of each 64-elem pair.
             uint64_t nb = (target->n + 255) / 256;
             for (uint64_t b = 0; b < nb; b++) {
-                // Q4_K: 2 bytes scale + 2 bytes min + 128 bytes q4 + 12 bytes scales? 
-                // Just skip this block and zero-fill for now
-                fseek(f, 144, SEEK_CUR);
-                for (int j = 0; j < 256 && b*256+j < target->n; j++)
-                    output[b*256+j] = 0.0f;
+                float d = rd_f16();
+                float dmin = rd_f16();
+                uint8_t scales[12]; fread(scales, 1, 12, f);
+                uint8_t qs[128]; fread(qs, 1, 128, f);
+
+                auto get_scale_min = [&](int j, uint8_t& sc, uint8_t& m) {
+                    if (j < 4) {
+                        sc = scales[j] & 63;
+                        m = scales[j + 4] & 63;
+                    } else {
+                        sc = (uint8_t)((scales[j + 4] & 0xF) | ((scales[j - 4] >> 6) << 4));
+                        m = (uint8_t)((scales[j + 4] >> 4) | ((scales[j] >> 6) << 4));
+                    }
+                };
+
+                size_t base = b * 256;
+                int is = 0;
+                const uint8_t* q = qs;
+                for (int off = 0; off < 256; off += 64) {
+                    uint8_t sc, m;
+                    get_scale_min(is + 0, sc, m);
+                    float d1 = d * sc, m1 = dmin * m;
+                    get_scale_min(is + 1, sc, m);
+                    float d2 = d * sc, m2 = dmin * m;
+                    for (int l = 0; l < 32 && base + off + l < target->n; l++)
+                        output[base + off + l] = d1 * (q[l] & 0xF) - m1;
+                    for (int l = 0; l < 32 && base + off + 32 + l < target->n; l++)
+                        output[base + off + 32 + l] = d2 * (q[l] >> 4) - m2;
+                    q += 32;
+                    is += 2;
+                }
             }
             break;
         }
-        case 14: { // Q6_K: 256 elems, 210 bytes/block
+        case 14: { // Q6_K: 256-elem superblock, 210 bytes: ql[128] + qh[64] + scales[16] + d(2)
+            // Reference layout: ggml's block_q6_K (llama.cpp ggml-quants.c). 6-bit quants:
+            // low 4 bits from ql, high 2 bits from qh; 16 signed 8-bit per-16-elem scales.
             uint64_t nb = (target->n + 255) / 256;
             for (uint64_t b = 0; b < nb; b++) {
-                // Q6_K: skip block, zero-fill
-                fseek(f, 210, SEEK_CUR);
-                for (int j = 0; j < 256 && b*256+j < target->n; j++)
-                    output[b*256+j] = 0.0f;
+                uint8_t ql[128]; fread(ql, 1, 128, f);
+                uint8_t qh[64]; fread(qh, 1, 64, f);
+                int8_t scales[16]; fread(scales, 1, 16, f);
+                float d = rd_f16();
+
+                size_t base = b * 256;
+                const uint8_t* qlp = ql;
+                const uint8_t* qhp = qh;
+                const int8_t* sc = scales;
+                for (int n = 0; n < 256; n += 128) {
+                    for (int l = 0; l < 32; l++) {
+                        int is = l / 16;
+                        int8_t q1 = (int8_t)((qlp[l] & 0xF) | (((qhp[l] >> 0) & 3) << 4)) - 32;
+                        int8_t q2 = (int8_t)((qlp[l + 32] & 0xF) | (((qhp[l] >> 2) & 3) << 4)) - 32;
+                        int8_t q3 = (int8_t)((qlp[l] >> 4) | (((qhp[l] >> 4) & 3) << 4)) - 32;
+                        int8_t q4 = (int8_t)((qlp[l + 32] >> 4) | (((qhp[l] >> 6) & 3) << 4)) - 32;
+                        size_t i1 = base + n + l, i2 = base + n + l + 32, i3 = base + n + l + 64, i4 = base + n + l + 96;
+                        if (i1 < target->n) output[i1] = d * sc[is + 0] * q1;
+                        if (i2 < target->n) output[i2] = d * sc[is + 2] * q2;
+                        if (i3 < target->n) output[i3] = d * sc[is + 4] * q3;
+                        if (i4 < target->n) output[i4] = d * sc[is + 6] * q4;
+                    }
+                    qlp += 64;
+                    qhp += 32;
+                    sc += 8;
+                }
             }
             break;
         }

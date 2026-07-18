@@ -14,6 +14,7 @@
 //   NPU_XCLBIN_DIR   — xclbin directory (passed through to worker)
 
 #include "backend.h"
+#include "q4nx_reader.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -29,69 +30,6 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <signal.h>
-
-// ── Q4NX model reader ──
-// Reads float32 weights from the mmap'd model file by JSON key lookup.
-// The model file is an indexed format: JSON header with data_offsets, then
-// raw float32 weight data at those offsets.
-struct Q4nxReader {
-    const char* data = nullptr;
-    size_t size = 0;
-
-    bool open(const std::string& path) {
-        int fd = ::open(path.c_str(), O_RDONLY);
-        if (fd < 0) { perror("NPU: open model"); return false; }
-        struct stat st;
-        fstat(fd, &st);
-        data = (const char*)mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
-        size = st.st_size;
-        ::close(fd);  // global POSIX close, not the member function
-        if (data == MAP_FAILED) { perror("NPU: mmap model"); data = nullptr; return false; }
-        return true;
-    }
-
-    void close() {
-        if (data && size > 0) { munmap((void*)data, size); data = nullptr; size = 0; }
-    }
-
-    // Find data offset for a JSON key in the model header
-    // Uses standard C string search instead of GNU memmem extension.
-    uint64_t find_offset(const char* key) const {
-        if (!data || !key) return 0;
-        size_t kl = strlen(key);
-        if (kl == 0) return 0;
-        const char* p = data;
-        const char* e = data + (size > 65536 ? 65536 : size); // header within first 64KB
-        while (p + kl <= e) {
-            // Find first character match
-            const char* q = (const char*)memchr(p, key[0], e - p);
-            if (!q || q + kl > e) return 0;
-            // Check full key match
-            if (memcmp(q, key, kl) == 0) {
-                if (q > data && *(q - 1) == '"' && *(q + kl) == '"') {
-                    const char* o = strstr(q, "\"data_offsets\"");
-                    if (o) {
-                        const char* a = strchr(o, '[');
-                        if (a) return strtoull(a + 1, NULL, 10);
-                    }
-                }
-                p = q + 1;
-            } else {
-                p = q + 1;
-            }
-        }
-        return 0;
-    }
-
-    // Read float32 array at offset into a vector
-    std::vector<float> read_floats(uint64_t offset, size_t count) const {
-        std::vector<float> v;
-        if (!data || offset == 0 || offset + count * 4 > size) return v;
-        v.resize(count);
-        memcpy(v.data(), data + offset, count * sizeof(float));
-        return v;
-    }
-};
 
 // ── Math helpers (CPU fallback ops) ──
 static constexpr float EPS = 1e-6f;

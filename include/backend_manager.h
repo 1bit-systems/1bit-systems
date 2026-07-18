@@ -43,6 +43,9 @@ struct BackendInfo {
     float score;               // benchmark score (ms/token, 0 = untested)
     bool available;            // detected at startup
     bool functional;           // passed health check
+    bool auto_selectable = true; // false = never tried by init()'s auto-loop or
+                                  // select_best() (see docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md);
+                                  // true manual opt-in needs on-demand lazy init, not yet built
     uint64_t total_inferences; // lifetime counter
     uint64_t failed_inferences;
     double cumulative_ms;      // total inference time in ms
@@ -92,6 +95,11 @@ public:
     void discover();
     /// Initialize the selected backend(s) and load weights
     bool init(const ModelConfig& cfg, const std::string& weights_dir);
+    /// Same, but try backend ids in `preferred_ids` order first (falling back to
+    /// normal priority order for anything not in the list, or if all preferred
+    /// ids fail). Empty preferred_ids behaves exactly like the two-arg overload.
+    bool init(const ModelConfig& cfg, const std::string& weights_dir,
+              const std::vector<std::string>& preferred_ids);
     /// Destroy all backends
     void destroy();
 
@@ -157,6 +165,10 @@ private:
     // Internal backend lifecycle (GPU/NPU via dlsym, CPU linked in)
     Backend* create_instance_rt(const BackendInfo& info);
     void destroy_instance(BackendInfo& info);
+    // Shared by both init() overloads: try backends_[order[i]] in sequence.
+    // Caller must hold mtx_.
+    bool init_in_order(const ModelConfig& cfg, const std::string& weights_dir,
+                        const std::vector<size_t>& order);
 
     // Try next backend in fallback chain
     bool failover();
