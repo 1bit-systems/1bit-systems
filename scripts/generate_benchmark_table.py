@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-Generate the README.md performance table and status footnotes from
-site/benchmarks.json — the single source of truth.
+Generate the README.md "## Benchmarks" section from site/benchmarks.json —
+the single source of truth. Two tables: kernel-level microbenchmarks and
+end-to-end inference, matching the split introduced in issue #294 (the old
+single-table format conflated the two, which was misleading).
 
 Usage:
     python3 scripts/generate_benchmark_table.py           # print to stdout
@@ -9,36 +11,24 @@ Usage:
     python3 scripts/generate_benchmark_table.py --check    # exit 1 if README is stale
 """
 
-import json, re, sys
+import json, sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BENCHMARKS_PATH = REPO_ROOT / "site" / "benchmarks.json"
 README_PATH = REPO_ROOT / "README.md"
 
-STATUS_EMOJI = {
-    "validated": "✅ validated",
-    "measured": "✅ measured",
-    "projected": "📐 projected",
-    "raw": "⚙️ raw",
-    "reported": "📋 reported",
-    "disproven": "❌ disproven",
-    "unresolved": "🔶 unresolved",
-    "broken": "❌ broken",
-}
+SECTION_HEADER = "## Benchmarks"
 
-ENGINE_META = {
-    "gpu_1bit": {"engine": "**GPU 1-bit** (llama.cpp ROCm) 🏆", "backend": "ROCm HIP", "hw": "Radeon 8060S"},
-    "ternary":  {"engine": "**GPU ternary** (Vulkan)",           "backend": "Vulkan GLSL",   "hw": "Radeon 8060S"},
-    "npu_v12":  {"engine": "**NPU v12**",                        "backend": "XDNA 2 xclbin", "hw": "XDNA 2 · 32 tiles"},
-    "npu_flm":  {"engine": "**NPU FLM** (production)",           "backend": "XDNA 2 xclbin", "hw": "XDNA 2 · 32 tiles"},
-    "all_5":    {"engine": "**C++ all-5** (auto-detect)",        "backend": "Q4NX header parse", "hw": "XDNA 2 · 32 tiles"},
-    "gpu_zinc": {"engine": "**GPU ZINC** (Vulkan)",              "backend": "Vulkan GLSL",   "hw": "Radeon 8060S"},
-    "rocm_hip": {"engine": "**GPU ROCm HIP** (kernels)",         "backend": "ROCm HIP",      "hw": "Radeon 8060S"},
-    "npu_fused":{"engine": "**NPU fused**",                      "backend": "XDNA 2 xclbin", "hw": "XDNA 2 · 32 tiles"},
-    "zaya":     {"engine": "**GPU Zaya** (ROCm HIP)",            "backend": "HIP kernels",   "hw": "Radeon 8060S"},
-    "dspark":   {"engine": "**DSpark** (spec-decode)",           "backend": "Speculative draft", "hw": "XDNA 2 · 32 tiles"},
-}
+WARNING_CALLOUT = (
+    "> ⚠️ **The table below mixes kernel-level synthetic microbenchmarks with "
+    "end-to-end inference.** Rows in the first table are kernel-level only — "
+    "they exclude KV-cache attention, softmax, RoPE, FFN non-GEMM ops, sampler, "
+    "tokenizer, and host↔device transfers. **Real end-to-end throughput is "
+    "substantially lower** — see the second table. See "
+    "[issue #235](https://github.com/bong-water-water-bong/1bit-systems/issues/235) "
+    "for discussion."
+)
 
 
 def load_benchmarks():
@@ -46,81 +36,86 @@ def load_benchmarks():
         return json.load(f)
 
 
-def fmt_tok_s(val):
-    return str(int(val)) if val == int(val) else f"{val:.1f}"
+def fmt_num(val):
+    return str(int(val)) if val == int(val) else f"{val:.2f}"
 
 
-def fmt_row(key, entry):
-    meta = ENGINE_META.get(key, {"engine": key, "backend": "?", "hw": "?"})
-    status = entry["status"]
-    emoji = STATUS_EMOJI.get(status, f"❓ {status}")
-    note_marker = " (see note)" if entry.get("note") else ""
-    return (
-        f"| {meta['engine']} | {meta['backend']} | {meta['hw']} "
-        f"| **{fmt_tok_s(entry['tok_s'])}** | {emoji}{note_marker} |"
-    )
+def fmt_value(entry):
+    if entry.get("tflops"):
+        return f"**{fmt_num(entry['tflops'])} TFLOPS**"
+    return f"**{fmt_num(entry['tok_s'])} tok/s**"
+
+
+def kernel_row(key, engines):
+    e = engines[key]
+    return f"| {e['display_name']} | {fmt_value(e)} | {e['backend']} |"
+
+
+def end_to_end_row(key, engines):
+    e = engines[key]
+    notes = e.get("notes", "")
+    return f"| {e['display_name']} | {fmt_value(e)} | {e['backend']} | {notes} |"
 
 
 def generate(benchmarks):
-    lines = [
-        "## Hardware-Validated Performance",
-        "",
-        "Measured on **AMD Strix Halo** (Ryzen AI Max+ 395) — 32 XDNA 2 NPU tiles + Radeon 8060S (gfx1151) GPU, 128 GB unified LPDDR5X memory.",
-        "",
-        "| Engine | Backend | Hardware | tok/s | Status |",
-        "|--------|---------|----------|:-----:|--------|",
-    ]
-
-    order = benchmarks.get("order", [])
     engines = benchmarks["engines"]
-    notes = []
+    kernel_keys = benchmarks.get("table_kernel", [])
+    e2e_keys = benchmarks.get("table_end_to_end", [])
 
-    for key in order:
-        entry = engines.get(key)
-        if entry is None:
-            continue
-        lines.append(fmt_row(key, entry))
-        note = entry.get("note", "").strip()
-        if note:
-            label = re.sub(r"\*\*", "", ENGINE_META.get(key, {}).get("engine", key))
-            notes.append(f"> **{label}:** {note}")
+    lines = [
+        SECTION_HEADER,
+        "",
+        "*Numbers auto-update from [`site/benchmarks.json`](site/benchmarks.json) on every push.*",
+        "",
+        WARNING_CALLOUT,
+        "",
+        "### 🧪 Kernel-Level Microbenchmarks (synthetic 28-layer weight buffer)",
+        "",
+        "| Benchmark | Value | Backend |",
+        "|-----------|:-----:|---------|",
+    ]
+    lines += [kernel_row(k, engines) for k in kernel_keys if k in engines]
 
-    lines.append("")
-    if notes:
-        lines.append("\n\n".join(notes))
-        lines.append("")
-    lines.append((
-        f"*Table auto-generated from [`site/benchmarks.json`](site/benchmarks.json)"
-        f" — last updated {benchmarks['updated']}*"
-    ))
-    lines.append("")
-    lines.append("See [full benchmark data](benchmarks/RESULTS-stack-2026-04-28.md).")
+    lines += [
+        "",
+        "### 🏁 End-to-End Inference (real model, real prompts)",
+        "",
+        "| Benchmark | Value | Backend | Notes |",
+        "|-----------|:-----:|---------|-------|",
+    ]
+    lines += [end_to_end_row(k, engines) for k in e2e_keys if k in engines]
 
     return "\n".join(lines)
+
+
+def _section_bounds(content):
+    """Bounds of the generated content only — up to (not including) the
+    "\\n\\n---\\n\\n" divider that separates this section from the next.
+    replace_in_readme() re-adds that divider itself when writing."""
+    start = content.find(SECTION_HEADER)
+    if start == -1:
+        return None, None
+    divider = content.find("\n\n---\n\n", start + len(SECTION_HEADER))
+    if divider >= 0:
+        end = divider
+    else:
+        next_header = content.find("\n## ", start + len(SECTION_HEADER))
+        end = next_header if next_header >= 0 else len(content)
+    return start, end
 
 
 def replace_in_readme(markdown):
     with open(README_PATH, encoding="utf-8") as f:
         content = f.read()
 
-    start = content.find("## Hardware-Validated Performance")
-    if start == -1:
-        print("ERROR: Section header not found in README.md", file=sys.stderr)
+    start, end = _section_bounds(content)
+    if start is None:
+        print(f"ERROR: '{SECTION_HEADER}' not found in README.md", file=sys.stderr)
         sys.exit(1)
 
-    # Find the line after "See [full benchmark data]" to use as boundary
-    marker = "See [full benchmark data]"
-    end = content.find(marker, start)
-    if end >= 0:
-        # Advance to end of that line
-        end = content.find("\n", end) + 1
-    else:
-        # Fall back to next section
-        end = content.find("\n## ", start + 10)
-        if end < 0:
-            end = len(content)
-
-    new_content = content[:start] + markdown + "\n" + content[end:]
+    # content[end:] already starts with the "\n\n---\n\n" divider — _section_bounds
+    # stops right before it, so nothing more needs inserting here.
+    new_content = content[:start] + markdown + content[end:]
 
     with open(README_PATH, "w", encoding="utf-8") as f:
         f.write(new_content)
@@ -132,13 +127,10 @@ def check_stale():
     with open(README_PATH, encoding="utf-8") as f:
         current = f.read()
     generated = generate(load_benchmarks())
-    start = current.find("## Hardware-Validated Performance")
-    marker = "See [full benchmark data]"
-    end = current.find(marker, start)
-    if end >= 0:
-        end = current.find("\n", end) + 1
-    else:
-        end = current.find("\n## ", start + 10)
+    start, end = _section_bounds(current)
+    if start is None:
+        print(f"ERROR: '{SECTION_HEADER}' not found in README.md", file=sys.stderr)
+        sys.exit(1)
     section = current[start:end]
     if section.strip() != generated.strip():
         print("❌ README is stale. Run `python3 scripts/generate_benchmark_table.py --readme`", file=sys.stderr)

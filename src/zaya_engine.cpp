@@ -11,6 +11,7 @@
 #include <string>
 #include <fstream>
 #include <algorithm>
+#include <new>
 
 #define HIP_OK_R(e, retval) do { \
     hipError_t _s = (e); \
@@ -165,7 +166,11 @@ struct ZayaState {
 // ── Init: load weights, allocate GPU memory ──
 ZayaState* zaya_init(const char* weights_dir = nullptr) {
     if (weights_dir) g_weights_dir = weights_dir;
-    ZayaState* s = new ZayaState();
+    ZayaState* s = new (std::nothrow) ZayaState();
+    if (!s) {
+        fprintf(stderr, "zaya_init: failed to allocate ZayaState (OOM)\n");
+        return nullptr;
+    }
     HIP_OK_R(hipStreamCreate(&s->st), nullptr);
     
     s->embed = W("model_embed_tokens_weight.bin");

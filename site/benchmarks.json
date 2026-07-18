@@ -5,32 +5,50 @@
   "q1_gemv": {
    "tok_s": 417,
    "status": "validated",
-   "label": "Q1_0 GEMV kernel (28-layer model, 128B blocks)"
+   "label": "Q1_0 GEMV kernel (28-layer model, 128B blocks)",
+   "table": "kernel",
+   "display_name": "Q1 GEMV",
+   "backend": "ROCm HIP (fused kernel)"
   },
   "fused_tq2": {
    "tok_s": 415,
    "status": "validated",
-   "label": "Fused TQ2 kernel (QKV+GU, 1.15x speedup)"
+   "label": "Fused TQ2 kernel (QKV+GU, 1.15x speedup)",
+   "table": "kernel",
+   "display_name": "Fused TQ2",
+   "backend": "ROCm HIP (QKV+GU fused)"
   },
   "ternary": {
    "tok_s": 318,
    "status": "validated",
-   "label": "GPU ternary ZINC Vulkan (bench_zinc_vulkan.sh)"
+   "label": "GPU ternary ZINC Vulkan (bench_zinc_vulkan.sh)",
+   "table": "kernel",
+   "display_name": "GPU ternary",
+   "backend": "Vulkan ZINC"
   },
   "tq2_gemv": {
    "tok_s": 355,
    "status": "validated",
-   "label": "TQ2_0 GEMV kernel (28-layer model, g128)"
+   "label": "TQ2_0 GEMV kernel (28-layer model, g128)",
+   "table": "kernel",
+   "display_name": "TQ2 GEMV",
+   "backend": "ROCm HIP"
   },
   "npu_v12": {
    "tok_s": 97,
    "status": "optimized",
-   "label": "NPU v12 (97 tok/s \u2014 BS=64, memset+isfinite removal)"
+   "label": "NPU v12 (97 tok/s \u2014 BS=64, memset+isfinite removal)",
+   "table": "kernel",
+   "display_name": "NPU v12",
+   "backend": "XDNA 2 (32 tiles)"
   },
   "rocm_hip": {
    "tok_s": 64,
    "status": "validated",
-   "label": "GPU ROCm HIP kernels (bench_rocm_hip.sh)"
+   "label": "GPU ROCm HIP kernels (bench_rocm_hip.sh)",
+   "table": "kernel",
+   "display_name": "ROCm HIP",
+   "backend": "ROCm HIP (kernels)"
   },
   "npu_flm": {
    "tok_s": 57,
@@ -56,12 +74,19 @@
    "tflops": 42.21,
    "tok_s": 0,
    "status": "validated",
-   "label": "Prefill I8-APRE: 42.2 TFLOPS INT8 WMMA"
+   "label": "Prefill I8-APRE: 42.2 TFLOPS INT8 WMMA",
+   "table": "kernel",
+   "display_name": "Prefill",
+   "backend": "INT8 WMMA"
   },
   "gpu_1bit": {
    "tok_s": 229,
    "status": "corrected",
-   "label": "llama.cpp ROCm decode (corrected 2026-07-15)"
+   "label": "llama.cpp ROCm decode (corrected 2026-07-15)",
+   "table": "end_to_end",
+   "display_name": "llama.cpp ROCm (PrismML)",
+   "backend": "PrismML on same hardware",
+   "notes": "See [issue #235](https://github.com/bong-water-water-bong/1bit-systems/issues/235)"
   },
   "dspark": {
    "tok_s": 0.8,
@@ -72,8 +97,28 @@
    "tok_s": 0,
    "status": "broken",
    "label": "NPU fused (hangs)"
+  },
+  "zaya_27b": {
+   "tok_s": 30,
+   "status": "end_to_end",
+   "label": "zaya_server end-to-end decode, Qwen 27B Q4_K",
+   "table": "end_to_end",
+   "display_name": "zaya_server (Qwen 27B Q4_K)",
+   "backend": "ROCm HIP",
+   "notes": "Full decode, speculative MTP, Strix Halo"
+  },
+  "zaya_35b_moe": {
+   "tok_s": 20,
+   "status": "end_to_end",
+   "label": "zaya_server end-to-end decode, Qwen 35B MoE Q4_K",
+   "table": "end_to_end",
+   "display_name": "zaya_server (Qwen 35B MoE Q4_K)",
+   "backend": "ROCm HIP",
+   "notes": "Full decode, speculative MTP, Strix Halo"
   }
  },
+ "table_kernel": ["q1_gemv", "fused_tq2", "ternary", "tq2_gemv", "npu_v12", "prefill_i8", "rocm_hip"],
+ "table_end_to_end": ["zaya_27b", "zaya_35b_moe", "gpu_1bit"],
  "_comparisons": {
   "sources": [
    {

@@ -36,18 +36,27 @@ Reverse-engineered AMD's XDNA 2 NPU in 4 days with no documentation. The project
 
 *Numbers auto-update from [`site/benchmarks.json`](site/benchmarks.json) on every push.*
 
+> ⚠️ **The table below mixes kernel-level synthetic microbenchmarks with end-to-end inference.** Rows in the first table are kernel-level only — they exclude KV-cache attention, softmax, RoPE, FFN non-GEMM ops, sampler, tokenizer, and host↔device transfers. **Real end-to-end throughput is substantially lower** — see the second table. See [issue #235](https://github.com/bong-water-water-bong/1bit-systems/issues/235) for discussion.
+
+### 🧪 Kernel-Level Microbenchmarks (synthetic 28-layer weight buffer)
+
 | Benchmark | Value | Backend |
 |-----------|:-----:|---------|
-| Q1 GEMV † | **417 tok/s** | ROCm HIP (fused kernel) |
-| Fused TQ2 † | **415 tok/s** | ROCm HIP (QKV+GU fused) |
-| GPU ternary † | **318 tok/s** | Vulkan ZINC |
-| TQ2 GEMV † | **355 tok/s** | ROCm HIP |
+| Q1 GEMV | **417 tok/s** | ROCm HIP (fused kernel) |
+| Fused TQ2 | **415 tok/s** | ROCm HIP (QKV+GU fused) |
+| GPU ternary | **318 tok/s** | Vulkan ZINC |
+| TQ2 GEMV | **355 tok/s** | ROCm HIP |
 | NPU v12 | **97 tok/s** | XDNA 2 (32 tiles) |
 | Prefill | **42.21 TFLOPS** | INT8 WMMA |
-| ROCm HIP † | **64 tok/s** | ROCm HIP (kernels) |
-| llama.cpp ROCm | **229 tok/s** | PrismML on same hardware |
+| ROCm HIP | **64 tok/s** | ROCm HIP (kernels) |
 
-> † **Kernel-level tok/s-equivalent** on a synthetic 28-layer weight buffer (excludes KV-cache attention, softmax, RoPE, FFN non-GEMM ops, sampler, tokenizer, and host↔device transfers). The llama.cpp ROCm row is *end-to-end decode of a real model* and is not comparable without adjustment. See [issue #235](https://github.com/bong-water-water-bong/1bit-systems/issues/235).
+### 🏁 End-to-End Inference (real model, real prompts)
+
+| Benchmark | Value | Backend | Notes |
+|-----------|:-----:|---------|-------|
+| zaya_server (Qwen 27B Q4_K) | **30 tok/s** | ROCm HIP | Full decode, speculative MTP, Strix Halo |
+| zaya_server (Qwen 35B MoE Q4_K) | **20 tok/s** | ROCm HIP | Full decode, speculative MTP, Strix Halo |
+| llama.cpp ROCm (PrismML) | **229 tok/s** | PrismML on same hardware | See [issue #235](https://github.com/bong-water-water-bong/1bit-systems/issues/235) |
 
 ---
 
