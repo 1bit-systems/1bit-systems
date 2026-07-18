@@ -35,7 +35,7 @@ static constexpr float RMD_EPS = 1e-5f;
 static constexpr float ROPE_BASE = 5000000.0f;
 
 // ── SIMD / threading support ──
-#if defined(__AVX512F__)
+#if defined(__AVX512F__) || defined(__AVX2__)
 #include <immintrin.h>
 #endif
 
@@ -85,11 +85,8 @@ static void matmul_t(float* out, const float* in, const float* wt, int M, int K)
             __m256 w = _mm256_loadu_ps(wt + i * (size_t)K + k);
             vacc = _mm256_fmadd_ps(act, w, vacc);
         }
-        float s = _mm256_reduce_ps(vacc); // horizontal add
-        s += _mm256_cvtss_f32(_mm256_permute2f128_ps(vacc, vacc, 1));
-        // Actually just reduce manually
         alignas(32) float tmp[8]; _mm256_store_ps(tmp, vacc);
-        s += tmp[1]+tmp[2]+tmp[3]+tmp[4]+tmp[5]+tmp[6]+tmp[7];
+        float s = 0; for (int j = 0; j < 8; j++) s += tmp[j];
         for (; k < K; k++) s += in[k] * wt[i * (size_t)K + k];
         out[i] = s;
     }

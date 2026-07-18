@@ -64,8 +64,8 @@ static std::once_flag sherry_lut_flag;
 static void init_sherry_lut(hipStream_t stream) {
     uint32_t host_lut[32];
     for (uint32_t v = 0; v < 32; ++v) host_lut[v] = build_sherry_entry(v);
-    hipMemcpyToSymbolAsync(HIP_SYMBOL(sherry_unpack_lut), host_lut,
-                           sizeof(host_lut), 0, hipMemcpyHostToDevice, stream);
+    HIP_CHECK(hipMemcpyToSymbolAsync(HIP_SYMBOL(sherry_unpack_lut), host_lut,
+                           sizeof(host_lut), 0, hipMemcpyHostToDevice, stream));
     HIP_CHECK(hipStreamSynchronize(stream));
 }
 

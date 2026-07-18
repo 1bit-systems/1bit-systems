@@ -91,9 +91,13 @@ __global__ void wmma_batched_gemv(
     // output. We use a local float buffer and convert to half.
     float tmp_f32[WMMA_M * WMMA_N];
     store_matrix_sync(tmp_f32, acc, WMMA_M, layout_t::mem_row_major);
-    #pragma unroll
+    // tokens_here/cols_here are runtime-bounded (min(WMMA_N/M, ...)), not
+    // compile-time constants, so a full #pragma unroll here can never
+    // actually be honored — that's the source of the "loop not unrolled"
+    // transform-warning (issue #337), not the WMMA fragment loads/mma_sync
+    // in the K-loop above as originally suspected. Removed; loop bound is
+    // <=16 either way so the compiler's own default unrolling is adequate.
     for (int i = 0; i < tokens_here; i++) {
-        #pragma unroll
         for (int j = 0; j < cols_here; j++) {
             out[(b_base + i) * (size_t)M + m_base + j] = __float2half(tmp_f32[i * WMMA_M + j]);
         }

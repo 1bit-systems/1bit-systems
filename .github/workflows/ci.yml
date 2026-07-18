@@ -71,7 +71,7 @@ jobs:
         run: |
           if [ -d /opt/rocm ] && [ -f /opt/rocm/lib/cmake/hip/hip-config.cmake ]; then
             echo "ROCm detected — full cmake configure + build."
-            cmake -B build -G Ninja -DCMALE_HIP_ARCHITECTURES=gfx1151
+            cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151
             # Build the server AND every test_* target so a dropped source or a
             # compile break fails CI (issue #236). Previously only the wiring
             # skeleton (test_medusa_skeleton) was built, so a broken engine

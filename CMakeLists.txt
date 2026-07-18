@@ -610,7 +610,7 @@ target_include_directories(dspark_gpu_bench PRIVATE
     ${CMAKE_SOURCE_DIR}/spec-decode
     ${_RC_ROCM_DEFAULT}/lib/python3.14/site-packages/_rocm_sdk_devel/include)
 target_compile_options(dspark_gpu_bench PRIVATE
-    -O3 -march=native -ffast-math -std=c++23 -fopenmp)
+    -O3 -march=native -ffast-math -std=c++23 -fopenmp -D__HIP_PLATFORM_AMD__)
 target_link_libraries(dspark_gpu_bench PRIVATE
     rocm_cpp
     ${CMAKE_DL_LIBS} m pthread hipblas)

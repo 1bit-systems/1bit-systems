@@ -75,10 +75,28 @@ static Backend* try_create_npu() {
     return b;
 }
 
+// Check for a backend symbol statically linked into the main executable
+// itself (e.g. ROCM_CPP_STATIC_HIP builds link src/backend_hip.cpp directly
+// rather than loading librocm_cpp.so). dlopen(NULL) doesn't create a new
+// handle — it just bumps the refcount on the already-loaded executable, so
+// this is cheap and safe to call from a detection probe (issue #330: the
+// actual creation path in BackendManager::create_instance_rt() already does
+// this exact check, but the detection probes here didn't, so a statically
+// linked build reported the backend as unavailable even though it could be
+// created).
+static bool has_static_symbol(const char* symbol) {
+    void* self = dlopen(NULL, RTLD_NOW | RTLD_LOCAL);
+    if (!self) return false;
+    bool found = dlsym(self, symbol) != nullptr;
+    dlclose(self);
+    return found;
+}
+
 // ── Auto-detect available backends ──
 bool has_hip_gpu() {
     void* lib = dlopen("librocm_cpp.so", RTLD_NOW | RTLD_LOCAL);
     if (lib) { dlclose(lib); return true; }
+    if (has_static_symbol("create_hip_backend")) return true;
     // Check for render nodes via file I/O instead of popen (fixes #67)
     struct stat st;
     if (stat("/dev/dri/renderD128", &st) == 0) return true;
@@ -91,6 +109,7 @@ bool has_vulkan() {
     // Check if librocm_cpp is available (it contains the Vulkan backend)
     void* lib = dlopen("librocm_cpp.so", RTLD_NOW | RTLD_LOCAL);
     if (lib) { dlclose(lib); return true; }
+    if (has_static_symbol("create_vulkan_backend")) return true;
 
     // Probe via libvulkan — just check that the loader exists and we can
     // enumerate physical devices. Use a minimal vkCreateInstance call
@@ -112,6 +131,7 @@ bool has_vulkan() {
 bool has_npu() {
     void* lib = dlopen("librocm_cpp.so", RTLD_NOW | RTLD_LOCAL);
     if (lib) { dlclose(lib); return true; }
+    if (has_static_symbol("create_npu_backend")) return true;
     // Check via XRT
     lib = dlopen("libxrt_coreutil.so", RTLD_LAZY);
     if (!lib) lib = dlopen("libxrt_coreutil.so.2", RTLD_LAZY);

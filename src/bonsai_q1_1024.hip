@@ -193,8 +193,8 @@ extern "C" void bonsai_q1_convert_to_1024(
     const size_t old_row_stride = (size_t)old_blocks_per_row * 18;
 
     uint8_t* dst = nullptr;
-    hipMalloc(&dst, total_bytes);
-    hipMemset(dst, 0, total_bytes); // zero-fill in case N_out not multiple of 8
+    HIP_CHECK(hipMalloc(&dst, total_bytes));
+    HIP_CHECK(hipMemset(dst, 0, total_bytes)); // zero-fill in case N_out not multiple of 8
 
     for (int t = 0; t < num_tiles; ++t) {
         for (int nb = 0; nb < new_blocks_per_row; ++nb) {

@@ -135,6 +135,20 @@ rcpp_ternary_gemv_wmma(const void* packed_weights_dev,
                        int M, int K,
                        void*       stream);
 
+// Block-scaled ternary (BST) GEMV — standard-arity wrapper matching the
+// rcpp_ternary_gemv_* dispatch convention. row_scales_dev is unused (BST
+// carries per-block scales inline in the packed weight data, not as a
+// separate row-scale array); kept in the signature only for dispatch-table
+// compatibility with the other variants above.
+rcpp_status_t
+rcpp_ternary_gemv_bst(const void* packed_weights_dev,
+                      const void* activations_i8_dev,
+                      float       activation_scale,
+                      const void* row_scales_dev,
+                      void*       output_dev,
+                      int M, int K,
+                      void*       stream);
+
 // halo-ai Lane B': TQ1 base-3 packing (halo-1bit v4, "tq1-halo" variant).
 // 5 ternaries per byte via d0 + d1·3 + d2·9 + d3·27 + d4·81 (d_i = 0/1/2 → -1/0/+1).
 // **Lossless for ternary** — any ±1/0 pattern survives intact, unlike Sherry.

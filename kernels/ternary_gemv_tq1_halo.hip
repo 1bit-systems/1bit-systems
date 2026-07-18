@@ -58,8 +58,8 @@ static void init_tq1_lut(hipStream_t stream) {
         lo[byte] = pack4i8(v[0], v[1], v[2], v[3]);
         hi[byte] = pack4i8(v[4], 0, 0, 0);
     }
-    hipMemcpyToSymbolAsync(HIP_SYMBOL(tq1_lut_lo), lo, sizeof(lo), 0, hipMemcpyHostToDevice, stream);
-    hipMemcpyToSymbolAsync(HIP_SYMBOL(tq1_lut_hi), hi, sizeof(hi), 0, hipMemcpyHostToDevice, stream);
+    HIP_CHECK(hipMemcpyToSymbolAsync(HIP_SYMBOL(tq1_lut_lo), lo, sizeof(lo), 0, hipMemcpyHostToDevice, stream));
+    HIP_CHECK(hipMemcpyToSymbolAsync(HIP_SYMBOL(tq1_lut_hi), hi, sizeof(hi), 0, hipMemcpyHostToDevice, stream));
     HIP_CHECK(hipStreamSynchronize(stream));
 }
 

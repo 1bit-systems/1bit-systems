@@ -179,8 +179,8 @@ extern "C" void bonsai_tq2_convert_to_1024(
     const size_t old_row_stride = (size_t)old_blocks_per_row * 34; // old block = 34B
 
     uint8_t* dst = nullptr;
-    hipMalloc(&dst, total_bytes);
-    hipMemset(dst, 0, total_bytes);
+    HIP_CHECK(hipMalloc(&dst, total_bytes));
+    HIP_CHECK(hipMemset(dst, 0, total_bytes));
 
     for (int t = 0; t < num_tiles; ++t) {
         for (int nb = 0; nb < new_blocks_per_row; ++nb) {
