@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bit1-mlx"
+version = "0.1.0"
+description = "Extracted API layer, tool parsers, middleware, and model registry from Rapid-MLX. Pure-Python, no MLX dependency."
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+authors = [
+    {name = "1bit.systems contributors"},
+    {name = "Rapid-MLX contributors"}
+]
+keywords = ["llm", "api", "inference", "tool-calling", "openai-api"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    # Core wire-format models
+    "pydantic>=2.0",
+    # ASGI server infrastructure
+    "fastapi>=0.100.0",
+    # JSON schema validation
+    "jsonschema>=4.0.0",
+    # Chat templates (for tool call building)
+    "transformers>=4.45.0",
+    # YAML support (for tool parsers)
+    "pyyaml>=6.0",
+    # OpenAPI harmony protocol (gpt-oss tool calling)
+    "openai-harmony>=0.0.8",
+]
+
+[project.entry-points."bit1.tool_parsers"]
+bit1 = "bit1_mlx.tool_parsers"
+
+[tool.setuptools.packages.find]
+include = ["bit1_mlx", "bit1_mlx.*"]
+
+[tool.setuptools.package-data]

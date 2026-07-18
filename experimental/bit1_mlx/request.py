@@ -1,0 +1,329 @@
+# SPDX-License-Identifier: Apache-2.0
+"""
+Request management for rapid-mlx continuous batching.
+
+This module provides Request and RequestStatus classes adapted from vLLM's
+request management system, simplified for MLX backend.
+"""
+
+import enum
+import time
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from .paged_cache import BlockTable
+
+
+class RequestStatus(enum.IntEnum):
+    """Status of a request in the scheduling system."""
+
+    # Request is waiting to be scheduled
+    WAITING = enum.auto()
+    # Request is currently being processed (generating tokens)
+    RUNNING = enum.auto()
+    # Request was preempted and needs to be resumed
+    PREEMPTED = enum.auto()
+    # Request finished successfully (hit stop token)
+    FINISHED_STOPPED = enum.auto()
+    # Request finished due to max_tokens limit
+    FINISHED_LENGTH_CAPPED = enum.auto()
+    # Request was aborted by user
+    FINISHED_ABORTED = enum.auto()
+
+    @staticmethod
+    def is_finished(status: "RequestStatus") -> bool:
+        """Check if the status indicates a finished request."""
+        return status > RequestStatus.PREEMPTED
+
+    @staticmethod
+    def get_finish_reason(status: "RequestStatus") -> str | None:
+        """Get the finish reason string for a finished status."""
+        if status == RequestStatus.FINISHED_STOPPED:
+            return "stop"
+        elif status == RequestStatus.FINISHED_LENGTH_CAPPED:
+            return "length"
+        elif status == RequestStatus.FINISHED_ABORTED:
+            return "abort"
+        return None
+
+
+@dataclass
+class SamplingParams:
+    """Sampling parameters for text generation."""
+
+    max_tokens: int = 256
+    temperature: float = 0.7
+    top_p: float = 0.9
+    top_k: int = 0  # 0 means disabled
+    min_p: float = 0.0
+    # Penalty knobs (#355) — applied via mlx-lm make_logits_processors().
+    # `repetition_penalty` is the legacy multiplicative variant used by mlx-lm
+    # (1.0 = disabled). `presence_penalty` and `frequency_penalty` are the
+    # additive variants from the OpenAI API (0.0 = disabled).
+    #
+    # Visibility window: `presence_penalty` and `frequency_penalty` cover
+    # the last 4096 generated tokens — wide enough to behave like
+    # whole-response anti-repetition on realistic chat lengths and matches
+    # the OpenAI spec intent (#470). Generations longer than 4096 tokens
+    # see a sliding window over the most recent 4096. In contrast,
+    # `repetition_penalty` uses mlx-lm's default 20-token rolling window
+    # (multiplicative semantics, distinct from OpenAI-spec penalties). Set
+    # `repetition_penalty` only when you specifically want a tight
+    # rolling-window effect; use `presence_penalty` / `frequency_penalty`
+    # for chat-length anti-repetition.
+    repetition_penalty: float = 1.0
+    presence_penalty: float = 0.0
+    frequency_penalty: float = 0.0
+    stop: list[str] | None = None
+    stop_token_ids: list[int] | None = None
+    # Suppress the model's own EOS / chat-terminator tokens so generation
+    # always runs to ``max_tokens``. Matches llama.cpp ``llama-bench
+    # --no-eos`` and vLLM's ``ignore_eos`` semantics — the same standardized
+    # name across the ecosystem. User-supplied ``stop_token_ids`` and
+    # string ``stop`` sequences are still honoured (those are caller
+    # intent, not model intent), so a probe that wants "exactly N tokens
+    # of decode work, regardless of what the model thinks" gets it.
+    #
+    # Why this exists: community-bench's ``tg512`` contract requires every
+    # round to generate exactly 512 tokens for cross-machine comparability.
+    # Without this flag, a model that emits EOS at token 88 on the
+    # synthetic random-token prompt aborts the round and the bench
+    # fails — exactly the failure dineshdb hit in issue #567 on
+    # qwen3.5-9b-4bit. The guard in ``community_bench/runner.py`` is
+    # correct (don't publish wrong numbers), but without ``ignore_eos``
+    # there's no way to satisfy it on models that early-stop.
+    ignore_eos: bool = False
+    # H-11: per-request PRNG seed. When set, the scheduler builds a
+    # fresh per-request sampler closure that maintains its own
+    # ``mx.random.key(seed)`` state and splits it per step, so two
+    # requests with the same ``(seed, temperature, top_p, prompt)`` pair
+    # produce the same token stream. ``None`` (default) preserves the
+    # pre-fix behaviour — the global ``mx.random.state`` advances
+    # naturally and the per-request sampler caches by sampling-param
+    # tuple (no per-call key threading). Range matches the OpenAI wire
+    # surface declared on ``ChatCompletionRequest.seed`` /
+    # ``CompletionRequest.seed``; out-of-range values are rejected at
+    # the API layer with a 422 before they reach SamplingParams.
+    seed: int | None = None
+
+    def __post_init__(self):
+        if self.stop is None:
+            self.stop = []
+        if self.stop_token_ids is None:
+            self.stop_token_ids = []
+
+
+@dataclass
+class Request:
+    """
+    Represents a single inference request in the scheduling system.
+
+    Adapted from vLLM's Request class with simplifications for MLX backend.
+
+    Attributes:
+        request_id: Unique identifier for this request
+        prompt: The input prompt (string or token ids)
+        prompt_token_ids: Tokenized prompt
+        sampling_params: Parameters for generation
+        arrival_time: When the request was received
+        status: Current status of the request
+        num_prompt_tokens: Number of tokens in the prompt
+        num_computed_tokens: Number of tokens processed so far
+        output_token_ids: Generated token ids
+        output_text: Generated text (decoded)
+    """
+
+    request_id: str
+    prompt: str | list[int]
+    sampling_params: SamplingParams
+    arrival_time: float = field(default_factory=time.time)
+    priority: int = 0  # Lower is higher priority
+
+    # Set after tokenization
+    prompt_token_ids: list[int] | None = None
+    # Logical client prompt length used for accounting (usage, billing).
+    # Stays uncompressed even when PFlash replaces prompt_token_ids with a
+    # shorter model input — see model_prompt_tokens for the post-transform
+    # count that actually drives the prefill workload.
+    num_prompt_tokens: int = 0
+    # Actual tokens the model prefills after prompt transforms. Equals
+    # num_prompt_tokens when PFlash does not engage.
+    model_prompt_tokens: int = 0
+
+    # Generation state
+    status: RequestStatus = RequestStatus.WAITING
+    num_computed_tokens: int = 0
+    output_token_ids: list[int] = field(default_factory=list)
+    output_text: str = ""
+
+    # For BatchGenerator integration
+    batch_uid: int | None = None  # UID assigned by BatchGenerator
+
+    # Prefix cache fields
+    prompt_cache: list[Any] | None = None  # Cached KV state from prefix cache
+    cached_tokens: int = 0  # Number of tokens retrieved from cache
+    remaining_tokens: list[int] | None = None  # Tokens still needing processing
+    prefix_boundary: int = 0  # Token count for shared prefix (messages[:-1])
+
+    # Routing hints used by PFlash to decide whether to compress (#287).
+    has_tools: bool = False
+    requires_prompt_integrity: bool = False
+
+    # PFlash prompt compression state. When pflash_metadata["compressed"]
+    # is True, prompt_token_ids is the compressed list and
+    # original_prompt_token_ids holds the pre-compression sequence so
+    # downstream accounting paths can still report client-visible counts.
+    original_prompt_token_ids: list[int] | None = None
+    pflash_metadata: dict[str, Any] | None = None
+
+    # Paged cache fields (for BlockAwarePrefixCache)
+    block_table: Optional["BlockTable"] = None  # Block table for paged cache
+    shared_prefix_blocks: int = 0  # Number of shared prefix blocks
+
+    # Multimodal content (images, video) - raw inputs
+    images: list[Any] | None = None
+    videos: list[Any] | None = None
+
+    # Processed multimodal inputs for VLM batching
+    pixel_values: Any | None = None  # Processed image tensors (mx.array)
+    image_grid_thw: Any | None = None  # Grid info for Qwen-VL models
+    attention_mask: Any | None = None  # Attention mask for multimodal input
+    multimodal_kwargs: dict[str, Any] | None = None  # Model-specific kwargs
+    is_multimodal: bool = False  # Flag indicating this is a multimodal request
+
+    # Metadata
+    finish_reason: str | None = None
+    first_token_time: float | None = None  # Time when first output token was generated
+    cache_hit_type: str | None = (
+        None  # Type of cache hit: exact/prefix/supersequence/lcp/miss
+    )
+
+    @property
+    def num_output_tokens(self) -> int:
+        """Number of output tokens generated so far."""
+        return len(self.output_token_ids)
+
+    @property
+    def num_tokens(self) -> int:
+        """Total number of tokens (prompt + output)."""
+        return self.num_prompt_tokens + self.num_output_tokens
+
+    @property
+    def max_tokens(self) -> int:
+        """Maximum output tokens for this request."""
+        return self.sampling_params.max_tokens
+
+    def is_finished(self) -> bool:
+        """Check if request has finished."""
+        return RequestStatus.is_finished(self.status)
+
+    def get_finish_reason(self) -> str | None:
+        """Get the finish reason if finished."""
+        if self.finish_reason:
+            return self.finish_reason
+        return RequestStatus.get_finish_reason(self.status)
+
+    def append_output_token(self, token_id: int) -> None:
+        """Append a generated token to the output."""
+        self.output_token_ids.append(token_id)
+        self.num_computed_tokens += 1
+
+    def set_finished(self, status: RequestStatus, reason: str | None = None) -> None:
+        """Mark the request as finished."""
+        self.status = status
+        self.finish_reason = reason or RequestStatus.get_finish_reason(status)
+
+    def __lt__(self, other: "Request") -> bool:
+        """Compare requests for priority queue ordering."""
+        if self.priority != other.priority:
+            return self.priority < other.priority
+        return self.arrival_time < other.arrival_time
+
+    def __hash__(self) -> int:
+        return hash(self.request_id)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Request):
+            return False
+        return self.request_id == other.request_id
+
+
+class InferenceAbortedError(RuntimeError):
+    """Raised when the engine aborts an in-flight request due to a runtime
+    failure (e.g. a Metal command-buffer error caught in the engine loop).
+
+    Distinguished from generic ``RuntimeError`` so HTTP handlers can map it
+    to a 503 instead of a 500 — the server may still be healthy enough to
+    handle a retry against a smaller request.
+    """
+
+
+@dataclass
+class RequestOutput:
+    """
+    Output for a single request after a generation step.
+
+    This is returned by the engine to communicate results back to the API layer.
+    """
+
+    request_id: str
+    # New tokens generated in this step
+    new_token_ids: list[int] = field(default_factory=list)
+    new_text: str = ""
+    # Cumulative output
+    output_token_ids: list[int] = field(default_factory=list)
+    output_text: str = ""
+    # Status
+    finished: bool = False
+    finish_reason: str | None = None
+    # Timing
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    # Per-token log-probabilities (mx.array of shape [vocab_size] for current token)
+    logprobs: Any = None
+    # Set when the engine aborts the request before completion (e.g. Metal
+    # runtime error caught in the engine loop). HTTP layer converts this to
+    # 503. Plain finish reasons (stop / length / etc.) leave this as None.
+    error: str | None = None
+    # Number of prompt tokens served from the prefix cache for this
+    # request. Mirrors ``Request.cached_tokens`` (set by the scheduler
+    # during prefix-cache lookup) so the engine and API layers don't
+    # need to reach back into the live ``Request`` to report cache
+    # effectiveness. Appended at the end of the dataclass so positional
+    # constructor args for the pre-existing fields keep their indices.
+    cached_tokens: int = 0
+    # H-03: when a user-supplied ``stop`` string fired (vs an EOS token
+    # or ``max_tokens`` cap), the scheduler records the matched string
+    # here so route adapters can surface the precise reason. The
+    # Anthropic ``/v1/messages`` surface maps this onto
+    # ``stop_reason="stop_sequence"`` + ``stop_sequence: <str>`` per the
+    # public Anthropic spec; OpenAI ``/v1/completions`` and
+    # ``/v1/chat/completions`` keep ``finish_reason="stop"`` (a single
+    # bucket for both EOS and stop-string per OpenAI's wire spec), so
+    # the field is harmless to ignore for the OpenAI surface. ``None``
+    # means "no user stop matched" — ``finish_reason`` was set by EOS,
+    # length cap, or never fired. Appended at the end of the dataclass
+    # so positional constructor args for the pre-existing fields keep
+    # their indices.
+    matched_stop: str | None = None
+
+    @property
+    def usage(self) -> dict[str, int]:
+        """Return usage statistics compatible with OpenAI API.
+
+        ``cached_tokens`` is intentionally NOT exposed here. The OpenAI
+        spec nests it under ``prompt_tokens_details.cached_tokens`` on
+        the response ``usage`` object — surfacing it as a top-level
+        sibling of ``prompt_tokens`` here would create a non-spec key
+        that any caller serialising this dict directly would leak.
+        Production code constructs ``Usage`` via ``service.helpers.
+        _build_usage`` (which reads ``cached_tokens`` from the
+        ``RequestOutput`` dataclass field above), keeping the
+        wire-shape spec-compliant.
+        """
+        return {
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.prompt_tokens + self.completion_tokens,
+        }
