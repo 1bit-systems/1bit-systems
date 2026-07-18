@@ -1,8 +1,29 @@
 #include <chrono>
-// backend_adapter.h — Adapts InferenceBackend (tests/) to Backend (src/) interface
+// backend_adapter.h — Bidirectional adapters between Backend (src/) and InferenceBackend (tests/)
+//
+// InferenceBackendAdapter: wraps InferenceBackend* (tests/) → Backend (src/)
+//   - Adapter already exists; used to plug zaya_server backends into BackendManager
+//   - forward()/lm_head() return false (test backends fuse both in forward() → generate())
+//   - generate() is the correct path
+//
+// BackendToInferenceBackendAdapter: wraps Backend* (src/) → InferenceBackend (tests/)
+//   - NEW: needed for the reverse path (canonical backends in zaya_server)
+//   - Calls Backend::generate() which fuses forward+lm_head
+//   - Enables gradual migration: canonical backends can be tested via zaya_server
+//     before retiring the tests/backends/ copies
+//
+// Migration plan:
+//   1. Canonical Backend impls (src/backend_*.cpp) already have generate()
+//   2. This adapter wraps them into InferenceBackend for zaya_server compatibility
+//   3. Once all routing paths support Backend directly, retire tests/backends/ copies
+//
 #pragma once
 #include "backend.h"
 #include "../../src/backend.h"
+
+// ────────────────────────────────────────────────────────────────────────────
+// Adapter A: InferenceBackend* → Backend (wraps test backends for BackendManager)
+// ────────────────────────────────────────────────────────────────────────────
 
 // Wraps an InferenceBackend pointer into the canonical Backend interface.
 // This allows zaya_server's backends to be used with BackendManager.
@@ -71,4 +92,74 @@ public:
         return ms / tokens;
     }
     bool can_infer() const override { return true; }
+};
+
+// ────────────────────────────────────────────────────────────────────────────
+// Adapter B: Backend* → InferenceBackend (wraps canonical backends for zaya_server)
+// ────────────────────────────────────────────────────────────────────────────
+
+// Wraps a canonical Backend pointer into the InferenceBackend interface used
+// by zaya_server and TokenRouter. Enables gradual migration:
+// canonical backends can be plugged into the existing routing infrastructure
+// without rewriting TokenRouter or zaya_server.
+//
+// Key mapping:
+//   Backend::generate(token)   → InferenceBackend::forward(token, pos)
+//   Backend::reset()           → InferenceBackend::reset_state()
+//   Backend::init(cfg, path)   → InferenceBackend::load_model(cfg)
+//   Backend::destroy()         → InferenceBackend::unload_model()
+//
+// Limitation: InferenceBackend::forward() doesn't expose hidden state,
+// so speculative decoding paths that need logit-level access are limited.
+class BackendToInferenceBackendAdapter : public InferenceBackend {
+    Backend* wrapped_;
+    bool loaded_ = false;
+    ModelConfig cfg_;
+    std::string weights_dir_;
+
+public:
+    BackendToInferenceBackendAdapter(Backend* b) : wrapped_(b) {}
+
+    BackendType type() const override {
+        return wrapped_->type;
+    }
+
+    const char* name() const override {
+        return wrapped_->name.c_str();
+    }
+
+    bool is_available() override {
+        return wrapped_->initialized;
+    }
+
+    bool load_model(const ModelConfig& cfg) override {
+        cfg_ = cfg;
+        weights_dir_ = cfg.weights_dir;
+        if (weights_dir_.empty()) weights_dir_ = "/tmp/zaya_weights";
+        loaded_ = wrapped_->init(cfg, weights_dir_);
+        return loaded_;
+    }
+
+    void unload_model() override {
+        wrapped_->destroy();
+        loaded_ = false;
+    }
+
+    int forward(int token_id, int pos) override {
+        (void)pos;
+        if (!loaded_) return 0;
+        return wrapped_->generate(token_id);
+    }
+
+    void reset_state() override {
+        wrapped_->reset();
+    }
+
+    float estimated_tok_s() const override {
+        return 0;  // unknown until benchmarked
+    }
+
+    bool is_coherent() const override {
+        return wrapped_->can_infer();
+    }
 };

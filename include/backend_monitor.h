@@ -164,6 +164,7 @@ struct PerBackendMetrics {
 class BackendMonitor {
 public:
     BackendMonitor();
+    ~BackendMonitor();
 
     /// Get or create per-backend metrics
     PerBackendMetrics* for_backend(const std::string& id);

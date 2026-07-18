@@ -8,6 +8,11 @@
 
 BackendMonitor::BackendMonitor() {}
 
+BackendMonitor::~BackendMonitor() {
+    for (auto* pm : metrics_) delete pm;
+    metrics_.clear();
+}
+
 PerBackendMetrics* BackendMonitor::for_backend(const std::string& id) {
     return find_or_create(id);
 }

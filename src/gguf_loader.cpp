@@ -148,25 +148,29 @@ struct GgufReader {
     }
     
     void skip_unknown(uint32_t vt, const std::string& key) {
+        // GGUF value types (llama.cpp gguf.h):
+        // 0=UINT8  1=INT8  2=UINT16  3=INT16  4=UINT32  5=INT32
+        // 6=FLOAT32  7=BOOL  8=STRING  9=ARRAY  10=UINT64  11=INT64  12=FLOAT64
         uint8_t tmp[256];
-        if (vt == 0 || vt == 4) f.read(reinterpret_cast<char*>(tmp), 4);
-        else if (vt == 2 || vt == 3) f.read(reinterpret_cast<char*>(tmp), 8);
+        if (vt == 0 || vt == 1 || vt == 7) f.read(reinterpret_cast<char*>(tmp), 1);
+        else if (vt == 2 || vt == 3) f.read(reinterpret_cast<char*>(tmp), 2);
+        else if (vt == 4 || vt == 5 || vt == 6) f.read(reinterpret_cast<char*>(tmp), 4);
         else if (vt == 8) { read_string(); }
-        else if (vt == 5) {
+        else if (vt == 9) {
             uint32_t at; f.read(reinterpret_cast<char*>(&at), 4);
             uint64_t an;
             if (version >= 3) { f.read(reinterpret_cast<char*>(&an), 8); }
             else { uint32_t an32; f.read(reinterpret_cast<char*>(&an32), 4); an = an32; }
             if (an < 10000000) {
                 for (uint64_t j = 0; j < an; ++j) {
-                    if (at == 0 || at == 1) f.read(reinterpret_cast<char*>(tmp), 4);
-                    else if (at == 4 || at == 8) read_string();
+                    if (at == 0 || at == 1 || at == 7 || at == 4 || at == 5 || at == 6) f.read(reinterpret_cast<char*>(tmp), 4);
+                    else if (at == 2 || at == 3) f.read(reinterpret_cast<char*>(tmp), 2);
+                    else if (at == 8) read_string();
                     else f.read(reinterpret_cast<char*>(tmp), 8);
                 }
             }
-        } else if (vt == 6) { f.read(reinterpret_cast<char*>(tmp), 4); }
-        else if (vt == 7) { f.read(reinterpret_cast<char*>(tmp), 1); }
-        else { f.read(reinterpret_cast<char*>(tmp), 8); }
+        } else if (vt == 10 || vt == 11 || vt == 12) { f.read(reinterpret_cast<char*>(tmp), 8); }
+        else { f.read(reinterpret_cast<char*>(tmp), 4); }
     }
     
     bool read_tensor(const std::string& name, std::vector<float>& out) {

@@ -342,7 +342,7 @@ int read_gguf_vocab(const std::string& path) {
         uint32_t nd; fread(&nd, 4, 1, f);
         for (int j = 0; j < nd; j++) {
             uint64_t dim; fread(&dim, 8, 1, f);
-            if (j == 1) { fclose(f); return (int)dim; } // second dim = vocab
+            if (j == 0) { fclose(f); return (int)dim; } // first dim = vocab (embed shape is [vocab, hidden])
         }
     }
     fclose(f);

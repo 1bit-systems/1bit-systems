@@ -106,13 +106,14 @@ foreach(_rc_base "${_RC_PIP_PATH}" "${_RC_THEROCK_DIR}" "${_RC_THEROCK_LEGACY}" 
         message(STATUS "rocm-cpp: rocWMMA found at ${ROCWMMA_INCLUDE_DIR}")
         break()
     endif()
-    if(_rc_base AND EXISTS "${_rc_base}/lib/python3.14/site-packages/_rocm_sdk_devel/include/rocwmma/rocwmma.hpp")
-        set(ROCWMMA_INCLUDE_DIR "${_rc_base}/lib/python3.14/site-packages/_rocm_sdk_devel/include")
+    if(_rc_base AND EXISTS "${_rc_base}/include/rocwmma/rocwmma.hpp")
+        set(ROCWMMA_INCLUDE_DIR "${_rc_base}/include")
         set(ROCWMMA_FOUND TRUE)
         message(STATUS "rocm-cpp: rocWMMA found at ${ROCWMMA_INCLUDE_DIR} (TheRock SDK)")
         break()
     endif()
 endforeach()
+
 if(NOT ROCWMMA_FOUND)
     file(GLOB_RECURSE _RC_ROCWMMA_HPP "$ENV{HOME}/.local/lib/python*/site-packages/_rocm_sdk_devel/include/rocwmma/rocwmma.hpp")
     list(LENGTH _RC_ROCWMMA_HPP _RC_ROCWMMA_N)
@@ -128,6 +129,41 @@ if(NOT ROCWMMA_FOUND)
     message(STATUS "rocm-cpp: rocWMMA NOT found — WMMA intrinsics disabled")
 endif()
 
+
+# -- Discover TheRock SDK under Python site-packages (any Python version) --
+# TheRock's ROCm SDK may install under a Python-versioned path like
+#   lib/python3.X/site-packages/_rocm_sdk_devel/
+# Instead of hardcoding a specific Python version (issue #355), search
+# under all Python site-packages for the _rocm_sdk_devel directory.
+function(_find_therock_sdk_base out_var)
+    if(DEFINED CACHE{THEROCK_SDK_BASE})
+        set(${out_var} "${THEROCK_SDK_BASE}" PARENT_SCOPE)
+        return()
+    endif()
+    # Search common locations, preferring newest Python version
+    foreach(_base IN ITEMS "$ENV{HOME}/.local/lib" "/usr/local/lib" "/usr/lib")
+        file(GLOB _py_dirs LIST_DIRECTORIES true "${_base}/python*")
+        list(SORT _py_dirs)
+        list(REVERSE _py_dirs)
+        foreach(_py_dir IN LISTS _py_dirs)
+            set(_candidate "${_py_dir}/site-packages/_rocm_sdk_devel")
+            if(EXISTS "${_candidate}/include/rocwmma/rocwmma.hpp" OR EXISTS "${_candidate}")
+                set(${out_var} "${_candidate}" PARENT_SCOPE)
+                set(THEROCK_SDK_BASE "${_candidate}" CACHE INTERNAL "Found TheRock SDK base")
+                message(STATUS "rocm-cpp: TheRock SDK found at ${_candidate}")
+                return()
+            endif()
+        endforeach()
+    endforeach()
+    # Fallback: system ROCm
+    if(EXISTS "/opt/rocm/lib/llvm/bin/amdclang++")
+        set(${out_var} "/opt/rocm" PARENT_SCOPE)
+        return()
+    endif()
+    set(${out_var} "" PARENT_SCOPE)
+endfunction()
+
+_find_therock_sdk_base(THEROCK_SDK_BASE)
 
 include(FetchContent)
 FetchContent_Declare(cpp_httplib
@@ -274,7 +310,7 @@ target_include_directories(backend_manager PUBLIC
 target_include_directories(backend_manager PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>)
 target_link_libraries(backend_manager PUBLIC dl rocm_cpp)
-target_compile_options(backend_manager PRIVATE -O3 -Wall -Wno-unused-result -std=c++17)
+target_compile_options(backend_manager PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
 
 if(ZINC_ENABLED)
     target_sources(backend_manager PRIVATE src/backend_zinc.cpp)
@@ -407,11 +443,27 @@ add_executable(test_medusa_skeleton tests/test_medusa_skeleton.cpp)
 target_compile_options(test_medusa_skeleton PRIVATE -Wall -Wextra -Wno-unused-result)
 target_link_libraries(test_medusa_skeleton PRIVATE rocm_cpp)
 
+# -- test_backend: CPU-only backend validation (issue #347) --
+# Previously only had a broken standalone build command that couldn't link
+# due to transitive HIP deps through backend_factory → backend_generic → gguf_loader.
+# Now wired as a proper ninja target linking backend_manager (which already handles
+# the rocm_cpp dependency). Run without a model to see usage.
+add_executable(test_backend tests/test_backend.cpp)
+target_include_directories(test_backend PRIVATE src)
+target_compile_options(test_backend PRIVATE -O3 -Wall -Wno-unused-result -std=c++23 -DZINC_DISABLED)
+target_link_libraries(test_backend PRIVATE backend_manager)
+
 set(BONSAI_H1B_MODEL "" CACHE FILEPATH "Path to a Bonsai .h1b model for test_bonsai_e2e (empty = skip)")
 set(SHERRY_H1B_MODEL "" CACHE FILEPATH "Path to a Sherry .h1b model for test_sherry_e2e (empty = skip)")
 
 add_test(NAME test_medusa_skeleton         COMMAND test_medusa_skeleton)
 set_tests_properties(test_medusa_skeleton   PROPERTIES LABELS "host")
+
+add_test(NAME test_backend                 COMMAND test_backend)
+set_tests_properties(test_backend           PROPERTIES LABELS "host" SKIP_RETURN_CODE 77)
+
+# test_backend needs weights at /tmp/zaya_weights or the passed path
+# Skips gracefully (exit 77) when weights aren't found.
 
 add_test(NAME test_standalone_nock         COMMAND test_standalone_nock)
 set_tests_properties(test_standalone_nock   PROPERTIES LABELS "gpu_required")
@@ -444,7 +496,7 @@ target_link_libraries(bitnet_decode PRIVATE rocm_cpp hip::host hip::device httpl
 set_target_properties(bitnet_decode PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
 add_executable(hadamard_export tools/hadamard_export.cpp)
-target_compile_options(hadamard_export PRIVATE -O3 -Wall -Wno-unused-result -std=c++17)
+target_compile_options(hadamard_export PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
 target_link_libraries(hadamard_export PRIVATE rocm_cpp)
 
 add_executable(bitnet_debate tools/bitnet_debate.cpp)
@@ -508,7 +560,7 @@ target_include_directories(unified_server PRIVATE
     $<INSTALL_INTERFACE:include>)
 target_compile_options(unified_server PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result -Wno-unused-parameter -Wno-unused-variable>
-    $<$<COMPILE_LANGUAGE:CXX>:-O3 -Wall -Wno-unused-result -std=c++17>)
+    $<$<COMPILE_LANGUAGE:CXX>:-O3 -Wall -Wno-unused-result -std=c++23>)
 target_compile_definitions(unified_server PRIVATE ROCM_CPP_STATIC_HIP=1 ROCM_CPP_STATIC_NPU=1)
 target_link_libraries(unified_server PRIVATE
     backend_manager dl
@@ -535,7 +587,7 @@ set_property(TARGET unified_server APPEND PROPERTY
 
 add_executable(backend_demo tools/backend_demo.cpp)
 target_include_directories(backend_demo PRIVATE src/)
-target_compile_options(backend_demo PRIVATE -O3 -Wall -Wno-unused-result -std=c++17)
+target_compile_options(backend_demo PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
 target_link_libraries(backend_demo PRIVATE backend_manager dl)
 if(ZINC_ENABLED)
     set_target_properties(backend_demo PROPERTIES
@@ -574,7 +626,7 @@ if(TARGET npu_engine_hybrid)
         -O3 -march=native -ffast-math -std=c++23 -fopenmp)
     target_link_libraries(npu_engine_hybrid PRIVATE xrt_coreutil uuid rt pthread)
     target_link_options(npu_engine_hybrid PRIVATE
-        -L${_RC_ROCM_DEFAULT}/lib/python3.14/site-packages/_rocm_sdk_devel/lib -lamdhip64 -Wl,-rpath,${_RC_ROCM_DEFAULT}/lib/python3.14/site-packages/_rocm_sdk_devel/lib -fopenmp)
+        -L${THEROCK_SDK_BASE}/lib -lamdhip64 -Wl,-rpath,${THEROCK_SDK_BASE}/lib -fopenmp)
     set_target_properties(npu_engine_hybrid PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/engine/npu/build)
 endif()
@@ -594,11 +646,13 @@ target_link_libraries(dspark_full PRIVATE
     rocm_cpp
     ${CMAKE_DL_LIBS} m pthread)
 target_link_options(dspark_full PRIVATE
-    -L${_RC_ROCM_DEFAULT}/lib/python3.14/site-packages/_rocm_sdk_devel/lib -lamdhip64 -Wl,-rpath,${_RC_ROCM_DEFAULT}/lib/python3.14/site-packages/_rocm_sdk_devel/lib)
+    -L${THEROCK_SDK_BASE}/lib -lamdhip64 -Wl,-rpath,${THEROCK_SDK_BASE}/lib)
 set_target_properties(dspark_full PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/tools)
 
 # -- DSpark GPU bench: full GPU-accelerated speculative decode --------------
+find_package(hipblas QUIET)
+if(hipblas_FOUND)
 add_executable(dspark_gpu_bench
     tools/dspark_gpu_bench.cpp
     engine/fusion/cpu_layer.cpp)
@@ -608,16 +662,19 @@ target_include_directories(dspark_gpu_bench PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/spec-decode
-    ${_RC_ROCM_DEFAULT}/lib/python3.14/site-packages/_rocm_sdk_devel/include)
+    ${THEROCK_SDK_BASE}/include)
 target_compile_options(dspark_gpu_bench PRIVATE
     -O3 -march=native -ffast-math -std=c++23 -fopenmp -D__HIP_PLATFORM_AMD__)
 target_link_libraries(dspark_gpu_bench PRIVATE
     rocm_cpp
     ${CMAKE_DL_LIBS} m pthread hipblas)
 target_link_options(dspark_gpu_bench PRIVATE
-    -L${_RC_ROCM_DEFAULT}/lib/python3.14/site-packages/_rocm_sdk_devel/lib -lamdhip64 -lhipblas -Wl,-rpath,${_RC_ROCM_DEFAULT}/lib/python3.14/site-packages/_rocm_sdk_devel/lib)
+    -L${THEROCK_SDK_BASE}/lib -lamdhip64 -lhipblas -Wl,-rpath,${THEROCK_SDK_BASE}/lib)
 set_target_properties(dspark_gpu_bench PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/tools)
+else()
+    message(STATUS "rocm-cpp: hipblas NOT found — skipping dspark_gpu_bench (needs ROCm hipblas)")
+endif()
 
 # -- Q4NX -> TRG converter --
 add_executable(trg_save
@@ -659,4 +716,4 @@ target_compile_options(oscar PRIVATE
 target_link_libraries(oscar PRIVATE
     ${CMAKE_DL_LIBS} m pthread)
 target_link_options(oscar PRIVATE
-    -L${_RC_ROCM_DEFAULT}/lib/python3.14/site-packages/_rocm_sdk_devel/lib -lamdhip64 -Wl,-rpath,${_RC_ROCM_DEFAULT}/lib/python3.14/site-packages/_rocm_sdk_devel/lib)
+    -L${THEROCK_SDK_BASE}/lib -lamdhip64 -Wl,-rpath,${THEROCK_SDK_BASE}/lib)

@@ -1,15 +1,11 @@
 // test_backend.cpp — Validate all backends produce identical results
-// Build: c++ -O3 -std=c++20 -DZINC_DISABLED -I src -I include \
-//        tests/test_backend.cpp src/backend_cpu.cpp src/backend_factory.cpp \
-//        src/tokenizer.cpp src/simple_tokenizer.cpp -lm -o build/test_backend
-// NOTE: this links against backend_factory.cpp, whose create_best_backend()
-// pulls in create_generic_backend() (backend_generic.cpp) -> GGUF loading
-// (gguf_loader.cpp) -> the HIP/ROCm runtime, none of which a plain `c++`
-// invocation can satisfy. This file was never wired into CMakeLists.txt as
-// a real build target, so the command above has been unverified — see the
-// filed issue for tracking a real fix (either a proper CMake target or
-// trimming backend_factory.cpp's dependency reach for CPU-only test builds).
-// Run:   ./build/test_backend
+// Build: cmake --build build --target test_backend -j8
+// Run:   ./build/test_backend [weights-dir] [tokenizer.json]
+//
+// Wired into CMakeLists.txt as a real target (fixes #347). Links against
+// backend_manager which resolves the transitive HIP deps through rocm_cpp.
+// The CPU backend is always available without a GPU — for GPU backends,
+// run on a system with ROCm/Vulkan installed.
 
 #include "backend.h"
 #include "simple_tokenizer.h"
@@ -22,7 +18,8 @@
 constexpr int H = 2048;
 constexpr int VOCAB = 262272;
 
-static float cosim(const float* a, const float* b, int n) {
+// cosim referenced but not currently called; kept for potential GPU comparison
+[[maybe_unused]] static float cosim(const float* a, const float* b, int n) {
     float d = 0, na = 0, nb = 0;
     for (int i = 0; i < n; i++) { d += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
     return d / (sqrtf(na) * sqrtf(nb) + 1e-12f);
@@ -46,7 +43,7 @@ int main(int argc, char** argv) {
 
     // ── 1. Auto-detect ──
     printf("─━─━─ 1. Backend Detection ─━─━─\n");
-    BackendType best = detect_backends();
+    BackendType best [[maybe_unused]] = detect_backends();
     printf("\n");
 
     // ── 2. CPU Backend (always available, reference) ──
@@ -54,11 +51,12 @@ int main(int argc, char** argv) {
     Backend* cpu = create_cpu_backend();
     if (!cpu->init(cfg, weights_dir)) {
         printf("  ❌ CPU init failed — weights not found at %s\n\n", weights_dir.c_str());
-        printf("  Usage: %s [weights-dir] [tokenizer.json]\n", argv[0]);
-        printf("  Download a ZAYA1-8B model and extract its weights to:\n");
-        printf("    %s\n", weights_dir.c_str());
+        printf("  Skipping full test. Run with a weights directory to validate:\n");
+        printf("    %s /path/to/weights /path/to/tokenizer.htok\n\n", argv[0]);
+        printf("  CPU backend type: %s\n", backend_name(cpu->type));
+        printf("  CPU backend name: %s\n", cpu->name.c_str());
         delete cpu;
-        return 1;
+        return 77;  // SKIP per CTest convention
     }
     printf("  ✅ CPU backend initialized\n");
     cpu->reset();

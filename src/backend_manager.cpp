@@ -447,12 +447,17 @@ int BackendManager::generate(int token_id) {
 
     // Phase 1: snapshot under lock (shared_ptr keeps Backend alive even if
     // destroy() runs on another thread while we release the lock in Phase 2).
+    // Capture active_idx_ so Phase 3 stats update goes to the backend that
+    // actually ran the inference, not whatever select_backend() may have
+    // switched to in the meantime (issue #357).
     std::shared_ptr<Backend> snap;
+    size_t snap_idx = 0;
     bool need_failover = false;
     size_t prev_idx = 0;
     {
         std::lock_guard<std::mutex> lock(mtx_);
         if (active_idx_ >= backends_.size()) return -1;
+        snap_idx = active_idx_;
         auto& info = backends_[active_idx_];
         if (info.functional && info.instance) {
             snap = info.instance;  // shared_ptr copy — keeps Backend alive
@@ -470,10 +475,13 @@ int BackendManager::generate(int token_id) {
             std::chrono::high_resolution_clock::now() - t0).count();
 
         if (result >= 0) {
-            // Fast path — re-acquire lock briefly for stats
+            // Fast path — re-acquire lock briefly for stats.
+            // Use snap_idx (captured in Phase 1) instead of active_idx_
+            // to avoid attributing stats to a backend that was switched
+            // in by another thread (issue #357).
             std::lock_guard<std::mutex> lock(mtx_);
-            if (active_idx_ < backends_.size()) {
-                auto* info = &backends_[active_idx_];
+            if (snap_idx < backends_.size()) {
+                auto* info = &backends_[snap_idx];
                 info->total_inferences++;
                 info->cumulative_ms += ms;
                 monitor_.record(info->id, ms, true);
@@ -487,18 +495,20 @@ int BackendManager::generate(int token_id) {
             return result;
         }
 
-        // Failed — re-acquire lock for stats + failover
+        // Failed — re-acquire lock for stats + failover.
+        // Use snap_idx (captured in Phase 1) — not active_idx_ — for the
+        // same thread-safety reason (issue #357).
         {
             std::lock_guard<std::mutex> lock(mtx_);
-            if (active_idx_ < backends_.size()) {
-                auto* info = &backends_[active_idx_];
+            if (snap_idx < backends_.size()) {
+                auto* info = &backends_[snap_idx];
                 info->failed_inferences++;
                 info->functional = false;
                 monitor_.record(info->id, ms, false);
                 monitor_.record_failure(info->id, "generate() returned -1");
             }
             need_failover = true;
-            prev_idx = active_idx_;
+            prev_idx = snap_idx;
         }
     }
 

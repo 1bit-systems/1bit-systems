@@ -260,8 +260,7 @@ static void eda_router_moe_cpu(float* h, const float* gate_down_w, const float* 
     const float* rf2, const float* rf2b, const float* rout, const float* bb,
     const float* gu, const float* dn, float* prev_rs, float* moe_out) {
 
-    float rs[RTR_H], tmp[RTR_H], scores[17];
-    int top_i[2]; float top_v[2];
+    float rs[RTR_H], tmp[RTR_H];
 
     // gate_down
     matmul_t(rs, h, gate_down_w, RTR_H, H);
@@ -510,17 +509,22 @@ struct CPUBackend : Backend {
         for (int il = 0; il < N_LAYERS; il++) {
             auto& l = lw[il];
 
+            // Save pre-attention hidden state for residual connection
+            // (cca_attn_cpu modifies hs in-place — issue #352)
+            float pre_attn_hs[H];
+            memcpy(pre_attn_hs, hs, H * sizeof(float));
+
             // CCA Attention
             cca_attn_cpu(hs, l.wq, l.wk, l.wv1, l.wv2, l.wo,
                 l.cdw, l.cdb, l.cgw, l.cgb, l.ks, l.nw,
                 prev_hs, conv_state, il);
 
             // Post-attention residual scale
+            //   output = attn_out * pahss + pahsb + pre_attn_hs * parss + parsb
             float attn_out[H];
             memcpy(attn_out, hs, H * sizeof(float));
-            memcpy(hs, attn_out, H * sizeof(float));  // residual
             for (int i = 0; i < H; i++)
-                hs[i] = attn_out[i] * l.pahss[i] + l.pahsb[i] + hs[i] * l.parss[i] + l.parsb[i];
+                hs[i] = attn_out[i] * l.pahss[i] + l.pahsb[i] + pre_attn_hs[i] * l.parss[i] + l.parsb[i];
 
             // Post-attention RMSNorm
             rmsnorm(hs, l.pan, H);

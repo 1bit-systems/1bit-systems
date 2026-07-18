@@ -45,17 +45,21 @@ enum class ModelFormat : uint8_t {
 };
 
 struct ModelConfig {
-    int hidden            = 2048;
-    int n_heads           = 8;
-    int n_kv_heads        = 2;
-    int head_dim          = 128;
-    int n_layers          = 40;
-    int n_experts         = 16;
-    int n_ff              = 2048;
-    int vocab             = 262272;
-    int router_hidden     = 256;
-    int qkv_dim           = 1280;
+    // ── DEPRECATED SHORT-NAME FIELDS ────────────────────────────
+    // These are aliases for the long-name fields below. Both sets MUST
+    // be kept in sync. Prefer the long names in new code; use the
+    // set_dim() helper to set both at once. Will be removed after all
+    // usage is migrated to the long-name equivalents (issue #358).
+    int hidden            = 2048;   // use hidden_size
+    int n_heads           = 8;      // use num_heads
+    int n_kv_heads        = 2;      // use num_kv_heads
+    int n_layers          = 40;     // use num_layers
+    int n_experts         = 16;     // use num_experts
+    int n_ff              = 2048;   // use intermediate_size
+    int vocab             = 262272; // use vocab_size
 
+    // ── CANONICAL LONG-NAME FIELDS ──────────────────────────────
+    int head_dim          = 128;   // single field (no duplicate — see issue #358)
     int hidden_size       = 2048;
     int num_heads         = 8;
     int num_kv_heads      = 2;
@@ -65,6 +69,8 @@ struct ModelConfig {
     int num_experts       = 16;
     int num_experts_top   = 2;
     int num_attention_heads = 8;
+    int router_hidden     = 256;
+    int qkv_dim           = 1280;
     bool has_q_norm = false;
     bool has_k_norm = false;
     bool gu_split = false;
@@ -80,4 +86,14 @@ struct ModelConfig {
     std::string architecture;   // e.g. "llama", "qwen2", "qwen3", "gemma", "phi3", "zaya1" — from
                                  // general.architecture (GGUF) or format-specific header, NOT model_name
     std::string quantization;   // best-effort, e.g. "Q4_K_M", "Q8_0", "F16", "ternary"
+
+    // ── Helper: set all aliased dimension fields at once ────────
+    // Use this instead of chained assignments to guarantee sync.
+    void set_hidden(int v) { hidden = hidden_size = v; }
+    void set_heads(int v) { n_heads = num_heads = num_attention_heads = v; }
+    void set_kv_heads(int v) { n_kv_heads = num_kv_heads = v; }
+    void set_layers(int v) { n_layers = num_layers = v; }
+    void set_ff(int v) { n_ff = intermediate_size = v; }
+    void set_vocab(int v) { vocab = vocab_size = v; }
+    void set_experts(int v) { n_experts = num_experts = v; }
 };
