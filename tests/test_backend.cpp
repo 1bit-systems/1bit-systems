@@ -1,9 +1,18 @@
 // test_backend.cpp — Validate all backends produce identical results
-// Build: c++ -O3 -std=c++20 -I src tests/test_backend.cpp src/backend_cpu.cpp src/backend_factory.cpp -lm -o build/test_backend
+// Build: c++ -O3 -std=c++20 -DZINC_DISABLED -I src -I include \
+//        tests/test_backend.cpp src/backend_cpu.cpp src/backend_factory.cpp \
+//        src/tokenizer.cpp src/simple_tokenizer.cpp -lm -o build/test_backend
+// NOTE: this links against backend_factory.cpp, whose create_best_backend()
+// pulls in create_generic_backend() (backend_generic.cpp) -> GGUF loading
+// (gguf_loader.cpp) -> the HIP/ROCm runtime, none of which a plain `c++`
+// invocation can satisfy. This file was never wired into CMakeLists.txt as
+// a real build target, so the command above has been unverified — see the
+// filed issue for tracking a real fix (either a proper CMake target or
+// trimming backend_factory.cpp's dependency reach for CPU-only test builds).
 // Run:   ./build/test_backend
 
 #include "backend.h"
-#include "tokenizer.h"
+#include "simple_tokenizer.h"
 #include <cstdio>
 #include <cmath>
 #include <cstring>
@@ -30,7 +39,7 @@ int main(int argc, char** argv) {
     if (argc > 2) {
         tokenizer_path = argv[2];
     } else if (const char* home = getenv("HOME")) {
-        tokenizer_path = std::string(home) + "/models/ZAYA1-8B/tokenizer.json";
+        tokenizer_path = std::string(home) + "/models/ZAYA1-8B/tokenizer.htok";
     }
 
     ModelConfig cfg;
@@ -90,7 +99,7 @@ int main(int argc, char** argv) {
 
     // ── 5. Tokenizer demo ──
     printf("\n─━─━─ 5. Tokenizer ─━─━─\n");
-    BPETokenizer bpe;
+    SimpleTokenizer bpe;
     if (!tokenizer_path.empty() && bpe.load(tokenizer_path)) {
         const char* test_str = "Hello world!";
         auto encoded = bpe.encode(test_str);
@@ -99,7 +108,7 @@ int main(int argc, char** argv) {
         for (int t : encoded) printf("%d ", t);
         printf("\n");
         printf("  Decode: '%s'\n", decoded.c_str());
-        
+
         printf("\n  Generating with tokenizer:\n");
         cpu->reset();
         int tid = 2;

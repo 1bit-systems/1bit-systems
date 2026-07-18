@@ -315,7 +315,7 @@ struct SafeTensorsReader {
 // ── Generic CPU Backend ──────────────────────────────────────────────────────
 struct GenericBackend : Backend {
     ModelConfig cfg;
-    std::vector<float> embed, final_norm;
+    std::vector<float> embed, final_norm, output_weight;
     std::vector<std::vector<float>> layer_w;  // flat per-layer weights
     std::vector<std::vector<float>> k_cache, v_cache; // KV cache [n_layers][max_seq * n_kv * hd]
     int pos = 0;
@@ -458,7 +458,14 @@ struct GenericBackend : Backend {
         
         // Final norm
         load("output_norm.weight", final_norm, H);
-        
+
+        // LM head — optional. Many GGUF exports omit it entirely when the
+        // source model ties embeddings (tie_word_embeddings: true); when
+        // present, it's a genuinely different matrix from token_embd.weight
+        // and using the tied embedding instead silently produces wrong
+        // logits (issue #319). output_weight stays empty when absent, and
+        // forward() falls back to the tied embedding in that case.
+        load("output.weight", output_weight, (size_t)real_vocab * H);
 
         
         // Per-layer weights
@@ -527,8 +534,9 @@ struct GenericBackend : Backend {
             if (NE > 0) printf("Generic: MoE model — %d experts, %d used per token\n", NE, cfg.num_experts_top);
         }
         
-        printf("Generic: loaded %zu layers, embed=%zu, final_norm=%zu\n",
-               layers.size(), embed.size(), final_norm.size());
+        printf("Generic: loaded %zu layers, embed=%zu, final_norm=%zu, lm_head=%s\n",
+               layers.size(), embed.size(), final_norm.size(),
+               output_weight.empty() ? "tied" : "untied");
         return !embed.empty() && layers.size() == (size_t)L;
     }
 
@@ -751,8 +759,9 @@ struct GenericBackend : Backend {
         // Final RMSNorm
         rmsnorm(x2.data(), x.data(), final_norm.data(), H, eps);
 
-        // LM head (tied embedding)
-        matmul(logits_buf.data(), x2.data(), embed.data(), V, H);
+        // LM head — untied output.weight when the model has one, else tied embedding.
+        const float* lm_head = output_weight.empty() ? embed.data() : output_weight.data();
+        matmul(logits_buf.data(), x2.data(), lm_head, V, H);
 
         pos++;
 
