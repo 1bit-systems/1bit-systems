@@ -55,6 +55,7 @@
 #include <hip/hip_runtime.h>
 #include <hip/hip_bfloat16.h>
 #include <cstdint>
+#include "hip_check.h"
 
 namespace {
 
@@ -227,6 +228,7 @@ void onebit_ternary_gemm_smallm_launch(
 
     onebit_ternary_gemm_smallm_kernel<<<grid, block, 0, stream>>>(
         x_i8, x_scale, w_packed, w_row_scales, y_out, M, N, K);
+    HIP_CHECK(hipGetLastError());
 }
 
 } // extern "C"

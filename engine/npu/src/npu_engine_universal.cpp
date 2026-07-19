@@ -580,6 +580,9 @@ int main(int argc,char**argv){
     if(worker_mode){
         fprintf(stderr,"WORKER_READY\n");
         fflush(stderr);
+        // Startup handshake: parent waits for this before sending ops (issue #365)
+        printf("READY\n");
+        fflush(stdout);
         uint32_t hdr[4];
         while(fread(hdr,sizeof(uint32_t),4,stdin)==4){
             uint32_t op=hdr[0],layer=hdr[1],batch=hdr[2],in_dim=hdr[3];

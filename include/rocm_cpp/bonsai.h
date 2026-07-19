@@ -1,3 +1,4 @@
+#pragma once
 // rocm-cpp — Bonsai Q1_0_g128 / TQ2_0_g128 ternary GEMV C API (fp16 path).
 //
 // Spec: docs/wiki/Bonsai-Kernel-Spec.md. These are the PrismML Bonsai

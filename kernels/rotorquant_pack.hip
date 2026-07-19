@@ -23,6 +23,7 @@
 #include <cmath>
 
 #include "rocm_cpp/kv_rotorquant.h"
+#include "hip_check.h"
 
 namespace {
 
@@ -174,4 +175,5 @@ extern "C" void rcpp_pq3_requantize_launch(
                        static_cast<const __half*>(in_fp16),
                        static_cast<uint8_t*>(out_idx),
                        seq_len, num_kv_heads, head_dim, layer_idx);
+    HIP_CHECK(hipGetLastError());
 }

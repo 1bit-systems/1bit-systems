@@ -129,6 +129,9 @@ uint32_t fetch_code_5b(const uint8_t* __restrict__ row, int g) {
 #define SHERRY_WAVE    32
 #define SHERRY_WAVES   (SHERRY_BLOCK / SHERRY_WAVE)  // 4
 #define SHERRY_LDS_ACT 2048  // fp16 entries staged per tile = 4 KiB. Multiple
+#ifndef HIP_CHECK
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+#endif
                              // of 4 (group size) and of 128 (block size × 4
                              // fp16-per-thread).
 
@@ -327,6 +330,7 @@ extern "C" void sherry_ternary_gemv_launch(
                        reinterpret_cast<__half*>(out_fp16),
                        N_out, K_in,
                        /*scales=*/nullptr);
+    HIP_CHECK(hipGetLastError());
 }
 
 // Variant that folds in the halo-1bit v3 per-row fp32 scale on each row's
@@ -362,6 +366,7 @@ extern "C" void sherry_ternary_gemv_with_scales_launch(
                        reinterpret_cast<__half*>(out_fp16),
                        N_out, K_in,
                        row_scales_fp32);
+    HIP_CHECK(hipGetLastError());
 }
 
 extern "C" void rcpp_sherry_pack(const int8_t* ternary, uint8_t* out, int count) {

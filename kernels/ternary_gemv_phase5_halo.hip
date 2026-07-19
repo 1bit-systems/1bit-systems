@@ -23,6 +23,7 @@
 #define ROWS_PER_WARP  2
 #define VALS_PER_U32 16
 #define LDS_TILE_I8 2048
+#include "hip_check.h"
 
 static __device__ __forceinline__ uint32_t pack4(int8_t a, int8_t b, int8_t c, int8_t d) {
     return ((uint32_t)(uint8_t)a)
@@ -148,6 +149,7 @@ extern "C" void ternary_gemv_phase5_halo_launch(
                        static_cast<const float*>(scales),
                        static_cast<float*>(y),
                        M, K);
+    HIP_CHECK(hipGetLastError());
 }
 
 // ─── FP16-output fused variant (halo-ai Lane A) ──────────────────────────────
@@ -258,4 +260,5 @@ extern "C" void ternary_gemv_phase5_halo_f16_launch(
                        static_cast<const float*>(scales),
                        static_cast<__half*>(y_f16),
                        M, K);
+    HIP_CHECK(hipGetLastError());
 }

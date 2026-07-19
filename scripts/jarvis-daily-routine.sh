@@ -59,26 +59,27 @@ if [ ! -f "$AWARENESS_FILE" ]; then
     printf '{"events":[],"lastSeen":{},"agents":{}}\n' > "$AWARENESS_FILE"
 fi
 
-python3 -c "
-import json
-with open('$AWARENESS_FILE') as f:
+AWARENESS_FILE="$AWARENESS_FILE" TIMESTAMP="$TIMESTAMP" DATE_STR="$DATE_STR" \
+python3 << 'PYEOF' 2>/dev/null || true
+import json, os
+with open(os.environ['AWARENESS_FILE']) as f:
     data = json.load(f)
 data.setdefault('events', [])
 ids = [e.get('id', 0) for e in data['events']]
 next_id = max(ids, default=0) + 1
 data['events'].append({
     'id': next_id,
-    'timestamp': '$TIMESTAMP',
+    'timestamp': os.environ['TIMESTAMP'],
     'type': 'daily-routine',
     'agent': 'jarvis',
-    'title': 'Daily Routine: $DATE_STR',
-    'message': '🦅 JARVIS daily routine complete for $DATE_STR'
+    'title': f"Daily Routine: {os.environ['DATE_STR']}",
+    'message': f"🦅 JARVIS daily routine complete for {os.environ['DATE_STR']}"
 })
 if len(data['events']) > 500:
     data['events'] = data['events'][-500:]
-with open('$AWARENESS_FILE', 'w') as f:
+with open(os.environ['AWARENESS_FILE'], 'w') as f:
     json.dump(data, f, indent=2)
-" 2>/dev/null || true
+PYEOF
 
 if [ -x "$SIGNAL_SCRIPT" ]; then
     "$SIGNAL_SCRIPT" "🦅 JARVIS daily routine complete for $DATE_STR"

@@ -1,3 +1,4 @@
+#pragma once
 // BitNet tokenizer — pure C ABI. No runtime Python. No JSON parser.
 //
 // Consumes a side-file (.tok) produced by the halo-1bit exporter at

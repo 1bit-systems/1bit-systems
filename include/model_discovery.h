@@ -1,3 +1,4 @@
+#pragma once
 #ifndef MODEL_DISCOVERY_H
 #define MODEL_DISCOVERY_H
 

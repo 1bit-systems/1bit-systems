@@ -5,6 +5,9 @@
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
+#ifndef HIP_CHECK
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+#endif
 
 using half16_t = __attribute__((ext_vector_type(16))) __fp16;
 using float8_t = __attribute__((ext_vector_type(8))) float;
@@ -112,6 +115,7 @@ extern "C" void rcpp_peak_probe_launch(
                        static_cast<const __half*>(B_seed),
                        static_cast<float*>(sink),
                        n_inner);
+    HIP_CHECK(hipGetLastError());
 }
 
 extern "C" void rcpp_peak_probe_launch_i8(
@@ -126,4 +130,5 @@ extern "C" void rcpp_peak_probe_launch_i8(
                        static_cast<const int8_t*>(B_seed),
                        static_cast<int32_t*>(sink),
                        n_inner);
+    HIP_CHECK(hipGetLastError());
 }

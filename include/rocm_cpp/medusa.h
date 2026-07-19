@@ -1,3 +1,4 @@
+#pragma once
 // rocm-cpp — Medusa speculative-decoding kernel skeleton (C API).
 //
 // Why this header exists

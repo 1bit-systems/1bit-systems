@@ -11,9 +11,9 @@
 #include <hip/hip_fp16.h>
 
 __global__ void lm_head_fused_kernel(
-    __half* d_logits,
-    const __half* d_hs,
-    const __half* d_embed,
+    __half* __restrict__ d_logits,
+    const __half* __restrict__ d_hs,
+    const __half* __restrict__ d_embed,
     int HID,
     int N_VOCAB)
 {

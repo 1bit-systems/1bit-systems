@@ -1,7 +1,7 @@
 // GPU argmax kernel — finds max value and its index in a fp16 array
 // Launch with 1 block of 256 threads
 // Does hierarchical reduction: each warp finds local max, then warp 0 reduces
-__global__ void argmax_kernel(const __half* data, int n, int* out_idx, float* out_val) {
+__global__ void argmax_kernel(const __half* __restrict__ data, int n, int* __restrict__ out_idx, float* __restrict__ out_val) {
     int tx = threadIdx.x;
     int lane = tx % 32;
     int warp = tx / 32;

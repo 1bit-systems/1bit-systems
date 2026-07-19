@@ -1,5 +1,5 @@
 #include <cstdio>
-#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+#include "hip_check.h"
 
 // SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
 // Sherry — see LICENSE-SHERRY.md and SHERRY-FILES.txt at the repo root.
@@ -265,4 +265,5 @@ extern "C" void ternary_gemv_sherry_f16_launch(
                        static_cast<const float*>(scales),
                        static_cast<__half*>(y_f16),
                        M, K);
+    HIP_CHECK(hipGetLastError());
 }

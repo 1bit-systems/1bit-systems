@@ -94,6 +94,15 @@ struct GgufReader {
     std::map<std::string, std::string> kv_string;
     std::map<std::string, uint32_t> kv_uint32;
     
+    // Bounds to prevent OOM from malformed/crafted GGUF files (issue #366)
+    static constexpr uint64_t MAX_STRING_LEN   = 1ULL * 1024 * 1024;   // 1 MiB per individual string
+    static constexpr uint64_t MAX_TENSOR_COUNT = 200000;               // generous: Llama-405B ≈ 3.5k tensors
+    static constexpr uint64_t MAX_KV_COUNT     = 200000;               // generous
+    static constexpr uint32_t MAX_NDIM         = 16;                   // GGUF tensors are ≤ 5-d; 16 is very safe
+    static constexpr uint64_t MAX_ARRAY_COUNT  = 1000000;              // 1M elements max in metadata arrays
+    static constexpr uint64_t MAX_DIM_SIZE     = 1ULL << 24;           // ~16.7M per dimension — far beyond any real model
+    bool m_corrupted = false;
+    
     bool open(const std::string& path) {
         f.open(path, std::ios::binary);
         if (!f) return false;
@@ -105,6 +114,16 @@ struct GgufReader {
         uint64_t n_tensors, n_kv;
         f.read(reinterpret_cast<char*>(&n_tensors), 8);
         f.read(reinterpret_cast<char*>(&n_kv), 8);
+        if (n_tensors > MAX_TENSOR_COUNT) {
+            fprintf(stderr, "[gguf] FATAL: tensor count %llu exceeds max %llu — file may be corrupted\n",
+                    (unsigned long long)n_tensors, (unsigned long long)MAX_TENSOR_COUNT);
+            return false;
+        }
+        if (n_kv > MAX_KV_COUNT) {
+            fprintf(stderr, "[gguf] FATAL: KV count %llu exceeds max %llu — file may be corrupted\n",
+                    (unsigned long long)n_kv, (unsigned long long)MAX_KV_COUNT);
+            return false;
+        }
         for (uint64_t i = 0; i < n_kv; ++i) {
             std::string key = read_string();
             uint32_t vt;
@@ -114,17 +133,32 @@ struct GgufReader {
             else if (vt == 4) { uint32_t v; f.read(reinterpret_cast<char*>(&v), 4); kv_uint32[key] = v; }
             else { skip_unknown(vt, key); }
         }
+        if (m_corrupted) return false;
         if (kv_string.count("general.architecture")) arch = kv_string["general.architecture"];
         if (kv_uint32.count("general.alignment")) alignment = kv_uint32["general.alignment"];
         if (alignment < 32) alignment = 32;
         for (uint64_t i = 0; i < n_tensors; ++i) {
             std::string name = read_string();
+            if (m_corrupted) return false;
             uint32_t ndim;
             f.read(reinterpret_cast<char*>(&ndim), 4);
+            if (ndim > MAX_NDIM) {
+                fprintf(stderr, "[gguf] FATAL: tensor '%s' has %u dimensions (max %u) — file may be corrupted\n",
+                        name.c_str(), ndim, MAX_NDIM);
+                return false;
+            }
             TensorInfo ti;
             ti.shape.resize(ndim);
-            for (uint32_t d = 0; d < ndim; ++d)
+            bool dim_ok = true;
+            for (uint32_t d = 0; d < ndim; ++d) {
                 f.read(reinterpret_cast<char*>(&ti.shape[d]), 8);
+                if (ti.shape[d] > MAX_DIM_SIZE) {
+                    fprintf(stderr, "[gguf] FATAL: tensor '%s' dim[%u]=%llu exceeds max %llu — file may be corrupted\n",
+                            name.c_str(), d, (unsigned long long)ti.shape[d], (unsigned long long)MAX_DIM_SIZE);
+                    dim_ok = false;
+                }
+            }
+            if (!dim_ok) return false;
             f.read(reinterpret_cast<char*>(&ti.dtype), 4);
             f.read(reinterpret_cast<char*>(&ti.offset), 8);
             if (ti.dtype == GGUF_TYPE_BLOCK_SCALED_TERNARY)
@@ -142,6 +176,12 @@ struct GgufReader {
     std::string read_string() {
         uint64_t len;
         f.read(reinterpret_cast<char*>(&len), 8);
+        if (len > MAX_STRING_LEN) {
+            fprintf(stderr, "[gguf] FATAL: string length %llu exceeds max %llu — file may be corrupted\n",
+                    (unsigned long long)len, (unsigned long long)MAX_STRING_LEN);
+            m_corrupted = true;
+            return {};
+        }
         std::string s(len, '\0');
         if (len > 0) f.read(&s[0], len);
         return s;
@@ -161,13 +201,17 @@ struct GgufReader {
             uint64_t an;
             if (version >= 3) { f.read(reinterpret_cast<char*>(&an), 8); }
             else { uint32_t an32; f.read(reinterpret_cast<char*>(&an32), 4); an = an32; }
-            if (an < 10000000) {
-                for (uint64_t j = 0; j < an; ++j) {
-                    if (at == 0 || at == 1 || at == 7 || at == 4 || at == 5 || at == 6) f.read(reinterpret_cast<char*>(tmp), 4);
-                    else if (at == 2 || at == 3) f.read(reinterpret_cast<char*>(tmp), 2);
-                    else if (at == 8) read_string();
-                    else f.read(reinterpret_cast<char*>(tmp), 8);
-                }
+            if (an > MAX_ARRAY_COUNT) {
+                fprintf(stderr, "[gguf] FATAL: KV '%s' array count %llu exceeds max %llu — file may be corrupted\n",
+                        key.c_str(), (unsigned long long)an, (unsigned long long)MAX_ARRAY_COUNT);
+                m_corrupted = true;
+                return;
+            }
+            for (uint64_t j = 0; j < an; ++j) {
+                if (at == 0 || at == 1 || at == 7 || at == 4 || at == 5 || at == 6) f.read(reinterpret_cast<char*>(tmp), 4);
+                else if (at == 2 || at == 3) f.read(reinterpret_cast<char*>(tmp), 2);
+                else if (at == 8) read_string();
+                else f.read(reinterpret_cast<char*>(tmp), 8);
             }
         } else if (vt == 10 || vt == 11 || vt == 12) { f.read(reinterpret_cast<char*>(tmp), 8); }
         else { f.read(reinterpret_cast<char*>(tmp), 4); }
@@ -178,7 +222,20 @@ struct GgufReader {
         if (it == tensors.end()) return false;
         auto& ti = it->second;
         uint64_t numel = 1;
-        for (auto d : ti.shape) numel *= d;
+        for (auto d : ti.shape) {
+            if (d != 0 && numel > UINT64_MAX / d) {
+                fprintf(stderr, "[gguf] FATAL: tensor '%s' numel overflow — file may be corrupted\n", name.c_str());
+                return false;
+            }
+            numel *= d;
+        }
+        // Sanity cap on total elements to prevent OOM on allocation
+        static constexpr uint64_t MAX_TENSOR_ELEMENTS = 1ULL << 30;  // ~1G elements ≈ 4 GiB in F32
+        if (numel > MAX_TENSOR_ELEMENTS) {
+            fprintf(stderr, "[gguf] FATAL: tensor '%s' numel %llu exceeds max %llu — file may be corrupted\n",
+                    name.c_str(), (unsigned long long)numel, (unsigned long long)MAX_TENSOR_ELEMENTS);
+            return false;
+        }
         out.resize(numel);
         f.seekg(ti.file_offset);
         int block_size = gguf_block_size(ti.dtype);

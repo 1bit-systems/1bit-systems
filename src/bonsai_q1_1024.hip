@@ -164,6 +164,7 @@ extern "C" void bonsai_q1_1024_gemv_launch(
                        reinterpret_cast<const __half*>(act_fp16),
                        reinterpret_cast<__half*>(out_fp16),
                        N_out, K_in);
+    HIP_CHECK(hipGetLastError());
 }
 
 // ── Converter: old Q1_0_g128 row-major → new Q1_1024 tile8-interleaved ──────

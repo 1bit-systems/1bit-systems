@@ -37,6 +37,21 @@
 #include <fcntl.h>
 #include <signal.h>
 
+// ── Process helpers ──
+// Wait up to timeout_ms for child to exit. Returns true if exited.
+static bool wait_for_child(pid_t pid, int timeout_ms) {
+    auto t0 = std::chrono::steady_clock::now();
+    while (std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now() - t0).count() < timeout_ms) {
+        int status;
+        pid_t r = waitpid(pid, &status, WNOHANG);
+        if (r == pid) return true;
+        if (r < 0) return true;
+        usleep(10000); // 10ms poll interval
+    }
+    return false;
+}
+
 struct FlmBackend : Backend {
     std::string flm_bin_ = "/opt/fastflowlm/bin/flm";
     std::string model_tag_ = "qwen3:0.6b";
@@ -88,7 +103,11 @@ struct FlmBackend : Backend {
         fprintf(stderr, "FLM: launching %s...\n", model_tag_.c_str());
 
         int to_child[2], from_child[2], err_child[2];
-        if (pipe(to_child) || pipe(from_child) || pipe(err_child)) return false;
+        if (pipe(to_child)) return false;
+        if (pipe(from_child)) { close(to_child[0]); close(to_child[1]); return false; }
+        if (pipe(err_child)) {
+            close(to_child[0]); close(to_child[1]); close(from_child[0]); close(from_child[1]); return false;
+        }
 
         pid_ = fork();
         if (pid_ == 0) {
@@ -278,18 +297,27 @@ struct FlmBackend : Backend {
 
     void destroy() override {
         if (pid_ > 0) {
+            // Send /exit command and close stdin to signal EOF (issue #365)
             const char* exit_cmd = "/exit\n";
-            if (stdin_fd_ >= 0) write(stdin_fd_, exit_cmd, strlen(exit_cmd));
-            usleep(200000);
-            if (stdin_fd_ >= 0) close(stdin_fd_);
-            if (stdout_fd_ >= 0) close(stdout_fd_);
-            if (stderr_fd_ >= 0) close(stderr_fd_);
-            kill(pid_, SIGTERM);
-            usleep(200000);
-            kill(pid_, SIGKILL);
-            waitpid(pid_, nullptr, WNOHANG);
+            if (stdin_fd_ >= 0) {
+                write(stdin_fd_, exit_cmd, strlen(exit_cmd));
+                close(stdin_fd_);
+                stdin_fd_ = -1;
+            }
+            // Wait up to 500ms for graceful exit after /exit command
+            if (!wait_for_child(pid_, 500)) {
+                kill(pid_, SIGTERM);
+                if (!wait_for_child(pid_, 2000)) {
+                    kill(pid_, SIGKILL);
+                    wait_for_child(pid_, 1000);
+                }
+            }
+            int status;
+            waitpid(pid_, &status, WNOHANG);
             pid_ = -1;
         }
+        if (stdout_fd_ >= 0) { close(stdout_fd_); stdout_fd_ = -1; }
+        if (stderr_fd_ >= 0) { close(stderr_fd_); stderr_fd_ = -1; }
         stdin_fd_ = stdout_fd_ = stderr_fd_ = -1;
         initialized = false;
     }

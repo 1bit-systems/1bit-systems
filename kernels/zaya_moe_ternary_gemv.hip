@@ -1,5 +1,5 @@
 #include <cstdio>
-#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+#include "hip_check.h"
 
 // Zaya MoE Ternary GEMV — expert-sparse ternary compute for Zaya's hybrid
 // CCA + MoE architecture with EDA router.
@@ -382,6 +382,7 @@ void zaya_moe_ternary_gemv_launch(
         static_cast<const float*>(expert_weights),
         static_cast<__half*>(y_f16),
         tokens, num_experts, top_k, K_padded);
+    HIP_CHECK(hipGetLastError());
 }
 
 void zaya_moe_ternary_gemv_batched_launch(
@@ -407,6 +408,7 @@ void zaya_moe_ternary_gemv_batched_launch(
         static_cast<const float*>(expert_weights),
         static_cast<__half*>(y_f16),
         B, num_experts, top_k, K_padded);
+    HIP_CHECK(hipGetLastError());
 }
 
 } // extern "C"

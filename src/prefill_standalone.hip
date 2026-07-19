@@ -20,6 +20,9 @@
 #include <cstdint>
 
 #include "rocm_cpp/ck_gemm.h"   // C API — shared between CK and standalone backends
+#ifndef HIP_CHECK
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+#endif
 
 namespace {
 
@@ -1890,6 +1893,7 @@ void rcpp_standalone_launch(
                        static_cast<const uint8_t*>(B_dev),
                        static_cast<__half*>(C_dev),
                        M, N, K);
+    HIP_CHECK(hipGetLastError());
 }
 
 // Phase 2 LDS-tiled launcher.
@@ -1905,6 +1909,7 @@ void rcpp_standalone_launch_lds(
                        static_cast<const uint8_t*>(B_dev),
                        static_cast<__half*>(C_dev),
                        M, N, K);
+    HIP_CHECK(hipGetLastError());
 }
 
 // Phase 3 WMMA launcher — one wave per 16x16 output tile.
@@ -1920,6 +1925,7 @@ void rcpp_standalone_launch_wmma(
                        static_cast<const uint8_t*>(B_dev),
                        static_cast<__half*>(C_dev),
                        M, N, K);
+    HIP_CHECK(hipGetLastError());
 }
 
 // Phase 4 WMMA + LDS + 2 waves per block (32x16 output tile).
@@ -1935,6 +1941,7 @@ void rcpp_standalone_launch_wmma_2wave(
                        static_cast<const uint8_t*>(B_dev),
                        static_cast<__half*>(C_dev),
                        M, N, K);
+    HIP_CHECK(hipGetLastError());
 }
 
 // Phase 4b: 1 wave, 16x64 output tile (4 B fragments per K step).
@@ -1950,6 +1957,7 @@ void rcpp_standalone_launch_wmma_4x(
                        static_cast<const uint8_t*>(B_dev),
                        static_cast<__half*>(C_dev),
                        M, N, K);
+    HIP_CHECK(hipGetLastError());
 }
 
 // Phase 4c: 1 wave, 32x64 output tile (2 A x 4 B = 8 accumulators).
@@ -1965,6 +1973,7 @@ void rcpp_standalone_launch_wmma_2x4(
                        static_cast<const uint8_t*>(B_dev),
                        static_cast<__half*>(C_dev),
                        M, N, K);
+    HIP_CHECK(hipGetLastError());
 }
 
 // Phase 4g: 1 wave, 64x64 output (4A x 4B = 16 accumulators).
@@ -1980,6 +1989,7 @@ void rcpp_standalone_launch_wmma_4x4(
                        static_cast<const uint8_t*>(B_dev),
                        static_cast<__half*>(C_dev),
                        M, N, K);
+    HIP_CHECK(hipGetLastError());
 }
 
 // Phase 4h: 1 wave, 64x64 output, A and B cached across K steps.
@@ -1995,6 +2005,7 @@ void rcpp_standalone_launch_wmma_4x4_cached(
                        static_cast<const uint8_t*>(B_dev),
                        static_cast<__half*>(C_dev),
                        M, N, K);
+    HIP_CHECK(hipGetLastError());
 }
 
 // Phase 4i: 4h + vectorized A loads.
@@ -2010,6 +2021,7 @@ void rcpp_standalone_launch_wmma_4x4_vec(
                        static_cast<const uint8_t*>(B_dev),
                        static_cast<__half*>(C_dev),
                        M, N, K);
+    HIP_CHECK(hipGetLastError());
 }
 
 // INT8-B variant: pre-decoded ternary weights as int8, uses INT8 WMMA (2× faster).
@@ -2026,6 +2038,7 @@ void rcpp_standalone_launch_wmma_4x4_vec_i8_tiled(
                        static_cast<const int8_t*>(B_tiled_dev),
                        static_cast<__half*>(C_dev),
                        M, N, K);
+    HIP_CHECK(hipGetLastError());
 }
 
 void rcpp_standalone_launch_wmma_4x4_vec_i8_apre_tiled(
@@ -2040,6 +2053,7 @@ void rcpp_standalone_launch_wmma_4x4_vec_i8_apre_tiled(
                        static_cast<const int8_t*>(B_tiled_dev),
                        static_cast<__half*>(C_dev),
                        M, N, K);
+    HIP_CHECK(hipGetLastError());
 }
 
 // FP16-B variant: skip pk_i4 decode. Consumer holds materialized FP16 B.
@@ -2055,6 +2069,7 @@ void rcpp_standalone_launch_fp16b(
                        static_cast<const __half*>(B_fp16_dev),
                        static_cast<__half*>(C_dev),
                        M, N, K);
+    HIP_CHECK(hipGetLastError());
 }
 
 // Phase 4k: 2 waves, 64x32 output, LDS ping-pong.
@@ -2070,6 +2085,7 @@ void rcpp_standalone_launch_lds_pingpong(
                        static_cast<const uint8_t*>(B_dev),
                        static_cast<__half*>(C_dev),
                        M, N, K);
+    HIP_CHECK(hipGetLastError());
 }
 
 // Phase 4j: 1 wave, 32x64 output, A double-buffered across j iterations.
@@ -2085,6 +2101,7 @@ void rcpp_standalone_launch_4c_pipelined(
                        static_cast<const uint8_t*>(B_dev),
                        static_cast<__half*>(C_dev),
                        M, N, K);
+    HIP_CHECK(hipGetLastError());
 }
 
 // Decode pk_i4 WMMA-permuted bytes to col-major FP16 on device.
@@ -2099,6 +2116,7 @@ void rcpp_decode_pk_i4_to_fp16_launch(
                        static_cast<const uint8_t*>(B_packed_dev),
                        static_cast<__half*>(B_fp16_dev),
                        K, N);
+    HIP_CHECK(hipGetLastError());
 }
 
 // Phase 4f: 4 waves (2x2), 64x64 output, A+B both in LDS.
@@ -2114,6 +2132,7 @@ void rcpp_standalone_launch_wmma_2x2wave(
                        static_cast<const uint8_t*>(B_dev),
                        static_cast<__half*>(C_dev),
                        M, N, K);
+    HIP_CHECK(hipGetLastError());
 }
 
 // Phase 4d: 1 wave, 32x64 output, B decoded to LDS once per j block.
@@ -2129,6 +2148,7 @@ void rcpp_standalone_launch_wmma_2x4_ldsB(
                        static_cast<const uint8_t*>(B_dev),
                        static_cast<__half*>(C_dev),
                        M, N, K);
+    HIP_CHECK(hipGetLastError());
 }
 
 }  // extern "C"

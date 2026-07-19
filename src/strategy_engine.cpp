@@ -27,7 +27,8 @@ RoutingDecision CascadeConfig::route(const TokenContext& ctx) const noexcept {
     // Determine threshold: use agent override if set, otherwise config default
     double threshold = confidence_threshold;
     if (agent) {
-        double override = agent->cascade_threshold_override.load(std::memory_order_relaxed);
+        // acquire: ensures visibility of watchdog writes (fixes #364)
+        double override = agent->cascade_threshold_override.load(std::memory_order_acquire);
         if (override > -900.0) {  // sentinel check
             threshold = override;
         }
@@ -87,7 +88,8 @@ RoutingDecision SpecDecodeConfig::route(const TokenContext& ctx) const noexcept 
     // Use dynamic n_draft from agent if available, else config default
     int nd = n_draft;
     if (agent) {
-        int dynamic = agent->dynamic_n_draft.load(std::memory_order_relaxed);
+        // acquire: ensures visibility of watchdog writes (fixes #364)
+        int dynamic = agent->dynamic_n_draft.load(std::memory_order_acquire);
         if (dynamic > 0) nd = dynamic;
     }
 
@@ -150,10 +152,11 @@ RoutingDecision AdaptiveConfig::route(const TokenContext& ctx) const noexcept {
     double threshold = -2.5;
 
     if (agent) {
-        npu_share = agent->npu_load_share.load(std::memory_order_relaxed);
-        npu_off = agent->npu_disabled.load(std::memory_order_relaxed);
-        gpu_off = agent->gpu_disabled.load(std::memory_order_relaxed);
-        threshold = agent->adaptive_cascade_threshold.load(std::memory_order_relaxed);
+        // acquire: ensures visibility of watchdog writes (fixes #364)
+        npu_share = agent->npu_load_share.load(std::memory_order_acquire);
+        npu_off = agent->npu_disabled.load(std::memory_order_acquire);
+        gpu_off = agent->gpu_disabled.load(std::memory_order_acquire);
+        threshold = agent->adaptive_cascade_threshold.load(std::memory_order_acquire);
     }
 
     // ── 1. Check if any backend is disabled by watchdog ──

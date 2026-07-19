@@ -1,5 +1,5 @@
 #include <cstdio>
-#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+#include "hip_check.h"
 
 // TQ1 base-3 ternary GEMV — halo-1bit v4 packing (Lane B' of rocprof plan).
 //
@@ -236,4 +236,5 @@ extern "C" void ternary_gemv_tq1_halo_f16_launch(
                        static_cast<const float*>(scales),
                        static_cast<__half*>(y_f16),
                        M, K_padded);
+    HIP_CHECK(hipGetLastError());
 }

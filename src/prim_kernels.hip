@@ -20,6 +20,9 @@
 #include <cstdlib>
 
 #include "rocm_cpp/ck_gemm.h"
+#ifndef HIP_CHECK
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+#endif
 
 namespace {
 
@@ -818,6 +821,7 @@ rcpp_quantize_fp16_to_i8(const void* x_fp16_dev, void* x_i8_dev,
                        static_cast<const __half*>(x_fp16_dev),
                        static_cast<int8_t*>(x_i8_dev),
                        scale_dev, K);
+    HIP_CHECK(hipGetLastError());
     return RCPP_OK;
 }
 
@@ -833,6 +837,7 @@ rcpp_rmsnorm_fp16(const void* x_dev, const void* weight_dev, void* y_dev,
                        static_cast<const __half*>(weight_dev),
                        static_cast<__half*>(y_dev),
                        eps, K);
+    HIP_CHECK(hipGetLastError());
     return RCPP_OK;
 }
 
@@ -851,6 +856,7 @@ rcpp_rmsnorm_quant_i8(const void* x_dev, const void* weight_dev,
                        static_cast<const __half*>(weight_dev),
                        static_cast<int8_t*>(x_i8_dev),
                        scale_dev, eps, K);
+    HIP_CHECK(hipGetLastError());
     return RCPP_OK;
 }
 
@@ -872,6 +878,7 @@ rcpp_rope_fp16(void* x_dev, int pos, float theta,
                        grid, block, 0, (hipStream_t)stream,
                        static_cast<__half*>(x_dev),
                        pos, theta, num_heads, head_dim);
+    HIP_CHECK(hipGetLastError());
     return RCPP_OK;
 }
 
@@ -902,6 +909,7 @@ rcpp_rope_kv_append_fp16(
                        static_cast<const __half*>(v_src_dev),
                        static_cast<__half*>(v_cache_dev),
                        pos, theta, num_q_heads, num_kv_heads, head_dim);
+    HIP_CHECK(hipGetLastError());
     return RCPP_OK;
 }
 
@@ -917,6 +925,7 @@ rcpp_silu_glu_fp16(const void* up_dev, const void* gate_dev, void* y_dev,
                        static_cast<const __half*>(gate_dev),
                        static_cast<__half*>(y_dev),
                        N);
+    HIP_CHECK(hipGetLastError());
     return RCPP_OK;
 }
 
@@ -932,6 +941,7 @@ rcpp_relu2_glu_fp16(const void* gate_dev, const void* up_dev, void* y_dev,
                        static_cast<const __half*>(up_dev),
                        static_cast<__half*>(y_dev),
                        N);
+    HIP_CHECK(hipGetLastError());
     return RCPP_OK;
 }
 
@@ -950,6 +960,7 @@ rcpp_relu2_glu_rmsnorm_fp16(const void* gate_dev, const void* up_dev,
                        static_cast<const __half*>(ffn_sub_norm_dev),
                        static_cast<__half*>(y_dev),
                        eps, N);
+    HIP_CHECK(hipGetLastError());
     return RCPP_OK;
 }
 
@@ -965,6 +976,7 @@ rcpp_embedding_lookup_fp16(const void* embedding_dev, int token_id,
                        token_id,
                        static_cast<__half*>(y_dev),
                        hidden);
+    HIP_CHECK(hipGetLastError());
     return RCPP_OK;
 }
 
@@ -978,6 +990,7 @@ rcpp_residual_add_fp16(void* y_dev, const void* src_dev, int N, void* stream)
                        static_cast<__half*>(y_dev),
                        static_cast<const __half*>(src_dev),
                        N);
+    HIP_CHECK(hipGetLastError());
     return RCPP_OK;
 }
 
@@ -992,6 +1005,7 @@ rcpp_residual_add_fp32_from_fp16(void* x_fp32_dev, const void* src_fp16_dev,
                        static_cast<float*>(x_fp32_dev),
                        static_cast<const __half*>(src_fp16_dev),
                        N);
+    HIP_CHECK(hipGetLastError());
     return RCPP_OK;
 }
 
@@ -1007,6 +1021,7 @@ rcpp_rmsnorm_fp32_in_fp16_out(const void* x_fp32_dev, const void* weight_dev,
                        static_cast<const __half*>(weight_dev),
                        static_cast<__half*>(y_fp16_dev),
                        eps, K);
+    HIP_CHECK(hipGetLastError());
     return RCPP_OK;
 }
 
@@ -1025,6 +1040,7 @@ rcpp_resadd_rmsnorm_fp32_out(void* x_fp32_dev, const void* src_fp16_dev,
                        static_cast<const __half*>(weight_dev),
                        static_cast<__half*>(y_fp16_dev),
                        eps, K);
+    HIP_CHECK(hipGetLastError());
     return RCPP_OK;
 }
 
@@ -1038,6 +1054,7 @@ rcpp_argmax_fp32(const void* logits_dev, void* out_idx_dev, int V, void* stream)
                        static_cast<const float*>(logits_dev),
                        static_cast<int*>(out_idx_dev),
                        V);
+    HIP_CHECK(hipGetLastError());
     return RCPP_OK;
 }
 
@@ -1050,6 +1067,7 @@ rcpp_softmax_fp32(void* logits_dev, int V, float temperature, void* stream)
                        grid, block, 0, (hipStream_t)stream,
                        static_cast<float*>(logits_dev),
                        V, 1.0f / temperature);
+    HIP_CHECK(hipGetLastError());
     return RCPP_OK;
 }
 
@@ -1065,6 +1083,7 @@ rcpp_fp16_gemv(const void* W_dev, const void* x_dev, void* y_dev,
                        static_cast<const __half*>(x_dev),
                        static_cast<float*>(y_dev),
                        M, K);
+    HIP_CHECK(hipGetLastError());
     return RCPP_OK;
 }
 
@@ -1078,6 +1097,7 @@ rcpp_fp32_to_fp16(const void* x_fp32_dev, void* y_fp16_dev, int N, void* stream)
                        static_cast<const float*>(x_fp32_dev),
                        static_cast<__half*>(y_fp16_dev),
                        N);
+    HIP_CHECK(hipGetLastError());
     return RCPP_OK;
 }
 
@@ -1091,6 +1111,7 @@ rcpp_fp16_to_fp32(const void* x_fp16_dev, void* y_fp32_dev, int N, void* stream)
                        static_cast<const __half*>(x_fp16_dev),
                        static_cast<float*>(y_fp32_dev),
                        N);
+    HIP_CHECK(hipGetLastError());
     return RCPP_OK;
 }
 
@@ -1105,6 +1126,7 @@ rcpp_top_k_fp32(void* logits_dev, int k, int V, void* stream)
                        grid, block, 0, (hipStream_t)stream,
                        static_cast<float*>(logits_dev),
                        k, V);
+    HIP_CHECK(hipGetLastError());
     return RCPP_OK;
 }
 
@@ -1122,6 +1144,7 @@ rcpp_sample_multinomial_fp32(const void* probs_dev, float r,
                        r,
                        static_cast<int*>(out_idx_dev),
                        V);
+    HIP_CHECK(hipGetLastError());
     return RCPP_OK;
 }
 

@@ -80,7 +80,7 @@ __device__ inline void store_flag(volatile int* flags, int layer, int phase, int
 //   3. Do down (blockIdx.y == 1) or wait for down_done
 //   4. Signal completion
 
-__global__ void persistent_moe_kernel(
+__launch_bounds__(128) __global__ void persistent_moe_kernel(
     __half* __restrict__ hs,               // [N_LAYERS, H] — RMSNorm'd hidden states per layer
     const float* __restrict__ prev_rs,     // [N_LAYERS, RTR_H]
     const int*   __restrict__ has_eda,     // [N_LAYERS]

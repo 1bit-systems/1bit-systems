@@ -29,6 +29,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <sys/select.h>
 #include <signal.h>
 
 // ── Math helpers (CPU fallback ops) ──
@@ -112,6 +113,21 @@ static void attn_cpu(float* qo, float* at, int seq_len,
     }
 }
 
+// ── Process helpers ──
+// Wait up to timeout_ms for child to exit. Returns true if exited.
+static bool wait_for_child(pid_t pid, int timeout_ms) {
+    auto t0 = std::chrono::steady_clock::now();
+    while (std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now() - t0).count() < timeout_ms) {
+        int status;
+        pid_t r = waitpid(pid, &status, WNOHANG);
+        if (r == pid) return true;
+        if (r < 0) return true;
+        usleep(10000); // 10ms poll interval
+    }
+    return false;
+}
+
 // ── NPU Worker subprocess ──
 struct NpuWorker {
     pid_t pid = -1;
@@ -124,7 +140,8 @@ struct NpuWorker {
         std::string bin = engine_bin ? engine_bin : "./npu_engine_universal";
 
         int to_child[2], from_child[2];
-        if (pipe(to_child) < 0 || pipe(from_child) < 0) { perror("NPU: pipe"); return false; }
+        if (pipe(to_child) < 0) { perror("NPU: pipe(to_child)"); return false; }
+        if (pipe(from_child) < 0) { perror("NPU: pipe(from_child)"); close(to_child[0]); close(to_child[1]); return false; }
 
         pid = fork();
         if (pid < 0) { perror("NPU: fork"); close(to_child[0]); close(to_child[1]); close(from_child[0]); close(from_child[1]); return false; }
@@ -143,7 +160,29 @@ struct NpuWorker {
         close(to_child[0]); close(from_child[1]);
         stdin_fd = to_child[1];
         stdout_fd = from_child[0];
-        ready = true;
+
+        // Startup handshake: wait for "READY\n" from child (issue #365)
+        char ready_buf[6];
+        int ready_bytes = 0;
+        auto t0 = std::chrono::steady_clock::now();
+        while (ready_bytes < 6 && std::chrono::duration_cast<std::chrono::seconds>(
+                   std::chrono::steady_clock::now() - t0).count() < 10) {
+            fd_set fds; FD_ZERO(&fds); FD_SET(stdout_fd, &fds);
+            struct timeval tv = {1, 0};
+            if (select(stdout_fd + 1, &fds, nullptr, nullptr, &tv) > 0) {
+                ssize_t n = read(stdout_fd, ready_buf + ready_bytes, 6 - ready_bytes);
+                if (n > 0) ready_bytes += n;
+                else if (n <= 0) break;
+            }
+        }
+        if (ready_bytes >= 6 && memcmp(ready_buf, "READY\n", 6) == 0) {
+            ready = true;
+        } else {
+            fprintf(stderr, "NPU: worker handshake failed (got %d bytes)\n", ready_bytes);
+            kill(pid, SIGTERM); waitpid(pid, nullptr, 0);
+            close(stdin_fd); close(stdout_fd); stdin_fd = stdout_fd = -1; pid = -1;
+            return false;
+        }
         return true;
     }
 
@@ -166,14 +205,26 @@ struct NpuWorker {
 
     void shutdown() {
         if (pid > 0) {
+            // Send quit command (op=0) and close stdin to signal EOF (issue #365)
             uint32_t quit[4] = {0, 0, 0, 0};
-            if (stdin_fd >= 0) write(stdin_fd, quit, sizeof(quit));
-            close(stdin_fd); close(stdout_fd);
+            if (stdin_fd >= 0) {
+                write(stdin_fd, quit, sizeof(quit));
+                close(stdin_fd);
+                stdin_fd = -1;
+            }
+            // Wait up to 500ms for graceful exit after quit command
+            if (!wait_for_child(pid, 500)) {
+                kill(pid, SIGTERM);
+                if (!wait_for_child(pid, 2000)) {
+                    kill(pid, SIGKILL);
+                    wait_for_child(pid, 1000);
+                }
+            }
             int status;
             waitpid(pid, &status, WNOHANG);
-            kill(pid, SIGTERM);
             pid = -1;
         }
+        if (stdout_fd >= 0) { close(stdout_fd); stdout_fd = -1; }
         stdin_fd = stdout_fd = -1;
         ready = false;
     }

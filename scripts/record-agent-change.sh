@@ -50,7 +50,7 @@ write_payload() {
     PAYLOAD_TYPE="$type" \
     PAYLOAD_AGENT="$agent_name" \
     PAYLOAD_OUT="$AWARENESS_PAYLOAD" \
-    python3 -c "
+    python3 - "$@" << 'PYEOF' 2>/dev/null || true
 import json, os, sys
 from datetime import datetime, timezone
 
@@ -65,7 +65,7 @@ for arg in sys.argv[1:]:
 
 with open(os.environ['PAYLOAD_OUT'], 'w') as f:
     json.dump(payload, f)
-" "$@" 2>/dev/null || true
+PYEOF
 }
 
 # Main merge step: read awareness.json and payload.json, merge, write back
@@ -76,15 +76,18 @@ merge_awareness() {
 
     ensure_file
 
-    python3 -c "
-import json, sys
+    AWARENESS_FILE="$AWARENESS_FILE" \
+    AWARENESS_PAYLOAD="$AWARENESS_PAYLOAD" \
+    MAX_EVENTS="$MAX_EVENTS" \
+    python3 << 'PYEOF' 2>/dev/null || true
+import json, sys, os
 
 # Read current awareness
-with open('$AWARENESS_FILE') as f:
+with open(os.environ['AWARENESS_FILE']) as f:
     data = json.load(f)
 
 # Read payload
-with open('$AWARENESS_PAYLOAD') as f:
+with open(os.environ['AWARENESS_PAYLOAD']) as f:
     payload = json.load(f)
 
 data.setdefault('events', [])
@@ -126,7 +129,7 @@ if payload_type == 'checkout':
 data['events'].append(event)
 
 # Trim to MAX_EVENTS
-data['events'] = data['events'][-${MAX_EVENTS}:]
+data['events'] = data['events'][-int(os.environ['MAX_EVENTS']):]
 
 # Update lastSeen and agents for commit events
 if payload_type == 'commit':
@@ -141,13 +144,12 @@ if payload_type == 'commit':
         'branch': branch
     }
 
-with open('$AWARENESS_FILE', 'w') as f:
+with open(os.environ['AWARENESS_FILE'], 'w') as f:
     json.dump(data, f)
 
 # Clean up payload
-import os
-os.remove('$AWARENESS_PAYLOAD')
-" 2>/dev/null || true
+os.remove(os.environ['AWARENESS_PAYLOAD'])
+PYEOF
 }
 
 record_commit() {

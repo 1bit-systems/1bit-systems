@@ -20,6 +20,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include <mutex>
 #include <fstream>
 #include <vector>
 #include <string>
@@ -587,6 +588,9 @@ int main(int argc, char** argv) {
 
     SimpleTokenizer tok;
 
+    // Protect TokenRouter from concurrent access by cpp-httplib thread pool (fixes #364)
+    static std::mutex g_router_mutex;
+
     svr.Get("/", [&](const httplib::Request&, httplib::Response& res) {
         std::string resp = "{\"status\":\"" + std::string(model_loaded ? "ok" : "no_model") + "\",\"model_loaded\":" + (model_loaded ? "true" : "false") + ",\"model\":\"" + json_escape(cfg.model_name) + "\","
             "\"backend\":\"" + std::string(router.primary ? router.primary->name() : "none") + "\","
@@ -622,6 +626,8 @@ int main(int argc, char** argv) {
 
     svr.Post("/a2a/v1/message:send", [&](const httplib::Request& req, httplib::Response& res) {
         std::string task_id = a2a_new_task_id();
+        // Lock router for the duration of inference (fixes #364)
+        std::lock_guard<std::mutex> lock(g_router_mutex);
         res.set_content(a2a_handle_message(req.body, task_id, router, tok, model_loaded), "application/json");
     });
 
@@ -636,6 +642,8 @@ int main(int argc, char** argv) {
                 std::string e2 = "event: taskStatus\ndata: " + a2a_task_status(task_id, "ctx-" + task_id, "TASK_STATE_WORKING", "Processing inference") + "\n\n";
                 sink.write(e2.data(), e2.size());
 
+                // Lock router for inference (captured by copy in chunked content provider)
+                std::lock_guard<std::mutex> lock(g_router_mutex);
                 std::string result = a2a_handle_message(body, task_id, router, tok, model_loaded);
                 std::string e3 = "event: taskArtifact\ndata: " + result + "\n\n";
                 sink.write(e3.data(), e3.size());
@@ -703,7 +711,9 @@ int main(int argc, char** argv) {
         try {
             json jbody = json::parse(body);
             max_tokens = jbody.value("max_tokens", 256);
-        } catch (...) {}
+        } catch (...) {
+            fprintf(stderr, "[zaya_server] JSON parse error in /v1/chat/completions max_tokens extraction\n");
+        }
 
         RouteStrategy use_strat = strategy;
         if (use_strat == RouteStrategy::CONTENT) {
@@ -714,7 +724,9 @@ int main(int argc, char** argv) {
                     user_msg = jbody["messages"][0].value("content", std::string());
                 else
                     user_msg = jbody.value("content", std::string());
-            } catch (...) {}
+            } catch (...) {
+                fprintf(stderr, "[zaya_server] JSON parse error in /v1/chat/completions content routing\n");
+            }
             fprintf(stderr, "  [content] routing: %s\n", should_use_large_model(user_msg) ? "large model" : "small model (NPU)");
             use_strat = RouteStrategy::AUTO;
         }
@@ -736,6 +748,8 @@ int main(int argc, char** argv) {
         std::vector<int> tokens = tok.encode(prompt);
         fprintf(stderr, "  → %d prompt tokens, max %d new\n", (int)tokens.size(), max_tokens);
 
+        // Lock router for the duration of inference (fixes #364)
+        std::lock_guard<std::mutex> lock(g_router_mutex);
         InferenceResult result = router.infer(tokens, max_tokens, use_strat);
         std::string text = tok.decode(result.tokens);
         std::string finish_reason = "stop";
@@ -776,13 +790,17 @@ int main(int argc, char** argv) {
                 input = tok.encode(jbody["prompt"].get<std::string>());
             }
             np = jbody.value("n_predict", 16);
-        } catch (...) {}
+        } catch (...) {
+            fprintf(stderr, "[zaya_server] JSON parse error in /completion\n");
+        }
         if (input.empty()) {
             std::string prompt;
             try {
                 json jbody = json::parse(body);
                 prompt = jbody.value("prompt", std::string());
-            } catch (...) {}
+            } catch (...) {
+                fprintf(stderr, "[zaya_server] JSON parse error in /completion prompt fallback\n");
+            }
             if (prompt.empty()) {
                 res.status = 400;
                 res.set_content("{\"error\":\"need prompt or tokens\"}", "application/json");
@@ -790,6 +808,8 @@ int main(int argc, char** argv) {
             }
             input = tok.encode(prompt);
         }
+        // Lock router for the duration of inference (fixes #364)
+        std::lock_guard<std::mutex> lock(g_router_mutex);
         InferenceResult result = router.infer(input, np, RouteStrategy::AUTO);
         std::string text = tok.decode(result.tokens);
         std::string rsp = "{\"tokens\":[";
@@ -808,7 +828,7 @@ int main(int argc, char** argv) {
             res.set_content("{\"error\":\"not found\"}", "application/json");
     });
 
-    if (!svr.listen("0.0.0.0", port)) {
+    if (!svr.listen("127.0.0.1", port)) {
         fprintf(stderr, "FATAL: failed to bind/listen on port %d\n", port);
         return 1;
     }

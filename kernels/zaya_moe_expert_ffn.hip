@@ -21,7 +21,7 @@
 // Launch with ((2*N_FF + WMMA_M - 1) / WMMA_M, 1) blocks, WMMA_THREADS threads
 // Each block handles WMMA_M output rows of the gate_up projection.
 // Weights read from gu_base + expert * 2 * N_FF * H (GPU-computed address).
-__global__ void wmma_gateup_kernel(
+__launch_bounds__(128) __global__ void wmma_gateup_kernel(
     __half* __restrict__ tmp,               // [2*N_FF] gate_up output
     const __half* __restrict__ hs,          // [H] hidden state
     const __half* __restrict__ gu_base,     // [N_EXP, 2*N_FF, H] all expert weights
@@ -78,7 +78,7 @@ __global__ void wmma_gateup_kernel(
 // ── WMMA down: out[H] = moe_in[N_FF] @ dn[expert, H, N_FF]^T ──
 // Launch with ((H + WMMA_M - 1) / WMMA_M, 1) blocks, WMMA_THREADS threads
 // Takes silu'd gate_up as input, writes expert FFN output.
-__global__ void wmma_down_kernel(
+__launch_bounds__(128) __global__ void wmma_down_kernel(
     __half* __restrict__ out,               // [H] expert output
     const __half* __restrict__ moe_in,      // [N_FF] SiLU'd gate_up
     const __half* __restrict__ dn_base,     // [N_EXP, H, N_FF] all expert weights

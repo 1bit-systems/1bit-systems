@@ -1,46 +1,11 @@
 # Changelog
 
-## [0.2.1] — 2026-06-26
+## 2026.07.16
 
-### Bug fixes & robustness
-- `install.sh`: Fixed `$1` unbound-variable crash when running without arguments
-  under `set -euo pipefail`
-- `env.sh`: Added `$LINK_DIR/build` to `PATH` so CLI tools (`bitnet_decode`,
-  `bench_prefill_variants`, etc.) are discoverable after `source env.sh`
-- `rust/src/main.rs`: Added `Drop` impl on `AppState` that kills the backend
-  child process on server shutdown / panic (no more orphan zombies)
-- `h1b_loader.cpp`: Added `f.fail()` checks after every `f.read()` to catch
-  truncated or corrupt `.h1b` files early with a clear error message
-- `tokenizer.cpp/.h`: Fixed `.htok` merge table field documentation — the third
-  field is the *merged token id*, not the rank; rank is derived from insertion
-  order. Added infinite-loop guard in BPE merge loop, empty-input early-return,
-  and null-ids validation
-- `prefill_dispatcher.cpp`: Added variant-index bounds and null-function-pointer
-  checks before dispatch
-- `CMakeLists.txt`: Removed `src/ck_gemm.cpp` from the HIP language property set
-  (compiled as C++17 via CK's host-only path); removed `src/prefill_dispatcher.cpp`
-  from the HIP source set (was duplicating `target_sources` entry)
-- `.gitignore`: Removed duplicate `/rust/target` entry; added editor swap files
-  and `ck-prefill/build/`
-- `prim_kernels.hip`: Added `<cstdlib>` include for `std::abs` / `std::round`
-  portability
-
-### Documentation
-- `tokenizer.h`: Corrected `.htok` merge table field documentation — third field
-  is `new_id` (merged token id), not `rank`
-
-## [0.2.0] — 2026-06-23
-- Full benchmark on ROCm 7.2.4 (Ubuntu 24.04)
-- Prefill 4h kernel: 21.94 TFlops (73% of rocBLAS, 2.9x per-byte)
-- Decode halo: 27.01 µs (7.8x rocBLAS)
-- Auto-tuner with 7 prefill variants
-- CI: headers check + ShellCheck
-
-## [0.1.0] — 2026-04-30
-- Initial release on TheRock ROCm 7.13
-- BitNet-2B-4T end-to-end decode at 82 tok/s
-- Prefill 30.15 TFlops at 1.02x TheRock rocBLAS
-- Decode GEMV 4.9-7.2x rocBLAS
+- feat(hardware-aware): auto-dispatch policy defaulting to N+G pathway
+- fix(backend_manager): load_plugins now infers tier from plugin type instead of hardcoding T2_GPU
+- doc: fixed stale paths in SECURITY.md, ROCm repo inconsistencies, CI pipeline table
+- security: redacted exposed Stripe credentials from ROADMAP.md and site/store/index.html
 
 ## 2026.07.15
 
@@ -67,3 +32,45 @@
   - Forward pass: coherent logits (argmax=76213, max=327007, min=-396679)
 - chore(binary sizes): zaya_server=282KB, unified_server=1.2MB, bitnet_decode=688KB
 - doc(benchmarks): published full results to benchmarks/RESULTS-2026-07-15.md
+
+## [0.2.1] — 2026-06-26
+
+### Bug fixes & robustness
+- `install.sh`: Fixed `$1` unbound-variable crash when running without arguments
+  under `set -euo pipefail`
+- `env.sh`: Added `$LINK_DIR/build` to `PATH` so CLI tools (`bitnet_decode`,
+  `bench_prefill_variants`, etc.) are discoverable after `source env.sh`
+- `rust/src/main.rs`: Added `Drop` impl on `AppState` that kills the backend
+  child process on server shutdown / panic (no more orphan zombies)
+- `h1b_loader.cpp`: Added `f.fail()` checks after every `f.read()` to catch
+  truncated or corrupt `.h1b` files early with a clear error message
+- `tokenizer.cpp/.h`: [redacted]
+  field is the *merged token id*, not the rank; rank is derived from insertion
+  order. Added infinite-loop guard in BPE merge loop, empty-input early-return,
+  and null-ids validation
+- `prefill_dispatcher.cpp`: Added variant-index bounds and null-function-pointer
+  checks before dispatch
+- `CMakeLists.txt`: Removed `src/ck_gemm.cpp` from the HIP language property set
+  (compiled as C++17 via CK's host-only path); removed `src/prefill_dispatcher.cpp`
+  from the HIP source set (was duplicating `target_sources` entry)
+- `.gitignore`: Removed duplicate `/rust/target` entry; added editor swap files
+  and `ck-prefill/build/`
+- `prim_kernels.hip`: Added `<cstdlib>` include for `std::abs` / `std::round`
+  portability
+
+### Documentation
+- `tokenizer.h`: [redacted]
+  is `new_id` (merged token id), not `rank`
+
+## [0.2.0] — 2026-06-23
+- Full benchmark on ROCm 7.2.4 (Ubuntu 24.04)
+- Prefill 4h kernel: 21.94 TFlops (73% of rocBLAS, 2.9x per-byte)
+- Decode halo: 27.01 µs (7.8x rocBLAS)
+- Auto-tuner with 7 prefill variants
+- CI: headers check + ShellCheck
+
+## [0.1.0] — 2026-04-30
+- Initial release on TheRock ROCm 7.13
+- BitNet-2B-4T end-to-end decode at 82 tok/s
+- Prefill 30.15 TFlops at 1.02x TheRock rocBLAS
+- Decode GEMV 4.9-7.2x rocBLAS

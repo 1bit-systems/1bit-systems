@@ -108,6 +108,23 @@ jobs:
           scandir: '.'
           severity: error
 
+  lint:
+    name: Lint (clang-format, ruff)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: clang-format check
+        run: |
+          sudo apt-get install -y -qq clang-format
+          find . -name '*.cpp' -o -name '*.h' -o -name '*.hip' -o -name '*.hpp' | \
+            grep -v build/ | grep -v _deps/ | grep -v '.git/' | \
+            xargs clang-format --dry-run --Werror 2>&1 | head -20 || true
+      - name: Python lint (ruff)
+        run: |
+          pip install -q ruff
+          ruff check --select=E,F,W --ignore=E501 tools/ scripts/ --output-format=concise 2>&1 | head -30 || true
+
   version:
     name: Version consistency
     runs-on: ubuntu-24.04

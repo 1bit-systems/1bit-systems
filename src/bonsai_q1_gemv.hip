@@ -43,6 +43,9 @@
 #include <cstring>
 
 #include "rocm_cpp/bonsai.h"
+#ifndef HIP_CHECK
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+#endif
 
 namespace {
 
@@ -189,4 +192,5 @@ extern "C" void bonsai_q1_gemv_launch(
                        reinterpret_cast<const __half*>(act_fp16),
                        reinterpret_cast<__half*>(out_fp16),
                        N_out, K_in);
+    HIP_CHECK(hipGetLastError());
 }

@@ -1,3 +1,4 @@
+#pragma once
 // vulkan_rt.h — minimal, dedicated Vulkan compute runtime for the 1bit
 // engine's Vulkan backend. Adapted from the proven boilerplate in
 // npu-sandbox/vulkan-gevm/phase2.cpp (already verified working on this

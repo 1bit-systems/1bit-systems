@@ -9,7 +9,7 @@
 // For GPU acceleration, the mamba2_kernels.hip kernels can be plugged in
 // when running on AMD Strix Halo (gfx1151).
 
-#include "../include/backend.h"
+#include "backend.h"
 #include "zamba2_engine.h"
 #include "gguf_zamba2_loader.cpp"  // included for simplicity; split in production
 

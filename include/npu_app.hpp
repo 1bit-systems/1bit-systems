@@ -1,3 +1,4 @@
+#pragma once
 /*!
  *  Copyright (c) 2025 (adapted from FastFlowLM MIT source)
  * \file npu_app.hpp

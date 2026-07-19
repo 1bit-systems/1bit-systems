@@ -17,6 +17,9 @@
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#ifndef HIP_CHECK
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+#endif
 
 // ── HIP state for Zamba2 ──
 struct Zamba2HIPState {
@@ -220,6 +223,7 @@ void zamba2_hip_forward(Zamba2HIPState* s, int token_id, float* logits_out, int 
         int blocks = (d_model + threads - 1) / threads;
         hipLaunchKernelGGL(HIP_KERNEL_NAME(rms_norm_kernel), dim3(blocks), dim3(threads), 0, st,
             s->d_hidden, s->d_tmp, lw.input_norm_w, d_model, cfg.rms_norm_eps);
+        HIP_CHECK(hipGetLastError());
         // Copy back: d_hidden = d_tmp (normalized)
         hipMemcpyDtoDAsync(s->d_hidden, s->d_tmp, d_model * sizeof(float), st);
 
@@ -256,6 +260,7 @@ void zamba2_hip_forward(Zamba2HIPState* s, int token_id, float* logits_out, int 
     int blocks = (d_model + threads - 1) / threads;
     hipLaunchKernelGGL(HIP_KERNEL_NAME(rms_norm_kernel), dim3(blocks), dim3(threads), 0, st,
         s->d_hidden, s->d_tmp, s->d_final_norm, d_model, cfg.rms_norm_eps);
+    HIP_CHECK(hipGetLastError());
     hipMemcpyDtoDAsync(s->d_hidden, s->d_tmp, d_model * sizeof(float), st);
 
     // ── LM head: logits = embed @ hidden ──

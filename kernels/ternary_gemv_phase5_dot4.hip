@@ -12,6 +12,7 @@
 #define ROWS_PER_WARP  2
 #define VALS_PER_U32 16
 #define LDS_TILE_I8 2048
+#include "hip_check.h"
 
 // Pack 4 int8 values into uint32 (little-endian)
 static __device__ __forceinline__ uint32_t pack4(int8_t a, int8_t b, int8_t c, int8_t d) {
@@ -145,4 +146,5 @@ extern "C" void ternary_gemv_phase5_dot4_launch(
                        static_cast<const float*>(scales),
                        static_cast<float*>(y),
                        M, K);
+    HIP_CHECK(hipGetLastError());
 }

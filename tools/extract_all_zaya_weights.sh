@@ -17,12 +17,12 @@ echo "Extracting ALL Zaya weights to $WEIGHTS_DIR/ (1283 tensors)..."
 echo "Using unsloth-env python (torch + safetensors)"
 
 # Run the Python extraction
-unsloth-env/bin/python3 -c "
+HOME="$HOME" unsloth-env/bin/python3 << 'PYEOF'
 import torch, os, sys, json, time
 from safetensors import safe_open
 import numpy as np
 
-MODEL_DIR = os.environ.get('ZAYA_MODEL_DIR', '${HOME}/models/ZAYA1-8B')
+MODEL_DIR = os.environ.get('ZAYA_MODEL_DIR', os.path.join(os.environ['HOME'], 'models/ZAYA1-8B'))
 WEIGHTS_DIR = os.environ.get('ZAYA_WEIGHTS_DIR', '/tmp/zaya_weights')
 os.makedirs(WEIGHTS_DIR, exist_ok=True)
 
@@ -49,4 +49,4 @@ total_size = sum(os.path.getsize(os.path.join(WEIGHTS_DIR, f))
                  for f in os.listdir(WEIGHTS_DIR) if f.endswith('.bin'))
 dt = time.time() - t0
 print(f'\\nDone! {total} tensors dumped ({total_size/1e9:.2f} GB in {dt:.0f}s)')
-" 2>&1
+PYEOF

@@ -31,6 +31,9 @@
 
 #include "rocm_cpp/ck_gemm.h"
 #include "rocm_cpp/kv_rotorquant.h"
+#ifndef HIP_CHECK
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+#endif
 
 namespace {
 
@@ -402,6 +405,7 @@ extern "C" int rcpp_pq3_fd_decode_launch(
                        partials,
                        num_q_heads, num_kv_heads, head_dim,
                        seq_len, num_kv_tiles, layer_idx, scale);
+    HIP_CHECK(hipGetLastError());
 
     dim3 grid2(num_q_heads, 1, 1);
     hipLaunchKernelGGL(kv_cache_attn_reduce_pq3_kernel,
@@ -409,6 +413,7 @@ extern "C" int rcpp_pq3_fd_decode_launch(
                        partials,
                        static_cast<__half*>(out_dev),
                        num_q_heads, head_dim, num_kv_tiles);
+    HIP_CHECK(hipGetLastError());
 
     return 0;
 }

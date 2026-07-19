@@ -1,3 +1,4 @@
+#pragma once
 // include/rocm_cpp/oscar.h — OSCAR rotation-aware INT2 KV cache compression
 //
 // Per the OSCAR paper (arXiv:2605.17757), replaces the fixed Hadamard rotation

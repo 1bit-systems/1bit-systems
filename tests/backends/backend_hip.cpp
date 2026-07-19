@@ -20,7 +20,7 @@ static float fp16_to_fp32(uint16_t h) {
     else{float r;uint32_t f=(s<<31)|((e+127-15)<<23)|(m<<13);memcpy(&r,&f,4);return r;}
 }
 
-#define HIP_OK(e) do { auto _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %d\n", _s); abort(); } } while (0)
+#include "hip_check.h"
 constexpr float RMD_EPS = 1e-5f;
 constexpr int BLK = 256;
 

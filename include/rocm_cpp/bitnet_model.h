@@ -1,3 +1,4 @@
+#pragma once
 #ifndef ROCM_CPP_BITNET_MODEL_H
 #define ROCM_CPP_BITNET_MODEL_H
 

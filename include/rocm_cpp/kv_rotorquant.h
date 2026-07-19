@@ -1,3 +1,4 @@
+#pragma once
 // rotorquant PlanarQuant-3 (PQ3) KV-cache compression — public C API.
 //
 // Scheme:

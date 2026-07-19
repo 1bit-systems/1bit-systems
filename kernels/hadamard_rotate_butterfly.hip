@@ -29,6 +29,7 @@
 #include <hip/hip_fp16.h>
 #include <cstdint>
 #include <cmath>
+#include "hip_check.h"
 
 namespace {
 
@@ -132,6 +133,7 @@ extern "C" void rcpp_hadamard_rotate_fp16_butterfly_launch(
                        static_cast<const __half*>(x_in),
                        static_cast<__half*>(y_out),
                        K);
+    HIP_CHECK(hipGetLastError());
 }
 
 // Status-returning wrapper — validates preconditions before launching.

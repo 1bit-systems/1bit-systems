@@ -1,3 +1,4 @@
+#pragma once
 #ifndef BLOCK_SCALED_TERNARY_H
 #define BLOCK_SCALED_TERNARY_H
 

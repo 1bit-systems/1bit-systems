@@ -8,7 +8,7 @@
 // Each backend implements: init, forward, lm_head, generate, benchmark, destroy
 
 #pragma once
-#include "../include/common.h"
+#include "common.h"
 #include <string>
 #include <vector>
 

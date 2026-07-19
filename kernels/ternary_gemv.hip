@@ -26,6 +26,7 @@
 
 // LDS tile for activation vector — 512 floats shared across all warps
 #define LDS_TILE 512
+#include "hip_check.h"
 
 __attribute__((amdgpu_flat_work_group_size(BLOCK_SIZE, BLOCK_SIZE)))
 __global__ void ternary_gemv_kernel(
@@ -55,7 +56,8 @@ __global__ void ternary_gemv_kernel(
     for (int k_base = 0; k_base < K; k_base += LDS_TILE) {
         // Cooperative load of activation tile into LDS
         // 128 threads load 512 floats = 4 per thread
-        __syncthreads();
+        // Barrier needed for iterations > 0 to fence prior tile's warp_results
+        if (k_base > 0) __syncthreads();
         #pragma unroll
         for (int i = 0; i < LDS_TILE / BLOCK_SIZE; i++) {
             int k_idx = k_base + tid + i * BLOCK_SIZE;
@@ -153,7 +155,7 @@ __global__ void ternary_gemv_batched_kernel(
     float acc = 0.0f;
 
     for (int k_base = 0; k_base < K; k_base += LDS_TILE) {
-        __syncthreads();
+        if (k_base > 0) __syncthreads();
         #pragma unroll
         for (int i = 0; i < LDS_TILE / BLOCK_SIZE; i++) {
             int k_idx = k_base + tid + i * BLOCK_SIZE;
@@ -216,6 +218,7 @@ void ternary_gemv(
     dim3 block(BLOCK_SIZE);
     hipLaunchKernelGGL(ternary_gemv_kernel, grid, block, 0, stream,
         packed, x, scales, y, M, K);
+    HIP_CHECK(hipGetLastError());
 }
 
 void ternary_gemv_batched(
@@ -226,6 +229,7 @@ void ternary_gemv_batched(
     dim3 block(BLOCK_SIZE);
     hipLaunchKernelGGL(ternary_gemv_batched_kernel, grid, block, 0, stream,
         packed, x, scales, y, M, K, B);
+    HIP_CHECK(hipGetLastError());
 }
 
 } // extern "C"

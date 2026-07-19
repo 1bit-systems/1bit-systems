@@ -103,7 +103,7 @@ __device__ inline void apply_rope_half(__half* q, __half* k, int pos, int stride
 //   next_conv_state [2 * QKV_DIM] — conv state for next decode
 //   next_prev_hs [HIDDEN] — hidden state for next decode's delayed stream
 
-__global__ void cca_attn_kernel(
+__launch_bounds__(128) __global__ void cca_attn_kernel(
     // Inputs
     const __half* __restrict__ hidden_states,  // [HIDDEN]
     const __half* __restrict__ prev_hs,         // [HIDDEN]

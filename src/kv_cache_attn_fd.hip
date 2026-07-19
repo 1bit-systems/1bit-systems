@@ -35,6 +35,9 @@
 #include <mutex>
 
 #include "rocm_cpp/ck_gemm.h"
+#ifndef HIP_CHECK
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+#endif
 
 namespace {
 
@@ -294,6 +297,7 @@ rcpp_kv_cache_attn_decode_fd(const void* Q_dev, const void* K_dev, const void* V
                        partials,
                        num_q_heads, num_kv_heads, head_dim,
                        seq_len, num_kv_tiles, scale);
+    HIP_CHECK(hipGetLastError());
 
     // Pass 2 — reduce tiles into final fp16 out.
     dim3 grid2(num_q_heads, 1, 1);
@@ -302,6 +306,7 @@ rcpp_kv_cache_attn_decode_fd(const void* Q_dev, const void* K_dev, const void* V
                        partials,
                        static_cast<__half*>(out_dev),
                        num_q_heads, head_dim, num_kv_tiles);
+    HIP_CHECK(hipGetLastError());
 
     return RCPP_OK;
 }

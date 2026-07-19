@@ -146,17 +146,19 @@ void AgentWatchdog::run() {
 
         // ── Thermal: GPU temp > 85°C → more load on NPU ──
         if (gpu_temp > 85.0 && gpu_temp > 0) {
-            agent->npu_load_share.store(0.9, std::memory_order_relaxed);
-            agent->adaptive_cascade_threshold.store(-1.0, std::memory_order_relaxed);
-            agent->cascade_threshold_override.store(-1.0, std::memory_order_relaxed);
+            // release: ensures HTTP handler threads observe these writes (fixes #364)
+            agent->npu_load_share.store(0.9, std::memory_order_release);
+            agent->adaptive_cascade_threshold.store(-1.0, std::memory_order_release);
+            agent->cascade_threshold_override.store(-1.0, std::memory_order_release);
             if (cycle % 2 == 0)
                 printf("  🔥 GPU at %.1f°C — shifted load to NPU (90%%)\n", gpu_temp);
         }
         // ── GPU temp normal → restore balance ──
         else if (gpu_temp < 70.0 && gpu_temp > 0) {
-            agent->npu_load_share.store(0.6, std::memory_order_relaxed);
-            agent->adaptive_cascade_threshold.store(-2.5, std::memory_order_relaxed);
-            agent->cascade_threshold_override.store(-999.0, std::memory_order_relaxed); // reset
+            // release: ensures HTTP handler threads observe these writes (fixes #364)
+            agent->npu_load_share.store(0.6, std::memory_order_release);
+            agent->adaptive_cascade_threshold.store(-2.5, std::memory_order_release);
+            agent->cascade_threshold_override.store(-999.0, std::memory_order_release); // reset
             if (cycle % 3 == 0)
                 printf("  ✅ GPU temp normal (%.1f°C) — load balance restored\n", gpu_temp);
         }
@@ -165,33 +167,33 @@ void AgentWatchdog::run() {
         if (npu_fail_rate > 0.10 && npu_infs > 20) {
             if (!agent->npu_disabled.load()) {
                 printf("  ⛔ NPU failure rate %.1f%% — DISABLING NPU\n", npu_fail_rate * 100.0);
-                agent->npu_disabled.store(true, std::memory_order_relaxed);
+                agent->npu_disabled.store(true, std::memory_order_release);
             }
         }
         if (gpu_fail_rate > 0.10 && gpu_infs > 20) {
             if (!agent->gpu_disabled.load()) {
                 printf("  ⛔ GPU failure rate %.1f%% — DISABLING GPU\n", gpu_fail_rate * 100.0);
-                agent->gpu_disabled.store(true, std::memory_order_relaxed);
+                agent->gpu_disabled.store(true, std::memory_order_release);
             }
         }
 
         // ── Re-enable if recovered ──
         if (agent->npu_disabled.load() && npu_infs > 50 && npu_fail_rate < 0.02) {
             printf("  ✅ NPU recovered — re-enabling\n");
-            agent->npu_disabled.store(false, std::memory_order_relaxed);
+            agent->npu_disabled.store(false, std::memory_order_release);
         }
         if (agent->gpu_disabled.load() && gpu_infs > 50 && gpu_fail_rate < 0.02) {
             printf("  ✅ GPU recovered — re-enabling\n");
-            agent->gpu_disabled.store(false, std::memory_order_relaxed);
+            agent->gpu_disabled.store(false, std::memory_order_release);
         }
 
         // ── Throughput-based load balancing ──
         if (npu_tps > 0 && gpu_tps > 0) {
             double ratio = gpu_tps / npu_tps;
             if (ratio > 1.5) {
-                agent->npu_load_share.store(0.3, std::memory_order_relaxed);
+                agent->npu_load_share.store(0.3, std::memory_order_release);
             } else if (ratio < 0.67) {
-                agent->npu_load_share.store(0.8, std::memory_order_relaxed);
+                agent->npu_load_share.store(0.8, std::memory_order_release);
             }
         }
 
@@ -200,30 +202,30 @@ void AgentWatchdog::run() {
             double baseline = npu_baseline_p50_.load();
             if (baseline > 0 && npu_p95 > baseline * 3.0) {
                 printf("  ⚠️  NPU P95 (%.1fms) > 3× baseline (%.1fms)\n", npu_p95, baseline);
-                agent->npu_load_share.store(0.2, std::memory_order_relaxed);
+                agent->npu_load_share.store(0.2, std::memory_order_release);
             }
         }
         if (gpu_p95 > 0 && baseline_established_.load()) {
             double baseline = gpu_baseline_p50_.load();
             if (baseline > 0 && gpu_p95 > baseline * 3.0) {
                 printf("  ⚠️  GPU P95 (%.1fms) > 3× baseline (%.1fms)\n", gpu_p95, baseline);
-                agent->npu_load_share.store(0.9, std::memory_order_relaxed);
+                agent->npu_load_share.store(0.9, std::memory_order_release);
             }
         }
 
         // ── Speculative decode: adjust n_draft by acceptance rate ──
-        double accept_rate = agent->acceptance_rate.load(std::memory_order_relaxed);
+        double accept_rate = agent->acceptance_rate.load(std::memory_order_acquire);
         if (accept_rate > 0.9) {
             int nd = agent->dynamic_n_draft.load();
             if (nd < 8) {
-                agent->dynamic_n_draft.store(nd + 1, std::memory_order_relaxed);
+                agent->dynamic_n_draft.store(nd + 1, std::memory_order_release);
                 printf("  📈 Spec decode acceptance %.0f%% — n_draft increased to %d\n",
                        accept_rate * 100.0, nd + 1);
             }
         } else if (accept_rate < 0.6) {
             int nd = agent->dynamic_n_draft.load();
             if (nd > 2) {
-                agent->dynamic_n_draft.store(nd - 1, std::memory_order_relaxed);
+                agent->dynamic_n_draft.store(nd - 1, std::memory_order_release);
                 printf("  📉 Spec decode acceptance %.0f%% — n_draft decreased to %d\n",
                        accept_rate * 100.0, nd - 1);
             }

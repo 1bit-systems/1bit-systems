@@ -157,6 +157,7 @@ extern "C" void bonsai_tq2_1024_gemv_launch(
                        reinterpret_cast<const __half*>(act_fp16),
                        reinterpret_cast<__half*>(out_fp16),
                        N_out, K_in);
+    HIP_CHECK(hipGetLastError());
 }
 
 // ── Converter: old TQ2 row-major → new TQ2_1024 tile8-interleaved ────────────

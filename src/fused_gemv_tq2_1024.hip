@@ -16,6 +16,9 @@
 #include <hip/hip_fp16.h>
 #include <cstdint>
 #include <cstring>
+#ifndef HIP_CHECK
+#define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s)); abort(); } } while(0)
+#endif
 
 namespace {
 
@@ -274,6 +277,7 @@ extern "C" void fused_tq2_1024_qkv_launch(
         reinterpret_cast<__half*>(out_k),
         reinterpret_cast<__half*>(out_v),
         N_q, N_kv, K);
+    HIP_CHECK(hipGetLastError());
 }
 
 extern "C" void fused_tq2_1024_gu_launch(
@@ -292,4 +296,5 @@ extern "C" void fused_tq2_1024_gu_launch(
         reinterpret_cast<__half*>(out_gate),
         reinterpret_cast<__half*>(out_up),
         N_gs, K);
+    HIP_CHECK(hipGetLastError());
 }

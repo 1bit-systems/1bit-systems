@@ -1,3 +1,4 @@
+#pragma once
 // rocm-cpp C API — BitNet-style ternary GEMM on gfx1151
 //
 // Batched prefill: FP16 activations [M, K] × ternary weights [K, N] -> FP16 [M, N].

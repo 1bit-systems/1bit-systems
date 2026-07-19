@@ -40,15 +40,37 @@ struct VK {
     uint32_t qf = 0;
     char name[256] = {};
 
+    static const char* vk_result_str(VkResult r) {
+        switch (r) {
+            case VK_SUCCESS: return "SUCCESS";
+            case VK_ERROR_OUT_OF_HOST_MEMORY: return "OUT_OF_HOST_MEMORY";
+            case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "OUT_OF_DEVICE_MEMORY";
+            case VK_ERROR_INITIALIZATION_FAILED: return "INITIALIZATION_FAILED";
+            case VK_ERROR_DEVICE_LOST: return "DEVICE_LOST";
+            case VK_ERROR_LAYER_NOT_PRESENT: return "LAYER_NOT_PRESENT";
+            case VK_ERROR_EXTENSION_NOT_PRESENT: return "EXTENSION_NOT_PRESENT";
+            case VK_ERROR_FEATURE_NOT_PRESENT: return "FEATURE_NOT_PRESENT";
+            case VK_ERROR_INCOMPATIBLE_DRIVER: return "INCOMPATIBLE_DRIVER";
+            default: return "UNKNOWN";
+        }
+    }
+
     bool init() {
         VkApplicationInfo app = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
         app.pApplicationName = "ZayaVK"; app.apiVersion = VK_API_VERSION_1_2;
         VkInstanceCreateInfo ici = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
         ici.pApplicationInfo = &app;
-        if (vkCreateInstance(&ici, nullptr, &inst) != VK_SUCCESS) return false;
+        VkResult res = vkCreateInstance(&ici, nullptr, &inst);
+        if (res != VK_SUCCESS) {
+            fprintf(stderr, "[vk] vkCreateInstance failed: %s (%d)\n", vk_result_str(res), (int)res);
+            return false;
+        }
 
         uint32_t nd; vkEnumeratePhysicalDevices(inst, &nd, nullptr);
-        if (!nd) return false;
+        if (!nd) {
+            fprintf(stderr, "[vk] No Vulkan-capable physical devices found\n");
+            return false;
+        }
         std::vector<VkPhysicalDevice> pds(nd);
         vkEnumeratePhysicalDevices(inst, &nd, pds.data());
         phys = pds[0];
@@ -81,7 +103,8 @@ struct VK {
     }
 
     VkShaderModule load_shader(const char* spv_path) {
-        FILE* f = fopen(spv_path, "rb"); if (!f) return VK_NULL_HANDLE;
+        FILE* f = fopen(spv_path, "rb");
+        if (!f) { fprintf(stderr, "[vk] load_shader: cannot open %s\n", spv_path); return VK_NULL_HANDLE; }
         fseek(f, 0, SEEK_END); size_t sz = ftell(f); fseek(f, 0, SEEK_SET);
         std::vector<uint32_t> code(sz/4); fread(code.data(), 4, code.size(), f); fclose(f);
         VkShaderModuleCreateInfo sm = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
@@ -283,7 +306,7 @@ struct VKBackend : Backend {
 
         // Load shaders
         VkShaderModule mm_mod = vk.load_shader("kernels/vulkan/matmul_fp32.comp.spv");
-        if (!mm_mod) { fprintf(stderr,"Vulkan: No matmul shader\n"); return false; }
+        if (!mm_mod) { fprintf(stderr,"Vulkan: No matmul shader (kernels/vulkan/matmul_fp32.comp.spv)\n"); return false; }
         // Reuse matmul pipeline creation for the matmul shader
         vk.create_matmul_pipeline(mm_mod);
         vkDestroyShaderModule(vk.dev, mm_mod, nullptr);

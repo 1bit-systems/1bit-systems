@@ -91,7 +91,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 enable_testing()
 
-add_compile_definitions(NDEBUG)
+# NDEBUG only for Release — let Debug builds keep assert() guards
+add_compile_definitions($<$<CONFIG:Release>:NDEBUG>)
 
 set(ROCM_ROOT "${_RC_ROCM_DEFAULT}" CACHE PATH "ROCm install root")
 list(PREPEND CMAKE_PREFIX_PATH "${ROCM_ROOT}" "${ROCM_ROOT}/lib/cmake")
@@ -202,7 +203,20 @@ if(USE_VULKAN)
     endif()
 endif()
 
-set(CMAKE_HIP_ARCHITECTURES "gfx1151" CACHE STRING "GPU arch(es) to build")
+# Auto-detect GPU architecture via rocminfo, fall back to gfx1151
+if(NOT CMAKE_HIP_ARCHITECTURES)
+    execute_process(
+        COMMAND bash -c "rocminfo 2>/dev/null | grep -oP 'gfx[0-9a-z]+' | head -1"
+        OUTPUT_VARIABLE _DETECTED_ARCH
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    if(_DETECTED_ARCH)
+        set(CMAKE_HIP_ARCHITECTURES "${_DETECTED_ARCH}")
+    else()
+        set(CMAKE_HIP_ARCHITECTURES "gfx1151")
+    endif()
+endif()
+set(CMAKE_HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}" CACHE STRING "GPU arch(es) to build")
 
 # -- librocm_cpp : shared library exposing the C API ----------------------------
 set(RCPP_SOURCES
@@ -303,6 +317,8 @@ add_library(backend_manager STATIC
     src/backend_generic.cpp
     src/backend_flm.cpp
     src/simple_tokenizer.cpp
+    src/q4nx_reader.cpp
+    src/safetensors_reader.cpp
     src/model_discovery.cpp)
 target_include_directories(backend_manager PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -329,10 +345,11 @@ set_source_files_properties(${RCPP_HIP_SOURCES} PROPERTIES LANGUAGE HIP)
 target_include_directories(rocm_cpp PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
+target_include_directories(rocm_cpp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/kernels)
 target_include_directories(rocm_cpp SYSTEM PRIVATE "${ROCM_ROOT}/include")
 target_compile_options(rocm_cpp PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -ffast-math -munsafe-fp-atomics
-        -Wno-unused-result -Wno-unused-parameter -Wno-unused-variable>)
+        -Wno-unused-result>)
 target_link_libraries(rocm_cpp PRIVATE hip::host hip::device)
 set_target_properties(rocm_cpp PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
@@ -421,7 +438,7 @@ set_target_properties(zaya_gpu_decode PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_
 
 add_executable(test_lora_merge tests/test_lora_merge.cpp src/zaya_engine.cpp)
 set_source_files_properties(tests/test_lora_merge.cpp src/zaya_engine.cpp PROPERTIES LANGUAGE HIP)
-target_include_directories(test_lora_merge PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(test_lora_merge PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/kernels)
 target_compile_options(test_lora_merge PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(test_lora_merge PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(test_lora_merge PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
@@ -543,7 +560,7 @@ add_executable(bench_prefill_variants tools/bench_prefill_variants.cpp)
 set_source_files_properties(tools/bench_prefill_variants.cpp PROPERTIES LANGUAGE HIP)
 target_compile_options(bench_prefill_variants PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -ffast-math -munsafe-fp-atomics
-        -Wno-unused-result -Wno-unused-parameter -Wno-unused-variable>)
+        -Wno-unused-result>)
 target_link_libraries(bench_prefill_variants PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(bench_prefill_variants PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
@@ -567,9 +584,10 @@ set_source_files_properties(src/backend_flm.cpp PROPERTIES LANGUAGE CXX)
 target_include_directories(unified_server PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/kernels>
     $<INSTALL_INTERFACE:include>)
 target_compile_options(unified_server PRIVATE
-    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result -Wno-unused-parameter -Wno-unused-variable>
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>
     $<$<COMPILE_LANGUAGE:CXX>:-O3 -Wall -Wno-unused-result -std=c++23>)
 target_compile_definitions(unified_server PRIVATE ROCM_CPP_STATIC_HIP=1 ROCM_CPP_STATIC_NPU=1)
 target_link_libraries(unified_server PRIVATE
