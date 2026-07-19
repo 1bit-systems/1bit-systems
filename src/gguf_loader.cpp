@@ -80,10 +80,20 @@ int gguf_block_bytes(uint32_t dtype) {
 // Reference: llama.cpp ggml-quants.c block_q4_K / block_q6_K / block_q8_K
 
 // Reads a float16 value from a byte pointer
+// Was `(uint32_t)bits << 16` reinterpreted as f32 — correct for widening a
+// bfloat16 (whose bits ARE float32's truncated upper half), but every caller
+// here reads real IEEE754 half-precision float16 (the K-quant super-block
+// d/dmin scale fields per the GGUF/GGML spec), which has a different
+// exponent width/bias (5 bits, bias 15) than float32 (8 bits, bias 127) —
+// the bit-shift silently produced the wrong value for every K-quant block
+// in every model loaded through this file. See issue #473.
 static inline float read_f16(const uint8_t* p) {
-    uint16_t bits; memcpy(&bits, p, 2);
-    uint32_t u = (uint32_t)bits << 16;
-    float v; memcpy(&v, &u, 4); return v;
+    uint16_t h; memcpy(&h, p, 2);
+    uint32_t s = (h >> 15) & 1, e = (h >> 10) & 0x1f, m = h & 0x3ff;
+    float sign = s ? -1.0f : 1.0f;
+    if (e == 0) return sign * (float)m * 5.9604644775390625e-08f;  // subnormal: m * 2^-24
+    if (e == 31) return m ? NAN : sign * INFINITY;
+    return sign * (1.0f + (float)m / 1024.0f) * powf(2.0f, (float)((int)e - 15));
 }
 
 static bool dequant_q4_k(const uint8_t* bd, float* out, int count) {
