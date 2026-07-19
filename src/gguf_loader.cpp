@@ -65,8 +65,12 @@ int gguf_block_bytes(uint32_t dtype) {
         case GGUF_TYPE_Q8_0: return 34;
         case GGUF_TYPE_Q5_0: return 22;
         case GGUF_TYPE_Q5_1: return 24;
-        case GGUF_TYPE_Q2_K: return 72;
-        case GGUF_TYPE_Q3_K: return 104;
+        // Real block_q2_K is scales[16]+qs[64]+d(2)+dmin(2) = 84 bytes, and
+        // block_q3_K is hmask[32]+qs[64]+scales[12]+d(2) = 110 bytes — this
+        // table previously had both wrong (72/104), which would misalign
+        // every read for a K-quant format not even wired up yet at the time.
+        case GGUF_TYPE_Q2_K: return 84;
+        case GGUF_TYPE_Q3_K: return 110;
         case GGUF_TYPE_Q4_K: return 144;
         case GGUF_TYPE_Q5_K: return 176;
         case GGUF_TYPE_Q6_K: return 210;
@@ -96,6 +100,15 @@ static inline float read_f16(const uint8_t* p) {
     return sign * (1.0f + (float)m / 1024.0f) * powf(2.0f, (float)((int)e - 15));
 }
 
+// Shared 6-bit scale/min unpacking scheme used by both Q4_K and Q5_K: 8
+// (scale,min) pairs packed into 12 bytes (12 bytes * 8 bits / 8 pairs / 2
+// values = 6 bits each).
+static inline void k_get_scale_min(const uint8_t scales[12], int j, uint8_t& sc, uint8_t& m) {
+    if (j < 4) { sc = scales[j] & 63; m = scales[j + 4] & 63; }
+    else { sc = (uint8_t)((scales[j + 4] & 0xF) | ((scales[j - 4] >> 6) << 4));
+           m = (uint8_t)((scales[j + 4] >> 4) | ((scales[j] >> 6) << 4)); }
+}
+
 static bool dequant_q4_k(const uint8_t* bd, float* out, int count) {
     // Q4_K: 256-elem superblock, 144 bytes
     // d(2) + dmin(2) + scales(12) + qs(128)
@@ -108,19 +121,13 @@ static bool dequant_q4_k(const uint8_t* bd, float* out, int count) {
         uint8_t scales[12]; memcpy(scales, p, 12); p += 12;
         uint8_t qs[128]; memcpy(qs, p, 128); p += 128;
 
-        auto get_scale_min = [&](int j, uint8_t& sc, uint8_t& m) {
-            if (j < 4) { sc = scales[j] & 63; m = scales[j + 4] & 63; }
-            else { sc = (uint8_t)((scales[j + 4] & 0xF) | ((scales[j - 4] >> 6) << 4));
-                   m = (uint8_t)((scales[j + 4] >> 4) | ((scales[j] >> 6) << 4)); }
-        };
-
         int base = b * BS;
         int is = 0; const uint8_t* q = qs;
         for (int off = 0; off < BS && base + off < count; off += 64) {
             uint8_t sc, m;
-            get_scale_min(is, sc, m);
+            k_get_scale_min(scales, is, sc, m);
             float d1 = d * sc, m1 = dmin * m;
-            get_scale_min(is + 1, sc, m);
+            k_get_scale_min(scales, is + 1, sc, m);
             float d2 = d * sc, m2 = dmin * m;
             for (int l = 0; l < 32 && base + off + l < count; l++)
                 out[base + off + l] = d1 * (q[l] & 0xF) - m1;
@@ -170,6 +177,127 @@ static bool dequant_q8_k(const uint8_t* bd, float* out, int count) {
         int base = b * BS;
         for (int l = 0; l < BS && base + l < count; l++)
             out[base + l] = d * qs[l];
+    }
+    return true;
+}
+
+static bool dequant_q2_k(const uint8_t* bd, float* out, int count) {
+    // Q2_K: 256-elem superblock, 84 bytes
+    // scales(16) + qs(64) + d(2) + dmin(2)
+    // Each byte of `scales` packs one 16-element sub-block's (scale, min):
+    // low 4 bits = scale, high 4 bits = min. qs packs 2-bit quants, 4 per byte.
+    const int BS = 256;
+    int nb = (count + BS - 1) / BS;
+    const uint8_t* p = bd;
+    for (int b = 0; b < nb; b++) {
+        uint8_t scales[16]; memcpy(scales, p, 16); p += 16;
+        uint8_t qs[64]; memcpy(qs, p, 64); p += 64;
+        float d = read_f16(p); p += 2;
+        float dmin = read_f16(p); p += 2;
+
+        int base = b * BS;
+        int is = 0; const uint8_t* q = qs;
+        for (int n = 0; n < BS && base + n < count; n += 128) {
+            int shift = 0;
+            for (int j = 0; j < 4; j++) {
+                uint8_t sc = scales[is++];
+                float dl = d * (sc & 0xF), ml = dmin * (sc >> 4);
+                for (int l = 0; l < 16 && base + n + j * 32 + l < count; l++)
+                    out[base + n + j * 32 + l] = dl * ((q[l] >> shift) & 3) - ml;
+                sc = scales[is++];
+                dl = d * (sc & 0xF); ml = dmin * (sc >> 4);
+                for (int l = 0; l < 16 && base + n + j * 32 + 16 + l < count; l++)
+                    out[base + n + j * 32 + 16 + l] = dl * ((q[l + 16] >> shift) & 3) - ml;
+                shift += 2;
+            }
+            q += 32;
+        }
+    }
+    return true;
+}
+
+static bool dequant_q3_k(const uint8_t* bd, float* out, int count) {
+    // Q3_K: 256-elem superblock, 110 bytes
+    // hmask(32) + qs(64) + scales(12) + d(2)
+    // 3-bit quants: 2 low bits from `qs`, 1 high bit from `hmask`. `scales`
+    // packs 16 signed 6-bit sub-block scales (bias 32) across 12 bytes using
+    // the same kmask1/kmask2 bit-repacking as llama.cpp's ggml-quants.c —
+    // this is inherently little-endian (uint32_t reinterpretation of raw
+    // bytes), consistent with the rest of this file's binary parsing.
+    const int BS = 256;
+    int nb = (count + BS - 1) / BS;
+    const uint8_t* p = bd;
+    for (int b = 0; b < nb; b++) {
+        uint8_t hmask[32]; memcpy(hmask, p, 32); p += 32;
+        uint8_t qs[64]; memcpy(qs, p, 64); p += 64;
+        uint8_t raw_scales[12]; memcpy(raw_scales, p, 12); p += 12;
+        float d_all = read_f16(p); p += 2;
+
+        uint32_t aux[4] = {0, 0, 0, 0};
+        memcpy(aux, raw_scales, 12);
+        const uint32_t kmask1 = 0x03030303, kmask2 = 0x0f0f0f0f;
+        uint32_t tmp = aux[2];
+        aux[2] = ((aux[0] >> 4) & kmask2) | (((tmp >> 4) & kmask1) << 4);
+        aux[3] = ((aux[1] >> 4) & kmask2) | (((tmp >> 6) & kmask1) << 4);
+        aux[0] = (aux[0] & kmask2) | (((tmp >> 0) & kmask1) << 4);
+        aux[1] = (aux[1] & kmask2) | (((tmp >> 2) & kmask1) << 4);
+        int8_t scales[16]; memcpy(scales, aux, 16);
+        for (int j = 0; j < 16; j++) scales[j] -= 32;
+
+        int base = b * BS;
+        int is = 0; const uint8_t* q = qs;
+        uint8_t m = 1;
+        for (int n = 0; n < BS && base + n < count; n += 128) {
+            int shift = 0;
+            for (int j = 0; j < 4; j++) {
+                float dl = d_all * scales[is++];
+                for (int l = 0; l < 16 && base + n + j * 32 + l < count; l++)
+                    out[base + n + j * 32 + l] =
+                        dl * (((int8_t)((q[l] >> shift) & 3)) - ((hmask[l] & m) ? 0 : 4));
+                dl = d_all * scales[is++];
+                for (int l = 0; l < 16 && base + n + j * 32 + 16 + l < count; l++)
+                    out[base + n + j * 32 + 16 + l] =
+                        dl * (((int8_t)((q[l + 16] >> shift) & 3)) - ((hmask[l + 16] & m) ? 0 : 4));
+                shift += 2;
+                m = (uint8_t)(m << 1);
+            }
+            q += 32;
+        }
+    }
+    return true;
+}
+
+static bool dequant_q5_k(const uint8_t* bd, float* out, int count) {
+    // Q5_K: 256-elem superblock, 176 bytes
+    // d(2) + dmin(2) + scales(12) + qh(32) + qs(128)
+    // Same 6-bit scale/min packing as Q4_K; qs holds the low 4 bits, qh the
+    // 5th (high) bit, one per element.
+    const int BS = 256;
+    int nb = (count + BS - 1) / BS;
+    const uint8_t* p = bd;
+    for (int b = 0; b < nb; b++) {
+        float d = read_f16(p); p += 2;
+        float dmin = read_f16(p); p += 2;
+        uint8_t scales[12]; memcpy(scales, p, 12); p += 12;
+        uint8_t qh[32]; memcpy(qh, p, 32); p += 32;
+        uint8_t ql[128]; memcpy(ql, p, 128); p += 128;
+
+        int base = b * BS;
+        int is = 0; const uint8_t* q = ql;
+        uint8_t u1 = 1, u2 = 2;
+        for (int n = 0; n < BS && base + n < count; n += 64) {
+            uint8_t sc, m;
+            k_get_scale_min(scales, is, sc, m);
+            float d1 = d * sc, m1 = dmin * m;
+            k_get_scale_min(scales, is + 1, sc, m);
+            float d2 = d * sc, m2 = dmin * m;
+            for (int l = 0; l < 32 && base + n + l < count; l++)
+                out[base + n + l] = d1 * ((q[l] & 0xF) + (qh[l] & u1 ? 16 : 0)) - m1;
+            for (int l = 0; l < 32 && base + n + 32 + l < count; l++)
+                out[base + n + 32 + l] = d2 * ((q[l] >> 4) + (qh[l] & u2 ? 16 : 0)) - m2;
+            q += 32; is += 2;
+            u1 = (uint8_t)(u1 << 2); u2 = (uint8_t)(u2 << 2);
+        }
     }
     return true;
 }
@@ -383,11 +511,23 @@ struct GgufReader {
                     out[start + i] = (nib - 8) * scale;
                 }
             } else if (ti.dtype == GGUF_TYPE_Q4_K) {
-                return dequant_q4_k(bd.data(), out.data() + start, (int)count);
+                // NOTE: this dispatch runs once per 256-element super-block
+                // (the enclosing for-loop already steps block-by-block).
+                // `return`ing here used to exit after the tensor's FIRST
+                // block only, leaving every subsequent block un-dequantized
+                // (zero-initialized) for any tensor bigger than 256
+                // elements — i.e. essentially every real weight matrix.
+                dequant_q4_k(bd.data(), out.data() + start, (int)count);
             } else if (ti.dtype == GGUF_TYPE_Q6_K) {
-                return dequant_q6_k(bd.data(), out.data() + start, (int)count);
+                dequant_q6_k(bd.data(), out.data() + start, (int)count);
             } else if (ti.dtype == GGUF_TYPE_Q8_K) {
-                return dequant_q8_k(bd.data(), out.data() + start, (int)count);
+                dequant_q8_k(bd.data(), out.data() + start, (int)count);
+            } else if (ti.dtype == GGUF_TYPE_Q2_K) {
+                dequant_q2_k(bd.data(), out.data() + start, (int)count);
+            } else if (ti.dtype == GGUF_TYPE_Q3_K) {
+                dequant_q3_k(bd.data(), out.data() + start, (int)count);
+            } else if (ti.dtype == GGUF_TYPE_Q5_K) {
+                dequant_q5_k(bd.data(), out.data() + start, (int)count);
             } else {
                 // Unsupported quantization (Q2_K, Q3_K, Q5_K, Q1_0, etc.)
                 fprintf(stderr, "  [gguf] unsupported quant type %d for tensor, aborting load\n", ti.dtype);
