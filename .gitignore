@@ -58,8 +58,13 @@ site/docs/.build/
 
 # Compiled tool binaries (tracking issue #438)
 /tools/dspark_full
+/tools/dspark_gpu_bench
 /tools/oscar_calib
 /tools/trg_save
+
+# Compiled test binary (RUNTIME_OUTPUT_DIRECTORY intentionally points into the
+# source tree so it's runnable from its natural location — see CMakeLists.txt)
+/engine/fusion/zero_copy/test_pipeline_real
 
 # Compiled engine/fusion binaries (issue #438)
 engine/fusion/debug_55t
