@@ -13,7 +13,7 @@
 # Environment (optional):
 #   GIT_AUTHOR_NAME / GIT_COMMITTER_NAME — identifies the agent/user
 
-set -e
+set -euo pipefail
 
 AWARENESS_DIR="${HOME}/.1bit/agent"
 AWARENESS_FILE="${AWARENESS_DIR}/awareness.json"

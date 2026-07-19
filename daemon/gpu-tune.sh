@@ -2,7 +2,7 @@
 # GPU performance tuning for Radeon 8060S (gfx1151) on Strix Halo
 # Applied at boot via gpu-tune.service
 
-set -e
+set -euo pipefail
 
 GPU=/sys/class/drm/card1/device
 

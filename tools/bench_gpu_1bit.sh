@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LLAMACPP_BIN="${LLAMACPP_BIN:-/home/bcloud/Bonsai-demo/bin/rocm}"
-MODEL="${GPU_1BIT_MODEL:-/home/bcloud/models/Ternary-Bonsai-1.7B-Q2_0.gguf}"
+LLAMACPP_BIN="${LLAMACPP_BIN:-$HOME/Bonsai-demo/bin/rocm}"
+MODEL="${GPU_1BIT_MODEL:-$HOME/models/Ternary-Bonsai-1.7B-Q2_0.gguf}"
 PROMPT="${GPU_1BIT_PROMPT:-The capital of France is}"
 N="${GPU_1BIT_N:-128}"
 

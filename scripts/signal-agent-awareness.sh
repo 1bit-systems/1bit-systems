@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # signal-agent-awareness.sh — Signal all running agents about a codebase change
 #
 # Use this in CI pipelines, post-push hooks, or any external process
@@ -12,7 +12,7 @@
 #   1. The shared awareness.json (for session-start awareness)
 #   2. The trigger file (for real-time awareness in running sessions)
 
-set -e
+set -euo pipefail
 
 MESSAGE="${1:-Codebase was updated}"
 RECORD_SCRIPT="${HOME}/scripts/record-agent-change.sh"

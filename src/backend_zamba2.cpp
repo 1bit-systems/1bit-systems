@@ -33,8 +33,10 @@ struct Zamba2Tokenizer {
     std::unordered_map<std::string, int> token_to_id;
 
     bool load_from_gguf(const std::string& gguf_path) {
-        // TODO: Read tokenizer.ggml.* from GGUF file
-        // For now, assume the model uses standard Mistral tokenizer
+        // TODO(#gguf-tokenizer): Read tokenizer.ggml.* KV pairs from the GGUF
+        // metadata header (see gguf_loader.cpp for KV-pair parsing).  The
+        // tokenizer model type, vocab, merges, and special-token IDs are all
+        // stored there.  Until this is wired, we assume a Mistral tokenizer.
         fprintf(stderr, "[zamba2] Tokenizer: using Mistral v0.1 tokenizer (vocab=32000)\n");
         return true;
     }

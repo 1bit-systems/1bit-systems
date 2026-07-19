@@ -96,10 +96,28 @@ public:
 
         fprintf(stderr, "  NPU: launching FLM %s...\n", model_tag_.c_str());
 
-        int to_child[2], from_child[2], err_child[2];
-        if (pipe(to_child) || pipe(from_child) || pipe(err_child)) return false;
+        int to_child[2] = {-1,-1}, from_child[2] = {-1,-1}, err_child[2] = {-1,-1};
+        if (pipe(to_child)) { perror("NPU: pipe"); return false; }
+        if (pipe(from_child)) {
+            perror("NPU: pipe");
+            close(to_child[0]); close(to_child[1]);
+            return false;
+        }
+        if (pipe(err_child)) {
+            perror("NPU: pipe");
+            close(to_child[0]); close(to_child[1]);
+            close(from_child[0]); close(from_child[1]);
+            return false;
+        }
 
         pid_ = fork();
+        if (pid_ < 0) {
+            perror("NPU: fork");
+            close(to_child[0]); close(to_child[1]);
+            close(from_child[0]); close(from_child[1]);
+            close(err_child[0]); close(err_child[1]);
+            return false;
+        }
         if (pid_ == 0) {
             dup2(to_child[0], STDIN_FILENO);
             dup2(from_child[1], STDOUT_FILENO);

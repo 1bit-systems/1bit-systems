@@ -227,11 +227,11 @@ std::vector<InferenceBackend*> detect_backends() {
     auto vk_backends = detect_backends_vulkan();
     for (auto* b : vk_backends) backends.push_back(b);
 
-    auto npu_backends = detect_backends_npu();
-    for (auto* b : npu_backends) backends.push_back(b);
-
     auto generic_backends = detect_backends_generic();
     for (auto* b : generic_backends) backends.push_back(b);
+
+    auto npu_backends = detect_backends_npu();
+    for (auto* b : npu_backends) backends.push_back(b);
 
     auto zinc_backends = detect_backends_zinc();
     for (auto* b : zinc_backends) backends.push_back(b);

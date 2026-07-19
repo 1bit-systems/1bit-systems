@@ -12,8 +12,8 @@ import sys, os, json, struct, math, time
 import numpy as np
 
 # ── Paths ──────────────────────────────────────────────────────────────
-WEIGHTS_DIR = "/home/bcloud/zaya_weights"
-OUTPUT = sys.argv[1] if len(sys.argv) > 1 else "/home/bcloud/models/zaya1-8b.q4nx"
+WEIGHTS_DIR = os.path.expanduser("~/zaya_weights")
+OUTPUT = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/models/zaya1-8b.q4nx")
 
 # ── Zaya Architecture ──────────────────────────────────────────────────
 HIDDEN = 2048

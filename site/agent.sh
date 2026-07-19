@@ -1,7 +1,7 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 # 1bit.systems — /1bit coding agent install + NPU model registration
 # curl -fsSL https://1bit.systems/agent.sh | sh
-set -e
+set -euo pipefail
 
 echo "╔══════════════════════════════════════════════════╗"
 echo "║       /1bit coding agent — install             ║"

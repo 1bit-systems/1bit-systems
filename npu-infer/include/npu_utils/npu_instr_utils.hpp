@@ -67,7 +67,12 @@ typedef enum: uint32_t{
 ///@return the tile
 ///@note This is a helper function to get the tile from the row and column
 inline npu_tiles get_tile(uint32_t row, uint32_t col){
-    assert(col < 8 && row < 6);
+    // Validation retained for release builds; clamp to valid range.
+    if (col >= 8 || row >= 6) {
+        fprintf(stderr, "WARNING: get_tile: invalid tile (%u,%u), clamping\n", row, col);
+        if (col >= 8) col = 7;
+        if (row >= 6) row = 5;
+    }
     return static_cast<npu_tiles>((row << 4) | col);
 }
 
@@ -184,7 +189,11 @@ class npu_sequence{
         /// @brief  write out the npu sequence to a file
         /// @param filename 
         void write_out_sequence(std::string filename){
-            assert(this->is_valid);
+            // Validation retained for release builds.
+            if (!this->is_valid) {
+                fprintf(stderr, "ERROR: write_out_sequence: sequence not valid\n");
+                return;
+            }
             std::ofstream file(filename, std::ios::binary);
             if (!file.is_open()){
                 throw std::runtime_error("Failed to open file: " + filename);

@@ -6,7 +6,7 @@
 #
 # Usage: ./scripts/jarvis-analytics-sweep.sh
 
-set -e
+set -euo pipefail
 
 ANALYTICS_DIR="${HOME}/.1bit/agent/skills/analytics"
 AWARENESS_FILE="${HOME}/.1bit/agent/awareness.json"

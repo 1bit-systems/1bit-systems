@@ -50,6 +50,9 @@ static float fp16_to_fp32(uint16_t h) {
 #define GGUF_TYPE_Q5_K 13
 #define GGUF_TYPE_Q6_K 14
 #define GGUF_TYPE_Q8_K 15
+#define GGUF_TYPE_I8   24
+#define GGUF_TYPE_I16  25
+#define GGUF_TYPE_I32  26
 
 struct GgufTensor { std::string name; std::vector<uint64_t> shape; uint32_t dtype; uint64_t file_offset; };
 
@@ -95,11 +98,22 @@ struct GgufReader {
         }
         auto block_info = [](uint32_t dtype) -> std::pair<int,int> {
             switch (dtype) {
-                case 0: return {1, 4}; case 1: return {1, 2}; case 2: return {32, 18};
-                case 3: return {32, 20}; case 6: return {32, 34}; case 7: return {32, 22};
-                case 8: return {32, 24}; case 9: return {256, 72}; case 10: return {256, 104};
-                case 11: return {256, 144}; case 12: return {256, 176}; case 13: return {256, 210};
-                case 14: return {256, 292}; case 15: return {256, 0};
+                case 0: return {1, 4};   // F32
+                case 1: return {1, 2};   // F16
+                case 2: return {32, 18}; // Q4_0
+                case 3: return {32, 20}; // Q4_1
+                case 6: return {32, 34}; // Q5_0 (GGUF type 6)
+                case 7: return {32, 22}; // Q8_0 (GGUF type 7)
+                case 8: return {32, 24}; // Q5_1 (GGUF type 8)
+                case 10: return {256, 72};  // Q2_K (GGUF_TYPE_Q2_K=10)
+                case 11: return {256, 104}; // Q3_K
+                case 12: return {256, 144}; // Q4_K
+                case 13: return {256, 176}; // Q5_K
+                case 14: return {256, 210}; // Q6_K
+                case 15: return {256, 292}; // Q8_K
+                case 24: return {1, 1};    // I8
+                case 25: return {1, 2};    // I16
+                case 26: return {1, 4};    // I32
                 default: return {32, 0};
             }
         };
@@ -143,10 +157,195 @@ struct GgufReader {
                 int8_t q[32]; fread(q, 1, 32, f);
                 for (int j = 0; j < 32 && b*32+j < (int)n; j++) scratch[b*32+j] = q[j] * s;
             }
+        } else if (t.dtype == GGUF_TYPE_Q4_1) {
+            int blocks = (n + 31) / 32;
+            for (int b = 0; b < blocks; b++) {
+                uint16_t dh; fread(&dh, 2, 1, f); float d = fp16_to_fp32(dh);
+                uint16_t mh; fread(&mh, 2, 1, f); float m = fp16_to_fp32(mh);
+                uint8_t q[16]; fread(q, 1, 16, f);
+                for (int j = 0; j < 32 && b*32+j < (int)n; j++) {
+                    uint8_t v = (j & 1) ? (q[j>>1] >> 4) : (q[j>>1] & 0xf);
+                    scratch[b*32+j] = d * v + m;
+                }
+            }
+        } else if (t.dtype == GGUF_TYPE_Q5_0) {
+            int blocks = (n + 31) / 32;
+            for (int b = 0; b < blocks; b++) {
+                uint16_t dh; fread(&dh, 2, 1, f); float d = fp16_to_fp32(dh);
+                uint8_t qh[4]; fread(qh, 1, 4, f);
+                uint8_t ql[16]; fread(ql, 1, 16, f);
+                uint32_t qh32; memcpy(&qh32, qh, 4);
+                for (int j = 0; j < 32 && b*32+j < (int)n; j++) {
+                    int vh = (qh32 >> j) & 1;
+                    int vl = (j & 1) ? (ql[j>>1] >> 4) : (ql[j>>1] & 0xf);
+                    scratch[b*32+j] = d * ((vl | (vh << 4)) - 16);
+                }
+            }
+        } else if (t.dtype == GGUF_TYPE_Q5_1) {
+            int blocks = (n + 31) / 32;
+            for (int b = 0; b < blocks; b++) {
+                uint16_t dh; fread(&dh, 2, 1, f); float d = fp16_to_fp32(dh);
+                uint16_t mh; fread(&mh, 2, 1, f); float m = fp16_to_fp32(mh);
+                uint8_t qh[4]; fread(qh, 1, 4, f);
+                uint8_t ql[16]; fread(ql, 1, 16, f);
+                uint32_t qh32; memcpy(&qh32, qh, 4);
+                for (int j = 0; j < 32 && b*32+j < (int)n; j++) {
+                    int vh = (qh32 >> j) & 1;
+                    int vl = (j & 1) ? (ql[j>>1] >> 4) : (ql[j>>1] & 0xf);
+                    scratch[b*32+j] = d * (vl | (vh << 4)) + m;
+                }
+            }
+        } else if (t.dtype == GGUF_TYPE_Q2_K) {
+            int BS = 256; int blocks = ((int)n + BS - 1) / BS;
+            for (int b = 0; b < blocks; b++) {
+                uint8_t scales[16]; fread(scales, 1, 16, f);
+                uint8_t qs[64]; fread(qs, 1, 64, f);
+                uint16_t dh; fread(&dh, 2, 1, f); float d = fp16_to_fp32(dh);
+                uint16_t dmh; fread(&dmh, 2, 1, f); float dmin = fp16_to_fp32(dmh);
+                int base = b * BS, pos = 0, is = 0;
+                const uint8_t* q = qs;
+                for (int nn = 0; nn < BS; nn += 128) {
+                    int shift = 0;
+                    for (int j = 0; j < 4; j++) {
+                        uint8_t sc = scales[is++];
+                        float dl = d * (sc & 0xF), ml = dmin * (sc >> 4);
+                        for (int l = 0; l < 16 && base+pos < (int)n; l++, pos++)
+                            scratch[base+pos] = dl * ((q[l] >> shift) & 3) - ml;
+                        sc = scales[is++];
+                        dl = d * (sc & 0xF); ml = dmin * (sc >> 4);
+                        for (int l = 0; l < 16 && base+pos < (int)n; l++, pos++)
+                            scratch[base+pos] = dl * ((q[l+16] >> shift) & 3) - ml;
+                        shift += 2;
+                    }
+                    q += 32;
+                }
+            }
+        } else if (t.dtype == GGUF_TYPE_Q3_K) {
+            int BS = 256; int blocks = ((int)n + BS - 1) / BS;
+            const uint32_t kmask1 = 0x03030303, kmask2 = 0x0f0f0f0f;
+            for (int b = 0; b < blocks; b++) {
+                uint8_t hmask[32]; fread(hmask, 1, 32, f);
+                uint8_t qs[64]; fread(qs, 1, 64, f);
+                uint8_t scales_raw[12]; fread(scales_raw, 1, 12, f);
+                uint16_t dhh; fread(&dhh, 2, 1, f);
+                float d_all = fp16_to_fp32(dhh);
+                uint32_t aux[4] = {0};
+                memcpy(aux, scales_raw, 12);
+                uint32_t tmp = aux[2];
+                aux[2] = ((aux[0] >> 4) & kmask2) | (((tmp >> 4) & kmask1) << 4);
+                aux[3] = ((aux[1] >> 4) & kmask2) | (((tmp >> 6) & kmask1) << 4);
+                aux[0] = (aux[0] & kmask2) | (((tmp >> 0) & kmask1) << 4);
+                aux[1] = (aux[1] & kmask2) | (((tmp >> 2) & kmask1) << 4);
+                int8_t scales_i8[16]; memcpy(scales_i8, aux, 16);
+                for (int j = 0; j < 16; j++) scales_i8[j] -= 32;
+                int base = b * BS, pos = 0, is = 0;
+                const uint8_t* q = qs; const uint8_t* hm = hmask; uint8_t m = 1;
+                for (int nn = 0; nn < BS; nn += 128) {
+                    int shift = 0;
+                    for (int j = 0; j < 4; j++) {
+                        float dl = d_all * scales_i8[is++];
+                        for (int l = 0; l < 16 && base+pos < (int)n; l++, pos++)
+                            scratch[base+pos] = dl * (((int8_t)((q[l]>>shift)&3)) - ((hm[l]&m) ? 0 : 4));
+                        dl = d_all * scales_i8[is++];
+                        for (int l = 0; l < 16 && base+pos < (int)n; l++, pos++)
+                            scratch[base+pos] = dl * (((int8_t)((q[l+16]>>shift)&3)) - ((hm[l+16]&m) ? 0 : 4));
+                        shift += 2; m <<= 1;
+                    }
+                    q += 32;
+                }
+            }
+        } else if (t.dtype == GGUF_TYPE_Q5_K) {
+            int BS = 256; int blocks = ((int)n + BS - 1) / BS;
+            for (int b = 0; b < blocks; b++) {
+                uint16_t dh; fread(&dh, 2, 1, f); float d = fp16_to_fp32(dh);
+                uint16_t dmh; fread(&dmh, 2, 1, f); float dmin = fp16_to_fp32(dmh);
+                uint8_t scales[12]; fread(scales, 1, 12, f);
+                uint8_t qh[32]; fread(qh, 1, 32, f);
+                uint8_t qs[128]; fread(qs, 1, 128, f);
+                int base = b * BS;
+                auto get_scale_min5 = [&](int j) -> std::pair<float,float> {
+                    uint8_t sc, m;
+                    if (j < 4) { sc = scales[j] & 63; m = scales[j+4] & 63; }
+                    else { sc = (scales[j+4] & 0xF) | ((scales[j-4] >> 6) << 4);
+                           m = (scales[j+4] >> 4) | ((scales[j] >> 6) << 4); }
+                    return {d * sc, dmin * m};
+                };
+                const uint8_t* ql = qs; int pos = 0, is = 0; uint8_t u1 = 1;
+                for (int off = 0; off < BS && base+off < (int)n; off += 64) {
+                    auto [d1, m1] = get_scale_min5(is);
+                    auto [d2, m2] = get_scale_min5(is+1); is += 2;
+                    for (int l = 0; l < 32 && base+pos < (int)n; l++, pos++)
+                        scratch[base+pos] = d1 * ((ql[l] & 0xF) + ((qh[l] & u1) ? 16 : 0)) - m1;
+                    for (int l = 0; l < 32 && base+pos < (int)n; l++, pos++)
+                        scratch[base+pos] = d2 * ((ql[l+32] & 0xF) + ((qh[l+32] & u1) ? 16 : 0)) - m2;
+                    u1 <<= 2;
+                }
+            }
+        } else if (t.dtype == GGUF_TYPE_Q4_K) {
+            int BS = 256; int blocks = ((int)n + BS - 1) / BS;
+            for (int b = 0; b < blocks; b++) {
+                uint16_t dh; fread(&dh, 2, 1, f); float d = fp16_to_fp32(dh);
+                uint16_t dmh; fread(&dmh, 2, 1, f); float dmin = fp16_to_fp32(dmh);
+                uint8_t scales[12]; fread(scales, 1, 12, f);
+                uint8_t qs[128]; fread(qs, 1, 128, f);
+                int base = b * BS;
+                auto get_scale_min = [&](int j) -> std::pair<float,float> {
+                    uint8_t sc, m;
+                    if (j < 4) { sc = scales[j] & 63; m = scales[j+4] & 63; }
+                    else { sc = (scales[j+4] & 0xF) | ((scales[j-4] >> 6) << 4);
+                           m = (scales[j+4] >> 4) | ((scales[j] >> 6) << 4); }
+                    return {d * sc, dmin * m};
+                };
+                const uint8_t* q = qs;
+                for (int off = 0, is = 0; off < BS && base+off < (int)n; off += 64, is += 2) {
+                    auto [d1, m1] = get_scale_min(is);
+                    auto [d2, m2] = get_scale_min(is+1);
+                    for (int l = 0; l < 32 && base+off+l < (int)n; l++)
+                        scratch[base+off+l] = d1 * (q[l] & 0xF) - m1;
+                    for (int l = 0; l < 32 && base+off+32+l < (int)n; l++)
+                        scratch[base+off+32+l] = d2 * (q[l] >> 4) - m2;
+                    q += 32;
+                }
+            }
+        } else if (t.dtype == GGUF_TYPE_Q6_K) {
+            int BS = 256; int blocks = ((int)n + BS - 1) / BS;
+            for (int b = 0; b < blocks; b++) {
+                uint8_t ql[128]; fread(ql, 1, 128, f);
+                uint8_t qh[64];  fread(qh, 1, 64, f);
+                int8_t scales[16]; fread(scales, 1, 16, f);
+                uint16_t dh; fread(&dh, 2, 1, f); float d = fp16_to_fp32(dh);
+                int base = b * BS;
+                for (int nn = 0; nn < BS && base+nn < (int)n; nn += 128) {
+                    for (int l = 0; l < 32 && base+nn+l < (int)n; l++) {
+                        int8_t sc = scales[l/2];
+                        int v = (ql[nn/2+l] & 0xF) | ((qh[nn/2+l/4] >> (4*(l&1))) & 0x30);
+                        scratch[base+nn+l] = d * sc * (v - 32);
+                    }
+                }
+            }
+        } else if (t.dtype == GGUF_TYPE_Q8_K) {
+            int BS = 256; int blocks = ((int)n + BS - 1) / BS;
+            for (int b = 0; b < blocks; b++) {
+                float d; fread(&d, 4, 1, f);
+                int8_t qs[256]; fread(qs, 1, 256, f);
+                fseek(f, 32, SEEK_CUR);  // skip bsums
+                int base = b * BS;
+                for (int l = 0; l < BS && base+l < (int)n; l++)
+                    scratch[base+l] = d * qs[l];
+            }
+        } else if (t.dtype == GGUF_TYPE_I8) {
+            std::vector<int8_t> buf(n); fread(buf.data(), 1, n, f);
+            for (size_t i = 0; i < n; i++) scratch[i] = (float)buf[i];
+        } else if (t.dtype == GGUF_TYPE_I16) {
+            std::vector<int16_t> buf(n); fread(buf.data(), 2, n, f);
+            for (size_t i = 0; i < n; i++) scratch[i] = (float)buf[i];
+        } else if (t.dtype == GGUF_TYPE_I32) {
+            std::vector<int32_t> buf(n); fread(buf.data(), 4, n, f);
+            for (size_t i = 0; i < n; i++) scratch[i] = (float)buf[i];
         } else {
-            // Unknown quant type — treat as raw floats
-            fseek(f, t.file_offset, SEEK_SET);
-            fread(scratch.data(), 4, std::min(n, (uint64_t)scratch.size()), f);
+            // Unsupported quant — fail loudly
+            fprintf(stderr, "  Universal: unsupported quant type %d — cannot load\n", t.dtype);
+            return nullptr;
         }
         return scratch.data();
     }

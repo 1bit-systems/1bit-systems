@@ -9,7 +9,7 @@
 #
 # Or via cron (already set up at 8 AM daily)
 
-set -e
+set -euo pipefail
 
 AWARENESS_DIR="${HOME}/.1bit/agent"
 AWARENESS_FILE="${AWARENESS_DIR}/awareness.json"

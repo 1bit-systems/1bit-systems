@@ -92,7 +92,7 @@ private:
             aiebu_assembler_buffer_type_blob_instr_transaction,
             (char*) instruction_data.first, instruction_data.second * sizeof(uint32_t),
             NULL, 0, (void**)elf_buf, NULL, 0, "", "", NULL, 0);
-        assert(elf_buf_size > 0);
+        // Bounds check retained for release builds.
         if (elf_buf_size == 0){
             header_print_r("ERROR", "Failed to get elf from ctrl_seq");
             exit(1);
@@ -109,8 +109,10 @@ private:
         this->module.reset();
         this->elf.reset();
         std::pair<uint32_t*, size_t> data = this->ctrl_seq->dump();
-        assert(data.first != nullptr);
-        assert(data.second > 0);
+        if (!data.first || data.second == 0) {
+            header_print_r("ERROR", "Invalid ctrl_seq data");
+            return;
+        }
         uint32_t elf_buf_size = this->_gen_elf(&elf_buf, data);
         if (this->module_valid){
             this->module.reset();
@@ -187,7 +189,10 @@ public:
 
   
     void update_ctrl_seq(){
-        assert(this->ctrl_seq != nullptr);
+        if (!this->ctrl_seq) {
+            header_print_r("ERROR", "Null ctrl_seq in update_ctrl_seq");
+            return;
+        }
         this->_setup_kernel();
     }
 
@@ -279,7 +284,11 @@ public:
     ///@see buffer
     template<typename T>
     buffer<T> create_bo_buffer(size_t size){
-        assert(size > 0);
+        // Size check kept for release builds.
+        if (size == 0) {
+            header_print_r("ERROR", "create_bo_buffer: size must be > 0");
+            return buffer<T>();
+        }
         LOG_VERBOSE(2, "Creating buffer buffer with size: " << size);
         return buffer<T>(*this->device, size);
     }
@@ -391,8 +400,9 @@ public:
     ///@param xclbin_name name of the xclbin file
     ///@see xrt::device, xrt::xclbin
     npu_app_manager(npu_device device_gen, xrt::device* device, std::string xclbin_name, bool enable_preemption = false){
-        assert(device != nullptr);
-        assert(xclbin_name != "");
+        // Validation retained for release builds.
+        if (!device) throw std::invalid_argument("npu_app_manager: device cannot be null");
+        if (xclbin_name.empty()) throw std::invalid_argument("npu_app_manager: xclbin_name cannot be empty");
         this->device_gen = device_gen;
         this->device = device;
         this->xclbin_name = xclbin_name;
@@ -431,7 +441,9 @@ public:
     ///@return a npu_app object
     ///@see npu_app
     npu_app create_app(){
-        assert(this->xclbin_valid);
+        // Validation retained for release builds.
+        if (!this->xclbin_valid)
+            throw std::runtime_error("npu_app_manager::create_app: xclbin not valid");
         return npu_app(this->device_gen, this->device, this->context.get(), this->kernel_name, this->enable_preemption);
     }
 
@@ -440,7 +452,11 @@ public:
     ///@see buffer
     template<typename T>
     buffer<T> create_bo_buffer(size_t size){
-        assert(size > 0);
+        // Size check kept for release builds.
+        if (size == 0) {
+            header_print_r("ERROR", "create_bo_buffer: size must be > 0");
+            return buffer<T>();
+        }
         LOG_VERBOSE(2, "Creating buffer buffer with size: " << size);
         return buffer<T>(*this->device, size);
     }
@@ -448,7 +464,9 @@ public:
     ///@brief Get the name of the xclbin
     ///@return the name of the xclbin
     std::string get_xclbin_name(){
-        assert(this->xclbin_valid);
+        // Validation retained for release builds.
+        if (!this->xclbin_valid)
+            throw std::runtime_error("npu_app_manager::get_xclbin_name: xclbin not valid");
         return this->xclbin_name;
     }
 
@@ -456,8 +474,11 @@ public:
     ///@return a runlist object
     ///@see xrt::runlist
     xrt::runlist create_runlist(){
-        assert(this->xclbin_valid);
-        assert(this->enable_preemption == false); // preemption is not supported for runlist
+        // Validation retained for release builds.
+        if (!this->xclbin_valid)
+            throw std::runtime_error("npu_app_manager::create_runlist: xclbin not valid");
+        if (this->enable_preemption)
+            throw std::runtime_error("npu_app_manager::create_runlist: preemption not supported for runlist");
         return xrt::runlist(*this->context);
     }
 };
@@ -501,7 +522,9 @@ public:
     ///@note To avoid creating duplicated applications, the function checks if the xclbin is registered.
     ///@note If the xclbin is not registered, the function will register the xclbin and create a new application.
     npu_app_manager* register_xclbin(std::string xclbin_name){
-        assert(xclbin_name != "");
+        // Validation retained for release builds.
+        if (xclbin_name.empty())
+            throw std::invalid_argument("npu_xclbin_manager::register_xclbin: xclbin_name cannot be empty");
         int xclbin_id = -1;
         for (size_t i = 0; i < this->xclbin_count; i++){
     
@@ -555,7 +578,11 @@ public:
     ///@see buffer
     template<typename T>
     buffer<T> create_bo_buffer(size_t size){
-        assert(size > 0);
+        // Size check kept for release builds.
+        if (size == 0) {
+            header_print_r("ERROR", "create_bo_buffer: size must be > 0");
+            return buffer<T>();
+        }
         LOG_VERBOSE(2, "Creating buffer buffer with size: " << size);
         return buffer<T>(*this->device, size);
     }

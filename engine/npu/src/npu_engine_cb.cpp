@@ -104,7 +104,7 @@ static GEMMSpec parse_instr(const std::string& path) {
 int main(int argc, char** argv) {
     if (argc < 5) {
         fprintf(stderr, "Usage: %s <xclbin> <instr.txt> <weights.bin> <out.bin>\n", argv[0]);
-        fprintf(stderr, "  or:  %s <xclbin> <instr.txt> <weights.bin> <out.bin> <A.bin>\n");
+        fprintf(stderr, "  or:  %s <xclbin> <instr.txt> <weights.bin> <out.bin> <A.bin>\n", argv[0]);
         return 1;
     }
     std::string xclbin_path = argv[1];

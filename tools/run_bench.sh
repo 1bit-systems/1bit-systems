@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run GEMM bench with TheRock rocBLAS vs system rocBLAS
-set -e
+set -euo pipefail
 
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 THEROCK=$HOME/therock/build

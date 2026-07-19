@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Extract ALL Zaya1-8B weights to /tmp/zaya_weights/ as float32 .bin files.
 # Usage: bash tools/extract_all_zaya_weights.sh
-set -e
+set -euo pipefail
 cd ${HOME}
 WEIGHTS_DIR="${ZAYA_WEIGHTS_DIR:-/tmp/zaya_weights}"
 mkdir -p "$WEIGHTS_DIR"

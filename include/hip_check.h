@@ -54,3 +54,14 @@
     }                                                                           \
 } while(0)
 #endif
+
+#ifndef HIP_OK_R
+#define HIP_OK_R(e, retval) do {                                                \
+    hipError_t _s_ = (e);                                                       \
+    if (_s_ != hipSuccess) {                                                    \
+        fprintf(stderr, "HIP Error %s:%d: %s (code %d)\n",                      \
+                __FILE__, __LINE__, hipGetErrorString(_s_), (int)_s_);          \
+        return (retval);                                                        \
+    }                                                                           \
+} while(0)
+#endif

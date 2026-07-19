@@ -2,7 +2,7 @@
 # Model Router — dispatches inference requests to the right backend.
 # Usage: ./model_router.sh MODEL PROMPT [N_PREDICT]
 # Models: zaya, albert, qwen
-set -e
+set -euo pipefail
 
 MODEL="${1:-zaya}"
 PROMPT="${2:-Hello}"

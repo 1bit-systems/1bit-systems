@@ -69,7 +69,7 @@ else
     URL="https://huggingface.co/${HF_REPO}/resolve/main/${HF_FILE}"
     echo "   URL: $URL"
     if command -v curl &>/dev/null; then
-        curl -L -o "$OUTPUT" "$URL"
+        curl --fail -L -o "$OUTPUT" "$URL"
     elif command -v wget &>/dev/null; then
         wget -O "$OUTPUT" "$URL"
     else

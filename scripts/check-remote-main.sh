@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # check-remote-main.sh — Poll origin/main for new commits and signal agents
 #
 # Run this periodically (e.g., via cron, or after `git fetch`) to detect
@@ -12,7 +12,7 @@
 # Setup as a cron job (every 5 minutes):
 #   */5 * * * * ${HOME}/scripts/check-remote-main.sh
 
-set -e
+set -euo pipefail
 
 SIGNAL_SCRIPT="${HOME}/scripts/signal-agent-awareness.sh"
 RECORD_SCRIPT="${HOME}/scripts/record-agent-change.sh"

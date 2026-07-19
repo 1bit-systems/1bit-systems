@@ -513,19 +513,22 @@ int main(int argc, char** argv) {
 
     // ── Parse CLI args ──
     static struct option long_opts[] = {
-        {"port",    required_argument, nullptr, 'p'},
-        {"weights", required_argument, nullptr, 'w'},
-        {"quick",   no_argument,       nullptr, 'q'},
+        {"port",        required_argument, nullptr, 'p'},
+        {"weights",     required_argument, nullptr, 'w'},
+        {"quick",       no_argument,       nullptr, 'q'},
+        {"cors-origin", required_argument, nullptr, 'c'},
         {nullptr, 0, nullptr, 0}
     };
 
     bool quick_mode = false;
+    std::string g_cors_origin;  // empty = no CORS headers (fixes #7)
     int opt;
-    while ((opt = getopt_long(argc, argv, "p:w:q", long_opts, nullptr)) != -1) {
+    while ((opt = getopt_long(argc, argv, "p:w:c:q", long_opts, nullptr)) != -1) {
         switch (opt) {
             case 'p': g_port = atoi(optarg); break;
             case 'w': g_weights_dir = optarg; break;
             case 'q': quick_mode = true; break;
+            case 'c': g_cors_origin = optarg; break;
         }
     }
 
@@ -655,20 +658,25 @@ int main(int argc, char** argv) {
     // ── HTTP Server ──
     httplib::Server svr;
 
-    // ── CORS middleware ──
-    svr.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
-        if (req.method == "OPTIONS") {
-            res.set_header("Access-Control-Allow-Origin", "*");
-            res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-            res.set_header("Access-Control-Allow-Headers", "Content-Type, X-Backend, X-Strategy, Authorization");
-            res.status = 204;
-            return httplib::Server::HandlerResponse::Handled;
-        }
-        return httplib::Server::HandlerResponse::Unhandled;
-    });
+    // ── CORS middleware (only enabled when --cors-origin is set) ──
+    if (!g_cors_origin.empty()) {
+        svr.set_pre_routing_handler([&](const httplib::Request& req, httplib::Response& res) {
+            if (req.method == "OPTIONS") {
+                res.set_header("Access-Control-Allow-Origin", g_cors_origin);
+                if (g_cors_origin == "*") {
+                    res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+                    res.set_header("Access-Control-Allow-Headers", "Content-Type, X-Backend, X-Strategy, Authorization");
+                }
+                res.status = 204;
+                return httplib::Server::HandlerResponse::Handled;
+            }
+            return httplib::Server::HandlerResponse::Unhandled;
+        });
+    }
 
-    auto add_cors = [](httplib::Response& res) {
-        res.set_header("Access-Control-Allow-Origin", "*");
+    auto add_cors = [&](httplib::Response& res) {
+        if (!g_cors_origin.empty())
+            res.set_header("Access-Control-Allow-Origin", g_cors_origin);
     };
 
     // ── GET /v1/health — Backend status dashboard ──

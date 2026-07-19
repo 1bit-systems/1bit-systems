@@ -204,11 +204,11 @@ struct TernaryCtx {
         sc_uuid = single_uuid;  sc_instr = single_instr;
         mc_uuid = multi_uuid;   mc_instr = multi_instr;
 
-        weights_bytes = (size_t)M_total * K_packed_total;
-        scales_bytes = (size_t)M_total * n_blocks * 2;
+        weights_bytes = (size_t)M_total * (size_t)K_packed_total;
+        scales_bytes = (size_t)M_total * (size_t)n_blocks * 2;
         // Keep a HOST copy of weights/scales for reliable access
         weights_host_ptr = new uint8_t[weights_bytes];
-        scales_host_ptr = new uint16_t[(size_t)M_total * n_blocks];
+        scales_host_ptr = new uint16_t[(size_t)M_total * (size_t)n_blocks];
         memcpy((void*)weights_host_ptr, packed_weights, weights_bytes);
         memcpy((void*)scales_host_ptr, weight_scales, scales_bytes);
         // Also create device BO for NPU access

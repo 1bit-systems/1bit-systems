@@ -107,7 +107,9 @@ inline void ternary_unpack_16(uint32_t packed, int8_t out[16]) {
 inline float block_scaled_ternary_dequant(
     const uint8_t block[BST_BLOCK_BYTES], int elem_idx)
 {
-    assert(elem_idx >= 0 && elem_idx < 16);
+    // Bounds check kept for release builds (assert() would drop in -DNDEBUG).
+    // Out-of-range indices return 0.0f rather than reading garbage memory.
+    if (elem_idx < 0 || elem_idx >= 16) return 0.0f;
     uint32_t packed;
     __builtin_memcpy(&packed, block, sizeof(packed));
     uint32_t bits = (packed >> (elem_idx * 2)) & 0x3;

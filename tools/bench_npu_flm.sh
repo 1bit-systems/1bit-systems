@@ -12,9 +12,9 @@
 # Override: FLM_BIN, FLM_CONFIG_PATH, FLM_XCLBIN_PATH, NPU_FLM_TAG, NPU_FLM_PORT.
 set -euo pipefail
 
-FLM_BIN="${FLM_BIN:-/home/bcloud/fastflowlm-build/src/build/flm}"
-FLM_CONFIG_PATH="${FLM_CONFIG_PATH:-/home/bcloud/fastflowlm-build/src/model_list.json}"
-FLM_XCLBIN_PATH="${FLM_XCLBIN_PATH:-/home/bcloud/fastflowlm-build/src/xclbins}"
+FLM_BIN="${FLM_BIN:-$HOME/fastflowlm-build/src/build/flm}"
+FLM_CONFIG_PATH="${FLM_CONFIG_PATH:-$HOME/fastflowlm-build/src/model_list.json}"
+FLM_XCLBIN_PATH="${FLM_XCLBIN_PATH:-$HOME/fastflowlm-build/src/xclbins}"
 TAG="${NPU_FLM_TAG:-qwen3:0.6b}"
 PORT="${NPU_FLM_PORT:-8098}"
 PROMPT="${NPU_FLM_PROMPT:-List ten European capital cities, one per line, brief.}"

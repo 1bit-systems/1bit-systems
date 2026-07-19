@@ -10,9 +10,9 @@ cd "$REPO_DIR"
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 LOGFILE="/tmp/1bit-demo-${TIMESTAMP}.log"
-MODEL="${DEMO_MODEL:-/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx}"
-NPU_ENGINE="${DEMO_NPU:-/home/bcloud/npu-infer/build/npu_engine_universal}"
-TOKENIZER="${DEMO_TOK:-/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.json}"
+MODEL="${DEMO_MODEL:-$HOME/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx}"
+NPU_ENGINE="${DEMO_NPU:-$HOME/npu-infer/build/npu_engine_universal}"
+TOKENIZER="${DEMO_TOK:-$HOME/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.json}"
 
 echo "═══════════════════════════════════════════════" | tee -a "$LOGFILE"
 echo "  1bit.systems — One Binary Demo" | tee -a "$LOGFILE"
@@ -82,12 +82,13 @@ echo "" | tee -a "$LOGFILE"
 
 # ── Step 6: GGUF Loader ──
 echo "=== 6. GGUF Model Loader ===" | tee -a "$LOGFILE"
-cat > /tmp/test_gguf_demo.cpp << 'EOF'
+GGUF_MODEL="${GGUF_MODEL:-$HOME/models/tinylama-1.1b-q4.gguf}"
+cat > /tmp/test_gguf_demo.cpp << EOF
 #include "rocm_cpp/bitnet_model.h"
 #include <cstdio>
 int main() {
     rcpp_bitnet_model_t model = {};
-    rcpp_status_t st = rcpp_bitnet_load_gguf("/home/bcloud/models/tinylama-1.1b-q4.gguf", &model);
+    rcpp_status_t st = rcpp_bitnet_load_gguf("${GGUF_MODEL}", &model);
     printf("st=%d H=%d L=%d NH=%d NKV=%d V=%d emb=%p\n", (int)st,
            model.hidden_size, model.num_layers, model.num_heads,
            model.num_kv_heads, model.vocab_size, model.embedding_dev);

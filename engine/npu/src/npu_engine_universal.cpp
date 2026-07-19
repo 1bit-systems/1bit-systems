@@ -638,8 +638,11 @@ int main(int argc,char**argv){
                     int qd = cfg.xclbin_qkv_k / 4;  // approximate: NH*HD
                     out_dim = qd;
                     out_data.resize(batch*out_dim,0);
-                    // For now, just pass through Q as output (identity attention)
-                    // FIXME: actual NPU attention kernel call when instruction format is known
+                    // For now, just pass through Q as output (identity attention).
+                    // FIXME(#npu-attention): Replace with an actual NPU attention
+                    // kernel call once the instruction format for the attention
+                    // xclbin is documented.  The xclbin is already compiled (see
+                    // final_i8_QKV_*.xclbin in engine/npu/xclbins/).
                     memcpy(out_data.data(), in_data.data(), batch * qd * sizeof(float));
                 }else if(op==20&&cq.isReady()){ // QKV all layers (batch, op=20)
                     int n_layers = NC;

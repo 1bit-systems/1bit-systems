@@ -14,20 +14,7 @@
 #include <new>
 #include "hip_check.h"
 
-#define HIP_OK_R(e, retval) do { \
-    hipError_t _s = (e); \
-    if (_s != hipSuccess) { \
-        fprintf(stderr, "HIP Error %d at %s:%d — %s\n", _s, __FILE__, __LINE__, hipGetErrorString(_s)); \
-        return retval; \
-    } \
-} while(0)
-#define HIP_OK_V(e) do { \
-    hipError_t _s = (e); \
-    if (_s != hipSuccess) { \
-        fprintf(stderr, "HIP Error %d at %s:%d — %s\n", _s, __FILE__, __LINE__, hipGetErrorString(_s)); \
-        return; \
-    } \
-} while(0)
+#include "hip_check.h"
 
 
 // ── Architecture (compile-time constants for kernels ──
@@ -339,6 +326,7 @@ ZayaState* zaya_init(const char* weights_dir = nullptr) {
 
 // ── Forward: token in, logits out ──
 void zaya_forward(ZayaState* s, int token_id, float* logits_out) {
+    if (token_id < 0 || token_id >= eng.vocab) { if (logits_out) memset(logits_out, 0, eng.vocab * sizeof(float)); return; }
     int g1 = (eng.h+BLK-1)/BLK;
     std::vector<__half> hh(eng.h);
     for(int i=0;i<eng.h;i++){float raw=s->embed[token_id*(size_t)eng.h+i];hh[i]=__float2half((raw+s->ibias[i])*s->iscale[i]);}
@@ -424,6 +412,7 @@ void zaya_forward(ZayaState* s, int token_id, float* logits_out) {
 
 // ── Forward greedy: same as forward but only returns argmax (much faster) ──
 int zaya_forward_greedy(ZayaState* s, int token_id) {
+    if (token_id < 0 || token_id >= eng.vocab) return -1;
     int g1 = (eng.h+BLK-1)/BLK;
     std::vector<__half> hh(eng.h);
     for(int i=0;i<eng.h;i++){float raw=s->embed[token_id*(size_t)eng.h+i];hh[i]=__float2half((raw+s->ibias[i])*s->iscale[i]);}

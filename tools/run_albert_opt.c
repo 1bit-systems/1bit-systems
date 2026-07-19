@@ -53,6 +53,17 @@ static float *get_w(const char *name) {
 }
 
 static int load_all_weights(const char *dir) {
+    // Validate dir: reject shell metacharacters to prevent command injection
+    if (!dir || !dir[0]) { fprintf(stderr, "Invalid directory\n"); return 0; }
+    for (const char *p = dir; *p; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '/' || c == '.' ||
+              c == '-' || c == '_')) {
+            fprintf(stderr, "Invalid character in directory path: '%c'\n", c);
+            return 0;
+        }
+    }
     char cmd[512];
     snprintf(cmd, sizeof(cmd), "ls %s/*.bin 2>/dev/null | wc -l", dir);
     FILE *f = popen(cmd, "r");

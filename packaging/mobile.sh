@@ -1,7 +1,7 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 # 1bit.systems — mobile setup: ngrok + QR + 1bit-mobile
 # curl -fsSL https://1bit.systems/mobile.sh | sh
-set -e
+set -euo pipefail
 
 echo "╔══════════════════════════════════════════════════╗"
 echo "║     1bit Mobile — QR code pairing              ║"

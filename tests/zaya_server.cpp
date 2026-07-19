@@ -448,6 +448,7 @@ int main(int argc, char** argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
     int port = 8088;
     std::string model_arg, manifest_arg, weights_dir = "/tmp/zaya_weights/", lora_path;
+    std::string cors_origin;  // empty = no CORS headers (fixes #7: only enable on demand)
     RouteStrategy strategy = RouteStrategy::AUTO;
     A2AClient a2a;
     std::vector<std::string> a2a_peers;
@@ -459,6 +460,7 @@ int main(int argc, char** argv) {
         else if (a == "--manifest" && i+1 < argc) manifest_arg = argv[++i];
         else if (a == "--weights-dir" && i+1 < argc) weights_dir = argv[++i];
         else if (a == "--a2a-peer" && i+1 < argc) a2a_peers.push_back(argv[++i]);
+        else if (a == "--cors-origin" && i+1 < argc) cors_origin = argv[++i];
         else if (a == "--strategy" && i+1 < argc) {
             std::string s(argv[++i]);
             if (s == "auto") strategy = RouteStrategy::AUTO;
@@ -478,7 +480,8 @@ int main(int argc, char** argv) {
             printf("  --strategy auto|cascade|spec_decode|content|parallel_moe|passthrough\n");
             printf("  --a2a-peer URL       Register remote A2A agent peer (can repeat)\n\n");
             printf("Server:\n");
-            printf("  --port N            Listen port (default: 8088)\n\n");
+            printf("  --port N            Listen port (default: 8088)\n");
+            printf("  --cors-origin ORIGIN Enable CORS for origin (e.g. '*', 'https://app.example.com')\n\n");
             printf("Endpoints:\n");
             printf("  GET  /v1/models                      List loaded models\n");
             printf("  POST /v1/chat/completions            OpenAI-compatible chat\n");
@@ -546,17 +549,22 @@ int main(int argc, char** argv) {
     const size_t MAX_BODY_BYTES = 1 * 1024 * 1024;
     svr.set_payload_max_length(MAX_BODY_BYTES);
 
-    svr.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
-        res.set_header("Access-Control-Allow-Origin", "*");
-        res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-        res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-        if (req.method == "OPTIONS") {
-            res.status = 200;
-            res.set_content("{\"ok\":true}", "application/json");
-            return httplib::Server::HandlerResponse::Handled;
-        }
-        return httplib::Server::HandlerResponse::Unhandled;
-    });
+    // CORS: only enabled when --cors-origin is explicitly set (fixes #7)
+    if (!cors_origin.empty()) {
+        svr.set_pre_routing_handler([cors_origin](const httplib::Request& req, httplib::Response& res) {
+            res.set_header("Access-Control-Allow-Origin", cors_origin);
+            if (cors_origin == "*") {
+                res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+                res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+            }
+            if (req.method == "OPTIONS") {
+                res.status = 200;
+                res.set_content("{\"ok\":true}", "application/json");
+                return httplib::Server::HandlerResponse::Handled;
+            }
+            return httplib::Server::HandlerResponse::Unhandled;
+        });
+    }
 
     fprintf(stderr, "\nListening on http://127.0.0.1:%d\n", port);
     fprintf(stderr, "   GET  /                      — health\n");

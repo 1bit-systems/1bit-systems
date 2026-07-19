@@ -1,7 +1,5 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
-#!/bin/sh
-set -eu
 # jarvis-world-sweep.sh — JARVIS world awareness sweep
 #
 # Records today's briefing into the awareness system.

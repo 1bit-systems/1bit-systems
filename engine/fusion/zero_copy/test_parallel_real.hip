@@ -92,11 +92,11 @@ int main() {
            "cd %s/build && "
            "FLM_CONFIG_PATH=%s/model_list.json "
            "FLM_XCLBIN_PATH=%s/xclbins "
-           "LD_LIBRARY_PATH=%s/build:/opt/rocm/lib ",
+           "LD_LIBRARY_PATH=%s/build:/opt/rocm/lib "
+           "nohup ./flm serve qwen3:0.6b --port 8097 --pmode performance "
+           ">/tmp/flm_par.log 2>&1 &",
            flm_build, flm_build, flm_build, flm_build);
     system(cmd);
-           "nohup ./flm serve qwen3:0.6b --port 8097 --pmode performance "
-           ">/tmp/flm_par.log 2>&1 &");
     sleep(3);
 
     FILE* fp = popen("pgrep -f 'flm serve.*8097' 2>/dev/null | head -1", "r");

@@ -1,6 +1,6 @@
 #!/bin/bash
 # run_flm_gdb.sh — Launch FLM under GDB for BO protocol capture
-set -e
+set -euo pipefail
 
 CAPTURE_DIR="/tmp/gdb_flm_capture"
 mkdir -p "$CAPTURE_DIR"

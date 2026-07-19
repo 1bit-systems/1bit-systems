@@ -175,12 +175,13 @@ public:
     }
 
     // ─── NPU worker: runs expert FFN for layer il ──────────────────
-    // FIXME: This is a skeleton. NPU backend's forward() uses position
-    // to track token accumulation — it MUST receive the correct position
-    // for the current decode step, not 0 (which resets the prompt).
-    // The real implementation needs a generate()-style interface that
-    // hides position tracking, or the NPU backend needs to be refactored
-    // to separate prompt accumulation from single-token decode.
+    // FIXME(#npu-position-tracking): This is a skeleton. NPU backend's
+    // forward() uses a position counter to accumulate tokens across calls
+    // — passing pos=0 resets the prompt state.  The caller MUST pass the
+    // correct decode-step position.  Long-term, either (a) add a
+    // generate()-style interface that hides position tracking, or
+    // (b) refactor the NPU backend to separate prompt accumulation
+    // (multi-token) from single-token decode.
     void npu_expert_worker(int il, int token_id, int pos,
                             const std::vector<float>& hidden_in,
                             std::vector<float>& hidden_out) {

@@ -219,7 +219,9 @@ public:
     /// \param index the index
     /// \return the value
     uint8_t& operator[](size_t index) {
-        assert(data_ && index < size_);
+        // Bounds/null check retained for release builds (assert would drop in -DNDEBUG).
+        if (!data_ || index >= size_)
+            throw std::out_of_range("buffer::operator[] out of range");
         return data_[index];
     }
 
@@ -227,7 +229,8 @@ public:
     /// \param index the index
     /// \return the value
     const uint8_t& operator[](size_t index) const {
-        assert(data_ && index < size_);
+        if (!data_ || index >= size_)
+            throw std::out_of_range("buffer::operator[] out of range");
         return data_[index];
     }
 
@@ -241,7 +244,8 @@ public:
     /// \param src the source
     /// \param size the size
     void copy_from(const uint8_t* src, size_t size) {
-        assert(size <= size_);
+        if (size > size_)
+            throw std::out_of_range("buffer::copy_from size exceeds capacity");
         std::memcpy(data_, src, size);
     }
 
@@ -249,7 +253,8 @@ public:
     /// \param new_size the new size
     void resize(size_t new_size) {
 #ifdef __XRT__
-        assert(!is_bo_owner_);
+        if (is_bo_owner_)
+            throw std::runtime_error("buffer::resize: cannot resize a BO-owned buffer");
 #endif
         if (data_ != nullptr && !is_owner_) {
             throw std::runtime_error("Cannot resize a non-owner buffer");
@@ -271,7 +276,11 @@ public:
     /// \brief free, release the memory or the bo
     void free() {
 #ifdef __XRT__
-        assert(!is_bo_owner_);
+        // BO-owned buffers must be freed through the BO, not here.
+        if (is_bo_owner_) {
+            fprintf(stderr, "WARNING: buffer::free: refusing to free a BO-owned buffer\n");
+            return;
+        }
 #endif
         if (is_owner_){
             owned_data_.reset();
@@ -304,14 +313,14 @@ public:
     bool is_bo_owner() const { return is_bo_owner_; }
 
     /// \brief sync to device
-    void sync_to_device() { assert(bo_); bo_->sync(XCL_BO_SYNC_BO_TO_DEVICE); }
+    void sync_to_device() { if (!bo_) throw std::runtime_error("buffer::sync_to_device: null bo"); bo_->sync(XCL_BO_SYNC_BO_TO_DEVICE); }
 
     /// \brief sync from device
-    void sync_from_device() { assert(bo_); bo_->sync(XCL_BO_SYNC_BO_FROM_DEVICE); }
+    void sync_from_device() { if (!bo_) throw std::runtime_error("buffer::sync_from_device: null bo"); bo_->sync(XCL_BO_SYNC_BO_FROM_DEVICE); }
 
     /// \brief bo
     /// \return the bo
-    xrt::bo& bo() { assert(bo_); return *bo_; }
+    xrt::bo& bo() { if (!bo_) throw std::runtime_error("buffer::bo: null bo"); return *bo_; }
 #endif
 
     /// \brief from file
@@ -327,8 +336,10 @@ public:
         size_t file_size = file.tellg();
         file.seekg(0, std::ios::beg);
         if (size == 0) size = file_size;
-        assert(size <= file_size);
-        assert(offset + size <= size_);
+        if (size > file_size)
+            throw std::out_of_range("buffer::from_file: size exceeds file size");
+        if (offset + size > size_)
+            throw std::out_of_range("buffer::from_file: offset+size exceeds capacity");
         file.read(reinterpret_cast<char*>(data_) + offset, size);
         file.close();
     }
@@ -437,9 +448,9 @@ public:
     /// \param index the index
     /// \return the value
     T& operator[](size_t index) {
-        assert(data_ != nullptr);
-        assert(index < size());
-        assert(index >= 0);
+        // Bounds/null check retained for release builds (assert would drop in -DNDEBUG).
+        if (!data_ || index >= size())
+            throw std::out_of_range("buffer<T>::operator[] out of range");
         return reinterpret_cast<T*>(data_)[index];
     }
 
@@ -447,9 +458,8 @@ public:
     /// \param index the index
     /// \return the value
     const T& operator[](size_t index) const {
-        assert(data_ != nullptr);
-        assert(index < size());
-        assert(index >= 0);
+        if (!data_ || index >= size())
+            throw std::out_of_range("buffer<T>::operator[] out of range");
         return reinterpret_cast<T*>(data_)[index];
     }
 

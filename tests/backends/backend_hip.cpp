@@ -43,24 +43,13 @@ __global__ void silu_mul_k(__half* out, const __half* g, const __half* u, int n)
 __global__ void residual_scale_k(__half* out, const __half* res, const float* hs_s, const float* hs_b, const float* res_s, const float* res_b, int n) { int i = blockIdx.x * blockDim.x + threadIdx.x; if (i >= n) return; out[i] = __float2half((float)out[i] * hs_s[i] + hs_b[i] + (float)res[i] * res_s[i] + res_b[i]); }
 __global__ void add_k(__half* a, const __half* b, int n) { int i = blockIdx.x * blockDim.x + threadIdx.x; if (i >= n) return; a[i] = __float2half(__half2float(a[i]) + __half2float(b[i])); }
 
-// Compile-time constants needed by kernel headers (Zaya1-8B dimensions)
-// These must match the model the kernels were compiled for.
-#ifndef H
-#define H    2048
-#define NQ   8
-#define NKV  2
-#define HD   128
-#define QD   1024
-#define KD   256
-#define QKV  1280
-#define N_LAYERS 40
-#define VOCAB 262272
-#define N_EXP 16
-#define ROUTER_TOP_K 2
-#define N_FF  2048
-#define RTR_H 256
-#endif
+// Compile-time model dimension constants — see zaya1_dims.h.
+// For a different model architecture, create a matching dims header
+// and include it here instead. The runtime ModelConfig is validated
+// in load_model() against the compile-time contract defined there.
+#include "zaya1_dims.h"
 
+// WMMA tile dimensions (hardware-dependent, not model-dependent)
 #define WMMA_M 16
 #define WMMA_THREADS 128
 #include "../../kernels/zaya_moe_tiled_gemv.hip"
@@ -126,6 +115,7 @@ class HipBackend : public InferenceBackend {
     std::vector<HipLayer> layers_;
     std::vector<__half> embed_cpu_, fnorm_cpu_;
     bool embed_loaded_=false;
+    bool is_zaya_ = false;
 
 public:
     BackendType type() const override { return BackendType::HIP_GPU; }
@@ -151,11 +141,23 @@ public:
         cfg_ = cfg;
         unload_model();
 
-        // Accept any model dimensions — use runtime cfg_ fields.
-        bool is_zaya = (cfg.hidden_size == 2048 && cfg.num_layers == 40 && cfg.vocab_size == 262272);
+        // Validate model dimensions match compile-time kernel contract
+        // (defined in zaya1_dims.h). Kernels are compiled for Zaya1-8B
+        // dimensions; mismatched models will use the generic (non-CCA)
+        // code path with a warning.
+        bool is_zaya = (cfg.hidden_size == 2048 && cfg.num_layers == 40 && cfg.vocab_size == 262272
+                        && cfg.num_heads == 8 && cfg.num_kv_heads == 2 && cfg.head_dim == 128
+                        && cfg.num_experts == 16 && cfg.intermediate_size == 2048
+                        && cfg.router_hidden == 256);
+        is_zaya_ = is_zaya;
         if (!is_zaya) {
-            fprintf(stderr, "  HIP: non-Zaya model (H=%d L=%d V=%d) — using generic GPU path\n",
-                    cfg.hidden_size, cfg.num_layers, cfg.vocab_size);
+            fprintf(stderr, "  HIP: non-Zaya model (H=%d L=%d V=%d NQ=%d NKV=%d HD=%d N_EXP=%d N_FF=%d RTR_H=%d)\n",
+                    cfg.hidden_size, cfg.num_layers, cfg.vocab_size,
+                    cfg.num_heads, cfg.num_kv_heads, cfg.head_dim,
+                    cfg.num_experts, cfg.intermediate_size, cfg.router_hidden);
+            fprintf(stderr, "  HIP: GPU kernels compiled for Zaya1-8B only — refusing to load on GPU.\n");
+            fprintf(stderr, "  HIP: TokenRouter will fall back to CPU (GenericBackend).\n");
+            return false;
         }
 
         HIP_OK(hipStreamCreate(&st_));
@@ -368,6 +370,9 @@ public:
         HIP_OK(hipMalloc(&d_hs, H * 2)); HIP_OK(hipMalloc(&d_ao, H * 2)); HIP_OK(hipMalloc(&d_tmp, H * 2));
         HIP_OK(hipMalloc(&d_conv, (size_t)L * 2 * QKV * 4));
         HIP_OK(hipMalloc(&d_phs, (size_t)L * H * 2));
+        int RTR_H = cfg.router_hidden;
+        HIP_OK(hipMalloc(&d_prev_rs, (size_t)L * RTR_H * 4));
+        HIP_OK(hipMalloc(&d_expert_idx, 4)); HIP_OK(hipMalloc(&d_expert_wt, 4));
         HIP_OK(hipMalloc(&d_all_logits, (size_t)V * 2));
         HIP_OK(hipMalloc(&d_best_idx, 4)); HIP_OK(hipMalloc(&d_best_val, 4));
 

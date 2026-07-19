@@ -20,7 +20,8 @@
 #include <xrt/xrt_bo.h>
 #include <xrt/xrt_kernel.h>
 
-static constexpr int H=1024,NC=28,NH=16,NKV=8,HD=128,IM=3072,NV=151936,GQA=2,EPS=1e-6f,XM=128;
+static constexpr int H=1024,NC=28,NH=16,NKV=8,HD=128,IM=3072,NV=151936,GQA=2,XM=128;
+static constexpr float EPS = 1e-6f;
 static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:[&]{uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}();}
 static inline void cn(float*x,int n){for(int i=0;i<n;i++)if(!std::isfinite(x[i]))x[i]=0.0f;}
 static inline float dyn_scale(const float*x,int n){float a=0;for(int i=0;i<n;i++){float f=fabsf(x[i]);if(std::isfinite(f)&&f>a)a=f;}return a<1e-12f?1.0f:a/127.0f;}
@@ -163,7 +164,10 @@ int main(int argc,char**argv){
         }
         void run(float*qo,float*at,int cl,const float*kv_k,const float*kv_v,int max_pos=-1) {
             // NPU attention via KV xclbin: Q@K^T on NPU, softmax+V on CPU
-            // TODO: wire KV xclbin Q@K^T score computation
+            // TODO(#kv-xclbin): Wire the NPU KV xclbin for Q@K^T attention-score
+            // computation.  The xclbin and instruction format exist in the FLM
+            // toolchain (see setup_npu_xclbins.sh) but the kernel-call plumbing
+            // from npu_engine_i8.cpp hasn't been adapted yet.
             // Fall back to CPU for now
             #pragma omp parallel for
             for(int hh=0;hh<NH;hh++){

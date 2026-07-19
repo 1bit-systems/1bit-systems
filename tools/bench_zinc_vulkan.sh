@@ -6,8 +6,8 @@
 #     gpu_ternary_tok_s <value>
 set -euo pipefail
 
-ZINC="${ZINC_BIN:-/home/bcloud/zinc/zig-out/bin/zinc}"
-MODEL="${ZINC_MODEL:-/home/bcloud/models/Ternary-Bonsai-1.7B-Q2_0.gguf}"
+ZINC="${ZINC_BIN:-$HOME/zinc/zig-out/bin/zinc}"
+MODEL="${ZINC_MODEL:-$HOME/models/Ternary-Bonsai-1.7B-Q2_0.gguf}"
 N="${ZINC_N:-128}"
 PROMPT="${ZINC_PROMPT:-The capital of France is}"
 

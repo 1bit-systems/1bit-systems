@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-FLM_DIR="${NPU_XCLBIN_DIR:-/home/bcloud/fastflowlm-build}"
+FLM_DIR="${NPU_XCLBIN_DIR:-$HOME/fastflowlm-build}"
 MODEL_TAG="${NPU_MODEL_TAG:-qwen3-0.6b}"
 MODEL_DIR="${FLM_DIR}/src/xclbins/Qwen3-0.6B-NPU2"
 

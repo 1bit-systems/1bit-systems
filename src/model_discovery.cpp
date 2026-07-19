@@ -60,15 +60,19 @@ static bool read_gguf_metadata(const std::string& path, ModelConfig& cfg) {
         // H1B format — read config from header
         uint32_t version, hs, is, n_layers, n_heads, n_kv, max_seq;
         fseek(f, 8, SEEK_SET);
-        fread(&version, 4, 1, f); fread(&hs, 4, 1, f); fread(&is, 4, 1, f);
-        fread(&n_layers, 4, 1, f); fread(&n_heads, 4, 1, f); fread(&n_kv, 4, 1, f);
-        fread(&max_seq, 4, 1, f);
+        if (fread(&version, 4, 1, f) != 1 || fread(&hs, 4, 1, f) != 1 ||
+            fread(&is, 4, 1, f) != 1 || fread(&n_layers, 4, 1, f) != 1 ||
+            fread(&n_heads, 4, 1, f) != 1 || fread(&n_kv, 4, 1, f) != 1 ||
+            fread(&max_seq, 4, 1, f) != 1) {
+            fclose(f);
+            return false;
+        }
         cfg.hidden = cfg.hidden_size = hs;
         cfg.n_ff = cfg.intermediate_size = is;
         cfg.n_layers = cfg.num_layers = n_layers;
         cfg.n_heads = cfg.num_heads = cfg.num_attention_heads = n_heads;
         cfg.n_kv_heads = cfg.num_kv_heads = n_kv ? n_kv : n_heads;
-        cfg.head_dim = hs / n_heads;
+        cfg.head_dim = (n_heads > 0) ? (hs / n_heads) : 128;
         cfg.max_seq_len = max_seq ? max_seq : 2048;
         cfg.model_path = path;
         cfg.format = ModelFormat::H1B;
@@ -81,10 +85,12 @@ static bool read_gguf_metadata(const std::string& path, ModelConfig& cfg) {
     }
 
     uint32_t version;
-    fread(&version, 4, 1, f);
+    if (fread(&version, 4, 1, f) != 1) { fclose(f); return false; }
     uint64_t tensor_count, kv_count;
-    fread(&tensor_count, 8, 1, f);
-    fread(&kv_count, 8, 1, f);
+    if (fread(&tensor_count, 8, 1, f) != 1 || fread(&kv_count, 8, 1, f) != 1) {
+        fclose(f);
+        return false;
+    }
 
     // Defaults
     cfg.hidden = cfg.hidden_size = 2048;
@@ -115,7 +121,29 @@ static bool read_gguf_metadata(const std::string& path, ModelConfig& cfg) {
     for (uint64_t i = 0; i < kv_count; i++) {
         uint64_t key_len;
         if (fread(&key_len, 8, 1, f) != 1) break;
-        if (key_len > 255) { fseek(f, key_len, SEEK_CUR); continue; }
+        if (key_len > 255) {
+            // Skip the key data AND the value data to avoid desyncing the
+            // KV parse — long keys still have a value that must be consumed.
+            fseek(f, key_len, SEEK_CUR);
+            uint32_t vt; if (fread(&vt, 4, 1, f) != 1) break;
+            // Skip value based on type (same logic as the unmatched-key switch below)
+            switch (vt) {
+                case 0: case 1: case 7: fseek(f, 1, SEEK_CUR); break;
+                case 2: case 3: fseek(f, 2, SEEK_CUR); break;
+                case 4: case 5: case 6: fseek(f, 4, SEEK_CUR); break;
+                case 8: { uint64_t slen; fread(&slen, 8, 1, f); fseek(f, slen, SEEK_CUR); break; }
+                case 9: { uint32_t at; uint64_t an; fread(&at, 4, 1, f); fread(&an, 8, 1, f); int sz = 4;
+                    if (at <= 7) { static const int s[] = {1,1,2,2,4,4,4,1}; sz = s[at]; }
+                    else if (at >= 10 && at <= 12) sz = 8;
+                    else if (at == 8) { /* handled inside loop */ }
+                    if (at == 8) { for (uint64_t j = 0; j < an; j++) { uint64_t sl; fread(&sl, 8, 1, f); fseek(f, sl, SEEK_CUR); } }
+                    else fseek(f, an * sz, SEEK_CUR);
+                    break; }
+                case 10: case 11: case 12: fseek(f, 8, SEEK_CUR); break;
+                default: break;
+            }
+            continue;
+        }
         if (fread(key_buf, 1, key_len, f) != key_len) break;
         key_buf[key_len] = '\0';
 
@@ -149,7 +177,13 @@ static bool read_gguf_metadata(const std::string& path, ModelConfig& cfg) {
             cfg.arch = rcpp_arch_from_string(cfg.architecture.c_str());
         }
         else if (key == "general.name") { cfg.model_name = read_str(); }
-        else if (key == "tokenizer.ggml.model") { /* ignore */ }
+        else if (key == "tokenizer.ggml.model") {
+            // Skip the value data — this is a string key, but we must consume
+            // its value bytes to avoid corrupting subsequent KV reads.
+            if (val_type == 8) { uint64_t slen; fread(&slen, 8, 1, f); fseek(f, slen, SEEK_CUR); }
+            else if (val_type == 4) fseek(f, 4, SEEK_CUR);
+            else { read_str(); }
+        }
         else if (key == "general.file_type") { cfg.quantization = ggml_ftype_name(read_u32()); }
         else {
             // Check for dimension keys (architecture-agnostic by checking suffixes)
@@ -230,7 +264,7 @@ static bool read_gguf_metadata(const std::string& path, ModelConfig& cfg) {
 
     // Derive head_dim from hidden / heads — unless the file gave an explicit
     // attention.key_length (authoritative; not always equal to hidden/heads).
-    if (!explicit_head_dim) cfg.head_dim = cfg.hidden / cfg.n_heads;
+    if (!explicit_head_dim) cfg.head_dim = (cfg.n_heads > 0) ? (cfg.hidden / cfg.n_heads) : 128;
     // Default KV heads to full if not set
     if (cfg.n_kv_heads == 0) cfg.n_kv_heads = cfg.n_heads;
     cfg.num_kv_heads = cfg.n_kv_heads;
@@ -738,6 +772,27 @@ bool read_gguf_tensor(const std::string& path, const std::string& tensor_name,
                 uint32_t bits = (uint32_t)h << 16;
                 float v; memcpy(&v, &bits, 4);
                 output[i] = v;
+            }
+            break;
+        }
+        case 24: { // I8: 1 byte/elem, raw signed int8, no scale
+            for (size_t i = 0; i < target->n; i++) {
+                int8_t v; fread(&v, 1, 1, f);
+                output[i] = (float)v;
+            }
+            break;
+        }
+        case 25: { // I16: 2 bytes/elem, raw signed int16, no scale
+            for (size_t i = 0; i < target->n; i++) {
+                int16_t v; fread(&v, 2, 1, f);
+                output[i] = (float)v;
+            }
+            break;
+        }
+        case 26: { // I32: 4 bytes/elem, raw signed int32, no scale
+            for (size_t i = 0; i < target->n; i++) {
+                int32_t v; fread(&v, 4, 1, f);
+                output[i] = (float)v;
             }
             break;
         }

@@ -76,6 +76,94 @@ int gguf_block_bytes(uint32_t dtype) {
     }
 }
 
+// ── K-quant dequantization ──────────────────────────────────────────────
+// Reference: llama.cpp ggml-quants.c block_q4_K / block_q6_K / block_q8_K
+
+// Reads a float16 value from a byte pointer
+static inline float read_f16(const uint8_t* p) {
+    uint16_t bits; memcpy(&bits, p, 2);
+    uint32_t u = (uint32_t)bits << 16;
+    float v; memcpy(&v, &u, 4); return v;
+}
+
+static bool dequant_q4_k(const uint8_t* bd, float* out, int count) {
+    // Q4_K: 256-elem superblock, 144 bytes
+    // d(2) + dmin(2) + scales(12) + qs(128)
+    const int BS = 256;
+    int nb = (count + BS - 1) / BS;
+    const uint8_t* p = bd;
+    for (int b = 0; b < nb; b++) {
+        float d = read_f16(p); p += 2;
+        float dmin = read_f16(p); p += 2;
+        uint8_t scales[12]; memcpy(scales, p, 12); p += 12;
+        uint8_t qs[128]; memcpy(qs, p, 128); p += 128;
+
+        auto get_scale_min = [&](int j, uint8_t& sc, uint8_t& m) {
+            if (j < 4) { sc = scales[j] & 63; m = scales[j + 4] & 63; }
+            else { sc = (uint8_t)((scales[j + 4] & 0xF) | ((scales[j - 4] >> 6) << 4));
+                   m = (uint8_t)((scales[j + 4] >> 4) | ((scales[j] >> 6) << 4)); }
+        };
+
+        int base = b * BS;
+        int is = 0; const uint8_t* q = qs;
+        for (int off = 0; off < BS && base + off < count; off += 64) {
+            uint8_t sc, m;
+            get_scale_min(is, sc, m);
+            float d1 = d * sc, m1 = dmin * m;
+            get_scale_min(is + 1, sc, m);
+            float d2 = d * sc, m2 = dmin * m;
+            for (int l = 0; l < 32 && base + off + l < count; l++)
+                out[base + off + l] = d1 * (q[l] & 0xF) - m1;
+            for (int l = 0; l < 32 && base + off + 32 + l < count; l++)
+                out[base + off + 32 + l] = d2 * (q[l] >> 4) - m2;
+            q += 32; is += 2;
+        }
+    }
+    return true;
+}
+
+static bool dequant_q6_k(const uint8_t* bd, float* out, int count) {
+    // Q6_K: 256-elem superblock, 210 bytes
+    const int BS = 256;
+    int nb = (count + BS - 1) / BS;
+    const uint8_t* p = bd;
+    for (int b = 0; b < nb; b++) {
+        uint8_t ql[128]; memcpy(ql, p, 128); p += 128;
+        uint8_t qh[64]; memcpy(qh, p, 64); p += 64;
+        int8_t scales[16]; memcpy(scales, p, 16); p += 16;
+        float d = read_f16(p); p += 2;
+
+        int base = b * BS;
+        for (int n = 0; n < BS; n += 128) {
+            for (int l = 0; l < 32 && base + n + l < count; l++) {
+                int8_t sc = scales[l / 2];
+                int v = (ql[n / 2 + l] & 0xF) | ((qh[n / 2 + l / 4] >> (4 * (l & 1))) & 0x30);
+                out[base + n + l] = d * sc * (v - 32);
+            }
+        }
+    }
+    return true;
+}
+
+static bool dequant_q8_k(const uint8_t* bd, float* out, int count) {
+    // Q8_K: 256-elem superblock, 292 bytes
+    // d(4) + qs(256) + bsums(32)
+    // Note: d is a full f32 (not f16) in Q8_K per ggml layout
+    const int BS = 256;
+    int nb = (count + BS - 1) / BS;
+    const uint8_t* p = bd;
+    for (int b = 0; b < nb; b++) {
+        float d; memcpy(&d, p, 4); p += 4;
+        int8_t qs[256]; memcpy(qs, p, 256); p += 256;
+        // Skip bsums (32 bytes) — not needed for dequant
+        p += 32;
+        int base = b * BS;
+        for (int l = 0; l < BS && base + l < count; l++)
+            out[base + l] = d * qs[l];
+    }
+    return true;
+}
+
 struct GgufReader {
     std::ifstream f;
     std::string arch;
@@ -284,8 +372,16 @@ struct GgufReader {
                     int8_t nib = (i & 1) ? (q[i >> 1] & 0x0F) : (q[i >> 1] >> 4);
                     out[start + i] = (nib - 8) * scale;
                 }
+            } else if (ti.dtype == GGUF_TYPE_Q4_K) {
+                return dequant_q4_k(bd.data(), out.data() + start, (int)count);
+            } else if (ti.dtype == GGUF_TYPE_Q6_K) {
+                return dequant_q6_k(bd.data(), out.data() + start, (int)count);
+            } else if (ti.dtype == GGUF_TYPE_Q8_K) {
+                return dequant_q8_k(bd.data(), out.data() + start, (int)count);
             } else {
-                for (uint64_t i = 0; i < count; ++i) out[start + i] = 0;
+                // Unsupported quantization (Q2_K, Q3_K, Q5_K, Q1_0, etc.)
+                fprintf(stderr, "  [gguf] unsupported quant type %d for tensor, aborting load\n", ti.dtype);
+                return false;
             }
         }
         return true;
