@@ -141,7 +141,7 @@ static void matmul_lmhead(float* out, const float* in, const float* wt, int V, i
     }
 }
 
-static float cosim(const float* a, const float* b, int n) {
+[[maybe_unused]] static float cosim(const float* a, const float* b, int n) {
     float d = 0, na = 0, nb = 0;
     for (int i = 0; i < n; i++) { d += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
     return d / (sqrtf(na) * sqrtf(nb) + 1e-12f);

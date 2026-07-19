@@ -267,13 +267,15 @@ rcpp_status_t rcpp_bitnet_load_gguf(const char* path, rcpp_bitnet_model_t* out_m
         : RCPP_WEIGHT_FORMAT_HALO_V2;
     if (reader.has_bst_tensor)
         out_model->flags |= H1B_FLAG_BLOCK_SCALED;
-    out_model->arch = RCPP_ARCH_QWEN3;
-    out_model->is_qwen3 = 1;
+    out_model->arch = rcpp_arch_from_string(reader.arch.c_str());
+    out_model->is_qwen3 = (out_model->arch == RCPP_ARCH_QWEN3) ? 1 : 0;
     
+    const size_t MAX_EL = 1ULL << 34; // 16B elements ~64 GB
     {
         std::vector<float> emb;
         if (!reader.read_tensor("token_embd.weight", emb))
             reader.read_tensor("model.embed_tokens.weight", emb);
+        if (emb.empty() || emb.size() > MAX_EL) { fprintf(stderr, "GGUF: invalid embedding size %zu\n", emb.size()); return RCPP_INVALID_ARG; }
         std::vector<_Float16> f16(emb.size());
         for (size_t i = 0; i < emb.size(); ++i) f16[i] = (_Float16)emb[i];
         HIP_CHECK(hipMalloc(&out_model->embedding_dev, f16.size() * sizeof(_Float16)));
@@ -298,6 +300,7 @@ rcpp_status_t rcpp_bitnet_load_gguf(const char* path, rcpp_bitnet_model_t* out_m
         auto lw = [&](const std::string& gn, void** std_ptr, void** bst_ptr, int r, int c) -> rcpp_status_t {
             std::vector<float> data;
             if (!reader.read_tensor(gn, data)) return RCPP_OK;
+            if (data.size() > MAX_EL) { fprintf(stderr, "GGUF: tensor %s too large (%zu el)\n", gn.c_str(), data.size()); return RCPP_INVALID_ARG; }
             std::vector<_Float16> f16(data.size());
             for (size_t i = 0; i < data.size(); ++i) f16[i] = (_Float16)data[i];
             void** target = reader.has_bst_tensor ? bst_ptr : std_ptr;

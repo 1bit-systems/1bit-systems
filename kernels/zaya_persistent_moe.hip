@@ -124,9 +124,14 @@ __global__ void persistent_moe_kernel(
         // For true persistency, the router itself would be a persistent block.
         // For now we use the split approach: router launches separately,
         // we wait for its completion flag.
-        while (load_flag(done_flags, layer, 0) == 0) {
-            // Spin-wait for router to finish. In practice the router
-            // launches before us and completes quickly.
+        // Spin-wait with bounded timeout to prevent GPU hang (issue #405)
+        const int MAX_SPINS = 1000000;
+        for (int _tries = 0; load_flag(done_flags, layer, 0) == 0; _tries++) {
+            if (_tries >= MAX_SPINS) {
+                // Timeout: mark output as NaN sentinel and bail out gracefully
+                if (threadIdx.x == 0) moe_out[(size_t)layer * H] = __float2half(__builtin_nanf(""));
+                return;
+            }
             // HIP doesn't have __nanosleep; use a volatile spin for ~100ns backoff
             for (volatile int _spin = 0; _spin < 32; _spin++) {}
         }

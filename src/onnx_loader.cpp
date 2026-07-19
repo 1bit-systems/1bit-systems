@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <string>
@@ -239,15 +240,155 @@ rcpp_status_t rcpp_bitnet_load_onnx(const char* path, rcpp_bitnet_model_t* out_m
     find_initializers(pb, tensors);
 
     fprintf(stderr, "[onnx] Found %zu tensors\\n", tensors.size());
+
+    // ── Build name → tensor lookup ──────────────────────────────────────────
+    std::unordered_map<std::string, OnnxTensor*> name_map;
+    for (auto& t : tensors) name_map[t.name] = &t;
+
+    auto lookup = [&](const std::string& name) -> OnnxTensor* {
+        auto it = name_map.find(name);
+        return (it != name_map.end()) ? it->second : nullptr;
+    };
+
+    // ── Determine number of layers ──────────────────────────────────────────
+    int n_layers = 0;
     for (auto& t : tensors) {
-        fprintf(stderr, "[onnx]   %s: [", t.name.c_str());
-        for (size_t i = 0; i < t.dims.size(); i++)
-            fprintf(stderr, "%s%ld", i ? "," : "", t.dims[i]);
-        fprintf(stderr, "] dtype=%d (%zu floats)\\n", t.data_type, t.float_data.size());
+        int lidx = -1;
+        if (sscanf(t.name.c_str(), "model.layers.%d.", &lidx) == 1 && lidx >= 0) {
+            if (lidx + 1 > n_layers) n_layers = lidx + 1;
+        }
+    }
+    if (n_layers == 0) {
+        fprintf(stderr, "[onnx] ERROR: no layers found\\n");
+        return RCPP_INVALID_ARG;
     }
 
-    // For now, just report what we found (actual weight loading is model-specific)
-    fprintf(stderr, "[onnx] Model loaded — weight extraction complete\\n");
+    // ── Determine model dimensions from tensor shapes ───────────────────────
+    auto* emb_t = lookup("model.embed_tokens.weight");
+    if (!emb_t || emb_t->dims.size() < 2) {
+        fprintf(stderr, "[onnx] ERROR: missing embed_tokens.weight\\n");
+        return RCPP_INVALID_ARG;
+    }
+    int hidden_size  = (int)emb_t->dims[1];
+    int vocab_size   = (int)emb_t->dims[0];
+
+    auto* gate0 = lookup("model.layers.0.mlp.gate_proj.weight");
+    int intermediate_size = gate0 ? (int)gate0->dims[0] : hidden_size;
+
+    // Detect dtype of weights (F32 or F16)
+    int weight_dtype = emb_t->data_type;
+
+    // ── Helper: allocate device memory and copy tensor data ─────────────────
+    auto tensor_to_dev = [&](OnnxTensor* t, size_t* out_bytes = nullptr) -> void* {
+        if (!t) {
+            if (out_bytes) *out_bytes = 0;
+            return nullptr;
+        }
+        size_t n_elems = t->float_data.size();
+        void* dev_ptr = nullptr;
+        size_t bytes = 0;
+
+        if (t->data_type == ONNX_FLOAT16) {
+            // Convert f32 back to f16 for device storage
+            bytes = n_elems * sizeof(uint16_t);
+            std::vector<uint16_t> f16_buf(n_elems);
+            for (size_t i = 0; i < n_elems; i++) {
+                float v = t->float_data[i];
+                uint32_t f32_bits; memcpy(&f32_bits, &v, 4);
+                uint32_t sign = (f32_bits >> 16) & 0x8000;
+                int32_t exp = ((int32_t)(f32_bits >> 23) & 0xff) - 127 + 15;
+                uint32_t mant = (f32_bits >> 13) & 0x3ff;
+                if (exp <= 0) { f16_buf[i] = (uint16_t)sign; }
+                else if (exp >= 31) { f16_buf[i] = (uint16_t)(sign | 0x7c00); }
+                else { f16_buf[i] = (uint16_t)(sign | (exp << 10) | mant); }
+            }
+            if (hipMalloc(&dev_ptr, bytes) != hipSuccess) return nullptr;
+            if (hipMemcpy(dev_ptr, f16_buf.data(), bytes, hipMemcpyHostToDevice) != hipSuccess) { hipFree(dev_ptr); return nullptr; }
+        } else if (t->data_type == ONNX_BFLOAT16) {
+            // TODO: BF16 support — need proper conversion; store as F32 for now
+            fprintf(stderr, "[onnx] WARNING: %s is BF16 — storing as F32 (TODO: proper BF16 support)\n", t->name.c_str());
+            bytes = n_elems * sizeof(float);
+            if (hipMalloc(&dev_ptr, bytes) != hipSuccess) return nullptr;
+            if (hipMemcpy(dev_ptr, t->float_data.data(), bytes, hipMemcpyHostToDevice) != hipSuccess) { hipFree(dev_ptr); return nullptr; }
+        } else if (t->data_type == ONNX_INT8) {
+            // TODO: INT8 support — need proper quantized storage
+            fprintf(stderr, "[onnx] WARNING: %s is INT8 — storing as F32 (TODO: proper INT8 support)\n", t->name.c_str());
+            bytes = n_elems * sizeof(float);
+            if (hipMalloc(&dev_ptr, bytes) != hipSuccess) return nullptr;
+            if (hipMemcpy(dev_ptr, t->float_data.data(), bytes, hipMemcpyHostToDevice) != hipSuccess) { hipFree(dev_ptr); return nullptr; }
+        } else {
+            // F32 (ONNX_FLOAT) or fallback
+            bytes = n_elems * sizeof(float);
+            if (hipMalloc(&dev_ptr, bytes) != hipSuccess) return nullptr;
+            if (hipMemcpy(dev_ptr, t->float_data.data(), bytes, hipMemcpyHostToDevice) != hipSuccess) { hipFree(dev_ptr); return nullptr; }
+        }
+
+        if (out_bytes) *out_bytes = bytes;
+        return dev_ptr;
+    };
+
+    // ── Allocate embedding and final norm ──────────────────────────────────
+    out_model->embedding_dev = tensor_to_dev(emb_t);
+
+    auto* norm_t = lookup("model.norm.weight");
+    out_model->final_norm_weight_dev = tensor_to_dev(norm_t);
+
+    // ── Allocate per-layer weights ──────────────────────────────────────────
+    out_model->layers = (rcpp_bitnet_layer_t*)calloc(n_layers, sizeof(rcpp_bitnet_layer_t));
+    if (!out_model->layers) return RCPP_INTERNAL;
+
+    for (int i = 0; i < n_layers; i++) {
+        char buf[256];
+        auto& L = out_model->layers[i];
+
+        snprintf(buf, sizeof(buf), "model.layers.%d.input_layernorm.weight", i);
+        L.input_norm_dev = tensor_to_dev(lookup(buf));
+
+        snprintf(buf, sizeof(buf), "model.layers.%d.post_attention_layernorm.weight", i);
+        L.post_attn_norm_dev = tensor_to_dev(lookup(buf));
+
+        snprintf(buf, sizeof(buf), "model.layers.%d.self_attn.q_proj.weight", i);
+        L.q_packed_dev = tensor_to_dev(lookup(buf));
+
+        snprintf(buf, sizeof(buf), "model.layers.%d.self_attn.k_proj.weight", i);
+        L.k_packed_dev = tensor_to_dev(lookup(buf));
+
+        snprintf(buf, sizeof(buf), "model.layers.%d.self_attn.v_proj.weight", i);
+        L.v_packed_dev = tensor_to_dev(lookup(buf));
+
+        snprintf(buf, sizeof(buf), "model.layers.%d.self_attn.o_proj.weight", i);
+        L.o_packed_dev = tensor_to_dev(lookup(buf));
+
+        snprintf(buf, sizeof(buf), "model.layers.%d.mlp.gate_proj.weight", i);
+        L.gate_packed_dev = tensor_to_dev(lookup(buf));
+
+        snprintf(buf, sizeof(buf), "model.layers.%d.mlp.up_proj.weight", i);
+        L.up_packed_dev = tensor_to_dev(lookup(buf));
+
+        snprintf(buf, sizeof(buf), "model.layers.%d.mlp.down_proj.weight", i);
+        L.down_packed_dev = tensor_to_dev(lookup(buf));
+    }
+
+    // ── Fill model metadata ─────────────────────────────────────────────────
+    out_model->hidden_size       = hidden_size;
+    out_model->intermediate_size = intermediate_size;
+    out_model->num_layers        = n_layers;
+    out_model->num_heads         = 0;      // caller should set from config
+    out_model->num_kv_heads      = 0;      // caller should set from config
+    out_model->vocab_size        = vocab_size;
+    out_model->max_seq_len       = 2048;
+    out_model->tie_embeddings    = 0;
+    out_model->rope_theta        = 10000.0f;
+    out_model->rms_norm_eps      = 1e-5f;
+    out_model->format_version    = 0;
+    out_model->flags             = 0;
+    out_model->weight_format     = RCPP_WEIGHT_FORMAT_HALO_V2;
+    out_model->is_qwen3          = 0;
+    out_model->arch              = RCPP_ARCH_BITNET;
+
+    fprintf(stderr, "[onnx] Model built: %d layers, hidden=%d, intermediate=%d, vocab=%d, dtype=%s\\n",
+            n_layers, hidden_size, intermediate_size, vocab_size,
+            weight_dtype == ONNX_FLOAT16 ? "F16" : "F32");
 
     return RCPP_OK;
 }

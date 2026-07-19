@@ -46,7 +46,7 @@ cd 1bit-systems
 curl -fsSL https://repo.radeon.com/rocm/rocm.gpg.key \
   | sudo gpg --dearmor -o /etc/apt/keyrings/rocm.gpg
 echo "deb [signed-by=/etc/apt/keyrings/rocm.gpg] \
-  https://repo.radeon.com/rocm/apt/7.2.4 jammy main" \
+  https://repo.radeon.com/rocm/apt/7.2.4 noble main" \
   | sudo tee /etc/apt/sources.list.d/rocm.list
 sudo apt update
 sudo apt install -y rocm-hip-libraries rocm-hip-dev rocm-device-libs

@@ -39,7 +39,7 @@ public:
 std::vector<InferenceBackend*> detect_backends();
 
 // Pick the fastest available backend
-InferenceBackend* select_best_backend();
+InferenceBackend* select_best_backend(std::vector<InferenceBackend*>* existing = nullptr);
 
 // Simple JSON helpers shared across backends
 namespace json_helpers {

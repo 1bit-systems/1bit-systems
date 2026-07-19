@@ -146,8 +146,10 @@ __global__ void cca_attn_kernel(
         // Not needed for now - let's use a simpler approach
     }
     
-    // For now, let's just process in a single warp
-    // Rest of CCA attention will be implemented in stages
+    // WARNING: This kernel is an incomplete stub (#403). It does NOT produce
+    // valid output. The server uses cca_custom_kernel from zaya_cca_custom.hip
+    // instead. Trap if accidentally launched to avoid silent garbage output.
+    __builtin_trap();
 }
 
 // GQA is not referenced elsewhere in this file — undef so later .hip files

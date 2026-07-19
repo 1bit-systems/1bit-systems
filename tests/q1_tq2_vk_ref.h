@@ -44,7 +44,8 @@ inline float fp16ToFloat(uint16_t h) {
 }
 
 inline float tq2CodeValue(uint32_t code) {
-    return (float)code - 1.0f;
+    // Code map: 0b00→-1, 0b01→0, 0b10→+1, 0b11→0 (reserved, matches shader)
+    return code == 3 ? 0.0f : (float)code - 1.0f;
 }
 
 // Dot product of one packed TQ2 row ((k/128)*34 bytes) against a k-length

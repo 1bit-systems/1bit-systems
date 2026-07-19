@@ -61,7 +61,7 @@ This guide covers how to build, test, and contribute to the project.
 | Target NPU | **XDNA 2** — 32 tiles, INT8, via C++23 engine + XRT 2.21+ |
 | CPU fallback | Any x86-64 with OpenMP |
 | Auto-detect | Reads Q4NX model header — no config files |
-| Linux kernel | Ubuntu 26.04+ / kernel 7.0.0+ (6.18.22-lts recommended for stability) |
+| Linux kernel | Ubuntu 24.04 LTS or later / kernel 7.0.0+ (6.18.22-lts recommended for stability) |
 | License | MIT (Sherry-specific kernels: PolyForm Noncommercial 1.0.0) |
 | ⚠️ Known issue | Kernel 6.19.x has an amdgpu OPTC CRTC hang under sustained NPU+GPU load on Strix Halo (gfx1151). Use 7.0.0+ or 6.18.22-lts. See issue #1. |
 
@@ -100,7 +100,7 @@ See [docs/building.md](docs/building.md) for full prerequisites and [docs/gettin
 **Software:**
 | Dependency | Version | Purpose |
 |------------|---------|---------|
-| Ubuntu | 26.04+ (kernel 7.0.0+) | Host OS |
+| Ubuntu | 24.04 LTS or later (kernel 7.0.0+) | Host OS |
 | CMake | ≥ 3.21 | Build system |
 | Ninja | latest | Fast builds |
 | ROCm | **7.2.4** | HIP compiler + composable kernel |
@@ -390,11 +390,11 @@ The project uses GitHub Actions (`.github/workflows/ci.yml`):
 
 | Job | What it checks |
 |-----|----------------|
-| `cpp` | CMake configure + build, ROCm availability, ShellCheck |
-| `rust` | Rust auxiliary tooling (not a server dependency) |
-| `deploy` | Deploys `site/` to Cloudflare Pages |
-| `bench` | Benchmark regression tracking |
-| `release` | Package builds (deb, snap, tarball, Docker) |
+| `cpp` | CMake configure + build, ROCm availability, ShellCheck, host tests |
+| `version` | Version consistency across manifest files + Q4NX round-trip test |
+| `rust` | Rust proxy build + test |
+| `ts` | TypeScript CLI type-check |
+| `fusion` | Fused engine build + smoke test |
 
 PRs must pass the `cpp` job before merge.
 

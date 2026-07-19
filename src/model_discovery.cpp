@@ -134,7 +134,7 @@ static bool read_gguf_metadata(const std::string& path, ModelConfig& cfg) {
         auto read_f32 = [&]() -> float {
             float v; fread(&v, 4, 1, f); return v;
         };
-        auto read_arr = [&]() -> uint32_t {
+        [[maybe_unused]] auto read_arr = [&]() -> uint32_t {
             uint32_t vtype, n; fread(&vtype, 4, 1, f); fread(&n, 4, 1, f);
             if (vtype == 4 && n >= 1) { uint32_t v; fread(&v, 4, 1, f); return v; }
             fseek(f, n * 4, SEEK_CUR);
@@ -146,6 +146,7 @@ static bool read_gguf_metadata(const std::string& path, ModelConfig& cfg) {
             // Keep separate from model_name (general.name), which commonly appears
             // later in the same file and would otherwise clobber this value.
             cfg.architecture = read_str();
+            cfg.arch = rcpp_arch_from_string(cfg.architecture.c_str());
         }
         else if (key == "general.name") { cfg.model_name = read_str(); }
         else if (key == "tokenizer.ggml.model") { /* ignore */ }

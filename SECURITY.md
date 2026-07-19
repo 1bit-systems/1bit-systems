@@ -22,8 +22,8 @@ This is a small open-source project. If you find a security issue:
 
 The following are in scope:
 - The NPU engine (`engine/npu/src/`)
-- The HTTP API server (`packaging/binary/server.cpp`)
-- The GPU engine (`engine/gpu/`)
+- The HTTP API server (`tests/zaya_server.cpp`)
+- The GPU kernels (`kernels/`, `src/*.hip`)
 - Build-time toolchain (XRT, Chess compiler)
 
 Out of scope:

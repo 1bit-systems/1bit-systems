@@ -215,6 +215,8 @@ extern std::vector<InferenceBackend*> detect_backends_hip();
 // Weak stubs for optional backends (real impls in backend_vulkan.cpp / backend_npu.cpp)
 __attribute__((weak)) std::vector<InferenceBackend*> detect_backends_vulkan() { return {}; }
 __attribute__((weak)) std::vector<InferenceBackend*> detect_backends_npu() { return {}; }
+extern std::vector<InferenceBackend*> detect_backends_generic();
+__attribute__((weak)) std::vector<InferenceBackend*> detect_backends_zinc() { return {}; }
 
 std::vector<InferenceBackend*> detect_backends() {
     std::vector<InferenceBackend*> backends;
@@ -228,14 +230,21 @@ std::vector<InferenceBackend*> detect_backends() {
     auto npu_backends = detect_backends_npu();
     for (auto* b : npu_backends) backends.push_back(b);
 
+    auto generic_backends = detect_backends_generic();
+    for (auto* b : generic_backends) backends.push_back(b);
+
+    auto zinc_backends = detect_backends_zinc();
+    for (auto* b : zinc_backends) backends.push_back(b);
+
     static CpuBackend cpu_backend;
     backends.push_back(&cpu_backend);
 
     return backends;
 }
 
-InferenceBackend* select_best_backend() {
-    auto backends = detect_backends();
+InferenceBackend* select_best_backend(std::vector<InferenceBackend*>* existing) {
+    auto owned = existing ? std::vector<InferenceBackend*>() : detect_backends();
+    auto& backends = existing ? *existing : owned;
     InferenceBackend* best = nullptr;
     float best_tok_s = 0;
     for (auto* b : backends) {

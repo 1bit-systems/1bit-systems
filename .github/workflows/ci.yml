@@ -80,7 +80,7 @@ jobs:
               test_medusa_skeleton test_standalone_nock test_prim_and_attn \
               test_ternary_gemm_smallm test_sherry_gemv test_bonsai_gemv \
               test_zaya_moe_gemv test_cca_attn test_wmma_i8_gemv \
-              test_bonsai_e2e test_sherry_e2e
+              test_bonsai_e2e test_sherry_e2e test_block_scaled_ternary
           else
             echo "ROCm not available on this runner — reference checks only."
             if [ -f tests/test_medusa_skeleton.cpp ]; then

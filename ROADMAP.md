@@ -233,7 +233,7 @@ See [docs/business-plan.md](docs/business-plan.md) for full economics.
 4. **Export codec to ONNX** — Agnostic inference path (CPU, GPU, NPU)
 5. **Integrate voice pipeline into Jarvis** — Replace Piper with codec-based voice engine
 6. **Test end-to-end** — 🎤 → Codec Encode → ZAYA → Codec Decode → 🔊
-7. **Set up Stripe billing** — Already have Stripe account (acct_1TUvAmJnXt3bWED8)
+7. **Set up Stripe billing** — Already have Stripe account
 
 *Agnostic by design — voice packs work with any LLM, any hardware, any platform.*
 

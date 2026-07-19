@@ -44,7 +44,16 @@ static float fp16_to_fp32(uint16_t h) {
 #define GGUF_TYPE_F32  0
 #define GGUF_TYPE_F16  1
 #define GGUF_TYPE_Q4_0 2
+#define GGUF_TYPE_Q4_1 3
+#define GGUF_TYPE_Q5_0 6
 #define GGUF_TYPE_Q8_0 7
+#define GGUF_TYPE_Q5_1 8
+#define GGUF_TYPE_Q2_K 10
+#define GGUF_TYPE_Q3_K 11
+#define GGUF_TYPE_Q4_K 12
+#define GGUF_TYPE_Q5_K 13
+#define GGUF_TYPE_Q6_K 14
+#define GGUF_TYPE_Q8_K 15
 
 struct GgufTensor {
     std::string name;
@@ -199,6 +208,153 @@ struct GgufReader {
                 for (int j = 0; j < 32 && b*32+j < n; j++)
                     scratch[b*32+j] = q[j] * scale;
             }
+        } else if (t.dtype == GGUF_TYPE_Q4_1) {
+            // Q4_1: fp16 scale + fp16 min + 16 bytes 4-bit nibbles per 32 elements
+            int blocks = (n + 31) / 32;
+            for (int b = 0; b < blocks; b++) {
+                uint16_t sh, mh; fread(&sh, 2, 1, f); fread(&mh, 2, 1, f);
+                float scale = fp16_to_fp32(sh), min = fp16_to_fp32(mh);
+                uint8_t q[16]; fread(q, 1, 16, f);
+                for (int j = 0; j < 32 && b*32+j < n; j++) {
+                    int8_t v = (j & 1) ? (q[j>>1] >> 4) : (q[j>>1] & 0xf);
+                    scratch[b*32+j] = v * scale + min;
+                }
+            }
+        } else if (t.dtype == GGUF_TYPE_Q5_0) {
+            // Q5_0: 2B fp16 scale + 2B fp16 min + 4B packed high bits + 16B 4-bit low nibbles per 32
+            int blocks = (n + 31) / 32;
+            for (int b = 0; b < blocks; b++) {
+                uint16_t sh, mh; fread(&sh, 2, 1, f); fread(&mh, 2, 1, f);
+                float scale = fp16_to_fp32(sh), min = fp16_to_fp32(mh);
+                uint32_t qh; fread(&qh, 4, 1, f);
+                uint8_t ql[16]; fread(ql, 1, 16, f);
+                for (int j = 0; j < 32 && b*32+j < n; j++) {
+                    int8_t v = ((qh >> j) & 1) ? 16 : 0;
+                    v += (j & 1) ? (ql[j>>1] >> 4) : (ql[j>>1] & 0xf);
+                    scratch[b*32+j] = (v - 16) * scale + min;
+                }
+            }
+        } else if (t.dtype == GGUF_TYPE_Q5_1) {
+            // Q5_1: fp16 scale + fp16 min + 4B high bits + 16B 4-bit low nibbles per 32
+            int blocks = (n + 31) / 32;
+            for (int b = 0; b < blocks; b++) {
+                uint16_t sh, mh; fread(&sh, 2, 1, f); fread(&mh, 2, 1, f);
+                float scale = fp16_to_fp32(sh), min = fp16_to_fp32(mh);
+                uint32_t qh; fread(&qh, 4, 1, f);
+                uint8_t ql[16]; fread(ql, 1, 16, f);
+                for (int j = 0; j < 32 && b*32+j < n; j++) {
+                    int8_t v = ((qh >> j) & 1) ? 16 : 0;
+                    v += (j & 1) ? (ql[j>>1] >> 4) : (ql[j>>1] & 0xf);
+                    scratch[b*32+j] = v * scale + min;
+                }
+            }
+        } else if (t.dtype == GGUF_TYPE_Q8_K) {
+            // Q8_K: 2B fp16 dscale + 256 int8 quants
+            int blocks = (n + 255) / 256;
+            for (int b = 0; b < blocks; b++) {
+                uint16_t dsh; fread(&dsh, 2, 1, f);
+                float dscale = fp16_to_fp32(dsh);
+                int8_t q[256]; fread(q, 1, 256, f);
+                for (int j = 0; j < 256 && b*256+j < n; j++)
+                    scratch[b*256+j] = q[j] * dscale;
+            }
+        } else if (t.dtype == GGUF_TYPE_Q6_K) {
+            // Q6_K: super-block fp16 dscale + 16 sub-blocks, each: 1B 6-bit sub-scale + 16B 6-bit quants (packed as 3 uint16 per 8)
+            int sblocks = (n + 255) / 256;
+            for (int sb = 0; sb < sblocks; sb++) {
+                uint16_t dsh; fread(&dsh, 2, 1, f);
+                float dscale = fp16_to_fp32(dsh);
+                uint8_t ql[16*16], qh[16*2]; fread(ql, 1, 16*16, f); fread(qh, 1, 16*2, f);
+                for (int sub = 0; sub < 16; sub++) {
+                    uint8_t ss = ((qh[sub*2] >> ((sub & 1) * 4)) & 0xf) | ((ql[16*16-16+sub] & 0x3f) << 4);
+                    float scl = dscale * (ss > 0 ? ss : 1.0f);
+                    for (int j = 0; j < 16 && sb*256+sub*16+j < n; j++) {
+                        int idx = sub*16 + j;
+                        int8_t v = ((ql[idx] | ((qh[sub*2+(j/8)] & 0x3f) << 8)) >> (j & 7) * 3) & 7;
+                        scratch[sb*256+sub*16+j] = (v - 3) * scl;
+                    }
+                }
+            }
+        } else if (t.dtype == GGUF_TYPE_Q4_K) {
+            // Q4_K: super-block fp16 dscale + fp16 dmin + packed sub-scales + 16B 4-bit nibbles per sub-block
+            int sblocks = (n + 255) / 256;
+            for (int sb = 0; sb < sblocks; sb++) {
+                uint16_t dsh, dmh; fread(&dsh, 2, 1, f); fread(&dmh, 2, 1, f);
+                float dscale = fp16_to_fp32(dsh), dmin = fp16_to_fp32(dmh);
+                uint8_t ss[12]; fread(ss, 1, 12, f);
+                uint8_t sm[4]; fread(sm, 1, 4, f);
+                uint8_t q[16*16]; fread(q, 1, 16*16, f);
+                for (int sub = 0; sub < 16; sub++) {
+                    int si = sub * 3 / 2, shift = (sub & 1) * 4;
+                    uint8_t sub_scale = (si < 12) ? ((ss[si] >> shift) & 0xf) : 0;
+                    sub_scale |= ((sm[sub/2] >> ((sub & 1) * 4)) & 0xf) << 4;
+                    float scl = dscale * sub_scale, mn = dmin * ((sm[sub/2] >> ((sub & 1) * 4)) & 0xf);
+                    for (int j = 0; j < 16 && sb*256+sub*16+j < n; j++) {
+                        int idx = sub*16 + j;
+                        int8_t v = (j & 1) ? (q[idx>>1] >> 4) : (q[idx>>1] & 0xf);
+                        scratch[sb*256+sub*16+j] = v * scl - mn;
+                    }
+                }
+            }
+        } else if (t.dtype == GGUF_TYPE_Q3_K) {
+            // Q3_K: super-block fp16 dscale + packed sub-scales + 2B high quants + 16B 2-bit low quants per sub-block
+            int sblocks = (n + 255) / 256;
+            for (int sb = 0; sb < sblocks; sb++) {
+                uint16_t dsh; fread(&dsh, 2, 1, f);
+                float dscale = fp16_to_fp32(dsh);
+                uint8_t ss_high[2]; fread(ss_high, 1, 2, f);
+                uint8_t qh[16*2], ql[16*16]; fread(qh, 1, 16*2, f); fread(ql, 1, 16*16, f);
+                for (int sub = 0; sub < 16; sub++) {
+                    uint8_t ss_low = (sub & 1) ? (qh[sub/2] >> 4) : (qh[sub/2] & 0xf);
+                    uint8_t ss = ((ss_high[sub/8] >> ((sub & 7) * 3)) & 7) | (ss_low << 4);
+                    float scl = dscale * (ss > 0 ? ss : 1.0f);
+                    for (int j = 0; j < 16 && sb*256+sub*16+j < n; j++) {
+                        int idx = sub*16 + j;
+                        int8_t vh = ((qh[sub*2+(j/8)] >> ((j & 7) * 3)) & 7) << 2;
+                        int8_t vl = (ql[idx] >> ((j & 3) * 2)) & 3;
+                        scratch[sb*256+sub*16+j] = (vh + vl - 9) * scl;
+                    }
+                }
+            }
+        } else if (t.dtype == GGUF_TYPE_Q2_K) {
+            // Q2_K: super-block fp16 dscale + fp16 dmin + packed sub-scales + 16B 2-bit quants per sub-block
+            int sblocks = (n + 255) / 256;
+            for (int sb = 0; sb < sblocks; sb++) {
+                uint16_t dsh, dmh; fread(&dsh, 2, 1, f); fread(&dmh, 2, 1, f);
+                float dscale = fp16_to_fp32(dsh), dmin = fp16_to_fp32(dmh);
+                uint8_t ss[16]; fread(ss, 1, 16, f);
+                uint8_t q[16*16]; fread(q, 1, 16*16, f);
+                for (int sub = 0; sub < 16; sub++) {
+                    float scl = dscale * (ss[sub] & 0xf), mn = dmin * (ss[sub] >> 4);
+                    for (int j = 0; j < 16 && sb*256+sub*16+j < n; j++) {
+                        int idx = sub*16 + j;
+                        int8_t v = (q[idx] >> ((j & 3) * 2)) & 3;
+                        scratch[sb*256+sub*16+j] = v * scl - mn;
+                    }
+                }
+            }
+        } else if (t.dtype == GGUF_TYPE_Q5_K) {
+            // Q5_K: super-block fp16 dscale + fp16 dmin + packed sub-scales + 2B high + 16B 4-bit low per sub-block
+            int sblocks = (n + 255) / 256;
+            for (int sb = 0; sb < sblocks; sb++) {
+                uint16_t dsh, dmh; fread(&dsh, 2, 1, f); fread(&dmh, 2, 1, f);
+                float dscale = fp16_to_fp32(dsh), dmin = fp16_to_fp32(dmh);
+                uint8_t ss[12]; fread(ss, 1, 12, f);
+                uint8_t sm[4]; fread(sm, 1, 4, f);
+                uint8_t qh[16*2], ql[16*16]; fread(qh, 1, 16*2, f); fread(ql, 1, 16*16, f);
+                for (int sub = 0; sub < 16; sub++) {
+                    int si = sub * 3 / 2, shift = (sub & 1) * 4;
+                    uint8_t sub_scale = (si < 12) ? ((ss[si] >> shift) & 0xf) : 0;
+                    sub_scale |= ((sm[sub/2] >> ((sub & 1) * 4)) & 0xf) << 4;
+                    float scl = dscale * sub_scale, mn = dmin * ((sm[sub/2] >> ((sub & 1) * 4)) & 0xf);
+                    for (int j = 0; j < 16 && sb*256+sub*16+j < n; j++) {
+                        int idx = sub*16 + j;
+                        int8_t vh = (qh[sub*2+(j/8)] >> (j & 7)) & 1;
+                        int8_t vl = (j & 1) ? (ql[idx>>1] >> 4) : (ql[idx>>1] & 0xf);
+                        scratch[sb*256+sub*16+j] = (vh * 16 + vl) * scl - mn;
+                    }
+                }
+            }
         }
         return scratch.data();
     }
@@ -249,12 +405,12 @@ struct SafeTensorsReader {
             pos = ke + 1;
             if (key == "__metadata__") continue;
             
-            auto dq = json_str.find('"dtype"', pos);
+            auto dq = json_str.find("\"dtype\"", pos);
             if (dq == std::string::npos) continue;
             auto vs = json_str.find('"', dq + 7) + 1, ve = json_str.find('"', vs);
             dtypes[key] = json_str.substr(vs, ve - vs);
             
-            auto shq = json_str.find('"shape"', ve);
+            auto shq = json_str.find("\"shape\"", ve);
             if (shq == std::string::npos) continue;
             auto sb = json_str.find('[', shq), eb = json_str.find(']', sb);
             std::vector<uint64_t> sh;
@@ -266,7 +422,7 @@ struct SafeTensorsReader {
             }
             shapes[key] = sh;
             
-            auto doq = json_str.find('"data_offsets"', eb);
+            auto doq = json_str.find("\"data_offsets\"", eb);
             if (doq == std::string::npos) continue;
             auto dob = json_str.find('[', doq), doeb = json_str.find(']', dob);
             std::string ds = json_str.substr(dob + 1, doeb - dob - 1);
@@ -360,8 +516,7 @@ struct GenericBackend : Backend {
         embed = W("model_embed_tokens_weight.bin");
         final_norm = W("model_norm_weight.bin");
 
-        int H = cfg.hidden, L = cfg.n_layers, NH = cfg.n_heads, NKV = cfg.n_kv_heads, HD = cfg.head_dim;
-        int FF = cfg.intermediate_size;
+        int L = cfg.n_layers;
         layers.resize(L);
         for (int i = 0; i < L; i++) {
             std::string p = "model_layers_" + std::to_string(i) + "_";
@@ -439,8 +594,10 @@ struct GenericBackend : Backend {
         if (!read_gguf_header(path, hdr_cfg)) return false;
         fprintf(stderr, "load_gguf: %s, %d layers, %d hidden\n", hdr_cfg.model_name.c_str(), hdr_cfg.n_layers, hdr_cfg.hidden);
         
-        int H = cfg.hidden, L = cfg.n_layers, NH = cfg.n_heads, NKV = cfg.n_kv_heads, HD = cfg.head_dim;
-        int FF = cfg.intermediate_size, V = cfg.vocab;
+        int H = hdr_cfg.hidden_size, L = hdr_cfg.n_layers, NH = hdr_cfg.n_heads;
+        int NKV = hdr_cfg.n_kv_heads, HD = hdr_cfg.head_dim;
+        int FF = hdr_cfg.intermediate_size;
+        [[maybe_unused]] int V = hdr_cfg.vocab_size;
         
         auto load = [&](const std::string& name, std::vector<float>& dst, size_t expected) -> bool {
             std::vector<float> buf;
@@ -610,6 +767,50 @@ struct GenericBackend : Backend {
         }
     }
 
+    // GELU activation (tanh approximation): 0.5*x*(1+tanh(sqrt(2/pi)*(x+0.044715*x^3)))
+    static void gelu(float* out, const float* x, int n) {
+        const float c = 0.7978845608f; // sqrt(2/pi)
+        for (int i = 0; i < n; i++) {
+            float v = x[i];
+            float x3 = v * v * v;
+            float inner = c * (v + 0.044715f * x3);
+            out[i] = 0.5f * v * (1.0f + tanhf(inner));
+        }
+    }
+
+    // GeGLU: gelu(gate) * up — used by Gemma
+    static void geglu(float* out, const float* gate, const float* up, int n) {
+        gelu(out, gate, n);
+        for (int i = 0; i < n; i++) out[i] *= up[i];
+    }
+
+    // Squared ReLU GLU: relu(gate)^2 * up — used by Phi
+    static void squared_relu_glu(float* out, const float* gate, const float* up, int n) {
+        for (int i = 0; i < n; i++) {
+            float g = gate[i];
+            float r = g > 0.0f ? g : 0.0f;
+            out[i] = r * r * up[i];
+        }
+    }
+
+    // Architecture-specific FFN activation dispatch
+    static void ffn_activate(float* out, const float* gate, const float* up, int n, rcpp_arch_t arch) {
+        switch (arch) {
+            case RCPP_ARCH_GEMMA:
+                // GeGLU: gelu(gate) * up
+                geglu(out, gate, up, n);
+                break;
+            case RCPP_ARCH_PHI:
+                // Squared ReLU GLU: relu(gate)^2 * up
+                squared_relu_glu(out, gate, up, n);
+                break;
+            default:
+                // SwiGLU: silu(gate) * up — Llama, Mistral, Qwen2, Qwen3, BitNet, fallback
+                silu(out, gate, up, n);
+                break;
+        }
+    }
+
     static void softmax(float* x, int n) {
         float mx = x[0]; for (int i = 1; i < n; i++) if (x[i] > mx) mx = x[i];
         float sum = 0; for (int i = 0; i < n; i++) sum += expf(x[i] - mx);
@@ -709,8 +910,8 @@ struct GenericBackend : Backend {
             // Residual
             for (int i = 0; i < H; i++) x[i] += x2[i];
 
-            // FFN: RMSNorm → gate/up → SiLU → down → residual (dense), or
-            // RMSNorm → router top-k → per-expert gate/up/SiLU/down,
+            // FFN: RMSNorm → gate/up → activation (arch-specific) → down → residual (dense), or
+            // RMSNorm → router top-k → per-expert gate/up/activation/down,
             // weighted sum → residual (MoE).
             rmsnorm(x2.data(), x.data(), w(l.rms_ffn), H, eps);
             if (l.moe_gate_inp != SIZE_MAX) {
@@ -741,7 +942,7 @@ struct GenericBackend : Backend {
                     float* wd = w(l.moe_down_exps) + (size_t)e * H * FF;
                     matmul(gate_buf.data(), x2.data(), wg, FF, H);
                     matmul(up_buf.data(), x2.data(), wu, FF, H);
-                    silu(silu_buf.data(), gate_buf.data(), up_buf.data(), FF);
+                    ffn_activate(silu_buf.data(), gate_buf.data(), up_buf.data(), FF, cfg.arch);
                     matmul(down_buf.data(), silu_buf.data(), wd, H, FF);
                     for (int i = 0; i < H; i++) ffn_acc[i] += we * down_buf[i];
                 }
@@ -750,7 +951,7 @@ struct GenericBackend : Backend {
                 matmul(gate_up.data(), x2.data(), w(l.w1), FF, H);
                 matmul(&gate_up[FF], x2.data(), w(l.w2), FF, H);
                 std::vector<float> silu_buf(FF);
-                silu(silu_buf.data(), gate_up.data(), &gate_up[FF], FF);
+                ffn_activate(silu_buf.data(), gate_up.data(), &gate_up[FF], FF, cfg.arch);
                 matmul(x2.data(), silu_buf.data(), w(l.w3), H, FF);
                 for (int i = 0; i < H; i++) x[i] += x2[i];
             }

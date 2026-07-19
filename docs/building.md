@@ -36,7 +36,7 @@ Install ROCm via the official AMD repository or a local package install.
 ```bash
 # Add AMD ROCm repository (adjust for your distro)
 curl -fsSL https://repo.radeon.com/rocm/rocm.gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/rocm.gpg
-echo "deb [signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.2.4 jammy main" \
+echo "deb [signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.2.4 noble main" \
   | sudo tee /etc/apt/sources.list.d/rocm.list
 sudo apt update
 sudo apt install -y rocm-dev hipcc

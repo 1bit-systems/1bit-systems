@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "rocm_cpp/bitnet_model.h"
 
 enum class BackendType : uint8_t {
     NONE = 0,
@@ -85,6 +86,7 @@ struct ModelConfig {
     ModelFormat format = ModelFormat::UNKNOWN;
     std::string architecture;   // e.g. "llama", "qwen2", "qwen3", "gemma", "phi3", "zaya1" — from
                                  // general.architecture (GGUF) or format-specific header, NOT model_name
+    rcpp_arch_t arch = RCPP_ARCH_BITNET;  // enum from architecture string; used for dispatch
     std::string quantization;   // best-effort, e.g. "Q4_K_M", "Q8_0", "F16", "ternary"
 
     // ── Helper: set all aliased dimension fields at once ────────

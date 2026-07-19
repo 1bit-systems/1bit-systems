@@ -122,7 +122,7 @@ public:
 
         // Load layers (CPU-side FP32 — Vulkan will use these directly)
         layers_.resize(N_LAYERS);
-        std::string L(int i) { return "model_layers_" + std::to_string(i); }
+        auto L = [](int i) { return "model_layers_" + std::to_string(i); };
 
         for (int il = 0; il < N_LAYERS; il++) {
             auto& l = layers_[il];

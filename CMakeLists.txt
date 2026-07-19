@@ -428,13 +428,23 @@ set_target_properties(test_lora_merge PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_
 
 # -- zaya_server : multi-model multi-backend inference server (main binary,
 #    NOT a test — not registered with add_test(), see install() below) ------
-add_executable(zaya_server tests/zaya_server.cpp tests/backends/backend_cpu.cpp tests/backends/backend_hip.cpp tests/backends/backend_npu.cpp)
+set(ZAYA_SERVER_SRC tests/zaya_server.cpp tests/backends/backend_cpu.cpp tests/backends/backend_hip.cpp tests/backends/backend_npu.cpp tests/backends/backend_generic.cpp)
+if(RCPP_HAVE_VULKAN)
+    list(APPEND ZAYA_SERVER_SRC tests/backends/backend_vulkan.cpp)
+endif()
+if(ZINC_ENABLED)
+    list(APPEND ZAYA_SERVER_SRC tests/backends/backend_zinc.cpp)
+endif()
+add_executable(zaya_server ${ZAYA_SERVER_SRC})
 set_source_files_properties(tests/zaya_server.cpp tests/backends/backend_hip.cpp PROPERTIES LANGUAGE HIP)
 target_include_directories(zaya_server PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/tests/backends)
 target_compile_options(zaya_server PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(zaya_server PRIVATE rocm_cpp hip::host hip::device httplib::httplib nlohmann_json::nlohmann_json)
 set_target_properties(zaya_server PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 install(TARGETS zaya_server RUNTIME DESTINATION bin)
+if(RCPP_HAVE_VULKAN)
+    target_link_libraries(zaya_server PRIVATE Vulkan::Vulkan)
+endif()
 
 rocm_hip_target(test_wmma_i8_gemv tests/test_wmma_i8_gemv.cpp)
 rocm_hip_target(test_bonsai_e2e tests/test_bonsai_e2e.cpp)

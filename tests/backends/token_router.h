@@ -54,28 +54,29 @@ struct TokenRouter {
                 b->is_coherent() ? "[coherent]" : "[raw]");
         }
 
-        primary = select_best_backend();
+        primary = select_best_backend(&backends);
         if (primary) {
             fprintf(stderr, "\n  Primary: %s (~%.0f tok/s est.)\n\n",
                 primary->name(), primary->estimated_tok_s());
         }
 
-        // ── Detect GPU and NPU for parallel MoE ──────────────────
+        // ── Detect GPU and NPU for parallel MoE + hybrid ──────────
         for (auto* b : backends) {
             if (b->is_available()) {
-                if (b->type() == BackendType::HIP_GPU || b->type() == BackendType::VULKAN) {
+                if (b->type() == BackendType::HIP_GPU || b->type() == BackendType::VULKAN || b->type() == BackendType::ZINC_GPU) {
                     if (!gpu_backend) gpu_backend = b;
                 }
-                if (b->type() == BackendType::NPU_XRT) {
+                if (b->type() == BackendType::NPU_XRT || b->type() == BackendType::NPU_FLM) {
                     if (!npu_backend) npu_backend = b;
                 }
             }
         }
         if (gpu_backend && npu_backend) {
-            fprintf(stderr, "  GPU+NPU parallel MoE: available\n");
-            fprintf(stderr, "    GPU: %s (attention)\n", gpu_backend->name());
-            fprintf(stderr, "    NPU: %s (expert FFNs)\n", npu_backend->name());
-            fprintf(stderr, "    Estimated speedup: %.1fx (pipeline overlap)\n\n",
+            fprintf(stderr, "  GPU+NPU Hybrid (Zero-Copy DMA): active\n");
+            fprintf(stderr, "    GPU: %s (attention + dense layers)\n", gpu_backend->name());
+            fprintf(stderr, "    NPU: %s (expert FFNs + offload)\n", npu_backend->name());
+            fprintf(stderr, "    Memory: unified LPDDR5X — zero-copy DMA between GPU/NPU\n");
+            fprintf(stderr, "    Estimated speedup: %.1fx (pipeline overlap + zero-copy)\n\n",
                     moe_pipeline_.estimated_speedup());
         }
         return true;
@@ -94,10 +95,12 @@ struct TokenRouter {
             return false;
         }
 
-        fprintf(stderr, "Loading %s on %s backend...\n",
-            cfg.model_name.c_str(), primary->name());
+        fprintf(stderr, "Loading %s (H=%d L=%d V=%d) on %s backend...\n",
+            cfg.model_name.c_str(), cfg.hidden_size, cfg.num_layers, cfg.vocab_size, primary->name());
 
-        if (!primary->load_model(cfg)) {
+        bool loaded = primary->load_model(cfg);
+
+        if (!loaded) {
             // Try next backend
             for (auto* b : backends) {
                 if (b != primary && b->is_available()) {

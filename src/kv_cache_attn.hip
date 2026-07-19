@@ -111,7 +111,7 @@ void kv_cache_attn_decode_kernel(
     }
 
     // Normalize + write out
-    const float inv_l = 1.0f / l;
+    const float inv_l = (l > 0.0f) ? (1.0f / l) : 0.0f;
     for (int ei = 0; ei < elems_per_thread; ++ei) {
         int d = tid + ei * BLOCK;
         if (d < head_dim) {
@@ -141,7 +141,8 @@ rcpp_kv_cache_attn_decode(const void* Q_dev, const void* K_dev, const void* V_de
                        static_cast<const __half*>(V_dev),
                        static_cast<__half*>(out_dev),
                        num_q_heads, num_kv_heads, head_dim, seq_len, scale);
-    return RCPP_OK;
+    hipError_t err = hipGetLastError();
+    return (err == hipSuccess) ? RCPP_OK : RCPP_HIP_ERROR;
 }
 
 // ============================================================================
@@ -224,7 +225,7 @@ void kv_cache_attn_prefill_kernel(
         m = m_new;
     }
 
-    const float inv_l = 1.0f / l;
+    const float inv_l = (l > 0.0f) ? (1.0f / l) : 0.0f;
     for (int ei = 0; ei < elems_per_thread; ++ei) {
         int d = tid + ei * BLOCK;
         if (d < head_dim) {
@@ -253,5 +254,6 @@ rcpp_kv_cache_attn_prefill(const void* Q_dev, const void* K_dev, const void* V_d
                        static_cast<const __half*>(V_dev),
                        static_cast<__half*>(out_dev),
                        num_q_heads, num_kv_heads, head_dim, seq_len, scale);
-    return RCPP_OK;
+    hipError_t err = hipGetLastError();
+    return (err == hipSuccess) ? RCPP_OK : RCPP_HIP_ERROR;
 }

@@ -104,6 +104,94 @@ static bool detect_from_manifest(const std::string& path, ModelConfig& cfg) {
     }
 }
 
+static bool detect_from_gguf(const std::string& path, ModelConfig& cfg) {
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) return false;
+    uint32_t magic; fread(&magic, 4, 1, f);
+    if (magic != 0x46554747) { fclose(f); return false; }
+    uint32_t version; fread(&version, 4, 1, f);
+    uint64_t n_tensors, n_kv; fread(&n_tensors, 8, 1, f); fread(&n_kv, 8, 1, f);
+
+    std::string arch_str = "qwen3";
+    int hidden = 0, layers = 0, heads = 0, kv_heads = 0, ffn = 0, vocab = 0;
+
+    for (uint64_t i = 0; i < n_kv; i++) {
+        uint64_t klen; fread(&klen, 8, 1, f);
+        std::string key(klen, '\0'); fread(&key[0], 1, klen, f);
+        uint32_t vtype; fread(&vtype, 4, 1, f);
+        auto read_str = [&]() -> std::string { if (vtype == 2 || vtype == 8) { uint64_t slen; fread(&slen, 8, 1, f); std::string s(slen, '\0'); fread(&s[0], 1, slen, f); return s; } return ""; };
+        auto read_u32 = [&]() -> uint32_t { uint32_t v; fread(&v, 4, 1, f); return v; };
+        auto read_u64 = [&]() -> uint64_t { uint64_t v; fread(&v, 8, 1, f); return v; };
+        // Dimension values may be uint32 (type 4) or uint64 (type 10)
+        auto read_dim = [&]() -> int { return (vtype == 10 || vtype == 5) ? (int)read_u64() : (int)read_u32(); };
+        auto skip_val = [&]() {
+            if (vtype == 2 || vtype == 8) { uint64_t sl; fread(&sl, 8, 1, f); fseek(f, sl, SEEK_CUR); }
+            else if (vtype >= 3 && vtype <= 6) fseek(f, 4, SEEK_CUR);
+            else if (vtype == 7) fseek(f, 1, SEEK_CUR);
+            else if (vtype == 9) {
+                uint64_t n; fread(&n, 8, 1, f); uint32_t at; fread(&at, 4, 1, f); uint64_t al; fread(&al, 8, 1, f);
+                // Fast skip: for large string arrays (tokenizer vocab), iterate only first 100
+                // then estimate remaining size and fseek past
+                if ((at == 2 || at == 8) && al > 100) {
+                    uint64_t total_bytes = 0;
+                    uint64_t sample = al < 100 ? al : 100;
+                    for (uint64_t j = 0; j < sample; j++) { uint64_t ss; fread(&ss, 8, 1, f); fseek(f, ss, SEEK_CUR); total_bytes += 8 + ss; }
+                    // Estimate remaining: average size × remaining elements
+                    uint64_t avg = total_bytes / sample;
+                    fseek(f, avg * (al - sample), SEEK_CUR);
+                } else if (at == 2 || at == 8) {
+                    for (uint64_t j = 0; j < al; j++) { uint64_t ss; fread(&ss, 8, 1, f); fseek(f, ss, SEEK_CUR); }
+                }
+                else if (at <= 7) fseek(f, al, SEEK_CUR);
+                else if (at >= 10 && at <= 12) fseek(f, al * 8, SEEK_CUR);
+                else fseek(f, al * 4, SEEK_CUR);
+            } else if (vtype >= 10 && vtype <= 12) fseek(f, 8, SEEK_CUR);
+            else if (vtype <= 1) fseek(f, 1, SEEK_CUR);
+            else fseek(f, 8, SEEK_CUR);
+        };
+        if (key == "general.architecture") arch_str = read_str();
+        else if (key.find("block_count") != std::string::npos && layers == 0) layers = read_dim();
+        else if (key.find("embedding_length") != std::string::npos && hidden == 0) hidden = read_dim();
+        else if (key.find("attention.head_count_kv") != std::string::npos) kv_heads = read_dim();
+        else if (key.find("attention.head_count") != std::string::npos && heads == 0) heads = read_dim();
+        else if (key.find("feed_forward_length") != std::string::npos && ffn == 0) ffn = read_dim();
+        else if (key.find("vocab") != std::string::npos) vocab = read_dim();
+        else skip_val();
+    }
+    // Read first few tensor headers to get vocab from embedding shape
+    if (vocab <= 0) {
+        for (uint64_t i = 0; i < std::min(n_tensors, (uint64_t)5); i++) {
+            uint64_t nl; fread(&nl, 8, 1, f);
+            std::string tname(nl, '\0'); fread(&tname[0], 1, nl, f);
+            uint32_t nd; fread(&nd, 4, 1, f);
+            std::vector<uint64_t> shape(nd);
+            for (uint32_t j = 0; j < nd; j++) fread(&shape[j], 8, 1, f);
+            uint32_t dt; fread(&dt, 4, 1, f); fseek(f, 4, SEEK_CUR);
+            if (tname == "token_embd.weight" || tname.find("embed_tokens") != std::string::npos) {
+                if (shape.size() >= 2) vocab = (int)shape[0];
+                break;
+            }
+        }
+    }
+    fclose(f);
+
+    if (hidden <= 0 || layers <= 0) return false;
+    cfg.architecture = arch_str; cfg.arch = rcpp_arch_from_string(arch_str.c_str());
+    cfg.hidden_size = hidden; cfg.num_layers = layers;
+    cfg.num_heads = heads > 0 ? heads : hidden / 128;
+    cfg.num_kv_heads = kv_heads > 0 ? kv_heads : cfg.num_heads;
+    cfg.head_dim = hidden / cfg.num_heads;
+    cfg.intermediate_size = ffn > 0 ? ffn : hidden * 8 / 3;
+    // If vocab is unrealistically small (< 100), it was not properly detected.
+    // Read it from the embedding tensor shape instead.
+    if (vocab < 100) vocab = 0;
+    cfg.vocab_size = vocab > 0 ? vocab : 32000;
+    cfg.model_path = path; cfg.model_name = arch_str;
+    cfg.weights_dir = path.substr(0, path.find_last_of('/') + 1);
+    fprintf(stderr, "  GGUF: %s H=%d L=%d NH=%d NKV=%d V=%d\n", arch_str.c_str(), hidden, layers, cfg.num_heads, cfg.num_kv_heads, cfg.vocab_size);
+    return true;
+}
+
 static std::string json_escape(const std::string& s) {
     std::string out;
     for (char c : s) {
@@ -407,8 +495,17 @@ int main(int argc, char** argv) {
     if (!router.init()) { fprintf(stderr, "FATAL: TokenRouter init failed\n"); return 1; }
 
     ModelConfig cfg;
+    fprintf(stderr, "DEBUG: about to detect model...\n"); fflush(stderr);
     bool detected = false;
     if (!manifest_arg.empty()) detected = detect_from_manifest(manifest_arg, cfg);
+    if (!detected && !model_arg.empty()) {
+        // Try GGUF detection first (most universal path)
+        std::string ext = model_arg.size() > 5 ? model_arg.substr(model_arg.size() - 5) : "";
+        if (ext == ".gguf") {
+            detected = detect_from_gguf(model_arg, cfg);
+            fprintf(stderr, "  GGUF detection: %s\n", detected ? "ok" : "failed");
+        }
+    }
     if (!detected && !model_arg.empty()) {
         detected = detect_from_h1b(model_arg, cfg);
         if (detected && cfg.weights_dir.empty()) {

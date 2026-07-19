@@ -56,7 +56,9 @@ BST_HOST_DEVICE inline float fp8e4m3_to_fp32(uint8_t fp8) {
 // Host-only: FP32 -> FP8 E4M3 with RNE rounding.
 // Uses std::isnan which is not available in GPU device code.
 inline uint8_t fp32_to_fp8e4m3(float v) {
-    if (std::isnan(v)) return FP8_E4M3_NAN;
+    // Use bit-level NaN check to avoid UB under -ffast-math (issue #404)
+    uint32_t vbits; __builtin_memcpy(&vbits, &v, sizeof(vbits));
+    if ((vbits & 0x7F800000u) == 0x7F800000u && (vbits & 0x007FFFFFu) != 0) return FP8_E4M3_NAN;
     if (v > 448.0f) v = 448.0f;
     if (v < -448.0f) v = -448.0f;
     if (v > -0.0009765625f && v < 0.0009765625f) v = 0.0f;
