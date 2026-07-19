@@ -268,6 +268,15 @@ endif()
 list(APPEND RCPP_SOURCES src/backend_npu.cpp)
 list(APPEND RCPP_SOURCES src/q4nx_reader.cpp)
 
+# -- libgguf_reader : single shared GGUF parser (no HIP dependency) -----------
+# Split into its own tiny static lib (rather than compiled directly into both
+# backend_manager and rocm_cpp) so targets that link both don't hit duplicate-
+# symbol errors.
+add_library(gguf_reader STATIC src/gguf_reader.cpp)
+target_include_directories(gguf_reader PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
+
 add_library(rocm_cpp SHARED ${RCPP_SOURCES})
 if(ROCWMMA_FOUND)
     target_include_directories(rocm_cpp SYSTEM PRIVATE "${ROCWMMA_INCLUDE_DIR}")
@@ -325,6 +334,8 @@ add_library(backend_manager STATIC
     src/q4nx_reader.cpp
     src/safetensors_reader.cpp
     src/model_discovery.cpp)
+target_link_libraries(backend_manager PUBLIC gguf_reader)
+
 target_include_directories(backend_manager PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
@@ -355,7 +366,7 @@ target_include_directories(rocm_cpp SYSTEM PRIVATE "${ROCM_ROOT}/include")
 target_compile_options(rocm_cpp PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -ffast-math -munsafe-fp-atomics
         -Wno-unused-result>)
-target_link_libraries(rocm_cpp PRIVATE hip::host hip::device)
+target_link_libraries(rocm_cpp PRIVATE hip::host hip::device gguf_reader)
 set_target_properties(rocm_cpp PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
 if(RCPP_HAVE_CK)
@@ -490,6 +501,16 @@ set(SHERRY_H1B_MODEL "" CACHE FILEPATH "Path to a Sherry .h1b model for test_she
 
 add_test(NAME test_medusa_skeleton         COMMAND test_medusa_skeleton)
 set_tests_properties(test_medusa_skeleton   PROPERTIES LABELS "host")
+
+# -- test_gguf_reader_dequant: no GPU, no downloaded model, no Python at ------
+# test time. Byte-exact dequant check for every dtype gguf_reader.cpp
+# supports, against reference values baked in from the Python `gguf`
+# package. Runs unconditionally in every CI invocation.
+add_executable(test_gguf_reader_dequant tests/test_gguf_reader_dequant.cpp)
+target_include_directories(test_gguf_reader_dequant PRIVATE tests/)
+target_link_libraries(test_gguf_reader_dequant PRIVATE gguf_reader)
+add_test(NAME test_gguf_reader_dequant COMMAND test_gguf_reader_dequant)
+set_tests_properties(test_gguf_reader_dequant PROPERTIES LABELS "host")
 
 add_test(NAME test_backend                 COMMAND test_backend)
 set_tests_properties(test_backend           PROPERTIES LABELS "host" SKIP_RETURN_CODE 77)

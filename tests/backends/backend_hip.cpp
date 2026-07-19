@@ -2,6 +2,7 @@
 // Part of the unified zaya_server binary. Compiled when USE_HIP=ON.
 #include "backend.h"
 #include "rocm_cpp/ck_gemm.h"
+#include "gguf_reader.h"
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
 #include <cstdio>
@@ -12,174 +13,6 @@
 #include <fstream>
 #include <vector>
 #include <string>
-#include <unordered_map>
-
-// FP16 conversion for GGUF Q8_0 dequant
-static float fp16_to_fp32(uint16_t h) {
-    uint32_t s=(h>>15)&1, e=(h>>10)&0x1f, m=h&0x3ff;
-    if(e==0){uint32_t a=m?__builtin_clz(m)-10:0;float r;uint32_t f=(s<<31)|((127-15-a)<<23)|((m<<(a+13))&0x7fffff);memcpy(&r,&f,4);return r;}
-    else if(e==31){float r;uint32_t f=(s<<31)|0x7f800000|(m<<13);memcpy(&r,&f,4);return r;}
-    else{float r;uint32_t f=(s<<31)|((e+127-15)<<23)|(m<<13);memcpy(&r,&f,4);return r;}
-}
-
-// K-quant dequantization (GGML_TYPE Q2_K=10, Q3_K=11, Q4_K=12, Q5_K=13,
-// Q6_K=14 — all 256-elem superblocks). Ported from src/gguf_loader.cpp's
-// dequant_q{2,3,4,5,6}_k, but using the fp16_to_fp32 above for the per-block
-// scale/min fields instead of that file's read_f16 helper, which does a
-// bfloat16-style bit-shift ("<<16, reinterpret as f32") on data that's
-// actually real IEEE754 float16 — wrong exponent bias/width, silently
-// corrupting every K-quant scale. All 5 formats verified byte-exact against
-// the independent `gguf` Python package's reference dequantize_blocks() on
-// randomized synthetic block data (5 seeds, 0 mismatches). Q8_K isn't
-// handled here yet.
-static inline void k_get_scale_min(const uint8_t scales[12], int j, uint8_t& sc, uint8_t& m) {
-    if (j < 4) { sc = scales[j] & 63; m = scales[j + 4] & 63; }
-    else { sc = (uint8_t)((scales[j + 4] & 0xF) | ((scales[j - 4] >> 6) << 4));
-           m = (uint8_t)((scales[j + 4] >> 4) | ((scales[j] >> 6) << 4)); }
-}
-
-static void dequant_q2_k_to_f32(const uint8_t* bd, float* out, int count) {
-    const int BS = 256;
-    int nb = (count + BS - 1) / BS;
-    const uint8_t* p = bd;
-    for (int b = 0; b < nb; b++) {
-        uint8_t scales[16]; memcpy(scales, p, 16); p += 16;
-        uint8_t qs[64]; memcpy(qs, p, 64); p += 64;
-        uint16_t dh, dminh; memcpy(&dh, p, 2); p += 2; memcpy(&dminh, p, 2); p += 2;
-        float d = fp16_to_fp32(dh), dmin = fp16_to_fp32(dminh);
-        int base = b * BS;
-        int is = 0; const uint8_t* q = qs;
-        for (int n = 0; n < BS && base + n < count; n += 128) {
-            int shift = 0;
-            for (int j = 0; j < 4; j++) {
-                uint8_t sc = scales[is++];
-                float dl = d * (sc & 0xF), ml = dmin * (sc >> 4);
-                for (int l = 0; l < 16 && base + n + j * 32 + l < count; l++)
-                    out[base + n + j * 32 + l] = dl * ((q[l] >> shift) & 3) - ml;
-                sc = scales[is++];
-                dl = d * (sc & 0xF); ml = dmin * (sc >> 4);
-                for (int l = 0; l < 16 && base + n + j * 32 + 16 + l < count; l++)
-                    out[base + n + j * 32 + 16 + l] = dl * ((q[l + 16] >> shift) & 3) - ml;
-                shift += 2;
-            }
-            q += 32;
-        }
-    }
-}
-
-static void dequant_q3_k_to_f32(const uint8_t* bd, float* out, int count) {
-    const int BS = 256;
-    int nb = (count + BS - 1) / BS;
-    const uint8_t* p = bd;
-    for (int b = 0; b < nb; b++) {
-        uint8_t hmask[32]; memcpy(hmask, p, 32); p += 32;
-        uint8_t qs[64]; memcpy(qs, p, 64); p += 64;
-        uint8_t raw_scales[12]; memcpy(raw_scales, p, 12); p += 12;
-        uint16_t dh; memcpy(&dh, p, 2); p += 2; float d_all = fp16_to_fp32(dh);
-
-        uint32_t aux[4] = {0, 0, 0, 0};
-        memcpy(aux, raw_scales, 12);
-        const uint32_t kmask1 = 0x03030303, kmask2 = 0x0f0f0f0f;
-        uint32_t tmp = aux[2];
-        aux[2] = ((aux[0] >> 4) & kmask2) | (((tmp >> 4) & kmask1) << 4);
-        aux[3] = ((aux[1] >> 4) & kmask2) | (((tmp >> 6) & kmask1) << 4);
-        aux[0] = (aux[0] & kmask2) | (((tmp >> 0) & kmask1) << 4);
-        aux[1] = (aux[1] & kmask2) | (((tmp >> 2) & kmask1) << 4);
-        int8_t scales[16]; memcpy(scales, aux, 16);
-        for (int j = 0; j < 16; j++) scales[j] -= 32;
-
-        int base = b * BS;
-        int is = 0; const uint8_t* q = qs;
-        uint8_t m = 1;
-        for (int n = 0; n < BS && base + n < count; n += 128) {
-            int shift = 0;
-            for (int j = 0; j < 4; j++) {
-                float dl = d_all * scales[is++];
-                for (int l = 0; l < 16 && base + n + j * 32 + l < count; l++)
-                    out[base + n + j * 32 + l] =
-                        dl * (((int8_t)((q[l] >> shift) & 3)) - ((hmask[l] & m) ? 0 : 4));
-                dl = d_all * scales[is++];
-                for (int l = 0; l < 16 && base + n + j * 32 + 16 + l < count; l++)
-                    out[base + n + j * 32 + 16 + l] =
-                        dl * (((int8_t)((q[l + 16] >> shift) & 3)) - ((hmask[l + 16] & m) ? 0 : 4));
-                shift += 2;
-                m = (uint8_t)(m << 1);
-            }
-            q += 32;
-        }
-    }
-}
-
-static void dequant_q4_k_to_f32(const uint8_t* bd, float* out, int count) {
-    const int BS = 256;
-    int nb = (count + BS - 1) / BS;
-    const uint8_t* p = bd;
-    for (int b = 0; b < nb; b++) {
-        uint16_t dh, dminh; memcpy(&dh, p, 2); p += 2; memcpy(&dminh, p, 2); p += 2;
-        float d = fp16_to_fp32(dh), dmin = fp16_to_fp32(dminh);
-        uint8_t scales[12]; memcpy(scales, p, 12); p += 12;
-        uint8_t qs[128]; memcpy(qs, p, 128); p += 128;
-        int base = b * BS;
-        int is = 0; const uint8_t* q = qs;
-        for (int off = 0; off < BS && base + off < count; off += 64) {
-            uint8_t sc, m;
-            k_get_scale_min(scales, is, sc, m); float d1 = d * sc, m1 = dmin * m;
-            k_get_scale_min(scales, is + 1, sc, m); float d2 = d * sc, m2 = dmin * m;
-            for (int l = 0; l < 32 && base + off + l < count; l++)
-                out[base + off + l] = d1 * (q[l] & 0xF) - m1;
-            for (int l = 0; l < 32 && base + off + 32 + l < count; l++)
-                out[base + off + 32 + l] = d2 * (q[l] >> 4) - m2;
-            q += 32; is += 2;
-        }
-    }
-}
-
-static void dequant_q5_k_to_f32(const uint8_t* bd, float* out, int count) {
-    const int BS = 256;
-    int nb = (count + BS - 1) / BS;
-    const uint8_t* p = bd;
-    for (int b = 0; b < nb; b++) {
-        uint16_t dh, dminh; memcpy(&dh, p, 2); p += 2; memcpy(&dminh, p, 2); p += 2;
-        float d = fp16_to_fp32(dh), dmin = fp16_to_fp32(dminh);
-        uint8_t scales[12]; memcpy(scales, p, 12); p += 12;
-        uint8_t qh[32]; memcpy(qh, p, 32); p += 32;
-        uint8_t ql[128]; memcpy(ql, p, 128); p += 128;
-        int base = b * BS;
-        int is = 0; const uint8_t* q = ql;
-        uint8_t u1 = 1, u2 = 2;
-        for (int n = 0; n < BS && base + n < count; n += 64) {
-            uint8_t sc, m;
-            k_get_scale_min(scales, is, sc, m); float d1 = d * sc, m1 = dmin * m;
-            k_get_scale_min(scales, is + 1, sc, m); float d2 = d * sc, m2 = dmin * m;
-            for (int l = 0; l < 32 && base + n + l < count; l++)
-                out[base + n + l] = d1 * ((q[l] & 0xF) + (qh[l] & u1 ? 16 : 0)) - m1;
-            for (int l = 0; l < 32 && base + n + 32 + l < count; l++)
-                out[base + n + 32 + l] = d2 * ((q[l] >> 4) + (qh[l] & u2 ? 16 : 0)) - m2;
-            q += 32; is += 2;
-            u1 = (uint8_t)(u1 << 2); u2 = (uint8_t)(u2 << 2);
-        }
-    }
-}
-
-static void dequant_q6_k_to_f32(const uint8_t* bd, float* out, int count) {
-    const int BS = 256;
-    int nb = (count + BS - 1) / BS;
-    const uint8_t* p = bd;
-    for (int b = 0; b < nb; b++) {
-        uint8_t ql[128]; memcpy(ql, p, 128); p += 128;
-        uint8_t qh[64]; memcpy(qh, p, 64); p += 64;
-        int8_t scales[16]; memcpy(scales, p, 16); p += 16;
-        uint16_t dh; memcpy(&dh, p, 2); p += 2; float d = fp16_to_fp32(dh);
-        int base = b * BS;
-        for (int n = 0; n < BS; n += 128) {
-            for (int l = 0; l < 32 && base + n + l < count; l++) {
-                int8_t sc = scales[l / 2];
-                int v = (ql[n / 2 + l] & 0xF) | ((qh[n / 2 + l / 4] >> (4 * (l & 1))) & 0x30);
-                out[base + n + l] = d * sc * (v - 32);
-            }
-        }
-    }
-}
 
 #define HIP_OK(e) do { auto _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %d\n", _s); abort(); } } while (0)
 constexpr int BLK = 256;
@@ -457,134 +290,39 @@ public:
 
     // ── GGUF weight loading ──────────────────────────────────────
     bool load_gguf_model(const ModelConfig& cfg) {
-        // Minimal GGUF reader for direct GPU weight loading
-        FILE* gf = fopen(cfg.model_path.c_str(), "rb");
-        if (!gf) return false;
-        uint32_t magic; fread(&magic, 4, 1, gf);
-        if (magic != 0x46554747) { fclose(gf); return false; }
-        uint32_t ver; fread(&ver, 4, 1, gf);
-        uint64_t nt, nkv; fread(&nt, 8, 1, gf); fread(&nkv, 8, 1, gf);
-        // Skip KV
-        for (uint64_t i = 0; i < nkv; i++) {
-            uint64_t kl; fread(&kl, 8, 1, gf); fseek(gf, kl, SEEK_CUR);
-            uint32_t vt; fread(&vt, 4, 1, gf);
-            // GGUF scalar type widths: 0/1=u8/i8 (1B), 2/3=u16/i16 (2B),
-            // 4/5/6=u32/i32/f32 (4B), 7=bool (1B), 8=string (u64 len + bytes),
-            // 10/11/12=u64/i64/f64 (8B). vt==2 (UINT16) was previously lumped
-            // in with vt==8 (STRING) and misread as a length-prefixed value.
-            if (vt == 8) { uint64_t sl; fread(&sl, 8, 1, gf); fseek(gf, sl, SEEK_CUR); }
-            else if (vt == 2 || vt == 3) fseek(gf, 2, SEEK_CUR);
-            else if (vt >= 4 && vt <= 6) fseek(gf, 4, SEEK_CUR);
-            else if (vt == 7) fseek(gf, 1, SEEK_CUR);
-            else if (vt == 9) {
-                // GGUF array value layout: element_type (u32), length (u64),
-                // THEN `length` elements — was reading both as u32 in the
-                // wrong order, desyncing the file offset for everything
-                // after the first array-valued KV pair (e.g. tokenizer
-                // token/merge lists), which then corrupted tensor-header
-                // parsing downstream.
-                uint32_t at; fread(&at, 4, 1, gf); uint64_t al; fread(&al, 8, 1, gf);
-                if (at == 8) { for (uint64_t j = 0; j < al; j++) { uint64_t ss; fread(&ss, 8, 1, gf); fseek(gf, ss, SEEK_CUR); } }
-                else if (at == 2 || at == 3) fseek(gf, al * 2, SEEK_CUR);
-                else if (at >= 4 && at <= 6) fseek(gf, al * 4, SEEK_CUR);
-                else if (at >= 10 && at <= 12) fseek(gf, al * 8, SEEK_CUR);
-                else fseek(gf, al, SEEK_CUR);  // 0/1/7 (u8/i8/bool) — 1 byte each
-            } else if (vt >= 10 && vt <= 12) fseek(gf, 8, SEEK_CUR);
-            else fseek(gf, 1, SEEK_CUR);  // 0/1 (u8/i8)
-        }
-        // Read tensor headers
-        struct TInfo { std::string name; uint64_t off; uint32_t dtype; uint64_t ne; };
-        std::unordered_map<std::string, TInfo> tmap;
-        for (uint64_t i = 0; i < nt; i++) {
-            uint64_t nl; fread(&nl, 8, 1, gf);
-            TInfo ti; ti.name.resize(nl); fread(&ti.name[0], 1, nl, gf);
-            uint32_t nd; fread(&nd, 4, 1, gf);
-            ti.ne = 1; for (uint32_t j = 0; j < nd; j++) { uint64_t d; fread(&d, 8, 1, gf); ti.ne *= d; }
-            fread(&ti.dtype, 4, 1, gf);
-            fread(&ti.off, 8, 1, gf);  // GGUF's own authoritative per-tensor offset (relative to data section start)
-            tmap[ti.name] = ti;
-        }
-        // The previous version discarded this real offset field and instead
-        // recomputed offsets by accumulating per-dtype size estimates while
-        // iterating `tmap` — a std::unordered_map, whose iteration order is
-        // unspecified and does NOT match the file's actual physical tensor
-        // layout, so every computed offset was wrong (and the size estimates
-        // didn't cover K-quants anyway). Using the file's own offset is both
-        // simpler and correct regardless of quantization format.
-        uint64_t data_section_base = ftell(gf); data_section_base = (data_section_base + 31) & ~31;
-        for (auto& [n, t] : tmap) t.off += data_section_base;
+        GgufReader reader;
+        if (!reader.open(cfg.model_path)) return false;
 
         int H = cfg.hidden_size, V = cfg.vocab_size, L = cfg.num_layers;
         int NQ = cfg.num_heads, NKV = cfg.num_kv_heads, HD = cfg.head_dim;
         int QD = NQ * HD, KD = NKV * HD, QKV = QD + KD;
         int FF = cfg.intermediate_size;
 
-        // Embedding
+        // Dequantizes to f32 via the shared reader, then converts to fp16
+        // for upload — one path for every dtype the shared reader knows
+        // about, instead of a per-dtype special case here (which used to
+        // leave Q4_0/Q4_1/Q5_0/Q5_1/Q8_K silently un-decoded, falling
+        // through to the F32 branch and reading garbage).
         auto load_half = [&](const char* name, __half*& dptr, size_t n) {
-            auto it = tmap.find(name); if (it == tmap.end()) return false;
+            std::vector<float> f32;
+            if (!reader.get_tensor_f32(name, f32) || f32.size() != n) return false;
             HIP_OK(hipMalloc(&dptr, n * 2));
-            fseek(gf, it->second.off, SEEK_SET);
-            if (it->second.dtype == 1) {
-                std::vector<uint16_t> buf(n); fread(buf.data(), 2, n, gf);
-                HIP_OK(hipMemcpy(dptr, buf.data(), n * 2, hipMemcpyHostToDevice));
-            } else if (it->second.dtype == 8) {
-                // Q8_0 dequant to FP16. GGML_TYPE_Q8_0 is genuinely 8 per
-                // ggml.h (0=F32,1=F16,2=Q4_0,3=Q4_1,6=Q5_0,7=Q5_1,8=Q8_0,
-                // 9=Q8_1,10..15=K-quants) — a previous pass here "corrected"
-                // this from 8 to 7 based on a wrong memory of the enum,
-                // which actually broke it (7 is Q5_1, not Q8_0). Verified
-                // against ggml.h directly and the real `gguf` Python
-                // package this time before touching it again.
-                std::vector<__half> buf(n);
-                int blks = (n + 31) / 32;
-                for (int b = 0; b < blks; b++) {
-                    uint16_t sh; fread(&sh, 2, 1, gf); float sc = fp16_to_fp32(sh);
-                    int8_t q[32]; fread(q, 1, 32, gf);
-                    for (int j = 0; j < 32 && b * 32 + j < (int)n; j++) buf[b * 32 + j] = __float2half(q[j] * sc);
-                }
-                HIP_OK(hipMemcpy(dptr, buf.data(), n * 2, hipMemcpyHostToDevice));
-            } else if (it->second.dtype == 10 || it->second.dtype == 11 || it->second.dtype == 12 ||
-                       it->second.dtype == 13 || it->second.dtype == 14) {
-                // Q2_K/Q3_K/Q4_K/Q5_K/Q6_K: read the whole compressed tensor,
-                // dequant to f32 host-side, then convert to fp16 for upload.
-                int bpb = it->second.dtype == 10 ? 84
-                        : it->second.dtype == 11 ? 110
-                        : it->second.dtype == 12 ? 144
-                        : it->second.dtype == 13 ? 176 : 210;
-                size_t nblocks = (n + 255) / 256;
-                std::vector<uint8_t> raw(nblocks * bpb); fread(raw.data(), 1, raw.size(), gf);
-                std::vector<float> f32(n);
-                switch (it->second.dtype) {
-                    case 10: dequant_q2_k_to_f32(raw.data(), f32.data(), (int)n); break;
-                    case 11: dequant_q3_k_to_f32(raw.data(), f32.data(), (int)n); break;
-                    case 12: dequant_q4_k_to_f32(raw.data(), f32.data(), (int)n); break;
-                    case 13: dequant_q5_k_to_f32(raw.data(), f32.data(), (int)n); break;
-                    default: dequant_q6_k_to_f32(raw.data(), f32.data(), (int)n); break;
-                }
-                std::vector<__half> buf(n);
-                for (size_t i = 0; i < n; i++) buf[i] = __float2half(f32[i]);
-                HIP_OK(hipMemcpy(dptr, buf.data(), n * 2, hipMemcpyHostToDevice));
-            } else {
-                // F32 → FP16. NOTE: also wrongly hit by any *other* unhandled
-                // quant type (Q4_0=2, Q4_1=3, Q5_0=6, Q5_1=7, Q8_1=9, Q8_K=15,
-                // IQ*) — those aren't decoded correctly, they just don't crash.
-                std::vector<__half> buf(n);
-                std::vector<float> f32(n); fread(f32.data(), 4, n, gf);
-                for (size_t i = 0; i < n; i++) buf[i] = __float2half(f32[i]);
-                HIP_OK(hipMemcpy(dptr, buf.data(), n * 2, hipMemcpyHostToDevice));
-            }
+            std::vector<__half> buf(n);
+            for (size_t i = 0; i < n; i++) buf[i] = __float2half(f32[i]);
+            HIP_OK(hipMemcpy(dptr, buf.data(), n * 2, hipMemcpyHostToDevice));
             return true;
         };
 
-        // Detect actual vocab size from the first tensor loaded to d_embed_gpu
+        // Detect actual vocab size from the first embedding tensor found
         {
             int tcount = 0;
-            for (auto& [tname, tinfo] : tmap) {
-                if (tcount++ < 5) fprintf(stderr, "  HIP: tensor[%d] %s ne=%lu\n", tcount-1, tname.c_str(), tinfo.ne);
+            for (const auto& tname : reader.tensor_names()) {
+                const GgufTensorInfo* ti = reader.tensor_info(tname);
+                if (tcount++ < 5) fprintf(stderr, "  HIP: tensor[%d] %s ne=%lu\n", tcount-1, tname.c_str(), (unsigned long)ti->numel);
                 if (tname.find("embed") != std::string::npos && tname.find("norm") == std::string::npos
-                    && tinfo.ne > 0 && H > 0) {
-                    int actual_v = (int)(tinfo.ne / H);
-                    fprintf(stderr, "  HIP: %s ne=%lu H=%d -> V=%d (was %d)\n", tname.c_str(), tinfo.ne, H, actual_v, V);
+                    && ti->numel > 0 && H > 0) {
+                    int actual_v = (int)(ti->numel / H);
+                    fprintf(stderr, "  HIP: %s ne=%lu H=%d -> V=%d (was %d)\n", tname.c_str(), (unsigned long)ti->numel, H, actual_v, V);
                     if (actual_v > 100 && actual_v != V) {
                         V = actual_v; cfg_.vocab_size = V; cfg_.vocab = V;
                     }
@@ -595,11 +333,8 @@ public:
         if (!load_half("token_embd.weight", d_embed_gpu, (size_t)V * H))
             load_half("model.embed_tokens.weight", d_embed_gpu, (size_t)V * H);
 
-        size_t fn_n = 0;
         if (!load_half("output_norm.weight", d_fnw, H)) {
-            // Try alternate names
-            auto it = tmap.find("model.norm.weight");
-            if (it != tmap.end()) load_half("model.norm.weight", d_fnw, H);
+            load_half("model.norm.weight", d_fnw, H);
         }
 
         size_t scratch_elems = std::max<size_t>({(size_t)QD + 2*(size_t)KD, (size_t)2*FF, (size_t)H});
@@ -643,7 +378,6 @@ public:
             load_half((p + "attn_q_norm.weight").c_str(), lw.qn, (size_t)HD);
             load_half((p + "attn_k_norm.weight").c_str(), lw.kn, (size_t)HD);
         }
-        fclose(gf);
         embed_loaded_ = true;
         fprintf(stderr, "  HIP: GGUF loaded (%d layers, %d vocab)\n", L, V);
         return true;
