@@ -9,6 +9,7 @@
 
 #pragma once
 #include "common.h"
+#include "pilot.h"
 #include <string>
 #include <vector>
 
@@ -23,6 +24,16 @@ struct Backend {
     bool initialized = false;
 
     virtual ~Backend() = default;
+
+    /// Optional: attach a Pilot for cross-layer prefetch.
+    /// Called by BackendManager after selecting this backend.
+    Pilot* pilot_ = nullptr;
+    void set_pilot(Pilot* p) { pilot_ = p; }
+
+    /// Optional: preload weights for a specific layer into fast memory.
+    /// Called by the Pilot worker thread to overlap I/O with compute.
+    /// Return true if weights are now resident.
+    virtual bool preload_layer(int layer) { (void)layer; return true; }
 
     /// Initialize backend: detect hardware, load weights, allocate memory.
     /// weights_dir = path to /tmp/zaya_weights/ or equivalent

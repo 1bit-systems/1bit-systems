@@ -9,6 +9,7 @@
 
 #pragma once
 #include "backend.h"
+#include "pilot.h"
 #include "backend_monitor.h"
 #include <string>
 #include <vector>
@@ -136,6 +137,11 @@ public:
     /// Check all backends; trigger failover if active is unhealthy
     void monitor();
 
+    /// Access the pilot prefetch engine (for tuning/reporting).
+    const Pilot& pilot() const { return pilot_; }
+    Pilot& pilot() { return pilot_; }
+    bool pilot_active() const { return pilot_active_; }
+
     /// Re-evaluate active backend against strategy and current scores.
     /// For FASTEST: switches to the backend with best (lowest) benchmark score.
     /// For ROUND_ROBIN: cycles to the next available backend.
@@ -188,6 +194,8 @@ private:
     FallbackPolicy fallback_policy_ = FallbackPolicy::SEQUENTIAL;
 
     BackendMonitor monitor_;      // live performance tracking
+    Pilot pilot_;                 // cross-layer prefetch engine
+    bool pilot_active_ = false;
     bool initialized_ = false;
     mutable std::mutex mtx_;
 };

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Verify Q4NX weight format: I4 group quantization"""
-import json, struct, math
+import json, os, struct, math
 
-model_path = os.path.expanduser("~/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx"
-cap_file = os.path.expanduser("~/npu-sandbox/xrt-direct/captured_bo_dump/h7_1MB_weight_prepack_layer0.bin"
+model_path = os.path.expanduser("~/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx")
+cap_file = os.path.expanduser("~/npu-sandbox/xrt-direct/captured_bo_dump/h7_1MB_weight_prepack_layer0.bin")
 
 # Load model metadata
 with open(model_path, "rb") as f:

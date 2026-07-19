@@ -225,15 +225,18 @@ def main() -> int:
 
         for i in range(args.repeat):
             rc, out = run(cfg["argv"], cwd=build_dir)
-            rc, out = run(cfg["argv"], cwd=build_dir)
             if rc == 2:
                 # Exit code 2 = infrastructure unavailable (no NPU, missing
                 # model/bin, etc.). Soft skip — not a claim failure. (issue #191)
                 print(f"  SKIP {name}: infra unavailable (exit 2)")
                 continue
             if rc != 0:
-                # bench_prefill_variants segfaults intermittently under
-                # back-to-back load. Retry once so one flake cannot set a claim.
+                # Retry once so a genuine one-off hardware flake can't set a
+                # claim. (The apparent "intermittent segfault under
+                # back-to-back load" this was originally written for was
+                # actually this loop running each command twice per
+                # iteration via a duplicated `run()` call — fixed above;
+                # keeping the retry regardless as a reasonable safety net.)
                 crashes.append(f"{name}: exit {rc} on run {i + 1} (retrying)")
                 print(f"  CRASH {name}: exit {rc} (run {i + 1}) -- retrying")
                 rc, out = run(cfg["argv"], cwd=build_dir)

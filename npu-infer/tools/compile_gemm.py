@@ -10,10 +10,10 @@ Usage:
 import argparse, os, shutil, subprocess, sys
 from pathlib import Path
 
-SRCDIR = Path(os.path.expanduser("~/torch2aie/examples/gemm_asymmetric_tile_buffering/config1")
+SRCDIR = Path(os.path.expanduser("~/torch2aie/examples/gemm_asymmetric_tile_buffering/config1"))
 BUILD_DIR = SRCDIR / "build"
 AIECC = Path(os.environ.get("AIECC", "aiecc"))
-PYTHON = Path(os.path.expanduser("~/torch2aie/.venv/bin/python")
+PYTHON = Path(os.path.expanduser("~/torch2aie/.venv/bin/python"))
 AIE_PYTHONPATH = os.environ.get("AIE_PYTHONPATH", "torch2aie/toolchain/mlir_aie/python")
 AIE_TOOLCHAIN_BIN = os.environ.get("AIE_TOOLCHAIN_BIN", "torch2aie/toolchain/bin")
 AIE_TOOLS = os.environ.get("AIE_TOOLS", "torch2aie/toolchain/aietools")
@@ -72,7 +72,7 @@ def generate_xclbin(M, K, N, m=128, k=64, n=128, rows=1, force=False):
     print(f"  [OK] MLIR: {mlir_name}")
 
     # Ensure chess_intrinsic_wrapper.ll exists where aiecc expects it
-    chess_wrapper_src = Path(os.path.expanduser("~/torch2aie/toolchain/mlir_aie/aie_runtime_lib/AIE2P/chess_intrinsic_wrapper.ll")
+    chess_wrapper_src = Path(os.path.expanduser("~/torch2aie/toolchain/mlir_aie/aie_runtime_lib/AIE2P/chess_intrinsic_wrapper.ll"))
     chess_wrapper_dst = Path(os.environ.get("MLIR_AIE_DIR", "mlir-aie"))
     if not chess_wrapper_dst.exists():
         chess_wrapper_dst.parent.mkdir(parents=True, exist_ok=True)
@@ -81,7 +81,7 @@ def generate_xclbin(M, K, N, m=128, k=64, n=128, rows=1, force=False):
 
     # Compile via aiecc
     aiecc_env = os.environ.copy()
-    aiecc_env["PATH"] = f"{AIE_TOOLCHAIN_BIN}:os.path.expanduser("~/mlir-aie/build/bin:{aiecc_env.get('PATH', '')}"
+    aiecc_env["PATH"] = f"{AIE_TOOLCHAIN_BIN}:{os.path.expanduser('~/mlir-aie/build/bin')}:{aiecc_env.get('PATH', '')}"
     aiecc_env["PYTHONPATH"] = f"{AIE_PYTHONPATH}:{aiecc_env.get('PYTHONPATH', '')}"
     r = subprocess.run(
         [AIECC, f"--aietools={AIE_TOOLS}",

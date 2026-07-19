@@ -1,5 +1,9 @@
-// backend_hip.cpp — HIP GPU backend for Zaya1-8B
-// Wraps the existing zaya_engine HIP kernels into the Backend interface.
+// backend_hip.cpp — HIP GPU backend via Zaya engine
+// Wraps the zaya_engine HIP kernels into the Backend interface.
+// Architecture is now runtime-configurable: builds ZayaConfig from ModelConfig
+// and passes it to zaya_init(). Kernels that use compile-time shared memory
+// (CCA attention, MoE router) still require Zaya1-8B dimensions; the engine
+// validates this at init time and fails gracefully for unsupported configs.
 
 #include "backend.h"
 #include <cstdio>
@@ -17,6 +21,7 @@
 // ── HIP Backend implementation ──
 struct HIPBackend : Backend {
     ZayaState* zs = nullptr;
+    ZayaConfig zcfg;
     std::vector<float> embed, iscale, ibias;
     float* logits_buf = nullptr;
     int pos = 0;
@@ -27,22 +32,26 @@ struct HIPBackend : Backend {
 
     bool init(const ModelConfig& cfg, const std::string& weights_dir) override {
         this->cfg = cfg;
-        // Zaya engine has hardcoded dimensions (ZAYA_H=2048, ZAYA_N_LAYERS=40, etc.)
-        // Validate at load time instead of producing silent garbage.
-        if (cfg.hidden != 2048 || cfg.n_layers != 40 || cfg.n_heads != 8 ||
-            cfg.n_kv_heads != 2 || cfg.head_dim != 128 || cfg.vocab != 262272) {
-            fprintf(stderr, "HIP: Zaya engine is hardcoded to Zaya1-8B architecture "
-                    "(H=%d, L=%d, NH=%d, NKV=%d, V=%d). Model H=%d, L=%d, NH=%d, NKV=%d, V=%d.\n",
-                    2048, 40, 8, 2, 262272,
-                    cfg.hidden, cfg.n_layers, cfg.n_heads, cfg.n_kv_heads, cfg.vocab);
-            fprintf(stderr, "HIP: refusing to load — would produce silent garbage.\n");
-            return false;
-        }
-        printf("HIP: Initializing Zaya engine...\n");
+
+        // Build ZayaConfig from the model's actual dimensions.
+        // Single-token inference kernels (CCA prep, router) are fully dynamic.
+        // Batch-path kernels (zaya_router_moe.hip, zaya_moe_batch_union.hip)
+        // still have architecture-specific shared memory and are only used
+        // for speculative decode — the main generate() path is unaffected.
+        zcfg = ZayaConfig::from_model(
+            cfg.hidden, cfg.n_layers, cfg.n_heads, cfg.n_kv_heads,
+            cfg.head_dim, cfg.vocab,
+            /*n_exp=*/cfg.num_experts > 0 ? cfg.num_experts : 16,
+            /*n_ff=*/cfg.intermediate_size > 0 ? cfg.intermediate_size : cfg.hidden,
+            /*rtr_h=*/cfg.router_hidden > 0 ? cfg.router_hidden : 256);
+
+        printf("HIP: Initializing Zaya engine (H=%d, L=%d, NH=%d, NKV=%d, V=%d)...\n",
+               zcfg.h, zcfg.n_layers, zcfg.nq, zcfg.nkv, zcfg.vocab);
+
         // Ensure trailing slash for zaya_engine.cpp's filename concatenation
         std::string wd = weights_dir;
         if (!wd.empty() && wd.back() != '/') wd += '/';
-        zs = zaya_init(wd.c_str());  // loads weights, allocates GPU memory
+        zs = zaya_init(wd.c_str(), &zcfg);
         if (!zs) { fprintf(stderr,"HIP: zaya_init failed\n"); return false; }
 
         // Apply optional LoRA adapter after base weights are loaded
@@ -61,10 +70,10 @@ struct HIPBackend : Backend {
         ibias = zs->ibias;
 
         try {
-            logits_buf = new float[ZAYA_VOCAB];
+            logits_buf = new float[zcfg.vocab];
         } catch (std::bad_alloc&) {
             fprintf(stderr, "HIP: failed to allocate logits buffer (%zu bytes)\n",
-                    size_t(ZAYA_VOCAB) * sizeof(float));
+                    size_t(zcfg.vocab) * sizeof(float));
             zaya_destroy(zs);
             return false;
         }
@@ -101,7 +110,7 @@ struct HIPBackend : Backend {
     int generate(int token_id) override {
         if (!zs || !initialized) return -1;
         // zaya_forward_greedy does GPU argmax — copies only 4 bytes instead of
-        // 524 KB (VOCAB=262272 logits). Avoids the full-logit copy (fixes #64).
+        // full vocab logits. Avoids the full-logit copy (fixes #64).
         return zaya_forward_greedy(zs, token_id);
     }
 

@@ -31,6 +31,8 @@ constexpr int H=2048, NQ=8, NKV=2, HD=128, QD=NQ*HD, KD=NKV*HD, QKV=QD+KD;
 constexpr int N_LAYERS=40, VOCAB=262272, N_EXP=16, N_EXP_T=17, N_FF=2048, RTR_H=256;
 constexpr float RMD_EPS=1e-5f;
 constexpr int BLK=256;
+constexpr int GC=128, NROT=64;
+constexpr float ROPE_BASE=5000000.0f;
 
 // ── Q4NX Format ──
 // Header: [8-byte header_size][JSON metadata of that size][raw binary data]
@@ -771,7 +773,7 @@ int main(int argc, char** argv) {
                 moe_tiled_gemv<<<KD/2/16, 128, 0, stream>>>(d_tmp+QD+KD, d_hs, l.wv1, KD/2, H);
                 moe_tiled_gemv<<<KD/2/16, 128, 0, stream>>>(d_tmp+QD+KD+KD/2, d_phs+(size_t)il*H, l.wv2, KD/2, H);
                 v_interleave_kernel<<<(KD/2+BLK-1)/BLK, BLK, 0, stream>>>(d_tmp+QD, d_tmp+QD+KD, d_tmp+QD+KD+KD/2, KD/2);
-                cca_custom_kernel<<<1, 256, 0, stream>>>(d_tmp, d_tmp+QD, d_tmp+QD, d_phs+(size_t)il*H, d_conv+(size_t)il*2*QKV, l.cdw, l.cdb, l.cgw, l.cgb, l.ks, d_ao, d_conv+(size_t)il*2*QKV, d_phs+(size_t)il*H, il, 1);
+                cca_custom_kernel<<<1, 256, cca_custom_smem_bytes(NQ, NKV, HD, NROT), stream>>>(d_tmp, d_tmp+QD, d_tmp+QD, d_phs+(size_t)il*H, d_conv+(size_t)il*2*QKV, l.cdw, l.cdb, l.cgw, l.cgb, l.ks, d_ao, d_conv+(size_t)il*2*QKV, d_phs+(size_t)il*H, il, 1, NQ, NKV, HD, NROT, ROPE_BASE, GC);
                 moe_tiled_gemv<<<H/16, 128, 0, stream>>>(d_ao, d_ao, l.wo, H, QD);
                 residual_scale_k<<<g1, BLK, 0, stream>>>(d_ao, d_hs, l.pahss, l.pahsb, l.parss, l.parsb, H);
                 copy_k<<<g1, BLK, 0, stream>>>(d_hs, d_ao, H);
@@ -780,11 +782,12 @@ int main(int argc, char** argv) {
             rmsnorm_k<<<1, BLK, 0, stream>>>(d_hs, l.pan, H);
             
             if (l.gu && l.dn && l.gdw && l.rf1 && l.rf2 && l.rout) {
-                eda_router_gpu_kernel<<<1, RTR_H, 0, stream>>>(
+                eda_router_gpu_kernel<<<1, RTR_H, eda_router_smem_bytes(RTR_H, 2), stream>>>(
                     d_hs, d_prev_rs + (size_t)il * RTR_H,
                     router_states[il].has_eda ? 1 : 0, router_states[il].eda_scale[0],
                     l.gdw, l.gdb, l.rfn, l.rf1, l.rf1b, l.rf2, l.rf2b, l.rout, l.bb,
-                    d_prev_rs + (size_t)il * RTR_H, d_expert_idx, d_expert_wt);
+                    d_prev_rs + (size_t)il * RTR_H, d_expert_idx, d_expert_wt,
+                    N_EXP, H, RTR_H, 2);
                 encode_expert_cache_kernel<<<1, 32, 0, stream>>>(d_prev_rs + (size_t)il * RTR_H, d_expert_idx, RTR_H);
                 {
                     const int gb = (2 * N_FF + 15) / 16, db = (H + 15) / 16, sb = (N_FF + BLK - 1) / BLK;

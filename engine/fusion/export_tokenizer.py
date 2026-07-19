@@ -21,7 +21,7 @@ Output format (.tok):
 
 Usage: python3 export_tokenizer.py --input tokenizer.json --output tokenizer.tok
 """
-import json, struct, sys, argparse
+import json, os, struct, sys, argparse
 
 def main():
     parser = argparse.ArgumentParser()
@@ -29,8 +29,8 @@ def main():
     parser.add_argument("--output", default=None)
     args = parser.parse_args()
 
-    input_path = args.input or os.path.expanduser("~/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.json"
-    output_path = args.output or os.path.expanduser("~/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.tok"
+    input_path = args.input or os.path.expanduser("~/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.json")
+    output_path = args.output or os.path.expanduser("~/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.tok")
 
     with open(input_path) as f:
         tok = json.load(f)
@@ -91,7 +91,7 @@ def main():
             f.write(struct.pack("<I", r_rank))
 
     print(f"Wrote {vocab_size} vocab entries, {len(merge_data)} merges → {output_path} "
-          f"({output_path and f': {__import__('os').path.getsize(output_path)} bytes' or '')}")
+          f"({os.path.getsize(output_path)} bytes)")
 
 if __name__ == "__main__":
     main()

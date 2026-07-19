@@ -13,50 +13,15 @@
 #include <algorithm>
 #include <new>
 #include "hip_check.h"
+#include "zaya_engine.h"
 
 #include "hip_check.h"
 
 
-// ── Architecture (compile-time constants for kernels ──
-static constexpr int H=2048,NQ=8,NKV=2,HD=128,QD=NQ*HD,KD=NKV*HD,QKV=QD+KD;
-static constexpr int N_LAYERS=40,VOCAB=262272,N_EXP=16,N_EXP_T=17,N_FF=2048,RTR_H=256; // N_EXP_T=17 = 16 experts + 1 MOD skip token
-static constexpr float RMD_EPS=1e-5f; static constexpr int BLK=256;
-
-// ── Runtime config (host code uses these) ──
-// Set by zaya_init before calling zaya_forward. Uses separate names
-// from the compile-time constants to avoid shadowing.
-#define _H H
-#define _NQ NQ
-#define _NKV NKV
-#define _HD HD
-#define _QD QD
-#define _KD KD
-#define _QKV QKV
-#define _N_LAYERS N_LAYERS
-#define _VOCAB VOCAB
-#define _N_EXP N_EXP
-#define _N_EXP_T N_EXP_T
-#define _N_FF N_FF
-#define _RTR_H RTR_H
-static struct {
-    int h=_H, nq=_NQ, nkv=_NKV, hd=_HD;
-    int qd=_QD, kd=_KD, qkv=_QKV;
-    int n_layers=_N_LAYERS, vocab=_VOCAB;
-    int n_exp=_N_EXP, n_exp_t=_N_EXP_T, n_ff=_N_FF, rtr_h=_RTR_H;
-} eng;
-#undef _H
-#undef _NQ
-#undef _NKV
-#undef _HD
-#undef _QD
-#undef _KD
-#undef _QKV
-#undef _N_LAYERS
-#undef _VOCAB
-#undef _N_EXP
-#undef _N_EXP_T
-#undef _N_FF
-#undef _RTR_H
+// ── Runtime config (set by zaya_init from model header) ──
+static constexpr float RMD_EPS=1e-5f;
+static constexpr int BLK=256;
+static ZayaConfig eng;  // populated by zaya_init from ZayaConfig parameter
 
 // ── Helper kernels ──
 __global__ void rmsnorm_k(__half*x,const __half*w,int n){__shared__ float r[32];int tx=threadIdx.x,wid=tx/32,l=tx%32;float ss=0;for(int i=tx;i<n;i+=blockDim.x)ss+=(float)x[i]*(float)x[i];for(int o=16;o>0;o>>=1)ss+=__shfl_xor(ss,o);if(l==0)r[wid]=ss;__syncthreads();if(wid==0){ss=(l<(256/32))?r[l]:0;for(int o=16;o>0;o>>=1)ss+=__shfl_xor(ss,o);if(l==0)r[0]=ss;}__syncthreads();float iv=1.0f/sqrtf(r[0]/n+1e-5f);for(int i=tx;i<n;i+=blockDim.x)x[i]=__float2half((float)x[i]*iv*(float)w[i]);}
@@ -101,8 +66,7 @@ extern "C" int rcpp_kv_cache_attn_decode_fd(const void* Q,const void* K,const vo
 #include "zaya_moe_wmma_batched.hip"
 #endif
 
-// ── Weight loading ──
-struct LayerW{__half*nw,*wq,*wk,*wv1,*wv2,*wo,*pan;float*cdw,*cdb,*cgw,*cgb,*ks;float*pahss,*pahsb,*parss,*parsb;float*gdw,*gdb,*rfn,*rf1,*rf1b,*rf2,*rf2b,*rout,*bb;__half*gu,*dn;float*pmhss,*pmhsb,*pmrss,*pmrsb;};
+// ── Weight loading (structs LayerW, ZayaState defined in zaya_engine.h) ──
 
 static std::vector<float> load_bin(const std::string& p){
     std::ifstream f(p,std::ios::binary|std::ios::ate);
@@ -131,38 +95,21 @@ static void upf32(const std::vector<float>& s,float*d,int n,hipStream_t h=0){
 
 extern "C" {
 
-// ── Forward declarations ──
-struct ZayaState;
-void zaya_destroy(ZayaState* s);
-
 // ── WMMA defines (redefined after zaya_moe_wmma_batched.hip undefs them) ──
 #define WMMA_M 16
 #define WMMA_N 16
 #define WMMA_K 64
 #define WMMA_THREADS 128
 
-// ── Public state ──
-struct ZayaState {
-    __half *d_hs=nullptr,*d_ao=nullptr,*d_tmp=nullptr,*d_fnw=nullptr,*d_lm_out=nullptr,*d_embed=nullptr;
-    __half *d_conv=nullptr,*d_phs=nullptr,*d_lm_vocab=nullptr; float *d_prev_rs=nullptr;
-    __half *d_kcache=nullptr,*d_vcache=nullptr,*d_vrec=nullptr;
-    __half *d_qout=nullptr,*d_kout=nullptr,*d_vout=nullptr;
-    int *d_skip_flag=nullptr;
-    int pos=0, max_seq=4096;
-    int *d_argmax_idx=nullptr; float *d_argmax_val=nullptr;
-    int *d_expert_idx=nullptr; float *d_expert_wt=nullptr;
-    int *d_sorted_ids=nullptr,*d_expert_counts=nullptr,*d_expert_offsets=nullptr;
-    hipStream_t st=nullptr;
-    std::vector<LayerW> lw;
-    std::vector<bool> has_eda;
-    std::vector<float> eda_scale;
-    std::vector<float> embed, ibias, iscale;
-};
-
 // ── Init: load weights, allocate GPU memory ──
-ZayaState* zaya_init(const char* weights_dir = nullptr) {
-    // g_weights_dir is now const — set from ZAYA_WEIGHTS_DIR or XDG_DATA_HOME
-    // Use the parameter directly where weights_dir is needed instead
+ZayaState* zaya_init(const char* weights_dir, const ZayaConfig* cfg) {
+    // Populate runtime config from the provided ZayaConfig (or default Zaya1-8B)
+    if (cfg) {
+        eng = *cfg;
+    } else {
+        eng = ZayaConfig::zaya1_8b();
+    }
+
     ZayaState* s = new (std::nothrow) ZayaState();
     if (!s) {
         fprintf(stderr, "zaya_init: failed to allocate ZayaState (OOM)\n");
@@ -192,15 +139,13 @@ ZayaState* zaya_init(const char* weights_dir = nullptr) {
         return nullptr;
     }
 
-    // Dimension validation: check loaded weights match compile-time constants.
-    // The engine uses compile-time #{H}x#{NQ}x#{NKV} kernel dimensions and cannot
-    // dynamically adapt to different model sizes. (Issue #249)
+    // Dimension validation: check loaded weights match expected config dimensions.
     size_t expected_embed = (size_t)eng.vocab * eng.h;
     if (s->embed.size() != expected_embed) {
-        fprintf(stderr, "zaya_init: model embed size %zu != expected %zu (H=%d, vocab=%d)\n",
+        fprintf(stderr, "zaya_init: model embed size %zu != expected %zu (cfg H=%d, vocab=%d)\n",
                 s->embed.size(), expected_embed, eng.h, eng.vocab);
-        fprintf(stderr, "  This engine was compiled for H=%d, NQ=%d, NKV=%d, L=%d, V=%d.\n",
-                H, NQ, NKV, N_LAYERS, VOCAB);
+        fprintf(stderr, "  Engine configured for H=%d, NQ=%d, NKV=%d, L=%d, V=%d.\n",
+                eng.h, eng.nq, eng.nkv, eng.n_layers, eng.vocab);
         fprintf(stderr, "  Refusing to load — would produce silent garbage.\n");
         zaya_destroy(s);
         return nullptr;
@@ -345,10 +290,10 @@ void zaya_forward(ZayaState* s, int token_id, float* logits_out) {
         HIP_CHECK(hipGetLastError());
         moe_tiled_gemv<<<eng.kd/2/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_tmp+eng.qd+eng.kd+eng.kd/2,s->d_hs,l.wv2,eng.kd/2,eng.h); // v_del
         HIP_CHECK(hipGetLastError());
-        cca_prep_kernel<<<1,256,0,s->st>>>(s->d_tmp,s->d_tmp+eng.qd,s->d_tmp+eng.qd+eng.kd,s->d_tmp+eng.qd+eng.kd+eng.kd/2,
+        cca_prep_kernel<<<1,256,cca_prep_smem_bytes(eng.nq,eng.nkv,eng.hd,eng.hd/2),s->st>>>(s->d_tmp,s->d_tmp+eng.qd,s->d_tmp+eng.qd+eng.kd,s->d_tmp+eng.qd+eng.kd+eng.kd/2,
             s->d_conv+(size_t)il*2*eng.qkv, s->d_vrec+(size_t)il*(eng.kd/2),
             l.cdw,l.cdb,l.cgw,l.cgb,l.ks,
-            s->d_qout,s->d_kout,s->d_vout, s->pos);
+            s->d_qout,s->d_kout,s->d_vout, s->pos, eng.nq,eng.nkv,eng.hd,eng.hd/2,5000000.0f,eng.qkv/(eng.nq+eng.nkv));
         HIP_CHECK(hipGetLastError());
         copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(s->d_kcache+(size_t)il*s->max_seq*eng.nkv*eng.hd+(size_t)s->pos*eng.nkv*eng.hd, s->d_kout, eng.kd);
         HIP_CHECK(hipGetLastError());
@@ -367,7 +312,7 @@ void zaya_forward(ZayaState* s, int token_id, float* logits_out) {
         rmsnorm_k<<<1,BLK,0,s->st>>>(s->d_hs,l.pan,eng.h);
         HIP_CHECK(hipGetLastError());
         if(l.gu&&l.dn){
-            eda_router_gpu_kernel<<<1,eng.rtr_h,0,s->st>>>(s->d_hs,s->d_prev_rs+(size_t)il*eng.rtr_h,s->has_eda[il]?1:0,s->eda_scale[il],l.gdw,l.gdb,l.rfn,l.rf1,l.rf1b,l.rf2,l.rf2b,l.rout,l.bb,s->d_prev_rs+(size_t)il*eng.rtr_h,s->d_expert_idx,s->d_expert_wt);
+            eda_router_gpu_kernel<<<1,eng.rtr_h,eda_router_smem_bytes(eng.rtr_h,2),s->st>>>(s->d_hs,s->d_prev_rs+(size_t)il*eng.rtr_h,s->has_eda[il]?1:0,s->eda_scale[il],l.gdw,l.gdb,l.rfn,l.rf1,l.rf1b,l.rf2,l.rf2b,l.rout,l.bb,s->d_prev_rs+(size_t)il*eng.rtr_h,s->d_expert_idx,s->d_expert_wt,eng.n_exp,eng.h,eng.rtr_h,2);
             HIP_CHECK(hipGetLastError());
             encode_expert_cache_kernel<<<1,32,0,s->st>>>(s->d_prev_rs+(size_t)il*eng.rtr_h,s->d_expert_idx,eng.rtr_h);
             HIP_CHECK(hipGetLastError());
@@ -431,10 +376,10 @@ int zaya_forward_greedy(ZayaState* s, int token_id) {
         HIP_CHECK(hipGetLastError());
         moe_tiled_gemv<<<eng.kd/2/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_tmp+eng.qd+eng.kd+eng.kd/2,s->d_hs,l.wv2,eng.kd/2,eng.h); // v_del
         HIP_CHECK(hipGetLastError());
-        cca_prep_kernel<<<1,256,0,s->st>>>(s->d_tmp,s->d_tmp+eng.qd,s->d_tmp+eng.qd+eng.kd,s->d_tmp+eng.qd+eng.kd+eng.kd/2,
+        cca_prep_kernel<<<1,256,cca_prep_smem_bytes(eng.nq,eng.nkv,eng.hd,eng.hd/2),s->st>>>(s->d_tmp,s->d_tmp+eng.qd,s->d_tmp+eng.qd+eng.kd,s->d_tmp+eng.qd+eng.kd+eng.kd/2,
             s->d_conv+(size_t)il*2*eng.qkv, s->d_vrec+(size_t)il*(eng.kd/2),
             l.cdw,l.cdb,l.cgw,l.cgb,l.ks,
-            s->d_qout,s->d_kout,s->d_vout, s->pos);
+            s->d_qout,s->d_kout,s->d_vout, s->pos, eng.nq,eng.nkv,eng.hd,eng.hd/2,5000000.0f,eng.qkv/(eng.nq+eng.nkv));
         HIP_CHECK(hipGetLastError());
         copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(s->d_kcache+(size_t)il*s->max_seq*eng.nkv*eng.hd+(size_t)s->pos*eng.nkv*eng.hd, s->d_kout, eng.kd);
         HIP_CHECK(hipGetLastError());
@@ -453,7 +398,7 @@ int zaya_forward_greedy(ZayaState* s, int token_id) {
         rmsnorm_k<<<1,BLK,0,s->st>>>(s->d_hs,l.pan,eng.h);
         HIP_CHECK(hipGetLastError());
         if(l.gu&&l.dn){
-            eda_router_gpu_kernel<<<1,eng.rtr_h,0,s->st>>>(s->d_hs,s->d_prev_rs+(size_t)il*eng.rtr_h,s->has_eda[il]?1:0,s->eda_scale[il],l.gdw,l.gdb,l.rfn,l.rf1,l.rf1b,l.rf2,l.rf2b,l.rout,l.bb,s->d_prev_rs+(size_t)il*eng.rtr_h,s->d_expert_idx,s->d_expert_wt);
+            eda_router_gpu_kernel<<<1,eng.rtr_h,eda_router_smem_bytes(eng.rtr_h,2),s->st>>>(s->d_hs,s->d_prev_rs+(size_t)il*eng.rtr_h,s->has_eda[il]?1:0,s->eda_scale[il],l.gdw,l.gdb,l.rfn,l.rf1,l.rf1b,l.rf2,l.rf2b,l.rout,l.bb,s->d_prev_rs+(size_t)il*eng.rtr_h,s->d_expert_idx,s->d_expert_wt,eng.n_exp,eng.h,eng.rtr_h,2);
             HIP_CHECK(hipGetLastError());
             encode_expert_cache_kernel<<<1,32,0,s->st>>>(s->d_prev_rs+(size_t)il*eng.rtr_h,s->d_expert_idx,eng.rtr_h);
             HIP_CHECK(hipGetLastError());
@@ -560,27 +505,27 @@ void zaya_forward_batch(ZayaState* s, const int* token_ids, float* logits_out, i
         if (l.gu && l.dn) {
             if (B >= 4) {
                 // Phase 1: Route all B tokens (GPU-resident)
-                batched_moe_router_kernel<<<B, 256, 0, s->st>>>(
+                batched_moe_router_kernel<<<B, 256, batched_router_smem_bytes(eng.rtr_h,eng.n_exp_t), s->st>>>(
                     s->d_hs, s->d_prev_rs + (size_t)il * eng.rtr_h,
                     s->has_eda[il] ? 1 : 0, s->eda_scale[il],
                     l.gdw, l.gdb, l.rfn, l.rf1, l.rf1b,
                     l.rf2, l.rf2b, l.rout, l.bb,
                     s->d_prev_rs + (size_t)il * eng.rtr_h,
                     s->d_expert_idx, s->d_expert_wt,
-                    B);
+                    B, eng.h, eng.rtr_h, eng.n_exp_t);
                 HIP_CHECK(hipGetLastError());
 
                 // Phase 2: Sort token IDs by expert (histogram + prefix sum + scatter);
                 // buffers allocated in zaya_init (fixes #63).
-                moe_sort_histogram_kernel<<<1, 32, 0, s->st>>>(
+                moe_sort_histogram_kernel<<<1, 32, sort_histogram_smem_bytes(eng.n_exp_t), s->st>>>(
                     s->d_expert_idx, s->d_expert_counts, s->d_expert_offsets,
-                    s->d_sorted_ids, B);
+                    s->d_sorted_ids, B, eng.n_exp_t);
                 HIP_CHECK(hipGetLastError());
 
                 // Phase 3: Expert FFN (sorted, one block per expert with count>0)
-                moe_sorted_expert_kernel<<<eng.n_exp, 256, 0, s->st>>>(
+                moe_sorted_expert_kernel<<<eng.n_exp, 256, sorted_expert_smem_bytes(eng.n_ff), s->st>>>(
                     s->d_hs, s->d_sorted_ids, s->d_expert_counts, s->d_expert_offsets,
-                    l.gu, l.dn, s->d_tmp, B);
+                    l.gu, l.dn, s->d_tmp, B, eng.h, eng.n_exp, eng.n_ff);
                 HIP_CHECK(hipGetLastError());
 
                 // Phase 4: Handle MOD skip tokens (expert_idx == eng.n_exp = 16)
@@ -591,7 +536,7 @@ void zaya_forward_batch(ZayaState* s, const int* token_ids, float* logits_out, i
                 HIP_CHECK(hipGetLastError());
                 }
             } else {
-                batched_moe_fused_kernel<<<B, 256, 0, s->st>>>(
+                batched_moe_fused_kernel<<<B, 256, batched_fused_smem_bytes(eng.rtr_h,eng.n_exp_t,eng.n_ff), s->st>>>(
                     s->d_hs, s->d_prev_rs + (size_t)il * eng.rtr_h,
                     s->has_eda[il] ? 1 : 0, s->eda_scale[il],
                     l.gdw, l.gdb, l.rfn, l.rf1, l.rf1b,
@@ -599,7 +544,7 @@ void zaya_forward_batch(ZayaState* s, const int* token_ids, float* logits_out, i
                     l.gu, l.dn,
                     s->d_prev_rs + (size_t)il * eng.rtr_h,
                     s->d_tmp, s->d_expert_idx, s->d_expert_wt,
-                    B);
+                    B, eng.h, eng.rtr_h, eng.n_exp_t, eng.n_exp, eng.n_ff);
             HIP_CHECK(hipGetLastError());
             }
 
@@ -846,11 +791,11 @@ extern "C" int zaya_apply_lora(ZayaState* s, const char* lora_path) {
 
 // ── Reset state (new sequence) ──
 // ── Set sentinel for expert caching (no previous expert for any layer) ──
-__global__ void init_expert_cache_sentinel(float* prev_rs, int n_layers, int rtr_h) {
-    // Set prev_rs[layer * rtr_h + rtr_h - 1] = bit-cast eng.n_exp (sentinel)
+__global__ void init_expert_cache_sentinel(float* prev_rs, int n_layers, int rtr_h, int n_exp) {
+    // Set prev_rs[layer * rtr_h + rtr_h - 1] = bit-cast n_exp (sentinel)
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n_layers) return;
-    ((int*)&prev_rs[i * rtr_h + rtr_h - 1])[0] = 16; // eng.n_exp = 16 (invalid expert, no previous)
+    ((int*)&prev_rs[i * rtr_h + rtr_h - 1])[0] = n_exp; // invalid expert, no previous
 }
 
 void zaya_reset(ZayaState* s) {
@@ -861,7 +806,7 @@ void zaya_reset(ZayaState* s) {
     HIP_OK_V(hipMemsetAsync(s->d_vcache,0,(size_t)eng.n_layers*s->max_seq*eng.nkv*eng.hd*2,s->st));
     HIP_OK_V(hipMemsetAsync(s->d_vrec,0,(size_t)eng.n_layers*(eng.kd/2)*2,s->st));
     s->pos=0;
-    init_expert_cache_sentinel<<<1, 64, 0, s->st>>>(s->d_prev_rs, eng.n_layers, eng.rtr_h);
+    init_expert_cache_sentinel<<<1, 64, 0, s->st>>>(s->d_prev_rs, eng.n_layers, eng.rtr_h, eng.n_exp);
 HIP_CHECK(hipGetLastError());
 }
 

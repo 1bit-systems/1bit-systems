@@ -50,8 +50,40 @@ zig-out/
 # Machine-specific MCP config (absolute paths)
 .mcp.json
 
+# Clangd/LSP cache
+.cache/
+
 # Cloudflare Pages build artifact
 site/docs/.build/
+
+# Compiled tool binaries (tracking issue #438)
+/tools/dspark_full
+/tools/oscar_calib
+/tools/trg_save
+
+# Compiled engine/fusion binaries (issue #438)
+engine/fusion/debug_55t
+engine/fusion/debug_cmp
+engine/fusion/engine
+engine/fusion/engine_55t
+engine/fusion/engine_55t_v2
+engine/fusion/engine_55t_v3
+engine/fusion/engine_55t_v4
+engine/fusion/engine_fast
+engine/fusion/engine_final
+engine/fusion/engine_final_clean
+engine/fusion/engine_final_working
+engine/fusion/engine_fused
+engine/fusion/engine_fused2
+engine/fusion/engine_fused_dbg
+engine/fusion/engine_gpu_v2
+engine/fusion/engine_i8
+engine/fusion/engine_peak
+engine/fusion/engine_peak_profile
+
+# Generated xclbin artifacts
+engine/npu/xclbins/
+engine/engine/
 
 # temp files
 *.bak
@@ -69,3 +101,4 @@ build-*/
 # native tokenizer tool binary (build via: make -C engine/fusion)
 engine/fusion/tokenize
 changes/
+_deps/

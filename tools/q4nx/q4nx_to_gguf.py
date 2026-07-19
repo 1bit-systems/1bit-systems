@@ -367,8 +367,8 @@ def main():
     convert(args.q4nx_path, args.output, args.arch)
     
     print(f"\nRun on GPU:")
-    print(f"  LD_LIBRARY_PATH=os.path.expanduser("~/.cache/lemonade/bin/llamacpp/vulkan \\")
-    print(f"  os.path.expanduser("~/.cache/lemonade/bin/llamacpp/vulkan/llama-server \\")
+    print(f"  LD_LIBRARY_PATH={os.path.expanduser('~/.cache/lemonade/bin/llamacpp/vulkan')} \\")
+    print(f"  {os.path.expanduser('~/.cache/lemonade/bin/llamacpp/vulkan/llama-server')} \\")
     print(f"    -m {args.output} --port 13305 --host 127.0.0.1 -ngl 99")
 
 

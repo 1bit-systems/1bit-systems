@@ -76,6 +76,94 @@
     "tflops_55_7": {
       "blocker": "NO SOURCE. Measured ternary prefill peak is 35.57 TFlops.",
       "claimed": 55.7
+    },
+    "bonsai_end_to_end_decode": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": "PASS (argmax=76213, coherent logits)"
+    },
+    "fused_tq2_1024_individual_tok_s": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": 360
+    },
+    "bonsai_tq2_1024_tok_s": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": 366
+    },
+    "kv_cache_fd_speedup_2048": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": 12.58
+    },
+    "rotorquant_pq3_tok_s_2048": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": 8679
+    },
+    "zaya_vocab": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": 262272
+    },
+    "zaya_rocm_hip_tok_s_benchmark": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": 23.9
+    },
+    "zaya_rocm_hip_tok_s_cold": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": 8.95
+    },
+    "bonsai_q1_1024_tok_s": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": 429
+    },
+    "zaya_output_logits": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": "PASS (coherent, non-NaN, non-zero)"
+    },
+    "zaya_rocm_hip_ms_per_tok": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": 41.9
+    },
+    "zaya_layers_per_sec": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": 49.5
+    },
+    "zaya_weight_format": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": "synthetic (reverse-engineered)"
+    },
+    "zaya_hidden_size": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": 2048
+    },
+    "zaya_rocm_hip_active_backend": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": "hip_gpu \u2705"
+    },
+    "zaya_layers": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": 40
+    },
+    "zaya_rocm_hip_weight_format": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": "synthetic FP32 (33 GB total)"
+    },
+    "bonsai_tile8_tok_s": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": 75.4
+    },
+    "zaya_forward_ms": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": 808
+    },
+    "kv_cache_i8_speedup_2048": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": 0.95
+    },
+    "zaya_rocm_hip_moe_experts": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": "16 per layer \u00d7 40 layers"
+    },
+    "fused_tq2_1024_tok_s": {
+      "comment": "Moved from benchmarks on 2026-07-19: needs a _verify command + validator before re-promotion",
+      "value": 421
     }
   },
   "_verify": {
@@ -107,33 +195,11 @@
     "tolerance": 0.15
   },
   "benchmarks": {
-    "bonsai_end_to_end_decode": "PASS (argmax=76213, coherent logits)",
-    "bonsai_q1_1024_tok_s": 429,
-    "bonsai_tile8_tok_s": 75.4,
-    "bonsai_tq2_1024_tok_s": 366,
-    "fused_tq2_1024_individual_tok_s": 360,
-    "fused_tq2_1024_tok_s": 421,
-    "halo_gemv_gbps": 150.4,
-    "kv_cache_fd_speedup_2048": 12.58,
-    "kv_cache_i8_speedup_2048": 0.95,
-    "prefill_tflops_4h": 21.35,
-    "prefill_tflops_i8apre": 37.05,
-    "rotorquant_pq3_tok_s_2048": 8679,
-    "sherry_gemv_gbps": 143.7,
-    "tq1_gemv_gbps": 183.2,
-    "zaya_forward_ms": 808,
-    "zaya_hidden_size": 2048,
-    "zaya_layers": 40,
-    "zaya_layers_per_sec": 49.5,
-    "zaya_output_logits": "PASS (coherent, non-NaN, non-zero)",
-    "zaya_rocm_hip_active_backend": "hip_gpu \u2705",
-    "zaya_rocm_hip_moe_experts": "16 per layer \u00d7 40 layers",
-    "zaya_rocm_hip_ms_per_tok": 41.9,
-    "zaya_rocm_hip_tok_s_benchmark": 23.9,
-    "zaya_rocm_hip_tok_s_cold": 8.95,
-    "zaya_rocm_hip_weight_format": "synthetic FP32 (33 GB total)",
-    "zaya_vocab": 262272,
-    "zaya_weight_format": "synthetic (reverse-engineered)"
+    "halo_gemv_gbps": 148.2,
+    "prefill_tflops_4h": 29.7,
+    "prefill_tflops_i8apre": 40.99,
+    "sherry_gemv_gbps": 155.2,
+    "tq1_gemv_gbps": 201.1
   },
   "repo": {
     "forks": 4,

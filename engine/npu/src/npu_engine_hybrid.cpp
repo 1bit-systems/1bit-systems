@@ -20,8 +20,23 @@
 #include <xrt/xrt_bo.h>
 #include <xrt/xrt_kernel.h>
 
-static constexpr int H=1024,NC=28,NH=16,NKV=8,HD=128,IM=3072,NV=151936,GQA=2,XM=128;
+// Model dimensions — read from Q4NX header at runtime (#443)
+// Defaults for Qwen3-0.6B; override via env vars for other models.
+static int H=1024,NC=28,NH=16,NKV=8,HD=128,IM=3072,NV=151936,GQA=2,XM=128;
+static constexpr int LAYERB_SIZE=112;  // max NC across all supported models
 static constexpr float EPS = 1e-6f;
+
+// Load model dimensions from environment (set by model_config.h discovery)
+static void load_model_dims() {
+    if (const char* e = getenv("NPU_H")) H = atoi(e);
+    if (const char* e = getenv("NPU_NC")) NC = atoi(e);
+    if (const char* e = getenv("NPU_NH")) NH = atoi(e);
+    if (const char* e = getenv("NPU_NKV")) NKV = atoi(e);
+    if (const char* e = getenv("NPU_HD")) HD = atoi(e);
+    if (const char* e = getenv("NPU_IM")) IM = atoi(e);
+    if (const char* e = getenv("NPU_NV")) NV = atoi(e);
+    GQA = NH / NKV;
+}
 static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:[&]{uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}();}
 static inline void cn(float*x,int n){for(int i=0;i<n;i++)if(!std::isfinite(x[i]))x[i]=0.0f;}
 static inline float dyn_scale(const float*x,int n){float a=0;for(int i=0;i<n;i++){float f=fabsf(x[i]);if(std::isfinite(f)&&f>a)a=f;}return a<1e-12f?1.0f:a/127.0f;}
@@ -47,7 +62,7 @@ struct SharedCtx {
 
 struct I8Ctx {
     const char*name;int MD,KD,ND;
-    std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bI,bA,bC,layerB[NC];int8_t*Am;int32_t*Cm;
+    std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bI,bA,bC;std::vector<std::unique_ptr<xrt::bo>>layerB;int8_t*Am;int32_t*Cm;
     std::unique_ptr<xrt::kernel>k;
     bool init(xrt::device&d,SharedCtx&sctx,const char*xp,const char*ip,int gid_B){
         FILE*f=fopen(ip,"rb");if(!f)return false;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);
@@ -55,7 +70,7 @@ struct I8Ctx {
         bI=std::make_unique<xrt::bo>(d,ins.size()*4,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));memcpy(bI->map(),ins.data(),ins.size()*4);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);
         bA=std::make_unique<xrt::bo>(d,(size_t)MD*KD,XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));
         bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*4,XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));Am=(int8_t*)bA->map();Cm=(int32_t*)bC->map();
-        for(int l=0;l<NC;l++)layerB[l]=std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B));return true;
+        for(int l=0;l<NC;l++)layerB.emplace_back(std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B)));return true;
     }
     void packB(int l,const float*w,int K,int N,float&sout){
         float amax=0;for(int i=0;i<K*N;i++){float a=fabsf(w[i]);if(std::isfinite(a)&&a>amax)amax=a;}
@@ -98,6 +113,12 @@ int main(int argc,char**argv){
     setvbuf(stdout,NULL,_IONBF,0);
     int npt=9,ng=(argc>1)?atoi(argv[1]):32;
     fprintf(stderr,"=== NPU+GPU Hybrid Engine ===\n");
+
+    // Load model dimensions from env vars (#443)
+    load_model_dims();
+    fprintf(stderr,"  Dims: H=%d NC=%d NH=%d NKV=%d HD=%d IM=%d NV=%d GQA=%d\n",
+            H, NC, NH, NKV, HD, IM, NV, GQA);
+
     fprintf(stderr,"Loading model...\n");
 
     const char*mp=getenv("NPU_MODEL_PATH")?:"model.q4nx";
@@ -163,21 +184,25 @@ int main(int argc,char**argv){
             return true;
         }
         void run(float*qo,float*at,int cl,const float*kv_k,const float*kv_v,int max_pos=-1) {
-            // NPU attention via KV xclbin: Q@K^T on NPU, softmax+V on CPU
-            // TODO(#kv-xclbin): Wire the NPU KV xclbin for Q@K^T attention-score
-            // computation.  The xclbin and instruction format exist in the FLM
-            // toolchain (see setup_npu_xclbins.sh) but the kernel-call plumbing
-            // from npu_engine_i8.cpp hasn't been adapted yet.
-            // Fall back to CPU for now
-            #pragma omp parallel for
-            for(int hh=0;hh<NH;hh++){
-                int kvh=hh/GQA;float sc[4096];float mx=-1e30f;
-                for(int p=0;p<cl;p++){
-                    if(p>=max_pos){sc[p]=-1e30f;continue;}double s=0;int qoff=hh*HD,koff=kvh*NKV*HD+p*HD;
-                    for(int d=0;d<HD;d++)s+=(double)qo[qoff+d]*kv_k[koff+d];sc[p]=(float)(s*0.0883883476f);if(sc[p]>mx)mx=sc[p];}
-                double sw=0;for(int p=0;p<cl;p++){sc[p]=expf(sc[p]-mx);sw+=sc[p];}float iw=sw>0?1.0f/(float)sw:1.0f/cl;
-                for(int d=0;d<HD;d++){float acc=0;int aoff=hh*HD+d;for(int p=0;p<cl;p++)acc+=sc[p]*kv_v[kvh*NKV*HD+p*HD+d];at[aoff]=acc*iw;}
-            }
+            if(max_pos<0)max_pos=cl;
+            // NPU attention via KV xclbin: full attention on NPU (Q@K^T → softmax → @V)
+            // Pre-compiled instructions at insts_i8_KV_v.txt drive the AIE array.
+            // Q, K, V quantized to i8; output is i32, dequantized to f32.
+            float q_max=0;for(int i=0;i<NH*HD;i++){float a=fabsf(qo[i]);if(a>q_max)q_max=a;}
+            float qs=q_max<1e-12f?1.0f:q_max/127.0f;float q_is=1.0f/qs;
+            for(int i=0;i<NH*HD;i++){float v=qo[i];if(!std::isfinite(v))v=0;int x=(int)roundf(v*q_is);if(x>127)x=127;else if(x<-127)x=-127;Q[i]=(int8_t)x;}
+            bQ->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            memset(K,0,(size_t)NKV*4096*HD);
+            for(size_t i=0;i<(size_t)max_pos*NKV*HD;i++){float v=kv_k[i];if(!std::isfinite(v))v=0;int x=(int)roundf(v);if(x>127)x=127;else if(x<-127)x=-127;K[i]=(int8_t)x;}
+            bK->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            memset(V,0,(size_t)NKV*4096*HD);
+            for(size_t i=0;i<(size_t)max_pos*NKV*HD;i++){float v=kv_v[i];if(!std::isfinite(v))v=0;int x=(int)roundf(v);if(x>127)x=127;else if(x<-127)x=-127;V[i]=(int8_t)x;}
+            bV->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            // Launch: Q, K, V → NPU attention → i32 output
+            (*k)((unsigned)3,*bI,(unsigned)ins.size(),*bQ,*bK,*bV,*bOut).wait();
+            bOut->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+            float cs=qs/127.0f;
+            for(int i=0;i<NH*HD;i++){float v=(float)Out[i]*cs;at[i]=std::isfinite(v)?v:0.0f;}
         }
     } attn;
     attn.init(dev,sctx,D"/final_i8_KV_v.xclbin",D"/insts_i8_KV_v.txt");

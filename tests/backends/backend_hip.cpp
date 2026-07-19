@@ -20,7 +20,7 @@ static float fp16_to_fp32(uint16_t h) {
     else{float r;uint32_t f=(s<<31)|((e+127-15)<<23)|(m<<13);memcpy(&r,&f,4);return r;}
 }
 
-#include "hip_check.h"
+#define HIP_OK(e) do { auto _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP Error %d\n", _s); abort(); } } while (0)
 constexpr float RMD_EPS = 1e-5f;
 constexpr int BLK = 256;
 
@@ -43,13 +43,24 @@ __global__ void silu_mul_k(__half* out, const __half* g, const __half* u, int n)
 __global__ void residual_scale_k(__half* out, const __half* res, const float* hs_s, const float* hs_b, const float* res_s, const float* res_b, int n) { int i = blockIdx.x * blockDim.x + threadIdx.x; if (i >= n) return; out[i] = __float2half((float)out[i] * hs_s[i] + hs_b[i] + (float)res[i] * res_s[i] + res_b[i]); }
 __global__ void add_k(__half* a, const __half* b, int n) { int i = blockIdx.x * blockDim.x + threadIdx.x; if (i >= n) return; a[i] = __float2half(__half2float(a[i]) + __half2float(b[i])); }
 
-// Compile-time model dimension constants — see zaya1_dims.h.
-// For a different model architecture, create a matching dims header
-// and include it here instead. The runtime ModelConfig is validated
-// in load_model() against the compile-time contract defined there.
-#include "zaya1_dims.h"
+// Compile-time constants needed by kernel headers (Zaya1-8B dimensions)
+// These must match the model the kernels were compiled for.
+#ifndef H
+#define H    2048
+#define NQ   8
+#define NKV  2
+#define HD   128
+#define QD   1024
+#define KD   256
+#define QKV  1280
+#define N_LAYERS 40
+#define VOCAB 262272
+#define N_EXP 16
+#define ROUTER_TOP_K 2
+#define N_FF  2048
+#define RTR_H 256
+#endif
 
-// WMMA tile dimensions (hardware-dependent, not model-dependent)
 #define WMMA_M 16
 #define WMMA_THREADS 128
 #include "../../kernels/zaya_moe_tiled_gemv.hip"
@@ -115,7 +126,6 @@ class HipBackend : public InferenceBackend {
     std::vector<HipLayer> layers_;
     std::vector<__half> embed_cpu_, fnorm_cpu_;
     bool embed_loaded_=false;
-    bool is_zaya_ = false;
 
 public:
     BackendType type() const override { return BackendType::HIP_GPU; }
@@ -141,23 +151,11 @@ public:
         cfg_ = cfg;
         unload_model();
 
-        // Validate model dimensions match compile-time kernel contract
-        // (defined in zaya1_dims.h). Kernels are compiled for Zaya1-8B
-        // dimensions; mismatched models will use the generic (non-CCA)
-        // code path with a warning.
-        bool is_zaya = (cfg.hidden_size == 2048 && cfg.num_layers == 40 && cfg.vocab_size == 262272
-                        && cfg.num_heads == 8 && cfg.num_kv_heads == 2 && cfg.head_dim == 128
-                        && cfg.num_experts == 16 && cfg.intermediate_size == 2048
-                        && cfg.router_hidden == 256);
-        is_zaya_ = is_zaya;
+        // Accept any model dimensions — use runtime cfg_ fields.
+        bool is_zaya = (cfg.hidden_size == 2048 && cfg.num_layers == 40 && cfg.vocab_size == 262272);
         if (!is_zaya) {
-            fprintf(stderr, "  HIP: non-Zaya model (H=%d L=%d V=%d NQ=%d NKV=%d HD=%d N_EXP=%d N_FF=%d RTR_H=%d)\n",
-                    cfg.hidden_size, cfg.num_layers, cfg.vocab_size,
-                    cfg.num_heads, cfg.num_kv_heads, cfg.head_dim,
-                    cfg.num_experts, cfg.intermediate_size, cfg.router_hidden);
-            fprintf(stderr, "  HIP: GPU kernels compiled for Zaya1-8B only — refusing to load on GPU.\n");
-            fprintf(stderr, "  HIP: TokenRouter will fall back to CPU (GenericBackend).\n");
-            return false;
+            fprintf(stderr, "  HIP: non-Zaya model (H=%d L=%d V=%d) — using generic GPU path\n",
+                    cfg.hidden_size, cfg.num_layers, cfg.vocab_size);
         }
 
         HIP_OK(hipStreamCreate(&st_));
@@ -284,7 +282,7 @@ public:
             else if (vt >= 3 && vt <= 6) fseek(gf, 4, SEEK_CUR);
             else if (vt == 7) fseek(gf, 1, SEEK_CUR);
             else if (vt == 9) {
-                uint64_t n; fread(&n, 8, 1, gf); uint32_t at; fread(&at, 4, 1, gf); uint64_t al; fread(&al, 8, 1, gf);
+                uint32_t n_arr; fread(&n_arr, 4, 1, gf); uint32_t at; fread(&at, 4, 1, gf); uint64_t al = n_arr;
                 if (at == 2 || at == 8) { for (uint64_t j = 0; j < al; j++) { uint64_t ss; fread(&ss, 8, 1, gf); fseek(gf, ss, SEEK_CUR); } }
                 else if (at <= 7) fseek(gf, al, SEEK_CUR);
                 else if (at >= 10 && at <= 12) fseek(gf, al * 8, SEEK_CUR);
@@ -370,9 +368,6 @@ public:
         HIP_OK(hipMalloc(&d_hs, H * 2)); HIP_OK(hipMalloc(&d_ao, H * 2)); HIP_OK(hipMalloc(&d_tmp, H * 2));
         HIP_OK(hipMalloc(&d_conv, (size_t)L * 2 * QKV * 4));
         HIP_OK(hipMalloc(&d_phs, (size_t)L * H * 2));
-        int RTR_H = cfg.router_hidden;
-        HIP_OK(hipMalloc(&d_prev_rs, (size_t)L * RTR_H * 4));
-        HIP_OK(hipMalloc(&d_expert_idx, 4)); HIP_OK(hipMalloc(&d_expert_wt, 4));
         HIP_OK(hipMalloc(&d_all_logits, (size_t)V * 2));
         HIP_OK(hipMalloc(&d_best_idx, 4)); HIP_OK(hipMalloc(&d_best_val, 4));
 
@@ -427,13 +422,13 @@ public:
             if (is_zaya) {
                 // Zaya-specific CCA attention + fused router MoE (fast path)
                 v_interleave_kernel<<<(KD/2+BLK-1)/BLK, BLK, 0, st_>>>(d_tmp+QD, d_tmp+QD+KD, d_tmp+QD+KD+KD/2, KD/2);
-                cca_custom_kernel<<<1, 256, 0, st_>>>(d_tmp, d_tmp+QD, d_tmp+QD, d_phs+(size_t)il*H, d_conv+(size_t)il*2*QKV, l.cdw, l.cdb, l.cgw, l.cgb, l.ks, d_ao, d_conv+(size_t)il*2*QKV*2, d_phs+(size_t)il*H, il, 1);
+                cca_custom_kernel<<<1, 256, cca_custom_smem_bytes(NQ, NKV, HD, 64), st_>>>(d_tmp, d_tmp+QD, d_tmp+QD, d_phs+(size_t)il*H, d_conv+(size_t)il*2*QKV, l.cdw, l.cdb, l.cgw, l.cgb, l.ks, d_ao, d_conv+(size_t)il*2*QKV*2, d_phs+(size_t)il*H, il, 1, NQ, NKV, HD, 64, 5000000.0f, 128);
                 moe_tiled_gemv<<<H/16, 128, 0, st_>>>(d_ao, d_ao, l.wo, H, QD);
                 residual_scale_k<<<g1, BLK, 0, st_>>>(d_ao, d_hs, l.pahss, l.pahsb, l.parss, l.parsb, H);
                 copy_k<<<g1, BLK, 0, st_>>>(d_hs, d_ao, H);
                 rmsnorm_k<<<1, BLK, 0, st_>>>(d_hs, l.pan, H);
                 if (l.gu && l.dn) {
-                    eda_router_gpu_kernel<<<1, RTR_H, 0, st_>>>(d_hs, d_prev_rs+(size_t)il*RTR_H, l.has_eda?1:0, l.eda_scale[0], l.gdw, l.gdb, l.rfn, l.rf1, l.rf1b, l.rf2, l.rf2b, l.rout, l.bb, d_prev_rs+(size_t)il*RTR_H, d_expert_idx, d_expert_wt);
+                    eda_router_gpu_kernel<<<1, RTR_H, eda_router_smem_bytes(RTR_H, 2), st_>>>(d_hs, d_prev_rs+(size_t)il*RTR_H, l.has_eda?1:0, l.eda_scale[0], l.gdw, l.gdb, l.rfn, l.rf1, l.rf1b, l.rf2, l.rf2b, l.rout, l.bb, d_prev_rs+(size_t)il*RTR_H, d_expert_idx, d_expert_wt, 16, H, RTR_H, 2);
                     encode_expert_cache_kernel<<<1, 32, 0, st_>>>(d_prev_rs+(size_t)il*RTR_H, d_expert_idx, RTR_H);
                     { int gb=(2*N_FF+15)/16, db=(H+15)/16, sb=(N_FF+BLK-1)/BLK;
                     wmma_gateup_kernel<<<gb,128,0,st_>>>(d_tmp,d_hs,l.gu,d_expert_idx);

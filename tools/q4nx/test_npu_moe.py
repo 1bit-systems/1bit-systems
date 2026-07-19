@@ -2,8 +2,8 @@
 """NPU MoE worker protocol test — shared-worker harness."""
 import struct, subprocess, sys, os, time, math, fcntl
 
-ENGINE = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/engine/npu/build/npu_engine_universal"
-MODEL = sys.argv[2] if len(sys.argv) > 2 else os.path.expanduser("~/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx"
+ENGINE = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/engine/npu/build/npu_engine_universal")
+MODEL = sys.argv[2] if len(sys.argv) > 2 else os.path.expanduser("~/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx")
 TIMEOUT = int(sys.argv[3]) if len(sys.argv) > 3 else 35
 
 def spawn_worker():

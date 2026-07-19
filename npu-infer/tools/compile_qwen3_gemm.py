@@ -22,7 +22,7 @@ import numpy as np
 from ml_dtypes import bfloat16
 
 # ---- Path setup ----
-TORCH2AIE_ROOT = Path(os.path.expanduser("~/torch2aie")
+TORCH2AIE_ROOT = Path(os.path.expanduser("~/torch2aie"))
 TOOLCHAIN = TORCH2AIE_ROOT / "toolchain"
 AIETOOLS = TOOLCHAIN / "aietools"
 MLIR_AIE_DIR = TOOLCHAIN / "mlir_aie"
@@ -412,7 +412,7 @@ def main():
         print(f"  python tools/compile_qwen3_gemm.py --preset {p} --build-only")
     print()
     print("Or use the existing built xclbins at:")
-    print("  os.path.expanduser("~/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/")
+    print("  " + os.path.expanduser("~/torch2aie/examples/gemm_asymmetric_tile_buffering/config1/build/"))
     return 0
 
 

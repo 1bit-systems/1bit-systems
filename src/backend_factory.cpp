@@ -12,6 +12,22 @@
 #include <fstream>
 #include <dlfcn.h>
 #include <sys/stat.h>
+#include <dirent.h>
+
+// Any /dev/accel/accelN node present — the index isn't stable across driver
+// resets (the XDNA driver has been observed renumbering accel0 -> accel1
+// after an IOMMU page fault / device reset), so don't hardcode accel0.
+static bool any_accel_device_present() {
+    DIR* d = opendir("/dev/accel");
+    if (!d) return false;
+    bool found = false;
+    struct dirent* e;
+    while ((e = readdir(d)) != nullptr) {
+        if (strncmp(e->d_name, "accel", 5) == 0) { found = true; break; }
+    }
+    closedir(d);
+    return found;
+}
 
 // ── dlsym-based backend loading ──
 // Loads create_*_backend() from the rocm_cpp shared library or standalone .so.
@@ -136,8 +152,7 @@ bool has_npu() {
     lib = dlopen("libxrt_coreutil.so", RTLD_LAZY);
     if (!lib) lib = dlopen("libxrt_coreutil.so.2", RTLD_LAZY);
     if (!lib) {
-        struct stat st;
-        if (stat("/dev/accel/accel0", &st) == 0 || stat("/sys/class/accel/accel0", &st) == 0)
+        if (any_accel_device_present())
             return true;
         // Check via sysfs file I/O instead of popen (fixes #67)
         std::ifstream drv("/sys/bus/pci/drivers/amdxdna/uevent");

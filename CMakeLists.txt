@@ -263,6 +263,11 @@ set(RCPP_SOURCES
 if(RCPP_HAVE_CK)
     list(APPEND RCPP_SOURCES src/ck_gemm.cpp)
 endif()
+
+# NPU backend (worker subprocess) + Q4NX reader — compiled into shared lib
+list(APPEND RCPP_SOURCES src/backend_npu.cpp)
+list(APPEND RCPP_SOURCES src/q4nx_reader.cpp)
+
 add_library(rocm_cpp SHARED ${RCPP_SOURCES})
 if(ROCWMMA_FOUND)
     target_include_directories(rocm_cpp SYSTEM PRIVATE "${ROCWMMA_INCLUDE_DIR}")
@@ -657,6 +662,46 @@ if(TARGET npu_engine_hybrid)
         -L${THEROCK_SDK_BASE}/lib -lamdhip64 -Wl,-rpath,${THEROCK_SDK_BASE}/lib -fopenmp)
     set_target_properties(npu_engine_hybrid PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/engine/npu/build)
+endif()
+
+# -- test_pipeline_real: GPU+NPU fused pipeline with real kernels (#446) ------
+# Requires HIP, XRT, and the zero-copy pipeline sources.
+# Uses relative paths (no variable indirection) so the CI reference checker
+# can verify they resolve.
+find_package(aiebu QUIET)
+find_package(xrt QUIET)
+if(hip_FOUND AND xrt_FOUND AND aiebu_FOUND)
+    if(EXISTS "${CMAKE_SOURCE_DIR}/engine/fusion/zero_copy/shared_bo.cpp" AND
+       EXISTS "${CMAKE_SOURCE_DIR}/engine/fusion/zero_copy/pipeline_overlap.cpp")
+        add_executable(test_pipeline_real
+            engine/fusion/zero_copy/test_pipeline_real.cpp
+            engine/fusion/zero_copy/shared_bo.cpp
+            engine/fusion/zero_copy/pipeline_overlap.cpp
+            src/kv_cache_attn.hip
+        )
+        target_include_directories(test_pipeline_real PRIVATE
+            engine/fusion/zero_copy
+            ${CMAKE_SOURCE_DIR}/include
+            ${THEROCK_SDK_BASE}/include)
+        target_compile_options(test_pipeline_real PRIVATE
+            -O3 -march=native -ffast-math -std=c++23 -fopenmp -D__HIP_PLATFORM_AMD__)
+        target_link_libraries(test_pipeline_real PRIVATE
+            xrt_coreutil xrt_core uuid rt pthread
+            /usr/lib/x86_64-linux-gnu/libaiebu.a)
+        target_link_options(test_pipeline_real PRIVATE
+            -L${THEROCK_SDK_BASE}/lib -lamdhip64 -Wl,-rpath,${THEROCK_SDK_BASE}/lib -fopenmp)
+        set_target_properties(test_pipeline_real PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/engine/fusion/zero_copy
+            HIP_ARCHITECTURES "gfx1151")
+        add_test(NAME test_pipeline_real COMMAND test_pipeline_real)
+        set_tests_properties(test_pipeline_real PROPERTIES
+            LABELS "gpu_required;npu_required" SKIP_RETURN_CODE 77
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    else()
+        message(STATUS "test_pipeline_real: shared_bo.cpp or pipeline_overlap.cpp not found — skipping")
+    endif()
+else()
+    message(STATUS "test_pipeline_real: HIP/XRT/aiebu not all found — skipping GPU+NPU pipeline test")
 endif()
 
 # -- DSpark full pipeline: Eagle3 draft (NPU/CPU) + GPU verify ---------------

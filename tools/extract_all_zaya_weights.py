@@ -9,7 +9,7 @@ Usage: venv-hf/bin/python tools/extract_all_zaya_weights.py
 import os, sys, struct, json
 from safetensors import safe_open
 
-MODEL_DIR = os.environ.get("ZAYA_MODEL_DIR", os.path.expanduser("~/models/ZAYA1-8B")
+MODEL_DIR = os.environ.get("ZAYA_MODEL_DIR", os.path.expanduser("~/models/ZAYA1-8B"))
 WEIGHTS_DIR = os.environ.get("ZAYA_WEIGHTS_DIR", "/tmp/zaya_weights")
 os.makedirs(WEIGHTS_DIR, exist_ok=True)
 

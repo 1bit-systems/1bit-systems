@@ -2,9 +2,9 @@
 """Train final 3 adapters consistently."""
 import subprocess, time, os, sys
 
-PY = os.path.expanduser("~/spec-decode/train-venv/bin/python"
-SCRIPT = os.path.expanduser("~/1bit-systems/engine/lora/train_lora.py"
-BASE = os.path.expanduser("~/1bit-systems/engine/lora/adapters"
+PY = os.path.expanduser("~/spec-decode/train-venv/bin/python")
+SCRIPT = os.path.expanduser("~/1bit-systems/engine/lora/train_lora.py")
+BASE = os.path.expanduser("~/1bit-systems/engine/lora/adapters")
 
 os.environ["BNB_IGNORE_EXT"] = "1"
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"

@@ -35,7 +35,7 @@ import urllib.error
 from tokenizers import Tokenizer
 
 # Paths — set env vars or edit defaults for your machine (see docs/install.md)
-NPU_ENGINE_BIN = os.environ.get("NPU_ENGINE_BIN", os.path.expanduser("~/engine/npu/build/npu_engine_server"))
+NPU_ENGINE_BIN = os.environ.get("NPU_ENGINE_BIN", os.path.expanduser("~/1bit-systems/engine/npu/build/npu_engine_universal"))
 NPU_MODEL_PATH = os.environ.get("NPU_MODEL_PATH", os.path.expanduser("~/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx"))
 NPU_TOKENIZER_PATH = os.environ.get("NPU_TOKENIZER_PATH", os.path.expanduser("~/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.json"))
 
@@ -302,7 +302,7 @@ class NPUBackend:
     def start(self):
         if not os.path.exists(self.ENGINE_BIN):
             print(f"  ⚠️  NPU engine binary not found: {self.ENGINE_BIN}")
-            print(f"     Run: cd os.path.expanduser("~/engine/npu && make")
+            print(f"     Run: cd ~/engine/npu && make")
             return
         if not os.path.exists(self.TOKENIZER_PATH):
             print(f"  ⚠️  Tokenizer not found: {self.TOKENIZER_PATH}")
@@ -700,7 +700,7 @@ class Handler(BaseHTTPRequestHandler):
             import subprocess
             env = os.environ.copy()
             env["LD_LIBRARY_PATH"] = (
-                os.path.expanduser("~/torch2aie/toolchain/mlir_aie.libs:")
+                os.path.expanduser("~/torch2aie/toolchain/mlir_aie.libs:") +
                 os.path.expanduser("~/torch2aie/toolchain/sysroot/usr/lib64:") +
                 env.get("LD_LIBRARY_PATH", ""))
             engine = os.path.expanduser("~/npu-sandbox/npu-infer/build/npu_engine_mt")

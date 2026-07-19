@@ -26,7 +26,7 @@ jobs:
 
       - name: Check NPU driver
         run: |
-          if ! ls /dev/accel/accel0 2>/dev/null; then
+          if ! ls /dev/accel/accel* >/dev/null 2>&1; then
             echo "::warning::NPU device not found — driver may need reload"
             echo "DRIVER_OK=false" >> $GITHUB_ENV
           else
@@ -43,18 +43,21 @@ jobs:
           echo "XRT found"
 
       - name: Build dequantizer
-        run: gcc -c -O3 -o engine/npu/build/dequant_q4nx.o engine/npu/src/dequant_q4nx.c
+        run: |
+          mkdir -p engine/npu/build
+          gcc -c -O3 -o engine/npu/build/dequant_q4nx.o engine/npu/src/dequant_q4nx.c
 
       - name: Build engine (continuous batch)
         run: |
-          mkdir -p engine/npu/build
           # npu_engine_v12.cpp is a struct-only header — the actual engine
           # with main() is npu_engine_all.cpp
           g++ -std=c++23 -O3 -march=native -fopenmp -ffast-math \
             -o engine/npu/build/npu_engine_v12 \
             engine/npu/src/npu_engine_universal.cpp engine/npu/build/dequant_q4nx.o \
+            npu-infer/src/flm_bridge.cpp \
+            -Iengine/npu/include -Inpu-infer/include -Iinclude \
             -I/opt/xrt/include -Iengine/npu -I. \
-            -L/opt/xrt/lib -lxrt_coreutil -luuid -lm -ldl
+            -L/opt/xrt/lib -lxrt_coreutil -luuid -lm -ldl -lpthread -laiebu
 
       - name: Benchmark
         if: env.DRIVER_OK == 'true'

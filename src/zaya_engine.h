@@ -1,14 +1,13 @@
 // zaya_engine.h — Zaya inference engine declarations
 //
-// LIMITATION: Architecture is hardcoded at compile time (ZAYA_H=2048, etc.).
-// The kernels in zaya_engine.cpp use compile-time constants for shared memory
-// sizes and loop bounds. To support multiple architectures, the engine needs:
-//   1. Template the kernel functions on dimensions (requires HIP)
-//   2. Or compile separate engine versions per architecture (multi-target build)
-//   3. Or rewrite kernels to use runtime parameters (may reduce perf)
+// Architecture is now runtime-configurable via ZayaConfig. The engine accepts
+// any model dimensions at init time; kernel launch grids and buffer allocations
+// are sized dynamically from the config. The simple helper kernels (rmsnorm,
+// matmul, silu_mul, etc.) already take size parameters — only the launch grids
+// needed parameterization.
 //
-// For now, the dimension validation in src/backend_hip.cpp rejects mismatched
-// models at load time instead of producing silent garbage.
+// Default config matches Zaya1-8B (H=2048, L=40, NQ=8, NKV=2, ...) for
+// backward compatibility.
 //
 // The implementation lives in zaya_engine.cpp (compiled as HIP).
 #pragma once
@@ -19,52 +18,56 @@
 #include <vector>
 #include <string>
 
-
-
-// ── Architecture constants (Zaya1-8B — single architecture) ──
-// The kernels in zaya_engine.cpp are compiled with these hardcoded values.
-// Host-side code uses ZayaConfig for runtime flexibility, but the device
-// kernels still require these exact compile-time constants. To support
-// multiple architectures, the kernels need to be templated or rewritten
-// with dynamic shared memory.
-enum {
-    ZAYA_H = 2048,
-    ZAYA_NQ = 8,
-    ZAYA_NKV = 2,
-    ZAYA_HD = 128,
-    ZAYA_QD = ZAYA_NQ * ZAYA_HD,
-    ZAYA_KD = ZAYA_NKV * ZAYA_HD,
-    ZAYA_QKV = ZAYA_QD + ZAYA_KD,
-    ZAYA_N_LAYERS = 40,
-    ZAYA_VOCAB = 262272,
-    ZAYA_N_EXP = 16,
-    ZAYA_N_EXP_T = 17,
-    ZAYA_N_FF = 2048,
-    ZAYA_RTR_H = 256,
-};
-
 // ── Runtime configuration for Zaya engine ──
-// The engine is compiled for Zaya1-8B with the constants above.
-// This struct describes the same architecture to host code.
-// When kernels are templated for multiple architectures, this will
-// be the primary config and the enum constants will be removed.
+// This is the single source of truth for model dimensions. Pass to zaya_init().
 struct ZayaConfig {
-    int H = ZAYA_H;
-    int N_LAYERS = ZAYA_N_LAYERS;
-    int NQ = ZAYA_NQ;
-    int NKV = ZAYA_NKV;
-    int HD = ZAYA_HD;
-    int QD = ZAYA_QD;
-    int KD = ZAYA_KD;
-    int QKV = ZAYA_QKV;
-    int VOCAB = ZAYA_VOCAB;
-    int N_EXP = ZAYA_N_EXP;
-    int N_EXP_T = ZAYA_N_EXP_T;
-    int N_FF = ZAYA_N_FF;
-    int RTR_H = ZAYA_RTR_H;
+    int h = 2048;
+    int n_layers = 40;
+    int nq = 8;
+    int nkv = 2;
+    int hd = 128;
+    int qd = 1024;    // nq * hd
+    int kd = 256;     // nkv * hd
+    int qkv = 1280;   // qd + kd
+    int vocab = 262272;
+    int n_exp = 16;
+    int n_exp_t = 17; // n_exp + 1 (MOD skip token)
+    int n_ff = 2048;
+    int rtr_h = 256;
+
+    // Default: Zaya1-8B
+    static ZayaConfig zaya1_8b() {
+        ZayaConfig c;
+        c.h = 2048; c.n_layers = 40; c.nq = 8; c.nkv = 2; c.hd = 128;
+        c.qd = 1024; c.kd = 256; c.qkv = 1280;
+        c.vocab = 262272; c.n_exp = 16; c.n_exp_t = 17;
+        c.n_ff = 2048; c.rtr_h = 256;
+        return c;
+    }
+
+    // Build from ModelConfig (defined in include/common.h)
+    static ZayaConfig from_model(int hidden, int n_layers, int n_heads,
+                                  int n_kv_heads, int head_dim, int vocab,
+                                  int n_exp = 16, int n_ff = 0, int rtr_h = 256) {
+        ZayaConfig c;
+        c.h = hidden;
+        c.n_layers = n_layers;
+        c.nq = n_heads;
+        c.nkv = n_kv_heads;
+        c.hd = head_dim;
+        c.qd = c.nq * c.hd;
+        c.kd = c.nkv * c.hd;
+        c.qkv = c.qd + c.kd;
+        c.vocab = vocab;
+        c.n_exp = n_exp;
+        c.n_exp_t = n_exp + 1;
+        c.n_ff = (n_ff > 0) ? n_ff : hidden;  // default: same as hidden
+        c.rtr_h = rtr_h;
+        return c;
+    }
 };
 
-// ── Per-layer weights (must match zaya_engine.cpp) ──
+// ── Per-layer weights ──
 struct LayerW {
     __half *nw, *wq, *wk, *wv1, *wv2, *wo, *pan;
     float *cdw, *cdb, *cgw, *cgb, *ks;
@@ -91,9 +94,9 @@ struct ZayaState {
     int *d_expert_idx = nullptr; float *d_expert_wt = nullptr;
     int *d_sorted_ids = nullptr, *d_expert_counts = nullptr, *d_expert_offsets = nullptr;
     hipStream_t st = nullptr;
-    LayerW lw[ZAYA_N_LAYERS];
-    bool has_eda[ZAYA_N_LAYERS];
-    float eda_scale[ZAYA_N_LAYERS];
+    std::vector<LayerW> lw;
+    std::vector<bool> has_eda;
+    std::vector<float> eda_scale;
     std::vector<float> embed, ibias, iscale;
 };
 
@@ -102,7 +105,9 @@ struct ZayaState {
 extern "C" {
 #endif
 
-ZayaState* zaya_init(const char* weights_dir);
+/// Initialize the Zaya engine for a specific model architecture.
+/// Passing nullptr for cfg uses the default Zaya1-8B config.
+ZayaState* zaya_init(const char* weights_dir, const ZayaConfig* cfg = nullptr);
 int   zaya_apply_lora(ZayaState* s, const char* lora_path);
 void zaya_forward(ZayaState* s, int token_id, float* logits_out);
 int  zaya_forward_greedy(ZayaState* s, int token_id);

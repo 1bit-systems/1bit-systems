@@ -305,18 +305,13 @@ rcpp_status_t rcpp_bitnet_load_onnx(const char* path, rcpp_bitnet_model_t* out_m
             if (hipMalloc(&dev_ptr, bytes) != hipSuccess) return nullptr;
             if (hipMemcpy(dev_ptr, f16_buf.data(), bytes, hipMemcpyHostToDevice) != hipSuccess) { hipFree(dev_ptr); return nullptr; }
         } else if (t->data_type == ONNX_BFLOAT16) {
-            // TODO(#bf16-conversion): BF16→FP32 conversion needed. Each BF16
-            // element must be widened to a 32-bit float (shift mantissa left by
-            // 16 bits).  Storing as F32 for now — works but wastes GPU memory.
+            // TODO: BF16 support — need proper conversion; store as F32 for now
             fprintf(stderr, "[onnx] WARNING: %s is BF16 — storing as F32 (TODO: proper BF16 support)\n", t->name.c_str());
             bytes = n_elems * sizeof(float);
             if (hipMalloc(&dev_ptr, bytes) != hipSuccess) return nullptr;
             if (hipMemcpy(dev_ptr, t->float_data.data(), bytes, hipMemcpyHostToDevice) != hipSuccess) { hipFree(dev_ptr); return nullptr; }
         } else if (t->data_type == ONNX_INT8) {
-            // TODO(#int8-storage): INT8 quantized storage backend needed.
-            // Currently storing as F32 which is 4× larger than necessary.
-            // Should allocate int8_t device buffers and dequant on-the-fly
-            // during inference (see block_scaled_ternary.h for pattern).
+            // TODO: INT8 support — need proper quantized storage
             fprintf(stderr, "[onnx] WARNING: %s is INT8 — storing as F32 (TODO: proper INT8 support)\n", t->name.c_str());
             bytes = n_elems * sizeof(float);
             if (hipMalloc(&dev_ptr, bytes) != hipSuccess) return nullptr;

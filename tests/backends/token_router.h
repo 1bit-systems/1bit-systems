@@ -98,7 +98,13 @@ struct TokenRouter {
         fprintf(stderr, "Loading %s (H=%d L=%d V=%d) on %s backend...\n",
             cfg.model_name.c_str(), cfg.hidden_size, cfg.num_layers, cfg.vocab_size, primary->name());
 
-        bool loaded = primary->load_model(cfg);
+        bool loaded = false;
+        try {
+            loaded = primary->load_model(cfg);
+        } catch (std::exception& e) {
+            fprintf(stderr, "  %s: exception: %s — trying next backend\n", primary->name(), e.what());
+            loaded = false;
+        }
 
         if (!loaded) {
             // Try next backend

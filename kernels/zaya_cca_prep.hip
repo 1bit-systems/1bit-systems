@@ -1,15 +1,8 @@
-// zaya_cca_prep.hip — Reference-faithful CCA Q/K/V preparation for single-token decode.
-#define CCP_NH    8
-#define CCP_NKV   2
-#define CCP_HD    128
-#define CCP_GQA   4
-#define CCP_QD    (CCP_NH  * CCP_HD)
-#define CCP_KD    (CCP_NKV * CCP_HD)
-#define CCP_QKV   (CCP_QD + CCP_KD)
-#define CCP_GC    128
-#define CCP_NROT  64
-#define CCP_BS    256
-#define CCP_ROPE_BASE 5000000.0f
+// zaya_cca_prep.hip — CCA Q/K/V preparation for single-token decode.
+// Runtime-configurable: all model dimensions passed as kernel parameters.
+// Shared memory is dynamically sized via extern __shared__.
+
+#define CCP_BS 256  // block size (constant — tied to launch config)
 
 __device__ __forceinline__ float ccp_wsum(float v){for(int o=16;o>0;o>>=1)v+=__shfl_xor(v,o);return v;}
 __device__ __forceinline__ float ccp_bsum(float v,float*r){
@@ -18,80 +11,106 @@ __device__ __forceinline__ float ccp_bsum(float v,float*r){
     __syncthreads(); return r[0];
 }
 
+// Shared memory layout (all float):
+//   [0..31]           rbuf[32]
+//   [32..32+qkv-1]    sqk[qkv]
+//   [32+qkv..32+2*qkv-1]    dw0[qkv]
+//   [32+2*qkv..32+3*qkv-1]  dw1[qkv]
+//   [32+3*qkv..32+3*qkv+nrot-1]   rc[nrot]
+//   [32+3*qkv+nrot..32+3*qkv+2*nrot-1]  rs[nrot]
+// Total smem bytes = (32 + 3*qkv + 2*nrot) * sizeof(float)
+
 __global__ void cca_prep_kernel(
-    const __half* __restrict__ q_raw,   // [QD]
-    const __half* __restrict__ k_raw,   // [KD]
-    const __half* __restrict__ v_cur,   // [KD/2]
-    const __half* __restrict__ v_del,   // [KD/2]
-    __half* __restrict__ conv_state,    // [2*QKV] in/out
-    __half* __restrict__ vrec,          // [KD/2]  in/out
+    const __half* __restrict__ q_raw,   // [qd]
+    const __half* __restrict__ k_raw,   // [kd]
+    const __half* __restrict__ v_cur,   // [kd/2]
+    const __half* __restrict__ v_del,   // [kd/2]
+    __half* __restrict__ conv_state,    // [2*qkv] in/out
+    __half* __restrict__ vrec,          // [kd/2] in/out
     const float*  __restrict__ cdw,const float*  __restrict__ cdb,
     const float*  __restrict__ cgw,const float*  __restrict__ cgb,
     const float*  __restrict__ ks,
     __half* __restrict__ q_out, __half* __restrict__ k_out, __half* __restrict__ v_out,
-    int pos)
+    int pos,
+    int nq, int nkv, int hd, int nrot, float rope_base, int gc)
 {
+    const int qd = nq * hd;
+    const int kd = nkv * hd;
+    const int qkv = qd + kd;
+    const int gqa = nq / nkv;
     const int tx = threadIdx.x;
-    __shared__ float rbuf[32];
-    __shared__ float sqk[CCP_QKV];
-    __shared__ float dw0[CCP_QKV], dw1[CCP_QKV];
 
-    for (int i = tx; i < CCP_QKV; i += CCP_BS)
-        sqk[i] = (i < CCP_QD) ? __half2float(q_raw[i]) : __half2float(k_raw[i - CCP_QD]);
+    extern __shared__ float smem[];
+    float* rbuf = smem;
+    float* sqk  = smem + 32;
+    float* dw0  = smem + 32 + qkv;
+    float* dw1  = smem + 32 + qkv * 2;
+    float* rc   = smem + 32 + qkv * 3;
+    float* rs   = smem + 32 + qkv * 3 + nrot;
+
+    for (int i = tx; i < qkv; i += CCP_BS)
+        sqk[i] = (i < qd) ? __half2float(q_raw[i]) : __half2float(k_raw[i - qd]);
     __syncthreads();
 
-    for (int c = tx; c < CCP_QKV; c += CCP_BS) {
-        float s0=__half2float(conv_state[c]), s1=__half2float(conv_state[CCP_QKV+c]), cur=sqk[c];
+    for (int c = tx; c < qkv; c += CCP_BS) {
+        float s0=__half2float(conv_state[c]), s1=__half2float(conv_state[qkv+c]), cur=sqk[c];
         dw0[c]=cdw[c*2+0]*s0+cdw[c*2+1]*s1+cdb[c];
         dw1[c]=cdw[c*2+0]*s1+cdw[c*2+1]*cur+cdb[c];
     }
     __syncthreads();
-    for (int c = tx; c < CCP_QKV; c += CCP_BS) {
-        float olds1=__half2float(conv_state[CCP_QKV+c]);
-        conv_state[c]=__float2half(olds1); conv_state[CCP_QKV+c]=__float2half(sqk[c]);
+    for (int c = tx; c < qkv; c += CCP_BS) {
+        float olds1=__half2float(conv_state[qkv+c]);
+        conv_state[c]=__float2half(olds1); conv_state[qkv+c]=__float2half(sqk[c]);
     }
     __syncthreads();
 
-    for (int oc = tx; oc < CCP_QKV; oc += CCP_BS) {
-        int g=oc/CCP_GC,base=g*CCP_GC; const float* w=cgw+(size_t)oc*(CCP_GC*2); float a=0.f;
-        for (int j=0;j<CCP_GC;j++) a+=w[j*2+0]*dw0[base+j]+w[j*2+1]*dw1[base+j];
+    for (int oc = tx; oc < qkv; oc += CCP_BS) {
+        int g=oc/gc,base=g*gc; const float* w=cgw+(size_t)oc*(gc*2); float a=0.f;
+        for (int j=0;j<gc;j++) a+=w[j*2+0]*dw0[base+j]+w[j*2+1]*dw1[base+j];
         sqk[oc]=a+cgb[oc];
     }
     __syncthreads();
 
-    for (int h = tx; h < CCP_NH*CCP_HD; h += CCP_BS) {
-        int hh=h/CCP_HD,d=h%CCP_HD,kv=hh/CCP_GQA;
-        sqk[hh*CCP_HD+d] += 0.5f*__half2float(q_raw[hh*CCP_HD+d])+0.5f*__half2float(k_raw[kv*CCP_HD+d]);
+    for (int h = tx; h < nq*hd; h += CCP_BS) {
+        int hh=h/hd,d=h%hd,kv=hh/gqa;
+        sqk[hh*hd+d] += 0.5f*__half2float(q_raw[hh*hd+d])+0.5f*__half2float(k_raw[kv*hd+d]);
     }
     __syncthreads();
-    for (int h = tx; h < CCP_NKV*CCP_HD; h += CCP_BS) {
-        int khv=h/CCP_HD,d=h%CCP_HD; float sm=0.f;
-        for (int gq=0;gq<CCP_GQA;gq++) sm+=__half2float(q_raw[(khv*CCP_GQA+gq)*CCP_HD+d]);
-        sqk[CCP_QD+khv*CCP_HD+d] += 0.5f*(sm/(float)CCP_GQA)+0.5f*__half2float(k_raw[khv*CCP_HD+d]);
+    for (int h = tx; h < nkv*hd; h += CCP_BS) {
+        int khv=h/hd,d=h%hd; float sm=0.f;
+        for (int gq=0;gq<gqa;gq++) sm+=__half2float(q_raw[(khv*gqa+gq)*hd+d]);
+        sqk[qd+khv*hd+d] += 0.5f*(sm/(float)gqa)+0.5f*__half2float(k_raw[khv*hd+d]);
     }
     __syncthreads();
 
-    const float shd=sqrtf((float)CCP_HD);
-    for (int h=0;h<CCP_NH;h++){float s=0;for(int d=tx;d<CCP_HD;d+=CCP_BS)s+=sqk[h*CCP_HD+d]*sqk[h*CCP_HD+d];
-        float iv=shd/(sqrtf(ccp_bsum(s,rbuf))+1e-12f); for(int d=tx;d<CCP_HD;d+=CCP_BS)sqk[h*CCP_HD+d]*=iv; __syncthreads();}
-    for (int khv=0;khv<CCP_NKV;khv++){float s=0;for(int d=tx;d<CCP_HD;d+=CCP_BS)s+=sqk[CCP_QD+khv*CCP_HD+d]*sqk[CCP_QD+khv*CCP_HD+d];
-        float iv=shd*ks[khv]/(sqrtf(ccp_bsum(s,rbuf))+1e-12f); for(int d=tx;d<CCP_HD;d+=CCP_BS)sqk[CCP_QD+khv*CCP_HD+d]*=iv; __syncthreads();}
+    const float shd=sqrtf((float)hd);
+    for (int h=0;h<nq;h++){float s=0;for(int d=tx;d<hd;d+=CCP_BS)s+=sqk[h*hd+d]*sqk[h*hd+d];
+        float iv=shd/(sqrtf(ccp_bsum(s,rbuf))+1e-12f); for(int d=tx;d<hd;d+=CCP_BS)sqk[h*hd+d]*=iv; __syncthreads();}
+    for (int khv=0;khv<nkv;khv++){float s=0;for(int d=tx;d<hd;d+=CCP_BS)s+=sqk[qd+khv*hd+d]*sqk[qd+khv*hd+d];
+        float iv=shd*ks[khv]/(sqrtf(ccp_bsum(s,rbuf))+1e-12f); for(int d=tx;d<hd;d+=CCP_BS)sqk[qd+khv*hd+d]*=iv; __syncthreads();}
 
-    __shared__ float rc[CCP_NROT], rs[CCP_NROT];
-    for (int i=tx;i<CCP_NROT/2;i+=CCP_BS){float th=pos*powf(CCP_ROPE_BASE,-2.0f*(float)i/(float)CCP_NROT);rc[i]=cosf(th);rs[i]=sinf(th);}
+    for (int i=tx;i<nrot/2;i+=CCP_BS){float th=pos*powf(rope_base,-2.0f*(float)i/(float)nrot);rc[i]=cosf(th);rs[i]=sinf(th);}
     __syncthreads();
-    for (int d=CCP_NROT/2+tx;d<CCP_NROT;d+=CCP_BS){rc[d]=rc[d-CCP_NROT/2];rs[d]=rs[d-CCP_NROT/2];}
+    for (int d=nrot/2+tx;d<nrot;d+=CCP_BS){rc[d]=rc[d-nrot/2];rs[d]=rs[d-nrot/2];}
     __syncthreads();
-    const int nrot_total=(CCP_NH+CCP_NKV)*CCP_NROT;
-    for (int idx=tx;idx<nrot_total;idx+=CCP_BS){int hh=idx/CCP_NROT,d=idx%CCP_NROT;
-        float* base=(hh<CCP_NH)?(sqk+hh*CCP_HD):(sqk+CCP_QD+(hh-CCP_NH)*CCP_HD);
-        int d2=(d<CCP_NROT/2)?(d+CCP_NROT/2):(d-CCP_NROT/2);
-        float xv=base[d],xw=base[d2],rh=(d<CCP_NROT/2)?-xw:xw; base[d]=xv*rc[d]+rh*rs[d];}
-    __syncthreads();
-
-    for(int i=tx;i<CCP_QD;i+=CCP_BS) q_out[i]=__float2half(sqk[i]);
-    for(int i=tx;i<CCP_KD;i+=CCP_BS) k_out[i]=__float2half(sqk[CCP_QD+i]);
+    const int nrot_total=(nq+nkv)*nrot;
+    for (int idx=tx;idx<nrot_total;idx+=CCP_BS){int hh=idx/nrot,d=idx%nrot;
+        float* base=(hh<nq)?(sqk+hh*hd):(sqk+qd+(hh-nq)*hd);
+        int d2=(d<nrot/2)?(d+nrot/2):(d-nrot/2);
+        float xv=base[d],xw=base[d2],rh=(d<nrot/2)?-xw:xw; base[d]=xv*rc[d]+rh*rs[d];}
     __syncthreads();
 
-    for(int i=tx;i<CCP_KD/2;i+=CCP_BS){ v_out[i]=v_cur[i]; v_out[CCP_KD/2+i]=vrec[i]; vrec[i]=v_del[i]; }
+    for(int i=tx;i<qd;i+=CCP_BS) q_out[i]=__float2half(sqk[i]);
+    for(int i=tx;i<kd;i+=CCP_BS) k_out[i]=__float2half(sqk[qd+i]);
+    __syncthreads();
+
+    for(int i=tx;i<kd/2;i+=CCP_BS){ v_out[i]=v_cur[i]; v_out[kd/2+i]=vrec[i]; vrec[i]=v_del[i]; }
+}
+
+// Precomputed shared memory size helper (host-side, call before launch)
+// Returns total smem bytes needed for given dimensions.
+// Must match the layout in cca_prep_kernel exactly.
+static inline size_t cca_prep_smem_bytes(int nq, int nkv, int hd, int nrot) {
+    int qkv = nq * hd + nkv * hd;
+    return (size_t)(32 + 3 * qkv + 2 * nrot) * sizeof(float);
 }
