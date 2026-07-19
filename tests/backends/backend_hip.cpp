@@ -527,10 +527,14 @@ public:
             if (it->second.dtype == 1) {
                 std::vector<uint16_t> buf(n); fread(buf.data(), 2, n, gf);
                 HIP_OK(hipMemcpy(dptr, buf.data(), n * 2, hipMemcpyHostToDevice));
-            } else if (it->second.dtype == 7) {
-                // Q8_0 dequant to FP16. (dtype 7, not 8 — 8 is Q5_0, a
-                // different block layout this branch was silently
-                // misreading as Q8_0 whenever a model actually used it.)
+            } else if (it->second.dtype == 8) {
+                // Q8_0 dequant to FP16. GGML_TYPE_Q8_0 is genuinely 8 per
+                // ggml.h (0=F32,1=F16,2=Q4_0,3=Q4_1,6=Q5_0,7=Q5_1,8=Q8_0,
+                // 9=Q8_1,10..15=K-quants) — a previous pass here "corrected"
+                // this from 8 to 7 based on a wrong memory of the enum,
+                // which actually broke it (7 is Q5_1, not Q8_0). Verified
+                // against ggml.h directly and the real `gguf` Python
+                // package this time before touching it again.
                 std::vector<__half> buf(n);
                 int blks = (n + 31) / 32;
                 for (int b = 0; b < blks; b++) {
@@ -562,8 +566,8 @@ public:
                 HIP_OK(hipMemcpy(dptr, buf.data(), n * 2, hipMemcpyHostToDevice));
             } else {
                 // F32 → FP16. NOTE: also wrongly hit by any *other* unhandled
-                // quant type (Q2_K/Q3_K/Q5_K/Q8_K/Q4_0/Q5_0/legacy formats) —
-                // those aren't decoded correctly, they just don't crash.
+                // quant type (Q4_0=2, Q4_1=3, Q5_0=6, Q5_1=7, Q8_1=9, Q8_K=15,
+                // IQ*) — those aren't decoded correctly, they just don't crash.
                 std::vector<__half> buf(n);
                 std::vector<float> f32(n); fread(f32.data(), 4, n, gf);
                 for (size_t i = 0; i < n; i++) buf[i] = __float2half(f32[i]);

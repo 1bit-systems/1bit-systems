@@ -19,20 +19,31 @@
 
 namespace {
 
+// Values verified directly against ggml.h's `enum ggml_type` (0=F32,
+// 1=F16, 2=Q4_0, 3=Q4_1, [4,5 removed], 6=Q5_0, 7=Q5_1, 8=Q8_0, 9=Q8_1,
+// 10..15=K-quants) and cross-checked with the `gguf` Python package's
+// GGMLQuantizationType. This enum previously had Q8_0/Q5_0/Q5_1 shifted
+// by one (7/8/9 instead of the real 8/6/7) — Q8_0 tensors were silently
+// falling through to the "unsupported" path (dtype 7 is really Q5_1,
+// which isn't handled either), and nothing was ever actually dispatched
+// as real Q5_0 (dtype 6, not in the switch at all before this fix).
 enum gguf_dtype : uint32_t {
     GGUF_TYPE_F32     = 0,
     GGUF_TYPE_F16     = 1,
     GGUF_TYPE_Q4_0    = 2,
     GGUF_TYPE_Q4_1    = 3,
-    GGUF_TYPE_Q8_0    = 7,
-    GGUF_TYPE_Q5_0    = 8,
-    GGUF_TYPE_Q5_1    = 9,
+    GGUF_TYPE_Q5_0    = 6,
+    GGUF_TYPE_Q5_1    = 7,
+    GGUF_TYPE_Q8_0    = 8,
     GGUF_TYPE_Q2_K    = 10,
     GGUF_TYPE_Q3_K    = 11,
     GGUF_TYPE_Q4_K    = 12,
     GGUF_TYPE_Q5_K    = 13,
     GGUF_TYPE_Q6_K    = 14,
     GGUF_TYPE_Q8_K    = 15,
+    // NOTE: this project-specific extension collides with the real
+    // GGML_TYPE_IQ2_XXS=16 — harmless today since IQ-quants aren't
+    // handled anywhere in this loader, but a landmine if that ever changes.
     GGUF_TYPE_BLOCK_SCALED_TERNARY = 16,
 };
 
