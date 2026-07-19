@@ -87,6 +87,47 @@ static bool read_gguf_string_array(const std::string& path, const std::string& k
     return found;
 }
 
+// Minimal GGUF scalar-uint32 metadata reader (for tokenizer.ggml.eos_token_id).
+static bool read_gguf_uint32_kv(const std::string& path, const std::string& key, uint32_t& out) {
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) return false;
+    char magic[4];
+    if (fread(magic, 1, 4, f) != 4 || memcmp(magic, "GGUF", 4) != 0) { fclose(f); return false; }
+    uint32_t ver; fread(&ver, 4, 1, f);
+    uint64_t tc, kc; fread(&tc, 8, 1, f); fread(&kc, 8, 1, f);
+    auto read_str = [&](std::string& s) {
+        uint64_t l; fread(&l, 8, 1, f); s.resize(l); if (l) fread(&s[0], 1, l, f);
+    };
+    bool found = false;
+    for (uint64_t i = 0; i < kc && !found; i++) {
+        std::string k; read_str(k);
+        uint32_t vt; fread(&vt, 4, 1, f);
+        if ((vt == 4 || vt == 5) && k == key) { fread(&out, 4, 1, f); found = true; break; }
+        switch (vt) {
+            case 0: case 1: case 7: fseek(f, 1, SEEK_CUR); break;
+            case 2: case 3: fseek(f, 2, SEEK_CUR); break;
+            case 4: case 5: case 6: fseek(f, 4, SEEK_CUR); break;
+            case 8: { std::string tmp; read_str(tmp); break; }
+            case 9: {
+                uint32_t at; fread(&at, 4, 1, f);
+                uint64_t an; fread(&an, 8, 1, f);
+                if (at == 8) { for (uint64_t j = 0; j < an; j++) { std::string tmp; read_str(tmp); } }
+                else {
+                    int sz = 4;
+                    if (at <= 7) { static const int s[] = {1,1,2,2,4,4,4,1}; sz = s[at]; }
+                    else if (at >= 10 && at <= 12) sz = 8;
+                    fseek(f, an * sz, SEEK_CUR);
+                }
+                break;
+            }
+            case 10: case 11: case 12: fseek(f, 8, SEEK_CUR); break;
+            default: break;
+        }
+    }
+    fclose(f);
+    return found;
+}
+
 // ── Shared math helpers (same conventions as GenericBackend) ──
 // out[i] = sum_j in[j] * w[i*K+j] — w stored [out_dim, in_dim] row-major,
 // matching GGUF's native flat tensor layout (ne[0]=in_dim fastest).
@@ -475,10 +516,14 @@ int main(int argc, char** argv) {
     for (size_t i = 1; i < prompt_ids.size(); i++) last = be->generate(prompt_ids[i - 1]);
     if (!prompt_ids.empty()) last = be->generate(prompt_ids.back());
 
+    uint32_t eos_id = 151645; // Qwen2 <|im_end|> — fallback if metadata lookup misses
+    read_gguf_uint32_kv(text_path, "tokenizer.ggml.eos_token_id", eos_id);
+
     std::vector<int> generated;
     for (int i = 0; i < 30; i++) {
         last = be->generate(last);
         generated.push_back(last);
+        if (last == (int)eos_id) break;
     }
 
     printf("=== Generated token ids ===\n");
