@@ -77,6 +77,14 @@ pub const DispatchPolicy = enum(u8) {
     cpu_only = 5,
     /// Prefill on NPU, decode GPU attention + NPU FFN with batch split.
     prefill_npu_decode_gpu = 6,
+    /// Hardware-aware: always route each op to whichever real backend is
+    /// fastest for it, independently degrading per-op as accelerators
+    /// become unavailable rather than dropping everything to CPU at once.
+    /// Attention prefers GPU (flash attention), QKV/FFN prefer NPU
+    /// (INT8 GEMM) -- each falls back to the other accelerator, then CPU,
+    /// so partial hardware (GPU-only or NPU-only) still gets the best of
+    /// what's actually present instead of a static, possibly-stale policy.
+    auto = 7,
 };
 
 /// Per-layer dispatch decision.
@@ -1002,6 +1010,23 @@ pub const FusedExecutor = struct {
     /// Get dispatch for a layer based on policy.
     fn getLayerDispatch(self: *const FusedExecutor, layer: u32) LayerDispatch {
         _ = layer;
+        if (self.policy == .auto) {
+            const npu_up = !self.npu_broken;
+            const gpu_up = self.gpu != null;
+            // Each op only falls back to an accelerator that has a real
+            // implementation for it, never to one that's still a stub --
+            // GPU QKV/FFN are a zero-fill and a pass-through respectively
+            // (no GEMV kernel yet), and NPU has no attention dispatch op
+            // at all (stale output, not just slow). Falling back to those
+            // would silently compute wrong results, which is worse than
+            // the guaranteed-correct CPU path. Revisit once real GPU
+            // QKV/FFN GEMV and NPU attention dispatch exist.
+            return .{
+                .qkv = if (npu_up) .npu else .cpu,
+                .attention = if (gpu_up) .gpu else .cpu,
+                .ffn = if (npu_up) .npu else .cpu,
+            };
+        }
         // When NPU subprocess is dead, fall back to CPU for everything.
         if (self.npu_broken) {
             return .{ .qkv = .cpu, .attention = .cpu, .ffn = .cpu };
@@ -1014,6 +1039,7 @@ pub const FusedExecutor = struct {
             .qkv_on_npu => .{ .qkv = .npu, .attention = .gpu, .ffn = .gpu },
             .attention_on_npu => .{ .qkv = .gpu, .attention = .npu, .ffn = .gpu },
             .prefill_npu_decode_gpu => .{ .qkv = .npu, .attention = .gpu, .ffn = .npu },
+            .auto => unreachable, // handled above
         };
     }
 
@@ -2399,8 +2425,16 @@ pub const FusedExecutor = struct {
         // Layer loop
         for (0..NC) |l| {
             const layer_u32 = @as(u32, @intCast(l));
-            const dispatch = self.getLayerDispatch(layer_u32);
             for (0..npt) |pi| {
+                // Recomputed per position, not once per layer: .auto (and
+                // any policy relying on npu_broken) needs to observe a
+                // mid-layer NPU failure immediately -- computing this once
+                // per layer meant a failure on the first prompt token left
+                // every later token in that same layer still dispatching
+                // (and failing) against the NPU for the rest of the
+                // layer's positions, corrupting that layer's whole output
+                // instead of degrading to CPU right away.
+                const dispatch = self.getLayerDispatch(layer_u32);
                 const pos = if (self.attn_kernel == .mla)
                     (self.mla_kv orelse return).position + pi
                 else
@@ -2443,7 +2477,34 @@ pub const FusedExecutor = struct {
                         cpuGemv(self.cpu_weights.k[l], hidden_slice, self.scratch.qkv[NH * HD ..][0 .. NKV * HD], NKV * HD, H);
                         cpuGemv(self.cpu_weights.v[l], hidden_slice, self.scratch.qkv[NH * HD + NKV * HD ..][0 .. NKV * HD], NKV * HD, H);
                     } else {
-                        try self.npu.runQKV(hidden_slice, layer_u32, 1, self.scratch.qkv);
+                        self.npu.runQKV(hidden_slice, layer_u32, 1, self.scratch.qkv) catch |err| {
+                            // Matches the runFFN/runDown pattern below: a
+                            // dead NPU subprocess must not abort the whole
+                            // prefill (every policy that ever routes qkv
+                            // to NPU -- npu_only, ffn_on_npu, qkv_on_npu,
+                            // auto -- previously hard-failed here via a
+                            // bare `try` the instant the NPU was
+                            // unavailable). Flag broken so every
+                            // subsequent getLayerDispatch() call (auto
+                            // included) falls back to CPU/GPU instead.
+                            log.warn("NPU QKV (layer {d}) failed: {s}", .{ l, @errorName(err) });
+                            self.npu_broken = true;
+                            // Recompute THIS token's QKV on CPU right now
+                            // instead of zero-filling it: this token's
+                            // position still gets written into the KV
+                            // cache below, and every later position's
+                            // causal attention reads back through it, so
+                            // a zero here would permanently corrupt the
+                            // whole rest of the sequence rather than just
+                            // costing one failed round-trip.
+                            if (l < self.cpu_weights.q.len and l < self.cpu_weights.k.len and l < self.cpu_weights.v.len) {
+                                cpuGemv(self.cpu_weights.q[l], hidden_slice, self.scratch.qkv[0 .. NH * HD], NH * HD, H);
+                                cpuGemv(self.cpu_weights.k[l], hidden_slice, self.scratch.qkv[NH * HD ..][0 .. NKV * HD], NKV * HD, H);
+                                cpuGemv(self.cpu_weights.v[l], hidden_slice, self.scratch.qkv[NH * HD + NKV * HD ..][0 .. NKV * HD], NKV * HD, H);
+                            } else {
+                                @memset(self.scratch.qkv, 0);
+                            }
+                        };
                     }
 
                     // Q/K norm, RoPE, KV cache
@@ -2491,8 +2552,17 @@ pub const FusedExecutor = struct {
                     );
                 }
 
-                // O projection: CPU GEMV when dispatched there, NPU otherwise.
-                if (dispatch.attention == .cpu and l < self.cpu_weights.o.len) {
+                // O projection: CPU GEMV when dispatched to CPU/GPU, NPU
+                // otherwise -- matches the (dispatch.attention == .cpu or
+                // dispatch.attention == .gpu) convention already used by
+                // every decode path (lines ~1622, ~1753, ~2131). O-proj
+                // has no dispatch field of its own, so it mirrors
+                // attention's dispatch; this prefill call site previously
+                // only checked `== .cpu`, so whenever attention was
+                // dispatched to GPU (e.g. .auto, where attention
+                // deliberately prefers GPU) O-proj still always routed to
+                // NPU regardless of whether NPU was actually alive.
+                if ((dispatch.attention == .cpu or dispatch.attention == .gpu) and l < self.cpu_weights.o.len) {
                     cpuGemv(
                         self.cpu_weights.o[l],
                         self.scratch.attn_out[0 .. self.config.n_heads * self.config.head_dim],
@@ -2501,10 +2571,14 @@ pub const FusedExecutor = struct {
                         self.config.n_heads * self.config.head_dim,
                     );
                 } else {
-                    try self.npu.runOProj(
+                    self.npu.runOProj(
                         self.scratch.attn_out[0 .. self.config.n_heads * self.config.head_dim],
                         layer_u32, 1, self.scratch.o_out[0..H],
-                    );
+                    ) catch |err| {
+                        log.warn("NPU O-proj (layer {d}) failed: {s}", .{ l, @errorName(err) });
+                        self.npu_broken = true;
+                        @memset(self.scratch.o_out[0..H], 0);
+                    };
                 }
                 for (0..H) |i| hidden_slice[i] = self.scratch.residual[@as(usize, @intCast(pi)) * H + i] + self.scratch.o_out[i];
 
@@ -2524,8 +2598,20 @@ pub const FusedExecutor = struct {
                             self.npu.runFFN(hidden_slice, layer_u32, 1, self.scratch.gate_up) catch |err| {
                                 log.warn("NPU gate/up (layer {d}) failed: {s}", .{ l, @errorName(err) });
                                 self.npu_broken = true;
-                                @memset(self.scratch.gate_up, 0);
-                                gate_up_ok = false;
+                                // Self-heal this token's gate/up on CPU
+                                // instead of zero-filling -- same reasoning
+                                // as the QKV catch above: this token's
+                                // hidden state feeds forward into every
+                                // later layer, so zeroing it corrupts the
+                                // rest of the run rather than just costing
+                                // one failed round-trip.
+                                if (l < self.cpu_weights.gate.len and l < self.cpu_weights.up.len) {
+                                    cpuGemv(self.cpu_weights.gate[l], hidden_slice, self.scratch.gate_up[0..IM], IM, H);
+                                    cpuGemv(self.cpu_weights.up[l], hidden_slice, self.scratch.gate_up[IM..][0..IM], IM, H);
+                                } else {
+                                    @memset(self.scratch.gate_up, 0);
+                                    gate_up_ok = false;
+                                }
                             };
                         }
                         if (gate_up_ok) {
@@ -2534,7 +2620,7 @@ pub const FusedExecutor = struct {
                                 const up = self.scratch.gate_up[IM + i];
                                 self.scratch.activated[i] = silu(if (std.math.isFinite(gate)) gate else 0) * up;
                             }
-                            if (ffn_cpu_ready) {
+                            if (ffn_cpu_ready or (self.npu_broken and l < self.cpu_weights.down.len)) {
                                 cpuGemv(self.cpu_weights.down[l], self.scratch.activated[0..IM], self.scratch.down_out[0..H], H, IM);
                             } else {
                                 _ = self.npu.runDown(
@@ -2543,7 +2629,11 @@ pub const FusedExecutor = struct {
                                 ) catch |err| {
                                     log.warn("NPU down (layer {d}) failed: {s}", .{ l, @errorName(err) });
                                     self.npu_broken = true;
-                                    @memset(self.scratch.down_out[0..H], 0);
+                                    if (l < self.cpu_weights.down.len) {
+                                        cpuGemv(self.cpu_weights.down[l], self.scratch.activated[0..IM], self.scratch.down_out[0..H], H, IM);
+                                    } else {
+                                        @memset(self.scratch.down_out[0..H], 0);
+                                    }
                                 };
                             }
                         } else {

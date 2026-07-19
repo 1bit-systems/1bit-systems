@@ -25,7 +25,7 @@ const CliOptions = struct {
     npu_engine: []const u8 = DEFAULT_NPU_ENGINE,
     shader_dir: []const u8 = ZINC_SHADER_DIR,
     tokenizer_path: []const u8 = TOKENIZER_JSON,
-    policy: DispatchPolicy = .ffn_on_npu,
+    policy: DispatchPolicy = .auto,
     max_tokens: u32 = 128,
     prompt: []const u8 = "Hello",
     batch_size: u32 = BATCH_SIZE,
@@ -49,7 +49,9 @@ fn parsePolicy(name: []const u8) DispatchPolicy {
     if (std.mem.eql(u8, name, "ffn_on_npu")) return .ffn_on_npu;
     if (std.mem.eql(u8, name, "qkv_on_npu")) return .qkv_on_npu;
     if (std.mem.eql(u8, name, "attention_on_npu")) return .attention_on_npu;
-    return .ffn_on_npu;
+    if (std.mem.eql(u8, name, "prefill_npu_decode_gpu")) return .prefill_npu_decode_gpu;
+    if (std.mem.eql(u8, name, "auto")) return .auto;
+    return .auto;
 }
 
 fn printHelp() void {
@@ -64,7 +66,9 @@ fn printHelp() void {
         \\                         e.g. qwen3_1_5b, qwen3_7b, llama3_2_1b,
         \\                         llama3_2_3b, llama3_1_8b, gemma2_2b,
         \\                         gemma2_9b, qwen2_5_7b, qwen2_5_32b
-        \\  --policy <name>        Dispatch policy (default: ffn_on_npu)
+        \\  --policy <name>        Dispatch policy (default: auto -- always uses
+        \\                         the fastest backend available per op,
+        \\                         degrading gracefully if NPU/GPU is absent)
         \\  -n, --max-tokens <N>   Max tokens (default: 128)
         \\  -p, --prompt <text>    Input prompt
         \\  -b, --batch-size <N>   Batch size (default: 128)
@@ -202,7 +206,13 @@ pub fn main(init: std.process.Init) !void {
         .qkv_on_npu => .qkv_on_npu,
         .attention_on_npu => .attention_on_npu,
         .cpu_only => .cpu_only,
-        else => .ffn_on_npu,
+        .prefill_npu_decode_gpu => .prefill_npu_decode_gpu,
+        .auto => .auto,
+        // layer_by_layer/cpu_fallback have no fused_execute.zig equivalent
+        // yet -- auto (hardware-aware, always seeks the fastest available
+        // per-op backend) is the closer fallback than the old fixed
+        // ffn_on_npu default.
+        else => .auto,
     };
     var executor = try FusedExecutor.init(
         allocator, init.io, fuse_policy, runtime_config,
