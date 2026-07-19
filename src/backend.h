@@ -46,6 +46,13 @@ struct Backend {
     /// token_id = input token, hidden_out[hidden] = output hidden state
     virtual bool forward(int token_id, float* hidden_out) = 0;
 
+    /// Run one step with a precomputed embedding vector (size cfg.hidden)
+    /// instead of a token_embd lookup — the splice point for multimodal
+    /// inputs (e.g. a vision encoder's projected patch embeddings) at
+    /// image-placeholder positions. Returns the predicted next token id,
+    /// -1 if unsupported by this backend.
+    virtual int forward_embed(const float* embedding) { (void)embedding; return -1; }
+
     /// Compute lm_head: logits[vocab] = hidden[hidden] @ embed[vocab×hidden]^T
     virtual bool lm_head(const float* hidden, float* logits, int* argmax) = 0;
 

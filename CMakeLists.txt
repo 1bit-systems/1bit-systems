@@ -645,6 +645,11 @@ if(ZINC_ENABLED)
         BUILD_RPATH "${ZINC_REPO_DIR}/zig-out/lib")
 endif()
 
+add_executable(vision_qwen2vl_poc tools/vision_qwen2vl_poc.cpp)
+target_include_directories(vision_qwen2vl_poc PRIVATE src/)
+target_compile_options(vision_qwen2vl_poc PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
+target_link_libraries(vision_qwen2vl_poc PRIVATE backend_manager dl)
+
 add_executable(bitnet_tui tools/bitnet_tui.cpp)
 target_link_libraries(bitnet_tui PRIVATE
     httplib::httplib

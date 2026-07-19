@@ -370,15 +370,25 @@ int read_gguf_vocab(const std::string& path) {
             default: fseek(f,4,SEEK_CUR);break;
         }
     }
-    // Read first tensor's shape
-    for (uint64_t i = 0; i < tc && i < 1; i++) {
+    // Find token_embd.weight by name (tensor order in the file is arbitrary —
+    // this used to just grab the FIRST tensor-info entry regardless of name,
+    // which for this file format is essentially never token_embd.weight, and
+    // returned its dim[0] as "vocab" — but GGUF stores ne[0]=hidden (the fast/
+    // inner dim, one contiguous row per token) and ne[-1]=vocab (the outer
+    // dim). Both the wrong tensor AND the wrong dimension index. Confirmed via
+    // a real Qwen2-VL GGUF: token_embd.weight is ne=[1536(hidden),151936(vocab)],
+    // while the file's first tensor-info entry happened to be output_norm.weight
+    // (ne=[1536]) — the old code silently returned 1536 as "vocab size".
+    for (uint64_t i = 0; i < tc; i++) {
         uint64_t nl; fread(&nl, 8, 1, f); if (nl > 512) break;
-        fseek(f, nl, SEEK_CUR); // skip name
+        std::string name(nl, '\0');
+        fread(&name[0], 1, nl, f);
         uint32_t nd; fread(&nd, 4, 1, f);
-        for (int j = 0; j < nd; j++) {
-            uint64_t dim; fread(&dim, 8, 1, f);
-            if (j == 0) { fclose(f); return (int)dim; } // first dim = vocab (embed shape is [vocab, hidden])
-        }
+        std::vector<uint64_t> dims(nd);
+        for (uint32_t j = 0; j < nd; j++) fread(&dims[j], 8, 1, f);
+        uint32_t dtype; fread(&dtype, 4, 1, f);
+        uint64_t off; fread(&off, 8, 1, f);
+        if (name == "token_embd.weight" && nd > 0) { fclose(f); return (int)dims[nd - 1]; }
     }
     fclose(f);
     return 0;

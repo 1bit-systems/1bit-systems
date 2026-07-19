@@ -901,6 +901,16 @@ struct GenericBackend : Backend {
     }
 
     int forward(int token) {
+        std::vector<float> x0(cfg.hidden);
+        for (int i = 0; i < cfg.hidden; i++) x0[i] = embed[token * (size_t)cfg.hidden + i];
+        return forward_embed(x0.data());
+    }
+
+    // Same transformer body as forward(int), but takes a precomputed
+    // embedding vector directly instead of doing a token_embd lookup —
+    // the splice point for injecting vision embeddings (mm.2 output) at
+    // image-placeholder positions instead of a text token's row.
+    int forward_embed(const float* x_in) override {
         int H = cfg.hidden, NH = cfg.n_heads, NKV = cfg.n_kv_heads, HD = cfg.head_dim;
         int GQA = NH / NKV, FF = cfg.intermediate_size, V = cfg.vocab;
         float eps = cfg.rms_norm_eps, theta = cfg.rope_theta;
@@ -910,8 +920,7 @@ struct GenericBackend : Backend {
         std::vector<float> att(NH*HD);
         std::vector<float> gate_up(FF*2);
 
-        // Embed
-        for (int i = 0; i < H; i++) x[i] = embed[token * (size_t)H + i];
+        for (int i = 0; i < H; i++) x[i] = x_in[i];
 
         for (int il = 0; il < cfg.n_layers; il++) {
             auto& l = layers[il];
