@@ -27,6 +27,20 @@
 #include <fcntl.h>
 #include <signal.h>
 
+// Wait up to timeout_ms for child to exit. Returns true if exited.
+static bool wait_for_child(pid_t pid, int timeout_ms) {
+    auto t0 = std::chrono::steady_clock::now();
+    while (std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now() - t0).count() < timeout_ms) {
+        int status;
+        pid_t r = waitpid(pid, &status, WNOHANG);
+        if (r == pid) return true;
+        if (r < 0) return true;
+        usleep(10000); // 10ms poll interval
+    }
+    return false;
+}
+
 class NpuFlmBackend : public InferenceBackend {
     ModelConfig cfg_;
     bool loaded_ = false;
@@ -183,15 +197,27 @@ public:
 
     void unload_model() override {
         if (pid_ > 0) {
+            // Send /exit and give FLM a real chance to shut down gracefully
+            // before escalating — the old code slept a fixed 500ms then
+            // closed the pipes and sent SIGTERM after another fixed 200ms
+            // sleep regardless of whether the process had already exited,
+            // then sent SIGKILL unconditionally right after, even if
+            // SIGTERM had already worked. Same bug class as #3
+            // (backend_npu.cpp/backend_flm.cpp's already-fixed shutdown
+            // paths), just a separate, not-yet-fixed occurrence here.
             const char* exit_cmd = "/exit\n";
-            write(stdin_fd_, exit_cmd, strlen(exit_cmd));
-            usleep(500000);
-            close(stdin_fd_); close(stdout_fd_); close(stderr_fd_);
-            kill(pid_, SIGTERM); usleep(200000);
-            kill(pid_, SIGKILL);
-            // Reap child to prevent zombie. WNOHANG first, then wait if still alive.
-            if (waitpid(pid_, nullptr, WNOHANG) == 0)
-                waitpid(pid_, nullptr, 0);
+            if (stdin_fd_ >= 0) write(stdin_fd_, exit_cmd, strlen(exit_cmd));
+            if (!wait_for_child(pid_, 500)) {
+                kill(pid_, SIGTERM);
+                if (!wait_for_child(pid_, 2000)) {
+                    kill(pid_, SIGKILL);
+                    wait_for_child(pid_, 1000);
+                }
+            }
+            if (stdin_fd_ >= 0) close(stdin_fd_);
+            if (stdout_fd_ >= 0) close(stdout_fd_);
+            if (stderr_fd_ >= 0) close(stderr_fd_);
+            waitpid(pid_, nullptr, WNOHANG);
             pid_ = 0;
         }
         stdin_fd_ = stdout_fd_ = stderr_fd_ = -1;

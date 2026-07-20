@@ -115,6 +115,30 @@ static void attn_cpu(float* qo, float* at, int seq_len,
 }
 
 // ── Process helpers ──
+// Read exactly `len` bytes from `fd`, bounded by `timeout_ms` total across
+// the whole read (not per-call) — a single blocking read() has no timeout
+// at all, so a hung NPU worker subprocess would block the calling httplib
+// thread forever, eventually exhausting the whole server's thread pool.
+// Also handles short reads (pipes don't guarantee delivering the full
+// requested length in one read()), which a bare read() call did not.
+static bool read_with_timeout(int fd, void* buf, size_t len, int timeout_ms) {
+    size_t got = 0;
+    auto t0 = std::chrono::steady_clock::now();
+    while (got < len) {
+        int remaining_ms = timeout_ms - (int)std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - t0).count();
+        if (remaining_ms <= 0) return false;
+        fd_set fds; FD_ZERO(&fds); FD_SET(fd, &fds);
+        struct timeval tv = {remaining_ms / 1000, (remaining_ms % 1000) * 1000};
+        int r = select(fd + 1, &fds, nullptr, nullptr, &tv);
+        if (r <= 0) return false; // timeout or select error
+        ssize_t n = read(fd, (char*)buf + got, len - got);
+        if (n <= 0) return false; // EOF or read error
+        got += (size_t)n;
+    }
+    return true;
+}
+
 // Wait up to timeout_ms for child to exit. Returns true if exited.
 static bool wait_for_child(pid_t pid, int timeout_ms) {
     auto t0 = std::chrono::steady_clock::now();
@@ -202,6 +226,9 @@ struct NpuWorker {
     }
 
     // Send a GEMM operation, read back result. out_data auto-resized.
+    // Bounded by GEMM_TIMEOUT_MS per read — a hung worker subprocess used to
+    // block this call (and the calling httplib thread) forever (issue #20).
+    static constexpr int GEMM_TIMEOUT_MS = 30000;
     bool gemm(int op, int layer, int batch, int in_dim,
               const float* in_data, std::vector<float>& out_data) {
         if (!ready || stdin_fd < 0 || stdout_fd < 0) return false;
@@ -210,12 +237,11 @@ struct NpuWorker {
         if (write(stdin_fd, in_data, (size_t)batch * in_dim * sizeof(float)) !=
             (ssize_t)((size_t)batch * in_dim * sizeof(float))) return false;
         uint32_t resp[2];
-        if (read(stdout_fd, resp, sizeof(resp)) != (ssize_t)sizeof(resp)) return false;
+        if (!read_with_timeout(stdout_fd, resp, sizeof(resp), GEMM_TIMEOUT_MS)) return false;
         if (resp[0] != 0) return false;
         uint32_t out_dim = resp[1];
         out_data.resize((size_t)batch * out_dim);
-        return read(stdout_fd, out_data.data(), (size_t)batch * out_dim * sizeof(float)) ==
-               (ssize_t)((size_t)batch * out_dim * sizeof(float));
+        return read_with_timeout(stdout_fd, out_data.data(), (size_t)batch * out_dim * sizeof(float), GEMM_TIMEOUT_MS);
     }
 
     void shutdown() {
