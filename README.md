@@ -116,6 +116,43 @@ print(client.chat.completions.create(model="zaya", messages=[{"role":"user","con
 
 ---
 
+## Model Coverage
+
+Model-agnostic isn't just a claim about the loader — it's been exercised across genuinely different architectures: dense transformer (Qwen3, Llama), mixture-of-experts (Zaya1-74B-A4B, Qwen 35B MoE), vision-language (Qwen2-VL), Mamba2-hybrid state-space (Zamba2), and ternary/1-bit-native weights (Bonsai, Zaya1-8B via 1BP) — same engine, same auto-detect path, no per-architecture fork.
+
+### Zaya1 — the flagship family
+
+| Model | Params | Format | Performance | Status |
+|-------|:------:|--------|-------------|:------:|
+| **Zaya1-8B** | 8B | Q4NX / **1BP** | ~64 tok/s decode (GPU) | ✅ Primary — extensively tested, native 1BP support |
+| Zaya1 Preview 74B-A4B (MoE) | 74.79B (4.89 BPW) | GGUF Q4_K_M | 17.9 tok/s (iGPU, llama.cpp fork, 2026-07-03) | 🗄️ Archived — no longer runs on current hardware |
+
+Zaya1-8B is the model this project was built around: it's the one validated end-to-end through Q4NX, GGUF, and 1BP, and the one `tools/gguf_to_onebp.py` targets first when converting into the native format.
+
+### 🏆 Top 5 — Raw NPU Engine, No FLM (single binary, auto-detected)
+
+*From [`engine/npu/BENCHMARKS.md`](engine/npu/BENCHMARKS.md), measured 2026-07-03/07-12 — predates the 2026-07-19 GGUF dequant correctness fixes (Q2_K/Q3_K/Q5_K, RoPE, dtype enums), so treat as directionally right pending re-measurement, not re-verified today.*
+
+| Model | Family | Decode | Tok/s | Correctness |
+|-------|--------|:------:|:-----:|:-----------:|
+| Qwen3-0.6B | Qwen3 | 36 ms/tok | **28** | 28/28 ✅ |
+| Gemma4-E2B | Gemma | 62 ms/tok | **16** | 35/35 ✅ |
+| Qwen3-VL-4B | Qwen3 (vision) | 93 ms/tok | **11** | 36/36 ✅ |
+| Llama-3.1-8B | Llama | 100 ms/tok | **10** | 32/32 ✅ |
+| Qwen3-8B | Qwen3 | 127 ms/tok | **8** | 36/36 ✅ |
+
+Same binary, same auto-detect path, no per-model glue — the loader reads architecture off the model header for all five.
+
+### Also validated
+
+| Model | Architecture | Backend | Note |
+|-------|--------------|---------|------|
+| Bonsai-1.7B | Ternary (IQ1_S mixed quant) | Vulkan/ZINC | 21.6-21.9 tok/s, 99.6% of theoretical memory bandwidth |
+| Zamba2 (1.2B / 2.7B / 7B) | Mamba2 SSD hybrid | ROCm (fallback) | Mamba2 lacks tuned ROCm kernels — PyTorch fallback, ~73× slower than attention models; see [`models/catalog/README.md`](models/catalog/README.md) |
+| Qwen2-VL | Vision-language | GPU | Minimal POC — real image-to-text, stops at EOS |
+
+---
+
 ## FastFlowLM Decode
 
 FastFlowLM (AMD's closed-source XDNA 2 inference engine) is fully reverse-engineered and replaced as of 2026-07-19.
