@@ -7,7 +7,10 @@
 //
 // Routes:
 //   (a) Zaya-style MoE models → hip_gpu + cpu_scalar (fast CCA/MoE kernels)
-//   (b) qwen3 architecture → npu_flm + cpu_generic (FLM catalog)
+//   (b) qwen3 architecture → npu_xrt + npu_flm + cpu_generic (native NPU engine,
+//       FLM subprocess as fallback only — see backend_manager.cpp, npu_xrt is
+//       the default now that its single-core GEMM kernels are correctness-verified,
+//       docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md)
 //   (c) GGUF/H1B format → zinc_gpu + cpu_generic (multi-arch, multi-quant)
 //   (d) Everything else → hip_gpu + cpu_generic (dynamic engine, generic fallback)
 
@@ -17,7 +20,7 @@ BackendRoute select_backend_route(const ModelConfig& cfg) {
         return {{"hip_gpu", "cpu_scalar"}, "MoE model — CCA/MoE kernel path"};
     }
     if (cfg.architecture == "qwen3") {
-        return {{"npu_flm", "cpu_generic"}, "qwen3 architecture — FastFlowLM NPU path"};
+        return {{"npu_xrt", "npu_flm", "cpu_generic"}, "qwen3 architecture — native NPU engine, FLM subprocess as fallback"};
     }
     if (cfg.format == ModelFormat::GGUF || cfg.format == ModelFormat::H1B) {
         return {{"zinc_gpu", "cpu_generic"}, "GGUF/H1B model — ZINC GPU, generic CPU fallback"};

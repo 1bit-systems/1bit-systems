@@ -8,9 +8,12 @@
 // try-until-one-succeeds init loop (see BackendManager::init's preferred_ids
 // overload) rather than introducing a new selection primitive.
 //
-// npu_xrt is deliberately never returned here — its GEMM kernels are confirmed
-// broken (docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md) and it stays manual-opt-in
-// only (see BackendInfo::auto_selectable in backend_manager.h).
+// npu_xrt is the default NPU route for qwen3 models as of 2026-07-20 — its
+// single-core GEMM kernels are correctness-verified on real hardware
+// (docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md); npu_flm (FastFlowLM subprocess)
+// is kept only as a fallback. The 8-core multi-tile path is still unverified
+// in combination, so throughput is currently lower (~12 tok/s single-core vs
+// FLM's ~95 tok/s) until that lands.
 
 #include "common.h"
 #include <string>
