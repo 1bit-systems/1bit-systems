@@ -833,3 +833,12 @@ target_link_libraries(oscar PRIVATE
     ${CMAKE_DL_LIBS} m pthread)
 target_link_options(oscar PRIVATE
     -L${THEROCK_SDK_BASE}/lib -lamdhip64 -Wl,-rpath,${THEROCK_SDK_BASE}/lib)
+
+add_executable(test_oscar_attn_decode tests/test_oscar_attn_decode.cpp)
+target_include_directories(test_oscar_attn_decode PRIVATE
+    ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_oscar_attn_decode PRIVATE -O2 -Wno-unused-result)
+target_link_libraries(test_oscar_attn_decode PRIVATE oscar hip::host hip::device)
+set_target_properties(test_oscar_attn_decode PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+add_test(NAME test_oscar_attn_decode COMMAND test_oscar_attn_decode)
+set_tests_properties(test_oscar_attn_decode PROPERTIES LABELS "gpu_required" SKIP_RETURN_CODE 77)

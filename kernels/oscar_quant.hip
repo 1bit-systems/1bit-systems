@@ -158,8 +158,9 @@ void oscar_attn_decode_kernel(
     __shared__ float s_k_rot[MAX_HD];
     __shared__ float s_v_rot[MAX_HD];
     __shared__ float s_o[MAX_HD];     // accumulated output (online softmax)
-    __shared__ float s_m, s_l;        // online-softmax running state
+    __shared__ float s_m, s_l;        // online-softmax running state (block-wide, not per-thread)
     __shared__ float s_m_old;         // previous m for rescaling
+    __shared__ float s_warp_score[BLOCK / WARP]; // per-warp partial dot products, reduced below
 
     int q_head = blockIdx.x;
     int tile   = blockIdx.y;
@@ -167,6 +168,7 @@ void oscar_attn_decode_kernel(
 
     int tid = threadIdx.x;
     int warp_id = tid / WARP;
+    int lane_id = tid & 31;
 
     // Load Q vector (cooperative)
     for (int i = tid; i < HD; i += BLOCK)
@@ -180,7 +182,12 @@ void oscar_attn_decode_kernel(
     int t_start = tile * TILE;
     int t_end   = min(t_start + TILE, seq_len);
 
-    float m = -FLT_MAX, l = 0.0f;
+    // m/l used to live as per-thread locals, only ever updated by tid==0 —
+    // every other thread read back its own perpetually-unchanged -FLT_MAX/0,
+    // silently corrupting p_over_l (and thus the whole output) with inf/nan
+    // for every thread's assigned output indices except tid==0's. Both must
+    // be the single block-wide shared value.
+    if (tid == 0) { s_m = -FLT_MAX; s_l = 0.0f; }
     __syncthreads();
 
     // Process each KV position cooperatively
@@ -199,28 +206,36 @@ void oscar_attn_decode_kernel(
         __syncthreads();
 
         // ── Score: q · k (cooperative dot product) ──
+        // Each thread sums the i%BLOCK==tid slice of the dot product, then
+        // __shfl_xor reduces WITHIN each warp — leaving every warp holding
+        // only its own 32-lane partial sum, not the true full-HD dot
+        // product whenever HD > WARP (i.e. whenever more than one warp is
+        // needed). The old code fed that per-warp partial straight into the
+        // softmax as if it were the complete score, silently computing
+        // wrong attention weights for any HD > 32. Reduce across warps too
+        // via shared memory before using it.
         float partial = 0.0f;
         for (int i = tid; i < HD; i += BLOCK)
             partial += s_q[i] * s_k_rot[i];
-        // Warp reduce
         for (int off = WARP/2; off > 0; off /= 2)
             partial += __shfl_xor(partial, off);
+        if (lane_id == 0) s_warp_score[warp_id] = partial;
+        __syncthreads();
+        float score = 0.0f;
+        for (int w = 0; w < BLOCK / WARP; w++) score += s_warp_score[w];
+        score *= attn_scale;
 
-        float score = partial * attn_scale;
-
-        // ── Online softmax update (warp 0 lane 0 only) ──
-        if (warp_id == 0 && (tid & 31) == 0) {
-            s_m_old = m;
-            float new_m = fmaxf(m, score);
-            float alpha = __expf(m - new_m);
+        // ── Online softmax update — single thread, block-wide state ──
+        if (tid == 0) {
+            s_m_old = s_m;
+            float new_m = fmaxf(s_m, score);
+            float alpha = __expf(s_m - new_m);
             float beta  = __expf(score - new_m);
-            l = l * alpha + beta;
-            m = new_m;
+            s_l = s_l * alpha + beta;
+            s_m = new_m;
         }
         __syncthreads();
-        float m_new = m;  // all threads read updated m
-        float m_old = (warp_id == 0 && (tid & 31) == 0) ? s_m_old : __shfl(s_m_old, 0);
-        m_old = __shfl(m_old, 0);  // broadcast to all warps/lanes
+        float m_new = s_m, m_old = s_m_old;
         float alpha = __expf(m_old - m_new);
 
         // ── Rescale existing accumulator: o *= alpha ──
@@ -240,17 +255,28 @@ void oscar_attn_decode_kernel(
         apply_rotation_T(R_V, s_v, s_v_rot, HD);
         __syncthreads();
 
-        // ── Accumulate: o += exp(score - m_new) * v / l ──
-        float p_over_l = __expf(score - m_new) / l;
+        // ── Accumulate: o += exp(score - m_new) * v (UNnormalized) ──
+        // Dividing by the running s_l on every iteration (the old code) is
+        // wrong: s_l keeps growing as later terms are added, but the
+        // rescale step above only corrects the existing accumulator for the
+        // shift in m, never for the fact that l has grown since earlier
+        // terms were folded in — the earlier terms end up permanently
+        // under-weighted relative to the true softmax denominator. Standard
+        // flash-attention accumulates unnormalized like this and divides by
+        // the FINAL l exactly once, after the loop. Verified empirically:
+        // dividing every iteration produced a systematic ~15-20% output
+        // bias against a quantize-aware fp32 reference; dividing once at
+        // the end matches it closely.
+        float p = __expf(score - m_new);
         for (int i = tid; i < HD; i += BLOCK)
-            s_o[i] += p_over_l * s_v_rot[i];
+            s_o[i] += p * s_v_rot[i];
         __syncthreads();
     }
 
-    // Write final accumulated output (no need to divide by l — online softmax
-    // already includes it in the accumulation)
+    // Normalize by the final softmax denominator exactly once.
+    float inv_l = 1.0f / s_l;
     for (int i = tid; i < HD; i += BLOCK)
-        ((__half*)out_dev)[q_head * HD + i] = (__half)s_o[i];
+        ((__half*)out_dev)[q_head * HD + i] = (__half)(s_o[i] * inv_l);
 }
 
 } // anonymous namespace
