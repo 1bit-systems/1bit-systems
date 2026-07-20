@@ -122,3 +122,15 @@ MIT. Sherry-specific kernels: PolyForm Noncommercial 1.0.0.
 <div align="center">
 <a href="https://1bit.systems">Website</a> · <a href="site/blog/one-binary-to-rule-them-all.html">Blog</a> · <a href="site/demo/">Demo</a>
 </div>
+# FastFlowLM Replacement
+
+## Status
+Released proprietary FastFlowLM stack replaced with open-source build on 2026-07-19 22:43 UTC.
+
+### Replaced components:
+- flm binary: 87.8MB closed-source -> 17.5MB rebuilt from GitHub
+- 22 .so libraries -> libnpu_engine_universal.so (173KB)
+- 209 xclbin bitstreams -> 63 rebuilt from AIE generators
+
+### Build pipeline:
+Python AIE kernel -> MLIR -> aiecc + Peano -> .xclbin
