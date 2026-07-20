@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026.07.20
+
+- **FastFlowLM fully reverse-engineered and replaced as the default NPU path.** 22 closed-source `.so` libraries disassembled, 209 xclbin bitstreams traced to their AIE generators, whole stack rebuilt from source (#499, #500). `model_router.cpp` now routes qwen3-architecture models to the native, open-source `npu_xrt` engine first, with the FastFlowLM subprocess kept only as a fallback (#567) — its single-core GEMM kernels are correctness-verified on real hardware (`docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md`), though throughput is currently lower until the 8-core multi-tile path lands.
+- **Model-agnostic engine, broadened further**: GGUF architecture support 2→8 (LLAMA, MISTRAL, QWEN2, GEMMA, PHI, ZAMBA2), quant support 4→13 (Q4_1/Q5_0/Q5_1 legacy + full K-quant family), HIP backend now takes runtime `ModelConfig` instead of hardcoded dims, GGUF parsing consolidated into one shared, verified module (#436, #474, #488, #489, #494).
+- **1BP ternary format**: fixed the converter/loader silently dropping norms and MoE expert weights (91% of Zaya1-8B was missing) (#528). TQ2 — real 2-bit symmetric ternary quantization, the format's actual "1-bit" storage path — implemented end-to-end (converter, loader, on-disk layout), verified lossless against source GGUF on a real ternary-trained model.
+- **Vision**: Qwen2-VL support, minimal POC — real image-to-text end to end (#491, #492). Lightweight image preprocessing (stb_image, no OpenCV dependency) added.
+- **Model catalog**: full Zyphra family showcase (Zamba2, ZR1, Zaya1-74B-preview) plus their 1BP conversions, all uploaded to Hugging Face (#529, #526).
+- **NPU toolchain**: switched from Peano/LLVM-AIE to AMD Xilinx IP (Chess) (#527). 8-core INT8 GEMM correctness work reconciled across divergent branches (#344).
+- **colibri int4 quantized matmul kernels + PILOT cross-layer prefetch** (#449). **A2A (Agent-to-Agent) protocol v1.0** support added to `zaya_server` (#345).
+- Large correctness/security audit sweeps: ~60 numbered issues closed across #362, #415, #417, #436, #495, #496, #498, plus today's fixes (OSCAR attention cross-warp race, NPU worker pipe I/O timeout, concurrent HTTP handler state race).
+- **Landing page**: removed a headline "tok/s" claim that the site's own data-integrity quarantine (`benchmarks/latest.json._unverified`) explicitly flagged as having no source — was still driving `<title>`/meta/OG tags and a JS bug that hardcoded it into the meta description on every load, bypassing the quarantine guard entirely.
+
 ## 2026.07.16
 
 - feat(hardware-aware): auto-dispatch policy defaulting to N+G pathway

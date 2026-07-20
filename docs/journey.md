@@ -1809,3 +1809,97 @@ draft model, and (2) a training config that regressed after this session — the
 already-fragile training setup much worse. See `docs/wiki/performance.md` for the
 corrected "unresolved, not disproven" status and the real 0.8 tok/s / 0% acceptance
 measurement taken with the wiring bug fixed.
+
+## Session 2026-07-16/20 — FLM fully replaced, model-agnostic broadening, TQ2 ternary
+
+The single biggest architectural change since the last addendum: **FastFlowLM is no
+longer the default NPU path, and its native `.so`-dependency is gone entirely.**
+22 closed-source libraries were disassembled, 209 xclbin bitstreams traced back to
+their AIE generators, and the whole stack rebuilt from source
+(`docs/fastflowlm-decode/SUMMARY.md`). `engine/npu/src/npu_engine_universal.cpp`
+no longer `dlopen`s FLM's `.so` files for NPU attention/GEMM instruction
+generation — it uses pre-compiled instruction files instead, and `backend_manager.cpp`
+now marks `npu_xrt` `auto_selectable` with the comment "NPU_XRT is the default now."
+
+That comment was aspirational for four days. `src/model_router.cpp` — the file that
+actually decides which backend a qwen3-architecture model gets routed to — still hard-
+coded `{"npu_flm", "cpu_generic"}` as of this morning (2026-07-20), meaning every
+qwen3 model kept going through the FastFlowLM subprocess in practice regardless of
+what `backend_manager.cpp` claimed. Fixed today (PR #567): route is now
+`{"npu_xrt", "npu_flm", "cpu_generic"}` — native engine first, FLM kept only as a
+fallback, not removed outright. Honest tradeoff, not a free win: `npu_xrt`'s
+single-core GEMM kernels are correctness-verified on real hardware
+(`docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md`, 2026-07-17/18), but the 8-core
+multi-tile path that would close the throughput gap to FLM's fused-xclbin numbers
+is still "unverified in combination" per that same doc. Shipped the routing change
+anyway, on the user's explicit call, because "FLM is diagnostic-only, not the
+serving path" needs to be true in the code, not just asserted in the README.
+
+**Model-agnosticism kept widening**, matching the standing "every model, every
+quant" scope (not scope creep — see the earlier note on this in the repo's own
+memory). GGUF architecture support went 2→8 (LLAMA, MISTRAL, QWEN2, GEMMA, PHI,
+ZAMBA2 alongside the original two), quant support went 4→13 (legacy Q4_1/Q5_0/Q5_1
+plus the full K-quant family), the HIP backend takes runtime `ModelConfig` instead
+of hardcoded Zaya1-8B dims for non-Zaya models, and GGUF parsing was consolidated
+into one shared, verified module instead of several divergent per-file copies.
+
+**1BP's own namesake feature had never actually shipped.** `ONEBP_TQ1`/`ONEBP_TQ2`
+existed in the format's `OnebpQuant` enum since it was designed, but every model
+converted so far — including genuinely ternary-trained ones — went through the
+4-bit `Q4NX` path regardless of source precision, for a project called "1bit.systems."
+TQ2 (symmetric 2-bit ternary, one BF16 scale per 32-element group, no zero-point,
+half of Q4NX's tile size) is now implemented end-to-end: converter, loader,
+on-disk layout. Verified against Bonsai-1.7B (genuinely ternary-trained, Apache-2.0)
+— structural match exact, numerical match "100% of dequantized values within
+BF16 scale-rounding precision" against the real C++ loader, not just the Python
+converter. Separately, the 1BP converter/loader was found dropping norms and MoE
+expert weights entirely (91% of Zaya1-8B's tensors were silently missing) — fixed
+same window.
+
+**BlackMamba conversion, and a metadata bug worth flagging for future architecture
+ports.** Converting BlackMamba-1.5B/2.8B (Zyphra's Mamba+MoE hybrid) to GGUF then
+to 1BP hit a config-read failure — `H=0 L=0` — despite the GGUF file parsing fine
+structurally. Root cause: `scripts/blackmamba_to_gguf.py` wrote its metadata keys
+unprefixed (`"block_count"`, `"embedding_length"`) instead of prefixed with the
+architecture name (`"mamba.block_count"`), which is the GGUF convention every
+reader in this repo actually expects — `model_discovery.cpp`'s own suffix matching
+(`ends_with(key, ".block_count")`) requires the leading dot that only the prefixed
+form provides. Neither the HF-style lookup nor the architecture-prefixed lookup
+matched a bare key, so config silently came back zeroed instead of erroring loudly.
+Fixed by prefixing all of BlackMamba's custom keys with `mamba.`; worth checking
+any other hand-written GGUF exporter in this repo for the same pattern before
+trusting its output loads correctly anywhere beyond a byte-level structural check.
+
+**Vision went from greenfield to a real, working POC.** Qwen2-VL support — actual
+image-to-text end to end, not just tensor plumbing — landed (#491), with a fix for
+generation running past the real EOS token instead of a fixed budget (#492).
+Separately, lightweight image preprocessing (stb_image, no OpenCV dependency,
+optional HIP resize/normalize kernel) replaced a hypothetical OpenCV dependency —
+this shipped with a real build break (a deleted copy constructor with no
+corresponding move constructor, breaking `std::vector::push_back`) that sat
+unnoticed until a routine full-repo build check today; fixed with proper move
+semantics rather than restoring the deleted copy path.
+
+**The landing page was making a claim its own tooling had already disowned.**
+`benchmarks/latest.json._unverified` — a real quarantine mechanism, not decoration
+— has flagged `npu_validated_tok_s` ("69/94 tok/s NPU") as "NO SOURCE... MUST NOT
+be published" since issue #107. That didn't stop it from being the headline number
+in `site/index.html`'s `<title>`, meta description, OG/twitter tags, JSON-LD, and
+hero `<h1>` — and the page's own JS had a hardcoded string literal that
+unconditionally overwrote the meta description with that same number on every
+successful page load, bypassing the quarantine guard that protects every other
+binding on the page. Replaced with claims that are actually sourced: the native
+NPU stack as the new default, ~41 TFLOPS prefill peak (which does have a real
+`bench_prefill_variants` citation in `numbers.json`), and current binary size.
+Historical throughput numbers elsewhere on the page (the V12 tuning timeline) were
+left in place — they were real measurements at their dates — but relabeled so they
+read as history, not a current production claim.
+
+**Status at end of this window**: native open-source NPU engine is the default
+route for qwen3 models, not yet throughput-competitive with FLM on the verified
+single-core path. Model catalog now spans the full Zyphra family plus 1BP
+conversions (all on Hugging Face) with BlackMamba added this session. TQ2 ternary
+is real and verified against a genuinely ternary-trained model, not just a format
+spec. Full repo build and test suite both clean as of this session's end (one
+apparent GPU memory-fault test failure turned out to be a local test
+misconfigured to point a non-MoE-scoped test at a real MoE model, not a code bug).

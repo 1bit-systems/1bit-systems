@@ -1,25 +1,28 @@
 {
   "latest": {
-    "version": "2026.07.02",
-    "type": "coding-agent",
-    "url": "https://github.com/bong-water-water-bong/1bit-systems/releases/tag/v2026.07.02",
-    "published_at": "2026-07-02T14:45:00Z"
+    "version": "2026.07.20",
+    "type": "model-agnostic-engine",
+    "url": "https://github.com/bong-water-water-bong/1bit-systems/releases/tag/v2026.07.20",
+    "published_at": "2026-07-20T22:30:00Z"
   },
   "channels": {
     "stable": {
-      "version": "2026.07.02",
+      "version": "2026.07.20",
       "url": "https://github.com/bong-water-water-bong/1bit-systems"
     },
     "npu-engine": {
-      "version": "v12",
-      "decode": "69 tok/s",
-      "decode_latency": "14.5 ms/tok",
+      "version": "npu_xrt",
       "arch": "XDNA 2 (32 tiles)",
-      "speedup_vs_v3": "24×",
-      "note": "re-measured 2026-07-12 after correctness fixes; requires OpenMP tuning, open intermittent hang bug"
+      "note": "native, open-source, default NPU route as of 2026-07-20 (no FastFlowLM subprocess dependency). Single-core GEMM kernels correctness-verified on real hardware (docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md); throughput numbers without a reproducible source in this repo are deliberately not published here — see docs/wiki/performance.md."
     }
   },
   "releases": [
+    {
+      "version": "2026.07.20",
+      "type": "model-agnostic-engine",
+      "name": "FastFlowLM Fully Replaced + Model-Agnostic Engine",
+      "description": "FastFlowLM (AMD's closed-source NPU runtime) fully reverse-engineered and replaced with a native open-source XDNA 2 stack, now the default NPU route. GGUF architecture support 2→8, quant support 4→13. TQ2 (2-bit ternary) format implemented — the project's actual 1-bit storage path. Full Zyphra model family + 1BP conversions published to Hugging Face. Qwen2-VL vision POC."
+    },
     {
       "version": "2026.07.02",
       "type": "coding-agent",
@@ -30,7 +33,7 @@
       "version": "2026.07.02",
       "type": "npu-engine-v12",
       "name": "NPU Engine v12",
-      "description": "M=32 batch decode, 97 tok/s (10.3 ms/tok), 24× vs v3, beats FLM Kraken Point."
+      "description": "M=32 batch decode. Superseded 2026-07-20 by the native npu_xrt engine as the default NPU route; historical throughput claims for this release are unsourced in-repo and not republished."
     },
     {
       "version": "2026.07.01",
