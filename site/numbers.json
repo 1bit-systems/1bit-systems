@@ -1,6 +1,6 @@
 {
   "_generated_by": "tools/gen_numbers.py",
-  "_generated_at": "2026-07-20T13:55:53Z",
+  "_generated_at": "2026-07-20T21:55:40Z",
   "_warning": "Generated file. Do not hand-edit; run tools/gen_numbers.py.",
   "_missing": [],
   "binary": {
@@ -12,7 +12,7 @@
     "decode_bytes": 715240,
     "decode_kb": 698,
     "decode_stripped_kb": 507,
-    "tui_bytes": 1153392,
+    "tui_bytes": 1153504,
     "tui_kb": 1126,
     "tui_stripped_kb": 829
   },
