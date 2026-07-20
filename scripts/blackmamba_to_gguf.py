@@ -60,11 +60,14 @@ class Writer:
         self.f.seek(8)
         self.f.write(struct.pack('<QQ', self.nt, self.nk))
         self.f.write(bytes(self.kv))
-        pos = self.f.tell()
+        # No alignment padding here -- GGUF's tensor-info section immediately
+        # follows KV metadata with no gap. Padding belongs only right before
+        # the tensor *data* section below. A stray pad here was previously
+        # dormant only because the old (unprefixed) metadata keys happened to
+        # land the KV section on a 32-byte boundary by coincidence; prefixing
+        # keys with the architecture name changed that byte count and exposed
+        # a real corrupt-file bug (readers found garbage tensor names/n_dims).
         align = 32
-        if pos % align:
-            self.f.write(b'\x00' * (align - pos % align))
-        tdo = self.f.tell()
         offset = 0
         for name, shape, dtype in self.ti:
             nb = name.encode()
@@ -105,17 +108,22 @@ def convert(model_id, output):
     
     w = Writer(output, "mamba")
     w.add_string("general.architecture", "mamba")
-    w.add_uint32("block_count", nl)
-    w.add_uint32("embedding_length", H)
-    w.add_uint32("feed_forward_length", di)
-    w.add_uint32("context_length", 2048)
-    w.add_float32("attention.layer_norm_rms_epsilon", 1e-5)
-    w.add_uint32("ssm.conv_kernel", dc)
-    w.add_uint32("ssm.inner_size", di)
-    w.add_uint32("ssm.state_size", ds)
-    w.add_uint32("ssm.dt_rank", dt_rank)
-    w.add_uint32("ssm.group_count", 1)
-    w.add_uint32("vocab_size", V)
+    # GGUF convention (and every reader in this repo, e.g. model_discovery.cpp's
+    # `ends_with(key, ".block_count")` suffix matching) expects these keys
+    # prefixed with the architecture name — bare "block_count" etc. matched
+    # neither the HF-style nor the architecture-prefixed lookup in any reader,
+    # so BlackMamba's H/L/IM always came back 0 (config silently unreadable).
+    w.add_uint32("mamba.block_count", nl)
+    w.add_uint32("mamba.embedding_length", H)
+    w.add_uint32("mamba.feed_forward_length", di)
+    w.add_uint32("mamba.context_length", 2048)
+    w.add_float32("mamba.attention.layer_norm_rms_epsilon", 1e-5)
+    w.add_uint32("mamba.ssm.conv_kernel", dc)
+    w.add_uint32("mamba.ssm.inner_size", di)
+    w.add_uint32("mamba.ssm.state_size", ds)
+    w.add_uint32("mamba.ssm.dt_rank", dt_rank)
+    w.add_uint32("mamba.ssm.group_count", 1)
+    w.add_uint32("mamba.vocab_size", V)
     
     emb = sd["embedding.word_embeddings.weight"].to(torch.float32).numpy()
     w.add_tensor("token_embd.weight", emb, GGML_F16)
