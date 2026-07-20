@@ -681,6 +681,7 @@ int main(int argc, char** argv) {
 
     // ── GET /v1/health — Backend status dashboard ──
     svr.Get("/v1/health", [&](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lock(g_config_mutex);
         json j = health_json(mgr);
         j["version"] = "unified-server-1.0";
         j["model"] = "zaya";
@@ -692,6 +693,7 @@ int main(int argc, char** argv) {
 
     // ── GET /v1/models — List models ──
     svr.Get("/v1/models", [&](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lock(g_config_mutex);
         auto* active = mgr.active_info();
         json j;
         j["object"] = "list";
@@ -740,26 +742,6 @@ int main(int argc, char** argv) {
 
         std::string backend_id = resolve_backend_id(req);
         SelectionStrategy strategy = resolve_strategy(req);
-        mgr.set_strategy(strategy);
-
-        // Look up the requested model from body["model"] and switch config if needed
-        std::string req_model = body.value("model", "");
-        if (!req_model.empty()) {
-            for (auto& dm : discovered) {
-                // Lock config mutex while switching model (fixes #364)
-                std::lock_guard<std::mutex> cfg_lock(g_config_mutex);
-                if (dm.model_name == req_model &&
-                    (dm.hidden != current_cfg.hidden || dm.n_layers != current_cfg.n_layers)) {
-                    printf("[model] switching to %s (%d layers, %d hidden)\n",
-                           dm.model_name.c_str(), dm.n_layers, dm.hidden);
-                    current_cfg = dm;
-                    g_tokenizer.load_from_gguf(current_cfg.model_path);
-                    BackendRoute swrt = select_backend_route(current_cfg);
-                    mgr.init(current_cfg, g_weights_dir, swrt.backend_ids_in_order);
-                    break;
-                }
-            }
-        }
 
         // Check for strategy engine routing
         std::string strategy_name = resolve_strategy_name(req);
@@ -790,6 +772,34 @@ int main(int argc, char** argv) {
         }
 
         int max_tokens = body.value("max_tokens", 256);
+        std::string req_model = body.value("model", "");
+
+        // g_config_mutex now spans the whole model-switch-decision +
+        // tokenize + generate critical section (fixes #2/#364 combined) —
+        // it used to be held only around the switch-model block itself,
+        // leaving mgr.set_strategy()/generate_completion() (the actual
+        // per-request inference call, touching mgr's active backend, KV
+        // cache position, etc.) completely unsynchronized against a
+        // concurrent request's model switch or its own inference call on
+        // httplib's thread pool.
+        std::lock_guard<std::mutex> lock(g_config_mutex);
+        mgr.set_strategy(strategy);
+
+        // Look up the requested model from body["model"] and switch config if needed
+        if (!req_model.empty()) {
+            for (auto& dm : discovered) {
+                if (dm.model_name == req_model &&
+                    (dm.hidden != current_cfg.hidden || dm.n_layers != current_cfg.n_layers)) {
+                    printf("[model] switching to %s (%d layers, %d hidden)\n",
+                           dm.model_name.c_str(), dm.n_layers, dm.hidden);
+                    current_cfg = dm;
+                    g_tokenizer.load_from_gguf(current_cfg.model_path);
+                    BackendRoute swrt = select_backend_route(current_cfg);
+                    mgr.init(current_cfg, g_weights_dir, swrt.backend_ids_in_order);
+                    break;
+                }
+            }
+        }
 
         // Tokenize with logprobs for cascade strategy
         std::vector<int> prompt_tokens;
@@ -870,6 +880,11 @@ int main(int argc, char** argv) {
         }
 
         std::string backend_id = resolve_backend_id(req);
+
+        // Same g_config_mutex-spans-the-whole-request treatment as
+        // /v1/chat/completions above (fixes #2) — mgr.set_strategy() and
+        // generate_completion() both touch mgr's shared, mutable state.
+        std::lock_guard<std::mutex> lock(g_config_mutex);
         mgr.set_strategy(resolve_strategy(req));
 
         // Accept prompt or tokens
@@ -980,19 +995,24 @@ int main(int argc, char** argv) {
 
         std::string backend_id = body.value("backend", "");
         bool ok = false;
-        if (!backend_id.empty()) {
-            ok = mgr.select_backend(backend_id);
-        }
-
         json j;
-        j["ok"] = ok;
-        j["selected"] = backend_id;
-        if (ok) {
-            auto* active = mgr.active_info();
-            j["active_backend"] = active ? active->id : "none";
-            j["active_type"] = active ? backend_name(active->type) : "none";
-        } else {
-            j["error"] = "Backend '" + backend_id + "' not found or not functional";
+        {
+            // mgr.select_backend() mutates the shared active-backend pointer
+            // that generate_completion() (under the same mutex, see
+            // /v1/chat/completions) reads mid-inference (fixes #2).
+            std::lock_guard<std::mutex> lock(g_config_mutex);
+            if (!backend_id.empty()) {
+                ok = mgr.select_backend(backend_id);
+            }
+            j["ok"] = ok;
+            j["selected"] = backend_id;
+            if (ok) {
+                auto* active = mgr.active_info();
+                j["active_backend"] = active ? active->id : "none";
+                j["active_type"] = active ? backend_name(active->type) : "none";
+            } else {
+                j["error"] = "Backend '" + backend_id + "' not found or not functional";
+            }
         }
         res.set_content(j.dump(2), "application/json");
         add_cors(res);
@@ -1001,8 +1021,18 @@ int main(int argc, char** argv) {
     // ── GET /v1/backend/status — Full backend report ──
     svr.Get("/v1/backend/status", [&](const httplib::Request& req, httplib::Response& res) {
         json j;
-        // Lock strategy mutex for consistent read of strategy name + watchdog (fixes #364)
-        std::lock_guard<std::mutex> lock(g_strategy_mutex);
+        // g_strategy_mutex alone (fixes #364) only protects g_strategy_engine
+        // + g_watchdog — mgr itself (report/backends/active_info/
+        // active_backend, all read below) is the inference handlers'
+        // g_config_mutex's responsibility. Reading mgr here under a
+        // different mutex than the one that guards it during an in-flight
+        // inference call doesn't actually serialize anything (fixes #2).
+        // std::lock (not two separate lock_guards) avoids a lock-order
+        // deadlock against any other path that might acquire the same two
+        // mutexes in the opposite order.
+        std::lock(g_config_mutex, g_strategy_mutex);
+        std::lock_guard<std::mutex> lock1(g_config_mutex, std::adopt_lock);
+        std::lock_guard<std::mutex> lock2(g_strategy_mutex, std::adopt_lock);
         j["strategy"] = g_strategy_engine.name();
         j["watchdog_running"] = g_watchdog ? g_watchdog->running() : false;
         j["report"] = mgr.report();
@@ -1040,8 +1070,11 @@ int main(int argc, char** argv) {
         json j;
         j["service"] = "1bit.systems --- One binary, all backends, intelligent routing";
         j["version"] = "1.0";
-        // Lock strategy mutex for consistent read (fixes #364)
-        std::lock_guard<std::mutex> lock(g_strategy_mutex);
+        // See /v1/backend/status above: mgr.active_backend() needs
+        // g_config_mutex, not just g_strategy_mutex (fixes #2/#364).
+        std::lock(g_config_mutex, g_strategy_mutex);
+        std::lock_guard<std::mutex> lock1(g_config_mutex, std::adopt_lock);
+        std::lock_guard<std::mutex> lock2(g_strategy_mutex, std::adopt_lock);
         j["status"] = mgr.active_backend() ? "ready" : "initializing";
         j["strategy"] = g_strategy_engine.name();
         j["endpoints"] = {

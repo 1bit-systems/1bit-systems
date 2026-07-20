@@ -25,6 +25,7 @@
 #include <string>
 #include <chrono>
 #include <algorithm>
+#include <mutex>
 
 #include <httplib.h>
 #include <nlohmann/json.hpp>
@@ -419,6 +420,16 @@ int main(int argc, char** argv) {
     router.strategy = strategy;
     if (!router.init()) { fprintf(stderr, "FATAL: TokenRouter init failed\n"); return 1; }
 
+    // httplib serves each connection from a thread pool — every access to
+    // `router` (a single stack object captured by reference in every
+    // handler below) must be serialized, or concurrent requests race on its
+    // KV cache position, active backend pointer, and loaded_models list
+    // (AUDIT_ISSUES.md #2). router.infer() is the real hot path but the
+    // metadata reads in "/" and "/v1/models" get the same guard for
+    // correctness — they're cheap, and a torn/half-updated read of
+    // router.primary while another thread is mid-infer() is still UB.
+    std::mutex g_router_mutex;
+
     ModelConfig cfg;
     fprintf(stderr, "DEBUG: about to detect model...\n"); fflush(stderr);
     bool detected = false;
@@ -513,6 +524,7 @@ int main(int argc, char** argv) {
     SimpleTokenizer tok;
 
     svr.Get("/", [&](const httplib::Request&, httplib::Response& res) {
+        std::lock_guard<std::mutex> lock(g_router_mutex);
         std::string resp = "{\"status\":\"" + std::string(model_loaded ? "ok" : "no_model") + "\",\"model_loaded\":" + (model_loaded ? "true" : "false") + ",\"model\":\"" + json_escape(cfg.model_name) + "\","
             "\"backend\":\"" + std::string(router.primary ? router.primary->name() : "none") + "\","
             "\"hidden_size\":" + std::to_string(cfg.hidden_size) + ","
@@ -532,6 +544,7 @@ int main(int argc, char** argv) {
     });
 
     svr.Get("/v1/models", [&](const httplib::Request&, httplib::Response& res) {
+        std::lock_guard<std::mutex> lock(g_router_mutex);
         std::string resp = "{\"object\":\"list\",\"data\":[";
         for (size_t i = 0; i < router.loaded_models.size(); i++) {
             if (i) resp += ",";
@@ -547,21 +560,30 @@ int main(int argc, char** argv) {
 
     svr.Post("/a2a/v1/message:send", [&](const httplib::Request& req, httplib::Response& res) {
         std::string task_id = a2a_new_task_id();
-        res.set_content(a2a_handle_message(req.body, task_id, router, tok, model_loaded), "application/json");
+        std::string result;
+        {
+            std::lock_guard<std::mutex> lock(g_router_mutex);
+            result = a2a_handle_message(req.body, task_id, router, tok, model_loaded);
+        }
+        res.set_content(result, "application/json");
     });
 
     svr.Post("/a2a/v1/message:sendStream", [&](const httplib::Request& req, httplib::Response& res) {
         std::string task_id = a2a_new_task_id();
         std::string body = req.body;
         res.set_chunked_content_provider("text/event-stream",
-            [task_id, body, &router, &tok, model_loaded](size_t, httplib::DataSink& sink) {
+            [task_id, body, &router, &tok, model_loaded, &g_router_mutex](size_t, httplib::DataSink& sink) {
                 std::string e1 = "event: taskStatus\ndata: " + a2a_task_status(task_id, "ctx-" + task_id, "TASK_STATE_SUBMITTED", "Task accepted") + "\n\n";
                 sink.write(e1.data(), e1.size());
 
                 std::string e2 = "event: taskStatus\ndata: " + a2a_task_status(task_id, "ctx-" + task_id, "TASK_STATE_WORKING", "Processing inference") + "\n\n";
                 sink.write(e2.data(), e2.size());
 
-                std::string result = a2a_handle_message(body, task_id, router, tok, model_loaded);
+                std::string result;
+                {
+                    std::lock_guard<std::mutex> lock(g_router_mutex);
+                    result = a2a_handle_message(body, task_id, router, tok, model_loaded);
+                }
                 std::string e3 = "event: taskArtifact\ndata: " + result + "\n\n";
                 sink.write(e3.data(), e3.size());
 
@@ -661,30 +683,34 @@ int main(int argc, char** argv) {
         std::vector<int> tokens = tok.encode(prompt);
         fprintf(stderr, "  → %d prompt tokens, max %d new\n", (int)tokens.size(), max_tokens);
 
-        InferenceResult result = router.infer(tokens, max_tokens, use_strat);
-        std::string text = tok.decode(result.tokens);
-        std::string finish_reason = "stop";
-        if (!result.tokens.empty() && result.tokens.back() != tok.eos_id && (int)result.tokens.size() >= max_tokens)
-            finish_reason = "length";
+        std::string resp_body;
+        {
+            std::lock_guard<std::mutex> lock(g_router_mutex);
+            InferenceResult result = router.infer(tokens, max_tokens, use_strat);
+            std::string text = tok.decode(result.tokens);
+            std::string finish_reason = "stop";
+            if (!result.tokens.empty() && result.tokens.back() != tok.eos_id && (int)result.tokens.size() >= max_tokens)
+                finish_reason = "length";
 
-        // Dynamic buffer -- no fixed-size limit (fixes #194: truncation of long output)
-        std::string resp_body =
-            std::string("{\"id\":\"chatcmpl-") + std::to_string((long long)time(nullptr)) +
-            "\",\"object\":\"chat.completion\",\"created\":" + std::to_string((long long)time(nullptr)) +
-            ",\"model\":\"" + json_escape(cfg.model_name) +
-            "\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"" +
-            json_escape(text) +
-            "\"},\"finish_reason\":\"" + finish_reason +
-            "\"}],\"usage\":{\"prompt_tokens\":" + std::to_string((int)tokens.size()) +
-            ",\"completion_tokens\":" + std::to_string((int)result.tokens.size()) +
-            ",\"total_tokens\":" + std::to_string((int)(tokens.size() + result.tokens.size())) +
-            "},\"x-backend\":\"" + (router.primary ? router.primary->name() : "none") +
-            "\",\"x-ms\":" + std::to_string((long long)result.gen_ms) +
-            ",\"x-tok-s\":" + std::to_string((double)result.tok_s) + "}";
+            // Dynamic buffer -- no fixed-size limit (fixes #194: truncation of long output)
+            resp_body =
+                std::string("{\"id\":\"chatcmpl-") + std::to_string((long long)time(nullptr)) +
+                "\",\"object\":\"chat.completion\",\"created\":" + std::to_string((long long)time(nullptr)) +
+                ",\"model\":\"" + json_escape(cfg.model_name) +
+                "\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"" +
+                json_escape(text) +
+                "\"},\"finish_reason\":\"" + finish_reason +
+                "\"}],\"usage\":{\"prompt_tokens\":" + std::to_string((int)tokens.size()) +
+                ",\"completion_tokens\":" + std::to_string((int)result.tokens.size()) +
+                ",\"total_tokens\":" + std::to_string((int)(tokens.size() + result.tokens.size())) +
+                "},\"x-backend\":\"" + (router.primary ? router.primary->name() : "none") +
+                "\",\"x-ms\":" + std::to_string((long long)result.gen_ms) +
+                ",\"x-tok-s\":" + std::to_string((double)result.tok_s) + "}";
+            fprintf(stderr, "  ← %d tokens in %.0fms (%.1f tok/s) [%s]\n",
+                    (int)result.tokens.size(), result.gen_ms, result.tok_s,
+                    router.primary ? router.primary->name() : "none");
+        }
         res.set_content(resp_body, "application/json");
-        fprintf(stderr, "  ← %d tokens in %.0fms (%.1f tok/s) [%s]\n",
-                (int)result.tokens.size(), result.gen_ms, result.tok_s,
-                router.primary ? router.primary->name() : "none");
     });
 
     svr.Post("/completion", [&](const httplib::Request& req, httplib::Response& res) {
@@ -715,16 +741,20 @@ int main(int argc, char** argv) {
             }
             input = tok.encode(prompt);
         }
-        InferenceResult result = router.infer(input, np, RouteStrategy::AUTO);
-        std::string text = tok.decode(result.tokens);
-        std::string rsp = "{\"tokens\":[";
-        for (size_t i = 0; i < result.tokens.size(); i++) {
-            if (i) rsp += ",";
-            rsp += std::to_string(result.tokens[i]);
+        std::string rsp;
+        {
+            std::lock_guard<std::mutex> lock(g_router_mutex);
+            InferenceResult result = router.infer(input, np, RouteStrategy::AUTO);
+            std::string text = tok.decode(result.tokens);
+            rsp = "{\"tokens\":[";
+            for (size_t i = 0; i < result.tokens.size(); i++) {
+                if (i) rsp += ",";
+                rsp += std::to_string(result.tokens[i]);
+            }
+            rsp += "],\"text\":\"" + json_escape(text) + "\",\"gen_ms\":" +
+                   std::to_string(result.gen_ms) + ",\"tok_s\":" +
+                   std::to_string(result.tok_s) + "}";
         }
-        rsp += "],\"text\":\"" + json_escape(text) + "\",\"gen_ms\":" +
-               std::to_string(result.gen_ms) + ",\"tok_s\":" +
-               std::to_string(result.tok_s) + "}";
         res.set_content(rsp, "application/json");
     });
 
