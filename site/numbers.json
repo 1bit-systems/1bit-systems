@@ -1,13 +1,12 @@
 {
   "_generated_by": "tools/gen_numbers.py",
-<<<<<<< HEAD
-  "_generated_at": "2026-07-19T18:11:42Z",
+  "_generated_at": "2026-07-20T13:55:53Z",
   "_warning": "Generated file. Do not hand-edit; run tools/gen_numbers.py.",
   "_missing": [],
   "binary": {
-    "zaya_bytes": 1156080,
-    "zaya_kb": 1129,
-    "zaya_stripped_kb": 891,
+    "zaya_bytes": 1160984,
+    "zaya_kb": 1134,
+    "zaya_stripped_kb": 898,
     "fused_bytes": 25603362,
     "fused_kb": 25003,
     "decode_bytes": 715240,
@@ -18,12 +17,12 @@
     "tui_stripped_kb": 829
   },
   "benchmarks": {
-    "halo_gemv_gbps": 150.4,
-    "prefill_tflops_4h": 21.35,
-    "prefill_tflops_i8apre": 37.05,
-    "sherry_gemv_gbps": 143.7,
-    "tq1_gemv_gbps": 183.2,
-    "tflops": 37.05
+    "halo_gemv_gbps": 148.2,
+    "prefill_tflops_4h": 29.7,
+    "prefill_tflops_i8apre": 40.99,
+    "sherry_gemv_gbps": 155.2,
+    "tq1_gemv_gbps": 201.1,
+    "tflops": 40.99
   },
   "_sources": {
     "halo_gemv_gbps": "bench_sherry -- halo baseline kernel",

@@ -36,6 +36,7 @@ zig-out/
 **/test_data/
 **/test_models/
 *.gguf
+*.1bp
 *.h1b
 *.bin
 *.npz

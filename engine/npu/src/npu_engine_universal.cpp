@@ -22,6 +22,10 @@
 #include <aiebu/aiebu_assembler.h>
 #include <omp.h>
 #include "model_config.h"
+#ifdef ONEBP_SUPPORT
+#include "onebp_format.h"
+#include "onebp_loader.cpp"
+#endif
 // FLM dependency removed — pre-compiled instructions loaded from file.
 #include <sys/wait.h>
 extern "C" float* dequant_i8_to_float_ex(const uint8_t*,int,int,int*,int*);
@@ -133,6 +137,9 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
     }
     // Launch kernel via extended module API (instructions embedded in ELF).
     // Args: mode=3, ctrl=0, reserved=0, then data BOs: A, weights B, output C.
+#ifdef ONEBP_SUPPORT
+#include "onebp_weight_loader.cpp"
+#endif
     inline xrt::run launch(int l){
         return k->operator()(3,0,0,*bA,*layerB[l],*bC);
     }
@@ -395,8 +402,25 @@ int main(int argc,char**argv){
     const char*sfxs[]={"_npu2","_instruct","_it","_it_npu2"};
     for(auto sf:sfxs){size_t sl=strlen(sf);if(model_tag.size()>sl&&model_tag.substr(model_tag.size()-sl)==sf)model_tag=model_tag.substr(0,model_tag.size()-sl);}
 
+#ifdef ONEBP_SUPPORT
+    bool is_onebp = strlen(mp) > 4 && strcmp(mp + strlen(mp) - 4, ".1bp") == 0;
+    OnebpModel onebp_model;
+#endif
     // Parse config
-    ModelConfig cfg=parse_q4nx_header(mp,model_tag.c_str());
+    ModelConfig cfg;
+    #ifdef ONEBP_SUPPORT
+        if (is_onebp) {
+            if (!onebp_model.open(mp)) { fprintf(stderr,"ERR: 1BP\n"); return 1; }
+            auto& oh = onebp_model.header();
+            cfg.H = oh.hidden_size; cfg.NC = oh.num_layers;
+            cfg.NH = oh.num_attention_heads; cfg.NKV = oh.num_kv_heads;
+            cfg.HD = oh.head_dim; cfg.IM = oh.intermediate_size;
+            cfg.NV = oh.vocab_size; cfg.GQA = cfg.NH / cfg.NKV;
+            cfg.XM = 128; cfg.has_lm_head = true;
+        } else
+    #endif
+        cfg = parse_q4nx_header(mp,model_tag.c_str());
+
     if(!cfg.valid()){fprintf(stderr,"ERR: invalid model config\n");return 1;}
     int H=cfg.H,NC=cfg.NC,NH=cfg.NH,NKV=cfg.NKV,HD=cfg.HD,IM=cfg.IM,NV=cfg.NV,GQA=cfg.GQA,XM=cfg.XM;
     fprintf(stderr,"=== NPU Engine Universal — %s ===\n",model_tag.c_str());
@@ -411,9 +435,21 @@ int main(int argc,char**argv){
 
     // Pre-convert embeddings f32 (v12 optimization)
     fprintf(stderr,"Pre-convert emb f32...\n");auto te=std::chrono::steady_clock::now();
+    #ifdef ONEBP_SUPPORT
+    if (is_onebp) {
+        std::vector<float> emb_buf;
+        if (onebp_model.get_tensor_f32("token_embd.weight", emb_buf)) {
+            emb_f32 = emb_buf;
+            fprintf(stderr,"  1BP embeddings loaded\n");
+        }
+    } else {
+    #endif
     emb_f32.resize((size_t)NV*H);
     for(int n=0;n<NV;n++)for(int i=0;i<H;i++)emb_f32[(size_t)n*H+i]=bf16g(emb[n*H+i]);
     fprintf(stderr,"  %.0fms\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-te).count());
+    #ifdef ONEBP_SUPPORT
+    }
+    #endif
 
     // Norm weights
     std::vector<uint64_t> in_off(NC),pa_off(NC),qn_off(NC),kn_off(NC),qp(NC),kp(NC),vp(NC),op(NC),gp(NC),up(NC),dp(NC);

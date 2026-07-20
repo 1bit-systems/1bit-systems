@@ -33,7 +33,7 @@ if(XRT_FOUND)
 endif()
 
 target_link_libraries(npu_engine_universal
-    m dl pthread
+    m dl pthread uuid
     OpenMP::OpenMP_CXX
     aiebu
 )
@@ -76,7 +76,7 @@ target_include_directories(npu_engine_cb PRIVATE
 
 target_link_libraries(npu_engine_cb
     ${XRT_COREUTIL}
-    m dl pthread
+    m dl pthread uuid
 )
 
 target_compile_options(npu_engine_cb PRIVATE
