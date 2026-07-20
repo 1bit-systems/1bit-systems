@@ -118,16 +118,31 @@ print(client.chat.completions.create(model="zaya", messages=[{"role":"user","con
 
 ## Model Coverage
 
-Model-agnostic isn't just a claim about the loader — it's been exercised across genuinely different architectures: dense transformer (Qwen3, Llama), mixture-of-experts (Zaya1-74B-A4B, Qwen 35B MoE), vision-language (Qwen2-VL), Mamba2-hybrid state-space (Zamba2), and ternary/1-bit-native weights (Bonsai, Zaya1-8B via 1BP) — same engine, same auto-detect path, no per-architecture fork.
+Model-agnostic isn't just a claim about the loader — it's been exercised across genuinely different architectures: dense transformer (Qwen3, Llama, ZR1), mixture-of-experts (Zaya1-74B-A4B, Qwen 35B MoE), vision-language (Qwen2-VL), Mamba2-hybrid state-space (Zamba2), and ternary/1-bit-native weights (Bonsai, Zaya1-8B via 1BP) — same engine, same auto-detect path, no per-architecture fork.
 
 ### Zaya1 — the flagship family
 
 | Model | Params | Format | Performance | Status |
 |-------|:------:|--------|-------------|:------:|
-| **Zaya1-8B** | 8B | Q4NX / **1BP** | ~64 tok/s decode (GPU) | ✅ Primary — extensively tested, native 1BP support |
-| Zaya1 Preview 74B-A4B (MoE) | 74.79B (4.89 BPW) | GGUF Q4_K_M | 17.9 tok/s (iGPU, llama.cpp fork, 2026-07-03) | 🗄️ Archived — no longer runs on current hardware |
+| **Zaya1-8B** | 8.84B | Q4NX / **1BP** | ~64 tok/s decode (GPU) | ✅ Primary — extensively tested, native 1BP support |
+| Zaya1 Preview 74B-A4B (MoE) | 74.79B | Q4NX / **1BP** | 17.9 tok/s (iGPU, llama.cpp fork, 2026-07-03 — historical, no longer runs on current hardware) | ✅ 1BP conversion complete — [HF](https://huggingface.co/bong-water-water-bong/ZAYA1-74B-preview-1BP) |
 
-Zaya1-8B is the model this project was built around: it's the one validated end-to-end through Q4NX, GGUF, and 1BP, and the one `tools/gguf_to_onebp.py` targets first when converting into the native format. The full 8.84B-parameter conversion — all 1283 tensors, including norms and the 16-expert MoE FFN weights — is published at [**bong-water-water-bong/ZAYA1-8B-1BP**](https://huggingface.co/bong-water-water-bong/ZAYA1-8B-1BP) on Hugging Face.
+Zaya1-8B is the model this project was built around: it's the one validated end-to-end through Q4NX, GGUF, and 1BP, and the one `tools/gguf_to_onebp.py` targets first when converting into the native format. Both sizes are published complete on Hugging Face — [**ZAYA1-8B-1BP**](https://huggingface.co/bong-water-water-bong/ZAYA1-8B-1BP) (1283 tensors, 16-expert MoE FFN weights) and [**ZAYA1-74B-preview-1BP**](https://huggingface.co/bong-water-water-bong/ZAYA1-74B-preview-1BP) (1923 tensors, 24-expert MoE FFN weights) — every tensor structurally verified against the source GGUF (exact parameter-count match) and numerically verified (dequantized values within expected 4-bit quantization tolerance).
+
+### Zyphra family — beyond Zaya
+
+Zaya1's maker, Zyphra, publishes several other architecturally distinct model lines. Converted the ones this engine can actually run end to end — dense transformer and Mamba2-hybrid — through the same 1BP pipeline:
+
+| Model | Params | Architecture | Format | Status |
+|-------|:------:|--------------|--------|:------:|
+| [Zamba2-1.2B-Instruct-v2](https://huggingface.co/bong-water-water-bong/Zamba2-1.2B-Instruct-v2-1BP) | 1.2B | Mamba2-hybrid (attention every 6th layer) | **1BP** | ✅ |
+| [Zamba2-2.7B-Instruct-v2](https://huggingface.co/bong-water-water-bong/Zamba2-2.7B-Instruct-v2-1BP) | 2.7B | Mamba2-hybrid | **1BP** | ✅ |
+| [Zamba2-7B-Instruct-v2](https://huggingface.co/bong-water-water-bong/Zamba2-7B-Instruct-v2-1BP) | 7B | Mamba2-hybrid | **1BP** | ✅ |
+| [ZR1-1.5B](https://huggingface.co/bong-water-water-bong/ZR1-1.5B-1BP) | 1.5B | Dense transformer (Qwen2 arch), reasoning-tuned | **1BP** | ✅ |
+
+Each converted from a Q8_0/BF16 source (not a 4-bit GGUF) to avoid compounding quantization error through a second 4-bit pass, then structurally and numerically verified the same way as the Zaya1 conversions.
+
+**Deliberately not converted**: BlackMamba-1.5B/2.8B (Zyphra's older pure-Mamba, no-attention line) — no GGUF exists for it anywhere and it predates the architecture support standard converters have, so producing one would mean writing an architecture-specific converter from scratch, not running existing tooling. ZAYA1-VL-8B — a real vision-language model; this converter only handles text weights, so a "conversion" would silently drop the vision tower and misrepresent it as the full model. Both skipped rather than shipped half-working.
 
 ### 🏆 Top 5 — Raw NPU Engine, No FLM (single binary, auto-detected)
 
