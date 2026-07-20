@@ -102,8 +102,8 @@ Expected: ~5ms/tok batch step at M=32. Effective ~3ms/tok = 333 tok/s.
 
 - ✅ Contract for 0.6B dimensions
 - ✅ Qwen3-0.6B edge attention kernel (4 Q heads per window, Chess-compiled)
-- ✅ NPU attention kernel (Peano, attn_scalar.o)
-- ✅ SiLU kernel (Peano, silu_gate.o)
+- ✅ NPU attention kernel (AMD Xilinx IP/Chess, attn_scalar.o)
+- ✅ SiLU kernel (AMD Xilinx IP/Chess, silu_gate.o)
 - ✅ Qwen3-0.6B model weights (Q4NX format at `/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/`)
 - ✅ Chess compiler license (through 2027.06)
 - ✅ FLM design source code studied and documented

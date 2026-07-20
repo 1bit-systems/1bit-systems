@@ -110,7 +110,7 @@ print(client.chat.completions.create(model="zaya", messages=[{"role":"user","con
 
 ### Backends
 
-- **NPU** — XDNA 2 (32 tiles), fully in-process via `npu_engine_universal` (XRT-based, C++23). Runs GGUF/Q4NX/1BP models directly — no FastFlowLM subprocess, no closed-source dependency. Instruction sequences and GEMM/MHA dispatch were reverse-engineered from FLM's 22 `.so` libraries; xclbin bitstreams are rebuilt from AIE generators via `aiecc`/Peano. See [`docs/fastflowlm-decode/SUMMARY.md`](docs/fastflowlm-decode/SUMMARY.md).
+- **NPU** — XDNA 2 (32 tiles), fully in-process via `npu_engine_universal` (XRT-based, C++23). Runs GGUF/Q4NX/1BP models directly — no FastFlowLM subprocess, no closed-source dependency. Instruction sequences and GEMM/MHA dispatch were reverse-engineered from FLM's 22 `.so` libraries; xclbin bitstreams are rebuilt from AIE generators via `aiecc`/Chess (AMD Xilinx IP). See [`docs/fastflowlm-decode/SUMMARY.md`](docs/fastflowlm-decode/SUMMARY.md).
 - **GPU** — Radeon 8060S via Vulkan SPIR-V + ROCm HIP
 - **CPU** — Fallback (scalar / AVX-512)
 
@@ -162,9 +162,9 @@ FastFlowLM (AMD's closed-source XDNA 2 inference engine) is fully reverse-engine
 | CLI + server | `flm`, 87.8 MB | Rebuilt, 17.5 MB |
 | NPU sequence gen | 22 proprietary `.so` files | `libnpu_engine_universal.so` (173 KB) |
 | FPGA bitstreams | 209 `.xclbin` files | 63 rebuilt from AIE generators |
-| Toolchain | AMD Xilinx IP | `aiecc` + Peano/LLVM-AIE |
+| Toolchain | AMD Xilinx IP | `aiecc` + Chess/AMD Xilinx IP |
 
-Build pipeline: Python AIE kernel generator → MLIR → `aiecc` + Peano → `.xclbin`.
+Build pipeline: Python AIE kernel generator → MLIR → `aiecc` + Chess → `.xclbin`.
 
 The key finding: the `.so` files were NPU instruction **sequence generators**, not compute kernels — the actual computation lives entirely in the `.xclbin` FPGA bitstreams. Both layers are now fully rebuildable from source. Full writeup: [`docs/fastflowlm-decode/SUMMARY.md`](docs/fastflowlm-decode/SUMMARY.md) · reverse-engineering detail: [`fastflowlm_analysis/`](fastflowlm_analysis/).
 

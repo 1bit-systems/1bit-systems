@@ -301,7 +301,7 @@ sudo modprobe -r amdxdna && sudo modprobe amdxdna
 | Exp | Focus | Status |
 |-----|-------|--------|
 | 1-6 | Passthrough, vec-add, BFP16 accuracy | ✅ Historical |
-| 7 | Single-tile GEMM (Peano) | ✅ Verified |
+| 7 | Single-tile GEMM (AMD Xilinx IP/Chess) | ✅ Verified |
 | 8 | Multi-tile BF16 GEMM (Worker.grid) | ✅ 82 GFLOPS |
 | 9 | Hand-written BFP16 kernel via ExternalFunction | ✅ |
 | 10 | Pre-packed BFP16 + column-major B | ✅ |

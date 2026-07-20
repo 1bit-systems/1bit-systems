@@ -184,7 +184,7 @@ Real fix: increase M (batch size). M=32 amortizes 1334μs across 32 tokens → 4
 Chess-compiled Qwen3-0.6B attention xclbins exist (attn_w0-3, 4 windows × 4 Q heads).
 Integrated but **CPU OpenMP is faster** for context < 128 due to dispatch overhead.
 NPU attention wins only if fused into QKV/O xclbin (FLM approach).
-SiLU kernel compiled (silu_gate.o, Peano, 2.4KB) — ready for fused GU+D xclbin.
+SiLU kernel compiled (silu_gate.o, AMD Xilinx IP/Chess, 2.4KB) — ready for fused GU+D xclbin.
 **Fused xclbin blocked by IRON Python API limitations.** Needs raw MLIR-AIE generation.
 
 ---

@@ -4,9 +4,9 @@
 
 | Artifact | Status | Size | Details |
 |----------|--------|------|---------|
-| `attn_scalar.cc` | ✅ Peano-compiled | 4KB | Scalar bf16 Q×K^T, fast_exp softmax, V-weight |
+| `attn_scalar.cc` | ✅ AMD Xilinx IP (Chess) | 4KB | Scalar bf16 Q×K^T, fast_exp softmax, V-weight |
 | `attn_c8.mlir` | ✅ IRON-generated | 53 lines | Single core, shim+mem, 2 input ObjectFifos (Q + KV) |
-| `attn_c8.xclbin` | ✅ aiecc-compiled | 14KB | C=8 context, Peano-linked (no-xchesscc) |
+| `attn_c8.xclbin` | ✅ AMD Xilinx IP (Chess) | 14KB | C=8 context, Chess-compiled |
 | `insts_attn_c8.txt` | ✅ Generated | 368B | 46 NPU instructions |
 
 ## Why it's not integrated

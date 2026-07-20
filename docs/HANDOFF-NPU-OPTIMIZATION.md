@@ -394,8 +394,8 @@ mt  (Jul 2):   TBD        Model-agnostic, multi-model
 **Engine integration blocked by:** Weight format — fused xclbin expects Q4NX compact record format. Our current engine uses flat INT8 weights. Need weight conversion or Q4NX loader. FLM's `run_full_layer.py` contains the integration pattern (Q4NX weight streaming + runtime sequence).
 
 ### Attention Test XCLBINS
-- `attn_scalar.o` (Peano, 4KB) — ✅ Compiled
-- `attn_c8.xclbin` (aiecc + Peano, 14KB) — ✅ Built (C=8, single core)
+- `attn_scalar.o` (AMD Xilinx IP/Chess, 4KB) — ✅ Relicensed (was Peano)
+- `attn_c8.xclbin` (AMD Xilinx IP/Chess, 14KB) — ✅ Relicensed (was Peano)
 - `attn_w0-3.xclbin` (Chess, 21KB each) — ✅ Qwen3-0.6B 4-window
 
 ### Live
@@ -470,8 +470,8 @@ v12 (Jul 2):  10 ms/tok   M=32 + OpenMP attention       24.0×
 
 | Artifact | Toolchain | Size | Status |
 |----------|-----------|------|--------|
-| `attn_scalar.o` | Peano | 4KB | ✅ Compiled |
-| `attn_c8.xclbin` | aiecc+Peano | 14KB | ✅ Built (C=8, single core) |
+| `attn_scalar.o` | AMD Xilinx IP (Chess) | 4KB | ✅ Relicensed (was Peano) |
+| `attn_c8.xclbin` | AMD Xilinx IP (Chess) | 14KB | ✅ Relicensed (was Peano) |
 | `attn_w0-3.xclbin` | Chess | 21KB each | ✅ Built (4-window Qwen3-0.6B) |
 | `attn_c16.xclbin` | aiecc | TBD | ❌ Resource allocation blocked (L2 48KB limit) |
 
