@@ -32,6 +32,11 @@ if(XRT_FOUND)
     target_compile_definitions(npu_engine_universal PRIVATE -DXRT_ENABLE)
 endif()
 
+option(ONEBP_SUPPORT "Enable native 1BP model format loading" ON)
+if(ONEBP_SUPPORT)
+    target_compile_definitions(npu_engine_universal PRIVATE ONEBP_SUPPORT)
+endif()
+
 target_link_libraries(npu_engine_universal
     m dl pthread uuid
     OpenMP::OpenMP_CXX

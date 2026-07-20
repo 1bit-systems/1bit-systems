@@ -18,6 +18,19 @@
  *      [512..1023]: 256 BF16 zero_points (same layout)
  *      [1024..5119]: 4096 bytes packed INT4 (2 per byte)
  *    Total per tile: 5120 bytes
+ *
+ *  Tensor index entry (variable-length):
+ *    [name_len:u32][name:str][ndim:u32][dims:u32 × ndim][offset:u64][bytes:u64]
+ *
+ *    ndim=2: dims=[rows, cols] — a plain weight matrix. `bytes` is the
+ *      tiled size of that one matrix.
+ *    ndim=3: dims=[num_experts, rows, cols] — a stack of `num_experts`
+ *      independently-tiled matrices (MoE expert weights: ffn_gate_up_exps,
+ *      ffn_down_exps, etc.), laid out back-to-back with no padding between
+ *      experts. `bytes` = num_experts × tiled_size(rows, cols). Each
+ *      expert's slice uses the exact same 32×256 tile scheme as a regular
+ *      2D tensor — there's no cross-expert structure to the quantization,
+ *      it's just N matrices concatenated.
  */
 
 #include <cstdint>

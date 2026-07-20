@@ -15,7 +15,8 @@ inference engine and achieves verified performance on this hardware.
 | Zamba2-1.2B-Strix | Zyphra/Zamba2-1.2B | 0.71B | Q4_0 GGUF | ~1800 tok/s GEMV | ⚠️ Mamba2 ROCm-limited |
 | Zamba2-2.7B-Strix | Zyphra/Zamba2-2.7B | 2.7B | Q4_0 GGUF | ~900 tok/s GEMV | 🔲 Planned |
 | Zamba2-7B-Strix | Zyphra/Zamba2-7B | 7B | Q4_0 GGUF | ~350 tok/s GEMV | 🔲 Planned |
-| Zaya1-8B-Strix | Proprietary | 8B | Q4_K_M GGUF | ~64 tok/s decode | ✅ Available |
+| Zaya1-8B-Strix | [Zyphra/ZAYA1-8B](https://huggingface.co/Zyphra/ZAYA1-8B) (Apache-2.0) | 8B | Q4_K_M GGUF | ~64 tok/s decode | ✅ Available |
+| [Zaya1-8B-1BP](https://huggingface.co/bong-water-water-bong/ZAYA1-8B-1BP) | [Zyphra/ZAYA1-8B](https://huggingface.co/Zyphra/ZAYA1-8B) (Apache-2.0) | 8B | 1BP (native) | — | ✅ Available |
 
 ## How to Use
 

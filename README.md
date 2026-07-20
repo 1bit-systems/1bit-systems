@@ -127,7 +127,7 @@ Model-agnostic isn't just a claim about the loader — it's been exercised acros
 | **Zaya1-8B** | 8B | Q4NX / **1BP** | ~64 tok/s decode (GPU) | ✅ Primary — extensively tested, native 1BP support |
 | Zaya1 Preview 74B-A4B (MoE) | 74.79B (4.89 BPW) | GGUF Q4_K_M | 17.9 tok/s (iGPU, llama.cpp fork, 2026-07-03) | 🗄️ Archived — no longer runs on current hardware |
 
-Zaya1-8B is the model this project was built around: it's the one validated end-to-end through Q4NX, GGUF, and 1BP, and the one `tools/gguf_to_onebp.py` targets first when converting into the native format.
+Zaya1-8B is the model this project was built around: it's the one validated end-to-end through Q4NX, GGUF, and 1BP, and the one `tools/gguf_to_onebp.py` targets first when converting into the native format. The full 8.84B-parameter conversion — all 1283 tensors, including norms and the 16-expert MoE FFN weights — is published at [**bong-water-water-bong/ZAYA1-8B-1BP**](https://huggingface.co/bong-water-water-bong/ZAYA1-8B-1BP) on Hugging Face.
 
 ### 🏆 Top 5 — Raw NPU Engine, No FLM (single binary, auto-detected)
 
