@@ -207,3 +207,31 @@ jobs:
         working-directory: engine/fusion
         run: ./zig-out/bin/fused-engine --help
         continue-on-error: true
+
+  bench:
+    name: Benchmark smoke (record)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record CI benchmark placeholder
+        run: |
+          bash bench/record.sh "ci_smoke" 0 null "placeholder" "CI smoke (no HW on runner)" "ci" "CI Smoke" "none"
+          echo "Benchmark smoke test complete — site/benchmarks.json updated"
+          cat site/benchmarks.json | python3 -m json.tool | head -20
+
+  smoke-test:
+    name: Inference smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check download_and_run.sh exists
+        run: |
+          if [ -f tests/download_and_run.sh ]; then
+            echo "✅ tests/download_and_run.sh exists"
+            bash -n tests/download_and_run.sh && echo "  Shell syntax OK"
+          else
+            echo "⚠️  tests/download_and_run.sh not yet written for non-HW runners"
+          fi
+

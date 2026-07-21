@@ -1,18 +1,46 @@
 #include "model_router.h"
 
-// Phase 4: universal routing. The HIP/CPU backends now accept runtime
-// ZayaConfig from any ModelConfig. Single-token inference kernels (CCA prep,
-// EDA router) are fully dynamic. Batch-path speculative-decode kernels still
-// have architecture-specific shared memory and are documented in zaya_router_moe.hip.
+// ============================================================
+// Backend Router — architecture-aware dispatch
+// ============================================================
 //
-// Routes:
-//   (a) Zaya-style MoE models → hip_gpu + cpu_scalar (fast CCA/MoE kernels)
-//   (b) qwen3 architecture → npu_xrt + npu_flm + cpu_generic (native NPU engine,
-//       FLM subprocess as fallback only — see backend_manager.cpp, npu_xrt is
-//       the default now that its single-core GEMM kernels are correctness-verified,
-//       docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md)
-//   (c) GGUF/H1B format → zinc_gpu + cpu_generic (multi-arch, multi-quant)
-//   (d) Everything else → hip_gpu + cpu_generic (dynamic engine, generic fallback)
+// The router selects one or more backends for a given model based on its
+// architecture and format. Backends are tried in priority order: the first
+// one that initializes successfully handles inference; subsequent backends
+// serve as fallbacks if the primary fails.
+//
+// Routing hierarchy (as of 2026-07-20):
+//
+//   MoE (num_experts > 0)
+//     └─ hip_gpu (CCA/MoE HIP kernels) + cpu_scalar
+//         Zaya-style models with expert routing. The CCA/MoE kernels are
+//         architecture-specific (shared memory layouts differ per model)
+//         but the router picks the right kernel via the MoE config.
+//
+//   qwen3 architecture
+//     ├─ npu_xrt (native NPU engine — INT8, single-core, ~12 tok/s)
+//     ├─ npu_flm (FLM subprocess — fused xclbins, ~95 tok/s, fallback)
+//     └─ cpu_generic
+//         npu_xrt is the DEFAULT route since PR #567 (2026-07-20) once its
+//         single-core GEMM kernels passed correctness verification against
+//         the HuggingFace BF16 reference. FLM is kept as a faster fallback
+//         until the multi-tile NPU path lands (see docs/mlir-air-integration.md).
+//
+//   GGUF / H1B format
+//     └─ zinc_gpu (Vulkan ZINC runtime) + cpu_generic
+//         The ZINC runtime handles multiple quant formats (Q4_0, Q4_K, etc.)
+//         and architectures through its IR graph — no per-model specialization.
+//
+//   Everything else (fallthrough)
+//     └─ hip_gpu + cpu_generic
+//         Generic HIP GPU kernels cover any model the specific paths don't match.
+//
+// Adding a new route:
+//   1. Add the architecture string to the detect logic in model_discovery.cpp
+//   2. Add a new entry in the if-else chain below
+//   3. Register the backend factory in backend_factory.cpp
+//   4. Add a benchmark entry in bench/record.sh
+// ============================================================
 
 BackendRoute select_backend_route(const ModelConfig& cfg) {
     // Zaya-style MoE: any model with expert routing can use the CCA/MoE path

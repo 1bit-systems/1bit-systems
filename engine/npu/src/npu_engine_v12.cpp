@@ -1,4 +1,30 @@
-/** NPU Engine v12 — M=32 + OpenMP attention. Target: sustain >80 tok/s at long context. */
+/** NPU Engine v12 — M=32 block-size INT8 engine with OpenMP attention.
+ *
+ * Architecture: single-core NPU dispatch via XRT, INT8-quantized GEMM with
+ * dynamic per-call activation scaling. Attention runs on CPU via OpenMP.
+ *
+ * Design decisions:
+ * - INT8 over BF16: INT8 GEMM on NPU is ~4× faster than BF16 (more tiles fit
+ *   in L1, less DMA pressure). The dynamic activation scale (measured per-call
+ *   from post-RMSNorm activations) avoids the clipping loss that a fixed scale
+ *   would cause (activations range [-8.24, 7.01], not [-5, 5] as assumed by
+ *   earlier hardcoded 5.0f/127.0f).
+ * - M=32 block size: empirically determined sweet spot. Larger blocks increase
+ *   L1 spill and DMA latency; smaller blocks underutilize the vector unit.
+ * - CPU attention: NPU attention kernels exist (flash_attn_npu2.elf) but the
+ *   multi-launch ELF infrastructure to fuse them into the GEMM dispatch pipeline
+ *   is not yet integrated. See docs/mlir-air-integration.md Phase 1.
+ *
+ * Current limitations:
+ * - Single-core dispatch only (no multi-tile parallelism)
+ * - No multi-launch ELF fusion (15 dispatches/layer → could be 3)
+ * - M=32 requires the KV cache to be INT8-quantized per token, adding ~3μs/token
+ *   dequant overhead that M=128 would amortize
+ *
+ * Performance target: >80 tok/s sustained at long context.
+ * Current (2026-07-20): ~12 tok/s single-core, ~97 tok/s with FLM fallback.
+ * See bench/ and site/benchmarks.json for current measurements.
+ */
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>

@@ -17,10 +17,22 @@
 [![GGUF](https://img.shields.io/badge/GGUF-Qwen2%20%7C%20Qwen3%20layout-00ff00)](src/gguf_loader.cpp)
 [![ONNX](https://img.shields.io/badge/ONNX%20weight%20extraction-ff9900)](src/onnx_loader.cpp)
 [![Q4NX](https://img.shields.io/badge/Q4NX-fully%20decoded-00ff00)](docs/fastflowlm-decode/SUMMARY.md)
-[![1BP](https://img.shields.io/badge/1BP-native%20format-00ffaa)](include/onebp_format.h)
+[![1BP](https://img.shields.io/badge/1BP-single%20file%2C%20zero%20config-00ffaa)](include/onebp_format.h)
 [![Tests](https://img.shields.io/badge/tests-9%2F11-yellow)](tests/)  <!-- 2 e2e tests need model files (issue #233) -->
 
 **One server binary (zaya_server) unifies NPU + GPU + CPU inference — no external subprocess, no proprietary runtime.**
+
+### Why 1BP?
+
+1BP is this project's native model format, designed to eliminate the config-file tax that every other format imposes:
+
+- **256-byte header** — magic, version, quantization type (Q4NX/TQ2/F16/F32), model architecture enum, tokenizer config — **zero external config.json or tokenizer.json**
+- **Memory-mappable weight data** — Q4NX-tiled arrays laid out exactly as the NPU DMA expects them, no load-time reshape or transpose. TQ2 ternary packs 2-bit codes at exactly half the size of Q4NX (2560 bytes/tile vs 5120)
+- **Tensor index** — named tensors with native dims, byte offset, and size — no safetensors index file needed
+
+The format exists because every model format the project ingests (GGUF, ONNX, safetensors) has a different indexing scheme, padding convention, and metadata layout. 1BP is the **normalization layer**: converters write 1BP once, the engine reads 1BP everywhere, and the translation cost is paid at conversion time rather than on every inference startup.
+
+**Find pre-converted 1BP models at [1bit.systems/models](https://1bit.systems/models)** — Zamba2, ZR1, BlackMamba, and community-submitted conversions.
 
 FastFlowLM, AMD's closed-source NPU inference engine, has been fully reverse-engineered and replaced: all 22 proprietary `.so` libraries disassembled, all 209 xclbin bitstreams traced back to their AIE generators, and the whole stack rebuilt from source (87.8MB closed binary → 17.5MB open one). The project's own NPU engine (`engine/npu/`, `npu_engine_universal`) now dispatches directly via XRT — see [`docs/fastflowlm-decode/SUMMARY.md`](docs/fastflowlm-decode/SUMMARY.md) for the full decode report.
 
