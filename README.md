@@ -158,10 +158,14 @@ Zaya1's maker, Zyphra, publishes several other architecturally distinct model li
 | [Zamba2-2.7B-Instruct-v2](https://huggingface.co/bong-water-water-bong/Zamba2-2.7B-Instruct-v2-1BP) | 2.7B | Mamba2-hybrid | **1BP** | ✅ |
 | [Zamba2-7B-Instruct-v2](https://huggingface.co/bong-water-water-bong/Zamba2-7B-Instruct-v2-1BP) | 7B | Mamba2-hybrid | **1BP** | ✅ |
 | [ZR1-1.5B](https://huggingface.co/bong-water-water-bong/ZR1-1.5B-1BP) | 1.5B | Dense transformer (Qwen2 arch), reasoning-tuned | **1BP** | ✅ |
+| [BlackMamba-1.5B](https://huggingface.co/bong-water-water-bong/BlackMamba-1.5B-1BP) | 1.5B | Mamba1 + top-1 MoE (no attention at all) | **1BP** | ✅ ⚠️ |
+| [BlackMamba-2.8B](https://huggingface.co/bong-water-water-bong/BlackMamba-2.8B-1BP) | 2.8B | Mamba1 + top-1 MoE | **1BP** | ✅ ⚠️ |
 
 Each converted from a Q8_0/BF16 source (not a 4-bit GGUF) to avoid compounding quantization error through a second 4-bit pass, then structurally and numerically verified the same way as the Zaya1 conversions.
 
-**Deliberately not converted**: BlackMamba-1.5B/2.8B (Zyphra's older pure-Mamba, no-attention line) — no GGUF exists for it anywhere and it predates the architecture support standard converters have, so producing one would mean writing an architecture-specific converter from scratch, not running existing tooling. ZAYA1-VL-8B — a real vision-language model; this converter only handles text weights, so a "conversion" would silently drop the vision tower and misrepresent it as the full model. Both skipped rather than shipped half-working.
+**BlackMamba required a from-scratch converter** (`scripts/blackmamba_to_gguf.py`) — no upstream GGUF export exists for this architecture, and it predates the architecture support standard converters have. Shipped with three real correctness bugs on the first pass (wrong Q4_0 nibble encoding, a conv1d weight `.reshape()` that silently scrambled channel/kernel-tap pairing, and a dropped MoE router bias), all found and fixed by cross-checking a new reference tool against the official Zyphra implementation — see the model cards on Hugging Face for the full writeup. The ⚠️: **no fast inference path exists in this engine for Mamba1+MoE yet** — `src/mamba1_engine.hip` has real kernels but they're not wired into any build target or MoE-aware loader, so the only way to actually run these weights today is the CPU reference tool used to verify them.
+
+**Deliberately not converted**: ZAYA1-VL-8B — a real vision-language model; this converter only handles text weights, so a "conversion" would silently drop the vision tower and misrepresent it as the full model. Skipped rather than shipped half-working.
 
 ### 🏆 Top 5 — Raw NPU Engine, No FLM (single binary, auto-detected)
 

@@ -13,8 +13,10 @@ inference engine and achieves verified performance on this hardware.
 | Zamba2-7B-Strix | Zyphra/Zamba2-7B | 7B | Q4_0 GGUF | ~350 tok/s GEMV | 🔲 Planned |
 | **ZR1-1.5B-Strix** 🏆 | Zyphra/ZR1-1.5B | 1.5B | LoRA adapter | 1.86s/it training | ✅ **Done** |
 | Zaya1-8B-Strix | [Zyphra/ZAYA1-8B](https://huggingface.co/Zyphra/ZAYA1-8B) (Apache-2.0) | 8B | Q4_K_M GGUF | ~64 tok/s decode | ✅ Available |
-| BlackMamba-1.5B-Strix | [Zyphra/BlackMamba-1.5B](https://huggingface.co/Zyphra/BlackMamba-1.5B) (Apache-2.0) | 1.5B | Q4_0 GGUF | Not yet benchmarked | 🔲 Planned |
-| BlackMamba-2.8B-Strix | [Zyphra/BlackMamba-2.8B](https://huggingface.co/Zyphra/BlackMamba-2.8B) (Apache-2.0) | 2.8B | Q4_0 GGUF | Not yet benchmarked | 🔲 Planned |
+| BlackMamba-1.5B-Strix | [Zyphra/BlackMamba-1.5B](https://huggingface.co/Zyphra/BlackMamba-1.5B) (Apache-2.0) | 1.5B | Q4_0 GGUF | 46.3 tok/s (PyTorch/ROCm, Radeon 8060S)¹ | ⚠️ No engine path yet |
+| BlackMamba-2.8B-Strix | [Zyphra/BlackMamba-2.8B](https://huggingface.co/Zyphra/BlackMamba-2.8B) (Apache-2.0) | 2.8B | Q4_0 GGUF | 29.6 tok/s (PyTorch/ROCm, Radeon 8060S)¹ | ⚠️ No engine path yet |
+
+¹ BlackMamba is Mamba1+MoE, an architecture this project's engine has no fast inference path for yet (no build target wires up `src/mamba1_engine.hip`'s kernels to a loader that understands its MoE-expert tensor layout). This number is the official Zyphra reference implementation running via real PyTorch/ROCm on this same hardware — a genuine measurement, but not this project's own engine. See `models/*/README.md` on Hugging Face for the full verification writeup, including a CPU-scalar-reference cross-check and three real bugs found and fixed in the GGUF converter along the way.
 
 ### 1BP conversions
 
@@ -28,6 +30,8 @@ Full-precision-preserving conversions to this project's native format — every 
 | [Zamba2-2.7B-Instruct-v2-1BP](https://huggingface.co/bong-water-water-bong/Zamba2-2.7B-Instruct-v2-1BP) | [Zyphra/Zamba2-2.7B-Instruct-v2](https://huggingface.co/Zyphra/Zamba2-2.7B-Instruct-v2) (Apache-2.0) | 2.7B | ✅ Available |
 | [Zamba2-7B-Instruct-v2-1BP](https://huggingface.co/bong-water-water-bong/Zamba2-7B-Instruct-v2-1BP) | [Zyphra/Zamba2-7B-Instruct-v2](https://huggingface.co/Zyphra/Zamba2-7B-Instruct-v2) (Apache-2.0) | 7B | ✅ Available |
 | [ZR1-1.5B-1BP](https://huggingface.co/bong-water-water-bong/ZR1-1.5B-1BP) | [Zyphra/ZR1-1.5B](https://huggingface.co/Zyphra/ZR1-1.5B) (MIT) | 1.5B | ✅ Available |
+| [BlackMamba-1.5B-1BP](https://huggingface.co/bong-water-water-bong/BlackMamba-1.5B-1BP) | [Zyphra/BlackMamba-1.5B](https://huggingface.co/Zyphra/BlackMamba-1.5B) (Apache-2.0) | 1.5B | ✅ Available |
+| [BlackMamba-2.8B-1BP](https://huggingface.co/bong-water-water-bong/BlackMamba-2.8B-1BP) | [Zyphra/BlackMamba-2.8B](https://huggingface.co/Zyphra/BlackMamba-2.8B) (Apache-2.0) | 2.8B | ✅ Available |
 | [BlackMamba-1.5B-1BP](https://huggingface.co/bong-water-water-bong/BlackMamba-1.5B-1BP) | [Zyphra/BlackMamba-1.5B](https://huggingface.co/Zyphra/BlackMamba-1.5B) (Apache-2.0) | 1.5B | ✅ Available |
 
 ## How to Use
