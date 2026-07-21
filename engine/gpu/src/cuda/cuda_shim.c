@@ -44,8 +44,14 @@ CudaCtx* cuda_init(int device_index) {
     if (cuDeviceGet(&c->dev, device_index) != CUDA_SUCCESS) { free(c); return NULL; }
     // Use the device's primary context (shared with the runtime API).
     if (!cu_ok(cuDevicePrimaryCtxRetain(&c->ctx, c->dev), "cuDevicePrimaryCtxRetain")) { free(c); return NULL; }
-    if (!cu_ok(cuCtxSetCurrent(c->ctx), "cuCtxSetCurrent")) { free(c); return NULL; }
-    if (!cu_ok(cuStreamCreate(&c->stream, CU_STREAM_NON_BLOCKING), "cuStreamCreate")) { free(c); return NULL; }
+    if (!cu_ok(cuCtxSetCurrent(c->ctx), "cuCtxSetCurrent")) {
+        cuDevicePrimaryCtxRelease(c->dev);
+        free(c); return NULL;
+    }
+    if (!cu_ok(cuStreamCreate(&c->stream, CU_STREAM_NON_BLOCKING), "cuStreamCreate")) {
+        cuDevicePrimaryCtxRelease(c->dev);
+        free(c); return NULL;
+    }
     // Effort 26 cycle 9: cuBLAS handle for the prefill dense Q4_K GEMM (created
     // lazily-safe here; binds to the current primary context). Non-fatal on
     // failure — the cuBLAS prefill path is opt-in and falls back if absent.
@@ -147,10 +153,12 @@ void cuda_download(CudaCtx* c, CudaBuf* b, void* dst, size_t size) {
 // the embed H2D and argmax D2H ride the single graph launch instead of each
 // costing a WSL2 sync round-trip. Host side must be pinned (cuda_alloc_host).
 void cuda_upload_async(CudaCtx* c, CudaBuf* b, const void* src, size_t size) {
-    cuMemcpyHtoDAsync(b->dptr, src, size, c->stream);
+    CUresult r = cuMemcpyHtoDAsync(b->dptr, src, size, c->stream);
+    if (r != CUDA_SUCCESS) fprintf(stderr, "cuda_upload_async: CUDA error %d\n", r);
 }
 void cuda_download_async(CudaCtx* c, CudaBuf* b, void* dst, size_t size) {
-    cuMemcpyDtoHAsync(dst, b->dptr, size, c->stream);
+    CUresult r = cuMemcpyDtoHAsync(dst, b->dptr, size, c->stream);
+    if (r != CUDA_SUCCESS) fprintf(stderr, "cuda_download_async: CUDA error %d\n", r);
 }
 void* cuda_alloc_host(size_t size) {
     void* p = NULL;
@@ -195,6 +203,7 @@ CudaPipe* cuda_create_pipeline(CudaCtx* c, const char* src, const char* fn_name,
     }
     size_t ptxsz = 0; nvrtcGetPTXSize(prog, &ptxsz);
     char* ptx = (char*)malloc(ptxsz);
+    if (!ptx) { nvrtcDestroyProgram(&prog); return NULL; }
     nvrtcGetPTX(prog, ptx);
     nvrtcDestroyProgram(&prog);
 

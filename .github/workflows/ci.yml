@@ -186,7 +186,7 @@ jobs:
         continue-on-error: true
       - name: Type-check
         if: hashFiles('tsconfig.json') != ''
-        run: nxpt tsc --noEmit
+        run: npx tsc --noEmit
         continue-on-error: true
 
   fusion:

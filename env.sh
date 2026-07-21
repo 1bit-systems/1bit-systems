@@ -29,7 +29,7 @@ export LD_LIBRARY_PATH="$LINK_DIR/build:${LD_LIBRARY_PATH:-}"
 export PATH="$LINK_DIR/build:$PATH"
 
 echo "[1bit] Environment ready:"
-echo "  HSA_OVERRIDE_GFX_VERSION=$HSA_OVERRIDE_GFX_VERSION"
+echo "  HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-not set}"
 echo "  HSA_ENABLE_SDMA=$HSA_ENABLE_SDMA"
 echo "  LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
 echo "  Run: zaya_server"

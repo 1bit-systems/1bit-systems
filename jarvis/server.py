@@ -11,6 +11,8 @@ from jarvis.voice.engine import VoiceEngine
 # ── Voice Engine (Phase 1) ─────────────────────────────────────────
 _voice = VoiceEngine()
 
+MAX_BODY_SIZE = 16 * 1024 * 1024
+
 # Try to load default voice pack if it exists
 def _init_voice():
     packs = _voice.list_available_packs()
@@ -85,6 +87,9 @@ class H(BaseHTTPRequestHandler):
 
     def _chat(self):
         l = int(self.headers.get("Content-Length", 0))
+        if l > MAX_BODY_SIZE:
+            self.send_error(413, "Payload too large")
+            return
         b = self.rfile.read(l) if l else b"{}"
         try: d = json.loads(b)
         except: return self._j(400, {"error": "json"})
@@ -161,6 +166,9 @@ class H(BaseHTTPRequestHandler):
         ct = self.headers.get("Content-Type", "")
         bd = ct.split("boundary=")[-1].strip()
         l = int(self.headers.get("Content-Length", 0))
+        if l > MAX_BODY_SIZE:
+            self.send_error(413, "Payload too large")
+            return
         body = self.rfile.read(l)
         audio = None
         for p in body.split(b"--" + bd.encode()):
@@ -178,6 +186,9 @@ class H(BaseHTTPRequestHandler):
 
     def _tts(self):
         l = int(self.headers.get("Content-Length", 0))
+        if l > MAX_BODY_SIZE:
+            self.send_error(413, "Payload too large")
+            return
         body = self.rfile.read(l) if l else b"{}"
         try: d = json.loads(body)
         except: return self._j(400, {"error": "json"})
@@ -212,6 +223,9 @@ class H(BaseHTTPRequestHandler):
             # Upload a new voice pack
             bd = ct.split("boundary=")[-1].strip()
             l = int(self.headers.get("Content-Length", 0))
+            if l > MAX_BODY_SIZE:
+                self.send_error(413, "Payload too large")
+                return
             body = self.rfile.read(l)
             pack_data = None
             for p in body.split(b"--" + bd.encode()):
@@ -239,6 +253,9 @@ class H(BaseHTTPRequestHandler):
     def _voice_activate(self):
         """Activate a loaded voice pack."""
         l = int(self.headers.get("Content-Length", 0))
+        if l > MAX_BODY_SIZE:
+            self.send_error(413, "Payload too large")
+            return
         body = self.rfile.read(l) if l else b"{}"
         try: d = json.loads(body)
         except: return self._j(400, {"error": "json"})
@@ -253,6 +270,9 @@ class H(BaseHTTPRequestHandler):
 
     def _kbs(self):
         l = int(self.headers.get("Content-Length", 0))
+        if l > MAX_BODY_SIZE:
+            self.send_error(413, "Payload too large")
+            return
         body = self.rfile.read(l) if l else b"{}"
         try: d = json.loads(body)
         except: return self._j(400, {"error": "json"})
@@ -263,6 +283,9 @@ class H(BaseHTTPRequestHandler):
         if "multipart" in ct:
             bd = ct.split("boundary=")[-1].strip()
             l = int(self.headers.get("Content-Length", 0))
+            if l > MAX_BODY_SIZE:
+                self.send_error(413, "Payload too large")
+                return
             body = self.rfile.read(l)
             fn = "doc.txt"; content = b""
             for p in body.split(b"--" + bd.encode()):
@@ -274,6 +297,9 @@ class H(BaseHTTPRequestHandler):
             if not content: return self._j(400, {"error": "empty"})
             return self._j(200, {"path": _kb.add_document(fn, content.decode("utf-8", errors="replace"))})
         l = int(self.headers.get("Content-Length", 0))
+        if l > MAX_BODY_SIZE:
+            self.send_error(413, "Payload too large")
+            return
         body = self.rfile.read(l) if l else b"{}"
         try: d = json.loads(body)
         except: return self._j(400, {"error": "json"})

@@ -99,16 +99,16 @@ pub const KvPagePool = struct {
     /// token storage across requests since each page_id maps to a disjoint range.
     /// @param page_ids Allocated page IDs for the request (must be non-empty to get a meaningful result).
     /// @returns Token index of the first token slot owned by this request, or 0 if `page_ids` is empty.
-    pub fn positionBase(self: *const KvPagePool, page_ids: []const u32) u32 {
+    pub fn positionBase(self: *const KvPagePool, page_ids: []const u32) u64 {
         if (page_ids.len == 0) return 0;
-        return page_ids[0] * self.page_size;
+        return @as(u64, page_ids[0]) * @as(u64, self.page_size);
     }
 
     /// Maximum context length (in tokens) that fits in `page_count` allocated pages.
     /// @param page_count Number of pages allocated to the request.
     /// @returns `page_count * page_size` — the token capacity for those pages.
-    pub fn maxContext(self: *const KvPagePool, page_count: u32) u32 {
-        return page_count * self.page_size;
+    pub fn maxContext(self: *const KvPagePool, page_count: u32) u64 {
+        return @as(u64, page_count) * @as(u64, self.page_size);
     }
 
     /// Number of free pages currently available for allocation.

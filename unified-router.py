@@ -18,6 +18,8 @@ import urllib.error
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional
 
+MAX_BODY_SIZE = 16 * 1024 * 1024
+
 # ── Routing policy ──────────────────────────────────────────────────
 
 SMALL_MODEL = "qwen3-0.6b-FLM"           # NPU (210ms/tok, efficient)
@@ -76,6 +78,9 @@ class RouterHandler(BaseHTTPRequestHandler):
 
         if method == "POST":
             cl = int(self.headers.get("Content-Length", 0))
+            if cl > MAX_BODY_SIZE:
+                self.send_error(413, "Payload too large")
+                return
             body_bytes = self.rfile.read(cl) if cl > 0 else b"{}"
 
         req = urllib.request.Request(
@@ -140,6 +145,9 @@ class RouterHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         cl = int(self.headers.get("Content-Length", 0))
+        if cl > MAX_BODY_SIZE:
+            self.send_error(413, "Payload too large")
+            return
         body_bytes = self.rfile.read(cl) if cl > 0 else b"{}"
 
         if "/chat/completions" in self.path:
@@ -192,7 +200,7 @@ class RouterHandler(BaseHTTPRequestHandler):
 def main():
     parser = argparse.ArgumentParser(description="Unified NPU+GPU Router")
     parser.add_argument("--port", type=int, default=13305, help="Router listen port")
-    parser.add_argument("--backend", type=str, default="http://127.0.0.1:13305",
+    parser.add_argument("--backend", type=str, default="http://127.0.0.1:13306",
                         help="inference backend backend URL")
     args = parser.parse_args()
 

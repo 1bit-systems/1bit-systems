@@ -18,7 +18,7 @@ SIGNAL_SCRIPT="${HOME}/scripts/signal-agent-awareness.sh"
 RECORD_SCRIPT="${HOME}/scripts/record-agent-change.sh"
 
 # Repos to monitor — add more as needed
-REPOS="${1:-${HOME} ${HOME}/colibri}"
+REPOS="${1:-${HOME}/1bit-systems ${HOME}/colibri}"
 
 for REPO in $REPOS; do
     if [ ! -d "$REPO/.git" ] && [ ! -f "$REPO/.git" ]; then

@@ -24,6 +24,8 @@ import urllib.error
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional
 
+MAX_BODY_SIZE = 16 * 1024 * 1024
+
 DEFAULT_MODEL = "qwen3:0.6b"
 DEFAULT_PORT = 18089
 NPU_ENGINE_BIN = os.path.join(os.path.dirname(__file__), 
@@ -136,6 +138,9 @@ class NPUHandler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         length = int(self.headers.get("Content-Length", 0))
+        if length > MAX_BODY_SIZE:
+            self.send_error(413, "Payload too large")
+            return
         body = json.loads(self.rfile.read(length)) if length else {}
         prompt = body.get("prompt", "")
         max_tokens = body.get("max_tokens", 5)

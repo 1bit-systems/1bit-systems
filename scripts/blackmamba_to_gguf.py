@@ -101,7 +101,7 @@ class Writer:
 
 def convert(model_id, output):
     path = hf_hub_download(model_id, "pytorch_model.bin")
-    sd = torch.load(path, map_location='cpu')
+    sd = torch.load(path, map_location='cpu', weights_only=True)
     sd = sd['model'] if 'model' in sd else sd
     
     cfg = json.loads(open(hf_hub_download(model_id, "config.json")).read())

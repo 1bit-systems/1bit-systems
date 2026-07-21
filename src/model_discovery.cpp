@@ -174,7 +174,7 @@ std::vector<ModelConfig> discover_models(const std::string& dir) {
         ModelConfig cfg;
         bool ok = false;
         if (ext == ".gguf") ok = read_gguf_metadata(full, cfg);
-        else if (ext == ".h1b") ok = read_gguf_metadata(full, cfg);
+        else if (ext == ".h1b") ok = read_h1b_metadata(full, cfg);
         else if (ext == ".q4nx") ok = read_q4nx_metadata(full, cfg);
         else if (ext == ".safetensors") ok = read_safetensors_metadata(full, cfg);
         else if (ext == ".bin") {

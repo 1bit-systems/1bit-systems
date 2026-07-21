@@ -205,6 +205,12 @@ __launch_bounds__(128) __global__ void persistent_moe_kernel(
             int row = row_block * WMMA_M;
             if (row >= H) return;
 
+            // Wait for gate-up to finish before reading
+            if (is_down) {
+                while (load_flag(done_flags, layer, 1) == 0) { __threadfence_block(); }
+                __threadfence();
+            }
+
             // silu'd gate_up output is in moe_layer[0:2*N_FF]
             // down computes from moe_layer[0:N_FF]
             const __half* dn_layer = dn + (size_t)layer * N_EXP * H * N_FF;

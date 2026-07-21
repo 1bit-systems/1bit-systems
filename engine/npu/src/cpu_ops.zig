@@ -190,12 +190,13 @@ pub fn attentionHead(
     nkv: usize,
     hd: usize,
     max_pos: ?usize,
-) void {
+) !void {
     const gqa = nh / nkv;
     const kvh = hh / gqa;
 
     // Scratch scores
     var scores_buf: [4096]f32 = undefined;
+    if (cl > scores_buf.len) return error.ContextTooLong;
     const scores = scores_buf[0..cl];
 
     attentionQK(q, k_cache, scores, cl, nkv, kvh, hd, max_pos);
@@ -258,7 +259,7 @@ pub fn lmHeadTopK(
     k: u32,
     nv: usize,
     h: usize,
-) void {
+) !void {
     var sfb = std.heap.stackFallback(@sizeOf(f32) * 151936, std.heap.page_allocator);
     const allocator = sfb.get();
     // Note: stack allocation for logits is too large for 151K vocab — use heap
@@ -308,8 +309,9 @@ pub fn lmHeadTopK(
 
     // Top-k (including the sampled one)
     // Simple O(n*k) selection for small k
+    if (nv > 4096) return error.VocabTooLarge;
     const k_usize = @as(usize, @min(k, @as(u32, @intCast(nv))));
-    var used = std.mem.zeroes([64]bool); // track selected indices
+    var used = std.mem.zeroes([4096]bool); // track selected indices
     for (0..k_usize) |ki| {
         var best: f32 = -1.0;
         var best_idx: usize = 0;

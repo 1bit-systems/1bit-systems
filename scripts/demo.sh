@@ -44,12 +44,12 @@ PASS=0; FAIL=0; for t in build/test_*; do
   name=$(basename $t)
   result=$(timeout 20 $t 2>&1 | grep -E "PASS|FAIL|Verdict" | tail -1)
   if echo "$result" | grep -q "PASS"; then
-    echo "  ✅ $name" | tee -a "$LOGFILE"; ((PASS++))
+    echo "  ✅ $name" | tee -a "$LOGFILE"; PASS=$((PASS + 1))
   else
-    echo "  ➖ $name" | tee -a "$LOGFILE"
+    echo "  ➖ $name" | tee -a "$LOGFILE"; FAIL=$((FAIL + 1))
   fi
 done
-echo "  $PASS/$PASS tests passed" | tee -a "$LOGFILE"
+echo "  $PASS/$((PASS+FAIL)) tests passed" | tee -a "$LOGFILE"
 echo "" | tee -a "$LOGFILE"
 
 # ── Step 4: Kernel benchmarks ──

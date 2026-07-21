@@ -110,7 +110,7 @@ pub const XclbinKernel = struct {
 
         // Allocate activation BO (host_only, group 3)
         // md * kd bytes (int8_t)
-        const act_size = md * kd;
+        const act_size: usize = @as(usize, md) * @as(usize, kd);
         const act_bo = try device.allocBO(act_size, xrt.XRT_BO_FLAGS_HOST_ONLY, 3);
         self.bo_act = xrt.XrtBuffer.init(act_bo);
         const act_mem = try self.bo_act.map(act_size);
@@ -118,7 +118,7 @@ pub const XclbinKernel = struct {
 
         // Allocate output BO (host_only, group 5)
         // md * nd * 2 bytes (int16_t)
-        const out_size = md * nd * 2;
+        const out_size: usize = @as(usize, md) * @as(usize, nd) * 2;
         const out_bo = try device.allocBO(out_size, xrt.XRT_BO_FLAGS_HOST_ONLY, 5);
         self.bo_out = xrt.XrtBuffer.init(out_bo);
         const out_mem = try self.bo_out.map(out_size);
@@ -126,7 +126,7 @@ pub const XclbinKernel = struct {
 
         // Allocate per-layer weight BOs (host_only, weight_group)
         try self.layer_bos.ensureTotalCapacity(self.allocator, n_layers);
-        const weight_size = kd * nd;
+        const weight_size: usize = @as(usize, kd) * @as(usize, nd);
         for (0..n_layers) |_| {
             const w_bo = try device.allocBO(weight_size, xrt.XRT_BO_FLAGS_HOST_ONLY, weight_group);
             self.layer_bos.appendAssumeCapacity(xrt.XrtBuffer.init(w_bo));
@@ -295,12 +295,12 @@ fn readInstructionsFile(allocator: std.mem.Allocator, path: []const u8) ![]u32 {
 
         const val = if (std.mem.startsWith(u8, trimmed, "0x") or std.mem.startsWith(u8, trimmed, "0X"))
             std.fmt.parseInt(u32, trimmed[2..], 16) catch {
-                // Try decimal
-                _ = std.fmt.parseInt(u32, trimmed, 10) catch continue;
-                continue;
+                return error.InvalidHexToken;
             }
         else
-            std.fmt.parseInt(u32, trimmed, 10) catch continue;
+            std.fmt.parseInt(u32, trimmed, 10) catch {
+                return error.InvalidHexToken;
+            };
 
         try result.append(allocator, val);
     }

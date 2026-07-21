@@ -11,9 +11,10 @@ pub const File = struct {
     pub fn openAbsolute(path: []const u8) !File {
         const path_z = try std.posix.toPosixPath(path);
         const rc = linux.openat(linux.AT.FDCWD, &path_z, .{}, 0);
-        const fd: i32 = @intCast(rc);
+        const fd: isize = @bitCast(rc);
         if (fd < 0) return error.FileNotFound;
-        return .{ .fd = fd };
+        const fd_i32: i32 = @intCast(fd);
+        return .{ .fd = fd_i32 };
     }
 
     pub fn close(self: File) void {
@@ -32,10 +33,13 @@ pub const File = struct {
     }
 
     pub fn readAll(self: File, buf: []u8) !usize {
-        const n = linux.read(self.fd, buf.ptr, buf.len);
-        const nr: isize = @bitCast(n);
-        if (nr < 0) return error.ReadFailed;
-        return @intCast(nr);
+        var total: usize = 0;
+        while (total < buf.len) {
+            const n = linux.read(self.fd, buf.ptr + total, buf.len - total);
+            if (n <= 0) break;
+            total += n;
+        }
+        return total;
     }
 
     pub fn readToEndAlloc(self: File, allocator: std.mem.Allocator, max_size: usize) ![]u8 {

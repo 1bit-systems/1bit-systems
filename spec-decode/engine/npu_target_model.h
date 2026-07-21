@@ -80,8 +80,13 @@ struct I8Ctx {
 
     bool init(xrt::device& d, const char* xp, const char* ip, int gid_B, int num_layers) {
         FILE* f = fopen(ip, "rb"); if (!f) return false;
-        fseek(f,0,2); long sz=ftell(f); fseek(f,0,0);
-        ins.resize(sz/4); size_t rd = fread(ins.data(),4,ins.size(),f); (void)rd; fclose(f);
+        if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return false; }
+        long sz = ftell(f);
+        if (sz < 0) { fclose(f); return false; }
+        fseek(f, 0, SEEK_SET);
+        ins.resize(sz/4); size_t rd = fread(ins.data(),4,ins.size(),f);
+        if (rd != ins.size()) { fclose(f); return false; }
+        fclose(f);
         xc = std::make_unique<xrt::xclbin>(std::string(xp));
         d.register_xclbin(*xc);
         hc = std::make_unique<xrt::hw_context>(d, xc->get_uuid());
@@ -143,6 +148,7 @@ public:
         using namespace npu_target_detail;
 
         int fd = open(model_path, O_RDONLY);
+        if (fd < 0) { perror("open"); return; }
         struct stat st; fstat(fd, &st);
         md_ = (uint8_t*)mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
         md_size_ = st.st_size;
@@ -188,7 +194,12 @@ public:
 
         dev_ = std::make_unique<xrt::device>(0);
         char path[512];
-        snprintf(path,512,"%s/final_i8_QKV_v.xclbin",xclbin_dir); char ipath[512];
+        int needed = snprintf(path, sizeof(path), "%s/final_i8_QKV_v.xclbin", xclbin_dir);
+        if (needed < 0 || (size_t)needed >= sizeof(path)) {
+            fprintf(stderr, "xclbin path too long\n");
+            return;
+        }
+        char ipath[512];
         snprintf(ipath,512,"%s/insts_i8_QKV_v.txt",xclbin_dir);
         cq_ = {"QKV",XM,H,4096}; cq_.init(*dev_, path, ipath, 4, NC);
         snprintf(path,512,"%s/final_i8_O_v.xclbin",xclbin_dir); snprintf(ipath,512,"%s/insts_i8_O_v.txt",xclbin_dir);
@@ -206,8 +217,11 @@ public:
         for (int l = 0; l < NC; l++) {
             int qr,kr,vr,unused;
             float* qw=dequant_i8_to_float(i8p(lo[l].qp),256,&qr,&unused);
+            if (!qw) { fprintf(stderr, "dequant failed\n"); return; }
             float* kw=dequant_i8_to_float(i8p(lo[l].kp),128,&kr,&unused);
+            if (!kw) { fprintf(stderr, "dequant failed\n"); return; }
             float* vw=dequant_i8_to_float(i8p(lo[l].vp),128,&vr,&unused);
+            if (!vw) { fprintf(stderr, "dequant failed\n"); return; }
             int t=QOUT+KVOUT+KVOUT; std::vector<float> w((size_t)H*t);
             npu_target_detail::transpose_pack(qw, QOUT, H, w.data(), t, 0);
             npu_target_detail::transpose_pack(kw, KVOUT, H, w.data(), t, QOUT);
@@ -216,13 +230,16 @@ public:
 
             int or2,oc2;
             float* ow=dequant_i8_to_float_ex(i8p(lo[l].op),256,OIN,&or2,&oc2);
+            if (!ow) { fprintf(stderr, "dequant failed\n"); return; }
             std::vector<float> wo((size_t)OIN*OOUT);
             npu_target_detail::transpose_pack(ow, OOUT, OIN, wo.data(), OOUT, 0);
             co_.packB(l, wo.data(), OIN, OOUT, wsc_[l].o_); free(ow);
 
             int gr,ur;
             float* gw=dequant_i8_to_float(i8p(lo[l].gp),384,&gr,&unused);
+            if (!gw) { fprintf(stderr, "dequant failed\n"); return; }
             float* uw=dequant_i8_to_float(i8p(lo[l].up),384,&ur,&unused);
+            if (!uw) { fprintf(stderr, "dequant failed\n"); return; }
             int t2=GUOUT+GUOUT; std::vector<float> w2((size_t)H*t2);
             npu_target_detail::transpose_pack(gw, GUOUT, H, w2.data(), t2, 0);
             npu_target_detail::transpose_pack(uw, GUOUT, H, w2.data(), t2, GUOUT);
@@ -230,6 +247,7 @@ public:
 
             int dr2,dc2;
             float* dw=dequant_i8_to_float_ex(i8p(lo[l].dp),384,DIN,&dr2,&dc2);
+            if (!dw) { fprintf(stderr, "dequant failed\n"); return; }
             std::vector<float> wd((size_t)DIN*DOUT);
             npu_target_detail::transpose_pack(dw, DOUT, DIN, wd.data(), DOUT, 0);
             cd_.packB(l, wd.data(), DIN, DOUT, wsc_[l].d_); free(dw);
@@ -240,6 +258,7 @@ public:
         {
             int lr, lc;
             float* lm_raw = dequant_i8_to_float(i8p(lo_off), 18992, &lr, &lc);
+            if (!lm_raw) { fprintf(stderr, "dequant failed\n"); return; }
             lm_head_f32_.resize((size_t)lr * lc);
             memcpy(lm_head_f32_.data(), lm_raw, (size_t)lr * lc * sizeof(float));
             free(lm_raw);
@@ -270,10 +289,17 @@ public:
         using namespace npu_target_detail;
         if (start_pos == 0) for (auto& c : kv_) c.n = 0;
         int sp = start_pos;
+        if (sp + n > 4096) {
+            fprintf(stderr, "sequence length %d exceeds max 4096\n", sp + n);
+            return;
+        }
 
         std::vector<float> h_b((size_t)n*H), res_b((size_t)n*H), qo_b((size_t)n*4096), at_b((size_t)n*NH*HD);
         std::vector<float> oo_b((size_t)n*H), gt_b((size_t)n*6144), su_b((size_t)n*IM), dw_b((size_t)n*H);
-        for (int pi=0;pi<n;pi++) for (int i=0;i<H;i++) h_b[pi*H+i]=bf16g(emb_[tokens[pi]*H+i]);
+        for (int pi=0;pi<n;pi++) {
+            if (tokens[pi] < 0 || tokens[pi] >= NV) return;
+            for (int i=0;i<H;i++) h_b[pi*H+i]=bf16g(emb_[tokens[pi]*H+i]);
+        }
 
         for (int l=0;l<NC;l++) {
             for (int pi=0;pi<n;pi++) memcpy(&res_b[pi*H], &h_b[pi*H], H*4);

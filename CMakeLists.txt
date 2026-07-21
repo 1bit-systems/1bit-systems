@@ -331,7 +331,7 @@ else()
     message(STATUS "ZINC backend disabled: need a Zig 0.15.x toolchain and a checkout at ${ZINC_REPO_DIR} (git clone https://github.com/zolotukhin/zinc)")
 endif()
 
-# -- libbackend_manager : Pure C++ backend abstraction layer (no HIP) ---------
+# -- libbackend_manager : Backend abstraction layer (requires rocm_cpp for HIP) ---------
 add_library(backend_manager STATIC
     src/backend_factory.cpp
     src/backend_manager.cpp

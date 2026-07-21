@@ -316,7 +316,7 @@ def convert_blackmamba(model_id: str, output: str):
         if sf.endswith('.safetensors'):
             sd = safetensors.torch.load_file(path)
         else:
-            sd = torch.load(path, map_location='cpu')
+            sd = torch.load(path, map_location='cpu', weights_only=True)
         state_dict.update(sd)
     
     writer = GgufWriter(output, "mamba")  # Use "mamba" arch (Mamba1)

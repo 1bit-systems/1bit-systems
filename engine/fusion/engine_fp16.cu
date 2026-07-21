@@ -66,6 +66,7 @@ __global__ void k_attn_f32(const float *q, const float *kc, const float *vc, flo
     if (h >= NH || d >= HD) return;
     int kvh = h / GQA;
     const float *qh = q + h * HD;
+    if (sl > 4096) return;
     __shared__ float scores[4096];
     if (d == 0) {
         float sc = 1.0f / sqrtf((float)HD), mx = -1e30f;

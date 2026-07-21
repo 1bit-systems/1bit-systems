@@ -234,10 +234,10 @@ __global__ void batched_moe_union_kernel(
         __syncthreads();
 
         // ── Step 2: SiLU(gate) * up → moe_buf[n_ff] ──
-        if (tx < n_ff) {
-            float g = __half2float(gate_up_buf[tx]);
-            float u = __half2float(gate_up_buf[n_ff + tx]);
-            gate_up_buf[tx] = __float2half((g / (1.0f + expf(-g))) * u);
+        for (int i = tx; i < n_ff; i += blockDim.x) {
+            float g = __half2float(gate_up_buf[i]);
+            float u = __half2float(gate_up_buf[n_ff + i]);
+            gate_up_buf[i] = __float2half((g / (1.0f + expf(-g))) * u);
         }
         __syncthreads();
 
@@ -396,10 +396,10 @@ __global__ void batched_moe_fused_kernel(
         __syncthreads();
 
         // SiLU(gate) * up → moe_buf
-        if (tx < n_ff) {
-            float g = __half2float(gate_up_tmp[tx]);
-            float u = __half2float(gate_up_tmp[n_ff + tx]);
-            gate_up_tmp[tx] = __float2half((g / (1.0f + expf(-g))) * u);
+        for (int i = tx; i < n_ff; i += blockDim.x) {
+            float g = __half2float(gate_up_tmp[i]);
+            float u = __half2float(gate_up_tmp[n_ff + i]);
+            gate_up_tmp[i] = __float2half((g / (1.0f + expf(-g))) * u);
         }
         __syncthreads();
 
@@ -555,10 +555,10 @@ __global__ void moe_sorted_expert_kernel(
         __syncthreads();
 
         // ── SiLU(gate) * up → gate_up_buf[n_ff] ──
-        if (tx < n_ff) {
-            float g = __half2float(gate_up_buf[tx]);
-            float u = __half2float(gate_up_buf[n_ff + tx]);
-            gate_up_buf[tx] = __float2half((g / (1.0f + expf(-g))) * u);
+        for (int i = tx; i < n_ff; i += blockDim.x) {
+            float g = __half2float(gate_up_buf[i]);
+            float u = __half2float(gate_up_buf[n_ff + i]);
+            gate_up_buf[i] = __float2half((g / (1.0f + expf(-g))) * u);
         }
         __syncthreads();
 
