@@ -209,16 +209,20 @@ jobs:
         continue-on-error: true
 
   bench:
-    name: Benchmark smoke (record)
+    name: Bench script validation
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Record CI benchmark placeholder
+      - name: Validate bench/record.sh syntax and structure
         run: |
-          bash bench/record.sh "ci_smoke" 0 null "placeholder" "CI smoke (no HW on runner)" "ci" "CI Smoke" "none"
-          echo "Benchmark smoke test complete — site/benchmarks.json updated"
-          cat site/benchmarks.json | python3 -m json.tool | head -20
+          bash -n bench/record.sh || { echo 'bench/record.sh has shell syntax errors'; exit 1; }
+          echo '✅ bench/record.sh — valid shell syntax'
+          echo ""
+          echo 'Note: No hardware benchmarks are run on this runner.'
+          echo 'Real benchmark data is collected on Strix Halo hardware and'  
+          echo 'committed to site/benchmarks.json separately. The bench/record.sh'
+          echo 'script is the standard tool for recording those results.'
 
   smoke-test:
     name: Inference smoke test

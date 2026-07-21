@@ -1,97 +1,50 @@
-# Zig → C++23 Migration Plan
+# Zig → C++23 Migration Plan (Revised)
 
-Status: **Design proposal** · Tracking: ~8 weeks part-time
+Status: **Design proposal** · Effort: ~12-16 weeks part-time · **Not yet prioritized**
 
-## Motivation
+## Previous proposal was too aggressive
 
-The codebase currently spans **4 languages** for the core inference engine:
+The original plan called for porting all ~30K SLOC of Zig to C++23 in 8 weeks. This was unrealistic because:
 
-| Language | Files | SLOC | Used in |
-|----------|-------|------|---------|
-| C++23 | ~60 | ~25K | NPU engine, server, HIP kernels, tools |
-| Zig | ~100 | ~30K | GPU engine, NPU compat, fusion engine |
-| C99 | ~5 | ~2K | Dequant, GGUF reader |
-| Python | ~15 | ~3K | Converters, xclbin generators |
+1. **ZINC runtime** (`engine/gpu/src/zinc_rt/`) uses Zig-specific features extensively:
+   - `comptime` polymorphism for IR op dispatch — no direct C++ equivalent
+   - Packed struct bitfields for GPU ring buffer packets — would need `#pragma pack` + manual bit twiddling
+   - Error union propagation throughout the call chain — C++ exceptions or `std::expected` would restructure every caller
+2. **FFI boundary overhead**: wrapping 100+ Zig functions in C extern calls adds serialization/deserialization at every call site, which is both a performance hit and a maintenance burden
+3. **Opportunity cost**: the Zig GPU engine works reliably. Every week spent porting is a week not spent on the NPU multi-tile path (docs/mlir-air-integration.md) which has a higher performance ceiling.
 
-This language spread creates maintenance burden:
-- Two build systems (CMake + `build.zig`)
-- Duplicated type definitions across language boundaries
-- New contributors must learn Zig to touch the GPU engine
-- Zig's immature ecosystem (no stable ABI, frequent compiler breaks, sparse debugger support)
+## Revised strategy: isolate, don't eliminate
 
-## Proposal: Port `engine/gpu/src/` to C++23 incrementally
+### Keep Zig for: ZINC runtime + GPU compute
 
-### Phase 1: Dependency analysis (1 week)
+The ZINC runtime (`engine/gpu/src/zinc_rt/`) and GPU compute layer (`engine/gpu/src/compute/`) are the parts that benefit most from Zig's low-level control and comptime metaprogramming. These ~20K SLOC are stable, tested, and produce correct output. Leave them in Zig.
 
-Map the Zig → C++ dependency graph:
+### Port to C++: server + model loader + scheduler
 
-```
-engine/gpu/src/
-  main.zig              → entry point (can stay Zig or become thin C++ main)
-  compute/*.zig         → GEMM, attention, elementwise kernels
-  cuda/*.zig            → CUDA C interop → replace with direct CUDA C++
-  vulkan/*.zig          → Vulkan C interop → replace with direct Vulkan C++
-  scheduler/*.zig       → KV cache, request scheduling
-  server/*.zig          → HTTP server, model manager
-  model/*.zig           → GGUF loader, tokenizer, architecture dispatch
-  zinc_rt/*.zig         → ZINC runtime (ISA, ring, KMD)
-```
+The server (`engine/gpu/src/server/`), scheduler (`engine/gpu/src/scheduler/`), and model loader (`engine/gpu/src/model/`) layers benefit from C++ because:
+- They interact with the C++ `zaya_server` infrastructure (HTTP, config, logging)
+- They change frequently as new model architectures are added
+- They don't need Zig-specific features — plain functions, structs, and vectors
 
-**Deliverable:** Dependency graph with port order.
+### Plan
 
-### Phase 2: FFI boundary (1 week)
+| Phase | What | Effort | Risk |
+|-------|------|--------|------|
+| 1 | Add C FFI around ZINC compute (a few extern "C" entry points) | 1 week | Low |
+| 2 | Port server + HTTP routes to C++ using existing `tools/unified_server.cpp` | 3 weeks | Medium |
+| 3 | Port model loader + tokenizer to C++ | 2 weeks | Medium |
+| 4 | Port scheduler (KV cache, request batching) to C++ | 2 weeks | Medium |
+| 5 | Delete ported Zig files, keep ZINC + compute in Zig | 1 week | Low |
 
-Add a C FFI layer at the Zig ↔ C++ boundary so both sides can coexist during the port:
+### Result
 
-```c
-// engine/gpu/include/gpu_engine_c.h
-typedef struct { /* ... */ } gpu_engine_t;
-gpu_engine_t* gpu_engine_create(const char* model_path);
-int gpu_engine_decode(gpu_engine_t* e, int* tokens, int n);
-void gpu_engine_destroy(gpu_engine_t* e);
-```
+- **One build system**: CMake for everything (ZINC still uses `build.zig` but called from CMake via `ExternalProject` or a custom target)
+- **Eliminated language boundary** for the server path (no Zig↔C++ FFI on the hot path — the C FFI is only for ZINC compute calls)
+- **ZINC stays in Zig** where it's most productive
 
-**Deliverable:** `gpu_engine_c.h` + C++ implementation, Zig calls through C FFI.
+### Success criteria
 
-### Phase 3: Port compute layer (2 weeks)
-
-Port `compute/*.zig` to C++23 HIP:
-- `forward.zig` → `compute/forward.cpp` using `rocm_cpp/bonsai.h`
-- `attention.zig` → `compute/attention.cpp` using HIP flash attention
-- `dmmv.zig` → `compute/dmmv.cpp`
-
-**Deliverable:** All matrix/attention kernels callable from C++, tested against original Zig output.
-
-### Phase 4: Port server + scheduler (2 weeks)
-
-Port `server/*.zig` and `scheduler/*.zig`:
-- Leverage existing C++ HTTP server infrastructure (`tools/unified_server.cpp`)
-- Port KV cache management to C++ with the same LRU + paging scheme
-- Port model catalog and architecture dispatch into `src/model_router.cpp`
-
-**Deliverable:** Feature-complete C++ inference server, Zig server can be deleted.
-
-### Phase 5: Port ZINC runtime (2 weeks)
-
-Port `zinc_rt/*.zig` (the GPU kernel dispatch runtime):
-- KMD interface → C++ wrapper around `/dev/kfd`
-- Ring buffer management → C++ lock-free queue
-- IR graph → C++ with the same op definitions
-
-This is the riskiest phase — ZINC has the most Zig-specific patterns (comptime dispatch, packed structs). Mitigation: keep ZINC in Zig behind a C FFI initially, port last.
-
-**Deliverable:** Single `zaya_server` binary, no Zig build step.
-
-## Risks
-
-| Risk | Mitigation |
-|------|------------|
-| Zig `comptime` metaprogramming has no C++ equivalent | Use C++ templates + `constexpr` + codegen |
-| GPU kernel correctness during port | Run `tests/download_and_run.sh` smoke test on every PR |
-| Schedule slip | Phase 2 + 3 are minimum viable; 4 + 5 can follow |
-
-## Success Criteria
-
-- `cmake --build build --target zaya_server` produces a single binary
+- `cmake --build build --target zaya_server` builds from a single CMake invocation
+- Server, model loading, and scheduling run entirely in C++
+- ZINC GPU kernels still compile and produce identical outputs
 - All 9/11 CI tests pass
-- No `.zig` files in `engine/gpu/src/` (can remain in `engine/fusion/`)

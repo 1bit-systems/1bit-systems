@@ -35,6 +35,13 @@
 //     └─ hip_gpu + cpu_generic
 //         Generic HIP GPU kernels cover any model the specific paths don't match.
 //
+// Fallback behavior:
+//   The caller (backend_manager.cpp) iterates the returned backend list in order.
+//   Each backend tries to initialize (load model, allocate GPU buffers, etc.).
+//   If init fails, the caller tries the next backend in the list.
+//   If ALL backends fail, inference returns an error — there is no silent fallback
+//   to CPU that produces wrong/empty output.
+//
 // Adding a new route:
 //   1. Add the architecture string to the detect logic in model_discovery.cpp
 //   2. Add a new entry in the if-else chain below

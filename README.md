@@ -76,15 +76,20 @@ Reverse-engineered AMD's XDNA 2 NPU in 4 days with no documentation. 1800+ hours
 
 ## Quick Start
 
-**Note:** You need a model file (`.h1b` or `--manifest`). Without one, the server starts in no-weights mode and returns an error on chat requests.
+### Try it now (1BP model — one file, zero config)
 
 ```bash
 git clone https://github.com/bong-water-water-bong/1bit-systems
 cd 1bit-systems
-# Download a model, e.g. from [1bit.systems/models](https://1bit.systems/models)
-cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151
+cmake -B build -G Ninja
 cmake --build build --target zaya_server -j8
-./build/zaya_server --model /path/to/model.h1b
+
+# Download a ready-to-run 1BP model (~500MB, no config.json needed):
+# Find models at https://1bit.systems/models
+wget https://huggingface.co/bong-water-water-bong/Zamba2-2.7B-Instruct-v2-1BP/resolve/main/zamba2-2.7b-instruct-v2-1bp.h1b
+
+# Run inference — no config files, no tokenizer.json, no sidecars:
+./build/zaya_server --model zamba2-2.7b-instruct-v2-1bp.h1b
 ```
 
 ```python
@@ -92,6 +97,8 @@ from openai import OpenAI
 client = OpenAI(base_url="http://127.0.0.1:8088/v1", api_key="any")
 print(client.chat.completions.create(model="zaya", messages=[{"role":"user","content":"Hello"}]).choices[0].message.content)
 ```
+
+> **Note:** The `--model` flag accepts `.h1b` (1BP format), `.gguf`, or `.onnx` files. Without a model file, the server starts in no-weights mode and returns an error on chat requests.
 
 ---
 

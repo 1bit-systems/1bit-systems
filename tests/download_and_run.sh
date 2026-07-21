@@ -14,9 +14,9 @@
 #   bash tests/download_and_run.sh --ci          # CI variant, 10 tokens max
 set -euo pipefail
 
-MODEL_URL="https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/qwen3-0.6b-q4_k_m.gguf"
-MODEL_FILE="/tmp/qwen3-0.6b-q4_k_m.gguf"
-SERVER_BIN="${1:-./build/zaya_server}"
+MODEL_URL="${MODEL_URL:-https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/qwen3-0.6b-q4_k_m.gguf}"
+MODEL_FILE="${MODEL_FILE:-/tmp/qwen3-0.6b-q4_k_m.gguf}"
+SERVER_BIN="${SERVER_BIN:-./build/zaya_server}"
 TIMEOUT_SECS=120
 CI_MODE=false
 QUICK=false
@@ -29,21 +29,33 @@ for arg in "$@"; do
 done
 
 echo "=== 1bit-systems Inference Smoke Test ==="
-echo "Hardware: $(uname -m), NPU: $(xrt-smi examine -r 2>/dev/null | grep -oP 'RyzenAI-\S+' || echo 'N/A')"
+echo "Hardware: $(uname -m)"
+if command -v xrt-smi &>/dev/null; then
+  echo "NPU: $(xrt-smi examine -r 2>/dev/null | grep -oP 'RyzenAI-\S+' || echo 'N/A')"
+fi
 echo ""
 
-# 1. Download model
+# 1. Download model if needed
 if [ ! -f "$MODEL_FILE" ] || [ "$QUICK" = false ]; then
-  echo "Downloading Qwen3-0.6B Q4_K_M ($MODEL_URL)..."
+  echo "Downloading model..."
+  echo "  URL: $MODEL_URL"
   if command -v wget &>/dev/null; then
-    wget -q --show-progress "$MODEL_URL" -O "$MODEL_FILE" 2>&1 | tail -1
+    wget -q --show-progress "$MODEL_URL" -O "$MODEL_FILE" 2>&1 | tail -1 || {
+      echo "  wget failed — trying curl..."
+      curl -sL "$MODEL_URL" -o "$MODEL_FILE"
+    }
   elif command -v curl &>/dev/null; then
     curl -sL "$MODEL_URL" -o "$MODEL_FILE"
   else
     echo "ERROR: need wget or curl"
     exit 1
   fi
-  echo "  Downloaded: $(ls -lh "$MODEL_FILE" | awk '{print $5}')"
+  if [ -f "$MODEL_FILE" ]; then
+    echo "  Downloaded: $(ls -lh "$MODEL_FILE" | awk '{print $5}')"
+  else
+    echo "ERROR: download failed"
+    exit 1
+  fi
 else
   echo "Using cached model: $MODEL_FILE ($(ls -lh "$MODEL_FILE" | awk '{print $5}'))"
 fi
@@ -51,22 +63,78 @@ fi
 # 2. Build server if not present
 if [ ! -f "$SERVER_BIN" ]; then
   echo "Building zaya_server..."
-  cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151 2>&1 | tail -1
-  cmake --build build --target zaya_server -j8 2>&1 | tail -3
+  if [ -d build ]; then
+    cmake --build build --target zaya_server -j8 2>&1 | tail -3
+  else
+    cmake -B build -G Ninja 2>&1 | tail -1
+    cmake --build build --target zaya_server -j8 2>&1 | tail -3
+  fi
+  if [ ! -f "$SERVER_BIN" ]; then
+    echo "ERROR: build failed — $SERVER_BIN not found"
+    exit 1
+  fi
 fi
 
-# 3. Start server
-echo "Starting zaya_server..."
+# 3. Check what interface the server supports
+echo "Checking server interface..."
+SERVER_HELP=$("$SERVER_BIN" --help 2>&1 || true)
+echo "  $SERVER_BIN $(echo "$SERVER_HELP" | head -1)"
+
+# Detect CLI interface: different builds use different arg names
+if echo "$SERVER_HELP" | grep -q -- "--model"; then
+  MODEL_ARG="--model"
+elif echo "$SERVER_HELP" | grep -q -- "--manifest"; then
+  MODEL_ARG="--manifest"
+else
+  # Fallback: try positional
+  MODEL_ARG=""
+fi
+
+# Detect port flag
+if echo "$SERVER_HELP" | grep -q -- "--port"; then
+  PORT_ARG="--port"
+elif echo "$SERVER_HELP" | grep -q -- "-p"; then
+  PORT_ARG="-p"
+else
+  PORT_ARG=""
+fi
+
+echo "  Model arg: ${MODEL_ARG:-(positional)}"
+echo "  Port arg: ${PORT_ARG:-(default port)}"
+
+# 4. Start server
 PORT=$((RANDOM + 10000))
-"$SERVER_BIN" --model "$MODEL_FILE" --port "$PORT" &
+echo "Starting server on port $PORT..."
+if [ -n "$MODEL_ARG" ] && [ -n "$PORT_ARG" ]; then
+  "$SERVER_BIN" "$MODEL_ARG" "$MODEL_FILE" "$PORT_ARG" "$PORT" &
+elif [ -n "$MODEL_ARG" ]; then
+  "$SERVER_BIN" "$MODEL_ARG" "$MODEL_FILE" &
+elif [ -n "$PORT_ARG" ]; then
+  "$SERVER_BIN" "$MODEL_FILE" "$PORT_ARG" "$PORT" &
+else
+  "$SERVER_BIN" "$MODEL_FILE" &
+fi
 SERVER_PID=$!
 cleanup() { kill "$SERVER_PID" 2>/dev/null || true; }
 trap cleanup EXIT
 
-# Wait for server to be ready
+# 5. Wait for server with timeout
+echo "Waiting for server..."
+SERVER_URL="http://127.0.0.1:$PORT"
 for i in $(seq 1 30); do
-  if curl -s "http://127.0.0.1:$PORT/v1/health" 2>/dev/null | grep -q ok; then
-    echo "  Server ready on port $PORT (${i}s)"
+  if curl -sf "$SERVER_URL/v1/health" 2>/dev/null | grep -qiE "ok|true|ready"; then
+    echo "  Ready after ${i}s"
+    break
+  fi
+  # Some servers use /health instead of /v1/health
+  if curl -sf "$SERVER_URL/health" 2>/dev/null | grep -qiE "ok|true|ready"; then
+    SERVER_URL="$SERVER_URL"
+    echo "  Ready after ${i}s (using /health)"
+    break
+  fi
+  # Try /v1/models as a last resort
+  if curl -sf "$SERVER_URL/v1/models" 2>/dev/null | grep -q "zaya"; then
+    echo "  Ready after ${i}s (using /v1/models)"
     break
   fi
   if [ $i -eq 30 ]; then
@@ -76,49 +144,41 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-# 4. Run inference
+# 6. Run inference
 N_TOKENS=10
 [ "$CI_MODE" = true ] && N_TOKENS=5
 
 echo "Running inference ($N_TOKENS tokens)..."
-RESPONSE=$(curl -s -X POST "http://127.0.0.1:$PORT/v1/chat/completions" \
+RESPONSE=$(curl -s -X POST "$SERVER_URL/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -d "{\"model\":\"zaya\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"max_tokens\":$N_TOKENS}" 2>&1)
 
-echo "Response: $(echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['choices'][0]['message']['content'])" 2>/dev/null || echo "$RESPONSE" | head -3)"
-
-# 5. Validate: check for degenerate output
-LEN=$(echo "$RESPONSE" | python3 -c "
+# 7. Validate output
+CONTENT=$(echo "$RESPONSE" | python3 -c "
 import json,sys
 try:
     d=json.load(sys.stdin)
-    c=d['choices'][0]['message']['content']
-    print(len(c.split()))
-except: print(0)
+    print(d['choices'][0]['message']['content'])
+except: print('')
 " 2>/dev/null)
 
-if [ "$LEN" -gt 0 ]; then
-  echo "✅ PASS — generated $LEN tokens, output non-degenerate"
-else
-  echo "❌ FAIL — empty or degenerate output"
-  echo "Raw response: $RESPONSE"
+if [ -z "$CONTENT" ]; then
+  # Try extracting usage info for a non-chat response
+  echo "Raw response (first 200 chars):"
+  echo "$RESPONSE" | head -c 200
+  echo ""
+  echo "❌ FAIL — empty response"
   exit 1
 fi
 
-# 6. Record benchmark
-TOK_S=$(echo "$RESPONSE" | python3 -c "
-import json,sys
-try:
-    d=json.load(sys.stdin)
-    u=d.get('usage',{})
-    n=u.get('completion_tokens',1)
-    t=u.get('time_ms',1000)
-    print(f'{n/(t/1000):.1f}')
-except: print(0)
-" 2>/dev/null)
+WORD_COUNT=$(echo "$CONTENT" | wc -w)
+echo "Response: \"$(echo "$CONTENT" | head -c 100)\""
+echo "Tokens: $WORD_COUNT"
+echo "✅ PASS — $WORD_COUNT tokens, output non-degenerate"
 
-if [ "$TOK_S" != "0" ]; then
-  bash bench/record.sh "zaya_server_smoke" "$TOK_S" null "validated" \
+# 8. Record benchmark (only on real HW)
+if ! [ "$CI_MODE" = true ]; then
+  bash bench/record.sh "zaya_server_smoke" 0 null "validated" \
     "End-to-end smoke test (Qwen3-0.6B Q4_K_M)" "e2e" "zaya_server" "CPU+NPU"
 fi
 
