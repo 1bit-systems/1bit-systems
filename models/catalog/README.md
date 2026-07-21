@@ -33,14 +33,8 @@ Full-precision-preserving conversions to this project's native format — every 
 | [ZR1-1.5B-1BP](https://huggingface.co/bong-water-water-bong/ZR1-1.5B-1BP) | [Zyphra/ZR1-1.5B](https://huggingface.co/Zyphra/ZR1-1.5B) (MIT) | 1.5B | ✅ Available |
 | [BlackMamba-1.5B-1BP](https://huggingface.co/bong-water-water-bong/BlackMamba-1.5B-1BP) | [Zyphra/BlackMamba-1.5B](https://huggingface.co/Zyphra/BlackMamba-1.5B) (Apache-2.0) | 1.5B | ✅ Available — **79.8 tok/s** via Mamba1 GPU backend |
 | [BlackMamba-2.8B-1BP](https://huggingface.co/bong-water-water-bong/BlackMamba-2.8B-1BP) | [Zyphra/BlackMamba-2.8B](https://huggingface.co/Zyphra/BlackMamba-2.8B) (Apache-2.0) | 2.8B | ✅ Available — **46.4 tok/s** via Mamba1 GPU backend |
-| Qwen3-4B-1BP | [Qwen/Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B) | 4B | ✅ **New — 2026-07-20** |
-| Llama-3.1-8B-Instruct-1BP | [meta-llama/Llama-3.1-8B-Instruct](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct) | 8B | ✅ **New — 2026-07-20** |
-| Gemma4-E2B-1BP | [google/gemma-4-E2B-it](https://huggingface.co/google/gemma-4-E2B-it) | 2B | ✅ **New — 2026-07-20** |
-| DeepSeek-R1-Distill-Qwen-7B-1BP | [deepseek-ai/DeepSeek-R1-Distill-Qwen-7B](https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B) | 7B | ✅ **New — 2026-07-20** |
-| Phi-4-mini-1BP | [microsoft/Phi-4-mini-instruct](https://huggingface.co/microsoft/Phi-4-mini-instruct) | 3.8B | ✅ **New — 2026-07-20** |
-| Bonsai-4B-TQ2-1BP | [prism-ml/Ternary-Bonsai-4B](https://huggingface.co/prism-ml/Ternary-Bonsai-4B-gguf) | 4B | ✅ **New — TQ2 ternary — 2026-07-20** |
-| Zamba-7B-v1-1BP | [Zyphra/Zamba-7B-v1](https://huggingface.co/Zyphra/Zamba-7B-v1) | 7B | ✅ **New — Mamba1+shared attn — 2026-07-20** |
-| Zamba2-7B-Instruct-v2-1BP | [Zyphra/Zamba2-7B-Instruct-v2](https://huggingface.co/Zyphra/Zamba2-7B-Instruct-v2) | 7B | ✅ **New — Q4_0 → 1BP — 2026-07-20** |
+| Qwen3-4B-1BP | [Qwen/Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B) | 4B | ✅ **New** |
+| Zamba2-7B-Instruct-v2-1BP | [Zyphra/Zamba2-7B-Instruct-v2](https://huggingface.co/Zyphra/Zamba2-7B-Instruct-v2) | 7B | ✅ **New — Q4_0 → 1BP** |
 
 ## How to Use
 
