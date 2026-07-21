@@ -57,36 +57,28 @@ def flm_chat(model, messages, max_tokens=256, temp=0.7):
 
 
 def ollama_chat(model, messages, max_tokens=256, temp=0.7):
-    prompt = messages[-1]["content"] if messages else ""
-    system = None
-    for m in messages:
-        if m["role"] == "system":
-            system = m["content"]
-    payload = {"model": model, "prompt": prompt, "stream": False,
+    # /api/chat (not the legacy /api/generate) — takes the full messages
+    # array natively. /api/generate only takes a flat prompt string, which a
+    # prior version of this function approximated with messages[-1]["content"]
+    # alone, silently dropping every earlier turn (including server-side
+    # multi-turn memory prepended by jarvis.server._chat).
+    payload = {"model": model, "messages": messages, "stream": False,
                "options": {"num_predict": max_tokens, "temperature": temp}}
-    if system:
-        payload["system"] = system
-    req = Request(f"{OLLAMA_URL}/api/generate",
+    req = Request(f"{OLLAMA_URL}/api/chat",
                   data=_json_bytes(payload),
                   headers={"Content-Type": "application/json"}, method="POST")
     try:
         resp = urlopen(req, timeout=300)
-        return json.loads(resp.read())
+        data = json.loads(resp.read())
+        return {"response": data.get("message", {}).get("content", "")}
     except URLError as e:
         return {"error": f"GPU: {e.reason}"}
 
 
 def ollama_chat_stream(model, messages, max_tokens=256, temp=0.7):
-    prompt = messages[-1]["content"] if messages else ""
-    system = None
-    for m in messages:
-        if m["role"] == "system":
-            system = m["content"]
-    payload = {"model": model, "prompt": prompt, "stream": True,
+    payload = {"model": model, "messages": messages, "stream": True,
                "options": {"num_predict": max_tokens, "temperature": temp}}
-    if system:
-        payload["system"] = system
-    req = Request(f"{OLLAMA_URL}/api/generate",
+    req = Request(f"{OLLAMA_URL}/api/chat",
                   data=_json_bytes(payload),
                   headers={"Content-Type": "application/json"}, method="POST")
     try:
@@ -97,7 +89,7 @@ def ollama_chat_stream(model, messages, max_tokens=256, temp=0.7):
                 continue
             try:
                 data = json.loads(line)
-                content = data.get("response", "")
+                content = data.get("message", {}).get("content", "")
                 done = data.get("done", False)
                 if content:
                     yield {"choices": [{"delta": {"content": content}, "index": 0}]}

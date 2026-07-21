@@ -70,5 +70,41 @@ class KnowledgeBase:
             parts.append(r['snippet'])
         return "\n".join(parts)
 
+    # ── Local multi-turn memory ──────────────────────────────────────
+    # Session transcripts live under conversations/<session_id>.md, append-only.
+    # This is server-side memory: it persists across devices/clients hitting the
+    # same session_id (e.g. phone app + desktop), independent of whatever
+    # truncated history a given client happens to send in `messages`.
+
+    def _session_path(self, session_id):
+        safe = re.sub(r'[^a-zA-Z0-9_\-]', '_', session_id)[:128] or "default"
+        return self.root / "conversations" / f"{safe}.md"
+
+    def save_turn(self, session_id, role, content):
+        fpath = self._session_path(session_id)
+        ts = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+        if not fpath.exists():
+            fpath.write_text(f"---\ntype: conversation\nsession: {session_id}\ncreated: {ts}\n---\n\n# Session {session_id}\n\n")
+        with fpath.open("a") as f:
+            f.write(f"\n## {ts} — {role}\n\n{content}\n")
+
+    def get_recent_conversation(self, session_id, max_turns=10):
+        fpath = self._session_path(session_id)
+        if not fpath.exists():
+            return []
+        text = fpath.read_text()
+        turns = []
+        for block in text.split("\n## ")[1:]:
+            header, _, body = block.partition("\n")
+            m = re.match(r".*? — (\w+)", header)
+            if not m:
+                continue
+            turns.append({"role": m.group(1), "content": body.strip()})
+        return turns[-max_turns:]
+
+    def list_sessions(self):
+        conv_dir = self.root / "conversations"
+        return sorted(p.stem for p in conv_dir.glob("*.md"))
+
 
 _kb = KnowledgeBase()

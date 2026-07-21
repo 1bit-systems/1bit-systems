@@ -5,6 +5,8 @@ from jarvis.rag import _kb
 from jarvis.routing import resolve_model, flm_chat, ollama_chat, ollama_chat_stream, MODEL_ROUTING
 from jarvis.stt import transcribe_audio
 from jarvis.tts import synthesize_speech
+from jarvis.tools import SYSTEM_PROMPT_TOOLS, format_tool_followup, parse_tool_call, run_tool
+from jarvis.planner import run_plan
 from jarvis.ui import CHAT_HTML
 from jarvis.voice.engine import VoiceEngine
 
@@ -83,6 +85,7 @@ class H(BaseHTTPRequestHandler):
         if p in ("/v1/chat/completions", "/api/chat"): return self._chat()
         if p == "/v1/knowledge/search": return self._kbs()
         if p == "/v1/knowledge/upload": return self._kbu()
+        if p == "/v1/agent/plan": return self._plan()
         self._j(404, {"error": "nf"})
 
     def _chat(self):
@@ -99,6 +102,21 @@ class H(BaseHTTPRequestHandler):
         mt = d.get("max_tokens", 256)
         temp = d.get("temperature", 0.7)
         rag = d.get("rag", True)
+        session_id = d.get("session_id", "default")
+        use_tools = d.get("tools", True) and not stream  # tool-call loop needs the full text, not a stream
+        allow_write = d.get("allow_write", False)
+
+        # ── Local multi-turn memory: recall this session's prior turns
+        # server-side, independent of whatever history the client itself sent.
+        history = _kb.get_recent_conversation(session_id)
+        if history:
+            msgs = history + msgs
+        user_q = next((m["content"] for m in reversed(msgs) if m.get("role") == "user" and isinstance(m.get("content"), str)), "")
+        if user_q:
+            _kb.save_turn(session_id, "user", user_q)
+
+        if use_tools and not any(m.get("role") == "system" and "TOOL_CALL" in m.get("content", "") for m in msgs):
+            msgs = [{"role": "system", "content": SYSTEM_PROMPT_TOOLS}] + msgs
 
         if not mid or mid == "auto":
             has_img = any(isinstance(m.get("content"), list) for m in msgs)
@@ -122,18 +140,40 @@ class H(BaseHTTPRequestHandler):
         r = resolve_model(mid)
         bkd = r.get("backend", "npu")
         if bkd == "npu_vision": return self._vis(r, msgs, stream, mt, temp)
-        if bkd == "gpu": return self._gpu(r["ollama_model"], msgs, stream, mt, temp)
-        return self._npu(r.get("flm_model", mid), msgs, stream, mt, temp)
+        if bkd == "gpu": return self._gpu(r["ollama_model"], msgs, stream, mt, temp, session_id, use_tools, allow_write)
+        return self._npu(r.get("flm_model", mid), msgs, stream, mt, temp, session_id, use_tools, allow_write)
 
-    def _npu(self, m, msgs, s, mt, t):
+    def _resolve_tool_call(self, model_id, msgs, content, mt, t, allow_write):
+        """If the model asked for a tool, run it (gated) and get a final reply."""
+        call = parse_tool_call(content)
+        if not call:
+            return content, None
+        result, allowed = run_tool(call["name"], call.get("arguments", {}), allow_write=allow_write)
+        follow = msgs + [
+            {"role": "assistant", "content": content},
+            {"role": "user", "content": format_tool_followup(result, allowed)},
+        ]
+        r2 = flm_chat(model_id, follow, mt, t)
+        final = r2.get("choices", [{}])[0].get("message", {}).get("content", content) if "error" not in r2 else content
+        return final, {"name": call["name"], "allowed": allowed, "result": result}
+
+    def _npu(self, m, msgs, s, mt, t, session_id="default", use_tools=False, allow_write=False):
         r = flm_chat(m, msgs, mt, t)
         if "error" in r: return self._j(502, r)
+        c = r.get("choices", [{}])[0].get("message", {}).get("content", "")
+        tool_info = None
+        if use_tools:
+            c, tool_info = self._resolve_tool_call(m, msgs, c, mt, t, allow_write)
+        if c:
+            _kb.save_turn(session_id, "assistant", c)
         if s:
-            c = r.get("choices", [{}])[0].get("message", {}).get("content", "")
             self._s(200, {"Content-Type": "text/event-stream"})
             self.wfile.write(_sl({"choices": [{"delta": {"content": c}, "index": 0}]}))
             self.wfile.write(_sd())
-        else: self._j(200, r)
+        elif tool_info:
+            self._j(200, {"tool_call": tool_info, "choices": [{"index": 0, "message": {"role": "assistant", "content": c}, "finish_reason": "stop"}]})
+        else:
+            self._j(200, r)
 
     def _vis(self, route, msgs, s, mt, t):
         fm = route.get("flm_model", "qwen3vl-it:4b")
@@ -149,18 +189,38 @@ class H(BaseHTTPRequestHandler):
             self.wfile.write(_sd())
         else: self._j(200, r)
 
-    def _gpu(self, m, msgs, s, mt, t):
+    def _gpu(self, m, msgs, s, mt, t, session_id="default", use_tools=False, allow_write=False):
         if s:
             self._s(200, {"Content-Type": "text/event-stream"})
+            full = []
             for c in ollama_chat_stream(m, msgs, mt, t):
+                delta = c.get("choices", [{}])[0].get("delta", {}).get("content", "") if "error" not in c else ""
+                if delta: full.append(delta)
                 self.wfile.write(_sl(c))
                 self.wfile.flush()
             self.wfile.write(_sd())
+            if full: _kb.save_turn(session_id, "assistant", "".join(full))
         else:
             r = ollama_chat(m, msgs, mt, t)
             if "error" in r: return self._j(502, r)
-            self._j(200, {"id": f"c-{uuid.uuid4().hex[:8]}", "object": "chat.completion", "model": m,
-                         "choices": [{"index": 0, "message": {"role": "assistant", "content": r.get("response", "")}, "finish_reason": "stop"}]})
+            c = r.get("response", "")
+            tool_info = None
+            if use_tools:
+                call = parse_tool_call(c)
+                if call:
+                    result, allowed = run_tool(call["name"], call.get("arguments", {}), allow_write=allow_write)
+                    follow = msgs + [
+                        {"role": "assistant", "content": c},
+                        {"role": "user", "content": format_tool_followup(result, allowed)},
+                    ]
+                    r2 = ollama_chat(m, follow, mt, t)
+                    c = r2.get("response", c) if "error" not in r2 else c
+                    tool_info = {"name": call["name"], "allowed": allowed, "result": result}
+            if c: _kb.save_turn(session_id, "assistant", c)
+            out = {"id": f"c-{uuid.uuid4().hex[:8]}", "object": "chat.completion", "model": m,
+                   "choices": [{"index": 0, "message": {"role": "assistant", "content": c}, "finish_reason": "stop"}]}
+            if tool_info: out["tool_call"] = tool_info
+            self._j(200, out)
 
     def _stt(self):
         ct = self.headers.get("Content-Type", "")
@@ -304,6 +364,23 @@ class H(BaseHTTPRequestHandler):
         try: d = json.loads(body)
         except: return self._j(400, {"error": "json"})
         return self._j(200, {"path": _kb.add_document(d.get("filename", "note.md"), d.get("content", ""))})
+
+    def _plan(self):
+        l = int(self.headers.get("Content-Length", 0))
+        if l > MAX_BODY_SIZE:
+            self.send_error(413, "Payload too large")
+            return
+        body = self.rfile.read(l) if l else b"{}"
+        try: d = json.loads(body)
+        except: return self._j(400, {"error": "json"})
+        request = d.get("request", "")
+        if not request: return self._j(400, {"error": "request required"})
+        allow_write = d.get("allow_write", False)
+        session_id = d.get("session_id", "default")
+        _kb.save_turn(session_id, "user", request)
+        result = run_plan(request, allow_write=allow_write)
+        _kb.save_turn(session_id, "assistant", result["answer"])
+        self._j(200, result)
 
     def do_OPTIONS(self):
         self.send_response(200)
