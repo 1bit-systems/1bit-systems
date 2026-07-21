@@ -120,7 +120,9 @@ struct OnebpHeader {
     
     bool valid() const {
         return magic == ONEBP_MAGIC && version == ONEBP_VERSION
-            && hidden_size > 0 && num_layers > 0 && vocab_size > 0;
+            && hidden_size > 0 && num_layers > 0 && vocab_size > 0
+            && num_attention_heads > 0 && head_dim > 0
+            && intermediate_size > 0 && tile_rows > 0 && tile_cols > 0;
     }
     
     void init() {

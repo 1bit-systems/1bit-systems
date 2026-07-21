@@ -28,11 +28,15 @@ import subprocess
 import sys
 import threading
 import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from typing import Optional
 import urllib.request
 import urllib.error
 from tokenizers import Tokenizer
+
+# Content-Length limits to prevent DoS via oversized POST bodies
+MAX_BODY_SIZE = 16 * 1024 * 1024      # 16 MB for inference endpoints
+WEBHOOK_MAX_BODY = 64 * 1024          # 64 KB for webhook endpoint
 
 # Paths — set env vars or edit defaults for your machine (see docs/install.md)
 NPU_ENGINE_BIN = os.environ.get("NPU_ENGINE_BIN", os.path.expanduser("~/1bit-systems/engine/npu/build/npu_engine_universal"))
@@ -116,6 +120,7 @@ def _log_order(order: dict):
 
 # Pending orders: session_id → order details (persisted to disk)
 _pending_orders: dict[str, dict] = {}
+_orders_lock = threading.RLock()
 PENDING_LOG = os.path.join(os.path.dirname(__file__), "..", ".pending-orders.json")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 
@@ -130,12 +135,13 @@ def _load_pending():
 
 def _save_pending():
     """Persist pending orders to disk."""
-    with open(PENDING_LOG, "w") as f:
-        json.dump(_pending_orders, f)
-    # Also create orders.json if it doesn't exist
-    if not os.path.exists(ORDER_LOG):
-        with open(ORDER_LOG, "w") as f:
-            json.dump([], f)
+    with _orders_lock:
+        with open(PENDING_LOG, "w") as f:
+            json.dump(_pending_orders, f)
+        # Also create orders.json if it doesn't exist
+        if not os.path.exists(ORDER_LOG):
+            with open(ORDER_LOG, "w") as f:
+                json.dump([], f)
 
 # Load any pending orders from previous daemon runs
 _load_pending()
@@ -184,7 +190,10 @@ def _handle_stripe_webhook(body: bytes, sig_header: str) -> dict:
         addr = shipping.get("address", {})
 
         # Build order from webhook data
-        order = _pending_orders.pop(sid, None)
+        with _orders_lock:
+            order = _pending_orders.pop(sid, None)
+            if order:
+                _save_pending()  # persist removal from pending
         if not order:
             # Reconstruct order from line items if we missed the creation
             line_items = session.get("display_items", [])
@@ -198,7 +207,6 @@ def _handle_stripe_webhook(body: bytes, sig_header: str) -> dict:
                 "shipping_address": f"{shipping.get('name','')} {addr.get('line1','')} {addr.get('city','')} {addr.get('state','')} {addr.get('country','')}",
             }
         else:
-            _save_pending()  # persist removal from pending
             # Enrich with real customer details from Stripe
             order["customer_name"] = customer.get("name", shipping.get("name", order.get("customer_name", "?")))
             order["customer_email"] = customer.get("email", "?")
@@ -468,6 +476,8 @@ class GPUBackend:
             except Exception:
                 pass
             time.sleep(1)
+        if self.process and self.process.poll() is not None:
+            raise RuntimeError(f"lemond exited with code {self.process.returncode}")
         print(f"  GPU backend running (pid={self.process.pid})")
 
     def stop(self):
@@ -571,6 +581,9 @@ class Handler(BaseHTTPRequestHandler):
         # ── Stripe checkout endpoint ──
         if self.path == "/api/checkout":
             content_length = int(self.headers.get("Content-Length", 0))
+            if content_length > MAX_BODY_SIZE:
+                self.send_error(413, "Payload too large")
+                return
             body = self.rfile.read(content_length)
             try:
                 req = _loads_json(body)
@@ -596,15 +609,16 @@ class Handler(BaseHTTPRequestHandler):
                 # Store pending order for webhook fulfillment
                 sid = resp.get("id", "")
                 if sid:
-                    _pending_orders[sid] = {
-                        "items": [{"product": it.get("price_data",{}).get("product_data",{}).get("name","Merch"),
-                                   "size": it.get("size",""), "qty": it.get("quantity",1),
-                                   "price": it.get("price_data",{}).get("unit_amount",0)}
-                                  for it in items],
-                        "total": sum(it.get("price_data",{}).get("unit_amount",0) * it.get("quantity",1)
-                                     for it in items),
-                    }
-                    _save_pending()
+                    with _orders_lock:
+                        _pending_orders[sid] = {
+                            "items": [{"product": it.get("price_data",{}).get("product_data",{}).get("name","Merch"),
+                                       "size": it.get("size",""), "qty": it.get("quantity",1),
+                                       "price": it.get("price_data",{}).get("unit_amount",0)}
+                                      for it in items],
+                            "total": sum(it.get("price_data",{}).get("unit_amount",0) * it.get("quantity",1)
+                                         for it in items),
+                        }
+                        _save_pending()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Access-Control-Allow-Origin", "*")
@@ -616,6 +630,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == "/api/webhook":
             content_length = int(self.headers.get("Content-Length", 0))
+            if content_length > WEBHOOK_MAX_BODY:
+                self.send_error(413, "Payload too large")
+                return
             body = self.rfile.read(content_length)
             sig = self.headers.get("Stripe-Signature", "")
             result = _handle_stripe_webhook(body, sig)
@@ -627,6 +644,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == "/v1/chat/completions":
             content_length = int(self.headers.get("Content-Length", 0))
+            if content_length > MAX_BODY_SIZE:
+                self.send_error(413, "Payload too large")
+                return
             body = self.rfile.read(content_length)
             try:
                 req = _loads_json(body)
@@ -678,6 +698,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(502, {"error": str(e), "x-device": device})
         elif self.path == "/v1/batch/completions":
             content_length = int(self.headers.get("Content-Length", 0))
+            if content_length > MAX_BODY_SIZE:
+                self.send_error(413, "Payload too large")
+                return
             body = self.rfile.read(content_length)
             try:
                 req = _loads_json(body)
@@ -808,7 +831,8 @@ def main():
     def _reaper():
         while True:
             try:
-                os.waitpid(-1, os.WNOHANG)
+                while os.waitpid(-1, os.WNOHANG)[0] > 0:
+                    pass
             except ChildProcessError:
                 pass  # no children to reap
             threading.Event().wait(5)
@@ -816,7 +840,7 @@ def main():
     _reaper_thread = threading.Thread(target=_reaper, daemon=True)
     _reaper_thread.start()
 
-    server = HTTPServer(("0.0.0.0", args.port), Handler)
+    server = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
     print(f"Gateway listening on http://0.0.0.0:{args.port}")
     print(f"  GET  /v1/health     — Device and backend status")
     print(f"  GET  /v1/models     — List available models")

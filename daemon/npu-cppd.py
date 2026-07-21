@@ -21,11 +21,15 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# Content-Length limit to prevent DoS via oversized POST bodies
+MAX_BODY_SIZE = 16 * 1024 * 1024      # 16 MB
 
 # ── Configuration ──────────────────────────────────────────────────────────
 
@@ -200,6 +204,9 @@ class ChatHandler(BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
             return
         length = int(self.headers.get("Content-Length", 0))
+        if length > MAX_BODY_SIZE:
+            self.send_error(413, "Payload too large")
+            return
         body = json.loads(self.rfile.read(length))
         model = body.get("model", self.model_name)
         messages = body.get("messages", [])
@@ -234,7 +241,7 @@ def main():
     ChatHandler.backend = backend
     ChatHandler.model_name = args.model
 
-    server = HTTPServer(("0.0.0.0", args.port), ChatHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", args.port), ChatHandler)
     print(f"\n  Listening on http://0.0.0.0:{args.port}", flush=True)
     print(f"  Health: http://localhost:{args.port}/health", flush=True)
     print(f"  API:    http://localhost:{args.port}/v1/chat/completions", flush=True)

@@ -591,12 +591,12 @@ rcpp_tokenizer_encode(const rcpp_tokenizer_t* t,
         }
         // BPE merge loop — find lowest-rank pair, merge, repeat.
         // Maximum iterations capped at initial size to prevent infinite loops.
-        const int max_iters = (int)ids.size();
-        for (int iter = 0; iter < max_iters; ++iter) {
+        const size_t max_iters = ids.size();
+        for (size_t iter = 0; iter < max_iters; ++iter) {
             int best_rank = INT32_MAX;
             int best_pos  = -1;
             int32_t best_new = 0;
-            for (int i = 0; i < (int)ids.size() - 1; ++i) {
+            for (size_t i = 0; i + 1 < ids.size(); ++i) {
                 auto mit = t->merges.find(MergeKey{ids[i], ids[i+1]});
                 if (mit != t->merges.end() && mit->second.second < best_rank) {
                     best_rank = mit->second.second;

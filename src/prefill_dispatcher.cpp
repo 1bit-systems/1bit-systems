@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <vector>
 #include <algorithm>
+#include <mutex>
 
 #define HIP_CHECK(e) do { hipError_t _s = (e); if (_s != hipSuccess) { fprintf(stderr, "HIP %d %s:%d\n", _s, __FILE__, __LINE__); std::abort(); } } while(0)
 
@@ -23,6 +24,7 @@ struct ShapeKey { int M, N, K; bool operator==(const ShapeKey& o) const { return
 struct ShapeHash { size_t operator()(const ShapeKey& k) const { return (size_t)k.M ^ ((size_t)k.N<<16) ^ ((size_t)k.K<<32); } };
 
 static std::unordered_map<ShapeKey, int, ShapeHash> s_best_variant;
+static std::mutex s_variant_mutex;
 static const int kDefaultVariant = RCPP_PREFILL_VARIANT_4H;
 using launch_fn = void (*)(const void*, const void*, void*, int, int, int, void*);
 
@@ -90,8 +92,11 @@ extern "C" int rcpp_prefill_tune(const void* A_dev, const void* B_packed_dev, vo
                       int warmup_iters, int timed_iters,
                       void* stream) {
     ShapeKey key = {M, N, K};
-    auto it = s_best_variant.find(key);
-    if (it != s_best_variant.end()) return it->second;
+    {
+        std::lock_guard<std::mutex> lock(s_variant_mutex);
+        auto it = s_best_variant.find(key);
+        if (it != s_best_variant.end()) return it->second;
+    }
 
     auto viables = viable_variants(M, N, K);
 
@@ -129,7 +134,10 @@ extern "C" int rcpp_prefill_tune(const void* A_dev, const void* B_packed_dev, vo
     }
 
     if (has_fp16b) HIP_CHECK(hipFree(B_fp16_dev));
-    s_best_variant[key] = best_variant;
+    {
+        std::lock_guard<std::mutex> lock(s_variant_mutex);
+        s_best_variant[key] = best_variant;
+    }
     return best_variant;
 }
 

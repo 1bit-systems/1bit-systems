@@ -336,7 +336,7 @@ std::string GgufReader::read_string() {
     uint64_t len = 0;
     fread(&len, 8, 1, f_);
     static constexpr uint64_t MAX_STRING_LEN = 1ULL * 1024 * 1024;
-    if (len > MAX_STRING_LEN) { len = 0; }
+    if (len > MAX_STRING_LEN) { fseek(f_, (long)len, SEEK_CUR); len = 0; }
     std::string s(len, '\0');
     if (len > 0) fread(&s[0], 1, len, f_);
     return s;
@@ -347,20 +347,23 @@ std::string GgufReader::read_string() {
 bool GgufReader::read_kv_value(uint32_t vtype, KV& out) {
     out.vtype = vtype;
     switch (vtype) {
-        case 0: { uint8_t v; fread(&v, 1, 1, f_); out.u = v; return true; }
-        case 1: { int8_t v; fread(&v, 1, 1, f_); out.u = (uint64_t)(int64_t)v; return true; }
-        case 2: { uint16_t v; fread(&v, 2, 1, f_); out.u = v; return true; }
-        case 3: { int16_t v; fread(&v, 2, 1, f_); out.u = (uint64_t)(int64_t)v; return true; }
-        case 4: { uint32_t v; fread(&v, 4, 1, f_); out.u = v; return true; }
-        case 5: { int32_t v; fread(&v, 4, 1, f_); out.u = (uint64_t)(int64_t)v; return true; }
-        case 6: { float v; fread(&v, 4, 1, f_); out.f = v; return true; }
-        case 7: { uint8_t v; fread(&v, 1, 1, f_); out.u = v; return true; }
+        case 0: { uint8_t v; if (fread(&v, 1, 1, f_) != 1) return false; out.u = v; return true; }
+        case 1: { int8_t v; if (fread(&v, 1, 1, f_) != 1) return false; out.u = (uint64_t)(int64_t)v; return true; }
+        case 2: { uint16_t v; if (fread(&v, 2, 1, f_) != 1) return false; out.u = v; return true; }
+        case 3: { int16_t v; if (fread(&v, 2, 1, f_) != 1) return false; out.u = (uint64_t)(int64_t)v; return true; }
+        case 4: { uint32_t v; if (fread(&v, 4, 1, f_) != 1) return false; out.u = v; return true; }
+        case 5: { int32_t v; if (fread(&v, 4, 1, f_) != 1) return false; out.u = (uint64_t)(int64_t)v; return true; }
+        case 6: { float v; if (fread(&v, 4, 1, f_) != 1) return false; out.f = v; return true; }
+        case 7: { uint8_t v; if (fread(&v, 1, 1, f_) != 1) return false; out.u = v; return true; }
         case 8: { out.s = read_string(); return true; }
         case 9: {
             uint32_t at; fread(&at, 4, 1, f_);
             uint64_t an; fread(&an, 8, 1, f_);
             static constexpr uint64_t MAX_ARRAY_COUNT = 1000000;
-            if (an > MAX_ARRAY_COUNT) an = 0;
+            if (an > MAX_ARRAY_COUNT) {
+                for (uint64_t j = 0; j < an; j++) skip_kv_value(at);
+                an = 0;
+            }
             if (at == 8) {
                 out.arr_str.resize(an);
                 for (uint64_t j = 0; j < an; j++) out.arr_str[j] = read_string();
@@ -369,9 +372,9 @@ bool GgufReader::read_kv_value(uint32_t vtype, KV& out) {
             }
             return true;
         }
-        case 10: { uint64_t v; fread(&v, 8, 1, f_); out.u = v; return true; }
-        case 11: { int64_t v; fread(&v, 8, 1, f_); out.u = (uint64_t)v; return true; }
-        case 12: { double v; fread(&v, 8, 1, f_); out.f = v; return true; }
+        case 10: { uint64_t v; if (fread(&v, 8, 1, f_) != 1) return false; out.u = v; return true; }
+        case 11: { int64_t v; if (fread(&v, 8, 1, f_) != 1) return false; out.u = (uint64_t)v; return true; }
+        case 12: { double v; if (fread(&v, 8, 1, f_) != 1) return false; out.f = v; return true; }
         default: return false;
     }
 }
@@ -505,7 +508,7 @@ bool GgufReader::get_tensor_raw(const std::string& name, int block_size, int blo
     if (out_numel) *out_numel = ti.numel;
     uint64_t n_blocks = (ti.numel + block_size - 1) / block_size;
     out.resize(n_blocks * (uint64_t)block_bytes);
-    fseek(f_, (long)ti.abs_offset, SEEK_SET);
+    fseek(f_, (long)ti.abs_offset, SEEK_SET); // safe: LP64; consider fseeko for portability
     return fread(out.data(), 1, out.size(), f_) == out.size();
 }
 
@@ -520,7 +523,7 @@ bool GgufReader::get_tensor_f32(const std::string& name, std::vector<float>& out
 
     GgufBlockInfo bi = gguf_block_info(ti.dtype);
     if (bi.block_bytes <= 0) return false;
-    fseek(f_, (long)ti.abs_offset, SEEK_SET);
+    fseek(f_, (long)ti.abs_offset, SEEK_SET); // safe: LP64; consider fseeko for portability
     uint64_t n_blocks = (ti.numel + bi.block_size - 1) / bi.block_size;
     std::vector<uint8_t> block_buf((size_t)bi.block_bytes);
     for (uint64_t b = 0; b < n_blocks; b++) {

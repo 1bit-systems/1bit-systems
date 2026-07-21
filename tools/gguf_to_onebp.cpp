@@ -133,7 +133,7 @@ int main(int argc, char** argv) {
     for (auto& ti : tensors) {
         count++;
         printf("  [%d/%zu] %s... ", count, tensors.size(), ti.name.c_str()); fflush(stdout);
-        if (count > 5) { printf("stopping after 5\n"); break; }
+        // All tensors processed
         std::vector<float> fw;
         auto* inf = reader.tensor_info(ti.name);
         if (inf) printf("%lu elements at offset %lu\n", inf->numel, inf->abs_offset);

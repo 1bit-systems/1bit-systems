@@ -160,10 +160,12 @@ async fn main() {
 
     // Wait for backend to be ready
     info!("Waiting for bitnet_decode to be ready...");
+    let mut healthy = false;
     for i in 0..120 {
         match client.get(format!("{backend_url}/health")).send().await {
             Ok(resp) if resp.status().is_success() => {
                 info!("bitnet_decode ready after {i}s");
+                healthy = true;
                 break;
             }
             _ => {
@@ -177,6 +179,12 @@ async fn main() {
             std::process::exit(1);
         }
         sleep(Duration::from_secs(1)).await;
+    }
+
+    // If we exhausted the loop without breaking, backend never became healthy
+    if !healthy {
+        error!("bitnet_decode health check timed out after 120s");
+        std::process::exit(1);
     }
 
     if let Ok(Some(status)) = child.try_wait() {
@@ -218,7 +226,7 @@ async fn health() -> &'static str {
 }
 
 async fn proxy_get(State(state): State<AppState>, uri: axum::http::Uri) -> Response {
-    let path = uri.path().to_string();
+    let path = uri.path_and_query().map(|pq| pq.to_string()).unwrap_or_else(|| uri.path().to_string());
     let url = format!("{}{}", state.backend_url, path);
 
     match state.client.get(&url).send().await {
@@ -248,7 +256,7 @@ async fn proxy_post(
     headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
-    let path = uri.path().to_string();
+    let path = uri.path_and_query().map(|pq| pq.to_string()).unwrap_or_else(|| uri.path().to_string());
     let url = format!("{}{}", state.backend_url, path);
 
     let mut request = state
@@ -258,6 +266,13 @@ async fn proxy_post(
 
     if let Some(auth) = headers.get("authorization") {
         request = request.header("authorization", auth);
+    }
+
+    for (key, value) in headers.iter() {
+        let key_lower = key.as_str().to_lowercase();
+        if key_lower != "host" && key_lower != "content-type" && key_lower != "content-length" {
+            request = request.header(key.as_str(), value.as_bytes());
+        }
     }
 
     match request.body(body).send().await {

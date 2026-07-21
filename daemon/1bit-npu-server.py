@@ -17,9 +17,12 @@ Requires: NPU_MODEL_PATH, NPU_TOKENIZER_PATH, pip install tokenizers
 """
 
 import argparse, json, os, socket, struct, subprocess, sys, threading, time
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 import numpy as np
+
+# Content-Length limit to prevent DoS via oversized POST bodies
+MAX_BODY_SIZE = 16 * 1024 * 1024      # 16 MB
 
 # ── Config ──
 ENGINE = os.environ.get("NPU_ENGINE_BIN",
@@ -261,6 +264,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path not in ("/v1/chat/completions", "/api/generate", "/api/chat"):
             self.send_error(404); return
         length = int(self.headers.get("Content-Length", 0))
+        if length > MAX_BODY_SIZE:
+            self.send_error(413, "Payload too large")
+            return
         body = json.loads(self.rfile.read(length))
         prompt = self._get_prompt(body)
         stream = body.get("stream", False)
@@ -324,7 +330,7 @@ def main():
     inf = Inference(wk, model)
     print(f"  Inference ready: {inf.NC} layers, {inf.NH} heads, H={inf.H}")
 
-    server = HTTPServer(("0.0.0.0", args.port), Handler)
+    server = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
     print(f"\n  🚀 1bit NPU chat server: http://127.0.0.1:{args.port}")
     print(f"  Zero FLM dependency — using npu_engine_universal worker\n")
     try:

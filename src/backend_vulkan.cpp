@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include <cassert>
 #include <vector>
 #include <string>
 #include <fstream>
@@ -212,6 +213,7 @@ struct VK {
         vkBeginCommandBuffer(cmd, &bi);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipe);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipe_layout, 0, 1, &ds, 0, nullptr);
+        assert(M >= 0 && K >= 0);
         struct Push { uint32_t M, K, io, wo, oo; } push = {(uint32_t)M, (uint32_t)K, 0, 0, 0};
         vkCmdPushConstants(cmd, pipe_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
         vkCmdDispatch(cmd, (M+63)/64, 1, 1);
@@ -462,6 +464,7 @@ struct VKBackend : Backend {
     }
 
     bool forward(int token_id, float* hidden_out) override {
+        if (token_id < 0 || token_id >= VOCAB) return false;
         for(int i=0;i<H;i++) hs[i]=(embed[token_id*(size_t)H+i]+ibias[i])*iscale[i];
 
         for(int il=0;il<N_LAYERS;il++){
@@ -572,7 +575,7 @@ struct VKBackend : Backend {
 
     int generate(int token_id) override {
         float h[H]; if(!forward(token_id,h))return-1;
-        float* lg=new float[VOCAB]; int r; lm_head(h,lg,&r); delete[] lg; return r;
+        std::vector<float> lg(VOCAB); int r; lm_head(h,lg.data(),&r); return r;
     }
 
     float benchmark(int tokens=10) override {
