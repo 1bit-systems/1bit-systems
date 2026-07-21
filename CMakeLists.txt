@@ -341,6 +341,7 @@ add_library(backend_manager STATIC
     src/backend_cpu.cpp
     src/backend_generic.cpp
     src/backend_flm.cpp
+    src/backend_mamba1.cpp
     src/simple_tokenizer.cpp
     src/q4nx_reader.cpp
     src/safetensors_reader.cpp
@@ -352,7 +353,9 @@ target_include_directories(backend_manager PUBLIC
     $<INSTALL_INTERFACE:include>)
 target_include_directories(backend_manager PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>)
-target_link_libraries(backend_manager PUBLIC dl rocm_cpp)
+target_include_directories(backend_manager PRIVATE "${ROCM_ROOT}/include")
+target_compile_definitions(backend_manager PRIVATE __HIP_PLATFORM_AMD__=1)
+target_link_libraries(backend_manager PUBLIC dl rocm_cpp hip::host hip::device)
 target_compile_options(backend_manager PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
 
 if(ZINC_ENABLED)
@@ -374,6 +377,7 @@ target_include_directories(rocm_cpp PUBLIC
     $<INSTALL_INTERFACE:include>)
 target_include_directories(rocm_cpp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/kernels)
 target_include_directories(rocm_cpp SYSTEM PRIVATE "${ROCM_ROOT}/include")
+target_compile_definitions(rocm_cpp PRIVATE MAMBA1_ENGINE_AS_LIB=1)
 target_compile_options(rocm_cpp PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -ffast-math -munsafe-fp-atomics
         -Wno-unused-result>)
@@ -623,14 +627,12 @@ add_executable(unified_server
     src/strategy_engine.cpp
     src/agent_watchdog.cpp
     src/backend_hip.cpp
-    src/backend_mamba1.cpp
     src/zaya_engine.cpp
     src/backend_npu.cpp
     src/backend_generic.cpp
     src/model_router.cpp
     src/backend_flm.cpp)
 set_source_files_properties(src/backend_hip.cpp PROPERTIES LANGUAGE HIP)
-set_source_files_properties(src/backend_mamba1.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(src/zaya_engine.cpp PROPERTIES LANGUAGE HIP)
 set_source_files_properties(src/backend_generic.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(tools/unified_server.cpp PROPERTIES LANGUAGE CXX)
@@ -673,6 +675,11 @@ add_executable(backend_demo tools/backend_demo.cpp)
 target_include_directories(backend_demo PRIVATE src/)
 target_compile_options(backend_demo PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
 target_link_libraries(backend_demo PRIVATE backend_manager dl)
+
+add_executable(test_mamba1_backend tools/test_mamba1_backend.cpp)
+target_include_directories(test_mamba1_backend PRIVATE src/ include/)
+target_compile_options(test_mamba1_backend PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
+target_link_libraries(test_mamba1_backend PRIVATE backend_manager dl)
 if(ZINC_ENABLED)
     set_target_properties(backend_demo PROPERTIES
         INSTALL_RPATH "${ZINC_REPO_DIR}/zig-out/lib"

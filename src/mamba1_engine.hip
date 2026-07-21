@@ -85,8 +85,8 @@ __global__ void mamba1_inner(
         for(int k = 1; k < dc; k++) a += c1w[k*di_ + i] * cs[(k-1)*di_ + i];
         float v = a;
         x_conv[i] = v / (1.0f + expf(-v));  // silu in-place
-        // Shift conv state
-        for(int k = dc-2; k >= 0; k--)
+        // Shift conv state: discard oldest (cs[dc-2]), shift the rest, insert new
+        for(int k = dc-3; k >= 0; k--)
             cs[(k+1)*di_ + i] = cs[k*di_ + i];
         if(dc > 1) cs[0*di_ + i] = xt;
     }
@@ -122,13 +122,14 @@ __global__ void mamba1_inner(
     const float* C = x_proj_out + dt_rank + ds;
     
     for(int i = ti; i < di_; i += 256) {
-        float d = dt_act[i];
+        float d_dt = dt_act[i];
         float xh = x_conv[i];
         
         for(int s = 0; s < ds; s++) {
-            float A_val = A[(size_t)s*di_ + i];
-            float A_bar = expf(d * A_val);
-            ss[(size_t)i*ds + s] = A_bar * ss[(size_t)i*ds + s] + d * B[s] * xh;
+            // Mamba1: A = -exp(A_log), then A_bar = exp(dt * A)
+            float A_val = -expf(A[(size_t)s*di_ + i]);
+            float A_bar = expf(d_dt * A_val);
+            ss[(size_t)i*ds + s] = A_bar * ss[(size_t)i*ds + s] + d_dt * B[s] * xh;
         }
         
         float cdot = 0;
@@ -254,6 +255,50 @@ extern "C" int mamba1_forward(
     // 5. Residual
     add_residual_k<<<grid_n, 256, 0, stream>>>(hidden, normed, d_model);
     return 0;
+}
+
+// ── Host-callable kernel launch wrappers ──
+// These let pure CXX callers (backend_mamba1.cpp, etc.) launch kernels
+// without needing HIP compilation themselves. The device stubs are
+// generated here in the .hip TU.
+
+extern "C" void launch_rms_ker(
+    const float* x, float* y, const float* w, int n, float eps, hipStream_t stream)
+{
+    int grid = (n + 255) / 256;
+    if (grid < 1) grid = 1;
+    rms_ker<<<grid, 256, 0, stream>>>(x, y, w, n, eps);
+}
+
+extern "C" void launch_fp32_gemv(
+    const float* W, const float* x, float* y, int M, int K, hipStream_t stream)
+{
+    if (M <= 0 || K <= 0) return;
+    fp32_gemv<<<M, GEMV_BLOCK, 0, stream>>>(W, x, y, M, K);
+}
+
+extern "C" void launch_silu_gate_k(
+    float* y, const float* fused, int hidden, hipStream_t stream)
+{
+    int grid = (hidden + 255) / 256;
+    if (grid < 1) grid = 1;
+    silu_gate_k<<<grid, 256, 0, stream>>>(y, fused, hidden);
+}
+
+extern "C" void launch_scale_add_residual_k(
+    float* y, const float* x, float scale, int n, hipStream_t stream)
+{
+    int grid = (n + 255) / 256;
+    if (grid < 1) grid = 1;
+    scale_add_residual_k<<<grid, 256, 0, stream>>>(y, x, scale, n);
+}
+
+extern "C" void launch_add_residual_k(
+    float* y, const float* x, int n, hipStream_t stream)
+{
+    int grid = (n + 255) / 256;
+    if (grid < 1) grid = 1;
+    add_residual_k<<<grid, 256, 0, stream>>>(y, x, n);
 }
 
 // ── Standalone test ──

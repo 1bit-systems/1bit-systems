@@ -31,14 +31,13 @@
     fprintf(stderr,"[mamba1] HIP Error %d at %s:%d\n",_s,__FILE__,__LINE__); \
     abort(); }} while(0)
 
-// ── GPU-side kernel declarations (from mamba1_engine.hip) ──
-// Symbols resolved at link time from librocm_cpp.so or unified_server.
+// ── Kernel launch wrappers (defined in mamba1_engine.hip) ──
 extern "C" {
-    __global__ void rms_ker(const float* x, float* y, const float* w, int n, float eps);
-    __global__ void fp32_gemv(const float* W, const float* x, float* y, int M, int K);
-    __global__ void add_residual_k(float* y, const float* x, int n);
-    __global__ void silu_gate_k(float* y, const float* fused, int hidden);
-    __global__ void scale_add_residual_k(float* y, const float* x, float scale, int n);
+    void launch_rms_ker(const float* x, float* y, const float* w, int n, float eps, hipStream_t stream);
+    void launch_fp32_gemv(const float* W, const float* x, float* y, int M, int K, hipStream_t stream);
+    void launch_add_residual_k(float* y, const float* x, int n, hipStream_t stream);
+    void launch_silu_gate_k(float* y, const float* fused, int hidden, hipStream_t stream);
+    void launch_scale_add_residual_k(float* y, const float* x, float scale, int n, hipStream_t stream);
 
     int mamba1_forward(
         float* hidden,
@@ -326,7 +325,6 @@ struct Mamba1Backend : Backend {
         }
 
         // Scratch buffers
-        int max_normed = d_model;
         int max_hidden_moe = 0;
         for (int l = 0; l < n_layers; l++) {
             if (!layer_is_mamba[l]) {
@@ -347,9 +345,12 @@ struct Mamba1Backend : Backend {
         logits_buf.resize(vocab_size, 0.0f);
 
         HIP_CHECK(hipStreamSynchronize(stream));
-        fprintf(stderr, "[mamba1] Loaded %d layers (%d SSM%s) on GPU.\n",
-                n_layers, is_moe ? 0 : n_layers,
-                is_moe ? " + MoE" : "");
+        int n_ssm = 0, n_moe = 0;
+        for (int l = 0; l < n_layers; l++) {
+            if (layer_is_mamba[l]) n_ssm++; else n_moe++;
+        }
+        fprintf(stderr, "[mamba1] Loaded %d layers (%d SSM + %d MoE) on GPU.\n",
+                n_layers, n_ssm, n_moe);
 
         initialized = true;
         return true;
@@ -405,14 +406,12 @@ struct Mamba1Backend : Backend {
                 // ── MoE FFN layer (GPU GEMVs + host argmax) ──
                 auto& gl = moe_layer_gpu[l];
                 auto& el = moe_layer_host[l];
-                int grid_n = (d_model + 255) / 256;
 
                 // 2a. RMS norm: d_normed = rmsnorm(d_hidden)
-                rms_ker<<<grid_n, 256, 0, stream>>>(d_hidden, d_normed, gl.d_norm_w, d_model, 1e-5f);
+                launch_rms_ker(d_hidden, d_normed, gl.d_norm_w, d_model, 1e-5f, stream);
 
                 // 2b. Router GEMV: d_moe_scratch[0..n_experts] = W_router @ normed
-                fp32_gemv<<<el.n_experts, 256, 0, stream>>>(
-                    gl.d_router_w, d_normed, d_moe_scratch, el.n_experts, d_model);
+                launch_fp32_gemv(gl.d_router_w, d_normed, d_moe_scratch, el.n_experts, d_model, stream);
 
                 // 2c. Download router logits, find top-1 expert (host-side,
                 //     since n_experts ≤ 64 — cheap enough)
@@ -432,20 +431,16 @@ struct Mamba1Backend : Backend {
 
                 // 2d. Expert FC1 GEMV: d_moe_scratch[2*hidden] = W_fc1 @ normed
                 int hidden = el.hidden;
-                fp32_gemv<<<2 * hidden, 256, 0, stream>>>(
-                    gl.d_fc1[top1], d_normed, d_moe_scratch, 2 * hidden, d_model);
+                launch_fp32_gemv(gl.d_fc1[top1], d_normed, d_moe_scratch, 2 * hidden, d_model, stream);
 
                 // 2e. SiLU gate: d_inproj[hidden] = silu(gate) * up
-                silu_gate_k<<<(hidden + 255) / 256, 256, 0, stream>>>(
-                    d_inproj, d_moe_scratch, hidden);
+                launch_silu_gate_k(d_inproj, d_moe_scratch, hidden, stream);
 
                 // 2f. Expert FC2 GEMV: d_normed[d_model] = W_fc2 @ activated
-                fp32_gemv<<<d_model, 256, 0, stream>>>(
-                    gl.d_fc2[top1], d_inproj, d_normed, d_model, hidden);
+                launch_fp32_gemv(gl.d_fc2[top1], d_inproj, d_normed, d_model, hidden, stream);
 
                 // 2g. Scale by gate weight + residual: d_hidden += gate_w * d_normed
-                scale_add_residual_k<<<grid_n, 256, 0, stream>>>(
-                    d_hidden, d_normed, gate_w, d_model);
+                launch_scale_add_residual_k(d_hidden, d_normed, gate_w, d_model, stream);
             }
         }
 
@@ -466,13 +461,11 @@ struct Mamba1Backend : Backend {
                     hipMemcpyHostToDevice, stream));
 
         // Final RMS norm: d_normed = rmsnorm(d_hidden)
-        int grid_n = (d_model + 255) / 256;
-        rms_ker<<<grid_n, 256, 0, stream>>>(d_hidden, d_normed, d_final_norm_w, d_model, 1e-5f);
+        launch_rms_ker(d_hidden, d_normed, d_final_norm_w, d_model, 1e-5f, stream);
 
         // LM head GEMV: d_logits[v] = embed[v,:] @ d_normed
         // One block per vocab row, 256 threads reducing across d_model
-        fp32_gemv<<<vocab_size, 256, 0, stream>>>(
-            d_embed, d_normed, d_logits, vocab_size, d_model);
+        launch_fp32_gemv(d_embed, d_normed, d_logits, vocab_size, d_model, stream);
 
         // Download logits
         HIP_CHECK(hipMemcpyAsync(logits, d_logits, (size_t)vocab_size * sizeof(float),
