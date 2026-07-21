@@ -47,6 +47,21 @@ sync_file packaging/deb/DEBIAN/control \
   "s/^(Version:[[:space:]]*).*/\1${VERSION}/" \
   "^Version:[[:space:]]*${VERSION}$"
 
+# AUR PKGBUILD  ->  pkgver=<VERSION>
+sync_file packaging/aur/PKGBUILD \
+  "s/^(pkgver=).*/\1${VERSION}/" \
+  "^pkgver=${VERSION}$"
+
+# Homebrew formula  ->  version "<VERSION>"
+sync_file packaging/homebrew/1bit-systems.rb \
+  "s/^(  version \")[^\"]*(\")/\1${VERSION}\2/" \
+  "^  version \"${VERSION}\"$"
+
+# Homebrew url tag  ->  tags/v<VERSION>.tar.gz
+sync_file packaging/homebrew/1bit-systems.rb \
+  "s|(tags/v)[0-9]{4}\.[0-9]{2}\.[0-9]{2}[A-Za-z0-9.-]*|\1${VERSION}|" \
+  "tags/v${VERSION}"
+
 # deb postinst banner  ->  v<VERSION>
 sync_file packaging/deb/DEBIAN/postinst \
   "s/v[0-9]{4}\.[0-9]{2}\.[0-9]{2}[A-Za-z0-9.-]*/v${VERSION}/" \
