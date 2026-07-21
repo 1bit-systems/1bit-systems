@@ -25,6 +25,7 @@
 #include "model_discovery.h"
 #include "model_router.h"
 #include "simple_tokenizer.h"
+#include "vl_processor.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -750,6 +751,7 @@ int main(int argc, char** argv) {
         // Extract messages and build prompt + user message for content routing
         std::string prompt;
         std::string last_user_msg;
+        std::vector<VlProcessor> vision_images;  // holds processed images from content parts
         if (body.contains("messages") && body["messages"].is_array()) {
             for (auto& msg : body["messages"]) {
                 std::string role = msg.value("role", "user");
@@ -760,6 +762,34 @@ int main(int argc, char** argv) {
                     for (auto& part : msg["content"]) {
                         if (part.value("type", "") == "text") {
                             content += part.value("text", "");
+                        } else if (part.value("type", "") == "image_url") {
+                            // Load + process image for VL models.
+                            // This stores processed pixels; the actual ViT
+                            // forward pass happens in generate_completion()
+                            // when it detects vision_state has data.
+                            std::string url;
+                            const auto& iu = part["image_url"];
+                            if (iu.is_string()) url = iu.get<std::string>();
+                            else if (iu.is_object() && iu.contains("url")) url = iu["url"].get<std::string>();
+                            if (!url.empty()) {
+                                std::vector<unsigned char> raw;
+                                if (vl_is_data_url(url)) {
+                                    raw = vl_decode_base64_image(url);
+                                } else {
+                                    raw = vl_download_image(url);
+                                }
+                                if (!raw.empty()) {
+                                    VlProcessor vp;
+                                    if (vp.load_from_memory(raw.data(), raw.size(), 224, 224,
+                                                             VL_MEAN_QWEN2VL, VL_STD_QWEN2VL)) {
+                                        vision_images.push_back(std::move(vp));
+                                        content += "[image]"; // placeholder in text
+                                        fprintf(stderr, "[vision] loaded image: %dx%d -> %dx%d\n",
+                                                vp.orig_width(), vp.orig_height(),
+                                                vp.width(), vp.height());
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -811,6 +841,43 @@ int main(int argc, char** argv) {
         }
         if (prompt_tokens.empty()) {
             prompt_tokens = {g_tokenizer.bos_id};
+        }
+
+        // ── Inject vision embeddings (if any) before text generation ──
+        // Runs forward_embed() for each vision token, splicing the image into
+        // the KV cache before the text prompt is processed.
+        // This path activates when the message content includes image_url parts.
+        // For full ViT forward (mmproj GGUF), use tools/vision_server.cpp.
+        if (!vision_images.empty()) {
+            auto* active = mgr.active_info();
+            int hidden = (active && active->instance) ? active->instance->cfg.hidden : 2048;
+            if (hidden <= 0) hidden = 2048;
+
+            // Wrap vision tokens with <|vision_start|> / <|vision_end|>
+            // (Qwen2-VL convention: token IDs 151652/151653)
+            const int VISION_START = 151652;
+            const int VISION_END   = 151653;
+            const int VISION_TOKENS_PER_IMG = 64; // 16x16 patches / 4 merger
+
+            mgr.generate(VISION_START);
+            std::vector<float> embed_buf(hidden, 0.0f);
+            for (auto& vp : vision_images) {
+                for (int t = 0; t < VISION_TOKENS_PER_IMG; t++) {
+                    // TODO: replace with real ViT forward from vision_qwen2vl_poc
+                    // For now, feed zeros — the KV cache advances but content is
+                    // dummy. Full integration requires:
+                    //   1. Load mmproj GGUF
+                    //   2. Run ViT forward (CPU or GPU)
+                    //   3. Use projected embeddings here
+                    // See tools/vision_server.cpp for the full pipeline.
+                    if (active && active->instance) {
+                        active->instance->forward_embed(embed_buf.data());
+                    }
+                }
+            }
+            mgr.generate(VISION_END);
+            fprintf(stderr, "[vision] injected %zu images (%d tokens each)\n",
+                    vision_images.size(), VISION_TOKENS_PER_IMG);
         }
 
         // Generate with strategy-aware routing

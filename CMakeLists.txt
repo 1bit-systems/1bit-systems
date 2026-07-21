@@ -259,7 +259,8 @@ set(RCPP_SOURCES
     src/bonsai_q1_1024.hip
     src/bonsai_tq2_1024.hip
     src/fused_gemv_tq2_1024.hip
-    src/bonsai_tq2_1024_opt.hip)
+    src/bonsai_tq2_1024_opt.hip
+    kernels/vl_resize_norm.hip)
 if(RCPP_HAVE_CK)
     list(APPEND RCPP_SOURCES src/ck_gemm.cpp)
 endif()
@@ -276,6 +277,15 @@ add_library(gguf_reader STATIC src/gguf_reader.cpp)
 target_include_directories(gguf_reader PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
+
+# -- libvl_image : lightweight image loading + preprocessing (no HIP dep) ----
+# Uses stb_image.h (vendored at third_party/stb/) for decode. No OpenCV dep.
+# Provides: vl_load_image, vl_resize_normalize, vl_decode_base64_image, etc.
+add_library(vl_image STATIC src/vl_processor.cpp)
+target_include_directories(vl_image PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
+target_compile_options(vl_image PRIVATE -O3 -std=c++23 -Wno-unused-result)
 
 add_library(rocm_cpp SHARED ${RCPP_SOURCES})
 if(ROCWMMA_FOUND)
@@ -634,7 +644,7 @@ target_compile_options(unified_server PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:-O3 -Wall -Wno-unused-result -std=c++23>)
 target_compile_definitions(unified_server PRIVATE ROCM_CPP_STATIC_HIP=1 ROCM_CPP_STATIC_NPU=1)
 target_link_libraries(unified_server PRIVATE
-    backend_manager dl
+    backend_manager vl_image dl
     httplib::httplib
     nlohmann_json::nlohmann_json
     rocm_cpp hip::host hip::device)
@@ -669,7 +679,19 @@ endif()
 add_executable(vision_qwen2vl_poc tools/vision_qwen2vl_poc.cpp)
 target_include_directories(vision_qwen2vl_poc PRIVATE src/)
 target_compile_options(vision_qwen2vl_poc PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
-target_link_libraries(vision_qwen2vl_poc PRIVATE backend_manager dl)
+target_link_libraries(vision_qwen2vl_poc PRIVATE backend_manager vl_image dl)
+
+# -- vision_server : HTTP server for vision-language inference ---------------
+# OpenAI-compatible /v1/chat/completions with image_url support.
+# Auto-detects GPU (HIP) and falls back to CPU for image preprocessing.
+# Requires a VL-capable text model + mmproj GGUF file.
+add_executable(vision_server tools/vision_server.cpp)
+target_include_directories(vision_server PRIVATE src/ include/)
+target_compile_options(vision_server PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
+target_link_libraries(vision_server PRIVATE
+    backend_manager vl_image dl
+    httplib::httplib
+    nlohmann_json::nlohmann_json)
 
 add_executable(bitnet_tui tools/bitnet_tui.cpp)
 target_link_libraries(bitnet_tui PRIVATE
