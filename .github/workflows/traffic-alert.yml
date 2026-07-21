@@ -24,9 +24,26 @@ jobs:
         id: traffic
         env:
           GH_TOKEN: ${{ secrets.TRAFFIC_PAT || secrets.GITHUB_TOKEN }}
+          HAS_PAT: ${{ secrets.TRAFFIC_PAT != '' }}
         run: |
           if [ -z "${{ secrets.TRAFFIC_PAT }}" ]; then
-            echo "::warning::TRAFFIC_PAT not set — falling back to GITHUB_TOKEN (may lack traffic permissions)"
+            echo "::warning::TRAFFIC_PAT not set — skipping traffic fetch. Set TRAFFIC_PAT secret to enable."
+            # Export empty/default outputs so downstream steps don't crash
+            {
+              echo "CLONE_14D=0"
+              echo "CLONE_UNIQUES_14D=0"
+              echo "CLONE_YESTERDAY=0"
+              echo "CLONE_YESTERDAY_UNIQ=0"
+              echo "VIEW_14D=0"
+              echo "VIEW_UNIQUES_14D=0"
+              echo "TOP_REFERRER=unavailable (TRAFFIC_PAT not set)"
+              echo "TOP_PATH=unavailable (TRAFFIC_PAT not set)"
+              echo "SPIKE=false"
+              echo "SPIKE_MSG<<SPIKE_EOF"
+              echo "TRAFFIC_PAT secret not configured — set it to enable traffic monitoring"
+              echo "SPIKE_EOF"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           # Use github.repository (always available) and extract the repo name
           OWNER="${GITHUB_REPOSITORY_OWNER}"

@@ -1,6 +1,6 @@
 # Maintainer: bong-water-water-bong <admin@1bit.systems>
 pkgname=1bit-systems-bin
-pkgver=2026.07.02
+pkgver=2026.07.20
 pkgrel=1
 pkgdesc="50 TOPS INT8 NPU inference engine for AMD Strix Halo"
 arch=('x86_64')
@@ -12,11 +12,18 @@ sha256sums=('SKIP')
 
 package() {
   cd "$srcdir/1bit-systems-$pkgver"
+  mkdir -p engine/npu/build
   gcc -c -O3 -o engine/npu/build/dequant_q4nx.o engine/npu/src/dequant_q4nx.c
+  # engine/npu/src/npu_engine_all.cpp was removed in the orphaned-variant
+  # cleanup (PR #312); npu_engine_universal.cpp is the current engine source
+  # (see README.md's Backends section and .github/workflows/bench.yml, which
+  # builds this exact target on real Strix Halo hardware).
   g++ -std=c++23 -O3 -o "$pkgdir/usr/bin/1bit-npu" \
-    engine/npu/src/npu_engine_all.cpp engine/npu/build/dequant_q4nx.o \
-      -Iengine/npu/src -march=native -fopenmp -ffast-math \
-    -lxrt_coreutil -luuid -lm -ldl
+    engine/npu/src/npu_engine_universal.cpp engine/npu/build/dequant_q4nx.o \
+    npu-infer/src/flm_bridge.cpp \
+    -Iengine/npu/include -Inpu-infer/include -Iinclude -Iengine/npu -I. \
+    -march=native -fopenmp -ffast-math \
+    -lxrt_coreutil -luuid -lm -ldl -lpthread -laiebu
   g++ -std=c++23 -O3 -o "$pkgdir/usr/bin/1bit-server" \
     packaging/binary/server.cpp
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
