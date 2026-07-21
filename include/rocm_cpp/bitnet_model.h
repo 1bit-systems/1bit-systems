@@ -36,6 +36,8 @@ typedef enum {
     RCPP_ARCH_GEMMA   = 5,
     RCPP_ARCH_PHI     = 6,
     RCPP_ARCH_ZAMBA2  = 7,
+    RCPP_ARCH_ZAMBA   = 8,   // Zamba-7B-v1 (Mamba1 + shared attn)
+    RCPP_ARCH_MAMBA   = 9,   // BlackMamba (Mamba1 + MoE)
 } rcpp_arch_t;
 
 #include <string.h>
@@ -49,6 +51,8 @@ static inline rcpp_arch_t rcpp_arch_from_string(const char* s) {
     if (strcmp(s, "gemma")   == 0) return RCPP_ARCH_GEMMA;
     if (strcmp(s, "phi")     == 0) return RCPP_ARCH_PHI;
     if (strcmp(s, "zamba2")  == 0) return RCPP_ARCH_ZAMBA2;
+    if (strcmp(s, "zamba")   == 0) return RCPP_ARCH_ZAMBA;
+    if (strcmp(s, "mamba")   == 0) return RCPP_ARCH_MAMBA;
     return RCPP_ARCH_BITNET;
 }
 

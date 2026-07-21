@@ -75,6 +75,7 @@ struct Backend {
 // ── Factory: auto-detect and create best available backend ──
 Backend* create_best_backend();
 Backend* create_backend(BackendType type);
+Backend* create_backend_for_arch(BackendType type, const ModelConfig* cfg);
 
 // ── CPU backend ──
 Backend* create_cpu_backend();
@@ -99,5 +100,12 @@ Backend* create_zinc_backend();
 // ── Zamba2 backend ──
 Backend* create_zamba2_backend();
 
+// ── Mamba1 GPU backend (mamba1_engine.hip kernels) ──
+// Handles Zamba-7B-v1 (pure Mamba1 SSM) and BlackMamba (Mamba1+MoE).
+extern "C" Backend* create_mamba1_backend();
+
 // ── Auto-detect ──
 BackendType detect_backends();
+
+// ── Mamba1 detection helper ──
+bool is_mamba1_architecture(const ModelConfig& cfg);

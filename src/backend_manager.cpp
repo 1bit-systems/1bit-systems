@@ -138,6 +138,27 @@ void BackendManager::discover() {
         backends_.push_back(info);
     }
 
+    // 2b. Mamba1 GPU — Mamba1 SSM + MoE HIP kernels (Zamba-7B-v1, BlackMamba)
+    // Shares HIP availability; created on-demand by architecture.
+    {
+        BackendInfo info;
+        info.id = "mamba1_gpu";
+        info.type = BackendType::HIP_GPU;
+        info.tier = BackendTier::T2_GPU;
+        info.description = "AMD ROCm GPU via Mamba1 HIP kernels";
+        info.priority = tier_priority(info.tier) + 49;  // just below general HIP
+        info.available = has_hip_gpu();
+        info.functional = false;
+        info.score = 0;
+        info.total_inferences = 0;
+        info.failed_inferences = 0;
+        info.cumulative_ms = 0;
+        info.instance = nullptr;
+        info.plugin_handle = nullptr;
+        printf("  %-25s %s\n", "Mamba1 GPU (Mamba1 HIP)", info.available ? "✅ detected" : "❌ not available");
+        backends_.push_back(info);
+    }
+
     // 3. Vulkan GPU — portable fallback (runs on any GPU vendor)
     {
         BackendInfo info;
@@ -1041,19 +1062,30 @@ Backend* BackendManager::create_instance_rt(const BackendInfo& info) {
     Backend* b = nullptr;
     switch (info.type) {
         case BackendType::HIP_GPU:
-            // Load HIP backend from shared library (keeps backend_manager HIP-free,
-            // so pure-C++ consumers like backend_demo can link without HIP symbols).
-            // If static linking is desired, compile with -DROCM_CPP_STATIC_HIP
-            // and link src/backend_hip.cpp directly into the target.
+            // Mamba1 backend (Zamba-7B-v1, BlackMamba) — uses specialized HIP kernels
+            if (info.id == "mamba1_gpu") {
+#ifdef ROCM_CPP_STATIC_HIP
+                b = create_mamba1_backend();
+                if (b) return b;
+#endif
+                b = try_load_backend("librocm_cpp.so", "create_mamba1_backend");
+                if (!b) b = try_load_backend("libmamba1_backend.so", "create_mamba1_backend");
+                if (!b) { void* self = dlopen(NULL, RTLD_NOW|RTLD_LOCAL);
+                    if (self) { auto* fn = (Backend*(*)())dlsym(self, "create_mamba1_backend");
+                        if (fn) b = fn(); } }
+                return b;
+            }
+            // General HIP backend — loaded from shared library (keeps
+            // backend_manager HIP-free, so pure-C++ consumers like
+            // backend_demo can link without HIP symbols). If static linking
+            // is desired, compile with -DROCM_CPP_STATIC_HIP and link
+            // src/backend_hip.cpp directly into the target.
 #ifdef ROCM_CPP_STATIC_HIP
             b = create_hip_backend();
             if (b) return b;
 #endif
             b = try_load_backend("librocm_cpp.so", "create_hip_backend");
             if (!b) b = try_load_backend("libhip_backend.so", "create_hip_backend");
-            // Last resort: lookup in the main executable itself (statically linked
-            // via unified_server with -rdynamic). The `self` handle is NOT cached
-            // because repeated dlopen(NULL) just bumps the refcount — safe.
             if (!b) { void* self = dlopen(NULL, RTLD_NOW|RTLD_LOCAL);
                 if (self) { auto* fn = (Backend*(*)())dlsym(self, "create_hip_backend");
                     if (fn) b = fn(); } }

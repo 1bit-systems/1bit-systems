@@ -26,6 +26,13 @@
 //         the HuggingFace BF16 reference. FLM is kept as a faster fallback
 //         until the multi-tile NPU path lands (see docs/mlir-air-integration.md).
 //
+//   zamba / mamba / zamba2 architecture (Mamba1 SSM + MoE or shared attn)
+//     └─ hip_gpu (Mamba1/Mamba2 HIP kernels) + cpu_generic
+//         Mamba1 models (Zamba-7B-v1, BlackMamba) use the kernels from
+//         mamba1_engine.hip; Mamba2 models use mamba2_kernels.hip.
+//         Backend selection is per-layer in the MoE case (BlackMamba:
+//         alternating SSM layers and MoE FFN layers).
+//
 //   GGUF / H1B format
 //     └─ zinc_gpu (Vulkan ZINC runtime) + cpu_generic
 //         The ZINC runtime handles multiple quant formats (Q4_0, Q4_K, etc.)
@@ -50,9 +57,15 @@
 // ============================================================
 
 BackendRoute select_backend_route(const ModelConfig& cfg) {
-    // Zaya-style MoE: any model with expert routing can use the CCA/MoE path
-    if (cfg.num_experts > 0) {
+    // Zaya-style MoE: any model with expert routing that's NOT a Mamba1 MoE
+    // (BlackMamba) uses the CCA/MoE kernel path.
+    if (cfg.num_experts > 0 && cfg.arch != RCPP_ARCH_MAMBA) {
         return {{"hip_gpu", "cpu_scalar"}, "MoE model — CCA/MoE kernel path"};
+    }
+    // Mamba1 models (Zamba-7B-v1, BlackMamba): Mamba1 SSM HIP kernels,
+    // with per-layer MoE expert dispatch for BlackMamba.
+    if (cfg.arch == RCPP_ARCH_MAMBA || cfg.arch == RCPP_ARCH_ZAMBA) {
+        return {{"mamba1_gpu", "cpu_generic"}, "Mamba1 model — Mamba1 HIP kernels, generic CPU fallback"};
     }
     if (cfg.architecture == "qwen3") {
         return {{"npu_xrt", "npu_flm", "cpu_generic"}, "qwen3 architecture — native NPU engine, FLM subprocess as fallback"};

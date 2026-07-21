@@ -112,7 +112,12 @@ static bool read_gguf_metadata(const std::string& path, ModelConfig& cfg) {
     bool explicit_head_dim = false;
     for (const auto& key : r.kv_keys()) {
         uint32_t u32v; float f32v;
-        if (ends_with(key, ".attention.head_count")) {
+        if (ends_with(key, ".ssm.state_size")) {
+            if (r.get_u32(key, u32v)) cfg.head_dim = u32v;  // reuse head_dim for d_state
+        } else if (ends_with(key, ".ssm.conv_kernel")) {
+            // d_conv — stored in max_seq_len's padding field for now
+            // (no dedicated Mamba1 config field in ModelConfig yet)
+        } else if (ends_with(key, ".attention.head_count")) {
             if (r.get_u32(key, u32v)) cfg.n_heads = cfg.num_heads = cfg.num_attention_heads = u32v;
         } else if (ends_with(key, ".attention.head_count_kv")) {
             if (r.get_u32(key, u32v)) cfg.n_kv_heads = cfg.num_kv_heads = u32v;

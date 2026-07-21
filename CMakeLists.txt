@@ -256,6 +256,7 @@ set(RCPP_SOURCES
     kernels/zaya_moe_wmma_batched.hip
     kernels/wmma_i8_gemv.hip
     src/zaya_moe_launcher.hip
+    src/mamba1_engine.hip
     src/bonsai_q1_1024.hip
     src/bonsai_tq2_1024.hip
     src/fused_gemv_tq2_1024.hip
@@ -622,12 +623,14 @@ add_executable(unified_server
     src/strategy_engine.cpp
     src/agent_watchdog.cpp
     src/backend_hip.cpp
+    src/backend_mamba1.cpp
     src/zaya_engine.cpp
     src/backend_npu.cpp
     src/backend_generic.cpp
     src/model_router.cpp
     src/backend_flm.cpp)
 set_source_files_properties(src/backend_hip.cpp PROPERTIES LANGUAGE HIP)
+set_source_files_properties(src/backend_mamba1.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(src/zaya_engine.cpp PROPERTIES LANGUAGE HIP)
 set_source_files_properties(src/backend_generic.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(tools/unified_server.cpp PROPERTIES LANGUAGE CXX)
