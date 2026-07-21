@@ -2,6 +2,11 @@
 
 ## 2026.07.20
 
+- **Mamba1 GPU backend fully wired and fixed.** `backend_mamba1.cpp` + `mamba1_engine.hip` now compile as a first-class backend in `libbackend_manager.a`. Three critical correctness bugs fixed: conv state buffer overflow (shift loop out-of-bounds write), A_log never exponentiated (SSM scan used raw A_log instead of `A = -exp(A_log)`), and HIP device stub linkage (kernel launches wrapped in `extern "C"` helpers). BlackMamba 1.5B runs at **79.8 tok/s**, BlackMamba 2.8B at **46.4 tok/s** on Strix Halo (ROCm HIP, 15+15 MoE layers alternating). Diagnostic tool `tools/test_mamba1_backend.cpp` added for direct backend testing (#579).
+- BlackMamba 1.5B and 2.8B GGUF files converted from HF cache (F16, 438/525 tensors) and benchmarked.
+
+## 2026.07.20
+
 - **FastFlowLM fully reverse-engineered and replaced as the default NPU path.** 22 closed-source `.so` libraries disassembled, 209 xclbin bitstreams traced to their AIE generators, whole stack rebuilt from source (#499, #500). `model_router.cpp` now routes qwen3-architecture models to the native, open-source `npu_xrt` engine first, with the FastFlowLM subprocess kept only as a fallback (#567) — its single-core GEMM kernels are correctness-verified on real hardware (`docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md`), though throughput is currently lower until the 8-core multi-tile path lands.
 - **Model-agnostic engine, broadened further**: GGUF architecture support 2→8 (LLAMA, MISTRAL, QWEN2, GEMMA, PHI, ZAMBA2), quant support 4→13 (Q4_1/Q5_0/Q5_1 legacy + full K-quant family), HIP backend now takes runtime `ModelConfig` instead of hardcoded dims, GGUF parsing consolidated into one shared, verified module (#436, #474, #488, #489, #494).
 - **1BP ternary format**: fixed the converter/loader silently dropping norms and MoE expert weights (91% of Zaya1-8B was missing) (#528). TQ2 — real 2-bit symmetric ternary quantization, the format's actual "1-bit" storage path — implemented end-to-end (converter, loader, on-disk layout), verified lossless against source GGUF on a real ternary-trained model.

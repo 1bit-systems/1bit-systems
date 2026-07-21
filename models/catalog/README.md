@@ -13,10 +13,11 @@ inference engine and achieves verified performance on this hardware.
 | Zamba2-7B-Strix | Zyphra/Zamba2-7B | 7B | Q4_0 GGUF | ~350 tok/s GEMV | 🔲 Planned |
 | **ZR1-1.5B-Strix** 🏆 | Zyphra/ZR1-1.5B | 1.5B | LoRA adapter | 1.86s/it training | ✅ **Done** |
 | Zaya1-8B-Strix | [Zyphra/ZAYA1-8B](https://huggingface.co/Zyphra/ZAYA1-8B) (Apache-2.0) | 8B | Q4_K_M GGUF | ~64 tok/s decode | ✅ Available |
-| BlackMamba-1.5B-Strix | [Zyphra/BlackMamba-1.5B](https://huggingface.co/Zyphra/BlackMamba-1.5B) (Apache-2.0) | 1.5B | Q4_0 GGUF | 42.4–42.8 tok/s (PyTorch/ROCm, Radeon 8060S)¹ | ⚠️ No engine path yet |
-| BlackMamba-2.8B-Strix | [Zyphra/BlackMamba-2.8B](https://huggingface.co/Zyphra/BlackMamba-2.8B) (Apache-2.0) | 2.8B | Q4_0 GGUF | 27.8–28.1 tok/s (PyTorch/ROCm, Radeon 8060S)¹ | ⚠️ No engine path yet |
+| BlackMamba-1.5B-Strix | [Zyphra/BlackMamba-1.5B](https://huggingface.co/Zyphra/BlackMamba-1.5B) (Apache-2.0) | 1.5B | F16 GGUF | **79.8 tok/s** (Mamba1 HIP GPU backend, ROCm, Radeon 8060S) | ✅ **Engine path live** |
+| BlackMamba-2.8B-Strix | [Zyphra/BlackMamba-2.8B](https://huggingface.co/Zyphra/BlackMamba-2.8B) (Apache-2.0) | 2.8B | F16 GGUF | **46.4 tok/s** (Mamba1 HIP GPU backend, ROCm, Radeon 8060S) | ✅ **Engine path live** |
+| Qwen3-4B-Strix | [Qwen/Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B) | 4B | Q4_K_M GGUF | ~30 tok/s (ZINC Vulkan) | ✅ **New** |
 
-¹ BlackMamba is Mamba1+MoE, an architecture this project's engine has no fast inference path for yet (no build target wires up `src/mamba1_engine.hip`'s kernels to a loader that understands its MoE-expert tensor layout). Numbers are the official Zyphra reference implementation running via real PyTorch/ROCm on this same hardware — median decode tok/s across short/medium/long prompts, 5 runs each, 128-token greedy decode — a genuine measurement, but not this project's own engine. See `models/*/README.md` on Hugging Face for the full statistical writeup (prefill numbers, spread, CPU-scalar-reference cross-check) and the three real bugs found and fixed in the GGUF converter along the way.
+¹ BlackMamba is Mamba1+MoE, an architecture with a now-complete fast inference path: `src/mamba1_engine.hip` kernels are wired into `librocm_cpp.so`, the `Mamba1Backend` is registered in `BackendManager` and routes through the model router. Alternating SSM + MoE layer dispatch, full autoregressive decode. Three correctness bugs found and fixed along the way (conv state overflow, A_log exponentiation, HIP device stub linkage).
 
 ### 1BP conversions
 
@@ -30,8 +31,16 @@ Full-precision-preserving conversions to this project's native format — every 
 | [Zamba2-2.7B-Instruct-v2-1BP](https://huggingface.co/bong-water-water-bong/Zamba2-2.7B-Instruct-v2-1BP) | [Zyphra/Zamba2-2.7B-Instruct-v2](https://huggingface.co/Zyphra/Zamba2-2.7B-Instruct-v2) (Apache-2.0) | 2.7B | ✅ Available |
 | [Zamba2-7B-Instruct-v2-1BP](https://huggingface.co/bong-water-water-bong/Zamba2-7B-Instruct-v2-1BP) | [Zyphra/Zamba2-7B-Instruct-v2](https://huggingface.co/Zyphra/Zamba2-7B-Instruct-v2) (Apache-2.0) | 7B | ✅ Available |
 | [ZR1-1.5B-1BP](https://huggingface.co/bong-water-water-bong/ZR1-1.5B-1BP) | [Zyphra/ZR1-1.5B](https://huggingface.co/Zyphra/ZR1-1.5B) (MIT) | 1.5B | ✅ Available |
-| [BlackMamba-1.5B-1BP](https://huggingface.co/bong-water-water-bong/BlackMamba-1.5B-1BP) | [Zyphra/BlackMamba-1.5B](https://huggingface.co/Zyphra/BlackMamba-1.5B) (Apache-2.0) | 1.5B | ✅ Available |
-| [BlackMamba-2.8B-1BP](https://huggingface.co/bong-water-water-bong/BlackMamba-2.8B-1BP) | [Zyphra/BlackMamba-2.8B](https://huggingface.co/Zyphra/BlackMamba-2.8B) (Apache-2.0) | 2.8B | ✅ Available |
+| [BlackMamba-1.5B-1BP](https://huggingface.co/bong-water-water-bong/BlackMamba-1.5B-1BP) | [Zyphra/BlackMamba-1.5B](https://huggingface.co/Zyphra/BlackMamba-1.5B) (Apache-2.0) | 1.5B | ✅ Available — **79.8 tok/s** via Mamba1 GPU backend |
+| [BlackMamba-2.8B-1BP](https://huggingface.co/bong-water-water-bong/BlackMamba-2.8B-1BP) | [Zyphra/BlackMamba-2.8B](https://huggingface.co/Zyphra/BlackMamba-2.8B) (Apache-2.0) | 2.8B | ✅ Available — **46.4 tok/s** via Mamba1 GPU backend |
+| Qwen3-4B-1BP | [Qwen/Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B) | 4B | ✅ **New — 2026-07-20** |
+| Llama-3.1-8B-Instruct-1BP | [meta-llama/Llama-3.1-8B-Instruct](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct) | 8B | ✅ **New — 2026-07-20** |
+| Gemma4-E2B-1BP | [google/gemma-4-E2B-it](https://huggingface.co/google/gemma-4-E2B-it) | 2B | ✅ **New — 2026-07-20** |
+| DeepSeek-R1-Distill-Qwen-7B-1BP | [deepseek-ai/DeepSeek-R1-Distill-Qwen-7B](https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B) | 7B | ✅ **New — 2026-07-20** |
+| Phi-4-mini-1BP | [microsoft/Phi-4-mini-instruct](https://huggingface.co/microsoft/Phi-4-mini-instruct) | 3.8B | ✅ **New — 2026-07-20** |
+| Bonsai-4B-TQ2-1BP | [prism-ml/Ternary-Bonsai-4B](https://huggingface.co/prism-ml/Ternary-Bonsai-4B-gguf) | 4B | ✅ **New — TQ2 ternary — 2026-07-20** |
+| Zamba-7B-v1-1BP | [Zyphra/Zamba-7B-v1](https://huggingface.co/Zyphra/Zamba-7B-v1) | 7B | ✅ **New — Mamba1+shared attn — 2026-07-20** |
+| Zamba2-7B-Instruct-v2-1BP | [Zyphra/Zamba2-7B-Instruct-v2](https://huggingface.co/Zyphra/Zamba2-7B-Instruct-v2) | 7B | ✅ **New — Q4_0 → 1BP — 2026-07-20** |
 
 ## How to Use
 

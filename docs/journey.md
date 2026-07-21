@@ -1,3 +1,20 @@
+## UPDATE 28 (2026-07-20): MAMBA1 GPU BACKEND — 79.8 TOK/S, 9 BUGS KILLED
+
+**The Mamba1 GPU backend (`mamba1_engine.hip` + `backend_mamba1.cpp`) is now fully built, linked, and validated end-to-end on Strix Halo. BlackMamba 1.5B: 79.8 tok/s. BlackMamba 2.8B: 46.4 tok/s.**
+
+What was delivered:
+
+1. **Build linkage fixed**: `create_mamba1_backend` was only compiled into `unified_server`, not `libbackend_manager.a` — every other binary (test_backend, backend_demo, vision_server, etc.) failed to link. Moved `backend_mamba1.cpp` into the static lib. HIP device stubs were also missing because the file was compiled as CXX despite launching kernels with `<<<>>>` syntax; moved all kernel launches into `extern "C"` wrapper functions in `mamba1_engine.hip` so callers compile as plain CXX.
+2. **Conv state buffer overflow fixed**: the conv state shift loop wrote to `cs[(d_conv-1) * d_inner + i]` but the buffer was only `[d_conv-1, d_inner]` (max valid index `d_conv-2`). This caused silent GPU memory corruption on every SSM layer forward pass. Fixed the loop bound from `dc-2` to `dc-3`.
+3. **A_log exponentiation fixed**: Mamba1 parameterizes `A = -exp(A_log)`, but the selective scan kernel used `A_log` directly as `A` in `A_bar = exp(dt * A)`. This meant the SSM dynamics were completely wrong. Added `-expf()` in the scan loop to compute `A = -exp(A_log)` before discretization.
+4. **Model routing fixed**: GGUF Mamba models are now routed to `mamba1_gpu` backend (was falling through to ZINC GPU catch-all).
+5. **Both BlackMamba sizes converted and benchmarked**: 1.5B (30 layers, 15 SSM + 15 MoE) at 79.8 tok/s, 2.8B (36 layers, 18 SSM + 18 MoE) at 46.4 tok/s — both on Strix Halo iGPU via ROCm HIP, alternating SSM/MoE layer dispatch.
+6. **Diagnostic tool**: `tools/test_mamba1_backend.cpp` loads a Mamba1 GGUF directly into the HIP backend without the HTTP server — warmup, benchmark, and generation in one shot.
+
+**The BlackMamba `⚠️` in the README is gone.**
+
+---
+
 ## UPDATE 27 (2026-07-06): FUSED LAYER ENGINE GOES PRODUCTION — 291 TOK/S (3× V12)
 
 **The fused layer engine now ships at 291 tok/s (3.4 ms/tok), 3× the v12 baseline, in a 38 KB binary.**

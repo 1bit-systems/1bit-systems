@@ -516,18 +516,21 @@ int main(int argc, char** argv) {
     static struct option long_opts[] = {
         {"port",        required_argument, nullptr, 'p'},
         {"weights",     required_argument, nullptr, 'w'},
+        {"model",       required_argument, nullptr, 'm'},
         {"quick",       no_argument,       nullptr, 'q'},
         {"cors-origin", required_argument, nullptr, 'c'},
         {nullptr, 0, nullptr, 0}
     };
 
     bool quick_mode = false;
-    std::string g_cors_origin;  // empty = no CORS headers (fixes #7)
+    std::string g_cors_origin;
+    std::string g_model_name;
     int opt;
-    while ((opt = getopt_long(argc, argv, "p:w:c:q", long_opts, nullptr)) != -1) {
+    while ((opt = getopt_long(argc, argv, "p:w:m:c:q", long_opts, nullptr)) != -1) {
         switch (opt) {
             case 'p': g_port = atoi(optarg); break;
             case 'w': g_weights_dir = optarg; break;
+            case 'm': g_model_name = optarg; break;
             case 'q': quick_mode = true; break;
             case 'c': g_cors_origin = optarg; break;
         }
@@ -570,9 +573,31 @@ int main(int argc, char** argv) {
     // Phase 2.5: Scan for model files
     printf("\n── Model Discovery ──\n");
     static std::vector<ModelConfig> discovered = discover_models(g_weights_dir);
-    static ModelConfig current_cfg = discovered.empty() ? default_model_config() : discovered.front();
+
+    // Select model: --model flag takes priority, otherwise first discovered
+    static ModelConfig current_cfg = default_model_config();
+    if (!g_model_name.empty()) {
+        for (auto& m : discovered) {
+            if (m.model_name == g_model_name) {
+                current_cfg = m;
+                break;
+            }
+        }
+        if (current_cfg.model_path.empty()) {
+            printf("  ** Model '%s' not found -- using first available.\n",
+                   g_model_name.c_str());
+        }
+    }
+    if (current_cfg.model_path.empty() && !discovered.empty()) {
+        current_cfg = discovered.front();
+    }
+
     for (auto& m : discovered) {
-        printf("  ✓  %s (%s)\n", m.model_name.c_str(), m.model_path.c_str());
+        bool sel = (m.model_name == current_cfg.model_name);
+        printf("  %s %s (%s)%s\n",
+               sel ? ">" : "v",
+               m.model_name.c_str(), m.model_path.c_str(),
+               sel ? " [active]" : "");
     }
     if (discovered.empty()) {
         printf("  (no .gguf/.h1b files in %s)\n", g_weights_dir.c_str());
@@ -607,21 +632,18 @@ int main(int argc, char** argv) {
         printf("     Server starts in discovery-only mode.\n");
     }
 
-    // Phase 4: Benchmark available backends
+    // Phase 4: Benchmark active backend only
+    // (benchmarking all backends can crash on backends that don't support
+    //  the current model format, e.g. hip_gpu expects Zaya .bin format)
     if (inited) {
-        int bench_tokens = quick_mode ? 1 : 3;
-        printf("\n── Benchmark (%d token%s) ──\n", bench_tokens, bench_tokens == 1 ? "" : "s");
-        mgr.benchmark_all(bench_tokens);
-
-        // benchmark_all preserves the pre-existing (init'd) backend instance.
-        // Now re-evaluate to pick the fastest backend per strategy.
-        printf("\n── Select best backend ──\n");
-        mgr.set_strategy(SelectionStrategy::FASTEST);
-
-        auto* active = mgr.active_info();
-        if (active) {
-            printf("  Active: %s (%.1f ms/tok)\n",
-                   active->id.c_str(), active->score);
+        auto* active_info_raw = mgr.active_info();
+        if (active_info_raw) {
+            int bench_tokens = quick_mode ? 1 : 5;
+            printf("\n── Benchmark (%d token%s) ──\n", bench_tokens, bench_tokens == 1 ? "" : "s");
+            printf("  %s... ", active_info_raw->id.c_str());
+            fflush(stdout);
+            float ms = active_info_raw->instance->benchmark(bench_tokens);
+            printf("%.1f ms/tok\n", ms);
         }
     }
 

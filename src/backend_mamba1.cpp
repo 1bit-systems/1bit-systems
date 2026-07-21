@@ -211,18 +211,19 @@ struct Mamba1Backend : Backend {
     }
 
     // ── Init ──
-    bool init(const ModelConfig& cfg, const std::string& weights_path) override {
+    bool init(const ModelConfig& cfg, const std::string& weights_dir) override {
         this->cfg = cfg;
         d_model = cfg.hidden_size;
         n_layers = cfg.num_layers;
         vocab_size = cfg.vocab_size;
 
-        fprintf(stderr, "[mamba1] Initializing Mamba1 GPU backend: %s\n", weights_path.c_str());
+        std::string model_path = cfg.model_path;
+        fprintf(stderr, "[mamba1] Initializing Mamba1 GPU backend: %s\n", model_path.c_str());
 
         // ── Open GGUF ──
         GgufReader r;
-        if (!r.open(weights_path)) {
-            fprintf(stderr, "[mamba1] Failed to open GGUF: %s\n", weights_path.c_str());
+        if (!r.open(model_path)) {
+            fprintf(stderr, "[mamba1] Failed to open GGUF: %s\n", model_path.c_str());
             return false;
         }
 

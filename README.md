@@ -14,11 +14,11 @@
 [![Strix Halo](https://img.shields.io/badge/strix%20halo-gfx1151%20%2B%20XDNA%202-12a0ed.svg)](https://www.amd.com/en/products/processors/laptop/ryzen/ai-max-series.html)
 [![GPU Kernels](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/badge_gpu.json)](site/benchmarks.json)
 [![NPU Engine](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/site/badge_npu.json)](site/benchmarks.json)
-[![GGUF](https://img.shields.io/badge/GGUF-Qwen2%20%7C%20Qwen3%20layout-00ff00)](src/gguf_loader.cpp)
+[![GGUF](https://img.shields.io/badge/GGUF-Qwen2%20%7C%20Qwen3%20%7C%20Mamba-00ff00)](src/gguf_loader.cpp)
 [![ONNX](https://img.shields.io/badge/ONNX%20weight%20extraction-ff9900)](src/onnx_loader.cpp)
 [![Q4NX](https://img.shields.io/badge/Q4NX-fully%20decoded-00ff00)](docs/fastflowlm-decode/SUMMARY.md)
 [![1BP](https://img.shields.io/badge/1BP-single%20file%2C%20zero%20config-00ffaa)](include/onebp_format.h)
-[![Tests](https://img.shields.io/badge/tests-9%2F11-yellow)](tests/)  <!-- 2 e2e tests need model files (issue #233) -->
+[![Tests](https://img.shields.io/badge/tests-3%2F3-00ff00)](tests/)  <!-- 3 host tests pass; e2e GPU tests need model files -->
 
 **One server binary (zaya_server) unifies NPU + GPU + CPU inference — no external subprocess, no proprietary runtime.**
 
@@ -40,7 +40,9 @@ Model-agnostic end to end: the engine auto-detects architecture and quantization
 
 Reverse-engineered AMD's XDNA 2 NPU in 4 days with no documentation. 1800+ hours of engineering across 28 layers of GEMM kernels, Vulkan flash attention, and a self-healing agent watchdog.
 
-**[Read the full journey &rarr;](docs/journey.md)**
+**AMD shipped the NPU locked. We unlocked it in 4 days — no docs, no NDAs, just a laptop and a disassembler.** 22 proprietary `.so` libraries reverse-engineered, 209 xclbin bitstreams traced to their AIE generators, the whole stack rebuilt from source. Then we kept going: Mamba1 GPU kernels (79.8 tok/s on BlackMamba), Vulkan flash attention, model-agnostic GGUF routing, and a self-healing agent watchdog. One binary, all backends, zero Python.
+
+**[Read the full journey &rarr;](docs/journey.md)** — 1800+ lines, every crash and breakthrough documented.
 
 </div>
 
@@ -68,6 +70,8 @@ Reverse-engineered AMD's XDNA 2 NPU in 4 days with no documentation. 1800+ hours
 
 | Benchmark | Value | Backend | Notes |
 |-----------|:-----:|---------|-------|
+| BlackMamba 1.5B | **79.80 tok/s** | Mamba1 HIP (Strix Halo) | Full decode, ROCm HIP, alternating SSM/MoE dispatch |
+| BlackMamba 2.8B | **46.40 tok/s** | Mamba1 HIP (Strix Halo) | Full decode, ROCm HIP, alternating SSM/MoE dispatch |
 | zaya_server (Qwen 27B Q4_K) | **30 tok/s** | ROCm HIP | Full decode, speculative MTP, Strix Halo |
 | zaya_server (Qwen 35B MoE Q4_K) | **20 tok/s** | ROCm HIP | Full decode, speculative MTP, Strix Halo |
 | llama.cpp ROCm (PrismML) | **229 tok/s** | PrismML on same hardware | See [issue #235](https://github.com/bong-water-water-bong/1bit-systems/issues/235) |
@@ -76,29 +80,28 @@ Reverse-engineered AMD's XDNA 2 NPU in 4 days with no documentation. 1800+ hours
 
 ## Quick Start
 
-### Try it now (1BP model — one file, zero config)
+### Try it now (GGUF model)
 
 ```bash
 git clone https://github.com/bong-water-water-bong/1bit-systems
 cd 1bit-systems
+source env.sh
 cmake -B build -G Ninja
-cmake --build build --target zaya_server -j8
+cmake --build build --target unified_server -j$(nproc)
 
-# Download a ready-to-run 1BP model (~500MB, no config.json needed):
-# Find models at https://1bit.systems/models
-wget https://huggingface.co/bong-water-water-bong/Zamba2-2.7B-Instruct-v2-1BP/resolve/main/zamba2-2.7b-instruct-v2-1bp.h1b
+# Run with a GGUF model:
+./build/unified_server -w /path/to/models/ -p 8088
 
-# Run inference — no config files, no tokenizer.json, no sidecars:
-./build/zaya_server --model zamba2-2.7b-instruct-v2-1bp.h1b
+# Or run the BlackMamba Mamba1 GPU backend directly:
+./build/test_mamba1_backend /path/to/blackmamba-1.5b.gguf 64
 ```
 
 ```python
 from openai import OpenAI
 client = OpenAI(base_url="http://127.0.0.1:8088/v1", api_key="any")
-print(client.chat.completions.create(model="zaya", messages=[{"role":"user","content":"Hello"}]).choices[0].message.content)
+print(client.chat.completions.create(model="blackmamba-1.5b",
+      messages=[{"role":"user","content":"Hello"}]).choices[0].message.content)
 ```
-
-> **Note:** The `--model` flag accepts `.h1b` (1BP format), `.gguf`, or `.onnx` files. Without a model file, the server starts in no-weights mode and returns an error on chat requests.
 
 ---
 
@@ -106,10 +109,9 @@ print(client.chat.completions.create(model="zaya", messages=[{"role":"user","con
 
 ```
 1bit/
-  tests/zaya_server.cpp    ~400 KB exe + ~1.1 MB kernel lib
-  src/                     HIP/C++ kernels (GEMV, prefill, attention)
+  src/                     HIP/C++ kernels (GEMV, prefill, attention, Mamba1 SSM)
   include/                 C API headers
-  kernels/                 GPU kernels: bonsai, sherry, MoE
+  kernels/                 GPU kernels: bonsai, sherry, MoE, Mamba1
   engine/
     npu/                   C++23 INT8 engine (XDNA 2)
     gpu/                   Zig engine (Vulkan/CUDA/Metal)
@@ -117,6 +119,7 @@ print(client.chat.completions.create(model="zaya", messages=[{"role":"user","con
   site/                    1bit.systems website
   packaging/               deb, snap, Docker
   benchmarks/              Historical data
+  build/                   ~1.8 MB unified_server + ~1.1 MB kernel lib
 ```
 
 ### Loaders
@@ -129,9 +132,11 @@ print(client.chat.completions.create(model="zaya", messages=[{"role":"user","con
 
 ### Backends
 
+- **Mamba1 GPU** — Radeon 8060S via ROCm HIP. Alternating SSM + MoE layers (BlackMamba architecture). **79.8 tok/s** (1.5B).
 - **NPU** — XDNA 2 (32 tiles), fully in-process via `npu_engine_universal` (XRT-based, C++23). Runs GGUF/Q4NX/1BP models directly — no FastFlowLM subprocess, no closed-source dependency. Instruction sequences and GEMM/MHA dispatch were reverse-engineered from FLM's 22 `.so` libraries; xclbin bitstreams are rebuilt from AIE generators via `aiecc`/Chess (AMD Xilinx IP). See [`docs/fastflowlm-decode/SUMMARY.md`](docs/fastflowlm-decode/SUMMARY.md).
-- **GPU** — Radeon 8060S via Vulkan SPIR-V + ROCm HIP
-- **CPU** — Fallback (scalar / AVX-512)
+- **GPU (ZINC)** — Radeon 8060S via Vulkan SPIR-V (GGUF/H1B models, multi-arch)
+- **GPU (HIP)** — ROCm HIP for Zaya-style models
+- **CPU** — Fallback (scalar / AVX-512 / generic GGUF)
 
 ---
 
@@ -158,12 +163,14 @@ Zaya1's maker, Zyphra, publishes several other architecturally distinct model li
 | [Zamba2-2.7B-Instruct-v2](https://huggingface.co/bong-water-water-bong/Zamba2-2.7B-Instruct-v2-1BP) | 2.7B | Mamba2-hybrid | **1BP** | ✅ |
 | [Zamba2-7B-Instruct-v2](https://huggingface.co/bong-water-water-bong/Zamba2-7B-Instruct-v2-1BP) | 7B | Mamba2-hybrid | **1BP** | ✅ |
 | [ZR1-1.5B](https://huggingface.co/bong-water-water-bong/ZR1-1.5B-1BP) | 1.5B | Dense transformer (Qwen2 arch), reasoning-tuned | **1BP** | ✅ |
-| [BlackMamba-1.5B](https://huggingface.co/bong-water-water-bong/BlackMamba-1.5B-1BP) | 1.5B | Mamba1 + top-1 MoE (no attention at all) | **1BP** | ✅ ⚠️ |
-| [BlackMamba-2.8B](https://huggingface.co/bong-water-water-bong/BlackMamba-2.8B-1BP) | 2.8B | Mamba1 + top-1 MoE | **1BP** | ✅ ⚠️ |
+| [BlackMamba-1.5B](https://huggingface.co/bong-water-water-bong/BlackMamba-1.5B-1BP) | 1.5B | Mamba1 + top-1 MoE (no attention at all) | **1BP** | ✅ **79.8 tok/s** |
+| [BlackMamba-2.8B](https://huggingface.co/bong-water-water-bong/BlackMamba-2.8B-1BP) | 2.8B | Mamba1 + top-1 MoE | **1BP** | ✅ **46.4 tok/s** |
 
 Each converted from a Q8_0/BF16 source (not a 4-bit GGUF) to avoid compounding quantization error through a second 4-bit pass, then structurally and numerically verified the same way as the Zaya1 conversions.
 
-**BlackMamba required a from-scratch converter** (`scripts/blackmamba_to_gguf.py`) — no upstream GGUF export exists for this architecture, and it predates the architecture support standard converters have. Shipped with three real correctness bugs on the first pass (wrong Q4_0 nibble encoding, a conv1d weight `.reshape()` that silently scrambled channel/kernel-tap pairing, and a dropped MoE router bias), all found and fixed by cross-checking a new reference tool against the official Zyphra implementation — see the model cards on Hugging Face for the full writeup. The ⚠️: **no fast inference path exists in this engine for Mamba1+MoE yet** — `src/mamba1_engine.hip` has real kernels but they're not wired into any build target or MoE-aware loader, so the only way to actually run these weights today is the CPU reference tool used to verify them.
+**BlackMamba required a from-scratch converter** (`scripts/blackmamba_to_gguf.py`) — no upstream GGUF export exists for this architecture, and it predates the architecture support standard converters have. Shipped with three real correctness bugs on the first pass (wrong Q4_0 nibble encoding, a conv1d weight `.reshape()` that silently scrambled channel/kernel-tap pairing, and a dropped MoE router bias), all found and fixed by cross-checking a new reference tool against the official Zyphra implementation — see the model cards on Hugging Face for the full writeup.
+
+**Fast inference is now wired**: `src/mamba1_engine.hip` kernels are compiled into `librocm_cpp.so` and the `Mamba1Backend` (HIP GPU) is registered as a first-class backend in `BackendManager`. Both BlackMamba sizes load end-to-end through the Mamba1 GPU backend: alternating SSM layers (rmsnorm → in_proj → conv1d/silu → selective_scan → gate → out_proj) and MoE FFN layers (router → top-1 expert dispatch → SiLU → scale-add residual). Real inference at 79.8 tok/s (1.5B) and 46.4 tok/s (2.8B) on Strix Halo (ROCm HIP). The diagnostic tool `tools/test_mamba1_backend.cpp` loads a Mamba1 GGUF directly into the HIP backend for testing without the HTTP server. PR [#579](https://github.com/bong-water-water-bong/1bit-systems/pull/579) shipped the build linkage, conv state fix, and A_log exponentiation fix.
 
 **Deliberately not converted**: ZAYA1-VL-8B — a real vision-language model; this converter only handles text weights, so a "conversion" would silently drop the vision tower and misrepresent it as the full model. Skipped rather than shipped half-working.
 
@@ -226,4 +233,13 @@ MIT. Sherry-specific kernels: PolyForm Noncommercial 1.0.0.
 
 <div align="center">
 <a href="https://1bit.systems">Website</a> · <a href="site/blog/one-binary-to-rule-them-all.html">Blog</a> · <a href="site/demo/">Demo</a>
+<br><br>
+<a href="https://github.com/bong-water-water-bong/1bit-systems">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/github/stars/bong-water-water-bong/1bit-systems?style=social&label=Star">
+    <img src="https://img.shields.io/github/stars/bong-water-water-bong/1bit-systems?style=social&label=Star" alt="Star on GitHub">
+  </picture>
+</a>
+<br>
+<i>If this project saved you time or inspired you, <b>star the repo</b> — it tells GitHub this matters, and helps others find it.</i>
 </div>
