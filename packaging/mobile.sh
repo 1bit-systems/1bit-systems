@@ -8,7 +8,7 @@ echo "║     1bit Mobile — QR code pairing              ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo ""
 
-PORT="${1:-8081}"
+PORT="${1:-8080}"
 NGROK_AUTH="${BIT_NGROK_AUTH:-}"
 
 # Step 1: Check NPU server

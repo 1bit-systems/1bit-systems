@@ -232,7 +232,7 @@
       </div>
       <div class="cta-row">
         <a class="btn btn-primary btn-lg" href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">View on GitHub →</a>
-        <a class="btn btn-ghost btn-lg" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/install.md" target="_blank" rel="noopener">Install Guide →</a>
+        <a class="btn btn-ghost btn-lg" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/Installation.md" target="_blank" rel="noopener">Install Guide →</a>
       </div>
     </div>
     <div class="panel">
@@ -374,7 +374,7 @@
 <span class="c"># Just drop a GGUF file and go.</span></div>
   </div>
   <div style="margin-top:24px;text-align:center;font-size:14px;color:var(--muted);">
-    <a href="https://github.com/bong-water-water-bong/1bit-systems" style="color:var(--blue);font-weight:600;">View router source →</a> · <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/install.md" style="color:var(--blue);font-weight:600;">Install →</a>
+    <a href="https://github.com/bong-water-water-bong/1bit-systems" style="color:var(--blue);font-weight:600;">View router source →</a> · <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/Installation.md" style="color:var(--blue);font-weight:600;">Install →</a>
   </div>
 </section>
 
@@ -518,7 +518,7 @@
       <span style="flex:1"></span>
       <div class="foot-links">
         <a href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">GitHub</a>
-        <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/install.md" target="_blank" rel="noopener">Install Guide</a>
+        <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/Installation.md" target="_blank" rel="noopener">Install Guide</a>
         <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/performance.md" target="_blank" rel="noopener">Benchmarks</a>
         <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/journey.md" target="_blank" rel="noopener">Audit Trail</a>
       </div>
@@ -573,7 +573,11 @@
         }
 
         // Named IDs — binary sizes
-        var kb=b.zaya_kb+' KB', fkb=b.fused_kb+' KB';
+        var kb=b.zaya_kb+' KB';
+        // fused_kb is the whole fused-engine binary (~25 MB), not a per-layer
+        // artifact — show it in MB so it doesn't render as an absurd
+        // "25003 KB" next to copy that reads as a small, single-layer number.
+        var fkb=(b.fused_kb>=1024)?(b.fused_kb/1024).toFixed(1)+' MB':b.fused_kb+' KB';
         set('binary-size',kb); set('binary-size2',kb); set('binary-size3',kb);
         set('binary-size4',kb); set('binary-size5',kb); set('binary-size6',kb);
         set('binary-size7',kb);
@@ -588,7 +592,7 @@
 
         // TFLOPs
         var tf=B.tflops+' TFLOPS', tfs=''+B.tflops;
-        set('tflops',tf); set('tflops2',tfs); set('tflops3',tf);
+        set('tflops',tf); set('tflops2',tfs); set('tflops2-alt',tf); set('tflops3',tf);
 
         // Counts
         var mc=''+S.models, bc=''+S.backends;

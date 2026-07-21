@@ -95,6 +95,22 @@ def _managed_model_count() -> int | None:
     return len(re.findall(r'\.id\s*=\s*"', catalog.read_text()))
 
 
+def _registered_backend_count() -> int | None:
+    """Count backends actually registered in src/backend_manager.cpp.
+
+    `site.backends` was a hand-set literal ("6") like `site.models` used to be
+    ("73", issue #188) — matching neither the 9 `info.id = "..."` backends
+    actually registered here nor README's own 5-category grouping. Count the
+    real registrations directly, same fix as _managed_model_count(). Returns
+    None if the file can't be read (caller leaves the existing value untouched).
+    """
+    src = REPO / "src/backend_manager.cpp"
+    if not src.is_file():
+        return None
+    import re
+    return len(set(re.findall(r'info\.id\s*=\s*"([^"]+)"', src.read_text())))
+
+
 def _engine_benchmarks(benchmarks_path: Path) -> dict:
     """Read site/benchmarks.json and map engine tok/s fields to the names the
     site JS expects (see site/index.html lines ~557-586). These are the
@@ -156,6 +172,10 @@ def build(bench_path: Path) -> dict:
     managed = _managed_model_count()
     if managed is not None:
         bench.setdefault("site", {})["models"] = managed
+
+    backends = _registered_backend_count()
+    if backends is not None:
+        bench.setdefault("site", {})["backends"] = backends
 
     return {
         "_generated_by": "tools/gen_numbers.py",
