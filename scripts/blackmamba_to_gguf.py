@@ -8,6 +8,11 @@ GGML_F16 = 1
 GGML_F32 = 0
 
 def quant_q4_0(data):
+    # ggml Q4_0 packing: NOT interleaved consecutive pairs. The low nibble of
+    # byte j is element j, the high nibble of byte j is element j+16 (first
+    # half of the block in low nibbles, second half in high nibbles) -- see
+    # src/gguf_reader.cpp's dequant_q4_0, which documents this same mistake
+    # already having bitten this codebase once before in different code.
     n = len(data)
     out = bytearray()
     for i in range(0, n, 32):
@@ -15,12 +20,16 @@ def quant_q4_0(data):
         amax = np.max(np.abs(blk))
         scale = amax / 7.0 if amax > 0 else 1e-10
         out.extend(struct.pack('<e', np.float16(scale)))
-        for j in range(0, 32, 2):
+        for j in range(16):
             v0 = blk[j] / scale if j < len(blk) else 0
-            v1 = blk[j+1] / scale if j+1 < len(blk) else 0
-            q0 = max(-8, min(7, int(round(v0)))) & 0x0F
-            q1 = max(-8, min(7, int(round(v1)))) & 0x0F if j+1 < len(blk) else 0
-            out.append((q0 << 4) | q1)
+            v1 = blk[j + 16] / scale if j + 16 < len(blk) else 0
+            # Dequant is (nibble - 8) * scale (excess-8/offset-binary), not
+            # two's complement -- masking a signed int with & 0x0F produces
+            # two's complement, a completely different encoding. Must add 8
+            # after clamping to [-8,7], not just mask the signed value.
+            q0 = (max(-8, min(7, int(round(v0)))) + 8) & 0x0F
+            q1 = (max(-8, min(7, int(round(v1)))) + 8) & 0x0F
+            out.append((q1 << 4) | q0)
     return bytes(out)
 
 class Writer:
@@ -142,7 +151,12 @@ def convert(model_id, output):
         
         if f"{mb}.in_proj.weight" in sd:
             ip = sd[f"{mb}.in_proj.weight"].to(torch.float32).numpy()
-            c1w = sd[f"{mb}.conv1d.weight"].to(torch.float32).numpy().reshape(dc, di)
+            # Original shape is (d_inner, 1, d_conv) -- squeeze the singleton
+            # groups-dim, don't reshape(dc, di): reshape reinterprets the
+            # flat buffer with new dims, it does not transpose, so a wrong
+            # target shape silently scrambles which (channel, kernel-tap)
+            # pair each value belongs to instead of erroring.
+            c1w = sd[f"{mb}.conv1d.weight"].to(torch.float32).numpy().reshape(di, dc)
             c1b = sd[f"{mb}.conv1d.bias"].to(torch.float32).numpy()
             xp = sd[f"{mb}.x_proj.weight"].to(torch.float32).numpy()
             dpw = sd[f"{mb}.dt_proj.weight"].to(torch.float32).numpy()
@@ -164,7 +178,16 @@ def convert(model_id, output):
         # MoE
         router = sd.get(f"{mb}.router.weight")
         if router is not None:
-            w.add_tensor(f"blk.{l}.ffn_gate.weight", router.to(torch.float32).numpy().T, GGML_Q4_0)
+            # F32, not Q4_0: this is an 8x1152 argmax-routing matrix, not a
+            # dense weight -- a small quantization perturbation can flip
+            # which expert wins for a borderline token, changing the whole
+            # downstream computation, unlike the graceful magnitude error
+            # 4-bit quantization causes on a normal weight. Negligible size
+            # cost (36 KB) for correctness that actually matters here.
+            w.add_tensor(f"blk.{l}.ffn_gate.weight", router.to(torch.float32).numpy().T, GGML_F32)
+            router_bias = sd.get(f"{mb}.router.bias")
+            if router_bias is not None:
+                w.add_tensor(f"blk.{l}.ffn_gate.bias", router_bias.to(torch.float32).numpy(), GGML_F32)
             n_exp = router.shape[0]
             for e in range(n_exp):
                 fc1 = sd[f"{mb}.local_experts.{e}.linear_fc1.weight"].to(torch.float32).numpy()
