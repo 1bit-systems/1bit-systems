@@ -115,24 +115,6 @@
       "display_name": "zaya_server (Qwen 35B MoE Q4_K)",
       "backend": "ROCm HIP",
       "notes": "Full decode, speculative MTP, Strix Halo"
-    },
-    "blackmamba_1_5b": {
-      "tok_s": 79.8,
-      "status": "end_to_end",
-      "label": "BlackMamba 1.5B end-to-end decode (15 SSM + 15 MoE layers)",
-      "table": "end_to_end",
-      "display_name": "BlackMamba 1.5B",
-      "backend": "Mamba1 HIP (Strix Halo)",
-      "notes": "Full decode, ROCm HIP, alternating SSM/MoE dispatch"
-    },
-    "blackmamba_2_8b": {
-      "tok_s": 46.4,
-      "status": "end_to_end",
-      "label": "BlackMamba 2.8B end-to-end decode (18 SSM + 18 MoE layers)",
-      "table": "end_to_end",
-      "display_name": "BlackMamba 2.8B",
-      "backend": "Mamba1 HIP (Strix Halo)",
-      "notes": "Full decode, ROCm HIP, alternating SSM/MoE dispatch"
     }
   },
   "table_kernel": [
@@ -145,8 +127,6 @@
     "rocm_hip"
   ],
   "table_end_to_end": [
-    "blackmamba_1_5b",
-    "blackmamba_2_8b",
     "zaya_27b",
     "zaya_35b_moe",
     "gpu_1bit"
@@ -186,12 +166,18 @@
     "gpu_zinc",
     "gpu_1bit",
     "zaya",
-    "blackmamba_1_5b",
-    "blackmamba_2_8b",
     "dspark",
     "npu_fused"
   ],
   "system": {
     "tflops_int8": 42.21
+  },
+  "mamba1_gpu": {
+    "blackmamba_1_5b_tok_s": 79.8,
+    "blackmamba_2_8b_tok_s": 46.4,
+    "layers_1_5b": "15 SSM + 15 MoE",
+    "layers_2_8b": "18 SSM + 18 MoE",
+    "prefill_tflops": 41.45,
+    "kv_fd_speedup_L2048": "12.73x"
   }
 }
