@@ -11,13 +11,34 @@
  *    [Tensor Index: variable]
  *    [Weight Data: tiled arrays]
  *
- *  Tile layout (Q4NX-compatible, 32×256):
+ *  Tile layout — Q4NX (header.quant == ONEBP_Q4NX), 32×256:
  *    Each tile = 32 rows × 256 cols of quantized data
  *    Per tile row:
  *      [0..511]:   256 BF16 scales (8 groups × 32 rows)
  *      [512..1023]: 256 BF16 zero_points (same layout)
  *      [1024..5119]: 4096 bytes packed INT4 (2 per byte)
  *    Total per tile: 5120 bytes
+ *
+ *  Tile layout — TQ2 (header.quant == ONEBP_TQ2), 32×256:
+ *    Symmetric ternary: every value is exactly -scale, 0, or +scale — no
+ *    zero_point needed (unlike Q4NX's asymmetric min/scale). One scale per
+ *    32-element group.
+ *    Per tile row:
+ *      [0..15]:    8 BF16 scales (one per 32-element group)
+ *      [16..79]:   64 bytes packed 2-bit codes (4 per byte, LSB-first:
+ *                  code = byte & 3, (byte>>2) & 3, (byte>>4) & 3, (byte>>6) & 3)
+ *                  code 0 = -scale, 1 = 0, 2 = +scale, 3 = unused (encoder
+ *                  never emits it; a decoder should treat it as 0)
+ *    Total per tile row: 80 bytes → 2560 bytes per tile (exactly half of
+ *    Q4NX's 5120 — the real "1-bit-ish" storage win Q4NX doesn't give you).
+ *    This is a generic symmetric-ternary quantizer (round to nearest of
+ *    {-scale,0,scale} per group) — lossless when the source is already
+ *    ternary-valued within each 32-group (as with BitNet/TriLM/Bonsai-style
+ *    checkpoints), lossy-but-functional otherwise, same as Q4NX is lossy
+ *    for any source that isn't already 4-bit-quantizable.
+ *
+ *  TQ1 (1.58-bit, base-3 packing) is defined in the OnebpQuant enum but
+ *  not yet implemented by the converter or loader.
  *
  *  Tensor index entry (variable-length):
  *    [name_len:u32][name:str][ndim:u32][dims:u32 × ndim][offset:u64][bytes:u64]
@@ -144,6 +165,11 @@ static inline uint64_t onebp_tiled_size(
             break;
         case ONEBP_I8:
             tile_bytes = (uint64_t)tile_rows * tile_cols;  // 1 byte per element
+            break;
+        case ONEBP_TQ2:
+            // scales (bf16 x groups x rows) + 2-bit packed codes (4/byte)
+            tile_bytes = (uint64_t)tile_rows * groups_per_row * 2   // scales
+                       + (uint64_t)tile_rows * tile_cols / 4;       // 2-bit packed
             break;
         case ONEBP_F16:
             tile_bytes = (uint64_t)tile_rows * tile_cols * 2;

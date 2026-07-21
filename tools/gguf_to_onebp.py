@@ -42,10 +42,44 @@ def quant_tile(data, tr=32, tc=256, gs=32):
 
     return sc.tobytes() + zp.tobytes() + pk.tobytes()
 
+def quant_tile_tq2(data, tr=32, tc=256, gs=32):
+    """Symmetric ternary: every value in a group rounds to -scale, 0, or
+    +scale (scale = max abs value in the group), packed 2 bits/value,
+    4 per byte LSB-first. No zero_point needed (unlike Q4NX's asymmetric
+    min/scale) since ternary is exactly symmetric around 0.
+    Lossless when the source is already ternary-valued within each group
+    (BitNet/TriLM/Bonsai-style checkpoints); a generic (lossy) ternary
+    quantizer otherwise, same relationship Q4NX has to arbitrary floats."""
+    r, c = data.shape
+    pr, pc = tr, tc
+    grps = pc // gs
+    padded = np.zeros((pr, pc), dtype=np.float32)
+    padded[:r, :c] = data
+    grouped = padded.reshape(pr, grps, gs)
+
+    mx = np.abs(grouped).max(axis=2)
+    scale = np.where(mx < 1e-10, 1.0, mx).astype(np.float32)
+    sc = f32b(scale).astype(np.uint16)
+
+    inv = 1.0 / scale
+    signed = np.clip(np.round(grouped * inv[:, :, None]), -1, 1).astype(np.int8)
+    code = (signed + 1).astype(np.uint8).reshape(pr, pc)  # {0,1,2}
+
+    c0, c1, c2, c3 = code[:, 0::4], code[:, 1::4], code[:, 2::4], code[:, 3::4]
+    pk = (c0 | (c1 << 2) | (c2 << 4) | (c3 << 6)).astype(np.uint8)
+
+    return sc.tobytes() + pk.tobytes()
+
 def tiled_size(rows, cols, tr=32, tc=256, gs=32):
     ntr = (rows + tr - 1) // tr
     ntc = (cols + tc - 1) // tc
     return ntr * ntc * (tr * (tc // gs) * 4 + tr * tc // 2)
+
+def tiled_size_tq2(rows, cols, tr=32, tc=256, gs=32):
+    ntr = (rows + tr - 1) // tr
+    ntc = (cols + tc - 1) // tc
+    groups_per_row = tc // gs
+    return ntr * ntc * (tr * groups_per_row * 2 + tr * tc // 4)
 
 def to_f32(ten):
     """Dequantize a GGUF tensor to a flat float32 array (any dtype, any shape)."""
@@ -55,12 +89,19 @@ def to_f32(ten):
     return dequantize(ten.data, ten.tensor_type).astype(np.float32).reshape(-1)
 
 def main():
-    if len(sys.argv) < 3:
-        print(f"Usage: {sys.argv[0]} input.gguf output.1bp [max_tensors]"); sys.exit(1)
+    argv = sys.argv[1:]
+    tq2 = '--tq2' in argv
+    if tq2: argv.remove('--tq2')
+    if len(argv) < 2:
+        print(f"Usage: {sys.argv[0]} input.gguf output.1bp [max_tensors] [--tq2]")
+        print("  --tq2: symmetric 2-bit ternary quant instead of 4-bit Q4NX.")
+        print("         Lossless for already-ternary sources (BitNet/TriLM/Bonsai),")
+        print("         half the size of the Q4NX default.")
+        sys.exit(1)
 
-    print(f"Reading {sys.argv[1]}...")
-    rd = GGUFReader(sys.argv[1])
-    max_t = int(sys.argv[3]) if len(sys.argv) > 3 else 0
+    print(f"Reading {argv[0]}...")
+    rd = GGUFReader(argv[0])
+    max_t = int(argv[2]) if len(argv) > 2 else 0
     by_name = {t.name: t for t in rd.tensors}
 
     def gf(field, alt=None):
@@ -109,11 +150,13 @@ def main():
 
     # Build header
     tr, tc, gs = 32, 256, 32
+    quant_id = 3 if tq2 else 0  # ONEBP_TQ2 : ONEBP_Q4NX
     hdr = struct.pack('<5I8i10I',
-        0x00504231, 1, 0, 0, 0,
+        0x00504231, 1, 0, quant_id, 0,
         H, L, NH, NKV, HD, IM, V, 4096,
         tr, tc, gs, 0, 0, 0, 1000000, 1, 2, 0)
     hdr = bytearray(hdr.ljust(256, b'\x00'))
+    print(f"Quant: {'TQ2 (2-bit symmetric ternary)' if tq2 else 'Q4NX (4-bit)'}")
 
     # Collect tensors — ndim 1 (norms/biases, stored raw), 2 (weight
     # matrices, tile-quantized), and 3 (MoE expert stacks: [num_experts,
@@ -130,12 +173,12 @@ def main():
             total += sz
         elif len(shape) == 2:
             rows, cols = int(shape[1]), int(shape[0])
-            sz = tiled_size(rows, cols, tr, tc, gs)
+            sz = (tiled_size_tq2 if tq2 else tiled_size)(rows, cols, tr, tc, gs)
             tlist.append((tn.name, 2, [rows, cols], total, sz))
             total += sz
         elif len(shape) == 3:
             cols, rows, n_experts = int(shape[0]), int(shape[1]), int(shape[2])
-            per_expert = tiled_size(rows, cols, tr, tc, gs)
+            per_expert = (tiled_size_tq2 if tq2 else tiled_size)(rows, cols, tr, tc, gs)
             sz = per_expert * n_experts
             tlist.append((tn.name, 3, [n_experts, rows, cols], total, sz))
             total += sz
@@ -147,7 +190,7 @@ def main():
     struct.pack_into('<I', hdr, 88, len(tlist))
 
     # Write output
-    fout = open(sys.argv[2], 'wb')
+    fout = open(argv[1], 'wb')
     fout.write(bytes(hdr))
     for name, ndim, dims, off, sz in tlist:
         nb = len(name)
@@ -168,6 +211,7 @@ def main():
         ten = by_name.get(name)
         if ten is None: continue
         flat = to_f32(ten)
+        qfn = quant_tile_tq2 if tq2 else quant_tile
 
         if ndim == 1:
             fout.write(flat.tobytes())
@@ -178,7 +222,7 @@ def main():
             for rr in range(ntr):
                 for cc in range(ntc):
                     td = w[rr*tr:rr*tr+tr, cc*tc:cc*tc+tc]
-                    fout.write(quant_tile(td, tr, tc, gs))
+                    fout.write(qfn(td, tr, tc, gs))
         elif ndim == 3:
             ne, nr, nc = dims
             # GGUF stores expert-stacked tensors as (cols, rows, n_experts)
@@ -190,14 +234,14 @@ def main():
                 for rr in range(ntr):
                     for cc in range(ntc):
                         td = we[rr*tr:rr*tr+tr, cc*tc:cc*tc+tc]
-                        fout.write(quant_tile(td, tr, tc, gs))
+                        fout.write(qfn(td, tr, tc, gs))
 
         if done <= 5 or done % 100 == 0:
             print(f"  [{done}/{len(tlist)}] {name}: ndim={ndim} dims={dims}")
 
     fout.close()
-    mb = os.path.getsize(sys.argv[2]) / 1e6
-    print(f"\nDone: {sys.argv[2]} ({mb:.1f} MB)")
+    mb = os.path.getsize(argv[1]) / 1e6
+    print(f"\nDone: {argv[1]} ({mb:.1f} MB)")
 
 if __name__ == '__main__':
     main()

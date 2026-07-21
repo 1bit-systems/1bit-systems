@@ -118,7 +118,7 @@ print(client.chat.completions.create(model="zaya", messages=[{"role":"user","con
 
 ## Model Coverage
 
-Model-agnostic isn't just a claim about the loader — it's been exercised across genuinely different architectures: dense transformer (Qwen3, Llama, ZR1), mixture-of-experts (Zaya1-74B-A4B, Qwen 35B MoE), vision-language (Qwen2-VL), Mamba2-hybrid state-space (Zamba2), and ternary/1-bit-native weights (Bonsai, Zaya1-8B via 1BP) — same engine, same auto-detect path, no per-architecture fork.
+Model-agnostic isn't just a claim about the loader — it's been exercised across genuinely different architectures: dense transformer (Qwen3, Llama, ZR1), mixture-of-experts (Zaya1-74B-A4B, Qwen 35B MoE), vision-language (Qwen2-VL), Mamba2-hybrid state-space (Zamba2), and genuinely ternary/1-bit-native weights (Bonsai, stored via 1BP's TQ2 quant, not just upsampled to 4-bit) — same engine, same auto-detect path, no per-architecture fork.
 
 ### Zaya1 — the flagship family
 
@@ -165,6 +165,16 @@ Same binary, same auto-detect path, no per-model glue — the loader reads archi
 | Bonsai-1.7B | Ternary (IQ1_S mixed quant) | Vulkan/ZINC | 21.6-21.9 tok/s, 99.6% of theoretical memory bandwidth |
 | Zamba2 (1.2B / 2.7B / 7B) | Mamba2 SSD hybrid | ROCm (fallback) | Mamba2 lacks tuned ROCm kernels — PyTorch fallback, ~73× slower than attention models; see [`models/catalog/README.md`](models/catalog/README.md) |
 | Qwen2-VL | Vision-language | GPU | Minimal POC — real image-to-text, stops at EOS |
+
+### TQ2 — the actual 1-bit/ternary storage path
+
+Every model above is stored via 1BP's default Q4NX quant (4-bit, works for any source precision). `ONEBP_TQ1`/`ONEBP_TQ2` have been defined in the format since it was designed but were never implemented — meaning even genuinely ternary-trained models were getting upsampled to 4-bit on the way in. Fixed for TQ2: symmetric 2-bit quantization (every value is exactly `-scale`, `0`, or `+scale`, one BF16 scale per 32-group, no zero-point needed), exactly half of Q4NX's tile size.
+
+| Model | Params | Format | Verification | HF |
+|-------|:------:|--------|---------------|-----|
+| [Bonsai-1.7B](https://huggingface.co/bong-water-water-bong/Bonsai-1.7B-TQ2-1BP) | 1.72B | **1BP (TQ2)** | 100% of dequantized values match source within BF16 scale-rounding (mean rel. error rounds to 0.000000) — lossless repack, not requantization | [link](https://huggingface.co/bong-water-water-bong/Bonsai-1.7B-TQ2-1BP) |
+
+Convert another ternary-native model the same way: `python3 tools/gguf_to_onebp.py model.gguf output.1bp --tq2`. `ONEBP_TQ1` (1.58-bit, base-3 packing) is still unimplemented — 256 isn't evenly divisible by its 5-values-per-byte scheme, so it needs more careful boundary handling than TQ2 did.
 
 ---
 

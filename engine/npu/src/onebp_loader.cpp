@@ -188,12 +188,44 @@ public:
         }
     }
 
+    // ── Dequantize a single TQ2 tile (32×256) to float32 ──
+    // Symmetric ternary: code 0=-scale, 1=0, 2=+scale, 3=unused->0.
+    // Packed 2 bits/value, 4 per byte LSB-first (see onebp_format.h).
+    static void dequant_tile_tq2(const uint8_t* tile_data, float* output,
+                                 int out_rows, int out_cols,
+                                 int tile_rows = 32, int tile_cols = 256, int group_size = 32) {
+        int groups = tile_cols / group_size;
+        const uint16_t* scales = (const uint16_t*)tile_data;
+        const uint8_t*  qdata  = tile_data + (size_t)tile_rows * groups * 2;
+
+        for (int r = 0; r < tile_rows && r < out_rows; r++) {
+            for (int g = 0; g < groups; g++) {
+                float scale = bf16_to_f32(scales[r * groups + g]);
+
+                for (int i = 0; i < group_size && g * group_size + i < out_cols; i += 4) {
+                    int col = g * group_size + i;
+                    int byte_idx = (r * tile_cols + col) / 4;
+                    uint8_t packed = qdata[byte_idx];
+                    for (int k = 0; k < 4 && col + k < out_cols; k++) {
+                        uint8_t code = (packed >> (2 * k)) & 0x3;
+                        float v = (code == 0) ? -scale : (code == 2) ? scale : 0.0f;
+                        output[r * out_cols + col + k] = v;
+                    }
+                }
+            }
+        }
+    }
+
     // ── Dequantize a tiled 2D matrix starting at `base` into `out` ──
+    // Dispatches on hdr_.quant — Q4NX (4-bit, default) or TQ2 (2-bit ternary).
     void dequant_matrix(const uint8_t* base, int R, int C, std::vector<float>& out) const {
         int tr = hdr_.tile_rows, tc = hdr_.tile_cols, gs = hdr_.group_size;
         int ntr = (R + tr - 1) / tr;
         int ntc = (C + tc - 1) / tc;
-        size_t tile_bytes = (size_t)tr * (tc / gs) * 4 + (size_t)tr * tc / 2;
+        bool is_tq2 = hdr_.quant == ONEBP_TQ2;
+        size_t tile_bytes = is_tq2
+            ? (size_t)tr * (tc / gs) * 2 + (size_t)tr * tc / 4
+            : (size_t)tr * (tc / gs) * 4 + (size_t)tr * tc / 2;
 
         out.resize((size_t)R * C);
         memset(out.data(), 0, out.size() * sizeof(float));
@@ -205,7 +237,8 @@ public:
                 int cw = (C - c0) < tc ? (C - c0) : tc;
 
                 float tile_buf[32 * 256];  // max tile size
-                dequant_tile(base, tile_buf, rh, cw, tr, tc, gs);
+                if (is_tq2) dequant_tile_tq2(base, tile_buf, rh, cw, tr, tc, gs);
+                else        dequant_tile(base, tile_buf, rh, cw, tr, tc, gs);
 
                 for (int r = 0; r < rh; r++)
                     for (int c = 0; c < cw; c++)
@@ -258,7 +291,9 @@ public:
 
         int tr = hdr_.tile_rows, tc = hdr_.tile_cols, gs = hdr_.group_size;
         int ntc = (te->cols + tc - 1) / tc;
-        size_t tile_bytes = (size_t)tr * (tc / gs) * 4 + (size_t)tr * tc / 2;
+        size_t tile_bytes = hdr_.quant == ONEBP_TQ2
+            ? (size_t)tr * (tc / gs) * 2 + (size_t)tr * tc / 4
+            : (size_t)tr * (tc / gs) * 4 + (size_t)tr * tc / 2;
 
         uint64_t off = te->file_offset + (uint64_t)(tile_row * ntc + tile_col) * tile_bytes;
         if (off + tile_bytes > map_size_) return nullptr;
@@ -274,7 +309,9 @@ public:
 
         int tr = hdr_.tile_rows, tc = hdr_.tile_cols, gs = hdr_.group_size;
         int ntc = (te->cols + tc - 1) / tc;
-        size_t tile_bytes = (size_t)tr * (tc / gs) * 4 + (size_t)tr * tc / 2;
+        size_t tile_bytes = hdr_.quant == ONEBP_TQ2
+            ? (size_t)tr * (tc / gs) * 2 + (size_t)tr * tc / 4
+            : (size_t)tr * (tc / gs) * 4 + (size_t)tr * tc / 2;
         uint64_t per_expert_bytes = te->total_bytes / (uint64_t)te->num_experts;
 
         uint64_t off = te->file_offset + expert_idx * per_expert_bytes
