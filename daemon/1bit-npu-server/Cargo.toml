@@ -1,0 +1,38 @@
+[package]
+name = "onebit-npu-server"
+version = "0.1.0"
+edition = "2021"
+description = "1bit NPU Chat Server — Zero FLM. Uses npu_engine_universal worker for GEMM."
+license = "MIT"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP server
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Tokenization (HuggingFace tokenizers)
+tokenizers = "0.21"
+
+# Error handling
+anyhow = "1"
+
+# ndarray for matrix operations in inference
+ndarray = "0.16"
+
+# SSE streaming
+tokio-stream = "0.1"
+futures = "0.3"

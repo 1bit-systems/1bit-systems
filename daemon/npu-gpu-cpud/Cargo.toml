@@ -1,0 +1,49 @@
+[package]
+name = "npu-gpu-cpud"
+version = "0.1.0"
+edition = "2021"
+description = "Unified NPU+GPU Control Plane Daemon — Rust port of npu-gpu-cpud.py"
+license = "MIT"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP server
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+
+# HTTP client for GPU backend + Stripe API
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Tokenization (HuggingFace tokenizers)
+tokenizers = "0.21"
+
+# HMAC for Stripe webhook verification
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+
+# SMTP for order emails
+lettre = { version = "0.11", features = ["tokio1-native-tls", "builder"] }
+
+# Unix process reaping (zombie prevention)
+libc = "0.2"
+
+# Time utilities
+chrono = "0.4"
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
