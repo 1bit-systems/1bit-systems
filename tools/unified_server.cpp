@@ -867,43 +867,60 @@ int main(int argc, char** argv) {
         if (max_tokens > 32768) max_tokens = 32768;
         std::string req_model = body.value("model", "");
 
-        // g_config_mutex spans the whole model-switch-decision +
-        // tokenize + generate critical section (fixes #2/#364).
-        // We also hold g_strategy_mutex here because generate_completion()
-        // may read strategy engine state. Using std::lock avoids deadlock.
-        std::lock(g_config_mutex, g_strategy_mutex);
-        std::lock_guard<std::mutex> _l1(g_config_mutex, std::adopt_lock);
-        std::lock_guard<std::mutex> _l2(g_strategy_mutex, std::adopt_lock);
+        // ── Phase 1: Model-switch check under locks only (#701 fix) ──
+        // Defer slow I/O (load_from_gguf, mgr.init) to outside the lock.
         mgr.set_strategy(strategy);
 
-        // Look up the requested model from body["model"] and switch config if needed
-        if (!req_model.empty()) {
-            for (auto& dm : discovered) {
-                if (dm.model_name == req_model &&
-                    (dm.hidden != current_cfg.hidden || dm.n_layers != current_cfg.n_layers)) {
-                    printf("[model] switching to %s (%d layers, %d hidden)\n",
-                           dm.model_name.c_str(), dm.n_layers, dm.hidden);
-                    current_cfg = dm;
-                    g_tokenizer.load_from_gguf(current_cfg.model_path);
-                    BackendRoute swrt = select_backend_route(current_cfg);
-                    mgr.init(current_cfg, g_weights_dir, swrt.backend_ids_in_order);
-                    break;
+        ModelConfig switch_cfg;
+        bool need_model_switch = false;
+        {
+            std::lock(g_config_mutex, g_strategy_mutex);
+            std::lock_guard<std::mutex> _l1(g_config_mutex, std::adopt_lock);
+            std::lock_guard<std::mutex> _l2(g_strategy_mutex, std::adopt_lock);
+
+            if (!req_model.empty()) {
+                for (auto& dm : discovered) {
+                    if (dm.model_name == req_model &&
+                        (dm.hidden != current_cfg.hidden || dm.n_layers != current_cfg.n_layers)) {
+                        printf("[model] switching to %s (%d layers, %d hidden)\n",
+                               dm.model_name.c_str(), dm.n_layers, dm.hidden);
+                        switch_cfg = dm;
+                        current_cfg = dm;
+                        need_model_switch = true;
+                        break;
+                    }
                 }
+            }
+        } // release both mutexes
+
+        // ── Phase 1b: Model-switch I/O outside locks (#701 fix) ──
+        if (need_model_switch) {
+            g_tokenizer.load_from_gguf(switch_cfg.model_path);
+            BackendRoute swrt = select_backend_route(switch_cfg);
+            mgr.init(switch_cfg, g_weights_dir, swrt.backend_ids_in_order);
+        }
+
+        // Tokenize with logprobs for cascade strategy (#696 fix: config_mutex only)
+        std::vector<int> prompt_tokens;
+        std::vector<double> prompt_logprobs;
+        {
+            std::lock_guard<std::mutex> cfg_lock(g_config_mutex);
+            if (use_strategy_engine) {
+                prompt_tokens = g_tokenizer.encode_with_logprobs(prompt, prompt_logprobs);
+            } else {
+                prompt_tokens = g_tokenizer.encode(prompt);
+            }
+            if (prompt_tokens.empty()) {
+                prompt_tokens = {g_tokenizer.bos_id};
             }
         }
 
-        // Tokenize with logprobs for cascade strategy
-        std::vector<int> prompt_tokens;
-        std::vector<double> prompt_logprobs;
-        if (use_strategy_engine) {
-            prompt_tokens = g_tokenizer.encode_with_logprobs(prompt, prompt_logprobs);
-        } else {
-            prompt_tokens = g_tokenizer.encode(prompt);
+        // Capture strategy engine pointer under its mutex (#696 fix)
+        StrategyEngine* se = nullptr;
+        {
+            std::lock_guard<std::mutex> strat_lock(g_strategy_mutex);
+            se = use_strategy_engine ? &g_strategy_engine : nullptr;
         }
-        if (prompt_tokens.empty()) {
-            prompt_tokens = {g_tokenizer.bos_id};
-        }
-
         // ── Inject vision embeddings (if any) before text generation ──
         // Runs forward_embed() for each vision token, splicing the image into
         // the KV cache before the text prompt is processed.
@@ -941,8 +958,7 @@ int main(int argc, char** argv) {
                     vision_images.size(), VISION_TOKENS_PER_IMG);
         }
 
-        // Generate with strategy-aware routing
-        StrategyEngine* se = use_strategy_engine ? &g_strategy_engine : nullptr;
+        // Generate with strategy-aware routing (#696 fix: no global lock held)
         json gen_result = generate_completion(mgr, prompt_tokens, prompt_logprobs,
                                                max_tokens, backend_id,
                                                se, last_user_msg);
@@ -1009,30 +1025,24 @@ int main(int argc, char** argv) {
 
         std::string backend_id = resolve_backend_id(req);
 
-        // Same locking treatment as /v1/chat/completions (fixes #2).
-        std::lock(g_config_mutex, g_strategy_mutex);
-        std::lock_guard<std::mutex> _l1(g_config_mutex, std::adopt_lock);
-        std::lock_guard<std::mutex> _l2(g_strategy_mutex, std::adopt_lock);
+        // ── Tokenize under config_mutex only (#696 fix) ──
         mgr.set_strategy(resolve_strategy(req));
 
-        // Accept prompt or tokens
         std::vector<int> prompt_tokens;
-        if (body.contains("tokens") && body["tokens"].is_array()) {
-            for (auto& t : body["tokens"]) {
-                if (t.is_number_integer()) prompt_tokens.push_back(t.get<int>());
+        {
+            std::lock_guard<std::mutex> cfg_lock(g_config_mutex);
+            if (body.contains("tokens") && body["tokens"].is_array()) {
+                for (auto& t : body["tokens"]) {
+                    if (t.is_number_integer()) prompt_tokens.push_back(t.get<int>());
+                }
+            } else if (body.contains("prompt")) {
+                prompt_tokens = g_tokenizer.encode(body["prompt"].get<std::string>());
             }
-        } else if (body.contains("prompt")) {
-            prompt_tokens = g_tokenizer.encode(body["prompt"].get<std::string>());
+            if (prompt_tokens.empty()) {
+                prompt_tokens = {g_tokenizer.bos_id};
+            }
         }
 
-        if (prompt_tokens.empty()) {
-            prompt_tokens = {g_tokenizer.bos_id};
-        }
-
-        int max_tokens = body.value("n_predict", 256);
-
-        std::vector<double> empty_logprobs;
-        json gen_result = generate_completion(mgr, prompt_tokens, empty_logprobs,
                                                max_tokens, backend_id);
 
         json response;

@@ -183,12 +183,15 @@ pub const SharedKVCache = struct {
         n_tokens: u32,
     ) void {
         const base = self.position;
-        _ = n_tokens;
         const stride = n_kv_heads * head_dim;
-        const dst_base = base * stride;
-        for (0..n_kv_heads * head_dim) |i| {
-            self.k_cache[layer][dst_base + i] = k_data[i];
-            self.v_cache[layer][dst_base + i] = v_data[i];
+        // Write all tokens' KV data, not just the first one (#686 fix)
+        for (0..n_tokens) |t| {
+            const dst_base = (base + t) * stride;
+            const src_off = t * stride;
+            for (0..stride) |i| {
+                self.k_cache[layer][dst_base + i] = k_data[src_off + i];
+                self.v_cache[layer][dst_base + i] = v_data[src_off + i];
+            }
         }
     }
 

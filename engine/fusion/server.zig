@@ -608,17 +608,20 @@ pub fn runServer(
         const local_conn_id = conn_id;
         log.debug("connection #{d} accepted from {s}", .{ local_conn_id, conn.address });
 
-        // Handle the connection
-        handleConnection(
+        // Handle each connection in its own thread to prevent one slow
+        // client from blocking all others (#708 fix).
+        const thread = std.Thread.spawn(.{}, handleConnection, .{
             allocator,
             conn,
             &engine_instance,
             &proxy,
             &config,
             local_conn_id,
-        ) catch |err| {
-            log.warn("connection #{d} handler error: {s}", .{ local_conn_id, @errorName(err) });
+        }) catch |err| {
+            log.err("failed to spawn thread for connection #{d}: {s}", .{ local_conn_id, @errorName(err) });
+            continue;
         };
+        thread.detach();
     }
 }
 

@@ -263,20 +263,30 @@ pub const GgufReader = struct {
     }
 
     /// Extract model configuration from GGUF metadata.
+    /// Tries architecture-specific prefix first (e.g. "mamba.block_count"),
+    /// then falls back to generic "llama." prefixed keys.
     pub fn extractConfig(self: *const GgufReader) GgufConfig {
         var cfg = GgufConfig{};
         if (self.getMetadataString("general.architecture")) |v| cfg.architecture = v;
-        if (self.getMetadataU32("llama.block_count")) |v| cfg.block_count = v;
-        if (self.getMetadataU32("llama.context_length")) |v| cfg.context_length = v;
-        if (self.getMetadataU32("llama.embedding_length")) |v| cfg.embedding_length = v;
-        if (self.getMetadataU32("llama.feed_forward_length")) |v| cfg.feed_forward_length = v;
-        if (self.getMetadataU32("llama.head_count")) |v| cfg.head_count = v;
-        if (self.getMetadataU32("llama.head_count_kv")) |v| cfg.head_count_kv = v;
-        if (self.getMetadataF32("llama.attention.layer_norm_rms_epsilon")) |v| cfg.rms_norm_eps = v;
-        if (self.getMetadataF32("llama.rope.freq_base")) |v| cfg.rope_freq_base = v;
-        if (self.getMetadataU32("llama.rope.dimension_count")) |v| cfg.rope_dimension_count = v;
-        if (self.getMetadataU32("llama.expert_count")) |v| cfg.expert_count = v;
-        if (self.getMetadataU32("llama.expert_used_count")) |v| cfg.expert_used_count = v;
+
+        // Determine the arch prefix to try first (e.g. "mamba", "zamba", "falcon")
+        const arch_prefix = if (cfg.architecture.len > 0) cfg.architecture else "";
+        const prefixes = [_][]const u8{ arch_prefix, "llama" };
+
+        for (prefixes) |pfx| {
+            if (pfx.len == 0) continue;
+            if (cfg.block_count == 0) if (self.getMetadataU32(fmt("{s}.block_count", .{pfx}))) |v| cfg.block_count = v;
+            if (cfg.context_length == 0) if (self.getMetadataU32(fmt("{s}.context_length", .{pfx}))) |v| cfg.context_length = v;
+            if (cfg.embedding_length == 0) if (self.getMetadataU32(fmt("{s}.embedding_length", .{pfx}))) |v| cfg.embedding_length = v;
+            if (cfg.feed_forward_length == 0) if (self.getMetadataU32(fmt("{s}.feed_forward_length", .{pfx}))) |v| cfg.feed_forward_length = v;
+            if (cfg.head_count == 0) if (self.getMetadataU32(fmt("{s}.head_count", .{pfx}))) |v| cfg.head_count = v;
+            if (cfg.head_count_kv == 0) if (self.getMetadataU32(fmt("{s}.head_count_kv", .{pfx}))) |v| cfg.head_count_kv = v;
+            if (cfg.rms_norm_eps == 0.0) if (self.getMetadataF32(fmt("{s}.attention.layer_norm_rms_epsilon", .{pfx}))) |v| cfg.rms_norm_eps = v;
+            if (cfg.rope_freq_base == 0.0) if (self.getMetadataF32(fmt("{s}.rope.freq_base", .{pfx}))) |v| cfg.rope_freq_base = v;
+            if (cfg.rope_dimension_count == 0) if (self.getMetadataU32(fmt("{s}.rope.dimension_count", .{pfx}))) |v| cfg.rope_dimension_count = v;
+            if (cfg.expert_count == 0) if (self.getMetadataU32(fmt("{s}.expert_count", .{pfx}))) |v| cfg.expert_count = v;
+            if (cfg.expert_used_count == 0) if (self.getMetadataU32(fmt("{s}.expert_used_count", .{pfx}))) |v| cfg.expert_used_count = v;
+        }
         if (self.getMetadataU32("general.file_type")) |v| cfg.file_type = v;
         return cfg;
     }
