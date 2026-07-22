@@ -495,6 +495,9 @@ struct CPUBackend : Backend {
         if (ptr) munmap(ptr, sz);
     }
 
+    // LM head logits cache (avoids 1 MB heap alloc per token - fix #740)
+    std::vector<float> logits_cache;
+
     // State (per-sequence, cleared on reset)
     float hs[H];
     float prev_hs[H];
@@ -815,10 +818,9 @@ struct CPUBackend : Backend {
     int generate(int token_id) override {
         float hidden[H];
         if (!forward(token_id, hidden)) return -1;
-        float* logits = new float[VOCAB];
+        if (logits_cache.empty()) logits_cache.resize(VOCAB);
         int result;
-        lm_head(hidden, logits, &result);
-        delete[] logits;
+        lm_head(hidden, logits_cache.data(), &result);
         return result;
     }
 

@@ -334,11 +334,11 @@ GgufReader::~GgufReader() { if (f_) fclose(f_); }
 
 std::string GgufReader::read_string() {
     uint64_t len = 0;
-    fread(&len, 8, 1, f_);
+    if (fread(&len, 8, 1, f_) != 1) return {};
     static constexpr uint64_t MAX_STRING_LEN = 1ULL * 1024 * 1024;
-    if (len > MAX_STRING_LEN) { fseeko(f_, (off_t)len, SEEK_CUR); len = 0; }
+    if (len > MAX_STRING_LEN) { fseeko(f_, (off_t)len, SEEK_CUR); return "truncated"; }
     std::string s(len, '\0');
-    if (len > 0) fread(&s[0], 1, len, f_);
+    if (len > 0 && fread(&s[0], 1, len, f_) != len) return {};
     return s;
 }
 
@@ -404,11 +404,10 @@ bool GgufReader::open(const std::string& path) {
     if (!f_) return false;
     char magic[4];
     if (fread(magic, 1, 4, f_) != 4 || memcmp(magic, "GGUF", 4) != 0) { fclose(f_); f_ = nullptr; return false; }
-    uint32_t version; fread(&version, 4, 1, f_);
+    uint32_t version; if (fread(&version, 4, 1, f_) != 1) { fclose(f_); f_ = nullptr; return false; }
     if (version != 2 && version != 3) { fclose(f_); f_ = nullptr; return false; }
     uint64_t tensor_count, kv_count;
-    fread(&tensor_count, 8, 1, f_);
-    fread(&kv_count, 8, 1, f_);
+    if (fread(&tensor_count, 8, 1, f_) != 1 || fread(&kv_count, 8, 1, f_) != 1) { fclose(f_); f_ = nullptr; return false; }
     static constexpr uint64_t MAX_TENSOR_COUNT = 200000, MAX_KV_COUNT = 200000;
     if (tensor_count > MAX_TENSOR_COUNT || kv_count > MAX_KV_COUNT) { fclose(f_); f_ = nullptr; return false; }
 

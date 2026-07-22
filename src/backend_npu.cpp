@@ -90,10 +90,11 @@ static inline void rope(float* x, int head_dim, int pos) {
 static void attn_cpu(float* qo, float* at, int seq_len,
                      const float* kv_k, const float* kv_v,
                      int NQ, int NKV, int HD, int GQA) {
+    constexpr int MAX_CTX = 4096;
     #pragma omp parallel for
     for (int hh = 0; hh < NQ; hh++) {
         int kvh = hh / GQA;
-        std::vector<float> scores(seq_len);
+        float scores[MAX_CTX];
         float mx = -1e30f;
         for (int p = 0; p < seq_len; p++) {
             double s = 0;

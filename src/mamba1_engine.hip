@@ -51,7 +51,7 @@ __global__ void gemv_q4(const uint8_t* W, const float* x, float* y, int M, int K
                     if(ki>=k0&&ki<k0+ks)s+=(float)n0*sc*xt[ki-k0];
                     if(ki+1>=k0&&ki+1<k0+ks)s+=(float)n1*sc*xt[ki+1-k0];}
             }
-            for(int o=32;o>0;o>>=1)s+=__shfl_xor(s,o);if(ln==0)a[r]+=s;}
+            for(int o=16;o>0;o>>=1)s+=__shfl_xor(s,o);if(ln==0)a[r]+=s;}
         __syncthreads();}
     for(int r=0;r<4;r++){int row=rb+w*4+r;if(ln==0&&row<M)y[row]=a[r];}
 }
