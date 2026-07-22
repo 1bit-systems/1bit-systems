@@ -12,31 +12,34 @@
 
 # Marketing site + single-page docs collapsed into ONE /index.html
 # All doc pages redirect to the correct section on the single-page site.
-/docs                       /#faq                      301!
-/docs/                      /#faq                      301!
-/docs/index.html            /                           301!
-/docs/install.html          /#install                  301!
-/docs/install               /#install                  301!
-/docs/quickstart.html       /#benchmarks               301!
-/docs/quickstart            /#benchmarks               301!
-/docs/troubleshooting.html  /#faq                      301!
-/docs/troubleshooting       /#faq                      301!
-/docs/faq.html              /#faq                      301!
-/docs/faq                   /#faq                      301!
-/docs/architecture.html     /#engine                   301!
-/docs/architecture          /#engine                   301!
-/docs/models.html           /#platform                 301!
-/docs/models                /#platform                 301!
-/models.html                /#platform                 301!
-/models/                    /#platform                 301!
-/models                     /#platform                 301!
-/docs/api.html              /#platform                 301!
-/docs/api                   /#platform                 301!
-/docs/benchmarks.html       /#benchmarks               301!
-/docs/benchmarks            /#benchmarks               301!
-/docs/why.html              /#top                      301!
-/docs/why                   /#top                      301!
-/docs/contributing.html     /                           301!
-/docs/contributing          /                           301!
-/docs/changelog.html        /                           301!
-/docs/changelog             /                           301!
+# Note: kept as plain 301/302 (no trailing `!`) — forced redirects were
+# found to silently never fire on this deployment; each of these paths
+# also has a matching meta-refresh stub file as a working fallback.
+/docs                       /#faq                      301
+/docs/                      /#faq                      301
+/docs/index.html            /                           301
+/docs/install.html          /#install                  301
+/docs/install               /#install                  301
+/docs/quickstart.html       /#benchmarks               301
+/docs/quickstart            /#benchmarks               301
+/docs/troubleshooting.html  /#faq                      301
+/docs/troubleshooting       /#faq                      301
+/docs/faq.html              /#faq                      301
+/docs/faq                   /#faq                      301
+/docs/architecture.html     /#engine                   301
+/docs/architecture          /#engine                   301
+/docs/models.html           /#platform                 301
+/docs/models                /#platform                 301
+/models.html                /#platform                 301
+/models/                    /#platform                 301
+/models                     /#platform                 301
+/docs/api.html              /#platform                 301
+/docs/api                   /#platform                 301
+/docs/benchmarks.html       /#benchmarks               301
+/docs/benchmarks            /#benchmarks               301
+/docs/why.html              /#top                      301
+/docs/why                   /#top                      301
+/docs/contributing.html     /                           301
+/docs/contributing          /                           301
+/docs/changelog.html        /                           301
+/docs/changelog             /                           301
