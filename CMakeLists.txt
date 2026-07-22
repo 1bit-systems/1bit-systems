@@ -627,9 +627,8 @@ target_link_libraries(unified_server PRIVATE
 target_link_options(unified_server PRIVATE -rdynamic -luuid)
 set_target_properties(unified_server PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 if(ZINC_CPP_AVAILABLE)
-    set_target_properties(unified_server PROPERTIES
-        INSTALL_RPATH "${ZINC_REPO_DIR}/zig-out/lib"
-        BUILD_RPATH "${ZINC_REPO_DIR}/zig-out/lib")
+    target_link_libraries(unified_server PRIVATE zinc_cpp)
+    target_include_directories(unified_server PRIVATE engine/gpu/zinc_cpp/include)
 endif()
 
 add_custom_target(zaya_agent ALL
@@ -652,9 +651,7 @@ target_include_directories(test_mamba1_backend PRIVATE src/ include/)
 target_compile_options(test_mamba1_backend PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
 target_link_libraries(test_mamba1_backend PRIVATE backend_manager dl)
 if(ZINC_CPP_AVAILABLE)
-    set_target_properties(backend_demo PROPERTIES
-        INSTALL_RPATH "${ZINC_REPO_DIR}/zig-out/lib"
-        BUILD_RPATH "${ZINC_REPO_DIR}/zig-out/lib")
+    target_link_libraries(backend_demo PRIVATE zinc_cpp)
 endif()
 
 add_executable(vision_qwen2vl_poc tools/vision_qwen2vl_poc.cpp)
