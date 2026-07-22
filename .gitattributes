@@ -25,3 +25,12 @@
 *.zst binary
 *.zip binary
 *.tar.gz binary
+
+# ── GitHub linguist: keep the language bar accurate ──
+# GPU compute shaders are compiled to SPIR-V at build time (glslc), loaded as data
+*.comp        linguist-vendored
+*.glsl        linguist-vendored
+*.spv         linguist-vendored binary
+
+# HIP kernels are C++ with HIP attributes, compiled by HIPCC
+*.hip         linguist-language=C++
