@@ -67,32 +67,6 @@ void BackendManager::discover() {
         backends_.push_back(info);
     }
 
-    // 1b. NPU via FastFlowLM subprocess — legacy fallback for manual opt-in only.
-    // Our own NPU_XRT backend (backend_npu.cpp + npu_engine_universal worker)
-    // is now the default NPU path. FLM was used for research but is no longer
-    // needed for NPU inference — see fastflowlm_analysis/ for the research findings.
-    {
-        BackendInfo info;
-        info.id = "npu_flm";
-        info.type = BackendType::NPU_FLM;
-        info.tier = BackendTier::T1_ACCELERATOR;
-        info.description = "NPU via FastFlowLM (legacy)";
-        info.priority = tier_priority(info.tier) + 40;
-        bool flm_bin = access("/opt/fastflowlm/bin/flm", X_OK) == 0 ||
-                       access("/usr/bin/flm", X_OK) == 0;
-        info.available = has_npu() && flm_bin;
-        info.functional = false;
-        info.auto_selectable = false;  // manual opt-in only; NPU_XRT is the default now
-        info.score = 0;
-        info.total_inferences = 0;
-        info.failed_inferences = 0;
-        info.cumulative_ms = 0;
-        info.instance = nullptr;
-        info.plugin_handle = nullptr;
-        printf("  %-25s %s\n", "NPU via FastFlowLM", info.available ? "✅ detected (legacy, manual)" : "❌ not available");
-        backends_.push_back(info);
-    }
-
     // 1c. ZINC GPU — general GGUF, multi-architecture/multi-quant (see model_router.h;
     // this is the default GPU path for non-Zaya, non-qwen3 GGUF models).
     {
@@ -923,7 +897,7 @@ int BackendManager::load_plugins(const std::string& directory) {
         BackendInfo info;
         info.id = plugin.id;
         info.type = loader->type();
-        info.tier = (loader->type() == BackendType::NPU_XRT || loader->type() == BackendType::NPU_FLM) ? BackendTier::T1_ACCELERATOR : BackendTier::T2_GPU;
+        info.tier = (loader->type() == BackendType::NPU_XRT) ? BackendTier::T1_ACCELERATOR : BackendTier::T2_GPU;
         info.description = loader->description();
         info.priority = tier_priority(info.tier);
         info.available = true;
@@ -1113,8 +1087,6 @@ Backend* BackendManager::create_instance_rt(const BackendInfo& info) {
             return create_cpu_backend();
         case BackendType::GENERIC:
             return create_generic_backend();
-        case BackendType::NPU_FLM:
-            return create_flm_backend();
         case BackendType::ZINC_GPU:
 #ifdef ZINC_DISABLED
             return nullptr;

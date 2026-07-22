@@ -2,7 +2,7 @@
 import json, os, re, subprocess, sys, uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from jarvis.rag import _kb
-from jarvis.routing import resolve_model, flm_chat, ollama_chat, ollama_chat_stream, MODEL_ROUTING
+from jarvis.routing import resolve_model, flm_chat, unified_chat, ollama_chat, ollama_chat_stream, MODEL_ROUTING
 from jarvis.stt import transcribe_audio
 from jarvis.tts import synthesize_speech
 from jarvis.tools import SYSTEM_PROMPT_TOOLS, format_tool_followup, parse_tool_call, run_tool
@@ -141,9 +141,10 @@ class H(BaseHTTPRequestHandler):
         bkd = r.get("backend", "npu")
         if bkd == "npu_vision": return self._vis(r, msgs, stream, mt, temp)
         if bkd == "gpu": return self._gpu(r["ollama_model"], msgs, stream, mt, temp, session_id, use_tools, allow_write)
+        if bkd == "unified": return self._unified(r["unified_model"], msgs, stream, mt, temp, session_id, use_tools, allow_write)
         return self._npu(r.get("flm_model", mid), msgs, stream, mt, temp, session_id, use_tools, allow_write)
 
-    def _resolve_tool_call(self, model_id, msgs, content, mt, t, allow_write):
+    def _resolve_tool_call(self, model_id, msgs, content, mt, t, allow_write, chat_fn=flm_chat):
         """If the model asked for a tool, run it (gated) and get a final reply."""
         call = parse_tool_call(content)
         if not call:
@@ -153,7 +154,7 @@ class H(BaseHTTPRequestHandler):
             {"role": "assistant", "content": content},
             {"role": "user", "content": format_tool_followup(result, allowed)},
         ]
-        r2 = flm_chat(model_id, follow, mt, t)
+        r2 = chat_fn(model_id, follow, mt, t)
         final = r2.get("choices", [{}])[0].get("message", {}).get("content", content) if "error" not in r2 else content
         return final, {"name": call["name"], "allowed": allowed, "result": result}
 
@@ -164,6 +165,24 @@ class H(BaseHTTPRequestHandler):
         tool_info = None
         if use_tools:
             c, tool_info = self._resolve_tool_call(m, msgs, c, mt, t, allow_write)
+        if c:
+            _kb.save_turn(session_id, "assistant", c)
+        if s:
+            self._s(200, {"Content-Type": "text/event-stream"})
+            self.wfile.write(_sl({"choices": [{"delta": {"content": c}, "index": 0}]}))
+            self.wfile.write(_sd())
+        elif tool_info:
+            self._j(200, {"tool_call": tool_info, "choices": [{"index": 0, "message": {"role": "assistant", "content": c}, "finish_reason": "stop"}]})
+        else:
+            self._j(200, r)
+
+    def _unified(self, m, msgs, s, mt, t, session_id="default", use_tools=False, allow_write=False):
+        r = unified_chat(m, msgs, mt, t)
+        if "error" in r: return self._j(502, r)
+        c = r.get("choices", [{}])[0].get("message", {}).get("content", "")
+        tool_info = None
+        if use_tools:
+            c, tool_info = self._resolve_tool_call(m, msgs, c, mt, t, allow_write, chat_fn=unified_chat)
         if c:
             _kb.save_turn(session_id, "assistant", c)
         if s:

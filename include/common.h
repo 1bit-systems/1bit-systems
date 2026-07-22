@@ -15,7 +15,6 @@ enum class BackendType : uint8_t {
     ZAMBA2 = 7,   // Zamba2 hybrid Mamba2+attention (CPU ref)
     ZAMBA2_GPU = 8, // Zamba2 with HIP acceleration
     ZINC_GPU = 9,   // General GGUF backend via engine/gpu (ZINC), multi-arch/multi-quant
-    NPU_FLM = 10,   // NPU inference via FastFlowLM subprocess (in-process kernels are broken, see docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md)
     Q4NX_FUSION = 11, // Q4NX format via engine/fusion, forced cpu_only policy
 };
 
@@ -30,7 +29,6 @@ inline const char* backend_name(BackendType t) {
         case BackendType::ZAMBA2: return "Zamba2 (Mamba2 CPU)";
         case BackendType::ZAMBA2_GPU: return "Zamba2 (Mamba2 GPU)";
         case BackendType::ZINC_GPU: return "ZINC GPU (Vulkan, multi-arch)";
-        case BackendType::NPU_FLM: return "NPU via FastFlowLM";
         case BackendType::Q4NX_FUSION: return "Q4NX Fusion (CPU)";
         default: return "none";
     }

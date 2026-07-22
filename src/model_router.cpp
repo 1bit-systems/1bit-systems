@@ -18,13 +18,13 @@
 //         but the router picks the right kernel via the MoE config.
 //
 //   qwen3 architecture
-//     ├─ npu_xrt (native NPU engine — INT8, single-core, ~12 tok/s)
-//     ├─ npu_flm (FLM subprocess — fused xclbins, ~95 tok/s, fallback)
+//     ├─ npu_xrt (native NPU engine — INT8, single-core)
 //     └─ cpu_generic
-//         npu_xrt is the DEFAULT route since PR #567 (2026-07-20) once its
+//         npu_xrt is the sole NPU route since PR #567 (2026-07-20), once its
 //         single-core GEMM kernels passed correctness verification against
-//         the HuggingFace BF16 reference. FLM is kept as a faster fallback
-//         until the multi-tile NPU path lands (see docs/mlir-air-integration.md).
+//         the HuggingFace BF16 reference. The FastFlowLM subprocess fallback
+//         (a proprietary AMD binary) was removed entirely — this project
+//         ships zero proprietary code, not "zero by default."
 //
 //   zamba / mamba / zamba2 architecture (Mamba1 SSM + MoE or shared attn)
 //     └─ hip_gpu (Mamba1/Mamba2 HIP kernels) + cpu_generic
@@ -77,7 +77,7 @@ BackendRoute select_backend_route(const ModelConfig& cfg) {
         return {{"mamba1_gpu", "cpu_generic"}, "Mamba1 model — Mamba1 HIP kernels, generic CPU fallback"};
     }
     if (cfg.architecture == "qwen3") {
-        return {{"npu_xrt", "npu_flm", "cpu_generic"}, "qwen3 architecture — native NPU engine, FLM subprocess as fallback"};
+        return {{"npu_xrt", "cpu_generic"}, "qwen3 architecture — native NPU engine, no proprietary fallback"};
     }
     if (cfg.format == ModelFormat::GGUF || cfg.format == ModelFormat::H1B) {
         return {{"zinc_gpu", "cpu_generic"}, "GGUF/H1B model — ZINC GPU, generic CPU fallback"};

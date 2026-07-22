@@ -107,8 +107,7 @@ inline const char* pilot_backend_name(PilotBackend pb) {
 
 static inline PilotBackend backend_type_to_pilot(BackendType bt) {
     switch (bt) {
-        case BackendType::NPU_XRT:
-        case BackendType::NPU_FLM:     return PilotBackend::NPU;
+        case BackendType::NPU_XRT:     return PilotBackend::NPU;
         case BackendType::HIP_GPU:
         case BackendType::VULKAN:
         case BackendType::ZINC_GPU:

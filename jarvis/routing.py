@@ -4,6 +4,11 @@ from urllib.error import URLError
 
 NPU_URL = "http://127.0.0.1:52625"
 OLLAMA_URL = "http://127.0.0.1:11434"
+# tools/unified_server.cpp — the native engine's own OpenAI-compatible server
+# (npu_xrt/hip_gpu/mamba1_gpu/vulkan_gpu/cpu, auto-selected per model, live
+# per-request model switching via the standard "model" field). Zero
+# proprietary code: no subprocess wraps a closed-source binary here.
+UNIFIED_URL = "http://127.0.0.1:8088"
 
 MODEL_ROUTING = {
     "qwen3:0.6b": {"backend": "npu", "flm_model": "qwen3:0.6b"},
@@ -22,6 +27,22 @@ MODEL_ROUTING = {
     "mistral:7b": {"backend": "gpu", "ollama_model": "mistral:7b"},
     "gpt-oss:20b": {"backend": "gpu", "ollama_model": "gpt-oss:20b"},
     "llama3.2-vision": {"backend": "gpu", "ollama_model": "llama3.2-vision"},
+
+    # Zyphra family, served locally via tools/unified_server.cpp (models/*.gguf,
+    # 1BP conversions available for all of these — see models/catalog/README.md).
+    # zr1-1.5b confirmed producing coherent output live 2026-07-21. The
+    # zamba2 sizes are real but slower to load/switch (7B: >120s cold), and
+    # blackmamba-1.5b/2.8b are EXCLUDED here — their GGUF conversion has no
+    # usable embedded tokenizer vocab right now, so unified_server falls back
+    # to an ASCII passthrough tokenizer and emits raw token IDs, not text.
+    # That's a real bug in the conversion, not something to route chat to
+    # until it's fixed (separate from the Mamba1 HIP *inference* path itself,
+    # which does work — see PR #584).
+    "zr1:1.5b": {"backend": "unified", "unified_model": "ZR1 1.5B"},
+    "zamba2:1.2b": {"backend": "unified", "unified_model": "zamba2-1.2b-instruct-v2-q4_0"},
+    "zamba2:2.7b": {"backend": "unified", "unified_model": "zamba2-2.7b-instruct-v2-q4_0"},
+    "zamba2:7b": {"backend": "unified", "unified_model": "zamba2-7b-instruct-v2-q4_0"},
+    "zaya1:8b": {"backend": "unified", "unified_model": "ZAYA1 8B"},
 }
 
 
@@ -54,6 +75,23 @@ def flm_chat(model, messages, max_tokens=256, temp=0.7):
         return json.loads(resp.read())
     except URLError as e:
         return {"error": f"NPU: {e.reason}"}
+
+
+def unified_chat(model, messages, max_tokens=256, temp=0.7):
+    # Live model-switch on the server side means the first request for a
+    # not-currently-active model pays a reload cost -- the larger Zyphra
+    # sizes (7B) can take well over a minute. Give this a generous timeout
+    # rather than fail a cold switch that would otherwise succeed.
+    payload = {"model": model, "messages": messages,
+               "max_tokens": max_tokens, "temperature": temp, "stream": False}
+    req = Request(f"{UNIFIED_URL}/v1/chat/completions",
+                  data=_json_bytes(payload),
+                  headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        resp = urlopen(req, timeout=180)
+        return json.loads(resp.read())
+    except URLError as e:
+        return {"error": f"unified: {e.reason}"}
 
 
 def ollama_chat(model, messages, max_tokens=256, temp=0.7):

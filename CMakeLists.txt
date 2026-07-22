@@ -343,7 +343,6 @@ add_library(backend_manager STATIC
     src/backend_plugin.cpp
     src/backend_cpu.cpp
     src/backend_generic.cpp
-    src/backend_flm.cpp
     src/backend_mamba1.cpp
     src/backend_laguna.cpp
     src/simple_tokenizer.cpp
@@ -635,14 +634,13 @@ add_executable(unified_server
     src/backend_npu.cpp
     src/backend_generic.cpp
     src/model_router.cpp
-    src/backend_flm.cpp)
+)
 set_source_files_properties(src/backend_hip.cpp PROPERTIES LANGUAGE HIP)
 set_source_files_properties(src/zaya_engine.cpp PROPERTIES LANGUAGE HIP)
 set_source_files_properties(src/backend_generic.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(tools/unified_server.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(src/backend_npu.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(src/model_router.cpp PROPERTIES LANGUAGE CXX)
-set_source_files_properties(src/backend_flm.cpp PROPERTIES LANGUAGE CXX)
 target_include_directories(unified_server PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
