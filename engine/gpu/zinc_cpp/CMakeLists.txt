@@ -11,14 +11,42 @@ find_program(GLSLC_EXECUTABLE glslc)
 # ── Sources ──
 set(ZINC_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(ZINC_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
+set(ZINC_INCLUDE_DIRS)
 
 set(ZINC_SOURCES
     ${ZINC_SRC_DIR}/vulkan_wrapper.cpp
     ${ZINC_SRC_DIR}/compute_engine.cpp
     ${ZINC_SRC_DIR}/model_loader.cpp
     ${ZINC_SRC_DIR}/main.cpp
-    /home/bcloud/1bit-systems/src/gguf_reader.cpp
 )
+
+# gguf_reader is in the repo root's src/ directory.
+# When built standalone, CMAKE_CURRENT_SOURCE_DIR = repo-root/engine/gpu/zinc_cpp
+# so ../../../ = repo-root. When built as subdirectory from root CMakeLists.txt,
+# the root CMake provides the correct include paths directly.
+if(NOT ZINC_CPP_AVAILABLE)
+    # Standalone build: try to find gguf_reader relative to this project
+    # On GitHub: repo-root = CMAKE_CURRENT_SOURCE_DIR/../../..
+    set(ZINC_REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../..)
+    if(EXISTS ${ZINC_REPO_ROOT}/src/gguf_reader.cpp)
+        list(APPEND ZINC_SOURCES ${ZINC_REPO_ROOT}/src/gguf_reader.cpp)
+        list(APPEND ZINC_INCLUDE_DIRS ${ZINC_REPO_ROOT}/include ${ZINC_REPO_ROOT}/src)
+        message(STATUS "zinc-cpp: using gguf_reader from ${ZINC_REPO_ROOT}")
+    else()
+        # Try common local paths for development
+        foreach(ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../.. /home/bcloud/1bit-systems)
+            if(EXISTS ${ROOT}/src/gguf_reader.cpp)
+                list(APPEND ZINC_SOURCES ${ROOT}/src/gguf_reader.cpp)
+                list(APPEND ZINC_INCLUDE_DIRS ${ROOT}/include ${ROOT}/src)
+                message(STATUS "zinc-cpp: using gguf_reader from ${ROOT}")
+                break()
+            endif()
+        endforeach()
+        if(NOT ZINC_INCLUDE_DIRS)
+            message(WARNING "zinc-cpp: gguf_reader not found - model loading disabled")
+        endif()
+    endif()
+endif()
 
 # ── Main executable ──
 add_executable(zinc_cpp ${ZINC_SOURCES})
@@ -26,8 +54,7 @@ add_executable(zinc_cpp ${ZINC_SOURCES})
 target_include_directories(zinc_cpp PRIVATE
     ${ZINC_INCLUDE_DIR}
     ${Vulkan_INCLUDE_DIRS}
-    /home/bcloud/1bit-systems/include   # gguf_reader.h
-    /home/bcloud/1bit-systems/src
+    ${ZINC_INCLUDE_DIRS}
 )
 
 target_link_libraries(zinc_cpp PRIVATE
