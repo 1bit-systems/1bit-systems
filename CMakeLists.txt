@@ -297,43 +297,12 @@ if(ROCWMMA_FOUND)
 endif()
 target_sources(rocm_cpp PRIVATE src/prefill_dispatcher.cpp)
 
-# -- libzinc : ZINC GPU backend (github.com/zolotukhin/zinc, forked at
-#    /home/$USER/zinc — a genuinely separate project, NOT the stale vendored
-#    copy under engine/gpu in this repo). Built via its own C ABI shim
-#    (src/c_abi.zig in that checkout) into a shared library, linked into
-#    backend_zinc.cpp below. ------------------------------------------------
-set(ZINC_REPO_DIR "$ENV{HOME}/zinc" CACHE PATH "Path to the ZINC checkout")
-# zinc's build.zig currently requires Zig 0.15.x specifically (build.zig.zon:
-# minimum_zig_version 0.15.2) — newer 0.16+ toolchains hit real build.zig API
-# breaks (e.g. b.graph.env_map moved). Prefer a pinned 0.15.2 toolchain over
-# whatever `zig` resolves to on PATH, since that's commonly a newer version
-# via package managers that auto-track a "latest" channel.
-find_program(ZIG_0_15_EXECUTABLE zig
-    HINTS "$ENV{HOME}/.local/zig-0.15.2"
-    NO_DEFAULT_PATH)
-if(NOT ZIG_0_15_EXECUTABLE)
-    find_program(ZIG_0_15_EXECUTABLE zig)
-endif()
-set(ZINC_ENABLED FALSE)
-if(ZIG_0_15_EXECUTABLE AND EXISTS "${ZINC_REPO_DIR}/build.zig")
-    set(ZINC_ENABLED TRUE)
-    set(ZINC_LIB "${ZINC_REPO_DIR}/zig-out/lib/libzinc.so")
-    # zinc's full `zig build` also builds unrelated, currently-broken training
-    # shader targets (missing .comp source files, pre-existing and unrelated
-    # to inference/libzinc.so) that make the overall command exit nonzero even
-    # when libzinc.so itself built fine. Don't propagate that unrelated
-    # failure — just verify the one artifact we actually need exists after.
-    add_custom_command(
-        OUTPUT "${ZINC_LIB}"
-        COMMAND sh -c "'${ZIG_0_15_EXECUTABLE}' build -Doptimize=ReleaseFast; test -f '${ZINC_LIB}'"
-        WORKING_DIRECTORY "${ZINC_REPO_DIR}"
-        DEPENDS "${ZINC_REPO_DIR}/src/c_abi.zig" "${ZINC_REPO_DIR}/build.zig"
-        COMMENT "Building libzinc.so from ${ZINC_REPO_DIR} (zig build)"
-        VERBATIM)
-    add_custom_target(zinc_lib DEPENDS "${ZINC_LIB}")
-else()
-    message(STATUS "ZINC backend disabled: need a Zig 0.15.x toolchain and a checkout at ${ZINC_REPO_DIR} (git clone https://github.com/zolotukhin/zinc)")
-endif()
+# -- zinc_cpp : C++ ZINC GPU backend (Vulkan compute inference)
+#    Replaces the Zig-based ZINC project (engine/gpu/) which has been
+#    fully reverse-engineered and ported to C++. Builds from the
+#    engine/gpu/zinc_cpp/ subdirectory.
+add_subdirectory(engine/gpu/zinc_cpp zinc_cpp_build)
+set(ZINC_CPP_AVAILABLE TRUE)
 
 # -- libbackend_manager : Backend abstraction layer (requires rocm_cpp for HIP) ---------
 add_library(backend_manager STATIC
@@ -363,7 +332,7 @@ target_compile_options(backend_manager PRIVATE -O3 -Wall -Wno-unused-result -std
 
 if(ZINC_ENABLED)
     target_sources(backend_manager PRIVATE src/backend_zinc.cpp)
-    add_dependencies(backend_manager zinc_lib)
+    # add_dependencies removed - zinc_cpp is cmake target
     target_link_libraries(backend_manager PUBLIC zinc_cpp)
 else()
     target_compile_definitions(backend_manager PRIVATE ZINC_DISABLED=1)
