@@ -18,17 +18,17 @@
  *   tile_row = I8_row / n_tile_cols
  *   tile_col = I8_row % n_tile_cols
  */
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <cmath>
 
-#define TILE_ROWS 32
-#define TILE_COLS 256
+constexpr int TILE_ROWS = 32;
+constexpr int TILE_COLS = 256;
 
 static inline float bf16_to_float(uint16_t v) {
     uint32_t bits = (uint32_t)v << 16;
-    float f; memcpy(&f, &bits, sizeof(f)); return f;
+    float f; std::memcpy(&f, &bits, sizeof(f)); return f;
 }
 
 /**
@@ -60,8 +60,8 @@ float* dequant_i8_to_float_ex(const uint8_t* data, int i8_rows, int in_features,
     *out_rows = n_tile_rows * TILE_ROWS;
     *out_cols = n_tile_cols * TILE_COLS;
 
-    float* out = (float*)calloc((*out_rows) * (*out_cols), sizeof(float));
-    if (!out) return NULL;
+    float* out = static_cast<float*>(std::calloc((*out_rows) * (*out_cols), sizeof(float)));
+    if (!out) return nullptr;
 
     for (int ir = 0; ir < i8_rows; ir++) {
         const uint8_t* rd = data + ir * 5120;
@@ -84,8 +84,8 @@ float* dequant_i8_to_float_ex(const uint8_t* data, int i8_rows, int in_features,
                 int group = col / 32;
                 float scale = bf16_to_float(scales[group * 32 + lr]);
                 float zp = bf16_to_float(zeros[group * 32 + lr]);
-                if (!isfinite(scale) || fabsf(scale) > 100.0f) scale = 0.0f;
-                if (!isfinite(zp) || fabsf(zp) > 100.0f) zp = 0.0f;
+                if (!std::isfinite(scale) || std::fabs(scale) > 100.0f) scale = 0.0f;
+                if (!std::isfinite(zp) || std::fabs(zp) > 100.0f) zp = 0.0f;
 
                 uint8_t byte_val = lane_data[col * 8 + byte_idx];
                 int8_t val;

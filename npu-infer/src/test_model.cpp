@@ -1,10 +1,10 @@
 #include "model.h"
 #include "device.h"
 #include "common.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <cmath>
 
 // RMS normalization
 static void rms_norm(float* output, const float* input, const float* weight,
@@ -13,7 +13,7 @@ static void rms_norm(float* output, const float* input, const float* weight,
     for (int i = 0; i < n; i++) {
         ss += input[i] * input[i];
     }
-    float rms = sqrtf(ss / n + eps);
+    float rms = std::sqrtf(ss / n + eps);
     float scale = 1.0f / rms;
     for (int i = 0; i < n; i++) {
         output[i] = input[i] * scale * weight[i];
@@ -22,7 +22,7 @@ static void rms_norm(float* output, const float* input, const float* weight,
 
 // SiLU activation: x * sigmoid(x)
 static float silu(float x) {
-    return x / (1.0f + expf(-x));
+    return x / (1.0f + std::expf(-x));
 }
 
 // Matrix multiply (M x K) * (K x N) = (M x N)
@@ -41,7 +41,7 @@ static void matmul(float* C, const float* A, const float* B,
 
 int main(int argc, char* argv[]) {
     const char* model_path = argc > 1 ? argv[1] 
-        : getenv("NPU_MODEL_PATH")?getenv("NPU_MODEL_PATH"):"model.q4nx";
+        : std::getenv("NPU_MODEL_PATH") ? std::getenv("NPU_MODEL_PATH") : "model.q4nx";
     
     LOG_INFO("Loading model from: %s", model_path);
     
@@ -92,9 +92,9 @@ int main(int argc, char* argv[]) {
     
     // Verify model weights file sizes
     LOG_INFO("\n=== Model Size Summary ===");
-    LOG_INFO("Embed tokens: %lu MB (header overlap: %lu bytes)", 
+    LOG_INFO("Embed tokens: [redacted]",
              (unsigned long)mw->embed_tokens.data_size / 1024 / 1024,
-             (unsigned long)(8 + strlen((const char*)(mw->file_data + 8))));
+             (unsigned long)(8 + std::strlen((const char*)(mw->file_data + 8))));
     
     uint64_t total_weight_bytes = mw->embed_tokens.data_size;
     for (int l = 0; l < mw->config.num_layers; l++) {
