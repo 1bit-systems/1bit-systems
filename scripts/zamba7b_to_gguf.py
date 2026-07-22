@@ -10,6 +10,7 @@ Zamba-7B-v1 architecture:
 """
 import struct, sys, json, torch, numpy as np
 from huggingface_hub import hf_hub_download
+from safetensors.torch import load_file as load_safetensors
 
 GGML_F16 = 1
 GGML_F32 = 0
@@ -110,7 +111,9 @@ def convert(output):
     for shard in shards:
         print(f"  Loading {shard}...")
         path = hf_hub_download('Zyphra/Zamba-7B-v1', shard)
-        shard_sd = torch.load(path, map_location='cpu', weights_only=True)
+        # Shards are .safetensors, not a torch pickle checkpoint -- torch.load
+        # would try (and fail) to unpickle the raw safetensors binary format.
+        shard_sd = load_safetensors(path, device='cpu')
         sd.update(shard_sd)
         del shard_sd
 

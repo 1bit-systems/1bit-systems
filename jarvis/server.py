@@ -9,6 +9,7 @@ from jarvis.tools import SYSTEM_PROMPT_TOOLS, format_tool_followup, parse_tool_c
 from jarvis.planner import run_plan
 from jarvis.ui import CHAT_HTML
 from jarvis.voice.engine import VoiceEngine
+from jarvis.audio_out import list_playback_devices, find_external_speaker, play_wav_local
 
 # ── Voice Engine (Phase 1) ─────────────────────────────────────────
 _voice = VoiceEngine()
@@ -54,7 +55,12 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path in ("/", "/chat"): return self._h(200, CHAT_HTML)
-        if self.path == "/health": return self._j(200, {"status": "ok"})
+        if self.path in ("/health", "/live"): return self._j(200, {"status": "ok"})
+        if self.path == "/v1/audio/devices":
+            spk = find_external_speaker()
+            return self._j(200, {"devices": list_playback_devices(),
+                                 "external_speaker_connected": spk is not None,
+                                 "active": spk})
         if self.path == "/v1/models":
             return self._j(200, {"data": [{"id": m, "object": "model", "backend": c["backend"]} for m, c in MODEL_ROUTING.items()]})
         if self.path == "/v1/voice/packs":
@@ -280,6 +286,11 @@ class H(BaseHTTPRequestHandler):
         text = d.get("input", "")
         voice = d.get("voice", "")
         speed = d.get("speed", 1.0)
+        # Mirror the reply out through a physical speaker attached to this
+        # box, if one is present -- opt-out (not opt-in) so the "voice demo
+        # centerpiece" just starts working the moment a USB speaker is
+        # plugged in, with zero client-side changes required.
+        play_local = d.get("play_local", True)
 
         # Try cloned voice first
         if voice and voice in _voice.voices:
@@ -292,13 +303,16 @@ class H(BaseHTTPRequestHandler):
                     wf.setsampwidth(2)
                     wf.setframerate(sr)
                     wf.writeframes((audio * 32767).astype(np.int16).tobytes())
-                return self._s(200, {"Content-Type": "audio/wav"}, buf.getvalue())
+                wav_bytes = buf.getvalue()
+                if play_local: play_wav_local(wav_bytes)
+                return self._s(200, {"Content-Type": "audio/wav"}, wav_bytes)
             except Exception as e:
                 return self._j(500, {"error": f"voice TTS failed: {e}"})
 
         # Fallback to Piper
         w = synthesize_speech(text, voice or "en_US-lessac-medium")
         if not w: return self._j(500, {"error": "tts failed"})
+        if play_local: play_wav_local(w)
         self._s(200, {"Content-Type": "audio/wav"}, w)
 
     def _voice_packs(self):
@@ -417,15 +431,22 @@ class H(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     import argparse
+    from jarvis.beacon import start_beacon
     p = argparse.ArgumentParser()
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
+    p.add_argument("--no-beacon", action="store_true", help="disable LAN auto-discovery broadcast")
     a = p.parse_args()
     import os as _os
     bind_addr = _os.environ.get("JARVIS_BIND_ADDR", "127.0.0.1")
     if bind_addr != "127.0.0.1":
         import sys as _sys
         print("⚠️  WARNING: binding to non-localhost. Ensure firewall rules are in place.", file=_sys.stderr)
+    else:
+        print("  (LAN voice demo needs phone-reachable binding: set JARVIS_BIND_ADDR=0.0.0.0 and --no-beacon off)")
     s = HTTPServer((bind_addr, a.port), H)
+    spk = find_external_speaker()
+    print(f"  Speaker: {spk['name'] + ' (' + spk['alsa_id'] + ')' if spk else 'none connected -- TTS replies stay silent locally until one is plugged in'}")
+    if not a.no_beacon: start_beacon(a.port)
     print(f"JARVIS @ http://{bind_addr}:{a.port}/chat")
     try: s.serve_forever()
     except KeyboardInterrupt: s.server_close()
