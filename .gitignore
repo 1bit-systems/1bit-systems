@@ -48,6 +48,11 @@ zig-out/
 # Never re-commit a nested clone of this repo (issue #237).
 1bit-systems/
 
+# Environment files (never commit secrets)
+.env
+.env.*
+!.env.example
+
 # Machine-specific MCP config (absolute paths)
 .mcp.json
 

@@ -651,6 +651,8 @@ int main(int argc, char** argv) {
         try {
             json jbody = json::parse(body);
             max_tokens = jbody.value("max_tokens", 256);
+            if (max_tokens < 1) max_tokens = 1;
+            if (max_tokens > 32768) max_tokens = 32768;
         } catch (...) { fprintf(stderr, "[zaya] JSON parse error in max_tokens\n"); }
 
         RouteStrategy use_strat = strategy;

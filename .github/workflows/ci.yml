@@ -119,7 +119,7 @@ jobs:
           sudo apt-get install -y -qq clang-format
           find . -name '*.cpp' -o -name '*.h' -o -name '*.hip' -o -name '*.hpp' | \
             grep -v build/ | grep -v _deps/ | grep -v '.git/' | \
-            xargs clang-format --dry-run --Werror 2>&1 | head -20 || true
+            xargs clang-format --dry-run --Werror 2>&1 | head -20
       - name: Python lint (ruff)
         run: |
           pip install -q ruff
@@ -163,10 +163,10 @@ jobs:
           workspaces: rust
       - name: Build
         working-directory: rust
-        run: cargo build --release 2>&1 | tail -5
+        run: cargo build --release
       - name: Test
         working-directory: rust
-        run: cargo test --release 2>&1 | tail -10
+        run: cargo test --release
 
   ts:
     name: TypeScript CLI (type-check)
@@ -183,11 +183,9 @@ jobs:
       # which previously hid real errors behind a green step (issue #236)).
       - name: Install deps
         run: npm ci
-        continue-on-error: true
       - name: Type-check
         if: hashFiles('tsconfig.json') != ''
         run: npx tsc --noEmit
-        continue-on-error: true
 
   fusion:
     name: Fused engine (build + smoke)
