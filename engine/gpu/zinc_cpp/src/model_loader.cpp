@@ -1,7 +1,10 @@
 /// Model loader — GGUF weight upload to GPU.
 /// Fixed: #762 actual GGUF parsing (reuses gguf_reader.cpp)
 #include "model_loader.h"
+#if __has_include("gguf_reader.h")
 #include "gguf_reader.h"
+#define HAS_GGUF_READER 1
+#endif
 
 ModelLoader::ModelLoader(VkDevice device, VkQueue queue, uint32_t queue_family,
                            CommandPool& cmd_pool)
@@ -64,6 +67,11 @@ GpuBuffer ModelLoader::upload_float_data(const float* data, size_t count) {
 
 bool ModelLoader::scan_gguf(const std::string& path, ModelDims& dims,
                              std::vector<WeightTensor>& tensors) {
+#ifndef HAS_GGUF_READER
+    (void)path; (void)tensors;
+    fprintf(stderr, "scan_gguf: gguf_reader not available (compiled without it)\n");
+    return false;
+#else
     // Use the existing gguf_reader.cpp to parse the GGUF file
     GgufReader reader;
     if (!reader.open(path)) {
@@ -120,4 +128,5 @@ bool ModelLoader::scan_gguf(const std::string& path, ModelDims& dims,
            dims.n_heads, dims.n_kv_heads, dims.vocab);
     
     return dims.hidden > 0 && dims.n_layers > 0;
+#endif
 }
