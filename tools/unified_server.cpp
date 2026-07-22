@@ -940,6 +940,7 @@ int main(int argc, char** argv) {
             mgr.generate(VISION_START);
             std::vector<float> embed_buf(hidden, 0.0f);
             for (auto& vp : vision_images) {
+                (void)vp;  // used when real ViT forward is implemented
                 for (int t = 0; t < VISION_TOKENS_PER_IMG; t++) {
                     // TODO: replace with real ViT forward from vision_qwen2vl_poc
                     // For now, feed zeros — the KV cache advances but content is
@@ -1035,7 +1036,7 @@ int main(int argc, char** argv) {
                 for (auto& t : body["tokens"]) {
                     if (t.is_number_integer()) prompt_tokens.push_back(t.get<int>());
                 }
-            } else if (body.contains("prompt")) {
+            } else if (body.contains("prompt") && body["prompt"].is_string()) {
                 prompt_tokens = g_tokenizer.encode(body["prompt"].get<std::string>());
             }
             if (prompt_tokens.empty()) {
@@ -1043,7 +1044,12 @@ int main(int argc, char** argv) {
             }
         }
 
-                                               max_tokens, backend_id);
+        int max_tokens = body.value("max_tokens", 256);
+        if (max_tokens < 1) max_tokens = 1;
+        if (max_tokens > 32768) max_tokens = 32768;
+
+        std::vector<double> empty_logprobs;
+        auto gen_result = generate_completion(mgr, prompt_tokens, empty_logprobs, max_tokens, backend_id);
 
         json response;
         response["tokens"] = gen_result["tokens"];

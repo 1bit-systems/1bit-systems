@@ -655,7 +655,7 @@ target_link_libraries(unified_server PRIVATE
     httplib::httplib
     nlohmann_json::nlohmann_json
     rocm_cpp hip::host hip::device)
-target_link_options(unified_server PRIVATE -rdynamic)
+target_link_options(unified_server PRIVATE -rdynamic -luuid)
 set_target_properties(unified_server PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 if(ZINC_ENABLED)
     set_target_properties(unified_server PROPERTIES
