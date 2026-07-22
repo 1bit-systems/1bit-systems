@@ -240,7 +240,8 @@ def main():
         
         if not args.dry_run:
             os.makedirs(args.output_dir, exist_ok=True)
-            os.system(cmd)
+            import subprocess, shlex
+            subprocess.run(shlex.split(cmd), check=True)
     else:
         print("\nNo GPUs available. To train, run on a GPU machine:")
         print(f"  torchrun --nproc_per_node=N {DEEPSPEC_DIR}/train.py --config {config_path}")

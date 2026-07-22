@@ -824,6 +824,8 @@ int main(int argc, char** argv) {
         }
 
         int max_tokens = body.value("max_tokens", 256);
+        if (max_tokens < 1) max_tokens = 1;
+        if (max_tokens > 32768) max_tokens = 32768;
         std::string req_model = body.value("model", "");
 
         // g_config_mutex now spans the whole model-switch-decision +
