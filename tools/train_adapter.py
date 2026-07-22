@@ -143,31 +143,25 @@ def main():
     print(f"\nModel saved to {model_path}")
     print(f"Best val loss: {best_val:.6f}")
     
-    # Test on first few validation samples
-    print("\n── Validation: top-1 token match ──")
+    # Validate on held-out samples
+    print("\n── Validation ──")
     model.eval()
     with torch.no_grad():
-        # Compute logits for a few samples
-        import subprocess
-        # We need the LM head to compute tokens from hidden states
-        # Load it from the .trg file
-        lm_path = "/tmp/model.trg"
-        with open(lm_path, 'rb') as f:
-            hdr = f.read(512)  # skip header
-            # LM head is at a specific offset
-            # For now, just report similarity
-            pass
-        
-        matches = 0
         n_test = min(100, len(X_val))
+        cos_sim_total = 0.0
+        mse_total = 0.0
         for i in range(n_test):
-            # Predicted full hidden → we'd need LM head to check token match
             pred = model(X_val[i:i+1])
             pred_h = pred * Y_std + Y_mean
-            # cosine similarity is proxy for token match
-            sim_i = nn.CosineSimilarity(dim=1)(pred_h, Y_val[i:i+1] * Y_std + Y_mean).item()
+            true_h = Y_val[i:i+1] * Y_std + Y_mean
+            sim_i = nn.CosineSimilarity(dim=1)(pred_h, true_h).item()
+            cos_sim_total += sim_i
+            mse_total += nn.MSELoss()(pred_h, true_h).item()
         
-        print(f"  Mean cosine sim on {n_test} samples: {sim:.4f}")
+        mean_cos = cos_sim_total / n_test
+        mean_mse = mse_total / n_test
+        print(f"  Mean cosine sim on {n_test} samples: {mean_cos:.4f}")
+        print(f"  Mean MSE on {n_test} samples: {mean_mse:.6f}")
         print(f"  (Cosine similarity > 0.9 indicates good adaptation)")
 
 if __name__ == '__main__':

@@ -68,10 +68,10 @@ def pack_q1_0(raw_data, M, K):
     
     # Extract per-block scales d from bytes 0:2
     d_bytes = blocks[:, :2].copy()
-    d = np.frombuffer(d_bytes.tobytes(), dtype=np.float16).astype(np.float32)
+    d = np.frombuffer(d_bytes.tobytes(), dtype='float16').astype('float32')
     d = np.nan_to_num(d, nan=0.0, posinf=0.0, neginf=0.0).reshape(M, n_blocks_per_row)
     # Per-block scales (NOT row-averaged — each block keeps its own scale)
-    block_scales = d.astype(np.float32)  # [M, n_blocks_per_row]
+    block_scales = d.astype('float32')  # [M, n_blocks_per_row]
     
     # Extract 1-bit qs from bytes 2:34 (32 bytes = 256 bits)
     qs_raw = blocks[:, 2:34].copy()
@@ -80,10 +80,12 @@ def pack_q1_0(raw_data, M, K):
     ternary = np.where(qs_expanded == 0, np.uint8(0), np.uint8(2)).astype(np.uint8)
     
     # Pack 4 × 2-bit values per byte (per-block: 256 values → 64 bytes)
+    # Use uint16 intermediate to avoid uint8 overflow when shifting (fixes #613)
     block_k_packed = QK // 4  # 64
-    packed = np.zeros((total_blocks, block_k_packed), dtype=np.uint8)
+    packed = np.zeros((total_blocks, block_k_packed), dtype=np.uint16)
     for i in range(4):
-        packed |= (ternary[:, i::4] & np.uint8(3)) << np.uint8(i * 2)
+        packed |= (ternary[:, i::4].astype(np.uint16) & 0x03) << np.uint16(i * 2)
+    packed = packed.astype(np.uint8)  # safe downcast: max value is 0b10101010 = 170 < 255
     
     # Reshape to [M, K_packed] by interleaving blocks across rows
     weights = packed.reshape(M, n_blocks_per_row, block_k_packed)
@@ -136,12 +138,12 @@ def main():
                     data = np.frombuffer(raw[:raw_size], dtype=np.uint8)
                     blocks = data.reshape(-1, BLOCK_BYTES_Q1_0)
                     d_bytes = blocks[:, :2].copy()
-                    d = np.frombuffer(d_bytes.tobytes(), dtype=np.float16).astype(np.float32)
+                    d = np.frombuffer(d_bytes.tobytes(), dtype='float16').astype('float32')
                     qs_raw = blocks[:, 2:34]
                     qs = np.unpackbits(qs_raw, axis=1, bitorder='little')  # [blocks, 256]
                     # Decode: bit 0→-d, bit 1→+d
-                    vals = np.where(qs == 0, -d[:, None], d[:, None]).astype(np.float32).reshape(-1)
-                    vals_f16 = vals.astype(np.float16).tobytes()
+                    vals = np.where(qs == 0, -d[:, None], d[:, None]).astype('float32').reshape(-1)
+                    vals_f16 = vals.astype('float16').tobytes()
                     manifest[hf_name] = {"shape": [K, M], "dtype": "F16",
                                          "offset_bytes": total_bytes, "size_bytes": len(vals_f16)}
                     chunks.append(vals_f16)
@@ -159,7 +161,7 @@ def main():
                 wb = weights.tobytes()
                 # Store per-block scales as BF16 (one per 256-weight block)
                 # block_scales shape: [M, n_blocks]
-                sb_flat = (block_scales.astype(np.float32).view(np.uint32) >> 16).astype(np.uint16).ravel().tobytes()
+                sb_flat = (block_scales.astype('float32').view('uint32') >> 16).astype('uint16').ravel().tobytes()
                 
                 off_w = total_bytes; off_s = off_w + len(wb)
                 chunks.append(wb + sb_flat)

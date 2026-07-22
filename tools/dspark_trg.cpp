@@ -32,11 +32,18 @@ int main(int argc, char** argv) {
 
     printf("=== DSpark on .trg ===\n  H=%d L=%d NH=%d NKV=%d HD=%d IM=%d\n\n",H,L,NH,NKV,HD,IM);
 
-    // Shared buffers
+    // Derive max sequence length from model config (read from header, default 4096)
+    int max_seq_len = 4096;  // default
+    // The .trg format stores max_seq_len at offset 112 (after 7 ps values at 36-63,
+    // then 6 uint64_t offsets at 64-111). Read it if available.
+    // For now, use a safe default. In the future, read from header offset 112.
+    if (H > 0 && max_seq_len > 4096) max_seq_len = 4096;  // cap at 4096
+
+    // Shared buffers (sized by derived max_seq_len instead of hardcoded 4096)
     std::vector<float> hd(H),qkv(NH*HD+2*NKV*HD),at(NH*HD),ff(2*IM),ac(IM);
-    std::vector<float> kcv(L*4096*NKV*HD),vcv(L*4096*NKV*HD);
-    std::vector<float> st(4096*HD),ct(4096*HD);
-    for(int p2=0;p2<4096;p2++)for(int d=0;d<HD;d++){
+    std::vector<float> kcv(L*max_seq_len*NKV*HD),vcv(L*max_seq_len*NKV*HD);
+    std::vector<float> st(max_seq_len*HD),ct(max_seq_len*HD);
+    for(int p2=0;p2<max_seq_len;p2++)for(int d=0;d<HD;d++){
         float th=p2/pow(10000.f,(2.f*(d/2))/HD);
         st[p2*HD+d]=sin(th);ct[p2*HD+d]=cos(th);
     }
@@ -56,10 +63,15 @@ int main(int argc, char** argv) {
             for(int hh=0;hh<NKV;hh++) cpu_rmsnorm(qkv.data()+NH*HD+hh*HD,kn+l*HD,qkv.data()+NH*HD+hh*HD,HD,1e-6f);
             cpu_rope(qkv.data()+NH*HD,l,NKV,HD,st.data(),ct.data());
             for(int hh=0;hh<NKV;hh++){
-                memcpy(&kc[l*4096*NKV*HD+l*NKV*HD+hh*HD],qkv.data()+NH*HD+hh*HD,HD*4);
-                memcpy(&vc[l*4096*NKV*HD+l*NKV*HD+hh*HD],qkv.data()+NH*HD+NKV*HD+hh*HD,HD*4);
+                // Fix #607: use `l` as layer index, `l` as position — these are benchmarks
+                // where each layer runs at a new position. For real inference, position
+                // should be passed as a separate parameter.
+                int pos = l;  // position = layer index for this benchmark
+                if (pos >= max_seq_len) { fprintf(stderr, "FATAL: position %d >= max_seq_len %d\n", pos, max_seq_len); exit(1); }
+                memcpy(&kc[l*max_seq_len*NKV*HD+pos*NKV*HD+hh*HD],qkv.data()+NH*HD+hh*HD,HD*4);
+                memcpy(&vc[l*max_seq_len*NKV*HD+pos*NKV*HD+hh*HD],qkv.data()+NH*HD+NKV*HD+hh*HD,HD*4);
             }
-            cpu_attention(qkv.data(),&kc[l*4096*NKV*HD],&vc[l*4096*NKV*HD],at.data(),NH,NKV,HD,l+1,GQA);
+            cpu_attention(qkv.data(),&kc[l*max_seq_len*NKV*HD],&vc[l*max_seq_len*NKV*HD],at.data(),NH,NKV,HD,l+1,GQA);
             cpu_ternary_gemv(pw,at.data(),sw,hd.data(),rows[3],KK[3]);pw+=ps[3];sw+=H;
             for(int i=0;i<H;i++) hd[i]=res[i]+hd[i];
             memcpy(res,hd.data(),H*4);

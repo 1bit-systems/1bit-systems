@@ -25,10 +25,12 @@ case "$MODEL" in
             fi
         done
     fi
-    # Send request
-    curl -s -X POST http://127.0.0.1:$PORT/completion \
+    # Send request (use jq or printf to avoid shell injection — fixes #610)
+    # Escape the prompt for JSON using printf '%s' to prevent shell expansion
+    ESCAPED_PROMPT=$(printf '%s' "$PROMPT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null || printf '%s' "$PROMPT")
+    curl -s -X POST "http://127.0.0.1:$PORT/completion" \
       -H "Content-Type: application/json" \
-      -d "{\"prompt\":\"$PROMPT\",\"n_predict\":$N}"
+      --data-raw "{\"prompt\":$ESCAPED_PROMPT,\"n_predict\":$N}"
     ;;
 
   albert|albert-moe|ALBERT)
@@ -55,8 +57,8 @@ case "$MODEL" in
         echo "  Building fused engine..."
         cd ${HOME}/engine/fusion && zig build 2>&1 | tail -3
     fi
-    $BIN --model ${HOME}/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx \
-          --prompt "$PROMPT" --max-tokens $N
+    $BIN --model "${HOME}/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx" \
+          --prompt "$PROMPT" --max-tokens "$N"
     ;;
 
   bitnet|BITNET)

@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
     "target": "ES2024",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -13,5 +13,5 @@
     "sourceMap": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "src/commands/bridge.ts", "src/server.ts"]
+  "exclude": ["node_modules", "dist"]
 }

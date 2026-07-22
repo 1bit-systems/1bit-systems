@@ -1,4 +1,10 @@
-"""Wan2.2 pipeline — reward LoRAs + camera control."""
+"""Wan2.1 pipeline — reward LoRAs + camera control.
+
+Note: The default model is Wan2.1 (Wan-AI/Wan2.1-T2V-1.3B-Diffusers).
+Wan2.2 LoRAs (e.g., alibaba-pai/Wan2.2-Fun-Reward-LoRAs) may not be
+compatible — load at your own risk. To use a different model, pass
+model_id explicitly.
+"""
 
 from pathlib import Path
 from typing import Optional
@@ -11,7 +17,11 @@ from ..core.pipeline import VideoPipeline
 
 
 class WanVideo(VideoPipeline):
-    """Wan2.2 text-to-video with reward / camera LoRA support."""
+    """Wan2.1 text-to-video with reward / camera LoRA support.
+
+    The default model ID is Wan2.1 (not Wan2.2). If you need Wan2.2,
+    pass the appropriate model_id when constructing the pipeline.
+    """
 
     def __init__(
         self,

@@ -137,67 +137,77 @@ int main(int argc, char** argv) {
     }
     printf("\n");
 
-    // Train: find W = Y X^T (X X^T)^{-1}
-    // Compute X * X^T (H×H matrix)
-    printf("Training linear adapter (H=%d)...\n", H);
-    const size_t szH = (size_t)H;
-    std::vector<double> XtX(szH*H, 0.0);
-    std::vector<double> XtY(szH*H, 0.0);
+    // Train: find W that minimizes ||X*W - Y||²
+    // Solve via Cholesky decomposition of the normal equations: (X^T X) W = X^T Y
+    // This is O(H³) but uses the symmetric positive-semidefinite structure of X^T X
+    // for better numerical stability than Gauss-Jordan (fixes #608).
+    printf("Training linear adapter (H=%d, %d samples)...\n", H, n_samples);
+
+    // If H is large (>256), warn about computational cost and suggest a low-rank approach
+    if (H > 256) {
+        printf("  Warning: H=%d is large. Computing a full HxH adapter may be slow.\n", H);
+        printf("  Consider using a low-rank adapter (e.g., rank=64) instead.\n");
+    }
+
+    std::vector<double> XtX(H*H, 0.0);
+    std::vector<double> XtY(H*H, 0.0);  // Y^T X, stored as [i*H+j] = sum_s Y[s,i] * X[s,j]
 
     for(int s=0;s<n_samples;s++){
         for(int i=0;i<H;i++){
-            float xi = X[s*H+i];
+            double xi = X[s*H+i];
             for(int j=0;j<H;j++){
-                XtX[i*H+j] += (double)xi * X[s*H+j];
-                XtY[i*H+j] += (double)xi * Y[s*H+j];
+                XtX[i*H+j] += xi * X[s*H+j];
+                XtY[i*H+j] += (double)Y[s*H+i] * X[s*H+j];
             }
         }
     }
 
-    // Solve: W = XtY * inv(XtX)
-    // Simple Gauss-Jordan inversion
-    std::vector<double> inv(szH*H);
-    for(int i=0;i<H;i++) for(int j=0;j<H;j++) inv[i*H+j] = (i==j) ? 1.0 : 0.0;
+    // Solve XtX * W = XtY using Cholesky decomposition
+    // XtX is symmetric positive-semidefinite by construction
+    // First: compute L such that L * L^T = XtX
+    std::vector<double> L(H*H, 0.0);
 
-    // Gauss-Jordan elimination
-    for(int col=0;col<H;col++){
-        // Find pivot
-        int pivot=col;
-        double max_val=fabs(XtX[col*H+col]);
-        for(int row=col+1;row<H;row++){
-            double v=fabs(XtX[row*H+col]);
-            if(v>max_val){max_val=v;pivot=row;}
+    for(int j=0;j<H;j++){
+        double sum = 0.0;
+        for(int k=0;k<j;k++) sum += L[j*H+k] * L[j*H+k];
+        double val = XtX[j*H+j] - sum;
+        if(val < 1e-12) {
+            // Near-singular — add a small regularization
+            printf("  Cholesky near-singular at col %d (val=%g) — adding regularization\n", j, val);
+            val = 1e-8;
         }
-        if(max_val<1e-10){printf("  Singular matrix at col %d\n",col);continue;}
+        L[j*H+j] = sqrt(val);
 
-        // Swap rows
-        if(pivot!=col){
-            for(int j=0;j<H;j++){
-                std::swap(XtX[col*H+j], XtX[pivot*H+j]);
-                std::swap(inv[col*H+j], inv[pivot*H+j]);
-            }
-        }
-
-        double diag = XtX[col*H+col];
-        for(int j=0;j<H;j++){
-            XtX[col*H+j] /= diag;
-            inv[col*H+j] /= diag;
-        }
-
-        for(int row=0;row<H;row++){
-            if(row==col) continue;
-            double factor = XtX[row*H+col];
-            for(int j=0;j<H;j++){
-                XtX[row*H+j] -= factor * XtX[col*H+j];
-                inv[row*H+j] -= factor * inv[col*H+j];
-            }
+        for(int i=j+1;i<H;i++){
+            sum = 0.0;
+            for(int k=0;k<j;k++) sum += L[i*H+k] * L[j*H+k];
+            L[i*H+j] = (XtX[i*H+j] - sum) / L[j*H+j];
         }
     }
 
-    // W = inv * XtY
-    std::vector<float> W(szH*H, 0.0f);
-    for(int i=0;i<H;i++) for(int j=0;j<H;j++) for(int k=0;k<H;k++)
-        W[i*H+j] += (float)(inv[i*H+k] * XtY[k*H+j]);
+    // Now solve L * y = XtY (forward substitution), then L^T * W = y (back substitution)
+    // For each column of W (each output dimension j):
+    std::vector<double> W_col(H, 0.0);
+    std::vector<double> y(H, 0.0);
+    std::vector<float> W(H*H, 0.0f);
+
+    for(int j=0;j<H;j++){
+        // Forward: L * y = XtY[:,j]
+        for(int i=0;i<H;i++){
+            double sum = 0.0;
+            for(int k=0;k<i;k++) sum += L[i*H+k] * y[k];
+            y[i] = (XtY[i*H+j] - sum) / L[i*H+i];
+        }
+
+        // Backward: L^T * W_col = y
+        for(int i=H-1;i>=0;i--){
+            double sum = 0.0;
+            for(int k=i+1;k<H;k++) sum += L[k*H+i] * W_col[k];
+            W_col[i] = (y[i] - sum) / L[i*H+i];
+        }
+
+        for(int i=0;i<H;i++) W[i*H+j] = (float)W_col[i];
+    }
 
     // Save adapter to file
     FILE* f=fopen("draft_adapter.bin","wb");

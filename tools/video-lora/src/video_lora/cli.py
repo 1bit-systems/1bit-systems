@@ -59,9 +59,9 @@ def main() -> None:
     if args.command == "list-models":
         print("Available models and their top LoRAs:")
         print()
-        print("  wan         - Wan2.2 (1.3B / 14B)")
-        print("                LoRAs: alibaba-pai/Wan2.2-Fun-Reward-LoRAs")
-        print("                LoRAs: alibaba-pai/Wan2.2-Fun-A14B-Control-Camera")
+        print("  wan         - Wan2.1 (1.3B / 14B, default model)")
+        print("                LoRAs: alibaba-pai/Wan2.2-Fun-Reward-LoRAs (Wan2.2 — may not be compatible)")
+        print("                LoRAs: alibaba-pai/Wan2.2-Fun-A14B-Control-Camera (Wan2.2 — may not be compatible)")
         print("  ltx         - LTX-Video (13B)")
         print("                LoRAs: Lightricks/LTX-Video-ICLoRA-detailer-13b-0.9.8")
         print("  animatediff - AnimateDiff (1.5B base)")

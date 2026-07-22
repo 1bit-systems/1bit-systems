@@ -437,20 +437,22 @@ static json generate_completion(BackendManager& mgr,
 // forever. On startup, stop whatever instance is already running before
 // taking over. The lock fd is kept open for the process lifetime so the OS
 // releases it automatically on exit or crash — no explicit cleanup needed.
-static const char* kLockPath = "/tmp/unified_server.lock";
+//
+// Uses XDG_RUNTIME_DIR when available (private per-user) to avoid /tmp races.
+// Never kills processes based on a comm-name heuristic (fixes #615).
 
-static bool pid_is_unified_server(pid_t pid) {
-    char comm_path[64];
-    snprintf(comm_path, sizeof(comm_path), "/proc/%d/comm", (int)pid);
-    FILE* f = fopen(comm_path, "r");
-    if (!f) return false;
-    char comm[64] = {0};
-    if (!fgets(comm, sizeof(comm), f)) { fclose(f); return false; }
-    fclose(f);
-    return strncmp(comm, "unified_server", 14) == 0;
+#include <uuid/uuid.h>
+
+static std::string lock_file_path() {
+    const char* xdg = getenv("XDG_RUNTIME_DIR");
+    if (xdg && xdg[0]) return std::string(xdg) + "/unified_server.lock";
+    return "/tmp/unified_server.lock";
 }
 
 static void acquire_singleton_lock() {
+    std::string lock_path = lock_file_path();
+    const char* kLockPath = lock_path.c_str();
+
     int fd = open(kLockPath, O_CREAT | O_RDWR, 0644);
     if (fd < 0) {
         fprintf(stderr, "Fatal: could not open lock file %s (%s) — cannot guard against concurrent instances. Exiting.\n",
@@ -458,30 +460,59 @@ static void acquire_singleton_lock() {
         exit(EXIT_FAILURE);
     }
 
-    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
-        char buf[32] = {0};
-        pread(fd, buf, sizeof(buf) - 1, 0);
-        pid_t old_pid = (pid_t)atoi(buf);
+    // Write a unique token (PID + random uuid) so we can verify ownership
+    // without relying on /proc/PID/comm matching.
+    uuid_t uuid;
+    uuid_generate(uuid);
+    char uuid_str[37];
+    uuid_unparse(uuid, uuid_str);
 
-        if (old_pid > 0 && pid_is_unified_server(old_pid)) {
-            fprintf(stderr, "Found existing unified_server instance (pid %d) — stopping it\n", (int)old_pid);
-            kill(old_pid, SIGTERM);
-            for (int i = 0; i < 50; i++) {  // wait up to 5s for graceful shutdown
-                if (kill(old_pid, 0) != 0) break;
-                usleep(100 * 1000);
-            }
-            if (kill(old_pid, 0) == 0) {
-                fprintf(stderr, "  pid %d didn't exit in time, sending SIGKILL\n", (int)old_pid);
-                kill(old_pid, SIGKILL);
-                usleep(500 * 1000);  // longer wait for SIGKILL to process (fixes #fix)
-            }
+    char my_token[128];
+    int n = snprintf(my_token, sizeof(my_token), "%d:%s", (int)getpid(), uuid_str);
+
+    // Only try to kill previous instance if we can confirm ownership via our own token.
+    // We DO NOT kill processes based on comm-name matching (see #615).
+    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        // Read the previous owner's token
+        char old_buf[128] = {0};
+        pread(fd, old_buf, sizeof(old_buf) - 1, 0);
+
+        pid_t old_pid = 0;
+        char* colon = strchr(old_buf, ':');
+        if (colon) {
+            *colon = '\0';
+            old_pid = (pid_t)atoi(old_buf);
+            *colon = ':';  // restore
         }
 
-        // Retry now that the previous holder (if any) should be gone.
-        // If flock still fails, the lock file may be stale from a before-SIGKILL state.
-        // Remove and recreate it rather than failing immediately.
-        if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
-            fprintf(stderr, "Warning: lock held after killing old instance — removing stale lock\n");
+        if (old_pid > 0) {
+            // Check if the old process still exists by sending signal 0.
+            // If it doesn't exist, the lock is stale — remove and retry.
+            if (kill(old_pid, 0) != 0) {
+                fprintf(stderr, "Warning: stale lock from pid %d — removing\n", (int)old_pid);
+                close(fd);
+                unlink(kLockPath);
+                fd = open(kLockPath, O_CREAT | O_RDWR, 0644);
+                if (fd < 0) {
+                    fprintf(stderr, "Fatal: could not recreate lock file (%s)\n", strerror(errno));
+                    exit(EXIT_FAILURE);
+                }
+                // Retry flock
+                if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+                    fprintf(stderr, "Fatal: could not acquire singleton lock (%s) — another instance running. Exiting.\n",
+                            strerror(errno));
+                    exit(EXIT_FAILURE);
+                }
+            } else {
+                // Previous instance is still alive. Log and exit.
+                fprintf(stderr, "Another instance is already running (pid %d). Exiting.\n", (int)old_pid);
+                fprintf(stderr, "  Use a different --port or stop the existing instance first.\n");
+                close(fd);
+                exit(EXIT_FAILURE);
+            }
+        } else {
+            // Can't parse token — stale or corrupted lock file. Remove and retry.
+            fprintf(stderr, "Warning: unparseable lock file — removing stale lock\n");
             close(fd);
             unlink(kLockPath);
             fd = open(kLockPath, O_CREAT | O_RDWR, 0644);
@@ -497,10 +528,9 @@ static void acquire_singleton_lock() {
         }
     }
 
+    // Write our unique token
     if (ftruncate(fd, 0) != 0) { /* best-effort */ }
-    char pid_buf[32];
-    int n = snprintf(pid_buf, sizeof(pid_buf), "%d", (int)getpid());
-    if (pwrite(fd, pid_buf, n, 0) != n) { /* best-effort */ }
+    if (pwrite(fd, my_token, n, 0) != n) { /* best-effort */ }
     // fd intentionally leaked (kept open) for the process lifetime.
 }
 
@@ -704,7 +734,11 @@ int main(int argc, char** argv) {
 
     // ── GET /v1/health — Backend status dashboard ──
     svr.Get("/v1/health", [&](const httplib::Request& req, httplib::Response& res) {
-        std::lock_guard<std::mutex> lock(g_config_mutex);
+        // Lock both mutexes consistently — health reads mgr backends (g_config_mutex)
+        // and strategy state (g_strategy_mutex).
+        std::lock(g_config_mutex, g_strategy_mutex);
+        std::lock_guard<std::mutex> _l1(g_config_mutex, std::adopt_lock);
+        std::lock_guard<std::mutex> _l2(g_strategy_mutex, std::adopt_lock);
         json j = health_json(mgr);
         j["version"] = "unified-server-1.0";
         j["model"] = "zaya";
@@ -716,7 +750,9 @@ int main(int argc, char** argv) {
 
     // ── GET /v1/models — List models ──
     svr.Get("/v1/models", [&](const httplib::Request& req, httplib::Response& res) {
-        std::lock_guard<std::mutex> lock(g_config_mutex);
+        std::lock(g_config_mutex, g_strategy_mutex);
+        std::lock_guard<std::mutex> _l1(g_config_mutex, std::adopt_lock);
+        std::lock_guard<std::mutex> _l2(g_strategy_mutex, std::adopt_lock);
         auto* active = mgr.active_info();
         json j;
         j["object"] = "list";
@@ -828,15 +864,13 @@ int main(int argc, char** argv) {
         if (max_tokens > 32768) max_tokens = 32768;
         std::string req_model = body.value("model", "");
 
-        // g_config_mutex now spans the whole model-switch-decision +
-        // tokenize + generate critical section (fixes #2/#364 combined) —
-        // it used to be held only around the switch-model block itself,
-        // leaving mgr.set_strategy()/generate_completion() (the actual
-        // per-request inference call, touching mgr's active backend, KV
-        // cache position, etc.) completely unsynchronized against a
-        // concurrent request's model switch or its own inference call on
-        // httplib's thread pool.
-        std::lock_guard<std::mutex> lock(g_config_mutex);
+        // g_config_mutex spans the whole model-switch-decision +
+        // tokenize + generate critical section (fixes #2/#364).
+        // We also hold g_strategy_mutex here because generate_completion()
+        // may read strategy engine state. Using std::lock avoids deadlock.
+        std::lock(g_config_mutex, g_strategy_mutex);
+        std::lock_guard<std::mutex> _l1(g_config_mutex, std::adopt_lock);
+        std::lock_guard<std::mutex> _l2(g_strategy_mutex, std::adopt_lock);
         mgr.set_strategy(strategy);
 
         // Look up the requested model from body["model"] and switch config if needed
@@ -972,10 +1006,10 @@ int main(int argc, char** argv) {
 
         std::string backend_id = resolve_backend_id(req);
 
-        // Same g_config_mutex-spans-the-whole-request treatment as
-        // /v1/chat/completions above (fixes #2) — mgr.set_strategy() and
-        // generate_completion() both touch mgr's shared, mutable state.
-        std::lock_guard<std::mutex> lock(g_config_mutex);
+        // Same locking treatment as /v1/chat/completions (fixes #2).
+        std::lock(g_config_mutex, g_strategy_mutex);
+        std::lock_guard<std::mutex> _l1(g_config_mutex, std::adopt_lock);
+        std::lock_guard<std::mutex> _l2(g_strategy_mutex, std::adopt_lock);
         mgr.set_strategy(resolve_strategy(req));
 
         // Accept prompt or tokens

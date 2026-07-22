@@ -98,20 +98,63 @@ static void matmul_t(float *out, float *a, float *b, int m, int n, int k) {
         }
 }
 
+// ── Heap-allocated forward buffers ──
+// Replaces stack VLAs to avoid stack overflow (fixes #604)
+typedef struct {
+    float *buf;      // [MAX_SEQ * H]
+    float *q, *k, *v; // [seq*H] each
+    float *attn;     // [seq*seq]
+    float *tmp;      // [seq*H]
+    float *gs;       // [seq*N_EXP]
+    float *fc_w;     // [H*FFN_HIDDEN]
+    float *fc_b;     // [FFN_HIDDEN]
+    float *proj_w;   // [FFN_HIDDEN*H]
+    float *proj_b;   // [H]
+    int max_seq;
+} ForwardBuf;
+
+static ForwardBuf forward_buf_alloc(int max_seq) {
+    ForwardBuf b;
+    b.max_seq = max_seq;
+    b.buf    = (float*)calloc((size_t)max_seq * H, sizeof(float));
+    b.q      = (float*)calloc((size_t)max_seq * H, sizeof(float));
+    b.k      = (float*)calloc((size_t)max_seq * H, sizeof(float));
+    b.v      = (float*)calloc((size_t)max_seq * H, sizeof(float));
+    b.attn   = (float*)calloc((size_t)max_seq * max_seq, sizeof(float));
+    b.tmp    = (float*)calloc((size_t)max_seq * H, sizeof(float));
+    b.gs     = (float*)calloc((size_t)max_seq * N_EXP, sizeof(float));
+    b.fc_w   = (float*)calloc((size_t)H * FFN_HIDDEN, sizeof(float));
+    b.fc_b   = (float*)calloc(FFN_HIDDEN, sizeof(float));
+    b.proj_w = (float*)calloc((size_t)FFN_HIDDEN * H, sizeof(float));
+    b.proj_b = (float*)calloc(H, sizeof(float));
+    return b;
+}
+
+static void forward_buf_free(ForwardBuf *b) {
+    free(b->buf); free(b->q); free(b->k); free(b->v); free(b->attn);
+    free(b->tmp); free(b->gs); free(b->fc_w); free(b->fc_b);
+    free(b->proj_w); free(b->proj_b);
+    memset(b, 0, sizeof(*b));
+}
+
 // ═══ Forward ───
-static void forward(float *x, int seq, Model *m, int *tokens) {
-    float buf[MAX_SEQ * H]; // temp buffer
+static void forward(float *x, int seq, Model *m, int *tokens, ForwardBuf *fb) {
+    if (seq > fb->max_seq) { fprintf(stderr, "seq=%d exceeds max_seq=%d\n", seq, fb->max_seq); exit(1); }
+    float *buf = fb->buf;
+    float *q = fb->q, *k = fb->k, *v = fb->v, *attn = fb->attn;
+    float *tmp = fb->tmp, *gs = fb->gs;
+    float *fc_w = fb->fc_w, *fc_b = fb->fc_b, *proj_w = fb->proj_w, *proj_b = fb->proj_b;
     
     // Embed
-    printf("DEBUG: m->count=%d raw=%p raw_size=%zu\n", m->count, (void*)m.raw, m.raw_size); fflush(stdout);
+    printf("DEBUG: m->count=%d raw=%p raw_size=%zu\n", m->count, (void*)m->raw, m->raw_size); fflush(stdout);
     printf("DEBUG: first key='%s'\n", m->t[0].key); fflush(stdout);
     printf("DEBUG: first data ptr=%p\n", (void*)m->t[0].data); fflush(stdout);
     float *embed_w = get_w(m, "embed.weight");
     printf("DEBUG: embed_w=%p\n", (void*)embed_w); fflush(stdout);
     if (!embed_w) { fprintf(stderr,"Missing embed.weight\n"); exit(1); }
-    ptrdiff_t offset = (char*)embed_w - (char*)m.raw;
+    ptrdiff_t offset = (char*)embed_w - (char*)m->raw;
     printf("DEBUG: offset=%td numel=%ld\n", offset, (long)(m->t[0].numel)); fflush(stdout);
-    if (offset < 0 || offset + H*4 > (ptrdiff_t)m.raw_size) {
+    if (offset < 0 || offset + H*4 > (ptrdiff_t)m->raw_size) {
         fprintf(stderr,"ERROR: embed_w out of bounds!\n"); exit(1);
     }
     printf("DEBUG: embed_w[0]=%.4f\n", embed_w[0]); fflush(stdout);
@@ -144,8 +187,7 @@ static void forward(float *x, int seq, Model *m, int *tokens) {
             memcpy(buf, x, seq*H*sizeof(float));
             for (int i = 0; i < seq; i++) layer_norm(&buf[i*H], ln1_w, ln1_b, H);
             
-            // Standard attention
-            float q[seq*H], k[seq*H], v[seq*H], attn[seq*seq];
+            // Standard attention (heap-allocated buffers)
             matmul_t(q, buf, q_w, seq, H, H);
             matmul_t(k, buf, k_w, seq, H, H);
             matmul_t(v, buf, v_w, seq, H, H);
@@ -173,7 +215,6 @@ static void forward(float *x, int seq, Model *m, int *tokens) {
                 }
             }
             // Output projection + residual
-            float tmp[seq*H];
             matmul_t(tmp, buf, o_w, seq, H, H);
             for (int i = 0; i < seq*H; i++) x[i] += tmp[i];
             
@@ -189,11 +230,9 @@ static void forward(float *x, int seq, Model *m, int *tokens) {
             for (int i = 0; i < seq; i++) layer_norm(&buf[i*H], ln2_w, ln2_b, H);
             
             // Router
-            float gs[seq*N_EXP];
             matmul_t(gs, buf, gate_w, seq, N_EXP, H);
             
             // Expert FFN (use averaged expert weights)
-            float fc_w[H*FFN_HIDDEN], fc_b[FFN_HIDDEN], proj_w[FFN_HIDDEN*H], proj_b[H];
             int exp_count = 0;
             memset(fc_w, 0, sizeof(fc_w)); memset(fc_b, 0, sizeof(fc_b));
             memset(proj_w, 0, sizeof(proj_w)); memset(proj_b, 0, sizeof(proj_b));
@@ -242,14 +281,14 @@ static void forward(float *x, int seq, Model *m, int *tokens) {
                     }
                 }
                 
-                float moe_out[H] = {0};
+                float moe_out[256] = {0};
                 for (int k = 0; k < TOP_K; k++) {
-                    float fc[FFN_HIDDEN];
+                    float *fc = fb->fc_b;  // reuse fc buffer (overwritten each iteration)
                     for (int j = 0; j < FFN_HIDDEN; j++) {
                         float s = fc_b[j]; for (int d = 0; d < H; d++) s += buf[i*H+d] * fc_w[j*H+d];
                         fc[j] = gelu(s);
                     }
-                    float proj[H];
+                    float *proj = fb->proj_b;  // reuse proj buffer
                     for (int j = 0; j < H; j++) {
                         float s = proj_b[j]; for (int d = 0; d < FFN_HIDDEN; d++) s += fc[d] * proj_w[j*FFN_HIDDEN+d];
                         proj[j] = s;
@@ -268,8 +307,9 @@ static void forward(float *x, int seq, Model *m, int *tokens) {
     
     for (int i = 0; i < seq; i++) layer_norm(&x[i*H], ln_f_w, ln_f_b, H);
     
-    // Sample last token
-    float logits[VOCAB];
+    // Sample last token (heap-allocated to avoid 128KB+ stack VLA)
+    float *logits = (float*)calloc(VOCAB, sizeof(float));
+    if (!logits) { fprintf(stderr, "Out of memory allocating logits\n"); exit(1); }
     for (int v = 0; v < VOCAB; v++) {
         float s = 0;
         for (int j = 0; j < H; j++) s += x[(seq-1)*H+j] * lm_head_w[v*H+j];
@@ -278,6 +318,7 @@ static void forward(float *x, int seq, Model *m, int *tokens) {
     
     int next = 0; for (int v = 1; v < VOCAB; v++) if (logits[v] > logits[next]) next = v;
     printf("  next token: %d\n", next);
+    free(logits);
 }
 
 int main(int argc, char **argv) {
@@ -291,12 +332,15 @@ int main(int argc, char **argv) {
     int tokens[MAX_SEQ] = {1, 100, 101}; // BOS + dummy
     int seq = 3;
     
+    ForwardBuf fb = forward_buf_alloc(MAX_SEQ);
+    float *x = fb.buf;  // reuse the heap buffer for input
+    
     clock_t t0 = clock();
-    float x[MAX_SEQ * H];
-    forward(x, seq, &m, tokens);
+    forward(x, seq, &m, tokens, &fb);
     float ms = (float)(clock() - t0) / CLOCKS_PER_SEC * 1000;
     printf("Forward: %.0fms\n", ms);
     
+    forward_buf_free(&fb);
     free(m.raw); free(m.t);
     return 0;
 }

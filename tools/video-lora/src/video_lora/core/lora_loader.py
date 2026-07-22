@@ -24,15 +24,21 @@ def load_lora_into_pipe(
         adapter_name: Name for the adapter (for multiple LoRAs)
     """
     lora_path = str(lora_path)
+    lora_path_obj = Path(lora_path)
 
-    # HF repo ID or local .safetensors
-    if lora_path.endswith(".safetensors") or "/" in lora_path and not Path(lora_path).exists():
-        # Try as HF hub repo
-        pipe.load_lora_weights(lora_path, adapter_name=adapter_name)
-    elif Path(lora_path).is_file() and lora_path.endswith(".safetensors"):
-        pipe.load_lora_weights(lora_path, adapter_name=adapter_name)
-    elif Path(lora_path).is_dir():
-        # Directory with multiple LoRAs
+    # Check local paths FIRST, then fall back to HF hub repo IDs
+    if lora_path_obj.exists():
+        if lora_path_obj.is_file() and lora_path.endswith(".safetensors"):
+            pipe.load_lora_weights(lora_path, adapter_name=adapter_name)
+        elif lora_path_obj.is_dir():
+            # Directory with multiple LoRAs
+            pipe.load_lora_weights(lora_path, adapter_name=adapter_name)
+        else:
+            raise ValueError(
+                f"Local path exists but is not a .safetensors file or directory: {lora_path}"
+            )
+    elif "/" in lora_path:
+        # Not a local path — try as HF hub repo ID
         pipe.load_lora_weights(lora_path, adapter_name=adapter_name)
     else:
         raise ValueError(f"Cannot resolve LoRA path: {lora_path}")
