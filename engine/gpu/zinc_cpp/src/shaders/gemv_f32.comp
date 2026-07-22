@@ -1,0 +1,24 @@
+#version 460
+// FP32 GEMV: y[m] = sum_k W[m,k] * x[k]
+// Push: M=rows, N=1, K=cols
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+layout(std430, binding = 0) readonly buffer X { float x[]; };
+layout(std430, binding = 1) writeonly buffer Y { float y[]; };
+layout(std430, binding = 2) readonly buffer W { float w[]; };
+layout(push_constant) uniform Push { uint M, N, K, s; float sc, eps, th, p; int tok, l, h, pos; } pc;
+shared float part[256];
+void main() {
+    uint m = gl_WorkGroupID.x;
+    if (m >= pc.M) return;
+    uint tid = gl_LocalInvocationID.x;
+    float sum = 0.0;
+    for (uint k = tid; k < pc.K; k += 256)
+        sum += x[k] * w[m * pc.K + k];
+    part[tid] = sum;
+    barrier();
+    for (uint s = 128; s > 0; s >>= 1) {
+        if (tid < s) part[tid] += part[tid + s];
+        barrier();
+    }
+    if (tid == 0) y[m] = part[0];
+}

@@ -1,6 +1,7 @@
 /// Compute engine — GPU shader dispatch implementations.
 /// Fixed: #774 descriptor set leak, #777 shared layouts, #776 fence reuse
 #include "compute_engine.h"
+#include <map>
 #include <cstring>
 #include <cfloat>
 
@@ -42,7 +43,24 @@ void ComputeEngine::reset_descriptors() {
 void ComputeEngine::dispatch(const std::string& shader, const PushConstants& push,
                               VkBuffer input, VkBuffer output, VkBuffer weights,
                               uint32_t group_x, uint32_t group_y, uint32_t group_z) {
-    VkPipeline pipe = pipelines_.get(shader);
+    // Map inference op names to actual .spv filenames (fix #789)
+    static const std::map<std::string,std::string> shader_map = {
+        {"gemv", "gemv_f32"},           // FP32 GEMV
+        {"rms_norm", "rms_norm"},       // RMS normalization
+        {"rope", "rope_fused"},          // fused RoPE
+        {"flash_attn", "flash_attn"},    // flash attention
+        {"silu_mul", "silu_mul"},        // SiLU gate multiply
+        {"argmax", "argmax"},            // argmax reduction
+        {"add_residual", "vadd_f32"},    // vector add
+        {"copy_buffer", "vadd_f32"},     // copy via add
+        {"embed", "embed"},              // embedding lookup
+    };
+    
+    std::string actual_shader = shader;
+    auto it = shader_map.find(shader);
+    if (it != shader_map.end()) actual_shader = it->second;
+    
+    VkPipeline pipe = pipelines_.get(actual_shader);
     VkPipelineLayout layout = pipelines_.pipeline_layout();
 
     // Allocate descriptor set from shared pool
