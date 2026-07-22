@@ -1,16 +1,10 @@
 /// backend_zinc.cpp — C++ ZINC GPU backend.
-/// Replaces the old Zig-based ZINC backend. Uses the C++ zinc_cpp library
-/// from engine/gpu/zinc_cpp/ instead of loading libzinc.so via C ABI.
-///
-/// ZincEngine manages Vulkan init, model loading, and GPU inference
-/// through pre-compiled .spv compute shaders. Supports any GGUF model
-/// through the generic GGUF pipeline (Llama, Mistral, Qwen2, Gemma, Phi,
-/// etc.) without hardcoded architecture limits.
+/// Fixed: #763 proper includes via CMake, shader path from build config
 #include "backend.h"
 #include "simple_tokenizer.h"
-#include "../engine/gpu/zinc_cpp/include/vulkan_wrapper.h"
-#include "../engine/gpu/zinc_cpp/include/compute_engine.h"
-#include "../engine/gpu/zinc_cpp/include/model_loader.h"
+#include "vulkan_wrapper.h"
+#include "compute_engine.h"
+#include "model_loader.h"
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -34,37 +28,39 @@ struct ZincBackend : Backend {
         cfg = model_cfg;
         destroy();
 
-        if (cfg.model_path.empty() && cfg.format != ModelFormat::GGUF) {
+        if (cfg.model_path.empty()) {
             fprintf(stderr, "ZINC: no GGUF model path available\n");
             return false;
         }
-        std::string path = cfg.model_path.empty() ? cfg.model_name : cfg.model_path;
 
         printf("ZINC C++: initializing Vulkan...\n");
 
         try {
-            // 1. Init Vulkan
             engine_ = std::make_unique<ZincEngine>();
-            engine_->init("shaders", -1);
+            
+            // Shader directory: use ZINC_SHADER_DIR from CMake defines, or default
+#ifdef ZINC_SHADER_DIR
+            std::string shader_dir = ZINC_SHADER_DIR;
+#else
+            std::string shader_dir = "shaders";
+#endif
+            engine_->init(shader_dir, -1);
 
-            // 2. Load model weights to GPU
             loader_ = std::make_unique<ModelLoader>(
                 engine_->device(), engine_->queue(),
                 engine_->queue_family(), *engine_->cmd_pool());
 
             model_ = std::make_unique<ModelGPU>();
-            if (!loader_->load(path, *model_)) {
+            if (!loader_->load(cfg.model_path, *model_)) {
                 fprintf(stderr, "ZINC: failed to load model\n");
                 return false;
             }
 
-            // 3. Create compute engine
             compute_ = std::make_unique<ComputeEngine>(
                 engine_->device(), engine_->queue(),
                 engine_->queue_family(), *engine_->cmd_pool(),
                 *engine_->pipeline_cache());
 
-            // 4. Create inference engine
             infer_ = std::make_unique<InferenceEngine>();
             if (!infer_->init(*compute_, *model_)) {
                 fprintf(stderr, "ZINC: failed to init inference engine\n");
@@ -84,11 +80,7 @@ struct ZincBackend : Backend {
         }
     }
 
-    bool reset() override {
-        if (infer_) infer_->reset();
-        return true;
-    }
-
+    bool reset() override { if (infer_) { infer_->reset(); return true; } return false; }
     bool forward(int, float*) override { return false; }
     bool lm_head(const float*, float*, int*) override { return false; }
 
@@ -111,7 +103,7 @@ struct ZincBackend : Backend {
         if (!initialized || !infer_) return 0.0f;
         reset();
         auto t0 = std::chrono::high_resolution_clock::now();
-        int tok = 0; // BOS
+        int tok = 1; // BOS (Llama convention)
         for (int i = 0; i < tokens; i++) {
             tok = infer_->generate(tok);
             if (tok < 0) break;
