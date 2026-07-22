@@ -1,18 +1,20 @@
 {
   "_generated_by": "tools/gen_numbers.py",
-  "_generated_at": "2026-07-21T12:39:41Z",
+  "_generated_at": "2026-07-21T20:44:06Z",
   "_warning": "Generated file. Do not hand-edit; run tools/gen_numbers.py.",
-  "_missing": [],
+  "_missing": [
+    "fused: engine/fusion/zig-out/bin/fused-engine"
+  ],
   "binary": {
-    "zaya_bytes": 1160984,
-    "zaya_kb": 1134,
-    "zaya_stripped_kb": 898,
-    "fused_bytes": 25603362,
-    "fused_kb": 25003,
+    "zaya_bytes": 1165080,
+    "zaya_kb": 1138,
+    "zaya_stripped_kb": 902,
+    "fused_bytes": null,
+    "fused_kb": null,
     "decode_bytes": 715240,
     "decode_kb": 698,
     "decode_stripped_kb": 507,
-    "tui_bytes": 1153504,
+    "tui_bytes": 1153392,
     "tui_kb": 1126,
     "tui_stripped_kb": 829
   },
