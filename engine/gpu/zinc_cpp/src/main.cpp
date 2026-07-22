@@ -30,7 +30,7 @@ static void handle_sigint(int) { keep_running = false; }
 // ─── InferenceEngine is declared in compute_engine.h
 //     and implemented in compute_engine.cpp
 //
-};
+
 
 // ═══════════════════════════════════════════════════════════════════
 //  Main
