@@ -56,12 +56,17 @@ private:
 // ─── Pipeline cache (compute pipelines from shaders) ─────────────
 class ComputePipelineCache {
 public:
-    ComputePipelineCache(VkDevice device) : device_(device), shaders_(device) {}
+    ComputePipelineCache(VkDevice device) : device_(device), shaders_(device) {
+        ensure_layout();
+    }
     ~ComputePipelineCache();
 
     VkPipeline get(const std::string& shader_name,
                    const std::vector<VkSpecializationMapEntry>& spec_constants = {},
                    const void* spec_data = nullptr, size_t spec_data_size = 0);
+
+    VkPipelineLayout pipeline_layout() const { return pipeline_layout_; }
+    VkDescriptorSetLayout desc_set_layout() const { return desc_set_layout_; }
 
 private:
     VkDevice device_;

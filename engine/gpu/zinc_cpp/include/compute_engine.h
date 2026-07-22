@@ -40,55 +40,26 @@ public:
                    CommandPool& cmd_pool, ComputePipelineCache& pipelines);
     ~ComputeEngine();
 
-    // No copy
     ComputeEngine(const ComputeEngine&) = delete;
     ComputeEngine& operator=(const ComputeEngine&) = delete;
 
-    // ─── Descriptor pool for per-dispatch descriptor sets ──
-    VkDescriptorPool create_descriptor_pool(int max_sets = 1024);
-    VkDescriptorSet alloc_descriptor_set(VkDescriptorPool pool);
-
     // ─── Dispatch helpers ──
-    /// Dispatch a named compute shader with push constants and buffers.
-    /// @param shader   Shader name (e.g. "dmmv_q4k", "rms_norm")
-    /// @param push     Push constants
-    /// @param input    Input storage buffer
-    /// @param output   Output storage buffer  
-    /// @param weights  Weights storage buffer (VK_NULL_HANDLE if none)
-    /// @param group_x  Workgroup count X
-    /// @param group_y  Workgroup count Y
     void dispatch(const std::string& shader, const PushConstants& push,
                   VkBuffer input, VkBuffer output, VkBuffer weights,
                   uint32_t group_x, uint32_t group_y = 1, uint32_t group_z = 1);
 
-    // ─── High-level inference ops ──
-    /// RMS normalization: x = x / sqrt(mean(x^2) + eps) * w
     void rms_norm(VkBuffer x, VkBuffer w, int n, float eps);
-
-    /// Matrix-vector multiply (GEMV): y = W @ x
     void gemv(VkBuffer y, VkBuffer x, VkBuffer W, int M, int N, int K);
-
-    /// RoPE (Rotary Position Embedding): applies cos/sin to q/k
     void rope(VkBuffer q, VkBuffer k, int hd, int pos, int n_heads, int n_kv, float theta);
-
-    /// Flash attention: Q @ K^T → softmax → @ V
     void flash_attn(VkBuffer q, VkBuffer k_cache, VkBuffer v_cache, VkBuffer out,
                     int seq_len, int n_heads, int n_kv, int hd, int gqa);
-
-    /// SiLU activation + gate multiply: y = silu(gate) * up
     void silu_mul(VkBuffer y, VkBuffer gate, VkBuffer up, int n);
-
-    /// SwiGLU FFN: silu(gate) * up → down projection
-    void swiglu_ffn(VkBuffer x, VkBuffer gate_w, VkBuffer up_w, VkBuffer down_w,
-                    VkBuffer out, int hidden, int inter);
-
-    /// Argmax: find index of maximum value
     int argmax(VkBuffer logits, int n);
-
-    /// Embedding lookup: x = embed[token_id]
     void embed_lookup(VkBuffer out, VkBuffer embed, int token_id, int hidden);
 
     VkDevice device() const { return device_; }
+    // Reset descriptor pool for new inference sequence
+    void reset_descriptors();
 
 private:
     VkDevice device_;
@@ -96,10 +67,8 @@ private:
     uint32_t queue_family_;
     CommandPool& cmd_pool_;
     ComputePipelineCache& pipelines_;
-    VkDescriptorSetLayout desc_set_layout_ = VK_NULL_HANDLE;
-    VkPipelineLayout pipe_layout_ = VK_NULL_HANDLE;
     VkDescriptorPool desc_pool_ = VK_NULL_HANDLE;
-    VkPipelineLayout get_pipeline_layout();
+    VkDescriptorSetLayout desc_set_layout_ = VK_NULL_HANDLE;
 };
 
 // ─── Inference engine — orchestrates model layers on GPU ───────────────
@@ -110,6 +79,6 @@ struct InferenceEngine {
     GpuBuffer hidden, residual, qkv, attn_out, gate_up, silu_buf, logits, argmax_buf;
 
     bool init(ComputeEngine& ce, ModelGPU& m);
-    void reset() { pos = 0; }
+    void reset();
     int generate(int token_id);
 };

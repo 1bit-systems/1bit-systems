@@ -397,6 +397,7 @@ int ZincEngine::generate(int token_id) {
 }
 
 void ZincEngine::destroy() {
+    if (device_) vkDeviceWaitIdle(device_);  // fix #776: drain before destroy
     pipeline_cache_.reset();
     shader_cache_.reset();
     cmd_pool_.reset();

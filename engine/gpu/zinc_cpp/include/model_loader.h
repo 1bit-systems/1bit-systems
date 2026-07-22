@@ -54,21 +54,15 @@ struct ModelGPU {
     ModelDims dims;
     
     // Shared weights
-    GpuBuffer embed;       // [vocab, hidden]
+    GpuBuffer embed;       // [vocab, hidden] — token embeddings
     GpuBuffer final_norm;  // [hidden]
-    GpuBuffer lm_head;     // [vocab, hidden] or same as embed (tied)
-    bool tied_embed = true;
+    
+    // KV cache: single contiguous buffer [2 * n_layers * max_seq * n_kv * hd] floats
+    GpuBuffer kv_cache;
+    int kv_cache_capacity = 0;
     
     // Per-layer weights
     std::vector<LayerWeightsGPU> layers;
-    
-    // KV cache (paged, allocated at runtime)
-    GpuBuffer k_cache, v_cache;
-    int kv_cache_capacity = 0;  // in tokens
-    
-    // MoE (optional)
-    bool is_moe = false;
-    GpuBuffer moe_gate, moe_gate_exps, moe_up_exps, moe_down_exps;
 };
 
 // ─── Model Loader ────────────────────────────────────────────────
