@@ -98,3 +98,15 @@ private:
     VkDescriptorSetLayout desc_set_layout_ = VK_NULL_HANDLE;
     VkPipelineLayout pipe_layout_ = VK_NULL_HANDLE;
 };
+
+// ─── Inference engine — orchestrates model layers on GPU ───────────────
+struct InferenceEngine {
+    ComputeEngine* compute = nullptr;
+    ModelGPU* model = nullptr;
+    int pos = 0;
+    GpuBuffer hidden, residual, qkv, attn_out, gate_up, silu_buf, logits, argmax_buf;
+
+    bool init(ComputeEngine& ce, ModelGPU& m);
+    void reset() { pos = 0; }
+    int generate(int token_id);
+};
