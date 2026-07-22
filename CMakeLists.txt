@@ -330,7 +330,7 @@ target_compile_definitions(backend_manager PRIVATE __HIP_PLATFORM_AMD__=1)
 target_link_libraries(backend_manager PUBLIC dl rocm_cpp hip::host hip::device)
 target_compile_options(backend_manager PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
 
-if(ZINC_ENABLED)
+if(ZINC_CPP_AVAILABLE)
     target_sources(backend_manager PRIVATE src/backend_zinc.cpp)
     # add_dependencies removed - zinc_cpp is cmake target
     target_link_libraries(backend_manager PUBLIC zinc_cpp)
@@ -452,7 +452,7 @@ set(ZAYA_SERVER_SRC tests/zaya_server.cpp tests/backends/backend_cpu.cpp tests/b
 if(RCPP_HAVE_VULKAN)
     list(APPEND ZAYA_SERVER_SRC tests/backends/backend_vulkan.cpp)
 endif()
-if(ZINC_ENABLED)
+if(ZINC_CPP_AVAILABLE)
     list(APPEND ZAYA_SERVER_SRC tests/backends/backend_zinc.cpp)
 endif()
 add_executable(zaya_server ${ZAYA_SERVER_SRC})
@@ -626,7 +626,7 @@ target_link_libraries(unified_server PRIVATE
     rocm_cpp hip::host hip::device)
 target_link_options(unified_server PRIVATE -rdynamic -luuid)
 set_target_properties(unified_server PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
-if(ZINC_ENABLED)
+if(ZINC_CPP_AVAILABLE)
     set_target_properties(unified_server PROPERTIES
         INSTALL_RPATH "${ZINC_REPO_DIR}/zig-out/lib"
         BUILD_RPATH "${ZINC_REPO_DIR}/zig-out/lib")
@@ -651,7 +651,7 @@ add_executable(test_mamba1_backend tools/test_mamba1_backend.cpp)
 target_include_directories(test_mamba1_backend PRIVATE src/ include/)
 target_compile_options(test_mamba1_backend PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
 target_link_libraries(test_mamba1_backend PRIVATE backend_manager dl)
-if(ZINC_ENABLED)
+if(ZINC_CPP_AVAILABLE)
     set_target_properties(backend_demo PROPERTIES
         INSTALL_RPATH "${ZINC_REPO_DIR}/zig-out/lib"
         BUILD_RPATH "${ZINC_REPO_DIR}/zig-out/lib")
