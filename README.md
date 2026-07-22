@@ -120,7 +120,7 @@ print(client.chat.completions.create(model="blackmamba-1.5b",
   kernels/                 GPU kernels: bonsai, sherry, MoE, Mamba1
   engine/
     npu/                   C++23 INT8 engine (XDNA 2)
-    gpu/                   GPU engine (Vulkan/CUDA/Metal)
+    gpu/                   GPU engine (Vulkan)
   tools/                   Converters, benchmarks, C++ runtime tools:
     onebit.cpp             CLI agent (chat, up, down, status, build, config)
     onebitd.cpp            Daemon (spawns backend, proxies HTTP)
