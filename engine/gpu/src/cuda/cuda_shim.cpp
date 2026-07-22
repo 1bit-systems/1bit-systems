@@ -7,9 +7,9 @@
 #include <nvrtc.h>
 #include <cublas_v2.h>
 #include <cuda_runtime_api.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 #define MAX_DISPATCH_BUFS 32
 
@@ -26,7 +26,7 @@ static void set_err(const char* where, const char* what) {
 }
 static int cu_ok(CUresult r, const char* where) {
     if (r == CUDA_SUCCESS) return 1;
-    const char* s = NULL; cuGetErrorString(r, &s);
+    const char* s = nullptr; cuGetErrorString(r, &s);
     set_err(where, s);
     return 0;
 }
@@ -36,21 +36,21 @@ const char* cuda_last_error(void) { return g_err; }
 CudaCtx* cuda_init(int device_index) {
     g_err[0] = 0;
     static int inited = 0;
-    if (!inited) { if (!cu_ok(cuInit(0), "cuInit")) return NULL; inited = 1; }
+    if (!inited) { if (!cu_ok(cuInit(0), "cuInit")) return nullptr; inited = 1; }
     CudaCtx* c = (CudaCtx*)calloc(1, sizeof *c);
-    if (!c) { set_err("cuda_init", "oom"); return NULL; }
+    if (!c) { set_err("cuda_init", "oom"); return nullptr; }
     // Silent on failure: callers (e.g. initBest) probe ascending ordinals to
     // enumerate devices, so an out-of-range index here is expected, not an error.
-    if (cuDeviceGet(&c->dev, device_index) != CUDA_SUCCESS) { free(c); return NULL; }
+    if (cuDeviceGet(&c->dev, device_index) != CUDA_SUCCESS) { free(c); return nullptr; }
     // Use the device's primary context (shared with the runtime API).
-    if (!cu_ok(cuDevicePrimaryCtxRetain(&c->ctx, c->dev), "cuDevicePrimaryCtxRetain")) { free(c); return NULL; }
+    if (!cu_ok(cuDevicePrimaryCtxRetain(&c->ctx, c->dev), "cuDevicePrimaryCtxRetain")) { free(c); return nullptr; }
     if (!cu_ok(cuCtxSetCurrent(c->ctx), "cuCtxSetCurrent")) {
         cuDevicePrimaryCtxRelease(c->dev);
-        free(c); return NULL;
+        free(c); return nullptr;
     }
     if (!cu_ok(cuStreamCreate(&c->stream, CU_STREAM_NON_BLOCKING), "cuStreamCreate")) {
         cuDevicePrimaryCtxRelease(c->dev);
-        free(c); return NULL;
+        free(c); return nullptr;
     }
     // Effort 26 cycle 9: cuBLAS handle for the prefill dense Q4_K GEMM (created
     // lazily-safe here; binds to the current primary context). Non-fatal on
@@ -59,7 +59,7 @@ CudaCtx* cuda_init(int device_index) {
         cublasSetStream(c->cublas, c->stream);
         cublasSetMathMode(c->cublas, CUBLAS_TENSOR_OP_MATH);
     } else {
-        c->cublas = NULL;
+        c->cublas = nullptr;
     }
     return c;
 }
@@ -112,28 +112,28 @@ void cuda_device_name(CudaCtx* c, char* out, size_t cap) {
 CudaBuf* cuda_create_buffer(CudaCtx* c, size_t size) {
     cuCtxSetCurrent(c->ctx);
     CudaBuf* b = (CudaBuf*)calloc(1, sizeof *b);
-    if (!b) { set_err("cuda_create_buffer", "oom"); return NULL; }
-    if (!cu_ok(cuMemAlloc(&b->dptr, size ? size : 1), "cuMemAlloc")) { free(b); return NULL; }
+    if (!b) { set_err("cuda_create_buffer", "oom"); return nullptr; }
+    if (!cu_ok(cuMemAlloc(&b->dptr, size ? size : 1), "cuMemAlloc")) { free(b); return nullptr; }
     b->size = size; b->owns = 1;
     return b;
 }
 CudaBuf* cuda_create_buffer_staged(CudaCtx* c, size_t size, void** cpu_ptr) {
     CudaBuf* b = cuda_create_buffer(c, size);
-    if (!b) return NULL;
-    if (!cu_ok(cuMemAllocHost(&b->host, size ? size : 1), "cuMemAllocHost")) { cuda_free_buffer(b); return NULL; }
+    if (!b) return nullptr;
+    if (!cu_ok(cuMemAllocHost(&b->host, size ? size : 1), "cuMemAllocHost")) { cuda_free_buffer(b); return nullptr; }
     b->owns_host = 1;
     if (cpu_ptr) *cpu_ptr = b->host;
     return b;
 }
 CudaBuf* cuda_upload_mmap(CudaCtx* c, const void* host_ptr, size_t size) {
     CudaBuf* b = cuda_create_buffer(c, size);
-    if (!b) return NULL;
-    if (!cu_ok(cuMemcpyHtoD(b->dptr, host_ptr, size), "cuMemcpyHtoD(mmap)")) { cuda_free_buffer(b); return NULL; }
+    if (!b) return nullptr;
+    if (!cu_ok(cuMemcpyHtoD(b->dptr, host_ptr, size), "cuMemcpyHtoD(mmap)")) { cuda_free_buffer(b); return nullptr; }
     return b;
 }
 CudaBuf* cuda_alias_buffer(CudaBuf* base, size_t offset, size_t size) {
     CudaBuf* b = (CudaBuf*)calloc(1, sizeof *b);
-    if (!b) { set_err("cuda_alias_buffer", "oom"); return NULL; }
+    if (!b) { set_err("cuda_alias_buffer", "oom"); return nullptr; }
     b->dptr = base->dptr + offset; b->size = size; b->owns = 0;
     return b;
 }
@@ -161,8 +161,8 @@ void cuda_download_async(CudaCtx* c, CudaBuf* b, void* dst, size_t size) {
     if (r != CUDA_SUCCESS) fprintf(stderr, "cuda_download_async: CUDA error %d\n", r);
 }
 void* cuda_alloc_host(size_t size) {
-    void* p = NULL;
-    if (!cu_ok(cuMemAllocHost(&p, size ? size : 1), "cuMemAllocHost")) return NULL;
+    void* p = nullptr;
+    if (!cu_ok(cuMemAllocHost(&p, size ? size : 1), "cuMemAllocHost")) return nullptr;
     return p;
 }
 void cuda_free_host(void* p) { if (p) cuMemFreeHost(p); }
@@ -178,8 +178,8 @@ CudaPipe* cuda_create_pipeline(CudaCtx* c, const char* src, const char* fn_name,
                                const char* const* opts, uint32_t n_opts) {
     cuCtxSetCurrent(c->ctx);
     nvrtcProgram prog;
-    if (nvrtcCreateProgram(&prog, src, "zinc_kernel.cu", 0, NULL, NULL) != NVRTC_SUCCESS) {
-        set_err("nvrtcCreateProgram", "failed"); return NULL;
+    if (nvrtcCreateProgram(&prog, src, "zinc_kernel.cu", 0, nullptr, nullptr) != NVRTC_SUCCESS) {
+        set_err("nvrtcCreateProgram", "failed"); return nullptr;
     }
     // Default arch = the running device's cc (e.g. sm_120 / sm_89).
     char arch[32];
@@ -199,20 +199,20 @@ CudaPipe* cuda_create_pipeline(CudaCtx* c, const char* src, const char* fn_name,
         char* log = (char*)malloc(logsz + 1);
         if (log) { nvrtcGetProgramLog(prog, log); log[logsz] = 0; fprintf(stderr, "[cuda_shim] NVRTC log:\n%s\n", log); free(log); }
         set_err("nvrtcCompileProgram", nvrtcGetErrorString(cr));
-        nvrtcDestroyProgram(&prog); return NULL;
+        nvrtcDestroyProgram(&prog); return nullptr;
     }
     size_t ptxsz = 0; nvrtcGetPTXSize(prog, &ptxsz);
     char* ptx = (char*)malloc(ptxsz);
-    if (!ptx) { nvrtcDestroyProgram(&prog); return NULL; }
+    if (!ptx) { nvrtcDestroyProgram(&prog); return nullptr; }
     nvrtcGetPTX(prog, ptx);
     nvrtcDestroyProgram(&prog);
 
     CudaPipe* p = (CudaPipe*)calloc(1, sizeof *p);
-    if (!p) { free(ptx); set_err("cuda_create_pipeline", "oom"); return NULL; }
-    if (!cu_ok(cuModuleLoadData(&p->mod, ptx), "cuModuleLoadData")) { free(ptx); free(p); return NULL; }
+    if (!p) { free(ptx); set_err("cuda_create_pipeline", "oom"); return nullptr; }
+    if (!cu_ok(cuModuleLoadData(&p->mod, ptx), "cuModuleLoadData")) { free(ptx); free(p); return nullptr; }
     free(ptx);
     if (!cu_ok(cuModuleGetFunction(&p->fn, p->mod, fn_name), "cuModuleGetFunction")) {
-        cuModuleUnload(p->mod); free(p); return NULL;
+        cuModuleUnload(p->mod); free(p); return nullptr;
     }
     return p;
 }
@@ -220,10 +220,10 @@ CudaPipe* cuda_create_pipeline_from_image(CudaCtx* c, const void* image, size_t 
     (void)image_size;
     cuCtxSetCurrent(c->ctx);
     CudaPipe* p = (CudaPipe*)calloc(1, sizeof *p);
-    if (!p) { set_err("cuda_create_pipeline_from_image", "oom"); return NULL; }
-    if (!cu_ok(cuModuleLoadData(&p->mod, image), "cuModuleLoadData(image)")) { free(p); return NULL; }
+    if (!p) { set_err("cuda_create_pipeline_from_image", "oom"); return nullptr; }
+    if (!cu_ok(cuModuleLoadData(&p->mod, image), "cuModuleLoadData(image)")) { free(p); return nullptr; }
     if (!cu_ok(cuModuleGetFunction(&p->fn, p->mod, fn_name), "cuModuleGetFunction")) {
-        cuModuleUnload(p->mod); free(p); return NULL;
+        cuModuleUnload(p->mod); free(p); return nullptr;
     }
     return p;
 }
@@ -239,9 +239,9 @@ void cuda_free_pipeline(CudaPipe* p) { if (!p) return; if (p->mod) cuModuleUnloa
 CudaCmd* cuda_begin_command(CudaCtx* c) {
     cuCtxSetCurrent(c->ctx);
     CudaCmd* m = (CudaCmd*)calloc(1, sizeof *m);
-    if (!m) { set_err("cuda_begin_command", "oom"); return NULL; }
+    if (!m) { set_err("cuda_begin_command", "oom"); return nullptr; }
     m->stream = c->stream;
-    if (!cu_ok(cuEventCreate(&m->event, CU_EVENT_DEFAULT), "cuEventCreate")) { free(m); return NULL; }
+    if (!cu_ok(cuEventCreate(&m->event, CU_EVENT_DEFAULT), "cuEventCreate")) { free(m); return nullptr; }
     return m;
 }
 void cuda_dispatch(CudaCmd* m, CudaPipe* p,
@@ -259,7 +259,7 @@ void cuda_dispatch(CudaCmd* m, CudaPipe* p,
     uint32_t nargs = n_bufs;
     if (push_data) { args[nargs++] = (void*)push_data; }
     cu_ok(cuLaunchKernel(p->fn, grid[0], grid[1], grid[2], block[0], block[1], block[2],
-                         shared_bytes, m->stream, args, NULL), "cuLaunchKernel");
+                         shared_bytes, m->stream, args, nullptr), "cuLaunchKernel");
 }
 void cuda_barrier(CudaCmd* m) { (void)m; /* single stream is implicitly ordered */ }
 void cuda_commit_and_wait(CudaCmd* m) {
@@ -283,7 +283,7 @@ struct CudaGraph { CUgraphExec exec; int have_exec; };
 
 CudaGraph* cuda_graph_create(void) {
     CudaGraph* g = (CudaGraph*)calloc(1, sizeof *g);
-    if (!g) { set_err("cuda_graph_create", "oom"); return NULL; }
+    if (!g) { set_err("cuda_graph_create", "oom"); return nullptr; }
     return g;
 }
 int cuda_graph_begin(CudaCtx* c) {
@@ -291,7 +291,7 @@ int cuda_graph_begin(CudaCtx* c) {
     return cu_ok(cuStreamBeginCapture(c->stream, CU_STREAM_CAPTURE_MODE_RELAXED), "cuStreamBeginCapture");
 }
 int cuda_graph_end_launch(CudaCtx* c, CudaGraph* g) {
-    CUgraph graph = NULL;
+    CUgraph graph = nullptr;
     if (!cu_ok(cuStreamEndCapture(c->stream, &graph), "cuStreamEndCapture")) return 0;
     if (g->have_exec) {
         // Topology is invariant across decode steps (same layers/kernels/order);

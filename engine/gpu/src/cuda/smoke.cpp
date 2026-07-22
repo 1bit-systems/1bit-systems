@@ -9,7 +9,7 @@
 //       -Wl,-rpath,/usr/local/cuda/lib64
 
 #include "cuda_shim.h"
-#include <stdio.h>
+#include <cstdio>
 
 // Kernels authored to the ZINC dispatch ABI: bound buffers first (as device
 // pointers), then a single by-value push-constant struct.
@@ -53,9 +53,9 @@ int main(void) {
     cuda_upload(c, a, ha, N * sizeof(float));
     cuda_upload(c, b, hb, N * sizeof(float));
 
-    CudaPipe* vadd = cuda_create_pipeline(c, KSRC, "vadd", NULL, 0);
+    CudaPipe* vadd = cuda_create_pipeline(c, KSRC, "vadd", nullptr, 0);
     if (!vadd) { printf("FAIL: nvrtc vadd: %s\n", cuda_last_error()); return 2; }
-    CudaPipe* dp = cuda_create_pipeline(c, KSRC, "dp4a_k", NULL, 0);
+    CudaPipe* dp = cuda_create_pipeline(c, KSRC, "dp4a_k", nullptr, 0);
     if (!dp) { printf("FAIL: nvrtc dp4a: %s\n", cuda_last_error()); return 2; }
     printf("nvrtc: compiled vadd (max_threads=%u) + dp4a_k for sm_%u\n",
            cuda_pipeline_max_threads(vadd), best_cc);
