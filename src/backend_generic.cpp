@@ -389,6 +389,10 @@ struct GenericBackend : Backend {
     }
 
     int forward(int token) {
+        if (token < 0 || token >= (int)cfg.vocab) {
+            fprintf(stderr, "[generic] token_id=%d out of range [0,%d)\n", token, (int)cfg.vocab);
+            return -1;
+        }
         std::vector<float> x0(cfg.hidden);
         for (int i = 0; i < cfg.hidden; i++) x0[i] = embed[token * (size_t)cfg.hidden + i];
         return forward_embed(x0.data());
@@ -398,7 +402,12 @@ struct GenericBackend : Backend {
     // embedding vector directly instead of doing a token_embd lookup —
     // the splice point for injecting vision embeddings (mm.2 output) at
     // image-placeholder positions instead of a text token's row.
-    int forward_embed(const float* x_in) override {
+     int forward_embed(const float* x_in) override {
+        // Bounds-check KV cache position before writing (fixes OOB/overflow)
+        if (pos >= cfg.max_seq_len) {
+            fprintf(stderr, "[generic] KV cache overflow: pos=%d >= max_seq_len=%d\n", pos, cfg.max_seq_len);
+            return -1;
+        }
         int H = cfg.hidden, NH = cfg.n_heads, NKV = cfg.n_kv_heads, HD = cfg.head_dim;
         int GQA = NH / NKV, FF = cfg.intermediate_size, V = cfg.vocab;
         float eps = cfg.rms_norm_eps, theta = cfg.rope_theta;

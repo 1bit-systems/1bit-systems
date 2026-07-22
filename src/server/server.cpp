@@ -414,7 +414,7 @@ void HttpSession::write_streaming_response(const json& data, bool is_final) {
         // Send headers synchronously via raw socket write
         boost::system::error_code ec;
         net::write(socket_, net::buffer(headers), ec);
-        if (ec) return;
+        if (ec) { server_.active_connections_.fetch_sub(1); return; }
     }
     
     // Send this chunk immediately
@@ -463,8 +463,8 @@ void HttpSession::send_chunk_data(const json& data, bool is_final) {
             cancellation_token_->cancel(); 
         }
 
-        //socket_.shutdown(tcp::socket::shutdown_both, ec);
-        //server_.active_connections_.fetch_sub(1);
+        socket_.shutdown(tcp::socket::shutdown_both, ec);
+        server_.active_connections_.fetch_sub(1);
 
         boost::system::error_code ignore_ec;
         socket_.close(ignore_ec);

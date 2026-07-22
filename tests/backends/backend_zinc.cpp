@@ -23,14 +23,28 @@ public:
         void* h = dlopen("libzinc.so", RTLD_NOW | RTLD_GLOBAL);
         if (h) { dlclose(h); return true; }
         // Try from zig-out path
-        h = dlopen("/home/bcloud/zinc/zig-out/lib/libzinc.so", RTLD_NOW | RTLD_GLOBAL);
-        if (h) { dlclose(h); return true; }
+        const char* zinc_path = getenv("ZINC_LIB_PATH");
+        if (!zinc_path || !zinc_path[0]) {
+            const char* home = getenv("HOME");
+            static std::string default_path = (home && home[0]) ? std::string(home) + "/zinc/zig-out/lib/libzinc.so" : "";
+            zinc_path = default_path.c_str();
+        }
+        if (zinc_path[0]) {
+            h = dlopen(zinc_path, RTLD_NOW | RTLD_GLOBAL);
+            if (h) { dlclose(h); return true; }
+        }
         return false;
     }
 
     bool load_model(const ModelConfig& cfg) override {
         unload_model();
-        zinc_lib_ = dlopen("/home/bcloud/zinc/zig-out/lib/libzinc.so", RTLD_NOW | RTLD_GLOBAL);
+        const char* zinc_path = getenv("ZINC_LIB_PATH");
+        if (!zinc_path || !zinc_path[0]) {
+            const char* home = getenv("HOME");
+            static std::string default_path = (home && home[0]) ? std::string(home) + "/zinc/zig-out/lib/libzinc.so" : "";
+            zinc_path = default_path.c_str();
+        }
+        zinc_lib_ = dlopen(zinc_path, RTLD_NOW | RTLD_GLOBAL);
         if (!zinc_lib_) return false;
         auto zinc_create_fn = (void*(*)())dlsym(zinc_lib_, "zinc_create");
         auto zinc_load_fn = (bool(*)(void*,const char*))dlsym(zinc_lib_, "zinc_load");

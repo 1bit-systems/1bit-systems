@@ -711,6 +711,9 @@ int main(int argc, char** argv) {
     // ── HTTP Server ──
     httplib::Server svr;
 
+    // Limit request body size to prevent memory exhaustion from oversized payloads
+    svr.set_payload_max_length(16 * 1024 * 1024); // 16 MiB
+
     // ── CORS middleware (only enabled when --cors-origin is set) ──
     if (!g_cors_origin.empty()) {
         svr.set_pre_routing_handler([&](const httplib::Request& req, httplib::Response& res) {
@@ -854,7 +857,7 @@ int main(int argc, char** argv) {
                 prompt += role + ": " + content + "\n";
                 if (role == "user") last_user_msg = content;
             }
-        } else if (body.contains("prompt")) {
+        } else if (body.contains("prompt") && body["prompt"].is_string()) {
             prompt = body["prompt"].get<std::string>();
             last_user_msg = prompt;
         }
@@ -1015,7 +1018,9 @@ int main(int argc, char** argv) {
         // Accept prompt or tokens
         std::vector<int> prompt_tokens;
         if (body.contains("tokens") && body["tokens"].is_array()) {
-            for (auto& t : body["tokens"]) prompt_tokens.push_back(t.get<int>());
+            for (auto& t : body["tokens"]) {
+                if (t.is_number_integer()) prompt_tokens.push_back(t.get<int>());
+            }
         } else if (body.contains("prompt")) {
             prompt_tokens = g_tokenizer.encode(body["prompt"].get<std::string>());
         }

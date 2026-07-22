@@ -41,7 +41,11 @@ int main(int argc, char** argv) {
     }
     printf("Found %zu tensors\n", g_tensors.size());
     
-    system("mkdir -p /tmp/zaya_fp16_cache");
+    static std::string cache_dir = [] {
+        const char* home_cache = getenv("HOME");
+        return (home_cache && home_cache[0]) ? std::string(home_cache) + "/.cache/1bit-systems/fp16" : "/tmp/zaya_fp16_cache";
+    }();
+    system(("mkdir -p " + cache_dir).c_str());
     fseek(f, 0, SEEK_END); size_t fsz = ftell(f);
     std::vector<uint8_t> fd(fsz); fseek(f, 0, SEEK_SET); fread(fd.data(), 1, fsz, f);
     fclose(f);
@@ -62,7 +66,7 @@ int main(int argc, char** argv) {
                 fp16[g * 8 + i] = f32_to_f16(val);
             }
         }
-        std::string out = "/tmp/zaya_fp16_cache/";
+        std::string out = cache_dir + "/";
         for (char c : name) out += (c == '.') ? '_' : c;
         out += ".fp16";
         FILE* fo = fopen(out.c_str(), "wb");

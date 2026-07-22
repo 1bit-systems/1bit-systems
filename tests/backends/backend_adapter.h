@@ -135,7 +135,10 @@ public:
     bool load_model(const ModelConfig& cfg) override {
         cfg_ = cfg;
         weights_dir_ = cfg.weights_dir;
-        if (weights_dir_.empty()) weights_dir_ = "/tmp/zaya_weights";
+        if (weights_dir_.empty()) {
+            const char* home = getenv("HOME");
+            weights_dir_ = (home && home[0]) ? std::string(home) + "/.local/share/1bit-systems/weights" : "/tmp/zaya_weights";
+        }
         loaded_ = wrapped_->init(cfg, weights_dir_);
         return loaded_;
     }

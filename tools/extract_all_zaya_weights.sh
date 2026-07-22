@@ -3,7 +3,7 @@
 # Usage: bash tools/extract_all_zaya_weights.sh
 set -euo pipefail
 cd ${HOME}
-WEIGHTS_DIR="${ZAYA_WEIGHTS_DIR:-/tmp/zaya_weights}"
+WEIGHTS_DIR="${ZAYA_WEIGHTS_DIR:-$HOME/.local/share/1bit-systems/weights}"
 mkdir -p "$WEIGHTS_DIR"
 
 # Check if already done
@@ -23,7 +23,7 @@ from safetensors import safe_open
 import numpy as np
 
 MODEL_DIR = os.environ.get('ZAYA_MODEL_DIR', os.path.join(os.environ['HOME'], 'models/ZAYA1-8B'))
-WEIGHTS_DIR = os.environ.get('ZAYA_WEIGHTS_DIR', '/tmp/zaya_weights')
+WEIGHTS_DIR = os.environ.get('ZAYA_WEIGHTS_DIR', os.path.join(os.environ['HOME'], '.local/share/1bit-systems/weights'))
 os.makedirs(WEIGHTS_DIR, exist_ok=True)
 
 shards = sorted([os.path.join(MODEL_DIR, f) for f in os.listdir(MODEL_DIR) if f.endswith('.safetensors')])

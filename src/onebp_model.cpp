@@ -24,14 +24,41 @@ bool OnebpModel::load(const char* path) {
         return false;
     }
 
+    static constexpr uint32_t MAX_NAME_LEN = 1024;     // 1 KiB
+    static constexpr uint32_t MAX_NDIM = 8;            // reasonable max dims
+    static constexpr uint32_t MAX_TENSOR_COUNT = 16384; // prevents OOM loops
+
+    if (header.tensor_count > MAX_TENSOR_COUNT) {
+        fprintf(stderr, "1BP: tensor_count %u exceeds max %u\n", header.tensor_count, MAX_TENSOR_COUNT);
+        return false;
+    }
+
     uint64_t pos = sizeof(OnebpHeader);
     for (uint32_t i = 0; i < header.tensor_count; i++) {
+        // Bounds check: each entry needs at least 4(name_len) + 1(min name) + 4(ndim) + 8(offset) + 8(bytes) = 25 bytes
+        if (pos + 25 > file_size) {
+            fprintf(stderr, "1BP: truncated tensor index at entry %u/%u\n", i, header.tensor_count);
+            return false;
+        }
         OnebpTensor t;
         uint32_t name_len;
         memcpy(&name_len, data + pos, 4); pos += 4;
+        if (name_len > MAX_NAME_LEN || pos + name_len + 1 > file_size) {
+            fprintf(stderr, "1BP: invalid name_len=%u at entry %u\n", name_len, i);
+            return false;
+        }
         t.name = std::string((char*)(data + pos), name_len);
         pos += name_len + 1;  // +1 for null terminator written by converter
+        if (pos + 4 > file_size) { fprintf(stderr, "1BP: truncated at ndim\n"); return false; }
         memcpy(&t.ndim, data + pos, 4); pos += 4;
+        if (t.ndim > MAX_NDIM) {
+            fprintf(stderr, "1BP: ndim=%d exceeds max %u at '%s'\n", t.ndim, MAX_NDIM, t.name.c_str());
+            return false;
+        }
+        if (pos + (uint64_t)t.ndim * 4 + 16 > file_size) {
+            fprintf(stderr, "1BP: truncated at dims for '%s'\n", t.name.c_str());
+            return false;
+        }
         t.dims.resize(t.ndim);
         for (int d = 0; d < t.ndim; d++) {
             memcpy(&t.dims[d], data + pos, 4); pos += 4;

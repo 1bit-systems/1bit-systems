@@ -9,11 +9,23 @@
 #define HIP_OK(e) do{auto _s=(e);if(_s!=hipSuccess){fprintf(stderr,"HIP Error %d\n",_s);abort();}}while(0)
 constexpr int H=2048,QD=1024,KD=256,QKV=1280,NKV=2;
 
+static const std::string& weights_dir() {
+    static std::string dir = [] {
+        const char* d = getenv("ZAYA_WEIGHTS_DIR");
+        if (d && d[0]) return std::string(d);
+        const char* home = getenv("HOME");
+        return (home && home[0]) ? std::string(home) + "/.local/share/1bit-systems/weights/" : "/tmp/zaya_weights/";
+    }();
+    return dir;
+}
 static std::vector<float> load_bin(const std::string& p){
     std::ifstream f(p,std::ios::binary|std::ios::ate);
     if(!f){return {};}
     size_t n=f.tellg()/sizeof(float);f.seekg(0);
     std::vector<float> d(n);f.read((char*)d.data(),n*sizeof(float));return d;
+}
+static std::vector<float> load_weight(const std::string& name){
+    return load_bin(weights_dir() + name);
 }
 static void upf16(const std::vector<float>& s,__half*d,int n,hipStream_t h=0){
     std::vector<__half>b(n);for(int i=0;i<n;i++)b[i]=__float2half(s[i]);
@@ -49,16 +61,16 @@ int main() {
     HIP_OK(hipMalloc(&d_cgw,QKV*128*2*4));HIP_OK(hipMalloc(&d_cgb,QKV*4));
     HIP_OK(hipMalloc(&d_ks,NKV*4));HIP_OK(hipMalloc(&d_phs,H*2));HIP_OK(hipMalloc(&d_csi,QKV*2*2));
     
-    auto wq=load_bin("/tmp/zaya_weights/model_layers_0_self_attn_qkv_proj_q_proj_weight.bin");
-    auto wk=load_bin("/tmp/zaya_weights/model_layers_0_self_attn_qkv_proj_k_proj_weight.bin");
-    auto cdw=load_bin("/tmp/zaya_weights/model_layers_0_self_attn_qkv_proj_conv_qk_depthwise_weight.bin");
-    auto cdb=load_bin("/tmp/zaya_weights/model_layers_0_self_attn_qkv_proj_conv_qk_depthwise_bias.bin");
-    auto cgw=load_bin("/tmp/zaya_weights/model_layers_0_self_attn_qkv_proj_conv_qk_grouped_weight.bin");
-    auto cgb=load_bin("/tmp/zaya_weights/model_layers_0_self_attn_qkv_proj_conv_qk_grouped_bias.bin");
-    auto ks=load_bin("/tmp/zaya_weights/model_layers_0_self_attn_qk_norm_temp.bin");
-    auto wv1=load_bin("/tmp/zaya_weights/model_layers_0_self_attn_qkv_proj_v_proj_current_weight.bin");
-    auto wv2=load_bin("/tmp/zaya_weights/model_layers_0_self_attn_qkv_proj_v_proj_delayed_weight.bin");
-    auto wo=load_bin("/tmp/zaya_weights/model_layers_0_self_attn_o_proj_weight.bin");
+    auto wq=load_weight("model_layers_0_self_attn_qkv_proj_q_proj_weight.bin");
+    auto wk=load_weight("model_layers_0_self_attn_qkv_proj_k_proj_weight.bin");
+    auto cdw=load_weight("model_layers_0_self_attn_qkv_proj_conv_qk_depthwise_weight.bin");
+    auto cdb=load_weight("model_layers_0_self_attn_qkv_proj_conv_qk_depthwise_bias.bin");
+    auto cgw=load_weight("model_layers_0_self_attn_qkv_proj_conv_qk_grouped_weight.bin");
+    auto cgb=load_weight("model_layers_0_self_attn_qkv_proj_conv_qk_grouped_bias.bin");
+    auto ks=load_weight("model_layers_0_self_attn_qk_norm_temp.bin");
+    auto wv1=load_weight("model_layers_0_self_attn_qkv_proj_v_proj_current_weight.bin");
+    auto wv2=load_weight("model_layers_0_self_attn_qkv_proj_v_proj_delayed_weight.bin");
+    auto wo=load_weight("model_layers_0_self_attn_o_proj_weight.bin");
 
     hipStream_t st;HIP_OK(hipStreamCreate(&st));
     upf16(hs,d_hs,H,st); upf16(nw,d_nw,H,st);

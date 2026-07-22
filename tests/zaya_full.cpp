@@ -32,7 +32,16 @@ static std::vector<float> load_bin(const std::string& path) {
     size_t n=f.tellg()/sizeof(float); f.seekg(0);
     std::vector<float> d(n); f.read((char*)d.data(),n*sizeof(float)); return d;
 }
-#define W(N) load_bin(std::string("/tmp/zaya_weights/")+N)
+static const std::string& weights_dir() {
+    static std::string dir = [] {
+        const char* d = getenv("ZAYA_WEIGHTS_DIR");
+        if (d && d[0]) return std::string(d);
+        const char* home = getenv("HOME");
+        return (home && home[0]) ? std::string(home) + "/.local/share/1bit-systems/weights/" : "/tmp/zaya_weights/";
+    }();
+    return dir;
+}
+#define W(N) load_bin(weights_dir() + N)
 static std::string L(int i){return std::to_string(i);}
 
 // ── GPU: RMSNorm ──

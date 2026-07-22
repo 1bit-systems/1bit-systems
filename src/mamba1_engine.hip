@@ -27,7 +27,7 @@
 
 __global__ void gemv_q4(const uint8_t* W, const float* x, float* y, int M, int K) {
     __shared__ float xt[2048];
-    int t=threadIdx.x, w=t/64, ln=t%64, rb=blockIdx.x*16;
+    int t=threadIdx.x, w=t/32, ln=t%32, rb=blockIdx.x*16;
     float a[4]={0}; int gp=(K+QK-1)/QK;
     for(int k0=0;k0<K;k0+=2048){int ks=min(2048,K-k0);
         for(int i=t;i<ks;i+=128)xt[i]=x[k0+i];__syncthreads();
@@ -35,7 +35,17 @@ __global__ void gemv_q4(const uint8_t* W, const float* x, float* y, int M, int K
             int g0=k0/QK,g1=min((k0+ks+QK-1)/QK,gp);
             for(int g=g0+ln;g<g1;g+=64){
                 const uint8_t* b_=W+((size_t)row*gp+g)*QB;
-                uint16_t sb;memcpy(&sb,b_,2);uint32_t fb=(uint32_t)sb<<16;float sc;memcpy(&sc,&fb,4);
+                uint16_t sb;memcpy(&sb,b_,2);
+                // IEEE float16 → float32 (not bfloat16!)
+                uint32_t s=(sb>>15)&1, e=(sb>>10)&0x1f, m=sb&0x3ff;
+                float sc;
+                if(e==0)
+                    sc=(s?-1.0f:1.0f)*(float)m*5.9604644775390625e-08f;
+                else if(e==31)
+                    sc=m?NAN:(s?-INFINITY:INFINITY);
+                else
+                    sc=(s?-1.0f:1.0f)*(1.0f+(float)m/1024.0f)
+                       *powf(2.0f,(float)((int)e-15));
                 int gk=g*QK;
                 for(int j=0;j<16;j++){int ki=gk+j*2;uint8_t by=b_[2+j];int n0=(by>>4)&0x0F,n1=by&0x0F;if(n0>=8)n0-=16;if(n1>=8)n1-=16;
                     if(ki>=k0&&ki<k0+ks)s+=(float)n0*sc*xt[ki-k0];

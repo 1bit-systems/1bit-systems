@@ -33,10 +33,10 @@ namespace vkrt {
 inline std::vector<uint32_t> loadSpirv(const char* path) {
     std::ifstream f(path, std::ios::binary | std::ios::ate);
     if (!f) VKRT_BAIL("Cannot open %s", path);
-    size_t sz = (size_t)f.tellg();
+    size_t sz = static_cast<size_t>(f.tellg());
     f.seekg(0);
     std::vector<uint32_t> code(sz / 4);
-    f.read(reinterpret_cast<char*>(code.data()), (std::streamsize)sz);
+    f.read(reinterpret_cast<char*>(code.data()), static_cast<std::streamsize>(sz));
     return code;
 }
 
@@ -181,12 +181,12 @@ struct Pipeline {
         sm.pCode = spv.data();
         VKRT_CK(vkCreateShaderModule(ctx.dev, &sm, nullptr, &shader));
 
-        std::vector<VkDescriptorSetLayoutBinding> bindings((size_t)numBindings);
+        std::vector<VkDescriptorSetLayoutBinding> bindings(static_cast<size_t>(numBindings));
         for (int i = 0; i < numBindings; i++) {
-            bindings[(size_t)i] = {(uint32_t)i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+            bindings[static_cast<size_t>(i)] = {static_cast<uint32_t>(i), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
         }
         VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-        dslci.bindingCount = (uint32_t)numBindings;
+        dslci.bindingCount = static_cast<uint32_t>(numBindings);
         dslci.pBindings = bindings.data();
         VKRT_CK(vkCreateDescriptorSetLayout(ctx.dev, &dslci, nullptr, &dsl));
 
@@ -225,14 +225,14 @@ inline VkDescriptorSet createDescriptorSet(VkCtx& ctx, Pipeline& p, GpuBuffer** 
     dai.pSetLayouts = &p.dsl;
     VKRT_CK(vkAllocateDescriptorSets(ctx.dev, &dai, &ds));
 
-    std::vector<VkDescriptorBufferInfo> dbis((size_t)n);
-    std::vector<VkWriteDescriptorSet> writes((size_t)n);
+    std::vector<VkDescriptorBufferInfo> dbis(static_cast<size_t>(n));
+    std::vector<VkWriteDescriptorSet> writes(static_cast<size_t>(n));
     for (int i = 0; i < n; i++) {
-        dbis[(size_t)i] = {bufs[i]->buf, 0, VK_WHOLE_SIZE};
-        writes[(size_t)i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, ds, (uint32_t)i, 0, 1,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr, &dbis[(size_t)i], nullptr};
+        dbis[static_cast<size_t>(i)] = {bufs[i]->buf, 0, VK_WHOLE_SIZE};
+        writes[static_cast<size_t>(i)] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, ds, static_cast<uint32_t>(i), 0, 1,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr, &dbis[static_cast<size_t>(i)], nullptr};
     }
-    vkUpdateDescriptorSets(ctx.dev, (uint32_t)n, writes.data(), 0, nullptr);
+    vkUpdateDescriptorSets(ctx.dev, static_cast<uint32_t>(n), writes.data(), 0, nullptr);
     return ds;
 }
 
@@ -301,7 +301,7 @@ inline double dispatchRepeatedTimed(VkCtx& ctx, Pipeline& p, VkDescriptorSet ds,
                                    VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
     vkFreeCommandBuffers(ctx.dev, ctx.cmdPool, 1, &cmd);
 
-    double elapsed_ns = (double)(timestamps[1] - timestamps[0]) * (double)ctx.timestampPeriodNs;
+    double elapsed_ns = static_cast<double>(timestamps[1] - timestamps[0]) * static_cast<double>(ctx.timestampPeriodNs);
     return elapsed_ns / 1e6; // ms
 }
 

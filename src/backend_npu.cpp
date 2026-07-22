@@ -325,11 +325,13 @@ struct NPUBackend : Backend {
         if (!model_path) {
             // Auto-discovery: search common paths for model.q4nx (#444)
             // 1. Current dir + common paths
+            const char* home_model = getenv("HOME");
+            static std::string home_model_path = (home_model && home_model[0]) ? std::string(home_model) + "/.local/share/1bit-systems/weights/model.q4nx" : "";
             static const char* search_paths[] = {
                 "model.q4nx",
                 "models/model.q4nx",
                 "/opt/1bit/models/model.q4nx",
-                "/tmp/zaya_weights/model.q4nx",
+                home_model_path.c_str(),
             };
             // 2. FLM model directory (users already have models here)
             const char* home_env = getenv("HOME");

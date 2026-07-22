@@ -381,7 +381,12 @@ RestHandler::~RestHandler() = default;
 ///@param model_tag the model tag
 bool RestHandler::ensure_model_loaded(const std::string& model_tag) {
     std::string ensure_tag = model_tag;
-    if (current_model_tag != ensure_tag) {
+    {
+        std::lock_guard<std::mutex> lock(current_model_tag_mutex_);
+        if (current_model_tag == ensure_tag) {
+            return true;
+        }
+    }
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         if (auto_chat_engine != nullptr) {
             auto_chat_engine.reset();
@@ -402,14 +407,20 @@ bool RestHandler::ensure_model_loaded(const std::string& model_tag) {
             this->auto_chat_engine.reset();
             this->npu_device_inst.reset();
             this->npu_device_inst = xrt::device(0);
-            this->current_model_tag = "model-faker";
+            {
+                std::lock_guard<std::mutex> lock(current_model_tag_mutex_);
+                this->current_model_tag = "model-faker";
+            }
             return false;
         }
         
         if (this->prefill_chunk_len == -1) {
             this->prefill_chunk_len = model_info["max_prefill_len"].get<int>();;
         }
-        current_model_tag = ensure_tag;
+        {
+            std::lock_guard<std::mutex> lock(current_model_tag_mutex_);
+            current_model_tag = ensure_tag;
+        }
     }
     return true;
 }
@@ -973,7 +984,12 @@ void RestHandler::handle_ps(const json& request,
         
         std::string expires_at = expires_ss.str();
         
-        auto [new_current_model_tag, model_info] = supported_models.get_model_info(current_model_tag);
+        std::string local_model_tag;
+        {
+            std::lock_guard<std::mutex> lock(current_model_tag_mutex_);
+            local_model_tag = current_model_tag;
+        }
+        auto [new_current_model_tag, model_info] = supported_models.get_model_info(local_model_tag);
         json response = {
             {"models", json::array({
                 {
@@ -1239,12 +1255,26 @@ void RestHandler::handle_openai_chat_completion(const json& request,
                     {"prompt_tokens", meta_info.prompt_tokens},
                     {"completion_tokens", meta_info.generated_tokens},
                     {"total_tokens", meta_info.prompt_tokens + meta_info.generated_tokens},
-                    {"kv_token_occupancy_rate_percentage", (float)this->auto_chat_engine->get_current_context_length() / (float)this->auto_chat_engine->get_max_length() * 100},
+                    {"kv_token_occupancy_rate_percentage",
+                        [&]() -> float {
+                            auto max_len = this->auto_chat_engine->get_max_length();
+                            if (max_len == 0) return 0.0f;
+                            return (float)this->auto_chat_engine->get_current_context_length() / (float)max_len * 100.0f;
+                        }()
+                    },
                     {"load_duration", static_cast<double>(meta_info.load_duration) / 1'000'000'000},
                     {"prefill_duration_ttft", static_cast<double>(meta_info.prefill_duration) / 1'000'000'000},
                     {"decoding_duration", static_cast<double>(meta_info.decoding_duration) / 1'000'000'000},
-                    {"prefill_speed_tps", static_cast<double>(meta_info.prompt_tokens) / static_cast<double>(meta_info.prefill_duration) * 1'000'000'000},
-                    {"decoding_speed_tps", static_cast<double>(meta_info.generated_tokens) / static_cast<double>(meta_info.decoding_duration) * 1'000'000'000},
+                    {"prefill_speed_tps",
+                        meta_info.prefill_duration == 0
+                            ? 0.0
+                            : static_cast<double>(meta_info.prompt_tokens) / static_cast<double>(meta_info.prefill_duration) * 1'000'000'000.0
+                    },
+                    {"decoding_speed_tps",
+                        meta_info.decoding_duration == 0
+                            ? 0.0
+                            : static_cast<double>(meta_info.generated_tokens) / static_cast<double>(meta_info.decoding_duration) * 1'000'000'000.0
+                    },
                 }},
                 {"service_tier", "default"}
             };

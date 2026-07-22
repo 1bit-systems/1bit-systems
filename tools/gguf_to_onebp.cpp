@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
 
     struct TInfo { std::string name; int rows, cols; uint64_t offset, tiled; };
     std::vector<TInfo> tensors;
-    uint64_t data_off = sizeof(OnebpHeader);
+    uint64_t data_off = 0;
     int tr = 32, tc = 256, gs = 32;
 
     for (auto& tn : reader.tensor_names()) {
@@ -101,7 +101,7 @@ int main(int argc, char** argv) {
         if (!inf || inf->shape.size() != 2) continue;
         int c = (int)inf->shape[0], r = (int)inf->shape[1];
         if (r <= 0 || c <= 0) continue;
-        if ((uint64_t)r * c > 200000000) continue;
+        if ((uint64_t)r * (uint64_t)c > 200000000) continue;
         uint64_t tiled = onebp_tiled_size(r, c, tr, tc, gs, ONEBP_Q4NX);
         tensors.push_back({tn, r, c, data_off, tiled});
         data_off += tiled;
@@ -110,6 +110,17 @@ int main(int argc, char** argv) {
     printf("  Total tensors: %zu, data size: %.1f MB\n", tensors.size(), data_off / (1024.0*1024.0));
     fflush(stdout);
     hdr.tensor_count = (uint32_t)tensors.size();
+
+    // Compute index size and fix up tensor offsets to account for header + index
+    uint64_t index_size = 0;
+    for (auto& t : tensors) {
+        uint32_t nl = std::min((uint32_t)t.name.size(), (uint32_t)63);
+        index_size += 4 + nl + 1 + 4 + 8 + 8 + 8;  // name_len + name + \0 + ndim + dims[2] + offset + bytes
+    }
+    uint64_t data_base = sizeof(OnebpHeader) + index_size;
+    for (auto& t : tensors) {
+        t.offset += data_base;
+    }
 
     // Write tensor index
     for (auto& t : tensors) {

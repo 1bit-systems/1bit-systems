@@ -7,6 +7,15 @@
 #include <vector>
 #include <algorithm>
 
+// Byte-order guard — 1bit-systems requires little-endian host
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    // little-endian (x86, AMD64) — OK
+#elif defined(_MSC_VER) || defined(__i386__) || defined(__x86_64__) || defined(__amd64__)
+    // MSVC or x86 target — always little-endian
+#else
+    #error "1bit-systems requires little-endian host (x86/AMD64). Big-endian not supported."
+#endif
+
 inline uint16_t laguna_bf16(const uint8_t* b) { return (uint16_t)b[0]|((uint16_t)b[1]<<8); }
 inline float laguna_bf16_to_f32(uint16_t bf) { uint32_t bits=(uint32_t)bf<<16; float f; memcpy(&f,&bits,4); return f; }
 
@@ -43,6 +52,11 @@ inline void laguna_rmsnorm(float* o, const float* x, const float* w, int n, floa
 
 inline void laguna_softmax(float* x, int n) {
     float mx=x[0];for(int i=1;i<n;i++)if(x[i]>mx)mx=x[i];
+    if (mx == -INFINITY || std::isinf(mx)) {
+        float inv = 1.0f / n;
+        for (int i = 0; i < n; i++) x[i] = inv;
+        return;
+    }
     float s=0;for(int i=0;i<n;i++)s+=expf(x[i]-mx);
     float inv=1.0f/(s+1e-10f);
     for(int i=0;i<n;i++)x[i]=expf(x[i]-mx)*inv;

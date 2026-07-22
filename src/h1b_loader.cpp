@@ -202,6 +202,10 @@ class GgufSidecar {
             if (!read_string(name)) return false;
             uint32_t ndim;
             if (!read_u32(ndim)) return false;
+            if (ndim > 8) { // max reasonable dimensions (4D tensor + extras)
+                fprintf(stderr, "[h1b] invalid ndim=%u, rejecting\n", ndim);
+                return false;
+            }
             GgufTensorInfo info;
             info.shape.resize(ndim);
             for (uint32_t d = 0; d < ndim; ++d) {
@@ -249,6 +253,14 @@ class GgufSidecar {
     bool read_string(std::string& s) {
         uint64_t n;
         if (!read_u64(n)) return false;
+        static constexpr uint64_t MAX_STRING_LEN = 1ULL * 1024 * 1024; // 1 MiB cap
+        if (n > MAX_STRING_LEN) {
+            fprintf(stderr, "[rocm-cpp][h1b] string too long (%lu > %lu), skipping\n",
+                    (unsigned long)n, (unsigned long)MAX_STRING_LEN);
+            f_.seekg((std::streamoff)n, std::ios::cur);
+            s.clear();
+            return true; // skip but don't fail
+        }
         s.resize((size_t)n);
         if (n) f_.read(s.data(), (std::streamsize)n);
         return (bool)f_;

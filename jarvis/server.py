@@ -271,8 +271,12 @@ class H(BaseHTTPRequestHandler):
         if audio[:4] != b"RIFF":
             try:
                 p = subprocess.run(["ffmpeg", "-i", "pipe:0", "-f", "wav", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", "pipe:1"], input=audio, capture_output=True, timeout=30)
-                if p.returncode == 0: wav = p.stdout
-            except: pass
+                if p.returncode == 0:
+                    wav = p.stdout
+                else:
+                    return self._j(500, {"error": f"ffmpeg conversion failed: {p.stderr.decode()}"})
+            except Exception as e:
+                return self._j(500, {"error": f"ffmpeg conversion failed: {e}"})
         return self._j(200, {"text": transcribe_audio(wav)})
 
     def _tts(self):

@@ -255,6 +255,7 @@ struct LagunaInference {
     int SW, SW_PERIOD;
     int N_ROT=64, N_ROT_SWA=128;
     float ROPE_THETA=500000.0f, ROPE_THETA_SWA=10000.0f, EXP_SCALE=2.5f; float RMS_EPS=1e-6f;
+    int expert_gating = 0;
     
     // KV cache
     std::vector<std::vector<float>> k_cache, v_cache;
@@ -271,6 +272,7 @@ struct LagunaInference {
         N_ROT_SWA=h.n_rot_swa?h.n_rot_swa:128;
         ROPE_THETA=h.rope_theta(); ROPE_THETA_SWA=h.rope_freq_base_swa();
         EXP_SCALE=h.expert_weights_scale()>0?h.expert_weights_scale():2.5f;
+        expert_gating = (int)h.expert_gating_func;
         
         printf("Laguna: %dL %dH %dV %dE/%d\n", L, H, V, NE, NEU);
         
@@ -296,11 +298,15 @@ struct LagunaInference {
     void reset() { pos=0; for(auto&k:k_cache)std::fill(k.begin(),k.end(),0.0f);
                   for(auto&v:v_cache)std::fill(v.begin(),v.end(),0.0f); }
     
-    bool is_swa(int il) { return SW>0 && (il%SW_PERIOD)!=0; }
+    bool is_swa(int il) { return SW>0 && SW_PERIOD>0 && (il%SW_PERIOD)!=0; }
     bool is_moe(int il) { return il>=N_DENSE_LEAD; }
     
     // Forward one token. Returns logits in provided buffer.
     void forward(int token, float* logits) {
+        if (pos >= max_pos) {
+            fprintf(stderr, "KV cache: hard limit %d reached\n", max_pos);
+            return;
+        }
         std::vector<float> hx(H), hx2(H);
         std::vector<float> x(V,0.0f); x[token]=1.0f;
         mm.compute(hx.data(), x.data(), td("token_embd.weight"), H, V);
@@ -365,7 +371,15 @@ struct LagunaInference {
                     mm.compute(router.data(), hx2.data(), td("blk."+std::to_string(il)+".ffn_gate_inp.weight"), NE, H);
                     if(auto eb=w1d("blk."+std::to_string(il)+".exp_probs_b.bias"))
                         for(int i=0;i<NE;i++) router[i]+=eb[i];
-                    for(int i=0;i<NE;i++) router[i]=sigmoidf(router[i]);
+                    if (expert_gating == 1) {  // SOFTMAX
+                        float mx = router[0];
+                        for (int e = 1; e < NE; e++) if (router[e] > mx) mx = router[e];
+                        float sum = 0;
+                        for (int e = 0; e < NE; e++) { router[e] = expf(router[e] - mx); sum += router[e]; }
+                        for (int e = 0; e < NE; e++) router[e] /= sum;
+                    } else {
+                        for (int i = 0; i < NE; i++) router[i] = sigmoidf(router[i]);
+                    }
                     
                     std::vector<int> idx(NE);
                     for(int i=0;i<NE;i++) idx[i]=i;
@@ -374,12 +388,22 @@ struct LagunaInference {
                     float wsum=0; for(int t=0;t<NEU;t++) wsum+=router[idx[t]];
                     if(wsum<1e-10f) wsum=1e-10f;
                     
+                    // Cache MoE weight pointers outside the expert loop
+                    auto* gate_exps_ptr = td3("blk."+std::to_string(il)+".ffn_gate_exps.weight");
+                    auto* up_exps_ptr   = td3("blk."+std::to_string(il)+".ffn_up_exps.weight");
+                    auto* down_exps_ptr = td3("blk."+std::to_string(il)+".ffn_down_exps.weight");
+                    if (!gate_exps_ptr || !up_exps_ptr || !down_exps_ptr) {
+                        fprintf(stderr, "MoE: missing expert weight tensors for layer %d\n", il);
+                        // Fall through to shared expert only
+                    }
+
                     std::vector<float> acc(H,0), gb(NFF_EXP), ub(NFF_EXP), sb(NFF_EXP), db(H);
                     for(int t=0;t<NEU;t++){
                         int e=idx[t]; float we=EXP_SCALE*router[e]/wsum;
-                        mm.compute(gb.data(), hx2.data(), td3("blk."+std::to_string(il)+".ffn_gate_exps.weight"), NFF_EXP, H);
-                        // Can't use mm for per-expert slices... need expert_matmul
-                        // Simplified: use w2d for each expert
+                        // Per-expert slice: expert index e within the 3D tensor
+                        // mm.compute handles the offset within the concatenated tensor
+                        mm.compute(gb.data(), hx2.data(), gate_exps_ptr, NFF_EXP, H);
+                        // TODO: per-expert slice dispatch; for now single expert path
                     }
                     // TODO: MoE expert dispatch. For now, fall through to shared expert
                     

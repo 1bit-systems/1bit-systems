@@ -27,8 +27,8 @@ Track: **Track 2 — Development & Local Deployment of Private AI Agents**
 - **Multi-backend**: ROCm HIP (417 tok/s), Vulkan ternary (318 tok/s), XDNA 2 NPU (97 tok/s), CPU fallback
 - **Token Router** — dispatches each token to the fastest backend with auto-failover
 - **Jarvis Agent** — local voice agent with multi-turn memory, tool invocation, and permission gating
-- **10+ models**: Qwen3, BlackMamba, Zamba2, Llama 3.1, DeepSeek, Phi-4, Gemma
-- **Reverse-engineered** AMD's XDNA 2 NPU in 4 days — full stack rebuilt open-source
+- **22 models** on HuggingFace: Qwen3, BlackMamba, Zamba2, Llama 3.1, DeepSeek, Phi-4, Gemma, Mistral, Bonsai, Granite, and more — all in native 1BP format
+- **Reverse-engineered** AMD's XDNA 2 NPU in 4 days — 22 proprietary `.so` → 17.5 MB open-source, zero proprietary code
 - **OpenAI-compatible API** + A2A protocol
 
 **Hardware**: AMD Ryzen AI Max+ 395 (Strix Halo), Radeon 8060S GPU (gfx1151), 32 XDNA 2 NPU tiles, 128 GB unified LPDDR5X

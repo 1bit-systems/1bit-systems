@@ -1,5 +1,10 @@
 // laguna_layer.hip — Fused layer kernel (research)
 //
+// NOTE: This kernel does not compute activation functions (softplus, silu, etc.)
+// and therefore does not need softplus clamping. If any future kernel addition
+// computes on-GPU activation functions, softplus outputs should be clamped to
+// prevent overflow (e.g. std::min(val, 50.0f) for log1p(exp(x))).
+//
 // FINDING: Full fused layer with QKV + attention + FFN gates + up
 // needs ~72KB shared memory for XS 2.1 (FF=8192). Hardware limit is 64KB.
 //

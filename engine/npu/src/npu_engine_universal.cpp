@@ -925,6 +925,7 @@ int main(int argc,char**argv){
         // Overlaps CPU quantize with NPU kernel execution.
         // Pattern: launch(N) → quantize(N+1) → wait(N) → dequantize(N) → sync+launch(N+1) → ...
         // co and cg are independent (different inputs) → quantize cg WHILE co runs on NPU.
+        try {
         for(int l=0;l<NC;l++){
             // Save pre-norm residuals before rn_c
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)sb_data[b*H+i]=h_b[b*H+i];
@@ -1016,6 +1017,10 @@ int main(int argc,char**argv){
 
             // Residual add
             for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=sb_data[b*H+i]+dw_b[b*H+i];
+        }
+        } catch (const std::exception& e) {
+            fprintf(stderr, "[npu_engine] layer loop failed: %s — aborting batch\n", e.what());
+            return;
         }
 
         // LM head on the (single, BS=1) decoded position -> greedy next token.

@@ -44,6 +44,8 @@ rcpp_status_t rcpp_bitnet_load_gguf(const char* path, rcpp_bitnet_model_t* out_m
     int n_heads = gu("llm.attention.head_count", 8);
     int inter_size = gu("llm.feed_forward_length", 2048);
     int vocab_size = gu("llm.vocab_size", 262272);
+    if (n_heads <= 0) { fprintf(stderr, "[gguf] invalid head_count=%d\n", n_heads); return RCPP_INVALID_ARG; }
+    if (hidden_size <= 0) { fprintf(stderr, "[gguf] invalid hidden_size=%d\n", hidden_size); return RCPP_INVALID_ARG; }
     int head_dim = hidden_size / n_heads;
 
     out_model->hidden_size = hidden_size;

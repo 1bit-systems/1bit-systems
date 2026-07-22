@@ -43,8 +43,10 @@ def pack_q4nx(w: np.ndarray) -> bytes:
     zps = np.zeros_like(scales)
     quantized = np.clip(np.round(w_grp / scales + zps), -7, 7).astype(np.int8)  # [rows, groups, 8]
     
-    # Clamp to unsigned 0-15 for nibble packing
-    q_clamped = np.clip(quantized, 0, 15).astype(np.uint8)  # [rows, groups, 8]
+    # Convert to unsigned 0-15 for nibble packing using symmetric unsigned mapping:
+    # -7..7 → 1..15 (add 8), with 0 reserved for actual zero.
+    # This preserves negative weights rather than silently zeroing them.
+    q_clamped = (quantized + 8).astype(np.uint8)  # [rows, groups, 8]
     
     # Pack 2 I4 values per byte
     q_even = q_clamped[:, :, 0::2]  # [rows, groups, 4]

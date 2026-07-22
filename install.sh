@@ -58,7 +58,7 @@ install_deps() {
     if command -v apt-get &>/dev/null; then
         log "Installing build deps (apt)..."
         sudo apt-get update -qq
-        sudo apt-get install -y -qq build-essential cmake ninja-build git curl || true
+        sudo apt-get install -y -qq build-essential cmake ninja-build git curl
         # ROCm HIP SDK — try multiple package names across distro versions
         sudo apt-get install -y -qq rocm-hip-libraries 2>/dev/null || \
             sudo apt-get install -y -qq hip-sdk 2>/dev/null || \
@@ -75,6 +75,7 @@ install_deps() {
     else
         warn "Unknown package manager. Install: cmake ninja git curl build-essential + ROCm HIP SDK"
     fi
+	command -v ninja >/dev/null 2>&1 || { echo "WARNING: ninja not found, using Unix Makefiles"; CMAKE_GENERATOR=""; }
 }
 
 install_deps
@@ -84,7 +85,7 @@ mkdir -p "$MODELS_DIR"
 if [ "$SKIP_ROCM" = false ]; then
     log "Building kernels (rocm-cpp) + server (zaya_server)..."
     cd "$DIR"
-    cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151 || { warn "cmake configure failed"; exit 1; }
+    cmake -B build ${CMAKE_GENERATOR:+-G Ninja} -DCMAKE_HIP_ARCHITECTURES=gfx1151 || { warn "cmake configure failed"; exit 1; }
     cmake --build build --target zaya_server -j"$(nproc)" || { warn "cmake build failed"; exit 1; }
     log "Build complete: $DIR/build/zaya_server ($(stat -c%s "$DIR/build/zaya_server") bytes)"
 else

@@ -208,14 +208,23 @@ struct TensorRef {
     bool is_moe;     // 3D expert stack → per-expert tiled
 };
 
-static TensorRef find_tensor(OnebpModel& model, const std::string& name) {
+static std::unordered_map<std::string, TensorRef> tensor_index;
+
+static void build_tensor_index(OnebpModel& model) {
+    tensor_index.clear();
     for (auto& t : model.tensors) {
-        if (t.name == name) {
-            return {model.tensor_data(t), t.ndim, t.dims,
-                    t.ndim == 1,
-                    t.ndim == 3};
-        }
+        tensor_index[t.name] = {
+            model.tensor_data(t), t.ndim, t.dims,
+            t.ndim == 1,
+            t.ndim == 3
+        };
     }
+}
+
+static TensorRef find_tensor(OnebpModel& model, const std::string& name) {
+    (void)model;
+    auto it = tensor_index.find(name);
+    if (it != tensor_index.end()) return it->second;
     return {nullptr, 0, {}, false, false};
 }
 
@@ -235,6 +244,8 @@ struct LagunaBackend : Backend {
     float ROPE_THETA, ROPE_THETA_SWA, EXP_SCALE, RMS_EPS;
     int TR = 32, TC = 256, GS = 32;
     bool has_swa = false;
+    int attn_gate_type = 0;
+    int expert_gating = 0;
     
     // HIP GPU: per-tensor weight upload
     void* hip_lib = nullptr;
@@ -292,6 +303,9 @@ struct LagunaBackend : Backend {
             return false;
         }
 
+        // Build O(1) index for tensor lookups instead of O(n) linear scan
+        build_tensor_index(model);
+
         auto& h = model.header;
         if (h.arch != 6) {
             fprintf(stderr, "Laguna: not a Laguna model (arch=%u)\n", h.arch);
@@ -318,6 +332,8 @@ struct LagunaBackend : Backend {
         EXP_SCALE = h.expert_weights_scale();
         RMS_EPS = 1e-6f;
         has_swa = (SW > 0);
+        attn_gate_type = (int)h.attn_gate_type;
+        expert_gating = (int)h.expert_gating_func;
 
         printf("Laguna engine: %s\n", bp_path.c_str());
         printf("  %d layers, %d hidden, %d/%d heads, %d head_dim\n", L, H, NH, NKV, HD);
@@ -478,7 +494,7 @@ struct LagunaBackend : Backend {
 
     // ─── Check if a layer is SWA ───
     bool is_swa_layer(int il) const {
-        if (!has_swa) return false;
+        if (!has_swa || SW_PERIOD == 0) return false;
         // Period 4 starting with FULL: layers where il%4==0 are FULL
         return (il % SW_PERIOD) != 0;
     }
@@ -489,6 +505,12 @@ struct LagunaBackend : Backend {
     }
 
     int forward(int token) {
+        // KV cache bound check
+        if (pos >= max_pos) {
+            fprintf(stderr, "KV cache: hard limit %d reached\n", max_pos);
+            return -1;
+        }
+
         // Embedding lookup
         for (int i = 0; i < H; i++) {
             hidden[i] = 0.0f;
@@ -511,7 +533,7 @@ struct LagunaBackend : Backend {
         // Instead: load from the source GGUF embedding directly...
 
         // For simplicity with 1BP tiled format, do a matmul with one-hot
-        w2d_mul(hidden.data(), one_hot.data(), "token_embd.weight", V, H);
+        w2d_mul(hidden.data(), one_hot.data(), "token_embd.weight", H, V);
 
         // Generate loop
         for (int il = 0; il < L; il++) {
@@ -596,18 +618,24 @@ struct LagunaBackend : Backend {
                     }
                 }
 
-                // Softplus attention output gate (per-head)
-                // Gate weight [H, n_head], applied to pre-gate hidden state
+                // Attention output gate (per-head or per-element)
                 std::string pg = "blk." + std::to_string(il) + ".attn_gate.weight";
-                std::vector<float> gate_vals(n_head_il);
-                w2d_mul(gate_vals.data(), hidden2.data(), pg, n_head_il, H);
-                softplus_inplace(gate_vals.data(), n_head_il);
+                int gate_dim = (attn_gate_type == 1) ? n_head_il * HD : n_head_il;
+                std::vector<float> gate_vals(gate_dim);
+                w2d_mul(gate_vals.data(), hidden2.data(), pg, gate_dim, H);
+                softplus_inplace(gate_vals.data(), gate_dim);
 
-                // Apply gate: per-head broadcast over head_dim
-                for (int h = 0; h < n_head_il; h++) {
-                    float g = gate_vals[h];
-                    for (int d = 0; d < HD; d++) {
-                        att[h * HD + d] *= g;
+                // Apply gate
+                if (attn_gate_type == 1) {
+                    // Per-element gate
+                    for (int i = 0; i < n_head_il * HD; i++) att[i] *= gate_vals[i];
+                } else {
+                    // Per-head gate: broadcast over head_dim
+                    for (int h = 0; h < n_head_il; h++) {
+                        float g = gate_vals[h];
+                        for (int d = 0; d < HD; d++) {
+                            att[h * HD + d] *= g;
+                        }
                     }
                 }
 
@@ -637,8 +665,16 @@ struct LagunaBackend : Backend {
                     float* exp_bias = w1d(pb);
                     if (exp_bias) add_bias(router_logits.data(), exp_bias, NE);
 
-                    // Sigmoid routing (not softmax!) → token-choice MoE
-                    for (int e = 0; e < NE; e++) router_logits[e] = sigmoid(router_logits[e]);
+                    // Expert routing (sigmoid or softmax)
+                    if (expert_gating == 1) {  // SOFTMAX
+                        float mx = router_logits[0];
+                        for (int e = 1; e < NE; e++) if (router_logits[e] > mx) mx = router_logits[e];
+                        float sum = 0;
+                        for (int e = 0; e < NE; e++) { router_logits[e] = expf(router_logits[e] - mx); sum += router_logits[e]; }
+                        for (int e = 0; e < NE; e++) router_logits[e] /= sum;
+                    } else {
+                        for (int e = 0; e < NE; e++) router_logits[e] = sigmoid(router_logits[e]);
+                    }
 
                     // Top-k selection
                     std::vector<int> idx(NE);

@@ -45,7 +45,6 @@ target_link_libraries(npu_engine_universal
 
 target_compile_options(npu_engine_universal PRIVATE
     -O3 -ffast-math -march=native -funroll-loops -fno-math-errno
-    -Wno-unused-parameter -Wno-unused-variable
 )
 
 install(TARGETS npu_engine_universal DESTINATION bin)
@@ -86,7 +85,6 @@ target_link_libraries(npu_engine_cb
 
 target_compile_options(npu_engine_cb PRIVATE
     -O3 -ffast-math -march=native -funroll-loops -fno-math-errno
-    -Wno-unused-parameter -Wno-unused-variable
 )
 
 install(TARGETS npu_engine_cb DESTINATION bin)

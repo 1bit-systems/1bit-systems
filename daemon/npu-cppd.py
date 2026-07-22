@@ -250,8 +250,11 @@ def main():
         ChatHandler.backend = backend
     ChatHandler.model_name = args.model
 
-    server = ThreadingHTTPServer(("0.0.0.0", args.port), ChatHandler)
-    print(f"\n  Listening on http://0.0.0.0:{args.port}", flush=True)
+    bind_addr = os.environ.get("NPU_CPPD_BIND_ADDR", "127.0.0.1")
+    server = ThreadingHTTPServer((bind_addr, args.port), ChatHandler)
+    if bind_addr == "0.0.0.0":
+        print(f"\n  *** WARNING: binding to 0.0.0.0 — server is publicly reachable ***", flush=True)
+    print(f"\n  Listening on http://{bind_addr}:{args.port}", flush=True)
     print(f"  Health: http://localhost:{args.port}/health", flush=True)
     print(f"  API:    http://localhost:{args.port}/v1/chat/completions", flush=True)
 

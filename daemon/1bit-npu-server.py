@@ -240,6 +240,11 @@ class Inference:
     def generate(self, tokens, max_new=256):
         """Generate text from input tokens."""
         self.pos = 0
+        # Clamp max_new to remaining KV cache space to prevent IndexError
+        remaining = self.max_seq - len(tokens)
+        if remaining <= 0:
+            return []
+        max_new = min(max_new, remaining)
         result = []
         last = tokens[0] if tokens else 0
         for _ in range(max_new):

@@ -1,12 +1,13 @@
 # 1bit.systems — build & package. Version is read from the root VERSION file
 # (single source of truth — see issue #117); do not hardcode it here.
 # One binary. 5 models. 120KB. Zero deps.
-VERSION := $(shell tr -d '[:space:]' < ../VERSION)
+VERSION := $(shell [ -f ../VERSION ] && tr -d '[:space:]' < ../VERSION || echo "0.0.0")
 .PHONY: all npu gpu package-deb package-aur package-brew clean
 
 all: npu
 
 npu:
+	mkdir -p engine/npu/build
 	gcc -c -std=c11 -O3 -o engine/npu/build/dequant_q4nx.o engine/npu/src/dequant_q4nx.c
 	g++ -std=c++23 -O3 -march=native -fopenmp -ffast-math \
 		-o engine/npu/build/npu_engine_all \

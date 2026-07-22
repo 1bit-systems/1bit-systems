@@ -7,6 +7,7 @@ EDA router, MoE experts, embeddings, norms, residual scales, lm_head.
 Usage: venv-hf/bin/python tools/extract_all_zaya_weights.py
 """
 import os, sys, struct, json
+import torch
 from safetensors import safe_open
 
 MODEL_DIR = os.environ.get("ZAYA_MODEL_DIR", os.path.expanduser("~/models/ZAYA1-8B"))

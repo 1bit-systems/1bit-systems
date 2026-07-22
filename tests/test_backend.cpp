@@ -31,7 +31,14 @@ int main(int argc, char** argv) {
     printf("║  Zaya1-8B Universal Backend Test Suite ║\n");
     printf("╚════════════════════════════════════════╝\n\n");
 
-    std::string weights_dir = argc > 1 ? argv[1] : "/tmp/zaya_weights";
+    std::string weights_dir;
+    if (argc > 1) {
+        weights_dir = argv[1];
+    } else if (const char* home = getenv("HOME")) {
+        weights_dir = std::string(home) + "/.local/share/1bit-systems/weights";
+    } else {
+        weights_dir = "/tmp/zaya_weights";
+    }
     std::string tokenizer_path;
     if (argc > 2) {
         tokenizer_path = argv[2];

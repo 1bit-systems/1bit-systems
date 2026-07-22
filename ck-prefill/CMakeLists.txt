@@ -83,7 +83,9 @@ list(PREPEND CMAKE_PREFIX_PATH "${ROCM_ROOT}" "${ROCM_ROOT}/lib/cmake")
 find_package(hip REQUIRED CONFIG PATHS "${ROCM_ROOT}")
 find_package(composable_kernel REQUIRED CONFIG COMPONENTS utility PATHS "${ROCM_ROOT}")
 
-set(CMAKE_HIP_ARCHITECTURES "gfx1151")
+if(NOT CMAKE_HIP_ARCHITECTURES)
+    set(CMAKE_HIP_ARCHITECTURES "gfx1151" CACHE STRING "GPU arch(es) to build")
+endif()
 
 function(add_ck_example name src)
     add_executable(${name} ${src})
@@ -94,14 +96,12 @@ function(add_ck_example name src)
             -ffast-math
             -munsafe-fp-atomics
             -Wno-unused-result
-            -Wno-unused-parameter
-            -Wno-unused-variable
         >)
     target_link_libraries(${name} PRIVATE
         composable_kernel::utility
         hip::host
         hip::device)
-    set_target_properties(${name} PROPERTIES HIP_ARCHITECTURES "gfx1151")
+    set_target_properties(${name} PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 endfunction()
 
 add_ck_example(gemm_wmma_fp16_v3 gemm_wmma_fp16_v3.cpp)

@@ -203,7 +203,10 @@ pub const GgufReader = struct {
 
         for (0..tensor_count) |i| {
             const name = try readString(allocator, &file);
-            const n_dims = try file.readStruct(u32);
+            const n_dims_raw = try file.readStruct(u32);
+            // Clamp to array size — crafted files can specify n_dims > 4
+            // which would OOB-write past dims[4] (CRITICAL: OOB write).
+            const n_dims = @min(n_dims_raw, @as(u32, 4));
             var dims: [4]u64 = .{0, 0, 0, 0};
             for (0..@as(usize, n_dims)) |d| {
                 dims[d] = try file.readStruct(u64);

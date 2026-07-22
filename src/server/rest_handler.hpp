@@ -21,6 +21,7 @@
 #include <nlohmann/json.hpp>
 #include <string>
 #include <memory>
+#include <mutex>
 #include <functional>
 #include "prompt_cache.hpp"
 
@@ -123,6 +124,7 @@ private:
     xrt::device npu_device_inst;
     model_list& supported_models;
     ModelDownloader& downloader;
+    mutable std::mutex current_model_tag_mutex_;
     std::string current_model_tag;
     std::string default_model_tag;
     bool asr;

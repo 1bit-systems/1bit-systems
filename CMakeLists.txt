@@ -100,7 +100,7 @@ list(PREPEND CMAKE_PREFIX_PATH "${ROCM_ROOT}" "${ROCM_ROOT}/lib/cmake")
 find_package(hip REQUIRED CONFIG PATHS "${ROCM_ROOT}")
 
 set(ROCWMMA_FOUND FALSE)
-foreach(_rc_base "${_RC_PIP_PATH}" "${_RC_THEROCK_DIR}" "${_RC_THEROCK_LEGACY}" "/opt/rocm")
+foreach(_rc_base "${_RC_PIP_PATH}" "${_RC_THEROCK_DIR}" "${_RC_THEROCK_LEGACY}" "/opt/rocm-therock" "/opt/rocm")
     if(_rc_base AND EXISTS "${_rc_base}/include/rocwmma/rocwmma.hpp")
         set(ROCWMMA_INCLUDE_DIR "${_rc_base}/include")
         set(ROCWMMA_FOUND TRUE)

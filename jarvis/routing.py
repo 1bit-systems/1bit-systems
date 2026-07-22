@@ -59,7 +59,8 @@ def resolve_model(model_id):
         for m in json.loads(resp.read()).get("models", []):
             if model_id in m["name"]:
                 return {"backend": "gpu", "ollama_model": model_id}
-    except:
+    except Exception as e:
+        # Ollama is unavailable; fall back to NPU
         pass
     return {"backend": "npu", "flm_model": model_id}
 

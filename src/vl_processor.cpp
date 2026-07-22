@@ -74,6 +74,31 @@ std::vector<unsigned char> vl_download_image(const std::string& url, int timeout
         return {};
     }
 
+    // Block requests to internal/private IPs to prevent SSRF
+    {
+        // Extract host from URL (skip scheme://)
+        size_t host_start = url.find("://");
+        host_start = (host_start == std::string::npos) ? 0 : host_start + 3;
+        size_t host_end = url.find('/', host_start);
+        if (host_end == std::string::npos) host_end = url.find(':', host_start);
+        std::string host = url.substr(host_start, host_end - host_start);
+        // Block loopback, link-local, private ranges by hostname
+        if (host == "localhost" || host == "127.0.0.1" || host == "::1" ||
+            host.find("10.") == 0 || host.find("172.16.") == 0 ||
+            host.find("172.17.") == 0 || host.find("172.18.") == 0 ||
+            host.find("172.19.") == 0 || host.find("172.20.") == 0 ||
+            host.find("172.21.") == 0 || host.find("172.22.") == 0 ||
+            host.find("172.23.") == 0 || host.find("172.24.") == 0 ||
+            host.find("172.25.") == 0 || host.find("172.26.") == 0 ||
+            host.find("172.27.") == 0 || host.find("172.28.") == 0 ||
+            host.find("172.29.") == 0 || host.find("172.30.") == 0 ||
+            host.find("172.31.") == 0 || host.find("192.168.") == 0 ||
+            host.find("169.254.") == 0 || host.find("0.0.0.0") == 0) {
+            fprintf(stderr, "[vl] ERROR: blocked internal/private host: '%s'\n", host.c_str());
+            return {};
+        }
+    }
+
     // Use fork+pipe+execlp to pass URL as a direct argv argument (no shell),
     // preventing command injection via quotes or shell metacharacters in the URL.
     int pipefd[2];

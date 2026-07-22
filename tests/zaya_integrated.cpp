@@ -41,7 +41,16 @@ static std::vector<float> load_bin(const std::string& path) {
     return data;
 }
 
-#define W(path) load_bin(std::string("/tmp/zaya_weights/") + path)
+static const std::string& weights_dir() {
+    static std::string dir = [] {
+        const char* d = getenv("ZAYA_WEIGHTS_DIR");
+        if (d && d[0]) return std::string(d);
+        const char* home = getenv("HOME");
+        return (home && home[0]) ? std::string(home) + "/.local/share/1bit-systems/weights/" : "/tmp/zaya_weights/";
+    }();
+    return dir;
+}
+#define W(path) load_bin(weights_dir() + path)
 
 // ── GPU kernels (from test_cca_attn.cpp ──
 // All kernels must be included here or linked separately

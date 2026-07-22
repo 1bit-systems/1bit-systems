@@ -99,7 +99,10 @@ static bool detect_from_manifest(const std::string& path, ModelConfig& cfg) {
             auto slash = path.find_last_of('/');
             cfg.model_name = (slash != std::string::npos) ? path.substr(slash + 1) : path;
         }
-        if (cfg.weights_dir.empty()) cfg.weights_dir = "/tmp/zaya_weights/";
+        if (cfg.weights_dir.empty()) {
+            const char* home = getenv("HOME");
+            cfg.weights_dir = (home && home[0]) ? std::string(home) + "/.local/share/1bit-systems/weights/" : "/tmp/zaya_weights/";
+        }
         fprintf(stderr, "  Loaded manifest: %s\n", cfg.model_name.c_str());
         fprintf(stderr, "    hidden=%d layers=%d heads=%d vocab=%d\n",
                 cfg.hidden_size, cfg.num_layers, cfg.num_heads, cfg.vocab_size);
@@ -377,7 +380,9 @@ static std::string a2a_new_task_id() {
 int main(int argc, char** argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
     int port = 8088;
-    std::string model_arg, manifest_arg, weights_dir = "/tmp/zaya_weights/", lora_path;
+    const char* home_default = getenv("HOME");
+    std::string default_weights = (home_default && home_default[0]) ? std::string(home_default) + "/.local/share/1bit-systems/weights/" : "/tmp/zaya_weights/";
+    std::string model_arg, manifest_arg, weights_dir = default_weights, lora_path;
     RouteStrategy strategy = RouteStrategy::AUTO;
     A2AClient a2a;
     std::vector<std::string> a2a_peers;

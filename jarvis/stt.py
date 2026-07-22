@@ -13,7 +13,8 @@ def _get_whisper():
     if _whisper_model is None:
         with _whisper_lock:
             if _whisper_model is None:
-                sys.path.insert(0, os.path.join(JARVIS_VENV, "lib/python3.14/site-packages"))
+                py_ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
+                sys.path.insert(0, os.path.join(JARVIS_VENV, f"lib/{py_ver}/site-packages"))
                 from faster_whisper import WhisperModel
                 _whisper_model = WhisperModel("tiny", device="cpu", compute_type="int8")
     return _whisper_model

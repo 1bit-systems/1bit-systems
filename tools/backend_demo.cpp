@@ -140,7 +140,8 @@ int main(int argc, char** argv) {
     // In a real deployment, this would load actual weights.
     // For the demo, we check if any backend can init.
     ModelConfig cfg;
-    std::string weights_dir = "/tmp/zaya_weights";
+    const char* home = getenv("HOME");
+    std::string weights_dir = (home && home[0]) ? std::string(home) + "/.local/share/1bit-systems/weights" : "/tmp/zaya_weights";
 
     bool inited = mgr.init(cfg, weights_dir);
     if (!inited) {

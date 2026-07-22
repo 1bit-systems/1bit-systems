@@ -127,8 +127,8 @@ PYEOF
 
 # Signal
 SUMMARY="$(python3 -c "
-import json
-with open('$AWARENESS_FILE') as f:
+import json, os
+with open(os.environ.get('AWARENESS_FILE', '')) as f:
     d = json.load(f)
 e = [x for x in d['events'] if x.get('type')=='analytics'][-1]
 print(f'⭐{e[\"github\"][\"stars\"]} ★ 👁{e[\"github\"][\"views_total\"]} views ★ 🌐{e[\"cloudflare\"][\"page_views\"]} page views')

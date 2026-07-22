@@ -54,7 +54,13 @@ uint64_t Q4nxReader::find_offset(const char* key) const {
 // Read float32 array at offset into a vector
 std::vector<float> Q4nxReader::read_floats(uint64_t offset, size_t count) const {
     std::vector<float> v;
-    if (!data || offset == 0 || offset + count * 4 > size) return v;
+    if (!data || offset == 0) return v;
+    // Prevent integer overflow: if count * 4 wraps around, the bounds check
+    // below would pass for maliciously large count values (CRITICAL).
+    static constexpr size_t MAX_FLOATS = 256ULL * 1024 * 1024; // 256M floats = 1 GiB
+    if (count > MAX_FLOATS) return v;
+    uint64_t byte_len = (uint64_t)count * 4;
+    if (offset + byte_len > size) return v;
     v.resize(count);
     memcpy(v.data(), data + offset, count * sizeof(float));
     return v;

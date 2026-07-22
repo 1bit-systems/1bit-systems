@@ -13,7 +13,7 @@ import numpy as np
 from transformers import AutoConfig, AutoModel
 
 MODEL_DIR = os.environ.get("ZAYA_MODEL_DIR", os.path.expanduser("~/models/ZAYA1-8B"))
-WEIGHTS_DIR = os.environ.get("ZAYA_WEIGHTS_DIR", "/tmp/zaya_weights")
+WEIGHTS_DIR = os.environ.get("ZAYA_WEIGHTS_DIR", os.path.join(os.path.expanduser("~"), ".local/share/1bit-systems/weights"))
 NPZ_OUT = os.environ.get("ZAYA_CCA_REF_NPZ", "/tmp/cca_ref_current.npz")
 TOKEN_ID = 100  # arbitrary valid token id; only used to get a real embedding vector
 

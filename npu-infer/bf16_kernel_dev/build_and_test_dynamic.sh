@@ -13,30 +13,30 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$DIR"
 
 # Paths
-export LD_LIBRARY_PATH="/home/bcloud/airenv/lib/python3.14/site-packages/llvm-aie/lib:/home/bcloud/torch2aie/toolchain/aietools/lib/lnx64.o"
-export PATH="/home/bcloud/mlir-aie/install_tmp/bin:/home/bcloud/mlir-aie/build_tmp/bin:/home/bcloud/airenv/lib/python3.14/site-packages/llvm-aie/bin:${PATH}"
+export LD_LIBRARY_PATH="${HOME}/airenv/lib/python3.14/site-packages/llvm-aie/lib:${HOME}/torch2aie/toolchain/aietools/lib/lnx64.o"
+export PATH="${HOME}/mlir-aie/install_tmp/bin:${HOME}/mlir-aie/build_tmp/bin:${HOME}/airenv/lib/python3.14/site-packages/llvm-aie/bin:${PATH}"
 
-PEANO_CLANG=/home/bcloud/airenv/lib/python3.14/site-packages/llvm-aie/bin/clang
+PEANO_CLANG=${HOME}/airenv/lib/python3.14/site-packages/llvm-aie/bin/clang
 KERNEL_SRC=/tmp/mlir-aie/aie_kernels/aie2p/mm.cc
 
 echo "=== 1. Compile Peano kernel ==="
 $PEANO_CLANG --target=aie2p-none-unknown-elf -O2 \
   -std=c++20 -DNDEBUG -D__AIE_API_AIE_ADF_HPP__ \
   -DDIM_M=32 -DDIM_K=64 -DDIM_N=128 -Di8_i32_ONLY \
-  -I/home/bcloud/mlir-aie/include \
-  -I/home/bcloud/mlir-aie/third_party/aie_api/include \
-  -I/home/bcloud/mlir-aie/aie_kernels/aie2p \
+  -I${HOME}/mlir-aie/include \
+  -I${HOME}/mlir-aie/third_party/aie_api/include \
+  -I${HOME}/mlir-aie/aie_kernels/aie2p \
   -c "$KERNEL_SRC" -o "$DIR/mm_32x64x128.o" 2>&1 | tail -3
 
 echo "=== 2. Generate static MLIR (for xclbin) ==="
-PYTHONPATH=/home/bcloud/torch2aie/toolchain/mlir_aie/python \
-  /home/bcloud/torch2aie/.venv/bin/python \
+PYTHONPATH=${HOME}/torch2aie/toolchain/mlir_aie/python \
+  ${HOME}/torch2aie/.venv/bin/python \
   "$SCRIPT_DIR/gen_mlir_dynamic.py" -M $M -K $K -N $N > "$DIR/design_static.mlir"
 
 echo "=== 3. Build xclbin ==="
-/home/bcloud/mlir-aie/install_tmp/bin/aiecc \
-  --aietools=/home/bcloud/torch2aie/toolchain/aietools \
-  --peano=/home/bcloud/airenv/lib/python3.14/site-packages/llvm-aie \
+${HOME}/mlir-aie/install_tmp/bin/aiecc \
+  --aietools=${HOME}/torch2aie/toolchain/aietools \
+  --peano=${HOME}/airenv/lib/python3.14/site-packages/llvm-aie \
   --alloc-scheme=basic-sequential \
   --aie-generate-xclbin \
   --no-compile-host \
@@ -49,8 +49,8 @@ echo "=== 3. Build xclbin ==="
   "$DIR/design_static.mlir" 2>&1 | grep -E "edge|error" | tail -3
 
 echo "=== 4. Generate dynamic MLIR (for TXN builder) ==="
-PYTHONPATH=/home/bcloud/torch2aie/toolchain/mlir_aie/python \
-  /home/bcloud/torch2aie/.venv/bin/python \
+PYTHONPATH=${HOME}/torch2aie/toolchain/mlir_aie/python \
+  ${HOME}/torch2aie/.venv/bin/python \
   "$SCRIPT_DIR/gen_mlir_dynamic.py" --dynamic -M $M -K $K -N $N > "$DIR/design_dynamic.mlir"
 
 echo "=== 5. Lower with BD pool pass ==="
@@ -77,7 +77,7 @@ echo "  TXN builder:  $(wc -l < "$DIR/txn_builder.h") lines"
 echo ""
 echo "=== To test on NPU hardware ==="
 echo "  g++ -std=c++23 \\"
-echo "    -I/home/bcloud/mlir-aie/install_tmp/include \\"
+echo "    -I\${HOME}/mlir-aie/install_tmp/include \\"
 echo "    -DGEN_HDR='\"$DIR/txn_builder.h\"' \\"
 echo "    -DXCLBIN='\"$DIR/${NAME}.xclbin\"' \\"
 echo "    $SCRIPT_DIR/test_dynamic_int8.cpp \\"

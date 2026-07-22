@@ -159,6 +159,9 @@ private:
     // Concurrency configuration
     size_t max_connections_ = 10;
     std::chrono::seconds request_timeout_ = std::chrono::seconds(600); // 5 minutes
+    // TODO(#663): request_timeout_ is not yet wired into async_read / async_write calls.
+    // Apply it as a per-operation timeout (e.g. boost::asio::steady_timer) on each async I/O
+    // to prevent stalled connections from holding resources indefinitely.
     size_t io_thread_count_ = 5;
     std::size_t max_body_size_bytes_ = 256ull * 1024 * 1024; // 256 MB default
     size_t max_npu_queue_ = 10;

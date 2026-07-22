@@ -179,6 +179,7 @@
 | **Fused QKV+Gate+Up** | 415 tok/s (synthetic) | Gate and Up projections computed in the same kernel launch as QKV attention. Reduces kernel launch overhead by 4× for transformer layers. |
 | **Structure-of-Arrays layout** | 2.3× throughput | Weights stored as SoA (not AoS) for coalesced memory access. 4-row batching for small-M GEMV. |
 | **Mamba1 SSM HIP kernel** | 79.8 tok/s (BlackMamba) | Custom HIP kernel for selective state-space model. Fused A_log exponentiation, conv state management, and selective scan in one launch. |
+| **Mamba2 HIP kernels** | MI300X + Radeon | Selective scan + conv1d HIP kernels with PyTorch ctypes extension. Enables fast Mamba2 training on AMD GPUs. |
 | **Speculative decoding (MTP)** | ~50% speedup | Multi-token prediction with draft model + target model verification. Run draft on NPU (cheap), verify on GPU (accurate). |
 | **INT8 WMMA prefill** | 42.21 TFLOPS | Uses AMD WMMA intrinsics for matrix multiply-accumulate in INT8. Full prompt prefill in a single kernel launch. |
 
@@ -189,7 +190,7 @@
 | **Q4NX native dispatch** | 97 tok/s | Direct XRT BO allocation and DMA to NPU tiles. No FastFlowLM subprocess. Zero-copy between CPU and NPU via shared BOs. |
 | **Column unlock** | 40 AIE columns | Reverse-engineered AMD's column-count lock. Patched `amdxdna.ko` kernel module to access all 40 AIE columns (vendor-locked to 20). |
 | **Pipeline overlap** | 1.4× throughput | DMA upload + NPU compute + DMA download pipelined across tiles. Next tile loads while current tile computes. |
-| **FLM bridge** | 94 tok/s (validated) | Compatibility bridge for existing FastFlowLM models. Reads Q4NX weights directly, dispatches via XRT without the proprietary runtime. |
+| **FastFlowLM removed** | Zero proprietary code | All 22 proprietary `.so` fully reverse-engineered and replaced. FastFlowLM removed entirely (PR #589, #632). Zero closed-source dependencies. |
 
 ### 5.3 System-Level Optimization
 
@@ -208,7 +209,7 @@
 | **1bit-systems GPU ternary** | Radeon 8060S (Vulkan) | **318** | TQ2 1.58-bit packing |
 | **1bit-systems NPU v12** | XDNA 2 (32 tiles) | **97** | Native Q4NX + pipeline overlap |
 | llama.cpp ROCm (PrismML) | Same hardware | 229 | Reference baseline |
-| FastFlowLM (proprietary) | XDNA 2 (32 tiles) | 94 | Closed-source, replaced |
+| FastFlowLM | — | — | Removed — zero proprietary code |
 
 ---
 
@@ -232,6 +233,8 @@
 ├── daemon/                     ← Systemd service + Stripe store
 ├── rust/                       ← Rust reverse proxy
 ├── scripts/                    ← Converters, benchmarks, CI
+├── hackathon/                  ← Submission materials
+├── models/                     ← 22 1BP models on HuggingFace
 └── site/                       ← https://1bit.systems
 ```
 

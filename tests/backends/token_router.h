@@ -66,7 +66,7 @@ struct TokenRouter {
                 if (b->type() == BackendType::HIP_GPU || b->type() == BackendType::VULKAN || b->type() == BackendType::ZINC_GPU) {
                     if (!gpu_backend) gpu_backend = b;
                 }
-                if (b->type() == BackendType::NPU_XRT || b->type() == BackendType::NPU_FLM) {
+                if (b->type() == BackendType::NPU_XRT) {
                     if (!npu_backend) npu_backend = b;
                 }
             }
