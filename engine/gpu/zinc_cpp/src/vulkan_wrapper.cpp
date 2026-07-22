@@ -1,5 +1,5 @@
 /// C++ Vulkan wrappers — implementation.
-/// Port of ZINC's vulkan/*.zig to C++.
+/// Fixed: #760 proper memory type selection, #764 fp16/int8 feature check
 #include "vulkan_wrapper.h"
 #include <set>
 #include <algorithm>
@@ -22,12 +22,13 @@ VkShaderModule ShaderCache::load(const std::string& name) {
 }
 
 VkShaderModule ShaderCache::load_path(const std::string& path) {
-    // Read .spv file
     std::ifstream file(path, std::ios::binary | std::ios::ate);
-    if (!file.is_open()) {
-        throw std::runtime_error("Cannot open shader: " + path);
-    }
+    if (!file.is_open()) throw std::runtime_error("Cannot open shader: " + path);
+    
     size_t size = (size_t)file.tellg();
+    if (size % 4 != 0) throw std::runtime_error("SPIR-V file size not aligned to 4 bytes: " + path);
+    if (size == 0) throw std::runtime_error("Empty SPIR-V file: " + path);
+    
     file.seekg(0);
     std::vector<uint32_t> code(size / 4);
     file.read((char*)code.data(), size);
@@ -58,7 +59,6 @@ ComputePipelineCache::~ComputePipelineCache() {
 void ComputePipelineCache::ensure_layout() {
     if (layout_inited_) return;
 
-    // Descriptor set layout: binding 0 = input, 1 = output, 2 = weights
     VkDescriptorSetLayoutBinding bindings[3] = {};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -73,7 +73,6 @@ void ComputePipelineCache::ensure_layout() {
     dci.pBindings = bindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dci, nullptr, &desc_set_layout_));
 
-    // Pipeline layout: push constants (128 bytes for model dims)
     VkPushConstantRange pcr{};
     pcr.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     pcr.offset = 0;
@@ -126,8 +125,27 @@ VkPipeline ComputePipelineCache::get(const std::string& shader_name,
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  GpuBuffer
+//  Memory type selection helper
 // ═══════════════════════════════════════════════════════════════════
+
+static uint32_t find_memory_type(VkPhysicalDevice phys_dev, uint32_t type_filter,
+                                  VkMemoryPropertyFlags props) {
+    VkPhysicalDeviceMemoryProperties mem_props;
+    vkGetPhysicalDeviceMemoryProperties(phys_dev, &mem_props);
+    for (uint32_t i = 0; i < mem_props.memoryTypeCount; i++) {
+        if ((type_filter & (1u << i)) &&
+            (mem_props.memoryTypes[i].propertyFlags & props) == props) {
+            return i;
+        }
+    }
+    throw std::runtime_error("Failed to find suitable memory type");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  GpuBuffer (with proper memory allocation)
+// ═══════════════════════════════════════════════════════════════════
+
+static VkPhysicalDevice g_phys_dev_for_buffer = VK_NULL_HANDLE; // set by ZincEngine
 
 GpuBuffer::GpuBuffer(VkDevice device, VkDeviceSize size, VkBufferUsageFlags usage,
                       VkMemoryPropertyFlags mem_flags, VkSharingMode sharing)
@@ -142,24 +160,12 @@ GpuBuffer::GpuBuffer(VkDevice device, VkDeviceSize size, VkBufferUsageFlags usag
     VkMemoryRequirements req;
     vkGetBufferMemoryRequirements(device_, buffer_, &req);
 
-    VkPhysicalDeviceMemoryProperties props;
-    // Need physical device - stored elsewhere in practice
-    // For brevity, assume caller handles memory allocation
-    // This is a simplified version
+    uint32_t mem_type = find_memory_type(g_phys_dev_for_buffer, req.memoryTypeBits, mem_flags);
 
     VkMemoryAllocateInfo ai{};
     ai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     ai.allocationSize = req.size;
-
-    // Find memory type
-    VkPhysicalDevice phys_dev = VK_NULL_HANDLE; // placeholder
-    // In real impl, pass phys_dev through
-    (void)mem_flags;
-    (void)phys_dev;
-
-    // NOTE: This is a stub. Real implementation queries VkPhysicalDeviceMemoryProperties
-    // and selects the appropriate memory type based on mem_flags.
-    ai.memoryTypeIndex = 0; // placeholder
+    ai.memoryTypeIndex = mem_type;
     VK_CHECK(vkAllocateMemory(device_, &ai, nullptr, &memory_));
     VK_CHECK(vkBindBufferMemory(device_, buffer_, memory_, 0));
 }
@@ -194,10 +200,7 @@ void* GpuBuffer::map(VkDeviceSize offset, VkDeviceSize size) {
 }
 
 void GpuBuffer::unmap() {
-    if (mapped_) {
-        vkUnmapMemory(device_, memory_);
-        mapped_ = nullptr;
-    }
+    if (mapped_) { vkUnmapMemory(device_, memory_); mapped_ = nullptr; }
 }
 
 void GpuBuffer::flush(VkDeviceSize offset, VkDeviceSize size) {
@@ -249,10 +252,8 @@ VkCommandBuffer CommandPool::begin_once() {
     ai.commandPool = pool_;
     ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     ai.commandBufferCount = 1;
-
     VkCommandBuffer cmd;
     VK_CHECK(vkAllocateCommandBuffers(device_, &ai, &cmd));
-
     VkCommandBufferBeginInfo bi{};
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -286,7 +287,6 @@ void CommandPool::submit_and_wait(VkCommandBuffer cmd, VkQueue queue) {
 
 void ZincEngine::init(const std::string& shader_dir, int device_idx) {
     shader_dir_ = shader_dir;
-    (void)device_idx; // simplified: use first available GPU
 
     // Create Vulkan instance
     VkApplicationInfo app{};
@@ -295,9 +295,6 @@ void ZincEngine::init(const std::string& shader_dir, int device_idx) {
     app.applicationVersion = VK_MAKE_API_VERSION(0, 1, 0, 0);
     app.apiVersion = VK_API_VERSION_1_3;
 
-    const char* layers[] = {
-        // "VK_LAYER_KHRONOS_validation"  // enable for debugging
-    };
     const char* extensions[] = {
         VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME
     };
@@ -305,8 +302,6 @@ void ZincEngine::init(const std::string& shader_dir, int device_idx) {
     VkInstanceCreateInfo ici{};
     ici.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     ici.pApplicationInfo = &app;
-    ici.enabledLayerCount = 0;
-    ici.ppEnabledLayerNames = layers;
     ici.enabledExtensionCount = 1;
     ici.ppEnabledExtensionNames = extensions;
     VK_CHECK(vkCreateInstance(&ici, nullptr, &instance_));
@@ -314,16 +309,30 @@ void ZincEngine::init(const std::string& shader_dir, int device_idx) {
     // Enumerate physical devices
     uint32_t count = 0;
     vkEnumeratePhysicalDevices(instance_, &count, nullptr);
+    if (count == 0) throw std::runtime_error("No Vulkan GPU found");
     std::vector<VkPhysicalDevice> devices(count);
     vkEnumeratePhysicalDevices(instance_, &count, devices.data());
 
-    if (count == 0) throw std::runtime_error("No Vulkan GPU found");
-    phys_device_ = devices[0]; // use first
+    // Select device by index or use first
+    int idx = (device_idx >= 0 && (uint32_t)device_idx < count) ? device_idx : 0;
+    phys_device_ = devices[idx];
+    g_phys_dev_for_buffer = phys_device_;
 
-    // Get device properties
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(phys_device_, &props);
     printf("ZINC: GPU = %s\n", props.deviceName);
+
+    // Check fp16/int8 support
+    VkPhysicalDeviceShaderFloat16Int8Features f16i8{};
+    f16i8.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES;
+    
+    VkPhysicalDeviceFeatures2 feat2{};
+    feat2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    feat2.pNext = &f16i8;
+    vkGetPhysicalDeviceFeatures2(phys_device_, &feat2);
+
+    if (!f16i8.shaderFloat16) printf("ZINC: WARNING — GPU lacks fp16 compute, falling back to fp32\n");
+    if (!f16i8.shaderInt8) printf("ZINC: WARNING — GPU lacks int8 compute\n");
 
     // Find compute queue family
     uint32_t qcount = 0;
@@ -351,23 +360,22 @@ void ZincEngine::init(const std::string& shader_dir, int device_idx) {
         VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME
     };
 
-    VkPhysicalDeviceShaderFloat16Int8Features f16i8{};
-    f16i8.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES;
-    f16i8.shaderFloat16 = VK_TRUE;
-    f16i8.shaderInt8 = VK_TRUE;
-
     VkDeviceCreateInfo dci{};
     dci.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     dci.queueCreateInfoCount = 1;
     dci.pQueueCreateInfos = &qci;
     dci.enabledExtensionCount = 1;
     dci.ppEnabledExtensionNames = dev_exts;
-    dci.pNext = &f16i8;
+    // Only enable fp16/int8 if supported
+    if (f16i8.shaderFloat16 || f16i8.shaderInt8) {
+        f16i8.shaderFloat16 = f16i8.shaderFloat16 ? VK_TRUE : VK_FALSE;
+        f16i8.shaderInt8 = f16i8.shaderInt8 ? VK_TRUE : VK_FALSE;
+        dci.pNext = &f16i8;
+    }
     VK_CHECK(vkCreateDevice(phys_device_, &dci, nullptr, &device_));
 
     vkGetDeviceQueue(device_, queue_family_, 0, &queue_);
 
-    // Create helpers
     cmd_pool_ = std::make_unique<CommandPool>(device_, queue_family_);
     shader_cache_ = std::make_unique<ShaderCache>(device_);
     pipeline_cache_ = std::make_unique<ComputePipelineCache>(device_);
@@ -376,28 +384,16 @@ void ZincEngine::init(const std::string& shader_dir, int device_idx) {
 }
 
 bool ZincEngine::load_model(const std::string& gguf_path) {
-    // Simplified: parse GGUF header, get dimensions, allocate GPU buffers
-    // For full implementation, reuse src/gguf_reader.cpp logic
     printf("ZINC: Loading model from %s\n", gguf_path.c_str());
     // TODO: full GGUF parsing and weight upload
     return true;
 }
 
-void ZincEngine::reset() {
-    model_.current_pos = 0;
-}
+void ZincEngine::reset() { model_.current_pos = 0; }
 
 int ZincEngine::generate(int token_id) {
-    // TODO: full inference loop
-    // 1. Embed lookup
-    // 2. For each layer:
-    //    a. RMSNorm → QKV matmul → RoPE → attention → O matmul
-    //    b. RMSNorm → gate/up matmul → activation → down matmul
-    //    c. Residual add
-    // 3. Final RMSNorm → LM head
-    // 4. Argmax
     (void)token_id;
-    return -1;  // placeholder
+    return -1; // placeholder — use InferenceEngine via backend_zinc.cpp
 }
 
 void ZincEngine::destroy() {
