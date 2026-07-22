@@ -17,6 +17,7 @@ set(ZINC_SOURCES
     ${ZINC_SRC_DIR}/compute_engine.cpp
     ${ZINC_SRC_DIR}/model_loader.cpp
     ${ZINC_SRC_DIR}/main.cpp
+    /home/bcloud/1bit-systems/src/gguf_reader.cpp
 )
 
 # ── Main executable ──
@@ -25,6 +26,8 @@ add_executable(zinc_cpp ${ZINC_SOURCES})
 target_include_directories(zinc_cpp PRIVATE
     ${ZINC_INCLUDE_DIR}
     ${Vulkan_INCLUDE_DIRS}
+    /home/bcloud/1bit-systems/include   # gguf_reader.h
+    /home/bcloud/1bit-systems/src
 )
 
 target_link_libraries(zinc_cpp PRIVATE
