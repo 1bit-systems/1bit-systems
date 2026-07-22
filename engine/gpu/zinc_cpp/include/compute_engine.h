@@ -50,9 +50,14 @@ public:
     /// Batch multiple dispatches into one command buffer (avoids per-dispatch sync)
     void begin_batch();
     void end_batch();
+    void sync();
     void dispatch_batch(const std::string& shader, const PushConstants& push,
                         VkBuffer input, VkBuffer output, VkBuffer weights,
                         uint32_t group_x, uint32_t group_y = 1, uint32_t group_z = 1);
+
+    /// Set batch size for multi-prompt batching (default 1)
+    void set_batch_size(int b) { batch_size_ = b; }
+    int batch_size() const { return batch_size_; }
 
     void rms_norm(VkBuffer x, VkBuffer w, int n, float eps);
     void gemv(VkBuffer y, VkBuffer x, VkBuffer W, int M, int N, int K);
@@ -75,6 +80,7 @@ private:
     ComputePipelineCache& pipelines_;
     VkDescriptorPool desc_pool_ = VK_NULL_HANDLE;
     VkDescriptorSetLayout desc_set_layout_ = VK_NULL_HANDLE;
+    int batch_size_ = 1;
 };
 
 // ─── Inference engine — orchestrates model layers on GPU ───────────────
@@ -87,4 +93,5 @@ struct InferenceEngine {
     bool init(ComputeEngine& ce, ModelGPU& m);
     void reset();
     int generate(int token_id);
+    std::vector<int> generate_batch(const std::vector<int>& token_ids);
 };

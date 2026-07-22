@@ -49,7 +49,10 @@ static thread_local bool s_batching = false;
 // Shader name map — inference op names to .spv filenames
 // Uses production ZINC shaders from engine/gpu/shaders/
 static const std::map<std::string,std::string> shader_map = {
-    {"gemv", "dmmv_f32"},           // FP32 GEMV (production)
+    {"gemv", "dmmv_q4k"},           // Q4_K quantized GEMV
+    {"gemv_batch", "dmmv_q4k_batch"}, // Q4_K batched GEMV (multi-prompt)
+    {"fused_qkv", "fused_qkv"},     // Fused QKV projection
+    {"fused_gate_up", "fused_gate_up"}, // Fused gate+up projection
     {"rms_norm", "rms_norm_mul"},   // RMS norm + weight multiply (fused)
     {"rope", "rope_fused"},          // fused RoPE
     {"flash_attn", "flash_attn"},    // flash attention
@@ -134,12 +137,35 @@ void ComputeEngine::begin_batch() {
     s_batching = true;
 }
 
+// Async fence for double-buffered dispatch
+static thread_local VkFence s_async_fence = VK_NULL_HANDLE;
+
 void ComputeEngine::end_batch() {
     if (!s_batching) return;
-    cmd_pool_.submit_and_wait(s_batch_cmd, queue_);
+    
+    if (s_async_fence == VK_NULL_HANDLE) {
+        VkFenceCreateInfo fci{};
+        fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        vkCreateFence(device_, &fci, nullptr, &s_async_fence);
+    } else {
+        // Wait for previous token's batch to finish (overlaps CPU prep with GPU exec)
+        vkWaitForFences(device_, 1, &s_async_fence, VK_TRUE, UINT64_MAX);
+        vkResetFences(device_, 1, &s_async_fence);
+    }
+    
+    cmd_pool_.submit(s_batch_cmd, queue_, s_async_fence);
     s_batching = false;
     s_batch_cmd = VK_NULL_HANDLE;
     reset_descriptors();
+}
+
+// Called before shutdown to drain last async batch
+void ComputeEngine::sync() {
+    if (s_async_fence) {
+        vkWaitForFences(device_, 1, &s_async_fence, VK_TRUE, UINT64_MAX);
+        vkDestroyFence(device_, s_async_fence, nullptr);
+        s_async_fence = VK_NULL_HANDLE;
+    }
 }
 
 void ComputeEngine::dispatch_batch(const std::string& shader, const PushConstants& push,
@@ -205,8 +231,9 @@ void ComputeEngine::rms_norm(VkBuffer x, VkBuffer w, int n, float eps) {
 }
 
 void ComputeEngine::gemv(VkBuffer y, VkBuffer x, VkBuffer W, int M, int N, int K) {
-    PushConstants push{}; push.M = M; push.N = N; push.K = K;
-    batch_dispatch(this, "gemv", push, x, y, W, M);
+    PushConstants push{}; push.M = M; push.N = (batch_size_ > 1) ? batch_size_ : N; push.K = K;
+    std::string shader = (batch_size_ > 1) ? "gemv_batch" : "gemv";
+    batch_dispatch(this, shader, push, x, y, W, M);
 }
 
 void ComputeEngine::rope(VkBuffer q, VkBuffer k, int hd, int pos,
@@ -297,12 +324,14 @@ int InferenceEngine::generate(int token_id) {
                           hidden.buffer(), residual.buffer(), VK_NULL_HANDLE, 1);
         
         compute->rms_norm(hidden.buffer(), layer.rms_attn.buffer(), d.hidden, d.rms_eps);
-        compute->gemv(qkv.buffer(), hidden.buffer(), layer.wq.buffer(),
-                       d.n_heads * d.head_dim, 1, d.hidden);
-        compute->gemv(VK_NULL_HANDLE, hidden.buffer(), layer.wk.buffer(),
-                       d.n_kv_heads * d.head_dim, 1, d.hidden);
-        compute->gemv(VK_NULL_HANDLE, hidden.buffer(), layer.wv.buffer(),
-                       d.n_kv_heads * d.head_dim, 1, d.hidden);
+        // Fused QKV: single dispatch for Q, K, V projections
+        {
+            uint32_t qkv_rows = d.n_heads * d.head_dim + 2 * d.n_kv_heads * d.head_dim;
+            PushConstants pc_qkv{};
+            pc_qkv.M = qkv_rows; pc_qkv.K = (uint32_t)d.hidden;
+            compute->dispatch_batch("fused_qkv", pc_qkv, hidden.buffer(), qkv.buffer(), layer.qkv_fused.buffer(), 
+                                   (qkv_rows + 255) / 256, 1, 1);
+        }
         compute->rope(qkv.buffer(), VK_NULL_HANDLE, d.head_dim, pos,
                       d.n_heads, d.n_kv_heads, d.rope_theta);
         compute->flash_attn(qkv.buffer(), model->kv_cache.buffer(), model->kv_cache.buffer(),
@@ -315,10 +344,14 @@ int InferenceEngine::generate(int token_id) {
                           hidden.buffer(), residual.buffer(), VK_NULL_HANDLE, 1);
         
         compute->rms_norm(hidden.buffer(), layer.rms_ffn.buffer(), d.hidden, d.rms_eps);
-        compute->gemv(gate_up.buffer(), hidden.buffer(), layer.w1.buffer(),
-                       d.inter, 1, d.hidden);
-        compute->gemv(VK_NULL_HANDLE, hidden.buffer(), layer.w2.buffer(),
-                       d.inter, 1, d.hidden);
+        // Fused gate+up: single dispatch for gate and up projections
+        {
+            uint32_t gu_rows = 2 * d.inter;
+            PushConstants pc_gu{};
+            pc_gu.M = gu_rows; pc_gu.K = (uint32_t)d.hidden;
+            compute->dispatch_batch("fused_gate_up", pc_gu, hidden.buffer(), gate_up.buffer(),
+                                   layer.gate_up_fused.buffer(), (gu_rows + 255) / 256, 1, 1);
+        }
         compute->silu_mul(silu_buf.buffer(), gate_up.buffer(), VK_NULL_HANDLE, d.inter);
         compute->gemv(hidden.buffer(), silu_buf.buffer(), layer.w3.buffer(),
                        d.hidden, 1, d.inter);
@@ -333,7 +366,6 @@ int InferenceEngine::generate(int token_id) {
     // End batch — submits all recorded dispatches
     compute->end_batch();
     
-    // Argmax reads back to CPU — separate sync
     pos++;
     return compute->argmax(logits.buffer(), d.vocab);
 }

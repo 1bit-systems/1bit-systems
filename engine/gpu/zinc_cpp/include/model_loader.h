@@ -46,6 +46,8 @@ struct LayerWeightsGPU {
     GpuBuffer w1, w2, w3;         // FFN gate/up/down [out, in]
     GpuBuffer rms_attn, rms_ffn;  // RMS norm [hidden]
     GpuBuffer bq, bk, bv;         // optional QKV biases
+    GpuBuffer qkv_fused;          // fused QKV weights [Q+K+V, hidden]
+    GpuBuffer gate_up_fused;      // fused gate+up weights [2*inter, hidden]
     bool has_bias = false;
 };
 
@@ -84,16 +86,6 @@ private:
     uint32_t queue_family_;
     CommandPool& cmd_pool_;
 
-    /// Upload a tensor from GGUF file to GPU buffer.
-    /// Handles dequantization (Q4_0, Q8_0, F16, F32) to F32 on CPU,
-    /// then uploads to GPU. For Q4_K/Q6_K etc, dequantizes to F32.
-    GpuBuffer upload_tensor(const std::string& gguf_path,
-                             const WeightTensor& tensor,
-                             VkBufferUsageFlags extra_usage = 0);
-    
-    /// Upload raw float data to GPU buffer
-    GpuBuffer upload_float_data(const float* data, size_t count);
-    
     /// Parse GGUF header for tensor info
     bool scan_gguf(const std::string& path, ModelDims& dims,
                    std::vector<WeightTensor>& tensors);
