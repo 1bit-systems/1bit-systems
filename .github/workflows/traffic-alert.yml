@@ -19,6 +19,7 @@ permissions:
 jobs:
   check-traffic:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Fetch GitHub Traffic Data
         id: traffic
@@ -118,9 +119,10 @@ jobs:
             echo "TOP_REFERRER=$TOP_REF"
             echo "TOP_PATH=$TOP_PATH"
             echo "SPIKE=$SPIKE"
-            echo "SPIKE_MSG<<SPIKE_EOF"
+            EOF_MARKER="SPIKE_EOF_$(date +%s)_${RANDOM}"
+            echo "SPIKE_MSG<<${EOF_MARKER}"
             echo "$SPIKE_MSG"
-            echo "SPIKE_EOF"
+            echo "${EOF_MARKER}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Report to Job Summary

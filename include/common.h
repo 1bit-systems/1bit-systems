@@ -47,10 +47,13 @@ enum class ModelFormat : uint8_t {
 
 struct ModelConfig {
     // ── DEPRECATED SHORT-NAME FIELDS ────────────────────────────
-    // These are aliases for the long-name fields below. Both sets MUST
-    // be kept in sync. Prefer the long names in new code; use the
-    // set_dim() helper to set both at once. Will be removed after all
-    // usage is migrated to the long-name equivalents (issue #358).
+    // WARNING: These are aliases for the long-name fields below.
+    // Both sets MUST be kept in sync — any change to a long-name
+    // default MUST also update the corresponding short-name default
+    // (and vice versa).  Forgetting to sync will cause silent data
+    // corruption.  Prefer the long names in new code; use the
+    // set_dim() helper to set both at once.  These will be removed
+    // after all usage migrates to the long-name equivalents (#358).
     int hidden            = 2048;   // use hidden_size
     int n_heads           = 8;      // use num_heads
     int n_kv_heads        = 2;      // use num_kv_heads

@@ -91,13 +91,19 @@ struct Zamba2Backend : Backend {
     }
 
     bool forward(int token_id, float* hidden_out) override {
-        // Zamba2 forward produces logits, not hidden states
-        // For the Backend interface, we produce logits and copy to hidden_out
+        // Zamba2 forward produces logits, not hidden states.
+        // The Backend interface's hidden_out buffer is only hidden_size floats
+        // (typically ~2048), but logits are vocab_size floats (typically ~262K).
+        // Copying vocab_size floats would overflow the caller's buffer.
+        // Instead, copy only hidden_size floats and treat the result as a
+        // projected hidden state. The lm_head() path handles full logit
+        // computation separately.
         if (!model.forward(token_id, logits_buf.data())) {
             return false;
         }
-        // Copy logits to output (the Backend interface expects this)
-        std::memcpy(hidden_out, logits_buf.data(), logits_buf.size() * sizeof(float));
+        // Copy only cfg.hidden floats to hidden_out — safe upper bound
+        std::memcpy(hidden_out, logits_buf.data(),
+                    (size_t)cfg.hidden * sizeof(float));
         return true;
     }
 

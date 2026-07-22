@@ -19,6 +19,7 @@ NPU_MODEL="${NPU_MODEL:-$HOME/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx}"
 PROMPT="${PROMPT:-Hi}"
 REF_DIR="/tmp/trace_hf"
 NPU_DIR="/tmp/trace_npu"
+# shellcheck disable=SC2034
 SUMMARY="/tmp/trace_compare.csv"
 
 echo "╔══════════════════════════════════════════════════════════╗"
@@ -75,7 +76,7 @@ cd "$HOME/1bit-systems"
 echo ""
 echo "Per-layer hidden state comparison (NPU h_out vs HF hidden_state):"
 printf "  %-8s %-12s %-12s %-12s %s\n" "Layer" "|NPU|" "|HF|" "Cos Sim" "Max Diff"
-echo "  " $(printf '=%.0s' {1..65})
+echo "  " "$(printf '=%.0s' {1..65})"
 
 for l in $(seq 0 27); do
     NPU_FILE="$NPU_DIR/layer_$(printf '%02d' $l)/h_out.f32"

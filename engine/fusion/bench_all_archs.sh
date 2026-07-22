@@ -107,6 +107,7 @@ declare -A RESULTS_STATUS
 declare -A RESULTS_ARCH
 declare -A RESULTS_MODEL_SIZE
 
+# shellcheck disable=SC2034
 for name in "${MODELS[@]}"; do
   model_file="${MODEL_DIR}/${name}/model.q4nx"
   arch="${MODEL_ARCH_MAP[$name]:-}"

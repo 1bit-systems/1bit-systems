@@ -17,7 +17,7 @@ echo "Pushing $MODEL_NAME from $MODEL_DIR to Hugging Face..."
 echo "Repo: bong-water-water-bong/$MODEL_NAME"
 
 # Login
-huggingface-cli login --token "$HF_TOKEN" --add-to-git-credential
+echo "$HF_TOKEN" | huggingface-cli login --token-stdin
 
 # Create model card
 cat > /tmp/model_card.md <<'EOF'

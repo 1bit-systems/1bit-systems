@@ -74,6 +74,11 @@ class NpuWorker:
         self.proc = None
 
     def start(self):
+        # Validate ENGINE and MODEL paths before spawning
+        if not os.path.isfile(ENGINE) or not os.access(ENGINE, os.X_OK):
+            raise FileNotFoundError(f"ENGINE not found or not executable: {ENGINE}")
+        if not os.path.isfile(MODEL):
+            raise FileNotFoundError(f"MODEL not found: {MODEL}")
         os.environ['NPU_XCLBIN_DIR'] = XCLBIN
         model_tag = os.environ.get('NPU_MODEL_TAG', 'qwen3_0_6b')
         
@@ -250,6 +255,7 @@ class Inference:
 # ── HTTP Handler ──
 inf = None
 tok = None
+_inf_tok_lock = threading.Lock()
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -267,14 +273,19 @@ class Handler(BaseHTTPRequestHandler):
         if length > MAX_BODY_SIZE:
             self.send_error(413, "Payload too large")
             return
-        body = json.loads(self.rfile.read(length))
+        try:
+            body = json.loads(self.rfile.read(length))
+        except (json.JSONDecodeError, ValueError) as e:
+            self.send_json({"error": f"Invalid JSON: {e}"}, status=400)
+            return
         prompt = self._get_prompt(body)
         stream = body.get("stream", False)
         max_tokens = body.get("max_tokens", 256)
 
-        # Tokenize
-        ids = tok.encode(prompt).ids[:512]
-        out_ids = inf.generate(ids, max_tokens)
+        # Tokenize (lock-guarded: tok/inf are shared across handler threads)
+        with _inf_tok_lock:
+            ids = tok.encode(prompt).ids[:512]
+            out_ids = inf.generate(ids, max_tokens)
         text = tok.decode(out_ids)
 
         if stream:
@@ -317,8 +328,9 @@ def main():
 
     global tok, inf
     from tokenizers import Tokenizer
-    tok = Tokenizer.from_file(TOKENIZER)
-    tok.no_truncation()
+    with _inf_tok_lock:
+        tok = Tokenizer.from_file(TOKENIZER)
+        tok.no_truncation()
 
     model = Q4NXReader(MODEL)
     print(f"  Model loaded: {Path(MODEL).name}")
@@ -327,19 +339,32 @@ def main():
     wk.start()
 
     global inf
-    inf = Inference(wk, model)
+    with _inf_tok_lock:
+        inf = Inference(wk, model)
     print(f"  Inference ready: {inf.NC} layers, {inf.NH} heads, H={inf.H}")
 
-    server = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
-    print(f"\n  🚀 1bit NPU chat server: http://127.0.0.1:{args.port}")
+    import signal
+    bind_addr = os.environ.get("NPU_BIND_ADDR", "127.0.0.1")
+    if bind_addr != "127.0.0.1":
+        print("⚠️  WARNING: binding to non-localhost. Ensure firewall rules are in place.", file=sys.stderr)
+
+    server = ThreadingHTTPServer((bind_addr, args.port), Handler)
+    print(f"\n  🚀 1bit NPU chat server: http://{bind_addr}:{args.port}")
     print(f"  Zero FLM dependency — using npu_engine_universal worker\n")
+
+    def shutdown(sig, frame):
+        print("\nShutting down NPU server...")
+        wk.stop()
+        server.shutdown()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        pass
-    finally:
-        wk.stop()
-        server.server_close()
+        shutdown(None, None)
 
 if __name__ == "__main__":
     main()

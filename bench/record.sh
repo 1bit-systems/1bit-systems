@@ -31,28 +31,64 @@ if [ ! -f "$FILE" ]; then
 JSON
 fi
 
-python3 -c "
-import json, sys
-with open('$FILE') as f:
+# Validate numeric inputs to prevent code injection
+validate_numeric() {
+    local val="$1" name="$2"
+    if [ "$val" = "null" ] || [ "$val" = "" ]; then
+        return 0
+    fi
+    if ! echo "$val" | grep -qE '^[0-9]+\.?[0-9]*$'; then
+        echo "ERROR: $name must be a numeric value, got: '$val'" >&2
+        exit 1
+    fi
+}
+validate_numeric "$TOK_S" "TOK_S"
+validate_numeric "$TFLOPS" "TFLOPS"
+
+export TOK_S TFLOPS STATUS LABEL TABLE DISPLAY_NAME BACKEND ENGINE_KEY COMMIT FILE
+python3 << 'PYEOF'
+import json, os
+
+tok_s_val = os.environ.get('TOK_S', 'null')
+tflops_val = os.environ.get('TFLOPS', 'null')
+status_val = os.environ.get('STATUS', 'validated')
+label_val = os.environ.get('LABEL', '')
+table_val = os.environ.get('TABLE', 'kernel')
+display_val = os.environ.get('DISPLAY_NAME', os.environ.get('ENGINE_KEY', ''))
+backend_val = os.environ.get('BACKEND', '')
+engine_key = os.environ.get('ENGINE_KEY', '')
+commit_val = os.environ.get('COMMIT', 'unknown')
+file_path = os.environ.get('FILE', 'site/benchmarks.json')
+
+with open(file_path) as f:
     d = json.load(f)
-d['updated'] = '$(date -u +%Y-%m-%dT%H:%M:%SZ)'
-d['commit'] = '$COMMIT'
+d['updated'] = os.popen('date -u +%Y-%m-%dT%H:%M:%SZ').read().strip()
+d['commit'] = commit_val
 d.setdefault('hardware', {})
 d['hardware'].setdefault('cpu', 'AMD Ryzen AI Max+ 395')
 d['hardware'].setdefault('npu', 'XDNA 2')
 d['hardware'].setdefault('gpu', 'Radeon 8060S')
-entry = {'tok_s': $TOK_S, 'tflops': $TFLOPS, 'status': '$STATUS', 'label': '$LABEL', 'table': '$TABLE', 'display_name': '$DISPLAY_NAME', 'backend': '$BACKEND'}
-# Remove null values
+entry = {
+    'tok_s': float(tok_s_val) if tok_s_val not in ('null', '') else None,
+    'tflops': float(tflops_val) if tflops_val not in ('null', '') else None,
+    'status': status_val,
+    'label': label_val,
+    'table': table_val,
+    'display_name': display_val,
+    'backend': backend_val,
+}
+# Remove None/empty values
 entry = {k: v for k, v in entry.items() if v is not None and v != '' and v != 'null'}
-d['engines']['$ENGINE_KEY'] = entry
-with open('$FILE', 'w') as f:
+d['engines'][engine_key] = entry
+with open(file_path, 'w') as f:
     json.dump(d, f, indent=1)
     f.write('\n')
-print(f'Recorded {ENGINE_KEY}: {TOK_S} tok/s')
-" 2>&1
+print(f"Recorded {engine_key}: {tok_s_val} tok/s")
+PYEOF
 
 # Also update badge JSONs for shields.io
 for badge_file in site/badge_gpu.json site/badge_npu.json; do
+  # shellcheck disable=SC2034
   key="$(basename "$badge_file" .json | sed 's/badge_//')"
   # Map engine_key to badge file
   case "$ENGINE_KEY" in
@@ -65,15 +101,18 @@ for badge_file in site/badge_gpu.json site/badge_npu.json; do
   esac
   if [ -n "$TARGET" ] && [ "$badge_file" = "$TARGET" ]; then
     MSG="${TOK_S} tok/s"
-    python3 -c "
-import json
-with open('$badge_file') as f:
+    export MSG badge_file
+    python3 << 'PYEOF' 2>/dev/null || true
+import json, os
+msg_val = os.environ.get('MSG', '')
+bfile = os.environ.get('badge_file', '')
+with open(bfile) as f:
     b = json.load(f)
-b['message'] = '$MSG'
-b['updated'] = '$(date -u +%Y-%m-%dT%H:%M:%SZ)'
-with open('$badge_file', 'w') as f:
+b['message'] = msg_val
+b['updated'] = os.popen('date -u +%Y-%m-%dT%H:%M:%SZ').read().strip()
+with open(bfile, 'w') as f:
     json.dump(b, f, indent=1)
     f.write('\n')
-" 2>/dev/null || true
+PYEOF
   fi
 done

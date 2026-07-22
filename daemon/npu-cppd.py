@@ -187,13 +187,16 @@ class CppEngineBackend:
 class ChatHandler(BaseHTTPRequestHandler):
     backend: CppEngineBackend = None
     model_name: str = "qwen3-0.6b-npu"
+    _backend_lock = threading.Lock()
 
     def log_message(self, format, *args):
         print(f"  {self.client_address[0]} - {format % args}", flush=True)
 
     def do_GET(self):
         if self.path == "/health":
-            self._json(200, {"status": "ok", "ready": self.backend.ready})
+            with self._backend_lock:
+                ready = self.backend.ready if self.backend else False
+            self._json(200, {"status": "ok", "ready": ready})
         elif self.path == "/v1/models":
             self._json(200, {"data": [{"id": self.model_name, "object": "model"}]})
         else:
@@ -211,7 +214,12 @@ class ChatHandler(BaseHTTPRequestHandler):
         model = body.get("model", self.model_name)
         messages = body.get("messages", [])
         kwargs = {k: v for k, v in body.items() if k not in ("model", "messages")}
-        result = self.backend.chat(model, messages, **kwargs)
+        with self._backend_lock:
+            backend = self.backend
+        if backend is None:
+            self._json(503, {"error": "backend not ready"})
+            return
+        result = backend.chat(model, messages, **kwargs)
         if "error" in result:
             self._json(500, result)
         else:
@@ -238,7 +246,8 @@ def main():
 
     backend = CppEngineBackend()
     backend.start()
-    ChatHandler.backend = backend
+    with ChatHandler._backend_lock:
+        ChatHandler.backend = backend
     ChatHandler.model_name = args.model
 
     server = ThreadingHTTPServer(("0.0.0.0", args.port), ChatHandler)

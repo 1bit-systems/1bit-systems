@@ -169,6 +169,9 @@ ZayaState* zaya_init(const char* weights_dir, const ZayaConfig* cfg) {
     ALLOC_OR_FAIL(s, alloc_f16, s->d_fnw, eng.h);
     ALLOC_OR_FAIL(s, alloc_f16, s->d_lm_out, 4096);
     ALLOC_OR_FAIL(s, alloc_f16, s->d_lm_vocab, eng.vocab);
+    // d_argmax_idx, d_sorted_ids, d_expert_counts, d_expert_offsets are
+    // declared as int* (and used as int by kernels) but allocated via
+    // alloc_f32 since hipMalloc works in bytes and both int/float are 4 B.
     ALLOC_OR_FAIL(s, alloc_f32, s->d_argmax_idx, 1);
     ALLOC_OR_FAIL(s, alloc_f32, s->d_argmax_val, 1);
     ALLOC_OR_FAIL(s, alloc_f32, s->d_sorted_ids, 8);

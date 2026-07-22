@@ -1,0 +1,4 @@
+# Hashes of file build rules.
+9cf7d9abdb263230e91ac99b26a692ce /home/bcloud/zinc/zig-out/lib/libzinc.so
+a64012c2e4d933cfa5ac589b7c326e5a CMakeFiles/zaya_agent
+b126c0bbfc774337f25a097a0b6ba138 CMakeFiles/zinc_lib

@@ -1,0 +1,1 @@
+/opt/rocm-therock/bin/amdclang++ -O3 -DNDEBUG -Xlinker --dependency-file=CMakeFiles/test_gguf_reader_dequant.dir/link.d CMakeFiles/test_gguf_reader_dequant.dir/tests/test_gguf_reader_dequant.cpp.o -o test_gguf_reader_dequant  libgguf_reader.a

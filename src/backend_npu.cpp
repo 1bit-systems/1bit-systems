@@ -240,6 +240,14 @@ struct NpuWorker {
         if (!read_with_timeout(stdout_fd, resp, sizeof(resp), GEMM_TIMEOUT_MS)) return false;
         if (resp[0] != 0) return false;
         uint32_t out_dim = resp[1];
+        // Validate out_dim against known model dimensions to prevent
+        // OOM from a buggy/compromised worker subprocess (AUDIT).
+        static constexpr uint32_t MAX_SAFE_OUT_DIM = 256 * 1024; // 256K floats max
+        if (out_dim > MAX_SAFE_OUT_DIM) {
+            fprintf(stderr, "NPU: worker returned out_dim=%u > max=%u — rejecting\n",
+                    out_dim, MAX_SAFE_OUT_DIM);
+            return false;
+        }
         out_data.resize((size_t)batch * out_dim);
         return read_with_timeout(stdout_fd, out_data.data(), (size_t)batch * out_dim * sizeof(float), GEMM_TIMEOUT_MS);
     }
@@ -324,7 +332,8 @@ struct NPUBackend : Backend {
                 "/tmp/zaya_weights/model.q4nx",
             };
             // 2. FLM model directory (users already have models here)
-            std::string flm_dir = std::string(getenv("HOME") ?: "") + "/.config/flm/models";
+            const char* home_env = getenv("HOME");
+            std::string flm_dir = std::string(home_env ? home_env : "") + "/.config/flm/models";
             std::string flm_candidates[8];
             int n_flm = 0;
             if (!flm_dir.empty()) {

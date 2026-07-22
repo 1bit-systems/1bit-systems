@@ -89,16 +89,19 @@ struct VK {
         dq.queueFamilyIndex = qf; dq.queueCount = 1; dq.pQueuePriorities = &prio;
         VkDeviceCreateInfo dci = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
         dci.queueCreateInfoCount = 1; dci.pQueueCreateInfos = &dq;
-        if (vkCreateDevice(phys, &dci, nullptr, &dev) != VK_SUCCESS) return false;
+        VkResult res = vkCreateDevice(phys, &dci, nullptr, &dev);
+        if (res != VK_SUCCESS) { fprintf(stderr, "[vk] vkCreateDevice failed: %s (%d)\n", vk_result_str(res), (int)res); return false; }
         vkGetDeviceQueue(dev, qf, 0, &queue);
 
         VkCommandPoolCreateInfo cpi = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
         cpi.queueFamilyIndex = qf;
-        if (vkCreateCommandPool(dev, &cpi, nullptr, &pool) != VK_SUCCESS) return false;
+        res = vkCreateCommandPool(dev, &cpi, nullptr, &pool);
+        if (res != VK_SUCCESS) { fprintf(stderr, "[vk] vkCreateCommandPool failed: %s (%d)\n", vk_result_str(res), (int)res); return false; }
 
         VkCommandBufferAllocateInfo ai = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
         ai.commandPool = pool; ai.commandBufferCount = 1;
-        if (vkAllocateCommandBuffers(dev, &ai, &cmd) != VK_SUCCESS) return false;
+        res = vkAllocateCommandBuffers(dev, &ai, &cmd);
+        if (res != VK_SUCCESS) { fprintf(stderr, "[vk] vkAllocateCommandBuffers failed: %s (%d)\n", vk_result_str(res), (int)res); return false; }
 
         return true;
     }
@@ -110,8 +113,9 @@ struct VK {
         std::vector<uint32_t> code(sz/4); fread(code.data(), 4, code.size(), f); fclose(f);
         VkShaderModuleCreateInfo sm = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
         sm.codeSize = sz; sm.pCode = code.data();
-        VkShaderModule mod;
-        vkCreateShaderModule(dev, &sm, nullptr, &mod);
+        VkShaderModule mod = VK_NULL_HANDLE;
+        VkResult res = vkCreateShaderModule(dev, &sm, nullptr, &mod);
+        if (res != VK_SUCCESS) { fprintf(stderr, "[vk] vkCreateShaderModule failed: %s (%d)\n", vk_result_str(res), (int)res); return VK_NULL_HANDLE; }
         return mod;
     }
 
@@ -126,8 +130,9 @@ struct VK {
             if ((mr.memoryTypeBits & (1<<i)) && (mp.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
                 VkMemoryAllocateInfo ai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
                 ai.allocationSize = mr.size; ai.memoryTypeIndex = i;
-                VkDeviceMemory mem;
-                vkAllocateMemory(dev, &ai, nullptr, &mem);
+                VkDeviceMemory mem = VK_NULL_HANDLE;
+                VkResult res = vkAllocateMemory(dev, &ai, nullptr, &mem);
+                if (res != VK_SUCCESS) { fprintf(stderr, "[vk] vkAllocateMemory failed: %s (%d)\n", vk_result_str(res), (int)res); return VK_NULL_HANDLE; }
                 vkBindBufferMemory(dev, *buf, mem, 0);
                 return mem;
             }
@@ -156,13 +161,15 @@ struct VK {
 
         VkDescriptorSetAllocateInfo dai = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
         dai.descriptorPool = ds_pool; dai.descriptorSetCount = 1; dai.pSetLayouts = &ds_layout;
-        vkAllocateDescriptorSets(dev, &dai, &ds);
+        VkResult res = vkAllocateDescriptorSets(dev, &dai, &ds);
+        if (res != VK_SUCCESS) { fprintf(stderr, "[vk] vkAllocateDescriptorSets failed: %s (%d)\n", vk_result_str(res), (int)res); return false; }
 
         VkPipelineShaderStageCreateInfo ss = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
         ss.stage = VK_SHADER_STAGE_COMPUTE_BIT; ss.module = mod; ss.pName = "main";
         VkComputePipelineCreateInfo ci = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
         ci.stage = ss; ci.layout = pipe_layout;
-        vkCreateComputePipelines(dev, VK_NULL_HANDLE, 1, &ci, nullptr, &pipe);
+        res = vkCreateComputePipelines(dev, VK_NULL_HANDLE, 1, &ci, nullptr, &pipe);
+        if (res != VK_SUCCESS) { fprintf(stderr, "[vk] vkCreateComputePipelines failed: %s (%d)\n", vk_result_str(res), (int)res); return false; }
         return true;
     }
 

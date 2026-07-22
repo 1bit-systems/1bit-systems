@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import { loadSettings, saveSettings } from "../branding/config.js";
 
 /**
@@ -67,7 +67,7 @@ export async function installPackage(spec: string): Promise<void> {
 
   console.log(`  → Installing ${parsed} via pi...\n`);
   try {
-    execSync(`"${piPath}" install "${parsed}" --no-approve`, {
+    execFileSync(piPath, ["install", parsed, "--no-approve"], {
       stdio: "inherit",
       timeout: 120000,
     });
@@ -102,7 +102,7 @@ export async function removePackage(name: string): Promise<void> {
   const piPath = findPi();
   if (piPath) {
     try {
-      execSync(`"${piPath}" remove "${name}" --no-approve`, {
+      execFileSync(piPath, ["remove", name, "--no-approve"], {
         stdio: "inherit",
         timeout: 30000,
       });
@@ -145,7 +145,7 @@ export async function listPackages(): Promise<void> {
   if (piPath) {
     console.log("");
     try {
-      const piOutput = execSync(`"${piPath}" list --no-approve 2>/dev/null`, {
+      const piOutput = execFileSync(piPath, ["list", "--no-approve"], {
         encoding: "utf-8",
         timeout: 10000,
       });
@@ -177,7 +177,7 @@ export async function updatePackage(spec?: string): Promise<void> {
   if (spec) {
     console.log(`  → Updating ${spec}...\n`);
     try {
-      execSync(`"${piPath}" update "${spec}" --no-approve`, {
+      execFileSync(piPath, ["update", spec, "--no-approve"], {
         stdio: "inherit",
         timeout: 120000,
       });
@@ -192,7 +192,7 @@ export async function updatePackage(spec?: string): Promise<void> {
   // Update all packages
   console.log("  → Updating all packages via pi...\n");
   try {
-    execSync(`"${piPath}" update --extensions --no-approve`, {
+    execFileSync(piPath, ["update", "--extensions", "--no-approve"], {
       stdio: "inherit",
       timeout: 120000,
     });

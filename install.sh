@@ -23,10 +23,14 @@ if echo "$KERNEL_RELEASE" | grep -q '^6\.19\.'; then
 fi
 
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
-    echo "Usage: curl -fsSL https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/install.sh | bash"
+    echo "Usage: curl -fsSL https://raw.githubusercontent.com/bong-water-water-bong/1bit-systems/main/install.sh -o install.sh"
+    echo "       # Review the script, then:"
     echo "       bash install.sh [--skip-rocm]"
     echo ""
     echo "  --skip-rocm  Skip kernel build (use pre-build librocm_cpp.so)"
+    echo ""
+    echo "If a SHA256 checksum file is available, verify before running:"
+    echo "       sha256sum -c install.sh.sha256"
     echo ""
     echo "Installs 1bit inference engine for AMD Strix Halo (gfx1151)."
     echo "Builds the pure C++ zaya_server (~400 KB) + librocm_cpp.so (~1.1 MB) — no Rust, no Python."

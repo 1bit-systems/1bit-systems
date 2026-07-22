@@ -50,10 +50,10 @@ class KnowledgeBase:
         return results[:max_results]
 
     def add_document(self, filename, content):
-        doc_dir = self.root / "documents"
+        doc_dir = self._resolve_safe("documents")
         doc_dir.mkdir(exist_ok=True)
         safe_name = re.sub(r'[^a-zA-Z0-9_\-.]', '_', filename)
-        fpath = doc_dir / safe_name
+        fpath = self._resolve_safe("documents", safe_name)
         if not safe_name.endswith(".md"):
             fpath = doc_dir / (safe_name + ".md")
             content = f"---\ntype: document\ncreated: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\nsource: upload\n---\n\n# {filename}\n\n" + content
@@ -76,9 +76,17 @@ class KnowledgeBase:
     # same session_id (e.g. phone app + desktop), independent of whatever
     # truncated history a given client happens to send in `messages`.
 
+    def _resolve_safe(self, *components):
+        """Resolve a path under self.root with path-traversal protection."""
+        candidate = self.root.joinpath(*components).resolve()
+        # Ensure the resolved path stays within self.root (defense-in-depth)
+        if not str(candidate).startswith(str(self.root.resolve())):
+            raise ValueError(f"Path traversal blocked: {candidate}")
+        return candidate
+
     def _session_path(self, session_id):
         safe = re.sub(r'[^a-zA-Z0-9_\-]', '_', session_id)[:128] or "default"
-        return self.root / "conversations" / f"{safe}.md"
+        return self._resolve_safe("conversations", f"{safe}.md")
 
     def save_turn(self, session_id, role, content):
         fpath = self._session_path(session_id)

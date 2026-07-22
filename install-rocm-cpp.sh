@@ -17,7 +17,12 @@ set -euo pipefail
 PREFIX="${PREFIX:-$HOME}"
 # Default: lemonade-managed TheRock, then legacy therock path.
 _LEMONADE_THEROCK="$HOME/.cache/lemonade/bin/therock"
-_THEROCK_DIR=$(ls -d "$_LEMONADE_THEROCK"/gfx* 2>/dev/null | sort -V | tail -1 || echo "$HOME/therock/build/dist/rocm")
+_THEROCK_DIR=$(ls -d "$_LEMONADE_THEROCK"/gfx* 2>/dev/null | sort -V | tail -1)
+# Guard against empty result: if ls matched nothing, sort|tail outputs ""
+# with exit 0, so the || never fires. Force fallback on empty.
+if [ -z "$_THEROCK_DIR" ]; then
+    _THEROCK_DIR="$HOME/therock/build/dist/rocm"
+fi
 ROCM_ROOT="${ROCM_ROOT:-$_THEROCK_DIR}"
 SKIP_MODEL="${SKIP_MODEL:-0}"
 SKIP_BUILD="${SKIP_BUILD:-0}"

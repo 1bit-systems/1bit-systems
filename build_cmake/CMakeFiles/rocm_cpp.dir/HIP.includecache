@@ -1,0 +1,16 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/bcloud/1bit-systems/src/laguna_gemv.hip
+hip/hip_runtime.h
+-
+cstdio
+-
+cstring
+-
+

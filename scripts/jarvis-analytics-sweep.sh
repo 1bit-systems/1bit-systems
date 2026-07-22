@@ -15,14 +15,15 @@ TIMESTAMP="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 DATE_STR="$(date -u '+%Y-%m-%d')"
 
 # Export so python3 heredoc can read them
-export TIMESTAMP DATE_STR AWARENESS_FILE
+export TIMESTAMP DATE_STR AWARENESS_FILE GH_TMP CF_TMP
 
 mkdir -p "$(dirname "$AWARENESS_FILE")" "$ANALYTICS_DIR"
 echo "📊 JARVIS Analytics Sweep — $DATE_STR"
 
 # Run analytics to temp files (strip ANSI codes)
-GH_TMP="/tmp/jarvis-gh-output.txt"
-CF_TMP="/tmp/jarvis-cf-output.txt"
+GH_TMP=$(mktemp /tmp/jarvis-gh-output.XXXXXX) || exit 1
+CF_TMP=$(mktemp /tmp/jarvis-cf-output.XXXXXX) || exit 1
+trap 'rm -f "$GH_TMP" "$CF_TMP"' EXIT
 bash "$ANALYTICS_DIR/github-analytics.sh" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' > "$GH_TMP" || echo "" > "$GH_TMP"
 bash "$ANALYTICS_DIR/cf-analytics.sh" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' > "$CF_TMP" || echo "" > "$CF_TMP"
 
@@ -47,13 +48,14 @@ def extract_from(path, patterns):
     return result
 
 # GitHub
-gh = extract_from('/tmp/jarvis-gh-output.txt', {
+gh_tmp = os.environ.get('GH_TMP', '/tmp/jarvis-gh-output.txt')
+gh = extract_from(gh_tmp, {
     'stars': r'Stars:\s*([0-9,]+)',
     'forks': r'Forks:\s*([0-9,]+)',
     'clones_total': r'Clones:\s*([0-9,]+)',
 })
 # unique counts
-gh_text = open('/tmp/jarvis-gh-output.txt').read()
+gh_text = open(gh_tmp).read()
 vhits = list(re.finditer(r'unique\s*([0-9,]+)', gh_text))
 gh['clones_unique'] = vhits[0].group(1).replace(',','') if len(vhits) >= 1 else '0'
 gh['views_unique'] = vhits[1].group(1).replace(',','') if len(vhits) >= 2 else '0'
@@ -62,7 +64,8 @@ vm = re.search(r'Page Views:\s*([0-9,]+)', gh_text)
 gh['views_total'] = vm.group(1).replace(',','') if vm else '0'
 
 # Cloudflare
-cf = extract_from('/tmp/jarvis-cf-output.txt', {
+cf_tmp = os.environ.get('CF_TMP', '/tmp/jarvis-cf-output.txt')
+cf = extract_from(cf_tmp, {
     'page_views': r'Page Views:\s*([0-9,]+)',
     'visitors': r'Unique Visitors:\s*([0-9,]+)',
     'requests': r'Total Requests:\s*([0-9,]+)',

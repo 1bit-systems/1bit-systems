@@ -25,6 +25,7 @@
 #include <string>
 #include <chrono>
 #include <algorithm>
+#include <atomic>
 #include <mutex>
 
 #include <httplib.h>
@@ -40,9 +41,10 @@ static bool detect_from_h1b(const std::string& path, ModelConfig& cfg) {
     if (std::strncmp(magic, "H1B", 3) != 0) return false;
     int32_t version;
     f.read(reinterpret_cast<char*>(&version), 4);
-    if (version < 1 || version > 5) return false;
+    if (!f.good() || version < 1 || version > 5) return false;
     int32_t hdr[9];
     f.read(reinterpret_cast<char*>(hdr), sizeof(hdr));
+    if (!f.good()) return false;
     cfg.hidden_size       = hdr[0];
     cfg.intermediate_size = hdr[1];
     cfg.num_layers        = hdr[2];
@@ -57,8 +59,10 @@ static bool detect_from_h1b(const std::string& path, ModelConfig& cfg) {
     if (version >= 2) {
         float extras[2];
         f.read(reinterpret_cast<char*>(extras), sizeof(extras));
-        cfg.rope_theta   = extras[0] > 0 ? extras[0] : 500000.0f;
-        cfg.rms_norm_eps = extras[1] > 0 ? extras[1] : 1e-5f;
+        if (f.good()) {
+            cfg.rope_theta   = extras[0] > 0 ? extras[0] : 500000.0f;
+            cfg.rms_norm_eps = extras[1] > 0 ? extras[1] : 1e-5f;
+        }
     }
     auto slash = path.find_last_of('/');
     cfg.model_name = (slash != std::string::npos) ? path.substr(slash + 1) : path;
@@ -366,7 +370,8 @@ static std::string a2a_handle_message(const std::string& body, const std::string
 }
 
 static std::string a2a_new_task_id() {
-    return "task-" + std::to_string((long long)time(nullptr)) + "-" + std::to_string(rand() % 10000);
+    static std::atomic<uint64_t> counter{0};
+    return "task-" + std::to_string((long long)time(nullptr)) + "-" + std::to_string(counter.fetch_add(1, std::memory_order_relaxed));
 }
 
 int main(int argc, char** argv) {
@@ -482,7 +487,10 @@ int main(int argc, char** argv) {
     svr.set_payload_max_length(MAX_BODY_BYTES);
 
     svr.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
-        res.set_header("Access-Control-Allow-Origin", "*");
+        // Restrictive CORS by default — only allow same-origin (localhost) access.
+        // Set ZAYA_CORS_ORIGIN env var to "*" or a specific origin if needed.
+        const char* cors_origin = getenv("ZAYA_CORS_ORIGIN");
+        res.set_header("Access-Control-Allow-Origin", cors_origin ? cors_origin : "http://127.0.0.1");
         res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
         res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization");
         if (req.method == "OPTIONS") {
@@ -493,13 +501,6 @@ int main(int argc, char** argv) {
         return httplib::Server::HandlerResponse::Unhandled;
     });
 
-    fprintf(stderr, "\nListening on http://127.0.0.1:%d\n", port);
-    fprintf(stderr, "   GET  /                      — health\n");
-    fprintf(stderr, "   GET  /v1/models              — model list\n");
-    fprintf(stderr, "   GET  /.well-known/agent-card — A2A Agent Card (v1.0)\n");
-    fprintf(stderr, "   POST /a2a/v1/message:send     — A2A task inference\n");
-    fprintf(stderr, "   POST /a2a/v1/tasks:route      — A2A route to peer agent\n");
-    fprintf(stderr, "   POST /v1/chat/completions     — OpenAI-compatible\n");
     fprintf(stderr, "   Strategy: %s\n",
         strategy == RouteStrategy::AUTO ? "auto (fastest available)" :
         strategy == RouteStrategy::CASCADE ? "cascade (per-token fallback)" :
@@ -650,7 +651,7 @@ int main(int argc, char** argv) {
         try {
             json jbody = json::parse(body);
             max_tokens = jbody.value("max_tokens", 256);
-        } catch (...) {}
+        } catch (...) { fprintf(stderr, "[zaya] JSON parse error in max_tokens\n"); }
 
         RouteStrategy use_strat = strategy;
         if (use_strat == RouteStrategy::CONTENT) {
@@ -661,7 +662,7 @@ int main(int argc, char** argv) {
                     user_msg = jbody["messages"][0].value("content", std::string());
                 else
                     user_msg = jbody.value("content", std::string());
-            } catch (...) {}
+            } catch (...) { fprintf(stderr, "[zaya] JSON parse error in content routing\n"); }
             fprintf(stderr, "  [content] routing: %s\n", should_use_large_model(user_msg) ? "large model" : "small model (NPU)");
             use_strat = RouteStrategy::AUTO;
         }
@@ -671,7 +672,7 @@ int main(int argc, char** argv) {
             try {
                 json jbody = json::parse(body);
                 prompt = jbody.value("prompt", std::string());
-            } catch (...) {}
+            } catch (...) { fprintf(stderr, "[zaya] JSON parse error in prompt fallback\n"); }
             if (prompt.empty()) {
                 res.status = 400;
                 res.set_content("{\"error\":\"No messages or prompt\"}", "application/json");
@@ -727,13 +728,13 @@ int main(int argc, char** argv) {
                 input = tok.encode(jbody["prompt"].get<std::string>());
             }
             np = jbody.value("n_predict", 16);
-        } catch (...) {}
+        } catch (...) { fprintf(stderr, "[zaya] JSON parse error in /v1/completions\n"); }
         if (input.empty()) {
             std::string prompt;
             try {
                 json jbody = json::parse(body);
                 prompt = jbody.value("prompt", std::string());
-            } catch (...) {}
+            } catch (...) { fprintf(stderr, "[zaya] JSON parse error in /v1/completions prompt fallback\n"); }
             if (prompt.empty()) {
                 res.status = 400;
                 res.set_content("{\"error\":\"need prompt or tokens\"}", "application/json");
@@ -763,8 +764,25 @@ int main(int argc, char** argv) {
             res.set_content("{\"error\":\"not found\"}", "application/json");
     });
 
-    if (!svr.listen("0.0.0.0", port)) {
-        fprintf(stderr, "FATAL: failed to bind/listen on port %d\n", port);
+    // Bind to localhost by default — use --bind 0.0.0.0 to expose publicly.
+    // Binding to all interfaces without auth or TLS is a security risk (AUDIT #7).
+    const char* bind_addr = getenv("ZAYA_BIND_ADDR");
+    if (!bind_addr || !bind_addr[0]) bind_addr = "127.0.0.1";
+    fprintf(stderr, "\nListening on http://%s:%d\n", bind_addr, port);
+    fprintf(stderr, "   GET  /                      — health\n");
+    fprintf(stderr, "   GET  /v1/models              — model list\n");
+    fprintf(stderr, "   GET  /.well-known/agent-card — A2A Agent Card (v1.0)\n");
+    fprintf(stderr, "   POST /a2a/v1/message:send     — A2A task inference\n");
+    fprintf(stderr, "   POST /a2a/v1/tasks:route      — A2A route to peer agent\n");
+    fprintf(stderr, "   POST /v1/chat/completions     — OpenAI-compatible\n");
+    if (strcmp(bind_addr, "0.0.0.0") == 0) {
+        fprintf(stderr,
+            "\n  *** WARNING: binding to 0.0.0.0 — server is publicly reachable. ***\n"
+            "  No authentication, no TLS, no rate limiting is enabled.\n"
+            "  Use a reverse proxy or set ZAYA_BIND_ADDR=127.0.0.1 for local-only access.\n\n");
+    }
+    if (!svr.listen(bind_addr, port)) {
+        fprintf(stderr, "FATAL: failed to bind/listen on %s:%d\n", bind_addr, port);
         return 1;
     }
     return 0;

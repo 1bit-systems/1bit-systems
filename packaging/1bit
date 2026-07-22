@@ -35,10 +35,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BIN_DIR="${HOME}/.local/bin"
 MODEL_DIR="${HOME}/.local/share/1bit/models"
 CONFIG_DIR="${HOME}/.config/1bit"
+# shellcheck disable=SC2034
 VERBOSE=false
 
 # ── Parse global options ──
 for arg in "$@"; do
+  # shellcheck disable=SC2034
   [ "$arg" = "--verbose" ] || [ "$arg" = "-v" ] && VERBOSE=true
 done
 

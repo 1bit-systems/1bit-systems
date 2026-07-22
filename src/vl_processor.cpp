@@ -20,6 +20,9 @@
 #include <cmath>
 #include <vector>
 #include <string>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <fcntl.h>
 
 // ── Bbox-aware resize for dynamic-resolution VLMs ──
 // Qwen2-VL divides the image into a grid of patch-sized tiles
@@ -65,23 +68,58 @@ std::vector<float> vl_resize_bbox(const float* src, int sw, int sh,
 // Uses a very simple HTTP GET via stdio pipe to curl.
 // Returns empty vector on failure.
 std::vector<unsigned char> vl_download_image(const std::string& url, int timeout_sec) {
-    std::string cmd = "curl -sL --connect-timeout " + std::to_string(timeout_sec) +
-                      " --max-time " + std::to_string(timeout_sec + 5) +
-                      " '" + url + "' 2>/dev/null";
-
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) {
-        fprintf(stderr, "[vl] ERROR: failed to run curl\n");
+    // Validate URL scheme to prevent non-HTTP protocols via exec
+    if (url.find("http://") != 0 && url.find("https://") != 0) {
+        fprintf(stderr, "[vl] ERROR: unsupported URL scheme (only http/https allowed): '%s'\n", url.c_str());
         return {};
     }
 
+    // Use fork+pipe+execlp to pass URL as a direct argv argument (no shell),
+    // preventing command injection via quotes or shell metacharacters in the URL.
+    int pipefd[2];
+    if (pipe(pipefd) != 0) {
+        fprintf(stderr, "[vl] ERROR: pipe() failed\n");
+        return {};
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        fprintf(stderr, "[vl] ERROR: fork() failed\n");
+        close(pipefd[0]); close(pipefd[1]);
+        return {};
+    }
+
+    if (pid == 0) {
+        // Child: redirect stdout to pipe, stderr to /dev/null, then exec curl
+        close(pipefd[0]);  // close read end
+        dup2(pipefd[1], STDOUT_FILENO);
+        close(pipefd[1]);
+
+        int null_fd = open("/dev/null", O_WRONLY);
+        if (null_fd >= 0) { dup2(null_fd, STDERR_FILENO); close(null_fd); }
+
+        std::string to_str = std::to_string(timeout_sec);
+        std::string max_str = std::to_string(timeout_sec + 5);
+        execlp("curl", "curl", "-sL",
+               "--connect-timeout", to_str.c_str(),
+               "--max-time", max_str.c_str(),
+               url.c_str(), (char*)nullptr);
+        _exit(127);  // exec failed
+    }
+
+    // Parent: read from pipe
+    close(pipefd[1]);  // close write end
+
     std::vector<unsigned char> data;
     char buf[4096];
-    size_t n;
-    while ((n = fread(buf, 1, sizeof(buf), pipe)) > 0)
+    ssize_t n;
+    while ((n = read(pipefd[0], buf, sizeof(buf))) > 0)
         data.insert(data.end(), buf, buf + n);
+    close(pipefd[0]);
 
-    int rc = pclose(pipe);
+    int status = 0;
+    waitpid(pid, &status, 0);
+    int rc = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
     if (rc != 0 || data.empty()) {
         fprintf(stderr, "[vl] ERROR: curl failed (rc=%d) for '%s'\n", rc, url.c_str());
         return {};

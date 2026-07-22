@@ -34,7 +34,7 @@ echo "" | tee -a "$LOGFILE"
 # ── Step 2: Build ──
 echo "=== 2. Build ===" | tee -a "$LOGFILE"
 echo "  cmake --build build --target zaya_server -j\$(nproc)" | tee -a "$LOGFILE"
-cmake --build build --target zaya_server -j$(nproc) 2>&1 | tail -3 | tee -a "$LOGFILE"
+cmake --build build --target zaya_server -j"$(nproc)" 2>&1 | tail -3 | tee -a "$LOGFILE"
 echo "  Binary: $(ls -lh build/zaya_server | awk '{print $5}')" | tee -a "$LOGFILE"
 echo "" | tee -a "$LOGFILE"
 

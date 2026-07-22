@@ -17,9 +17,14 @@ on:
       - 'engine/npu/kernel/**'
       - 'engine/npu/xclbins/**'
 
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   benchmark:
     runs-on: self-hosted
+    timeout-minutes: 60
     if: github.event.repository.owner.login == 'bong-water-water-bong'
     steps:
       - uses: actions/checkout@v4
@@ -84,12 +89,15 @@ jobs:
             echo "::error::No Q4NX model found. Pass model_path via workflow_dispatch or place a .q4nx model on the runner."
             exit 1
           fi
-          N=$DEC
+          # Validate user-supplied decode_tokens: must be a positive integer
+          case "$DEC" in
+            ''|*[!0-9]*) echo "::error::decode_tokens must be a positive integer, got '$DEC'"; exit 1 ;;
+          esac
           echo "=== NPU Benchmark $(date -u) ==="
           echo "Model: $MODEL_PATH"
-          echo "Decode tokens: $N"
+          echo "Decode tokens: $DEC"
           cd engine/npu/build
-          OMP_NUM_THREADS=16 ./npu_engine_v12 "$MODEL_PATH" $N 2>&1 | tee benchmark.log
+          OMP_NUM_THREADS=16 ./npu_engine_v12 "$MODEL_PATH" "$DEC" 2>&1 | tee benchmark.log
           echo "---"
           grep "ms/tok" benchmark.log || echo "::warning::No ms/tok line found"
 

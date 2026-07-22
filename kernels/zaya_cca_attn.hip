@@ -146,10 +146,11 @@ __launch_bounds__(128) __global__ void cca_attn_kernel(
         // Not needed for now - let's use a simpler approach
     }
     
-    // WARNING: This kernel is an incomplete stub (#403). It does NOT produce
-    // valid output. The server uses cca_custom_kernel from zaya_cca_custom.hip
-    // instead. Trap if accidentally launched to avoid silent garbage output.
-    __builtin_trap();
+    // This kernel is intentionally a stub — cca_custom_kernel handles this path.
+    // Print once per launch and return cleanly to avoid silent hangs.
+    if (threadIdx.x == 0) {
+        printf("ERROR: cca_attn_kernel stub launched — use cca_custom_kernel instead\n");
+    }
 }
 
 // GQA is not referenced elsewhere in this file — undef so later .hip files

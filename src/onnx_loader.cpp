@@ -175,11 +175,28 @@ static void find_initializers(PbReader& pb, std::vector<OnnxTensor>& tensors, in
                         auto bd = tp.bytes();
                     } else if (tf == 14) { // raw_data (bytes, field 14)
                         auto raw = tp.bytes();
-                        if (t.data_type == ONNX_FLOAT16 || t.data_type == ONNX_BFLOAT16) {
+                        if (t.data_type == ONNX_FLOAT16) {
+                            // Proper IEEE float16 → float32 (not bfloat16 shift trick)
                             t.float_data.resize(raw.size() / 2);
                             for (size_t i = 0; i + 2 <= raw.size(); i += 2) {
                                 uint16_t f16; memcpy(&f16, &raw[i], 2);
-                                uint32_t bits = (uint32_t)f16 << 16;
+                                uint32_t s = (f16 >> 15) & 1, e = (f16 >> 10) & 0x1f, m = f16 & 0x3ff;
+                                float sign = s ? -1.0f : 1.0f;
+                                float v;
+                                if (e == 0)
+                                    v = sign * (float)m * 5.9604644775390625e-08f;
+                                else if (e == 31)
+                                    v = m ? NAN : sign * INFINITY;
+                                else
+                                    v = sign * (1.0f + (float)m / 1024.0f) * powf(2.0f, (float)((int)e - 15));
+                                t.float_data[i / 2] = v;
+                            }
+                        } else if (t.data_type == ONNX_BFLOAT16) {
+                            // bfloat16: upper 16 bits of float32
+                            t.float_data.resize(raw.size() / 2);
+                            for (size_t i = 0; i + 2 <= raw.size(); i += 2) {
+                                uint16_t bf16; memcpy(&bf16, &raw[i], 2);
+                                uint32_t bits = (uint32_t)bf16 << 16;
                                 float v; memcpy(&v, &bits, 4);
                                 t.float_data[i / 2] = v;
                             }

@@ -23,7 +23,7 @@ QUICK=false
 
 for arg in "$@"; do
   case "$arg" in
-    --ci) CI_MODE=true; TIMEOUT_SECS=60;;
+    --ci) CI_MODE=true; : "${TIMEOUT_SECS:=60}";;
     --quick) QUICK=true;;
   esac
 done

@@ -107,18 +107,29 @@ async function pollState() {
     if (s.tokens_generated) document.getElementById('tokens').textContent = s.tokens_generated;
     if (s.output) {
       const lines = JSON.parse(s.output).split('\n').filter(l => l.includes('[') || l.includes('ms/tok') || l.includes('Prefill'));
-      document.getElementById('term').innerHTML = lines.map(l => {
+      const term = document.getElementById('term');
+      term.innerHTML = ''; // clear
+      lines.forEach(l => {
+        const div = document.createElement('div');
         let cls = 'dim';
         if (l.includes('[')) cls = '';
         if (l.includes('ms/tok')) cls = 'g';
-        return `<div class="line ${cls}">${l.replace(/</g,'&lt;')}</div>`;
-      }).join('\n');
+        div.className = 'line ' + cls;
+        div.textContent = l;
+        term.appendChild(div);
+      });
       // Parse tokens
       const toks = lines.filter(l => l.includes('[') && l.match(/\d+ \(/)).map(l => l.match(/\] (\d+) \(/)?.[1]).filter(Boolean);
       if (toks.length) {
         const disp = document.getElementById('tokens-display');
         disp.style.display = 'flex';
-        disp.innerHTML = toks.map(t => `<span class="token">${t}</span>`).join('');
+        disp.textContent = ''; // clear
+        toks.forEach(t => {
+          const span = document.createElement('span');
+          span.className = 'token';
+          span.textContent = t;
+          disp.appendChild(span);
+        });
       }
     }
   } catch(e) {

@@ -77,8 +77,12 @@ static int spawn(const char*mo,const char*ta){
     if(wp<0)return -1;
     if(wp==0){close(tc[1]);dup2(tc[0],0);close(tc[0]);close(fc[0]);dup2(fc[1],1);close(fc[1]);close(ec[0]);dup2(ec[1],2);close(ec[1]);close(rp[0]);close(rp[1]);execlp(bin,bin,mo,"--model-tag",ta,"--worker",NULL);_exit(1);}
     close(tc[0]);close(fc[1]);close(ec[1]);wsi=tc[1];wso=fc[0];
-    int*df=malloc(sizeof(int));*df=fc[0];pthread_t dt;pthread_create(&dt,NULL,drain,df);pthread_detach(dt);
-    int*ef=malloc(sizeof(int));*ef=ec[0];pthread_t et;pthread_create(&et,NULL,rdyst,ef);pthread_detach(et);
+    int*df=malloc(sizeof(int));*df=fc[0];pthread_t dt;
+    if(pthread_create(&dt,NULL,drain,df)!=0){free(df);close(fc[0]);}
+    else pthread_detach(dt);
+    int*ef=malloc(sizeof(int));*ef=ec[0];pthread_t et;
+    if(pthread_create(&et,NULL,rdyst,ef)!=0){free(ef);close(ec[0]);}
+    else pthread_detach(et);
     return 0;}
 
 static int gemm(int op,int l,int b,int id,const float*in,float*out,int*od){

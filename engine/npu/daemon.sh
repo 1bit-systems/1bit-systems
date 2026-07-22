@@ -1,5 +1,3 @@
-#!/bin/bash
-set -euo pipefail
 #!/usr/bin/env bash
 set -euo pipefail
 # 1bit.systems live daemon — runs NPU engine and serves output for live dashboard
@@ -26,9 +24,12 @@ run_engine() {
     local EXIT=$?
 
     # Parse output for JSON
-    local SPEED=$(grep "ms/tok" "$OUTFILE" | tail -1 | awk '{print $2}')
-    local TOKENS=$(grep -c "^  \[" "$OUTFILE")
-    local PREFILL=$(grep "Prefill:" "$OUTFILE" | tail -1 | awk '{print $2}' | tr -d 'ms')
+    local SPEED
+    local TOKENS
+    local PREFILL
+    SPEED=$(grep "ms/tok" "$OUTFILE" | tail -1 | awk '{print $2}')
+    TOKENS=$(grep -c "^  \\[" "$OUTFILE")
+    PREFILL=$(grep "Prefill:" "$OUTFILE" | tail -1 | awk '{print $2}' | tr -d 'ms')
 
     cat > "$JSONFILE" << JSONEOF
 {

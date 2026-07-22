@@ -33,8 +33,17 @@ struct PluginCPUBackend : Backend {
     ~PluginCPUBackend() override { destroy(); }
 
     bool init(const ModelConfig& cfg, const std::string& weights_dir) override {
+        // This is a DEMO plugin with stub implementations. It produces
+        // constant/garbage output — not suitable for production inference.
+        // Set ALLOW_DEMO_PLUGIN=1 to override this guard.
+        if (!getenv("ALLOW_DEMO_PLUGIN")) {
+            fprintf(stderr, "PluginCPU: REFUSING to init — this is a demo plugin "
+                    "with stub inference (always returns token 42).\n"
+                    "  Set ALLOW_DEMO_PLUGIN=1 to force-load it anyway.\n");
+            return false;
+        }
         this->cfg = cfg;
-        printf("PluginCPU: init (cfg: H=%d L=%d V=%d)\n",
+        printf("PluginCPU: init (cfg: H=%d L=%d V=%d) [DEMO MODE]\n",
                cfg.hidden, cfg.n_layers, cfg.vocab);
 
         // Real implementation would load weights from weights_dir

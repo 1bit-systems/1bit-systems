@@ -90,7 +90,7 @@ impl Drop for AppState {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -102,8 +102,11 @@ async fn main() {
 
     // Find a free port for the backend if not specified
     let backend_port = if args.backend_port == 0 {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
+        let listener = TcpListener::bind("127.0.0.1:0").await
+            .map_err(|e| format!("Failed to bind to ephemeral port for backend: {e}"))?;
+        let port = listener.local_addr()
+            .map_err(|e| format!("Failed to get local address for backend listener: {e}"))?
+            .port();
         drop(listener);
         port
     } else {
@@ -150,13 +153,13 @@ async fn main() {
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
         .spawn()
-        .expect("Failed to start bitnet_decode. Is rocm-cpp installed?");
+        .map_err(|e| format!("Failed to start bitnet_decode: {e}. Is rocm-cpp installed?"))?;
 
     let backend_url = format!("http://127.0.0.1:{backend_port}");
     let client = Client::builder()
         .timeout(Duration::from_secs(300))
         .build()
-        .unwrap();
+        .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
 
     // Wait for backend to be ready
     info!("Waiting for bitnet_decode to be ready...");
@@ -176,7 +179,7 @@ async fn main() {
         }
         if let Ok(Some(status)) = child.try_wait() {
             error!("bitnet_decode exited early with status: {status:?}");
-            std::process::exit(1);
+            return Err("bitnet_decode exited early".into());
         }
         sleep(Duration::from_secs(1)).await;
     }
@@ -184,12 +187,12 @@ async fn main() {
     // If we exhausted the loop without breaking, backend never became healthy
     if !healthy {
         error!("bitnet_decode health check timed out after 120s");
-        std::process::exit(1);
+        return Err("bitnet_decode health check timed out after 120s".into());
     }
 
     if let Ok(Some(status)) = child.try_wait() {
         error!("bitnet_decode exited with status: {status:?}");
-        std::process::exit(1);
+        return Err("bitnet_decode exited after health check".into());
     }
 
     let state = AppState {
@@ -199,9 +202,14 @@ async fn main() {
     };
 
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin([
+            axum::http::HeaderValue::from_static("http://localhost:13305"),
+            axum::http::HeaderValue::from_static("http://127.0.0.1:13305"),
+            axum::http::HeaderValue::from_static("https://1bit.systems"),
+        ])
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-        .allow_headers(Any);
+        .allow_headers(Any)
+        .allow_credentials(false);
 
     let app = Router::new()
         .route("/health", get(health))
@@ -213,20 +221,50 @@ async fn main() {
         .layer(cors)
         .with_state(state);
 
-    let addr: SocketAddr = format!("{}:{}", args.host, args.port).parse().unwrap();
+    let addr: SocketAddr = format!("{}:{}", args.host, args.port).parse()
+        .map_err(|e| format!("Invalid bind address '{}:{}': {e}", args.host, args.port))?;
     info!("1bit engine listening on http://{addr}");
     info!("Backend: {backend_url}");
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(addr).await
+        .map_err(|e| format!("Failed to bind to {addr}: {e}"))?;
+    axum::serve(listener, app).await
+        .map_err(|e| format!("Server error: {e}"))?;
+    Ok(())
 }
 
 async fn health() -> &'static str {
     "ok"
 }
 
+/// Paths the proxy is allowed to forward to the backend.
+const ALLOWED_PATHS: &[&str] = &[
+    "/v1/chat/completions",
+    "/v1/completions",
+    "/v1/models",
+    "/v1/health",
+    "/v1/backend/status",
+];
+
+/// Returns Some(stripped_path) if the request path is in the allowlist,
+/// or None if it should be rejected.
+fn validate_proxy_path(uri: &axum::http::Uri) -> Option<String> {
+    // Extract just the path (no query string) for allowlist matching.
+    let path = uri.path();
+    // Strip trailing slash for matching, but keep the canonical form.
+    let canonical = path.trim_end_matches('/');
+    if ALLOWED_PATHS.contains(&canonical) || ALLOWED_PATHS.iter().any(|p| canonical.starts_with(p) && canonical[p.len()..].starts_with('/')) {
+        let pq = uri.path_and_query().map(|pq| pq.to_string()).unwrap_or_else(|| path.to_string());
+        Some(pq)
+    } else {
+        None
+    }
+}
+
 async fn proxy_get(State(state): State<AppState>, uri: axum::http::Uri) -> Response {
-    let path = uri.path_and_query().map(|pq| pq.to_string()).unwrap_or_else(|| uri.path().to_string());
+    let Some(path) = validate_proxy_path(&uri) else {
+        return (StatusCode::NOT_FOUND, "unknown endpoint").into_response();
+    };
     let url = format!("{}{}", state.backend_url, path);
 
     match state.client.get(&url).send().await {
@@ -256,7 +294,9 @@ async fn proxy_post(
     headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
-    let path = uri.path_and_query().map(|pq| pq.to_string()).unwrap_or_else(|| uri.path().to_string());
+    let Some(path) = validate_proxy_path(&uri) else {
+        return (StatusCode::NOT_FOUND, "unknown endpoint").into_response();
+    };
     let url = format!("{}{}", state.backend_url, path);
 
     let mut request = state

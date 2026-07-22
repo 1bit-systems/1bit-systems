@@ -74,16 +74,17 @@ struct GenericBackend : Backend {
         layers.resize(L);
         for (int i = 0; i < L; i++) {
             std::string p = "model_layers_" + std::to_string(i) + "_";
+            // LayerW order: wq, wk, wv, wo, rms_attn, rms_ffn, w1, w2, w3
             layers[i] = {
-                push(W(p + "self_attn_q_proj.weight")),
-                push(W(p + "self_attn_k_proj.weight")),
-                push(W(p + "self_attn_v_proj.weight")),
-                push(W(p + "self_attn_o_proj.weight")),
-                push(W(p + "mlp_gate_proj.weight")),
-                push(W(p + "mlp_up_proj.weight")),
-                push(W(p + "mlp_down_proj.weight")),
-                push(W(p + "input_layernorm.weight")),
-                push(W(p + "post_attention_layernorm.weight")),
+                push(W(p + "self_attn_q_proj.weight")),          // wq
+                push(W(p + "self_attn_k_proj.weight")),          // wk
+                push(W(p + "self_attn_v_proj.weight")),          // wv
+                push(W(p + "self_attn_o_proj.weight")),          // wo
+                push(W(p + "input_layernorm.weight")),            // rms_attn
+                push(W(p + "post_attention_layernorm.weight")),   // rms_ffn
+                push(W(p + "mlp_gate_proj.weight")),              // w1
+                push(W(p + "mlp_up_proj.weight")),                // w2
+                push(W(p + "mlp_down_proj.weight")),              // w3
             };
         }
     }

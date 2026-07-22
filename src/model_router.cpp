@@ -59,8 +59,17 @@
 BackendRoute select_backend_route(const ModelConfig& cfg) {
     // Zaya-style MoE: any model with expert routing that's NOT a Mamba1 MoE
     // (BlackMamba) uses the CCA/MoE kernel path.
-    if (cfg.num_experts > 0 && cfg.arch != RCPP_ARCH_MAMBA) {
+    if (cfg.num_experts > 0 && cfg.arch != RCPP_ARCH_MAMBA && cfg.arch != RCPP_ARCH_LAGUNA) {
         return {{"hip_gpu", "cpu_scalar"}, "MoE model — CCA/MoE kernel path"};
+    }
+
+    // Laguna (poolside): sigmoid-routed MoE with hybrid SWA/global attention.
+    // Uses the ZINC GPU backend for GGUF/1BP (general GPU kernels handle the
+    // standard ops; softplus gate + token-choice MoE need the specialized path
+    // from backend_laguna.cpp when available).
+    if (cfg.arch == RCPP_ARCH_LAGUNA) {
+        return {{"laguna_gpu", "zinc_gpu", "cpu_generic"},
+                "Laguna model — specialized Laguna HIP backend, ZINC GPU fallback"};
     }
     // Mamba1 models (Zamba-7B-v1, BlackMamba): Mamba1 SSM HIP kernels,
     // with per-layer MoE expert dispatch for BlackMamba.
@@ -76,3 +85,11 @@ BackendRoute select_backend_route(const ModelConfig& cfg) {
     // Default: try HIP GPU first, fall back to generic CPU
     return {{"hip_gpu", "cpu_generic"}, "generic model — HIP GPU, generic CPU fallback"};
 }
+  // Falcon (tiiuae) — parallel attention+ffn, MQA
+  if (cfg.arch == RCPP_ARCH_FALCON) {
+      return {{"hip_gpu", "cpu_generic"}, "Falcon — dense, parallel attn+ffn"};
+  }
+  // OLMo (AI2) — LayerNorm, no RoPE
+  if (cfg.arch == RCPP_ARCH_OLMO) {
+      return {{"hip_gpu", "cpu_generic"}, "OLMo — LayerNorm, learned positions"};
+  }

@@ -275,12 +275,49 @@ The first `insmod` attempt may fail with the unknown symbol error; loading depen
 
 ---
 
+## Firmware Binary Patch — v5 Series (2026-07-21)
+
+The data-table column counts (32 entries) were already manually patched from 8→40 in the current `npu.dev.sbin`. The remaining ERT_NOAVAIL error comes from a **runtime code comparison** in the IPU code section.
+
+### Patch details
+
+At firmware offset 0x31E0, the VLIW instruction `[0008,2801]` loads the literal value 8 as a column-count comparison limit. The next instruction at 0x31E4 (`[7008,030d]`, opcode 7 = branch) jumps to the error path (loading status 0x2000003) when the comparison fails.
+
+### Patched files
+
+All at `/home/bcloud/npu_patched_40col_v5*.sbin`:
+
+| File | Change | SHA256 |
+|------|--------|--------|
+| `v5a.sbin` | 0x31E0: `0008`→`0028` (comparison 8→40) | `e946061a...` |
+| `v5b.sbin` | 0x31E4: `7008`→`0000` (NOP the branch) | `c344c021...` |
+| `v5c.sbin` | Both above (**recommended**) | `69d748ee...` |
+
+### Test procedure
+
+```bash
+sudo modprobe -r amdxdna
+sudo cp /home/bcloud/npu_patched_40col_v5c.sbin /lib/firmware/amdnpu/17f0_11/npu.dev.sbin
+sudo modprobe gpu-sched && sudo modprobe amd-pmf
+sudo insmod /home/bcloud/amdxdna-40col.ko aie2_max_col=40
+sudo dmesg | grep -E "NPU UNLOCK|total_col|create context|ERT_NOAVAIL"
+```
+
+Rollback: `sudo modprobe -r amdxdna && sudo cp npu.dev.sbin.bak npu.dev.sbin && sudo modprobe amdxdna`
+
+### If v5c still fails
+
+The firmware's boot-time initialization likely allocates internal arrays (DMA channels, interrupt vectors, SRAM partitions) sized for 8 columns. The runtime comparison patch alone won't fix pre-allocated resource pools. Next step: trace the `MSG_OP_CREATE_CONTEXT` (opcode 0x2) handler from the mailbox dispatch table to find all resource initialization and allocation routines.
+
+---
+
 ## Next Steps
 
-1. **Patch the firmware binary** (`npu.dev.sbin`) — widen the internal resource tables that check `num_col` before granting a context. Same methodology as the serialization-gate patch already documented in `npu_re_workspace/data/PATCH_README.md`.
-2. **Build a production-ready `amdxdna-40col.ko`** from the latest `xdna-driver` source with proper MOK signing for Secure Boot.
-3. **40-column inference test** — once firmware resources are patched, run the existing `test_mt_gemm3.cpp` with `40col_v2.xclbin` (already built and tested at `~/npu-sandbox/npu-infer/bf16_kernel_dev/col40_gemm/`).
-4. **Benchmark** the 5× TOPS increase: ~130 TOPS vs ~25 TOPS stock.
+1. **Test v5c firmware patch** — install and load `amdxdna-40col.ko` to see if code-section comparison change fixes ERT_NOAVAIL.
+2. **If v5c passes**: 40-column inference test with `40col_v2.xclbin` at `~/npu-sandbox/npu-infer/bf16_kernel_dev/col40_gemm/`.
+3. **If v5c fails**: Full RE of firmware init sequence — trace resource pool allocation to find array-size constants that need scaling from 8 to 40.
+4. **Build a production-ready `amdxdna-40col.ko`** from the latest `xdna-driver` source with proper MOK signing for Secure Boot.
+5. **Benchmark** the 5× TOPS increase: ~130 TOPS vs ~25 TOPS stock.
 
 ---
 

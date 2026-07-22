@@ -140,8 +140,9 @@ int main(int argc, char** argv) {
     // Train: find W = Y X^T (X X^T)^{-1}
     // Compute X * X^T (H×H matrix)
     printf("Training linear adapter (H=%d)...\n", H);
-    std::vector<double> XtX(H*H, 0.0);
-    std::vector<double> XtY(H*H, 0.0);
+    const size_t szH = (size_t)H;
+    std::vector<double> XtX(szH*H, 0.0);
+    std::vector<double> XtY(szH*H, 0.0);
 
     for(int s=0;s<n_samples;s++){
         for(int i=0;i<H;i++){
@@ -155,7 +156,7 @@ int main(int argc, char** argv) {
 
     // Solve: W = XtY * inv(XtX)
     // Simple Gauss-Jordan inversion
-    std::vector<double> inv(H*H);
+    std::vector<double> inv(szH*H);
     for(int i=0;i<H;i++) for(int j=0;j<H;j++) inv[i*H+j] = (i==j) ? 1.0 : 0.0;
 
     // Gauss-Jordan elimination
@@ -194,7 +195,7 @@ int main(int argc, char** argv) {
     }
 
     // W = inv * XtY
-    std::vector<float> W(H*H, 0.0f);
+    std::vector<float> W(szH*H, 0.0f);
     for(int i=0;i<H;i++) for(int j=0;j<H;j++) for(int k=0;k<H;k++)
         W[i*H+j] += (float)(inv[i*H+k] * XtY[k*H+j]);
 

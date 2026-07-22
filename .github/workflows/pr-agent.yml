@@ -14,6 +14,7 @@ permissions:
 jobs:
   pr_agent:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # Only run for same-repo PRs and trusted commenters (not external forks)
     if: |
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
@@ -25,5 +26,10 @@ jobs:
         env:
           OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_API_BASE: "https://api.opencode.ai/v1"
+          # SECURITY: GITHUB_TOKEN with contents:write scope is passed to the
+          # third-party action qodo-ai/pr-agent. Mitigation: the job-level `if`
+          # guard above restricts execution to same-repo PRs only; external
+          # forks are never processed. Consider a fine-grained PAT or
+          # GitHub App token for tighter scope in the future.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CONFIG_FILE: .pr_agent.toml

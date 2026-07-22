@@ -57,7 +57,11 @@ ORDER_LOG = os.path.join(os.path.dirname(__file__), "..", "orders.json")
 
 def _send_order_email(order: dict):
     """Send order notification via SMTP or local sendmail."""
-    subject = f"🛒 1bit Store Order — {order.get('customer_name','Customer')}"
+    # Sanitize all user-supplied fields for SMTP header injection (fixes AUDIT)
+    def _sanitize_header(val):
+        return str(val).replace("\r", "").replace("\n", " ").strip()
+
+    subject = f"🛒 1bit Store Order — {_sanitize_header(order.get('customer_name','Customer'))}"
     lines = [f"From: 1bit Store <store@1bit.systems>",
              f"To: {ORDER_NOTIFY_EMAIL}"]
     if ORDER_NOTIFY_CC:
@@ -75,9 +79,9 @@ def _send_order_email(order: dict):
         lines.append(f"  {qty}× {name}{size}  —  ${price/100:.2f} each")
     lines.append("")
     lines.append(f"  Total:     ${order.get('total',0)/100:.2f}")
-    lines.append(f"  Customer:  {order.get('customer_name','?')}")
-    lines.append(f"  Email:     {order.get('customer_email','?')}")
-    lines.append(f"  Shipping:  {order.get('shipping_address','?')}")
+    lines.append(f"  Customer:  {_sanitize_header(order.get('customer_name','?'))}")
+    lines.append(f"  Email:     {_sanitize_header(order.get('customer_email','?'))}")
+    lines.append(f"  Shipping:  {_sanitize_header(order.get('shipping_address','?'))}")
     lines.append(f"  Stripe ID: {order.get('stripe_session_id','?')}")
     lines.append("")
     lines.append("  Free extras (included): stickers + lanyard + thank you card + mystery sticker")
@@ -166,7 +170,12 @@ def _handle_stripe_webhook(body: bytes, sig_header: str) -> dict:
     event = json.loads(body)
     event_type = event.get("type", "")
 
-    # Verify signature if secret is configured
+    # Verify signature — REQUIRED. Reject unsigned events if secret is configured
+    # to prevent unauthenticated order fulfillment. (fixes AUDIT: webhook bypass)
+    if not STRIPE_WEBHOOK_SECRET:
+        return {"error": "Webhook secret not configured — refusing to process unsigned event", "status": 500}
+    if not sig_header:
+        return {"error": "Missing Stripe-Signature header", "status": 403}
     if STRIPE_WEBHOOK_SECRET and sig_header:
         try:
             # Stripe signature format: t=<timestamp>,v1=<sig>,v0=<sig>,...
@@ -840,8 +849,11 @@ def main():
     _reaper_thread = threading.Thread(target=_reaper, daemon=True)
     _reaper_thread.start()
 
-    server = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
-    print(f"Gateway listening on http://0.0.0.0:{args.port}")
+    bind_addr = os.environ.get("CPUD_BIND_ADDR", "127.0.0.1")
+    if bind_addr != "127.0.0.1":
+        print("⚠️  WARNING: binding to non-localhost. Ensure firewall rules are in place.", file=sys.stderr)
+    server = ThreadingHTTPServer((bind_addr, args.port), Handler)
+    print(f"Gateway listening on http://{bind_addr}:{args.port}")
     print(f"  GET  /v1/health     — Device and backend status")
     print(f"  GET  /v1/models     — List available models")
     print(f"  POST /v1/chat/completions — Route to NPU/GPU/CPU")

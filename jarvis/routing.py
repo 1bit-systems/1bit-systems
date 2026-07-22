@@ -95,7 +95,10 @@ def ollama_chat_stream(model, messages, max_tokens=256, temp=0.7):
                     yield {"choices": [{"delta": {"content": content}, "index": 0}]}
                 if done:
                     break
-            except:
-                pass
+            except (json.JSONDecodeError, ValueError, KeyError) as e:
+                # Log the error but continue streaming — a single corrupt chunk
+                # shouldn't kill the entire stream connection.
+                import sys
+                print(f"  [routing] stream chunk parse error: {e}", file=sys.stderr)
     except URLError as e:
         yield {"error": str(e)}

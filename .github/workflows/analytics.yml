@@ -8,6 +8,7 @@ on:
 jobs:
   analytics:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Fetch Cloudflare analytics
         env:

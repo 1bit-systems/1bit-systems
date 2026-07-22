@@ -5,8 +5,7 @@ on:
     tags: ['v*']
   workflow_dispatch:    # manual runs (branch builds) — Create Release is guarded to tag-only so no junk release is published
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
   server:
@@ -14,6 +13,8 @@ jobs:
     runs-on: ubuntu-24.04
     container: rocm/dev-ubuntu-24.04:7.2.4-complete   # complete = all ROCm libs (rocwmma/CK/rocBLAS) so headers like rocwmma/rocwmma.hpp resolve
     timeout-minutes: 60
+    permissions:
+      contents: write
     steps:
       # The stock ubuntu-24.04 runner's apt ROCm 7.2 repo is broken on noble
       # (rocm-dev/hip-dev/composablekernel-dev all hit "held broken packages" — #100),

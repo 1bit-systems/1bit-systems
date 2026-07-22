@@ -27,7 +27,6 @@
 set -euo pipefail
 
 TORCH2AIE="${HOME}/torch2aie"
-VENV_PYTHON="${TORCH2AIE}/.venv/bin/python"
 EXAMPLES="${TORCH2AIE}/examples/qwen3-decode-layer"
 OUT_DIR="$(cd "$(dirname "$0")/.." && pwd)/engine/npu/xclbins"
 
@@ -69,7 +68,8 @@ build_xclbin() {
     # Full MLIR-AIE compilation (tracking issue #440) requires:
     #   ~/torch2aie/examples/qwen3-decode-layer/design.py with adapted dimensions
     # For now, existing xclbins cover all 6 supported model families.
-    local closest=$(ls "${OUT_DIR}"/final_i8_${label}_*.xclbin 2>/dev/null | head -1)
+    local closest
+    closest=$(ls "${OUT_DIR}"/final_i8_${label}_*.xclbin 2>/dev/null | head -1)
     if [ -n "$closest" ] && [ ! -f "$xclbin" ]; then
         cp "$closest" "$xclbin"
         local ci="${closest/final_i8/insts_i8}"

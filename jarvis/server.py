@@ -237,6 +237,12 @@ class H(BaseHTTPRequestHandler):
                 if i > 0: audio = p[i+4:].rstrip(b"\r\n--"); break
         if not audio: return self._j(400, {"error": "no audio"})
         wav = audio
+        # Accept WAV (RIFF) and MP3 (sync frame or ID3 tag); reject anything else
+        if audio[:4] != b"RIFF" and not (
+            audio[:3] == b"ID3" or
+            (len(audio) >= 2 and audio[0] == 0xff and (audio[1] & 0xfe) == 0xfa)
+        ):
+            return self._j(400, {"error": "unsupported audio format (WAV/MP3 only)"})
         if audio[:4] != b"RIFF":
             try:
                 p = subprocess.run(["ffmpeg", "-i", "pipe:0", "-f", "wav", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", "pipe:1"], input=audio, capture_output=True, timeout=30)
@@ -384,7 +390,7 @@ class H(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
@@ -395,7 +401,12 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
     a = p.parse_args()
-    s = HTTPServer(("0.0.0.0", a.port), H)
-    print(f"JARVIS @ http://localhost:{a.port}/chat")
+    import os as _os
+    bind_addr = _os.environ.get("JARVIS_BIND_ADDR", "127.0.0.1")
+    if bind_addr != "127.0.0.1":
+        import sys as _sys
+        print("⚠️  WARNING: binding to non-localhost. Ensure firewall rules are in place.", file=_sys.stderr)
+    s = HTTPServer((bind_addr, a.port), H)
+    print(f"JARVIS @ http://{bind_addr}:{a.port}/chat")
     try: s.serve_forever()
     except KeyboardInterrupt: s.server_close()

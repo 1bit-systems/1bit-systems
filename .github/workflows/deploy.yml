@@ -5,12 +5,16 @@ on:
     branches: [main]
     paths:
       - 'site/**'
-      - '1bit-site/**'
   workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       deployments: write

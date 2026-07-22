@@ -82,11 +82,25 @@ enum OnebpScale : uint32_t {
 // ─── Model architecture types ──────────────────────────────────────
 enum OnebpArch : uint32_t {
     ONEBP_DENSE  = 0,  // Dense transformer (Qwen3, Llama, Phi, etc.)
-    ONEBP_MOE    = 1,  // Mixture of Experts
+    ONEBP_MOE    = 1,  // Mixture of Experts (generic)
     ONEBP_VISION = 2,  // Vision-language
     ONEBP_AUDIO  = 3,  // Audio/speech (Whisper)
     ONEBP_TERNARY= 4,  // Ternary/1-bit
     ONEBP_MAMBA  = 5,  // Mamba-style SSM
+    ONEBP_LAGUNA = 6,  // Poolside Laguna — sigmoid-routed MoE, hybrid SWA/global attn, softplus gate
+};
+
+// ─── Expert gating function types (Laguna/afmoe) ────────────────
+enum OnebpExpertGating : uint32_t {
+    ONEBP_EXPERT_GATING_SIGMOID  = 0,
+    ONEBP_EXPERT_GATING_SOFTMAX  = 1,
+    ONEBP_EXPERT_GATING_NONE     = 2,
+};
+
+// ─── Attention gate types (Laguna) ───────────────────────────────
+enum OnebpAttnGate : uint32_t {
+    ONEBP_ATTN_GATE_PER_HEAD    = 0,  // one scalar per head (XS.2 style)
+    ONEBP_ATTN_GATE_PER_ELEMENT = 1,  // full per-element gate (M.1 style)
 };
 
 // ─── File header (256 bytes) ──────────────────────────────────────
@@ -108,15 +122,30 @@ struct OnebpHeader {
     uint32_t tile_rows;       // 32 (Q4NX compatible)
     uint32_t tile_cols;       // 256 (Q4NX compatible)
     uint32_t group_size;      // 32
-    uint32_t has_q_norm;      // bool
-    uint32_t has_k_norm;      // bool
-    uint32_t has_bias;        // bool
-    uint32_t rope_theta_f;    // rope_theta * 1000 (stored as fixed-point)
+    uint32_t has_q_norm;            // bool
+    uint32_t has_k_norm;            // bool
+    uint32_t has_bias;              // bool
+    uint32_t rope_theta_f;          // rope_theta * 1000 (stored as fixed-point)
     uint32_t bos_token_id;
     uint32_t eos_token_id;
     uint32_t tensor_count;
-    uint8_t  reserved[100];   // pad to 256 bytes
-    char     model_tag[64];   // model identifier string
+    // ── Laguna-specific fields (reserved[0..51]) ────────────────
+    uint32_t num_experts;           // total routed experts (Laguna S 2.1: 256)
+    uint32_t n_expert_used;         // experts used per token (top-k, S 2.1: 10)
+    uint32_t n_ff_exp;              // expert FFN intermediate size
+    uint32_t n_ff_shexp;            // shared expert FFN intermediate size
+    uint32_t n_layer_dense_lead;    // leading dense layers before MoE begins (M.1: 3)
+    uint32_t sliding_window;        // SWA window size (0 = no SWA, M.1: 0, S 2.1: 512)
+    uint32_t swa_period;            // SWA pattern period (1:3 -> 4, FULL at il%period==0)
+    uint32_t expert_gating_func;    // OnebpExpertGating
+    uint32_t expert_weights_norm;   // bool: sum-normalize expert weights after top-k
+    uint32_t expert_weights_scale_f; // routed scaling factor * 1000 (fixed-point)
+    uint32_t attn_gate_type;        // OnebpAttnGate (per-head vs per-element)
+    uint32_t rope_freq_base_swa_f;  // SWA layer RoPE freq base * 1000
+    uint32_t n_rot_swa;             // SWA layer RoPE dimension count
+    uint32_t n_rot_full;            // FULL attention layer RoPE dim count (0 = use head_dim)
+    uint8_t  reserved[44];          // remaining pad to 256 bytes
+    char     model_tag[64];         // model identifier string
     
     bool valid() const {
         return magic == ONEBP_MAGIC && version == ONEBP_VERSION
@@ -136,6 +165,10 @@ struct OnebpHeader {
     
     float rope_theta() const { return (float)rope_theta_f / 1000.0f; }
     void set_rope_theta(float v) { rope_theta_f = (uint32_t)(v * 1000.0f); }
+    float expert_weights_scale() const { return (float)expert_weights_scale_f / 1000.0f; }
+    void set_expert_weights_scale(float v) { expert_weights_scale_f = (uint32_t)(v * 1000.0f); }
+    float rope_freq_base_swa() const { return (float)rope_freq_base_swa_f / 1000.0f; }
+    void set_rope_freq_base_swa(float v) { rope_freq_base_swa_f = (uint32_t)(v * 1000.0f); }
 };
 #pragma pack(pop)
 
