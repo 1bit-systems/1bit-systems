@@ -9,11 +9,11 @@
 //       -Wl,-rpath,/usr/local/cuda/lib64
 
 #include "cuda_shim.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
-#include <stdint.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <cmath>
+#include <cstdint>
 
 // ---- host mirrors of the kernel math (the ground-truth Q4_K spec) -----------
 static float half_to_float_h(uint16_t h) {
@@ -105,9 +105,9 @@ static float frand(void) { return (float)(xrand() & 0xFFFFFF) / (float)0x1000000
 static uint16_t nice_half(void) { uint16_t e = 7 + (uint16_t)(xrand() % 7); return (uint16_t)((e << 10) | (xrand() & 0x3FF)); }
 
 static char* read_file(const char* path) {
-    FILE* f = fopen(path, "rb"); if (!f) return NULL;
+    FILE* f = fopen(path, "rb"); if (!f) return nullptr;
     fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
-    char* buf = (char*)malloc(n + 1); if (!buf) { fclose(f); return NULL; }
+    char* buf = (char*)malloc(n + 1); if (!buf) { fclose(f); return nullptr; }
     size_t rd = fread(buf, 1, n, f); buf[rd] = 0; fclose(f); return buf;
 }
 
@@ -152,7 +152,7 @@ int main(void) {
         CudaBuf* dy = cuda_create_buffer(c, (size_t)tokens * N * 4);
         cuda_upload(c, dx, x, (size_t)tokens * N * 4);
         cuda_upload(c, dw, w, (size_t)N * 4);
-        CudaPipe* p = cuda_create_pipeline(c, src, "rms_norm", NULL, 0);
+        CudaPipe* p = cuda_create_pipeline(c, src, "rms_norm", nullptr, 0);
         if (!p) { printf("FAIL rms_norm compile: %s\n", cuda_last_error()); return 2; }
         struct { unsigned N; float eps; } push = { N, eps };
         uint32_t grid[3] = { tokens, 1, 1 }, block[3] = { 256, 1, 1 };
@@ -198,7 +198,7 @@ int main(void) {
         CudaBuf* dy = cuda_create_buffer(c, (size_t)M * 4);
         cuda_upload(c, da, a, (size_t)nblk * 36 * 4);
         cuda_upload(c, dx, x, (size_t)K * 4);
-        CudaPipe* p = cuda_create_pipeline(c, src, "dmmv_q4k", NULL, 0);
+        CudaPipe* p = cuda_create_pipeline(c, src, "dmmv_q4k", nullptr, 0);
         if (!p) { printf("FAIL dmmv_q4k compile: %s\n", cuda_last_error()); return 2; }
         struct { unsigned M, K, a_off, x_off, y_off, acc; } push = { M, K, 0, 0, 0, 0 };
         uint32_t grid[3] = { M, 1, 1 }, block[3] = { 256, 1, 1 };
@@ -225,11 +225,11 @@ int main(void) {
         float* gate = malloc((size_t)N * 4); float* up = malloc((size_t)N * 4);
         float* yref = malloc((size_t)N * 4); float* ygpu = malloc((size_t)N * 4);
         for (unsigned i = 0; i < N; i++) { gate[i] = frand() * 4.0f; up[i] = frand(); }
-        for (unsigned i = 0; i < N; i++) { float g = gate[i]; yref[i] = (g / (1.0f + expf(-g))) * up[i]; }
+        for (unsigned i = 0; i < N; i++) { float g = gate[i]; yref[i] = (g / (1.0f + std::exp(-g))) * up[i]; }
         CudaBuf* dg = cuda_create_buffer(c, (size_t)N * 4); CudaBuf* du = cuda_create_buffer(c, (size_t)N * 4);
         CudaBuf* dy = cuda_create_buffer(c, (size_t)N * 4);
         cuda_upload(c, dg, gate, (size_t)N * 4); cuda_upload(c, du, up, (size_t)N * 4);
-        CudaPipe* p = cuda_create_pipeline(c, src, "swiglu", NULL, 0);
+        CudaPipe* p = cuda_create_pipeline(c, src, "swiglu", nullptr, 0);
         if (!p) { printf("FAIL swiglu compile: %s\n", cuda_last_error()); return 2; }
         struct { unsigned N; } push = { N };
         uint32_t grid[3] = { (N + 255) / 256, 1, 1 }, block[3] = { 256, 1, 1 };
@@ -254,7 +254,7 @@ int main(void) {
         for (unsigned i = 0; i < N; i++) aref[i] = a0[i] + scale * b[i];
         CudaBuf* da = cuda_create_buffer(c, (size_t)N * 4); CudaBuf* db = cuda_create_buffer(c, (size_t)N * 4);
         cuda_upload(c, da, a0, (size_t)N * 4); cuda_upload(c, db, b, (size_t)N * 4);
-        CudaPipe* p = cuda_create_pipeline(c, src, "scale_accumulate", NULL, 0);
+        CudaPipe* p = cuda_create_pipeline(c, src, "scale_accumulate", nullptr, 0);
         if (!p) { printf("FAIL scale_accumulate compile: %s\n", cuda_last_error()); return 2; }
         struct { unsigned N; float scale; } push = { N, scale };
         uint32_t grid[3] = { (N + 255) / 256, 1, 1 }, block[3] = { 256, 1, 1 };
@@ -276,12 +276,12 @@ int main(void) {
         float* a0 = malloc((size_t)N * 4); float* b = malloc((size_t)N * 4);
         float* aref = malloc((size_t)N * 4); float* agpu = malloc((size_t)N * 4);
         for (unsigned i = 0; i < N; i++) { a0[i] = frand(); b[i] = frand(); }
-        float g = 1.0f / (1.0f + expf(-cgate));
+        float g = 1.0f / (1.0f + std::exp(-cgate));
         for (unsigned i = 0; i < N; i++) aref[i] = a0[i] + g * b[i];
         CudaBuf* da = cuda_create_buffer(c, (size_t)N * 4); CudaBuf* db = cuda_create_buffer(c, (size_t)N * 4);
         CudaBuf* dc = cuda_create_buffer(c, 4);
         cuda_upload(c, da, a0, (size_t)N * 4); cuda_upload(c, db, b, (size_t)N * 4); cuda_upload(c, dc, &cgate, 4);
-        CudaPipe* p = cuda_create_pipeline(c, src, "sigmoid_scale_acc", NULL, 0);
+        CudaPipe* p = cuda_create_pipeline(c, src, "sigmoid_scale_acc", nullptr, 0);
         if (!p) { printf("FAIL sigmoid_scale_acc compile: %s\n", cuda_last_error()); return 2; }
         struct { unsigned N; } push = { N };
         uint32_t grid[3] = { (N + 255) / 256, 1, 1 }, block[3] = { 256, 1, 1 };
@@ -307,7 +307,7 @@ int main(void) {
         for (unsigned r = 0; r < M; r++) { double acc = 0; for (unsigned k = 0; k < K; k++) acc += (double)w[r * K + k] * x[k]; yref[r] = (float)acc; }
         CudaBuf* dw = cuda_create_buffer(c, (size_t)M * K * 4); CudaBuf* dx = cuda_create_buffer(c, (size_t)K * 4); CudaBuf* dy = cuda_create_buffer(c, (size_t)M * 4);
         cuda_upload(c, dw, w, (size_t)M * K * 4); cuda_upload(c, dx, x, (size_t)K * 4);
-        CudaPipe* p = cuda_create_pipeline(c, src, "dmmv_f32", NULL, 0);
+        CudaPipe* p = cuda_create_pipeline(c, src, "dmmv_f32", nullptr, 0);
         if (!p) { printf("FAIL dmmv_f32 compile: %s\n", cuda_last_error()); return 2; }
         struct { unsigned M, K, aoff, xoff, yoff, acc; } push = { M, K, 0, 0, 0, 0 };
         uint32_t grid[3] = { M, 1, 1 }, block[3] = { 256, 1, 1 }; CudaBuf* bufs[3] = { dw, dx, dy };
@@ -342,7 +342,7 @@ int main(void) {
         }
         CudaBuf* da = cuda_create_buffer(c, bytes); CudaBuf* dx = cuda_create_buffer(c, (size_t)K * 4); CudaBuf* dy = cuda_create_buffer(c, (size_t)M * 4);
         cuda_upload(c, da, a, bytes); cuda_upload(c, dx, x, (size_t)K * 4);
-        CudaPipe* p = cuda_create_pipeline(c, src, "dmmv_q8_0", NULL, 0);
+        CudaPipe* p = cuda_create_pipeline(c, src, "dmmv_q8_0", nullptr, 0);
         if (!p) { printf("FAIL dmmv_q8_0 compile: %s\n", cuda_last_error()); return 2; }
         struct { unsigned M, K, aoff, xoff, yoff, acc; } push = { M, K, 0, 0, 0, 0 };
         uint32_t grid[3] = { M, 1, 1 }, block[3] = { 256, 1, 1 }; CudaBuf* bufs[3] = { da, dx, dy };
@@ -374,7 +374,7 @@ int main(void) {
         }
         CudaBuf* da = cuda_create_buffer(c, bytes); CudaBuf* dx = cuda_create_buffer(c, (size_t)K * 4); CudaBuf* dy = cuda_create_buffer(c, (size_t)M * 4);
         cuda_upload(c, da, a, bytes); cuda_upload(c, dx, x, (size_t)K * 4);
-        CudaPipe* p = cuda_create_pipeline(c, src, "dmmv_q5k", NULL, 0);
+        CudaPipe* p = cuda_create_pipeline(c, src, "dmmv_q5k", nullptr, 0);
         if (!p) { printf("FAIL dmmv_q5k compile: %s\n", cuda_last_error()); return 2; }
         struct { unsigned M, K, aoff, xoff, yoff, acc; } push = { M, K, 0, 0, 0, 0 };
         uint32_t grid[3] = { M, 1, 1 }, block[3] = { 256, 1, 1 }; CudaBuf* bufs[3] = { da, dx, dy };
@@ -405,7 +405,7 @@ int main(void) {
         }
         CudaBuf* da = cuda_create_buffer(c, bytes); CudaBuf* dx = cuda_create_buffer(c, (size_t)K * 4); CudaBuf* dy = cuda_create_buffer(c, (size_t)M * 4);
         cuda_upload(c, da, a, bytes); cuda_upload(c, dx, x, (size_t)K * 4);
-        CudaPipe* p = cuda_create_pipeline(c, src, "dmmv_q6k", NULL, 0);
+        CudaPipe* p = cuda_create_pipeline(c, src, "dmmv_q6k", nullptr, 0);
         if (!p) { printf("FAIL dmmv_q6k compile: %s\n", cuda_last_error()); return 2; }
         struct { unsigned M, K, aoff, xoff, yoff, acc; } push = { M, K, 0, 0, 0, 0 };
         uint32_t grid[3] = { M, 1, 1 }, block[3] = { 256, 1, 1 }; CudaBuf* bufs[3] = { da, dx, dy };
@@ -431,13 +431,13 @@ int main(void) {
             for (unsigned i = 0; i < NE; i++) if (lc[i] > b) { b = lc[i]; bi = i; }
             ref_id[ki] = bi; ref_logit[ki] = b; lc[bi] = -1e30f;
         }
-        float maxl = -1e30f; for (unsigned i = 0; i < K; i++) maxl = fmaxf(maxl, ref_logit[i]);
+        float maxl = -1e30f; for (unsigned i = 0; i < K; i++) maxl = std::fmax(maxl, ref_logit[i]);
         float ws = 0, ref_w[8];
-        for (unsigned i = 0; i < K; i++) { ref_w[i] = expf(ref_logit[i] - maxl); ws += ref_w[i]; }
+        for (unsigned i = 0; i < K; i++) { ref_w[i] = std::exp(ref_logit[i] - maxl); ws += ref_w[i]; }
         for (unsigned i = 0; i < K; i++) ref_w[i] /= ws;
         CudaBuf* dl = cuda_create_buffer(c, (size_t)NE * 4); CudaBuf* dout = cuda_create_buffer(c, (size_t)2 * K * 4);
         cuda_upload(c, dl, logits, (size_t)NE * 4);
-        CudaPipe* p = cuda_create_pipeline(c, src, "softmax_topk", NULL, 0);
+        CudaPipe* p = cuda_create_pipeline(c, src, "softmax_topk", nullptr, 0);
         if (!p) { printf("FAIL softmax_topk compile: %s\n", cuda_last_error()); return 2; }
         struct { unsigned ne, k; } push = { NE, K };
         uint32_t grid[3] = { 1, 1, 1 }, block[3] = { 64, 1, 1 }; CudaBuf* bufs[2] = { dl, dout };
@@ -474,7 +474,7 @@ int main(void) {
         }
         CudaBuf* dx = cuda_create_buffer(c, (size_t)total * 4); CudaBuf* dy = cuda_create_buffer(c, (size_t)total * 4); CudaBuf* df = cuda_create_buffer(c, 4);
         cuda_upload(c, dx, x, (size_t)total * 4);
-        CudaPipe* p = cuda_create_pipeline(c, src, "rope", NULL, 0);
+        CudaPipe* p = cuda_create_pipeline(c, src, "rope", nullptr, 0);
         if (!p) { printf("FAIL rope compile: %s\n", cuda_last_error()); return 2; }
         struct { unsigned stride, rope_dim, n_heads, position, fbb, asb; } push = { stride, rope_dim, n_heads, position, fbb, 0 };
         uint32_t grid[3] = { n_heads, 1, 1 }, block[3] = { 64, 1, 1 }; CudaBuf* bufs[3] = { dx, dy, df };
@@ -496,7 +496,7 @@ int main(void) {
         for (unsigned i = 0; i < N; i++) if (logits[i] > best) { best = logits[i]; ref = i; }
         CudaBuf* dl = cuda_create_buffer(c, (size_t)N * 4); CudaBuf* dt = cuda_create_buffer(c, 4);
         cuda_upload(c, dl, logits, (size_t)N * 4);
-        CudaPipe* p = cuda_create_pipeline(c, src, "argmax", NULL, 0);
+        CudaPipe* p = cuda_create_pipeline(c, src, "argmax", nullptr, 0);
         if (!p) { printf("FAIL argmax compile: %s\n", cuda_last_error()); return 2; }
         struct { unsigned N; } push = { N };
         uint32_t grid[3] = { 1, 1, 1 }, block[3] = { 256, 1, 1 }; CudaBuf* bufs[2] = { dl, dt };
@@ -520,7 +520,7 @@ int main(void) {
         for (unsigned i = 0; i < N; i++) { float s = 0; for (unsigned j = 0; j < n_used; j++) s += wts[j] * b[(size_t)j * N + i]; aref[i] = a0[i] + s; }
         CudaBuf* da = cuda_create_buffer(c, (size_t)N * 4); CudaBuf* db = cuda_create_buffer(c, (size_t)n_used * N * 4); CudaBuf* dr = cuda_create_buffer(c, 16 * 4);
         cuda_upload(c, da, a0, (size_t)N * 4); cuda_upload(c, db, b, (size_t)n_used * N * 4); cuda_upload(c, dr, routing, 16 * 4);
-        CudaPipe* p = cuda_create_pipeline(c, src, "moe_weighted_acc", NULL, 0);
+        CudaPipe* p = cuda_create_pipeline(c, src, "moe_weighted_acc", nullptr, 0);
         if (!p) { printf("FAIL moe_weighted_acc compile: %s\n", cuda_last_error()); return 2; }
         struct { unsigned N, nu, ss; } push = { N, n_used, N };
         uint32_t grid[3] = { (N + 255) / 256, 1, 1 }, block[3] = { 256, 1, 1 }; CudaBuf* bufs[3] = { da, db, dr };
@@ -551,13 +551,13 @@ int main(void) {
                 else sv = ci[ch];
                 sum += kw * sv;
             }
-            out_ref[ch] = sum / (1.0f + expf(-sum));
+            out_ref[ch] = sum / (1.0f + std::exp(-sum));
             st_ref[state_offset * cc + ch] = ci[ch];
         }
         CudaBuf* dci = cuda_create_buffer(c, (size_t)cc * 4); CudaBuf* dk = cuda_create_buffer(c, (size_t)cc * d_conv * 4);
         CudaBuf* dst = cuda_create_buffer(c, (size_t)d_conv_1 * cc * 4); CudaBuf* dout = cuda_create_buffer(c, (size_t)cc * 4);
         cuda_upload(c, dci, ci, (size_t)cc * 4); cuda_upload(c, dk, ker, (size_t)cc * d_conv * 4); cuda_upload(c, dst, st0, (size_t)d_conv_1 * cc * 4);
-        CudaPipe* p = cuda_create_pipeline(c, src, "ssm_conv1d", NULL, 0);
+        CudaPipe* p = cuda_create_pipeline(c, src, "ssm_conv1d", nullptr, 0);
         if (!p) { printf("FAIL ssm_conv1d compile: %s\n", cuda_last_error()); return 2; }
         struct { unsigned cc, dc, f16, so; } push = { cc, d_conv, 0, state_offset };
         uint32_t grid[3] = { (cc + 255) / 256, 1, 1 }, block[3] = { 256, 1, 1 }; CudaBuf* bufs[4] = { dci, dk, dst, dout };
@@ -583,13 +583,13 @@ int main(void) {
             float rinv = 1.0f / sqrtf((float)(ss / head_v_dim) + 1e-6f);
             for (unsigned i = 0; i < head_v_dim; i++) {
                 float nv = o[base + i] * rinv; unsigned ni = norm_per_head ? base + i : i % d_state; nv *= nw[ni];
-                float zv = z[base + i]; ref[base + i] = nv * (zv / (1.0f + expf(-zv)));
+                float zv = z[base + i]; ref[base + i] = nv * (zv / (1.0f + std::exp(-zv)));
             }
         }
         CudaBuf* doo = cuda_create_buffer(c, (size_t)d_inner * 4); CudaBuf* dz = cuda_create_buffer(c, (size_t)d_inner * 4);
         CudaBuf* dnw = cuda_create_buffer(c, (size_t)d_inner * 4); CudaBuf* dout = cuda_create_buffer(c, (size_t)d_inner * 4);
         cuda_upload(c, doo, o, (size_t)d_inner * 4); cuda_upload(c, dz, z, (size_t)d_inner * 4); cuda_upload(c, dnw, nw, (size_t)d_inner * 4);
-        CudaPipe* p = cuda_create_pipeline(c, src, "ssm_gated_norm", NULL, 0);
+        CudaPipe* p = cuda_create_pipeline(c, src, "ssm_gated_norm", nullptr, 0);
         if (!p) { printf("FAIL ssm_gated_norm compile: %s\n", cuda_last_error()); return 2; }
         struct { unsigned di, dt, hv, ds, nph; } push = { d_inner, dt_rank, head_v_dim, d_state, norm_per_head };
         uint32_t grid[3] = { dt_rank, 1, 1 }, block[3] = { 128, 1, 1 }; CudaBuf* bufs[4] = { doo, dz, dnw, dout };
@@ -617,14 +617,14 @@ int main(void) {
         CudaBuf* dkd = cuda_create_buffer(c, (size_t)cache_sz * 4); CudaBuf* dvd = cuda_create_buffer(c, (size_t)cache_sz * 4);
         cuda_upload(c, dks, ks, (size_t)kv_dim * 4); cuda_upload(c, dvs, vs, (size_t)kv_dim * 4);
         cuda_upload(c, dkd, kd, (size_t)cache_sz * 4); cuda_upload(c, dvd, vd, (size_t)cache_sz * 4);
-        CudaPipe* p = cuda_create_pipeline(c, src, "kv_cache_write", NULL, 0);
+        CudaPipe* p = cuda_create_pipeline(c, src, "kv_cache_write", nullptr, 0);
         if (!p) { printf("FAIL kv_cache_write compile: %s\n", cuda_last_error()); return 2; }
         struct { unsigned kv, off; } push = { kv_dim, dst_offset };
         uint32_t grid[3] = { (kv_dim + 63) / 64, 1, 1 }, block[3] = { 64, 1, 1 };
         CudaBuf* bufs[4] = { dks, dkd, dvs, dvd };
         CudaCmd* cmd = cuda_begin_command(c); cuda_dispatch(cmd, p, grid, block, bufs, 4, &push, sizeof push, 0); cuda_commit_and_wait(cmd);
         cuda_download(c, dkd, kg, (size_t)cache_sz * 4); cuda_download(c, dvd, vg, (size_t)cache_sz * 4);
-        float me = 0; for (unsigned i = 0; i < cache_sz; i++) { me = fmaxf(me, fabsf(kref[i] - kg[i])); me = fmaxf(me, fabsf(vref[i] - vg[i])); }
+        float me = 0; for (unsigned i = 0; i < cache_sz; i++) { me = std::fmax(me, fabsf(kref[i] - kg[i])); me = std::fmax(me, fabsf(vref[i] - vg[i])); }
         int ok = (me == 0.0f); all_ok &= ok;
         printf("kv_cache_write [kv_dim=%u off=%u]: max_abs_err=%.2e -> %s\n", kv_dim, dst_offset, me, ok ? "PASS" : "FAIL");
         cuda_free_buffer(dks); cuda_free_buffer(dvs); cuda_free_buffer(dkd); cuda_free_buffer(dvd); cuda_free_pipeline(p);
@@ -651,9 +651,9 @@ int main(void) {
                 for (unsigned d = 0; d < head_dim; d++) dot += qh[d] * ki[d];
                 sc[i] = dot * scale; if (sc[i] > mx) mx = sc[i];
             }
-            float sum = 0; for (unsigned i = 0; i < seq_len; i++) { sc[i] = expf(sc[i] - mx); sum += sc[i]; }
+            float sum = 0; for (unsigned i = 0; i < seq_len; i++) { sc[i] = std::exp(sc[i] - mx); sum += sc[i]; }
             float rescale = 1.0f, fsum = sum, sv = sinks[h];
-            if (!isnan(sv)) { float smax = fmaxf(mx, sv); rescale = (sum > 0) ? expf(mx - smax) : 0; fsum = sum * rescale + expf(sv - smax); }
+            if (!std::isnan(sv)) { float smax = std::fmax(mx, sv); rescale = (sum > 0) ? std::exp(mx - smax) : 0; fsum = sum * rescale + std::exp(sv - smax); }
             float inv = (fsum > 0) ? 1.0f / fsum : 0;
             for (unsigned d = 0; d < head_dim; d++) {
                 float acc = 0; for (unsigned i = 0; i < seq_len; i++) { float* vi = v + ((size_t)i * n_kv_heads + kvh) * head_dim; acc += sc[i] * vi[d]; }
@@ -670,7 +670,7 @@ int main(void) {
         cuda_upload(c, dk, k, (size_t)seq_len * n_kv_heads * head_dim * 4);
         cuda_upload(c, dv, v, (size_t)seq_len * n_kv_heads * head_dim * 4);
         cuda_upload(c, dsink, sinks, (size_t)n_heads * 4);
-        CudaPipe* p = cuda_create_pipeline(c, src, "naive_attention", NULL, 0);
+        CudaPipe* p = cuda_create_pipeline(c, src, "naive_attention", nullptr, 0);
         if (!p) { printf("FAIL naive_attention compile: %s\n", cuda_last_error()); return 2; }
         struct { unsigned hd, nh, nkv, sl, sbits, soff; } push = { head_dim, n_heads, n_kv_heads, seq_len, sbits, 0 };
         uint32_t grid[3] = { n_heads, 1, 1 }, block[3] = { 128, 1, 1 };
@@ -710,11 +710,11 @@ int main(void) {
                 unsigned v_off = t * conv_stride + 2 * qk_dim + h * hv;
                 double sumq = 0, sumk = 0;
                 for (unsigned i = 0; i < k_len; i++) { float q = conv[q_off + i], k = conv[k_off + i]; sumq += (double)q * q; sumk += (double)k * k; }
-                float invq = 1.0f / sqrtf(fmaxf((float)sumq, 1e-12f)), invk = 1.0f / sqrtf(fmaxf((float)sumk, 1e-12f));
+                float invq = 1.0f / sqrtf(std::fmax((float)sumq, 1e-12f)), invk = 1.0f / sqrtf(std::fmax((float)sumk, 1e-12f));
                 float q_scale = invq / sqrtf((float)d_state);
                 for (unsigned i = 0; i < k_len; i++) { sqv[i] = conv[q_off + i] * q_scale; skv[i] = conv[k_off + i] * invk; }
-                float a = al[t * dt_rank + h] + dtb[h]; float sp = logf(1.0f + expf(a));
-                float g = expf(sp * sa[h]); float bb = 1.0f / (1.0f + expf(-be[t * dt_rank + h]));
+                float a = al[t * dt_rank + h] + dtb[h]; float sp = logf(1.0f + std::exp(a));
+                float g = std::exp(sp * sa[h]); float bb = 1.0f / (1.0f + std::exp(-be[t * dt_rank + h]));
                 for (unsigned row = 0; row < hv; row++) {
                     float* strow = st + ((size_t)h * hv + row) * hv;
                     float v = conv[v_off + row];
@@ -732,7 +732,7 @@ int main(void) {
         CudaBuf* dst = cuda_create_buffer(c, state_n * 4); CudaBuf* dout = cuda_create_buffer(c, out_n * 4);
         cuda_upload(c, dconv, conv, conv_n * 4); cuda_upload(c, ddtb, dtb, (size_t)dt_rank * 4); cuda_upload(c, dal, al, ab_n * 4);
         cuda_upload(c, dbe, be, ab_n * 4); cuda_upload(c, dsa, sa, (size_t)dt_rank * 4); cuda_upload(c, dst, st0, state_n * 4);
-        CudaPipe* p = cuda_create_pipeline(c, src, "ssm_delta_net", NULL, 0);
+        CudaPipe* p = cuda_create_pipeline(c, src, "ssm_delta_net", nullptr, 0);
         if (!p) { printf("FAIL ssm_delta_net compile: %s\n", cuda_last_error()); return 2; }
         struct { unsigned d_inner, dt_rank, hv, d_state, n_group, saf16, dbf16, has_dtb, has_sa, n_tok, conv_st, ab_st, y_st; } push =
             { d_inner, dt_rank, hv, d_state, n_group, 0, 0, 1, 1, n_tok, conv_stride, ab_stride, y_stride };
