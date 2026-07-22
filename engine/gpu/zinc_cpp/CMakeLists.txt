@@ -49,7 +49,7 @@ if(NOT ZINC_CPP_AVAILABLE)
 endif()
 
 # ── Main executable ──
-add_library(zinc_cpp STATIC ${ZINC_SOURCES})
+add_executable(zinc_cpp ${ZINC_SOURCES})
 
 target_include_directories(zinc_cpp PRIVATE
     ${ZINC_INCLUDE_DIR}
@@ -66,6 +66,10 @@ target_compile_options(zinc_cpp PRIVATE
     -O3 -Wall -Wno-unused-result
 )
 
+if(ZINC_INCLUDE_DIRS)
+    target_compile_definitions(zinc_cpp PRIVATE HAS_GGUF_READER=1)
+endif()
+
 # ── Shader compilation: GLSL .comp → SPIR-V .spv ──
 # If glslc is available, compile shaders on build
 if(GLSLC_EXECUTABLE)
@@ -79,7 +83,7 @@ if(GLSLC_EXECUTABLE)
         add_custom_command(
             OUTPUT ${SPV_OUTPUT}
             COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADER_OUT_DIR}
-            COMMAND ${GLSLC_EXECUTABLE} --target-env=vulkan1.3 -O -o ${SPV_OUTPUT} ${SHADER}
+            COMMAND ${GLSLC_EXECUTABLE} --target-env=vulkan1.3 -I${SHADER_SRC_DIR} -O -o ${SPV_OUTPUT} ${SHADER}
             DEPENDS ${SHADER}
             COMMENT "Compiling ${SHADER_NAME}.comp → .spv"
         )

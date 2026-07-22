@@ -13,13 +13,13 @@ ComputeEngine::ComputeEngine(VkDevice device, VkQueue queue, uint32_t queue_fami
                                CommandPool& cmd_pool, ComputePipelineCache& pipelines)
     : device_(device), queue_(queue), queue_family_(queue_family),
       cmd_pool_(cmd_pool), pipelines_(pipelines) {
-    // Pre-allocate descriptor pool for 4096 sets (enough for multiple inference runs)
+    // Pre-allocate descriptor pool for 65536 sets (enough for multiple tokens)
     VkDescriptorPoolSize ps[1] = {};
     ps[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    ps[0].descriptorCount = 4096 * 3;
+    ps[0].descriptorCount = 65536 * 3;
     VkDescriptorPoolCreateInfo ci{};
     ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    ci.maxSets = 4096;
+    ci.maxSets = 65536;
     ci.poolSizeCount = 1;
     ci.pPoolSizes = ps;
     ci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
@@ -73,20 +73,40 @@ void ComputeEngine::dispatch(const std::string& shader, const PushConstants& pus
     VK_CHECK(vkAllocateDescriptorSets(device_, &ai, &desc_set));
 
     VkDescriptorBufferInfo buf_infos[3] = {};
-    buf_infos[0].buffer = input; buf_infos[0].range = VK_WHOLE_SIZE;
-    buf_infos[1].buffer = output; buf_infos[1].range = VK_WHOLE_SIZE;
-    buf_infos[2].buffer = weights; buf_infos[2].range = VK_WHOLE_SIZE;
-
     VkWriteDescriptorSet writes[3] = {};
-    for (int i = 0; i < 3; i++) {
-        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[i].dstSet = desc_set;
-        writes[i].dstBinding = i;
-        writes[i].descriptorCount = 1;
-        writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writes[i].pBufferInfo = &buf_infos[i];
+    int nwrites = 0;
+    
+    if (input) {
+        buf_infos[nwrites].buffer = input; buf_infos[nwrites].range = VK_WHOLE_SIZE;
+        writes[nwrites].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[nwrites].dstSet = desc_set;
+        writes[nwrites].dstBinding = nwrites;
+        writes[nwrites].descriptorCount = 1;
+        writes[nwrites].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[nwrites].pBufferInfo = &buf_infos[nwrites];
+        nwrites++;
     }
-    vkUpdateDescriptorSets(device_, 3, writes, 0, nullptr);
+    if (output) {
+        buf_infos[nwrites].buffer = output; buf_infos[nwrites].range = VK_WHOLE_SIZE;
+        writes[nwrites].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[nwrites].dstSet = desc_set;
+        writes[nwrites].dstBinding = nwrites;
+        writes[nwrites].descriptorCount = 1;
+        writes[nwrites].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[nwrites].pBufferInfo = &buf_infos[nwrites];
+        nwrites++;
+    }
+    if (weights) {
+        buf_infos[nwrites].buffer = weights; buf_infos[nwrites].range = VK_WHOLE_SIZE;
+        writes[nwrites].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[nwrites].dstSet = desc_set;
+        writes[nwrites].dstBinding = nwrites;
+        writes[nwrites].descriptorCount = 1;
+        writes[nwrites].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[nwrites].pBufferInfo = &buf_infos[nwrites];
+        nwrites++;
+    }
+    if (nwrites > 0) vkUpdateDescriptorSets(device_, nwrites, writes, 0, nullptr);
 
     VkCommandBuffer cmd = cmd_pool_.begin_once();
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipe);

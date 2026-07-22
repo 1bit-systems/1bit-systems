@@ -103,12 +103,17 @@ int main(int argc, char** argv) {
 
     // ── Quick benchmark ──
     printf("\n── Benchmark (10 tokens) ──\n");
+    compute->reset_descriptors();
     infer->reset();
     auto t0 = std::chrono::high_resolution_clock::now();
-    int tok = 1;  // BOS (Llama convention, fix #780)
+    int tok = 1;
+    int last_tok = 0;
     for (int i = 0; i < 10; i++) {
+        printf("  Token %d...\n", i);
         tok = infer->generate(tok);
-        if (tok < 0) break;
+        if (tok < 0) { printf("  Failed at token %d\n", i); break; }
+        printf("  -> %d\n", tok);
+        last_tok = tok;
     }
     float ms = std::chrono::duration<float, std::milli>(
         std::chrono::high_resolution_clock::now() - t0).count();
