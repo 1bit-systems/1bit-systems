@@ -1,3 +1,0 @@
-[workspace]
-resolver = "2"
-members = ["onebitd", "onebit-cli", "onebit-tui"]
