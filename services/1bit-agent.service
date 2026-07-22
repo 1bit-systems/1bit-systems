@@ -9,7 +9,6 @@ ExecStart=__REPO_ROOT__/bin/1bit chat
 WorkingDirectory=__REPO_ROOT__
 Restart=on-failure
 RestartSec=5
-Environment=NODE_ENV=production
 
 [Install]
 WantedBy=default.target

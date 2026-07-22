@@ -192,7 +192,10 @@ static float sigmoid(float x) {
 
 static void softplus_inplace(float* x, int n) {
     for (int i = 0; i < n; i++) {
-        x[i] = logf(1.0f + expf(x[i]));
+        float v = x[i];
+        if (v > 20.0f) x[i] = v;
+        else if (v < -20.0f) x[i] = 0.0f;
+        else x[i] = logf(1.0f + expf(v));
     }
 }
 
@@ -208,23 +211,14 @@ struct TensorRef {
     bool is_moe;     // 3D expert stack → per-expert tiled
 };
 
-static std::unordered_map<std::string, TensorRef> tensor_index;
-
-static void build_tensor_index(OnebpModel& model) {
-    tensor_index.clear();
-    for (auto& t : model.tensors) {
-        tensor_index[t.name] = {
-            model.tensor_data(t), t.ndim, t.dims,
-            t.ndim == 1,
-            t.ndim == 3
-        };
-    }
-}
-
 static TensorRef find_tensor(OnebpModel& model, const std::string& name) {
-    (void)model;
-    auto it = tensor_index.find(name);
-    if (it != tensor_index.end()) return it->second;
+    for (auto& t : model.tensors) {
+        if (t.name == name) {
+            return {model.tensor_data(t), t.ndim, t.dims,
+                    t.ndim == 1,
+                    t.ndim == 3};
+        }
+    }
     return {nullptr, 0, {}, false, false};
 }
 
@@ -236,6 +230,7 @@ struct LagunaBackend : Backend {
     OnebpModel model;
     std::vector<float> hidden, hidden2, logits_buf;
     std::vector<std::vector<float>> k_cache, v_cache;
+    static constexpr int MAX_KV_POS = 262144;  // 256K tokens (~20 GB per cache for S 2.1)
     int max_pos = 0;
     int pos = 0;
     int H, L, NH, NKV, HD, FF, V;
@@ -245,7 +240,6 @@ struct LagunaBackend : Backend {
     int TR = 32, TC = 256, GS = 32;
     bool has_swa = false;
     int attn_gate_type = 0;
-    int expert_gating = 0;
     
     // HIP GPU: per-tensor weight upload
     void* hip_lib = nullptr;
@@ -258,6 +252,12 @@ struct LagunaBackend : Backend {
     int (*hipMemcpy)(void*, const void*, size_t, int) = nullptr;
     int (*hipMemset)(void*, int, size_t) = nullptr;
     int (*hipDeviceSynchronize)() = nullptr;
+    int (*hipMemcpyAsync)(void*, const void*, size_t, int, void*) = nullptr;
+    int (*hipMemsetAsync)(void*, int, size_t, void*) = nullptr;
+    int (*hipStreamCreate)(void**) = nullptr;
+    int (*hipStreamDestroy)(void*) = nullptr;
+    int (*hipStreamSynchronize)(void*) = nullptr;
+    void* matmul_stream = nullptr;
     
     // GPU kernel launcher
     void (*launch_gemv)(const float*, const uint8_t*, float*, int, int, void*) = nullptr;
@@ -303,9 +303,6 @@ struct LagunaBackend : Backend {
             return false;
         }
 
-        // Build O(1) index for tensor lookups instead of O(n) linear scan
-        build_tensor_index(model);
-
         auto& h = model.header;
         if (h.arch != 6) {
             fprintf(stderr, "Laguna: not a Laguna model (arch=%u)\n", h.arch);
@@ -322,18 +319,16 @@ struct LagunaBackend : Backend {
         N_ROT_SWA = h.n_rot_swa;
         N_ROT = h.n_rot_full;
         if (N_ROT == 0) {
-            // Auto-detect FULL rot dim from first Q weight shape
-            // Q weight shape = [n_heads * head_dim, hidden], rot_dim <= full_dim
-            // Common values: 64 for FULL layers in S 2.1 / XS 2.1
-            N_ROT = 64;  // Known value for Laguna S/XS series FULL layers
+            fprintf(stderr, "WARNING: n_rot_full is 0, using head_dim=%d as fallback\n", HD);
+            N_ROT = HD;
         }
         if (N_ROT_SWA == 0) N_ROT_SWA = N_ROT;  // fallback
         ROPE_THETA = h.rope_theta(); ROPE_THETA_SWA = h.rope_freq_base_swa();
         EXP_SCALE = h.expert_weights_scale();
         RMS_EPS = 1e-6f;
         has_swa = (SW > 0);
+        GS = h.group_size ? (int)h.group_size : 32;
         attn_gate_type = (int)h.attn_gate_type;
-        expert_gating = (int)h.expert_gating_func;
 
         printf("Laguna engine: %s\n", bp_path.c_str());
         printf("  %d layers, %d hidden, %d/%d heads, %d head_dim\n", L, H, NH, NKV, HD);
@@ -346,7 +341,7 @@ struct LagunaBackend : Backend {
 
         hidden.resize(H); hidden2.resize(H);
         logits_buf.resize(V);
-        max_pos = 16384;
+        max_pos = 2048;
         k_cache.resize(L);
         v_cache.resize(L);
         for (auto& k : k_cache) k.resize(max_pos * NKV * HD, 0.0f);
@@ -362,6 +357,11 @@ struct LagunaBackend : Backend {
             hipMemcpy = (decltype(hipMemcpy))dlsym(hip_lib, "hipMemcpy");
             hipMemset = (decltype(hipMemset))dlsym(hip_lib, "hipMemset");
             hipDeviceSynchronize = (decltype(hipDeviceSynchronize))dlsym(hip_lib, "hipDeviceSynchronize");
+            hipMemcpyAsync = (decltype(hipMemcpyAsync))dlsym(hip_lib, "hipMemcpyAsync");
+            hipMemsetAsync = (decltype(hipMemsetAsync))dlsym(hip_lib, "hipMemsetAsync");
+            hipStreamCreate = (decltype(hipStreamCreate))dlsym(hip_lib, "hipStreamCreate");
+            hipStreamDestroy = (decltype(hipStreamDestroy))dlsym(hip_lib, "hipStreamDestroy");
+            hipStreamSynchronize = (decltype(hipStreamSynchronize))dlsym(hip_lib, "hipStreamSynchronize");
             
             rocm_lib = dlopen("librocm_cpp.so", RTLD_NOW | RTLD_LOCAL);
             if (!rocm_lib) rocm_lib = dlopen("./librocm_cpp.so", RTLD_NOW | RTLD_LOCAL);
@@ -388,6 +388,7 @@ struct LagunaBackend : Backend {
                 hipMalloc(&hip_y_buf, max_buf);
                 hip_buf_sz = max_buf;
                 hip_active = true;
+                if (hipStreamCreate) hipStreamCreate(&matmul_stream);
                 printf("  HIP GPU: %d tensors, %.1f MB uploaded (Radeon 8060S)\n",
                        n_uploaded, total_upload / 1e6);
             }
@@ -403,6 +404,30 @@ struct LagunaBackend : Backend {
         for (auto& k : k_cache) std::fill(k.begin(), k.end(), 0.0f);
         for (auto& v : v_cache) std::fill(v.begin(), v.end(), 0.0f);
         return true;
+    }
+
+    // Grow KV cache to at least new_cap positions, capped at MAX_KV_POS
+    void grow_cache(int new_cap) {
+        int capped = std::min(new_cap, MAX_KV_POS);
+        if (capped <= max_pos) return;
+        if (capped == MAX_KV_POS) {
+            fprintf(stderr, "KV cache: hit hard cap MAX_KV_POS=%d (requested %d)\n",
+                    MAX_KV_POS, new_cap);
+        }
+        max_pos = capped;
+        for (int il = 0; il < L; il++) {
+            k_cache[il].resize(max_pos * NKV * HD, 0.0f);
+            v_cache[il].resize(max_pos * NKV * HD, 0.0f);
+        }
+    }
+
+    void grow_cache_if_needed() {
+        if (pos < max_pos) return;
+        int new_cap = max_pos * 2;
+        if (new_cap > MAX_KV_POS) new_cap = MAX_KV_POS;
+        for (auto& k : k_cache) k.resize(new_cap * NKV * HD, 0.0f);
+        for (auto& v : v_cache) v.resize(new_cap * NKV * HD, 0.0f);
+        max_pos = new_cap;
     }
 
     // ─── 1D helper: get pointer to raw f32 data for a 1D tensor ───
@@ -438,16 +463,30 @@ struct LagunaBackend : Backend {
             if (t.name == name && t.ndim == 2) {
                 int K = (int)t.dims[0];
                 int M = (int)t.dims[1];
-                (void)M_expected; (void)K_expected;
+                if (M != M_expected || K != K_expected) {
+                    fprintf(stderr, "w2d_mul dim mismatch for %s: expected [%d,%d] got [%d,%d]\n",
+                            name.c_str(), K_expected, M_expected, K, M);
+                    std::fill(y, y + M_expected, 0.0f);
+                    return;
+                }
                 
                 auto it = gpu_weights.find(name);
                 if (it != gpu_weights.end() && hip_active) {
-                    // Optimized GEMV: single launch with shared memory reduction
-                    hipMemcpy(hip_x_buf, x, (size_t)K * sizeof(float), 1);
-                    hipMemset(hip_y_buf, 0, (size_t)M * sizeof(float));
-                    launch_gemv((const float*)hip_x_buf, (const uint8_t*)it->second,
-                                (float*)hip_y_buf, K, M, nullptr);
-                    hipMemcpy(y, hip_y_buf, (size_t)M * sizeof(float), 2);
+                    if (matmul_stream && hipMemcpyAsync && hipMemsetAsync) {
+                        // Async path: queue all operations on matmul_stream
+                        hipMemcpyAsync(hip_x_buf, x, (size_t)K * sizeof(float), 1, matmul_stream);
+                        hipMemsetAsync(hip_y_buf, 0, (size_t)M * sizeof(float), matmul_stream);
+                        launch_gemv((const float*)hip_x_buf, (const uint8_t*)it->second,
+                                    (float*)hip_y_buf, K, M, matmul_stream);
+                        hipMemcpyAsync(y, hip_y_buf, (size_t)M * sizeof(float), 2, matmul_stream);
+                    } else {
+                        // Fallback sync path
+                        hipMemcpy(hip_x_buf, x, (size_t)K * sizeof(float), 1);
+                        hipMemset(hip_y_buf, 0, (size_t)M * sizeof(float));
+                        launch_gemv((const float*)hip_x_buf, (const uint8_t*)it->second,
+                                    (float*)hip_y_buf, K, M, nullptr);
+                        hipMemcpy(y, hip_y_buf, (size_t)M * sizeof(float), 2);
+                    }
                 } else {
                     matmul_q4nx(y, x, model.tensor_data(t), M, K, TR, TC, GS);
                 }
@@ -494,7 +533,7 @@ struct LagunaBackend : Backend {
 
     // ─── Check if a layer is SWA ───
     bool is_swa_layer(int il) const {
-        if (!has_swa || SW_PERIOD == 0) return false;
+        if (!has_swa) return false;
         // Period 4 starting with FULL: layers where il%4==0 are FULL
         return (il % SW_PERIOD) != 0;
     }
@@ -505,11 +544,7 @@ struct LagunaBackend : Backend {
     }
 
     int forward(int token) {
-        // KV cache bound check
-        if (pos >= max_pos) {
-            fprintf(stderr, "KV cache: hard limit %d reached\n", max_pos);
-            return -1;
-        }
+        grow_cache_if_needed();
 
         // Embedding lookup
         for (int i = 0; i < H; i++) {
@@ -533,7 +568,7 @@ struct LagunaBackend : Backend {
         // Instead: load from the source GGUF embedding directly...
 
         // For simplicity with 1BP tiled format, do a matmul with one-hot
-        w2d_mul(hidden.data(), one_hot.data(), "token_embd.weight", H, V);
+        w2d_mul(hidden.data(), one_hot.data(), "token_embd.weight", V, H);
 
         // Generate loop
         for (int il = 0; il < L; il++) {
@@ -618,24 +653,24 @@ struct LagunaBackend : Backend {
                     }
                 }
 
-                // Attention output gate (per-head or per-element)
+                // Softplus attention output gate (per-head or per-element)
+                // Gate weight [H, n_head] or [H, n_head*HD]
                 std::string pg = "blk." + std::to_string(il) + ".attn_gate.weight";
-                int gate_dim = (attn_gate_type == 1) ? n_head_il * HD : n_head_il;
-                std::vector<float> gate_vals(gate_dim);
-                w2d_mul(gate_vals.data(), hidden2.data(), pg, gate_dim, H);
-                softplus_inplace(gate_vals.data(), gate_dim);
+                std::vector<float> gate_vals(n_head_il);
+                w2d_mul(gate_vals.data(), hidden2.data(), pg, n_head_il, H);
+                softplus_inplace(gate_vals.data(), n_head_il);
 
-                // Apply gate
-                if (attn_gate_type == 1) {
-                    // Per-element gate
-                    for (int i = 0; i < n_head_il * HD; i++) att[i] *= gate_vals[i];
-                } else {
-                    // Per-head gate: broadcast over head_dim
-                    for (int h = 0; h < n_head_il; h++) {
-                        float g = gate_vals[h];
-                        for (int d = 0; d < HD; d++) {
-                            att[h * HD + d] *= g;
-                        }
+                // Check for per-element gating (attn_gate_type > 0)
+                if (attn_gate_type > 0) {
+                    fprintf(stderr, "WARNING: attn_gate_type=%d (PER_ELEMENT) not fully implemented, "
+                            "falling back to per-head gating\n", attn_gate_type);
+                }
+
+                // Apply gate: per-head broadcast over head_dim
+                for (int h = 0; h < n_head_il; h++) {
+                    float g = gate_vals[h];
+                    for (int d = 0; d < HD; d++) {
+                        att[h * HD + d] *= g;
                     }
                 }
 
@@ -665,16 +700,8 @@ struct LagunaBackend : Backend {
                     float* exp_bias = w1d(pb);
                     if (exp_bias) add_bias(router_logits.data(), exp_bias, NE);
 
-                    // Expert routing (sigmoid or softmax)
-                    if (expert_gating == 1) {  // SOFTMAX
-                        float mx = router_logits[0];
-                        for (int e = 1; e < NE; e++) if (router_logits[e] > mx) mx = router_logits[e];
-                        float sum = 0;
-                        for (int e = 0; e < NE; e++) { router_logits[e] = expf(router_logits[e] - mx); sum += router_logits[e]; }
-                        for (int e = 0; e < NE; e++) router_logits[e] /= sum;
-                    } else {
-                        for (int e = 0; e < NE; e++) router_logits[e] = sigmoid(router_logits[e]);
-                    }
+                    // Sigmoid routing (not softmax!) → token-choice MoE
+                    for (int e = 0; e < NE; e++) router_logits[e] = sigmoid(router_logits[e]);
 
                     // Top-k selection
                     std::vector<int> idx(NE);
@@ -784,6 +811,10 @@ struct LagunaBackend : Backend {
 
     void destroy() override {
         if (hip_active) {
+            // Sync and destroy matmul stream
+            if (matmul_stream && hipStreamSynchronize) hipStreamSynchronize(matmul_stream);
+            if (matmul_stream && hipStreamDestroy) hipStreamDestroy(matmul_stream);
+            matmul_stream = nullptr;
             // Free all pre-uploaded weight tensors
             for (auto& [name, ptr] : gpu_weights) {
                 (void)name;

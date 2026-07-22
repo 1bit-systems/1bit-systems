@@ -6,6 +6,9 @@ description = "1bit NPU Chat Server — Zero FLM. Uses npu_engine_universal work
 license = "MIT"
 
 [dependencies]
+# Parallel compute
+rayon = "1"
+
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 

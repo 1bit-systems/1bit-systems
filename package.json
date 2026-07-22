@@ -1,12 +1,8 @@
 {
   "name": "1bit-systems",
   "version": "2026.07.20",
-  "description": "1bit — NPU-native coding agent for the 1bit.systems inference stack. Rust static binary, zero runtime dependencies.",
-  "keywords": [
-    "1bit",
-    "coding-agent",
-    "ai",
-    "npu"
-  ],
-  "license": "MIT"
+  "description": "1bit — NPU-native coding agent for the 1bit.systems inference stack. Pure C++ static binaries, zero runtime dependencies.",
+  "keywords": ["1bit", "coding-agent", "ai", "npu"],
+  "license": "MIT",
+  "_deprecated": "The TypeScript/Node.js wrapper has been replaced by pure C++ binaries (tools/onebit.cpp, tools/onebitd.cpp). package.json kept for reference only. See rust/DEPRECATED.md for Rust → C++ migration details."
 }

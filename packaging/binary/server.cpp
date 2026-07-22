@@ -125,7 +125,7 @@ static void handle_client(int fd) {
     std::string response =
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: application/json\r\n"
-        "Access-Control-Allow-Origin: *\r\n"
+        "Access-Control-Allow-Origin: " + (getenv("ZAYA_CORS_ORIGIN") ? std::string(getenv("ZAYA_CORS_ORIGIN")) : std::string("http://127.0.0.1")) + "\r\n"
         "Connection: close\r\n"
         "Content-Length: " + std::to_string(body.size()) + "\r\n"
         "\r\n" + body;

@@ -33,7 +33,8 @@ if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
     echo "       sha256sum -c install.sh.sha256"
     echo ""
     echo "Installs 1bit inference engine for AMD Strix Halo (gfx1151)."
-    echo "Builds the pure C++ zaya_server (~400 KB) + librocm_cpp.so (~1.1 MB) — no Rust, no Python."
+    echo "Builds pure C++ end-to-end: zaya_server, onebit (CLI), onebitd (daemon),"
+    echo "unified_router (proxy), bitnet_tui (TUI) + librocm_cpp.so — no Rust, no Python."
     exit 0
 fi
 
@@ -83,11 +84,16 @@ mkdir -p "$MODELS_DIR"
 
 # ── Build kernels + server (pure C++, no Rust) ───────────────────────────────
 if [ "$SKIP_ROCM" = false ]; then
-    log "Building kernels (rocm-cpp) + server (zaya_server)..."
+    log "Building C++ inference stack (server + CLI + daemon)..."
     cd "$DIR"
     cmake -B build ${CMAKE_GENERATOR:+-G Ninja} -DCMAKE_HIP_ARCHITECTURES=gfx1151 || { warn "cmake configure failed"; exit 1; }
-    cmake --build build --target zaya_server -j"$(nproc)" || { warn "cmake build failed"; exit 1; }
-    log "Build complete: $DIR/build/zaya_server ($(stat -c%s "$DIR/build/zaya_server") bytes)"
+    cmake --build build --target zaya_server onebitd onebit onebit_bin unified_router -j"$(nproc)" || { warn "cmake build failed"; exit 1; }
+    log "Build complete:"
+    log "  $DIR/build/zaya_server ($(stat -c%s "$DIR/build/zaya_server" 2>/dev/null || echo '?') bytes)"
+    log "  $DIR/build/onebitd      ($(stat -c%s "$DIR/build/onebitd" 2>/dev/null || echo '?') bytes)"
+    log "  $DIR/build/onebit       ($(stat -c%s "$DIR/build/onebit" 2>/dev/null || echo '?') bytes)"
+    log "  $DIR/build/1bit         → onebit"
+    log "  $DIR/build/unified_router"
 else
     warn "--skip-rocm: kernel build skipped."
     warn "Make sure librocm_cpp.so is on LD_LIBRARY_PATH before running zaya_server."

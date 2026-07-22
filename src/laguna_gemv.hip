@@ -1,4 +1,9 @@
-// laguna_gemv.hip — Q4NX GEMV with shared memory reduction
+// laguna_gemv.hip — Q4NX GEMV with register-based reduction (no shared memory)
+// Eliminates the 32KB shared memory tile that serialized GPU occupancy.
+// Uses warp shuffle (__shfl_down_sync) for cross-thread reduction.
+// NOTE: GPU kernels don't compute activation functions (softplus/silu).
+// Any future kernel adding on-GPU activations should clamp inputs (x > 20 → x directly)
+// to prevent exp() overflow producing NaN.
 #include <hip/hip_runtime.h>
 #include <cstdio>
 #include <cstring>
@@ -8,52 +13,47 @@ constexpr int TR=32, TC=256, GS=32, NG=TC/GS, RB=NG*4+TC/2, TB=TR*RB;
 
 __device__ inline float bf16_f32(uint16_t bf) { return __uint_as_float((uint32_t)bf<<16); }
 
+// Register-based Q4NX GEMV: each thread handles one row, warp-shuffle reduces across rows.
+// Block: 32 threads (1 warp), grid: n_tc × n_tr.
+// No shared memory — blocks are limited only by register file, not shared memory.
 __global__ void q4nx_gemv(const float* x, const uint8_t* w, float* y,
                            int K, int M, int n_tr, int n_tc) {
-    extern __shared__ float tile[];
-    
-    // Zero tile
-    for (int i = threadIdx.x; i < TR * TC; i += blockDim.x) tile[i] = 0.0f;
-    __syncthreads();
-    
     int trr = blockIdx.y, tcc = blockIdx.x, r = threadIdx.x;
     int rs = trr * TR, cs = tcc * TC;
     int r_eff = min(rs + TR, K) - rs;
     int c_eff = min(cs + TC, M) - cs;
     
-    // Dequant row r
-    if (r < r_eff) {
-        float xr = x[rs + r];
-        if (xr != 0.0f) {
-            const uint8_t* rp = w + (((size_t)trr * n_tc + tcc) * TB) + r * RB;
-            for (int g = 0; g < NG; g++) {
-                float sc = bf16_f32(*(const uint16_t*)(rp + g*2));
-                float zp = bf16_f32(*(const uint16_t*)(rp + NG*2 + g*2));
-                const uint8_t* pk = rp + NG*4;
-                for (int i = 0; i < GS; i++) {
-                    int bi = g*GS/2 + i/2;
-                    int nl = (i&1) ? (pk[bi]>>4) : (pk[bi]&0x0F);
-                    float v = (float)nl * sc + zp;
-                    tile[r * TC + g*GS + i] = (v==v&&v<1e10f&&v>-1e10f) ? xr * v : 0.0f;
-                }
-            }
-        }
-    }
-    __syncthreads();
+    unsigned active_mask = __ballot_sync(0xFFFFFFFF, r < r_eff);
+    float xr = (r < r_eff) ? x[rs + r] : 0.0f;
     
-    // Reduce across rows: each thread handles columns c = r, r+TR, r+2*TR, ...
-    for (int c = r; c < c_eff; c += TR) {
+    for (int c = 0; c < c_eff; c++) {
         float sum = 0.0f;
-        for (int rr = 0; rr < r_eff; rr++) sum += tile[rr * TC + c];
-        if (sum != 0.0f) atomicAdd(&y[cs + c], sum);
+        
+        if (r < r_eff && xr != 0.0f) {
+            const uint8_t* rp = w + (((size_t)trr * n_tc + tcc) * TB) + r * RB;
+            int g = c / GS, i = c % GS;
+            float sc = bf16_f32(*(const uint16_t*)(rp + g*2));
+            float zp = bf16_f32(*(const uint16_t*)(rp + NG*2 + g*2));
+            const uint8_t* pk = rp + NG*4;
+            int bi = g*GS/2 + i/2;
+            int nl = (i&1) ? (pk[bi]>>4) : (pk[bi]&0x0F);
+            float v = (float)nl * sc + zp;
+            if (v==v && v<1e10f && v>-1e10f) sum = xr * v;
+        }
+        
+        #pragma unroll
+        for (int offset = 16; offset > 0; offset >>= 1)
+            sum += __shfl_down_sync(active_mask, sum, offset);
+        
+        if (r == 0 && sum != 0.0f) atomicAdd(&y[cs + c], sum);
     }
 }
 
 extern "C" void launch_q4nx_gemv(const float* x, const uint8_t* w, float* y,
-                                  int K, int M, hipStream_t stream) {
+                                   int K, int M, hipStream_t stream) {
     int n_tr = (K + TR - 1) / TR, n_tc = (M + TC - 1) / TC;
-    size_t sh = TR * TC * sizeof(float);
-    hipLaunchKernelGGL(q4nx_gemv, dim3(n_tc, n_tr), TR, sh, stream, x, w, y, K, M, n_tr, n_tc);
+    hipLaunchKernelGGL(q4nx_gemv, dim3(n_tc, n_tr), TR, 0, stream, x, w, y, K, M, n_tr, n_tc);
+    HIP_CHECK(hipGetLastError());
 }
 
 #ifndef __HIP_DEVICE_COMPILE__
@@ -67,8 +67,7 @@ extern "C" int test_q4nx_gemv_hip() {
     hipMemcpy(w_d,th,TB,hipMemcpyHostToDevice);
     hipMemcpy(x_d,x_h,32*4,hipMemcpyHostToDevice);
     hipMemset(y_d,0,256*4);
-    size_t sh=TR*TC*4;
-    hipLaunchKernelGGL(q4nx_gemv,dim3(1,1),TR,sh,0,x_d,w_d,y_d,32,256,1,1);
+    hipLaunchKernelGGL(q4nx_gemv,dim3(1,1),TR,0,0,x_d,w_d,y_d,32,256,1,1);
     hipDeviceSynchronize();
     float y_h[256]; hipMemcpy(y_h,y_d,256*4,hipMemcpyDeviceToHost);
     bool ok=true; for(int i=0;i<256;i++)if(fabs(y_h[i]-1.0f)>1e-4f){ok=false;printf("y[%d]=%f\n",i,y_h[i]);break;}

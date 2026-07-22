@@ -3,8 +3,8 @@
 # Usage: source env.sh
 #    or: source env.sh /path/to/1bit  # override install dir
 #
-# When executed directly (not sourced), fail on first error.
-# When sourced, let the caller's shell handle error handling.
+# Pure C++ stack — no Rust, no Python, no Node.js required.
+# Built binaries: zaya_server, onebitd, onebit, unified_router, bitnet_tui
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   set -euo pipefail
 fi
@@ -14,8 +14,6 @@ LINK_DIR="${1:-$DIR}"
 
 # HSA_OVERRIDE_GFX_VERSION: only needed for ROCm <7.x where the kernel driver
 # doesn't report the correct GPU target for Strix Halo (gfx1151).
-# For ROCm 7.2+, the driver reports gfx1151 correctly and overriding
-# to gfx1100 causes wrong code paths (see issue #251).
 if command -v hipconfig &>/dev/null; then
     ROCM_VER=$(hipconfig --version 2>/dev/null | cut -d. -f1)
     if [ -n "$ROCM_VER" ] && [ "$ROCM_VER" -lt 7 ] 2>/dev/null; then
@@ -28,9 +26,18 @@ export HSA_ENABLE_SDMA=0
 export LD_LIBRARY_PATH="$LINK_DIR/build:${LD_LIBRARY_PATH:-}"
 export PATH="$LINK_DIR/build:$PATH"
 
-echo "[1bit] Environment ready:"
+echo "[1bit] Environment ready (pure C++ stack):"
 echo "  HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-not set}"
 echo "  HSA_ENABLE_SDMA=$HSA_ENABLE_SDMA"
 echo "  LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
-echo "  Run: zaya_server"
-echo "  Or: zaya_gpu_decode model.q4nx --tokens 64"
+echo "  Binaries available:"
+echo "    zaya_server     — HIP inference engine + HTTP server"
+echo "    onebitd         — daemon (spawns backend, proxies HTTP)"
+echo "    onebit / 1bit   — CLI agent (chat, up, down, status, build, config)"
+echo "    unified_router  — NPU+GPU routing proxy"
+echo "    bitnet_tui      — FTXUI terminal chat UI"
+echo ""
+echo "  Quick start:"
+echo "    onebit chat     — interactive agent session"
+echo "    onebit up       — start NPU stack"
+echo "    onebit status   — check stack health"

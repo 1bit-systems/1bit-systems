@@ -671,6 +671,41 @@ target_link_libraries(vision_server PRIVATE
     httplib::httplib
     nlohmann_json::nlohmann_json)
 
+# -- unified_router : NPU+GPU content-aware routing proxy -------------------
+# Pure C++ replacement for unified-router.py. Uses cpp-httplib as HTTP
+# server and client, nlohmann-json for JSON parsing. No Python needed.
+add_executable(unified_router tools/unified_router.cpp)
+target_include_directories(unified_router PRIVATE src/ include/)
+target_compile_options(unified_router PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
+target_link_libraries(unified_router PRIVATE
+    httplib::httplib
+    nlohmann_json::nlohmann_json)
+
+# -- onebitd : 1bit inference daemon (spawns backend, proxies HTTP) --------
+# Pure C++ replacement for rust/onebitd. No Rust axum/reqwest needed.
+add_executable(onebitd tools/onebitd.cpp)
+target_include_directories(onebitd PRIVATE src/ include/)
+target_compile_options(onebitd PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
+target_link_libraries(onebitd PRIVATE httplib::httplib)
+
+# -- onebit : NPU-native terminal coding agent CLI -------------------------
+# Pure C++ replacement for rust/onebit-cli. Single binary — chat, up, down,
+# status, build, config, auth, serve, update.
+add_executable(onebit tools/onebit.cpp)
+target_include_directories(onebit PRIVATE src/ include/)
+target_compile_options(onebit PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
+target_link_libraries(onebit PRIVATE
+    httplib::httplib
+    nlohmann_json::nlohmann_json)
+
+# Alias for the canonical binary name (matches Rust release artifact name)
+add_custom_target(onebit_bin ALL
+    DEPENDS onebit
+    COMMAND ${CMAKE_COMMAND} -E copy
+        "$<TARGET_FILE:onebit>"
+        "${CMAKE_BINARY_DIR}/1bit"
+    COMMENT "Creating 1bit -> onebit copy")
+
 add_executable(bitnet_tui tools/bitnet_tui.cpp)
 target_link_libraries(bitnet_tui PRIVATE
     httplib::httplib

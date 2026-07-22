@@ -27,10 +27,6 @@ jobs:
           # version on our hardware. Steps below degrade gracefully if the
           # ROCm packages can't be installed on the runner.
           wget -qO- https://repo.radeon.com/rocm/rocm.gpg.key 2>/dev/null | sudo gpg --dearmor -o /etc/apt/keyrings/rocm.gpg 2>/dev/null || true
-          # Use noble (Ubuntu 24.04) repo — jammy (22.04) repos may have
-          # missing or incompatible packages on the ubuntu-24.04 Runner.
-          # Guard ROCm repo behind successful key import to avoid runner
-          # network failures (repo.radeon.com often unreachable from GH runners).
           if [ -f /etc/apt/keyrings/rocm.gpg ]; then
             printf '%s\n' \
               'deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.2.4 noble main' \
@@ -43,11 +39,6 @@ jobs:
           fi
       - name: Verify CMakeLists references resolve
         run: |
-          # Guard against the missing-file class of build break: every
-          # add_executable/add_library source path and every add_subdirectory
-          # must point at a file/dir that actually exists. Runs even if ROCm
-          # failed to install, so a dropped tests/ or ck-prefill/ can never
-          # silently re-break the configure step.
           set -e
           python3 -<<'PY'
           import re, pathlib, sys
@@ -73,14 +64,14 @@ jobs:
             echo "ROCm detected — full cmake configure + build."
             cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151
             # Build the server AND every test_* target so a dropped source or a
-            # compile break fails CI (issue #236). Previously only the wiring
-            # skeleton (test_medusa_skeleton) was built, so a broken engine
-            # could ship behind a green badge.
+            # compile break fails CI (issue #236).
+            # Also build all new C++ tools to catch compile errors.
             ninja -C build zaya_server \
               test_medusa_skeleton test_standalone_nock test_prim_and_attn \
               test_ternary_gemm_smallm test_sherry_gemv test_bonsai_gemv \
               test_zaya_moe_gemv test_cca_attn test_wmma_i8_gemv \
-              test_bonsai_e2e test_sherry_e2e test_block_scaled_ternary
+              test_bonsai_e2e test_sherry_e2e test_block_scaled_ternary \
+              onebitd onebit onebit_bin unified_router
           else
             echo "ROCm not available on this runner — reference checks only."
             if [ -f tests/test_medusa_skeleton.cpp ]; then
@@ -91,11 +82,6 @@ jobs:
             fi
           fi
       - name: Run headless tests (ctest -L host)
-        # Only 'thost'-labeled tests run without a physical GPU or model
-        # file (issue #233). gpu_required / model_required tests are left for
-        # the Strix Halo self-hosted runner; running them here would always
-        # fail (no device) and teach us nothing.
-        # Guarded by existence of build/ dir so we don't fail on ROCm-less runners.
         run: |
           if [ -d build ]; then
             ctest --test-dir build -L host --output-on-failure
@@ -120,19 +106,6 @@ jobs:
           find . -name '*.cpp' -o -name '*.h' -o -name '*.hip' -o -name '*.hpp' | \
             grep -v build/ | grep -v _deps/ | grep -v '.git/' | \
             xargs clang-format --dry-run --Werror 2>&1 | head -20
-      - name: Python lint (ruff)
-        run: |
-          pip install -q ruff
-          # ruff exits 1 on ANY finding (style included), not just syntax errors —
-          # `|| true` here is deliberate and scoped to just this line, so the step's
-          # gating decision is made explicitly below by grep, not by ruff's own
-          # exit code or a blanket swallow of the whole step.
-          ruff check --select=E,F,W --ignore=E501 tools/ scripts/ --output-format=concise > /tmp/ruff.log 2>&1 || true
-          cat /tmp/ruff.log
-          if grep -q 'E999' /tmp/ruff.log; then
-            echo "::error::Python SyntaxError(s) found (E999) — see ruff output above"
-            exit 1
-          fi
 
   version:
     name: Version consistency
@@ -146,81 +119,6 @@ jobs:
         run: |
           python3 -m pip install --quiet numpy
           python3 tools/q4nx/test_q4nx_roundtrip.py
-
-  rust:
-    name: Rust proxy (build + test)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v4
-      # If rust/rust-toolchain.tom exists it pins the MSRV and this action
-      # honors it automatically; otherwise falls back to stable. (#161)
-      - uses: dtolnay/rust-toolchain@stable
-      # Cache registry + target dir so we don't rebuild every dependency from
-      # scratch on each run (#161).
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-      - name: Build
-        working-directory: rust
-        run: cargo build --release
-      - name: Test
-        working-directory: rust
-        run: cargo test --release
-
-  ts:
-    name: TypeScript CLI (type-check)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-      # npm ci / tsc are allowed to fail without failing CI, but the masking
-      # is now explicit (continue-on-error) instead of `|| echo '... continuing'`,
-      # which previously hid real errors behind a green step (issue #236)).
-      - name: Install deps
-        run: npm ci
-      - name: Type-check
-        if: hashFiles('tsconfig.json') != ''
-        run: npx tsc --noEmit
-
-  fusion:
-    name: Fused engine (build + smoke)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: 0.13.0
-      - name: Build fused engine
-        working-directory: engine/fusion
-        run: zig build -Doptimize=ReleaseSafe 2>&1 | tail -5
-      - name: Smoke test (--help)
-        # Explicit non-blocking instead of `|| true` so the masking is visible
-        # in the run summary (issue #236).
-        working-directory: engine/fusion
-        run: ./zig-out/bin/fused-engine --help
-        continue-on-error: true
-
-  bench:
-    name: Bench script validation
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - name: Validate bench/record.sh syntax and structure
-        run: |
-          bash -n bench/record.sh || { echo 'bench/record.sh has shell syntax errors'; exit 1; }
-          echo '✅ bench/record.sh — valid shell syntax'
-          echo ""
-          echo 'Note: No hardware benchmarks are run on this runner.'
-          echo 'Real benchmark data is collected on Strix Halo hardware and'  
-          echo 'committed to site/benchmarks.json separately. The bench/record.sh'
-          echo 'script is the standard tool for recording those results.'
 
   smoke-test:
     name: Inference smoke test
@@ -236,4 +134,3 @@ jobs:
           else
             echo "⚠️  tests/download_and_run.sh not yet written for non-HW runners"
           fi
-

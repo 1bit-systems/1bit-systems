@@ -23,9 +23,9 @@ venv/
 Thumbs.db
 
 # Rust
+rust/target/
+daemon/*/target/
 target/
-
-# Zig
 zig-cache/
 zig-out/
 

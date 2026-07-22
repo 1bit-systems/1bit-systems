@@ -4,7 +4,7 @@
 
 # One Binary to rule them all
 
-### 1bit.systems · ~400 KB exe + ~1.1 MB kernel lib · NPU + GPU + CPU · Zero Python
+### Pure C++ end-to-end · ~400 KB server + CLI + daemon + router · NPU + GPU + CPU · Zero Python · Zero Rust · Zero Node.js
 
 [![CI](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml/badge.svg)](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
@@ -87,12 +87,18 @@ git clone https://github.com/bong-water-water-bong/1bit-systems
 cd 1bit-systems
 source env.sh
 cmake -B build -G Ninja
-cmake --build build --target unified_server -j$(nproc)
+cmake --build build --target onebit_bin unified_server zaya_server -j$(nproc)
 
-# Run with a GGUF model:
+# Interactive chat (REPL with NPU stack management):
+./build/1bit chat
+
+# Start the NPU stack (daemon + server):
+./build/1bit up
+
+# Or run with a GGUF model directly:
 ./build/unified_server -w /path/to/models/ -p 8088
 
-# Or run the BlackMamba Mamba1 GPU backend directly:
+# Mamba1 GPU backend:
 ./build/test_mamba1_backend /path/to/blackmamba-1.5b.gguf 64
 ```
 
@@ -114,12 +120,16 @@ print(client.chat.completions.create(model="blackmamba-1.5b",
   kernels/                 GPU kernels: bonsai, sherry, MoE, Mamba1
   engine/
     npu/                   C++23 INT8 engine (XDNA 2)
-    gpu/                   Zig engine (Vulkan/CUDA/Metal)
-  tools/                   Converters, benchmarks, training
+    gpu/                   GPU engine (Vulkan/CUDA/Metal)
+  tools/                   Converters, benchmarks, C++ runtime tools:
+    onebit.cpp             CLI agent (chat, up, down, status, build, config)
+    onebitd.cpp            Daemon (spawns backend, proxies HTTP)
+    unified_router.cpp     NPU+GPU routing proxy (replaces unified-router.py)
+    bitnet_tui.cpp         FTXUI terminal chat UI
   site/                    1bit.systems website
   packaging/               deb, snap, Docker
   benchmarks/              Historical data
-  build/                   ~1.8 MB unified_server + ~1.1 MB kernel lib
+  build/                   zaya_server + onebitd + onebit + unified_router + librocm_cpp.so
 ```
 
 ### Loaders

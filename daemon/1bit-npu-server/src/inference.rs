@@ -8,6 +8,7 @@
 use crate::q4nx::Q4nxReader;
 use crate::worker::{GemmOp, NpuWorker};
 use anyhow::Result;
+use rayon::prelude::*;
 use std::f32::consts::PI;
 use tracing::info;
 
@@ -64,6 +65,8 @@ pub struct Inference {
     lm_emb: Vec<f32>,           // [nv, h] — might be same as embed
     input_norms: Vec<Vec<f32>>, // [nc][h]
     post_attn_norms: Vec<Vec<f32>>, // [nc][h]
+    q_norms: Vec<Vec<f32>>,     // [nc][hd] — Qwen3 QK-norm per head
+    k_norms: Vec<Vec<f32>>,     // [nc][hd]
 
     // KV cache
     k_cache: Vec<Vec<Vec<f32>>>, // [nc][max_seq][nkv*hd]
@@ -77,37 +80,64 @@ pub struct Inference {
 
 impl Inference {
     /// Load weights and initialize the inference engine.
-    pub fn new(worker: NpuWorker, model: &Q4nxReader, cfg: ModelConfig) -> Result<Self> {
-        let nv = cfg.nv;
+    pub fn new(worker: NpuWorker, model: &Q4nxReader, mut cfg: ModelConfig) -> Result<Self> {
         let h = cfg.h;
+        let hd = cfg.hd;
         let nc = cfg.nc;
         let hd = cfg.hd;
         let nkv = cfg.nkv;
 
-        // Load weights
-        let embed = model.read_bf16("model.embed_tokens.weight", nv * h)
-            .unwrap_or_else(|| vec![0.0; nv * h]);
+        // Detect vocab sizes separately for embedding (input) and LM head (output).
+        // Some models have full-vocab embedding but reduced LM head
+        // (e.g. Qwen3-0.6B: embed=151936, lm_head=47480).
+        let embed_nv = if let Some(count) = model.tensor_bf16_count("model.embed_tokens.weight") {
+            count / h
+        } else {
+            cfg.nv
+        };
+        let lm_nv = if let Some(count) = model.tensor_bf16_count("lm_head.weight") {
+            count / h
+        } else {
+            embed_nv
+        };
+        cfg.nv = lm_nv;
+        info!("Vocab: embed={embed_nv}, lm_head={lm_nv}");
+
+        // Load full embedding (input vocab size), reduced LM head (output vocab size)
+        let embed = model.read_bf16("model.embed_tokens.weight", embed_nv * h)
+            .unwrap_or_else(|| vec![0.0; embed_nv * h]);
         let final_norm = model.read_bf16("model.norm.weight", h)
             .unwrap_or_else(|| vec![0.0; h]);
 
-        let lm_emb = if model.has_tensor("lm_head.weight") {
-            model.read_bf16("lm_head.weight", nv * h)
-                .unwrap_or_else(|| embed.clone())
-        } else {
+        // lm_head.weight is stored as I8 (INT8 quantized tile format), not bf16.
+        // The Rust reader only handles bf16. Since Qwen3 uses tied embeddings,
+        // the embedding tensor IS the LM head for the overlapping vocab range.
+        // The v12 engine does the same: it uses emb_f32 for LM head projection.
+        let lm_emb = if lm_nv == embed_nv {
             embed.clone()
+        } else {
+            // Reduced vocab LM head: slice first lm_nv rows from full embedding
+            embed[..lm_nv * h].to_vec()
         };
 
         let mut input_norms = Vec::with_capacity(nc);
         let mut post_attn_norms = Vec::with_capacity(nc);
+        let mut q_norms = Vec::with_capacity(nc);
+        let mut k_norms = Vec::with_capacity(nc);
         for i in 0..nc {
             let in_n = model.read_bf16(&format!("model.layers.{i}.input_layernorm.weight"), h)
                 .unwrap_or_else(|| vec![0.0; h]);
             let pa_n = model.read_bf16(&format!("model.layers.{i}.post_attention_layernorm.weight"), h)
                 .unwrap_or_else(|| vec![0.0; h]);
+            let qn = model.read_bf16(&format!("model.layers.{i}.self_attn.q_norm.weight"), hd)
+                .unwrap_or_else(|| vec![1.0; hd]);
+            let kn = model.read_bf16(&format!("model.layers.{i}.self_attn.k_norm.weight"), hd)
+                .unwrap_or_else(|| vec![1.0; hd]);
             input_norms.push(in_n);
             post_attn_norms.push(pa_n);
+            q_norms.push(qn);
+            k_norms.push(kn);
         }
-
         // Precompute KV cache
         let max_seq = cfg.max_seq;
         let kv_slot = nkv * hd;
@@ -119,7 +149,7 @@ impl Inference {
 
         info!(
             "Inference ready: {} layers, {} heads, H={}, {} params",
-            nc, cfg.nh, h, format_params(nc, h, cfg.im, nv)
+            nc, cfg.nh, h, format_params(nc, h, cfg.im, lm_nv)
         );
 
         Ok(Self {
@@ -130,6 +160,8 @@ impl Inference {
             lm_emb,
             input_norms,
             post_attn_norms,
+            q_norms,
+            k_norms,
             k_cache,
             v_cache,
             pos: 0,
@@ -199,48 +231,47 @@ impl Inference {
     /// q is [nh, hd], returns [nh, hd] flat.
     fn attn(&self, q: &[f32], layer: usize, cl: usize) -> Vec<f32> {
         let nh = self.cfg.nh;
-        let _nkv = self.cfg.nkv;
         let hd = self.cfg.hd;
         let gqa = self.cfg.gqa();
+        let kc = &self.k_cache[layer];
+        let vc = &self.v_cache[layer];
+        let scale = 1.0 / (hd as f32).sqrt();
 
-        let mut out = vec![0.0f32; nh * hd];
-
-        for h in 0..nh {
-            let kvh = h / gqa; // which KV head this query head maps to
-
-            // Score: q[h] @ k_cache[0..cl, kvh]
-            let mut scores = vec![0.0f32; cl];
-            for t in 0..cl {
-                let k_slice = &self.k_cache[layer][t];
-                let k_start = kvh * hd;
-                let mut dot = 0.0;
-                for d in 0..hd {
-                    dot += q[h * hd + d] * k_slice[k_start + d];
-                }
-                scores[t] = dot / (hd as f32).sqrt();
-            }
-
-            // Softmax
-            let max_s = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-            let mut sum_exp = 0.0f32;
-            for s in &mut scores {
-                *s = ((*s) - max_s).exp();
-                sum_exp += *s;
-            }
-            let inv_sum = 1.0 / (sum_exp + 1e-10);
-            for s in &mut scores {
-                *s *= inv_sum;
-            }
-
-            // Weighted sum of V
-            for d in 0..hd {
-                let mut val = 0.0;
+        // Parallel across heads — each head is independent
+        let out: Vec<f32> = (0..nh)
+            .into_par_iter()
+            .flat_map(|h| {
+                let kvh = h / gqa;
+                let mut scores = vec![0.0f32; cl];
                 for t in 0..cl {
-                    val += scores[t] * self.v_cache[layer][t][kvh * hd + d];
+                    let ks = &kc[t];
+                    let mut dot = 0.0;
+                    let k_off = kvh * hd;
+                    for d in 0..hd {
+                        dot += q[h * hd + d] * ks[k_off + d];
+                    }
+                    scores[t] = dot * scale;
                 }
-                out[h * hd + d] = val;
-            }
-        }
+                // Softmax
+                let max_s = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                let mut sum_exp = 0.0f32;
+                for s in &mut scores {
+                    *s = ((*s) - max_s).exp();
+                    sum_exp += *s;
+                }
+                let inv = 1.0 / (sum_exp + 1e-10);
+                // Weighted sum of V
+                let mut head_out = vec![0.0f32; hd];
+                for d in 0..hd {
+                    let mut val = 0.0;
+                    for t in 0..cl {
+                        val += scores[t] * inv * vc[t][kvh * hd + d];
+                    }
+                    head_out[d] = val;
+                }
+                head_out
+            })
+            .collect();
 
         out
     }
@@ -254,6 +285,7 @@ impl Inference {
     fn forward(&mut self, token: u32) -> Vec<f32> {
         let cfg = &self.cfg;
         let h = cfg.h;
+        let hd = cfg.hd;
 
         // Embedding lookup
         let token_idx = token as usize;
@@ -280,9 +312,28 @@ impl Inference {
             let k = &qkv[qd..qd + kd];
             let v = &qkv[qd + kd..];
 
-            // Copy to mutable arrays for RoPE
+            // Copy to mutable arrays for QK-norm + RoPE
             let mut q_mut = q.to_vec();
             let mut k_mut = k.to_vec();
+
+            // Qwen3 QK-normalization: per-head norm applied before RoPE.
+            // Matches v12 engine: norm each head's vector, scale by q_norm/k_norm weights.
+            let qnw = &self.q_norms[l];
+            let knw = &self.k_norms[l];
+            for hh in 0..cfg.nh {
+                let base = hh * hd;
+                let mut ss = 0.0;
+                for d in 0..hd { ss += q_mut[base + d] * q_mut[base + d]; }
+                let iq = 1.0 / (ss / hd as f32 + EPS).sqrt();
+                for d in 0..hd { q_mut[base + d] *= iq * qnw[d]; }
+            }
+            for kvh in 0..cfg.nkv {
+                let base = kvh * hd;
+                let mut ss = 0.0;
+                for d in 0..hd { ss += k_mut[base + d] * k_mut[base + d]; }
+                let ik = 1.0 / (ss / hd as f32 + EPS).sqrt();
+                for d in 0..hd { k_mut[base + d] *= ik * knw[d]; }
+            }
 
             // RoPE
             self.rope(&mut q_mut, cfg.nh, cfg.hd, self.pos);
@@ -387,12 +438,13 @@ impl Inference {
         for _ in 0..max_new {
             let logits = self.forward(last);
 
-            // Greedy sampling: argmax
+            // Greedy sampling: argmax (skip NaN from NPU precision edge cases)
             let next_tok = logits.iter()
                 .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                .filter(|(_, v)| v.is_finite())
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 .map(|(idx, _)| idx as u32)
-                .unwrap_or(0);
+                .unwrap_or(EOS_ID);
 
             result.push(next_tok);
             if next_tok == EOS_ID {

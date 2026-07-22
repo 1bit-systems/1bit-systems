@@ -1,21 +1,17 @@
 [Unit]
-Description=1bit NPU Daemon (C++ engine, MIT, 97 tok/s)
+Description=1bit NPU Daemon (Pure C++, MIT, 97 tok/s)
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/env python3 /home/bcloud/daemon/npu-gpu-cpud.py --port 9090
+# C++ daemon: spawns zaya_server as subprocess, proxies HTTP on port 13305
+# Use 'onebit up' from the CLI for interactive start/stop management.
+ExecStart=/home/bcloud/1bit-systems/build/onebitd --port 13305 --bitnet-decode /home/bcloud/1bit-systems/build/zaya_server
 Restart=always
 RestartSec=5
 LimitMEMLOCK=infinity
-# NPU C++ engine path (built from engine/npu/Makefile)
-Environment=NPU_ENGINE_BIN=/home/bcloud/engine/npu/build/npu_engine_server
-Environment=NPU_MODEL_PATH=/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx
-Environment=NPU_TOKENIZER_PATH=/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/tokenizer.json
-# Stripe secret key for merch store checkout:
-#   sudo sed -i 's/^#Environment=STRIPE/Environment=STRIPE/' /etc/systemd/system/npu-daemon.service
-#   sudo systemctl daemon-reload && sudo systemctl restart npu-daemon
-#Environment=STRIPE_SECRET_KEY=sk_live_YOUR_KEY_HERE
+# Model path (set via --model flag or environment)
+Environment=ONEBI_MODEL_PATH=/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx
 StandardOutput=journal
 StandardError=journal
 

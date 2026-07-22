@@ -142,8 +142,10 @@ struct DFlashSpec {
     int H, L, NH, NKV, HD, FF, V;
     int N_ROT=64;
     float ROPE_THETA=500000.0f, RMS_EPS=1e-6f;
+    int attn_gate_type = 0;
     
     // KV cache for draft model
+    static constexpr int MAX_KV_POS = 262144;  // 256K tokens (~20 GB per cache for S 2.1)
     std::vector<std::vector<float>> k_cache, v_cache;
     int max_pos=2048, pos=0;
     
@@ -152,6 +154,8 @@ struct DFlashSpec {
         auto& h=draft.header;
         H=h.hidden_size; L=h.num_layers; NH=h.num_attention_heads;
         NKV=h.num_kv_heads; HD=h.head_dim; FF=h.intermediate_size; V=h.vocab_size;
+        attn_gate_type = h.attn_gate_type;
+        mm.GS = h.group_size ? (int)h.group_size : 32;
         printf("DFlash: %dL %dH %dV\n", L, H, V);
         
         k_cache.resize(L); v_cache.resize(L);
@@ -171,9 +175,20 @@ struct DFlashSpec {
     
     void reset() { pos=0; for(auto&k:k_cache)std::fill(k.begin(),k.end(),0.0f); for(auto&v:v_cache)std::fill(v.begin(),v.end(),0.0f); }
     
+    void grow_cache() {
+        if (pos < max_pos) return;
+        int new_cap = max_pos * 2;
+        if (new_cap > MAX_KV_POS) new_cap = MAX_KV_POS;
+        if (new_cap == max_pos) { fprintf(stderr, "KV cache: max context %d reached\n", max_pos); exit(1); }
+        for (auto& k : k_cache) k.resize((size_t)new_cap * NKV * HD, 0.0f);
+        for (auto& v : v_cache) v.resize((size_t)new_cap * NKV * HD, 0.0f);
+        max_pos = new_cap;
+    }
+    
     // Forward one token through the draft model. Appends to KV cache.
     // Returns: logits (vocab_size floats)
     void forward(int token, float* logits, float* hidden_out=nullptr) {
+        grow_cache();
         std::vector<float> hx(H), hx2(H);
         std::vector<float> x(V,0.0f); x[token]=1.0f;
         mm.compute(hx.data(), x.data(), td("token_embd.weight"), H, V);
@@ -255,11 +270,12 @@ struct LagunaInference {
     int SW, SW_PERIOD;
     int N_ROT=64, N_ROT_SWA=128;
     float ROPE_THETA=500000.0f, ROPE_THETA_SWA=10000.0f, EXP_SCALE=2.5f; float RMS_EPS=1e-6f;
-    int expert_gating = 0;
+    int attn_gate_type = 0;
     
     // KV cache
+    static constexpr int MAX_KV_POS = 262144;  // 256K tokens (~20 GB per cache for S 2.1)
     std::vector<std::vector<float>> k_cache, v_cache;
-    int max_pos=16384, pos=0;
+    int max_pos=2048, pos=0;
     
     bool load(const char* path) {
         if(!model.load(path)) return false;
@@ -272,7 +288,8 @@ struct LagunaInference {
         N_ROT_SWA=h.n_rot_swa?h.n_rot_swa:128;
         ROPE_THETA=h.rope_theta(); ROPE_THETA_SWA=h.rope_freq_base_swa();
         EXP_SCALE=h.expert_weights_scale()>0?h.expert_weights_scale():2.5f;
-        expert_gating = (int)h.expert_gating_func;
+        attn_gate_type = h.attn_gate_type;
+        mm.GS = h.group_size ? (int)h.group_size : 32;
         
         printf("Laguna: %dL %dH %dV %dE/%d\n", L, H, V, NE, NEU);
         
@@ -298,15 +315,22 @@ struct LagunaInference {
     void reset() { pos=0; for(auto&k:k_cache)std::fill(k.begin(),k.end(),0.0f);
                   for(auto&v:v_cache)std::fill(v.begin(),v.end(),0.0f); }
     
-    bool is_swa(int il) { return SW>0 && SW_PERIOD>0 && (il%SW_PERIOD)!=0; }
+    void grow_cache() {
+        if (pos < max_pos) return;
+        int new_cap = max_pos * 2;
+        if (new_cap > MAX_KV_POS) new_cap = MAX_KV_POS;
+        if (new_cap == max_pos) { fprintf(stderr, "KV cache: max context %d reached\n", max_pos); exit(1); }
+        for (auto& k : k_cache) k.resize((size_t)new_cap * NKV * HD, 0.0f);
+        for (auto& v : v_cache) v.resize((size_t)new_cap * NKV * HD, 0.0f);
+        max_pos = new_cap;
+    }
+    
+    bool is_swa(int il) { return SW>0 && (il%SW_PERIOD)!=0; }
     bool is_moe(int il) { return il>=N_DENSE_LEAD; }
     
     // Forward one token. Returns logits in provided buffer.
     void forward(int token, float* logits) {
-        if (pos >= max_pos) {
-            fprintf(stderr, "KV cache: hard limit %d reached\n", max_pos);
-            return;
-        }
+        grow_cache();
         std::vector<float> hx(H), hx2(H);
         std::vector<float> x(V,0.0f); x[token]=1.0f;
         mm.compute(hx.data(), x.data(), td("token_embd.weight"), H, V);
@@ -353,10 +377,30 @@ struct LagunaInference {
                 }
                 
                 // Softplus gate
-                std::vector<float> gate_vals(nhi);
-                mm.compute(gate_vals.data(), hx2.data(), td("blk."+std::to_string(il)+".attn_gate.weight"), nhi, H);
-                for(int i=0;i<nhi;i++) gate_vals[i]=logf(1.0f+expf(gate_vals[i]));
-                for(int h=0;h<nhi;h++) for(int d=0;d<HD;d++) att[h*HD+d]*=gate_vals[h];
+                if (attn_gate_type == 0) {
+                    // Per-head gating
+                    std::vector<float> gate_vals(nhi);
+                    mm.compute(gate_vals.data(), hx2.data(), td("blk."+std::to_string(il)+".attn_gate.weight"), nhi, H);
+                    for(int i=0;i<nhi;i++) {
+                        float v=gate_vals[i];
+                        if(v>20.0f) gate_vals[i]=v;
+                        else if(v<-20.0f) gate_vals[i]=0.0f;
+                        else gate_vals[i]=logf(1.0f+expf(v));
+                    }
+                    for(int h=0;h<nhi;h++) for(int d=0;d<HD;d++) att[h*HD+d]*=gate_vals[h];
+                } else {
+                    // Per-element gating
+                    int nge = nhi * HD;
+                    std::vector<float> gate_vals(nge);
+                    mm.compute(gate_vals.data(), hx2.data(), td("blk."+std::to_string(il)+".attn_gate.weight"), nge, H);
+                    for(int i=0;i<nge;i++) {
+                        float v=gate_vals[i];
+                        if(v>20.0f) gate_vals[i]=v;
+                        else if(v<-20.0f) gate_vals[i]=0.0f;
+                        else gate_vals[i]=logf(1.0f+expf(v));
+                    }
+                    for(int i=0;i<nge;i++) att[i]*=gate_vals[i];
+                }
                 
                 mm.compute(hx2.data(), att.data(), td("blk."+std::to_string(il)+".attn_output.weight"), H, nhi*HD);
                 for(int i=0;i<H;i++) hx[i]+=hx2[i];
@@ -371,15 +415,7 @@ struct LagunaInference {
                     mm.compute(router.data(), hx2.data(), td("blk."+std::to_string(il)+".ffn_gate_inp.weight"), NE, H);
                     if(auto eb=w1d("blk."+std::to_string(il)+".exp_probs_b.bias"))
                         for(int i=0;i<NE;i++) router[i]+=eb[i];
-                    if (expert_gating == 1) {  // SOFTMAX
-                        float mx = router[0];
-                        for (int e = 1; e < NE; e++) if (router[e] > mx) mx = router[e];
-                        float sum = 0;
-                        for (int e = 0; e < NE; e++) { router[e] = expf(router[e] - mx); sum += router[e]; }
-                        for (int e = 0; e < NE; e++) router[e] /= sum;
-                    } else {
-                        for (int i = 0; i < NE; i++) router[i] = sigmoidf(router[i]);
-                    }
+                    for(int i=0;i<NE;i++) router[i]=sigmoidf(router[i]);
                     
                     std::vector<int> idx(NE);
                     for(int i=0;i<NE;i++) idx[i]=i;
@@ -388,24 +424,39 @@ struct LagunaInference {
                     float wsum=0; for(int t=0;t<NEU;t++) wsum+=router[idx[t]];
                     if(wsum<1e-10f) wsum=1e-10f;
                     
-                    // Cache MoE weight pointers outside the expert loop
-                    auto* gate_exps_ptr = td3("blk."+std::to_string(il)+".ffn_gate_exps.weight");
-                    auto* up_exps_ptr   = td3("blk."+std::to_string(il)+".ffn_up_exps.weight");
-                    auto* down_exps_ptr = td3("blk."+std::to_string(il)+".ffn_down_exps.weight");
-                    if (!gate_exps_ptr || !up_exps_ptr || !down_exps_ptr) {
-                        fprintf(stderr, "MoE: missing expert weight tensors for layer %d\n", il);
-                        // Fall through to shared expert only
-                    }
-
                     std::vector<float> acc(H,0), gb(NFF_EXP), ub(NFF_EXP), sb(NFF_EXP), db(H);
-                    for(int t=0;t<NEU;t++){
-                        int e=idx[t]; float we=EXP_SCALE*router[e]/wsum;
-                        // Per-expert slice: expert index e within the 3D tensor
-                        // mm.compute handles the offset within the concatenated tensor
-                        mm.compute(gb.data(), hx2.data(), gate_exps_ptr, NFF_EXP, H);
-                        // TODO: per-expert slice dispatch; for now single expert path
+                    // Get 3D expert tensor data and per-expert byte size
+                    auto* exp_data = td3("blk."+std::to_string(il)+".ffn_gate_exps.weight");
+                    if (exp_data) {
+                        // Find tensor to get dims
+                        for (auto& t : model.tensors) {
+                            if (t.name == "blk."+std::to_string(il)+".ffn_gate_exps.weight" && t.ndim == 3) {
+                                int ne = (int)t.dims[0];
+                                int ER = (int)t.dims[1];  // rows per expert
+                                int EC = (int)t.dims[2];  // cols per expert
+                                int n_tr = (ER + mm.TR - 1) / mm.TR;
+                                int n_tc = (EC + mm.TC - 1) / mm.TC;
+                                int rb = (mm.TC/mm.GS)*4 + mm.TC/2;
+                                int expert_bytes = n_tr * n_tc * mm.TR * rb;
+                                for(int t=0;t<NEU;t++){
+                                    int e=idx[t]; float we=EXP_SCALE*router[e]/wsum;
+                                    const uint8_t* gate_expert = exp_data + e * expert_bytes;
+                                    // gate, up, down all have same dimensions
+                                    auto* up_data = td3("blk."+std::to_string(il)+".ffn_up_exps.weight");
+                                    auto* down_data = td3("blk."+std::to_string(il)+".ffn_down_exps.weight");
+                                    const uint8_t* up_expert = up_data + e * expert_bytes;
+                                    const uint8_t* down_expert = down_data + e * expert_bytes;
+                                    mm.compute(gb.data(), hx2.data(), gate_expert, NFF_EXP, ER);
+                                    mm.compute(ub.data(), hx2.data(), up_expert, NFF_EXP, ER);
+                                    silu(sb.data(), gb.data(), ub.data(), NFF_EXP);
+                                    mm.compute(db.data(), sb.data(), down_expert, H, NFF_EXP);
+                                    for(int i=0;i<H;i++) acc[i] += we * db[i];
+                                }
+                                break;
+                            }
+                        }
                     }
-                    // TODO: MoE expert dispatch. For now, fall through to shared expert
+                    for(int i=0;i<H;i++) hx[i] += acc[i];
                     
                     // Shared expert
                     if(NFF_SHEXP>0){
@@ -452,25 +503,35 @@ struct LagunaInference {
             draft.draft_tokens(token, draft_toks.data(), spec_N, draft_hidden.data());
             total_draft += spec_N;
             
-            // Main: verify all draft tokens in one forward pass
-            // For strict verification, we need to run the main model on each draft token
-            // For simplicity, verify one at a time
+            // Main: verify all draft tokens one at a time with distributional acceptance
+            // NOTE: Since DFlash only provides argmax draft tokens (not full probability
+            // distributions), we approximate the acceptance ratio as q(draft)/q(max_target)
+            // instead of the ideal min(1, q/p). This is a known approximation.
             int accepted = 0;
             int prev_pos = pos;
             
             for(int i = 0; i < spec_N; i++) {
                 forward(token, logits.data());
-                int expected = sampler.argmax(logits.data(), V);
-                if(draft_toks[i] == expected) {
-                    // Accepted!
+                // Compute softmax for distributional acceptance
+                std::vector<float> probs(logits.data(), logits.data() + V);
+                softmax(probs.data(), V);
+                // Acceptance: min(1, q(draft_tok) / q(max_target))
+                // NOTE: ideal is min(1, q/p) where p=draft prob. Since DFlash only gives argmax,
+                // we use q(max_target) as a proxy. This is an approximation.
+                float max_prob = probs[0];
+                for(int j = 1; j < V; j++) if(probs[j] > max_prob) max_prob = probs[j];
+                float accept_prob = 1.0f;
+                if(max_prob > 0.0f && draft_toks[i] >= 0 && draft_toks[i] < V)
+                    accept_prob = std::min(1.0f, probs[draft_toks[i]] / max_prob);
+                std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+                if(dist(sampler.rng) < accept_prob) {
                     output.push_back(draft_toks[i]);
                     token = draft_toks[i];
                     accepted++;
                     total_accepted++;
                 } else {
-                    // First mismatch: use main model's prediction
-                    output.push_back(expected);
-                    token = expected;
+                    token = sampler.sample(logits.data(), V);
+                    output.push_back(token);
                     break;
                 }
             }

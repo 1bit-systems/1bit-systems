@@ -1,11 +1,12 @@
-CC = gcc
-CFLAGS = -O3 -Wall -Wextra
+CXX = g++
+CXXFLAGS = -std=c++17 -O3 -Wall -Wextra
 TARGET = tokenize
+SRC = tokenize.cpp
 
 all: $(TARGET)
 
-$(TARGET): tokenize.c
-	$(CC) $(CFLAGS) -o $(TARGET) tokenize.c -lm
+$(TARGET): $(SRC)
+	$(CXX) $(CXXFLAGS) -o $(TARGET) $(SRC)
 
 clean:
 	rm -f $(TARGET)

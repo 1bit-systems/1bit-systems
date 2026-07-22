@@ -260,7 +260,8 @@ void HttpSession::handle_request(bool cors) {
         options_res->result(http::status::ok); 
         options_res->keep_alive(req_.keep_alive());
 
-        options_res->set("Access-Control-Allow-Origin", "*");
+        const char* cors_origin = getenv("ZAYA_CORS_ORIGIN");
+        options_res->set("Access-Control-Allow-Origin", cors_origin ? cors_origin : "http://127.0.0.1");
         options_res->set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
         options_res->set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
 
@@ -323,7 +324,8 @@ void HttpSession::write_response() {
 
     std::cout << "================================================" << std::endl;
 
-    res_.set("Access-Control-Allow-Origin", "*");
+    const char* cors_origin = getenv("ZAYA_CORS_ORIGIN");
+    res_.set("Access-Control-Allow-Origin", cors_origin ? cors_origin : "http://127.0.0.1");
     res_.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res_.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
 
@@ -406,7 +408,10 @@ void HttpSession::write_streaming_response(const json& data, bool is_final) {
         headers += "Cache-Control: no-cache\r\n";
         headers += "Connection: keep-alive\r\n";
         headers += "Transfer-Encoding: chunked\r\n";
-        headers += "Access-Control-Allow-Origin: *\r\n";
+        const char* cors_origin = getenv("ZAYA_CORS_ORIGIN");
+        headers += "Access-Control-Allow-Origin: ";
+        headers += cors_origin ? cors_origin : "http://127.0.0.1";
+        headers += "\r\n";
         headers += "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n";
         headers += "Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With\r\n";
         headers += "\r\n";

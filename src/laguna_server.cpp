@@ -19,11 +19,14 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-static const char* RESP_HEADER = 
-    "HTTP/1.1 200 OK\r\n"
-    "Content-Type: application/json\r\n"
-    "Access-Control-Allow-Origin: *\r\n"
-    "Connection: close\r\n\r\n";
+static std::string cors_origin_header() {
+    const char* origin = getenv("ZAYA_CORS_ORIGIN");
+    return std::string("Access-Control-Allow-Origin: ") + (origin ? origin : "http://127.0.0.1") + "\r\n";
+}
+static std::string build_resp_header() {
+    return std::string("HTTP/1.1 200 OK\r\n"
+        "Content-Type: application/json\r\n") + cors_origin_header() + "Connection: close\r\n\r\n";
+}
 
 static const char* NOTFOUND =
     "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\nNot Found";
@@ -132,7 +135,7 @@ void handle_client(int client, InferenceEngine& engine) {
         "\"finish_reason\":\"stop\"}],"
         "\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}";
     
-    std::string resp = RESP_HEADER + std::string(json);
+    std::string resp = build_resp_header() + std::string(json);
     write(client, resp.c_str(), resp.size());
     close(client);
 }

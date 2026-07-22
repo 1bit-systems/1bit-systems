@@ -93,6 +93,13 @@ impl Q4nxReader {
         Some(values)
     }
 
+    /// Return the number of bf16 elements in a tensor, or None if not found.
+    pub fn tensor_bf16_count(&self, name: &str) -> Option<usize> {
+        let (start, end) = self.offsets.get(name)?;
+        let byte_len = end.checked_sub(*start)?;
+        Some(byte_len / 2)
+    }
+
     /// Check if a tensor exists in the file.
     pub fn has_tensor(&self, name: &str) -> bool {
         self.offsets.contains_key(name)

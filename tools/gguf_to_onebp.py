@@ -15,8 +15,9 @@ from gguf import GGUFReader, dequantize
 # ─── Helpers ────────────────────────────────────────────────────────────────
 
 def f32b(v):
-    """float32 -> upper 16 bits (BF16-like)."""
-    return np.float32(v).view(np.uint32) >> 16
+    """float32 -> bf16 with round-to-nearest-even."""
+    x = int(np.float32(v).view(np.uint32))
+    return np.uint16((x + 0x7FFF + ((x >> 16) & 1)) >> 16)
 
 def quant_tile(data, tr=32, tc=256, gs=32):
     """Q4NX tile quantization: asymmetric 4-bit, bf16 scales/zero_points per group of 32."""
@@ -25,10 +26,24 @@ def quant_tile(data, tr=32, tc=256, gs=32):
     grps = pc // gs
     padded = np.zeros((pr, pc), dtype=np.float32)
     padded[:r, :c] = data
-    grouped = padded.reshape(pr, grps, gs)
 
-    mn = grouped.min(axis=2)
-    mx = grouped.max(axis=2)
+    # Compute min/max on original data only — zero padding for partial
+    # edge tiles must not pull min toward zero (issue #639).
+    mn = np.zeros((pr, grps), dtype=np.float32)
+    mx = np.zeros((pr, grps), dtype=np.float32)
+    n_full_grps = c // gs
+    if n_full_grps > 0:
+        full = data[:, :n_full_grps * gs].reshape(r, n_full_grps, gs)
+        mn[:r, :n_full_grps] = full.min(axis=2)
+        mx[:r, :n_full_grps] = full.max(axis=2)
+    rem = c % gs
+    if rem > 0:
+        part = data[:, n_full_grps * gs:]
+        mn[:r, n_full_grps] = part.min(axis=1)
+        mx[:r, n_full_grps] = part.max(axis=1)
+    # padded rows (r..pr) stay at 0.0 min/max
+
+    grouped = padded.reshape(pr, grps, gs)
     rng = mx - mn
     flat_range = rng < 1e-10
     scale = np.where(flat_range, 0.0, rng / 15.0)
@@ -52,8 +67,19 @@ def quant_tile_tq2(data, tr=32, tc=256, gs=32):
     grps = pc // gs
     padded = np.zeros((pr, pc), dtype=np.float32)
     padded[:r, :c] = data
+    
+    # Compute max abs on original data only (same #639 fix for TQ2).
+    mx = np.zeros((pr, grps), dtype=np.float32)
+    n_full_grps = c // gs
+    if n_full_grps > 0:
+        full = data[:, :n_full_grps * gs].reshape(r, n_full_grps, gs)
+        mx[:r, :n_full_grps] = np.abs(full).max(axis=2)
+    rem = c % gs
+    if rem > 0:
+        part = data[:, n_full_grps * gs:]
+        mx[:r, n_full_grps] = np.abs(part).max(axis=1)
+
     grouped = padded.reshape(pr, grps, gs)
-    mx = np.abs(grouped).max(axis=2)
     scale = np.where(mx < 1e-10, 1.0, mx).astype(np.float32)
     sc = f32b(scale).astype(np.uint16)
     inv = 1.0 / scale
@@ -137,11 +163,11 @@ def _gf_f32(rd, field):
     """Read a float32 GGUF metadata field."""
     v = rd.fields.get(field)
     if v is None or len(v.parts) < 4:
-        return 0.0
+        return None
     try:
         return float(_gf_val(v.parts[3]))
     except Exception:
-        return 0.0
+        return None
 
 def _get_arch_fields(arch):
     """Return list of arch-qualified field prefixes to try."""
@@ -174,7 +200,7 @@ def _read_metadata(rd):
     def r_f32(field):
         for p in prefixes:
             v = _gf_f32(rd, f"{p}.{field}")
-            if v:
+            if v is not None:
                 return v
         return 0.0
 
@@ -218,11 +244,11 @@ def _read_metadata(rd):
         # First try with prefix
         for p in prefixes:
             v = _gf_f32(rd, f"{p}.{field}")
-            if v != 0.0:
+            if v is not None:
                 return v
         # Then try exact key
         v = r_f32_direct(field)
-        if v != 0.0:
+        if v is not None:
             return v
         return 0.0
 
@@ -461,7 +487,7 @@ def main():
 
     # Model tag for identification
     tag = f"gguf:{arch}"
-    hdr[208:208+len(tag)] = tag.encode()
+    hdr[192:192+len(tag)] = tag.encode()
 
     print(f"Quant: {'TQ2 (2-bit symmetric ternary)' if tq2 else 'Q4NX (4-bit)'}")
     print(f"Arch enum: {arch_enum} ({arch}), header size: {len(hdr)} bytes")

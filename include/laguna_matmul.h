@@ -6,6 +6,14 @@
 #include <cmath>
 #include <vector>
 #include <algorithm>
+#include <cassert>
+
+// BF16→FP32 conversion relies on little-endian byte order for the
+// (bf16 << 16) bit pattern. x86 and AMD GPU are little-endian.
+// NOTE: This is a practical constraint, not a theoretical limitation.
+// On big-endian hosts, a manual sign/exp/mantissa reconstruction would be needed.
+static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
+              "1bit-systems requires little-endian host (x86/AMD64)");
 
 // Byte-order guard — 1bit-systems requires little-endian host
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
@@ -44,6 +52,9 @@ inline void laguna_matmul(float* y, const float* x, const uint8_t* wd, int M, in
 }
 
 // Math ops
+// NOTE: These CPU implementations don't need softplus/silu clamping for activations
+// since CPU code uses the numerically stable softplus_inplace in backend_laguna.cpp.
+// Any future GPU kernel porting these ops should clamp inputs to prevent exp() overflow.
 inline void laguna_rmsnorm(float* o, const float* x, const float* w, int n, float eps=1e-6f) {
     float ss=0;for(int i=0;i<n;i++)ss+=x[i]*x[i];
     float r=1.0f/sqrtf(ss/(float)n+eps);
