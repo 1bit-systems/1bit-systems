@@ -7,6 +7,7 @@
 /// Each operation (dmmv_q4k, rms_norm, flash_attn, rope, swiglu, etc.)
 /// is a compute shader dispatch with push constants + buffer bindings.
 #include "vulkan_wrapper.h"
+#include "model_loader.h"
 #include <vector>
 #include <cstdint>
 #include <cstdio>
@@ -97,6 +98,8 @@ private:
     ComputePipelineCache& pipelines_;
     VkDescriptorSetLayout desc_set_layout_ = VK_NULL_HANDLE;
     VkPipelineLayout pipe_layout_ = VK_NULL_HANDLE;
+    VkDescriptorPool desc_pool_ = VK_NULL_HANDLE;
+    VkPipelineLayout get_pipeline_layout();
 };
 
 // ─── Inference engine — orchestrates model layers on GPU ───────────────
