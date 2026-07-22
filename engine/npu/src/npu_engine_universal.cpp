@@ -1020,7 +1020,7 @@ int main(int argc,char**argv){
         }
         } catch (const std::exception& e) {
             fprintf(stderr, "[npu_engine] layer loop failed: %s — aborting batch\n", e.what());
-            return;
+            return 1;
         }
 
         // LM head on the (single, BS=1) decoded position -> greedy next token.
