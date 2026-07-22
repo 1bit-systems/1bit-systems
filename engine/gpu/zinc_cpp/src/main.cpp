@@ -70,9 +70,14 @@ int main(int argc, char** argv) {
     }
 
     // ── Init Vulkan ──
-    ZincEngine engine;
+    auto engine = std::make_unique<ZincEngine>();
     try {
-        engine.init("shaders", device_idx);
+    #ifdef ZINC_SHADER_DIR
+    std::string shader_dir = ZINC_SHADER_DIR;
+#else
+    std::string shader_dir = "shaders";
+#endif
+    engine->init(shader_dir, device_idx);
     } catch (const std::exception& e) {
         fprintf(stderr, "Failed to init Vulkan: %s\n", e.what());
         return 1;
@@ -80,29 +85,29 @@ int main(int argc, char** argv) {
 
     // ── Load model ──
     printf("\n── Loading Model ──\n");
-    ModelLoader loader(engine.device(), engine.queue(),
-                        engine.queue_family(), *engine.cmd_pool());
-    ModelGPU model;
-    if (!loader.load(model_path, model)) {
+    auto loader = std::make_unique<ModelLoader>(engine->device(), engine->queue(),
+                        engine->queue_family(), *engine->cmd_pool());
+    auto model = std::make_unique<ModelGPU>();
+    if (!loader->load(model_path, *model)) {
         fprintf(stderr, "Failed to load model\n");
         return 1;
     }
 
     // ── Init compute engine ──
     printf("\n── Init Compute ──\n");
-    ComputeEngine compute(engine.device(), engine.queue(),
-                          engine.queue_family(), *engine.cmd_pool(),
-                          *engine.pipeline_cache());
-    InferenceEngine infer;
-    infer.init(compute, model);
+    auto compute = std::make_unique<ComputeEngine>(engine->device(), engine->queue(),
+                          engine->queue_family(), *engine->cmd_pool(),
+                          *engine->pipeline_cache());
+    auto infer = std::make_unique<InferenceEngine>();
+    infer->init(*compute, *model);
 
     // ── Quick benchmark ──
     printf("\n── Benchmark (10 tokens) ──\n");
-    infer.reset();
+    infer->reset();
     auto t0 = std::chrono::high_resolution_clock::now();
-    int tok = 0;  // BOS
+    int tok = 1;  // BOS (Llama convention, fix #780)
     for (int i = 0; i < 10; i++) {
-        tok = infer.generate(tok);
+        tok = infer->generate(tok);
         if (tok < 0) break;
     }
     float ms = std::chrono::duration<float, std::milli>(
@@ -115,6 +120,14 @@ int main(int argc, char** argv) {
     while (keep_running) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
+
+    // Cleanup: unique_ptrs destroy in reverse declaration order automatically
+    // engine is destroyed LAST, so compute's refs to engine's cmd_pool/pipelines stay valid (fix #779)
+    infer.reset();
+    compute.reset();
+    model.reset();
+    loader.reset();
+    engine.reset();
 
     printf("\nShutting down...\n");
     return 0;
