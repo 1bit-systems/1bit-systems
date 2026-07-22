@@ -1,0 +1,53 @@
+#version 460
+// Fused SiLU+down: reads gate[0..M] and up[M..2M] from input buffer,
+// computes silu(gate) * up element-wise, then does down projection matmul.
+// Replaces silu_mul + gemv down with one dispatch.
+// Binding 0: gate+up input [2*inter]
+// Binding 1: output [hidden]
+// Binding 2: down weights [hidden, inter] Q4_K format
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+layout(std430, binding = 0) readonly buffer GU { float gu[]; };
+layout(std430, binding = 1) writeonly buffer Y { float y[]; };
+layout(std430, binding = 2) readonly buffer W { uint w[]; };
+layout(push_constant) uniform Push { uint M, N, K, s; float sc, eps, th, p; int tok, l, h, pos; } pc;
+
+shared float rd[256];
+float silu(float x) { return x / (1.0 + exp(-x)); }
+
+float b2f(uint base, uint off) {
+    uint word = w[(base + off) / 4u];
+    uint shift = ((base + off) & 3u) * 8u;
+    return float((word >> shift) & 0xFFu);
+}
+float b2f16(uint base, uint off) {
+    float lo = b2f(base, off), hi = b2f(base, off + 1u);
+    float v = lo + hi * 256.0;
+    return (v > 32767.0) ? v - 65536.0 : v;
+}
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint row = gl_WorkGroupID.x;
+    if (row >= pc.M) return;  // M = hidden
+    
+    uint blocks = (pc.K + 255u) / 256u;  // K = inter
+    float sum = 0.0;
+    for (uint b = 0u; b < blocks; b++) {
+        uint base = (row * blocks + b) * 144u;
+        float d = b2f16(base, 0u), mn = b2f16(base, 2u);
+        float part = 0.0;
+        for (uint j = tid; j < 256u && j < pc.K - b * 256u; j += 256u) {
+            // Compute SiLU(gate) * up on the fly
+            float gate = gu[b * 256u + j];
+            float up = gu[pc.K + b * 256u + j];
+            float activated = silu(gate) * up;
+            float by = b2f(base, 16u + j / 2u);
+            float nib = (j & 1u) != 0u ? floor(by / 16.0) : mod(by, 16.0);
+            part += (nib * d + mn) * activated;
+        }
+        rd[tid] = part; barrier();
+        for (uint sz = 128u; sz > 0u; sz >>= 1u) { if (tid < sz) rd[tid] += rd[tid + sz]; barrier(); }
+        if (tid == 0u) sum += rd[0]; barrier();
+    }
+    if (tid == 0u) y[row] = sum;
+}

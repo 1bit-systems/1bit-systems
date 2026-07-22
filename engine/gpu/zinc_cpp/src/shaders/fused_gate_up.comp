@@ -1,0 +1,58 @@
+#version 460
+// Fused gate+up projection: output = input @ [Wgate, Wup]^T
+// Weights stored as uint array (byte-addressable via bit ops)
+// Q4_K format: 144 bytes per 256-element block
+// Push: M = total output dim (2*inter), K = hidden
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+layout(std430, binding = 0) readonly buffer X { float x[]; };
+layout(std430, binding = 1) writeonly buffer Y { float y[]; };
+layout(std430, binding = 2) readonly buffer W { uint w[]; };
+layout(push_constant) uniform Push { uint M, N, K, s; float sc, eps, th, p; int tok, l, h, pos; } pc;
+
+shared float xc[4096];
+shared float rd[256];
+
+float b2f(uint base, uint off) {
+    uint word = w[(base + off) / 4u];
+    uint shift = ((base + off) & 3u) * 8u;
+    return float((word >> shift) & 0xFFu);
+}
+float b2f16(uint base, uint off) {
+    float lo = b2f(base, off);
+    float hi = b2f(base, off + 1u);
+    float v = lo + hi * 256.0;
+    return (v > 32767.0) ? v - 65536.0 : v;
+}
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint row = gl_WorkGroupID.x;
+    if (row >= pc.M) return;
+    
+    for (uint i = tid; i < pc.K; i += 256u) xc[i] = x[i];
+    barrier();
+    
+    uint blocks = (pc.K + 255u) / 256u;
+    float sum = 0.0;
+    for (uint b = 0u; b < blocks; b++) {
+        uint base = (row * blocks + b) * 144u;
+        float d = b2f16(base, 0u);
+        float mn = b2f16(base, 2u);
+        
+        float part = 0.0;
+        for (uint j = tid; j < 256u && j < pc.K - b * 256u; j += 256u) {
+            float by = b2f(base, 16u + j / 2u);
+            float nib = (j & 1u) != 0u ? floor(by / 16.0) : mod(by, 16.0);
+            part += (nib * d + mn) * xc[b * 256u + j];
+        }
+        rd[tid] = part;
+        barrier();
+        for (uint sz = 128u; sz > 0u; sz >>= 1u) {
+            if (tid < sz) rd[tid] += rd[tid + sz];
+            barrier();
+        }
+        if (tid == 0u) sum += rd[0];
+        barrier();
+    }
+    if (tid == 0u) y[row] = sum;
+}

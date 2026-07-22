@@ -1,0 +1,64 @@
+#version 460
+// Fused QKV projection: output = input @ [WQ, WK, WV]^T
+// Weights stored as uint array (byte-addressable via bit ops)
+// Q4_K format: 144 bytes per 256-element block
+// Push: M = total output dim, K = hidden
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+layout(std430, binding = 0) readonly buffer X { float x[]; };
+layout(std430, binding = 1) writeonly buffer Y { float y[]; };
+layout(std430, binding = 2) readonly buffer W { uint w[]; };  // byte data as uint32
+layout(push_constant) uniform Push { uint M, N, K, s; float sc, eps, th, p; int tok, l, h, pos; } pc;
+
+shared float xc[4096];
+shared float rd[256];
+
+// Extract byte from uint array (little-endian)
+float b2f(uint base, uint off) {
+    uint word = w[(base + off) / 4];
+    uint shift = ((base + off) & 3) * 8;
+    return float((word >> shift) & 0xFFu);
+}
+
+// Extract 16-bit value (little-endian)
+float b2f16(uint base, uint off) {
+    float lo = b2f(base, off);
+    float hi = b2f(base, off + 1);
+    float v = lo + hi * 256.0;
+    return (v > 32767.0) ? v - 65536.0 : v;  // signed int16
+}
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint row = gl_WorkGroupID.x;
+    if (row >= pc.M) return;
+    
+    for (uint i = tid; i < pc.K; i += 256) xc[i] = x[i];
+    barrier();
+    
+    uint blocks = (pc.K + 255u) / 256u;
+    float sum = 0.0;
+    for (uint b = 0; b < blocks; b++) {
+        uint boff = (row * blocks + b) * 144u / 4u;  // byte offset in uint units
+        // Wait, 144 bytes = 36 uint32. But byte offset needs to be in bytes.
+        // Let me redo: block starts at (row * blocks + b) * 144 bytes
+        uint base = (row * blocks + b) * 144u;  // byte offset
+        float d = b2f16(base, 0);
+        float mn = b2f16(base, 2);
+        
+        float part = 0.0;
+        for (uint j = tid; j < 256u && base + j < pc.K; j += 256u) {
+            float by = b2f(base, 16u + j / 2u);
+            float nib = (j & 1u) != 0u ? floor(by / 16.0) : mod(by, 16.0);
+            part += (nib * d + mn) * xc[b * 256u + j];
+        }
+        rd[tid] = part;
+        barrier();
+        for (uint sz = 128u; sz > 0u; sz >>= 1u) {
+            if (tid < sz) rd[tid] += rd[tid + sz];
+            barrier();
+        }
+        if (tid == 0u) sum += rd[0];
+        barrier();
+    }
+    if (tid == 0u) y[row] = sum;
+}
