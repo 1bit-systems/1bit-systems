@@ -9,19 +9,25 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(hip REQUIRED)
 find_package(XRT QUIET)
 
-# ── npu_engine_universal (flagship — all ops: QKV, O, GU, D, attention) ──
+# ── C++ source files (ported from Zig) ───────────────────────────
 set(NPU_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
+set(NPU_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+set(NPU_CXX_SOURCES
+    ${NPU_SRC_DIR}/xrt_wrapper.cpp
+)
+
+# ── npu_engine_universal (flagship — all ops: QKV, O, GU, D, attention) ──
 set(NPU_ENGINE_SOURCES
     ${NPU_SRC_DIR}/npu_engine_universal.cpp
     ${NPU_SRC_DIR}/dequant_q4nx.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../npu-infer/src/flm_bridge.cpp
+    ${NPU_CXX_SOURCES}
 )
 
 add_executable(npu_engine_universal ${NPU_ENGINE_SOURCES})
 
 target_include_directories(npu_engine_universal PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${NPU_INCLUDE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../../npu-infer/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../../include   # npu_instr.hpp, npu_app.hpp
 )
@@ -68,12 +74,13 @@ find_library(XRT_COREUTIL xrt_coreutil)
 set(NPU_CB_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/npu_engine_cb.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/dequant_q4nx.c
+    ${NPU_CXX_SOURCES}
 )
 
 add_executable(npu_engine_cb ${NPU_CB_SOURCES})
 
 target_include_directories(npu_engine_cb PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${NPU_INCLUDE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../../npu-infer/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../../include   # npu_instr.hpp, npu_app.hpp
 )
