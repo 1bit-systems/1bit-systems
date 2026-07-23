@@ -37,10 +37,10 @@ static inline float bf16_to_float(uint16_t v) {
  * out_rows = n_tile_rows * 32, out_cols = n_tile_cols * 256
  */
 // Forward declaration for the wrapper
-float* dequant_i8_to_float_ex(const uint8_t* data, int i8_rows, int in_features,
+extern "C" float* dequant_i8_to_float_ex(const uint8_t* data, int i8_rows, int in_features,
                               int* out_rows, int* out_cols);
 
-float* dequant_i8_to_float(const uint8_t* data, int i8_rows,
+extern "C" float* dequant_i8_to_float(const uint8_t* data, int i8_rows,
                            int* out_rows, int* out_cols) {
     return dequant_i8_to_float_ex(data, i8_rows, 1024, out_rows, out_cols);
 }
@@ -49,7 +49,7 @@ float* dequant_i8_to_float(const uint8_t* data, int i8_rows,
  * Extended version with explicit in_features (hidden_dim).
  * For Q4NX format: n_tile_cols = in_features / TILE_COLS.
  */
-float* dequant_i8_to_float_ex(const uint8_t* data, int i8_rows, int in_features,
+extern "C" float* dequant_i8_to_float_ex(const uint8_t* data, int i8_rows, int in_features,
                               int* out_rows, int* out_cols) {
     // Determine tile grid: rows first, columns second
     int n_tile_cols, n_tile_rows;

@@ -212,33 +212,110 @@ __global__ void mamba2_conv1d_kernel(
     }
 }
 
-// ── Mamba2 Fused Layer Kernel (single token decode) ──
-// Processes one token through the entire Mamba2 layer.
-// This is the main kernel used for autoregressive decoding.
-// 
-// Grid: 1 block per layer
-// Block: enough threads for d_inner + n_head parallelism
-__global__ void mamba2_layer_decode_kernel(
-    // Inputs
-    const float* __restrict__ x_in,          // [d_model]
-    const float* __restrict__ in_proj_w,     // [d_in_proj, d_model]
-    const float* __restrict__ conv1d_w,      // [d_conv, conv_dim]
-    const float* __restrict__ conv1d_b,      // [conv_dim]
-    const float* __restrict__ dt_bias,       // [n_head]
-    const float* __restrict__ A_log,         // [n_head]
-    const float* __restrict__ D,             // [n_head]
-    const float* __restrict__ norm_w,        // [d_inner/n_group, n_group]
-    const float* __restrict__ out_proj_w,    // [d_model, d_inner]
-    // State (updated)
-    float* __restrict__ conv_state,          // [d_conv-1, conv_dim]
-    float* __restrict__ ssm_state,           // [d_state, d_inner]
-    // Output
-    float* __restrict__ y_out,               // [d_model]
-    // Config
+// ── Simple GEMV (matrix-vector multiply) for single-token decode ──
+// y[M] = A[M,N] @ x[N]
+__global__ void gemv_kernel(
+    const float* __restrict__ A, const float* __restrict__ x,
+    float* __restrict__ y, int M, int N) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= M) return;
+    float sum = 0.0f;
+    #pragma unroll 4
+    for (int j = 0; j < N; j++) sum += A[(long)i * N + j] * x[j];
+    y[i] = sum;
+}
+
+// ── SiLU activation (in-place) ──
+__global__ void silu_kernel(float* x, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    float v = x[i];
+    x[i] = v / (1.0f + expf(-v));
+}
+
+// ── Element-wise multiply: y = y * x ──
+__global__ void mul_kernel(float* y, const float* x, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) y[i] *= x[i];
+}
+
+// ── Apply dt_bias: dt += dt_bias (in-place) ──
+__global__ void add_dt_bias_kernel(float* dt, const float* dt_bias, int n_head) {
+    int i = threadIdx.x;
+    if (i < n_head) dt[i] += dt_bias[i];
+}
+
+// ── GPU Mamba2 decode block: orchestrates all sub-kernels for one token ──
+void mamba2_gpu_decode_block(
+    const float* x_in, const float* in_proj_w,
+    const float* conv1d_w, const float* conv1d_b,
+    const float* dt_bias, const float* A_log, const float* D,
+    const float* out_proj_w,
+    float* conv_state, float* ssm_state, float* y_out,
+    float* tmp,
     int d_model, int d_inner, int d_state, int d_conv,
-    int n_head, int n_group, int head_dim, int conv_dim
-) {
-    // This kernel is split into separate operations for clarity.
-    // On real hardware, these would be fused.
-    // For now, we use separate kernels composed by the engine.
+    int n_head, int n_group, int head_dim, int conv_dim,
+    hipStream_t stream)
+{
+    int d_in_proj = d_inner + conv_dim + n_head;
+    int threads = 256;
+
+    // 1. in_proj: tmp[0..d_in_proj] = in_proj_w @ x_in
+    int blocks_in = (d_in_proj + threads - 1) / threads;
+    hipLaunchKernelGGL(gemv_kernel, dim3(blocks_in), dim3(threads), 0, stream,
+        in_proj_w, x_in, tmp, d_in_proj, d_model);
+
+    // Split pointers into tmp:
+    float* z   = tmp;                    // [d_inner]
+    float* xBC = tmp + d_inner;          // [conv_dim]
+    float* dt  = tmp + d_inner + conv_dim; // [n_head]
+
+    // 2. conv1d: xBC' = silu(conv1d(xBC) + conv1d_b)
+    //    Uses L=1 (single token decode)
+    //    conv1d_kernel expects [B, L, conv_dim], B=1, L=1
+    dim3 conv_grid(conv_dim, 1);
+    dim3 conv_block(1, 1);
+    float* conv_out = tmp + d_in_proj;  // reuse tmp tail, conv_dim elements
+    hipLaunchKernelGGL(mamba2_conv1d_kernel, conv_grid, conv_block, 0, stream,
+        xBC, conv1d_w, conv1d_b, conv_out, conv_state,
+        1, 1, d_conv, conv_dim);
+
+    // silu activation in-place on conv_out
+    int blocks_silu = (conv_dim + threads - 1) / threads;
+    hipLaunchKernelGGL(silu_kernel, dim3(blocks_silu), dim3(threads), 0, stream,
+        conv_out, conv_dim);
+
+    // Copy conv_out back to xBC position for split (or use separate pointers)
+    float* xBC_act = conv_out;  // [conv_dim]
+    // Split xBC_act into x, B, C within shared tmp
+    float* x_seg  = xBC_act;                         // [d_inner]
+    float* B_seg  = xBC_act + d_inner;               // [n_group * d_state]
+    float* C_seg  = xBC_act + d_inner + n_group * d_state; // [n_group * d_state]
+
+    // 3. Apply dt_bias: dt += dt_bias
+    hipLaunchKernelGGL(add_dt_bias_kernel, dim3(1), dim3(n_head), 0, stream,
+        dt, dt_bias, n_head);
+
+    // 4. selective_scan for each head (L=1, B=1)
+    dim3 scan_grid(n_head, 1, 1);
+    dim3 scan_block(d_state > 32 ? d_state : 64);  // at least d_state threads
+    hipLaunchKernelGGL(mamba2_selective_scan_kernel, scan_grid, scan_block, 0, stream,
+        x_seg, dt, A_log, B_seg, C_seg, D,
+        tmp + d_in_proj + conv_dim,  // y_inner output after scan
+        ssm_state,
+        1, 1, d_inner, d_state, n_head, n_group, head_dim);
+
+    // 5. Gate: y_inner *= silu(z)
+    float* y_inner = tmp + d_inner;  // reuse xBC area after conv is done
+    int blocks_gate = (d_inner + threads - 1) / threads;
+    hipLaunchKernelGGL(silu_kernel, dim3(blocks_gate), dim3(threads), 0, stream,
+        z, d_inner);  // silu in-place on z
+    // Multiply: y_inner = y_inner * z
+    hipLaunchKernelGGL(mul_kernel, dim3(blocks_gate), dim3(threads), 0, stream,
+        y_inner, z, d_inner);
+
+    // 6. out_proj: y_out[d_model] = out_proj_w @ y_inner
+    int blocks_out = (d_model + threads - 1) / threads;
+    hipLaunchKernelGGL(gemv_kernel, dim3(blocks_out), dim3(threads), 0, stream,
+        out_proj_w, y_inner, y_out, d_model, d_inner);
 }

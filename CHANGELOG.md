@@ -1,11 +1,32 @@
 # Changelog
 
+All notable changes to 1bit.systems. Versioning is **date-based** (`YYYY.MM.DD`),
+matching the GitHub release tags (`vYYYY.MM.DD`).
+
+## Unreleased
+
+- **Pure-C++ 1BP toolchain, end to end.** Ported the `--tq2` symmetric-ternary
+  quant path into `tools/gguf_to_onebp.cpp` (was Q4NX-only) and registered it as
+  a first-class CMake target — the advertised `gguf_to_onebp model.gguf out.1bp
+  --tq2` is now a real C++ binary, zero Python in the convert path. Verified:
+  TQ2 output is exactly half of Q4NX and losslessly round-trips ternary input.
+- **Engine health confirmed on-device**: BlackMamba-1.5B at **74.8 tok/s** live
+  on Strix Halo (Radeon 8060S, gfx1151), three clean runs, no hangs.
+- **Landing page**: new flagship 1BP model showcase (measured perf + direct
+  Hugging Face download links) and a second-level **Zyphra** + **Poolside Laguna**
+  family showcase. "One binary to rule them all" badge restored.
+- **Repo hygiene**: untracked 431 committed `build_cmake/` artifacts + stray
+  `Desktop/` that had been polluting every diff; reorganized 50 flat docs into
+  `docs/{archive,marketing}/` + a navigation index; README marketing refresh.
+- **Compiler warnings cleared** (#827 dead watchdog stores, #828 unused params,
+  #829 dead `decode_ternary_word`/`qkv_dim`).
+
 ## 2026.07.20
 
 - **Mamba1 GPU backend fully wired and fixed.** `backend_mamba1.cpp` + `mamba1_engine.hip` now compile as a first-class backend in `libbackend_manager.a`. Three critical correctness bugs fixed: conv state buffer overflow (shift loop out-of-bounds write), A_log never exponentiated (SSM scan used raw A_log instead of `A = -exp(A_log)`), and HIP device stub linkage (kernel launches wrapped in `extern "C"` helpers). BlackMamba 1.5B runs at **79.8 tok/s**, BlackMamba 2.8B at **46.4 tok/s** on Strix Halo (ROCm HIP, 15+15 MoE layers alternating). Diagnostic tool `tools/test_mamba1_backend.cpp` added for direct backend testing (#579).
 - BlackMamba 1.5B and 2.8B GGUF files converted from HF cache (F16, 438/525 tensors) and benchmarked.
 
-## 2026.07.20
+## 2026.07.19
 
 - **FastFlowLM fully reverse-engineered and replaced as the default NPU path.** 22 closed-source `.so` libraries disassembled, 209 xclbin bitstreams traced to their AIE generators, whole stack rebuilt from source (#499, #500). `model_router.cpp` now routes qwen3-architecture models to the native, open-source `npu_xrt` engine first, with the FastFlowLM subprocess kept only as a fallback (#567) — its single-core GEMM kernels are correctness-verified on real hardware (`docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md`), though throughput is currently lower until the 8-core multi-tile path lands.
 - **Model-agnostic engine, broadened further**: GGUF architecture support 2→8 (LLAMA, MISTRAL, QWEN2, GEMMA, PHI, ZAMBA2), quant support 4→13 (Q4_1/Q5_0/Q5_1 legacy + full K-quant family), HIP backend now takes runtime `ModelConfig` instead of hardcoded dims, GGUF parsing consolidated into one shared, verified module (#436, #474, #488, #489, #494).

@@ -1,7 +1,7 @@
 /** gguf_to_onebp.cpp — Convert GGUF models to 1BP format.
- *  Build: g++ -std=c++17 -O3 -mavx2 -I include -I /usr/include \
- *         tools/gguf_to_onebp.cpp src/gguf_reader.cpp -o build/gguf_to_onebp -lpthread
- *  Run:   ./build/gguf_to_onebp model.gguf output.1bp
+ *  Build target: `gguf_to_onebp` (see CMakeLists.txt) — pure C++, no Python.
+ *  Run:   ./build/gguf_to_onebp model.gguf output.1bp          (Q4NX 4-bit)
+ *         ./build/gguf_to_onebp model.gguf output.1bp --tq2    (symmetric ternary)
  */
 #include <cstdio>
 #include <cstdlib>
@@ -28,9 +28,17 @@ static inline uint16_t f32b(float v) {
 int main(int argc, char** argv) {
     //signal(SIGFPE, sigfpe_handler);
     if (argc < 3) {
-        fprintf(stderr, "Usage: %s input.gguf output.1bp\n", argv[0]);
+        fprintf(stderr, "Usage: %s input.gguf output.1bp [--tq2]\n", argv[0]);
         return 1;
     }
+    // --- Parse quant selection (Q4NX default, --tq2 for symmetric ternary) ---
+    OnebpQuant quant = ONEBP_Q4NX;
+    for (int ai = 3; ai < argc; ai++) {
+        if (strcmp(argv[ai], "--tq2") == 0)       quant = ONEBP_TQ2;
+        else if (strcmp(argv[ai], "--q4nx") == 0) quant = ONEBP_Q4NX;
+        else { fprintf(stderr, "Unknown option: %s\n", argv[ai]); return 1; }
+    }
+    const char* quant_name = (quant == ONEBP_TQ2) ? "TQ2 (ternary 2-bit)" : "Q4NX (4-bit)";
     GgufReader reader;
     if (!reader.open(argv[1])) {
         fprintf(stderr, "Failed to open GGUF: %s\n", argv[1]);
@@ -42,7 +50,7 @@ int main(int argc, char** argv) {
 
     OnebpHeader hdr;
     hdr.init();
-    hdr.quant = ONEBP_Q4NX;
+    hdr.quant = quant;
     auto gu = [&](const char* k, int& v) {
         uint32_t x; if (reader.get_u32(k, x)) { v = (int)x; return true; }
         // Try architecture-specific prefix
@@ -116,7 +124,7 @@ int main(int argc, char** argv) {
         int c = (int)inf->shape[0], r = (int)inf->shape[1];
         if (r <= 0 || c <= 0) continue;
         if ((uint64_t)r * (uint64_t)c > 200000000) continue;
-        uint64_t tiled = onebp_tiled_size(r, c, tr, tc, gs, ONEBP_Q4NX);
+        uint64_t tiled = onebp_tiled_size(r, c, tr, tc, gs, quant);
         tensors.push_back({tn, r, c, data_off, tiled});
         data_off += tiled;
         if (tensors.size() <= 3) printf("  tensor %s: %dx%d tiled=%lu\n", tn.c_str(), r, c, tiled);
@@ -152,7 +160,7 @@ int main(int argc, char** argv) {
         fwrite(&t.tiled, 8, 1, fout);
     }
 
-    printf("Quantizing %zu tensors...\n", tensors.size());
+    printf("Quantizing %zu tensors as %s...\n", tensors.size(), quant_name);
     fflush(stdout);
     auto t0 = std::chrono::steady_clock::now();
 
@@ -175,9 +183,54 @@ int main(int argc, char** argv) {
         for (int r = 0; r < ntr; r++) {
             for (int c = 0; c < ntc; c++) {
                 int r0 = r * tr, c0 = c * tc;
-                int rh = std::min(tr, R - r0), cw = std::min(tc, C - c0);
                 int grps = tc / gs;
                 if (grps <= 0) grps = 1;
+                if (quant == ONEBP_TQ2) {
+                    // ── TQ2: symmetric ternary (-scale, 0, +scale), no zero-point ──
+                    // Per tile: [scales: tr*grps*bf16][codes: tr*tc packed 4/byte].
+                    // Scale = max|v| per 32-group => lossless when the source is
+                    // already ternary within the group, round-to-nearest otherwise.
+                    // code: 0=-scale, 1=0, 2=+scale (LSB-first, 4 codes per byte).
+                    size_t sb = (size_t)tr * grps * 2, cb = (size_t)tr * tc / 4;
+                    std::vector<uint8_t> tdata(sb + cb, 0);
+                    uint16_t* sc = (uint16_t*)tdata.data();
+                    uint8_t*  qd = tdata.data() + sb;
+                    for (int rr = 0; rr < tr; rr++) {
+                        for (int g = 0; g < grps; g++) {
+                            int ar = r0 + rr, acs = c0 + g * gs;
+                            float maxabs = 0.0f;
+                            for (int i = 0; i < gs; i++) {
+                                int ac = acs + i;
+                                if (ar < R && ac < C) {
+                                    float v = fw[(size_t)ar * C + ac];
+                                    if (std::isfinite(v)) { float a = fabsf(v); if (a > maxabs) maxabs = a; }
+                                }
+                            }
+                            float s = maxabs;
+                            if (s < 1e-20f) s = 1.0f;  // all-zero / padding group
+                            float inv_s = 1.0f / s;
+                            sc[rr * grps + g] = f32b(s);
+                            for (int i = 0; i < gs; i++) {
+                                int ac = acs + i;
+                                uint8_t code = 1;  // default 0 == +0
+                                if (ar < R && ac < C) {
+                                    float v = fw[(size_t)ar * C + ac];
+                                    if (std::isfinite(v)) {
+                                        int t = (int)roundf(v * inv_s);
+                                        if (t < -1) t = -1; else if (t > 1) t = 1;
+                                        code = (uint8_t)(t + 1);  // -1->0, 0->1, +1->2
+                                    }
+                                }
+                                int local_c = (acs - c0) + i;
+                                size_t pos = (size_t)rr * tc + local_c;
+                                qd[pos / 4] |= (uint8_t)(code << ((pos & 3) * 2));
+                            }
+                        }
+                    }
+                    fwrite(tdata.data(), 1, tdata.size(), fout);
+                    continue;
+                }
+                // ── Q4NX: asymmetric 4-bit (min + scale per group) ──
                 size_t sb = (size_t)tr * grps * 2, zb = sb, db = (size_t)tr * tc / 2;
                 std::vector<uint8_t> tdata(sb + zb + db, 0);
                 uint16_t* sc = (uint16_t*)tdata.data();

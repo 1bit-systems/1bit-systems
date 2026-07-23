@@ -1,1 +1,0 @@
-/opt/rocm-therock/bin/amdclang++ -O3 -DNDEBUG -Xlinker --dependency-file=CMakeFiles/oscar_calib.dir/link.d CMakeFiles/oscar_calib.dir/tools/oscar_calib.cpp.o CMakeFiles/oscar_calib.dir/engine/fusion/cpu_layer.cpp.o -o /home/bcloud/1bit-systems/tools/oscar_calib  -ldl -lm -lpthread

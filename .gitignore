@@ -13,6 +13,9 @@ out/
 *.out
 *.app
 
+# ── Stray / OS dirs ──
+Desktop/
+
 # ── IDE / Editor ──
 .vscode/
 .idea/

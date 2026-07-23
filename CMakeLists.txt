@@ -285,6 +285,13 @@ target_include_directories(gguf_reader PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
 
+# -- gguf_to_onebp : pure-C++ GGUF -> 1BP converter (Q4NX + TQ2 ternary) -------
+# Replaces the old tools/gguf_to_onebp.py. No Python anywhere in the convert
+# path. `--tq2` emits symmetric 2-bit ternary (half the size of Q4NX).
+add_executable(gguf_to_onebp tools/gguf_to_onebp.cpp)
+target_link_libraries(gguf_to_onebp PRIVATE gguf_reader)
+target_compile_options(gguf_to_onebp PRIVATE -O3 -std=c++23)
+
 # -- libvl_image : lightweight image loading + preprocessing (no HIP dep) ----
 # Uses stb_image.h (vendored at third_party/stb/) for decode. No OpenCV dep.
 # Provides: vl_load_image, vl_resize_normalize, vl_decode_base64_image, etc.
@@ -463,16 +470,23 @@ set_target_properties(test_lora_merge PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_
 
 # -- zaya_server : multi-model multi-backend inference server (main binary,
 #    NOT a test — not registered with add_test(), see install() below) ------
-set(ZAYA_SERVER_SRC tests/zaya_server.cpp tests/backends/backend_cpu.cpp tests/backends/backend_hip.cpp tests/backends/backend_npu.cpp tests/backends/backend_generic.cpp)
+set(ZAYA_SERVER_SRC tests/zaya_server.cpp tests/backends/backend_cpu.cpp tests/backends/backend_npu.cpp tests/backends/backend_generic.cpp)
 if(RCPP_HAVE_VULKAN)
     list(APPEND ZAYA_SERVER_SRC tests/backends/backend_vulkan.cpp)
 endif()
 if(ZINC_CPP_AVAILABLE)
     list(APPEND ZAYA_SERVER_SRC tests/backends/backend_zinc.cpp)
 endif()
+# HIP backend: adapter (InferenceBackend) + canonical src (Backend + zaya_engine)
+list(APPEND ZAYA_SERVER_SRC tests/backends/backend_hip_adapter.cpp src/backend_hip.cpp src/zaya_engine.cpp)
 add_executable(zaya_server ${ZAYA_SERVER_SRC})
-set_source_files_properties(tests/zaya_server.cpp tests/backends/backend_hip.cpp PROPERTIES LANGUAGE HIP)
-target_include_directories(zaya_server PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/tests/backends)
+set_source_files_properties(tests/zaya_server.cpp tests/backends/backend_hip_adapter.cpp src/backend_hip.cpp src/zaya_engine.cpp PROPERTIES LANGUAGE HIP)
+target_include_directories(zaya_server PRIVATE
+    ${CMAKE_SOURCE_DIR}/tests
+    ${CMAKE_SOURCE_DIR}/tests/backends
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/kernels)
 target_compile_options(zaya_server PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(zaya_server PRIVATE rocm_cpp hip::host hip::device httplib::httplib nlohmann_json::nlohmann_json)
 set_target_properties(zaya_server PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
@@ -544,22 +558,22 @@ set_tests_properties(test_bonsai_e2e       PROPERTIES LABELS "gpu_required;model
 add_test(NAME test_sherry_e2e              COMMAND test_sherry_e2e ${SHERRY_H1B_MODEL})
 set_tests_properties(test_sherry_e2e       PROPERTIES LABELS "gpu_required;model_required;e2e" SKIP_RETURN_CODE 77)
 
-# -- test_hip_generic_attention: regression guard for the HIP backend's ------
-# generic (non-Zaya) attention path (fixed in #474/#486 — see the source
-# file's header comment). Compiles tests/backends/backend_hip.cpp directly,
-# same as zaya_server/unified_server do, since it isn't part of any shared
-# library target.
-set(GGUF_TEST_MODEL "" CACHE FILEPATH "Path to a non-Zaya GGUF model for test_hip_generic_attention (empty = skip)")
-add_executable(test_hip_generic_attention
-    tests/test_hip_generic_attention.cpp
-    tests/backends/backend_hip.cpp)
-set_source_files_properties(tests/backends/backend_hip.cpp PROPERTIES LANGUAGE HIP)
-target_include_directories(test_hip_generic_attention PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/tests/backends)
-target_compile_options(test_hip_generic_attention PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_link_libraries(test_hip_generic_attention PRIVATE backend_manager rocm_cpp hip::host hip::device)
-set_target_properties(test_hip_generic_attention PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
-add_test(NAME test_hip_generic_attention COMMAND test_hip_generic_attention ${GGUF_TEST_MODEL})
-set_tests_properties(test_hip_generic_attention PROPERTIES LABELS "gpu_required;model_required;e2e" SKIP_RETURN_CODE 77)
+# -- test_generic_attention: regression guard for the generic (non-Zaya)
+# attention path (fixed in #474/#486). Uses the generic CPU backend, no
+# HIP dependency. Renamed from test_hip_generic_attention after the HIP
+# backend was consolidated (Zaya only — generic GGUF models go through
+# backend_generic).
+set(GGUF_TEST_MODEL "" CACHE FILEPATH "Path to a non-Zaya GGUF model for test_generic_attention (empty = skip)")
+add_executable(test_generic_attention tests/test_generic_attention.cpp tests/backends/backend_generic.cpp)
+target_compile_options(test_generic_attention PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
+target_include_directories(test_generic_attention PRIVATE
+    ${CMAKE_SOURCE_DIR}/tests
+    ${CMAKE_SOURCE_DIR}/tests/backends
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_generic_attention PRIVATE backend_manager)
+add_test(NAME test_generic_attention COMMAND test_generic_attention ${GGUF_TEST_MODEL})
+set_tests_properties(test_generic_attention PROPERTIES LABELS "model_required;e2e" SKIP_RETURN_CODE 77)
 
 add_executable(bitnet_decode tools/bitnet_decode.cpp)
 set_source_files_properties(tools/bitnet_decode.cpp PROPERTIES LANGUAGE HIP)

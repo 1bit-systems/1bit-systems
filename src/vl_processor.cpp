@@ -125,7 +125,12 @@ std::vector<unsigned char> vl_download_image(const std::string& url, int timeout
 
         std::string to_str = std::to_string(timeout_sec);
         std::string max_str = std::to_string(timeout_sec + 5);
+        // Defense-in-depth SSRF/LFI hardening: restrict curl to http/https for
+        // both the initial request and any -L redirect, so a redirect can't
+        // smuggle file://, gopher://, dict://, etc. past the scheme allowlist.
         execlp("curl", "curl", "-sL",
+               "--proto", "=http,https",
+               "--proto-redir", "=http,https",
                "--connect-timeout", to_str.c_str(),
                "--max-time", max_str.c_str(),
                url.c_str(), (char*)nullptr);

@@ -237,19 +237,25 @@ void zamba2_hip_forward(Zamba2HIPState* s, int token_id, float* logits_out, int 
         float* conv_state = s->d_conv_state + (size_t)l * (cfg.d_conv - 1) * conv_dim;
         float* ssm_state  = s->d_ssm_state + (size_t)l * d_state * d_inner;
 
-        // ── Fused Mamba2 layer forward ──
-        // For GPU, we decompose into:
-        // 1. in_proj matmul
-        // 2. conv1d kernel
-        // 3. x_proj + selective_scan kernel
-        // 4. out_proj matmul
+        // ── Mamba2 GPU forward (single-token decode) ──
+        mamba2_gpu_decode_block(
+            s->d_hidden,                   // x_in
+            lw.in_proj_w,                   // in_proj_w
+            lw.conv1d_w,                    // conv1d_w
+            lw.conv1d_b,                    // conv1d_b
+            lw.dt_bias,                     // dt_bias
+            lw.A_log,                       // A_log
+            lw.D,                           // D
+            lw.out_proj_w,                  // out_proj_w
+            conv_state,                     // conv_state (updated)
+            ssm_state,                      // ssm_state (updated)
+            s->d_hidden,                    // y_out (write back to hidden)
+            s->d_tmp,                       // workspace (must be large enough)
+            d_model, d_inner, d_state, cfg.d_conv,
+            n_head, n_group, head_dim, conv_dim,
+            st);
 
-        // For now, fall back to CPU for Mamba2 blocks on this first GPU pass
-        // TODO: implement fused Mamba2 HIP kernel
-        // For the GPU path, the mamba2_cpu_forward is replaced by kernel launches
-        // This is a stub that will be filled with actual kernel launches once compiled
-
-        // ── Hybrid layer: attention + FFN ──
+        // ── Hybrid layer: attention + FFN (after Mamba2 block) ──
         if (lw.is_hybrid) {
             hyb_counter++;
         }

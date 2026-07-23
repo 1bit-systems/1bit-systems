@@ -288,6 +288,124 @@ inline void lm_topk_omp(const float*hidden,float*lg,int*top_ids,int K,int NV,int
     for(int b=0;b<K;b++)top_ids[b]=top[b].id;
 }
 
+// ── NPU attention via runtime sequence xclbin ──
+// edge_attention_06b_compact kernel: 4 Q heads, 2 KV heads, 16-token window.
+// Runtime_sequence(%input, %output) interface via xrt::kernel.
+
+#define RT_ATTN_HEADS 4
+#define RT_ATTN_KVH 2
+#define RT_ATTN_CTX 8
+#define RT_ATTN_BLKS 2
+#define RT_ATTN_MAX_TK (RT_ATTN_CTX * RT_ATTN_BLKS)
+
+struct RuntimeAttnCtx {
+    std::unique_ptr<xrt::xclbin> xc;
+    std::unique_ptr<xrt::hw_context> hc;
+    std::unique_ptr<xrt::kernel> k;
+    std::unique_ptr<xrt::bo> bIn, bOut;
+    bool ok = false;
+    int wd, kd, id, od; // window/KV/input/output dwords
+
+    bool isReady() { return ok && k && bIn && bOut; }
+
+    bool init(xrt::device& d, const char* xp, int hd) {
+        wd = RT_ATTN_HEADS * hd / 2;
+        kd = RT_ATTN_KVH * RT_ATTN_CTX * hd / 2;
+        id = wd + 4 * kd;
+        od = wd;
+        try {
+            xc = std::make_unique<xrt::xclbin>(std::string(xp));
+            d.register_xclbin(*xc);
+            hc = std::make_unique<xrt::hw_context>(d, xc->get_uuid());
+            k = std::make_unique<xrt::kernel>(*hc, "MLIR_AIE");
+            bIn = std::make_unique<xrt::bo>(d, (size_t)id * 4,
+                XRT_BO_FLAGS_HOST_ONLY, k->group_id(0));
+            bOut = std::make_unique<xrt::bo>(d, (size_t)od * 4,
+                XRT_BO_FLAGS_HOST_ONLY, k->group_id(1));
+            ok = true;
+            return true;
+        } catch (std::exception& ex) {
+            fprintf(stderr, "  RuntimeAttnCtx init failed: %s\n", ex.what());
+            return false;
+        }
+    }
+
+    void run_win(const float* Q, const float* K, const float* V,
+                 float* out, int hoff, int sl, int hd, int nkv) {
+        if (!ok || sl > RT_ATTN_MAX_TK) return;
+        int vb = (sl + RT_ATTN_CTX - 1) / RT_ATTN_CTX;
+        if (vb > RT_ATTN_BLKS) vb = RT_ATTN_BLKS;
+
+        auto* buf = (int32_t*)bIn->map();
+        memset(buf, 0, (size_t)id * 4);
+        auto* qb = (uint16_t*)buf;
+        auto* kb0 = (uint16_t*)(buf + wd);
+        auto* kb1 = (uint16_t*)(buf + wd + kd);
+        auto* vb0 = (uint16_t*)(buf + wd + 2*kd);
+        auto* vb1 = (uint16_t*)(buf + wd + 3*kd);
+
+        for (int h = 0; h < RT_ATTN_HEADS; h++)
+            for (int d = 0; d < hd; d++) {
+                float v = Q[(hoff + h) * hd + d];
+                qb[h * hd + d] = v ? ((uint16_t*)&v)[1] : 0;
+            }
+
+        for (int b = 0; b < vb; b++) {
+            int t0 = b * RT_ATTN_CTX, t1 = t0 + RT_ATTN_CTX;
+            if (t1 > sl) t1 = sl;
+            auto* kp = b == 0 ? kb0 : kb1;
+            auto* vp = b == 0 ? vb0 : vb1;
+            for (int t = 0; t < RT_ATTN_CTX; t++)
+                for (int kv = 0; kv < RT_ATTN_KVH; kv++)
+                    for (int d = 0; d < hd; d++) {
+                        int idx = kv * RT_ATTN_CTX * hd + t * hd + d;
+                        float f = (t + t0 < t1)
+                            ? K[(size_t)(t + t0) * nkv * hd + kv * hd + d] : 0;
+                        kp[idx] = ((uint16_t*)&f)[1];
+                        f = (t + t0 < t1)
+                            ? V[(size_t)(t + t0) * nkv * hd + kv * hd + d] : 0;
+                        vp[idx] = ((uint16_t*)&f)[1];
+                    }
+        }
+
+        bIn->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        auto r = (*k)(*bIn, *bOut);
+        r.wait();
+        bOut->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+
+        auto* ob = (uint16_t*)bOut->map();
+        for (int h = 0; h < RT_ATTN_HEADS; h++)
+            for (int d = 0; d < hd; d++) {
+                uint32_t bits = (uint32_t)ob[h * hd + d] << 16;
+                float v;
+                memcpy(&v, &bits, 4);
+                out[(hoff + h) * hd + d] = std::isfinite(v) ? v : 0;
+            }
+    }
+};
+
+static inline void npu_attn_rt(
+    RuntimeAttnCtx& ra, const float* qo, float* at, int cl,
+    const float* kk, const float* kv,
+    int NH, int NKV, int HD, int GQA,
+    int bs, int qn, int sp)
+{
+    (void)GQA; (void)qn; (void)sp;
+    if (cl > RT_ATTN_MAX_TK) {
+        for (int b = 0; b < bs; b++)
+            attn_omp(const_cast<float*>(&qo[b * qn]), &at[b * NH * HD], cl,
+                     kk, kv, NH, NKV, HD, GQA);
+        return;
+    }
+    for (int b = 0; b < bs; b++) {
+        const float* qb = &qo[b * qn];
+        float* ab = &at[b * NH * HD];
+        int nw = NH / RT_ATTN_HEADS;
+        for (int w = 0; w < nw; w++)
+            ra.run_win(qb, kk, kv, ab, w * RT_ATTN_HEADS, cl, HD, NKV);
+    }
+}
+
 int main(int argc,char**argv){
     setvbuf(stdout,NULL,_IONBF,0);
     // Install SIGABRT handler for issue #202: heap corruption during decode
@@ -419,6 +537,7 @@ int main(int argc,char**argv){
     I8Ctx cq,co,cg,cd;
     std::unique_ptr<I8Ctx> cu_ptr;
     std::unique_ptr<AttnCtx> ca_ptr;
+    RuntimeAttnCtx rta;
     std::vector<uint32_t> attn_instrs;
     auto load_attn_instrs = [&](const char* path) -> bool {
         FILE* f = fopen(path, "rb");
@@ -462,6 +581,15 @@ int main(int argc,char**argv){
         } else {
             fprintf(stderr, "WARN: No attn insts for model '%s', CPU fallback\n", cfg.model_tag.c_str());
             use_npu_attn = false;
+        }
+    }
+    // Also try loading the runtime sequence attention xclbin
+    if(use_npu_attn){
+        std::string runtime_xp = xp("ATTN");
+        if(rta.init(dev, runtime_xp.c_str(), HD)){
+            fprintf(stderr, "NPU runtime attention enabled\n");
+        }else{
+            fprintf(stderr, "WARN: Runtime attn init failed, using ext::kernel path\n");
         }
     }
 
@@ -514,7 +642,15 @@ int main(int argc,char**argv){
     // longest matching prefix, roll the KV cache back on a miss), BS is pinned
     // to 1 -> plain causal single-token greedy decode, which is correct.
     // Do not raise this without implementing verification.
-    int BS=1;
+    // Override via NPU_BATCH_SIZE env var (for testing only — produces garbage).
+    int BS = 1;
+    if (const char* e = getenv("NPU_BATCH_SIZE")) {
+        int v = atoi(e);
+        if (v > 1) {
+            fprintf(stderr, "WARNING: NPU_BATCH_SIZE=%d — non-causal KV corruption, see issue #111\n", v);
+            BS = v;
+        }
+    }
     struct KVCache{std::vector<float>k,v;int n;KVCache(int size):k(size),v(size),n(0){}};
     int kv_size=4096*NKV*HD;
     std::vector<KVCache> kv_caches;for(int i=0;i<NC;i++)kv_caches.emplace_back(kv_size);
@@ -719,11 +855,24 @@ int main(int argc,char**argv){
         // K and V caches are quantized from f32 on each step.
         //
         // CPU attn_omp() fallback is always available.
-        if(use_npu_attn && ca_ptr && ca_ptr->isReady()){
-            // Regenerate instructions for current seq_len
-
+        if(use_npu_attn && rta.isReady()){
+            // NPU attention via runtime sequence
+            if (cl > RT_ATTN_MAX_TK) {
+                #pragma omp parallel for
+                for(int pi=0;pi<npt;pi++){
+                    if (omp_get_thread_num() == 0) { fprintf(stderr,"a"); fflush(stderr); }
+                    attn_omp(&qo_b[pi*qkv_n],&at_b[pi*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA,sp+pi+1);
+                }
+            } else {
+                npu_attn_rt(rta, qo_b.data(), at_b.data(), cl,
+                    kv_caches[l].k.data(), kv_caches[l].v.data(),
+                    NH, NKV, HD, GQA, npt, qkv_n, sp);
+                cn(at_b.data(), npt * NH * HD);
+                fprintf(stderr,"A"); fflush(stderr);
+            }
+        } else if(use_npu_attn && ca_ptr && ca_ptr->isReady()){
+            // Old ext::kernel path
             if (!attn_instrs.empty()) {
-                // Compute dynamic scales for Q and K/V quantization
                 float q_ascale = dynamic_ascale(qo_b.data(), npt * NH * HD);
                 float kv_ascale = 0;
                 for (int i = 0; i < (size_t)cl * NKV * HD; i++) {
@@ -732,18 +881,13 @@ int main(int argc,char**argv){
                 }
                 if (kv_ascale < 1e-12f) kv_ascale = 1.0f;
                 kv_ascale = kv_ascale / 127.0f;
-
-                // Launch NPU attention kernel
                 auto r_attn = ca_ptr->launch(
                     qo_b.data(), kv_caches[l].k.data(), kv_caches[l].v.data(),
                     cl, npt, q_ascale, kv_ascale);
-
-                // Wait + dequantize into attention output buffer
                 ca_ptr->finish(r_attn, at_b.data(), npt, q_ascale, kv_ascale);
                 cn(at_b.data(), npt * NH * HD);
                 fprintf(stderr,"A"); fflush(stderr);
             } else {
-                // Instr generation failed — fall back to CPU
                 #pragma omp parallel for
                 for(int pi=0;pi<npt;pi++){
                     if (omp_get_thread_num() == 0) { fprintf(stderr,"a"); fflush(stderr); }
@@ -806,8 +950,18 @@ int main(int argc,char**argv){
                 for(int d=0;d<HD;d++)ko_data[kvh*HD+d]*=ik*(cfg.has_k_norm?kn[d]:1.0f);ra(&ko_data[kvh*HD],HD,sp);
                 memcpy(&kv_caches[l].k[sp*NKV*HD+kvh*HD],&ko_data[kvh*HD],HD*4);memcpy(&kv_caches[l].v[sp*NKV*HD+kvh*HD],&vo_data[kvh*HD],HD*4);}}
             kv_caches[l].n=sp+1;int cl=kv_caches[l].n;
-            if(use_npu_attn && ca_ptr && ca_ptr->isReady()){
-                // NPU attention via pre-compiled KV xclbin (fixed max_seq=4096)
+            if(use_npu_attn && rta.isReady()){
+                // NPU attention via runtime sequence
+                if (cl <= RT_ATTN_MAX_TK) {
+                    npu_attn_rt(rta, qo_data.data(), at_data.data(), cl,
+                        kv_caches[l].k.data(), kv_caches[l].v.data(),
+                        NH, NKV, HD, GQA, 1, NH*HD, 0);
+                    cn(at_data.data(), NH*HD);
+                    fprintf(stderr,"A");
+                } else {
+                    attn_omp(qo_data.data(),at_data.data(),cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA);
+                }
+            }else if(use_npu_attn && ca_ptr && ca_ptr->isReady()){
                 float qs=dynamic_ascale(qo_data.data(),NH*HD);
                 float ks=0;for(int i=0;i<cl*NKV*HD;i++){float a=fabsf(kv_caches[l].k[i]);if(a>ks)ks=a;}
                 ks=ks<1e-12f?1.0f:ks/127.0f;
@@ -865,8 +1019,18 @@ int main(int argc,char**argv){
                 float*ks=&qo_b[b*qkv_n+cfg.qkv_k_offset+kvh*HD],*vs=&qo_b[b*qkv_n+cfg.qkv_v_offset+kvh*HD];
                 memcpy(&kv_caches[l].k[(sp+b)*NKV*HD+kvh*HD],ks,HD*4);memcpy(&kv_caches[l].v[(sp+b)*NKV*HD+kvh*HD],vs,HD*4);}
             kv_caches[l].n=sp+batch_size;int cl=kv_caches[l].n;
-            if(use_npu_attn && ca_ptr && ca_ptr->isReady()){
-                // NPU attention via pre-compiled KV xclbin (fixed max_seq=4096)
+            if(use_npu_attn && rta.isReady()){
+                // NPU attention via runtime sequence
+                if (cl <= RT_ATTN_MAX_TK) {
+                    npu_attn_rt(rta, qo_b.data(), at_b.data(), cl,
+                        kv_caches[l].k.data(), kv_caches[l].v.data(),
+                        NH, NKV, HD, GQA, batch_size, qkv_n, sp);
+                    cn(at_b.data(), batch_size*NH*HD);
+                    fprintf(stderr,"A");
+                } else {
+                    for(int b=0;b<batch_size;b++){attn_omp(&qo_b[b*qkv_n],&at_b[b*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA);}
+                }
+            }else if(use_npu_attn && ca_ptr && ca_ptr->isReady()){
                 float qs=dynamic_ascale(qo_b.data(),batch_size*NH*HD);
                 float ks=0;for(int i=0;i<cl*NKV*HD;i++){float a=fabsf(kv_caches[l].k[i]);if(a>ks)ks=a;}
                 ks=ks<1e-12f?1.0f:ks/127.0f;

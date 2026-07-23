@@ -119,7 +119,6 @@ void AgentWatchdog::run() {
         double npu_tps = 0, gpu_tps = 0, npu_p95 = 0, gpu_p95 = 0;
         double npu_fail_rate = 0, gpu_fail_rate = 0;
         uint64_t npu_infs = 0, gpu_infs = 0;
-        uint64_t npu_fails = 0, gpu_fails = 0;
 
         for (auto* pm : monitor->all_metrics()) {
             bool is_npu = pm->backend_id.find("npu") != std::string::npos;
@@ -133,14 +132,12 @@ void AgentWatchdog::run() {
 
             if (is_npu) {
                 npu_tps = tps; npu_p95 = p95;
-                npu_infs = infs; npu_fails = fails;
-                (void)npu_fails;
+                npu_infs = infs;
                 npu_fail_rate = infs > 0 ? (double)fails / infs : 0;
             }
             if (is_gpu) {
                 gpu_tps = tps; gpu_p95 = p95;
-                gpu_infs = infs; gpu_fails = fails;
-                (void)gpu_fails;
+                gpu_infs = infs;
                 gpu_fail_rate = infs > 0 ? (double)fails / infs : 0;
             }
         }

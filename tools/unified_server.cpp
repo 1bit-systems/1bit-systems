@@ -736,7 +736,7 @@ int main(int argc, char** argv) {
     };
 
     // ── GET /v1/health — Backend status dashboard ──
-    svr.Get("/v1/health", [&](const httplib::Request& req, httplib::Response& res) {
+    svr.Get("/v1/health", [&](const httplib::Request&, httplib::Response& res) {
         // Lock both mutexes consistently — health reads mgr backends (g_config_mutex)
         // and strategy state (g_strategy_mutex).
         std::lock(g_config_mutex, g_strategy_mutex);
@@ -752,7 +752,7 @@ int main(int argc, char** argv) {
     });
 
     // ── GET /v1/models — List models ──
-    svr.Get("/v1/models", [&](const httplib::Request& req, httplib::Response& res) {
+    svr.Get("/v1/models", [&](const httplib::Request&, httplib::Response& res) {
         std::lock(g_config_mutex, g_strategy_mutex);
         std::lock_guard<std::mutex> _l1(g_config_mutex, std::adopt_lock);
         std::lock_guard<std::mutex> _l2(g_strategy_mutex, std::adopt_lock);
@@ -1165,7 +1165,7 @@ int main(int argc, char** argv) {
     });
 
     // ── GET /v1/backend/status — Full backend report ──
-    svr.Get("/v1/backend/status", [&](const httplib::Request& req, httplib::Response& res) {
+    svr.Get("/v1/backend/status", [&](const httplib::Request&, httplib::Response& res) {
         json j;
         // g_strategy_mutex alone (fixes #364) only protects g_strategy_engine
         // + g_watchdog — mgr itself (report/backends/active_info/
@@ -1212,7 +1212,7 @@ int main(int argc, char** argv) {
     });
 
     // ---- GET / --- Root health check ----
-    svr.Get("/", [&](const httplib::Request& req, httplib::Response& res) {
+    svr.Get("/", [&](const httplib::Request&, httplib::Response& res) {
         json j;
         j["service"] = "1bit.systems --- One binary, all backends, intelligent routing";
         j["version"] = "1.0";

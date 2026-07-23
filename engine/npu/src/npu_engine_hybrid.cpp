@@ -157,14 +157,20 @@ int main(int argc,char**argv){
     // Init NPU — single shared hw_context to avoid multi-context BO crash
     fprintf(stderr,"Init NPU xclbins...\n");
     xrt::device dev(0);
-    #define D "int8"
+    const char* xclbin_dir = getenv("NPU_XCLBIN_DIR");
+    if (!xclbin_dir) xclbin_dir = "int8";
     SharedCtx sctx;
+    auto xp = [&](const char* name) {
+        static std::string buf;
+        buf = std::string(xclbin_dir) + "/" + name;
+        return buf.c_str();
+    };
     sctx.init(dev,{
-        D"/final_i8_QKV_v.xclbin",
-        D"/final_i8_O_v.xclbin",
-        D"/final_i8_GU_v.xclbin",
-        D"/final_i8_KV_v.xclbin",
-        D"/final_i8_D_v.xclbin"
+        xp("final_i8_QKV_v.xclbin"),
+        xp("final_i8_O_v.xclbin"),
+        xp("final_i8_GU_v.xclbin"),
+        xp("final_i8_KV_v.xclbin"),
+        xp("final_i8_D_v.xclbin")
     });
     I8Ctx cq{"QKV",XM,H,4096},co{"O",XM,NH*HD,H},cg{"GU",XM,H,6144},cd{"D",XM,IM,H};
     // Attention context (KV xclbin: Q@K^T → score computation on NPU)
@@ -205,15 +211,20 @@ int main(int argc,char**argv){
             for(int i=0;i<NH*HD;i++){float v=(float)Out[i]*cs;at[i]=std::isfinite(v)?v:0.0f;}
         }
     } attn;
-    attn.init(dev,sctx,D"/final_i8_KV_v.xclbin",D"/insts_i8_KV_v.txt");
+    auto instr_path = [&](const char* name) {
+        static std::string buf2;
+        buf2 = std::string(xclbin_dir) + "/" + name;
+        return buf2.c_str();
+    };
+    attn.init(dev,sctx, xp("final_i8_KV_v.xclbin"), instr_path("insts_i8_KV_v.txt"));
     fprintf(stderr,"  Attn OK\n");
-    if(!cq.init(dev,sctx,D"/final_i8_QKV_v.xclbin",D"/insts_i8_QKV_v.txt",4)){fprintf(stderr,"Failed QKV\n");return 1;}
+    if(!cq.init(dev,sctx,xp("final_i8_QKV_v.xclbin"),instr_path("insts_i8_QKV_v.txt"),4)){fprintf(stderr,"Failed QKV\n");return 1;}
     fprintf(stderr,"  QKV OK\n");
-    if(!co.init(dev,sctx,D"/final_i8_O_v.xclbin",D"/insts_i8_O_v.txt",4)){fprintf(stderr,"Failed O\n");return 1;}
+    if(!co.init(dev,sctx,xp("final_i8_O_v.xclbin"),instr_path("insts_i8_O_v.txt"),4)){fprintf(stderr,"Failed O\n");return 1;}
     fprintf(stderr,"  O OK\n");
-    if(!cg.init(dev,sctx,D"/final_i8_GU_v.xclbin",D"/insts_i8_GU_v.txt",4)){fprintf(stderr,"Failed GU\n");return 1;}
+    if(!cg.init(dev,sctx,xp("final_i8_GU_v.xclbin"),instr_path("insts_i8_GU_v.txt"),4)){fprintf(stderr,"Failed GU\n");return 1;}
     fprintf(stderr,"  GU OK\n");
-    if(!cd.init(dev,sctx,D"/final_i8_D_v.xclbin",D"/insts_i8_D_v.txt",4)){fprintf(stderr,"Failed D\n");return 1;}
+    if(!cd.init(dev,sctx,xp("final_i8_D_v.xclbin"),instr_path("insts_i8_D_v.txt"),4)){fprintf(stderr,"Failed D\n");return 1;}
     fprintf(stderr,"  D OK\n");
 
     // Dequant+pack

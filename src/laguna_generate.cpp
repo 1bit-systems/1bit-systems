@@ -611,7 +611,7 @@ int main(int argc, char** argv) {
     }
     
     // DFlash speculative decoding - convert draft GGUF to 1BP first:
-    // python3 tools/gguf_to_onebp.py models/laguna-s-2.1-dflash/laguna-s-2.1-DFlash-BF16.gguf models/dflash.1bp
+    //   ./build/gguf_to_onebp models/laguna-s-2.1-dflash/laguna-s-2.1-DFlash-BF16.gguf models/dflash.1bp
     DFlashSpec draft;
     bool have_dflash = false;
     

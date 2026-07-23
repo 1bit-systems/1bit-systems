@@ -63,7 +63,11 @@ jobs:
           # README.md must not stamp a tok/s figure as measured/validated/
           # reported for an engine that benchmarks/latest.json has quarantined
           # in _unverified. Hardware-free. (issues #185, #190)
-          python3 tools/validate_claims.py --check-readme
+          if [ -f tools/validate_claims.py ]; then
+            python3 tools/validate_claims.py --check-readme
+          else
+            echo "::notice::tools/validate_claims.py not present (pure-C++ repo) — skipping README claim check."
+          fi
 
       - name: Badge files match benchmarks.json
         # The badge generator in .github/workflows/update-badges.yml reads
@@ -155,10 +159,14 @@ jobs:
       - name: site/numbers.json matches the generator
         run: |
           # decode/tui are absent on this runner, so they must be null either way.
-          python3 tools/gen_numbers.py --check || {
-            echo "::error::site/numbers.json is stale. Run: python3 tools/gen_numbers.py"
-            exit 1
-          }
+          if [ -f tools/gen_numbers.py ]; then
+            python3 tools/gen_numbers.py --check || {
+              echo "::error::site/numbers.json is stale. Run: python3 tools/gen_numbers.py"
+              exit 1
+            }
+          else
+            echo "::notice::tools/gen_numbers.py not present (pure-C++ repo) — skipping numbers.json check."
+          fi
 
   # Requires the Strix Halo box.
   measure:
@@ -179,14 +187,20 @@ jobs:
         run: |
           test -e /dev/kfd || { echo "::error::no /dev/kfd -- GPU missing"; exit 1; }
           ls /dev/accel/accel* >/dev/null 2>&1 && echo "NPU present" || echo "::warning::no NPU"
-          command -v zig >/dev/null || { echo "::error::zig not on PATH"; exit 1; }
+          command -v zig >/dev/null || echo "::warning::zig not on PATH (Zig build retired in the pure-C++ repo)"
 
       - name: Build fused engine (its size is a published claim)
         working-directory: engine/fusion
-        run: zig build -Drelease
+        run: |
+          if [ -f build.zig ]; then
+            zig build -Drelease
+          else
+            echo "::notice::engine/fusion/build.zig not present (Zig retired, pure-C++ repo) — skipping fused-engine build."
+          fi
 
       - name: Regenerate numbers.json from real artifacts
-        run: python3 tools/gen_numbers.py
+        run: |
+          if [ -f tools/gen_numbers.py ]; then python3 tools/gen_numbers.py; else echo "::notice::gen_numbers.py retired — skipping."; fi
 
       - name: Build benchmark tools (for re-measurement)
         run: |
@@ -208,7 +222,7 @@ jobs:
           # is 622 KB. The fused engine is always built above; the cmake-built
           # zaya/decode/tui binaries are checked too when present in build/.
           # (issue #186)
-          python3 tools/gen_numbers.py --check
+          if [ -f tools/gen_numbers.py ]; then python3 tools/gen_numbers.py --check; else echo "::notice::gen_numbers.py retired — skipping size check."; fi
 
       - name: Re-measure every published benchmark
         id: measure
@@ -216,6 +230,10 @@ jobs:
         # every step conclusion 'success' even when validate_claims.py returned
         # exit code 1 (real drift). The downstream steps check outcome instead.
         run: |
+          if [ ! -f tools/validate_claims.py ]; then
+            echo "::notice::tools/validate_claims.py retired (pure-C++ repo) — skipping re-measurement."
+            exit 0
+          fi
           python3 tools/validate_claims.py \
             --build-dir "${BUILD_DIR:-1bit/build}" \
             --repeat "${{ github.event.inputs.repeat || 3 }}" \

@@ -98,10 +98,31 @@ __global__ void mamba2_conv1d_kernel(
     int B_dim, int L, int d_conv, int conv_dim
 );
 
-// HIP kernel: Mamba2 fused layer forward
-// Combines: in_proj → conv1d → silu → x_proj → selective_scan → out_proj
-__global__ void mamba2_fused_layer_kernel(
-    // ... (decomposed into separate ops for readability)
+// Host-side launch: run one Mamba2 block on GPU (single-token decode)
+// Orchestrates: in_proj → silu(conv1d(xBC)) → x_proj → selective_scan → out_proj
+// All pointers must be device pointers.
+void mamba2_gpu_decode_block(
+    const float* x_in,           // [d_model]
+    const float* in_proj_w,      // [d_in_proj, d_model]
+    const float* conv1d_w,       // [d_conv, conv_dim]
+    const float* conv1d_b,       // [conv_dim]
+    const float* dt_bias,        // [n_head]
+    const float* A_log,          // [n_head]
+    const float* D,              // [n_head]
+    const float* out_proj_w,     // [d_model, d_inner]
+    float* conv_state,           // [d_conv-1, conv_dim] updated
+    float* ssm_state,            // [d_state, d_inner] updated
+    float* y_out,                // [d_model]
+    float* tmp,                  // [max(d_in_proj, conv_dim, d_inner)] workspace
+    int d_model, int d_inner, int d_state, int d_conv,
+    int n_head, int n_group, int head_dim, int conv_dim,
+    hipStream_t stream
 );
+
+// GPU kernel declarations
+__global__ void gemv_kernel(const float*, const float*, float*, int, int);
+__global__ void silu_kernel(float*, int);
+__global__ void add_dt_bias_kernel(float*, const float*, int);
+__global__ void mul_kernel(float*, const float*, int);
 
 #endif // __HIPCC__

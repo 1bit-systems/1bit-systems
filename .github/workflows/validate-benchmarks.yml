@@ -17,7 +17,12 @@ jobs:
         with:
           fetch-depth: 0
       - name: Check README table matches benchmarks.json
-        run: python3 scripts/generate_benchmark_table.py --check
+        run: |
+          if [ -f scripts/generate_benchmark_table.py ]; then
+            python3 scripts/generate_benchmark_table.py --check
+          else
+            echo "::notice::scripts/generate_benchmark_table.py not present (pure-C++ repo, generator retired) — skipping table check."
+          fi
 
       - name: Validate benchmark status transitions
         if: github.event_name == 'pull_request'

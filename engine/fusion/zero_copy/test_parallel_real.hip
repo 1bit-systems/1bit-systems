@@ -107,9 +107,13 @@ int main() {
     // Start FLM serve (NPU worker, real XDNA2 inference)
     fprintf(stderr, "Starting FLM serve on NPU...\n");
     system("pkill -f 'flm serve.*8097' 2>/dev/null; sleep 0.5");
-    // FIXME: hardcoded paths below — replace with env vars or CLI args
-    const char* flm_build = getenv("FLM_BUILD_DIR");
+    // Weights dir from env (ZAYA_WEIGHTS_DIR), fallback to FASTFLOWLM dir
+    const char* flm_build = getenv("FASTFLOWLM_DIR");
     if (!flm_build) flm_build = "/opt/fastflowlm";
+    const char* log_dir = getenv("LOG_DIR");
+    if (!log_dir) log_dir = "/tmp";
+    char flm_log[256];
+    snprintf(flm_log, sizeof(flm_log), "%s/flm_par.log", log_dir);
     char cmd[4096];
     snprintf(cmd, sizeof(cmd),
            "cd %s/build && "
@@ -117,8 +121,8 @@ int main() {
            "FLM_XCLBIN_PATH=%s/xclbins "
            "LD_LIBRARY_PATH=%s/build:/opt/rocm/lib "
            "nohup ./flm serve qwen3:0.6b --port 8097 --pmode performance "
-           ">/tmp/flm_par.log 2>&1 &",
-           flm_build, flm_build, flm_build, flm_build);
+           ">%s 2>&1 &",
+           flm_build, flm_build, flm_build, flm_build, flm_log);
     system(cmd);
     sleep(3);
 
@@ -128,7 +132,9 @@ int main() {
     if (flm_pid <= 0) {
         fprintf(stderr, "FLM not started — check env/log\n");
         fprintf(stderr, "  log: "); fflush(stderr);
-        system("tail -3 /tmp/flm_par.log");
+        char tail_cmd[256];
+        snprintf(tail_cmd, sizeof(tail_cmd), "tail -3 %s", flm_log);
+        system(tail_cmd);
         delete shbo;
         return 1;
     }

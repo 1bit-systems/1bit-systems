@@ -1,5 +1,5 @@
 // blackmamba_cpu_reference.cpp — scalar CPU reference forward pass for
-// BlackMamba (Zyphra) GGUF files produced by scripts/blackmamba_to_gguf.py.
+// BlackMamba (Zyphra) GGUF files (one-time bootstrap conversion from BF16).
 //
 // BlackMamba alternates two pure block types per layer (never both in one
 // layer — the HF checkpoint's "mamba_moe_layers" pattern is "r","8","r","8"...):

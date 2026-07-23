@@ -15,9 +15,24 @@
 [![1BP](https://img.shields.io/badge/1BP-single%20file%2C%20zero%20config-00ffaa)](include/onebp_format.h)
 [![Tests](https://img.shields.io/badge/tests-16%2F17-00ff00)](tests/)
 
+**[🌐 Website](https://1bit.systems)** · **[🤗 1BP Models](https://huggingface.co/bong-water-water-bong)** · **[📚 Docs](docs/README.md)** · **[🛠️ Journey](docs/journey.md)** · **[📊 Benchmarks](docs/wiki/performance.md)** · **[🗺️ Roadmap](ROADMAP.md)**
+
 **One binary unifies NPU + GPU + CPU inference — no external subprocess, no proprietary runtime. C++23, zero Python at runtime.**
 
 **35 supported models** (30 1BP + 5 GGUF native) — see [`models/catalog/README.md`](models/catalog/README.md) for the full list.
+
+### 🚀 Flagship 1BP models — built, quantized & hosted by us
+
+| Model | Family | Arch | Measured | Download |
+|-------|--------|------|:--------:|:--------:|
+| **BlackMamba-1.5B** | Zyphra | Mamba1 · MoE | **79.8 tok/s** ✅ | [🤗 HF](https://huggingface.co/bong-water-water-bong/BlackMamba-1.5B-1BP) |
+| **BlackMamba-2.8B** | Zyphra | Mamba1 · MoE | **46.4 tok/s** ✅ | [🤗 HF](https://huggingface.co/bong-water-water-bong/BlackMamba-2.8B-1BP) |
+| **Zaya1-8B** | Zyphra | MoE (16-expert) | ~64 tok/s | [🤗 HF](https://huggingface.co/bong-water-water-bong/ZAYA1-8B-1BP) |
+| **Bonsai-1.7B** | Deepgrove | Ternary TQ2 (2-bit) | 21.9 tok/s | [🤗 HF](https://huggingface.co/bong-water-water-bong/Bonsai-1.7B-TQ2-1BP) |
+| **Zamba2-2.7B** | Zyphra | Mamba2-hybrid | Instruct v2 | [🤗 HF](https://huggingface.co/bong-water-water-bong/Zamba2-2.7B-Instruct-v2-1BP) |
+| **ZR1-1.5B** | Zyphra | Dense · reasoning | reasoning-tuned | [🤗 HF](https://huggingface.co/bong-water-water-bong/ZR1-1.5B-1BP) |
+
+Whole families brought to 1BP — the full **Zyphra** lineup (Zaya1, Zamba2, BlackMamba, ZR1) plus **Poolside Laguna** (sigmoid-routed MoE, hybrid SWA/global attention). All converted with a pure-C++ toolchain, zero Python. **[Browse all on Hugging Face →](https://huggingface.co/bong-water-water-bong)**
 
 ### Why 1BP?
 
@@ -134,7 +149,7 @@ print(client.chat.completions.create(model="blackmamba-1.5b",
 - **GGUF** — Qwen2 / Qwen3 layout (header+embedding read; single transformer weight path; per-architecture attention/FFN not validated for Llama/Mistral/DeepSeek)
 - **ONNX** — Protobuf wire format (F32/F16/BF16/INT8/INT32)
 - **Q4NX** — FastFlowLM's native tiled format, fully decoded (311 tensors, 4-bit groups of 32 with bf16 scales, 32×256 NPU tile layout) — see [`Q4NX_FORMAT.md`](fastflowlm_analysis/Q4NX_FORMAT.md)
-- **1BP** — this project's native format: single self-contained file, Q4NX-tiled weights, no external metadata. `tools/gguf_to_onebp.py` converts any GGUF model in place.
+- **1BP** — this project's native format: single self-contained file, Q4NX-tiled weights, no external metadata. The `gguf_to_onebp` tool (pure C++, `tools/gguf_to_onebp.cpp`) converts any GGUF model in place — no Python.
 - **H1B** — Legacy ternary format
 
 ### Backends
@@ -158,7 +173,7 @@ Model-agnostic isn't just a claim about the loader — it's been exercised acros
 | **Zaya1-8B** | 8.84B | Q4NX / **1BP** | ~64 tok/s decode (GPU) | ✅ Primary — extensively tested, native 1BP support |
 | Zaya1 Preview 74B-A4B (MoE) | 74.79B | Q4NX / **1BP** | 17.9 tok/s (iGPU, llama.cpp fork, 2026-07-03 — historical, no longer runs on current hardware) | ✅ 1BP conversion complete — [HF](https://huggingface.co/bong-water-water-bong/ZAYA1-74B-preview-1BP) |
 
-Zaya1-8B is the model this project was built around: it's the one validated end-to-end through Q4NX, GGUF, and 1BP, and the one `tools/gguf_to_onebp.py` targets first when converting into the native format. Both sizes are published complete on Hugging Face — [**ZAYA1-8B-1BP**](https://huggingface.co/bong-water-water-bong/ZAYA1-8B-1BP) (1283 tensors, 16-expert MoE FFN weights) and [**ZAYA1-74B-preview-1BP**](https://huggingface.co/bong-water-water-bong/ZAYA1-74B-preview-1BP) (1923 tensors, 24-expert MoE FFN weights) — every tensor structurally verified against the source GGUF (exact parameter-count match) and numerically verified (dequantized values within expected 4-bit quantization tolerance).
+Zaya1-8B is the model this project was built around: it's the one validated end-to-end through Q4NX, GGUF, and 1BP, and the one the `gguf_to_onebp` converter targets first when converting into the native format. Both sizes are published complete on Hugging Face — [**ZAYA1-8B-1BP**](https://huggingface.co/bong-water-water-bong/ZAYA1-8B-1BP) (1283 tensors, 16-expert MoE FFN weights) and [**ZAYA1-74B-preview-1BP**](https://huggingface.co/bong-water-water-bong/ZAYA1-74B-preview-1BP) (1923 tensors, 24-expert MoE FFN weights) — every tensor structurally verified against the source GGUF (exact parameter-count match) and numerically verified (dequantized values within expected 4-bit quantization tolerance).
 
 ### Zyphra family — beyond Zaya
 
@@ -175,7 +190,7 @@ Zaya1's maker, Zyphra, publishes several other architecturally distinct model li
 
 Each converted from a Q8_0/BF16 source (not a 4-bit GGUF) to avoid compounding quantization error through a second 4-bit pass, then structurally and numerically verified the same way as the Zaya1 conversions.
 
-**BlackMamba required a from-scratch converter** (`scripts/blackmamba_to_gguf.py`) — no upstream GGUF export exists for this architecture, and it predates the architecture support standard converters have. Shipped with three real correctness bugs on the first pass (wrong Q4_0 nibble encoding, a conv1d weight `.reshape()` that silently scrambled channel/kernel-tap pairing, and a dropped MoE router bias), all found and fixed by cross-checking a new reference tool against the official Zyphra implementation — see the model cards on Hugging Face for the full writeup.
+**BlackMamba required a from-scratch converter** — no upstream GGUF export exists for this architecture, and it predates the architecture support standard converters have. The one-time bootstrap conversion shipped with three real correctness bugs on the first pass (wrong Q4_0 nibble encoding, a conv1d weight reshape that silently scrambled channel/kernel-tap pairing, and a dropped MoE router bias), all found and fixed by cross-checking against the in-tree C++ reference (`tools/blackmamba_cpu_reference.cpp`) and the official Zyphra implementation — see the model cards on Hugging Face for the full writeup. The resulting weights are what `gguf_to_onebp` now ingests directly.
 
 **Fast inference is now wired**: `src/mamba1_engine.hip` kernels are compiled into `librocm_cpp.so` and the `Mamba1Backend` (HIP GPU) is registered as a first-class backend in `BackendManager`. Both BlackMamba sizes load end-to-end through the Mamba1 GPU backend: alternating SSM layers (rmsnorm → in_proj → conv1d/silu → selective_scan → gate → out_proj) and MoE FFN layers (router → top-1 expert dispatch → SiLU → scale-add residual). Real inference at 79.8 tok/s (1.5B) and 46.4 tok/s (2.8B) on Strix Halo (ROCm HIP). The diagnostic tool `tools/test_mamba1_backend.cpp` loads a Mamba1 GGUF directly into the HIP backend for testing without the HTTP server. PR [#579](https://github.com/bong-water-water-bong/1bit-systems/pull/579) shipped the build linkage, conv state fix, and A_log exponentiation fix.
 
@@ -211,7 +226,7 @@ Every model above is stored via 1BP's default Q4NX quant (4-bit, works for any s
 |-------|:------:|--------|---------------|-----|
 | [Bonsai-1.7B](https://huggingface.co/bong-water-water-bong/Bonsai-1.7B-TQ2-1BP) | 1.72B | **1BP (TQ2)** | 100% of dequantized values match source within BF16 scale-rounding (mean rel. error rounds to 0.000000) — lossless repack, not requantization | [link](https://huggingface.co/bong-water-water-bong/Bonsai-1.7B-TQ2-1BP) |
 
-Convert another ternary-native model the same way: `python3 tools/gguf_to_onebp.py model.gguf output.1bp --tq2`. `ONEBP_TQ1` (1.58-bit, base-3 packing) is still unimplemented — 256 isn't evenly divisible by its 5-values-per-byte scheme, so it needs more careful boundary handling than TQ2 did.
+Convert another ternary-native model the same way: `./build/gguf_to_onebp model.gguf output.1bp --tq2` (pure C++, no Python). `ONEBP_TQ1` (1.58-bit, base-3 packing) is still unimplemented — 256 isn't evenly divisible by its 5-values-per-byte scheme, so it needs more careful boundary handling than TQ2 did.
 
 ---
 

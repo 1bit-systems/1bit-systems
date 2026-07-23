@@ -20,7 +20,7 @@ set(NPU_CXX_SOURCES
 # ── npu_engine_universal (flagship — all ops: QKV, O, GU, D, attention) ──
 set(NPU_ENGINE_SOURCES
     ${NPU_SRC_DIR}/npu_engine_universal.cpp
-    ${NPU_SRC_DIR}/dequant_q4nx.c
+    ${NPU_SRC_DIR}/dequant_q4nx.cpp
     ${NPU_CXX_SOURCES}
 )
 
@@ -73,7 +73,7 @@ find_library(XRT_COREUTIL xrt_coreutil)
 
 set(NPU_CB_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/npu_engine_cb.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/dequant_q4nx.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dequant_q4nx.cpp
     ${NPU_CXX_SOURCES}
 )
 

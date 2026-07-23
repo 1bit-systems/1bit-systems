@@ -95,7 +95,7 @@ against the real HF model: embedding lookup, RoPE theta/config, GQA head mapping
 extraction offsets — all correct. Remaining suspects: RoPE rotation convention (tested,
 inconclusive) or the compiled `.xclbin` kernels themselves, undebuggable without the AI
 Engine Simulator — blocked on this machine since Update 24's investigation (missing
-`aie2p_8x4_device.json` for NPU2). Full writeup: `docs/V12-CORRECTNESS-BLOCKER.md`.
+`aie2p_8x4_device.json` for NPU2). Full writeup: `docs/archive/V12-CORRECTNESS-BLOCKER.md`.
 
 **FLM proxy stays in production.** Do not wire v12/1bit.engine into the daemon until this
 is resolved and re-verified against real chat prompts, not just dispatch speed.
@@ -137,7 +137,7 @@ in this file until now).
 Fused xclbin is closer than before (schedule solved, deadlock scope narrowed) but still not
 working end-to-end — two distinct kernel bugs remain (tail deadlock, QKV numeric correctness).
 v12 (97 tok/s, standalone INT8 GEMM, zero Python) stays production. Full details in
-`docs/FUSED-INTEGRATION-BLOCKER.md`.
+`docs/archive/FUSED-INTEGRATION-BLOCKER.md`.
 
 ---
 
@@ -198,7 +198,7 @@ separate weight-format workstream.
 
 (Update 24, a session later, revisited this with fresh eyes and found the real bug was the
 *schedule* — chunks replicated identically across columns instead of indexed per-tile — not the
-quantization theory reached here. See `docs/WEIGHT-STREAM-BLOCKER.md` for the correction.)
+quantization theory reached here. See `docs/archive/WEIGHT-STREAM-BLOCKER.md` for the correction.)
 
 ---
 

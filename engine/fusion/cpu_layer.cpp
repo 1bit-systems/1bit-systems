@@ -14,14 +14,6 @@
 // Internal helpers
 // ═══════════════════════════════════════════════════════════════════
 
-// Decode one packed uint32 → 16 float signs in { -1, 0, +1 }
-static inline void decode_ternary_word(uint32_t word, float* signs_out) {
-    for (int v = 0; v < 16; v++) {
-        uint32_t bits = (word >> (v * 2)) & 0x3;
-        signs_out[v] = (float)((bits == 1) ? 1 : (bits == 2) ? -1 : 0);
-    }
-}
-
 // ═══════════════════════════════════════════════════════════════════
 // CPU ternary GEMV — scalar + SIMD (AVX2 / AVX-512)
 // ═══════════════════════════════════════════════════════════════════
@@ -379,7 +371,6 @@ int cpu_layer_forward_qwen3(
     // ── RMSNorm + QKV ternary GEMV ──
     cpu_rmsnorm(hidden, in_norm_weight, hidden, hidden_dim, rms_norm_eps);
 
-    int qkv_dim = n_heads * head_dim + 2 * n_kv_heads * head_dim;
     cpu_ternary_gemv(q_packed, hidden, q_scales, scratch_qkv, n_heads * head_dim, hidden_dim);
     cpu_ternary_gemv(k_packed, hidden, k_scales, scratch_qkv + n_heads * head_dim, n_kv_heads * head_dim, hidden_dim);
     cpu_ternary_gemv(v_packed, hidden, v_scales, scratch_qkv + n_heads * head_dim + n_kv_heads * head_dim, n_kv_heads * head_dim, hidden_dim);
