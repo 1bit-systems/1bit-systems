@@ -1,5 +1,5 @@
 // CCA Attention GPU Test - Zaya CCA Attention GPU Kernel + CPU Reference
-// Build: /opt/rocm-7.2.4/bin/hipcc -O3 --offload-arch=gfx1151 test_cca_attn.cpp -o test_cca_attn
+// Build: /opt/rocm-therock/bin/hipcc -O3 --offload-arch=gfx1151 test_cca_attn.cpp -o test_cca_attn
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>

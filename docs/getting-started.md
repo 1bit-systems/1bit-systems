@@ -36,39 +36,22 @@ cd 1bit-systems
 
 ---
 
-## 2. Install ROCm 7.2.4
-
-<details>
-<summary><b>Repository install (recommended)</b></summary>
-
-```bash
-# Add AMD ROCm repository
-curl -fsSL https://repo.radeon.com/rocm/rocm.gpg.key \
-  | sudo gpg --dearmor -o /etc/apt/keyrings/rocm.gpg
-echo "deb [signed-by=/etc/apt/keyrings/rocm.gpg] \
-  https://repo.radeon.com/rocm/apt/7.2.4 noble main" \
-  | sudo tee /etc/apt/sources.list.d/rocm.list
-sudo apt update
-sudo apt install -y rocm-hip-libraries rocm-hip-dev rocm-device-libs
-```
-
-Add to `~/.bashrc`:
-
-```bash
-export PATH=/opt/rocm/bin:/opt/rocm/lib/llvm/bin:$PATH
-export LD_LIBRARY_PATH=/opt/rocm/lib:$LD_LIBRARY_PATH
-```
-</details>
-
-<details>
-<summary><b>Alternative — pip TheRock SDK</b></summary>
+## 2. Install TheRock 7.15.0a
 
 ```bash
 pip install --index-url https://rocm.nightlies.amd.com/v2/gfx1151/ \
   rocm[devel,libraries]
 export THEROCK_PIP_ROOT="$HOME/.cache/pip/therock"
 ```
-</details>
+
+The CMake build system auto-discovers TheRock automatically:
+`/opt/rocm-therock` → `$THEROCK_PIP_ROOT` → `~/.cache/lemonade/bin/therock`.
+
+Add to `~/.bashrc`:
+
+```bash
+export THEROCK_PIP_ROOT="$HOME/.cache/pip/therock"
+```
 
 Verify the HIP compiler is reachable:
 

@@ -2,7 +2,7 @@
 
 This document covers building **zaya_server** — a pure C++ inference server with optional
 GPU decoding support. No Rust, no Python at runtime. The host CPU is **AMD Strix Halo**
-(Ryzen AI Max+ 395) and GPU acceleration uses **ROCm 7.2.4** targeting `gfx1151`.
+(Ryzen AI Max+ 395) and GPU acceleration uses **TheRock 7.15.0a** targeting `gfx1151`.
 
 ---
 
@@ -27,26 +27,22 @@ sudo apt install -y cmake ninja-build build-essential git
 
 ---
 
-## ROCm 7.2.4
-
-Install ROCm via the official AMD repository or a local package install.
-
-**Example — repository install**
+## TheRock 7.15.0a
 
 ```bash
-# Add AMD ROCm repository (adjust for your distro)
-curl -fsSL https://repo.radeon.com/rocm/rocm.gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/rocm.gpg
-echo "deb [signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.2.4 noble main" \
-  | sudo tee /etc/apt/sources.list.d/rocm.list
-sudo apt update
-sudo apt install -y rocm-dev hipcc
+# Install TheRock HIP SDK for gfx1151 (Strix Halo)
+pip install --index-url https://rocm.nightlies.amd.com/v2/gfx1151/ \
+  rocm[devel,libraries]
+export THEROCK_PIP_ROOT="$HOME/.cache/pip/therock"
 
 # Verify
-/opt/rocm/bin/rocminfo
-/opt/rocm/bin/hipconfig --full
+which amdclang++
 ```
 
-**Set `CMAKE_HIP_ARCHITECTURES`** so that HIP kernels are compiled for the Strix Halo GPU:
+The CMake build system auto-discovers TheRock (see `CMakeLists.txt`):
+`/opt/rocm-therock` → `$THEROCK_PIP_ROOT` → `~/.cache/lemonade/bin/therock`.
+
+**Set `CMAKE_HIP_ARCHITECTURES`** so that HIP kernels are compiled for Strix Halo:
 
 ```bash
 export CMAKE_HIP_ARCHITECTURES=gfx1151
@@ -156,7 +152,7 @@ message at startup confirming GPU decode is active.
 ### `hipErrorNoBinaryForGPU`
 
 The `CMAKE_HIP_ARCHITECTURES` variable was not set, or was set to the wrong target.
-Ensure it is `gfx1151` and that ROCm 7.2.4 is installed (older ROCm releases may
+Ensure it is `gfx1151` and that TheRock 7.15.0a is installed (older ROCm releases may
 not include code-objects for gfx1151).
 
 ### `cannot find -lamdhip64`

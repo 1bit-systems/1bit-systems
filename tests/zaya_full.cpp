@@ -2,7 +2,7 @@
 // Minimal compilable version with weight loading + layer loop
 //
 // Build:
-//   /opt/rocm-7.2.4/bin/hipcc -O3 --offload-arch=gfx1151 zaya_full.cpp -o zaya_full
+//   /opt/rocm-therock/bin/hipcc -O3 --offload-arch=gfx1151 zaya_full.cpp -o zaya_full
 //   ./zaya_full
 
 #include <hip/hip_runtime.h>

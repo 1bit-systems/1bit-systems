@@ -59,22 +59,29 @@ install_deps() {
     if command -v apt-get &>/dev/null; then
         log "Installing build deps (apt)..."
         sudo apt-get update -qq
-        sudo apt-get install -y -qq build-essential cmake ninja-build git curl
-        # ROCm HIP SDK — try multiple package names across distro versions
-        sudo apt-get install -y -qq rocm-hip-libraries 2>/dev/null || \
-            sudo apt-get install -y -qq hip-sdk 2>/dev/null || \
-            sudo apt-get install -y -qq rocm-dev 2>/dev/null || \
-            warn "No ROCm HIP package found. Install manually: rocm-hip-libraries"
+        sudo apt-get install -y -qq build-essential cmake ninja-build git curl python3-pip
     elif command -v pacman &>/dev/null; then
         log "Installing build deps (pacman)..."
-        sudo pacman -Sy --noconfirm base-devel cmake ninja git curl rocm-hip-sdk 2>/dev/null || \
-            warn "ROCm HIP package not found. Install rocm-hip-sdk manually"
+        sudo pacman -Sy --noconfirm base-devel cmake ninja git curl python-pip
     elif command -v dnf &>/dev/null; then
         log "Installing build deps (dnf)..."
-        sudo dnf install -y gcc-c++ cmake ninja-build git curl rocm-hip-devel 2>/dev/null || \
-            warn "ROCm HIP package not found. Install rocm-hip-devel manually"
+        sudo dnf install -y gcc-c++ cmake ninja-build git curl python3-pip
     else
-        warn "Unknown package manager. Install: cmake ninja git curl build-essential + ROCm HIP SDK"
+        warn "Unknown package manager. Install: cmake ninja git curl build-essential python3-pip"
+    fi
+    command -v ninja >/dev/null 2>&1 || { echo "WARNING: ninja not found, using Unix Makefiles"; CMAKE_GENERATOR=""; }
+    
+    # TheRock 7.15.0a — pip-installed HIP SDK for gfx1151
+    if ! command -v amdclang++ &>/dev/null; then
+        log "Installing TheRock 7.15.0a SDK..."
+        python3 -m pip install --index-url https://rocm.nightlies.amd.com/v2/gfx1151/ \
+            rocm[devel,libraries] 2>/dev/null || {
+            warn "TheRock pip install failed. Set THEROCK_PIP_ROOT manually."
+            warn "See: https://github.com/bong-water-water-bong/TheRock"
+        }
+        export THEROCK_PIP_ROOT="$HOME/.cache/pip/therock"
+    else
+        log "amdclang++ found — TheRock SDK already installed"
     fi
 	command -v ninja >/dev/null 2>&1 || { echo "WARNING: ninja not found, using Unix Makefiles"; CMAKE_GENERATOR=""; }
 }

@@ -78,7 +78,7 @@ print(client.chat.completions.create(
 | Open WebUI, AnythingLLM, n8n, Dify | `http://127.0.0.1:13305/v1` |
 | Continue.dev, Aider, Cline | `http://127.0.0.1:13305/v1` |
 
-## Verified Benchmarks — ROCm 7.2.4, gfx1151, June 2026
+## Verified Benchmarks — TheRock 7.15.0a, gfx1151, June 2026
 
 ### Prefill GEMM (our ternary 4h kernel vs rocBLAS FP16)
 

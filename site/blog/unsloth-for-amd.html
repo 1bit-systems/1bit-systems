@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unsloth for AMD — Train &amp; Fine-Tune LLMs on Radeon, Instinct &amp; Ryzen AI — 1bit.systems</title>
+<meta name="description" content="Unsloth announced native AMD GPU support for LLM training, fine-tuning, and RL across Radeon, Instinct, and Ryzen AI hardware — with 2x faster training, 70% less VRAM, and 3GB VRAM entry point.">
+<meta name="keywords" content="Unsloth, AMD, ROCm, LLM training, fine-tuning, Radeon, Instinct, Ryzen AI, Strix Halo, RL, Triton kernels, MI300X, RDNA 4">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://1bit.systems/blog/unsloth-for-amd">
+<meta property="og:title" content="Unsloth for AMD — Train &amp; Fine-Tune LLMs on Radeon, Instinct &amp; Ryzen AI">
+<meta property="og:description" content="Unsloth announced native AMD GPU support for training, RL, and inference. 2x faster, 70% less VRAM, runs on 3GB. Covers Radeon, Instinct, and Ryzen AI (including Strix Halo).">
+<meta property="og:url" content="https://1bit.systems/blog/unsloth-for-amd">
+<meta property="og:type" content="article">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<style>
+  :root{--bg:#021621;--panel:#06222f;--border:#0e3346;--text:#e7f6fd;--muted:#86adbf;--dim:#4a6a7a;--green:#00ff00;--pink:#f00fd2;--blue:#12a0ed;--sans:'Inter',Helvetica,Arial,sans-serif;--mono:'JetBrains Mono',Consolas,monospace;--maxw:780px;}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.7;}
+  a{color:var(--blue);font-weight:600;text-decoration:none;}a:hover{color:var(--green);}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px;}
+  nav{position:sticky;top:0;backdrop-filter:blur(14px);background:rgba(2,22,33,.78);border-bottom:1px solid var(--border);}
+  .nav-in{max-width:1180px;margin:0 auto;padding:0 32px;height:60px;display:flex;align-items:center;gap:12px;}
+  .mark{width:32px;height:32px;border-radius:999px;background:var(--bg);border:2px solid var(--pink);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;color:var(--green);}
+  .wordmark{font-size:15px;font-weight:800;letter-spacing:-.025em;}.wordmark .g{color:var(--green);}.wordmark .p{color:var(--pink);}
+  article{padding:48px 0 64px;}
+  h1{font-size:clamp(26px,3.6vw,42px);font-weight:900;line-height:1.08;margin:16px 0 8px;}
+  .meta{font-family:var(--mono);font-size:13px;color:var(--dim);margin-bottom:32px;padding-bottom:20px;border-bottom:1px solid var(--border);}
+  h2{font-size:clamp(20px,2.4vw,28px);font-weight:800;margin:36px 0 12px;color:var(--green);}
+  h3{font-size:clamp(17px,1.6vw,22px);font-weight:700;margin:28px 0 10px;color:var(--text);}
+  p{margin:16px 0;font-size:16px;color:var(--muted);line-height:1.7;}p strong{color:var(--text);}
+  ul{margin:12px 0;padding-left:24px;color:var(--muted);font-size:16px;}li{margin:6px 0;}li strong{color:var(--text);}
+  code{background:var(--inner);padding:2px 7px;border-radius:5px;font-family:var(--mono);font-size:14px;color:var(--green);border:1px solid var(--border);}
+  pre{background:var(--inner);border:1px solid var(--border);border-radius:12px;padding:16px 18px;overflow-x:auto;margin:16px 0;font-family:var(--mono);font-size:13px;color:var(--muted);}
+  pre .g{color:var(--green);}pre .c{color:var(--dim);}pre .r{color:var(--pink);}
+  blockquote{border-left:3px solid var(--pink);padding:12px 18px;margin:20px 0;background:var(--panel);border-radius:0 10px 10px 0;}
+  blockquote.g{border-left-color:var(--green);}
+  blockquote.b{border-left-color:var(--blue);}
+  hr{border:none;border-top:1px solid var(--border);margin:32px 0;}
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px;}
+  th,td{padding:8px 12px;border:1px solid var(--border);text-align:left;}
+  th{background:var(--panel);color:var(--text);}td{color:var(--muted);}
+  .tag{display:inline-flex;height:22px;padding:0 10px;border-radius:5px;font-size:10px;font-weight:800;text-transform:uppercase;color:var(--bg);margin-right:6px;}
+  .tag.npu{background:var(--pink);}.tag.g{background:var(--green);color:var(--bg);}.tag.b{background:var(--blue);color:var(--bg);}.tag.news{background:#ff8800;color:var(--bg);}
+  .foot{border-top:1px solid var(--border);padding:24px 0 40px;text-align:center;font-size:13px;color:var(--dim);}
+  .pill{display:inline-flex;align-items:center;gap:7px;height:24px;padding:0 11px 0 9px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap;}
+  .pill .dot{width:8px;height:8px;border-radius:999px;flex:none;}
+  .pill.ok{background:rgba(0,255,0,.12);color:#7dffb0;} .pill.ok .dot{background:var(--green);}
+  .pill.info{background:rgba(18,160,237,.14);color:#7cc8f5;} .pill.info .dot{background:var(--blue);}
+  .pill.warn{background:rgba(240,15,210,.16);color:#f5a3e6;} .pill.warn .dot{background:var(--pink);}
+</style>
+</head>
+<body>
+<nav><div class="nav-in"><a class="mark" href="/">1bs</a><a class="wordmark" href="/"><span class="g">1</span>bit<span class="p">.</span>systems</a><span style="flex:1"></span><a href="/" style="font-size:13px;color:var(--muted);">← Home</a></div></nav>
+<article class="wrap">
+
+<div class="meta"><span class="tag news">News</span> <span class="tag b">AMD</span> <span class="tag npu">Training</span><br><br><strong style="color:var(--text);">industry note</strong> · July 2026 · 6 min read</div>
+
+<h1>Unsloth for AMD — Train &amp; Fine-Tune LLMs on Radeon, Instinct &amp; Ryzen AI</h1>
+
+<p><strong>tl;dr:</strong> Unsloth released native AMD GPU support for LLM training, fine-tuning, reinforcement learning, and inference. Up to <strong>2x faster</strong> with <strong>70% less VRAM</strong>. Runs on as little as <strong>3GB VRAM</strong> (Qwen3.5, Gemma 4). Covers Radeon, Instinct, Ryzen AI (including Strix Halo's Radeon 8060S), and data-center GPUs — across Windows, WSL, and Linux.</p>
+
+<blockquote>
+<strong>Why this matters for Strix Halo owners:</strong> Unsloth lets you <em>train</em> on the same AMD hardware where 1bit.systems handles inference. Complementary stack: train with Unsloth on the GPU, deploy with 1bit on the NPU+GPU.
+</blockquote>
+
+<hr>
+
+<h2>Supported AMD Hardware (by architecture)</h2>
+
+<p>Unsloth's official docs break down support by AMD GPU architecture with gfx codes:</p>
+
+<table>
+  <tr><th>Architecture</th><th>Series</th><th>gfx</th><th>Support</th><th>Platform</th></tr>
+  <tr><td><strong>RDNA 4</strong></td><td>RX 9000 Series</td><td>gfx1200, gfx1201</td><td>Full</td><td>Windows + WSL + Linux</td></tr>
+  <tr><td><strong>RDNA 3.5</strong></td><td>Ryzen AI 300 / Strix Halo</td><td>gfx1150, gfx1151, gfx1152</td><td>Full</td><td>Windows + WSL + Linux</td></tr>
+  <tr><td><strong>RDNA 3</strong></td><td>RX 7000 Series</td><td>gfx1100, gfx1101, gfx1102</td><td>Full</td><td>Windows + WSL + Linux</td></tr>
+  <tr><td><strong>RDNA 2</strong></td><td>RX 6000 Series</td><td>gfx1030 only</td><td>Limited</td><td>Linux only</td></tr>
+  <tr><td><strong>CDNA 4</strong></td><td>Instinct MI350</td><td>gfx950</td><td>Full</td><td>Linux only</td></tr>
+  <tr><td><strong>CDNA 3</strong></td><td>Instinct MI300</td><td>gfx940, gfx941, gfx942</td><td>Full</td><td>Linux only</td></tr>
+  <tr><td><strong>CDNA 2</strong></td><td>Instinct MI200</td><td>gfx90a</td><td>Full</td><td>Linux only</td></tr>
+</table>
+
+<p>Strix Halo (gfx1151) and RDNA 4 (gfx1200+) get full support on all three platforms.</p>
+
+<h2>Benchmarks (MI300X)</h2>
+
+<p>Unsloth published LLM fine-tuning benchmarks on an AMD MI300X (192GB HBM):</p>
+
+<div style="display:flex;flex-direction:column;gap:10px;margin:16px 0;">
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;">
+    <span>Llama-3.1-8B LoRA SFT — training speed</span>
+    <span class="pill ok"><span class="dot"></span>1.39x faster (2.07 vs 2.87 s/step)</span>
+  </div>
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;">
+    <span>Llama-3.1-8B LoRA SFT — VRAM</span>
+    <span class="pill ok"><span class="dot"></span>1.33x less (18.3 vs 24.3 GB)</span>
+  </div>
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:justify;justify-content:space-between;align-items:center;">
+    <span>VRAM reduction vs. TRL + FA2</span>
+    <span class="pill ok"><span class="dot"></span>70% less</span>
+  </div>
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;">
+    <span>GRPO RL VRAM reduction</span>
+    <span class="pill ok"><span class="dot"></span>80% less</span>
+  </div>
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;">
+    <span>Total training time (25 steps)</span>
+    <span class="pill ok"><span class="dot"></span>56s vs 75s (1.34x)</span>
+  </div>
+</div>
+
+<blockquote class="b">
+<strong>Key insight:</strong> The VRAM savings hold for the <em>entire run</em>, not just peak. Unsloth stays flat at ~18.3 GB while TRL+FA2 spikes to 22.8 GB on nearly every step.
+</blockquote>
+
+<h2>How AMD Support Was Built</h2>
+
+<p>Unsloth ported their custom kernels to AMD in collaboration with AMD's engineering team. Key PRs:</p>
+
+<ul>
+  <li><strong>#2520</strong> — ROCm kernels: HIP/Triton ports tuned for RDNA and CDNA, with architecture-specific precision, performance, and stability fixes</li>
+  <li><strong>#3748</strong> — 4-bit training: bitsandbytes-based QLoRA support for Radeon and CDNA GPUs</li>
+  <li><strong>#4770</strong> — Automatic setup: robust AMD GPU detection and correct ROCm PyTorch wheel installation, including repair and platform safeguards</li>
+  <li><strong>#5301, #6227</strong> — Windows and Strix Halo: native Windows ROCm installation, runtime compatibility patches, unified-memory reporting, and WSL support</li>
+  <li><strong>#5172</strong> — ROCm inference: architecture-specific llama.cpp prebuilts, source-build fallback, AMD VRAM detection, and monitoring</li>
+</ul>
+
+<h2>Performance Claims Summary</h2>
+
+<div style="display:flex;flex-direction:column;gap:10px;margin:16px 0;">
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;">
+    <span>Training speedup vs. TRL + FA2</span>
+    <span class="pill ok"><span class="dot"></span>1.39x faster</span>
+  </div>
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;">
+    <span>VRAM reduction vs. baseline</span>
+    <span class="pill ok"><span class="dot"></span>70% less</span>
+  </div>
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;">
+    <span>Minimum VRAM (Gemma 4 / Qwen3.5)</span>
+    <span class="pill warn"><span class="dot"></span>3–8 GB</span>
+  </div>
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;">
+    <span>MoE models speedup</span>
+    <span class="pill ok"><span class="dot"></span>12x faster</span>
+  </div>
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;">
+    <span>RL (GRPO) VRAM reduction</span>
+    <span class="pill ok"><span class="dot"></span>80% less</span>
+  </div>
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;">
+    <span>Weight sharing with vLLM</span>
+    <span class="pill ok"><span class="dot"></span>50% memory saved</span>
+  </div>
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;">
+    <span>Quality impact</span>
+    <span class="pill ok"><span class="dot"></span>None</span>
+  </div>
+</div>
+
+<h2>Key Features Available on AMD</h2>
+
+<ul>
+  <li><strong>LoRA / QLoRA</strong> fine-tuning (4-bit bitsandbytes for Radeon + CDNA)</li>
+  <li><strong>GRPO</strong> (Reinforcement Learning) — 80% less VRAM than alternatives, with weight sharing via vLLM to halve memory</li>
+  <li><strong>No LoRA merging drift</strong> — Unsloth uses vLLM's LoRA path directly, avoiding IEEE rounding errors from merge/unmerge cycles in BF16</li>
+  <li><strong>Full fine-tuning</strong> and pretraining</li>
+  <li><strong>4-bit, 16-bit, and FP8</strong> quantization</li>
+  <li><strong>Long-context training</strong> — 500K+ context, 3x faster packing</li>
+  <li><strong>Multi-GPU</strong> training (Linux only via RCCL; Windows lacks GPU-collective backend)</li>
+  <li><strong>GGUF inference</strong> with hardware controls (GPU layer placement, MoE expert offloading) via daily ROCm llama.cpp prebuilts</li>
+  <li><strong>Tool call healing</strong> — 50% accuracy increase on function-calling</li>
+  <li><strong>Unlimited free web search</strong>, HTML canvases, code execution</li>
+  <li><strong>Vision / multimodal</strong> models</li>
+  <li><strong>Embedding</strong> and <strong>TTS</strong> fine-tuning</li>
+  <li><strong>Secure HTTPS deployment</strong> via Cloudflare tunnels</li>
+  <li><strong>Phone access</strong> — train and chat from your phone via Cloudflare link</li>
+</ul>
+
+<h2>Model Families Supported</h2>
+
+<p>Gemma 4, Qwen3.6, Qwen3.5, DeepSeek-V4, Kimi K2.7, GLM-5.2, DiffusionGemma, Inkling, Llama 3.1/3.2, Mistral, Phi-4, gpt-oss, MiniMax M3, and <strong>500+ models</strong> total.</p>
+
+<hr>
+
+<h2>Installing Unsloth on AMD</h2>
+
+<h3>Quick install (Linux / WSL):</h3>
+<pre><span class="g">curl -fsSL https://unsloth.ai/install.sh | sh</span></pre>
+
+<h3>Windows (PowerShell):</h3>
+<pre><span class="g">irm https://unsloth.ai/install.ps1 | iex</span></pre>
+
+<h3>pip install (for notebooks / code):</h3>
+<pre><span class="g">uv pip install unsloth[amd]</span></pre>
+
+<h3>Launch Unsloth Studio:</h3>
+<pre><span class="g">unsloth studio -p 8888</span>
+
+<span class="c"># For remote / phone access via HTTPS:</span>
+<span class="g">unsloth studio --secure</span></pre>
+
+<h3>Detailed guide:</h3>
+<p><a href="https://unsloth.ai/docs/basics/amd">https://unsloth.ai/docs/basics/amd</a></p>
+
+<hr>
+
+<h2>Connecting to Agent Frameworks</h2>
+
+<p>Unsloth's <code>unsloth start</code> command connects locally trained/fine-tuned models to agents:</p>
+
+<pre><span class="g">unsloth start claude</span>    <span class="c"># Claude Code</span>
+<span class="g">unsloth start codex</span>    <span class="c"># OpenAI Codex</span>
+<span class="g">unsloth start hermes</span>   <span class="c"># Hermes Agent</span>
+<span class="g">unsloth start pi</span>       <span class="c"># Pi Coding Agent</span>
+<span class="g">unsloth start openclaw</span>
+<span class="g">unsloth start opencode</span></pre>
+
+<p>You can also serve as a subagent with a specific model:</p>
+<pre><span class="g">unsloth start claude --as-subagent --model unsloth/gemma-4-E2B-it-GGUF:UD-Q4_K_XL</span></pre>
+
+<hr>
+
+<h2>Community Reception &amp; Known Issues</h2>
+
+<p>The announcement was well received — 65+ upvotes, broadly positive. Key highlights from the Reddit thread:</p>
+
+<h3>Hardware people are running</h3>
+<ul>
+  <li>Dual RX 7900 XTX</li>
+  <li>RX 6900, RX 9060 XT</li>
+  <li><strong>Ryzen AI MAX+ 395 (Strix Halo)</strong> — significant interest from the community around unified memory training</li>
+  <li>MI300X (192GB) via AMD Developer Cloud</li>
+</ul>
+
+<h3>Early bugs</h3>
+<ul>
+  <li><strong>ROCm version fallback</strong> — ROCm 7.14 detected but falls back to 7.2 on Strix Halo. Unsloth team acknowledged and investigating.</li>
+  <li><strong>Strix Halo Windows VRAM</strong> — Unsloth doesn't recognize dedicated VRAM on Windows with unified memory APUs.</li>
+  <li><strong>Vision projector / llama.cpp</strong> — Compatibility issue with certain GGUF builds.</li>
+  <li><strong>GPU detection</strong> — Installer sometimes reports "CPU-only" on Strix Halo before the ROCm torch backend is selected.</li>
+</ul>
+
+<h3>Future work</h3>
+<ul>
+  <li>Expanded CI/CD using AMD Strix Halo and Radeon Lab hardware</li>
+  <li>Support for new AMD GPU architectures as they launch</li>
+  <li>Clearer multi-GPU guidance (Windows currently limited)</li>
+  <li>Further speed optimizations for the ROCm stack</li>
+</ul>
+
+<hr>
+
+<h2>Credits</h2>
+
+<p>Thanks to AMD team members: Strahinja Stamenkovic, Filip Jankovic, Iswarya Alex, Yue Yuan Bill He, Eda Zhou, Mahdi Ghodsi, Guruprasad, and the entire AMD team. Also thanks to community members: Nate, UBER6, AiwendilOfMirk, Gene, Jimster480, VELICAN, Vintheboy, archmaker, BichonFriseMax, Calandracas, Chigoma333, Edd, electroglyph, jslowbell, mk 27B UD-, Satyam, snapcast3r, TotoMC for testing and debugging.</p>
+
+<p>One-click AMD notebooks are available via <a href="https://www.amd.com/en/developer/cloud.html">AMD Developer Cloud</a> with MI300X GPUs (192GB VRAM). AMD also offers free credits through the <a href="https://www.amd.com/en/developer/aiap.html">AMD AI Developer Program</a>.</p>
+
+<hr>
+
+<h2>Strix Halo Synergy</h2>
+
+<p>For the 1bit.systems community, Unsloth for AMD fills the <strong>training gap</strong> on Strix Halo hardware:</p>
+
+<blockquote class="g">
+<strong>1bit.systems</strong> → Inference on NPU + GPU (ROCm/Vulkan)<br>
+<strong>Unsloth</strong> → Training, fine-tuning, and RL on the same GPU<br>
+<strong>llama.cpp (ROCm)</strong> → Fast GGUF inference (229 tok/s on same hardware)
+</blockquote>
+
+<p>With ~48M Strix Halo APUs shipped in 2026 (per AMD), having a complete <strong>train-on-AMD, infer-on-AMD</strong> stack without leaving Linux or using an NVIDIA GPU is now production-viable.</p>
+
+<hr>
+
+<h2>Links</h2>
+<ul>
+  <li><a href="https://github.com/unslothai/unsloth">Unsloth GitHub →</a></li>
+  <li><a href="https://unsloth.ai/docs/basics/amd">AMD Setup Guide →</a></li>
+  <li><a href="https://www.reddit.com/r/unsloth/comments/1v1mqgq/introducing_unsloth_for_amd/">Reddit Announcement →</a></li>
+  <li><a href="https://1bit.systems">1bit.systems — NPU+GPU inference for Strix Halo →</a></li>
+</ul>
+
+</article>
+<div class="foot wrap"><a href="/blog/">← research blog</a> · <a href="/">1bit.systems</a> · MIT</div>
+</body>
+</html>

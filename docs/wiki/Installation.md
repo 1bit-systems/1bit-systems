@@ -29,7 +29,7 @@ uname -r          # check your running kernel
 | Hardware  | AMD Ryzen AI Max+ 395 (Strix Halo, gfx1151)    |
 | OS        | Ubuntu 24.04 LTS or later (Arch/CachyOS work)  |
 | Kernel    | 6.18.22-lts or 7.x (not 6.19.x)                |
-| ROCm      | 7.2.4                                          |
+| ROCm      | TheRock 7.15.0a (pip)                            |
 
 ## Quick install
 

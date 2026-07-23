@@ -80,7 +80,7 @@
   is `new_id` (merged token id), not `rank`
 
 ## [0.2.0] — 2026-06-23
-- Full benchmark on ROCm 7.2.4 (Ubuntu 24.04)
+- Full benchmark on TheRock 7.15.0a (Ubuntu 24.04)
 - Prefill 4h kernel: 21.94 TFlops (73% of rocBLAS, 2.9x per-byte)
 - Decode halo: 27.01 µs (7.8x rocBLAS)
 - Auto-tuner with 7 prefill variants

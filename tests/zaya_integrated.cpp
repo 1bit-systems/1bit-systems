@@ -2,7 +2,7 @@
 // Loads pre-extracted weights, runs 40 layers, outputs logits
 //
 // Build:
-//   /opt/rocm-7.2.4/bin/hipcc -O3 --offload-arch=gfx1151 \
+//   /opt/rocm-therock/bin/hipcc -O3 --offload-arch=gfx1151 \
 //     zaya_integrated.cpp -o zaya_integrated
 //
 // Weights: python3 export_weights.py (from safetensors)

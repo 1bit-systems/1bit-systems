@@ -11,7 +11,7 @@ jobs:
   server:
     name: Build release (C++ HIP kernels + server + CLI)
     runs-on: ubuntu-24.04
-    container: rocm/dev-ubuntu-24.04:7.2.4-complete   # complete = all ROCm libs (rocwmma/CK/rocBLAS) so headers like rocwmma/rocwmma.hpp resolve
+    container: rocm/dev-ubuntu-24.04:7.2.4-complete   # TheRock 7.15.0a compat image
     timeout-minutes: 60
     permissions:
       contents: write

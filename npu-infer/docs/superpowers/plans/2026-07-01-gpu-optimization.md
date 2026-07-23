@@ -6,16 +6,16 @@
 
 **Architecture:** Two-phase approach: (A) profile to get hard numbers on the bottleneck, (C) full GPU residency — keep hidden state on-device across all layers, port all ops (RMSNorm, SiLU, RoPE, QK norm, attention) to HIP kernels as part of that transition.
 
-**Tech Stack:** HIP/CUDA-like kernels, ROCm 7.2.4, gfx1151 (Radeon 8060S), single-file engine (`src/rocm_engine.cpp`)
+**Tech Stack:** HIP/CUDA-like kernels, TheRock 7.15.0a, gfx1151 (Radeon 8060S), single-file engine (`src/rocm_engine.cpp`)
 
 ## Global Constraints
 
 - No Python, no Rust — pure C++/HIP only
 - No hipBLAS/rocBLAS dependency — raw HIP kernels only
-- System ROCm 7.2.4 from /opt/rocm, hipcc from system
+- System TheRock 7.15.0a from /opt/rocm-therock, hipcc from system
 - Target gfx1151 (Radeon 8060S, 20 CUs, RDNA 3.5)
 - All weights as float32, already on GPU (d_* buffers)
-- Run with LD_LIBRARY_PATH=/opt/rocm/lib
+- Run with LD_LIBRARY_PATH=/opt/rocm-therock/lib
 - hipSetDevice(0) already done in init
 - Prompt: 9 tokens, generate 4 max output
 - Each step produces a working, testable binary
@@ -152,11 +152,11 @@ Before the return, after the existing timing output:
 
 ```bash
 cd /home/bcloud/npu-sandbox/npu-infer/build
-hipcc -D__HIP_PLATFORM_AMD__ -std=c++17 -O2 -I../include -I/opt/rocm/include \
+hipcc -D__HIP_PLATFORM_AMD__ -std=c++17 -O2 -I../include -I/opt/rocm-therock/include \
     -c ../src/rocm_engine.cpp -o rocm_engine.o && \
-hipcc -D__HIP_PLATFORM_AMD__ -std=c++17 -O2 -I../include -I/opt/rocm/include \
+hipcc -D__HIP_PLATFORM_AMD__ -std=c++17 -O2 -I../include -I/opt/rocm-therock/include \
     rocm_engine.o dequant_q4nx.o -lm -o rocm_engine && \
-LD_LIBRARY_PATH=/opt/rocm/lib ./rocm_engine /tmp/qwen3_raw 2>&1
+LD_LIBRARY_PATH=/opt/rocm-therock/lib ./rocm_engine /tmp/qwen3_raw 2>&1
 ```
 
 Record the profile output. Then commit.
@@ -611,11 +611,11 @@ After verifying correctness, can remove the host-side `q_out_`, `k_out_`, `v_out
 
 ```bash
 cd /home/bcloud/npu-sandbox/npu-infer/build
-hipcc -D__HIP_PLATFORM_AMD__ -std=c++17 -O2 -I../include -I/opt/rocm/include \
+hipcc -D__HIP_PLATFORM_AMD__ -std=c++17 -O2 -I../include -I/opt/rocm-therock/include \
     -c ../src/rocm_engine.cpp -o rocm_engine.o && \
-hipcc -D__HIP_PLATFORM_AMD__ -std=c++17 -O2 -I../include -I/opt/rocm/include \
+hipcc -D__HIP_PLATFORM_AMD__ -std=c++17 -O2 -I../include -I/opt/rocm-therock/include \
     rocm_engine.o dequant_q4nx.o -lm -o rocm_engine && \
-LD_LIBRARY_PATH=/opt/rocm/lib timeout 120 ./rocm_engine /tmp/qwen3_raw
+LD_LIBRARY_PATH=/opt/rocm-therock/lib timeout 120 ./rocm_engine /tmp/qwen3_raw
 ```
 
 Expected: same output tokens as before (`32313 11 11 1077`) but much faster (<10-15 ms/tok).

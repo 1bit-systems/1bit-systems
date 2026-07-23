@@ -103,23 +103,19 @@ See [docs/building.md](docs/building.md) for full prerequisites and [docs/gettin
 | Ubuntu | 24.04 LTS or later (kernel 7.0.0+) | Host OS |
 | CMake | ≥ 3.21 | Build system |
 | Ninja | latest | Fast builds |
-| ROCm | **7.2.4** | HIP compiler + composable kernel |
+| ROCm | **TheRock 7.15.0a** | HIP compiler (pip) |
 | GCC | ≥ 13 | C++20 host compiler |
 | AMD XRT | ≥ 2.21 | NPU runtime (`libxrt_coreutil`) |
 | Git LFS | latest | Model file storage |
 
-**ROCm 7.2.4 installation:**
+**TheRock 7.15.0a installation (pip):**
 ```bash
-wget -qO - https://repo.radeon.com/rocm/rocm.gpg.key \
-  | sudo gpg --dearmor -o /etc/apt/keyrings/rocm.gpg
-echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] \
-  https://repo.radeon.com/rocm/apt/7.2.4 noble main" \
-  | sudo tee /etc/apt/sources.list.d/rocm.list
-sudo apt update
-sudo apt install rocm-dev hip-dev composablekernel-dev
+pip install --index-url https://rocm.nightlies.amd.com/v2/gfx1151/ \
+  rocm[devel,libraries]
+export THEROCK_PIP_ROOT="$HOME/.cache/pip/therock"
 ```
 
-The project auto-discovers the HIP compiler in this order:
+The project auto-discovers the HIP compiler in this order (see CMakeLists.txt):
 1. TheRock pip SDK (`$HOME/.cache/pip/therock`)
 2. Lemonade cache (`$HOME/.cache/lemonade/bin/therock`)
 3. Legacy TheRock path (`$HOME/therock/build/dist/rocm`)

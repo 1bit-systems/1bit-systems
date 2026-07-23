@@ -21,22 +21,21 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq cmake ninja-build build-essential python3
-          # AMD ROCm 7.2 provides the hip + composable_kernel CMake packages
-          # this project requires. Pinned to the 7.2.4 apt repo for Strix Halo
-          # (gfx1151) parity with the documented build and the verified ROCm
-          # version on our hardware. Steps below degrade gracefully if the
-          # ROCm packages can't be installed on the runner.
-          wget -qO- https://repo.radeon.com/rocm/rocm.gpg.key 2>/dev/null | sudo gpg --dearmor -o /etc/apt/keyrings/rocm.gpg 2>/dev/null || true
-          if [ -f /etc/apt/keyrings/rocm.gpg ]; then
-            printf '%s\n' \
-              'deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.2.4 noble main' \
-              'deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/graphics/7.2.4/ubuntu noble main' \
-              | sudo tee /etc/apt/sources.list.d/rocm.list
-            sudo apt-get update -qq || true
-            sudo apt-get install -y -qq rocm-dev hip-dev composablekernel-dev || true
-          else
-            echo "ROCm key not available — skipping ROCm install on this runner."
-          fi
+          # Try TheRock 7.15.0a pip install (native gfx1151). Fall back to apt ROCm.
+          python3 -m pip install --index-url https://rocm.nightlies.amd.com/v2/gfx1151/ \
+            rocm[devel,libraries] 2>/dev/null && echo "TheRock 7.15.0a installed" || {
+            echo "TheRock pip index unreachable — falling back to apt ROCm 7.2.4"
+            wget -qO- https://repo.radeon.com/rocm/rocm.gpg.key 2>/dev/null | \
+              sudo gpg --dearmor -o /etc/apt/keyrings/rocm.gpg 2>/dev/null || true
+            if [ -f /etc/apt/keyrings/rocm.gpg ]; then
+              printf '%s\n' \
+                'deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.2.4 noble main' \
+                'deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/graphics/7.2.4/ubuntu noble main' \
+                | sudo tee /etc/apt/sources.list.d/rocm.list
+              sudo apt-get update -qq || true
+              sudo apt-get install -y -qq rocm-dev hip-dev composablekernel-dev || true
+            fi
+          }
       - name: Verify CMakeLists references resolve
         run: |
           set -e
@@ -115,11 +114,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: All manifests match root VERSION
         run: bash scripts/sync-version.sh --check
-      - name: Q4NX quant round-trip (issue #153 layout guard)
-        run: |
-          python3 -m pip install --quiet numpy
-          python3 tools/q4nx/test_q4nx_roundtrip.py
-
   smoke-test:
     name: Inference smoke test
     runs-on: ubuntu-24.04

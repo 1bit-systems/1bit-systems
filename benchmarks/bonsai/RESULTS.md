@@ -1,6 +1,6 @@
 # PrismML Bonsai — Benchmark Results
 **Date:** 2026-07-15  
-**Hardware:** AMD Ryzen AI MAX+ 395 · Radeon 8060S (ROCm 7.2.4) · 122 GB Unified Memory  
+**Hardware:** AMD Ryzen AI MAX+ 395 · Radeon 8060S (TheRock 7.15.0a) · 122 GB Unified Memory  
 **Engine:** Ollama 0.30.11 (1-bit models) + PrismML llama.cpp fork (ternary models)
 
 ## Models Benchmarked

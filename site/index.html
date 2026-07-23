@@ -420,6 +420,14 @@
       <div style="font-weight:700;font-size:15px;color:var(--text);">How does it compare to llama.cpp?</div>
       <p style="margin-top:6px;font-size:14px;color:var(--muted);line-height:1.5;">llama.cpp is faster on the same hardware (229 tok/s vs our 30-80 tok/s). We say so in the README. Our advantage is NPU support, model-agnostic auto-detection, and zero Python — all in a single binary. See <a href="https://github.com/bong-water-water-bong/1bit-systems/issues/235" style="color:var(--blue);">issue #235</a> for discussion.</p>
     </div>
+    <div class="card" style="padding:18px 22px;">
+      <div style="font-weight:700;font-size:15px;color:var(--text);">Kernel crash on 6.19.x?</div>
+      <p style="margin-top:6px;font-size:14px;color:var(--muted);line-height:1.5;">Known issue: Linux 6.19.x kernels have a reproducible <strong>amdgpu OPTC CRTC hang</strong> under sustained NPU/GPU load on Strix Halo (gfx1151). The display pipe locks up mid-inference. Confirmed-stable: <strong>6.18.22-lts</strong> and <strong>7.x</strong>. Run <code>uname -r</code> to check yours. The install script warns on 6.19.x automatically.</p>
+    </div>
+    <div class="card" style="padding:18px 22px;">
+      <div style="font-weight:700;font-size:15px;color:var(--text);">What build tools do I need?</div>
+      <p style="margin-top:6px;font-size:14px;color:var(--muted);line-height:1.5;">CMake &ge; 3.28, Ninja &ge; 1.12, GCC &ge; 13 (C++17), and ROCm's <code>amdclang++</code> for HIP kernels (shipped with TheRock 7.1.5a). The install script handles all of this automatically.</p>
+    </div>
   </div>
 </section>
 

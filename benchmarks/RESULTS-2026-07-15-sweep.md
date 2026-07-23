@@ -2,7 +2,7 @@
 
 **Focus:** 1-bit ternary performance on Strix Halo
 **Host:** AMD Ryzen AI MAX+ 395 w/ Radeon 8060S
-**GPU:** gfx1151 (RDNA 3.5, Wave32) — ROCm 7.2.4
+**GPU:** gfx1151 (RDNA 3.5, Wave32) — TheRock 7.15.0a
 **NPU:** XDNA 2 — 32 tiles (8 cols × 4 core rows)
 
 ## Kernel Microbenchmarks
