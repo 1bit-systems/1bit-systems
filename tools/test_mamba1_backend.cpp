@@ -53,7 +53,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     const char* model_path = argv[1];
-    int n_tokens = argc > 2 ? atoi(argv[2]) : 32;
+    int n_tokens = argc > 2 ? atoi(argv[2]) : 128;  // default 128 for steady-state
 
     // ── Read model config from GGUF ──
     fprintf(stderr, "\n=== Reading model config ===\n");
@@ -100,20 +100,30 @@ int main(int argc, char** argv) {
         fprintf(stderr, "  token %d → %d\n", i, tok);
     }
 
-    // ── Benchmark ──
-    fprintf(stderr, "\n=== Benchmark (%d tokens) ===\n", n_tokens);
-    backend->reset();
-    tok = 1;
-    t0 = std::chrono::high_resolution_clock::now();
-    for (int i = 0; i < n_tokens; i++) {
-        backend->forward(tok, hidden.data());
-        backend->lm_head(hidden.data(), logits.data(), &tok);
+    // ── Benchmark (3 runs for statistical validity) ──
+    const int kRuns = 3;
+    float runs_ms[kRuns];
+    fprintf(stderr, "\n=== Benchmark (%d tokens, %d runs) ===\n", n_tokens, kRuns);
+    for (int r = 0; r < kRuns; r++) {
+        backend->reset();
+        tok = 1;
+        t0 = std::chrono::high_resolution_clock::now();
+        for (int i = 0; i < n_tokens; i++) {
+            backend->forward(tok, hidden.data());
+            backend->lm_head(hidden.data(), logits.data(), &tok);
+        }
+        t1 = std::chrono::high_resolution_clock::now();
+        runs_ms[r] = std::chrono::duration<float, std::milli>(t1 - t0).count();
+        fprintf(stderr, "  run %d: %d tokens in %.1f ms\n", r + 1, n_tokens, runs_ms[r]);
     }
-    t1 = std::chrono::high_resolution_clock::now();
-    float total_ms = std::chrono::duration<float, std::milli>(t1 - t0).count();
-    float tok_s = n_tokens / (total_ms / 1000.0f);
-    fprintf(stderr, "\n  %d tokens in %.1f ms = %.1f tok/s\n", n_tokens, total_ms, tok_s);
-    fprintf(stderr, "  %.2f ms/tok\n", total_ms / n_tokens);
+    float sum_ms = 0, sum_sq = 0;
+    for (int r = 0; r < kRuns; r++) { sum_ms += runs_ms[r]; sum_sq += runs_ms[r] * runs_ms[r]; }
+    float mean_ms = sum_ms / kRuns;
+    float std_ms = sqrtf((sum_sq - sum_ms * sum_ms / kRuns) / (kRuns - 1));
+    float mean_tok_s = n_tokens / (mean_ms / 1000.0f);
+    fprintf(stderr, "\n  %d tokens: %.1f ± %.1f ms = %.1f ± %.1f tok/s\n",
+            n_tokens, mean_ms, std_ms, mean_tok_s, mean_tok_s * std_ms / mean_ms);
+    fprintf(stderr, "  %.2f ms/tok\n", mean_ms / n_tokens);
 
     // ── Generate ──
     fprintf(stderr, "\n=== Generation (8 tokens) ===\n");
