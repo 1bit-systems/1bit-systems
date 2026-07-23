@@ -76,3 +76,4 @@ tools/gguf_to_h1b
 /rust/target
 /tools/oscar_calib
 /tools/trg_save
+/adapters/
