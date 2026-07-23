@@ -119,7 +119,9 @@ static void matmul_t(float* out, const float* in, const float* wt, int M, int K)
 
 // ── Batched matmul for lm_head: out[V×1] = in[H] @ wt[V×H]^T ──
 // Parallelized over vocab with OpenMP, SIMD inner loop
-static void matmul_lmhead(float* out, const float* in, const float* wt, int V, int H_) {
+// Kept for reference — not currently used
+[[maybe_unused]] static void matmul_lmhead(float* out, const float* in, const float* wt, int V, int H_) {
+    (void)out; (void)in; (void)wt; (void)V; (void)H_;
     #pragma omp parallel for schedule(static, 64) if(V > 1024)
     for (int v = 0; v < V; v++) {
         const float* row = wt + v * (size_t)H_;

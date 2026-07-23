@@ -140,7 +140,7 @@ struct Mamba1Backend : Backend {
     }
 
     template<typename T>
-    static void safe_free(T*& p) { if (p) { hipFree(p); p = nullptr; } }
+    static void safe_free(T*& p) { if (p) { (void)hipFree(p); p = nullptr; } }
 
     // ── Load Mamba1 SSM layer from GGUF ──
     bool load_mamba_layer(GgufReader& r, int layer_idx, Mamba1LayerHost& ml) {
@@ -550,7 +550,7 @@ struct Mamba1Backend : Backend {
         safe_free(d_gated);
         safe_free(d_logits);
         safe_free(d_moe_scratch);
-        if (stream) { hipStreamDestroy(stream); stream = nullptr; }
+        if (stream) { (void)hipStreamDestroy(stream); stream = nullptr; }
         initialized = false;
     }
 };

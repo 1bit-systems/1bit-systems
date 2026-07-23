@@ -44,17 +44,6 @@ static inline void rmsnorm(float* x, const float* w, int n) {
     float ir = 1.0f / sqrtf((float)(ss / n) + EPS);
     for (int i = 0; i < n; i++) x[i] = std::isfinite(x[i]) ? x[i] * ir * w[i] : 0.0f;
 }
-static inline void softmax(float* x, int n) {
-    cn(x, n); float mx = x[0];
-    for (int i = 1; i < n; i++) if (x[i] > mx) mx = x[i];
-    double s = 0;
-    for (int i = 0; i < n; i++) {
-        float d = x[i] - mx; if (d > 80) d = 80; else if (d < -80) d = -80;
-        x[i] = expf(d); s += x[i];
-    }
-    if (s <= 0) { float iv = 1.0f / n; for (int i = 0; i < n; i++) x[i] = iv; return; }
-    float is = 1.0f / (float)s; for (int i = 0; i < n; i++) x[i] *= is;
-}
 static inline float silu(float x) { return x / (1.0f + expf(-x)); }
 
 // RoPE cache (built once at init)

@@ -118,15 +118,6 @@ static void matmul_q4nx(float* y, const float* x, const uint8_t* w_data,
     }
 }
 
-// Raw f32 matmul for 1D tensors (norms, biases)
-static void matmul_f32(float* y, const float* x, const float* w, int M, int K) {
-    for (int i = 0; i < M; i++) {
-        float s = 0.0f;
-        for (int j = 0; j < K; j++) s += x[j] * w[i * (size_t)K + j];
-        y[i] = s;
-    }
-}
-
 // Add bias
 static void add_bias(float* y, const float* bias, int n) {
     for (int i = 0; i < n; i++) y[i] += bias[i];
@@ -210,17 +201,6 @@ struct TensorRef {
     bool is_1d;      // 1D norm/bias → stored as raw f32
     bool is_moe;     // 3D expert stack → per-expert tiled
 };
-
-static TensorRef find_tensor(OnebpModel& model, const std::string& name) {
-    for (auto& t : model.tensors) {
-        if (t.name == name) {
-            return {model.tensor_data(t), t.ndim, t.dims,
-                    t.ndim == 1,
-                    t.ndim == 3};
-        }
-    }
-    return {nullptr, 0, {}, false, false};
-}
 
 // ═══════════════════════════════════════════════════════════════════
 //  Laguna Backend
@@ -502,7 +482,6 @@ struct LagunaBackend : Backend {
         for (auto& t : model.tensors) {
             if (t.name == name && t.ndim == 3) {
                 // dims = [n_experts, rows, cols]
-                int ne = (int)t.dims[0];
                 int rows = (int)t.dims[1];  // K per expert
                 int cols = (int)t.dims[2];  // M per expert
                 (void)M; (void)K; (void)n_experts_total;
