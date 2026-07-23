@@ -49,9 +49,9 @@
 using json = nlohmann::json;
 
 // ── Constants for Qwen2-VL ──
-static const int VL_PATCH_SIZE  = 14;
+// static const int VL_PATCH_SIZE  = 14;    // unused, kept for reference
 static const int VL_INPUT_SIZE  = 224;   // 16x16 patches
-static const int VL_MAX_PATCHES = 16;    // 16x16 grid max
+// static const int VL_MAX_PATCHES = 16;    // unused, kept for reference
 static const int VL_VISION_START = 151652;
 static const int VL_VISION_END   = 151653;
 static const int VL_EOS_ID       = 151645; // Qwen2 <|im_end|>
@@ -251,6 +251,8 @@ struct SimpleTokenizer {
 };
 
 // ── Extract text from a multi-part content array ──
+#if 0
+// FIXME: unused — kept for future OpenAI chat content extraction
 static std::string extract_text(const json& content) {
     std::string text;
     if (content.is_string()) {
@@ -265,6 +267,7 @@ static std::string extract_text(const json& content) {
     }
     return text;
 }
+#endif
 
 // ── Main ──
 int main(int argc, char** argv) {

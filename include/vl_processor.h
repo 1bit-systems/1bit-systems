@@ -141,7 +141,7 @@ public:
         size_t bytes = pixels_.size() * sizeof(float);
         if (hipMalloc(&dev_pixels_, bytes) != hipSuccess) return nullptr;
         if (hipMemcpy(dev_pixels_, pixels_.data(), bytes, hipMemcpyHostToDevice) != hipSuccess) {
-            hipFree(dev_pixels_);
+            (void)hipFree(dev_pixels_);
             dev_pixels_ = nullptr;
             return nullptr;
         }
@@ -154,7 +154,7 @@ public:
     }
     void release_gpu() {
         if (dev_pixels_) {
-            hipFree(dev_pixels_);
+            (void)hipFree(dev_pixels_);
             dev_pixels_ = nullptr;
         }
     }
