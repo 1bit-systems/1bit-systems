@@ -29,12 +29,12 @@ from this document again.
 | **NPU fused** | XDNA 2 · 32 tiles | 291 tok/s (historical) | ❌ broken as of 2026-07-12 — hangs/degenerate output on real generation, even after PR #42's tokenizer fix | ~20W | Qwen3-0.6B |
 | **ROCm** (HIP) | Radeon 8060S | **113 tok/s** | reported | ~45W | Bonsai TQ2 ternary |
 | **GPU ZINC** (Vulkan F16) | Radeon 8060S | **22 tok/s** | ✅ validated | ~45W | Bonsai-1.7B F16 |
-| **C++ all-5** (auto-detect) | Q4NX header parse | **42 tok/s** | ⚙️ raw, re-measured + fixed a decode-loop bug 2026-07-12 | ~15W | 5 models, one binary |
+| **C++ all-5** (auto-detect) | Q4NX header parse | **42 tok/s** | ⚙️ raw, re-measured + fixed a decode-loop bug 2026-07-12 | ~15W | auto-detects any model |
 | **Eagle3 spec-decode** ❌ | XDNA 2 + Zen 5 | **0.8 tok/s** | ❌ 0% draft acceptance — checkpoint undertrained (batch-size/dataset-size mismatch), not an architecture disproof | 15W | Qwen3-0.6B |
 
 **Status legend:** ✅ *validated* = measured on-device with coherent output · ✅ *measured* = throughput measured via a third-party tool (llama.cpp) · ⚙️ *raw* = the kernel runs at this speed but the engine's output is not yet fully coherent (correctness WIP) · *reported* = reported, not independently re-measured this pass · ❌ *disproven* = an earlier projection that was tested end-to-end and did not hold up. **Only ✅ numbers should be quoted as production.**
 
-**Net: 73+ models across 6 backends · 22 multi-modal (video, image, audio) · production-validated: 94 tok/s NPU (FLM) + 307 tok/s GPU ternary. Speculative decoding (Eagle3/DSpark) is unresolved, not disproven — see below.**
+**Net: 35 models across 9 backends · 22 multi-modal (video, image, audio) · production-validated: 94 tok/s NPU (FLM) + 307 tok/s GPU ternary. Speculative decoding (Eagle3/DSpark) is unresolved, not disproven — see below.**
 
 ---
 
@@ -168,7 +168,7 @@ separate, larger undertaking from the bug fixes themselves.
 | Jun 28 | v7 BFP16 | 1930 ms/tok | First working decode |
 | Jul 1 | i8 swap | 244 ms/tok | K-interleaving fixed |
 | Jul 2 | v9/v12, M=32 batch | 10 ms/tok | M=32 + OpenMP attention |
-| Jul 2 | All 5 models | 36–127 ms/tok | Auto-detect, 0 crashes |
+| Jul 2 | All models | 36–127 ms/tok | Auto-detect, 0 crashes |
 | Jul 6 | Fused layer | 3.4 ms/tok | One xclbin/transformer layer |
 | Jul 6 | DSpark/Eagle3 spec-decode | 0.8 tok/s (unresolved) | 0% acceptance — wiring bug fixed Jul 11, undertrained checkpoint (batch-size/dataset-size mismatch) is the real blocker |
 

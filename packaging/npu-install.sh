@@ -19,7 +19,7 @@ die()  { printf "${RED}✗${NC} %s\n" "$*"; exit 1; }
 echo ""
 printf "${GREEN}╔══════════════════════════════════════════════╗${NC}\n"
 printf "${GREEN}║  1bit.systems — NPU Inference Engine        ║${NC}\n"
-printf "${GREEN}║  120 KB · 5 models · 94 tok/s · Zero deps  ║${NC}\n"
+printf "${GREEN}║  ~400 KB · 35 models · 9 backends · Zero deps  ║${NC}\n"
 printf "${GREEN}╚══════════════════════════════════════════════╝${NC}\n"
 echo ""
 

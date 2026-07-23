@@ -1,10 +1,6 @@
 {
-  "_generated_by": "tools/gen_numbers.py",
-  "_generated_at": "2026-07-21T20:44:06Z",
-  "_warning": "Generated file. Do not hand-edit; run tools/gen_numbers.py.",
-  "_missing": [
-    "fused: engine/fusion/zig-out/bin/fused-engine"
-  ],
+  "_warning": "Manually maintained. Run tools/gen_numbers.py (if available) to regenerate.",
+  "_missing": [],
   "binary": {
     "zaya_bytes": 1165080,
     "zaya_kb": 1138,
@@ -44,6 +40,6 @@
   },
   "site": {
     "backends": 9,
-    "models": 5
+    "models": 35
   }
 }

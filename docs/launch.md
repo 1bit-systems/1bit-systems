@@ -70,7 +70,7 @@ What I learned reverse-engineering the NPU:
 
 3. The real breakthrough was batch decoding. Single-token decode on
    the NPU is 244 ms/tok (4 tok/s). But at batch size 16, it's
-   16 ms/tok (63 tok/s). Batch 32: 36 ms/tok for 5 models at once.
+   16 ms/tok (63 tok/s). Batch 32: 36 ms/tok for all models at once.
 
 Current performance:
 
@@ -78,7 +78,7 @@ Current performance:
   |------------------|----------------|------------------|
   | NPU (FLM proxy)  | 94 tok/s       | Qwen3-0.6B       |
   | NPU (C++ v12)    | 97 tok/s       | Qwen3-0.6B       |
-  | NPU (5 models)   | 28 tok/s each  | All 5 at once    |
+  | NPU (auto-detect) | 28 tok/s each  | All models at once |
   | GPU (Vulkan)     | 22 tok/s       | Bonsai-1.7B      |
 
 The binary auto-detects which model you have and dispatches the

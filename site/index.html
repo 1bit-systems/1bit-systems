@@ -136,13 +136,13 @@
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "name": "1bit.systems",
-    "description": "Model-agnostic NPU+GPU+CPU inference engine for AMD Strix Halo. FastFlowLM fully reverse-engineered and replaced with a native open-source XDNA 2 NPU stack (zero proprietary code). GGUF/ONNX/1BP ternary formats, TQ2 2-bit quantization, ~41 TFLOPS INT8 prefill peak (sourced). 5+ managed models across 6 backends. No Python at runtime.",
+    "description": "Model-agnostic NPU+GPU+CPU inference engine for AMD Strix Halo. FastFlowLM fully reverse-engineered and replaced with a native open-source XDNA 2 NPU stack (zero proprietary code). GGUF/ONNX/1BP ternary formats, TQ2 2-bit quantization, ~41 TFLOPS INT8 prefill peak (sourced). 35 models across 7 families, 9 backends. No Python at runtime.",
     "url": "https://1bit.systems",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Linux",
     "author": { "@type": "Person", "name": "bong-water-water-bong" },
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-    "featureList": ["Open-source native NPU stack (no FastFlowLM dependency)", "Model-agnostic GGUF/ONNX/1BP loader", "TQ2 2-bit ternary quantization", "~41 TFLOPS INT8 prefill (sourced)", "5+ managed models", "6 backends", "NPU+GPU+CPU"]
+    "featureList": ["Open-source native NPU stack (no FastFlowLM dependency)", "Model-agnostic GGUF/ONNX/1BP loader", "TQ2 2-bit ternary quantization", "~41 TFLOPS INT8 prefill (sourced)", "35 supported models", "9 backends", "7 model families", "NPU+GPU+CPU"]
   },
   {
     "@context": "https://schema.org",
@@ -163,7 +163,7 @@
         "name": "What is 1bit.systems?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "A model-agnostic NPU+GPU+CPU inference engine for AMD Strix Halo. FastFlowLM (AMD's closed-source NPU runtime) was fully reverse-engineered and replaced with a native open-source XDNA 2 stack — no proprietary code, no Python subprocess. Reads GGUF, ONNX, and its own 1BP ternary format (including TQ2 2-bit quantization). 5+ managed models across 6 backends. No Python at runtime. MIT licensed."
+          "text": "A model-agnostic NPU+GPU+CPU inference engine for AMD Strix Halo. FastFlowLM (AMD's closed-source NPU runtime) was fully reverse-engineered and replaced with a native open-source XDNA 2 stack — no proprietary code, no Python subprocess. Reads GGUF, ONNX, and its own 1BP ternary format (including TQ2 2-bit quantization). 35 models across 7 families, 9 backends. No Python at runtime. MIT licensed."
         }
       },
       {
@@ -227,7 +227,7 @@
       <div class="row" style="margin-top:18px;">
         <span class="pill ok"><span class="dot"></span>verified on-device</span>
         <span class="pill dark"><span class="dot"></span><span id="fused-size">30 KB</span> fused layer</span>
-        <span class="pill info"><span class="dot"></span><span id="model-count">5</span> models · <span id="backend-count">6</span> backends</span>
+        <span class="pill info"><span class="dot"></span><span id="model-count">35</span> models · <span id="backend-count">9</span> backends</span>
         <span class="pill ok"><span class="dot"></span>no proprietary code</span>
       </div>
       <div class="cta-row">
@@ -245,8 +245,8 @@
           <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--blue);font-size:10px;">Single binary size</span><span class="mono" style="font-size:14px;font-weight:800;color:var(--blue);"><span id="binary-size7">1.1 MB</span></span></div>
         </div>
         <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;gap:6px;flex-wrap:wrap;">
-          <span class="pill ok" style="font-size:10px;"><span class="dot"></span><span id="model-count2">5</span> models</span>
-          <span class="pill info" style="font-size:10px;"><span class="dot"></span><span id="backend-count2">6</span> backends</span>
+          <span class="pill ok" style="font-size:10px;"><span class="dot"></span><span id="model-count2">35</span> models</span>
+          <span class="pill info" style="font-size:10px;"><span class="dot"></span><span id="backend-count2">9</span> backends</span>
           <span class="pill ok" style="font-size:10px;"><span class="dot"></span><span id="tflops">41 TFLOPS</span></span>
           <span class="pill dark" style="font-size:10px;"><span class="dot"></span><span id="fused-size2">30 KB</span> fused layer</span>
           <span class="pill ok" style="font-size:10px;"><span class="dot"></span><span id="daily-clones-count">—</span> clones today</span>
@@ -281,8 +281,10 @@
     <div class="stat"><span class="lbl caps">Prefill peak</span><span class="val"><span id="tflops2">43.3</span> <span>TFLOPS</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>INT8 · XDNA 2 · 4i-I8-APRE (sourced)</span></div>
     <div class="stat"><span class="lbl caps">GEMV bandwidth</span><span class="val">198 <span>GB/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>tq1 kernel · bench_sherry (sourced)</span></div>
     <div class="stat"><span class="lbl caps">Sherry GEMV</span><span class="val">153 <span>GB/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>M=6912 K=2560 · 256 iters (sourced)</span></div>
-    <div class="stat"><span class="lbl caps">Engine tok/s</span><span class="val">see docs</span><span class="foot"><span class="dot" style="background:var(--blue)"></span>hedged per-backend table in performance.md</span></div>
-    <div class="stat"><span class="lbl caps">Models</span><span class="val"><span id="model-count3">5</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span><span id="backend-count3">6</span> backends · 22 multi-modal</span></div>
+    <div class="stat"><span class="lbl caps">BlackMamba e2e</span><span class="val">79.8 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>Mamba1 HIP · validated · 1.5B</span></div>
+    <div class="stat"><span class="lbl caps">Fused TQ2 kernel</span><span class="val">415 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>ROCm HIP · validated · ternary</span></div>
+    <div class="stat"><span class="lbl caps">zaya_server e2e</span><span class="val">30 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>Qwen 27B Q4_K · full decode</span></div>
+    <div class="stat"><span class="lbl caps">Models</span><span class="val"><span id="model-count3">35</span></span><span class="foot"><span class="dot" style="background:var(--blue)"></span><span id="backend-count3">9</span> backends · 7 model families</span></div>
     <div class="stat"><span class="lbl caps">Daily clones</span><span class="val"><span id="daily-clones-stat">—</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>GitHub traffic API · <span id="daily-clones-total">6,113</span> total</span></div>
   </div>
   <p style="margin-top:24px;text-align:center;"><a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/performance.md" class="btn btn-ghost btn-md" target="_blank" rel="noopener">Full benchmarks →</a></p>
@@ -301,7 +303,7 @@
         <div style="display:flex;gap:16px;"><span style="width:80px;color:var(--dim);">Jul 2</span><span style="color:var(--dim);">v6 batch-4</span><span style="flex:1;text-align:right;color:var(--muted);">50 ms/tok</span></div>
         <div style="display:flex;gap:16px;"><span style="width:80px;color:var(--dim);">Jul 2</span><span style="color:var(--dim);">v9 M=16</span><span style="flex:1;text-align:right;color:var(--muted);">16 ms/tok</span></div>
         <div style="display:flex;gap:16px;"><span style="width:80px;color:var(--green);">Jul 2</span><span style="color:var(--text);font-weight:700;">v12 M=32</span><span style="flex:1;text-align:right;color:var(--green);font-weight:700;">10 ms/tok</span></div>
-        <div style="display:flex;gap:16px;"><span style="width:80px;color:var(--green);">Jul 2</span><span style="color:var(--text);font-weight:700;">All 5 models</span><span style="flex:1;text-align:right;color:var(--green);font-weight:700;">auto-detect</span></div>
+        <div style="display:flex;gap:16px;"><span style="width:80px;color:var(--green);">Jul 2</span><span style="color:var(--text);font-weight:700;">All models</span><span style="flex:1;text-align:right;color:var(--green);font-weight:700;">auto-detect</span></div>
         <div style="display:flex;gap:16px;"><span style="width:80px;color:var(--green);">Jul 6</span><span style="color:var(--text);font-weight:700;">Fused layer</span><span style="flex:1;text-align:right;color:var(--green);font-weight:700;">3.4 ms/tok</span></div>
       </div>
       <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);font-size:13px;color:var(--muted);">NPU+GPU+CPU · <strong class="g" style="color:var(--green);">Token Router</strong> · zero Python · <span id="binary-size5">1.1 MB</span> binary · 9.7 MB router</div>
@@ -325,13 +327,13 @@
 
 <section id="router" class="block">
   <span class="eyebrow">Token Router</span>
-  <h2 style="margin:16px 0 8px;">9.7 MB router. 5 model families. Zero guesswork.</h2>
+  <h2 style="margin:16px 0 8px;">9.7 MB router. 7 model families. Zero guesswork.</h2>
   <p class="lead" style="margin-bottom:24px;">The Token Router is the brain that dispatches every token to the fastest backend — NPU, GPU, or CPU — per layer, per model. No hand-tuning. No config files.</p>
   <div class="grid2" style="margin-top:28px;">
     <div class="card" style="padding:24px;">
       <div style="display:flex;align-items:center;gap:8px;"><span class="tag npu" style="background:var(--pink);">auto-detect</span><span class="mono" style="font-size:12px;color:var(--muted);">Q4NX header parse</span></div>
       <h3 style="margin-top:16px;font-size:20px;font-weight:800;color:var(--text);">Plug any model. It just works.</h3>
-      <p style="font-size:14px;color:var(--muted);margin:12px 0 16px;line-height:1.55;">The router reads the GGUF header on every load — no model registry, no hardcoded paths. It identifies the architecture, shards the weights per layer, and selects the optimal backend. All 5 model families auto-detected.</p>
+      <p style="font-size:14px;color:var(--muted);margin:12px 0 16px;line-height:1.55;">The router reads the GGUF header on every load — no model registry, no hardcoded paths. It identifies the architecture, shards the weights per layer, and selects the optimal backend. All 7 model families auto-detected across 35 models.</p>
       <div style="display:flex;flex-wrap:wrap;gap:8px;">
         <span class="pill ok" style="font-size:10px;"><span class="dot"></span>Qwen3-0.6B</span>
         <span class="pill info" style="font-size:10px;"><span class="dot"></span>Bonsai-1.7B</span>
@@ -486,7 +488,7 @@
   <div style="display:flex;flex-direction:column;gap:14px;max-width:760px;margin:0 auto;">
     <div class="card" style="padding:20px 24px;">
       <div style="font-weight:700;font-size:16px;color:var(--text);">What is 1bit.systems?</div>
-      <p style="margin-top:8px;font-size:14px;color:var(--muted);line-height:1.55;">A model-agnostic NPU+GPU+CPU inference engine for AMD Strix Halo. FastFlowLM fully reverse-engineered and replaced with a native open-source NPU stack, 41 TFLOPS prefill peak (sourced), 5 managed models across 6 backends. No Python at runtime. MIT licensed.</p>
+      <p style="margin-top:8px;font-size:14px;color:var(--muted);line-height:1.55;">A model-agnostic NPU+GPU+CPU inference engine for AMD Strix Halo. FastFlowLM fully reverse-engineered and replaced with a native open-source NPU stack, 41 TFLOPS prefill peak (sourced), <strong>35 models across 7 families</strong>, 9 backends. No Python at runtime. MIT licensed.</p>
     </div>
     <div class="card" style="padding:20px 24px;">
       <div style="font-weight:700;font-size:16px;color:var(--text);">Does 1bit.systems require Python?</div>
@@ -498,7 +500,7 @@
     </div>
     <div class="card" style="padding:20px 24px;">
       <div style="font-weight:700;font-size:16px;color:var(--text);">What is the Token Router?</div>
-      <p style="margin-top:8px;font-size:14px;color:var(--muted);line-height:1.55;">The Token Router is the dispatch engine that routes each transformer sub-layer to the fastest backend — NPU, GPU, or CPU — based on real-time profiling. At 9.7 MB, it auto-detects 5 model families via GGUF header parsing, with zero configuration. No model registry, no hardcoded paths.</p>
+      <p style="margin-top:8px;font-size:14px;color:var(--muted);line-height:1.55;">The Token Router is the dispatch engine that routes each transformer sub-layer to the fastest backend — NPU, GPU, or CPU — based on real-time profiling. At 9.7 MB, it auto-detects 7 model families (35 models) via GGUF header parsing, with zero configuration. No model registry, no hardcoded paths.</p>
     </div>
     <div class="card" style="padding:20px 24px;">
       <div style="font-weight:700;font-size:16px;color:var(--text);">How does the 1bit coding agent relate to JARVIS?</div>

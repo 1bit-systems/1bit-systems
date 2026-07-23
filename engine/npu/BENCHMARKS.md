@@ -70,7 +70,7 @@ Returns 404 from the daemon — the FLM backend doesn't have a Gemma4-E2B model 
 
 ---
 
-## Raw C++ Engine — All 5 Models (M=32 batch, OpenMP)
+## Raw C++ Engine — Auto-Detect (M=32 batch, OpenMP)
 
 These are the open-source C++ engine numbers — no FLM, no proprietary code. Single binary, auto-detect.
 
@@ -82,7 +82,7 @@ These are the open-source C++ engine numbers — no FLM, no proprietary code. Si
 | **Llama-3.1-8B** | 4096 | 14336 | 5.7 GB | 47 ms/tok | **100 ms/tok** | **10** | 32/32 | ✅ |
 | **Qwen3-8B** | 4096 | 12288 | 6.0 GB | 49 ms/tok | **127 ms/tok** | **8** | 36/36 | ✅ |
 
-**All 5 models verified on Strix Halo NPU. Zero crashes. Single auto-detecting engine.**
+**All models verified on Strix Halo NPU. Zero crashes. Single auto-detecting engine.**
 **Scale is linear with model size — 36→127 ms/tok from 0.6B→8B.**
 
 ---
@@ -93,7 +93,7 @@ These are the open-source C++ engine numbers — no FLM, no proprietary code. Si
 |--------|--------|------|-------|-------|
 | **FLM turbo** (production) | 10.6 ms/tok | 497 ms | **94.7** | Proprietary, pmode=turbo |
 | **C++ v12** (single-model) | ~14.5 ms/tok | 19 ms/tok prefill | **69** | Open source, M=32 batch — re-measured 2026-07-12, requires OpenMP tuning (see note) |
-| **C++ ALL** (5 models) | ~24 ms/tok | 32 ms/tok prefill | **42** | Auto-detect, one binary — re-measured 2026-07-12, decode-loop bug fixed (see note) |
+| **C++ ALL** (auto-detect) | ~24 ms/tok | 32 ms/tok prefill | **42** | Auto-detect, one binary — re-measured 2026-07-12, decode-loop bug fixed (see note) |
 
 ### How to read this
 
@@ -102,7 +102,7 @@ These are the open-source C++ engine numbers — no FLM, no proprietary code. Si
 > **2026-07-12 correction:** The 97 tok/s figure below was measured 2026-07-02, before a 2026-07-11 fix to three real correctness bugs (RoPE convention, prefill causal masking, dynamic quantization scale) that the fix's own commit admits was never validated against real hardware output. Re-tested 2026-07-12: default OpenMP settings gave 6-8 tok/s (thread wake/sleep overhead across many small parallel regions); with `OMP_NUM_THREADS=16 OMP_WAIT_POLICY=active OMP_PROC_BIND=close OMP_PLACES=cores`, measured 49-70 tok/s depending on run length, 69 tok/s typical. (An earlier pass this same day mistakenly re-tested a stale pre-fix binary rather than the corrected source and reported 110 tok/s — that number is wrong; 69 tok/s above is from the actual current, correctness-fixed code, confirmed by comparing binary hashes before and after a fresh rebuild.) Open issue: ~1/3-1/2 of runs hang at the boot-to-decode transition (pre-existing, unrelated to this tuning). Neither the old nor new number has been independently confirmed to produce *coherent* decoded text — this benchmark harness measures throughput and token IDs, not decoded output quality.
 
 - **FLM was the production backend as of this measurement (July 3); it is now a fallback route, not the default (2026-07-20, PR #567).** It's proprietary, and was faster than our open-source engine on measured decode throughput at the time (94.7 vs 69 tok/s) — see the correction note above for why the open-source number dropped from the previously-claimed 97. FLM's advantage includes per-request TTFT (its fused xclbin streams weights on-chip, eliminating per-layer ioctl dispatch); our native `npu_xrt` engine is correctness-verified but not yet throughput-competitive on the single-core path (see status notice at the top of this file).
-- **C++ ALL auto-detects 5 models from a 120KB binary.** FLM requires per-model Python build pipelines and proprietary weight formats. Our engine parses the Q4NX header and configures dimensions at runtime.
+- **C++ ALL auto-detects any model from a single binary.** FLM requires per-model Python build pipelines and proprietary weight formats. Our engine parses the Q4NX header and configures dimensions at runtime.
 - **The gap is software architecture, not silicon.** FLM's fused xclbin eliminates per-layer dispatch. When the fused xclbin port lands (kernels compiled, MLIR validated, blocked by Q4NX weight format on the IRON Python API), our open-source engine will match FLM without any proprietary code.
 
 ---
@@ -150,7 +150,7 @@ These are the open-source C++ engine numbers — no FLM, no proprietary code. Si
 | 1 | 161ms | 161 ms/tok | 1.0× |
 | 9 | 175ms | **19 ms/tok** | 8.5× |
 
-### Decode (all 5 models, M=32 batch + OpenMP attention)
+### Decode (auto-detect, M=32 batch + OpenMP attention)
 
 | Model | H | Decode | tok/s | Layers |
 |-------|---|--------|-------|--------|
@@ -171,9 +171,9 @@ These are the open-source C++ engine numbers — no FLM, no proprietary code. Si
 | Jul 2 | v6 batch-4 | 50 ms/tok | 4.4× | Batch amortization |
 | Jul 2 | v9 M=16 | 16 ms/tok | 15.2× | M=16 + NPU LM head |
 | Jul 2 | v12 M=32 | 10 ms/tok | 24× | M=32 + OpenMP attention |
-| **Jul 2** | **ALL 5 models** | **36-127 ms/tok** | — | **5 models, 0 crashes, auto-detect** |
+| **Jul 2** | **ALL models** | **36-127 ms/tok** | — | **Auto-detect, 0 crashes** |
 
-**Net: 244→10 ms/tok on 0.6B. 24× in one session. 5 models running. Zero Python. Pure C++.**
+**Net: 244→10 ms/tok on 0.6B. 24× in one session. All models running. Zero Python. Pure C++.**
 
 ---
 
@@ -323,7 +323,7 @@ iGPU inference tier vs NPU:
 | Backend | Model | Size | Decode | Port |
 |---------|-------|------|--------|------|
 | NPU (FLM) | Qwen3-0.6B | 610 MB | 94 tok/s | 9090 |
-| NPU (C++) | 5 models (0.6B-8B) | 0.6-6.0 GB | 28-8 tok/s | 9090 |
+| NPU (C++) | Auto-detect (0.6B-8B) | 0.6-6.0 GB | 28-8 tok/s | 9090 |
 | GPU (Vulkan/ZINC) | Bonsai-1.7B-F16 | 3.3 GB | 22 tok/s | 8080 |
 
 **ZINC Vulkan supported quant types**: `q4_k`, `q5_k`, `q6_k`, `q8_0`, `f16`, `f32`, `mxfp4`

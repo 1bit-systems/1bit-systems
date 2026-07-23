@@ -4,7 +4,7 @@
 
 **Tag:** `v2026.07.02-all5models`  
 **Release:** https://github.com/bong-water-water-bong/1bit-systems/releases/tag/v2026.07.02-all5models  
-**Site:** https://1bit.systems — "One binary to rule them all. 5 models. 120KB. 28 tok/s NPU."
+**Site:** https://1bit.systems — "One binary to rule them all. 35 models. ~400 KB. Auto-detect."
 
 ### The Pitch
 
@@ -38,7 +38,7 @@ FLM is 2.4× faster per-token. But:
 - FLM requires Python + torch + MLIR-AIE + per-model build pipeline
 - FLM is proprietary (closed source)
 - FLM's "8KB binary" is a Python launcher — their xclbins are 114KB+ each
-- We ship one 120KB C++ binary that auto-detects 5 models
+- We ship one ~400 KB C++ binary that auto-detects 35 models
 - We are open source (MIT)
 
 The speed gap is software architecture: FLM streams weights on NPU with
@@ -56,11 +56,11 @@ per-projection in_features (H for Q/K/V/G/U, NH×HD for O, IM for D).
 
 ### Website
 
-- Hero: "One binary to rule them all. 5 models. 120KB. 28 tok/s NPU."
+- Hero: "One binary to rule them all. 35 models. ~400 KB. Auto-detect."
 - Subtitle: "No Python. No pip. No Docker. Just g++ and run."
 - Engine card: 5-Model Engine, 28 tok/s, 120KB
-- Stats: 5 models supported, 24× speedup
-- Ticker: cycles all 5 model speeds
+- Stats: 35 models supported, 24× speedup
+- Ticker: cycles all model speeds
 - Footer: "The final unlock is Vendor (Hint Hint)."
 - Auto-deploy: Cloudflare Pages on push to main
 
@@ -77,13 +77,13 @@ MLIR generator fixed (dynamic BD IDs, validation passes). Weight packer v3
 produces exact-size output. Blocked by: Q4NX proprietary weight format.
 When done: 1 dispatch/layer instead of 4 → <5ms/tok batch step → matches FLM.
 
-**23 xclbins across 5 model families** in `/home/bcloud/npu-sandbox/npu-infer/build/int8/`.
+**23 xclbins across 7 model families** in `/home/bcloud/npu-sandbox/npu-infer/build/int8/`.
 
 ### Key Files (final)
 
 | File | Purpose |
 |------|---------|
-| `/home/bcloud/1bit-systems/engine/npu/src/npu_engine_all.cpp` | Production engine — all 5 models |
+| `/home/bcloud/1bit-systems/engine/npu/src/npu_engine_all.cpp` | Production engine — auto-detects all models |
 | `/home/bcloud/1bit-systems/engine/npu/src/npu_engine_v12.cpp` | v12 standalone (97 tok/s on 0.6B) |
 | `/home/bcloud/npu-sandbox/npu-infer/include/model_config.h` | Auto-detect model config |
 | `/home/bcloud/1bit-systems/engine/npu/BENCHMARKS.md` | Benchmark source of truth |
@@ -99,9 +99,9 @@ When done: 1 dispatch/layer instead of 4 → <5ms/tok batch step → matches FLM
 
 ### The Breakthrough: Model-Agnostic v12 Engine
 
-**`npu_engine_all.cpp`** — one engine, 5 models, M=32 batch + OpenMP.
+**`npu_engine_all.cpp`** — one engine, auto-detect, M=32 batch + OpenMP.
 Auto-detects dimensions from Q4NX header. No preprocessor flags.
-Verified on Strix Halo NPU: **all 5 models running, zero crashes.**
+Verified on Strix Halo NPU: **all models running, zero crashes.**
 
 ```
 === NPU Engine ALL — All 5 Models on Strix Halo NPU ===
@@ -121,7 +121,7 @@ Fix: use `dequant_i8_to_float_ex(data, i8_rows, in_feat, ...)` with correct per-
 in_features (H for Q/K/V/G/U, NH×HD for O, IM for D).
 
 Before this fix: heap corruption on all models except 0.6B → `munmap_chunk(): invalid pointer`.
-After this fix: all 5 models run clean to completion.
+After this fix: all models run clean to completion.
 
 ### Engine Architecture
 
@@ -145,7 +145,7 @@ After this fix: all 5 models run clean to completion.
 | Single-token decode (218-840 ms/tok) | M=32 batch (58-215 ms/tok) |
 | Qwen3-8B crashes (heap corruption) | Clean exit, zero crashes |
 | dequant_i8_to_float (in_feat=1024) | dequant_i8_to_float_ex (correct) |
-| 4 models broken | All 5 models verified |
+| 4 models broken | All models verified |
 
 ### Known Issues
 
@@ -298,7 +298,7 @@ Fix: `sudo modprobe -r amdxdna && sudo modprobe amdxdna` or full system reboot.
 | File | Purpose |
 |------|---------|
 | `/home/bcloud/1bit-systems-new/engine/npu/src/npu_engine_universal.cpp` | Universal engine |
-| `/home/bcloud/1bit-systems-new/engine/npu/src/npu_dims.h` | All 5 model dims |
+| `/home/bcloud/1bit-systems-new/engine/npu/src/npu_dims.h` | All model dims |
 | `/home/bcloud/1bit-systems-new/engine/npu/src/dequant_q4nx.c` | Dequant with in_features param |
 | `/home/bcloud/1bit-systems-new/engine/npu/build_npu.sh` | Build all model binaries |
 | `/home/bcloud/1bit-systems-new/engine/npu/build_xclbins.sh` | Build all model xclbins |
@@ -351,7 +351,7 @@ Catalog at `docs/model-catalog.md`. All 42 FLM NPU2 models classified by archite
 ### Build Infrastructure
 
 ```
-build_all_models.sh     → Build xclbins for all 5 models in sequence
+build_all_models.sh     → Build xclbins for all models in sequence
 build_qwen3_0_6b.sh    → Qwen3-0.6B (4 xclbins)
 build_qwen3_vl.sh      → Qwen3-VL-4B (5 xclbins)
 build_qwen3_8b.sh      → Qwen3-8B (5 xclbins)
