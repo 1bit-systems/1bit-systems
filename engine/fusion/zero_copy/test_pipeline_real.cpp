@@ -199,18 +199,22 @@ int main(int argc, char** argv) {
     std::vector<float> dw2(IM*H, 0.01f); cd.packB(dw2.data(), IM, H, ds);
     fprintf(stderr, "NPU GEMM: GU(%dx%d) D(%dx%d)\n", H, 2*IM, IM, H);
     
-    // Allocate GPU KV cache
-    float *d_K, *d_V;
+    // Allocate GPU KV cache — check errors to avoid null-ptr crashes
+    float *d_K=nullptr, *d_V=nullptr;
     int max_seq = 4096;
     size_t kv_bytes = (size_t)max_seq * NKV * HD * sizeof(__half);
-    (void)hipMalloc(&d_K, kv_bytes); hipMemsetAsync(d_K, 0, kv_bytes, gpu_stream);
-    (void)hipMalloc(&d_V, kv_bytes); hipMemsetAsync(d_V, 0, kv_bytes, gpu_stream);
+    if (hipSuccess != hipMalloc(&d_K, kv_bytes)) { fprintf(stderr,"FAIL hipMalloc K\n"); return 1; }
+    hipMemsetAsync(d_K, 0, kv_bytes, gpu_stream);
+    if (hipSuccess != hipMalloc(&d_V, kv_bytes)) { fprintf(stderr,"FAIL hipMalloc V\n"); return 1; }
+    hipMemsetAsync(d_V, 0, kv_bytes, gpu_stream);
     
     // GPU buffer for Q (f16) and attention output (f16)
-    __half *d_Q, *d_AttnOut;
+    __half *d_Q=nullptr, *d_AttnOut=nullptr;
     size_t q_bytes = (size_t)NH * HD * sizeof(__half);
-    (void)hipMalloc(&d_Q, q_bytes); hipMemsetAsync(d_Q, 0, q_bytes, gpu_stream);
-    (void)hipMalloc(&d_AttnOut, q_bytes); hipMemsetAsync(d_AttnOut, 0, q_bytes, gpu_stream);
+    if (hipSuccess != hipMalloc(&d_Q, q_bytes)) { fprintf(stderr,"FAIL hipMalloc Q\n"); return 1; }
+    hipMemsetAsync(d_Q, 0, q_bytes, gpu_stream);
+    if (hipSuccess != hipMalloc(&d_AttnOut, q_bytes)) { fprintf(stderr,"FAIL hipMalloc AttnOut\n"); return 1; }
+    hipMemsetAsync(d_AttnOut, 0, q_bytes, gpu_stream);
     
     // Pipeline config
     fusion::PipelineConfig cfg;
@@ -289,7 +293,8 @@ int main(int argc, char** argv) {
     else fprintf(stderr, "⚠️  Sequential — tune work sizes for overlap\n");
     
     // Cleanup
-    (void)(void)hipFree(d_K); (void)hipFree(d_V); (void)hipFree(d_Q); (void)hipFree(d_AttnOut);
+    auto hip_free = [](void* p) { if (p) { hipError_t e = hipFree(p); if (e != hipSuccess) fprintf(stderr, "hipFree: %s\n", hipGetErrorString(e)); } };
+    hip_free(d_K); hip_free(d_V); hip_free(d_Q); hip_free(d_AttnOut);
     hipStreamDestroy(gpu_stream);
     return 0;
 }
