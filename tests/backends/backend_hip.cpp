@@ -168,6 +168,40 @@ public:
     bool is_coherent() const override { return true; }
 
     bool avail_cached_ = false, avail_checked_ = false;
+    size_t vram_total_mb_ = 0;
+
+    /// Print VRAM budget estimate and warn if model likely won't fit.
+    void check_vram_budget(const ModelConfig& cfg) {
+        int H = cfg.hidden_size, V = cfg.vocab_size, L = cfg.num_layers;
+        int NQ = cfg.num_heads, NKV = cfg.num_kv_heads, HD = cfg.head_dim;
+        int QD = NQ * HD, KD = NKV * HD;
+        int FF = cfg.intermediate_size;
+        int N_EXP = cfg.num_experts;
+
+        double fp16_mb = (double)V * H * 2.0 / (1024*1024);
+        fp16_mb += (double)L * cfg.max_seq_len * KD * 2.0 / (1024*1024);
+        fp16_mb += 32.0;
+        fp16_mb += (double)L * ((double)QD + 2.0*KD + (double)QD) * H * 2.0 / (1024*1024);
+        if (N_EXP > 0) {
+            fp16_mb += (double)N_EXP * (2.0*FF*H + H*FF) * 2.0 / (1024*1024);
+        } else {
+            fp16_mb += (double)L * 3.0 * FF * H * 2.0 / (1024*1024);
+        }
+        double q4k_mb = fp16_mb / 3.6;
+        fprintf(stderr, "  HIP VRAM budget: need ~%.0f MB (fp16) / ~%.0f MB (Q4_K), have %zu MB\n",
+                fp16_mb, q4k_mb, vram_total_mb_);
+        if (fp16_mb > vram_total_mb_ * 1.1) {
+            fprintf(stderr, "  \xe2\x9a\xa0\xef\xb8\x8f  Model too large for GPU VRAM even with Q4_K "
+                    "(need ~%.0f MB, have %zu MB).\n"
+                    "     GPU will use unstable GTT fallback. Use --strategy cpu "
+                    "or a Q4_K model.\n", q4k_mb, vram_total_mb_);
+        } else if (fp16_mb > vram_total_mb_) {
+            fprintf(stderr, "  \xe2\x9a\xa0\xef\xb8\x8f  fp16 weights won't fit in VRAM (need ~%.0f MB, "
+                    "have %zu MB). Use Q4_K (~%.0f MB) for stable GPU.\n",
+                    fp16_mb, vram_total_mb_, q4k_mb);
+        }
+    }
+
     bool is_available() override {
         if (avail_checked_) return avail_cached_;
         avail_checked_ = true;
@@ -176,7 +210,8 @@ public:
         if (e != hipSuccess || count == 0) { return false; }
         hipDeviceProp_t props;
         HIP_OK(hipGetDeviceProperties(&props, 0));
-        fprintf(stderr, "  HIP: found %s (%d CU, %zu MB)\n", props.name, props.multiProcessorCount, props.totalGlobalMem / (1024*1024));
+        vram_total_mb_ = props.totalGlobalMem / (1024*1024);
+        fprintf(stderr, "  HIP: found %s (%d CU, %zu MB VRAM)\n", props.name, props.multiProcessorCount, vram_total_mb_);
         avail_cached_ = true;
         return true;
     }
@@ -211,6 +246,7 @@ public:
             }
             fprintf(stderr, "  HIP: missing weights (no .bin or GGUF)\n"); return false;
         }
+        check_vram_budget(cfg);
         embed_cpu_.resize(VOCAB * H); fnorm_cpu_.resize(H);
         for (int i = 0; i < VOCAB * H; i++) embed_cpu_[i] = __float2half(embed[i]);
         for (int i = 0; i < H; i++) fnorm_cpu_[i] = __float2half(fnorm[i]);
@@ -382,6 +418,7 @@ public:
             load_half("model.norm.weight", d_fnw, H);
         }
 
+        check_vram_budget(cfg);
         size_t scratch_elems = std::max<size_t>({(size_t)QD + 2*(size_t)KD, (size_t)2*FF, (size_t)H});
         HIP_OK(hipMalloc(&d_hs, H * 2));
         HIP_OK(hipMalloc(&d_ao, scratch_elems * 2));
@@ -436,6 +473,15 @@ public:
             load_half((p + "attn_q_norm.weight").c_str(), lw.qn, (size_t)HD);
             load_half((p + "attn_k_norm.weight").c_str(), lw.kn, (size_t)HD);
         }
+        // Check that essential tensors actually loaded.
+        // GGUF tensor names may not match (Q2_0 models use different names),
+        // so if wq is null for layer 0, no weights were found -> fail.
+        if (L > 0 && layers_[0].nw == nullptr) {
+            fprintf(stderr, "  HIP: GGUF load failed — no per-layer tensors matched "
+                    "(wrong quantization? Q2_0 not supported, use Q4_K).\n");
+            unload_model();
+            return false;
+        }
         embed_loaded_ = true;
         fprintf(stderr, "  HIP: GGUF loaded (%d layers, %d vocab)\n", L, V);
         return true;
@@ -480,9 +526,13 @@ public:
                 q4k_gemv_wmma<<<q64,128,0,st_>>>(d_tmp,d_hs,l.pk_wq,QD,H);
                 q4k_gemv_wmma<<<k64,128,0,st_>>>(d_tmp+QD,d_hs,l.pk_wk,KD,H);
                 q4k_gemv_wmma<<<k64,128,0,st_>>>(d_tmp+QD+KD,d_hs,l.pk_wv,KD,H);
-            } else {
+            } else if (l.wq && l.wk && l.wv1) {
                 fused_qkv_gemv<<<(QD + 2*KD + 255) / 256, 256, 0, st_>>>(
                     d_tmp, d_hs, l.wq, l.wk, l.wv1, QD, KD, H);
+            } else {
+                fprintf(stderr, "  HIP ERROR: QKV pointers null for layer %d "
+                        "(model too large or wrong format)\n", il);
+                return 0;
             }
             if (l.qb) add_k<<<(QD+BLK-1)/BLK, BLK, 0, st_>>>(d_tmp, l.qb, QD);
             if (l.kb) add_k<<<(KD+BLK-1)/BLK, BLK, 0, st_>>>(d_tmp+QD, l.kb, KD);
@@ -548,8 +598,11 @@ public:
                         int gb64 = (N_FF + 63) / 64;
                         q4k_gemv_wmma<<<gb64, 128, 0, st_>>>(d_tmp, d_hs, l.pk_wgate, N_FF, H);
                         q4k_gemv_wmma<<<gb64, 128, 0, st_>>>(d_tmp+N_FF, d_hs, l.pk_wup, N_FF, H);
-                    } else {
+                    } else if (l.gu && l.up) {
                         fused_gate_up_gemv<<<(2*N_FF + 255) / 256, 256, 0, st_>>>(d_tmp, d_hs, l.gu, l.up, N_FF, H);
+                    } else {
+                        fprintf(stderr, "  HIP ERROR: FFN pointers null for layer %d\n", il);
+                        return 0;
                     }
                     silu_mul_k<<<(N_FF+BLK-1)/BLK, BLK, 0, st_>>>(d_ao, d_tmp, d_tmp+N_FF, N_FF);
                     int db = (H+15)/16;
