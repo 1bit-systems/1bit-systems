@@ -155,6 +155,22 @@ struct NpuWorker {
 
     bool spawn(const std::string& model_path,
               int H, int NC, int NQ, int NKV, int HD, int IM, int NV) {
+        // A worker that has already died (crash, or our own SIGKILL during
+        // shutdown) turns every subsequent write() to its stdin pipe into
+        // SIGPIPE, whose default action terminates the ENTIRE host process —
+        // not just the failing write. The gemm() and shutdown() writes below
+        // are exactly those writes. Ignore SIGPIPE process-wide, once, so those
+        // writes return -1/EPIPE and are caught by the existing short-write
+        // checks instead of crashing the server (AUDIT_ISSUES.md #3). Only
+        // tools/token_router.cpp did this before, leaving unified_server /
+        // zaya_server (the real NPU hosts) exposed. Function-local static init
+        // is thread-safe and runs exactly once per process.
+        static const bool _sigpipe_ignored = []{
+            signal(SIGPIPE, SIG_IGN);
+            return true;
+        }();
+        (void)_sigpipe_ignored;
+
         const char* engine_bin = getenv("NPU_ENGINE_BIN");
         std::string bin = engine_bin ? engine_bin : "./npu_engine_universal";
 

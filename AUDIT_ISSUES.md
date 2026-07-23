@@ -66,10 +66,34 @@ In `unified_server.cpp`, `static` globals (`g_weights_dir`, `g_strategy_engine`,
 
 ---
 
-### #3 — NPU worker shutdown race: SIGTERM before quit message delivered
+### #3 — NPU worker shutdown race: SIGTERM before quit message delivered — ✅ FIXED
 
 **Files:** `src/backend_npu.cpp:167-176`, `src/backend_flm.cpp:280-291`
 **Category:** Correctness / Process Management
+
+> **Resolution:** Most of this was already addressed and the audit text is now
+> stale: `NpuWorker::spawn()` performs a `READY\n` startup handshake and sets
+> `ready` **only** on success (not unconditionally after fork); `shutdown()`
+> escalates gracefully — quit command + stdin EOF → `wait_for_child(500ms)` →
+> `SIGTERM` → `wait_for_child(2000ms)` → `SIGKILL` → `wait_for_child(1000ms)`,
+> each `wait_for_child` reaping via `waitpid`; and the double-pipe path already
+> closes the first pipe if the second `pipe()` fails (no FD leak). `backend_flm.cpp`
+> no longer exists (FLM was replaced).
+>
+> The remaining real bug was **SIGPIPE**: once the worker dies, the `write()`
+> calls in `gemm()`/`shutdown()` hit a pipe with no reader, and SIGPIPE's default
+> action **terminates the entire host process**. Only `tools/token_router.cpp`
+> ignored it — `unified_server`/`zaya_server` (the real NPU hosts) did not, so a
+> crashed worker took the whole server down. `spawn()` now ignores SIGPIPE
+> process-wide once (thread-safe local static), so those writes return
+> `-1/EPIPE` and are caught by the existing short-write checks. Verified with a
+> standalone repro: default disposition is killed-by-signal-13; with the ignore,
+> `write()` returns `EPIPE` and the process survives.
+>
+> **Residual (low):** if a worker is wedged in uninterruptible sleep (D-state)
+> even `SIGKILL` won't reap within the 1s bound and a zombie can linger — the
+> bounded escalation deliberately prefers not hanging shutdown over a guaranteed
+> reap. Acceptable for a hardware-hang edge case.
 
 Both NPU and FLM backends write a quit command then immediately close file descriptors and send SIGTERM before the child process has time to read the quit message. FLM's `destroy()` goes further: sends SIGTERM then immediately SIGKILL without giving the process a chance to clean up.
 
