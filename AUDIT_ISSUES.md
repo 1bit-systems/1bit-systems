@@ -37,10 +37,24 @@ Four `catch (...) {}` blocks in the server's JSON parsing path silently drop all
 
 ---
 
-### #2 — Thread-unsafe TokenRouter accessed from HTTP handler threads
+### #2 — Thread-unsafe TokenRouter accessed from HTTP handler threads — ✅ FIXED
 
 **Files:** `tests/zaya_server.cpp:405-406, 549-718`, `tools/unified_server.cpp:57-63,726-739`
 **Category:** Concurrency / Data Race
+
+> **Resolution:** `zaya_server.cpp` serializes every `router.*` access behind
+> `g_router_mutex`. `unified_server.cpp` now serializes all shared-backend
+> compute (decode `mgr.reset`/`mgr.generate`, model reload `mgr.init`, and
+> active-backend switch `mgr.select_backend`) behind a dedicated, outermost
+> `g_inference_mutex`; the existing `g_config_mutex`/`g_strategy_mutex` nest
+> inside it (lock order verified, no deadlock). The earlier `#696` change had
+> released the lock around the hot decode path, reintroducing the race — the
+> decode is inherently single-context, so it must be serialized. Metadata
+> endpoints (`/v1/health`, `/v1/models`) still take only config+strategy, so
+> they are not blocked by an in-flight decode.
+> **Residual (low):** `/v1/backend/status` and `/v1/models` read
+> `mgr.active_info()` under config+strategy only — a benign stale pointer read;
+> fully closing it wants an atomic active-backend pointer inside BackendManager.
 
 `TokenRouter router` is a stack variable captured by reference in httplib handler lambdas. Cpp-httplib uses a thread pool — multiple concurrent requests race on `router.infer()`, `router.primary`, and `router.loaded_models`.
 

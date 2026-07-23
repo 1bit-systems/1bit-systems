@@ -71,6 +71,16 @@ static int g_port = 8088;
 static std::mutex g_strategy_mutex;   // protects g_strategy_engine + g_watchdog
 static std::mutex g_config_mutex;     // protects current_cfg, g_tokenizer, model switching
 
+// Serializes ALL access to the single shared BackendManager compute context —
+// the actual decode (mgr.reset/generate), model reload (mgr.init), and
+// active-backend switch (mgr.select_backend/set_strategy). A BackendManager
+// holds one mutable inference state (KV cache + active-backend pointer); two
+// requests decoding concurrently corrupt it (AUDIT_ISSUES.md #2). This is the
+// OUTERMOST lock: g_config_mutex / g_strategy_mutex may be acquired while it is
+// held, but g_inference_mutex must never be acquired while holding either of
+// those, or the two orders can deadlock.
+static std::mutex g_inference_mutex;
+
 // ── Strategy engine + agent watchdog (global for HTTP handler access) ──
 static StrategyEngine g_strategy_engine;
 static AgentWatchdog* g_watchdog = nullptr;
@@ -867,8 +877,20 @@ int main(int argc, char** argv) {
         if (max_tokens > 32768) max_tokens = 32768;
         std::string req_model = body.value("model", "");
 
+        // ── Serialize all compute against the single shared backend context ──
+        // Everything below — mgr.set_strategy, the mgr.init model switch, the
+        // vision mgr.generate/forward_embed injection, and generate_completion's
+        // mgr.reset/mgr.generate loop — mutates one BackendManager inference
+        // state. Concurrent requests here race on the KV cache / active-backend
+        // pointer (AUDIT_ISSUES.md #2). Held to the end of the handler; the short
+        // g_config_mutex / g_strategy_mutex sections below nest *inside* it.
+        // Metadata endpoints (/v1/health, /v1/models) take only config+strategy,
+        // so they are NOT blocked by an in-flight decode — preserving the #701
+        // goal of keeping health responsive during generation.
+        std::lock_guard<std::mutex> infer_lock(g_inference_mutex);
+
         // ── Phase 1: Model-switch check under locks only (#701 fix) ──
-        // Defer slow I/O (load_from_gguf, mgr.init) to outside the lock.
+        // Defer slow I/O (load_from_gguf, mgr.init) to outside the config lock.
         mgr.set_strategy(strategy);
 
         ModelConfig switch_cfg;
@@ -1026,6 +1048,12 @@ int main(int argc, char** argv) {
 
         std::string backend_id = resolve_backend_id(req);
 
+        // Serialize compute against the single shared backend context, exactly
+        // as /v1/chat/completions does (AUDIT_ISSUES.md #2). Held across
+        // set_strategy + tokenize + generate_completion; the g_config_mutex
+        // tokenize section below nests inside it.
+        std::lock_guard<std::mutex> infer_lock(g_inference_mutex);
+
         // ── Tokenize under config_mutex only (#696 fix) ──
         mgr.set_strategy(resolve_strategy(req));
 
@@ -1144,9 +1172,12 @@ int main(int argc, char** argv) {
         json j;
         {
             // mgr.select_backend() mutates the shared active-backend pointer
-            // that generate_completion() (under the same mutex, see
-            // /v1/chat/completions) reads mid-inference (fixes #2).
-            std::lock_guard<std::mutex> lock(g_config_mutex);
+            // that generate_completion() also flips mid-decode. Guard it with
+            // the SAME g_inference_mutex the decode path holds (not g_config_mutex,
+            // which the decode path no longer holds since the #696 change), so a
+            // backend switch can't land in the middle of a live generate
+            // (AUDIT_ISSUES.md #2).
+            std::lock_guard<std::mutex> lock(g_inference_mutex);
             if (!backend_id.empty()) {
                 ok = mgr.select_backend(backend_id);
             }
