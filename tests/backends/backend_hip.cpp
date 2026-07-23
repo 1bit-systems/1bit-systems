@@ -170,34 +170,32 @@ public:
     bool avail_cached_ = false, avail_checked_ = false;
     size_t vram_total_mb_ = 0;
 
-    /// Print VRAM budget estimate and warn if model likely won't fit.
+    /// Print memory budget estimate for the model.
     void check_vram_budget(const ModelConfig& cfg) {
         int H = cfg.hidden_size, V = cfg.vocab_size, L = cfg.num_layers;
-        int NQ = cfg.num_heads, NKV = cfg.num_kv_heads, HD = cfg.head_dim;
-        int QD = NQ * HD, KD = NKV * HD;
+        int NKV = cfg.num_kv_heads, HD = cfg.head_dim;
+        int KD = NKV * HD;
         int FF = cfg.intermediate_size;
         int N_EXP = cfg.num_experts;
 
+        // Rough fp16 estimate (weights + KV cache + scratch)
         double fp16_mb = (double)V * H * 2.0 / (1024*1024);
         fp16_mb += (double)L * cfg.max_seq_len * KD * 2.0 / (1024*1024);
-        fp16_mb += 32.0;
-        fp16_mb += (double)L * ((double)QD + 2.0*KD + (double)QD) * H * 2.0 / (1024*1024);
+        fp16_mb += 32.0;  // scratch
+        fp16_mb += (double)L * 4.0 * H * H * 2.0 / (1024*1024);  // ~4*H*H per layer
         if (N_EXP > 0) {
-            fp16_mb += (double)N_EXP * (2.0*FF*H + H*FF) * 2.0 / (1024*1024);
+            fp16_mb += (double)N_EXP * 3.0 * FF * H * 2.0 / (1024*1024);
         } else {
             fp16_mb += (double)L * 3.0 * FF * H * 2.0 / (1024*1024);
         }
         double q4k_mb = fp16_mb / 3.6;
-        fprintf(stderr, "  HIP VRAM budget: need ~%.0f MB (fp16) / ~%.0f MB (Q4_K), have %zu MB\n",
-                fp16_mb, q4k_mb, vram_total_mb_);
-        if (fp16_mb > vram_total_mb_ * 1.1) {
-            fprintf(stderr, "  \xe2\x9a\xa0\xef\xb8\x8f  Model too large for GPU VRAM even with Q4_K "
-                    "(need ~%.0f MB, have %zu MB).\n"
-                    "     GPU will use unstable GTT fallback. Use --strategy cpu "
-                    "or a Q4_K model.\n", q4k_mb, vram_total_mb_);
-        } else if (fp16_mb > vram_total_mb_) {
-            fprintf(stderr, "  \xe2\x9a\xa0\xef\xb8\x8f  fp16 weights won't fit in VRAM (need ~%.0f MB, "
-                    "have %zu MB). Use Q4_K (~%.0f MB) for stable GPU.\n",
+        double pct = 100.0 * fp16_mb / vram_total_mb_;
+        fprintf(stderr, "  HIP memory: ~%.0f MB needed (fp16) / ~%.0f MB (Q4_K), "
+                "%zu MB available (%.1f%%).\n",
+                fp16_mb, q4k_mb, vram_total_mb_, pct);
+        if (fp16_mb > vram_total_mb_) {
+            fprintf(stderr, "  \xe2\x9a\xa0\xef\xb8\x8f  Model exceeds available GPU memory "
+                    "(%.0f > %zu MB). Q4_K (~%.0f MB) recommended.\n",
                     fp16_mb, vram_total_mb_, q4k_mb);
         }
     }
