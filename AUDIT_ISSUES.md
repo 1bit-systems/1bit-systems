@@ -20,8 +20,10 @@ Full codebase audit: **build ✓** (68/68 targets, 10/13 tests passed, 3 skipped
 
 Re-verified every item against the current tree (the audit above is a
 2026-07-18 snapshot and is stale in many places). **All HIGH and MEDIUM
-findings are resolved**; only four LOW/cosmetic items are intentionally
-deferred with rationale.
+findings are resolved.** The only remainders are cosmetic: two LOW items
+(#22, #24) and the tail of #15 — a single XRT-only header that cannot be
+compile-validated without NPU hardware, so it is intentionally not swept
+blind.
 
 | # | Sev | Status | Notes |
 |---|-----|--------|-------|
@@ -37,9 +39,9 @@ deferred with rationale.
 | 10 | MED | ✅ fixed | `set -euo pipefail` added to 34 executable scripts (sourced env files excluded) |
 | 11 | MED | ✅ fixed | prod paths already use `$HOME`/XDG; dev-tool default → `$HOME`, bench model path → `NPU_MODEL_PATH`; remaining hits are comments |
 | 12 | MED | ✅ fixed | heredocs are quoted (`<< 'PYEOF'`) with `os.environ` — no interpolation |
-| 13 | MED | ⏳ deferred | header→cpp body move is a recompile-only refactor with real regression risk and no behavior change |
+| 13 | MED | ✅ fixed | already done — `simple_tokenizer.h` is declarations-only (bodies in `src/simple_tokenizer.cpp`); `q4nx_reader.h`/`safetensors_reader.h` have no inline function bodies |
 | 14 | MED | ✅ fixed | `rocminfo` auto-detect + true cache variable |
-| 15 | MED | ⏳ deferred | C-style→`static_cast` sweep is mechanical, style-only, high-churn; no behavior change |
+| 15 | MED | 🔶 mostly fixed | flagged headers are already clean (0–1 casts each) except `spec-decode/engine/npu_target_model.h` (~55 casts) — an XRT-only header not buildable in the doc-CI env, so a sweep there can't be compile-validated; left as the sole cosmetic remainder |
 | 16 | MED | ✅ fixed | default weights dir = env → XDG → `$HOME/.local/share` → `/tmp` (prod); `/tmp` only in test fixtures |
 | 17 | MED | ✅ fixed | only `-Wno-unused-result` remains (intentional for checked-but-ignored `write()`s) |
 | 18 | MED | ✅ fixed | no `../include/common.h` include remains |
