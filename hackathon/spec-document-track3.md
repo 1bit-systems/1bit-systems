@@ -79,13 +79,6 @@ First open-source Mamba1/SSM GPU backend for AMD hardware:
 - Zero-copy state passing between SSM blocks
 - Supports BlackMamba 1.5B (30 layers) and 2.8B (36 layers)
 
-### 3.4 Nested RoPE & SiLU Triton kernels
-
-Custom Triton kernels for AMD (not yet open-sourced, in collaboration with AMD):
-
-- **Nested RoPE**: Applies rotary position embeddings inside the main16 Q4NX dequant loop, eliminating a separate memory pass. Reduces KV-cache bandwidth by 2×.
-- **Fused SiLU-Gate**: Merges the gate projection multiply into the up-projection dequant, eliminating one intermediate buffer write.
-
 ### 3.5 TheRock 7.15.0a Integration
 
 First project to adopt and validate **TheRock** — AMD's nightly pip-installable HIP SDK for gfx1151:

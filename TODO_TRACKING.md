@@ -10,9 +10,6 @@
 - [ ] `tools/gpu_npu_bridge.cpp:367` — Forward pass GPU-only baseline, NPU TODO
 - [ ] `src/backend_zamba2.cpp:36` — tokenizer.ggml.* not read from GGUF
 - [ ] `src/zamba2_engine_hip.hip:244` — fused Mamba2 HIP kernel
-- [ ] `integrations/lemon-mlx-engine/src/common/gated_delta.cpp:557` — CPU/Metal fallback
-- [ ] `integrations/lemon-mlx-engine/src/common/mtp_delta_kernel.cpp:12` — beta from model params
-- [ ] `integrations/lemon-mlx-engine/src/common/mtp_delta_kernel.cpp:14` — a from model weights
 - [ ] `src/server/server.cpp:114` — tools logging: only print tool name, elide args
 - [ ] `src/server/server.cpp:115` — debug level support
 - [ ] `src/server/rest_handler.cpp:622` — avoid loading twice

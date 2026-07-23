@@ -39,7 +39,7 @@
 │  │              GEMM Backend (ROCm HIP)                  │   │
 │  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────┐   │   │
 │  │  │ hipBLAS  │ │ hipBLASLt│ │  Custom  │ │  FP8   │   │   │
-│  │  │  (fall)  │ │  (MI300X)│ │  Triton  │ │ WMMA   │   │   │
+│  │  │  (fall)  │ │  (MI300X)│ │  LoRA   │ │ WMMA   │   │   │
 │  │  └──────────┘ └──────────┘ └──────────┘ └────────┘   │   │
 │  └──────────────────────────────────────────────────────┘   │
 │                                                              │
@@ -66,7 +66,6 @@
 
 ### 3.3 AMD-Native HIP Kernels
 - All GEMM operations use TheRock's ROCm HIP runtime targeting gfx1151.
-- Custom Triton kernels developed in collaboration with AMD (not yet public) for fused LoRA forward/backward.
 - hipBLASlt path for MI300X tensor core GEMM (6× speedup vs hipBLAS fallback).
 
 ### 3.4 LoRA Without Merge Drift

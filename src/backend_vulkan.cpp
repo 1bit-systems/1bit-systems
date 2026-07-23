@@ -77,7 +77,7 @@ struct VK {
         phys = pds[0];
         VkPhysicalDeviceProperties props;
         vkGetPhysicalDeviceProperties(phys, &props);
-        strncpy(name, props.deviceName, sizeof(name)-1);
+        snprintf(name, sizeof(name), "%s", props.deviceName);
 
         uint32_t nq; vkGetPhysicalDeviceQueueFamilyProperties(phys, &nq, nullptr);
         std::vector<VkQueueFamilyProperties> qps(nq);
