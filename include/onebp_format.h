@@ -147,12 +147,15 @@ struct OnebpHeader {
     uint8_t  reserved[44];          // remaining pad to 256 bytes
     char     model_tag[64];         // model identifier string
     
+    // validity: core dims always required; attention heads are optional
+    // (Mamba/MoE architectures have no attention, set NH=0, HD=0).
     bool valid() const {
-        return magic == ONEBP_MAGIC && version == ONEBP_VERSION
-            && hidden_size > 0 && num_layers > 0 && vocab_size > 0
-            && num_attention_heads > 0 && head_dim > 0
-            && intermediate_size > 0 && tile_rows > 0 && tile_cols > 0
-            && group_size > 0;
+        if (magic != ONEBP_MAGIC || version != ONEBP_VERSION) return false;
+        if (hidden_size <= 0 || num_layers <= 0 || vocab_size <= 0) return false;
+        if (num_attention_heads > 0 && head_dim <= 0) return false;
+        if (head_dim > 0 && num_attention_heads <= 0) return false;
+        if (intermediate_size <= 0 || tile_rows <= 0 || tile_cols <= 0 || group_size <= 0) return false;
+        return true;
     }
     
     void init() {

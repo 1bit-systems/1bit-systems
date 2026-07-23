@@ -70,13 +70,29 @@ int main(int argc, char** argv) {
     };
     gu("hidden_size", hdr.hidden_size) || gu("embedding_length", hdr.hidden_size);
     gu("num_hidden_layers", hdr.num_layers) || gu("block_count", hdr.num_layers);
+    // Attention heads are optional — Mamba/MoE architectures have none.
+    // Key-value heads default to attention heads; head_dim derived if absent.
     gu("num_attention_heads", hdr.num_attention_heads) || gu("attention.head_count", hdr.num_attention_heads);
     gu("num_key_value_heads", hdr.num_kv_heads) || gu("attention.head_count_kv", hdr.num_kv_heads);
-    if (!hdr.num_kv_heads) hdr.num_kv_heads = hdr.num_attention_heads;
+    if (hdr.num_attention_heads > 0 && !hdr.num_kv_heads)
+        hdr.num_kv_heads = hdr.num_attention_heads;
     gu("head_dim", hdr.head_dim) || gu("attention.key_length", hdr.head_dim);
-    if (!hdr.head_dim) hdr.head_dim = hdr.hidden_size / hdr.num_attention_heads;
+    if (!hdr.head_dim && hdr.num_attention_heads > 0)
+        hdr.head_dim = hdr.hidden_size / hdr.num_attention_heads;
     gu("intermediate_size", hdr.intermediate_size) || gu("feed_forward_length", hdr.intermediate_size);
+    // Try explicit vocab_size; fall back to token_embd.weight rows or tokens array.
     gu("vocab_size", hdr.vocab_size);
+    if (!hdr.vocab_size) {
+        // Some GGUF files omit vocab_size — infer from token_embd.weight shape.
+        auto* emb = reader.tensor_info("token_embd.weight");
+        if (emb && emb->shape.size() >= 1) hdr.vocab_size = (int)emb->shape[0];
+    }
+    if (!hdr.vocab_size) {
+        // Fallback: try tokenizer.ggml.tokens array count
+        std::vector<std::string> tokens;
+        if (reader.get_string_array("tokenizer.ggml.tokens", tokens))
+            hdr.vocab_size = (int)tokens.size();
+    }
     if (!hdr.valid()) {
         fprintf(stderr, "Bad config: H=%d L=%d NH=%d V=%d\n",
                 hdr.hidden_size, hdr.num_layers, hdr.num_attention_heads, hdr.vocab_size);
@@ -198,7 +214,8 @@ int main(int argc, char** argv) {
                                 float v = fw[(size_t)ar * C + ac1];
                                 v1 = (uint8_t)std::max(0, std::min(15, (int)roundf((v - mn) * inv_s)));
                             }
-                            qd[((size_t)rr * tc + acs + i) / 2] = (v1 << 4) | v0;
+                            int local_c = (acs - c0) + i; // column within tile
+                            qd[((size_t)rr * tc + local_c) / 2] = (v1 << 4) | v0;
                         }
                     }
                 }
