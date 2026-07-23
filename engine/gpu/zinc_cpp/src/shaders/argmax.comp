@@ -1,0 +1,27 @@
+#version 460
+// Argmax over logits[0..M): writes the index of the max into result[0] (int).
+// logits = binding 0 (float), result = binding 1 (int). Single workgroup.
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+layout(std430, binding = 0) readonly buffer L { float logits[]; };
+layout(std430, binding = 1) writeonly buffer R { int result[]; };
+layout(push_constant) uniform Push { uint M, N, K, s; float sc, eps, th, p; int tok, l, h, pos; } pc;
+shared float sm[256];
+shared int   si[256];
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    float m = -3.4e38;
+    int mi = 0;
+    for (uint k = tid; k < pc.M; k += 256u) {
+        float v = logits[k];
+        if (v > m) { m = v; mi = int(k); }
+    }
+    sm[tid] = m; si[tid] = mi;
+    barrier();
+    for (uint sz = 128u; sz > 0u; sz >>= 1u) {
+        if (tid < sz) {
+            if (sm[tid + sz] > sm[tid]) { sm[tid] = sm[tid + sz]; si[tid] = si[tid + sz]; }
+        }
+        barrier();
+    }
+    if (tid == 0u) { result[0] = si[0]; result[1] = floatBitsToInt(sm[0]); }
+}

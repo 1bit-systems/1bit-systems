@@ -59,7 +59,7 @@ static const std::map<std::string,std::string> shader_map = {
     {"silu_mul", "swiglu"},          // SiLU gate multiply
     {"argmax", "argmax"},            // argmax reduction
     {"add_residual", "vadd"},        // vector add
-    {"copy_buffer", "vadd"},         // copy via add
+    {"copy_buffer", "copy_buffer"},  // out = in
     {"embed", "embed"},              // embedding lookup
 };
 
@@ -215,6 +215,19 @@ void ComputeEngine::dispatch_batch(const std::string& shader, const PushConstant
     vkCmdPushConstants(s_batch_cmd, layout,
                        VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
     vkCmdDispatch(s_batch_cmd, group_x, group_y, group_z);
+
+    // Serialize this dispatch's shader writes before the next dispatch reads
+    // them. Every op in the batch feeds the next (rms_norm -> qkv -> attn ->
+    // ...), so without this barrier consecutive dispatches race (RAW hazard)
+    // and the result is undefined once more than one layer runs.
+    VkMemoryBarrier mb{};
+    mb.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    mb.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    mb.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    vkCmdPipelineBarrier(s_batch_cmd,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         0, 1, &mb, 0, nullptr, 0, nullptr);
 }
 
 // Use batch dispatch if batching, else regular dispatch
@@ -236,6 +249,11 @@ void ComputeEngine::gemv(VkBuffer y, VkBuffer x, VkBuffer W, int M, int N, int K
     batch_dispatch(this, shader, push, x, y, W, M);
 }
 
+void ComputeEngine::gemv_f32(VkBuffer y, VkBuffer x, VkBuffer W, int M, int N, int K) {
+    PushConstants push{}; push.M = M; push.N = N; push.K = K;
+    batch_dispatch(this, "gemv_f32", push, x, y, W, M);
+}
+
 void ComputeEngine::rope(VkBuffer q, VkBuffer k, int hd, int pos,
                           int n_heads, int n_kv, float theta) {
     PushConstants push{}; push.M = n_heads; push.N = n_kv; push.K = hd;
@@ -245,8 +263,15 @@ void ComputeEngine::rope(VkBuffer q, VkBuffer k, int hd, int pos,
 
 void ComputeEngine::flash_attn(VkBuffer q, VkBuffer k_cache, VkBuffer v_cache,
                                 VkBuffer out, int seq_len,
-                                int n_heads, int n_kv, int hd, int gqa) {
-    PushConstants push{}; push.M = n_heads; push.N = seq_len; push.K = hd;
+                                int n_heads, int n_kv, int hd, int gqa,
+                                int layer, int max_seq, int n_layers) {
+    PushConstants push{};
+    push.M = (uint32_t)n_heads; push.N = (uint32_t)seq_len; push.K = (uint32_t)hd;
+    push.stride = (uint32_t)n_kv;      // shader reads this as 'n_kv'
+    push.layer = layer;                // 'layer'
+    push.token = max_seq;              // shader reads this as 'max_seq'
+    push.head = n_layers;              // shader reads this as 'n_layers'
+    push.pos = seq_len - 1;
     batch_dispatch(this, "flash_attn", push, q, out, k_cache, n_heads);
     (void)v_cache; (void)gqa;
 }
@@ -258,12 +283,14 @@ void ComputeEngine::silu_mul(VkBuffer y, VkBuffer gate, VkBuffer up, int n) {
 
 int ComputeEngine::argmax(VkBuffer logits, int n) {
     PushConstants push{}; push.M = n;
-    GpuBuffer result_buf(device_, sizeof(int),
+    GpuBuffer result_buf(device_, sizeof(int) * 2,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     batch_dispatch(this, "argmax", push, logits, result_buf.buffer(), VK_NULL_HANDLE, 1);
     int* result = (int*)result_buf.map();
     int idx = *result;
+    static const bool dbg = getenv("ZINC_DEBUG") != nullptr;
+    if (dbg) { float mx; memcpy(&mx, &result[1], 4); fprintf(stderr, "[zinc] argmax idx=%d maxlogit=%g\n", idx, mx); }
     result_buf.unmap();
     return idx;
 }
@@ -311,11 +338,15 @@ int InferenceEngine::generate(int token_id) {
     auto& d = model->dims;
     
     compute->embed_lookup(hidden.buffer(), model->embed.buffer(), token_id, d.hidden);
-    
+
+    static const char* nl_env = getenv("ZINC_NUM_LAYERS");
+    int n_layers_run = nl_env ? atoi(nl_env) : d.n_layers;
+    if (n_layers_run > d.n_layers) n_layers_run = d.n_layers;
+
     // Batch all layer dispatches into one command buffer
     compute->begin_batch();
     
-    for (int l = 0; l < d.n_layers; l++) {
+    for (int l = 0; l < n_layers_run; l++) {
         auto& layer = model->layers[l];
         
         PushConstants pc_res{};
@@ -331,18 +362,31 @@ int InferenceEngine::generate(int token_id) {
             pc_qkv.M = qkv_rows; pc_qkv.K = (uint32_t)d.hidden;
             compute->dispatch_batch("fused_qkv", pc_qkv, hidden.buffer(), qkv.buffer(), layer.qkv_fused.buffer(), 
                                    (qkv_rows + 255) / 256, 1, 1);
+            // Add QKV bias (Qwen2/ZR1) in-place: qkv += bias.
+            if (layer.has_bias) {
+                PushConstants pc_b{}; pc_b.M = qkv_rows;
+                compute->dispatch_batch("add_residual", pc_b,
+                                  qkv.buffer(), layer.qkv_bias_fused.buffer(), VK_NULL_HANDLE, 1);
+            }
         }
         compute->rope(qkv.buffer(), VK_NULL_HANDLE, d.head_dim, pos,
                       d.n_heads, d.n_kv_heads, d.rope_theta);
         compute->flash_attn(qkv.buffer(), model->kv_cache.buffer(), model->kv_cache.buffer(),
                             attn_out.buffer(), pos + 1,
                             d.n_heads, d.n_kv_heads, d.head_dim,
-                            d.n_heads / d.n_kv_heads);
+                            d.n_heads / d.n_kv_heads,
+                            l, d.max_seq, d.n_layers);
         compute->gemv(hidden.buffer(), attn_out.buffer(), layer.wo.buffer(),
                        d.hidden, 1, d.n_heads * d.head_dim);
         compute->dispatch_batch("add_residual", pc_res,
                           hidden.buffer(), residual.buffer(), VK_NULL_HANDLE, 1);
-        
+
+        // Refresh the residual base to the post-attention hidden before the FFN
+        // block. rms_norm() is in-place, so without this the FFN residual would
+        // add the original layer input (losing the attention contribution).
+        compute->dispatch_batch("copy_buffer", pc_res,
+                          hidden.buffer(), residual.buffer(), VK_NULL_HANDLE, 1);
+
         compute->rms_norm(hidden.buffer(), layer.rms_ffn.buffer(), d.hidden, d.rms_eps);
         // Fused gate+up: single dispatch for gate and up projections
         {
@@ -360,7 +404,12 @@ int InferenceEngine::generate(int token_id) {
     }
     
     compute->rms_norm(hidden.buffer(), model->final_norm.buffer(), d.hidden, d.rms_eps);
-    compute->gemv(logits.buffer(), hidden.buffer(),
+    // lm_head: prefer the untied Q4_K output.weight; else tied F32 embeddings.
+    if (model->has_lm_head)
+        compute->gemv(logits.buffer(), hidden.buffer(),
+                   model->lm_head.buffer(), d.vocab, 1, d.hidden);
+    else
+        compute->gemv_f32(logits.buffer(), hidden.buffer(),
                    model->embed.buffer(), d.vocab, 1, d.hidden);
     
     // End batch — submits all recorded dispatches

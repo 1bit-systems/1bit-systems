@@ -46,6 +46,7 @@ struct LayerWeightsGPU {
     GpuBuffer w1, w2, w3;         // FFN gate/up/down [out, in]
     GpuBuffer rms_attn, rms_ffn;  // RMS norm [hidden]
     GpuBuffer bq, bk, bv;         // optional QKV biases
+    GpuBuffer qkv_bias_fused;     // fused QKV bias [Q+K+V] (F32), if present
     GpuBuffer qkv_fused;          // fused QKV weights [Q+K+V, hidden]
     GpuBuffer gate_up_fused;      // fused gate+up weights [2*inter, hidden]
     bool has_bias = false;
@@ -58,6 +59,8 @@ struct ModelGPU {
     // Shared weights
     GpuBuffer embed;       // [vocab, hidden] — token embeddings
     GpuBuffer final_norm;  // [hidden]
+    GpuBuffer lm_head;     // [vocab, hidden] Q4_K — untied output projection
+    bool has_lm_head = false;
     
     // KV cache: single contiguous buffer [2 * n_layers * max_seq * n_kv * hd] floats
     GpuBuffer kv_cache;

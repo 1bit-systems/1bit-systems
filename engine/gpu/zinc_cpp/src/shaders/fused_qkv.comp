@@ -21,10 +21,10 @@ float b2f(uint base, uint off) {
 
 // Extract 16-bit value (little-endian)
 float b2f16(uint base, uint off) {
-    float lo = b2f(base, off);
-    float hi = b2f(base, off + 1);
-    float v = lo + hi * 256.0;
-    return (v > 32767.0) ? v - 65536.0 : v;  // signed int16
+    uint lo = uint(b2f(base, off));
+    uint hi = uint(b2f(base, off + 1u));
+    uint u16 = lo | (hi << 8u);
+    return uintBitsToFloat(u16 << 16u);  // bf16 -> f32
 }
 
 void main() {

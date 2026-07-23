@@ -32,8 +32,18 @@ static void upload_tensor(GgufReader& reader, const std::string& name,
                            GpuBuffer& dst, size_t expected_floats,
                            VkDevice dev, VkQueue queue, CommandPool& pool) {
     std::vector<float> tmp;
-    if (reader.get_tensor_f32(name, tmp) && tmp.size() >= expected_floats)
-        upload_float_data(dev, queue, pool, dst, tmp.data(), expected_floats);
+    // Upload whatever the tensor actually provides, up to the expected size.
+    // Some models (e.g. ZR1) store a token_embd.weight with fewer rows than
+    // vocab_size (padding vocab entries have no embedding); requiring an exact
+    // >= match silently skipped the upload and left the buffer zero, which
+    // collapsed the whole forward pass to zero logits.
+    if (reader.get_tensor_f32(name, tmp) && !tmp.empty()) {
+        size_t n = std::min(tmp.size(), expected_floats);
+        if (getenv("ZINC_DEBUG_UPLOAD"))
+            fprintf(stderr, "[zinc] upload %s: got=%zu need=%zu -> %zu first=%g\n",
+                    name.c_str(), tmp.size(), expected_floats, n, tmp[0]);
+        upload_float_data(dev, queue, pool, dst, tmp.data(), n);
+    }
 }
 
 // Q8_0 quantization: block size 32, each block = fp16 scale + 32 int8 values = 34 bytes
@@ -102,7 +112,10 @@ static size_t q4k_quantize(const float* f32, uint8_t* q4k, int count) {
             if (v < amin) amin = v;
         }
         
-        float d = (amax - amin) / 255.0f;
+        // 4-bit nibbles hold 0..15, so the step must span the range in 15
+        // steps, not 255. The old /255 made ~94% of values clamp to the same
+        // nibble (dense weights were destroyed). Dequant is nib*d + dmin.
+        float d = (amax - amin) / 15.0f;
         float dmin = amin;
         if (d < 1e-12f) d = 1e-12f;
         
@@ -219,6 +232,30 @@ bool ModelLoader::load(const std::string& gguf_path, ModelGPU& model) {
                 dims.hidden, device_, queue_, cmd_pool_);
 #endif
     }
+
+#ifdef HAS_GGUF_READER
+    // Untied lm_head (output.weight), quantized to Q4_K. Absent -> tied embeddings.
+    if (have_reader) {
+        std::vector<float> ow;
+        size_t need = (size_t)dims.vocab * dims.hidden;
+        if (reader.get_tensor_f32("output.weight", ow) && !ow.empty()) {
+            ow.resize(need, 0.0f);  // pad any missing vocab rows
+            size_t q4k_bytes = q4k_quantize(ow.data(), nullptr, (int)need);
+            std::vector<uint8_t> qb(q4k_bytes);
+            if (q4k_quantize(ow.data(), qb.data(), (int)need) == q4k_bytes) {
+                model.lm_head = GpuBuffer(device_, q4k_bytes, rw, dev);
+                GpuBuffer staging(device_, q4k_bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+                memcpy(staging.map(), qb.data(), q4k_bytes); staging.unmap();
+                VkCommandBuffer cmd = cmd_pool_.begin_once();
+                VkBufferCopy cp = {0, 0, q4k_bytes};
+                vkCmdCopyBuffer(cmd, staging.buffer(), model.lm_head.buffer(), 1, &cp);
+                cmd_pool_.submit_and_wait(cmd, queue_);
+                model.has_lm_head = true;
+            }
+        }
+    }
+#endif
     
     // Per-layer weights
     model.layers.resize(dims.n_layers);
@@ -325,6 +362,24 @@ bool ModelLoader::load(const std::string& gguf_path, ModelGPU& model) {
                 dims.hidden, device_, queue_, cmd_pool_);
             upload_tensor(reader, p + "ffn_norm.weight", layer.rms_ffn,
                 dims.hidden, device_, queue_, cmd_pool_);
+            // Fused QKV bias (Qwen2/ZR1): attn_q/k/v.bias concatenated, F32,
+            // matching the qkv buffer layout [Q | K | V].
+            {
+                size_t q_rows = (size_t)dims.n_heads * dims.head_dim;
+                size_t kv_rows = (size_t)dims.n_kv_heads * dims.head_dim;
+                std::vector<float> bq_, bk_, bv_;
+                if (reader.get_tensor_f32(p + "attn_q.bias", bq_) && bq_.size() >= q_rows &&
+                    reader.get_tensor_f32(p + "attn_k.bias", bk_) && bk_.size() >= kv_rows &&
+                    reader.get_tensor_f32(p + "attn_v.bias", bv_) && bv_.size() >= kv_rows) {
+                    std::vector<float> fb(q_rows + 2 * kv_rows);
+                    memcpy(fb.data(), bq_.data(), q_rows * 4);
+                    memcpy(fb.data() + q_rows, bk_.data(), kv_rows * 4);
+                    memcpy(fb.data() + q_rows + kv_rows, bv_.data(), kv_rows * 4);
+                    layer.qkv_bias_fused = GpuBuffer(device_, fb.size() * sizeof(float), rw, dev);
+                    upload_float_data(device_, queue_, cmd_pool_, layer.qkv_bias_fused, fb.data(), fb.size());
+                    layer.has_bias = true;
+                }
+            }
         }
 #endif
     }

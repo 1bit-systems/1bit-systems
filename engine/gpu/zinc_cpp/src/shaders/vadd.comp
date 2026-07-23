@@ -1,0 +1,12 @@
+#version 460
+// In-place residual add: a[i] += b[i]  (a = binding 0, b = binding 1).
+// Used for add_residual(hidden, residual) → result stays in hidden (binding 0).
+// Dispatched as a single workgroup; loop over all M with stride 256.
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+layout(std430, binding = 0) buffer A { float a[]; };
+layout(std430, binding = 1) readonly buffer B { float b[]; };
+layout(push_constant) uniform Push { uint M, N, K, s; float sc, eps, th, p; int tok, l, h, pos; } pc;
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    for (uint i = tid; i < pc.M; i += 256u) a[i] += b[i];
+}

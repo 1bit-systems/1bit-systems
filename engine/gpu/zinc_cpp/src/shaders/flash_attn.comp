@@ -1,0 +1,79 @@
+#version 460
+// Causal GQA attention for one decode step. One workgroup per query head.
+// Matches src/backend_generic.cpp: score[t] = (Q·K_t)/sqrt(hd), softmax over
+// t in [0,pos], out = sum_t softmax[t] * V_t.  Writes the current token's K,V
+// into the KV cache first.
+//
+// Buffers: binding0 = qkv [Q:M*hd | K:N*hd | V:N*hd] (current token),
+//          binding1 = attn_out [M*hd], binding2 = kv_cache (read/write).
+// KV cache layout: [2][n_layers][max_seq][N*hd] floats (K half, then V half).
+// Push: M=n_heads, N=seq_len(=pos+1), K=hd, s=n_kv, l=layer, tok=max_seq,
+//       h=n_layers, pos=current position.
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+layout(std430, binding = 0) readonly buffer QKV { float qkv[]; };
+layout(std430, binding = 1) writeonly buffer OUT { float outp[]; };
+layout(std430, binding = 2) buffer KVC { float kvc[]; };
+layout(push_constant) uniform Push { uint M, N, K, s; float sc, eps, th, p; int tok, l, h, pos; } pc;
+
+shared float sQ[256];
+shared float scores[4096];
+shared float red[256];
+
+void main() {
+    uint head = gl_WorkGroupID.x;
+    if (head >= pc.M) return;
+    uint tid = gl_LocalInvocationID.x;
+    uint hd = pc.K, n_heads = pc.M, n_kv = pc.s;
+    uint gqa = max(n_heads / n_kv, 1u);
+    uint kh = head / gqa;
+    uint layer = uint(pc.l), max_seq = uint(pc.tok), n_layers = uint(pc.h), pos = uint(pc.pos);
+
+    uint kv_stride = n_kv * hd;
+    uint vbase = n_layers * max_seq * kv_stride;                 // V half of the cache
+    uint qbase = head * hd;                                      // Q for this head, in qkv
+    uint kcur  = n_heads * hd + kh * hd;                         // current K (kv head kh)
+    uint vcur  = n_heads * hd + n_kv * hd + kh * hd;             // current V
+    uint slot  = layer * max_seq * kv_stride + pos * kv_stride + kh * hd;
+
+    // 1. Append current token's K,V to the cache.
+    for (uint d = tid; d < hd; d += 256u) {
+        kvc[slot + d]         = qkv[kcur + d];
+        kvc[vbase + slot + d] = qkv[vcur + d];
+    }
+    // 2. Load Q into shared.
+    for (uint d = tid; d < hd; d += 256u) sQ[d] = qkv[qbase + d];
+    memoryBarrierBuffer();
+    barrier();
+
+    float scale = inversesqrt(float(hd));
+    // 3. scores[t] = (Q·K_t) * scale  for t in [0,pos]  (clamp to shared cap).
+    uint P = min(pos, 4095u);
+    for (uint t = tid; t <= P; t += 256u) {
+        uint ks = layer * max_seq * kv_stride + t * kv_stride + kh * hd;
+        float dp = 0.0;
+        for (uint d = 0u; d < hd; d++) dp += sQ[d] * kvc[ks + d];
+        scores[t] = dp * scale;
+    }
+    barrier();
+    // 4. max
+    float m = -3.4e38;
+    for (uint t = tid; t <= P; t += 256u) m = max(m, scores[t]);
+    red[tid] = m; barrier();
+    for (uint sz = 128u; sz > 0u; sz >>= 1u) { if (tid < sz) red[tid] = max(red[tid], red[tid + sz]); barrier(); }
+    float mx = red[0]; barrier();
+    // 5. exp + sum
+    float ss = 0.0;
+    for (uint t = tid; t <= P; t += 256u) { float e = exp(scores[t] - mx); scores[t] = e; ss += e; }
+    red[tid] = ss; barrier();
+    for (uint sz = 128u; sz > 0u; sz >>= 1u) { if (tid < sz) red[tid] += red[tid + sz]; barrier(); }
+    float denom = max(red[0], 1e-20); barrier();
+    // 6. out[d] = sum_t (scores[t]/denom) * V_t[d]
+    for (uint d = tid; d < hd; d += 256u) {
+        float acc = 0.0;
+        for (uint t = 0u; t <= P; t++) {
+            uint vs = vbase + layer * max_seq * kv_stride + t * kv_stride + kh * hd;
+            acc += scores[t] * kvc[vs + d];
+        }
+        outp[head * hd + d] = acc / denom;
+    }
+}

@@ -27,8 +27,8 @@
 // the PILOT worker thread — an uncatchable cross-thread std::terminate — so we
 // require the whole set up front and otherwise disable ZINC cleanly.
 static const char* kZincRequiredShaders[] = {
-    "embed", "fused_qkv", "fused_gate_up", "dmmv_q4k", "dmmv_q4k_batch",
-    "rms_norm_mul", "rope_fused", "flash_attn", "swiglu", "argmax", "vadd",
+    "embed", "fused_qkv", "fused_gate_up", "dmmv_q4k", "gemv_f32", "rms_norm_mul",
+    "rope_fused", "flash_attn", "swiglu", "argmax", "vadd", "copy_buffer",
 };
 
 static std::string zinc_resolve_shader_dir() {
@@ -77,6 +77,17 @@ struct ZincBackend : Backend {
 
         if (cfg.model_path.empty()) {
             fprintf(stderr, "ZINC: no GGUF model path available\n");
+            return false;
+        }
+
+        // The dense ZINC GPU path runs end-to-end (embed, Q4_K matmuls, RoPE,
+        // GQA attention, SwiGLU, argmax) and is fast, but its crude Q4_K
+        // re-quantization (no sub-block scales) still degrades quality vs the
+        // full-precision cpu_generic path (#844). Opt-in only so dense models
+        // keep using the correct backend by default. Set ZINC_ENABLE=1 to try.
+        if (!getenv("ZINC_ENABLE")) {
+            fprintf(stderr, "ZINC: dense GPU path is experimental — disabled by "
+                "default (set ZINC_ENABLE=1). Using HIP/CPU. See #844.\n");
             return false;
         }
 

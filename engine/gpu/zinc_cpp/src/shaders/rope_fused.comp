@@ -1,0 +1,30 @@
+#version 460
+// NEOX / half-split RoPE applied in-place to the fused QKV buffer.
+// Matches src/backend_generic.cpp rope(): for head h, pair (i, i+half),
+// half = rot_dim/2, freq = 1/theta^(2i/rot_dim), t = pos*freq.
+//   x[i0] = x0*cos - x1*sin ;  x[i1] = x0*sin + x1*cos
+// Layout of the qkv buffer: [Q: M*hd][K: N*hd][V: N*hd]. One workgroup per
+// rotated head; workgroups [0,M) rotate Q heads, [M, M+N) rotate K heads.
+// Push: M = n_heads, N = n_kv_heads, K = head_dim, th = theta, pos = pos.
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+layout(std430, binding = 0) buffer QKV { float q[]; };
+layout(push_constant) uniform Push { uint M, N, K, s; float sc, eps, th, p; int tok, l, h, pos; } pc;
+
+void main() {
+    uint wg = gl_WorkGroupID.x;
+    uint tid = gl_LocalInvocationID.x;
+    uint hd = pc.K;
+    uint hf = hd / 2u;
+    uint base;
+    if (wg < pc.M) base = wg * hd;                       // Q head wg
+    else           base = pc.M * hd + (wg - pc.M) * hd;  // K head (wg-M), after all Q
+    for (uint i = tid; i < hf; i += 256u) {
+        float freq = 1.0 / pow(pc.th, (2.0 * float(i)) / float(hd));
+        float t = float(pc.pos) * freq;
+        float cv = cos(t), sv = sin(t);
+        float x0 = q[base + i];
+        float x1 = q[base + hf + i];
+        q[base + i]      = x0 * cv - x1 * sv;
+        q[base + hf + i] = x0 * sv + x1 * cv;
+    }
+}

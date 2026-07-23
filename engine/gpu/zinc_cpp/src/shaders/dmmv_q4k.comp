@@ -1,15 +1,15 @@
 #version 460
-// Fused gate+up projection: output = input @ [Wgate, Wup]^T
-// Weights stored as uint array (byte-addressable via bit ops)
-// Q4_K format: 144 bytes per 256-element block
-// Push: M = total output dim (2*inter), K = hidden
+// Q4_K dequant matmul-vector: y[row] = sum_k dequant(W[row,k]) * x[k]
+// Weights: custom 144-byte/256-block Q4_K (fp16 d @0, fp16 dmin @2,
+// 12B scales @4 [unused in this affine variant], 128B 4-bit nibbles @16).
+// Dequant: value = nibble * d + dmin. Same layout the loader writes and
+// fused_qkv/fused_gate_up read. Push: M = output rows, K = input dim.
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 layout(std430, binding = 0) readonly buffer X { float x[]; };
 layout(std430, binding = 1) writeonly buffer Y { float y[]; };
 layout(std430, binding = 2) readonly buffer W { uint w[]; };
 layout(push_constant) uniform Push { uint M, N, K, s; float sc, eps, th, p; int tok, l, h, pos; } pc;
 
-shared float xc[4096];
 shared float rd[256];
 
 float b2f(uint base, uint off) {
@@ -18,32 +18,30 @@ float b2f(uint base, uint off) {
     return float((word >> shift) & 0xFFu);
 }
 float b2f16(uint base, uint off) {
+    // Scales are stored as bf16 (high 16 bits of the f32). Rebuild the 16-bit
+    // pattern and shift it back into the f32 mantissa/exponent position.
     uint lo = uint(b2f(base, off));
     uint hi = uint(b2f(base, off + 1u));
     uint u16 = lo | (hi << 8u);
-    return uintBitsToFloat(u16 << 16u);  // bf16 -> f32
+    return uintBitsToFloat(u16 << 16u);
 }
 
 void main() {
     uint tid = gl_LocalInvocationID.x;
     uint row = gl_WorkGroupID.x;
     if (row >= pc.M) return;
-    
-    for (uint i = tid; i < pc.K; i += 256u) xc[i] = x[i];
-    barrier();
-    
+
     uint blocks = (pc.K + 255u) / 256u;
     float sum = 0.0;
     for (uint b = 0u; b < blocks; b++) {
-        uint base = (row * blocks + b) * 144u;
-        float d = b2f16(base, 0u);
+        uint base = (row * blocks + b) * 144u;   // byte offset of this block
+        float d  = b2f16(base, 0u);
         float mn = b2f16(base, 2u);
-        
         float part = 0.0;
-        for (uint j = tid; j < 256u && j < pc.K - b * 256u; j += 256u) {
-            float by = b2f(base, 16u + j / 2u);
+        for (uint j = tid; j < 256u && b * 256u + j < pc.K; j += 256u) {
+            float by  = b2f(base, 16u + j / 2u);
             float nib = (j & 1u) != 0u ? floor(by / 16.0) : mod(by, 16.0);
-            part += (nib * d + mn) * xc[b * 256u + j];
+            part += (nib * d + mn) * x[b * 256u + j];
         }
         rd[tid] = part;
         barrier();
