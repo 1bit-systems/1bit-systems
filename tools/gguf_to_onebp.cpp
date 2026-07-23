@@ -104,8 +104,6 @@ int main(int argc, char** argv) {
 
     FILE* fout = fopen(argv[2], "wb");
     if (!fout) { perror("fopen"); return 1; }
-    hdr.tensor_count = 0;
-    fwrite(&hdr, sizeof(hdr), 1, fout);
 
     struct TInfo { std::string name; int rows, cols; uint64_t offset, tiled; };
     std::vector<TInfo> tensors;
@@ -126,6 +124,8 @@ int main(int argc, char** argv) {
     printf("  Total tensors: %zu, data size: %.1f MB\n", tensors.size(), data_off / (1024.0*1024.0));
     fflush(stdout);
     hdr.tensor_count = (uint32_t)tensors.size();
+    // Write header NOW with correct tensor_count
+    fwrite(&hdr, sizeof(hdr), 1, fout);
 
     // Compute index size and fix up tensor offsets to account for header + index
     uint64_t index_size = 0;

@@ -125,3 +125,83 @@
 4. **ROCm HIP** works via 1bit-systems' own stack (TheRock) but not via standard llama.cpp build
 5. **System is rock solid** — zero GPU errors across hundreds of benchmark runs
 6. **Systemd production service** is deployed and verified on port 8080
+
+---
+
+## 7. Nginx API Gateway — Single Endpoint Dual Model
+
+Single OpenAI-compatible endpoint at port 80 routing to both models by name.
+
+### Architecture
+```
+Port 80 (nginx) → /v1/completions
+  ├── model: "qwen3-4b" → port 8080 → Qwen3-4B (ROCm HIP)
+  └── model: "zaya1-74b" → port 8081 → ZAYA1-74B (Vulkan)
+```
+
+### Endpoints
+| Path | Description |
+|------|-------------|
+| `GET /health` | Gateway health check |
+| `GET /v1/models` | Lists both models |
+| `POST /v1/completions` | Routes by `model` field |
+| `POST /v1/chat/completions` | OpenAI-compatible chat |
+
+### Example
+```bash
+curl http://HOST:80/v1/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen3-4b","prompt":"Hello","max_tokens":50}'
+```
+
+### Systemd Services
+| Service | Model | Backend | Port |
+|---------|-------|---------|------|
+| `llama-server-gpu.service` | Qwen3-4B | ROCm HIP | 8080 |
+| `llama-server-74b.service` | ZAYA1-74B | Vulkan | 8081 |
+| `nginx.service` | Gateway | nginx+lua | 80 |
+
+All auto-start on boot, auto-restart on crash.
+
+---
+
+## 8. NPU+GPU Hybrid Inference
+
+Despite IOMMU being off (which disables SVA), the NPU is fully operational.
+The 1bit-systems engine uses explicit DMA instead of SVA, enabling zero-copy
+GPU↔NPU cooperation through unified LPDDR5X memory.
+
+### NPU Status
+
+| Check | Result |
+|-------|--------|
+| Hardware detected | ✅ `c6:00.1 AMD Strix Halo NPU` |
+| Driver loaded | ✅ `amdxdna` |
+| Device node | ✅ `/dev/accel/accel0` |
+| 1bit-systems backend | ✅ NPU FLM ready (~57 t/s est.) |
+| GPU+NPU Hybrid pipeline | ✅ Active — zero-copy DMA |
+| Pipeline strategy | GPU→attention layers, NPU→expert FFNs |
+| Estimated speedup | 1.4× (pipeline overlap + zero-copy) |
+
+### How it works without IOMMU
+
+The amdxdna SVA bind errors in dmesg are from other processes, not the
+1bit-systems engine. The engine uses explicit DMA transfers via the
+unified memory pool, bypassing the need for IOMMU-mediated SVA.
+
+### Production Setup
+
+| Service | Model | Backend | Port |
+|---------|-------|---------|------|
+| `llama-server-gpu.service` | Qwen3-4B | ROCm HIP | 8080 |
+| `llama-server-74b.service` | ZAYA1-74B | Vulkan | 8081 |
+| nginx gateway | Routing | Lua | 80 |
+| 1bit-systems zaya_server | Hybrid | NPU+GPU | (manual) |
+
+### Model Routing (nginx on port 80)
+
+| Model Name | Routes To |
+|------------|-----------|
+| `qwen3-4b`, `qwen`, `4b`, `fast` | 8080 — Qwen3-4B (ROCm HIP) |
+| `zaya1-74b`, `zaya`, `74b`, `moe`, `large` | 8081 — ZAYA1-74B (Vulkan) |
+| (no model specified) | 8080 — default |

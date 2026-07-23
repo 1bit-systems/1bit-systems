@@ -40,7 +40,9 @@ typedef enum {
     RCPP_ARCH_MAMBA   = 9,   // BlackMamba (Mamba1 + MoE)
     RCPP_ARCH_LAGUNA  = 10,
     RCPP_ARCH_FALCON  = 11,  // Falcon (tiiuae) — parallel attn+ffn, MQA
-    RCPP_ARCH_OLMO    = 12,  // OLMo (AI2) — LayerNorm, no RoPE  // Poolside Laguna (sigmoid-routed MoE, hybrid SWA/global attn)
+    RCPP_ARCH_OLMO    = 12,  // OLMo (AI2) — LayerNorm, no RoPE
+    RCPP_ARCH_ZAYA    = 13,  // Zaya MoE (Zyphra — MoE FFN with CCA attention)
+    RCPP_ARCH_QWEN2VL = 14,  // Qwen2-VL (vision-language)
 } rcpp_arch_t;
 
 #include <string.h>
@@ -62,6 +64,19 @@ static inline rcpp_arch_t rcpp_arch_from_string(const char* s) {
     if (strcmp(s, "olmo")    == 0) return RCPP_ARCH_OLMO;
     if (strcmp(s, "olmo2")   == 0) return RCPP_ARCH_OLMO;
     if (strcmp(s, "olmoe")   == 0) return RCPP_ARCH_OLMO;
+    if (strcmp(s, "zaya")    == 0) return RCPP_ARCH_ZAYA;
+    if (strcmp(s, "qwen2vl") == 0) return RCPP_ARCH_QWEN2VL;
+    if (strcmp(s, "deepseek2") == 0) return RCPP_ARCH_QWEN2;
+    if (strcmp(s, "deepseek3") == 0) return RCPP_ARCH_QWEN2;
+    if (strcmp(s, "granite")  == 0) return RCPP_ARCH_GEMMA;
+    if (strcmp(s, "granitemoe") == 0) return RCPP_ARCH_GEMMA;
+    if (strcmp(s, "phi3")    == 0) return RCPP_ARCH_PHI;
+    if (strcmp(s, "phi4")    == 0) return RCPP_ARCH_PHI;
+    if (strcmp(s, "starcoder") == 0) return RCPP_ARCH_LLAMA;
+    if (strcmp(s, "starcoder2") == 0) return RCPP_ARCH_LLAMA;
+    if (strcmp(s, "command-r") == 0) return RCPP_ARCH_LLAMA;
+    if (strcmp(s, "dbrx")    == 0) return RCPP_ARCH_LLAMA;
+    if (strcmp(s, "jamba")   == 0) return RCPP_ARCH_LLAMA;
     return RCPP_ARCH_BITNET;
 }
 
