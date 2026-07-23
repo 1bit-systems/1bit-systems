@@ -70,7 +70,7 @@ static void bonsai_gemv(rcpp_weight_format_t fmt,
     else if (fmt == RCPP_WEIGHT_FORMAT_BONSAI_Q1)  fn = &bonsai_q1_gemv_launch;
     if (!fn) {
         // Kernel not linked yet — null-fill so the forward pass doesn't SEGV.
-        (void)hipMemsetAsync(out_fp16, 0, (size_t)N * sizeof(uint16_t), nullptr);
+        if (out_fp16) (void)hipMemsetAsync(out_fp16, 0, (size_t)N * sizeof(uint16_t), nullptr);
         return;
     }
     fn(static_cast<const uint8_t*>(packed),
@@ -264,7 +264,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    auto hfree = [](void* p) { (void)hipFree(p); };
+    auto hfree = [](void* p) { if (p) { hipError_t _e = hipFree(p); if (_e != hipSuccess) fprintf(stderr, "hipFree: %s\n", hipGetErrorString(_e)); } };
     for (int l = 0; l < L; ++l) { hfree(Ks[l]); hfree(Vs[l]); }
     hfree(x_fp32); hfree(x); hfree(normed);
     hfree(q_fp16); hfree(k_fp16); hfree(v_fp16); hfree(o_fp16);

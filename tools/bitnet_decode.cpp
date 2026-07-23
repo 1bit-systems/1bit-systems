@@ -157,7 +157,7 @@ rcpp_status_t bonsai_gemv_dispatch(
                 "  Zeroing output; logits will be meaningless until librocm_cpp.so re-exports the symbol.\n");
             once = true;
         }
-        (void)hipMemsetAsync(out_fp16_dev, 0, (size_t)N * sizeof(uint16_t), stream);
+        if (out_fp16_dev) (void)hipMemsetAsync(out_fp16_dev, 0, (size_t)N * sizeof(uint16_t), stream);
         return RCPP_OK;
     }
     fn(static_cast<const uint8_t*>(packed_weights_dev),

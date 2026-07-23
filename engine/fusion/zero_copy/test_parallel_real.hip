@@ -26,13 +26,27 @@ int run_gpu_on_shared(fusion::SharedBO* shbo, int N, int iter) {
     float* host   = (float*)shbo->host_ptr();
     float *d = nullptr;
 
-    (void)hipHostRegister(host, N * sizeof(float), hipHostRegisterMapped);
-    (void)hipHostGetDevicePointer((void**)&d, host, 0);
+    hipError_t reg_err = hipHostRegister(host, N * sizeof(float), hipHostRegisterMapped);
+    if (reg_err != hipSuccess) {
+        fprintf(stderr, "hipHostRegister failed: %s\n", hipGetErrorString(reg_err));
+        return reg_err == hipErrorOutOfMemory ? -1 : 999;
+    }
+    hipError_t dev_err = hipHostGetDevicePointer((void**)&d, host, 0);
+    if (dev_err != hipSuccess || d == nullptr) {
+        fprintf(stderr, "hipHostGetDevicePointer failed: %s\n", hipGetErrorString(dev_err));
+        hipHostUnregister(host);
+        return 998;
+    }
 
     // CPU writes → GPU reads via dev ptr (aliased pages, zero copy)
     for (int i = 0; i < N; i++) host[i] = (float)(iter * 1000000 + i);
-    float check[16];
-    (void)hipMemcpy(check, d, sizeof(check), hipMemcpyDeviceToHost);
+    float check[16] = {0};
+    hipError_t mc = hipMemcpy(check, d, sizeof(check), hipMemcpyDeviceToHost);
+    if (mc != hipSuccess) {
+        fprintf(stderr, "hipMemcpy D2H failed: %s\n", hipGetErrorString(mc));
+        hipHostUnregister(host);
+        return 997;
+    }
     int errs = 0;
     for (int i = 0; i < 16; i++) {
         if (fabsf(check[i] - (float)(iter * 1000000 + i)) > 1e-3f && ++errs <= 3)
@@ -42,8 +56,17 @@ int run_gpu_on_shared(fusion::SharedBO* shbo, int N, int iter) {
 
     // GPU writes via H2D → CPU reads back (zero copy, no D2H needed)
     for (int i = 0; i < N; i++) host[i] = (float)(iter * N + i) * 2.0f;
-    (void)hipMemcpy(d, host, N * sizeof(float), hipMemcpyHostToDevice);
-    (void)hipDeviceSynchronize();
+    mc = hipMemcpy(d, host, N * sizeof(float), hipMemcpyHostToDevice);
+    if (mc != hipSuccess) {
+        fprintf(stderr, "hipMemcpy H2D failed: %s\n", hipGetErrorString(mc));
+        hipHostUnregister(host);
+        return 996;
+    }
+    if (hipDeviceSynchronize() != hipSuccess) {
+        fprintf(stderr, "hipDeviceSynchronize failed\n");
+        hipHostUnregister(host);
+        return 995;
+    }
 
     // CPU reads same pages — should see GPU's writes
     for (int i = 0; i < N; i += 32) {
@@ -53,7 +76,7 @@ int run_gpu_on_shared(fusion::SharedBO* shbo, int N, int iter) {
                     i, host[i], expected);
     }
 
-    (void)hipHostUnregister(host);
+    hipHostUnregister(host);
     return errs;
 }
 
@@ -74,7 +97,7 @@ int main() {
         fprintf(stderr, "No HIP GPU found (err=%d, count=%d) — skipping GPU portion\n", err, ndev);
         // Continue without GPU — NPU-only test fallback
     } else {
-        (void)hipSetDevice(0);
+        hipSetDevice(0);
     }
 
     fusion::SharedBO* shbo = fusion::SharedBO::create(npu_dev, BUF);
