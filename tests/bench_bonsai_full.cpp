@@ -112,13 +112,13 @@ int main() {
 
     for (int l = 0; l < NL; ++l) {
         char buf[64];
-        std::sprintf(buf, "L%d.Q", l); alloc_q1(NH*HD, HS, buf, &d_q[l]);
-        std::sprintf(buf, "L%d.K", l); alloc_q1(NKV*HD, HS, buf, &d_k[l]);
-        std::sprintf(buf, "L%d.V", l); alloc_q1(NKV*HD, HS, buf, &d_v[l]);
-        std::sprintf(buf, "L%d.O", l); alloc_q1(HS, NH*HD, buf, &d_o[l]);
-        std::sprintf(buf, "L%d.gate", l); alloc_q1(IS, HS, buf, &d_gate[l]);
-        std::sprintf(buf, "L%d.up", l);   alloc_q1(IS, HS, buf, &d_up[l]);
-        std::sprintf(buf, "L%d.down", l); alloc_q1(HS, IS, buf, &d_down[l]);
+        snprintf(buf, sizeof(buf), "L%d.Q", l); alloc_q1(NH*HD, HS, buf, &d_q[l]);
+        snprintf(buf, sizeof(buf), "L%d.K", l); alloc_q1(NKV*HD, HS, buf, &d_k[l]);
+        snprintf(buf, sizeof(buf), "L%d.V", l); alloc_q1(NKV*HD, HS, buf, &d_v[l]);
+        snprintf(buf, sizeof(buf), "L%d.O", l); alloc_q1(HS, NH*HD, buf, &d_o[l]);
+        snprintf(buf, sizeof(buf), "L%d.gate", l); alloc_q1(IS, HS, buf, &d_gate[l]);
+        snprintf(buf, sizeof(buf), "L%d.up", l);   alloc_q1(IS, HS, buf, &d_up[l]);
+        snprintf(buf, sizeof(buf), "L%d.down", l); alloc_q1(HS, IS, buf, &d_down[l]);
 
         // Norm weights (FP16)
         auto alloc_norm = [&](int n, const char* name, __half** dev) {

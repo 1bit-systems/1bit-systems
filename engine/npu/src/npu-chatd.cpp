@@ -150,7 +150,7 @@ static void*hc(void*a){
         char*bb=strstr(b,"\r\n\r\n");if(!bb){close(fd);return nullptr;}bb+=4;
         char pr[4096]={};char*c=strstr(bb,"\"content\"");
         if(c){c=strchr(c,':');if(c){c++;while(*c==' '||*c=='"')c++;char*e=strchr(c,'"');if(e)*e=0;strncpy(pr,c,sizeof(pr)-1);}}
-        if(!pr[0])strcpy(pr,"hello");
+        if(!pr[0]){const char* h="hello"; memcpy(pr,h,strlen(h)+1);}
         if(!ready){sj(fd,"{\"error\":\"not ready\"}");return nullptr;}
         int it[512],nt=0;for(int i=0;pr[i]&&nt<512;i++)it[nt++]=(unsigned char)pr[i];
         tp=0;for(int l=0;l<NC;l++)sl[l]=0;int last=it[0]>0?it[0]:0;
