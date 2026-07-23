@@ -68,3 +68,11 @@ tools/cpu_q4nx_test
 tools/cpu_q4nx_to_ternary
 tools/cpu_ternary_gemv
 tools/gguf_to_h1b
+/_deps
+/build_clean
+/engine/fusion/tokenize
+/engine/fusion/zero_copy/test_pipeline_real
+/engine/fusion/zig-out
+/rust/target
+/tools/oscar_calib
+/tools/trg_save
