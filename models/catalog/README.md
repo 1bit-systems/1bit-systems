@@ -67,6 +67,16 @@ These models run natively via the engine's GGUF reader without 1BP conversion:
 
 ---
 
-**Total: 29 models** (24 1BP + 5 GGUF native)
+**Total: 31 models** (26 1BP + 5 GGUF native)
 
 *Last updated: 2026-07-23*
+
+## Recently Converted
+
+| Model | Source | Time | Size |
+|-------|--------|:----:|:----:|
+| Qwen3-4B | Q4_K_M GGUF | 20s | 2.2 GB |
+| Qwen3-8B | Q4_K_M GGUF | 37s | 4.1 GB |
+| Qwen3-0.6B | Q8_0 GGUF | 3s | 356 MB |
+
+> Bonsai Q1_0/Q2_0, BlackMamba, and Zamba2 models need custom dequant kernels — pending converter update.

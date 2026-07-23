@@ -332,9 +332,10 @@ GgufBlockInfo gguf_block_info(uint32_t dtype) {
         case GGUF_DTYPE_Q4_0_8_8: return {256, 272};
         // Project-specific ternary/binary formats (h1b weight format)
         // TQ2_0_g128: ternary, 2-bit packed, group=128 → blocks of 128 el, 33 bytes
-        case GGUF_DTYPE_TQ2_0_G128: return {128, 33};
-        // Q1_0_g128: binary, 1-bit packed, group=128 → blocks of 128 el, 17 bytes
-        case GGUF_DTYPE_Q1_0_G128: return {128, 17};
+        // TQ2_0 ternary: fp16 scale (2) + 2-bit codes (128*2/8=32) = 34 bytes
+        case GGUF_DTYPE_TQ2_0_G128: return {128, 34};
+        // Q1_0 binary: fp16 scale (2) + 1-bit codes (128/8=16) = 18 bytes
+        case GGUF_DTYPE_Q1_0_G128: return {128, 18};
         default: return {0, 0};
     }
 }
@@ -359,6 +360,30 @@ bool gguf_dequant(uint32_t dtype, const uint8_t* data, float* out, int count) {
         case GGUF_DTYPE_Q5_K: return dequant_q5_k(data, out, count);
         case GGUF_DTYPE_Q6_K: return dequant_q6_k(data, out, count);
         case GGUF_DTYPE_Q8_K: return dequant_q8_k(data, out, count);
+        case GGUF_DTYPE_Q1_0_G128: {
+            // Q1_0 binary: fp16 scale + sign bits (1 bit per element)
+            for (int i = 0; i < count; i++) {
+                int bi = i / 128, ei = i % 128;
+                const uint8_t* blk = data + (size_t)bi * 18;
+                float sc = read_f16(blk);
+                const uint8_t* bits = blk + 2;
+                out[i] = (bits[ei / 8] >> (ei % 8)) & 1 ? sc : -sc;
+            }
+            return true;
+        }
+        case GGUF_DTYPE_TQ2_0_G128: {
+            // TQ2_0 ternary: fp16 scale + 2-bit codes (0=-s, 1=0, 2=+s, 3=0)
+            for (int i = 0; i < count; i++) {
+                int bi = i / 128, ei = i % 128;
+                const uint8_t* blk = data + (size_t)bi * 34;
+                float sc = read_f16(blk);
+                uint8_t c = (blk[2 + ei/4] >> ((ei%4)*2)) & 3;
+                if (c == 0) out[i] = -sc;
+                else if (c == 2) out[i] = sc;
+                else out[i] = 0.0f;
+            }
+            return true;
+        }
         default: return false;
     }
 }
