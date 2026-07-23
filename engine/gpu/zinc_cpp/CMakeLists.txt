@@ -49,7 +49,7 @@ if(NOT ZINC_CPP_AVAILABLE)
 endif()
 
 # ── Main executable ──
-add_executable(zinc_cpp ${ZINC_SOURCES})
+add_library(zinc_cpp STATIC ${ZINC_SOURCES})
 
 target_include_directories(zinc_cpp PRIVATE
     ${ZINC_INCLUDE_DIR}

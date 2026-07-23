@@ -334,17 +334,17 @@ target_compile_definitions(backend_manager PRIVATE __HIP_PLATFORM_AMD__=1)
 target_link_libraries(backend_manager PUBLIC dl rocm_cpp hip::host hip::device)
 target_compile_options(backend_manager PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
 
+# ZINC_DISABLED is always set for the tokenizer: zinc_tokenizer_* symbols come
+# from the external libzinc.so (Zig), not from zinc_cpp (Vulkan compute).
+# The stubs in simple_tokenizer.cpp provide no-op implementations that let
+# the C++ ASCII fallback work without the Zig dependency (issue #798).
+# zinc_cpp itself (Vulkan GPU backend) is still linked when available.
+target_compile_definitions(backend_manager PRIVATE ZINC_DISABLED=1)
+
 if(ZINC_CPP_AVAILABLE)
     target_sources(backend_manager PRIVATE src/backend_zinc.cpp)
-    # add_dependencies removed - zinc_cpp is cmake target
     target_link_libraries(backend_manager PUBLIC zinc_cpp)
-    # backend_zinc.cpp includes vulkan_wrapper.h / compute_engine.h / model_loader.h
-    # from engine/gpu/zinc_cpp/include; zinc_cpp declares that dir PRIVATE so it
-    # does not propagate to consumers. unified_server adds it explicitly (line
-    # ~631) — backend_manager must too, or backend_zinc.cpp fails to compile.
     target_include_directories(backend_manager PRIVATE engine/gpu/zinc_cpp/include)
-else()
-    target_compile_definitions(backend_manager PRIVATE ZINC_DISABLED=1)
 endif()
 
 set(RCPP_HIP_SOURCES ${RCPP_SOURCES} src/prefill_dispatcher.cpp)
