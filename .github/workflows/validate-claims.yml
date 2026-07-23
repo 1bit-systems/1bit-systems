@@ -1,9 +1,16 @@
 name: Validate claims
 
-# Every published number is re-measured on real gfx1151 hardware every 24h.
-# If a claim drifts beyond tolerance, this fails and opens an issue.
+# Intent: re-measure every published number on real gfx1151 hardware daily and
+# fail (opening an issue) if a claim drifts beyond tolerance.
 #
-# Requires a self-hosted runner with:
+# STATUS: the re-measurement drivers (tools/validate_claims.py, tools/gen_numbers.py)
+# have been retired, so the hardware steps below currently self-skip with a
+# "retired (pure-C++ repo)" notice. Until they are restored, this workflow only
+# enforces that benchmarks/latest.json is internally consistent (every published
+# key has a validator entry) — it does NOT re-measure on hardware. Do not cite
+# this workflow as proof that published numbers are continuously verified.
+#
+# Requires (for the hardware jobs, when restored) a self-hosted runner with:
 #   - /dev/kfd        (ROCm GPU, gfx1151)
 #   - /dev/accel/*    (XDNA2 NPU, optional -- reported but not yet asserted)
 #   - zig             (to build the fused engine we publish the size of)
