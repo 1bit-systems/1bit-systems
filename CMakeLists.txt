@@ -331,6 +331,16 @@ add_library(backend_manager STATIC
     src/model_discovery.cpp)
 target_link_libraries(backend_manager PUBLIC gguf_reader)
 
+# OpenMP: parallelizes the generic CPU decode matmul (src/backend_generic.cpp).
+# Optional — the code still compiles/runs single-threaded without it.
+find_package(OpenMP QUIET)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(backend_manager PUBLIC OpenMP::OpenMP_CXX)
+    message(STATUS "backend_manager: OpenMP found — generic CPU decode is multi-threaded")
+else()
+    message(STATUS "backend_manager: OpenMP NOT found — generic CPU decode stays single-threaded")
+endif()
+
 target_include_directories(backend_manager PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)

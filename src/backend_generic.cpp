@@ -308,9 +308,15 @@ struct GenericBackend : Backend {
     }
 
     static void matmul(float* out, const float* in, const float* w, int M, int K) {
+        // Each output row is independent and its dot-product accumulates in a
+        // fixed order, so parallelizing the row loop is bit-identical to the
+        // scalar version — just uses all cores. This is the dominant cost of
+        // the generic CPU decode path (QKV/O/gate/up/down/lm_head).
+        #pragma omp parallel for schedule(static)
         for (int i = 0; i < M; i++) {
             float s = 0;
-            for (int j = 0; j < K; j++) s += in[j] * w[i * (size_t)K + j];
+            const float* wr = w + (size_t)i * K;
+            for (int j = 0; j < K; j++) s += in[j] * wr[j];
             out[i] = s;
         }
     }
