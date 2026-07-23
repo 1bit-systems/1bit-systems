@@ -73,10 +73,17 @@ endif()
 # ── Shader compilation: GLSL .comp → SPIR-V .spv ──
 # If glslc is available, compile shaders on build
 if(GLSLC_EXECUTABLE)
-    set(SHADER_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../shaders)
+    # ZINC's GLSL compute shaders live in src/shaders/ (embed.comp, fused_qkv.comp,
+    # rms_norm.comp, ...). The old path pointed at ../shaders (engine/gpu/shaders),
+    # which is empty — so no .spv were ever produced and every dense/GGUF model
+    # that routed to zinc_gpu failed the shader load at runtime (#844).
+    set(SHADER_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/shaders)
     set(SHADER_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/shaders)
-    
+
     file(GLOB SHADER_SOURCES ${SHADER_SRC_DIR}/*.comp)
+    if(NOT SHADER_SOURCES)
+        message(FATAL_ERROR "ZINC: no .comp shaders found in ${SHADER_SRC_DIR} — dense GPU inference would fail at runtime.")
+    endif()
     foreach(SHADER ${SHADER_SOURCES})
         get_filename_component(SHADER_NAME ${SHADER} NAME_WE)
         set(SPV_OUTPUT ${SHADER_OUT_DIR}/${SHADER_NAME}.spv)

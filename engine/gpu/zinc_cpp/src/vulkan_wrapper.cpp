@@ -4,10 +4,39 @@
 #include <set>
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
+#include <fstream>
 
 // ═══════════════════════════════════════════════════════════════════
 //  ShaderCache
 // ═══════════════════════════════════════════════════════════════════
+
+// Locate a compiled .spv file. The engine used to load shaders by bare name
+// relative to the CWD (ignoring the shader_dir passed to ZincEngine::init),
+// so any process whose CWD wasn't the shader output dir threw "Cannot open
+// shader" (#844). Search the same locations the backend resolver uses.
+static std::string zinc_locate_spv(const std::string& filename) {
+    auto ok = [](const std::string& p) { std::ifstream f(p, std::ios::binary); return f.good(); };
+    if (ok(filename)) return filename;  // already a valid relative/absolute path
+    std::vector<std::string> dirs;
+    if (const char* e = std::getenv("ZINC_SHADER_DIR")) dirs.emplace_back(e);
+#ifdef ZINC_SHADER_DIR
+    dirs.emplace_back(ZINC_SHADER_DIR);
+#endif
+    for (const char* c : {"shaders",
+                          "build_cmake/zinc_cpp_build/shaders",
+                          "build/zinc_cpp_build/shaders",
+                          "engine/gpu/zinc_cpp/build/shaders",
+                          "engine/gpu/shaders",
+                          "/usr/share/1bit-systems/shaders",
+                          "/usr/local/share/1bit-systems/shaders"})
+        dirs.emplace_back(c);
+    for (const auto& d : dirs) {
+        std::string p = d + "/" + filename;
+        if (ok(p)) return p;
+    }
+    return filename;  // fall through — load_path() will throw with the bare name
+}
 
 ShaderCache::~ShaderCache() {
     for (auto& [name, mod] : cache_) {
@@ -18,7 +47,7 @@ ShaderCache::~ShaderCache() {
 VkShaderModule ShaderCache::load(const std::string& name) {
     auto it = cache_.find(name);
     if (it != cache_.end()) return it->second;
-    return load_path(name + ".spv");
+    return load_path(zinc_locate_spv(name + ".spv"));
 }
 
 VkShaderModule ShaderCache::load_path(const std::string& path) {

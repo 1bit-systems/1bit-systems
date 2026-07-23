@@ -22,6 +22,15 @@
 // return "" so the caller can fail the backend GRACEFULLY instead of letting
 // a missing-shader std::runtime_error escape a worker thread and call
 // std::terminate on the whole server.
+// Every .spv the ZINC compute path dispatches (post shader_map translation in
+// compute_engine.cpp). If ANY is missing the backend will throw mid-decode on
+// the PILOT worker thread — an uncatchable cross-thread std::terminate — so we
+// require the whole set up front and otherwise disable ZINC cleanly.
+static const char* kZincRequiredShaders[] = {
+    "embed", "fused_qkv", "fused_gate_up", "dmmv_q4k", "dmmv_q4k_batch",
+    "rms_norm_mul", "rope_fused", "flash_attn", "swiglu", "argmax", "vadd",
+};
+
 static std::string zinc_resolve_shader_dir() {
     auto has_shaders = [](const std::string& d) -> bool {
         if (d.empty()) return false;
@@ -85,6 +94,26 @@ struct ZincBackend : Backend {
                 "ZINC: compiled Vulkan shaders (embed.spv) not found — disabling ZINC "
                 "backend (set ZINC_SHADER_DIR to enable). Falling back to HIP/CPU.\n");
             return false;
+        }
+        // Require the FULL dispatch set before we touch Vulkan / start the PILOT
+        // worker — a shader that's missing but only requested mid-decode throws
+        // on a worker thread and std::terminates the whole server (#844).
+        {
+            std::string missing;
+            for (const char* s : kZincRequiredShaders) {
+                struct stat st;
+                if (stat((shader_dir + "/" + s + ".spv").c_str(), &st) != 0) {
+                    if (!missing.empty()) missing += ", ";
+                    missing += s;
+                }
+            }
+            if (!missing.empty()) {
+                fprintf(stderr,
+                    "ZINC: incomplete Vulkan shader set in %s (missing: %s) — disabling "
+                    "ZINC backend, falling back to HIP/CPU. See issue #844.\n",
+                    shader_dir.c_str(), missing.c_str());
+                return false;
+            }
         }
 
         try {
