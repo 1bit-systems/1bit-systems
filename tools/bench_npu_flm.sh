@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # Benchmark: NPU (XDNA 2) decode tok/s on AMD Strix Halo via the FastFlowLM
 # "FLM" engine and the on-box Qwen3-0.6B-NPU2 q4nx model + xclbins.
 #

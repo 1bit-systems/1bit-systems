@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # jarvis-daily-brief.sh — JARVIS daily AI/LLM engineering briefing
 #
 # Queries multiple sources, compiles a structured digest,

@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # bench/record.sh — Record a benchmark result to site/benchmarks.json
 #
 # Usage: bench/record.sh <engine_key> <tok_s> [tflops] [status] [label] [table] [display_name] [backend]

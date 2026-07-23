@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # check-remote-main.sh — Poll origin/main for new commits and signal agents
 #
 # Run this periodically (e.g., via cron, or after `git fetch`) to detect

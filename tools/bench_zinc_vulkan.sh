@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # Benchmark: GPU ternary (Vulkan) decode tok/s via the ZINC engine on
 # AMD Radeon 8060S (gfx1151).
 #

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # ppl-kv-dtype.sh — A/B perplexity bench for int8 vs fp16 KV cache.
 #
 # Spins up 1bit-halo-server-real twice on a scratch port: once with

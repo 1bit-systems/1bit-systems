@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # ─────────────────────────────────────────────────────────────────────────────
 # Build all compute shaders from source
 # Requires: glslc (Vulkan SDK), nvcc (CUDA Toolkit), metal (Xcode)

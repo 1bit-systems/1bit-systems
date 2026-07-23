@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # Full build: xclbin + C++ TXN builder for dynamic INT8 GEMM
 # Usage: ./build_and_test_dynamic.sh [M] [K] [N]
 

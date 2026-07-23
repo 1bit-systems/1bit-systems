@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # 1bit.systems — Model Downloader
 # Downloads supported Q4NX models for the NPU engine.
 #

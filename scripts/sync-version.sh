@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # sync-version.sh — propagate the canonical version (root VERSION file) into
 # every packaging manifest so they can't drift apart again (issue #117).
 #

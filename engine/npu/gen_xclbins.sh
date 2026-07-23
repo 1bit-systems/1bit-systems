@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # gen_xclbins.sh — Generate xclbins for any model using the torch2aie toolchain.
 #
 # Uses the MLIR-AIE toolchain at ~/torch2aie to compile GEMM xclbins for

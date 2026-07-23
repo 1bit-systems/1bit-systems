@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # setup_npu_xclbins.sh — Symlink FLM xclbins into engine/npu/xclbins/
 #
 # The NPU engine (engine/npu/src/npu_engine_universal.cpp) expects xclbin

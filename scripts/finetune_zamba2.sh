@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # Finetune Zamba2 with QLoRA on AMD ROCm
 # Then convert to GGUF for 1bit.systems engine (77 tok/s 🚀)
 #

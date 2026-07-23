@@ -126,7 +126,7 @@ int main(int argc,char**argv){
     int npt=9,ng=(argc>2)?atoi(argv[2]):32;
     printf("=== NPU Engine v12 — M=%d + OpenMP attention ===\n",BS);
     printf("Target: sustain >80 tok/s at long context\n\n");
-    const char*mp="/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+    const char*mp=getenv("NPU_MODEL_PATH")?getenv("NPU_MODEL_PATH"):"/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
     int fd=open(mp,O_RDONLY);struct stat st;fstat(fd,&st);
     uint8_t*md=(uint8_t*)mmap(NULL,st.st_size,PROT_READ,MAP_PRIVATE,fd,0);close(fd);
     uint64_t hsz;memcpy(&hsz,md,8);uint64_t df=8+hsz;

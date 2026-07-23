@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # NPU MoE Worker Protocol Test Suite
 # Tests --worker mode, binary wire protocol, and per-op correctness.
 #

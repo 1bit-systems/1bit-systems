@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # jarvis-daily-routine.sh — JARVIS complete daily routine
 #
 # Runs all JARVIS sweeps in sequence:

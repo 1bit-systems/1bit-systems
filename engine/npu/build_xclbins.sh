@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # Build all model xclbins using the proven make flow (n1_core_placed.py)
 # This uses BF16 MLIR generation which has correct AIE memory allocation.
 # The engine will use INT8 data which the kernel handles internally.

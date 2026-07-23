@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # ───────────────────────────────────────────────────────────────
 # bench_all_archs.sh — Run inference benchmark on all available
 # Q4NX model directories, mapping each to its architecture tag.

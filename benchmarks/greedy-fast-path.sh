@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # greedy-fast-path.sh — A/B decode-throughput bench for the dedicated
 # `forward_token_greedy` fast path vs the legacy `forward_token` +
 # `HALO_SKIP_LOGITS_COPY` skip-copy path vs the full copy+reconcile

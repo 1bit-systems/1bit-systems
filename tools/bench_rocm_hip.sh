@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # Benchmark: GPU HIP kernel decode tok/s on Radeon 8060S (gfx1151) via
 # bitnet_decode (rocm_cpp ternary GEMV) on a compiled .h1b ternary model.
 #

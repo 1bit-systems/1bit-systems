@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # install-lemon-mlx.sh — Build and install lemon-mlx-engine for AMD ROCm.
 #
 # lemon-mlx-engine is a C++ MLX inference engine that runs LLMs on AMD GPUs

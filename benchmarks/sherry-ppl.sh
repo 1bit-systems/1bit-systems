@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # sherry-ppl.sh — PPL regression gate for Sherry 1.25-bit.
 #
 # Invokes `bitnet_decode --ppl --dataset wikitext-103` against a Sherry-

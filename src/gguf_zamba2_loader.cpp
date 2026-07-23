@@ -63,15 +63,28 @@ struct Zamba2GgufReader {
         f.read(reinterpret_cast<char*>(&n_tensors), 8);
         f.read(reinterpret_cast<char*>(&n_kv), 8);
 
+        // A crafted/corrupt GGUF can carry a 64-bit length of ~2^62; allocating
+        // std::string(len) then blows up the heap (DoS). Mirror gguf_reader.cpp's
+        // caps: 1 MiB per string, 1M elements per array. Oversized fields are
+        // skipped (stream kept in sync) rather than trusted (AUDIT_ISSUES.md #4).
+        static constexpr uint64_t MAX_STRING_LEN  = 1ULL * 1024 * 1024;
+        static constexpr uint64_t MAX_ARRAY_COUNT = 1000000ULL;
+
         for (uint64_t i = 0; i < n_kv; ++i) {
             uint64_t key_len; f.read(reinterpret_cast<char*>(&key_len), 8);
-            std::string key(key_len, '\0');
-            if (key_len > 0) f.read(&key[0], key_len);
+            std::string key;
+            if (key_len > MAX_STRING_LEN) {
+                f.seekg((std::streamoff)key_len, std::ios::cur);  // skip, keep in sync
+            } else {
+                key.resize((size_t)key_len);
+                if (key_len > 0) f.read(&key[0], key_len);
+            }
             uint32_t vt; f.read(reinterpret_cast<char*>(&vt), 4);
 
-            auto read_string = [&]() {
+            auto read_string = [&]() -> std::string {
                 uint64_t sl; f.read(reinterpret_cast<char*>(&sl), 8);
-                std::string sv(sl, '\0');
+                if (sl > MAX_STRING_LEN) { f.seekg((std::streamoff)sl, std::ios::cur); return {}; }
+                std::string sv((size_t)sl, '\0');
                 if (sl > 0) f.read(&sv[0], sl);
                 return sv;
             };
@@ -87,6 +100,7 @@ struct Zamba2GgufReader {
                 case 9: {
                     uint32_t at; f.read(reinterpret_cast<char*>(&at), 4);
                     uint64_t an; f.read(reinterpret_cast<char*>(&an), 8);
+                    if (an > MAX_ARRAY_COUNT) return false;  // malformed — refuse
                     if (at == 8) { for (uint64_t j = 0; j < an; ++j) read_string(); }
                     else { f.seekg(an * 4, std::ios::cur); }
                     break;

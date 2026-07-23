@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # template-prefill-comparison.sh — A/B end-to-end tok/s bench for
 # HALO_CHAT_TEMPLATE=llama3 vs HALO_CHAT_TEMPLATE=short.
 #

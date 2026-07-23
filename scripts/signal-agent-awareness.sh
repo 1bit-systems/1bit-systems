@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # signal-agent-awareness.sh — Signal all running agents about a codebase change
 #
 # Use this in CI pipelines, post-push hooks, or any external process

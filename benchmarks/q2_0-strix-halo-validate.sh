@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # q2_0-strix-halo-validate.sh — build and validate llama.cpp Q2_0 on gfx1151.
 #
 # This harness is intentionally format-neutral: pass a Q2_0 g64 model for the

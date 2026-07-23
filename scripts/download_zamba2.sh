@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # download_zamba2.sh — Download Zamba2 GGUF models for 1bit.systems
 #
 # Downloads existing GGUF quantizations from HuggingFace.

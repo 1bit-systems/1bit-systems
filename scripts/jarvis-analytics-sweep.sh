@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # jarvis-analytics-sweep.sh — JARVIS analytics pull
 #
 # Calls GitHub + Cloudflare analytics, extracts key metrics,

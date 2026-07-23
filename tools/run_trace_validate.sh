@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # run_trace_validate.sh — NPU vs HuggingFace FP32 end-to-end validation
 #
 # 1. Generate HF FP32 reference traces (ground truth)

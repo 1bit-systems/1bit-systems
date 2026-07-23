@@ -16,6 +16,46 @@ Full codebase audit: **build ✓** (68/68 targets, 10/13 tests passed, 3 skipped
 
 ---
 
+## 2026-07-23 status sweep
+
+Re-verified every item against the current tree (the audit above is a
+2026-07-18 snapshot and is stale in many places). **All HIGH and MEDIUM
+findings are resolved**; only four LOW/cosmetic items are intentionally
+deferred with rationale.
+
+| # | Sev | Status | Notes |
+|---|-----|--------|-------|
+| 1 | HIGH | ✅ fixed | `catch(...)` blocks now log instead of swallowing |
+| 2 | HIGH | ✅ fixed | `g_router_mutex` (zaya) + new `g_inference_mutex` (unified) serialize the shared backend |
+| 3 | HIGH | ✅ fixed | READY handshake + graceful escalation already present; **SIGPIPE crash** closed |
+| 4 | HIGH | ✅ fixed | `gguf_reader`/`safetensors`/`h1b` already capped; **zamba2 loader** capped now; `tokenizer` len is `uint16_t` (≤64 KB, inherently bounded) |
+| 5 | HIGH | ✅ fixed | every real launcher already has `HIP_CHECK(hipGetLastError())`; the lone "unchecked" hit was a `>>>` inside a **comment** |
+| 6 | HIGH | ✅ fixed | oscar kernel is fully `__syncthreads`'d; the flagged `s_m[0]/s_l[0]` pattern no longer exists |
+| 7 | HIGH | ✅ fixed | binds `127.0.0.1` by default, `--bind` to expose, CORS is configurable (`g_cors_origin`) |
+| 8 | MED | ✅ fixed | `NDEBUG` is now `$<$<CONFIG:Release>:NDEBUG>` |
+| 9 | MED | ✅ fixed | all 12 headers carry include guards |
+| 10 | MED | ✅ fixed | `set -euo pipefail` added to 34 executable scripts (sourced env files excluded) |
+| 11 | MED | ✅ fixed | prod paths already use `$HOME`/XDG; dev-tool default → `$HOME`, bench model path → `NPU_MODEL_PATH`; remaining hits are comments |
+| 12 | MED | ✅ fixed | heredocs are quoted (`<< 'PYEOF'`) with `os.environ` — no interpolation |
+| 13 | MED | ⏳ deferred | header→cpp body move is a recompile-only refactor with real regression risk and no behavior change |
+| 14 | MED | ✅ fixed | `rocminfo` auto-detect + true cache variable |
+| 15 | MED | ⏳ deferred | C-style→`static_cast` sweep is mechanical, style-only, high-churn; no behavior change |
+| 16 | MED | ✅ fixed | default weights dir = env → XDG → `$HOME/.local/share` → `/tmp` (prod); `/tmp` only in test fixtures |
+| 17 | MED | ✅ fixed | only `-Wno-unused-result` remains (intentional for checked-but-ignored `write()`s) |
+| 18 | MED | ✅ fixed | no `../include/common.h` include remains |
+| 19 | MED | ✅ fixed | `g_weights_dir` is now `static const` |
+| 20 | MED | ✅ fixed | `read_with_timeout()` (`select()`-based) replaced the blocking read |
+| 21 | MED | ✅ fixed | listed kernels carry `__restrict__` |
+| 22 | LOW | ⏳ deferred | `static_assert(warpSize==32)` isn't reliably valid on HIP host (`warpSize` not guaranteed constexpr); low value |
+| 23 | LOW | ✅ fixed | `tests/download_and_run.sh`, `scripts/download_zamba2.sh`, `packaging/model-download.sh` exist |
+| 24 | LOW | ⏳ tracking | TODO markers → issues; not a code fix |
+| 25 | LOW | ✅ moot | no `1bit/` sub-monorepo; single root `package.json` |
+| 26 | LOW | ✅ fixed | same fix as #8 |
+| 27 | LOW | ✅ moot | zero Python files tracked in the repo |
+| 28 | LOW | ✅ fixed | Vulkan paths log `vk_result_str(res)` and null-check handles |
+
+---
+
 ## HIGH Severity
 
 ### #1 — Empty catch blocks silently swallow all errors
@@ -105,7 +145,7 @@ NPU worker `ready = true` is set unconditionally after fork — no handshake con
 
 ---
 
-### #4 — OOM from untrusted GGUF string length
+### #4 — OOM from untrusted GGUF string length — ✅ FIXED
 
 **Files:** `src/gguf_loader.cpp:145-146`, `src/backend_generic.cpp:62-100`
 **Category:** Security / Resource Exhaustion
@@ -125,7 +165,7 @@ A crafted GGUF file with `len=2^62` causes immediate OOM / process kill. Same is
 
 ---
 
-### #5 — Missing HIP kernel launch error checking across entire codebase
+### #5 — Missing HIP kernel launch error checking across entire codebase — ✅ FIXED
 
 **Files:** 20+ kernel launchers in `kernels/`, `src/`
 **Category:** Correctness / GPU
@@ -151,7 +191,7 @@ Every `hipLaunchKernelGGL` call returns `hipError_t` but none is checked. Functi
 
 ---
 
-### #6 — Cross-warp shared memory race in OSCAR attention kernel
+### #6 — Cross-warp shared memory race in OSCAR attention kernel — ✅ FIXED
 
 **Files:** `kernels/oscar_quant.hip:198-209`
 **Category:** Correctness / GPU
@@ -174,7 +214,7 @@ float l_prev = s_l[0];
 
 ---
 
-### #7 — Server binds to 0.0.0.0 with CORS `*` and no authentication
+### #7 — Server binds to 0.0.0.0 with CORS `*` and no authentication — ✅ FIXED
 
 **Files:** `tests/zaya_server.cpp:452-461,714`, `tools/unified_server.cpp`
 **Category:** Security

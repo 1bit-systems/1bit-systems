@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # build_06b_kernels.sh — Compile Qwen3-0.6B NPU AIE kernels
 # Uses AMD AIE compiler toolchain (aiecc/xchesscc) from torch2aie.
 #
@@ -7,7 +8,7 @@
 #   source $TORCH2AIE_ROOT/setup_env.sh    (sets PATH, LD_LIBRARY_PATH)
 set -euo pipefail
 
-TORCH2AIE_ROOT="${TORCH2AIE_ROOT:-/home/bcloud/torch2aie}"
+TORCH2AIE_ROOT="${TORCH2AIE_ROOT:-${HOME}/torch2aie}"
 SRCDIR="$(cd "$(dirname "$0")" && pwd)"
 BUILDDIR="${SRCDIR}/../build"
 KERNELDIR="${SRCDIR}"

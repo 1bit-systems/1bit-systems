@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # tests/download_and_run.sh — Automated model download + inference smoke test
 #
 # Downloads a small model (Qwen3-0.6B GGUF from HuggingFace), runs inference

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # 1bit.systems — NPU Engine Install
 # Pure NPU inference engine. No Python. No Node. No Docker. No dependencies.
 #

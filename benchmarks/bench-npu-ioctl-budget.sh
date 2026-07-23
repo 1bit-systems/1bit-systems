@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 #
 # bench-npu-ioctl-budget.sh — regression guard for the FastFlowLM NPU lane
 #
