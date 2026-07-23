@@ -309,7 +309,7 @@ void cpu_attention(
         const int MAX_SEQ = 4096; // stack limit — should match model max_seq_len
         float scores_stack[4096];
 
-        float max_score = -INFINITY;
+        float max_score = -1e30f;
         for (int pos = 0; pos < max_pos && pos < MAX_SEQ; pos++) {
             const float* k_row = k_cache + pos * n_kv_heads * head_dim + kvh * head_dim;
             double dot = 0.0;
@@ -496,7 +496,7 @@ int cpu_argmax(const float* values, int N) {
 // Softmax (in-place)
 // ═══════════════════════════════════════════════════════════════════
 void cpu_softmax(float* values, int N) {
-    float max_val = -INFINITY;
+    float max_val = -1e30f;
     for (int i = 0; i < N; i++) {
         if (values[i] > max_val) max_val = values[i];
     }

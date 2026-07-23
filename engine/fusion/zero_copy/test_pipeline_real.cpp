@@ -136,10 +136,10 @@ struct NpuGemmCtx {
     void go(const float* A, int am, int ak, float as_, float Bs, float* C, int an) {
         float ais = 1.0f / as_;
         memset(Am, 0, (size_t)am * KD);
-        for (int m = 0; m < am; m++) for (int k = 0; k < ak; k++) {
-            float v = A[m * ak + k]; if (!std::isfinite(v)) v = 0;
+        for (int mi = 0; mi < am; mi++) for (int ki = 0; ki < ak; ki++) {
+            float v = A[mi * ak + ki]; if (!std::isfinite(v)) v = 0;
             int q = (int)roundf(v * ais); if (q > 127) q = 127; else if (q < -127) q = -127;
-            Am[m * KD + k] = (int8_t)q;
+            Am[mi * KD + ki] = (int8_t)q;
         }
         bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
         auto r = k->operator()(3, 0, 0, *bA, *bB, *bC); r.wait();
@@ -183,7 +183,7 @@ int main(int argc, char** argv) {
     if (const char* e = getenv("NPU_NKV")) NKV = atoi(e);
     if (const char* e = getenv("NPU_HD")) HD = atoi(e);
     if (const char* e = getenv("NPU_IM")) IM = atoi(e);
-    int GQA = NH / NKV;
+    int GQA __attribute__((unused)) = NH / NKV;
     float attn_scale = 1.0f / sqrtf((float)HD);
     
     // Init NPU GEMM contexts
@@ -203,14 +203,14 @@ int main(int argc, char** argv) {
     float *d_K, *d_V;
     int max_seq = 4096;
     size_t kv_bytes = (size_t)max_seq * NKV * HD * sizeof(__half);
-    hipMalloc(&d_K, kv_bytes); hipMemsetAsync(d_K, 0, kv_bytes, gpu_stream);
-    hipMalloc(&d_V, kv_bytes); hipMemsetAsync(d_V, 0, kv_bytes, gpu_stream);
+    (void)hipMalloc(&d_K, kv_bytes); hipMemsetAsync(d_K, 0, kv_bytes, gpu_stream);
+    (void)hipMalloc(&d_V, kv_bytes); hipMemsetAsync(d_V, 0, kv_bytes, gpu_stream);
     
     // GPU buffer for Q (f16) and attention output (f16)
     __half *d_Q, *d_AttnOut;
     size_t q_bytes = (size_t)NH * HD * sizeof(__half);
-    hipMalloc(&d_Q, q_bytes); hipMemsetAsync(d_Q, 0, q_bytes, gpu_stream);
-    hipMalloc(&d_AttnOut, q_bytes); hipMemsetAsync(d_AttnOut, 0, q_bytes, gpu_stream);
+    (void)hipMalloc(&d_Q, q_bytes); hipMemsetAsync(d_Q, 0, q_bytes, gpu_stream);
+    (void)hipMalloc(&d_AttnOut, q_bytes); hipMemsetAsync(d_AttnOut, 0, q_bytes, gpu_stream);
     
     // Pipeline config
     fusion::PipelineConfig cfg;
@@ -289,7 +289,7 @@ int main(int argc, char** argv) {
     else fprintf(stderr, "⚠️  Sequential — tune work sizes for overlap\n");
     
     // Cleanup
-    hipFree(d_K); hipFree(d_V); hipFree(d_Q); hipFree(d_AttnOut);
+    (void)(void)hipFree(d_K); (void)hipFree(d_V); (void)hipFree(d_Q); (void)hipFree(d_AttnOut);
     hipStreamDestroy(gpu_stream);
     return 0;
 }

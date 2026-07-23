@@ -448,9 +448,11 @@ struct VKBackend : Backend {
         float su=0;for(int i=0;i<17;i++){sc[i]=expf(sc[i]-mv);su+=sc[i];} for(int i=0;i<17;i++)sc[i]/=su;
         int be=0;for(int i=1;i<17;i++)if(sc[i]>sc[be])be=i;
         memset(mo,0,H*4); if(be<16){
-            float gb[4096]; mm(gb,h,gu+(size_t)be*2*N_FF*H,2*N_FF,H);
-            float mb[2048]; for(int i=0;i<2048;i++)mb[i]=(gb[i]/(1+expf(-gb[i])))*gb[2048+i];
-            mm(mo,mb,dn+(size_t)be*H*N_FF,H,2048);
+            std::vector<float> gbv(2*N_FF); float* gb=gbv.data();
+            mm(gb,h,gu+(size_t)be*2*N_FF*H,2*N_FF,H);
+            std::vector<float> mbv(N_FF); float* mb=mbv.data();
+            for(int i=0;i<N_FF;i++)mb[i]=(gb[i]/(1+expf(-gb[i])))*gb[N_FF+i];
+            mm(mo,mb,dn+(size_t)be*H*N_FF,H,N_FF);
             for(int i=0;i<H;i++)mo[i]*=sc[be];
         } else memcpy(mo,h,H*4);
     }
@@ -582,7 +584,7 @@ struct VKBackend : Backend {
 
     int generate(int token_id) override {
         float h[H]; if(!forward(token_id,h))return-1;
-        std::vector<float> lg(VOCAB); int r; lm_head(h,lg.data(),&r); return r;
+        std::vector<float> lg(VOCAB); int r = 0; lm_head(h,lg.data(),&r); return r;
     }
 
     float benchmark(int tokens=10) override {

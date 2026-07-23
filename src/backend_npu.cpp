@@ -105,7 +105,7 @@ static void attn_cpu(float* qo, float* at, int seq_len,
         }
         double sw = 0;
         for (int p = 0; p < seq_len; p++) { scores[p] = expf(scores[p] - mx); sw += scores[p]; }
-        float isw = sw > 0 ? 1.0f / (float)sw : 1.0f / seq_len;
+        float isw = (sw > 0 && seq_len > 0) ? 1.0f / (float)sw : 1.0f / (seq_len > 0 ? (float)seq_len : 1.0f);
         for (int d = 0; d < HD; d++) {
             float acc = 0;
             for (int p = 0; p < seq_len; p++)
