@@ -39,10 +39,14 @@ struct HIPBackend : Backend {
         // still have architecture-specific shared memory and are only used
         // for speculative decode — the main generate() path is unaffected.
         zcfg = ZayaConfig::from_model(
-            cfg.hidden, cfg.n_layers, cfg.n_heads, cfg.n_kv_heads,
-            cfg.head_dim, cfg.vocab,
+            cfg.hidden_size > 0 ? cfg.hidden_size : cfg.hidden,
+            cfg.num_layers > 0 ? cfg.num_layers : cfg.n_layers,
+            cfg.num_heads > 0 ? cfg.num_heads : cfg.n_heads,
+            cfg.num_kv_heads > 0 ? cfg.num_kv_heads : cfg.n_kv_heads,
+            cfg.head_dim,
+            cfg.vocab_size > 0 ? cfg.vocab_size : cfg.vocab,
             /*n_exp=*/cfg.num_experts > 0 ? cfg.num_experts : 16,
-            /*n_ff=*/cfg.intermediate_size > 0 ? cfg.intermediate_size : cfg.hidden,
+            /*n_ff=*/cfg.intermediate_size > 0 ? cfg.intermediate_size : (cfg.hidden_size > 0 ? cfg.hidden_size : cfg.hidden),
             /*rtr_h=*/cfg.router_hidden > 0 ? cfg.router_hidden : 256);
 
         printf("HIP: Initializing Zaya engine (H=%d, L=%d, NH=%d, NKV=%d, V=%d)...\n",
