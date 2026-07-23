@@ -496,7 +496,20 @@ int BackendManager::generate(int token_id) {
     // Phase 2: inference WITHOUT the lock — snap keeps the Backend alive.
     if (snap) {
         auto t0 = std::chrono::high_resolution_clock::now();
-        int result = snap->generate(token_id);
+        int result = -1;
+        // A backend that throws (e.g. a missing Vulkan shader, a HIP fault)
+        // must NOT take the whole server down — treat it as a failed
+        // inference and let the failover path below pick another backend.
+        try {
+            result = snap->generate(token_id);
+        } catch (const std::exception& e) {
+            fprintf(stderr, "BackendManager: %s threw during generate() (%s) — failing over\n",
+                    snap_idx < backends_.size() ? backends_[snap_idx].id.c_str() : "?", e.what());
+            result = -1;
+        } catch (...) {
+            fprintf(stderr, "BackendManager: backend threw an unknown exception during generate() — failing over\n");
+            result = -1;
+        }
         float ms = std::chrono::duration<float, std::milli>(
             std::chrono::high_resolution_clock::now() - t0).count();
 
@@ -546,7 +559,14 @@ int BackendManager::generate(int token_id) {
             monitor_.record_fallback(backends_[prev_idx < backends_.size() ? prev_idx : 0].id, info->id);
             printf("BackendManager: failed over to %s\n", info->id.c_str());
             auto t0 = std::chrono::high_resolution_clock::now();
-            int result = info->instance->generate(token_id);
+            int result = -1;
+            try {
+                result = info->instance->generate(token_id);
+            } catch (const std::exception& e) {
+                fprintf(stderr, "BackendManager: failover backend %s also threw (%s)\n", info->id.c_str(), e.what());
+            } catch (...) {
+                fprintf(stderr, "BackendManager: failover backend %s threw unknown exception\n", info->id.c_str());
+            }
             float ms = std::chrono::duration<float, std::milli>(
                 std::chrono::high_resolution_clock::now() - t0).count();
             if (result >= 0) {
@@ -556,6 +576,7 @@ int BackendManager::generate(int token_id) {
                 return result;
             }
             info->failed_inferences++;
+            info->functional = false;
             monitor_.record(info->id, ms, false);
         }
     }
@@ -709,7 +730,9 @@ void BackendManager::benchmark_all(int tokens) {
         printf("  %s... ", info.id.c_str());
         fflush(stdout);
 
-        // Create instance if needed
+        // Create instance if needed. init()/benchmark() may THROW (missing
+        // Vulkan shader, driver fault, OOM) — a broken backend must be skipped,
+        // never allowed to std::terminate the whole server.
         if (!info.instance) {
             auto* raw = create_instance_rt(info);
             if (!raw) {
@@ -717,14 +740,34 @@ void BackendManager::benchmark_all(int tokens) {
                 continue;
             }
             info.instance = std::shared_ptr<Backend>(raw);
-            if (!info.instance->init(cfg_, weights_dir_)) {
-                printf("❌ (init failed)\n");
+            bool init_ok = false;
+            try {
+                init_ok = info.instance->init(cfg_, weights_dir_);
+            } catch (const std::exception& e) {
+                printf("❌ (init threw: %s)\n", e.what());
+            } catch (...) {
+                printf("❌ (init threw unknown exception)\n");
+            }
+            if (!init_ok) {
                 destroy_instance(info);
                 continue;
             }
         }
 
-        float ms = info.instance->benchmark(tokens);
+        float ms;
+        try {
+            ms = info.instance->benchmark(tokens);
+        } catch (const std::exception& e) {
+            printf("❌ (benchmark threw: %s — skipping backend)\n", e.what());
+            info.available = false; info.functional = false;
+            destroy_instance(info);
+            continue;
+        } catch (...) {
+            printf("❌ (benchmark threw — skipping backend)\n");
+            info.available = false; info.functional = false;
+            destroy_instance(info);
+            continue;
+        }
         info.score = ms;
         info.functional = true;  // benchmarked and ready to use
         printf("%.1f ms/tok\n", ms);

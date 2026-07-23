@@ -11,6 +11,44 @@
 #include <vector>
 #include <chrono>
 #include <memory>
+#include <cstdlib>
+#include <sys/stat.h>
+
+// Resolve a shader directory that actually contains the compiled ZINC .spv
+// files. backend_zinc.cpp is compiled into libbackend_manager (which does NOT
+// get the ZINC_SHADER_DIR compile define that the standalone zinc_cpp target
+// gets), so the old `#ifdef ZINC_SHADER_DIR / else "shaders"` fell back to a
+// CWD-relative "shaders" that rarely exists. When no valid dir is found we
+// return "" so the caller can fail the backend GRACEFULLY instead of letting
+// a missing-shader std::runtime_error escape a worker thread and call
+// std::terminate on the whole server.
+static std::string zinc_resolve_shader_dir() {
+    auto has_shaders = [](const std::string& d) -> bool {
+        if (d.empty()) return false;
+        struct stat st;
+        return stat((d + "/embed.spv").c_str(), &st) == 0;
+    };
+    // 1. Explicit runtime override always wins.
+    if (const char* env = std::getenv("ZINC_SHADER_DIR"); env && has_shaders(env))
+        return env;
+    // 2. Compile-time location (set for the zinc_cpp target's own build).
+#ifdef ZINC_SHADER_DIR
+    if (has_shaders(ZINC_SHADER_DIR)) return ZINC_SHADER_DIR;
+#endif
+    // 3. Common build / install locations, relative to CWD and typical prefixes.
+    static const char* candidates[] = {
+        "shaders",
+        "build_cmake/zinc_cpp_build/shaders",
+        "build/zinc_cpp_build/shaders",
+        "engine/gpu/zinc_cpp/build/shaders",
+        "engine/gpu/shaders",
+        "/usr/share/1bit-systems/shaders",
+        "/usr/local/share/1bit-systems/shaders",
+    };
+    for (const char* c : candidates)
+        if (has_shaders(c)) return c;
+    return "";
+}
 
 struct ZincBackend : Backend {
     std::unique_ptr<ZincEngine> engine_;
@@ -35,15 +73,22 @@ struct ZincBackend : Backend {
 
         printf("ZINC C++: initializing Vulkan...\n");
 
+        // Validate shaders are present BEFORE we spin up Vulkan + the PILOT
+        // prefetch worker thread. If they're missing, a later lazy shader load
+        // throws on a worker thread and std::terminates the whole process
+        // (there's no way to catch a cross-thread throw at the call site).
+        // Failing here just marks ZINC unavailable and lets BackendManager
+        // fall back to HIP/CPU — the server stays up.
+        std::string shader_dir = zinc_resolve_shader_dir();
+        if (shader_dir.empty()) {
+            fprintf(stderr,
+                "ZINC: compiled Vulkan shaders (embed.spv) not found — disabling ZINC "
+                "backend (set ZINC_SHADER_DIR to enable). Falling back to HIP/CPU.\n");
+            return false;
+        }
+
         try {
             engine_ = std::make_unique<ZincEngine>();
-            
-            // Shader directory: use ZINC_SHADER_DIR from CMake defines, or default
-#ifdef ZINC_SHADER_DIR
-            std::string shader_dir = ZINC_SHADER_DIR;
-#else
-            std::string shader_dir = "shaders";
-#endif
             engine_->init(shader_dir, -1);
 
             loader_ = std::make_unique<ModelLoader>(
