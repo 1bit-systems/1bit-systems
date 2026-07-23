@@ -23,6 +23,33 @@ static constexpr float RMD_EPS=1e-5f;
 static constexpr int BLK=256;
 static thread_local ZayaConfig eng;  // populated by zaya_init from ZayaConfig parameter
 
+// Page gather kernel: copies page-allocated KV slots into a contiguous
+// scratch buffer for the flash-attention kernel (which expects sequential
+// positions [0, seq_len) in a single buffer).
+// Each block handles one KV head for one position.
+__global__ void gather_kv_pages_k(
+    __half* __restrict__ dst,        // [seq_len, nkv, hd] contiguous output
+    const __half* __restrict__ pool, // [pool_pages, page_size, nkv, hd] paged input
+    const int* __restrict__ page_ids, // [n_pages] page_id -> pool_page, -1 = zero
+    int nkv, int hd, int page_size, int seq_len)
+{
+    int pos = blockIdx.x;
+    int kh = blockIdx.y;
+    if (pos >= seq_len || kh >= nkv) return;
+    int page_id = pos / page_size;
+    int page_off = pos % page_size;
+    int pool_page = page_ids[page_id];
+    int tx = threadIdx.x;
+    for (int i = tx; i < hd; i += blockDim.x) {
+        if (pool_page >= 0) {
+            dst[(size_t)pos * nkv * hd + (size_t)kh * hd + i] =
+                pool[((size_t)pool_page * page_size + page_off) * nkv * hd + (size_t)kh * hd + i];
+        } else {
+            dst[(size_t)pos * nkv * hd + (size_t)kh * hd + i] = __float2half(0.0f);
+        }
+    }
+}
+
 // ── Helper kernels ──
 __global__ void rmsnorm_k(__half*x,const __half*w,int n){__shared__ float r[32];int tx=threadIdx.x,wid=tx/32,l=tx%32;float ss=0;for(int i=tx;i<n;i+=blockDim.x)ss+=(float)x[i]*(float)x[i];for(int o=16;o>0;o>>=1)ss+=__shfl_xor(ss,o);if(l==0)r[wid]=ss;__syncthreads();if(wid==0){ss=(l<(256/32))?r[l]:0;for(int o=16;o>0;o>>=1)ss+=__shfl_xor(ss,o);if(l==0)r[0]=ss;}__syncthreads();float iv=1.0f/sqrtf(r[0]/n+1e-5f);for(int i=tx;i<n;i+=blockDim.x)x[i]=__float2half((float)x[i]*iv*(float)w[i]);}
 __global__ void copy_k(__half*d,const __half*s,int n){int i=blockIdx.x*blockDim.x+threadIdx.x;if(i>=n)return;d[i]=s[i];}
@@ -180,9 +207,38 @@ ZayaState* zaya_init(const char* weights_dir, const ZayaConfig* cfg) {
     ALLOC_OR_FAIL(s, alloc_f16, s->d_embed, eng.vocab * eng.h);
     ALLOC_OR_FAIL(s, alloc_f16, s->d_conv, eng.n_layers * 2 * eng.qkv);
     ALLOC_OR_FAIL(s, alloc_f16, s->d_phs, eng.n_layers * eng.h);
-    s->max_seq = 4096;
-    ALLOC_OR_FAIL(s, alloc_f16, s->d_kcache, eng.n_layers * s->max_seq * eng.nkv * eng.hd);
-    ALLOC_OR_FAIL(s, alloc_f16, s->d_vcache, eng.n_layers * s->max_seq * eng.nkv * eng.hd);
+    // Paged KV cache: allocate a pool of KV_PAGE_SIZE token pages instead of
+    // the full max_seq_len contiguous buffer. Saves ~75% memory at 64K context.
+    s->max_seq = eng.max_seq_len > 0 ? eng.max_seq_len : 4096;
+    s->page_size = KV_PAGE_SIZE;
+    s->n_kv_pages = (s->max_seq + s->page_size - 1) / s->page_size;
+    s->kv_pool_pages = eng.kv_pool_pages > 0 ?
+        std::min(eng.kv_pool_pages, s->n_kv_pages) :
+        std::min(s->n_kv_pages, KV_DEFAULT_PAGES);
+    if (s->kv_pool_pages < 1) s->kv_pool_pages = 1;
+    int kv_pool_elems = eng.n_layers * s->kv_pool_pages * s->page_size * eng.nkv * eng.hd;
+    ALLOC_OR_FAIL(s, alloc_f16, s->d_kcache, kv_pool_elems);
+    ALLOC_OR_FAIL(s, alloc_f16, s->d_vcache, kv_pool_elems);
+    fprintf(stderr, "  KV cache: %d pages (%d tok/page, %d pool, %d max_seq) = %.1f MB\n",
+            s->n_kv_pages, s->page_size, s->kv_pool_pages, s->max_seq,
+            (double)kv_pool_elems * 2 / (1024*1024));
+    // Initialize page table: all pages start unallocated.
+    // page_map[layer][logical_page] = pool_page (or -1 if evicted/unused)
+    s->page_alloc.resize(eng.n_layers);
+    s->page_map.resize(eng.n_layers);
+    s->page_lru.resize(eng.n_layers);
+    s->page_next_evict.resize(eng.n_layers);
+    for (int il = 0; il < eng.n_layers; il++) {
+        s->page_alloc[il].assign(s->n_kv_pages, false);
+        s->page_map[il].assign(s->n_kv_pages, -1);
+        s->page_lru[il].assign(s->kv_pool_pages, -1);
+        s->page_next_evict[il] = 0;
+    }
+    // Gather scratch buffer for non-contiguous page assembly
+    ALLOC_OR_FAIL(s, alloc_f16, s->d_k_gather, s->max_seq * eng.nkv * eng.hd);
+    ALLOC_OR_FAIL(s, alloc_f16, s->d_v_gather, s->max_seq * eng.nkv * eng.hd);
+    ALLOC_OR_FAIL(s, alloc_f32, s->d_page_map, s->n_kv_pages);
+    s->gather_seq_len = 0;
     ALLOC_OR_FAIL(s, alloc_f16, s->d_vrec, eng.n_layers * (eng.kd / 2));
     ALLOC_OR_FAIL(s, alloc_f16, s->d_qout, eng.qd);
     ALLOC_OR_FAIL(s, alloc_f16, s->d_kout, eng.kd);
@@ -272,6 +328,49 @@ ZayaState* zaya_init(const char* weights_dir, const ZayaConfig* cfg) {
     return s;
 }
 
+// ── Page-aware KV cache write ──
+// Allocate a page for the given (layer, pos) if not already allocated.
+// Returns the GPU offset within the layer's page pool.
+static size_t zaya_kv_page_write(ZayaState* s, int il, int pos) {
+    int page_id = pos / s->page_size;
+    int page_off = pos % s->page_size;
+    if (!s->page_alloc[il][page_id]) {
+        // Evict from pool if needed
+        int pool_page = s->page_next_evict[il];
+        s->page_map[il][page_id] = pool_page;
+        s->page_alloc[il][page_id] = true;
+        s->page_next_evict[il] = (pool_page + 1) % s->kv_pool_pages;
+        // Update device-side page map for gather kernel
+        std::vector<int> host_map(s->n_kv_pages);
+        for (int p = 0; p < s->n_kv_pages; p++) {
+            host_map[p] = s->page_map[il][p];
+        }
+        hipError_t _s_ = hipMemcpy(s->d_page_map, host_map.data(), s->n_kv_pages * sizeof(int), hipMemcpyHostToDevice);
+        if (_s_ != hipSuccess) {
+            fprintf(stderr, "HIP Error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(_s_));
+            return 0;
+        }
+    }
+    int pool_page = s->page_map[il][page_id];
+    return (size_t)pool_page * s->page_size * eng.nkv * eng.hd + (size_t)page_off * eng.nkv * eng.hd;
+}
+
+// ── Page-aware KV cache gather ──
+// Gathers all pages for positions [0, seq_len) into the scratch buffers.
+static void zaya_kv_gather(ZayaState* s, int il, int seq_len) {
+    dim3 grid(seq_len, eng.nkv);
+    gather_kv_pages_k<<<grid, 128, 0, s->st>>>(
+        s->d_k_gather,
+        s->d_kcache + (size_t)il * s->kv_pool_pages * s->page_size * eng.nkv * eng.hd,
+        s->d_page_map, eng.nkv, eng.hd, s->page_size, seq_len);
+    HIP_CHECK(hipGetLastError());
+    gather_kv_pages_k<<<grid, 128, 0, s->st>>>(
+        s->d_v_gather,
+        s->d_vcache + (size_t)il * s->kv_pool_pages * s->page_size * eng.nkv * eng.hd,
+        s->d_page_map, eng.nkv, eng.hd, s->page_size, seq_len);
+    HIP_CHECK(hipGetLastError());
+}
+
 // ── Forward: token in, logits out ──
 void zaya_forward(ZayaState* s, int token_id, float* logits_out) {
     if (token_id < 0 || token_id >= eng.vocab) { if (logits_out) memset(logits_out, 0, eng.vocab * sizeof(float)); return; }
@@ -298,14 +397,26 @@ void zaya_forward(ZayaState* s, int token_id, float* logits_out) {
             l.cdw,l.cdb,l.cgw,l.cgb,l.ks,
             s->d_qout,s->d_kout,s->d_vout, s->pos, eng.nq,eng.nkv,eng.hd,eng.hd/2,5000000.0f,eng.qkv/(eng.nq+eng.nkv));
         HIP_CHECK(hipGetLastError());
-        copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(s->d_kcache+(size_t)il*s->max_seq*eng.nkv*eng.hd+(size_t)s->pos*eng.nkv*eng.hd, s->d_kout, eng.kd);
-        HIP_CHECK(hipGetLastError());
-        copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(s->d_vcache+(size_t)il*s->max_seq*eng.nkv*eng.hd+(size_t)s->pos*eng.nkv*eng.hd, s->d_vout, eng.kd);
-        HIP_CHECK(hipGetLastError());
-        rcpp_kv_cache_attn_decode_fd(s->d_qout,
-            s->d_kcache+(size_t)il*s->max_seq*eng.nkv*eng.hd,
-            s->d_vcache+(size_t)il*s->max_seq*eng.nkv*eng.hd,
-            s->d_ao, eng.nq, eng.nkv, eng.hd, s->pos+1, 1.0f/sqrtf((float)eng.hd), (void*)s->st);
+        // Paged KV: allocate page, write, gather for attention
+        {
+            size_t kv_off = zaya_kv_page_write(s, il, s->pos);
+            __half* layer_k = s->d_kcache + (size_t)il * s->kv_pool_pages * s->page_size * eng.nkv * eng.hd;
+            __half* layer_v = s->d_vcache + (size_t)il * s->kv_pool_pages * s->page_size * eng.nkv * eng.hd;
+            copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(layer_k + kv_off, s->d_kout, eng.kd);
+            HIP_CHECK(hipGetLastError());
+            copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(layer_v + kv_off, s->d_vout, eng.kd);
+            HIP_CHECK(hipGetLastError());
+            if (s->pos > 0) {
+                zaya_kv_gather(s, il, s->pos + 1);
+            } else {
+                copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(s->d_k_gather, s->d_kout, eng.kd);
+                HIP_CHECK(hipGetLastError());
+                copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(s->d_v_gather, s->d_vout, eng.kd);
+                HIP_CHECK(hipGetLastError());
+            }
+            rcpp_kv_cache_attn_decode_fd(s->d_qout, s->d_k_gather, s->d_v_gather,
+                s->d_ao, eng.nq, eng.nkv, eng.hd, s->pos+1, 1.0f/sqrtf((float)eng.hd), (void*)s->st);
+        }
         moe_tiled_gemv<<<eng.h/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_ao,s->d_ao,l.wo,eng.h,eng.qd);                             // o_proj
         HIP_CHECK(hipGetLastError());
         residual_scale_k<<<g1,BLK,0,s->st>>>(s->d_ao,s->d_hs,l.pahss,l.pahsb,l.parss,l.parsb,eng.h);
@@ -384,14 +495,26 @@ int zaya_forward_greedy(ZayaState* s, int token_id) {
             l.cdw,l.cdb,l.cgw,l.cgb,l.ks,
             s->d_qout,s->d_kout,s->d_vout, s->pos, eng.nq,eng.nkv,eng.hd,eng.hd/2,5000000.0f,eng.qkv/(eng.nq+eng.nkv));
         HIP_CHECK(hipGetLastError());
-        copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(s->d_kcache+(size_t)il*s->max_seq*eng.nkv*eng.hd+(size_t)s->pos*eng.nkv*eng.hd, s->d_kout, eng.kd);
-        HIP_CHECK(hipGetLastError());
-        copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(s->d_vcache+(size_t)il*s->max_seq*eng.nkv*eng.hd+(size_t)s->pos*eng.nkv*eng.hd, s->d_vout, eng.kd);
-        HIP_CHECK(hipGetLastError());
-        rcpp_kv_cache_attn_decode_fd(s->d_qout,
-            s->d_kcache+(size_t)il*s->max_seq*eng.nkv*eng.hd,
-            s->d_vcache+(size_t)il*s->max_seq*eng.nkv*eng.hd,
-            s->d_ao, eng.nq, eng.nkv, eng.hd, s->pos+1, 1.0f/sqrtf((float)eng.hd), (void*)s->st);
+        // Paged KV: allocate page, write, gather for attention
+        {
+            size_t kv_off = zaya_kv_page_write(s, il, s->pos);
+            __half* layer_k = s->d_kcache + (size_t)il * s->kv_pool_pages * s->page_size * eng.nkv * eng.hd;
+            __half* layer_v = s->d_vcache + (size_t)il * s->kv_pool_pages * s->page_size * eng.nkv * eng.hd;
+            copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(layer_k + kv_off, s->d_kout, eng.kd);
+            HIP_CHECK(hipGetLastError());
+            copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(layer_v + kv_off, s->d_vout, eng.kd);
+            HIP_CHECK(hipGetLastError());
+            if (s->pos > 0) {
+                zaya_kv_gather(s, il, s->pos + 1);
+            } else {
+                copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(s->d_k_gather, s->d_kout, eng.kd);
+                HIP_CHECK(hipGetLastError());
+                copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(s->d_v_gather, s->d_vout, eng.kd);
+                HIP_CHECK(hipGetLastError());
+            }
+            rcpp_kv_cache_attn_decode_fd(s->d_qout, s->d_k_gather, s->d_v_gather,
+                s->d_ao, eng.nq, eng.nkv, eng.hd, s->pos+1, 1.0f/sqrtf((float)eng.hd), (void*)s->st);
+        }
         moe_tiled_gemv<<<eng.h/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_ao,s->d_ao,l.wo,eng.h,eng.qd);                             // o_proj
         HIP_CHECK(hipGetLastError());
         residual_scale_k<<<g1,BLK,0,s->st>>>(s->d_ao,s->d_hs,l.pahss,l.pahsb,l.parss,l.parsb,eng.h);
@@ -805,8 +928,15 @@ void zaya_reset(ZayaState* s) {
     HIP_OK_V(hipMemsetAsync(s->d_conv,0,(size_t)eng.n_layers*2*eng.qkv*2,s->st));
     HIP_OK_V(hipMemsetAsync(s->d_phs,0,(size_t)eng.n_layers*eng.h*2,s->st));
     HIP_OK_V(hipMemsetAsync(s->d_prev_rs,0,(size_t)eng.n_layers*eng.rtr_h*4,s->st));
-    HIP_OK_V(hipMemsetAsync(s->d_kcache,0,(size_t)eng.n_layers*s->max_seq*eng.nkv*eng.hd*2,s->st));
-    HIP_OK_V(hipMemsetAsync(s->d_vcache,0,(size_t)eng.n_layers*s->max_seq*eng.nkv*eng.hd*2,s->st));
+    size_t kv_pool_bytes = (size_t)eng.n_layers * s->kv_pool_pages * s->page_size * eng.nkv * eng.hd * 2;
+    HIP_OK_V(hipMemsetAsync(s->d_kcache, 0, kv_pool_bytes, s->st));
+    HIP_OK_V(hipMemsetAsync(s->d_vcache, 0, kv_pool_bytes, s->st));
+    // Reset page table
+    for (int il = 0; il < eng.n_layers; il++) {
+        s->page_alloc[il].assign(s->n_kv_pages, false);
+        s->page_map[il].assign(s->n_kv_pages, -1);
+        s->page_next_evict[il] = 0;
+    }
     HIP_OK_V(hipMemsetAsync(s->d_vrec,0,(size_t)eng.n_layers*(eng.kd/2)*2,s->st));
     s->pos=0;
     init_expert_cache_sentinel<<<1, 64, 0, s->st>>>(s->d_prev_rs, eng.n_layers, eng.rtr_h, eng.n_exp);
@@ -822,6 +952,7 @@ void zaya_destroy(ZayaState* s) {
     safe(s->d_prev_rs); safe(s->d_expert_idx); safe(s->d_expert_wt);
     safe(s->d_kcache); safe(s->d_vcache); safe(s->d_vrec);
     safe(s->d_qout); safe(s->d_kout); safe(s->d_vout); safe(s->d_skip_flag);
+    safe(s->d_k_gather); safe(s->d_v_gather); safe(s->d_page_map);
     for (int i = 0; i < eng.n_layers; i++) {
         auto& l = s->lw[i];
         safe(l.nw); safe(l.wq); safe(l.wk); safe(l.wv1); safe(l.wv2); safe(l.wo); safe(l.pan);

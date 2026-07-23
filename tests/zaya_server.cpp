@@ -15,6 +15,7 @@
 #include "backends/token_router.h"
 #include "rocm_cpp/tokenizer.h"
 #include "a2a_client.h"
+#include "gguf_reader.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -114,15 +115,66 @@ static bool detect_from_manifest(const std::string& path, ModelConfig& cfg) {
 }
 
 static bool detect_from_gguf(const std::string& path, ModelConfig& cfg) {
-    // Signal that a GGUF model was found. The actual loading is done by
-    // the universal backend (backend_generic.cpp) in router.load_model().
-    // Just extract the filename as the model name so the API has a label.
+    // Read model dimensions from GGUF KV metadata so the backends get
+    // the correct H, L, NH, NKV, V upfront (fixes models whose
+    // dimensions differ from the default 2048/40/8/2/262272).
     cfg.model_path = path;
     cfg.weights_dir = path.substr(0, path.find_last_of('/') + 1);
     auto slash = path.find_last_of('/');
     auto dot = path.find_last_of('.');
     cfg.model_name = (slash != std::string::npos) ? path.substr(slash + 1, dot - slash - 1) : "gguf-model";
-    cfg.hidden_size = 0;  // will be detected by the backend
+    cfg.hidden_size = 0;
+    // Read dimensions from GGUF metadata using the shared reader.
+    // Keys are architecture-prefixed (e.g. llama.embedding_length,
+    // qwen2.attention.head_count, zr1.block_count).
+    GgufReader reader;
+    if (reader.open(path)) {
+        std::string arch = reader.architecture();
+        if (arch.empty()) arch = "llm";
+        auto gu = [&](const std::string& k, int def) -> int {
+            // Try with architecture prefix first, then bare key
+            uint32_t v;
+            if (reader.get_u32(arch + "." + k, v)) return (int)v;
+            if (reader.get_u32(k, v)) return (int)v;
+            return def;
+        };
+        cfg.hidden_size       = gu("embedding_length", 0);
+        cfg.num_layers        = gu("block_count", 40);
+        cfg.num_heads         = gu("attention.head_count", 0);
+        cfg.num_kv_heads      = gu("attention.head_count_kv", 0);
+        cfg.intermediate_size = gu("feed_forward_length", 0);
+        cfg.vocab_size        = gu("vocab_size", 0);
+        // If vocab_size wasn't in KV metadata, derive it from token_embd.weight
+        // If vocab_size wasn't in KV metadata, derive it from output.weight
+        // or token_embd.weight shape: numel = V * H, so V = numel / H.
+        if (cfg.vocab_size == 0 && cfg.hidden_size > 0) {
+            int H = cfg.hidden_size;
+            // output.weight has shape [H, V] in GGUF (fastest-first), numel = V*H
+            const GgufTensorInfo* out = reader.tensor_info("output.weight");
+            if (out && out->numel > 0)
+                cfg.vocab_size = (int)(out->numel / H);
+            if (cfg.vocab_size == 0) {
+                const GgufTensorInfo* emb = reader.tensor_info("token_embd.weight");
+                if (!emb) emb = reader.tensor_info("model.embed_tokens.weight");
+                if (emb && emb->numel > 0)
+                    cfg.vocab_size = (int)(emb->numel / H);
+            }
+        }
+        uint32_t max_seq = 0;
+        if (reader.get_u32(arch + ".context_length", max_seq) ||
+            reader.get_u32("context_length", max_seq))
+            cfg.max_seq_len = (int)max_seq;
+        // Cap max_seq_len to prevent excessive KV cache allocation.
+        // The backend can dynamically allocate more if needed.
+        if (cfg.max_seq_len > 32768) cfg.max_seq_len = 32768;
+        if (cfg.hidden_size > 0) {
+            fprintf(stderr, "  GGUF dims: H=%d L=%d NH=%d NKV=%d FF=%d V=%d CTX=%d (arch=%s)\n",
+                    cfg.hidden_size, cfg.num_layers, cfg.num_heads, cfg.num_kv_heads,
+                    cfg.intermediate_size, cfg.vocab_size, cfg.max_seq_len, arch.c_str());
+        }
+    } else {
+        fprintf(stderr, "  GGUF: could not open for dimension detection\n");
+    }
     return true;
 }
 static std::string json_escape(const std::string& s) {
@@ -177,6 +229,8 @@ struct SimpleTokenizer {
     int eos_id = 106;
     bool use_bpe = false;
     rcpp_tokenizer_t* bpe_tok = nullptr;
+    // Vocab lookup: maps token_id -> token string (loaded from GGUF)
+    std::vector<std::string> id_to_token;
 
     ~SimpleTokenizer() { if (bpe_tok) rcpp_tokenizer_free(bpe_tok); }
 
@@ -194,6 +248,31 @@ struct SimpleTokenizer {
         return false;
     }
 
+    /// Load BOS/EOS from GGUF metadata.
+    bool load_from_gguf(GgufReader& reader) {
+        uint32_t bos = 2, eos = 106;
+        if (reader.get_u32("tokenizer.ggml.bos_token_id", bos)) bos_id = (int)bos;
+        else { uint32_t alt=0; if(reader.get_u32("tokenizer.ggml.bos_id", alt)) bos_id=(int)alt; }
+        if (reader.get_u32("tokenizer.ggml.eos_token_id", eos)) eos_id = (int)eos;
+        else { uint32_t alt=0; if(reader.get_u32("tokenizer.ggml.eos_id", alt)) eos_id=(int)alt; }
+        fprintf(stderr, "  GGUF tokenizer metadata: BOS=%d EOS=%d\n", bos_id, eos_id);
+        if (use_bpe) return true;
+        return false;
+    }
+
+    /// Load vocab table from GGUF's tokenizer.ggml.tokens array.
+    /// This enables readable decode output without a .htok BPE file.
+    bool load_vocab_from_gguf(GgufReader& reader) {
+        std::vector<std::string> tokens;
+        if (!reader.get_string_array("tokenizer.ggml.tokens", tokens)) {
+            fprintf(stderr, "  Vocab: tokenizer.ggml.tokens not found\n");
+            return false;
+        }
+        id_to_token = std::move(tokens);
+        fprintf(stderr, "  Vocab loaded: %zu tokens from GGUF\n", id_to_token.size());
+        return true;
+    }
+
     std::vector<int> encode(const std::string& text) {
         if (use_bpe && bpe_tok) {
             std::vector<int> r(4096);
@@ -206,10 +285,39 @@ struct SimpleTokenizer {
             }
             return {bos_id};
         }
+        // Character-level fallback with correct BOS/EOS from GGUF metadata
         std::vector<int> r = {bos_id};
         for (unsigned char c : text) {
             if (c >= 32 && c <= 126) r.push_back((int)c + 100);
             else if (c != 0) r.push_back((int)c + 200);
+        }
+        return r;
+    }
+
+    // GPT-2 byte decoding: replaces byte-encoded Unicode chars (U+0100-U+017F)
+    // which appear as UTF-8 sequences 0xC4 0x80..0xC5 0xBF back to raw bytes.
+    // This converts "Ġ" (U+0120 = space) back to ' ' and "Ċ" (U+010A = \n) back.
+    static std::string gpt2_byte_decode(const std::string& s) {
+        std::string r;
+        r.reserve(s.size());
+        for (size_t i = 0; i < s.size();) {
+            unsigned char c = (unsigned char)s[i];
+            if ((c == 0xC4 || c == 0xC5) && i + 1 < s.size()) {
+                unsigned char lo = (unsigned char)s[i+1];
+                int cp = ((int)(c & 0x1F) << 6) | (int)(lo & 0x3F);
+                r += (char)(cp - 256);
+                i += 2;
+            } else if (c < 128) {
+                r += (char)c;
+                i += 1;
+            } else {
+                int n = 1;
+                if ((c & 0xE0) == 0xC0) n = 2;
+                else if ((c & 0xF0) == 0xE0) n = 3;
+                else if ((c & 0xF8) == 0xF0) n = 4;
+                r.append(s.c_str() + i, n);
+                i += n;
+            }
         }
         return r;
     }
@@ -220,12 +328,22 @@ struct SimpleTokenizer {
             size_t out_len = 0;
             rcpp_status_t st = rcpp_tokenizer_decode(bpe_tok, tokens.data(), tokens.size(),
                                                       r.data(), r.size(), &out_len);
-            if (st == RCPP_OK && out_len > 0) {
-                r.resize(out_len);
-                return r;
-            }
+            if (st == RCPP_OK && out_len > 0) { r.resize(out_len); return gpt2_byte_decode(r); }
             return "";
         }
+        // Vocab-based decode (from GGUF tokenizer.ggml.tokens)
+        if (!id_to_token.empty()) {
+            std::string r;
+            for (int v : tokens) {
+                if (v == bos_id || v == eos_id) continue;
+                if (v >= 0 && v < (int)id_to_token.size()) {
+                    r += id_to_token[v];
+                } else {
+                    r += '<'; r += std::to_string(v); r += '>'; }
+            }
+            return gpt2_byte_decode(r);
+        }
+        // Character-level fallback
         std::string r;
         for (int v : tokens) {
             if (v == bos_id || v == eos_id) continue;
@@ -417,6 +535,7 @@ int main(int argc, char** argv) {
             printf("Endpoints:\n");
             printf("  GET  /v1/models                      List loaded models\n");
             printf("  POST /v1/chat/completions            OpenAI-compatible chat\n");
+            printf("  POST /v1/batch/completions           Batch inference (multi-prompt)\n");
             printf("  GET  /.well-known/agent-card.json    A2A Agent Card (Google A2A v1.0)\n");
             printf("  POST /a2a/v1/message:send            A2A send message (task-based)\n");
             printf("  POST /a2a/v1/message:sendStream      A2A streaming (SSE)\n");
@@ -485,6 +604,42 @@ int main(int argc, char** argv) {
 
     if (model_loaded && !router.load_model(cfg)) { fprintf(stderr, "FATAL: Failed to load model\n"); return 1; }
 
+    SimpleTokenizer tok;
+
+    // Try to load tokenizer from GGUF metadata if available
+    {
+        std::string gguf_path;
+        if (!model_arg.empty()) {
+            std::string ext = model_arg.size() > 5 ? model_arg.substr(model_arg.size() - 5) : "";
+            if (ext == ".gguf") gguf_path = model_arg;
+        }
+        if (gguf_path.empty() && cfg.model_path.size() > 5) {
+            std::string ext = cfg.model_path.substr(cfg.model_path.size() - 5);
+            if (ext == ".gguf") gguf_path = cfg.model_path;
+        }
+        if (!gguf_path.empty()) {
+            GgufReader reader;
+            if (reader.open(gguf_path)) {
+                // Try .htok file alongside the GGUF for full BPE tokenizer
+                std::string htok_path = gguf_path.substr(0, gguf_path.size() - 5) + ".htok";
+                FILE* htok_test = fopen(htok_path.c_str(), "rb");
+                if (htok_test) {
+                    fclose(htok_test);
+                    tok.load_htok(htok_path);
+                }
+                tok.load_from_gguf(reader);
+                tok.load_vocab_from_gguf(reader);
+                fprintf(stderr, "  Tokenizer: BOS=%d EOS=%d %s(vocab=%zu)\n",
+                        tok.bos_id, tok.eos_id,
+                        tok.use_bpe ? "+ BPE " : "",
+                        tok.id_to_token.size());
+            }
+        } else {
+            fprintf(stderr, "  Tokenizer: using default BOS=%d EOS=%d (no GGUF metadata)\n",
+                    tok.bos_id, tok.eos_id);
+        }
+    }
+
     httplib::Server svr;
 
     // Maximum request body size: 1MB (fixes #197: stack buffer + incomplete read + no limit)
@@ -526,8 +681,6 @@ int main(int argc, char** argv) {
             fprintf(stderr, "     - %s @ %s (%zu skills)\n", p.name.c_str(), p.base_url.c_str(), p.skill_ids.size());
     }
     fprintf(stderr, "\n");
-
-    SimpleTokenizer tok;
 
     svr.Get("/", [&](const httplib::Request&, httplib::Response& res) {
         std::lock_guard<std::mutex> lock(g_router_mutex);
@@ -766,6 +919,63 @@ int main(int argc, char** argv) {
         res.set_content(rsp, "application/json");
     });
 
+    // ── Batch endpoint: POST /v1/batch/completions ───────────────
+    // Accepts an array of prompts, returns an array of completions.
+    // Uses TokenRouter::infer_batch() for efficient multi-prompt processing.
+    svr.Post("/v1/batch/completions", [&](const httplib::Request& req, httplib::Response& res) {
+        if (!model_loaded) {
+            res.status = 503;
+            res.set_content("{\"error\":\"no model loaded\"}", "application/json");
+            return;
+        }
+        try {
+            json jbody = json::parse(req.body);
+            int max_tokens = jbody.value("max_tokens", 256);
+            if (max_tokens < 1) max_tokens = 1;
+            if (max_tokens > 32768) max_tokens = 32768;
+
+            std::vector<std::vector<int>> prompts;
+            if (jbody.contains("prompts") && jbody["prompts"].is_array()) {
+                for (auto& p : jbody["prompts"]) {
+                    std::string text = p.is_string() ? p.get<std::string>() : p.dump();
+                    prompts.push_back(tok.encode(text));
+                }
+            }
+
+            if (prompts.empty()) {
+                res.status = 400;
+                res.set_content("{\"error\":\"need 'prompts' array\"}", "application/json");
+                return;
+            }
+
+            std::string resp_body;
+            {
+                std::lock_guard<std::mutex> lock(g_router_mutex);
+                auto results = router.infer_batch(prompts, max_tokens);
+                json arr = json::array();
+                for (size_t i = 0; i < results.size(); i++) {
+                    std::string text = tok.decode(results[i].tokens);
+                    arr.push_back({
+                        {"index", i},
+                        {"text", text},
+                        {"tokens", results[i].tokens},
+                        {"prompt_tokens", results[i].prompt_tokens},
+                        {"completion_tokens", (int)results[i].tokens.size()},
+                        {"gen_ms", results[i].gen_ms},
+                        {"tok_s", results[i].tok_s}
+                    });
+                }
+                json r = {{"object", "list"}, {"data", arr}};
+                resp_body = r.dump();
+                fprintf(stderr, "  [batch] %zu prompts, %d max_tokens\n", prompts.size(), max_tokens);
+            }
+            res.set_content(resp_body, "application/json");
+        } catch (const std::exception& e) {
+            res.status = 400;
+            res.set_content(json({{"error", e.what()}}).dump(), "application/json");
+        }
+    });
+
     svr.set_error_handler([](const httplib::Request&, httplib::Response& res) {
         if (res.status == 404)
             res.set_content("{\"error\":\"not found\"}", "application/json");
@@ -782,6 +992,7 @@ int main(int argc, char** argv) {
     fprintf(stderr, "   POST /a2a/v1/message:send     — A2A task inference\n");
     fprintf(stderr, "   POST /a2a/v1/tasks:route      — A2A route to peer agent\n");
     fprintf(stderr, "   POST /v1/chat/completions     — OpenAI-compatible\n");
+    fprintf(stderr, "   POST /v1/batch/completions    — Batch inference (multi-prompt)\n");
     if (strcmp(bind_addr, "0.0.0.0") == 0) {
         fprintf(stderr,
             "\n  *** WARNING: binding to 0.0.0.0 — server is publicly reachable. ***\n"

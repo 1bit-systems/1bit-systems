@@ -133,6 +133,27 @@ void BackendManager::discover() {
         backends_.push_back(info);
     }
 
+    // 2c. Zamba2 GPU — Mamba2 hybrid SSD kernels (Zamba2-1.2B/2.7B/7B)
+    // Shares HIP availability; created on-demand by architecture.
+    {
+        BackendInfo info;
+        info.id = "zamba2_gpu";
+        info.type = BackendType::HIP_GPU;
+        info.tier = BackendTier::T2_GPU;
+        info.description = "AMD ROCm GPU via Mamba2 SSD kernels";
+        info.priority = tier_priority(info.tier) + 48;  // just below mamba1_gpu
+        info.available = has_hip_gpu();
+        info.functional = false;
+        info.score = 0;
+        info.total_inferences = 0;
+        info.failed_inferences = 0;
+        info.cumulative_ms = 0;
+        info.instance = nullptr;
+        info.plugin_handle = nullptr;
+        printf("  %-25s %s\n", "Zamba2 GPU (Mamba2 HIP)", info.available ? "✅ detected" : "❌ not available");
+        backends_.push_back(info);
+    }
+
     // 3. Vulkan GPU — portable fallback (runs on any GPU vendor)
     {
         BackendInfo info;
@@ -1046,6 +1067,19 @@ Backend* BackendManager::create_instance_rt(const BackendInfo& info) {
                 if (!b) b = try_load_backend("libmamba1_backend.so", "create_mamba1_backend");
                 if (!b) { void* self = dlopen(NULL, RTLD_NOW|RTLD_LOCAL);
                     if (self) { auto* fn = (Backend*(*)())dlsym(self, "create_mamba1_backend");
+                        if (fn) b = fn(); } }
+                return b;
+            }
+            // Zamba2 backend (Zamba2-1.2B/2.7B/7B) — Mamba2 hybrid SSD kernels
+            if (info.id == "zamba2_gpu") {
+#ifdef ROCM_CPP_STATIC_HIP
+                b = create_zamba2_backend();
+                if (b) return b;
+#endif
+                b = try_load_backend("librocm_cpp.so", "create_zamba2_backend");
+                if (!b) b = try_load_backend("libzamba2_backend.so", "create_zamba2_backend");
+                if (!b) { void* self = dlopen(NULL, RTLD_NOW|RTLD_LOCAL);
+                    if (self) { auto* fn = (Backend*(*)())dlsym(self, "create_zamba2_backend");
                         if (fn) b = fn(); } }
                 return b;
             }

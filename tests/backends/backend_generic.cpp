@@ -28,6 +28,13 @@
 #define USE_COLIBRI_Q4 1
 #endif
 
+// Forward declaration of gguf_dequant from the shared gguf_reader module
+// (libgguf_reader, compiled from src/gguf_reader.cpp). Not including
+// gguf_reader.h here to avoid ::GgufReader class name collision with the
+// local generic_backend::GgufReader defined below.
+struct GgufBlockInfo { int block_size; int block_bytes; };
+bool gguf_dequant(uint32_t dtype, const uint8_t* data, float* out, int count);
+
 // ─── GGUF weight reader (shared with src/backend_generic.cpp) ────────────────
 
 static float fp16_to_fp32(uint16_t h) {
@@ -49,8 +56,8 @@ static float fp16_to_fp32(uint16_t h) {
 #define GGUF_TYPE_Q4_0 2
 #define GGUF_TYPE_Q4_1 3
 #define GGUF_TYPE_Q5_0 6
-#define GGUF_TYPE_Q8_0 7
-#define GGUF_TYPE_Q5_1 8
+#define GGUF_TYPE_Q5_1 7
+#define GGUF_TYPE_Q8_0 8
 #define GGUF_TYPE_Q2_K 10
 #define GGUF_TYPE_Q3_K 11
 #define GGUF_TYPE_Q4_K 12
@@ -58,7 +65,29 @@ static float fp16_to_fp32(uint16_t h) {
 #define GGUF_TYPE_Q6_K 14
 #define GGUF_TYPE_Q8_K 15
 
+// NOTE: this backend has its OWN hand-rolled GGUF parser. It must NOT live at
+// global scope under the names GgufReader / GgufTensor, because include/
+// gguf_reader.h defines different classes with the same (global) names and a
+// different memory layout. Both TUs end up in the same binary (backend_manager
+// links backend_generic.cpp), so the linker kept one ::GgufReader::open for
+// both, corrupting memory at the call site in backend_hip.cpp and crashing
+// every GGUF load with SIGFPE (issue #799). The namespace below makes these
+// distinct symbols.
+namespace generic_backend {
 struct GgufTensor { std::string name; std::vector<uint64_t> shape; uint32_t dtype; uint64_t file_offset; };
+
+// Shared block_info function (was a lambda inside open(), but needs to be
+// callable from both open() and get()). Must match ggml_type block sizes.
+static std::pair<int,int> gguf_block_info(uint32_t dtype) {
+    switch (dtype) {
+        case 0: return {1, 4}; case 1: return {1, 2}; case 2: return {32, 18};
+        case 3: return {32, 20}; case 6: return {32, 22}; case 7: return {32, 24};
+        case 8: return {32, 34}; case 9: return {256, 72}; case 10: return {256, 104};
+        case 11: return {256, 144}; case 12: return {256, 176}; case 13: return {256, 210};
+        case 14: return {256, 292}; case 15: return {256, 0};
+        default: return {32, 0};
+    }
+}
 
 struct GgufReader {
     FILE* f = nullptr;
@@ -100,21 +129,11 @@ struct GgufReader {
             fread(&t.dtype, 4, 1, f); fseek(f, 4, SEEK_CUR);
             tensors[t.name] = t;
         }
-        auto block_info = [](uint32_t dtype) -> std::pair<int,int> {
-            switch (dtype) {
-                case 0: return {1, 4}; case 1: return {1, 2}; case 2: return {32, 18};
-                case 3: return {32, 20}; case 6: return {32, 34}; case 7: return {32, 22};
-                case 8: return {32, 24}; case 9: return {256, 72}; case 10: return {256, 104};
-                case 11: return {256, 144}; case 12: return {256, 176}; case 13: return {256, 210};
-                case 14: return {256, 292}; case 15: return {256, 0};
-                default: return {32, 0};
-            }
-        };
         uint64_t data_off = ftell(f); data_off = (data_off + 31) & ~31;
         for (auto& [name, t] : tensors) {
             t.file_offset = data_off;
             uint64_t n_elems = 1; for (auto s : t.shape) n_elems *= s;
-            auto [bs, bpb] = block_info(t.dtype);
+            auto [bs, bpb] = gguf_block_info(t.dtype);
             if (bpb == 0) { bpb = 4; bs = 1; }
             data_off += ((n_elems + bs - 1) / bs) * bpb;
             data_off = (data_off + 31) & ~31;
@@ -150,15 +169,62 @@ struct GgufReader {
                 int8_t q[32]; fread(q, 1, 32, f);
                 for (int j = 0; j < 32 && b*32+j < (int)n; j++) scratch[b*32+j] = q[j] * s;
             }
+        } else if (t.dtype == GGUF_TYPE_Q5_0) {
+            // Q5_0: scale[2] + high_bits[4] + nibbles[16] = 22 bytes / 32 elements
+            int blocks = (n + 31) / 32;
+            for (int b = 0; b < blocks; b++) {
+                uint16_t sh; fread(&sh, 2, 1, f); float s = fp16_to_fp32(sh);
+                uint32_t qh; fread(&qh, 4, 1, f);
+                uint8_t q[16]; fread(q, 1, 16, f);
+                for (int j = 0; j < 32 && b*32+j < (int)n; j++) {
+                    int lo = (j < 16) ? (q[j] & 0xF) : (q[j-16] >> 4);
+                    int hi = (qh >> j) & 1;
+                    scratch[b*32+j] = (int8_t)(lo | (hi << 4)) * s;
+                }
+            }
+        } else if (t.dtype == GGUF_TYPE_Q5_1) {
+            // Q5_1: scale[2] + min[2] + high_bits[4] + nibbles[16] = 24 bytes / 32 elements
+            int blocks = (n + 31) / 32;
+            for (int b = 0; b < blocks; b++) {
+                uint16_t sh; fread(&sh, 2, 1, f); float s = fp16_to_fp32(sh);
+                uint16_t mh; fread(&mh, 2, 1, f); float m = fp16_to_fp32(mh);
+                uint32_t qh; fread(&qh, 4, 1, f);
+                uint8_t q[16]; fread(q, 1, 16, f);
+                for (int j = 0; j < 32 && b*32+j < (int)n; j++) {
+                    int lo = (j < 16) ? (q[j] & 0xF) : (q[j-16] >> 4);
+                    int hi = (qh >> j) & 1;
+                    scratch[b*32+j] = (int8_t)(lo | (hi << 4)) * s + m;
+                }
+            }
         } else {
-            // Unknown quant type — treat as raw floats
+            // Unknown quant type — use the shared gguf_dequant function
+            // from gguf_reader.h (included at file scope). This handles
+            // all K-quants (Q2_K through Q8_K) and any future dtypes that
+            // the shared dequant module knows about, without duplicating
+            // hundreds of lines of superblock dequant math here.
+            auto [bs, bpb] = gguf_block_info(t.dtype);
+            if (bpb == 0) { bpb = 4; bs = 1; }
+            uint64_t n_blocks = (n + bs - 1) / bs;
+            std::vector<uint8_t> raw(n_blocks * bpb);
             fseek(f, t.file_offset, SEEK_SET);
-            fread(scratch.data(), 4, std::min(n, (uint64_t)scratch.size()), f);
+            fread(raw.data(), 1, raw.size(), f);
+            if (!gguf_dequant(t.dtype, raw.data(), scratch.data(), (int)n)) {
+                // gguf_dequant returned false (unrecognized dtype) — fall
+                // back to raw float32 read from the same file position.
+                fprintf(stderr, "  Universal: dtype=%u not handled by gguf_dequant, trying raw f32\n", t.dtype);
+                fseek(f, t.file_offset, SEEK_SET);
+                fread(scratch.data(), 4, std::min(n, (uint64_t)scratch.size()), f);
+            }
         }
         return scratch.data();
     }
     void close() { if (f) fclose(f); f = nullptr; }
 };
+}  // namespace generic_backend
+
+// Local aliases so the rest of this file (UniversalBackend::gguf_, etc.) keeps
+// using the unqualified names without touching the shared header's types.
+using GgufReader = generic_backend::GgufReader;
 
 // ─── Universal CPU inference backend ─────────────────────────────────────────
 

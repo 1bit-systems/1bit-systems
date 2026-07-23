@@ -35,6 +35,8 @@ constexpr int K1_BYTES = K1 / 2;
 //   slot 2 <- input 6   slot 6 <- input 7
 //   slot 3 <- input 4   slot 7 <- input 5
 // Inverse (input slot -> output slot) = {1, 5, 0, 4, 3, 7, 2, 6}.
+// These are defined ONCE here and reused across all kernels below (fixes #748).
+__device__ __constant__ int kForwardPerm[8] = {2, 0, 6, 4, 3, 1, 7, 5};
 __device__ __constant__ int kInversePerm[8] = {1, 5, 0, 4, 3, 7, 2, 6};
 
 // Naive GEMM: one thread per output element. A loop of K inside each thread.
@@ -149,14 +151,14 @@ void standalone_ternary_gemm_lds(
                 // Byte holds two nibbles at perm_jj = byte_in_col*2 (HIGH) and *2+1 (LOW).
                 // Reverse the within-8 permute to map perm_jj back to original jj,
                 // which is the K-axis index (= kk in the LDS layout).
-                //   forward_perm[s] = input slot for output slot s — {2,0,6,4,3,1,7,5}
-                const int forward_perm[8] = {2, 0, 6, 4, 3, 1, 7, 5};
+                //   kForwardPerm[s] = input slot for output slot s — {2,0,6,4,3,1,7,5}
+                // using shared kForwardPerm
                 #pragma unroll
                 for(int nibble = 0; nibble < 2; ++nibble) {
                     const int perm_jj = byte_in_col * 2 + nibble;  // 0..31
                     const int group_base = (perm_jj / 8) * 8;
                     const int slot_out   = perm_jj & 7;
-                    const int orig_slot  = forward_perm[slot_out];
+                    const int orig_slot  = kForwardPerm[slot_out];
                     const int kk         = group_base + orig_slot;  // original K within block
                     const uint8_t nib = (nibble == 0)
                         ? ((b >> 4) & 0xF)   // HIGH nibble = first element in byte
@@ -169,8 +171,8 @@ void standalone_ternary_gemm_lds(
                 for(int nibble = 0; nibble < 2; ++nibble) {
                     const int perm_jj = byte_in_col * 2 + nibble;
                     const int group_base = (perm_jj / 8) * 8;
-                    const int forward_perm[8] = {2, 0, 6, 4, 3, 1, 7, 5};
-                    const int kk = group_base + forward_perm[perm_jj & 7];
+                    // using shared kForwardPerm
+                    const int kk = group_base + kForwardPerm[perm_jj & 7];
                     B_lds[kk * TILE_N + col_in_tile] = (__half)0;
                 }
             }
@@ -242,7 +244,7 @@ void standalone_ternary_gemm_wmma(
     const int steps_per_block = K1 / WMMA_K;  // 2 WMMA steps per K1-block
     const int jj_per_step     = WMMA_K;       // 16 original K per step
 
-    const int forward_perm[8] = {2, 0, 6, 4, 3, 1, 7, 5};
+    // using shared kForwardPerm
 
     for(int j = 0; j < K0; ++j) {
         // Each K1 block (32 elements along K axis) = 2 WMMA steps of 16.
@@ -283,13 +285,13 @@ void standalone_ternary_gemm_wmma(
                         const int jj_orig  = jj_lo + r;                     // 0..31
                         const int grp_base = (jj_orig / 8) * 8;
                         const int slot_out = jj_orig & 7;
-                        const int orig_s   = forward_perm[slot_out];        // WRONG direction; see below
+                        const int orig_s   = kForwardPerm[slot_out];        // WRONG direction; see below
                         (void)orig_s;
-                        // B_lds we built in Phase 2 used forward_perm (output->input). Here
+                        // B_lds we built in Phase 2 used kForwardPerm (output->input). Here
                         // we want: given desired ORIGINAL position jj_orig, where is it in
                         // the permuted byte buffer?
-                        const int inv_perm[8] = {1, 5, 0, 4, 3, 7, 2, 6};
-                        const int perm_slot = inv_perm[slot_out];
+                        // using shared kInversePerm
+                        const int perm_slot = kInversePerm[slot_out];
                         const int perm_jj   = grp_base + perm_slot;         // position in permuted bytes
                         const uint8_t byte  = B[b_base + (perm_jj >> 1)];
                         const uint8_t nib   = ((perm_jj & 1) == 0)
@@ -346,9 +348,9 @@ void standalone_ternary_gemm_wmma_4x(
 
     float8_t acc[4] = {};  // four 16x16 accumulators along N
 
-    const int forward_perm[8] = {2, 0, 6, 4, 3, 1, 7, 5};
-    (void)forward_perm;
-    const int inv_perm[8] = {1, 5, 0, 4, 3, 7, 2, 6};
+    // using shared kForwardPerm
+    // kForwardPerm unused (deduped)
+    // using shared kInversePerm
 
     const int K0 = K / K1;
 
@@ -385,7 +387,7 @@ void standalone_ternary_gemm_wmma_4x(
                         const int jj_orig  = jj_lo + r;
                         const int grp_base = (jj_orig / 8) * 8;
                         const int slot_out = jj_orig & 7;
-                        const int perm_slot = inv_perm[slot_out];
+                        const int perm_slot = kInversePerm[slot_out];
                         const int perm_jj   = grp_base + perm_slot;
                         const uint8_t byte  = B[b_base + (perm_jj >> 1)];
                         const uint8_t nib   = ((perm_jj & 1) == 0)
@@ -441,7 +443,7 @@ void standalone_ternary_gemm_wmma_2x4(
 
     float8_t acc[2][4] = {};   // 2 M sub-tiles x 4 N sub-tiles
 
-    const int inv_perm[8] = {1, 5, 0, 4, 3, 7, 2, 6};
+    // using shared kInversePerm
     const int K0 = K / K1;
 
     for(int j = 0; j < K0; ++j) {
@@ -477,7 +479,7 @@ void standalone_ternary_gemm_wmma_2x4(
                         const int jj_orig   = jj_lo + r;
                         const int grp_base  = (jj_orig / 8) * 8;
                         const int slot_out  = jj_orig & 7;
-                        const int perm_slot = inv_perm[slot_out];
+                        const int perm_slot = kInversePerm[slot_out];
                         const int perm_jj   = grp_base + perm_slot;
                         const uint8_t byte  = B[b_base + (perm_jj >> 1)];
                         const uint8_t nib   = ((perm_jj & 1) == 0)
@@ -545,7 +547,7 @@ void standalone_ternary_gemm_wmma_2x4_ldsB(
     const int n0 = blockIdx.x * TILE_N;
 
     float8_t acc[2][4] = {};
-    const int forward_perm[8] = {2, 0, 6, 4, 3, 1, 7, 5};
+    // using shared kForwardPerm
     const int K0 = K / K1;
 
     for(int j = 0; j < K0; ++j) {
@@ -565,7 +567,7 @@ void standalone_ternary_gemm_wmma_2x4_ldsB(
                 for(int nibble = 0; nibble < 2; ++nibble) {
                     const int perm_jj   = byte_in_col * 2 + nibble;
                     const int grp_base  = (perm_jj / 8) * 8;
-                    const int orig_slot = forward_perm[perm_jj & 7];
+                    const int orig_slot = kForwardPerm[perm_jj & 7];
                     const int kk        = grp_base + orig_slot;
                     const uint8_t nib = (nibble == 0)
                         ? ((byte >> 4) & 0xF)
@@ -577,7 +579,7 @@ void standalone_ternary_gemm_wmma_2x4_ldsB(
                 for(int nibble = 0; nibble < 2; ++nibble) {
                     const int perm_jj   = byte_in_col * 2 + nibble;
                     const int grp_base  = (perm_jj / 8) * 8;
-                    const int orig_slot = forward_perm[perm_jj & 7];
+                    const int orig_slot = kForwardPerm[perm_jj & 7];
                     const int kk        = grp_base + orig_slot;
                     B_lds[kk * TILE_N + col] = (__half)0;
                 }
@@ -674,7 +676,7 @@ void standalone_ternary_gemm_wmma_4x4(
 
     float8_t acc[4][4] = {};  // 4 M sub-tiles x 4 N sub-tiles
 
-    const int inv_perm[8] = {1, 5, 0, 4, 3, 7, 2, 6};
+    // using shared kInversePerm
     const int K0 = K / K1;
 
     for(int j = 0; j < K0; ++j) {
@@ -710,7 +712,7 @@ void standalone_ternary_gemm_wmma_4x4(
                         const int jj_orig   = jj_lo + r;
                         const int grp_base  = (jj_orig / 8) * 8;
                         const int slot_out  = jj_orig & 7;
-                        const int perm_slot = inv_perm[slot_out];
+                        const int perm_slot = kInversePerm[slot_out];
                         const int perm_jj   = grp_base + perm_slot;
                         const uint8_t byte  = B[b_base + (perm_jj >> 1)];
                         const uint8_t nib   = ((perm_jj & 1) == 0)
@@ -777,7 +779,7 @@ void standalone_ternary_gemm_wmma_4x4_cached(
     const int n0 = blockIdx.x * TILE_N;
 
     float8_t acc[4][4] = {};
-    const int inv_perm[8] = {1, 5, 0, 4, 3, 7, 2, 6};
+    // using shared kInversePerm
     const int K0 = K / K1;
 
     for(int j = 0; j < K0; ++j) {
@@ -812,7 +814,7 @@ void standalone_ternary_gemm_wmma_4x4_cached(
                     const int jj_orig   = c;
                     const int grp_base  = (jj_orig / 8) * 8;
                     const int slot_out  = jj_orig & 7;
-                    const int perm_slot = inv_perm[slot_out];
+                    const int perm_slot = kInversePerm[slot_out];
                     const int perm_jj   = grp_base + perm_slot;
                     const uint8_t byte  = B[b_base + (perm_jj >> 1)];
                     const uint8_t nib   = ((perm_jj & 1) == 0)
@@ -879,7 +881,7 @@ void standalone_ternary_gemm_wmma_4x4_vec(
     const int n0 = blockIdx.x * TILE_N;
 
     float8_t acc[4][4] = {};
-    const int inv_perm[8] = {1, 5, 0, 4, 3, 7, 2, 6};
+    // using shared kInversePerm
     const int K0 = K / K1;
 
     for(int j = 0; j < K0; ++j) {
@@ -924,7 +926,7 @@ void standalone_ternary_gemm_wmma_4x4_vec(
                 #pragma unroll
                 for(int c = 0; c < K1; ++c) {
                     const int grp_base  = (c / 8) * 8;
-                    const int perm_slot = inv_perm[c & 7];
+                    const int perm_slot = kInversePerm[c & 7];
                     const int perm_jj   = grp_base + perm_slot;
                     const uint8_t byte  = B[b_base + (perm_jj >> 1)];
                     const uint8_t nib   = ((perm_jj & 1) == 0)
@@ -1299,7 +1301,7 @@ void decode_pk_i4_to_fp16(
     const int K0  = K / K1;
 
     // Each thread handles (K / 64) K1-blocks along K axis for this column.
-    const int forward_perm[8] = {2, 0, 6, 4, 3, 1, 7, 5};
+    // using shared kForwardPerm
 
     for(int j_step = tid; j_step < K0; j_step += 64) {
         const int j = j_step;
@@ -1308,7 +1310,7 @@ void decode_pk_i4_to_fp16(
         for(int c = 0; c < K1; ++c) {
             const int grp_base = (c / 8) * 8;
             const int slot_out = c & 7;
-            const int orig_s   = forward_perm[slot_out];
+            const int orig_s   = kForwardPerm[slot_out];
             const int kk       = grp_base + orig_s;     // ORIGINAL K position
             // The byte at perm_jj=c holds two nibbles; read each and map to its
             // original K slot.
@@ -1353,7 +1355,7 @@ void standalone_gemm_4c_pipelined(
     const int n0 = blockIdx.x * TILE_N;
 
     float8_t acc[2][4] = {};
-    const int inv_perm[8] = {1, 5, 0, 4, 3, 7, 2, 6};
+    // using shared kInversePerm
     const int K0 = K / K1;
 
     // Loader helper: fills A_cache[buf] (2 m_sub x 2 step x half16_t) for given j
@@ -1409,7 +1411,7 @@ void standalone_gemm_4c_pipelined(
                 #pragma unroll
                 for(int c = 0; c < K1; ++c) {
                     const int grp_base  = (c / 8) * 8;
-                    const int perm_slot = inv_perm[c & 7];
+                    const int perm_slot = kInversePerm[c & 7];
                     const int perm_jj   = grp_base + perm_slot;
                     const uint8_t byte  = B[b_base + (perm_jj >> 1)];
                     const uint8_t nib   = ((perm_jj & 1) == 0)
@@ -1489,7 +1491,7 @@ void standalone_gemm_lds_pingpong(
 
     // Each wave owns a 32x32 output sub-tile = 2 M sub x 2 N sub = 4 WMMA tiles.
     float8_t acc[2][2] = {};
-    const int forward_perm[8] = {2, 0, 6, 4, 3, 1, 7, 5};
+    // using shared kForwardPerm
     const int K0 = K / K1;
 
     // Cooperative load helpers. 64 threads, K1=32.
@@ -1519,7 +1521,7 @@ void standalone_gemm_lds_pingpong(
             for(int nibble = 0; nibble < 2; ++nibble) {
                 const int perm_jj   = byte_in_col * 2 + nibble;
                 const int grp_base  = (perm_jj / 8) * 8;
-                const int orig_slot = forward_perm[perm_jj & 7];
+                const int orig_slot = kForwardPerm[perm_jj & 7];
                 const int kk        = grp_base + orig_slot;
                 const uint8_t nib = (nibble == 0) ? ((byte >> 4) & 0xF) : (byte & 0xF);
                 B_lds[buf][kk * TILE_N + col] = (n_col < N)
@@ -1641,7 +1643,7 @@ void standalone_ternary_gemm_wmma_2x2wave(
     const int n0 = blockIdx.x * TILE_N;
 
     float8_t acc[2][2] = {};   // 2 M sub-tiles x 2 N sub-tiles per wave
-    const int forward_perm[8] = {2, 0, 6, 4, 3, 1, 7, 5};
+    // using shared kForwardPerm
     const int K0 = K / K1;
 
     for(int j = 0; j < K0; ++j) {
@@ -1672,7 +1674,7 @@ void standalone_ternary_gemm_wmma_2x2wave(
             for(int nibble = 0; nibble < 2; ++nibble) {
                 const int perm_jj   = byte_in_col * 2 + nibble;
                 const int grp_base  = (perm_jj / 8) * 8;
-                const int orig_slot = forward_perm[perm_jj & 7];
+                const int orig_slot = kForwardPerm[perm_jj & 7];
                 const int kk        = grp_base + orig_slot;
                 const uint8_t nib = (nibble == 0)
                     ? ((byte >> 4) & 0xF)
@@ -1768,7 +1770,7 @@ void standalone_ternary_gemm_wmma_2wave(
     const int m0 = blockIdx.y * TILE_M;
     const int n0 = blockIdx.x * TILE_N;
 
-    const int forward_perm[8] = {2, 0, 6, 4, 3, 1, 7, 5};
+    // using shared kForwardPerm
     const int K0 = K / K1;
 
     // Two float8 accumulators per wave, one per WMMA step along K1.
@@ -1816,7 +1818,7 @@ void standalone_ternary_gemm_wmma_2wave(
                         for(int nibble = 0; nibble < 2; ++nibble) {
                             const int perm_jj    = byte_in_col * 2 + nibble;
                             const int grp_base   = (perm_jj / 8) * 8;
-                            const int orig_slot  = forward_perm[perm_jj & 7];
+                            const int orig_slot  = kForwardPerm[perm_jj & 7];
                             const int kk         = grp_base + orig_slot;     // original K (0..31)
                             const uint8_t nib = (nibble == 0)
                                 ? ((bb_val >> 4) & 0xF)

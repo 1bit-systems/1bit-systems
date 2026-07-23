@@ -255,6 +255,7 @@ set(RCPP_SOURCES
     kernels/zaya_moe_tiled_gemv.hip
     kernels/zaya_moe_wmma_batched.hip
     kernels/wmma_i8_gemv.hip
+    kernels/fp8_wmma_gemv.hip
     src/zaya_moe_launcher.hip
     src/mamba1_engine.hip
     src/bonsai_q1_1024.hip
@@ -264,7 +265,9 @@ set(RCPP_SOURCES
     kernels/vl_resize_norm.hip
     src/laguna_gemv.hip
     src/laguna_fused.hip
-    src/laguna_ops.hip)
+    src/laguna_ops.hip
+    src/mamba2_kernels.cpp
+    src/zamba2_engine.cpp)
 if(RCPP_HAVE_CK)
     list(APPEND RCPP_SOURCES src/ck_gemm.cpp)
 endif()
@@ -314,6 +317,7 @@ add_library(backend_manager STATIC
     src/backend_generic.cpp
     src/backend_mamba1.cpp
     src/backend_laguna.cpp
+    src/backend_zamba2.cpp
     src/simple_tokenizer.cpp
     src/q4nx_reader.cpp
     src/safetensors_reader.cpp
@@ -334,6 +338,11 @@ if(ZINC_CPP_AVAILABLE)
     target_sources(backend_manager PRIVATE src/backend_zinc.cpp)
     # add_dependencies removed - zinc_cpp is cmake target
     target_link_libraries(backend_manager PUBLIC zinc_cpp)
+    # backend_zinc.cpp includes vulkan_wrapper.h / compute_engine.h / model_loader.h
+    # from engine/gpu/zinc_cpp/include; zinc_cpp declares that dir PRIVATE so it
+    # does not propagate to consumers. unified_server adds it explicitly (line
+    # ~631) — backend_manager must too, or backend_zinc.cpp fails to compile.
+    target_include_directories(backend_manager PRIVATE engine/gpu/zinc_cpp/include)
 else()
     target_compile_definitions(backend_manager PRIVATE ZINC_DISABLED=1)
 endif()

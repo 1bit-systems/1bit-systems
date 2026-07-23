@@ -26,10 +26,15 @@
 //         (a proprietary AMD binary) was removed entirely — this project
 //         ships zero proprietary code, not "zero by default."
 //
-//   zamba / mamba / zamba2 architecture (Mamba1 SSM + MoE or shared attn)
-//     └─ hip_gpu (Mamba1/Mamba2 HIP kernels) + cpu_generic
+//   zamba2 architecture (Mamba2 hybrid SSD)
+//     └─ zamba2_gpu + cpu_generic
+//         Zamba2 models (Zamba2-1.2B/2.7B/7B) use the specialized Zamba2 backend
+//         with Mamba2 SSD kernels from mamba2_kernels.hip.
+//
+//   zamba / mamba architecture (Mamba1 SSM + MoE or shared attn)
+//     └─ hip_gpu (Mamba1 HIP kernels) + cpu_generic
 //         Mamba1 models (Zamba-7B-v1, BlackMamba) use the kernels from
-//         mamba1_engine.hip; Mamba2 models use mamba2_kernels.hip.
+//         mamba1_engine.hip.
 //         Backend selection is per-layer in the MoE case (BlackMamba:
 //         alternating SSM layers and MoE FFN layers).
 //
@@ -70,6 +75,12 @@ BackendRoute select_backend_route(const ModelConfig& cfg) {
     if (cfg.arch == RCPP_ARCH_LAGUNA) {
         return {{"laguna_gpu", "zinc_gpu", "cpu_generic"},
                 "Laguna model — specialized Laguna HIP backend, ZINC GPU fallback"};
+    }
+    // Zamba2 (Mamba2 hybrid SSD): uses specialized Zamba2 backend with
+    // Mamba2 SSD kernels from mamba2_kernels.hip.
+    if (cfg.arch == RCPP_ARCH_ZAMBA2) {
+        return {{"zamba2_gpu", "hip_gpu", "cpu_generic"},
+                "Zamba2 model — specialized Zamba2 backend, HIP GPU, generic CPU fallback"};
     }
     // Mamba1 models (Zamba-7B-v1, BlackMamba): Mamba1 SSM HIP kernels,
     // with per-layer MoE expert dispatch for BlackMamba.

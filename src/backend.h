@@ -96,8 +96,8 @@ Backend* create_npu_backend();
 // ── ZINC backend (general GGUF, multi-arch/multi-quant, via libzinc.so) ──
 Backend* create_zinc_backend();
 
-// ── Zamba2 backend ──
-Backend* create_zamba2_backend();
+// ── Zamba2 backend (mamba2_kernels.hip Mamba2 SSD kernels) ──
+extern "C" Backend* create_zamba2_backend();
 
 // ── Mamba1 GPU backend (mamba1_engine.hip kernels) ──
 // Handles Zamba-7B-v1 (pure Mamba1 SSM) and BlackMamba (Mamba1+MoE).

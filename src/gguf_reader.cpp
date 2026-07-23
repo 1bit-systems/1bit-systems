@@ -290,21 +290,51 @@ bool dequant_q8_k(const uint8_t* bd, float* out, int count) {
 
 } // namespace
 
+inline float bf16_to_fp32(uint16_t bf16) {
+    // bfloat16 -> float32: reinterpret the bits by shifting left 16.
+    // No special handling needed for NaN/Inf — the bit pattern is identical.
+    float result;
+    uint32_t f32 = (uint32_t)bf16 << 16;
+    memcpy(&result, &f32, 4);
+    return result;
+}
+
 GgufBlockInfo gguf_block_info(uint32_t dtype) {
     switch (dtype) {
-        case GGUF_DTYPE_F32:  return {1, 4};
-        case GGUF_DTYPE_F16:  return {1, 2};
-        case GGUF_DTYPE_Q4_0: return {32, 18};
-        case GGUF_DTYPE_Q4_1: return {32, 20};
-        case GGUF_DTYPE_Q5_0: return {32, 22};
-        case GGUF_DTYPE_Q5_1: return {32, 24};
-        case GGUF_DTYPE_Q8_0: return {32, 34};
-        case GGUF_DTYPE_Q2_K: return {256, 84};
-        case GGUF_DTYPE_Q3_K: return {256, 110};
-        case GGUF_DTYPE_Q4_K: return {256, 144};
-        case GGUF_DTYPE_Q5_K: return {256, 176};
-        case GGUF_DTYPE_Q6_K: return {256, 210};
-        case GGUF_DTYPE_Q8_K: return {256, 292};
+        case GGUF_DTYPE_F32:    return {1, 4};
+        case GGUF_DTYPE_F16:    return {1, 2};
+        case GGUF_DTYPE_BF16:   return {1, 2};
+        case GGUF_DTYPE_Q4_0:   return {32, 18};
+        case GGUF_DTYPE_Q4_1:   return {32, 20};
+        case GGUF_DTYPE_Q5_0:   return {32, 22};
+        case GGUF_DTYPE_Q5_1:   return {32, 24};
+        case GGUF_DTYPE_Q8_0:   return {32, 34};
+        case GGUF_DTYPE_Q2_K:   return {256, 84};
+        case GGUF_DTYPE_Q3_K:   return {256, 110};
+        case GGUF_DTYPE_Q4_K:   return {256, 144};
+        case GGUF_DTYPE_Q5_K:   return {256, 176};
+        case GGUF_DTYPE_Q6_K:   return {256, 210};
+        case GGUF_DTYPE_Q8_K:   return {256, 292};
+        // IQ format block sizes (for correct file offset computation).
+        // Dequantization is not implemented here — these return false
+        // from gguf_dequant; callers can use get_tensor_raw() for
+        // custom dequant.
+        case GGUF_DTYPE_IQ1_S:  return {256, 206};
+        case GGUF_DTYPE_IQ1_M:  return {256, 230};
+        case GGUF_DTYPE_IQ2_XXS: return {256, 166};
+        case GGUF_DTYPE_IQ2_S:  return {256, 214};
+        case GGUF_DTYPE_IQ3_XXS: return {256, 198};
+        case GGUF_DTYPE_IQ3_S:  return {256, 238};
+        case GGUF_DTYPE_IQ4_NL: return {32, 22};
+        case GGUF_DTYPE_IQ4_XS: return {256, 214};
+        case GGUF_DTYPE_Q4_0_4_4: return {256, 208};
+        case GGUF_DTYPE_Q4_0_4_8: return {256, 208};
+        case GGUF_DTYPE_Q4_0_8_8: return {256, 272};
+        // Project-specific ternary/binary formats (h1b weight format)
+        // TQ2_0_g128: ternary, 2-bit packed, group=128 → blocks of 128 el, 33 bytes
+        case GGUF_DTYPE_TQ2_0_G128: return {128, 33};
+        // Q1_0_g128: binary, 1-bit packed, group=128 → blocks of 128 el, 17 bytes
+        case GGUF_DTYPE_Q1_0_G128: return {128, 17};
         default: return {0, 0};
     }
 }
@@ -314,6 +344,9 @@ bool gguf_dequant(uint32_t dtype, const uint8_t* data, float* out, int count) {
         case GGUF_DTYPE_F32: memcpy(out, data, (size_t)count * 4); return true;
         case GGUF_DTYPE_F16:
             for (int i = 0; i < count; i++) out[i] = read_f16(data + (size_t)i * 2);
+            return true;
+        case GGUF_DTYPE_BF16:
+            for (int i = 0; i < count; i++) out[i] = bf16_to_fp32(((const uint16_t*)data)[i]);
             return true;
         case GGUF_DTYPE_Q4_0: return dequant_q4_0(data, out, count);
         case GGUF_DTYPE_Q4_1: return dequant_q4_1(data, out, count);

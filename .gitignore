@@ -1,115 +1,70 @@
-# Build artifacts
+# ── Build artifacts ──
 build/
+build_cmake/
+cmake-build-*/
+_build/
+out/
 *.o
 *.obj
+*.a
+*.so
+*.dylib
 *.exe
 *.out
 *.app
 
-# IDE
+# ── IDE / Editor ──
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# Python
-__pycache__/
-*.pyc
-.venv/
-venv/
-
-# OS
+*~
 .DS_Store
 Thumbs.db
 
-# Rust
-rust/target/
-daemon/*/target/
-target/
-zig-cache/
-zig-out/
+# ── Python ──
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+*.egg
 
-# ROCm compiler artifacts
-*.hipfb
-
-# Test data / large binaries
-**/test_data/
-**/test_models/
+# ── Model weight files (large, should not be committed) ──
 *.gguf
-*.1bp
+*.q4nx
 *.h1b
+*.1bp
+*.onnx
+*.safetensors
 *.bin
-*.npz
 *.pt
+*.pth
+models/*.gguf
+models/*.1bp
 
-# Live collaborative workspace lock files
-.workspace/
-
-# Never re-commit a nested clone of this repo (issue #237).
-1bit-systems/
-
-# Environment files (never commit secrets)
+# ── Environment / Config ──
 .env
-.env.*
-!.env.example
+.env.local
+*.env
 
-# Machine-specific MCP config (absolute paths)
-.mcp.json
+# ── Logs ──
+*.log
+logs/
 
-# Clangd/LSP cache
-.cache/
-
-# Cloudflare Pages build artifact
-site/docs/.build/
-
-# Compiled tool binaries (tracking issue #438)
-/tools/dspark_full
-/tools/dspark_gpu_bench
-/tools/oscar_calib
-/tools/trg_save
-
-# Compiled test binary (RUNTIME_OUTPUT_DIRECTORY intentionally points into the
-# source tree so it's runnable from its natural location — see CMakeLists.txt)
-/engine/fusion/zero_copy/test_pipeline_real
-
-# Compiled engine/fusion binaries (issue #438)
-engine/fusion/debug_55t
-engine/fusion/debug_cmp
-engine/fusion/engine
-engine/fusion/engine_55t
-engine/fusion/engine_55t_v2
-engine/fusion/engine_55t_v3
-engine/fusion/engine_55t_v4
-engine/fusion/engine_fast
-engine/fusion/engine_final
-engine/fusion/engine_final_clean
-engine/fusion/engine_final_working
-engine/fusion/engine_fused
-engine/fusion/engine_fused2
-engine/fusion/engine_fused_dbg
-engine/fusion/engine_gpu_v2
-engine/fusion/engine_i8
-engine/fusion/engine_peak
-engine/fusion/engine_peak_profile
-
-# Generated xclbin artifacts
-engine/npu/xclbins/
-engine/engine/
-
-# temp files
-*.bak
-*.tmp
-node_modules/
-
-# Build artifacts
-build-*/
-.zig-cache/
-*.o
-*.a
-*.so
-*.o.d
-
-# native tokenizer tool binary (build via: make -C engine/fusion)
-engine/fusion/tokenize
-changes/
-_deps/
+# ── Compiled binaries in tools/ (source is the truth) ──
+tools/dspark_adapter
+tools/dspark_batch
+tools/dspark_bench
+tools/dspark_gpu
+tools/dspark_gpu_bench
+tools/dspark_gpu_full
+tools/dspark_gpu_only
+tools/dspark_live
+tools/dspark_trg
+tools/dspark_full
+tools/bench_cpu_trg
+tools/cpu_q4nx_test
+tools/cpu_q4nx_to_ternary
+tools/cpu_ternary_gemv
+tools/gguf_to_h1b

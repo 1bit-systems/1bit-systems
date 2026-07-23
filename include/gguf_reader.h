@@ -27,22 +27,42 @@
 #include <unordered_map>
 
 // Real ggml_type values (0=F32, 1=F16, 2=Q4_0, 3=Q4_1, [4,5 removed],
-// 6=Q5_0, 7=Q5_1, 8=Q8_0, 9=Q8_1, 10..15=K-quants).
+// 6=Q5_0, 7=Q5_1, 8=Q8_0, 9=Q8_1, 10..15=K-quants,
+// 16=IQ2_XXS, 17=IQ3_XXS, 18=IQ1_S, 19=IQ4_NL, 20=IQ3_S, 21=IQ2_S,
+// 22=IQ4_XS, 23=IQ1_M, 24=BF16, 26=Q4_0_4_4, 27=Q4_0_4_8, 28=Q4_0_8_8).
+// Only F32/F16/BF16 and the standard quant types listed below are supported
+// for dequant; IQ-format tensors are dequantized via a shared inline helper.
 enum GgufDtype : uint32_t {
-    GGUF_DTYPE_F32  = 0,
-    GGUF_DTYPE_F16  = 1,
-    GGUF_DTYPE_Q4_0 = 2,
-    GGUF_DTYPE_Q4_1 = 3,
-    GGUF_DTYPE_Q5_0 = 6,
-    GGUF_DTYPE_Q5_1 = 7,
-    GGUF_DTYPE_Q8_0 = 8,
-    GGUF_DTYPE_Q8_1 = 9,
-    GGUF_DTYPE_Q2_K = 10,
-    GGUF_DTYPE_Q3_K = 11,
-    GGUF_DTYPE_Q4_K = 12,
-    GGUF_DTYPE_Q5_K = 13,
-    GGUF_DTYPE_Q6_K = 14,
-    GGUF_DTYPE_Q8_K = 15,
+    GGUF_DTYPE_F32    = 0,
+    GGUF_DTYPE_F16    = 1,
+    GGUF_DTYPE_Q4_0   = 2,
+    GGUF_DTYPE_Q4_1   = 3,
+    GGUF_DTYPE_Q5_0   = 6,
+    GGUF_DTYPE_Q5_1   = 7,
+    GGUF_DTYPE_Q8_0   = 8,
+    GGUF_DTYPE_Q8_1   = 9,
+    GGUF_DTYPE_Q2_K   = 10,
+    GGUF_DTYPE_Q3_K   = 11,
+    GGUF_DTYPE_Q4_K   = 12,
+    GGUF_DTYPE_Q5_K   = 13,
+    GGUF_DTYPE_Q6_K   = 14,
+    GGUF_DTYPE_Q8_K   = 15,
+    GGUF_DTYPE_IQ2_XXS = 16,
+    GGUF_DTYPE_IQ3_XXS = 17,
+    GGUF_DTYPE_IQ1_S   = 18,
+    GGUF_DTYPE_IQ4_NL  = 19,
+    GGUF_DTYPE_IQ3_S   = 20,
+    GGUF_DTYPE_IQ2_S   = 21,
+    GGUF_DTYPE_IQ4_XS  = 22,
+    GGUF_DTYPE_IQ1_M   = 23,
+    GGUF_DTYPE_BF16   = 24,
+    GGUF_DTYPE_Q4_0_4_4 = 26,
+    GGUF_DTYPE_Q4_0_4_8 = 27,
+    GGUF_DTYPE_Q4_0_8_8 = 28,
+    // Custom / project-specific dtypes (collide with real ggml_type enums
+    // but are used by this project's weight formats)
+    GGUF_DTYPE_TQ2_0_G128 = 42,  // Ternary Q2_0, group size 128 (h1b format)
+    GGUF_DTYPE_Q1_0_G128 = 41,   // Binary Q1_0, group size 128 (h1b format)
 };
 
 // Block size (elements) and bytes-per-block for a dtype. Returns {0,0} for

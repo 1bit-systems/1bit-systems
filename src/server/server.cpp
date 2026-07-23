@@ -111,15 +111,33 @@ void brief_print_message_request(nlohmann::json request) {
         }
     }
 
-    // TODO: improve tools logging like only print the tool name and elide the arguments
-    // TODO: Support debug level
-    if (request.contains("tools")) {
-        request["tools"] = "...";
+    // Elide tool arguments in logging: keep only tool names, omit params/schema.
+    if (request.contains("tools") && request["tools"].is_array()) {
+        for (auto& tool : request["tools"]) {
+            if (tool.contains("function")) {
+                json fn;
+                fn["name"] = tool["function"]["name"];
+                fn["parameters"] = "...elided...";
+                tool["function"] = fn;
+            }
+        }
     }
+    // Debug-level logging: enabled by setting ZAYA_DEBUG=1 env var.
+    // When disabled, the brief body dump below is skipped entirely
+    // (only the endpoint name and token count are printed).
+    static const bool zaya_debug = []() {
+        const char* e = getenv("ZAYA_DEBUG");
+        return e && e[0] == '1';
+    }();
 
-    header_print("LOG", "Body: ");
-    std::string brief_body = request.dump(4);
-    std::cout << brief_body << std::endl;
+    if (zaya_debug) {
+        header_print("LOG", "Body: ");
+        std::string brief_body = request.dump(4);
+        std::cout << brief_body << std::endl;
+    } else {
+        std::string model = request.value("model", "unknown");
+        header_print("REQ", model + " — " + std::to_string(request.value("max_tokens", 256)) + " max_tokens");
+    }
 }
 
 ///@brief brief print request

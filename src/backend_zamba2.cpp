@@ -33,16 +33,50 @@ struct Zamba2Tokenizer {
     std::unordered_map<std::string, int> token_to_id;
 
     bool load_from_gguf(const std::string& gguf_path) {
-        // TODO(#gguf-tokenizer): Read tokenizer.ggml.* KV pairs from the GGUF
-        // metadata header (see gguf_loader.cpp for KV-pair parsing).  The
-        // tokenizer model type, vocab, merges, and special-token IDs are all
-        // stored there.  Until this is wired, we assume a Mistral tokenizer.
-        fprintf(stderr, "[zamba2] Tokenizer: using Mistral v0.1 tokenizer (vocab=32000)\n");
+        // Read tokenizer.ggml.bos_token_id / eos_token_id from the GGUF
+        // KV metadata header. Simple inline reader — no external deps.
+        FILE* f = fopen(gguf_path.c_str(), "rb");
+        if (!f) { fprintf(stderr, "[zamba2] Tokenizer: can't open %s\n", gguf_path.c_str()); return true; }
+        uint32_t magic; fread(&magic, 4, 1, f);
+        if (magic != 0x46554747) { fclose(f); return true; }
+        fseek(f, 4, SEEK_CUR);  // skip version
+        uint64_t n_tensors, n_kv;
+        fread(&n_tensors, 8, 1, f); fread(&n_kv, 8, 1, f);
+        for (uint64_t i = 0; i < n_kv && i < 1024; i++) {
+            uint64_t klen; fread(&klen, 8, 1, f);
+            if (klen > 256) { fclose(f); return true; }
+            std::string key(klen, '\0'); fread(&key[0], 1, klen, f);
+            uint32_t vtype; fread(&vtype, 4, 1, f);
+            if (key == "tokenizer.ggml.bos_token_id" && vtype == 4) {
+                uint32_t v; fread(&v, 4, 1, f); bos_id_ = (int)v;
+            } else if (key == "tokenizer.ggml.eos_token_id" && vtype == 4) {
+                uint32_t v; fread(&v, 4, 1, f); eos_id_ = (int)v;
+            } else {
+                // Skip value
+                if (vtype == 0 || vtype == 1 || vtype == 7) fseek(f, 1, SEEK_CUR);
+                else if (vtype >= 2 && vtype <= 6) fseek(f, 4, SEEK_CUR);
+                else if (vtype >= 10 && vtype <= 12) fseek(f, 8, SEEK_CUR);
+                else if (vtype == 8) { uint64_t slen; fread(&slen, 8, 1, f); fseek(f, slen, SEEK_CUR); }
+                else if (vtype == 9) { uint32_t n_arr, at; fread(&n_arr, 4, 1, f); fread(&at, 4, 1, f);
+                    for (uint32_t j = 0; j < n_arr; j++) {
+                        if (at == 2 || at == 8) { uint64_t sl; fread(&sl, 8, 1, f); fseek(f, sl, SEEK_CUR); }
+                        else if (at <= 7) fseek(f, 1, SEEK_CUR);
+                        else fseek(f, 8, SEEK_CUR);
+                    }
+                }
+            }
+        }
+        fclose(f);
+        fprintf(stderr, "[zamba2] Tokenizer: BOS=%d EOS=%d (from GGUF)\n", bos_id_, eos_id_);
         return true;
     }
 
-    int bos_id() const { return 1; }
-    int eos_id() const { return 2; }
+    int bos_id() const { return bos_id_; }
+    int eos_id() const { return eos_id_; }
+
+private:
+    int bos_id_ = 1;
+    int eos_id_ = 2;
 };
 
 // ── Zamba2 Backend ──

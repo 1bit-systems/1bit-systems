@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include "hip_check.h"
 
 constexpr int TR=32, TC=256, GS=32, NG=TC/GS, RB=NG*4+TC/2, TB=TR*RB;
 
@@ -23,7 +24,7 @@ __global__ void q4nx_gemv(const float* x, const uint8_t* w, float* y,
     int r_eff = min(rs + TR, K) - rs;
     int c_eff = min(cs + TC, M) - cs;
     
-    unsigned active_mask = __ballot_sync(0xFFFFFFFF, r < r_eff);
+    unsigned long long active_mask = __ballot_sync(0xFFFFFFFFull, r < r_eff);
     float xr = (r < r_eff) ? x[rs + r] : 0.0f;
     
     for (int c = 0; c < c_eff; c++) {

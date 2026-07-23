@@ -73,6 +73,9 @@ extern Backend* create_cpu_backend();
 // Linked directly when ROCM_CPP_STATIC_HIP is defined.
 extern "C" Backend* create_mamba1_backend();
 
+// Zamba2 GPU backend — uses Mamba2 SSD kernels from mamba2_kernels.hip
+extern "C" Backend* create_zamba2_backend();
+
 // ── Runtime backend creation via dlsym ──
 // These try to load from either the rocm_cpp shared library or standalone modules.
 // If the library isn't available (e.g., no ROCm installed), they return nullptr.
@@ -115,6 +118,10 @@ static bool has_static_symbol(const char* symbol) {
 // ── Mamba1 detection ──
 bool is_mamba1_architecture(const ModelConfig& cfg) {
     return cfg.arch == RCPP_ARCH_MAMBA || cfg.arch == RCPP_ARCH_ZAMBA;
+}
+
+bool is_zamba2_architecture(const ModelConfig& cfg) {
+    return cfg.arch == RCPP_ARCH_ZAMBA2;
 }
 
 // ── Auto-detect available backends ──
@@ -213,16 +220,24 @@ Backend* create_best_backend() {
     return create_backend(best);
 }
 
-// ── Mamba1-aware HIP creation ──
-// Creates either the general HIP backend or the Mamba1-specialized backend
-// depending on the model architecture. Mamba1 models (Zamba, BlackMamba)
-// use mamba1_engine.hip kernels; everything else uses the generic HIP path.
+// ── Architecture-aware HIP creation ──
+// Creates a specialized backend depending on the model architecture:
+//   - Mamba1 (Zamba, BlackMamba) → Mamba1 GPU backend (mamba1_engine.hip)
+//   - Zamba2 (Zamba2-1.2B/2.7B/7B) → Zamba2 GPU backend (mamba2_kernels.hip)
+//   - Everything else → generic HIP backend.
 Backend* create_backend_for_arch(BackendType type, const ModelConfig* cfg) {
     if (type == BackendType::HIP_GPU && cfg && is_mamba1_architecture(*cfg)) {
         // Mamba1 models use the specialized Mamba1 GPU backend
         auto* b = create_mamba1_backend();
         if (b) { printf("  Created Mamba1 GPU backend\n"); return b; }
         printf("  Mamba1 GPU backend unavailable\n");
+        return nullptr;
+    }
+    if (type == BackendType::HIP_GPU && cfg && is_zamba2_architecture(*cfg)) {
+        // Zamba2 models use the specialized Zamba2 GPU backend
+        auto* b = create_zamba2_backend();
+        if (b) { printf("  Created Zamba2 GPU backend\n"); return b; }
+        printf("  Zamba2 GPU backend unavailable\n");
         return nullptr;
     }
     return create_backend(type);

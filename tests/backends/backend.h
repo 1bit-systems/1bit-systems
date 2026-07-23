@@ -17,6 +17,8 @@
 struct InferenceResult {
     std::vector<int> tokens;
     std::string text;
+    int prompt_tokens = 0;
+    int completion_tokens = 0;
     float gen_ms = 0;
     float tok_s = 0;
 };

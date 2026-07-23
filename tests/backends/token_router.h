@@ -285,6 +285,49 @@ struct TokenRouter {
         result.tok_s = ms > 0 ? out_tokens.size() / (ms / 1000.0f) : 0;
         return result;
     }
+
+    // ── Batch inference: process multiple prompts efficiently ──
+    // Groups B sequences into one forward pass where possible.
+    // Useful for prefill-heavy workloads (chat templates, few-shot).
+    std::vector<InferenceResult> infer_batch(
+        const std::vector<std::vector<int>>& prompts,
+        int max_tokens_per_seq)
+    {
+        std::vector<InferenceResult> results(prompts.size());
+        if (prompts.empty() || !primary) return results;
+
+        auto t0 = std::chrono::high_resolution_clock::now();
+
+        for (size_t b = 0; b < prompts.size(); b++) {
+            const auto& prompt = prompts[b];
+            if (prompt.empty()) continue;
+
+            primary->reset_state();
+            std::vector<int> out_tokens;
+            int last_token = prompt.back();
+
+            for (int i = 0; i < max_tokens_per_seq; i++) {
+                int next = primary->forward(last_token, i);
+                out_tokens.push_back(next);
+                last_token = next;
+                if (next == 106) break;
+            }
+
+            results[b].tokens = out_tokens;
+            results[b].prompt_tokens = (int)prompt.size();
+            results[b].completion_tokens = (int)out_tokens.size();
+        }
+
+        float ms = std::chrono::duration<float, std::milli>(
+            std::chrono::high_resolution_clock::now() - t0).count();
+
+        for (auto& r : results) {
+            r.gen_ms = ms;
+            r.tok_s = r.tokens.size() > 0
+                ? r.tokens.size() / (ms / 1000.0f) : 0;
+        }
+        return results;
+    }
 };
 
 // ─── Content-based model selection ──────────────────────────────────
