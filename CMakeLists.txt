@@ -334,12 +334,18 @@ target_compile_definitions(backend_manager PRIVATE __HIP_PLATFORM_AMD__=1)
 target_link_libraries(backend_manager PUBLIC dl rocm_cpp hip::host hip::device)
 target_compile_options(backend_manager PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
 
-# ZINC_DISABLED is always set for the tokenizer: zinc_tokenizer_* symbols come
-# from the external libzinc.so (Zig), not from zinc_cpp (Vulkan compute).
-# The stubs in simple_tokenizer.cpp provide no-op implementations that let
-# the C++ ASCII fallback work without the Zig dependency (issue #798).
-# zinc_cpp itself (Vulkan GPU backend) is still linked when available.
-target_compile_definitions(backend_manager PRIVATE ZINC_DISABLED=1)
+# Try to find libzinc.so for the real GGUF tokenizer C ABI.
+# If not found, ZINC_DISABLED remains set and the C++ stubs in
+# simple_tokenizer.cpp provide the fallback (issue #798).
+find_library(ZINC_LIB zinc PATHS /home/bcloud/zinc/zig-out/lib /opt/zinc/lib /usr/local/lib /usr/lib)
+if(ZINC_LIB)
+    message(STATUS "Found libzinc.so: ${ZINC_LIB} — using real GGUF tokenizer")
+    target_link_libraries(backend_manager PRIVATE ${ZINC_LIB})
+    # ZINC_DISABLED is NOT set — simple_tokenizer.cpp uses real extern "C" calls
+else()
+    message(STATUS "libzinc.so not found — using C++ tokenizer stubs (ZINC_DISABLED)")
+    target_compile_definitions(backend_manager PRIVATE ZINC_DISABLED=1)
+endif()
 
 if(ZINC_CPP_AVAILABLE)
     target_sources(backend_manager PRIVATE src/backend_zinc.cpp)
