@@ -17,6 +17,8 @@
 
 **One binary unifies NPU + GPU + CPU inference — no external subprocess, no proprietary runtime. C++23, zero Python at runtime.**
 
+**29 supported models** — see [`models/catalog/README.md`](models/catalog/README.md) for the full list.
+
 ### Why 1BP?
 
 1BP is this project's native model format, designed to eliminate the config-file tax that every other format imposes:
