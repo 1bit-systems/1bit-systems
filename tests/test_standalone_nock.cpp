@@ -42,6 +42,11 @@ static void cpu_ref(const _Float16* A, const int8_t* B_packed, _Float16* C, int 
 }
 
 int main(int argc, char** argv) {
+    int dev_count = 0;
+    if (hipGetDeviceCount(&dev_count) != hipSuccess || dev_count == 0) {
+        fprintf(stderr, "no HIP device available, skipping\n");
+        return 77;
+    }
     int M = 128, N = 128, K = 256;
     if(argc >= 4) { M = std::atoi(argv[1]); N = std::atoi(argv[2]); K = std::atoi(argv[3]); }
     M = (M / 16) * 16; if (M < 16) M = 16;

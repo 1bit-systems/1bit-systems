@@ -21,6 +21,7 @@
 #include <cmath>
 #include <vector>
 #include <string>
+#include <mutex>
 #include <fstream>
 #include <chrono>
 #include <algorithm>
@@ -46,11 +47,13 @@ static inline void rmsnorm(float* x, const float* w, int n) {
 }
 static inline float silu(float x) { return x / (1.0f + expf(-x)); }
 
-// RoPE cache (built once at init)
+// RoPE cache (built once at init, thread-safe via mutex)
 static std::vector<float> cos_cache, sin_cache;
 static int rope_hd = 0;
+static std::mutex rope_cache_mutex;
 static void build_rope_cache(int max_pos, int head_dim, float theta) {
-    if (head_dim == rope_hd && !cos_cache.empty()) return; // already built
+    std::lock_guard<std::mutex> lock(rope_cache_mutex);
+    if (head_dim == rope_hd && !cos_cache.empty()) return; // already built — double-checked under lock
     rope_hd = head_dim;
     int hd2 = head_dim / 2;
     cos_cache.resize(max_pos * head_dim);

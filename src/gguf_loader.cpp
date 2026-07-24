@@ -116,9 +116,13 @@ rcpp_status_t rcpp_bitnet_load_gguf(const char* path, rcpp_bitnet_model_t* out_m
         // Select target pointers based on weight format
         // BST format writes to bst_*_packed_dev, standard writes to *_packed_dev
         auto lw = [&](const std::string& gn, void** std_ptr, void** bst_ptr, int r, int c) -> rcpp_status_t {
-            (void)r; (void)c;
             std::vector<float> data;
             if (!read_tensor_f32(gn, data)) return RCPP_OK;
+            size_t expected = (size_t)r * c;
+            if (data.size() != expected) {
+                fprintf(stderr, "GGUF: tensor %s dim mismatch: expected %dx%d=%zu, got %zu\n", gn.c_str(), r, c, expected, data.size());
+                return RCPP_INVALID_ARG;
+            }
             if (data.size() > MAX_EL) { fprintf(stderr, "GGUF: tensor %s too large (%zu el)\n", gn.c_str(), data.size()); return RCPP_INVALID_ARG; }
             std::vector<_Float16> f16(data.size());
             for (size_t i = 0; i < data.size(); ++i) f16[i] = (_Float16)data[i];

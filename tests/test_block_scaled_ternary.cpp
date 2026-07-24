@@ -100,6 +100,11 @@ static int run_test(int M, int K, const char* label) {
 }
 
 int main() {
+    int dev_count = 0;
+    if (hipGetDeviceCount(&dev_count) != hipSuccess || dev_count == 0) {
+        fprintf(stderr, "no HIP device available, skipping\n");
+        return 77;
+    }
     int total = 0;
     total += run_test(4, 1024, "aligned K");
     total += run_test(4, 520, "unaligned K");

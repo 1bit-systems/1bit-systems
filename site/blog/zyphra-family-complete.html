@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- PRIMARY META -->
+<title>Zyphra family complete — Zamba2 hybrid SSM and ZR1 reasoning, all 1BP · 1bit.systems</title>
+<meta name="description" content="Zyphra's entire model line runs on 1bit.systems — Zamba2 Mamba2-hybrid (1.2B/2.7B/7B) and ZR1-1.5B reasoning-tuned dense. Two architectures, one pipeline, ZINC GPU validated.">
+<meta name="keywords" content="Zyphra, Zamba2, ZR1, Mamba2-hybrid, SSM, 1BP, model conversion, GGUF, ZINC GPU, Strix Halo, AMD NPU, C++23">
+<meta name="robots" content="index, follow">
+
+<!-- CANONICAL -->
+<link rel="canonical" href="https://1bit.systems/blog/zyphra-family-complete">
+
+<!-- OPEN GRAPH -->
+<meta property="og:title" content="Zyphra family complete — Zamba2 + ZR1 all running in one C++ binary">
+<meta property="og:description" content="Zyphra's Zamba2 Mamba2-hybrid (1.2B/2.7B/7B) and ZR1-1.5B reasoning model all converted to 1BP and validated end-to-end. Zero Python, one binary.">
+<meta property="og:url" content="https://1bit.systems/blog/zyphra-family-complete">
+<meta property="og:type" content="article">
+<meta property="og:image" content="https://1bit.systems/assets/og-zyphra-family-complete.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:site_name" content="1bit.systems">
+
+<!-- TWITTER/X CARD -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Zyphra family complete — Zamba2 + ZR1 all running in one C++ binary">
+<meta name="twitter:description" content="Zyphra's Zamba2 (1.2B/2.7B/7B) and ZR1-1.5B reasoning model all converted to 1BP. 26 tok/s on ZINC GPU.">
+<meta name="twitter:image" content="https://1bit.systems/assets/og-zyphra-family-complete.png">
+
+<!-- JSON-LD -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Zyphra family complete — Zamba2 hybrid SSM and ZR1 reasoning, all 1BP",
+  "description": "Zyphra's entire model line converted to 1BP format — Zamba2 Mamba2-hybrid (1.2B/2.7B/7B) and ZR1-1.5B reasoning-tuned dense transformer. Validated end-to-end on ZINC GPU.",
+  "author": {
+    "@type": "Person",
+    "name": "bong-water-water-bong",
+    "url": "https://github.com/bong-water-water-bong"
+  },
+  "datePublished": "2026-07-26",
+  "dateModified": "2026-07-26",
+  "publisher": {
+    "@type": "Organization",
+    "name": "1bit.systems",
+    "url": "https://1bit.systems",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://1bit.systems/assets/favicon.svg"
+    }
+  },
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://1bit.systems/blog/zyphra-family-complete"
+  },
+  "image": {
+    "@type": "ImageObject",
+    "url": "https://1bit.systems/assets/og-zyphra-family-complete.png",
+    "width": 1200,
+    "height": 630
+  },
+  "keywords": "Zyphra, Zamba2, ZR1, Mamba2-hybrid, SSM, 1BP, model conversion, GGUF, ZINC GPU",
+  "inLanguage": "en-US",
+  "isAccessibleForFree": true,
+  "license": "https://opensource.org/licenses/MIT"
+}
+</script>
+
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+
+<style>
+  :root{--bg:#021621;--panel:#06222f;--border:#0e3346;--text:#e7f6fd;--muted:#86adbf;--dim:#4a6a7a;--green:#00ff00;--pink:#f00fd2;--blue:#12a0ed;--sans:'Inter',Helvetica,Arial,sans-serif;--mono:'JetBrains Mono',Consolas,monospace;--maxw:780px;}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.7;}
+  a{color:var(--blue);font-weight:600;text-decoration:none;}a:hover{color:var(--green);}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px;}
+  nav{position:sticky;top:0;backdrop-filter:blur(14px);background:rgba(2,22,33,.78);border-bottom:1px solid var(--border);}
+  .nav-in{max-width:1180px;margin:0 auto;padding:0 32px;height:60px;display:flex;align-items:center;gap:12px;}
+  .mark{width:32px;height:32px;border-radius:999px;background:var(--bg);border:2px solid var(--pink);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;color:var(--green);}
+  .wordmark{font-size:15px;font-weight:800;letter-spacing:-.025em;}.wordmark .g{color:var(--green);}.wordmark .p{color:var(--pink);}
+  article{padding:48px 0 64px;}
+  h1{font-size:clamp(26px,3.6vw,42px);font-weight:900;line-height:1.08;margin:16px 0 8px;}
+  .meta{font-family:var(--mono);font-size:13px;color:var(--dim);margin-bottom:32px;padding-bottom:20px;border-bottom:1px solid var(--border);}
+  h2{font-size:clamp(20px,2.4vw,28px);font-weight:800;margin:36px 0 12px;color:var(--green);}
+  p{margin:16px 0;font-size:16px;color:var(--muted);line-height:1.7;}p strong{color:var(--text);}
+  ul{margin:12px 0;padding-left:24px;color:var(--muted);font-size:16px;}li{margin:6px 0;}
+  code{background:var(--panel);padding:2px 7px;border-radius:5px;font-family:var(--mono);font-size:14px;color:var(--green);border:1px solid var(--border);}
+  pre{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 18px;overflow-x:auto;margin:16px 0;font-family:var(--mono);font-size:13px;color:var(--muted);}
+  pre .g{color:var(--green);}pre .c{color:var(--dim);}pre .r{color:var(--pink);}
+  blockquote{border-left:3px solid var(--pink);padding:12px 18px;margin:20px 0;background:var(--panel);border-radius:0 10px 10px 0;}
+  hr{border:none;border-top:1px solid var(--border);margin:32px 0;}
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px;}
+  th,td{padding:8px 12px;border:1px solid var(--border);text-align:left;}
+  th{background:var(--panel);color:var(--text);}td{color:var(--muted);}
+  .tag{display:inline-flex;height:22px;padding:0 10px;border-radius:5px;font-size:10px;font-weight:800;text-transform:uppercase;color:var(--bg);margin-right:6px;}
+  .tag.npu{background:var(--pink);}.tag.g{background:var(--green);color:var(--bg);}.tag.b{background:var(--blue);color:var(--bg);}
+  .foot{border-top:1px solid var(--border);padding:24px 0 40px;text-align:center;font-size:13px;color:var(--dim);}
+  blockquote:hover{border-left-color:var(--blue) !important;}
+  pre code{background:transparent;border:none;padding:0;font-size:13px;}
+</style>
+</head>
+<body>
+<nav><div class="nav-in"><a class="mark" href="/">1bs</a><a class="wordmark" href="/"><span class="g">1</span>bit<span class="p">.</span>systems</a><span style="flex:1"></span><a href="/" style="font-size:13px;color:var(--muted);">← Home</a></div></nav>
+<article class="wrap">
+
+<div class="meta">
+  <span class="tag g">ZINC GPU</span> <span class="tag b">model-conversion</span> <span class="tag npu">Mamba2</span>
+  <br><br>
+  <strong style="color:var(--text);">bong-water-water-bong</strong> · Jul 26, 2026 · 3 min read
+</div>
+
+<h1>Zyphra family complete — Zamba2 hybrids and ZR1 reasoning, all 1BP</h1>
+
+<p><strong>tl;dr:</strong> Zyphra ships four architecturally distinct models across two families — Mamba2-hybrid SSM (Zamba2) and dense reasoning-tuned (ZR1). All four now convert cleanly through the 1BP pipeline and run end-to-end on ZINC GPU. ZR1-1.5B does <strong>26 tok/s</strong> on a Strix Halo ZINC GPU.</p>
+
+<hr>
+
+<h2>Beyond Zaya</h2>
+<p>Zaya1 was the headliner — a 149 MB 8.8B parameter 1-bit model that fits in L2 cache. But Zyphra's other lines are worth attention. They publish three distinct architectures:</p>
+
+<ul>
+  <li><strong>Mamba2-hybrid</strong> — Zamba2 family. State-space layers with attention injected every 6th layer. Mixes linear-complexity SSM with sparse self-attention.</li>
+  <li><strong>Dense transformer (Qwen2 arch)</strong> — ZR1-1.5B. Standard decoder-only, but reasoning-tuned via long chain-of-thought. A different beast entirely from Zaya's 1-bit ternary.</li>
+</ul>
+
+<p>The 1BP pipeline is model-agnostic — GGUF auto-detection means no config files, no architecture-specific branches at load time. But each family needed its own conversion path tested and the resulting 1BP validated end-to-end. Here's the complete status:</p>
+
+<table>
+<tr><th>Model</th><th>Params</th><th>Architecture</th><th>1BP Size</th><th>Status</th></tr>
+<tr><td>Zamba2-1.2B-Instruct-v2</td><td>1.2B</td><td>Mamba2-hybrid (attn every 6th)</td><td>1.1 GB</td><td><strong style="color:var(--green);">✅</strong></td></tr>
+<tr><td>Zamba2-2.7B-Instruct-v2</td><td>2.7B</td><td>Mamba2-hybrid</td><td>2.4 GB</td><td><strong style="color:var(--green);">✅</strong></td></tr>
+<tr><td>Zamba2-7B-Instruct-v2</td><td>7B</td><td>Mamba2-hybrid</td><td>6.6 GB</td><td><strong style="color:var(--green);">✅</strong></td></tr>
+<tr><td>ZR1-1.5B</td><td>1.5B</td><td>Dense (Qwen2), reasoning-tuned</td><td>781 MB</td><td><strong style="color:var(--green);">✅</strong> 26 tok/s (ZINC)</td></tr>
+</table>
+
+<h2>The Mamba2-hybrid path</h2>
+
+<p>Zamba2 is a Mamba2 architecture with sliding-window attention every 6th layer. The GGUF loader in <code>src/gguf_zamba2_loader.cpp</code> handles the mixed-layer topology — it reads the Mamba2 SSM blocks as a new <code>rcpp_arch</code> variant, routes the attention layers through the existing ZINC attention path, and maps the Mamba2-specific weight layouts into the 1BP tensor schema.</p>
+
+<p>Three model sizes (1.2B, 2.7B, 7B) all share the same architecture with different depth/width. The loader handles all three from one code path.</p>
+
+<blockquote>
+  <strong>The Zamba2 loader doesn't special-case per-model dimensions — it reads them from the GGUF header. One loader, three sizes. That's the point of being model-agnostic.</strong>
+</blockquote>
+
+<p>All three run on ZINC GPU today. NPU path is next — Mamba2 SSM layers need a different xclbin layout than the dense transformer kernels we've built so far.</p>
+
+<h2>ZR1-1.5B — 26 tok/s reasoning on ZINC</h2>
+
+<p>ZR1-1.5B is Zyphra's reasoning-distilled dense transformer. Based on Qwen2 architecture (so it reuses the existing dense transformer GGUF path), fine-tuned for long chain-of-thought. At <strong>26 tok/s</strong> on the ZINC GPU, it's fast enough for interactive reasoning tasks — not blazing, but usable.</p>
+
+<p>For comparison: that's on the same Strix Halo ZINC Vulkan backend that powers all our dense models. The 1BP comes in at 781 MB — small enough to load instantly from any SSD, no quantization at inference time.</p>
+
+<p>The model is listed under DeepSeek in the catalog because ZR1 is a reasoning-distill, same family as DeepSeek-R1-Distill-Qwen-7B. But the weights are purely Zyphra.</p>
+
+<h2>What this means for the catalog</h2>
+
+<p>This closes out the Zyphra family. Total model count is now <strong>40</strong> across 7 architectural families:</p>
+
+<table>
+<tr><th>Family</th><th>Count</th><th>Architecture</th><th>Primary Backend</th></tr>
+<tr><td>Dense Transformer</td><td>21</td><td>Qwen3, Llama, Mistral, Gemma, Phi, DeepSeek, Falcon3, OLMo, Granite, ZR1</td><td>ZINC / NPU / HIP</td></tr>
+<tr><td><strong>Mamba2-Hybrid</strong></td><td><strong>3</strong></td><td>Zamba2 (SSM + attn every 6th)</td><td><strong>ZINC</strong></td></tr>
+<tr><td>Ternary (TQ2)</td><td>4</td><td>Bonsai 1.7B–27B</td><td>HIP GPU</td></tr>
+<tr><td>MoE (Mamba1)</td><td>2</td><td>BlackMamba 1.5B / 2.8B</td><td>Mamba1 HIP</td></tr>
+<tr><td>Mamba1+SharedAttn</td><td>1</td><td>Zamba-7B-v1 (legacy)</td><td>Mamba1 HIP</td></tr>
+<tr><td>Zaya (1-bit ternary)</td><td>2</td><td>Zaya 8B / 74B</td><td>ZINC</td></tr>
+<tr><td>Vision-Language</td><td>2</td><td>Qwen2-VL, Qwen3-VL</td><td>ZINC (vision)</td></tr>
+</table>
+
+<p>We now cover every architecture Zyphra publishes that can run in a single-process C++ binary. (Their MoE lines and any future architectures are fair game if the GGUF loader can map them.)</p>
+
+<h2>Try it</h2>
+
+<pre><code><span class="g">$</span> curl -sL https://1bit.systems/install.sh | bash
+<span class="g">$</span> 1bit pull zamba2-1.2b
+<span class="g">$</span> 1bit serve 8081</code></pre>
+
+<p>Or clone and build from source:</p>
+
+<pre><code><span class="g">$</span> git clone https://github.com/bong-water-water-bong/1bit-systems
+<span class="g">$</span> cmake -B build && cmake --build build
+<span class="g">$</span> ./build/zaya_server --model models/Zamba2-1.2B.1bp --port 8088</code></pre>
+
+<p>All four 1BP models are hosted on Hugging Face at <a href="https://huggingface.co/bong-water-water-bong">huggingface.co/bong-water-water-bong</a>.</p>
+
+<hr>
+
+<h3>Links</h3>
+<ul>
+  <li><a href="https://1bit.systems">1bit.systems</a></li>
+  <li><a href="https://github.com/bong-water-water-bong/1bit-systems">GitHub</a> — MIT, open source</li>
+  <li><a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md">Full model catalog</a> — 40 models, 7 families</li>
+  <li><a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/journey.md">Engineering journal</a> — every bug and fix documented</li>
+</ul>
+
+<p style="font-size:14px;color:var(--dim);text-align:center;padding:20px 0;border-top:1px solid var(--border);margin:32px 0 0;">
+  <strong style="color:var(--text);">MIT. Your hardware, your model, your choice of backend.</strong><br>
+  <span>~400 KB · C++23 · NPU + GPU + CPU · Zero Python at runtime</span>
+</p>
+
+</article>
+<div class="foot wrap"><a href="/">← back to 1bit.systems</a> · MIT</div>
+</body>
+</html>

@@ -351,6 +351,15 @@ target_include_directories(vl_image PUBLIC
     $<INSTALL_INTERFACE:include>)
 target_compile_options(vl_image PRIVATE -O3 -std=c++23 -Wno-unused-result)
 
+
+# -- libvision_encoder : ViT encoder + vision-text projector (CPU, no HIP dep) --
+add_library(vision_encoder STATIC src/vision_encoder.cpp)
+target_include_directories(vision_encoder PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
+target_compile_options(vision_encoder PRIVATE -O3 -std=c++23 -Wno-unused-result)
+target_link_libraries(vision_encoder PUBLIC vl_image backend_manager)
+
 add_library(rocm_cpp SHARED ${RCPP_SOURCES})
 if(ROCWMMA_FOUND)
     target_include_directories(rocm_cpp SYSTEM PRIVATE "${ROCWMMA_INCLUDE_DIR}")
@@ -373,13 +382,16 @@ set(BACKEND_MANAGER_SOURCES
     src/backend_cpu.cpp
     src/backend_generic.cpp
     src/backend_mamba1.cpp
-    src/backend_cuda.cpp
     src/backend_laguna.cpp
     src/backend_zamba2.cpp
     src/simple_tokenizer.cpp
     src/q4nx_reader.cpp
     src/safetensors_reader.cpp
     src/model_discovery.cpp)
+
+if(RCPP_HAVE_CUDA)
+    list(APPEND BACKEND_MANAGER_SOURCES src/backend_cuda.cpp)
+endif()
 
 if(RCPP_HAVE_METAL)
     list(APPEND BACKEND_MANAGER_SOURCES src/backend_metal.mm)
@@ -609,23 +621,23 @@ set_tests_properties(test_backend           PROPERTIES LABELS "host" SKIP_RETURN
 # Skips gracefully (exit 77) when weights aren't found.
 
 add_test(NAME test_standalone_nock         COMMAND test_standalone_nock)
-set_tests_properties(test_standalone_nock   PROPERTIES LABELS "gpu_required")
+set_tests_properties(test_standalone_nock   PROPERTIES LABELS "gpu_required" SKIP_RETURN_CODE 77)
 add_test(NAME test_prim_and_attn           COMMAND test_prim_and_attn)
-set_tests_properties(test_prim_and_attn     PROPERTIES LABELS "gpu_required")
+set_tests_properties(test_prim_and_attn     PROPERTIES LABELS "gpu_required" SKIP_RETURN_CODE 77)
 add_test(NAME test_ternary_gemm_smallm     COMMAND test_ternary_gemm_smallm)
-set_tests_properties(test_ternary_gemm_smallm PROPERTIES LABELS "gpu_required")
+set_tests_properties(test_ternary_gemm_smallm PROPERTIES LABELS "gpu_required" SKIP_RETURN_CODE 77)
 add_test(NAME test_sherry_gemv             COMMAND test_sherry_gemv)
-set_tests_properties(test_sherry_gemv       PROPERTIES LABELS "gpu_required")
+set_tests_properties(test_sherry_gemv       PROPERTIES LABELS "gpu_required" SKIP_RETURN_CODE 77)
 add_test(NAME test_bonsai_gemv             COMMAND test_bonsai_gemv)
-set_tests_properties(test_bonsai_gemv       PROPERTIES LABELS "gpu_required")
+set_tests_properties(test_bonsai_gemv       PROPERTIES LABELS "gpu_required" SKIP_RETURN_CODE 77)
 add_test(NAME test_zaya_moe_gemv           COMMAND test_zaya_moe_gemv)
-set_tests_properties(test_zaya_moe_gemv     PROPERTIES LABELS "gpu_required")
+set_tests_properties(test_zaya_moe_gemv     PROPERTIES LABELS "gpu_required" SKIP_RETURN_CODE 77)
 add_test(NAME test_block_scaled_ternary    COMMAND test_block_scaled_ternary)
-set_tests_properties(test_block_scaled_ternary PROPERTIES LABELS "gpu_required")
+set_tests_properties(test_block_scaled_ternary PROPERTIES LABELS "gpu_required" SKIP_RETURN_CODE 77)
 add_test(NAME test_cca_attn                COMMAND test_cca_attn)
-set_tests_properties(test_cca_attn          PROPERTIES LABELS "gpu_required")
+set_tests_properties(test_cca_attn          PROPERTIES LABELS "gpu_required" SKIP_RETURN_CODE 77)
 add_test(NAME test_wmma_i8_gemv            COMMAND test_wmma_i8_gemv)
-set_tests_properties(test_wmma_i8_gemv     PROPERTIES LABELS "gpu_required")
+set_tests_properties(test_wmma_i8_gemv     PROPERTIES LABELS "gpu_required" SKIP_RETURN_CODE 77)
 
 add_test(NAME test_bonsai_e2e              COMMAND test_bonsai_e2e ${BONSAI_H1B_MODEL})
 set_tests_properties(test_bonsai_e2e       PROPERTIES LABELS "gpu_required;model_required;e2e" SKIP_RETURN_CODE 77)
@@ -813,6 +825,31 @@ add_executable(onebitd tools/onebitd.cpp)
 target_include_directories(onebitd PRIVATE src/ include/)
 target_compile_options(onebitd PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
 target_link_libraries(onebitd PRIVATE httplib::httplib)
+
+# -- zaya1_vl_demo : ZAYA1-VL-8B vision-language inference demo -------------
+add_executable(zaya1_vl_demo tools/zaya1_vl_demo.cpp)
+target_include_directories(zaya1_vl_demo PRIVATE src/ include/)
+target_compile_options(zaya1_vl_demo PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
+target_link_libraries(zaya1_vl_demo PRIVATE
+    backend_manager vision_encoder vl_image dl
+    ${CMAKE_DL_LIBS})
+
+# -- test_vit_encoder : Standalone ViT encoder test ---------------------------------
+add_executable(test_vit_encoder tools/test_vit_encoder.cpp)
+target_include_directories(test_vit_encoder PRIVATE src/ include/)
+target_compile_options(test_vit_encoder PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
+target_link_libraries(test_vit_encoder PRIVATE
+    vision_encoder backend_manager vl_image dl
+    ${CMAKE_DL_LIBS})
+
+# -- vl_pipeline_test : End-to-end VL pipeline architecture test -------------------
+add_executable(vl_pipeline_test tools/vl_pipeline_test.cpp)
+target_include_directories(vl_pipeline_test PRIVATE src/ include/)
+target_compile_options(vl_pipeline_test PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
+target_link_libraries(vl_pipeline_test PRIVATE
+    vision_encoder backend_manager vl_image dl
+    ${CMAKE_DL_LIBS})
+
 
 # -- onebit : NPU-native terminal coding agent CLI -------------------------
 # Pure C++ replacement for rust/onebit-cli. Single binary — chat, up, down,

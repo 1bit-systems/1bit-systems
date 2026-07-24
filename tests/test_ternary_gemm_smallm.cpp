@@ -212,6 +212,11 @@ static TrialResult run_trial(int M, int N, int K, uint32_t seed,
 }
 
 int main(int argc, char** argv) {
+    int dev_count = 0;
+    if (hipGetDeviceCount(&dev_count) != hipSuccess || dev_count == 0) {
+        fprintf(stderr, "no HIP device available, skipping\n");
+        return 77;
+    }
     const int N = 2560;
     const int K = 2560;
     const int n_seeds = (argc > 1) ? std::atoi(argv[1]) : 100;

@@ -309,6 +309,7 @@ GgufBlockInfo gguf_block_info(uint32_t dtype) {
         case GGUF_DTYPE_Q5_0:   return {32, 22};
         case GGUF_DTYPE_Q5_1:   return {32, 24};
         case GGUF_DTYPE_Q8_0:   return {32, 34};
+        case GGUF_DTYPE_Q8_1:   return {32, 36};
         case GGUF_DTYPE_Q2_K:   return {256, 84};
         case GGUF_DTYPE_Q3_K:   return {256, 110};
         case GGUF_DTYPE_Q4_K:   return {256, 144};
@@ -354,6 +355,16 @@ bool gguf_dequant(uint32_t dtype, const uint8_t* data, float* out, int count) {
         case GGUF_DTYPE_Q5_0: return dequant_q5_0(data, out, count);
         case GGUF_DTYPE_Q5_1: return dequant_q5_1(data, out, count);
         case GGUF_DTYPE_Q8_0: return dequant_q8_0(data, out, count);
+        case GGUF_DTYPE_Q8_1: {
+            // Q8_1: fp16 d (scale) + fp16 s (unused for dequant) + int8[32]
+            for (int i = 0; i < count; i++) {
+                int bi = i / 32, ei = i % 32;
+                const uint8_t* blk = data + (size_t)bi * 36;
+                float d = read_f16(blk);
+                out[i] = (float)((int8_t)blk[4 + ei]) * d;
+            }
+            return true;
+        }
         case GGUF_DTYPE_Q2_K: return dequant_q2_k(data, out, count);
         case GGUF_DTYPE_Q3_K: return dequant_q3_k(data, out, count);
         case GGUF_DTYPE_Q4_K: return dequant_q4_k(data, out, count);

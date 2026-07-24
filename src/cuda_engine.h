@@ -6,8 +6,16 @@
 
 #pragma once
 
+#ifdef __CUDACC__
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
+#else
+// Stub types for non-CUDA compilation (backend_cuda.cpp is only compiled with CUDA)
+using half = unsigned short;
+using cudaStream_t = void*;
+using cudaGraph_t = void*;
+using cudaGraphExec_t = void*;
+#endif
 #include <cstdint>
 #include <vector>
 #include <string>

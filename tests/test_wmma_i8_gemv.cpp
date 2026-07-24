@@ -33,6 +33,11 @@ static float quant_i8(const float* x, int8_t* out, int K) {
 }
 
 int main() {
+    int dev_count = 0;
+    if (hipGetDeviceCount(&dev_count) != hipSuccess || dev_count == 0) {
+        fprintf(stderr, "no HIP device available, skipping\n");
+        return 77;
+    }
     HIP_CHECK(hipSetDevice(0)); hipStream_t s; HIP_CHECK(hipStreamCreate(&s));
     const int M=256, K=2048, B=128;
     printf("Full pipeline: M=%d K=%d B=%d\n", M, K, B);

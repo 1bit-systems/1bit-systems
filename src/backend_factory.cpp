@@ -69,14 +69,6 @@ static Backend* try_load_backend(const char* lib_name, const char* symbol) {
 // ── Forward declarations (CPU and Mamba1 are always linked) ──
 extern Backend* create_cpu_backend();
 
-// CUDA backend factory — loaded via dlsym from libcuda_backend.so
-// or linked directly for static builds.
-extern "C" Backend* create_cuda_backend();
-
-// Metal backend factory — loaded via dlsym from libmetal_backend.so
-// or linked directly. Uses Objective-C++ runtime on macOS.
-extern "C" Backend* create_metal_backend();
-
 // Mamba1 GPU backend — uses HIP kernels from mamba1_engine.hip
 // Linked directly when ROCM_CPP_STATIC_HIP is defined.
 extern "C" Backend* create_mamba1_backend();
@@ -85,6 +77,23 @@ extern "C" Backend* create_mamba1_backend();
 extern "C" Backend* create_zamba2_backend();
 
 // ── Runtime backend creation via dlsym ──
+
+// Check for a backend symbol statically linked into the main executable
+// itself (e.g. ROCM_CPP_STATIC_HIP builds link src/backend_hip.cpp directly
+// rather than loading librocm_cpp.so). dlopen(NULL) doesn't create a new
+// handle — it just bumps the refcount on the already-loaded executable, so
+// this is cheap and safe to call from a detection probe (issue #330: the
+// actual creation path in BackendManager::create_instance_rt() already does
+// this exact check, but the detection probes here didn't, so a statically
+// linked build reported the backend as unavailable even though it could be
+// created).
+static bool has_static_symbol(const char* symbol) {
+    void* self = dlopen(NULL, RTLD_NOW | RTLD_LOCAL);
+    if (!self) return false;
+    bool found = dlsym(self, symbol) != nullptr;
+    dlclose(self);
+    return found;
+}
 // These try to load from either the rocm_cpp shared library or standalone modules.
 // If the library isn't available (e.g., no ROCm installed), they return nullptr.
 
@@ -122,23 +131,6 @@ static Backend* try_create_npu() {
     Backend* b = try_load_backend("librocm_cpp.so", "create_npu_backend");
     if (!b) b = try_load_backend("libnpu_backend.so", "create_npu_backend");
     return b;
-}
-
-// Check for a backend symbol statically linked into the main executable
-// itself (e.g. ROCM_CPP_STATIC_HIP builds link src/backend_hip.cpp directly
-// rather than loading librocm_cpp.so). dlopen(NULL) doesn't create a new
-// handle — it just bumps the refcount on the already-loaded executable, so
-// this is cheap and safe to call from a detection probe (issue #330: the
-// actual creation path in BackendManager::create_instance_rt() already does
-// this exact check, but the detection probes here didn't, so a statically
-// linked build reported the backend as unavailable even though it could be
-// created).
-static bool has_static_symbol(const char* symbol) {
-    void* self = dlopen(NULL, RTLD_NOW | RTLD_LOCAL);
-    if (!self) return false;
-    bool found = dlsym(self, symbol) != nullptr;
-    dlclose(self);
-    return found;
 }
 
 // ── Mamba1 detection ──

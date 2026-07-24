@@ -393,7 +393,7 @@ public:
                 qs.resize(O);
                 colibri_quantize_matrix_q4(f32.data(), q4.data(), qs.data(), O, I);
             };
-            int QK = NH * HD, KK = NKV * HD, VK = NKV * HD;
+            int QK = NH * HD;
             q4_row(lw.wq, H, lw.q4_wq, lw.qs_wq);
             q4_row(lw.wk, H, lw.q4_wk, lw.qs_wk);
             q4_row(lw.wv, H, lw.q4_wv, lw.qs_wv);
@@ -419,7 +419,7 @@ public:
     }
 
     void reset_state() override {
-        int L = cfg_.num_layers, NKV = cfg_.num_kv_heads, HD = cfg_.head_dim;
+        int L = cfg_.num_layers;
         k_cache_.resize(L); v_cache_.resize(L);
         for (int i = 0; i < L; i++) { k_cache_[i].clear(); v_cache_[i].clear(); }
         seq_len_ = 0;
@@ -471,7 +471,6 @@ public:
 
             // RoPE
             int rot_dim = HD / 2;
-            float theta = 1.0f / sqrtf((float)HD);
             for (int h = 0; h < NH; h++) {
                 for (int d = 0; d < rot_dim; d++) {
                     float angle = seq_len_ * powf(10000.0f, -2.0f * d / HD);

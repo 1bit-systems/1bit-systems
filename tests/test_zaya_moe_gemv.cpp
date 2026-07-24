@@ -72,6 +72,11 @@ static void pack_tq1(const int8_t* ternary, uint32_t* packed, int K, int K_padde
 }
 
 int main() {
+    int dev_count = 0;
+    if (hipGetDeviceCount(&dev_count) != hipSuccess || dev_count == 0) {
+        fprintf(stderr, "no HIP device available, skipping\n");
+        return 77;
+    }
     HIP_CHECK(hipSetDevice(0));
 
     // Test parameters — match small Zaya MoE layer

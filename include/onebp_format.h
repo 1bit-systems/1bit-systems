@@ -129,6 +129,7 @@ struct OnebpHeader {
     uint32_t bos_token_id;
     uint32_t eos_token_id;
     uint32_t tensor_count;
+
     // ── Laguna-specific fields (reserved[0..51]) ────────────────
     uint32_t num_experts;           // total routed experts (Laguna S 2.1: 256)
     uint32_t n_expert_used;         // experts used per token (top-k, S 2.1: 10)

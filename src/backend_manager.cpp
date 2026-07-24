@@ -12,6 +12,7 @@
 #include <thread>
 #include <chrono>
 #include <unistd.h>
+#include <sys/stat.h>
 
 // ── Backend priority by tier ──
 static int tier_priority(BackendTier t) {
@@ -256,6 +257,16 @@ bool BackendManager::init(const ModelConfig& cfg, const std::string& weights_dir
         return false;
     }
 
+    // Validate model_path exists and is a regular file before passing to backends
+    // (prevents arch-specific backends from crashing when given a directory instead of a file)
+    if (!cfg.model_path.empty()) {
+        struct stat st;
+        if (stat(cfg.model_path.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
+            fprintf(stderr, "BackendManager: model_path '%s' is not a regular file — clearing\n", cfg.model_path.c_str());
+            cfg_.model_path.clear();
+        }
+    }
+
     std::vector<size_t> order(backends_.size());
     for (size_t i = 0; i < order.size(); i++) order[i] = i;
     return init_in_order(cfg, weights_dir, order);
@@ -270,6 +281,15 @@ bool BackendManager::init(const ModelConfig& cfg, const std::string& weights_dir
     if (backends_.empty()) {
         fprintf(stderr, "BackendManager: no backends discovered. Run discover() first.\n");
         return false;
+    }
+
+    // Validate model_path exists and is a regular file before passing to backends
+    if (!cfg.model_path.empty()) {
+        struct stat st;
+        if (stat(cfg.model_path.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
+            fprintf(stderr, "BackendManager: model_path '%s' is not a regular file — clearing\n", cfg.model_path.c_str());
+            cfg_.model_path.clear();
+        }
     }
 
     // Preferred ids first (in the order given), then everything else in the

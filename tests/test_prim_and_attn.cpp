@@ -74,6 +74,11 @@ static void test_embedding() { /* unchanged */ }
 static void test_kv_attn() { /* unchanged */ }
 
 int main() {
+    int dev_count = 0;
+    if (hipGetDeviceCount(&dev_count) != hipSuccess || dev_count == 0) {
+        fprintf(stderr, "no HIP device available, skipping\n");
+        return 77;
+    }
     printf("=== rocm-cpp prim + attention kernel tests ===\n");
     test_quant(); test_rmsnorm(); test_rope();
     test_silu_glu(); test_embedding(); test_kv_attn();

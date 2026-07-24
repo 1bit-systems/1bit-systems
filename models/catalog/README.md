@@ -44,7 +44,7 @@ Converted via C++ toolchain (`tools/gguf_to_onebp.cpp`), zero Python at runtime.
 | Model | Params | 1BP Size | Backend | Architecture |
 |-------|:------:|:--------:|---------|:------------:|
 | DeepSeek-R1-Distill-Qwen-7B | 7B | 3.8 GB | ZINC / NPU / HIP | qwen2 |
-| ZR1-1.5B | 1.5B | 781 MB | ZINC / NPU | qwen2 |
+| ZR1-1.5B | 1.5B | 781 MB | ZINC ✅ (26 tok/s) / NPU | qwen2 (reasoning-tuned) |
 
 ### Falcon3 (TII) — 2
 | Model | Params | 1BP Size | Backend | Architecture |
@@ -84,9 +84,9 @@ Converted via C++ toolchain (`tools/gguf_to_onebp.cpp`), zero Python at runtime.
 ### Zamba (Mamba2-Hybrid) — 3
 | Model | Params | 1BP Size | Backend | Architecture |
 |-------|:------:|:--------:|---------|:------------:|
-| Zamba2-1.2B | 1.2B | 1.1 GB | ZINC / NPU | zamba2 |
-| Zamba2-2.7B | 2.7B | 2.4 GB | ZINC / NPU | zamba2 |
-| Zamba2-7B | 7B | 6.6 GB | ZINC / NPU | zamba2 |
+| Zamba2-1.2B-Instruct-v2 | 1.2B | 1.1 GB | ZINC ✅ / NPU | zamba2 (attn every 6th) |
+| Zamba2-2.7B-Instruct-v2 | 2.7B | 2.4 GB | ZINC ✅ / NPU | zamba2 |
+| Zamba2-7B-Instruct-v2 | 7B | 6.6 GB | ZINC ✅ / NPU | zamba2 |
 
 ### Zamba (Mamba1+Attn) — 1
 | Model | Params | 1BP Size | Backend | Architecture |

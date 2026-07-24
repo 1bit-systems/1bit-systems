@@ -499,11 +499,15 @@ int main(int argc, char** argv) {
     float *d_prev_rs;
     int *d_expert_idx;
     float *d_expert_wt;
+    int *d_skip_flag;
     HIP_OK(hipMalloc(&d_conv, (size_t)N_LAYERS * 2 * QKV * 2));
     HIP_OK(hipMalloc(&d_phs, (size_t)N_LAYERS * H * 2));
     HIP_OK(hipMalloc(&d_prev_rs, (size_t)N_LAYERS * RTR_H * 4));
     HIP_OK(hipMalloc(&d_expert_idx, 4));
     HIP_OK(hipMalloc(&d_expert_wt, 4));
+    HIP_OK(hipMalloc(&d_skip_flag, 4));
+    int skip_init = 0;
+    HIP_OK(hipMemcpy(d_skip_flag, &skip_init, sizeof(skip_init), hipMemcpyHostToDevice));
     
     hipStream_t stream;
     HIP_OK(hipStreamCreate(&stream));
@@ -791,9 +795,9 @@ int main(int argc, char** argv) {
                 encode_expert_cache_kernel<<<1, 32, 0, stream>>>(d_prev_rs + (size_t)il * RTR_H, d_expert_idx, RTR_H);
                 {
                     const int gb = (2 * N_FF + 15) / 16, db = (H + 15) / 16, sb = (N_FF + BLK - 1) / BLK;
-                    wmma_gateup_kernel<<<gb, 128, 0, stream>>>(d_tmp, d_hs, l.gu, d_expert_idx);
+                    wmma_gateup_kernel<<<gb, 128, 0, stream>>>(d_tmp, d_hs, l.gu, d_expert_idx, d_skip_flag);
                     silu_mul_k<<<sb, BLK, 0, stream>>>(d_ao, d_tmp, d_tmp + N_FF, N_FF);
-                    wmma_down_kernel<<<db, 128, 0, stream>>>(d_tmp, d_ao, l.dn, d_expert_idx);
+                    wmma_down_kernel<<<db, 128, 0, stream>>>(d_tmp, d_ao, l.dn, d_expert_idx, d_skip_flag);
                 }
                 // Post-MLP residual scale
                 residual_scale_k<<<g1, BLK, 0, stream>>>(d_tmp, d_hs, l.pmhss, l.pmhsb, l.pmrss, l.pmrsb, H);
@@ -910,6 +914,7 @@ int main(int argc, char** argv) {
     HIP_OK(hipFree(d_prev_rs));
     HIP_OK(hipFree(d_expert_idx));
     HIP_OK(hipFree(d_expert_wt));
+    HIP_OK(hipFree(d_skip_flag));
     if (d_all_logits) HIP_OK(hipFree(d_all_logits));
     
     return 0;

@@ -113,10 +113,13 @@ static bool read_gguf_metadata(const std::string& path, ModelConfig& cfg) {
     for (const auto& key : r.kv_keys()) {
         uint32_t u32v; float f32v;
         if (ends_with(key, ".ssm.state_size")) {
-            if (r.get_u32(key, u32v)) cfg.head_dim = u32v;  // reuse head_dim for d_state
+            // d_state — not stored in ModelConfig currently;
+            // architecture-specific loaders read it directly from the GGUF file.
+            // Don't reuse head_dim for this because it would corrupt attention
+            // head_dim for hybrid Mamba2+attention models (Zamba2) when the
+            // KV key ordering in GGUF puts ssm.state_size after attention.key_length.
         } else if (ends_with(key, ".ssm.conv_kernel")) {
-            // d_conv — stored in max_seq_len's padding field for now
-            // (no dedicated Mamba1 config field in ModelConfig yet)
+            // d_conv — not stored in ModelConfig currently
         } else if (ends_with(key, ".attention.head_count")) {
             if (r.get_u32(key, u32v)) cfg.n_heads = cfg.num_heads = cfg.num_attention_heads = u32v;
         } else if (ends_with(key, ".attention.head_count_kv")) {

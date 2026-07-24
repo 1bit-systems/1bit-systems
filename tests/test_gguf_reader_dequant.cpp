@@ -49,6 +49,7 @@ int main() {
     ok &= check("Q5_0", GGUF_DTYPE_Q5_0, REF_Q5_0_RAW, REF_Q5_0_EXPECTED, 32);
     ok &= check("Q5_1", GGUF_DTYPE_Q5_1, REF_Q5_1_RAW, REF_Q5_1_EXPECTED, 32);
     ok &= check("Q8_0", GGUF_DTYPE_Q8_0, REF_Q8_0_RAW, REF_Q8_0_EXPECTED, 32);
+    ok &= check("Q8_1", GGUF_DTYPE_Q8_1, REF_Q8_1_RAW, REF_Q8_1_EXPECTED, 32);
     ok &= check("Q2_K", GGUF_DTYPE_Q2_K, REF_Q2_K_RAW, REF_Q2_K_EXPECTED, 256);
     ok &= check("Q3_K", GGUF_DTYPE_Q3_K, REF_Q3_K_RAW, REF_Q3_K_EXPECTED, 256);
     ok &= check("Q4_K", GGUF_DTYPE_Q4_K, REF_Q4_K_RAW, REF_Q4_K_EXPECTED, 256);

@@ -1,5 +1,5 @@
 {
-  "updated": "2026-07-20",
+  "updated": "2026-07-26",
   "source": "validated on cold GPU (single-agent, no contention)",
   "engines": {
     "q1_gemv": {
@@ -115,6 +115,15 @@
       "display_name": "zaya_server (Qwen 35B MoE Q4_K)",
       "backend": "ROCm HIP",
       "notes": "Full decode, speculative MTP, Strix Halo"
+    },
+    "zr1_1_5b": {
+      "tok_s": 26,
+      "status": "validated",
+      "label": "ZR1-1.5B end-to-end decode, ZINC GPU, Strix Halo",
+      "table": "end_to_end",
+      "display_name": "ZR1-1.5B (Zyphra)",
+      "backend": "Vulkan ZINC",
+      "notes": "Reasoning-tuned dense transformer, Qwen2 arch"
     }
   },
   "table_kernel": [
@@ -129,7 +138,8 @@
   "table_end_to_end": [
     "zaya_27b",
     "zaya_35b_moe",
-    "gpu_1bit"
+    "gpu_1bit",
+    "zr1_1_5b"
   ],
   "_comparisons": {
     "sources": [

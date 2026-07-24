@@ -93,6 +93,13 @@ int main(int argc, char** argv) {
         return 77;
     }
     const char* path = argv[1];
+    {
+        int dev_count = 0;
+        if (hipGetDeviceCount(&dev_count) != hipSuccess || dev_count == 0) {
+            fprintf(stderr, "no HIP device available, skipping\n");
+            return 77;
+        }
+    }
     fprintf(stderr, "[test_bonsai_e2e] loading %s\n", path);
 
     rcpp_bitnet_model_t m{};

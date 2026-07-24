@@ -100,6 +100,8 @@ struct ZayaState {
     __half *d_conv = nullptr, *d_phs = nullptr, *d_lm_vocab = nullptr;
     // Device-side embeddings: eliminates per-token H2D copy (#5)
     __half *d_ibias = nullptr, *d_iscale = nullptr;
+    // Flash-decoding partials buffer: pre-allocated for graph capture (#2)
+    float *d_partials = nullptr;
     // HIP graph capture (#2): record forward pass once, replay per token
     hipGraphExec_t graph_exec = nullptr;
     hipGraph_t graph = nullptr;

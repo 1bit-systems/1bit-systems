@@ -82,7 +82,11 @@ static inline float dyn_scale(const float* x, int n) {
 static inline void rmsnorm_f32(float* x, const float* w, int n) {
     double ss = 0; for (int i = 0; i < n; i++) { if (!std::isfinite(x[i])) x[i] = 0; ss += (double)x[i] * x[i]; }
     float ir = 1.0f / sqrtf((float)(ss / n) + EPS);
-    for (int i = 0; i < n; i++) x[i] = std::isfinite(x[i]) ? x[i] * ir * w[i] : 0.0f;
+    if (w) {
+        for (int i = 0; i < n; i++) x[i] = std::isfinite(x[i]) ? x[i] * ir * w[i] : 0.0f;
+    } else {
+        for (int i = 0; i < n; i++) x[i] = std::isfinite(x[i]) ? x[i] * ir : 0.0f;
+    }
 }
 
 // ── NPU GEMM context (single-layer ops) ──

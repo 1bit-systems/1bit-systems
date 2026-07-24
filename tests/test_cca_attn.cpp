@@ -329,6 +329,11 @@ __global__ void norm_kernel(const __half* x, const __half* w, __half* out, int n
 
 // ── Test ──
 int main() {
+    int dev_count = 0;
+    if (hipGetDeviceCount(&dev_count) != hipSuccess || dev_count == 0) {
+        fprintf(stderr, "no HIP device available, skipping\n");
+        return 77;
+    }
     printf("=== CCA Attention GPU Test ===\n");
     std::mt19937 rng(42);
     auto rand = [&](int n, float s=1.0f) {
