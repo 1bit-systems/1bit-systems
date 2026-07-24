@@ -1,0 +1,2 @@
+/usr/bin/ar qc libvl_image.a CMakeFiles/vl_image.dir/src/vl_processor.cpp.o
+/usr/bin/ranlib libvl_image.a

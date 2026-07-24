@@ -1,0 +1,2 @@
+/usr/bin/ar qc libvision_encoder.a CMakeFiles/vision_encoder.dir/src/vision_encoder.cpp.o
+/usr/bin/ranlib libvision_encoder.a

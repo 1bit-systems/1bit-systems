@@ -1,0 +1,79 @@
+
+---
+events:
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/usr/share/cmake-4.2/Modules/CMakeDetermineSystem.cmake:12 (find_program)"
+      - "CMakeLists.txt:16 (project)"
+    mode: "program"
+    variable: "CMAKE_UNAME"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "uname"
+    candidate_directories:
+      - "/home/bcloud/.pi/agent/bin/"
+      - "/home/bcloud/.opencode/bin/"
+      - "/home/bcloud/.local/bin/"
+      - "/home/bcloud/bin/"
+      - "/home/bcloud/.cargo/bin/"
+      - "/home/bcloud/.nvm/versions/node/v24.18.0/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+    searched_directories:
+      - "/home/bcloud/.pi/agent/bin/uname"
+      - "/home/bcloud/.opencode/bin/uname"
+      - "/home/bcloud/.local/bin/uname"
+      - "/home/bcloud/bin/uname"
+      - "/home/bcloud/.cargo/bin/uname"
+      - "/home/bcloud/.nvm/versions/node/v24.18.0/bin/uname"
+      - "/usr/local/sbin/uname"
+      - "/usr/local/bin/uname"
+      - "/usr/sbin/uname"
+    found: "/usr/bin/uname"
+    search_context:
+      ENV{PATH}:
+        - "/home/bcloud/.pi/agent/bin"
+        - "/home/bcloud/.opencode/bin"
+        - "/home/bcloud/.local/bin"
+        - "/home/bcloud/.local/bin"
+        - "/home/bcloud/.local/bin"
+        - "/home/bcloud/bin"
+        - "/home/bcloud/.cargo/bin"
+        - "/home/bcloud/.opencode/bin"
+        - "/home/bcloud/.nvm/versions/node/v24.18.0/bin"
+        - "/home/bcloud/.local/bin"
+        - "/home/bcloud/.local/bin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/snap/bin"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/usr/share/cmake-4.2/Modules/CMakeDetermineSystem.cmake:212 (message)"
+      - "CMakeLists.txt:16 (project)"
+    message: |
+      The system is: Linux - 7.0.0-28-generic - x86_64
+...

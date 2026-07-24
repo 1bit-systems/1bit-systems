@@ -1,0 +1,3 @@
+/home/bcloud/1bit-systems/build_test/_deps/ftxui-subbuild/CMakeFiles/ftxui-populate.dir
+/home/bcloud/1bit-systems/build_test/_deps/ftxui-subbuild/CMakeFiles/edit_cache.dir
+/home/bcloud/1bit-systems/build_test/_deps/ftxui-subbuild/CMakeFiles/rebuild_cache.dir

@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/bcloud/1bit-systems/build_test/_deps/cpp_httplib-subbuild/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
