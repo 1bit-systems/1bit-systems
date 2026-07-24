@@ -24,6 +24,9 @@ XCLBIN_DIR="${SCRIPT_DIR}/xclbins"
 TORCH2AIE="${HOME}/torch2aie"
 
 export PATH="${TORCH2AIE}/toolchain/bin:$PATH"
+# MLIR-AIE Python bindings require Python 3.12 (.so files compiled for cpython-312)
+export AIE_PYTHON="${TORCH2AIE}/.venv/bin/python3.12"
+export PYTHONPATH="${TORCH2AIE}/toolchain/mlir_aie/python"
 export AIETOOLS_DIR="${TORCH2AIE}/toolchain"
 export MLIR_AIE_DIR="${TORCH2AIE}/toolchain/mlir_aie"
 
