@@ -1,6 +1,10 @@
 # NPU Engine Architecture — Knowledge Base
 
-> Auto-generated from reverse engineering sessions. Last updated: 2026-07-12.
+> Auto-generated from reverse engineering sessions. Last updated: 2026-07-24.
+
+**Update Jul 24**: NPU ternary bridge + on-tile LUT-decode kernels added.
+FLM now fallback — native npu_xrt routes first.
+GPU ternary/binary kernels have full native HIP/Vulkan support.
 
 ## Engine Stack
 
@@ -167,7 +171,11 @@ DDR ──► Shim ──► MemTile ──► Main16 (Q4NX GEMM)
 | Universal (BS=128) | 46 | ✅ (~16 tok) | 4 | Current, improving |
 | Universal (BS=32) | 34 | ✅ (~16 tok) | 4 | Current |
 | Fused layer (torch2aie) | ~1 | ✅ | 1 | Edge kernel bottleneck |
-| GPU ternary | 279 | ❓ | N/A | No model |
+| GPU ternary (native HIP) | 433 | ✅ | ROCm HIP | 28-layer synthetic |
+| NPU ternary bridge | TQ2→Q4NX | ✅ | XDNA 2 | Any TQ2 model |
+| GPU BitNet TQ2_0 | 420 | ✅ | ROCm HIP | 28-layer synthetic |
+| GPU Q1_0 binary | 380 | ✅ | ROCm HIP | 28-layer synthetic |
+| GPU TQ1 halo | 202 GB/s | ✅ | ROCm HIP | 28-layer synthetic |
 
 ### 6-Step Parallelism Roadmap
 | Step | Optimization | Est. tok/s | Status |
@@ -314,6 +322,6 @@ sudo modprobe -r amdxdna && sudo modprobe amdxdna
 2. **Fused xclbin edge kernel tuning** — attention bottleneck (17.5ms)
 3. **Prefill instruction format** — fused xclbin hangs at token0
 4. **Per-channel quantization** — eliminate ~2%/layer hidden state growth
-5. **GPU ternary** — download/convert ternarized GGUF model for zinc
+5. **Block-vectorized MAC path** — replace scalar fallback in NPU ternary kernels with full mac_8x8_8x8T pipeline
 6. **Zig NPU engine** — fix XRT C API symbol names
 7. **INT8 via Triton-XDNA** — unblock MLIR parser `i8` type rejection
