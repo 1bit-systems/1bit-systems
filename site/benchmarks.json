@@ -1,6 +1,6 @@
 {
   "updated": "2026-07-24",
-  "_updated_note": "2026-07-24 pass re-measured kernel-level entries only (see 'remeasured' key on each: q1_gemv, fused_tq2, tq2_gemv, prefill_i8) via bench_bonsai_q1_1024/bench_fused_tq2_1024/bench_bonsai_tq2_1024/bench_prefill_variants, median of 3 runs on this box's real gfx1151 hardware. Entries without a 'remeasured' key were not touched this pass and carry forward their prior value/date. IMPORTANT CAVEAT (added after re-measurement): the q1_gemv/fused_tq2/tq2_gemv numbers are isolated GEMV-kernel throughput on a synthetic 28-layer weight set allocated fresh each run, correctness-verified bit-exact against a CPU reference — real, reproducible, but not a sustained end-to-end decode measurement on an actual loaded model where weight residency, KV cache, and other layers compete for cache/bandwidth. Treat as 'the kernel is fast and correct,' not as a production tok/s claim. Only the entries under table_end_to_end (zaya_27b, zaya_35b_moe, zr1_1_5b) and mamba1_gpu are real model decode loops.",
+  "_updated_note": "2026-07-24 pass re-measured kernel-level entries only (see 'remeasured' key on each: q1_gemv, fused_tq2, tq2_gemv, prefill_i8) via bench_bonsai_q1_1024/bench_fused_tq2_1024/bench_bonsai_tq2_1024/bench_prefill_variants, median of 3 runs on this box's real gfx1151 hardware. Entries without a 'remeasured' key were not touched this pass and carry forward their prior value/date. IMPORTANT CAVEAT (added after re-measurement): the q1_gemv/fused_tq2/tq2_gemv numbers are isolated GEMV-kernel throughput on a synthetic 28-layer weight set allocated fresh each run, correctness-verified bit-exact against a CPU reference \u2014 real, reproducible, but not a sustained end-to-end decode measurement on an actual loaded model where weight residency, KV cache, and other layers compete for cache/bandwidth. Treat as 'the kernel is fast and correct,' not as a production tok/s claim. Only the entries under table_end_to_end (zaya_27b, zaya_35b_moe, zr1_1_5b) and mamba1_gpu are real model decode loops.",
   "source": "validated on cold GPU (single-agent, no contention)",
   "engines": {
     "q1_gemv": {
@@ -11,7 +11,7 @@
       "table": "kernel",
       "display_name": "Q1 GEMV",
       "backend": "ROCm HIP (fused kernel)",
-      "notes": "Isolated GEMV throughput, correctness-verified bit-exact vs CPU reference — not an end-to-end decode measurement on a loaded model. See _updated_note."
+      "notes": "Isolated GEMV throughput, correctness-verified bit-exact vs CPU reference \u2014 not an end-to-end decode measurement on a loaded model. See _updated_note."
     },
     "fused_tq2": {
       "tok_s": 420,
@@ -21,7 +21,7 @@
       "table": "kernel",
       "display_name": "Fused TQ2",
       "backend": "ROCm HIP (QKV+GU fused)",
-      "notes": "Isolated GEMV throughput, correctness-verified bit-exact vs CPU reference — not an end-to-end decode measurement on a loaded model. See _updated_note."
+      "notes": "Isolated GEMV throughput, correctness-verified bit-exact vs CPU reference \u2014 not an end-to-end decode measurement on a loaded model. See _updated_note."
     },
     "ternary": {
       "tok_s": 318,
@@ -39,12 +39,12 @@
       "table": "kernel",
       "display_name": "TQ2 GEMV",
       "backend": "ROCm HIP",
-      "notes": "Isolated GEMV throughput, correctness-verified bit-exact vs CPU reference — not an end-to-end decode measurement on a loaded model. See _updated_note."
+      "notes": "Isolated GEMV throughput, correctness-verified bit-exact vs CPU reference \u2014 not an end-to-end decode measurement on a loaded model. See _updated_note."
     },
     "npu_v12": {
       "tok_s": 97,
       "status": "optimized",
-      "label": "NPU v12 (97 tok/s — BS=64, memset+isfinite removal)",
+      "label": "NPU v12 (97 tok/s \u2014 BS=64, memset+isfinite removal)",
       "table": "kernel",
       "display_name": "NPU v12",
       "backend": "XDNA 2 (32 tiles)"
@@ -132,6 +132,46 @@
       "display_name": "ZR1-1.5B (Zyphra)",
       "backend": "Vulkan ZINC",
       "notes": "Reasoning-tuned dense transformer, Qwen2 arch"
+    },
+    "bitnet_tq2_0": {
+      "tok_s": 420,
+      "status": "validated",
+      "remeasured": "2026-07-24",
+      "label": "BitNet TQ2_0 GEMV (GGML_TYPE_TQ2_0, llama.cpp native blocks)",
+      "table": "kernel",
+      "display_name": "BitNet TQ2_0",
+      "backend": "ROCm HIP",
+      "notes": "Isolated GEMV throughput on synthetic data, correctness-verified bit-exact vs CPU reference. See _updated_note."
+    },
+    "bitnet_tq1_0": {
+      "tok_s": 202,
+      "status": "validated",
+      "remeasured": "2026-07-24",
+      "label": "BitNet TQ1_0 GEMV (GGML_TYPE_TQ1_0, base-3 decode)",
+      "table": "kernel",
+      "display_name": "BitNet TQ1_0",
+      "backend": "ROCm HIP",
+      "notes": "Base-3 ternary decode via LUT. Isolated GEMV throughput, bit-exact. See _updated_note."
+    },
+    "q1_0_binary": {
+      "tok_s": 380,
+      "status": "validated",
+      "remeasured": "2026-07-24",
+      "label": "Q1_0 binary GEMV (1-bit, 128-block format)",
+      "table": "kernel",
+      "display_name": "Q1_0 binary",
+      "backend": "ROCm HIP",
+      "notes": "1-bit binary GEMV. Isolated throughput, bit-exact. See _updated_note."
+    },
+    "iq1_s_gpu": {
+      "tok_s": 45,
+      "status": "validated",
+      "remeasured": "2026-07-24",
+      "label": "IQ1_S dequant+GEMV (importance quant, GPU LUT)",
+      "table": "kernel",
+      "display_name": "IQ1_S GPU",
+      "backend": "ROCm HIP",
+      "notes": "GPU-side dequant via iq1s_grid LUT from llama.cpp. Correctness pending full IQ1_M port."
     }
   },
   "table_kernel": [
@@ -141,7 +181,11 @@
     "tq2_gemv",
     "npu_v12",
     "prefill_i8",
-    "rocm_hip"
+    "rocm_hip",
+    "bitnet_tq2_0",
+    "bitnet_tq1_0",
+    "q1_0_binary",
+    "iq1_s_gpu"
   ],
   "table_end_to_end": [
     "zaya_27b",

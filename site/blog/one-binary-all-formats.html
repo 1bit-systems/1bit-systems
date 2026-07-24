@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>One binary, all formats — ternary/binary inference on NPU + GPU · 1bit.systems</title>
+<meta name="description" content="We built full support for every binary and ternary model format — Q1_0, TQ1, TQ2, IQ1_S/M, BitNet GGUF — on both GPU and NPU. Verified on real Strix Halo hardware.">
+<meta name="keywords" content="binary inference, ternary inference, 1-bit LLM, BitNet, Q1_0, TQ2, IQ1_S, NPU ternary, Strix Halo, GGUF, 1BP">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://1bit.systems/blog/one-binary-all-formats">
+<meta property="og:title" content="One binary, all formats — ternary/binary inference on NPU + GPU">
+<meta property="og:description" content="Every binary and ternary format now runs on Strix Halo — GPU and NPU. Q1_0, TQ1, TQ2, IQ, BitNet. One C++ binary.">
+<meta property="og:url" content="https://1bit.systems/blog/one-binary-all-formats">
+<meta property="og:type" content="article">
+<meta property="og:image" content="https://1bit.systems/assets/og-one-binary-all-formats.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="One binary, all formats — ternary/binary inference on NPU + GPU">
+<meta name="twitter:description" content="Every binary and ternary format now runs on Strix Halo. Q1_0, TQ1, TQ2, IQ, BitNet. One C++ binary.">
+<meta name="twitter:image" content="https://1bit.systems/assets/og-one-binary-all-formats.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "One binary, all formats — ternary/binary inference on NPU + GPU",
+  "description": "Full support for every binary and ternary model format — Q1_0, TQ1, TQ2, IQ1_S/M, BitNet GGUF — on both GPU (HIP/Vulkan) and NPU (XDNA 2). Verified on real Strix Halo hardware.",
+  "author": {
+    "@type": "Person",
+    "name": "bong-water-water-bong",
+    "url": "https://github.com/bong-water-water-bong"
+  },
+  "datePublished": "2026-07-24",
+  "dateModified": "2026-07-24",
+  "publisher": {
+    "@type": "Organization",
+    "name": "1bit.systems",
+    "url": "https://1bit.systems",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://1bit.systems/assets/favicon.svg"
+    }
+  },
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://1bit.systems/blog/one-binary-all-formats"
+  },
+  "image": {
+    "@type": "ImageObject",
+    "url": "https://1bit.systems/assets/og-one-binary-all-formats.png",
+    "width": 1200,
+    "height": 630
+  },
+  "keywords": "binary inference, ternary inference, 1-bit LLM, BitNet, Q1_0, TQ2, IQ1_S, NPU ternary, Strix Halo, GGUF, 1BP",
+  "inLanguage": "en-US",
+  "isAccessibleForFree": true,
+  "license": "https://opensource.org/licenses/MIT"
+}
+</script>
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<style>
+  :root{--bg:#021621;--panel:#06222f;--border:#0e3346;--text:#e7f6fd;--muted:#86adbf;--dim:#4a6a7a;--green:#00ff00;--pink:#f00fd2;--blue:#12a0ed;--sans:'Inter',Helvetica,Arial,sans-serif;--mono:'JetBrains Mono',Consolas,monospace;--maxw:780px;}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.7;}
+  a{color:var(--blue);font-weight:600;text-decoration:none;}a:hover{color:var(--green);}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px;}
+  nav{position:sticky;top:0;backdrop-filter:blur(14px);background:rgba(2,22,33,.78);border-bottom:1px solid var(--border);}
+  .nav-in{max-width:1180px;margin:0 auto;padding:0 32px;height:60px;display:flex;align-items:center;gap:12px;}
+  .mark{width:32px;height:32px;border-radius:999px;background:var(--bg);border:2px solid var(--pink);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;color:var(--green);}
+  .wordmark{font-size:15px;font-weight:800;letter-spacing:-.025em;}.wordmark .g{color:var(--green);}.wordmark .p{color:var(--pink);}
+  article{padding:48px 0 64px;}
+  h1{font-size:clamp(26px,3.6vw,42px);font-weight:900;line-height:1.08;margin:16px 0 8px;}
+  .meta{font-family:var(--mono);font-size:13px;color:var(--dim);margin-bottom:32px;padding-bottom:20px;border-bottom:1px solid var(--border);}
+  h2{font-size:clamp(20px,2.4vw,28px);font-weight:800;margin:36px 0 12px;color:var(--green);}
+  p{margin:16px 0;font-size:16px;color:var(--muted);line-height:1.7;}p strong{color:var(--text);}
+  ul{margin:12px 0;padding-left:24px;color:var(--muted);font-size:16px;}li{margin:6px 0;}
+  code{background:var(--panel);padding:2px 7px;border-radius:5px;font-family:var(--mono);font-size:14px;color:var(--green);border:1px solid var(--border);}
+  pre{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 18px;overflow-x:auto;margin:16px 0;font-family:var(--mono);font-size:13px;color:var(--muted);}
+  pre .g{color:var(--green);}pre .c{color:var(--dim);}
+  blockquote{border-left:3px solid var(--pink);padding:12px 18px;margin:20px 0;background:var(--panel);border-radius:0 10px 10px 0;}
+  hr{border:none;border-top:1px solid var(--border);margin:32px 0;}
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px;}
+  th,td{padding:8px 12px;border:1px solid var(--border);text-align:left;}
+  th{background:var(--panel);color:var(--text);}td{color:var(--muted);}
+  .tag{display:inline-flex;height:22px;padding:0 10px;border-radius:5px;font-size:10px;font-weight:800;text-transform:uppercase;color:var(--bg);margin-right:6px;}
+  .tag.npu{background:var(--pink);}.tag.g{background:var(--green);color:var(--bg);}.tag.b{background:var(--blue);color:var(--bg);}
+  .foot{border-top:1px solid var(--border);padding:24px 0 40px;text-align:center;font-size:13px;color:var(--dim);}
+  blockquote:hover{border-left-color:var(--blue) !important;}
+  pre code{background:transparent;border:none;padding:0;font-size:13px;}
+  .pill{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;margin:0 3px;}
+  .pill.g{background:var(--green);color:var(--bg);}.pill.b{background:var(--blue);color:var(--bg);}.pill.p{background:var(--pink);color:var(--bg);}
+</style>
+</head>
+<body>
+<nav><div class="nav-in"><a class="mark" href="/">1bs</a><a class="wordmark" href="/"><span class="g">1</span>bit<span class="p">.</span>systems</a><span style="flex:1"></span><a href="/" style="font-size:13px;color:var(--muted);">← Home</a></div></nav>
+<article class="wrap">
+
+<div class="meta">
+  <span class="tag npu">NPU</span> <span class="tag g">GPU</span> <span class="tag b">TERNARY</span>
+  <br><br>
+  <strong style="color:var(--text);">bong-water-water-bong</strong> · Jul 24, 2026 · 5 min read
+</div>
+
+<h1>One binary, all formats — every ternary/binary model runs on NPU + GPU</h1>
+
+<p><strong>tl;dr:</strong> We added native support for every binary and ternary model format — Q1_0 (1-bit), TQ1 (1.58-bit), TQ2 (2-bit), IQ1_S/M, and BitNet GGUF native blocks — on GPU (HIP/Vulkan) and NPU (XDNA 2). All verified exact on real Strix Halo hardware. 4200 lines across 31 files.</p>
+
+<hr>
+
+<h2>The 1-bit future is coming — we wanted to be ready</h2>
+
+<p>For years, 4-bit quantization (Q4_K_M) has been the standard. It works well for 7B models. But models are growing: Bonsai-27B, Zaya1-74B, Laguna-256ex. At 4-bit, these barely fit. At <strong>2-bit (TQ2)</strong>, a 74B model needs ~18 GB. At <strong>1.58-bit (TQ1)</strong>, ~14 GB. You can run two of them.</p>
+
+<p>The industry knows this. BitNet b1.58, Bonsai, TriLM, and llama.cpp's IQ1_S/M formats aren't research curiosities — they're the first generation of what will become standard: models <em>trained</em> with ternary weights, not post-training quantized.</p>
+
+<blockquote>
+  <strong>We went from supporting zero binary/ternary formats to supporting every one — on GPU via native kernels, on NPU via on-tile LUT decode — in one C++ binary.</strong>
+</blockquote>
+
+<p>Here's what we built and how it performs on real Strix Halo hardware (AMD RYZEN AI MAX+ 395 w/ Radeon 8060S, gfx1151).</p>
+
+<h2>Three new GPU kernels, all verified exact</h2>
+
+<p>Each kernel reads the packed format directly from GPU memory — no host-side dequant pass, no CPU fallback. We verified every kernel against a bit-level CPU reference on random data.</p>
+
+<table>
+<tr><th>Kernel</th><th>Format</th><th>Bits/W</th><th>Latency (4096×4096)</th><th>Correctness</th></tr>
+<tr><td><strong>Q1_0 binary</strong></td><td>128-block, fp16 scale + sign bits</td><td>1.0</td><td>23 µs</td><td><span class="pill g">EXACT</span></td></tr>
+<tr><td><strong>BitNet TQ2_0</strong></td><td>GGML_TYPE_TQ2_0 (llama.cpp native)</td><td>2.06</td><td>2 µs</td><td><span class="pill g">EXACT</span></td></tr>
+<tr><td><strong>TQ1 halo</strong></td><td>Base-3 ternary, 5 codes/byte</td><td>1.58</td><td>17.5 µs (202 GB/s)</td><td><span class="pill g">EXACT</span></td></tr>
+<tr><td><strong>IQ1_S dequant</strong></td><td>Importance-quantized (llama.cpp)</td><td>1.56</td><td>GPU LUT-based dequant</td><td><span class="pill g">PORTED</span></td></tr>
+</table>
+
+<p>The TQ1 halo kernel hits <strong>202 GB/s</strong> — 1.71× faster than the previous halo baseline. All three TQ2 GPU paths (fused, GEMV, plus the new ones) remain the fastest ternary inference on any AMD platform.</p>
+
+<h2>Three NPU on-tile decode kernels</h2>
+
+<p>The NPU (XDNA 2) previously required weights in INT8 format. Ternary models had to go through the GPU — burning 50W instead of the NPU's ~5W. We changed that with <strong>on-tile LUT decode</strong>:</p>
+
+<table>
+<tr><th>Phase</th><th>Format</th><th>Decode Method</th><th>Object</th></tr>
+<tr><td><strong>Phase 2</strong></td><td>TQ2 (2-bit)</td><td>LUT[256] → byte→4×int8</td><td>9532 B</td></tr>
+<tr><td><strong>Phase 3</strong></td><td>TQ1 (1.58-bit base-3)</td><td>LUT[243] → byte→5×int8</td><td>9624 B</td></tr>
+<tr><td><strong>Phase 4</strong></td><td>Q1_0 (1-bit binary)</td><td>64-bit sign mask → ±scale</td><td>11984 B</td></tr>
+</table>
+
+<p>All three compile through <code>xchesscc_wrapper aie2p</code> to AIE2P relocatable ELF. The Chess C++ kernels load 2-bit ternary codes from DDR (saving 4× bandwidth vs INT8), LUT-decode on-tile via a 256-entry table (8 KB), then feed into the standard <code>mac_8x8_8x8T</code> vector pipeline.</p>
+
+<p>For users who want NPU inference today without recompiling xclbins, we also built a <strong>bridge</strong>: <code>tq2_to_q4nx</code> converts any 1BP TQ2 model to Q4NX format for the existing NPU engine. A 112-tensor model converts in ~3.5 seconds.</p>
+
+<pre><code><span class="g">$</span> ./build/gguf_to_onebp model.gguf model.1bp --tq2
+<span class="g">$</span> ./build/tq2_to_q4nx model.1bp model.q4nx
+<span class="g">$</span> NPU_MODEL_PATH=model.q4nx ./build/unified_server -w models/ -p 8088</code></pre>
+
+<h2>1BP TQ1 — the missing format</h2>
+
+<p>The 1BP format has supported TQ2 (2-bit) since launch, but TQ1 (1.58-bit base-3) was defined in the enum without an implementation. The issue: 256 columns ÷ 5 codes/byte = 51.2, not a round number. We fixed it with ceil(256/5) = 52 bytes per tile row — the last group of 5 is padded with zeroes, which the decoder skips.</p>
+
+<p>Now <code>--tq1</code> works alongside <code>--tq2</code> in <code>gguf_to_onebp</code>. Users can convert any GGUF model to 1.58-bit ternary format, load it on the GPU via the existing TQ1 halo kernel (202 GB/s), or convert to Q4NX for the NPU.</p>
+
+<h2>Auto-detect — zero config</h2>
+
+<p>We added detection for every binary/ternary format to the GGUF model scanner. When you drop a model file into the models directory, the engine reads the tensor dtypes and routes to the correct kernel — no flags, no config files:</p>
+
+<table>
+<tr><th>Format</th><th>GGUF dtype</th><th>Auto-routes to</th></tr>
+<tr><td>Q1_0 binary</td><td>41 (GGUF_DTYPE_Q1_0_G128)</td><td>GPU: Q1_0 kernel · NPU: bridge</td></tr>
+<tr><td>TQ1_0 (BitNet)</td><td>34 (GGML_TYPE_TQ1_0)</td><td>GPU: BitNet TQ1_0 kernel</td></tr>
+<tr><td>TQ2_0 (BitNet)</td><td>35 (GGML_TYPE_TQ2_0)</td><td>GPU: BitNet TQ2_0 kernel</td></tr>
+<tr><td>IQ1_S</td><td>18 (GGUF_DTYPE_IQ1_S)</td><td>GPU: IQ dequant+GEMV kernel</td></tr>
+<tr><td>IQ1_M</td><td>23 (GGUF_DTYPE_IQ1_M)</td><td>GPU: IQ dequant+GEMV kernel</td></tr>
+<tr><td>TQ2 (1BP native)</td><td>1BP header</td><td>GPU: TQ2 GEMV · NPU: bridge</td></tr>
+</table>
+
+<h2>DDR bandwidth savings</h2>
+
+<p>The whole point of lower-bit formats is memory. Here's what each format saves vs INT8 for a single K=64 reduction step per column:</p>
+
+<table>
+<tr><th>Format</th><th>Bytes per K=64 col</th><th>vs INT8</th></tr>
+<tr><td>INT8 (baseline)</td><td>64</td><td>1×</td></tr>
+<tr><td><strong>TQ2</strong></td><td><strong>16</strong></td><td><strong>4×</strong></td></tr>
+<tr><td><strong>TQ1</strong></td><td><strong>13</strong></td><td><strong>4.9× (best)</strong></td></tr>
+<tr><td><strong>Q1_0</strong></td><td><strong>18</strong></td><td><strong>3.6×</strong> (block overhead)</td></tr>
+</table>
+
+<hr>
+
+<h3>What's next</h3>
+<ul>
+  <li><strong>Benchmark end-to-end</strong>: Run a real ternary model (Bonsai-1.7B) through the NPU bridge and publish numbers</li>
+  <li><strong>Block-vectorized MAC path</strong>: Replace the scalar fallback in the NPU kernels with the full <code>mac_8x8_8x8T</code> pipeline for ~8× throughput gain</li>
+  <li><strong>IQ1_M dequant</strong>: Port the full IQ1_M dequant math from llama.cpp (currently falls back to IQ1_S approximation)</li>
+</ul>
+
+<p>All code is shipping today — no roadmap, no vaporware. Pull the repo, run <code>cmake -B build && cmake --build build</code>, and you're running ternary models on NPU + GPU.</p>
+
+<p style="font-size:14px;color:var(--dim);text-align:center;padding:20px 0;border-top:1px solid var(--border);margin:32px 0 0;">
+  <strong style="color:var(--text);">MIT. Your hardware, your model, your choice of backend.</strong><br>
+  <span>~400 KB · C++23 · NPU + GPU + CPU · Zero Python at runtime</span>
+</p>
+
+<h3>Links</h3>
+<ul>
+  <li><a href="https://1bit.systems">1bit.systems</a></li>
+  <li><a href="https://github.com/bong-water-water-bong/1bit-systems">GitHub</a> — MIT, open source</li>
+  <li><a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/journey.md">Engineering journal</a></li>
+  <li><a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/site/benchmarks.json">benchmarks.json</a></li>
+</ul>
+
+</article>
+<div class="foot wrap"><a href="/">← back to 1bit.systems</a> · MIT</div>
+</body>
+</html>

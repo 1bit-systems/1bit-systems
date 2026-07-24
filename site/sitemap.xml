@@ -206,6 +206,12 @@
   </url>
   <url>
     <loc>https://1bit.systems/blog/token-router/</loc>
+  <url>
+    <loc>https://1bit.systems/blog/one-binary-all-formats</loc>
+    <lastmod>2026-07-24</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
     <lastmod>2026-07-12</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>

@@ -97,3 +97,4 @@ packaging/binary/1bit-server
 packaging/deb/usr/bin/1bit-npu
 packaging/deb/usr/bin/1bit-server
 packaging/appimage/AppDir/usr/bin/1bit-engine
+.claude/
