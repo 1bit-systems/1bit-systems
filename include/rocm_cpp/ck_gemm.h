@@ -168,6 +168,50 @@ rcpp_ternary_gemv_tq1_halo_f16(const void* packed_weights_dev,
                                void*       stream);
 
 // -----------------------------------------------------------------------------
+// New kernel API — 1-bit binary, BitNet b1.58 GGUF native, IQ formats
+// -----------------------------------------------------------------------------
+
+// Q1_0 binary GEMV: 1-bit weights packed as 128-element blocks
+//   [fp16 scale][16 bytes sign bits], 18 bytes/block = 1.125 bpw
+//   bit=0 → -scale, bit=1 → +scale
+rcpp_status_t
+rcpp_ternary_gemv_q1_0_f16(const void* packed_weights_dev,
+                           const void* activations_i8_dev,
+                           float       activation_scale,
+                           const void* row_scales_dev,
+                           void*       output_f16_dev,
+                           int M, int K, void* stream);
+
+// BitNet b1.58 native GGUF formats: TQ2_0 (2.0625 bpw) and TQ1_0 (1.6875 bpw)
+// These are the llama.cpp GGML_TYPE_TQ2_0 (35) and GGML_TYPE_TQ1_0 (34) block formats.
+//   TQ2_0: 64 bytes 2-bit codes + 2 bytes fp16 scale = 66 bytes/256-block
+//   TQ1_0: 48 bytes base-3 + 4 bytes qh + 2 bytes scale = 54 bytes/256-block
+rcpp_status_t
+rcpp_bitnet_gemv_tq2_0_f16(const void* packed_weights_dev,
+                            const void* activations_i8_dev,
+                            float       activation_scale,
+                            const void* row_scales_dev,
+                            void*       output_f16_dev,
+                            int M, int K, void* stream);
+
+rcpp_status_t
+rcpp_bitnet_gemv_tq1_0_f16(const void* packed_weights_dev,
+                            const void* activations_i8_dev,
+                            float       activation_scale,
+                            const void* row_scales_dev,
+                            void*       output_f16_dev,
+                            int M, int K, void* stream);
+
+// IQ importance-quantized format GEMV (on-device dequant + compute)
+// dtype: 0=IQ1_S (1.5 bpw), 1=IQ1_M (1.75 bpw)
+rcpp_status_t
+rcpp_iq_gemv(const void* packed_weights_dev,
+             const void* activations_i8_dev,
+             float       activation_scale,
+             void*       output_dev,
+             int M, int K, int dtype, void* stream);
+
+// -----------------------------------------------------------------------------
 // Primitive kernels — support math so consumers don't have to write their own.
 // All are batch=1 (decode). Batched variants come with Phase 6 KV cache work.
 

@@ -84,6 +84,56 @@ extern "C" rcpp_status_t rcpp_ternary_gemv_wmma(const void* packed, const void* 
     return RCPP_OK;
 }
 
+// ─── Q1_0 binary (1-bit) launcher ────────────────────────────────────
+extern "C" void ternary_gemv_q1_0_f16_launch(const void*, const void*, float, const void*, void*, int, int, void*);
+
+extern "C" rcpp_status_t rcpp_ternary_gemv_q1_0_f16(
+    const void* packed, const void* x_i8, float x_scale,
+    const void* row_scales, void* y_f16, int M, int K, void* stream)
+{
+    if(!packed || !x_i8 || !y_f16) return RCPP_INVALID_ARG;
+    if(M <= 0 || K <= 0) return RCPP_INVALID_ARG;
+    ternary_gemv_q1_0_f16_launch(packed, x_i8, x_scale, row_scales, y_f16, M, K, stream);
+    return RCPP_OK;
+}
+
+// ─── BitNet b1.58 GGUF native (TQ1_0/TQ2_0) launchers ────────────
+extern "C" void bitnet_gemv_tq2_0_f16_launch(const void*, const void*, float, const void*, void*, int, int, void*);
+extern "C" void bitnet_gemv_tq1_0_f16_launch(const void*, const void*, float, const void*, void*, int, int, void*);
+
+extern "C" rcpp_status_t rcpp_bitnet_gemv_tq2_0_f16(
+    const void* packed, const void* x_i8, float x_scale,
+    const void* row_scales, void* y_f16, int M, int K, void* stream)
+{
+    if(!packed || !x_i8 || !y_f16) return RCPP_INVALID_ARG;
+    if(M <= 0 || K <= 0) return RCPP_INVALID_ARG;
+    bitnet_gemv_tq2_0_f16_launch(packed, x_i8, x_scale, row_scales, y_f16, M, K, stream);
+    return RCPP_OK;
+}
+
+extern "C" rcpp_status_t rcpp_bitnet_gemv_tq1_0_f16(
+    const void* packed, const void* x_i8, float x_scale,
+    const void* row_scales, void* y_f16, int M, int K, void* stream)
+{
+    if(!packed || !x_i8 || !y_f16) return RCPP_INVALID_ARG;
+    if(M <= 0 || K <= 0) return RCPP_INVALID_ARG;
+    bitnet_gemv_tq1_0_f16_launch(packed, x_i8, x_scale, row_scales, y_f16, M, K, stream);
+    return RCPP_OK;
+}
+
+// ─── IQ dequant+GEMV launchers ────────────────────────────────────
+extern "C" void iq_dequant_gemv_launch(const void*, const void*, float, void*, int, int, int, void*);
+
+extern "C" rcpp_status_t rcpp_iq_gemv(
+    const void* packed, const void* x_i8, float x_scale,
+    void* y, int M, int K, int dtype, void* stream)
+{
+    if(!packed || !x_i8 || !y) return RCPP_INVALID_ARG;
+    if(M <= 0 || K <= 0) return RCPP_INVALID_ARG;
+    iq_dequant_gemv_launch(packed, x_i8, x_scale, y, M, K, dtype, stream);
+    return RCPP_OK;
+}
+
 extern "C" rcpp_status_t rcpp_standalone_gemm(const void* A_dev, const void* B_dev_packed, void* C_dev, int M, int N, int K, void* stream) {
     if(!A_dev || !B_dev_packed || !C_dev) return RCPP_INVALID_ARG;
     if(M <= 0 || N <= 0 || K <= 0) return RCPP_INVALID_ARG;

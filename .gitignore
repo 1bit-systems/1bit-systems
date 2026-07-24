@@ -83,3 +83,5 @@ build_clean/
 .venv/
 venv/
 .mcp.env
+.cache/
+*.o

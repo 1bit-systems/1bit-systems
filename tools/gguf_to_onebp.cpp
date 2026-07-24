@@ -2,6 +2,7 @@
  *  Build target: `gguf_to_onebp` (see CMakeLists.txt) — pure C++, no Python.
  *  Run:   ./build/gguf_to_onebp model.gguf output.1bp          (Q4NX 4-bit)
  *         ./build/gguf_to_onebp model.gguf output.1bp --tq2    (symmetric ternary)
+ *         ./build/gguf_to_onebp model.gguf output.1bp --tq1    (1.58-bit base-3)
  */
 #include <cstdio>
 #include <cstdlib>
@@ -28,17 +29,20 @@ static inline uint16_t f32b(float v) {
 int main(int argc, char** argv) {
     //signal(SIGFPE, sigfpe_handler);
     if (argc < 3) {
-        fprintf(stderr, "Usage: %s input.gguf output.1bp [--tq2]\n", argv[0]);
+        fprintf(stderr, "Usage: %s input.gguf output.1bp [--tq2 | --tq1]\n", argv[0]);
         return 1;
     }
-    // --- Parse quant selection (Q4NX default, --tq2 for symmetric ternary) ---
+    // --- Parse quant selection (Q4NX default, --tq2 for symmetric ternary, --tq1 for 1.58-bit) ---
     OnebpQuant quant = ONEBP_Q4NX;
     for (int ai = 3; ai < argc; ai++) {
         if (strcmp(argv[ai], "--tq2") == 0)       quant = ONEBP_TQ2;
+        else if (strcmp(argv[ai], "--tq1") == 0)  quant = ONEBP_TQ1;
         else if (strcmp(argv[ai], "--q4nx") == 0) quant = ONEBP_Q4NX;
         else { fprintf(stderr, "Unknown option: %s\n", argv[ai]); return 1; }
     }
-    const char* quant_name = (quant == ONEBP_TQ2) ? "TQ2 (ternary 2-bit)" : "Q4NX (4-bit)";
+    const char* quant_name = (quant == ONEBP_TQ2) ? "TQ2 (ternary 2-bit)" :
+                             (quant == ONEBP_TQ1) ? "TQ1 (ternary 1.58-bit)" :
+                             "Q4NX (4-bit)";
     GgufReader reader;
     if (!reader.open(argv[1])) {
         fprintf(stderr, "Failed to open GGUF: %s\n", argv[1]);
@@ -225,6 +229,53 @@ int main(int argc, char** argv) {
                                 size_t pos = (size_t)rr * tc + local_c;
                                 qd[pos / 4] |= (uint8_t)(code << ((pos & 3) * 2));
                             }
+                        }
+                    }
+                    fwrite(tdata.data(), 1, tdata.size(), fout);
+                    continue;
+                }
+                if (quant == ONEBP_TQ1) {
+                    // ── TQ1: 1.58-bit base-3 ternary (5 codes/byte) ──
+                    // Groups of 5 elements: bf16 scale + 1 byte with 5 base-3 codes.
+                    // code: 0=-scale, 1=0, 2=+scale
+                    // packed = code0 + code1*3 + code2*9 + code3*27 + code4*81
+                    static const int tq1_pow3[5] = {1, 3, 9, 27, 81};
+                    int tq1_grps = (tc + 4) / 5;  // ceil(tc/5)
+                    size_t sb = (size_t)tr * tq1_grps * 2;
+                    size_t cb = (size_t)tr * tq1_grps;
+                    std::vector<uint8_t> tdata(sb + cb, 0);
+                    uint16_t* sc = (uint16_t*)tdata.data();
+                    uint8_t*  qd = tdata.data() + sb;
+                    for (int rr = 0; rr < tr; rr++) {
+                        for (int g = 0; g < tq1_grps; g++) {
+                            int ar = r0 + rr, acs = c0 + g * 5;
+                            float maxabs = 0.0f;
+                            for (int i = 0; i < 5; i++) {
+                                int ac = acs + i;
+                                if (ar < R && ac < C) {
+                                    float v = fw[(size_t)ar * C + ac];
+                                    if (std::isfinite(v)) { float a = fabsf(v); if (a > maxabs) maxabs = a; }
+                                }
+                            }
+                            float s = maxabs > 1e-20f ? maxabs : 1.0f;
+                            float inv_s = 1.0f / s;
+                            sc[rr * tq1_grps + g] = f32b(s);
+                            uint8_t packed = 0;
+                            for (int i = 0; i < 5; i++) {
+                                int ac = acs + i;
+                                uint8_t code = 1;  // default: 0
+                                if (ar < R && ac < C) {
+                                    float v = fw[(size_t)ar * C + ac];
+                                    if (std::isfinite(v)) {
+                                        float q = v * inv_s;
+                                        if (q > 0.5f) code = 2;       // +1
+                                        else if (q < -0.5f) code = 0;  // -1
+                                        else code = 1;                 // 0
+                                    }
+                                }
+                                packed += (uint8_t)(code * tq1_pow3[i]);
+                            }
+                            qd[rr * tq1_grps + g] = packed;
                         }
                     }
                     fwrite(tdata.data(), 1, tdata.size(), fout);

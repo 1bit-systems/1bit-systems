@@ -25,6 +25,9 @@ typedef enum {
     RCPP_WEIGHT_FORMAT_BONSAI_TQ2 = 5,
     RCPP_WEIGHT_FORMAT_WMMA_I8    = 6,
     RCPP_WEIGHT_FORMAT_BLOCK_SCALED_TERNARY = 7,
+    RCPP_WEIGHT_FORMAT_Q1_0_BINARY  = 8,   // 1-bit binary (Q1_0, 128-block, fp16 scale + sign bits)
+    RCPP_WEIGHT_FORMAT_TQ2_0_LLAMA  = 9,   // llama.cpp TQ2_0 native (2.0625 bpw, 256-block)
+    RCPP_WEIGHT_FORMAT_TQ1_0_LLAMA  = 10,  // llama.cpp TQ1_0 native (1.6875 bpw, 256-block)
 } rcpp_weight_format_t;
 
 typedef enum {

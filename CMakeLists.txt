@@ -299,6 +299,9 @@ set(RCPP_SOURCES
     kernels/ternary_gemv_tq1_halo.hip
     kernels/ternary_gemv_wmma.hip
     kernels/ternary_gemv_block_scaled.hip
+    kernels/ternary_gemv_q1_0.hip
+    kernels/bitnet_gguf_gemv.hip
+    kernels/iq_gemv.hip
     kernels/rotorquant_pack.hip
     kernels/hadamard_rotate_butterfly.hip
     kernels/zaya_moe_ternary_gemv.hip

@@ -63,6 +63,9 @@ enum GgufDtype : uint32_t {
     // but are used by this project's weight formats)
     GGUF_DTYPE_TQ2_0_G128 = 42,  // Ternary Q2_0, group size 128 (h1b format)
     GGUF_DTYPE_Q1_0_G128 = 41,   // Binary Q1_0, group size 128 (h1b format)
+    // llama.cpp native ternary block types (GGML_TYPE values from ggml.h)
+    GGUF_DTYPE_TQ1_0_LLAMA = 34,  // GGML_TYPE_TQ1_0 — 1.6875 bpw base-3 ternary
+    GGUF_DTYPE_TQ2_0_LLAMA = 35,  // GGML_TYPE_TQ2_0 — 2.0625 bpw 2-bit ternary
 };
 
 // Block size (elements) and bytes-per-block for a dtype. Returns {0,0} for

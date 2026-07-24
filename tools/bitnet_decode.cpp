@@ -480,10 +480,13 @@ int main(int argc, char** argv) {
     // are consumed, delivering 42 TFLOPS on gfx1151.
     // For TQ1 (base-3) or Sherry, use the dedicated kernels instead.
     const auto ternary_gemv_i8 =
-        (m.weight_format == RCPP_WEIGHT_FORMAT_TQ1)       ? rcpp_ternary_gemv_tq1_halo_f16
-      : (m.weight_format == RCPP_WEIGHT_FORMAT_SHERRY_I8) ? rcpp_ternary_gemv_sherry_f16
+        (m.weight_format == RCPP_WEIGHT_FORMAT_TQ1)              ? rcpp_ternary_gemv_tq1_halo_f16
+      : (m.weight_format == RCPP_WEIGHT_FORMAT_SHERRY_I8)        ? rcpp_ternary_gemv_sherry_f16
       : (m.weight_format == RCPP_WEIGHT_FORMAT_BLOCK_SCALED_TERNARY) ? rcpp_ternary_gemv_bst
-                                                          : rcpp_ternary_gemv_halo_f16;
+      : (m.weight_format == RCPP_WEIGHT_FORMAT_Q1_0_BINARY)      ? rcpp_ternary_gemv_q1_0_f16
+      : (m.weight_format == RCPP_WEIGHT_FORMAT_TQ2_0_LLAMA)      ? rcpp_bitnet_gemv_tq2_0_f16
+      : (m.weight_format == RCPP_WEIGHT_FORMAT_TQ1_0_LLAMA)      ? rcpp_bitnet_gemv_tq1_0_f16
+                                                                 : rcpp_ternary_gemv_halo_f16;
     // TQ1 needs K multiple of 20 (u32-aligned row bytes).
     const int k_pad_unit = (m.weight_format == RCPP_WEIGHT_FORMAT_TQ1) ? 20 : 1;
     auto align_k = [&](int k) { return ((k + k_pad_unit - 1) / k_pad_unit) * k_pad_unit; };

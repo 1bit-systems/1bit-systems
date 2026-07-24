@@ -37,8 +37,10 @@
  *    checkpoints), lossy-but-functional otherwise, same as Q4NX is lossy
  *    for any source that isn't already 4-bit-quantizable.
  *
- *  TQ1 (1.58-bit, base-3 packing) is defined in the OnebpQuant enum but
- *  not yet implemented by the converter or loader.
+ *  TQ1 (1.58-bit, base-3 packing): ceil(256/5) = 52 bytes per tile row
+ *  for codes. Each byte packs 5 ternary values (3^5 = 243 < 256).
+ *  The 256-column tile boundary is handled by padding the last group
+ *  of 5 with zero codes.
  *
  *  Tensor index entry (variable-length):
  *    [name_len:u32][name:str][ndim:u32][dims:u32 × ndim][offset:u64][bytes:u64]
@@ -211,6 +213,13 @@ static inline uint64_t onebp_tiled_size(
             tile_bytes = (uint64_t)tile_rows * groups_per_row * 2   // scales
                        + (uint64_t)tile_rows * tile_cols / 4;       // 2-bit packed
             break;
+        case ONEBP_TQ1: {
+            // 1.58-bit base-3 ternary: 5 codes per byte, ceil(tc/5) groups per row
+            uint32_t tq1_grps = (tile_cols + 4) / 5;
+            tile_bytes = (uint64_t)tile_rows * tq1_grps * 2  // bf16 scales
+                       + (uint64_t)tile_rows * tq1_grps;      // packed codes
+            break;
+        }
         case ONEBP_F16:
             tile_bytes = (uint64_t)tile_rows * tile_cols * 2;
             break;

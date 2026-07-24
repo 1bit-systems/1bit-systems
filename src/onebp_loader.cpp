@@ -15,8 +15,14 @@ int main(int argc, char** argv) {
            h.arch, h.hidden_size, h.num_layers,
            h.num_attention_heads, h.num_kv_heads,
            h.head_dim, h.intermediate_size, h.vocab_size);
-    printf("  Quant=%u Experts=%d/%d SW=%d/%d\n",
-           h.quant, h.num_experts, h.n_expert_used,
+    const char* qname = h.quant == ONEBP_TQ2 ? "TQ2 (ternary 2-bit)" :
+                        h.quant == ONEBP_TQ1 ? "TQ1 (ternary 1.58-bit)" :
+                        h.quant == ONEBP_Q4NX ? "Q4NX (4-bit)" :
+                        h.quant == ONEBP_I8 ? "INT8" :
+                        h.quant == ONEBP_F16 ? "F16" :
+                        h.quant == ONEBP_F32 ? "F32" : "unknown";
+    printf("  Quant=%s Experts=%d/%d SW=%d/%d\n",
+           qname, h.num_experts, h.n_expert_used,
            h.sliding_window, h.swa_period);
     printf("  Tensors: %zu, File: %.1f MB\n", model.tensors.size(), model.file_size / 1e6);
 

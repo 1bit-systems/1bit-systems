@@ -104,7 +104,28 @@ static bool read_gguf_metadata(const std::string& path, ModelConfig& cfg) {
     if (r.get_string("general.name", name)) cfg.model_name = name;
 
     uint32_t ft;
-    if (r.get_u32("general.file_type", ft)) cfg.quantization = ggml_ftype_name(ft);
+    if (r.get_u32("general.file_type", ft)) {
+        cfg.quantization = ggml_ftype_name(ft);
+    } else {
+        // No explicit file_type — scan tensor dtypes to detect binary/ternary formats
+        bool has_q1_0 = false, has_tq2_0 = false, has_tq1_0 = false;
+        bool has_iq1_s = false, has_iq1_m = false;
+        for (const auto& tn : r.tensor_names()) {
+            auto* ti = r.tensor_info(tn);
+            if (!ti) continue;
+            if (ti->dtype == GGUF_DTYPE_Q1_0_G128)   has_q1_0 = true;
+            if (ti->dtype == GGUF_DTYPE_TQ2_0_G128)  has_tq2_0 = true;
+            if (ti->dtype == GGUF_DTYPE_TQ1_0_LLAMA)  has_tq1_0 = true;
+            if (ti->dtype == GGUF_DTYPE_TQ2_0_LLAMA)  has_tq2_0 = true;
+            if (ti->dtype == GGUF_DTYPE_IQ1_S)        has_iq1_s = true;
+            if (ti->dtype == GGUF_DTYPE_IQ1_M)        has_iq1_m = true;
+        }
+        if (has_q1_0)      cfg.quantization = "Q1_0 (binary 1-bit)";
+        else if (has_tq1_0) cfg.quantization = "TQ1_0 (ternary 1.69bpw)";
+        else if (has_tq2_0) cfg.quantization = "TQ2_0 (ternary 2.06bpw)";
+        else if (has_iq1_s) cfg.quantization = "IQ1_S (1.5bpw)";
+        else if (has_iq1_m) cfg.quantization = "IQ1_M (1.75bpw)";
+    }
 
     std::vector<std::string> tokens;
     if (r.get_string_array("tokenizer.ggml.tokens", tokens)) cfg.vocab = cfg.vocab_size = (int)tokens.size();

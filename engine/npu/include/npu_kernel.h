@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include <cstdio>
+#include "ternary_npu_bridge.h"
 #include "xrt_wrapper.h"
 
 // ─── NPU Engine Config (from npu_engine.zig) ─────────────────────
@@ -263,6 +264,57 @@ public:
             other.act_mapped_ = nullptr;
         }
         return *this;
+    }
+
+    /// TQ2 ternary → INT8: pack TQ2 ternary weights into the layer's weight BO.
+    /// tq2_data: raw TQ2 tile data in 1BP format (32x256 tiles, 2-bit codes)
+    /// k, n: logical matrix dimensions
+    /// tile_rows, tile_cols, group_size: tile geometry (default 32, 256, 32)
+    /// Returns the quantization scale (for dequant on output).
+    float packTQ2Weight(uint32_t layer, const uint8_t* tq2_data, uint32_t k, uint32_t n,
+                         uint32_t tile_rows = 32, uint32_t tile_cols = 256, uint32_t group_size = 32) {
+        if (layer >= n_layers_) throw std::runtime_error("Layer index out of bounds");
+
+        // Use the ternary NPU bridge to convert TQ2 → INT8
+        auto result = pack_tq2_to_npu_int8(
+            tq2_data, (int)k, (int)n, (int)tile_rows, (int)tile_cols, (int)group_size);
+
+        if (!result.weights) {
+            fprintf(stderr, "[npu_kernel] TQ2 pack failed for layer %u\n", layer);
+            return 1.0f;
+        }
+
+        size_t total = (size_t)k * n;
+        uint8_t* mem = layer_bos_[layer].map(total);
+        std::memcpy(mem, result.weights, total);
+        layer_bos_[layer].sync(XCL_BO_SYNC_BO_TO_DEVICE, 0, total);
+
+        float scale = result.dequant_scale;
+        free_ternary_npu_pack(&result);
+        return scale;
+    }
+
+    /// TQ1 (1.58-bit) → INT8: pack TQ1 base-3 ternary weights into the layer's weight BO.
+    float packTQ1Weight(uint32_t layer, const uint8_t* tq1_data, uint32_t k, uint32_t n,
+                         uint32_t tile_rows = 32, uint32_t tile_cols = 256) {
+        if (layer >= n_layers_) throw std::runtime_error("Layer index out of bounds");
+
+        auto result = pack_tq1_to_npu_int8(
+            tq1_data, (int)k, (int)n, (int)tile_rows, (int)tile_cols);
+
+        if (!result.weights) {
+            fprintf(stderr, "[npu_kernel] TQ1 pack failed for layer %u\n", layer);
+            return 1.0f;
+        }
+
+        size_t total = (size_t)k * n;
+        uint8_t* mem = layer_bos_[layer].map(total);
+        std::memcpy(mem, result.weights, total);
+        layer_bos_[layer].sync(XCL_BO_SYNC_BO_TO_DEVICE, 0, total);
+
+        float scale = result.dequant_scale;
+        free_ternary_npu_pack(&result);
+        return scale;
     }
 
     bool initialized() const { return initialized_; }
