@@ -491,6 +491,62 @@ int main(int argc, char** argv) {
         add_cors(res);
     });
 
+    svr.Post("/v1/audio/transcriptions", [&](const httplib::Request& req, httplib::Response& res) {
+        std::string audio_bytes;
+        if (req.has_file("file")) audio_bytes = req.get_file_value("file").content;
+        else if (req.has_file("audio")) audio_bytes = req.get_file_value("audio").content;
+
+        if (audio_bytes.empty()) {
+            res.status = 400;
+            res.set_content(json{{"error", "no audio file"}}.dump(), "application/json");
+            add_cors(res);
+            return;
+        }
+
+        WhisperModel* model = get_whisper_model();
+        if (!model) {
+            res.set_content(json{{"text", "[transcription unavailable: WHISPER_MODEL_PATH not set or model failed to load]"}}.dump(),
+                             "application/json");
+            add_cors(res);
+            return;
+        }
+
+        // Normalize to 16kHz mono s16 WAV via ffmpeg — handles whatever
+        // format the client actually sent (the UI's mic button records
+        // audio/webm, not WAV) and any sample rate; matches the original
+        // Python's ffmpeg-based resample step, just applied unconditionally
+        // instead of only for non-WAV input.
+        std::string tag = std::to_string((long)getpid()) + "_" + std::to_string((long)time(nullptr));
+        std::string in_path = "/tmp/jarvis_stt_in_" + tag + ".bin";
+        std::string out_path = "/tmp/jarvis_stt_out_" + tag + ".wav";
+        {
+            std::ofstream f(in_path, std::ios::binary | std::ios::trunc);
+            f.write(audio_bytes.data(), (std::streamsize)audio_bytes.size());
+        }
+
+        // Paths are server-generated (pid + timestamp), not user input —
+        // safe to shell out with directly.
+        std::string cmd = "ffmpeg -y -loglevel error -i " + in_path +
+                           " -f wav -acodec pcm_s16le -ar 16000 -ac 1 " + out_path + " 2>/dev/null";
+        int rc = std::system(cmd.c_str());
+        std::error_code ec;
+        std::filesystem::remove(in_path, ec);
+
+        std::string text;
+        if (rc == 0 && std::filesystem::exists(out_path)) {
+            int sr = 16000;
+            auto pcm = whisper_load_wav(out_path, &sr);
+            std::filesystem::remove(out_path, ec);
+            if (!pcm.empty()) text = whisper_transcribe(*model, pcm.data(), (int)pcm.size());
+        } else {
+            std::filesystem::remove(out_path, ec);
+        }
+        if (text.empty()) text = "[silence]";
+
+        res.set_content(json{{"text", text}}.dump(), "application/json");
+        add_cors(res);
+    });
+
     svr.set_error_handler([](const httplib::Request&, httplib::Response& res) {
         if (res.status == 404) res.set_content(json{{"error", "nf"}}.dump(), "application/json");
     });

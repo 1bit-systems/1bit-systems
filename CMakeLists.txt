@@ -862,10 +862,11 @@ add_executable(jarvis_server
     tools/jarvis/planner.cpp
     tools/jarvis/beacon.cpp)
 target_include_directories(jarvis_server PRIVATE tools/)
-target_compile_options(jarvis_server PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
+target_compile_options(jarvis_server PRIVATE -O3 -Wall -Wno-unused-result -std=c++23 -fopenmp)
 target_link_libraries(jarvis_server PRIVATE
     httplib::httplib
-    nlohmann_json::nlohmann_json)
+    nlohmann_json::nlohmann_json
+    whisper)
 
 # -- zaya1_vl_demo : ZAYA1-VL-8B vision-language inference demo -------------
 add_executable(zaya1_vl_demo tools/zaya1_vl_demo.cpp)
