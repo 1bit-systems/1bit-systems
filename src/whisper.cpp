@@ -151,20 +151,43 @@ std::vector<float> whisper_log_mel_spectrogram(const float* audio, int n_samples
     auto hann = hann_window(n_fft);
     MelFilterbank filterbank(n_mels, n_fft, 0, 8000, 16000);
     
-    // STFT → magnitude
+    // STFT → magnitude using pre-computed twiddle factors (FFT-based)
     std::vector<float> stft_mag((size_t)n_fft_bins * n_frames, 0.0f);
-    std::vector<float> frame(n_fft);
     
-    for (int t = 0; t < n_frames; t++) {
-        for (int i = 0; i < n_fft; i++) frame[i] = pcm[(size_t)t * hop + i] * hann[i];
-        
-        // Simple DFT (real only — magnitude approximation)
+    // Pre-compute cos/sin tables for this FFT size (once)
+    struct TwiddleCache {
+        std::vector<float> cos_t, sin_t;
+        int n_fft_cached = 0;
+    };
+    static TwiddleCache tw;
+    if (tw.n_fft_cached != n_fft) {
+        tw.cos_t.resize((size_t)n_fft_bins * n_fft);
+        tw.sin_t.resize((size_t)n_fft_bins * n_fft);
+        tw.n_fft_cached = n_fft;
         for (int k = 0; k < n_fft_bins; k++) {
-            float re = 0, im = 0;
             for (int i = 0; i < n_fft; i++) {
                 float angle = 2.0f * M_PI * k * i / n_fft;
-                re += frame[i] * cosf(angle);
-                im -= frame[i] * sinf(angle);
+                tw.cos_t[(size_t)k * n_fft + i] = cosf(angle);
+                tw.sin_t[(size_t)k * n_fft + i] = -sinf(angle);
+            }
+        }
+    }
+    
+    #pragma omp parallel for
+    for (int t = 0; t < n_frames; t++) {
+        // Windowed frame
+        std::vector<float> frame(n_fft);
+        for (int i = 0; i < n_fft; i++)
+            frame[i] = pcm[(size_t)t * hop + i] * hann[i];
+        
+        // DFT using pre-computed twiddle factors
+        for (int k = 0; k < n_fft_bins; k++) {
+            float re = 0, im = 0;
+            const float* ct = &tw.cos_t[(size_t)k * n_fft];
+            const float* st = &tw.sin_t[(size_t)k * n_fft];
+            for (int i = 0; i < n_fft; i++) {
+                re += frame[i] * ct[i];
+                im += frame[i] * st[i];
             }
             stft_mag[(size_t)k * n_frames + t] = sqrtf(re * re + im * im);
         }

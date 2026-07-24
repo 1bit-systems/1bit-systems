@@ -313,6 +313,7 @@ set(RCPP_SOURCES
     src/fused_gemv_tq2_1024.hip
     src/bonsai_tq2_1024_opt.hip
     kernels/vl_resize_norm.hip
+    kernels/whisper_kernels.hip
     src/laguna_gemv.hip
     src/laguna_fused.hip
     src/laguna_ops.hip
@@ -841,6 +842,14 @@ target_include_directories(zaya1_vl_demo PRIVATE src/ include/)
 target_compile_options(zaya1_vl_demo PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
 target_link_libraries(zaya1_vl_demo PRIVATE
     backend_manager vision_encoder vl_image dl
+    ${CMAKE_DL_LIBS})
+
+# -- whisper_demo : Whisper speech-to-text demo -----------------------------------------
+add_executable(whisper_demo tools/whisper_demo.cpp)
+target_include_directories(whisper_demo PRIVATE src/ include/)
+target_compile_options(whisper_demo PRIVATE -O3 -Wall -Wno-unused-result -std=c++23 -fopenmp)
+target_link_libraries(whisper_demo PRIVATE
+    whisper backend_manager vl_image dl
     ${CMAKE_DL_LIBS})
 
 # -- test_vit_encoder : Standalone ViT encoder test ---------------------------------
