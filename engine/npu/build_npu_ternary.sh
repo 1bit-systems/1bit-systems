@@ -27,6 +27,16 @@ export PATH="${TORCH2AIE}/toolchain/bin:$PATH"
 export AIETOOLS_DIR="${TORCH2AIE}/toolchain"
 export MLIR_AIE_DIR="${TORCH2AIE}/toolchain/mlir_aie"
 
+# Toolchain version check: MLIR-AIE .so files are cpython-312
+PY_VER=$(python3 --version 2>&1 | grep -oP '[0-9]+\.[0-9]+' | head -1 || echo "unknown")
+if [ "$PY_VER" != "3.12" ]; then
+    echo "  ⚠ Python ${PY_VER} — MLIR-AIE .so need Python 3.12" >&2
+    if [ -x "${HOME}/torch2aie/.venv/bin/python3.12" ]; then
+        export PATH="${HOME}/torch2aie/.venv/bin:$PATH"
+        echo "    → using ${HOME}/torch2aie/.venv/bin/python3.12" >&2
+    fi
+fi
+
 AIE_INCLUDES="-I${TORCH2AIE}/toolchain/mlir_aie/include"
 AIE_INCLUDES="${AIE_INCLUDES} -I${TORCH2AIE}/toolchain/mlir_aie/include/aie_kernels"
 AIE_INCLUDES="${AIE_INCLUDES} -I${TORCH2AIE}/toolchain/mlir_aie/include/aie_kernels/aie2p"
@@ -114,13 +124,8 @@ if [ "${1:-}" = "--compile-only" ]; then
 fi
 
 # Otherwise, copy xclbins
+# shellcheck disable=SC2034
 TAG="$1" H="$2" NH="$3" NKV="$4" HD="$5" IM="$6" M="${7:-128}"
-QKV_N=$(( NH * HD + 2 * NKV * HD ))
-O_K=$(( NH * HD ))
-O_N=$H
-GU_N=$(( 2 * IM ))
-D_K=$IM
-D_N=$H
 
 echo ""
 echo "=== ${FMT_NAME} xclbins: ${TAG} (H=$H) M=$M ==="
