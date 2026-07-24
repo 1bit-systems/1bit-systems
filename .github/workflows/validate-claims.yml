@@ -110,6 +110,10 @@ jobs:
       - name: Retired claims must not reappear on the site
         run: |
           set -e
+          # nullglob: site/*-badge.json expands to nothing (not the literal
+          # pattern) once no hyphenated badge files remain, so the `cat`
+          # below doesn't hard-fail on a nonexistent literal filename.
+          shopt -s nullglob
           # Numbers deliberately quarantined in benchmarks/latest.json _unverified.
           # Match digits and unit even when separated by nested HTML tags, and
           # scan the RENDERED text of index.html plus the JSON payloads the page

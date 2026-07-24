@@ -32,14 +32,14 @@
   "repo": {
     "forks": 4,
     "name": "1bit-systems",
-    "open_issues": 9,
+    "open_issues": 0,
     "owner": "bong-water-water-bong",
-    "stars": 9,
+    "stars": 13,
     "total_clones": 6113,
     "unique_cloners": 783
   },
   "site": {
     "backends": 9,
-    "models": 35
+    "models": 40
   }
 }

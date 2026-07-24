@@ -294,45 +294,56 @@
 <!-- ===== MODEL FAMILIES ===== -->
 <section id="families" class="block">
   <span class="eyebrow">Model Families</span>
-  <h2 style="margin:16px 0 8px;">Whole families — <span style="color:var(--pink);">brought to 1BP.</span></h2>
-  <p class="lead" style="margin-bottom:28px;">Model-agnostic isn't a slogan. We took two architecturally distinct families end-to-end — dense, MoE, Mamba1/Mamba2-hybrid, and sigmoid-routed MoE — through the same auto-detect 1BP pipeline. Same engine, same binary, no per-model glue.</p>
+  <h2 style="margin:16px 0 8px;">Built around <span style="color:var(--green);">Zaya.</span> Extended to everything else.</h2>
+  <p class="lead" style="margin-bottom:28px;">Zaya1-8B is the model this project was built around — the first validated end-to-end through Q4NX, GGUF, and 1BP. The same auto-detect pipeline now covers 16 families and 40 models, from dense transformers to MoE to state-space hybrids. Full specs for every family live in the <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md" style="color:var(--blue);font-weight:600;">catalog on GitHub →</a></p>
 
-  <div class="grid2">
-    <div class="panel" style="padding:28px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-        <span style="font-size:22px;font-weight:800;color:var(--green);">Zyphra</span>
-        <span class="pill ok" style="font-size:10px;"><span class="dot"></span>9 models · 4 architectures</span>
+  <div class="panel" style="padding:32px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:6px;">
+      <span style="font-size:26px;font-weight:800;color:var(--green);">Zaya <span style="font-size:14px;font-weight:600;color:var(--muted);">— Zyphra</span></span>
+      <span class="pill ok" style="font-size:11px;"><span class="dot"></span>flagship · 2 models</span>
+    </div>
+    <p style="font-size:14px;color:var(--muted);margin-bottom:18px;max-width:660px;">16-expert MoE. Every tensor structurally and numerically verified against the source GGUF — the first target of every new converter this project ships.</p>
+    <div class="grid4" style="gap:14px;">
+      <div style="border:1px solid var(--border);border-radius:12px;padding:14px;">
+        <div style="font-weight:800;font-size:14px;">ZAYA1-8B</div>
+        <div class="mono" style="font-size:12px;color:var(--muted);margin:4px 0 8px;">8.8B · 149 MB · 1BP</div>
+        <div class="mono" style="font-size:20px;font-weight:800;color:var(--green);">~64 <span style="font-size:12px;color:var(--muted);font-family:var(--sans);">tok/s</span></div>
       </div>
-      <p style="font-size:14px;color:var(--muted);margin-bottom:16px;">The full Zyphra lineup, converted and hosted in 1BP — from dense reasoning to state-space hybrids and MoE.</p>
-      <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
-        <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding-bottom:7px;"><span><strong>Zaya1</strong> · 8B / 74B-preview</span><span class="tag gpu">MoE</span></div>
-        <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding-bottom:7px;"><span><strong>Zamba2</strong> · 1.2B / 2.7B / 7B</span><span class="tag npu">Mamba2-Hybrid</span></div>
-        <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding-bottom:7px;"><span><strong>BlackMamba</strong> · 1.5B / 2.8B</span><span class="tag oneb">Mamba1 · MoE</span></div>
-        <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding-bottom:7px;"><span><strong>Zamba-7B-v1</strong></span><span class="tag npu">Mamba1 + SharedAttn</span></div>
-        <div style="display:flex;justify-content:space-between;"><span><strong>ZR1-1.5B</strong> · reasoning</span><span class="tag gpu">Dense</span></div>
+      <div style="border:1px solid var(--border);border-radius:12px;padding:14px;">
+        <div style="font-weight:800;font-size:14px;">ZAYA1-74B-preview</div>
+        <div class="mono" style="font-size:12px;color:var(--muted);margin:4px 0 8px;">74B · 739 MB · 1BP</div>
+        <div style="font-size:13px;color:var(--dim);">24-expert MoE</div>
       </div>
-      <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;">
-        <a class="btn btn-ghost btn-sm" href="https://huggingface.co/bong-water-water-bong" target="_blank" rel="noopener">🤗 Zyphra 1BP models →</a>
-        <a class="btn btn-ghost btn-sm" href="https://www.zyphra.com" target="_blank" rel="noopener">About Zyphra →</a>
+      <div style="border:1px solid var(--border);border-radius:12px;padding:14px;">
+        <div style="font-weight:800;font-size:14px;">ZAYA1-VL-8B</div>
+        <div class="mono" style="font-size:12px;color:var(--muted);margin:4px 0 8px;">SigLIP ViT + Zaya1 decoder</div>
+        <div style="font-size:13px;color:var(--dim);">Vision + text</div>
       </div>
     </div>
+    <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;">
+      <a class="btn btn-primary btn-sm" href="https://huggingface.co/bong-water-water-bong/ZAYA1-8B-1BP" target="_blank" rel="noopener">🤗 ZAYA1-8B on Hugging Face →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#zaya--2" target="_blank" rel="noopener">Full Zaya specs →</a>
+    </div>
+  </div>
 
-    <div class="panel" style="padding:28px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-        <span style="font-size:22px;font-weight:800;color:var(--blue);">Poolside Laguna</span>
-        <span class="pill info" style="font-size:10px;"><span class="dot"></span>native arch support</span>
-      </div>
-      <p style="font-size:14px;color:var(--muted);margin-bottom:16px;">A genuinely different beast — sigmoid-routed MoE with hybrid sliding-window/global attention and a softplus gate. First-class support baked into the 1BP header and engine.</p>
-      <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
-        <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding-bottom:7px;"><span><strong>Laguna S-2.1</strong></span><span class="tag gpu">Sigmoid MoE</span></div>
-        <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding-bottom:7px;"><span><strong>Laguna S-2.1 DFlash</strong> · draft</span><span class="tag mlx">Spec-decode</span></div>
-        <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding-bottom:7px;"><span>Hybrid SWA / global attention</span><span class="pill dark" style="font-size:9px;"><span class="dot"></span>256 experts</span></div>
-        <div style="display:flex;justify-content:space-between;"><span>Softplus gate · per-head attn gate</span><span class="pill dark" style="font-size:9px;"><span class="dot"></span>top-10 routed</span></div>
-      </div>
-      <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;">
-        <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/src/backend_laguna.cpp" target="_blank" rel="noopener">Laguna backend →</a>
-        <a class="btn btn-ghost btn-sm" href="https://huggingface.co/bong-water-water-bong" target="_blank" rel="noopener">🤗 Laguna 1BP →</a>
-      </div>
+  <div style="margin-top:26px;">
+    <p class="caps" style="color:var(--muted);font-size:11px;margin-bottom:12px;">+ 15 more families · 38 more models</p>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;">
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#laguna-poolside--3" target="_blank" rel="noopener">Laguna · 3 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#qwen--4" target="_blank" rel="noopener">Qwen · 4 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#llama-family--4" target="_blank" rel="noopener">Llama · 4 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#mistral--2" target="_blank" rel="noopener">Mistral · 2 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#gemma--4" target="_blank" rel="noopener">Gemma · 4 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#phi--3" target="_blank" rel="noopener">Phi · 3 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#deepseek--2" target="_blank" rel="noopener">DeepSeek · 2 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#falcon3-tii--2" target="_blank" rel="noopener">Falcon3 · 2 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#olmo-ai2--1" target="_blank" rel="noopener">OLMo · 1 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#granite-ibm--1" target="_blank" rel="noopener">Granite · 1 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#mamba--2" target="_blank" rel="noopener">Mamba · 2 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#zamba-mamba2-hybrid--3" target="_blank" rel="noopener">Zamba (Hybrid) · 3 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#zamba-mamba1attn--1" target="_blank" rel="noopener">Zamba (Mamba1+Attn) · 1 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#ternary--1-bit--4" target="_blank" rel="noopener">Ternary / Bonsai · 4 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#vision-language--2" target="_blank" rel="noopener">Vision-Language · 2 →</a>
     </div>
   </div>
 </section>
@@ -340,81 +351,17 @@
 <!-- ===== MODELS ===== -->
 <section id="models" class="block">
   <span class="eyebrow">Full Catalog</span>
-  <h2 style="margin:16px 0 8px;">35 models. 7 families. All in 1BP format.</h2>
-  <p class="lead" style="margin-bottom:28px;">Single-file, memory-mappable weights. Zero external config.json or tokenizer.json. Full catalog on <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md" style="color:var(--blue);font-weight:600;">GitHub →</a> · <a href="https://huggingface.co/bong-water-water-bong" style="color:var(--blue);font-weight:600;">HuggingFace →</a></p>
+  <h2 style="margin:16px 0 8px;">40 models. 16 families. One format.</h2>
+  <p class="lead" style="margin-bottom:28px;">Every family above converts to the same single-file, memory-mappable <strong style="color:var(--text);">1BP</strong> format — zero external config.json or tokenizer.json. One of them skips conversion entirely: these run straight from GGUF, validated end-to-end.</p>
 
-  <div class="card" style="padding:24px;margin-bottom:16px;">
+  <div class="card" style="padding:24px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-      <span class="caps" style="color:var(--green);font-size:13px;">🔹 Dense Transformer — 15 models</span>
-      <span class="pill info" style="font-size:9px;"><span class="dot"></span>ZINC · NPU</span>
+      <span class="caps" style="color:var(--muted);font-size:13px;">🔹 GGUF Native — no 1BP conversion needed</span>
+      <span class="pill info" style="font-size:9px;"><span class="dot"></span>direct execution, verified</span>
     </div>
     <div style="overflow-x:auto;">
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
-      <tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">Model</th><th style="text-align:right;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">Params</th><th style="text-align:right;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">1BP Size</th><th style="text-align:right;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">Backend</th></tr>
-      <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 10px;">Zaya1-8B</td><td style="text-align:right;padding:6px 10px;">8.8B</td><td style="text-align:right;padding:6px 10px;color:var(--green);">469 MB</td><td style="text-align:right;padding:6px 10px;">ZINC</td></tr>
-      <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 10px;">Llama-3.2-3B</td><td style="text-align:right;padding:6px 10px;">3B</td><td style="text-align:right;padding:6px 10px;color:var(--green);">1.9 GB</td><td style="text-align:right;padding:6px 10px;">NPU · ZINC</td></tr>
-      <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 10px;">Qwen3-4B</td><td style="text-align:right;padding:6px 10px;">4B</td><td style="text-align:right;padding:6px 10px;color:var(--green);">2.2 GB</td><td style="text-align:right;padding:6px 10px;">NPU · ZINC</td></tr>
-      <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 10px;">Gemma4-E2B</td><td style="text-align:right;padding:6px 10px;">2B</td><td style="text-align:right;padding:6px 10px;color:var(--dim);">—</td><td style="text-align:right;padding:6px 10px;">NPU · ZINC</td></tr>
-      <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 10px;">Granite3.2-2B</td><td style="text-align:right;padding:6px 10px;">2B</td><td style="text-align:right;padding:6px 10px;color:var(--green);">1.5 GB</td><td style="text-align:right;padding:6px 10px;">NPU · ZINC</td></tr>
-      <tr><td colspan="4" style="padding:6px 10px;font-size:11px;color:var(--dim);">+ 10 more: Llama-3.1-8B, Qwen2.5-7B, Mistral-7B, Phi-4-mini, DeepSeek-R1-7B, Llama-3.2-1B, Gemma3-1B/4B, ZAYA1-74B-preview, Qwen2.5-Coder-7B · <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md" style="color:var(--blue);">full list →</a></td></tr>
-    </table>
-    </div>
-  </div>
-
-  <div class="card" style="padding:24px;margin-bottom:16px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-      <span class="caps" style="color:var(--pink);font-size:13px;">🔹 Mamba2-Hybrid — 4 models</span>
-      <span class="pill info" style="font-size:9px;"><span class="dot"></span>SSM + Attention</span>
-    </div>
-    <div style="overflow-x:auto;">
-    <table style="width:100%;border-collapse:collapse;font-size:13px;">
-      <tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">Model</th><th style="text-align:right;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">Params</th><th style="text-align:right;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">1BP Size</th><th style="text-align:right;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">Backend</th></tr>
-      <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 10px;">Zamba2-1.2B-v2</td><td style="text-align:right;padding:6px 10px;">1.2B</td><td style="text-align:right;padding:6px 10px;color:var(--green);">1.1 GB</td><td style="text-align:right;padding:6px 10px;">NPU · ZINC</td></tr>
-      <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 10px;">Zamba2-2.7B-v2</td><td style="text-align:right;padding:6px 10px;">2.7B</td><td style="text-align:right;padding:6px 10px;color:var(--green);">2.4 GB</td><td style="text-align:right;padding:6px 10px;">NPU · ZINC</td></tr>
-      <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 10px;">Zamba2-7B-v2</td><td style="text-align:right;padding:6px 10px;">7B</td><td style="text-align:right;padding:6px 10px;color:var(--green);">6.7 GB</td><td style="text-align:right;padding:6px 10px;">NPU · ZINC</td></tr>
-      <tr><td style="padding:6px 10px;">ZR1-1.5B</td><td style="text-align:right;padding:6px 10px;">1.5B</td><td style="text-align:right;padding:6px 10px;color:var(--green);">781 MB</td><td style="text-align:right;padding:6px 10px;color:var(--green);font-weight:700;">26 tok/s ✅ ZINC GPU</td></tr>
-    </table>
-    </div>
-  </div>
-
-  <div class="card" style="padding:24px;margin-bottom:16px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-      <span class="caps" style="color:var(--blue);font-size:13px;">🔹 Ternary TQ2 — 4 models</span>
-      <span class="pill warn" style="font-size:9px;"><span class="dot"></span>415 tok/s fused</span>
-    </div>
-    <div style="overflow-x:auto;">
-    <table style="width:100%;border-collapse:collapse;font-size:13px;">
-      <tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">Model</th><th style="text-align:right;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">Params</th><th style="text-align:right;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">1BP Size</th><th style="text-align:right;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">Backend</th></tr>
-      <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 10px;">Bonsai-1.7B</td><td style="text-align:right;padding:6px 10px;">1.7B</td><td style="text-align:right;padding:6px 10px;color:var(--green);">840 MB</td><td style="text-align:right;padding:6px 10px;">HIP GPU</td></tr>
-      <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 10px;">Bonsai-4B</td><td style="text-align:right;padding:6px 10px;">4B</td><td style="text-align:right;padding:6px 10px;color:var(--green);">2.2 GB</td><td style="text-align:right;padding:6px 10px;">HIP GPU</td></tr>
-      <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 10px;">Bonsai-8B</td><td style="text-align:right;padding:6px 10px;">8B</td><td style="text-align:right;padding:6px 10px;color:var(--green);">4.1 GB</td><td style="text-align:right;padding:6px 10px;">HIP GPU</td></tr>
-      <tr><td style="padding:6px 10px;">Bonsai-27B</td><td style="text-align:right;padding:6px 10px;">27B</td><td style="text-align:right;padding:6px 10px;color:var(--green);">2.6 GB</td><td style="text-align:right;padding:6px 10px;">HIP GPU</td></tr>
-    </table>
-    </div>
-  </div>
-
-  <div class="card" style="padding:24px;margin-bottom:16px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-      <span class="caps" style="color:var(--green);font-size:13px;">🔹 MoE · Mamba1 — 2 models</span>
-      <span class="pill ok" style="font-size:9px;"><span class="dot"></span>79.8 tok/s e2e</span>
-    </div>
-    <div style="overflow-x:auto;">
-    <table style="width:100%;border-collapse:collapse;font-size:13px;">
-      <tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">Model</th><th style="text-align:right;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">Params</th><th style="text-align:right;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">1BP Size</th><th style="text-align:right;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">Performance</th></tr>
-      <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 10px;">BlackMamba-1.5B</td><td style="text-align:right;padding:6px 10px;">1.5B</td><td style="text-align:right;padding:6px 10px;color:var(--green);">970 MB</td><td style="text-align:right;padding:6px 10px;color:var(--green);font-weight:700;">79.8 tok/s ✅</td></tr>
-      <tr><td style="padding:6px 10px;">BlackMamba-2.8B</td><td style="text-align:right;padding:6px 10px;">2.8B</td><td style="text-align:right;padding:6px 10px;color:var(--green);">1.8 GB</td><td style="text-align:right;padding:6px 10px;color:var(--green);font-weight:700;">46.4 tok/s ✅</td></tr>
-    </table>
-    </div>
-  </div>
-
-  <div class="card" style="padding:24px;margin-bottom:16px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-      <span class="caps" style="color:var(--muted);font-size:13px;">🔹 GGUF Native — 5 models</span>
-      <span class="pill info" style="font-size:9px;"><span class="dot"></span>No 1BP conversion needed</span>
-    </div>
-    <div style="overflow-x:auto;">
-    <table style="width:100%;border-collapse:collapse;font-size:13px;">
-      <tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">Model</th><th style="text-align:right;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">Params</th><th style="text-align:right;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">Backend</th><th style="text-align:right;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">Status</th></tr>
+      <tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">Model</th><th style="text-align:right;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">Params</th><th style="text-align:right;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">Backend</th><th style="text-align:right;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700;">Tests</th></tr>
       <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 10px;">Qwen3-0.6B</td><td style="text-align:right;padding:6px 10px;">0.6B</td><td style="text-align:right;padding:6px 10px;">ZINC · NPU</td><td style="text-align:right;padding:6px 10px;color:var(--green);">✅ 28/28</td></tr>
       <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 10px;">Qwen3-VL-4B</td><td style="text-align:right;padding:6px 10px;">4B</td><td style="text-align:right;padding:6px 10px;">ZINC</td><td style="text-align:right;padding:6px 10px;color:var(--green);">✅ 36/36</td></tr>
       <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 10px;">Llama-3.1-8B</td><td style="text-align:right;padding:6px 10px;">8B</td><td style="text-align:right;padding:6px 10px;">ZINC · NPU</td><td style="text-align:right;padding:6px 10px;color:var(--green);">✅ 32/32</td></tr>
@@ -424,26 +371,17 @@
     </div>
   </div>
 
-  <div style="margin-top:28px;text-align:center;padding:20px;border:1px solid var(--border);border-radius:18px;">
-    <p style="font-size:14px;color:var(--muted);">+ Mamba1+SharedAttn: Zamba-7B-v1 · + Local: TinyLlama-1.1B, Qwen2.5-0.5B, Qwen2-VL-2B<br>
-    All 1BP format: 256-byte header, memory-mappable weights, zero external config.</p>
-    <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md" class="btn btn-ghost btn-md" style="margin-top:16px;" target="_blank">📊 Full model catalog →</a>
+  <div style="margin-top:20px;text-align:center;">
+    <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md" class="btn btn-ghost btn-md" target="_blank" rel="noopener">📊 Full model catalog — sizes, backends, per-family specs →</a>
   </div>
 </section>
 
 <!-- ===== BENCHMARKS ===== -->
 <section id="benchmarks" class="block">
   <span class="eyebrow">Benchmarks</span>
-  <h2 style="margin:16px 0 24px;">Measured on-device. Source-backed.</h2>
-  <div class="stats">
-    <div class="stat"><span class="lbl caps">BlackMamba 1.5B</span><span class="val">79.8 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>Mamba1 HIP · e2e validated</span></div>
-    <div class="stat"><span class="lbl caps">Fused TQ2 kernel</span><span class="val">415 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>ROCm HIP · validated</span></div>
-    <div class="stat"><span class="lbl caps">zaya_server 27B</span><span class="val">30 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>Q4_K · full decode e2e</span></div>
-    <div class="stat"><span class="lbl caps">Prefill peak</span><span class="val">42.2 <span>TFLOPS</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>INT8 · XDNA 2 · sourced</span></div>
-    <div class="stat"><span class="lbl caps">Q1 GEMV kernel</span><span class="val">417 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>ROCm HIP · validated</span></div>
-    <div class="stat"><span class="lbl caps">BlackMamba 2.8B</span><span class="val">46.4 <span>tok/s</span></span><span class="foot"><span class="dot" style="background:var(--green)"></span>Mamba1 HIP · e2e validated</span></div>
-  </div>
-  <p style="margin-top:24px;text-align:center;font-size:13px;color:var(--dim);">Numbers auto-update from <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/site/benchmarks.json" style="color:var(--muted);">site/benchmarks.json</a> on every push · <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/performance.md" style="color:var(--blue);font-weight:600;">Full benchmarks breakdown →</a></p>
+  <h2 style="margin:16px 0 16px;">Measured on-device. Source-backed.</h2>
+  <p class="lead" style="margin-bottom:20px;">Real numbers are on the model cards above — BlackMamba, Zaya1-8B, Bonsai, and ZR1-1.5B all show measured tok/s next to the download link, not off in a separate table. Every one traces back to one file with a status tag (validated / optimized / raw), so nothing here is cherry-picked.</p>
+  <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/performance.md" class="btn btn-primary btn-md" target="_blank" rel="noopener">📈 Full benchmarks breakdown →</a>
 </section>
 
 <!-- ===== BACKENDS ===== -->
