@@ -80,14 +80,12 @@ struct ZincBackend : Backend {
             return false;
         }
 
-        // The dense ZINC GPU path runs end-to-end (embed, Q4_K matmuls, RoPE,
-        // GQA attention, SwiGLU, argmax) and is fast, but its crude Q4_K
-        // re-quantization (no sub-block scales) still degrades quality vs the
-        // full-precision cpu_generic path (#844). Opt-in only so dense models
-        // keep using the correct backend by default. Set ZINC_ENABLE=1 to try.
-        if (!getenv("ZINC_ENABLE")) {
-            fprintf(stderr, "ZINC: dense GPU path is experimental — disabled by "
-                "default (set ZINC_ENABLE=1). Using HIP/CPU. See #844.\n");
+        // The dense ZINC GPU path runs the full transformer on Vulkan (embed,
+        // F32 matmuls, RoPE, causal GQA attention, SwiGLU, argmax) and is
+        // validated token-for-token against cpu_generic on ZR1/Qwen2 (#844).
+        // Enabled by default; set ZINC_DISABLE=1 to force the HIP/CPU path.
+        if (getenv("ZINC_DISABLE")) {
+            fprintf(stderr, "ZINC: disabled via ZINC_DISABLE — using HIP/CPU.\n");
             return false;
         }
 

@@ -64,6 +64,8 @@ public:
     // F32-weight GEMV (e.g. the tied lm_head, whose embeddings are stored F32,
     // not Q4_K). Uses the gemv_f32 shader instead of the dmmv_q4k dequant path.
     void gemv_f32(VkBuffer y, VkBuffer x, VkBuffer W, int M, int N, int K);
+    // Debug: flush the batch, copy the first n floats of buf to host, print.
+    void debug_readback(VkBuffer buf, int n, const char* tag);
     void rope(VkBuffer q, VkBuffer k, int hd, int pos, int n_heads, int n_kv, float theta);
     void flash_attn(VkBuffer q, VkBuffer k_cache, VkBuffer v_cache, VkBuffer out,
                     int seq_len, int n_heads, int n_kv, int hd, int gqa,

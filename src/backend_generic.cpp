@@ -433,6 +433,9 @@ struct GenericBackend : Backend {
 
             // RMSNorm → QKV
             rmsnorm(x2.data(), x.data(), w(l.rms_attn), H, eps);
+            if (il == 0 && getenv("CPU_DEBUG_OPS"))
+                fprintf(stderr, "[cpu] pos=%d in=[%g %g %g] normed=[%g %g %g]\n",
+                        pos, x[0], x[1], x[2], x2[0], x2[1], x2[2]);
             matmul(q.data(), x2.data(), w(l.wq), NH*HD, H);
             matmul(k.data(), x2.data(), w(l.wk), NKV*HD, H);
             matmul(v.data(), x2.data(), w(l.wv), NKV*HD, H);
@@ -455,8 +458,15 @@ struct GenericBackend : Backend {
                 for (int h = 0; h < NKV; h++) rmsnorm(&k[h*HD], &k[h*HD], kn, HD, eps);
             }
 
+            bool _dbg_ops = (il == 0 && getenv("CPU_DEBUG_OPS"));
+            if (_dbg_ops) fprintf(stderr,
+                "[cpu] L0 q_pre=[%g %g %g] k_pre=[%g %g %g] v=[%g %g %g]\n",
+                q[0], q[1], q[2], k[0], k[1], k[2], v[0], v[1], v[2]);
+
             // RoPE
             rope(q.data(), k.data(), pos, NH, NKV, HD, rot_dim, theta);
+            if (_dbg_ops) fprintf(stderr, "[cpu] L0 q_post=[%g %g %g] k_post=[%g %g %g]\n",
+                q[0], q[1], q[2], k[0], k[1], k[2]);
 
             // KV cache
             memcpy(&k_cache[il][kv_begin], k.data(), NKV * HD * sizeof(float));
@@ -485,6 +495,8 @@ struct GenericBackend : Backend {
                     att[h * HD + d] = sum;
                 }
             }
+            if (_dbg_ops) fprintf(stderr, "[cpu] L0 att=[%g %g %g] att128=[%g %g %g]\n",
+                att[0], att[1], att[2], att[128], att[129], att[130]);
 
             // O proj
             matmul(x2.data(), att.data(), w(l.wo), H, NH*HD);

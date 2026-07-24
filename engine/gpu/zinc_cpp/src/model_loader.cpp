@@ -413,6 +413,10 @@ bool ModelLoader::scan_gguf(const std::string& path, ModelDims& dims,
         else dims.vocab = 32000;
     }
     if (arch_u32("context_length", val)) dims.max_seq = val > 0 ? val : 4096;
+    // Cap the KV-cache context so the buffer stays within maxStorageBufferRange
+    // (4 GiB on RADV). At 131072 the V region alone starts at ~3.7 GiB, past the
+    // bindable range, so cached V reads returned zero and attention collapsed.
+    if (dims.max_seq > 8192) dims.max_seq = 8192;
     if (arch_f32("attention.layer_norm_rms_epsilon", fval)) dims.rms_eps = fval;
     printf("  GGUF: %s, %d layers, H=%d, heads=%d/%d, V=%d\n",
            dims.arch.c_str(), dims.n_layers, dims.hidden,

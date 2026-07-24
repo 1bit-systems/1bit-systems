@@ -249,6 +249,24 @@ void ComputeEngine::gemv(VkBuffer y, VkBuffer x, VkBuffer W, int M, int N, int K
     batch_dispatch(this, shader, push, x, y, W, M);
 }
 
+void ComputeEngine::debug_readback(VkBuffer buf, int n, const char* tag) {
+    bool was = s_batching;
+    if (was) end_batch();  // flush recorded work so buf holds computed values
+    GpuBuffer staging(device_, (size_t)n * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    VkCommandBuffer cmd = cmd_pool_.begin_once();
+    VkBufferCopy cp = {0, 0, (VkDeviceSize)((size_t)n * sizeof(float))};
+    vkCmdCopyBuffer(cmd, buf, staging.buffer(), 1, &cp);
+    cmd_pool_.submit_and_wait(cmd, queue_);
+    float* p = (float*)staging.map();
+    fprintf(stderr, "[zinc] %s=[%g %g %g]%s\n", tag, p[0], p[1], p[2],
+            n > 130 ? "" : "");
+    if (n > 130) fprintf(stderr, "[zinc] %s@128=[%g %g %g]\n", tag, p[128], p[129], p[130]);
+    staging.unmap();
+    if (was) begin_batch();
+}
+
 void ComputeEngine::gemv_f32(VkBuffer y, VkBuffer x, VkBuffer W, int M, int N, int K) {
     PushConstants push{}; push.M = M; push.N = N; push.K = K;
     // Tile into a 2D grid when M exceeds maxComputeWorkGroupCount[0] (65535 on
@@ -351,15 +369,20 @@ int InferenceEngine::generate(int token_id) {
     // Batch all layer dispatches into one command buffer
     compute->begin_batch();
     
+    bool dbg_ops = getenv("ZINC_DEBUG_OPS") != nullptr;
     for (int l = 0; l < n_layers_run; l++) {
         auto& layer = model->layers[l];
+        bool dbg = dbg_ops && l == 0;
         
         PushConstants pc_res{};
         pc_res.M = (uint32_t)d.hidden;
         compute->dispatch_batch("copy_buffer", pc_res,
                           hidden.buffer(), residual.buffer(), VK_NULL_HANDLE, 1);
         
+        if (dbg) { fprintf(stderr, "[zinc] tok=%d pos=%d\n", token_id, pos);
+                   compute->debug_readback(residual.buffer(), d.hidden, "L0 in"); }
         compute->rms_norm(hidden.buffer(), layer.rms_attn.buffer(), d.hidden, d.rms_eps);
+        if (dbg) compute->debug_readback(hidden.buffer(), d.hidden, "L0 normed");
         // Fused QKV: single dispatch for Q, K, V projections
         {
             uint32_t qkv_rows = d.n_heads * d.head_dim + 2 * d.n_kv_heads * d.head_dim;
@@ -372,14 +395,18 @@ int InferenceEngine::generate(int token_id) {
                 compute->dispatch_batch("add_residual", pc_b,
                                   qkv.buffer(), layer.qkv_bias_fused.buffer(), VK_NULL_HANDLE, 1);
             }
+            if (dbg) compute->debug_readback(qkv.buffer(), (int)qkv_rows, "L0 qkv_pre");
         }
         compute->rope(qkv.buffer(), VK_NULL_HANDLE, d.head_dim, pos,
                       d.n_heads, d.n_kv_heads, d.rope_theta);
+        if (dbg) compute->debug_readback(qkv.buffer(),
+                    d.n_heads * d.head_dim + 2 * d.n_kv_heads * d.head_dim, "L0 qkv_post");
         compute->flash_attn(qkv.buffer(), model->kv_cache.buffer(), model->kv_cache.buffer(),
                             attn_out.buffer(), pos + 1,
                             d.n_heads, d.n_kv_heads, d.head_dim,
                             d.n_heads / d.n_kv_heads,
                             l, d.max_seq, d.n_layers);
+        if (dbg) compute->debug_readback(attn_out.buffer(), d.n_heads * d.head_dim, "L0 attn_out");
         compute->gemv_f32(hidden.buffer(), attn_out.buffer(), layer.wo.buffer(),
                        d.hidden, 1, d.n_heads * d.head_dim);
         compute->dispatch_batch("add_residual", pc_res,
