@@ -89,6 +89,24 @@ struct ZincBackend : Backend {
             return false;
         }
 
+        // Architecture allowlist. ZINC implements the standard dense stack:
+        // RMSNorm + full-head_dim RoPE + SwiGLU + GQA + optional QKV bias. It
+        // does NOT implement qk-norm (qwen3), GeGLU (gemma), partial RoPE /
+        // LayerNorm (phi), etc. — those would produce silently-wrong output.
+        // Only claim architectures ZINC computes correctly; everything else
+        // falls back to the exact cpu_generic path. (ZINC_FORCE=1 overrides.)
+        {
+            const std::string& a = cfg.architecture;
+            bool ok = (a == "llama" || a == "mistral" || a == "qwen2");
+            if (!ok && !getenv("ZINC_FORCE")) {
+                fprintf(stderr, "ZINC: architecture '%s' not in the validated "
+                    "dense set (llama/mistral/qwen2) — using cpu_generic to stay "
+                    "correct (ZINC_FORCE=1 to override). See #844.\n",
+                    a.empty() ? "(unknown)" : a.c_str());
+                return false;
+            }
+        }
+
         printf("ZINC C++: initializing Vulkan...\n");
 
         // Validate shaders are present BEFORE we spin up Vulkan + the PILOT
