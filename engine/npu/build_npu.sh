@@ -5,12 +5,12 @@ set -euo pipefail
 SRCDIR="$(cd "$(dirname "$0")" && pwd)"
 BUILDDIR="$SRCDIR/build"
 SRC="$SRCDIR/src/npu_engine_universal.cpp"
-DEQUANT="$SRCDIR/src/dequant_q4nx.c"
+DEQUANT="$SRCDIR/src/dequant_q4nx.cpp"
 DEQUANT_O="$BUILDDIR/dequant_q4nx.o"
 
 # One-time: compile dequantizer
 if [ ! -f "$DEQUANT_O" ] || [ "$DEQUANT" -nt "$DEQUANT_O" ]; then
-    echo "gcc -c -O3 -o $DEQUANT_O $DEQUANT"
+    echo "g++ -c -O3 -std=c++23 -o $DEQUANT_O $DEQUANT"
     gcc -c -O3 -o "$DEQUANT_O" "$DEQUANT"
 fi
 
