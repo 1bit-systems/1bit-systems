@@ -952,8 +952,14 @@ if(hip_FOUND AND xrt_FOUND AND aiebu_FOUND)
             engine/fusion/zero_copy
             ${CMAKE_SOURCE_DIR}/include
             ${THEROCK_SDK_BASE}/include)
+        # NOTE: no -ffast-math here (deliberately) — it implies -ffinite-math-only,
+        # which makes std::isfinite()/NaN-guards throughout this file undefined
+        # behavior and was the root cause of the test_pipeline_real SEGFAULT (#825).
+        # This subset gives the same perf without disabling NaN/Inf semantics.
         target_compile_options(test_pipeline_real PRIVATE
-            -O3 -march=native -ffast-math -std=c++23 -fopenmp -D__HIP_PLATFORM_AMD__)
+            -O3 -march=native -fno-signed-zeros -fno-trapping-math -fassociative-math
+            -freciprocal-math -fno-math-errno -fno-rounding-math
+            -std=c++23 -fopenmp -D__HIP_PLATFORM_AMD__)
         target_link_libraries(test_pipeline_real PRIVATE
             xrt_coreutil xrt_core uuid rt pthread
             /usr/lib/x86_64-linux-gnu/libaiebu.a)

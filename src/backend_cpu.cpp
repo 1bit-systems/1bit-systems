@@ -844,13 +844,21 @@ struct CPUBackend : Backend {
     }
 
     void destroy() override {
-        delete[] embed; delete[] fnorm; delete[] iscale; delete[] ibias; delete[] lm_head_w;
+        // Idempotent: callers may invoke destroy() explicitly and then still
+        // hit ~CPUBackend() (which also calls destroy()) — without guards,
+        // that's a double delete[]/munmap on dangling pointers (SEGFAULT).
+        delete[] embed; embed = nullptr;
+        delete[] fnorm; fnorm = nullptr;
+        delete[] iscale; iscale = nullptr;
+        delete[] ibias; ibias = nullptr;
+        delete[] lm_head_w; lm_head_w = nullptr;
         if (lw) {
             for (int il = 0; il < N_LAYERS; il++) {
                 munmap_file(lw[il].gu_mmap, lw[il].gu_size);
                 munmap_file(lw[il].dn_mmap, lw[il].dn_size);
             }
             delete[] lw;
+            lw = nullptr;
         }
         initialized = false;
     }
