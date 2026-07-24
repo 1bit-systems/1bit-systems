@@ -699,7 +699,7 @@ target_compile_options(bench_prefill_variants PRIVATE
 target_link_libraries(bench_prefill_variants PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(bench_prefill_variants PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
-add_executable(unified_server
+set(UNIFIED_SERVER_SOURCES
     tools/unified_server.cpp
     src/strategy_engine.cpp
     src/agent_watchdog.cpp
@@ -709,12 +709,33 @@ add_executable(unified_server
     src/backend_generic.cpp
     src/model_router.cpp
 )
+
+# Optional: statically link CUDA backend into unified_server
+if(RCPP_HAVE_CUDA)
+    list(APPEND UNIFIED_SERVER_SOURCES src/backend_cuda.cpp src/cuda_engine.cu)
+    set(RCPP_STATIC_CUDA 1)
+endif()
+
+# Optional: statically link Metal backend into unified_server
+if(RCPP_HAVE_METAL)
+    list(APPEND UNIFIED_SERVER_SOURCES src/backend_metal.mm)
+    set(RCPP_STATIC_METAL 1)
+endif()
+
+add_executable(unified_server ${UNIFIED_SERVER_SOURCES})
 set_source_files_properties(src/backend_hip.cpp PROPERTIES LANGUAGE HIP)
 set_source_files_properties(src/zaya_engine.cpp PROPERTIES LANGUAGE HIP)
 set_source_files_properties(src/backend_generic.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(tools/unified_server.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(src/backend_npu.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(src/model_router.cpp PROPERTIES LANGUAGE CXX)
+if(RCPP_HAVE_CUDA)
+    set_source_files_properties(src/backend_cuda.cpp PROPERTIES LANGUAGE CXX)
+    set_source_files_properties(src/cuda_engine.cu PROPERTIES LANGUAGE CUDA)
+endif()
+if(RCPP_HAVE_METAL)
+    set_source_files_properties(src/backend_metal.mm PROPERTIES LANGUAGE CXX)
+endif()
 target_include_directories(unified_server PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
@@ -723,12 +744,21 @@ target_include_directories(unified_server PRIVATE
 target_compile_options(unified_server PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>
     $<$<COMPILE_LANGUAGE:CXX>:-O3 -Wall -Wno-unused-result -std=c++23>)
-target_compile_definitions(unified_server PRIVATE ROCM_CPP_STATIC_HIP=1 ROCM_CPP_STATIC_NPU=1)
+target_compile_definitions(unified_server PRIVATE
+    ROCM_CPP_STATIC_HIP=1 ROCM_CPP_STATIC_NPU=1
+    $<$<BOOL:${RCPP_STATIC_CUDA}>:RCPP_STATIC_CUDA=1>
+    $<$<BOOL:${RCPP_STATIC_METAL}>:RCPP_STATIC_METAL=1>)
 target_link_libraries(unified_server PRIVATE
     backend_manager vl_image dl
     httplib::httplib
     nlohmann_json::nlohmann_json
     rocm_cpp hip::host hip::device)
+if(RCPP_HAVE_CUDA)
+    target_link_libraries(unified_server PRIVATE CUDA::cudart CUDA::cublas)
+endif()
+if(RCPP_HAVE_METAL)
+    target_link_libraries(unified_server PRIVATE ${METAL_LIBRARY} ${METAL_PERFORMANCE_SHADERS_LIBRARY})
+endif()
 target_link_options(unified_server PRIVATE -rdynamic -luuid)
 set_target_properties(unified_server PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 if(ZINC_CPP_AVAILABLE)
