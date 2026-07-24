@@ -34,14 +34,17 @@
 
 | Model | Family | Arch | Measured | Download |
 |-------|--------|------|:--------:|:--------:|
+| **Zaya1-8B** | Zyphra | MoE (16-expert) | **~64 tok/s** ✅ | [🤗 HF](https://huggingface.co/bong-water-water-bong/ZAYA1-8B-1BP) |
+| **ZAYA1-VL-8B** | Zyphra | Vision-Language · ViT-L + MoE | **Vision + Text** 🆕 | [🤗 HF](https://huggingface.co/bong-water-water-bong/ZAYA1-8B-1BP) |
 | **BlackMamba-1.5B** | Zyphra | Mamba1 · MoE | **79.8 tok/s** ✅ | [🤗 HF](https://huggingface.co/bong-water-water-bong/BlackMamba-1.5B-1BP) |
 | **BlackMamba-2.8B** | Zyphra | Mamba1 · MoE | **46.4 tok/s** ✅ | [🤗 HF](https://huggingface.co/bong-water-water-bong/BlackMamba-2.8B-1BP) |
-| **Zaya1-8B** | Zyphra | MoE (16-expert) | ~64 tok/s | [🤗 HF](https://huggingface.co/bong-water-water-bong/ZAYA1-8B-1BP) |
-| **Bonsai-1.7B** | Deepgrove | Ternary TQ2 (2-bit) | 21.9 tok/s | [🤗 HF](https://huggingface.co/bong-water-water-bong/Bonsai-1.7B-TQ2-1BP) |
-| **Zamba2-2.7B** | Zyphra | Mamba2-hybrid | Instruct v2 | [🤗 HF](https://huggingface.co/bong-water-water-bong/Zamba2-2.7B-Instruct-v2-1BP) |
+| **Zamba2-2.7B** | Zyphra | Mamba2-hybrid | **~30 tok/s** ✅ | [🤗 HF](https://huggingface.co/bong-water-water-bong/Zamba2-2.7B-Instruct-v2-1BP) |
 | **ZR1-1.5B** | Zyphra | Dense · reasoning | **26 tok/s** (ZINC GPU) ✅ | [🤗 HF](https://huggingface.co/bong-water-water-bong/ZR1-1.5B-1BP) |
+| **Bonsai-1.7B** | Deepgrove | Ternary TQ2 (2-bit) | 21.9 tok/s | [🤗 HF](https://huggingface.co/bong-water-water-bong/Bonsai-1.7B-TQ2-1BP) |
 
-Whole families brought to 1BP — the full **Zyphra** lineup (Zaya1, Zamba2, BlackMamba, ZR1) plus **Poolside Laguna** (sigmoid-routed MoE, hybrid SWA/global attention). All converted with a pure-C++ toolchain, zero Python. **[Browse all on Hugging Face →](https://huggingface.co/bong-water-water-bong)**
+> **Zyphra is AMD's open-source AI lab** — the first model family trained end-to-end on AMD ROCm, no NVIDIA CUDA required. From training through inference, every Zyphra model runs on the AMD open ecosystem: ROCm for training, this engine for inference on Strix Halo (NPU + GPU + CPU).
+>
+> This engine supports the **complete Zyphra family** across every architecture — dense (ZR1), MoE (Zaya1), Mamba1 SSM (BlackMamba), Mamba2 hybrid (Zamba2), and now **vision-language (ZAYA1-VL-8B)** — all running on the same binary, zero Python, zero proprietary code. All models are converted with a pure-C++ toolchain, hosted on Hugging Face with open weights under permissive licenses. **[Browse all on Hugging Face →](https://huggingface.co/bong-water-water-bong)**
 
 ### Why 1BP?
 
@@ -136,9 +139,9 @@ print(client.chat.completions.create(model="blackmamba-1.5b",
 
 ```
 1bit/
-  src/                     HIP/C++ kernels (GEMV, prefill, attention, Mamba1 SSM)
-  include/                 C API headers
-  kernels/                 GPU kernels: bonsai, sherry, MoE, Mamba1
+  src/                     HIP/C++ kernels (GEMV, prefill, attention, Mamba1 SSM, vision encoder)
+  include/                 C API headers + vision_encoder.h (ViT + projector)
+  kernels/                 GPU kernels: bonsai, sherry, MoE, Mamba1, fused QKV
   engine/
     npu/                   C++23 INT8 engine (XDNA 2)
     gpu/                   GPU engine (Vulkan)
@@ -147,10 +150,12 @@ print(client.chat.completions.create(model="blackmamba-1.5b",
     onebitd.cpp            Daemon (spawns backend, proxies HTTP)
     unified_router.cpp     NPU+GPU routing proxy (replaces unified-router.py)
     bitnet_tui.cpp         FTXUI terminal chat UI
+    zaya1_vl_demo.cpp      ZAYA1-VL-8B vision-language inference demo
+    test_vit_encoder.cpp   Standalone ViT encoder test
   site/                    1bit.systems website
   packaging/               deb, snap, Docker
   benchmarks/              Historical data
-  build/                   zaya_server + onebitd + onebit + unified_router + librocm_cpp.so
+  build/                   zaya_server + onebitd + onebit + unified_router + librocm_cpp.so + libvision_encoder.a
 ```
 
 ### Loaders
@@ -205,7 +210,7 @@ Each converted from a Q8_0/BF16 source (not a 4-bit GGUF) to avoid compounding q
 
 **Fast inference is now wired**: `src/mamba1_engine.hip` kernels are compiled into `librocm_cpp.so` and the `Mamba1Backend` (HIP GPU) is registered as a first-class backend in `BackendManager`. Both BlackMamba sizes load end-to-end through the Mamba1 GPU backend: alternating SSM layers (rmsnorm → in_proj → conv1d/silu → selective_scan → gate → out_proj) and MoE FFN layers (router → top-1 expert dispatch → SiLU → scale-add residual). Real inference at 79.8 tok/s (1.5B) and 46.4 tok/s (2.8B) on Strix Halo (ROCm HIP). The diagnostic tool `tools/test_mamba1_backend.cpp` loads a Mamba1 GGUF directly into the HIP backend for testing without the HTTP server. PR [#579](https://github.com/bong-water-water-bong/1bit-systems/pull/579) shipped the build linkage, conv state fix, and A_log exponentiation fix.
 
-**Deliberately not converted**: ZAYA1-VL-8B — a real vision-language model; this converter only handles text weights, so a "conversion" would silently drop the vision tower and misrepresent it as the full model. Skipped rather than shipped half-working.
+**Vision-language is now supported**: ZAYA1-VL-8B — a real vision-language model combining a SigLIP ViT vision encoder with the Zaya1-8B MoE text decoder. The vision tower (24-layer ViT, fused QKV, Q8_0 quant) and connector (QWEN2_MERGER-style projector) are handled by the new `vision_encoder` library — pure C++, no Python, no OpenCV. The converter now preserves vision weights in 1BP files with full tensor metadata. See [`include/vision_encoder.h`](include/vision_encoder.h) and [`tools/zaya1_vl_demo.cpp`](tools/zaya1_vl_demo.cpp).
 
 ### 🏆 Top 5 — Raw NPU Engine, No FLM (single binary, auto-detected)
 

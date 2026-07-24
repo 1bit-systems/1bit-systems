@@ -500,7 +500,7 @@ int main(int argc, char** argv) {
     int port = 8088;
     const char* home_default = getenv("HOME");
     std::string default_weights = (home_default && home_default[0]) ? std::string(home_default) + "/.local/share/1bit-systems/weights/" : "/tmp/zaya_weights/";
-    std::string model_arg, manifest_arg, weights_dir = default_weights, lora_path;
+    std::string model_arg, manifest_arg, draft_model_arg, weights_dir = default_weights, lora_path;
     RouteStrategy strategy = RouteStrategy::AUTO;
     A2AClient a2a;
     std::vector<std::string> a2a_peers;
@@ -509,6 +509,7 @@ int main(int argc, char** argv) {
         std::string a(argv[i]);
         if (a == "--port" && i+1 < argc) port = atoi(argv[++i]);
         else if (a == "--model" && i+1 < argc) model_arg = argv[++i];
+        else if (a == "--draft-model" && i+1 < argc) draft_model_arg = argv[++i];
         else if (a == "--manifest" && i+1 < argc) manifest_arg = argv[++i];
         else if (a == "--weights-dir" && i+1 < argc) weights_dir = argv[++i];
         else if (a == "--a2a-peer" && i+1 < argc) a2a_peers.push_back(argv[++i]);
@@ -525,6 +526,7 @@ int main(int argc, char** argv) {
             printf("Usage: %s [flags]\n\n", argv[0]);
             printf("Model detection:\n");
             printf("  --model PATH.h1b    Auto-detect architecture from .h1b header\n");
+            printf("  --draft-model PATH  Load draft model for speculative decoding\n");
             printf("  --manifest PATH     Load model config from JSON manifest\n");
             printf("  --weights-dir DIR   Directory for weight .bin files\n\n");
             printf("Routing:\n");
@@ -604,6 +606,33 @@ int main(int argc, char** argv) {
 
     if (model_loaded && !router.load_model(cfg)) { fprintf(stderr, "FATAL: Failed to load model\n"); return 1; }
 
+    // ── Load draft model for speculative decoding ────────────────
+    bool draft_loaded = false;
+    if (!draft_model_arg.empty()) {
+        ModelConfig draft_cfg;
+        bool draft_detected = false;
+        std::string ext = draft_model_arg.size() > 5 ? draft_model_arg.substr(draft_model_arg.size() - 5) : "";
+        if (ext == ".gguf") {
+            draft_detected = detect_from_gguf(draft_model_arg, draft_cfg);
+        }
+        if (!draft_detected) {
+            draft_detected = detect_from_h1b(draft_model_arg, draft_cfg);
+        }
+        if (draft_detected) {
+            draft_cfg.weights_dir = cfg.weights_dir;
+            draft_loaded = router.load_draft_model(draft_cfg);
+        }
+        if (!draft_loaded) {
+            fprintf(stderr, "WARNING: Failed to load draft model — running without spec decode\n");
+        } else {
+            // Auto-enable spec_decode strategy when draft model is loaded
+            if (strategy == RouteStrategy::AUTO) {
+                router.strategy = RouteStrategy::SPEC_DECODE;
+                strategy = RouteStrategy::SPEC_DECODE;
+            }
+        }
+    }
+
     SimpleTokenizer tok;
 
     // Try to load tokenizer from GGUF metadata if available
@@ -664,7 +693,8 @@ int main(int argc, char** argv) {
     fprintf(stderr, "   Strategy: %s\n",
         strategy == RouteStrategy::AUTO ? "auto (fastest available)" :
         strategy == RouteStrategy::CASCADE ? "cascade (per-token fallback)" :
-        strategy == RouteStrategy::SPEC_DECODE ? "spec_decode (draft+verify)" :
+        strategy == RouteStrategy::SPEC_DECODE ?
+            (draft_loaded ? "spec_decode (ZR1 draft + Zaya verify)" : "spec_decode (draft+verify)") :
         strategy == RouteStrategy::CONTENT ? "content (keyword-based)" :
         strategy == RouteStrategy::PARALLEL_MOE ? "parallel_moe (GPU+NPU)" : "passthrough");
 
@@ -685,6 +715,8 @@ int main(int argc, char** argv) {
     svr.Get("/", [&](const httplib::Request&, httplib::Response& res) {
         std::lock_guard<std::mutex> lock(g_router_mutex);
         std::string resp = "{\"status\":\"" + std::string(model_loaded ? "ok" : "no_model") + "\",\"model_loaded\":" + (model_loaded ? "true" : "false") + ",\"model\":\"" + json_escape(cfg.model_name) + "\","
+            "\"draft_model_loaded\":" + (draft_loaded ? "true" : "false") + ","
+            "\"draft_model\":\"" + (draft_loaded && !router.draft_loaded_models.empty() ? json_escape(router.draft_loaded_models[0].model_name) : "") + "\","
             "\"backend\":\"" + std::string(router.primary ? router.primary->name() : "none") + "\","
             "\"hidden_size\":" + std::to_string(cfg.hidden_size) + ","
             "\"layers\":" + std::to_string(cfg.num_layers) + ","
@@ -986,6 +1018,11 @@ int main(int argc, char** argv) {
     const char* bind_addr = getenv("ZAYA_BIND_ADDR");
     if (!bind_addr || !bind_addr[0]) bind_addr = "127.0.0.1";
     fprintf(stderr, "\nListening on http://%s:%d\n", bind_addr, port);
+    if (draft_loaded) {
+        fprintf(stderr, "   Speculative decode ACTIVE\n");
+        fprintf(stderr, "     Draft: %s\n", router.draft_loaded_models[0].model_name.c_str());
+        fprintf(stderr, "     Target: %s\n", cfg.model_name.c_str());
+    }
     fprintf(stderr, "   GET  /                      — health\n");
     fprintf(stderr, "   GET  /v1/models              — model list\n");
     fprintf(stderr, "   GET  /.well-known/agent-card — A2A Agent Card (v1.0)\n");

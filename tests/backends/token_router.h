@@ -24,9 +24,11 @@ enum class RouteStrategy {
 struct TokenRouter {
     std::vector<InferenceBackend*> backends;
     InferenceBackend* primary = nullptr;
+    InferenceBackend* draft_backend_ = nullptr;  // draft model for spec_decode
     InferenceBackend* gpu_backend = nullptr;
     InferenceBackend* npu_backend = nullptr;
     std::vector<ModelConfig> loaded_models;
+    std::vector<ModelConfig> draft_loaded_models;
     RouteStrategy strategy = RouteStrategy::AUTO;
     MoePipeline moe_pipeline_;
 
@@ -137,6 +139,45 @@ struct TokenRouter {
         return true;
     }
 
+    // ── Load draft model on a SECOND backend (for spec_decode) ────
+    bool load_draft_model(const ModelConfig& cfg) {
+        InferenceBackend* draft_host = nullptr;
+        for (auto* b : backends) {
+            if (b != primary && b->is_available() && b->type() == BackendType::GENERIC) {
+                draft_host = b; break;
+            }
+        }
+        if (!draft_host) {
+            for (auto* b : backends) {
+                if (b != primary && b->is_available()) {
+                    draft_host = b; break;
+                }
+            }
+        }
+        if (!draft_host) {
+            fprintf(stderr, "  [spec_decode] No secondary backend for draft model!\n");
+            return false;
+        }
+        fprintf(stderr, "Loading draft model %s (H=%d L=%d V=%d) on %s backend...\n",
+            cfg.model_name.c_str(), cfg.hidden_size, cfg.num_layers, cfg.vocab_size,
+            draft_host->name());
+        bool loaded = false;
+        try {
+            loaded = draft_host->load_model(cfg);
+        } catch (std::exception& e) {
+            fprintf(stderr, "  %s: exception: %s\n", draft_host->name(), e.what());
+            loaded = false;
+        }
+        if (!loaded) {
+            fprintf(stderr, "  Failed to load draft model on %s\n", draft_host->name());
+            return false;
+        }
+        draft_backend_ = draft_host;
+        draft_loaded_models.push_back(cfg);
+        fprintf(stderr, "  Draft model loaded successfully\n");
+        return true;
+    }
+
     // ── Run inference with routing strategy ────────────────────────
     InferenceResult infer(const std::vector<int>& prompt_tokens, int max_tokens,
                           RouteStrategy strat = RouteStrategy::AUTO)
@@ -205,12 +246,15 @@ struct TokenRouter {
             }
 
             case RouteStrategy::SPEC_DECODE: {
-                InferenceBackend* drafter = primary;
-                InferenceBackend* verifier = nullptr;
-                for (auto* b : backends) {
-                    if (b != drafter && b->is_available()) { verifier = b; break; }
+                InferenceBackend* drafter = draft_backend_ ? draft_backend_ : primary;
+                InferenceBackend* verifier = primary;
+                if (drafter == verifier) {
+                    // No separate draft backend — fall back to single-model decode
+                    for (auto* b : backends) {
+                        if (b != drafter && b->is_available()) { verifier = b; break; }
+                    }
                 }
-                if (!verifier) {
+                if (!verifier || verifier == drafter) {
                     for (int i = 0; i < max_tokens; i++) {
                         int next = drafter->forward(last_token, i);
                         out_tokens.push_back(next); last_token = next;
