@@ -1,18 +1,21 @@
 {
-  "updated": "2026-07-26",
+  "updated": "2026-07-24",
+  "_updated_note": "2026-07-24 pass re-measured kernel-level entries only (see 'remeasured' key on each: q1_gemv, fused_tq2, tq2_gemv, prefill_i8) via bench_bonsai_q1_1024/bench_fused_tq2_1024/bench_bonsai_tq2_1024/bench_prefill_variants, median of 3 runs on this box's real gfx1151 hardware. Entries without a 'remeasured' key were not touched this pass and carry forward their prior value/date.",
   "source": "validated on cold GPU (single-agent, no contention)",
   "engines": {
     "q1_gemv": {
-      "tok_s": 417,
+      "tok_s": 433,
       "status": "validated",
+      "remeasured": "2026-07-24",
       "label": "Q1_0 GEMV kernel (28-layer model, 128B blocks)",
       "table": "kernel",
       "display_name": "Q1 GEMV",
       "backend": "ROCm HIP (fused kernel)"
     },
     "fused_tq2": {
-      "tok_s": 415,
+      "tok_s": 420,
       "status": "validated",
+      "remeasured": "2026-07-24",
       "label": "Fused TQ2 kernel (QKV+GU, 1.15x speedup)",
       "table": "kernel",
       "display_name": "Fused TQ2",
@@ -27,8 +30,9 @@
       "backend": "Vulkan ZINC"
     },
     "tq2_gemv": {
-      "tok_s": 355,
+      "tok_s": 367,
       "status": "validated",
+      "remeasured": "2026-07-24",
       "label": "TQ2_0 GEMV kernel (28-layer model, g128)",
       "table": "kernel",
       "display_name": "TQ2 GEMV",
@@ -37,7 +41,7 @@
     "npu_v12": {
       "tok_s": 97,
       "status": "optimized",
-      "label": "NPU v12 (97 tok/s \u2014 BS=64, memset+isfinite removal)",
+      "label": "NPU v12 (97 tok/s — BS=64, memset+isfinite removal)",
       "table": "kernel",
       "display_name": "NPU v12",
       "backend": "XDNA 2 (32 tiles)"
@@ -71,10 +75,11 @@
       "label": "Zaya pure C++ server"
     },
     "prefill_i8": {
-      "tflops": 42.21,
+      "tflops": 43.44,
       "tok_s": 0,
       "status": "validated",
-      "label": "Prefill I8-APRE: 42.2 TFLOPS INT8 WMMA",
+      "remeasured": "2026-07-24",
+      "label": "Prefill I8-APRE: 43.4 TFLOPS INT8 WMMA",
       "table": "kernel",
       "display_name": "Prefill",
       "backend": "INT8 WMMA"
@@ -180,7 +185,7 @@
     "npu_fused"
   ],
   "system": {
-    "tflops_int8": 42.21
+    "tflops_int8": 43.44
   },
   "mamba1_gpu": {
     "blackmamba_1_5b_tok_s": 79.8,

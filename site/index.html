@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>1bit.systems — Open-Source NPU+GPU+CPU+Mamba1 Inference Engine for AMD Strix Halo</title>
-<meta name="description" content="Model-agnostic C++ inference engine for AMD Strix Halo: Mamba1 GPU backend (BlackMamba 79.8 tok/s), NPU (XDNA 2), Vulkan, ROCm HIP, CPU. FastFlowLM fully reverse-engineered and replaced. GGUF/ONNX/1BP ternary, TQ2 2-bit, ~41 TFLOPS prefill. Zero Python. MIT.">
+<meta name="description" content="Model-agnostic C++ inference engine for AMD Strix Halo: Mamba1 GPU backend (BlackMamba 79.8 tok/s), NPU (XDNA 2), Vulkan, ROCm HIP, CPU. FastFlowLM fully reverse-engineered and replaced. GGUF/ONNX/1BP ternary, TQ2 2-bit, ~43 TFLOPS prefill. Zero Python. MIT.">
 <!-- Google Search Console: verify at https://search.google.com/search-console -->
 <!-- Add site (URL prefix: https://1bit.systems), choose HTML tag method, -->
 <!-- then replace the content value below with your GSC-provided code: -->
@@ -136,13 +136,13 @@
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "name": "1bit.systems",
-    "description": "Model-agnostic NPU+GPU+CPU inference engine for AMD Strix Halo. FastFlowLM fully reverse-engineered and replaced with a native open-source XDNA 2 NPU stack (zero proprietary code). GGUF/ONNX/1BP ternary formats, TQ2 2-bit quantization, ~41 TFLOPS INT8 prefill peak (sourced). 35 models across 7 families, 9 backends. No Python at runtime.",
+    "description": "Model-agnostic NPU+GPU+CPU inference engine for AMD Strix Halo. FastFlowLM fully reverse-engineered and replaced with a native open-source XDNA 2 NPU stack (zero proprietary code). GGUF/ONNX/1BP ternary formats, TQ2 2-bit quantization, ~43 TFLOPS INT8 prefill peak (sourced). 40 models across 16 families, 9 backends. No Python at runtime.",
     "url": "https://1bit.systems",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Linux",
     "author": { "@type": "Person", "name": "bong-water-water-bong" },
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-    "featureList": ["Open-source native NPU stack (no FastFlowLM dependency)", "Model-agnostic GGUF/ONNX/1BP loader", "TQ2 2-bit ternary quantization", "~41 TFLOPS INT8 prefill (sourced)", "35 supported models", "9 backends", "7 model families", "NPU+GPU+CPU"]
+    "featureList": ["Open-source native NPU stack (no FastFlowLM dependency)", "Model-agnostic GGUF/ONNX/1BP loader", "TQ2 2-bit ternary quantization", "~43 TFLOPS INT8 prefill (sourced)", "40 supported models", "9 backends", "16 model families", "NPU+GPU+CPU"]
   },
   {
     "@context": "https://schema.org",
@@ -163,7 +163,7 @@
         "name": "What is 1bit.systems?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "A model-agnostic NPU+GPU+CPU inference engine for AMD Strix Halo. FastFlowLM (AMD's closed-source NPU runtime) was fully reverse-engineered and replaced with a native open-source XDNA 2 stack — no proprietary code, no Python subprocess. Reads GGUF, ONNX, and its own 1BP ternary format (including TQ2 2-bit quantization). 35 models across 7 families, 9 backends. No Python at runtime. MIT licensed."
+          "text": "A model-agnostic NPU+GPU+CPU inference engine for AMD Strix Halo. FastFlowLM (AMD's closed-source NPU runtime) was fully reverse-engineered and replaced with a native open-source XDNA 2 stack — no proprietary code, no Python subprocess. Reads GGUF, ONNX, and its own 1BP ternary format (including TQ2 2-bit quantization). 40 models across 16 families, 9 backends. No Python at runtime. MIT licensed."
         }
       },
       {
@@ -187,7 +187,7 @@
         "name": "How fast is NPU inference on Strix Halo?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "NPU-native single-binary inference engine for AMD Strix Halo (XDNA 2 + gfx1151). Sourced prefill peak ~41 TFLOPS INT8. Per-backend tok/s figures are published, with sources and honesty flags, in docs/wiki/performance.md; headline engine tok/s claims without a reproducible source are deliberately not asserted here. Speculative decoding is unresolved (undertrained checkpoint; training fix in progress)."
+          "text": "NPU-native single-binary inference engine for AMD Strix Halo (XDNA 2 + gfx1151). Sourced prefill peak ~43 TFLOPS INT8. Per-backend tok/s figures are published, with sources and honesty flags, in docs/wiki/performance.md; headline engine tok/s claims without a reproducible source are deliberately not asserted here. Speculative decoding is unresolved (undertrained checkpoint; training fix in progress)."
         }
       }
     ]
@@ -212,7 +212,7 @@
     <div>
       <span class="eyebrow">AMD Strix Halo · Ryzen AI Max+ 395</span>
       <div style="margin-top:14px;"><span class="pill warn" style="font-size:12px;height:28px;padding:0 14px;"><span class="dot"></span>⚡ One binary to rule them all</span></div>
-      <h1><span class="g">35 models.</span> 9 backends. One binary.</h1>
+      <h1><span class="g">40 models.</span> 9 backends. One binary.</h1>
       <p style="margin-top:2px;font-size:clamp(22px,2.8vw,34px);font-weight:800;letter-spacing:-.025em;line-height:1.04;color:var(--blue);">Model-agnostic inference. Zero Python. MIT.</p>
       <p class="sub">Drop any GGUF model — auto-detects architecture, quantization, and routes to NPU (XDNA 2), GPU (ROCm/Vulkan), or CPU. No config files. No model registry.</p>
       <div class="cta-row">
@@ -482,7 +482,7 @@
     <div class="foot-fine">
       <div>Built with DeepSeek v4 (99.9%) · Shipped with Claude (0.1%) · One human.</div>
       <div>Coding agent based on <a href="https://github.com/earendil-works/pi-coding-agent" style="color:var(--muted);">pi</a> (MIT, © Earendil Works). Inference engines original to this repo.</div>
-      <div><span id="binary-size6">1.1 MB</span> single binary · open-source NPU stack · <span id="tflops3">41 TFLOPS</span> prefill · MIT</div>
+      <div><span id="binary-size6">1.1 MB</span> single binary · open-source NPU stack · <span id="tflops3">43 TFLOPS</span> prefill · MIT</div>
       <div style="margin-top:8px;">—bong-water-water-bong · <span class="p">"Sorry but not Sorry :)"</span></div>
       <div style="margin-top:8px;"><a href="mailto:admin@1bit.systems" style="color:var(--muted);">admin@1bit.systems</a> · <a href="/s/" style="color:#21262d;font-size:10px;" title="stats for nerds">.</a></div>
     </div>
