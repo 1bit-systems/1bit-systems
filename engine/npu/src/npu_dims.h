@@ -114,6 +114,31 @@
   #define LM_I8R 64128
 #endif
 
+// ZR1-1.5B: tag=zr1 (Qwen2 arch, H=1536, reasoning-tuned)
+#ifdef MODEL_zr1
+  #define MODEL_TAG "zr1"
+  #define H 1536
+  #define NC 28
+  #define NH 12
+  #define NKV 2
+  #define HD 128
+  #define IM 8960
+  #define NV 151936
+  #define GQA (NH/NKV)
+  #define ROPE_THETA 10000.0f
+  #define XCLBIN_SUFFIX "v"
+  #define GU_FUSED 0  // 2*IM=17920 > 14336
+  #define BOS 151643
+  #define EOS 151645
+  #define DEF_MP NULL /* set $NPU_MODEL_PATH */
+  #define Q_I8R 288
+  #define KV_I8R 48
+  #define O_I8R 288
+  #define GU_I8R 1680
+  #define D_I8R 1680
+  #define LM_I8R 28488
+#endif
+
 // Gemma4-E2B: tag=gemma4_e2b
 // Note: actual Q4NX file has H=1536, NC=35, NH=8, NKV=1, HD=256, IM=6144
 #ifdef MODEL_gemma4_e2b

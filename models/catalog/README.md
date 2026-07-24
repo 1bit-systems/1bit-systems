@@ -128,3 +128,22 @@ g++ -std=c++17 -O3 -mavx2 -I include -I src \
 4. If new architecture: add to `include/onebp_format.h` in `OnebpArch` enum
 5. Rebuild: `cmake --build build_cmake --target zaya_server`
 6. Test: `./build/zaya_server --model models/ModelName.1bp --port 8088`
+
+## Batch Conversion
+
+Use `tools/batch_convert.sh` to convert GGUF models to 1BP:
+
+```bash
+# Convert all local GGUF files to 1BP
+bash tools/batch_convert.sh --all
+
+# Download and convert catalog-missing models from HuggingFace
+bash tools/batch_convert.sh --download
+
+# Convert a single file
+bash tools/batch_convert.sh path/to/model.gguf
+```
+
+The converter auto-detects architecture from GGUF metadata and maps to the
+correct handler. Supported: qwen3, qwen2, llama, mistral, gemma, phi, falcon,
+starcoder, olmo, granite, command-r, dbrx, jamba, deepseek2/3, zaya.

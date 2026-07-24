@@ -1,87 +1,79 @@
-# ── Build artifacts ──
-build/
-build_cmake/
-cmake-build-*/
-_build/
-out/
-*.o
-*.obj
-*.a
-*.so
-*.dylib
-*.exe
-*.out
-*.app
 
-# ── Stray / OS dirs ──
-Desktop/
-
-# ── IDE / Editor ──
-.vscode/
-.idea/
-*.swp
-*.swo
 *~
-.DS_Store
-Thumbs.db
-
-# ── Python ──
-__pycache__/
-*.pyc
-*.pyo
-*.egg-info/
-dist/
-*.egg
-
-# ── Model weight files (large, should not be committed) ──
-*.gguf
-*.q4nx
-*.h1b
-*.1bp
-*.onnx
-*.safetensors
-*.bin
-*.pt
-*.pth
-models/*.gguf
-models/*.1bp
-
+# ── Build artifacts ──
+# ── Compiled binaries in tools/ (source is the truth) ──
 # ── Environment / Config ──
+# ── IDE / Editor ──
+# ── Logs ──
+# ── Model weight files (large, should not be committed) ──
+# ── Python ──
+# ── Stray / OS dirs ──
+*.1bp
+*.a
+/adapters/
+*.app
+*.bin
+build/
+/build_clean
+build_cmake/
+build_test/
+cmake-build-*/
+/_deps
+Desktop/
+dist/
+.DS_Store
+*.dylib
+*.egg
+*.egg-info/
+/engine/fusion/tokenize
+/engine/fusion/zero_copy/test_pipeline_real
+/engine/fusion/zig-out
 .env
 .env.local
-*.env
-
-# ── Logs ──
+*.exe
+*.gguf
+*.h1b
+.idea/
 *.log
 logs/
-
-# ── Compiled binaries in tools/ (source is the truth) ──
+models/*.1bp
+models/*.gguf
+*.o
+*.obj
+*.onnx
+out/
+.project_doc_record/
+*.pt
+*.pth
+*.pyc
+__pycache__/
+*.pyo
+*.q4nx
+/rust/target
+*.safetensors
+*.so
+*.swo
+*.swp
+Thumbs.db
+tools/bench_cpu_trg
+tools/cpu_q4nx_test
+tools/cpu_q4nx_to_ternary
+tools/cpu_ternary_gemv
 tools/dspark_adapter
 tools/dspark_batch
 tools/dspark_bench
+tools/dspark_full
 tools/dspark_gpu
 tools/dspark_gpu_bench
 tools/dspark_gpu_full
 tools/dspark_gpu_only
 tools/dspark_live
 tools/dspark_trg
-tools/dspark_full
-tools/bench_cpu_trg
-tools/cpu_q4nx_test
-tools/cpu_q4nx_to_ternary
-tools/cpu_ternary_gemv
 tools/gguf_to_h1b
-/_deps
-/build_clean
-/engine/fusion/tokenize
-/engine/fusion/zero_copy/test_pipeline_real
-/engine/fusion/zig-out
-/rust/target
 /tools/oscar_calib
 /tools/trg_save
-/adapters/
-.project_doc_record/
 *.trg
+.vscode/
 
 # Build directories
 build_test/

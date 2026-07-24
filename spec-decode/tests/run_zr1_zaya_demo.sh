@@ -73,7 +73,7 @@ for i in $(seq 1 30); do
         echo "  Both ready after ${i}s"
         break
     fi
-    if [ $i -eq 30 ]; then
+    if [ "$i" -eq 30 ]; then
         echo "  Timed out waiting for servers"
         exit 1
     fi

@@ -28,7 +28,7 @@ MODELS=(
 
 CXX="${CXX:-g++}"
 # XRT uses shared libs (must come AFTER source on command line)
-LIBS="-lxrt_coreutil -lxrt_core -laiebu -luuid -lm -ldl"
+LIBS=(-lxrt_coreutil -lxrt_core -laiebu -luuid -lm -ldl)
 CXXFLAGS="-std=c++23 -O3 -fopenmp -I$SRCDIR/src -I$XRT_INC"
 
 echo "=== Building NPU engine variants ==="
@@ -38,14 +38,14 @@ for model in "${MODELS[@]}"; do
     binary="$BUILDDIR/npu_engine_$model"
     echo ""
     echo "--- $model -> $binary ---"
-    $CXX -DMODEL_$model $CXXFLAGS -o "$binary" "$SRC" "$DEQUANT_O" $LIBS
+    $CXX "-DMODEL_$model" "$CXXFLAGS" -o "$binary" "$SRC" "$DEQUANT_O" "${LIBS[@]}"
     ls -lh "$binary"
 done
 
 # Also build a default (qwen3_0_6b) as npu_engine for backward compat
 echo ""
 echo "--- default (qwen3_0_6b) -> $BUILDDIR/npu_engine ---"
-$CXX -DMODEL_qwen3_0_6b $CXXFLAGS -o "$BUILDDIR/npu_engine" "$SRC" "$DEQUANT_O" $LIBS
+$CXX -DMODEL_qwen3_0_6b "$CXXFLAGS" -o "$BUILDDIR/npu_engine" "$SRC" "$DEQUANT_O" "${LIBS[@]}"
 ls -lh "$BUILDDIR/npu_engine"
 
 echo ""
