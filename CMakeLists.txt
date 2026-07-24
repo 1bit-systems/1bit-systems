@@ -78,6 +78,33 @@ set(CMAKE_CXX_COMPILER "${_RC_LLVM_BIN}/amdclang++" CACHE FILEPATH "C++ compiler
 
 project(1bit-systems LANGUAGES C CXX HIP)
 
+# ── Optional: CUDA (NVIDIA GPU) backend ──
+option(USE_CUDA "Build the CUDA GPU backend for NVIDIA GPUs" OFF)
+set(RCPP_HAVE_CUDA FALSE)
+if(USE_CUDA)
+    enable_language(CUDA)
+    find_package(CUDAToolkit QUIET)
+    if(CUDAToolkit_FOUND)
+        set(RCPP_HAVE_CUDA TRUE)
+        message(STATUS "CUDA: Toolkit found at ${CUDAToolkit_INCLUDE_DIRS} — building CUDA backend")
+    else()
+        message(WARNING "USE_CUDA=ON but CUDA Toolkit not found — skipping CUDA backend")
+    endif()
+endif()
+
+# ── Optional: Metal (Apple GPU) backend ──
+option(USE_METAL "Build the Metal GPU backend for Apple Silicon" OFF)
+set(RCPP_HAVE_METAL FALSE)
+if(USE_METAL AND APPLE)
+    find_library(METAL_LIBRARY Metal REQUIRED)
+    find_library(METAL_PERFORMANCE_SHADERS_LIBRARY MetalPerformanceShaders REQUIRED)
+    find_library(METAL_PERFORMANCE_SHADERS_GRAPH_LIBRARY MetalPerformanceShadersGraph)
+    set(RCPP_HAVE_METAL TRUE)
+    message(STATUS "Metal: Frameworks found at ${METAL_LIBRARY} — building Metal backend")
+elif(USE_METAL AND NOT APPLE)
+    message(WARNING "USE_METAL=ON but this is not an Apple platform — skipping Metal backend")
+endif()
+
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
@@ -188,6 +215,45 @@ if(composable_kernel_FOUND)
     message(STATUS "rocm-cpp: composable_kernel FOUND — building ck_gemm.cpp")
 else()
     message(STATUS "rocm-cpp: composable_kernel NOT found — skipping ck_gemm.cpp, using standalone prefill")
+endif()
+
+# ── CUDA backend shared library (libcuda_backend.so) ──
+if(RCPP_HAVE_CUDA)
+    set(CUDA_SOURCES
+        src/backend_cuda.cpp
+        src/cuda_engine.cu)
+    
+    cuda_add_library(cuda_backend SHARED ${CUDA_SOURCES})
+    target_include_directories(cuda_backend PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+    target_compile_options(cuda_backend PRIVATE -O3 -std=c++17)
+    target_link_libraries(cuda_backend PRIVATE CUDA::cudart CUDA::cublas)
+    
+    # Also build the CUDA backend for the unified server
+    # (when statically linked, the unified server includes backend_cuda.cpp
+    # and links cuda_engine.cu via the CMake CUDA integration)
+    set(RCPP_HAVE_CUDA_BACKEND TRUE)
+    message(STATUS "CUDA backend: libcuda_backend.so will be built")
+endif()
+
+# ── Metal backend shared library (libmetal_backend.dylib) ──
+if(RCPP_HAVE_METAL)
+    add_library(metal_backend SHARED src/backend_metal.mm)
+    target_include_directories(metal_backend PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+    target_compile_options(metal_backend PRIVATE -O3 -std=c++17 -fobjc-arc)
+    target_link_libraries(metal_backend PRIVATE
+        ${METAL_LIBRARY}
+        ${METAL_PERFORMANCE_SHADERS_LIBRARY}
+        ${METAL_PERFORMANCE_SHADERS_GRAPH_LIBRARY}
+        ${CMAKE_DL_LIBS})
+    set_target_properties(metal_backend PROPERTIES
+        INSTALL_RPATH "@executable_path/../lib"
+        BUILD_WITH_INSTALL_RPATH TRUE)
+    set(RCPP_HAVE_METAL_BACKEND TRUE)
+    message(STATUS "Metal backend: libmetal_backend.dylib will be built")
 endif()
 
 option(USE_VULKAN "Build the portable Vulkan backend proof (test_vulkan_gemv)" OFF)

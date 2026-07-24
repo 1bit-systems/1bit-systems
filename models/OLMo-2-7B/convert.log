@@ -1,0 +1,5 @@
+got 45088768 floats, tiling...
+  tiles: 344x16 fout=0x61973bf14ec0
+  blk.31.ffn_up.weight                               11008x4096 -> 27520 KB
+
+=== DONE: models/OLMo-2-7B/OLMo-2-1124-7B-Instruct.1bp (3860.0 MB) in 32 seconds ===

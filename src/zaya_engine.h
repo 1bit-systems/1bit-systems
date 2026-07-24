@@ -98,12 +98,21 @@ struct ZayaState {
     __half *d_hs = nullptr, *d_ao = nullptr, *d_tmp = nullptr;
     __half *d_fnw = nullptr, *d_lm_out = nullptr, *d_embed = nullptr;
     __half *d_conv = nullptr, *d_phs = nullptr, *d_lm_vocab = nullptr;
+    // Device-side embeddings: eliminates per-token H2D copy (#5)
+    __half *d_ibias = nullptr, *d_iscale = nullptr;
+    // HIP graph capture (#2): record forward pass once, replay per token
+    hipGraphExec_t graph_exec = nullptr;
+    hipGraph_t graph = nullptr;
+    bool graph_captured = false;
+    int* d_token_id = nullptr;  // GPU-resident token_id for graph replay
     // Paged KV cache: flat pooled allocation [n_layers, kv_pool_pages, PAGE_SIZE, NKV, HD]
     // Page table tracks which pages are allocated per layer.
     __half *d_kcache = nullptr, *d_vcache = nullptr;
+    // Linear KV cache: contiguous [n_layers, max_seq, NKV, HD] (#3) — set use_linear_kv=false for paged
+    bool use_linear_kv = true;
     __half *d_vrec = nullptr;                         // [n_layers, KD/2] prev token's v_proj_delayed
     __half *d_qout = nullptr, *d_kout = nullptr, *d_vout = nullptr; // per-step prepared Q,K,V
-    int *d_skip_flag = nullptr;  // fixup_skip_expert flag
+    int *d_skip_flag = nullptr;  // fixup_skip_expert flag (now GPU-side, no sync needed #1)
     float *d_prev_rs = nullptr;
     int pos = 0, max_seq = 4096;
     // Paging: page table per layer, page_size tokens per page.

@@ -16,6 +16,8 @@ enum class BackendType : uint8_t {
     ZAMBA2_GPU = 8, // Zamba2 with HIP acceleration
     ZINC_GPU = 9,   // General GGUF backend via engine/gpu (ZINC), multi-arch/multi-quant
     Q4NX_FUSION = 11, // Q4NX format via engine/fusion, forced cpu_only policy
+    CUDA_GPU = 12,    // NVIDIA CUDA GPU backend
+    METAL_GPU = 13,   // Apple Metal GPU backend
 };
 
 inline const char* backend_name(BackendType t) {
@@ -30,6 +32,8 @@ inline const char* backend_name(BackendType t) {
         case BackendType::ZAMBA2_GPU: return "Zamba2 (Mamba2 GPU)";
         case BackendType::ZINC_GPU: return "ZINC GPU (Vulkan, multi-arch)";
         case BackendType::Q4NX_FUSION: return "Q4NX Fusion (CPU)";
+        case BackendType::CUDA_GPU: return "CUDA GPU (NVIDIA)";
+        case BackendType::METAL_GPU: return "Metal GPU (Apple)";
         default: return "none";
     }
 }

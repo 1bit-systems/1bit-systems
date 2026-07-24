@@ -1,0 +1,793 @@
+GGUF opened: arch=llama tensors=255
+Model: H=3072 L=28 NH=12 NKV=4 HD=256 IM=23040 V=131072
+  tensor blk.0.attn_k.weight: 1024x3072 tiled=1966080
+  tensor blk.0.attn_output.weight: 3072x3072 tiled=5898240
+  tensor blk.0.attn_q.weight: 3072x3072 tiled=5898240
+  Total tensors: 196, data size: 3963.8 MB
+Quantizing 196 tensors...
+  [1/196] blk.0.attn_k.weight... 3145728 elements at offset 561552832
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.0.attn_k.weight                                1024x3072 -> 1920 KB
+  [2/196] blk.0.attn_output.weight... 9437184 elements at offset 563334592
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.0.attn_output.weight                           3072x3072 -> 5760 KB
+  [3/196] blk.0.attn_q.weight... 9437184 elements at offset 568643008
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.0.attn_q.weight                                3072x3072 -> 5760 KB
+  [4/196] blk.0.attn_v.weight... 3145728 elements at offset 573951424
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.0.attn_v.weight                                1024x3072 -> 1920 KB
+  [5/196] blk.0.ffn_down.weight... 70778880 elements at offset 576531904
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.0.ffn_down.weight                              3072x23040 -> 43200 KB
+  [6/196] blk.0.ffn_gate.weight... 70778880 elements at offset 634592704
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.0.ffn_gate.weight                              23040x3072 -> 43200 KB
+  [7/196] blk.0.ffn_up.weight... 70778880 elements at offset 674418112
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.0.ffn_up.weight                                23040x3072 -> 43200 KB
+  [8/196] blk.1.attn_k.weight... 3145728 elements at offset 714231232
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.1.attn_k.weight                                1024x3072 -> 1920 KB
+  [9/196] blk.1.attn_output.weight... 9437184 elements at offset 716012992
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.1.attn_output.weight                           3072x3072 -> 5760 KB
+  [10/196] blk.1.attn_q.weight... 9437184 elements at offset 721321408
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.1.attn_q.weight                                3072x3072 -> 5760 KB
+  [11/196] blk.1.attn_v.weight... 3145728 elements at offset 726629824
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.1.attn_v.weight                                1024x3072 -> 1920 KB
+  [12/196] blk.1.ffn_down.weight... 70778880 elements at offset 729210304
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.1.ffn_down.weight                              3072x23040 -> 43200 KB
+  [13/196] blk.1.ffn_gate.weight... 70778880 elements at offset 787271104
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.1.ffn_gate.weight                              23040x3072 -> 43200 KB
+  [14/196] blk.1.ffn_up.weight... 70778880 elements at offset 827096512
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.1.ffn_up.weight                                23040x3072 -> 43200 KB
+  [15/196] blk.2.attn_k.weight... 3145728 elements at offset 866909632
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.2.attn_k.weight                                1024x3072 -> 1920 KB
+  [16/196] blk.2.attn_output.weight... 9437184 elements at offset 868691392
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.2.attn_output.weight                           3072x3072 -> 5760 KB
+  [17/196] blk.2.attn_q.weight... 9437184 elements at offset 873999808
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.2.attn_q.weight                                3072x3072 -> 5760 KB
+  [18/196] blk.2.attn_v.weight... 3145728 elements at offset 879308224
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.2.attn_v.weight                                1024x3072 -> 1920 KB
+  [19/196] blk.2.ffn_down.weight... 70778880 elements at offset 881888704
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.2.ffn_down.weight                              3072x23040 -> 43200 KB
+  [20/196] blk.2.ffn_gate.weight... 70778880 elements at offset 939949504
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.2.ffn_gate.weight                              23040x3072 -> 43200 KB
+  [21/196] blk.2.ffn_up.weight... 70778880 elements at offset 979774912
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.2.ffn_up.weight                                23040x3072 -> 43200 KB
+  [22/196] blk.3.attn_k.weight... 3145728 elements at offset 1019588032
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.3.attn_k.weight                                1024x3072 -> 1920 KB
+  [23/196] blk.3.attn_output.weight... 9437184 elements at offset 1021369792
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.3.attn_output.weight                           3072x3072 -> 5760 KB
+  [24/196] blk.3.attn_q.weight... 9437184 elements at offset 1026678208
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.3.attn_q.weight                                3072x3072 -> 5760 KB
+  [25/196] blk.3.attn_v.weight... 3145728 elements at offset 1031986624
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.3.attn_v.weight                                1024x3072 -> 1920 KB
+  [26/196] blk.3.ffn_down.weight... 70778880 elements at offset 1033756096
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.3.ffn_down.weight                              3072x23040 -> 43200 KB
+  [27/196] blk.3.ffn_gate.weight... 70778880 elements at offset 1073569216
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.3.ffn_gate.weight                              23040x3072 -> 43200 KB
+  [28/196] blk.3.ffn_up.weight... 70778880 elements at offset 1113394624
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.3.ffn_up.weight                                23040x3072 -> 43200 KB
+  [29/196] blk.4.attn_k.weight... 3145728 elements at offset 1153207744
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.4.attn_k.weight                                1024x3072 -> 1920 KB
+  [30/196] blk.4.attn_output.weight... 9437184 elements at offset 1154989504
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.4.attn_output.weight                           3072x3072 -> 5760 KB
+  [31/196] blk.4.attn_q.weight... 9437184 elements at offset 1160297920
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.4.attn_q.weight                                3072x3072 -> 5760 KB
+  [32/196] blk.4.attn_v.weight... 3145728 elements at offset 1165606336
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.4.attn_v.weight                                1024x3072 -> 1920 KB
+  [33/196] blk.4.ffn_down.weight... 70778880 elements at offset 1167375808
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.4.ffn_down.weight                              3072x23040 -> 43200 KB
+  [34/196] blk.4.ffn_gate.weight... 70778880 elements at offset 1207188928
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.4.ffn_gate.weight                              23040x3072 -> 43200 KB
+  [35/196] blk.4.ffn_up.weight... 70778880 elements at offset 1247014336
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.4.ffn_up.weight                                23040x3072 -> 43200 KB
+  [36/196] blk.5.attn_k.weight... 3145728 elements at offset 1286827456
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.5.attn_k.weight                                1024x3072 -> 1920 KB
+  [37/196] blk.5.attn_output.weight... 9437184 elements at offset 1288609216
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.5.attn_output.weight                           3072x3072 -> 5760 KB
+  [38/196] blk.5.attn_q.weight... 9437184 elements at offset 1293917632
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.5.attn_q.weight                                3072x3072 -> 5760 KB
+  [39/196] blk.5.attn_v.weight... 3145728 elements at offset 1299226048
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.5.attn_v.weight                                1024x3072 -> 1920 KB
+  [40/196] blk.5.ffn_down.weight... 70778880 elements at offset 1301806528
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.5.ffn_down.weight                              3072x23040 -> 43200 KB
+  [41/196] blk.5.ffn_gate.weight... 70778880 elements at offset 1359867328
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.5.ffn_gate.weight                              23040x3072 -> 43200 KB
+  [42/196] blk.5.ffn_up.weight... 70778880 elements at offset 1399692736
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.5.ffn_up.weight                                23040x3072 -> 43200 KB
+  [43/196] blk.6.attn_k.weight... 3145728 elements at offset 1439505856
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.6.attn_k.weight                                1024x3072 -> 1920 KB
+  [44/196] blk.6.attn_output.weight... 9437184 elements at offset 1441287616
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.6.attn_output.weight                           3072x3072 -> 5760 KB
+  [45/196] blk.6.attn_q.weight... 9437184 elements at offset 1446596032
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.6.attn_q.weight                                3072x3072 -> 5760 KB
+  [46/196] blk.6.attn_v.weight... 3145728 elements at offset 1451904448
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.6.attn_v.weight                                1024x3072 -> 1920 KB
+  [47/196] blk.6.ffn_down.weight... 70778880 elements at offset 1453673920
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.6.ffn_down.weight                              3072x23040 -> 43200 KB
+  [48/196] blk.6.ffn_gate.weight... 70778880 elements at offset 1493487040
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.6.ffn_gate.weight                              23040x3072 -> 43200 KB
+  [49/196] blk.6.ffn_up.weight... 70778880 elements at offset 1533312448
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.6.ffn_up.weight                                23040x3072 -> 43200 KB
+  [50/196] blk.7.attn_k.weight... 3145728 elements at offset 1573125568
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.7.attn_k.weight                                1024x3072 -> 1920 KB
+  [51/196] blk.7.attn_output.weight... 9437184 elements at offset 1574907328
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.7.attn_output.weight                           3072x3072 -> 5760 KB
+  [52/196] blk.7.attn_q.weight... 9437184 elements at offset 1580215744
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.7.attn_q.weight                                3072x3072 -> 5760 KB
+  [53/196] blk.7.attn_v.weight... 3145728 elements at offset 1585524160
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.7.attn_v.weight                                1024x3072 -> 1920 KB
+  [54/196] blk.7.ffn_down.weight... 70778880 elements at offset 1587293632
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.7.ffn_down.weight                              3072x23040 -> 43200 KB
+  [55/196] blk.7.ffn_gate.weight... 70778880 elements at offset 1627106752
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.7.ffn_gate.weight                              23040x3072 -> 43200 KB
+  [56/196] blk.7.ffn_up.weight... 70778880 elements at offset 1666932160
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.7.ffn_up.weight                                23040x3072 -> 43200 KB
+  [57/196] blk.8.attn_k.weight... 3145728 elements at offset 1706745280
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.8.attn_k.weight                                1024x3072 -> 1920 KB
+  [58/196] blk.8.attn_output.weight... 9437184 elements at offset 1708527040
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.8.attn_output.weight                           3072x3072 -> 5760 KB
+  [59/196] blk.8.attn_q.weight... 9437184 elements at offset 1713835456
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.8.attn_q.weight                                3072x3072 -> 5760 KB
+  [60/196] blk.8.attn_v.weight... 3145728 elements at offset 1719143872
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.8.attn_v.weight                                1024x3072 -> 1920 KB
+  [61/196] blk.8.ffn_down.weight... 70778880 elements at offset 1721724352
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.8.ffn_down.weight                              3072x23040 -> 43200 KB
+  [62/196] blk.8.ffn_gate.weight... 70778880 elements at offset 1779785152
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.8.ffn_gate.weight                              23040x3072 -> 43200 KB
+  [63/196] blk.8.ffn_up.weight... 70778880 elements at offset 1819610560
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.8.ffn_up.weight                                23040x3072 -> 43200 KB
+  [64/196] blk.9.attn_k.weight... 3145728 elements at offset 1859423680
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.9.attn_k.weight                                1024x3072 -> 1920 KB
+  [65/196] blk.9.attn_output.weight... 9437184 elements at offset 1861205440
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.9.attn_output.weight                           3072x3072 -> 5760 KB
+  [66/196] blk.9.attn_q.weight... 9437184 elements at offset 1866513856
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.9.attn_q.weight                                3072x3072 -> 5760 KB
+  [67/196] blk.9.attn_v.weight... 3145728 elements at offset 1871822272
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.9.attn_v.weight                                1024x3072 -> 1920 KB
+  [68/196] blk.9.ffn_down.weight... 70778880 elements at offset 1873591744
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.9.ffn_down.weight                              3072x23040 -> 43200 KB
+  [69/196] blk.9.ffn_gate.weight... 70778880 elements at offset 1913404864
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.9.ffn_gate.weight                              23040x3072 -> 43200 KB
+  [70/196] blk.9.ffn_up.weight... 70778880 elements at offset 1953230272
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.9.ffn_up.weight                                23040x3072 -> 43200 KB
+  [71/196] blk.10.attn_k.weight... 3145728 elements at offset 1993043392
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.10.attn_k.weight                               1024x3072 -> 1920 KB
+  [72/196] blk.10.attn_output.weight... 9437184 elements at offset 1994825152
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.10.attn_output.weight                          3072x3072 -> 5760 KB
+  [73/196] blk.10.attn_q.weight... 9437184 elements at offset 2000133568
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.10.attn_q.weight                               3072x3072 -> 5760 KB
+  [74/196] blk.10.attn_v.weight... 3145728 elements at offset 2005441984
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.10.attn_v.weight                               1024x3072 -> 1920 KB
+  [75/196] blk.10.ffn_down.weight... 70778880 elements at offset 2007211456
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.10.ffn_down.weight                             3072x23040 -> 43200 KB
+  [76/196] blk.10.ffn_gate.weight... 70778880 elements at offset 2047024576
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.10.ffn_gate.weight                             23040x3072 -> 43200 KB
+  [77/196] blk.10.ffn_up.weight... 70778880 elements at offset 2086849984
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.10.ffn_up.weight                               23040x3072 -> 43200 KB
+  [78/196] blk.11.attn_k.weight... 3145728 elements at offset 2126663104
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.11.attn_k.weight                               1024x3072 -> 1920 KB
+  [79/196] blk.11.attn_output.weight... 9437184 elements at offset 2128444864
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.11.attn_output.weight                          3072x3072 -> 5760 KB
+  [80/196] blk.11.attn_q.weight... 9437184 elements at offset 2133753280
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.11.attn_q.weight                               3072x3072 -> 5760 KB
+  [81/196] blk.11.attn_v.weight... 3145728 elements at offset 2139061696
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.11.attn_v.weight                               1024x3072 -> 1920 KB
+  [82/196] blk.11.ffn_down.weight... 70778880 elements at offset 2141642176
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.11.ffn_down.weight                             3072x23040 -> 43200 KB
+  [83/196] blk.11.ffn_gate.weight... 70778880 elements at offset 2199702976
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.11.ffn_gate.weight                             23040x3072 -> 43200 KB
+  [84/196] blk.11.ffn_up.weight... 70778880 elements at offset 2239528384
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.11.ffn_up.weight                               23040x3072 -> 43200 KB
+  [85/196] blk.12.attn_k.weight... 3145728 elements at offset 2279341504
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.12.attn_k.weight                               1024x3072 -> 1920 KB
+  [86/196] blk.12.attn_output.weight... 9437184 elements at offset 2281123264
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.12.attn_output.weight                          3072x3072 -> 5760 KB
+  [87/196] blk.12.attn_q.weight... 9437184 elements at offset 2286431680
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.12.attn_q.weight                               3072x3072 -> 5760 KB
+  [88/196] blk.12.attn_v.weight... 3145728 elements at offset 2291740096
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.12.attn_v.weight                               1024x3072 -> 1920 KB
+  [89/196] blk.12.ffn_down.weight... 70778880 elements at offset 2293509568
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.12.ffn_down.weight                             3072x23040 -> 43200 KB
+  [90/196] blk.12.ffn_gate.weight... 70778880 elements at offset 2333322688
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.12.ffn_gate.weight                             23040x3072 -> 43200 KB
+  [91/196] blk.12.ffn_up.weight... 70778880 elements at offset 2373148096
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.12.ffn_up.weight                               23040x3072 -> 43200 KB
+  [92/196] blk.13.attn_k.weight... 3145728 elements at offset 2412961216
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.13.attn_k.weight                               1024x3072 -> 1920 KB
+  [93/196] blk.13.attn_output.weight... 9437184 elements at offset 2414742976
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.13.attn_output.weight                          3072x3072 -> 5760 KB
+  [94/196] blk.13.attn_q.weight... 9437184 elements at offset 2420051392
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.13.attn_q.weight                               3072x3072 -> 5760 KB
+  [95/196] blk.13.attn_v.weight... 3145728 elements at offset 2425359808
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.13.attn_v.weight                               1024x3072 -> 1920 KB
+  [96/196] blk.13.ffn_down.weight... 70778880 elements at offset 2427129280
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.13.ffn_down.weight                             3072x23040 -> 43200 KB
+  [97/196] blk.13.ffn_gate.weight... 70778880 elements at offset 2466942400
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.13.ffn_gate.weight                             23040x3072 -> 43200 KB
+  [98/196] blk.13.ffn_up.weight... 70778880 elements at offset 2506767808
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.13.ffn_up.weight                               23040x3072 -> 43200 KB
+  [99/196] blk.14.attn_k.weight... 3145728 elements at offset 2546580928
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.14.attn_k.weight                               1024x3072 -> 1920 KB
+  [100/196] blk.14.attn_output.weight... 9437184 elements at offset 2548362688
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.14.attn_output.weight                          3072x3072 -> 5760 KB
+  [101/196] blk.14.attn_q.weight... 9437184 elements at offset 2553671104
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.14.attn_q.weight                               3072x3072 -> 5760 KB
+  [102/196] blk.14.attn_v.weight... 3145728 elements at offset 2558979520
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.14.attn_v.weight                               1024x3072 -> 1920 KB
+  [103/196] blk.14.ffn_down.weight... 70778880 elements at offset 2561560000
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.14.ffn_down.weight                             3072x23040 -> 43200 KB
+  [104/196] blk.14.ffn_gate.weight... 70778880 elements at offset 2619620800
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.14.ffn_gate.weight                             23040x3072 -> 43200 KB
+  [105/196] blk.14.ffn_up.weight... 70778880 elements at offset 2659446208
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.14.ffn_up.weight                               23040x3072 -> 43200 KB
+  [106/196] blk.15.attn_k.weight... 3145728 elements at offset 2699259328
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.15.attn_k.weight                               1024x3072 -> 1920 KB
+  [107/196] blk.15.attn_output.weight... 9437184 elements at offset 2701041088
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.15.attn_output.weight                          3072x3072 -> 5760 KB
+  [108/196] blk.15.attn_q.weight... 9437184 elements at offset 2706349504
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.15.attn_q.weight                               3072x3072 -> 5760 KB
+  [109/196] blk.15.attn_v.weight... 3145728 elements at offset 2711657920
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.15.attn_v.weight                               1024x3072 -> 1920 KB
+  [110/196] blk.15.ffn_down.weight... 70778880 elements at offset 2713427392
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.15.ffn_down.weight                             3072x23040 -> 43200 KB
+  [111/196] blk.15.ffn_gate.weight... 70778880 elements at offset 2753240512
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.15.ffn_gate.weight                             23040x3072 -> 43200 KB
+  [112/196] blk.15.ffn_up.weight... 70778880 elements at offset 2793065920
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.15.ffn_up.weight                               23040x3072 -> 43200 KB
+  [113/196] blk.16.attn_k.weight... 3145728 elements at offset 2832879040
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.16.attn_k.weight                               1024x3072 -> 1920 KB
+  [114/196] blk.16.attn_output.weight... 9437184 elements at offset 2834660800
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.16.attn_output.weight                          3072x3072 -> 5760 KB
+  [115/196] blk.16.attn_q.weight... 9437184 elements at offset 2839969216
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.16.attn_q.weight                               3072x3072 -> 5760 KB
+  [116/196] blk.16.attn_v.weight... 3145728 elements at offset 2845277632
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.16.attn_v.weight                               1024x3072 -> 1920 KB
+  [117/196] blk.16.ffn_down.weight... 70778880 elements at offset 2847047104
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.16.ffn_down.weight                             3072x23040 -> 43200 KB
+  [118/196] blk.16.ffn_gate.weight... 70778880 elements at offset 2886860224
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.16.ffn_gate.weight                             23040x3072 -> 43200 KB
+  [119/196] blk.16.ffn_up.weight... 70778880 elements at offset 2926685632
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.16.ffn_up.weight                               23040x3072 -> 43200 KB
+  [120/196] blk.17.attn_k.weight... 3145728 elements at offset 2966498752
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.17.attn_k.weight                               1024x3072 -> 1920 KB
+  [121/196] blk.17.attn_output.weight... 9437184 elements at offset 2968280512
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.17.attn_output.weight                          3072x3072 -> 5760 KB
+  [122/196] blk.17.attn_q.weight... 9437184 elements at offset 2973588928
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.17.attn_q.weight                               3072x3072 -> 5760 KB
+  [123/196] blk.17.attn_v.weight... 3145728 elements at offset 2978897344
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.17.attn_v.weight                               1024x3072 -> 1920 KB
+  [124/196] blk.17.ffn_down.weight... 70778880 elements at offset 2981477824
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.17.ffn_down.weight                             3072x23040 -> 43200 KB
+  [125/196] blk.17.ffn_gate.weight... 70778880 elements at offset 3039538624
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.17.ffn_gate.weight                             23040x3072 -> 43200 KB
+  [126/196] blk.17.ffn_up.weight... 70778880 elements at offset 3079364032
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.17.ffn_up.weight                               23040x3072 -> 43200 KB
+  [127/196] blk.18.attn_k.weight... 3145728 elements at offset 3119177152
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.18.attn_k.weight                               1024x3072 -> 1920 KB
+  [128/196] blk.18.attn_output.weight... 9437184 elements at offset 3120958912
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.18.attn_output.weight                          3072x3072 -> 5760 KB
+  [129/196] blk.18.attn_q.weight... 9437184 elements at offset 3126267328
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.18.attn_q.weight                               3072x3072 -> 5760 KB
+  [130/196] blk.18.attn_v.weight... 3145728 elements at offset 3131575744
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.18.attn_v.weight                               1024x3072 -> 1920 KB
+  [131/196] blk.18.ffn_down.weight... 70778880 elements at offset 3133345216
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.18.ffn_down.weight                             3072x23040 -> 43200 KB
+  [132/196] blk.18.ffn_gate.weight... 70778880 elements at offset 3173158336
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.18.ffn_gate.weight                             23040x3072 -> 43200 KB
+  [133/196] blk.18.ffn_up.weight... 70778880 elements at offset 3212983744
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.18.ffn_up.weight                               23040x3072 -> 43200 KB
+  [134/196] blk.19.attn_k.weight... 3145728 elements at offset 3252796864
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.19.attn_k.weight                               1024x3072 -> 1920 KB
+  [135/196] blk.19.attn_output.weight... 9437184 elements at offset 3254578624
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.19.attn_output.weight                          3072x3072 -> 5760 KB
+  [136/196] blk.19.attn_q.weight... 9437184 elements at offset 3259887040
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.19.attn_q.weight                               3072x3072 -> 5760 KB
+  [137/196] blk.19.attn_v.weight... 3145728 elements at offset 3265195456
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.19.attn_v.weight                               1024x3072 -> 1920 KB
+  [138/196] blk.19.ffn_down.weight... 70778880 elements at offset 3266964928
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.19.ffn_down.weight                             3072x23040 -> 43200 KB
+  [139/196] blk.19.ffn_gate.weight... 70778880 elements at offset 3306778048
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.19.ffn_gate.weight                             23040x3072 -> 43200 KB
+  [140/196] blk.19.ffn_up.weight... 70778880 elements at offset 3346603456
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.19.ffn_up.weight                               23040x3072 -> 43200 KB
+  [141/196] blk.20.attn_k.weight... 3145728 elements at offset 3386416576
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.20.attn_k.weight                               1024x3072 -> 1920 KB
+  [142/196] blk.20.attn_output.weight... 9437184 elements at offset 3388198336
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.20.attn_output.weight                          3072x3072 -> 5760 KB
+  [143/196] blk.20.attn_q.weight... 9437184 elements at offset 3393506752
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.20.attn_q.weight                               3072x3072 -> 5760 KB
+  [144/196] blk.20.attn_v.weight... 3145728 elements at offset 3398815168
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.20.attn_v.weight                               1024x3072 -> 1920 KB
+  [145/196] blk.20.ffn_down.weight... 70778880 elements at offset 3401395648
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.20.ffn_down.weight                             3072x23040 -> 43200 KB
+  [146/196] blk.20.ffn_gate.weight... 70778880 elements at offset 3459456448
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.20.ffn_gate.weight                             23040x3072 -> 43200 KB
+  [147/196] blk.20.ffn_up.weight... 70778880 elements at offset 3499281856
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.20.ffn_up.weight                               23040x3072 -> 43200 KB
+  [148/196] blk.21.attn_k.weight... 3145728 elements at offset 3539094976
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.21.attn_k.weight                               1024x3072 -> 1920 KB
+  [149/196] blk.21.attn_output.weight... 9437184 elements at offset 3540876736
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.21.attn_output.weight                          3072x3072 -> 5760 KB
+  [150/196] blk.21.attn_q.weight... 9437184 elements at offset 3546185152
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.21.attn_q.weight                               3072x3072 -> 5760 KB
+  [151/196] blk.21.attn_v.weight... 3145728 elements at offset 3551493568
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.21.attn_v.weight                               1024x3072 -> 1920 KB
+  [152/196] blk.21.ffn_down.weight... 70778880 elements at offset 3553263040
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.21.ffn_down.weight                             3072x23040 -> 43200 KB
+  [153/196] blk.21.ffn_gate.weight... 70778880 elements at offset 3593076160
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.21.ffn_gate.weight                             23040x3072 -> 43200 KB
+  [154/196] blk.21.ffn_up.weight... 70778880 elements at offset 3632901568
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.21.ffn_up.weight                               23040x3072 -> 43200 KB
+  [155/196] blk.22.attn_k.weight... 3145728 elements at offset 3672714688
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.22.attn_k.weight                               1024x3072 -> 1920 KB
+  [156/196] blk.22.attn_output.weight... 9437184 elements at offset 3674496448
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.22.attn_output.weight                          3072x3072 -> 5760 KB
+  [157/196] blk.22.attn_q.weight... 9437184 elements at offset 3679804864
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.22.attn_q.weight                               3072x3072 -> 5760 KB
+  [158/196] blk.22.attn_v.weight... 3145728 elements at offset 3685113280
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.22.attn_v.weight                               1024x3072 -> 1920 KB
+  [159/196] blk.22.ffn_down.weight... 70778880 elements at offset 3686882752
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.22.ffn_down.weight                             3072x23040 -> 43200 KB
+  [160/196] blk.22.ffn_gate.weight... 70778880 elements at offset 3726695872
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.22.ffn_gate.weight                             23040x3072 -> 43200 KB
+  [161/196] blk.22.ffn_up.weight... 70778880 elements at offset 3766521280
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.22.ffn_up.weight                               23040x3072 -> 43200 KB
+  [162/196] blk.23.attn_k.weight... 3145728 elements at offset 3806334400
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.23.attn_k.weight                               1024x3072 -> 1920 KB
+  [163/196] blk.23.attn_output.weight... 9437184 elements at offset 3808116160
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.23.attn_output.weight                          3072x3072 -> 5760 KB
+  [164/196] blk.23.attn_q.weight... 9437184 elements at offset 3813424576
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.23.attn_q.weight                               3072x3072 -> 5760 KB
+  [165/196] blk.23.attn_v.weight... 3145728 elements at offset 3818732992
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.23.attn_v.weight                               1024x3072 -> 1920 KB
+  [166/196] blk.23.ffn_down.weight... 70778880 elements at offset 3821313472
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.23.ffn_down.weight                             3072x23040 -> 43200 KB
+  [167/196] blk.23.ffn_gate.weight... 70778880 elements at offset 3879374272
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.23.ffn_gate.weight                             23040x3072 -> 43200 KB
+  [168/196] blk.23.ffn_up.weight... 70778880 elements at offset 3919199680
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.23.ffn_up.weight                               23040x3072 -> 43200 KB
+  [169/196] blk.24.attn_k.weight... 3145728 elements at offset 3959012800
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.24.attn_k.weight                               1024x3072 -> 1920 KB
+  [170/196] blk.24.attn_output.weight... 9437184 elements at offset 3960794560
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.24.attn_output.weight                          3072x3072 -> 5760 KB
+  [171/196] blk.24.attn_q.weight... 9437184 elements at offset 3966102976
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.24.attn_q.weight                               3072x3072 -> 5760 KB
+  [172/196] blk.24.attn_v.weight... 3145728 elements at offset 3971411392
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.24.attn_v.weight                               1024x3072 -> 1920 KB
+  [173/196] blk.24.ffn_down.weight... 70778880 elements at offset 3973991872
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.24.ffn_down.weight                             3072x23040 -> 43200 KB
+  [174/196] blk.24.ffn_gate.weight... 70778880 elements at offset 4032052672
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.24.ffn_gate.weight                             23040x3072 -> 43200 KB
+  [175/196] blk.24.ffn_up.weight... 70778880 elements at offset 4071878080
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.24.ffn_up.weight                               23040x3072 -> 43200 KB
+  [176/196] blk.25.attn_k.weight... 3145728 elements at offset 4111691200
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.25.attn_k.weight                               1024x3072 -> 1920 KB
+  [177/196] blk.25.attn_output.weight... 9437184 elements at offset 4113472960
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.25.attn_output.weight                          3072x3072 -> 5760 KB
+  [178/196] blk.25.attn_q.weight... 9437184 elements at offset 4118781376
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.25.attn_q.weight                               3072x3072 -> 5760 KB
+  [179/196] blk.25.attn_v.weight... 3145728 elements at offset 4124089792
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.25.attn_v.weight                               1024x3072 -> 1920 KB
+  [180/196] blk.25.ffn_down.weight... 70778880 elements at offset 4126670272
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.25.ffn_down.weight                             3072x23040 -> 43200 KB
+  [181/196] blk.25.ffn_gate.weight... 70778880 elements at offset 4184731072
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.25.ffn_gate.weight                             23040x3072 -> 43200 KB
+  [182/196] blk.25.ffn_up.weight... 70778880 elements at offset 4224556480
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.25.ffn_up.weight                               23040x3072 -> 43200 KB
+  [183/196] blk.26.attn_k.weight... 3145728 elements at offset 4264369600
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.26.attn_k.weight                               1024x3072 -> 1920 KB
+  [184/196] blk.26.attn_output.weight... 9437184 elements at offset 4266151360
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.26.attn_output.weight                          3072x3072 -> 5760 KB
+  [185/196] blk.26.attn_q.weight... 9437184 elements at offset 4271459776
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.26.attn_q.weight                               3072x3072 -> 5760 KB
+  [186/196] blk.26.attn_v.weight... 3145728 elements at offset 4276768192
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.26.attn_v.weight                               1024x3072 -> 1920 KB
+  [187/196] blk.26.ffn_down.weight... 70778880 elements at offset 4279348672
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.26.ffn_down.weight                             3072x23040 -> 43200 KB
+  [188/196] blk.26.ffn_gate.weight... 70778880 elements at offset 4337409472
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.26.ffn_gate.weight                             23040x3072 -> 43200 KB
+  [189/196] blk.26.ffn_up.weight... 70778880 elements at offset 4377234880
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.26.ffn_up.weight                               23040x3072 -> 43200 KB
+  [190/196] blk.27.attn_k.weight... 3145728 elements at offset 4417048000
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.27.attn_k.weight                               1024x3072 -> 1920 KB
+  [191/196] blk.27.attn_output.weight... 9437184 elements at offset 4418829760
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.27.attn_output.weight                          3072x3072 -> 5760 KB
+  [192/196] blk.27.attn_q.weight... 9437184 elements at offset 4424138176
+got 9437184 floats, tiling...
+  tiles: 96x12 fout=0x601b6db118c0
+  blk.27.attn_q.weight                               3072x3072 -> 5760 KB
+  [193/196] blk.27.attn_v.weight... 3145728 elements at offset 4429446592
+got 3145728 floats, tiling...
+  tiles: 32x12 fout=0x601b6db118c0
+  blk.27.attn_v.weight                               1024x3072 -> 1920 KB
+  [194/196] blk.27.ffn_down.weight... 70778880 elements at offset 4432027072
+got 70778880 floats, tiling...
+  tiles: 96x90 fout=0x601b6db118c0
+  blk.27.ffn_down.weight                             3072x23040 -> 43200 KB
+  [195/196] blk.27.ffn_gate.weight... 70778880 elements at offset 4490087872
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.27.ffn_gate.weight                             23040x3072 -> 43200 KB
+  [196/196] blk.27.ffn_up.weight... 70778880 elements at offset 4529913280
+got 70778880 floats, tiling...
+  tiles: 720x12 fout=0x601b6db118c0
+  blk.27.ffn_up.weight                               23040x3072 -> 43200 KB
+
+=== DONE: models/Falcon3-7B/Falcon3-7B-Instruct.1bp (3963.8 MB) in 33 seconds ===

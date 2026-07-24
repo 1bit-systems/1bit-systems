@@ -96,16 +96,26 @@ struct Zamba2Backend : Backend {
     bool init(const ModelConfig& cfg, const std::string& weights_path) override {
         this->cfg = cfg;
 
-        fprintf(stderr, "Zamba2: Loading model from %s\n", weights_path.c_str());
+        // BackendManager passes the weights *directory* here; the Zamba2 loader
+        // needs the actual .gguf file. Prefer the discovered model_path (a file)
+        // and only fall back to weights_path. Passing the directory made
+        // load_zamba2_from_gguf fail and the failed init could then segfault
+        // downstream (#843).
+        std::string model_path = !cfg.model_path.empty() ? cfg.model_path : weights_path;
+        if (model_path.empty()) {
+            fprintf(stderr, "Zamba2: no model path available\n");
+            return false;
+        }
+        fprintf(stderr, "Zamba2: Loading model from %s\n", model_path.c_str());
 
         // Load model from GGUF
-        if (!load_zamba2_from_gguf(weights_path, model)) {
+        if (!load_zamba2_from_gguf(model_path, model)) {
             fprintf(stderr, "Zamba2: Failed to load model\n");
             return false;
         }
 
         // Load tokenizer
-        if (!tokenizer.load_from_gguf(weights_path)) {
+        if (!tokenizer.load_from_gguf(model_path)) {
             fprintf(stderr, "Zamba2: Warning: tokenizer may be incomplete\n");
         }
 

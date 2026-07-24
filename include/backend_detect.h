@@ -13,6 +13,12 @@ bool has_vulkan();
 /// Check if AMD XDNA NPU is accessible via XRT, sysfs, or amdxdna driver
 bool has_npu();
 
+/// Check if a CUDA-capable NVIDIA GPU is available
+bool has_cuda();
+
+/// Check if an Apple Metal-capable GPU is available (macOS only)
+bool has_metal();
+
 /// Check if the CPU supports AVX-512
 bool has_avx512();
 

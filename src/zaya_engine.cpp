@@ -50,6 +50,16 @@ __global__ void gather_kv_pages_k(
     }
 }
 
+// ── Embedding lookup kernel (#5): avoids per-token H2D copy ──
+// Looks up token_id in the GPU-resident embedding table, applies scale/bias.
+__global__ void embed_lookup_k(__half* out, const __half* embed, const __half* ibias, const __half* iscale, const int* d_token_id, int h){
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= h) return;
+    int token_id = *d_token_id;
+    float raw = (float)embed[(size_t)token_id * h + i];
+    out[i] = __float2half((raw + (float)ibias[i]) * (float)iscale[i]);
+}
+
 // ── Helper kernels ──
 __global__ void rmsnorm_k(__half*x,const __half*w,int n){__shared__ float r[32];int tx=threadIdx.x,wid=tx/32,l=tx%32;float ss=0;for(int i=tx;i<n;i+=blockDim.x)ss+=(float)x[i]*(float)x[i];for(int o=16;o>0;o>>=1)ss+=__shfl_xor(ss,o);if(l==0)r[wid]=ss;__syncthreads();if(wid==0){ss=(l<(256/32))?r[l]:0;for(int o=16;o>0;o>>=1)ss+=__shfl_xor(ss,o);if(l==0)r[0]=ss;}__syncthreads();float iv=1.0f/sqrtf(r[0]/n+1e-5f);for(int i=tx;i<n;i+=blockDim.x)x[i]=__float2half((float)x[i]*iv*(float)w[i]);}
 __global__ void copy_k(__half*d,const __half*s,int n){int i=blockIdx.x*blockDim.x+threadIdx.x;if(i>=n)return;d[i]=s[i];}
@@ -205,39 +215,52 @@ ZayaState* zaya_init(const char* weights_dir, const ZayaConfig* cfg) {
     ALLOC_OR_FAIL(s, alloc_f32, s->d_expert_counts, 17);
     ALLOC_OR_FAIL(s, alloc_f32, s->d_expert_offsets, 17);
     ALLOC_OR_FAIL(s, alloc_f16, s->d_embed, eng.vocab * eng.h);
+    ALLOC_OR_FAIL(s, alloc_f16, s->d_ibias, eng.h);
+    ALLOC_OR_FAIL(s, alloc_f16, s->d_iscale, eng.h);
+    ALLOC_OR_FAIL(s, alloc_f32, s->d_token_id, 1);
     ALLOC_OR_FAIL(s, alloc_f16, s->d_conv, eng.n_layers * 2 * eng.qkv);
     ALLOC_OR_FAIL(s, alloc_f16, s->d_phs, eng.n_layers * eng.h);
-    // Paged KV cache: allocate a pool of KV_PAGE_SIZE token pages instead of
+    // KV cache: linear contiguous by default (#3), paged pool as fallback of KV_PAGE_SIZE token pages instead of
     // the full max_seq_len contiguous buffer. Saves ~75% memory at 64K context.
     s->max_seq = eng.max_seq_len > 0 ? eng.max_seq_len : 4096;
-    s->page_size = KV_PAGE_SIZE;
-    s->n_kv_pages = (s->max_seq + s->page_size - 1) / s->page_size;
-    s->kv_pool_pages = eng.kv_pool_pages > 0 ?
-        std::min(eng.kv_pool_pages, s->n_kv_pages) :
-        std::min(s->n_kv_pages, KV_DEFAULT_PAGES);
-    if (s->kv_pool_pages < 1) s->kv_pool_pages = 1;
-    int kv_pool_elems = eng.n_layers * s->kv_pool_pages * s->page_size * eng.nkv * eng.hd;
-    ALLOC_OR_FAIL(s, alloc_f16, s->d_kcache, kv_pool_elems);
-    ALLOC_OR_FAIL(s, alloc_f16, s->d_vcache, kv_pool_elems);
-    fprintf(stderr, "  KV cache: %d pages (%d tok/page, %d pool, %d max_seq) = %.1f MB\n",
-            s->n_kv_pages, s->page_size, s->kv_pool_pages, s->max_seq,
-            (double)kv_pool_elems * 2 / (1024*1024));
-    // Initialize page table: all pages start unallocated.
-    // page_map[layer][logical_page] = pool_page (or -1 if evicted/unused)
-    s->page_alloc.resize(eng.n_layers);
-    s->page_map.resize(eng.n_layers);
-    s->page_lru.resize(eng.n_layers);
-    s->page_next_evict.resize(eng.n_layers);
-    for (int il = 0; il < eng.n_layers; il++) {
-        s->page_alloc[il].assign(s->n_kv_pages, false);
-        s->page_map[il].assign(s->n_kv_pages, -1);
-        s->page_lru[il].assign(s->kv_pool_pages, -1);
-        s->page_next_evict[il] = 0;
+    if (s->use_linear_kv) {
+        // Linear KV cache (#3): contiguous [n_layers, max_seq, NKV, HD] — zero gather overhead
+        int kv_elems = eng.n_layers * s->max_seq * eng.nkv * eng.hd;
+        ALLOC_OR_FAIL(s, alloc_f16, s->d_kcache, kv_elems);
+        ALLOC_OR_FAIL(s, alloc_f16, s->d_vcache, kv_elems);
+        fprintf(stderr, "  KV cache: linear contiguous %d tok x %d layers = %.1f MB\n",
+                s->max_seq, eng.n_layers, (double)kv_elems * 2 / (1024*1024));
+    } else {
+        // Paged KV cache fallback
+        s->page_size = KV_PAGE_SIZE;
+        s->n_kv_pages = (s->max_seq + s->page_size - 1) / s->page_size;
+        s->kv_pool_pages = eng.kv_pool_pages > 0 ?
+            std::min(eng.kv_pool_pages, s->n_kv_pages) :
+            std::min(s->n_kv_pages, KV_DEFAULT_PAGES);
+        if (s->kv_pool_pages < 1) s->kv_pool_pages = 1;
+        int kv_pool_elems = eng.n_layers * s->kv_pool_pages * s->page_size * eng.nkv * eng.hd;
+        ALLOC_OR_FAIL(s, alloc_f16, s->d_kcache, kv_pool_elems);
+        ALLOC_OR_FAIL(s, alloc_f16, s->d_vcache, kv_pool_elems);
+        fprintf(stderr, "  KV cache: %d pages (%d tok/page, %d pool, %d max_seq) = %.1f MB\n",
+                s->n_kv_pages, s->page_size, s->kv_pool_pages, s->max_seq,
+                (double)kv_pool_elems * 2 / (1024*1024));
     }
-    // Gather scratch buffer for non-contiguous page assembly
-    ALLOC_OR_FAIL(s, alloc_f16, s->d_k_gather, s->max_seq * eng.nkv * eng.hd);
-    ALLOC_OR_FAIL(s, alloc_f16, s->d_v_gather, s->max_seq * eng.nkv * eng.hd);
-    ALLOC_OR_FAIL(s, alloc_f32, s->d_page_map, s->n_kv_pages);
+    // Page table / gather buffers only needed for paged KV cache (#3)
+    if (!s->use_linear_kv) {
+        s->page_alloc.resize(eng.n_layers);
+        s->page_map.resize(eng.n_layers);
+        s->page_lru.resize(eng.n_layers);
+        s->page_next_evict.resize(eng.n_layers);
+        for (int il = 0; il < eng.n_layers; il++) {
+            s->page_alloc[il].assign(s->n_kv_pages, false);
+            s->page_map[il].assign(s->n_kv_pages, -1);
+            s->page_lru[il].assign(s->kv_pool_pages, -1);
+            s->page_next_evict[il] = 0;
+        }
+        ALLOC_OR_FAIL(s, alloc_f16, s->d_k_gather, s->max_seq * eng.nkv * eng.hd);
+        ALLOC_OR_FAIL(s, alloc_f16, s->d_v_gather, s->max_seq * eng.nkv * eng.hd);
+        ALLOC_OR_FAIL(s, alloc_f32, s->d_page_map, s->n_kv_pages);
+    }
     s->gather_seq_len = 0;
     ALLOC_OR_FAIL(s, alloc_f16, s->d_vrec, eng.n_layers * (eng.kd / 2));
     ALLOC_OR_FAIL(s, alloc_f16, s->d_qout, eng.qd);
@@ -250,6 +273,12 @@ ZayaState* zaya_init(const char* weights_dir, const ZayaConfig* cfg) {
     #undef ALLOC_OR_FAIL
     
     upf16(s->embed,s->d_embed,eng.vocab*eng.h,s->st);
+    // Upload ibias/iscale to GPU for device-side embedding lookup (#5)
+    std::vector<__half> h_ibias(eng.h), h_iscale(eng.h);
+    for(int i=0;i<eng.h;i++){h_ibias[i]=__float2half(s->ibias[i]);h_iscale[i]=__float2half(s->iscale[i]);}
+    HIP_OK_R(hipMemcpy(s->d_ibias,h_ibias.data(),eng.h*2,hipMemcpyHostToDevice), nullptr);
+    HIP_OK_R(hipMemcpy(s->d_iscale,h_iscale.data(),eng.h*2,hipMemcpyHostToDevice), nullptr);
+    // Final norm
     std::vector<__half>hf(eng.h);for(int i=0;i<eng.h;i++)hf[i]=__float2half(fnorm[i]);
     HIP_OK_R(hipMemcpy(s->d_fnw,hf.data(),eng.h*2,hipMemcpyHostToDevice), nullptr);
     
@@ -375,9 +404,10 @@ static void zaya_kv_gather(ZayaState* s, int il, int seq_len) {
 void zaya_forward(ZayaState* s, int token_id, float* logits_out) {
     if (token_id < 0 || token_id >= eng.vocab) { if (logits_out) memset(logits_out, 0, eng.vocab * sizeof(float)); return; }
     int g1 = (eng.h+BLK-1)/BLK;
-    std::vector<__half> hh(eng.h);
-    for(int i=0;i<eng.h;i++){float raw=s->embed[token_id*(size_t)eng.h+i];hh[i]=__float2half((raw+s->ibias[i])*s->iscale[i]);}
-    HIP_OK_V(hipMemcpyAsync(s->d_hs,hh.data(),eng.h*2,hipMemcpyHostToDevice,s->st));
+    // Device-side embedding lookup (#5): no H2D copy
+    HIP_OK_V(hipMemcpyAsync(s->d_token_id, &token_id, 4, hipMemcpyHostToDevice, s->st));
+    embed_lookup_k<<<g1,BLK,0,s->st>>>(s->d_hs, s->d_embed, s->d_ibias, s->d_iscale, s->d_token_id, eng.h);
+    HIP_CHECK(hipGetLastError());
 
     for(int il=0;il<eng.n_layers;il++){
         auto& l=s->lw[il];
@@ -397,24 +427,17 @@ void zaya_forward(ZayaState* s, int token_id, float* logits_out) {
             l.cdw,l.cdb,l.cgw,l.cgb,l.ks,
             s->d_qout,s->d_kout,s->d_vout, s->pos, eng.nq,eng.nkv,eng.hd,eng.hd/2,5000000.0f,eng.qkv/(eng.nq+eng.nkv));
         HIP_CHECK(hipGetLastError());
-        // Paged KV: allocate page, write, gather for attention
+        // KV cache: linear contiguous write (#3) — no gather overhead
         {
-            size_t kv_off = zaya_kv_page_write(s, il, s->pos);
-            __half* layer_k = s->d_kcache + (size_t)il * s->kv_pool_pages * s->page_size * eng.nkv * eng.hd;
-            __half* layer_v = s->d_vcache + (size_t)il * s->kv_pool_pages * s->page_size * eng.nkv * eng.hd;
-            copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(layer_k + kv_off, s->d_kout, eng.kd);
+            __half* layer_k = s->d_kcache + ((size_t)il * s->max_seq + s->pos) * eng.nkv * eng.hd;
+            __half* layer_v = s->d_vcache + ((size_t)il * s->max_seq + s->pos) * eng.nkv * eng.hd;
+            copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(layer_k, s->d_kout, eng.kd);
             HIP_CHECK(hipGetLastError());
-            copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(layer_v + kv_off, s->d_vout, eng.kd);
+            copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(layer_v, s->d_vout, eng.kd);
             HIP_CHECK(hipGetLastError());
-            if (s->pos > 0) {
-                zaya_kv_gather(s, il, s->pos + 1);
-            } else {
-                copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(s->d_k_gather, s->d_kout, eng.kd);
-                HIP_CHECK(hipGetLastError());
-                copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(s->d_v_gather, s->d_vout, eng.kd);
-                HIP_CHECK(hipGetLastError());
-            }
-            rcpp_kv_cache_attn_decode_fd(s->d_qout, s->d_k_gather, s->d_v_gather,
+            rcpp_kv_cache_attn_decode_fd(s->d_qout,
+                s->d_kcache + (size_t)il * s->max_seq * eng.nkv * eng.hd,
+                s->d_vcache + (size_t)il * s->max_seq * eng.nkv * eng.hd,
                 s->d_ao, eng.nq, eng.nkv, eng.hd, s->pos+1, 1.0f/sqrtf((float)eng.hd), (void*)s->st);
         }
         moe_tiled_gemv<<<eng.h/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_ao,s->d_ao,l.wo,eng.h,eng.qd);                             // o_proj
@@ -430,21 +453,18 @@ void zaya_forward(ZayaState* s, int token_id, float* logits_out) {
             HIP_CHECK(hipGetLastError());
             encode_expert_cache_kernel<<<1,32,0,s->st>>>(s->d_prev_rs+(size_t)il*eng.rtr_h,s->d_expert_idx,eng.rtr_h);
             HIP_CHECK(hipGetLastError());
-            fixup_skip_expert_kernel<<<1,256,0,s->st>>>(s->d_expert_idx,s->d_tmp,s->d_skip_flag,eng.n_exp,eng.n_exp_t,eng.h);
+            fixup_skip_expert_kernel<<<1,256,0,s->st>>>(s->d_expert_idx,s->d_skip_flag,eng.n_exp,eng.n_exp_t);
             HIP_CHECK(hipGetLastError());
-            HIP_OK_V(hipStreamSynchronize(s->st));
-            int was_skip; HIP_OK_V(hipMemcpy(&was_skip,s->d_skip_flag,4,hipMemcpyDeviceToHost));
-            if(!was_skip){
-                const int gb=(2*eng.n_ff+WMMA_M-1)/WMMA_M;
-                const int db=(eng.h+WMMA_M-1)/WMMA_M;
-                const int sb=(eng.n_ff+BLK-1)/BLK;
-                wmma_gateup_kernel<<<gb,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_hs,l.gu,s->d_expert_idx);
-                HIP_CHECK(hipGetLastError());
-                silu_mul_k<<<sb,BLK,0,s->st>>>(s->d_ao,s->d_tmp,s->d_tmp+eng.n_ff,eng.n_ff);
-                HIP_CHECK(hipGetLastError());
-                wmma_down_kernel<<<db,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_ao,l.dn,s->d_expert_idx);
+            // #1: No host sync — skip_flag read by gateup/down on GPU
+            const int gb=(2*eng.n_ff+WMMA_M-1)/WMMA_M;
+            const int db=(eng.h+WMMA_M-1)/WMMA_M;
+            const int sb=(eng.n_ff+BLK-1)/BLK;
+            wmma_gateup_kernel<<<gb,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_hs,l.gu,s->d_expert_idx,s->d_skip_flag);
             HIP_CHECK(hipGetLastError());
-            }
+            silu_mul_k<<<sb,BLK,0,s->st>>>(s->d_ao,s->d_tmp,s->d_tmp+eng.n_ff,eng.n_ff);
+            HIP_CHECK(hipGetLastError());
+            wmma_down_kernel<<<db,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_ao,l.dn,s->d_expert_idx,s->d_skip_flag);
+            HIP_CHECK(hipGetLastError());
             residual_scale_k<<<g1,BLK,0,s->st>>>(s->d_tmp,s->d_hs,l.pmhss,l.pmhsb,l.pmrss,l.pmrsb,eng.h);
             HIP_CHECK(hipGetLastError());
             copy_k<<<g1,BLK,0,s->st>>>(s->d_hs,s->d_tmp,eng.h);
@@ -473,9 +493,10 @@ void zaya_forward(ZayaState* s, int token_id, float* logits_out) {
 int zaya_forward_greedy(ZayaState* s, int token_id) {
     if (token_id < 0 || token_id >= eng.vocab) return -1;
     int g1 = (eng.h+BLK-1)/BLK;
-    std::vector<__half> hh(eng.h);
-    for(int i=0;i<eng.h;i++){float raw=s->embed[token_id*(size_t)eng.h+i];hh[i]=__float2half((raw+s->ibias[i])*s->iscale[i]);}
-    HIP_OK_R(hipMemcpyAsync(s->d_hs,hh.data(),eng.h*2,hipMemcpyHostToDevice,s->st), -1);
+    // Device-side embedding lookup (#5): no H2D copy
+    HIP_OK_R(hipMemcpyAsync(s->d_token_id, &token_id, 4, hipMemcpyHostToDevice, s->st), -1);
+    embed_lookup_k<<<g1,BLK,0,s->st>>>(s->d_hs, s->d_embed, s->d_ibias, s->d_iscale, s->d_token_id, eng.h);
+    HIP_CHECK(hipGetLastError());
 
     for(int il=0;il<eng.n_layers;il++){
         auto& l=s->lw[il];
@@ -495,24 +516,17 @@ int zaya_forward_greedy(ZayaState* s, int token_id) {
             l.cdw,l.cdb,l.cgw,l.cgb,l.ks,
             s->d_qout,s->d_kout,s->d_vout, s->pos, eng.nq,eng.nkv,eng.hd,eng.hd/2,5000000.0f,eng.qkv/(eng.nq+eng.nkv));
         HIP_CHECK(hipGetLastError());
-        // Paged KV: allocate page, write, gather for attention
+        // KV cache: linear contiguous write (#3) — no gather overhead
         {
-            size_t kv_off = zaya_kv_page_write(s, il, s->pos);
-            __half* layer_k = s->d_kcache + (size_t)il * s->kv_pool_pages * s->page_size * eng.nkv * eng.hd;
-            __half* layer_v = s->d_vcache + (size_t)il * s->kv_pool_pages * s->page_size * eng.nkv * eng.hd;
-            copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(layer_k + kv_off, s->d_kout, eng.kd);
+            __half* layer_k = s->d_kcache + ((size_t)il * s->max_seq + s->pos) * eng.nkv * eng.hd;
+            __half* layer_v = s->d_vcache + ((size_t)il * s->max_seq + s->pos) * eng.nkv * eng.hd;
+            copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(layer_k, s->d_kout, eng.kd);
             HIP_CHECK(hipGetLastError());
-            copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(layer_v + kv_off, s->d_vout, eng.kd);
+            copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(layer_v, s->d_vout, eng.kd);
             HIP_CHECK(hipGetLastError());
-            if (s->pos > 0) {
-                zaya_kv_gather(s, il, s->pos + 1);
-            } else {
-                copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(s->d_k_gather, s->d_kout, eng.kd);
-                HIP_CHECK(hipGetLastError());
-                copy_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(s->d_v_gather, s->d_vout, eng.kd);
-                HIP_CHECK(hipGetLastError());
-            }
-            rcpp_kv_cache_attn_decode_fd(s->d_qout, s->d_k_gather, s->d_v_gather,
+            rcpp_kv_cache_attn_decode_fd(s->d_qout,
+                s->d_kcache + (size_t)il * s->max_seq * eng.nkv * eng.hd,
+                s->d_vcache + (size_t)il * s->max_seq * eng.nkv * eng.hd,
                 s->d_ao, eng.nq, eng.nkv, eng.hd, s->pos+1, 1.0f/sqrtf((float)eng.hd), (void*)s->st);
         }
         moe_tiled_gemv<<<eng.h/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_ao,s->d_ao,l.wo,eng.h,eng.qd);                             // o_proj
@@ -528,21 +542,18 @@ int zaya_forward_greedy(ZayaState* s, int token_id) {
             HIP_CHECK(hipGetLastError());
             encode_expert_cache_kernel<<<1,32,0,s->st>>>(s->d_prev_rs+(size_t)il*eng.rtr_h,s->d_expert_idx,eng.rtr_h);
             HIP_CHECK(hipGetLastError());
-            fixup_skip_expert_kernel<<<1,256,0,s->st>>>(s->d_expert_idx,s->d_tmp,s->d_skip_flag,eng.n_exp,eng.n_exp_t,eng.h);
+            fixup_skip_expert_kernel<<<1,256,0,s->st>>>(s->d_expert_idx,s->d_skip_flag,eng.n_exp,eng.n_exp_t);
             HIP_CHECK(hipGetLastError());
-            HIP_OK_R(hipStreamSynchronize(s->st), -1);
-            int was_skip; HIP_OK_R(hipMemcpy(&was_skip,s->d_skip_flag,4,hipMemcpyDeviceToHost), -1);
-            if(!was_skip){
-                const int gb=(2*eng.n_ff+WMMA_M-1)/WMMA_M;
-                const int db=(eng.h+WMMA_M-1)/WMMA_M;
-                const int sb=(eng.n_ff+BLK-1)/BLK;
-                wmma_gateup_kernel<<<gb,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_hs,l.gu,s->d_expert_idx);
-                HIP_CHECK(hipGetLastError());
-                silu_mul_k<<<sb,BLK,0,s->st>>>(s->d_ao,s->d_tmp,s->d_tmp+eng.n_ff,eng.n_ff);
-                HIP_CHECK(hipGetLastError());
-                wmma_down_kernel<<<db,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_ao,l.dn,s->d_expert_idx);
+            // #1: No host sync — skip_flag read by gateup/down on GPU
+            const int gb=(2*eng.n_ff+WMMA_M-1)/WMMA_M;
+            const int db=(eng.h+WMMA_M-1)/WMMA_M;
+            const int sb=(eng.n_ff+BLK-1)/BLK;
+            wmma_gateup_kernel<<<gb,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_hs,l.gu,s->d_expert_idx,s->d_skip_flag);
             HIP_CHECK(hipGetLastError());
-            }
+            silu_mul_k<<<sb,BLK,0,s->st>>>(s->d_ao,s->d_tmp,s->d_tmp+eng.n_ff,eng.n_ff);
+            HIP_CHECK(hipGetLastError());
+            wmma_down_kernel<<<db,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_ao,l.dn,s->d_expert_idx,s->d_skip_flag);
+            HIP_CHECK(hipGetLastError());
             residual_scale_k<<<g1,BLK,0,s->st>>>(s->d_tmp,s->d_hs,l.pmhss,l.pmhsb,l.pmrss,l.pmrsb,eng.h);
             HIP_CHECK(hipGetLastError());
             copy_k<<<g1,BLK,0,s->st>>>(s->d_hs,s->d_tmp,eng.h);
@@ -562,6 +573,15 @@ int zaya_forward_greedy(ZayaState* s, int token_id) {
     int best;
     HIP_OK_R(hipMemcpy(&best,s->d_argmax_idx,4,hipMemcpyDeviceToHost), -1);
     if(s->pos < s->max_seq-1) s->pos++;
+
+    // End HIP graph capture on first call, instantiate for replay (#2)
+    if (!s->graph_captured) {
+        HIP_OK_R(hipStreamEndCapture(s->st, &s->graph), -1);
+        HIP_OK_R(hipGraphInstantiate(&s->graph_exec, s->graph, NULL, NULL, 0), -1);
+        s->graph_captured = true;
+        fprintf(stderr, "  HIP graph captured (%d layers) — %.0f MB exec, replay active\n",
+                eng.n_layers, (double)sizeof(ZayaState) / (1024*1024));
+    }
     return best;
 }
 
@@ -928,14 +948,20 @@ void zaya_reset(ZayaState* s) {
     HIP_OK_V(hipMemsetAsync(s->d_conv,0,(size_t)eng.n_layers*2*eng.qkv*2,s->st));
     HIP_OK_V(hipMemsetAsync(s->d_phs,0,(size_t)eng.n_layers*eng.h*2,s->st));
     HIP_OK_V(hipMemsetAsync(s->d_prev_rs,0,(size_t)eng.n_layers*eng.rtr_h*4,s->st));
-    size_t kv_pool_bytes = (size_t)eng.n_layers * s->kv_pool_pages * s->page_size * eng.nkv * eng.hd * 2;
-    HIP_OK_V(hipMemsetAsync(s->d_kcache, 0, kv_pool_bytes, s->st));
-    HIP_OK_V(hipMemsetAsync(s->d_vcache, 0, kv_pool_bytes, s->st));
-    // Reset page table
-    for (int il = 0; il < eng.n_layers; il++) {
-        s->page_alloc[il].assign(s->n_kv_pages, false);
-        s->page_map[il].assign(s->n_kv_pages, -1);
-        s->page_next_evict[il] = 0;
+    if (s->use_linear_kv) {
+        size_t kv_bytes = (size_t)eng.n_layers * s->max_seq * eng.nkv * eng.hd * 2;
+        HIP_OK_V(hipMemsetAsync(s->d_kcache, 0, kv_bytes, s->st));
+        HIP_OK_V(hipMemsetAsync(s->d_vcache, 0, kv_bytes, s->st));
+    } else {
+        size_t kv_pool_bytes = (size_t)eng.n_layers * s->kv_pool_pages * s->page_size * eng.nkv * eng.hd * 2;
+        HIP_OK_V(hipMemsetAsync(s->d_kcache, 0, kv_pool_bytes, s->st));
+        HIP_OK_V(hipMemsetAsync(s->d_vcache, 0, kv_pool_bytes, s->st));
+        // Reset page table
+        for (int il = 0; il < eng.n_layers; il++) {
+            s->page_alloc[il].assign(s->n_kv_pages, false);
+            s->page_map[il].assign(s->n_kv_pages, -1);
+            s->page_next_evict[il] = 0;
+        }
     }
     HIP_OK_V(hipMemsetAsync(s->d_vrec,0,(size_t)eng.n_layers*(eng.kd/2)*2,s->st));
     s->pos=0;
@@ -948,7 +974,10 @@ void zaya_destroy(ZayaState* s) {
     if (!s) return;
     auto safe = [](auto p) { if (p) (void)hipFree(p); };
     safe(s->d_hs); safe(s->d_ao); safe(s->d_tmp); safe(s->d_fnw);
-    safe(s->d_lm_out); safe(s->d_embed); safe(s->d_conv); safe(s->d_phs);
+    if (s->graph_exec) { hipGraphExecDestroy(s->graph_exec); s->graph_exec = nullptr; }
+    if (s->graph) { hipGraphDestroy(s->graph); s->graph = nullptr; }
+    safe(s->d_lm_out); safe(s->d_embed); safe(s->d_ibias); safe(s->d_iscale); safe(s->d_token_id);
+    safe(s->d_conv); safe(s->d_phs);
     safe(s->d_prev_rs); safe(s->d_expert_idx); safe(s->d_expert_wt);
     safe(s->d_kcache); safe(s->d_vcache); safe(s->d_vrec);
     safe(s->d_qout); safe(s->d_kout); safe(s->d_vout); safe(s->d_skip_flag);

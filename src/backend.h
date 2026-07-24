@@ -103,6 +103,12 @@ extern "C" Backend* create_zamba2_backend();
 // Handles Zamba-7B-v1 (pure Mamba1 SSM) and BlackMamba (Mamba1+MoE).
 extern "C" Backend* create_mamba1_backend();
 
+// ── CUDA backend ──
+Backend* create_cuda_backend();
+
+// ── Metal backend ──
+Backend* create_metal_backend();
+
 // ── Auto-detect ──
 BackendType detect_backends();
 

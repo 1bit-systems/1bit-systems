@@ -10,6 +10,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-00ff00.svg)](LICENSE)
 [![Site](https://img.shields.io/badge/site-1bit.systems-12a0ed.svg)](https://1bit.systems)
 [![ROCm](https://img.shields.io/badge/rocm-7.15.0a-f00fd2.svg)](https://github.com/bong-water-water-bong/TheRock)
+[![CUDA](https://img.shields.io/badge/CUDA-12.x-76b900.svg)](https://developer.nvidia.com/cuda-toolkit)
+[![Metal](https://img.shields.io/badge/Metal-Apple%20Silicon-ff9500.svg)](https://developer.apple.com/metal/)
 [![Strix Halo](https://img.shields.io/badge/strix%20halo-gfx1151%20%2B%20XDNA%202-12a0ed.svg)](https://www.amd.com/en/products/processors/laptop/ryzen/ai-max-series.html)
 [![GGUF](https://img.shields.io/badge/GGUF-Qwen2%20%7C%20Qwen3%20%7C%20Mamba-00ff00)](src/gguf_loader.cpp)
 [![1BP](https://img.shields.io/badge/1BP-single%20file%2C%20zero%20config-00ffaa)](include/onebp_format.h)
@@ -18,6 +20,13 @@
 **[🌐 Website](https://1bit.systems)** · **[🤗 1BP Models](https://huggingface.co/bong-water-water-bong)** · **[📚 Docs](docs/README.md)** · **[🛠️ Journey](docs/journey.md)** · **[📊 Benchmarks](docs/wiki/performance.md)** · **[🗺️ Roadmap](ROADMAP.md)**
 
 **One binary unifies NPU + GPU + CPU inference — no external subprocess, no proprietary runtime. C++23, zero Python at runtime.**
+
+**Platform support:**
+- **AMD Strix Halo** — XDNA 2 NPU (97 tok/s) + ROCm HIP GPU (113 tok/s)
+- **NVIDIA GPU** — CUDA backend (sm_70+, compute capability 7.0+)
+- **Apple Silicon** — Metal GPU backend (M1/M2/M3/M4, macOS 14+)
+- **Any Vulkan 1.2+** — Portable GPU backend
+- **CPU** — Generic C++23 fallback (no GPU required)
 
 **35 supported models** (30 1BP + 5 GGUF native) — see [`models/catalog/README.md`](models/catalog/README.md) for the full list.
 
@@ -64,7 +73,7 @@ Reverse-engineered AMD's XDNA 2 NPU in 4 days with no documentation. 1800+ hours
 
 *Numbers auto-update from [`site/benchmarks.json`](site/benchmarks.json) on every push.*
 
-> ⚠️ **The table below mixes kernel-level synthetic microbenchmarks with end-to-end inference.** Rows in the first table are kernel-level only — they exclude KV-cache attention, softmax, RoPE, FFN non-GEMM ops, sampler, tokenizer, and host↔device transfers. **Real end-to-end throughput is substantially lower** — see the second table. See [issue #235](https://github.com/bong-water-water-bong/1bit-systems/issues/235) for discussion.
+> ⚠️ **The kernel-level table below measures single-GEMM-kernel throughput on a synthetic 28-layer weight buffer.** These are "tok/s-equivalent" numbers — they exclude KV-cache attention, softmax, RoPE, FFN non-GEMM ops, sampler, tokenizer, and host↔device transfers. **Real end-to-end throughput is substantially lower** — see the second table. See [issue #235](https://github.com/bong-water-water-bong/1bit-systems/issues/235) for full discussion.
 
 ### 🧪 Kernel-Level Microbenchmarks (synthetic 28-layer weight buffer)
 

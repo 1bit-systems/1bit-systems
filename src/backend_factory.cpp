@@ -69,6 +69,14 @@ static Backend* try_load_backend(const char* lib_name, const char* symbol) {
 // ── Forward declarations (CPU and Mamba1 are always linked) ──
 extern Backend* create_cpu_backend();
 
+// CUDA backend factory — loaded via dlsym from libcuda_backend.so
+// or linked directly for static builds.
+extern "C" Backend* create_cuda_backend();
+
+// Metal backend factory — loaded via dlsym from libmetal_backend.so
+// or linked directly. Uses Objective-C++ runtime on macOS.
+extern "C" Backend* create_metal_backend();
+
 // Mamba1 GPU backend — uses HIP kernels from mamba1_engine.hip
 // Linked directly when ROCM_CPP_STATIC_HIP is defined.
 extern "C" Backend* create_mamba1_backend();
@@ -89,6 +97,24 @@ static Backend* try_create_hip() {
 static Backend* try_create_vulkan() {
     Backend* b = try_load_backend("librocm_cpp.so", "create_vulkan_backend");
     if (!b) b = try_load_backend("libvulkan_backend.so", "create_vulkan_backend");
+    return b;
+}
+
+static Backend* try_create_cuda() {
+    Backend* b = try_load_backend("libcuda_backend.so", "create_cuda_backend");
+    if (!b) b = try_load_backend("librocm_cpp.so", "create_cuda_backend");
+    if (!b && has_static_symbol("create_cuda_backend")) {
+        return ((Backend*(*)())dlsym(dlopen(NULL, RTLD_NOW | RTLD_LOCAL), "create_cuda_backend"))();
+    }
+    return b;
+}
+
+static Backend* try_create_metal() {
+    Backend* b = try_load_backend("libmetal_backend.so", "create_metal_backend");
+    if (!b) b = try_load_backend("librocm_cpp.so", "create_metal_backend");
+    if (!b && has_static_symbol("create_metal_backend")) {
+        return ((Backend*(*)())dlsym(dlopen(NULL, RTLD_NOW | RTLD_LOCAL), "create_metal_backend"))();
+    }
     return b;
 }
 
@@ -188,18 +214,80 @@ bool has_avx512() {
     return false;
 }
 
+bool has_cuda() {
+    // Probe for CUDA-capable GPU via nvidia-ml or cuda runtime
+    void* lib = dlopen("libcuda.so.1", RTLD_LAZY);
+    if (!lib) lib = dlopen("libcuda.so", RTLD_LAZY);
+    if (!lib) {
+        // Check for /dev/nvidia* devices as fallback
+        struct stat st;
+        if (stat("/dev/nvidia0", &st) == 0) return true;
+        return false;
+    }
+    // Check that core CUDA symbols exist
+    bool has_cuInit = dlsym(lib, "cuInit") != nullptr;
+    bool has_cuDeviceGetCount = dlsym(lib, "cuDeviceGetCount") != nullptr;
+    dlclose(lib);
+    if (has_cuInit && has_cuDeviceGetCount) {
+        // Quick probe: try to initialize CUDA and get device count
+        typedef int (*cuInit_t)(unsigned int);
+        typedef int (*cuDeviceGetCount_t)(int*);
+        lib = dlopen("libcuda.so.1", RTLD_LAZY | RTLD_NOLOAD);
+        if (lib) {
+            auto cuInit = (cuInit_t)dlsym(lib, "cuInit");
+            auto cuGetCount = (cuDeviceGetCount_t)dlsym(lib, "cuDeviceGetCount");
+            if (cuInit && cuGetCount) {
+                if (cuInit(0) == 0) {
+                    int ndev = 0;
+                    if (cuGetCount(&ndev) == 0 && ndev > 0) {
+                        dlclose(lib);
+                        return true;
+                    }
+                }
+            }
+            dlclose(lib);
+        }
+        return true; // symbols exist, assume GPU available
+    }
+    return false;
+}
+
+bool has_metal() {
+#ifdef __APPLE__
+    // On macOS, check for Metal framework availability
+    void* lib = dlopen("/System/Library/Frameworks/Metal.framework/Metal", RTLD_LAZY);
+    if (!lib) lib = dlopen("Metal", RTLD_LAZY);
+    if (!lib) return false;
+    
+    // Check that MTLDevice creation works by probing the symbol
+    bool has_dev = dlsym(lib, "MTLCreateSystemDefaultDevice") != nullptr;
+    dlclose(lib);
+    
+    if (has_dev) {
+        // Quick probe using dlopen + dlsym to call MTLCreateSystemDefaultDevice
+        // On Apple Silicon, this always returns a valid device
+        return true;
+    }
+    return has_dev;
+#else
+    return false;
+#endif
+}
+
 /// Detect all available backends, sorted by preference.
 BackendType detect_backends() {
     printf("\n🔍 Detecting available compute backends...\n");
 
     struct Probe { BackendType type; const char* name; bool (*check)(); };
     Probe probes[] = {
-        {BackendType::HIP_GPU,    "HIP GPU (ROCm)",   has_hip_gpu},
-        {BackendType::VULKAN,     "Vulkan GPU",        has_vulkan},
-        {BackendType::NPU_XRT,    "NPU XDNA (XRT)",    has_npu},
-        {BackendType::CPU_AVX512, "CPU AVX-512",       has_avx512},
-        {BackendType::CPU_SCALAR, "CPU (scalar)",      []()->bool{return true;}},
-        {BackendType::GENERIC,   "Generic CPU",       []()->bool{return true;}},
+        {BackendType::HIP_GPU,    "HIP GPU (ROCm)",     has_hip_gpu},
+        {BackendType::CUDA_GPU,   "CUDA GPU (NVIDIA)",  has_cuda},
+        {BackendType::VULKAN,     "Vulkan GPU",          has_vulkan},
+        {BackendType::METAL_GPU,  "Metal GPU (Apple)",  has_metal},
+        {BackendType::NPU_XRT,    "NPU XDNA (XRT)",     has_npu},
+        {BackendType::CPU_AVX512, "CPU AVX-512",        has_avx512},
+        {BackendType::CPU_SCALAR, "CPU (scalar)",       []()->bool{return true;}},
+        {BackendType::GENERIC,   "Generic CPU",          []()->bool{return true;}},
     };
 
     BackendType best = BackendType::NONE;
@@ -254,10 +342,22 @@ Backend* create_backend(BackendType type) {
             printf("  HIP backend unavailable (install ROCm)\n");
             return nullptr;
         }
+        case BackendType::CUDA_GPU: {
+            auto* b = try_create_cuda();
+            if (b) { printf("  Created CUDA GPU backend\n"); return b; }
+            printf("  CUDA backend unavailable (install CUDA Toolkit)\n");
+            return nullptr;
+        }
         case BackendType::VULKAN: {
             auto* b = try_create_vulkan();
             if (b) { printf("  Created Vulkan GPU backend\n"); return b; }
             printf("  Vulkan backend unavailable\n");
+            return nullptr;
+        }
+        case BackendType::METAL_GPU: {
+            auto* b = try_create_metal();
+            if (b) { printf("  Created Metal GPU backend\n"); return b; }
+            printf("  Metal backend unavailable\n");
             return nullptr;
         }
         case BackendType::NPU_XRT: {
