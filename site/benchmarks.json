@@ -1,6 +1,6 @@
 {
   "updated": "2026-07-24",
-  "_updated_note": "2026-07-24 pass re-measured kernel-level entries only (see 'remeasured' key on each: q1_gemv, fused_tq2, tq2_gemv, prefill_i8) via bench_bonsai_q1_1024/bench_fused_tq2_1024/bench_bonsai_tq2_1024/bench_prefill_variants, median of 3 runs on this box's real gfx1151 hardware. Entries without a 'remeasured' key were not touched this pass and carry forward their prior value/date.",
+  "_updated_note": "2026-07-24 pass re-measured kernel-level entries only (see 'remeasured' key on each: q1_gemv, fused_tq2, tq2_gemv, prefill_i8) via bench_bonsai_q1_1024/bench_fused_tq2_1024/bench_bonsai_tq2_1024/bench_prefill_variants, median of 3 runs on this box's real gfx1151 hardware. Entries without a 'remeasured' key were not touched this pass and carry forward their prior value/date. IMPORTANT CAVEAT (added after re-measurement): the q1_gemv/fused_tq2/tq2_gemv numbers are isolated GEMV-kernel throughput on a synthetic 28-layer weight set allocated fresh each run, correctness-verified bit-exact against a CPU reference — real, reproducible, but not a sustained end-to-end decode measurement on an actual loaded model where weight residency, KV cache, and other layers compete for cache/bandwidth. Treat as 'the kernel is fast and correct,' not as a production tok/s claim. Only the entries under table_end_to_end (zaya_27b, zaya_35b_moe, zr1_1_5b) and mamba1_gpu are real model decode loops.",
   "source": "validated on cold GPU (single-agent, no contention)",
   "engines": {
     "q1_gemv": {
@@ -10,7 +10,8 @@
       "label": "Q1_0 GEMV kernel (28-layer model, 128B blocks)",
       "table": "kernel",
       "display_name": "Q1 GEMV",
-      "backend": "ROCm HIP (fused kernel)"
+      "backend": "ROCm HIP (fused kernel)",
+      "notes": "Isolated GEMV throughput, correctness-verified bit-exact vs CPU reference — not an end-to-end decode measurement on a loaded model. See _updated_note."
     },
     "fused_tq2": {
       "tok_s": 420,
@@ -19,7 +20,8 @@
       "label": "Fused TQ2 kernel (QKV+GU, 1.15x speedup)",
       "table": "kernel",
       "display_name": "Fused TQ2",
-      "backend": "ROCm HIP (QKV+GU fused)"
+      "backend": "ROCm HIP (QKV+GU fused)",
+      "notes": "Isolated GEMV throughput, correctness-verified bit-exact vs CPU reference — not an end-to-end decode measurement on a loaded model. See _updated_note."
     },
     "ternary": {
       "tok_s": 318,
@@ -36,7 +38,8 @@
       "label": "TQ2_0 GEMV kernel (28-layer model, g128)",
       "table": "kernel",
       "display_name": "TQ2 GEMV",
-      "backend": "ROCm HIP"
+      "backend": "ROCm HIP",
+      "notes": "Isolated GEMV throughput, correctness-verified bit-exact vs CPU reference — not an end-to-end decode measurement on a loaded model. See _updated_note."
     },
     "npu_v12": {
       "tok_s": 97,
