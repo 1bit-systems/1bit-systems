@@ -1077,3 +1077,9 @@ target_link_libraries(test_oscar_attn_decode PRIVATE oscar hip::host hip::device
 set_target_properties(test_oscar_attn_decode PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 add_test(NAME test_oscar_attn_decode COMMAND test_oscar_attn_decode)
 set_tests_properties(test_oscar_attn_decode PROPERTIES LABELS "gpu_required" SKIP_RETURN_CODE 77)
+
+# -- tq2_to_q4nx : Convert 1BP TQ2 to Q4NX format for NPU inference ---------
+add_executable(tq2_to_q4nx tools/tq2_to_q4nx.cpp src/onebp_model.cpp)
+target_include_directories(tq2_to_q4nx PRIVATE src/ ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(tq2_to_q4nx PRIVATE -O3 -std=c++23)
+target_link_libraries(tq2_to_q4nx PRIVATE pthread)
