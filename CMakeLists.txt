@@ -360,6 +360,15 @@ target_include_directories(vision_encoder PUBLIC
 target_compile_options(vision_encoder PRIVATE -O3 -std=c++23 -Wno-unused-result)
 target_link_libraries(vision_encoder PUBLIC vl_image backend_manager)
 
+# -- libwhisper : Speech-to-text (Whisper) ----------------------------------------------
+add_library(whisper STATIC src/whisper.cpp)
+target_include_directories(whisper PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
+target_compile_options(whisper PRIVATE -O3 -std=c++23 -Wno-unused-result)
+target_link_libraries(whisper PUBLIC backend_manager)
+
+
 add_library(rocm_cpp SHARED ${RCPP_SOURCES})
 if(ROCWMMA_FOUND)
     target_include_directories(rocm_cpp SYSTEM PRIVATE "${ROCWMMA_INCLUDE_DIR}")
