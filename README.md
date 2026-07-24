@@ -30,7 +30,7 @@
 | **Zaya1-8B** | Zyphra | MoE (16-expert) | ~64 tok/s | [🤗 HF](https://huggingface.co/bong-water-water-bong/ZAYA1-8B-1BP) |
 | **Bonsai-1.7B** | Deepgrove | Ternary TQ2 (2-bit) | 21.9 tok/s | [🤗 HF](https://huggingface.co/bong-water-water-bong/Bonsai-1.7B-TQ2-1BP) |
 | **Zamba2-2.7B** | Zyphra | Mamba2-hybrid | Instruct v2 | [🤗 HF](https://huggingface.co/bong-water-water-bong/Zamba2-2.7B-Instruct-v2-1BP) |
-| **ZR1-1.5B** | Zyphra | Dense · reasoning | reasoning-tuned | [🤗 HF](https://huggingface.co/bong-water-water-bong/ZR1-1.5B-1BP) |
+| **ZR1-1.5B** | Zyphra | Dense · reasoning | **26 tok/s** (ZINC GPU) ✅ | [🤗 HF](https://huggingface.co/bong-water-water-bong/ZR1-1.5B-1BP) |
 
 Whole families brought to 1BP — the full **Zyphra** lineup (Zaya1, Zamba2, BlackMamba, ZR1) plus **Poolside Laguna** (sigmoid-routed MoE, hybrid SWA/global attention). All converted with a pure-C++ toolchain, zero Python. **[Browse all on Hugging Face →](https://huggingface.co/bong-water-water-bong)**
 
@@ -184,13 +184,13 @@ Zaya1's maker, Zyphra, publishes several other architecturally distinct model li
 | [Zamba2-1.2B-Instruct-v2](https://huggingface.co/bong-water-water-bong/Zamba2-1.2B-Instruct-v2-1BP) | 1.2B | Mamba2-hybrid (attention every 6th layer) | **1BP** | ✅ |
 | [Zamba2-2.7B-Instruct-v2](https://huggingface.co/bong-water-water-bong/Zamba2-2.7B-Instruct-v2-1BP) | 2.7B | Mamba2-hybrid | **1BP** | ✅ |
 | [Zamba2-7B-Instruct-v2](https://huggingface.co/bong-water-water-bong/Zamba2-7B-Instruct-v2-1BP) | 7B | Mamba2-hybrid | **1BP** | ✅ |
-| [ZR1-1.5B](https://huggingface.co/bong-water-water-bong/ZR1-1.5B-1BP) | 1.5B | Dense transformer (Qwen2 arch), reasoning-tuned | **1BP** | ✅ |
+| [ZR1-1.5B](https://huggingface.co/bong-water-water-bong/ZR1-1.5B-1BP) | 1.5B | Dense transformer (Qwen2 arch), reasoning-tuned | **1BP** | ✅ **26 tok/s (ZINC GPU)** |
 | [BlackMamba-1.5B](https://huggingface.co/bong-water-water-bong/BlackMamba-1.5B-1BP) | 1.5B | Mamba1 + top-1 MoE (no attention at all) | **1BP** | ✅ **79.8 tok/s** |
 | [BlackMamba-2.8B](https://huggingface.co/bong-water-water-bong/BlackMamba-2.8B-1BP) | 2.8B | Mamba1 + top-1 MoE | **1BP** | ✅ **46.4 tok/s** |
 
 Each converted from a Q8_0/BF16 source (not a 4-bit GGUF) to avoid compounding quantization error through a second 4-bit pass, then structurally and numerically verified the same way as the Zaya1 conversions.
 
-> **On-device validation — 2026-07-23, Strix Halo (Radeon 8060S, gfx1151):** re-ran the family end to end. **BlackMamba-1.5B measured 84.2 tok/s** and **2.8B 48.5 tok/s** on the Mamba1 HIP backend (confirming the published 79.8 / 46.4). **ZR1-1.5B** runs end to end and returns coherent output. Two runtime bugs were found and filed during this sweep: a Zamba2 loader path bug ([#843](https://github.com/bong-water-water-bong/1bit-systems/issues/843)) and un-built ZINC Vulkan shaders that pushed dense models to the CPU fallback ([#844](https://github.com/bong-water-water-bong/1bit-systems/issues/844)). The engine was also **crash-hardened**: a backend that fails to initialize (e.g. missing shaders) now fails over to CPU/HIP instead of taking the server down.
+> **On-device validation — Strix Halo (Radeon 8060S, gfx1151):** **BlackMamba-1.5B 84.2 tok/s** / **2.8B 48.5 tok/s** on the Mamba1 HIP backend. **Dense GPU inference is live**: **ZR1-1.5B (Qwen2) runs on the native C++ ZINC Vulkan backend at ~26 tok/s** and matches the CPU reference **token-for-token** ([#844](https://github.com/bong-water-water-bong/1bit-systems/issues/844) — closed). ZINC is enabled by default for the architectures it computes correctly (llama/mistral/qwen2) and falls back to the exact `cpu_generic` path otherwise; `ZINC_DISABLE=1` forces HIP/CPU. The engine is also **crash-hardened** — a backend that fails to initialize fails over to CPU/HIP instead of taking the server down.
 
 **BlackMamba required a from-scratch converter** — no upstream GGUF export exists for this architecture, and it predates the architecture support standard converters have. The one-time bootstrap conversion shipped with three real correctness bugs on the first pass (wrong Q4_0 nibble encoding, a conv1d weight reshape that silently scrambled channel/kernel-tap pairing, and a dropped MoE router bias), all found and fixed by cross-checking against the in-tree C++ reference (`tools/blackmamba_cpu_reference.cpp`) and the official Zyphra implementation — see the model cards on Hugging Face for the full writeup. The resulting weights are what `gguf_to_onebp` now ingests directly.
 
