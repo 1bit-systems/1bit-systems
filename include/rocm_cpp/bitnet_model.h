@@ -43,7 +43,8 @@ typedef enum {
     RCPP_ARCH_OLMO    = 12,  // OLMo (AI2) — LayerNorm, no RoPE
     RCPP_ARCH_ZAYA    = 13,  // Zaya MoE (Zyphra — MoE FFN with CCA attention)
     RCPP_ARCH_QWEN2VL = 14,  // Qwen2-VL (vision-language)
-    RCPP_ARCH_WHISPER = 15,  // OpenAI Whisper (speech-to-text)
+    RCPP_ARCH_WHISPER  = 15,  // OpenAI Whisper (speech-to-text)
+    RCPP_ARCH_DEEPSEEK = 16,  // DeepSeek V2/V3/R1 — MoE with Multi-Head Latent Attention
 } rcpp_arch_t;
 
 #include <string.h>
@@ -67,9 +68,11 @@ static inline rcpp_arch_t rcpp_arch_from_string(const char* s) {
     if (strcmp(s, "olmoe")   == 0) return RCPP_ARCH_OLMO;
     if (strcmp(s, "zaya")    == 0) return RCPP_ARCH_ZAYA;
     if (strcmp(s, "qwen2vl") == 0) return RCPP_ARCH_QWEN2VL;
-    if (strcmp(s, "deepseek")  == 0) return RCPP_ARCH_QWEN2;
-    if (strcmp(s, "deepseek2") == 0) return RCPP_ARCH_QWEN2;
-    if (strcmp(s, "deepseek3") == 0) return RCPP_ARCH_QWEN2;
+    // DeepSeek LLM (V1, Coder) uses standard attention — map to Qwen2-like
+    if (strcmp(s, "deepseek")   == 0) return RCPP_ARCH_QWEN2;
+    // DeepSeek V2/V3/R1 use Multi-Head Latent Attention (MLA) — native support
+    if (strcmp(s, "deepseek2")  == 0) return RCPP_ARCH_DEEPSEEK;
+    if (strcmp(s, "deepseek3")  == 0) return RCPP_ARCH_DEEPSEEK;
     if (strcmp(s, "stablelm")  == 0) return RCPP_ARCH_LLAMA;
     if (strcmp(s, "mosaic")    == 0) return RCPP_ARCH_LLAMA;
     if (strcmp(s, "mpt")       == 0) return RCPP_ARCH_LLAMA;

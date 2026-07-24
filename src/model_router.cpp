@@ -92,6 +92,10 @@ BackendRoute select_backend_route(const ModelConfig& cfg) {
         return {{"hip_gpu", "cpu_generic"}, "Falcon — dense, parallel attn+ffn"};
     }
     // OLMo (AI2) — LayerNorm, no RoPE
+    // DeepSeek V2/V3/R1: Multi-Head Latent Attention, MoE
+    if (cfg.arch == RCPP_ARCH_DEEPSEEK) {
+        return {{"hip_gpu", "cpu_generic"}, "DeepSeek — MLA + MoE, HIP GPU, generic CPU fallback"};
+    }
     // Whisper (speech-to-text): uses whisper encoder/decoder (CPU) or GPU
     if (cfg.arch == RCPP_ARCH_WHISPER) {
         return {{"cpu_generic"}, "Whisper — speech-to-text, CPU inference"};

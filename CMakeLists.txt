@@ -314,6 +314,7 @@ set(RCPP_SOURCES
     src/bonsai_tq2_1024_opt.hip
     kernels/vl_resize_norm.hip
     kernels/whisper_kernels.hip
+    kernels/deepseek_mla.hip
     src/laguna_gemv.hip
     src/laguna_fused.hip
     src/laguna_ops.hip
@@ -400,6 +401,7 @@ set(BACKEND_MANAGER_SOURCES
     src/backend_cpu.cpp
     src/backend_generic.cpp
     src/backend_mamba1.cpp
+    src/deepseek.cpp
     src/backend_laguna.cpp
     src/backend_zamba2.cpp
     src/simple_tokenizer.cpp
