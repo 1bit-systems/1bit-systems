@@ -755,6 +755,22 @@ add_executable(test_mamba1_backend tools/test_mamba1_backend.cpp)
 target_include_directories(test_mamba1_backend PRIVATE src/ include/)
 target_compile_options(test_mamba1_backend PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
 target_link_libraries(test_mamba1_backend PRIVATE backend_manager dl)
+
+# ── CUDA backend test tool ──
+if(RCPP_HAVE_CUDA)
+    add_executable(test_cuda_backend tools/test_cuda_backend.cpp)
+    target_include_directories(test_cuda_backend PRIVATE src/ include/)
+    target_compile_options(test_cuda_backend PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
+    target_link_libraries(test_cuda_backend PRIVATE cuda_backend)
+endif()
+
+# ── Metal backend test tool ──
+if(RCPP_HAVE_METAL)
+    add_executable(test_metal_backend tools/test_metal_backend.cpp)
+    target_include_directories(test_metal_backend PRIVATE src/ include/)
+    target_compile_options(test_metal_backend PRIVATE -O3 -Wall -Wno-unused-result -std=c++23 -fobjc-arc)
+    target_link_libraries(test_metal_backend PRIVATE metal_backend)
+endif()
 if(ZINC_CPP_AVAILABLE)
     target_link_libraries(backend_demo PRIVATE zinc_cpp)
 endif()

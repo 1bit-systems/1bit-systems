@@ -377,8 +377,7 @@ CudaState* cuda_init(const char* weights_dir, const CudaConfig* cfg) {
     // Upload norm weight
     upf16(fnorm, s->d_fnw, eng.h, s->st);
 
-    // Upload per-layer weights
-    // For each layer: wq, wk, wv, wo, w1, w2, w3, rms_attn, rms_ffn
+    // Upload per-layer weights and store device pointers in state vectors
     for (int il = 0; il < eng.n_layers; il++) {
         std::string p = g_cuda_weights_dir + "model_layers_" + std::to_string(il) + "_";
 
@@ -392,51 +391,30 @@ CudaState* cuda_init(const char* weights_dir, const CudaConfig* cfg) {
         auto rms_a = load_bin(p + "input_layernorm.weight.bin");
         auto rms_f = load_bin(p + "post_attention_layernorm.weight.bin");
 
-        // Upload each weight to GPU, store pointer in a flat array
-        // We keep per-layer weight pointers in device memory map
-        half* d_wq = nullptr; half* d_wk = nullptr; half* d_wv = nullptr; half* d_wo = nullptr;
-        half* d_w1 = nullptr; half* d_w2 = nullptr; half* d_w3 = nullptr;
-        half* d_rms_a = nullptr; half* d_rms_f = nullptr;
+        auto upload = [&](const std::vector<float>& src, half*& dst) {
+            if (src.empty()) { dst = nullptr; return; }
+            cudaMalloc(&dst, src.size() * sizeof(half));
+            upf16(src, dst, src.size(), s->st);
+        };
 
-        if (!wq.empty() && (size_t)eng.h * eng.qd == wq.size()) {
-            cudaMalloc(&d_wq, wq.size() * 2);
-            upf16(wq, d_wq, wq.size(), s->st);
-        }
-        if (!wk.empty() && (size_t)eng.h * eng.kd == wk.size()) {
-            cudaMalloc(&d_wk, wk.size() * 2);
-            upf16(wk, d_wk, wk.size(), s->st);
-        }
-        if (!wv.empty() && (size_t)eng.h * eng.kd == wv.size()) {
-            cudaMalloc(&d_wv, wv.size() * 2);
-            upf16(wv, d_wv, wv.size(), s->st);
-        }
-        if (!wo.empty() && (size_t)eng.qd * eng.h == wo.size()) {
-            cudaMalloc(&d_wo, wo.size() * 2);
-            upf16(wo, d_wo, wo.size(), s->st);
-        }
-        if (!w1.empty() && (size_t)eng.h * eng.n_ff == w1.size()) {
-            cudaMalloc(&d_w1, w1.size() * 2);
-            upf16(w1, d_w1, w1.size(), s->st);
-        }
-        if (!w2.empty() && (size_t)eng.n_ff * eng.h == w2.size()) {
-            cudaMalloc(&d_w2, w2.size() * 2);
-            upf16(w2, d_w2, w2.size(), s->st);
-        }
-        if (!w3.empty() && (size_t)eng.h * eng.n_ff == w3.size()) {
-            cudaMalloc(&d_w3, w3.size() * 2);
-            upf16(w3, d_w3, w3.size(), s->st);
-        }
-        if (!rms_a.empty() && (size_t)eng.h == rms_a.size()) {
-            cudaMalloc(&d_rms_a, rms_a.size() * 2);
-            upf16(rms_a, d_rms_a, rms_a.size(), s->st);
-        }
-        if (!rms_f.empty() && (size_t)eng.h == rms_f.size()) {
-            cudaMalloc(&d_rms_f, rms_f.size() * 2);
-            upf16(rms_f, d_rms_f, rms_f.size(), s->st);
-        }
+        half *d_wq = nullptr, *d_wk = nullptr, *d_wv = nullptr, *d_wo = nullptr;
+        half *d_w1 = nullptr, *d_w2 = nullptr, *d_w3 = nullptr;
+        half *d_rms_a = nullptr, *d_rms_f = nullptr;
 
-        // Store in a vector of weight structs (we'll use flat arrays on the state)
-        // For now, just track that weights were loaded
+        upload(wq, d_wq); upload(wk, d_wk); upload(wv, d_wv); upload(wo, d_wo);
+        upload(w1, d_w1); upload(w2, d_w2); upload(w3, d_w3);
+        upload(rms_a, d_rms_a); upload(rms_f, d_rms_f);
+
+        s->layer_wq.push_back(d_wq);
+        s->layer_wk.push_back(d_wk);
+        s->layer_wv.push_back(d_wv);
+        s->layer_wo.push_back(d_wo);
+        s->layer_w1.push_back(d_w1);
+        s->layer_w2.push_back(d_w2);
+        s->layer_w3.push_back(d_w3);
+        s->layer_rms_a.push_back(d_rms_a);
+        s->layer_rms_f.push_back(d_rms_f);
+
         fprintf(stderr, "  Layer %d weights loaded (Q:%s K:%s V:%s O:%s GATE:%s DOWN:%s UP:%s)\n",
                 il,
                 d_wq ? "OK" : "--", d_wk ? "OK" : "--", d_wv ? "OK" : "--",
@@ -458,6 +436,13 @@ void cuda_reset(CudaState* s) {
     // For performance, we just reset position counter
 }
 
+// ── Per-layer inline helper: get weight pointer, check not null ──
+#define LW(vec, il, label) \
+    auto* w_##label = s->vec.size() > (size_t)il ? s->vec[il] : nullptr; \
+    if (!w_##label) { fprintf(stderr, "CUDA: layer %d missing " #label " weight\n", il); return; }
+#define LW_R(label) auto* w_##label = s->vec.size() > (size_t)il ? s->vec[il] : nullptr; \
+    if (!w_##label) { fprintf(stderr, "CUDA: layer %d missing " #label " weight\n", il); return -1; }
+
 void cuda_forward(CudaState* s, int token_id, float* logits_out) {
     if (!s || !s->initialized) return;
     
@@ -467,28 +452,29 @@ void cuda_forward(CudaState* s, int token_id, float* logits_out) {
     
     int pos = s->pos;
     
-    // 2. Process each layer
+    // 2. Process each layer with correct per-layer weights
     for (int il = 0; il < eng.n_layers; il++) {
         half *d_hs = s->d_hs;
         half *d_ao = s->d_ao;
         half *d_tmp = s->d_tmp;
         
-        // Load per-layer weight pointers from device storage
-        // For simplicity in v1, we use the generic CPU-style matmul 
-        // via our GEMV kernel for each projection
+        // Load per-layer weight pointers from state vectors
+        LW(layer_rms_a, il, rms_a);
+        LW(layer_wq, il, wq);
+        LW(layer_wk, il, wk);
+        LW(layer_wv, il, wv);
+        LW(layer_wo, il, wo);
         
         // --- Self-attention ---
         // RMS norm on hidden state
-        rmsnorm_k<<<1, 256, 0, s->st>>>(d_tmp, /* rms_attn weight (already on device) */ d_hs, eng.h);
+        rmsnorm_k<<<1, 256, 0, s->st>>>(d_tmp, w_rms_a, eng.h);
         
-        // Q projection: tmp[qd] = hs[h] @ wq[h, qd]
-        launch_gemv(s->d_qout, d_tmp, /* d_wq[il] */ d_tmp, eng.qd, eng.h, s->st);
-        
-        // K projection: tmp[kd] = hs[h] @ wk[h, kd]
-        launch_gemv(s->d_kout, d_tmp, /* d_wk[il] */ d_tmp, eng.kd, eng.h, s->st);
-        
-        // V projection: tmp[kd] = hs[h] @ wv[h, kd]
-        launch_gemv(s->d_vout, d_tmp, /* d_wv[il] */ d_tmp, eng.kd, eng.h, s->st);
+        // Q projection: out[qd] = hs[h] @ wq[h, qd]
+        launch_gemv(s->d_qout, d_tmp, w_wq, eng.qd, eng.h, s->st);
+        // K projection: out[kd] = hs[h] @ wk[h, kd]
+        launch_gemv(s->d_kout, d_tmp, w_wk, eng.kd, eng.h, s->st);
+        // V projection: out[kd] = hs[h] @ wv[h, kd]
+        launch_gemv(s->d_vout, d_tmp, w_wv, eng.kd, eng.h, s->st);
         
         // Store KV in cache
         size_t kv_offset = (size_t)il * s->max_seq * eng.nkv * eng.hd;
@@ -505,30 +491,31 @@ void cuda_forward(CudaState* s, int token_id, float* logits_out) {
             eng.nkv, eng.hd, seq_len, scale);
         
         // Output projection: hs[h] = ao[qd] @ wo[qd, h]
-        launch_gemv(d_hs, d_ao, /* d_wo[il] */ d_ao, eng.h, eng.qd, s->st);
+        launch_gemv(d_hs, d_ao, w_wo, eng.h, eng.qd, s->st);
         
         // --- FFN ---
+        LW(layer_rms_f, il, rms_f);
+        LW(layer_w1, il, w1);
+        LW(layer_w2, il, w2);
+        LW(layer_w3, il, w3);
+        
         // RMS norm
-        rmsnorm_k<<<1, 256, 0, s->st>>>(d_tmp, /* rms_ffn weight */ d_hs, eng.h);
+        rmsnorm_k<<<1, 256, 0, s->st>>>(d_tmp, w_rms_f, eng.h);
         
         // Gate projection: gate[n_ff] = tmp[h] @ w1[h, n_ff]
-        launch_gemv(d_tmp, d_tmp, /* d_w1[il] */ d_tmp, eng.n_ff, eng.h, s->st);
-        
+        launch_gemv(d_tmp, d_tmp, w_w1, eng.n_ff, eng.h, s->st);
         // Up projection: up[n_ff] = hs[h] @ w3[h, n_ff]
-        launch_gemv(s->d_ao, d_tmp, /* d_w3[il] */ d_tmp, eng.n_ff, eng.h, s->st);
-        
+        launch_gemv(s->d_ao, d_tmp, w_w3, eng.n_ff, eng.h, s->st);
         // SiLU(gate) * up
         silu_mul_k<<<(eng.n_ff + 255) / 256, 256, 0, s->st>>>(d_tmp, d_tmp, s->d_ao, eng.n_ff);
-        
         // Down projection: hs[h] = result[n_ff] @ w2[n_ff, h]
-        launch_gemv(d_hs, d_tmp, /* d_w2[il] */ d_tmp, eng.h, eng.n_ff, s->st);
+        launch_gemv(d_hs, d_tmp, w_w2, eng.h, eng.n_ff, s->st);
     }
     
     // 3. Final RMS norm
     rmsnorm_k<<<1, 256, 0, s->st>>>(s->d_hs, s->d_fnw, eng.h);
     
-    // 4. LM head: logits[vocab] = hs[h] @ embed[V, h]^T
-    // Using cuBLAS GEMV or naive kernel
+    // 4. LM head: logits[vocab] = hs[h] @ embed[V, h]
     launch_gemv(s->d_lm_vocab, s->d_hs, s->d_embed, eng.vocab, eng.h, s->st);
     
     // 5. Copy logits to host if requested
@@ -540,7 +527,7 @@ void cuda_forward(CudaState* s, int token_id, float* logits_out) {
 }
 
 int cuda_forward_greedy(CudaState* s, int token_id) {
-    if (!s) return -1;
+    if (!s || !s->initialized) return -1;
     
     // 1. Embedding lookup
     CUDA_OK_R(cudaMemcpyAsync(s->d_token_id, &token_id, sizeof(int), cudaMemcpyHostToDevice, s->st), -1);
@@ -548,24 +535,29 @@ int cuda_forward_greedy(CudaState* s, int token_id) {
     
     int pos = s->pos;
     
-    // 2. Process each layer
+    // 2. Process each layer with correct per-layer weights
     for (int il = 0; il < eng.n_layers; il++) {
         half *d_hs = s->d_hs;
         half *d_ao = s->d_ao;
         half *d_tmp = s->d_tmp;
         
+        // Load per-layer weight pointers from state vectors
+        LW_R(layer_rms_a, rms_a);
+        LW_R(layer_wq, wq);
+        LW_R(layer_wk, wk);
+        LW_R(layer_wv, wv);
+        LW_R(layer_wo, wo);
+        
         // --- Self-attention ---
-        rmsnorm_k<<<1, 256, 0, s->st>>>(d_tmp, d_hs, eng.h);
-        // Use weight pointers (we need to track these per-layer on device)
-        // For v1: use the gemv fallback with placeholder weight locations
-        // Full implementation would store per-layer weight pointers on the state
+        // RMS norm
+        rmsnorm_k<<<1, 256, 0, s->st>>>(d_tmp, w_rms_a, eng.h);
         
         // Q projection
-        gemv_k<<<(eng.qd + 255) / 256, 256, 0, s->st>>>(s->d_qout, d_tmp, /* needs weight ptr */ d_tmp, eng.qd, eng.h);
+        launch_gemv(s->d_qout, d_tmp, w_wq, eng.qd, eng.h, s->st);
         // K projection
-        gemv_k<<<(eng.kd + 255) / 256, 256, 0, s->st>>>(s->d_kout, d_tmp, /* weight ptr */ d_tmp, eng.kd, eng.h);
+        launch_gemv(s->d_kout, d_tmp, w_wk, eng.kd, eng.h, s->st);
         // V projection
-        gemv_k<<<(eng.kd + 255) / 256, 256, 0, s->st>>>(s->d_vout, d_tmp, /* weight ptr */ d_tmp, eng.kd, eng.h);
+        launch_gemv(s->d_vout, d_tmp, w_wv, eng.kd, eng.h, s->st);
         
         // Store KV in cache
         size_t kv_offset = (size_t)il * (size_t)s->max_seq * eng.nkv * eng.hd;
@@ -574,7 +566,7 @@ int cuda_forward_greedy(CudaState* s, int token_id) {
         cudaMemcpyAsync(k_dst, s->d_kout, eng.kd * 2, cudaMemcpyDeviceToDevice, s->st);
         cudaMemcpyAsync(v_dst, s->d_vout, eng.kd * 2, cudaMemcpyDeviceToDevice, s->st);
         
-        // Flash-decoding attention
+        // Attention
         int seq_len = pos + 1;
         float scale = 1.0f / sqrtf((float)eng.hd);
         attention_k<<<eng.nq, 256, 0, s->st>>>(
@@ -582,26 +574,32 @@ int cuda_forward_greedy(CudaState* s, int token_id) {
             eng.nkv, eng.hd, seq_len, scale);
         
         // Output projection
-        gemv_k<<<(eng.h + 255) / 256, 256, 0, s->st>>>(d_hs, d_ao, /* wo ptr */ d_ao, eng.h, eng.qd);
+        launch_gemv(d_hs, d_ao, w_wo, eng.h, eng.qd, s->st);
         
         // --- FFN ---
-        rmsnorm_k<<<1, 256, 0, s->st>>>(d_tmp, d_hs, eng.h);
+        LW_R(layer_rms_f, rms_f);
+        LW_R(layer_w1, w1);
+        LW_R(layer_w2, w2);
+        LW_R(layer_w3, w3);
+        
+        // RMS norm
+        rmsnorm_k<<<1, 256, 0, s->st>>>(d_tmp, w_rms_f, eng.h);
         
         // Gate
-        gemv_k<<<(eng.n_ff + 255) / 256, 256, 0, s->st>>>(d_tmp, d_tmp, /* w1 ptr */ d_tmp, eng.n_ff, eng.h);
+        launch_gemv(d_tmp, d_tmp, w_w1, eng.n_ff, eng.h, s->st);
         // Up
-        gemv_k<<<(eng.n_ff + 255) / 256, 256, 0, s->st>>>(s->d_ao, d_tmp, /* w3 ptr */ d_tmp, eng.n_ff, eng.h);
+        launch_gemv(s->d_ao, d_tmp, w_w3, eng.n_ff, eng.h, s->st);
         // SiLU(gate) * up
         silu_mul_k<<<(eng.n_ff + 255) / 256, 256, 0, s->st>>>(d_tmp, d_tmp, s->d_ao, eng.n_ff);
         // Down
-        gemv_k<<<(eng.h + 255) / 256, 256, 0, s->st>>>(d_hs, d_tmp, /* w2 ptr */ d_tmp, eng.h, eng.n_ff);
+        launch_gemv(d_hs, d_tmp, w_w2, eng.h, eng.n_ff, s->st);
     }
     
     // 3. Final norm
     rmsnorm_k<<<1, 256, 0, s->st>>>(s->d_hs, s->d_fnw, eng.h);
     
-    // 4. LM head
-    gemv_k<<<(eng.vocab + 255) / 256, 256, 0, s->st>>>(s->d_lm_vocab, s->d_hs, s->d_embed, eng.vocab, eng.h);
+    // 4. LM head: logits[vocab] = hs[h] @ embed[V, h]
+    launch_gemv(s->d_lm_vocab, s->d_hs, s->d_embed, eng.vocab, eng.h, s->st);
     
     // 5. Argmax on GPU
     argmax_k<<<1, 256, 0, s->st>>>(s->d_lm_vocab, s->d_argmax_idx, s->d_argmax_val, eng.vocab);
@@ -647,11 +645,21 @@ void cuda_destroy(CudaState* s) {
     CUDA_FREE(s->d_sorted_ids);
     CUDA_FREE(s->d_expert_counts);
     CUDA_FREE(s->d_expert_offsets);
+    // Free per-layer weight pointers
+    auto free_vec = [](auto& vec) {
+        for (auto* p : vec) { if (p) cudaFree(p); }
+        vec.clear();
+    };
+    free_vec(s->layer_wq); free_vec(s->layer_wk); free_vec(s->layer_wv); free_vec(s->layer_wo);
+    free_vec(s->layer_w1); free_vec(s->layer_w2); free_vec(s->layer_w3);
+    free_vec(s->layer_rms_a); free_vec(s->layer_rms_f);
     #undef CUDA_FREE
     if (s->graph_exec) { cudaGraphExecDestroy(s->graph_exec); s->graph_exec = nullptr; }
     if (s->graph) { cudaGraphDestroy(s->graph); s->graph = nullptr; }
     if (s->st) { cudaStreamDestroy(s->st); s->st = nullptr; }
     delete s;
+    #undef LW
+    #undef LW_R
 }
 
 } // extern "C"

@@ -107,6 +107,11 @@ struct CudaState {
     bool initialized = false;
     std::vector<float> embed, ibias, iscale;
 
+    // Per-layer weight device pointers (owned, freed in cuda_destroy)
+    std::vector<half*> layer_wq, layer_wk, layer_wv, layer_wo;
+    std::vector<half*> layer_w1, layer_w2, layer_w3;
+    std::vector<half*> layer_rms_a, layer_rms_f;
+
     // We reuse the same algorithmic structure as ZayaState but with CUDA types.
     // For simplicity, the per-layer weight structures and kernel dispatch
     // are implemented in cuda_engine.cu.
