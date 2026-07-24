@@ -1,0 +1,6 @@
+[submodule "third_party/stable-diffusion.cpp"]
+	path = third_party/stable-diffusion.cpp
+	url = https://github.com/leejet/stable-diffusion.cpp
+[submodule "third_party/audio.cpp"]
+	path = third_party/audio.cpp
+	url = https://github.com/0xShug0/audio.cpp

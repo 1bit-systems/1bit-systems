@@ -86,10 +86,34 @@ enum OnebpArch : uint32_t {
     ONEBP_DENSE  = 0,  // Dense transformer (Qwen3, Llama, Phi, etc.)
     ONEBP_MOE    = 1,  // Mixture of Experts (generic)
     ONEBP_VISION = 2,  // Vision-language
-    ONEBP_AUDIO  = 3,  // Audio/speech (Whisper)
+    ONEBP_AUDIO  = 3,  // Audio/speech (Whisper, audio models)
     ONEBP_TERNARY= 4,  // Ternary/1-bit
     ONEBP_MAMBA  = 5,  // Mamba-style SSM
     ONEBP_LAGUNA = 6,  // Poolside Laguna — sigmoid-routed MoE, hybrid SWA/global attn, softplus gate
+    
+    // ═══ VLM architectures (added in Phase 1 expansion) ═══
+    ONEBP_SMOLVLM   = 10, // SmolVLM (tiny VLM, SigLIP + LLM)
+    ONEBP_LLAVA     = 11, // LLaVA-style VLM (CLIP + LLM)
+    ONEBP_MOLMO     = 12, // Molmo (CLIP + OLMoE)
+    ONEBP_OVIS      = 13, // Ovis VLM (SigLIP + Gemma)
+    ONEBP_PALIGEMMA = 14, // PaliGemma (SigLIP + Gemma)
+    ONEBP_FLORENCE  = 15, // Florence-2 (VL encoder-decoder)
+    
+    // ═══ Reasoning / MoE architectures ═══
+    ONEBP_DEEPSEEK2 = 20, // DeepSeek v2/v3 MLA MoE
+    ONEBP_PHI_MOE   = 21, // Phi-4 MoE
+    
+    // ═══ Diffusion architectures ═══
+    ONEBP_SD        = 30, // Stable Diffusion 1.x
+    ONEBP_SDXL      = 31, // Stable Diffusion XL
+    ONEBP_FLUX      = 32, // FLUX
+    ONEBP_WAN       = 33, // Wan video diffusion
+    ONEBP_HUNYUAN   = 34, // HunyuanVideo
+    ONEBP_LTX       = 35, // LTX-Video
+    
+    // ═══ Audio / TTS / ASR architectures ═══
+    ONEBP_WHISPER   = 40, // OpenAI Whisper (STT)
+    ONEBP_AUDIO_CPP = 41, // Generic audio.cpp model
 };
 
 // ─── Expert gating function types (Laguna/afmoe) ────────────────

@@ -318,6 +318,10 @@ set(RCPP_SOURCES
     kernels/vl_resize_norm.hip
     kernels/whisper_kernels.hip
     kernels/deepseek_mla.hip
+    kernels/vitallm_sparse_kv.hip
+    kernels/twla_int4_gemv.hip
+    kernels/turboquant_kv.hip
+    kernels/tq2_bwopt.hip
     src/laguna_gemv.hip
     src/laguna_fused.hip
     src/laguna_ops.hip
@@ -1110,3 +1114,161 @@ add_executable(tq2_to_q4nx tools/tq2_to_q4nx.cpp src/onebp_model.cpp)
 target_include_directories(tq2_to_q4nx PRIVATE src/ ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(tq2_to_q4nx PRIVATE -O3 -std=c++23)
 target_link_libraries(tq2_to_q4nx PRIVATE pthread)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TRACK 3: LoRA Adapter Runtime
+# ═══════════════════════════════════════════════════════════════════════════
+# Hot-loadable GGUF LoRA adapters for any 1BP model.
+option(USE_LORA "Build LoRA adapter runtime support" ON)
+if(USE_LORA)
+    add_library(lora_runtime STATIC src/lora.cpp)
+    target_include_directories(lora_runtime PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+    target_compile_options(lora_runtime PRIVATE -O3 -std=c++23 -fopenmp)
+    target_link_libraries(lora_runtime PUBLIC gguf_reader)
+    
+    # LoRA merge tool: merge LoRA weights permanently into a GGUF
+    add_executable(lora_merge tools/lora_merge.cpp)
+    target_include_directories(lora_merge PRIVATE src/ include/)
+    target_compile_options(lora_merge PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
+    target_link_libraries(lora_merge PRIVATE lora_runtime backend_manager)
+    
+    message(STATUS "lora: LoRA adapter runtime enabled")
+endif()
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TRACK 1: stable-diffusion.cpp Integration (Diffusion Bridge)
+# ═══════════════════════════════════════════════════════════════════════════
+# Image/video generation via stable-diffusion.cpp submodule.
+# Set -DUSE_DIFFUSION=ON and init submodule at third_party/stable-diffusion.cpp/
+option(USE_DIFFUSION "Build stable-diffusion.cpp integration" OFF)
+if(USE_DIFFUSION)
+    # Find sd.cpp library (built separately or via submodule)
+    # The sd.cpp library is named libstable-diffusion.a
+    set(SD_CPP_DIR "${CMAKE_SOURCE_DIR}/third_party/stable-diffusion.cpp/build")
+    find_library(SD_CPP_LIB stable-diffusion PATHS
+        ${SD_CPP_DIR}
+        /usr/local/lib /usr/lib NO_DEFAULT_PATH)
+    if(NOT SD_CPP_LIB)
+        find_library(SD_CPP_LIB stable-diffusion PATHS
+            ${SD_CPP_DIR}
+            /usr/local/lib /usr/lib)
+    endif()
+    
+    if(SD_CPP_LIB)
+        # Diffusion bridge library
+        add_library(diffusion_bridge STATIC src/diffusion_bridge.cpp)
+        target_include_directories(diffusion_bridge PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/stable-diffusion.cpp/include>
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/stable-diffusion.cpp/ggml/include>
+            $<INSTALL_INTERFACE:include>)
+        target_compile_options(diffusion_bridge PRIVATE -O3 -std=c++23)
+        # Also find ggml libs that sd.cpp depends on
+        set(SD_GGML_DIR "${SD_CPP_DIR}/ggml/src")
+        find_library(SD_GGML_LIB ggml PATHS ${SD_GGML_DIR} NO_DEFAULT_PATH)
+        find_library(SD_GGML_CPU_LIB ggml-cpu PATHS ${SD_GGML_DIR} NO_DEFAULT_PATH)
+        find_library(SD_GGML_BASE_LIB ggml-base PATHS ${SD_GGML_DIR} NO_DEFAULT_PATH)
+        
+        target_link_libraries(diffusion_bridge PUBLIC
+            ${SD_CPP_LIB}
+            ${SD_GGML_LIB}
+            ${SD_GGML_CPU_LIB}
+            ${SD_GGML_BASE_LIB}
+            vl_image m pthread)
+        if(OpenMP_CXX_FOUND)
+            target_link_libraries(diffusion_bridge PUBLIC OpenMP::OpenMP_CXX)
+        endif()
+        
+        # Image generation server (OpenAI-compatible /v1/images/*)
+        add_executable(image_server tools/image_server.cpp)
+        target_include_directories(image_server PRIVATE src/ include/)
+        target_compile_options(image_server PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
+        target_link_libraries(image_server PRIVATE
+            diffusion_bridge vl_image backend_manager
+            httplib::httplib nlohmann_json::nlohmann_json)
+        
+        message(STATUS "diffusion: stable-diffusion.cpp integration enabled (${SD_CPP_LIB})")
+    else()
+        message(STATUS "diffusion: sd.cpp library not found — set -DUSE_DIFFUSION=OFF or build sd.cpp first")
+    endif()
+endif()
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TRACK 4: audio.cpp Integration (Audio Bridge)
+# ═══════════════════════════════════════════════════════════════════════════
+# TTS, STT, music generation, voice cloning, VAD via audio.cpp submodule.
+# Set -DUSE_AUDIO_CPP=ON and init submodule at third_party/audio.cpp/
+option(USE_AUDIO_CPP "Build audio.cpp integration" OFF)
+if(USE_AUDIO_CPP)
+    set(AUDIO_CPP_DIR "${CMAKE_SOURCE_DIR}/third_party/audio.cpp/build")
+    find_library(AUDIO_CPP_LIB engine_runtime PATHS ${AUDIO_CPP_DIR} NO_DEFAULT_PATH)
+    if(NOT AUDIO_CPP_LIB)
+        find_library(AUDIO_CPP_LIB engine_runtime PATHS ${AUDIO_CPP_DIR})
+    endif()
+    
+    find_library(AUDIO_GGML_LIB ggml PATHS ${AUDIO_CPP_DIR}/ggml/src NO_DEFAULT_PATH)
+    find_library(AUDIO_GGML_CPU_LIB ggml-cpu PATHS ${AUDIO_CPP_DIR}/ggml/src NO_DEFAULT_PATH)
+    find_library(AUDIO_GGML_BASE_LIB ggml-base PATHS ${AUDIO_CPP_DIR}/ggml/src NO_DEFAULT_PATH)
+    
+    if(AUDIO_CPP_LIB)
+        # Audio bridge library
+        add_library(audio_bridge STATIC src/audio_bridge.cpp)
+        target_include_directories(audio_bridge PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:include>)
+        target_include_directories(audio_bridge PRIVATE
+            ${AUDIO_CPP_DIR}/../include  # audio.cpp headers
+            ${AUDIO_CPP_DIR}/../ggml/include)
+        target_compile_options(audio_bridge PRIVATE -O3 -std=c++23)
+        target_link_libraries(audio_bridge PUBLIC
+            ${AUDIO_CPP_LIB}
+            ${AUDIO_GGML_LIB}
+            ${AUDIO_GGML_CPU_LIB}
+            ${AUDIO_GGML_BASE_LIB}
+            m pthread)
+        
+        # Patch jarvis_server to use native audio.cpp TTS instead of Piper
+        target_link_libraries(jarvis_server PRIVATE audio_bridge)
+        
+        message(STATUS "audio: audio.cpp integration enabled (${AUDIO_CPP_LIB})")
+    else()
+        message(STATUS "audio: engine_runtime library not found — set -DUSE_AUDIO_CPP=OFF or build audio.cpp first")
+    endif()
+endif()
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Smoke tests for new tracks
+# ═══════════════════════════════════════════════════════════════════════════
+
+# LoRA runtime smoke test (no model required, tests error paths)
+add_executable(test_lora_runtime tests/test_lora_runtime.cpp)
+target_include_directories(test_lora_runtime PRIVATE include/)
+target_compile_options(test_lora_runtime PRIVATE -O3 -std=c++23)
+find_package(OpenMP QUIET)
+target_link_libraries(test_lora_runtime PRIVATE lora_runtime gguf_reader)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(test_lora_runtime PRIVATE OpenMP::OpenMP_CXX)
+endif()
+add_test(NAME test_lora_runtime COMMAND test_lora_runtime)
+set_tests_properties(test_lora_runtime PROPERTIES LABELS "host")
+
+# Diffusion bridge smoke test (no model required, tests error paths)
+if(USE_DIFFUSION)
+    add_executable(test_diffusion_bridge tests/test_diffusion_bridge.cpp)
+    target_include_directories(test_diffusion_bridge PRIVATE include/)
+    target_compile_options(test_diffusion_bridge PRIVATE -O3 -std=c++23)
+    target_link_libraries(test_diffusion_bridge PRIVATE diffusion_bridge vl_image)
+    if(OpenMP_CXX_FOUND)
+        target_link_libraries(test_diffusion_bridge PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+    add_test(NAME test_diffusion_bridge COMMAND test_diffusion_bridge)
+    set_tests_properties(test_diffusion_bridge PROPERTIES LABELS "host")
+    message(STATUS "tests: diffusion bridge smoke test enabled")
+endif()
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TRACK 2: New 1BP model architecture additions
+# ═══════════════════════════════════════════════════════════════════════════
+message(STATUS "models: 35+ architectures supported for 1BP conversion")

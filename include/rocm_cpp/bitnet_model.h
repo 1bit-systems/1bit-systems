@@ -92,6 +92,18 @@ static inline rcpp_arch_t rcpp_arch_from_string(const char* s) {
     if (strcmp(s, "command-r") == 0) return RCPP_ARCH_LLAMA;
     if (strcmp(s, "dbrx")    == 0) return RCPP_ARCH_LLAMA;
     if (strcmp(s, "jamba")   == 0) return RCPP_ARCH_LLAMA;
+    // ── New VLM architectures ──
+    if (strcmp(s, "smolvlm")   == 0) return RCPP_ARCH_QWEN2VL;
+    if (strcmp(s, "llava")     == 0) return RCPP_ARCH_QWEN2VL;
+    if (strcmp(s, "molmo")     == 0) return RCPP_ARCH_OLMO;
+    if (strcmp(s, "ovis")      == 0) return RCPP_ARCH_GEMMA;
+    if (strcmp(s, "paligemma") == 0) return RCPP_ARCH_GEMMA;
+    if (strcmp(s, "florence")  == 0) return RCPP_ARCH_QWEN2VL;
+    // ── New MoE reasoning ──
+    if (strcmp(s, "phi_moe")   == 0) return RCPP_ARCH_PHI;
+    if (strcmp(s, "deepseek_v3") == 0) return RCPP_ARCH_DEEPSEEK;
+    if (strcmp(s, "smollm")    == 0) return RCPP_ARCH_LLAMA;
+    if (strcmp(s, "smollm2")   == 0) return RCPP_ARCH_LLAMA;
     return RCPP_ARCH_BITNET;
 }
 
