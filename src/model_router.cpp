@@ -103,7 +103,10 @@ BackendRoute select_backend_route(const ModelConfig& cfg) {
     if (cfg.arch == RCPP_ARCH_OLMO) {
         return {{"hip_gpu", "cpu_generic"}, "OLMo — LayerNorm, learned positions"};
     }
-    if (cfg.architecture == "qwen3") {
+    if (cfg.arch == RCPP_ARCH_QWEN3VL) {
+        return {{"vision_encoder", "hip_gpu", "cpu_generic"}, "Qwen3-VL — vision encoder + Qwen3 text decoder"};
+    }
+    if (cfg.architecture == "qwen3" || cfg.arch == RCPP_ARCH_QWEN3) {
         return {{"npu_xrt", "cpu_generic"}, "qwen3 architecture — native NPU engine, no proprietary fallback"};
     }
     if (cfg.format == ModelFormat::GGUF || cfg.format == ModelFormat::H1B) {

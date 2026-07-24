@@ -45,6 +45,7 @@ typedef enum {
     RCPP_ARCH_QWEN2VL = 14,  // Qwen2-VL (vision-language)
     RCPP_ARCH_WHISPER  = 15,  // OpenAI Whisper (speech-to-text)
     RCPP_ARCH_DEEPSEEK = 16,  // DeepSeek V2/V3/R1 — MoE with Multi-Head Latent Attention
+    RCPP_ARCH_QWEN3VL  = 17,  // Qwen3-VL (vision-language, Qwen3 text decoder)
 } rcpp_arch_t;
 
 #include <string.h>
@@ -68,6 +69,7 @@ static inline rcpp_arch_t rcpp_arch_from_string(const char* s) {
     if (strcmp(s, "olmoe")   == 0) return RCPP_ARCH_OLMO;
     if (strcmp(s, "zaya")    == 0) return RCPP_ARCH_ZAYA;
     if (strcmp(s, "qwen2vl") == 0) return RCPP_ARCH_QWEN2VL;
+    if (strcmp(s, "qwen3vl") == 0) return RCPP_ARCH_QWEN3VL;
     // DeepSeek LLM (V1, Coder) uses standard attention — map to Qwen2-like
     if (strcmp(s, "deepseek")   == 0) return RCPP_ARCH_QWEN2;
     // DeepSeek V2/V3/R1 use Multi-Head Latent Attention (MLA) — native support
