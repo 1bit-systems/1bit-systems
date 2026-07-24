@@ -161,8 +161,8 @@ std::vector<float> whisper_log_mel_spectrogram(const float* audio, int n_samples
     };
     static TwiddleCache tw;
     if (tw.n_fft_cached != n_fft) {
-        tw.cos_t.resize((size_t)n_fft_bins * n_fft);
-        tw.sin_t.resize((size_t)n_fft_bins * n_fft);
+        tw.cos_t.assign((size_t)n_fft_bins * n_fft, 0.0f);
+        tw.sin_t.assign((size_t)n_fft_bins * n_fft, 0.0f);
         tw.n_fft_cached = n_fft;
         for (int k = 0; k < n_fft_bins; k++) {
             for (int i = 0; i < n_fft; i++) {
