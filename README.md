@@ -134,25 +134,30 @@ print(client.chat.completions.create(model="blackmamba-1.5b",
 ## Architecture
 
 ```
-1bit/
-  src/                     HIP/C++ kernels (GEMV, prefill, attention, Mamba1 SSM, vision encoder)
-  include/                 C API headers + vision_encoder.h (ViT + projector)
+1bit-systems/
+  src/                     C++23 engine core: backend manager, HIP/CUDA/Metal kernels, loaders, vision encoder
+  include/                 Public C API headers + vision_encoder.h (ViT + projector)
   kernels/                 GPU kernels: bonsai, sherry, MoE, Mamba1, fused QKV
   engine/
-    npu/                   C++23 INT8 engine (XDNA 2)
-    gpu/                   GPU engine (Vulkan)
-  tools/                   Converters, benchmarks, C++ runtime tools:
+    gpu/zinc_cpp/          Vulkan SPIR-V GPU engine (ZINC)
+    fusion/                Fused NPU+GPU dispatch, zero-copy paths
+    npu/                   C++23 INT8 NPU engine (XDNA 2) — see build note below
+  tools/                   CLI agent, daemon, converters, benchmarks:
     onebit.cpp             CLI agent (chat, up, down, status, build, config)
     onebitd.cpp            Daemon (spawns backend, proxies HTTP)
-    unified_router.cpp     NPU+GPU routing proxy (replaces unified-router.py)
-    bitnet_tui.cpp         FTXUI terminal chat UI
-    zaya1_vl_demo.cpp      ZAYA1-VL-8B vision-language inference demo
-    test_vit_encoder.cpp   Standalone ViT encoder test
+    unified_router.cpp     NPU+GPU routing proxy
+    jarvis/                Voice agent — STT/TTS, C++ port
+    gguf_to_onebp.cpp      GGUF → 1BP converter
+  tests/                   Test/bench executables, ctest
+  models/                  Model catalog + conversion manifests
+  docs/                    Documentation (wiki/, archive/, marketing/)
   site/                    1bit.systems website
-  packaging/               deb, snap, Docker
-  benchmarks/              Historical data
-  build/                   zaya_server + onebitd + onebit + unified_router + librocm_cpp.so + libvision_encoder.a
+  packaging/               deb, snap, Docker, systemd services
+  benchmarks/              Historical benchmark data
+  scripts/                 Build & dev scripts
 ```
+
+Build note: the root `CMakeLists.txt` builds `src/`, `kernels/`, `include/`, `tools/`, `tests/`, and `engine/gpu/zinc_cpp/` as one graph. `engine/npu/`, `npu-infer/`, and `spec-decode/` each ship their own `CMakeLists.txt` and build separately — not yet unified into the root build graph.
 
 ### Loaders
 

@@ -1,1 +1,0 @@
-Delete 198 files (~33K lines, 1.3 MB) of platform-specific GPU backends that had zero callers outside their own directories: 185 Metal shaders, 7 CUDA kernels, 2 Obj-C shim files, 2 Zig cache files. The engine uses Vulkan (SPIR-V) which runs on every GPU. Also updates README and .gitattributes.

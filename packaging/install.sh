@@ -57,13 +57,11 @@ if lspci 2>/dev/null | grep -qi "XDNA\|NPU\|AIE"; then
   say "NPU hardware detected"
   echo ""
   echo "  To run inference:"
-  echo "    1. Install FLM: apt install flm (or follow docs/building.md)"
-  echo "    2. Pull a model: flm pull qwen3:0.6b"
-  echo "    3. Start daemon: sudo python3 ${INSTALL_DIR}/daemon/npu-gpu-cpud.py --port 9090"
-  echo "    4. Chat: 1bit chat"
+  echo "    1. Start the NPU stack (daemon + server): 1bit up"
+  echo "    2. Chat: 1bit chat"
 else
   warn "No NPU detected. You can still use the CLI, but need a Strix Halo for inference."
-  echo "  The daemon (daemon/npu-gpu-cpud.py) proxies to FLM on the NPU."
+  echo "  'unified_server' and '1bit up' fall back to GPU/CPU backends without an NPU."
 fi
 
 echo ""
