@@ -50,7 +50,7 @@ jobs:
       - name: Build dequantizer
         run: |
           mkdir -p engine/npu/build
-          gcc -c -O3 -o engine/npu/build/dequant_q4nx.o engine/npu/src/dequant_q4nx.c
+          g++ -c -O3 -std=c++23 -o engine/npu/build/dequant_q4nx.o engine/npu/src/dequant_q4nx.cpp
 
       - name: Build engine (continuous batch)
         run: |
