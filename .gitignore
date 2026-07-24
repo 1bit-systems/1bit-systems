@@ -81,3 +81,4 @@ tools/gguf_to_h1b
 /tools/trg_save
 /adapters/
 .project_doc_record/
+*.trg

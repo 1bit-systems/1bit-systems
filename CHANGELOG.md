@@ -3,8 +3,23 @@
 All notable changes to 1bit.systems. Versioning is **date-based** (`YYYY.MM.DD`),
 matching the GitHub release tags (`vYYYY.MM.DD`).
 
-## Unreleased
+## 2026.07.24
 
+- **Dense GPU inference through the C++ ZINC Vulkan backend — unlocked.** The
+  reverse-engineered ZINC stack now runs dense GGUF transformers (Qwen2/ZR1)
+  end-to-end on the Radeon 8060S and matches the CPU reference **token-for-token**
+  at **~26 tok/s** (vs ~6 on CPU). Twelve bugs fixed to get there — the last was
+  a KV cache sized from `context_length` (131072) that overran RADV's 4 GiB
+  `maxStorageBufferRange`, silently zeroing cached-V reads and collapsing
+  attention (#844, #847, #851, #852, #854). ZINC is enabled by default for
+  the architectures it computes correctly (llama/mistral/qwen2) and falls back
+  to `cpu_generic` otherwise (#856); `ZINC_DISABLE=1` forces HIP/CPU.
+- **~8.5× faster dense CPU decode.** Parallelized the generic-backend matmul
+  with OpenMP — ZR1-1.5B 1.5 → ~12 tok/s, deterministic, output unchanged (#849).
+- **Engine crash-hardening.** A backend that fails to initialize (e.g. missing
+  Vulkan shaders) now fails over to HIP/CPU instead of taking the server down;
+  all backend init/benchmark/generate paths are exception-safe (#846, #847).
+- **Security**: image-fetch curl restricted to http/https (SSRF/LFI hardening).
 - **Pure-C++ 1BP toolchain, end to end.** Ported the `--tq2` symmetric-ternary
   quant path into `tools/gguf_to_onebp.cpp` (was Q4NX-only) and registered it as
   a first-class CMake target — the advertised `gguf_to_onebp model.gguf out.1bp

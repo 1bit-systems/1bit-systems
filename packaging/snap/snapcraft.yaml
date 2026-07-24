@@ -1,5 +1,5 @@
 name: 1bit-systems
-version: '2026.07.20'
+version: '2026.07.24'
 summary: Model-agnostic NPU+GPU+CPU inference engine for AMD Strix Halo
 description: |
   1bit.systems is a pure native inference stack for the AMD Ryzen AI Max+ 395.
