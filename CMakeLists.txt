@@ -217,43 +217,27 @@ else()
     message(STATUS "rocm-cpp: composable_kernel NOT found — skipping ck_gemm.cpp, using standalone prefill")
 endif()
 
-# ── CUDA backend shared library (libcuda_backend.so) ──
+# ── CUDA engine static library (libcuda_engine.a) ──
+# Follows the same pattern as rocm_cpp (HIP) but for CUDA.
+# The engine .cu file is compiled with CUDA; backend_cuda.cpp (pure C++
+# orchestration calling extern "C" wrappers) goes into backend_manager.
 if(RCPP_HAVE_CUDA)
-    set(CUDA_SOURCES
-        src/backend_cuda.cpp
-        src/cuda_engine.cu)
-    
-    cuda_add_library(cuda_backend SHARED ${CUDA_SOURCES})
-    target_include_directories(cuda_backend PUBLIC
+    enable_language(CUDA)
+    cuda_add_library(cuda_engine STATIC src/cuda_engine.cu)
+    target_include_directories(cuda_engine PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>)
-    target_compile_options(cuda_backend PRIVATE -O3 -std=c++17)
-    target_link_libraries(cuda_backend PRIVATE CUDA::cudart CUDA::cublas)
-    
-    # Also build the CUDA backend for the unified server
-    # (when statically linked, the unified server includes backend_cuda.cpp
-    # and links cuda_engine.cu via the CMake CUDA integration)
-    set(RCPP_HAVE_CUDA_BACKEND TRUE)
-    message(STATUS "CUDA backend: libcuda_backend.so will be built")
+    target_compile_options(cuda_engine PRIVATE -O3)
+    target_link_libraries(cuda_engine PUBLIC CUDA::cudart CUDA::cublas)
+    message(STATUS "CUDA engine: libcuda_engine.a built — backend_cuda.cpp goes in backend_manager")
 endif()
 
-# ── Metal backend shared library (libmetal_backend.dylib) ──
+# ── Metal backend ──
+# On macOS, backend_metal.mm is added to backend_manager (same as
+# backend_mamba1.cpp in PR #579). The Metal frameworks are linked into
+# backend_manager so all consumers get Metal transitively.
 if(RCPP_HAVE_METAL)
-    add_library(metal_backend SHARED src/backend_metal.mm)
-    target_include_directories(metal_backend PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>)
-    target_compile_options(metal_backend PRIVATE -O3 -std=c++17 -fobjc-arc)
-    target_link_libraries(metal_backend PRIVATE
-        ${METAL_LIBRARY}
-        ${METAL_PERFORMANCE_SHADERS_LIBRARY}
-        ${METAL_PERFORMANCE_SHADERS_GRAPH_LIBRARY}
-        ${CMAKE_DL_LIBS})
-    set_target_properties(metal_backend PROPERTIES
-        INSTALL_RPATH "@executable_path/../lib"
-        BUILD_WITH_INSTALL_RPATH TRUE)
-    set(RCPP_HAVE_METAL_BACKEND TRUE)
-    message(STATUS "Metal backend: libmetal_backend.dylib will be built")
+    message(STATUS "Metal backend: backend_metal.mm added via backend_manager")
 endif()
 
 option(USE_VULKAN "Build the portable Vulkan backend proof (test_vulkan_gemv)" OFF)
@@ -381,7 +365,7 @@ add_subdirectory(engine/gpu/zinc_cpp zinc_cpp_build)
 set(ZINC_CPP_AVAILABLE TRUE)
 
 # -- libbackend_manager : Backend abstraction layer (requires rocm_cpp for HIP) ---------
-add_library(backend_manager STATIC
+set(BACKEND_MANAGER_SOURCES
     src/backend_factory.cpp
     src/backend_manager.cpp
     src/backend_monitor.cpp
@@ -389,12 +373,19 @@ add_library(backend_manager STATIC
     src/backend_cpu.cpp
     src/backend_generic.cpp
     src/backend_mamba1.cpp
+    src/backend_cuda.cpp
     src/backend_laguna.cpp
     src/backend_zamba2.cpp
     src/simple_tokenizer.cpp
     src/q4nx_reader.cpp
     src/safetensors_reader.cpp
     src/model_discovery.cpp)
+
+if(RCPP_HAVE_METAL)
+    list(APPEND BACKEND_MANAGER_SOURCES src/backend_metal.mm)
+endif()
+
+add_library(backend_manager STATIC ${BACKEND_MANAGER_SOURCES})
 target_link_libraries(backend_manager PUBLIC gguf_reader)
 
 # OpenMP: parallelizes the generic CPU decode matmul (src/backend_generic.cpp).
@@ -415,6 +406,13 @@ target_include_directories(backend_manager PRIVATE
 target_include_directories(backend_manager PRIVATE "${ROCM_ROOT}/include")
 target_compile_definitions(backend_manager PRIVATE __HIP_PLATFORM_AMD__=1)
 target_link_libraries(backend_manager PUBLIC dl rocm_cpp hip::host hip::device)
+if(RCPP_HAVE_CUDA)
+    target_link_libraries(backend_manager PUBLIC cuda_engine)
+endif()
+if(RCPP_HAVE_METAL)
+    target_link_libraries(backend_manager PRIVATE ${METAL_LIBRARY} ${METAL_PERFORMANCE_SHADERS_LIBRARY})
+    target_compile_options(backend_manager PRIVATE -fobjc-arc)
+endif()
 target_compile_options(backend_manager PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
 
 # Try to find libzinc.so for the real GGUF tokenizer C ABI.
@@ -699,6 +697,8 @@ target_compile_options(bench_prefill_variants PRIVATE
 target_link_libraries(bench_prefill_variants PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(bench_prefill_variants PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
+# unified_server sources — CUDA and Metal come through backend_manager
+# (PR #579 pattern), not listed here.
 set(UNIFIED_SERVER_SOURCES
     tools/unified_server.cpp
     src/strategy_engine.cpp
@@ -710,18 +710,8 @@ set(UNIFIED_SERVER_SOURCES
     src/model_router.cpp
 )
 
-# Optional: statically link CUDA backend into unified_server
-if(RCPP_HAVE_CUDA)
-    list(APPEND UNIFIED_SERVER_SOURCES src/backend_cuda.cpp src/cuda_engine.cu)
-    set(RCPP_STATIC_CUDA 1)
-endif()
-
-# Optional: statically link Metal backend into unified_server
-if(RCPP_HAVE_METAL)
-    list(APPEND UNIFIED_SERVER_SOURCES src/backend_metal.mm)
-    set(RCPP_STATIC_METAL 1)
-endif()
-
+# unified_server — CUDA/Metal come through backend_manager (PR #579 pattern),
+# so they don't appear in sources or link line here.
 add_executable(unified_server ${UNIFIED_SERVER_SOURCES})
 set_source_files_properties(src/backend_hip.cpp PROPERTIES LANGUAGE HIP)
 set_source_files_properties(src/zaya_engine.cpp PROPERTIES LANGUAGE HIP)
@@ -729,13 +719,6 @@ set_source_files_properties(src/backend_generic.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(tools/unified_server.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(src/backend_npu.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(src/model_router.cpp PROPERTIES LANGUAGE CXX)
-if(RCPP_HAVE_CUDA)
-    set_source_files_properties(src/backend_cuda.cpp PROPERTIES LANGUAGE CXX)
-    set_source_files_properties(src/cuda_engine.cu PROPERTIES LANGUAGE CUDA)
-endif()
-if(RCPP_HAVE_METAL)
-    set_source_files_properties(src/backend_metal.mm PROPERTIES LANGUAGE CXX)
-endif()
 target_include_directories(unified_server PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
@@ -744,21 +727,12 @@ target_include_directories(unified_server PRIVATE
 target_compile_options(unified_server PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>
     $<$<COMPILE_LANGUAGE:CXX>:-O3 -Wall -Wno-unused-result -std=c++23>)
-target_compile_definitions(unified_server PRIVATE
-    ROCM_CPP_STATIC_HIP=1 ROCM_CPP_STATIC_NPU=1
-    $<$<BOOL:${RCPP_STATIC_CUDA}>:RCPP_STATIC_CUDA=1>
-    $<$<BOOL:${RCPP_STATIC_METAL}>:RCPP_STATIC_METAL=1>)
+target_compile_definitions(unified_server PRIVATE ROCM_CPP_STATIC_HIP=1 ROCM_CPP_STATIC_NPU=1)
 target_link_libraries(unified_server PRIVATE
     backend_manager vl_image dl
     httplib::httplib
     nlohmann_json::nlohmann_json
     rocm_cpp hip::host hip::device)
-if(RCPP_HAVE_CUDA)
-    target_link_libraries(unified_server PRIVATE CUDA::cudart CUDA::cublas)
-endif()
-if(RCPP_HAVE_METAL)
-    target_link_libraries(unified_server PRIVATE ${METAL_LIBRARY} ${METAL_PERFORMANCE_SHADERS_LIBRARY})
-endif()
 target_link_options(unified_server PRIVATE -rdynamic -luuid)
 set_target_properties(unified_server PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 if(ZINC_CPP_AVAILABLE)
@@ -786,20 +760,21 @@ target_include_directories(test_mamba1_backend PRIVATE src/ include/)
 target_compile_options(test_mamba1_backend PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
 target_link_libraries(test_mamba1_backend PRIVATE backend_manager dl)
 
-# ── CUDA backend test tool ──
+# ── CUDA backend test tool (matches test_mamba1_backend pattern from PR #579) ──
+# Links against backend_manager which transitively provides cuda_engine.
 if(RCPP_HAVE_CUDA)
     add_executable(test_cuda_backend tools/test_cuda_backend.cpp)
     target_include_directories(test_cuda_backend PRIVATE src/ include/)
     target_compile_options(test_cuda_backend PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
-    target_link_libraries(test_cuda_backend PRIVATE cuda_backend)
+    target_link_libraries(test_cuda_backend PRIVATE backend_manager)
 endif()
 
-# ── Metal backend test tool ──
+# ── Metal backend test tool (matches test_mamba1_backend pattern from PR #579) ──
 if(RCPP_HAVE_METAL)
     add_executable(test_metal_backend tools/test_metal_backend.cpp)
     target_include_directories(test_metal_backend PRIVATE src/ include/)
-    target_compile_options(test_metal_backend PRIVATE -O3 -Wall -Wno-unused-result -std=c++23 -fobjc-arc)
-    target_link_libraries(test_metal_backend PRIVATE metal_backend)
+    target_compile_options(test_metal_backend PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
+    target_link_libraries(test_metal_backend PRIVATE backend_manager)
 endif()
 if(ZINC_CPP_AVAILABLE)
     target_link_libraries(backend_demo PRIVATE zinc_cpp)
