@@ -860,7 +860,9 @@ add_executable(jarvis_server
     tools/jarvis/tools.cpp
     tools/jarvis/routing.cpp
     tools/jarvis/planner.cpp
-    tools/jarvis/beacon.cpp)
+    tools/jarvis/beacon.cpp
+    tools/jarvis/tts.cpp
+    tools/jarvis/audio_out.cpp)
 target_include_directories(jarvis_server PRIVATE tools/)
 target_compile_options(jarvis_server PRIVATE -O3 -Wall -Wno-unused-result -std=c++23 -fopenmp)
 target_link_libraries(jarvis_server PRIVATE

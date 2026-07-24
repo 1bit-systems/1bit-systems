@@ -566,6 +566,35 @@ int main(int argc, char** argv) {
         add_cors(res);
     });
 
+    svr.Post("/v1/audio/speech", [&](const httplib::Request& req, httplib::Response& res) {
+        json body;
+        try { body = json::parse(req.body); } catch (...) { body = json::object(); }
+        std::string text = body.value("input", "");
+        std::string voice = body.value("voice", "en_US-lessac-medium");
+        bool play_local = body.value("play_local", true); // opt-out, matches original
+
+        if (text.empty()) {
+            res.status = 400;
+            res.set_content(json{{"error", "input required"}}.dump(), "application/json");
+            add_cors(res);
+            return;
+        }
+
+        std::string wav = synthesize_speech(text, voice);
+        if (wav.empty()) {
+            res.status = 502;
+            res.set_content(json{{"error", "speech synthesis failed (voice model missing or piper failed)"}}.dump(),
+                             "application/json");
+            add_cors(res);
+            return;
+        }
+
+        if (play_local) play_wav_local(wav); // fire-and-forget, never blocks this response
+
+        res.set_content(wav, "audio/wav");
+        add_cors(res);
+    });
+
     svr.set_error_handler([](const httplib::Request&, httplib::Response& res) {
         if (res.status == 404) res.set_content(json{{"error", "nf"}}.dump(), "application/json");
     });
