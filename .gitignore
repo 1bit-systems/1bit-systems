@@ -82,3 +82,11 @@ tools/gguf_to_h1b
 /adapters/
 .project_doc_record/
 *.trg
+
+# Build directories
+build_test/
+build_clean/
+
+# Python virtual envs
+.venv/
+venv/
