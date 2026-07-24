@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/home/bcloud/1bit-systems/build_test/_deps/ftxui-subbuild/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

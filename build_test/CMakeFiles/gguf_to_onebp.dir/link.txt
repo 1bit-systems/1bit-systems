@@ -1,1 +1,0 @@
-/opt/rocm-therock/bin/amdclang++ -O3 -DNDEBUG -Xlinker --dependency-file=CMakeFiles/gguf_to_onebp.dir/link.d CMakeFiles/gguf_to_onebp.dir/tools/gguf_to_onebp.cpp.o -o gguf_to_onebp  libgguf_reader.a

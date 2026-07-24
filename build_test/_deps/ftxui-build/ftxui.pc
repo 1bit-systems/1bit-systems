@@ -1,9 +1,0 @@
-prefix="/usr/local"
-libdir="/usr/local/lib"
-includedir="/usr/local/include"
-
-Name: ftxui
-Description: 
-Version: 5.0.0
-Cflags: -I${includedir}
-Libs: -L${libdir} -lftxui-component -lftxui-dom -lftxui-screen

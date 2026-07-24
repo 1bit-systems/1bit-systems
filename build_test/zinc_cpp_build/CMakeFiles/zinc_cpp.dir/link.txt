@@ -1,2 +1,0 @@
-/usr/bin/ar qc libzinc_cpp.a CMakeFiles/zinc_cpp.dir/src/vulkan_wrapper.cpp.o CMakeFiles/zinc_cpp.dir/src/compute_engine.cpp.o CMakeFiles/zinc_cpp.dir/src/model_loader.cpp.o CMakeFiles/zinc_cpp.dir/src/main.cpp.o CMakeFiles/zinc_cpp.dir/__/__/__/src/gguf_reader.cpp.o
-/usr/bin/ranlib libzinc_cpp.a

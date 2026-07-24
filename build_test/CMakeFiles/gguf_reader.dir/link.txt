@@ -1,2 +1,0 @@
-/usr/bin/ar qc libgguf_reader.a CMakeFiles/gguf_reader.dir/src/gguf_reader.cpp.o
-/usr/bin/ranlib libgguf_reader.a

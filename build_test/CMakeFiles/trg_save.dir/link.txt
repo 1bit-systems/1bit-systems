@@ -1,1 +1,0 @@
-/opt/rocm-therock/bin/amdclang++ -O3 -DNDEBUG -Xlinker --dependency-file=CMakeFiles/trg_save.dir/link.d CMakeFiles/trg_save.dir/tools/trg_save.cpp.o CMakeFiles/trg_save.dir/engine/fusion/cpu_layer.cpp.o -o /home/bcloud/1bit-systems/tools/trg_save  -ldl -lm -lpthread

@@ -1,1 +1,0 @@
-/opt/rocm-therock/bin/amdclang++ -O3 -DNDEBUG -Xlinker --dependency-file=CMakeFiles/test_medusa_skeleton.dir/link.d CMakeFiles/test_medusa_skeleton.dir/tests/test_medusa_skeleton.cpp.o -o test_medusa_skeleton  -Wl,-rpath,/home/bcloud/1bit-systems/build_test librocm_cpp.so
