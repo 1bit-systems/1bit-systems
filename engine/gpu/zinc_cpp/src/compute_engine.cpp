@@ -251,7 +251,12 @@ void ComputeEngine::gemv(VkBuffer y, VkBuffer x, VkBuffer W, int M, int N, int K
 
 void ComputeEngine::gemv_f32(VkBuffer y, VkBuffer x, VkBuffer W, int M, int N, int K) {
     PushConstants push{}; push.M = M; push.N = N; push.K = K;
-    batch_dispatch(this, "gemv_f32", push, x, y, W, M);
+    // Tile into a 2D grid when M exceeds maxComputeWorkGroupCount[0] (65535 on
+    // RADV) — the lm_head has M = vocab (~152k). The shader recovers the row as
+    // x + y * NumWorkGroups.x.
+    uint32_t gx = (uint32_t)M, gy = 1;
+    if (gx > 65535u) { gy = (gx + 65534u) / 65535u; gx = 65535u; }
+    batch_dispatch(this, "gemv_f32", push, x, y, W, gx, gy, 1);
 }
 
 void ComputeEngine::rope(VkBuffer q, VkBuffer k, int hd, int pos,
@@ -358,10 +363,9 @@ int InferenceEngine::generate(int token_id) {
         // Fused QKV: single dispatch for Q, K, V projections
         {
             uint32_t qkv_rows = d.n_heads * d.head_dim + 2 * d.n_kv_heads * d.head_dim;
-            PushConstants pc_qkv{};
-            pc_qkv.M = qkv_rows; pc_qkv.K = (uint32_t)d.hidden;
-            compute->dispatch_batch("fused_qkv", pc_qkv, hidden.buffer(), qkv.buffer(), layer.qkv_fused.buffer(), 
-                                   (qkv_rows + 255) / 256, 1, 1);
+            // F32 fused QKV projection: qkv = W_qkv @ hidden.
+            compute->gemv_f32(qkv.buffer(), hidden.buffer(), layer.qkv_fused.buffer(),
+                              (int)qkv_rows, 1, d.hidden);
             // Add QKV bias (Qwen2/ZR1) in-place: qkv += bias.
             if (layer.has_bias) {
                 PushConstants pc_b{}; pc_b.M = qkv_rows;
@@ -376,7 +380,7 @@ int InferenceEngine::generate(int token_id) {
                             d.n_heads, d.n_kv_heads, d.head_dim,
                             d.n_heads / d.n_kv_heads,
                             l, d.max_seq, d.n_layers);
-        compute->gemv(hidden.buffer(), attn_out.buffer(), layer.wo.buffer(),
+        compute->gemv_f32(hidden.buffer(), attn_out.buffer(), layer.wo.buffer(),
                        d.hidden, 1, d.n_heads * d.head_dim);
         compute->dispatch_batch("add_residual", pc_res,
                           hidden.buffer(), residual.buffer(), VK_NULL_HANDLE, 1);
@@ -391,26 +395,28 @@ int InferenceEngine::generate(int token_id) {
         // Fused gate+up: single dispatch for gate and up projections
         {
             uint32_t gu_rows = 2 * d.inter;
-            PushConstants pc_gu{};
-            pc_gu.M = gu_rows; pc_gu.K = (uint32_t)d.hidden;
-            compute->dispatch_batch("fused_gate_up", pc_gu, hidden.buffer(), gate_up.buffer(),
-                                   layer.gate_up_fused.buffer(), (gu_rows + 255) / 256, 1, 1);
+            // F32 fused gate+up projection: gate_up = W_gu @ hidden.
+            compute->gemv_f32(gate_up.buffer(), hidden.buffer(), layer.gate_up_fused.buffer(),
+                              (int)gu_rows, 1, d.hidden);
         }
         compute->silu_mul(silu_buf.buffer(), gate_up.buffer(), VK_NULL_HANDLE, d.inter);
-        compute->gemv(hidden.buffer(), silu_buf.buffer(), layer.w3.buffer(),
+        compute->gemv_f32(hidden.buffer(), silu_buf.buffer(), layer.w3.buffer(),
                        d.hidden, 1, d.inter);
         compute->dispatch_batch("add_residual", pc_res,
                           hidden.buffer(), residual.buffer(), VK_NULL_HANDLE, 1);
     }
-    
+
+    if (getenv("ZINC_DEBUG_HID")) {
+        compute->end_batch();
+        int hi = compute->argmax(hidden.buffer(), d.hidden);  // prints max|hidden| via [zinc] argmax
+        (void)hi;
+        compute->begin_batch();
+    }
+
     compute->rms_norm(hidden.buffer(), model->final_norm.buffer(), d.hidden, d.rms_eps);
-    // lm_head: prefer the untied Q4_K output.weight; else tied F32 embeddings.
-    if (model->has_lm_head)
-        compute->gemv(logits.buffer(), hidden.buffer(),
-                   model->lm_head.buffer(), d.vocab, 1, d.hidden);
-    else
-        compute->gemv_f32(logits.buffer(), hidden.buffer(),
-                   model->embed.buffer(), d.vocab, 1, d.hidden);
+    // lm_head: untied output.weight if present, else tied embeddings (both F32).
+    VkBuffer head = model->has_lm_head ? model->lm_head.buffer() : model->embed.buffer();
+    compute->gemv_f32(logits.buffer(), hidden.buffer(), head, d.vocab, 1, d.hidden);
     
     // End batch — submits all recorded dispatches
     compute->end_batch();

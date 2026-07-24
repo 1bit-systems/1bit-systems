@@ -27,8 +27,8 @@
 // the PILOT worker thread — an uncatchable cross-thread std::terminate — so we
 // require the whole set up front and otherwise disable ZINC cleanly.
 static const char* kZincRequiredShaders[] = {
-    "embed", "fused_qkv", "fused_gate_up", "dmmv_q4k", "gemv_f32", "rms_norm_mul",
-    "rope_fused", "flash_attn", "swiglu", "argmax", "vadd", "copy_buffer",
+    "embed", "gemv_f32", "rms_norm_mul", "rope_fused", "flash_attn",
+    "swiglu", "argmax", "vadd", "copy_buffer",
 };
 
 static std::string zinc_resolve_shader_dir() {

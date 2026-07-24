@@ -196,9 +196,10 @@ bool ModelLoader::load(const std::string& gguf_path, ModelGPU& model) {
         return false;
     }
     model.dims = dims;
-    printf("  %s: %d layers, H=%d, heads=%d/%d, V=%d, inter=%d\n",
+    printf("  %s: %d layers, H=%d, heads=%d/%d, V=%d, inter=%d, hd=%d, theta=%.1f, eps=%g\n",
            dims.arch.c_str(), dims.n_layers, dims.hidden,
-           dims.n_heads, dims.n_kv_heads, dims.vocab, dims.inter);
+           dims.n_heads, dims.n_kv_heads, dims.vocab, dims.inter,
+           dims.head_dim, dims.rope_theta, dims.rms_eps);
     
     bool have_reader = false;
 #ifdef HAS_GGUF_READER
@@ -240,19 +241,12 @@ bool ModelLoader::load(const std::string& gguf_path, ModelGPU& model) {
         size_t need = (size_t)dims.vocab * dims.hidden;
         if (reader.get_tensor_f32("output.weight", ow) && !ow.empty()) {
             ow.resize(need, 0.0f);  // pad any missing vocab rows
-            size_t q4k_bytes = q4k_quantize(ow.data(), nullptr, (int)need);
-            std::vector<uint8_t> qb(q4k_bytes);
-            if (q4k_quantize(ow.data(), qb.data(), (int)need) == q4k_bytes) {
-                model.lm_head = GpuBuffer(device_, q4k_bytes, rw, dev);
-                GpuBuffer staging(device_, q4k_bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-                memcpy(staging.map(), qb.data(), q4k_bytes); staging.unmap();
-                VkCommandBuffer cmd = cmd_pool_.begin_once();
-                VkBufferCopy cp = {0, 0, q4k_bytes};
-                vkCmdCopyBuffer(cmd, staging.buffer(), model.lm_head.buffer(), 1, &cp);
-                cmd_pool_.submit_and_wait(cmd, queue_);
-                model.has_lm_head = true;
-            }
+            model.lm_head = GpuBuffer(device_, need * sizeof(float), rw, dev);
+            upload_float_data(device_, queue_, cmd_pool_, model.lm_head, ow.data(), need);
+            model.has_lm_head = true;
+            if (getenv("ZINC_DEBUG"))
+                fprintf(stderr, "[zinc] lm_head loaded: rows_present=%zu need=%zu first=[%g %g %g]\n",
+                        ow.size() == need ? need : ow.size(), need, ow[0], ow[1], ow[2]);
         }
     }
 #endif
@@ -278,14 +272,14 @@ bool ModelLoader::load(const std::string& gguf_path, ModelGPU& model) {
             size_t q_rows = dims.n_heads * dims.head_dim;
             size_t kv_rows = dims.n_kv_heads * dims.head_dim;
             size_t total_rows = q_rows + 2 * kv_rows;
-            size_t q4k_per_row = ((dims.hidden + 255) / 256) * 144;
-            layer.qkv_fused = GpuBuffer(device_, total_rows * q4k_per_row, rw, dev);
+            // F32 fused weights [total_rows, hidden] — no requantization, so the
+            // ZINC forward pass uses the exact values cpu_generic does.
+            layer.qkv_fused = GpuBuffer(device_, total_rows * dims.hidden * sizeof(float), rw, dev);
         }
-        // Allocate fused gate+up buffer (gate + up concatenated)
+        // Allocate fused gate+up buffer (gate + up concatenated), F32
         {
             size_t total_rows = (size_t)2 * dims.inter;
-            size_t q4k_per_row = ((dims.hidden + 255) / 256) * 144;
-            layer.gate_up_fused = GpuBuffer(device_, total_rows * q4k_per_row, rw, dev);
+            layer.gate_up_fused = GpuBuffer(device_, total_rows * dims.hidden * sizeof(float), rw, dev);
         }
         
         if (have_reader) {
@@ -296,13 +290,13 @@ bool ModelLoader::load(const std::string& gguf_path, ModelGPU& model) {
                 (size_t)dims.n_kv_heads * dims.head_dim * dims.hidden, device_, queue_, cmd_pool_);
             upload_tensor_q4k(reader, p + "attn_v.weight", layer.wv,
                 (size_t)dims.n_kv_heads * dims.head_dim * dims.hidden, device_, queue_, cmd_pool_);
-            upload_tensor_q4k(reader, p + "attn_output.weight", layer.wo,
+            upload_tensor(reader, p + "attn_output.weight", layer.wo,
                 (size_t)dims.hidden * dims.n_heads * dims.head_dim, device_, queue_, cmd_pool_);
             upload_tensor_q4k(reader, p + "ffn_gate.weight", layer.w1,
                 (size_t)dims.inter * dims.hidden, device_, queue_, cmd_pool_);
             upload_tensor_q4k(reader, p + "ffn_up.weight", layer.w2,
                 (size_t)dims.inter * dims.hidden, device_, queue_, cmd_pool_);
-            upload_tensor_q4k(reader, p + "ffn_down.weight", layer.w3,
+            upload_tensor(reader, p + "ffn_down.weight", layer.w3,
                 (size_t)dims.hidden * dims.inter, device_, queue_, cmd_pool_);
             
             // Fuse gate+up weights into single buffer for fused gate_up shader
@@ -313,18 +307,7 @@ bool ModelLoader::load(const std::string& gguf_path, ModelGPU& model) {
                     std::vector<float> fused(g_tmp.size() + u_tmp.size());
                     memcpy(fused.data(), g_tmp.data(), g_tmp.size() * 4);
                     memcpy(fused.data() + g_tmp.size(), u_tmp.data(), u_tmp.size() * 4);
-                    size_t q4k_bytes = q4k_quantize(fused.data(), nullptr, fused.size());
-                    std::vector<uint8_t> q4k_buf(q4k_bytes);
-                    if (q4k_quantize(fused.data(), q4k_buf.data(), fused.size()) == q4k_bytes) {
-                        GpuBuffer staging(device_, q4k_bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-                        memcpy(staging.map(), q4k_buf.data(), q4k_bytes);
-                        staging.unmap();
-                        VkCommandBuffer cmd = cmd_pool_.begin_once();
-                        VkBufferCopy cp = {0, 0, q4k_bytes};
-                        vkCmdCopyBuffer(cmd, staging.buffer(), layer.gate_up_fused.buffer(), 1, &cp);
-                        cmd_pool_.submit_and_wait(cmd, queue_);
-                    }
+                    upload_float_data(device_, queue_, cmd_pool_, layer.gate_up_fused, fused.data(), fused.size());
                 }
             }
             
@@ -332,8 +315,6 @@ bool ModelLoader::load(const std::string& gguf_path, ModelGPU& model) {
             if (have_reader && layer.qkv_fused) {
                 size_t q_rows = dims.n_heads * dims.head_dim;
                 size_t kv_rows = dims.n_kv_heads * dims.head_dim;
-                size_t q4k_per_row = ((dims.hidden + 255) / 256) * 144;
-                
                 std::vector<float> q_tmp, k_tmp, v_tmp;
                 if (reader.get_tensor_f32(p + "attn_q.weight", q_tmp) && q_tmp.size() >= (size_t)q_rows * dims.hidden &&
                     reader.get_tensor_f32(p + "attn_k.weight", k_tmp) && k_tmp.size() >= (size_t)kv_rows * dims.hidden &&
@@ -343,19 +324,7 @@ bool ModelLoader::load(const std::string& gguf_path, ModelGPU& model) {
                     memcpy(fused.data(), q_tmp.data(), q_tmp.size() * 4);
                     memcpy(fused.data() + q_tmp.size(), k_tmp.data(), k_tmp.size() * 4);
                     memcpy(fused.data() + q_tmp.size() + k_tmp.size(), v_tmp.data(), v_tmp.size() * 4);
-                    
-                    size_t q4k_bytes = q4k_quantize(fused.data(), nullptr, fused.size());
-                    std::vector<uint8_t> q4k_buf(q4k_bytes);
-                    if (q4k_quantize(fused.data(), q4k_buf.data(), fused.size()) == q4k_bytes) {
-                        GpuBuffer staging(device_, q4k_bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-                        memcpy(staging.map(), q4k_buf.data(), q4k_bytes);
-                        staging.unmap();
-                        VkCommandBuffer cmd = cmd_pool_.begin_once();
-                        VkBufferCopy cp = {0, 0, q4k_bytes};
-                        vkCmdCopyBuffer(cmd, staging.buffer(), layer.qkv_fused.buffer(), 1, &cp);
-                        cmd_pool_.submit_and_wait(cmd, queue_);
-                    }
+                    upload_float_data(device_, queue_, cmd_pool_, layer.qkv_fused, fused.data(), fused.size());
                 }
             }
             upload_tensor(reader, p + "attn_norm.weight", layer.rms_attn,

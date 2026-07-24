@@ -425,7 +425,9 @@ struct GenericBackend : Backend {
 
         for (int i = 0; i < H; i++) x[i] = x_in[i];
 
-        for (int il = 0; il < cfg.n_layers; il++) {
+        static const char* _nl = getenv("CPU_NUM_LAYERS");
+        int _n_layers = _nl ? atoi(_nl) : cfg.n_layers;
+        for (int il = 0; il < _n_layers; il++) {
             auto& l = layers[il];
             int kv_begin = pos * NKV * HD;
 
@@ -550,6 +552,7 @@ struct GenericBackend : Backend {
         for (int i = 1; i < V; i++) {
             if (logits_buf[i] > bestv) { bestv = logits_buf[i]; best = i; }
         }
+        if (getenv("CPU_DEBUG")) fprintf(stderr, "[cpu] argmax idx=%d maxlogit=%g\n", best, bestv);
         return best;
     }
 
