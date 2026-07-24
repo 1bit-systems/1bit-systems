@@ -144,9 +144,20 @@ ls -lh build/zaya_server
 > Requires Strix Halo with XDNA 2 NPU, XRT 2.21+, and the torch2aie toolchain.
 
 ```bash
-# Build xclbins (one-time per projection shape)
+# xclbins for the standard model shapes are pre-built and checked into
+# engine/npu/xclbins/ — list what's available:
 cd engine/npu
 ./build_xclbins.sh
+
+# New projection shape not covered by the checked-in xclbins? Compile the
+# microkernel, then build via the torch2aie make flow directly (the aiecc
+# toolchain has a pre-existing version mismatch that blocks a wrapper script —
+# see docs/npu-ternary-roadmap.md):
+./build_npu_ternary.sh tq2 <tag> <H> <NH> <NKV> <HD> <IM> --compile-only
+make -C ~/torch2aie/examples/gemm_asymmetric_tile_buffering/config1 \
+  M=<M> K=<K> N=<N> m=128 k=64 n=128 use_placed=1 targetname=n1_core \
+  kernelsrc=mm_ternary_tq2.cc aie_py_src=n1_core_tq2_placed.py \
+  build/final_<M>x<K>x<N>_128x64x128.xclbin
 
 # Build the engine
 cd ../..

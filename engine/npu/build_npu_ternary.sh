@@ -64,7 +64,7 @@ compile_kernel() {
     echo "  ✓ ${src}: $(stat -c%s "$obj_path") bytes"
 }
 
-copy_xclbins() {
+check_xclbins() {
     local prefix="$1" tag="$2"
     local count=0
     for xclbin in "${XCLBIN_DIR}"/${prefix}_*_${tag}.xclbin; do
@@ -129,7 +129,7 @@ TAG="$1" H="$2" NH="$3" NKV="$4" HD="$5" IM="$6" M="${7:-128}"
 
 echo ""
 echo "=== ${FMT_NAME} xclbins: ${TAG} (H=$H) M=$M ==="
-copy_xclbins "$PREFIX" "$TAG"
+check_xclbins "$PREFIX" "$TAG"
 
 echo ""
 echo "To use: export NPU_XCLBIN_DIR=${XCLBIN_DIR}"
