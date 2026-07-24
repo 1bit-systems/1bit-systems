@@ -28,7 +28,7 @@
 - **Any Vulkan 1.2+** — Portable GPU backend
 - **CPU** — Generic C++23 fallback (no GPU required)
 
-**35 supported models** (30 1BP + 5 GGUF native) — see [`models/catalog/README.md`](models/catalog/README.md) for the full list.
+**17 architectures · 35+ models** — see [`models/catalog/README.md`](models/catalog/README.md) for the full list. — see [`models/catalog/README.md`](models/catalog/README.md) for the full list.
 
 ### 🚀 Flagship 1BP models — built, quantized & hosted by us
 
