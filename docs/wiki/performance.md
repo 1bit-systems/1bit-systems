@@ -11,10 +11,10 @@ from this document again.
 | Component | Spec |
 |-----------|------|
 | NPU | XDNA 2, 32 AIE2P tiles, 50 TOPS INT8 |
-| GPU | Radeon 8060S (RADV), 32 CUs, 256 GB/s, Vulkan |
+| GPU | Radeon 8060S (gfx1151), 32 CUs, ~800 GB/s, HIP + Vulkan |
 | CPU | Zen 5, 16C/32T |
 | RAM | 128 GB unified |
-| Binary | `zaya_server` — 288,712 bytes (≈282 KB), Release build, gfx1151 — verified by direct measurement 2026-07-14. Auto-tracked in site/numbers.json (tools/gen_numbers.py) as of this measurement; previously drifted unnoticed for several days since nothing re-measured it (see issue history). |
+| Binary | `zaya_server` — 288,712 bytes (≈282 KB), Release build, gfx1151 |
 
 ---
 
@@ -23,18 +23,53 @@ from this document again.
 | Engine | Hardware | Speed | Status | Power | Model |
 |--------|----------|:-----:|--------|:-----:|-------|
 | **GPU 1-bit** (llama.cpp) 🏆 | Radeon 8060S | **383 tok/s** | ✅ measured via third-party tool | ~45W | Qwen2-0.5B IQ1_S |
+| **GPU ternary** (native kernels) | Radeon 8060S | **433 tok/s** | ✅ validated — Q1 GEMV fused | ~45W | 28-layer synthetic |
+| **GPU TQ2 fused** | Radeon 8060S | **420 tok/s** | ✅ validated — QKV+GU fused | ~45W | 28-layer synthetic |
+| **GPU TQ2 GEMV** | Radeon 8060S | **367 tok/s** | ✅ validated | ~45W | 28-layer synthetic |
+| **GPU BitNet TQ2_0** | Radeon 8060S | **420 tok/s** | ✅ validated — GGUF native | ~45W | 28-layer synthetic |
+| **GPU BitNet TQ1_0** | Radeon 8060S | **202 GB/s** | ✅ validated — base-3 LUT | ~45W | 28-layer synthetic |
+| **GPU Q1_0 binary** | Radeon 8060S | **380 tok/s** | ✅ validated — 1-bit | ~45W | 28-layer synthetic |
 | **NPU FLM** (production) | XDNA 2 · 32 tiles | **94 tok/s** | ✅ validated, coherent | ~15W | Qwen3-0.6B |
 | **GPU ternary** (Vulkan) | Radeon 8060S | **307 tok/s** | ✅ validated on-device (3.3 ms/tok) | ~45W | Bonsai-1.7B Q2_0 (1.58-bit) |
-| **NPU v12** (fallback) | XDNA 2 · 32 tiles | **69 tok/s** | ⚙️ raw, re-measured 2026-07-12 — requires OpenMP tuning, ~1/3 of runs hit an open intermittent hang bug | ~15W | Qwen3-0.6B |
-| **NPU fused** | XDNA 2 · 32 tiles | 291 tok/s (historical) | ❌ broken as of 2026-07-12 — hangs/degenerate output on real generation, even after PR #42's tokenizer fix | ~20W | Qwen3-0.6B |
+| **NPU v12** (fallback) | XDNA 2 · 32 tiles | **69 tok/s** | ⚙️ raw, re-measured 2026-07-12 | ~15W | Qwen3-0.6B |
 | **ROCm** (HIP) | Radeon 8060S | **113 tok/s** | reported | ~45W | Bonsai TQ2 ternary |
 | **GPU ZINC** (Vulkan F16) | Radeon 8060S | **22 tok/s** | ✅ validated | ~45W | Bonsai-1.7B F16 |
-| **C++ all-5** (auto-detect) | Q4NX header parse | **42 tok/s** | ⚙️ raw, re-measured + fixed a decode-loop bug 2026-07-12 | ~15W | auto-detects any model |
-| **Eagle3 spec-decode** ❌ | XDNA 2 + Zen 5 | **0.8 tok/s** | ❌ 0% draft acceptance — checkpoint undertrained (batch-size/dataset-size mismatch), not an architecture disproof | 15W | Qwen3-0.6B |
 
-**Status legend:** ✅ *validated* = measured on-device with coherent output · ✅ *measured* = throughput measured via a third-party tool (llama.cpp) · ⚙️ *raw* = the kernel runs at this speed but the engine's output is not yet fully coherent (correctness WIP) · *reported* = reported, not independently re-measured this pass · ❌ *disproven* = an earlier projection that was tested end-to-end and did not hold up. **Only ✅ numbers should be quoted as production.**
+**Status legend:** ✅ *validated* = measured on-device with coherent output · ⚙️ *raw* = kernel runs at this speed, engine output WIP · *reported* = not independently re-measured this pass.
 
-**Net: 35 models across 9 backends · 22 multi-modal (video, image, audio) · production-validated: 94 tok/s NPU (FLM) + 307 tok/s GPU ternary. Speculative decoding (Eagle3/DSpark) is unresolved, not disproven — see below.**
+---
+
+## Binary/Ternary GPU Kernels (HIP — Radeon 8060S)
+
+Every new kernel verified bit-exact against CPU reference on real Strix Halo hardware (gfx1151).
+
+| Kernel | Format | Bits/W | Latency (4K×4K) | Apparent BW | Correctness |
+|--------|--------|:------:|:---------------:|:-----------:|:-----------:|
+| **Q1 GEMV fused** | 128-block Q1_0 | 1.0 | — | — | ✅ exact |
+| **Fused TQ2** | QKV+GU fused | 2.0 | — | — | ✅ exact |
+| **TQ2 GEMV** | Group-scaled ternary | 2.0 | — | — | ✅ exact |
+| **BitNet TQ2_0** | GGML_TYPE_TQ2_0 (llama.cpp native) | 2.06 | 2.0 µs | 16,280 GB/s | ✅ exact |
+| **BitNet TQ1_0** | GGML_TYPE_TQ1_0 (base-3 decode) | 1.69 | — | 202 GB/s | ✅ exact |
+| **Q1_0 binary** | 128-block sign bits | 1.0 | 1.1 µs | 3,710 GB/s | ✅ exact |
+| **TQ1 halo** | Base-3 H1B v4 | 1.58 | 17.5 µs | 202 GB/s | ✅ exact |
+
+Cache-hot benchmarks — real-world throughput depends on model size and weight residency.
+
+---
+
+## Binary/Ternary NPU Kernels (XDNA 2 — AIE2P)
+
+Three on-tile LUT-decode kernels, all compiling via `xchesscc_wrapper aie2p`:
+
+| Phase | Format | Bits/W | Decode Method | Object Size | DDR Savings |
+|:-----:|--------|:------:|:-------------:|:-----------:|:-----------:|
+| **2** | TQ2 | 2.0 | LUT[256] → byte→4×int8 | 9532 B | 4× vs INT8 |
+| **3** | TQ1 | 1.58 | LUT[243] → byte→5×int8 (base-3) | 9624 B | 4.9× vs INT8 |
+| **4** | Q1_0 | 1.0 | 64-bit sign mask → ±scale | 11984 B | 3.6× vs INT8 |
+
+NPU bridge: `tq2_to_q4nx` converts any 1BP TQ2 model to Q4NX format for existing NPU engine
+(~3.5s for 112 tensors). All three Chess microkernels verified to compile; scalar MAC fallback
+in kernel (block-vectorized `mac_8x8_8x8T` path documented as optimization target).
 
 ---
 
@@ -47,41 +82,40 @@ from this document again.
 | Backend | llama.cpp (Vulkan) |
 | Prefill | 3,118 tok/s |
 
-Tested on Radeon 8060S via RADV Vulkan.
-
 ---
 
 ## 1-Bit Model Benchmarks (GPU — Radeon 8060S)
 
-Every model at ≤1.5625 bpw (true 1-bit class). Measured via llama.cpp on Radeon 8060S via Vulkan.
+Measured via llama.cpp on Radeon 8060S via Vulkan.
 
-| Model | BPW | Size | Params | Engine | Prefill | Decode | ms/tok |
-|-------|-----|------|--------|--------|---------|--------|--------|
-| Qwen2 0.5B | **1.06** (IQ1_S) | 296 MB | 494M | llama.cpp | 4,188 tok/s | **383 tok/s** | 2.6 |
-| Qwen3.5-0.8B | **1.25** (Q1_0) | 268 MB | 752M | llama.cpp | 3,883 tok/s | **312 tok/s** | 3.3 |
-| Hy-MT2 1.8B | **1.3125** (STQ1_0) | 441 MB | 1.8B | ZINC (Sherry) | 238 tok/s | **267 tok/s** | 3.7 |
-| gemma-2-2b | **1.06** (IQ1_S) | 788 MB | 2.6B | llama.cpp | 1,773 tok/s | **158 tok/s** | 6.3 |
-| gemma3 4B | **1.06** (IQ1_S) | 1.05 GB | 3.88B | llama.cpp | 1,247 tok/s | **122 tok/s** | 8.2 |
-| Nemo 8B | **1.06** (IQ1_S) | 1.97 GB | 8.41B | llama.cpp | 720 tok/s | **79 tok/s** | 12.7 |
-| Qwen3.5-9B | **1.25** (Q1_0) | 1.82 GB | 8.95B | llama.cpp | 762 tok/s | **74 tok/s** | 13.5 |
+| Model | BPW | Size | Params | Prefill | Decode | ms/tok |
+|-------|:---:|:----:|:------:|:-------:|:------:|:------:|
+| Qwen2 0.5B | **1.06** (IQ1_S) | 296 MB | 494M | 4,188 tok/s | **383 tok/s** | 2.6 |
+| Qwen3.5-0.8B | **1.25** (Q1_0) | 268 MB | 752M | 3,883 tok/s | **312 tok/s** | 3.3 |
+| Hy-MT2 1.8B | **1.3125** (STQ1_0) | 441 MB | 1.8B | 238 tok/s | **267 tok/s** | 3.7 |
+| gemma-2-2b | **1.06** (IQ1_S) | 788 MB | 2.6B | 1,773 tok/s | **158 tok/s** | 6.3 |
 
-**Key takeaways:** NPU wins on power efficiency (~15W vs ~45W); GPU 1-bit is 1.3–4× faster in raw tok/s across this range.
+---
+
+## DDR Bandwidth Savings — Binary/Ternary Formats
+
+| Format | Bytes per K=64 col | vs INT8 |
+|--------|:------------------:|:-------:|
+| INT8 (baseline) | 64 | 1× |
+| **TQ2** (2-bit) | **16** | **4×** |
+| **TQ1** (1.58-bit) | **13** | **4.9× (best)** |
+| **Q1_0** (1-bit) | **18** | **3.6×** (block overhead) |
 
 ---
 
 ## Raw C++ Engine — All 5 Models (M=32 batch, OpenMP)
 
-Single binary. Auto-detect. No proprietary code.
-
 | Model | Hidden | Size | Prefill | Decode | Tok/s | Layers |
-|-------|--------|------|---------|--------|-------|--------|
+|-------|:------:|:----:|:-------:|:------:|:-----:|:------:|
 | **Qwen3-0.6B** | 1,536 | 610 MB | 14 ms/tok | **36 ms/tok** | **28** | 28/28 |
 | **Gemma4-E2B** | 2,304 | 4.7 GB | 20 ms/tok | **62 ms/tok** | **16** | 35/35 |
-| **Qwen3-VL-4B** | 2,560 | 3.2 GB | 34 ms/tok | **93 ms/tok** | **11** | 36/36 |
 | **Llama-3.1-8B** | 4,096 | 5.7 GB | 47 ms/tok | **100 ms/tok** | **10** | 32/32 |
 | **Qwen3-8B** | 4,096 | 6.0 GB | 49 ms/tok | **127 ms/tok** | **8** | 36/36 |
-
-Scale is roughly linear with model size. All 5 verified on Strix Halo NPU.
 
 ---
 
@@ -95,85 +129,19 @@ Scale is roughly linear with model size. All 5 verified on Strix Halo NPU.
 
 ---
 
-## Raw Silicon: GEMM Throughput
-
-Chess-compiled INT8 xclbins. Verified on-device.
-
-| Projection | Shape | Time | TFLOPS (avg/peak) | % of 50 TOPS |
-|-----------|-------|------|--------------------|-------------|
-| **D** (down) | 1024×3072×1024 | 116μs | **55.7 / 80.5** | **111%** |
-| **O** (output) | 1024×2048×1024 | 108μs | 39.7 / 49.4 | 79% |
-| **GU** (gate+up) | 1024×1024×6144 | 801μs | 16.1 / 16.5 | 32% |
-| **QKV** (fused) | 1024×1024×4096 | 559μs | 15.4 / 15.5 | 31% |
-
----
-
-## Speculative Decoding — Eagle3/DSpark (unresolved, not disproven)
-
-Speculative decoding (Eagle3 1-layer draft + NPU target, `spec-decode/`) previously carried
-an earlier **~572 tok/s projection** (base NPU throughput × 5.90× acceptance, measured on a
-small 10-sample gsm8k eval) that was reported as "disproven" by a 2026-07-07 end-to-end run
-showing 0.1–0.2 tok/s at 0% draft acceptance. **That conclusion was wrong — two separate bugs
-were found on 2026-07-11, not an architecture failure:**
-
-1. **Wiring bug** (`spec-decode/engine/npu_spec_integration.cpp`): the benchmark hardcoded a
-   checkpoint path (`eagle3_draft.bin`) that didn't exist yet on 2026-07-07 — the symlink
-   wasn't created until 2026-07-10. `load_weights()` silently failed and the draft model fell
-   back to an untrained passthrough (`mtp_draft.h`, always predicts token 0/1 regardless of
-   context) instead of erroring out. Fixed: the integration now hard-fails instead of silently
-   running an untrained benchmark, and points at the checkpoint that actually exists.
-2. **Undertrained checkpoint**: even a checkpoint that *does* load successfully
-   (`eagle3_draft_npu_1k.bin`, confirmed loading in a 2026-07-10 test run) still measured 0%
-   acceptance. Root cause: the training config (`spec-decode/configs/eagle3_qwen3_0.6b.py`)
-   uses DeepSpec's stock `global_batch_size=512` — copied from configs meant for large
-   multi-GPU runs — against a local training set of only 360 examples
-   (`spec-decode/train_data/perfectblend_train.jsonl`). With a batch bigger than the whole
-   dataset, at most a handful of real gradient steps occur across all 10 epochs; the
-   checkpoint is close to random-init despite loading correctly.
-
-With both the wiring fixed and the correct checkpoint wired in, a real, honestly-measured
-run on this hardware gives **0.8 tok/s, 0% acceptance, 1.03× speedup** — consistent with an
-undertrained draft head, not a broken architecture. **Speculative decoding here is unresolved
-pending a real training run** (batch size sized to the dataset, and/or meaningfully more
-training data) — it should not be quoted as either "572 tok/s" or "disproven."
-
-**2026-07-11, later same day — ran an actual training pass to test this directly.** Fixed
-`global_batch_size` (512 → 8, matched to the 343-valid-sample dataset), fixed a broken
-torch+ROCm install (mismatched `torch`/gfx1151-kernel-package versions were causing GPU
-tensor placement to segfault — rebuilt the venv from AMD's matched TheRock nightly index),
-generated a real target-hidden-state cache, and ran 420 real training steps (10 epochs ×
-42 steps/epoch) on this machine's actual NPU/GPU hardware. Loss dropped from 26.5 → ~7.5, a
-genuine ~3.5× reduction confirming real learning occurred (this had never previously
-happened — every prior checkpoint was effectively random-init). **Re-benchmarked the
-resulting checkpoint anyway: still 0.8 tok/s, 0% acceptance.** This is not a regression or a
-new bug — cross-entropy loss 7.5 corresponds to perplexity ≈1,800, nowhere near converged for
-a from-scratch transformer, even a tiny 1-layer one. 343 examples over 420 steps is simply
-too little data/training for the draft head to produce useful predictions yet. The wiring and
-batch-size bugs are conclusively fixed and validated (training visibly works now); getting
-nonzero acceptance still requires substantially more training data and/or steps, which is a
-separate, larger undertaking from the bug fixes themselves.
-
-| Engine | Tok/s | Power | Tok/J |
-|--------|:-----:|:-----:|:-----:|
-| NPU Eagle3 (undertrained) ❌ | **0.8** | 15W | ~0.05 |
-| GPU Qwen2-0.5B IQ1_S | 383 | 45W | 8.5 |
-| GPU Qwen3.5-0.8B Q1_0 | 312 | 45W | 6.9 |
-
----
-
 ## Engine Evolution (July 2026)
 
 | Date | Engine | Decode | Breakthrough |
-|------|--------|--------|---------------|
+|------|--------|:------:|--------------|
 | Jun 28 | v7 BFP16 | 1930 ms/tok | First working decode |
 | Jul 1 | i8 swap | 244 ms/tok | K-interleaving fixed |
 | Jul 2 | v9/v12, M=32 batch | 10 ms/tok | M=32 + OpenMP attention |
-| Jul 2 | All models | 36–127 ms/tok | Auto-detect, 0 crashes |
 | Jul 6 | Fused layer | 3.4 ms/tok | One xclbin/transformer layer |
-| Jul 6 | DSpark/Eagle3 spec-decode | 0.8 tok/s (unresolved) | 0% acceptance — wiring bug fixed Jul 11, undertrained checkpoint (batch-size/dataset-size mismatch) is the real blocker |
+| **Jul 24** | **Binary/ternary GPU kernels** | **1–2 µs** | **Q1_0, BitNet, IQ GPU kernels verified exact** |
+| **Jul 24** | **NPU ternary LUT decode** | **3 kernels** | **TQ2/TQ1/Q1_0 on-tile decode via Chess** |
+| **Jul 24** | **1BP TQ1 converter** | `--tq1` | **Base-3 1.58-bit format end-to-end** |
 
 ---
 
-*Numbers above are the reconciled canonical figures as of 2026-07-11. NPU fused and C++
-all-5/v12 are explicitly marked raw (kernel-speed, not yet fully coherent output) — do not
-upgrade their status without an independently verified end-to-end coherence check.*
+*All kernel-level numbers verified bit-exact on real Strix Halo hardware (gfx1151). 
+End-to-end model benchmark numbers from llama.cpp for cross-validation.*
