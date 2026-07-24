@@ -80,6 +80,87 @@ __device__ void dequant_iq1_s_block(const uint8_t* block, float* out) {
     }
 }
 
+// ─── IQ1_M dequant: 256-element block → float32 ─────────────────
+// Ported from llama.cpp ggml-quants.c dequantize_row_iq1_m
+// Block layout (block_iq1_m): qs[32] + qh[16] + scales[8] = 56 bytes core
+// within the 230-byte GGUF block. scales stores 4 uint16_t with 6-bit
+// sub-block scales + 4-bit superblock scale packed in upper bits.
+// Decode IQ1_M superblock scale from 4 uint16_t scale entries
+// scale.u16 = (sc[0] >> 12) | ((sc[1] >> 8) & 0x00f0) | ((sc[2] >> 4) & 0x0f00) | (sc[3] & 0xf000)
+// where sc = (const uint16_t*)scales (8 bytes = 4 uint16_t)
+static inline __device__ uint16_t iq1m_combine_scales(const uint16_t* sc) {
+    return (uint16_t)((sc[0] >> 12) | ((sc[1] >> 8) & 0x00f0) |
+                      ((sc[2] >> 4) & 0x0f00) | (sc[3] & 0xf000));
+}
+
+__device__ void dequant_iq1_m_block(const uint8_t* block, float* out) {
+    // IQ1_M layout within 230-byte GGUF block:
+    //   qs[32] at offset 0
+    //   qh[16] at offset 32
+    //   scales[8] at offset 48
+    //   remaining 174 bytes: padding/metadata (ignored)
+    const uint8_t* qs = block;
+    const uint8_t* qh = block + 32;
+    const uint8_t* scales = block + 48;
+
+    // Decode superblock scale from packed u16 (read scales as uint16_t[4])
+    uint16_t scale_u16 = iq1m_combine_scales((const uint16_t*)scales);
+    // Convert fp16 bits to float — iq1m_scale_t stores as ggml_half
+    // The packing: scale_u16 is the raw fp16 bit pattern
+    __half d_h;
+    memcpy(&d_h, &scale_u16, 2);
+    float d = (float)d_h;
+
+    // Scales are also used as uint16_t[4] for sub-block scale reads
+    const uint16_t* sc = (const uint16_t*)scales;
+    // Zero out the low 4 bits of each uint16_t (they're used for superblock
+    // scale packing, not sub-block scales)
+    // Wait — the sub-block scales are in bits 0-5 and 6-11 of each sc[i].
+    // The superblock scale uses bits 12-15. So reading sc[ib/2] and shifting
+    // gives the correct sub-block scale without masking the superblock bits.
+
+    int out_idx = 0;
+    for (int ib = 0; ib < IQ1_S_SUBBLOCKS; ib++) {
+        // Two scale values per sub-block
+        int sc_idx = ib / 2;
+        int sc_shift = (ib % 2) * 6;
+        float dl1 = d * (float)(2 * ((sc[sc_idx] >> (sc_shift + 0)) & 7) + 1);
+        float dl2 = d * (float)(2 * ((sc[sc_idx] >> (sc_shift + 3)) & 7) + 1);
+
+        // 4 LUT indices
+        uint16_t idx[4];
+        idx[0] = (uint16_t)(qs[0] | ((qh[0] << 8) & 0x700));
+        idx[1] = (uint16_t)(qs[1] | ((qh[0] << 4) & 0x700));
+        idx[2] = (uint16_t)(qs[2] | ((qh[1] << 8) & 0x700));
+        idx[3] = (uint16_t)(qs[3] | ((qh[1] << 4) & 0x700));
+
+        // Delta signs (bit 3 and bit 7 of qh[0] and qh[1])
+        float delta[4];
+        delta[0] = (qh[0] & 0x08) ? -iq1s_delta_dev : iq1s_delta_dev;
+        delta[1] = (qh[0] & 0x80) ? -iq1s_delta_dev : iq1s_delta_dev;
+        delta[2] = (qh[1] & 0x08) ? -iq1s_delta_dev : iq1s_delta_dev;
+        delta[3] = (qh[1] & 0x80) ? -iq1s_delta_dev : iq1s_delta_dev;
+
+        // First 2 LUT lookups use dl1
+        for (int l = 0; l < 2; l++) {
+            uint16_t lut_idx = (idx[l] < IQ1S_GRID_SIZE) ? idx[l] : 0;
+            for (int j = 0; j < 8; j++) {
+                out[out_idx++] = dl1 * ((float)iq1s_grid_dev[lut_idx][j] + delta[l]);
+            }
+        }
+        // Last 2 LUT lookups use dl2
+        for (int l = 2; l < 4; l++) {
+            uint16_t lut_idx = (idx[l] < IQ1S_GRID_SIZE) ? idx[l] : 0;
+            for (int j = 0; j < 8; j++) {
+                out[out_idx++] = dl2 * ((float)iq1s_grid_dev[lut_idx][j] + delta[l]);
+            }
+        }
+
+        qs += 4;
+        qh += 2;
+    }
+}
+
 // ─── IQ dequant+GEMV kernel ─────────────────────────────────────
 // Each thread processes one row (output neuron).
 // K=256*n_blocks per row, dequantized on the fly, accumulated with INT8 activations.
@@ -110,9 +191,7 @@ __global__ void iq_dequant_gemv_kernel(
         if (dtype == 0) {
             dequant_iq1_s_block(block, vals);
         } else {
-            // IQ1_M: TODO — port from ggml-quants.c dequantize_row_iq1_m
-            // Falls back to IQ1_S dequant as an approximation
-            dequant_iq1_s_block(block, vals);
+            dequant_iq1_m_block(block, vals);
         }
 
         int cols_here = min(IQ_BLOCK_SIZE, K - block_start);

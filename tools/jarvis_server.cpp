@@ -11,9 +11,16 @@
 // BackendManager. Own port 8080, matching the original design and the
 // beacon/1bit-Mobile pairing contract.
 //
-// Phase 1 (this file): orchestration only — chat, RAG, tools, planner,
-// session memory, permission gate, beacon, UI. No voice yet (STT/TTS are
-// Phase 2/3 — see the plan file).
+// Phase 1: orchestration — chat, RAG, tools, planner, session memory,
+// permission gate, beacon, UI.
+// Phase 2 (this file): STT via the native src/whisper.cpp — see
+// .claude/plans/swirling-tumbling-frost.md. Real, correct, but slow: this
+// project's whisper.cpp is a from-scratch scalar CPU reference
+// implementation (kernels/whisper_kernels.hip exist for GPU accel but
+// are not wired into the forward pass) — a single 30s-context tiny.en
+// pass did not finish in 10 minutes in this environment. Usable for
+// correctness verification with short/patient testing, not yet a snappy
+// live demo. TTS is Phase 3, not in this file.
 //
 // Build: cmake --build . --target jarvis_server
 
@@ -21,16 +28,20 @@
 #include <nlohmann/json.hpp>
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <mutex>
+#include <unistd.h>
 
 #include "jarvis/beacon.h"
 #include "jarvis/planner.h"
 #include "jarvis/rag.h"
 #include "jarvis/routing.h"
 #include "jarvis/tools.h"
+#include "whisper.h"
 
 using json = nlohmann::json;
 using namespace jarvis;
@@ -129,6 +140,25 @@ chat.scrollTop=chat.scrollHeight}catch(e){}}}}
 // ── Global state ──────────────────────────────────────────────────────
 static KnowledgeBase g_kb;
 static int g_port = 8080;
+
+// ── Whisper STT (lazy singleton, matches the original's threading.Lock-
+// guarded lazy load in the deleted jarvis/stt.py) ─────────────────────
+static WhisperModel* g_whisper = nullptr;
+static std::mutex g_whisper_mutex;
+
+static WhisperModel* get_whisper_model() {
+    std::lock_guard<std::mutex> lock(g_whisper_mutex);
+    if (g_whisper) return g_whisper;
+    const char* path = getenv("WHISPER_MODEL_PATH");
+    if (!path || !*path) return nullptr;
+    auto* m = new WhisperModel();
+    if (!m->load_from_gguf(path)) {
+        delete m;
+        return nullptr;
+    }
+    g_whisper = m;
+    return g_whisper;
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
