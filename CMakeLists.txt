@@ -849,6 +849,24 @@ target_include_directories(onebitd PRIVATE src/ include/)
 target_compile_options(onebitd PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
 target_link_libraries(onebitd PRIVATE httplib::httplib)
 
+# -- jarvis_server : local private AI agent server (RAG, tools, planner) ---
+# C++ port of the deleted jarvis/ Python package (recovered from git
+# history at c252174aa~1 — see .claude/plans/swirling-tumbling-frost.md).
+# Talks to unified_server (127.0.0.1:8088) and Ollama over HTTP rather than
+# embedding a second BackendManager; own port 8080.
+add_executable(jarvis_server
+    tools/jarvis_server.cpp
+    tools/jarvis/rag.cpp
+    tools/jarvis/tools.cpp
+    tools/jarvis/routing.cpp
+    tools/jarvis/planner.cpp
+    tools/jarvis/beacon.cpp)
+target_include_directories(jarvis_server PRIVATE tools/)
+target_compile_options(jarvis_server PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
+target_link_libraries(jarvis_server PRIVATE
+    httplib::httplib
+    nlohmann_json::nlohmann_json)
+
 # -- zaya1_vl_demo : ZAYA1-VL-8B vision-language inference demo -------------
 add_executable(zaya1_vl_demo tools/zaya1_vl_demo.cpp)
 target_include_directories(zaya1_vl_demo PRIVATE src/ include/)
