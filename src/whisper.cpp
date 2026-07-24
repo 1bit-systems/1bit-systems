@@ -297,7 +297,7 @@ bool WhisperModel::load_from_gguf(const std::string& path, const WhisperConfig* 
         ok &= get(p + "attn.query.weight", l.attn_q_w, (size_t)DA * DA);
         ok &= get(p + "attn.query.bias",   l.attn_q_b, (size_t)DA);
         ok &= get(p + "attn.key.weight", l.attn_k_w, (size_t)DA * DA);
-        ok &= get(p + "attn.key.bias",     l.attn_k_b, (size_t)DA);
+        get_opt(p + "attn.key.bias",     l.attn_k_b, (size_t)DA); // real Whisper: key proj has no bias
         ok &= get(p + "attn.value.weight", l.attn_v_w, (size_t)DA * DA);
         ok &= get(p + "attn.value.bias",   l.attn_v_b, (size_t)DA);
         ok &= get(p + "attn.output.weight", l.attn_o_w, (size_t)DA * DA);
@@ -331,7 +331,7 @@ bool WhisperModel::load_from_gguf(const std::string& path, const WhisperConfig* 
         ok &= get(p + "attn.query.weight", l.attn_q_w, (size_t)DT * DT);
         ok &= get(p + "attn.query.bias",   l.attn_q_b, (size_t)DT);
         ok &= get(p + "attn.key.weight", l.attn_k_w, (size_t)DT * DT);
-        ok &= get(p + "attn.key.bias",     l.attn_k_b, (size_t)DT);
+        get_opt(p + "attn.key.bias",     l.attn_k_b, (size_t)DT); // real Whisper: key proj has no bias
         ok &= get(p + "attn.value.weight", l.attn_v_w, (size_t)DT * DT);
         ok &= get(p + "attn.value.bias",   l.attn_v_b, (size_t)DT);
         ok &= get(p + "attn.output.weight", l.attn_o_w, (size_t)DT * DT);
@@ -342,7 +342,7 @@ bool WhisperModel::load_from_gguf(const std::string& path, const WhisperConfig* 
         ok &= get(p + "cross_attn.query.weight", l.cross_q_w, (size_t)DT * DT);
         ok &= get(p + "cross_attn.query.bias",   l.cross_q_b, (size_t)DT);
         ok &= get(p + "cross_attn.key.weight", l.cross_k_w, (size_t)DT * DT);
-        ok &= get(p + "cross_attn.key.bias",     l.cross_k_b, (size_t)DT);
+        get_opt(p + "cross_attn.key.bias",     l.cross_k_b, (size_t)DT); // real Whisper: key proj has no bias
         ok &= get(p + "cross_attn.value.weight", l.cross_v_w, (size_t)DT * DT);
         ok &= get(p + "cross_attn.value.bias",   l.cross_v_b, (size_t)DT);
         ok &= get(p + "cross_attn.output.weight", l.cross_o_w, (size_t)DT * DT);
@@ -361,9 +361,14 @@ bool WhisperModel::load_from_gguf(const std::string& path, const WhisperConfig* 
     if (!get("decoder.ln.weight", dec_ln_w, (size_t)DT)) return false;
     if (!get("decoder.ln.bias",   dec_ln_b, (size_t)DT)) return false;
     get_opt("model.output.weight", output_w, (size_t)cfg.n_vocab * DT);
-    
-    fprintf(stderr, "[whisper] loaded: %d enc layers, %d dec layers, %d hidden, %d vocab\n",
-            cfg.n_audio_layer, cfg.n_text_layer, cfg.n_audio_state, cfg.n_vocab);
+
+    // Optional: real vocab for detokenization. Without it, whisper_transcribe
+    // falls back to a byte-literal placeholder that's only coherent for the
+    // handful of token ids under 256.
+    r.get_string_array("tokenizer.ggml.tokens", vocab);
+
+    fprintf(stderr, "[whisper] loaded: %d enc layers, %d dec layers, %d hidden, %d vocab (%zu vocab strings)\n",
+            cfg.n_audio_layer, cfg.n_text_layer, cfg.n_audio_state, cfg.n_vocab, vocab.size());
     return true;
 }
 
@@ -495,7 +500,12 @@ std::vector<float> whisper_decode_step(const WhisperModel& model, const std::vec
             matmul(&Q[(size_t)t * DT], &x[(size_t)t * DT], l.attn_q_w.data(), DT, DT);
             matmul(&K[(size_t)t * DT], &x[(size_t)t * DT], l.attn_k_w.data(), DT, DT);
             matmul(&V[(size_t)t * DT], &x[(size_t)t * DT], l.attn_v_w.data(), DT, DT);
-            if (!l.attn_q_b.empty()) for (int d = 0; d < DT; d++) { Q[(size_t)t*DT+d] += l.attn_q_b[d]; K[(size_t)t*DT+d] += l.attn_k_b[d]; V[(size_t)t*DT+d] += l.attn_v_b[d]; }
+            // Real Whisper: key projection has no bias — checked
+            // independently, not bundled under q_b (see include/whisper.h's
+            // self_attn/cross_attn for the same fix).
+            if (!l.attn_q_b.empty()) for (int d = 0; d < DT; d++) Q[(size_t)t*DT+d] += l.attn_q_b[d];
+            if (!l.attn_k_b.empty()) for (int d = 0; d < DT; d++) K[(size_t)t*DT+d] += l.attn_k_b[d];
+            if (!l.attn_v_b.empty()) for (int d = 0; d < DT; d++) V[(size_t)t*DT+d] += l.attn_v_b[d];
         }
         float scale = 1.0f / sqrtf((float)H);
         for (int t = 0; t < N; t++) {
@@ -570,6 +580,69 @@ std::vector<float> whisper_decode_step(const WhisperModel& model, const std::vec
 }
 
 // ====================================================================
+// GPT2 byte-level BPE detokenization
+// ====================================================================
+// Whisper's vocab (like GPT2's) maps raw bytes to a printable-unicode
+// alphabet before BPE merging, so multi-byte UTF-8 sequences and control
+// characters never appear literally in a merge/vocab file. A vocab
+// string like the single-codepoint "Ġ" (U+0120) really means "a space".
+// This builds the standard bytes_to_unicode() table (see OpenAI's GPT2
+// encoder.py) and inverts it, so a codepoint can be mapped back to the
+// original byte it stands for.
+static const std::vector<int>& bpe_codepoint_to_byte() {
+    static std::vector<int> table = [] {
+        std::vector<int> inv(1024, -1); // codepoints go up to 255+68-1=323
+        std::vector<bool> is_printable(256, false);
+        auto mark = [&](int lo, int hi) { for (int b = lo; b <= hi; b++) is_printable[b] = true; };
+        mark('!', '~');
+        mark(0xA1, 0xAC);
+        mark(0xAE, 0xFF);
+        for (int b = 0; b < 256; b++) if (is_printable[b]) inv[b] = b;
+        int n = 0;
+        for (int b = 0; b < 256; b++) {
+            if (!is_printable[b]) { inv[256 + n] = b; n++; }
+        }
+        return inv;
+    }();
+    return table;
+}
+
+std::string whisper_decode_bpe_token(const std::string& token_text) {
+    const auto& table = bpe_codepoint_to_byte();
+    std::string out;
+    size_t i = 0;
+    while (i < token_text.size()) {
+        unsigned char c0 = (unsigned char)token_text[i];
+        int cp = -1;
+        int len = 1;
+        if ((c0 & 0x80) == 0) { cp = c0; len = 1; }
+        else if ((c0 & 0xE0) == 0xC0 && i + 1 < token_text.size()) {
+            cp = ((c0 & 0x1F) << 6) | ((unsigned char)token_text[i + 1] & 0x3F);
+            len = 2;
+        } else if ((c0 & 0xF0) == 0xE0 && i + 2 < token_text.size()) {
+            cp = ((c0 & 0x0F) << 12) | (((unsigned char)token_text[i + 1] & 0x3F) << 6) |
+                 ((unsigned char)token_text[i + 2] & 0x3F);
+            len = 3;
+        } else {
+            // Invalid/unsupported UTF-8 lead byte — pass the raw byte
+            // through rather than dropping it silently.
+            out += (char)c0;
+            i += 1;
+            continue;
+        }
+        if (cp >= 0 && cp < (int)table.size() && table[cp] >= 0) {
+            out += (char)(unsigned char)table[cp];
+        } else {
+            // Not a byte-mapped codepoint (shouldn't happen for valid
+            // GPT2-BPE vocab strings) — keep the original bytes.
+            out.append(token_text, i, (size_t)len);
+        }
+        i += (size_t)len;
+    }
+    return out;
+}
+
+// ====================================================================
 // Full transcription
 // ====================================================================
 std::string whisper_transcribe(const WhisperModel& model, const float* audio_pcm, int n_samples) {
@@ -603,10 +676,16 @@ std::string whisper_transcribe(const WhisperModel& model, const float* audio_pcm
         tokens.push_back(next);
     }
     
-    // Basic token → text (byte-level mapping for English BPE)
+    // Real GPT2-BPE detokenization when the GGUF carried a vocab table;
+    // falls back to the old byte-literal placeholder otherwise (only
+    // coherent for ids < 256 — kept so a model loaded from a GGUF without
+    // "tokenizer.ggml.tokens" still returns *something* instead of an
+    // empty string).
     std::string text;
     for (int id : output) {
-        if (id < 256) {
+        if (id >= 0 && (size_t)id < model.vocab.size() && !model.vocab[id].empty()) {
+            text += whisper_decode_bpe_token(model.vocab[id]);
+        } else if (id < 256) {
             text += (char)id;
         } else {
             char buf[32]; snprintf(buf, sizeof(buf), "[%d]", id);

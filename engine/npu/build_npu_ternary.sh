@@ -23,6 +23,8 @@ CFG1="${TORCH2AIE}/examples/gemm_asymmetric_tile_buffering/config1"
 OUT_DIR="${SCRIPT_DIR}/xclbins"
 
 export PATH="${TORCH2AIE}/toolchain/bin:$PATH"
+# MLIR-AIE Python bindings require Python 3.12 (.so files compiled for cpython-312)
+export AIE_PYTHON="${TORCH2AIE}/.venv/bin/python3.12"
 export PYTHONPATH="${TORCH2AIE}/toolchain/mlir_aie/python"
 export AIETOOLS_DIR="${TORCH2AIE}/toolchain"
 export MLIR_AIE_DIR="${TORCH2AIE}/toolchain/mlir_aie"

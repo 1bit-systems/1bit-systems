@@ -130,6 +130,13 @@ struct WhisperModel {
     // Output projection (tied or separate)
     std::vector<float> output_w;                   // [n_vocab, n_text_state]
 
+    // Token id -> raw vocab string (GPT2 byte-level-BPE alphabet, i.e. NOT
+    // yet decoded back to real bytes — see whisper_decode_token in
+    // whisper.cpp for that). Loaded from the "tokenizer.ggml.tokens" GGUF
+    // array; empty if the GGUF has none (falls back to the byte-literal
+    // placeholder decode).
+    std::vector<std::string> vocab;
+
     bool load_from_gguf(const std::string& path, const WhisperConfig* override_cfg = nullptr);
     void clear();
 };
@@ -210,7 +217,13 @@ namespace whisper_math {
             matmul(&Q[(size_t)t * D], &x[(size_t)t * D], q_w, D, D);
             matmul(&K[(size_t)t * D], &x[(size_t)t * D], k_w, D, D);
             matmul(&V[(size_t)t * D], &x[(size_t)t * D], v_w, D, D);
-            if (q_b) for (int i = 0; i < D; i++) { Q[(size_t)t * D + i] += q_b[i]; K[(size_t)t * D + i] += k_b[i]; V[(size_t)t * D + i] += v_b[i]; }
+            // Real Whisper: key projection has no bias (k_b is null/empty
+            // for a correctly-loaded model) — checked independently, not
+            // bundled under q_b, so a missing k_b doesn't skip q_b/v_b or
+            // dereference a null k_b.
+            if (q_b) for (int i = 0; i < D; i++) Q[(size_t)t * D + i] += q_b[i];
+            if (k_b) for (int i = 0; i < D; i++) K[(size_t)t * D + i] += k_b[i];
+            if (v_b) for (int i = 0; i < D; i++) V[(size_t)t * D + i] += v_b[i];
         }
 
         float scale = 1.0f / sqrtf((float)H);
@@ -295,3 +308,11 @@ std::vector<float> whisper_decode_step(const WhisperModel& model, const std::vec
 // audio_pcm: 16kHz mono PCM audio samples
 // Returns transcribed text
 std::string whisper_transcribe(const WhisperModel& model, const float* audio_pcm, int n_samples);
+
+// Decodes one GPT2 byte-level-BPE vocab entry (as stored in the GGUF —
+// UTF-8 text using the standard byte<->unicode remapping alphabet, e.g.
+// a literal space is the two-byte UTF-8 sequence for U+0120 'Ġ', not an
+// ASCII space) back to its original raw bytes. Malformed input passes
+// through unchanged rather than throwing, since this feeds directly into
+// user-visible transcription output.
+std::string whisper_decode_bpe_token(const std::string& token_text);

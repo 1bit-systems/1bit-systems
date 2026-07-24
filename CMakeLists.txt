@@ -883,6 +883,12 @@ target_link_libraries(whisper_demo PRIVATE
     whisper backend_manager vl_image dl
     ${CMAKE_DL_LIBS})
 
+# -- whisper_ggml_to_gguf : one-off asset-prep converter (legacy ggml.bin
+# whisper models -> this project's own strict-GGUF format). Not part of
+# the runtime product; only used to prepare a model file for jarvis_server.
+add_executable(whisper_ggml_to_gguf tools/whisper_ggml_to_gguf.cpp)
+target_compile_options(whisper_ggml_to_gguf PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
+
 # -- test_vit_encoder : Standalone ViT encoder test ---------------------------------
 add_executable(test_vit_encoder tools/test_vit_encoder.cpp)
 target_include_directories(test_vit_encoder PRIVATE src/ include/)
