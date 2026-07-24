@@ -36,11 +36,13 @@
 #include <mutex>
 #include <unistd.h>
 
+#include "jarvis/audio_out.h"
 #include "jarvis/beacon.h"
 #include "jarvis/planner.h"
 #include "jarvis/rag.h"
 #include "jarvis/routing.h"
 #include "jarvis/tools.h"
+#include "jarvis/tts.h"
 #include "whisper.h"
 
 using json = nlohmann::json;
@@ -421,6 +423,23 @@ int main(int argc, char** argv) {
             entries.push_back({{"path", rel}, {"title", title}, {"category", category}, {"tags", tags}, {"size", (size_t)size}});
         }
         res.set_content(json{{"entries", entries}}.dump(), "application/json");
+        add_cors(res);
+    });
+
+    svr.Get("/v1/audio/devices", [&](const httplib::Request&, httplib::Response& res) {
+        json devices = json::array();
+        PlaybackDevice active;
+        bool has_active = find_external_speaker(&active);
+        for (auto& d : list_playback_devices()) {
+            devices.push_back({{"card", d.card}, {"device", d.device}, {"name", d.name},
+                                {"device_name", d.device_name}, {"is_onboard", d.is_onboard}, {"alsa_id", d.alsa_id}});
+        }
+        json response = {{"devices", devices}, {"external_speaker_connected", has_active}};
+        if (has_active) {
+            response["active"] = {{"card", active.card}, {"device", active.device}, {"name", active.name},
+                                   {"device_name", active.device_name}, {"alsa_id", active.alsa_id}};
+        }
+        res.set_content(response.dump(2), "application/json");
         add_cors(res);
     });
 

@@ -1,114 +1,103 @@
-//===- mm_ternary_tq2.cc ----------------------------------------*- C++ -*-===//
+// mm_ternary_tq2.cc — TQ2 ternary — LUT decode + block-vectorized mac_8x8_8x8T
 //
-// TQ2 ternary AIE microkernel — LUT decode + scalar MAC
+// Decodes ternary to bf16 in L1, feeds through block_vector streams for
+// bfp16ebs8 conversion, then mac_8x8_8x8T for full vector throughput.
 //
-// Phase 2 final: loads 2-bit ternary codes from DDR, LUT-decodes on-tile,
-// applies per-group scales, accumulates with bf16 activations.
-//
-// The scalar MAC fallback is correct but ~8× slower than the block-vectorized
-// mac_8x8_8x8T path. Replace the inner accumulation loop with the reference
-// kernel's ping-pong MAC pattern for full throughput (see mm_bfp_mixed.cc).
+// The 8×8 weight block is assembled into a contiguous temp buffer, loaded
+// as a single vector, converted to bfp16ebs8 via accfloat, then pushed
+// to the output stream. The input stream's pop() returns the native type
+// mac_8x8_8x8T needs.
 //
 // Licensed under Apache 2.0 with LLVM Exceptions.
-//
-//===----------------------------------------------------------------------===//
 
 #include "aie_kernel_utils.h"
 #include <aie_api/aie.hpp>
 
-constexpr int M_TILE = 32;
-constexpr int K_TILE = 64;
-constexpr int N_TILE = 128;
-
-// LUT: byte → 4× ternary values as uint32_t (one int8 per byte)
-alignas(32) static const uint32_t tq2_lut[256] = {
-    0x00000000,0x00000001,0x000000FF,0x00000000,0x00000100,0x00000101,0x000001FF,0x00000100,
-    0x0000FF00,0x0000FF01,0x0000FFFF,0x0000FF00,0x00000000,0x00000001,0x000000FF,0x00000000,
-    0x00010000,0x00010001,0x000100FF,0x00010000,0x00010100,0x00010101,0x000101FF,0x00010100,
-    0x0001FF00,0x0001FF01,0x0001FFFF,0x0001FF00,0x00010000,0x00010001,0x000100FF,0x00010000,
-    0x00FF0000,0x00FF0001,0x00FF00FF,0x00FF0000,0x00FF0100,0x00FF0101,0x00FF01FF,0x00FF0100,
-    0x00FFFF00,0x00FFFF01,0x00FFFFFF,0x00FFFF00,0x00FF0000,0x00FF0001,0x00FF00FF,0x00FF0000,
-    0x00000000,0x00000001,0x000000FF,0x00000000,0x00000100,0x00000101,0x000001FF,0x00000100,
-    0x0000FF00,0x0000FF01,0x0000FFFF,0x0000FF00,0x00000000,0x00000001,0x000000FF,0x00000000,
-    0x01000000,0x01000001,0x010000FF,0x01000000,0x01000100,0x01000101,0x010001FF,0x01000100,
-    0x0100FF00,0x0100FF01,0x0100FFFF,0x0100FF00,0x01000000,0x01000001,0x010000FF,0x01000000,
-    0x01010000,0x01010001,0x010100FF,0x01010000,0x01010100,0x01010101,0x010101FF,0x01010100,
-    0x0101FF00,0x0101FF01,0x0101FFFF,0x0101FF00,0x01010000,0x01010001,0x010100FF,0x01010000,
-    0x01FF0000,0x01FF0001,0x01FF00FF,0x01FF0000,0x01FF0100,0x01FF0101,0x01FF01FF,0x01FF0100,
-    0x01FFFF00,0x01FFFF01,0x01FFFFFF,0x01FFFF00,0x01FF0000,0x01FF0001,0x01FF00FF,0x01FF0000,
-    0x01000000,0x01000001,0x010000FF,0x01000000,0x01000100,0x01000101,0x010001FF,0x01000100,
-    0x0100FF00,0x0100FF01,0x0100FFFF,0x0100FF00,0x01000000,0x01000001,0x010000FF,0x01000000,
-    0x00000000,0x00000001,0x000000FF,0x00000000,0x00000100,0x00000101,0x000001FF,0x00000100,
-    0x0000FF00,0x0000FF01,0x0000FFFF,0x0000FF00,0x00000000,0x00000001,0x000000FF,0x00000000,
-    0x00010000,0x00010001,0x000100FF,0x00010000,0x00010100,0x00010101,0x000101FF,0x00010100,
-    0x0001FF00,0x0001FF01,0x0001FFFF,0x0001FF00,0x00010000,0x00010001,0x000100FF,0x00010000,
-    0x00FF0000,0x00FF0001,0x00FF00FF,0x00FF0000,0x00FF0100,0x00FF0101,0x00FF01FF,0x00FF0100,
-    0x00FFFF00,0x00FFFF01,0x00FFFFFF,0x00FFFF00,0x00FF0000,0x00FF0001,0x00FF00FF,0x00FF0000,
-    0x00000000,0x00000001,0x000000FF,0x00000000,0x00000100,0x00000101,0x000001FF,0x00000100,
-    0x0000FF00,0x0000FF01,0x0000FFFF,0x0000FF00,0x00000000,0x00000001,0x000000FF,0x00000000,
-    0x01000000,0x01000001,0x010000FF,0x01000000,0x01000100,0x01000101,0x010001FF,0x01000100,
-    0x0100FF00,0x0100FF01,0x0100FFFF,0x0100FF00,0x01000000,0x01000001,0x010000FF,0x01000000,
-    0x01010000,0x01010001,0x010100FF,0x01010000,0x01010100,0x01010101,0x010101FF,0x01010100,
-    0x0101FF00,0x0101FF01,0x0101FFFF,0x0101FF00,0x01010000,0x01010001,0x010100FF,0x01010000,
-    0x01FF0000,0x01FF0001,0x01FF00FF,0x01FF0000,0x01FF0100,0x01FF0101,0x01FF01FF,0x01FF0100,
-    0x01FFFF00,0x01FFFF01,0x01FFFFFF,0x01FFFF00,0x01FF0000,0x01FF0001,0x01FF00FF,0x01FF0000,
-    0x01000000,0x01000001,0x010000FF,0x01000000,0x01000100,0x01000101,0x010001FF,0x01000100,
-    0x0100FF00,0x0100FF01,0x0100FFFF,0x0100FF00,0x01000000,0x01000001,0x010000FF,0x01000000,
-};
+constexpr int M = 32, K = 64, N = 128;
 
 extern "C" {
+static int g = 0;
 
-static int g_counter = 0;
-
-// ─── TQ2 ternary GEMV ────────────────────────────────────────────
-void ternary_tq2_gemv(bfloat16 *pA, uint8_t *pB,
-                       bfloat16 *pS, bfloat16 *pC) {
+void ternary_tq2_gemv(bfloat16 *pA, uint8_t *pB, bfloat16 *pS, bfloat16 *pC) {
     event0();
-    pC += g_counter * M_TILE * N_TILE;
-    if (g_counter == 3) g_counter = 0; else g_counter++;
+    pC += g * M * N; if (g == 3) g = 0; else g++;
 
-    // Step 1: LUT-decode ternary codes to int8
-    // Packed as int8 in decoded buffer (use int8 via float cast for AIE2 compat)
-    alignas(32) float w_dec_f32[N_TILE * K_TILE];  // float for AIE2 compat
-
-    for (int n = 0; n < N_TILE; n++) {
-        auto *src = pB + n * K_TILE / 4;
-        auto *dst = w_dec_f32 + n * K_TILE;
+    // LUT-decode ternary → bf16
+    alignas(32) bfloat16 w[M * N]; // transposed: w[row*n + col] for contiguous 8×8 blocks
+    // Actually store in [n*K + k] layout, use temp buffer for 8×8 assembly
+    
+    // Decode ternary codes to bf16 in [n*K + k] layout
+    alignas(32) bfloat16 wb[N * K];
+    static const bfloat16 cv[4] = {(bfloat16)-1,(bfloat16)0,(bfloat16)1,(bfloat16)0};
+    for (int n = 0; n < N; n++) {
+        auto *s = pB + n * K / 4;
+        auto *d = wb + n * K;
         for (int i = 0; i < 16; i++) {
-            uint32_t lut = tq2_lut[src[i]];
-            dst[i*4+0] = (float)(int8_t)(lut & 0xFF);
-            dst[i*4+1] = (float)(int8_t)((lut >> 8) & 0xFF);
-            dst[i*4+2] = (float)(int8_t)((lut >> 16) & 0xFF);
-            dst[i*4+3] = (float)(int8_t)((lut >> 24) & 0xFF);
+            uint8_t b = s[i];
+            d[i*4+0] = cv[b & 3]; d[i*4+1] = cv[(b>>2)&3];
+            d[i*4+2] = cv[(b>>4)&3]; d[i*4+3] = cv[(b>>6)&3];
         }
     }
+    // Apply scales
+    for (int n = 0; n < N; n++)
+        for (int grp = 0; grp < 2; grp++)
+            for (int i = 0; i < 32; i++)
+                wb[n * K + grp * 32 + i] = wb[n * K + grp * 32 + i] * pS[n * 2 + grp];
 
-    // Step 2: Scalar MAC (correct, ~8× slower than block-vectorized)
-    // Optimization path: replace with mac_8x8_8x8T via bfp16ebs8 blocks
-    // See mm_bfp_mixed.cc for the full-throughput MAC reference.
-    for (int m = 0; m < M_TILE; m++) {
-        for (int n = 0; n < N_TILE; n++) {
-            float sum = 0.0f;
-            auto *w = w_dec_f32 + n * K_TILE;
-            auto *a = pA + m * K_TILE;
-            for (int g = 0; g < K_TILE / 32; g++) {
-                float s = (float)pS[n * (K_TILE / 32) + g];
-                for (int i = 0; i < 32; i++) {
-                    sum += w[g * 32 + i] * s * (float)a[g * 32 + i];
-                }
+    // Convert to bfp16ebs8 blocks: assemble 8×8 tiles into contiguous buffer
+    alignas(32) bfp16ebs8 w_bfp[N / 8 * K / 8];
+    alignas(32) bfp16ebs8 a_bfp[M * K / 64];
+
+    // Weight blocks: copy 8 strided rows into a flat temp buffer, then convert
+    {
+        aie::block_vector_output_buffer_stream<bfp16ebs8, 64> ws(w_bfp);
+        alignas(32) bfloat16 tmp[64]; // 8×8 contiguous buffer
+        for (int nb = 0; nb < N / 8; nb++) {
+            for (int kb = 0; kb < K / 8; kb++) {
+                // Copy 8 rows × 8 cols from strided layout to contiguous
+                for (int r = 0; r < 8; r++)
+                    for (int c = 0; c < 8; c++)
+                        tmp[r * 8 + c] = wb[(nb * 8 + r) * K + kb * 8 + c];
+                // Load as 64-element bf16 vector (contiguous → one load_v<64>)
+                auto v = aie::load_v<64>(tmp);
+                aie::accum<accfloat, 64> acc; acc.from_vector(v, 0);
+                ws.push(acc.template to_vector<bfp16ebs8>());
             }
-            pC[m * N_TILE + n] += (bfloat16)sum;
+        }
+    }
+    // Activation blocks: contiguous in memory, load directly
+    {
+        aie::block_vector_output_buffer_stream<bfp16ebs8, 64> as(a_bfp);
+        for (int i = 0; i < M * K / 64; i++) {
+            auto v = aie::load_v<64>(pA + i * 64);
+            aie::accum<accfloat, 64> acc; acc.from_vector(v, 0);
+            as.push(acc.template to_vector<bfp16ebs8>());
         }
     }
 
+    // mac_8x8_8x8T via stream pop()
+    aie::block_vector_input_buffer_stream<bfp16ebs8, 64> ws_in(w_bfp);
+    aie::block_vector_input_buffer_stream<bfp16ebs8, 64> as_in(a_bfp);
+
+    for (int mb = 0; mb < M / 16; mb++) {
+        for (int nb = 0; nb < N / 16; nb++) {
+            auto *blk = pC + mb * N * 16 + nb * 16;
+            aie::accum<accfloat, 64> a0(aie::load_v<64>(blk));
+            aie::accum<accfloat, 64> a1(aie::load_v<64>(blk + 64));
+            for (int k = 0; k < K / 8; k++) {
+                auto A0 = as_in.pop(), A1 = as_in.pop();
+                auto B0 = ws_in.pop(), B1 = ws_in.pop();
+                a0 = mac_8x8_8x8T(A0, B0, a0);
+                a1 = mac_8x8_8x8T(A0, B1, a1);
+            }
+            aie::store_v(blk, a0.template to_vector<bfloat16>());
+            aie::store_v(blk + 64, a1.template to_vector<bfloat16>());
+        }
+    }
     event1();
 }
-
 void zero_kernel_ternary(bfloat16 *cOut) {
-    constexpr int N = M_TILE * N_TILE;
-    constexpr int r = 512 / 16;
-    auto zeros = aie::zeros<bfloat16, r>();
-    for (int i = 0; i < N; i += r)
-        aie::store_v(cOut + i, zeros);
+    auto z = aie::zeros<bfloat16, 32>();
+    for (int i = 0; i < M * N; i += 32) aie::store_v(cOut + i, z);
 }
 }
