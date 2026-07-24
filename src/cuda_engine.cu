@@ -249,16 +249,16 @@ static void launch_gemv(half* out, const half* in, const half* wt, int M, int K,
     // Use cuBLAS GEMV when available for better performance
     cublasHandle_t cublas = get_cublas();
     if (cublas) {
-        // cuBLAS: cublasGemmEx with col-major. Our weights are row-major [K, M]
-        // so we treat this as CUBLAS_OP_N: out[M] = wt[M, K] @ in[K]
-        // Using Sbgemm... actually use cublasGemmEx for fp16
+        // Weight `wt` is stored row-major [K][M]: wt[k*M + m] = weight for output m from input k.
+        // In cuBLAS column-major, this is an M×K matrix A where A[m][k] = wt[k*M + m] = wt[m + k*M].
+        // So we need CUBLAS_OP_N: out[M×1] = A[M×K] @ in[K×1].
         float alpha = 1.0f, beta = 0.0f;
-        cublasGemmEx(cublas, CUBLAS_OP_T, CUBLAS_OP_N,
+        cublasGemmEx(cublas, CUBLAS_OP_N, CUBLAS_OP_N,
                      M, 1, K, &alpha,
-                     wt, CUDA_R_16F, K,
-                     in, CUDA_R_16F, K,
+                     wt, CUDA_R_16F, M,    // A is M×K col-major, lda=M
+                     in, CUDA_R_16F, K,    // x is K×1
                      &beta,
-                     out, CUDA_R_16F, M,
+                     out, CUDA_R_16F, M,   // y is M×1
                      CUBLAS_COMPUTE_32F,
                      CUBLAS_GEMM_DEFAULT);
     } else {
