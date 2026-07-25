@@ -53,6 +53,17 @@ struct BackendInfo {
 
     std::shared_ptr<Backend> instance;  // shared_ptr enables lock-free inference (fixes #96)
     void* plugin_handle;       // dlopen handle if loaded as plugin
+
+    // Guards actual compute calls (generate/reset/benchmark/init) on `instance`.
+    // generate() intentionally releases BackendManager::mtx_ during inference
+    // (fixes #96) so slow calls don't block bookkeeping, but that means mtx_
+    // alone can't stop AgentWatchdog's health_check()/benchmark_all() from
+    // calling reset()/benchmark()/init() on the same live instance concurrently
+    // with an in-flight generate() — a data race on the backend's internal
+    // state (e.g. HIPBackend's ZayaState/pos) that crashed the agent-watchdog
+    // thread inside zaya_init on 2026-07-24. shared_ptr so BackendInfo stays
+    // movable/copyable in the vector.
+    std::shared_ptr<std::mutex> compute_mtx = std::make_shared<std::mutex>();
 };
 
 // ── Fallback policy ──

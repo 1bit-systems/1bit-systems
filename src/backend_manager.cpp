@@ -497,6 +497,7 @@ int BackendManager::generate(int token_id) {
     // actually ran the inference, not whatever select_backend() may have
     // switched to in the meantime (issue #357).
     std::shared_ptr<Backend> snap;
+    std::shared_ptr<std::mutex> compute_mtx;
     size_t snap_idx = 0;
     bool need_failover = false;
     size_t prev_idx = 0;
@@ -507,14 +508,19 @@ int BackendManager::generate(int token_id) {
         auto& info = backends_[active_idx_];
         if (info.functional && info.instance) {
             snap = info.instance;  // shared_ptr copy — keeps Backend alive
+            compute_mtx = info.compute_mtx;
         } else {
             need_failover = true;
             prev_idx = active_idx_;
         }
     }
 
-    // Phase 2: inference WITHOUT the lock — snap keeps the Backend alive.
+    // Phase 2: inference WITHOUT mtx_ — snap keeps the Backend alive.
+    // compute_mtx IS held here: it serializes against health_check()'s
+    // reset() and benchmark_all()'s benchmark()/init() on this same
+    // instance, which mtx_ alone can't do since it's released for this call.
     if (snap) {
+        std::lock_guard<std::mutex> compute_lock(*compute_mtx);
         auto t0 = std::chrono::high_resolution_clock::now();
         int result = -1;
         // A backend that throws (e.g. a missing Vulkan shader, a HIP fault)
@@ -708,8 +714,14 @@ bool BackendManager::health_check() {
 
     if (active_idx_ < backends_.size()) {
         auto& info = backends_[active_idx_];
-        // Simple probe: try reset
-        bool ok = b->reset();
+        // Simple probe: try reset. Hold compute_mtx — reset() mutates the
+        // same instance state (e.g. HIPBackend's ZayaState/pos) that a
+        // concurrent generate() call may be using via Phase 2's lock-free path.
+        bool ok;
+        {
+            std::lock_guard<std::mutex> compute_lock(*info.compute_mtx);
+            ok = b->reset();
+        }
         info.functional = ok;
         auto* pm = monitor_.for_backend(info.id);
         if (pm) pm->healthy = ok;
@@ -749,6 +761,12 @@ void BackendManager::benchmark_all(int tokens) {
 
         printf("  %s... ", info.id.c_str());
         fflush(stdout);
+
+        // Hold compute_mtx for init()/benchmark() below — if info.instance
+        // is already live (e.g. this is the currently-active backend), it
+        // may be in concurrent use via generate()'s lock-free Phase 2; this
+        // serializes against that instead of racing on shared instance state.
+        std::lock_guard<std::mutex> compute_lock(*info.compute_mtx);
 
         // Create instance if needed. init()/benchmark() may THROW (missing
         // Vulkan shader, driver fault, OOM) — a broken backend must be skipped,
