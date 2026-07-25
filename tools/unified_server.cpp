@@ -1036,7 +1036,12 @@ int main(int argc, char** argv) {
             response["per_token_backend"] = gen_result["per_token_backend"];
         }
 
-        res.set_content(response.dump(2), "application/json");
+        // error_handler_t::replace: decoded model text isn't guaranteed valid
+        // UTF-8 (byte-level BPE tokenizers like blackmamba's GPT-NeoX-20B
+        // .htok can decode to a stray byte sequence at a token boundary) --
+        // strict (default) dump() throws type_error.316, which previously
+        // escaped as an uncaught exception -> empty 500, no app-level log line.
+        res.set_content(response.dump(2, ' ', false, json::error_handler_t::replace), "application/json");
         add_cors(res);
 
         // Log to stdout
@@ -1115,7 +1120,8 @@ int main(int argc, char** argv) {
         response["backend_used"] = gen_result["backend_used"];
 
         res.set_header("X-Backend-Id", gen_result.value("backend_used", "unknown"));
-        res.set_content(response.dump(2), "application/json");
+        // See error_handler_t::replace note on the /v1/chat/completions handler above.
+        res.set_content(response.dump(2, ' ', false, json::error_handler_t::replace), "application/json");
         add_cors(res);
     });
 
