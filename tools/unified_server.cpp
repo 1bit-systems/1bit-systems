@@ -154,9 +154,9 @@ static std::string resolve_strategy_name(const httplib::Request& req) {
 }
 
 // ── Build model info JSON ──
-static json model_info_json(const BackendInfo* active) {
+static json model_info_json(const BackendInfo* active, const std::string& model_name = "unknown") {
     json j;
-    j["id"] = "zaya";
+    j["id"] = model_name;
     j["object"] = "model";
     j["created"] = time(nullptr);
     j["owned_by"] = "1bit-systems";
@@ -696,7 +696,7 @@ int main(int argc, char** argv) {
     // ── Phase 5: Initialize Strategy Engine ──
     printf("\n── Strategy Engine ──\n");
     {
-        auto perf_table = build_performance_table(mgr, "zaya");
+        auto perf_table = build_performance_table(mgr, current_cfg.model_name);
         printf("  Performance table (%zu backends):\n", perf_table.size());
         for (auto& r : perf_table) {
             printf("    %-20s -> %-12s (%.0f tok/s)\n",
@@ -760,7 +760,7 @@ int main(int argc, char** argv) {
         std::lock_guard<std::mutex> _l2(g_strategy_mutex, std::adopt_lock);
         json j = health_json(mgr);
         j["version"] = "unified-server-1.0";
-        j["model"] = "zaya";
+        j["model"] = current_cfg.model_name;
         j["weights_dir"] = g_weights_dir;
         j["uptime"] = std::to_string(time(nullptr)) + "s";
         res.set_content(j.dump(2), "application/json");
@@ -797,7 +797,7 @@ int main(int argc, char** argv) {
             for (auto& m : discovered) {
                 if (m.model_name == active->id) { found = true; break; }
             }
-            if (!found) models.push_back(model_info_json(active));
+            if (!found) models.push_back(model_info_json(active, current_cfg.model_name));
         }
         j["data"] = models;
         res.set_content(j.dump(2), "application/json");
@@ -997,7 +997,7 @@ int main(int argc, char** argv) {
         response["id"] = "cmpl-" + std::to_string(time(nullptr));
         response["object"] = "chat.completion";
         response["created"] = time(nullptr);
-        response["model"] = "zaya";
+        response["model"] = current_cfg.model_name;
 
         json choice;
         choice["index"] = 0;
@@ -1148,7 +1148,7 @@ int main(int argc, char** argv) {
         }
 
         // Build performance table for strategy init
-        auto perf_table = build_performance_table(mgr, "zaya");
+        auto perf_table = build_performance_table(mgr, current_cfg.model_name);
         // Lock strategy mutex while reinitializing the engine (fixes #364)
         std::lock_guard<std::mutex> lock(g_strategy_mutex);
         bool ok = g_strategy_engine.init(name, mgr, perf_table);

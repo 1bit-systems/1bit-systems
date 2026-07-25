@@ -622,7 +622,7 @@ target_link_libraries(test_medusa_skeleton PRIVATE rocm_cpp)
 # the rocm_cpp dependency). Run without a model to see usage.
 add_executable(test_backend tests/test_backend.cpp)
 target_include_directories(test_backend PRIVATE src)
-target_compile_options(test_backend PRIVATE -O3 -Wall -Wno-unused-result -std=c++23 -DZINC_DISABLED)
+target_compile_options(test_backend PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
 target_link_libraries(test_backend PRIVATE backend_manager)
 
 set(BONSAI_H1B_MODEL "" CACHE FILEPATH "Path to a Bonsai .h1b model for test_bonsai_e2e (empty = skip)")
