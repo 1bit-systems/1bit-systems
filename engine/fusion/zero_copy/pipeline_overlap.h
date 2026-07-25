@@ -32,7 +32,9 @@ struct PipelineConfig {
     size_t hidden_dim    = 2048; // H
     size_t inter_size    = 2048; // FFN intermediate dim
     size_t batch_size    = 1;
-    size_t attn_scratch  = 0;    // additional GPU scratch per slot (e.g. KV cache)
+    size_t attn_scratch  = 0;    // widest per-half slot width in floats, if > hidden_dim
+                                  // (e.g. gpu_attn_fn's raw NH*HD output before a projection
+                                  // back down to hidden_dim); 0 means "same as hidden_dim"
 };
 
 // Result from one forward pass (for instrumentation/profiling).

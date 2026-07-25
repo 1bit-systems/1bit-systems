@@ -204,26 +204,49 @@ int main(int argc, char** argv) {
     std::vector<float> dw2(IM*H, 0.01f); cd.packB(dw2.data(), IM, H, ds);
     fprintf(stderr, "NPU GEMM: GU(%dx%d) D(%dx%d)\n", H, 2*IM, IM, H);
     
-    // Allocate GPU KV cache — check errors to avoid null-ptr crashes
-    float *d_K=nullptr, *d_V=nullptr;
+    // Allocate GPU KV cache as host-pinned, GPU-mapped memory (hipHostMalloc):
+    // gpu_attn() below dereferences these pointers directly from the CPU
+    // (lines writing d_K/d_V/d_Q and reading d_AttnOut) while also passing
+    // device-side aliases to the GPU kernel — plain hipMalloc gives
+    // device-private VRAM that isn't CPU-addressable, which segfaulted here
+    // (host read of d_AttnOut after the kernel wrote it). hipHostMalloc +
+    // hipHostGetDevicePointer is the documented "zero-copy idiom" this file's
+    // own header comment calls for (see shared_bo.h), just applied directly
+    // instead of via the fuller SharedBO path.
+    // d_K/d_V must be __half* (not float*): sized via sizeof(__half) and fed
+    // __half values below, and rcpp_kv_cache_attn_decode's kernel casts
+    // K_dev/V_dev to const __half* internally — a float* here silently wrote
+    // valid-looking but wrongly-strided/wrongly-typed data.
+    __half *d_K=nullptr, *d_V=nullptr;
+    __half *dev_K=nullptr, *dev_V=nullptr;
     int max_seq = 4096;
     size_t kv_bytes = (size_t)max_seq * NKV * HD * sizeof(__half);
-    if (hipSuccess != hipMalloc(&d_K, kv_bytes)) { fprintf(stderr,"FAIL hipMalloc K\n"); return 1; }
-    if (hipSuccess != hipMemsetAsync(d_K, 0, kv_bytes, gpu_stream)) { fprintf(stderr,"FAIL hipMemsetAsync K\n"); return 1; }
-    if (hipSuccess != hipMalloc(&d_V, kv_bytes)) { fprintf(stderr,"FAIL hipMalloc V\n"); return 1; }
-    if (hipSuccess != hipMemsetAsync(d_V, 0, kv_bytes, gpu_stream)) { fprintf(stderr,"FAIL hipMemsetAsync V\n"); return 1; }
+    if (hipSuccess != hipHostMalloc(&d_K, kv_bytes, hipHostMallocMapped)) { fprintf(stderr,"FAIL hipHostMalloc K\n"); return 1; }
+    memset(d_K, 0, kv_bytes);
+    if (hipSuccess != hipHostGetDevicePointer((void**)&dev_K, d_K, 0)) { fprintf(stderr,"FAIL hipHostGetDevicePointer K\n"); return 1; }
+    if (hipSuccess != hipHostMalloc(&d_V, kv_bytes, hipHostMallocMapped)) { fprintf(stderr,"FAIL hipHostMalloc V\n"); return 1; }
+    memset(d_V, 0, kv_bytes);
+    if (hipSuccess != hipHostGetDevicePointer((void**)&dev_V, d_V, 0)) { fprintf(stderr,"FAIL hipHostGetDevicePointer V\n"); return 1; }
 
-    // GPU buffer for Q (f16) and attention output (f16)
+    // Host-pinned, GPU-mapped buffer for Q (f16) and attention output (f16) — same reasoning as above.
     __half *d_Q=nullptr, *d_AttnOut=nullptr;
+    __half *dev_Q=nullptr, *dev_AttnOut=nullptr;
     size_t q_bytes = (size_t)NH * HD * sizeof(__half);
-    if (hipSuccess != hipMalloc(&d_Q, q_bytes)) { fprintf(stderr,"FAIL hipMalloc Q\n"); return 1; }
-    if (hipSuccess != hipMemsetAsync(d_Q, 0, q_bytes, gpu_stream)) { fprintf(stderr,"FAIL hipMemsetAsync Q\n"); return 1; }
-    if (hipSuccess != hipMalloc(&d_AttnOut, q_bytes)) { fprintf(stderr,"FAIL hipMalloc AttnOut\n"); return 1; }
-    if (hipSuccess != hipMemsetAsync(d_AttnOut, 0, q_bytes, gpu_stream)) { fprintf(stderr,"FAIL hipMemsetAsync AttnOut\n"); return 1; }
+    if (hipSuccess != hipHostMalloc(&d_Q, q_bytes, hipHostMallocMapped)) { fprintf(stderr,"FAIL hipHostMalloc Q\n"); return 1; }
+    memset(d_Q, 0, q_bytes);
+    if (hipSuccess != hipHostGetDevicePointer((void**)&dev_Q, d_Q, 0)) { fprintf(stderr,"FAIL hipHostGetDevicePointer Q\n"); return 1; }
+    if (hipSuccess != hipHostMalloc(&d_AttnOut, q_bytes, hipHostMallocMapped)) { fprintf(stderr,"FAIL hipHostMalloc AttnOut\n"); return 1; }
+    memset(d_AttnOut, 0, q_bytes);
+    if (hipSuccess != hipHostGetDevicePointer((void**)&dev_AttnOut, d_AttnOut, 0)) { fprintf(stderr,"FAIL hipHostGetDevicePointer AttnOut\n"); return 1; }
     
     // Pipeline config
     fusion::PipelineConfig cfg;
     cfg.layer_count = NC; cfg.hidden_dim = H; cfg.inter_size = IM; cfg.batch_size = 1;
+    // gpu_attn below writes NH*HD floats into out_f32 (raw attention output,
+    // no output projection in this demo) — wider than hidden_dim, so the
+    // slot buffer must be sized off that, not hidden_dim. See
+    // pipeline_overlap.h's attn_scratch doc.
+    cfg.attn_scratch = (size_t)NH * HD;
     fusion::PipelineOverlap pl(cfg, npu);
     fprintf(stderr, "Pipeline: %d layers, H=%d, NH=%d, NKV=%d, HD=%d, IM=%d\n",
             NC, H, NH, NKV, HD, IM);
@@ -241,8 +264,10 @@ int main(int argc, char** argv) {
         
         // Launch Flash-Decoding attention on GPU
         // Q=[NH,HD], K_cache/V_cache=[seq_len,NKV,HD]
+        // Device-side aliases (dev_*) of the same host-pinned pages — the
+        // kernel needs the GPU-mapped pointer, not the host one.
         int ar = rcpp_kv_cache_attn_decode(
-            d_Q, d_K, d_V, d_AttnOut,
+            dev_Q, dev_K, dev_V, dev_AttnOut,
             NH, NKV, HD, seq_len, attn_scale, gpu_stream);
         if (ar != 0) fprintf(stderr, "rcpp_kv_cache_attn_decode: rc=%d\n", ar);
 
@@ -299,9 +324,9 @@ int main(int argc, char** argv) {
     if (ms < seq) fprintf(stderr, "✅ REAL GPU+NPU OVERLAP — attention on GPU, FFN on NPU\n");
     else fprintf(stderr, "⚠️  Sequential — tune work sizes for overlap\n");
     
-    // Cleanup
-    auto hip_free = [](void* p) { if (p) { hipError_t e = hipFree(p); if (e != hipSuccess) fprintf(stderr, "hipFree: %s\n", hipGetErrorString(e)); } };
-    hip_free(d_K); hip_free(d_V); hip_free(d_Q); hip_free(d_AttnOut);
+    // Cleanup — hipHostFree, matching the hipHostMalloc allocations above.
+    auto hip_host_free = [](void* p) { if (p) { hipError_t e = hipHostFree(p); if (e != hipSuccess) fprintf(stderr, "hipHostFree: %s\n", hipGetErrorString(e)); } };
+    hip_host_free(d_K); hip_host_free(d_V); hip_host_free(d_Q); hip_host_free(d_AttnOut);
     if (hipSuccess != hipStreamDestroy(gpu_stream)) fprintf(stderr, "hipStreamDestroy failed\n");
     return 0;
 }

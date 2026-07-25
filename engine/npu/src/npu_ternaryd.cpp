@@ -191,11 +191,6 @@ struct TernaryCtx {
     const uint8_t* weights_host_ptr = nullptr;
     const uint16_t* scales_host_ptr = nullptr;
 
-    ~TernaryCtx() {
-        delete[] weights_host_ptr;
-        delete[] scales_host_ptr;
-    }
-
     bool init(xrt::device& dev,
               const xrt::uuid& single_uuid, const std::vector<uint32_t>& single_instr,
               const xrt::uuid& multi_uuid,  const std::vector<uint32_t>& multi_instr,
@@ -209,11 +204,11 @@ struct TernaryCtx {
         sc_uuid = single_uuid;  sc_instr = single_instr;
         mc_uuid = multi_uuid;   mc_instr = multi_instr;
 
-        weights_bytes = (size_t)M_total * (size_t)K_packed_total;
-        scales_bytes = (size_t)M_total * (size_t)n_blocks * 2;
+        weights_bytes = (size_t)M_total * K_packed_total;
+        scales_bytes = (size_t)M_total * n_blocks * 2;
         // Keep a HOST copy of weights/scales for reliable access
         weights_host_ptr = new uint8_t[weights_bytes];
-        scales_host_ptr = new uint16_t[(size_t)M_total * (size_t)n_blocks];
+        scales_host_ptr = new uint16_t[(size_t)M_total * n_blocks];
         memcpy((void*)weights_host_ptr, packed_weights, weights_bytes);
         memcpy((void*)scales_host_ptr, weight_scales, scales_bytes);
         // Also create device BO for NPU access
@@ -226,6 +221,11 @@ struct TernaryCtx {
         fprintf(stderr, "  [TernaryCtx] M=%d K=%d weights=%zuB (SC=%d MC=%d) OK\n",
                 M, K, weights_bytes + scales_bytes, M_SINGLE, M_MULTI);
         return true;
+    }
+
+    ~TernaryCtx() {
+        delete[] weights_host_ptr;
+        delete[] scales_host_ptr;
     }
 
     // ── dispatch helpers ─────────────────────────────────────
@@ -1128,14 +1128,6 @@ int main(int argc, char** argv) {
     char line[65536];
     while (fgets(line, sizeof(line), stdin)) {
         size_t ll = strlen(line);
-        // Detect truncation: if the line doesn't end with \n and we're not at EOF,
-        // the request exceeded our buffer. Drain the rest and error.
-        if (ll == sizeof(line) - 1 && line[ll - 1] != '\n' && !feof(stdin)) {
-            fprintf(stderr, "[npu_ternaryd] ERROR: request exceeds %zu byte buffer, draining\n", sizeof(line) - 1);
-            int c;
-            while ((c = fgetc(stdin)) != EOF && c != '\n') {}
-            continue;
-        }
         while (ll > 0 && (line[ll-1] == '\n' || line[ll-1] == '\r')) line[--ll] = 0;
         if (ll == 0) continue;
 

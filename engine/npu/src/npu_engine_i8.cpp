@@ -15,6 +15,9 @@ extern "C" float* dequant_i8_to_float(const uint8_t*,int,int*,int*);
 static inline float bf16f(uint16_t v){uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}
 static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:bf16f(v);}
 static inline uint16_t f2bf(float v){uint32_t b;memcpy(&b,&v,4);return(uint16_t)((b+0x8000)>>16);}
+// TODO: Read dimensions from GGUF config instead of hardcoding Qwen3-0.6B defaults.
+// H=hidden_size NC=num_layers NH=num_attention_heads NKV=num_key_value_heads HD=head_dim
+// IM=intermediate_size NV=vocab_size GQA=num_attention_heads/num_key_value_heads
 static constexpr int H=1024,NC=28,NH=16,NKV=8,HD=128,IM=3072,NV=151936,GQA=2;
 static constexpr float EPS=1e-6f; static constexpr int XM=128, AW=4, WQH=NH/AW, WKVH=NKV/AW;
 static inline void cn(float*x,int n){for(int i=0;i<n;i++)if(!std::isfinite(x[i]))x[i]=0.0f;}
@@ -46,7 +49,7 @@ struct AttnK{
     static constexpr int Q_DW=256,K_DW=2048,V_DW=2048,OUT_DW=256;
     int window; std::unique_ptr<xrt::xclbin>xc; std::unique_ptr<xrt::hw_context>hc; std::unique_ptr<xrt::kernel>k;
     std::vector<uint32_t>ins; std::unique_ptr<xrt::bo>bI,bIn,bOut; int32_t*in_m; bool ready=false;
-    bool init(xrt::device&d,int w){window=w;const char* xd=getenv("NPU_XCLBIN_DIR")?getenv("NPU_XCLBIN_DIR"):"int8";char xp[256],ip[256];snprintf(xp,256,"%s/attn_w%d.xclbin",xd,w);snprintf(ip,256,"%s/attn_w%d.insts",xd,w);FILE*f=fopen(ip,"rb");if(!f)return false;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);xc=std::make_unique<xrt::xclbin>(std::string(xp));d.register_xclbin(*xc);hc=std::make_unique<xrt::hw_context>(d,xc->get_uuid());k=std::make_unique<xrt::kernel>(*hc,"MLIR_AIE");bI=std::make_unique<xrt::bo>(d,sz,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));memcpy(bI->map(),ins.data(),sz);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);bIn=std::make_unique<xrt::bo>(d,(Q_DW+2*K_DW+2*V_DW)*4,XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));bOut=std::make_unique<xrt::bo>(d,OUT_DW*4,XRT_BO_FLAGS_HOST_ONLY,k->group_id(4));in_m=(int32_t*)bIn->map();ready=true; return true;}
+    bool init(xrt::device&d,int w){window=w;char xp[256],ip[256];snprintf(xp,256,"/home/bcloud/npu-sandbox/npu-infer/build/chess_infer/attn_w%d.xclbin",w);snprintf(ip,256,"/home/bcloud/npu-sandbox/npu-infer/build/chess_infer/attn_w%d.insts",w);FILE*f=fopen(ip,"rb");if(!f)return false;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);xc=std::make_unique<xrt::xclbin>(std::string(xp));d.register_xclbin(*xc);hc=std::make_unique<xrt::hw_context>(d,xc->get_uuid());k=std::make_unique<xrt::kernel>(*hc,"MLIR_AIE");bI=std::make_unique<xrt::bo>(d,sz,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));memcpy(bI->map(),ins.data(),sz);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);bIn=std::make_unique<xrt::bo>(d,(Q_DW+2*K_DW+2*V_DW)*4,XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));bOut=std::make_unique<xrt::bo>(d,OUT_DW*4,XRT_BO_FLAGS_HOST_ONLY,k->group_id(4));in_m=(int32_t*)bIn->map();ready=true; return true;}
     // CPU attention fallback for faster low-token counts
     static void cpu_attn(const float*Q,const float*K,const float*V,int n,float*out){
         for(int h=0;h<WQH;h++){
@@ -81,7 +84,7 @@ struct AttnK{
 int main(int argc,char**argv){
     setvbuf(stdout,NULL,_IONBF,0);
     printf("=== NPU Engine i8 + Attention ===\n\n");
-    const char*mp=getenv("NPU_MODEL_PATH")?getenv("NPU_MODEL_PATH"):"model.q4nx";
+    const char*mp="/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
     int fd=open(mp,O_RDONLY);struct stat st;fstat(fd,&st);
     uint8_t*md=(uint8_t*)mmap(NULL,st.st_size,PROT_READ,MAP_PRIVATE,fd,0);close(fd);
     uint64_t hsz;memcpy(&hsz,md,8);uint64_t df=8+hsz;
@@ -90,12 +93,29 @@ int main(int argc,char**argv){
     struct LO{uint64_t qp,kp,vp,op,gp,up,dp,in_off,pa_off,qn_off,kn_off;}lo[NC];char b[128];
     for(int l=0;l<NC;l++){snprintf(b,128,"model.layers.%d.self_attn.q_proj.weight",l);lo[l].qp=jo(js,jl,b);snprintf(b,128,"model.layers.%d.self_attn.k_proj.weight",l);lo[l].kp=jo(js,jl,b);snprintf(b,128,"model.layers.%d.self_attn.v_proj.weight",l);lo[l].vp=jo(js,jl,b);snprintf(b,128,"model.layers.%d.self_attn.o_proj.weight",l);lo[l].op=jo(js,jl,b);snprintf(b,128,"model.layers.%d.mlp.gate_proj.weight",l);lo[l].gp=jo(js,jl,b);snprintf(b,128,"model.layers.%d.mlp.up_proj.weight",l);lo[l].up=jo(js,jl,b);snprintf(b,128,"model.layers.%d.mlp.down_proj.weight",l);lo[l].dp=jo(js,jl,b);snprintf(b,128,"model.layers.%d.input_layernorm.weight",l);lo[l].in_off=jo(js,jl,b);snprintf(b,128,"model.layers.%d.post_attention_layernorm.weight",l);lo[l].pa_off=jo(js,jl,b);snprintf(b,128,"model.layers.%d.self_attn.q_norm.weight",l);lo[l].qn_off=jo(js,jl,b);snprintf(b,128,"model.layers.%d.self_attn.k_norm.weight",l);lo[l].kn_off=jo(js,jl,b);}
     uint64_t no=jo(js,jl,"model.norm.weight"),lo_off=jo(js,jl,"lm_head.weight");
+    // Validate hardcoded dimensions against GGUF config
+    {
+        auto jvi = [&](const char* key, int expected) {
+            auto p = (const char*)memmem(js, jl, key, strlen(key));
+            if (!p) { fprintf(stderr, "WARN: key '%s' not found in GGUF metadata\n", key); return; }
+            p = strchr(p, ':');
+            if (!p) return;
+            int val = (int)strtol(p + 1, NULL, 10);
+            if (val != expected)
+                fprintf(stderr, "WARN: %s=%d but hardcoded %s=%d — model may misbehave\n", key, val, key, expected);
+        };
+        jvi("\"model.embedding_length\"", H);
+        jvi("\"model.block_count\"", NC);
+        jvi("\"model.attention.head_count\"", NH);
+        jvi("\"model.attention.head_count_kv\"", NKV);
+        jvi("\"model.attention.layer_norm_epsilon\"", (int)(EPS * 1e6));
+    }
     float in_n[NC][H],pa_n[NC][H],fin[H],qn_w[NC][HD],kn_w[NC][HD];
     for(int l=0;l<NC;l++){auto iw=(const uint16_t*)(md+df+lo[l].in_off),pw_=(const uint16_t*)(md+df+lo[l].pa_off),qw=(const uint16_t*)(md+df+lo[l].qn_off),kw=(const uint16_t*)(md+df+lo[l].kn_off);for(int i=0;i<H;i++){in_n[l][i]=bf16g(iw[i]);pa_n[l][i]=bf16g(pw_[i]);}for(int i=0;i<HD;i++){qn_w[l][i]=bf16g(qw[i]);kn_w[l][i]=bf16g(kw[i]);}}
     {auto fw=(const uint16_t*)(md+df+no);for(int i=0;i<H;i++)fin[i]=bf16g(fw[i]);}
 
     printf("Init 8 contexts...\n");xrt::device dev(0);
-    #define D "int8" /* set $NPU_XCLBIN_DIR to override */
+    #define D "/home/bcloud/npu-sandbox/npu-infer/build/int8"
     I8Ctx cq{"QKV",XM,H,4096},co{"O",XM,NH*HD,H},cg{"GU",XM,H,6144},cd{"D",XM,IM,H};
     cq.init(dev,D"/final_i8_QKV_v.xclbin",D"/insts_i8_QKV_v.txt",4);
     co.init(dev,D"/final_i8_O_v.xclbin",  D"/insts_i8_O_v.txt",  4);
@@ -154,5 +174,5 @@ int main(int argc,char**argv){
         printf("  [%d] %d (%.0fms)\n",st,tok,mss);for(int i=0;i<H;i++)h[i]=bf16g(emb[tok*H+i]);sp++;}
     double tts=std::chrono::duration<double>(std::chrono::steady_clock::now()-tgs).count();
     printf("\n=== %.0f ms/tok ===\n",tts*1000/ng);
-    munmap(md,st.st_size);fflush(stdout);fflush(stderr);_exit(0);
+    munmap(md,st.st_size);return 0;
 }

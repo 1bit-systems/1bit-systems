@@ -350,16 +350,19 @@ bool BackendManager::init_in_order(const ModelConfig& cfg, const std::string& we
             if (pm) pm->healthy = true;
 
             // Initialize cross-layer prefetch pilot
-            if (raw) {
-                raw->set_pilot(&pilot_);
-                pilot_.init(cfg.num_layers, info.type,
-                    [raw](int layer, PilotBackend pb) -> bool {
-                        return raw->preload_layer(layer);
-                    });
-                pilot_.start_worker();
-                pilot_active_ = true;
-                printf("  → PILOT prefetch active (%d layers)\n", cfg.num_layers);
-            }
+            // NOTE: Disabled pending investigation of heap corruption (issue #932).
+            // The worker thread calling preload_layer() may race with httplib
+            // completion handlers. Re-enable when the root cause is found.
+            // if (raw) {
+            //     raw->set_pilot(&pilot_);
+            //     pilot_.init(cfg.num_layers, info.type,
+            //         [raw](int layer, PilotBackend pb) -> bool {
+            //             return raw->preload_layer(layer);
+            //         });
+            //     pilot_.start_worker();
+            //     pilot_active_ = true;
+            //     printf("  → PILOT prefetch active (%d layers)\n", cfg.num_layers);
+            // }
 
             return true;
         }

@@ -5,8 +5,6 @@ project(npu-engine LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# ROCm/HIP used for TheRock amdclang++ runtime (tools only, not the engine)
-find_package(hip REQUIRED)
 find_package(XRT QUIET)
 
 # ── C++ source files (ported from Zig) ───────────────────────────
@@ -95,3 +93,74 @@ target_compile_options(npu_engine_cb PRIVATE
 )
 
 install(TARGETS npu_engine_cb DESTINATION bin)
+
+# ── npu_engine_v13 — Cross-layer pipelined async decode ──
+# Uses async launch/wait to overlap CPU ops with NPU execution.
+set(NPU_V13_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/npu_engine_v13.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dequant_q4nx.cpp
+)
+
+add_executable(npu_engine_v13 ${NPU_V13_SOURCES})
+
+target_include_directories(npu_engine_v13 PRIVATE
+    ${NPU_INCLUDE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../npu-infer/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../include
+)
+
+target_link_libraries(npu_engine_v13
+    ${XRT_CORE_LIBRARIES}
+    m dl pthread uuid
+    OpenMP::OpenMP_CXX
+    aiebu
+)
+
+target_compile_options(npu_engine_v13 PRIVATE
+    -O3 -ffast-math -march=native -funroll-loops -fno-math-errno -mavx512f
+)
+
+install(TARGETS npu_engine_v13 DESTINATION bin)
+
+# ── npu_engine_fused — GPU+NPU fused zero-copy decode ──
+# GPU does QKV+Attn+O, NPU does GU+D, SharedBO zero-copy overlap.
+# ── GPU-accelerated targets — compiled with hipcc (handles __global__ + C++) ──
+execute_process(COMMAND hipconfig --rocmlibdir OUTPUT_VARIABLE HIP_LIB_DIR OUTPUT_STRIP_TRAILING_WHITESPACE)
+find_program(HIPCC hipcc)
+
+if(HIPCC AND HIP_LIB_DIR)
+    macro(add_npu_hip_target target_name source_name)
+        set(NPU_HIP_SRC
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/${source_name}.cpp"
+        )
+        add_executable(${target_name} IMPORTED)
+        
+        # Use hipcc to compile AND link
+        set(TARGET_BIN "${CMAKE_CURRENT_BINARY_DIR}/${target_name}")
+        add_custom_target(${target_name}_build ALL
+            COMMAND ${HIPCC}
+                -D__HIP_PLATFORM_AMD__=1
+                -I${NPU_INCLUDE_DIR}
+                -I${CMAKE_CURRENT_SOURCE_DIR}/../../npu-infer/include
+                -I${CMAKE_CURRENT_SOURCE_DIR}/../../include
+                -I/opt/rocm/include
+                ${NPU_HIP_SRC}
+                ${CMAKE_CURRENT_SOURCE_DIR}/src/dequant_q4nx.cpp
+                -O3 -ffast-math -march=native -funroll-loops -fno-math-errno -mavx512f
+                `pkg-config --cflags --libs xrt-core 2>/dev/null || echo "-lxrt_coreutil -lxrt_core -luuid -lpthread"`
+                -L${HIP_LIB_DIR} -lamdhip64 -lOpenMP -laiebu -lm -ldl
+                -fopenmp
+                -o ${TARGET_BIN}
+            DEPENDS ${NPU_HIP_SRC}
+            COMMENT "Building ${target_name} with hipcc..."
+        )
+        
+        add_dependencies(${target_name} ${target_name}_build)
+        
+        install(TARGETS ${target_name} DESTINATION bin)
+    endmacro()
+
+    add_npu_hip_target(npu_engine_fused npu_engine_fused)
+    add_npu_hip_target(npu_engine_overlap npu_engine_overlap)
+    add_npu_hip_target(npu_engine_spec npu_engine_spec)
+endif()

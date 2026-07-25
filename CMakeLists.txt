@@ -414,7 +414,8 @@ set(BACKEND_MANAGER_SOURCES
     src/simple_tokenizer.cpp
     src/q4nx_reader.cpp
     src/safetensors_reader.cpp
-    src/model_discovery.cpp)
+    src/model_discovery.cpp
+    src/model_router.cpp)
 
 if(RCPP_HAVE_CUDA)
     list(APPEND BACKEND_MANAGER_SOURCES src/backend_cuda.cpp)
@@ -429,6 +430,38 @@ target_link_libraries(backend_manager PUBLIC gguf_reader)
 
 # OpenMP: parallelizes the generic CPU decode matmul (src/backend_generic.cpp).
 # Optional — the code still compiles/runs single-threaded without it.
+#
+# CMake's own find_library() probe for OpenMP_omp_LIBRARY is unreliable in
+# this environment: with ROCM_ROOT prepended onto CMAKE_PREFIX_PATH, it either
+# (a) caches a nonexistent "<arch-triple>" subdirectory guess under the SDK's
+# llvm lib dir that this TheRock layout doesn't ship, which then survives
+# stale across SDK reinstalls/version bumps (TheRock is a nightly package) and
+# silently breaks every OpenMP-linked target until someone manually purges the
+# cache, or (b) fails to find OpenMP at all once that stale entry is cleared.
+# Reproduced and confirmed 2026-07-25 (see PR that added this comment).
+# Fix: locate libomp.so ourselves by globbing the compiler's own install tree
+# (layout-agnostic — no hardcoded python/package version) plus common system
+# dirs, seed the cache with a verified-existing path, then let find_package()
+# validate/use it instead of trusting its own prefix-path-driven guess.
+if(DEFINED OpenMP_omp_LIBRARY AND NOT EXISTS "${OpenMP_omp_LIBRARY}")
+    message(STATUS "Stale OpenMP_omp_LIBRARY (${OpenMP_omp_LIBRARY}) does not exist — re-detecting OpenMP")
+    unset(OpenMP_omp_LIBRARY CACHE)
+    unset(OpenMP_CXX_FOUND CACHE)
+    unset(OpenMP_C_FOUND CACHE)
+    unset(OpenMP_FOUND CACHE)
+endif()
+if(NOT DEFINED OpenMP_omp_LIBRARY OR NOT EXISTS "${OpenMP_omp_LIBRARY}")
+    file(GLOB_RECURSE _RC_LIBOMP_CANDIDATES
+        "${ROCM_ROOT}/lib/*/libomp.so"
+        "/usr/lib/*/libomp.so"
+        "/usr/lib/llvm-*/lib/libomp.so")
+    if(_RC_LIBOMP_CANDIDATES)
+        list(GET _RC_LIBOMP_CANDIDATES 0 _RC_LIBOMP)
+        set(OpenMP_omp_LIBRARY "${_RC_LIBOMP}" CACHE FILEPATH "Path to the omp library for OpenMP" FORCE)
+        message(STATUS "rocm-cpp: pre-seeding OpenMP_omp_LIBRARY=${_RC_LIBOMP}")
+    endif()
+    unset(_RC_LIBOMP_CANDIDATES)
+endif()
 find_package(OpenMP QUIET)
 if(OpenMP_CXX_FOUND)
     target_link_libraries(backend_manager PUBLIC OpenMP::OpenMP_CXX)
@@ -737,7 +770,11 @@ target_link_libraries(bench_prefill_variants PRIVATE rocm_cpp hip::host hip::dev
 set_target_properties(bench_prefill_variants PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
 # unified_server sources — CUDA and Metal come through backend_manager
-# (PR #579 pattern), not listed here.
+# (PR #579 pattern), not listed here. model_router.cpp now lives in
+# BACKEND_MANAGER_SOURCES (backend_manager's benchmark_all() calls
+# select_backend_route(), so every backend_manager consumer needs it, not
+# just unified_server — see the CMake OpenMP-cache fix commit for the sibling
+# lesson about consumer targets silently missing a symbol).
 set(UNIFIED_SERVER_SOURCES
     tools/unified_server.cpp
     src/strategy_engine.cpp
@@ -746,7 +783,6 @@ set(UNIFIED_SERVER_SOURCES
     src/zaya_engine.cpp
     src/backend_npu.cpp
     src/backend_generic.cpp
-    src/model_router.cpp
 )
 
 # unified_server — CUDA/Metal come through backend_manager (PR #579 pattern),
@@ -757,7 +793,6 @@ set_source_files_properties(src/zaya_engine.cpp PROPERTIES LANGUAGE HIP)
 set_source_files_properties(src/backend_generic.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(tools/unified_server.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(src/backend_npu.cpp PROPERTIES LANGUAGE CXX)
-set_source_files_properties(src/model_router.cpp PROPERTIES LANGUAGE CXX)
 target_include_directories(unified_server PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
@@ -991,7 +1026,7 @@ if(hip_FOUND AND xrt_FOUND AND aiebu_FOUND)
         # behavior and was the root cause of the test_pipeline_real SEGFAULT (#825).
         # This subset gives the same perf without disabling NaN/Inf semantics.
         target_compile_options(test_pipeline_real PRIVATE
-            -O3 -march=native -fno-signed-zeros -fno-trapping-math -fassociative-math
+            -g -O3 -march=native -fno-signed-zeros -fno-trapping-math -fassociative-math
             -freciprocal-math -fno-math-errno -fno-rounding-math
             -std=c++23 -fopenmp -D__HIP_PLATFORM_AMD__)
         target_link_libraries(test_pipeline_real PRIVATE

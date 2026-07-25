@@ -1,30 +1,4 @@
-/** NPU Engine v12 — M=32 block-size INT8 engine with OpenMP attention.
- *
- * Architecture: single-core NPU dispatch via XRT, INT8-quantized GEMM with
- * dynamic per-call activation scaling. Attention runs on CPU via OpenMP.
- *
- * Design decisions:
- * - INT8 over BF16: INT8 GEMM on NPU is ~4× faster than BF16 (more tiles fit
- *   in L1, less DMA pressure). The dynamic activation scale (measured per-call
- *   from post-RMSNorm activations) avoids the clipping loss that a fixed scale
- *   would cause (activations range [-8.24, 7.01], not [-5, 5] as assumed by
- *   earlier hardcoded 5.0f/127.0f).
- * - M=32 block size: empirically determined sweet spot. Larger blocks increase
- *   L1 spill and DMA latency; smaller blocks underutilize the vector unit.
- * - CPU attention: NPU attention kernels exist (flash_attn_npu2.elf) but the
- *   multi-launch ELF infrastructure to fuse them into the GEMM dispatch pipeline
- *   is not yet integrated. See docs/mlir-air-integration.md Phase 1.
- *
- * Current limitations:
- * - Single-core dispatch only (no multi-tile parallelism)
- * - No multi-launch ELF fusion (15 dispatches/layer → could be 3)
- * - M=32 requires the KV cache to be INT8-quantized per token, adding ~3μs/token
- *   dequant overhead that M=128 would amortize
- *
- * Performance target: >80 tok/s sustained at long context.
- * Current (2026-07-20): ~12 tok/s single-core, ~97 tok/s with FLM fallback.
- * See bench/ and site/benchmarks.json for current measurements.
- */
+/** NPU Engine v12 — M=32 + OpenMP attention. Target: sustain >80 tok/s at long context. */
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -39,8 +13,12 @@
 #include <xrt/xrt_device.h>
 #include <xrt/xrt_bo.h>
 #include <xrt/xrt_kernel.h>
+#include <immintrin.h>
 extern "C" float* dequant_i8_to_float(const uint8_t*,int,int*,int*);
 static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:[&]{uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}();}
+// TODO: Read dimensions from GGUF config instead of hardcoding Qwen3-0.6B defaults.
+// H=hidden_size NC=num_layers NH=num_attention_heads NKV=num_key_value_heads HD=head_dim
+// IM=intermediate_size NV=vocab_size GQA=num_attention_heads/num_key_value_heads
 static constexpr int H=1024,NC=28,NH=16,NKV=8,HD=128,IM=3072,NV=151936,GQA=2;
 static constexpr float EPS=1e-6f; static constexpr int XM=128, BS=32;
 static inline void cn(float*x,int n){for(int i=0;i<n;i++)if(!std::isfinite(x[i]))x[i]=0.0f;}
@@ -62,10 +40,61 @@ static inline void ra(float*x,int hd,int p){int hd2=hd/2;for(int d=0;d<hd2;d++){
 static uint64_t jo(const char*js,size_t jl,const char*nm){size_t nl=strlen(nm);const char*p=js,*e=js+jl;while(p<e){auto q=(const char*)memmem(p,e-p,nm,nl);if(!q)return 0;if(q>js&&*(q-1)=='"'&&*(q+nl)=='"'){auto o=strstr(q,"\"data_offsets\"");if(o){auto a=strchr(o,'[');if(a)return strtoull(a+1,NULL,10);}}p=q+1;}return 0;}
 static std::vector<float> emb_f32;
 
-struct I8Ctx{const char*name;int MD,KD,ND;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt::hw_context>hc;std::unique_ptr<xrt::kernel>k;std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bI,bA,bC,layerB[NC];int8_t*Am;int16_t*Cm;
+struct I8Ctx{const char*name;int MD,KD,ND;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt::hw_context>hc;std::unique_ptr<xrt::kernel>k;std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bI,bA,bC,layerB[NC];int8_t*Am;int16_t*Cm;xrt::run run_;bool busy=false;
 bool init(xrt::device&d,const char*xp,const char*ip,int gid_B){FILE*f=fopen(ip,"rb");if(!f)return false;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);xc=std::make_unique<xrt::xclbin>(std::string(xp));d.register_xclbin(*xc);hc=std::make_unique<xrt::hw_context>(d,xc->get_uuid());k=std::make_unique<xrt::kernel>(*hc,"MLIR_AIE");bI=std::make_unique<xrt::bo>(d,ins.size()*4,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));memcpy(bI->map(),ins.data(),ins.size()*4);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);bA=std::make_unique<xrt::bo>(d,(size_t)MD*KD,XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*2,XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));Am=(int8_t*)bA->map();Cm=(int16_t*)bC->map();for(int l=0;l<NC;l++)layerB[l]=std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B));return true;}
 void packB(int l,const float*w,int K,int N,float&sout){float amax=0;for(int i=0;i<K*N;i++){float a=fabsf(w[i]);if(std::isfinite(a)&&a>amax)amax=a;}if(amax<1e-12f)amax=1.0f;sout=amax/127.0f;float is=127.0f/amax;auto*Bm=(int8_t*)layerB[l]->map();for(int i=0;i<K*N;i++){float v=w[i];if(!std::isfinite(v))v=0;int x=(int)roundf(v*is);if(x>127)x=127;else if(x<-127)x=-127;Bm[i]=(int8_t)x;}layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);}
-inline void go(int l,const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){float ais=1.0f/ascale;memset(Am,0,(size_t)am*KD);for(int m=0;m<am;m++)for(int k=0;k<ak;k++){float v=A[m*ak+k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;Am[m*KD+k]=(int8_t)q;}bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);auto r=(*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[l],*bC);r.wait();bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);float cs=ascale*Bscale;for(int m=0;m<am;m++)for(int n=0;n<an;n++){float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;C[m*an+n]=val;}}
+// Async versions: split go() into launch + wait for pipeline overlap
+// AVX-512 quantize: float[N] → int8[N] with rounding and clamping
+void quantize_avx(const float* A, int8_t* D, int n, float scale) {
+    float is = 1.0f / scale;
+    __m512 v_is = _mm512_set1_ps(is);
+    __m512 v_max = _mm512_set1_ps(127.0f);
+    __m512 v_min = _mm512_set1_ps(-127.0f);
+    int i = 0;
+    for (; i + 16 <= n; i += 16) {
+        __m512 v = _mm512_loadu_ps(&A[i]);
+        v = _mm512_mul_ps(v, v_is);
+        v = _mm512_max_ps(v_min, _mm512_min_ps(v_max, v));
+        __m512i vi = _mm512_cvtps_epi32(v);  // round to nearest int32
+        __m256i lo = _mm512_cvtepi32_epi16(vi);
+        __m128i i8 = _mm256_cvtepi16_epi8(lo);
+        _mm_storeu_si128((__m128i*)&D[i], i8);
+    }
+    // Remainder
+    for (; i < n; i++) {
+        int q = (int)roundf(A[i] * is);
+        if (q > 127) q = 127; else if (q < -127) q = -127;
+        D[i] = (int8_t)q;
+    }
+}
+
+// AVX-512 dequant: int16[N] → float[N]
+void dequant_avx(const int16_t* Cm, float* C, int n, float scale) {
+    __m512 v_s = _mm512_set1_ps(scale);
+    int i = 0;
+    for (; i + 16 <= n; i += 16) {
+        __m256i vi16 = _mm256_loadu_si256((__m256i*)&Cm[i]);
+        __m512i vi32 = _mm512_cvtepi16_epi32(vi16);
+        __m512 v = _mm512_cvtepi32_ps(vi32);
+        v = _mm512_mul_ps(v, v_s);
+        _mm512_storeu_ps(&C[i], v);
+    }
+    for (; i < n; i++) C[i] = (float)Cm[i] * scale;
+}
+
+void launch(int l,const float*A,int am,int ak,float ascale){
+    memset(Am,0,(size_t)am*KD);
+    for(int m=0;m<am;m++) quantize_avx(&A[m*ak], &Am[m*KD], ak, ascale);
+    bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    run_=(*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[l],*bC);busy=true;
+}
+void wait(float*C,int am,int an,float ascale,float Bscale){
+    if(!busy)return;run_.wait();bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+    float cs=ascale*Bscale;
+    for(int m=0;m<am;m++) dequant_avx(&Cm[m*ND], &C[m*an], an, cs);
+    busy=false;
+}
+void go(int l,const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){launch(l,A,am,ak,ascale);wait(C,am,an,ascale,Bscale);}
 };
 
 // OpenMP-parallel LM head — NaN-safe with fallback initialization
@@ -126,7 +155,7 @@ int main(int argc,char**argv){
     int npt=9,ng=(argc>2)?atoi(argv[2]):32;
     printf("=== NPU Engine v12 — M=%d + OpenMP attention ===\n",BS);
     printf("Target: sustain >80 tok/s at long context\n\n");
-    const char*mp=getenv("NPU_MODEL_PATH")?getenv("NPU_MODEL_PATH"):"/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
+    const char*mp="/home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx";
     int fd=open(mp,O_RDONLY);struct stat st;fstat(fd,&st);
     uint8_t*md=(uint8_t*)mmap(NULL,st.st_size,PROT_READ,MAP_PRIVATE,fd,0);close(fd);
     uint64_t hsz;memcpy(&hsz,md,8);uint64_t df=8+hsz;
@@ -135,6 +164,23 @@ int main(int argc,char**argv){
     struct LO{uint64_t qp,kp,vp,op,gp,up,dp,in_off,pa_off,qn_off,kn_off;}lo[NC];char b[128];
     for(int l=0;l<NC;l++){snprintf(b,128,"model.layers.%d.self_attn.q_proj.weight",l);lo[l].qp=jo(js,jl,b);snprintf(b,128,"model.layers.%d.self_attn.k_proj.weight",l);lo[l].kp=jo(js,jl,b);snprintf(b,128,"model.layers.%d.self_attn.v_proj.weight",l);lo[l].vp=jo(js,jl,b);snprintf(b,128,"model.layers.%d.self_attn.o_proj.weight",l);lo[l].op=jo(js,jl,b);snprintf(b,128,"model.layers.%d.mlp.gate_proj.weight",l);lo[l].gp=jo(js,jl,b);snprintf(b,128,"model.layers.%d.mlp.up_proj.weight",l);lo[l].up=jo(js,jl,b);snprintf(b,128,"model.layers.%d.mlp.down_proj.weight",l);lo[l].dp=jo(js,jl,b);snprintf(b,128,"model.layers.%d.input_layernorm.weight",l);lo[l].in_off=jo(js,jl,b);snprintf(b,128,"model.layers.%d.post_attention_layernorm.weight",l);lo[l].pa_off=jo(js,jl,b);snprintf(b,128,"model.layers.%d.self_attn.q_norm.weight",l);lo[l].qn_off=jo(js,jl,b);snprintf(b,128,"model.layers.%d.self_attn.k_norm.weight",l);lo[l].kn_off=jo(js,jl,b);}
     uint64_t no=jo(js,jl,"model.norm.weight"),lo_off=jo(js,jl,"lm_head.weight");
+    // Validate hardcoded dimensions against GGUF config
+    {
+        auto jvi = [&](const char* key, int expected) {
+            auto p = (const char*)memmem(js, jl, key, strlen(key));
+            if (!p) { fprintf(stderr, "WARN: key '%s' not found in GGUF metadata\n", key); return; }
+            p = strchr(p, ':');
+            if (!p) return;
+            int val = (int)strtol(p + 1, NULL, 10);
+            if (val != expected)
+                fprintf(stderr, "WARN: %s=%d but hardcoded %s=%d — model may misbehave\n", key, val, key, expected);
+        };
+        jvi("\"model.embedding_length\"", H);
+        jvi("\"model.block_count\"", NC);
+        jvi("\"model.attention.head_count\"", NH);
+        jvi("\"model.attention.head_count_kv\"", NKV);
+        jvi("\"model.attention.layer_norm_epsilon\"", (int)(EPS * 1e6));
+    }
     float in_n[NC][H],pa_n[NC][H],fin[H],qn_w[NC][HD],kn_w[NC][HD];
     for(int l=0;l<NC;l++){auto iw=(const uint16_t*)(md+df+lo[l].in_off),pw_=(const uint16_t*)(md+df+lo[l].pa_off),qw=(const uint16_t*)(md+df+lo[l].qn_off),kw=(const uint16_t*)(md+df+lo[l].kn_off);for(int i=0;i<H;i++){in_n[l][i]=bf16g(iw[i]);pa_n[l][i]=bf16g(pw_[i]);}for(int i=0;i<HD;i++){qn_w[l][i]=bf16g(qw[i]);kn_w[l][i]=bf16g(kw[i]);}}
     {auto fw=(const uint16_t*)(md+df+no);for(int i=0;i<H;i++)fin[i]=bf16g(fw[i]);}

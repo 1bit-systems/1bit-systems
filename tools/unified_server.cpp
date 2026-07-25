@@ -276,7 +276,13 @@ static json generate_completion(BackendManager& mgr,
     int last_token = prompt_tokens.empty() ? g_tokenizer.bos_id : prompt_tokens.back();
 
     // Prefill: process prompt tokens
-    for (size_t i = 0; i + 1 < prompt_tokens.size(); i++) {
+    // Skip BOS token (first token == bos_id) for SSM models where
+    // feeding BOS as a regular token corrupts the recurrent state.
+    size_t prefill_start = 0;
+    if (!prompt_tokens.empty() && prompt_tokens[0] == g_tokenizer.bos_id) {
+        prefill_start = 1;
+    }
+    for (size_t i = prefill_start; i + 1 < prompt_tokens.size(); i++) {
         int result_id = mgr.generate(prompt_tokens[i]);
         if (result_id < 0) {
             float ms = std::chrono::duration<float, std::milli>(
@@ -711,13 +717,16 @@ int main(int argc, char** argv) {
     }
 
     // ── Phase 6: Start Agent Watchdog ──
-    printf("\n── Agent Watchdog ──\n");
-    {
-        if (!g_watchdog) {
-            g_watchdog = new AgentWatchdog(g_strategy_engine, mgr);
-        }
-        g_watchdog->start();
-    }
+    // NOTE: Disabled pending investigation of heap corruption (issue #932).
+    // The watchdog thread races with httplib completion handlers when it
+    // calls benchmark_all() while a generate() call is in progress.
+    // printf("\n── Agent Watchdog ──\n");
+    // {
+    //     if (!g_watchdog) {
+    //         g_watchdog = new AgentWatchdog(g_strategy_engine, mgr);
+    //     }
+    //     g_watchdog->start();
+    // }
 
     // Quick mode: re-profile in background after server starts
     if (quick_mode) {
@@ -1071,7 +1080,11 @@ int main(int argc, char** argv) {
                     if (t.is_number_integer()) prompt_tokens.push_back(t.get<int>());
                 }
             } else if (body.contains("prompt") && body["prompt"].is_string()) {
-                prompt_tokens = g_tokenizer.encode(body["prompt"].get<std::string>());
+                try {
+                    prompt_tokens = g_tokenizer.encode(body["prompt"].get<std::string>());
+                } catch (const std::exception& e) {
+                    fprintf(stderr, "[completions] encode error: %s\n", e.what());
+                }
             }
             if (prompt_tokens.empty()) {
                 prompt_tokens = {g_tokenizer.bos_id};
@@ -1083,7 +1096,16 @@ int main(int argc, char** argv) {
         if (max_tokens > 32768) max_tokens = 32768;
 
         std::vector<double> empty_logprobs;
-        auto gen_result = generate_completion(mgr, prompt_tokens, empty_logprobs, max_tokens, backend_id);
+        json gen_result;
+        try {
+            gen_result = generate_completion(mgr, prompt_tokens, empty_logprobs, max_tokens, backend_id);
+        } catch (const std::exception& e) {
+            fprintf(stderr, "[completions] generate error: %s\n", e.what());
+            gen_result = {{"error", std::string("Generation failed: ") + e.what()}};
+        } catch (...) {
+            fprintf(stderr, "[completions] unknown error\n");
+            gen_result = {{"error", "Generation failed: unknown error"}};
+        }
 
         json response;
         response["tokens"] = gen_result["tokens"];

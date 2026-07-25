@@ -9,9 +9,9 @@
 #include <xrt/xrt_kernel.h>
 int main(){
     auto d=xrt::device(0);
-    const char* bd=getenv("NPU_XCLBIN_DIR")?getenv("NPU_XCLBIN_DIR"):"int8"; auto xc=xrt::xclbin(std::string(bd)+"/final_i8_QKV_v.xclbin");
+    auto xc=xrt::xclbin(std::string("/home/bcloud/npu-sandbox/npu-infer/build/int8/final_i8_QKV_v.xclbin"));
     d.register_xclbin(xc);auto h=xrt::hw_context(d,xc.get_uuid());auto k=xrt::kernel(h,"MLIR_AIE");
-    FILE*f=fopen((std::string(bd)+"/insts_i8_QKV_v.txt").c_str(),"rb");
+    FILE*f=fopen("/home/bcloud/npu-sandbox/npu-infer/build/int8/insts_i8_QKV_v.txt","rb");
     fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);std::vector<uint32_t>ins(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);
     auto bI=xrt::bo(d,ins.size()*4,XCL_BO_FLAGS_CACHEABLE,k.group_id(1));
     memcpy(bI.map(),ins.data(),ins.size()*4);bI.sync(XCL_BO_SYNC_BO_TO_DEVICE);

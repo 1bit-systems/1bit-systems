@@ -7,7 +7,13 @@
 namespace fusion {
 
 PipelineOverlap::PipelineOverlap(const PipelineConfig& cfg, xrt::device& npu_dev) : cfg_(cfg) {
-    size_t slot_bytes = cfg_.hidden_dim * cfg_.batch_size * sizeof(float) * 2; // h_in + h_out
+    // Each half (h_in, h_out) is sized off the widest thing either side ever
+    // writes into it. attn_scratch lets a caller whose gpu_attn_fn produces
+    // more than hidden_dim floats (e.g. raw NH*HD attention output before an
+    // output projection) declare that width so h_out doesn't overflow — see
+    // the buffer-overflow segfault this fixed in test_pipeline_real.cpp.
+    size_t slot_width = cfg_.attn_scratch > cfg_.hidden_dim ? cfg_.attn_scratch : cfg_.hidden_dim;
+    size_t slot_bytes = slot_width * cfg_.batch_size * sizeof(float) * 2; // h_in + h_out
     slot_[0] = SharedBO::create(npu_dev, slot_bytes);
     slot_[1] = SharedBO::create(npu_dev, slot_bytes);
     if (!slot_[0] || !slot_[1]) {
