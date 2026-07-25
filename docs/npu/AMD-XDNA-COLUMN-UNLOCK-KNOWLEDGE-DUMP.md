@@ -642,3 +642,31 @@ It might look like downgrading back to `7.0.0-27` (the kernel in use during the 
 - Both confirmed-bad firmware files renamed out of the driver's search path: `npu.dev.sbin.bad_v5b_0x63`, `npu.dev.sbin.bad_v5c_0x63` (under `/lib/firmware/amdnpu/17f0_11/`).
 - System restored to stock: in-tree signed driver (`sig_id: PKCS#7`, matches package), stock firmware (`npu_7.sbin`, hash-verified identical to the packaged `npu.sbin.1.1.2.65.zst`), no active `aie2_max_col` override in `/etc/modprobe.d/` or GRUB.
 - **Untested-fresh candidates**: none remain among v5/v5a/v5b/v5c — all four have now been live-tested and all fail PSP validation. Continuing this approach would mean either a different patch offset/strategy, or accepting the GPU-inference-only path (measured 371–441 tok/s) as the near-term outcome — an option raised during the 2026-07-24 GPU/SMU-wedge incident as a pragmatic fallback if the firmware patch route stalls.
+
+---
+
+## Appendix: PSP signature validation is the actual gate (2026-07-25) — work paused here
+
+After v5/v5a/v5b/v5c all failed (see above), it's worth being explicit about *why*, because it changes what "continuing this research" means.
+
+### Why byte-patching the column constant can't work as attempted
+
+`npu.dev.sbin` is not loaded directly by the NPU — it's handed to the PSP (Platform Security Processor), a separate on-die ARM core that acts as AMD's hardware root of trust. Standard PSP firmware-loading flow validates the image against a signature chain anchored in on-die fused keys before anything in the image is allowed to execute. That signature covers the image as a whole (or large signed regions of it), not just the specific bytes any single patch touched.
+
+This matches what was actually observed, not just architectural theory:
+- The 2026-07-16 baseline patch (driver-side `aie2_max_col` override only, firmware untouched) reached real context creation and failed on `AIE2_STATUS_MGMT_ERT_NOAVAIL` — a firmware **logic** rejection, well past validation.
+- Every firmware **binary** patch since (v5/v5a's `0x5`, v5b/v5c's `0x63`) fails earlier and differently — `fw return error`, `failed to validate fw, ret -5`, PSP refusing to even start the image. These are validation-stage codes, not the column-count logic the patches were targeting. Changing *where* in the file the patch lands (offset `0x31E0` vs `0x31E4` vs both) changed the specific rejection code but never got past this stage — consistent with any modification invalidating a signature check, regardless of which bytes changed.
+
+### What "PSP signature unlock" would actually require
+
+To get a patched image past this, one of two things would be needed:
+1. **A legitimately re-signed image** — i.e., AMD's private signing key for this PSP firmware family, which is not available to us and has no known public leak for this hardware generation. Not something this project can obtain.
+2. **An actual vulnerability in the PSP's signature-verification path** that lets an unsigned or modified image load anyway. This is a distinct, much larger security-research problem — PSP firmware exploitation — unrelated to the column-count patch this effort has been iterating on. It would mean auditing PSP's own boot/validation code (which is itself closed and only reachable via the very interface it's gatekeeping), not adjusting offsets in an NPU firmware blob. Publicly known PSP exploits (where they exist, for other AMD platform generations) came out of dedicated PSP-focused research, not incremental patching of a downstream firmware image.
+
+Neither path is a natural continuation of the v5/v5a/v5b/v5c work — patching different offsets in `npu.dev.sbin` will keep tripping the same signature check no matter which byte moves. **This is why the column-unlock effort is paused as of 2026-07-25, not just low on untested variants.**
+
+### Status
+
+Secure Boot has been re-enabled on the test box (it was only disabled to permit loading the unsigned out-of-tree `amdxdna` driver module during testing — unrelated to the PSP signature question, but no longer needed with this line of attack closed). System verified back to a clean stock baseline: in-tree signed driver, stock firmware, no errors.
+
+If this is picked up again, scope it explicitly as one of the two options above rather than another firmware-byte-patch variant — variant 6, 7, 8 of the same offset-guessing approach will hit the same wall as v5 through v5c.
