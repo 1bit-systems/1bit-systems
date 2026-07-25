@@ -359,6 +359,7 @@ struct Mamba1Backend : Backend {
 
     bool reset() override {
         if (!initialized) return false;
+        HIP_CHECK(hipSetDevice(0));
         pos = 0;
         // Reset SSM states
         for (int l = 0; l < n_layers; l++) {
@@ -380,6 +381,7 @@ struct Mamba1Backend : Backend {
 
     bool forward(int token_id, float* hidden_out) override {
         if (!initialized) return false;
+        HIP_CHECK(hipSetDevice(0));
 
         // 1. Embedding lookup
         HIP_CHECK(hipMemcpyAsync(d_hidden, &embed[(size_t)token_id * d_model],
@@ -456,6 +458,7 @@ struct Mamba1Backend : Backend {
 
     bool lm_head(const float* hidden, float* logits, int* argmax) override {
         if (!hidden || !logits) return false;
+        HIP_CHECK(hipSetDevice(0));
 
         // Upload hidden state to GPU
         HIP_CHECK(hipMemcpyAsync(d_hidden, hidden, (size_t)d_model * sizeof(float),
@@ -485,6 +488,7 @@ struct Mamba1Backend : Backend {
     }
 
     int generate(int token_id) override {
+        HIP_CHECK(hipSetDevice(0));
         std::vector<float> hidden(d_model);
         if (!forward(token_id, hidden.data())) return -1;
         if (!lm_head(hidden.data(), logits_buf.data(), nullptr)) return -1;
@@ -496,6 +500,7 @@ struct Mamba1Backend : Backend {
 
     float benchmark(int tokens = 10) override {
         if (!initialized) return 0;
+        HIP_CHECK(hipSetDevice(0));
         reset();
         auto t0 = std::chrono::high_resolution_clock::now();
         int tok = 1;
