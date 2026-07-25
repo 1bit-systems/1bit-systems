@@ -5,6 +5,7 @@
 #include "backend_plugin.h"
 #include "backend_detect.h"
 #include "backend.h"
+#include "model_router.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -746,8 +747,35 @@ void BackendManager::benchmark_all(int tokens) {
     printf("║   Backend Manager — Benchmark Suite      ║\n");
     printf("╚══════════════════════════════════════════╝\n");
 
+    // Only speculatively init()/benchmark() a backend if the router
+    // considers it compatible with the currently loaded model's architecture
+    // (same table BackendManager::init() used to pick the active backend),
+    // or it already has a live instance (proved compatible by successfully
+    // init'ing already). The generic CPU tier is architecture-agnostic by
+    // design, so it's always eligible regardless of what the router lists.
+    // Without this, benchmark_all() would freely try e.g. the Zaya HIP
+    // kernels or the Zamba2 kernels against a Mamba1 model's weights —
+    // neither backend's init()/benchmark() is hardened against that, and
+    // both crashed with a real SIGSEGV (not a catchable C++ exception) when
+    // this was reproduced under gdb: an OOB vector read in zaya_destroy()
+    // and a segfault in mamba2_cpu_forward(), both on the agent-watchdog
+    // thread, both taking the whole process down with them.
+    auto route = select_backend_route(cfg_);
+    auto architecture_compatible = [&](const BackendInfo& info) {
+        if (info.tier == BackendTier::T3_CPU) return true;
+        if (info.instance) return true;
+        return std::find(route.backend_ids_in_order.begin(),
+                          route.backend_ids_in_order.end(),
+                          info.id) != route.backend_ids_in_order.end();
+    };
+
     for (auto& info : backends_) {
         if (!info.available) continue;
+
+        if (!architecture_compatible(info)) {
+            printf("  %s... ⏭️  (skipped — not compatible with loaded model architecture)\n", info.id.c_str());
+            continue;
+        }
 
         // Skip CPU_SCALAR if CPU_AVX512 already benchmarked
         // (they share the same CPUBackend code, only the above is meaningful)

@@ -1003,7 +1003,14 @@ void zaya_destroy(ZayaState* s) {
     safe(s->d_partials);
     safe(s->d_qout); safe(s->d_kout); safe(s->d_vout); safe(s->d_skip_flag);
     safe(s->d_k_gather); safe(s->d_v_gather); safe(s->d_page_map);
-    for (int i = 0; i < eng.n_layers; i++) {
+    // Bound by s->lw's actual size, not eng.n_layers: zaya_destroy() can be
+    // called from an early-exit path in zaya_init() (missing weight files,
+    // no GPU, or a model-dimension mismatch) before s->lw is resized to
+    // eng.n_layers (that resize happens later, once init has actually
+    // committed to loading). Using eng.n_layers here read past the end of
+    // an empty/undersized vector, pulled garbage pointers out of it, and
+    // handed them to hipFree() — a real segfault, not just UB in theory.
+    for (size_t i = 0; i < s->lw.size(); i++) {
         auto& l = s->lw[i];
         safe(l.nw); safe(l.wq); safe(l.wk); safe(l.wv1); safe(l.wv2); safe(l.wo); safe(l.pan);
         safe(l.cdw); safe(l.cdb); safe(l.cgw); safe(l.cgb); safe(l.ks);
