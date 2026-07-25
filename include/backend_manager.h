@@ -163,6 +163,10 @@ public:
     // ── Benchmarking ──
     /// Run benchmark on all backends, updating their scores
     void benchmark_all(int tokens = 10);
+    /// Record a benchmark score for a single backend (e.g. a caller that
+    /// benchmarked only the active backend directly via its Backend instance,
+    /// bypassing benchmark_all() — see unified_server.cpp Phase 4).
+    void set_score(const std::string& id, float ms);
     /// Get the best backend for a given tier
     const BackendInfo* best_for_tier(BackendTier tier) const;
 

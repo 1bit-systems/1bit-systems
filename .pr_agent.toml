@@ -34,4 +34,6 @@ push_changelog_changes = true
 enable_help_text = false
 
 [config]
+model = "opencode/glm-5.2"
+fallback_models = ["deepseek/deepseek-chat", "openai/gpt-4o-mini"]
 ignore_pr_labels = []

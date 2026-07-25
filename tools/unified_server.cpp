@@ -684,6 +684,12 @@ int main(int argc, char** argv) {
             fflush(stdout);
             float ms = active_info_raw->instance->benchmark(bench_tokens);
             printf("%.1f ms/tok\n", ms);
+            // Phase 5's build_performance_table() reads BackendInfo::score, which
+            // benchmark_all() would normally set — but Phase 4 deliberately benchmarks
+            // only the active backend (see comment above) and bypasses benchmark_all(),
+            // so without this the score stays 0 and the performance table prints a
+            // bogus "0 tok/s" for the very backend we just measured.
+            mgr.set_score(active_info_raw->id, ms);
         }
     }
 

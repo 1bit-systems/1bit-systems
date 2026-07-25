@@ -850,6 +850,17 @@ void BackendManager::benchmark_all(int tokens) {
     printf("\n");
 }
 
+void BackendManager::set_score(const std::string& id, float ms) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    for (auto& info : backends_) {
+        if (info.id == id) {
+            info.score = ms;
+            info.functional = true;
+            return;
+        }
+    }
+}
+
 // ── Re-evaluate: check if a better backend is available per strategy ──
 bool BackendManager::re_evaluate() {
     std::lock_guard<std::mutex> lock(mtx_);
