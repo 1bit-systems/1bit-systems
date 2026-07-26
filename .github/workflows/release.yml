@@ -55,14 +55,20 @@ jobs:
           export PATH="$ROCM_PATH/bin:$ROCM_CORE_PATH/bin:$THEROCK_ROOT/bin:$PATH"
           export LD_LIBRARY_PATH="$ROCM_PATH/lib:$ROCM_CORE_PATH/lib:$ROCM_LIB_PATH/lib:$LD_LIBRARY_PATH"
           export HIP_DEVICE_LIB_PATH="$ROCM_CORE_PATH/lib/llvm/amdgcn/bitcode"
-          export CFLAGS="-D__HIP_PLATFORM_AMD__"
-          export CXXFLAGS="-D__HIP_PLATFORM_AMD__"
+          export CFLAGS="-D__HIP_PLATFORM_AMD__ -I$ROCM_PATH/include"
+          export CXXFLAGS="-D__HIP_PLATFORM_AMD__ -I$ROCM_PATH/include"
+          export CPATH="$ROCM_PATH/include:$CPATH"
 
           echo "ROCM_PATH=$ROCM_PATH"
           echo "amdclang++: $(which amdclang++)"
           echo "hipcc: $(which hipcc)"
+          echo "HIP version: $($ROCM_PATH/bin/hipconfig --version 2>/dev/null || echo 'N/A')"
 
-          cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151
+          cmake -B build -G Ninja \
+            -DCMAKE_HIP_ARCHITECTURES=gfx1151 \
+            -DCMAKE_PREFIX_PATH="$ROCM_PATH" \
+            -DCMAKE_CXX_FLAGS="-I$ROCM_PATH/include" \
+            -DCMAKE_HIP_FLAGS="--rocm-path=$ROCM_PATH"
           # Build the core library, inference servers, and all new C++ tools
           ninja -C build \
             rocm_cpp \
