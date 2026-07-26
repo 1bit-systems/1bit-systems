@@ -22,7 +22,8 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(MSVC)
-    # MSVC 19.44 defaults to latest C++ standard — just use that
+    # MSVC 19.44 needs explicit /std:c++latest for C++17/20 features
+    add_compile_options("/std:c++latest")
     # Static MSVC runtime — no VC redist DLL dependency
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 else()
