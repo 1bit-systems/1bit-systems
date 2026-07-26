@@ -20,9 +20,19 @@
 #include <cmath>
 #include <vector>
 #include <string>
+#ifndef _WIN32
 #include <unistd.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#else
+#include <io.h>
+#include <fcntl.h>
+// Windows equivalents for POSIX functions used below
+#define STDIN_FILENO 0
+#define STDOUT_FILENO 1
+#define WIFEXITED(x) 1
+#define WEXITSTATUS(x) (x)
+#endif
 
 // ── Bbox-aware resize for dynamic-resolution VLMs ──
 // Qwen2-VL divides the image into a grid of patch-sized tiles

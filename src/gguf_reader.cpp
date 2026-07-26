@@ -4,6 +4,11 @@
 #include <cmath>
 #include <algorithm>
 
+// Portable fseeko: MSVC uses _fseeki64, POSIX uses fseeko
+#ifdef _WIN32
+#define fseeko _fseeki64
+#endif
+
 namespace {
 
 // Reads a real IEEE754 half-precision float16 (5-bit exponent, bias 15).

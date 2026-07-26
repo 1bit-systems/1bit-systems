@@ -1,4 +1,5 @@
 // whisper.cpp — Whisper speech-to-text implementation
+#define _USE_MATH_DEFINES
 #include "whisper.h"
 #include "gguf_reader.h"
 #include <cstring>
