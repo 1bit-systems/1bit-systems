@@ -27,17 +27,17 @@ engine/npu/xclbins/
 
 ### Setup
 
-Use the setup script to symlink FLM-compiled xclbins:
+Point at your xclbin checkout (these are rebuilt from AIE generators, not FLM's):
 
 ```bash
-# Point at your fastflowlm-build checkout
-export NPU_XCLBIN_DIR=/path/to/fastflowlm-build/src/xclbins
+# Point at your xclbin build output
+export NPU_XCLBIN_DIR=/path/to/engine/npu/xclbins
 ./scripts/setup_npu_xclbins.sh
 ```
 
 Or set the environment variable at runtime:
 ```bash
-export NPU_XCLBIN_DIR=/path/to/fastflowlm-build/src/xclbins
+export NPU_XCLBIN_DIR=/path/to/engine/npu/xclbins
 ```
 
 ## Running

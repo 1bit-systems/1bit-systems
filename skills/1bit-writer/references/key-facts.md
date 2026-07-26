@@ -7,7 +7,7 @@
 - **Site**: https://1bit.systems
 - **License**: MIT
 - **Language**: Pure C++23
-- **Binary size**: ~400 KB (server + CLI + daemon)
+- **Binary size**: 17.5 MB (server + CLI + daemon)
 - **Runtime deps**: Zero Python. Zero Node.js. Zero Rust.
 - **Author**: bong-water-water-bong
 
@@ -33,7 +33,7 @@
 | CUDA (via llama.cpp) | CUDA | Delegated |
 | Metal (via llama.cpp) | Metal | Delegated |
 
-## Models Supported — 35 Total (30 1BP + 5 GGUF native)
+## Models Supported — 40 Total (35 1BP + 5 GGUF native)
 
 ### By Family
 

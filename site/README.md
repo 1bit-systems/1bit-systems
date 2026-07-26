@@ -23,7 +23,6 @@ Current public architecture:
 ```text
 Apps / SDKs -> 1bit-proxy :13306/v1 or :13306/api/v1
                  -> toolbox llama-server or Lemonade :13305/v1
-                 -> optional FastFlowLM :52625/v1
 
 Open WebUI :3000 -> 1bit-proxy :13306/v1
 Control plane    -> target: 1bit CLI + GAIA + systemd/toolbox lifecycle
@@ -75,5 +74,4 @@ The custom domain `1bit.systems` is bound to the `main` branch in Cloudflare Pag
 - Keep the inference endpoint contract primary.
 - Keep the single control plane secondary and explicitly unfinished.
 - Keep toolbox-backed llama.cpp first for Ubuntu/Fedora repair copy.
-- Keep native Lemonade/FLM as product-direction lanes, not universal install claims.
-- Keep proxy on `:13306`, active backend on `:13305`, optional FLM on `:52625`, Open WebUI secondary.
+- Keep proxy on `:13306`, active backend on `:13305`, Open WebUI secondary.

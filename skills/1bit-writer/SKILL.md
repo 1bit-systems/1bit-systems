@@ -220,7 +220,7 @@ Pick the right variant for the context:
 | **Hardware-focused** | Reverse-engineered AMD's NPU in 4 days. 22 proprietary `.so` → 17.5 MB open source. |
 | **Dev-first** | `curl -sL https://1bit.systems/install.sh | bash` — and you're running local LLMs on your NPU. |
 | **Comparison** | 417 tok/s fused kernel. 79.8 tok/s Mamba1 e2e. MIT. One binary. |
-| **Honest** | ~400 KB. 9 backends. 29 models. We're behind llama.cpp on the same hardware, and we tell you. |
+| **Honest** | 17.5 MB. 9 backends. 40 models. We're behind llama.cpp on the same hardware, and we tell you. |
 
 #### Landing Page Copy (`site/index.html`)
 
@@ -238,7 +238,7 @@ The landing page's primary job is to **showcase 1BP models** organized by model 
 
 - **Hero text**: One C++ binary. Any model. All backends. MIT.
 - **Subtitle**: Pure C++23 inference for AMD Strix Halo — NPU, GPU, CPU — ~400 KB, zero Python at runtime
-- **Key metrics row**: `417 tok/s` · `35 models` · `9 backends` · `~400 KB`
+- **Key metrics row**: `417 tok/s` · `40 models` · `9 backends` · `17.5 MB`
 
 ##### Model Showcase Section (`#models`)
 

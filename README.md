@@ -227,7 +227,7 @@ Each converted from a Q8_0/BF16 source (not a 4-bit GGUF) to avoid compounding q
 | Llama-3.1-8B | Llama | 100 ms/tok | **10** | 32/32 ✅ |
 | Qwen3-8B | Qwen3 | 127 ms/tok | **8** | 36/36 ✅ |
 
-Same binary, same auto-detect path, no per-model glue — the loader reads architecture off the model header for all 35 models.
+Same binary, same auto-detect path, no per-model glue — the loader reads architecture off the model header for all 40 models.
 
 ### Also validated
 
