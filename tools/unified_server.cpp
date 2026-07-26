@@ -40,7 +40,45 @@
 #include <mutex>
 #include <algorithm>
 #include <signal.h>
+#ifdef _WIN32
+// Minimal getopt for Windows — MSVC doesn't ship it
+#include <io.h>
+#include <string.h>
+static int optind = 1; static int opterr = 1; static const char* optarg = nullptr;
+struct option { const char* name; int has_arg; int* flag; int val; };
+enum { no_argument = 0, required_argument = 1, optional_argument = 2 };
+static int getopt_long(int argc, char* const argv[], const char* optstring, const struct option* longopts, int* longindex) {
+    if (optind >= argc || argv[optind][0] != '-') return -1;
+    if (argv[optind][1] == '-' && longopts) {
+        // Long option
+        for (int i = 0; longopts[i].name; i++) {
+            if (strcmp(argv[optind]+2, longopts[i].name) == 0) {
+                if (longindex) *longindex = i;
+                optind++;
+                if (longopts[i].has_arg == required_argument) {
+                    optarg = (optind < argc) ? argv[optind++] : nullptr;
+                }
+                if (longopts[i].flag) { *longopts[i].flag = longopts[i].val; return 0; }
+                return longopts[i].val;
+            }
+        }
+        return '?';
+    }
+    // Short option
+    int opt = argv[optind][1];
+    const char* p = optstring ? strchr(optstring, opt) : nullptr;
+    if (!p) return '?';
+    if (p[1] == ':') {
+        optarg = (optind + 1 < argc) ? argv[optind+1] : nullptr;
+        optind += (optarg ? 2 : 1);
+    } else {
+        optind++;
+    }
+    return opt;
+}
+#else
 #include <getopt.h>
+#endif
 #include <fstream>
 #include <fcntl.h>
 #include <sys/file.h>
