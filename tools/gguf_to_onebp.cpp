@@ -17,7 +17,11 @@
 #include "gguf_reader.h"
 
 static void sigfpe_handler(int sig) {
+#ifdef _WIN32
+    fprintf(stderr, "SIGFPE\n");
+#else
     fprintf(stderr, "SIGFPE at %p\n", __builtin_return_address(0));
+#endif
     fflush(stderr);
     _exit(1);
 }

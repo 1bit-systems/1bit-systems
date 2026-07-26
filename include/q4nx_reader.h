@@ -12,10 +12,14 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include <fcntl.h>
+
+// POSIX-only headers — not available on Windows
+#ifndef _WIN32
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <fcntl.h>
+#endif
 
 // ── Q4NX model reader ──
 // Reads float32 weights from the mmap'd model file by JSON key lookup.

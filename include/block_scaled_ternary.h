@@ -7,6 +7,14 @@
 #include <cstring>
 #include <cassert>
 
+// __builtin_memcpy is GCC/Clang builtin; MSVC needs std::memcpy
+#ifndef __has_builtin
+#define __has_builtin(x) 0
+#endif
+#if !defined(__GNUC__) && !defined(__clang__) && !__has_builtin(__builtin_memcpy)
+#define __builtin_memcpy std::memcpy
+#endif
+
 // __host__ __device__ annotation for HIP/CUDA dual-use functions.
 // On non-GPU compilers, this expands to nothing.
 #if defined(__HIP__) || defined(__HIPCC__) || defined(__CUDACC__)

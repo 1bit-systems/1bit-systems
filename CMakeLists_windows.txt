@@ -23,11 +23,10 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(MSVC)
-    # MSVC 19.44 doesn't support /std:c++23 — use /std:c++latest
-    set(CMAKE_CXX_STANDARD 23)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /std:c++latest")
+    # MSVC 19.44 doesn't support /std:c++23 — don't set CXX_STANDARD, default to latest
     # Static MSVC runtime — no VC redist DLL dependency
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    add_compile_options("/std:c++latest")
 else()
     set(CMAKE_CXX_STANDARD 23)
 endif()
@@ -109,25 +108,27 @@ add_library(whisper STATIC
 target_include_directories(whisper PUBLIC ${INCLUDE_DIR})
 target_compile_options(whisper PRIVATE /O2 /std:c++23)
 
-# ── libbackend_manager (CPU + Vulkan backends) ──
+# ── libbackend_manager (CPU + Vulkan backends, Windows portable subset) ──
+# Only includes sources with no POSIX/HIP/ROCm dependencies.
+# Files excluded for Windows portability:
+#   backend_factory.cpp   — dlfcn.h (dynamic loading)
+#   backend_plugin.cpp    — dlfcn.h
+#   backend_cpu.cpp       — sys/mman.h
+#   backend_generic.cpp   — dirent.h
+#   h1b_loader.cpp        — hip/hip_runtime.h
+#   gguf_loader.cpp       — hip/hip_runtime.h
+#   onnx_loader.cpp       — hip/hip_runtime.h
+#   mamba2_kernels.cpp    — hip dependency path
 set(BACKEND_MANAGER_SOURCES
-    ${SRC_DIR}/backend_factory.cpp
     ${SRC_DIR}/backend_manager.cpp
     ${SRC_DIR}/backend_monitor.cpp
-    ${SRC_DIR}/backend_plugin.cpp
-    ${SRC_DIR}/backend_cpu.cpp
-    ${SRC_DIR}/backend_generic.cpp
     ${SRC_DIR}/simple_tokenizer.cpp
     ${SRC_DIR}/q4nx_reader.cpp
     ${SRC_DIR}/safetensors_reader.cpp
     ${SRC_DIR}/model_discovery.cpp
     ${SRC_DIR}/model_router.cpp
-    ${SRC_DIR}/h1b_loader.cpp
-    ${SRC_DIR}/gguf_loader.cpp
-    ${SRC_DIR}/onnx_loader.cpp
     ${SRC_DIR}/tokenizer.cpp
     ${SRC_DIR}/kv_rotorquant.cpp
-    ${SRC_DIR}/mamba2_kernels.cpp
     ${SRC_DIR}/zamba2_engine.cpp)
 
 add_library(backend_manager STATIC ${BACKEND_MANAGER_SOURCES})
