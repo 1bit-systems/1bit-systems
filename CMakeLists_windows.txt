@@ -61,7 +61,11 @@ if(USE_VULKAN)
 endif()
 
 # ── Directories ──
-set(REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
+# REPO_ROOT must point to the actual repo root (where src/, tools/, etc live)
+# When this file is copied to a build directory, pass -DREPO_ROOT=... to cmake
+if(NOT REPO_ROOT)
+    set(REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
+endif()
 set(SRC_DIR ${REPO_ROOT}/src)
 set(INCLUDE_DIR ${REPO_ROOT}/include)
 set(KERNELS_DIR ${REPO_ROOT}/kernels)
