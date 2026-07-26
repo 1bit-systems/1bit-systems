@@ -392,8 +392,6 @@ bool load_zamba2_from_gguf(const std::string& path, Zamba2Model& model) {
     cfg.n_layers      = gu32("block_count", 54);
     cfg.n_attn_heads  = gu32("attention.head_count", 32);
     cfg.n_kv_heads    = gu32("attention.head_count_kv", 32);
-    // head_dim from rope.dimension_count (zamba2 stores it there), fallback to d_inner/n_heads
-    cfg.attn_head_dim = gu32("rope.dimension_count", (int)(cfg.d_inner / cfg.n_attn_heads));
     cfg.vocab_size    = gu32("vocab_size", gu32("llm.vocab_size", 32000));
     cfg.max_seq_len   = gu32("context_length", 4096);
     cfg.rope_theta    = gf32("rope.freq_base", 10000.0f);

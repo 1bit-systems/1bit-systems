@@ -242,22 +242,33 @@ inline void apply_rope(float* q, float* k, int pos, int head_dim, int n_heads, i
 }
 
 // ── Utility: scaled dot-product attention ──
+// Supports GQA (Grouped Query Attention). Layout:
+//   q:  [n_heads * head_dim]
+//   k_cache: [max_seq, n_kv_heads * head_dim]
+//   v_cache: [max_seq, n_kv_heads * head_dim]
+//   output: [d_model]  (caller should zero-initialize if not fully written)
+//
+// BUGFIX (#946): The old code iterated n_groups (n_heads/n_kv_heads) instead
+// of n_heads, so for n_heads=n_kv_heads (=32) it only processed head 0 —
+// 97% of the attention output was uninitialized garbage.
 inline void attention_forward(
-    const float* q,           // [n_heads * head_dim]
-    const float* k_cache,     // [max_seq, n_kv_heads * head_dim]
-    const float* v_cache,     // [max_seq, n_kv_heads * head_dim]
-    float* output,            // [d_model]
-    int pos, int max_seq, int n_heads, int n_kv_heads, int head_dim, int d_model
+    const float* q,
+    const float* k_cache,
+    const float* v_cache,
+    float* output,
+    int pos, int max_seq, int n_heads, int n_kv_heads, int head_dim, int /*d_model*/
 ) {
     int n_groups = n_heads / n_kv_heads;
     std::vector<float> scores(max_seq, 0.0f);
 
-    for (int g = 0; g < n_groups; ++g) {
+    for (int h = 0; h < n_heads; ++h) {
+        int kv_h = h / n_groups;  // which KV head this query head maps to (GQA)
+
+        // Score over all past positions for this head
         for (int t = 0; t <= pos; ++t) {
             float score = 0.0f;
             for (int d = 0; d < head_dim; ++d) {
-                int hi = g * n_kv_heads;  // which KV head this group uses
-                score += q[(g * n_kv_heads) * head_dim + d] * k_cache[t * n_kv_heads * head_dim + hi * head_dim + d];
+                score += q[h * head_dim + d] * k_cache[t * n_kv_heads * head_dim + kv_h * head_dim + d];
             }
             scores[t] = score / std::sqrt((float)head_dim);
         }
@@ -267,15 +278,16 @@ inline void attention_forward(
         float sum_exp = 0.0f;
         for (int t = 0; t <= pos; ++t) scores[t] = std::exp(scores[t] - max_s);
         for (int t = 0; t <= pos; ++t) sum_exp += scores[t];
-        for (int t = 0; t <= pos; ++t) scores[t] /= sum_exp;
+        float inv_sum = 1.0f / (sum_exp + 1e-10f);
+        for (int t = 0; t <= pos; ++t) scores[t] *= inv_sum;
 
         // Weighted sum of values
         for (int d = 0; d < head_dim; ++d) {
             float val = 0.0f;
             for (int t = 0; t <= pos; ++t) {
-                val += scores[t] * v_cache[t * n_kv_heads * head_dim + g * head_dim + d];
+                val += scores[t] * v_cache[t * n_kv_heads * head_dim + kv_h * head_dim + d];
             }
-            output[g * head_dim + d] = val;
+            output[h * head_dim + d] = val;
         }
     }
 }
