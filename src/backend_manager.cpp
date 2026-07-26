@@ -12,8 +12,10 @@
 #include <algorithm>
 #include <thread>
 #include <chrono>
+#ifndef _WIN32
 #include <unistd.h>
 #include <sys/stat.h>
+#endif
 
 // ── Backend priority by tier ──
 static int tier_priority(BackendTier t) {

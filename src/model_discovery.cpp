@@ -7,8 +7,16 @@
 #include "safetensors_reader.h"
 #include <cstdio>
 #include <cstring>
+#ifndef _WIN32
 #include <dirent.h>
 #include <sys/stat.h>
+#endif
+#ifdef _WIN32
+#include <io.h>
+#include <windows.h>
+// Windows equivalent for struct dirent iteration
+struct WIN32_FIND_DATAA;
+#endif
 
 // Best-effort mapping of GGUF's general.file_type (ggml_ftype) to a human-readable
 // quantization tag. Not exhaustive — covers the common cases, falls back to a

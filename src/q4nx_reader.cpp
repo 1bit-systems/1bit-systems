@@ -6,6 +6,30 @@
 
 // ── Q4nxReader methods ─────────────────────────────────────────────────────
 
+#ifdef _WIN32
+// Windows implementation using CreateFileMapping + MapViewOfFile
+#include <windows.h>
+
+bool Q4nxReader::open(const std::string& path) {
+    HANDLE hFile = CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL,
+                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) { fprintf(stderr, "Q4NX: open model failed\n"); return false; }
+    LARGE_INTEGER li; GetFileSizeEx(hFile, &li);
+    size = (size_t)li.QuadPart;
+    HANDLE hMap = CreateFileMappingA(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
+    if (!hMap) { CloseHandle(hFile); fprintf(stderr, "Q4NX: CreateFileMapping failed\n"); return false; }
+    data = (const char*)MapViewOfFile(hMap, FILE_MAP_READ, 0, 0, 0);
+    CloseHandle(hMap);
+    CloseHandle(hFile);
+    if (!data) { fprintf(stderr, "Q4NX: MapViewOfFile failed\n"); return false; }
+    return true;
+}
+
+void Q4nxReader::close() {
+    if (data) { UnmapViewOfFile(data); data = nullptr; size = 0; }
+}
+#else
+// POSIX implementation using mmap
 bool Q4nxReader::open(const std::string& path) {
     int fd = ::open(path.c_str(), O_RDONLY);
     if (fd < 0) { perror("Q4NX: open model"); return false; }
@@ -13,7 +37,7 @@ bool Q4nxReader::open(const std::string& path) {
     fstat(fd, &st);
     data = (const char*)mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
     size = st.st_size;
-    ::close(fd);  // global POSIX close, not the member function
+    ::close(fd);
     if (data == MAP_FAILED) { perror("Q4NX: mmap model"); data = nullptr; return false; }
     return true;
 }
@@ -21,6 +45,7 @@ bool Q4nxReader::open(const std::string& path) {
 void Q4nxReader::close() {
     if (data && size > 0) { munmap((void*)data, size); data = nullptr; size = 0; }
 }
+#endif
 
 // Find data offset for a JSON key in the model header
 // Uses standard C string search instead of GNU memmem extension.

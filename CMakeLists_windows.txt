@@ -17,18 +17,17 @@ cmake_minimum_required(VERSION 3.21)
 project(1bit-systems-windows LANGUAGES CXX)
 
 # ── C++23 ──
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(MSVC)
-    # MSVC 19.44 doesn't support /std:c++23 — don't set CXX_STANDARD, default to latest
+    # MSVC 19.44 defaults to latest C++ standard — just use that
     # Static MSVC runtime — no VC redist DLL dependency
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-    add_compile_options("/std:c++latest")
 else()
     set(CMAKE_CXX_STANDARD 23)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
 endif()
 
 if(NOT CMAKE_BUILD_TYPE)
