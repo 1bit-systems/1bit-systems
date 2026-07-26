@@ -180,7 +180,7 @@ void kv_cache_attn_decode_i8_split_kernel(
             partial += (float)Q_shared[wid][d] * (float)K_shared[d];
         }
         #pragma unroll
-        for (int o = WARP / 2; o > 0; o >>= 1) partial += __shfl_xor(partial, o);
+        for (int o = WARP / 2; o > 0; o >>= 1) partial += __shfl_xor_sync(0xffffffffULL, partial, o);
         const float s = partial * ks_shared * scale;
 
         const float m_new = (s > m) ? s : m;
@@ -358,7 +358,7 @@ void kv_cache_attn_prefill_i8_kernel(
             partial += (float)Q_shared[d] * (float)K_row[d];
         }
         #pragma unroll
-        for (int o = WARP / 2; o > 0; o >>= 1) partial += __shfl_xor(partial, o);
+        for (int o = WARP / 2; o > 0; o >>= 1) partial += __shfl_xor_sync(0xffffffffULL, partial, o);
         if (lane == 0) s_sum[buf][wid] = partial;
         __syncthreads();
         float s_acc = 0.0f;
@@ -425,7 +425,7 @@ void quantize_fp16_to_i8_rowscale_kernel(
     }
     #pragma unroll
     for (int o = WARP / 2; o > 0; o >>= 1) {
-        float other = __shfl_xor(local, o);
+        float other = __shfl_xor_sync(0xffffffffULL, local, o);
         if (other > local) local = other;
     }
     if (lane == 0) warp_max[wid] = local;
@@ -435,7 +435,7 @@ void quantize_fp16_to_i8_rowscale_kernel(
         float v = (lane < BLOCK / WARP) ? warp_max[lane] : 0.0f;
         #pragma unroll
         for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) {
-            float other = __shfl_xor(v, o);
+            float other = __shfl_xor_sync(0xffffffffULL, v, o);
             if (other > v) v = other;
         }
         if (lane == 0) {

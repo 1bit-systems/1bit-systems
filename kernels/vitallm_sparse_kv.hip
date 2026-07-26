@@ -57,8 +57,8 @@ __global__ void vitallm_select_topk(
     }
     // Warp reduce
     for (int o = 16; o > 0; o >>= 1) {
-        lm = fminf(lm, __shfl_xor(lm, o));
-        lx = fmaxf(lx, __shfl_xor(lx, o));
+        lm = fminf(lm, __shfl_xor_sync(0xffffffffULL, lm, o));
+        lx = fmaxf(lx, __shfl_xor_sync(0xffffffffULL, lx, o));
     }
     if (tid == 0) { s_min = lm; s_max = lx; }
     __syncthreads();

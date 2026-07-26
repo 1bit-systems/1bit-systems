@@ -164,3 +164,80 @@ void launch_rope(__half* qk, const __half* cos, const __half* sin, int pos, int 
 }
 
 } // extern "C"
+
+// ── f32 kernels for hidden state accumulation (avoids f16 overflow) ──
+extern "C" {
+
+// RMS norm on f32: x[i] = x[i] * inv_rms * w[i]
+__global__ void rms_norm_f32_k(float *__restrict__ x, const float *__restrict__ w,
+                               int n, float eps) {
+    __shared__ float ss_buf[256];
+    float l = 0;
+    for (int j = threadIdx.x; j < n; j += blockDim.x) l += x[j] * x[j];
+    ss_buf[threadIdx.x] = l;
+    __syncthreads();
+    if (threadIdx.x == 0) {
+        double ss = 0;
+        for (int j = 0; j < blockDim.x; j++) ss += ss_buf[j];
+        ss /= n;
+        float ir = 1.0f / sqrtf((float)ss + eps);
+        for (int j = 0; j < n; j++) x[j] = x[j] * ir * w[j];
+    }
+}
+
+// f32 add: x[i] += y[i]
+__global__ void add_f32_k(float *__restrict__ x, const float *__restrict__ y, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) x[i] += y[i];
+}
+
+// f32 copy: dst[i] = src[i]
+__global__ void copy_f32_k(const float *__restrict__ src, float *__restrict__ dst, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) dst[i] = src[i];
+}
+
+// f32→f16 conversion: dst[i] = __float2half(src[i]), clamped to f16 range
+__global__ void f32_to_f16_k(const float *__restrict__ src, __half *__restrict__ dst, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    float v = src[i];
+    // Clamp to f16 range to prevent overflow
+    if (v > 65000.0f) v = 65000.0f;
+    if (v < -65000.0f) v = -65000.0f;
+    dst[i] = __float2half(v);
+}
+
+// f16→f32 conversion: dst[i] = __half2float(src[i])
+__global__ void f16_to_f32_k(const __half *__restrict__ src, float *__restrict__ dst, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    dst[i] = __half2float(src[i]);
+}
+
+// Wrapper functions
+void launch_rmsnorm_f32(float* x, const float* w, int n, float eps, hipStream_t stream) {
+    rms_norm_f32_k<<<1, 256, 0, stream>>>(x, w, n, eps);
+}
+
+void launch_add_f32(float* x, const float* y, int n, hipStream_t stream) {
+    int g = (n + 255) / 256;
+    add_f32_k<<<g, 256, 0, stream>>>(x, y, n);
+}
+
+void launch_copy_f32(const float* src, float* dst, int n, hipStream_t stream) {
+    int g = (n + 255) / 256;
+    copy_f32_k<<<g, 256, 0, stream>>>(src, dst, n);
+}
+
+void launch_f32_to_f16(const float* src, __half* dst, int n, hipStream_t stream) {
+    int g = (n + 255) / 256;
+    f32_to_f16_k<<<g, 256, 0, stream>>>(src, dst, n);
+}
+
+void launch_f16_to_f32(const __half* src, float* dst, int n, hipStream_t stream) {
+    int g = (n + 255) / 256;
+    f16_to_f32_k<<<g, 256, 0, stream>>>(src, dst, n);
+}
+
+} // extern "C"

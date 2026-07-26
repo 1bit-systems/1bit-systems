@@ -116,13 +116,13 @@ void kv_cache_attn_decode_split_kernel(
             partial += (float)Q_shared[d] * (float)K_row[d];
         }
         #pragma unroll
-        for (int o = WARP / 2; o > 0; o >>= 1) partial += __shfl_xor(partial, o);
+        for (int o = WARP / 2; o > 0; o >>= 1) partial += __shfl_xor_sync(0xffffffffULL, partial, o);
         if (lane == 0) s_sum[wid] = partial;
         __syncthreads();
         if (wid == 0) {
             float v = (lane < BLOCK / WARP) ? s_sum[lane] : 0.0f;
             #pragma unroll
-            for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) v += __shfl_xor(v, o);
+            for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) v += __shfl_xor_sync(0xffffffffULL, v, o);
             if (lane == 0) s_scalar[0] = v * scale;
         }
         __syncthreads();

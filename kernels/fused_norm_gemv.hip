@@ -36,7 +36,7 @@ __global__ void fused_norm_q4k_gemv(
     float ss = 0.0f;
     for (int i = lane; i < K; i += 32)
         ss += (float)x_in[i] * (float)x_in[i];
-    for (int o = 16; o > 0; o >>= 1) ss += __shfl_xor(ss, o);
+    for (int o = 16; o > 0; o >>= 1) ss += __shfl_xor_sync(0xffffffffULL, ss, o);
 
     // Normalize and write back
     float scale = 1.0f / sqrtf(ss / K + eps);

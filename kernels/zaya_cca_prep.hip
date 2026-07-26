@@ -4,7 +4,7 @@
 
 #define CCP_BS 256  // block size (constant — tied to launch config)
 
-__device__ __forceinline__ float ccp_wsum(float v){for(int o=16;o>0;o>>=1)v+=__shfl_xor(v,o);return v;}
+__device__ __forceinline__ float ccp_wsum(float v){for(int o=16;o>0;o>>=1)v+=__shfl_xor_sync(0xffffffffULL, v, o);return v;}
 __device__ __forceinline__ float ccp_bsum(float v,float*r){
     int tx=threadIdx.x,w=tx/32,l=tx%32; v=ccp_wsum(v); if(!l) r[w]=v; __syncthreads();
     float s=0; if(!w){ s=(l<(CCP_BS/32))?r[l]:0; s=ccp_wsum(s);} if(!w&&!l) r[0]=s;

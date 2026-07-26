@@ -19,7 +19,7 @@
 
 // ── Helper: warp-level sum ──
 __device__ inline float warp_sum_f(float v) {
-    for (int o = 16; o > 0; o >>= 1) v += __shfl_xor(v, o);
+    for (int o = 16; o > 0; o >>= 1) v += __shfl_xor_sync(0xffffffffULL, v, o);
     return v;
 }
 __device__ inline float block_sum_f(float v, float* sh) {

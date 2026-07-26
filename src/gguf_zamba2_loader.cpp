@@ -29,6 +29,32 @@
 #include <cmath>
 
 // ── Minimal GGUF reader ──
+// ── Proper IEEE 754 half-precision (__half) → float32 conversion ──
+// NOT simply shifting to upper 16 bits (which only works for zero and denormals).
+// The half exponent (5-bit, bias 15) must be rebias'd to float exponent (8-bit, bias 127).
+static inline float half_to_float(uint16_t h) {
+    uint32_t sign = (uint32_t)(h & 0x8000) << 16;
+    uint32_t mant = (uint32_t)(h & 0x03FF) << 13;
+    uint32_t exp  = (h >> 10) & 0x1F;
+    if (exp == 0) {
+        if (mant == 0) return 0.0f;     // zero
+        // Denormal: fits in float32 subnormal range (shift mant to position)
+        uint32_t bits = sign | mant;
+        float f; memcpy(&f, &bits, 4);
+        return f;
+    }
+    if (exp == 31) {  // NaN or Inf
+        uint32_t bits = sign | 0x7F800000 | mant;
+        float f; memcpy(&f, &bits, 4);
+        return f;
+    }
+    // Normal: rebias exponent from half's 15 to float's 127
+    uint32_t rebias = (uint32_t)(exp - 15 + 127) << 23;
+    uint32_t bits = sign | rebias | mant;
+    float f; memcpy(&f, &bits, 4);
+    return f;
+}
+
 struct Zamba2GgufReader {
     std::ifstream f;
     uint32_t version = 0;
@@ -152,12 +178,13 @@ struct Zamba2GgufReader {
             std::vector<uint16_t> f16(numel);
             f.read(reinterpret_cast<char*>(f16.data()), numel * 2);
             for (uint64_t i = 0; i < numel; ++i) {
-                uint32_t bits = (uint32_t)f16[i] << 16;
-                float v; memcpy(&v, &bits, 4); out[i] = v;
+                out[i] = half_to_float(f16[i]);
             }
             return true;
         }
         // Q4_0: 32 elements/block, 2 bytes header + 16 bytes quads
+        // Layout: qs[0..15] stores 32 4-bit values. Lower nibbles of qs[0..15]
+        // are elements 0..15, upper nibbles of qs[0..15] are elements 16..31.
         if (ti.dtype == 2) {
             const int bs = 32, bb = 18;
             uint64_t nb = (numel + bs - 1) / bs;
@@ -165,14 +192,18 @@ struct Zamba2GgufReader {
             for (uint64_t b = 0; b < nb; ++b) {
                 uint64_t start = b * bs, end = std::min(start + bs, numel), cnt = end - start;
                 f.read(reinterpret_cast<char*>(blk.data()), bb);
-                // FP16 → FP32 conversion
                 uint16_t sh_bits; memcpy(&sh_bits, blk.data(), 2);
-                uint32_t f32_bits = (uint32_t)sh_bits << 16;
-                float s; memcpy(&s, &f32_bits, 4);
+                float s = half_to_float(sh_bits);
                 uint8_t* q = blk.data() + 2;
-                for (uint64_t i = 0; i < cnt; ++i) {
-                    int8_t nib = (i & 1) ? (q[i >> 1] & 0x0F) : (q[i >> 1] >> 4);
-                    out[start + i] = (nib - 8) * s;
+                // First 16 elements: lower nibble of q[0..15]
+                for (uint64_t i = 0; i < cnt && i < 16; ++i) {
+                    int8_t nib = (int8_t)(q[i] & 0x0F);
+                    out[start + i] = (float)(nib - 8) * s;
+                }
+                // Next 16 elements: upper nibble of q[0..15]
+                for (uint64_t i = 16; i < cnt && i < 32; ++i) {
+                    int8_t nib = (int8_t)(q[i - 16] >> 4);
+                    out[start + i] = (float)(nib - 8) * s;
                 }
             }
             return true;
@@ -186,14 +217,56 @@ struct Zamba2GgufReader {
                 uint64_t start = b * bs, end = std::min(start + bs, numel), cnt = end - start;
                 f.read(reinterpret_cast<char*>(blk.data()), bb);
                 uint16_t sh_bits; memcpy(&sh_bits, blk.data(), 2);
-                uint32_t f32_bits = (uint32_t)sh_bits << 16;
-                float s; memcpy(&s, &f32_bits, 4);
+                float s = half_to_float(sh_bits);
                 int8_t* q = (int8_t*)(blk.data() + 2);
                 for (uint64_t i = 0; i < cnt; ++i) out[start + i] = q[i] * s;
             }
             return true;
         }
-        // Q6_K: 256 elements/block, 14 bytes header + 192 bytes quads + super-scales
+        // Q4_K: 256 elements/block, 144 bytes (2+2+12+128), K-quant 4-bit
+        // bit layout per get_scale_min_k4 in ggml-quants.c
+        if (ti.dtype == 12) {
+            const int bs = 256, bb = 144;
+            uint64_t nb = (numel + bs - 1) / bs;
+            std::vector<uint8_t> blk(bb);
+            for (uint64_t b = 0; b < nb; ++b) {
+                uint64_t start = b * bs, end = std::min(start + bs, numel), cnt = end - start;
+                f.read(reinterpret_cast<char*>(blk.data()), bb);
+                // Header: d (half, 2) + dmin (half, 2) + scales (12) + qs (128)
+                uint16_t dh, dmh;
+                memcpy(&dh, blk.data(), 2);
+                memcpy(&dmh, blk.data() + 2, 2);
+                float d_block = half_to_float(dh);
+                float min_block = half_to_float(dmh);
+                uint8_t* sc = blk.data() + 4;
+                uint8_t* qs = blk.data() + 16;
+                for (int sub = 0; sub < 8 && sub * 32 < (int)cnt; ++sub) {
+                    uint8_t sv, mv;
+                    if (sub < 4) {
+                        sv = sc[sub] & 63; mv = sc[sub + 4] & 63;
+                    } else {
+                        int j = sub;
+                        sv = (sc[j+4] & 0xF) | ((sc[j-4] >> 6) << 4);
+                        mv = (sc[j+4] >> 4) | ((sc[j]   >> 6) << 4);
+                    }
+                    float d = d_block * (float)sv;
+                    float m = min_block * (float)mv;
+                    int qb = (sub / 2) * 32;
+                    bool up = sub & 1;
+                    for (int l = 0; l < 32; ++l) {
+                        int idx = sub * 32 + l;
+                        if (idx >= (int)cnt) break;
+                        int nib = up ? (qs[qb + l] >> 4) : (qs[qb + l] & 0xF);
+                        out[start + idx] = d * (float)nib - m;
+                    }
+                }
+            }
+            return true;
+        }
+        // Q6_K: 256 elements/block, 210 bytes (block_q6_K from ggml-quants)
+        // Layout: d(__half,2) + ql[128] + qh[64] + sc[16]
+        // Each element: low 4 bits from ql + high 2 bits from qh = 6-bit signed
+        // scaled by d * sc[sub_block]
         if (ti.dtype == 13 || ti.dtype == 14) {
             const int bs = 256, bb = 210;
             uint64_t nb = (numel + bs - 1) / bs;
@@ -201,28 +274,40 @@ struct Zamba2GgufReader {
             for (uint64_t b = 0; b < nb; ++b) {
                 uint64_t start = b * bs, end = std::min(start + bs, numel), cnt = end - start;
                 f.read(reinterpret_cast<char*>(blk.data()), bb);
-                // Q6_K: 4 super-blocks of 64, each with 6-bit values
-                // Header: d (__half, 2 bytes) + 4 dms (uint8, 1 each) + 4 scales (uint8, 1 each)
-                // = 2 + 4 + 4 = 10 bytes header
-                // Then 256 * 6 bits = 192 bytes of packed quants
                 uint16_t dh_bits; memcpy(&dh_bits, blk.data(), 2);
-                uint32_t df32_bits = (uint32_t)dh_bits << 16;
-                float d; memcpy(&d, &df32_bits, 4);
-                // Simplified dequant: extract 6-bit values
-                uint8_t* q6 = blk.data() + 10; // skip header (d + 4 dms + 4 scales = 10)
-                for (uint64_t i = 0; i < cnt && i < 256; ++i) {
-                    // 6 bits packed across bytes: every 4 values use 3 bytes
-                    int byte_idx = (i * 6) / 8;
-                    int bit_off = (i * 6) % 8;
-                    int val;
-                    if (bit_off <= 2) {
-                        val = (q6[byte_idx] >> bit_off) & 0x3F;
-                    } else {
-                        val = ((q6[byte_idx] >> bit_off) | (q6[byte_idx + 1] << (8 - bit_off))) & 0x3F;
+                float d = half_to_float(dh_bits);
+                uint8_t* ql = blk.data() + 2;   // ql[128], 4-bit low quants
+                uint8_t* qh = blk.data() + 130;  // qh[64], 2-bit high quants
+                int8_t*  sc = (int8_t*)(blk.data() + 194); // sc[16], int8 scales
+                // Process 128 elements at a time (half super-block), matching
+                // dequantize_row_q6_K in ggml-quants.c exactly.
+                for (int half = 0; half < 2 && half * 128 < (int)cnt; ++half) {
+                    int off = half * 128;
+                    if (off >= (int)cnt) break;
+                    for (int l = 0; l < 32; ++l) {
+                        // Map l to 4 elements per byte iteration
+                        // q1: ql[l] lower nibble + qh[l] bits 0-1
+                        int8_t q1 = (int8_t)((ql[l] & 0xF) | (((qh[l] >> 0) & 3) << 4)) - 32;
+                        // q2: ql[l+32] lower nibble + qh[l] bits 2-3
+                        int8_t q2 = (int8_t)((ql[l + 32] & 0xF) | (((qh[l] >> 2) & 3) << 4)) - 32;
+                        // q3: ql[l] upper nibble + qh[l] bits 4-5
+                        int8_t q3 = (int8_t)((ql[l] >> 4) | (((qh[l] >> 4) & 3) << 4)) - 32;
+                        // q4: ql[l+32] upper nibble + qh[l] bits 6-7
+                        int8_t q4 = (int8_t)((ql[l + 32] >> 4) | (((qh[l] >> 6) & 3) << 4)) - 32;
+                        int is = l / 16;
+                        // Map output indices, bounded by cnt
+                        int idx0 = off + l;
+                        int idx1 = off + l + 32;
+                        int idx2 = off + l + 64;
+                        int idx3 = off + l + 96;
+                        if (idx0 < (int)cnt) out[start + idx0] = d * (float)sc[is + 0] * (float)q1;
+                        if (idx1 < (int)cnt) out[start + idx1] = d * (float)sc[is + 2] * (float)q2;
+                        if (idx2 < (int)cnt) out[start + idx2] = d * (float)sc[is + 4] * (float)q3;
+                        if (idx3 < (int)cnt) out[start + idx3] = d * (float)sc[is + 6] * (float)q4;
                     }
-                    // Sign extend 6-bit to 8-bit
-                    if (val & 0x20) val |= ~0x3F;
-                    out[start + i] = (float)val * d;
+                    ql += 64;
+                    qh += 32;
+                    sc += 8;
                 }
             }
             return true;
@@ -230,6 +315,22 @@ struct Zamba2GgufReader {
         fprintf(stderr, "[gguf] tensor %s: dtype %u not supported, zero-filling\n", name.c_str(), ti.dtype);
         std::fill(out.begin(), out.end(), 0.0f);
         return false;
+    }
+
+    // Like read_tensor but transposes the matrix from GGUF [input, output] layout
+    // to the engine's expected [output, input] layout. Uses the tensor's own shape
+    // to determine dimensions. Works for any 2D weight matrix.
+    bool read_tensor_transposed(const std::string& name, std::vector<float>& out) {
+        if (!read_tensor(name, out)) return false;
+        auto it = tensors.find(name);
+        if (it == tensors.end() || it->second.shape.size() != 2) return true; // not 2D, skip
+        int input_dim  = (int)it->second.shape[0];
+        int output_dim = (int)it->second.shape[1];
+        std::vector<float> orig = out;
+        for (int o = 0; o < output_dim; ++o)
+            for (int i = 0; i < input_dim; ++i)
+                out[o * input_dim + i] = orig[i * output_dim + o];
+        return true;
     }
 
     bool has_tensor(const std::string& name) const {
@@ -242,6 +343,24 @@ bool load_zamba2_from_gguf(const std::string& path, Zamba2Model& model) {
     Zamba2GgufReader reader;
     if (!reader.open(path)) {
         fprintf(stderr, "[zamba2] Failed to open GGUF: %s\n", path.c_str());
+        return false;
+    }
+
+    // ── Architecture guard: reject non-SSM models ──
+    // The Zamba2 GGUF reader expects Mamba2/SSM tensor names (ssm_in, ssm_conv1d, etc.).
+    // Transformer models (llama, qwen2, qwen3, zaya, etc.) silently load with zero/garbage
+    // weights because read_tensor() returns false for missing keys — producing garbage
+    // output rather than a clear error. Reject them early.
+    static const std::vector<std::string> supported_archs = {"zamba2", "zamba", "mamba"};
+    bool arch_ok = false;
+    for (auto& a : supported_archs) {
+        if (reader.arch == a) { arch_ok = true; break; }
+    }
+    if (!arch_ok) {
+        fprintf(stderr, "[zamba2] ERROR: architecture '%s' is not supported by this backend.\n"
+                        "        Supported: zamba2, zamba, mamba.\n"
+                        "        Refusing to load — model would produce garbage.\n",
+                reader.arch.c_str());
         return false;
     }
 
@@ -273,7 +392,8 @@ bool load_zamba2_from_gguf(const std::string& path, Zamba2Model& model) {
     cfg.n_layers      = gu32("block_count", 54);
     cfg.n_attn_heads  = gu32("attention.head_count", 32);
     cfg.n_kv_heads    = gu32("attention.head_count_kv", 32);
-    cfg.attn_head_dim = gu32("attention.head_dim", 80);
+    // head_dim from rope.dimension_count (zamba2 stores it there), fallback to d_inner/n_heads
+    cfg.attn_head_dim = gu32("rope.dimension_count", (int)(cfg.d_inner / cfg.n_attn_heads));
     cfg.vocab_size    = gu32("vocab_size", gu32("llm.vocab_size", 32000));
     cfg.max_seq_len   = gu32("context_length", 4096);
     cfg.rope_theta    = gf32("rope.freq_base", 10000.0f);
@@ -294,6 +414,7 @@ bool load_zamba2_from_gguf(const std::string& path, Zamba2Model& model) {
     fprintf(stderr, "[zamba2] Attn: NH=%d NKV=%d HD=%d rope_theta=%.0f\n",
             cfg.n_attn_heads, cfg.n_kv_heads, cfg.attn_head_dim, cfg.rope_theta);
 
+    // Pre-compute Mamba2 projection dimensions for weight transpose
     // ── Detect which layers are hybrid (have attention/FFN weights) ──
     auto is_hybrid = [&](int layer) -> bool {
         std::string q_name = "blk." + std::to_string(layer) + ".attn_q.weight";
@@ -336,38 +457,36 @@ bool load_zamba2_from_gguf(const std::string& path, Zamba2Model& model) {
             reader.read_tensor(p("attn_norm.weight"), hl.input_norm_w);
             hl.mamba_input_norm_w = hl.input_norm_w;  // shared norm
 
-            // Mamba2 weights
-            reader.read_tensor(p("ssm_in.weight"), hl.mamba.in_proj_w);
-            reader.read_tensor(p("ssm_conv1d.weight"), hl.mamba.conv1d_w);
+            // Mamba2 weights — transpose from GGUF [input, output] to engine [output, input]
+            reader.read_tensor_transposed(p("ssm_in.weight"), hl.mamba.in_proj_w);
+            reader.read_tensor(p("ssm_conv1d.weight"), hl.mamba.conv1d_w);  // [d_conv, conv_dim] — access matches
             reader.read_tensor(p("ssm_conv1d.bias"), hl.mamba.conv1d_b);
             reader.read_tensor(p("ssm_dt.bias"), hl.mamba.dt_bias);
             reader.read_tensor(p("ssm_a"), hl.mamba.A_log);
             reader.read_tensor(p("ssm_d"), hl.mamba.D);
             reader.read_tensor(p("ssm_norm.weight"), hl.mamba.norm_w);
-            reader.read_tensor(p("ssm_out.weight"), hl.mamba.out_proj_w);
+            reader.read_tensor_transposed(p("ssm_out.weight"), hl.mamba.out_proj_w);
             hl.mamba.input_norm_w = hl.input_norm_w;  // share with hybrid input norm
             hl.mamba.loaded = true;
 
-            // Linear projection (mixing)  
-            reader.read_tensor(p("ssm_mix.weight"), hl.linear_w);
+            // Linear projection (mixing) — transpose from [d_model, d_model] to [d_model, d_model]
+            reader.read_tensor_transposed(p("ssm_mix.weight"), hl.linear_w);
 
             // Shared block idx (ABAB pattern)
             hl.shared_block_idx = n_hybrid % 2;
 
-            // Self-attention
-            // Use a temporary SharedBlockWeights for loading attn/ffn
+            // Self-attention — all weight matrices need transpose from [input, output]
             SharedBlockWeights sb;
-            reader.read_tensor(p("attn_q.weight"), sb.q_proj_w);
-            reader.read_tensor(p("attn_k.weight"), sb.k_proj_w);
-            reader.read_tensor(p("attn_v.weight"), sb.v_proj_w);
-            reader.read_tensor(p("attn_output.weight"), sb.o_proj_w);
-            reader.read_tensor(p("post_attention_norm.weight"), sb.pre_ff_norm_w);
-            reader.read_tensor(p("ffn_gate.weight"), sb.gate_up_proj_w);
-            // The GGUF has separate gate/up; we need them fused (or separate)
-            // For now, store gate in gate_up_proj_w and up separately
             std::vector<float> up_w;
-            reader.read_tensor(p("ffn_up.weight"), up_w);
-            reader.read_tensor(p("ffn_down.weight"), sb.down_proj_w);
+            reader.read_tensor_transposed(p("attn_q.weight"), sb.q_proj_w);
+            reader.read_tensor_transposed(p("attn_k.weight"), sb.k_proj_w);
+            reader.read_tensor_transposed(p("attn_v.weight"), sb.v_proj_w);
+            reader.read_tensor_transposed(p("attn_output.weight"), sb.o_proj_w);
+            reader.read_tensor(p("post_attention_norm.weight"), sb.pre_ff_norm_w);
+            reader.read_tensor_transposed(p("ffn_gate.weight"), sb.gate_up_proj_w);
+            // Separate gate/up in GGUF; up stored separately
+            reader.read_tensor_transposed(p("ffn_up.weight"), up_w);
+            reader.read_tensor_transposed(p("ffn_down.weight"), sb.down_proj_w);
             reader.read_tensor(p("ffn_norm.weight"), sb.input_norm_w);
 
             // Store as per-hybrid-layer weights (the converter duplicated shared blocks)
@@ -388,14 +507,14 @@ bool load_zamba2_from_gguf(const std::string& path, Zamba2Model& model) {
             // ── Pure Mamba2 layer ──
             Mamba2LayerWeights ml;
             reader.read_tensor(p("attn_norm.weight"), ml.input_norm_w);
-            reader.read_tensor(p("ssm_in.weight"), ml.in_proj_w);
-            reader.read_tensor(p("ssm_conv1d.weight"), ml.conv1d_w);
+            reader.read_tensor_transposed(p("ssm_in.weight"), ml.in_proj_w);
+            reader.read_tensor(p("ssm_conv1d.weight"), ml.conv1d_w);  // [d_conv, conv_dim] — already correct
             reader.read_tensor(p("ssm_conv1d.bias"), ml.conv1d_b);
             reader.read_tensor(p("ssm_dt.bias"), ml.dt_bias);
             reader.read_tensor(p("ssm_a"), ml.A_log);
             reader.read_tensor(p("ssm_d"), ml.D);
             reader.read_tensor(p("ssm_norm.weight"), ml.norm_w);
-            reader.read_tensor(p("ssm_out.weight"), ml.out_proj_w);
+            reader.read_tensor_transposed(p("ssm_out.weight"), ml.out_proj_w);
             ml.loaded = !ml.in_proj_w.empty();
             model.mamba_layers[l] = std::move(ml);
             n_mamba++;

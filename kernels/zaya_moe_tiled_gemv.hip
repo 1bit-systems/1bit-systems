@@ -49,7 +49,7 @@ __global__ void moe_tiled_gemv_batch(
 
     for (int j = 0; j < WMMA_M; j++)
         for (int o = 16; o > 0; o >>= 1)
-            acc[j] += __shfl_xor(acc[j], o);
+            acc[j] += __shfl_xor_sync(0xffffffffULL, acc[j], o);
 
     __shared__ float s_acc[WMMA_M * 4];
     int warp = tx / 32;
@@ -64,7 +64,7 @@ __global__ void moe_tiled_gemv_batch(
             acc[j] = s_acc[lane * WMMA_M + j];
         for (int o = 16; o > 0; o >>= 1)
             for (int j = 0; j < WMMA_M; j++)
-                acc[j] += __shfl_xor(acc[j], o);
+                acc[j] += __shfl_xor_sync(0xffffffffULL, acc[j], o);
         if (lane == 0)
             for (int j = 0; j < WMMA_M; j++)
                 if (row + j < M)
@@ -93,7 +93,7 @@ __global__ void moe_tiled_gemv(
 
     for (int j = 0; j < WMMA_M; j++)
         for (int o = 16; o > 0; o >>= 1)
-            acc[j] += __shfl_xor(acc[j], o);
+            acc[j] += __shfl_xor_sync(0xffffffffULL, acc[j], o);
 
     __shared__ float s_acc[WMMA_M * 4];
     int warp = tx / 32;
@@ -108,7 +108,7 @@ __global__ void moe_tiled_gemv(
             acc[j] = s_acc[lane * WMMA_M + j];
         for (int o = 16; o > 0; o >>= 1)
             for (int j = 0; j < WMMA_M; j++)
-                acc[j] += __shfl_xor(acc[j], o);
+                acc[j] += __shfl_xor_sync(0xffffffffULL, acc[j], o);
         if (lane == 0)
             for (int j = 0; j < WMMA_M; j++)
                 if (row + j < M)

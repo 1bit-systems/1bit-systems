@@ -203,7 +203,7 @@ __global__ void zaya_moe_ternary_gemv_kernel(
         // Warp reduction
         #pragma unroll
         for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
-            acc += __shfl_xor(acc, offset);
+            acc += __shfl_xor_sync(0xffffffffULL, acc, offset);
         }
 
         if (lane == 0) {
@@ -342,7 +342,7 @@ __global__ void zaya_moe_ternary_gemv_batched_kernel(
                 // Warp reduction for this expert
                 #pragma unroll
                 for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
-                    local_acc += __shfl_xor(local_acc, offset);
+                    local_acc += __shfl_xor_sync(0xffffffffULL, local_acc, offset);
                 }
 
                 if (lane == 0) {

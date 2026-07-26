@@ -41,29 +41,26 @@ static void selective_scan_step(
     float* y_t,                 // [head_dim] — output for this head
     int head_dim, int d_state
 ) {
-    // Discretize A: A_bar = exp(dt * A) = exp(-dt * exp(A_log))
+    // Mamba2 SSD scan for one head: each head_dim element updates the shared state.
+    // Reference: Gu & Dao, "Mamba2: SSDs for Efficient Sequence Modeling" (2024)
+    // For each dimension d in 0..head_dim:
+    //   state[s] = A_bar * state[s] + B_t[s] * x_t[d]   (state shared across dims)
+    //   y[d] = C^T @ state + D_h * x_t[d]
     float dt_softplus = softplus(dt_t);
-    float A_bar = std::exp(dt_softplus * A_h);  // A_h is -exp(A_log), so A_bar in (0,1)
+    float A_bar = std::exp(dt_softplus * A_h);  // A_h is -exp(A_log), A_bar in (0,1)
+    float db = dt_softplus;  // discretized B multiplier
 
-    // B is also discretized: B_bar = dt_softplus * B_t
-    // Then: state = A_bar * state + B_bar * x
-    //        y = C^T @ state + D * x
-
-    for (int i = 0; i < d_state; ++i) {
-        state[i] = A_bar * state[i] + dt_softplus * B_t[i] * x_t[0];
-    }
-
-    // Output: y_t = C @ state + D * x_t
-    float c_dot_state = 0.0f;
-    for (int i = 0; i < d_state; ++i) {
-        c_dot_state += C_t[i] * state[i];
-    }
-
-    // Apply to all elements in this head's dimension
     for (int hd = 0; hd < head_dim; ++hd) {
-        y_t[hd] = c_dot_state * x_t[hd] + D_h * x_t[hd];
-        // Note: in the full Mamba2, the output is:
-        // y = C @ state + D * x  (but C@state is scalar broadcast)
+        // Update SSM state with this dimension's input
+        for (int s = 0; s < d_state; ++s) {
+            state[s] = A_bar * state[s] + db * B_t[s] * x_t[hd];
+        }
+        // Compute output: y = C @ state + D * x
+        float c_dot_state = 0.0f;
+        for (int s = 0; s < d_state; ++s) {
+            c_dot_state += C_t[s] * state[s];
+        }
+        y_t[hd] = c_dot_state + D_h * x_t[hd];
     }
 }
 

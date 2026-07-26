@@ -260,8 +260,6 @@ bool Zamba2Model::forward(int token_id, float* logits) {
 
     // ── Embedding ──
     std::vector<float> hidden(d_model, 0.0f);
-    // embed_w layout: [vocab_size, d_model] or [d_model, vocab_size]
-    // We assume [vocab_size, d_model]
     for (int i = 0; i < d_model; ++i) {
         hidden[i] = embed_w[token_id * d_model + i];
     }

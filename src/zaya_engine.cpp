@@ -61,9 +61,10 @@ __global__ void embed_lookup_k(__half* out, const __half* embed, const __half* i
 }
 
 // ── Helper kernels ──
-__global__ void rmsnorm_k(__half*x,const __half*w,int n){__shared__ float r[32];int tx=threadIdx.x,wid=tx/32,l=tx%32;float ss=0;for(int i=tx;i<n;i+=blockDim.x)ss+=(float)x[i]*(float)x[i];for(int o=16;o>0;o>>=1)ss+=__shfl_xor(ss,o);if(l==0)r[wid]=ss;__syncthreads();if(wid==0){ss=(l<(256/32))?r[l]:0;for(int o=16;o>0;o>>=1)ss+=__shfl_xor(ss,o);if(l==0)r[0]=ss;}__syncthreads();float iv=1.0f/sqrtf(r[0]/n+1e-5f);for(int i=tx;i<n;i+=blockDim.x)x[i]=__float2half((float)x[i]*iv*(float)w[i]);}
+__global__ void nan_clean_k(__half*buf,int n){int i=blockIdx.x*blockDim.x+threadIdx.x;if(i>=n)return;float v=__half2float(buf[i]);if(isnan(v)||isinf(v))buf[i]=__float2half(0.0f);}
+__global__ void rmsnorm_k(__half*x,const __half*w,int n){__shared__ float r[32];int tx=threadIdx.x,wid=tx/32,l=tx%32;float ss=0;for(int i=tx;i<n;i+=blockDim.x)ss+=(float)x[i]*(float)x[i];for(int o=16;o>0;o>>=1)ss+=__shfl_xor_sync(0xffffffffULL, ss,o);if(l==0)r[wid]=ss;__syncthreads();if(wid==0){ss=(l<(256/32))?r[l]:0;for(int o=16;o>0;o>>=1)ss+=__shfl_xor_sync(0xffffffffULL, ss,o);if(l==0)r[0]=ss;}__syncthreads();float iv=1.0f/sqrtf(r[0]/n+1e-5f);for(int i=tx;i<n;i+=blockDim.x)x[i]=__float2half((float)x[i]*iv*(float)w[i]);}
 __global__ void copy_k(__half*d,const __half*s,int n){int i=blockIdx.x*blockDim.x+threadIdx.x;if(i>=n)return;d[i]=s[i];}
-__global__ void mm_k(__half*out,const __half*in,const __half*wt,int M,int K){int i=blockIdx.x*blockDim.x+threadIdx.x;if(i>=M)return;float s=0;for(int k=0;k<K;k++)s+=(float)in[k]*(float)wt[k*(size_t)M+i];out[i]=__float2half(s);}
+__global__ void mm_k(__half*out,const __half*in,const __half*wt,int M,int K){int i=blockIdx.x*blockDim.x+threadIdx.x;if(i>=M)return;float s=0;for(int k=0;k<K;k++)s+=(float)in[k]*(float)wt[k*(size_t)M+i];if(s>65504.0f)s=65504.0f;else if(s<-65504.0f)s=-65504.0f;out[i]=__float2half(s);}
 __global__ void silu_mul_k(__half*out,const __half*g,const __half*u,int n){int i=blockIdx.x*blockDim.x+threadIdx.x;if(i>=n)return;float v=(float)g[i];out[i]=__float2half((v/(1.0f+expf(-v)))*(float)u[i]);}
 __global__ void residual_scale_k(__half*out,const __half*res,const float*hs_s,const float*hs_b,const float*res_s,const float*res_b,int n){int i=blockIdx.x*blockDim.x+threadIdx.x;if(i>=n)return;out[i]=__float2half((float)out[i]*hs_s[i]+hs_b[i]+(float)res[i]*res_s[i]+res_b[i]);}
 
@@ -113,10 +114,44 @@ static std::vector<float> load_bin(const std::string& p){
     size_t n=f.tellg()/sizeof(float);f.seekg(0);
     std::vector<float> d(n);f.read((char*)d.data(),n*sizeof(float));return d;
 }
+// Load FP16 weight file with correct half→float conversion and overflow guard
+static float f16_to_f32(uint16_t h){
+    uint32_t sign=(h&0x8000u)<<16;
+    int exp=(h>>10)&31;
+    uint32_t mant=(h&0x3FFu)<<13;
+    if(exp==0){
+        if(mant==0){uint32_t r=sign;float f;memcpy(&f,&r,4);return f;}
+        while(!(mant&0x400000u)){mant<<=1;exp--;}
+        mant&=0x3FFFFFu;
+    }else if(exp==31){exp=255;
+    }else{exp=exp-15+127;}
+    uint32_t r=sign|((uint32_t)exp<<23)|mant;
+    float f;memcpy(&f,&r,4);return f;
+}
+static std::vector<float> load_bin_f16(const std::string& p){
+    std::ifstream f(p,std::ios::binary|std::ios::ate);
+    if(!f){fprintf(stderr,"Missing: %s\n",p.c_str());return {};}
+    size_t sz=f.tellg();f.seekg(0);
+    size_t n=sz/2;
+    std::vector<uint16_t> tmp(n);
+    std::vector<float> d(n);
+    f.read((char*)tmp.data(),n*2);
+    const float wclip=32.0f;
+    for(size_t i=0;i<n;i++){
+        float v=f16_to_f32(tmp[i]);
+        if(v>wclip)v=wclip;else if(v<-wclip)v=-wclip;
+        d[i]=v;
+    }
+    return d;
+}
 static std::string L(int i){return std::to_string(i);}
+static std::string ensure_trailing_slash(const std::string& s) {
+    if (s.empty()) return s;
+    return s.back() == '/' ? s : s + "/";
+}
 static const std::string g_weights_dir = []() -> std::string {
     const char* env = getenv("ZAYA_WEIGHTS_DIR");
-    if (env && env[0]) return env;
+    if (env && env[0]) return ensure_trailing_slash(env);
     const char* xdg = getenv("XDG_DATA_HOME");
     if (xdg && xdg[0]) return std::string(xdg) + "/1bit-systems/weights/";
     const char* home = getenv("HOME");
@@ -124,6 +159,7 @@ static const std::string g_weights_dir = []() -> std::string {
     return "/tmp/zaya_weights/";
 }();
 #define W(N) load_bin(g_weights_dir+N)
+#define WF(N) load_bin_f16(g_weights_dir+N)  // FP16 weight matrices
 static void upf16(const std::vector<float>& s,__half*d,int n,hipStream_t h=0){
     if((size_t)n>s.size()){fprintf(stderr,"upf16: expected %d floats, got %zu — aborting upload\n",n,s.size());return;}
     std::vector<__half>b(n);for(int i=0;i<n;i++)b[i]=__float2half(s[i]);
@@ -301,15 +337,15 @@ ZayaState* zaya_init(const char* weights_dir, const ZayaConfig* cfg) {
     for(int il=0;il<eng.n_layers;il++){
         auto& l=s->lw[il];
         if(!A(l.nw,eng.h)){zaya_destroy(s);return nullptr;}upf16(W("model_layers_"+L(il)+"_input_layernorm_weight.bin"),l.nw,eng.h,s->st);
-        if(!A(l.wq,eng.qd*eng.h)){zaya_destroy(s);return nullptr;}upf16(W("model_layers_"+L(il)+"_self_attn_qkv_proj_q_proj_weight.bin"),l.wq,eng.qd*eng.h,s->st);
-        if(!A(l.wk,eng.kd*eng.h)){zaya_destroy(s);return nullptr;}upf16(W("model_layers_"+L(il)+"_self_attn_qkv_proj_k_proj_weight.bin"),l.wk,eng.kd*eng.h,s->st);
-        if(!A(l.wv1,(eng.kd/2)*eng.h)){zaya_destroy(s);return nullptr;}upf16(W("model_layers_"+L(il)+"_self_attn_qkv_proj_v_proj_current_weight.bin"),l.wv1,(eng.kd/2)*eng.h,s->st);
-        if(!A(l.wv2,(eng.kd/2)*eng.h)){zaya_destroy(s);return nullptr;}upf16(W("model_layers_"+L(il)+"_self_attn_qkv_proj_v_proj_delayed_weight.bin"),l.wv2,(eng.kd/2)*eng.h,s->st);
-        if(!A(l.wo,eng.h*eng.qd)){zaya_destroy(s);return nullptr;}upf16(W("model_layers_"+L(il)+"_self_attn_o_proj_weight.bin"),l.wo,eng.h*eng.qd,s->st);
-        if(!B(l.cdw,eng.qkv*2)){zaya_destroy(s);return nullptr;}upf32(W("model_layers_"+L(il)+"_self_attn_qkv_proj_conv_qk_depthwise_weight.bin"),l.cdw,eng.qkv*2,s->st);
-        if(!B(l.cdb,eng.qkv)){zaya_destroy(s);return nullptr;}upf32(W("model_layers_"+L(il)+"_self_attn_qkv_proj_conv_qk_depthwise_bias.bin"),l.cdb,eng.qkv,s->st);
-        if(!B(l.cgw,eng.qkv*128*2)){zaya_destroy(s);return nullptr;}upf32(W("model_layers_"+L(il)+"_self_attn_qkv_proj_conv_qk_grouped_weight.bin"),l.cgw,eng.qkv*128*2,s->st);
-        if(!B(l.cgb,eng.qkv)){zaya_destroy(s);return nullptr;}upf32(W("model_layers_"+L(il)+"_self_attn_qkv_proj_conv_qk_grouped_bias.bin"),l.cgb,eng.qkv,s->st);
+        if(!A(l.wq,eng.qd*eng.h)){zaya_destroy(s);return nullptr;}upf16(WF("model_layers_"+L(il)+"_self_attn_qkv_proj_q_proj_weight.bin"),l.wq,eng.qd*eng.h,s->st);
+        if(!A(l.wk,eng.kd*eng.h)){zaya_destroy(s);return nullptr;}upf16(WF("model_layers_"+L(il)+"_self_attn_qkv_proj_k_proj_weight.bin"),l.wk,eng.kd*eng.h,s->st);
+        if(!A(l.wv1,(eng.kd/2)*eng.h)){zaya_destroy(s);return nullptr;}upf16(WF("model_layers_"+L(il)+"_self_attn_qkv_proj_v_proj_current_weight.bin"),l.wv1,(eng.kd/2)*eng.h,s->st);
+        if(!A(l.wv2,(eng.kd/2)*eng.h)){zaya_destroy(s);return nullptr;}upf16(WF("model_layers_"+L(il)+"_self_attn_qkv_proj_v_proj_delayed_weight.bin"),l.wv2,(eng.kd/2)*eng.h,s->st);
+        if(!A(l.wo,eng.h*eng.qd)){zaya_destroy(s);return nullptr;}upf16(WF("model_layers_"+L(il)+"_self_attn_o_proj_weight.bin"),l.wo,eng.h*eng.qd,s->st);
+        if(!B(l.cdw,eng.qkv*2)){zaya_destroy(s);return nullptr;}upf32(WF("model_layers_"+L(il)+"_self_attn_qkv_proj_conv_qk_depthwise_weight.bin"),l.cdw,eng.qkv*2,s->st);
+        if(!B(l.cdb,eng.qkv)){zaya_destroy(s);return nullptr;}upf32(WF("model_layers_"+L(il)+"_self_attn_qkv_proj_conv_qk_depthwise_bias.bin"),l.cdb,eng.qkv,s->st);
+        if(!B(l.cgw,eng.qkv*128*2)){zaya_destroy(s);return nullptr;}upf32(WF("model_layers_"+L(il)+"_self_attn_qkv_proj_conv_qk_grouped_weight.bin"),l.cgw,eng.qkv*128*2,s->st);
+        if(!B(l.cgb,eng.qkv)){zaya_destroy(s);return nullptr;}upf32(WF("model_layers_"+L(il)+"_self_attn_qkv_proj_conv_qk_grouped_bias.bin"),l.cgb,eng.qkv,s->st);
         if(!B(l.ks,eng.nkv)){zaya_destroy(s);return nullptr;}upf32(W("model_layers_"+L(il)+"_self_attn_qk_norm_temp.bin"),l.ks,eng.nkv,s->st);
         if(!B(l.pahss,eng.h)){zaya_destroy(s);return nullptr;}upf32(W("model_layers_"+L(il)+"_post_attention_residual_scale_hidden_states_scale.bin"),l.pahss,eng.h,s->st);
         if(!B(l.pahsb,eng.h)){zaya_destroy(s);return nullptr;}upf32(W("model_layers_"+L(il)+"_post_attention_residual_scale_hidden_states_bias.bin"),l.pahsb,eng.h,s->st);
@@ -321,7 +357,7 @@ ZayaState* zaya_init(const char* weights_dir, const ZayaConfig* cfg) {
         // Upstream PyTorch saves it as [eng.rtr_h, eng.h] — we transpose on load.
         if(!B(l.gdw,eng.h*eng.rtr_h)){zaya_destroy(s);return nullptr;}
         {
-            auto raw=W("model_layers_"+L(il)+"_mlp_gate_down_proj_weight.bin");
+            auto raw=WF("model_layers_"+L(il)+"_mlp_gate_down_proj_weight.bin");
             std::vector<float> tr(eng.h*eng.rtr_h);
             for(int i=0;i<eng.rtr_h;i++)for(int j=0;j<eng.h;j++)tr[j*eng.rtr_h+i]=raw[i*eng.h+j];
             upf32(tr,l.gdw,eng.h*eng.rtr_h,s->st);
@@ -425,18 +461,17 @@ void zaya_forward(ZayaState* s, int token_id, float* logits_out) {
         // RMSNorm (separate launch to avoid cross-block data race, issue #870)
         rmsnorm_fused_kernel<<<1, 256, 0, s->st>>>(s->d_hs, l.nw, eng.h);
         HIP_CHECK(hipGetLastError());
-        // Fused Q/K/V1/V2: 4 kernel launches -> 1 (#4)
-        {
-            int total_blocks = (eng.qd + WMMA_M - 1) / WMMA_M
-                             + (eng.kd + WMMA_M - 1) / WMMA_M
-                             + ((eng.kd/2) + WMMA_M - 1) / WMMA_M
-                             + ((eng.kd/2) + WMMA_M - 1) / WMMA_M;
-            fused_qkv_kernel<<<total_blocks, WMMA_THREADS, 0, s->st>>>(
-                s->d_hs, s->d_tmp,
-                l.wq, l.wk, l.wv1, l.wv2,
-                eng.h, eng.qd, eng.kd);
-            HIP_CHECK(hipGetLastError());
-        }
+        // Separate Q/K/V1/V2 using mm_k (no warp shuffle, AMD HIP compatible)
+        { int hv2=eng.kd/2;
+          mm_k<<<(eng.qd+BLK-1)/BLK,BLK,0,s->st>>>(s->d_tmp,s->d_hs,l.wq,eng.qd,eng.h);
+          HIP_CHECK(hipGetLastError());
+          mm_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(s->d_tmp+eng.qd,s->d_hs,l.wk,eng.kd,eng.h);
+          HIP_CHECK(hipGetLastError());
+          mm_k<<<(hv2+BLK-1)/BLK,BLK,0,s->st>>>(s->d_tmp+eng.qd+eng.kd,s->d_hs,l.wv1,hv2,eng.h);
+          HIP_CHECK(hipGetLastError());
+          mm_k<<<(hv2+BLK-1)/BLK,BLK,0,s->st>>>(s->d_tmp+eng.qd+eng.kd+hv2,s->d_hs,l.wv2,hv2,eng.h);
+          HIP_CHECK(hipGetLastError()); }
+          nan_clean_k<<<(eng.qkv+BLK-1)/BLK,BLK,0,s->st>>>(s->d_tmp,eng.qkv);
         cca_prep_kernel<<<1,256,cca_prep_smem_bytes(eng.nq,eng.nkv,eng.hd,eng.hd/2),s->st>>>(s->d_tmp,s->d_tmp+eng.qd,s->d_tmp+eng.qd+eng.kd,s->d_tmp+eng.qd+eng.kd+eng.kd/2,
             s->d_conv+(size_t)il*2*eng.qkv, s->d_vrec+(size_t)il*(eng.kd/2),
             l.cdw,l.cdb,l.cgw,l.cgb,l.ks,
@@ -455,8 +490,9 @@ void zaya_forward(ZayaState* s, int token_id, float* logits_out) {
                 s->d_vcache + (size_t)il * s->max_seq * eng.nkv * eng.hd,
                 s->d_ao, s->d_partials, eng.nq, eng.nkv, eng.hd, s->pos+1, 1.0f/sqrtf((float)eng.hd), (void*)s->st);
         }
-        moe_tiled_gemv<<<eng.h/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_ao,s->d_ao,l.wo,eng.h,eng.qd);                             // o_proj
+        moe_tiled_gemv<<<eng.h/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_ao,l.wo,eng.h,eng.qd);  // o_proj -> d_tmp (avoid in-place race)
         HIP_CHECK(hipGetLastError());
+        copy_k<<<(eng.h+BLK-1)/BLK,BLK,0,s->st>>>(s->d_ao,s->d_tmp,eng.h);
         residual_scale_k<<<g1,BLK,0,s->st>>>(s->d_ao,s->d_hs,l.pahss,l.pahsb,l.parss,l.parsb,eng.h);
         HIP_CHECK(hipGetLastError());
         copy_k<<<g1,BLK,0,s->st>>>(s->d_hs,s->d_ao,eng.h);
@@ -519,18 +555,17 @@ int zaya_forward_greedy(ZayaState* s, int token_id) {
         // RMSNorm (separate launch to avoid cross-block data race, issue #870)
         rmsnorm_fused_kernel<<<1, 256, 0, s->st>>>(s->d_hs, l.nw, eng.h);
         HIP_CHECK(hipGetLastError());
-        // Fused Q/K/V1/V2: 4 kernel launches -> 1 (#4)
-        {
-            int total_blocks = (eng.qd + WMMA_M - 1) / WMMA_M
-                             + (eng.kd + WMMA_M - 1) / WMMA_M
-                             + ((eng.kd/2) + WMMA_M - 1) / WMMA_M
-                             + ((eng.kd/2) + WMMA_M - 1) / WMMA_M;
-            fused_qkv_kernel<<<total_blocks, WMMA_THREADS, 0, s->st>>>(
-                s->d_hs, s->d_tmp,
-                l.wq, l.wk, l.wv1, l.wv2,
-                eng.h, eng.qd, eng.kd);
-            HIP_CHECK(hipGetLastError());
-        }
+        // Separate Q/K/V1/V2 using mm_k (no warp shuffle, AMD HIP compatible)
+        { int hv2=eng.kd/2;
+          mm_k<<<(eng.qd+BLK-1)/BLK,BLK,0,s->st>>>(s->d_tmp,s->d_hs,l.wq,eng.qd,eng.h);
+          HIP_CHECK(hipGetLastError());
+          mm_k<<<(eng.kd+BLK-1)/BLK,BLK,0,s->st>>>(s->d_tmp+eng.qd,s->d_hs,l.wk,eng.kd,eng.h);
+          HIP_CHECK(hipGetLastError());
+          mm_k<<<(hv2+BLK-1)/BLK,BLK,0,s->st>>>(s->d_tmp+eng.qd+eng.kd,s->d_hs,l.wv1,hv2,eng.h);
+          HIP_CHECK(hipGetLastError());
+          mm_k<<<(hv2+BLK-1)/BLK,BLK,0,s->st>>>(s->d_tmp+eng.qd+eng.kd+hv2,s->d_hs,l.wv2,hv2,eng.h);
+          HIP_CHECK(hipGetLastError()); }
+          nan_clean_k<<<(eng.qkv+BLK-1)/BLK,BLK,0,s->st>>>(s->d_tmp,eng.qkv);
         cca_prep_kernel<<<1,256,cca_prep_smem_bytes(eng.nq,eng.nkv,eng.hd,eng.hd/2),s->st>>>(s->d_tmp,s->d_tmp+eng.qd,s->d_tmp+eng.qd+eng.kd,s->d_tmp+eng.qd+eng.kd+eng.kd/2,
             s->d_conv+(size_t)il*2*eng.qkv, s->d_vrec+(size_t)il*(eng.kd/2),
             l.cdw,l.cdb,l.cgw,l.cgb,l.ks,
@@ -549,12 +584,14 @@ int zaya_forward_greedy(ZayaState* s, int token_id) {
                 s->d_vcache + (size_t)il * s->max_seq * eng.nkv * eng.hd,
                 s->d_ao, s->d_partials, eng.nq, eng.nkv, eng.hd, s->pos+1, 1.0f/sqrtf((float)eng.hd), (void*)s->st);
         }
-        moe_tiled_gemv<<<eng.h/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_ao,s->d_ao,l.wo,eng.h,eng.qd);                             // o_proj
+        moe_tiled_gemv<<<eng.h/WMMA_M,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_ao,l.wo,eng.h,eng.qd);  // o_proj -> d_tmp (avoid in-place race)
         HIP_CHECK(hipGetLastError());
+        copy_k<<<(eng.h+BLK-1)/BLK,BLK,0,s->st>>>(s->d_ao,s->d_tmp,eng.h);
         residual_scale_k<<<g1,BLK,0,s->st>>>(s->d_ao,s->d_hs,l.pahss,l.pahsb,l.parss,l.parsb,eng.h);
         HIP_CHECK(hipGetLastError());
         copy_k<<<g1,BLK,0,s->st>>>(s->d_hs,s->d_ao,eng.h);
         HIP_CHECK(hipGetLastError());
+        nan_clean_k<<<g1,BLK,0,s->st>>>(s->d_hs,eng.h);
         rmsnorm_k<<<1,BLK,0,s->st>>>(s->d_hs,l.pan,eng.h);
         HIP_CHECK(hipGetLastError());
         if(l.gu&&l.dn){
@@ -594,13 +631,13 @@ int zaya_forward_greedy(ZayaState* s, int token_id) {
     HIP_OK_R(hipMemcpy(&best,s->d_argmax_idx,4,hipMemcpyDeviceToHost), -1);
     if(s->pos < s->max_seq-1) s->pos++;
 
-    // End HIP graph capture on first call, instantiate for replay (#2)
+    // HIP graph capture disabled: the stream is shared with non-captured
+    // MoE NPU pipeline operations, and capturing the greedy path interferes
+    // with subsequent kernel launches on the same stream.
+    // Always use per-call kernel launch (consistent with zaya_forward path).
     if (!s->graph_captured) {
-        HIP_OK_R(hipStreamEndCapture(s->st, &s->graph), -1);
-        HIP_OK_R(hipGraphInstantiate(&s->graph_exec, s->graph, NULL, NULL, 0), -1);
-        s->graph_captured = true;
-        fprintf(stderr, "  HIP graph captured (%d layers) — %.0f MB exec, replay active\n",
-                eng.n_layers, (double)sizeof(ZayaState) / (1024*1024));
+        s->graph_captured = true;  // mark as done to skip this block forever
+        fprintf(stderr, "  HIP graph capture disabled — using per-call launch\n");
     }
     return best;
 }

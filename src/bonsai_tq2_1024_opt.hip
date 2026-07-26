@@ -121,7 +121,7 @@ __global__ void bonsai_tq2_1024_cb_kernel(
         float v = acc[r];
         #pragma unroll
         for (int off = kWaveSize / 2; off > 0; off >>= 1)
-            v += __shfl_xor(v, off);
+            v += __shfl_xor_sync(0xffffffffULL, v, off);
         if (lane == 0) {
             const int row = row_b + wave * kRowsPerWarp + r;
             if (row < N_out) {

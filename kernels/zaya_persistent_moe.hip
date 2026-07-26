@@ -161,7 +161,7 @@ __launch_bounds__(128) __global__ void persistent_moe_kernel(
 
             for (int j = 0; j < WMMA_M; j++)
                 for (int o = 16; o > 0; o >>= 1)
-                    acc[j] += __shfl_xor(acc[j], o);
+                    acc[j] += __shfl_xor_sync(0xffffffffULL, acc[j], o);
 
             __shared__ float s_acc[WMMA_M * 4];
             int warp = tx / 32;
@@ -176,7 +176,7 @@ __launch_bounds__(128) __global__ void persistent_moe_kernel(
                     acc[j] = s_acc[lane * WMMA_M + j];
                 for (int o = 16; o > 0; o >>= 1)
                     for (int j = 0; j < WMMA_M; j++)
-                        acc[j] += __shfl_xor(acc[j], o);
+                        acc[j] += __shfl_xor_sync(0xffffffffULL, acc[j], o);
                 if (lane == 0)
                     for (int j = 0; j < WMMA_M; j++)
                         if (row + j < 2 * N_FF)
@@ -227,7 +227,7 @@ __launch_bounds__(128) __global__ void persistent_moe_kernel(
 
             for (int j = 0; j < WMMA_M; j++)
                 for (int o = 16; o > 0; o >>= 1)
-                    acc[j] += __shfl_xor(acc[j], o);
+                    acc[j] += __shfl_xor_sync(0xffffffffULL, acc[j], o);
 
             __shared__ float s_acc2[WMMA_M * 4];
             int warp2 = tx / 32;
@@ -242,7 +242,7 @@ __launch_bounds__(128) __global__ void persistent_moe_kernel(
                     acc[j] = s_acc2[lane2 * WMMA_M + j];
                 for (int o = 16; o > 0; o >>= 1)
                     for (int j = 0; j < WMMA_M; j++)
-                        acc[j] += __shfl_xor(acc[j], o);
+                        acc[j] += __shfl_xor_sync(0xffffffffULL, acc[j], o);
                 if (lane2 == 0)
                     for (int j = 0; j < WMMA_M; j++)
                         if (row + j < H)

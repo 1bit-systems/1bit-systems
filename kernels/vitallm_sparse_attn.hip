@@ -109,8 +109,8 @@ __global__ void vitallm_topk_select(
     // Warp-level reduction (assume wave64)
     #pragma unroll
     for (int o = WARP_SIZE / 2; o > 0; o >>= 1) {
-        local_min = fminf(local_min, __shfl_xor(local_min, o));
-        local_max = fmaxf(local_max, __shfl_xor(local_max, o));
+        local_min = fminf(local_min, __shfl_xor_sync(0xffffffffULL, local_min, o));
+        local_max = fmaxf(local_max, __shfl_xor_sync(0xffffffffULL, local_max, o));
     }
 
     if (tid % WARP_SIZE == 0) {

@@ -62,7 +62,7 @@ __global__ void quantize_fp16_to_i8_kernel(
     }
     #pragma unroll
     for (int o = WARP / 2; o > 0; o >>= 1) {
-        float other = __shfl_xor(local, o);
+        float other = __shfl_xor_sync(0xffffffffULL, local, o);
         if (other > local) local = other;
     }
     if (lane == 0) warp_max[wid] = local;
@@ -72,7 +72,7 @@ __global__ void quantize_fp16_to_i8_kernel(
         float v = (lane < BLOCK / WARP) ? warp_max[lane] : 0.0f;
         #pragma unroll
         for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) {
-            float other = __shfl_xor(v, o);
+            float other = __shfl_xor_sync(0xffffffffULL, v, o);
             if (other > v) v = other;
         }
         if (lane == 0) {
@@ -120,14 +120,14 @@ __global__ void rmsnorm_fp16_kernel(
         local += v * v;
     }
     #pragma unroll
-    for (int o = WARP / 2; o > 0; o >>= 1) local += __shfl_xor(local, o);
+    for (int o = WARP / 2; o > 0; o >>= 1) local += __shfl_xor_sync(0xffffffffULL, local, o);
     if (lane == 0) warp_sum[wid] = local;
     __syncthreads();
 
     if (wid == 0) {
         float s = (lane < BLOCK / WARP) ? warp_sum[lane] : 0.0f;
         #pragma unroll
-        for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) s += __shfl_xor(s, o);
+        for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) s += __shfl_xor_sync(0xffffffffULL, s, o);
         if (lane == 0) {
             float mean = s / (float)K;
             rms_inv_s = 1.0f / std::sqrtf(mean + eps);
@@ -181,8 +181,8 @@ __global__ void rmsnorm_quant_i8_kernel(
     // Warp-level reductions for both values
     #pragma unroll
     for (int o = WARP / 2; o > 0; o >>= 1) {
-        local_ssq += __shfl_xor(local_ssq, o);
-        float other = __shfl_xor(local_amx, o);
+        local_ssq += __shfl_xor_sync(0xffffffffULL, local_ssq, o);
+        float other = __shfl_xor_sync(0xffffffffULL, local_amx, o);
         if (other > local_amx) local_amx = other;
     }
     if (lane == 0) {
@@ -197,8 +197,8 @@ __global__ void rmsnorm_quant_i8_kernel(
         float s_amx = (lane < BLOCK / WARP) ? warp_amax[lane] : 0.0f;
         #pragma unroll
         for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) {
-            s_ssq += __shfl_xor(s_ssq, o);
-            float other = __shfl_xor(s_amx, o);
+            s_ssq += __shfl_xor_sync(0xffffffffULL, s_ssq, o);
+            float other = __shfl_xor_sync(0xffffffffULL, s_amx, o);
             if (other > s_amx) s_amx = other;
         }
         if (lane == 0) {
@@ -324,13 +324,13 @@ void relu2_glu_rmsnorm_fp16_kernel(
         local += v * v;
     }
     #pragma unroll
-    for (int o = WARP / 2; o > 0; o >>= 1) local += __shfl_xor(local, o);
+    for (int o = WARP / 2; o > 0; o >>= 1) local += __shfl_xor_sync(0xffffffffULL, local, o);
     if (lane == 0) warp_sum[wid] = local;
     __syncthreads();
     if (wid == 0) {
         float s = (lane < BLOCK / WARP) ? warp_sum[lane] : 0.0f;
         #pragma unroll
-        for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) s += __shfl_xor(s, o);
+        for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) s += __shfl_xor_sync(0xffffffffULL, s, o);
         if (lane == 0) {
             float mean = s / (float)N;
             rms_inv_s = 1.0f / std::sqrtf(mean + eps);
@@ -402,13 +402,13 @@ __global__ void resadd_rmsnorm_fp32_fp16_out_kernel(
         local += v * v;
     }
     #pragma unroll
-    for (int o = WARP / 2; o > 0; o >>= 1) local += __shfl_xor(local, o);
+    for (int o = WARP / 2; o > 0; o >>= 1) local += __shfl_xor_sync(0xffffffffULL, local, o);
     if (lane == 0) warp_sum[wid] = local;
     __syncthreads();
     if (wid == 0) {
         float s = (lane < BLOCK / WARP) ? warp_sum[lane] : 0.0f;
         #pragma unroll
-        for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) s += __shfl_xor(s, o);
+        for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) s += __shfl_xor_sync(0xffffffffULL, s, o);
         if (lane == 0) {
             float mean = s / (float)K;
             rms_inv_s = 1.0f / sqrtf(mean + eps);
@@ -505,13 +505,13 @@ __global__ void rmsnorm_fp32_in_fp16_out_kernel(
         local += v * v;
     }
     #pragma unroll
-    for (int o = WARP / 2; o > 0; o >>= 1) local += __shfl_xor(local, o);
+    for (int o = WARP / 2; o > 0; o >>= 1) local += __shfl_xor_sync(0xffffffffULL, local, o);
     if (lane == 0) warp_sum[wid] = local;
     __syncthreads();
     if (wid == 0) {
         float s = (lane < BLOCK / WARP) ? warp_sum[lane] : 0.0f;
         #pragma unroll
-        for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) s += __shfl_xor(s, o);
+        for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) s += __shfl_xor_sync(0xffffffffULL, s, o);
         if (lane == 0) {
             float mean = s / (float)K;
             rms_inv_s = 1.0f / std::sqrtf(mean + eps);
@@ -557,14 +557,14 @@ __global__ void fp16_gemv_kernel(
         local += (float)row[k] * (float)x[k];
     }
     #pragma unroll
-    for (int o = WARP / 2; o > 0; o >>= 1) local += __shfl_xor(local, o);
+    for (int o = WARP / 2; o > 0; o >>= 1) local += __shfl_xor_sync(0xffffffffULL, local, o);
     if (lane == 0) s_sum[wid] = local;
     __syncthreads();
 
     if (wid == 0) {
         float v = (lane < BLOCK / WARP) ? s_sum[lane] : 0.0f;
         #pragma unroll
-        for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) v += __shfl_xor(v, o);
+        for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) v += __shfl_xor_sync(0xffffffffULL, v, o);
         if (lane == 0) y[m] = v;
     }
 }
@@ -625,8 +625,8 @@ __global__ void top_k_fp32_kernel(
         }
         #pragma unroll
         for (int o = WARP / 2; o > 0; o >>= 1) {
-            float ov = __shfl_xor(best_v, o);
-            int   oi = __shfl_xor(best_i, o);
+            float ov = __shfl_xor_sync(0xffffffffULL, best_v, o);
+            int   oi = __shfl_xor_sync(0xffffffffULL, best_i, o);
             if (ov > best_v) { best_v = ov; best_i = oi; }
         }
         if (lane == 0) { s_val[wid] = best_v; s_idx[wid] = best_i; }
@@ -636,8 +636,8 @@ __global__ void top_k_fp32_kernel(
             int   i = (lane < BLOCK / WARP) ? s_idx[lane] : 0;
             #pragma unroll
             for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) {
-                float ov = __shfl_xor(v, o);
-                int   oi = __shfl_xor(i, o);
+                float ov = __shfl_xor_sync(0xffffffffULL, v, o);
+                int   oi = __shfl_xor_sync(0xffffffffULL, i, o);
                 if (ov > v) { v = ov; i = oi; }
             }
             if (lane == 0) {
@@ -682,7 +682,7 @@ __global__ void softmax_fp32_kernel(
     }
     #pragma unroll
     for (int o = WARP / 2; o > 0; o >>= 1) {
-        float ov = __shfl_xor(lmax, o);
+        float ov = __shfl_xor_sync(0xffffffffULL, lmax, o);
         if (ov > lmax) lmax = ov;
     }
     if (lane == 0) s_val[wid] = lmax;
@@ -691,7 +691,7 @@ __global__ void softmax_fp32_kernel(
         float v = (lane < BLOCK / WARP) ? s_val[lane] : NEG_SENTINEL;
         #pragma unroll
         for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) {
-            float ov = __shfl_xor(v, o);
+            float ov = __shfl_xor_sync(0xffffffffULL, v, o);
             if (ov > v) v = ov;
         }
         if (lane == 0) s_max = v;
@@ -707,13 +707,13 @@ __global__ void softmax_fp32_kernel(
         lsum += e;
     }
     #pragma unroll
-    for (int o = WARP / 2; o > 0; o >>= 1) lsum += __shfl_xor(lsum, o);
+    for (int o = WARP / 2; o > 0; o >>= 1) lsum += __shfl_xor_sync(0xffffffffULL, lsum, o);
     if (lane == 0) s_val[wid] = lsum;
     __syncthreads();
     if (wid == 0) {
         float s = (lane < BLOCK / WARP) ? s_val[lane] : 0.0f;
         #pragma unroll
-        for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) s += __shfl_xor(s, o);
+        for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) s += __shfl_xor_sync(0xffffffffULL, s, o);
         if (lane == 0) s_sum = s;
     }
     __syncthreads();
@@ -771,8 +771,8 @@ __global__ void argmax_fp32_kernel(
     }
     #pragma unroll
     for (int o = WARP / 2; o > 0; o >>= 1) {
-        float ov = __shfl_xor(best_v, o);
-        int   oi = __shfl_xor(best_i, o);
+        float ov = __shfl_xor_sync(0xffffffffULL, best_v, o);
+        int   oi = __shfl_xor_sync(0xffffffffULL, best_i, o);
         if (ov > best_v) { best_v = ov; best_i = oi; }
     }
     if (lane == 0) { s_val[wid] = best_v; s_idx[wid] = best_i; }
@@ -783,8 +783,8 @@ __global__ void argmax_fp32_kernel(
         int   i = (lane < BLOCK / WARP) ? s_idx[lane] : 0;
         #pragma unroll
         for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) {
-            float ov = __shfl_xor(v, o);
-            int   oi = __shfl_xor(i, o);
+            float ov = __shfl_xor_sync(0xffffffffULL, v, o);
+            int   oi = __shfl_xor_sync(0xffffffffULL, i, o);
             if (ov > v) { v = ov; i = oi; }
         }
         if (lane == 0) *out_idx = i;

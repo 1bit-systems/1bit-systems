@@ -102,7 +102,7 @@ __global__ void ternary_gemv_kernel(
     // Wave32 reduction using shuffle
     #pragma unroll
     for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
-        acc += __shfl_xor(acc, offset);
+        acc += __shfl_xor_sync(0xffffffffULL, acc, offset);
     }
 
     // Cross-warp reduction via LDS
@@ -118,7 +118,7 @@ __global__ void ternary_gemv_kernel(
         acc = (lane < NUM_WARPS) ? warp_results[lane] : 0.0f;
         #pragma unroll
         for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
-            acc += __shfl_xor(acc, offset);
+            acc += __shfl_xor_sync(0xffffffffULL, acc, offset);
         }
 
         // Lane 0 writes final result
@@ -186,7 +186,7 @@ __global__ void ternary_gemv_batched_kernel(
 
     #pragma unroll
     for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
-        acc += __shfl_xor(acc, offset);
+        acc += __shfl_xor_sync(0xffffffffULL, acc, offset);
     }
 
     __shared__ float warp_results[NUM_WARPS];
@@ -199,7 +199,7 @@ __global__ void ternary_gemv_batched_kernel(
         acc = (lane < NUM_WARPS) ? warp_results[lane] : 0.0f;
         #pragma unroll
         for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
-            acc += __shfl_xor(acc, offset);
+            acc += __shfl_xor_sync(0xffffffffULL, acc, offset);
         }
         if (lane == 0) {
             y[(size_t)batch * M + row] = acc * scale;

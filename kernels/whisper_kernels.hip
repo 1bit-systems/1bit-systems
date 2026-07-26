@@ -138,7 +138,7 @@ __global__ void self_attention_kernel(
             acc += q[(size_t)t * D + (size_t)h * H + d] * k[(size_t)s * D + (size_t)h * H + d];
         }
         // Warp-level reduction
-        for (int o = 16; o > 0; o >>= 1) acc += __shfl_xor(acc, o);
+        for (int o = 16; o > 0; o >>= 1) acc += __shfl_xor_sync(0xffffffffULL, acc, o);
         if (threadIdx.x == 0) {
             scores[s] = acc * scale;
             max_score = fmaxf(max_score, scores[s]);
@@ -191,7 +191,7 @@ __global__ void cross_attention_kernel(
         for (int d = threadIdx.x; d < H; d += blockDim.x) {
             acc += q[(size_t)t * D + (size_t)h * H + d] * k[(size_t)s * D + (size_t)h * H + d];
         }
-        for (int o = 16; o > 0; o >>= 1) acc += __shfl_xor(acc, o);
+        for (int o = 16; o > 0; o >>= 1) acc += __shfl_xor_sync(0xffffffffULL, acc, o);
         if (threadIdx.x == 0) {
             scores[s] = acc * scale;
             max_score = fmaxf(max_score, scores[s]);
@@ -241,7 +241,7 @@ __global__ void layernorm_kernel(
     // Mean
     float mean = 0.0f;
     for (int d = threadIdx.x; d < D; d += blockDim.x) mean += vals[d];
-    for (int o = 16; o > 0; o >>= 1) mean += __shfl_xor(mean, o);
+    for (int o = 16; o > 0; o >>= 1) mean += __shfl_xor_sync(0xffffffffULL, mean, o);
     mean /= D;
     __syncthreads();
     
@@ -251,7 +251,7 @@ __global__ void layernorm_kernel(
         float diff = vals[d] - mean;
         var += diff * diff;
     }
-    for (int o = 16; o > 0; o >>= 1) var += __shfl_xor(var, o);
+    for (int o = 16; o > 0; o >>= 1) var += __shfl_xor_sync(0xffffffffULL, var, o);
     var /= D;
     __syncthreads();
     

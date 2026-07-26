@@ -122,7 +122,7 @@ __global__ void ternary_gemv_phase5_dot4_kernel(
         int32_t v = acc[r];
         #pragma unroll
         for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
-            v += __shfl_xor(v, offset);
+            v += __shfl_xor_sync(0xffffffffULL, v, offset);
         }
         const int my_row = warp_row_base + r;
         if (lane == 0 && my_row < M) {

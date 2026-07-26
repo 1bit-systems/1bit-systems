@@ -97,7 +97,7 @@ __global__ void mla_attn_kernel(
             acc += q_rope[(size_t)h * qk_rope_dim + d] * k_cache[(size_t)s * kv_stride + (size_t)h * (qk_nope_dim + qk_rope_dim + v_dim) + qk_nope_dim + d];
         }
         // Warp reduce
-        for (int o = 16; o > 0; o >>= 1) acc += __shfl_xor(acc, o);
+        for (int o = 16; o > 0; o >>= 1) acc += __shfl_xor_sync(0xffffffffULL, acc, o);
         if (threadIdx.x == 0) {
             scores[s] = acc * scale;
             max_score = fmaxf(max_score, scores[s]);

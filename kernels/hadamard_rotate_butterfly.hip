@@ -75,7 +75,7 @@ void hadamard_rotate_fp16_butterfly_kernel(
     #pragma unroll
     for (int s = 0; s < 5; ++s) {
         const int stride = 1 << s;
-        const float partner = __shfl_xor(v, stride, WAVE);
+        const float partner = __shfl_xor_sync(0xffffffffULL, v, stride, WAVE);
         const bool high     = (lane & stride) != 0;
         v = combine(v, partner, high);
     }

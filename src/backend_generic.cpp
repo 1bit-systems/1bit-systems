@@ -95,7 +95,15 @@ struct GenericBackend : Backend {
         return idx;
     }
     std::vector<float> flat_weights;
-    float* w(size_t idx) { return flat_weights.data() + idx; }
+    float* w(size_t idx) {
+        if (idx >= flat_weights.size()) {
+            fprintf(stderr, "[generic] FATAL: weight index %zu out of range (size=%zu)\n",
+                    idx, flat_weights.size());
+            static float g_zero = 0.0f;
+            return &g_zero;
+        }
+        return flat_weights.data() + idx;
+    }
 
     bool init(const ModelConfig& model_cfg, const std::string& weights_dir) override {
         cfg = model_cfg;
@@ -147,6 +155,19 @@ struct GenericBackend : Backend {
     bool load_gguf(const std::string& path) {
         ModelConfig hdr_cfg;
         if (!read_gguf_header(path, hdr_cfg)) return false;
+
+        // Architecture guard: refuse architectures with tensor layouts this
+        // backend doesn't understand (issue #947). ZAYA MoE uses a non-standard
+        // GGUF tensor layout (e.g. ffn_gate_inp with shape [NE*NE*H] instead
+        // of [NE*H]) that would produce garbage. Zamba/Mamba2 are handled by
+        // their own dedicated backends.
+        if (hdr_cfg.arch == RCPP_ARCH_ZAYA || hdr_cfg.arch == RCPP_ARCH_ZAMBA2 ||
+            hdr_cfg.arch == RCPP_ARCH_ZAMBA || hdr_cfg.arch == RCPP_ARCH_MAMBA) {
+            fprintf(stderr, "  [generic] Refusing to load %s (arch=%d) — "
+                            "architecture not supported by generic CPU backend\n",
+                    path.c_str(), (int)hdr_cfg.arch);
+            return false;
+        }
         fprintf(stderr, "load_gguf: %s, %d layers, %d hidden\n", hdr_cfg.model_name.c_str(), hdr_cfg.n_layers, hdr_cfg.hidden);
         
         int H = hdr_cfg.hidden_size, L = hdr_cfg.n_layers, NH = hdr_cfg.n_heads;
@@ -187,8 +208,11 @@ struct GenericBackend : Backend {
         auto load_tensor = [&](const std::string& name, size_t expected) -> size_t {
             std::vector<float> buf;
             size_t n = 0;
-            if (!read_gguf_tensor(path, name, buf, &n)) return 0;
-            if (n != expected) { fprintf(stderr, "  %s: expected %zu, got %zu\n", name.c_str(), expected, n); return 0; }
+            if (!read_gguf_tensor(path, name, buf, &n)) return SIZE_MAX;
+            if (n != expected) {
+                fprintf(stderr, "  %s: expected %zu, got %zu — ABORTING LOAD\n", name.c_str(), expected, n);
+                return SIZE_MAX;
+            }
             size_t idx = flat_weights.size();
             flat_weights.insert(flat_weights.end(), buf.begin(), buf.end());
             return idx;
@@ -209,13 +233,32 @@ struct GenericBackend : Backend {
         int NE = cfg.n_experts;
         for (int i = 0; i < L; i++) {
             std::string p = "blk." + std::to_string(i) + ".";
-            LayerW lw;
+            LayerW lw = {};  // zero-initialize all indices to SIZE_MAX
+            lw.wq = SIZE_MAX; lw.wk = SIZE_MAX; lw.wv = SIZE_MAX; lw.wo = SIZE_MAX;
+            lw.rms_attn = SIZE_MAX; lw.rms_ffn = SIZE_MAX;
+            lw.w1 = SIZE_MAX; lw.w2 = SIZE_MAX; lw.w3 = SIZE_MAX;
+            lw.moe_gate_inp = SIZE_MAX; lw.moe_gate_exps = SIZE_MAX;
+            lw.moe_up_exps = SIZE_MAX; lw.moe_down_exps = SIZE_MAX;
+            lw.q_norm = SIZE_MAX; lw.k_norm = SIZE_MAX;
+
             lw.rms_attn = load_tensor(p + "attn_norm.weight", H);
             lw.rms_ffn  = load_tensor(p + "ffn_norm.weight", H);
             lw.wq = load_tensor(p + "attn_q.weight", NH*HD*H);
             lw.wk = load_tensor(p + "attn_k.weight", NKV*HD*H);
             lw.wv = load_tensor(p + "attn_v.weight", NKV*HD*H);
             lw.wo = load_tensor(p + "attn_output.weight", H*NH*HD);
+
+            // Check that all required tensors loaded correctly. If any shape
+            // mismatch occurred, load_tensor returns SIZE_MAX and the model
+            // will produce garbage — abort early (issue #947).
+            bool layer_ok = (lw.rms_attn != SIZE_MAX) && (lw.rms_ffn != SIZE_MAX)
+                         && (lw.wq != SIZE_MAX) && (lw.wk != SIZE_MAX)
+                         && (lw.wv != SIZE_MAX) && (lw.wo != SIZE_MAX);
+            if (!layer_ok) {
+                fprintf(stderr, "  [generic] Layer %d: required tensor shape mismatch — ABORTING LOAD\n", i);
+                return false;
+            }
+
             if (NE > 0) {
                 // MoE layer: no dense ffn_gate/up/down — route through the
                 // stacked per-expert "_exps" tensors instead.
@@ -223,10 +266,22 @@ struct GenericBackend : Backend {
                 lw.moe_gate_exps = load_tensor(p + "ffn_gate_exps.weight", (size_t)NE*FF*H);
                 lw.moe_up_exps   = load_tensor(p + "ffn_up_exps.weight", (size_t)NE*FF*H);
                 lw.moe_down_exps = load_tensor(p + "ffn_down_exps.weight", (size_t)NE*H*FF);
+
+                // Also check MoE tensor shapes
+                if (lw.moe_gate_inp == SIZE_MAX || lw.moe_gate_exps == SIZE_MAX ||
+                    lw.moe_up_exps == SIZE_MAX || lw.moe_down_exps == SIZE_MAX) {
+                    fprintf(stderr, "  [generic] Layer %d: MoE tensor shape mismatch — ABORTING LOAD\n", i);
+                    return false;
+                }
             } else {
                 lw.w1 = load_tensor(p + "ffn_gate.weight", FF*H);
                 lw.w2 = load_tensor(p + "ffn_up.weight", FF*H);
                 lw.w3 = load_tensor(p + "ffn_down.weight", H*FF);
+
+                if (lw.w1 == SIZE_MAX || lw.w2 == SIZE_MAX || lw.w3 == SIZE_MAX) {
+                    fprintf(stderr, "  [generic] Layer %d: FFN tensor shape mismatch — ABORTING LOAD\n", i);
+                    return false;
+                }
             }
             lw.bq = load_tensor_optional(p + "attn_q.bias", NH*HD);
             lw.bk = load_tensor_optional(p + "attn_k.bias", NKV*HD);

@@ -31,12 +31,12 @@ __launch_bounds__(256) __global__ void rmsnorm_fused_kernel(
         float v = (float)hs[i];
         ss += v * v;
     }
-    for (int o = 16; o > 0; o >>= 1) ss += __shfl_xor(ss, o);
+    for (int o = 16; o > 0; o >>= 1) ss += __shfl_xor_sync(0xffffffffULL, ss, o);
     if (lane == 0) r[wid] = ss;
     __syncthreads();
     if (wid == 0) {
         ss = (lane < 8) ? r[lane] : 0;
-        for (int o = 16; o > 0; o >>= 1) ss += __shfl_xor(ss, o);
+        for (int o = 16; o > 0; o >>= 1) ss += __shfl_xor_sync(0xffffffffULL, ss, o);
         if (lane == 0) r[0] = ss;
     }
     __syncthreads();
@@ -94,7 +94,7 @@ __launch_bounds__(128) __global__ void fused_qkv_kernel(
 
     for (int j = 0; j < FQ_M; j++)
         for (int o = 16; o > 0; o >>= 1)
-            acc[j] += __shfl_xor(acc[j], o);
+            acc[j] += __shfl_xor_sync(0xffffffffULL, acc[j], o);
 
     __shared__ float s_acc[FQ_M * 4];
     int warp = tx / 32;
@@ -109,7 +109,7 @@ __launch_bounds__(128) __global__ void fused_qkv_kernel(
             acc[j] = s_acc[lane * FQ_M + j];
         for (int o = 16; o > 0; o >>= 1)
             for (int j = 0; j < FQ_M; j++)
-                acc[j] += __shfl_xor(acc[j], o);
+                acc[j] += __shfl_xor_sync(0xffffffffULL, acc[j], o);
         if (lane == 0)
             for (int j = 0; j < FQ_M; j++)
                 if (row + j < out_M)

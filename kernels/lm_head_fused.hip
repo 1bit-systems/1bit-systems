@@ -32,7 +32,7 @@ __global__ void lm_head_fused_kernel(
     }
     
     for (int o = 16; o > 0; o >>= 1)
-        sum += __shfl_xor(sum, o);
+        sum += __shfl_xor_sync(0xffffffffULL, sum, o);
     
     __shared__ float s_vals[8];
     if (lane == 0)
@@ -42,7 +42,7 @@ __global__ void lm_head_fused_kernel(
     if (warp == 0) {
         float val = (lane < (blockDim.x / 32)) ? s_vals[lane] : 0.0f;
         for (int o = 16; o > 0; o >>= 1)
-            val += __shfl_xor(val, o);
+            val += __shfl_xor_sync(0xffffffffULL, val, o);
         if (tx == 0)
             d_logits[v] = __float2half(val);
     }

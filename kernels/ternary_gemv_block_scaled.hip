@@ -57,14 +57,14 @@ __global__ void ternary_gemv_block_scaled_kernel(
         }
     }
     #pragma unroll
-    for (int o = WARP_SIZE/2; o > 0; o >>= 1) acc += __shfl_xor(acc, o);
+    for (int o = WARP_SIZE/2; o > 0; o >>= 1) acc += __shfl_xor_sync(0xffffffffULL, acc, o);
     __shared__ float wr[NUM_WARPS];
     if (lane == 0) wr[warp_id] = acc;
     __syncthreads();
     if (warp_id == 0) {
         acc = (lane < NUM_WARPS) ? wr[lane] : 0.0f;
         #pragma unroll
-        for (int o = WARP_SIZE/2; o > 0; o >>= 1) acc += __shfl_xor(acc, o);
+        for (int o = WARP_SIZE/2; o > 0; o >>= 1) acc += __shfl_xor_sync(0xffffffffULL, acc, o);
         if (lane == 0) y[row] = acc;
     }
 }

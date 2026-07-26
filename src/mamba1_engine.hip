@@ -176,12 +176,12 @@ __global__ void fp32_gemv(
     for (int k = tid; k < K; k += GEMV_BLOCK)
         acc += row[k] * x[k];
     // Warp reduction
-    for (int o = 16; o > 0; o >>= 1) acc += __shfl_xor(acc, o);
+    for (int o = 16; o > 0; o >>= 1) acc += __shfl_xor_sync(0xffffffffULL, acc, o);
     if ((tid & 31) == 0) s_sum[tid / 32] = acc;
     __syncthreads();
     if (tid < GEMV_BLOCK / 32) {
         float v = s_sum[tid];
-        for (int o = (GEMV_BLOCK / 32) / 2; o > 0; o >>= 1) v += __shfl_xor(v, o);
+        for (int o = (GEMV_BLOCK / 32) / 2; o > 0; o >>= 1) v += __shfl_xor_sync(0xffffffffULL, v, o);
         if (tid == 0) y[m] = v;
     }
 }

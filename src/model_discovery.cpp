@@ -207,7 +207,14 @@ std::vector<ModelConfig> discover_models(const std::string& dir) {
         else if (ext == ".q4nx") ok = read_q4nx_metadata(full, cfg);
         else if (ext == ".safetensors") ok = read_safetensors_metadata(full, cfg);
         else if (ext == ".bin") {
-            // .bin files: use the directory name as model name, Zaya defaults
+            // .bin weight files: only discover once per directory.
+            // Check for the sentinel weight file that marks a Zaya model directory.
+            // Skip all other .bin files to avoid duplicate model entries.
+            static std::string last_bin_dir;
+            if (name != "model_embed_tokens_weight.bin") continue;
+            if (dir == last_bin_dir) continue;  // already discovered this directory
+            last_bin_dir = dir;
+
             cfg.model_name = dir.substr(dir.find_last_of('/') + 1);
             cfg.model_path = full;
             cfg.format = ModelFormat::RAW_BIN;

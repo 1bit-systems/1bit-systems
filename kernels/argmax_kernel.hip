@@ -16,8 +16,8 @@ __global__ void argmax_kernel(const __half* __restrict__ data, int n, int* __res
     
     // Warp reduce
     for (int o = 16; o > 0; o >>= 1) {
-        float other_val = __shfl_xor(my_val, o);
-        int other_idx = __shfl_xor(my_idx, o);
+        float other_val = __shfl_xor_sync(0xffffffffULL, my_val, o);
+        int other_idx = __shfl_xor_sync(0xffffffffULL, my_idx, o);
         if (other_val > my_val) { my_val = other_val; my_idx = other_idx; }
     }
     
@@ -30,8 +30,8 @@ __global__ void argmax_kernel(const __half* __restrict__ data, int n, int* __res
         float best_val = (lane < 8) ? s_val[lane] : -1e30f;
         int best_idx = (lane < 8) ? s_idx[lane] : 0;
         for (int o = 16; o > 0; o >>= 1) {
-            float other_val = __shfl_xor(best_val, o);
-            int other_idx = __shfl_xor(best_idx, o);
+            float other_val = __shfl_xor_sync(0xffffffffULL, best_val, o);
+            int other_idx = __shfl_xor_sync(0xffffffffULL, best_idx, o);
             if (other_val > best_val) { best_val = other_val; best_idx = other_idx; }
         }
         if (lane == 0) { *out_idx = best_idx; *out_val = best_val; }

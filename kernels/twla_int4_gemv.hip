@@ -84,13 +84,13 @@ __global__ void twla_int4_gemv_kernel(
         }
     }
     acc *= x_scale;
-    for (int o = 16; o > 0; o >>= 1) acc += __shfl_xor(acc, o);
+    for (int o = 16; o > 0; o >>= 1) acc += __shfl_xor_sync(0xffffffffULL, acc, o);
     __shared__ float wr[4];
     if (lane == 0) wr[warp] = acc;
     __syncthreads();
     if (warp == 0) {
         acc = (lane < 4) ? wr[lane] : 0.0f;
-        for (int o = 16; o > 0; o >>= 1) acc += __shfl_xor(acc, o);
+        for (int o = 16; o > 0; o >>= 1) acc += __shfl_xor_sync(0xffffffffULL, acc, o);
         if (lane == 0) y[row] = acc;
     }
 }

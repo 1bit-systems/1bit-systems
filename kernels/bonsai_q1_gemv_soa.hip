@@ -115,7 +115,7 @@ __global__ void bonsai_q1_gemv_soa_kernel(
     // Intra-wave butterfly
     #pragma unroll
     for (int off = kWaveSize / 2; off > 0; off >>= 1) {
-        acc += __shfl_xor(acc, off);
+        acc += __shfl_xor_sync(0xffffffffULL, acc, off);
     }
 
     // Inter-wave: lane 0 of each wave → LDS slot for this row
@@ -127,7 +127,7 @@ __global__ void bonsai_q1_gemv_soa_kernel(
         float v = (lane < kWavesPerRow) ? wave_sums[row_in_cta][lane] : 0.0f;
         #pragma unroll
         for (int off = kWaveSize / 2; off > 0; off >>= 1) {
-            v += __shfl_xor(v, off);
+            v += __shfl_xor_sync(0xffffffffULL, v, off);
         }
         if (lane == 0) {
             constexpr float FP16_MAX = 65504.0f;

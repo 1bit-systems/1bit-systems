@@ -59,12 +59,12 @@ using json = nlohmann::json;
 static std::atomic<bool> keep_running{true};
 static std::string g_weights_dir = []() -> std::string {
     const char* env = getenv("ZAYA_WEIGHTS_DIR");
-    if (env && env[0]) return env;
+    if (env && env[0]) { std::string s(env); if (s.back()!='/') s+='/'; return s; }
     const char* xdg = getenv("XDG_DATA_HOME");
     if (xdg && xdg[0]) return std::string(xdg) + "/1bit-systems/weights/";
     const char* home = getenv("HOME");
     if (home && home[0]) return std::string(home) + "/.local/share/1bit-systems/weights/";
-    return "/tmp/zaya_weights";
+    return "/tmp/zaya_weights/";
 }();
 static int g_port = 8088;
 
@@ -1157,9 +1157,42 @@ int main(int argc, char** argv) {
         // tokenize section below nests inside it.
         std::lock_guard<std::mutex> infer_lock(g_inference_mutex);
 
-        // ── Tokenize under config_mutex only (#696 fix) ──
         mgr.set_strategy(resolve_strategy(req));
 
+        // ── Model-switch from body["model"], same as /v1/chat/completions ──
+        // Fixes the bug where /v1/completions silently ignored the model field
+        // and always used whatever backend was last loaded.
+        std::string req_model = body.value("model", "");
+        ModelConfig switch_cfg;
+        bool need_model_switch = false;
+        {
+            std::lock(g_config_mutex, g_strategy_mutex);
+            std::lock_guard<std::mutex> _l1(g_config_mutex, std::adopt_lock);
+            std::lock_guard<std::mutex> _l2(g_strategy_mutex, std::adopt_lock);
+
+            if (!req_model.empty()) {
+                for (auto& dm : discovered) {
+                    if (dm.model_name == req_model &&
+                        (dm.hidden != current_cfg.hidden || dm.n_layers != current_cfg.n_layers)) {
+                        printf("[model] /v1/completions switching to %s (%d layers, %d hidden)\n",
+                               dm.model_name.c_str(), dm.n_layers, dm.hidden);
+                        switch_cfg = dm;
+                        current_cfg = dm;
+                        need_model_switch = true;
+                        break;
+                    }
+                }
+            }
+        } // release both mutexes
+
+        // ── Model-switch I/O outside locks (#701 fix) ──
+        if (need_model_switch) {
+            g_tokenizer.load_from_gguf(switch_cfg.model_path);
+            BackendRoute swrt = select_backend_route(switch_cfg);
+            mgr.init(switch_cfg, g_weights_dir, swrt.backend_ids_in_order);
+        }
+
+        // ── Tokenize under config_mutex only (#696 fix) ──
         std::vector<int> prompt_tokens;
         {
             std::lock_guard<std::mutex> cfg_lock(g_config_mutex);

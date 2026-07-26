@@ -118,7 +118,7 @@ void oscar_quantize_kernel(
         max_abs = fmaxf(max_abs, fabsf(s_row[i]));
     // Warp reduce
     for (int off = WARP/2; off > 0; off /= 2)
-        max_abs = fmaxf(max_abs, __shfl_xor(max_abs, off));
+        max_abs = fmaxf(max_abs, __shfl_xor_sync(0xffffffffULL, max_abs, off));
     
     // Quantize to INT2 (4 values per byte)
     for (int i = lane; i < HD/4; i += WARP) {
@@ -218,7 +218,7 @@ void oscar_attn_decode_kernel(
         for (int i = tid; i < HD; i += BLOCK)
             partial += s_q[i] * s_k_rot[i];
         for (int off = WARP/2; off > 0; off /= 2)
-            partial += __shfl_xor(partial, off);
+            partial += __shfl_xor_sync(0xffffffffULL, partial, off);
         if (lane_id == 0) s_warp_score[warp_id] = partial;
         __syncthreads();
         float score = 0.0f;

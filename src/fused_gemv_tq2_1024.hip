@@ -142,7 +142,7 @@ __global__ void fused_tq2_1024_qkv_kernel(
             float v = acc[r];
             #pragma unroll
             for (int off = kWaveSize / 2; off > 0; off >>= 1)
-                v += __shfl_xor(v, off);
+                v += __shfl_xor_sync(0xffffffffULL, v, off);
             if (lane == 0) {
                 const int row = row_base + wave * kRowsPerWarp + r;
                 if (row < N) {
@@ -242,8 +242,8 @@ __global__ void fused_tq2_1024_gu_kernel(
         float vg = acc_g[r], vu = acc_u[r];
         #pragma unroll
         for (int off = kWaveSize / 2; off > 0; off >>= 1) {
-            vg += __shfl_xor(vg, off);
-            vu += __shfl_xor(vu, off);
+            vg += __shfl_xor_sync(0xffffffffULL, vg, off);
+            vu += __shfl_xor_sync(0xffffffffULL, vu, off);
         }
         if (lane == 0) {
             const int row = row_b + wave * kRowsPerWarp + r;

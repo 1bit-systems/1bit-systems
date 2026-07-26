@@ -156,7 +156,7 @@ __launch_bounds__(128) __global__ void cca_attn_kernel(
     // Reduction to get sum of squares
     // Warp-level reduction
     for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1)
-        sum_sq += __shfl_xor(sum_sq, offset);
+        sum_sq += __shfl_xor_sync(0xffffffffULL, sum_sq, offset);
     
     // Block-level reduction via shared memory
     if (threadIdx.x % WARP_SIZE == 0) {
@@ -174,7 +174,7 @@ __launch_bounds__(128) __global__ void cca_attn_kernel(
     if (warp == 0) {
         sum_sq = (lane < (blockDim.x / WARP_SIZE)) ? s_scratch[lane] : 0.0f;
         for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1)
-            sum_sq += __shfl_xor(sum_sq, offset);
+            sum_sq += __shfl_xor_sync(0xffffffffULL, sum_sq, offset);
         if (lane == 0) s_scratch[0] = sum_sq;
     }
     __syncthreads();

@@ -149,7 +149,7 @@ __global__ void ternary_gemv_twla_int4_kernel(
 
     #pragma unroll
     for (int o = WARP_SIZE / 2; o > 0; o >>= 1)
-        acc += __shfl_xor(acc, o);
+        acc += __shfl_xor_sync(0xffffffffULL, acc, o);
 
     __shared__ float warp_results[NUM_WARPS];
     if (lane == 0) warp_results[warp_id] = acc;
@@ -159,7 +159,7 @@ __global__ void ternary_gemv_twla_int4_kernel(
         acc = (lane < NUM_WARPS) ? warp_results[lane] : 0.0f;
         #pragma unroll
         for (int o = WARP_SIZE / 2; o > 0; o >>= 1)
-            acc += __shfl_xor(acc, o);
+            acc += __shfl_xor_sync(0xffffffffULL, acc, o);
         if (lane == 0) y[row] = acc;
     }
 }

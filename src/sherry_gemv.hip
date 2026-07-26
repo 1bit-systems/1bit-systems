@@ -271,7 +271,7 @@ __global__ void sherry_ternary_gemv_kernel(
     // Intra-wave: xor butterfly.
     #pragma unroll
     for (int off = SHERRY_WAVE / 2; off > 0; off >>= 1) {
-        acc += __shfl_xor(acc, off);
+        acc += __shfl_xor_sync(0xffffffffULL, acc, off);
     }
 
     // Inter-wave: lane 0 of each wave writes to LDS, wave 0 reduces.
@@ -285,7 +285,7 @@ __global__ void sherry_ternary_gemv_kernel(
         // the same xor butterfly; the high lanes contribute 0.
         #pragma unroll
         for (int off = SHERRY_WAVE / 2; off > 0; off >>= 1) {
-            v += __shfl_xor(v, off);
+            v += __shfl_xor_sync(0xffffffffULL, v, off);
         }
         if (lane == 0) {
             // Per-row scale fold-in (halo-1bit v3 Sherry contract). Done in
