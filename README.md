@@ -51,9 +51,9 @@
 - **Any Vulkan 1.2+** — Portable GPU backend
 - **CPU** — Generic C++23 fallback (no GPU required)
 
-> **Data note**: Per-backend tok/s figures are published with sources and honesty flags in [`docs/wiki/performance.md`](docs/wiki/performance.md). The NPU v12 engine was measured at 97 tok/s (pre-GGUF-dequant-fix) — that number is directionally right but pending re-verification after the 2026-07-19 correctness fixes. Mamba1 GPU numbers (79.4 tok/s) are current and re-validated 2026-07-26.
+> **Data note**: Per-backend tok/s figures are published with sources and honesty flags in [`docs/wiki/performance.md`](docs/wiki/performance.md). The NPU v12 engine currently measures **69 tok/s** (re-measured 2026-07-12 on Qwen3-0.6B). Mamba1 GPU numbers (79.4 tok/s) are current and re-validated 2026-07-26.
 
-**17 architectures · 35+ models** — see [`models/catalog/README.md`](models/catalog/README.md) for the full list.
+**17 architectures · 40+ models** — see [`models/catalog/README.md`](models/catalog/README.md) for the full list.
 
 ### 🚀 Flagship 1BP models — built, quantized & hosted by us
 
@@ -107,7 +107,7 @@ Model-agnostic end to end: the engine auto-detects architecture and quantization
 | Fused TQ2 | **420 tok/s** | ROCm HIP (QKV+GU fused) |
 | GPU ternary | **318 tok/s** | Vulkan ZINC |
 | TQ2 GEMV | **367 tok/s** | ROCm HIP |
-| NPU v12 | **97 tok/s** | XDNA 2 (32 tiles) |
+| NPU v12 | **69 tok/s** | XDNA 2 (32 tiles) |
 | Prefill | **40.5 TFLOPS** | INT8 WMMA |
 | ROCm HIP | **64 tok/s** | ROCm HIP (kernels) |
 

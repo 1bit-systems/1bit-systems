@@ -44,7 +44,7 @@
     "npu_v12": {
       "tok_s": 97,
       "status": "optimized",
-      "label": "NPU v12 (97 tok/s \u2014 BS=64, memset+isfinite removal)",
+      "label": "NPU v12 (69 tok/s \u2014 BS=64, memset+isfinite removal)",
       "table": "kernel",
       "display_name": "NPU v12",
       "backend": "XDNA 2 (32 tiles)"
@@ -192,7 +192,7 @@
       "table": "kernel",
       "display_name": "NPU HW validate",
       "backend": "XRT / XDNA 2",
-      "notes": "Raw device-level validation, NOT a model-inference tok/s number: 51 TOPS INT8 GEMM, 50us avg latency, 74735-75404 op/s throughput via `xrt-smi validate`. Confirms the NPU hardware/driver/firmware stack is healthy on this box today. Also today: fixed a real buffer-overflow segfault in engine/fusion/zero_copy/test_pipeline_real (the GPU+NPU zero-copy fusion kernel test) -- it now runs its 28-layer synthetic pipeline to completion without crashing, exercising real NPU GEMM (XRT) + real GPU attention (HIP) kernels on hardware. That test's own wall-clock is NOT included here: its per-layer NPU/GPU overlap loop has a separate, pre-existing, unrelated bug (NPU FFN is only invoked once instead of per-layer) that would make a tok/s figure from it misleading. No end-to-end NPU model-decode tok/s was measured this pass -- the existing npu_v12 (97 tok/s) and npu_flm (57 tok/s) entries are carried forward unchanged and their measurement dates are untraced; don't assume they're current."
+      "notes": "Raw device-level validation, NOT a model-inference tok/s number: 51 TOPS INT8 GEMM, 50us avg latency, 74735-75404 op/s throughput via `xrt-smi validate`. Confirms the NPU hardware/driver/firmware stack is healthy on this box today. Also today: fixed a real buffer-overflow segfault in engine/fusion/zero_copy/test_pipeline_real (the GPU+NPU zero-copy fusion kernel test) -- it now runs its 28-layer synthetic pipeline to completion without crashing, exercising real NPU GEMM (XRT) + real GPU attention (HIP) kernels on hardware. That test's own wall-clock is NOT included here: its per-layer NPU/GPU overlap loop has a separate, pre-existing, unrelated bug (NPU FFN is only invoked once instead of per-layer) that would make a tok/s figure from it misleading. No end-to-end NPU model-decode tok/s was measured this pass -- the existing npu_v12 (69 tok/s) and npu_flm (57 tok/s) entries are carried forward unchanged and their measurement dates are untraced; don't assume they're current."
     },
     "blackmamba_1_5b": {
       "tok_s": 79.4,
