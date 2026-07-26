@@ -6,6 +6,7 @@ compatibility_date = "2026-07-26"
 routes = [
   { pattern = "1bit.systems/auth/*", zone_id = "fb8da40a864cd0c59bf39b689024624e" },
   { pattern = "1bit.systems/google*.html", zone_id = "fb8da40a864cd0c59bf39b689024624e" },
+  { pattern = "1bit.systems/bing*.html", zone_id = "fb8da40a864cd0c59bf39b689024624e" },
   { pattern = "1bit.systems/BingSiteAuth.xml", zone_id = "fb8da40a864cd0c59bf39b689024624e" },
   { pattern = "1bit.systems/yandex*.html", zone_id = "fb8da40a864cd0c59bf39b689024624e" },
   { pattern = "1bit.systems/pinterest*.html", zone_id = "fb8da40a864cd0c59bf39b689024624e" }

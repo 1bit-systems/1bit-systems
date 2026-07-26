@@ -19,12 +19,6 @@
 // Set these via wrangler secret or env vars.
 // For verification: the part after /auth/ before .html
 
-const VERIFICATION_FILES = {
-  // Google Search Console — file method
-  // Create a file like "google123abc456def.html" at /auth/google123abc456def.html
-  // OR use the meta tag method already in index.html
-};
-
 // OAuth callback relay config
 const OAUTH_CALLBACKS = {};
 
@@ -38,7 +32,7 @@ const ALLOWED_REDIRECT_DOMAINS = [
 
 // ─── Router ──────────────────────────────────────────────────────────────────
 
-async function handleRequest(request) {
+async function handleRequest(request, env) {
   const url = new URL(request.url);
   const { pathname, searchParams } = url;
   const method = request.method;
@@ -105,9 +99,6 @@ async function handleRequest(request) {
     const provider = callbackMatch[1];
     const code = searchParams.get('code');
     const state = searchParams.get('state');
-
-    // Log the callback (for debugging)
-    console.log(`OAuth callback from ${provider}: code=${code?.slice(0, 10)}..., state=${state?.slice(0, 10)}...`);
 
     // Return a JSON response — the client-side app handles the rest
     return new Response(
@@ -209,10 +200,12 @@ async function handleRequest(request) {
       });
     }
 
-    // Generic verification — serve from env
-    const envCode = typeof VERIFICATION_CODES !== 'undefined'
-      ? VERIFICATION_CODES[fileId]
-      : null;
+    // Generic verification — serve from env (VERIFICATION_CODES binding/var, #1003)
+    let verificationCodes = env && env.VERIFICATION_CODES;
+    if (typeof verificationCodes === 'string') {
+      try { verificationCodes = JSON.parse(verificationCodes); } catch { verificationCodes = null; }
+    }
+    const envCode = verificationCodes ? verificationCodes[fileId] : null;
     if (envCode) {
       return new Response(envCode, {
         status: 200,
@@ -247,7 +240,7 @@ async function handleRequest(request) {
 export default {
   async fetch(request, env, ctx) {
     try {
-      return await handleRequest(request);
+      return await handleRequest(request, env);
     } catch (err) {
       console.error('Auth URL Worker error:', err);
       return new Response(

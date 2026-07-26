@@ -10,6 +10,7 @@ echo ""
 
 PORT="${1:-8080}"
 NGROK_AUTH="${BIT_NGROK_AUTH:-}"
+NGROK_URL=""
 
 # Step 1: Check NPU server
 echo "📡 Checking NPU server on port $PORT..."

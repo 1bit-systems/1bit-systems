@@ -13,51 +13,52 @@
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
 
-#define H        2048
-#define N_EXP    16
-#define N_FF     2048
 #define WMMA_M   16
 #define WMMA_THREADS 128
 
-// ── WMMA gate_up: tmp[2*N_FF] = hs[H] @ gu[expert, 2*N_FF, H]^T ──
-// Launch with ((2*N_FF + WMMA_M - 1) / WMMA_M, 1) blocks, WMMA_THREADS threads
+// ── WMMA gate_up: tmp[2*n_ff] = hs[h_dim] @ gu[expert, 2*n_ff, h_dim]^T ──
+// Launch with ((2*n_ff + WMMA_M - 1) / WMMA_M, 1) blocks, WMMA_THREADS threads
 // Each block handles WMMA_M output rows of the gate_up projection.
-// Weights read from gu_base + expert * 2 * N_FF * H (GPU-computed address).
+// Weights read from gu_base + expert * 2 * n_ff * h_dim (GPU-computed address).
+// h_dim/n_ff/n_exp are runtime model dimensions (NOT compile-time constants) —
+// see #1001: this used to be hardcoded to 2048/2048/16, silently corrupting
+// any model with different dimensions.
 // If skip_flag is set, outputs zeros and returns early.
 __launch_bounds__(128) __global__ void wmma_gateup_kernel(
-    __half* __restrict__ tmp,               // [2*N_FF] gate_up output
-    const __half* __restrict__ hs,          // [H] hidden state
-    const __half* __restrict__ gu_base,     // [N_EXP, 2*N_FF, H] all expert weights
+    __half* __restrict__ tmp,               // [2*n_ff] gate_up output
+    const __half* __restrict__ hs,          // [h_dim] hidden state
+    const __half* __restrict__ gu_base,     // [n_exp, 2*n_ff, h_dim] all expert weights
     const int*    __restrict__ d_expert_idx, // GPU pointer to selected expert
-    const int*    __restrict__ d_skip_flag)  // GPU pointer: 1 = skip FFN, output zeros
+    const int*    __restrict__ d_skip_flag,  // GPU pointer: 1 = skip FFN, output zeros
+    int h_dim, int n_ff, int n_exp)
 {
     int row_block = blockIdx.x;
     int row = row_block * WMMA_M;
 
     if (*d_skip_flag) {
         // Skip: zero output and return — no CPU sync needed
-        if (row < 2 * N_FF) {
+        if (row < 2 * n_ff) {
             for (int j = 0; j < WMMA_M; j++)
-                if (row + j < 2 * N_FF)
+                if (row + j < 2 * n_ff)
                     tmp[row + j] = __float2half(0.0f);
         }
         return;
     }
 
     int expert = *d_expert_idx;
-    if (expert >= N_EXP) return;
+    if (expert >= n_exp) return;
 
     // Compute pointer to this expert's gate_up weights
-    const __half* gu = gu_base + (size_t)expert * 2 * N_FF * H;
+    const __half* gu = gu_base + (size_t)expert * 2 * n_ff * h_dim;
 
     float acc[WMMA_M] = {0.0f};
     int tx = threadIdx.x;
 
-    // Tiled GEMV: acc[j] = sum_k hs[k] * gu[(row+j)*H + k]
-    for (int k = tx; k < H; k += WMMA_THREADS) {
+    // Tiled GEMV: acc[j] = sum_k hs[k] * gu[(row+j)*h_dim + k]
+    for (int k = tx; k < h_dim; k += WMMA_THREADS) {
         float v_hs = (float)hs[k];
         for (int j = 0; j < WMMA_M; j++)
-            acc[j] += v_hs * (float)gu[(row + j) * (size_t)H + k];
+            acc[j] += v_hs * (float)gu[(row + j) * (size_t)h_dim + k];
     }
 
     // Warp-level reduction across WMMA_M accumulator lanes
@@ -83,48 +84,50 @@ __launch_bounds__(128) __global__ void wmma_gateup_kernel(
                 acc[j] += __shfl_xor_sync(0xffffffffULL, acc[j], o);
         if (lane == 0)
             for (int j = 0; j < WMMA_M; j++)
-                if (row + j < 2 * N_FF)
+                if (row + j < 2 * n_ff)
                     tmp[row + j] = __float2half(acc[j]);
     }
 }
 
-// ── WMMA down: out[H] = moe_in[N_FF] @ dn[expert, H, N_FF]^T ──
-// Launch with ((H + WMMA_M - 1) / WMMA_M, 1) blocks, WMMA_THREADS threads
+// ── WMMA down: out[h_dim] = moe_in[n_ff] @ dn[expert, h_dim, n_ff]^T ──
+// Launch with ((h_dim + WMMA_M - 1) / WMMA_M, 1) blocks, WMMA_THREADS threads
 // Takes silu'd gate_up as input, writes expert FFN output.
+// h_dim/n_ff/n_exp are runtime model dimensions — see #1001.
 // If skip_flag is set, outputs zeros and returns early.
 __launch_bounds__(128) __global__ void wmma_down_kernel(
-    __half* __restrict__ out,               // [H] expert output
-    const __half* __restrict__ moe_in,      // [N_FF] SiLU'd gate_up
-    const __half* __restrict__ dn_base,     // [N_EXP, H, N_FF] all expert weights
+    __half* __restrict__ out,               // [h_dim] expert output
+    const __half* __restrict__ moe_in,      // [n_ff] SiLU'd gate_up
+    const __half* __restrict__ dn_base,     // [n_exp, h_dim, n_ff] all expert weights
     const int*    __restrict__ d_expert_idx, // GPU pointer to selected expert
-    const int*    __restrict__ d_skip_flag)  // GPU pointer: 1 = skip FFN, output zeros
+    const int*    __restrict__ d_skip_flag,  // GPU pointer: 1 = skip FFN, output zeros
+    int h_dim, int n_ff, int n_exp)
 {
     int row_block = blockIdx.x;
     int row = row_block * WMMA_M;
 
     if (*d_skip_flag) {
         // Skip: zero output and return
-        if (row < H) {
+        if (row < h_dim) {
             for (int j = 0; j < WMMA_M; j++)
-                if (row + j < H)
+                if (row + j < h_dim)
                     out[row + j] = __float2half(0.0f);
         }
         return;
     }
 
     int expert = *d_expert_idx;
-    if (expert >= N_EXP) return;
+    if (expert >= n_exp) return;
 
-    const __half* dn = dn_base + (size_t)expert * H * N_FF;
+    const __half* dn = dn_base + (size_t)expert * h_dim * n_ff;
 
     float acc[WMMA_M] = {0.0f};
     int tx = threadIdx.x;
 
-    // Tiled GEMV: acc[j] = sum_k in[k] * dn[(row+j)*N_FF + k]
-    for (int k = tx; k < N_FF; k += WMMA_THREADS) {
+    // Tiled GEMV: acc[j] = sum_k in[k] * dn[(row+j)*n_ff + k]
+    for (int k = tx; k < n_ff; k += WMMA_THREADS) {
         float v_in = (float)moe_in[k];
         for (int j = 0; j < WMMA_M; j++)
-            acc[j] += v_in * (float)dn[(row + j) * (size_t)N_FF + k];
+            acc[j] += v_in * (float)dn[(row + j) * (size_t)n_ff + k];
     }
 
     for (int j = 0; j < WMMA_M; j++)
@@ -147,7 +150,7 @@ __launch_bounds__(128) __global__ void wmma_down_kernel(
                 acc[j] += __shfl_xor_sync(0xffffffffULL, acc[j], o);
         if (lane == 0)
             for (int j = 0; j < WMMA_M; j++)
-                if (row + j < H)
+                if (row + j < h_dim)
                     out[row + j] = __float2half(acc[j]);
     }
 }

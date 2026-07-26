@@ -510,11 +510,11 @@ void zaya_forward(ZayaState* s, int token_id, float* logits_out) {
             const int gb=(2*eng.n_ff+WMMA_M-1)/WMMA_M;
             const int db=(eng.h+WMMA_M-1)/WMMA_M;
             const int sb=(eng.n_ff+BLK-1)/BLK;
-            wmma_gateup_kernel<<<gb,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_hs,l.gu,s->d_expert_idx,s->d_skip_flag);
+            wmma_gateup_kernel<<<gb,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_hs,l.gu,s->d_expert_idx,s->d_skip_flag,eng.h,eng.n_ff,eng.n_exp);
             HIP_CHECK(hipGetLastError());
             silu_mul_k<<<sb,BLK,0,s->st>>>(s->d_ao,s->d_tmp,s->d_tmp+eng.n_ff,eng.n_ff);
             HIP_CHECK(hipGetLastError());
-            wmma_down_kernel<<<db,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_ao,l.dn,s->d_expert_idx,s->d_skip_flag);
+            wmma_down_kernel<<<db,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_ao,l.dn,s->d_expert_idx,s->d_skip_flag,eng.h,eng.n_ff,eng.n_exp);
             HIP_CHECK(hipGetLastError());
             residual_scale_k<<<g1,BLK,0,s->st>>>(s->d_tmp,s->d_hs,l.pmhss,l.pmhsb,l.pmrss,l.pmrsb,eng.h);
             HIP_CHECK(hipGetLastError());
@@ -605,11 +605,11 @@ int zaya_forward_greedy(ZayaState* s, int token_id) {
             const int gb=(2*eng.n_ff+WMMA_M-1)/WMMA_M;
             const int db=(eng.h+WMMA_M-1)/WMMA_M;
             const int sb=(eng.n_ff+BLK-1)/BLK;
-            wmma_gateup_kernel<<<gb,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_hs,l.gu,s->d_expert_idx,s->d_skip_flag);
+            wmma_gateup_kernel<<<gb,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_hs,l.gu,s->d_expert_idx,s->d_skip_flag,eng.h,eng.n_ff,eng.n_exp);
             HIP_CHECK(hipGetLastError());
             silu_mul_k<<<sb,BLK,0,s->st>>>(s->d_ao,s->d_tmp,s->d_tmp+eng.n_ff,eng.n_ff);
             HIP_CHECK(hipGetLastError());
-            wmma_down_kernel<<<db,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_ao,l.dn,s->d_expert_idx,s->d_skip_flag);
+            wmma_down_kernel<<<db,WMMA_THREADS,0,s->st>>>(s->d_tmp,s->d_ao,l.dn,s->d_expert_idx,s->d_skip_flag,eng.h,eng.n_ff,eng.n_exp);
             HIP_CHECK(hipGetLastError());
             residual_scale_k<<<g1,BLK,0,s->st>>>(s->d_tmp,s->d_hs,l.pmhss,l.pmhsb,l.pmrss,l.pmrsb,eng.h);
             HIP_CHECK(hipGetLastError());
@@ -735,7 +735,7 @@ void zaya_forward_batch(ZayaState* s, const int* token_ids, float* logits_out, i
                 // These skip the expert FFN entirely (out = hs, identity).
                 if (s->d_expert_counts) {  // always true, keeps compiler happy
                     moe_modskip_passthrough_kernel<<<(B + 255) / 256, 256, 0, s->st>>>(
-                        s->d_tmp, s->d_hs, s->d_expert_idx, eng.n_exp, B);
+                        s->d_tmp, s->d_hs, s->d_expert_idx, eng.n_exp, B, eng.h);
                 HIP_CHECK(hipGetLastError());
                 }
             } else {

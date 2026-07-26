@@ -205,9 +205,22 @@ __launch_bounds__(128) __global__ void persistent_moe_kernel(
             int row = row_block * WMMA_M;
             if (row >= H) return;
 
-            // Wait for gate-up to finish before reading
+            // Wait for gate-up to finish before reading.
+            // Bounded timeout (#1010, same pattern/rationale as the Phase 1
+            // wait above, issue #405): this grid can far exceed the device's
+            // concurrent wave capacity, so a down-block can be scheduled
+            // before its layer's gate_up blocks even start running — an
+            // unbounded wait here starves those gate_up blocks and hangs
+            // the GPU.
             if (is_down) {
-                while (load_flag(done_flags, layer, 1) == 0) { __threadfence_block(); }
+                const int PHASE2_MAX_SPINS = 1000000;
+                for (int _tries = 0; load_flag(done_flags, layer, 1) == 0; _tries++) {
+                    if (_tries >= PHASE2_MAX_SPINS) {
+                        if (tx == 0) moe_layer[0] = __float2half(__builtin_nanf(""));
+                        return;
+                    }
+                    for (volatile int _spin = 0; _spin < 32; _spin++) {}
+                }
                 __threadfence();
             }
 

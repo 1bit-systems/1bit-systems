@@ -2,8 +2,13 @@
 Description=1bit-systems NPU Companion — Speculative Decoding Draft Model
 After=network.target
 
+# Requires a dedicated non-root service user with NPU/GPU device access, e.g.:
+#   useradd --system --no-create-home --gid render npu-companion
+
 [Service]
 Type=simple
+User=npu-companion
+Group=render
 ExecStart=/usr/bin/python3 /opt/1bit-systems/integrations/vllm-toolbox/npu-companion.py
 Restart=always
 RestartSec=5
@@ -14,6 +19,18 @@ Environment=OMP_PLACES=cores
 DeviceAllow=/dev/accel/accel0 rw
 DeviceAllow=/dev/dri/renderD128 rw
 SupplementaryGroups=render
+
+# Sandboxing (#1005: unit previously ran as root with no hardening)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=false
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
 
 [Install]
 WantedBy=multi-user.target

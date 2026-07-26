@@ -795,9 +795,9 @@ int main(int argc, char** argv) {
                 encode_expert_cache_kernel<<<1, 32, 0, stream>>>(d_prev_rs + (size_t)il * RTR_H, d_expert_idx, RTR_H);
                 {
                     const int gb = (2 * N_FF + 15) / 16, db = (H + 15) / 16, sb = (N_FF + BLK - 1) / BLK;
-                    wmma_gateup_kernel<<<gb, 128, 0, stream>>>(d_tmp, d_hs, l.gu, d_expert_idx, d_skip_flag);
+                    wmma_gateup_kernel<<<gb, 128, 0, stream>>>(d_tmp, d_hs, l.gu, d_expert_idx, d_skip_flag, H, N_FF, N_EXP);
                     silu_mul_k<<<sb, BLK, 0, stream>>>(d_ao, d_tmp, d_tmp + N_FF, N_FF);
-                    wmma_down_kernel<<<db, 128, 0, stream>>>(d_tmp, d_ao, l.dn, d_expert_idx, d_skip_flag);
+                    wmma_down_kernel<<<db, 128, 0, stream>>>(d_tmp, d_ao, l.dn, d_expert_idx, d_skip_flag, H, N_FF, N_EXP);
                 }
                 // Post-MLP residual scale
                 residual_scale_k<<<g1, BLK, 0, stream>>>(d_tmp, d_hs, l.pmhss, l.pmhsb, l.pmrss, l.pmrsb, H);

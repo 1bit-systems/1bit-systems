@@ -245,7 +245,7 @@ __global__ void batched_moe_union_kernel(
         __half* moe_b = moe_out + (size_t)b * h_dim;
         for (int i = tx; i < h_dim; i += blockDim.x) {
             float s = 0;
-            const __half* w = dn + ((size_t)expert * H + i) * (size_t)n_ff;
+            const __half* w = dn + ((size_t)expert * h_dim + i) * (size_t)n_ff;
             for (int j = 0; j < n_ff; j++)
                 s += __half2float(gate_up_buf[j]) * __half2float(w[j]);
             moe_b[i] = __float2half(s);
@@ -407,7 +407,7 @@ __global__ void batched_moe_fused_kernel(
         __half* moe_b = moe_out + (size_t)b * h_dim;
         for (int i = tx; i < h_dim; i += blockDim.x) {
             float s = 0;
-            const __half* w = dn + ((size_t)my_expert * H + i) * (size_t)n_ff;
+            const __half* w = dn + ((size_t)my_expert * h_dim + i) * (size_t)n_ff;
             for (int j = 0; j < n_ff; j++)
                 s += __half2float(gate_up_tmp[j]) * __half2float(w[j]);
             moe_b[i] = __float2half(s);
@@ -566,7 +566,7 @@ __global__ void moe_sorted_expert_kernel(
         __half* moe_b = moe_out + (size_t)b * h_dim;
         for (int i = tx; i < h_dim; i += blockDim.x) {
             float s = 0;
-            const __half* w = dn + ((size_t)expert * H + i) * (size_t)n_ff;
+            const __half* w = dn + ((size_t)expert * h_dim + i) * (size_t)n_ff;
             for (int j = 0; j < n_ff; j++)
                 s += __half2float(gate_up_buf[j]) * __half2float(w[j]);
             moe_b[i] = __float2half(s);
@@ -588,14 +588,15 @@ __global__ void moe_modskip_passthrough_kernel(
     const __half* __restrict__ hs,       // [B, h_dim]
     const int*   __restrict__ expert_idx, // [B]
     int skip_expert,
-    int B)
+    int B,
+    int h_dim)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= B * H) return;
-    int b = i / H;
-    int h = i % H;
+    if (i >= B * h_dim) return;
+    int b = i / h_dim;
+    int h = i % h_dim;
     if (expert_idx[b] == skip_expert) {
-        moe_out[b * (size_t)H + h] = hs[b * (size_t)H + h];
+        moe_out[b * (size_t)h_dim + h] = hs[b * (size_t)h_dim + h];
     }
 }
 

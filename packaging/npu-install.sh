@@ -82,7 +82,7 @@ done
 # ── Add to PATH ──
 if [[ ":$PATH:" != *":${HOME}/.local/bin:"* ]]; then
   SHELL_CONFIG="${HOME}/.bashrc"
-  [ -n "$ZSH_VERSION" ] && SHELL_CONFIG="${HOME}/.zshrc"
+  [ -n "${ZSH_VERSION:-}" ] && SHELL_CONFIG="${HOME}/.zshrc"
   echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${SHELL_CONFIG}"
   say "Added ~/.local/bin to PATH in ${SHELL_CONFIG}"
 fi

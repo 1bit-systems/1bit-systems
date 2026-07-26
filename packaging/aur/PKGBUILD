@@ -8,7 +8,10 @@ url="https://1bit.systems"
 license=('MIT')
 depends=('libxrt' 'gcc-libs')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/bong-water-water-bong/1bit-systems/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+# sha256 of the v$pkgver release tarball — must be regenerated on every
+# pkgver bump (`curl -fsSL <source URL> | sha256sum`). #1008: 'SKIP' was
+# previously used, which disables integrity verification entirely.
+sha256sums=('d0660ea9f6e31995299354c222e975d53483d25caa057209eb257c048004bda1')
 
 package() {
   cd "$srcdir/1bit-systems-$pkgver"

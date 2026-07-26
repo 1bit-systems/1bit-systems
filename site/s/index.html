@@ -87,6 +87,8 @@ const GREEN='#3fb950',BLUE='#58a6ff',ORANGE='#d2991d',PURPLE='#a371f7',RED='#f85
 
 function fmt(n){return n.toLocaleString()}
 function fmtBytes(b){if(b>1e9)return (b/1e9).toFixed(1)+' GB';if(b>1e6)return (b/1e6).toFixed(1)+' MB';if(b>1e3)return (b/1e3).toFixed(1)+' KB';return b+' B'}
+// Escape untrusted text (e.g. GitHub profile fields) before interpolating into innerHTML — #1002
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function pct(a,b){return b>0?(a/b*100).toFixed(1):'0'}
 
 // GitHub data
@@ -173,9 +175,9 @@ document.getElementById('stargazers-list').innerHTML =
   `<h2 style="margin-bottom:12px">${ghStargazers.length} Stargazers</h2>
   <div class="stargazers">${ghStargazers.map(s=>{
     const loc=stargazerLocations[s.login]||{};
-    return `<a href="${s.html_url}" target="_blank" class="stargazer" title="${loc.location||''} ${loc.company||''}">
-      <img src="${s.avatar_url}" class="avatar" width="32" height="32" loading="lazy">
-      <div><strong>${s.login}</strong>${loc.name?`<br><small style="color:var(--muted)">${loc.name}</small>`:''}${loc.location?`<br><small style="color:var(--blue)">📍 ${loc.location}</small>`:''}${loc.company?`<br><small style="color:var(--orange)">🏢 ${loc.company}</small>`:''}${loc.bio?`<br><small style="color:var(--muted)">${loc.bio.slice(0,60)}</small>`:''}</div>
+    return `<a href="${esc(s.html_url)}" target="_blank" class="stargazer" title="${esc(loc.location||'')} ${esc(loc.company||'')}">
+      <img src="${esc(s.avatar_url)}" class="avatar" width="32" height="32" loading="lazy">
+      <div><strong>${esc(s.login)}</strong>${loc.name?`<br><small style="color:var(--muted)">${esc(loc.name)}</small>`:''}${loc.location?`<br><small style="color:var(--blue)">📍 ${esc(loc.location)}</small>`:''}${loc.company?`<br><small style="color:var(--orange)">🏢 ${esc(loc.company)}</small>`:''}${loc.bio?`<br><small style="color:var(--muted)">${esc(loc.bio.slice(0,60))}</small>`:''}</div>
     </a>`;
   }).join('')}</div>
   <div class="card" style="margin-top:16px"><div class="label">Known Locations</div>

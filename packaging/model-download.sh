@@ -78,7 +78,23 @@ download_model() {
   # Download with progress bar
   curl -fL --progress-bar "$URL" -o "$OUTFILE" || die "Download failed"
 
-  # Verify
+  # Verify integrity (#1008: multi-GB weights were previously accepted with
+  # zero integrity check — a corrupted or mismatched upstream asset would go
+  # completely undetected)
+  local SHA256
+  SHA256="$(get_field "$M" 5)"
+  if [ -n "$SHA256" ]; then
+    local ACTUAL
+    ACTUAL="$(sha256sum "$OUTFILE" | cut -d' ' -f1)"
+    if [ "$ACTUAL" != "$SHA256" ]; then
+      rm -f "$OUTFILE"
+      die "sha256 mismatch for ${NAME}: expected ${SHA256}, got ${ACTUAL}. Deleted corrupted download."
+    fi
+    say "sha256 verified: ${SHA256}"
+  else
+    warn "No sha256 recorded for ${NAME} in the model registry — integrity NOT verified."
+  fi
+
   local SIZE
   SIZE=$(stat -c%s "$OUTFILE" 2>/dev/null || stat -f%z "$OUTFILE" 2>/dev/null)
   say "Downloaded: $(numfmt --to=iec $SIZE) — saved to ${OUTFILE}"

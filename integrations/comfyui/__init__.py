@@ -22,6 +22,7 @@ import json
 import os
 import base64
 import io
+from urllib.parse import urlparse
 import httpx
 from PIL import Image
 import numpy as np
@@ -31,6 +32,32 @@ import torch
 DEFAULT_UNIFIED_URL = "http://127.0.0.1:8088/v1"
 DEFAULT_IMAGE_URL   = "http://127.0.0.1:8089/v1"
 DEFAULT_AUDIO_URL   = "http://127.0.0.1:8090/v1"
+
+# ComfyUI's threat model is untrusted shared workflow JSON — a workflow can set
+# server_url to an arbitrary value. Without an allowlist that's an SSRF
+# primitive (internal metadata endpoints, internal admin APIs, etc). Default
+# to loopback-only; operators who genuinely run the 1bit server on another
+# host can opt in via ONEBIT_ALLOWED_SERVER_HOSTS (comma-separated hostnames).
+# See #1004.
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+_EXTRA_ALLOWED_HOSTS = {
+    h.strip() for h in os.environ.get("ONEBIT_ALLOWED_SERVER_HOSTS", "").split(",") if h.strip()
+}
+MAX_DECODED_IMAGE_BYTES = 64 * 1024 * 1024  # 64 MB cap on server-returned images
+
+def validate_server_url(server_url: str) -> str:
+    """Reject server_url values that aren't loopback / operator-allowlisted (SSRF guard)."""
+    parsed = urlparse(server_url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"server_url must be http(s): {server_url!r}")
+    host = (parsed.hostname or "").lower()
+    if host not in _LOOPBACK_HOSTS and host not in _EXTRA_ALLOWED_HOSTS:
+        raise ValueError(
+            f"server_url host {host!r} is not allowed. Only loopback hosts "
+            f"({sorted(_LOOPBACK_HOSTS)}) are permitted by default — set "
+            f"ONEBIT_ALLOWED_SERVER_HOSTS to allow other hosts."
+        )
+    return server_url
 
 # ─── Helper: image to base64 ──────────────────────────────────────
 def pil_to_base64(img: Image.Image, format: str = "PNG") -> str:
@@ -72,6 +99,7 @@ class OneBP_LLM_Generate:
         messages.append({"role": "user", "content": prompt})
         
         try:
+            validate_server_url(server_url)
             with httpx.Client(timeout=120.0) as client:
                 resp = client.post(
                     f"{server_url}/chat/completions",
@@ -87,7 +115,7 @@ class OneBP_LLM_Generate:
                 text = data["choices"][0]["message"]["content"]
         except Exception as e:
             text = f"[ERROR: {e}]"
-        
+
         return (text,)
 
 # ═══════════════════════════════════════════════════════════════════
@@ -122,13 +150,13 @@ class OneBP_VLM_Understand:
             img_np = image[0].cpu().numpy()
             if img_np.shape[-1] == 1:
                 img_np = np.squeeze(img_np, axis=-1)
-            img_pil = Image.fromarray((img_np * 255).astype(np.uint8))
+            img_pil = Image.fromarray(np.clip(img_np * 255, 0, 255).astype(np.uint8))
         else:
             img_pil = image
-        
+
         b64 = pil_to_base64(img_pil, "PNG")
         data_url = f"data:image/png;base64,{b64}"
-        
+
         messages = [
             {
                 "role": "user",
@@ -138,8 +166,9 @@ class OneBP_VLM_Understand:
                 ]
             }
         ]
-        
+
         try:
+            validate_server_url(server_url)
             with httpx.Client(timeout=120.0) as client:
                 resp = client.post(
                     f"{server_url}/chat/completions",
@@ -206,6 +235,7 @@ class OneBP_Image_Generate:
             params["lora_strengths"] = [lora_strength]
         
         try:
+            validate_server_url(server_url)
             with httpx.Client(timeout=300.0) as client:
                 resp = client.post(
                     f"{server_url}/images/generations",
@@ -213,11 +243,14 @@ class OneBP_Image_Generate:
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                
-                # Decode base64 image
+
+                # Decode base64 image (size-capped against decompression-bomb responses)
                 b64 = data["data"][0]["b64_json"]
                 img_bytes = base64.b64decode(b64)
+                if len(img_bytes) > MAX_DECODED_IMAGE_BYTES:
+                    raise ValueError(f"decoded image too large: {len(img_bytes)} bytes")
                 img_pil = Image.open(io.BytesIO(img_bytes))
+                img_pil.load()
                 
                 # Convert to ComfyUI tensor
                 img_np = np.array(img_pil.convert("RGB")).astype(np.float32) / 255.0
@@ -255,6 +288,7 @@ class OneBP_TTS:
     
     def synthesize(self, text, voice, server_url=DEFAULT_AUDIO_URL):
         try:
+            validate_server_url(server_url)
             with httpx.Client(timeout=60.0) as client:
                 resp = client.post(
                     f"{server_url}/audio/speech",
@@ -300,6 +334,7 @@ class OneBP_LoRA_Loader:
     
     def load_lora(self, lora_path, model, server_url=DEFAULT_UNIFIED_URL):
         try:
+            validate_server_url(server_url)
             with httpx.Client(timeout=30.0) as client:
                 resp = client.post(
                     f"{server_url}/lora/load",
