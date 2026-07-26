@@ -699,6 +699,7 @@ int main(int argc, char** argv) {
     // runaway memory allocation triggers ENOMEM (malloc returns NULL or SIGSEGV
     // in overcommit mode) rather than the kernel OOM killer taking the whole
     // process down. 256 GB leaves ample headroom for 122 GB physical RAM + swap.
+#ifndef _WIN32
     {
         struct rlimit as_lim;
         as_lim.rlim_cur = 256L * 1024 * 1024 * 1024;  // 256 GB
@@ -710,6 +711,7 @@ int main(int argc, char** argv) {
             printf("  ✓  RLIMIT_AS set to 256 GB (OOM safety net)\n");
         }
     }
+#endif
 
     printf("  Weights:    %s\n", g_weights_dir.c_str());
     printf("  Port:       %d\n", g_port);
