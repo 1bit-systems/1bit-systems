@@ -83,9 +83,17 @@ static int getopt_long(int argc, char* const argv[], const char* optstring, cons
 #include <fcntl.h>
 #ifndef _WIN32
 #include <sys/file.h>
-#endif
 #include <sys/resource.h>
 #include <unistd.h>
+#else
+#include <io.h>
+#include <process.h>
+#include <sys/stat.h>
+#define getpid _getpid
+#define read _read
+#define close _close
+#define unlink _unlink
+#endif
 
 #include "strategy_engine.h"
 #include "agent_watchdog.h"
