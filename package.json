@@ -1,6 +1,6 @@
 {
   "name": "1bit-systems",
-  "version": "2026.07.26",
+  "version": "1.0.0",
   "description": "1bit — NPU-native coding agent for the 1bit.systems inference stack. Pure C++ static binaries, zero runtime dependencies.",
   "keywords": ["1bit", "coding-agent", "ai", "npu"],
   "license": "MIT",

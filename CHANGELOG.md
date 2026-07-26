@@ -3,7 +3,7 @@
 All notable changes to 1bit.systems. Versioning is **date-based** (`YYYY.MM.DD`),
 matching the GitHub release tags (`vYYYY.MM.DD`).
 
-## 2026.07.26
+## 1.0.0 — 2026.07.26 — First Stable Release 🎉
 
 - **CUDA + Metal GPU backends — cross-platform inference unlocked.** The single
   C++ inference engine now runs on NVIDIA (CUDA), AMD (HIP/ROCm), and Apple (Metal)
@@ -55,6 +55,10 @@ matching the GitHub release tags (`vYYYY.MM.DD`).
 | Performance | 1 |
 
 **Full changelog**: [v2026.07.24...v2026.07.26](https://github.com/1bit-systems/1bit/compare/v2026.07.24...v2026.07.26)
+
+---
+
+**Monthly cadence from here.** Next: `v1.1.0` — expected ~2026-08-26.
 
 ## 2026.07.24
 

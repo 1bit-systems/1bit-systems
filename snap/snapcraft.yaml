@@ -1,5 +1,5 @@
 name: 1bit-systems
-version: '2026.07.26'
+version: '1.0.0'
 summary: 50 TOPS INT8 NPU inference engine for AMD Strix Halo
 description: |
   Pure native inference for AMD Strix Halo. Qwen3-0.6B at 244 ms/tok
