@@ -21,25 +21,6 @@
 
 **1bit** is an open-source, model-agnostic C++23 inference engine for running large language models on **AMD Strix Halo** (XDNA 2 NPU, RDNA 3.5 GPU), NVIDIA GPUs (CUDA), Apple Silicon (Metal), and any Vulkan 1.2+ device — all from a **single in-process binary with zero Python at runtime**. It reads **GGUF**, **ONNX**, and the native **1BP** ternary format (TQ2 2-bit quantization) with automatic architecture detection — no config files, no model registry, no per-model glue code. Fully open-source under **MIT license**. 17 model architectures supported, 40+ models.
 
-## 🗺️ Repo Map
-
-| Path | What |
-|------|------|
-| [`src/`](src/) | Engine source — loaders, backends, server, CLI |
-| [`engine/npu/`](engine/npu/) | XDNA 2 NPU engine — XRT-based, no proprietary code |
-| [`site/`](site/) | Website — static Cloudflare Pages, `1bit.systems` |
-| [`docs/`](docs/) | Full documentation — architecture, journey, benchmarks |
-| [`docs/journey.md`](docs/journey.md) | ⭐ **The Reverse-Engineering Story** — 4 days to unlock the NPU |
-| [`docs/fastflowlm-decode/`](docs/fastflowlm-decode/) | FastFlowLM reverse-engineering analysis (22 `.so` → open source) |
-| [`models/catalog/`](models/catalog/) | Model family catalog — all 40 supported models |
-| [`kernels/`](kernels/) | GPU/CPU compute kernels — HIP, Vulkan, scalar |
-| [`benchmarks/`](benchmarks/) | Benchmarking tools and harnesses |
-| [`packaging/`](packaging/) | deb, snap, AppImage, Homebrew, AUR, Docker |
-| [`hackathon/`](hackathon/) | AMD Radeon Hackathon 2026 submission |
-| [`skills/`](skills/) | AI agent skill definitions |
-
-> **Legend**: 📦 current code · 📜 historical archive · ⭐ start here for the story
-
 ---
 
 **A single in-process engine unifies NPU + GPU + CPU inference — no external inference subprocess, no proprietary runtime. The `zaya_server`, `unified_server`, `onebit` CLI and `onebitd` daemon are thin front-ends over that one shared engine. C++23, zero Python at runtime.**

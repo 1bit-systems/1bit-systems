@@ -188,6 +188,46 @@
 
 <hr>
 
+<h2>Unsloth Dynamic (UD) GGUFs — What You're Actually Downloading</h2>
+
+<p>When you see a model like <code>unsloth/gemma-4-E2B-it-GGUF:UD-Q4_K_XL</code>, the <code>UD-</code> prefix means it's an <strong>Unsloth Dynamic</strong> quant — a selective-layer quantization method that upcasts important layers to 8/16-bit while aggressively quantizing less critical layers. This lets massive models like DeepSeek-V3.1 (671B) fit in ~192 GB at 1-bit or ~229 GB at 2-bit.</p>
+
+<h3>Available UD Variants</h3>
+
+<table>
+  <tr><th>Variant</th><th>Bit-width</th><th>Description</th><th>Use Case</th></tr>
+  <tr><td><strong>UD-TQ1_0</strong></td><td>~1-bit</td><td>Dynamic 1-bit, extreme compression</td><td>Minimal RAM — 192 GB for 671B models</td></tr>
+  <tr><td><strong>UD-IQ2_M</strong></td><td>~2-bit</td><td>Importance-weighted 2-bit; slower conversion, potentially better accuracy</td><td>Accuracy-maximizing 2-bit</td></tr>
+  <tr><td><strong>UD-Q2_K_XL</strong></td><td>~2.7-bit</td><td><strong>Recommended</strong> — best size/accuracy balance, faster conversion than IQ2_M</td><td>General purpose — 220 GB for GLM-5.1</td></tr>
+  <tr><td><strong>UD-Q3_K_XL</strong></td><td>~3-bit</td><td>Dynamic 3-bit</td><td>Middle ground</td></tr>
+  <tr><td><strong>UD-Q4_K_XL</strong></td><td>~4-bit</td><td>Dynamic 4-bit, highest quality among UD quants</td><td>When you have the RAM</td></tr>
+</table>
+
+<h3>Downloading UD Models</h3>
+
+<pre><span class="g">hf download unsloth/GLM-5.1-GGUF \
+    --local-dir unsloth/GLM-5.1-GGUF \
+    --include "*UD-Q2_K_XL*"</span>
+
+<span class="c"># Dynamic 1-bit</span>
+<span class="g">hf download unsloth/GLM-5.1-GGUF \
+    --local-dir unsloth/GLM-5.1-GGUF \
+    --include "*UD-TQ1_0*"</span></pre>
+
+<p>Or with Python:</p>
+<pre><span class="g">from huggingface_hub import snapshot_download
+snapshot_download(
+    repo_id="unsloth/GLM-4.7-GGUF",
+    local_dir="unsloth/GLM-4.7-GGUF",
+    allow_patterns=["*UD-Q2_K_XL*"],
+)</span></pre>
+
+<blockquote class="b">
+<strong>1bit.systems compat:</strong> These are standard GGUF files under the hood — the engine's GGUF loader auto-detects architecture from metadata, same as any other GGUF. No special handling needed.
+</blockquote>
+
+<hr>
+
 <h2>Installing Unsloth on AMD</h2>
 
 <h3>Quick install (Linux / WSL):</h3>
