@@ -18,7 +18,7 @@ Pure C++23, zero Python at runtime, MIT.
 | Doc | Topic |
 |-----|-------|
 | [npu-engine.md](npu-engine.md) · [npu-dynamic-instr.md](npu-dynamic-instr.md) | Native XDNA 2 NPU engine |
-| [fastflowlm-decode/SUMMARY.md](fastflowlm-decode/SUMMARY.md) | FastFlowLM reverse-engineering report |
+| [fastflowlm-decode/SUMMARY.md](fastflowlm-decode/SUMMARY.md) | FastFlowLM reverse-engineering report (historical — fully replaced) |
 | [block-scaled-ternary-format.md](block-scaled-ternary-format.md) | 1BP / TQ2 ternary storage |
 | [kernel-analysis.md](kernel-analysis.md) · [hybrid-w4a8-router.md](hybrid-w4a8-router.md) | Kernels & routing |
 | [vision-module.md](vision-module.md) | Vision-language support |

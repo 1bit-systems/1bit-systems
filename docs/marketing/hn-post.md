@@ -1,3 +1,5 @@
+> **📜 Historical draft** — This is an archived marketing post from an earlier phase. Numbers and references may be stale.
+>
 # Show HN: 291 tok/s NPU fused inference — one C++ binary, 35 models, 7 backends, zero Python
 
 https://github.com/bong-water-water-bong/1bit-systems

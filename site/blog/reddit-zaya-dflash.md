@@ -1,3 +1,5 @@
+> **📜 Historical post** — This Reddit post references the early FastFlowLM integration phase. FLM has since been fully replaced.
+>
 # Draft: Reddit Post — Showcasing 1bit.systems
 
 ## Target: r/LocalLLaMA

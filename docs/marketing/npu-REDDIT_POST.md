@@ -1,3 +1,5 @@
+> **📜 Historical draft** — This is an archived marketing post from an earlier phase. Numbers and references may be stale.
+>
 # Strix Halo NPU (XDNA2) — Full Qwen3-0.6B Inference at 4.8 tok/s
 
 ## What We Accomplished

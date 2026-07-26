@@ -1,3 +1,5 @@
+> **📜 Historical draft** — This is an archived marketing post from an earlier phase. Numbers and references may be stale.
+>
 # Reddit r/LocalLLaMA Post Draft
 
 ## Title:

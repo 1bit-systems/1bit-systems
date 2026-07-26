@@ -115,7 +115,7 @@ make -j$(nproc)
 
 ### 4. Integrate with FLM Proxy
 
-The speculative decoding engine hooks into the existing FLM proxy at port 9090:
+The speculative decoding engine was originally designed to hook into the FLM proxy at port 9090 (FLM has since been replaced; the proxy architecture remains for other backends):
 
 ```bash
 # Option A: Replace server.cjs with spec-decode server

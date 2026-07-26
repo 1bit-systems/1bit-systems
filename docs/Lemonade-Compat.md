@@ -1,3 +1,5 @@
+> **📜 Historical reference** — This document references the closed-source FastFlowLM runtime which has since been fully reverse-engineered and replaced. See [How We Got Here](../README.md#-how-we-got-here--reverse-engineering-the-xdna-2-npu) for the current state.
+>
 # Lemonade Compatibility
 
 **Status:** Active · targeting Lemonade v10.9.0+

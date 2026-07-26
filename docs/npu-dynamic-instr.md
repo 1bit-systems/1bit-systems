@@ -1,3 +1,5 @@
+> **📜 Historical reference** — This document describes the NPU reverse-engineering process comparing against FastFlowLM's dynamic instruction generator. The NPU engine now generates its own instruction sequences natively via `npu_engine_universal`. The FLM comparison is kept for provenance.
+>
 # Dynamic NPU Instruction Generation — Matching FLM's Architecture
 
 ## Overview

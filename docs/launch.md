@@ -1,3 +1,5 @@
+> **📜 Historical launch post** — This was written at project launch (July 2026). Binary size, model counts, and tok/s figures are from the early NPU-only phase. Current numbers are significantly different. See [README](../README.md) for up-to-date data.
+>
 # Launch Plan — 1bit.systems
 
 > The Show HN post that makes 1bit.systems the reference standard for NPU inference.

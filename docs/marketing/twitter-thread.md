@@ -1,3 +1,5 @@
+> **📜 Historical draft** — This is an archived marketing post from an earlier phase. Numbers and references may be stale.
+>
 One C++ binary. 35 models. 7 backends. Zero Python. Zero config.
 
 1bit.systems — the NPU inference engine for AMD Strix Halo — just got NPU attention on silicon and Mamba2 HIP GPU kernels. Here's what that means:
