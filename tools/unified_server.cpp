@@ -44,6 +44,7 @@
 #include <fstream>
 #include <fcntl.h>
 #include <sys/file.h>
+#include <sys/resource.h>
 #include <unistd.h>
 
 #include "strategy_engine.h"
@@ -79,6 +80,20 @@ static std::mutex g_config_mutex;     // protects current_cfg, g_tokenizer, mode
 // OUTERMOST lock: g_config_mutex / g_strategy_mutex may be acquired while it is
 // held, but g_inference_mutex must never be acquired while holding either of
 // those, or the two orders can deadlock.
+// Generation timeout: abort in-flight generate_completion() if it exceeds
+// this wall-clock limit. Prevents a single slow/memory-hungry request from
+// holding g_inference_mutex indefinitely and OOM-killing the entire server
+// (issue #948). Configurable via CLI --gen-timeout-ms or GEN_TIMEOUT_MS env.
+// Default: 600000ms = 10 minutes. 0 = no timeout.
+static int g_generation_timeout_ms = []() -> int {
+    const char* env = getenv("GEN_TIMEOUT_MS");
+    if (env && env[0]) {
+        int v = atoi(env);
+        if (v >= 0) return v;
+    }
+    return 600000;  // 10 minutes default
+}();
+
 static std::mutex g_inference_mutex;
 
 // ── Strategy engine + agent watchdog (global for HTTP handler access) ──
@@ -273,6 +288,8 @@ static json generate_completion(BackendManager& mgr,
     std::vector<int> output_tokens;
     std::vector<double> output_logprobs;
     auto t0 = std::chrono::high_resolution_clock::now();
+    auto timeout_deadline = t0 + std::chrono::milliseconds(g_generation_timeout_ms);
+    bool timed_out = false;
     int last_token = prompt_tokens.empty() ? g_tokenizer.bos_id : prompt_tokens.back();
 
     // Prefill: process prompt tokens
@@ -283,6 +300,19 @@ static json generate_completion(BackendManager& mgr,
         prefill_start = 1;
     }
     for (size_t i = prefill_start; i + 1 < prompt_tokens.size(); i++) {
+        // Check generation timeout between prefill tokens (issue #948)
+        if (g_generation_timeout_ms > 0 &&
+            std::chrono::high_resolution_clock::now() >= timeout_deadline) {
+            float ms = std::chrono::duration<float, std::milli>(
+                std::chrono::high_resolution_clock::now() - t0).count();
+            result["error"] = "Generation timed out during prefill after " +
+                               std::to_string((int)ms) + "ms";
+            result["gen_ms"] = ms;
+            result["gen_tokens"] = (int)output_tokens.size();
+            result["text"] = "";
+            result["timed_out"] = true;
+            return result;
+        }
         int result_id = mgr.generate(prompt_tokens[i]);
         if (result_id < 0) {
             float ms = std::chrono::duration<float, std::milli>(
@@ -298,6 +328,17 @@ static json generate_completion(BackendManager& mgr,
     // Track which backend each token goes to
     std::vector<std::string> per_token_backend;
     for (int i = 0; i < max_tokens; i++) {
+        // ── Check generation timeout (issue #948) ──
+        // Timeout is checked per-token so g_inference_mutex is released promptly
+        // when a slow request exceeds the wall-clock limit. This prevents a single
+        // client from holding the server hostage while the model slowly accumulates
+        // memory (e.g. zamba-7b-v1 on CPU grew to 56.5GB over ~11 minutes).
+        if (g_generation_timeout_ms > 0 &&
+            std::chrono::high_resolution_clock::now() >= timeout_deadline) {
+            timed_out = true;
+            break;
+        }
+
         // ── Strategically choose backend for this token ──
         if (strategy_engine) {
             // Build logprob/entropy from last generated output
@@ -434,6 +475,11 @@ static json generate_completion(BackendManager& mgr,
     result["gen_ms"] = ms;
     result["gen_tokens"] = (int)output_tokens.size();
     result["per_token_backend"] = per_token_backend;
+    if (timed_out) {
+        result["error"] = "Generation timed out after " +
+                           std::to_string((int)ms) + "ms";
+        result["timed_out"] = true;
+    }
     if (ms > 0) {
         result["tok_s"] = (float)output_tokens.size() / (ms / 1000.0f);
         result["ms_per_tok"] = ms / (float)output_tokens.size();
@@ -559,12 +605,15 @@ int main(int argc, char** argv) {
     signal(SIGTERM, handle_sigint);
 
     // ── Parse CLI args ──
+    // Generation timeout: CLI override of g_generation_timeout_ms (issue #948)
+    int cli_gen_timeout_ms = -1;
     static struct option long_opts[] = {
-        {"port",        required_argument, nullptr, 'p'},
-        {"weights",     required_argument, nullptr, 'w'},
-        {"model",       required_argument, nullptr, 'm'},
-        {"quick",       no_argument,       nullptr, 'q'},
-        {"cors-origin", required_argument, nullptr, 'c'},
+        {"port",          required_argument, nullptr, 'p'},
+        {"weights",       required_argument, nullptr, 'w'},
+        {"model",         required_argument, nullptr, 'm'},
+        {"quick",         no_argument,       nullptr, 'q'},
+        {"cors-origin",   required_argument, nullptr, 'c'},
+        {"gen-timeout-ms", required_argument, nullptr, 't'},
         {nullptr, 0, nullptr, 0}
     };
 
@@ -579,7 +628,13 @@ int main(int argc, char** argv) {
             case 'm': g_model_name = optarg; break;
             case 'q': quick_mode = true; break;
             case 'c': g_cors_origin = optarg; break;
+            case 't': cli_gen_timeout_ms = atoi(optarg); break;
         }
+    }
+
+    // Apply CLI timeout override after env default
+    if (cli_gen_timeout_ms >= 0) {
+        g_generation_timeout_ms = cli_gen_timeout_ms;
     }
 
     acquire_singleton_lock();
@@ -592,8 +647,30 @@ int main(int argc, char** argv) {
     printf("║                                               ║\n");
     printf("╚═══════════════════════════════════════════════╝\n");
     printf("\n");
-    printf("  Weights: %s\n", g_weights_dir.c_str());
-    printf("  Port:    %d\n", g_port);
+    // ── Apply RLIMIT_AS as an OOM safety net (issue #948) ──
+    // Set virtual address space limit: prevent a single slow request from growing
+    // unbounded (e.g. zamba-7b-v1 reached 56.5GB over 11 minutes). The limit is
+    // set high enough to never interfere with normal operation but low enough that
+    // runaway memory allocation triggers ENOMEM (malloc returns NULL or SIGSEGV
+    // in overcommit mode) rather than the kernel OOM killer taking the whole
+    // process down. 256 GB leaves ample headroom for 122 GB physical RAM + swap.
+    {
+        struct rlimit as_lim;
+        as_lim.rlim_cur = 256L * 1024 * 1024 * 1024;  // 256 GB
+        as_lim.rlim_max = 256L * 1024 * 1024 * 1024;
+        if (setrlimit(RLIMIT_AS, &as_lim) != 0) {
+            fprintf(stderr, "  ⚠  Could not set RLIMIT_AS (%s) — OOM safety net disabled\n",
+                    strerror(errno));
+        } else {
+            printf("  ✓  RLIMIT_AS set to 256 GB (OOM safety net)\n");
+        }
+    }
+
+    printf("  Weights:    %s\n", g_weights_dir.c_str());
+    printf("  Port:       %d\n", g_port);
+    printf("  Gen Timeout: %s\n", g_generation_timeout_ms > 0
+           ? (std::to_string(g_generation_timeout_ms) + "ms").c_str()
+           : "disabled");
     printf("\n");
 
     // ── Load tokenizer ──
@@ -772,6 +849,7 @@ int main(int argc, char** argv) {
         j["model"] = current_cfg.model_name;
         j["weights_dir"] = g_weights_dir;
         j["uptime"] = std::to_string(time(nullptr)) + "s";
+        j["generation_timeout_ms"] = g_generation_timeout_ms;
         res.set_content(j.dump(2), "application/json");
         add_cors(res);
     });
@@ -1013,8 +1091,13 @@ int main(int argc, char** argv) {
         json message;
         message["role"] = "assistant";
         message["content"] = gen_result.value("text", "");
-        choice["message"] = message;
-        choice["finish_reason"] = gen_result.contains("error") ? "error" : "stop";
+        std::string finish_reason = "stop";
+        if (gen_result.value("timed_out", false)) {
+            finish_reason = "timeout";
+        } else if (gen_result.contains("error")) {
+            finish_reason = "error";
+        }
+        choice["finish_reason"] = finish_reason;
 
         json usage;
         usage["prompt_tokens"] = (int)prompt_tokens.size();
