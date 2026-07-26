@@ -326,7 +326,9 @@ set(RCPP_SOURCES
     src/laguna_fused.hip
     src/laguna_ops.hip
     src/mamba2_kernels.cpp
-    src/zamba2_engine.cpp)
+    src/mamba2_kernels.hip
+    src/zamba2_engine.cpp
+    src/zamba2_engine_hip.hip)
 if(RCPP_HAVE_CK)
     list(APPEND RCPP_SOURCES src/ck_gemm.cpp)
 endif()

@@ -136,6 +136,25 @@ struct Sampler {
 //  DFlash Speculative Decoder
 // ═══════════════════════════════════════════════════════════════
 
+// Shared KV cache growth helper — used by both DFlashSpec and SpecModel
+// to avoid duplicated grow_cache() code (issue #967).
+static constexpr int MAX_KV_POS_GLOBAL = 262144;  // 256K tokens max
+static bool grow_cache_impl(std::vector<std::vector<float>>& k_cache,
+                             std::vector<std::vector<float>>& v_cache,
+                             int& max_pos, int pos, int NKV, int HD) {
+    if (pos < max_pos) return true;
+    int new_cap = max_pos * 2;
+    if (new_cap > MAX_KV_POS_GLOBAL) new_cap = MAX_KV_POS_GLOBAL;
+    if (new_cap == max_pos) {
+        fprintf(stderr, "KV cache: max context %d reached\n", max_pos);
+        return false;
+    }
+    for (auto& k : k_cache) k.resize((size_t)new_cap * NKV * HD, 0.0f);
+    for (auto& v : v_cache) v.resize((size_t)new_cap * NKV * HD, 0.0f);
+    max_pos = new_cap;
+    return true;
+}
+
 struct DFlashSpec {
     OnebpModel draft;
     Q4NXMatmul mm;
@@ -175,15 +194,7 @@ struct DFlashSpec {
     
     void reset() { pos=0; for(auto&k:k_cache)std::fill(k.begin(),k.end(),0.0f); for(auto&v:v_cache)std::fill(v.begin(),v.end(),0.0f); }
     
-    void grow_cache() {
-        if (pos < max_pos) return;
-        int new_cap = max_pos * 2;
-        if (new_cap > MAX_KV_POS) new_cap = MAX_KV_POS;
-        if (new_cap == max_pos) { fprintf(stderr, "KV cache: max context %d reached\n", max_pos); exit(1); }
-        for (auto& k : k_cache) k.resize((size_t)new_cap * NKV * HD, 0.0f);
-        for (auto& v : v_cache) v.resize((size_t)new_cap * NKV * HD, 0.0f);
-        max_pos = new_cap;
-    }
+    void grow_cache() { grow_cache_impl(k_cache, v_cache, max_pos, pos, NKV, HD); }
     
     // Forward one token through the draft model. Appends to KV cache.
     // Returns: logits (vocab_size floats)
@@ -315,17 +326,6 @@ struct LagunaInference {
     void reset() { pos=0; for(auto&k:k_cache)std::fill(k.begin(),k.end(),0.0f);
                   for(auto&v:v_cache)std::fill(v.begin(),v.end(),0.0f); }
     
-    // Returns false on cache overflow instead of calling exit(1) (issue #966).
-    bool grow_cache() {
-        if (pos < max_pos) return true;
-        int new_cap = max_pos * 2;
-        if (new_cap > MAX_KV_POS) new_cap = MAX_KV_POS;
-        if (new_cap == max_pos) { fprintf(stderr, "KV cache: max context %d reached\n", max_pos); return false; }
-        for (auto& k : k_cache) k.resize((size_t)new_cap * NKV * HD, 0.0f);
-        for (auto& v : v_cache) v.resize((size_t)new_cap * NKV * HD, 0.0f);
-        max_pos = new_cap;
-        return true;
-    }
     
     bool is_swa(int il) { return SW>0 && (il%SW_PERIOD)!=0; }
     bool is_moe(int il) { return il>=N_DENSE_LEAD; }

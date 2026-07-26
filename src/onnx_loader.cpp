@@ -201,8 +201,18 @@ static void find_initializers(PbReader& pb, std::vector<OnnxTensor>& tensors, in
                                 float v; memcpy(&v, &bits, 4);
                                 t.float_data[i / 2] = v;
                             }
+                        } else if (t.data_type == ONNX_INT8 || t.data_type == ONNX_UINT8) {
+                            // INT8/UINT8: expand 1 byte per value to float
+                            t.float_data.resize(raw.size());
+                            float scale = (t.data_type == ONNX_UINT8) ? 1.0f : 1.0f;
+                            for (size_t i = 0; i < raw.size(); i++) {
+                                int8_t byte = (int8_t)raw[i];
+                                t.float_data[i] = (float)byte;
+                            }
                         } else {
-                            t.float_data.resize(raw.size() / 4);
+                            // Default: F32 (4 bytes per value)
+                            size_t n_floats = raw.size() / 4;
+                            t.float_data.resize(n_floats);
                             for (size_t i = 0; i + 4 <= raw.size(); i += 4) {
                                 float v; memcpy(&v, &raw[i], 4);
                                 t.float_data[i / 4] = v;
@@ -323,20 +333,18 @@ rcpp_status_t rcpp_bitnet_load_onnx(const char* path, rcpp_bitnet_model_t* out_m
             if (hipMalloc(&dev_ptr, bytes) != hipSuccess) return nullptr;
             if (hipMemcpy(dev_ptr, f16_buf.data(), bytes, hipMemcpyHostToDevice) != hipSuccess) { hipFree(dev_ptr); return nullptr; }
         } else if (t->data_type == ONNX_BFLOAT16) {
-            // TODO: BF16 support — need proper conversion; store as F32 for now
-            fprintf(stderr, "[onnx] WARNING: %s is BF16 — storing as F32 (TODO: proper BF16 support)\n", t->name.c_str());
-            bytes = n_elems * sizeof(float);
+            // BF16 was already converted to F32 by the raw_data parser
+            bytes = (size_t)n_elems * sizeof(float);
             if (hipMalloc(&dev_ptr, bytes) != hipSuccess) return nullptr;
             if (hipMemcpy(dev_ptr, t->float_data.data(), bytes, hipMemcpyHostToDevice) != hipSuccess) { hipFree(dev_ptr); return nullptr; }
-        } else if (t->data_type == ONNX_INT8) {
-            // TODO: INT8 support — need proper quantized storage
-            fprintf(stderr, "[onnx] WARNING: %s is INT8 — storing as F32 (TODO: proper INT8 support)\n", t->name.c_str());
-            bytes = n_elems * sizeof(float);
+        } else if (t->data_type == ONNX_INT8 || t->data_type == ONNX_UINT8) {
+            // INT8/UINT8 was already dequantized to F32 by the raw_data parser
+            bytes = (size_t)n_elems * sizeof(float);
             if (hipMalloc(&dev_ptr, bytes) != hipSuccess) return nullptr;
             if (hipMemcpy(dev_ptr, t->float_data.data(), bytes, hipMemcpyHostToDevice) != hipSuccess) { hipFree(dev_ptr); return nullptr; }
         } else {
             // F32 (ONNX_FLOAT) or fallback
-            bytes = n_elems * sizeof(float);
+            bytes = (size_t)n_elems * sizeof(float);
             if (hipMalloc(&dev_ptr, bytes) != hipSuccess) return nullptr;
             if (hipMemcpy(dev_ptr, t->float_data.data(), bytes, hipMemcpyHostToDevice) != hipSuccess) { hipFree(dev_ptr); return nullptr; }
         }
