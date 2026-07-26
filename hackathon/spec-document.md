@@ -8,6 +8,14 @@
 **Date**: July 2026  
 **Hardware**: AMD Ryzen AI Max+ 395 (Strix Halo) — Radeon 8060S GPU + 32 XDNA 2 NPU tiles + 128 GB unified LPDDR5X
 
+> **On hardware**: this submission runs entirely on the team's own local AMD Strix Halo
+> machine — a real Radeon 8060S GPU and XDNA 2 NPU, not AMD's Radeon Cloud offering.
+> We chose local hardware because it's the more demanding and more honest proof of the
+> track's own core requirement ("core inference must run locally, no reliance on
+> closed-source APIs") — the NPU driver itself was reverse-engineered from scratch
+> against this physical silicon (see §7 and `docs/journey.md`), which wouldn't have been
+> possible against a generic cloud GPU instance.
+
 ---
 
 ## 1. Application Scenarios
@@ -34,7 +42,7 @@
                        │ HTTP (OpenAI-compatible API)
                        ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                   unified_server (C++, ~400 KB)              │
+│                   unified_server (C++, ~2 MB)                │
 │                                                              │
 │  ┌──────────────┐  ┌──────────────┐  ┌───────────────────┐  │
 │  │ Model Router │  │ Token Router │  │ Strategy Engine   │  │
@@ -48,12 +56,12 @@
 │  │              Backend Manager (auto-failover)          │   │
 │  │                                                       │   │
 │  │  Tier 1: ROCm HIP     Tier 3: Vulkan    Tier 5: CPU   │   │
-│  │  │ Q1 GEMV 417 t/s   │ GPU ternary    │ OpenMP      │   │
-│  │  │ Fused TQ2 415 t/s │ ZINC 22 t/s    │ fallback    │   │
+│  │  │ Q1 GEMV 433 t/s   │ GPU ternary    │ OpenMP      │   │
+│  │  │ Fused TQ2 420 t/s │ ZINC 22 t/s    │ fallback    │   │
 │  │  │ Mamba1 79.8 t/s   │                │             │   │
 │  │  └────────────────────┴────────────────┴─────────────┘   │
 │  │  Tier 2: XDNA 2 NPU   Tier 4: Vulkan ZINC               │
-│  │  │ NPU v12 97 t/s    │                               │   │
+│  │  │ NPU v12 69 t/s    │                               │   │
 │  │  │ FLM bridge        │                               │   │
 │  └──────────────────────┴───────────────────────────────┘   │
 │                                                              │
@@ -133,7 +141,7 @@
 
 | Model | Size | Architecture | Best Backend | Performance |
 |-------|------|-------------|-------------|-------------|
-| Qwen3-0.6B | 0.6B | Dense Transformer | NPU v12 | 97 tok/s |
+| Qwen3-0.6B | 0.6B | Dense Transformer | NPU v12 | 69 tok/s |
 | Qwen3-4B | 4B | Dense Transformer | GPU ternary | 318 tok/s |
 | Qwen3-27B Q4_K | 27B | Dense Transformer | ROCm HIP | 30 tok/s |
 | Qwen3-35B MoE Q4_K | 35B | MoE Transformer | ROCm HIP | 20 tok/s |
@@ -177,19 +185,19 @@
 | Technique | Impact | Details |
 |-----------|--------|---------|
 | **1-bit ternary packing (TQ2)** | 8× memory reduction vs FP16 | Pack weights as 2-bit codes. Dequantize in-register during GEMV. 2560 bytes/tile vs 5120 for INT8 Q4NX. |
-| **Q1 GEMV fused kernel** | 417 tok/s (synthetic) | Single HIP kernel that reads packed Q1_0 weights, dequantizes in registers, and accumulates dot products. Avoids separate dequant+matmul passes. |
-| **Fused QKV+Gate+Up** | 415 tok/s (synthetic) | Gate and Up projections computed in the same kernel launch as QKV attention. Reduces kernel launch overhead by 4× for transformer layers. |
+| **Q1 GEMV fused kernel** | 433 tok/s (synthetic) | Single HIP kernel that reads packed Q1_0 weights, dequantizes in registers, and accumulates dot products. Avoids separate dequant+matmul passes. |
+| **Fused QKV+Gate+Up** | 420 tok/s (synthetic) | Gate and Up projections computed in the same kernel launch as QKV attention. Reduces kernel launch overhead by 4× for transformer layers. |
 | **Structure-of-Arrays layout** | 2.3× throughput | Weights stored as SoA (not AoS) for coalesced memory access. 4-row batching for small-M GEMV. |
 | **Mamba1 SSM HIP kernel** | 79.8 tok/s (BlackMamba) | Custom HIP kernel for selective state-space model. Fused A_log exponentiation, conv state management, and selective scan in one launch. |
 | **Mamba2 HIP kernels** | MI300X + Radeon | Selective scan + conv1d HIP kernels with PyTorch ctypes extension. Enables fast Mamba2 training on AMD GPUs. |
 | **Speculative decoding (MTP)** | ~50% speedup | Multi-token prediction with draft model + target model verification. Run draft on NPU (cheap), verify on GPU (accurate). |
-| **INT8 WMMA prefill** | 42.21 TFLOPS | Uses AMD WMMA intrinsics for matrix multiply-accumulate in INT8. Full prompt prefill in a single kernel launch. |
+| **INT8 WMMA prefill** | 39.4 TFLOPS | Uses AMD WMMA intrinsics for matrix multiply-accumulate in INT8. Full prompt prefill in a single kernel launch. |
 
 ### 5.2 NPU Optimization (XDNA 2)
 
 | Technique | Impact | Details |
 |-----------|--------|---------|
-| **Q4NX native dispatch** | 97 tok/s | Direct XRT BO allocation and DMA to NPU tiles. No FastFlowLM subprocess. Zero-copy between CPU and NPU via shared BOs. |
+| **Q4NX native dispatch** | 69 tok/s | Direct XRT BO allocation and DMA to NPU tiles. No FastFlowLM subprocess. Zero-copy between CPU and NPU via shared BOs. |
 | **Column unlock** | 40 AIE columns | Reverse-engineered AMD's column-count lock. Patched `amdxdna.ko` kernel module to access all 40 AIE columns (vendor-locked to 20). |
 | **Pipeline overlap** | 1.4× throughput | DMA upload + NPU compute + DMA download pipelined across tiles. Next tile loads while current tile computes. |
 | **FastFlowLM removed** | Zero proprietary code | All 22 proprietary `.so` fully reverse-engineered and replaced. FastFlowLM removed entirely (PR #589, #632). Zero closed-source dependencies. |
@@ -201,7 +209,7 @@
 | **Unified memory (zero-copy)** | Eliminates PCIe transfers | Strix Halo's shared LPDDR5X means GPU, NPU, and CPU all see the same physical memory. Model weights loaded once, used by all backends. |
 | **Cross-backend cascade** | Best-of-all-worlds latency | Each token profiled across backends at startup. Router dispatches to fastest available. Fallback on error. |
 | **Memory-mapped model loading** | Instant startup | GGUF and 1BP formats support mmap. Model weights mapped into process address space, paged in on-demand by OS. |
-| **Single 400 KB binary** | Minimal attack surface | Entire server is one statically-linked C++23 executable. No Python interpreter, no pip packages, no Docker layers. |
+| **Single-binary C++23 server** | Minimal attack surface | Statically-linked, no Python interpreter, no pip packages, no Docker layers. |
 
 ### 5.4 Comparative Performance
 
@@ -221,7 +229,7 @@
 - **License**: MIT
 - **Language**: C++23 (server), HIP C++ (GPU kernels), Python (converters/benchmarks), Rust (proxy)
 - **Build**: CMake + Ninja, `cmake -B build -G Ninja && ninja -C build zaya_server`
-- **Binary size**: ~400 KB server + ~1.1 MB kernel library
+- **Binary size**: ~1.4 MB server (`zaya_server`) + ~1.7 MB HIP kernel library (`librocm_cpp.so`)
 
 ### Repository Structure
 ```
@@ -231,12 +239,12 @@
 ├── src/                       ← HIP GPU kernels (ternary, Q1, Mamba1)
 ├── engine/npu/                 ← NPU engine (XDNA 2, Q4NX, xclbin)
 ├── backends/                   ← Backend abstraction layer
-├── jarvis/                     ← Agent layer (memory, tools, planning)
-├── daemon/                     ← Systemd service + Stripe store
-├── rust/                       ← Rust reverse proxy
+├── tools/jarvis_server.cpp     ← Agent layer, native C++ (RAG, tools, planning, memory)
+├── packaging/services/          ← Systemd service unit
+├── rust/                       ← Rust reverse proxy (onebit)
 ├── scripts/                    ← Converters, benchmarks, CI
 ├── hackathon/                  ← Submission materials
-├── models/                     ← 22 1BP models on HuggingFace
+├── models/                     ← 40 models across 16 families on HuggingFace
 └── site/                       ← https://1bit.systems
 ```
 
