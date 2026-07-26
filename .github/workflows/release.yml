@@ -39,8 +39,29 @@ jobs:
 
       - name: Build all C++ targets (TheRock 7.15.0a HIP kernels + servers + CLI)
         run: |
-          # TheRock's activation script sets PATH, ROCM_PATH, HIP_PATH etc.
-          source /opt/rocm-therock/activate.sh
+          # TheRock installs into a Python venv at /opt/rocm-therock.
+          # Find the Python site-packages directory (version-dependent) and
+          # set all the paths CMakeLists.txt needs to discover TheRock.
+          THEROCK_ROOT="/opt/rocm-therock"
+          PYTHON_SITE="$(dirname "$(find "$THEROCK_ROOT/lib" -name '_rocm_sdk_devel' -type d 2>/dev/null | head -1)")"
+          echo "TheRock site-packages: $PYTHON_SITE"
+
+          export ROCM_PATH="$PYTHON_SITE/_rocm_sdk_devel"
+          export HIP_PATH="$ROCM_PATH"
+          export ROCM_CORE_PATH="$PYTHON_SITE/_rocm_sdk_core"
+          export ROCM_LIB_PATH="$PYTHON_SITE/_rocm_sdk_libraries"
+          export ROCM_DEVICE_LIBS_PATH="$PYTHON_SITE/_rocm_sdk_device_gfx1151"
+          export LLVM_PATH="$ROCM_PATH/lib/llvm"
+          export PATH="$ROCM_PATH/bin:$ROCM_CORE_PATH/bin:$THEROCK_ROOT/bin:$PATH"
+          export LD_LIBRARY_PATH="$ROCM_PATH/lib:$ROCM_CORE_PATH/lib:$ROCM_LIB_PATH/lib:$LD_LIBRARY_PATH"
+          export HIP_DEVICE_LIB_PATH="$ROCM_CORE_PATH/lib/llvm/amdgcn/bitcode"
+          export CFLAGS="-D__HIP_PLATFORM_AMD__"
+          export CXXFLAGS="-D__HIP_PLATFORM_AMD__"
+
+          echo "ROCM_PATH=$ROCM_PATH"
+          echo "amdclang++: $(which amdclang++)"
+          echo "hipcc: $(which hipcc)"
+
           cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151
           # Build the core library, inference servers, and all new C++ tools
           ninja -C build \
