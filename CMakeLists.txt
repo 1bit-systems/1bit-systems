@@ -836,6 +836,24 @@ target_include_directories(test_mamba1_backend PRIVATE src/ include/)
 target_compile_options(test_mamba1_backend PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
 target_link_libraries(test_mamba1_backend PRIVATE backend_manager dl)
 
+# Register as ctest (requires GGUF model path via env or default)
+set(MAMBA1_TEST_MODEL "models/blackmamba-1.5b.gguf" CACHE FILEPATH "GGUF model for test_mamba1_backend")
+if(MAMBA1_TEST_MODEL AND EXISTS "${MAMBA1_TEST_MODEL}")
+    add_test(NAME test_mamba1_backend_regression COMMAND test_mamba1_backend ${MAMBA1_TEST_MODEL} 8)
+    set_tests_properties(test_mamba1_backend_regression PROPERTIES LABELS "gpu_required;model_required;regression" SKIP_RETURN_CODE 77)
+endif()
+
+# ── Zamba2 regression test (attention correctness, issue #946) ──
+add_executable(test_zamba2_regression tools/test_zamba2_regression.cpp)
+target_include_directories(test_zamba2_regression PRIVATE src/ include/)
+target_compile_options(test_zamba2_regression PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
+target_link_libraries(test_zamba2_regression PRIVATE backend_manager rocm_cpp)
+set(ZAMBA2_TEST_MODEL "models/zamba2-1.2b-instruct-v2-q4_0.gguf" CACHE FILEPATH "GGUF model for test_zamba2_regression")
+if(ZAMBA2_TEST_MODEL AND EXISTS "${ZAMBA2_TEST_MODEL}")
+    add_test(NAME test_zamba2_regression COMMAND test_zamba2_regression ${ZAMBA2_TEST_MODEL})
+    set_tests_properties(test_zamba2_regression PROPERTIES LABELS "model_required;regression" SKIP_RETURN_CODE 77)
+endif()
+
 # ── CUDA backend test tool (matches test_mamba1_backend pattern from PR #579) ──
 # Links against backend_manager which transitively provides cuda_engine.
 if(RCPP_HAVE_CUDA)

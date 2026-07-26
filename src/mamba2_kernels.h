@@ -72,36 +72,109 @@ void mamba2_cpu_forward(
 #ifdef __HIPCC__
 #include <hip/hip_runtime.h>
 
-// HIP kernel: Mamba2 selective scan
-// Performs: y[:,t] = CA^B * x[:,t] + D * x[:,t]
-// where A is discretized from A_log and dt
+// ════════════════════════════════════════════════════════════════════════
+// TUNABLE KERNELS (recommended for all new code)
+// ════════════════════════════════════════════════════════════════════════
+
+// Tiled FP32 GEMV with LDS-cached activations. 4 rows per block, 256 threads.
+// 2-5× faster than the naive gemv_kernel on Zamba2-2.7B shapes.
+__global__ void mamba2_tiled_gemv_kernel(
+    const float* __restrict__ W,    // [M, K] row-major
+    const float* __restrict__ x,    // [K]
+    float* __restrict__ y,          // [M]
+    int M, int K);
+
+// Tuned Mamba2 selective scan. Process ALL head_dim elements per head
+// with d_state parallelism. Fixes the old kernel bug that only read
+// the 1st x element. Uses __shfl and LDS for reduction.
+__global__ void mamba2_selective_scan_tuned_kernel(
+    const float* __restrict__ x,     // [B, L, d_inner]
+    const float* __restrict__ dt,    // [B, L, n_head]
+    const float* __restrict__ A_log, // [n_head]
+    const float* __restrict__ B,     // [B, L, n_group, d_state]
+    const float* __restrict__ C,     // [B, L, n_group, d_state]
+    const float* __restrict__ D,     // [n_head]
+    float* __restrict__ y,           // [B, L, d_inner]
+    float* __restrict__ final_state, // [B, d_state, d_inner]
+    int B_dim, int L, int d_inner, int d_state,
+    int n_head, int n_group, int head_dim);
+
+// Fused scan: combines dt_bias add + softplus + selective scan in one kernel.
+// dt_bias may be nullptr (assumes dt already has softplus applied).
+__global__ void mamba2_scan_fused_kernel(
+    const float* __restrict__ x,     // [B, L, d_inner]
+    const float* __restrict__ dt,    // [B, L, n_head]
+    const float* __restrict__ dt_bias, // [n_head] or nullptr
+    const float* __restrict__ A_log, // [n_head]
+    const float* __restrict__ B,     // [B, L, n_group, d_state]
+    const float* __restrict__ C,     // [B, L, n_group, d_state]
+    const float* __restrict__ D,     // [n_head]
+    float* __restrict__ y,           // [B, L, d_inner]
+    float* __restrict__ final_state, // [B, d_state, d_inner]
+    int B_dim, int L, int d_inner, int d_state,
+    int n_head, int n_group, int head_dim);
+
+// Tuned conv1d with LDS-cached weights. Tiled across conv_dim.
+__global__ void mamba2_conv1d_tuned_kernel(
+    const float* __restrict__ x,     // [B, L, conv_dim]
+    const float* __restrict__ w,     // [d_conv, conv_dim]
+    const float* __restrict__ b,     // [conv_dim]
+    float* __restrict__ y,           // [B, L, conv_dim]
+    float* __restrict__ state,       // [B, d_conv-1, conv_dim]
+    int B_dim, int L, int d_conv, int conv_dim);
+
+// Group RMS norm for Mamba2 group normalization.
+__global__ void mamba2_group_norm_kernel(
+    float* __restrict__ y,           // [B, d_inner] in-place
+    const float* __restrict__ norm_w, // [d_inner/n_group, n_group]
+    int d_inner, int n_group, int batch, float eps);
+
+// Fused: y[i] *= silu(z[i]) — combines gate apply in one kernel.
+__global__ void silu_mul_kernel(float* y, float* z, int n);
+
+// ════════════════════════════════════════════════════════════════════════
+// LEGACY KERNELS (compatibility stubs — delegate to tuned variants)
+// ════════════════════════════════════════════════════════════════════════
+
+// Legacy selective scan (kept for API compat with zamba2_engine_hip.hip).
+// Now has the CORRECT per-head_dim-element scan loop.
 __global__ void mamba2_selective_scan_kernel(
-    const float* __restrict__ x,        // [B, L, d_inner]
-    const float* __restrict__ dt,       // [B, L, n_head]
-    const float* __restrict__ A,        // [n_head]
-    const float* __restrict__ B,        // [B, L, n_group, d_state]
-    const float* __restrict__ C,        // [B, L, n_group, d_state]
-    const float* __restrict__ D,        // [n_head]
-    float* __restrict__ y,              // [B, L, d_inner]
-    float* __restrict__ final_state,    // [B, d_state, d_inner]
-    int B_dim, int L, int d_inner, int d_state, int n_head, int n_group, int head_dim
-);
+    const float* __restrict__ x,     // [B, L, d_inner]
+    const float* __restrict__ dt,    // [B, L, n_head]
+    const float* __restrict__ A,     // [n_head]
+    const float* __restrict__ B,     // [B, L, n_group, d_state]
+    const float* __restrict__ C,     // [B, L, n_group, d_state]
+    const float* __restrict__ D,     // [n_head]
+    float* __restrict__ y,           // [B, L, d_inner]
+    float* __restrict__ final_state, // [B, d_state, d_inner]
+    int B_dim, int L, int d_inner, int d_state,
+    int n_head, int n_group, int head_dim);
 
-// HIP kernel: 1D convolution for Mamba2
-// Applies depthwise conv1d along sequence dimension, with state carry-over
+// Legacy conv1d (kept for compat).
 __global__ void mamba2_conv1d_kernel(
-    const float* __restrict__ x,        // [B, L, conv_dim]
-    const float* __restrict__ w,        // [d_conv, conv_dim]
-    const float* __restrict__ b,        // [conv_dim]
-    float* __restrict__ y,              // [B, L, conv_dim]
-    float* __restrict__ state,          // [B, d_conv-1, conv_dim]
-    int B_dim, int L, int d_conv, int conv_dim
-);
+    const float* __restrict__ x,     // [B, L, conv_dim]
+    const float* __restrict__ w,     // [d_conv, conv_dim]
+    const float* __restrict__ b,     // [conv_dim]
+    float* __restrict__ y,           // [B, L, conv_dim]
+    float* __restrict__ state,       // [B, d_conv-1, conv_dim]
+    int B_dim, int L, int d_conv, int conv_dim);
 
-// Host-side launch: run one Mamba2 block on GPU (single-token decode)
-// Orchestrates: in_proj → silu(conv1d(xBC)) → x_proj → selective_scan → out_proj
+// Legacy simple GEMV (1 thread per row, no LDS).
+__global__ void gemv_kernel(const float*, const float*, float*, int, int);
+
+// Legacy element-wise kernels.
+__global__ void silu_kernel(float*, int);
+__global__ void add_dt_bias_kernel(float*, const float*, int);
+__global__ void mul_kernel(float*, const float*, int);
+
+// ════════════════════════════════════════════════════════════════════════
+// HOST-SIDE LAUNCHERS
+// ════════════════════════════════════════════════════════════════════════
+
+// Tuned decode block: in_proj → silu(conv1d) → selective_scan → silu(z)*y → out_proj
+// Uses tiled GEMV, LDS-cached conv1d, fused scan + dt_bias.
 // All pointers must be device pointers.
-void mamba2_gpu_decode_block(
+void mamba2_gpu_decode_block_tuned(
     const float* x_in,           // [d_model]
     const float* in_proj_w,      // [d_in_proj, d_model]
     const float* conv1d_w,       // [d_conv, conv_dim]
@@ -116,13 +189,19 @@ void mamba2_gpu_decode_block(
     float* tmp,                  // [max(d_in_proj, conv_dim, d_inner)] workspace
     int d_model, int d_inner, int d_state, int d_conv,
     int n_head, int n_group, int head_dim, int conv_dim,
-    hipStream_t stream
-);
+    hipStream_t stream);
 
-// GPU kernel declarations
-__global__ void gemv_kernel(const float*, const float*, float*, int, int);
-__global__ void silu_kernel(float*, int);
-__global__ void add_dt_bias_kernel(float*, const float*, int);
-__global__ void mul_kernel(float*, const float*, int);
+// Legacy decode block (now forwards to mamba2_gpu_decode_block_tuned).
+void mamba2_gpu_decode_block(
+    const float* x_in,
+    const float* in_proj_w,
+    const float* conv1d_w, const float* conv1d_b,
+    const float* dt_bias, const float* A_log, const float* D,
+    const float* out_proj_w,
+    float* conv_state, float* ssm_state, float* y_out,
+    float* tmp,
+    int d_model, int d_inner, int d_state, int d_conv,
+    int n_head, int n_group, int head_dim, int conv_dim,
+    hipStream_t stream);
 
 #endif // __HIPCC__

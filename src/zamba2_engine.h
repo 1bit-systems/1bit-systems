@@ -30,6 +30,9 @@
 
 #include "mamba2_kernels.h"
 
+// ── Load Zamba2 model from GGUF file (defined in gguf_zamba2_loader.cpp,
+//  included transitively via backend_zamba2.cpp)
+
 // ── Zamba2 Architecture Config (from HF config.json) ──
 struct Zamba2Config {
     // Core dimensions
@@ -214,6 +217,9 @@ struct Zamba2Model {
     // logits: [vocab_size] output
     bool forward(int token_id, float* logits);
 };
+
+// ── Load Zamba2 model from GGUF file (defined in gguf_zamba2_loader.cpp)
+bool load_zamba2_from_gguf(const std::string& path, Zamba2Model& model);
 
 // ── Utility: RMS Norm ──
 inline void rms_norm(const float* x, float* y, const float* w, int n, float eps) {

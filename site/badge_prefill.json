@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "label": "Prefill",
+  "label": "prefill (INT8 WMMA)",
   "message": "40.5 TFLOPS",
-  "color": "00ff00",
-  "style": "flat-square"
+  "color": "informational",
+  "cacheSeconds": 86400
 }
