@@ -229,12 +229,12 @@ ZayaState* zaya_init(const char* weights_dir, const ZayaConfig* cfg) {
     }
 
     // Allocate GPU buffers with cleanup on failure (fixes #279 — leak on alloc error)
-    auto alloc_f16 = [&](auto& p, int n) -> bool {
+    auto alloc_f16 = [&](auto& p, size_t n) -> bool {
         hipError_t _e = hipMalloc(&p, n*2);
         if (_e != hipSuccess) { fprintf(stderr,"HIP OOM at %s:%d — %s\n",__FILE__,__LINE__,hipGetErrorString(_e)); return false; }
         return true;
     };
-    auto alloc_f32 = [&](auto& p, int n) -> bool {
+    auto alloc_f32 = [&](auto& p, size_t n) -> bool {
         hipError_t _e = hipMalloc(&p, n*4);
         if (_e != hipSuccess) { fprintf(stderr,"HIP OOM at %s:%d — %s\n",__FILE__,__LINE__,hipGetErrorString(_e)); return false; }
         return true;
@@ -265,7 +265,7 @@ ZayaState* zaya_init(const char* weights_dir, const ZayaConfig* cfg) {
     s->max_seq = eng.max_seq_len > 0 ? eng.max_seq_len : 4096;
     if (s->use_linear_kv) {
         // Linear KV cache (#3): contiguous [n_layers, max_seq, NKV, HD] — zero gather overhead
-        int kv_elems = eng.n_layers * s->max_seq * eng.nkv * eng.hd;
+        size_t kv_elems = (size_t)eng.n_layers * s->max_seq * eng.nkv * eng.hd;
         ALLOC_OR_FAIL(s, alloc_f16, s->d_kcache, kv_elems);
         ALLOC_OR_FAIL(s, alloc_f16, s->d_vcache, kv_elems);
         fprintf(stderr, "  KV cache: linear contiguous %d tok x %d layers = %.1f MB\n",
@@ -278,7 +278,7 @@ ZayaState* zaya_init(const char* weights_dir, const ZayaConfig* cfg) {
             std::min(eng.kv_pool_pages, s->n_kv_pages) :
             std::min(s->n_kv_pages, KV_DEFAULT_PAGES);
         if (s->kv_pool_pages < 1) s->kv_pool_pages = 1;
-        int kv_pool_elems = eng.n_layers * s->kv_pool_pages * s->page_size * eng.nkv * eng.hd;
+        size_t kv_pool_elems = (size_t)eng.n_layers * s->kv_pool_pages * s->page_size * eng.nkv * eng.hd;
         ALLOC_OR_FAIL(s, alloc_f16, s->d_kcache, kv_pool_elems);
         ALLOC_OR_FAIL(s, alloc_f16, s->d_vcache, kv_pool_elems);
         fprintf(stderr, "  KV cache: %d pages (%d tok/page, %d pool, %d max_seq) = %.1f MB\n",

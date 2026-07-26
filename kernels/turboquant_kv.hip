@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstring>
 #include <random>
+#include "hip_check.h"
 
 // PolarQuant: random rotation + per-coordinate Lloyd-Max for KV vectors
 // Input: half vector of dimension d
@@ -142,7 +143,7 @@ void init_rotation(uint64_t seed = 42) {
             mat[i * 64 + j] /= norm;
     }
     
-    hipMemcpyToSymbol(HIP_SYMBOL(rot_matrix), mat, 64 * 64 * 4);
+    HIP_CHECK(hipMemcpyToSymbol(HIP_SYMBOL(rot_matrix), mat, 64 * 64 * 4));
 }
 
 } // namespace turboquant

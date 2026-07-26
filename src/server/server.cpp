@@ -25,8 +25,10 @@ std::atomic<int> g_npu_active_requests{0};
 std::string get_current_time_string() {
     auto now = std::chrono::system_clock::now();
     auto in_time_t = std::chrono::system_clock::to_time_t(now);
+    std::tm tm_buf;
+    localtime_r(&in_time_t, &tm_buf);
     std::stringstream ss;
-    ss << std::put_time(std::localtime(&in_time_t), "%H:%M:%S %m:%d:%Y");
+    ss << std::put_time(&tm_buf, "%H:%M:%S %m:%d:%Y");
     return ss.str();
 }
 
@@ -194,7 +196,8 @@ bool requires_npu_access(const std::string& method, const std::string& path) {
 HttpSession::HttpSession(tcp::socket socket, WebServer& server)
     : socket_(std::move(socket))
     , server_(server)
-    , is_streaming_(false) {
+    , is_streaming_(false)
+    , request_timer_(server.ioc) {
     // Set socket timeout
     socket_.set_option(tcp::socket::keep_alive(false));
     // Avoid abortive close that can lead to client-side broken pipe on large uploads
@@ -231,9 +234,24 @@ void HttpSession::read_request(bool cors) {
     auto parser = std::make_shared<http::request_parser<http::string_body>>();
     parser->body_limit(self->server_.get_max_body_size_bytes());
 
+    // Wire the request timeout: cancel the operation if it takes too long
+    self->request_timer_.expires_after(self->server_.request_timeout_);
+    self->request_timer_.async_wait([self](beast::error_code ec) {
+        if (!ec) {
+            // Timer fired — abort the read operation
+            boost::system::error_code close_ec;
+            self->socket_.close(close_ec);
+            self->server_.active_connections_.fetch_sub(1);
+            header_print("⏰", "Request timed out — connection closed");
+        }
+    });
+
     http::async_read(self->socket_, self->buffer_, *parser,
         [self, parser, cors](beast::error_code ec, std::size_t bytes_transferred) {
             if (!ec) {
+                // Cancel the timeout timer
+                boost::system::error_code timer_ec;
+                self->request_timer_.cancel(timer_ec);
                 header_print("TCP", "Read " + std::to_string(bytes_transferred) + " bytes from socket");
                 // Move the parsed message into our request object
                 self->req_ = parser->release();

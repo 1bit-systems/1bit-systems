@@ -21,19 +21,22 @@ std::vector<float> whisper_load_wav(const std::string& path, int* out_sample_rat
     // Find fmt chunk
     uint16_t channels = 1, bits = 16;
     int sample_rate = 16000;
+    int chunk_iters = 0;
     while (true) {
+        if (++chunk_iters > 100) { fclose(f); return {}; } // malformed guard
         char chunk_id[4]; 
         if (fread(chunk_id, 1, 4, f) != 4) { fclose(f); return {}; }
-        uint32_t chunk_size; fread(&chunk_size, 4, 1, f);
+        uint32_t chunk_size = 0; if (fread(&chunk_size, 4, 1, f) != 1) { fclose(f); return {}; }
         if (memcmp(chunk_id, "fmt ", 4) == 0) {
-            uint16_t audio_fmt; fread(&audio_fmt, 2, 1, f);
-            fread(&channels, 2, 1, f);
-            fread(&sample_rate, 4, 1, f);
+            uint16_t audio_fmt = 0; if (fread(&audio_fmt, 2, 1, f) != 1) { fclose(f); return {}; }
+            if (fread(&channels, 2, 1, f) != 1) { fclose(f); return {}; }
+            if (fread(&sample_rate, 4, 1, f) != 1) { fclose(f); return {}; }
             fseek(f, 6, SEEK_CUR); // skip byte rate + block align
-            fread(&bits, 2, 1, f);
+            if (fread(&bits, 2, 1, f) != 1) { fclose(f); return {}; }
             if (chunk_size > 16) fseek(f, chunk_size - 16, SEEK_CUR);
         } else if (memcmp(chunk_id, "data", 4) == 0) {
-            int n_samples = chunk_size / (bits / 8);
+            int bytes_per_sample = (bits >= 8) ? (bits / 8) : 2;
+            int n_samples = (bytes_per_sample > 0) ? (int)(chunk_size / bytes_per_sample) : 0;
             std::vector<float> pcm(n_samples);
             if (bits == 16) {
                 std::vector<int16_t> buf(n_samples);
@@ -46,7 +49,7 @@ std::vector<float> whisper_load_wav(const std::string& path, int* out_sample_rat
             }
             fclose(f);
             if (out_sample_rate) *out_sample_rate = sample_rate;
-            if (channels > 1) {
+            if (channels > 1 && channels <= n_samples) {
                 // Downmix to mono
                 std::vector<float> mono(n_samples / channels);
                 for (int i = 0; i < (int)mono.size(); i++) {

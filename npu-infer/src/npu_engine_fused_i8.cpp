@@ -218,7 +218,7 @@ struct AttnCPU {
                     int n_tokens, float* out) {
         constexpr int WQH = 4,  WKVH = 2, HD = 128, GQA = 2;
         for (int h = 0; h < WQH; h++) {
-            float scores[32]; // max 32 tokens
+            std::vector<float> scores(n_tokens);
             float mx = -1e30f;
             for (int p = 0; p < n_tokens; p++) {
                 double s = 0;

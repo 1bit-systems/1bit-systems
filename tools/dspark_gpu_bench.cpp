@@ -205,7 +205,7 @@ int main(int argc, char** argv) {
         std::vector<float> layer_out(n_target*H);
         float hidden[4096];memcpy(hidden,hd,H*4);
         for(int l=0;l<n_target;l++){
-            float res[4096];memcpy(res,hidden,H*4);
+            float res[4096];memcpy(res.data(),hidden,H*4);
             auto pw=U(o_pk)+l*per_layer;auto sw=F(o_sc)+l*per_sc;
             cpu_rmsnorm(hidden,F(o_norms)+l*H,hidden,H,1e-6f);
             cpu_ternary_gemv(pw,hidden,sw,qkvv.data(),rows[0],KK[0]);pw+=ps[0];sw+=rows[0];
@@ -218,7 +218,7 @@ int main(int argc, char** argv) {
             for(int h=0;h<NKV;h++){memcpy(&kcv[l*4096*NKV*HD+pos*NKV*HD+h*HD],qkvv.data()+NH*HD+h*HD,HD*4);memcpy(&vcv[l*4096*NKV*HD+pos*NKV*HD+h*HD],qkvv.data()+NH*HD+NKV*HD+h*HD,HD*4);}
             cpu_attention(qkvv.data(),&kcv[l*4096*NKV*HD],&vcv[l*4096*NKV*HD],atv.data(),NH,NKV,HD,pos+1,GQA);
             cpu_ternary_gemv(pw,atv.data(),sw,hidden,rows[3],KK[3]);pw+=ps[3];sw+=rows[3];
-            for(int i=0;i<H;i++)hidden[i]=res[i]+hidden[i];memcpy(res,hidden,H*4);
+            for(int i=0;i<H;i++)hidden[i]=res[i]+hidden[i];memcpy(res.data(),hidden,H*4);
             cpu_rmsnorm(hidden,F(o_norms)+L*H+l*H,hidden,H,1e-6f);
             cpu_ternary_gemv(pw,hidden,sw,ffv.data(),rows[4],KK[4]);pw+=ps[4];sw+=rows[4];
             cpu_ternary_gemv(pw,hidden,sw,ffv.data()+IM,rows[5],KK[5]);pw+=ps[5];sw+=rows[5];

@@ -313,9 +313,9 @@ static void cmd_up() {
 
 static void cmd_down() {
     std::cout << "  🛑 Stopping NPU stack...\n";
-    system("pkill -f onebitd 2>/dev/null");
-    system("pkill -f zaya_server 2>/dev/null");
-    system("pkill -f bitnet_decode 2>/dev/null");
+    system("pkill -x onebitd 2>/dev/null");
+    system("pkill -x zaya_server 2>/dev/null");
+    system("pkill -x bitnet_decode 2>/dev/null");
     std::this_thread::sleep_for(std::chrono::seconds(1));
     std::cout << "  ✅ NPU stack stopped.\n";
 }

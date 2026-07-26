@@ -961,8 +961,11 @@ void RestHandler::handle_ps(const json& request,
         auto fractional_seconds = std::chrono::duration_cast<std::chrono::microseconds>(expires_time - expires_tp).count();
         
         // Get local time and timezone offset
-        std::tm* local_tm = std::localtime(&expires_time_t);
-        std::tm* utc_tm = std::gmtime(&expires_time_t);
+        std::tm local_tm_buf, utc_tm_buf;
+        localtime_r(&expires_time_t, &local_tm_buf);
+        gmtime_r(&expires_time_t, &utc_tm_buf);
+        std::tm* local_tm = &local_tm_buf;
+        std::tm* utc_tm = &utc_tm_buf;
         
         // Calculate timezone offset in minutes
         int offset_minutes = (local_tm->tm_hour - utc_tm->tm_hour) * 60 + (local_tm->tm_min - utc_tm->tm_min);

@@ -42,7 +42,7 @@ __global__ void gemv_q4(const uint8_t* W, const float* x, float* y, int M, int K
                 if(e==0)
                     sc=(s?-1.0f:1.0f)*(float)m*5.9604644775390625e-08f;
                 else if(e==31)
-                    sc=m?NAN:(s?-INFINITY:INFINITY);
+                    sc=m?__int_as_float(0x7fffffff):(s?__int_as_float(0xff800000):__int_as_float(0x7f800000));
                 else
                     sc=(s?-1.0f:1.0f)*(1.0f+(float)m/1024.0f)
                        *powf(2.0f,(float)((int)e-15));

@@ -138,7 +138,7 @@ public:
         if (w_.empty()) {
             // Fast path: no trained weights yet — passthrough so callers/tests don't crash.
             for (int i = 0; i < H; i++) draft_hidden[i] = trunk_hidden[i];
-            draft_logits[0] = draft_hidden[0];
+            std::fill(draft_logits, draft_logits + cfg_.vocab_size, 0.0f);
             return;
         }
 

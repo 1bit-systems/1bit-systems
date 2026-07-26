@@ -90,7 +90,7 @@ struct Model {
                  float* sin_tab, float* cos_tab) {
         for (int l = start; l < start + n && l < L; l++) {
             auto& ly = layers[l];
-            float res[4096]; memcpy(res, hidden, H*4);
+            std::vector<float> res(H); memcpy(res.data(), hidden, H*4);
             cpu_rmsnorm(hidden, &in_norm[l*H], hidden, H, 1e-6f);
             cpu_ternary_gemv(ly.q.data(),hidden,ly.qs.data(),sq,NH*HD,H);
             cpu_ternary_gemv(ly.k.data(),hidden,ly.ks.data(),sq+NH*HD,NKV*HD,H);
@@ -106,7 +106,7 @@ struct Model {
             cpu_attention(sq,&kc[l*4096*NKV*HD],&vc[l*4096*NKV*HD],sa,NH,NKV,HD,pos+1,GQA);
             cpu_ternary_gemv(ly.o.data(),sa,ly.os.data(),hidden,H,NH*HD);
             for(int i=0;i<H;i++)hidden[i]=res[i]+hidden[i];
-            memcpy(res,hidden,H*4);
+            memcpy(res.data(),hidden,H*4);
             cpu_rmsnorm(hidden,&pa_norm[l*H],hidden,H,1e-6f);
             cpu_ternary_gemv(ly.g.data(),hidden,ly.gs.data(),sf,IM,H);
             cpu_ternary_gemv(ly.u.data(),hidden,ly.us.data(),sf+IM,IM,H);

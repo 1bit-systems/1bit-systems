@@ -152,6 +152,7 @@ int main(int argc, char** argv) {
     
     int port = 8080;
     int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) { perror("socket"); return 1; }
     int opt = 1;
     setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     
@@ -162,9 +163,14 @@ int main(int argc, char** argv) {
     
     if(bind(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
         fprintf(stderr, "Bind failed on port %d\n", port);
+        close(sock);
         return 1;
     }
-    listen(sock, 5);
+    if (listen(sock, 5) < 0) {
+        perror("listen");
+        close(sock);
+        return 1;
+    }
     
     printf("Server ready on http://localhost:%d/v1/chat/completions\n", port);
     printf("Try: curl http://localhost:%d/v1/chat/completions -d '{\"model\":\"laguna\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}'\n", port);

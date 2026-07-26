@@ -562,7 +562,7 @@ int main(int argc, char** argv) {
     std::mutex g_router_mutex;
 
     ModelConfig cfg;
-    fprintf(stderr, "DEBUG: about to detect model...\n"); fflush(stderr);
+    // Model detection
     bool detected = false;
     if (!manifest_arg.empty()) detected = detect_from_manifest(manifest_arg, cfg);
     if (!detected && !model_arg.empty()) {

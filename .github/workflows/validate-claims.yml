@@ -46,8 +46,8 @@ jobs:
     name: numbers.json is generated, not hand-edited
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
         with:
           python-version: "3.12"
 
@@ -188,7 +188,7 @@ jobs:
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Clean stale CMake build artifacts (prevents git submodule confusion)
         run: |
@@ -253,7 +253,7 @@ jobs:
 
       - name: Upload claims report
         if: always() && hashFiles('claims-report.json') != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: claims-report
           path: claims-report.json
@@ -278,7 +278,7 @@ jobs:
 
       - name: Open an issue if a claim drifted
         if: steps.measure.outcome == 'failure' && github.event_name == 'schedule'
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b  # v7
         with:
           script: |
             const fs = require('fs');

@@ -37,7 +37,12 @@ static void load_model_dims() {
     if (const char* e = getenv("NPU_NV")) NV = atoi(e);
     GQA = NH / NKV;
 }
-static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:[&]{uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}();}
+static inline float bf16g(uint16_t v){
+    // Exponent all-ones → bf16 Inf/NaN → treat as zero (defensive sanitize)
+    if ((v & 0x7F80) == 0x7F80) return 0.0f;
+    uint32_t b = (uint32_t)v << 16;
+    float f; memcpy(&f, &b, 4); return f;
+}
 static inline void cn(float*x,int n){for(int i=0;i<n;i++)if(!std::isfinite(x[i]))x[i]=0.0f;}
 static inline float dyn_scale(const float*x,int n){float a=0;for(int i=0;i<n;i++){float f=fabsf(x[i]);if(std::isfinite(f)&&f>a)a=f;}return a<1e-12f?1.0f:a/127.0f;}
 static inline void rn_c(float*x,const float*w,int n){cn(x,n);double s=0;for(int i=0;i<n;i++)if(std::isfinite(x[i]))s+=(double)x[i]*x[i];float ir=1.0f/sqrtf((float)(s/n)+EPS);for(int i=0;i<n;i++)x[i]=std::isfinite(x[i])?x[i]*ir*w[i]:0.0f;}
@@ -126,7 +131,7 @@ int main(int argc,char**argv){
     uint8_t*md=(uint8_t*)mmap(NULL,st.st_size,PROT_READ,MAP_PRIVATE,fd,0);close(fd);
     uint64_t hsz;memcpy(&hsz,md,8);uint64_t df=8+hsz;
     auto i8p=[&](uint64_t o){return md+df+o;};auto emb=(const uint16_t*)(md+df);
-    const char*js=(const char*)(md+8);size_t jl=hsz;char b[128];LO lo[NC];
+    const char*js=(const char*)(md+8);size_t jl=hsz;char b[128];std::vector<LO> lo(NC);
     for(int l=0;l<NC;l++){
         snprintf(b,128,"model.layers.%d.self_attn.q_proj.weight",l);lo[l].qp=jo(js,jl,b);
         snprintf(b,128,"model.layers.%d.self_attn.k_proj.weight",l);lo[l].kp=jo(js,jl,b);
@@ -141,13 +146,18 @@ int main(int argc,char**argv){
         snprintf(b,128,"model.layers.%d.self_attn.k_norm.weight",l);lo[l].kn_off=jo(js,jl,b);
     }
     uint64_t no=jo(js,jl,"model.norm.weight"),lo_off=jo(js,jl,"lm_head.weight");
-    float in_n[NC][H],pa_n[NC][H],fin[H],qn_w[NC][HD],kn_w[NC][HD];
+    std::vector<float> in_n_buf(NC * H), pa_n_buf(NC * H), fin_buf(H), qn_w_buf(NC * HD), kn_w_buf(NC * HD);
+    auto in_n  = [&](int l) -> float* { return &in_n_buf[l * H]; };
+    auto pa_n  = [&](int l) -> float* { return &pa_n_buf[l * H]; };
+    auto fin   = [&]() -> float* { return fin_buf.data(); };
+    auto qn_w  = [&](int l) -> float* { return &qn_w_buf[l * HD]; };
+    auto kn_w  = [&](int l) -> float* { return &kn_w_buf[l * HD]; };
     for(int l=0;l<NC;l++){
         auto iw=(const uint16_t*)(md+df+lo[l].in_off),pw=(const uint16_t*)(md+df+lo[l].pa_off),qw=(const uint16_t*)(md+df+lo[l].qn_off),kw=(const uint16_t*)(md+df+lo[l].kn_off);
-        for(int i=0;i<H;i++){in_n[l][i]=bf16g(iw[i]);pa_n[l][i]=bf16g(pw[i]);}
-        for(int i=0;i<HD;i++){qn_w[l][i]=bf16g(qw[i]);kn_w[l][i]=bf16g(kw[i]);}
+        for(int i=0;i<H;i++){in_n(l)[i]=bf16g(iw[i]);pa_n(l)[i]=bf16g(pw[i]);}
+        for(int i=0;i<HD;i++){qn_w(l)[i]=bf16g(qw[i]);kn_w(l)[i]=bf16g(kw[i]);}
     }
-    {auto fw=(const uint16_t*)(md+df+no);for(int i=0;i<H;i++)fin[i]=bf16g(fw[i]);}
+    {auto fw=(const uint16_t*)(md+df+no);for(int i=0;i<H;i++)fin()[i]=bf16g(fw[i]);}
 
     // Pre-convert embedding
     fprintf(stderr,"Pre-convert emb...\n");
@@ -218,7 +228,8 @@ int main(int argc,char**argv){
 
     // Dequant+pack
     fprintf(stderr,"Dequant+pack...\n");auto tp=std::chrono::steady_clock::now();
-    struct WS{float qk,o_,g_,d_;}wsc[NC];
+    struct WS { float qk, o_, g_, d_; };
+    std::vector<WS> wsc(NC);
     fprintf(stderr,"O packOK ");
     for(int l=0;l<NC;l++){
         int qr,kr,vr,or_,gr,ur,dr,unused;
@@ -255,9 +266,9 @@ int main(int argc,char**argv){
     fprintf(stderr,"=== Prefill %d ===\n",npt);auto t0=std::chrono::steady_clock::now();
     for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)hb[pi*H+i]=emb_f32[pt[pi]*H+i];
     for(int l=0;l<NC;l++){
-        for(int pi=0;pi<npt;pi++)rn_c(&hb[pi*H],in_n[l],H);
+        for(int pi=0;pi<npt;pi++)rn_c(&hb[pi*H],in_n(l),H);
         cq.go(l,hb.data(),npt,H,dyn_scale(hb.data(),npt*H),wsc[l].qk,qb.data(),4096);cn(qb.data(),npt*4096);
-        float*qn=qn_w[l],*kn=kn_w[l];
+        float*qn=qn_w(l),*kn=kn_w(l);
         for(int pi=0;pi<npt;pi++){
             for(int hh=0;hh<NH;hh++){double s=0;for(int d=0;d<HD;d++)s+=qb[pi*NH*HD+hh*HD+d]*qb[pi*NH*HD+hh*HD+d];float iq=1.0f/sqrtf((float)(s/HD)+EPS);for(int d=0;d<HD;d++)qb[pi*NH*HD+hh*HD+d]*=iq*qn[d];ra(&qb[pi*NH*HD+hh*HD],HD,sp+pi);}
             for(int kvh=0;kvh<NKV;kvh++){float*ks=&qb[pi*4096+2048+kvh*HD],*vs=&qb[pi*4096+3072+kvh*HD];double sk=0;for(int d=0;d<HD;d++)sk+=ks[d]*ks[d];float ik=1.0f/sqrtf((float)(sk/HD)+EPS);for(int d=0;d<HD;d++){ks[d]*=ik*kn[d];ra(ks,HD,sp+pi);}memcpy(&kv[l].k[(sp+pi)*NKV*HD+kvh*HD],ks,HD*4);memcpy(&kv[l].v[(sp+pi)*NKV*HD+kvh*HD],vs,HD*4);}
@@ -267,7 +278,7 @@ int main(int argc,char**argv){
         // CPU O projection
         co.go(l,ab.data(),npt,NH*HD,dyn_scale(ab.data(),npt*NH*HD),wsc[l].o_,ob.data(),H);
         cn(ob.data(),npt*H);for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)hb[pi*H+i]+=ob[pi*H+i];
-        for(int pi=0;pi<npt;pi++)rn_c(&hb[pi*H],pa_n[l],H);
+        for(int pi=0;pi<npt;pi++)rn_c(&hb[pi*H],pa_n(l),H);
         cg.go(l,hb.data(),npt,H,dyn_scale(hb.data(),npt*H),wsc[l].g_,gb.data(),6144);cn(gb.data(),npt*6144);
         for(int pi=0;pi<npt;pi++)for(int i=0;i<IM;i++){float gv=gb[pi*6144+i];float sv=gv/(1.0f+expf(-gv));gb[pi*6144+i]=sv*gb[pi*6144+IM+i];}
         cd.go(l,gb.data(),npt,IM,dyn_scale(gb.data(),npt*IM),wsc[l].d_,db.data(),H);cn(db.data(),npt*H);
@@ -281,25 +292,26 @@ int main(int argc,char**argv){
     auto tgs=std::chrono::steady_clock::now();
     int top_ids[32]={0},total=0,nb=0;double tboot=0,tattn=0;
     // Boot
-    {auto ts=std::chrono::steady_clock::now();float h0[H];memcpy(h0,&hb[(npt-1)*H],H*4);
+    std::vector<float> h0_buf(H);
+    {auto ts=std::chrono::steady_clock::now();float* h0 = h0_buf.data();memcpy(h0,&hb[(npt-1)*H],H*4);
     for(int l=0;l<NC;l++){
-        memcpy(sb.data(),h0,H*4);rn_c(h0,in_n[l],H);
+        memcpy(sb.data(),h0,H*4);rn_c(h0,in_n(l),H);
         cq.go(l,h0,1,H,dyn_scale(h0,H),wsc[l].qk,qo.data(),4096);cn(qo.data(),4096);
         memcpy(ko.data(),&qo[2048],4096);memcpy(vo.data(),&qo[3072],4096);
-        float*qn=qn_w[l],*kn=kn_w[l];
+        float*qn=qn_w(l),*kn=kn_w(l);
         for(int hh=0;hh<NH;hh++){double sq=0;for(int d=0;d<HD;d++)sq+=qo[hh*HD+d]*qo[hh*HD+d];float iq=1.0f/sqrtf((float)(sq/HD)+EPS);for(int d=0;d<HD;d++)qo[hh*HD+d]*=iq*qn[d];ra(&qo[hh*HD],HD,sp);
             if(hh%GQA==0){int kvh=hh/GQA;double sk=0;for(int d=0;d<HD;d++)sk+=ko[kvh*HD+d]*ko[kvh*HD+d];float ik=1.0f/sqrtf((float)(sk/HD)+EPS);for(int d=0;d<HD;d++){ko[kvh*HD+d]*=ik*kn[d];ra(&ko[kvh*HD],HD,sp);}memcpy(&kv[l].k[sp*NKV*HD+kvh*HD],&ko[kvh*HD],HD*4);memcpy(&kv[l].v[sp*NKV*HD+kvh*HD],&vo[kvh*HD],HD*4);}}
         kv[l].n=sp+1;int cl=kv[l].n;
         attn.run(qo.data(),at.data(),kv[l].n,kv[l].k.data(),kv[l].v.data());
         co.go(l,at.data(),1,NH*HD,dyn_scale(at.data(),NH*HD),wsc[l].o_,oo.data(),H);
         cn(oo.data(),H);for(int i=0;i<H;i++)h0[i]=sb[i]+oo[i];
-        memcpy(sb.data(),h0,H*4);rn_c(h0,pa_n[l],H);
+        memcpy(sb.data(),h0,H*4);rn_c(h0,pa_n(l),H);
         cg.go(l,h0,1,H,dyn_scale(h0,H),wsc[l].g_,dwo.data(),6144);cn(dwo.data(),6144);
         for(int i=0;i<IM;i++){float gv=dwo[i];float sv=gv/(1.0f+expf(-gv));dwo[i]=sv*dwo[IM+i];}
         cd.go(l,dwo.data(),1,IM,dyn_scale(dwo.data(),IM),wsc[l].d_,oo.data(),H);cn(oo.data(),H);
         for(int i=0;i<H;i++)h0[i]=sb[i]+oo[i];
     }
-    memcpy(sb.data(),h0,H*4);rn_c(sb.data(),fin,H);
+    memcpy(sb.data(),h0,H*4);rn_c(sb.data(),fin(),H);
     float bv=-1e30f;top_ids[0]=0;for(int v=0;v<NV;v++){float dot=0;for(int i=0;i<H;i++)dot+=sb[i]*emb_f32[(size_t)v*H+i];if(dot>bv){bv=dot;top_ids[0]=v;}}
     memcpy(h.data(),h0,H*4);sp++;total++;tboot=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-ts).count();
     fprintf(stderr,"  [0] boot=%d (%.0fms)\n",top_ids[0],tboot);}
@@ -308,9 +320,9 @@ int main(int argc,char**argv){
         auto ts=std::chrono::steady_clock::now();int bs=std::min(32,ng-step);
         for(int b=0;b<bs;b++)for(int i=0;i<H;i++)hb[b*H+i]=emb_f32[(size_t)top_ids[b]*H+i];
         for(int l=0;l<NC;l++){
-            for(int b=0;b<bs;b++)rn_c(&hb[b*H],in_n[l],H);
+            for(int b=0;b<bs;b++)rn_c(&hb[b*H],in_n(l),H);
             cq.go(l,hb.data(),bs,H,dyn_scale(hb.data(),bs*H),wsc[l].qk,qb.data(),4096);cn(qb.data(),bs*4096);
-            float*qn=qn_w[l],*kn=kn_w[l];
+            float*qn=qn_w(l),*kn=kn_w(l);
             for(int b=0;b<bs;b++){
                 for(int hh=0;hh<NH;hh++){double s=0;for(int d=0;d<HD;d++)s+=qb[b*NH*HD+hh*HD+d]*qb[b*NH*HD+hh*HD+d];float iq=1.0f/sqrtf((float)(s/HD)+EPS);for(int d=0;d<HD;d++)qb[b*NH*HD+hh*HD+d]*=iq*qn[d];ra(&qb[b*NH*HD+hh*HD],HD,sp+b);}
                 for(int kvh=0;kvh<NKV;kvh++){float*ks=&qb[b*4096+2048+kvh*HD],*vs=&qb[b*4096+3072+kvh*HD];double sk=0;for(int d=0;d<HD;d++)sk+=ks[d]*ks[d];float ik=1.0f/sqrtf((float)(sk/HD)+EPS);for(int d=0;d<HD;d++){ks[d]*=ik*kn[d];ra(ks,HD,sp+b);}}
@@ -320,7 +332,7 @@ int main(int argc,char**argv){
             auto ta=std::chrono::steady_clock::now();for(int b=0;b<bs;b++)attn.run(&qb[b*NH*HD],&ab[b*NH*HD],kv[l].n,kv[l].k.data(),kv[l].v.data());tattn+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-ta).count();
             co.go(l,ab.data(),bs,NH*HD,dyn_scale(ab.data(),bs*NH*HD),wsc[l].o_,ob.data(),H);
             cn(ob.data(),bs*H);for(int b=0;b<bs;b++)for(int i=0;i<H;i++)hb[b*H+i]+=ob[b*H+i];
-            for(int b=0;b<bs;b++)rn_c(&hb[b*H],pa_n[l],H);
+            for(int b=0;b<bs;b++)rn_c(&hb[b*H],pa_n(l),H);
             cg.go(l,hb.data(),bs,H,dyn_scale(hb.data(),bs*H),wsc[l].g_,gb.data(),6144);cn(gb.data(),bs*6144);
             for(int b=0;b<bs;b++)for(int i=0;i<IM;i++){float gv=gb[b*6144+i];float sv=gv/(1.0f+expf(-gv));gb[b*6144+i]=sv*gb[b*6144+IM+i];}
             cd.go(l,gb.data(),bs,IM,dyn_scale(gb.data(),bs*IM),wsc[l].d_,db.data(),H);cn(db.data(),bs*H);
@@ -328,7 +340,7 @@ int main(int argc,char**argv){
         }
         auto tl=std::chrono::steady_clock::now();
         float bv=-1e30f; top_ids[0]=0;
-        memcpy(sb.data(),&hb[0],H*4);rn_c(sb.data(),fin,H);
+        memcpy(sb.data(),&hb[0],H*4);rn_c(sb.data(),fin(),H);
         for(int v=0;v<NV;v++){float dot=0;for(int i=0;i<H;i++)dot+=sb[i]*emb_f32[(size_t)v*H+i];if(dot>bv){bv=dot;top_ids[0]=v;}}
         double lm=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-tl).count();
         total+=bs;sp+=bs;nb++;double bms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-ts).count();

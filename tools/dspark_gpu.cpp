@@ -53,7 +53,7 @@ struct TrgModel {
     void forward_cpu(float* hd, int pos, int nL, float* kc, float* vc,
                      float* st, float* ct, float* qkv, float* at, float* ff, float* ac) {
         for(int l=0;l<nL;l++){
-            float res[4096]; memcpy(res,hd,H*4);
+            std::vector<float> res(H); memcpy(res.data(),hd,H*4);
             auto pw=pk+l*per_layer; auto sw=sc+l*(rows[0]+rows[1]+rows[2]+rows[3]+rows[4]+rows[5]+rows[6]);
             cpu_rmsnorm(hd,inorm+l*H,hd,H,1e-6f);
             cpu_ternary_gemv(pw,hd,sw,qkv,rows[0],KK[0]);pw+=ps[0];sw+=rows[0];
@@ -70,7 +70,7 @@ struct TrgModel {
             cpu_attention(qkv,&kc[l*4096*NKV*HD],&vc[l*4096*NKV*HD],at,NH,NKV,HD,pos+1,GQA);
             cpu_ternary_gemv(pw,at,sw,hd,rows[3],KK[3]);pw+=ps[3];sw+=rows[3];
             for(int i=0;i<H;i++)hd[i]=res[i]+hd[i];
-            memcpy(res,hd,H*4);
+            memcpy(res.data(),hd,H*4);
             cpu_rmsnorm(hd,pan+l*H,hd,H,1e-6f);
             cpu_ternary_gemv(pw,hd,sw,ff,rows[4],KK[4]);pw+=ps[4];sw+=rows[4];
             cpu_ternary_gemv(pw,hd,sw,ff+IM,rows[5],KK[5]);pw+=ps[5];sw+=rows[5];
@@ -81,7 +81,7 @@ struct TrgModel {
     }
 
     int argmax_cpu(const float* hd) {
-        float tmp[4096]; memcpy(tmp,hd,H*4);
+        std::vector<float> tmp(H); memcpy(tmp.data(),hd,H*4);
         cpu_rmsnorm(tmp,fn,tmp,H,1e-6f);
         std::vector<float> logits(V);
         cpu_lm_head(tmp,lm,logits.data(),V,H);

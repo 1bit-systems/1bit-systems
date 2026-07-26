@@ -745,6 +745,19 @@ target_compile_options(bench_sherry PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-u
 target_link_libraries(bench_sherry PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(bench_sherry PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
+add_executable(bench_mamba2_kernels tools/bench_mamba2_kernels.cpp)
+set_source_files_properties(tools/bench_mamba2_kernels.cpp PROPERTIES LANGUAGE HIP)
+target_compile_options(bench_mamba2_kernels PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_link_libraries(bench_mamba2_kernels PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(bench_mamba2_kernels PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+
+add_executable(bench_zamba2_e2e tools/bench_zamba2_e2e.cpp)
+set_source_files_properties(tools/bench_zamba2_e2e.cpp PROPERTIES LANGUAGE HIP)
+target_compile_options(bench_zamba2_e2e PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_include_directories(bench_zamba2_e2e PRIVATE src/)
+target_link_libraries(bench_zamba2_e2e PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(bench_zamba2_e2e PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+
 add_executable(bench_kv_i8 tools/bench_kv_i8.cpp)
 set_source_files_properties(tools/bench_kv_i8.cpp PROPERTIES LANGUAGE HIP)
 target_compile_options(bench_kv_i8 PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
@@ -836,12 +849,24 @@ target_include_directories(test_mamba1_backend PRIVATE src/ include/)
 target_compile_options(test_mamba1_backend PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
 target_link_libraries(test_mamba1_backend PRIVATE backend_manager dl)
 
+add_executable(test_mamba2_kernels tools/test_mamba2_kernels.cpp)
+target_include_directories(test_mamba2_kernels PRIVATE src/ include/)
+target_compile_options(test_mamba2_kernels PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:-O3 -Wall -Wno-unused-result -std=c++23>
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+set_source_files_properties(tools/test_mamba2_kernels.cpp PROPERTIES LANGUAGE HIP)
+target_link_libraries(test_mamba2_kernels PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(test_mamba2_kernels PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+
 # Register as ctest (requires GGUF model path via env or default)
 set(MAMBA1_TEST_MODEL "models/blackmamba-1.5b.gguf" CACHE FILEPATH "GGUF model for test_mamba1_backend")
 if(MAMBA1_TEST_MODEL AND EXISTS "${MAMBA1_TEST_MODEL}")
     add_test(NAME test_mamba1_backend_regression COMMAND test_mamba1_backend ${MAMBA1_TEST_MODEL} 8)
     set_tests_properties(test_mamba1_backend_regression PROPERTIES LABELS "gpu_required;model_required;regression" SKIP_RETURN_CODE 77)
 endif()
+
+add_test(NAME test_mamba2_kernels_validation COMMAND test_mamba2_kernels)
+set_tests_properties(test_mamba2_kernels_validation PROPERTIES LABELS "gpu_required")
 
 # ── Zamba2 regression test (attention correctness, issue #946) ──
 add_executable(test_zamba2_regression tools/test_zamba2_regression.cpp)

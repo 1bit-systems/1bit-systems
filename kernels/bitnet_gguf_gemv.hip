@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
+#include "hip_check.h"
 
 #define BT_BLOCK_K 256
 
@@ -101,7 +102,7 @@ extern "C" void bt_tq1_init_lut() {
             lut[b][i] = (code == 0) ? -1 : (code == 2) ? 1 : 0;
         }
     }
-    hipMemcpyToSymbol(HIP_SYMBOL(bt_tq1_lut), lut, sizeof(lut));
+    HIP_CHECK(hipMemcpyToSymbol(HIP_SYMBOL(bt_tq1_lut), lut, sizeof(lut)));
 }
 
 __global__ void bitnet_gemv_tq1_0_kernel(

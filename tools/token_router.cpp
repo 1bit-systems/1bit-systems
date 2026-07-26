@@ -962,9 +962,14 @@ int main(int argc, char** argv) {
     if (bind(server_fd, (sockaddr*)&addr, sizeof(addr)) < 0) {
         perror("bind");
         fprintf(stderr, "  ⚠ Port %d in use? Try: --port 13307\n", listen_port);
+        close(server_fd);
         return 1;
     }
-    listen(server_fd, 10);
+    if (listen(server_fd, 10) < 0) {
+        perror("listen");
+        close(server_fd);
+        return 1;
+    }
 
     fprintf(stderr, "\n🌐 TokenRouter listening on :%d\n", listen_port);
     fprintf(stderr, "   GET  /v1/health\n");

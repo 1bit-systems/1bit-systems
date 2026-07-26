@@ -39,7 +39,7 @@ struct AttnK{
     // CPU attention fallback for faster low-token counts
     static void cpu_attn(const float*Q,const float*K,const float*V,int n,float*out){
         for(int h=0;h<WQH;h++){
-            float scores[32]; float mx=-1e30;
+            std::vector<float> scores(n); float mx=-1e30;
             for(int p=0;p<n;p++){double s=0;for(int d=0;d<HD;d++)s+=Q[h*HD+d]*K[p*NKV*HD+(h/GQA)*HD+d];scores[p]=(float)(s/sqrtf((double)HD));if(scores[p]>mx)mx=scores[p];}
             double sum=0;for(int p=0;p<n;p++){scores[p]=expf(scores[p]-mx);sum+=scores[p];}
             if(sum<=0)sum=1;float is=1.0f/(float)sum;

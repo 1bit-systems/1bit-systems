@@ -49,7 +49,7 @@ int main(int argc, char** argv) {
 
     auto t0 = std::chrono::high_resolution_clock::now();
     for(int l=0;l<nL;l++){
-        float res[4096]; memcpy(res,hd.data(),H*4);
+        std::vector<float> res(H); memcpy(res.data(),hd.data(),H*4);
         const uint32_t* pw = U(o_pk) + l * per_layer;
         const float* sw = F(o_sc) + l * (NH*HD+NKV*HD+NKV*HD+H+IM+IM+H);
 
@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
         // O
         cpu_ternary_gemv(pw, at.data(), sw, hd.data(), rows[3], KK[3]); pw += ps[3]; sw += H;
         for(int i=0;i<H;i++) hd[i]=res[i]+hd[i];
-        memcpy(res,hd.data(),H*4);
+        memcpy(res.data(),hd.data(),H*4);
 
         // FFN
         cpu_rmsnorm(hd.data(),F(o_norms)+L*H+l*H,hd.data(),H,1e-6f);

@@ -68,7 +68,7 @@ Runner::Runner(model_list& supported_models, ModelDownloader& downloader, progra
     }
     catch (const std::exception& e) {
         header_print("ERROR", "Failed to load model: " + std::string(e.what()));
-        exit(EXIT_FAILURE);
+        throw;  // let caller handle gracefully instead of exit()
     }
 
     try {

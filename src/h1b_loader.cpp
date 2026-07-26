@@ -43,7 +43,7 @@ int read_fp32_as_fp16(std::ifstream& f, size_t n, __half** out) {
 // attn_sub_norm copies the exporter writes 4× for legacy reasons).
 void skip_fp32(std::ifstream& f, size_t n) {
     f.seekg(n * sizeof(float), std::ios::cur);
-    if (!f) f.clear(std::ios::failbit);  // mark stream bad if seek past EOF
+    if (!f) f.setstate(std::ios::failbit);  // mark stream bad if seek past EOF
 }
 
 // Read a packed ternary weight (halo-1bit format: uint8[rows, (cols+3)/4] + float[rows] scales).

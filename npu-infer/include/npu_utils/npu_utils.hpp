@@ -95,7 +95,7 @@ private:
         // Bounds check retained for release builds.
         if (elf_buf_size == 0){
             header_print_r("ERROR", "Failed to get elf from ctrl_seq");
-            exit(1);
+            return 0;  // caller _setup_kernel checks for 0 and returns
         }
         return elf_buf_size;
     }
@@ -216,7 +216,7 @@ public:
         std::ofstream fout(elf_name, std::ios::binary);
         if (fout.is_open() == false) {
             header_print_r("ERROR", "Failed to open file: " << elf_name);
-            exit(1);
+            return;  // caller handles gracefully
         }
         fout.write((char*)elf_buf, elf_buf_size);
         fout.close();

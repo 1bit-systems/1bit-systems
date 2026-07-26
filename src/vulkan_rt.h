@@ -26,13 +26,15 @@
 
 namespace vkrt {
 
-#define VKRT_BAIL(fmt, ...) do { fprintf(stderr, "vulkan_rt FATAL: " fmt "\n", ##__VA_ARGS__); exit(1); } while (0)
+// Log Vulkan errors instead of killing the process, so transient GPU issues
+// (e.g. VK_ERROR_DEVICE_LOST) don't take down the server.
+#define VKRT_BAIL(fmt, ...) do { fprintf(stderr, "vulkan_rt FATAL: " fmt "\n", ##__VA_ARGS__); return; } while (0)
 #define VKRT_CK(call) do { VkResult r_ = (call); if (r_ != VK_SUCCESS) { \
-    fprintf(stderr, "vulkan_rt VK_ERR %s:%d: %s -> %d\n", __FILE__, __LINE__, #call, r_); exit(1); } } while (0)
+    fprintf(stderr, "vulkan_rt VK_ERR %s:%d: %s -> %d\n", __FILE__, __LINE__, #call, r_); return; } } while (0)
 
 inline std::vector<uint32_t> loadSpirv(const char* path) {
     std::ifstream f(path, std::ios::binary | std::ios::ate);
-    if (!f) VKRT_BAIL("Cannot open %s", path);
+    if (!f) { fprintf(stderr, "vulkan_rt FATAL: Cannot open %s\n", path); return {}; }
     size_t sz = static_cast<size_t>(f.tellg());
     f.seekg(0);
     std::vector<uint32_t> code(sz / 4);
@@ -44,7 +46,7 @@ inline uint32_t findMemType(const VkPhysicalDeviceMemoryProperties& mp, uint32_t
     for (uint32_t i = 0; i < mp.memoryTypeCount; i++) {
         if ((bits & (1u << i)) && (mp.memoryTypes[i].propertyFlags & props) == props) return i;
     }
-    VKRT_BAIL("No suitable memory type");
+    fprintf(stderr, "vulkan_rt FATAL: No suitable memory type\n");
     return 0;
 }
 
@@ -223,7 +225,7 @@ inline VkDescriptorSet createDescriptorSet(VkCtx& ctx, Pipeline& p, GpuBuffer** 
     dai.descriptorPool = ctx.dpool;
     dai.descriptorSetCount = 1;
     dai.pSetLayouts = &p.dsl;
-    VKRT_CK(vkAllocateDescriptorSets(ctx.dev, &dai, &ds));
+    { VkResult r_ = vkAllocateDescriptorSets(ctx.dev, &dai, &ds); if (r_ != VK_SUCCESS) { fprintf(stderr, "vulkan_rt VK_ERR %s:%d: %s -> %d\n", __FILE__, __LINE__, "vkAllocateDescriptorSets", r_); return VK_NULL_HANDLE; } }
 
     std::vector<VkDescriptorBufferInfo> dbis(static_cast<size_t>(n));
     std::vector<VkWriteDescriptorSet> writes(static_cast<size_t>(n));
@@ -274,11 +276,11 @@ inline double dispatchRepeatedTimed(VkCtx& ctx, Pipeline& p, VkDescriptorSet ds,
     cba.commandPool = ctx.cmdPool;
     cba.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     cba.commandBufferCount = 1;
-    VKRT_CK(vkAllocateCommandBuffers(ctx.dev, &cba, &cmd));
+    { VkResult r_ = vkAllocateCommandBuffers(ctx.dev, &cba, &cmd); if (r_ != VK_SUCCESS) { fprintf(stderr, "vulkan_rt VK_ERR %s:%d: %s -> %d\n", __FILE__, __LINE__, "vkAllocateCommandBuffers", r_); return 0.0; } }
 
     VkCommandBufferBeginInfo cbb{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     cbb.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    VKRT_CK(vkBeginCommandBuffer(cmd, &cbb));
+    { VkResult r_ = vkBeginCommandBuffer(cmd, &cbb); if (r_ != VK_SUCCESS) { fprintf(stderr, "vulkan_rt VK_ERR %s:%d: %s -> %d\n", __FILE__, __LINE__, "vkBeginCommandBuffer", r_); return 0.0; } }
     vkCmdResetQueryPool(cmd, ctx.queryPool, 0, 2);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, p.pipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, p.layout, 0, 1, &ds, 0, nullptr);
@@ -288,17 +290,17 @@ inline double dispatchRepeatedTimed(VkCtx& ctx, Pipeline& p, VkDescriptorSet ds,
         vkCmdDispatch(cmd, gx, gy, gz);
     }
     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, ctx.queryPool, 1);
-    VKRT_CK(vkEndCommandBuffer(cmd));
+    { VkResult r_ = vkEndCommandBuffer(cmd); if (r_ != VK_SUCCESS) { fprintf(stderr, "vulkan_rt VK_ERR %s:%d: %s -> %d\n", __FILE__, __LINE__, "vkEndCommandBuffer", r_); return 0.0; } }
 
     VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     si.commandBufferCount = 1;
     si.pCommandBuffers = &cmd;
-    VKRT_CK(vkQueueSubmit(ctx.queue, 1, &si, VK_NULL_HANDLE));
-    VKRT_CK(vkQueueWaitIdle(ctx.queue));
+    { VkResult r_ = vkQueueSubmit(ctx.queue, 1, &si, VK_NULL_HANDLE); if (r_ != VK_SUCCESS) { fprintf(stderr, "vulkan_rt VK_ERR %s:%d: %s -> %d\n", __FILE__, __LINE__, "vkQueueSubmit", r_); return 0.0; } }
+    { VkResult r_ = vkQueueWaitIdle(ctx.queue); if (r_ != VK_SUCCESS) { fprintf(stderr, "vulkan_rt VK_ERR %s:%d: %s -> %d\n", __FILE__, __LINE__, "vkQueueWaitIdle", r_); return 0.0; } }
 
     uint64_t timestamps[2];
-    VKRT_CK(vkGetQueryPoolResults(ctx.dev, ctx.queryPool, 0, 2, sizeof(timestamps), timestamps, sizeof(uint64_t),
-                                   VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
+    { VkResult r_ = vkGetQueryPoolResults(ctx.dev, ctx.queryPool, 0, 2, sizeof(timestamps), timestamps, sizeof(uint64_t),
+                                   VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT); if (r_ != VK_SUCCESS) { fprintf(stderr, "vulkan_rt VK_ERR %s:%d: %s -> %d\n", __FILE__, __LINE__, "vkGetQueryPoolResults", r_); return 0.0; } }
     vkFreeCommandBuffers(ctx.dev, ctx.cmdPool, 1, &cmd);
 
     double elapsed_ns = static_cast<double>(timestamps[1] - timestamps[0]) * static_cast<double>(ctx.timestampPeriodNs);

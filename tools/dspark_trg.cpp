@@ -51,7 +51,7 @@ int main(int argc, char** argv) {
     auto run_layers = [&](int nL, float* kc, float* vc) {
         memcpy(hd.data(),emb+1*H,H*4);
         for(int l=0;l<nL;l++){
-            float res[4096]; memcpy(res,hd.data(),H*4);
+            std::vector<float> res(H); memcpy(res.data(),hd.data(),H*4);
             auto pw=U(o_pk)+l*per_layer;
             auto sw=F(o_sc)+l*(NH*HD+NKV*HD+NKV*HD+H+IM+IM+H);
             cpu_rmsnorm(hd.data(),inorm+l*H,hd.data(),H,1e-6f);
@@ -77,7 +77,7 @@ int main(int argc, char** argv) {
             cpu_attention(qkv.data(),&kc[l*max_seq_len*NKV*HD],&vc[l*max_seq_len*NKV*HD],at.data(),NH,NKV,HD,l+1,GQA);
             cpu_ternary_gemv(pw,at.data(),sw,hd.data(),rows[3],KK[3]);pw+=ps[3];sw+=H;
             for(int i=0;i<H;i++) hd[i]=res[i]+hd[i];
-            memcpy(res,hd.data(),H*4);
+            memcpy(res.data(),hd.data(),H*4);
             cpu_rmsnorm(hd.data(),pan+l*H,hd.data(),H,1e-6f);
             cpu_ternary_gemv(pw,hd.data(),sw,ff.data(),rows[4],KK[4]);pw+=ps[4];sw+=IM;
             cpu_ternary_gemv(pw,hd.data(),sw,ff.data()+IM,rows[5],KK[5]);pw+=ps[5];sw+=IM;

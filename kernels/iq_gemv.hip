@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
+#include "hip_check.h"
 
 #define IQ_BLOCK_SIZE 256
 #define IQ1_S_BYTES 206
@@ -41,9 +42,9 @@ __constant__ int8_t iq1s_grid_dev[IQ1S_GRID_SIZE][8];
 __constant__ float iq1s_delta_dev = 0.125f;
 
 extern "C" void iq_upload_grid(hipStream_t stream) {
-    hipMemcpyToSymbolAsync(HIP_SYMBOL(iq1s_grid_dev), iq1s_grid_host_unpacked,
+    HIP_CHECK(hipMemcpyToSymbolAsync(HIP_SYMBOL(iq1s_grid_dev), iq1s_grid_host_unpacked,
                            sizeof(iq1s_grid_host_unpacked), 0,
-                           hipMemcpyHostToDevice, stream);
+                           hipMemcpyHostToDevice, stream));
 }
 
 // ─── IQ1_S: dequantize one 256-element block to float ───────────

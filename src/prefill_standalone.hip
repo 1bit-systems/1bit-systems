@@ -57,7 +57,7 @@ void standalone_ternary_gemm_naive(
 
     for(int j = 0; j < K0; ++j) {
         // Base offset into B for (block j, column n): j*N*K1/2 + n*K1/2 bytes.
-        const int b_base = j * N * K1_BYTES + n * K1_BYTES;
+        const size_t b_base = (size_t)j * N * K1_BYTES + (size_t)n * K1_BYTES;
 
         for(int jj = 0; jj < K1; ++jj) {
             const int k_orig = j * K1 + jj;
@@ -277,7 +277,7 @@ void standalone_ternary_gemm_wmma(
             {
                 const int n_col = n0 + row_lane;
                 if(n_col < N) {
-                    const int b_base = j * N * K1_BYTES + n_col * K1_BYTES;
+                    const size_t b_base = (size_t)j * N * K1_BYTES + (size_t)n_col * K1_BYTES;
                     // We need the 16 original-K values [jj_lo, jj_lo+16) from the
                     // permuted bytes. Reverse the within-8 permute.
                     #pragma unroll
@@ -381,7 +381,7 @@ void standalone_ternary_gemm_wmma_4x(
                 half16_t B_frag;
                 const int n_col = n_sub + row_lane;
                 if(n_col < N) {
-                    const int b_base = j * N * K1_BYTES + n_col * K1_BYTES;
+                    const size_t b_base = (size_t)j * N * K1_BYTES + (size_t)n_col * K1_BYTES;
                     #pragma unroll
                     for(int r = 0; r < 16; ++r) {
                         const int jj_orig  = jj_lo + r;
@@ -473,7 +473,7 @@ void standalone_ternary_gemm_wmma_2x4(
                 const int n_col = n0 + n_sub * 16 + row_lane;
                 half16_t B_frag;
                 if(n_col < N) {
-                    const int b_base = j * N * K1_BYTES + n_col * K1_BYTES;
+                    const size_t b_base = (size_t)j * N * K1_BYTES + (size_t)n_col * K1_BYTES;
                     #pragma unroll
                     for(int r = 0; r < 16; ++r) {
                         const int jj_orig   = jj_lo + r;
@@ -590,7 +590,7 @@ void standalone_ternary_gemm_wmma_2x4_ldsB(
         // ---- 2 WMMA steps per K1 block ----
         #pragma unroll
         for(int step = 0; step < K1 / WMMA_K; ++step) {
-            const int kk_base = step * WMMA_K;
+            const size_t kk_base = (size_t)step * WMMA_K;
 
             // Load 2 A fragments (directly from global — A reuse across N is still via registers)
             half16_t A_frags[2];
@@ -706,7 +706,7 @@ void standalone_ternary_gemm_wmma_4x4(
                 const int n_col = n0 + n_sub * 16 + row_lane;
                 half16_t B_frag;
                 if(n_col < N) {
-                    const int b_base = j * N * K1_BYTES + n_col * K1_BYTES;
+                    const size_t b_base = (size_t)j * N * K1_BYTES + (size_t)n_col * K1_BYTES;
                     #pragma unroll
                     for(int r = 0; r < 16; ++r) {
                         const int jj_orig   = jj_lo + r;
@@ -808,7 +808,7 @@ void standalone_ternary_gemm_wmma_4x4_cached(
 
             half16_t B_cache[2];
             if(n_col < N) {
-                const int b_base = j * N * K1_BYTES + n_col * K1_BYTES;
+                const size_t b_base = (size_t)j * N * K1_BYTES + (size_t)n_col * K1_BYTES;
                 #pragma unroll
                 for(int c = 0; c < K1; ++c) {
                     const int jj_orig   = c;
@@ -922,7 +922,7 @@ void standalone_ternary_gemm_wmma_4x4_vec(
             const int n_col = n0 + n_sub * 16 + row_lane;
             half16_t B_cache[2];
             if(n_col < N) {
-                const int b_base = j * N * K1_BYTES + n_col * K1_BYTES;
+                const size_t b_base = (size_t)j * N * K1_BYTES + (size_t)n_col * K1_BYTES;
                 #pragma unroll
                 for(int c = 0; c < K1; ++c) {
                     const int grp_base  = (c / 8) * 8;
@@ -1305,7 +1305,7 @@ void decode_pk_i4_to_fp16(
 
     for(int j_step = tid; j_step < K0; j_step += 64) {
         const int j = j_step;
-        const int b_base = j * N * K1_BYTES + n * K1_BYTES;
+        const size_t b_base = (size_t)j * N * K1_BYTES + (size_t)n * K1_BYTES;
         #pragma unroll
         for(int c = 0; c < K1; ++c) {
             const int grp_base = (c / 8) * 8;
@@ -1407,7 +1407,7 @@ void standalone_gemm_4c_pipelined(
             const int n_col = n0 + n_sub * 16 + row_lane;
             half16_t B_frags[2];
             if(n_col < N) {
-                const int b_base = j * N * K1_BYTES + n_col * K1_BYTES;
+                const size_t b_base = (size_t)j * N * K1_BYTES + (size_t)n_col * K1_BYTES;
                 #pragma unroll
                 for(int c = 0; c < K1; ++c) {
                     const int grp_base  = (c / 8) * 8;
@@ -1553,7 +1553,7 @@ void standalone_gemm_lds_pingpong(
         // Compute from cur buffer. Each wave: 2 A_frags + 2 B_frags + 2 K steps = 8 WMMAs.
         #pragma unroll
         for(int step = 0; step < K1 / WMMA_K; ++step) {
-            const int kk_base = step * WMMA_K;
+            const size_t kk_base = (size_t)step * WMMA_K;
 
             // 2 A fragments for this wave's M rows.
             half16_t A_frags[2];
@@ -1690,7 +1690,7 @@ void standalone_ternary_gemm_wmma_2x2wave(
         // ---- 2 K steps per K1 block, 4 WMMAs per step per wave ----
         #pragma unroll
         for(int step = 0; step < K1 / WMMA_K; ++step) {
-            const int kk_base = step * WMMA_K;
+            const size_t kk_base = (size_t)step * WMMA_K;
 
             // 2 A fragments for this wave's M rows
             half16_t A_frags[2];

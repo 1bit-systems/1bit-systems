@@ -47,6 +47,12 @@ public:
         int H = hidden_size_;
         for (int i = 0; i < num_target_layers; i++) {
             int layer = target_layer_ids[i];
+            if (layer < 0 || layer >= num_layers) {
+                fprintf(stderr, "Warning: target_layer_ids[%d] = %d out of range [0, %d), skipping\n",
+                        i, layer, num_layers);
+                std::fill(out + i * H, out + (i + 1) * H, 0.0f);
+                continue;
+            }
             std::memcpy(out + i * H, all_hidden + layer * H, H * sizeof(float));
         }
     }

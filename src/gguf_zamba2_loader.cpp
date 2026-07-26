@@ -141,7 +141,8 @@ struct Zamba2GgufReader {
 
         for (uint64_t i = 0; i < n_tensors; ++i) {
             uint64_t name_len; f.read(reinterpret_cast<char*>(&name_len), 8);
-            std::string name(name_len, '\0');
+            if (name_len > MAX_STRING_LEN) { f.seekg((std::streamoff)name_len, std::ios::cur); return false; }
+            std::string name((size_t)name_len, '\0');
             if (name_len > 0) f.read(&name[0], name_len);
             uint32_t ndim; f.read(reinterpret_cast<char*>(&ndim), 4);
             TensorInfo ti; ti.shape.resize(ndim);

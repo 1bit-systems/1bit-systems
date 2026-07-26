@@ -20,9 +20,9 @@ jobs:
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'issue_comment' && github.event.comment.author_association == 'OWNER')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
       - name: PR Agent
-        uses: qodo-ai/pr-agent@v0.30
+        uses: qodo-ai/pr-agent@eb4cdbb115dfb711375a24eccc75e3ef73ec03bc  # v0.30
         env:
           OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_API_BASE: "https://api.opencode.ai/v1"

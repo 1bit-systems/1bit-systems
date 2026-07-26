@@ -1,4 +1,5 @@
 // zamba2_engine_hip.hip — GPU-accelerated Zamba2 forward pass
+#include "zamba2_hybrid_gpu.hip"
 //
 // Uses the Mamba2 selective scan HIP kernels for GPU inference.
 // Replaces the CPU reference implementation with GPU kernel launches.
@@ -114,7 +115,7 @@ struct Zamba2HIPState {
 };
 
 // ── Upload weights from Zamba2Model to GPU ──
-static Zamba2HIPState* zamba2_hip_init(Zamba2Model& model) {
+extern "C" Zamba2HIPState* zamba2_hip_init(Zamba2Model& model) {
     Zamba2HIPState* s = new Zamba2HIPState();
     auto& cfg = model.cfg;
     s->cfg = cfg;
@@ -212,7 +213,7 @@ static Zamba2HIPState* zamba2_hip_init(Zamba2Model& model) {
 // Launches GPU kernels for each layer. Designed for autoregressive decode.
 // Hybrid layers (attention + FFN) fall back to CPU since GPU kernels are not
 // yet implemented for the shared transformer portion.
-void zamba2_hip_forward(Zamba2HIPState* s, Zamba2Model& model, int token_id,
+extern "C" void zamba2_hip_forward(Zamba2HIPState* s, Zamba2Model& model, int token_id,
                          float* logits_out, int pos) {
     auto& cfg = s->cfg;
     int d_model = cfg.d_model;
@@ -233,7 +234,10 @@ void zamba2_hip_forward(Zamba2HIPState* s, Zamba2Model& model, int token_id,
 
     // ── Layer loop ──
     int hyb_idx = 0;
-    static bool hybrid_warned = false;
+    int max_seq = cfg.max_seq_len;
+    int n_attn_heads = cfg.n_attn_heads;
+    int n_kv_heads = cfg.n_kv_heads;
+    int attn_head_dim = cfg.attn_head_dim;
     for (int l = 0; l < n_layers; ++l) {
         auto& lw = s->layer_weights[l];
 
@@ -258,101 +262,35 @@ void zamba2_hip_forward(Zamba2HIPState* s, Zamba2Model& model, int token_id,
             n_head, n_group, head_dim, conv_dim, st);
 
         // ── Hybrid layer: attention + FFN (CPU fallback) ──
+        // ── Hybrid layer: GPU attention + FFN (zero CPU round-trips) ──
         if (lw.is_hybrid) {
-            if (!hybrid_warned) {
-                fprintf(stderr, "[zamba2-hip] hybrid layer running on CPU "
-                                "(GPU kernel not yet implemented)\n");
-                hybrid_warned = true;
-            }
-
             auto hit = model.hybrid_layers.find(l);
             if (hit == model.hybrid_layers.end()) continue;
             const HybridLayerWeights& hl = hit->second;
 
-            hipStreamSynchronize(st);
-            std::vector<float> hidden_cpu(d_model);
-            hipMemcpy(hidden_cpu.data(), s->d_hidden, d_model * sizeof(float),
-                      hipMemcpyDeviceToHost);
+            int d_ff_layer = (int)hl.shared_transformer_up.size() / d_model;
+            float* k_cache_gpu = s->d_k_cache + (size_t)hyb_idx * 2 * max_seq * n_kv_heads * attn_head_dim;
+            float* v_cache_gpu = s->d_v_cache + (size_t)hyb_idx * 2 * max_seq * n_kv_heads * attn_head_dim;
 
-            int max_seq = cfg.max_seq_len;
-            int n_heads = cfg.n_attn_heads;
-            int n_kv = cfg.n_kv_heads;
-            int hd = cfg.attn_head_dim;
+            // Get the mamba sub-weights from the hybrid layer
+            const float* mamba_inp_norm = nullptr;  // not needed separately - hybrid uses own norm
 
-            float* k_cache_gpu = s->d_k_cache + (size_t)hyb_idx * 2 * max_seq * n_kv * hd;
-            float* v_cache_gpu = s->d_v_cache + (size_t)hyb_idx * 2 * max_seq * n_kv * hd;
-            std::vector<float> k_cpu(max_seq * n_kv * hd);
-            std::vector<float> v_cpu(max_seq * n_kv * hd);
-            hipMemcpy(k_cpu.data(), k_cache_gpu, (size_t)max_seq * n_kv * hd * sizeof(float),
-                      hipMemcpyDeviceToHost);
-            hipMemcpy(v_cpu.data(), v_cache_gpu, (size_t)max_seq * n_kv * hd * sizeof(float),
-                      hipMemcpyDeviceToHost);
+            zamba2_hybrid_forward_gpu(
+                lw.in_proj_w, lw.conv1d_w, lw.conv1d_b,
+                lw.dt_bias, lw.A_log, lw.D, lw.out_proj_w,
+                conv_state, ssm_state,
+                lw.input_norm_w,
+                lw.linear_w,
+                lw.attn_q, lw.attn_k, lw.attn_v, lw.attn_o,
+                lw.post_attn_norm, lw.ffn_norm,
+                lw.ffn_gate, lw.ffn_up, lw.ffn_down,
+                k_cache_gpu, v_cache_gpu,
+                s->d_hidden, s->d_tmp + d_model * 2,
+                d_model, d_inner, d_state, cfg.d_conv,
+                n_head, n_group, head_dim, conv_dim,
+                n_attn_heads, n_kv_heads, attn_head_dim,
+                d_ff_layer, pos, max_seq, st);
 
-            int d_m = d_model;
-            std::vector<float> projected(d_m, 0.0f);
-            for (int i = 0; i < d_m; ++i)
-                for (int j = 0; j < d_m; ++j)
-                    projected[i] += hl.linear_w[i * d_m + j] * hidden_cpu[j];
-            for (int i = 0; i < d_m; ++i) projected[i] += hidden_cpu[i];
-
-            std::vector<float> q(n_heads * hd, 0.0f), k(n_kv * hd, 0.0f), v(n_kv * hd, 0.0f);
-            for (int h = 0; h < n_heads; ++h)
-                for (int d = 0; d < hd; ++d)
-                    for (int j = 0; j < d_m; ++j)
-                        q[h * hd + d] += hl.shared_transformer_q[(h * hd + d) * d_m + j] * projected[j];
-            for (int h = 0; h < n_kv; ++h)
-                for (int d = 0; d < hd; ++d)
-                    for (int j = 0; j < d_m; ++j) {
-                        k[h * hd + d] += hl.shared_transformer_k[(h * hd + d) * d_m + j] * projected[j];
-                        v[h * hd + d] += hl.shared_transformer_v[(h * hd + d) * d_m + j] * projected[j];
-                    }
-
-            apply_rope(q.data(), k.data(), pos, hd, n_heads, n_kv, cfg.rope_theta);
-
-            for (int h = 0; h < n_kv; ++h)
-                for (int d = 0; d < hd; ++d) {
-                    k_cpu[pos * n_kv * hd + h * hd + d] = k[h * hd + d];
-                    v_cpu[pos * n_kv * hd + h * hd + d] = v[h * hd + d];
-                }
-
-            std::vector<float> attn_out(d_m);
-            attention_forward(q.data(), k_cpu.data(), v_cpu.data(), attn_out.data(),
-                             pos, max_seq, n_heads, n_kv, hd, d_m);
-
-            std::vector<float> attn_proj(d_m, 0.0f);
-            for (int i = 0; i < d_m; ++i)
-                for (int j = 0; j < d_m; ++j)
-                    attn_proj[i] += hl.shared_transformer_o[i * d_m + j] * attn_out[j];
-            for (int i = 0; i < d_m; ++i) projected[i] += attn_proj[i];
-
-            std::vector<float> ff_normed(d_m);
-            rms_norm(projected.data(), ff_normed.data(),
-                     hl.shared_transformer_ffn_norm.data(), d_m, cfg.rms_norm_eps);
-
-            int d_ff = (int)hl.shared_transformer_up.size() / d_m;
-            std::vector<float> gate(d_ff, 0.0f), up(d_ff, 0.0f), act(d_ff);
-            for (int i = 0; i < d_ff; ++i)
-                for (int j = 0; j < d_m; ++j)
-                    gate[i] += hl.shared_transformer_gate[i * d_m + j] * ff_normed[j];
-            for (int i = 0; i < d_ff; ++i)
-                for (int j = 0; j < d_m; ++j)
-                    up[i] += hl.shared_transformer_up[i * d_m + j] * ff_normed[j];
-            for (int i = 0; i < d_ff; ++i)
-                act[i] = (gate[i] / (1.0f + std::exp(-gate[i]))) * up[i];
-
-            std::vector<float> ff_out(d_m, 0.0f);
-            for (int i = 0; i < d_m; ++i)
-                for (int j = 0; j < d_ff; ++j)
-                    ff_out[i] += hl.shared_transformer_down[i * d_ff + j] * act[j];
-
-            for (int i = 0; i < d_m; ++i) hidden_cpu[i] = projected[i] + ff_out[i];
-
-            hipMemcpy(s->d_hidden, hidden_cpu.data(), (size_t)d_m * sizeof(float),
-                      hipMemcpyHostToDevice);
-            hipMemcpy(k_cache_gpu, k_cpu.data(), (size_t)max_seq * n_kv * hd * sizeof(float),
-                      hipMemcpyHostToDevice);
-            hipMemcpy(v_cache_gpu, v_cpu.data(), (size_t)max_seq * n_kv * hd * sizeof(float),
-                      hipMemcpyHostToDevice);
             hyb_idx++;
         }
     }
@@ -365,14 +303,19 @@ void zamba2_hip_forward(Zamba2HIPState* s, Zamba2Model& model, int token_id,
     HIP_CHECK(hipGetLastError());
     hipMemcpyDtoDAsync(s->d_hidden, s->d_tmp, d_model * sizeof(float), st);
 
-    // ── LM head on CPU (tied embedding) ──
+    // ── LM head on GPU (tiled GEMV on tied embedding) ──
+    // logits[V] = embed[V, d_model] @ hidden[d_model]
+    int gemv_blocks = (vocab + 2 - 1) / 2;
+    hipLaunchKernelGGL(mamba2_tiled_gemv_kernel,
+        dim3(gemv_blocks), dim3(256), 0, st,
+        s->d_embed, s->d_hidden, s->d_logits, vocab, d_model);
+
+    // Async D2H copy of logits
+    hipMemcpyAsync(logits_out, s->d_logits, vocab * sizeof(float),
+                   hipMemcpyDeviceToHost, st);
     hipStreamSynchronize(st);
-    std::vector<float> hidden_cpu(d_model);
-    hipMemcpy(hidden_cpu.data(), s->d_hidden, d_model * sizeof(float), hipMemcpyDeviceToHost);
-    for (int v = 0; v < vocab; ++v) {
-        float sum = 0.0f;
-        for (int j = 0; j < d_model; ++j)
-            sum += model.embed_w[(size_t)v * d_model + j] * hidden_cpu[j];
-        logits_out[v] = sum;
-    }
+}
+
+extern "C" void zamba2_hip_destroy(Zamba2HIPState* s) {
+    if (s) { s->destroy(); }
 }

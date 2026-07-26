@@ -1097,6 +1097,7 @@ int main(int argc, char** argv) {
         } else if (gen_result.contains("error")) {
             finish_reason = "error";
         }
+        choice["message"] = message;
         choice["finish_reason"] = finish_reason;
 
         json usage;

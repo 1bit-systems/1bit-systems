@@ -287,7 +287,7 @@ struct TrgModel {
 
         // Manually expand to track pk/bs correctly per projection
         for (int l = 0; l < L; l++) {
-            float res[4096]; memcpy(res, hidden, H*4);
+            std::vector<float> res(H); memcpy(res.data(), hidden, H*4);
             cpu_rmsnorm(hidden, &in_norm[l*H], hidden, H, 1e-6f);
             // q_proj: M=NH*HD, K=H, nb=bs[0]
             cpu_ternary_gemv_block(pw, hidden, sw, sq, NH*HD, H, bs[0]); pw += pk[0]; sw += bs[0] * NH*HD;
@@ -307,7 +307,7 @@ struct TrgModel {
             // o_proj: M=H, K=NH*HD, nb=bs[3]
             cpu_ternary_gemv_block(pw, sa, sw, hidden, H, NH*HD, bs[3]); pw += pk[3]; sw += bs[3] * H;
             for(int i=0;i<H;i++)hidden[i]=res[i]+hidden[i];
-            memcpy(res,hidden,H*4);
+            memcpy(res.data(),hidden,H*4);
             cpu_rmsnorm(hidden,&pa_norm[l*H],hidden,H,1e-6f);
             // gate_proj: M=IM, K=H, nb=bs[4]
             cpu_ternary_gemv_block(pw, hidden, sw, sf, IM, H, bs[4]); pw += pk[4]; sw += bs[4] * IM;
@@ -372,7 +372,7 @@ static int load_bench(const char* trg_path, int n_layers_override) {
     if (L < m.L) {
         double draft_tok_s = 1000.0 / ms;
         // Full model speed from loaded data
-        TrgModel mf; memcpy(&mf, &m, sizeof(m));
+        TrgModel mf(m);
         // Quick full model run
         memcpy(hidden.data(), m.emb.data()+1*H, H*4);
         for (int i = 0; i < 3; i++)

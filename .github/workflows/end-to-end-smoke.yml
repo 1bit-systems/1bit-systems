@@ -1,0 +1,112 @@
+name: End-to-End Smoke Test
+
+on:
+  pull_request:
+    paths:
+      - "tools/unified_server.cpp"
+      - "src/backend_*.cpp"
+      - "src/backend_*.hip"
+      - "src/zaya_engine.cpp"
+      - "src/zamba2_engine*"
+      - "src/gguf_*.cpp"
+      - "CMakeLists.txt"
+  workflow_dispatch:
+
+jobs:
+  smoke-test:
+    runs-on: [self-hosted, strix-halo]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          fetch-depth: 0
+
+      - name: Build
+        run: |
+          source env.sh
+          cmake -B build -G Ninja
+          cmake --build build --target unified_server -j$(nproc)
+
+      - name: Start server
+        run: |
+          rm -f /tmp/unified_server.lock
+          ./build/unified_server --port 8099 --weights models/ \
+            --model "Llama 3.2 1B Instruct" \
+            --gen-timeout-ms 10000 --quick &>/tmp/smoke_server.log &
+          echo "pid=$!"
+          # Wait for startup (GPU init can take ~15s)
+          for i in $(seq 1 20); do
+            sleep 2
+            if curl -sf http://127.0.0.1:8099/v1/health >/dev/null 2>&1; then
+              echo "Server ready after $((i*2))s"
+              break
+            fi
+          done
+
+      - name: Test health endpoint
+        run: |
+          health=$(curl -sf http://127.0.0.1:8099/v1/health)
+          echo "$health" | python3 -c "
+          import json,sys; d=json.load(sys.stdin)
+          assert d['status'] == 'ok', 'health check failed'
+          assert d.get('model'), 'no model'
+          assert d.get('generation_timeout_ms') == 10000, 'wrong timeout'
+          print('OK: health endpoint')
+          "
+
+      - name: Test chat completion
+        run: |
+          resp=$(curl -sf http://127.0.0.1:8099/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -d '{"messages":[{"role":"user","content":"Hello"}],"max_tokens":8,"temperature":0}')
+          echo "$resp" | python3 -c "
+          import json,sys; d=json.load(sys.stdin)
+          assert 'choices' in d, 'no choices'
+          assert len(d['choices']) > 0, 'empty choices'
+          c = d['choices'][0]
+          assert 'message' in c, 'no message in choice'
+          assert 'content' in c['message'], 'no content in message'
+          assert len(c['message']['content']) > 0, 'empty content'
+          assert c.get('finish_reason') in ('stop', 'timeout'), f'bad finish: {c.get(\"finish_reason\")}'
+          print('OK: chat completion returns', repr(c['message']['content'][:50]))
+          "
+
+      - name: Test completion endpoint
+        run: |
+          resp=$(curl -sf http://127.0.0.1:8099/v1/completions \
+            -H "Content-Type: application/json" \
+            -d '{"prompt":"Hello","max_tokens":4}')
+          echo "$resp" | python3 -c "
+          import json,sys; d=json.load(sys.stdin)
+          assert 'text' in d, 'no text in completions'
+          assert len(d['text']) > 0, 'empty text'
+          print('OK: completions endpoint')
+          "
+
+      - name: Test invalid JSON
+        run: |
+          resp=$(curl -s http://127.0.0.1:8099/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -d 'not json')
+          echo "$resp" | python3 -c "
+          import json,sys; d=json.load(sys.stdin)
+          assert 'error' in d, 'no error for bad json'
+          print('OK: invalid JSON returns 400')
+          "
+
+      - name: Test timeout
+        run: |
+          resp=$(curl -s -m 15 http://127.0.0.1:8099/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -d '{"messages":[{"role":"user","content":"Write a long essay"}],"max_tokens":9999,"temperature":0}')
+          echo "$resp" | python3 -c "
+          import json,sys; d=json.load(sys.stdin)
+          print('Finish reason:', d['choices'][0].get('finish_reason'))
+          print('Tokens:', d['usage'].get('completion_tokens'))
+          "
+
+      - name: Cleanup
+        if: always()
+        run: |
+          pkill -f "unified_server.*8099" 2>/dev/null || true
+          rm -f /tmp/unified_server.lock
