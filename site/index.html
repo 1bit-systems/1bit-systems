@@ -508,6 +508,7 @@
     // Fetch numbers.json
     var nx=new XMLHttpRequest();
     nx.open('GET','/numbers.json',true);
+    nx.onerror=function(){console.warn('numbers.json fetch failed — using static HTML fallbacks');};
     nx.onload=function(){
       try{
         N=JSON.parse(nx.responseText);

@@ -290,5 +290,7 @@
   "commit": "3706adfbbea019e754513eb841a751cafa6da276",
   "_notes": {
     "prior_numbers": "Prior published numbers (79.8/46.4 tok/s, 40.5 TFLOPS) were from single cold-GPU passes. Re-validated 2026-07-26 across 3 runs each: sustained throughput is 79.4/46.0 tok/s, 40.5 TFLOPS."
-  }
+  },
+  "_authoritative": true,
+  "_data_file_note": "This is the authoritative benchmark data file. numbers.json references headline values from here."
 }

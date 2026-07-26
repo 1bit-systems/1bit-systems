@@ -1,11 +1,11 @@
-# Packaging — 1bit.systems v2026.07.02-all5models
+# Packaging — 1bit.systems v2026.07.26
 
 **One binary. 40 models. Auto-detect.** Zero Python. Zero pip. No Docker required.
 The HTTP server speaks OpenAI-compatible JSON — Ollama, Open WebUI, LangChain, anything that hits `/v1/chat/completions` just works.
 
 | Format | Status | Command |
 |--------|--------|---------|
-| **GitHub Release** | ✅ [v2026.07.02-all5models](https://github.com/bong-water-water-bong/1bit-systems/releases/tag/v2026.07.02-all5models) | `gh release download v2026.07.02-all5models` |
+| **GitHub Release** | ✅ [v2026.07.26](https://github.com/bong-water-water-bong/1bit-systems/releases/tag/v2026.07.26) | `gh release download v2026.07.26` |
 | **One-liner install** | ✅ | `curl -sL https://1bit.systems/install.sh \| bash` |
 | **Debian (.deb)** | ✅ Control ready | `make package-deb` |
 | **Binary tarball** | ✅ | `make package-tarball` |

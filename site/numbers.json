@@ -1,5 +1,5 @@
 {
-  "_warning": "Manually maintained. Run tools/gen_numbers.py (if available) to regenerate.",
+  "_warning": "Site data file. Headline perf numbers synced from benchmarks.json (source of truth for benchmark data). binary/ repo/ site/ keys are unique to this file.",
   "_missing": [],
   "_benchmarks_remeasured": "2026-07-24, median of 3 runs on this box's real gfx1151 hardware (bench_sherry, bench_prefill_variants) \u2014 see _sources for the exact commands.",
   "binary": {
@@ -28,7 +28,8 @@
     "prefill_tflops_4h": "bench_prefill_variants 2560 6912 2560 -- variant 4h (64x64 cached A+B)",
     "prefill_tflops_i8apre": "bench_prefill_variants 2560 6912 2560 -- variant 4i-I8-APRE (I8 A + tiled B), median of 3",
     "sherry_gemv_gbps": "bench_sherry -- M=6912 K=2560, sherry kernel, 256 iters",
-    "tq1_gemv_gbps": "bench_sherry -- tq1 kernel, fastest GEMV variant"
+    "tq1_gemv_gbps": "bench_sherry -- tq1 kernel, fastest GEMV variant",
+    "note": "Authoritative benchmark tables in benchmarks.json. These headline numbers are synced."
   },
   "repo": {
     "forks": 4,
