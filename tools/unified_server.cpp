@@ -90,9 +90,10 @@ static int getopt_long(int argc, char* const argv[], const char* optstring, cons
 #include <process.h>
 #include <sys/stat.h>
 #define getpid _getpid
-#define read _read
 #define close _close
 #define unlink _unlink
+// Use wrappers instead of macros to avoid clashing with std::ifstream::read
+static inline int read(int fd, void* buf, unsigned int count) { return (int)_read(fd, buf, count); }
 #endif
 
 #include "strategy_engine.h"
@@ -551,9 +552,9 @@ static json generate_completion(BackendManager& mgr,
 // Uses XDG_RUNTIME_DIR when available (private per-user) to avoid /tmp races.
 // Never kills processes based on a comm-name heuristic (fixes #615).
 
+#ifndef _WIN32
 #include <uuid/uuid.h>
 
-#ifndef _WIN32
 static std::string lock_file_path() {
     const char* xdg = getenv("XDG_RUNTIME_DIR");
     if (xdg && xdg[0]) return std::string(xdg) + "/unified_server.lock";
