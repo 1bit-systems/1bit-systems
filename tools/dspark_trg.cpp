@@ -67,7 +67,10 @@ int main(int argc, char** argv) {
                 // where each layer runs at a new position. For real inference, position
                 // should be passed as a separate parameter.
                 int pos = l;  // position = layer index for this benchmark
-                if (pos >= max_seq_len) { fprintf(stderr, "FATAL: position %d >= max_seq_len %d\n", pos, max_seq_len); exit(1); }
+                if (pos >= max_seq_len) {
+                    fprintf(stderr, "WARNING: position %d >= max_seq_len %d — skipping\n", pos, max_seq_len);
+                    continue;
+                }
                 memcpy(&kc[l*max_seq_len*NKV*HD+pos*NKV*HD+hh*HD],qkv.data()+NH*HD+hh*HD,HD*4);
                 memcpy(&vc[l*max_seq_len*NKV*HD+pos*NKV*HD+hh*HD],qkv.data()+NH*HD+NKV*HD+hh*HD,HD*4);
             }

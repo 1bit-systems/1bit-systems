@@ -315,22 +315,25 @@ struct LagunaInference {
     void reset() { pos=0; for(auto&k:k_cache)std::fill(k.begin(),k.end(),0.0f);
                   for(auto&v:v_cache)std::fill(v.begin(),v.end(),0.0f); }
     
-    void grow_cache() {
-        if (pos < max_pos) return;
+    // Returns false on cache overflow instead of calling exit(1) (issue #966).
+    bool grow_cache() {
+        if (pos < max_pos) return true;
         int new_cap = max_pos * 2;
         if (new_cap > MAX_KV_POS) new_cap = MAX_KV_POS;
-        if (new_cap == max_pos) { fprintf(stderr, "KV cache: max context %d reached\n", max_pos); exit(1); }
+        if (new_cap == max_pos) { fprintf(stderr, "KV cache: max context %d reached\n", max_pos); return false; }
         for (auto& k : k_cache) k.resize((size_t)new_cap * NKV * HD, 0.0f);
         for (auto& v : v_cache) v.resize((size_t)new_cap * NKV * HD, 0.0f);
         max_pos = new_cap;
+        return true;
     }
     
     bool is_swa(int il) { return SW>0 && (il%SW_PERIOD)!=0; }
     bool is_moe(int il) { return il>=N_DENSE_LEAD; }
     
     // Forward one token. Returns logits in provided buffer.
-    void forward(int token, float* logits) {
-        grow_cache();
+    // Returns false if context length exceeded (logits zeroed).
+    bool forward(int token, float* logits) {
+        if (!grow_cache()) { std::fill(logits, logits + V, 0.0f); return false; }
         std::vector<float> hx(H), hx2(H);
         std::vector<float> x(V,0.0f); x[token]=1.0f;
         mm.compute(hx.data(), x.data(), td("token_embd.weight"), H, V);

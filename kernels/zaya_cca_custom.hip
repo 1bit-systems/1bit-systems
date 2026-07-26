@@ -10,8 +10,6 @@
 #define BS 256
 
 __device__ inline float wsum_cca(float v){for(int o=16;o>0;o>>=1)v+=__shfl_xor_sync(0xffffffffULL, v, o);return v;}
-=======
->>>>>>> origin/main
 __device__ inline float bsum_cca(float v,float*r){
     int tx=threadIdx.x,w=tx/32,l=tx%32;v=wsum_cca(v);if(!l)r[w]=v;
     __syncthreads();float s=0;

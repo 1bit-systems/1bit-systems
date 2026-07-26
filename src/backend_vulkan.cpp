@@ -36,6 +36,7 @@ struct VK {
     VkDescriptorSetLayout ds_layout = VK_NULL_HANDLE;
     VkDescriptorPool ds_pool = VK_NULL_HANDLE;
     VkDescriptorSet ds = VK_NULL_HANDLE;
+    VkShaderModule shader_mod = VK_NULL_HANDLE; // stored for cleanup (issue #963)
     VkBuffer buf_w = VK_NULL_HANDLE, buf_in = VK_NULL_HANDLE, buf_out = VK_NULL_HANDLE;
     VkDeviceMemory mem_w = VK_NULL_HANDLE, mem_in = VK_NULL_HANDLE, mem_out = VK_NULL_HANDLE;
     uint32_t qf = 0;
@@ -70,7 +71,7 @@ struct VK {
         uint32_t nd; vkEnumeratePhysicalDevices(inst, &nd, nullptr);
         if (!nd) {
             fprintf(stderr, "[vk] No Vulkan-capable physical devices found\n");
-            return false;
+            destroy(); return false;
         }
         std::vector<VkPhysicalDevice> pds(nd);
         vkEnumeratePhysicalDevices(inst, &nd, pds.data());
@@ -90,18 +91,18 @@ struct VK {
         VkDeviceCreateInfo dci = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
         dci.queueCreateInfoCount = 1; dci.pQueueCreateInfos = &dq;
         VkResult res = vkCreateDevice(phys, &dci, nullptr, &dev);
-        if (res != VK_SUCCESS) { fprintf(stderr, "[vk] vkCreateDevice failed: %s (%d)\n", vk_result_str(res), (int)res); return false; }
+        if (res != VK_SUCCESS) { fprintf(stderr, "[vk] vkCreateDevice failed: %s (%d)\n", vk_result_str(res), (int)res); destroy(); return false; }
         vkGetDeviceQueue(dev, qf, 0, &queue);
 
         VkCommandPoolCreateInfo cpi = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
         cpi.queueFamilyIndex = qf;
         res = vkCreateCommandPool(dev, &cpi, nullptr, &pool);
-        if (res != VK_SUCCESS) { fprintf(stderr, "[vk] vkCreateCommandPool failed: %s (%d)\n", vk_result_str(res), (int)res); return false; }
+        if (res != VK_SUCCESS) { fprintf(stderr, "[vk] vkCreateCommandPool failed: %s (%d)\n", vk_result_str(res), (int)res); destroy(); return false; }
 
         VkCommandBufferAllocateInfo ai = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
         ai.commandPool = pool; ai.commandBufferCount = 1;
         res = vkAllocateCommandBuffers(dev, &ai, &cmd);
-        if (res != VK_SUCCESS) { fprintf(stderr, "[vk] vkAllocateCommandBuffers failed: %s (%d)\n", vk_result_str(res), (int)res); return false; }
+        if (res != VK_SUCCESS) { fprintf(stderr, "[vk] vkAllocateCommandBuffers failed: %s (%d)\n", vk_result_str(res), (int)res); destroy(); return false; }
 
         return true;
     }
@@ -170,10 +171,18 @@ struct VK {
         ci.stage = ss; ci.layout = pipe_layout;
         res = vkCreateComputePipelines(dev, VK_NULL_HANDLE, 1, &ci, nullptr, &pipe);
         if (res != VK_SUCCESS) { fprintf(stderr, "[vk] vkCreateComputePipelines failed: %s (%d)\n", vk_result_str(res), (int)res); return false; }
+        // Shader module is no longer needed after pipeline creation — destroy it
+        // to prevent Vulkan object leak (issue #963). The pipeline keeps its own
+        // internal reference to the compiled bytecode.
+        if (mod != VK_NULL_HANDLE) {
+            vkDestroyShaderModule(dev, mod, nullptr);
+            shader_mod = VK_NULL_HANDLE;
+        }
         return true;
     }
 
     void destroy() {
+        if (shader_mod) vkDestroyShaderModule(dev, shader_mod, nullptr);
         if (pipe) vkDestroyPipeline(dev, pipe, nullptr);
         if (pipe_layout) vkDestroyPipelineLayout(dev, pipe_layout, nullptr);
         if (ds_layout) vkDestroyDescriptorSetLayout(dev, ds_layout, nullptr);

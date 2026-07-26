@@ -35,6 +35,7 @@
 #include <functional>
 #include <mutex>
 #include <unistd.h>
+#include <sys/wait.h>
 
 #include "jarvis/audio_out.h"
 #include "jarvis/beacon.h"
@@ -543,11 +544,23 @@ int main(int argc, char** argv) {
             f.write(audio_bytes.data(), (std::streamsize)audio_bytes.size());
         }
 
-        // Paths are server-generated (pid + timestamp), not user input —
-        // safe to shell out with directly.
-        std::string cmd = "ffmpeg -y -loglevel error -i " + in_path +
-                           " -f wav -acodec pcm_s16le -ar 16000 -ac 1 " + out_path + " 2>/dev/null";
-        int rc = std::system(cmd.c_str());
+        // Paths are server-generated (pid + timestamp, alphanumeric + underscore),
+        // but use fork/exec rather than system() to avoid any shell interpretation
+        // even if paths somehow contain special characters (issue #964).
+        pid_t child = fork();
+        int rc = -1;
+        if (child == 0) {
+            // Child: exec ffmpeg directly, no shell
+            execlp("ffmpeg", "ffmpeg", "-y", "-loglevel", "error",
+                   "-i", in_path.c_str(),
+                   "-f", "wav", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
+                   out_path.c_str(), nullptr);
+            _exit(127);  // exec failed
+        } else if (child > 0) {
+            int status;
+            waitpid(child, &status, 0);
+            rc = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+        }
         std::error_code ec;
         std::filesystem::remove(in_path, ec);
 
