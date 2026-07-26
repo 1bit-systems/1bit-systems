@@ -1175,11 +1175,16 @@ static void* cached_dlopen(const char* lib) {
 }
 #endif
 
+#ifdef _WIN32
+// Windows: no dynamic backend loading — CPU-only build
+static Backend* try_load_backend(const char*, const char*) { return nullptr; }
+Backend* BackendManager::create_instance_rt(const BackendInfo&) { return nullptr; }
+#else
 static Backend* try_load_backend(const char* lib, const char* sym) {
     void* h = cached_dlopen(lib);
     if (!h) return nullptr;
     auto* fn = (Backend* (*)())dlsym(h, sym);
-    if (!fn) return nullptr;   // library stays cached; never dlclose
+    if (!fn) return nullptr;
     Backend* b = fn();
     if (!b) return nullptr;
     return b;
@@ -1263,6 +1268,7 @@ Backend* BackendManager::create_instance_rt(const BackendInfo& info) {
             return nullptr;
     }
 }
+#endif // _WIN32
 
 void BackendManager::destroy_instance(BackendInfo& info) {
     // shared_ptr reset destroys the Backend; virtual destructor chain ensures cleanup.
