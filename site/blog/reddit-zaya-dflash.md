@@ -12,14 +12,14 @@
 
 We've been building **1bit.systems** — an open-source (MIT) inference engine for AMD Strix Halo laptops.
 
-What it does: a single C++ binary auto-detects any GGUF model's architecture and quantization, then routes it to whichever backend can actually run it — GPU (ROCm HIP / Vulkan), NPU (via FastFlowLM), or CPU. No config files, no model registry. Zero Python at runtime.
+What it does: a single C++ binary auto-detects any GGUF model's architecture and quantization, then routes it to whichever backend can actually run it — GPU (ROCm HIP / Vulkan), NPU (XDNA 2), or CPU. No config files, no model registry. Zero Python at runtime.
 
 **[GitHub](https://github.com/bong-water-water-bong/1bit-systems) · [Install](https://1bit.systems/) · [Benchmarks](https://1bit.systems/bench)**
 
 The numbers so far (validated, `site/benchmarks.json`):
 
 - **11 GGUF quant formats** supported (Q4_0 through BF16), each dequantizer checked bit-exact against an independent reference
-- **64 tok/s** GPU ROCm HIP kernel-level, **57 tok/s** NPU via FastFlowLM
+- **64 tok/s** GPU ROCm HIP kernel-level, **69 tok/s** NPU (XDNA 2 v12)
 - **30 tok/s** end-to-end on a real 27B Q4_K model, real prompt — not a synthetic microbenchmark
 - **42.21 TFLOPS** raw INT8 GEMM prefill
 - Model catalog includes Zamba2 (0.71B–7B), ZR1-1.5B, and Zaya1-8B, fine-tuned and validated on Strix Halo

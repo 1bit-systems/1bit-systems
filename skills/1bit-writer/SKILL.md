@@ -29,7 +29,7 @@ Writer agent for the [1bit-systems](https://github.com/bong-water-water-bong/1bi
 | Fused TQ2 kernel | 415 tok/s | validated |
 | TQ2 GEMV | 355 tok/s | validated |
 | GPU ternary (Vulkan) | 318 tok/s | validated |
-| NPU v12 | 97 tok/s | optimized |
+| NPU v12 | 69 tok/s | optimized |
 | ROCm HIP | 64 tok/s | validated |
 | BlackMamba 1.5B e2e | 79.8 tok/s | validated |
 | BlackMamba 2.8B e2e | 46.4 tok/s | validated |

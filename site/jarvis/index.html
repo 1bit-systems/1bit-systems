@@ -166,7 +166,7 @@
 <span class="b">  "power": "~15W"</span>
 <span class="b">}</span>
 
-<span class="c"># decode=94 tok/s ttft=513ms (FLM proxy · XDNA2 NPU)</span>
+<span class="c"># decode=69 tok/s (NPU v12 · XDNA2 NPU)</span>
 <span class="c"># no cloud — no data leaves your machine</span></div>
   </div>
 </section>
@@ -249,7 +249,7 @@
 <span style="color:var(--blue);">│                     Unified API Layer (port 9090)                      │</span>
 <span style="color:var(--blue);">│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │</span>
 <span style="color:var(--blue);">│  │ LLM      │  │ Whisper  │  │ Embed    │  │ Vision   │  │          │  │</span>
-<span style="color:var(--blue);">│  │ (daemon) │  │ (FLM)    │  │ (FLM)    │  │ (FLM)    │  │          │  │</span>
+<span style="color:var(--blue);">│  │ (daemon) │  │ (NPU)    │  │ (NPU)    │  │ (NPU)    │  │          │  │</span>
 <span style="color:var(--blue);">│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  │</span>
 <span style="color:var(--muted);">└───────┼─────────────┼─────────────┼─────────────┼─────────────┼────────┘</span>
 <span style="color:var(--muted);">        │             │             │             │             │         </span>
@@ -294,7 +294,7 @@
 <span class="g"># NPU Inference Speed</span>
 
 <span class="t">Qwen3-0.6B on XDNA2 NPU:</span>
-<span class="b">- FLM proxy: 94 tok/s (10.6 ms/tok)</span>
+<span class="b">- NPU v12: 69 tok/s (14.5 ms/tok)</span>
 <span class="b">- C++ v12:     69 tok/s (9 ms/tok, raw, tuned)</span>
 <span class="b">- Fused layer: broken as of 2026-07-12 (was 291 tok/s, historical)</span>
 <span class="t">- 32 AIE2P tiles · INT8 GEMM · 50 TOPS</span></div>
@@ -385,14 +385,14 @@
 <section id="install" class="wrap block">
   <span class="eyebrow">Get Started</span>
   <h2 style="margin:16px 0 8px;">Run JARVIS in 3 commands.</h2>
-  <p class="lead" style="margin-bottom:24px;">Prerequisites: AMD Strix Halo (Ryzen AI Max+ 395) with NPU drivers and FLM installed.</p>
+  <p class="lead" style="margin-bottom:24px;">Prerequisites: AMD Strix Halo (Ryzen AI Max+ 395) with NPU drivers installed.</p>
   <div class="grid2">
     <div class="card" style="padding:24px;">
       <h3 style="font-size:17px;font-weight:800;color:var(--text);margin-bottom:8px;">1. Start the NPU backend</h3>
       <div class="code" style="font-size:12px;"><span class="g">sudo flm serve qwen3:0.6b \</span>
 <span class="g">  --port 52625 --pmode turbo</span>
 <span class="b">→ NPU running at 94 tok/s</span></div>
-      <p style="font-size:13px;color:var(--muted);margin-top:12px;">FLM (FastFlowLM) runs the model on the XDNA2 NPU. One command, zero config.</p>
+      <p style="font-size:13px;color:var(--muted);margin-top:12px;">The NPU v12 engine runs the model on the XDNA2 NPU. One command, zero config.</p>
     </div>
     <div class="card" style="padding:24px;">
       <h3 style="font-size:17px;font-weight:800;color:var(--text);margin-bottom:8px;">2. Start the JARVIS server</h3>
