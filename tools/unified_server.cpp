@@ -81,7 +81,9 @@ static int getopt_long(int argc, char* const argv[], const char* optstring, cons
 #endif
 #include <fstream>
 #include <fcntl.h>
+#ifndef _WIN32
 #include <sys/file.h>
+#endif
 #include <sys/resource.h>
 #include <unistd.h>
 
@@ -543,6 +545,7 @@ static json generate_completion(BackendManager& mgr,
 
 #include <uuid/uuid.h>
 
+#ifndef _WIN32
 static std::string lock_file_path() {
     const char* xdg = getenv("XDG_RUNTIME_DIR");
     if (xdg && xdg[0]) return std::string(xdg) + "/unified_server.lock";
@@ -633,6 +636,10 @@ static void acquire_singleton_lock() {
     if (pwrite(fd, my_token, n, 0) != n) { /* best-effort */ }
     // fd intentionally leaked (kept open) for the process lifetime.
 }
+#else
+// Windows: no singleton lock (POSIX-only)
+static void acquire_singleton_lock() {}
+#endif
 
 // ════════════════════════════════════════════════════════════════════════
 //  Main
