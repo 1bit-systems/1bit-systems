@@ -1,0 +1,195 @@
+# ─────────────────────────────────────────────────────────────
+# CMakeLists_windows.txt — Windows MSVC build for 1bit-systems
+# ─────────────────────────────────────────────────────────────
+# Builds portable C++23 targets: CPU inference, Vulkan GPU,
+# GGUF/1BP loaders, HTTP server, CLI tools.
+#
+# Usage:
+#   cmake -B build -G "Visual Studio 17 2022" ^
+#       -DCMAKE_TOOLCHAIN_FILE=cmake/msvc_x64.cmake ^
+#       -DCMAKE_BUILD_TYPE=Release
+#   cmake --build build --config Release
+#
+# Or simply run:   scripts\build_windows.cmd
+# ─────────────────────────────────────────────────────────────
+
+cmake_minimum_required(VERSION 3.21)
+project(1bit-systems-windows LANGUAGES CXX)
+
+# ── C++23 ──
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+# Static MSVC runtime — no VC redist DLL dependency
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
+# NDEBUG for Release builds
+add_compile_definitions($<$<CONFIG:Release>:NDEBUG>)
+
+# ── Dependencies (vendored or FetchContent) ──
+include(FetchContent)
+
+FetchContent_Declare(cpp_httplib
+    GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
+    GIT_TAG        v0.18.1)
+FetchContent_Declare(nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        v3.11.3)
+FetchContent_MakeAvailable(cpp_httplib nlohmann_json)
+
+# ── Vulkan GPU backend (optional) ──
+option(USE_VULKAN "Build ZINC Vulkan GPU backend" ON)
+set(RCPP_HAVE_VULKAN FALSE)
+if(USE_VULKAN)
+    find_package(Vulkan QUIET)
+    find_program(GLSLC_EXECUTABLE glslc)
+    if(Vulkan_FOUND AND GLSLC_EXECUTABLE)
+        set(RCPP_HAVE_VULKAN TRUE)
+        message(STATUS "Vulkan: found at ${Vulkan_INCLUDE_DIRS}, glslc at ${GLSLC_EXECUTABLE}")
+    else()
+        message(WARNING "Vulkan SDK or glslc not found — building CPU-only")
+    endif()
+endif()
+
+# ── Directories ──
+set(REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
+set(SRC_DIR ${REPO_ROOT}/src)
+set(INCLUDE_DIR ${REPO_ROOT}/include)
+set(KERNELS_DIR ${REPO_ROOT}/kernels)
+
+# ── Include paths ──
+set(BASE_INCLUDES
+    ${INCLUDE_DIR}
+    ${SRC_DIR}
+    ${cpp_httplib_SOURCE_DIR}
+    ${nlohmann_json_SOURCE_DIR}/single_include)
+
+# ── libgguf_reader : standalone GGUF parser ──
+add_library(gguf_reader STATIC
+    ${SRC_DIR}/gguf_reader.cpp)
+target_include_directories(gguf_reader PUBLIC ${INCLUDE_DIR})
+target_compile_options(gguf_reader PRIVATE /O2 /std:c++23)
+
+# ── libvl_image : image loading (stb_image) ──
+add_library(vl_image STATIC
+    ${SRC_DIR}/vl_processor.cpp)
+target_include_directories(vl_image PUBLIC ${INCLUDE_DIR})
+target_compile_options(vl_image PRIVATE /O2 /std:c++23)
+
+# ── libvision_encoder : ViT encoder ──
+add_library(vision_encoder STATIC
+    ${SRC_DIR}/vision_encoder.cpp)
+target_include_directories(vision_encoder PUBLIC ${INCLUDE_DIR})
+target_compile_options(vision_encoder PRIVATE /O2 /std:c++23)
+target_link_libraries(vision_encoder PUBLIC vl_image)
+
+# ── libwhisper (CPU) ──
+add_library(whisper STATIC
+    ${SRC_DIR}/whisper.cpp)
+target_include_directories(whisper PUBLIC ${INCLUDE_DIR})
+target_compile_options(whisper PRIVATE /O2 /std:c++23)
+
+# ── libbackend_manager (CPU + Vulkan backends) ──
+set(BACKEND_MANAGER_SOURCES
+    ${SRC_DIR}/backend_factory.cpp
+    ${SRC_DIR}/backend_manager.cpp
+    ${SRC_DIR}/backend_monitor.cpp
+    ${SRC_DIR}/backend_plugin.cpp
+    ${SRC_DIR}/backend_cpu.cpp
+    ${SRC_DIR}/backend_generic.cpp
+    ${SRC_DIR}/simple_tokenizer.cpp
+    ${SRC_DIR}/q4nx_reader.cpp
+    ${SRC_DIR}/safetensors_reader.cpp
+    ${SRC_DIR}/model_discovery.cpp
+    ${SRC_DIR}/model_router.cpp
+    ${SRC_DIR}/h1b_loader.cpp
+    ${SRC_DIR}/gguf_loader.cpp
+    ${SRC_DIR}/onnx_loader.cpp
+    ${SRC_DIR}/tokenizer.cpp
+    ${SRC_DIR}/kv_rotorquant.cpp
+    ${SRC_DIR}/mamba2_kernels.cpp
+    ${SRC_DIR}/zamba2_engine.cpp)
+
+add_library(backend_manager STATIC ${BACKEND_MANAGER_SOURCES})
+target_include_directories(backend_manager PUBLIC
+    ${INCLUDE_DIR}
+    ${SRC_DIR})
+target_compile_options(backend_manager PRIVATE /O2 /std:c++23)
+target_link_libraries(backend_manager PUBLIC gguf_reader)
+
+# OpenMP for CPU decode parallelization
+find_package(OpenMP QUIET)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(backend_manager PUBLIC OpenMP::OpenMP_CXX)
+    message(STATUS "OpenMP found — CPU decode is multi-threaded")
+else()
+    message(STATUS "OpenMP not found — CPU decode is single-threaded")
+endif()
+
+# ── ZINC Vulkan GPU backend ──
+if(RCPP_HAVE_VULKAN)
+    add_subdirectory(${REPO_ROOT}/engine/gpu/zinc_cpp zinc_cpp_build)
+endif()
+
+# ── Tools ──
+
+# gguf_to_onebp : GGUF → 1BP converter
+add_executable(gguf_to_onebp
+    ${REPO_ROOT}/tools/gguf_to_onebp.cpp)
+target_include_directories(gguf_to_onebp PRIVATE ${INCLUDE_DIR})
+target_link_libraries(gguf_to_onebp PRIVATE gguf_reader)
+target_compile_options(gguf_to_onebp PRIVATE /O2 /std:c++23)
+
+# unified_server : HTTP inference server
+add_executable(unified_server
+    ${REPO_ROOT}/tools/unified_server.cpp)
+target_include_directories(unified_server PRIVATE ${BASE_INCLUDES})
+target_link_libraries(unified_server PRIVATE backend_manager gguf_reader)
+target_compile_options(unified_server PRIVATE /O2 /std:c++23)
+
+# ── Tests (key validation tests, CPU-only) ──
+enable_testing()
+
+add_executable(test_gguf_reader_dequant
+    ${REPO_ROOT}/tests/test_gguf_reader_dequant.cpp)
+target_include_directories(test_gguf_reader_dequant PRIVATE ${INCLUDE_DIR})
+target_link_libraries(test_gguf_reader_dequant PRIVATE gguf_reader)
+target_compile_options(test_gguf_reader_dequant PRIVATE /O2 /std:c++23)
+
+add_test(NAME gguf_reader_dequant COMMAND test_gguf_reader_dequant)
+
+# ── CPack packaging ──
+# Produces a self-contained ZIP with the binaries + DLLs
+set(CPACK_PACKAGE_NAME "1bit-systems-windows")
+set(CPACK_PACKAGE_VERSION "2026.07.26")
+set(CPACK_PACKAGE_VENDOR "1bit.systems")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "1bit-systems NPU+GPU+CPU inference engine — Windows build")
+set(CPACK_PACKAGE_FILE_NAME "1bit-systems-${CPACK_PACKAGE_VERSION}-windows-x64")
+set(CPACK_RESOURCE_FILE_LICENSE "${REPO_ROOT}/LICENSE")
+set(CPACK_GENERATOR "ZIP")
+set(CPACK_ARCHIVE_COMPONENT_INSTALL ON)
+
+# Install targets
+install(TARGETS unified_server gguf_to_onebp
+    RUNTIME DESTINATION bin
+    COMPONENT Runtime)
+install(TARGETS backend_manager gguf_reader vl_image vision_encoder whisper
+    ARCHIVE DESTINATION lib
+    COMPONENT Runtime)
+install(FILES ${REPO_ROOT}/LICENSE
+    DESTINATION .
+    COMPONENT Runtime)
+install(FILES ${REPO_ROOT}/README.md
+    DESTINATION .
+    COMPONENT Runtime)
+
+include(CPack)
