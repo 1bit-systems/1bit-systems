@@ -584,12 +584,12 @@ static NpuEngine npu;
 static GpuEngine gpu;
 static int server_fd = -1;
 
-static void cleanup(int sig = 0) {
-    fprintf(stderr, "\nShutdown...\n");
-    gpu.stop();
-    npu.stop();
-    if (server_fd >= 0) close(server_fd);
-    _exit(0);
+// Signal-safe handler: just set a flag. The main loop checks and does cleanup.
+// Never call fprintf/malloc/mutex from a signal handler — async-signal-unsafe.
+static volatile sig_atomic_t g_shutdown_requested = 0;
+
+static void cleanup(int) {
+    g_shutdown_requested = 1;
 }
 
 // ── Request Handling ──
@@ -981,8 +981,9 @@ int main(int argc, char** argv) {
     fprintf(stderr, "   Strategy: %s\n\n", (gpu.ready) ? "speculative decode" : "cascade fallback");
 
     // ── Accept loop ──
-    while (true) {
+    while (!g_shutdown_requested) {
         int cl = accept(server_fd, nullptr, nullptr);
+        if (g_shutdown_requested) break;
         if (cl < 0) {
             if (errno == EINTR) continue;
             break;
@@ -1023,6 +1024,10 @@ int main(int argc, char** argv) {
         }).detach();
     }
 
-    cleanup();
+    // Shutdown (safe — called from main loop, not signal handler)
+    fprintf(stderr, "\nShutdown...\n");
+    gpu.stop();
+    npu.stop();
+    if (server_fd >= 0) close(server_fd);
     return 0;
 }

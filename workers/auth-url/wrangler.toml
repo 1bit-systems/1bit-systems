@@ -1,0 +1,17 @@
+name = "1bit-auth-url"
+main = "src/index.js"
+compatibility_date = "2026-07-26"
+
+# Route: serve auth URLs under 1bit.systems/auth/*
+routes = [
+  { pattern = "1bit.systems/auth/*", zone_id = "fb8da40a864cd0c59bf39b689024624e" },
+  { pattern = "1bit.systems/google*.html", zone_id = "fb8da40a864cd0c59bf39b689024624e" },
+  { pattern = "1bit.systems/BingSiteAuth.xml", zone_id = "fb8da40a864cd0c59bf39b689024624e" },
+  { pattern = "1bit.systems/yandex*.html", zone_id = "fb8da40a864cd0c59bf39b689024624e" },
+  { pattern = "1bit.systems/pinterest*.html", zone_id = "fb8da40a864cd0c59bf39b689024624e" }
+]
+
+# No KV/DO needed — all config is inline or env vars
+# For Google Search Console verification, set:
+# [vars]
+# VERIFICATION_CODES = '{"google":"YOUR_ACTUAL_CODE_HERE"}'

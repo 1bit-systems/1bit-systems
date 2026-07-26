@@ -19,6 +19,8 @@
 
 **[🌐 Website](https://1bit.systems)** · **[🤗 1BP Models](https://huggingface.co/bong-water-water-bong)** · **[📚 Docs](docs/README.md)** · **[🛠️ Journey](docs/journey.md)** · **[📊 Benchmarks](docs/wiki/performance.md)** · **[🗺️ Roadmap](ROADMAP.md)**
 
+**1bit** is an open-source, model-agnostic C++23 inference engine for running large language models on **AMD Strix Halo** (XDNA 2 NPU, RDNA 3.5 GPU), NVIDIA GPUs (CUDA), Apple Silicon (Metal), and any Vulkan 1.2+ device — all from a **single in-process binary with zero Python at runtime**. It reads **GGUF**, **ONNX**, and the native **1BP** ternary format (TQ2 2-bit quantization) with automatic architecture detection — no config files, no model registry, no per-model glue code. Fully open-source under **MIT license**. 17 model architectures supported, 35+ models.
+
 **A single in-process engine unifies NPU + GPU + CPU inference — no external inference subprocess, no proprietary runtime. The `zaya_server`, `unified_server`, `onebit` CLI and `onebitd` daemon are thin front-ends over that one shared engine. C++23, zero Python at runtime.**
 
 **Platform support:**
@@ -281,4 +283,8 @@ MIT. Sherry-specific kernels: PolyForm Noncommercial 1.0.0.
 </a>
 <br>
 <i>If this project saved you time or inspired you, <b>star the repo</b> — it tells GitHub this matters, and helps others find it.</i>
+<br><br>
+
+[![Star History Chart](https://api.star-history.com/svg?repos=bong-water-water-bong/1bit-systems&type=Date)](https://star-history.com/#bong-water-water-bong/1bit-systems&Date)
+
 </div>

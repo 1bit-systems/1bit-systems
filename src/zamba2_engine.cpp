@@ -286,7 +286,7 @@ bool Zamba2Model::forward(int token_id, float* logits) {
             int hd = cfg.attn_head_dim;
             size_t kv_offset = (size_t)hyb_idx * 2 * max_seq * n_kv * hd;
             float* k_cache = kv_cache.data() + kv_offset;
-            float* v_cache = kv_cache.data() + kv_offset + max_seq * n_kv * hd;
+            float* v_cache = kv_cache.data() + kv_offset + (size_t)max_seq * n_kv * hd;
 
             std::vector<float> layer_out(d_model);
             forward_hybrid_layer(
