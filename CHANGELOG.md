@@ -3,6 +3,59 @@
 All notable changes to 1bit.systems. Versioning is **date-based** (`YYYY.MM.DD`),
 matching the GitHub release tags (`vYYYY.MM.DD`).
 
+## 2026.07.26
+
+- **CUDA + Metal GPU backends — cross-platform inference unlocked.** The single
+  C++ inference engine now runs on NVIDIA (CUDA), AMD (HIP/ROCm), and Apple (Metal)
+  GPUs from one CMake build. All three backends share the same ternary kernel
+  library, weight loader, and server frontend (#858).
+- **DeepSeek complete family — MLA + MoE architectures.** Full implementation of
+  Multi-Head Latent Attention (MLA) and Mixture-of-Experts routing for the
+  DeepSeek-v2/v3 model family, integrated into the dense GPU and CPU backends.
+- **Vision-language pipelines: Qwen3-VL + ZAYA1-VL-8B.** End-to-end VL inference
+  with ViT vision encoder, multimodal projector, and 1BP format support. Text
+  decoder handles both Qwen3 and ZAYA1 architectures.
+- **GPU Whisper kernels + Pixtral + FLUX feasibility.** Speech-to-text via native
+  HIP GPU kernels (FFT, STFT) with whisper.cpp integration, plus Pixtral connector
+  and FLUX diffusion model assessment.
+- **Jarvis C++ port (Phases 1–3).** Complete C++ rewrite of the Jarvis agent:
+  RAG, tool-calling, planner, routing, beacon (Phase 1); STT via whisper.cpp
+  (Phase 2); TTS via piper with USB-speaker mirror (Phase 3) (#898, #902, #904).
+- **NPU ternary pipeline.** Full TQ2 symmetric-ternary quant path in C++
+  (`gguf_to_onebp --tq2`), block-vectorized `mac_8x8_8x8T` NPU kernel, IQ1_M
+  and IQ1_S GPU dequant from llama.cpp, and NPU bridge wiring (#812, #887, #892).
+- **GPU Render Engine — 2.6× faster prefill.** All GPU operations fused onto a
+  single stream with pipelined async copies, eliminating kernel launch overhead
+  for the prefill phase (#945).
+- **6 paper-based performance improvements.** Integrated research techniques
+  across backends for measurable throughput gains on all supported hardware (#917).
+- **Bug fix sweep: 33 fixes across the stack.** Highlights:
+  - Zamba2 `attention_forward` processed only **1 of 32 heads** — now fixed (#946)
+  - MoE tensor shape validation + architecture guard (#947)
+  - Server-side generation timeout + `RLIMIT_AS` OOM safety net (#948)
+  - OOB token bounds check in Mamba1 forward() + server stability (#935)
+  - Tolerate invalid UTF-8 in completion JSON responses (#944)
+  - Serialize backend compute calls to stop watchdog/generate() race (#914)
+  - HIP context bound on every Mamba1 entry point (#927)
+  - NPU engine SIGPIPE ignored so dead workers don't crash the server (AUDIT #3)
+  - unified_server data race fix (AUDIT #2)
+  - 29 kernel `__shfl_xor_sync` fixes for NPU stability (#954-#962)
+- **Windows MSVC build config.** Full CMake + MSVC toolchain for Windows builds,
+  including `scripts/build_windows.cmd` and `CMakeLists_windows.txt`.
+- **SEO overhaul.** Sitemap, robots.txt, meta tags, Cloudflare Pages Functions,
+  auth worker, Web Analytics beacon across all 40 HTML pages (#926).
+- **Repo-wide cleanup.** Dead file removal, stale benchmark corrections, honest
+  claim validation, untracked build binary cleanup (#890, #892, #906, #908).
+
+| Metric | Value |
+|---|---|
+| Commits since v2026.07.24 | 88 |
+| Features | 16 |
+| Bug fixes | 33 |
+| Performance | 1 |
+
+**Full changelog**: [v2026.07.24...v2026.07.26](https://github.com/1bit-systems/1bit/compare/v2026.07.24...v2026.07.26)
+
 ## 2026.07.24
 
 - **Dense GPU inference through the C++ ZINC Vulkan backend — unlocked.** The
