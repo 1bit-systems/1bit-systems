@@ -15,7 +15,7 @@ Track: **Track 2 — Development & Local Deployment of Private AI Agents**
 |---|------------|--------|-----------|
 | 1 | Project Specification Document | ✅ Complete | `hackathon/spec-document.md` |
 | 2 | Project Source Code | ✅ Complete | https://github.com/bong-water-water-bong/1bit-systems |
-| 3 | Demo Video | ⬜ To record | See `hackathon/demo-script.md` |
+| 3 | Demo Video | ✅ Complete | `hackathon/demo-video.mp4` (2 min, real commands against the live server — see `hackathon/demo-script.md` for the shot list) |
 | 4 | PPT / Poster | ✅ Below | Key slides in this document |
 
 ---
@@ -25,11 +25,11 @@ Track: **Track 2 — Development & Local Deployment of Private AI Agents**
 **1bit.systems** is an open-source, single-binary C++ inference engine for AMD Strix Halo (Ryzen AI Max+ 395). It runs private AI agents entirely on-device — no cloud, no API keys, no data exfiltration.
 
 **Key features:**
-- **One 400 KB binary** — zero Python, zero Docker, zero config
-- **Multi-backend**: ROCm HIP (417 tok/s), Vulkan ternary (318 tok/s), XDNA 2 NPU (97 tok/s), CPU fallback
+- **One C++23 binary** — zero Python, zero Docker, zero config
+- **Multi-backend**: ROCm HIP (433 tok/s), Vulkan ternary (318 tok/s), XDNA 2 NPU (69 tok/s), CPU fallback
 - **Token Router** — dispatches each token to the fastest backend with auto-failover
-- **Jarvis Agent** — local voice agent with multi-turn memory, tool invocation, and permission gating
-- **22 models** on HuggingFace: Qwen3, BlackMamba, Zamba2, Llama 3.1, DeepSeek, Phi-4, Gemma, Mistral, Bonsai, Granite, and more — all in native 1BP format
+- **Jarvis Agent** — local agent with RAG, multi-turn memory, tool invocation, multi-step planning, and permission gating (all 5 Track 2 capabilities)
+- **40 models** on HuggingFace across 16 families: Qwen3, BlackMamba, Zamba2, Llama 3.1, DeepSeek, Phi-4, Gemma, Mistral, Bonsai, Granite, and more — all in native 1BP format
 - **Reverse-engineered** AMD's XDNA 2 NPU in 4 days — 22 proprietary `.so` → 17.5 MB open-source, zero proprietary code
 - **OpenAI-compatible API** + A2A protocol
 
@@ -104,21 +104,23 @@ Private AI agents should:
 ┌────────────────────────────────────────────┐
 │         Kernel-Level Microbenchmarks        │
 ├────────────────────────────────┬───────────┤
-│ Q1 GEMV (HIP fused)           │ 417 tok/s │
-│ Fused TQ2 (QKV+GU fused)     │ 415 tok/s │
+│ Q1 GEMV (HIP fused)           │ 433 tok/s │
+│ Fused TQ2 (QKV+GU fused)     │ 420 tok/s │
 │ GPU Ternary (Vulkan ZINC)    │ 318 tok/s │
-│ NPU v12 (XDNA 2, 32 tiles)   │  97 tok/s │
-│ Prefill INT8 WMMA            │ 42 TFLOPS │
+│ NPU v12 (XDNA 2, 32 tiles)   │  69 tok/s │
+│ Prefill INT8 WMMA            │ 39.4 TFLOPS │
 └────────────────────────────────────────────┘
 
 ┌────────────────────────────────────────────┐
 │         End-to-End Model Inference           │
 ├────────────────────────────────┬───────────┤
-│ BlackMamba 1.5B (Mamba1 HIP)  │ 79.8 t/s  │
-│ BlackMamba 2.8B (Mamba1 HIP)  │ 46.4 t/s  │
+│ BlackMamba 1.5B (Mamba1 HIP)  │ 79.4 t/s  │
+│ BlackMamba 2.8B (Mamba1 HIP)  │ 46.0 t/s  │
 │ Qwen3 27B Q4_K (spec decode)  │ 30.0 t/s  │
 │ Qwen3 35B MoE Q4_K (spec)     │ 20.0 t/s  │
 └────────────────────────────────────────────┘
+
+Full breakdown, source-backed: docs/wiki/performance.md
 ```
 
 ### Slide 5: Innovation
