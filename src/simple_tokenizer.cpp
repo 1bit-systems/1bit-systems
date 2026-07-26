@@ -78,7 +78,10 @@ std::vector<int> SimpleTokenizer::encode(const std::string& text) {
     if (use_gguf_native && gguf_tok_state) {
         std::vector<uint32_t> r(4096);
         long long n = zinc_tokenizer_encode(gguf_tok_state, text.c_str(), r.data(), r.size());
-        if (n > 0) return std::vector<int>(r.begin(), r.begin() + n);
+        if (n > 0) {
+            if ((size_t)n > r.size()) n = (long long)r.size();  // clamp OOB (issue #961)
+            return std::vector<int>(r.begin(), r.begin() + n);
+        }
         return {bos_id};
     }
 #endif
@@ -88,6 +91,7 @@ std::vector<int> SimpleTokenizer::encode(const std::string& text) {
         rcpp_status_t st = rcpp_tokenizer_encode(bpe_tok, text.c_str(), text.size(),
                                                   1, r.data(), r.size(), &out_n);
         if (st == RCPP_OK && out_n > 0) {
+            if (out_n > r.size()) out_n = r.size();  // clamp OOB (issue #961)
             r.resize(out_n);
             return r;
         }
@@ -115,6 +119,7 @@ std::vector<int> SimpleTokenizer::encode_with_logprobs(const std::string& text,
             bpe_tok, text.c_str(), text.size(),
             1, r.data(), lp.data(), r.size(), &out_n);
         if (st == RCPP_OK && out_n > 0) {
+            if (out_n > r.size()) out_n = r.size();  // clamp OOB (issue #961)
             r.resize(out_n);
             logprobs_out.assign(lp.begin(), lp.begin() + out_n);
             return r;
@@ -134,7 +139,10 @@ std::string SimpleTokenizer::decode(const std::vector<int>& tokens) {
         std::vector<uint32_t> ids(tokens.begin(), tokens.end());
         std::string r(8192, '\0');
         long long n = zinc_tokenizer_decode(gguf_tok_state, ids.data(), ids.size(), r.data(), r.size());
-        if (n >= 0) { r.resize(n); return r; }
+        if (n >= 0) {
+            if ((size_t)n > r.size()) n = (long long)r.size();  // clamp OOB (issue #961)
+            r.resize((size_t)n); return r;
+        }
         return "";
     }
 #endif
@@ -144,6 +152,7 @@ std::string SimpleTokenizer::decode(const std::vector<int>& tokens) {
         rcpp_status_t st = rcpp_tokenizer_decode(bpe_tok, tokens.data(), tokens.size(),
                                                   r.data(), r.size(), &out_len);
         if (st == RCPP_OK && out_len > 0) {
+            if (out_len > r.size()) out_len = r.size();  // clamp OOB (issue #961)
             r.resize(out_len);
             return r;
         }

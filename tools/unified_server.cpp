@@ -1228,12 +1228,20 @@ int main(int argc, char** argv) {
             gen_result = {{"error", "Generation failed: unknown error"}};
         }
 
+        // Check for generation errors before accessing result fields (issue #959)
+        if (gen_result.contains("error")) {
+            json err_resp = {{"error", gen_result["error"]}};
+            res.status = 500;
+            res.set_content(err_resp.dump(), "application/json");
+            return;
+        }
+
         json response;
         response["tokens"] = gen_result["tokens"];
-        response["text"] = gen_result["text"];
-        response["gen_ms"] = gen_result["gen_ms"];
-        response["tok_s"] = gen_result["tok_s"];
-        response["backend_used"] = gen_result["backend_used"];
+        response["text"] = gen_result.value("text", "");
+        response["gen_ms"] = gen_result.value("gen_ms", 0);
+        response["tok_s"] = gen_result.value("tok_s", 0.0f);
+        response["backend_used"] = gen_result.value("backend_used", "unknown");
 
         res.set_header("X-Backend-Id", gen_result.value("backend_used", "unknown"));
         // See error_handler_t::replace note on the /v1/chat/completions handler above.

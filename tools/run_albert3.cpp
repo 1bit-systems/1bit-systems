@@ -26,8 +26,8 @@ static float *load_bin(const char *name, int64_t *n) {
 }
 
 // Remove trailing .weight or .bias from key to get the base name
-static void strip_suffix(char *dst, const char *src) {
-    std::strcpy(dst, src);
+static void strip_suffix(char *dst, size_t dst_size, const char *src) {
+    std::snprintf(dst, dst_size, "%s", src);
     char *p = std::strstr(dst, ".weight"); if (p) { *p = 0; return; }
     p = std::strstr(dst, ".bias"); if (p) { *p = 0; return; }
 }

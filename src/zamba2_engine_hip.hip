@@ -193,7 +193,11 @@ static Zamba2HIPState* zamba2_hip_init(Zamba2Model& model) {
 
 // ── HIP: forward one token ──
 // Launches GPU kernels for each layer. Designed for autoregressive decode.
-void zamba2_hip_forward(Zamba2HIPState* s, int token_id, float* logits_out, int pos) {
+// NOTE: Requires Zamba2Model host reference for hybrid layer CPU fallback
+// and LM head computation (embed_w). The model ref is passed separately
+// from the HIP state because the state holds only GPU device pointers.
+void zamba2_hip_forward(Zamba2HIPState* s, Zamba2Model& model, int token_id,
+                         float* logits_out, int pos) {
     auto& cfg = s->cfg;
     int d_model = cfg.d_model;
     int vocab = cfg.vocab_size;
@@ -256,8 +260,120 @@ void zamba2_hip_forward(Zamba2HIPState* s, int token_id, float* logits_out, int 
             st);
 
         // ── Hybrid layer: attention + FFN (after Mamba2 block) ──
+        // NOTE: Full GPU implementation not yet built (file not in CMakeLists.txt).
+        // This path requires host-side weight access from HybridLayerWeights for
+        // the shared transformer (attention, RoPE, FFN). The Zamba2Model& ref is
+        // now passed to zamba2_hip_forward.
+        // See issue #954 for tracking the full GPU kernel implementation.
         if (lw.is_hybrid) {
-            hyb_counter++;
+            if (!hybrid_warned) {
+                fprintf(stderr, "[zamba2-hip] WARNING: hybrid layer running on CPU "
+                                "(GPU kernel not yet implemented, issue #954)\n");
+                hybrid_warned = true;
+            }
+
+            // Look up this layer's host-side weights from the model
+            auto hit = model.hybrid_layers.find(l);
+            if (hit == model.hybrid_layers.end()) continue;
+            const HybridLayerWeights& hl = hit->second;
+
+            // Sync Mamba2 GPU results to host for CPU hybrid computation
+            hipStreamSynchronize(st);
+            std::vector<float> hidden_cpu(d_model);
+            hipMemcpy(hidden_cpu.data(), s->d_hidden, d_model * sizeof(float),
+                      hipMemcpyDeviceToHost);
+
+            int max_seq = cfg.max_seq_len;
+            int n_heads = cfg.n_attn_heads;
+            int n_kv = cfg.n_kv_heads;
+            int hd = cfg.attn_head_dim;
+
+            // Read GPU KV cache to host
+            float* k_cache_gpu = s->d_k_cache + hyb_idx * 2 * max_seq * n_kv * hd;
+            float* v_cache_gpu = s->d_v_cache + hyb_idx * 2 * max_seq * n_kv * hd;
+            std::vector<float> k_cpu(max_seq * n_kv * hd);
+            std::vector<float> v_cpu(max_seq * n_kv * hd);
+            hipMemcpy(k_cpu.data(), k_cache_gpu, max_seq * n_kv * hd * sizeof(float),
+                      hipMemcpyDeviceToHost);
+            hipMemcpy(v_cpu.data(), v_cache_gpu, max_seq * n_kv * hd * sizeof(float),
+                      hipMemcpyDeviceToHost);
+
+            // CPU computation using host-side weights from model.hybrid_layers
+            int d_m = d_model;
+            // Linear projection: projected = linear_w @ mamba_out
+            std::vector<float> projected(d_m, 0.0f);
+            for (int i = 0; i < d_m; ++i)
+                for (int j = 0; j < d_m; ++j)
+                    projected[i] += hl.linear_w[i * d_m + j] * hidden_cpu[j];
+            // Mamba decoder residual: projected += hidden_cpu
+            for (int i = 0; i < d_m; ++i) projected[i] += hidden_cpu[i];
+
+            // QKV projections
+            std::vector<float> q(n_heads * hd, 0.0f), k(n_kv * hd, 0.0f), v(n_kv * hd, 0.0f);
+            for (int h = 0; h < n_heads; ++h)
+                for (int d = 0; d < hd; ++d)
+                    for (int j = 0; j < d_m; ++j)
+                        q[h * hd + d] += hl.shared_transformer_q[(h * hd + d) * d_m + j] * projected[j];
+            for (int h = 0; h < n_kv; ++h)
+                for (int d = 0; d < hd; ++d)
+                    for (int j = 0; j < d_m; ++j) {
+                        k[h * hd + d] += hl.shared_transformer_k[(h * hd + d) * d_m + j] * projected[j];
+                        v[h * hd + d] += hl.shared_transformer_v[(h * hd + d) * d_m + j] * projected[j];
+                    }
+
+            apply_rope(q.data(), k.data(), pos, hd, n_heads, n_kv, cfg.rope_theta);
+
+            // Store to KV cache
+            for (int h = 0; h < n_kv; ++h)
+                for (int d = 0; d < hd; ++d) {
+                    k_cpu[pos * n_kv * hd + h * hd + d] = k[h * hd + d];
+                    v_cpu[pos * n_kv * hd + h * hd + d] = v[h * hd + d];
+                }
+
+            // Attention
+            std::vector<float> attn_out(d_m);
+            attention_forward(q.data(), k_cpu.data(), v_cpu.data(), attn_out.data(),
+                             pos, max_seq, n_heads, n_kv, hd, d_m);
+
+            // O projection + residual
+            std::vector<float> attn_proj(d_m, 0.0f);
+            for (int i = 0; i < d_m; ++i)
+                for (int j = 0; j < d_m; ++j)
+                    attn_proj[i] += hl.shared_transformer_o[i * d_m + j] * attn_out[j];
+            for (int i = 0; i < d_m; ++i) projected[i] += attn_proj[i];
+
+            // FFN: norm -> gate/up -> SiLU -> down -> residual
+            std::vector<float> ff_normed(d_m);
+            rms_norm(projected.data(), ff_normed.data(),
+                     hl.shared_transformer_ffn_norm.data(), d_m, cfg.rms_norm_eps);
+
+            int d_ff = (int)hl.shared_transformer_up.size() / d_m;
+            std::vector<float> gate(d_ff, 0.0f), up(d_ff, 0.0f), act(d_ff);
+            for (int i = 0; i < d_ff; ++i)
+                for (int j = 0; j < d_m; ++j)
+                    gate[i] += hl.shared_transformer_gate[i * d_m + j] * ff_normed[j];
+            for (int i = 0; i < d_ff; ++i)
+                for (int j = 0; j < d_m; ++j)
+                    up[i] += hl.shared_transformer_up[i * d_m + j] * ff_normed[j];
+            for (int i = 0; i < d_ff; ++i)
+                act[i] = (gate[i] / (1.0f + std::exp(-gate[i]))) * up[i];
+
+            std::vector<float> ff_out(d_m, 0.0f);
+            for (int i = 0; i < d_m; ++i)
+                for (int j = 0; j < d_ff; ++j)
+                    ff_out[i] += hl.shared_transformer_down[i * d_ff + j] * act[j];
+
+            // Final residual: hidden = projected + ff_out
+            for (int i = 0; i < d_m; ++i) hidden_cpu[i] = projected[i] + ff_out[i];
+
+            // Copy results back to GPU
+            hipMemcpy(s->d_hidden, hidden_cpu.data(), d_m * sizeof(float),
+                      hipMemcpyHostToDevice);
+            hipMemcpy(k_cache_gpu, k_cpu.data(), max_seq * n_kv * hd * sizeof(float),
+                      hipMemcpyHostToDevice);
+            hipMemcpy(v_cache_gpu, v_cpu.data(), max_seq * n_kv * hd * sizeof(float),
+                      hipMemcpyHostToDevice);
+            hyb_idx++;
         }
     }
 

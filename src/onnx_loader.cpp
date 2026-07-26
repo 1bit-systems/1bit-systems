@@ -71,12 +71,13 @@ struct PbReader {
         return v;
     }
 
-    // Skip current field
+    // Skip current field — with bounds check to prevent OOB reads
+    // from crafted/malformed ONNX files (issue #960).
     void skip_field(uint32_t wire_type) {
-        if (wire_type == 0) varint();
-        else if (wire_type == 1) pos += 8;
-        else if (wire_type == 2) { uint64_t sz = varint(); pos += sz; }
-        else if (wire_type == 5) pos += 4;
+        if (wire_type == 0) { varint(); }
+        else if (wire_type == 1) { if (pos + 8 > len) { pos = len; return; } pos += 8; }
+        else if (wire_type == 2) { uint64_t sz = varint(); if (pos + sz > len) sz = len - pos; pos += sz; }
+        else if (wire_type == 5) { if (pos + 4 > len) { pos = len; return; } pos += 4; }
     }
 };
 

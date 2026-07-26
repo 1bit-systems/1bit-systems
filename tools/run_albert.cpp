@@ -53,7 +53,8 @@ static Model load_model(const char *sf_path, const char *idx_path) {
         }
         if (!std::fread(name_buf, 1, name_len, fi)) break;
         name_buf[name_len] = 0;
-        std::strcpy(m.t[i].key, reinterpret_cast<char *>(name_buf));
+        std::snprintf(m.t[i].key, sizeof(m.t[i].key), "%s",
+                     reinterpret_cast<char *>(name_buf));
         int64_t off, nel;
         if (!std::fread(&off, 8, 1, fi)) break;
         if (!std::fread(&nel, 8, 1, fi)) break;

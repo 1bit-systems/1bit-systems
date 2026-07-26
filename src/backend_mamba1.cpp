@@ -152,10 +152,16 @@ struct Mamba1Backend : Backend {
         if (!r.get_tensor_f32(p("ssm_in.weight"), ml.in_proj)) return false;
 
         // Derive d_inner from in_proj size: in_proj is [2*d_inner, d_model]
-        if (d_model == 0) d_model = (int)ml.in_proj.size() / (2 * d_inner);
-        int expected_inner = (int)ml.in_proj.size() / d_model;
-        // If d_inner not set yet, derive it
-        if (d_inner == 0) d_inner = expected_inner / 2;
+        // Guard against division by zero when both d_model and d_inner are 0
+        // (issue #955). Normally d_model is set from cfg.hidden_size in init().
+        int in_proj_size = (int)ml.in_proj.size();
+        if (d_model == 0 && d_inner > 0 && in_proj_size > 0) {
+            d_model = in_proj_size / (2 * d_inner);
+        } else if (d_model > 0 && in_proj_size > 0) {
+            int expected_inner = in_proj_size / d_model;
+            if (d_inner == 0) d_inner = expected_inner / 2;
+            if (d_inner <= 0) d_inner = expected_inner;  // last-resort fallback
+        }
 
         r.get_tensor_f32(p("ssm_conv1d.weight"), ml.conv1d_w);
         r.get_tensor_f32(p("ssm_conv1d.bias"), ml.conv1d_b);

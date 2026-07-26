@@ -21,7 +21,7 @@
 #define BLK   256
 
 // Warp reductions
-__device__ inline float warp_sum(float v){for(int o=16;o>0;o>>=1)v+=__shfl_xor(v,o);return v;}
+__device__ inline float warp_sum(float v){for(int o=16;o>0;o>>=1)v+=__shfl_xor_sync(0xffffffffULL, v,o);return v;}
 __device__ inline float block_sum(float v,float*sh){
     int tx=threadIdx.x,w=tx/32,l=tx%32;
     v=warp_sum(v);if(l==0)sh[w]=v;

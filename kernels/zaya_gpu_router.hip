@@ -6,7 +6,7 @@
 #include <hip/hip_fp16.h>
 #include <cmath>
 
-static __device__ inline float wsum_f(float v){for(int o=16;o>0;o>>=1)v+=__shfl_xor(v,o);return v;}
+static __device__ inline float wsum_f(float v){for(int o=16;o>0;o>>=1)v+=__shfl_xor_sync(0xffffffffULL, v,o);return v;}
 static __device__ inline float bsum_f(float v,float*r){
     int tx=threadIdx.x,w=tx/32,l=tx%32;
     v=wsum_f(v);if(!l)r[w]=v;

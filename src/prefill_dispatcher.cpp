@@ -145,4 +145,8 @@ extern "C" void rcpp_prefill_dispatch(const void* A_dev, const void* B_packed_de
                            int M, int N, int K, void* stream) {
     int variant = rcpp_prefill_tune(A_dev, B_packed_dev, C_dev, M, N, K, 3, 10, stream);
     s_variants[variant](A_dev, B_packed_dev, C_dev, M, N, K, stream);
+    // Synchronize after the final tuned launch so callers can read C_dev
+    // immediately (issue #956). The tuning phase already incurred sync
+    // overhead, so one more sync for the actual dispatch is negligible.
+    HIP_CHECK(hipStreamSynchronize((hipStream_t)stream));
 }
