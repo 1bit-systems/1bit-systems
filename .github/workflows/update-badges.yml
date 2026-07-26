@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: badges-${{ github.ref }}
@@ -24,41 +25,55 @@ jobs:
       - name: Generate badges from benchmarks.json
         run: |
           python3 <<'PY'
-          import json
+          import json, re
 
           with open('site/benchmarks.json') as f:
               bm = json.load(f)
 
           engines = bm.get('engines', {})
 
-          badges = {
-              'badge_gpu.json': {
-                  'label': 'GPU Kernels',
-                  'message': f"{engines.get('q1_gemv', {}).get('tok_s', '?')} tok/s",
-                  'color': '00ff00'
-              },
-              'badge_npu.json': {
-                  'label': 'NPU Engine',
-                  'message': f"{engines.get('npu_v12', {}).get('tok_s', '?')} tok/s",
-                  'color': '00ff00'
-              },
-              'badge_prefill.json': {
-                  'label': 'Prefill',
-                  'message': f"{engines.get('prefill_i8', {}).get('tflops') or bm.get('system', {}).get('tflops_int8', '?')} TFLOPS",
-                  'color': '00ff00'
-              },
+          # Only the `message` value is regenerated, via a targeted text
+          # substitution — everything else (label, color, cacheSeconds,
+          # style, and each file's own indent width / trailing-newline
+          # quirks) is left byte-for-byte as committed. A generator that
+          # re-serializes the whole object manufactures a diff on every run
+          # even when the underlying number hasn't changed, because the
+          # three badge files don't even agree on indent width with each
+          # other (see issue #1013).
+          messages = {
+              'badge_gpu.json': f"{engines.get('q1_gemv', {}).get('tok_s', '?')} tok/s",
+              'badge_npu.json': f"{engines.get('npu_v12', {}).get('tok_s', '?')} tok/s",
+              'badge_prefill.json': f"{engines.get('prefill_i8', {}).get('tflops') or bm.get('system', {}).get('tflops_int8', '?')} TFLOPS",
           }
 
-          for fname, data in badges.items():
-              with open(f'site/{fname}', 'w') as f:
-                  json.dump({'schemaVersion': 1, **data, 'style': 'flat-square'}, f, indent=1)
-              print(f'Updated site/{fname} \u2192 {data["message"]}')
+          for fname, message in messages.items():
+              path = f'site/{fname}'
+              with open(path) as f:
+                  text = f.read()
+              new_text = re.sub(r'("message"\s*:\s*)"[^"]*"', lambda m: m.group(1) + json.dumps(message), text, count=1)
+              assert new_text != text or json.loads(text)['message'] == message, f'{path}: message field not found'
+              with open(path, 'w') as f:
+                  f.write(new_text)
+              print(f'{path} → {message}')
           PY
 
-      - name: Commit badge updates
+      - name: Open a PR with badge updates
+        # main is ruleset-protected — no direct pushes, PR required (issue #1013).
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "4198282+github-actions[bot]@users.noreply.github.com"
           git add site/badge_*.json
-          git diff --staged --quiet || git commit -m "auto: update badges from benchmarks.json"
-          git push
+          if git diff --staged --quiet; then
+            echo "Badges already up to date, nothing to do."
+            exit 0
+          fi
+          branch="automation/update-badges-${{ github.run_id }}"
+          git checkout -b "$branch"
+          git commit -m "auto: update badges from benchmarks.json"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "auto: update badges from benchmarks.json" \
+            --body "Badge message fields regenerated from \`site/benchmarks.json\` (commit ${{ github.sha }})."
+          gh pr merge "$branch" --auto --squash
