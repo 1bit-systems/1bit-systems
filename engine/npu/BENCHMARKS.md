@@ -20,7 +20,7 @@ All kernels verified bit-exact against CPU reference on real Strix Halo hardware
 | **Q1_0 binary** | 128-block sign bits | 1.0 | 1.1 µs | ✅ exact |
 | **TQ1 halo** | Base-3 H1B v4 | 1.58 | 17.5 µs | ✅ exact |
 
-**Benchmarks**: M=4096, K=4096, synthetic weights, cache-hot. See `bench/` for methodology.
+**Benchmarks**: M=4096, K=4096, synthetic weights, cache-hot. See `benchmarks/` for methodology.
 
 ---
 

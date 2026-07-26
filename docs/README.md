@@ -7,43 +7,46 @@ Pure C++23, zero Python at runtime, MIT.
 
 | Doc | What it covers |
 |-----|----------------|
-| [getting-started.md](getting-started.md) | Install, build, first inference |
-| [building.md](building.md) | Full build guide (CMake, ROCm/TheRock, targets) |
-| [architecture.md](architecture.md) | Engine internals: loaders, backends, routing |
+| [guides/getting-started.md](guides/getting-started.md) | Install, build, first inference |
+| [guides/building.md](guides/building.md) | Full build guide (CMake, ROCm/TheRock, targets) |
+| [guides/architecture.md](guides/architecture.md) | Engine internals: loaders, backends, routing |
 | [journey.md](journey.md) | **The hero story** — reverse-engineering the XDNA 2 NPU in 4 days |
-| [roadmap.md](roadmap.md) | Where we're headed |
-
-## Reference
-
-| Doc | Topic |
-|-----|-------|
-| [npu-engine.md](npu-engine.md) · [npu-dynamic-instr.md](npu-dynamic-instr.md) | Native XDNA 2 NPU engine |
-| [fastflowlm-decode/SUMMARY.md](fastflowlm-decode/SUMMARY.md) | FastFlowLM reverse-engineering report (historical — fully replaced) |
-| [block-scaled-ternary-format.md](block-scaled-ternary-format.md) | 1BP / TQ2 ternary storage |
-| [kernel-analysis.md](kernel-analysis.md) · [hybrid-w4a8-router.md](hybrid-w4a8-router.md) | Kernels & routing |
-| [vision-module.md](vision-module.md) | Vision-language support |
-| [npu/AMD-XDNA-40COLUMN-UNLOCK.md](npu/AMD-XDNA-40COLUMN-UNLOCK.md) | NPU column-unlock deep dive |
+| [guides/roadmap.md](guides/roadmap.md) | Where we're headed |
 
 ## Guides & platform
 
-- [windows.md](windows.md) — Windows notes
-- [Lemonade-Compat.md](Lemonade-Compat.md) — Lemonade compatibility
-- [launch.md](launch.md) — launch/serving
+- [guides/windows.md](guides/windows.md) — Windows notes
+- [guides/Lemonade-Compat.md](guides/Lemonade-Compat.md) — Lemonade compatibility
+- [guides/launch.md](guides/launch.md) — launch/serving
+
+## Research & technical deep-dives
+
+- [research/npu-engine.md](research/npu-engine.md) · [research/npu-dynamic-instr.md](research/npu-dynamic-instr.md) — Native XDNA 2 NPU engine
+- [research/npu-ternary-roadmap.md](research/npu-ternary-roadmap.md) — Ternary/binary NPU kernel roadmap
+- [research/fastflowlm-decode/SUMMARY.md](research/fastflowlm-decode/SUMMARY.md) — FastFlowLM reverse-engineering report (historical — fully replaced)
+- [research/fastflowlm-analysis/](research/fastflowlm-analysis/) — Raw binary analysis, xclbin captures, instruction traces
+- [research/block-scaled-ternary-format.md](research/block-scaled-ternary-format.md) — 1BP / TQ2 ternary storage
+- [research/kernel-analysis.md](research/kernel-analysis.md) · [research/hybrid-w4a8-router.md](research/hybrid-w4a8-router.md) — Kernels & routing
+- [research/vision-module.md](research/vision-module.md) — Vision-language support
+- [research/flux-feasibility.md](research/flux-feasibility.md) — Flux image-model feasibility notes
+- [research/npu/AMD-XDNA-40COLUMN-UNLOCK.md](research/npu/AMD-XDNA-40COLUMN-UNLOCK.md) — NPU column-unlock deep dive
 
 ## Validation & status
 
-- [GEMM-KERNEL-CORRECTNESS-CONFIRMED.md](GEMM-KERNEL-CORRECTNESS-CONFIRMED.md)
-- [bosgame-m5-full-validation.md](bosgame-m5-full-validation.md) · [bosgame-m5-iommu-validation.md](bosgame-m5-iommu-validation.md)
+- [research/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md](research/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md)
+- [research/bosgame-m5-full-validation.md](research/bosgame-m5-full-validation.md) · [research/bosgame-m5-iommu-validation.md](research/bosgame-m5-iommu-validation.md)
 
 ## Wiki
 
-Deeper operational docs live in [`wiki/`](wiki/): [performance](wiki/performance.md),
-[Installation](wiki/Installation.md), [npu-architecture](wiki/npu-architecture.md),
-[boot-configuration](wiki/boot-configuration.md), [Network-Topology](wiki/Network-Topology.md).
+Deeper operational docs live in [`wiki/`](wiki/): [performance](wiki/performance.md) (**single
+source of truth for benchmark numbers**), [Installation](wiki/Installation.md),
+[npu-architecture](wiki/npu-architecture.md), [boot-configuration](wiki/boot-configuration.md),
+[Network-Topology](wiki/Network-Topology.md).
 
-## Marketing / posts
+## Business & marketing
 
-Launch write-ups and social posts are in [`marketing/`](marketing/).
+- [business/business-plan.md](business/business-plan.md) — Business plan and economics
+- [business/marketing/](business/marketing/) — Launch write-ups and social posts
 
 ## Archive
 

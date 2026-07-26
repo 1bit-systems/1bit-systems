@@ -1,14 +1,14 @@
 #!/bin/bash
 set -euo pipefail
-# bench/record.sh — Record a benchmark result to site/benchmarks.json
+# benchmarks/record.sh — Record a benchmark result to site/benchmarks.json
 #
-# Usage: bench/record.sh <engine_key> <tok_s> [tflops] [status] [label] [table] [display_name] [backend]
+# Usage: benchmarks/record.sh <engine_key> <tok_s> [tflops] [status] [label] [table] [display_name] [backend]
 #
 # Appends/replaces the entry for <engine_key> in site/benchmarks.json and
 # updates the "updated" and "commit" fields. Creates the file if absent.
 set -euo pipefail
 
-ENGINE_KEY="${1:?usage: bench/record.sh engine_key tok_s [tflops] [status] [label] [table] [display_name] [backend]}"
+ENGINE_KEY="${1:?usage: benchmarks/record.sh engine_key tok_s [tflops] [status] [label] [table] [display_name] [backend]}"
 TOK_S="${2:-null}"
 TFLOPS="${3:-null}"
 STATUS="${4:-validated}"

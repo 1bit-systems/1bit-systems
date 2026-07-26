@@ -130,7 +130,7 @@
 
 - **Source**: https://github.com/bong-water-water-bong/1bit-systems
 - **LoRA training code**: `tools/lora/train.cpp`, `tools/lora/lora_layer.h`
-- **Q4NX format spec**: `fastflowlm_analysis/Q4NX_FORMAT.md`
+- **Q4NX format spec**: `docs/research/fastflowlm-analysis/Q4NX_FORMAT.md`
 - **1BP format**: `include/onebp_format.h`
 - **Model catalog**: `models/catalog/README.md`
 - **Site**: https://1bit.systems

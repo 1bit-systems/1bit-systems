@@ -2,7 +2,7 @@
 # build_xclbins.sh — List/verify pre-built NPU xclbins
 #
 # Xclbins are pre-built and checked into engine/npu/xclbins/.
-# To rebuild from source, see docs/npu-ternary-roadmap.md —
+# To rebuild from source, see docs/research/npu-ternary-roadmap.md —
 # the aiecc toolchain has a pre-existing version mismatch.
 #
 # Usage:

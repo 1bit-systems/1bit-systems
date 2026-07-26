@@ -275,7 +275,7 @@
     "npu_xrt_hw_validate"
   ],
   "system": {
-    "tflops_int8": 40.5
+    "tflops_int8": 39.4
   },
   "mamba1_gpu": {
     "blackmamba_1_5b_tok_s": 79.8,

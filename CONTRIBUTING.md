@@ -85,7 +85,7 @@ cmake --build build --target zaya_server -j$(nproc)
 ./build/zaya_server --model /path/to/model.h1b
 ```
 
-See [docs/building.md](docs/building.md) for full prerequisites and [docs/getting-started.md](docs/getting-started.md) for first-run instructions.
+See [docs/guides/building.md](docs/guides/building.md) for full prerequisites and [docs/guides/getting-started.md](docs/guides/getting-started.md) for first-run instructions.
 
 ---
 
@@ -152,7 +152,7 @@ cd engine/npu
 # New projection shape not covered by the checked-in xclbins? Compile the
 # microkernel, then build via the torch2aie make flow directly (the aiecc
 # toolchain has a pre-existing version mismatch that blocks a wrapper script —
-# see docs/npu-ternary-roadmap.md):
+# see docs/research/npu-ternary-roadmap.md):
 ./build_npu_ternary.sh tq2 <tag> <H> <NH> <NKV> <HD> <IM> --compile-only
 make -C ~/torch2aie/examples/gemm_asymmetric_tile_buffering/config1 \
   M=<M> K=<K> N=<N> m=128 k=64 n=128 use_placed=1 targetname=n1_core \
@@ -169,7 +169,7 @@ g++ -std=c++23 -O3 -o build/npu_engine \
   -lxrt_coreutil -luuid -lm -ldl
 ```
 
-See [docs/building.md](docs/building.md#step-3-build-int8-xclbins-one-time) for detailed xclbin generation steps.
+See [docs/guides/building.md](docs/guides/building.md#step-3-build-int8-xclbins-one-time) for detailed xclbin generation steps.
 
 ### Build Tests & Benchmarks
 
@@ -458,5 +458,5 @@ This project is MIT-licensed. Sherry-specific kernels in `src/sherry_*.hip` are 
 ## Questions?
 
 - Open a [GitHub Discussion](https://github.com/bong-water-water-bong/1bit-systems/discussions)
-- Read the [architecture docs](docs/architecture.md)
+- Read the [architecture docs](docs/guides/architecture.md)
 - See the [roadmap](ROADMAP.md)

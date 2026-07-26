@@ -1,7 +1,7 @@
 # Implementation Tasks: 1bit = pi Clone
 
 > Proposal: `openspec/changes/1bit-pi-clone/proposal.md`
-> Plan: `docs/superpowers/plans/2026-07-02-1bit-pi-clone.md`
+> Plan: `docs/archive/superpowers-2026-07-02-1bit-pi-clone.md`
 
 ## Status
 

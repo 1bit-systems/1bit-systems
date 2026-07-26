@@ -6,7 +6,7 @@
 # copies them (or symlinks) rather than rebuilding, because the aiecc MLIR
 # toolchain has a pre-existing version mismatch that prevents clean builds.
 #
-# To rebuild xclbins from source, fix the toolchain first (see docs/npu-ternary-roadmap.md)
+# To rebuild xclbins from source, fix the toolchain first (see docs/research/npu-ternary-roadmap.md)
 # then use: make -C ~/torch2aie/examples/.../config1 M=128 K=... N=...
 #
 # Usage:

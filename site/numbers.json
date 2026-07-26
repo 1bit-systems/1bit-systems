@@ -1,7 +1,7 @@
 {
   "_warning": "Site data file. Headline perf numbers synced from benchmarks.json (source of truth for benchmark data). binary/ repo/ site/ keys are unique to this file.",
   "_missing": [],
-  "_benchmarks_remeasured": "2026-07-24, median of 3 runs on this box's real gfx1151 hardware (bench_sherry, bench_prefill_variants) \u2014 see _sources for the exact commands.",
+  "_benchmarks_remeasured": "2026-07-26, median of 3 runs on this box's real gfx1151 hardware (bench_sherry, bench_prefill_variants) \u2014 see _sources for the exact commands.",
   "binary": {
     "zaya_bytes": 1165080,
     "zaya_kb": 1138,
@@ -21,7 +21,8 @@
     "prefill_tflops_i8apre": 39.4,
     "sherry_gemv_gbps": 157.2,
     "tq1_gemv_gbps": 201.4,
-    "tflops": 39.4
+    "tflops": 39.4,
+    "note": "prefill_tflops_i8apre/tflops corrected 40.5→39.4 on 2026-07-26 re-validation — see benchmarks.json engines.prefill_i8"
   },
   "_sources": {
     "halo_gemv_gbps": "bench_sherry -- halo baseline kernel",
@@ -44,8 +45,8 @@
     "backends": 9,
     "models": 40
   },
-  "prefill_tflops_i8apre": 40.5,
-  "tflops": 40.5,
+  "prefill_tflops_i8apre": 39.4,
+  "tflops": 39.4,
   "blackmamba_1_5b_tok_s": 79.4,
   "blackmamba_2_8b_tok_s": 46.0,
   "engines": {
@@ -78,7 +79,7 @@
       "status": "validated"
     },
     "npu_v12": {
-      "tok_s": 97,
+      "tok_s": 69,
       "TFLOPS": null,
       "backend": "XDNA 2 (32 tiles)",
       "notes": "",
@@ -120,8 +121,8 @@
       "status": "validated"
     },
     "prefill_i8": {
-      "tok_s": 40.5,
-      "TFLOPS": 40.5,
+      "tok_s": 39.4,
+      "TFLOPS": 39.4,
       "backend": "INT8 WMMA",
       "notes": "Benchmark shows 39.42 TFLOPS (winner variant: I8-APRE). Prior 40.5 was from a colder GPU pass.",
       "status": "re-validated 2026-07-26"

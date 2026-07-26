@@ -379,7 +379,25 @@
 <section id="benchmarks" class="block">
   <span class="eyebrow">Benchmarks</span>
   <h2 style="margin:16px 0 16px;">Measured on-device. Source-backed.</h2>
-  <p class="lead" style="margin-bottom:20px;">Real numbers are on the model cards above — BlackMamba, Zaya1-8B, Bonsai, and ZR1-1.5B all show measured tok/s next to the download link, not off in a separate table. Every one traces back to one file with a status tag (validated / optimized / raw), so nothing here is cherry-picked.</p>
+  <div class="grid4" style="gap:14px;margin-bottom:22px;">
+    <div style="border:1px solid var(--border);border-radius:12px;padding:14px;">
+      <div class="mono" style="font-size:20px;font-weight:800;color:var(--green);">433 <span style="font-size:12px;color:var(--muted);font-family:var(--sans);">tok/s</span></div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px;">Peak GPU kernel — Q1 GEMV, ROCm HIP</div>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:12px;padding:14px;">
+      <div class="mono" style="font-size:20px;font-weight:800;color:var(--green);">79.4 <span style="font-size:12px;color:var(--muted);font-family:var(--sans);">tok/s</span></div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px;">End-to-end decode — BlackMamba 1.5B, Mamba1 HIP</div>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:12px;padding:14px;">
+      <div class="mono" style="font-size:20px;font-weight:800;color:var(--green);">39.4 <span style="font-size:12px;color:var(--muted);font-family:var(--sans);">TFLOPS</span></div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px;">Prefill — INT8 WMMA, re-validated 07-26</div>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:12px;padding:14px;">
+      <div class="mono" style="font-size:20px;font-weight:800;color:var(--green);">51 <span style="font-size:12px;color:var(--muted);font-family:var(--sans);">TOPS</span></div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px;">NPU hardware — XDNA 2, xrt-smi validate</div>
+    </div>
+  </div>
+  <p class="lead" style="margin-bottom:20px;">Every number above and on the model cards traces back to one authoritative file (<code>site/benchmarks.json</code>) with a status tag — validated / optimized / raw — so nothing here is cherry-picked. Kernel-level numbers are isolated GEMV throughput, not end-to-end decode; the full breakdown below keeps the two apart.</p>
   <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/performance.md" class="btn btn-primary btn-md" target="_blank" rel="noopener">📈 Full benchmarks breakdown →</a>
 </section>
 

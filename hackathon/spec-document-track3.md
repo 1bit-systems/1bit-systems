@@ -146,8 +146,8 @@ First project to adopt and validate **TheRock** — AMD's nightly pip-installabl
 - **Source**: https://github.com/bong-water-water-bong/1bit-systems
 - **NPU engine**: `engine/npu/src/npu_engine_v12.cpp`
 - **Mamba1 GPU backend**: `src/mamba1_engine.hip`
-- **NPU ISA docs**: `fastflowlm_analysis/NPU_ISA.md` (274 lines)
-- **Q4NX format spec**: `fastflowlm_analysis/Q4NX_FORMAT.md`
+- **NPU ISA docs**: `docs/research/fastflowlm-analysis/NPU_ISA.md` (274 lines)
+- **Q4NX format spec**: `docs/research/fastflowlm-analysis/Q4NX_FORMAT.md`
 - **FLM reverse-engineering audit**: `docs/journey.md` (1800+ lines)
 - **Performance SSOT**: `docs/wiki/performance.md`
 - **Site**: https://1bit.systems

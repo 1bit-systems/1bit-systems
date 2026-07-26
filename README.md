@@ -76,7 +76,7 @@ Model-agnostic end to end: the engine auto-detects architecture and quantization
 
 ## Benchmarks
 
-*Source of truth: [`site/benchmarks.json`](site/benchmarks.json) — kept in sync by hand on each re-measurement.*
+*Full breakdown, including NPU hardware validation and CPU fallback numbers: [`docs/wiki/performance.md`](docs/wiki/performance.md). Source of truth: [`site/benchmarks.json`](site/benchmarks.json).*
 
 > ⚠️ **The kernel-level table below measures single-GEMM-kernel throughput on a synthetic 28-layer weight buffer.** These are "tok/s-equivalent" numbers — they exclude KV-cache attention, softmax, RoPE, FFN non-GEMM ops, sampler, tokenizer, and host↔device transfers. **Real end-to-end throughput is substantially lower** — see the second table. See [issue #235](https://github.com/bong-water-water-bong/1bit-systems/issues/235) for full discussion.
 
@@ -89,7 +89,7 @@ Model-agnostic end to end: the engine auto-detects architecture and quantization
 | GPU ternary | **318 tok/s** | Vulkan ZINC |
 | TQ2 GEMV | **367 tok/s** | ROCm HIP |
 | NPU v12 | **69 tok/s** | XDNA 2 (32 tiles) |
-| Prefill | **40.5 TFLOPS** | INT8 WMMA |
+| Prefill | **39.4 TFLOPS** | INT8 WMMA |
 | ROCm HIP | **64 tok/s** | ROCm HIP (kernels) |
 
 ### 🏁 End-to-End Inference (real model, real prompts)
@@ -169,14 +169,14 @@ Build note: the root `CMakeLists.txt` builds `src/`, `kernels/`, `include/`, `to
 
 - **GGUF** — Qwen2 / Qwen3 layout (header+embedding read; single transformer weight path; per-architecture attention/FFN not validated for Llama/Mistral/DeepSeek)
 - **ONNX** — Protobuf wire format (F32/F16/BF16/INT8/INT32)
-- **Q4NX** — FastFlowLM's native tiled format, fully decoded (311 tensors, 4-bit groups of 32 with bf16 scales, 32×256 NPU tile layout) — see [`Q4NX_FORMAT.md`](fastflowlm_analysis/Q4NX_FORMAT.md)
+- **Q4NX** — FastFlowLM's native tiled format, fully decoded (311 tensors, 4-bit groups of 32 with bf16 scales, 32×256 NPU tile layout) — see [`Q4NX_FORMAT.md`](docs/research/fastflowlm-analysis/Q4NX_FORMAT.md)
 - **1BP** — this project's native format: single self-contained file, Q4NX-tiled weights, no external metadata. The `gguf_to_onebp` tool (pure C++, `tools/gguf_to_onebp.cpp`) converts any GGUF model in place — no Python.
 - **H1B** — Legacy ternary format
 
 ### Backends
 
 - **Mamba1 GPU** — Radeon 8060S via ROCm HIP. Alternating SSM + MoE layers (BlackMamba architecture). **79.4 tok/s** (1.5B).
-- **NPU** — XDNA 2 (32 tiles), fully in-process via `npu_engine_universal` (XRT-based, C++23). Runs GGUF/Q4NX/1BP models directly — no FastFlowLM subprocess, no closed-source dependency. Instruction sequences and GEMM/MHA dispatch were reverse-engineered from FLM's 22 `.so` libraries; xclbin bitstreams are rebuilt from AIE generators via `aiecc`/Chess (AMD Xilinx IP). See [`docs/fastflowlm-decode/SUMMARY.md`](docs/fastflowlm-decode/SUMMARY.md).
+- **NPU** — XDNA 2 (32 tiles), fully in-process via `npu_engine_universal` (XRT-based, C++23). Runs GGUF/Q4NX/1BP models directly — no FastFlowLM subprocess, no closed-source dependency. Instruction sequences and GEMM/MHA dispatch were reverse-engineered from FLM's 22 `.so` libraries; xclbin bitstreams are rebuilt from AIE generators via `aiecc`/Chess (AMD Xilinx IP). See [`docs/research/fastflowlm-decode/SUMMARY.md`](docs/research/fastflowlm-decode/SUMMARY.md).
 - **GPU (ZINC)** — Radeon 8060S via Vulkan SPIR-V (GGUF/H1B models, multi-arch)
 - **GPU (HIP)** — ROCm HIP for Zaya-style models
 - **CPU** — Fallback (scalar / AVX-512 / generic GGUF)
@@ -276,9 +276,9 @@ The key finding: the `.so` files were NPU instruction **sequence generators**, n
 
 > **Read the full 1800+ line journey** → [`docs/journey.md`](docs/journey.md) — every crash, breakthrough, and bug documented in real-time.
 >
-> **Technical reverse-engineering report** → [`docs/fastflowlm-decode/SUMMARY.md`](docs/fastflowlm-decode/SUMMARY.md)
+> **Technical reverse-engineering report** → [`docs/research/fastflowlm-decode/SUMMARY.md`](docs/research/fastflowlm-decode/SUMMARY.md)
 >
-> **Raw analysis** → [`fastflowlm_analysis/`](fastflowlm_analysis/) — binary analysis, xclbin captures, instruction traces
+> **Raw analysis** → [`docs/research/fastflowlm-analysis/`](docs/research/fastflowlm-analysis/) — binary analysis, xclbin captures, instruction traces
 
 Since then: Mamba1 GPU backend (79.4 tok/s), Vulkan flash attention, model-agnostic GGUF routing, TQ2 ternary format, vision-language support, and a self-healing agent watchdog — **1800+ hours of engineering, all open source, MIT.**
 

@@ -1,8 +1,8 @@
 # Installation
 
 > This page exists because issue #1 linked to it before it was written. For the
-> full, maintained instructions see [`docs/getting-started.md`](../getting-started.md)
-> (running the server) and [`docs/building.md`](../building.md) (building from
+> full, maintained instructions see [`docs/guides/getting-started.md`](../guides/getting-started.md)
+> (running the server) and [`docs/guides/building.md`](../guides/building.md) (building from
 > source). This page is the short version plus the one thing that will actually
 > bite you.
 
@@ -50,7 +50,7 @@ step-by-step instructions.
 
 ## See also
 
-- [Getting Started](../getting-started.md)
-- [Building from source](../building.md)
+- [Getting Started](../guides/getting-started.md)
+- [Building from source](../guides/building.md)
 - [Boot Configuration](boot-configuration.md) — 40-column NPU unlock
 - [Network Topology](Network-Topology.md)

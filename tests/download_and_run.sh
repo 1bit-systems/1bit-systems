@@ -179,7 +179,7 @@ echo "✅ PASS — $WORD_COUNT tokens, output non-degenerate"
 
 # 8. Record benchmark (only on real HW)
 if ! [ "$CI_MODE" = true ]; then
-  bash bench/record.sh "zaya_server_smoke" 0 null "validated" \
+  bash benchmarks/record.sh "zaya_server_smoke" 0 null "validated" \
     "End-to-end smoke test (Qwen3-0.6B Q4_K_M)" "e2e" "zaya_server" "CPU+NPU"
 fi
 

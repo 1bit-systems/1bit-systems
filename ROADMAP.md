@@ -223,7 +223,7 @@
 **Strix Halo capacity:** 28 voice users @ 426 tok/s.
 **MI300X break-even:** 37 users ($720/mo rent).
 
-See [docs/business-plan.md](docs/business-plan.md) for full economics.
+See [docs/business/business-plan.md](docs/business/business-plan.md) for full economics.
 
 ## Immediate Next Steps (This Week)
 

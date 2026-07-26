@@ -192,7 +192,7 @@ All tests pass (same as before optimizations):
 | `tools/bitnet_decode.cpp` | Main decoder (~1400 lines, CLI + GPU pipeline) |
 | `tools/gguf_to_h1b.cpp` | Converter: torch F16 GGUF → h1b + sidecar |
 | `CLAUDE.md` | Developer knowledge base with current benchmarks |
-| `docs/npu/HANDOFF-NPU-OPTIMIZATION.md` | **Single source of truth handoff** (NPU + GPU) |
+| `docs/archive/HANDOFF-NPU-OPTIMIZATION.md` | **Single source of truth handoff** (NPU + GPU) |
 
 ### Model files
 ```

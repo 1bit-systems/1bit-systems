@@ -417,7 +417,7 @@ Reference-style documentation. Performance table references `site/benchmarks.jso
 - **docs/journey.md** — Engineering narrative, bug discoveries, update history
 - **models/catalog/README.md** — Full model family catalog: 35 models across 7 families, 1BP sizes, backends, perf numbers, HF links
 - **AGENTS.md** — GitNexus and development workflow rules
-- **docs/launch.md** — Launch plan, target audiences, key messages
+- **docs/guides/launch.md** — Launch plan, target audiences, key messages
 - **prompts/1bit.md** — 1bit agent personality prompt
 - **site/blog/index.html** — Blog index for series tracking
 - **references/blog-template.html** — Ready-to-use blog HTML starter

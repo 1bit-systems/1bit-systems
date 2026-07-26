@@ -1765,7 +1765,7 @@ reformatting AIE's `mmul<8,8,8>` requires — plain row-major streaming. Replace
 generator with AMD's proven `single_core.py`; isolated GEMM test went from
 uncorrelated garbage to **0 errors / 0 max diff** on all four shapes, and the
 post-prefill hidden-state norm collapsed from ~4,050,000 (near-input-independent)
-to ~250 and started tracking the prompt. (`docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md`.)
+to ~250 and started tracking the prompt. (`docs/research/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md`.)
 Also fixed: i16-vs-i32 xclbin output width (~120,000× error), a malformed smoke-test
 prompt, and unbounded RMSNorm weights that were masking the broken kernel.
 
@@ -1833,7 +1833,7 @@ The single biggest architectural change since the last addendum: **FastFlowLM is
 longer the default NPU path, and its native `.so`-dependency is gone entirely.**
 22 closed-source libraries were disassembled, 209 xclbin bitstreams traced back to
 their AIE generators, and the whole stack rebuilt from source
-(`docs/fastflowlm-decode/SUMMARY.md`). `engine/npu/src/npu_engine_universal.cpp`
+(`docs/research/fastflowlm-decode/SUMMARY.md`). `engine/npu/src/npu_engine_universal.cpp`
 no longer `dlopen`s FLM's `.so` files for NPU attention/GEMM instruction
 generation — it uses pre-compiled instruction files instead, and `backend_manager.cpp`
 now marks `npu_xrt` `auto_selectable` with the comment "NPU_XRT is the default now."
@@ -1846,7 +1846,7 @@ what `backend_manager.cpp` claimed. Fixed today (PR #567): route is now
 `{"npu_xrt", "npu_flm", "cpu_generic"}` — native engine first, FLM kept only as a
 fallback, not removed outright. Honest tradeoff, not a free win: `npu_xrt`'s
 single-core GEMM kernels are correctness-verified on real hardware
-(`docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md`, 2026-07-17/18), but the 8-core
+(`docs/research/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md`, 2026-07-17/18), but the 8-core
 multi-tile path that would close the throughput gap to FLM's fused-xclbin numbers
 is still "unverified in combination" per that same doc. Shipped the routing change
 anyway, on the user's explicit call, because "FLM is diagnostic-only, not the
