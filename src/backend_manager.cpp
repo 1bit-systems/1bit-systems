@@ -14,8 +14,13 @@
 #include <chrono>
 #ifndef _WIN32
 #include <unistd.h>
-#include <sys/stat.h>
+#else
+// Windows: _S_IFMT/_S_IFREG for S_ISREG
+#ifndef S_ISREG
+#define S_ISREG(m) (((m) & _S_IFMT) == _S_IFREG)
 #endif
+#endif
+#include <sys/stat.h>
 
 // ── Backend priority by tier ──
 static int tier_priority(BackendTier t) {
@@ -1151,7 +1156,8 @@ std::string BackendManager::report() const {
 
 // ── Internal helpers (runtime loading via dlsym) ──
 // GPU/NPU backends are loaded from the rocm_cpp shared library at runtime.
-// CPU backend is linked in directly (pure C++, no deps).
+// Windows: no dynamic backend loading — all backends are compiled directly.
+#ifndef _WIN32
 #include <dlfcn.h>
 #include <unordered_map>
 
@@ -1167,6 +1173,7 @@ static void* cached_dlopen(const char* lib) {
     if (h) cache.emplace(lib, h);
     return h;
 }
+#endif
 
 static Backend* try_load_backend(const char* lib, const char* sym) {
     void* h = cached_dlopen(lib);
