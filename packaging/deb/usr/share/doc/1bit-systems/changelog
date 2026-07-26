@@ -1,6 +1,18 @@
 # Changelog
 
-## v1.0.0 (2026-07-01) — Initial Release
+## v1.0.0 (2026-07-26) — First Stable Release
+
+40 models across 16 families in the native 1BP format, direct GGUF execution,
+NPU (XDNA 2) + GPU (ROCm HIP / Vulkan / CUDA / Metal) + CPU backends in one
+C++23 binary. Jarvis local agent (RAG, tool-calling, planner, permission
+gate, voice). Full details: https://github.com/bong-water-water-bong/1bit-systems/blob/main/CHANGELOG.md
+
+---
+
+## v0.1 (2026-07-01) — Early NPU Prototype
+
+Kept for provenance — describes the initial single-backend NPU milestone,
+superseded by the multi-backend 1.0.0 release above.
 
 ### NPU Engine
 - INT8 inference on AMD Strix Halo XDNA 2 NPU

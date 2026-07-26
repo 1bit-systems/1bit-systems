@@ -118,11 +118,51 @@ jobs:
           chmod +x dist/run.sh
           tar czf 1bit-linux-x86_64.tar.gz -C dist .
 
+      - name: Build .deb package
+        run: |
+          # packaging/deb/DEBIAN/control's Version: field is kept in sync with
+          # the root VERSION file by scripts/sync-version.sh (issue #117,
+          # enforced by the "Version consistency" CI check) — not templated
+          # here, so it can't silently drift from what that check expects.
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          rm -rf deb-build
+          cp -r packaging/deb deb-build
+
+          mkdir -p deb-build/usr/bin deb-build/usr/lib/1bit-systems deb-build/etc/ld.so.conf.d
+          cp dist/bin/* deb-build/usr/bin/
+          cp dist/lib/* deb-build/usr/lib/1bit-systems/
+          echo "/usr/lib/1bit-systems" > deb-build/etc/ld.so.conf.d/1bit-systems.conf
+
+          chmod 755 deb-build/DEBIAN/postinst
+          dpkg-deb --build --root-owner-group deb-build "1bit-systems_${VERSION}_amd64.deb"
+
+      - name: Build AppImage
+        run: |
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          curl -sL -o appimagetool \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+
+          rm -rf appimage-build
+          cp -r packaging/appimage/AppDir appimage-build
+          mkdir -p appimage-build/usr/bin appimage-build/usr/lib
+          cp dist/bin/* appimage-build/usr/bin/
+          cp dist/lib/* appimage-build/usr/lib/
+          chmod +x appimage-build/AppRun
+
+          # appimagetool needs FUSE, unavailable in most CI containers —
+          # extract-and-run avoids mounting a FUSE filesystem.
+          ARCH=x86_64 ./appimagetool --appimage-extract-and-run appimage-build \
+            "1bit-systems-${VERSION}-x86_64.AppImage"
+
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')   # only on real tag pushes; skip manual workflow_dispatch runs
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2
         with:
-          files: 1bit-linux-x86_64.tar.gz
+          files: |
+            1bit-linux-x86_64.tar.gz
+            1bit-systems_*_amd64.deb
+            1bit-systems-*-x86_64.AppImage
           generate_release_notes: true
           prerelease: false
           body: |
@@ -131,14 +171,18 @@ jobs:
             End-to-end C++ inference stack: no Rust, no Python, no Node.js.
             Single CMake build produces all binaries.
 
+            ### Formats
+            - **Tarball** (`1bit-linux-x86_64.tar.gz`) — extract anywhere, `./run.sh chat`
+            - **Debian package** (`.deb`) — `sudo dpkg -i 1bit-systems_*_amd64.deb`, binaries land on `PATH`
+            - **AppImage** (`.AppImage`) — `chmod +x`, run directly, no install needed
+
             ### Includes
-            - `bin/1bit` — C++ NPU-native coding agent CLI (chat, up, down, status, build, config, serve)
-            - `bin/onebitd` — C++ inference daemon (spawns zaya_server, proxies HTTP)
-            - `bin/zaya_server` — C++ HIP inference engine + OpenAI-compatible server
-            - `bin/unified_router` — C++ NPU+GPU content-aware routing proxy
-            - `bin/bitnet_tui` — C++ FTXUI terminal chat UI
-            - `lib/librocm_cpp.so` — ternary GEMV/GEMM HIP kernels
-            - `run.sh` — launcher (sets LD_LIBRARY_PATH + PATH for you)
+            - `1bit` — C++ NPU-native coding agent CLI (chat, up, down, status, build, config, serve)
+            - `onebitd` — C++ inference daemon (spawns zaya_server, proxies HTTP)
+            - `zaya_server` — C++ HIP inference engine + OpenAI-compatible server
+            - `unified_router` — C++ NPU+GPU content-aware routing proxy
+            - `bitnet_tui` — C++ FTXUI terminal chat UI
+            - `librocm_cpp.so` — ternary GEMV/GEMM HIP kernels
             - install script, docs, license
 
             ### Requires

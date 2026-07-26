@@ -5,9 +5,10 @@ The HTTP server speaks OpenAI-compatible JSON — Ollama, Open WebUI, LangChain,
 
 | Format | Status | Command |
 |--------|--------|---------|
-| **GitHub Release** | ✅ [v2026.07.26](https://github.com/bong-water-water-bong/1bit-systems/releases/tag/v2026.07.26) | `gh release download v2026.07.26` |
+| **GitHub Release** | ✅ [Latest](https://github.com/bong-water-water-bong/1bit-systems/releases/latest) | `gh release download` |
 | **One-liner install** | ✅ | `curl -sL https://1bit.systems/install.sh \| bash` |
-| **Debian (.deb)** | ✅ Control ready | `make package-deb` |
+| **Debian (.deb)** | ✅ Built by CI on every tagged release | `sudo dpkg -i 1bit-systems_*_amd64.deb` |
+| **AppImage** | ✅ Built by CI on every tagged release | `chmod +x 1bit-systems-*.AppImage && ./1bit-systems-*.AppImage` |
 | **Binary tarball** | ✅ | `make package-tarball` |
 | **Docker** | ✅ Dockerfile ready | `docker run 1bit-systems/npu` |
 | **Ollama** | ✅ Modelfile | `ollama create qwen3-npu -f Modelfile` |

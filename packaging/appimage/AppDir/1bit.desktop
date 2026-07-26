@@ -1,7 +1,8 @@
 [Desktop Entry]
 Name=1bit Systems
-Comment=One binary to rule them all — 5 models, 28 tok/s NPU
-Exec=1bit-engine
+Comment=One binary, all backends — NPU + GPU + CPU inference engine
+Exec=1bit
 Icon=1bit
 Type=Application
+Terminal=true
 Categories=Development;

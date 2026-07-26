@@ -3,12 +3,19 @@ Version: 1.0.0
 Section: utils
 Priority: optional
 Architecture: amd64
-Depends: libxrt2 (>= 2.21), libxrt-npu2
+Depends: libc6, libstdc++6, libgomp1
+Recommends: rocm-hip-runtime
 Maintainer: admin@1bit.systems
-Description: One binary to rule them all — 5 models, 120KB, 28 tok/s NPU
- 1bit.systems is a pure native inference stack for the AMD Ryzen AI Max+ 395.
- Runs Qwen3-0.6B/8B/VL-4B, Llama-3.1-8B, and Gemma4-E2B on XDNA 2 NPU.
- Auto-detect. One binary. Zero Python. Zero pip. Zero Docker.
+Description: One binary, all backends — NPU + GPU + CPU inference engine
+ 1bit.systems is a pure C++23 inference engine for AMD Strix Halo
+ (Ryzen AI Max+ 395): a single binary drives the XDNA 2 NPU, the
+ Radeon 8060S GPU (ROCm HIP + Vulkan), and CPU fallback in one
+ process. 40 models across 16 families in the native 1BP format,
+ plus direct GGUF execution. Zero Python, zero Docker at runtime.
  .
- 28 tok/s on Qwen3-0.6B at M=32 batch with OpenMP attention.
- All benchmarks at engine/npu/BENCHMARKS.md.
+ Requires a ROCm 7.15.0a-compatible HIP runtime (libhsa-runtime64)
+ for GPU/NPU acceleration — see https://1bit.systems for install
+ instructions. CPU-only operation works without it.
+ .
+ Includes: 1bit (CLI), onebit/onebitd (agent + daemon), zaya_server
+ (HIP inference + OpenAI-compatible API), unified_router.

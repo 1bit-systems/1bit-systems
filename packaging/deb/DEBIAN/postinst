@@ -1,14 +1,16 @@
 #!/bin/sh
 set -e
-echo "1bit.systems v1.0.0 — 5 models, 28 tok/s NPU"
+
+ldconfig
+
+echo "1bit.systems v1.0.0 installed — one binary, NPU + GPU + CPU"
 echo ""
-if [ -f /dev/accel/accel0 ]; then
-    echo "✅ NPU device detected"
+if [ -e /dev/accel/accel0 ]; then
+    echo "NPU device detected (/dev/accel/accel0)"
 else
-    echo "⚠️  No NPU device found. Run: sudo modprobe amdxdna"
+    echo "No NPU device found — GPU/CPU backends still work. For NPU: sudo modprobe amdxdna"
 fi
 echo ""
-echo "Usage: 1bit-npu /path/to/model.q4nx [decode_tokens]"
-echo "Models: Qwen3-0.6B/8B/VL-4B, Llama-3.1-8B, Gemma4-E2B"
+echo "Usage: 1bit chat   (or: onebit serve / zaya_server --model <path>)"
 echo "Docs:   https://1bit.systems"
 echo "Source: https://github.com/bong-water-water-bong/1bit-systems"
