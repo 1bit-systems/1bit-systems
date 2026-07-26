@@ -1,12 +1,12 @@
 # Reddit r/LocalLLaMA Post Draft
 
 ## Title:
-**Mamba1 GPU backend live — BlackMamba 79.8 tok/s on Strix Halo, all in one C++ binary**
+**Mamba1 GPU backend live — BlackMamba 79.4 tok/s on Strix Halo, all in one C++ binary**
 
 ## Body:
 
 **tl;dr**: Wired the Mamba1 GPU kernels (mamba1_engine.hip) into the full inference
-pipeline. BlackMamba 1.5B: **79.8 tok/s**. BlackMamba 2.8B: **46.4 tok/s**.
+pipeline. BlackMamba 1.5B: **79.4 tok/s**. BlackMamba 2.8B: **46.1 tok/s**.
 Both running entirely on the Strix Halo iGPU via ROCm HIP, no Python, no PyTorch.
 Alternating SSM + MoE layers, full autoregressive decode, single binary.
 
@@ -47,8 +47,8 @@ All fixed, all verified running on hardware.
 
 | Model | Architecture | Throughput |
 |-------|-------------|:----------:|
-| BlackMamba 1.5B | 15 SSM + 15 MoE | **79.8 tok/s** |
-| BlackMamba 2.8B | 18 SSM + 18 MoE | **46.4 tok/s** |
+| BlackMamba 1.5B | 15 SSM + 15 MoE | **79.4 tok/s** |
+| BlackMamba 2.8B | 18 SSM + 18 MoE | **46.1 tok/s** |
 | ZR1 1.5B (Q4_K) | Dense transformer | **~30 tok/s** (Vulkan) |
 | Prefill GEMV | 2560×6912 INT8 | **41.45 TFLOPS** |
 | KV cache FD | L=2048 | **57.1 GB/s** (12.7× vs FP16) |

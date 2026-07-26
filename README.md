@@ -22,7 +22,7 @@
 **A single in-process engine unifies NPU + GPU + CPU inference — no external inference subprocess, no proprietary runtime. The `zaya_server`, `unified_server`, `onebit` CLI and `onebitd` daemon are thin front-ends over that one shared engine. C++23, zero Python at runtime.**
 
 **Platform support:**
-- **AMD Strix Halo** — XDNA 2 NPU (97 tok/s) + ROCm HIP GPU (113 tok/s)
+- **AMD Strix Halo** — XDNA 2 NPU (97 tok/s) + ROCm HIP GPU (79 tok/s BlackMamba 1.5B)
 - **NVIDIA GPU** — CUDA backend (sm_70+, compute capability 7.0+)
 - **Apple Silicon** — Metal GPU backend (M1/M2/M3/M4, macOS 14+)
 - **Any Vulkan 1.2+** — Portable GPU backend
@@ -36,8 +36,8 @@
 |-------|--------|------|:--------:|:--------:|
 | **Zaya1-8B** | Zyphra | MoE (16-expert) | **~64 tok/s** ✅ | [🤗 HF](https://huggingface.co/bong-water-water-bong/ZAYA1-8B-1BP) |
 | **ZAYA1-VL-8B** | Zyphra | Vision-Language · ViT-L + MoE | **Vision + Text** 🆕 | [🤗 HF](https://huggingface.co/bong-water-water-bong/ZAYA1-8B-1BP) |
-| **BlackMamba-1.5B** | Zyphra | Mamba1 · MoE | **79.8 tok/s** ✅ | [🤗 HF](https://huggingface.co/bong-water-water-bong/BlackMamba-1.5B-1BP) |
-| **BlackMamba-2.8B** | Zyphra | Mamba1 · MoE | **46.4 tok/s** ✅ | [🤗 HF](https://huggingface.co/bong-water-water-bong/BlackMamba-2.8B-1BP) |
+| **BlackMamba-1.5B** | Zyphra | Mamba1 · MoE | **79.4 tok/s** ✅ | [🤗 HF](https://huggingface.co/bong-water-water-bong/BlackMamba-1.5B-1BP) |
+| **BlackMamba-2.8B** | Zyphra | Mamba1 · MoE | **46.0 tok/s** ✅ | [🤗 HF](https://huggingface.co/bong-water-water-bong/BlackMamba-2.8B-1BP) |
 | **Zamba2-2.7B** | Zyphra | Mamba2-hybrid | **~30 tok/s** ✅ | [🤗 HF](https://huggingface.co/bong-water-water-bong/Zamba2-2.7B-Instruct-v2-1BP) |
 | **ZR1-1.5B** | Zyphra | Dense · reasoning | **26 tok/s** (ZINC GPU) ✅ | [🤗 HF](https://huggingface.co/bong-water-water-bong/ZR1-1.5B-1BP) |
 | **Bonsai-1.7B** | Deepgrove | Ternary TQ2 (2-bit) | 21.9 tok/s | [🤗 HF](https://huggingface.co/bong-water-water-bong/Bonsai-1.7B-TQ2-1BP) |
@@ -58,7 +58,7 @@ The format exists because every model format the project ingests (GGUF, ONNX, sa
 
 **Find pre-converted 1BP models at [1bit.systems/models](https://1bit.systems/models)** — Zamba2, ZR1, BlackMamba, and community-submitted conversions.
 
-**AMD shipped the NPU locked. We unlocked it in 4 days** — no docs, no NDAs, just a laptop and a disassembler. FastFlowLM, AMD's closed-source NPU inference engine, was fully reverse-engineered and replaced with a native open-source stack; the project's own NPU engine (`engine/npu/`, `npu_engine_universal`) now dispatches directly via XRT. Full numbers in [FastFlowLM Decode](#fastflowlm-decode) below. Then we kept going: Mamba1 GPU kernels (79.8 tok/s on BlackMamba), Vulkan flash attention, model-agnostic GGUF routing, and a self-healing agent watchdog — 1800+ hours of engineering across all of it. One binary, all backends, zero Python.
+**AMD shipped the NPU locked. We unlocked it in 4 days** — no docs, no NDAs, just a laptop and a disassembler. FastFlowLM, AMD's closed-source NPU inference engine, was fully reverse-engineered and replaced with a native open-source stack; the project's own NPU engine (`engine/npu/`, `npu_engine_universal`) now dispatches directly via XRT. Full numbers in [FastFlowLM Decode](#fastflowlm-decode) below. Then we kept going: Mamba1 GPU kernels (79.4 tok/s on BlackMamba), Vulkan flash attention, model-agnostic GGUF routing, and a self-healing agent watchdog — 1800+ hours of engineering across all of it. One binary, all backends, zero Python.
 
 Model-agnostic end to end: the engine auto-detects architecture and quantization from the model header — no config files, no model registry, no per-model glue code. It reads **GGUF** and **ONNX** directly, speaks FastFlowLM's own **Q4NX** tiled layout natively, and ships **1BP** — this project's own single-file format (256-byte header + tensor index + memory-mappable Q4NX-tiled weights, zero external config.json).
 
@@ -83,15 +83,15 @@ Model-agnostic end to end: the engine auto-detects architecture and quantization
 | GPU ternary | **318 tok/s** | Vulkan ZINC |
 | TQ2 GEMV | **367 tok/s** | ROCm HIP |
 | NPU v12 | **97 tok/s** | XDNA 2 (32 tiles) |
-| Prefill | **43.44 TFLOPS** | INT8 WMMA |
+| Prefill | **40.5 TFLOPS** | INT8 WMMA |
 | ROCm HIP | **64 tok/s** | ROCm HIP (kernels) |
 
 ### 🏁 End-to-End Inference (real model, real prompts)
 
 | Benchmark | Value | Backend | Notes |
 |-----------|:-----:|---------|-------|
-| BlackMamba 1.5B | **79.8 tok/s** | Mamba1 HIP (Strix Halo) | Full decode, ROCm HIP, alternating SSM/MoE dispatch |
-| BlackMamba 2.8B | **46.4 tok/s** | Mamba1 HIP (Strix Halo) | Full decode, ROCm HIP, alternating SSM/MoE dispatch |
+| BlackMamba 1.5B | **79.4 tok/s** | Mamba1 HIP (Strix Halo) | Full decode, ROCm HIP, alternating SSM/MoE dispatch |
+| BlackMamba 2.8B | **46.0 tok/s** | Mamba1 HIP (Strix Halo) | Full decode, ROCm HIP, alternating SSM/MoE dispatch |
 | zaya_server (Qwen 27B Q4_K) | **30 tok/s** | ROCm HIP | Full decode, speculative MTP, Strix Halo |
 | zaya_server (Qwen 35B MoE Q4_K) | **20 tok/s** | ROCm HIP | Full decode, speculative MTP, Strix Halo |
 | llama.cpp ROCm (PrismML) | **229 tok/s** | PrismML on same hardware | See [issue #235](https://github.com/bong-water-water-bong/1bit-systems/issues/235) |
@@ -169,7 +169,7 @@ Build note: the root `CMakeLists.txt` builds `src/`, `kernels/`, `include/`, `to
 
 ### Backends
 
-- **Mamba1 GPU** — Radeon 8060S via ROCm HIP. Alternating SSM + MoE layers (BlackMamba architecture). **79.8 tok/s** (1.5B).
+- **Mamba1 GPU** — Radeon 8060S via ROCm HIP. Alternating SSM + MoE layers (BlackMamba architecture). **79.4 tok/s** (1.5B).
 - **NPU** — XDNA 2 (32 tiles), fully in-process via `npu_engine_universal` (XRT-based, C++23). Runs GGUF/Q4NX/1BP models directly — no FastFlowLM subprocess, no closed-source dependency. Instruction sequences and GEMM/MHA dispatch were reverse-engineered from FLM's 22 `.so` libraries; xclbin bitstreams are rebuilt from AIE generators via `aiecc`/Chess (AMD Xilinx IP). See [`docs/fastflowlm-decode/SUMMARY.md`](docs/fastflowlm-decode/SUMMARY.md).
 - **GPU (ZINC)** — Radeon 8060S via Vulkan SPIR-V (GGUF/H1B models, multi-arch)
 - **GPU (HIP)** — ROCm HIP for Zaya-style models
@@ -200,12 +200,12 @@ Zaya1's maker, Zyphra, publishes several other architecturally distinct model li
 | [Zamba2-2.7B-Instruct-v2](https://huggingface.co/bong-water-water-bong/Zamba2-2.7B-Instruct-v2-1BP) | 2.7B | Mamba2-hybrid | **1BP** | ✅ |
 | [Zamba2-7B-Instruct-v2](https://huggingface.co/bong-water-water-bong/Zamba2-7B-Instruct-v2-1BP) | 7B | Mamba2-hybrid | **1BP** | ✅ |
 | [ZR1-1.5B](https://huggingface.co/bong-water-water-bong/ZR1-1.5B-1BP) | 1.5B | Dense transformer (Qwen2 arch), reasoning-tuned | **1BP** | ✅ **26 tok/s (ZINC GPU)** |
-| [BlackMamba-1.5B](https://huggingface.co/bong-water-water-bong/BlackMamba-1.5B-1BP) | 1.5B | Mamba1 + top-1 MoE (no attention at all) | **1BP** | ✅ **79.8 tok/s** |
-| [BlackMamba-2.8B](https://huggingface.co/bong-water-water-bong/BlackMamba-2.8B-1BP) | 2.8B | Mamba1 + top-1 MoE | **1BP** | ✅ **46.4 tok/s** |
+| [BlackMamba-1.5B](https://huggingface.co/bong-water-water-bong/BlackMamba-1.5B-1BP) | 1.5B | Mamba1 + top-1 MoE (no attention at all) | **1BP** | ✅ **79.4 tok/s** |
+| [BlackMamba-2.8B](https://huggingface.co/bong-water-water-bong/BlackMamba-2.8B-1BP) | 2.8B | Mamba1 + top-1 MoE | **1BP** | ✅ **46.0 tok/s** |
 
 Each converted from a Q8_0/BF16 source (not a 4-bit GGUF) to avoid compounding quantization error through a second 4-bit pass, then structurally and numerically verified the same way as the Zaya1 conversions.
 
-> **On-device validation — Strix Halo (Radeon 8060S, gfx1151):** **BlackMamba-1.5B 79.8 tok/s** / **2.8B 46.4 tok/s** on the Mamba1 HIP backend (matches [`site/benchmarks.json`](site/benchmarks.json)). **Dense GPU inference is live**: **ZR1-1.5B (Qwen2) runs on the native C++ ZINC Vulkan backend at ~26 tok/s** and matches the CPU reference **token-for-token** ([#844](https://github.com/bong-water-water-bong/1bit-systems/issues/844) — closed). ZINC is enabled by default for the architectures it computes correctly (llama/mistral/qwen2) and falls back to the exact `cpu_generic` path otherwise; `ZINC_DISABLE=1` forces HIP/CPU. The engine is also **crash-hardened** — a backend that fails to initialize fails over to CPU/HIP instead of taking the server down.
+> **On-device validation — Strix Halo (Radeon 8060S, gfx1151):** **BlackMamba-1.5B 79.4 tok/s** / **2.8B 46.0 tok/s** on the Mamba1 HIP backend (re-validated 2026-07-26, 3-run average). **Dense GPU inference is live**: **ZR1-1.5B (Qwen2) runs on the native C++ ZINC Vulkan backend at ~26 tok/s** and matches the CPU reference **token-for-token** ([#844](https://github.com/bong-water-water-bong/1bit-systems/issues/844) — closed). ZINC is enabled by default for the architectures it computes correctly (llama/mistral/qwen2) and falls back to the exact `cpu_generic` path otherwise; `ZINC_DISABLE=1` forces HIP/CPU. The engine is also **crash-hardened** — a backend that fails to initialize fails over to HIP/CPU instead of taking the server down.
 
 **BlackMamba required a from-scratch converter** — no upstream GGUF export exists for this architecture, and it predates the architecture support standard converters have. The one-time bootstrap conversion shipped with three real correctness bugs on the first pass (wrong Q4_0 nibble encoding, a conv1d weight reshape that silently scrambled channel/kernel-tap pairing, and a dropped MoE router bias), all found and fixed by cross-checking against the in-tree C++ reference (`tools/blackmamba_cpu_reference.cpp`) and the official Zyphra implementation — see the model cards on Hugging Face for the full writeup. The resulting weights are what `gguf_to_onebp` now ingests directly.
 

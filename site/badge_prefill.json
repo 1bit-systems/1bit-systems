@@ -1,7 +1,7 @@
 {
- "schemaVersion": 1,
- "label": "Prefill",
- "message": "43.44 TFLOPS",
- "color": "00ff00",
- "style": "flat-square"
+  "schemaVersion": 1,
+  "label": "Prefill",
+  "message": "40.5 TFLOPS",
+  "color": "00ff00",
+  "style": "flat-square"
 }

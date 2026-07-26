@@ -1,7 +1,7 @@
 {
   "_warning": "Manually maintained. Run tools/gen_numbers.py (if available) to regenerate.",
   "_missing": [],
-  "_benchmarks_remeasured": "2026-07-24, median of 3 runs on this box's real gfx1151 hardware (bench_sherry, bench_prefill_variants) — see _sources for the exact commands.",
+  "_benchmarks_remeasured": "2026-07-24, median of 3 runs on this box's real gfx1151 hardware (bench_sherry, bench_prefill_variants) \u2014 see _sources for the exact commands.",
   "binary": {
     "zaya_bytes": 1165080,
     "zaya_kb": 1138,
@@ -18,10 +18,10 @@
   "benchmarks": {
     "halo_gemv_gbps": 171.9,
     "prefill_tflops_4h": 31.22,
-    "prefill_tflops_i8apre": 43.44,
+    "prefill_tflops_i8apre": 40.5,
     "sherry_gemv_gbps": 157.2,
     "tq1_gemv_gbps": 201.4,
-    "tflops": 43.44
+    "tflops": 40.5
   },
   "_sources": {
     "halo_gemv_gbps": "bench_sherry -- halo baseline kernel",
@@ -42,5 +42,9 @@
   "site": {
     "backends": 9,
     "models": 40
-  }
+  },
+  "prefill_tflops_i8apre": 40.5,
+  "tflops": 40.5,
+  "blackmamba_1_5b_tok_s": 79.4,
+  "blackmamba_2_8b_tok_s": 46.0
 }
