@@ -9,26 +9,38 @@ permissions: {}
 
 jobs:
   server:
-    name: Build release (C++ HIP kernels + server + CLI)
+    name: Build release (C++ HIP kernels + server + CLI) — TheRock 7.15.0a
     runs-on: ubuntu-24.04
-    container: rocm/dev-ubuntu-24.04:7.2.4-complete   # TheRock 7.15.0a compat image
-    timeout-minutes: 60
+    container: rocm/dev-ubuntu-24.04:7.2.4-complete
+    timeout-minutes: 90
     permissions:
       contents: write
+    defaults:
+      run:
+        shell: bash -leo pipefail {0}
     steps:
-      # The stock ubuntu-24.04 runner's apt ROCm 7.2 repo is broken on noble
-      # (rocm-dev/hip-dev/composablekernel-dev all hit "held broken packages" — #100),
-      # so the release builds inside the official AMD ROCm image instead. That
-      # image ships /opt/rocm (HIP + amdclang), which CMakeLists.txt auto-detects
-      # via its system-ROCm fallback. No apt ROCm install => no conflict.
-      # CK is optional in the build (skips ck_gemm.cpp if composable_kernel not found).
-      - name: Install build tools (git cmake ninja)
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Install build tools + TheRock nightly ROCm
         run: |
           apt-get update -qq
-          apt-get install -y -qq git cmake ninja-build build-essential libvulkan-dev uuid-dev
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
-      - name: Build all C++ targets (HIP kernels + servers + CLI)
+          apt-get install -y -qq git cmake ninja-build build-essential \
+            libvulkan-dev uuid-dev python3-pip python3-venv
+
+          # Install TheRock nightly ROCm SDK (AMD's C++ toolchain for Strix Halo)
+          # This replaces the system ROCm at /opt/rocm with TheRock 7.15.0a
+          # at /opt/rocm-therock. CMakeLists.txt auto-detects /opt/rocm-therock
+          # before falling back to system ROCm.
+          python3 -m venv /opt/rocm-therock
+          /opt/rocm-therock/bin/pip install \
+            "rocm[libraries,devel,device-gfx1151]" \
+            --index-url https://rocm.nightlies.amd.com/whl-multi-arch/
+          /opt/rocm-therock/bin/rocm-sdk init
+
+      - name: Build all C++ targets (TheRock 7.15.0a HIP kernels + servers + CLI)
         run: |
+          # TheRock's activation script sets PATH, ROCM_PATH, HIP_PATH etc.
+          source /opt/rocm-therock/activate.sh
           cmake -B build -G Ninja -DCMAKE_HIP_ARCHITECTURES=gfx1151
           # Build the core library, inference servers, and all new C++ tools
           ninja -C build \
@@ -104,7 +116,7 @@ jobs:
 
             ### Requires
             - AMD Strix Halo (gfx1151)
-            - ROCm 7.2+ runtime (libhsa-runtime64) on the target machine
+            - ROCm 7.15.0a runtime (libhsa-runtime64) — TheRock nightly C++ SDK
             - A model file (.h1b, .q4nx, .gguf)
 
             ### Quick Start
