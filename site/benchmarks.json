@@ -42,9 +42,9 @@
       "notes": "Isolated GEMV throughput, correctness-verified bit-exact vs CPU reference \u2014 not an end-to-end decode measurement on a loaded model. See _updated_note."
     },
     "npu_v12": {
-      "tok_s": 97,
+      "tok_s": 69,
       "status": "optimized",
-      "label": "NPU v12 (69 tok/s \u2014 BS=64, memset+isfinite removal)",
+      "label": "NPU v12 (69 tok/s \u2014 Qwen3-0.6B, re-measured 2026-07-12)",
       "table": "kernel",
       "display_name": "NPU v12",
       "backend": "XDNA 2 (32 tiles)"
@@ -78,10 +78,10 @@
       "label": "Zaya pure C++ server"
     },
     "prefill_i8": {
-      "tok_s": 40.5,
-      "TFLOPS": 40.5,
+      "tok_s": 39.4,
+      "TFLOPS": 39.4,
       "status": "re-validated 2026-07-26",
-      "label": "Prefill INT8 WMMA (28-layer synthetic)",
+      "label": "Prefill INT8 WMMA (39.4 TFLOPS, I8-APRE winner)",
       "table": "kernel",
       "display_name": "Prefill",
       "backend": "INT8 WMMA",

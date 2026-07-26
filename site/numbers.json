@@ -18,10 +18,10 @@
   "benchmarks": {
     "halo_gemv_gbps": 171.9,
     "prefill_tflops_4h": 31.22,
-    "prefill_tflops_i8apre": 40.5,
+    "prefill_tflops_i8apre": 39.4,
     "sherry_gemv_gbps": 157.2,
     "tq1_gemv_gbps": 201.4,
-    "tflops": 40.5
+    "tflops": 39.4
   },
   "_sources": {
     "halo_gemv_gbps": "bench_sherry -- halo baseline kernel",
