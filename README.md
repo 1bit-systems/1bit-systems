@@ -19,16 +19,39 @@
 
 **[🌐 Website](https://1bit.systems)** · **[🤗 1BP Models](https://huggingface.co/bong-water-water-bong)** · **[📚 Docs](docs/README.md)** · **[🛠️ Journey](docs/journey.md)** · **[📊 Benchmarks](docs/wiki/performance.md)** · **[🗺️ Roadmap](ROADMAP.md)**
 
-**1bit** is an open-source, model-agnostic C++23 inference engine for running large language models on **AMD Strix Halo** (XDNA 2 NPU, RDNA 3.5 GPU), NVIDIA GPUs (CUDA), Apple Silicon (Metal), and any Vulkan 1.2+ device — all from a **single in-process binary with zero Python at runtime**. It reads **GGUF**, **ONNX**, and the native **1BP** ternary format (TQ2 2-bit quantization) with automatic architecture detection — no config files, no model registry, no per-model glue code. Fully open-source under **MIT license**. 17 model architectures supported, 35+ models.
+**1bit** is an open-source, model-agnostic C++23 inference engine for running large language models on **AMD Strix Halo** (XDNA 2 NPU, RDNA 3.5 GPU), NVIDIA GPUs (CUDA), Apple Silicon (Metal), and any Vulkan 1.2+ device — all from a **single in-process binary with zero Python at runtime**. It reads **GGUF**, **ONNX**, and the native **1BP** ternary format (TQ2 2-bit quantization) with automatic architecture detection — no config files, no model registry, no per-model glue code. Fully open-source under **MIT license**. 17 model architectures supported, 40+ models.
+
+## 🗺️ Repo Map
+
+| Path | What |
+|------|------|
+| [`src/`](src/) | Engine source — loaders, backends, server, CLI |
+| [`engine/npu/`](engine/npu/) | XDNA 2 NPU engine — XRT-based, no proprietary code |
+| [`site/`](site/) | Website — static Cloudflare Pages, `1bit.systems` |
+| [`docs/`](docs/) | Full documentation — architecture, journey, benchmarks |
+| [`docs/journey.md`](docs/journey.md) | ⭐ **The Reverse-Engineering Story** — 4 days to unlock the NPU |
+| [`docs/fastflowlm-decode/`](docs/fastflowlm-decode/) | FastFlowLM reverse-engineering analysis (22 `.so` → open source) |
+| [`models/catalog/`](models/catalog/) | Model family catalog — all 40 supported models |
+| [`kernels/`](kernels/) | GPU/CPU compute kernels — HIP, Vulkan, scalar |
+| [`benchmarks/`](benchmarks/) | Benchmarking tools and harnesses |
+| [`packaging/`](packaging/) | deb, snap, AppImage, Homebrew, AUR, Docker |
+| [`hackathon/`](hackathon/) | AMD Radeon Hackathon 2026 submission |
+| [`skills/`](skills/) | AI agent skill definitions |
+
+> **Legend**: 📦 current code · 📜 historical archive · ⭐ start here for the story
+
+---
 
 **A single in-process engine unifies NPU + GPU + CPU inference — no external inference subprocess, no proprietary runtime. The `zaya_server`, `unified_server`, `onebit` CLI and `onebitd` daemon are thin front-ends over that one shared engine. C++23, zero Python at runtime.**
 
 **Platform support:**
-- **AMD Strix Halo** — XDNA 2 NPU (97 tok/s) + ROCm HIP GPU (79 tok/s BlackMamba 1.5B)
+- **AMD Strix Halo** — XDNA 2 NPU + ROCm HIP GPU (79 tok/s BlackMamba 1.5B)
 - **NVIDIA GPU** — CUDA backend (sm_70+, compute capability 7.0+)
 - **Apple Silicon** — Metal GPU backend (M1/M2/M3/M4, macOS 14+)
 - **Any Vulkan 1.2+** — Portable GPU backend
 - **CPU** — Generic C++23 fallback (no GPU required)
+
+> **Data note**: Per-backend tok/s figures are published with sources and honesty flags in [`docs/wiki/performance.md`](docs/wiki/performance.md). The NPU v12 engine was measured at 97 tok/s (pre-GGUF-dequant-fix) — that number is directionally right but pending re-verification after the 2026-07-19 correctness fixes. Mamba1 GPU numbers (79.4 tok/s) are current and re-validated 2026-07-26.
 
 **17 architectures · 35+ models** — see [`models/catalog/README.md`](models/catalog/README.md) for the full list.
 
@@ -60,7 +83,7 @@ The format exists because every model format the project ingests (GGUF, ONNX, sa
 
 **Find pre-converted 1BP models at [1bit.systems/models](https://1bit.systems/models)** — Zamba2, ZR1, BlackMamba, and community-submitted conversions.
 
-**AMD shipped the NPU locked. We unlocked it in 4 days** — no docs, no NDAs, just a laptop and a disassembler. FastFlowLM, AMD's closed-source NPU inference engine, was fully reverse-engineered and replaced with a native open-source stack; the project's own NPU engine (`engine/npu/`, `npu_engine_universal`) now dispatches directly via XRT. Full numbers in [FastFlowLM Decode](#fastflowlm-decode) below. Then we kept going: Mamba1 GPU kernels (79.4 tok/s on BlackMamba), Vulkan flash attention, model-agnostic GGUF routing, and a self-healing agent watchdog — 1800+ hours of engineering across all of it. One binary, all backends, zero Python.
+**AMD shipped the NPU locked. We unlocked it in 4 days** — no docs, no NDAs, just a laptop and a disassembler. FastFlowLM, AMD's closed-source NPU inference engine, was fully reverse-engineered and replaced with a native open-source stack; the project's own NPU engine (`engine/npu/`, `npu_engine_universal`) now dispatches directly via XRT. Full numbers in [How We Got Here](#-how-we-got-here--reverse-engineering-the-xdna-2-npu) below. Then we kept going: Mamba1 GPU kernels (79.4 tok/s on BlackMamba), Vulkan flash attention, model-agnostic GGUF routing, and a self-healing agent watchdog — 1800+ hours of engineering across all of it. One binary, all backends, zero Python.
 
 Model-agnostic end to end: the engine auto-detects architecture and quantization from the model header — no config files, no model registry, no per-model glue code. It reads **GGUF** and **ONNX** directly, speaks FastFlowLM's own **Q4NX** tiled layout natively, and ships **1BP** — this project's own single-file format (256-byte header + tensor index + memory-mappable Q4NX-tiled weights, zero external config.json).
 
@@ -215,6 +238,14 @@ Each converted from a Q8_0/BF16 source (not a 4-bit GGUF) to avoid compounding q
 
 **Vision-language is now supported**: ZAYA1-VL-8B — a real vision-language model combining a SigLIP ViT vision encoder with the Zaya1-8B MoE text decoder. The vision tower (24-layer ViT, fused QKV, Q8_0 quant) and connector (QWEN2_MERGER-style projector) are handled by the new `vision_encoder` library — pure C++, no Python, no OpenCV. The converter now preserves vision weights in 1BP files with full tensor metadata. See [`include/vision_encoder.h`](include/vision_encoder.h) and [`tools/zaya1_vl_demo.cpp`](tools/zaya1_vl_demo.cpp).
 
+### ⚠️ Data Clarity
+
+> **Current (re-validated 2026-07-26):** BlackMamba-1.5B 79.4 tok/s, BlackMamba-2.8B 46.0 tok/s, ZR1-1.5B 26 tok/s (ZINC GPU) — all verified end-to-end. See model cards above.
+>
+> **Directional (needs re-measure):** NPU numbers below were measured before the 2026-07-19 GGUF dequant correctness fixes. They're directionally right but not re-verified. See [`docs/wiki/performance.md`](docs/wiki/performance.md).
+>
+> **Disproven:** 572 tok/s DSpark speculative decoding — the checkpoint was undertrained. See [issue discussion](https://github.com/bong-water-water-bong/1bit-systems/issues/235).
+
 ### 🏆 Top 5 — Raw NPU Engine, No FLM (single binary, auto-detected)
 
 *From [`engine/npu/BENCHMARKS.md`](engine/npu/BENCHMARKS.md), measured 2026-07-03/07-12 — predates the 2026-07-19 GGUF dequant correctness fixes (Q2_K/Q3_K/Q5_K, RoPE, dtype enums), so treat as directionally right pending re-measurement, not re-verified today.*
@@ -249,9 +280,9 @@ Convert another ternary-native model the same way: `./build/gguf_to_onebp model.
 
 ---
 
-## FastFlowLM Decode
+## 📜 How We Got Here — Reverse Engineering the XDNA 2 NPU
 
-FastFlowLM (AMD's closed-source XDNA 2 inference engine) is fully reverse-engineered and replaced as of 2026-07-19.
+This project started with a laptop, a disassembler, and no docs. AMD shipped the Ryzen AI Max+ 395 with a 50 TOPS XDNA 2 NPU locked behind a closed-source runtime (FastFlowLM) — 22 proprietary `.so` files, 209 xclbin bitstreams, zero documentation. **We reverse-engineered the entire stack in 4 days and replaced it with open-source code.**
 
 | Component | Before (closed) | After (open) |
 |-----------|:----------------:|:------------:|
@@ -260,9 +291,15 @@ FastFlowLM (AMD's closed-source XDNA 2 inference engine) is fully reverse-engine
 | FPGA bitstreams | 209 `.xclbin` files | 63 rebuilt from AIE generators |
 | Toolchain | AMD Xilinx IP | `aiecc` + Chess/AMD Xilinx IP |
 
-Build pipeline: Python AIE kernel generator → MLIR → `aiecc` + Chess → `.xclbin`.
+The key finding: the `.so` files were NPU instruction **sequence generators**, not compute kernels — the actual computation lives entirely in the `.xclbin` FPGA bitstreams. Both layers are now fully rebuildable from source.
 
-The key finding: the `.so` files were NPU instruction **sequence generators**, not compute kernels — the actual computation lives entirely in the `.xclbin` FPGA bitstreams. Both layers are now fully rebuildable from source. Full writeup: [`docs/fastflowlm-decode/SUMMARY.md`](docs/fastflowlm-decode/SUMMARY.md) · reverse-engineering detail: [`fastflowlm_analysis/`](fastflowlm_analysis/).
+> **Read the full 1800+ line journey** → [`docs/journey.md`](docs/journey.md) — every crash, breakthrough, and bug documented in real-time.
+>
+> **Technical reverse-engineering report** → [`docs/fastflowlm-decode/SUMMARY.md`](docs/fastflowlm-decode/SUMMARY.md)
+>
+> **Raw analysis** → [`fastflowlm_analysis/`](fastflowlm_analysis/) — binary analysis, xclbin captures, instruction traces
+
+Since then: Mamba1 GPU backend (79.4 tok/s), Vulkan flash attention, model-agnostic GGUF routing, TQ2 ternary format, vision-language support, and a self-healing agent watchdog — **1800+ hours of engineering, all open source, MIT.**
 
 ---
 
