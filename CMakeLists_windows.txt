@@ -86,26 +86,21 @@ set(BASE_INCLUDES
 add_library(gguf_reader STATIC
     ${SRC_DIR}/gguf_reader.cpp)
 target_include_directories(gguf_reader PUBLIC ${INCLUDE_DIR})
-target_compile_options(gguf_reader PRIVATE /O2 /std:c++23)
+target_compile_options(gguf_reader PRIVATE /O2)
 
 # ── libvl_image : image loading (stb_image) ──
-add_library(vl_image STATIC
-    ${SRC_DIR}/vl_processor.cpp)
-target_include_directories(vl_image PUBLIC ${INCLUDE_DIR})
-target_compile_options(vl_image PRIVATE /O2 /std:c++23)
+# vl_image excluded on Windows — uses POSIX fork/pipe/exec for curl image download
+# add_library(vl_image STATIC ...)
 
 # ── libvision_encoder : ViT encoder ──
-add_library(vision_encoder STATIC
-    ${SRC_DIR}/vision_encoder.cpp)
-target_include_directories(vision_encoder PUBLIC ${INCLUDE_DIR})
-target_compile_options(vision_encoder PRIVATE /O2 /std:c++23)
-target_link_libraries(vision_encoder PUBLIC vl_image)
+# vision_encoder excluded on Windows — depends on vl_image
+# add_library(vision_encoder STATIC ...)
 
 # ── libwhisper (CPU) ──
 add_library(whisper STATIC
     ${SRC_DIR}/whisper.cpp)
 target_include_directories(whisper PUBLIC ${INCLUDE_DIR})
-target_compile_options(whisper PRIVATE /O2 /std:c++23)
+target_compile_options(whisper PRIVATE /O2)
 
 # ── libbackend_manager (CPU + Vulkan backends, Windows portable subset) ──
 # Only includes sources with no POSIX/HIP/ROCm dependencies.
@@ -124,7 +119,7 @@ set(BACKEND_MANAGER_SOURCES
     ${SRC_DIR}/simple_tokenizer.cpp
     ${SRC_DIR}/q4nx_reader.cpp
     ${SRC_DIR}/safetensors_reader.cpp
-    ${SRC_DIR}/model_discovery.cpp
+    # model_discovery.cpp excluded — uses POSIX dirent.h for directory traversal
     ${SRC_DIR}/model_router.cpp
     ${SRC_DIR}/tokenizer.cpp
     ${SRC_DIR}/kv_rotorquant.cpp
@@ -134,7 +129,7 @@ add_library(backend_manager STATIC ${BACKEND_MANAGER_SOURCES})
 target_include_directories(backend_manager PUBLIC
     ${INCLUDE_DIR}
     ${SRC_DIR})
-target_compile_options(backend_manager PRIVATE /O2 /std:c++23)
+target_compile_options(backend_manager PRIVATE /O2)
 target_link_libraries(backend_manager PUBLIC gguf_reader)
 
 # OpenMP for CPU decode parallelization
@@ -158,14 +153,14 @@ add_executable(gguf_to_onebp
     ${REPO_ROOT}/tools/gguf_to_onebp.cpp)
 target_include_directories(gguf_to_onebp PRIVATE ${INCLUDE_DIR})
 target_link_libraries(gguf_to_onebp PRIVATE gguf_reader)
-target_compile_options(gguf_to_onebp PRIVATE /O2 /std:c++23)
+target_compile_options(gguf_to_onebp PRIVATE /O2)
 
 # unified_server : HTTP inference server
 add_executable(unified_server
     ${REPO_ROOT}/tools/unified_server.cpp)
 target_include_directories(unified_server PRIVATE ${BASE_INCLUDES})
 target_link_libraries(unified_server PRIVATE backend_manager gguf_reader)
-target_compile_options(unified_server PRIVATE /O2 /std:c++23)
+target_compile_options(unified_server PRIVATE /O2)
 
 # ── Tests (key validation tests, CPU-only) ──
 enable_testing()
@@ -174,7 +169,7 @@ add_executable(test_gguf_reader_dequant
     ${REPO_ROOT}/tests/test_gguf_reader_dequant.cpp)
 target_include_directories(test_gguf_reader_dequant PRIVATE ${INCLUDE_DIR})
 target_link_libraries(test_gguf_reader_dequant PRIVATE gguf_reader)
-target_compile_options(test_gguf_reader_dequant PRIVATE /O2 /std:c++23)
+target_compile_options(test_gguf_reader_dequant PRIVATE /O2)
 
 add_test(NAME gguf_reader_dequant COMMAND test_gguf_reader_dequant)
 
@@ -193,7 +188,7 @@ set(CPACK_ARCHIVE_COMPONENT_INSTALL ON)
 install(TARGETS unified_server gguf_to_onebp
     RUNTIME DESTINATION bin
     COMPONENT Runtime)
-install(TARGETS backend_manager gguf_reader vl_image vision_encoder whisper
+install(TARGETS backend_manager gguf_reader whisper
     ARCHIVE DESTINATION lib
     COMPONENT Runtime)
 install(FILES ${REPO_ROOT}/LICENSE
