@@ -357,9 +357,19 @@ bool BackendManager::init_in_order(const ModelConfig& cfg, const std::string& we
             if (pm) pm->healthy = true;
 
             // Initialize cross-layer prefetch pilot
-            // NOTE: Disabled pending investigation of heap corruption (issue #932).
-            // The worker thread calling preload_layer() may race with httplib
-            // completion handlers. Re-enable when the root cause is found.
+            // NOTE: Disabled — issue #932 (the original reason cited here) turned
+            // out to be an unrelated nlohmann::json UTF-8 serialization bug, fixed
+            // in #944 independent of PILOT. Re-investigated for #1021 and found a
+            // real, still-open hazard instead: PILOT's worker thread captures
+            // `raw` (this backend instance) and runs independently of
+            // BackendManager's mutexes. unified_server.cpp supports live model
+            // reload (mgr.init() called again on an already-running
+            // BackendManager, see tools/unified_server.cpp:125) — a reload
+            // replaces info.instance (destroying the old backend) with no
+            // coordination with PILOT's background thread, which can still be
+            // calling raw->preload_layer() on the now-freed instance. Needs
+            // pilot_.stop() (or equivalent) wired into the reload path in
+            // BackendManager::init()/init_in_order() before re-enabling this.
             // if (raw) {
             //     raw->set_pilot(&pilot_);
             //     pilot_.init(cfg.num_layers, info.type,
