@@ -320,6 +320,19 @@ bool BackendManager::init(const ModelConfig& cfg, const std::string& weights_dir
 
 bool BackendManager::init_in_order(const ModelConfig& cfg, const std::string& weights_dir,
                                     const std::vector<size_t>& order) {
+    // Model reload safety (#1021): unified_server can call init()/init_in_order()
+    // again on an already-running BackendManager to reload/switch models. That
+    // replaces info.instance below, destroying the previous backend instance.
+    // PILOT's worker thread holds a raw pointer to whichever instance was active
+    // when it started and calls preload_layer() on it independent of mtx_ (which
+    // this function's caller already holds, but the worker thread doesn't need
+    // it). Stop the worker BEFORE any instance gets replaced, or a reload racing
+    // the worker thread is a use-after-free.
+    if (pilot_active_) {
+        pilot_.stop();
+        pilot_active_ = false;
+    }
+
     // Try each backend in the given order until one initializes.
     for (size_t idx : order) {
         auto& info = backends_[idx];
@@ -356,30 +369,25 @@ bool BackendManager::init_in_order(const ModelConfig& cfg, const std::string& we
             auto* pm = monitor_.for_backend(info.id);
             if (pm) pm->healthy = true;
 
-            // Initialize cross-layer prefetch pilot
-            // NOTE: Disabled — issue #932 (the original reason cited here) turned
-            // out to be an unrelated nlohmann::json UTF-8 serialization bug, fixed
-            // in #944 independent of PILOT. Re-investigated for #1021 and found a
-            // real, still-open hazard instead: PILOT's worker thread captures
-            // `raw` (this backend instance) and runs independently of
-            // BackendManager's mutexes. unified_server.cpp supports live model
-            // reload (mgr.init() called again on an already-running
-            // BackendManager, see tools/unified_server.cpp:125) — a reload
-            // replaces info.instance (destroying the old backend) with no
-            // coordination with PILOT's background thread, which can still be
-            // calling raw->preload_layer() on the now-freed instance. Needs
-            // pilot_.stop() (or equivalent) wired into the reload path in
-            // BackendManager::init()/init_in_order() before re-enabling this.
-            // if (raw) {
-            //     raw->set_pilot(&pilot_);
-            //     pilot_.init(cfg.num_layers, info.type,
-            //         [raw](int layer, PilotBackend pb) -> bool {
-            //             return raw->preload_layer(layer);
-            //         });
-            //     pilot_.start_worker();
-            //     pilot_active_ = true;
-            //     printf("  → PILOT prefetch active (%d layers)\n", cfg.num_layers);
-            // }
+            // Initialize cross-layer prefetch pilot (#1021).
+            // Previously disabled citing #932 (actually an unrelated JSON bug —
+            // see #944 — that never touched PILOT). Re-investigated: the real
+            // hazard was a reload racing PILOT's worker thread against
+            // info.instance being replaced/destroyed. Fixed above — this
+            // function stops any running pilot worker before touching any
+            // backend instance, so `raw` below can never outlive the worker
+            // that captured it.
+            if (raw) {
+                raw->set_pilot(&pilot_);
+                pilot_.init(cfg.num_layers, info.type,
+                    [raw](int layer, PilotBackend pb) -> bool {
+                        (void)pb;
+                        return raw->preload_layer(layer);
+                    });
+                pilot_.start_worker();
+                pilot_active_ = true;
+                printf("  → PILOT prefetch active (%d layers)\n", cfg.num_layers);
+            }
 
             return true;
         }

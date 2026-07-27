@@ -8,6 +8,7 @@
 // run on a system with ROCm/Vulkan installed.
 
 #include "backend.h"
+#include "backend_manager.h"
 #include "simple_tokenizer.h"
 #include <cstdio>
 #include <cmath>
@@ -129,6 +130,34 @@ int main(int argc, char** argv) {
         for (int t : output_tokens) printf("%d ", t);
         printf("\n");
         printf("  Text: '%s'\n", gen_text.c_str());
+    }
+
+    // ── 6. PILOT reload safety (#1021) ──
+    // BackendManager::init_in_order() must stop() any running PILOT worker
+    // before replacing a backend instance, or a reload racing the worker
+    // thread's captured raw pointer is a use-after-free. Exercise the actual
+    // race window: run forward() a few times to get PILOT's worker actively
+    // preloading, then immediately reload (init() again) while it's live.
+    printf("\n─━─━─ 6. PILOT reload safety (#1021) ─━─━─\n");
+    {
+        auto& mgr = backend_manager();
+        mgr.discover();
+        mgr.set_strategy(SelectionStrategy::MANUAL);
+        std::vector<std::string> cpu_only = {"cpu_scalar"};
+        if (mgr.init(cfg, weights_dir, cpu_only)) {
+            printf("  ✅ first init OK\n");
+            for (int i = 0; i < 3; i++) mgr.forward(100, hidden);  // drive PILOT worker activity
+            auto t0 = std::chrono::high_resolution_clock::now();
+            bool reload_ok = mgr.init(cfg, weights_dir, cpu_only);  // reload while pilot is live
+            float reload_ms = std::chrono::duration<float, std::milli>(
+                std::chrono::high_resolution_clock::now() - t0).count();
+            printf("  %s reload while PILOT active: %.1f ms\n",
+                   reload_ok ? "✅" : "❌", reload_ms);
+            for (int i = 0; i < 3; i++) mgr.forward(100, hidden);  // still alive post-reload?
+            printf("  ✅ post-reload forward() survived — no crash, no hang\n");
+        } else {
+            printf("  ⚠️  first init failed — skipping (weights not found at %s)\n", weights_dir.c_str());
+        }
     }
 
     // ── Cleanup ──
