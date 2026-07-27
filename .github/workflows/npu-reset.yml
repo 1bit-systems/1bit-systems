@@ -1,0 +1,34 @@
+name: NPU Driver Reset + Benchmark
+on:
+  workflow_dispatch:
+jobs:
+  reset-and-bench:
+    runs-on: [self-hosted, strix-halo]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Stop services
+        run: |
+          sudo systemctl stop 1bit-systems.service 2>/dev/null || true
+          sudo systemctl stop unified-router.service 2>/dev/null || true
+          sleep 2
+      - name: Swap firmware and reload driver
+        run: |
+          sudo mv /lib/firmware/amdnpu/17f0_11/npu_7.sbin /lib/firmware/amdnpu/17f0_11/npu_7.sbin.custom 2>/dev/null || echo "already moved"
+          sudo rmmod amdxdna 2>/dev/null || true
+          sudo modprobe amdxdna
+          sleep 3
+          dmesg | tail -10
+      - name: Build engine
+        run: |
+          source env.sh
+          cmake -B build -G Ninja
+          cmake --build build --target npu_engine_universal -j$(nproc)
+        working-directory: engine/npu
+      - name: Run benchmark
+        run: |
+          timeout 120 ./engine/npu/build/npu_engine_universal /home/bcloud/.config/flm/models/Qwen3-0.6B-NPU2/model.q4nx 32 2>&1 | tee /tmp/npu_bench_result.txt
+      - name: Restore services
+        if: always()
+        run: |
+          sudo systemctl start 1bit-systems.service 2>/dev/null || true

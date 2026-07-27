@@ -98,3 +98,7 @@ packaging/deb/usr/bin/1bit-npu
 packaging/deb/usr/bin/1bit-server
 packaging/appimage/AppDir/usr/bin/1bit-engine
 .claude/
+
+# Backup xclbins (8-tile variants)
+engine/npu/xclbins/backup_8tile/
+engine/npu/xclbins/backup_8tile_insts/
