@@ -158,11 +158,37 @@ static void matmul_t(float* out, const float* in, const float* wt, int M, int K)
     }
 }
 
-[[maybe_unused]] static float cosim(const float* a, const float* b, int n) {
+#if USE_COLIBRI_Q4
+static float cosim(const float* a, const float* b, int n) {
     float d = 0, na = 0, nb = 0;
     for (int i = 0; i < n; i++) { d += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
     return d / (sqrtf(na) * sqrtf(nb) + 1e-12f);
 }
+
+// Reconstruct one row from colibri's packed int4 format (colibri_quantize_q4's
+// encoding: nibble v+8, v in [-8,7], two values per byte) for quality checks.
+static void dequant_q4_row(const uint8_t* q4, float scale, float* out, int I) {
+    for (int i = 0; i < I; i += 2) {
+        uint8_t byte = q4[i >> 1];
+        out[i] = ((int)(byte & 0x0F) - 8) * scale;
+        if (i + 1 < I) out[i + 1] = ((int)((byte >> 4) & 0x0F) - 8) * scale;
+    }
+}
+
+// Mean cosine similarity between an f32 matrix [O,I] and its already-quantized
+// int4 copy — the actual, measured quality delta USE_COLIBRI_Q4 introduces
+// (issue #1020: this backend calls itself "reference" but cosim() sat unused).
+static float cosim_q4_matrix(const float* W_f32, const uint8_t* q4,
+                              const float* scale, int O, int I) {
+    std::vector<float> row(I);
+    double sum = 0;
+    for (int o = 0; o < O; o++) {
+        dequant_q4_row(q4 + (size_t)o * ((I + 1) / 2), scale[o], row.data(), I);
+        sum += cosim(W_f32 + (size_t)o * I, row.data(), I);
+    }
+    return (float)(sum / O);
+}
+#endif
 
 // ── CCA Attention (CPU, single token) ──
 // When q4 pointers are non-null, uses int4 quantized matmuls for Q/K/V/O.
@@ -572,7 +598,9 @@ struct CPUBackend : Backend {
             q4_embed.resize((size_t)VOCAB * ((H + 1) / 2));
             q4s_embed.resize(VOCAB);
             colibri_quantize_matrix_q4(embed, q4_embed.data(), q4s_embed.data(), VOCAB, H);
-            
+            printf("CPU: embedding int4 quality (cosine similarity vs f32): %.5f\n",
+                   cosim_q4_matrix(embed, q4_embed.data(), q4s_embed.data(), VOCAB, H));
+
             bool tied = (lm_head_w == embed);
             if (!tied) {
                 q4_lm_head.resize((size_t)VOCAB * ((H + 1) / 2));
@@ -649,6 +677,21 @@ struct CPUBackend : Backend {
             colibri_quantize_matrix_q4(l.rf1, l.q4_rf1.data(), l.q4s_rf1.data(), RTR_H, RTR_H);
             colibri_quantize_matrix_q4(l.rf2, l.q4_rf2.data(), l.q4s_rf2.data(), RTR_H, RTR_H);
             colibri_quantize_matrix_q4(l.rout,l.q4_rout.data(),l.q4s_rout.data(),17,    RTR_H);
+
+            if (il == 0) {
+                // Layer 0 sample only — this loop runs per-layer and dequant+cosim
+                // over every matrix on every layer would meaningfully slow load.
+                // Enough to make the actual quality delta visible (issue #1020),
+                // not free to run unconditionally.
+                printf("CPU: layer0 int4 quality (cosine similarity vs f32): "
+                       "wq=%.5f wk=%.5f wv1=%.5f wv2=%.5f wo=%.5f gdw=%.5f\n",
+                       cosim_q4_matrix(l.wq,  l.q4_wq.data(),  l.q4s_wq.data(),  QD,   H),
+                       cosim_q4_matrix(l.wk,  l.q4_wk.data(),  l.q4s_wk.data(),  KD,   H),
+                       cosim_q4_matrix(l.wv1, l.q4_wv1.data(), l.q4s_wv1.data(), KD/2, H),
+                       cosim_q4_matrix(l.wv2, l.q4_wv2.data(), l.q4s_wv2.data(), KD/2, H),
+                       cosim_q4_matrix(l.wo,  l.q4_wo.data(),  l.q4s_wo.data(),  H,    QD),
+                       cosim_q4_matrix(l.gdw, l.q4_gdw.data(), l.q4s_gdw.data(), RTR_H, H));
+            }
 
             // Quantize MoE expert weights (from mmap'd f32)
             if (l.gu_mmap && l.dn_mmap) {
