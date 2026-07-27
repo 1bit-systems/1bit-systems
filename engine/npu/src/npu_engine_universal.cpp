@@ -452,6 +452,35 @@ int main(int argc,char**argv){
             cfg.HD = oh.head_dim; cfg.IM = oh.intermediate_size;
             cfg.NV = oh.vocab_size; cfg.GQA = cfg.NH / cfg.NKV;
             cfg.XM = 128; cfg.has_lm_head = true;
+            // The rest of ModelConfig (model_tag, xclbin_*, gu_split, has_q_norm/
+            // has_k_norm) was never populated for the onebp path — it only ever
+            // set the handful of fields above, leaving model_tag empty and every
+            // xclbin_* dimension zero. That's invisible until NPU init actually
+            // tries to open "insts_i8_QKV_.txt" (empty tag) and fails. Mirror
+            // parse_q4nx_header()'s derivation below (same formulas, sourced
+            // from the onebp header instead of Q4NX JSON tile-row counts).
+            cfg.model_tag = model_tag;
+            cfg.rope_theta = oh.rope_theta() > 0 ? oh.rope_theta() : cfg.rope_theta;
+            {
+                std::vector<float> probe;
+                cfg.has_q_norm = onebp_model.get_tensor_f32("blk.0.attn_q_norm.weight", probe);
+                cfg.has_k_norm = onebp_model.get_tensor_f32("blk.0.attn_k_norm.weight", probe);
+            }
+            cfg.qkv_k_offset = cfg.NH * cfg.HD;
+            cfg.qkv_v_offset = cfg.NH * cfg.HD + cfg.NKV * cfg.HD;
+            cfg.qkv_total = cfg.NH * cfg.HD + 2 * cfg.NKV * cfg.HD;
+            cfg.xclbin_qkv_k = cfg.H;
+            cfg.xclbin_qkv_n = cfg.qkv_total;
+            cfg.xclbin_o_k = cfg.NH * cfg.HD;
+            cfg.xclbin_o_n = cfg.H;
+            cfg.gu_split = (cfg.IM * 2 > 14336);
+            if (cfg.gu_split) {
+                cfg.xclbin_g_k = cfg.H; cfg.xclbin_g_n = cfg.IM;
+                cfg.xclbin_u_k = cfg.H; cfg.xclbin_u_n = cfg.IM;
+            } else {
+                cfg.xclbin_gu_k = cfg.H; cfg.xclbin_gu_n = cfg.IM * 2;
+            }
+            cfg.xclbin_d_k = cfg.IM; cfg.xclbin_d_n = cfg.H;
         } else
     #endif
         cfg = parse_q4nx_header(mp,model_tag.c_str());
@@ -489,6 +518,29 @@ int main(int argc,char**argv){
     // Norm weights
     std::vector<uint64_t> in_off(NC),pa_off(NC),qn_off(NC),kn_off(NC),qp(NC),kp(NC),vp(NC),op(NC),gp(NC),up(NC),dp(NC);
     char bn[128];
+    std::vector<std::vector<float>> in_n(NC),pa_n(NC),qn_w(NC),kn_w(NC);
+    std::vector<float> fin_v;
+    int q_i8=0,k_i8=0,v_i8=0,o_i8=0,g_i8=0,u_i8=0,d_i8=0;
+#ifdef ONEBP_SUPPORT
+    if (is_onebp) {
+        // Same tensors, GGUF/onebp naming (blk.N.*) instead of the HF
+        // safetensors naming (model.layers.N.*) the jo()/JSON path below
+        // uses. get_tensor_f32 dequantizes Q4NX/TQ2 internally and returns
+        // the tensor's real shape — no separate "I8 tile rows" lookup needed.
+        for (int l = 0; l < NC; l++) {
+            snprintf(bn,128,"blk.%d.attn_norm.weight",l); onebp_model.get_tensor_f32(bn, in_n[l]);
+            snprintf(bn,128,"blk.%d.ffn_norm.weight",l); onebp_model.get_tensor_f32(bn, pa_n[l]);
+            if (cfg.has_q_norm) { snprintf(bn,128,"blk.%d.attn_q_norm.weight",l); onebp_model.get_tensor_f32(bn, qn_w[l]); }
+            if (cfg.has_k_norm) { snprintf(bn,128,"blk.%d.attn_k_norm.weight",l); onebp_model.get_tensor_f32(bn, kn_w[l]); }
+        }
+        onebp_model.get_tensor_f32("output_norm.weight", fin_v);
+        std::vector<float> lm_buf;
+        if (onebp_model.get_tensor_f32("output.weight", lm_buf)) {
+            lm_head_f32 = lm_buf;
+            fprintf(stderr,"  lm_head: %zu floats (loaded from 1BP output.weight)\n",lm_buf.size());
+        }
+    } else {
+#endif
     for(int l=0;l<NC;l++){
         snprintf(bn,128,"model.layers.%d.self_attn.q_proj.weight",l);qp[l]=jo(js,jl,bn);
         snprintf(bn,128,"model.layers.%d.self_attn.k_proj.weight",l);kp[l]=jo(js,jl,bn);
@@ -503,8 +555,8 @@ int main(int argc,char**argv){
         snprintf(bn,128,"model.layers.%d.self_attn.k_norm.weight",l);kn_off[l]=jo(js,jl,bn);}
     uint64_t no=jo(js,jl,"model.norm.weight");
     uint64_t lo=jo(js,jl,"lm_head.weight");
-    std::vector<std::vector<float>> in_n(NC,std::vector<float>(H)),pa_n(NC,std::vector<float>(H)),qn_w(NC,std::vector<float>(HD)),kn_w(NC,std::vector<float>(HD));
-    std::vector<float> fin_v(H);
+    for(int l=0;l<NC;l++)in_n[l].resize(H),pa_n[l].resize(H),qn_w[l].resize(HD),kn_w[l].resize(HD);
+    fin_v.resize(H);
     for(int l=0;l<NC;l++){auto iw=(const uint16_t*)(md+df+in_off[l]),pw=(const uint16_t*)(md+df+pa_off[l]);
         for(int i=0;i<H;i++){in_n[l][i]=bf16g(iw[i]);pa_n[l][i]=bf16g(pw[i]);}
         if(cfg.has_q_norm&&qn_off[l]){auto qq=(const uint16_t*)(md+df+qn_off[l]);for(int i=0;i<HD;i++)qn_w[l][i]=bf16g(qq[i]);}
@@ -513,8 +565,8 @@ int main(int argc,char**argv){
 
     // I8 tile rows
     auto gi8=[&](const char*k)->int{int r=0;find_tensor_info(js,jl,k,&r);return r;};
-    int q_i8=gi8("model.layers.0.self_attn.q_proj.weight"),k_i8=gi8("model.layers.0.self_attn.k_proj.weight"),v_i8=gi8("model.layers.0.self_attn.v_proj.weight");
-    int o_i8=gi8("model.layers.0.self_attn.o_proj.weight"),g_i8=gi8("model.layers.0.mlp.gate_proj.weight"),u_i8=gi8("model.layers.0.mlp.up_proj.weight"),d_i8=gi8("model.layers.0.mlp.down_proj.weight");
+    q_i8=gi8("model.layers.0.self_attn.q_proj.weight");k_i8=gi8("model.layers.0.self_attn.k_proj.weight");v_i8=gi8("model.layers.0.self_attn.v_proj.weight");
+    o_i8=gi8("model.layers.0.self_attn.o_proj.weight");g_i8=gi8("model.layers.0.mlp.gate_proj.weight");u_i8=gi8("model.layers.0.mlp.up_proj.weight");d_i8=gi8("model.layers.0.mlp.down_proj.weight");
     int lm_i8=gi8("lm_head.weight");
 
     // Load lm_head.weight separately — NOT tied to embed_tokens.weight for this model
@@ -522,6 +574,9 @@ int main(int argc,char**argv){
         lm_head_f32.assign(lm_raw,lm_raw+(size_t)lr*lc);free(lm_raw);
         fprintf(stderr,"  lm_head: %dx%d (loaded from JSON), using for final logits\n",lr,lc);
     }else{fprintf(stderr,"  lm_head: dequant failed, falling back to emb\n");}}
+#ifdef ONEBP_SUPPORT
+    }
+#endif
     if(lm_head_f32.empty()){fprintf(stderr,"  lm_head: using emb_f32 (tied embeddings)\n");}
     const float* lm_emb = lm_head_f32.empty() ? emb_f32.data() : lm_head_f32.data();
 
@@ -600,14 +655,37 @@ int main(int argc,char**argv){
     const int GUOUT=IM;                   // Gate/Up: out=IM, in=H
     const int DOUT=H,DIN=IM;              // Down: out=H, in=IM — dequant needs DIN
     for(int l=0;l<NC;l++){int qr,kr,vr,unused;
-        float*qw=dequant_i8_to_float_ex(i8p(qp[l]),q_i8,H,&qr,&unused),*kw=dequant_i8_to_float_ex(i8p(kp[l]),k_i8,H,&kr,&unused),*vw=dequant_i8_to_float_ex(i8p(vp[l]),v_i8,H,&vr,&unused);
+        float*qw,*kw,*vw,*ow,*gw,*uw,*dw;
+        std::vector<float> qw_v,kw_v,vw_v,ow_v,gw_v,uw_v,dw_v;
+        int gr,ur;
+#ifdef ONEBP_SUPPORT
+        if (is_onebp) {
+            // Tensors are already correctly shaped [out_features, in_features]
+            // by construction (that's how they're stored in the 1BP tensor
+            // index) — get_tensor_f32 dequantizes Q4NX/TQ2 and hands them back
+            // as-is, no separate row-count/offset bookkeeping needed.
+            snprintf(bn,128,"blk.%d.attn_q.weight",l); onebp_model.get_tensor_f32(bn, qw_v); qw=qw_v.data();
+            snprintf(bn,128,"blk.%d.attn_k.weight",l); onebp_model.get_tensor_f32(bn, kw_v); kw=kw_v.data();
+            snprintf(bn,128,"blk.%d.attn_v.weight",l); onebp_model.get_tensor_f32(bn, vw_v); vw=vw_v.data();
+            snprintf(bn,128,"blk.%d.attn_output.weight",l); onebp_model.get_tensor_f32(bn, ow_v); ow=ow_v.data();
+            snprintf(bn,128,"blk.%d.ffn_gate.weight",l); onebp_model.get_tensor_f32(bn, gw_v); gw=gw_v.data();
+            snprintf(bn,128,"blk.%d.ffn_up.weight",l); onebp_model.get_tensor_f32(bn, uw_v); uw=uw_v.data();
+            snprintf(bn,128,"blk.%d.ffn_down.weight",l); onebp_model.get_tensor_f32(bn, dw_v); dw=dw_v.data();
+            gr = ur = GUOUT;
+        } else {
+#endif
+        qw=dequant_i8_to_float_ex(i8p(qp[l]),q_i8,H,&qr,&unused);kw=dequant_i8_to_float_ex(i8p(kp[l]),k_i8,H,&kr,&unused);vw=dequant_i8_to_float_ex(i8p(vp[l]),v_i8,H,&vr,&unused);
+        {int or2,oc2;ow=dequant_i8_to_float_ex(i8p(op[l]),o_i8,OIN,&or2,&oc2);}
+        gw=dequant_i8_to_float_ex(i8p(gp[l]),g_i8,H,&gr,&unused);uw=dequant_i8_to_float_ex(i8p(up[l]),u_i8,H,&ur,&unused);
+        {int dr2,dc2;dw=dequant_i8_to_float_ex(i8p(dp[l]),d_i8,DIN,&dr2,&dc2);}
+#ifdef ONEBP_SUPPORT
+        }
+#endif
         int t=QOUT+KVOUT+KVOUT;std::vector<float>w((size_t)H*t);
         transpose_pack(qw,QOUT,H,w.data(),t,0); transpose_pack(kw,KVOUT,H,w.data(),t,QOUT); transpose_pack(vw,KVOUT,H,w.data(),t,QOUT+KVOUT);
-        cq.packB(l,w.data(),H,t,qsc[l]);free(qw);free(kw);free(vw);
-        int or2,oc2;float*ow=dequant_i8_to_float_ex(i8p(op[l]),o_i8,OIN,&or2,&oc2);
+        cq.packB(l,w.data(),H,t,qsc[l]);
         std::vector<float>wo((size_t)OIN*OOUT);transpose_pack(ow,OOUT,OIN,wo.data(),OOUT,0);
-        co.packB(l,wo.data(),OIN,OOUT,osc[l]);free(ow);
-        int gr,ur;float*gw=dequant_i8_to_float_ex(i8p(gp[l]),g_i8,H,&gr,&unused),*uw=dequant_i8_to_float_ex(i8p(up[l]),u_i8,H,&ur,&unused);
+        co.packB(l,wo.data(),OIN,OOUT,osc[l]);
         if(cfg.gu_split){
             std::vector<float>wg((size_t)H*gr);transpose_pack(gw,GUOUT,H,wg.data(),gr,0);
             cg.packB(l,wg.data(),H,gr,gsc[l]);
@@ -617,10 +695,17 @@ int main(int argc,char**argv){
             int t2=gr+ur;std::vector<float>w2((size_t)H*t2);
             transpose_pack(gw,GUOUT,H,w2.data(),t2,0);transpose_pack(uw,GUOUT,H,w2.data(),t2,GUOUT);
             cg.packB(l,w2.data(),H,t2,gsc[l]);
-        }free(gw);free(uw);
-        int dr2,dc2;float*dw=dequant_i8_to_float_ex(i8p(dp[l]),d_i8,DIN,&dr2,&dc2);
+        }
         std::vector<float>wd((size_t)DIN*DOUT);transpose_pack(dw,DOUT,DIN,wd.data(),DOUT,0);
-        cd.packB(l,wd.data(),DIN,DOUT,dsc[l]);free(dw);}
+        cd.packB(l,wd.data(),DIN,DOUT,dsc[l]);
+#ifdef ONEBP_SUPPORT
+        if (!is_onebp) {
+#endif
+        free(qw);free(kw);free(vw);free(ow);free(gw);free(uw);free(dw);
+#ifdef ONEBP_SUPPORT
+        }
+#endif
+    }
     fprintf(stderr,"  %.0fms\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-tp).count());
 
     // RoPE
