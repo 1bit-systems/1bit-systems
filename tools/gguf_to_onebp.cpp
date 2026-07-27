@@ -131,7 +131,7 @@ int main(int argc, char** argv) {
     // (shape.size() != 2 filtered out every 1D tensor), which meant every
     // .1bp file ever produced was missing all its normalization weights —
     // structurally incapable of correct inference. See issue #1023.
-    struct TInfo { std::string name; int ndim; int rows, cols; uint64_t offset, tiled; };
+    struct TInfo { std::string name; int ndim; int rows, cols; int num_experts; uint64_t offset, tiled; };
     std::vector<TInfo> tensors;
     uint64_t data_off = 0;
     int tr = 32, tc = 256, gs = 32;
@@ -139,22 +139,35 @@ int main(int argc, char** argv) {
     for (auto& tn : reader.tensor_names()) {
         auto* inf = reader.tensor_info(tn);
         if (!inf) continue;
-        if (inf->shape.size() == 1) {
+        int ndim = (int)inf->shape.size();
+        if (ndim == 1) {
             int len = (int)inf->shape[0];
             if (len <= 0) continue;
             uint64_t raw_bytes = (uint64_t)len * 4;  // f32, unquantized
-            tensors.push_back({tn, 1, 1, len, data_off, raw_bytes});
+            tensors.push_back({tn, 1, 1, len, 1, data_off, raw_bytes});
             data_off += raw_bytes;
             continue;
         }
-        if (inf->shape.size() != 2) continue;
-        int c = (int)inf->shape[0], r = (int)inf->shape[1];
-        if (r <= 0 || c <= 0) continue;
-        if ((uint64_t)r * (uint64_t)c > 200000000) continue;
-        uint64_t tiled = onebp_tiled_size(r, c, tr, tc, gs, quant);
-        tensors.push_back({tn, 2, r, c, data_off, tiled});
-        data_off += tiled;
-        if (tensors.size() <= 3) printf("  tensor %s: %dx%d tiled=%lu\n", tn.c_str(), r, c, tiled);
+        if (ndim != 2 && ndim != 3) continue;  // skip unknown shapes
+        if (ndim == 2) {
+            int c = (int)inf->shape[0], r = (int)inf->shape[1];
+            if (r <= 0 || c <= 0) continue;
+            if ((uint64_t)r * (uint64_t)c > 200000000) continue;
+            uint64_t tiled = onebp_tiled_size(r, c, tr, tc, gs, quant);
+            tensors.push_back({tn, 2, r, c, 1, data_off, tiled});
+            data_off += tiled;
+            if (tensors.size() <= 3) printf("  tensor %s: %dx%d tiled=%lu\n", tn.c_str(), r, c, tiled);
+        } else {
+            // ndim == 3: MoE expert-stacked tensor [num_experts, rows, cols]
+            int ne = (int)inf->shape[0], r = (int)inf->shape[1], c = (int)inf->shape[2];
+            if (ne <= 0 || r <= 0 || c <= 0) continue;
+            uint64_t per_expert = onebp_tiled_size(r, c, tr, tc, gs, quant);
+            uint64_t total_tiled = (uint64_t)ne * per_expert;
+            tensors.push_back({tn, 3, r, c, ne, data_off, total_tiled});
+            data_off += total_tiled;
+            printf("  tensor %s: %d experts x %dx%d per-expert=%lu total=%lu\n",
+                   tn.c_str(), ne, r, c, per_expert, total_tiled);
+        }
     }
     printf("  Total tensors: %zu, data size: %.1f MB\n", tensors.size(), data_off / (1024.0*1024.0));
     fflush(stdout);
@@ -181,10 +194,10 @@ int main(int argc, char** argv) {
     uint64_t index_size = 0;
     for (auto& t : tensors) {
         uint32_t nl = std::min((uint32_t)t.name.size(), (uint32_t)63);
-        index_size += 4 + nl + 1 + 4 + (uint32_t)t.ndim * 4 + 8 + 8;  // name_len + name + \0 + ndim + dims[ndim] + offset + bytes
+        index_size += 4 + nl + 1 + 4 + (uint64_t)t.ndim * 4 + 8 + 8;  // name_len + name + \0 + ndim + dims[ndim] + offset + bytes
     }
 
-    // Write tensor index
+    // Write tensor index — ndim==2 (dense) or ndim==3 (MoE expert stack)
     for (auto& t : tensors) {
         uint32_t nl = std::min((uint32_t)t.name.size(), (uint32_t)63);
         fwrite(&nl, 4, 1, fout);
@@ -195,9 +208,12 @@ int main(int argc, char** argv) {
         if (t.ndim == 1) {
             uint32_t d1 = (uint32_t)t.cols;  // length
             fwrite(&d1, 4, 1, fout);
-        } else {
+        } else if (t.ndim == 2) {
             uint32_t d[2] = {(uint32_t)t.rows, (uint32_t)t.cols};
             fwrite(d, 8, 1, fout);
+        } else {
+            uint32_t d[3] = {(uint32_t)t.num_experts, (uint32_t)t.rows, (uint32_t)t.cols};
+            fwrite(d, 12, 1, fout);
         }
         fwrite(&t.offset, 8, 1, fout);
         fwrite(&t.tiled, 8, 1, fout);
@@ -227,11 +243,14 @@ int main(int argc, char** argv) {
         }
         printf("got %zu floats, tiling...\n", fw.size()); fflush(stdout);
         int R = ti.rows, C = ti.cols;
+        int NE = ti.num_experts;
         int ntr = (R + tr - 1) / tr, ntc = (C + tc - 1) / tc;
-        printf("  tiles: %dx%d fout=%p\n", ntr, ntc, (void*)fout); fflush(stdout);
-        for (int r = 0; r < ntr; r++) {
-            for (int c = 0; c < ntc; c++) {
-                int r0 = r * tr, c0 = c * tc;
+        printf("  tiles: %dx%d experts=%d fout=%p\n", ntr, ntc, NE, (void*)fout); fflush(stdout);
+        for (int ei = 0; ei < NE; ei++) {
+            size_t expert_off = (size_t)ei * (size_t)R * (size_t)C;
+            for (int r = 0; r < ntr; r++) {
+                for (int c = 0; c < ntc; c++) {
+                    int r0 = r * tr, c0 = c * tc;
                 int grps = tc / gs;
                 if (grps <= 0) grps = 1;
                 if (quant == ONEBP_TQ2) {
@@ -251,7 +270,7 @@ int main(int argc, char** argv) {
                             for (int i = 0; i < gs; i++) {
                                 int ac = acs + i;
                                 if (ar < R && ac < C) {
-                                    float v = fw[(size_t)ar * C + ac];
+                                    float v = fw[expert_off + (size_t)ar * C + ac];
                                     if (std::isfinite(v)) { float a = fabsf(v); if (a > maxabs) maxabs = a; }
                                 }
                             }
@@ -263,7 +282,7 @@ int main(int argc, char** argv) {
                                 int ac = acs + i;
                                 uint8_t code = 1;  // default 0 == +0
                                 if (ar < R && ac < C) {
-                                    float v = fw[(size_t)ar * C + ac];
+                                    float v = fw[expert_off + (size_t)ar * C + ac];
                                     if (std::isfinite(v)) {
                                         int t = (int)roundf(v * inv_s);
                                         if (t < -1) t = -1; else if (t > 1) t = 1;
@@ -298,7 +317,7 @@ int main(int argc, char** argv) {
                             for (int i = 0; i < 5; i++) {
                                 int ac = acs + i;
                                 if (ar < R && ac < C) {
-                                    float v = fw[(size_t)ar * C + ac];
+                                    float v = fw[expert_off + (size_t)ar * C + ac];
                                     if (std::isfinite(v)) { float a = fabsf(v); if (a > maxabs) maxabs = a; }
                                 }
                             }
@@ -310,7 +329,7 @@ int main(int argc, char** argv) {
                                 int ac = acs + i;
                                 uint8_t code = 1;  // default: 0
                                 if (ar < R && ac < C) {
-                                    float v = fw[(size_t)ar * C + ac];
+                                    float v = fw[expert_off + (size_t)ar * C + ac];
                                     if (std::isfinite(v)) {
                                         float q = v * inv_s;
                                         if (q > 0.5f) code = 2;       // +1
@@ -340,7 +359,7 @@ int main(int argc, char** argv) {
                         for (int i = 0; i < gs; i++) {
                             int ac = acs + i;
                             if (ar < R && ac < C) {
-                                float v = fw[(size_t)ar * C + ac];
+                                float v = fw[expert_off + (size_t)ar * C + ac];
                                 if (std::isfinite(v)) { if (v > mx) mx = v; if (v < mn) mn = v; valid_cnt++; }
                             }
                         }
@@ -356,11 +375,11 @@ int main(int argc, char** argv) {
                             uint8_t v0 = 0, v1 = 0;
                             float inv_s = 1.0f / s;
                             if (ar < R && ac0 < C) {
-                                float v = fw[(size_t)ar * C + ac0];
+                                float v = fw[expert_off + (size_t)ar * C + ac0];
                                 v0 = (uint8_t)std::max(0, std::min(15, (int)roundf((v - mn) * inv_s)));
                             }
                             if (ar < R && ac1 < C) {
-                                float v = fw[(size_t)ar * C + ac1];
+                                float v = fw[expert_off + (size_t)ar * C + ac1];
                                 v1 = (uint8_t)std::max(0, std::min(15, (int)roundf((v - mn) * inv_s)));
                             }
                             int local_c = (acs - c0) + i; // column within tile
@@ -371,6 +390,7 @@ int main(int argc, char** argv) {
                 fwrite(tdata.data(), 1, tdata.size(), fout);
             }
         }
+        }  // end expert loop
         printf("  %-50s %4dx%-4d -> %zu KB\n", ti.name.c_str(), R, C, ti.tiled / 1024);
     }
 

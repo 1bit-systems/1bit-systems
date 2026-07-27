@@ -217,6 +217,78 @@ struct ChatFn {
     std::function<json(const std::string&, const json&, int, float)> fn;
 };
 
+// Check whether the model's answer appears grounded in the tool result.
+// Uses a simple heuristic: if the tool result has content, the answer must
+// contain at least some of the same tokens to pass. Otherwise the result
+// is prepended as a "source" prefix so the user gets the real data.
+static std::string check_tool_grounding(const std::string& answer, const json& result, const std::string& tool_name) {
+    // Only validate search_knowledge results — other tools (get_time, list_models, add_note)
+    // have trivial results where grounding checks aren't meaningful.
+    if (tool_name != "search_knowledge") return answer;
+
+    // Extract all result-snippets into a single string
+    std::string result_text;
+    if (result.contains("results") && result["results"].is_array()) {
+        for (auto& r : result["results"]) {
+            if (r.contains("snippet")) result_text += r["snippet"].get<std::string>() + " ";
+        }
+    }
+
+    // Strip whitespace and check for emptiness
+    auto trim = [](const std::string& s) -> std::string {
+        size_t a = s.find_first_not_of(" \n\r\t");
+        if (a == std::string::npos) return "";
+        size_t b = s.find_last_not_of(" \n\r\t");
+        return s.substr(a, b - a + 1);
+    };
+
+    std::string trimmed = trim(result_text);
+    if (trimmed.empty()) return answer;  // no result content to ground against
+
+    // Try to find at least one significant word from the result in the answer.
+    // Split result into words, skip short/trivial ones, check each.
+    std::string candidate;
+    for (char c : trimmed) {
+        if (isalnum(c) || c == '-' || c == '_' || c == '.') candidate += c;
+        else if (!candidate.empty()) {
+            if (candidate.size() >= 4) {
+                if (answer.find(candidate) != std::string::npos) {
+                    return answer;  // grounded — found a term from the result
+                } else if (answer.find(candidate + " ") != std::string::npos ||
+                           answer.find(candidate + ".") != std::string::npos ||
+                           answer.find(candidate + ",") != std::string::npos) {
+                    return answer;  // grounded with punctuation boundary
+                }
+            }
+            candidate.clear();
+        }
+    }
+    // Check the last candidate too
+    if (candidate.size() >= 4 && answer.find(candidate) == std::string::npos) {
+        candidate.clear();
+    }
+
+    // If no grounding found and answer isn't a simple "I couldn't find..." / denial, prepend result
+    std::string lower = answer;
+    for (auto& c : lower) c = tolower(c);
+    if (lower.find("could not") != std::string::npos ||
+        lower.find("couldn't") != std::string::npos ||
+        lower.find("not found") != std::string::npos ||
+        lower.find("no result") != std::string::npos ||
+        lower.find("no information") != std::string::npos) {
+        return answer;  // legitimate "not found" response
+    }
+
+    // Answer appears to ignore the tool result — prepend the actual data
+    std::string grounded = "[Based on knowledge base lookup:]\n\n";
+    for (auto& r : result["results"]) {
+        if (r.contains("path")) grounded += "Source: " + r["path"].get<std::string>() + "\n";
+        if (r.contains("snippet")) grounded += r["snippet"].get<std::string>() + "\n\n";
+    }
+    grounded += "---\n\n" + answer;
+    return grounded;
+}
+
 static std::pair<std::string, json> resolve_tool_call(const ChatFn& chat_fn, const std::string& model_target,
                                                         json messages, const std::string& content, int max_tokens,
                                                         float temperature, bool allow_write) {
@@ -235,6 +307,11 @@ static std::pair<std::string, json> resolve_tool_call(const ChatFn& chat_fn, con
         final_text = follow_up.value("response", "");
     else
         final_text = content; // backend error — surface the original reply rather than nothing
+
+    // Grounding check: if the model ignored the tool result, surface the real data
+    if (tr.allowed && !tr.result.is_null()) {
+        final_text = check_tool_grounding(final_text, tr.result, call->name);
+    }
 
     json tool_info = {{"name", call->name}, {"arguments", call->arguments}, {"allowed", tr.allowed}, {"result", tr.result}};
     return {final_text, tool_info};

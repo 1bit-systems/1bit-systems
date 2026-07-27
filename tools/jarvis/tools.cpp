@@ -158,8 +158,11 @@ std::string format_tool_followup(const json& result, bool allowed) {
                "). Do not retry it — answer from your own knowledge instead, "
                "and mention that the action requires write permission if relevant.";
     }
-    return "The tool returned this result:\n" + result.dump() +
-           "\nUse this result to answer the original question.";
+    return "The tool returned this result:\n" + result.dump(2) +
+           "\n\nYOU MUST answer using ONLY the data above. Do NOT make up or assume values "
+           "that are not present in this result. If asked about hardware, specs, or facts, "
+           "quote the specific values from the result. If the result is empty or has no results, "
+           "say you couldn't find the information.";
 }
 
 } // namespace jarvis

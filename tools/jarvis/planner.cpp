@@ -12,7 +12,7 @@ namespace jarvis {
 namespace {
 
 const char* PLANNER_MODEL = "qwen3:0.6b";
-const char* SYNTH_MODEL = "qwen3.6:35b";
+const char* SYNTH_MODEL = "qwen3.5:9b";
 
 const char* PLAN_PROMPT_TMPL =
     "Break the following request into 2-5 concrete subtasks needed to fully "
@@ -22,7 +22,7 @@ const char* PLAN_PROMPT_TMPL =
 // (regex, model_id) — checked in order, first match wins.
 const std::vector<std::pair<std::regex, std::string>>& subtask_hints() {
     static const std::vector<std::pair<std::regex, std::string>> hints = {
-        {std::regex(R"(\b(image|photo|picture|diagram|screenshot)\b)", std::regex::icase), "qwen3vl:4b"},
+        {std::regex(R"(\b(image|photo|picture|diagram|screenshot)\b)", std::regex::icase), "minicpm-v:latest"},
         {std::regex(R"(\b(reason|analy[sz]e|compare|plan|strategy|deep|complex)\b)", std::regex::icase), SYNTH_MODEL},
     };
     return hints;
