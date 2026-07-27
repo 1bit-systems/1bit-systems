@@ -218,107 +218,92 @@ struct I8Ctx{int MD,KD,ND,NL;bool use_bf16=false;
         }}
 };
 
-// AttnCtx — NPU attention context with 4 BOs (Q, K, V, output).
-// The attn.xclbin kernel signature (from EMBEDDED_METADATA):
-//   args: opcode, instr, ninstr, bo0..bo4
-//   bo0=Q (i8, NH*HD), bo1=K (i8, max_seq*NKV*HD),
-//   bo2=V (i8, max_seq*NKV*HD), bo3=output (i16, NH*HD)
-// Pre-compiled attention instructions loaded from file (fixed seq_len).
+// AttnCtx — NPU attention using regular kernel(3, insts, ...) interface.
+// The attn.xclbin kernel signature:
+//   kernel(3, insts_bo, insts_size, bo0=Q, bo1=K, bo2=V, bo3=output, bo4=unused)
 struct AttnCtx {
     int max_seq, NH, NKV, HD, XM;
     std::unique_ptr<xrt::xclbin> xc;
     std::unique_ptr<xrt::hw_context> hc;
-    std::unique_ptr<xrt::module> mdl;
-    std::unique_ptr<xrt::elf> elf;
-    std::unique_ptr<xrt::ext::kernel> k;
-    std::unique_ptr<xrt::bo> bQ, bK, bV, bOut;
+    std::unique_ptr<xrt::kernel> k;
+    std::vector<uint32_t> ins;
+    std::unique_ptr<xrt::bo> bI, bQ, bK, bV, bOut, bDummy;
     bool initialized = false;
 
     ~AttnCtx() {}
-    bool isReady() { return initialized && k && bQ && bK && bV && bOut; }
+    bool isReady() { return initialized && k && bI && bQ && bK && bV && bOut; }
 
-    // Initialize with xclbin + runtime-generated instructions.
-    // Pre-allocates BOs at max_seq dimensions — only the first `seq_len`
-    // entries of K/V are valid per call (quantize K/V for the active range).
     bool init(xrt::device& d, const char* xp,
               const std::vector<uint32_t>& instrs,
               int max_seq_len, int nh, int nkv, int hd, int xm) {
         max_seq = max_seq_len;
         NH = nh; NKV = nkv; HD = hd; XM = xm;
+        ins = instrs;
         try {
-            std::vector<char> iraw((char*)instrs.data(),
-                                   (char*)instrs.data() + instrs.size() * sizeof(uint32_t));
-            aiebu::aiebu_assembler asmblr(
-                aiebu::aiebu_assembler::buffer_type::blob_instr_transaction, iraw);
-            auto e = asmblr.get_elf();
             xc = std::make_unique<xrt::xclbin>(std::string(xp));
             d.register_xclbin(*xc);
             hc = std::make_unique<xrt::hw_context>(d, xc->get_uuid());
-            elf = std::make_unique<xrt::elf>(e.data(), e.size());
+            k = std::make_unique<xrt::kernel>(*hc, "MLIR_AIE");
+            // Instruction BO
+            bI = std::make_unique<xrt::bo>(d, ins.size()*4, XCL_BO_FLAGS_CACHEABLE, k->group_id(1));
+            memcpy(bI->map(), ins.data(), ins.size()*4);
+            bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            // Data BOs
+            size_t q_bytes = (size_t)XM * NH * HD;
+            size_t kv_bytes = (size_t)max_seq * NKV * HD;
+            size_t out_bytes = (size_t)XM * NH * HD * 2;
+            int gid = k->group_id(5);
+            bQ = std::make_unique<xrt::bo>(d, q_bytes, XRT_BO_FLAGS_HOST_ONLY, gid);
+            bK = std::make_unique<xrt::bo>(d, kv_bytes, XRT_BO_FLAGS_HOST_ONLY, gid);
+            bV = std::make_unique<xrt::bo>(d, kv_bytes, XRT_BO_FLAGS_HOST_ONLY, gid);
+            bOut = std::make_unique<xrt::bo>(d, out_bytes, XRT_BO_FLAGS_HOST_ONLY, gid);
+            bDummy = std::make_unique<xrt::bo>(d, 64, XRT_BO_FLAGS_HOST_ONLY, gid);
         } catch (std::exception& ex) {
-            fprintf(stderr, "  AttnCtx ELF gen failed: %s\n", ex.what());
+            fprintf(stderr, "  AttnCtx init failed: %s\n", ex.what());
             return false;
         }
-        mdl = std::make_unique<xrt::module>(*elf);
-        k = std::make_unique<xrt::ext::kernel>(*hc, *mdl, "MLIR_AIE");
-        // Pre-allocate BOs at max dimensions
-        size_t q_bytes = (size_t)XM * NH * HD;            // Q: batch * NH * HD
-        size_t kv_bytes = (size_t)max_seq * NKV * HD;     // K/V: max_seq * NKV * HD
-        size_t out_bytes = (size_t)XM * NH * HD * 2;       // output: i16
-        bQ = std::make_unique<xrt::bo>(d, q_bytes, 0, 0);
-        bK = std::make_unique<xrt::bo>(d, kv_bytes, 0, 0);
-        bV = std::make_unique<xrt::bo>(d, kv_bytes, 0, 0);
-        bOut = std::make_unique<xrt::bo>(d, out_bytes, 0, 0);
         initialized = true;
         return true;
     }
 
-    // Quantize Q (f32) → BO (i8), sync, and launch attention.
-    // K/V caches are f32 on host — quantizes the active range [0, seq_len).
-    // Returns run handle for later wait+dequant.
     xrt::run launch(const float* Q_f32, const float* K_cache, const float* V_cache,
                     int seq_len, int batch, float q_scale, float kv_scale) {
         // Quantize Q
         auto* q_i8 = (int8_t*)bQ->map();
         float q_is = 1.0f / q_scale;
         for (int i = 0; i < batch * NH * HD; i++) {
-            float v = Q_f32[i];
-            if (!std::isfinite(v)) v = 0;
+            float v = Q_f32[i]; if (!std::isfinite(v)) v = 0;
             int q = (int)roundf(v * q_is);
             if (q > 127) q = 127; else if (q < -127) q = -127;
             q_i8[i] = (int8_t)q;
         }
         bQ->sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
-        // Quantize K cache [0, seq_len)
+        // Quantize K cache
         auto* k_i8 = (int8_t*)bK->map();
         float kv_is = 1.0f / kv_scale;
         size_t kv_len = (size_t)seq_len * NKV * HD;
         for (size_t i = 0; i < kv_len; i++) {
-            float v = K_cache[i];
-            if (!std::isfinite(v)) v = 0;
+            float v = K_cache[i]; if (!std::isfinite(v)) v = 0;
             int q = (int)roundf(v * kv_is);
             if (q > 127) q = 127; else if (q < -127) q = -127;
             k_i8[i] = (int8_t)q;
         }
         bK->sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
-        // Quantize V cache [0, seq_len)
+        // Quantize V cache
         auto* v_i8 = (int8_t*)bV->map();
         for (size_t i = 0; i < kv_len; i++) {
-            float v = V_cache[i];
-            if (!std::isfinite(v)) v = 0;
+            float v = V_cache[i]; if (!std::isfinite(v)) v = 0;
             int q = (int)roundf(v * kv_is);
             if (q > 127) q = 127; else if (q < -127) q = -127;
             v_i8[i] = (int8_t)q;
         }
         bV->sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
-        // Launch: bo0=Q, bo1=K, bo2=V, bo3=output
-        return k->operator()(3, 0, 0, *bQ, *bK, *bV, *bOut);
+        return (*k)(3ULL, *bI, (unsigned)ins.size(), *bQ, *bK, *bV, *bOut, *bDummy);
     }
 
-    // Wait for completion and dequantize output to f32
     void finish(xrt::run& r, float* out, int batch,
                 float q_scale, float kv_scale) {
         r.wait();
@@ -847,32 +832,34 @@ int main(int argc,char**argv){
     // Set NPU_ATTN=1 to enable. Disabled by default — the attention xclbin
     // has the same XRT compatibility issue as the GEMM xclbins on some
     // driver versions. Auto-enable when confirmed working per-model.
-    bool use_npu_attn = getenv("NPU_ATTN") && atoi(getenv("NPU_ATTN")) > 0;
+    // NPU attention: auto-enable if attn xclbin exists. Override with NPU_ATTN=0.
+    bool use_npu_attn = true;
+    const char* npu_attn_env = getenv("NPU_ATTN");
+    if(npu_attn_env && atoi(npu_attn_env) == 0) use_npu_attn = false;
     if(use_npu_attn){
-        std::string inst_path;
-        if (const char* env = getenv("NPU_ATTN_FILE")) {
-            inst_path = env;
-        } else {
-            inst_path = std::string(xd) + "/insts_i8_KV_" + cfg.model_tag + ".txt";
-        }
-        if (load_attn_instrs(inst_path.c_str())) {
+        // Use INT8 attn xclbin path (attn is INT8 even in BF16 mode)
+        std::string attn_xp = std::string(xd) + "/final_i8_ATTN_" + cfg.model_tag + ".xclbin";
+        std::string inst_path = std::string(xd) + "/insts_i8_KV_" + cfg.model_tag + ".txt";
+        FILE* tf = fopen(attn_xp.c_str(), "rb");
+        if(!tf) { use_npu_attn = false; fprintf(stderr,"  No attn xclbin for %s\n",cfg.model_tag.c_str()); }
+        else { fclose(tf); }
+        if(use_npu_attn && load_attn_instrs(inst_path.c_str())) {
             ca_ptr = std::make_unique<AttnCtx>();
-            if (ca_ptr->init(dev, xp("ATTN").c_str(), attn_instrs,
+            if (ca_ptr->init(dev, attn_xp.c_str(), attn_instrs,
                              4096, NH, NKV, HD, XM)) {
-                fprintf(stderr, "NPU attention enabled (pre-compiled insts)\n");
+                fprintf(stderr, "NPU attention enabled\n");
             } else {
                 fprintf(stderr, "WARN: AttnCtx init failed, CPU fallback\n");
                 use_npu_attn = false;
                 ca_ptr.reset();
             }
         } else {
-            fprintf(stderr, "WARN: No attn insts for model '%s', CPU fallback\n", cfg.model_tag.c_str());
             use_npu_attn = false;
         }
     }
     // Also try loading the runtime sequence attention xclbin
     if(use_npu_attn){
-        std::string runtime_xp = xp("ATTN");
+        std::string runtime_xp = std::string(xd) + "/final_i8_ATTN_" + cfg.model_tag + ".xclbin";
         if(rta.init(dev, runtime_xp.c_str(), HD)){
             fprintf(stderr, "NPU runtime attention enabled\n");
         }else{
