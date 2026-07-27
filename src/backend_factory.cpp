@@ -144,57 +144,71 @@ bool is_zamba2_architecture(const ModelConfig& cfg) {
 
 // ── Auto-detect available backends ──
 bool has_hip_gpu() {
-    void* lib = dlopen("librocm_cpp.so", RTLD_NOW | RTLD_LOCAL);
-    if (lib) { dlclose(lib); return true; }
-    if (has_static_symbol("create_hip_backend")) return true;
-    // Check for render nodes via file I/O instead of popen (fixes #67)
+    // Check lightweight indicators first — avoid dlopen("librocm_cpp.so")
+    // which triggers HSA runtime init that opens /dev/accel/accel0 on
+    // Strix Halo, preventing standalone NPU tools from accessing the device
+    // even when the GPU backend isn't actively inferring. See issue #1029.
     struct stat st;
     if (stat("/dev/dri/renderD128", &st) == 0) return true;
     if (stat("/dev/dri/renderD129", &st) == 0) return true;
     if (stat("/dev/dri/renderD130", &st) == 0) return true;
+    if (has_static_symbol("create_hip_backend")) return true;
+    // Last resort: probe the shared library (will trigger HSA init)
+    void* lib = dlopen("librocm_cpp.so", RTLD_NOW | RTLD_LOCAL);
+    if (lib) { dlclose(lib); return true; }
     return false;
 }
 
 bool has_vulkan() {
-    // Check if librocm_cpp is available (it contains the Vulkan backend)
-    void* lib = dlopen("librocm_cpp.so", RTLD_NOW | RTLD_LOCAL);
-    if (lib) { dlclose(lib); return true; }
+    // Check lightweight indicators first — avoid dlopen("librocm_cpp.so")
+    // which triggers HSA runtime init on Strix Halo. See issue #1029.
+    // 1. Static symbol check (fast, no library load)
     if (has_static_symbol("create_vulkan_backend")) return true;
 
-    // Probe via libvulkan — just check that the loader exists and we can
-    // enumerate physical devices. Use a minimal vkCreateInstance call
-    // with real Vulkan structs loaded via dlsym to avoid header deps.
-    lib = dlopen("libvulkan.so.1", RTLD_LAZY);
+    // 2. Check render nodes first — fast stat() call, no library load.
+    //    On systems with a GPU (Strix Halo, dGPU), this succeeds instantly.
+    struct stat st;
+    if (stat("/dev/dri/renderD128", &st) == 0) return true;
+    if (stat("/dev/dri/renderD129", &st) == 0) return true;
+
+    // 3. Probe via libvulkan — lightweight symbol check only.
+    //    dlopen("libvulkan.so") can hang on some systems if the Vulkan
+    //    loader tries to initialize GPU drivers, so only do this if
+    //    render nodes weren't found (headless/VM fallback).
+    void* lib = dlopen("libvulkan.so.1", RTLD_LAZY);
     if (!lib) lib = dlopen("libvulkan.so", RTLD_LAZY);
-    if (!lib) return false;
+    if (lib) {
+        bool has_syms =
+            dlsym(lib, "vkCreateInstance") &&
+            dlsym(lib, "vkEnumeratePhysicalDevices") &&
+            dlsym(lib, "vkDestroyInstance");
+        dlclose(lib);
+        if (has_syms) return true;
+    }
 
-    // Check that core symbols exist (sign of a working Vulkan loader)
-    bool has_syms =
-        dlsym(lib, "vkCreateInstance") &&
-        dlsym(lib, "vkEnumeratePhysicalDevices") &&
-        dlsym(lib, "vkDestroyInstance");
-
-    dlclose(lib);
-    return has_syms;
+    // 4. Last resort: probe the full shared library (will trigger HSA init)
+    lib = dlopen("librocm_cpp.so", RTLD_NOW | RTLD_LOCAL);
+    if (lib) { dlclose(lib); return true; }
+    return false;
 }
 
 bool has_npu() {
-    void* lib = dlopen("librocm_cpp.so", RTLD_NOW | RTLD_LOCAL);
-    if (lib) { dlclose(lib); return true; }
+    // Check lightweight indicators first — avoid dlopen("librocm_cpp.so")
+    // which triggers HSA runtime init that opens /dev/accel/accel0 on
+    // Strix Halo. The sysfs and accel device checks are cheap file ops
+    // that don't load any NPU/GPU runtime. See issue #1029.
+    if (any_accel_device_present()) return true;
+    std::ifstream drv("/sys/bus/pci/drivers/amdxdna/uevent");
+    if (drv) return true;
     if (has_static_symbol("create_npu_backend")) return true;
-    // Check via XRT
-    lib = dlopen("libxrt_coreutil.so", RTLD_LAZY);
+    // Check via XRT (lighter than loading full librocm_cpp.so)
+    void* lib = dlopen("libxrt_coreutil.so", RTLD_LAZY);
     if (!lib) lib = dlopen("libxrt_coreutil.so.2", RTLD_LAZY);
-    if (!lib) {
-        if (any_accel_device_present())
-            return true;
-        // Check via sysfs file I/O instead of popen (fixes #67)
-        std::ifstream drv("/sys/bus/pci/drivers/amdxdna/uevent");
-        if (drv) return true;
-        return false;
-    }
-    dlclose(lib);
-    return true;
+    if (lib) { dlclose(lib); return true; }
+    // Last resort: probe the full shared library (will trigger HSA init)
+    lib = dlopen("librocm_cpp.so", RTLD_NOW | RTLD_LOCAL);
+    if (lib) { dlclose(lib); return true; }
+    return false;
 }
 
 bool has_avx512() {

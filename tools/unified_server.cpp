@@ -82,7 +82,9 @@ static int getopt_long(int argc, char* const argv[], const char* optstring, cons
 #include <fstream>
 #include <fcntl.h>
 #ifndef _WIN32
+#include <dirent.h>
 #include <sys/file.h>
+#include <sys/mman.h>
 #include <sys/resource.h>
 #include <unistd.h>
 #else
@@ -658,6 +660,23 @@ int main(int argc, char** argv) {
     signal(SIGINT, handle_sigint);
     signal(SIGTERM, handle_sigint);
 
+    // ── Help flag — must be handled FIRST, before any hardware init ──
+    // Scan for -h/--help so we never open /dev/accel, acquire locks,
+    // or init NPU/GPU just to print usage info.
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            printf("Usage: %s [OPTIONS]\n", argv[0]);
+            printf("  -p, --port PORT         HTTP port (default: 8088)\n");
+            printf("  -w, --weights DIR       Model weights directory\n");
+            printf("  -m, --model NAME        Model name to load\n");
+            printf("  -q, --quick             Quick mode (skip full init)\n");
+            printf("  -c, --cors-origin ORG   CORS origin header value\n");
+            printf("  -t, --gen-timeout-ms MS Generation timeout (default: 600000)\n");
+            printf("  -h, --help              Show this help and exit\n");
+            exit(0);
+        }
+    }
+
     // ── Parse CLI args ──
     // Generation timeout: CLI override of g_generation_timeout_ms (issue #948)
     int cli_gen_timeout_ms = -1;
@@ -668,10 +687,12 @@ int main(int argc, char** argv) {
         {"quick",         no_argument,       nullptr, 'q'},
         {"cors-origin",   required_argument, nullptr, 'c'},
         {"gen-timeout-ms", required_argument, nullptr, 't'},
+        {"free-npu",      no_argument,       nullptr, 'F'},
         {nullptr, 0, nullptr, 0}
     };
 
     bool quick_mode = false;
+    bool free_npu = false;
     std::string g_cors_origin;
     std::string g_model_name;
     int opt;
@@ -683,6 +704,7 @@ int main(int argc, char** argv) {
             case 'q': quick_mode = true; break;
             case 'c': g_cors_origin = optarg; break;
             case 't': cli_gen_timeout_ms = atoi(optarg); break;
+            case 'F': free_npu = true; break;
         }
     }
 
@@ -806,6 +828,82 @@ int main(int argc, char** argv) {
         printf("  ✓  Active backend: %s (%s)\n",
                active ? active->id.c_str() : "?",
                active ? active->description.c_str() : "?");
+#ifndef _WIN32
+        // Release /dev/accel/accel0 if the NPU backend is not active.
+        // The HSA runtime opens this device during GPU backend init (even
+        // for non-NPU backends like Mamba1) as a side effect of accelerator
+        // enumeration on Strix Halo. When the NPU isn't being used, close
+        // any spurious fds so standalone tools (npu_engine_universal) can
+        // access the NPU. The GPU backends don't need it for compute.
+        // See issue #1029.
+        if (!active || active->type != BackendType::NPU_XRT) {
+            // Step 1: Close any open /dev/accel/accel* file descriptors.
+            // These are opened by the HSA runtime during GPU backend init
+            // as a side effect of accelerator enumeration on Strix Halo.
+            int n_closed = 0;
+            DIR* fddir = opendir("/proc/self/fd");
+            if (fddir) {
+                struct dirent* entry;
+                while ((entry = readdir(fddir)) != nullptr) {
+                    if (entry->d_name[0] == '.') continue;
+                    char link[256], target[128];
+                    snprintf(link, sizeof(link), "/proc/self/fd/%s", entry->d_name);
+                    ssize_t n = readlink(link, target, sizeof(target) - 1);
+                    if (n > 0) {
+                        target[n] = '\0';
+                        if (strncmp(target, "/dev/accel/accel", 16) == 0) {
+                            int fd = atoi(entry->d_name);
+                            if (fd > 2) {
+                                close(fd);
+                                n_closed++;
+                                printf("  ✓  Closed NPU fd %d (%s)\n", fd, target);
+                            }
+                        }
+                    }
+                }
+                closedir(fddir);
+            }
+
+            // Step 2 (--free-npu only): Unmap any /dev/accel/accel* memory
+            // mappings. This is risky — forcibly unmapping regions the HSA
+            // runtime may still reference can crash the process. Only enable
+            // with --free-npu when NPU coexistence is explicitly needed.
+            // The HSA runtime mmaps ~64MB from the NPU device for DMA buffers
+            // even on GPU-only workloads. Closing the fd (step 1) releases
+            // the file reference but the kernel still considers the device
+            // "in use" while any process has it mmap'd. Force-unmap those
+            // regions so the device is truly free for standalone tools.
+            // See issue #1029.
+            FILE* maps = fopen("/proc/self/maps", "r");
+            if (maps) {
+                char line[512];
+                while (fgets(line, sizeof(line), maps)) {
+                    // Parse: "7c2f74000000-7c2f78000000 rw-s ... /dev/accel/accel0"
+                    unsigned long start = 0, end = 0;
+                    char perms[8] = {0}, path[256] = {0};
+                    if (sscanf(line, "%lx-%lx %7s %*s %*s %*s %255s",
+                               &start, &end, perms, path) >= 3) {
+                        if (strstr(path, "/dev/accel/accel") == path) {
+                            size_t len = end - start;
+                            if (munmap((void*)start, len) == 0) {
+                                n_closed++;
+                                printf("  ✓  Unmapped NPU region 0x%lx-0x%lx (%zu MB) — device %s freed\n",
+                                       start, end, len / (1024*1024), path);
+                            } else {
+                                fprintf(stderr, "  ⚠  munmap of 0x%lx failed: %s\n",
+                                        start, strerror(errno));
+                            }
+                        }
+                    }
+                }
+                fclose(maps);
+            }
+
+            if (n_closed > 0) {
+                printf("  ✓  NPU device released (%d handles) — free for standalone tools\n", n_closed);
+            }
+        }
+#endif
     } else {
         printf("  ⚠  No backend initialized (weights missing or no hardware)\n");
         printf("     Server starts in discovery-only mode.\n");

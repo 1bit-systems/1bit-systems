@@ -28,6 +28,8 @@
 #endif
 // FLM dependency removed — pre-compiled instructions loaded from file.
 #include <sys/wait.h>
+#include <sys/file.h>
+#include <dirent.h>
 extern "C" float* dequant_i8_to_float_ex(const uint8_t*,int,int,int*,int*);
 static inline float bf16f(uint16_t v){uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}
 static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:bf16f(v);}
@@ -90,20 +92,48 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
     std::unique_ptr<xrt::kernel>k;std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bI,bA,bC;
     std::vector<std::unique_ptr<xrt::bo>>layerB;int8_t*Am;int16_t*Cm;
     bool initialized=false;
+    bool layerB_cached = true;  // true=CACHEABLE, false=HOST_ONLY fallback
     ~I8Ctx(){}
     bool isReady(){return initialized&&k&&bA&&bC;}
     bool init(xrt::device&d,const char*xp,const char*ip,int gid_B,int nlayers){
-        NL=nlayers;FILE*f=fopen(ip,"rb");if(!f)return false;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);
+        NL=nlayers;
+        FILE*f=fopen(ip,"rb");if(!f){fprintf(stderr,"  I8Ctx::init: fopen(%s) failed\n",ip);return false;}
+        fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);
         ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);
-        xc=std::make_unique<xrt::xclbin>(std::string(xp));d.register_xclbin(*xc);
+        try{
+        fprintf(stderr,"  I8Ctx: loading xclbin %s\n",xp);
+        xc=std::make_unique<xrt::xclbin>(std::string(xp));
+        fprintf(stderr,"  I8Ctx: registering xclbin\n");
+        d.register_xclbin(*xc);
+        fprintf(stderr,"  I8Ctx: creating hw context\n");
         hc=std::make_unique<xrt::hw_context>(d,xc->get_uuid());
+        fprintf(stderr,"  I8Ctx: getting kernel MLIR_AIE\n");
         k=std::make_unique<xrt::kernel>(*hc,"MLIR_AIE");
+        fprintf(stderr,"  I8Ctx: allocating bI (%zu bytes, gid=%d)\n",ins.size()*4,k->group_id(1));
         bI=std::make_unique<xrt::bo>(d,ins.size()*4,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));
         memcpy(bI->map(),ins.data(),ins.size()*4);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        bA=std::make_unique<xrt::bo>(d,(size_t)MD*KD,XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));
-        bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*2,XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));
+        fprintf(stderr,"  I8Ctx: allocating bA (%zu bytes)\n",(size_t)MD*KD);
+        bA=std::make_unique<xrt::bo>(d,(size_t)MD*KD,XCL_BO_FLAGS_CACHEABLE,k->group_id(3));
+        fprintf(stderr,"  I8Ctx: allocating bC (%zu bytes)\n",(size_t)MD*ND*2);
+        bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*2,XCL_BO_FLAGS_CACHEABLE,k->group_id(5));
         Am=(int8_t*)bA->map();Cm=(int16_t*)bC->map();
-        for(int l=0;l<NL;l++)layerB.emplace_back(std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B)));
+
+        // Try CACHEABLE first for layer B. If the GEM heap is exhausted
+        // (ENOSPC from leaked allocations), fall back to HOST_ONLY.
+        // HOST_ONLY is slower but works without a driver reload (#1029).
+        layerB_cached = true;
+        for(int l=0;l<NL;l++){
+            try {
+                layerB.emplace_back(std::make_unique<xrt::bo>(d,(size_t)KD*ND,XCL_BO_FLAGS_CACHEABLE,k->group_id(gid_B)));
+            } catch(std::exception&) {
+                layerB.clear(); layerB_cached = false;
+                fprintf(stderr,"  I8Ctx: CACHEABLE heap full, using HOST_ONLY (slower)\n");
+                for(int ll=0;ll<NL;ll++)
+                    layerB.emplace_back(std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B)));
+                break;
+            }
+        }
+        }catch(std::exception&e){fprintf(stderr,"  I8Ctx::init: %s (%s)\n",e.what(),xp);return false;}
         initialized=true;return true;}
     void packB(int l,const float*w,int K,int N,float&sout){float amax=0;
         for(int i=0;i<K*N;i++){float a=fabsf(w[i]);if(std::isfinite(a)&&a>amax)amax=a;}
@@ -119,7 +149,10 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
         return Am;}
     inline void sync_A(int l){(void)l;bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);}
     inline xrt::run launch(int l){return (*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[l],*bC);}
-    inline xrt::run sync_and_launch(int l){bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);return (*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[l],*bC);}
+    // Note: bI (instruction buffer, CACHEABLE) is synced once in init().
+    // Re-syncing it per-launch is unnecessary (read-only by NPU) and risks
+    // cache-coherency issues on some XRT driver versions.
+    inline xrt::run sync_and_launch(int l){bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);bC->sync(XCL_BO_SYNC_BO_TO_DEVICE);layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);return (*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[l],*bC);}
     inline void dequantize(xrt::run& r,float*C,int am,int an,float ascale,float Bscale){
         r.wait();bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);float cs=ascale*Bscale;
         for(int m=0;m<am;m++)for(int n=0;n<an;n++){
@@ -185,10 +218,10 @@ struct AttnCtx {
         size_t q_bytes = (size_t)XM * NH * HD;            // Q: batch * NH * HD
         size_t kv_bytes = (size_t)max_seq * NKV * HD;     // K/V: max_seq * NKV * HD
         size_t out_bytes = (size_t)XM * NH * HD * 2;       // output: i16
-        bQ = std::make_unique<xrt::bo>(d, q_bytes, XRT_BO_FLAGS_HOST_ONLY, 0);
-        bK = std::make_unique<xrt::bo>(d, kv_bytes, XRT_BO_FLAGS_HOST_ONLY, 0);
-        bV = std::make_unique<xrt::bo>(d, kv_bytes, XRT_BO_FLAGS_HOST_ONLY, 0);
-        bOut = std::make_unique<xrt::bo>(d, out_bytes, XRT_BO_FLAGS_HOST_ONLY, 0);
+        bQ = std::make_unique<xrt::bo>(d, q_bytes, 0, 0);
+        bK = std::make_unique<xrt::bo>(d, kv_bytes, 0, 0);
+        bV = std::make_unique<xrt::bo>(d, kv_bytes, 0, 0);
+        bOut = std::make_unique<xrt::bo>(d, out_bytes, 0, 0);
         initialized = true;
         return true;
     }
@@ -319,9 +352,9 @@ struct RuntimeAttnCtx {
             hc = std::make_unique<xrt::hw_context>(d, xc->get_uuid());
             k = std::make_unique<xrt::kernel>(*hc, "MLIR_AIE");
             bIn = std::make_unique<xrt::bo>(d, (size_t)id * 4,
-                XRT_BO_FLAGS_HOST_ONLY, k->group_id(0));
+                0, k->group_id(0));
             bOut = std::make_unique<xrt::bo>(d, (size_t)od * 4,
-                XRT_BO_FLAGS_HOST_ONLY, k->group_id(1));
+                0, k->group_id(1));
             ok = true;
             return true;
         } catch (std::exception& ex) {
@@ -406,6 +439,132 @@ static inline void npu_attn_rt(
     }
 }
 
+// Check if unified_server (production NPU service) is already holding
+// the NPU device. The amdxdna driver + XRT 2.x does not handle concurrent
+// access from multiple processes gracefully — attempting to open the device
+// while unified_server is running produces an IOMMU page fault and a
+// permanently wedged kernel, causing this process to hang forever waiting
+// on ioctl(DRM_IOCTL_SYNCOBJ_TIMELINE_WAIT). See issue #1029.
+//
+// This function uses the same lock file that unified_server's
+// acquire_singleton_lock() creates, so we can detect it without process-name
+// heuristics or killing anything.
+static void check_npu_contention() {
+    const char* xdg = getenv("XDG_RUNTIME_DIR");
+    std::string lock_path = (xdg && xdg[0])
+        ? std::string(xdg) + "/unified_server.lock"
+        : std::string("/tmp/unified_server.lock");
+
+    int fd = open(lock_path.c_str(), O_RDONLY);
+    if (fd < 0) {
+        // Lock file doesn't exist — no unified_server running, safe to proceed.
+        return;
+    }
+
+    // Try to acquire the lock. If unified_server holds it, this will fail
+    // immediately (LOCK_NB). We don't want to actually take the lock — just
+    // probe whether it's held.
+    if (flock(fd, LOCK_EX | LOCK_NB) == 0) {
+        // We got the lock, which means unified_server is NOT holding it.
+        // Release immediately and continue.
+        flock(fd, LOCK_UN);
+        close(fd);
+        return;
+    }
+
+    // Lock is held. Read the owner token (PID:UUID) and check if the
+    // holding process is still alive.
+    char buf[128] = {0};
+    pread(fd, buf, sizeof(buf) - 1, 0);
+
+    pid_t holder_pid = 0;
+    char* colon = strchr(buf, ':');
+    if (colon) {
+        *colon = '\0';
+        holder_pid = (pid_t)atoi(buf);
+        *colon = ':';
+    }
+
+    close(fd);
+
+    if (holder_pid > 0 && kill(holder_pid, 0) == 0) {
+        // Holder is alive. Check if it actually has the NPU device open.
+        // unified_server may have released it (see issue #1029 part 3):
+        // when using a GPU-only backend, it closes the fd and unmaps
+        // the device, so the NPU is free for standalone tools.
+        bool actually_holds_npu = false;
+        char proc_path[256];
+
+        // Check /proc/<pid>/fd for /dev/accel/accel* symlinks
+        snprintf(proc_path, sizeof(proc_path), "/proc/%d/fd", (int)holder_pid);
+        DIR* fddir = opendir(proc_path);
+        if (fddir) {
+            struct dirent* entry;
+            while ((entry = readdir(fddir)) != nullptr) {
+                if (entry->d_name[0] == '.') continue;
+                char link[512], target[128];
+                snprintf(link, sizeof(link), "%s/%s", proc_path, entry->d_name);
+                ssize_t n = readlink(link, target, sizeof(target) - 1);
+                if (n > 0 && strncmp(target, "/dev/accel/accel", 16) == 0) {
+                    actually_holds_npu = true;
+                    break;
+                }
+            }
+            closedir(fddir);
+        }
+
+        // Check /proc/<pid>/maps for /dev/accel/accel* mmap regions
+        if (!actually_holds_npu) {
+            snprintf(proc_path, sizeof(proc_path), "/proc/%d/maps", (int)holder_pid);
+            FILE* maps = fopen(proc_path, "r");
+            if (maps) {
+                char line[512];
+                while (fgets(line, sizeof(line), maps)) {
+                    if (strstr(line, "/dev/accel/accel")) {
+                        actually_holds_npu = true;
+                        break;
+                    }
+                }
+                fclose(maps);
+            }
+        }
+
+        if (actually_holds_npu) {
+            fprintf(stderr,
+                "\n"
+                "  NPU DEVICE IN USE\n"
+                "  unified_server is already holding the NPU (pid %d).\n"
+                "\n"
+                "  The amdxdna driver cannot safely share the NPU between\n"
+                "  concurrent processes. Starting another NPU process will\n"
+                "  cause an IOMMU page fault and a permanently wedged fence.\n"
+                "\n"
+                "  To run npu_engine_universal, stop unified_server first:\n"
+                "    $ sudo systemctl stop unified-server\n"
+                "    (or) $ kill %d\n"
+                "\n"
+                "  See issue #1029 for details.\n"
+                "\n",
+                (int)holder_pid, (int)holder_pid);
+            _exit(1);
+        }
+
+        // unified_server is running but has released the NPU device.
+        // Safe to proceed.
+        fprintf(stderr,
+            "Note: unified_server (pid %d) is running but has released the NPU device.\n"
+            "      Proceeding with standalone NPU inference.\n",
+            (int)holder_pid);
+    }
+
+    // Holder process is dead — lock is stale. unified_server's own
+    // singleton lock code will clean it up on next restart. We can
+    // safely proceed; the real device may be free (or not — see below).
+    fprintf(stderr,
+        "Note: stale unified_server lock found (pid %d no longer running).\n",
+        (int)holder_pid);
+}
+
 int main(int argc,char**argv){
     setvbuf(stdout,NULL,_IONBF,0);
     // Install SIGABRT handler for issue #202: heap corruption during decode
@@ -432,6 +591,13 @@ int main(int argc,char**argv){
     if(model_tag.empty()){
         auto ls=mp_s.rfind('/');model_tag=(ls!=std::string::npos)?mp_s.substr(ls+1):mp_s;
         auto dot=model_tag.rfind('.');if(dot!=std::string::npos)model_tag=model_tag.substr(0,dot);
+        // FLM/convention: model files are typically named "model.q4nx" inside
+        // a directory named after the model (e.g. Qwen3-0.6B-NPU2/model.q4nx).
+        // If the filename-derived tag is "model", use the parent directory name.
+        if (model_tag == "model" && ls != std::string::npos && ls > 0) {
+            auto prev=mp_s.rfind('/',ls-1);
+            model_tag=mp_s.substr(prev+1,ls-prev-1);
+        }
     }
     for(auto&c:model_tag){c=tolower(c);if(c=='-'||c=='.'||c=='\\')c='_';}
     const char*sfxs[]={"_npu2","_instruct","_it","_it_npu2"};
@@ -580,7 +746,8 @@ int main(int argc,char**argv){
     if(lm_head_f32.empty()){fprintf(stderr,"  lm_head: using emb_f32 (tied embeddings)\n");}
     const float* lm_emb = lm_head_f32.empty() ? emb_f32.data() : lm_head_f32.data();
 
-    // Init NPU
+    // Init NPU — check for contention with unified_server first (issue #1029)
+    check_npu_contention();
     fprintf(stderr,"Init NPU...\n");xrt::device dev(0);
     // Xclbin directory: respect NPU_XCLBIN_DIR env var, fall back to repo-relative path
     const char* env_xd = getenv("NPU_XCLBIN_DIR");
@@ -917,11 +1084,9 @@ int main(int argc,char**argv){
         // Save pre-norm residuals
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)sb_data[pi*H+i]=h_b[pi*H+i];
         for(int pi=0;pi<npt;pi++)rn_c(&h_b[pi*H],in_n[l].data(),H);
-        // Phase 1: Launch QKV on NPU
+        // Phase 1-2: QKV on NPU (synchronous go for debugging #1029)
         float qkv_ascale=dynamic_ascale(h_b.data(),npt*H);
-        auto r_qkv=cq.launch_async(l,h_b.data(),npt,H,qkv_ascale);
-        // Phase 2: Wait QKV + dequant (CPU attention runs after)
-        cq.finish_async(r_qkv,qo_b.data(),npt,qkv_n,qkv_ascale,qsc[l]);cn(qo_b.data(),npt*qkv_n);
+        cq.go(l,h_b.data(),npt,H,qkv_ascale,qsc[l],qo_b.data(),qkv_n);cn(qo_b.data(),npt*qkv_n);
         fprintf(stderr,"q");fflush(stderr);
         float*qn=qn_w[l].data(),*kn=kn_w[l].data();
         for(int pi=0;pi<npt;pi++){
@@ -992,22 +1157,22 @@ int main(int argc,char**argv){
                 attn_omp(&qo_b[pi*qkv_n],&at_b[pi*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA,sp+pi+1);
             }
         }
-        // Phase 3: Launch O + GU in parallel on NPU
+        // Phase 3-4-5: O + GU + D on NPU (synchronous go for debugging #1029)
+        // NOTE: O and GU both use pre-norm h_b (same input). GU runs after O
+        // but before residual add, preserving the original async semantics.
         int mlp_out=cfg.gu_split?IM:2*IM;
         float o_ascale=dynamic_ascale(at_b.data(),npt*NH*HD);
         float gu_ascale=dynamic_ascale(h_b.data(),npt*H);
-        auto r_o=co.launch_async(l,at_b.data(),npt,NH*HD,o_ascale);
-        auto r_gu=cg.launch_async(l,h_b.data(),npt,H,gu_ascale);
-        // Phase 4: Wait O, apply residual
-        co.finish_async(r_o,oo_b.data(),npt,H,o_ascale,osc[l]);cn(oo_b.data(),npt*H);
+        // Run O and GU sequentially (both use current h_b = pre-norm QKV output)
+        co.go(l,at_b.data(),npt,NH*HD,o_ascale,osc[l],oo_b.data(),H);cn(oo_b.data(),npt*H);
         fprintf(stderr,"o");fflush(stderr);
+        cg.go(l,h_b.data(),npt,H,gu_ascale,gsc[l],gt_b.data(),mlp_out);cn(gt_b.data(),npt*mlp_out);
+        fprintf(stderr,"g");fflush(stderr);
+        // Apply residual: h_b = pre-norm + o_proj (saved in sb_data)
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=sb_data[pi*H+i]+oo_b[pi*H+i];
         // Save pre-FFN residuals
         for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)sb_data[pi*H+i]=h_b[pi*H+i];
         for(int pi=0;pi<npt;pi++)rn_c(&h_b[pi*H],pa_n[l].data(),H);
-        // Phase 5: Wait GU (was launched in parallel with O), SiLU, launch D
-        cg.finish_async(r_gu,gt_b.data(),npt,mlp_out,gu_ascale,gsc[l]);cn(gt_b.data(),npt*mlp_out);
-        fprintf(stderr,"g");fflush(stderr);
         if(cfg.gu_split){cu_ptr->go(l,h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),usc[l],su_b.data(),IM);cn(su_b.data(),npt*IM);
             for(int pi=0;pi<npt;pi++){for(int i=0;i<IM;i++){float gv=gt_b[pi*IM+i];if(!std::isfinite(gv))gv=0;su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*su_b[pi*IM+i];}}}
         else{for(int pi=0;pi<npt;pi++){for(int i=0;i<IM;i++){float gv=gt_b[pi*mlp_out+i];if(!std::isfinite(gv))gv=0;su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[pi*mlp_out+IM+i];}}}
@@ -1140,10 +1305,14 @@ int main(int argc,char**argv){
             cg.quantize_async(h_b.data(),batch_size,H,cg_ascale);
 
             // ── CO-GU FULLY PARALLEL ──
-            // Phase 1: Submit GU's DMA sync WHILE O runs on NPU
-            //   bA->sync(to_device) uses MM2S DMA channel (independent of NPU compute)
+            // Phase 1: Submit GU's DMA syncs WHILE O runs on NPU
+            //   sync(to_device) uses MM2S DMA channels (independent of NPU compute)
             //   This hides the sync latency behind O's NPU time.
-            cg.sync_A(l);  // non-blocking: cg.bA sync starts, DMA runs parallel to NPU
+            //   Sync bA (activations), bC (output), layerB (weights).
+            //   bI (instruction buffer) is CACHEABLE and read-only — skip re-sync.
+            cg.bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            cg.bC->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            cg.layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
             // Phase 2: Wait for O kernel completion (minimal)
             co.wait_kernel(r_co);

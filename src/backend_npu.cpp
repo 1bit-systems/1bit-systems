@@ -295,6 +295,16 @@ struct NPUBackend : Backend {
     NpuWorker worker;
     Q4nxReader model;
 
+    // Saved for worker respawn on idle-release (issue #1029)
+    std::string worker_model_path_;
+
+    // Idle-release: track last inference time so we can release the NPU
+    // worker subprocess between requests. The worker holds /dev/accel/accel0;
+    // releasing it when idle lets standalone tools (npu_engine_universal)
+    // use the NPU without stopping unified_server.
+    std::chrono::steady_clock::time_point last_use_;
+    static constexpr int IDLE_RELEASE_SECS = 30;
+
     // Model dimensions
     int H = 0, NQ = 0, NKV = 0, HD = 0, GQA = 0, NV = 0, NC = 0;
     int qkv_total = 0, mlp_dim = 0;
@@ -417,11 +427,10 @@ struct NPUBackend : Backend {
             return false;
         }
 
-        // Spawn NPU worker (must happen after dimensions known)
-        if (!worker.spawn(model_path, H, NC, NQ, NKV, HD, mlp_dim, NV)) {
-            fprintf(stderr, "NPU: failed to spawn worker engine\n");
-            return false;
-        }
+        // Save model path for lazy worker start (issue #1029).
+        // The worker subprocess holds /dev/accel/accel0 — we defer spawning
+        // until the first inference request so the NPU is free when idle.
+        worker_model_path_ = model_path;
 
         // Load embed + norm weights from model file
         if (!model.open(model_path)) {
@@ -540,6 +549,21 @@ struct NPUBackend : Backend {
         return true;
     }
 
+    // Ensure the NPU worker subprocess is running. Called at the start of
+    // every forward() call. If the worker was intentionally stopped (idle
+    // release) or crashed, respawn it. Worker startup takes ~5s for model
+    // dequant+pack; acceptable because it only happens on first request
+    // after idle. See issue #1029.
+    bool ensure_worker() {
+        if (worker.ready) return true;
+        printf("NPU: (re)starting worker subprocess...\n");
+        if (!worker.spawn(worker_model_path_, H, NC, NQ, NKV, HD, mlp_dim, NV)) {
+            fprintf(stderr, "NPU: failed to (re)spawn worker engine\n");
+            return false;
+        }
+        return true;
+    }
+
     bool reset() override {
         pos = 0;
         for (auto& kv : kv_caches) kv.seq_len = 0;
@@ -549,6 +573,9 @@ struct NPUBackend : Backend {
     bool forward(int token_id, float* hidden_out) override {
         if (!initialized) return false;
         if (embed.empty()) return false;
+
+        if (!ensure_worker()) return false;
+        last_use_ = std::chrono::steady_clock::now();
 
         // Embedding lookup
         if (token_id >= 0 && (size_t)token_id * H < embed.size())
@@ -689,6 +716,21 @@ struct NPUBackend : Backend {
         if (!forward(token_id, hidden.data())) return -1;
         int result;
         lm_head(hidden.data(), logits_buf.data(), &result);
+        // Release the NPU worker when idle so standalone tools
+        // (npu_engine_universal) can use the NPU without stopping
+        // unified_server. The timer resets on every forward() call, so
+        // back-to-back tokens (benchmark, streaming) keep the worker alive.
+        // Only extended idle (>IDLE_RELEASE_SECS) triggers release.
+        // See issue #1029.
+        if (worker.ready) {
+            auto now = std::chrono::steady_clock::now();
+            auto idle_s = std::chrono::duration_cast<std::chrono::seconds>(
+                now - last_use_).count();
+            if (idle_s >= IDLE_RELEASE_SECS) {
+                printf("NPU: idle for %lds, releasing worker subprocess\n", idle_s);
+                worker.shutdown();
+            }
+        }
         return result;
     }
 
