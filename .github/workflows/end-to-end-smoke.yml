@@ -27,6 +27,18 @@ jobs:
           cmake -B build -G Ninja
           cmake --build build --target unified_server -j$(nproc)
 
+      - name: Stop production service (issue #1036)
+        # This runner is the same box as the always-on production
+        # 1bit-systems.service (unified_server, port 8088). Every historical
+        # run of this workflow failed — the CI instance's health check never
+        # connected because it was contending with the production instance
+        # for the same physical GPU (both hold /dev/accel/accel0 /
+        # ROCm device access). Stop it for the duration of this job; restarted
+        # unconditionally in Cleanup below.
+        run: |
+          sudo systemctl stop 1bit-systems.service || true
+          sleep 2
+
       - name: Start server
         run: |
           rm -f /tmp/unified_server.lock
@@ -110,3 +122,4 @@ jobs:
         run: |
           pkill -f "unified_server.*8099" 2>/dev/null || true
           rm -f /tmp/unified_server.lock
+          sudo systemctl start 1bit-systems.service || true
