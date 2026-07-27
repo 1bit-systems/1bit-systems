@@ -144,16 +144,8 @@ print(client.chat.completions.create(model="blackmamba-1.5b",
   src/                     C++23 engine core: backend manager, HIP/CUDA/Metal kernels, loaders, vision encoder
   include/                 Public C API headers + vision_encoder.h (ViT + projector)
   kernels/                 GPU kernels: bonsai, sherry, MoE, Mamba1, fused QKV
-  engine/
-    gpu/zinc_cpp/          Vulkan SPIR-V GPU engine (ZINC)
-    fusion/                Fused NPU+GPU dispatch, zero-copy paths
-    npu/                   C++23 INT8 NPU engine (XDNA 2) — see build note below
-  tools/                   CLI agent, daemon, converters, benchmarks:
-    onebit.cpp             CLI agent (chat, up, down, status, build, config)
-    onebitd.cpp            Daemon (spawns backend, proxies HTTP)
-    unified_router.cpp     NPU+GPU routing proxy
-    jarvis/                Voice agent — STT/TTS, C++ port
-    gguf_to_onebp.cpp      GGUF → 1BP converter
+  engine/                  NPU engine, ZINC (Vulkan) GPU engine, fused NPU+GPU dispatch — see build note below
+  tools/                   CLI agent, daemon, converters, benchmarks, jarvis/ (voice agent, STT/TTS)
   tests/                   Test/bench executables, ctest
   models/                  Model catalog + conversion manifests
   docs/                    Documentation (wiki/, archive/, marketing/)
@@ -209,27 +201,19 @@ Zaya1's maker, Zyphra, publishes several other architecturally distinct model li
 | [BlackMamba-1.5B](https://huggingface.co/bong-water-water-bong/BlackMamba-1.5B-1BP) | 1.5B | Mamba1 + top-1 MoE (no attention at all) | **1BP** | ✅ **79.4 tok/s** |
 | [BlackMamba-2.8B](https://huggingface.co/bong-water-water-bong/BlackMamba-2.8B-1BP) | 2.8B | Mamba1 + top-1 MoE | **1BP** | ✅ **46.0 tok/s** |
 
-Each converted from a Q8_0/BF16 source (not a 4-bit GGUF) to avoid compounding quantization error through a second 4-bit pass, then structurally and numerically verified the same way as the Zaya1 conversions.
+Each converted from a Q8_0/BF16 source (not a 4-bit GGUF) to avoid compounding quantization error through a second 4-bit pass, then structurally and numerically verified the same way as the Zaya1 conversions. One caveat: Zamba2 lacks tuned ROCm kernels, so it runs on the PyTorch fallback path — roughly 73× slower than the attention models above (see [`models/catalog/README.md`](models/catalog/README.md)).
 
-> **On-device validation — Strix Halo (Radeon 8060S, gfx1151):** **BlackMamba-1.5B 79.4 tok/s** / **2.8B 46.0 tok/s** on the Mamba1 HIP backend (re-validated 2026-07-26, 3-run average). **Dense GPU inference is live**: **ZR1-1.5B (Qwen2) runs on the native C++ ZINC Vulkan backend at ~26 tok/s** and matches the CPU reference **token-for-token** ([#844](https://github.com/bong-water-water-bong/1bit-systems/issues/844) — closed). ZINC is enabled by default for the architectures it computes correctly (llama/mistral/qwen2) and falls back to the exact `cpu_generic` path otherwise; `ZINC_DISABLE=1` forces HIP/CPU. The engine is also **crash-hardened** — a backend that fails to initialize fails over to HIP/CPU instead of taking the server down.
+> **Dense GPU inference is live and verified correct**: ZR1-1.5B (Qwen2 arch) runs on the native C++ ZINC Vulkan backend and matches the CPU reference **token-for-token** ([#844](https://github.com/bong-water-water-bong/1bit-systems/issues/844) — closed). ZINC is enabled by default for the architectures it computes correctly (llama/mistral/qwen2) and falls back to the exact `cpu_generic` path otherwise; `ZINC_DISABLE=1` forces HIP/CPU. The engine is also **crash-hardened** — a backend that fails to initialize fails over to HIP/CPU instead of taking the server down.
 
 **BlackMamba required a from-scratch converter** — no upstream GGUF export exists for this architecture, and it predates the architecture support standard converters have. The one-time bootstrap conversion shipped with three real correctness bugs on the first pass (wrong Q4_0 nibble encoding, a conv1d weight reshape that silently scrambled channel/kernel-tap pairing, and a dropped MoE router bias), all found and fixed by cross-checking against the in-tree C++ reference (`tools/blackmamba_cpu_reference.cpp`) and the official Zyphra implementation — see the model cards on Hugging Face for the full writeup. The resulting weights are what `gguf_to_onebp` now ingests directly.
 
 **Fast inference is now wired**: `src/mamba1_engine.hip` kernels are compiled into `librocm_cpp.so` and the `Mamba1Backend` (HIP GPU) is registered as a first-class backend in `BackendManager`. Both BlackMamba sizes load end-to-end through the Mamba1 GPU backend: alternating SSM layers (rmsnorm → in_proj → conv1d/silu → selective_scan → gate → out_proj) and MoE FFN layers (router → top-1 expert dispatch → SiLU → scale-add residual). The diagnostic tool `tools/test_mamba1_backend.cpp` loads a Mamba1 GGUF directly into the HIP backend for testing without the HTTP server. PR [#579](https://github.com/bong-water-water-bong/1bit-systems/pull/579) shipped the build linkage, conv state fix, and A_log exponentiation fix.
 
-**Vision-language is now supported**: ZAYA1-VL-8B — a real vision-language model combining a SigLIP ViT vision encoder with the Zaya1-8B MoE text decoder. The vision tower (24-layer ViT, fused QKV, Q8_0 quant) and connector (QWEN2_MERGER-style projector) are handled by the new `vision_encoder` library — pure C++, no Python, no OpenCV. The converter now preserves vision weights in 1BP files with full tensor metadata. See [`include/vision_encoder.h`](include/vision_encoder.h) and [`tools/zaya1_vl_demo.cpp`](tools/zaya1_vl_demo.cpp).
-
-### ⚠️ Data Clarity
-
-> **Current (re-validated 2026-07-26):** BlackMamba-1.5B 79.4 tok/s, BlackMamba-2.8B 46.0 tok/s, ZR1-1.5B 26 tok/s (ZINC GPU) — all verified end-to-end. See model cards above.
->
-> **Directional (needs re-measure):** NPU numbers below were measured before the 2026-07-19 GGUF dequant correctness fixes. They're directionally right but not re-verified. See [`docs/wiki/performance.md`](docs/wiki/performance.md).
->
-> **Disproven:** 572 tok/s DSpark speculative decoding — the checkpoint was undertrained. See [issue discussion](https://github.com/bong-water-water-bong/1bit-systems/issues/235).
+**Vision-language is now supported**: ZAYA1-VL-8B — a real vision-language model combining a SigLIP ViT vision encoder with the Zaya1-8B MoE text decoder. The vision tower (24-layer ViT, fused QKV, Q8_0 quant) and connector (QWEN2_MERGER-style projector) are handled by the new `vision_encoder` library — pure C++, no Python, no OpenCV. The converter now preserves vision weights in 1BP files with full tensor metadata. See [`include/vision_encoder.h`](include/vision_encoder.h) and [`tools/zaya1_vl_demo.cpp`](tools/zaya1_vl_demo.cpp). (An earlier POC, Qwen2-VL, did minimal real image-to-text before ZAYA1-VL landed.)
 
 ### 🏆 Top 5 — Raw NPU Engine, No FLM (single binary, auto-detected)
 
-*From [`engine/npu/BENCHMARKS.md`](engine/npu/BENCHMARKS.md), measured 2026-07-03/07-12 — predates the 2026-07-19 GGUF dequant correctness fixes (Q2_K/Q3_K/Q5_K, RoPE, dtype enums), so treat as directionally right pending re-measurement, not re-verified today.*
+*From [`engine/npu/BENCHMARKS.md`](engine/npu/BENCHMARKS.md), measured 2026-07-03/07-12 — predates the 2026-07-19 GGUF dequant correctness fixes (Q2_K/Q3_K/Q5_K, RoPE, dtype enums), so treat as directional, not re-verified. (Also superseded: a previously reported 572 tok/s DSpark speculative-decoding figure turned out to come from an undertrained checkpoint — see [issue #235](https://github.com/bong-water-water-bong/1bit-systems/issues/235).)*
 
 | Model | Family | Decode | Tok/s | Correctness |
 |-------|--------|:------:|:-----:|:-----------:|
@@ -240,14 +224,6 @@ Each converted from a Q8_0/BF16 source (not a 4-bit GGUF) to avoid compounding q
 | Qwen3-8B | Qwen3 | 127 ms/tok | **8** | 36/36 ✅ |
 
 Same binary, same auto-detect path, no per-model glue — the loader reads architecture off the model header for all 40 models.
-
-### Also validated
-
-| Model | Architecture | Backend | Note |
-|-------|--------------|---------|------|
-| Bonsai-1.7B | Ternary (IQ1_S mixed quant) | Vulkan/ZINC | 21.6-21.9 tok/s, 99.6% of theoretical memory bandwidth |
-| Zamba2 (1.2B / 2.7B / 7B) | Mamba2 SSD hybrid | ROCm (fallback) | Mamba2 lacks tuned ROCm kernels — PyTorch fallback, ~73× slower than attention models; see [`models/catalog/README.md`](models/catalog/README.md) |
-| Qwen2-VL | Vision-language | GPU | Minimal POC — real image-to-text, stops at EOS |
 
 ### TQ2 — the actual 1-bit/ternary storage path
 
