@@ -319,7 +319,20 @@ struct AttnCtx {
         bQ->sync(XCL_BO_SYNC_BO_TO_DEVICE);
         size_t kv_bytes = (size_t)cur_seq * NKV * HD;
         if (kv_bytes > 0) { bK->sync(XCL_BO_SYNC_BO_TO_DEVICE, kv_bytes, 0); bV->sync(XCL_BO_SYNC_BO_TO_DEVICE, kv_bytes, 0); }
-        return k->operator()(3, 0, 0, *bQ, *bK, *bV, *bOut);
+        // Explicit xrt::bo& casts: xrt::ext::bo derives from xrt::bo, and
+        // xrt::kernel::operator() has both a generic scalar template
+        // (set_arg(int, ArgType&&) -> set_arg_at_index(idx, &arg, sizeof(arg)))
+        // and a dedicated xrt::bo& overload. Passing the derived ext::bo
+        // directly resolves to the template (an exact-type match beats the
+        // derived-to-base binding the xrt::bo& overload needs), which patches
+        // sizeof(xrt::ext::bo) raw bytes of the C++ wrapper itself instead of
+        // the buffer handle -- the source of "patch_value() only supports
+        // 64-bit values or less" (issue #1066). Casting to xrt::bo& first
+        // makes both overloads equally-ranked identity matches, so the
+        // standard non-template-preferred tie-break selects the real one.
+        return k->operator()(3, 0, 0,
+            static_cast<xrt::bo&>(*bQ), static_cast<xrt::bo&>(*bK),
+            static_cast<xrt::bo&>(*bV), static_cast<xrt::bo&>(*bOut));
     }
     void fast_finish(xrt::run& r, float* out, int batch, float q_scale) { r.wait(); bOut->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
         auto* out_i16 = (int16_t*)bOut->map(); float cs = q_scale * cur_kv_scale;
@@ -345,7 +358,20 @@ struct AttnCtx {
             q = (int)roundf(v * kv_is); v_i8[i] = (int8_t)(q > 127 ? 127 : (q < -127 ? -127 : q));
         }
         bK->sync(XCL_BO_SYNC_BO_TO_DEVICE); bV->sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        return k->operator()(3, 0, 0, *bQ, *bK, *bV, *bOut);
+        // Explicit xrt::bo& casts: xrt::ext::bo derives from xrt::bo, and
+        // xrt::kernel::operator() has both a generic scalar template
+        // (set_arg(int, ArgType&&) -> set_arg_at_index(idx, &arg, sizeof(arg)))
+        // and a dedicated xrt::bo& overload. Passing the derived ext::bo
+        // directly resolves to the template (an exact-type match beats the
+        // derived-to-base binding the xrt::bo& overload needs), which patches
+        // sizeof(xrt::ext::bo) raw bytes of the C++ wrapper itself instead of
+        // the buffer handle -- the source of "patch_value() only supports
+        // 64-bit values or less" (issue #1066). Casting to xrt::bo& first
+        // makes both overloads equally-ranked identity matches, so the
+        // standard non-template-preferred tie-break selects the real one.
+        return k->operator()(3, 0, 0,
+            static_cast<xrt::bo&>(*bQ), static_cast<xrt::bo&>(*bK),
+            static_cast<xrt::bo&>(*bV), static_cast<xrt::bo&>(*bOut));
     }
     void finish_all(xrt::run& r, float* out, int batch, float q_scale, float kv_scale) {
         (void)kv_scale; r.wait(); bOut->sync(XCL_BO_SYNC_BO_FROM_DEVICE);

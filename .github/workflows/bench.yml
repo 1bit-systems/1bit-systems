@@ -60,6 +60,7 @@ jobs:
           g++ -std=c++23 -O3 -march=native -fopenmp -ffast-math \
             -o engine/npu/build/npu_engine_v12 \
             engine/npu/src/npu_engine_universal.cpp engine/npu/build/dequant_q4nx.o \
+            engine/npu/src/gemm_npu_instructions.cpp \
             npu-infer/src/flm_bridge.cpp \
             -Iengine/npu/include -Inpu-infer/include -Iinclude \
             -I/opt/xrt/include -Iengine/npu -I. \
