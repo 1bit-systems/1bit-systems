@@ -88,27 +88,24 @@ int main(){
     struct WS{float qk,o_,g_,d_;}wsc[NC];
     char path[512];
     for(int l=0;l<NC;l++){
-        // QKV fused: Q + K + V = H*NH*HD + 2*H*NKV*HD bytes (int8)
-        int q_bytes = NH * HD * H;
-        int kv_bytes = NKV * HD * H;
+        // QKV fused: Q(2M) + K(1M) + V(1M) = 4M elems
         auto*Bq=(int8_t*)cq.layerB[l]->map();
-        snprintf(path,512,E"/L%d_attn_q.i8",l);{FILE*f=fopen(path,"rb");fread(Bq,1,q_bytes,f);fclose(f);}
-        snprintf(path,512,E"/L%d_attn_k.i8",l);{FILE*f=fopen(path,"rb");fread(Bq+q_bytes,1,kv_bytes,f);fclose(f);}
-        snprintf(path,512,E"/L%d_attn_v.i8",l);{FILE*f=fopen(path,"rb");fread(Bq+q_bytes+kv_bytes,1,kv_bytes,f);fclose(f);}
+        snprintf(path,512,E"/L%d_attn_q.i8",l);{FILE*f=fopen(path,"rb");fread(Bq,1,2097152,f);fclose(f);}
+        snprintf(path,512,E"/L%d_attn_k.i8",l);{FILE*f=fopen(path,"rb");fread(Bq+2097152,1,1048576,f);fclose(f);}
+        snprintf(path,512,E"/L%d_attn_v.i8",l);{FILE*f=fopen(path,"rb");fread(Bq+3145728,1,1048576,f);fclose(f);}
         cq.layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);
         snprintf(path,512,E"/L%d_attn_q.i8.scale",l);wsc[l].qk=load_scale_fixed(path);
 
-        co.loadB(l,E"/L%d_attn_output.i8",NH*HD,H);
+        co.loadB(l,E"/L%d_attn_output.i8",2048,1024);
         snprintf(path,512,E"/L%d_attn_output.i8.scale",l);wsc[l].o_=load_scale_fixed(path);
 
-        int gate_bytes = IM * H;
         auto*Bg=(int8_t*)cg.layerB[l]->map();
-        snprintf(path,512,E"/L%d_ffn_gate.i8",l);{FILE*f=fopen(path,"rb");fread(Bg,1,gate_bytes,f);fclose(f);}
-        snprintf(path,512,E"/L%d_ffn_up.i8",l);{FILE*f=fopen(path,"rb");fread(Bg+gate_bytes,1,gate_bytes,f);fclose(f);}
+        snprintf(path,512,E"/L%d_ffn_gate.i8",l);{FILE*f=fopen(path,"rb");fread(Bg,1,3145728,f);fclose(f);}
+        snprintf(path,512,E"/L%d_ffn_up.i8",l);{FILE*f=fopen(path,"rb");fread(Bg+3145728,1,3145728,f);fclose(f);}
         cg.layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);
         snprintf(path,512,E"/L%d_ffn_gate.i8.scale",l);wsc[l].g_=load_scale_fixed(path);
 
-        cd.loadB(l,E"/L%d_ffn_down.i8",IM,H);
+        cd.loadB(l,E"/L%d_ffn_down.i8",3072,1024);
         snprintf(path,512,E"/L%d_ffn_down.i8.scale",l);wsc[l].d_=load_scale_fixed(path);
 
         if(l%7==0)printf("  L%d\n",l);

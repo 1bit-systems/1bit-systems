@@ -143,7 +143,7 @@ struct I8Ctx{
 
 struct AttnCPU{static void run(const float*Q,const float*K,const float*V,int nt,float*out){
     for(int h=0;h<WQH;h++){
-        std::vector<float> sc(nt);float mx=-1e30f;
+        float sc[4096];float mx=-1e30f;
         for(int p=0;p<nt;p++){
             double s=0;for(int d=0;d<HD;d++)s+=Q[h*HD+d]*K[p*NKV*HD+(h/GQA)*HD+d];
             sc[p]=(float)(s/sqrtf((float)HD));if(sc[p]>mx)mx=sc[p];}

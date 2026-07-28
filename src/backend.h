@@ -88,7 +88,7 @@ Backend* create_vulkan_backend();
 extern "C" Backend* create_hip_backend();
 
 // ── NPU backend ──
-Backend* create_npu_backend();
+extern "C" Backend* create_npu_backend();
 
 // ── NPU via FastFlowLM subprocess (see docs/GEMM-KERNEL-CORRECTNESS-CONFIRMED.md
 // for why this exists instead of the in-process NPU kernels) ──

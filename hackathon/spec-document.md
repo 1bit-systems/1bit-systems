@@ -244,7 +244,7 @@
 ├── rust/                       ← Rust reverse proxy (onebit)
 ├── scripts/                    ← Converters, benchmarks, CI
 ├── hackathon/                  ← Submission materials
-├── models/                     ← 40 models across 16 families on HuggingFace
+├── models/                     ← 46+ 1BP models across 17 families on HuggingFace (+12 documented Zyphra non-LLM)
 └── site/                       ← https://1bit.systems
 ```
 

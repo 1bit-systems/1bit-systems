@@ -135,7 +135,7 @@
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "name": "1bit.systems",
-    "description": "Model-agnostic NPU+GPU+CPU inference engine for AMD Strix Halo. FastFlowLM was fully reverse-engineered and replaced with a native open-source XDNA 2 NPU stack (zero proprietary code). GGUF/ONNX/1BP ternary formats, TQ2 2-bit quantization, ~39 TFLOPS INT8 prefill peak (sourced). 40 models across 16 families, 9 backends. No Python at runtime.",
+    "description": "Model-agnostic NPU+GPU+CPU inference engine for AMD Strix Halo. FastFlowLM was fully reverse-engineered and replaced with a native open-source XDNA 2 NPU stack (zero proprietary code). GGUF/ONNX/1BP ternary formats, TQ2 2-bit quantization, ~39 TFLOPS INT8 prefill peak (sourced). 46+ 1BP models across 17 families, 9 backends. No Python at runtime.",
     "url": "https://1bit.systems",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Linux",
@@ -162,7 +162,7 @@
         "name": "What is 1bit.systems?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "A model-agnostic NPU+GPU+CPU inference engine for AMD Strix Halo. FastFlowLM (AMD's closed-source NPU runtime) was fully reverse-engineered and replaced with a native open-source XDNA 2 stack — no proprietary code, no Python subprocess. Reads GGUF, ONNX, and its own 1BP ternary format (including TQ2 2-bit quantization). 40 models across 16 families, 9 backends. No Python at runtime. MIT licensed."
+          "text": "A model-agnostic NPU+GPU+CPU inference engine for AMD Strix Halo. FastFlowLM (AMD's closed-source NPU runtime) was fully reverse-engineered and replaced with a native open-source XDNA 2 stack — no proprietary code, no Python subprocess. Reads GGUF, ONNX, and its own 1BP ternary format (including TQ2 2-bit quantization). 46+ 1BP models across 17 families, 9 backends. No Python at runtime. MIT licensed."
         }
       },
       {
@@ -211,7 +211,7 @@
     <div>
       <span class="eyebrow">AMD Strix Halo · Ryzen AI Max+ 395</span>
       <div style="margin-top:14px;"><span class="pill warn" style="font-size:12px;height:28px;padding:0 14px;"><span class="dot"></span>⚡ One binary to rule them all</span></div>
-      <h1><span class="g">40 models.</span><br>9 backends. One binary.</h1>
+      <h1><span class="g">46+ 1BP models.</span><br>9 backends. One binary.</h1>
       <p style="margin-top:2px;font-size:clamp(22px,2.8vw,34px);font-weight:800;letter-spacing:-.025em;line-height:1.04;color:var(--blue);">Model-agnostic inference. Zero Python. MIT.</p>
       <p class="sub">Drop any GGUF model — auto-detects architecture, quantization, and routes to NPU (XDNA 2), GPU (ROCm/Vulkan), or CPU. No config files. No model registry.</p>
       <div class="cta-row">
@@ -294,7 +294,7 @@
 <section id="families" class="block">
   <span class="eyebrow">Model Families</span>
   <h2 style="margin:16px 0 8px;">Built around <span style="color:var(--green);">Zaya.</span> Extended to everything else.</h2>
-  <p class="lead" style="margin-bottom:28px;">Zaya1-8B is the model this project was built around — the first validated end-to-end through Q4NX, GGUF, and 1BP. The same auto-detect pipeline now covers 16 families and 40 models, from dense transformers to MoE to state-space hybrids. Full specs for every family live in the <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md" style="color:var(--blue);font-weight:600;">catalog on GitHub →</a></p>
+  <p class="lead" style="margin-bottom:28px;">Zaya1-8B is the model this project was built around — the first validated end-to-end through Q4NX, GGUF, and 1BP. The same auto-detect pipeline now covers 17 families and 46+ 1BP models (+12 documented Zyphra non-LLM models), from dense transformers to MoE to state-space hybrids. Full specs for every family live in the <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md" style="color:var(--blue);font-weight:600;">catalog on GitHub →</a></p>
 
   <div class="panel" style="padding:32px;">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:6px;">
@@ -326,7 +326,7 @@
   </div>
 
   <div style="margin-top:26px;">
-    <p class="caps" style="color:var(--muted);font-size:11px;margin-bottom:12px;">+ 15 more families · 38 more models</p>
+    <p class="caps" style="color:var(--muted);font-size:11px;margin-bottom:12px;">+ 15 more families · 40+ more 1BP models + documented Zyphra non-LLM</p>
     <div style="display:flex;flex-wrap:wrap;gap:8px;">
       <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#laguna-poolside--3" target="_blank" rel="noopener">Laguna · 3 →</a>
       <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#qwen--4" target="_blank" rel="noopener">Qwen · 4 →</a>
@@ -350,7 +350,7 @@
 <!-- ===== MODELS ===== -->
 <section id="models" class="block">
   <span class="eyebrow">Full Catalog</span>
-  <h2 style="margin:16px 0 8px;">40 models. 16 families. One format.</h2>
+  <h2 style="margin:16px 0 8px;">46+ 1BP models. 17 families. One format.</h2>
   <p class="lead" style="margin-bottom:28px;">Every family above converts to the same single-file, memory-mappable <strong style="color:var(--text);">1BP</strong> format — zero external config.json or tokenizer.json. One of them skips conversion entirely: these run straight from GGUF, validated end-to-end.</p>
 
   <div class="card" style="padding:24px;">

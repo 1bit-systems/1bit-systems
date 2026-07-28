@@ -1,0 +1,1752 @@
+/** NPU Engine — Universal Fast. Model-agnostic auto-detect + v12 speed.
+ *  M=32 batched decode, OpenMP attention, OpenMP LM head, f32 embeddings.
+ *  Supports ALL models with tagged xclbins. Target: >80 tok/s on any model. */
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <cmath>
+#include <vector>
+#include <chrono>
+#include <exception>
+#include <functional>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <signal.h>
+#include <xrt/xrt_device.h>
+#include <xrt/xrt_bo.h>
+#include <xrt/xrt_kernel.h>
+#include <xrt/experimental/xrt_ext.h>
+#include <xrt/experimental/xrt_module.h>
+#include <xrt/experimental/xrt_elf.h>
+#include <aiebu/aiebu_assembler.h>
+#include "bfp16_pack.h"
+#include <omp.h>
+#include "model_config.h"
+#ifdef ONEBP_SUPPORT
+#include "onebp_format.h"
+#include "onebp_loader.cpp"
+#endif
+// FLM dependency removed — pre-compiled instructions loaded from file.
+#include <sys/wait.h>
+#include <sys/file.h>
+#include <dirent.h>
+extern "C" float* dequant_i8_to_float_ex(const uint8_t*,int,int,int*,int*);
+static inline float bf16f(uint16_t v){uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}
+static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:bf16f(v);}
+// ── SiLU activation ──
+static inline float silu_f(float x) { return x / (1.0f + expf(-x)); }
+static constexpr float EPS=1e-6f;
+static inline void cn(float*x,int n){for(int i=0;i<n;i++)if(!std::isfinite(x[i]))x[i]=0.0f;}
+static inline void sm(float*sc,int n){if(n<=0)return;cn(sc,n);float mx=sc[0];
+    for(int i=1;i<n;i++)if(sc[i]>mx)mx=sc[i];double s=0;
+    for(int i=0;i<n;i++){float d=sc[i]-mx;if(d>80)d=80;else if(d<-80)d=-80;sc[i]=expf(d);s+=sc[i];}
+    if(s<=0){float iv=1.0f/n;for(int i=0;i<n;i++)sc[i]=iv;return;}
+    float is=1.0f/(float)s;for(int i=0;i<n;i++)sc[i]*=is;}
+static inline void rn_c(float*x,const float*w,int n){cn(x,n);double ss=0;
+    for(int i=0;i<n;i++)if(std::isfinite(x[i]))ss+=(double)x[i]*x[i];
+    float ir=1.0f/sqrtf((float)(ss/n)+EPS);for(int i=0;i<n;i++)x[i]=std::isfinite(x[i])?x[i]*ir*w[i]:0.0f;}
+static std::vector<float>rc,rs;
+static void ri(int hd,float th,int mp){int hd2=hd/2;rc.resize(mp*hd);rs.resize(mp*hd);
+    for(int p=0;p<mp;p++)for(int d=0;d<hd2;d++){
+        float f=1.0f/powf(th,(float)d/hd2),a=p*f;
+        rc[p*hd+d]=cosf(a);rs[p*hd+d]=sinf(a);}}
+static inline void ra(float*x,int hd,int p){int hd2=hd/2;for(int d=0;d<hd2;d++){
+    float a=x[d],b=x[d+hd2],c=rc[p*hd+d],s=rs[p*hd+d];x[d]=a*c-b*s;x[d+hd2]=b*c+a*s;}}
+// Safety net: if glibc's malloc detects heap corruption (free(): invalid size)
+// SIGABRT handler: prints diagnostic, then re-raises for default core dump
+// so the heap corruption root cause can be debugged. The measured results
+// are flushed to stderr before the re-raise.
+static void sigabrt_handler(int sig) {
+    fprintf(stderr, "\n[NPU engine] caught SIGABRT (likely heap corruption from free(): invalid size)\n");
+    fprintf(stderr, "[NPU engine] re-raising for core dump — see core.{pid} for backtrace\n");
+    fflush(stderr);
+    // Reset handler to default and re-raise to get a core dump
+    signal(SIGABRT, SIG_DFL);
+    raise(SIGABRT);
+}
+
+static std::vector<float> emb_f32; // f32 embeddings for fast LM head
+static std::vector<float> lm_head_f32; // f32 lm_head weights (separate from emb)
+// dequant_i8_to_float(_ex) returns row-major [out_features, in_features] (PyTorch nn.Linear);
+// packB()/go() need the transpose — [in_features, out_features] — since the GEMM computes
+// A[tokens,in] @ B[in,out].
+static void transpose_pack(const float* src, int out_f, int in_f, float* dst, int dst_stride, int dst_offset) {
+    for (int o = 0; o < out_f; o++)
+        for (int i = 0; i < in_f; i++)
+            dst[(size_t)i * dst_stride + dst_offset + o] = src[(size_t)o * in_f + i];
+}
+// Dynamic per-call activation quantization scale.
+// Hardcoded 5.0f/127.0f assumes activations stay in [-5,5], but measured post-RMSNorm
+// activations range as wide as [-8.24,7.01], silently clipping every layer.
+static inline float dynamic_ascale(const float* x, int n) {
+    float amax = 0;
+    for (int i = 0; i < n; i++) { float a = fabsf(x[i]); if (std::isfinite(a) && a > amax) amax = a; }
+    if (amax < 1e-12f) amax = 1.0f;
+    return amax / 127.0f;
+}
+
+static uint64_t jo(const char*js,size_t jl,const char*nm){size_t nl=strlen(nm);
+    const char*p=js,*e=js+jl;while(p<e){auto q=(const char*)memmem(p,e-p,nm,nl);
+        if(!q)return 0;if(q>js&&*(q-1)=='"'&&*(q+nl)=='"'){
+            auto o=strstr(q,"\"data_offsets\"");if(o){auto a=strchr(o,'[');if(a)return strtoull(a+1,NULL,10);}}p=q+1;}return 0;}
+
+struct I8Ctx{int MD,KD,ND,NL;bool use_bf16=false;
+    std::unique_ptr<xrt::xclbin>xc;
+    std::unique_ptr<xrt::hw_context>hc;
+    std::unique_ptr<xrt::kernel>k;std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bI,bA,bC;
+    std::vector<std::unique_ptr<xrt::bo>>layerB;int cur_layer=0;int8_t*Am;int16_t*Cm;
+    bool initialized=false;
+    bool layerB_cached = true;
+    ~I8Ctx(){}
+    bool isReady(){return initialized&&k&&bA&&bC;}
+    inline void set_layer(int l){if(l>=0&&l<(int)layerB.size())cur_layer=l;}
+    // Buffer sizes: INT8 vs BF16/BFP16
+    size_t a_size() const { return use_bf16 ? (size_t)MD*KD*2 : (size_t)MD*KD; }
+    size_t b_size() const { return use_bf16 ? ((size_t)KD*ND*6+7)/8 : (size_t)KD*ND; }
+    size_t c_size() const { return (size_t)MD*ND*2; }
+    bool init(xrt::device&d,const char*xp,const char*ip,int gid_B,int nlayers,bool bf16=false){
+        use_bf16=bf16; NL=nlayers;
+        FILE*f=fopen(ip,"rb");if(!f){fprintf(stderr,"  I8Ctx::init: fopen(%s) failed\n",ip);return false;}
+        fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);
+        ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);
+        try{
+        fprintf(stderr,"  I8Ctx: loading xclbin %s\n",xp);
+        xc=std::make_unique<xrt::xclbin>(std::string(xp));
+        fprintf(stderr,"  I8Ctx: registering xclbin\n");
+        d.register_xclbin(*xc);
+        fprintf(stderr,"  I8Ctx: creating hw context\n");
+        hc=std::make_unique<xrt::hw_context>(d,xc->get_uuid());
+        k=std::make_unique<xrt::kernel>(*hc,"MLIR_AIE");
+        bI=std::make_unique<xrt::bo>(d,ins.size()*4,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));
+        memcpy(bI->map(),ins.data(),ins.size()*4);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        fprintf(stderr,"  I8Ctx: allocating bA (%zu bytes, bf16=%d)\n",a_size(),(int)use_bf16);
+        bA=std::make_unique<xrt::bo>(d,a_size(),XCL_BO_FLAGS_CACHEABLE,k->group_id(3));
+        fprintf(stderr,"  I8Ctx: allocating bC (%zu bytes)\n",c_size());
+        bC=std::make_unique<xrt::bo>(d,c_size(),XCL_BO_FLAGS_CACHEABLE,k->group_id(5));
+        Am=(int8_t*)bA->map();Cm=(int16_t*)bC->map();
+
+        // Allocate per-layer weight BOs — same group_id so instructions
+        // work identically across layers. Weights loaded once, never re-DMA'd.
+        fprintf(stderr,"  I8Ctx: allocating %d x layerB (%zu bytes each, gid=%d, HOST_ONLY)\n",NL,b_size(),k->group_id(gid_B));
+        layerB.reserve(NL);
+        for (int l = 0; l < NL; l++) {
+            layerB.emplace_back(std::make_unique<xrt::bo>(d,b_size(),XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B)));
+        }
+        }catch(std::exception&e){fprintf(stderr,"  I8Ctx::init: %s (%s)\n",e.what(),xp);return false;}
+        initialized=true;return true;}
+    void packB(const float*w,int K,int N,float&sout){
+        if(use_bf16){
+            // BFP16 packing for BF16 xclbins
+            auto Bm = (uint8_t*)layerB[cur_layer]->map();
+            pack_bfp16_weights(w, K, N, Bm, b_size());
+            sout = 1.0f;  // BF16 output doesn't need scale
+        }else{
+            // INT8 packing
+            float amax=0;
+            for(int i=0;i<K*N;i++){float a=fabsf(w[i]);if(std::isfinite(a)&&a>amax)amax=a;}
+            if(amax<1e-12f)amax=1.0f;sout=amax/127.0f;float is=127.0f/amax;auto*Bm=(int8_t*)layerB[cur_layer]->map();
+            for(int i=0;i<K*N;i++){float v=w[i];if(!std::isfinite(v))v=0;
+                int x=(int)roundf(v*is);if(x>127)x=127;else if(x<-127)x=-127;Bm[i]=(int8_t)x;}
+        }
+        }
+    inline int8_t* quantize_async(const float*A,int am,int ak,float ascale){
+        if(use_bf16){
+            // BF16 quantize: just convert f32 to bf16
+            auto*ABuf = (uint16_t*)Am;
+            for(int i=0;i<am*ak;i++){
+                ABuf[i] = f32_to_bf16(A[i]);
+            }
+        }else{
+            // INT8 quantize
+            float ais=1.0f/ascale;memset(Am,0,(size_t)am*KD);
+            for(int m=0;m<am;m++)for(int k=0;k<ak;k++){
+                float v=A[m*ak+k];if(!std::isfinite(v))v=0;
+                int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;
+                Am[m*KD+k]=(int8_t)q;}
+        }
+        return Am;}
+    inline void sync_A(int l){(void)l;bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);}
+    inline xrt::run launch(){return (*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[cur_layer],*bC);}
+    inline xrt::run sync_and_launch(){bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);bC->sync(XCL_BO_SYNC_BO_TO_DEVICE);return (*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[cur_layer],*bC);}
+    inline void dequantize(xrt::run& r,float*C,int am,int an,float ascale,float Bscale){
+        r.wait();bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+        if(use_bf16){
+            // BF16→f32: just convert
+            auto*COut = (uint16_t*)Cm;
+            for(int m=0;m<am;m++)for(int n=0;n<an;n++){
+                uint32_t bits = (uint32_t)COut[m*ND+n] << 16;
+                float val; memcpy(&val, &bits, 4);
+                if(!std::isfinite(val))val=0;
+                C[m*an+n]=val;
+            }
+        }else{
+            // INT16→f32 with scale
+            float cs=ascale*Bscale;
+            for(int m=0;m<am;m++)for(int n=0;n<an;n++){
+                float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;C[m*an+n]=val;}
+        }}
+    inline bool go(const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){
+        (void)ascale;  // BF16 doesn't use activation scale
+        quantize_async(A,am,ak,ascale);auto r=sync_and_launch();r.wait();
+        dequantize(r,C,am,an,ascale,Bscale);return true;}
+    inline xrt::run launch_async(const float*A,int am,int ak,float ascale){
+        quantize_async(A,am,ak,ascale);return sync_and_launch();}
+    inline void finish_async(xrt::run& r,float*C,int am,int an,float ascale,float Bscale){
+        r.wait();dequantize(r,C,am,an,ascale,Bscale);}
+    inline void wait_kernel(xrt::run& r){r.wait();}
+    inline void sync_back_and_dequant(float*C,int am,int an,float ascale,float Bscale){
+        bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+        if(use_bf16){
+            auto*COut = (uint16_t*)Cm;
+            for(int m=0;m<am;m++)for(int n=0;n<an;n++){
+                uint32_t bits = (uint32_t)COut[m*ND+n] << 16;
+                float val; memcpy(&val, &bits, 4);
+                if(!std::isfinite(val))val=0;
+                C[m*an+n]=val;
+            }
+        }else{
+            float cs=ascale*Bscale;
+            for(int m=0;m<am;m++)for(int n=0;n<an;n++){
+                float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;C[m*an+n]=val;}
+        }}
+};
+
+// AttnCtx — NPU attention using xrt::kernel with instruction BO (same as I8Ctx).
+// The xclbin kernel signature:
+//   kernel(3, insts_bo, insts_size, bo0=Q, bo1=K, bo2=V, bo3=output, bo4=unused)
+//
+// Two launch paths:
+//   1. launch_all() — quantizes full K/V cache each call (O(seq_len))
+//   2. append_kv() + launch() — incremental, O(NKV*HD) per token
+struct AttnCtx {
+    int max_seq, NH, NKV, HD, XM;
+    int cur_seq = 0;
+    float cur_kv_scale = 1.0f;
+    std::unique_ptr<xrt::xclbin> xc;
+    std::unique_ptr<xrt::hw_context> hc;
+    std::unique_ptr<xrt::kernel> k;
+    std::vector<uint32_t> ins;
+    std::unique_ptr<xrt::bo> bI, bQ, bK, bV, bOut, bDummy;
+    bool initialized = false;
+
+    ~AttnCtx() {}
+    bool isReady() { return initialized && k && bI && bQ && bK && bV && bOut; }
+
+    bool init(xrt::device& d, const char* xp,
+              const std::vector<uint32_t>& instrs,
+              int max_seq_len, int nh, int nkv, int hd, int xm) {
+        max_seq = max_seq_len;
+        NH = nh; NKV = nkv; HD = hd; XM = xm;
+        ins = instrs;
+        try {
+            xc = std::make_unique<xrt::xclbin>(std::string(xp));
+            d.register_xclbin(*xc);
+            hc = std::make_unique<xrt::hw_context>(d, xc->get_uuid());
+            k = std::make_unique<xrt::kernel>(*hc, "MLIR_AIE");
+            bI = std::make_unique<xrt::bo>(d, ins.size()*4, XCL_BO_FLAGS_CACHEABLE, k->group_id(1));
+            memcpy(bI->map(), ins.data(), ins.size()*4);
+            bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            size_t q_bytes = (size_t)XM * NH * HD;
+            size_t kv_bytes = (size_t)max_seq * NKV * HD;
+            size_t out_bytes = (size_t)XM * NH * HD * 2;
+            int gid = k->group_id(5);
+            bQ = std::make_unique<xrt::bo>(d, q_bytes, XRT_BO_FLAGS_HOST_ONLY, gid);
+            bK = std::make_unique<xrt::bo>(d, kv_bytes, XRT_BO_FLAGS_HOST_ONLY, gid);
+            bV = std::make_unique<xrt::bo>(d, kv_bytes, XRT_BO_FLAGS_HOST_ONLY, gid);
+            bOut = std::make_unique<xrt::bo>(d, out_bytes, XRT_BO_FLAGS_HOST_ONLY, gid);
+            bDummy = std::make_unique<xrt::bo>(d, 64, XRT_BO_FLAGS_HOST_ONLY, gid);
+            cur_seq = 0;
+        } catch (std::exception& ex) {
+            fprintf(stderr, "  AttnCtx init failed: %s\n", ex.what());
+            return false;
+        }
+        initialized = true;
+        return true;
+    }
+
+    void append_kv(const float* K_token, const float* V_token, float kv_scale) {
+        cur_kv_scale = kv_scale; float kv_is = 1.0f / kv_scale;
+        auto* k_i8 = (int8_t*)bK->map(); auto* v_i8 = (int8_t*)bV->map();
+        size_t off = (size_t)cur_seq * NKV * HD;
+        for (size_t i = 0; i < (size_t)NKV * HD; i++) {
+            float kv = K_token[i]; if (!std::isfinite(kv)) kv = 0;
+            int q = (int)roundf(kv * kv_is); k_i8[off+i] = (int8_t)(q > 127 ? 127 : (q < -127 ? -127 : q));
+            kv = V_token[i]; if (!std::isfinite(kv)) kv = 0;
+            q = (int)roundf(kv * kv_is); v_i8[off+i] = (int8_t)(q > 127 ? 127 : (q < -127 ? -127 : q));
+        }
+        cur_seq++;
+    }
+    void append_kv_batch(const float* K_batch, const float* V_batch, int npt, int qkv_n, float kv_scale) {
+        cur_kv_scale = kv_scale; float kv_is = 1.0f / kv_scale;
+        auto* k_i8 = (int8_t*)bK->map(); auto* v_i8 = (int8_t*)bV->map();
+        for (int pi = 0; pi < npt; pi++) {
+            size_t off = (size_t)(cur_seq+pi) * NKV * HD;
+            for (size_t i = 0; i < (size_t)NKV * HD; i++) {
+                float kv = K_batch[pi*qkv_n+i]; if (!std::isfinite(kv)) kv = 0;
+                int q = (int)roundf(kv * kv_is); k_i8[off+i] = (int8_t)(q > 127 ? 127 : (q < -127 ? -127 : q));
+                kv = V_batch[pi*qkv_n+i]; if (!std::isfinite(kv)) kv = 0;
+                q = (int)roundf(kv * kv_is); v_i8[off+i] = (int8_t)(q > 127 ? 127 : (q < -127 ? -127 : q));
+            }
+        }
+        cur_seq += npt;
+    }
+    xrt::run launch(const float* Q_f32, int seq_len, int batch, float q_scale) {
+        auto* q_i8 = (int8_t*)bQ->map(); float q_is = 1.0f / q_scale;
+        for (int i = 0; i < batch * NH * HD; i++) {
+            float v = Q_f32[i]; if (!std::isfinite(v)) v = 0;
+            int q = (int)roundf(v * q_is); q_i8[i] = (int8_t)(q > 127 ? 127 : (q < -127 ? -127 : q));
+        }
+        bQ->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        size_t kv_bytes = (size_t)cur_seq * NKV * HD;
+        if (kv_bytes > 0) { bK->sync(XCL_BO_SYNC_BO_TO_DEVICE, kv_bytes, 0); bV->sync(XCL_BO_SYNC_BO_TO_DEVICE, kv_bytes, 0); }
+        return (*k)(3ULL, *bI, (unsigned)ins.size(), *bQ, *bK, *bV, *bOut, *bDummy);
+    }
+    void fast_finish(xrt::run& r, float* out, int batch, float q_scale) { r.wait(); bOut->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+        auto* out_i16 = (int16_t*)bOut->map(); float cs = q_scale * cur_kv_scale;
+        for (int i = 0; i < batch * NH * HD; i++) {
+            float val = (float)out_i16[i] * cs; if (!std::isfinite(val)) val = 0; out[i] = val;
+        }
+    }
+    xrt::run launch_all(const float* Q_f32, const float* K_cache, const float* V_cache,
+                        int seq_len, int batch, float q_scale, float kv_scale) {
+        cur_kv_scale = kv_scale; cur_seq = seq_len;
+        auto* q_i8 = (int8_t*)bQ->map(); float q_is = 1.0f / q_scale;
+        for (int i = 0; i < batch * NH * HD; i++) {
+            float v = Q_f32[i]; if (!std::isfinite(v)) v = 0;
+            int q = (int)roundf(v * q_is); q_i8[i] = (int8_t)(q > 127 ? 127 : (q < -127 ? -127 : q));
+        }
+        bQ->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        float kv_is = 1.0f / kv_scale; size_t kv_len = (size_t)seq_len * NKV * HD;
+        auto* k_i8 = (int8_t*)bK->map(); auto* v_i8 = (int8_t*)bV->map();
+        for (size_t i = 0; i < kv_len; i++) {
+            float v = K_cache[i]; if (!std::isfinite(v)) v = 0;
+            int q = (int)roundf(v * kv_is); k_i8[i] = (int8_t)(q > 127 ? 127 : (q < -127 ? -127 : q));
+            v = V_cache[i]; if (!std::isfinite(v)) v = 0;
+            q = (int)roundf(v * kv_is); v_i8[i] = (int8_t)(q > 127 ? 127 : (q < -127 ? -127 : q));
+        }
+        bK->sync(XCL_BO_SYNC_BO_TO_DEVICE); bV->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        return (*k)(3ULL, *bI, (unsigned)ins.size(), *bQ, *bK, *bV, *bOut, *bDummy);
+    }
+    void finish_all(xrt::run& r, float* out, int batch, float q_scale, float kv_scale) {
+        (void)kv_scale; r.wait(); bOut->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+        auto* out_i16 = (int16_t*)bOut->map(); float cs = q_scale * cur_kv_scale;
+        for (int i = 0; i < batch * NH * HD; i++) {
+            float val = (float)out_i16[i] * cs; if (!std::isfinite(val)) val = 0; out[i] = val;
+        }
+    }
+};
+
+// v12: OpenMP attention — parallelize across heads, with optional causal mask
+static inline void attn_omp(float*qo,float*at,int cl,const float*kv_k,const float*kv_v,int NH,int NKV,int HD,int GQA,int max_pos=-1){
+    if(max_pos<0)max_pos=cl;
+    #pragma omp parallel for
+    for(int hh=0;hh<NH;hh++){int kvh=hh/GQA;
+        std::vector<float> scores(cl);float mx=-1e30f;
+        for(int p=0;p<cl;p++){if(p>=max_pos){scores[p]=-1e30f;continue;}
+            double s=0;int qoff=hh*HD,koff=p*NKV*HD+kvh*HD;
+            #pragma omp simd reduction(+:s)
+            for(int d=0;d<HD;d++)s+=(double)qo[qoff+d]*kv_k[koff+d];scores[p]=(float)(s/sqrtf((float)HD));if(scores[p]>mx)mx=scores[p];}
+        double sw=0;for(int p=0;p<cl;p++){scores[p]=expf(scores[p]-mx);sw+=scores[p];}
+        float isw=sw>0?1.0f/(float)sw:1.0f/cl;
+        for(int d=0;d<HD;d++){float acc=0;int aoff=hh*HD+d;
+            #pragma omp simd reduction(+:acc)
+            for(int p=0;p<cl;p++)acc+=scores[p]*kv_v[p*NKV*HD+kvh*HD+d];at[aoff]=acc*isw;}}
+}
+
+// v12: OpenMP LM head with f32 embeddings — top-K sampling
+// emb: embedding/lm_head table (row-major [vocab_size, hidden_size])
+inline void lm_topk_omp(const float*hidden,float*lg,int*top_ids,int K,int NV,int H,const float*emb,float mx=-1e30f){
+    #pragma omp parallel for reduction(max:mx)
+    for(int n=0;n<NV;n++){double s=0;const float*e=&emb[(size_t)n*H];const float*h=hidden;
+        #pragma omp simd reduction(+:s)
+        for(int k=0;k<H;k++)s+=(double)h[k]*e[k];lg[n]=(float)s;if(lg[n]>mx)mx=lg[n];}
+    double sum=0;
+    #pragma omp parallel for reduction(+:sum)
+    for(int n=0;n<NV;n++){float d=lg[n]-mx;if(d<-80)d=-80;lg[n]=expf(d);sum+=lg[n];}
+    float r=(float)rand()/RAND_MAX*(float)sum,acc=0;
+    for(int n=0;n<NV;n++){acc+=lg[n];if(acc>=r){top_ids[0]=n;break;}}
+    struct TI{int id;float v;};TI top[32];
+    for(int b=0;b<K;b++){top[b].id=-1;top[b].v=-1e30f;}
+    for(int n=0;n<NV;n++){float v=lg[n];for(int b=0;b<K;b++){if(v>top[b].v){memmove(&top[b+1],&top[b],(K-1-b)*sizeof(TI));top[b].id=n;top[b].v=v;break;}}}
+    for(int b=0;b<K;b++)top_ids[b]=top[b].id;
+}
+
+// ── NPU attention via runtime sequence xclbin ──
+// edge_attention_06b_compact kernel: 4 Q heads, 2 KV heads, 16-token window.
+// Runtime_sequence(%input, %output) interface via xrt::kernel.
+
+#define RT_ATTN_HEADS 4
+#define RT_ATTN_KVH 2
+#define RT_ATTN_CTX 8
+#define RT_ATTN_BLKS 2
+#define RT_ATTN_MAX_TK (RT_ATTN_CTX * RT_ATTN_BLKS)
+
+struct RuntimeAttnCtx {
+    std::unique_ptr<xrt::xclbin> xc;
+    std::unique_ptr<xrt::hw_context> hc;
+    std::unique_ptr<xrt::kernel> k;
+    std::unique_ptr<xrt::bo> bIn, bOut;
+    bool ok = false;
+    int wd, kd, id, od; // window/KV/input/output dwords
+
+    bool isReady() { return ok && k && bIn && bOut; }
+
+    bool init(xrt::device& d, const char* xp, int hd) {
+        wd = RT_ATTN_HEADS * hd / 2;
+        kd = RT_ATTN_KVH * RT_ATTN_CTX * hd / 2;
+        id = wd + 4 * kd;
+        od = wd;
+        try {
+            xc = std::make_unique<xrt::xclbin>(std::string(xp));
+            d.register_xclbin(*xc);
+            hc = std::make_unique<xrt::hw_context>(d, xc->get_uuid());
+            k = std::make_unique<xrt::kernel>(*hc, "MLIR_AIE");
+            bIn = std::make_unique<xrt::bo>(d, (size_t)id * 4, XRT_BO_FLAGS_HOST_ONLY, k->group_id(0));
+            bOut = std::make_unique<xrt::bo>(d, (size_t)od * 4, XRT_BO_FLAGS_HOST_ONLY, k->group_id(1));
+            ok = true;
+            return true;
+        } catch (std::exception& ex) {
+            fprintf(stderr, "  RuntimeAttnCtx init failed: %s\n", ex.what());
+            return false;
+        }
+    }
+
+    void run_win(const float* Q, const float* K, const float* V,
+                 float* out, int hoff, int sl, int hd, int nkv) {
+        if (!ok || sl > RT_ATTN_MAX_TK) return;
+        int vb = (sl + RT_ATTN_CTX - 1) / RT_ATTN_CTX;
+        if (vb > RT_ATTN_BLKS) vb = RT_ATTN_BLKS;
+
+        auto* buf = (int32_t*)bIn->map();
+        memset(buf, 0, (size_t)id * 4);
+        auto* qb = (uint16_t*)buf;
+        auto* kb0 = (uint16_t*)(buf + wd);
+        auto* kb1 = (uint16_t*)(buf + wd + kd);
+        auto* vb0 = (uint16_t*)(buf + wd + 2*kd);
+        auto* vb1 = (uint16_t*)(buf + wd + 3*kd);
+
+        for (int h = 0; h < RT_ATTN_HEADS; h++)
+            for (int d = 0; d < hd; d++) {
+                float v = Q[(hoff + h) * hd + d];
+                qb[h * hd + d] = v ? ((uint16_t*)&v)[1] : 0;
+            }
+
+        for (int b = 0; b < vb; b++) {
+            int t0 = b * RT_ATTN_CTX, t1 = t0 + RT_ATTN_CTX;
+            if (t1 > sl) t1 = sl;
+            auto* kp = b == 0 ? kb0 : kb1;
+            auto* vp = b == 0 ? vb0 : vb1;
+            for (int t = 0; t < RT_ATTN_CTX; t++)
+                for (int kv = 0; kv < RT_ATTN_KVH; kv++)
+                    for (int d = 0; d < hd; d++) {
+                        int idx = kv * RT_ATTN_CTX * hd + t * hd + d;
+                        float f = (t + t0 < t1)
+                            ? K[(size_t)(t + t0) * nkv * hd + kv * hd + d] : 0;
+                        kp[idx] = ((uint16_t*)&f)[1];
+                        f = (t + t0 < t1)
+                            ? V[(size_t)(t + t0) * nkv * hd + kv * hd + d] : 0;
+                        vp[idx] = ((uint16_t*)&f)[1];
+                    }
+        }
+
+        bIn->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        auto r = (*k)(*bIn, *bOut);
+        r.wait();
+        bOut->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+
+        auto* ob = (uint16_t*)bOut->map();
+        for (int h = 0; h < RT_ATTN_HEADS; h++)
+            for (int d = 0; d < hd; d++) {
+                uint32_t bits = (uint32_t)ob[h * hd + d] << 16;
+                float v;
+                memcpy(&v, &bits, 4);
+                out[(hoff + h) * hd + d] = std::isfinite(v) ? v : 0;
+            }
+    }
+};
+
+static inline void npu_attn_rt(
+    RuntimeAttnCtx& ra, const float* qo, float* at, int cl,
+    const float* kk, const float* kv,
+    int NH, int NKV, int HD, int GQA,
+    int bs, int qn, int sp)
+{
+    (void)GQA; (void)qn; (void)sp;
+    if (cl > RT_ATTN_MAX_TK) {
+        for (int b = 0; b < bs; b++)
+            attn_omp(const_cast<float*>(&qo[b * qn]), &at[b * NH * HD], cl,
+                     kk, kv, NH, NKV, HD, GQA);
+        return;
+    }
+    for (int b = 0; b < bs; b++) {
+        const float* qb = &qo[b * qn];
+        float* ab = &at[b * NH * HD];
+        int nw = NH / RT_ATTN_HEADS;
+        for (int w = 0; w < nw; w++)
+            ra.run_win(qb, kk, kv, ab, w * RT_ATTN_HEADS, cl, HD, NKV);
+    }
+}
+
+// ── Consolidated NPU attention dispatch ──
+// Picks NPU attention (ca_ptr) or CPU fallback.
+// Uses AttnCtx's incremental KV API: caller must call append_kv() first.
+// This splits the work: append_kv is called DURING the decode loop's
+// KV cache update, hiding the quantize latency.
+static inline void npu_attn_dispatch(
+    float* qo,                // [bs][qn] Q data (batch * qkv_n, Q at front)
+    float* at,                // [bs][NH*HD] output attention
+    int cl,                   // current sequence length
+    int bs,                   // batch size
+    int qn,                   // qkv_n stride per batch item
+    int sp,                   // start position in KV cache (for max_pos mask)
+    const std::vector<float>& kv_k,  // flat K cache vector (unused for NPU path)
+    const std::vector<float>& kv_v,  // flat V cache vector (unused for NPU path)
+    int NH, int NKV, int HD, int GQA,
+    RuntimeAttnCtx& rta,
+    AttnCtx* ca_ptr)
+{
+    (void)kv_k; (void)kv_v; (void)sp;  // CPU fallback uses these via attn_omp
+    if (ca_ptr && ca_ptr->isReady()) {
+        float q_ascale = 0;
+        for (int i = 0; i < bs * NH * HD; i++) {
+            float a = fabsf(qo[i]);
+            if (std::isfinite(a) && a > q_ascale) q_ascale = a;
+        }
+        if (q_ascale < 1e-12f) q_ascale = 1.0f;
+        q_ascale = q_ascale / 127.0f;
+        float kv_ascale = 0;
+        for (int i = 0; i < cl * NKV * HD; i++) {
+            float a = fabsf(kv_k[i]);
+            if (std::isfinite(a) && a > kv_ascale) kv_ascale = a;
+        }
+        if (kv_ascale < 1e-12f) kv_ascale = 1.0f;
+        kv_ascale = kv_ascale / 127.0f;
+        auto r_attn = ca_ptr->launch_all(qo, kv_k.data(), kv_v.data(), cl, bs, q_ascale, kv_ascale);
+        ca_ptr->finish_all(r_attn, at, bs, q_ascale, kv_ascale);
+        cn(at, bs * NH * HD);
+        return;
+    }
+    // CPU attention fallback
+    for (int b = 0; b < bs; b++) {
+        attn_omp(&qo[b * qn], &at[b * NH * HD], cl,
+                 kv_k.data(), kv_v.data(), NH, NKV, HD, GQA);
+    }
+}
+
+// Check if unified_server (production NPU service) is already holding
+// the NPU device. The amdxdna driver + XRT 2.x does not handle concurrent
+// access from multiple processes gracefully — attempting to open the device
+// while unified_server is running produces an IOMMU page fault and a
+// permanently wedged kernel, causing this process to hang forever waiting
+// on ioctl(DRM_IOCTL_SYNCOBJ_TIMELINE_WAIT). See issue #1029.
+//
+// This function uses the same lock file that unified_server's
+// acquire_singleton_lock() creates, so we can detect it without process-name
+// heuristics or killing anything.
+static void check_npu_contention() {
+    const char* xdg = getenv("XDG_RUNTIME_DIR");
+    std::string lock_path = (xdg && xdg[0])
+        ? std::string(xdg) + "/unified_server.lock"
+        : std::string("/tmp/unified_server.lock");
+
+    int fd = open(lock_path.c_str(), O_RDONLY);
+    if (fd < 0) {
+        // Lock file doesn't exist — no unified_server running, safe to proceed.
+        return;
+    }
+
+    // Try to acquire the lock. If unified_server holds it, this will fail
+    // immediately (LOCK_NB). We don't want to actually take the lock — just
+    // probe whether it's held.
+    if (flock(fd, LOCK_EX | LOCK_NB) == 0) {
+        // We got the lock, which means unified_server is NOT holding it.
+        // Release immediately and continue.
+        flock(fd, LOCK_UN);
+        close(fd);
+        return;
+    }
+
+    // Lock is held. Read the owner token (PID:UUID) and check if the
+    // holding process is still alive.
+    char buf[128] = {0};
+    pread(fd, buf, sizeof(buf) - 1, 0);
+
+    pid_t holder_pid = 0;
+    char* colon = strchr(buf, ':');
+    if (colon) {
+        *colon = '\0';
+        holder_pid = (pid_t)atoi(buf);
+        *colon = ':';
+    }
+
+    close(fd);
+
+    if (holder_pid > 0 && kill(holder_pid, 0) == 0) {
+        // Holder is alive. Check if it actually has the NPU device open.
+        // unified_server may have released it (see issue #1029 part 3):
+        // when using a GPU-only backend, it closes the fd and unmaps
+        // the device, so the NPU is free for standalone tools.
+        bool actually_holds_npu = false;
+        char proc_path[256];
+
+        // Check /proc/<pid>/fd for /dev/accel/accel* symlinks
+        snprintf(proc_path, sizeof(proc_path), "/proc/%d/fd", (int)holder_pid);
+        DIR* fddir = opendir(proc_path);
+        if (fddir) {
+            struct dirent* entry;
+            while ((entry = readdir(fddir)) != nullptr) {
+                if (entry->d_name[0] == '.') continue;
+                char link[512], target[128];
+                snprintf(link, sizeof(link), "%s/%s", proc_path, entry->d_name);
+                ssize_t n = readlink(link, target, sizeof(target) - 1);
+                if (n > 0 && strncmp(target, "/dev/accel/accel", 16) == 0) {
+                    actually_holds_npu = true;
+                    break;
+                }
+            }
+            closedir(fddir);
+        }
+
+        // Check /proc/<pid>/maps for /dev/accel/accel* mmap regions
+        if (!actually_holds_npu) {
+            snprintf(proc_path, sizeof(proc_path), "/proc/%d/maps", (int)holder_pid);
+            FILE* maps = fopen(proc_path, "r");
+            if (maps) {
+                char line[512];
+                while (fgets(line, sizeof(line), maps)) {
+                    if (strstr(line, "/dev/accel/accel")) {
+                        actually_holds_npu = true;
+                        break;
+                    }
+                }
+                fclose(maps);
+            }
+        }
+
+        if (actually_holds_npu) {
+            fprintf(stderr,
+                "\n"
+                "  NPU DEVICE IN USE\n"
+                "  unified_server is already holding the NPU (pid %d).\n"
+                "\n"
+                "  The amdxdna driver cannot safely share the NPU between\n"
+                "  concurrent processes. Starting another NPU process will\n"
+                "  cause an IOMMU page fault and a permanently wedged fence.\n"
+                "\n"
+                "  To run npu_engine_universal, stop unified_server first:\n"
+                "    $ sudo systemctl stop unified-server\n"
+                "    (or) $ kill %d\n"
+                "\n"
+                "  See issue #1029 for details.\n"
+                "\n",
+                (int)holder_pid, (int)holder_pid);
+            _exit(1);
+        }
+
+        // unified_server is running but has released the NPU device.
+        // Safe to proceed.
+        fprintf(stderr,
+            "Note: unified_server (pid %d) is running but has released the NPU device.\n"
+            "      Proceeding with standalone NPU inference.\n",
+            (int)holder_pid);
+    }
+
+    // Holder process is dead — lock is stale. unified_server's own
+    // singleton lock code will clean it up on next restart. We can
+    // safely proceed; the real device may be free (or not — see below).
+    fprintf(stderr,
+        "Note: stale unified_server lock found (pid %d no longer running).\n",
+        (int)holder_pid);
+}
+
+int main(int argc,char**argv){
+    setvbuf(stdout,NULL,_IONBF,0);
+    // Install SIGABRT handler for issue #202: heap corruption during decode
+    // causes free(): invalid size → SIGABRT. The handler calls _exit(0) to
+    // suppress the crash dump — results are already printed before this point.
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = sigabrt_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESETHAND; // allow one handler invocation; re-trigger = default (core dump)
+    sigaction(SIGABRT, &sa, nullptr);
+
+    if(argc<2){fprintf(stderr,"Usage: %s model.q4nx [decode_tokens] [input_tokens_file|-]\n",argv[0]);return 1;}
+    // Check for --worker flag (subprocess protocol mode)
+    bool worker_mode=false;
+    for(int i=2;i<argc;i++){if(strcmp(argv[i],"--worker")==0){worker_mode=true;break;}}
+    const char*mp=argv[1];int ng=(argc>2&&!worker_mode)?atoi(argv[2]):32;if(ng<1)ng=1;if(ng>16384)ng=16384; // cap to KV cache size
+    const char*input_tok_file=(argc>3&&!worker_mode&&argv[3][0]!='\0')?argv[3]:nullptr;
+
+    // Model tag
+    // Accept --model-tag CLI override (passed by the Zig fused executor)
+    std::string mp_s(mp),model_tag;
+    for(int i=2;i<argc-1;i++){if(strcmp(argv[i],"--model-tag")==0){model_tag=argv[i+1];break;}}
+    if(model_tag.empty()){
+        auto ls=mp_s.rfind('/');model_tag=(ls!=std::string::npos)?mp_s.substr(ls+1):mp_s;
+        auto dot=model_tag.rfind('.');if(dot!=std::string::npos)model_tag=model_tag.substr(0,dot);
+        // FLM/convention: model files are typically named "model.q4nx" inside
+        // a directory named after the model (e.g. Qwen3-0.6B-NPU2/model.q4nx).
+        // If the filename-derived tag is "model", use the parent directory name.
+        if (model_tag == "model" && ls != std::string::npos && ls > 0) {
+            auto prev=mp_s.rfind('/',ls-1);
+            model_tag=mp_s.substr(prev+1,ls-prev-1);
+        }
+    }
+    for(auto&c:model_tag){c=tolower(c);if(c=='-'||c=='.'||c=='\\')c='_';}
+    const char*sfxs[]={"_npu2","_instruct","_it","_it_npu2"};
+    for(auto sf:sfxs){size_t sl=strlen(sf);if(model_tag.size()>sl&&model_tag.substr(model_tag.size()-sl)==sf)model_tag=model_tag.substr(0,model_tag.size()-sl);}
+
+#ifdef ONEBP_SUPPORT
+    bool is_onebp = strlen(mp) > 4 && strcmp(mp + strlen(mp) - 4, ".1bp") == 0;
+    OnebpModel onebp_model;
+#endif
+    // Parse config
+    ModelConfig cfg;
+    #ifdef ONEBP_SUPPORT
+        if (is_onebp) {
+            if (!onebp_model.open(mp)) { fprintf(stderr,"ERR: 1BP\n"); return 1; }
+            auto& oh = onebp_model.header();
+            cfg.H = oh.hidden_size; cfg.NC = oh.num_layers;
+            cfg.NH = oh.num_attention_heads; cfg.NKV = oh.num_kv_heads;
+            cfg.HD = oh.head_dim; cfg.IM = oh.intermediate_size;
+            cfg.NV = oh.vocab_size; cfg.GQA = cfg.NH / cfg.NKV;
+            cfg.XM = 128; cfg.has_lm_head = true;
+            // The rest of ModelConfig (model_tag, xclbin_*, gu_split, has_q_norm/
+            // has_k_norm) was never populated for the onebp path — it only ever
+            // set the handful of fields above, leaving model_tag empty and every
+            // xclbin_* dimension zero. That's invisible until NPU init actually
+            // tries to open "insts_i8_QKV_.txt" (empty tag) and fails. Mirror
+            // parse_q4nx_header()'s derivation below (same formulas, sourced
+            // from the onebp header instead of Q4NX JSON tile-row counts).
+            cfg.model_tag = model_tag;
+            cfg.rope_theta = oh.rope_theta() > 0 ? oh.rope_theta() : cfg.rope_theta;
+            {
+                std::vector<float> probe;
+                cfg.has_q_norm = onebp_model.get_tensor_f32("blk.0.attn_q_norm.weight", probe);
+                cfg.has_k_norm = onebp_model.get_tensor_f32("blk.0.attn_k_norm.weight", probe);
+            }
+            cfg.qkv_k_offset = cfg.NH * cfg.HD;
+            cfg.qkv_v_offset = cfg.NH * cfg.HD + cfg.NKV * cfg.HD;
+            cfg.qkv_total = cfg.NH * cfg.HD + 2 * cfg.NKV * cfg.HD;
+            cfg.xclbin_qkv_k = cfg.H;
+            cfg.xclbin_qkv_n = cfg.qkv_total;
+            cfg.xclbin_o_k = cfg.NH * cfg.HD;
+            cfg.xclbin_o_n = cfg.H;
+            cfg.gu_split = (cfg.IM * 2 > 14336);
+            if (cfg.gu_split) {
+                cfg.xclbin_g_k = cfg.H; cfg.xclbin_g_n = cfg.IM;
+                cfg.xclbin_u_k = cfg.H; cfg.xclbin_u_n = cfg.IM;
+            } else {
+                cfg.xclbin_gu_k = cfg.H; cfg.xclbin_gu_n = cfg.IM * 2;
+            }
+            cfg.xclbin_d_k = cfg.IM; cfg.xclbin_d_n = cfg.H;
+        } else
+    #endif
+        cfg = parse_q4nx_header(mp,model_tag.c_str());
+
+    if(!cfg.valid()){fprintf(stderr,"ERR: invalid model config\n");return 1;}
+    int H=cfg.H,NC=cfg.NC,NH=cfg.NH,NKV=cfg.NKV,HD=cfg.HD,IM=cfg.IM,NV=cfg.NV,GQA=cfg.GQA,XM=cfg.XM;
+    fprintf(stderr,"=== NPU Engine Universal — %s ===\n",model_tag.c_str());
+    fprintf(stderr,"H=%d NC=%d NH=%d NKV=%d HD=%d IM=%d NV=%d GU_split=%d\n",H,NC,NH,NKV,HD,IM,NV,cfg.gu_split);
+
+    // Open model
+    int fd=open(mp,O_RDONLY);struct stat st;fstat(fd,&st);
+    uint8_t*md=(uint8_t*)mmap(NULL,st.st_size,PROT_READ,MAP_PRIVATE,fd,0);close(fd);
+    uint64_t hsz;memcpy(&hsz,md,8);uint64_t df=8+hsz;
+    auto i8p=[&](uint64_t o){return md+df+o;};auto emb=(const uint16_t*)(md+df);
+    const char*js=(const char*)(md+8);size_t jl=hsz;
+
+    // Pre-convert embeddings f32 (v12 optimization)
+    fprintf(stderr,"Pre-convert emb f32...\n");auto te=std::chrono::steady_clock::now();
+    #ifdef ONEBP_SUPPORT
+    if (is_onebp) {
+        std::vector<float> emb_buf;
+        if (onebp_model.get_tensor_f32("token_embd.weight", emb_buf)) {
+            emb_f32 = emb_buf;
+            fprintf(stderr,"  1BP embeddings loaded\n");
+        }
+    } else {
+    #endif
+    emb_f32.resize((size_t)NV*H);
+    for(int n=0;n<NV;n++)for(int i=0;i<H;i++)emb_f32[(size_t)n*H+i]=bf16g(emb[n*H+i]);
+    fprintf(stderr,"  %.0fms\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-te).count());
+    #ifdef ONEBP_SUPPORT
+    }
+    #endif
+
+    // Norm weights
+    std::vector<uint64_t> in_off(NC),pa_off(NC),qn_off(NC),kn_off(NC),qp(NC),kp(NC),vp(NC),op(NC),gp(NC),up(NC),dp(NC);
+    char bn[128];
+    std::vector<std::vector<float>> in_n(NC),pa_n(NC),qn_w(NC),kn_w(NC);
+    std::vector<float> fin_v;
+    int q_i8=0,k_i8=0,v_i8=0,o_i8=0,g_i8=0,u_i8=0,d_i8=0;
+#ifdef ONEBP_SUPPORT
+    if (is_onebp) {
+        // Same tensors, GGUF/onebp naming (blk.N.*) instead of the HF
+        // safetensors naming (model.layers.N.*) the jo()/JSON path below
+        // uses. get_tensor_f32 dequantizes Q4NX/TQ2 internally and returns
+        // the tensor's real shape — no separate "I8 tile rows" lookup needed.
+        for (int l = 0; l < NC; l++) {
+            snprintf(bn,128,"blk.%d.attn_norm.weight",l); onebp_model.get_tensor_f32(bn, in_n[l]);
+            snprintf(bn,128,"blk.%d.ffn_norm.weight",l); onebp_model.get_tensor_f32(bn, pa_n[l]);
+            if (cfg.has_q_norm) { snprintf(bn,128,"blk.%d.attn_q_norm.weight",l); onebp_model.get_tensor_f32(bn, qn_w[l]); }
+            if (cfg.has_k_norm) { snprintf(bn,128,"blk.%d.attn_k_norm.weight",l); onebp_model.get_tensor_f32(bn, kn_w[l]); }
+        }
+        onebp_model.get_tensor_f32("output_norm.weight", fin_v);
+        std::vector<float> lm_buf;
+        if (onebp_model.get_tensor_f32("output.weight", lm_buf)) {
+            lm_head_f32 = lm_buf;
+            fprintf(stderr,"  lm_head: %zu floats (loaded from 1BP output.weight)\n",lm_buf.size());
+        }
+    } else {
+#endif
+    for(int l=0;l<NC;l++){
+        snprintf(bn,128,"model.layers.%d.self_attn.q_proj.weight",l);qp[l]=jo(js,jl,bn);
+        snprintf(bn,128,"model.layers.%d.self_attn.k_proj.weight",l);kp[l]=jo(js,jl,bn);
+        snprintf(bn,128,"model.layers.%d.self_attn.v_proj.weight",l);vp[l]=jo(js,jl,bn);
+        snprintf(bn,128,"model.layers.%d.self_attn.o_proj.weight",l);op[l]=jo(js,jl,bn);
+        snprintf(bn,128,"model.layers.%d.mlp.gate_proj.weight",l);gp[l]=jo(js,jl,bn);
+        snprintf(bn,128,"model.layers.%d.mlp.up_proj.weight",l);up[l]=jo(js,jl,bn);
+        snprintf(bn,128,"model.layers.%d.mlp.down_proj.weight",l);dp[l]=jo(js,jl,bn);
+        snprintf(bn,128,"model.layers.%d.input_layernorm.weight",l);in_off[l]=jo(js,jl,bn);
+        snprintf(bn,128,"model.layers.%d.post_attention_layernorm.weight",l);pa_off[l]=jo(js,jl,bn);
+        snprintf(bn,128,"model.layers.%d.self_attn.q_norm.weight",l);qn_off[l]=jo(js,jl,bn);
+        snprintf(bn,128,"model.layers.%d.self_attn.k_norm.weight",l);kn_off[l]=jo(js,jl,bn);}
+    uint64_t no=jo(js,jl,"model.norm.weight");
+    uint64_t lo=jo(js,jl,"lm_head.weight");
+    for(int l=0;l<NC;l++)in_n[l].resize(H),pa_n[l].resize(H),qn_w[l].resize(HD),kn_w[l].resize(HD);
+    fin_v.resize(H);
+    for(int l=0;l<NC;l++){auto iw=(const uint16_t*)(md+df+in_off[l]),pw=(const uint16_t*)(md+df+pa_off[l]);
+        for(int i=0;i<H;i++){in_n[l][i]=bf16g(iw[i]);pa_n[l][i]=bf16g(pw[i]);}
+        if(cfg.has_q_norm&&qn_off[l]){auto qq=(const uint16_t*)(md+df+qn_off[l]);for(int i=0;i<HD;i++)qn_w[l][i]=bf16g(qq[i]);}
+        if(cfg.has_k_norm&&kn_off[l]){auto kk=(const uint16_t*)(md+df+kn_off[l]);for(int i=0;i<HD;i++)kn_w[l][i]=bf16g(kk[i]);}}
+    {auto fw=(const uint16_t*)(md+df+no);for(int i=0;i<H;i++)fin_v[i]=bf16g(fw[i]);}
+
+    // I8 tile rows
+    auto gi8=[&](const char*k)->int{int r=0;find_tensor_info(js,jl,k,&r);return r;};
+    q_i8=gi8("model.layers.0.self_attn.q_proj.weight");k_i8=gi8("model.layers.0.self_attn.k_proj.weight");v_i8=gi8("model.layers.0.self_attn.v_proj.weight");
+    o_i8=gi8("model.layers.0.self_attn.o_proj.weight");g_i8=gi8("model.layers.0.mlp.gate_proj.weight");u_i8=gi8("model.layers.0.mlp.up_proj.weight");d_i8=gi8("model.layers.0.mlp.down_proj.weight");
+    int lm_i8=gi8("lm_head.weight");
+
+    // Load lm_head.weight separately — NOT tied to embed_tokens.weight for this model
+    if(lo&&lm_i8>0){int lr,lc;float*lm_raw=dequant_i8_to_float_ex(i8p(lo),lm_i8,H,&lr,&lc);if(lm_raw){
+        lm_head_f32.assign(lm_raw,lm_raw+(size_t)lr*lc);free(lm_raw);
+        fprintf(stderr,"  lm_head: %dx%d (loaded from JSON), using for final logits\n",lr,lc);
+    }else{fprintf(stderr,"  lm_head: dequant failed, falling back to emb\n");}}
+#ifdef ONEBP_SUPPORT
+    }
+#endif
+    if(lm_head_f32.empty()){fprintf(stderr,"  lm_head: using emb_f32 (tied embeddings)\n");}
+    const float* lm_emb = lm_head_f32.empty() ? emb_f32.data() : lm_head_f32.data();
+
+    // Init NPU — check for contention with unified_server first (issue #1029)
+    check_npu_contention();
+    fprintf(stderr,"Init NPU...\n");xrt::device dev(0);
+    // Xclbin directory: respect NPU_XCLBIN_DIR env var, fall back to repo-relative path
+    const char* env_xd = getenv("NPU_XCLBIN_DIR");
+    std::string xd = env_xd ? env_xd : "engine/npu/xclbins";
+    bool use_bf16_xclbins = true;  // Use recompiled BF16 xclbins
+    // Check if BF16 xclbins exist in q4nx subdirectory
+    {
+        std::string test_path = xd+"/q4nx/bf16_QKV_"+cfg.model_tag+".xclbin";
+        FILE* tf = fopen(test_path.c_str(), "rb");
+        if(!tf) { use_bf16_xclbins = false; }
+        else { fclose(tf); fprintf(stderr,"  Using BF16 Q4NX xclbins\n"); }
+    }
+    auto xp=[&](const char*t){
+        if(use_bf16_xclbins)
+            return xd+"/q4nx/bf16_"+std::string(t)+"_"+cfg.model_tag+".xclbin";
+        return xd+"/final_i8_"+std::string(t)+"_"+cfg.model_tag+".xclbin";
+    };
+    auto ip=[&](const char*t){
+        if(use_bf16_xclbins)
+            return xd+"/q4nx/insts_bf16_"+std::string(t)+"_"+cfg.model_tag+".bin";
+        return xd+"/insts_i8_"+std::string(t)+"_"+cfg.model_tag+".txt";
+    };
+
+    // GEMM contexts (I8Ctx = NPU xclbin + kernel + buffer set)
+    I8Ctx cq,co,cg,cd;
+    std::unique_ptr<I8Ctx> cu_ptr;
+    std::unique_ptr<AttnCtx> ca_ptr;
+    RuntimeAttnCtx rta;
+    std::vector<uint32_t> attn_instrs;
+    auto load_attn_instrs = [&](const char* path) -> bool {
+        FILE* f = fopen(path, "rb");
+        if (!f) { fprintf(stderr, "  No attn insts: %s\n", path); return false; }
+        fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
+        attn_instrs.resize(sz / 4);
+        fread(attn_instrs.data(), 4, attn_instrs.size(), f);
+        fclose(f);
+        return true;
+    };
+    cq.MD=XM;cq.KD=cfg.xclbin_qkv_k;cq.ND=cfg.xclbin_qkv_n;
+    co.MD=XM;co.KD=cfg.xclbin_o_k;co.ND=cfg.xclbin_o_n;
+    cd.MD=XM;cd.KD=cfg.xclbin_d_k;cd.ND=cfg.xclbin_d_n;
+    if(cfg.gu_split){cg.MD=XM;cg.KD=cfg.xclbin_g_k;cg.ND=cfg.xclbin_g_n;}else{cg.MD=XM;cg.KD=cfg.xclbin_gu_k;cg.ND=cfg.xclbin_gu_n;}
+    if(!cq.init(dev,xp("QKV").c_str(),ip("QKV").c_str(),4,NC,use_bf16_xclbins)){fprintf(stderr,"FAIL QKV\n");return 1;}
+    if(!co.init(dev,xp("O").c_str(),ip("O").c_str(),4,NC,use_bf16_xclbins)){fprintf(stderr,"FAIL O\n");return 1;}
+    if(cfg.gu_split){if(!cg.init(dev,xp("G").c_str(),ip("G").c_str(),4,NC,use_bf16_xclbins)){fprintf(stderr,"FAIL G\n");return 1;}}else{if(!cg.init(dev,xp("GU").c_str(),ip("GU").c_str(),4,NC,use_bf16_xclbins)){fprintf(stderr,"FAIL GU\n");return 1;}}
+    if(!cd.init(dev,xp("D").c_str(),ip("D").c_str(),4,NC,use_bf16_xclbins)){fprintf(stderr,"FAIL D\n");return 1;}
+    if(cfg.gu_split){cu_ptr=std::make_unique<I8Ctx>();cu_ptr->MD=XM;cu_ptr->KD=cfg.xclbin_u_k;cu_ptr->ND=cfg.xclbin_u_n;if(!cu_ptr->init(dev,xp("U").c_str(),ip("U").c_str(),4,NC,use_bf16_xclbins)){fprintf(stderr,"FAIL U\n");return 1;}}
+    // NPU attention via pre-compiled KV xclbin instructions.
+    // NPU attention via pre-compiled KV xclbin instructions.
+    // Set NPU_ATTN=1 to enable. Disabled by default — the attention xclbin
+    // has the same XRT compatibility issue as the GEMM xclbins on some
+    // driver versions. Auto-enable when confirmed working per-model.
+    // NPU attention: auto-enable if attn xclbin exists. Override with NPU_ATTN=0.
+    bool use_npu_attn = true;
+    const char* npu_attn_env = getenv("NPU_ATTN");
+    if(npu_attn_env && atoi(npu_attn_env) == 0) use_npu_attn = false;
+    if(use_npu_attn){
+        // Use INT8 attn xclbin path (attn is INT8 even in BF16 mode)
+        std::string attn_xp = std::string(xd) + "/final_i8_ATTN_" + cfg.model_tag + ".xclbin";
+        std::string inst_path = std::string(xd) + "/insts_i8_KV_" + cfg.model_tag + ".txt";
+        FILE* tf = fopen(attn_xp.c_str(), "rb");
+        if(!tf) { use_npu_attn = false; fprintf(stderr,"  No attn xclbin for %s\n",cfg.model_tag.c_str()); }
+        else { fclose(tf); }
+        if(use_npu_attn && load_attn_instrs(inst_path.c_str())) {
+            ca_ptr = std::make_unique<AttnCtx>();
+            if (ca_ptr->init(dev, attn_xp.c_str(), attn_instrs,
+                             4096, NH, NKV, HD, XM)) {
+                fprintf(stderr, "NPU attention enabled\n");
+            } else {
+                fprintf(stderr, "WARN: AttnCtx init failed, CPU fallback\n");
+                use_npu_attn = false;
+                ca_ptr.reset();
+            }
+        } else {
+            // Fallback: generate attention instructions at runtime
+            fprintf(stderr, "  No attn insts file, trying runtime generation...\n");
+            extern void mha_generate_attn_instrs(
+                std::vector<uint32_t>&, uint32_t, int, uint32_t, uint32_t, uint32_t, uint32_t);
+            try {
+                mha_generate_attn_instrs(attn_instrs, (uint32_t)HD, 4,
+                    (uint32_t)NH, (uint32_t)NKV, 4096, 4096);
+                if (!attn_instrs.empty()) {
+                    ca_ptr = std::make_unique<AttnCtx>();
+                    if (ca_ptr->init(dev, attn_xp.c_str(), attn_instrs,
+                                     4096, NH, NKV, HD, XM)) {
+                        fprintf(stderr, "NPU attention enabled (runtime-generated insts)\n");
+                    } else {
+                        fprintf(stderr, "WARN: AttnCtx runtime init failed, CPU fallback\n");
+                        use_npu_attn = false;
+                        ca_ptr.reset();
+                    }
+                } else {
+                    use_npu_attn = false;
+                }
+            } catch (std::exception& ex) {
+                fprintf(stderr, "  Runtime attn instr gen failed: %s\n", ex.what());
+                use_npu_attn = false;
+            }
+        }
+    }
+    // Runtime attention (edge_attention_06b_compact) disabled — uses incompatible kernel signature.
+    // All attention goes through ca_ptr (pre-compiled instructions via xrt::kernel).
+    (void)rta;  // suppress unused warning
+
+    // Per-layer dequant+pack lambda for single-buffer architecture.
+    std::vector<float> qsc(NC),osc(NC),gsc(NC),dsc(NC),usc(NC);
+    const int QOUT=NH*HD,KVOUT=NKV*HD;   // QKV out_features, in_features=H (default dequant correct)
+    const int OOUT=H,OIN=NH*HD;          // O: out=H, in=NH*HD — dequant needs OIN
+    const int GUOUT=IM;                   // Gate/Up: out=IM, in=H
+    const int DOUT=H,DIN=IM;              // Down: out=H, in=IM — dequant needs DIN
+    std::function<void(int)> pack_layer_weights = [&](int l) {int qr,kr,vr,unused;
+        float*qw,*kw,*vw,*ow,*gw,*uw,*dw;
+        std::vector<float> qw_v,kw_v,vw_v,ow_v,gw_v,uw_v,dw_v;
+        int gr,ur;
+#ifdef ONEBP_SUPPORT
+        if (is_onebp) {
+            // Tensors are already correctly shaped [out_features, in_features]
+            // by construction (that's how they're stored in the 1BP tensor
+            // index) — get_tensor_f32 dequantizes Q4NX/TQ2 and hands them back
+            // as-is, no separate row-count/offset bookkeeping needed.
+            snprintf(bn,128,"blk.%d.attn_q.weight",l); onebp_model.get_tensor_f32(bn, qw_v); qw=qw_v.data();
+            snprintf(bn,128,"blk.%d.attn_k.weight",l); onebp_model.get_tensor_f32(bn, kw_v); kw=kw_v.data();
+            snprintf(bn,128,"blk.%d.attn_v.weight",l); onebp_model.get_tensor_f32(bn, vw_v); vw=vw_v.data();
+            snprintf(bn,128,"blk.%d.attn_output.weight",l); onebp_model.get_tensor_f32(bn, ow_v); ow=ow_v.data();
+            snprintf(bn,128,"blk.%d.ffn_gate.weight",l); onebp_model.get_tensor_f32(bn, gw_v); gw=gw_v.data();
+            snprintf(bn,128,"blk.%d.ffn_up.weight",l); onebp_model.get_tensor_f32(bn, uw_v); uw=uw_v.data();
+            snprintf(bn,128,"blk.%d.ffn_down.weight",l); onebp_model.get_tensor_f32(bn, dw_v); dw=dw_v.data();
+            gr = ur = GUOUT;
+        } else {
+#endif
+        qw=dequant_i8_to_float_ex(i8p(qp[l]),q_i8,H,&qr,&unused);kw=dequant_i8_to_float_ex(i8p(kp[l]),k_i8,H,&kr,&unused);vw=dequant_i8_to_float_ex(i8p(vp[l]),v_i8,H,&vr,&unused);
+        {int or2,oc2;ow=dequant_i8_to_float_ex(i8p(op[l]),o_i8,OIN,&or2,&oc2);}
+        gw=dequant_i8_to_float_ex(i8p(gp[l]),g_i8,H,&gr,&unused);uw=dequant_i8_to_float_ex(i8p(up[l]),u_i8,H,&ur,&unused);
+        {int dr2,dc2;dw=dequant_i8_to_float_ex(i8p(dp[l]),d_i8,DIN,&dr2,&dc2);}
+#ifdef ONEBP_SUPPORT
+        }
+#endif
+        int t=QOUT+KVOUT+KVOUT;std::vector<float>w((size_t)H*t);
+        transpose_pack(qw,QOUT,H,w.data(),t,0); transpose_pack(kw,KVOUT,H,w.data(),t,QOUT); transpose_pack(vw,KVOUT,H,w.data(),t,QOUT+KVOUT);
+        cq.packB(w.data(),H,t,qsc[l]);
+        std::vector<float>wo((size_t)OIN*OOUT);transpose_pack(ow,OOUT,OIN,wo.data(),OOUT,0);
+        co.packB(wo.data(),OIN,OOUT,osc[l]);
+        if(cfg.gu_split){
+            std::vector<float>wg((size_t)H*gr);transpose_pack(gw,GUOUT,H,wg.data(),gr,0);
+            cg.packB(wg.data(),H,gr,gsc[l]);
+            std::vector<float>wu((size_t)H*ur);transpose_pack(uw,GUOUT,H,wu.data(),ur,0);
+            cu_ptr->packB(wu.data(),H,ur,usc[l]);
+        }else{
+            int t2=gr+ur;std::vector<float>w2((size_t)H*t2);
+            transpose_pack(gw,GUOUT,H,w2.data(),t2,0);transpose_pack(uw,GUOUT,H,w2.data(),t2,GUOUT);
+            cg.packB(w2.data(),H,t2,gsc[l]);
+        }
+        std::vector<float>wd((size_t)DIN*DOUT);transpose_pack(dw,DOUT,DIN,wd.data(),DOUT,0);
+        cd.packB(wd.data(),DIN,DOUT,dsc[l]);
+#ifdef ONEBP_SUPPORT
+        if (!is_onebp) {
+#endif
+        free(qw);free(kw);free(vw);free(ow);free(gw);free(uw);free(dw);
+#ifdef ONEBP_SUPPORT
+        }
+#endif
+    };
+
+    // Pre-pack all layer weights into per-layer NPU-resident BOs.
+    // pack_layer_weights writes to layerB[cur_layer] via set_layer();
+    // once loaded, weights stay resident — no per-token memcpy or DMA needed.
+    if (use_bf16_xclbins) {
+        fprintf(stderr,"Pre-packing weights into NPU-resident BOs...\n");
+        auto tp=std::chrono::steady_clock::now();
+        for (int l = 0; l < NC; l++) {
+            cq.set_layer(l); co.set_layer(l); cg.set_layer(l); cd.set_layer(l);
+            if (cu_ptr) cu_ptr->set_layer(l);
+            pack_layer_weights(l);
+        }
+        fprintf(stderr,"  Prep: %.0fms\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-tp).count());
+        // Replace pack_layer_weights with per-layer BO selection only.
+        // Weights are already resident in layerB[l] — no memcpy, no DMA sync.
+        pack_layer_weights = [&](int l) {
+            cq.set_layer(l); co.set_layer(l); cg.set_layer(l); cd.set_layer(l);
+            if (cu_ptr) cu_ptr->set_layer(l);
+        };
+    }
+    // RoPE
+    ri(HD,cfg.rope_theta,4096);
+    int kv_dwords=NKV*HD/2;
+
+    // Decode batch width.
+    //
+    // WARNING (issue #111): the "M=32 batched decode" path is NOT a correct
+    // decoding algorithm. It embeds the 32 top-K candidates for a *single*
+    // next position as if they were 32 *sequential* tokens (see the loop that
+    // does h_b[b*H+i]=emb_f32[top_ids[b]*H+i]), writes all 32 into the KV cache
+    // at consecutive positions, and runs attention with cl=sp+batch_size --
+    // i.e. every position attends over 31 not-yet-decoded, mutually-exclusive
+    // "future" positions (non-causal). This corrupts even position 0's output,
+    // so the reported 32x throughput described tokens that were never valid.
+    //
+    // Until a real speculative draft+verify is implemented (accept only the
+    // longest matching prefix, roll the KV cache back on a miss), BS is pinned
+    // to 1 -> plain causal single-token greedy decode, which is correct.
+    // Do not raise this without implementing verification.
+    // Override via NPU_BATCH_SIZE env var (for testing only — produces garbage).
+    int BS = 1;
+    if (const char* e = getenv("NPU_BATCH_SIZE")) {
+        int v = atoi(e);
+        if (v > 1) {
+            fprintf(stderr, "WARNING: NPU_BATCH_SIZE=%d — non-causal KV corruption, see issue #111\n", v);
+            BS = v;
+        }
+    }
+    struct KVCache{std::vector<float>k,v;int n;KVCache(int size):k(size),v(size),n(0){}};
+    int kv_size=16384*NKV*HD;
+    std::vector<KVCache> kv_caches;for(int i=0;i<NC;i++)kv_caches.emplace_back(kv_size);
+    int qkv_n=cfg.qkv_total;
+    std::vector<float> h_b(XM*H), qo_b(XM*qkv_n), at_b(XM*NH*HD), oo_b(XM*H), gt_b(XM*(cfg.gu_split?IM:2*IM)), su_b(XM*IM), dw_b(XM*H);
+    std::vector<float> h_data(H), qo_data(qkv_n*BS), ko_data(NKV*HD*BS), vo_data(NKV*HD*BS), at_data(NH*HD*BS), oo_data(H*BS);
+    std::vector<float> gt_data((cfg.gu_split?IM:2*IM)*BS), su_data(IM*BS), dwo_data(H*BS), sb_data(XM*H), lg_buf(NV);
+    int sp=0;
+    // ===== WORKER MODE (subprocess protocol) =====
+    // The Zig fused executor (fused_execute.zig) sends individual GEMM
+    // operations (QKV, OPROJ, GATEUP, DOWN) via this protocol. Each request
+    // is header[4] (op, layer, batch, in_dim) followed by float input data.
+    // Response is header[2] (0=ok, out_dim) followed by float output data.
+    static int worker_pos = 0;
+    if(worker_mode){
+        fprintf(stderr,"WORKER_READY\n");
+        fflush(stderr);
+        fflush(stdout);
+        setbuf(stdout, NULL);
+        write(1, "READY\n", 6);
+        uint32_t hdr[4];
+        while(fread(hdr,sizeof(uint32_t),4,stdin)==4){
+            uint32_t op=hdr[0],layer=hdr[1],batch=hdr[2],in_dim=hdr[3];
+            if(op==0) break; // QUIT
+
+            // Input validation: batch and in_dim must be reasonable
+            if(batch==0||batch>XM||in_dim==0||in_dim>4096||layer>=(uint32_t)NC){
+                uint32_t resp[2]={1,0};
+                fwrite(resp,sizeof(uint32_t),2,stdout);
+                fflush(stdout);
+                // Drain input payload
+                std::vector<float> drain(batch*in_dim);
+                fread(drain.data(),sizeof(float),batch*in_dim,stdin);
+                continue;
+            }
+
+            std::vector<float> in_data(batch*in_dim);
+            if(fread(in_data.data(),sizeof(float),batch*in_dim,stdin)!=(size_t)(batch*in_dim)) break;
+
+            uint32_t out_dim=0;
+            std::vector<float> out_data;
+            bool ok=true;
+
+            try{
+                if(op==1&&cq.isReady()){ // QKV projection
+                    pack_layer_weights((int)layer);
+                    out_dim=cfg.qkv_total;
+                    out_data.resize(batch*out_dim,0);
+                    float ascale=dynamic_ascale(in_data.data(),batch*in_dim);
+                    cq.go(in_data.data(),batch,(int)in_dim,ascale,qsc[layer],out_data.data(),(int)out_dim);
+                }else if(op==2&&co.isReady()){ // O projection
+                    pack_layer_weights((int)layer);
+                    out_dim=H;
+                    out_data.resize(batch*out_dim,0);
+                    float ascale=dynamic_ascale(in_data.data(),batch*in_dim);
+                    co.go(in_data.data(),batch,(int)in_dim,ascale,osc[layer],out_data.data(),(int)out_dim);
+                }else if(op==3&&cg.isReady()){ // Gate+Up
+                    pack_layer_weights((int)layer);
+                    out_dim=cfg.gu_split?IM:(2*IM);
+                    out_data.resize(batch*out_dim,0);
+                    float ascale=dynamic_ascale(in_data.data(),batch*in_dim);
+                    cg.go(in_data.data(),batch,(int)in_dim,ascale,gsc[layer],out_data.data(),(int)out_dim);
+                }else if(op==4&&cfg.gu_split&&cu_ptr&&cu_ptr->isReady()){ // Up
+                    pack_layer_weights((int)layer);
+                    out_dim=IM;
+                    out_data.resize(batch*out_dim,0);
+                    float ascale=dynamic_ascale(in_data.data(),batch*in_dim);
+                    cu_ptr->go(in_data.data(),batch,(int)in_dim,ascale,usc[layer],out_data.data(),(int)out_dim);
+                }else if(op==5&&cd.isReady()){ // Down
+                    pack_layer_weights((int)layer);
+                    out_dim=H;
+                    out_data.resize(batch*out_dim,0);
+                    float ascale=dynamic_ascale(in_data.data(),batch*in_dim);
+                    cd.go(in_data.data(),batch,(int)in_dim,ascale,dsc[layer],out_data.data(),(int)out_dim);
+                }else if(op==6){ // Attention — CPU path (worker protocol doesn't carry seq_len)
+                    // Worker subprocess receives individual layer ops without KV cache
+                    // context. NPU attention requires the full KV cache. Use CPU fallback.
+                    int qd = cfg.xclbin_qkv_k / 4;  // approximate: NH*HD
+                    out_dim = qd;
+                    out_data.resize(batch*out_dim,0);
+                    // in_data layout: [Q:QD, K:KD, V:KD]
+                    float* q_ptr = in_data.data();
+                    float* k_ptr = in_data.data() + qd;
+                    float* v_ptr = in_data.data() + qd + NKV * HD;
+                    // Infer seq_len from K data size (passed as in_dim - qd - NKV*HD)
+                    int kd = NKV * HD;
+                    int cl = kd > 0 ? (int)(in_dim - qd - kd) / (NKV * HD) : 1;
+                    if (cl < 1) cl = 1;
+                    attn_omp(q_ptr, out_data.data(), cl, k_ptr, v_ptr, NH, NKV, HD, GQA);
+                }else if(op==20&&cq.isReady()){ // QKV all layers (batch, op=20)
+                    int n_layers = NC;
+                    out_dim = cfg.qkv_total;
+                    out_data.resize(batch * out_dim * (size_t)n_layers, 0);
+                    for (int l = 0; l < n_layers; l++) {
+                        pack_layer_weights(l);
+                        float ascale = dynamic_ascale(in_data.data() + (size_t)l * batch * in_dim, batch * in_dim);
+                        cq.go( in_data.data() + (size_t)l * batch * in_dim, batch, (int)in_dim,
+                              ascale, qsc[l], out_data.data() + (size_t)l * batch * out_dim, (int)out_dim);
+                    }
+                }else if(op==21&&co.isReady()){ // O all layers (batch)
+                    int n_layers = NC;
+                    out_dim = H;
+                    out_data.resize(batch * out_dim * (size_t)n_layers, 0);
+                    for (int l = 0; l < n_layers; l++) {
+                        pack_layer_weights(l);
+                        float ascale = dynamic_ascale(in_data.data() + (size_t)l * batch * in_dim, batch * in_dim);
+                        co.go( in_data.data() + (size_t)l * batch * in_dim, batch, (int)in_dim,
+                              ascale, osc[l], out_data.data() + (size_t)l * batch * out_dim, (int)out_dim);
+                    }
+                }else if(op==22&&cg.isReady()){ // Gate+Up all layers (batch)
+                    int n_layers = NC;
+                    out_dim = cfg.gu_split ? IM : (2 * IM);
+                    out_data.resize(batch * out_dim * (size_t)n_layers, 0);
+                    for (int l = 0; l < n_layers; l++) {
+                        pack_layer_weights(l);
+                        float ascale = dynamic_ascale(in_data.data() + (size_t)l * batch * in_dim, batch * in_dim);
+                        cg.go( in_data.data() + (size_t)l * batch * in_dim, batch, (int)in_dim,
+                              ascale, gsc[l], out_data.data() + (size_t)l * batch * out_dim, (int)out_dim);
+                    }
+                }else if(op==23&&cd.isReady()){ // Down all layers (batch)
+                    int n_layers = NC;
+                    out_dim = H;
+                    out_data.resize(batch * out_dim * (size_t)n_layers, 0);
+                    for (int l = 0; l < n_layers; l++) {
+                        pack_layer_weights(l);
+                        float ascale = dynamic_ascale(in_data.data() + (size_t)l * batch * in_dim, batch * in_dim);
+                        cd.go( in_data.data() + (size_t)l * batch * in_dim, batch, (int)in_dim,
+                              ascale, dsc[l], out_data.data() + (size_t)l * batch * out_dim, (int)out_dim);
+                    }
+                }else if(op==30){ // Fused forward: one layer, one IPC call
+                    // Bundles all 4 GEMMs + CPU ops for ONE layer into a single call.
+                    // Eliminates 4 pipe roundtrips per layer.
+                    int l = (int)layer;
+                    if(l >= NC){ ok=false; break; }
+                    out_dim = H;
+                    out_data.resize(H, 0);
+                    
+                    // Copy input
+                    memcpy(h_data.data(), in_data.data(), H * sizeof(float));
+                    
+                    // Save residual
+                    memcpy(sb_data.data(), h_data.data(), H * sizeof(float));
+                    
+                    // RMS Norm (pre-attention)
+                    rn_c(h_data.data(), in_n[l].data(), H);
+                    
+                    // QKV GEMM
+                    pack_layer_weights(l);
+                    float ascale = dynamic_ascale(h_data.data(), H);
+                    cq.go(h_data.data(), 1, H, ascale, qsc[l], qo_data.data(), qkv_n);
+                    cn(qo_data.data(), qkv_n);
+                    
+                    // Q norm + RoPE
+                    for(int hh=0; hh<NH; hh++){
+                        float* q = qo_data.data() + hh * HD;
+                        double sq = 0;
+                        for(int d=0; d<HD; d++) sq += (double)q[d] * q[d];
+                        float iq = 1.0f / sqrtf((float)(sq / HD) + EPS);
+                        const float* qn = qn_w[l].empty() ? nullptr : qn_w[l].data();
+                        for(int d=0; d<HD; d++) q[d] *= iq * (qn ? qn[d] : 1.0f);
+                        ra(q, HD, worker_pos);
+                    }
+                    // K norm + RoPE
+                    for(int kvh=0; kvh<NKV; kvh++){
+                        float* k = qo_data.data() + NH * HD + kvh * HD;
+                        double sk = 0;
+                        for(int d=0; d<HD; d++) sk += (double)k[d] * k[d];
+                        float ik = 1.0f / sqrtf((float)(sk / HD) + EPS);
+                        const float* kn = kn_w[l].empty() ? nullptr : kn_w[l].data();
+                        for(int d=0; d<HD; d++) k[d] *= ik * (kn ? kn[d] : 1.0f);
+                        ra(k, HD, worker_pos);
+                    }
+                    
+                    // Store KV
+                    int sp = kv_caches[l].n;
+                    for(int kvh=0; kvh<NKV; kvh++){
+                        memcpy(&kv_caches[l].k[(size_t)sp * NKV * HD + (size_t)kvh * HD],
+                               qo_data.data() + NH * HD + kvh * HD, HD * 4);
+                        memcpy(&kv_caches[l].v[(size_t)sp * NKV * HD + (size_t)kvh * HD],
+                               qo_data.data() + NH * HD + NKV * HD + kvh * HD, HD * 4);
+                    }
+                    kv_caches[l].n = sp + 1;
+                    int cl = kv_caches[l].n;
+                    
+                    // NPU attention (or CPU fallback)
+                    npu_attn_dispatch(qo_data.data(), at_data.data(), cl, 1, NH*HD, sp,
+                        kv_caches[l].k, kv_caches[l].v,
+                        NH, NKV, HD, GQA, rta, ca_ptr.get());
+                    
+                    // O projection
+                    ascale = dynamic_ascale(at_data.data(), NH * HD);
+                    co.go(at_data.data(), 1, NH*HD, ascale, osc[l], h_data.data(), H);
+                    cn(h_data.data(), H);
+                    
+                    // Residual add (post-attention)
+                    for(int i=0; i<H; i++) h_data[i] += sb_data[i];
+                    
+                    // Save residual for post-FFN
+                    memcpy(sb_data.data(), h_data.data(), H * sizeof(float));
+                    
+                    // RMS Norm (post-attention)
+                    rn_c(h_data.data(), pa_n[l].data(), H);
+                    
+                    // Gate+Up projection
+                    ascale = dynamic_ascale(h_data.data(), H);
+                    int gu_dim = cfg.gu_split ? IM : (2*IM);
+                    cg.go(h_data.data(), 1, H, ascale, gsc[l], gt_data.data(), gu_dim);
+                    cn(gt_data.data(), gu_dim);
+                    
+                    // SiLU gate (+ Up if split)
+                    if(cfg.gu_split){
+                        ascale = dynamic_ascale(h_data.data(), H);
+                        cu_ptr->go(h_data.data(), 1, H, ascale, usc[l], su_data.data(), IM);
+                        cn(su_data.data(), IM);
+                        for(int i=0; i<IM; i++)
+                            gt_data[i] = silu_f(gt_data[i]) * su_data[i];
+                    }else{
+                        for(int i=0; i<IM; i++)
+                            gt_data[i] = silu_f(gt_data[i]) * gt_data[IM + i];
+                    }
+                    
+                    // Down projection
+                    ascale = dynamic_ascale(gt_data.data(), IM);
+                    cd.go(gt_data.data(), 1, IM, ascale, dsc[l], h_data.data(), H);
+                    cn(h_data.data(), H);
+                    
+                    // Residual add (post-FFN)
+                    for(int i=0; i<H; i++) h_data[i] += sb_data[i];
+                    
+                    // Output
+                    memcpy(out_data.data(), h_data.data(), H * sizeof(float));
+                }else if(op==31){ // Fused forward: ALL layers, one IPC call
+                    // Does a complete forward pass (all 36 layers) in one shot.
+                    // Input: token embedding [H]
+                    // Output: hidden state after all layers [H]
+                    // Also updates KV cache internally.
+                    out_dim = H;
+                    out_data.resize(H, 0);
+                    memcpy(h_data.data(), in_data.data(), H * sizeof(float));
+                    
+                    for(int l=0; l<NC; l++){
+                        memcpy(sb_data.data(), h_data.data(), H * sizeof(float));
+                        rn_c(h_data.data(), in_n[l].data(), H);
+                        
+                        pack_layer_weights(l);
+                        float ascale = dynamic_ascale(h_data.data(), H);
+                        cq.go(h_data.data(), 1, H, ascale, qsc[l], qo_data.data(), qkv_n);
+                        cn(qo_data.data(), qkv_n);
+                        
+                        for(int hh=0; hh<NH; hh++){
+                            float* q = qo_data.data() + hh * HD;
+                            double sq = 0;
+                            for(int d=0; d<HD; d++) sq += (double)q[d] * q[d];
+                            float iq = 1.0f / sqrtf((float)(sq / HD) + EPS);
+                            for(int d=0; d<HD; d++) q[d] *= iq;
+                            ra(q, HD, worker_pos);
+                        }
+                        for(int kvh=0; kvh<NKV; kvh++){
+                            float* k = qo_data.data() + NH * HD + kvh * HD;
+                            double sk = 0;
+                            for(int d=0; d<HD; d++) sk += (double)k[d] * k[d];
+                            float ik = 1.0f / sqrtf((float)(sk / HD) + EPS);
+                            for(int d=0; d<HD; d++) k[d] *= ik;
+                            ra(k, HD, worker_pos);
+                        }
+                        
+                        int sp = kv_caches[l].n;
+                        for(int kvh=0; kvh<NKV; kvh++){
+                            memcpy(&kv_caches[l].k[(size_t)sp*NKV*HD+(size_t)kvh*HD],
+                                   qo_data.data()+NH*HD+kvh*HD, HD*4);
+                            memcpy(&kv_caches[l].v[(size_t)sp*NKV*HD+(size_t)kvh*HD],
+                                   qo_data.data()+NH*HD+NKV*HD+kvh*HD, HD*4);
+                        }
+                        kv_caches[l].n = sp + 1;
+                        int cl = kv_caches[l].n;
+                        
+                        // NPU attention (or CPU fallback)
+                        npu_attn_dispatch(qo_data.data(), at_data.data(), cl, 1, NH*HD, sp,
+                            kv_caches[l].k, kv_caches[l].v,
+                            NH, NKV, HD, GQA, rta, ca_ptr.get());
+                        
+                        ascale = dynamic_ascale(at_data.data(), NH*HD);
+                        co.go(at_data.data(), 1, NH*HD, ascale, osc[l], h_data.data(), H);
+                        cn(h_data.data(), H);
+                        for(int i=0; i<H; i++) h_data[i] += sb_data[i];
+                        
+                        memcpy(sb_data.data(), h_data.data(), H*sizeof(float));
+                        rn_c(h_data.data(), pa_n[l].data(), H);
+                        
+                        ascale = dynamic_ascale(h_data.data(), H);
+                        int gu_dim = cfg.gu_split ? IM : (2*IM);
+                        cg.go(h_data.data(), 1, H, ascale, gsc[l], gt_data.data(), gu_dim);
+                        cn(gt_data.data(), gu_dim);
+                        
+                        if(cfg.gu_split){
+                            ascale = dynamic_ascale(h_data.data(), H);
+                            cu_ptr->go(h_data.data(), 1, H, ascale, usc[l], su_data.data(), IM);
+                            cn(su_data.data(), IM);
+                            for(int i=0; i<IM; i++)
+                                gt_data[i] = silu_f(gt_data[i]) * su_data[i];
+                        }else{
+                            for(int i=0; i<IM; i++)
+                                gt_data[i] = silu_f(gt_data[i]) * gt_data[IM + i];
+                        }
+                        
+                        ascale = dynamic_ascale(gt_data.data(), IM);
+                        cd.go(gt_data.data(), 1, IM, ascale, dsc[l], h_data.data(), H);
+                        cn(h_data.data(), H);
+                        for(int i=0; i<H; i++) h_data[i] += sb_data[i];
+                    }
+                    worker_pos++;
+                    memcpy(out_data.data(), h_data.data(), H * sizeof(float));
+                }else if(op==32){ // Complete forward: embed→all layers→lm_head→token
+                    // Input: token_id (int passed as first float)
+                    // Output: next_token_id (float)
+                    // Entire forward pass inside subprocess. Backend just gets the token.
+                    int input_token = (int)in_data[0];
+                    out_dim = 1;
+                    out_data.resize(1, 0);
+                    
+                    if(input_token >= 0 && (size_t)input_token * H < emb_f32.size())
+                        memcpy(h_data.data(), &emb_f32[(size_t)input_token * H], H * sizeof(float));
+                    else
+                        memset(h_data.data(), 0, H * sizeof(float));
+                    
+                    for(int l=0; l<NC; l++){
+                        memcpy(sb_data.data(), h_data.data(), H * sizeof(float));
+                        if(!in_n[l].empty()) rn_c(h_data.data(), in_n[l].data(), H);
+                        pack_layer_weights(l);
+                        float ascale = dynamic_ascale(h_data.data(), H);
+                        cq.go(h_data.data(), 1, H, ascale, qsc[l], qo_data.data(), qkv_n);
+                        cn(qo_data.data(), qkv_n);
+                        for(int hh=0; hh<NH; hh++){
+                            float* q = qo_data.data() + hh * HD;
+                            double sq=0; for(int d=0; d<HD; d++) sq+=(double)q[d]*q[d];
+                            float iq=1.0f/sqrtf((float)(sq/HD)+EPS);
+                            for(int d=0; d<HD; d++) q[d]*=iq;
+                            ra(q, HD, worker_pos);
+                        }
+                        for(int kvh=0; kvh<NKV; kvh++){
+                            float* k = qo_data.data() + NH*HD + kvh*HD;
+                            double sk=0; for(int d=0; d<HD; d++) sk+=(double)k[d]*k[d];
+                            float ik=1.0f/sqrtf((float)(sk/HD)+EPS);
+                            for(int d=0; d<HD; d++) k[d]*=ik;
+                            ra(k, HD, worker_pos);
+                        }
+                        int sp = kv_caches[l].n;
+                        for(int kvh=0; kvh<NKV; kvh++){
+                            memcpy(&kv_caches[l].k[(size_t)sp*NKV*HD+(size_t)kvh*HD], qo_data.data()+NH*HD+kvh*HD, HD*4);
+                            memcpy(&kv_caches[l].v[(size_t)sp*NKV*HD+(size_t)kvh*HD], qo_data.data()+NH*HD+NKV*HD+kvh*HD, HD*4);
+                        }
+                        kv_caches[l].n = sp+1;
+                        int cl = kv_caches[l].n;
+                        // NPU attention (or CPU fallback)
+                        npu_attn_dispatch(qo_data.data(), at_data.data(), cl, 1, NH*HD, sp,
+                            kv_caches[l].k, kv_caches[l].v,
+                            NH, NKV, HD, GQA, rta, ca_ptr.get());
+                        ascale = dynamic_ascale(at_data.data(), NH*HD);
+                        co.go(at_data.data(), 1, NH*HD, ascale, osc[l], h_data.data(), H);
+                        cn(h_data.data(), H);
+                        for(int i=0; i<H; i++) h_data[i] += sb_data[i];
+                        memcpy(sb_data.data(), h_data.data(), H*sizeof(float));
+                        rn_c(h_data.data(), pa_n[l].data(), H);
+                        ascale = dynamic_ascale(h_data.data(), H);
+                        cg.go(h_data.data(), 1, H, ascale, gsc[l], gt_data.data(), cfg.gu_split?IM:(2*IM));
+                        cn(gt_data.data(), cfg.gu_split?IM:(2*IM));
+                        if(cfg.gu_split){
+                            ascale = dynamic_ascale(h_data.data(), H);
+                            cu_ptr->go(h_data.data(), 1, H, ascale, usc[l], su_data.data(), IM);
+                            cn(su_data.data(), IM);
+                            for(int i=0; i<IM; i++) gt_data[i] = silu_f(gt_data[i]) * su_data[i];
+                        }else{
+                            for(int i=0; i<IM; i++) gt_data[i] = silu_f(gt_data[i]) * gt_data[IM+i];
+                        }
+                        ascale = dynamic_ascale(gt_data.data(), IM);
+                        cd.go(gt_data.data(), 1, IM, ascale, dsc[l], h_data.data(), H);
+                        cn(h_data.data(), H);
+                        for(int i=0; i<H; i++) h_data[i] += sb_data[i];
+                    }
+                    worker_pos++;
+                    // Final norm
+                    rn_c(h_data.data(), fin_v.data(), H);
+                    // LM head: argmax
+                    double max_l = -1e30; int best_t = 0;
+                    for(int n=0; n<NV; n++){
+                        double s = 0; const float* e = emb_f32.data() + (size_t)n*H;
+                        for(int k=0; k<H; k++) s += (double)h_data[k]*e[k];
+                        if(s > max_l){ max_l = s; best_t = n; }
+                    }
+                    out_data[0] = (float)best_t;
+                }else{
+                    ok=false;
+                }
+            }catch(std::exception&e){
+                fprintf(stderr,"NPU worker op %u layer %u batch %u: %s\n",op,layer,batch,e.what());
+                fflush(stderr);
+                ok=false;
+            }catch(...){
+                fprintf(stderr,"NPU worker op %u layer %u batch %u: unknown error\n",op,layer,batch);
+                fflush(stderr);
+                ok=false;
+            }
+
+            if(!ok){
+                uint32_t resp[2]={1,0}; // error
+                fwrite(resp,sizeof(uint32_t),2,stdout);
+                fflush(stdout);
+                continue;
+            }
+
+            // Success: send response code + output
+            uint32_t resp[2]={0,out_dim};
+            fwrite(resp,sizeof(uint32_t),2,stdout);
+            fwrite(out_data.data(),sizeof(float),batch*out_dim,stdout);
+            fflush(stdout);
+        }
+        // Use _exit() to skip destructor cleanup — XRT's BO destructors can
+        // corrupt glibc's heap when vectors containing GB-scale weight data
+        // (emb_f32 ~594MB, lm_head_f32 ~594MB, kv_caches ~896MB) race with
+        // XRT dma-buf teardown during normal exit() destructor chain.
+        _exit(0);
+    }
+
+    // Load input tokens from file or use default hardcoded sequence
+    std::vector<int> pt_vec;
+    if(input_tok_file){
+        FILE* tf;
+        if(strcmp(input_tok_file,"-")==0) tf=stdin;  // stdin convention must precede fopen (fixes #88)
+        else {
+            tf=fopen(input_tok_file,"r");
+            if(!tf){ fprintf(stderr,"Cannot open input tokens: %s\n",input_tok_file); return 1; }
+        }
+        int tid;
+        while(fscanf(tf,"%d",&tid)==1) pt_vec.push_back(tid);
+        if(tf!=stdin) fclose(tf);
+        if(pt_vec.empty()){ fprintf(stderr,"Empty input token file: %s\n",input_tok_file); return 1; }
+        if((int)pt_vec.size() > 4095) pt_vec.resize(4095);
+    }else{
+        pt_vec={151644,872,198,13048,151645,198,151644,77091,198};
+    }
+    int npt=(int)pt_vec.size(); if(npt<1)npt=1;
+    if(input_tok_file && npt > XM) npt = XM;
+
+    // ===== PREFILL (pipelined: parallel QKV+GU launch, overlapped dequant) =====
+    printf("=== Prefill %d ===\n",npt);auto t0=std::chrono::steady_clock::now();fflush(stdout);
+    for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=emb_f32[pt_vec[pi]*H+i];
+    xrt::run pending_gu; bool has_pending=false;
+    for(int l=0;l<NC;l++){
+        pack_layer_weights(l);
+        fprintf(stderr,"  L%d",l);fflush(stderr);
+        // Save pre-norm residuals
+        for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)sb_data[pi*H+i]=h_b[pi*H+i];
+        for(int pi=0;pi<npt;pi++)rn_c(&h_b[pi*H],in_n[l].data(),H);
+        // Phase 1-2: QKV on NPU (synchronous go for debugging #1029)
+        float qkv_ascale=dynamic_ascale(h_b.data(),npt*H);
+        cq.go(h_b.data(),npt,H,qkv_ascale,qsc[l],qo_b.data(),qkv_n);cn(qo_b.data(),npt*qkv_n);
+        fprintf(stderr,"q");fflush(stderr);
+        float*qn=qn_w[l].data(),*kn=kn_w[l].data();
+        for(int pi=0;pi<npt;pi++){
+            for(int hh=0;hh<NH;hh++){double s=0;for(int d=0;d<HD;d++)s+=qo_b[pi*qkv_n+hh*HD+d]*qo_b[pi*qkv_n+hh*HD+d];float iq=1.0f/sqrtf((float)(s/HD)+EPS);
+                for(int d=0;d<HD;d++)qo_b[pi*qkv_n+hh*HD+d]*=iq*(cfg.has_q_norm?qn[d]:1.0f);ra(&qo_b[pi*qkv_n+hh*HD],HD,sp+pi);}
+            for(int kvh=0;kvh<NKV;kvh++){float*ks=&qo_b[pi*qkv_n+cfg.qkv_k_offset+kvh*HD],*vs=&qo_b[pi*qkv_n+cfg.qkv_v_offset+kvh*HD];
+                double sk=0;for(int d=0;d<HD;d++)sk+=ks[d]*ks[d];float ik=1.0f/sqrtf((float)(sk/HD)+EPS);
+                for(int d=0;d<HD;d++)ks[d]*=ik*(cfg.has_k_norm?kn[d]:1.0f);ra(ks,HD,sp+pi);
+                if ((size_t)(sp+pi+1)*NKV*HD <= (size_t)kv_caches[l].k.size()) {
+                    memcpy(&kv_caches[l].k[(sp+pi)*NKV*HD+kvh*HD],ks,HD*4);
+                    memcpy(&kv_caches[l].v[(sp+pi)*NKV*HD+kvh*HD],vs,HD*4);
+                } else {
+                    fprintf(stderr, "KV cache overflow at layer %d pos %d\n", l, sp+pi);
+                }}}
+        kv_caches[l].n=sp+npt;int cl=kv_caches[l].n;
+        // NPU attention dispatch or CPU fallback with causal mask
+        if(ca_ptr && ca_ptr->isReady()){
+            npu_attn_dispatch(qo_b.data(), at_b.data(), cl, npt, qkv_n, sp,
+                kv_caches[l].k, kv_caches[l].v,
+                NH, NKV, HD, GQA, rta, ca_ptr.get());
+            fprintf(stderr,"A"); fflush(stderr);
+        } else {
+            // CPU attention fallback with per-position causal mask
+            #pragma omp parallel for
+            for(int pi=0;pi<npt;pi++){
+                if (omp_get_thread_num() == 0) { fprintf(stderr,"a"); fflush(stderr); }
+                attn_omp(&qo_b[pi*qkv_n],&at_b[pi*NH*HD],cl,kv_caches[l].k.data(),kv_caches[l].v.data(),NH,NKV,HD,GQA,sp+pi+1);
+            }
+        }
+        // Phase 3-4: O + GU pipelined — independent inputs (at_b vs h_b)
+        // Launch O first, then quantize GU while O runs on NPU.
+        // Pattern: launch(O) → quantize(GU) → sync(GU) → wait(O) → launch(GU) → read(O) → ...
+        // Mirrors the decode loop's proven O+GU pipelining.
+        int mlp_out=cfg.gu_split?IM:2*IM;
+        float o_ascale=dynamic_ascale(at_b.data(),npt*NH*HD);
+        float gu_ascale=dynamic_ascale(h_b.data(),npt*H);
+        co.quantize_async(at_b.data(),npt,NH*HD,o_ascale);
+        auto r_co=co.sync_and_launch();
+        // Quantize GU while O runs — independent input (h_b, not at_b)
+        cg.quantize_async(h_b.data(),npt,H,gu_ascale);
+        cg.bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        cg.bC->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        // Wait for O, then launch GU while reading O back
+        co.wait_kernel(r_co);
+        auto r_cg=cg.launch();
+        co.sync_back_and_dequant(oo_b.data(),npt,H,o_ascale,osc[l]);
+        cn(oo_b.data(),npt*H);
+        fprintf(stderr,"o");fflush(stderr);
+        // Apply residual + pre-FFN norm while GU runs on NPU
+        for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=sb_data[pi*H+i]+oo_b[pi*H+i];
+        // Save pre-FFN residuals
+        for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)sb_data[pi*H+i]=h_b[pi*H+i];
+        for(int pi=0;pi<npt;pi++)rn_c(&h_b[pi*H],pa_n[l].data(),H);
+        // Wait for GU to complete (launched before residual add)
+        cg.wait_kernel(r_cg);
+        cg.sync_back_and_dequant(gt_b.data(),npt,mlp_out,gu_ascale,gsc[l]);
+        cn(gt_b.data(),npt*mlp_out);
+        fprintf(stderr,"g");fflush(stderr);
+        // SiLU gate (CPU) + optional U GEMM
+        if(cfg.gu_split){cu_ptr->go(h_b.data(),npt,H,dynamic_ascale(h_b.data(),npt*H),usc[l],su_b.data(),IM);cn(su_b.data(),npt*IM);
+            for(int pi=0;pi<npt;pi++){for(int i=0;i<IM;i++){float gv=gt_b[pi*IM+i];if(!std::isfinite(gv))gv=0;su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*su_b[pi*IM+i];}}}
+        else{for(int pi=0;pi<npt;pi++){for(int i=0;i<IM;i++){float gv=gt_b[pi*mlp_out+i];if(!std::isfinite(gv))gv=0;su_b[pi*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[pi*mlp_out+IM+i];}}}
+        fprintf(stderr,"d");fflush(stderr);cd.go(su_b.data(),npt,IM,dynamic_ascale(su_b.data(),npt*IM),dsc[l],dw_b.data(),H);cn(dw_b.data(),npt*H);
+        // Residual add: use saved pre-FFN values
+        for(int pi=0;pi<npt;pi++)for(int i=0;i<H;i++)h_b[pi*H+i]=sb_data[pi*H+i]+dw_b[pi*H+i];
+        fprintf(stderr,"\n");fflush(stderr);
+    }sp+=npt;memcpy(h_data.data(),&h_b[(npt-1)*H],H*4);
+    printf("Prefill: %.0fms (%.0f ms/tok)\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count(),std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count()/npt);
+
+    // ===== v12: M=32 BATCHED DECODE =====
+    printf("=== M=%d Batch Decode (%d tokens) ===\n",BS,ng);
+    auto tgs=std::chrono::steady_clock::now();
+    // NOTE: greedy batched decode — runs batch_size tokens per step, no draft verification.
+    // (fixes #95). total_verified tracks all tokens processed.
+    int top_ids[BS]={0},total_generated=0,total_verified=0,n_batches=0;double t_boot=0;
+
+    // Boot: single-token decode → top-32 token IDs
+    {
+        auto ts_boot=std::chrono::steady_clock::now();
+        float h0[H];memcpy(h0,h_data.data(),H*4);
+        for(int l=0;l<NC;l++){
+            pack_layer_weights(l);
+            memcpy(sb_data.data(),h0,H*4);rn_c(h0,in_n[l].data(),H);
+            cq.go(h0,1,H,dynamic_ascale(h0,H),qsc[l],qo_data.data(),qkv_n);cn(qo_data.data(),qkv_n);
+            memcpy(ko_data.data(),&qo_data[cfg.qkv_k_offset],NKV*HD*4);memcpy(vo_data.data(),&qo_data[cfg.qkv_v_offset],NKV*HD*4);
+            float*qn=qn_w[l].data(),*kn=kn_w[l].data();
+            for(int hh=0;hh<NH;hh++){double sq=0;for(int d=0;d<HD;d++)sq+=qo_data[hh*HD+d]*qo_data[hh*HD+d];float iq=1.0f/sqrtf((float)(sq/HD)+EPS);
+                for(int d=0;d<HD;d++)qo_data[hh*HD+d]*=iq*(cfg.has_q_norm?qn[d]:1.0f);ra(&qo_data[hh*HD],HD,sp);
+                if(hh%GQA==0){int kvh=hh/GQA;double sk=0;for(int d=0;d<HD;d++)sk+=ko_data[kvh*HD+d]*ko_data[kvh*HD+d];float ik=1.0f/sqrtf((float)(sk/HD)+EPS);
+                for(int d=0;d<HD;d++)ko_data[kvh*HD+d]*=ik*(cfg.has_k_norm?kn[d]:1.0f);ra(&ko_data[kvh*HD],HD,sp);
+                memcpy(&kv_caches[l].k[sp*NKV*HD+kvh*HD],&ko_data[kvh*HD],HD*4);memcpy(&kv_caches[l].v[sp*NKV*HD+kvh*HD],&vo_data[kvh*HD],HD*4);}}
+            kv_caches[l].n=sp+1;int cl=kv_caches[l].n;
+            npu_attn_dispatch(qo_data.data(), at_data.data(), cl, 1, NH*HD, 0,
+                kv_caches[l].k, kv_caches[l].v,
+                NH, NKV, HD, GQA, rta, ca_ptr.get());
+            if(ca_ptr && ca_ptr->isReady()) fprintf(stderr,"A");
+            co.go(at_data.data(),1,NH*HD,dynamic_ascale(at_data.data(),NH*HD),osc[l],oo_data.data(),H);cn(oo_data.data(),H);for(int i=0;i<H;i++)h0[i]=sb_data[i]+oo_data[i];
+            memcpy(sb_data.data(),h0,H*4);rn_c(h0,pa_n[l].data(),H);
+            int mlp_out=cfg.gu_split?IM:2*IM;
+            cg.go(h0,1,H,dynamic_ascale(h0,H),gsc[l],gt_data.data(),mlp_out);cn(gt_data.data(),mlp_out);
+            if(cfg.gu_split){cu_ptr->go(h0,1,H,dynamic_ascale(h0,H),usc[l],su_data.data(),IM);cn(su_data.data(),IM);
+                for(int i=0;i<IM;i++){float gv=gt_data[i];if(!std::isfinite(gv))gv=0;su_data[i]=(gv/(1.0f+expf(-gv)))*su_data[i];}}
+            else{for(int i=0;i<IM;i++){float gv=gt_data[i];if(!std::isfinite(gv))gv=0;su_data[i]=(gv/(1.0f+expf(-gv)))*gt_data[IM+i];}}
+            cd.go(su_data.data(),1,IM,dynamic_ascale(su_data.data(),IM),dsc[l],dwo_data.data(),H);cn(dwo_data.data(),H);for(int i=0;i<H;i++)h0[i]=sb_data[i]+dwo_data[i];
+        }
+        memcpy(sb_data.data(),h0,H*4);rn_c(sb_data.data(),fin_v.data(),H);
+        lm_topk_omp(sb_data.data(),lg_buf.data(),top_ids,BS,NV,H,lm_emb);
+        memcpy(h_data.data(),h0,H*4);sp++;total_generated++;
+        t_boot=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-ts_boot).count();
+        printf("  [0] boot=%d (%.0fms)\n",top_ids[0],t_boot);
+    }
+
+    int step=1;
+    while(step<ng){
+        auto ts_batch=std::chrono::steady_clock::now();
+        int batch_size=std::min(BS,ng-step);
+        for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=emb_f32[(size_t)top_ids[b]*H+i];
+        // ===== PIPELINED LAYER LOOP =====
+        // Overlaps CPU quantize with NPU kernel execution.
+        // Pattern: launch(N) → quantize(N+1) → wait(N) → dequantize(N) → sync+launch(N+1) → ...
+        // co and cg are independent (different inputs) → quantize cg WHILE co runs on NPU.
+        try {
+        for(int l=0;l<NC;l++){
+            pack_layer_weights(l);
+            // Save pre-norm residuals before rn_c
+            for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)sb_data[b*H+i]=h_b[b*H+i];
+            for(int b=0;b<batch_size;b++)rn_c(&h_b[b*H],in_n[l].data(),H);
+
+            // ── QKV GEMM ──
+            float cq_ascale=dynamic_ascale(h_b.data(),batch_size*H);
+            cq.quantize_async(h_b.data(),batch_size,H,cq_ascale);
+            auto r_cq=cq.sync_and_launch();
+            cq.dequantize(r_cq,qo_b.data(),batch_size,qkv_n,cq_ascale,qsc[l]);
+            cn(qo_b.data(),batch_size*qkv_n);
+
+            // ── Attention + RoPE + KV cache ──
+            float*qn=qn_w[l].data(),*kn=kn_w[l].data();
+            for(int b=0;b<batch_size;b++){
+                for(int hh=0;hh<NH;hh++){double s=0;for(int d=0;d<HD;d++)s+=qo_b[b*qkv_n+hh*HD+d]*qo_b[b*qkv_n+hh*HD+d];float iq=1.0f/sqrtf((float)(s/HD)+EPS);
+                    for(int d=0;d<HD;d++)qo_b[b*qkv_n+hh*HD+d]*=iq*(cfg.has_q_norm?qn[d]:1.0f);ra(&qo_b[b*qkv_n+hh*HD],HD,sp+b);}
+                for(int kvh=0;kvh<NKV;kvh++){float*ks=&qo_b[b*qkv_n+cfg.qkv_k_offset+kvh*HD],*vs=&qo_b[b*qkv_n+cfg.qkv_v_offset+kvh*HD];
+                    double sk=0;for(int d=0;d<HD;d++)sk+=ks[d]*ks[d];float ik=1.0f/sqrtf((float)(sk/HD)+EPS);
+                    for(int d=0;d<HD;d++)ks[d]*=ik*(cfg.has_k_norm?kn[d]:1.0f);ra(ks,HD,sp+b);}
+            }
+            for(int b=0;b<batch_size;b++)for(int kvh=0;kvh<NKV;kvh++){
+                float*ks=&qo_b[b*qkv_n+cfg.qkv_k_offset+kvh*HD],*vs=&qo_b[b*qkv_n+cfg.qkv_v_offset+kvh*HD];
+                memcpy(&kv_caches[l].k[(sp+b)*NKV*HD+kvh*HD],ks,HD*4);memcpy(&kv_caches[l].v[(sp+b)*NKV*HD+kvh*HD],vs,HD*4);}
+            kv_caches[l].n=sp+batch_size;int cl=kv_caches[l].n;
+            npu_attn_dispatch(qo_b.data(), at_b.data(), cl, batch_size, qkv_n, sp,
+                kv_caches[l].k, kv_caches[l].v,
+                NH, NKV, HD, GQA, rta, ca_ptr.get());
+            if(ca_ptr && ca_ptr->isReady()) fprintf(stderr,"A");
+
+            // ── O GEMM ──
+            // Launch O, then quantize GU input WHILE O runs (overlapped)
+            float co_ascale=dynamic_ascale(at_b.data(),batch_size*NH*HD);
+            co.quantize_async(at_b.data(),batch_size,NH*HD,co_ascale);
+            auto r_co=co.sync_and_launch();
+
+            // ── GU GEMM: independent of O! Quantize GU input while O runs on NPU ──
+            int mlp_out=cfg.gu_split?IM:2*IM;
+            float cg_ascale=dynamic_ascale(h_b.data(),batch_size*H);
+            cg.quantize_async(h_b.data(),batch_size,H,cg_ascale);
+
+            // ── CO-GU FULLY PARALLEL ──
+            // Phase 1: Submit GU's DMA syncs WHILE O runs on NPU
+            //   sync(to_device) uses MM2S DMA channels (independent of NPU compute)
+            //   This hides the sync latency behind O's NPU time.
+            //   Sync bA (activations), bC (output), layerB (weights).
+            //   bI (instruction buffer) is CACHEABLE and read-only — skip re-sync.
+            cg.bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            cg.bC->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+
+            // Phase 2: Wait for O kernel completion (minimal)
+            co.wait_kernel(r_co);
+
+            // Phase 3: Submit GU kernel to NPU + start co readback SIMULTANEOUSLY
+            //   cg.launch() submits the kernel (queued behind O on NPU's compute)
+            //   co.bC->sync uses S2MM DMA channel (independent of MM2S for cg.bA)
+            auto r_cg=cg.launch();
+            co.sync_back_and_dequant(oo_b.data(),batch_size,H,co_ascale,osc[l]);
+            cn(oo_b.data(),batch_size*H);
+
+            // Phase 4: Residual add + rn_c (CPU work, overlaps with cg's NPU execution)
+            for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=sb_data[b*H+i]+oo_b[b*H+i];
+            for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)sb_data[b*H+i]=h_b[b*H+i];
+            for(int b=0;b<batch_size;b++)rn_c(&h_b[b*H],pa_n[l].data(),H);
+            if(cfg.gu_split){
+                cu_ptr->quantize_async(h_b.data(),batch_size,H,cg_ascale);
+            }
+
+            // Phase 5: Wait for GU, read back, dequant
+            cg.wait_kernel(r_cg);
+            cg.sync_back_and_dequant(gt_b.data(),batch_size,mlp_out,cg_ascale,gsc[l]);
+            cn(gt_b.data(),batch_size*mlp_out);
+
+            // SiLU gate + U GEMM (gu_split) or combined gate*up
+            if(cfg.gu_split){
+                auto r_cu=cu_ptr->sync_and_launch();
+                cu_ptr->dequantize(r_cu,su_b.data(),batch_size,IM,cg_ascale,usc[l]);
+                cn(su_b.data(),batch_size*IM);
+                for(int b=0;b<batch_size;b++){for(int i=0;i<IM;i++){float gv=gt_b[b*IM+i];if(!std::isfinite(gv))gv=0;su_b[b*IM+i]=(gv/(1.0f+expf(-gv)))*su_b[b*IM+i];}}}
+            else{for(int b=0;b<batch_size;b++){for(int i=0;i<IM;i++){float gv=gt_b[b*mlp_out+i];if(!std::isfinite(gv))gv=0;su_b[b*IM+i]=(gv/(1.0f+expf(-gv)))*gt_b[b*mlp_out+IM+i];}}}
+
+            // ── D GEMM ──
+            float cd_ascale=dynamic_ascale(su_b.data(),batch_size*IM);
+            cd.quantize_async(su_b.data(),batch_size,IM,cd_ascale);
+            auto r_cd=cd.sync_and_launch();
+            cd.dequantize(r_cd,dw_b.data(),batch_size,H,cd_ascale,dsc[l]);
+            cn(dw_b.data(),batch_size*H);
+
+            // Residual add
+            for(int b=0;b<batch_size;b++)for(int i=0;i<H;i++)h_b[b*H+i]=sb_data[b*H+i]+dw_b[b*H+i];
+        }
+        } catch (const std::exception& e) {
+            fprintf(stderr, "[npu_engine] layer loop failed: %s — aborting batch\n", e.what());
+            return 1;
+        }
+
+        // LM head on the (single, BS=1) decoded position -> greedy next token.
+        // total_verified == total_generated because every emitted token is a
+        // real causal decode, not a speculative candidate (issue #111).
+        memcpy(sb_data.data(),&h_b[0],H*4);rn_c(sb_data.data(),fin_v.data(),H);
+        lm_topk_omp(sb_data.data(),lg_buf.data(),top_ids,BS,NV,H,lm_emb);
+
+        total_generated+=batch_size;total_verified+=batch_size;sp+=batch_size;n_batches++;
+        double batch_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-ts_batch).count();
+        printf("  [%d] batch=%d tok=%d %.0fms (%.0f ms/tok)\n",step,batch_size,top_ids[0],batch_ms,batch_ms/batch_size);
+        step+=batch_size;
+    }
+
+    double tts=std::chrono::duration<double>(std::chrono::steady_clock::now()-tgs).count();
+    printf("\n=== %.1f ms/tok (%.0f tok/s) | boot=%.0fms batches=%d tokens=%d ===\n",tts*1000/ng,ng/tts,t_boot,n_batches,total_generated);
+
+    // Graceful exit: the XRT BO destructors (unique_ptr cleanup) can corrupt
+    // glibc's heap when GB-scale vectors race with dma-buf teardown.
+    // Use _exit() to skip the destructor chain entirely — the OS reclaims
+    // all resources on process exit anyway.
+    munmap(md,st.st_size);fflush(stdout);fflush(stderr);_exit(0);
+}

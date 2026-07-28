@@ -22,6 +22,11 @@ bool Q4nxReader::open(const std::string& path) {
     CloseHandle(hMap);
     CloseHandle(hFile);
     if (!data) { fprintf(stderr, "Q4NX: MapViewOfFile failed\n"); return false; }
+    if (size >= 8) {
+        uint64_t hdr_len = 0;
+        memcpy(&hdr_len, data, 8);
+        if (8 + hdr_len <= size) data_start = (size_t)(8 + hdr_len);
+    }
     return true;
 }
 
@@ -39,6 +44,11 @@ bool Q4nxReader::open(const std::string& path) {
     size = st.st_size;
     ::close(fd);
     if (data == MAP_FAILED) { perror("Q4NX: mmap model"); data = nullptr; return false; }
+    if (size >= 8) {
+        uint64_t hdr_len = 0;
+        memcpy(&hdr_len, data, 8);
+        if (8 + hdr_len <= size) data_start = (size_t)(8 + hdr_len);
+    }
     return true;
 }
 
@@ -65,7 +75,11 @@ uint64_t Q4nxReader::find_offset(const char* key) const {
                 const char* o = strstr(q, "\"data_offsets\"");
                 if (o) {
                     const char* a = strchr(o, '[');
-                    if (a) return strtoull(a + 1, NULL, 10);
+                    // data_offsets are relative to the end of the safetensors
+                    // header (data_start), not to byte 0 of the file — adding
+                    // data_start also makes 0 an unambiguous "not found"
+                    // sentinel, since no valid tensor can start there (#1058).
+                    if (a) return data_start + strtoull(a + 1, NULL, 10);
                 }
             }
             p = q + 1;
@@ -76,18 +90,25 @@ uint64_t Q4nxReader::find_offset(const char* key) const {
     return 0;
 }
 
-// Read float32 array at offset into a vector
+// Read a BF16 array at offset, widened to float32, into a vector.
+// Every tensor in this Q4NX format (embed table, all norm weights) is
+// stored as BF16 (2 bytes/elem), confirmed against data_offsets byte
+// spans — not float32, despite the name (#1058).
 std::vector<float> Q4nxReader::read_floats(uint64_t offset, size_t count) const {
     std::vector<float> v;
     if (!data || offset == 0) return v;
-    // Prevent integer overflow: if count * 4 wraps around, the bounds check
+    // Prevent integer overflow: if count * 2 wraps around, the bounds check
     // below would pass for maliciously large count values (CRITICAL).
-    static constexpr size_t MAX_FLOATS = 256ULL * 1024 * 1024; // 256M floats = 1 GiB
+    static constexpr size_t MAX_FLOATS = 256ULL * 1024 * 1024; // 256M elems = 512 MiB BF16
     if (count > MAX_FLOATS) return v;
-    uint64_t byte_len = (uint64_t)count * 4;
+    uint64_t byte_len = (uint64_t)count * 2;
     if (offset + byte_len > size) return v;
     v.resize(count);
-    memcpy(v.data(), data + offset, count * sizeof(float));
+    const uint16_t* bf16 = (const uint16_t*)(data + offset);
+    for (size_t i = 0; i < count; i++) {
+        uint32_t bits = (uint32_t)bf16[i] << 16;
+        memcpy(&v[i], &bits, sizeof(float));
+    }
     return v;
 }
 

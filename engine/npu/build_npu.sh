@@ -7,15 +7,24 @@ BUILDDIR="$SRCDIR/build"
 SRC="$SRCDIR/src/npu_engine_universal.cpp"
 DEQUANT="$SRCDIR/src/dequant_q4nx.cpp"
 DEQUANT_O="$BUILDDIR/dequant_q4nx.o"
-
-# One-time: compile dequantizer
-if [ ! -f "$DEQUANT_O" ] || [ "$DEQUANT" -nt "$DEQUANT_O" ]; then
-    echo "g++ -c -O3 -std=c++23 -o $DEQUANT_O $DEQUANT"
-    gcc -c -O3 -o "$DEQUANT_O" "$DEQUANT"
-fi
+INSTR_GEN="$SRCDIR/src/gemm_npu_instructions.cpp"
+INSTR_GEN_O="$BUILDDIR/gemm_npu_instructions.o"
 
 # XRT headers at /usr/include, libs at system default path
 XRT_INC="/usr/include"
+
+# One-time: compile dequantizer
+if [ ! -f "$DEQUANT_O" ] || [ "$DEQUANT" -nt "$DEQUANT_O" ]; then
+    echo "gcc -c -O3 -o $DEQUANT_O $DEQUANT"
+    gcc -c -O3 -o "$DEQUANT_O" "$DEQUANT"
+fi
+
+# One-time: compile NPU instruction generator
+if [ ! -f "$INSTR_GEN_O" ] || [ "$INSTR_GEN" -nt "$INSTR_GEN_O" ]; then
+    echo "g++ -c -std=c++23 -O3 -o $INSTR_GEN_O $INSTR_GEN"
+    g++ -c -std=c++23 -O3 -fopenmp -I$SRCDIR/src -I$SRCDIR/include -I$XRT_INC \
+        -o "$INSTR_GEN_O" "$INSTR_GEN"
+fi
 
 # Models to build
 MODELS=(
@@ -29,7 +38,7 @@ MODELS=(
 CXX="${CXX:-g++}"
 # XRT uses shared libs (must come AFTER source on command line)
 LIBS=(-lxrt_coreutil -lxrt_core -laiebu -luuid -lm -ldl)
-CXXFLAGS="-std=c++23 -O3 -fopenmp -I$SRCDIR/src -I$XRT_INC"
+CXXFLAGS=(-std=c++23 -O3 -fopenmp -I"$SRCDIR/src" -I"$SRCDIR/include" -I"$XRT_INC")
 
 echo "=== Building NPU engine variants ==="
 mkdir -p "$BUILDDIR"
@@ -38,14 +47,14 @@ for model in "${MODELS[@]}"; do
     binary="$BUILDDIR/npu_engine_$model"
     echo ""
     echo "--- $model -> $binary ---"
-    $CXX "-DMODEL_$model" "$CXXFLAGS" -o "$binary" "$SRC" "$DEQUANT_O" "${LIBS[@]}"
+    $CXX "-DMODEL_$model" "${CXXFLAGS[@]}" -o "$binary" "$SRC" "$DEQUANT_O" "$INSTR_GEN_O" "${LIBS[@]}"
     ls -lh "$binary"
 done
 
 # Also build a default (qwen3_0_6b) as npu_engine for backward compat
 echo ""
 echo "--- default (qwen3_0_6b) -> $BUILDDIR/npu_engine ---"
-$CXX -DMODEL_qwen3_0_6b "$CXXFLAGS" -o "$BUILDDIR/npu_engine" "$SRC" "$DEQUANT_O" "${LIBS[@]}"
+$CXX -DMODEL_qwen3_0_6b "${CXXFLAGS[@]}" -o "$BUILDDIR/npu_engine" "$SRC" "$DEQUANT_O" "$INSTR_GEN_O" "${LIBS[@]}"
 ls -lh "$BUILDDIR/npu_engine"
 
 echo ""

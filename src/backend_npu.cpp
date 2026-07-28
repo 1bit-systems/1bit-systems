@@ -443,6 +443,7 @@ struct NPUBackend : Backend {
         {
             // JSON keys used by Q4NX format
             uint64_t emb_off = model.find_offset("model_embed_tokens_weight");
+            if (!emb_off) emb_off = model.find_offset("model.embed_tokens.weight");
             if (!emb_off) emb_off = model.find_offset("gte");
             if (emb_off) {
                 embed = model.read_floats(emb_off, (size_t)NV * H);
@@ -570,158 +571,22 @@ struct NPUBackend : Backend {
         return true;
     }
 
-    bool forward(int token_id, float* hidden_out) override {
-        if (!initialized) return false;
-        if (embed.empty()) return false;
-
-        if (!ensure_worker()) return false;
+    int generate(int token_id) override {
+        if (!initialized || !ensure_worker()) return -1;
         last_use_ = std::chrono::steady_clock::now();
 
-        // Embedding lookup
-        if (token_id >= 0 && (size_t)token_id * H < embed.size())
-            memcpy(hidden.data(), &embed[(size_t)token_id * H], H * sizeof(float));
-        else
-            memset(hidden.data(), 0, H * sizeof(float));
-
-        for (int l = 0; l < NC; l++) {
-            // Save residual
-            memcpy(residual_buf.data(), hidden.data(), H * sizeof(float));
-
-            // Input RMSNorm
-            if (!in_norms[l].empty())
-                rmsnorm(hidden.data(), in_norms[l].data(), H);
-
-            // ── QKV GEMM ──
-            if (!worker.gemm(1, l, 1, H, hidden.data(), qkv_buf)) {
-                fprintf(stderr, "NPU: QKV gemm failed layer %d\n", l);
-                return false;
-            }
-            cn(qkv_buf.data(), qkv_total);
-
-            // ── Q/K norm + RoPE + KV cache store ──
-            for (int hh = 0; hh < NQ; hh++) {
-                float* q = qkv_buf.data() + hh * HD;
-                double sq = 0;
-                for (int d = 0; d < HD; d++) sq += (double)q[d] * q[d];
-                float iq = 1.0f / sqrtf((float)(sq / HD) + EPS);
-                const float* qn = (!q_norms.empty() && !q_norms[l].empty()) ? q_norms[l].data() : nullptr;
-                for (int d = 0; d < HD; d++) q[d] *= iq * (qn ? qn[d] : 1.0f);
-                rope(q, HD, pos);
-            }
-            for (int kvh = 0; kvh < NKV; kvh++) {
-                float* k = qkv_buf.data() + NQ * HD + kvh * HD;
-                double sk = 0;
-                for (int d = 0; d < HD; d++) sk += (double)k[d] * k[d];
-                float ik = 1.0f / sqrtf((float)(sk / HD) + EPS);
-                const float* kn = (!k_norms.empty() && !k_norms[l].empty()) ? k_norms[l].data() : nullptr;
-                for (int d = 0; d < HD; d++) k[d] *= ik * (kn ? kn[d] : 1.0f);
-                rope(k, HD, pos);
-            }
-            // Store KV
-            int sp = kv_caches[l].seq_len;
-            float* kv_k = kv_caches[l].k.data();
-            float* kv_v = kv_caches[l].v.data();
-            for (int kvh = 0; kvh < NKV; kvh++) {
-                memcpy(&kv_k[(size_t)sp * NKV * HD + (size_t)kvh * HD],
-                       qkv_buf.data() + NQ * HD + kvh * HD, HD * sizeof(float));
-                memcpy(&kv_v[(size_t)sp * NKV * HD + (size_t)kvh * HD],
-                       qkv_buf.data() + NQ * HD + NKV * HD + kvh * HD, HD * sizeof(float));
-            }
-            kv_caches[l].seq_len = sp + 1;
-            int seq = kv_caches[l].seq_len;
-
-            // ── CPU Attention ──
-            attn_cpu(qkv_buf.data(), attn_buf.data(), seq,
-                     kv_k, kv_v, NQ, NKV, HD, GQA);
-
-            // ── O projection ──
-            if (!worker.gemm(2, l, 1, NQ * HD, attn_buf.data(), o_buf)) {
-                fprintf(stderr, "NPU: O gemm failed layer %d\n", l);
-                return false;
-            }
-            cn(o_buf.data(), H);
-
-            // Residual add
-            for (int i = 0; i < H; i++) hidden[i] = residual_buf[i] + o_buf[i];
-
-            // Post-attention RMSNorm
-            memcpy(residual_buf.data(), hidden.data(), H * sizeof(float));
-            if (!post_attn_norms.empty() && l < (int)post_attn_norms.size() && !post_attn_norms[l].empty())
-                rmsnorm(hidden.data(), post_attn_norms[l].data(), H);
-
-            // ── Gate+Up projection ──
-            if (!worker.gemm(3, l, 1, H, hidden.data(), gateup_buf)) {
-                fprintf(stderr, "NPU: GATEUP gemm failed layer %d\n", l);
-                return false;
-            }
-            cn(gateup_buf.data(), mlp_dim * 2);
-
-            // ── Up (if split) + SiLU gate ──
-            if (gu_split) {
-                if (!worker.gemm(4, l, 1, H, hidden.data(), up_buf)) {
-                    fprintf(stderr, "NPU: UP gemm failed layer %d\n", l);
-                    return false;
-                }
-                cn(up_buf.data(), mlp_dim);
-                for (int i = 0; i < mlp_dim; i++)
-                    gateup_buf[i] = silu(gateup_buf[i]) * up_buf[i];
-            } else {
-                for (int i = 0; i < mlp_dim; i++)
-                    gateup_buf[i] = silu(gateup_buf[i]) * gateup_buf[mlp_dim + i];
-            }
-
-            // ── Down projection ──
-            if (!worker.gemm(5, l, 1, mlp_dim, gateup_buf.data(), down_buf)) {
-                fprintf(stderr, "NPU: DOWN gemm failed layer %d\n", l);
-                return false;
-            }
-            cn(down_buf.data(), H);
-
-            // Residual add
-            for (int i = 0; i < H; i++) hidden[i] = residual_buf[i] + down_buf[i];
+        // ── Fused forward in ONE subprocess call ──
+        // Uses op=32: embed → all 36 layers → lm_head → next token.
+        // 1 IPC call instead of 180. Eliminates ALL pipe overhead.
+        std::vector<float> in_data(1, (float)token_id);
+        std::vector<float> out_data;
+        if (!worker.gemm(32, 0, 1, 1, in_data.data(), out_data)) {
+            fprintf(stderr, "NPU: fused generate failed\n");
+            return -1;
         }
-
-        memcpy(hidden_out, hidden.data(), H * sizeof(float));
+        int next_token = (int)out_data[0];
         pos++;
-        return true;
-    }
 
-    bool lm_head(const float* hidden, float* logits, int* argmax) override {
-        if (!initialized || embed.empty()) return false;
-
-        // Final norm
-        std::vector<float> tmp(H);
-        memcpy(tmp.data(), hidden, H * sizeof(float));
-        if (!final_norm.empty())
-            rmsnorm(tmp.data(), final_norm.data(), H);
-
-        // LM head: dot product with embed table
-        #pragma omp parallel for
-        for (int v = 0; v < NV; v++) {
-            double s = 0;
-            const float* row = embed.data() + (size_t)v * H;
-            for (int i = 0; i < H; i++) s += (double)tmp[i] * row[i];
-            logits[v] = (float)s;
-        }
-        if (argmax) {
-            *argmax = 0;
-            for (int v = 1; v < NV; v++)
-                if (logits[v] > logits[*argmax]) *argmax = v;
-        }
-        return true;
-    }
-
-    int generate(int token_id) override {
-        std::vector<float> hidden(H);
-        if (!forward(token_id, hidden.data())) return -1;
-        int result;
-        lm_head(hidden.data(), logits_buf.data(), &result);
-        // Release the NPU worker when idle so standalone tools
-        // (npu_engine_universal) can use the NPU without stopping
-        // unified_server. The timer resets on every forward() call, so
-        // back-to-back tokens (benchmark, streaming) keep the worker alive.
-        // Only extended idle (>IDLE_RELEASE_SECS) triggers release.
-        // See issue #1029.
         if (worker.ready) {
             auto now = std::chrono::steady_clock::now();
             auto idle_s = std::chrono::duration_cast<std::chrono::seconds>(
@@ -731,7 +596,21 @@ struct NPUBackend : Backend {
                 worker.shutdown();
             }
         }
-        return result;
+        return next_token;
+    }
+
+    // forward() and lm_head() replaced by fused generate() using op=32.
+    // The old per-layer IPC path (op=1-5) is still available as fallback.
+    bool forward(int token_id, float* hidden_out) override {
+        (void)token_id; (void)hidden_out;
+        fprintf(stderr, "NPU: forward() called but generate() should be used\n");
+        return false;
+    }
+
+    bool lm_head(const float* hidden, float* logits, int* argmax) override {
+        (void)hidden; (void)logits; (void)argmax;
+        fprintf(stderr, "NPU: lm_head() called but generate() should be used\n");
+        return false;
     }
 
     float benchmark(int tokens = 10) override {
@@ -755,4 +634,4 @@ struct NPUBackend : Backend {
     }
 };
 
-Backend* create_npu_backend() { return new NPUBackend(); }
+extern "C" Backend* create_npu_backend() { return new NPUBackend(); }

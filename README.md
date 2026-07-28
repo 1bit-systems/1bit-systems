@@ -19,7 +19,7 @@
 
 **[🌐 Website](https://1bit.systems)** · **[🤗 1BP Models](https://huggingface.co/bong-water-water-bong)** · **[📚 Docs](docs/README.md)** · **[🛠️ Journey](docs/journey.md)** · **[📊 Benchmarks](docs/wiki/performance.md)** · **[🗺️ Roadmap](ROADMAP.md)**
 
-**1bit** is an open-source, model-agnostic C++23 inference engine for running large language models on **AMD Strix Halo** (XDNA 2 NPU, RDNA 3.5 GPU), NVIDIA GPUs (CUDA), Apple Silicon (Metal), and any Vulkan 1.2+ device — all from a **single in-process binary with zero Python at runtime**. It reads **GGUF**, **ONNX**, and the native **1BP** ternary format (TQ2 2-bit quantization) with automatic architecture detection — no config files, no model registry, no per-model glue code. Fully open-source under **MIT license**. 17 model architectures supported, 40+ models.
+**1bit** is an open-source, model-agnostic C++23 inference engine for running large language models on **AMD Strix Halo** (XDNA 2 NPU, RDNA 3.5 GPU), NVIDIA GPUs (CUDA), Apple Silicon (Metal), and any Vulkan 1.2+ device — all from a **single in-process binary with zero Python at runtime**. It reads **GGUF**, **ONNX**, and the native **1BP** ternary format (TQ2 2-bit quantization) with automatic architecture detection — no config files, no model registry, no per-model glue code. Fully open-source under **MIT license**. 17 model architectures supported, 46+ 1BP models.
 
 ---
 
@@ -34,7 +34,7 @@
 
 > **Data note**: Per-backend tok/s figures are published with sources and honesty flags in [`docs/wiki/performance.md`](docs/wiki/performance.md). The NPU v12 engine currently measures **69 tok/s** (re-measured 2026-07-12 on Qwen3-0.6B). Mamba1 GPU numbers (79.4 tok/s) are current and re-validated 2026-07-26.
 
-**17 architectures · 40+ models** — see [`models/catalog/README.md`](models/catalog/README.md) for the full list.
+**17 architectures · 46+ 1BP models** — see [`models/catalog/README.md`](models/catalog/README.md) for the full list.
 
 ### 🚀 Flagship 1BP models — built, quantized & hosted by us
 
@@ -47,10 +47,14 @@
 | **Zamba2-2.7B** | Zyphra | Mamba2-hybrid | **~30 tok/s** ✅ | [🤗 HF](https://huggingface.co/bong-water-water-bong/Zamba2-2.7B-Instruct-v2-1BP) |
 | **ZR1-1.5B** | Zyphra | Dense · reasoning | **26 tok/s** (ZINC GPU) ✅ | [🤗 HF](https://huggingface.co/bong-water-water-bong/ZR1-1.5B-1BP) |
 | **Bonsai-1.7B** | Deepgrove | Ternary TQ2 (2-bit) | 21.9 tok/s | [🤗 HF](https://huggingface.co/bong-water-water-bong/Bonsai-1.7B-TQ2-1BP) |
+| **ZUNA1.1** 📝 | Zyphra | 🧠 EEG foundation model | N/A — not an LLM | [🤗 HF](https://huggingface.co/Zyphra/ZUNA1.1) · [GitHub](https://github.com/Zyphra/zuna) |
+| **Zonos-v0.1** 📝 | Zyphra | 🗣️ Text-to-speech | N/A — not an LLM | [🤗 HF](https://huggingface.co/Zyphra/Zonos-v0.1-hybrid) |
 
 > **Zyphra is AMD's open-source AI lab** — the first model family trained end-to-end on AMD ROCm, no NVIDIA CUDA required. From training through inference, every Zyphra model runs on the AMD open ecosystem: ROCm for training, this engine for inference on Strix Halo (NPU + GPU + CPU).
 >
-> This engine supports the **complete Zyphra family** across every architecture — dense (ZR1), MoE (Zaya1), Mamba1 SSM (BlackMamba), Mamba2 hybrid (Zamba2), and now **vision-language (ZAYA1-VL-8B)** — all running on the same binary, zero Python, zero proprietary code. All models are converted with a pure-C++ toolchain, hosted on Hugging Face with open weights under permissive licenses. **[Browse all on Hugging Face →](https://huggingface.co/bong-water-water-bong)**
+> This engine supports the **complete Zyphra LLM family** across every architecture — dense (ZR1), MoE (Zaya1), Mamba1 SSM (BlackMamba), Mamba2 hybrid (Zamba2), and **vision-language (ZAYA1-VL-8B)** — all running on the same binary, zero Python, zero proprietary code. All models are converted with a pure-C++ toolchain, hosted on Hugging Face with open weights under permissive licenses. **[Browse all on Hugging Face →](https://huggingface.co/bong-water-water-bong)**
+>
+> Zyphra also publishes **non-LLM models** documented in our catalog for completeness: **ZUNA1.1** (🧠 EEG diffusion autoencoder, 380M params — reconstructs missing EEG channels, denoises, upsamples montages) and **Zonos-v0.1** (🗣️ text-to-speech, leading open-weight TTS trained on 200k+ hours). These are not convertible to 1BP (different architectures, modalities, and inference pipelines) but are included in [`models/catalog/README.md`](models/catalog/README.md) as reference.
 
 ### Why 1BP?
 
@@ -177,7 +181,9 @@ Build note: the root `CMakeLists.txt` builds `src/`, `kernels/`, `include/`, `to
 
 ## Model Coverage
 
-Model-agnostic isn't just a claim about the loader — it's been exercised across genuinely different architectures: dense transformer (Qwen3, Llama, ZR1), mixture-of-experts (Zaya1-74B-A4B, Qwen 35B MoE), vision-language (Qwen2-VL), Mamba2-hybrid state-space (Zamba2), and genuinely ternary/1-bit-native weights (Bonsai, stored via 1BP's TQ2 quant, not just upsampled to 4-bit) — same engine, same auto-detect path, no per-architecture fork.
+Model-agnostic isn't just a claim about the loader — it's been exercised across genuinely different architectures: dense transformer (Qwen3, Llama, ZR1), mixture-of-experts (Zaya1-74B-A4B, Qwen 35B MoE), vision-language (Qwen2-VL, ZAYA1-VL-8B), Mamba2-hybrid state-space (Zamba2), Mamba1 state-space + MoE (BlackMamba), and genuinely ternary/1-bit-native weights (Bonsai, stored via 1BP's TQ2 quant, not just upsampled to 4-bit) — same engine, same auto-detect path, no per-architecture fork.
+
+Our [model catalog](models/catalog/README.md) also documents Zyphra's **non-LLM models** — **ZUNA1.1** (🧠 EEG diffusion autoencoder — reconstructs missing EEG channels, denoises, upsamples montages), **Zonos-v0.1** (🗣️ TTS), and **ZONOS2** (🗣️ TTS MoE) — as reference, though these cannot run on this engine (different architectures, modalities, and inference pipelines).
 
 ### Zaya1 — the flagship family
 
@@ -211,6 +217,16 @@ Each converted from a Q8_0/BF16 source (not a 4-bit GGUF) to avoid compounding q
 
 **Vision-language is now supported**: ZAYA1-VL-8B — a real vision-language model combining a SigLIP ViT vision encoder with the Zaya1-8B MoE text decoder. The vision tower (24-layer ViT, fused QKV, Q8_0 quant) and connector (QWEN2_MERGER-style projector) are handled by the new `vision_encoder` library — pure C++, no Python, no OpenCV. The converter now preserves vision weights in 1BP files with full tensor metadata. See [`include/vision_encoder.h`](include/vision_encoder.h) and [`tools/zaya1_vl_demo.cpp`](tools/zaya1_vl_demo.cpp). (An earlier POC, Qwen2-VL, did minimal real image-to-text before ZAYA1-VL landed.)
 
+### Beyond LLMs — Zyphra's Other Models
+
+Zyphra's research portfolio extends beyond language models into **brain-computer interfaces** and **speech synthesis**. These are documented in our [model catalog](models/catalog/README.md) as ecosystem reference but are **not convertible to 1BP** and do not run on this engine:
+
+| Model | Domain | What it does | 
+|-------|:------:|--------------|
+| **ZUNA1.1** | 🧠 EEG | Foundation model for EEG — denoises, reconstructs missing channels, upsamples sparse montages. 380M-parameter diffusion autoencoder with 4D rotary positional encoding over (x,y,z,t). Requires <1GB VRAM, runs on consumer GPUs. Apache 2.0. [GitHub](https://github.com/Zyphra/zuna) · [HF](https://huggingface.co/Zyphra/ZUNA1.1) |
+| **Zonos-v0.1** | 🗣️ TTS | Leading open-weight text-to-speech. 200k+ hours multilingual speech training. Transformer (434⭐) and hybrid (1,106⭐) variants. Apache 2.0. GGUF versions available for `zonos.cpp`. [GitHub](https://github.com/Zyphra/Zonos) · [HF](https://huggingface.co/Zyphra/Zonos-v0.1-hybrid) |
+| **ZONOS2** | 🗣️ TTS MoE | Next-gen TTS with Mixture of Experts. GGUF via `zonos2.cpp`. [GitHub](https://github.com/Zyphra/ZONOS2) · [HF](https://huggingface.co/Zyphra/ZONOS2) |
+
 ### 🏆 Top 5 — Raw NPU Engine, No FLM (single binary, auto-detected)
 
 *From [`engine/npu/BENCHMARKS.md`](engine/npu/BENCHMARKS.md), measured 2026-07-03/07-12 — predates the 2026-07-19 GGUF dequant correctness fixes (Q2_K/Q3_K/Q5_K, RoPE, dtype enums), so treat as directional, not re-verified. (Also superseded: a previously reported 572 tok/s DSpark speculative-decoding figure turned out to come from an undertrained checkpoint — see [issue #235](https://github.com/bong-water-water-bong/1bit-systems/issues/235).)*
@@ -223,7 +239,7 @@ Each converted from a Q8_0/BF16 source (not a 4-bit GGUF) to avoid compounding q
 | Llama-3.1-8B | Llama | 100 ms/tok | **10** | 32/32 ✅ |
 | Qwen3-8B | Qwen3 | 127 ms/tok | **8** | 36/36 ✅ |
 
-Same binary, same auto-detect path, no per-model glue — the loader reads architecture off the model header for all 40 models.
+Same binary, same auto-detect path, no per-model glue — the loader reads architecture off the model header for all 46+ 1BP models.
 
 ### TQ2 — the actual 1-bit/ternary storage path
 

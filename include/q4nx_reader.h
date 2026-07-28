@@ -22,12 +22,16 @@
 #endif
 
 // ── Q4NX model reader ──
-// Reads float32 weights from the mmap'd model file by JSON key lookup.
-// The model file is an indexed format: JSON header with data_offsets, then
-// raw float32 weight data at those offsets.
+// Reads BF16 weights (widened to float32) from the mmap'd model file by
+// JSON key lookup. The model file is an indexed format: JSON header with
+// data_offsets, then raw BF16 weight data at those offsets.
 struct Q4nxReader {
     const char* data = nullptr;
     size_t size = 0;
+    // Absolute file offset where tensor data begins: 8 (header-length
+    // prefix) + header_len (JSON byte length). data_offsets in the JSON
+    // are relative to this, not to byte 0 of the file (#1058).
+    size_t data_start = 0;
 
     bool open(const std::string& path);
     void close();
@@ -36,7 +40,7 @@ struct Q4nxReader {
     // Uses standard C string search instead of GNU memmem extension.
     uint64_t find_offset(const char* key) const;
 
-    // Read float32 array at offset into a vector
+    // Read a BF16 array at offset, widened to float32, into a vector
     std::vector<float> read_floats(uint64_t offset, size_t count) const;
 };
 

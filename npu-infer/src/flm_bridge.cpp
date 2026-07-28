@@ -40,13 +40,11 @@ bool FlmBridge::init(const Config& cfg) {
     //   ~/fastflowlm-build/src/lib/<name>, then bare soname (honors LD_LIBRARY_PATH).
     auto flm_dlopen = [](const char* name) -> void* {
         const char* env = getenv("FLM_LIB_DIR");
-        const char* home = getenv("HOME");
-        static std::string home_flm = (home && home[0]) ? std::string(home) + "/fastflowlm-build/src/lib" : "";
         const char* dirs[] = {
             env,
             "/opt/fastflowlm/lib",
             "/opt/fastflowlm/lib/flm",
-            home_flm.c_str(),
+            "/home/bcloud/fastflowlm-build/src/lib",
         };
         char path[512];
         for (const char* d : dirs) {

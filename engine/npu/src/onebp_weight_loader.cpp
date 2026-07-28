@@ -21,6 +21,7 @@
 #include <chrono>
 
 #include "onebp_format.h"
+#include "onebp_loader.cpp"
 
 // ─── Forward declarations from engine ─────────────────────────────
 // These are expected to exist in the including scope

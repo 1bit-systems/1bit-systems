@@ -1,0 +1,129 @@
+--- a/engine/npu/src/npu_engine_universal.cpp
++++ b/engine/npu/src/npu_engine_universal.cpp
+@@ -21,10 +21,15 @@
+ #include <aiebu/aiebu_assembler.h>
+ #include <omp.h>
+ #include "model_config.h"
++#ifdef ONEBP_SUPPORT
++#include "onebp_format.h"
++#include "onebp_loader.cpp"
++#endif
+ #include <sys/wait.h>
+ extern "C" float* dequant_i8_to_float_ex(const uint8_t*,int,int,int*,int*);
+ static inline float bf16f(uint16_t v){uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}
++#ifndef ONEBP_SUPPORT
+ static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:bf16f(v);}
++#endif
+ static constexpr float EPS=1e-6f;
+ static inline void cn(float*x,int n){for(int i=0;i<n;i++)if(!std::isfinite(x[i]))x[i]=0.0f;}
+ static inline void sm(float*sc,int n){if(n<=0)return;cn(sc,n);float mx=sc[0];
+@@ -395,8 +400,43 @@
+     const char*mp=argv[1];int ng=(argc>2&&!worker_mode)?atoi(argv[2]):32;if(ng<1)ng=1;if(ng>4096)ng=4096;
+     const char*input_tok_file=(argc>3&&!worker_mode&&argv[3][0]!='\0')?argv[3]:nullptr;
+ 
++#ifdef ONEBP_SUPPORT
++    // ── Detect 1BP format ──
++    bool is_onebp = strlen(mp) > 4 && strcmp(mp + strlen(mp) - 4, ".1bp") == 0;
++    OnebpModel onebp_model;
++    
++    if (is_onebp) {
++        if (!onebp_model.open(mp)) {
++            fprintf(stderr, "ERR: cannot open 1BP model %s\n", mp);
++            return 1;
++        }
++        auto& oh = onebp_model.header();
++        fprintf(stderr, "[1BP] %s  H=%d L=%d NH=%d NKV=%d HD=%d IM=%d V=%d\n",
++                mp, oh.hidden_size, oh.num_layers, oh.num_attention_heads,
++                oh.num_kv_heads, oh.head_dim, oh.intermediate_size, oh.vocab_size);
++        // Extract model config from 1BP header
++        model_tag = oh.model_tag[0] ? oh.model_tag : model_tag;
++        for (auto& c : model_tag) { c = tolower(c); if (c=='-'||c=='.'||c=='\\') c='_'; }
++    }
++#endif
++
+     // Parse config
+-    ModelConfig cfg=parse_q4nx_header(mp,model_tag.c_str());
++    ModelConfig cfg;
++#ifdef ONEBP_SUPPORT
++    if (is_onebp) {
++        auto& oh = onebp_model.header();
++        cfg.H = oh.hidden_size; cfg.NC = oh.num_layers;
++        cfg.NH = oh.num_attention_heads; cfg.NKV = oh.num_kv_heads;
++        cfg.HD = oh.head_dim; cfg.IM = oh.intermediate_size;
++        cfg.NV = oh.vocab_size; cfg.GQA = cfg.NH / cfg.NKV;
++        cfg.rope_theta = oh.rope_theta(); cfg.model_tag = model_tag;
++        cfg.XM = 128; cfg.has_lm_head = true;
++    } else {
++        cfg = parse_q4nx_header(mp,model_tag.c_str());
++    }
++#else
++    cfg = parse_q4nx_header(mp,model_tag.c_str());
++#endif
+     if(!cfg.valid()){fprintf(stderr,"ERR: invalid model config\n");return 1;}
+     int H=cfg.H,NC=cfg.NC,NH=cfg.NH,NKV=cfg.NKV,HD=cfg.HD,IM=cfg.IM,NV=cfg.NV,GQA=cfg.GQA,XM=cfg.XM;
+     fprintf(stderr,"=== NPU Engine Universal — %s ===\n",model_tag.c_str());
+@@ -405,13 +445,58 @@
+     // Open model
+     int fd=open(mp,O_RDONLY);struct stat st;fstat(fd,&st);
+     uint8_t*md=(uint8_t*)mmap(NULL,st.st_size,PROT_READ,MAP_PRIVATE,fd,0);close(fd);
+-    uint64_t hsz;memcpy(&hsz,md,8);uint64_t df=8+hsz;
+-    auto i8p=[&](uint64_t o){return md+df+o;};auto emb=(const uint16_t*)(md+df);
+-    const char*js=(const char*)(md+8);size_t jl=hsz;
++    uint64_t hsz=0;uint64_t df=0;
++#ifdef ONEBP_SUPPORT
++    if (!is_onebp) {
++        memcpy(&hsz,md,8);df=8+hsz;
++    }
++#else
++    memcpy(&hsz,md,8);df=8+hsz;
++#endif
++    auto i8p=[&](uint64_t o){return md+df+o;};
++    auto emb=(const uint16_t*)(md+df);
++    const char*js=(const char*)(md+8);size_t jl=hsz;
++
++#ifdef ONEBP_SUPPORT
++    // ── Helper: load 1BP tensor by name ──
++    auto load_onebp_tensor = [&](const char* name, int exp_rows, int exp_cols) -> float* {
++        std::vector<float>* vec = new std::vector<float>();
++        if (!onebp_model.get_tensor_f32(name, *vec)) {
++            fprintf(stderr, "WARN: 1BP tensor '%s' not found\n", name);
++            delete vec; return nullptr;
++        }
++        // Expect [rows, cols] → return as [out_features, in_features] for transpose
++        if ((int)vec->size() != exp_rows * exp_cols) {
++            fprintf(stderr, "WARN: '%s' size %zu != %dx%d\n", name, vec->size(), exp_rows, exp_cols);
++            // Try transposed dimensions
++        }
++        return vec->data();
++    };
++    
++    // Free function for 1BP tensors (called after packing)
++    std::vector<std::vector<float>*> onebp_allocations;
++    auto free_onebp = [&]() {
++        for (auto* v : onebp_allocations) delete v;
++        onebp_allocations.clear();
++    };
++    // Hook: register allocation for cleanup
++    auto register_onebp = [&](float* ptr, std::vector<float>* vec) -> float* {
++        if (vec) onebp_allocations.push_back(vec);
++        return ptr;
++    };
++    // Override: use load_onebp_tensor for .1bp, dequant_i8_to_float_ex for .q4nx
++    auto dequant_or_onebp = [&](const char* name, uint64_t q4nx_off, 
++                                 int i8_bytes, int feat_in, int* r_out, int* c_out) -> float* {
++        if (is_onebp) {
++            auto* vec = new std::vector<float>();
++            if (onebp_model.get_tensor_f32(name, *vec)) {
++                *r_out = feat_in; // out_features
++                *c_out = vec->size() / feat_in; // in_features 
++                onebp_allocations.push_back(vec);
++                return vec->data();
++            }
++            return nullptr;
++        }
++        return dequant_i8_to_float_ex(i8p(q4nx_off), i8_bytes, feat_in, r_out, c_out);
++    };
++#endif
+ 
+     // Pre-convert embeddings f32 (v12 optimization)
+     fprintf(stderr,"Pre-convert emb f32...\n");auto te=std::chrono::steady_clock::now();

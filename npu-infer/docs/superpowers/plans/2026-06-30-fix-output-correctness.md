@@ -6,12 +6,12 @@
 
 **Architecture:** The engine uses GPU GEMM kernels for matrix multiplies but CPU-side operations for everything else (RMSNorm, RoPE, Q/K norm, attention softmax and mixing, SiLU activation, residual connections). The forward pass in `forward_layer()` is the suspect — GPU GEMM is verified accurate. We'll add instrumentation to compare hidden states layer-by-layer, commit fixes as they're found.
 
-**Tech Stack:** C++17, HIP, TheRock 7.15.0a, Radeon 8060S (gfx1151), `.q4nx` model format
+**Tech Stack:** C++17, HIP, ROCm 7.2.4, Radeon 8060S (gfx1151), `.q4nx` model format
 
 ## Global Constraints
 
-- Compile with system `hipcc` (TheRock 7.15.0a runtime at `/opt/rocm-therock/lib`, includes `-I/opt/rocm-therock/include`)
-- Run with `LD_LIBRARY_PATH=/opt/rocm-therock/lib`
+- Compile with system `hipcc` (ROCm 7.2.4 runtime at `/opt/rocm/lib`, includes `-I/opt/rocm/include`)
+- Run with `LD_LIBRARY_PATH=/opt/rocm/lib`
 - Must call `hipSetDevice(0)` before `hipGetDeviceCount`
 - All weights are FP32 in engine (BF16→FP32 conversion at load time)
 - GPU GEMM kernels (`gemv_kernel`, `gemm_kernel`) are verified working
@@ -62,10 +62,10 @@ In `generate()`, add printing of hidden_ after the RMSNorm/final_norm and before
 ```bash
 cd /home/bcloud/npu-sandbox/npu-infer/build
 hipcc -D__HIP_PLATFORM_AMD__ -std=c++17 -O2 -g \
-    -I../include -I/opt/rocm-therock/include \
+    -I../include -I/opt/rocm/include \
     -c ../src/rocm_engine.cpp -o rocm_engine.o
 hipcc -o rocm_engine rocm_engine.o dequant_q4nx.o -lm
-LD_LIBRARY_PATH=/opt/rocm-therock/lib timeout 120 ./rocm_engine 2>&1 | tee /tmp/debug_layer0.log
+LD_LIBRARY_PATH=/opt/rocm/lib timeout 120 ./rocm_engine 2>&1 | tee /tmp/debug_layer0.log
 ```
 
 Expected: Get detailed per-op stats for layer 0. Output will tell us where hidden state goes wrong.
@@ -294,10 +294,10 @@ Add `--debug-layer 0` flag that dumps all intermediate tensors to a binary file 
 
 ```bash
 cd /home/bcloud/npu-sandbox/npu-infer/build
-hipcc -D__HIP_PLATFORM_AMD__ -std=c++17 -O0 -g -I../include -I/opt/rocm-therock/include \
+hipcc -D__HIP_PLATFORM_AMD__ -std=c++17 -O0 -g -I../include -I/opt/rocm/include \
     -c ../src/rocm_engine.cpp -o rocm_engine.o
 hipcc -o rocm_engine rocm_engine.o dequant_q4nx.o -lm
-LD_LIBRARY_PATH=/opt/rocm-therock/lib timeout 120 ./rocm_engine --debug-layer 0 2>&1 | tee /tmp/debug_full.log
+LD_LIBRARY_PATH=/opt/rocm/lib timeout 120 ./rocm_engine --debug-layer 0 2>&1 | tee /tmp/debug_full.log
 ```
 
 ---

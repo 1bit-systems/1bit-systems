@@ -592,7 +592,6 @@ int main(int argc, char** argv) {
     tp = std::chrono::steady_clock::now();
 
     int qkv_n = cfg.qkv_n();
-    int attn_out = cfg.NH * cfg.HD;
     std::vector<GpuProjCtx> ctx_qkv(cfg.NC), ctx_o(cfg.NC);
 
     for (int l = 0; l < cfg.NC; l++) {
@@ -717,11 +716,8 @@ int main(int argc, char** argv) {
                            hipMemcpyHostToDevice, stream);
 
             constexpr int BK = 1024, BN = 256;
-            int grid = (NV + BN - 1) / BN;
-            size_t shmem = BK * sizeof(__half);
 
-            lm_head_kernel<<<grid, 128, shmem, stream>>>(
-                d_hidden, d_W, d_logits_f32, H, NV, BK, BN);
+            launch_lmhead(d_hidden, d_W, d_logits_f32, H, NV, BK, BN, stream);
 
             hipMemcpyAsync(logits_out, d_logits_f32,
                           (size_t)NV * sizeof(float),
