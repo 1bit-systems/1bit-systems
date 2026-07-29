@@ -135,20 +135,21 @@ This project started with a laptop, a disassembler, and no docs. AMD shipped the
 
 | Component | Before (closed) | After (open) |
 |-----------|:----------------:|:------------:|
-| CLI + server | `flm`, 87.8 MB | Rebuilt, 17.5 MB |
-| NPU sequence gen | 22 proprietary `.so` files | `libnpu_engine_universal.so` (173 KB) |
-| FPGA bitstreams | 209 `.xclbin` files | 63 rebuilt from AIE generators |
+| CLI + server | `flm`, 87.8 MB | Rebuilt, 282 KB (zaya_server) |
+| NPU sequence gen | 22 proprietary `.so` files | `libnpu_engine_universal.so` (open-source C++23) |
+| NPU bitstreams | 209 `.xclbin` files | 287 xclbins (63 rebuilt from AIE generators + 209 FLM-extracted + 15 BF16 perf) |
 | Toolchain | AMD Xilinx IP | `aiecc` + Peano/AMD Xilinx IP |
+| Model extraction | N/A | 37 pre-built FLM models extracted, 46+ 1BP models published |
 
 The key finding: the `.so` files were NPU instruction **sequence generators**, not compute kernels — the actual computation lives entirely in the `.xclbin` FPGA bitstreams. Both layers are now fully rebuildable from source.
 
-> **Read the full 1800+ line journey** → [`docs/journey.md`](docs/journey.md) — every crash, breakthrough, and bug documented in real-time.
+> **Read the full 1900+ line journey** → [`docs/journey.md`](docs/journey.md) — every crash, breakthrough, and bug documented in real-time.
 >
 > **Technical reverse-engineering report** → [`docs/research/fastflowlm-decode/SUMMARY.md`](docs/research/fastflowlm-decode/SUMMARY.md)
 >
 > **Raw analysis** → [`docs/research/fastflowlm-analysis/`](docs/research/fastflowlm-analysis/) — binary analysis, xclbin captures, instruction traces
 
-Since then: Mamba1 GPU backend (79.4 tok/s), Vulkan flash attention, model-agnostic GGUF routing, TQ2 ternary format, vision-language support, and a self-healing agent watchdog — **1800+ hours of engineering, all open source, MIT.**
+Since then: Mamba1 GPU backend (79.4 tok/s), Vulkan flash attention, model-agnostic GGUF routing, TQ2 ternary format, **37 FLM models extracted and integrated** (DeepSeek-R1, Gemma4, Qwen3.5 Omni, Whisper, 20+ more — all running on NPU), **per-group INT8 quantization** (+3 tok/s quality fix, #1074), **NPU runtime instruction generator** (#1054), **incremental K/V attention** (#1053), **Moonshot Kimi family** reverse-engineering (Gated MLA MoE), **NPU fused engine** (oplayer=30/31/32), and a self-healing agent watchdog — **1900+ hours of engineering, all open source, MIT.**
 
 ---
 
