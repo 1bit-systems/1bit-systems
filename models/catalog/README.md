@@ -218,3 +218,41 @@ bash tools/batch_convert.sh path/to/model.gguf
 The converter auto-detects architecture from GGUF metadata and maps to the
 correct handler. Supported: qwen3, qwen2, llama, mistral, gemma, phi, falcon,
 starcoder, olmo, granite, command-r, dbrx, jamba, deepseek2/3, zaya.
+
+*Last updated: 2026-07-21*
+
+---
+
+## ⚠️ Handling 0-byte / Corrupt Models
+
+If a HuggingFace repo contains a 0-byte or truncated model file:
+
+1. **Never upload empty files.** All converters in `scripts/` now validate output files
+   before exiting — they raise `RuntimeError` if the result is 0 bytes and warn if it's
+   suspiciously small.
+
+2. **Validate any downloaded model file** with the standalone validation script:
+
+   ```bash
+   ./scripts/validate_model_file.sh path/to/model.gguf
+   ```
+
+   This checks file existence, zero-byte detection, magic bytes (GGUF, 1BP, H1B,
+   safetensors, etc.), and prints human-readable size.
+
+3. **If you find a 0-byte model in the catalog**, delete it from HuggingFace:
+
+   ```bash
+   huggingface-cli delete bong-water-water-bong/RepoName --yes
+   ```
+
+   Then re-run the conversion and validate before uploading.
+
+4. **Before pushing a model to HuggingFace**, always run:
+
+   ```bash
+   ./scripts/validate_model_file.sh ./converted_model.gguf
+   ```
+
+   And verify the output says `GGUF ✅` (or the appropriate format) with a
+   reasonable file size for the parameter count.
