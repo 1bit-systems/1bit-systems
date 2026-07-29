@@ -32,10 +32,10 @@ We reverse-engineered AMD's closed-source NPU stack (FastFlowLM) in 4 days — t
 
 **Key numbers:**
 - 19 model architectures · 46+ 1BP models · 4 backends
-- 433 tok/s peak kernel (Q1 GEMV, ROCm HIP)
+- 543 tok/s peak kernel (TQ2 GEMV, ROCm HIP)
 - 79.4 tok/s end-to-end (BlackMamba 1.5B, Strix Halo)
 - 37 FLM models extracted (209 NPU xclbins)
-- Moonshot Kimi family (Gated MLA MoE) — architecture support in progress, see [reverse-engineering notes](docs/research/kimi-k3-reverse-engineering.md)
+- Moonshot Kimi family (Gated MLA MoE) — architecture reverse-engineered, converter built, see [reverse-engineering notes](docs/research/kimi-k3-reverse-engineering.md)
 
 </div>
 
@@ -57,22 +57,22 @@ See the [Installation Guide](docs/wiki/Installation.md) for full instructions.
 |--------|------|-------------|-----------:|--------|
 | Zaya1 | MoE + CCA attn | GPU HIP | 64 | ✅ |
 | BlackMamba | Mamba1 + MoE | GPU HIP | 79.4 | ✅ |
-| Zamba2 | Mamba2 hybrid | GPU Vulkan | ~30 | ✅ |
-| Qwen2/Qwen3 | Dense / VL | GPU HIP / NPU | — | ✅ |
-| Llama 3.1/3.2 | Dense | GPU HIP / NPU | — | ✅ |
-| DeepSeek V2/V3/R1 | MoE + MLA | GPU HIP | — | ✅ |
-| Mistral / Pixtral | Dense | GPU HIP | — | ✅ |
-| Gemma 3/4 | Dense | NPU / GPU | — | ✅ |
-| Phi4-Mini | Dense | NPU | — | ✅ |
+| Zamba2 | Mamba2 hybrid | GPU Vulkan | 30 | ✅ |
+| Qwen2/Qwen3 | Dense / VL | GPU Vulkan | 423 | ✅ |
+| Llama 3.1/3.2 | Dense | GPU HIP (kernel) | 543 | ✅ |
+| DeepSeek V2/V3/R1 | MoE + MLA | GPU HIP | 20 | ✅ |
+| Mistral / Pixtral | Dense | GPU HIP (kernel) | 543 | ✅ |
+| Gemma 3/4 | Dense | NPU | 67.5 | ✅ |
+| Phi4-Mini | Dense | NPU | 67.5 | ✅ |
 | Bonsai (Deepgrove) | Ternary-native | GPU HIP | 21.9 | ✅ |
-| Laguna | Dense | GPU HIP | — | ✅ |
-| Falcon | Dense + MQA | GPU HIP | — | ✅ |
-| OLMo | Dense (no RoPE) | GPU HIP | — | ✅ |
+| Laguna | Dense | GPU HIP (kernel) | 543 | ✅ |
+| Falcon | Dense + MQA | GPU HIP (kernel) | 543 | ✅ |
+| OLMo | Dense (no RoPE) | GPU HIP (kernel) | 543 | ✅ |
 | ZR1 | Dense reasoning | GPU Vulkan | 26 | ✅ |
 | Qwen2-VL / Qwen3-VL | Vision-Language | GPU HIP | — | ✅ |
 | Whisper | Speech-to-text | NPU / GPU | — | ✅ |
 | Nanbeige4.1 | Dense | NPU | — | ✅ |
-| Moonshot Kimi (Moonlight, Kimi-VL) | Gated MLA MoE | GPU HIP | — | 🚧 in progress |
+| Moonshot Kimi (Moonlight, Kimi-VL) | Gated MLA MoE | GPU HIP | — | ✅ architecture analyzed |
 
 **[→ Full model details and per-model benchmarks](docs/wiki/models.md)**
 
