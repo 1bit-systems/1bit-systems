@@ -77,6 +77,7 @@ esac
 if command -v numfmt &>/dev/null; then
     HR_SIZE=$(numfmt --to=iec "$SIZE")
 elif command -v ls &>/dev/null; then
+    # shellcheck disable=SC2012
     HR_SIZE=$(ls -lh "$MODEL" | awk '{print $5}')
 else
     HR_SIZE="$SIZE bytes"

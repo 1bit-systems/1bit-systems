@@ -5,48 +5,31 @@ project(npu-engine LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# ROCm/HIP used for TheRock amdclang++ runtime (tools only, not the engine)
+find_package(hip REQUIRED)
 find_package(XRT QUIET)
 
-# ── C++ source files (ported from Zig) ───────────────────────────
-set(NPU_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
-set(NPU_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
-
-# xrt_wrapper.cpp (hand-rolled extern "C" wrappers around raw XRT symbols,
-# incl. the newer xrtHwContextCreate/xrtKernelOpen HW-context API) is not
-# referenced by any target below — they all use XRT's own official C++
-# headers (<xrt/xrt_device.h> etc.) directly instead. Left unlinked here:
-# the wrapper is written against a newer XRT API than what's installed on
-# this box (2.21.75 only exports the older xrtPLKernelOpen-style API, no
-# xrtHwContext* symbols at all — see issue #1023), so linking it in was a
-# pure liability with zero upside. If something starts actually using
-# XrtDevice/XrtKernel/etc., this needs the older-API rewrite instead.
-set(NPU_CXX_SOURCES)
-
 # ── npu_engine_universal (flagship — all ops: QKV, O, GU, D, attention) ──
+set(NPU_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
 set(NPU_ENGINE_SOURCES
     ${NPU_SRC_DIR}/npu_engine_universal.cpp
-    ${NPU_SRC_DIR}/dequant_q4nx.cpp
+    ${NPU_SRC_DIR}/dequant_q4nx.c
     ${NPU_SRC_DIR}/gemm_npu_instructions.cpp
-    ${NPU_CXX_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../npu-infer/src/flm_bridge.cpp
 )
 
 add_executable(npu_engine_universal ${NPU_ENGINE_SOURCES})
 
 target_include_directories(npu_engine_universal PRIVATE
-    ${NPU_INCLUDE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../../npu-infer/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../../include   # npu_instr.hpp, npu_app.hpp
 )
 
 if(XRT_FOUND)
-    # find_package(XRT) does not export an XRT_CORE_LIBRARIES variable —
-    # linking against it silently links nothing, leaving xrtHwContextCreate/
-    # xrtKernelOpen/etc. undefined at link time (issue #1022/#1023
-    # investigation). find_library() for the real library, same pattern
-    # npu_engine_cb already uses successfully below.
-    find_library(XRT_COREUTIL xrt_coreutil)
     target_include_directories(npu_engine_universal PRIVATE ${XRT_INCLUDE_DIRS})
-    target_link_libraries(npu_engine_universal ${XRT_COREUTIL})
+    target_link_libraries(npu_engine_universal ${XRT_CORE_LIBRARIES})
     target_compile_definitions(npu_engine_universal PRIVATE -DXRT_ENABLE)
 endif()
 
@@ -63,59 +46,10 @@ target_link_libraries(npu_engine_universal
 
 target_compile_options(npu_engine_universal PRIVATE
     -O3 -ffast-math -march=native -funroll-loops -fno-math-errno
+    -Wno-unused-parameter -Wno-unused-variable
 )
 
 install(TARGETS npu_engine_universal DESTINATION bin)
-
-# ── npu_engine_multimodal — vision + audio + text via NPU ──
-# Uses the same GEMM contexts as universal, plus vision_encoder + whisper
-find_library(STB_IMAGE stb_image QUIET)
-
-set(NPU_MM_SOURCES
-    ${NPU_SRC_DIR}/npu_engine_multimodal.cpp
-    ${NPU_SRC_DIR}/dequant_q4nx.cpp
-    ${NPU_SRC_DIR}/model_config.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../src/vision_encoder.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../src/whisper.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../src/vl_processor.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../src/gguf_reader.cpp
-)
-
-add_executable(npu_engine_multimodal ${NPU_MM_SOURCES})
-
-target_include_directories(npu_engine_multimodal PRIVATE
-    ${NPU_INCLUDE_DIR}
-    ${NPU_SRC_DIR}  # model_config.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/../..   # vision_encoder.h, whisper.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party  # stb_image.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../npu-infer/include
-)
-
-if(XRT_FOUND)
-    find_library(XRT_COREUTIL_M xrt_coreutil)
-    target_include_directories(npu_engine_multimodal PRIVATE ${XRT_INCLUDE_DIRS})
-    target_link_libraries(npu_engine_multimodal ${XRT_COREUTIL_M})
-    target_compile_definitions(npu_engine_multimodal PRIVATE -DXRT_ENABLE)
-endif()
-
-option(ONEBP_SUPPORT_M "Enable native 1BP model format loading" ON)
-if(ONEBP_SUPPORT_M)
-    target_compile_definitions(npu_engine_multimodal PRIVATE ONEBP_SUPPORT)
-endif()
-
-target_link_libraries(npu_engine_multimodal
-    m dl pthread uuid
-    OpenMP::OpenMP_CXX
-    aiebu
-    # stb_image is header-only, included via third_party/
-)
-
-target_compile_options(npu_engine_multimodal PRIVATE
-    -O3 -ffast-math -march=native -funroll-loops -fno-math-errno -fopenmp
-)
-
-install(TARGETS npu_engine_multimodal DESTINATION bin)
 
 # ── Optional: torch2aie integration for bf16 kernel generation ──
 set(NPU_TORCH2AIE_DIR "$ENV{HOME}/torch2aie" CACHE PATH "Path to torch2aie repo root")
@@ -135,14 +69,13 @@ find_library(XRT_COREUTIL xrt_coreutil)
 
 set(NPU_CB_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/npu_engine_cb.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/dequant_q4nx.cpp
-    ${NPU_CXX_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dequant_q4nx.c
 )
 
 add_executable(npu_engine_cb ${NPU_CB_SOURCES})
 
 target_include_directories(npu_engine_cb PRIVATE
-    ${NPU_INCLUDE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../../npu-infer/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../../include   # npu_instr.hpp, npu_app.hpp
 )
@@ -154,102 +87,7 @@ target_link_libraries(npu_engine_cb
 
 target_compile_options(npu_engine_cb PRIVATE
     -O3 -ffast-math -march=native -funroll-loops -fno-math-errno
+    -Wno-unused-parameter -Wno-unused-variable
 )
 
 install(TARGETS npu_engine_cb DESTINATION bin)
-
-# ── npu_engine_v13 — Cross-layer pipelined async decode ──
-# Uses async launch/wait to overlap CPU ops with NPU execution.
-set(NPU_V13_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/npu_engine_v13.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/dequant_q4nx.cpp
-)
-
-add_executable(npu_engine_v13 ${NPU_V13_SOURCES})
-
-target_include_directories(npu_engine_v13 PRIVATE
-    ${NPU_INCLUDE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../npu-infer/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../include
-)
-
-target_link_libraries(npu_engine_v13
-    ${XRT_CORE_LIBRARIES}
-    m dl pthread uuid
-    OpenMP::OpenMP_CXX
-    aiebu
-)
-
-target_compile_options(npu_engine_v13 PRIVATE
-    -O3 -ffast-math -march=native -funroll-loops -fno-math-errno -mavx512f
-)
-
-install(TARGETS npu_engine_v13 DESTINATION bin)
-
-# ── npu_engine_fused — GPU+NPU fused zero-copy decode ──
-# GPU does QKV+Attn+O, NPU does GU+D, SharedBO zero-copy overlap.
-# ── GPU-accelerated targets — compiled with hipcc (handles __global__ + C++) ──
-execute_process(COMMAND hipconfig --rocmpath OUTPUT_VARIABLE ROCM_PATH OUTPUT_STRIP_TRAILING_WHITESPACE)
-find_program(HIPCC hipcc)
-
-# Determine ROCm lib directory: check common locations
-if(HIPCC AND ROCM_PATH)
-    set(HIP_LIB_DIR "${ROCM_PATH}/lib")
-    if(NOT EXISTS "${HIP_LIB_DIR}/libamdhip64.so" AND NOT EXISTS "${HIP_LIB_DIR}/libamdhip64.so.7")
-        set(HIP_LIB_DIR "${ROCM_PATH}/lib/x86_64-linux-gnu")
-    endif()
-    if(NOT EXISTS "${HIP_LIB_DIR}/libamdhip64.so" AND NOT EXISTS "${HIP_LIB_DIR}/libamdhip64.so.7")
-        message(WARNING "libamdhip64 not found under ${HIP_LIB_DIR} — HIP targets may fail")
-    endif()
-    macro(add_npu_hip_target target_name source_name)
-        set(NPU_HIP_SRC
-            "${CMAKE_CURRENT_SOURCE_DIR}/src/${source_name}.cpp"
-        )
-        add_executable(${target_name} IMPORTED)
-        
-        # Use hipcc to compile AND link
-        set(TARGET_BIN "${CMAKE_CURRENT_BINARY_DIR}/${target_name}")
-        add_custom_target(${target_name}_build ALL
-            COMMAND ${HIPCC}
-                -D__HIP_PLATFORM_AMD__=1
-                -I${NPU_INCLUDE_DIR}
-                -I${CMAKE_CURRENT_SOURCE_DIR}/../../npu-infer/include
-                -I${CMAKE_CURRENT_SOURCE_DIR}/../../include
-                -I/opt/rocm/include
-                ${NPU_HIP_SRC}
-                ${ARGN}
-                ${CMAKE_CURRENT_SOURCE_DIR}/src/dequant_q4nx.cpp
-                -O3 -ffast-math -march=native -funroll-loops -fno-math-errno -mavx512f
-                `pkg-config --cflags --libs xrt-core 2>/dev/null || echo "-lxrt_coreutil -lxrt_core -luuid -lpthread"`
-                -L${HIP_LIB_DIR} -lamdhip64 -laiebu -lm -ldl
-                -fopenmp
-                -o ${TARGET_BIN}
-            DEPENDS ${NPU_HIP_SRC}
-            COMMENT "Building ${target_name} with hipcc..."
-        )
-        
-        add_dependencies(${target_name} ${target_name}_build)
-
-        # No install(TARGETS ...) here: ${target_name} is an IMPORTED
-        # executable (the real binary comes from the hipcc custom command
-        # above, not from CMake's own add_executable/link step), and
-        # install(TARGETS ...) is only valid for targets CMake itself
-        # builds. It already lands at ${TARGET_BIN} in the build dir,
-        # which is where this project actually consumes it from — see
-        # issue #1022.
-    endmacro()
-
-    # gpu_kernels_fused.hip provides launch_lmhead/launch_gemv_tiled wrappers
-    # attn_stub.cpp provides rcpp_kv_cache_attn_decode CPU fallback
-    set(NPU_HIP_GPU_DEPS
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/gpu_kernels_fused.hip"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/attn_stub.cpp"
-    )
-    add_npu_hip_target(npu_engine_fused npu_engine_fused ${NPU_HIP_GPU_DEPS})
-    add_npu_hip_target(npu_engine_overlap npu_engine_overlap ${NPU_HIP_GPU_DEPS})
-    # Spec engine: compiled with hipcc but WITHOUT gpu_kernels_fused.hip
-    # (has its own __global__ kernels defined inline)
-    add_npu_hip_target(npu_engine_spec npu_engine_spec
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/attn_stub.cpp"
-    )
-endif()

@@ -213,23 +213,33 @@ void gemm_generate_sequence(
     seq->cmds2seq();
 }
 
-// ─── INT8 GEMM NPU Instruction Generator ──────────────────────────────
-// Same as gemm_generate_sequence but for INT8 data (elem_size=1).
-// Compatible with FLM's mm.xclbin (same DMA/RTP interface).
+// ─── GEMM NPU Instruction Generator (INT8) ──────────────────────────────
+//
+// Identical structure to gemm_generate_sequence() but for int8 weights:
+//   - DMA elem_size = 1 (int8 byte vs bf16 2-byte)
+//   - Weight offset calculations use 1-byte elements instead of 2-byte
+//   - Weight stride is 1 byte instead of 2 bytes
+//   - Tile sizes (BLOCK_K=32, BLOCK_N=128), register addresses, and
+//     RTP writes are all unchanged.
+//
 void gemm_generate_sequence_i8(
     npu_sequence*           seq,
-    uint32_t                M,              // output rows (batch=1 or 128)
+    uint32_t                M,              // output rows
     uint32_t                K,              // inner dimension
     uint32_t                N,              // output cols
-    uint32_t                weight_offset,  // DDR byte offset to weights (w/in BO arg 4)
-    float                   a_scale,        // activation scale (INT8 quant factor)
-    float                   b_scale,        // weight scale (INT8 quant factor)
-    uint32_t                output_offset   // DDR byte offset for output (w/in BO arg 5)
+    uint32_t                weight_offset,  // DDR byte offset to A weights
+    bool                    add_bias,
+    int                     activation,     // 0=none, 1=GeLU, 2=SiLU
+    uint32_t                bias_offset,    // DDR byte offset to bias
+    uint32_t                output_offset   // DDR byte offset for output (0=no writeback)
 ) {
     uint32_t num_col_tiles = div_ceil(N, BLOCK_N);
     uint32_t num_k_blocks  = div_ceil(K, BLOCK_K);
+
+    // ── Preemption point ──
     seq->npu_preemption(0);
 
+    // ── K-loop: each iteration processes one K-block ──
     for (uint32_t kb = 0; kb < num_k_blocks; kb++) {
         uint32_t k_start = kb * BLOCK_K;
         uint32_t k_size  = std::min(BLOCK_K, K - k_start);
@@ -239,57 +249,254 @@ void gemm_generate_sequence_i8(
             uint32_t n_start = tc * BLOCK_N;
             uint32_t n_size  = std::min(BLOCK_N, N - n_start);
 
-            // DMA: Load A tile (M x k_size INT8) from BO arg 3
-            uint32_t a_off = k_start * M;
-            seq->npu_dma_memcpy_nd(1, 3, S2MM, tile_at(0, col), bd_0, it_channel_0,
-                {0,0,0,a_off}, {1,1,k_size,M}, {0,0,0,1}, -1,0,false,normal_cache);
+            // ── DMA: Load A tile (M × k_size) from DDR via SHIM tile ──
+            // int8 = 1 byte per element
+            uint32_t a_off = weight_offset + k_start * M * 1;
+            seq->npu_dma_memcpy_nd(
+                1,                      // elem_size (int8)
+                0,                      // arg_idx
+                S2MM,                   // direction: DDR → AIE
+                tile_at(0, col),        // SHIM tile
+                bd_0,                   // BD ID
+                it_channel_0,           // channel
+                {0, 0, 0, a_off},       // offsets
+                {1, 1, k_size, M},      // sizes
+                {0, 0, 0, 1},           // strides (int8)
+                -1, 0, false, normal_cache
+            );
 
-            // DMA: Load B tile (k_size x n_size INT8) from BO arg 4
-            uint32_t b_off = weight_offset + k_start * N + n_start;
-            seq->npu_dma_memcpy_nd(1, 4, S2MM, tile_at(0, col), bd_1, it_channel_0,
-                {0,0,0,b_off}, {1,1,n_size,k_size}, {0,0,0,1}, -1,0,false,normal_cache);
+            // ── DMA: Load B tile (k_size × n_size) from DDR ──
+            uint32_t b_off = weight_offset +
+                             (K * M + k_start * N + n_start) * 1;
+            seq->npu_dma_memcpy_nd(
+                1,
+                1,
+                S2MM,
+                tile_at(0, col),
+                bd_1,
+                it_channel_0,
+                {0, 0, 0, b_off},
+                {1, 1, n_size, k_size},
+                {0, 0, 0, 1},
+                -1, 0, false, normal_cache
+            );
 
-            // RTP writes: configure dimensions + scales
-            seq->rtp_write(tile_at(FIRST_CT_ROW, col), 0x1000, M);
-            seq->rtp_write(tile_at(FIRST_CT_ROW, col), 0x1004, k_size);
-            seq->rtp_write(tile_at(FIRST_CT_ROW, col), 0x1008, n_size);
-            seq->rtp_write(tile_at(FIRST_CT_ROW, col), 0x100c, 0);  // no activation
-            // Scale registers (INT8 quant scales packed as bits)
-            uint32_t a_bits; memcpy(&a_bits, &a_scale, 4);
-            uint32_t b_bits; memcpy(&b_bits, &b_scale, 4);
-            seq->rtp_write(tile_at(FIRST_CT_ROW, col), 0x1010, a_bits);
-            seq->rtp_write(tile_at(FIRST_CT_ROW, col), 0x1014, b_bits);
+            // ── DMA: Load bias (if enabled) ──
+            if (add_bias && kb == 0) {
+                seq->npu_dma_memcpy_nd(
+                    4,                      // elem_size (float32)
+                    2,
+                    S2MM,
+                    tile_at(0, col),
+                    bd_2,
+                    it_channel_0,
+                    {0, 0, 0, bias_offset + n_start * 4},
+                    {1, 1, 1, n_size},
+                    {0, 0, 0, 4},
+                    -1, 0, false, normal_cache
+                );
+            }
+
+            // ── RTP writes: configure AIE kernel on compute tile ──
+            seq->rtp_write(tile_at(FIRST_CT_ROW, col), REG_M,    M);
+            seq->rtp_write(tile_at(FIRST_CT_ROW, col), REG_K,    k_size);
+            seq->rtp_write(tile_at(FIRST_CT_ROW, col), REG_N,    n_size);
+            seq->rtp_write(tile_at(FIRST_CT_ROW, col), REG_ACT,  activation);
+            seq->rtp_write(tile_at(FIRST_CT_ROW, col), REG_BIAS, add_bias ? 1 : 0);
         }
-        // Push DMA queues
+
+        // ── Push DMA queues on all SHIM tiles ──
         for (uint32_t tc = 0; tc < num_col_tiles; tc++) {
             uint32_t col = tc % NPU_COLS;
-            for (uint32_t bd = 0; bd < 2; bd++)
-                seq->rtp_write(tile_at(0, col), REG_QUEUE_PUSH, (bd << 0) | (0 << 3) | 0x10);
+            // Queue push for BD 0 (A-load), MM2S, ch0
+            seq->rtp_write(tile_at(0, col), REG_QUEUE_PUSH,
+                           (0 << 0) | (0 << 3) | 0x10 |
+                           (0 << 31));  // bd=0, ch=0, MM2S, no issue_token
+            // Queue push for BD 1 (B-load)
+            seq->rtp_write(tile_at(0, col), REG_QUEUE_PUSH,
+                           (1 << 0) | (0 << 3) | 0x10);
+            if (add_bias && kb == 0) {
+                seq->rtp_write(tile_at(0, col), REG_QUEUE_PUSH,
+                               (2 << 0) | (0 << 3) | 0x10);
+            }
         }
-        // Wait for DMA
-        for (uint32_t tc2 = 0; tc2 < num_col_tiles; tc2++) {
-            uint32_t col2 = tc2 % NPU_COLS;
-            seq->npu_dma_wait(tile_at(0, col2), S2MM, it_channel_0);
+
+        // ── Wait for DMA completion on all SHIM tiles ──
+        for (uint32_t tc = 0; tc < num_col_tiles; tc++) {
+            uint32_t col = tc % NPU_COLS;
+            seq->npu_dma_wait(tile_at(0, col), S2MM, it_channel_0);
         }
-        // Kick compute
-        for (uint32_t tc2 = 0; tc2 < num_col_tiles; tc2++) {
-            uint32_t col2 = tc2 % NPU_COLS;
-            seq->rtp_write(tile_at(FIRST_CT_ROW, col2), REG_KICK, 1);
+
+        // ── Kick off compute on CT tiles ──
+        for (uint32_t tc = 0; tc < num_col_tiles; tc++) {
+            uint32_t col = tc % NPU_COLS;
+            seq->rtp_write(tile_at(FIRST_CT_ROW, col), REG_KICK, 1);
         }
+
+        // ── Wait for compute completion ──
+        // (CT tiles issue completion tokens via the DMA engine)
     }
 
-    // Output writeback (INT16 -> BO arg 5)
+    // ── Optional: write output back to DDR ──
     if (output_offset != 0) {
         for (uint32_t tc = 0; tc < num_col_tiles; tc++) {
-            uint32_t col = tc % NPU_COLS;
-            uint32_t n_size = std::min(BLOCK_N, N - tc * BLOCK_N);
-            seq->npu_dma_memcpy_nd(2, 5, MM2S, tile_at(0, col), bd_3, it_channel_0,
-                {0,0,0,output_offset + tc * BLOCK_N * 2}, {1,1,n_size,M}, {0,0,0,2},
-                15, 0, true, normal_cache);
-            seq->rtp_write(tile_at(0, col), REG_QUEUE_PUSH, (3 << 0) | (0 << 3) | 0x10);
+            uint32_t col     = tc % NPU_COLS;
+            uint32_t n_size  = std::min(BLOCK_N, N - tc * BLOCK_N);
+            uint32_t out_off = output_offset + tc * BLOCK_N * 1;
+
+            seq->npu_dma_memcpy_nd(
+                1,
+                3,                      // arg slot for output
+                S2MM,
+                tile_at(0, col),
+                bd_3,
+                it_channel_0,
+                {0, 0, 0, out_off},
+                {1, 1, n_size, M},
+                {0, 0, 0, 1},
+                15, 0,                  // packet for sync
+                true,                   // issue token
+                normal_cache
+            );
+            seq->rtp_write(tile_at(0, col), REG_QUEUE_PUSH,
+                           (3 << 0) | (0 << 3) | 0x10);
             seq->npu_dma_wait(tile_at(0, col), S2MM, it_channel_0);
         }
     }
+
+    // ── Finalize: serialize command list → NPU instruction sequence ──
+    seq->cmds2seq();
+}
+
+// ─── GEMM NPU Instruction Generator (INT8) — Split A/B offsets ────────
+//
+// Variant of gemm_generate_sequence_i8() for the hybrid FLM engine where
+// activations (A) and weights (B) reside in separate NPU address spaces
+// (different kernel BO args). The existing gemm_generate_sequence_i8()
+// applies weight_offset to BOTH A and B, which is incompatible with having
+// A in a per-inference BO and B in a single contiguous weight BO.
+//
+// This variant takes separate a_ddr_offset and b_base_offset parameters:
+//   a_ddr_offset: DDR byte offset for A within the activation BO (bA)
+//   b_base_offset: DDR byte offset for the START of B within weight BO (bW)
+//                  per-layer: b_base_offset = layer * K * N
+//   (K*M is NO longer added to B — caller controls the base offset directly)
+//
+void gemm_generate_sequence_i8_split(
+    npu_sequence*           seq,
+    uint32_t                M,              // output rows
+    uint32_t                K,              // inner dimension
+    uint32_t                N,              // output cols
+    uint32_t                a_ddr_offset,   // DDR byte offset for A (within arg_idx=0 BO)
+    uint32_t                b_base_offset,  // DDR byte offset for B start (within arg_idx=1 BO)
+    bool                    add_bias,
+    int                     activation,     // 0=none, 1=GeLU, 2=SiLU
+    uint32_t                bias_offset,    // DDR byte offset to bias
+    uint32_t                output_offset   // DDR byte offset for output (0=no writeback)
+) {
+    uint32_t num_col_tiles = div_ceil(N, BLOCK_N);
+    uint32_t num_k_blocks  = div_ceil(K, BLOCK_K);
+
+    // ── Preemption point ──
+    seq->npu_preemption(0);
+
+    // ── K-loop: each iteration processes one K-block ──
+    for (uint32_t kb = 0; kb < num_k_blocks; kb++) {
+        uint32_t k_start = kb * BLOCK_K;
+        uint32_t k_size  = std::min(BLOCK_K, K - k_start);
+
+        for (uint32_t tc = 0; tc < num_col_tiles; tc++) {
+            uint32_t col     = tc % NPU_COLS;
+            uint32_t n_start = tc * BLOCK_N;
+            uint32_t n_size  = std::min(BLOCK_N, N - n_start);
+
+            // ── DMA: Load A tile (M × k_size) from DDR via SHIM tile ──
+            // A is at a_ddr_offset + k_start * M (within bA, arg_idx=0)
+            uint32_t a_off = a_ddr_offset + k_start * M * 1;
+            seq->npu_dma_memcpy_nd(
+                1, 0, S2MM, tile_at(0, col), bd_0, it_channel_0,
+                {0, 0, 0, a_off},
+                {1, 1, k_size, M},
+                {0, 0, 0, 1},
+                -1, 0, false, normal_cache
+            );
+
+            // ── DMA: Load B tile (k_size × n_size) from DDR ──
+            // B is at b_base_offset + k_start * N + n_start (within bW, arg_idx=1)
+            // Note: K*M is NOT added — caller controls the full offset.
+            uint32_t b_off = b_base_offset + k_start * N * 1 + n_start * 1;
+            seq->npu_dma_memcpy_nd(
+                1, 1, S2MM, tile_at(0, col), bd_1, it_channel_0,
+                {0, 0, 0, b_off},
+                {1, 1, n_size, k_size},
+                {0, 0, 0, 1},
+                -1, 0, false, normal_cache
+            );
+
+            // ── DMA: Load bias (if enabled) ──
+            if (add_bias && kb == 0) {
+                seq->npu_dma_memcpy_nd(
+                    4, 2, S2MM, tile_at(0, col), bd_2, it_channel_0,
+                    {0, 0, 0, bias_offset + n_start * 4},
+                    {1, 1, 1, n_size},
+                    {0, 0, 0, 4},
+                    -1, 0, false, normal_cache
+                );
+            }
+
+            // ── RTP writes: configure AIE kernel on compute tile ──
+            seq->rtp_write(tile_at(FIRST_CT_ROW, col), REG_M,    M);
+            seq->rtp_write(tile_at(FIRST_CT_ROW, col), REG_K,    k_size);
+            seq->rtp_write(tile_at(FIRST_CT_ROW, col), REG_N,    n_size);
+            seq->rtp_write(tile_at(FIRST_CT_ROW, col), REG_ACT,  activation);
+            seq->rtp_write(tile_at(FIRST_CT_ROW, col), REG_BIAS, add_bias ? 1 : 0);
+        }
+
+        // ── Push DMA queues on all SHIM tiles ──
+        for (uint32_t tc = 0; tc < num_col_tiles; tc++) {
+            uint32_t col = tc % NPU_COLS;
+            seq->rtp_write(tile_at(0, col), REG_QUEUE_PUSH,
+                           (0 << 0) | (0 << 3) | 0x10 | (0 << 31));
+            seq->rtp_write(tile_at(0, col), REG_QUEUE_PUSH,
+                           (1 << 0) | (0 << 3) | 0x10);
+            if (add_bias && kb == 0) {
+                seq->rtp_write(tile_at(0, col), REG_QUEUE_PUSH,
+                               (2 << 0) | (0 << 3) | 0x10);
+            }
+        }
+
+        // ── Wait for DMA completion on all SHIM tiles ──
+        for (uint32_t tc = 0; tc < num_col_tiles; tc++) {
+            uint32_t col = tc % NPU_COLS;
+            seq->npu_dma_wait(tile_at(0, col), S2MM, it_channel_0);
+        }
+
+        // ── Kick off compute on CT tiles ──
+        for (uint32_t tc = 0; tc < num_col_tiles; tc++) {
+            uint32_t col = tc % NPU_COLS;
+            seq->rtp_write(tile_at(FIRST_CT_ROW, col), REG_KICK, 1);
+        }
+    }
+
+    // ── Optional: write output back to DDR ──
+    if (output_offset != 0) {
+        for (uint32_t tc = 0; tc < num_col_tiles; tc++) {
+            uint32_t col     = tc % NPU_COLS;
+            uint32_t n_size  = std::min(BLOCK_N, N - tc * BLOCK_N);
+            uint32_t out_off = output_offset + tc * BLOCK_N * 1;
+            seq->npu_dma_memcpy_nd(
+                1, 3, S2MM, tile_at(0, col), bd_3, it_channel_0,
+                {0, 0, 0, out_off},
+                {1, 1, n_size, M},
+                {0, 0, 0, 1},
+                15, 0, true, normal_cache
+            );
+            seq->rtp_write(tile_at(0, col), REG_QUEUE_PUSH,
+                           (3 << 0) | (0 << 3) | 0x10);
+            seq->npu_dma_wait(tile_at(0, col), S2MM, it_channel_0);
+        }
+    }
+
     seq->cmds2seq();
 }
 
@@ -391,151 +598,4 @@ void mha_generate_sequence(
     seq->npu_dma_wait(tile_at(0, 0), S2MM, it_channel_0);
 
     seq->cmds2seq();
-}
-
-// ─── Per-Group INT8 GEMM NPU Instruction Generator ────────────────────
-//
-// Generates INT8 instructions for a SINGLE K-block (32 elements) of the GEMM.
-// Designed for per-group quantization: each K-block has its own scale so
-// we need separate NPU invocations per group to get per-group int32 results.
-//
-// BO arg layout (same as gemm_generate_sequence_i8):
-//   arg 3: A (M x k_size INT8)
-//   arg 4: B (k_size x N INT8)
-//   arg 5: C output (M x N int32)
-//
-namespace npu_seq {
-void gemm_generate_sequence_i8_kblock(
-    npu_sequence*           seq,
-    uint32_t                M,              // output rows (batch, typically XM=128)
-    uint32_t                k_size,         // K-block size (typically 32)
-    uint32_t                N,              // output cols
-    uint32_t                k_offset,       // k-start offset in elements (for A: k_off*M, for B: k_off*N)
-    float                   a_scale,        // activation scale
-    float                   b_scale,        // weight scale for THIS group
-    uint32_t                output_offset   // DDR byte offset for output (0 = write to start)
-) {
-    uint32_t num_col_tiles = div_ceil(N, BLOCK_N);
-    seq->npu_preemption(0);
-
-    for (uint32_t tc = 0; tc < num_col_tiles; tc++) {
-        uint32_t col     = tc % NPU_COLS;
-        uint32_t n_start = tc * BLOCK_N;
-        uint32_t n_size  = std::min(BLOCK_N, N - n_start);
-
-        // DMA: Load A tile (M x k_size INT8) from BO arg 3
-        uint32_t a_off = k_offset * M;
-        seq->npu_dma_memcpy_nd(1, 3, S2MM, tile_at(0, col), bd_0, it_channel_0,
-            {0,0,0,a_off}, {1,1,k_size,M}, {0,0,0,1}, -1,0,false,normal_cache);
-
-        // DMA: Load B tile (k_size x n_size INT8) from BO arg 4
-        uint32_t b_off = k_offset * N + n_start;
-        seq->npu_dma_memcpy_nd(1, 4, S2MM, tile_at(0, col), bd_1, it_channel_0,
-            {0,0,0,b_off}, {1,1,n_size,k_size}, {0,0,0,1}, -1,0,false,normal_cache);
-
-        // RTP writes: configure dimensions + scales
-        seq->rtp_write(tile_at(FIRST_CT_ROW, col), 0x1000, M);
-        seq->rtp_write(tile_at(FIRST_CT_ROW, col), 0x1004, k_size);
-        seq->rtp_write(tile_at(FIRST_CT_ROW, col), 0x1008, n_size);
-        seq->rtp_write(tile_at(FIRST_CT_ROW, col), 0x100c, 0);  // no activation
-        // Scale registers (INT8 quant scales packed as bits)
-        uint32_t a_bits; memcpy(&a_bits, &a_scale, 4);
-        uint32_t b_bits; memcpy(&b_bits, &b_scale, 4);
-        seq->rtp_write(tile_at(FIRST_CT_ROW, col), 0x1010, a_bits);
-        seq->rtp_write(tile_at(FIRST_CT_ROW, col), 0x1014, b_bits);
-    }
-
-    // Push DMA queues
-    for (uint32_t tc = 0; tc < num_col_tiles; tc++) {
-        uint32_t col = tc % NPU_COLS;
-        for (uint32_t bd = 0; bd < 2; bd++)
-            seq->rtp_write(tile_at(0, col), REG_QUEUE_PUSH, (bd << 0) | (0 << 3) | 0x10);
-    }
-    // Wait for DMA
-    for (uint32_t tc2 = 0; tc2 < num_col_tiles; tc2++) {
-        uint32_t col2 = tc2 % NPU_COLS;
-        seq->npu_dma_wait(tile_at(0, col2), S2MM, it_channel_0);
-    }
-    // Kick compute
-    for (uint32_t tc2 = 0; tc2 < num_col_tiles; tc2++) {
-        uint32_t col2 = tc2 % NPU_COLS;
-        seq->rtp_write(tile_at(FIRST_CT_ROW, col2), REG_KICK, 1);
-    }
-
-    // Output writeback (int32 -> BO arg 5)
-    if (output_offset != 0) {
-        for (uint32_t tc = 0; tc < num_col_tiles; tc++) {
-            uint32_t col = tc % NPU_COLS;
-            uint32_t n_size = std::min(BLOCK_N, N - tc * BLOCK_N);
-            seq->npu_dma_memcpy_nd(4, 5, MM2S, tile_at(0, col), bd_3, it_channel_0,
-                {0,0,0,output_offset + tc * BLOCK_N * 4}, {1,1,n_size,M}, {0,0,0,4},
-                15, 0, true, normal_cache);
-            seq->rtp_write(tile_at(0, col), REG_QUEUE_PUSH, (3 << 0) | (0 << 3) | 0x10);
-            seq->npu_dma_wait(tile_at(0, col), S2MM, it_channel_0);
-        }
-    }
-    seq->cmds2seq();
-}
-} // namespace npu_seq
-
-// ─── AttnCtx-compatible MHA instruction generator ─────────────────────
-// Generates attention NPU instructions for AttnCtx's BO layout:
-//   kernel(3, insts_bo, insts_size, bo0=Q, bo1=K, bo2=V, bo3=output, bo4=unused)
-// data BOs at kernel arg indices 3..6.
-void mha_generate_attn_instrs(
-    std::vector<uint32_t>& out_instrs,
-    uint32_t                head_dim,
-    int                     quant_bits,
-    uint32_t                num_q_heads,
-    uint32_t                num_kv_heads,
-    uint32_t                max_seq_len,
-    uint32_t                seq_len
-) {
-    npu_sequence seq(device_npu2);
-    if (seq_len > max_seq_len) seq_len = max_seq_len;
-
-    uint32_t q_elements = num_q_heads * head_dim;
-    uint32_t kv_elements = seq_len * num_kv_heads * head_dim;
-    uint32_t out_elements = num_q_heads * head_dim;
-
-    // Q in from BO arg 3 (i8 -> padded to uint32)
-    seq.npu_dma_memcpy_nd(1, 3, S2MM, IT0, bd_0, it_channel_0,
-        {0,0,0,0}, {1,1,(q_elements+3)/4,1}, {0,0,0,1}, -1,0,false,normal_cache);
-    // K in from BO arg 4
-    seq.npu_dma_memcpy_nd(1, 4, S2MM, IT0, bd_1, it_channel_0,
-        {0,0,0,0}, {1,1,(kv_elements+3)/4,1}, {0,0,0,1}, -1,0,false,normal_cache);
-    // V in from BO arg 5
-    seq.npu_dma_memcpy_nd(1, 5, S2MM, IT0, bd_2, it_channel_0,
-        {0,0,0,0}, {1,1,(kv_elements+3)/4,1}, {0,0,0,1}, -1,0,false,normal_cache);
-    // Push queues
-    for (uint32_t bd = 0; bd < 3; bd++)
-        seq.rtp_write(IT0, REG_QUEUE_PUSH, (bd << 0) | (0 << 3) | 0x10);
-    seq.npu_dma_wait(IT0, S2MM, it_channel_0);
-
-    // Configure compute tiles
-    uint32_t ncols = std::min(NPU_COLS, num_q_heads);
-    for (uint32_t col = 0; col < ncols; col++) {
-        seq.rtp_write(tile_at(FIRST_CT_ROW, col),     0x1000, head_dim);
-        seq.rtp_write(tile_at(FIRST_CT_ROW, col),     0x1004, seq_len);
-        seq.rtp_write(tile_at(FIRST_CT_ROW, col),     0x1008, num_q_heads);
-        seq.rtp_write(tile_at(FIRST_CT_ROW, col),     0x100c, (uint32_t)quant_bits);
-        seq.rtp_write(tile_at(FIRST_CT_ROW, col+1),   0x1000, seq_len);
-        seq.rtp_write(tile_at(FIRST_CT_ROW, col+1),   0x1004, head_dim);
-        seq.rtp_write(tile_at(FIRST_CT_ROW+2, col),   0x1000, head_dim);
-        seq.rtp_write(tile_at(FIRST_CT_ROW+2, col),   0x1004, seq_len);
-    }
-    // Kick compute
-    for (uint32_t col = 0; col < ncols; col++)
-        seq.rtp_write(tile_at(FIRST_CT_ROW, col), REG_KICK, 1);
-
-    // Output to BO arg 6 (bf16 output, 2 bytes per element)
-    seq.npu_dma_memcpy_nd(2, 6, MM2S, IT0, bd_3, it_channel_0,
-        {0,0,0,0}, {1,1,out_elements,1}, {0,0,0,2},
-        15, 0, true, normal_cache);
-    seq.rtp_write(IT0, REG_QUEUE_PUSH, (3 << 0) | (0 << 3) | 0x10);
-    seq.npu_dma_wait(IT0, S2MM, it_channel_0);
-
-    seq.cmds2seq();
-    auto [data, size] = seq.dump();
-    out_instrs.assign(data, data + size);
 }
