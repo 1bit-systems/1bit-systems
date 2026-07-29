@@ -24,8 +24,7 @@ jobs:
       - name: PR Agent
         uses: qodo-ai/pr-agent@d82f7d3e696cd00822694aaa3096265d3889f3f1  # v0.34
         env:
-          OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_API_BASE: "https://api.opencode.ai/v1"
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           # SECURITY: GITHUB_TOKEN with contents:write scope is passed to the
           # third-party action qodo-ai/pr-agent. Mitigation: the job-level `if`
           # guard above restricts execution to same-repo PRs only; external

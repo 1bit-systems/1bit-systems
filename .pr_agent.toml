@@ -1,7 +1,7 @@
 [pr_agent]
-model = "opencode/glm-5.2"
-model_turbo = "opencode/glm-5.2"
-fallback_models = ["deepseek/deepseek-chat", "openai/gpt-4o-mini"]
+model = "deepseek/deepseek-chat"
+model_turbo = "deepseek/deepseek-chat"
+fallback_models = []
 verbosity_level = 2
 publish_output = true
 publish_output_progress = false
@@ -34,6 +34,12 @@ push_changelog_changes = true
 enable_help_text = false
 
 [config]
-model = "opencode/glm-5.2"
-fallback_models = ["deepseek/deepseek-chat", "openai/gpt-4o-mini"]
+model = "deepseek/deepseek-chat"
+fallback_models = []
 ignore_pr_labels = []
+# deepseek/deepseek-chat isn't registered in pr-agent's internal MAX_TOKENS
+# table, so every review/description/suggestion call was throwing
+# "Ensure deepseek/deepseek-chat is defined in MAX_TOKENS ... or set a
+# positive value for it in config.custom_model_max_tokens" and failing
+# silently on every PR. 64000 matches DeepSeek-V3's published context window.
+custom_model_max_tokens = 64000
