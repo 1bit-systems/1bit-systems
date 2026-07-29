@@ -212,6 +212,7 @@
       <span class="eyebrow">AMD Strix Halo · Ryzen AI Max+ 395</span>
       <div style="margin-top:14px;"><span class="pill warn" style="font-size:12px;height:28px;padding:0 14px;"><span class="dot"></span>⚡ One binary to rule them all</span></div>
       <h1><span class="g">37 NPU models.</span><br>18 architectures. 4 backends.</h1>
+      <h1><span class="g">46+ 1BP models.</span><br>9 backends. One binary.</h1>
       <p style="margin-top:2px;font-size:clamp(22px,2.8vw,34px);font-weight:800;letter-spacing:-.025em;line-height:1.04;color:var(--blue);">Model-agnostic inference. Zero Python. MIT.</p>
       <p class="sub">A single C++23 binary that runs LLMs and VLMs on AMD NPU, GPU, and CPU — zero Python, zero config files. AMD's proprietary FastFlowLM NPU stack fully reverse-engineered and replaced with open-source XDNA 2 drivers. Custom 1BP format for ternary and TQ2 2-bit quantization.</p>
       <div class="cta-row">
@@ -295,6 +296,7 @@
   <span class="eyebrow">Model Families</span>
   <h2 style="margin:16px 0 8px;">Built around <span style="color:var(--green);">Zaya.</span> Extended to everything else.</h2>
   <p class="lead" style="margin-bottom:28px;">Zaya1-8B is the model this project was built around — the first validated end-to-end through Q4NX, GGUF, and 1BP. The same auto-detect pipeline now covers 18 architectures — from dense transformers to MoE to state-space hybrids. <a href="/wiki/models" style="color:var(--blue);font-weight:600;">Full model details →</a></p>
+  <p class="lead" style="margin-bottom:28px;">Zaya1-8B is the model this project was built around — the first validated end-to-end through Q4NX, GGUF, and 1BP. The same auto-detect pipeline now covers 17 families and 46+ 1BP models (+12 documented Zyphra non-LLM models), from dense transformers to MoE to state-space hybrids. Full specs for every family live in the <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md" style="color:var(--blue);font-weight:600;">catalog on GitHub →</a></p>
 
   <div class="panel" style="padding:32px;">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:6px;">
@@ -346,6 +348,23 @@
       <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">Whisper</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">Audio · CPU</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">validated</div></div>
       <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">DeepSeek</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">Dense · ZINC GPU</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">validated</div></div>
       <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">Qwen3-VL</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">Vision · ZINC GPU</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">36/36 tests ✅</div></div>
+    <p class="caps" style="color:var(--muted);font-size:11px;margin-bottom:12px;">+ 15 more families · 40+ more 1BP models + documented Zyphra non-LLM</p>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;">
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#laguna-poolside--3" target="_blank" rel="noopener">Laguna · 3 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#qwen--4" target="_blank" rel="noopener">Qwen · 4 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#llama-family--4" target="_blank" rel="noopener">Llama · 4 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#mistral--2" target="_blank" rel="noopener">Mistral · 2 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#gemma--4" target="_blank" rel="noopener">Gemma · 4 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#phi--3" target="_blank" rel="noopener">Phi · 3 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#deepseek--2" target="_blank" rel="noopener">DeepSeek · 2 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#falcon3-tii--2" target="_blank" rel="noopener">Falcon3 · 2 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#olmo-ai2--1" target="_blank" rel="noopener">OLMo · 1 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#granite-ibm--1" target="_blank" rel="noopener">Granite · 1 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#mamba--2" target="_blank" rel="noopener">Mamba · 2 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#zamba-mamba2-hybrid--3" target="_blank" rel="noopener">Zamba (Hybrid) · 3 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#zamba-mamba1attn--1" target="_blank" rel="noopener">Zamba (Mamba1+Attn) · 1 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#ternary--1-bit--4" target="_blank" rel="noopener">Ternary / Bonsai · 4 →</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#vision-language--2" target="_blank" rel="noopener">Vision-Language · 2 →</a>
     </div>
   </div>
 </section>
@@ -354,6 +373,7 @@
 <section id="models" class="block">
   <span class="eyebrow">Full Catalog</span>
   <h2 style="margin:16px 0 8px;">37 NPU models. 18 architectures. One format.</h2>
+  <h2 style="margin:16px 0 8px;">46+ 1BP models. 17 families. One format.</h2>
   <p class="lead" style="margin-bottom:28px;">Every family above converts to the same single-file, memory-mappable <strong style="color:var(--text);">1BP</strong> format — zero external config.json or tokenizer.json. One of them skips conversion entirely: these run straight from GGUF, validated end-to-end.</p>
 
   <div class="card" style="padding:24px;">

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "label": "NPU (XDNA 2)",
-  "message": "69 tok/s",
+  "message": "0 tok/s",
   "color": "informational",
   "cacheSeconds": 86400
 }
