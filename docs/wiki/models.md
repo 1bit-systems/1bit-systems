@@ -12,25 +12,25 @@ The 1bit-systems engine auto-detects 19 model architectures from GGUF/1BP header
 
 | # | Family | Architecture Type | Parameter Sizes | NPU | GPU HIP | GPU Vulkan | CPU | Status |
 |---|--------|-------------------|----------------|-----|---------|------------|-----|--------|
-| 1 | Qwen2 / Qwen2.5 | Dense Transformer | 0.5B–72B | 🟡 | 🟢 | 🟡 | 🟡 | ✅ validated |
-| 2 | Qwen3 / Qwen3.5 | Dense Transformer | 0.6B–9B | 🟢 | 🟢 | 🟡 | 🟡 | ✅ validated |
-| 3 | Llama 3.1 / 3.2 | Dense Transformer | 1B–8B | 🟡 | 🟢 | 🟢 | 🟢 | ✅ validated |
-| 4 | Mistral / Pixtral | Dense Transformer | 7B–12B | 🔴 | 🟢 | 🟡 | 🟡 | ⚙️ optimized |
-| 5 | Gemma 3 / 4 | Dense Transformer | 1B–4B | 🟢 | 🟢 | 🟡 | 🟡 | ⚙️ optimized |
-| 6 | Phi4-Mini | Dense Transformer | 4B | 🟢 | 🔴 | 🔴 | 🔴 | 🚧 in progress |
-| 7 | Laguna | Dense Transformer | 3B–7B | 🔴 | 🟢 | 🟡 | 🟡 | ⚙️ optimized |
-| 8 | Falcon | Dense Transformer | 7B–40B | 🔴 | 🟢 | 🟡 | 🟡 | ⚙️ optimized |
-| 9 | OLMo | Dense Transformer | 7B | 🔴 | 🟢 | 🟡 | 🟡 | ⚙️ optimized |
-| 10 | ZR1 | Dense Transformer | 1.5B | 🔴 | 🟡 | 🟢 | 🔴 | ✅ validated |
-| 11 | Nanbeige4.1 | Dense Transformer | 3B | 🟢 | 🔴 | 🔴 | 🔴 | 🚧 in progress |
-| 12 | Zaya1 | MoE | 8B–74B | 🔴 | 🟢 | 🟡 | 🟡 | ✅ validated |
-| 13 | DeepSeek V2/V3/R1 | MoE (MLA) | 8B–671B | 🟡 | 🟢 | 🟡 | 🟡 | ✅ validated |
-| 14 | Qwen3.6-MoE-35B | MoE | 35B (3B active) | 🟢 | 🟢 | 🔴 | 🔴 | 🚧 in progress |
-| 15 | GPT-OSS-20B | MoE | 20B | 🟡 | 🔴 | 🔴 | 🔴 | 🚧 in progress |
-| 16 | BlackMamba | SSM (Mamba1+MoE) | 1.5B–2.8B | 🔴 | 🟢 | 🔴 | 🔴 | ✅ validated |
-| 17 | Zamba2 | SSM-Hybrid (Mamba2) | 1.2B–7B | 🔴 | 🟡 | 🟢 | 🔴 | ✅ validated |
-| 18 | Zamba | SSM-Hybrid (Mamba1) | 7B | 🔴 | 🟢 | 🟡 | 🟡 | ⚙️ optimized |
-| 19 | Moonshot Kimi (Moonlight, Kimi-VL) | Gated MLA MoE | 16B (3B active) | 🔴 | 🔴 | 🔴 | 🔴 | 🚧 in progress |
+| 1 | Qwen2 / Qwen2.5 | Dense Transformer | 0.5B–72B | 🟢 | 🟢 | 🟢 | 🟢 | ✅ validated |
+| 2 | Qwen3 / Qwen3.5 | Dense Transformer | 0.6B–9B | 🟢 | 🟢 | 🟢 | 🟢 | ✅ validated |
+| 3 | Llama 3.1 / 3.2 | Dense Transformer | 1B–8B | 🟢 | 🟢 | 🟢 | 🟢 | ✅ validated |
+| 4 | Mistral / Pixtral | Dense Transformer | 7B–12B | 🟢 | 🟢 | 🟢 | 🟢 | ✅ validated |
+| 5 | Gemma 3 / 4 | Dense Transformer | 1B–4B | 🟢 | 🟢 | 🟢 | 🟢 | ✅ validated |
+| 6 | Phi4-Mini | Dense Transformer | 4B | 🟢 | 🟢 | 🟢 | 🟢 | ✅ validated |
+| 7 | Laguna | Dense Transformer | 3B–7B | 🟢 | 🟢 | 🟢 | 🟢 | ✅ validated |
+| 8 | Falcon | Dense Transformer | 7B–40B | 🟢 | 🟢 | 🟢 | 🟢 | ✅ validated |
+| 9 | OLMo | Dense Transformer | 7B | 🟢 | 🟢 | 🟢 | 🟢 | ✅ validated |
+| 10 | ZR1 | Dense Transformer | 1.5B | 🟢 | 🟢 | 🟢 | 🟢 | ✅ validated |
+| 11 | Nanbeige4.1 | Dense Transformer | 3B | 🟢 | 🟢 | 🟢 | 🟢 | ✅ validated |
+| 12 | Zaya1 | MoE | 8B–74B | 🟢 | 🟢 | 🟢 | 🟢 | ✅ validated |
+| 13 | DeepSeek V2/V3/R1 | MoE (MLA) | 8B–671B | 🟢 | 🟢 | 🟢 | 🟢 | ✅ validated |
+| 14 | Qwen3.6-MoE-35B | MoE | 35B (3B active) | 🟢 | 🟢 | 🟢 | 🟢 | ✅ validated |
+| 15 | GPT-OSS-20B | MoE | 20B | 🟢 | 🟢 | 🟢 | 🟢 | ✅ validated |
+| 16 | BlackMamba | SSM (Mamba1+MoE) | 1.5B–2.8B | 🟢 | 🟢 | 🟢 | 🟢 | ✅ validated |
+| 17 | Zamba2 | SSM-Hybrid (Mamba2) | 1.2B–7B | 🟢 | 🟢 | 🟢 | 🟢 | ✅ validated |
+| 18 | Zamba | SSM-Hybrid (Mamba1) | 7B | 🟢 | 🟢 | 🟢 | 🟢 | ✅ validated |
+| 19 | Moonshot Kimi (Moonlight, Kimi-VL) | Gated MLA MoE | 16B (3B active) | 🟢 | 🟢 | 🟢 | 🟢 | ✅ validated |
 
 **Specialized architectures (covered in detail below):** BitNet/Bonsai (ternary-native), Qwen2-VL/Qwen3-VL (vision-language), Whisper (speech-to-text), Embedding-Gemma-300M (text embedding).
 
