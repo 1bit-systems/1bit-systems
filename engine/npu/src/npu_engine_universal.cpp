@@ -9,6 +9,7 @@
 #include <chrono>
 #include <exception>
 #include <functional>
+#include <algorithm>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -146,10 +147,23 @@ struct I8Ctx{int MD,KD,ND,NL;bool use_bf16=false;
             pack_bfp16_weights(w, K, N, Bm, b_size());
             sout = 1.0f;  // BF16 output doesn't need scale
         }else{
-            // INT8 packing
-            float amax=0;
-            for(int i=0;i<K*N;i++){float a=fabsf(w[i]);if(std::isfinite(a)&&a>amax)amax=a;}
-            if(amax<1e-12f)amax=1.0f;sout=amax/127.0f;float is=127.0f/amax;auto*Bm=(int8_t*)layerB[cur_layer]->map();
+            // INT8 packing with outlier clipping.
+            // Q4NX weights have per-group (32-element) BF16 scales; flattening
+            // to per-layer INT8 lets a single outlier compress the usable range
+            // for 99.9% of weights. Use percentile-based clipping: find the
+            // 99.9th percentile of absolute values and clip anything beyond.
+            // This preserves ~10 bits of effective precision for the bulk of
+            // weights instead of being dominated by one outlier.
+            std::vector<float> abs_vals; abs_vals.reserve(K*N);
+            for(int i=0;i<K*N;i++){float a=fabsf(w[i]);if(std::isfinite(a))abs_vals.push_back(a);}
+            float amax;
+            if(abs_vals.empty()){amax=1.0f;}else{
+                size_t p99_idx = (size_t)(abs_vals.size() * 0.999);
+                if(p99_idx >= abs_vals.size()) p99_idx = abs_vals.size() - 1;
+                std::nth_element(abs_vals.begin(), abs_vals.begin() + p99_idx, abs_vals.end());
+                amax = std::max(abs_vals[p99_idx], 1e-12f);
+            }
+            sout=amax/127.0f;float is=127.0f/amax;auto*Bm=(int8_t*)layerB[cur_layer]->map();
             for(int i=0;i<K*N;i++){float v=w[i];if(!std::isfinite(v))v=0;
                 int x=(int)roundf(v*is);if(x>127)x=127;else if(x<-127)x=-127;Bm[i]=(int8_t)x;}
         }
@@ -900,11 +914,23 @@ int main(int argc,char**argv){
     o_i8=gi8("model.layers.0.self_attn.o_proj.weight");g_i8=gi8("model.layers.0.mlp.gate_proj.weight");u_i8=gi8("model.layers.0.mlp.up_proj.weight");d_i8=gi8("model.layers.0.mlp.down_proj.weight");
     int lm_i8=gi8("lm_head.weight");
 
-    // Load lm_head.weight separately — NOT tied to embed_tokens.weight for this model
-    if(lo&&lm_i8>0){int lr,lc;float*lm_raw=dequant_i8_to_float_ex(i8p(lo),lm_i8,H,&lr,&lc);if(lm_raw){
-        lm_head_f32.assign(lm_raw,lm_raw+(size_t)lr*lc);free(lm_raw);
-        fprintf(stderr,"  lm_head: %dx%d (loaded from JSON), using for final logits\n",lr,lc);
-    }else{fprintf(stderr,"  lm_head: dequant failed, falling back to emb\n");}}
+    // Load lm_head.weight separately — NOT tied to embed_tokens.weight for this model.
+    // Q4NX file may have lm_head.weight with wrong dimensions (observed: [18992,5120]
+    // instead of [151936,1024]). Check the actual JSON shape's second dimension — if
+    // it doesn't match H, the tensor is from a different model and we use tied embeddings.
+    if(lo&&lm_i8>0){
+        int lm_dim1 = get_shape_dim1(js, jl, "lm_head.weight");
+        if(lm_dim1 == H){
+            int lr,lc; float* lm_raw = dequant_i8_to_float_ex(i8p(lo), lm_i8, H, &lr, &lc);
+            if(lm_raw){
+                lm_head_f32.assign(lm_raw, lm_raw + (size_t)lr * lc);
+                fprintf(stderr,"  lm_head: %dx%d (loaded from JSON), using for final logits\n",lr,lc);
+                free(lm_raw);
+            }else{fprintf(stderr,"  lm_head: dequant failed, falling back to emb\n");}
+        }else{
+            fprintf(stderr,"  lm_head: JSON dim1=%d != H=%d — using tied embeddings (separate lm_head present but mismatched)\n",lm_dim1,H);
+        }
+    }
 #ifdef ONEBP_SUPPORT
     }
 #endif
@@ -1519,10 +1545,16 @@ int main(int argc,char**argv){
                     worker_pos++;
                     // Final norm
                     rn_c(h_data.data(), fin_v.data(), H);
-                    // LM head: argmax
+                    // LM head: argmax over vocab.
+                    // Use lm_head_f32 if available (separate weight matrix for this
+                    // model), otherwise fall back to embedding table (tied weights).
+                    // Using emb_f32 for a model with a separate lm_head produces
+                    // wrong token IDs (different weight matrices for input embed vs
+                    // output projection).
+                    const float* lm_head_data = lm_head_f32.empty() ? emb_f32.data() : lm_head_f32.data();
                     double max_l = -1e30; int best_t = 0;
                     for(int n=0; n<NV; n++){
-                        double s = 0; const float* e = emb_f32.data() + (size_t)n*H;
+                        double s = 0; const float* e = lm_head_data + (size_t)n*H;
                         for(int k=0; k<H; k++) s += (double)h_data[k]*e[k];
                         if(s > max_l){ max_l = s; best_t = n; }
                     }
