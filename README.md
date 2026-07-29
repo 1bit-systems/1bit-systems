@@ -91,17 +91,29 @@ See the [Installation Guide](docs/wiki/Installation.md) for full instructions.
 ## Architecture
 
 ```
-gguf / 1bp ──▶ [model loader: auto-detect 18 architectures]
-                       │
-        ┌──────────────┼──────────────┐
-        ▼              ▼              ▼
-   NPU (XDNA 2)   GPU (ROCm)    GPU (Vulkan)
-   32 tiles,       Radeon 8060S   Radeon 8060S
-   50 TOPS
-        │              │              │
-        └──────────────┼──────────────┘
-                       ▼
-                 CPU (OpenMP)
+gguf · onnx · q4nx · 1bp · h1b ──▶ [model loader: auto-detect 19 architectures]
+                                    │
+                                    ▼
+                            [BackendManager
+                             profile + select
+                             fastest backend]
+                                    │
+                    ┌───────────────┼────────────────┐
+                    ▼               ▼                 ▼
+              NPU (XDNA 2)    GPU (ROCm HIP)   GPU (Vulkan ZINC)
+              32 tiles,        Radeon 8060S     Radeon 8060S
+              50 TOPS
+                    │               │                 │
+                    └───────┬───────┼──────┬──────────┘
+                            │       │      │
+                     ┌──────▼────┐  │  ┌───▼────────┐
+                     │ GPU CUDA  │  │  │ GPU Metal   │
+                     │ NVIDIA    │  │  │ Apple Silicon│
+                     │ sm70+     │  │  └─────────────┘
+                     └───────────┘  │
+                                     ▼
+                               CPU (OpenMP)
+                               x86 fallback
 ```
 
 **[→ Architecture deep-dive](docs/guides/architecture.md)** · **[→ NPU reverse-engineering story](docs/journey.md)**
@@ -113,7 +125,7 @@ gguf / 1bp ──▶ [model loader: auto-detect 18 architectures]
 | NPU (npu_engine_universal) | XDNA 2, 32 tiles | INT8 GEMM, FLM models |
 | GPU HIP (ROCm) | Radeon 8060S | Ternary GEMV, MoE, SSM |
 | GPU Vulkan (ZINC) | Radeon 8060S | Dense models, 1BP |
-| GPU CUDA | NVIDIA | Ternary kernels |
+| GPU CUDA | NVIDIA sm70+ | Ternary kernels |
 | GPU Metal | Apple Silicon | Ternary kernels |
 | CPU (OpenMP) | x86 | Q4NX fallback |
 
