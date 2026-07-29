@@ -22,7 +22,7 @@ fi
 # One-time: compile NPU instruction generator
 if [ ! -f "$INSTR_GEN_O" ] || [ "$INSTR_GEN" -nt "$INSTR_GEN_O" ]; then
     echo "g++ -c -std=c++23 -O3 -o $INSTR_GEN_O $INSTR_GEN"
-    g++ -c -std=c++23 -O3 -fopenmp -I$SRCDIR/src -I$SRCDIR/include -I$XRT_INC \
+    g++ -c -std=c++23 -O3 -fopenmp -I"$SRCDIR"/src -I"$SRCDIR"/include -I$XRT_INC \
         -o "$INSTR_GEN_O" "$INSTR_GEN"
 fi
 
@@ -33,6 +33,12 @@ MODELS=(
     "qwen3_vl_4b"
     "llama"
     "gemma4_e2b"
+    "qwen3_6_moe_35b"
+    "qwen3_5_4b"
+    "gemma4_e4b"
+    "phi4_mini_4b"
+    "nanbeige4_1_3b"
+    "zr1"
 )
 
 CXX="${CXX:-g++}"

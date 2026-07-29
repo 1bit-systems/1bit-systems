@@ -1,0 +1,4 @@
+*.mlir.prj/
+insts/
+design_*.mlir
+insts_*.txt

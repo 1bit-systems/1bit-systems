@@ -42,8 +42,8 @@
     "unique_cloners": 783
   },
   "site": {
-    "backends": 9,
-    "models": 40
+    "backends": 4,
+    "models": 37
   },
   "prefill_tflops_i8apre": 39.4,
   "tflops": 39.4,

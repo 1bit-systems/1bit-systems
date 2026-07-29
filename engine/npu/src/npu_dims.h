@@ -139,6 +139,136 @@
   #define LM_I8R 28488
 #endif
 
+// Qwen3.6-MoE-35B-A3B: tag=qwen3.6_moe_35b (MoE, 256 experts, 40 layers)
+// Q4_K_S quant, 262k context, linear+full attention alternating
+// Note: MoE expert projections use separate G/U/D xclbins with per-expert IM=512
+#ifdef MODEL_qwen3_6_moe_35b
+  #define MODEL_TAG "qwen3.6_moe_35b"
+  #define H 2048
+  #define NC 40
+  #define NH 16
+  #define NKV 2
+  #define HD 256
+  #define IM 512            // per-expert intermediate
+  #define NV 248320
+  #define N_EXPERTS 256
+  #define TOP_K 8           // top-8 experts per token
+  #define GQA (NH/NKV)
+  #define ROPE_THETA 1000000.0f
+  #define XCLBIN_SUFFIX "qwen3.6-moe_35b"
+  #define GU_FUSED 1        // 2*IM=1024 <= 14336
+  #define BOS 248044
+  #define EOS 248044
+  #define DEF_MP NULL
+  #define Q_I8R 1024
+  #define KV_I8R 128
+  #define O_I8R 1024
+  #define GU_I8R 128         // per-expert
+  #define D_I8R 128          // per-expert
+  #define LM_I8R 62080
+#endif
+
+// Qwen3.5-4B-VL: tag=qwen3.5_4b (VLM, 32 layers)
+#ifdef MODEL_qwen3_5_4b
+  #define MODEL_TAG "qwen3.5_4b"
+  #define H 2560
+  #define NC 32
+  #define NH 16
+  #define NKV 4
+  #define HD 256
+  #define IM 9216
+  #define NV 248320
+  #define GQA (NH/NKV)
+  #define ROPE_THETA 1000000.0f
+  #define XCLBIN_SUFFIX "qwen3.5_4b"
+  #define GU_FUSED 0        // 2*IM=18432 > 14336
+  #define BOS 248044
+  #define EOS 248044
+  #define DEF_MP NULL
+  #define Q_I8R 1280
+  #define KV_I8R 320
+  #define O_I8R 1280
+  #define GU_I8R 2880
+  #define D_I8R 2880
+  #define LM_I8R 77600
+#endif
+
+// Gemma4-E4B: tag=gemma4_e4b (8B, 26 layers, larger gemma4)
+#ifdef MODEL_gemma4_e4b
+  #define MODEL_TAG "gemma4_e4b"
+  #define H 2560
+  #define NC 26
+  #define NH 16
+  #define NKV 4
+  #define HD 256
+  #define IM 12288
+  #define NV 262144
+  #define GQA (NH/NKV)
+  #define ROPE_THETA 1000000.0f
+  #define XCLBIN_SUFFIX "gemma4_e4b"
+  #define GU_FUSED 0        // 2*IM=24576 > 14336
+  #define BOS 2
+  #define EOS 1
+  #define DEF_MP NULL
+  #define Q_I8R 1280
+  #define KV_I8R 320
+  #define O_I8R 1280
+  #define GU_I8R 3840
+  #define D_I8R 3840
+  #define LM_I8R 81920
+#endif
+
+// Phi4-mini-Instruct-4B: tag=phi4_mini_4b (dense, 32 layers, GQA=3)
+// Verified from Q4NX header: H=3072, NV=200064, IM=8192, NH=24, NKV=8, HD=128
+#ifdef MODEL_phi4_mini_4b
+  #define MODEL_TAG "phi4_mini_4b"
+  #define H 3072
+  #define NC 32
+  #define NH 24
+  #define NKV 8           // GQA: 3 KV heads per group
+  #define HD 128
+  #define IM 8192
+  #define NV 200064
+  #define GQA (NH/NKV)
+  #define ROPE_THETA 1000000.0f
+  #define XCLBIN_SUFFIX "phi4-mini_4b"
+  #define GU_FUSED 0      // 2*IM=16384 > 14336
+  #define BOS 100257
+  #define EOS 100257
+  #define DEF_MP NULL
+  #define Q_I8R 1920      // H*QKV_N/8192 = 3072*5120/8192
+  #define KV_I8R 384       // H*NKV*HD/8192 = 3072*1024/8192
+  #define O_I8R 1152      // NH*HD*H/8192 = 3072*3072/8192
+  #define GU_I8R 3072     // H*IM/8192 = 3072*8192/8192
+  #define D_I8R 3072      // IM*H/8192 = 8192*3072/8192
+  #define LM_I8R 75024    // NV*H/8192 = 200064*3072/8192
+#endif
+
+// Nanbeige4.1-3B: tag=nanbeige4.1_3b (reasoning model)
+#ifdef MODEL_nanbeige4_1_3b
+  #define MODEL_TAG "nanbeige4.1_3b"
+  #define H 2560
+  #define NC 32
+  #define NH 32
+  #define NKV 8
+  #define HD 80
+  #define IM 8192
+  #define NV 152064       // Nanbeige vocab
+  #define GQA (NH/NKV)
+  #define ROPE_THETA 1000000.0f
+  #define XCLBIN_SUFFIX "nanbeige4.1_3b"
+  #define GU_FUSED 0      // 2*IM=16384 > 14336
+  #define BOS 1
+  #define EOS 2
+  #define DEF_MP NULL
+  #define Q_I8R 800       // 2560*(32*80)/8192 = 800
+  #define KV_I8R 200      // 2560*(8*80)/8192 = 200
+  #define O_I8R 800       // (32*80)*2560/8192 = 800
+  #define GU_I8R 2560     // 2560*8192/8192 = 2560
+  #define D_I8R 2560      // 8192*2560/8192 = 2560
+  #define LM_I8R 47520    // 152064*2560/8192 = 47520
+#endif
+
 // Gemma4-E2B: tag=gemma4_e2b
 // Note: actual Q4NX file has H=1536, NC=35, NH=8, NKV=1, HD=256, IM=6144
 #ifdef MODEL_gemma4_e2b

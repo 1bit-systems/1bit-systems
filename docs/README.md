@@ -38,7 +38,8 @@ Pure C++23, zero Python at runtime, MIT.
 
 ## Wiki
 
-Deeper operational docs live in [`wiki/`](wiki/): [performance](wiki/performance.md) (**single
+Deeper operational docs live in [`wiki/`](wiki/): [models](wiki/models.md) (**single
+source of truth for supported model families**), [performance](wiki/performance.md) (**single
 source of truth for benchmark numbers**), [Installation](wiki/Installation.md),
 [npu-architecture](wiki/npu-architecture.md), [boot-configuration](wiki/boot-configuration.md),
 [Network-Topology](wiki/Network-Topology.md).

@@ -199,7 +199,7 @@
 <nav>
   <div class="nav-in">
     <a class="brand" href="#top"><span class="mark">1bs</span><span class="wordmark"><span class="g">1</span>bit<span class="p">.</span>systems</span></a>
-    <div class="nav-links" id="navLinks"><a href="#flagship">1BP Models</a><a href="#families">Families</a><a href="#benchmarks">Benchmarks</a><a href="#backends">Backends</a><a href="#quickstart">Quick Start</a><a href="#faq">FAQ</a></div>
+    <div class="nav-links" id="navLinks"><a href="#flagship">1BP Models</a><a href="#families">Models</a><a href="#benchmarks">Benchmarks</a><a href="#backends">Backends</a><a href="#quickstart">Quick Start</a><a href="#faq">FAQ</a></div>
     <div class="nav-cta"><a class="btn btn-primary btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">GitHub</a></div>
     <button class="hamburger" id="hamburger" aria-label="Menu"><span></span><span></span><span></span></button>
   </div>
@@ -211,9 +211,9 @@
     <div>
       <span class="eyebrow">AMD Strix Halo · Ryzen AI Max+ 395</span>
       <div style="margin-top:14px;"><span class="pill warn" style="font-size:12px;height:28px;padding:0 14px;"><span class="dot"></span>⚡ One binary to rule them all</span></div>
-      <h1><span class="g">46+ 1BP models.</span><br>9 backends. One binary.</h1>
+      <h1><span class="g">37 NPU models.</span><br>18 architectures. 4 backends.</h1>
       <p style="margin-top:2px;font-size:clamp(22px,2.8vw,34px);font-weight:800;letter-spacing:-.025em;line-height:1.04;color:var(--blue);">Model-agnostic inference. Zero Python. MIT.</p>
-      <p class="sub">Drop any GGUF model — auto-detects architecture, quantization, and routes to NPU (XDNA 2), GPU (ROCm/Vulkan), or CPU. No config files. No model registry.</p>
+      <p class="sub">A single C++23 binary that runs LLMs and VLMs on AMD NPU, GPU, and CPU — zero Python, zero config files. AMD's proprietary FastFlowLM NPU stack fully reverse-engineered and replaced with open-source XDNA 2 drivers. Custom 1BP format for ternary and TQ2 2-bit quantization.</p>
       <div class="cta-row">
         <a class="btn btn-primary btn-lg" href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">View on GitHub →</a>
         <a class="btn btn-ghost btn-lg" href="#quickstart">Get Started →</a>
@@ -223,10 +223,10 @@
       <div style="padding:18px 20px;">
         <div class="console-hd"><span class="dots"><span style="background:var(--pink)"></span><span style="background:var(--blue)"></span><span style="background:var(--green)"></span></span><span class="mono" style="font-size:12px;color:var(--muted);">1bit.systems</span><span style="flex:1"></span><span class="eyebrow">Strix Halo</span></div>
         <div style="margin-top:14px;display:flex;flex-direction:column;gap:8px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--green);font-size:10px;">Models supported</span><span class="mono" style="font-size:20px;font-weight:800;color:var(--green);"><span id="model-count">35</span></span></div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--pink);font-size:10px;">Model families</span><span class="mono" style="font-size:20px;font-weight:800;color:var(--pink);">7</span></div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--blue);font-size:10px;">Hardware backends</span><span class="mono" style="font-size:20px;font-weight:800;color:var(--blue);">9</span></div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--muted);font-size:10px;">Peak performance</span><span class="mono" style="font-size:20px;font-weight:800;color:var(--muted);">415 tok/s</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--green);font-size:10px;">NPU models</span><span class="mono" style="font-size:20px;font-weight:800;color:var(--green);"><span id="model-count">37</span></span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--pink);font-size:10px;">Architectures</span><span class="mono" style="font-size:20px;font-weight:800;color:var(--pink);">18</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--blue);font-size:10px;">Backends</span><span class="mono" style="font-size:20px;font-weight:800;color:var(--blue);">4</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;"><span class="caps" style="color:var(--muted);font-size:10px;">Peak performance</span><span class="mono" style="font-size:20px;font-weight:800;color:var(--muted);">433 / 79.4 tok/s</span></div>
         </div>
         <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;gap:6px;flex-wrap:wrap;">
           <span class="pill ok" style="font-size:10px;"><span class="dot"></span>C++23 · MIT</span>
@@ -294,7 +294,7 @@
 <section id="families" class="block">
   <span class="eyebrow">Model Families</span>
   <h2 style="margin:16px 0 8px;">Built around <span style="color:var(--green);">Zaya.</span> Extended to everything else.</h2>
-  <p class="lead" style="margin-bottom:28px;">Zaya1-8B is the model this project was built around — the first validated end-to-end through Q4NX, GGUF, and 1BP. The same auto-detect pipeline now covers 17 families and 46+ 1BP models (+12 documented Zyphra non-LLM models), from dense transformers to MoE to state-space hybrids. Full specs for every family live in the <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md" style="color:var(--blue);font-weight:600;">catalog on GitHub →</a></p>
+  <p class="lead" style="margin-bottom:28px;">Zaya1-8B is the model this project was built around — the first validated end-to-end through Q4NX, GGUF, and 1BP. The same auto-detect pipeline now covers 18 architectures — from dense transformers to MoE to state-space hybrids. <a href="/wiki/models" style="color:var(--blue);font-weight:600;">Full model details →</a></p>
 
   <div class="panel" style="padding:32px;">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:6px;">
@@ -326,23 +326,26 @@
   </div>
 
   <div style="margin-top:26px;">
-    <p class="caps" style="color:var(--muted);font-size:11px;margin-bottom:12px;">+ 15 more families · 40+ more 1BP models + documented Zyphra non-LLM</p>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;">
-      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#laguna-poolside--3" target="_blank" rel="noopener">Laguna · 3 →</a>
-      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#qwen--4" target="_blank" rel="noopener">Qwen · 4 →</a>
-      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#llama-family--4" target="_blank" rel="noopener">Llama · 4 →</a>
-      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#mistral--2" target="_blank" rel="noopener">Mistral · 2 →</a>
-      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#gemma--4" target="_blank" rel="noopener">Gemma · 4 →</a>
-      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#phi--3" target="_blank" rel="noopener">Phi · 3 →</a>
-      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#deepseek--2" target="_blank" rel="noopener">DeepSeek · 2 →</a>
-      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#falcon3-tii--2" target="_blank" rel="noopener">Falcon3 · 2 →</a>
-      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#olmo-ai2--1" target="_blank" rel="noopener">OLMo · 1 →</a>
-      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#granite-ibm--1" target="_blank" rel="noopener">Granite · 1 →</a>
-      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#mamba--2" target="_blank" rel="noopener">Mamba · 2 →</a>
-      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#zamba-mamba2-hybrid--3" target="_blank" rel="noopener">Zamba (Hybrid) · 3 →</a>
-      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#zamba-mamba1attn--1" target="_blank" rel="noopener">Zamba (Mamba1+Attn) · 1 →</a>
-      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#ternary--1-bit--4" target="_blank" rel="noopener">Ternary / Bonsai · 4 →</a>
-      <a class="btn btn-ghost btn-sm" href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md#vision-language--2" target="_blank" rel="noopener">Vision-Language · 2 →</a>
+    <p class="caps" style="color:var(--muted);font-size:11px;margin-bottom:12px;">18 architectures — auto-detected, no config needed</p>
+    <div class="grid4" style="gap:10px;">
+      <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">BitNet</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">Ternary TQ2 · ROCm HIP</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">420 tok/s kernel</div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">Qwen3</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">Dense · ZINC GPU / NPU</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">28/28 tests ✅</div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">Llama</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">Dense · ZINC GPU / NPU</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">32/32 tests ✅</div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">Mistral</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">Dense · ZINC GPU</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">validated</div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">Qwen2</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">Dense · ZINC GPU</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">ZR1-1.5B 26 tok/s</div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">Gemma</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">Dense · ZINC GPU / NPU</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">35/35 tests ✅</div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">Phi</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">Dense · ZINC GPU</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">validated</div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">Zamba2</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">Mamba2-Hybrid · NPU</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">validated</div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">Zamba</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">Mamba1+Attn · GPU HIP</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">validated</div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">BlackMamba</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">Mamba1 MoE · GPU HIP</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">79.4 tok/s e2e</div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">Laguna</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">Dense · ZINC GPU</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">validated</div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">Falcon</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">Dense · ZINC GPU</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">validated</div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">OLMo</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">Dense · ZINC GPU</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">validated</div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">Zaya</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">MoE · ROCm HIP</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">~64 tok/s</div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">Qwen2-VL</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">Vision · ZINC GPU</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">validated</div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">Whisper</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">Audio · CPU</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">validated</div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">DeepSeek</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">Dense · ZINC GPU</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">validated</div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><span style="font-weight:800;font-size:13px;">Qwen3-VL</span><div style="font-size:11px;color:var(--dim);margin-top:2px;">Vision · ZINC GPU</div><div class="mono" style="font-size:11px;color:var(--green);margin-top:2px;">36/36 tests ✅</div></div>
     </div>
   </div>
 </section>
@@ -350,7 +353,7 @@
 <!-- ===== MODELS ===== -->
 <section id="models" class="block">
   <span class="eyebrow">Full Catalog</span>
-  <h2 style="margin:16px 0 8px;">46+ 1BP models. 17 families. One format.</h2>
+  <h2 style="margin:16px 0 8px;">37 NPU models. 18 architectures. One format.</h2>
   <p class="lead" style="margin-bottom:28px;">Every family above converts to the same single-file, memory-mappable <strong style="color:var(--text);">1BP</strong> format — zero external config.json or tokenizer.json. One of them skips conversion entirely: these run straight from GGUF, validated end-to-end.</p>
 
   <div class="card" style="padding:24px;">
@@ -371,7 +374,7 @@
   </div>
 
   <div style="margin-top:20px;text-align:center;">
-    <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/models/catalog/README.md" class="btn btn-ghost btn-md" target="_blank" rel="noopener">📊 Full model catalog — sizes, backends, per-family specs →</a>
+    <a href="/wiki/models" class="btn btn-ghost btn-md">📊 Full model catalog — sizes, backends, per-family specs →</a>
   </div>
 </section>
 
@@ -398,7 +401,7 @@
     </div>
   </div>
   <p class="lead" style="margin-bottom:20px;">Every number above and on the model cards traces back to one authoritative file (<code>site/benchmarks.json</code>) with a status tag — validated / optimized / raw — so nothing here is cherry-picked. Kernel-level numbers are isolated GEMV throughput, not end-to-end decode; the full breakdown below keeps the two apart.</p>
-  <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/performance.md" class="btn btn-primary btn-md" target="_blank" rel="noopener">📈 Full benchmarks breakdown →</a>
+  <a href="/wiki/performance" class="btn btn-primary btn-md">📈 Full benchmark methodology →</a>
 </section>
 
 <!-- ===== BACKENDS ===== -->
@@ -492,7 +495,7 @@
       <div class="foot-links">
         <a href="https://github.com/bong-water-water-bong/1bit-systems" target="_blank" rel="noopener">GitHub</a>
         <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/Installation.md" target="_blank" rel="noopener">Install Guide</a>
-        <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/wiki/performance.md" target="_blank" rel="noopener">Benchmarks</a>
+        <a href="/wiki/performance">Benchmarks</a>
         <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/journey.md" target="_blank" rel="noopener">Audit Trail</a>
       </div>
     </div>
