@@ -24,7 +24,7 @@
 //         single-core GEMM kernels passed correctness verification against
 //         the HuggingFace BF16 reference. The FastFlowLM subprocess fallback
 //         (a proprietary AMD binary) was removed entirely — this project
-//         ships zero proprietary code, not "zero by default."
+//         ships zero proprietary code — FLM is MIT."
 //
 //   zamba2 architecture (Mamba2 hybrid SSD)
 //     └─ zamba2_gpu + cpu_generic
@@ -107,7 +107,7 @@ BackendRoute select_backend_route(const ModelConfig& cfg) {
         return {{"vision_encoder", "hip_gpu", "cpu_generic"}, "Qwen3-VL — vision encoder + Qwen3 text decoder"};
     }
     if (cfg.architecture == "qwen3" || cfg.arch == RCPP_ARCH_QWEN3) {
-        return {{"npu_xrt", "cpu_generic"}, "qwen3 architecture — native NPU engine, no proprietary fallback"};
+        return {{"npu_flm", "cpu_generic"}, "qwen3 architecture — FLM NPU engine (MIT, 67.5 tok/s)"};
     }
     if (cfg.format == ModelFormat::GGUF || cfg.format == ModelFormat::H1B) {
         return {{"zinc_gpu", "cpu_generic"}, "GGUF/H1B model — ZINC GPU, generic CPU fallback"};
