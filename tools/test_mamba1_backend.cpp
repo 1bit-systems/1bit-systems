@@ -30,6 +30,7 @@ static bool read_mamba_config(const std::string& path, ModelConfig& cfg) {
     cfg.model_name = path.substr(slash + 1, dot - slash - 1);
 
     // Read Mamba-specific metadata
+    // gguf_reader::find_kv handles both "mamba.block_count" and bare "block_count"
     uint32_t u32;
     if (r.get_u32("mamba.block_count", u32)) cfg.num_layers = u32;
     if (r.get_u32("mamba.embedding_length", u32)) cfg.hidden_size = u32;
@@ -37,8 +38,8 @@ static bool read_mamba_config(const std::string& path, ModelConfig& cfg) {
     if (r.get_u32("mamba.vocab_size", u32)) cfg.vocab_size = u32;
     if (r.get_u32("mamba.ssm.state_size", u32)) cfg.head_dim = u32;  // reuse for d_state
     if (r.get_u32("mamba.ssm.inner_size", u32)) {} // inner_size = hidden*2 typically
-    if (r.get_u32("mamba.attention.head_count", u32)) cfg.num_attention_heads = u32;
     if (r.get_u32("mamba.expert_count", u32)) cfg.num_experts = u32;
+    else if (r.get_u32("expert_count", u32)) cfg.num_experts = u32;
 
     fprintf(stderr, "  Architecture: %s (arch_enum=%d)\n", cfg.architecture.c_str(), cfg.arch);
     fprintf(stderr, "  Hidden: %d, Layers: %d, Vocab: %d, d_state: %d\n",

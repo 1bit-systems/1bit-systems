@@ -535,34 +535,55 @@ const GgufTensorInfo* GgufReader::tensor_info(const std::string& name) const {
     return it == tensors_.end() ? nullptr : &it->second;
 }
 
-bool GgufReader::get_u32(const std::string& key, uint32_t& out) const {
+// ── KV lookup with architecture-prefix fallback ──
+// GGUF files may store metadata keys with or without the architecture prefix.
+// E.g. "block_count" vs "mamba.block_count". We try both forms:
+//   - If key contains a dot (e.g. "mamba.block_count"): try exact, then suffix.
+//   - If key has no dot: try exact, then arch + "." + key.
+const GgufReader::KV* GgufReader::find_kv(const std::string& key) const {
     auto it = kv_.find(key);
-    if (it == kv_.end()) return false;
-    const KV& kv = it->second;
-    if (kv.vtype <= 5 || kv.vtype == 7 || kv.vtype == 10 || kv.vtype == 11) { out = (uint32_t)kv.u; return true; }
+    if (it != kv_.end()) return &it->second;
+    auto dot = key.find('.');
+    if (dot != std::string::npos) {
+        std::string suf = key.substr(dot + 1);
+        if (!suf.empty()) {
+            it = kv_.find(suf);
+            if (it != kv_.end()) return &it->second;
+        }
+    } else if (!arch_.empty()) {
+        std::string pre = arch_ + "." + key;
+        it = kv_.find(pre);
+        if (it != kv_.end()) return &it->second;
+    }
+    return nullptr;
+}
+
+bool GgufReader::get_u32(const std::string& key, uint32_t& out) const {
+    const KV* kv = find_kv(key);
+    if (!kv) return false;
+    if (kv->vtype <= 5 || kv->vtype == 7 || kv->vtype == 10 || kv->vtype == 11) { out = (uint32_t)kv->u; return true; }
     return false;
 }
 
 bool GgufReader::get_f32(const std::string& key, float& out) const {
-    auto it = kv_.find(key);
-    if (it == kv_.end()) return false;
-    const KV& kv = it->second;
-    if (kv.vtype == 6 || kv.vtype == 12) { out = (float)kv.f; return true; }
-    if (kv.vtype <= 5 || kv.vtype == 10 || kv.vtype == 11) { out = (float)(int64_t)kv.u; return true; }
+    const KV* kv = find_kv(key);
+    if (!kv) return false;
+    if (kv->vtype == 6 || kv->vtype == 12) { out = (float)kv->f; return true; }
+    if (kv->vtype <= 5 || kv->vtype == 10 || kv->vtype == 11) { out = (float)(int64_t)kv->u; return true; }
     return false;
 }
 
 bool GgufReader::get_string(const std::string& key, std::string& out) const {
-    auto it = kv_.find(key);
-    if (it == kv_.end() || it->second.vtype != 8) return false;
-    out = it->second.s;
+    const KV* kv = find_kv(key);
+    if (!kv || kv->vtype != 8) return false;
+    out = kv->s;
     return true;
 }
 
 bool GgufReader::get_string_array(const std::string& key, std::vector<std::string>& out) const {
-    auto it = kv_.find(key);
-    if (it == kv_.end() || it->second.vtype != 9) return false;
-    out = it->second.arr_str;
+    const KV* kv = find_kv(key);
+    if (!kv || kv->vtype != 9) return false;
+    out = kv->arr_str;
     return true;
 }
 

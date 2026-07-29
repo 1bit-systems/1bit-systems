@@ -145,4 +145,8 @@ private:
     std::string read_string();
     bool read_kv_value(uint32_t vtype, KV& out);
     void skip_kv_value(uint32_t vtype);
+
+    // KV lookup with architecture-prefix fallback.
+    // Tries both "<arch>.<key>" and bare "<key>".
+    const KV* find_kv(const std::string& key) const;
 };
