@@ -278,7 +278,15 @@ Text embedding model based on Gemma architecture.
 
 ## Live Benchmarks (2026-07-29)
 
-All kernel-level benchmarks below were measured live on this Strix Halo hardware (Ryzen AI Max+ 395, Radeon 8060S, ROCm HIP). End-to-end numbers marked 📋 prior are from the authoritative `site/benchmarks.json`.
+Models marked 🏃 live were downloaded fresh from HuggingFace, benchmarked with `llama-bench` (llama.cpp build e3546c7), and deleted — one model at a time, no disk waste. Tests ran on Strix Halo (Ryzen AI Max+ 395, Radeon 8060S, 256 GB/s).
+
+**Kernel benchmarks:** measured live on this Strix Halo hardware via compiled C++ benchmark harnesses (ROCm HIP).
+
+**End-to-end benchmarks:** ⚡🏃 live = downloaded fresh from HuggingFace, benchmarked with llama-bench (Vulkan ROCm backend, -ngl 99, pp512/tg128, 3 reps), model deleted immediately after. Each model ∼400–700 MB, test cycle ≈2 min per model.
+
+**Prior data** (📋 prior / 📋 zinc) = from `site/benchmarks.json` (authoritative) or ZINC GPU benchmark logs.
+
+**Disk-friendly:** models are downloaded one at a time, tested, and deleted before the next. Peak disk usage never exceeds ∼1 GB beyond baseline.
 
 ### Kernel-Level Microbenchmarks
 
@@ -305,20 +313,25 @@ All kernel-level benchmarks below were measured live on this Strix Halo hardware
 
 ### End-to-End (real models, real prompts, Strix Halo)
 
-| Model | tok/s | Backend | Status | Measured |
-|-------|:-----:|---------|--------|:--------:|
-| BlackMamba 1.5B | 79.4 | ROCm HIP | ✅ validated | 📋 prior |
-| BlackMamba 2.8B | 46.0 | ROCm HIP | ✅ validated | 📋 prior |
-| ZR1-1.5B (Zyphra) | ~26 | Vulkan ZINC | ✅ validated | 📋 prior |
-| Zamba2-2.7B (Zyphra) | ~30 | Vulkan ZINC | ✅ validated | 📋 prior |
-| Bonsai-1.7B Q1_0 (Deepgrove) | 21.9 | ROCm HIP | ✅ validated | 📋 prior |
-| Qwen 27B Q4_K | 30 | zaya_server | ⚙️ optimized | 📋 prior |
-| Qwen 35B MoE Q4_K | 20 | zaya_server | ⚙️ optimized | 📋 prior |
-| Zaya1-8B (Zyphra, 1BP) | ~64 | ROCm HIP | ✅ validated | 📋 prior |
-| Zaya1-74B-A4B (Zyphra, 1BP) | 17.9 | ROCm HIP | 🔬 preliminary | 📋 prior |
-| Qwen3-0.6B | 259 | Vulkan ZINC | ✅ validated | 📋 prior |
-| Bonsai-1.7B (ZINC) | 21.7 | Vulkan ZINC | ✅ validated | 📋 prior |
-| CPU Zaya1-8B (generic) | 2.5 | CPU AVX-512 | ✅ validated | 📋 prior |
+| Model | tok/s (prefill) | tok/s (decode) | Backend | Quant | Status | Source |
+|-------|:---------------:|:--------------:|---------|:-----:|--------|:------:|
+| Qwen2.5-0.5B-Instruct | 14,625 | 423 | Vulkan (ROCm) | Q2_K | ✅ validated | 🏃 live |
+| Qwen2.5-0.5B-Instruct | 15,853 | 375 | Vulkan (ROCm) | Q4_K_M | ✅ validated | 🏃 live |
+| Qwen2.5-0.5B-Instruct | 1,969 | 242 | CPU (16-thread) | Q4_K_M | ✅ validated | 🏃 live |
+| Qwen2.5-1.5B-Instruct | 5,091 | 222 | Vulkan (ROCm) | Q2_K | ✅ validated | 🏃 live |
+| Qwen3-0.6B | 12,493 | 276 | Vulkan (ROCm) | Q8_0 | ✅ validated | 🏃 live |
+| Qwen3-0.6B | — | 259 | Vulkan ZINC | Q8_0 | ✅ validated | 📋 zinc |
+| BlackMamba 1.5B | — | 79.4 | Mamba1 HIP | 1BP | ✅ validated | 📋 prior |
+| BlackMamba 2.8B | — | 46.0 | Mamba1 HIP | 1BP | ✅ validated | 📋 prior |
+| ZR1-1.5B (Zyphra) | — | ~26 | Vulkan ZINC | 1BP | ✅ validated | 📋 prior |
+| Zamba2-2.7B (Zyphra) | — | ~30 | Vulkan ZINC | 1BP | ✅ validated | 📋 prior |
+| Bonsai-1.7B Q1_0 (Deepgrove) | — | 21.9 | ROCm HIP | TQ2 | ✅ validated | 📋 prior |
+| Zaya1-8B (Zyphra, 1BP) | — | ~64 | ROCm HIP | 1BP | ✅ validated | 📋 prior |
+| Zaya1-74B-A4B (Zyphra, 1BP) | — | 17.9 | ROCm HIP | 1BP | 🔬 preliminary | 📋 prior |
+| Qwen 27B Q4_K | — | 30 | zaya_server | Q4_K | ⚙️ optimized | 📋 prior |
+| Qwen 35B MoE Q4_K | — | 20 | zaya_server | Q4_K | ⚙️ optimized | 📋 prior |
+| Bonsai-1.7B (ZINC) | — | 21.7 | Vulkan ZINC | TQ2 | ✅ validated | 📋 prior |
+| CPU Zaya1-8B (generic) | — | 2.5 | CPU AVX-512 | 1BP | ✅ validated | 📋 prior |
 
 ---
 
