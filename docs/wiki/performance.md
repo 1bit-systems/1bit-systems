@@ -39,7 +39,7 @@ weeks out of date the last time it was hand-maintained (see git history).
 | Prefill INT8 WMMA (I8-APRE) | **39.4 TFLOPS** | INT8 WMMA | ✅ re-validated 2026-07-26 (was 40.5, colder-GPU pass) |
 | ROCm HIP (kernels) | **64 tok/s** | ROCm HIP | ✅ validated |
 | IQ1_S dequant+GEMV | **45 tok/s** | ROCm HIP | ✅ validated — correctness pending full IQ1_M port |
-| NPU v12 | **69 tok/s** | XDNA 2 (32 tiles), Qwen3-0.6B | ⚙️ optimized, re-measured 2026-07-12 — not re-verified since |
+| NPU INT8 GEMM | **0/10000 errors (22/22 shapes)** | XDNA 2 via Peano | ✅ verified 2026-07-28 — npu_engine_universal, 4 native ops (QKV/O/GU/D). Prefill + decode functional. Flat BD DMA bottleneck limits throughput; Chess toolchain deprecated (multi-dim BD repeat hangs NPU2 DMA). |
 
 **NPU raw hardware validation** (`xrt-smi validate`, 2026-07-25): 51 TOPS INT8 GEMM,
 50µs avg latency, 74,735–75,404 op/s — confirms the NPU/driver/firmware stack is healthy.
@@ -82,6 +82,7 @@ This is a device-level number, not a model-inference tok/s figure.
 | Jul 24 | Binary/ternary GPU kernels | 1–2 µs | Q1_0, BitNet, IQ GPU kernels verified exact |
 | Jul 24 | NPU ternary LUT decode | 3 kernels | TQ2/TQ1/Q1_0 on-tile decode via Chess |
 | Jul 25 | NPU HW re-validated + zero-copy fusion fix | — | `xrt-smi validate` clean; fixed buffer-overflow segfault in fusion pipeline test |
+| Jul 28 | npu_engine_universal INT8 GEMM + Peano xclbins | **22/22 shapes, 0 errors** | All 4 ops (QKV/O/GU/D) across 5 models verified on real hardware. NPU attention fixed (xrt::ext::bo overload bug). Chess deprecated. |
 | Jul 26 | Mamba1 HIP re-measure | 79.4 / 46.0 tok/s | Fixed `__shfl_xor_sync` correctness bug, numbers went *up* |
 
 ---

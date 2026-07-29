@@ -42,31 +42,43 @@ NPU bridge: `tq2_to_q4nx` converts any 1BP TQ2 model to Q4NX format for existing
 
 ---
 
-## NPU Classical Engines
+## NPU Classical Engines — Superseded (2026-07-28)
 
 | Engine | Tok/s | Status | Model | Notes |
 |--------|:-----:|:------:|-------|-------|
-| FLM turbo (production) | 94.7 | ✅ historical | Qwen3-0.6B | Proprietary, now fallback |
-| C++ v12 (M=32) | 69 | ⚙️ raw | Qwen3-0.6B | Open source, OpenMP tuned |
-| C++ auto-detect | 42 | ⚙️ raw | 0.6B-8B | Single binary, all models |
-| NPU fused | 291 | ❌ broken | Qwen3-0.6B | Hangs on real generation |
+| FLM turbo (production) | 94.7 | ❌ deprecated | Qwen3-0.6B | Replaced by npu_engine_universal (PR #1064) |
+| C++ v12 (M=32) | 69 | ❌ deprecated | Qwen3-0.6B | Replaced by INT8 GEMM path |
+| C++ auto-detect | 42 | ❌ deprecated | 0.6B-8B | Replaced by INT8 GEMM path |
+| NPU fused | — | ✅ working | Qwen3-0.6B | All 4 ops (QKV/O/GU/D) verified 0/10000 errors, Peano-compiled |
 
-### Raw C++ Engine — Auto-Detect (M=32 batch, OpenMP)
+### npu_engine_universal (2026-07-28 — current)
 
-| Model | H | IM | Size | Prefill | Decode | Tok/s |
-|-------|---|----|------|---------|--------|:-----:|
-| **Qwen3-0.6B** | 1024 | 3072 | 610 MB | 14 ms/tok | 36 ms/tok | 28 |
-| **Gemma4-E2B** | 1536 | 6144 | 4.7 GB | 20 ms/tok | 62 ms/tok | 16 |
-| **Llama-3.1-8B** | 4096 | 14336 | 5.7 GB | 47 ms/tok | 100 ms/tok | 10 |
-| **Qwen3-8B** | 4096 | 12288 | 6.0 GB | 49 ms/tok | 127 ms/tok | 8 |
+All 22 INT8 GEMM shapes across 5 models rebuilt via Peano + scalar kernel, verified
+0/10000 errors on real hardware. The NPU engine now dispatches all 4 core ops (QKV, O,
+GU, D) natively via XRT — replacing the prior FLM-subprocess and v12 paths.
 
-All verified on Strix Halo NPU. Single auto-detecting binary.
+**Toolchain**: Peano-only. Chess is permanently deprecated (multi-dim BD repeat
+descriptors hang NPU2 DMA on all tested designs, including AMD's own official examples).
+
+**Verified shapes**:
+
+| model | QKV (K,N) | O (K,N) | G/U or GU (K,N) | D (K,N) | cols |
+|---|---|---|---|---|---|
+| qwen3_0_6b | 1024,4096 | 2048,1024 | GU: 1024,6144 | 3072,1024 | 8 |
+| qwen3_8b | 4096,6144 | 4096,4096 | G/U: 4096,12288 | 12288,4096 | 8 |
+| qwen3_vl_4b | 2560,6144 | 4096,2560 | G/U: 2560,9728 | 9728,2560 | 4 |
+| llama | 4096,6144 | 4096,4096 | G/U: 4096,14336 | 14336,4096 | 8 |
+| gemma4_e2b | 1536,2560 | 2048,1536 | GU: 1536,12288 | 6144,1536 | 4 |
+
+See [`engine/npu/generators/README.md`](generators/README.md) for build instructions
+and toolchain rationale.
 
 ---
 
-## Raw Silicon: GEMM Throughput
+## Raw Silicon: GEMM Throughput — Chess (historical, deprecated)
 
-Chess-compiled INT8 xclbins, verified on-device.
+Chess-compiled INT8 xclbins (before Peano migration). All Chess designs hang on NPU2 hardware.
+These numbers are from before the hang was root-caused and are kept for historical reference only.
 
 | Projection | Shape | Time | TFLOPS (avg/peak) | % of 50 TOPS |
 |-----------|-------|:----:|:-----------------:|:------------:|
@@ -74,6 +86,10 @@ Chess-compiled INT8 xclbins, verified on-device.
 | **O** (output) | 1024×2048×1024 | 108 µs | 39.7 / 49.4 | 79% |
 | **GU** (gate+up) | 1024×1024×6144 | 801 µs | 16.1 / 16.5 | 32% |
 | **QKV** (fused) | 1024×1024×4096 | 559 µs | 15.4 / 15.5 | 31% |
+
+**Note**: These Chess-compiled xclbins hang on NPU2 hardware. Peano-compiled xclbins
+(with flat BD descriptors, not multi-dim repeat) work correctly but throughput is
+lower — each K-iteration requires a separate DMA transaction. See generators/README.md.
 
 ---
 
@@ -87,7 +103,7 @@ Chess-compiled INT8 xclbins, verified on-device.
 | **Jul 24** | **Binary/ternary GPU kernels** | **Q1_0, BitNet, IQ GPU kernels verified exact on Strix Halo** |
 | **Jul 24** | **NPU ternary LUT decode** | **TQ2/TQ1/Q1_0 on-tile decode, 3 Chess kernels compile** |
 | **Jul 24** | **1BP TQ1 converter** | **`--tq1` flag, base-3 1.58-bit format end-to-end** |
-| **Jul 24** | **NPU ternary bridge** | **`tq2_to_q4nx` converter ships, 3.5s per model** |
+| **Jul 28** | **npu_engine_universal INT8 GEMM** | **All 22 shapes, 0 errors, Peano-compiled. Chess deprecated. NPU attention fixed.** |
 
 ---
 

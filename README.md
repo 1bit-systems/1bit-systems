@@ -32,7 +32,7 @@
 - **Any Vulkan 1.2+** — Portable GPU backend
 - **CPU** — Generic C++23 fallback (no GPU required)
 
-> **Data note**: Per-backend tok/s figures are published with sources and honesty flags in [`docs/wiki/performance.md`](docs/wiki/performance.md). The NPU v12 engine currently measures **69 tok/s** (re-measured 2026-07-12 on Qwen3-0.6B). Mamba1 GPU numbers (79.4 tok/s) are current and re-validated 2026-07-26.
+> **Data note**: Per-backend tok/s figures are published with sources and honesty flags in [`docs/wiki/performance.md`](docs/wiki/performance.md). The NPU engine (`npu_engine_universal`) now uses INT8 GEMM across 4 native ops (QKV/O/GU/D) via Peano-compiled xclbins — replaced the FLM-based v12 path. All 22 GEMM shapes across 5 models verified correct (0 errors on real hardware, 2026-07-28). Current NPU throughput is bottlenecked by flat BD descriptors (no Chess); see [`engine/npu/generators/README.md`](engine/npu/generators/README.md). Mamba1 GPU numbers (79.4 tok/s) are current and re-validated 2026-07-26.
 
 **17 architectures · 46+ 1BP models** — see [`models/catalog/README.md`](models/catalog/README.md) for the full list.
 
@@ -92,7 +92,7 @@ Model-agnostic end to end: the engine auto-detects architecture and quantization
 | Fused TQ2 | **420 tok/s** | ROCm HIP (QKV+GU fused) |
 | GPU ternary | **318 tok/s** | Vulkan ZINC |
 | TQ2 GEMV | **367 tok/s** | ROCm HIP |
-| NPU v12 | **69 tok/s** | XDNA 2 (32 tiles) |
+| NPU INT8 GEMM | **correct (0 err/10000)** | XDNA 2 via Peano |
 | Prefill | **39.4 TFLOPS** | INT8 WMMA |
 | ROCm HIP | **64 tok/s** | ROCm HIP (kernels) |
 
@@ -105,6 +105,8 @@ Model-agnostic end to end: the engine auto-detects architecture and quantization
 | zaya_server (Qwen 27B Q4_K) | **30 tok/s** | ROCm HIP | Full decode, speculative MTP, Strix Halo |
 | zaya_server (Qwen 35B MoE Q4_K) | **20 tok/s** | ROCm HIP | Full decode, speculative MTP, Strix Halo |
 | llama.cpp ROCm (PrismML) | **229 tok/s** | PrismML on same hardware | See [issue #235](https://github.com/bong-water-water-bong/1bit-systems/issues/235) |
+| NPU (qwen3_0_6b, prefill) | **0.41 tok/s** | XDNA 2 (Peano, INT8 GEMM) | Full 28-layer prefill, verified correct |
+| NPU (qwen3_0_6b, decode) | **in progress** | XDNA 2 (Peano, INT8 GEMM) | Decode started, limited by flat BD DMA overhead |
 
 ---
 
@@ -172,7 +174,7 @@ Build note: the root `CMakeLists.txt` builds `src/`, `kernels/`, `include/`, `to
 ### Backends
 
 - **Mamba1 GPU** — Radeon 8060S via ROCm HIP. Alternating SSM + MoE layers (BlackMamba architecture). **79.4 tok/s** (1.5B).
-- **NPU** — XDNA 2 (32 tiles), fully in-process via `npu_engine_universal` (XRT-based, C++23). Runs GGUF/Q4NX/1BP models directly — no FastFlowLM subprocess, no closed-source dependency. Instruction sequences and GEMM/MHA dispatch were reverse-engineered from FLM's 22 `.so` libraries; xclbin bitstreams are rebuilt from AIE generators via `aiecc`/Chess (AMD Xilinx IP). See [`docs/research/fastflowlm-decode/SUMMARY.md`](docs/research/fastflowlm-decode/SUMMARY.md).
+- **NPU** — XDNA 2 (32 tiles), fully in-process via `npu_engine_universal` (XRT-based, C++23). Runs Q4NX models directly — no FastFlowLM subprocess, no closed-source dependency. Instruction sequences and GEMM/MHA dispatch were reverse-engineered from FLM's 22 `.so` libraries; xclbin bitstreams are rebuilt from AIE generators via Peano (LLVM-AIE) — Chess toolchain is permanently deprecated due to NPU2 DMA hardware hangs with multi-dim BD repeat descriptors. See [`engine/npu/generators/README.md`](engine/npu/generators/README.md) and [`docs/research/fastflowlm-decode/SUMMARY.md`](docs/research/fastflowlm-decode/SUMMARY.md).
 - **GPU (ZINC)** — Radeon 8060S via Vulkan SPIR-V (GGUF/H1B models, multi-arch)
 - **GPU (HIP)** — ROCm HIP for Zaya-style models
 - **CPU** — Fallback (scalar / AVX-512 / generic GGUF)
@@ -227,19 +229,13 @@ Zyphra's research portfolio extends beyond language models into **brain-computer
 | **Zonos-v0.1** | 🗣️ TTS | Leading open-weight text-to-speech. 200k+ hours multilingual speech training. Transformer (434⭐) and hybrid (1,106⭐) variants. Apache 2.0. GGUF versions available for `zonos.cpp`. [GitHub](https://github.com/Zyphra/Zonos) · [HF](https://huggingface.co/Zyphra/Zonos-v0.1-hybrid) |
 | **ZONOS2** | 🗣️ TTS MoE | Next-gen TTS with Mixture of Experts. GGUF via `zonos2.cpp`. [GitHub](https://github.com/Zyphra/ZONOS2) · [HF](https://huggingface.co/Zyphra/ZONOS2) |
 
-### 🏆 Top 5 — Raw NPU Engine, No FLM (single binary, auto-detected)
+### 🏆 NPU GEMM Correctness — All 22 shapes verified on real hardware
 
-*From [`engine/npu/BENCHMARKS.md`](engine/npu/BENCHMARKS.md), measured 2026-07-03/07-12 — predates the 2026-07-19 GGUF dequant correctness fixes (Q2_K/Q3_K/Q5_K, RoPE, dtype enums), so treat as directional, not re-verified. (Also superseded: a previously reported 572 tok/s DSpark speculative-decoding figure turned out to come from an undertrained checkpoint — see [issue #235](https://github.com/bong-water-water-bong/1bit-systems/issues/235).)*
+*2026-07-28: all 22 INT8 GEMM xclbin/insts pairs across 5 models rebuilt via Peano + scalar kernel, verified 0/10000 errors on real hardware. The NPU engine (`npu_engine_universal`) now dispatches all 4 core ops (QKV, O, GU, D) natively via XRT — replacing the prior FLM-subprocess and v12 paths. Correctness verified at the kernel level; end-to-end decode throughput is currently limited by flat BD DMA descriptors (see [`engine/npu/generators/README.md`](engine/npu/generators/README.md) for the toolchain rationale).*
 
-| Model | Family | Decode | Tok/s | Correctness |
-|-------|--------|:------:|:-----:|:-----------:|
-| Qwen3-0.6B | Qwen3 | 36 ms/tok | **28** | 28/28 ✅ |
-| Gemma4-E2B | Gemma | 62 ms/tok | **16** | 35/35 ✅ |
-| Qwen3-VL-4B | Qwen3 (vision) | 93 ms/tok | **11** | 36/36 ✅ |
-| Llama-3.1-8B | Llama | 100 ms/tok | **10** | 32/32 ✅ |
-| Qwen3-8B | Qwen3 | 127 ms/tok | **8** | 36/36 ✅ |
-
-Same binary, same auto-detect path, no per-model glue — the loader reads architecture off the model header for all 46+ 1BP models.
+| Ops | Models | Shapes | Verification |
+|-----|--------|:------:|:------------:|
+| QKV, O, GU, D | qwen3_0_6b, qwen3_8b, qwen3_vl_4b, llama, gemma4_e2b | 22 total | ✅ **0/10000 errors each** |
 
 ### TQ2 — the actual 1-bit/ternary storage path
 

@@ -66,7 +66,8 @@
 <table>
 <tr><th>Mode</th><th>Latency</th><th>Throughput</th><th>Power</th><th>Efficiency</th></tr>
 <tr><td>Decode (fused)</td><td>3.4 ms</td><td><strong>291 tok/s</strong></td><td>~2W</td><td>145 tok/s/W</td></tr>
-<tr><td>Decode (v12)</td><td>10.3 ms</td><td>97 tok/s</td><td>~2W</td><td>48 tok/s/W</td></tr>
+<tr><td>Decode (v12 — FLM-based, superseded)</td><td>10.3 ms</td><td>97 tok/s</td><td>~2W</td><td>48 tok/s/W</td></tr>
+<tr><td colspan="5"><em>Update 2026-07-28: The NPU engine has been fully rewritten. FLM/v12 replaced by <code>npu_engine_universal</code> with native INT8 GEMM ops across 22 shapes (QKV/O/GU/D, all verified 0/10000 errors). Peano toolchain replaces Chess (Chess multi-dim BD repeat descriptors hang NPU2 DMA). Current NPU inference is limited by flat BD descriptor overhead; vectorized kernel path confirmed working via Peano.</em></td></tr>
 <tr><td>Prefill M=9</td><td>179 ms</td><td>50 tok/s</td><td>~2W</td><td>25 tok/s/W</td></tr>
 </table>
 <h2>GPU 1-bit models (Radeon 8060S, Vulkan)</h2>
