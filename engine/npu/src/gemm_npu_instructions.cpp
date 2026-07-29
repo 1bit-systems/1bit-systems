@@ -393,6 +393,91 @@ void mha_generate_sequence(
     seq->cmds2seq();
 }
 
+// ─── Per-Group INT8 GEMM NPU Instruction Generator ────────────────────
+//
+// Generates INT8 instructions for a SINGLE K-block (32 elements) of the GEMM.
+// Designed for per-group quantization: each K-block has its own scale so
+// we need separate NPU invocations per group to get per-group int32 results.
+//
+// BO arg layout (same as gemm_generate_sequence_i8):
+//   arg 3: A (M x k_size INT8)
+//   arg 4: B (k_size x N INT8)
+//   arg 5: C output (M x N int32)
+//
+namespace npu_seq {
+void gemm_generate_sequence_i8_kblock(
+    npu_sequence*           seq,
+    uint32_t                M,              // output rows (batch, typically XM=128)
+    uint32_t                k_size,         // K-block size (typically 32)
+    uint32_t                N,              // output cols
+    uint32_t                k_offset,       // k-start offset in elements (for A: k_off*M, for B: k_off*N)
+    float                   a_scale,        // activation scale
+    float                   b_scale,        // weight scale for THIS group
+    uint32_t                output_offset   // DDR byte offset for output (0 = write to start)
+) {
+    uint32_t num_col_tiles = div_ceil(N, BLOCK_N);
+    seq->npu_preemption(0);
+
+    for (uint32_t tc = 0; tc < num_col_tiles; tc++) {
+        uint32_t col     = tc % NPU_COLS;
+        uint32_t n_start = tc * BLOCK_N;
+        uint32_t n_size  = std::min(BLOCK_N, N - n_start);
+
+        // DMA: Load A tile (M x k_size INT8) from BO arg 3
+        uint32_t a_off = k_offset * M;
+        seq->npu_dma_memcpy_nd(1, 3, S2MM, tile_at(0, col), bd_0, it_channel_0,
+            {0,0,0,a_off}, {1,1,k_size,M}, {0,0,0,1}, -1,0,false,normal_cache);
+
+        // DMA: Load B tile (k_size x n_size INT8) from BO arg 4
+        uint32_t b_off = k_offset * N + n_start;
+        seq->npu_dma_memcpy_nd(1, 4, S2MM, tile_at(0, col), bd_1, it_channel_0,
+            {0,0,0,b_off}, {1,1,n_size,k_size}, {0,0,0,1}, -1,0,false,normal_cache);
+
+        // RTP writes: configure dimensions + scales
+        seq->rtp_write(tile_at(FIRST_CT_ROW, col), 0x1000, M);
+        seq->rtp_write(tile_at(FIRST_CT_ROW, col), 0x1004, k_size);
+        seq->rtp_write(tile_at(FIRST_CT_ROW, col), 0x1008, n_size);
+        seq->rtp_write(tile_at(FIRST_CT_ROW, col), 0x100c, 0);  // no activation
+        // Scale registers (INT8 quant scales packed as bits)
+        uint32_t a_bits; memcpy(&a_bits, &a_scale, 4);
+        uint32_t b_bits; memcpy(&b_bits, &b_scale, 4);
+        seq->rtp_write(tile_at(FIRST_CT_ROW, col), 0x1010, a_bits);
+        seq->rtp_write(tile_at(FIRST_CT_ROW, col), 0x1014, b_bits);
+    }
+
+    // Push DMA queues
+    for (uint32_t tc = 0; tc < num_col_tiles; tc++) {
+        uint32_t col = tc % NPU_COLS;
+        for (uint32_t bd = 0; bd < 2; bd++)
+            seq->rtp_write(tile_at(0, col), REG_QUEUE_PUSH, (bd << 0) | (0 << 3) | 0x10);
+    }
+    // Wait for DMA
+    for (uint32_t tc2 = 0; tc2 < num_col_tiles; tc2++) {
+        uint32_t col2 = tc2 % NPU_COLS;
+        seq->npu_dma_wait(tile_at(0, col2), S2MM, it_channel_0);
+    }
+    // Kick compute
+    for (uint32_t tc2 = 0; tc2 < num_col_tiles; tc2++) {
+        uint32_t col2 = tc2 % NPU_COLS;
+        seq->rtp_write(tile_at(FIRST_CT_ROW, col2), REG_KICK, 1);
+    }
+
+    // Output writeback (int32 -> BO arg 5)
+    if (output_offset != 0) {
+        for (uint32_t tc = 0; tc < num_col_tiles; tc++) {
+            uint32_t col = tc % NPU_COLS;
+            uint32_t n_size = std::min(BLOCK_N, N - tc * BLOCK_N);
+            seq->npu_dma_memcpy_nd(4, 5, MM2S, tile_at(0, col), bd_3, it_channel_0,
+                {0,0,0,output_offset + tc * BLOCK_N * 4}, {1,1,n_size,M}, {0,0,0,4},
+                15, 0, true, normal_cache);
+            seq->rtp_write(tile_at(0, col), REG_QUEUE_PUSH, (3 << 0) | (0 << 3) | 0x10);
+            seq->npu_dma_wait(tile_at(0, col), S2MM, it_channel_0);
+        }
+    }
+    seq->cmds2seq();
+}
+} // namespace npu_seq
+
 // ─── AttnCtx-compatible MHA instruction generator ─────────────────────
 // Generates attention NPU instructions for AttnCtx's BO layout:
 //   kernel(3, insts_bo, insts_size, bo0=Q, bo1=K, bo2=V, bo3=output, bo4=unused)

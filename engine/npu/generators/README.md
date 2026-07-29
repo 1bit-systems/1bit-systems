@@ -32,6 +32,20 @@ aiecc --aietools="$AIETOOLS_DIR" --peano="$PEANO_INSTALL_DIR" \
   design.mlir
 ```
 
+> **Build reproducibility note (#1076):** The documented recipe produces
+> **byte-identical instruction streams** and **JSON metadata** compared to the
+> checked-in xclbins, but the **PDI binary (AIE core machine code)** differs
+> substantially (~22KB varying out of ~31KB). The generated xclbin may
+> not match the verified-correct checked-in binary even with the same
+> generator, MLIR, kernel object, and toolchain flags.
+>
+> Root cause not isolated. Likely candidates: `aiecc`'s internal linking depends
+> on specific LLVM-AIE commit hashes, a post-processing step is not captured,
+> or an environment variable affects the `aie2xclbin` stage.
+>
+> **Until root-caused**: after a fresh build, verify xclbin numerically with
+> `test_gemm_i32` using the same M/K/N. See issue #1076 for full PDI diffs.
+
 ## Why Peano, not Chess
 
 Chess (Vitis 2026.1 `xchesscc`) produces xclbins that **hang on real NPU2

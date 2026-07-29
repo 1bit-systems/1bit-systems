@@ -33,6 +33,16 @@
 #include <sys/wait.h>
 #include <sys/file.h>
 #include <dirent.h>
+
+// Runtime NPU instruction generation (#1054, #1074)
+#include "npu_utils/npu_instr_utils.hpp"
+namespace npu_seq {
+    // Forward declare the per-group instruction generator from gemm_npu_instructions.cpp
+    extern void gemm_generate_sequence_i8_kblock(
+        npu_sequence*, uint32_t, uint32_t, uint32_t, uint32_t,
+        float, float, uint32_t);
+}
+
 extern "C" float* dequant_i8_to_float_ex(const uint8_t*,int,int,int*,int*);
 static inline float bf16f(uint16_t v){uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}
 static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:bf16f(v);}
@@ -100,16 +110,55 @@ struct I8Ctx{int MD,KD,ND,NL;bool use_bf16=false;
     std::vector<std::unique_ptr<xrt::bo>>layerB;int cur_layer=0;int8_t*Am;int32_t*Cm;
     bool initialized=false;
     bool layerB_cached = true;
+    // ── Per-group quantization fields (#1074, #1054) ──
+    bool use_grouped = false;       // enable per-group K-split GEMM
+    int num_groups = 0;              // ceil(KD / 32)
+    std::vector<std::vector<float>> group_scales;  // [layer][group*ND + n]
+    // Runtime-generated instruction buffers for per-group K-slice
+    bool group_instrs_valid = false;
+    std::vector<uint32_t> group_ins;
+    std::unique_ptr<xrt::bo> bI_group;
+
     ~I8Ctx(){}
     bool isReady(){return initialized&&k&&bA&&bC;}
     inline void set_layer(int l){if(l>=0&&l<(int)layerB.size())cur_layer=l;}
     // Buffer sizes: INT8 vs BF16/BFP16
     size_t a_size() const { return use_bf16 ? (size_t)MD*KD*2 : (size_t)MD*KD; }
     size_t b_size() const { return use_bf16 ? ((size_t)KD*ND*6+7)/8 : (size_t)KD*ND; }
+    size_t a_group_size() const { return (size_t)MD * 32; }  // per-group A = M x 32 int8
+    size_t b_group_size() const { return (size_t)32 * ND; }   // per-group B = 32 x N int8
     // BF16 output is packed uint16 (2B/elem); INT8 GEMM output is int32 accumulator (4B/elem).
     // See issue #1063 — this used to be a flat *2 (int16), which silently misread the
     // int32 output every real INT8 xclbin (matmul_i8_i32/zero_i32) actually produces.
     size_t c_size() const { return use_bf16 ? (size_t)MD*ND*2 : (size_t)MD*ND*4; }
+
+    // ── Generate per-group instructions for K=32 ──
+    // Called once per operation at init, generates instructions for M=XM, K=32, N=ND
+    // using the runtime instruction generator from gemm_npu_instructions.cpp.
+    // Falls back to pre-compiled full-K instructions if generation fails.
+    bool init_group_instructions(xrt::device& d) {
+        if (use_bf16 || k == nullptr) return false;
+        try {
+            npu_sequence seq(npu_device::device_npu2);
+            // Generate instructions for a single K=32 block
+            npu_seq::gemm_generate_sequence_i8_kblock(&seq, (uint32_t)MD, 32, (uint32_t)ND,
+                0, 1.0f, 1.0f, 0);
+            auto [data, size] = seq.dump();
+            if (size == 0) return false;
+            group_ins.assign(data, data + size);
+            bI_group = std::make_unique<xrt::bo>(d, group_ins.size() * 4,
+                XCL_BO_FLAGS_CACHEABLE, k->group_id(1));
+            memcpy(bI_group->map(), group_ins.data(), group_ins.size() * 4);
+            bI_group->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            group_instrs_valid = true;
+            fprintf(stderr,"    Per-group instrs generated: %zu words\n", group_ins.size());
+            return true;
+        } catch (std::exception& e) {
+            fprintf(stderr,"    Group instr gen failed: %s\n", e.what());
+            return false;
+        }
+    }
+
     bool init(xrt::device&d,const char*xp,const char*ip,int gid_B,int nlayers,bool bf16=false){
         use_bf16=bf16; NL=nlayers;
         FILE*f=fopen(ip,"rb");if(!f){fprintf(stderr,"  I8Ctx::init: fopen(%s) failed\n",ip);return false;}
@@ -138,10 +187,63 @@ struct I8Ctx{int MD,KD,ND,NL;bool use_bf16=false;
         for (int l = 0; l < NL; l++) {
             layerB.emplace_back(std::make_unique<xrt::bo>(d,b_size(),XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B)));
         }
+
+        // Per-group quantization (#1074, #1054) requires FLM's mm.xclbin
+        // for compatible instruction generation — disabled for custom xclbins.
+        // Enable with NPU_GROUPED=1 when using FLM's xclbin path.
+        const char* grouped_env = getenv("NPU_GROUPED");
+        if (!use_bf16 && grouped_env && atoi(grouped_env) == 1) {
+            use_grouped = true;
+            num_groups = (KD + 31) / 32;
+            group_scales.resize(NL);
+            for (int l = 0; l < NL; l++) group_scales[l].resize(num_groups * ND, 0.0f);
+            if (!init_group_instructions(d)) {
+                fprintf(stderr,"    Per-group instr gen failed, falling back to flat quantization\n");
+                use_grouped = false;
+            } else {
+                fprintf(stderr,"    Per-group quantization ENABLED (%d groups of 32, FLM xclbin path)\n", num_groups);
+            }
+        }
         }catch(std::exception&e){fprintf(stderr,"  I8Ctx::init: %s (%s)\n",e.what(),xp);return false;}
         initialized=true;return true;}
     void packB(const float*w,int K,int N,float&sout){
-        if(use_bf16){
+        if(use_grouped){
+            // ── Per-group INT8 quantization (#1074) ──
+            // Each 32-element group of K gets its own scale, matching Q4NX's
+            // group structure. Stores INT8 data in layerB and per-group
+            // scales in group_scales[cur_layer].
+            auto*Bm=(int8_t*)layerB[cur_layer]->map();
+            auto& gs = group_scales[cur_layer];
+            int ng = (K + 31) / 32;
+            for (int g = 0; g < ng; g++) {
+                int k_start = g * 32;
+                int k_size = std::min(32, K - k_start);
+                for (int n = 0; n < N; n++) {
+                    // Find amax for this (k_size x 1) group segment
+                    float amax = 0;
+                    for (int k = 0; k < k_size; k++) {
+                        float v = w[(k_start + k) * (size_t)N + n];
+                        if (std::isfinite(v)) {
+                            float a = fabsf(v);
+                            if (a > amax) amax = a;
+                        }
+                    }
+                    if (amax < 1e-12f) amax = 1.0f;
+                    float scale = amax / 127.0f;
+                    float is = 127.0f / amax;
+                    gs[(size_t)g * N + n] = scale;
+                    for (int k = 0; k < k_size; k++) {
+                        float v = w[(k_start + k) * (size_t)N + n];
+                        if (!std::isfinite(v)) v = 0;
+                        int x = (int)roundf(v * is);
+                        if (x > 127) x = 127;
+                        else if (x < -127) x = -127;
+                        Bm[(k_start + k) * (size_t)N + n] = (int8_t)x;
+                    }
+                }
+            }
+            sout = 1.0f;  // Per-group scales applied at dequant time
+        }else if(use_bf16){
             // BFP16 packing for BF16 xclbins
             auto Bm = (uint8_t*)layerB[cur_layer]->map();
             pack_bfp16_weights(w, K, N, Bm, b_size());
@@ -183,7 +285,7 @@ struct I8Ctx{int MD,KD,ND,NL;bool use_bf16=false;
                 ABuf[i] = f32_to_bf16(A[i]);
             }
         }else{
-            // INT8 quantize
+            // INT8 quantize — same for flat and grouped (ascale is per-call)
             float ais=1.0f/ascale;memset(Am,0,(size_t)am*KD);
             for(int m=0;m<am;m++)for(int k=0;k<ak;k++){
                 float v=A[m*ak+k];if(!std::isfinite(v))v=0;
@@ -194,6 +296,23 @@ struct I8Ctx{int MD,KD,ND,NL;bool use_bf16=false;
     inline void sync_A(int l){(void)l;bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);}
     inline xrt::run launch(){return (*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[cur_layer],*bC);}
     inline xrt::run sync_and_launch(){bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);bC->sync(XCL_BO_SYNC_BO_TO_DEVICE);return (*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[cur_layer],*bC);}
+    // Per-group GEMM launch: uses K=32 instructions, processes one K-group
+    // Per-group GEMM launch: copies the group's B slice to offset 0 of
+    // the B BO, then uses the k_offset=0 instructions from bI_group.
+    inline xrt::run sync_and_launch_group(int g, int k_start, int k_size) {
+        // Copy B[group] to B[0] within layerB buffer so k_offset=0 instrs work
+        int8_t* Bm = (int8_t*)layerB[cur_layer]->map();
+        size_t group_bytes = (size_t)k_size * ND;
+        size_t src_off = (size_t)k_start * ND;
+        if (g > 0 && src_off > 0) {
+            memmove(Bm, Bm + src_off, group_bytes);
+        }
+        bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        layerB[cur_layer]->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        bC->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        return (*k)((unsigned)3, *bI_group, (unsigned)group_ins.size(),
+                    *bA, *layerB[cur_layer], *bC);
+    }
     inline void dequantize(xrt::run& r,float*C,int am,int an,float ascale,float Bscale){
         r.wait();bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
         if(use_bf16){
@@ -211,10 +330,64 @@ struct I8Ctx{int MD,KD,ND,NL;bool use_bf16=false;
             for(int m=0;m<am;m++)for(int n=0;n<an;n++){
                 float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;C[m*an+n]=val;}
         }}
+    // Per-group dequant: applies per-group scales to int32 accumulator
+    inline void dequantize_grouped(xrt::run& r, float* C, int am, int an,
+                                    float ascale, const float* gs, int group_idx) {
+        r.wait(); bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+        for (int m = 0; m < am; m++) {
+            for (int n = 0; n < an; n++) {
+                float val = (float)Cm[(size_t)m * ND + n] * ascale * gs[(size_t)group_idx * an + n];
+                if (!std::isfinite(val)) val = 0;
+                C[(size_t)m * an + n] += val;
+            }
+        }
+    }
     inline bool go(const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){
+        if (use_grouped) {
+            return go_grouped(A, am, ak, ascale, C, an);
+        }
         (void)ascale;  // BF16 doesn't use activation scale
         quantize_async(A,am,ak,ascale);auto r=sync_and_launch();r.wait();
         dequantize(r,C,am,an,ascale,Bscale);return true;}
+    // ── Per-group K-split GEMM (#1074) ──
+    // Splits K into 32-element groups, does per-group NPU GEMM, and
+    // accumulates with per-group dequant scales. This preserves Q4NX's
+    // per-group precision structure instead of collapsing to one scale.
+    inline bool go_grouped(const float* A, int am, int ak, float ascale, float* C, int an) {
+        if (!group_instrs_valid || !bI_group) return false;
+        float* C_accum = (float*)calloc((size_t)am * an, sizeof(float));
+        if (!C_accum) return false;
+        int ng = (ak + 31) / 32;
+        auto& gs = group_scales[cur_layer];
+        // Zero bC before starting (bC accumulates per-group int32 results)
+        memset(Cm, 0, (size_t)MD * ND * 4);
+        for (int g = 0; g < ng && g < num_groups; g++) {
+            int k_start = g * 32;
+            int k_size = std::min(32, ak - k_start);
+            // Quantize A for this K-slice into the first 32 columns of bA
+            float ais = 1.0f / ascale;
+            memset(Am, 0, (size_t)am * MD);  // MD >= 32, zero pad
+            for (int m = 0; m < am; m++) {
+                for (int k = 0; k < k_size; k++) {
+                    float v = A[(size_t)m * ak + k_start + k];
+                    if (!std::isfinite(v)) v = 0;
+                    int q = (int)roundf(v * ais);
+                    if (q > 127) q = 127; else if (q < -127) q = -127;
+                    Am[(size_t)m * MD + k] = (int8_t)q;
+                }
+            }
+            // Launch per-group GEMM
+            auto r = sync_and_launch_group(g, k_start, k_size);
+            // Dequant and accumulate with per-group scale
+            dequantize_grouped(r, C_accum, am, an, ascale, gs.data(), g);
+            // Re-zero bC for next group
+            memset(Cm, 0, (size_t)MD * ND * 4);
+        }
+        // Copy accumulated result to output
+        for (int i = 0; i < am * an; i++) C[i] = C_accum[i];
+        free(C_accum);
+        return true;
+    }
     inline xrt::run launch_async(const float*A,int am,int ak,float ascale){
         quantize_async(A,am,ak,ascale);return sync_and_launch();}
     inline void finish_async(xrt::run& r,float*C,int am,int an,float ascale,float Bscale){
@@ -237,13 +410,6 @@ struct I8Ctx{int MD,KD,ND,NL;bool use_bf16=false;
         }}
 };
 
-// AttnCtx — NPU attention using xrt::kernel with instruction BO (same as I8Ctx).
-// The xclbin kernel signature:
-//   kernel(3, insts_bo, insts_size, bo0=Q, bo1=K, bo2=V, bo3=output, bo4=unused)
-//
-// Two launch paths:
-//   1. launch_all() — quantizes full K/V cache each call (O(seq_len))
-//   2. append_kv() + launch() — incremental, O(NKV*HD) per token
 // AttnKernel — the expensive, hardware-context-limited shared resource: one
 // xclbin/hw_context/kernel for ALL layers. Found live (issue #1053 follow-up)
 // that giving every layer its own hw_context hits a real driver limit --
@@ -1047,22 +1213,22 @@ int main(int argc,char**argv){
     // Xclbin directory: respect NPU_XCLBIN_DIR env var, fall back to repo-relative path
     const char* env_xd = getenv("NPU_XCLBIN_DIR");
     std::string xd = env_xd ? env_xd : "engine/npu/xclbins";
-    bool use_bf16_xclbins = true;  // Use recompiled BF16 xclbins
-    // Check if BF16 xclbins exist in q4nx subdirectory
+    bool use_bf16_xclbins = true;  // Use BF16 xclbins for higher precision (#1074)
+    // Check if BF16 xclbins exist (in q4nx_bak/ — Chess-compiled, may hang)
     {
-        std::string test_path = xd+"/q4nx/bf16_QKV_"+cfg.model_tag+".xclbin";
+        std::string test_path = xd+"/q4nx_bak/bf16_QKV_"+cfg.model_tag+".xclbin";
         FILE* tf = fopen(test_path.c_str(), "rb");
         if(!tf) { use_bf16_xclbins = false; }
-        else { fclose(tf); fprintf(stderr,"  Using BF16 Q4NX xclbins\n"); }
+        else { fclose(tf); fprintf(stderr,"  Using BF16 xclbins (q4nx_bak/, higher precision, issue #1074)\n"); }
     }
     auto xp=[&](const char*t){
         if(use_bf16_xclbins)
-            return xd+"/q4nx/bf16_"+std::string(t)+"_"+cfg.model_tag+".xclbin";
+            return xd+"/q4nx_bak/bf16_"+std::string(t)+"_"+cfg.model_tag+".xclbin";
         return xd+"/final_i8_"+std::string(t)+"_"+cfg.model_tag+".xclbin";
     };
     auto ip=[&](const char*t){
         if(use_bf16_xclbins)
-            return xd+"/q4nx/insts_bf16_"+std::string(t)+"_"+cfg.model_tag+".bin";
+            return xd+"/q4nx_bak/insts_bf16_"+std::string(t)+"_"+cfg.model_tag+".bin";
         return xd+"/insts_i8_"+std::string(t)+"_"+cfg.model_tag+".txt";
     };
 
@@ -1095,6 +1261,20 @@ int main(int argc,char**argv){
     co.MD=XM;co.KD=cfg.xclbin_o_k;co.ND=cfg.xclbin_o_n;
     cd.MD=XM;cd.KD=cfg.xclbin_d_k;cd.ND=cfg.xclbin_d_n;
     if(cfg.gu_split){cg.MD=XM;cg.KD=cfg.xclbin_g_k;cg.ND=cfg.xclbin_g_n;}else{cg.MD=XM;cg.KD=cfg.xclbin_gu_k;cg.ND=cfg.xclbin_gu_n;}
+    // FLM xclbin path: use FLM's universal mm.xclbin with runtime instruction
+    // generation (#1054, #1074). Controlled by NPU_FLM_XCLBIN env var.
+    bool use_flm_xclbin = false;
+    const char* flm_xp_env = getenv("NPU_FLM_XCLBIN");
+    if (flm_xp_env) {
+        std::string flm_xp(flm_xp_env);
+        // Try with model name appended
+        std::string flm_dir = flm_xp + "/" + cfg.model_tag;
+        // Convert model_tag like "qwen3_0_6b" to "Qwen3-0.6B-NPU2"
+        // FLM uses hyphenated model dir names
+        use_flm_xclbin = true;
+        fprintf(stderr,"  Trying FLM xclbin from %s\n", flm_xp_env);
+    }
+
     if(!cq.init(dev,xp("QKV").c_str(),ip("QKV").c_str(),4,NC,use_bf16_xclbins)){fprintf(stderr,"FAIL QKV\n");return 1;}
     if(!co.init(dev,xp("O").c_str(),ip("O").c_str(),4,NC,use_bf16_xclbins)){fprintf(stderr,"FAIL O\n");return 1;}
     if(cfg.gu_split){if(!cg.init(dev,xp("G").c_str(),ip("G").c_str(),4,NC,use_bf16_xclbins)){fprintf(stderr,"FAIL G\n");return 1;}}else{if(!cg.init(dev,xp("GU").c_str(),ip("GU").c_str(),4,NC,use_bf16_xclbins)){fprintf(stderr,"FAIL GU\n");return 1;}}
