@@ -51,6 +51,7 @@ __pycache__/
 *.q4nx
 /rust/target
 *.safetensors
+*.f32bin
 *.so
 *.swo
 *.swp
