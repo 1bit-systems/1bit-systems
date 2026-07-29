@@ -1086,23 +1086,25 @@ int main(int argc,char**argv){
 
     // Pre-pack all layer weights into per-layer NPU-resident BOs.
     // pack_layer_weights writes to layerB[cur_layer] via set_layer();
-    // once loaded, weights stay resident — no per-token memcpy or DMA needed.
-    if (use_bf16_xclbins) {
-        fprintf(stderr,"Pre-packing weights into NPU-resident BOs...\n");
-        auto tp=std::chrono::steady_clock::now();
-        for (int l = 0; l < NC; l++) {
-            cq.set_layer(l); co.set_layer(l); cg.set_layer(l); cd.set_layer(l);
-            if (cu_ptr) cu_ptr->set_layer(l);
-            pack_layer_weights(l);
-        }
-        fprintf(stderr,"  Prep: %.0fms\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-tp).count());
-        // Replace pack_layer_weights with per-layer BO selection only.
-        // Weights are already resident in layerB[l] — no memcpy, no DMA sync.
-        pack_layer_weights = [&](int l) {
-            cq.set_layer(l); co.set_layer(l); cg.set_layer(l); cd.set_layer(l);
-            if (cu_ptr) cu_ptr->set_layer(l);
-        };
+    // once loaded, weights stay resident — no per-token memcpy, dequant, or
+    // requant needed on the decode path. This applies to BOTH BF16 and INT8
+    // xclbins — INT8 weights get their per-layer scale computed once here.
+    // Previously gated on use_bf16_xclbins, which left the INT8 path doing
+    // a dequant->requant->copy cycle per token per layer (~1s/layer = 21s/tok).
+    fprintf(stderr,"Pre-packing weights into NPU-resident BOs...\n");
+    auto tp=std::chrono::steady_clock::now();
+    for (int l = 0; l < NC; l++) {
+        cq.set_layer(l); co.set_layer(l); cg.set_layer(l); cd.set_layer(l);
+        if (cu_ptr) cu_ptr->set_layer(l);
+        pack_layer_weights(l);
     }
+    fprintf(stderr,"  Prep: %.0fms\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-tp).count());
+    // Replace pack_layer_weights with per-layer BO selection only.
+    // Weights are already resident in layerB[l] — no memcpy, no DMA sync.
+    pack_layer_weights = [&](int l) {
+        cq.set_layer(l); co.set_layer(l); cg.set_layer(l); cd.set_layer(l);
+        if (cu_ptr) cu_ptr->set_layer(l);
+    };
     // RoPE
     ri(HD,cfg.rope_theta,4096);
     int kv_dwords=NKV*HD/2;
