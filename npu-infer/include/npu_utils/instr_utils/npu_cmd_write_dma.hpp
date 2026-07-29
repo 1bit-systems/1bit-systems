@@ -94,11 +94,7 @@ struct npu_dma_block_cmd : public npu_cmd{
     cache_flag_t cache_flag;
 
     void dump_cmd(uint32_t *bd){
-        // Validation retained for release builds.
-        if (*bd != XAIE_IO_BLOCKWRITE) {
-            header_print_r("ERROR", "dump_cmd: expected XAIE_IO_BLOCKWRITE, got " + std::to_string(*bd));
-            return;
-        }
+        assert(*bd == XAIE_IO_BLOCKWRITE);
         LOG_VERBOSE(1, "bd_addr: " << bd);
         this->col = ((bd[2] >> bd_col_shift) & bd_col_mask);
         this->row = ((bd[2] >> bd_row_shift) & bd_row_mask);

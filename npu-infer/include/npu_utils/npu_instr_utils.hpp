@@ -14,8 +14,8 @@
 #include <cstdint>
 #include <cstdlib>
 #include <stdio.h>
-#include "../buffer.hpp"
-#include "debug_utils.hpp"
+#include "buffer.hpp"
+#include "utils/debug_utils.hpp"
 #include "xrt/xrt_bo.h"
 #include "instr_utils/npu_cmd.hpp"
 #include "instr_utils/npu_cmd_write.hpp"
@@ -67,12 +67,7 @@ typedef enum: uint32_t{
 ///@return the tile
 ///@note This is a helper function to get the tile from the row and column
 inline npu_tiles get_tile(uint32_t row, uint32_t col){
-    // Validation retained for release builds; clamp to valid range.
-    if (col >= 8 || row >= 6) {
-        fprintf(stderr, "WARNING: get_tile: invalid tile (%u,%u), clamping\n", row, col);
-        if (col >= 8) col = 7;
-        if (row >= 6) row = 5;
-    }
+    assert(col < 8 && row < 6);
     return static_cast<npu_tiles>((row << 4) | col);
 }
 
@@ -189,11 +184,7 @@ class npu_sequence{
         /// @brief  write out the npu sequence to a file
         /// @param filename 
         void write_out_sequence(std::string filename){
-            // Validation retained for release builds.
-            if (!this->is_valid) {
-                fprintf(stderr, "ERROR: write_out_sequence: sequence not valid\n");
-                return;
-            }
+            assert(this->is_valid);
             std::ofstream file(filename, std::ios::binary);
             if (!file.is_open()){
                 throw std::runtime_error("Failed to open file: " + filename);

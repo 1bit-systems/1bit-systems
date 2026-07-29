@@ -4,3 +4,6 @@
 [submodule "third_party/audio.cpp"]
 	path = third_party/audio.cpp
 	url = https://github.com/0xShug0/audio.cpp
+[submodule "third_party/FastFlowLM"]
+	path = third_party/FastFlowLM
+	url = https://github.com/ROCm/FastFlowLM.git

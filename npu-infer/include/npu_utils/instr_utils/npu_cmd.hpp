@@ -7,7 +7,6 @@
 #define __NPU_CMD_HPP__
 
 #include <stdlib.h>
-#include <climits>
 #include <iostream>
 #include <string>
 #include <fstream>
