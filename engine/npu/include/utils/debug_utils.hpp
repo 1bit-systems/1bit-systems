@@ -1,1 +1,1 @@
-/home/bcloud/1bit-systems/npu-infer/include/npu_utils/debug_utils.hpp
+../../../../npu-infer/include/npu_utils/debug_utils.hpp
