@@ -276,6 +276,30 @@ Text embedding model based on Gemma architecture.
 
 ---
 
+## 1BP Model Catalog
+
+Our HuggingFace organization ([bong-water-water-bong](https://huggingface.co/bong-water-water-bong)) hosts **37 1BP format models** across all supported families. Each is a self-contained single-file model (magic `1BP\0`, Q4NX 4-bit quant, or TQ2 ternary 2-bit for Bonsai).
+
+| Family | 1BP Models | Typical Size | Verified |
+|--------|-----------|:------------:|:--------:|
+| Zyphra Zaya1 | ZAYA1-8B, ZAYA1-74B-preview | 469 MB / 4.2 GB | ✅ loads |
+| Zyphra ZR1 | ZR1-1.5B | 373 MB | hosted |
+| Zyphra Zamba2 | Zamba2-1.2B/2.7B/7B v2 | 375 MB – 1.8 GB | hosted |
+| BlackMamba | BlackMamba-1.5B, BlackMamba-2.8B | 1.0 / 1.9 GB | ✅ loads |
+| Qwen3 | Qwen3-0.6B, Qwen3-4B | 373 MB / 2.1 GB | ✅ loads |
+| Qwen2.5 | Qwen2.5-7B-Instruct, Qwen2.5-Coder-7B | 3.6 GB | hosted |
+| Llama | Llama-3.1-8B, Llama-3.2-1B/3B | 530 MB – 4.1 GB | hosted |
+| DeepSeek | DeepSeek-R1-Distill-Qwen-7B, -Llama-8B | 3.6 / 4.1 GB | hosted |
+| Gemma | Gemma3-1B/4B-IT, Gemma4-E2B | 530 MB – 2.1 GB | hosted |
+| Mistral | Mistral-7B-v0.3, Ministral-8B | 3.6 / 4.1 GB | hosted |
+| Phi | Phi-4-mini, Phi-3.5-mini | 530 MB | hosted |
+| Falcon | Falcon3-1B, Falcon3-10B | 530 MB / 5.0 GB | hosted |
+| OLMo | OLMo-2-1124-13B | 6.6 GB | hosted |
+| Granite | Granite3.2-2B, Granite-3.2-8B | 1.0 / 4.1 GB | hosted |
+| Bonsai (TQ2) | Bonsai-1.7B-TQ2, Bonsai-4B-TQ2 | 970 MB / 2.1 GB | hosted |
+
+> 1BP loading validated via OnebpModel API. NPU inference (onebp_infer.cpp) is WIP.
+
 ## Live Benchmarks (2026-07-29)
 
 Models marked 🏃 live were downloaded fresh from HuggingFace, benchmarked with `llama-bench` (llama.cpp build e3546c7), and deleted — one model at a time, no disk waste. Tests ran on Strix Halo (Ryzen AI Max+ 395, Radeon 8060S, 256 GB/s).
