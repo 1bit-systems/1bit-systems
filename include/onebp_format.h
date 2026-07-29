@@ -114,6 +114,11 @@ enum OnebpArch : uint32_t {
     // ═══ Audio / TTS / ASR architectures ═══
     ONEBP_WHISPER   = 40, // OpenAI Whisper (STT)
     ONEBP_AUDIO_CPP = 41, // Generic audio.cpp model
+
+    // ═══ Moonshot Kimi Family ═══
+    ONEBP_KIMI_K3   = 50, // Kimi K3 — 2.8T MoE, KDA + Gated MLA + LatentMoE + MXFP4
+    ONEBP_MOONLIGHT = 51, // Moonlight-16B-A3B — Gated MLA MoE, base for Kimi-VL
+    ONEBP_KIMI_VL   = 52, // Kimi-VL-A3B-Thinking — Moonlight + MoonViT vision encoder
 };
 
 // ─── Expert gating function types (Laguna/afmoe) ────────────────
@@ -156,14 +161,14 @@ struct OnebpHeader {
     uint32_t eos_token_id;
     uint32_t tensor_count;
 
-    // ── Laguna-specific fields (reserved[0..51]) ────────────────
-    uint32_t num_experts;           // total routed experts (Laguna S 2.1: 256)
-    uint32_t n_expert_used;         // experts used per token (top-k, S 2.1: 10)
+    // ── Kimi/Moonshot/Laguna fields (reserved[0..51]) ─────────
+    uint32_t num_experts;           // total routed experts
+    uint32_t n_expert_used;         // experts used per token (top-k)
     uint32_t n_ff_exp;              // expert FFN intermediate size
     uint32_t n_ff_shexp;            // shared expert FFN intermediate size
-    uint32_t n_layer_dense_lead;    // leading dense layers before MoE begins (M.1: 3)
-    uint32_t sliding_window;        // SWA window size (0 = no SWA, M.1: 0, S 2.1: 512)
-    uint32_t swa_period;            // SWA pattern period (1:3 -> 4, FULL at il%period==0)
+    uint32_t n_layer_dense_lead;    // leading dense layers before MoE begins
+    uint32_t sliding_window;        // SWA window size (0 = no SWA)
+    uint32_t swa_period;            // SWA pattern period
     uint32_t expert_gating_func;    // OnebpExpertGating
     uint32_t expert_weights_norm;   // bool: sum-normalize expert weights after top-k
     uint32_t expert_weights_scale_f; // routed scaling factor * 1000 (fixed-point)

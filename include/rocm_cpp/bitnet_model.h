@@ -49,6 +49,9 @@ typedef enum {
     RCPP_ARCH_WHISPER  = 15,  // OpenAI Whisper (speech-to-text)
     RCPP_ARCH_DEEPSEEK = 16,  // DeepSeek V2/V3/R1 — MoE with Multi-Head Latent Attention
     RCPP_ARCH_QWEN3VL  = 17,  // Qwen3-VL (vision-language, Qwen3 text decoder)
+    RCPP_ARCH_KIMI_K3  = 18,  // Moonshot Kimi K3 — 2.8T MoE with KDA + Gated MLA + LatentMoE
+    RCPP_ARCH_MOONLIGHT = 19, // Moonshot Moonlight-16B-A3B — Gated MLA MoE
+    RCPP_ARCH_KIMI_VL  = 20,  // Moonshot Kimi-VL — Moonlight + MoonViT vision encoder
 } rcpp_arch_t;
 
 #include <string.h>
@@ -104,6 +107,12 @@ static inline rcpp_arch_t rcpp_arch_from_string(const char* s) {
     if (strcmp(s, "deepseek_v3") == 0) return RCPP_ARCH_DEEPSEEK;
     if (strcmp(s, "smollm")    == 0) return RCPP_ARCH_LLAMA;
     if (strcmp(s, "smollm2")   == 0) return RCPP_ARCH_LLAMA;
+    // ── Moonshot Kimi family ──
+    if (strcmp(s, "kimi_k3")   == 0) return RCPP_ARCH_KIMI_K3;
+    if (strcmp(s, "kimi")      == 0) return RCPP_ARCH_KIMI_K3;
+    if (strcmp(s, "moonlight") == 0) return RCPP_ARCH_MOONLIGHT;
+    if (strcmp(s, "kimi_vl")   == 0) return RCPP_ARCH_KIMI_VL;
+    if (strcmp(s, "kimi_vl_a3b") == 0) return RCPP_ARCH_KIMI_VL;
     return RCPP_ARCH_BITNET;
 }
 

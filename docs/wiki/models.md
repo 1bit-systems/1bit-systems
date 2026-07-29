@@ -2,7 +2,7 @@
 
 # Supported Models & Performance
 
-The 1bit-systems engine auto-detects 18 model architectures from GGUF/1BP headers — no config files needed. We reverse-engineered AMD's NPU stack, extracted 37 FLM models with 209 pre-compiled XDNA 2 xclbins, and created our own 1BP ternary format to make AMD's open-source models run at maximum throughput on NPU + GPU.
+The 1bit-systems engine auto-detects 19 model architectures from GGUF/1BP headers — no config files needed. We reverse-engineered AMD's NPU stack, extracted 37 FLM models with 209 pre-compiled XDNA 2 xclbins, and created our own 1BP ternary format to make AMD's open-source models run at maximum throughput on NPU + GPU.
 
 ## Backend Availability Legend
 
@@ -30,6 +30,7 @@ The 1bit-systems engine auto-detects 18 model architectures from GGUF/1BP header
 | 16 | BlackMamba | SSM (Mamba1+MoE) | 1.5B–2.8B | 🔴 | 🟢 | 🔴 | 🔴 | ✅ validated |
 | 17 | Zamba2 | SSM-Hybrid (Mamba2) | 1.2B–7B | 🔴 | 🟡 | 🟢 | 🔴 | ✅ validated |
 | 18 | Zamba | SSM-Hybrid (Mamba1) | 7B | 🔴 | 🟢 | 🟡 | 🟡 | ⚙️ optimized |
+| 19 | Moonshot Kimi (Moonlight, Kimi-VL) | Gated MLA MoE | 16B (3B active) | 🔴 | 🔴 | 🔴 | 🔴 | 🚧 in progress |
 
 **Specialized architectures (covered in detail below):** BitNet/Bonsai (ternary-native), Qwen2-VL/Qwen3-VL (vision-language), Whisper (speech-to-text), Embedding-Gemma-300M (text embedding).
 
