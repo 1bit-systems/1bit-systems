@@ -322,50 +322,6 @@ All kernel-level benchmarks below were measured live on this Strix Halo hardware
 
 ---
 
-## Performance Data
-
-### Kernel-Level Microbenchmarks (synthetic, 28-layer buffer)
-
-> ⚠️ These measure single-GEMM-kernel throughput, isolated and correctness-verified bit-exact against a CPU reference. They exclude KV-cache attention, softmax, RoPE, non-GEMM FFN ops, sampler, tokenizer, and host↔device transfers — **not** an end-to-end decode number. See [performance methodology →](performance.md).
-
-| Benchmark | tok/s | Backend | Validated | Measured |
-|-----------|:-----:|---------|:---------:|:--------:|
-| Q1 GEMV (fused, 128B blocks) | 431 | ROCm HIP | 2026-07-29 | ✅ live |
-| Fused TQ2 (QKV+GU, 1.19×) | 345 | ROCm HIP | 2026-07-29 | ✅ live |
-| TQ2 GEMV (standard) | 543 | ROCm HIP | 2026-07-29 | ✅ live |
-| TQ2 GEMV (BW-optimized) | 508 | ROCm HIP | 2026-07-29 | ✅ live |
-| Tile8 GEMV (Zaya1-8B shaped) | 57 | ROCm HIP | 2026-07-29 | ✅ live |
-| TWLA W1.58A4 (int4 activations) | 3009 | ROCm HIP | 2026-07-29 | ✅ live |
-| GPU ternary (Vulkan) | 318 | Vulkan ZINC | validated | 📋 prior |
-| ROCm HIP (kernels) | 64 | ROCm HIP | validated | 📋 prior |
-| NPU INT8 GEMM | 0/10000 err (22/22 shapes) | XDNA 2 Peano | 2026-07-28 | 📋 prior |
-| Prefill INT8 WMMA (I8-APRE) | 40.66 TFLOPS | ROCm HIP | 2026-07-29 | ✅ live |
-| KV cache FD L=2048 | 57.3 GB/s (12.80×) | ROCm HIP | 2026-07-29 | ✅ live |
-| KV cache INT8 L=2048 | 33.4 GB/s (14.64×) | ROCm HIP | 2026-07-29 | ✅ live |
-| Mamba2 decode block (Zamba2-2.7B) | 1293 | ROCm HIP | 2026-07-29 | ✅ live |
-| Mamba2 Conv1D (decode) | 38326 | ROCm HIP | 2026-07-29 | ✅ live |
-| Mamba2 Selective Scan (fused) | 39448 | ROCm HIP | 2026-07-29 | ✅ live |
-| Sherry GEMV (M=6912 K=2560) | 155 GB/s | ROCm HIP | 2026-07-29 | ✅ live |
-
-### End-to-End (real models, real prompts, Strix Halo)
-
-| Model | tok/s | Backend | Status | Measured |
-|-------|:-----:|---------|--------|:--------:|
-| BlackMamba 1.5B | 79.4 | ROCm HIP | ✅ validated | 📋 prior |
-| BlackMamba 2.8B | 46.0 | ROCm HIP | ✅ validated | 📋 prior |
-| ZR1-1.5B (Zyphra) | ~26 | Vulkan ZINC | ✅ validated | 📋 prior |
-| Zamba2-2.7B (Zyphra) | ~30 | Vulkan ZINC | ✅ validated | 📋 prior |
-| Bonsai-1.7B Q1_0 (Deepgrove) | 21.9 | ROCm HIP | ✅ validated | 📋 prior |
-| Qwen 27B Q4_K | 30 | zaya_server (ROCm HIP) | ⚙️ optimized | 📋 prior |
-| Qwen 35B MoE Q4_K | 20 | zaya_server (ROCm HIP) | ⚙️ optimized | 📋 prior |
-| Zaya1-8B (Zyphra, 1BP) | ~64 | ROCm HIP | ✅ validated | 📋 prior |
-| Zaya1-74B-A4B (Zyphra, 1BP) | 17.9 | ROCm HIP | 🔬 preliminary | 📋 prior |
-| Qwen3-0.6B | 259 | Vulkan ZINC | ✅ validated | 📋 prior |
-| Bonsai-1.7B ZINC | 21.7 | Vulkan ZINC | ✅ validated | 📋 prior |
-| CPU Zaya1-8B (generic) | 2.5 | CPU AVX-512 | ✅ validated | 📋 prior |
-
----
-
 ## NPU FLM Model Catalog
 
 37 pre-compiled NPU models extracted from ROCm/FastFlowLM v0.9.46 (209 xclbins total). Source: `engine/npu/tools/flm_model_map.json`.
