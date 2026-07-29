@@ -21,7 +21,7 @@
 
 **1bit** is an open-source, model-agnostic C++23 inference engine for running large language models on **AMD Strix Halo** (XDNA 2 NPU, RDNA 3.5 GPU), NVIDIA GPUs (CUDA), Apple Silicon (Metal), and any Vulkan 1.2+ device — all from a **single binary with zero Python at runtime**. It reads **GGUF**, **ONNX**, and the native **1BP** ternary format (TQ2 2-bit quantization) with automatic architecture detection — no config files, no model registry, no per-model glue code.
 
-We reverse-engineered AMD's closed-source NPU stack (FastFlowLM) in 4 days — turning 22 proprietary `.so` files into a 207 KB open-source binary. We then extracted 37 pre-built FLM models with 209 NPU xclbins, and created our own 1BP format to transform AMD's open-source models into high-performance ternary binaries. Fully open-source under **MIT license**. 19 model architectures supported, 20+ 1BP models, including early support for **Moonshot AI's Kimi family** (Gated MLA MoE) — see [reverse-engineering notes](docs/research/kimi-k3-reverse-engineering.md).
+We reverse-engineered AMD's closed-source NPU stack (FastFlowLM) in 4 days — turning 22 proprietary `.so` files into a 207 KB open-source binary. We then extracted 37 pre-built FLM models with 209 NPU xclbins, and created our own 1BP format to transform AMD's open-source models into high-performance ternary binaries. Fully open-source under **MIT license**. 19 model architectures supported, 35+ 1BP models, including early support for **Moonshot AI's Kimi family** (Gated MLA MoE) — see [reverse-engineering notes](docs/research/kimi-k3-reverse-engineering.md).
 
 **Platform support:**
 - **AMD Strix Halo** — XDNA 2 NPU + ROCm HIP GPU (79 tok/s BlackMamba 1.5B)
@@ -31,7 +31,7 @@ We reverse-engineered AMD's closed-source NPU stack (FastFlowLM) in 4 days — t
 - **x86 CPU** — OpenMP fallback
 
 **Key numbers:**
-- 19 model architectures · 20+ 1BP models · 4 backends
+- 19 model architectures · 35+ 1BP models · 4 backends
 - 543 tok/s peak kernel (TQ2 GEMV, ROCm HIP)
 - 79.4 tok/s end-to-end (BlackMamba 1.5B, Strix Halo)
 - 37 FLM models extracted (209 NPU xclbins)
