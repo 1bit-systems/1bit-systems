@@ -38,16 +38,32 @@
 #include <sys/wait.h>
 
 #include "jarvis/audio_out.h"
+#include "jarvis/audio_stream.h"
 #include "jarvis/beacon.h"
+#include "jarvis/codec_tts.h"
+#include "jarvis/context.h"
+#include "jarvis/persona.h"
 #include "jarvis/planner.h"
 #include "jarvis/rag.h"
 #include "jarvis/routing.h"
 #include "jarvis/tools.h"
 #include "jarvis/tts.h"
+#include "jarvis/vad.h"
+#include "jarvis/auth.h"
+#include "jarvis/usage.h"
+#include "jarvis/billing.h"
 #include "whisper.h"
 
 using json = nlohmann::json;
 using namespace jarvis;
+
+// ── WebSocket audio stream server (runs on separate port) ────────────
+//
+// httplib v0.18.1 does not include built-in WebSocket support, so we
+// run a lightweight WebSocket server on a separate background thread.
+// The main HTTP server exposes /v1/audio/stream as an HTTP streaming
+// alternative and /v1/audio/stream/info for WebSocket connection info.
+static std::unique_ptr<WebSocketServer> g_ws_server;
 
 // ── UI (exact port of jarvis/ui.py's CHAT_HTML) ──────────────────────────
 static const char* CHAT_HTML = R"HTML(<!DOCTYPE html>
@@ -143,6 +159,42 @@ chat.scrollTop=chat.scrollHeight}catch(e){}}}}
 // ── Global state ──────────────────────────────────────────────────────
 static KnowledgeBase g_kb;
 static int g_port = 8080;
+static jarvis::CodecTts g_codec_tts;
+
+// ── Co-Host Intelligence (Phase 2.2) ─────────────────────────────────
+static jarvis::PersonaManager g_persona_mgr;
+static jarvis::ContextMemory g_context_mem(50);
+
+// ── Commercial API / SaaS Layer (Phase 2.3) ─────────────────────────
+static jarvis::AuthManager g_auth_mgr;
+static jarvis::UsageTracker g_usage_tracker;
+static jarvis::BillingManager g_billing_mgr;
+
+// Thread-local current owner, set by auth pre-routing handler
+static thread_local std::string tls_current_owner;
+static const std::string& current_owner() { return tls_current_owner; }
+
+// PlanTier string conversion helpers
+static const char* plan_tier_to_string(jarvis::PlanTier tier) {
+    using jarvis::PlanTier;
+    switch (tier) {
+        case PlanTier::FREE:       return "free";
+        case PlanTier::BASIC:      return "basic";
+        case PlanTier::PRO:        return "pro";
+        case PlanTier::ENTERPRISE: return "enterprise";
+        case PlanTier::CUSTOM:     return "custom";
+    }
+    return "free";
+}
+
+static jarvis::PlanTier string_to_plan_tier(const std::string& s) {
+    using jarvis::PlanTier;
+    if (s == "basic")      return PlanTier::BASIC;
+    if (s == "pro")        return PlanTier::PRO;
+    if (s == "enterprise") return PlanTier::ENTERPRISE;
+    if (s == "custom")     return PlanTier::CUSTOM;
+    return PlanTier::FREE;
+}
 
 // ── Whisper STT (lazy singleton, matches the original's threading.Lock-
 // guarded lazy load in the deleted jarvis/stt.py) ─────────────────────
@@ -346,12 +398,35 @@ static json handle_chat(const json& body) {
             break;
         }
     }
-    if (last_user_idx >= 0) g_kb.save_turn(session_id, "user", last_user_msg);
+    if (last_user_idx >= 0) {
+        g_kb.save_turn(session_id, "user", last_user_msg);
+        g_context_mem.add_turn("user", last_user_msg);
+    }
+
+    // Build persona system prompt and prepend before anything else.
+    {
+        std::string persona_prompt = g_persona_mgr.build_system_prompt();
+        if (!persona_prompt.empty()) {
+            json sys = {{"role", "system"}, {"content", persona_prompt}};
+            full_messages.insert(full_messages.begin(), sys);
+            if (last_user_idx >= 0) last_user_idx++;
+        }
+    }
+
+    // Layer context memory: inject recent conversation history as a system message.
+    {
+        std::string ctx = g_context_mem.build_context(5);
+        if (!ctx.empty()) {
+            json sys = {{"role", "system"}, {"content", ctx}};
+            full_messages.insert(full_messages.begin(), sys);
+            if (last_user_idx >= 0) last_user_idx++;
+        }
+    }
 
     if (use_tools && !any_system_mentions_tool_call(full_messages)) {
         json sys = {{"role", "system"}, {"content", SYSTEM_PROMPT_TOOLS}};
         full_messages.insert(full_messages.begin(), sys);
-        if (last_user_idx >= 0) last_user_idx++; // shifted by the inserted system message
+        if (last_user_idx >= 0) last_user_idx++;
     }
 
     std::string model_id = body.value("model", "");
@@ -398,6 +473,10 @@ static json handle_chat(const json& body) {
             final_text = content;
         }
         g_kb.save_turn(session_id, "assistant", final_text);
+        g_context_mem.add_turn("assistant", final_text);
+        // Track usage (estimate ~4 chars per token)
+        g_usage_tracker.record_usage(current_owner(), 0.0,
+                                      (int64_t)(final_text.size() / 4));
     } else {
         ChatFn fn{[](const std::string& m, const json& msgs, int mt, float t) { return unified_chat(m, msgs, mt, t); }};
         json result = fn.fn(route.target_model, full_messages, max_tokens, temperature);
@@ -414,6 +493,10 @@ static json handle_chat(const json& body) {
             final_text = content;
         }
         g_kb.save_turn(session_id, "assistant", final_text);
+        g_context_mem.add_turn("assistant", final_text);
+        // Track usage (estimate ~4 chars per token)
+        g_usage_tracker.record_usage(current_owner(), 0.0,
+                                      (int64_t)(final_text.size() / 4));
     }
 
     json response = {
@@ -445,17 +528,84 @@ int main(int argc, char** argv) {
     httplib::Server svr;
     svr.set_payload_max_length(16 * 1024 * 1024); // 16 MiB, matches original MAX_BODY_SIZE
 
-    // CORS: scoped to exactly one origin (http://127.0.0.1), not "*" —
-    // deliberate in the original, preserved here.
+    // ── Auth middleware + CORS as pre-routing handler ────────────────
+    // All /v1/chat/*, /v1/audio/*, /v1/voice/*, /v1/api-key/*,
+    // /v1/usage, /v1/billing/* require API key auth.
+    // Free tier: /, /chat, /health, /live, /v1/models, /v1/pricing,
+    // /v1/billing/webhook, /v1/audio/devices — public, no auth.
     static const std::string kAllowedOrigin = "http://127.0.0.1";
     svr.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
+        // CORS preflight
         if (req.method == "OPTIONS") {
             res.set_header("Access-Control-Allow-Origin", kAllowedOrigin);
             res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-            res.set_header("Access-Control-Allow-Headers", "Content-Type");
+            res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization");
             res.status = 204;
             return httplib::Server::HandlerResponse::Handled;
         }
+
+        // Public endpoints: no auth required
+        std::string path = req.path;
+        bool public_path = (path == "/" || path == "/chat" ||
+            path == "/health" || path == "/live" ||
+            path == "/v1/models" ||
+            path == "/v1/pricing" ||
+            path == "/v1/billing/webhook" ||
+            path.rfind("/v1/audio/devices", 0) == 0);
+        if (public_path) {
+            return httplib::Server::HandlerResponse::Unhandled;
+        }
+
+        // Auth-protected paths:
+        bool protected_path = (path.rfind("/v1/chat", 0) == 0 ||
+            path.rfind("/v1/audio/", 0) == 0 ||
+            path.rfind("/v1/voice/", 0) == 0 ||
+            path.rfind("/v1/api-key", 0) == 0 ||
+            path == "/v1/usage" ||
+            path.rfind("/v1/billing/", 0) == 0);
+
+        if (protected_path) {
+            auto auth_it = req.headers.find("Authorization");
+            if (auth_it == req.headers.end()) {
+                res.status = 401;
+                res.set_content(json{{"error", "missing Authorization header"}}.dump(), "application/json");
+                res.set_header("Access-Control-Allow-Origin", kAllowedOrigin);
+                return httplib::Server::HandlerResponse::Handled;
+            }
+
+            const jarvis::ApiKey* key = g_auth_mgr.validate(auth_it->second);
+            if (!key) {
+                res.status = 401;
+                res.set_content(json{{"error", "invalid or expired API key"}}.dump(), "application/json");
+                res.set_header("Access-Control-Allow-Origin", kAllowedOrigin);
+                return httplib::Server::HandlerResponse::Handled;
+            }
+
+            // Rate limit check
+            if (!g_auth_mgr.check_rate_limit(key->owner_id)) {
+                res.status = 429;
+                res.set_content(json{{"error", "rate limit exceeded"}}.dump(), "application/json");
+                res.set_header("Access-Control-Allow-Origin", kAllowedOrigin);
+                return httplib::Server::HandlerResponse::Handled;
+            }
+
+            // Usage limit check — return 402 Payment Required when over limit
+            std::string limit_err = g_usage_tracker.check_limits(key->owner_id, key->tier);
+            if (!limit_err.empty()) {
+                res.status = 402;
+                json err_body = {
+                    {"error", limit_err},
+                    {"upgrade", "Please upgrade your plan at https://zaya.ai/billing"}
+                };
+                res.set_content(err_body.dump(), "application/json");
+                res.set_header("Access-Control-Allow-Origin", kAllowedOrigin);
+                return httplib::Server::HandlerResponse::Handled;
+            }
+
+            // Store authenticated owner for downstream handlers
+            tls_current_owner = key->owner_id;
+        }
+
         return httplib::Server::HandlerResponse::Unhandled;
     });
     auto add_cors = [](httplib::Response& res) { res.set_header("Access-Control-Allow-Origin", kAllowedOrigin); };
@@ -466,6 +616,12 @@ int main(int argc, char** argv) {
     };
     svr.Get("/", serve_ui);
     svr.Get("/chat", serve_ui);
+
+    // ── Dashboard static file server ────────────────────────────────
+    svr.set_mount_point("/dashboard", "./site/dashboard");
+    svr.Get("/dashboard", [&](const httplib::Request&, httplib::Response& res) {
+        res.set_redirect("/dashboard/");
+    });
 
     svr.Get("/health", [&](const httplib::Request&, httplib::Response& res) {
         res.set_content(json{{"status", "ok"}}.dump(), "application/json");
@@ -573,6 +729,51 @@ int main(int argc, char** argv) {
         add_cors(res);
     });
 
+    // ── Persona endpoints (Phase 2.2) ────────────────────────────────
+    svr.Get("/v1/persona", [&](const httplib::Request&, httplib::Response& res) {
+        const auto& cfg = g_persona_mgr.active();
+        json j;
+        j["name"] = cfg.name;
+        j["voice_pack"] = cfg.voice_pack;
+        j["speaking_style"] = cfg.speaking_style;
+        j["speaking_rate"] = cfg.speaking_rate;
+        j["voice_pitch"] = cfg.voice_pitch;
+        j["enthusiasm"] = cfg.enthusiasm;
+        j["formality"] = cfg.formality;
+        j["knowledge_domain"] = cfg.knowledge_domain;
+        j["catchphrases"] = json::array();
+        for (auto& cp : cfg.catchphrases) j["catchphrases"].push_back(cp);
+        res.set_content(j.dump(2), "application/json");
+        add_cors(res);
+    });
+
+    svr.Get("/v1/personas", [&](const httplib::Request&, httplib::Response& res) {
+        json arr = json::array();
+        for (auto& name : g_persona_mgr.list_personas()) arr.push_back(name);
+        res.set_content(json{{"personas", arr}}.dump(), "application/json");
+        add_cors(res);
+    });
+
+    svr.Post("/v1/persona", [&](const httplib::Request& req, httplib::Response& res) {
+        json body;
+        try { body = json::parse(req.body); } catch (...) { body = json::object(); }
+        std::string name = body.value("name", "");
+        if (name.empty()) {
+            res.status = 400;
+            res.set_content(json{{"error", "persona name required"}}.dump(), "application/json");
+            add_cors(res);
+            return;
+        }
+        if (!g_persona_mgr.set_active(name)) {
+            res.status = 404;
+            res.set_content(json{{"error", "persona not found: " + name}}.dump(), "application/json");
+            add_cors(res);
+            return;
+        }
+        res.set_content(json{{"status", "ok"}, {"persona", name}}.dump(), "application/json");
+        add_cors(res);
+    });
+
     svr.Post("/v1/agent/plan", [&](const httplib::Request& req, httplib::Response& res) {
         json body;
         try { body = json::parse(req.body); } catch (...) { body = json::object(); }
@@ -642,20 +843,347 @@ int main(int argc, char** argv) {
         std::filesystem::remove(in_path, ec);
 
         std::string text;
+        double audio_minutes = 0.0;
         if (rc == 0 && std::filesystem::exists(out_path)) {
             int sr = 16000;
             auto pcm = whisper_load_wav(out_path, &sr);
             std::filesystem::remove(out_path, ec);
-            if (!pcm.empty()) text = whisper_transcribe(*model, pcm.data(), (int)pcm.size());
+            if (!pcm.empty()) {
+                text = whisper_transcribe(*model, pcm.data(), (int)pcm.size());
+                audio_minutes = pcm.size() / (16000.0 * 60.0);
+            }
         } else {
             std::filesystem::remove(out_path, ec);
         }
         if (text.empty()) text = "[silence]";
 
+        // Track usage: estimate audio duration from PCM size
+        g_usage_tracker.record_usage(current_owner(), audio_minutes, 0);
+
         res.set_content(json{{"text", text}}.dump(), "application/json");
         add_cors(res);
     });
 
+    // ── /v1/audio/chat : voice-in/voice-out (VAD + Whisper + LLM + TTS) ──
+    // Accepts an audio file, detects speech segments via VAD, transcribes
+    // via Whisper, runs through LLM with persona + context, and returns
+    // synthesized audio + transcript.
+    svr.Post("/v1/audio/chat", [&](const httplib::Request& req, httplib::Response& res) {
+        // ── Extract audio ─────────────────────────────────────────
+        std::string audio_bytes;
+        if (req.has_file("file")) audio_bytes = req.get_file_value("file").content;
+        else if (req.has_file("audio")) audio_bytes = req.get_file_value("audio").content;
+
+        if (audio_bytes.empty()) {
+            json body;
+            try { body = json::parse(req.body); } catch (...) {}
+            if (body.contains("audio")) {
+                // Base64 or raw PCM — treat as base64 for now
+                std::string b64 = body["audio"].get<std::string>();
+                (void)b64; // placeholder for base64 decode
+            }
+        }
+
+        if (audio_bytes.empty()) {
+            res.status = 400;
+            res.set_content(json{{"error", "no audio data"}}.dump(), "application/json");
+            add_cors(res);
+            return;
+        }
+
+        std::string session_id = req.get_param_value("session_id");
+        if (session_id.empty()) session_id = "default";
+
+        // ── Normalize audio to 16kHz mono S16 WAV via ffmpeg ────────
+        std::string tag = std::to_string((long)getpid()) + "_" + std::to_string((long)time(nullptr));
+        std::string in_path = "/tmp/jarvis_chat_audio_in_" + tag + ".bin";
+        std::string out_path = "/tmp/jarvis_chat_audio_out_" + tag + ".wav";
+        {
+            std::ofstream f(in_path, std::ios::binary | std::ios::trunc);
+            f.write(audio_bytes.data(), (std::streamsize)audio_bytes.size());
+        }
+
+        pid_t child = fork();
+        int rc = -1;
+        if (child == 0) {
+            execlp("ffmpeg", "ffmpeg", "-y", "-loglevel", "error",
+                   "-i", in_path.c_str(),
+                   "-f", "wav", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
+                   out_path.c_str(), nullptr);
+            _exit(127);
+        } else if (child > 0) {
+            int status;
+            waitpid(child, &status, 0);
+            rc = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+        }
+        std::error_code ec;
+        std::filesystem::remove(in_path, ec);
+
+        // ── VAD: detect speech segments before transcription ──────
+        WhisperModel* model = get_whisper_model();
+        std::string transcript;
+        std::vector<float> full_pcm;
+        bool has_speech = false;
+        if (rc == 0 && model && std::filesystem::exists(out_path)) {
+            int sr = 16000;
+            full_pcm = whisper_load_wav(out_path, &sr);
+            std::filesystem::remove(out_path, ec);
+
+            if (!full_pcm.empty()) {
+                // Run VAD on the PCM to detect speech segments
+                VADConfig vad_cfg;
+                vad_cfg.sample_rate = sr;
+                VAD vad(vad_cfg);
+                vad.process(full_pcm.data(), (int)full_pcm.size());
+
+                // If VAD detected speech, use the last utterance for
+                // transcription (better to have VAD-purified audio)
+                std::vector<float> vad_audio;
+                auto last_utt = vad.get_last_utterance();
+                if (!last_utt.empty()) {
+                    has_speech = true;
+                    vad_audio = std::move(last_utt);
+                } else if (vad.is_speaking()) {
+                    // Still speaking — use the speech buffer
+                    has_speech = true;
+                    vad_audio = vad.get_speech_buffer();
+                }
+
+                // Transcribe the VAD-isolated audio (or full audio as fallback)
+                if (has_speech && !vad_audio.empty()) {
+                    transcript = whisper_transcribe(*model, vad_audio.data(), (int)vad_audio.size());
+                } else {
+                    // Fallback: transcribe full audio even without VAD detection
+                    transcript = whisper_transcribe(*model, full_pcm.data(), (int)full_pcm.size());
+                    if (!transcript.empty() && transcript != "[silence]") has_speech = true;
+                }
+            }
+        } else {
+            std::filesystem::remove(out_path, ec);
+        }
+        if (!has_speech || transcript.empty() || transcript == "[silence]") {
+            res.set_content(json{{"text", "[silence]"}, {"audio", ""}}.dump(), "application/json");
+            add_cors(res);
+            return;
+        }
+
+        // ── LLM call with persona + context ────────────────────────
+        g_context_mem.add_turn("user", transcript);
+
+        json msgs = json::array();
+        // Build system prompt from persona
+        std::string sys_prompt = g_persona_mgr.build_system_prompt();
+        if (!sys_prompt.empty()) {
+            msgs.push_back({{"role", "system"}, {"content", sys_prompt}});
+        }
+        // Add conversation context
+        std::string ctx = g_context_mem.build_context(5);
+        if (!ctx.empty()) {
+            msgs.push_back({{"role", "system"}, {"content", ctx}});
+        }
+        msgs.push_back({{"role", "user"}, {"content", transcript}});
+
+        std::string model_id = "qwen3:0.6b"; // fast default for voice
+        Route route = resolve_model(model_id);
+        json llm_result;
+        if (route.backend == RouteBackend::Ollama) {
+            llm_result = ollama_chat(route.target_model, msgs, 128, 0.7f);
+        } else {
+            llm_result = unified_chat(route.target_model, msgs, 128, 0.7f);
+        }
+
+        std::string reply;
+        if (llm_result.contains("choices") && !llm_result["choices"].empty())
+            reply = llm_result["choices"][0]["message"].value("content", "");
+        else if (llm_result.contains("response"))
+            reply = llm_result.value("response", "");
+        else
+            reply = "[error: LLM call failed]";
+
+        g_context_mem.add_turn("assistant", reply);
+
+        // Apply persona catchphrases
+        reply = g_persona_mgr.apply_catchphrases(reply);
+
+        // ── Synthesize speech ──────────────────────────────────────
+        std::string voice = g_persona_mgr.active().voice_pack;
+        if (voice.empty()) voice = "en_US-lessac-medium";
+
+        std::string wav;
+        if (g_codec_tts.has_voice(voice)) {
+            wav = g_codec_tts.synthesize(reply, voice);
+        }
+        if (wav.empty()) {
+            wav = synthesize_speech(reply, voice);
+        }
+
+        std::string audio_b64;
+        if (!wav.empty()) {
+            // Simple hex encoding as placeholder for proper base64
+            // A full base64 implementation would go here
+            audio_b64 = "[wav:" + std::to_string(wav.size()) + " bytes]";
+        }
+
+        // Track usage for this audio chat turn
+        double est_minutes = 1.0; // estimate ~1 min per voice turn
+        int64_t est_tokens = (int64_t)(reply.size() / 3);
+        if (!full_pcm.empty()) {
+            est_minutes = full_pcm.size() / (16000.0 * 60.0);
+        }
+        g_usage_tracker.record_usage(current_owner(), est_minutes, est_tokens);
+
+        res.set_content(json{{"text", reply}, {"audio", audio_b64}}.dump(), "application/json");
+        add_cors(res);
+    });
+
+    // ── /v1/voice/packs : list available voice packs ──────────────────
+    svr.Get("/v1/voice/packs", [&](const httplib::Request&, httplib::Response& res) {
+        json arr = json::array();
+        for (auto& vp : g_codec_tts.list_voice_packs()) {
+            arr.push_back({
+                {"name", vp.name},
+                {"speaker_name", vp.speaker_name},
+                {"language", vp.language},
+                {"sample_rate", vp.sample_rate},
+                {"path", vp.path}
+            });
+        }
+        res.set_content(json{{"voice_packs", arr}}.dump(), "application/json");
+        add_cors(res);
+    });
+
+    // ── /v1/audio/stream : HTTP chunked streaming audio ────────────────
+    //
+    // httplib v0.18.1 lacks built-in WebSocket support, so this endpoint
+    // uses HTTP chunked transfer encoding for real-time audio streaming.
+    // A separate WebSocket server runs on a different port for native
+    // WebSocket clients (see ws_server below).
+    //
+    // Protocol:
+    //   Content-Type: application/octet-stream
+    //   - First frame: JSON metadata string (length-prefixed with a 4-byte LE
+    //     uint32 header)
+    //   - Subsequent frames: raw float32 PCM data (4-byte LE uint32 size header
+    //     + data)
+    //   - Final frame: empty (size=0)
+    //
+    // Client cancels by disconnecting.
+    //
+    svr.Get("/v1/audio/stream", [&](const httplib::Request& req, httplib::Response& res) {
+        std::string voice = req.get_param_value("voice");
+        std::string text = req.get_param_value("text");
+
+        if (voice.empty() || text.empty()) {
+            res.status = 400;
+            res.set_content(json{{"error", "voice and text query params required"}}.dump(), "application/json");
+            add_cors(res);
+            return;
+        }
+
+        // Check if voice pack exists
+        if (!g_codec_tts.has_voice(voice)) {
+            res.status = 404;
+            res.set_content(json{{"error", "voice pack not found: " + voice}}.dump(), "application/json");
+            add_cors(res);
+            return;
+        }
+
+        // Stream audio via chunked content provider
+        res.set_chunked_content_provider("application/octet-stream",
+            [&, voice, text](size_t /*offset*/, httplib::DataSink& sink) -> bool {
+                // ── Synthesize ─────────────────────────────────
+                std::string wav = g_codec_tts.synthesize(text, voice);
+                if (wav.empty()) {
+                    // Try Piper fallback
+                    wav = synthesize_speech(text, voice);
+                }
+                if (wav.empty()) {
+                    sink.done();
+                    return true;
+                }
+
+                // ── Parse WAV header ────────────────────────────
+                if (wav.size() < 44) {
+                    sink.done();
+                    return true;
+                }
+
+                size_t pcm_offset = 0;
+                size_t pcm_size = 0;
+                size_t data_start = 12;
+                while (data_start + 8 <= wav.size()) {
+                    uint32_t chunk_size = *(const uint32_t*)(wav.data() + data_start + 4);
+                    if (wav.substr(data_start, 4) == "data") {
+                        pcm_offset = data_start + 8;
+                        pcm_size = (size_t)chunk_size;
+                        break;
+                    }
+                    data_start += 8 + (size_t)chunk_size;
+                }
+
+                if (pcm_offset == 0 || pcm_offset >= wav.size()) {
+                    sink.done();
+                    return true;
+                }
+
+                size_t num_samples = pcm_size / 2; // S16LE mono
+                const int16_t* s16 = reinterpret_cast<const int16_t*>(wav.data() + pcm_offset);
+
+                // ── Send metadata frame ────────────────────────
+                std::string meta = R"({"sample_rate":24000,"channels":1,"format":"float32"})";
+                uint32_t meta_len = (uint32_t)meta.size();
+                sink.write((const char*)&meta_len, 4);
+                sink.write(meta.data(), meta.size());
+
+                // ── Send audio chunks ────────────────────────────
+                static constexpr int kFrameSamples = 312; // 13ms @ 24kHz
+                size_t sample_offset = 0;
+                while (sample_offset < num_samples) {
+                    size_t chunk = std::min((size_t)kFrameSamples, num_samples - sample_offset);
+
+                    // Convert S16 to float32
+                    std::vector<float> float_buf(chunk);
+                    for (size_t i = 0; i < chunk; i++)
+                        float_buf[i] = s16[sample_offset + i] / 32768.0f;
+
+                    uint32_t data_len = (uint32_t)(chunk * sizeof(float));
+                    sink.write((const char*)&data_len, 4);
+                    sink.write((const char*)float_buf.data(), data_len);
+
+                    sample_offset += chunk;
+
+                    // Pace at real-time
+                    int sleep_ms = (int)(chunk * 1000 / 24000);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+                }
+
+                // ── End frame ───────────────────────────────────
+                uint32_t end_marker = 0;
+                sink.write((const char*)&end_marker, 4);
+                sink.done();
+                return true;
+            }
+        );
+        add_cors(res);
+    });
+
+    // ── /v1/audio/stream/info : WebSocket server info ───────────────────
+    svr.Get("/v1/audio/stream/info", [&](const httplib::Request&, httplib::Response& res) {
+        int ws_port = 0;
+        if (g_ws_server) ws_port = g_ws_server->port();
+        res.set_content(json{{
+            {"websocket_port", ws_port},
+            {"protocol", "ws"},
+            {"path", "/v1/audio/stream"},
+            {"sample_rate", 24000},
+            {"channels", 1},
+            {"format", "float32"},
+            {"http_stream", "/v1/audio/stream?voice=X&text=Y"},
+        }}.dump(), "application/json");
+        add_cors(res);
+    });
+
+    // ── /v1/audio/speech : text-to-speech (codec TTS with Piper fallback) ─
     svr.Post("/v1/audio/speech", [&](const httplib::Request& req, httplib::Response& res) {
         json body;
         try { body = json::parse(req.body); } catch (...) { body = json::object(); }
@@ -670,10 +1198,20 @@ int main(int argc, char** argv) {
             return;
         }
 
-        std::string wav = synthesize_speech(text, voice);
+        // Try codec TTS first (native ONNX inference)
+        std::string wav;
+        if (g_codec_tts.has_voice(voice)) {
+            wav = g_codec_tts.synthesize(text, voice);
+        }
+
+        // Fall back to Piper if codec TTS returned nothing
+        if (wav.empty()) {
+            wav = synthesize_speech(text, voice);
+        }
+
         if (wav.empty()) {
             res.status = 502;
-            res.set_content(json{{"error", "speech synthesis failed (voice model missing or piper failed)"}}.dump(),
+            res.set_content(json{{"error", "speech synthesis failed (no voice pack, no piper)"}}.dump(),
                              "application/json");
             add_cors(res);
             return;
@@ -681,7 +1219,206 @@ int main(int argc, char** argv) {
 
         if (play_local) play_wav_local(wav); // fire-and-forget, never blocks this response
 
+        // Track TTS usage: estimate from WAV duration
+        if (!wav.empty()) {
+            // WAV header at bytes 40-43 contains sample rate (24000 default)
+            int sample_rate = 24000;
+            if (wav.size() >= 44) {
+                uint32_t sr = *(const uint32_t*)(wav.data() + 24);
+                if (sr > 0) sample_rate = (int)sr;
+            }
+            size_t data_size = (wav.size() > 44) ? (wav.size() - 44) : 0;
+            double est_minutes = data_size / (double)(sample_rate * 2) / 60.0; // S16LE = 2 bytes/sample
+            g_usage_tracker.record_usage(current_owner(), est_minutes, 0);
+        }
+
         res.set_content(wav, "audio/wav");
+        add_cors(res);
+    });
+
+    // ── SaaS / Commercial API endpoints (Phase 2.3) ─────────────────
+
+    // POST /v1/api-key/create — create new API key (requires existing key)
+    svr.Post("/v1/api-key/create", [&](const httplib::Request& req, httplib::Response& res) {
+        json body;
+        try { body = json::parse(req.body); } catch (...) { body = json::object(); }
+
+        std::string owner_id = current_owner();
+        if (owner_id.empty()) {
+            res.status = 403;
+            res.set_content(json{{"error", "authentication required"}}.dump(), "application/json");
+            add_cors(res);
+            return;
+        }
+
+        std::string tier_str = body.value("tier", "free");
+        PlanTier tier = string_to_plan_tier(tier_str);
+        int valid_days = body.value("valid_days", 365);
+
+        std::string key = g_auth_mgr.create_key(owner_id, tier, valid_days);
+        g_auth_mgr.save_keys("keys.json");
+
+        res.set_content(json{{"key", key}, {"owner_id", owner_id}, {"tier", tier_str}}.dump(), "application/json");
+        add_cors(res);
+    });
+
+    // POST /v1/api-key/revoke — revoke API key
+    svr.Post("/v1/api-key/revoke", [&](const httplib::Request& req, httplib::Response& res) {
+        json body;
+        try { body = json::parse(req.body); } catch (...) { body = json::object(); }
+
+        std::string key = body.value("key", "");
+        if (key.empty()) {
+            res.status = 400;
+            res.set_content(json{{"error", "key required"}}.dump(), "application/json");
+            add_cors(res);
+            return;
+        }
+
+        if (!g_auth_mgr.revoke_key(key)) {
+            res.status = 404;
+            res.set_content(json{{"error", "key not found"}}.dump(), "application/json");
+            add_cors(res);
+            return;
+        }
+        g_auth_mgr.save_keys("keys.json");
+
+        res.set_content(json{{"status", "revoked"}}.dump(), "application/json");
+        add_cors(res);
+    });
+
+    // GET /v1/api-key/list — list my API keys
+    svr.Get("/v1/api-key/list", [&](const httplib::Request&, httplib::Response& res) {
+        std::string owner_id = current_owner();
+        if (owner_id.empty()) {
+            res.status = 403;
+            res.set_content(json{{"error", "authentication required"}}.dump(), "application/json");
+            add_cors(res);
+            return;
+        }
+
+        auto keys = g_auth_mgr.list_keys(owner_id);
+        json arr = json::array();
+        for (auto& ak : keys) {
+            arr.push_back({
+                {"key", ak.key.substr(0, 12) + "..."},  // masked
+                {"owner_id", ak.owner_id},
+                {"tier", static_cast<int>(ak.tier)},
+                {"active", ak.active},
+                {"created_at", ak.created_at},
+                {"expires_at", ak.expires_at},
+            });
+        }
+        res.set_content(json{{"keys", arr}}.dump(), "application/json");
+        add_cors(res);
+    });
+
+    // GET /v1/usage — get current usage for authenticated owner
+    svr.Get("/v1/usage", [&](const httplib::Request&, httplib::Response& res) {
+        std::string owner_id = current_owner();
+        if (owner_id.empty()) {
+            res.status = 403;
+            res.set_content(json{{"error", "authentication required"}}.dump(), "application/json");
+            add_cors(res);
+            return;
+        }
+
+        auto usage = g_usage_tracker.get_usage(owner_id);
+        json j;
+        j["owner_id"] = usage.owner_id;
+        j["minutes_used"] = usage.minutes_used;
+        j["tokens_processed"] = usage.tokens_processed;
+        j["requests_count"] = usage.requests_count;
+        j["period_start"] = usage.period_start;
+        j["period_end"] = usage.period_end;
+
+        // Include tier limits for context
+        auto keys = g_auth_mgr.list_keys(owner_id);
+        PlanTier tier = PlanTier::FREE;
+        if (!keys.empty()) tier = keys[0].tier;
+        auto limits = TierLimits::for_tier(tier);
+        j["limits"] = {
+            {"max_minutes", limits.max_minutes},
+            {"max_tokens", limits.max_tokens},
+            {"max_voices", limits.max_voices},
+        };
+
+        res.set_content(j.dump(2), "application/json");
+        add_cors(res);
+    });
+
+    // GET /v1/pricing — get pricing info (public, no auth needed)
+    svr.Get("/v1/pricing", [&](const httplib::Request&, httplib::Response& res) {
+        auto pricing = g_billing_mgr.get_pricing();
+        json j;
+        j["basic_monthly"] = pricing.basic_monthly;
+        j["pro_monthly"] = pricing.pro_monthly;
+        j["enterprise_monthly"] = pricing.enterprise_monthly;
+        j["voice_clone_fee"] = pricing.voice_clone_fee;
+        j["currency"] = "USD";
+        j["tiers"] = json::array();
+        for (auto tier : {PlanTier::FREE, PlanTier::BASIC, PlanTier::PRO, PlanTier::ENTERPRISE}) {
+            auto limits = TierLimits::for_tier(tier);
+            j["tiers"].push_back({
+                {"name", plan_tier_to_string(tier)},
+                {"price_monthly", limits.price_monthly},
+                {"max_minutes", limits.max_minutes},
+                {"max_tokens", limits.max_tokens},
+                {"max_voices", limits.max_voices},
+            });
+        }
+        res.set_content(j.dump(2), "application/json");
+        add_cors(res);
+    });
+
+    // POST /v1/billing/webhook — Stripe webhook endpoint (no auth, signature verified)
+    svr.Post("/v1/billing/webhook", [&](const httplib::Request& req, httplib::Response& res) {
+        std::string signature;
+        auto sig_it = req.headers.find("Stripe-Signature");
+        if (sig_it != req.headers.end()) signature = sig_it->second;
+
+        if (!g_billing_mgr.process_webhook(req.body, signature)) {
+            res.status = 400;
+            res.set_content(json{{"error", "webhook processing failed"}}.dump(), "application/json");
+            add_cors(res);
+            return;
+        }
+
+        res.set_content(json{{"status", "ok"}}.dump(), "application/json");
+        add_cors(res);
+    });
+
+    // GET /v1/billing/portal — stub: return Stripe customer portal URL
+    svr.Get("/v1/billing/portal", [&](const httplib::Request& req, httplib::Response& res) {
+        std::string owner_id = current_owner();
+        if (owner_id.empty()) {
+            res.status = 403;
+            res.set_content(json{{"error", "authentication required"}}.dump(), "application/json");
+            add_cors(res);
+            return;
+        }
+
+        // Look up customer Stripe ID for this owner
+        std::string customer_id = g_billing_mgr.get_customer_for_owner(owner_id);
+        if (customer_id.empty()) {
+            // No Stripe customer yet — return generic billing URL
+            res.set_content(json{{"url", "https://zaya.ai/billing"}}.dump(), "application/json");
+            add_cors(res);
+            return;
+        }
+
+        // Stub: real portal URL requires Stripe SDK's
+        // stripe.billingPortal.sessions.create({customer, return_url}).
+        // Return a configurable base URL with the customer_id as query param.
+        const char* portal_base = getenv("STRIPE_PORTAL_URL");
+        std::string portal_url = portal_base ? portal_base : "https://zaya.ai/billing/portal";
+        portal_url += "?customer_id=" + customer_id;
+        std::string return_url = req.get_param_value("return_url");
+        if (!return_url.empty()) {
+            portal_url += "&return_url=" + return_url;
+        }
+
+        res.set_content(json{{"url", portal_url}}.dump(), "application/json");
         add_cors(res);
     });
 
@@ -693,6 +1430,48 @@ int main(int argc, char** argv) {
     printf("  unified_server: %s\n", unified_server_url().c_str());
     printf("  ollama:         %s\n", ollama_url().c_str());
     printf("  knowledge base: %s\n", g_kb.root().c_str());
+
+    // Initialise persona manager
+    {
+        const char* pd = getenv("PERSONAS_DIR");
+        std::string dir = pd ? pd : "";
+        int n = g_persona_mgr.scan_directory(dir);
+        printf("  personas:         %d loaded (active: %s)\n", n,
+               g_persona_mgr.active().name.c_str());
+        for (auto& name : g_persona_mgr.list_personas())
+            printf("    - %s\n", name.c_str());
+    }
+
+    // Initialise codec TTS voice pack scanner
+    {
+        const char* vp_dir = getenv("VOICE_PACKS_DIR");
+        if (vp_dir && *vp_dir) g_codec_tts.set_voice_packs_dir(vp_dir);
+        g_codec_tts.scan_voice_packs();
+        auto packs = g_codec_tts.list_voice_packs();
+        if (!packs.empty()) {
+            printf("  codec TTS:        %zu voice pack(s) loaded\n", packs.size());
+            for (auto& vp : packs)
+                printf("    - %s (speaker=%s, lang=%s)\n", vp.name.c_str(), vp.speaker_name.c_str(), vp.language.c_str());
+        } else {
+            printf("  codec TTS:        no voice packs found in %s\n",
+                   vp_dir ? vp_dir : "~/voice-packs");
+        }
+    }
+
+    // Start WebSocket audio streaming server (separate port for raw WS)
+    {
+        int ws_port = 8082;
+        const char* ws_port_env = getenv("WS_STREAM_PORT");
+        if (ws_port_env && *ws_port_env) ws_port = atoi(ws_port_env);
+
+        g_ws_server = std::make_unique<WebSocketServer>();
+        int actual_port = g_ws_server->start(ws_port, &g_codec_tts);
+        if (actual_port > 0) {
+            printf("  WS stream:        ws://127.0.0.1:%d/v1/audio/stream?voice=X&text=Y\n", actual_port);
+        } else {
+            printf("  WS stream:        FAILED to start\n");
+        }
+    }
 
     if (!no_beacon) start_beacon(g_port);
 

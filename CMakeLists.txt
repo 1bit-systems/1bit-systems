@@ -938,6 +938,18 @@ target_link_libraries(onebitd PRIVATE httplib::httplib)
 # history at c252174aa~1 — see .claude/plans/swirling-tumbling-frost.md).
 # Talks to unified_server (127.0.0.1:8088) and Ollama over HTTP rather than
 # embedding a second BackendManager; own port 8080.
+# ── Optional: ONNX Runtime for codec decoder (voice cloning TTS) ──
+# The codec decoder compiles without it — decode() returns empty PCM.
+# Set ONNXRUNTIME_ROOT_DIR to help find_package locate the SDK.
+set(ONNXRUNTIME_ROOT_DIR "" CACHE PATH "ONNX Runtime install root")
+find_package(onnxruntime QUIET HINTS "${ONNXRUNTIME_ROOT_DIR}")
+if(onnxruntime_FOUND)
+    message(STATUS "codec: ONNX Runtime FOUND — building codec decoder with real inference")
+    add_definitions(-DUSE_ONNXRUNTIME)
+else()
+    message(STATUS "codec: ONNX Runtime NOT found — codec decoder will return empty PCM")
+endif()
+
 add_executable(jarvis_server
     tools/jarvis_server.cpp
     tools/jarvis/rag.cpp
@@ -946,13 +958,25 @@ add_executable(jarvis_server
     tools/jarvis/planner.cpp
     tools/jarvis/beacon.cpp
     tools/jarvis/tts.cpp
-    tools/jarvis/audio_out.cpp)
-target_include_directories(jarvis_server PRIVATE tools/)
+    tools/jarvis/audio_out.cpp
+    tools/jarvis/audio_stream.cpp
+    tools/jarvis/codec_tts.cpp
+    tools/jarvis/persona.cpp
+    tools/jarvis/vad.cpp
+    tools/jarvis/context.cpp
+    tools/jarvis/auth.cpp
+    tools/jarvis/usage.cpp
+    tools/jarvis/billing.cpp
+    src/codec_decoder.cpp)
+target_include_directories(jarvis_server PRIVATE tools/ src/)
 target_compile_options(jarvis_server PRIVATE -O3 -Wall -Wno-unused-result -std=c++23 -fopenmp)
 target_link_libraries(jarvis_server PRIVATE
     httplib::httplib
     nlohmann_json::nlohmann_json
     whisper)
+if(onnxruntime_FOUND)
+    target_link_libraries(jarvis_server PRIVATE onnxruntime::onnxruntime)
+endif()
 
 # -- zaya1_vl_demo : ZAYA1-VL-8B vision-language inference demo -------------
 add_executable(zaya1_vl_demo tools/zaya1_vl_demo.cpp)

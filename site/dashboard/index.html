@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zaya Co-Host Dashboard — 1bit.systems</title>
+<meta name="description" content="Zaya Co-Host Dashboard — manage voice packs, personas, usage, API keys, and billing for your AI co-host.">
+<meta property="og:title" content="Zaya Co-Host Dashboard">
+<meta property="og:description" content="Manage your AI co-host — voice, personas, usage, API keys, billing.">
+<meta property="og:image" content="/assets/logo.svg">
+<meta property="og:url" content="https://1bit.systems/dashboard/">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-layout">
+
+  <!-- ─── Sidebar ─── -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <div class="logo">ZC</div>
+      <div class="name"><span class="p">Zaya</span> <span class="s">Co-Host</span></div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">Main</div>
+      <button class="nav-item active" data-page="dashboard" onclick="navigate('#/dashboard')">
+        <span class="icon"><i class="fas fa-th-large"></i></span> Dashboard
+      </button>
+      <button class="nav-item" data-page="voice-packs" onclick="navigate('#/voice-packs')">
+        <span class="icon"><i class="fas fa-microphone"></i></span> Voice Packs
+      </button>
+      <button class="nav-item" data-page="personas" onclick="navigate('#/personas')">
+        <span class="icon"><i class="fas fa-robot"></i></span> Personas
+      </button>
+
+      <div class="nav-section">Analytics</div>
+      <button class="nav-item" data-page="usage" onclick="navigate('#/usage')">
+        <span class="icon"><i class="fas fa-chart-bar"></i></span> Usage
+      </button>
+
+      <div class="nav-section">Developer</div>
+      <button class="nav-item" data-page="api-keys" onclick="navigate('#/api-keys')">
+        <span class="icon"><i class="fas fa-key"></i></span> API Keys
+      </button>
+
+      <div class="nav-section">Account</div>
+      <button class="nav-item" data-page="billing" onclick="navigate('#/billing')">
+        <span class="icon"><i class="fas fa-credit-card"></i></span> Billing
+      </button>
+      <button class="nav-item" data-page="settings" onclick="navigate('#/settings')">
+        <span class="icon"><i class="fas fa-cog"></i></span> Settings
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="flex items-center gap-2 text-xs">
+        <span class="badge dark" style="background:transparent;padding:0;">
+          <span class="dot" style="width:6px;height:6px;background:var(--primary);display:inline-block;border-radius:999px;"></span>
+        </span>
+        <span class="text-xs">1bit.systems</span>
+      </div>
+      <div class="text-xs" style="margin-top:4px;">Open-source inference</div>
+    </div>
+  </aside>
+
+  <!-- ─── Sidebar overlay (mobile) ─── -->
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+  <!-- ─── Main Content ─── -->
+  <main class="content">
+    <div style="display:flex;align-items:center;padding:12px 18px;border-bottom:1px solid var(--border);background:var(--surface);">
+      <button class="hamburger" id="hamburger" onclick="toggleSidebar()" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+      <span style="font-size:13px;color:var(--text2);font-weight:500;">Zaya Co-Host Dashboard</span>
+      <span style="margin-left:auto;font-size:11px;color:var(--muted);" id="status-indicator"></span>
+    </div>
+    <div id="page-content">
+      <div class="loading-state" style="min-height:60vh;">
+        <div class="spinner spinner-lg"></div>
+        <span>Loading dashboard...</span>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ─── Toast Container ─── -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- ─── Scripts ─── -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+<script src="app.js"></script>
+</body>
+</html>
