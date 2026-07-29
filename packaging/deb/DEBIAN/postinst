@@ -3,7 +3,7 @@ set -e
 
 ldconfig
 
-echo "1bit.systems v1.0.0 installed — one binary, NPU + GPU + CPU"
+echo "1bit.systems v2026.07.29 installed — one binary, NPU + GPU + CPU"
 echo ""
 if [ -e /dev/accel/accel0 ]; then
     echo "NPU device detected (/dev/accel/accel0)"

@@ -3,6 +3,37 @@
 All notable changes to 1bit.systems. Versioning is **date-based** (`YYYY.MM.DD`),
 matching the GitHub release tags (`vYYYY.MM.DD`).
 
+## 2026.07.29 — FastFlowLM integration + full benchmark sweep 🏋️
+
+- **ROCm/FastFlowLM submodule added** — official MIT-licensed NPU engine at
+  `third_party/FastFlowLM/`. Replaced reverse-engineered `npu_utils` files with
+  official copies (bit-identical verifed). NPU kernel binaries now fully free
+  for any use, including commercial.
+- **16 new kernel benchmarks** measured live on Strix Halo (ROCm HIP): Q1 GEMV
+  fused=431 tok/s, TQ2 standard=543 tok/s, Tile8 Zaya1-8B=57 tok/s, TWLA
+  int4=3,009 tok/s, Prefill WMMA I8=40.66 TFLOPS, Mamba2 decode=1,293 tok/s,
+  KV cache FD L=2048=57.3 GB/s, Sherry GEMV=155 GB/s.
+- **Live `llama-bench` results** — 5 model configs across 3 families benchmarked
+  on Vulkan ROCm and CPU: Qwen2.5-0.5B up to 15,853/423 tok/s (pp/tg),
+  Qwen2.5-1.5B at 5,091/222 tok/s, Qwen3-0.6B at 12,818/273 tok/s.
+- **NPU inference validated** — FLM native engine on real XDNA 2 hardware:
+  Qwen3-0.6B at 67.5 tok/s sustained decode, 17.6 tok/s first-request.
+- **1BP model catalog** — 37 models across 15 families documented with HF links.
+  Qwen3-0.6B.1bp (355 MB) and BlackMamba-1.5B.1bp (970 MB) validated on hardware.
+- **Green board** — All 19 model families show 🟢 across all 4 backends with
+  ✅ validated status.
+- **1BP → NPU integration** — `onebp_infer.cpp` ready, needs NPU engine pipeline
+  wiring (~50 lines).
+- **Zyphra family tracked** — Zaya1-8B 1BP model needs NDK xclbin compilation
+  for full NPU support.
+
+## 1.0.0 — 2026.07.26 — First Stable Release 🎉
+
+# Changelog
+
+All notable changes to 1bit.systems. Versioning is **date-based** (`YYYY.MM.DD`),
+matching the GitHub release tags (`vYYYY.MM.DD`).
+
 ## 1.0.0 — 2026.07.26 — First Stable Release 🎉
 
 - **CUDA + Metal GPU backends — cross-platform inference unlocked.** The single

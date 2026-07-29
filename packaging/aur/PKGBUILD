@@ -1,6 +1,6 @@
 # Maintainer: bong-water-water-bong <admin@1bit.systems>
 pkgname=1bit-systems-bin
-pkgver=1.0.0
+pkgver=2026.07.29
 pkgrel=1
 pkgdesc="50 TOPS INT8 NPU inference engine for AMD Strix Halo"
 arch=('x86_64')
