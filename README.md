@@ -124,7 +124,7 @@ This project started with a laptop, a disassembler, and no docs. AMD shipped the
 | CLI + server | `flm`, 87.8 MB | Rebuilt, 17.5 MB |
 | NPU sequence gen | 22 proprietary `.so` files | `libnpu_engine_universal.so` (173 KB) |
 | FPGA bitstreams | 209 `.xclbin` files | 63 rebuilt from AIE generators |
-| Toolchain | AMD Xilinx IP | `aiecc` + Chess/AMD Xilinx IP |
+| Toolchain | AMD Xilinx IP | `aiecc` + Peano/AMD Xilinx IP |
 
 The key finding: the `.so` files were NPU instruction **sequence generators**, not compute kernels — the actual computation lives entirely in the `.xclbin` FPGA bitstreams. Both layers are now fully rebuildable from source.
 
