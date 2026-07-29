@@ -42,6 +42,18 @@ struct Q4nxReader {
 
     // Read a BF16 array at offset, widened to float32, into a vector
     std::vector<float> read_floats(uint64_t offset, size_t count) const;
+
+    // Parse tensor shape [rows, cols] from the JSON header by tensor name.
+    // Returns empty vector if tensor or shape field is not found.
+    std::vector<uint64_t> get_tensor_shape(const std::string& json_header,
+                                            const std::string& tensor_name) const;
+
+    // Convenience: check that tensor_name in json_header has shape
+    // [expected_rows, expected_cols]. Returns true on match.
+    bool validate_tensor_shape(const std::string& json_header,
+                               const std::string& tensor_name,
+                               size_t expected_rows,
+                               size_t expected_cols) const;
 };
 
 // Best-effort metadata extraction for model discovery: dims from the embedding

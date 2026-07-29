@@ -112,6 +112,53 @@ std::vector<float> Q4nxReader::read_floats(uint64_t offset, size_t count) const 
     return v;
 }
 
+// ── Tensor shape query ─────────────────────────────────────────────────────
+
+// Parse [rows, cols] from a JSON header string for the named tensor.
+// The JSON format is safetensors-style:
+//   {"tensor_name":{"dtype":"F32","shape":[R,C],"data_offsets":[O,E]},...}
+std::vector<uint64_t> Q4nxReader::get_tensor_shape(
+    const std::string& json_header,
+    const std::string& tensor_name) const
+{
+    std::vector<uint64_t> result;
+    // Find the tensor name key (must be a quoted JSON key)
+    auto pos = json_header.find(tensor_name);
+    if (pos == std::string::npos || pos == 0) return result;
+    if (json_header[pos - 1] != '"') {
+        // Scan forward for a proper "key" match
+        pos = json_header.find('"' + tensor_name + '"');
+        if (pos == std::string::npos) return result;
+    } else if (json_header[pos - 1] == '"') {
+        pos = pos - 1;  // back up to include the opening quote
+    }
+    // Look for "shape":[ after the tensor entry
+    // First ensure we're past the tensor name by finding the next '{'
+    auto brace = json_header.find('{', pos);
+    if (brace == std::string::npos) return result;
+    // Find "shape":[ starting from the opening brace
+    auto shape_key = json_header.find("\"shape\":[", brace);
+    if (shape_key == std::string::npos) return result;
+    auto start = shape_key + strlen("\"shape\":[");
+    uint64_t r = 0, c = 0;
+    if (sscanf(json_header.c_str() + start, "%lu,%lu", &r, &c) == 2) {
+        result.push_back(r);
+        result.push_back(c);
+    }
+    return result;
+}
+
+bool Q4nxReader::validate_tensor_shape(
+    const std::string& json_header,
+    const std::string& tensor_name,
+    size_t expected_rows,
+    size_t expected_cols) const
+{
+    auto shape = get_tensor_shape(json_header, tensor_name);
+    if (shape.size() != 2) return false;
+    return shape[0] == expected_rows && shape[1] == expected_cols;
+}
+
 // ── read_q4nx_metadata ─────────────────────────────────────────────────────
 
 bool read_q4nx_metadata(const std::string& path, ModelConfig& cfg) {

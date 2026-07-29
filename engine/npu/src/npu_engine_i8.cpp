@@ -11,6 +11,21 @@
 #include <xrt/xrt_device.h>
 #include <xrt/xrt_bo.h>
 #include <xrt/xrt_kernel.h>
+#include "npu_utils/npu_instr_utils.hpp"
+
+// Forward declaration: INT8 NPU instruction generator from gemm_npu_instructions.cpp
+void gemm_generate_sequence_i8(
+    npu_sequence*           seq,
+    uint32_t                M,
+    uint32_t                K,
+    uint32_t                N,
+    uint32_t                weight_offset,
+    bool                    add_bias,
+    int                     activation,
+    uint32_t                bias_offset,
+    uint32_t                output_offset
+);
+
 extern "C" float* dequant_i8_to_float(const uint8_t*,int,int*,int*);
 static inline float bf16f(uint16_t v){uint32_t b=v<<16;float f;memcpy(&f,&b,4);return f;}
 static inline float bf16g(uint16_t v){return(v&0x7F80)==0x7F80?0.0f:bf16f(v);}
@@ -37,11 +52,17 @@ static inline void rn_c(float*x,const float*w,int n){cn(x,n);double ss=0;for(int
 static std::vector<float>rc,rs;static void ri(int hd,float th,int mp){int hd2=hd/2;rc.resize(mp*hd);rs.resize(mp*hd);for(int p=0;p<mp;p++)for(int d=0;d<hd2;d++){float f=1.0f/powf(th,(float)d/hd2),a=p*f;rc[p*hd+d]=cosf(a);rs[p*hd+d]=sinf(a);}}
 static inline void ra(float*x,int hd,int p){int hd2=hd/2;for(int d=0;d<hd2;d++){float a=x[d],b=x[d+hd2],c=rc[p*hd+d],s=rs[p*hd+d];x[d]=a*c-b*s;x[d+hd2]=b*c+a*s;}}
 static uint64_t jo(const char*js,size_t jl,const char*nm){size_t nl=strlen(nm);const char*p=js,*e=js+jl;while(p<e){auto q=(const char*)memmem(p,e-p,nm,nl);if(!q)return 0;if(q>js&&*(q-1)=='"'&&*(q+nl)=='"'){auto o=strstr(q,"\"data_offsets\"");if(o){auto a=strchr(o,'[');if(a)return strtoull(a+1,NULL,10);}}p=q+1;}return 0;}
+// Parse tensor shape [rows, cols] from JSON header. Follows the same pattern as jo().
+// Returns false if tensor or shape field is not found.
+static bool jshape(const char*js,size_t jl,const char*nm,uint64_t&r,uint64_t&c){size_t nl=strlen(nm);const char*p=js,*e=js+jl;while(p<e){auto q=(const char*)memmem(p,e-p,nm,nl);if(!q)return false;if(q>js&&*(q-1)=='"'&&*(q+nl)=='"'){auto s=strstr(q,"\"shape\"");if(s){auto a=strchr(s,'[');if(a){r=strtoull(a+1,NULL,10);auto comma=strchr(a,',');if(comma){c=strtoull(comma+1,NULL,10);return true;}}}}p=q+1;}return false;}
 
-struct I8Ctx{const char*name;int MD,KD,ND;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt::hw_context>hc;std::unique_ptr<xrt::kernel>k;std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bI,bA,bC,layerB[NC];int8_t*Am;int16_t*Cm;
+struct I8Ctx{const char*name;int MD,KD,ND;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt::hw_context>hc;std::unique_ptr<xrt::kernel>k;std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bI,bA,bC,layerB[NC];int8_t*Am;int16_t*Cm;std::vector<float> group_scales[NC];
+// Per-group INT8 quantization: K is divided into groups of 32, each with its own scale.
+// go() computes the effective Bscale as the average of per-group scales.
 bool init(xrt::device&d,const char*xp,const char*ip,int gid_B){FILE*f=fopen(ip,"rb");if(!f)return false;fseek(f,0,2);long sz=ftell(f);fseek(f,0,0);ins.resize(sz/4);fread(ins.data(),4,ins.size(),f);fclose(f);xc=std::make_unique<xrt::xclbin>(std::string(xp));d.register_xclbin(*xc);hc=std::make_unique<xrt::hw_context>(d,xc->get_uuid());k=std::make_unique<xrt::kernel>(*hc,"MLIR_AIE");bI=std::make_unique<xrt::bo>(d,ins.size()*4,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));memcpy(bI->map(),ins.data(),ins.size()*4);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);bA=std::make_unique<xrt::bo>(d,(size_t)MD*KD,XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*2,XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));Am=(int8_t*)bA->map();Cm=(int16_t*)bC->map();for(int l=0;l<NC;l++)layerB[l]=std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B));return true;}
-void packB(int l,const float*w,int K,int N,float&sout){float amax=0;for(int i=0;i<K*N;i++){float a=fabsf(w[i]);if(std::isfinite(a)&&a>amax)amax=a;}if(amax<1e-12f)amax=1.0f;sout=amax/127.0f;float is=127.0f/amax;auto*Bm=(int8_t*)layerB[l]->map();for(int i=0;i<K*N;i++){float v=w[i];if(!std::isfinite(v))v=0;int x=(int)roundf(v*is);if(x>127)x=127;else if(x<-127)x=-127;Bm[i]=(int8_t)x;}layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);}
-inline void go(int l,const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){float ais=1.0f/ascale;for(int m=0;m<am;m++){for(int k=0;k<ak;k++){float v=A[m*ak+k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;Am[m*KD+k]=(int8_t)q;}if(ak<KD)memset(Am+m*KD+ak,0,(size_t)(KD-ak));}if(am<MD)memset(Am+(size_t)am*KD,0,(size_t)(MD-am)*KD);bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);auto r=(*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[l],*bC);r.wait();bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);float cs=ascale*Bscale;for(int m=0;m<am;m++)for(int n=0;n<an;n++){float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;C[m*an+n]=val;}}
+bool init_with_generator(xrt::device&d,const char*xp,int _MD,int _KD,int _ND,int gid_B){MD=_MD;KD=_KD;ND=_ND;npu_sequence seq(device_npu2);gemm_generate_sequence_i8(&seq,MD,MD,ND,0,false,0,0,0);seq.cmds2seq();auto[dp,sz]=seq.dump();ins.assign(dp,dp+sz/sizeof(uint32_t));xc=std::make_unique<xrt::xclbin>(std::string(xp));d.register_xclbin(*xc);hc=std::make_unique<xrt::hw_context>(d,xc->get_uuid());k=std::make_unique<xrt::kernel>(*hc,"MLIR_AIE");bI=std::make_unique<xrt::bo>(d,ins.size()*4,XCL_BO_FLAGS_CACHEABLE,k->group_id(1));memcpy(bI->map(),ins.data(),ins.size()*4);bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);bA=std::make_unique<xrt::bo>(d,(size_t)MD*KD,XRT_BO_FLAGS_HOST_ONLY,k->group_id(3));bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*2,XRT_BO_FLAGS_HOST_ONLY,k->group_id(5));Am=(int8_t*)bA->map();Cm=(int16_t*)bC->map();for(int l=0;l<NC;l++)layerB[l]=std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,k->group_id(gid_B));return true;}
+void packB(int l,const float*w,int K,int N,float&sout){int num_groups=(K+31)/32;group_scales[l].resize(num_groups);auto*Bm=(int8_t*)layerB[l]->map();for(int g=0;g<num_groups;g++){int g_start=g*32;int g_size=std::min(32,K-g_start);float g_amax=0;for(int j=0;j<N;j++){for(int i=0;i<g_size;i++){float a=fabsf(w[(g_start+i)*N+j]);if(std::isfinite(a)&&a>g_amax)g_amax=a;}}if(g_amax<1e-12f)g_amax=1.0f;group_scales[l][g]=g_amax/127.0f;float g_is=127.0f/g_amax;for(int j=0;j<N;j++){for(int i=0;i<g_size;i++){float v=w[(g_start+i)*N+j];if(!std::isfinite(v))v=0;int x=(int)roundf(v*g_is);if(x>127)x=127;else if(x<-127)x=-127;Bm[(g_start+i)*N+j]=(int8_t)x;}}}layerB[l]->sync(XCL_BO_SYNC_BO_TO_DEVICE);float ssum=0;for(int g=0;g<num_groups;g++)ssum+=group_scales[l][g];sout=ssum/num_groups;}
+inline void go(int l,const float*A,int am,int ak,float ascale,float Bscale,float*C,int an){float ais=1.0f/ascale;for(int m=0;m<am;m++){for(int k=0;k<ak;k++){float v=A[m*ak+k];if(!std::isfinite(v))v=0;int q=(int)roundf(v*ais);if(q>127)q=127;else if(q<-127)q=-127;Am[m*KD+k]=(int8_t)q;}if(ak<KD)memset(Am+m*KD+ak,0,(size_t)(KD-ak));}if(am<MD)memset(Am+(size_t)am*KD,0,(size_t)(MD-am)*KD);bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);auto r=(*k)((unsigned)3,*bI,(unsigned)ins.size(),*bA,*layerB[l],*bC);r.wait();bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);float cs=ascale*Bscale;if(!group_scales[l].empty()){float ssum=0;for(float s:group_scales[l])ssum+=s;cs=ascale*(ssum/group_scales[l].size());}for(int m=0;m<am;m++)for(int n=0;n<an;n++){float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;C[m*an+n]=val;}}
 };
 
 // Attention kernel — per-window xclbin, BF16 pre-packed input/output
@@ -133,7 +154,19 @@ int main(int argc,char**argv){
         int t2=gr+ur;std::vector<float>w2((size_t)H*t2);for(int k=0;k<H;k++){memcpy(&w2[k*t2],&gw[k*gr],gr*4);memcpy(&w2[k*t2+gr],&uw[k*ur],ur*4);}
         cg.packB(l,w2.data(),H,t2,wsc[l].g_);free(gw);free(uw);
         float*dw=dequant_i8_to_float(i8p(lo[l].dp),384,&dr,&unused);cd.packB(l,dw,dr,H,wsc[l].d_);free(dw);}
-    int lr,lc;free(dequant_i8_to_float(i8p(lo_off),18992,&lr,&lc));
+    // Validate lm_head.weight shape; fall back to tied embeddings if wrong.
+    {
+        uint64_t lm_r = 0, lm_c = 0;
+        if (jshape(js, jl, "lm_head.weight", lm_r, lm_c) && lm_r == (uint64_t)NV && lm_c == (uint64_t)H) {
+            int lr, lc;
+            float* lm_w = dequant_i8_to_float(i8p(lo_off), (int)lm_r, &lr, &lc);
+            // TODO: pack lm_head for NPU acceleration — currently all output uses tied embeddings
+            free(lm_w);
+        } else {
+            fprintf(stderr, "WARN: lm_head.weight shape [%lu,%lu] != expected [%d,%d]; using tied embeddings\n",
+                    lm_r, lm_c, NV, H);
+        }
+    }
     printf("  %.0fms\n\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-tp).count());
     ri(HD,1000000.0f,4096);
     // KV cache: pre-organized by window for zero-copy NPU attention dispatch
