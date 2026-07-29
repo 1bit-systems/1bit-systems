@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: PR Agent
-        uses: qodo-ai/pr-agent@eb4cdbb115dfb711375a24eccc75e3ef73ec03bc  # v0.30
+        uses: qodo-ai/pr-agent@d82f7d3e696cd00822694aaa3096265d3889f3f1  # v0.34
         env:
           OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_API_BASE: "https://api.opencode.ai/v1"
