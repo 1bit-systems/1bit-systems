@@ -1,3 +1,27 @@
+# Engineering Journey — Reverse-Engineering the XDNA 2 NPU
+
+> Every crash, breakthrough, and bug documented in real-time. ~1800+ hours of engineering.
+
+## Table of Contents
+
+- [UPDATE 28: Mamba1 GPU Backend — 79.4 tok/s](#update-28-2026-07-20-mamba1-gpu-backend--794-toks-9-bugs-killed)
+- [UPDATE 27: Fused Layer Engine — 291 tok/s](#update-27-2026-07-06-fused-layer-engine-goes-production--291-toks-3×-v12)
+- [UPDATE 26: All 3 Bugs Confirmed Fixed](#update-26-2026-07-05-all-3-bugs-confirmed-fixed--aie-micro-tiling-root-cause-resolved)
+- [UPDATE 25: v12 Was Never Output-Validated](#update-25-2026-07-03-v12-was-never-output-validated--3-real-bugs-found-still-incoherent)
+- [UPDATE 24: Fused XCLBIN Resumed](#update-24-2026-07-03-fused-xclbin-resumed--schedule-fixed-deadlock-isolated-new-kernel-bug-found)
+- [UPDATE 23: Production Release](#update-23-2026-07-02-1532-adt-production-release--v20260702-all5models)
+- [UPDATE 22: All 5 Models at v12 Batch Speed](#update-22-2026-07-02-1513-adt-all-5-models-at-v12-batch-speed-0-crashes)
+- [UPDATE 21: Full NPU Engine State](#update-21-2026-07-02-1201-adt-session-close--full-npu-engine-state)
+- [UPDATE 20: Fused XCLBIN — First Attempt](#update-20-2026-07-02-0517-0727-adt-fused-xclbin--first-attempt-q4nx-blocker)
+- [UPDATE 19: Multi-Model XCLBINs](#update-19-2026-07-02-0624-0627-adt-multi-model-xclbins-model-agnostic-engine)
+- [UPDATE 18: M=32 Target, NPU LM Head](#update-18-2026-07-02-0401-adt-m32-target-npu-lm-head-flm-comparison)
+- [UPDATE 17: M=16 Batch Decode — 16 ms/tok](#update-17-2026-07-02-0300-adt-m16-batch-decode--16-mstok-152×-speedup)
+- [UPDATE 16: Full Profile + 50 ms/tok Batch-4](#update-16-2026-07-02-0200-adt-full-profile--50-mstok-batch-4-decode)
+- [UPDATE 15: PR-Agent Live, Landing Page](#update-15-2026-07-01-1500-adt-pr-agent-live-landing-page-deployed-242-mstok-verified)
+- [Earlier Updates (14–1)](#earlier-updates)
+
+---
+
 ## UPDATE 28 (2026-07-20): MAMBA1 GPU BACKEND — 79.4 TOK/S, 9 BUGS KILLED
 
 **The Mamba1 GPU backend (`mamba1_engine.hip` + `backend_mamba1.cpp`) is now fully built, linked, and validated end-to-end on Strix Halo. BlackMamba 1.5B: 79.4 tok/s. BlackMamba 2.8B: 46.1 tok/s.**

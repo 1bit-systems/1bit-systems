@@ -1,5 +1,9 @@
 # Performance & Benchmarks
 
+> **This is the canonical benchmark document.** Update this page first when benchmark numbers change.
+
+> See [Supported Models](models.md) for per-model performance data.
+
 **Single source of truth for 1bit.systems performance claims.** Every number here is
 pulled directly from [`site/benchmarks.json`](../../site/benchmarks.json)
 (`"_authoritative": true`). `README.md` and `site/index.html` link here instead of
@@ -90,3 +94,11 @@ This is a device-level number, not a model-inference tok/s figure.
 *All kernel-level numbers verified bit-exact on real Strix Halo hardware (gfx1151), median
 of 3 runs. Status legend: ✅ validated · ⚙️ optimized (kernel runs at this speed, engine
 integration in progress).*
+
+---
+
+## Related
+
+- [Supported Models](models.md) — per-model architecture, backend, and performance data
+- [`benchmarks/README.md`](../../benchmarks/README.md) — how to run benchmarks locally
+- [`site/benchmarks.json`](../../site/benchmarks.json) — machine-readable authoritative source for all numbers on this page

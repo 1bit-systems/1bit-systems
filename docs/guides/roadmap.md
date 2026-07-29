@@ -1,5 +1,16 @@
 # Roadmap
 
+## Recently Completed (July 2026)
+
+- [x] FLM v0.9.46 model extraction: 37 models, 209 xclbins ✅
+- [x] Qwen3.5 Omni C++ source extracted and committed ✅
+- [x] Canonical models page (`docs/wiki/models.md`) created ✅
+- [x] README restructured ✅
+- [x] Site landing page synced ✅
+- [x] Chess → Peano toolchain migration ✅
+- [x] NPU INT8 GEMM via Peano, 22 shapes verified ✅
+- [x] ShellCheck lint issues fixed ✅
+
 ## Phase 1: INT8 Inference ✅
 
 - [x] INT8 K-interleaving fix (dataReuse on ObjectFifo)
