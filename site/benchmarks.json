@@ -43,7 +43,7 @@
     },
     "npu_v12": {
       "tok_s": 0,
-      "status": "optimized",
+      "status": "broken",
       "label": "NPU v12 (FLM-based) -- superseded by npu_engine_universal INT8 GEMM path",
       "table": "kernel",
       "display_name": "NPU v12",
@@ -52,9 +52,9 @@
     },
     "npu_int8_gemm": {
       "tok_s": 0,
-      "status": "verified",
+      "status": "validated",
       "remeasured": "2026-07-28",
-      "label": "NPU INT8 GEMM — npu_engine_universal, Peano-compiled xclbins, 4 native ops",
+      "label": "NPU INT8 GEMM \u2014 npu_engine_universal, Peano-compiled xclbins, 4 native ops",
       "table": "kernel",
       "display_name": "NPU INT8 GEMM",
       "backend": "XDNA 2 via Peano",
@@ -70,8 +70,8 @@
     },
     "npu_flm": {
       "tok_s": 0,
-      "status": "optimized",
-      "label": "NPU FLM engine — superseded by npu_engine_universal",
+      "status": "broken",
+      "label": "NPU FLM engine \u2014 superseded by npu_engine_universal",
       "notes": "Replaced by native npu_engine_universal (2026-07-28). FLM's 22 proprietary .so files are no longer used."
     },
     "all_5": {
@@ -92,7 +92,7 @@
     "prefill_i8": {
       "tok_s": 39.4,
       "TFLOPS": 39.4,
-      "status": "re-validated 2026-07-26",
+      "status": "validated",
       "label": "Prefill INT8 WMMA (39.4 TFLOPS, I8-APRE winner)",
       "table": "kernel",
       "display_name": "Prefill",
@@ -101,7 +101,7 @@
     },
     "gpu_1bit": {
       "tok_s": 229,
-      "status": "corrected",
+      "status": "validated",
       "label": "llama.cpp ROCm decode (corrected 2026-07-15)",
       "table": "end_to_end",
       "display_name": "llama.cpp ROCm (PrismML)",
@@ -110,7 +110,7 @@
     },
     "dspark": {
       "tok_s": 0.8,
-      "status": "unresolved",
+      "status": "broken",
       "label": "Spec-decode draft (blocked: undertrained)"
     },
     "npu_fused": {
@@ -121,7 +121,7 @@
     },
     "zaya_27b": {
       "tok_s": 30,
-      "status": "end_to_end",
+      "status": "validated",
       "label": "zaya_server end-to-end decode, Qwen 27B Q4_K",
       "table": "end_to_end",
       "display_name": "zaya_server (Qwen 27B Q4_K)",
@@ -130,7 +130,7 @@
     },
     "zaya_35b_moe": {
       "tok_s": 20,
-      "status": "end_to_end",
+      "status": "validated",
       "label": "zaya_server end-to-end decode, Qwen 35B MoE Q4_K",
       "table": "end_to_end",
       "display_name": "zaya_server (Qwen 35B MoE Q4_K)",
@@ -209,7 +209,7 @@
     },
     "blackmamba_1_5b": {
       "tok_s": 79.4,
-      "status": "re-validated 2026-07-26",
+      "status": "validated",
       "label": "BlackMamba 1.5B end-to-end (Mamba1 HIP GPU)",
       "table": "e2e",
       "display_name": "BlackMamba 1.5B",
@@ -218,7 +218,7 @@
     },
     "blackmamba_2_8b": {
       "tok_s": 46.0,
-      "status": "re-validated 2026-07-26",
+      "status": "validated",
       "label": "BlackMamba 2.8B end-to-end (Mamba1 HIP GPU)",
       "table": "e2e",
       "display_name": "BlackMamba 2.8B",
