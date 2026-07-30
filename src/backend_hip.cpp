@@ -33,6 +33,23 @@ struct HIPBackend : Backend {
     bool init(const ModelConfig& cfg, const std::string& weights_dir) override {
         this->cfg = cfg;
 
+        // HIP backend (Zaya engine) only supports models in Zaya .bin format.
+        // GGUF models should use ZINC (Vulkan) or cpu_generic backends instead.
+        // Check for the required .bin file before attempting init.
+        std::string wd = weights_dir;
+        if (!wd.empty() && wd.back() != '/') wd += '/';
+        {
+            std::string embed_path = wd + "model_embed_tokens_weight.bin";
+            std::ifstream f(embed_path.c_str());
+            if (!f.good()) {
+                fprintf(stderr, "HIP: model at %s is not in Zaya .bin format "
+                        "(no model_embed_tokens_weight.bin) — "
+                        "use ZINC or cpu_generic backend\n",
+                        weights_dir.c_str());
+                return false;
+            }
+        }
+
         // Build ZayaConfig from the model's actual dimensions.
         // Single-token inference kernels (CCA prep, router) are fully dynamic.
         // Batch-path kernels (zaya_router_moe.hip, zaya_moe_batch_union.hip)
@@ -53,8 +70,6 @@ struct HIPBackend : Backend {
                zcfg.h, zcfg.n_layers, zcfg.nq, zcfg.nkv, zcfg.vocab);
 
         // Ensure trailing slash for zaya_engine.cpp's filename concatenation
-        std::string wd = weights_dir;
-        if (!wd.empty() && wd.back() != '/') wd += '/';
         zs = zaya_init(wd.c_str(), &zcfg);
         if (!zs) { fprintf(stderr,"HIP: zaya_init failed\n"); return false; }
 

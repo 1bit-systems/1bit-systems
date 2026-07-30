@@ -103,6 +103,10 @@ struct ZincBackend : Backend {
                     "dense set (llama/mistral/qwen2) — using cpu_generic to stay "
                     "correct (ZINC_FORCE=1 to override). See #844.\n",
                     a.empty() ? "(unknown)" : a.c_str());
+                // Known architectures that ZINC can't support (different attention):
+                if (a == "qwen35" || a == "qwen35moe")
+                    fprintf(stderr, "  (Qwen3.5 Gate-Delta architecture has fused QKV + SSM "
+                            "path — requires NPU FLM or HIP backend)\n");
                 return false;
             }
         }

@@ -778,10 +778,62 @@ int main(int argc, char** argv) {
     // Select model: --model flag takes priority, otherwise first discovered
     static ModelConfig current_cfg = default_model_config();
     if (!g_model_name.empty()) {
+        // 1. Exact match (case-sensitive)
         for (auto& m : discovered) {
             if (m.model_name == g_model_name) {
                 current_cfg = m;
                 break;
+            }
+        }
+        // 2. Case-insensitive match
+        if (current_cfg.model_path.empty()) {
+            auto ci_eq = [](const std::string& a, const std::string& b) -> bool {
+                if (a.size() != b.size()) return false;
+                for (size_t i = 0; i < a.size(); i++) {
+                    if (tolower((unsigned char)a[i]) != tolower((unsigned char)b[i]))
+                        return false;
+                }
+                return true;
+            };
+            for (auto& m : discovered) {
+                if (ci_eq(m.model_name, g_model_name)) {
+                    printf("  (matched \"%s\" via case-insensitive → \"%s\")\n",
+                           g_model_name.c_str(), m.model_name.c_str());
+                    current_cfg = m;
+                    break;
+                }
+            }
+        }
+        // 3. Prefix match (user name is a prefix of a discovered name)
+        if (current_cfg.model_path.empty()) {
+            for (auto& m : discovered) {
+                if (m.model_name.size() >= g_model_name.size() &&
+                    m.model_name.compare(0, g_model_name.size(), g_model_name) == 0) {
+                    printf("  (matched \"%s\" as prefix → \"%s\")\n",
+                           g_model_name.c_str(), m.model_name.c_str());
+                    current_cfg = m;
+                    break;
+                }
+            }
+        }
+        // 4. Case-insensitive prefix match
+        if (current_cfg.model_path.empty()) {
+            for (auto& m : discovered) {
+                if (m.model_name.size() >= g_model_name.size()) {
+                    bool match = true;
+                    for (size_t i = 0; i < g_model_name.size(); i++) {
+                        if (tolower((unsigned char)m.model_name[i]) !=
+                            tolower((unsigned char)g_model_name[i])) {
+                            match = false; break;
+                        }
+                    }
+                    if (match) {
+                        printf("  (matched \"%s\" as case-insensitive prefix → \"%s\")\n",
+                               g_model_name.c_str(), m.model_name.c_str());
+                        current_cfg = m;
+                        break;
+                    }
+                }
             }
         }
         if (current_cfg.model_path.empty()) {

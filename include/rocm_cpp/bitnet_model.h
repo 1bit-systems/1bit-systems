@@ -52,6 +52,7 @@ typedef enum {
     RCPP_ARCH_KIMI_K3  = 18,  // Moonshot Kimi K3 — 2.8T MoE with KDA + Gated MLA + LatentMoE
     RCPP_ARCH_MOONLIGHT = 19, // Moonshot Moonlight-16B-A3B — Gated MLA MoE
     RCPP_ARCH_KIMI_VL  = 20,  // Moonshot Kimi-VL — Moonlight + MoonViT vision encoder
+    RCPP_ARCH_QWEN35   = 21,  // Qwen3.5 Gate-Delta Net — fused QKV, SSM path, GDN attention
 } rcpp_arch_t;
 
 #include <string.h>
@@ -114,7 +115,8 @@ static inline rcpp_arch_t rcpp_arch_from_string(const char* s) {
     if (strcmp(s, "kimi_vl")   == 0) return RCPP_ARCH_KIMI_VL;
     if (strcmp(s, "kimi_vl_a3b") == 0) return RCPP_ARCH_KIMI_VL;
     // ── Qwen3.6-MoE (shared-expert MoE, Qwen2-compatible attention) ──
-    if (strcmp(s, "qwen35moe") == 0) return RCPP_ARCH_QWEN2;
+    if (strcmp(s, "qwen35")   == 0) return RCPP_ARCH_QWEN35;
+    if (strcmp(s, "qwen35moe") == 0) return RCPP_ARCH_QWEN35;
     return RCPP_ARCH_BITNET;
 }
 

@@ -162,10 +162,13 @@ struct GenericBackend : Backend {
         // of [NE*H]) that would produce garbage. Zamba/Mamba2 are handled by
         // their own dedicated backends.
         if (hdr_cfg.arch == RCPP_ARCH_ZAYA || hdr_cfg.arch == RCPP_ARCH_ZAMBA2 ||
-            hdr_cfg.arch == RCPP_ARCH_ZAMBA || hdr_cfg.arch == RCPP_ARCH_MAMBA) {
-            fprintf(stderr, "  [generic] Refusing to load %s (arch=%d) — "
-                            "architecture not supported by generic CPU backend\n",
-                    path.c_str(), (int)hdr_cfg.arch);
+            hdr_cfg.arch == RCPP_ARCH_ZAMBA || hdr_cfg.arch == RCPP_ARCH_MAMBA ||
+            hdr_cfg.arch == RCPP_ARCH_QWEN35) {
+            const char* hint = "";
+            if (hdr_cfg.arch == RCPP_ARCH_QWEN35)
+                hint = " — Qwen3.5 Gate-Delta requires NPU (FLM/XRT) or HIP backend";
+            fprintf(stderr, "  [generic] Refusing to load %s (arch=%d)%s\n",
+                    path.c_str(), (int)hdr_cfg.arch, hint);
             return false;
         }
         fprintf(stderr, "load_gguf: %s, %d layers, %d hidden\n", hdr_cfg.model_name.c_str(), hdr_cfg.n_layers, hdr_cfg.hidden);

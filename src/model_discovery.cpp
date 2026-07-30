@@ -184,6 +184,109 @@ static bool read_gguf_metadata(const std::string& path, ModelConfig& cfg) {
     return true;
 }
 
+// ── Read .1bp (oneBP) metadata header ────────────────────────────────────
+static bool read_onebp_metadata(const std::string& path, ModelConfig& cfg) {
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) return false;
+
+    // Read the 256-byte OnebpHeader
+    uint8_t hdr_buf[256];
+    if (fread(hdr_buf, 1, 256, f) != 256) { fclose(f); return false; }
+    fclose(f);
+
+    // Validate magic: "1BP\0" = 0x00504231 (little-endian)
+    uint32_t magic;
+    memcpy(&magic, hdr_buf, 4);
+    if (magic != 0x00504231) return false;
+
+    // Read version
+    uint32_t version;
+    memcpy(&version, hdr_buf + 4, 4);
+    if (version < 1 || version > 3) return false;
+
+    // Extract fields from header at known offsets (OnebpHeader layout)
+    int32_t hidden_size;        memcpy(&hidden_size, hdr_buf + 16, 4);
+    int32_t num_layers;         memcpy(&num_layers, hdr_buf + 20, 4);
+    int32_t num_heads;          memcpy(&num_heads, hdr_buf + 24, 4);
+    int32_t num_kv_heads;       memcpy(&num_kv_heads, hdr_buf + 28, 4);
+    int32_t head_dim;           memcpy(&head_dim, hdr_buf + 32, 4);
+    int32_t intermediate_size;  memcpy(&intermediate_size, hdr_buf + 36, 4);
+    int32_t vocab_size;         memcpy(&vocab_size, hdr_buf + 40, 4);
+    int32_t max_seq_len;        memcpy(&max_seq_len, hdr_buf + 44, 4);
+    uint32_t tensor_count;      memcpy(&tensor_count, hdr_buf + 84, 4);
+    uint32_t num_experts;       memcpy(&num_experts, hdr_buf + 88, 4);
+    uint32_t n_expert_used;     memcpy(&n_expert_used, hdr_buf + 92, 4);
+    uint32_t arch_raw;          memcpy(&arch_raw, hdr_buf + 8, 4);
+    uint32_t quant_raw;         memcpy(&quant_raw, hdr_buf + 12, 4);
+
+    if (hidden_size <= 0 || num_layers <= 0 || vocab_size <= 0) return false;
+
+    cfg.hidden = cfg.hidden_size = hidden_size;
+    cfg.n_layers = cfg.num_layers = num_layers;
+    cfg.n_heads = cfg.num_heads = cfg.num_attention_heads = num_heads;
+    cfg.n_kv_heads = cfg.num_kv_heads = num_kv_heads ? num_kv_heads : num_heads;
+    cfg.head_dim = head_dim ? head_dim : (num_heads > 0 ? hidden_size / num_heads : 128);
+    cfg.n_ff = cfg.intermediate_size = intermediate_size;
+    cfg.vocab = cfg.vocab_size = vocab_size;
+    cfg.max_seq_len = max_seq_len ? max_seq_len : 2048;
+    cfg.n_experts = cfg.num_experts = num_experts;
+    cfg.num_experts_top = n_expert_used;
+    cfg.model_path = path;
+    cfg.format = ModelFormat::ONEBP;
+
+    // Read model_tag from offset 192 (64 chars)
+    char tag[65];
+    memcpy(tag, hdr_buf + 192, 64);
+    tag[64] = '\0';
+    cfg.model_name = tag;
+    if (cfg.model_name.empty()) {
+        auto slash = path.find_last_of('/');
+        auto dot = path.find_last_of('.');
+        cfg.model_name = path.substr(slash + 1, dot - slash - 1);
+    }
+
+    // Architecture string from enum
+    switch (arch_raw) {
+        case 0:  cfg.architecture = "qwen2"; break;
+        case 1:  cfg.architecture = "llama"; break;
+        case 2:  cfg.architecture = "mistral"; break;
+        case 3:  cfg.architecture = "phi3"; break;
+        case 4:  cfg.architecture = "gemma"; break;
+        case 5:  cfg.architecture = "falcon"; break;
+        case 6:  cfg.architecture = "starcoder"; break;
+        case 7:  cfg.architecture = "deepseek2"; break;
+        case 8:  cfg.architecture = "qwen2moe"; break;
+        case 9:  cfg.architecture = "qwen3moe"; break;
+        case 10: cfg.architecture = "qwen35"; break;
+        case 11: cfg.architecture = "qwen35moe"; break;
+        case 12: cfg.architecture = "zamba"; break;
+        case 13: cfg.architecture = "zamba2"; break;
+        case 14: cfg.architecture = "mamba"; break;
+        case 15: cfg.architecture = "gemma3"; break;
+        case 16: cfg.architecture = "gemma4"; break;
+        case 17: cfg.architecture = "olmo"; break;
+        case 18: cfg.architecture = "laguna"; break;
+        case 19: cfg.architecture = "zaya1"; break;
+        default: cfg.architecture = "unknown(" + std::to_string(arch_raw) + ")"; break;
+    }
+
+    // Quantization tag from enum
+    switch (quant_raw) {
+        case 0:  cfg.quantization = "BF16"; break;
+        case 1:  cfg.quantization = "Q1_0 (binary 1-bit)"; break;
+        case 2:  cfg.quantization = "TQ2_0 (ternary 2.06bpw)"; break;
+        case 3:  cfg.quantization = "TQ1_0 (ternary 1.69bpw)"; break;
+        case 4:  cfg.quantization = "IQ1_S (1.5bpw)"; break;
+        case 5:  cfg.quantization = "IQ1_M (1.75bpw)"; break;
+        case 6:  cfg.quantization = "FP16_Sherry"; break;
+        case 7:  cfg.quantization = "I8_Sherry"; break;
+        case 8:  cfg.quantization = "Q4_0"; break;
+        default: cfg.quantization = "unknown(" + std::to_string(quant_raw) + ")"; break;
+    }
+
+    return true;
+}
+
 // ── Scan directory for model files ──────────────────────────────────────────
 std::vector<ModelConfig> discover_models(const std::string& dir) {
     std::vector<ModelConfig> models;
@@ -202,7 +305,7 @@ std::vector<ModelConfig> discover_models(const std::string& dir) {
         auto dot = name.find_last_of('.');
         if (dot == std::string::npos) continue;
         std::string ext = name.substr(dot);
-        if (ext != ".gguf" && ext != ".h1b" && ext != ".safetensors" && ext != ".bin" && ext != ".q4nx") continue;
+        if (ext != ".gguf" && ext != ".h1b" && ext != ".safetensors" && ext != ".bin" && ext != ".q4nx" && ext != ".1bp") continue;
 
         std::string full = dir + "/" + name;
         struct stat st;
@@ -237,6 +340,7 @@ std::vector<ModelConfig> discover_models(const std::string& dir) {
             cfg.n_experts = cfg.num_experts = 16;
             ok = true;
         }
+        else if (ext == ".1bp") ok = read_onebp_metadata(full, cfg);
         else continue;
 
         if (ok) {

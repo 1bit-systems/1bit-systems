@@ -203,6 +203,12 @@ ZayaState* zaya_init(const char* weights_dir, const ZayaConfig* cfg) {
     // instead of crashing downstream (fixes #61).
     if (s->embed.empty() || fnorm.empty() || s->iscale.empty() || s->ibias.empty()) {
         fprintf(stderr, "zaya_init: failed to load one or more initial weight files — aborting init\n");
+        fprintf(stderr, "  Missing: %s%s%s%s\n",
+                s->embed.empty() ? "model_embed_tokens_weight.bin " : "",
+                fnorm.empty() ? "model_norm_weight.bin " : "",
+                s->iscale.empty() ? "model_input_hidden_states_scale.bin " : "",
+                s->ibias.empty() ? "model_input_hidden_states_bias.bin " : "");
+        fprintf(stderr, "  This model is not in Zaya .bin format — use ZINC/Vulkan or CPU backend, or convert to Zaya.\n");
         zaya_destroy(s);
         return nullptr;
     }

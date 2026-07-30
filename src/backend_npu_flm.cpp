@@ -37,6 +37,26 @@ static const char* flm_tag_for_model(const ModelConfig& cfg) {
 
     // Architecture + size mapping — covers the 20+ FLM-supported architectures
     int H = cfg.hidden_size;
+    const std::string& arch = cfg.architecture;
+
+    // Qwen3.5 Gate-Delta family
+    if (arch == "qwen35" || arch == "qwen35moe") {
+        if (H <= 1024) return "qwen3.5:0.8b";
+        if (H <= 1536) return "qwen3.5:2b";
+        if (H <= 2560) return "qwen3.5:4b";
+        if (H <= 4096) return "qwen3.5:9b";
+        return "qwen3.5:9b";
+    }
+
+    // Qwen3.6-MoE
+    if (arch == "qwen36moe") {
+        return "qwen3.6-moe:35b-a3b";
+    }
+
+    // Gemma4
+    if (arch == "gemma4") {
+        return "gemma4-it:e4b";
+    }
 
     // Qwen3 family (default catch-all for most models)
     if (H <= 1024) return "qwen3:0.6b";

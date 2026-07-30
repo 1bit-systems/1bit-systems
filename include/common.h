@@ -45,6 +45,7 @@ enum class ModelFormat : uint8_t {
     Q4NX = 3,
     SAFETENSORS = 4,
     RAW_BIN = 5,
+    ONEBP = 6,
 };
 
 struct ModelConfig {
