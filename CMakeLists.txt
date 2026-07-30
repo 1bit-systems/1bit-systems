@@ -363,13 +363,20 @@ target_include_directories(vl_image PUBLIC
 target_compile_options(vl_image PRIVATE -O3 -std=c++23 -Wno-unused-result)
 
 
+# -- libonebp_model : 1BP model loader (used by vision_encoder and other targets) --
+add_library(onebp_model STATIC src/onebp_model.cpp)
+target_include_directories(onebp_model PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
+target_compile_options(onebp_model PRIVATE -O3 -std=c++23 -Wno-unused-result)
+
 # -- libvision_encoder : ViT encoder + vision-text projector (CPU, no HIP dep) --
 add_library(vision_encoder STATIC src/vision_encoder.cpp)
 target_include_directories(vision_encoder PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
 target_compile_options(vision_encoder PRIVATE -O3 -std=c++23 -Wno-unused-result)
-target_link_libraries(vision_encoder PUBLIC vl_image backend_manager)
+target_link_libraries(vision_encoder PUBLIC vl_image backend_manager onebp_model)
 
 # -- libwhisper : Speech-to-text (Whisper) ----------------------------------------------
 add_library(whisper STATIC src/whisper.cpp)
@@ -843,14 +850,22 @@ else()
     message(STATUS "flm: using existing binary at ${FLM_BINARY}")
 endif()
 
-# Add flm as a build dependency so rebuilds happen automatically
-add_custom_target(build_flm ALL
-    COMMAND ${CMAKE_COMMAND} --build ${FLM_BUILD_DIR} -j8
-    WORKING_DIRECTORY ${FLM_SOURCE_DIR}
-    COMMENT "Building FastFlowLM NPU engine"
-    BYPRODUCTS ${FLM_BINARY}
-)
-add_dependencies(unified_server build_flm)
+# Add flm as a build dependency so rebuilds happen automatically.
+# Guard: only add build_flm target if the binary was successfully built during configure.
+# FLM_*_PATH macros are always defined (with configure-time paths) so that
+# backend_npu_flm.cpp compiles regardless of FLM availability. The C++ code
+# already has a runtime fallback to /opt/rocm/bin/flm.
+if(EXISTS "${FLM_BINARY}")
+    add_custom_target(build_flm ALL
+        COMMAND ${CMAKE_COMMAND} --build ${FLM_BUILD_DIR} -j8
+        WORKING_DIRECTORY ${FLM_SOURCE_DIR}
+        COMMENT "Building FastFlowLM NPU engine"
+        BYPRODUCTS ${FLM_BINARY}
+    )
+    add_dependencies(unified_server build_flm)
+else()
+    message(STATUS "flm: FLM binary not available — skipping build_flm target")
+endif()
 
 target_compile_definitions(unified_server PRIVATE
     ROCM_CPP_STATIC_HIP=1
@@ -1256,10 +1271,10 @@ add_test(NAME test_oscar_attn_decode COMMAND test_oscar_attn_decode)
 set_tests_properties(test_oscar_attn_decode PROPERTIES LABELS "gpu_required" SKIP_RETURN_CODE 77)
 
 # -- tq2_to_q4nx : Convert 1BP TQ2 to Q4NX format for NPU inference ---------
-add_executable(tq2_to_q4nx tools/tq2_to_q4nx.cpp src/onebp_model.cpp)
+add_executable(tq2_to_q4nx tools/tq2_to_q4nx.cpp)
 target_include_directories(tq2_to_q4nx PRIVATE src/ ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(tq2_to_q4nx PRIVATE -O3 -std=c++23)
-target_link_libraries(tq2_to_q4nx PRIVATE pthread)
+target_link_libraries(tq2_to_q4nx PRIVATE onebp_model pthread)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # TRACK 3: LoRA Adapter Runtime

@@ -799,6 +799,17 @@ bool mage_vit_load_weights_1bp(const char* path, VisionWeights& vw) {
         return false;
     }
     auto& h = mdl.header;
+    // Model dimensions come from OnebpHeader::reserved[0..5].
+    // If ALL are 0 (e.g., freshly converted .1bp without ViT metadata),
+    // fail with a clear message rather than silently using wrong fallback (issue #1158).
+    bool all_zero = true;
+    for (int i = 0; i < 6; i++) { if (h.reserved[i] != 0) { all_zero = false; break; } }
+    if (all_zero) {
+        fprintf(stderr, "[mage_vit] FAIL: 1BP reserved fields all zero — "
+                "ViT model dimensions not populated.\n"
+                "Re-convert with a converter that writes ViT metadata.\n");
+        return false;
+    }
     int H = h.reserved[0] > 0 ? h.reserved[0] : 1024;
     int NL = h.reserved[1] > 0 ? h.reserved[1] : 24;
     int NH = h.reserved[2] > 0 ? h.reserved[2] : 16;

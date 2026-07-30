@@ -113,6 +113,8 @@ static inline rcpp_arch_t rcpp_arch_from_string(const char* s) {
     if (strcmp(s, "moonlight") == 0) return RCPP_ARCH_MOONLIGHT;
     if (strcmp(s, "kimi_vl")   == 0) return RCPP_ARCH_KIMI_VL;
     if (strcmp(s, "kimi_vl_a3b") == 0) return RCPP_ARCH_KIMI_VL;
+    // ── Qwen3.6-MoE (shared-expert MoE, Qwen2-compatible attention) ──
+    if (strcmp(s, "qwen35moe") == 0) return RCPP_ARCH_QWEN2;
     return RCPP_ARCH_BITNET;
 }
 

@@ -630,7 +630,6 @@ void RestHandler::handle_generate(const json& request,
        
         int length_limit = request.value("max_tokens", 4096);
         auto load_start_time = time_utils::now();
-        // TODO: Use Another Check Function avoid loading again
         if (!ensure_model_loaded(model)) {
             json error_response = {{"error", "Failed to load " + model + " model!"}};
             send_response(error_response);

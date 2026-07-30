@@ -431,8 +431,8 @@ bool GgufReader::read_kv_value(uint32_t vtype, KV& out) {
         case 7: { uint8_t v; if (fread(&v, 1, 1, f_) != 1) return false; out.u = v; return true; }
         case 8: { out.s = read_string(); return true; }
         case 9: {
-            uint32_t at; fread(&at, 4, 1, f_);
-            uint64_t an; fread(&an, 8, 1, f_);
+            uint32_t at; if (fread(&at, 4, 1, f_) != 1) return false;
+            uint64_t an; if (fread(&an, 8, 1, f_) != 1) return false;
             static constexpr uint64_t MAX_ARRAY_COUNT = 1000000;
             if (an > MAX_ARRAY_COUNT) {
                 for (uint64_t j = 0; j < an; j++) skip_kv_value(at);
@@ -460,8 +460,8 @@ void GgufReader::skip_kv_value(uint32_t vtype) {
         case 4: case 5: case 6: fseeko(f_, 4, SEEK_CUR); break;
         case 8: { read_string(); break; }
         case 9: {
-            uint32_t at; fread(&at, 4, 1, f_);
-            uint64_t an; fread(&an, 8, 1, f_);
+            uint32_t at; if (fread(&at, 4, 1, f_) != 1) return;
+            uint64_t an; if (fread(&an, 8, 1, f_) != 1) return;
             static constexpr uint64_t MAX_ARRAY_COUNT = 1000000;
             if (an > MAX_ARRAY_COUNT) an = 0;
             if (at == 8) { for (uint64_t j = 0; j < an; j++) read_string(); }
@@ -487,7 +487,7 @@ bool GgufReader::open(const std::string& path) {
 
     for (uint64_t i = 0; i < kv_count; i++) {
         std::string key = read_string();
-        uint32_t vtype; fread(&vtype, 4, 1, f_);
+        uint32_t vtype; if (fread(&vtype, 4, 1, f_) != 1) { fclose(f_); f_ = nullptr; return false; }
         KV kv;
         if (!read_kv_value(vtype, kv)) { fclose(f_); f_ = nullptr; return false; }
         kv_[key] = std::move(kv);
@@ -501,16 +501,16 @@ bool GgufReader::open(const std::string& path) {
     static constexpr uint64_t MAX_DIM_SIZE = 1ULL << 24;
     for (uint64_t i = 0; i < tensor_count; i++) {
         std::string name = read_string();
-        uint32_t ndim; fread(&ndim, 4, 1, f_);
+        uint32_t ndim; if (fread(&ndim, 4, 1, f_) != 1) { fclose(f_); f_ = nullptr; return false; }
         if (ndim > MAX_NDIM) { fclose(f_); f_ = nullptr; return false; }
         GgufTensorInfo ti;
         ti.shape.resize(ndim);
         for (uint32_t d = 0; d < ndim; d++) {
-            fread(&ti.shape[d], 8, 1, f_);
+            if (fread(&ti.shape[d], 8, 1, f_) != 1) { fclose(f_); f_ = nullptr; return false; }
             if (ti.shape[d] > MAX_DIM_SIZE) { fclose(f_); f_ = nullptr; return false; }
         }
-        fread(&ti.dtype, 4, 1, f_);
-        uint64_t rel_offset; fread(&rel_offset, 8, 1, f_);
+        if (fread(&ti.dtype, 4, 1, f_) != 1) { fclose(f_); f_ = nullptr; return false; }
+        uint64_t rel_offset; if (fread(&rel_offset, 8, 1, f_) != 1) { fclose(f_); f_ = nullptr; return false; }
         ti.numel = 1;
         for (auto s : ti.shape) ti.numel *= (s ? s : 1);
         ti.abs_offset = rel_offset; // fixed up to absolute after the loop

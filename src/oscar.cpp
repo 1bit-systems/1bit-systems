@@ -53,13 +53,24 @@ extern "C" int oscar_load_rotations(const char* path, OscarRots* rots) {
     rots->n_heads_kv = hdr.n_heads_kv;
 
     size_t n = (size_t)rots->n_layers * rots->head_dim * rots->head_dim * 2;
+    if (n == 0 || n > 100000000) {
+        fprintf(stderr, "oscar: invalid rotation size %zu\n", n);
+        return -1;
+    }
     rots->data = (float*)malloc(n * sizeof(float));
     if (!rots->data) {
         fprintf(stderr, "oscar: malloc %zu floats failed\n", n);
         return -1;
     }
 
-    f.read((char*)rots->data, n * sizeof(float));
+    f.read((char*)rots->data, (std::streamsize)(n * sizeof(float)));
+    if (!f) {
+        fprintf(stderr, "oscar: short read %zu floats\n", n);
+        free(rots->data);
+        rots->data = nullptr;
+        f.close();
+        return -1;
+    }
     f.close();
     return 0;
 }

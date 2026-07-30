@@ -1,1 +1,35 @@
-IyBWYWxpZGF0aW9uIEdhcHMgJiBFbmdpbmVlcmluZyBCbG9ja2VycwoKPiAqKkNhbm9uaWNhbCBnYXAgdHJhY2tlci4qKiBVcGRhdGVkIDIwMjYtMDctMjkgYWZ0ZXIgbGl2ZSB2YWxpZGF0aW9uIG9uIFN0cml4IEhhbG8KPiAoUnl6ZW4gQUkgTWF4KyAzOTUsIFJhZGVvbiA4MDYwUywgMjU2IEdCL3MsIE5QVSBmaXJtd2FyZSAxLjEuMi42NSwgUk9DbSA3LjEpLgo+CiPiIEV2ZXJ5IGNsYWltIGluIGBkb2NzL3dpa2kvbW9kZWxzLm1kYCB3YXMgZWl0aGVyIHZhbGlkYXRlZCBvbiByZWFsIGhhcmR3YXJlLAo+IGlkZW50aWZpZWQgYXMgYSBkb2N1bWVudGF0aW9uIGVycm9yLCBvciBjYXRhbG9ndWVkIGhlcmUgYXMgYSBnZW51aW5lIGVuZ2luZWVyaW5nIGdhcC4KCi0tLQoKIyMg8J+QmyBDb25maXJtZWQgQnVncwoKIyMjIEIxLiBNYW1iYTEgR0dVRiBNZXRhZGF0YSBLZXkgTWlzbWF0Y2gKCioqTG9jYXRpb24qKjogYHRvb2xzL3Rlc3RfbWFtYmExX2JhY2tlbmQuY3BwYCAoYWxzbyBgc3JjL2JhY2tlbmRfbWFtYmExLmNwcGAgcmVhZCBwYXRoKQoKKipJc3N1ZSoqOiBUaGUgY29uZmlnIHJlYWRlciBsb29rcyBmb3IgR0dVRiBtZXRhZGF0YSBrZXlzIHdpdGggYSBgbWFtYmEuYHByZWZpeAooZS5nLiBgbWFtYmEuYmxvY2tfY291bnRgLCBgbWFtYmEuZW1iZWRkaW5nX2xlbmd0aGApLCBidXQgdGhlIGFjdHVhbCBHR1VGCmZpbGVzIHN0b3JlIHRoZXNlIGtleXMgKip3aXRob3V0KiogdGhlIHByZWZpeCAoZS5nLiBgYmxvY2tfY291bnRgLApgZW1iZWRkaW5nX2xlbmd0aGApLgoKKipBZmZlY3RlZCBrZXlzKio6CnxDb2RlIHJlYWRzfEZpbGUgaGFzfEVmZmVjdHwKfC0tLXwtLS18LS0tLXwKfGBtYW1iYS5ibG9ja19jb3VudGB8YGJsb2NrX2NvdW50YHxudW1fbGF5ZXJzID0gc3RhY2sgZ2FyYmFnZSB8CnxgbWFtYmEuZW1iZWRkaW5nX2xlbmd0aGB8YGVtYmVkZGluZ19sZW5ndGhgfHhpZGRlbl9zaXplID0gc3RhY2sgZ2FyYmFnZSB8CnxgbWFtYmEudm9jYWJfc2l6ZWB8YHZvY2FiX3NpemVgfHZvY2FiX3NpemUgPSBzdGFjayBnYXJiYWdlIHwKfGBtYW1iYS5zc20uc3RhdGVfc2l6ZWB8YHNzbS5zdGF0ZV9zaXplYHxkX3N0YXRlID0gc3RhY2sgZ2FyYmFnZSB8CgoqKkltcGFjdCoqOiBDb25maWcgd2FzIHJlYWQgYXMgSGlkZGVuPTIwNDgsIExheWVycz00MCwgVm9jYWI9MjYyMjcyLCBkX3N0YXRlPTEyOAppbnN0ZWFkIG9mIHRoZSByZWFsIHZhbHVlcyAoSGlkZGVuPTExNTIsIExheWVycz0zMCwgVm9jYWI9NTAzMDQsIGRfc3RhdGU9MTYpLgpUaGlzIGNhdXNlZCBgYmFja2VuZC0+aW5pdCgpYCB0byBmYWlsIGF0IGxheWVyIDMwIChwYXN0IHRoZSBhY3R1YWwgMzAgbGF5ZXJzKS4KCioqRml4IGFwcGxpZWQqKjogUmVtb3ZlZCBgbWFtYmEuYHByZWZpeCBmcm9tIGtleSBsb29rdXBzLiBCbGFja01hbWJhIDEuNUIgbm93CnJ1bnMgYXQgKio3OS45IHRvay9zKiogKHZhbGlkYXRlZCwgbWF0Y2hlcyBkb2N1bWVudGVkIDc5LjQpLgo=
+# Validation Gaps & Engineering Blockers
+
+> **Canonical gap tracker.** Updated 2026-07-29 after live validation on Strix Halo
+> (Ryzen AI Max+ 395, Radeon 8060S, 256 GB/s, NPU firmware 1.1.2.65, ROCm 7.1).
+>
+#â Every claim in `docs/wiki/models.md` was either validated on real hardware,
+> identified as a documentation error, or catalogued here as a genuine engineering gap.
+
+---
+
+## ðŸ› Confirmed Bugs
+
+### B1. Mamba1 GGUF Metadata Key Mismatch
+
+**Location**: `tools/test_mamba1_backend.cpp` (also `src/backend_mamba1.cpp` read path)
+
+**Issue**: The config reader looks for GGUF metadata keys with a `mamba.`prefix
+(e.g. `mamba.block_count`, `mamba.embedding_length`), but the actual GGUF
+files store these keys **without** the prefix (e.g. `block_count`,
+`embedding_length`).
+
+**Affected keys**:
+|Code reads|File has|Effect|
+|---|---|----|
+|`mamba.block_count`|`block_count`|num_layers = stack garbage |
+|`mamba.embedding_length`|`embedding_length`|xidden_size = stack garbage |
+|`mamba.vocab_size`|`vocab_size`|vocab_size = stack garbage |
+|`mamba.ssm.state_size`|`ssm.state_size`|d_state = stack garbage |
+
+**Impact**: Config was read as Hidden=2048, Layers=40, Vocab=262272, d_state=128
+instead of the real values (Hidden=1152, Layers=30, Vocab=50304, d_state=16).
+This caused `backend->init()` to fail at layer 30 (past the actual 30 layers).
+
+**Fix applied**: Removed `mamba.`prefix from key lookups. BlackMamba 1.5B now
+runs at **79.9 tok/s** (validated, matches documented 79.4).

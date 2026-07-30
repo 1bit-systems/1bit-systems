@@ -106,3 +106,4 @@ engine/npu/xclbins/backup_8tile_insts/
 build-npu/
 engine/npu/build-npu/
 build/*.ninja*
+.workspace/

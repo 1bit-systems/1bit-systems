@@ -144,7 +144,29 @@ extern "C" int rcpp_prefill_tune(const void* A_dev, const void* B_packed_dev, vo
 extern "C" void rcpp_prefill_dispatch(const void* A_dev, const void* B_packed_dev, void* C_dev,
                            int M, int N, int K, void* stream) {
     int variant = rcpp_prefill_tune(A_dev, B_packed_dev, C_dev, M, N, K, 3, 10, stream);
-    s_variants[variant](A_dev, B_packed_dev, C_dev, M, N, K, stream);
+
+    // FP16-B requires a pre-decoded float16 B buffer, not the packed int4 buffer.
+    // Without this, the FP16-B launcher interprets packed int4 data as fp16,
+    // producing silently wrong GEMM results (issue #1139).
+    void* b_arg = const_cast<void*>(B_packed_dev);
+    void* B_fp16 = nullptr;
+    bool needs_cleanup = false;
+    if (variant == RCPP_PREFILL_VARIANT_FP16B) {
+        size_t b_bytes = (size_t)K * N * sizeof(__half);
+        HIP_CHECK(hipMalloc(&B_fp16, b_bytes));
+        rcpp_decode_pk_i4_to_fp16_launch(B_packed_dev, B_fp16, K, N, stream);
+        HIP_CHECK(hipStreamSynchronize((hipStream_t)stream));
+        b_arg = B_fp16;
+        needs_cleanup = true;
+    }
+
+    s_variants[variant](A_dev, b_arg, C_dev, M, N, K, stream);
+
+    if (needs_cleanup) {
+        HIP_CHECK(hipStreamSynchronize((hipStream_t)stream));
+        HIP_CHECK(hipFree(B_fp16));
+    }
+
     // Synchronize after the final tuned launch so callers can read C_dev
     // immediately (issue #956). The tuning phase already incurred sync
     // overhead, so one more sync for the actual dispatch is negligible.

@@ -64,10 +64,23 @@ struct Zamba2Tokenizer {
                 if (vtype == 0 || vtype == 1 || vtype == 7) fseek(f, 1, SEEK_CUR);
                 else if (vtype >= 2 && vtype <= 6) fseek(f, 4, SEEK_CUR);
                 else if (vtype >= 10 && vtype <= 12) fseek(f, 8, SEEK_CUR);
-                else if (vtype == 8) { uint64_t slen; fread(&slen, 8, 1, f); fseek(f, slen, SEEK_CUR); }
-                else if (vtype == 9) { uint32_t n_arr, at; fread(&n_arr, 4, 1, f); fread(&at, 4, 1, f);
+                else if (vtype == 8) {
+                    uint64_t slen = 0;
+                    if (fread(&slen, 8, 1, f) != 1) slen = 0;
+                    if (slen <= (1ULL << 24)) fseek(f, (long)slen, SEEK_CUR);
+                    else fseek(f, 0, SEEK_END); // skip garbage past reasonable bounds
+                }
+                else if (vtype == 9) {
+                    uint32_t n_arr = 0, at = 0;
+                    fread(&n_arr, 4, 1, f); fread(&at, 4, 1, f);
+                    if (n_arr > 1000000) n_arr = 0; // cap array count
                     for (uint32_t j = 0; j < n_arr; j++) {
-                        if (at == 2 || at == 8) { uint64_t sl; fread(&sl, 8, 1, f); fseek(f, sl, SEEK_CUR); }
+                        if (at == 2 || at == 8) {
+                            uint64_t sl = 0;
+                            if (fread(&sl, 8, 1, f) != 1) sl = 0;
+                            if (sl <= (1ULL << 24)) fseek(f, (long)sl, SEEK_CUR);
+                            else fseek(f, 0, SEEK_END);
+                        }
                         else if (at <= 7) fseek(f, 1, SEEK_CUR);
                         else fseek(f, 8, SEEK_CUR);
                     }

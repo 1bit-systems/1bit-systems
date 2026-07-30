@@ -178,8 +178,8 @@ struct DFlashSpec {
         printf("DFlash: %dL %dH %dV\n", L, H, V);
         
         k_cache.resize(L); v_cache.resize(L);
-        for(auto& k:k_cache) k.resize(max_pos*NKV*HD);
-        for(auto& v:v_cache) v.resize(max_pos*NKV*HD);
+        for(auto& k:k_cache) k.resize((size_t)max_pos * NKV * HD);
+        for(auto& v:v_cache) v.resize((size_t)max_pos * NKV * HD);
         return true;
     }
     
@@ -305,8 +305,8 @@ struct LagunaInference {
         printf("Laguna: %dL %dH %dV %dE/%d\n", L, H, V, NE, NEU);
         
         k_cache.resize(L); v_cache.resize(L);
-        for(auto& k:k_cache) k.resize(max_pos*NKV*HD);
-        for(auto& v:v_cache) v.resize(max_pos*NKV*HD);
+        for(auto& k:k_cache) k.resize((size_t)max_pos * NKV * HD);
+        for(auto& v:v_cache) v.resize((size_t)max_pos * NKV * HD);
         return true;
     }
     

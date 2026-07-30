@@ -86,16 +86,54 @@ int main(int argc, char** argv) {
     };
     gu("hidden_size", hdr.hidden_size) || gu("embedding_length", hdr.hidden_size);
     gu("num_hidden_layers", hdr.num_layers) || gu("block_count", hdr.num_layers);
+
+    // ── MoE architecture auto-detection (works for any arch name, issue #1144) ──
+    // Detect MoE by checking for expert-stacked tensors (ndim==3 in GGUF).
+    {
+        bool is_moe = false;
+        for (auto& tn : reader.tensor_names()) {
+            auto* inf = reader.tensor_info(tn);
+            if (inf && inf->shape.size() == 3) { is_moe = true; break; }
+        }
+        if (is_moe) {
+            // Infer intermediate_size and expert count from first MoE tensor
+            if (!hdr.intermediate_size || !hdr.num_experts) {
+                auto* exps = reader.tensor_info("blk.0.ffn_gate_exps.weight");
+                if (!exps) exps = reader.tensor_info("blk.0.ffn_down_exps.weight");
+                if (!exps) exps = reader.tensor_info("blk.0.ffn_up_exps.weight");
+                if (exps && exps->shape.size() >= 3) {
+                    if (!hdr.intermediate_size) hdr.intermediate_size = (int)exps->shape[1];
+                    if (!hdr.num_experts)       hdr.num_experts = (int)exps->shape[0];
+                    printf("  MoE: %d experts, FFN dim=%d (from tensor shape)\n",
+                           hdr.num_experts, hdr.intermediate_size);
+                }
+            }
+            // Infer attention heads from Q projection shape
+            if ((!hdr.num_attention_heads || !hdr.head_dim) && hdr.hidden_size > 0) {
+                auto* q = reader.tensor_info("blk.0.attn_q.weight");
+                if (q && q->shape.size() >= 2) {
+                    int q_dim = (int)q->shape[1];
+                    int hd = 128;
+                    if (hdr.hidden_size >= 8192) hd = 256;
+                    else if (hdr.hidden_size >= 4096) hd = 128;
+                    else hd = 64;
+                    if (!hdr.head_dim) hdr.head_dim = hd;
+                    if (!hdr.num_attention_heads && hdr.head_dim > 0)
+                        hdr.num_attention_heads = q_dim / hdr.head_dim;
+                    if (!hdr.num_kv_heads && hdr.head_dim > 0) {
+                        auto* k = reader.tensor_info("blk.0.attn_k.weight");
+                        if (k && k->shape.size() >= 2)
+                            hdr.num_kv_heads = (int)k->shape[1] / hdr.head_dim;
+                    }
+                }
+            }
+            if (!hdr.n_expert_used) hdr.n_expert_used = 8;
+        }
+    }
+
     // Attention heads are optional — Mamba/MoE architectures have none.
     // Key-value heads default to attention heads; head_dim derived if absent.
-    gu("num_attention_heads", hdr.num_attention_heads) || gu("attention.head_count", hdr.num_attention_heads);
-    gu("num_key_value_heads", hdr.num_kv_heads) || gu("attention.head_count_kv", hdr.num_kv_heads);
-    if (hdr.num_attention_heads > 0 && !hdr.num_kv_heads)
-        hdr.num_kv_heads = hdr.num_attention_heads;
-    gu("head_dim", hdr.head_dim) || gu("attention.key_length", hdr.head_dim);
-    if (!hdr.head_dim && hdr.num_attention_heads > 0)
-        hdr.head_dim = hdr.hidden_size / hdr.num_attention_heads;
-    gu("intermediate_size", hdr.intermediate_size) || gu("feed_forward_length", hdr.intermediate_size);
+
     // Try explicit vocab_size; fall back to token_embd.weight rows or tokens array.
     gu("vocab_size", hdr.vocab_size);
     if (!hdr.vocab_size) {
@@ -118,6 +156,20 @@ int main(int argc, char** argv) {
                 hdr.hidden_size, hdr.num_layers, hdr.num_attention_heads, hdr.vocab_size);
         return 1;
     }
+
+    // Set architecture type based on GGUF arch string
+    {
+        std::string arch_str = reader.architecture();
+        if (arch_str == "qwen35moe") {
+            hdr.arch = ONEBP_MOE;
+        } else if (arch_str == "qwen3" || arch_str == "qwen2") {
+            hdr.arch = ONEBP_DENSE;  // default is already 0
+        } else if (arch_str == "deepseek2" || arch_str == "deepseek3") {
+            hdr.arch = ONEBP_DEEPSEEK2;
+        }
+        // else keep default ONEBP_DENSE (0) for standard dense transformers
+    }
+
     printf("Model: H=%d L=%d NH=%d NKV=%d HD=%d IM=%d V=%d\n",
            hdr.hidden_size, hdr.num_layers, hdr.num_attention_heads,
            hdr.num_kv_heads, hdr.head_dim, hdr.intermediate_size, hdr.vocab_size);

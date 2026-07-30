@@ -110,7 +110,14 @@ struct VK {
     VkShaderModule load_shader(const char* spv_path) {
         FILE* f = fopen(spv_path, "rb");
         if (!f) { fprintf(stderr, "[vk] load_shader: cannot open %s\n", spv_path); return VK_NULL_HANDLE; }
-        fseek(f, 0, SEEK_END); size_t sz = ftell(f); fseek(f, 0, SEEK_SET);
+        fseek(f, 0, SEEK_END);
+        long sz_l = ftell(f);
+        if (sz_l <= 0 || (sz_l & 3) != 0) {
+            fprintf(stderr, "[vk] load_shader: invalid SPIR-V size %ld for %s\n", sz_l, spv_path);
+            fclose(f); return VK_NULL_HANDLE;
+        }
+        fseek(f, 0, SEEK_SET);
+        size_t sz = (size_t)sz_l;
         std::vector<uint32_t> code(sz/4);
         size_t nread = fread(code.data(), 4, code.size(), f);
         fclose(f);

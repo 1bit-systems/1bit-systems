@@ -34,18 +34,21 @@ std::vector<float> whisper_load_wav(const std::string& path, int* out_sample_rat
             fseek(f, 6, SEEK_CUR); // skip byte rate + block align
             if (fread(&bits, 2, 1, f) != 1) { fclose(f); return {}; }
             if (chunk_size > 16) fseek(f, chunk_size - 16, SEEK_CUR);
+            else if (chunk_size > 0) fseek(f, chunk_size, SEEK_CUR); // skip remaining fmt bytes
         } else if (memcmp(chunk_id, "data", 4) == 0) {
             int bytes_per_sample = (bits >= 8) ? (bits / 8) : 2;
-            int n_samples = (bytes_per_sample > 0) ? (int)(chunk_size / bytes_per_sample) : 0;
+            if (bytes_per_sample <= 0) bytes_per_sample = 2;
+            int n_samples = (bytes_per_sample > 0) ? (int)(chunk_size / (uint32_t)bytes_per_sample) : 0;
+            if (n_samples <= 0 || n_samples > 100000000) { fclose(f); return {}; }
             std::vector<float> pcm(n_samples);
             if (bits == 16) {
                 std::vector<int16_t> buf(n_samples);
-                fread(buf.data(), 2, n_samples, f);
-                for (int i = 0; i < n_samples; i++) pcm[i] = buf[i] / 32768.0f;
+                size_t nr = fread(buf.data(), 2, n_samples, f);
+                for (int i = 0; i < (int)nr; i++) pcm[i] = buf[i] / 32768.0f;
             } else if (bits == 32) {
                 std::vector<float> buf(n_samples);
-                fread(buf.data(), 4, n_samples, f);
-                pcm = std::move(buf);
+                size_t nr = fread(buf.data(), 4, n_samples, f);
+                pcm.assign(buf.data(), buf.data() + nr);
             }
             fclose(f);
             if (out_sample_rate) *out_sample_rate = sample_rate;

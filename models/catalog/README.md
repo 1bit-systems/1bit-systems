@@ -1,4 +1,4 @@
-# 1bit.systems Model Catalog — 46+ Models (1BP + Documented)
+# 1bit.systems Model Catalog — 47+ Models (1BP + Documented)
 
 All models available in **1BP format** — single-file, zero-config, memory-mappable —
 plus documented models from the Zyphra ecosystem (EEG, TTS) that aren't convertible to 1BP.
@@ -22,12 +22,13 @@ Converted via C++ toolchain (`tools/gguf_to_onebp.cpp`), zero Python at runtime.
 
 ## Model Families
 
-### Qwen — 4
+### Qwen — 5
 | Model | Params | 1BP Size | Backend | Architecture |
 |-------|:------:|:--------:|---------|:------------:|
 | Qwen3-0.6B | 0.6B | 356 MB | ZINC / NPU / HIP | qwen3 |
 | Qwen3-4B | 4B | 2.2 GB | ZINC / NPU / HIP | qwen3 |
 | Qwen3-8B | 8B | 4.1 GB | ZINC / NPU / HIP | qwen3 |
+| Qwen3.6-35B-A3B | 35B (3B active) | 20 GB | ZINC / NPU | qwen35moe |
 | Qwen2.5-0.5B | 0.5B | 328 MB | ZINC / NPU | qwen2 |
 
 ### Llama Family — 4
@@ -169,7 +170,7 @@ here for completeness of the Zyphra ecosystem reference.
 | 📝 Documented (non-LLM) | 6 | ZUNA1.1, ZUNA (v1), Zonos-v0.1-hybrid, Zonos-v0.1-transformer, ZONOS2, Zonos-v0.1-speaker-embedding |
 | **Total Zyphra models** | **28** | Complete HF portfolio (excl. legacy/quants) |
 
-## Total: 46 1BP models + 12 documented = 58 entries
+## Total: 47 1BP models + 12 documented = 59 entries
 
 Zyphra LLMs converted via C++ toolchain (`tools/gguf_to_onebp`).
 Zyphra EEG/TTS models documented as ecosystem reference (not 1BP convertible).

@@ -498,7 +498,7 @@ struct GenericBackend : Backend {
         for (int i = 0; i < H; i++) x[i] = x_in[i];
 
         static const char* _nl = getenv("CPU_NUM_LAYERS");
-        int _n_layers = _nl ? atoi(_nl) : cfg.n_layers;
+        int _n_layers = (_nl && _nl[0]) ? atoi(_nl) : cfg.n_layers;
         for (int il = 0; il < _n_layers; il++) {
             auto& l = layers[il];
             int kv_begin = pos * NKV * HD;
