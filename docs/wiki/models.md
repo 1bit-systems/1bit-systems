@@ -55,7 +55,7 @@ Next-gen dense transformers with improved multi-lingual and reasoning performanc
 
 - **Qwen3 on NPU:** 0.6B, 1.7B, 4B, 8B, 4B-Instruct-2507, 4B-Thinking-2507 (all build stanzas in build_xclbins.sh — run `./build_xclbins.sh qwen3_0_6b` to compile any)
 - **Qwen3.5 on NPU:** 0.8B, 2B, 4B, 9B (GateDeltaNet variants, build stanzas in build_xclbins.sh)
-- **Qwen3-VL:** 4B-Instruct on NPU (build stanza in build_xclbins.sh, 6 xclbins) — vision-language
+- **Qwen3-VL:** 4B-Instruct on NPU (Peano build stanza, 6 xclbins) — vision-language
 - **GPU HIP:** GGUF through ROCm HIP — validated (kernel bench: 431 tok/s Q1, 543 tok/s TQ2)
 - **GPU Vulkan:** Qwen3-0.6B at 259 tok/s decode, 333 tok/s prefill — ✅ validated (ZINC bench)
 
@@ -72,7 +72,7 @@ Meta's dense transformers. Broad backend coverage — GGUF runs on all GPU backe
 
 Mistral dense transformers and Pixtral vision-language models. GGUF through GPU HIP.
 
-- **NPU:** Mistral-7B build stanza in build_xclbins.sh (`build_mistral_7b`) — GEMM dims match Llama-3.1-8B. SWA attention MLIR generator (`generators/n1_core_swa.py`) supports sliding-window attention. Run `./build_xclbins.sh mistral_7b` to compile xclbins.
+- **NPU:** Mistral-7B Peano build stanza (`build_mistral_7b`) — GEMM dims match Llama-3.1-8B. SWA attention MLIR generator (`generators/n1_core_swa.py`) supports sliding-window attention. Run `./build_xclbins.sh mistral_7b` to compile xclbins.
 - **GPU HIP:** GGUF — validated
 - **GPU Vulkan:** GGUF — functional, perf data pending
 - **CPU:** GGUF — functional, perf data pending
@@ -90,7 +90,7 @@ Google's dense transformers. Gemma4 E2B/E4B with build stanzas in build_xclbins.
 
 Microsoft's 4B dense transformer. NPU-only at present.
 
-- **NPU:** Phi4-Mini-Instruct (build stanza in build_xclbins.sh, 4 xclbins)
+- **NPU:** Phi4-Mini-Instruct (Peano build stanza, 4 xclbins)
 - **GPU HIP:** ❌ not yet
 - **GPU Vulkan:** ❌ not yet
 - **CPU:** ✅ universal GGUF backend
