@@ -302,11 +302,6 @@ public:
                  int batch, int ctx_len, std::vector<float>& logits) {
         if (!ok_) return false;
         
-        static constexpr int MAX_BATCH = 32;
-        if (batch > MAX_BATCH) {
-            fprintf(stderr, "[fused_engine] batch=%d exceeds MAX_BATCH=%d, clamping\n", batch, MAX_BATCH);
-            batch = MAX_BATCH;
-        }
         int M = batch;
         int K = cfg_.H;
         int qkv_n = cfg_.qkv_n();
