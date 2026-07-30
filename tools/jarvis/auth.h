@@ -2,6 +2,7 @@
 // Phase 2.3: Commercial API (SaaS Layer).
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -80,5 +81,8 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
+
+// SHA-256 hex digest (FIPS 180-4, no external dependencies)
+std::string sha256_hex(const std::string& input);
 
 } // namespace jarvis

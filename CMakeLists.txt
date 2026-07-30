@@ -1373,6 +1373,33 @@ if(USE_DIFFUSION)
 endif()
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Phase 2.3 Commercial API tests (auth + billing)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Auth module unit tests
+add_executable(test_auth
+    tests/test_auth.cpp
+    tools/jarvis/auth.cpp)
+target_include_directories(test_auth PRIVATE tools/ src/ include/)
+target_compile_options(test_auth PRIVATE -O3 -std=c++23)
+target_link_libraries(test_auth PRIVATE nlohmann_json::nlohmann_json)
+add_test(NAME test_auth COMMAND test_auth)
+set_tests_properties(test_auth PROPERTIES LABELS "host")
+
+# Billing module unit tests
+add_executable(test_billing
+    tests/test_billing.cpp
+    tools/jarvis/auth.cpp
+    tools/jarvis/billing.cpp)
+target_include_directories(test_billing PRIVATE tools/ src/ include/)
+target_compile_options(test_billing PRIVATE -O3 -std=c++23)
+target_link_libraries(test_billing PRIVATE nlohmann_json::nlohmann_json)
+add_test(NAME test_billing COMMAND test_billing)
+set_tests_properties(test_billing PROPERTIES LABELS "host")
+
+message(STATUS "tests: Phase 2.3 Commercial API tests enabled")
+
+# ═══════════════════════════════════════════════════════════════════════════
 # TRACK 2: New 1BP model architecture additions
 # ═══════════════════════════════════════════════════════════════════════════
 message(STATUS "models: 35+ architectures supported for 1BP conversion")

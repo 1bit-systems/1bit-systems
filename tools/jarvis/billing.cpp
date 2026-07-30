@@ -36,6 +36,101 @@ static PlanTier string_to_plan_tier(const std::string& s) {
     return PlanTier::FREE;
 }
 
+// ── Stripe webhook signature verification ──────────────────────────────
+// Stripe signs webhook payloads with an HMAC-SHA256 signature.
+// The Stripe-Signature header has the format:
+//   t=<timestamp>,v1=<signature_hex>
+// Where signature = HMAC-SHA256(payload, webhook_secret)
+//
+// This implementation uses self-contained HMAC-SHA256 (RFC 2104 / FIPS 180-4)
+// with no external dependencies.
+
+// SHA-256-compatible HMAC for Stripe verification
+// Returns 64-character lowercase hex string.
+static std::string hmac_sha256_hex(const std::string& key, const std::string& msg) {
+    const size_t BLOCK_SIZE = 64;
+
+    // If key is longer than block size, hash it first
+    std::string kp = key;
+    if (kp.size() > BLOCK_SIZE) {
+        kp = sha256_hex(kp);
+    }
+
+    // Pad key to block size with zeros
+    uint8_t k_pad[BLOCK_SIZE] = {0};
+    std::memcpy(k_pad, kp.data(), kp.size());
+
+    // Inner pad (ipad = 0x36) and outer pad (opad = 0x5c)
+    uint8_t ikey_pad[BLOCK_SIZE], okey_pad[BLOCK_SIZE];
+    for (size_t i = 0; i < BLOCK_SIZE; i++) {
+        ikey_pad[i] = k_pad[i] ^ 0x36;
+        okey_pad[i] = k_pad[i] ^ 0x5c;
+    }
+
+    // Inner hash: SHA256((K ⊕ ipad) || msg)
+    std::string inner;
+    inner.reserve(BLOCK_SIZE + msg.size());
+    inner.append(reinterpret_cast<const char*>(ikey_pad), BLOCK_SIZE);
+    inner.append(msg);
+    std::string inner_hash = sha256_hex(inner);
+
+    // Outer hash: SHA256((K ⊕ opad) || inner_hash)
+    std::string outer;
+    outer.reserve(BLOCK_SIZE + inner_hash.size());
+    outer.append(reinterpret_cast<const char*>(okey_pad), BLOCK_SIZE);
+    outer.append(inner_hash);
+    return sha256_hex(outer);
+}
+
+// Parse Stripe-Signature header and verify against payload.
+// Returns true if signature is valid or if no secret is configured (dev mode).
+static bool verify_stripe_signature(const std::string& payload, const std::string& sig_header) {
+    const char* secret = getenv("STRIPE_WEBHOOK_SECRET");
+    if (!secret || !*secret) {
+        // No secret configured — accept all webhooks (dev mode)
+        return true;
+    }
+
+    if (sig_header.empty()) return false;
+
+    // Parse "t=<timestamp>,v1=<sig>,v0=<old_sig>..."
+    // We only verify v1 signatures.
+    std::string expected_sig;
+    std::string timestamp;
+    std::string webhook_secret(secret);
+
+    // Split by commas
+    size_t pos = 0;
+    size_t comma;
+    do {
+        comma = sig_header.find(',', pos);
+        std::string part = sig_header.substr(pos, comma == std::string::npos ? comma : comma - pos);
+        pos = comma + 1;
+
+        if (part.size() > 2 && part[0] == 't' && part[1] == '=') {
+            timestamp = part.substr(2);
+        } else if (part.size() > 3 && part.compare(0, 3, "v1=") == 0) {
+            expected_sig = part.substr(3);
+        }
+    } while (comma != std::string::npos);
+
+    if (timestamp.empty() || expected_sig.empty()) return false;
+
+    // Build the signed payload string: "<timestamp>.<payload>"
+    std::string signed_payload = timestamp + "." + payload;
+
+    // Compute expected HMAC
+    std::string computed_sig = hmac_sha256_hex(webhook_secret, signed_payload);
+
+    // Constant-time comparison to prevent timing attacks
+    if (computed_sig.size() != expected_sig.size()) return false;
+    volatile int result = 0;
+    for (size_t i = 0; i < computed_sig.size(); i++) {
+        result |= (unsigned char)computed_sig[i] ^ (unsigned char)expected_sig[i];
+    }
+    return result == 0;
+}
+
 struct BillingManager::Impl {
     // customer_id -> owner_id mapping
     std::unordered_map<std::string, std::string> customer_to_owner;
@@ -48,27 +143,6 @@ struct BillingManager::Impl {
     double now_seconds() const {
         auto now = std::chrono::system_clock::now();
         return std::chrono::duration<double>(now.time_since_epoch()).count();
-    }
-
-    // Stub: verify Stripe webhook signature.
-    // Real implementation would use Stripe SDK's stripe::Webhook.constructEvent().
-    // This stub always returns true when WEBHOOK_SECRET is not set, or
-    // when the signature header matches a simple HMAC placeholder.
-    bool verify_signature(const std::string& payload, const std::string& signature) const {
-        (void)payload;
-        const char* secret = getenv("STRIPE_WEBHOOK_SECRET");
-        if (!secret || !*secret) {
-            // No secret configured — accept all webhooks (dev mode)
-            return true;
-        }
-
-        // Stub: check that signature is non-empty and starts with "t="
-        // Real verification: HMAC-SHA256 with the webhook secret
-        if (signature.empty()) return false;
-        if (signature.rfind("t=", 0) == 0) return true; // plausible format
-        if (signature == secret) return true;            // dev/test shortcut
-
-        return true; // allow in dev mode
     }
 
     void apply_subscription_event(const SubscriptionEvent& event) {
@@ -91,7 +165,7 @@ BillingManager::~BillingManager() = default;
 
 bool BillingManager::process_webhook(const std::string& payload, const std::string& signature) {
     // Verify signature first
-    if (!impl_->verify_signature(payload, signature)) {
+    if (!verify_stripe_signature(payload, signature)) {
         fprintf(stderr, "billing: webhook signature verification failed\n");
         return false;
     }
