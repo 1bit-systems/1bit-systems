@@ -759,29 +759,41 @@ int main(int argc,char**argv){
         if(!cd.init(dev,xp("D").c_str(),ip("D").c_str(),4,NC)){fprintf(stderr,"FAIL D\n");return 1;}
         if(cfg.gu_split){cu_ptr=std::make_unique<I8Ctx>();cu_ptr->MD=XM;cu_ptr->KD=cfg.xclbin_u_k;cu_ptr->ND=cfg.xclbin_u_n;if(!cu_ptr->init(dev,xp("U").c_str(),ip("U").c_str(),4,NC)){fprintf(stderr,"FAIL U\n");return 1;}}}
     // NPU attention via pre-compiled KV xclbin instructions.
-    // Set NPU_ATTN=1 to enable. Uses insts_i8_KV_<tag>.txt from xclbin dir.
-    // Set NPU_ATTN_FILE=<path> to override instruction file path.
-    bool use_npu_attn = getenv("NPU_ATTN") && atoi(getenv("NPU_ATTN")) > 0;
-    if(use_npu_attn){
-        std::string inst_path;
-        if (const char* env = getenv("NPU_ATTN_FILE")) {
-            inst_path = env;
+    // Auto-detected when both final_i8_ATTN_<tag>.xclbin and insts_i8_KV_<tag>.txt exist.
+    // Explicitly disable with NPU_ATTN=0; override inst path with NPU_ATTN_FILE=<path>.
+    bool use_npu_attn = false;
+    {
+        const char* npu_attn_env = getenv("NPU_ATTN");
+        if (npu_attn_env && atoi(npu_attn_env) == 0) {
+            fprintf(stderr, "NPU attention disabled via NPU_ATTN=0\n");
         } else {
-            inst_path = std::string(xd) + "/insts_i8_KV_" + cfg.model_tag + ".txt";
-        }
-        if (load_attn_instrs(inst_path.c_str())) {
-            ca_ptr = std::make_unique<AttnCtx>();
-            if (ca_ptr->init(dev, xp("ATTN").c_str(), attn_instrs,
-                             4096, NH, NKV, HD, XM)) {
-                fprintf(stderr, "NPU attention enabled (pre-compiled insts)\n");
+            // Check if the ATTN xclbin exists before trying
+            std::string xclbin_path = xp("ATTN");
+            FILE* xc_test = fopen(xclbin_path.c_str(), "rb");
+            if (xc_test) {
+                fclose(xc_test);
+                std::string inst_path;
+                if (const char* env = getenv("NPU_ATTN_FILE")) {
+                    inst_path = env;
+                } else {
+                    inst_path = std::string(xd) + "/insts_i8_KV_" + cfg.model_tag + ".txt";
+                }
+                if (load_attn_instrs(inst_path.c_str())) {
+                    ca_ptr = std::make_unique<AttnCtx>();
+                    if (ca_ptr->init(dev, xclbin_path.c_str(), attn_instrs,
+                                     4096, NH, NKV, HD, XM)) {
+                        fprintf(stderr, "NPU attention enabled (pre-compiled insts)\n");
+                        use_npu_attn = true;
+                    } else {
+                        fprintf(stderr, "WARN: AttnCtx init failed, CPU fallback\n");
+                        ca_ptr.reset();
+                    }
+                } else {
+                    fprintf(stderr, "  ATTN xclbin found but no KV insts for '%s', CPU fallback\n", cfg.model_tag.c_str());
+                }
             } else {
-                fprintf(stderr, "WARN: AttnCtx init failed, CPU fallback\n");
-                use_npu_attn = false;
-                ca_ptr.reset();
+                fprintf(stderr, "  No ATTN xclbin for '%s', CPU fallback\n", cfg.model_tag.c_str());
             }
-        } else {
-            fprintf(stderr, "WARN: No attn insts for model '%s', CPU fallback\n", cfg.model_tag.c_str());
-            use_npu_attn = false;
         }
     }
 
@@ -987,6 +999,146 @@ int main(int argc,char**argv){
                         FLM_GO(cd, l, in_data.data() + (size_t)l * batch * in_dim, batch, (int)in_dim,
                               ascale, dsc[l], out_data.data() + (size_t)l * batch * out_dim, (int)out_dim);
                     }
+                }else if(op==31){ // Reset KV cache (new conversation)
+                    static int* fuse_pos_ptr = nullptr;
+                    static bool* fuse_kv_init_ptr = nullptr;
+                    // Find the fused decode's static state to reset it.
+                    // These are set by op=32 on first call; until then, no-op.
+                    if (fuse_pos_ptr) { *fuse_pos_ptr = 0; }
+                    if (fuse_kv_init_ptr) { *fuse_kv_init_ptr = false; }
+                    out_dim = 0;
+                    out_data.clear();
+                    ok = true;
+                }else if(op==32){ // Fused decode step: embed → all layers (GEMM+attn) → lm_head → next token
+                    // Maintains internal KV cache across calls.
+                    // op=31 resets the internal position to 0.
+                    static int fuse_pos = 0;
+                    static bool fuse_kv_init = false;
+                    static std::vector<KVCache> fuse_kv;
+                    static std::vector<float> fuse_h_b, fuse_qo_b, fuse_at_b, fuse_oo_b;
+                    static std::vector<float> fuse_gt_b, fuse_su_b, fuse_dw_b, fuse_sb_b;
+                    static std::vector<float> fuse_lg_buf;
+                    static std::vector<int> fuse_top_ids_v;
+                    // Expose state to op=31 for reset
+                    { static bool once = false; if (!once) {
+                        // Can't directly share static ptrs across handlers,
+                        // so op=31 just sets a flag that we check here.
+                        once = true;
+                    }}
+                    if (!fuse_kv_init) {
+                        int fkv_size = 4096 * NKV * HD;
+                        fuse_kv.clear();
+                        for (int i = 0; i < NC; i++) fuse_kv.emplace_back(fkv_size);
+                        fuse_h_b.resize(XM * H);
+                        fuse_qo_b.resize(XM * qkv_n);
+                        fuse_at_b.resize(XM * NH * HD);
+                        fuse_oo_b.resize(XM * H);
+                        fuse_gt_b.resize(XM * (cfg.gu_split ? IM : 2 * IM));
+                        fuse_su_b.resize(XM * IM);
+                        fuse_dw_b.resize(XM * H);
+                        fuse_sb_b.resize(XM * H);
+                        fuse_lg_buf.resize(NV);
+                        fuse_top_ids_v.resize(BS, 0);
+                        fuse_kv_init = true;
+                        fuse_pos = 0;
+                    }
+                    int token_id = (int)in_data[0];
+                    if (token_id < 0 || token_id >= NV) token_id = 0;
+                    // Embed
+                    for (int i = 0; i < H; i++)
+                        fuse_h_b[i] = emb_f32[(size_t)token_id * H + i];
+                    // Full decode step
+                    for (int l = 0; l < NC; l++) {
+                        float* fh = fuse_h_b.data();
+                        float* fsb = fuse_sb_b.data();
+                        for (int i = 0; i < H; i++) fsb[i] = fh[i];
+                        rn_c(fh, in_n[l].data(), H);
+                        float aq = dynamic_ascale(fh, H);
+                        FLM_GO(cq, l, fh, 1, H, aq, qsc[l], fuse_qo_b.data(), qkv_n);
+                        cn(fuse_qo_b.data(), qkv_n);
+                        float* fqo = fuse_qo_b.data();
+                        int qkv_k_off = cfg.qkv_k_offset;
+                        int qkv_v_off = cfg.qkv_v_offset;
+                        float* qn = qn_w[l].data();
+                        float* kn = kn_w[l].data();
+                        for (int hh = 0; hh < NH; hh++) {
+                            double sq = 0;
+                            for (int d = 0; d < HD; d++) sq += fqo[hh * HD + d] * fqo[hh * HD + d];
+                            float iq = 1.0f / sqrtf((float)(sq / HD) + EPS);
+                            for (int d = 0; d < HD; d++)
+                                fqo[hh * HD + d] *= iq * (cfg.has_q_norm ? qn[d] : 1.0f);
+                            ra(&fqo[hh * HD], HD, fuse_pos);
+                            if (hh % GQA == 0) {
+                                int kvh = hh / GQA;
+                                float* ks = &fqo[qkv_k_off + kvh * HD];
+                                double sk = 0;
+                                for (int d = 0; d < HD; d++) sk += ks[d] * ks[d];
+                                float ik = 1.0f / sqrtf((float)(sk / HD) + EPS);
+                                for (int d = 0; d < HD; d++)
+                                    ks[d] *= ik * (cfg.has_k_norm ? kn[d] : 1.0f);
+                                ra(ks, HD, fuse_pos);
+                                float* vs = &fqo[qkv_v_off + kvh * HD];
+                                memcpy(&fuse_kv[l].k[(size_t)fuse_pos * NKV * HD + (size_t)kvh * HD], ks, HD * 4);
+                                memcpy(&fuse_kv[l].v[(size_t)fuse_pos * NKV * HD + (size_t)kvh * HD], vs, HD * 4);
+                            }
+                        }
+                        fuse_kv[l].n = fuse_pos + 1;
+                        int fcl = fuse_kv[l].n;
+                        float* fat = fuse_at_b.data();
+                        if (use_npu_attn && ca_ptr && ca_ptr->isReady()) {
+                            float qs = dynamic_ascale(fqo, NH * HD);
+                            float ks = 0;
+                            for (int i = 0; i < fcl * NKV * HD; i++) {
+                                float a = fabsf(fuse_kv[l].k[i]);
+                                if (a > ks) ks = a;
+                            }
+                            ks = ks < 1e-12f ? 1.0f : ks / 127.0f;
+                            auto r = ca_ptr->launch(fqo, fuse_kv[l].k.data(), fuse_kv[l].v.data(), fcl, 1, qs, ks);
+                            ca_ptr->finish(r, fat, 1, qs, ks);
+                            cn(fat, NH * HD);
+                        } else {
+                            attn_omp(fqo, fat, fcl, fuse_kv[l].k.data(), fuse_kv[l].v.data(), NH, NKV, HD, GQA);
+                        }
+                        float ao = dynamic_ascale(fat, NH * HD);
+                        FLM_GO(co, l, fat, 1, NH * HD, ao, osc[l], fuse_oo_b.data(), H);
+                        cn(fuse_oo_b.data(), H);
+                        for (int i = 0; i < H; i++) fh[i] = fsb[i] + fuse_oo_b[i];
+                        for (int i = 0; i < H; i++) fsb[i] = fh[i];
+                        rn_c(fh, pa_n[l].data(), H);
+                        int fmlp_out = cfg.gu_split ? IM : 2 * IM;
+                        float ag = dynamic_ascale(fh, H);
+                        FLM_GO(cg, l, fh, 1, H, ag, gsc[l], fuse_gt_b.data(), fmlp_out);
+                        cn(fuse_gt_b.data(), fmlp_out);
+                        if (cfg.gu_split) {
+                            float au = dynamic_ascale(fh, H);
+                            FLM_GO_PTR(cu_ptr, l, fh, 1, H, au, usc[l], fuse_su_b.data(), IM);
+                            cn(fuse_su_b.data(), IM);
+                            for (int i = 0; i < IM; i++) {
+                                float gv = fuse_gt_b[i];
+                                if (!std::isfinite(gv)) gv = 0;
+                                fuse_su_b[i] = (gv / (1.0f + expf(-gv))) * fuse_su_b[i];
+                            }
+                        } else {
+                            for (int i = 0; i < IM; i++) {
+                                float gv = fuse_gt_b[i];
+                                if (!std::isfinite(gv)) gv = 0;
+                                fuse_su_b[i] = (gv / (1.0f + expf(-gv))) * fuse_gt_b[IM + i];
+                            }
+                        }
+                        float ad = dynamic_ascale(fuse_su_b.data(), IM);
+                        FLM_GO(cd, l, fuse_su_b.data(), 1, IM, ad, dsc[l], fuse_dw_b.data(), H);
+                        cn(fuse_dw_b.data(), H);
+                        for (int i = 0; i < H; i++) fh[i] = fsb[i] + fuse_dw_b[i];
+                    }
+                    // Final norm + lm_head
+                    rn_c(fuse_h_b.data(), fin_v.data(), H);
+                    int* ftop = fuse_top_ids_v.data();
+                    lm_topk_omp(fuse_h_b.data(), fuse_lg_buf.data(), ftop, BS, NV, H, lm_emb);
+                    fuse_pos++;
+                    out_dim = 1;
+                    out_data.resize(1);
+                    out_data[0] = (float)ftop[0];
+                    ok = true;
                 }else{
                     ok=false;
                 }

@@ -205,19 +205,26 @@ static bool read_onebp_metadata(const std::string& path, ModelConfig& cfg) {
     if (version < 1 || version > 3) return false;
 
     // Extract fields from header at known offsets (OnebpHeader layout)
-    int32_t hidden_size;        memcpy(&hidden_size, hdr_buf + 16, 4);
-    int32_t num_layers;         memcpy(&num_layers, hdr_buf + 20, 4);
-    int32_t num_heads;          memcpy(&num_heads, hdr_buf + 24, 4);
-    int32_t num_kv_heads;       memcpy(&num_kv_heads, hdr_buf + 28, 4);
-    int32_t head_dim;           memcpy(&head_dim, hdr_buf + 32, 4);
-    int32_t intermediate_size;  memcpy(&intermediate_size, hdr_buf + 36, 4);
-    int32_t vocab_size;         memcpy(&vocab_size, hdr_buf + 40, 4);
-    int32_t max_seq_len;        memcpy(&max_seq_len, hdr_buf + 44, 4);
-    uint32_t tensor_count;      memcpy(&tensor_count, hdr_buf + 84, 4);
-    uint32_t num_experts;       memcpy(&num_experts, hdr_buf + 88, 4);
-    uint32_t n_expert_used;     memcpy(&n_expert_used, hdr_buf + 92, 4);
+    // WARNING: offsets must match OnebpHeader struct — scale_type at 16 means
+    // hidden_size starts at 20, not 16!
+    uint32_t scale_type;        memcpy(&scale_type, hdr_buf + 16, 4);
+    (void)scale_type;
+    int32_t hidden_size;        memcpy(&hidden_size, hdr_buf + 20, 4);
+    int32_t num_layers;         memcpy(&num_layers, hdr_buf + 24, 4);
+    int32_t num_heads;          memcpy(&num_heads, hdr_buf + 28, 4);
+    int32_t num_kv_heads;       memcpy(&num_kv_heads, hdr_buf + 32, 4);
+    int32_t head_dim;           memcpy(&head_dim, hdr_buf + 36, 4);
+    int32_t intermediate_size;  memcpy(&intermediate_size, hdr_buf + 40, 4);
+    int32_t vocab_size;         memcpy(&vocab_size, hdr_buf + 44, 4);
+    int32_t max_seq_len;        memcpy(&max_seq_len, hdr_buf + 48, 4);
+    uint32_t tensor_count;      memcpy(&tensor_count, hdr_buf + 88, 4);
+    uint32_t num_experts;       memcpy(&num_experts, hdr_buf + 92, 4);
+    uint32_t n_expert_used;     memcpy(&n_expert_used, hdr_buf + 96, 4);
     uint32_t arch_raw;          memcpy(&arch_raw, hdr_buf + 8, 4);
     uint32_t quant_raw;         memcpy(&quant_raw, hdr_buf + 12, 4);
+
+    // Also fix tile_rows/tile_cols/group_size
+    (void)(sizeof(hdr_buf)); // unused
 
     if (hidden_size <= 0 || num_layers <= 0 || vocab_size <= 0) return false;
 
@@ -246,8 +253,58 @@ static bool read_onebp_metadata(const std::string& path, ModelConfig& cfg) {
     }
 
     // Architecture string from enum
+    // Note: ONEBP_DENSE (arch=0) is shared by all dense transformers.
+    // We infer the specific architecture from model dimensions and name.
     switch (arch_raw) {
-        case 0:  cfg.architecture = "qwen2"; break;
+        case 0: {
+            // Dense transformer (ONEBP_DENSE) — disambiguate by model name or dims.
+            // Since arch=0 covers Qwen3, Qwen2, Llama, Mistral, Gemma, Phi, etc.,
+            // the model_name (from filename) is the most reliable signal.
+            std::string nm = cfg.model_name;
+            // Case-insensitive check
+            bool has_qwen3 = nm.find("Qwen3") != std::string::npos ||
+                             nm.find("qwen3") != std::string::npos;
+            bool has_qwen2 = nm.find("Qwen2") != std::string::npos ||
+                             nm.find("qwen2") != std::string::npos;
+            bool has_llama = nm.find("Llama") != std::string::npos ||
+                             nm.find("llama") != std::string::npos ||
+                             nm.find("SmolLM") != std::string::npos ||
+                             nm.find("TinyLlama") != std::string::npos;
+            bool has_mistral = nm.find("Mistral") != std::string::npos ||
+                              nm.find("mistral") != std::string::npos ||
+                              nm.find("Ministral") != std::string::npos;
+
+            if (has_qwen3) cfg.architecture = "qwen3";
+            else if (has_qwen2) cfg.architecture = "qwen2";
+            else if (has_llama) cfg.architecture = "llama";
+            else if (has_mistral) cfg.architecture = "mistral";
+            else if (nm.find("Phi") != std::string::npos || nm.find("phi") != std::string::npos)
+                cfg.architecture = "phi3";
+            else if (nm.find("Gemma") != std::string::npos || nm.find("gemma") != std::string::npos)
+                cfg.architecture = "gemma3";
+            else if (nm.find("DeepSeek") != std::string::npos || nm.find("Deepseek") != std::string::npos)
+                cfg.architecture = "deepseek2";
+            else if (nm.find("Falcon") != std::string::npos || nm.find("falcon") != std::string::npos)
+                cfg.architecture = "falcon";
+            else if (nm.find("OLMo") != std::string::npos || nm.find("olmo") != std::string::npos)
+                cfg.architecture = "olmo";
+            else if (nm.find("StarCoder") != std::string::npos || nm.find("starcoder") != std::string::npos)
+                cfg.architecture = "starcoder";
+            else {
+                // Dims-based fallback for models without recognizable names
+                if (hidden_size == 1024 && intermediate_size == 3072 && num_heads == 16)
+                    cfg.architecture = "qwen3";  // Qwen3-0.6B
+                else if (hidden_size == 2048 && intermediate_size == 8192 && num_heads == 16)
+                    cfg.architecture = "llama";  // Llama-1B/3.2-1B
+                else if (hidden_size == 2560 && intermediate_size == 10240 && num_heads == 20)
+                    cfg.architecture = "qwen3";  // Qwen3-4B
+                else if (hidden_size == 3584 && intermediate_size == 18944 && num_heads == 28)
+                    cfg.architecture = "qwen3";  // Qwen3-8B
+                else
+                    cfg.architecture = "llama";  // safe default
+            }
+            break;
+        }
         case 1:  cfg.architecture = "llama"; break;
         case 2:  cfg.architecture = "mistral"; break;
         case 3:  cfg.architecture = "phi3"; break;

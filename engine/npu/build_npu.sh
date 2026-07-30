@@ -44,7 +44,8 @@ MODELS=(
 CXX="${CXX:-g++}"
 # XRT uses shared libs (must come AFTER source on command line)
 LIBS=(-lxrt_coreutil -lxrt_core -laiebu -luuid -lm -ldl)
-CXXFLAGS=(-std=c++23 -O3 -fopenmp -DONEBP_SUPPORT -I"$SRCDIR/src" -I"$SRCDIR/include" -I"$XRT_INC")
+REPO_ROOT="$(cd "$SRCDIR/../.." && pwd)"
+CXXFLAGS=(-std=c++23 -O3 -fopenmp -DONEBP_SUPPORT -I"$SRCDIR/src" -I"$SRCDIR/include" -I"$REPO_ROOT/include" -I"$XRT_INC")
 
 echo "=== Building NPU engine variants ==="
 mkdir -p "$BUILDDIR"

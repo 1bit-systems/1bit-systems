@@ -12,6 +12,9 @@
 #include "model_discovery.h"
 #include "rocm_cpp/tokenizer.h"
 
+// 1BP loader with full TQ2/Q4NX tile dequant (unity build)
+#include "../engine/npu/src/onebp_loader.cpp"
+
 #include <cstdio>
 #include <cstring>
 #include <cmath>
@@ -134,6 +137,10 @@ struct GenericBackend : Backend {
             printf("Generic: trying GGUF path: %s\n", gguf_path.c_str());
             loaded = load_gguf(gguf_path);
         }
+        if (!loaded && cfg.format == ModelFormat::ONEBP && !cfg.model_path.empty()) {
+            // Try loading from 1BP format (shared with NPU engine)
+            loaded = load_1bp(cfg.model_path);
+        }
         if (!loaded) {
             // Fall back: old .bin format
             load_weights(weights_dir);
@@ -149,6 +156,74 @@ struct GenericBackend : Backend {
         for (auto& k : k_cache) k.resize((size_t)cfg.max_seq_len * cfg.n_kv_heads * cfg.head_dim);
         for (auto& v : v_cache) v.resize((size_t)cfg.max_seq_len * cfg.n_kv_heads * cfg.head_dim);
         initialized = true;
+        return true;
+    }
+
+    bool load_1bp(const std::string& path) {
+        printf("Generic: loading 1BP: %s\n", path.c_str());
+        OnebpModel model;
+        if (!model.open(path.c_str())) {
+            fprintf(stderr, "Generic: failed to open 1BP\n");
+            return false;
+        }
+        auto& h = model.header();
+        if (cfg.hidden == 0) {
+            cfg.hidden = cfg.hidden_size = h.hidden_size;
+            cfg.n_layers = cfg.num_layers = h.num_layers;
+            cfg.n_heads = cfg.num_heads = cfg.num_attention_heads = h.num_attention_heads;
+            cfg.n_kv_heads = cfg.num_kv_heads = h.num_kv_heads ? h.num_kv_heads : h.num_attention_heads;
+            cfg.head_dim = h.head_dim ? h.head_dim : 128;
+            cfg.n_ff = cfg.intermediate_size = h.intermediate_size;
+            cfg.vocab = cfg.vocab_size = h.vocab_size;
+        }
+        printf("Generic: 1BP H=%d NC=%d NH=%d NKV=%d HD=%d IM=%d V=%d quant=%u\n",
+               cfg.hidden, cfg.n_layers, cfg.n_heads, cfg.n_kv_heads,
+               cfg.head_dim, cfg.n_ff, cfg.vocab, h.quant);
+
+        // Load embedding
+        if (!model.get_tensor_f32("token_embd.weight", embed)) {
+            fprintf(stderr, "Generic: missing token_embd.weight\n");
+            return false;
+        }
+
+        // Load final norm + output weight
+        if (!model.get_tensor_f32("token_embd_norm.weight", final_norm))
+            model.get_tensor_f32("model.norm.weight", final_norm);
+        if (!model.get_tensor_f32("output.weight", output_weight))
+            model.get_tensor_f32("lm_head.weight", output_weight);
+
+        // Per-layer weights
+        layers.resize(cfg.n_layers);
+        char buf[128];
+        for (int l = 0; l < cfg.n_layers; l++) {
+            auto& lw = layers[l];
+            auto load = [&](const char* blk, const char* legacy, size_t& idx,
+                            int rows, int cols) {
+                std::vector<float> w;
+                snprintf(buf, sizeof(buf), "blk.%d.%s", l, blk);
+                if (!model.get_tensor_f32(buf, w)) {
+                    snprintf(buf, sizeof(buf), "model.layers.%d.%s", l, legacy);
+                    model.get_tensor_f32(buf, w);
+                }
+                if ((int)w.size() == rows * cols)
+                    idx = push(std::move(w));
+            };
+            int H = cfg.hidden, NH = cfg.n_heads, NKV = cfg.n_kv_heads;
+            int HD = cfg.head_dim, IM = cfg.n_ff;
+            load("attn_q.weight", "self_attn.q_proj.weight", lw.wq, H, NH*HD);
+            load("attn_k.weight", "self_attn.k_proj.weight", lw.wk, H, NKV*HD);
+            load("attn_v.weight", "self_attn.v_proj.weight", lw.wv, H, NKV*HD);
+            load("attn_output.weight", "self_attn.o_proj.weight", lw.wo, NH*HD, H);
+            load("ffn_gate.weight", "mlp.gate_proj.weight", lw.w1, H, IM);
+            load("ffn_up.weight", "mlp.up_proj.weight", lw.w2, H, IM);
+            load("ffn_down.weight", "mlp.down_proj.weight", lw.w3, IM, H);
+
+            // RMS norm weights
+            load("input_norm.weight", "input_layernorm.weight", lw.rms_attn, H, 1);
+            load("post_attention_norm.weight", "post_attention_layernorm.weight", lw.rms_ffn, H, 1);
+        }
+        printf("Generic: 1BP loaded — %d layers, %.1fM params\n",
+               cfg.n_layers, (double)embed.size() / 1e6);
         return true;
     }
 

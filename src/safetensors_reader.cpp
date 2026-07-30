@@ -34,7 +34,10 @@ bool json_find_int(const std::string& text, const std::string& key, int& out) {
     pos++;
     while (pos < text.size() && (text[pos] == ' ' || text[pos] == '\t' || text[pos] == '\n')) pos++;
     if (pos >= text.size() || !(isdigit((unsigned char)text[pos]) || text[pos] == '-')) return false;
-    out = atoi(text.c_str() + pos);
+    char* end = nullptr;
+    long val = strtol(text.c_str() + pos, &end, 10);
+    if (end == text.c_str() + pos || val < INT_MIN || val > INT_MAX) return false;
+    out = (int)val;
     return true;
 }
 
@@ -175,8 +178,11 @@ bool read_safetensors_metadata(const std::string& path, ModelConfig& cfg) {
             size_t mlen = strlen(marker);
             size_t search = 0;
             while ((search = header.find(marker, search)) != std::string::npos) {
-                int n = atoi(header.c_str() + search + mlen);
-                if (n > max_layer) max_layer = n;
+                char* end = nullptr;
+                long n = strtol(header.c_str() + search + mlen, &end, 10);
+                if (end > header.c_str() + search + mlen && n >= 0 && n <= 4096) {
+                    if ((int)n > max_layer) max_layer = (int)n;
+                }
                 search += mlen;
             }
             if (max_layer >= 0) break;

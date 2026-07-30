@@ -106,7 +106,11 @@ int main() {
 
     // Start FLM serve (NPU worker, real XDNA2 inference)
     fprintf(stderr, "Starting FLM serve on NPU...\n");
-    system("pkill -f 'flm serve.*8097' 2>/dev/null; sleep 0.5");
+    int flm_port = 8097;
+    if (const char* env_port = getenv("FLM_SERVE_PORT")) flm_port = atoi(env_port);
+    char kill_cmd[128];
+    snprintf(kill_cmd, sizeof(kill_cmd), "pkill -f 'flm serve.*%d' 2>/dev/null; sleep 0.5", flm_port);
+    system(kill_cmd);
     // Weights dir from env (ZAYA_WEIGHTS_DIR), fallback to FASTFLOWLM dir
     const char* flm_build = getenv("FASTFLOWLM_DIR");
     if (!flm_build) flm_build = "/opt/fastflowlm";

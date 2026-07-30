@@ -202,7 +202,7 @@ class GgufSidecar {
             if (!read_string(name)) return false;
             uint32_t ndim;
             if (!read_u32(ndim)) return false;
-            if (ndim > 8) { // max reasonable dimensions (4D tensor + extras)
+            if (ndim > 8) {
                 fprintf(stderr, "[h1b] invalid ndim=%u, rejecting\n", ndim);
                 return false;
             }
@@ -235,8 +235,22 @@ class GgufSidecar {
     {
         const auto* ti = info(name);
         if (!ti) return false;
+        // Validate offset before seek (issue #1175)
+        uint64_t file_start = (uint64_t)f_.tellg();
+        if (file_start == (uint64_t)-1) return false;  // stream error
+        f_.seekg(0, std::ios::end);
+        uint64_t file_size = (uint64_t)f_.tellg();
+        if (file_size == (uint64_t)-1) return false;
+        uint64_t seek_pos = data_start_ + ti->offset;
+        // Check for overflow and bounds
+        if (seek_pos < data_start_ || seek_pos + nbytes > file_size ||
+            seek_pos + nbytes < seek_pos) {  // overflow check
+            fprintf(stderr, "[rocm-cpp][gguf] tensor %s: offset %lu + %zu > file_size %lu\n",
+                    name.c_str(), (unsigned long)seek_pos, nbytes, (unsigned long)file_size);
+            return false;
+        }
+        f_.seekg((std::streamoff)seek_pos, std::ios::beg);
         out.resize(nbytes);
-        f_.seekg((std::streamoff)(data_start_ + ti->offset), std::ios::beg);
         f_.read(reinterpret_cast<char*>(out.data()), (std::streamsize)nbytes);
         return (bool)f_;
     }

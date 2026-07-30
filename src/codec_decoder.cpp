@@ -72,15 +72,17 @@ bool CodecDecoder::is_loaded() const {
 
 int CodecDecoder::expected_output_samples(int n_tokens) const {
     (void)n_tokens;
-    if (!impl_) return 0;
-    // The decoder produces one output tensor per inference call.
-    // Output shape is [1, output_samples]. We return the full output
-    // size since the model processes all codec frames at once.
+    if (!impl_ || !impl_->loaded) return 0;
+    // Check that session has at least one output (issue #1170)
     try {
+        size_t n_out = impl_->session.GetOutputCount();
+        if (n_out == 0) return 0;
         auto output_type_info = impl_->session.GetOutputTypeInfo(0);
         auto tensor_info = output_type_info.GetTensorTypeAndShapeInfo();
         auto shape = tensor_info.GetShape();
-        if (shape.size() >= 2 && shape[1] > 0) return (int)shape[1];
+        if (shape.size() >= 2 && shape[1] > 0 && shape[1] < 10000000) {
+            return (int)shape[1];
+        }
     } catch (...) {}
     return 0;
 }
@@ -99,18 +101,25 @@ std::vector<float> CodecDecoder::decode(const int32_t* tokens, int n_tokens, con
         std::vector<int64_t> token_shape = {kNumCodebooks, n_tokens};
         std::vector<int64_t> speaker_shape = {kSpeakerEmbDim};
 
-        // Create input tensors using C++ API
-        auto token_tensor = Ort::Value::CreateTensor<int32_t>(
-            Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault),
-            const_cast<int32_t*>(tokens),
-            (size_t)(kNumCodebooks * n_tokens),
-            token_shape.data(), token_shape.size());
+        // Create speaker embedding tensor (zero vector if null, issue #1170)
+        std::vector<float> zero_speaker(kSpeakerEmbDim, 0.0f);
+        const float* speaker_data = speaker_emb ? speaker_emb : zero_speaker.data();
 
         auto speaker_tensor = Ort::Value::CreateTensor<float>(
             Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault),
-            const_cast<float*>(speaker_emb),
+            const_cast<float*>(speaker_data),
             (size_t)kSpeakerEmbDim,
             speaker_shape.data(), speaker_shape.size());
+
+        // Use a mutable copy of tokens to avoid const_cast (issue #1170)
+        std::vector<int32_t> tokens_buf(tokens, tokens + n_tokens * kNumCodebooks);
+
+        // Create input tensors using C++ API
+        auto token_tensor = Ort::Value::CreateTensor<int32_t>(
+            Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault),
+            tokens_buf.data(),
+            (size_t)(kNumCodebooks * n_tokens),
+            token_shape.data(), token_shape.size());
 
         // Run inference
         Ort::RunOptions run_opts;

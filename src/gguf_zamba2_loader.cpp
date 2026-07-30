@@ -80,21 +80,25 @@ struct Zamba2GgufReader {
 
         char magic[4];
         f.read(magic, 4);
-        if (std::strncmp(magic, "GGUF", 4) != 0) return false;
+        if (!f || std::strncmp(magic, "GGUF", 4) != 0) return false;
 
         f.read(reinterpret_cast<char*>(&version), 4);
-        if (version != 2 && version != 3) return false;
+        if (!f || (version != 2 && version != 3)) return false;
 
-        uint64_t n_tensors, n_kv;
+        uint64_t n_tensors = 0, n_kv = 0;
         f.read(reinterpret_cast<char*>(&n_tensors), 8);
         f.read(reinterpret_cast<char*>(&n_kv), 8);
+        if (!f) return false;
 
         // A crafted/corrupt GGUF can carry a 64-bit length of ~2^62; allocating
         // std::string(len) then blows up the heap (DoS). Mirror gguf_reader.cpp's
-        // caps: 1 MiB per string, 1M elements per array. Oversized fields are
-        // skipped (stream kept in sync) rather than trusted (AUDIT_ISSUES.md #4).
+        // caps: 1 MiB per string, 1M elements per array, 200K max tensors/KV.
         static constexpr uint64_t MAX_STRING_LEN  = 1ULL * 1024 * 1024;
         static constexpr uint64_t MAX_ARRAY_COUNT = 1000000ULL;
+        static constexpr uint64_t MAX_KV_COUNT    = 200000ULL;
+        static constexpr uint64_t MAX_TENSOR_COUNT = 200000ULL;
+
+        if (n_kv > MAX_KV_COUNT || n_tensors > MAX_TENSOR_COUNT) return false;
 
         for (uint64_t i = 0; i < n_kv; ++i) {
             uint64_t key_len; f.read(reinterpret_cast<char*>(&key_len), 8);

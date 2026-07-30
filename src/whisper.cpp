@@ -12,10 +12,10 @@ std::vector<float> whisper_load_wav(const std::string& path, int* out_sample_rat
     FILE* f = fopen(path.c_str(), "rb");
     if (!f) return {};
     
-    char riff[4]; fread(riff, 1, 4, f);
+    char riff[4] = {}; if (fread(riff, 1, 4, f) != 4) { fclose(f); return {}; }
     if (memcmp(riff, "RIFF", 4) != 0) { fclose(f); return {}; }
     fseek(f, 8, SEEK_SET);
-    char wave[4]; fread(wave, 1, 4, f);
+    char wave[4] = {}; if (fread(wave, 1, 4, f) != 4) { fclose(f); return {}; }
     if (memcmp(wave, "WAVE", 4) != 0) { fclose(f); return {}; }
     
     // Find fmt chunk

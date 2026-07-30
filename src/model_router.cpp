@@ -107,11 +107,19 @@ BackendRoute select_backend_route(const ModelConfig& cfg) {
         return {{"vision_encoder", "hip_gpu", "cpu_generic"}, "Qwen3-VL — vision encoder + Qwen3 text decoder"};
     }
     if (cfg.architecture == "qwen3" || cfg.arch == RCPP_ARCH_QWEN3) {
-        return {{"npu_flm", "cpu_generic"}, "qwen3 architecture — FLM NPU engine (MIT, 67.5 tok/s)"};
+        // For 1BP models: GPU engine first, then NPU, then CPU
+        if (cfg.format == ModelFormat::ONEBP)
+            return {{"fused_gpu_npu", "vulkan_hpp_gpu", "hip_1bp_gpu", "npu_flm", "cpu_generic"},
+                    "qwen3 1BP — Fused GPU+NPU → Vulkan-Hpp → HIP → FLM NPU → CPU"};
+        return {{"npu_flm", "cpu_generic"}, "qwen3 — FLM NPU engine (67.5 tok/s)"};
     }
     if (cfg.format == ModelFormat::GGUF || cfg.format == ModelFormat::H1B) {
-        return {{"zinc_gpu", "cpu_generic"}, "GGUF/H1B model — ZINC GPU, generic CPU fallback"};
+        return {{"ggml_vulkan", "zinc_gpu", "cpu_generic"}, "GGUF/H1B model — GGML-Vulkan (357 tok/s) → ZINC GPU → CPU"};
     }
-    // Default: try HIP GPU first, fall back to generic CPU
+    if (cfg.format == ModelFormat::ONEBP) {
+        return {{"fused_gpu_npu", "vulkan_hpp_gpu", "hip_1bp_gpu", "hip_gpu", "cpu_generic"},
+                "1BP model — Fused GPU+NPU → Vulkan-Hpp → HIP → CPU fallback"};
+    }
+    // Default: try HIP GPU first, fall back to generic CPU.
     return {{"hip_gpu", "cpu_generic"}, "generic model — HIP GPU, generic CPU fallback"};
 }

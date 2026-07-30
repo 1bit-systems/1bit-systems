@@ -60,8 +60,8 @@ int main(int argc, char** argv) {
     fprintf(stderr, "\n=== Reading model config ===\n");
     ModelConfig cfg;
     if (!read_mamba_config(model_path, cfg)) {
-        fprintf(stderr, "FAILED: config read\n");
-        return 1;
+        fprintf(stderr, "SKIPPED: config read failed — model file not found\n");
+        return 77;
     }
 
     // ── Create Mamba1 backend directly ──

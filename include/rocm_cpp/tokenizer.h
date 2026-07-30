@@ -19,8 +19,9 @@
 //     new_id  : i32   (the merged token id; rank = insertion order, lower = priority)
 //
 // The encoder is minimal:
-//   * byte-level BPE (every input byte starts as a 1-byte token)
-//   * no LLaMA-3 regex pre-tokenizer (TODO — adds proper word boundaries)
+//   * Byte-level BPE identical to tiktoken / LLaMA-3 at the merge level.
+//   * LLaMA-3 / cl100k_base regex pre-tokenizer (contractions + Unicode
+//     categories + number grouping + whitespace handling).
 //   * whitespace is handled the way LLaMA-3 bytes it out (space = 0x20)
 //
 // For English prompt input to BitNet-b1.58-2B-4T this produces the

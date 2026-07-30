@@ -182,6 +182,7 @@ void mamba2_gpu_decode_block_tuned(
     const float* dt_bias,        // [n_head]
     const float* A_log,          // [n_head]
     const float* D,              // [n_head]
+    const float* norm_w,         // [d_inner/n_group, n_group] or nullptr
     const float* out_proj_w,     // [d_model, d_inner]
     float* conv_state,           // [d_conv-1, conv_dim] updated
     float* ssm_state,            // [d_state, d_inner] updated
@@ -197,6 +198,7 @@ void mamba2_gpu_decode_block(
     const float* in_proj_w,
     const float* conv1d_w, const float* conv1d_b,
     const float* dt_bias, const float* A_log, const float* D,
+    const float* norm_w,
     const float* out_proj_w,
     float* conv_state, float* ssm_state, float* y_out,
     float* tmp,

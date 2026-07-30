@@ -103,7 +103,7 @@ int main(int argc, char** argv) {
     // ── Warmup (10 iterations) ──
     for (int i = 0; i < 10; i++) {
         mamba2_gpu_decode_block_tuned(
-            d_x, d_w_inp, d_w_conv, d_b_conv, d_dt_bias, d_A_log, d_D, d_w_out,
+            d_x, d_w_inp, d_w_conv, d_b_conv, d_dt_bias, d_A_log, d_D, nullptr, d_w_out,
             d_cs, d_ss, d_y, d_tmp, D_MODEL, D_INNER, D_STATE, D_CONV,
             N_HEAD, N_GROUP, HEAD_DIM, CONV_DIM, stream);
     }
@@ -118,7 +118,7 @@ int main(int argc, char** argv) {
     HIP_CHECK(hipEventRecord(t0, stream));
     for (int i = 0; i < iterations; i++) {
         mamba2_gpu_decode_block_tuned(
-            d_x, d_w_inp, d_w_conv, d_b_conv, d_dt_bias, d_A_log, d_D, d_w_out,
+            d_x, d_w_inp, d_w_conv, d_b_conv, d_dt_bias, d_A_log, d_D, nullptr, d_w_out,
             d_cs, d_ss, d_y, d_tmp, D_MODEL, D_INNER, D_STATE, D_CONV,
             N_HEAD, N_GROUP, HEAD_DIM, CONV_DIM, stream);
     }

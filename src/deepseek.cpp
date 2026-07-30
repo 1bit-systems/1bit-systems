@@ -104,12 +104,12 @@ bool DeepSeekModel::load_from_gguf(const std::string& path, const DeepSeekConfig
         ok &= get(p + "shared_expert.down.weight", l.w_shared_down, (size_t)cfg.moe_intermediate * H);
         
         // Routed experts (flat: all experts concatenated)
-        int exp_size = cfg.n_routed_experts * H * cfg.moe_intermediate;
-        ok &= get(p + "experts.gate.weight", l.exp_gate, (size_t)exp_size);
-        ok &= get(p + "experts.up.weight",   l.exp_up,   (size_t)exp_size);
-        ok &= get(p + "experts.down.weight", l.exp_down, (size_t)exp_size * (H / cfg.moe_intermediate));
-        // Actually, down projection is [moe_intermediate, hidden] per expert
+        size_t exp_size = (size_t)cfg.n_routed_experts * H * cfg.moe_intermediate;
+        ok &= get(p + "experts.gate.weight", l.exp_gate, exp_size);
+        ok &= get(p + "experts.up.weight",   l.exp_up,   exp_size);
+        // Down projection is [moe_intermediate, hidden] per expert
         size_t down_size = (size_t)cfg.n_routed_experts * cfg.moe_intermediate * H;
+        ok &= get(p + "experts.down.weight", l.exp_down, down_size);
         if (l.exp_down.size() != down_size) l.exp_down.resize(down_size, 0.0f);
         
         if (!ok) {

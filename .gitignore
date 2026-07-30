@@ -85,6 +85,7 @@ engine/fusion/zero_copy/probe_contexts
 engine/fusion/zero_copy/probe_multi_xclbin
 engine/fusion/zero_copy/test_pipeline
 engine/fusion/zero_copy/test_pipeline_real
+engine/fusion/zero_copy/test_npu_ffn_real_weights
 engine/fusion/zero_copy/test_zero_copy
 engine/fusion/zero_copy/xclbin_health
 engine/npu/tokenizer/tokenize

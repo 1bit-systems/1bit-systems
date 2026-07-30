@@ -432,6 +432,29 @@ struct NPUBackend : Backend {
         // until the first inference request so the NPU is free when idle.
         worker_model_path_ = model_path;
 
+        // Derive model tag from the ACTUAL filename (resolve symlinks)
+        // so the worker finds the right xclbins (final_i8_<op>_<tag>.xclbin).
+        {
+            char realp[4096];
+            const char* actual_path = model_path;
+            if (realpath(model_path, realp)) actual_path = realp;
+            std::string mp(actual_path);
+            auto ls = mp.rfind('/');
+            std::string tag = (ls != std::string::npos) ? mp.substr(ls + 1) : mp;
+            auto dot = tag.rfind('.');
+            if (dot != std::string::npos) tag = tag.substr(0, dot);
+            // Lowercase, replace separators
+            for (auto& c : tag) { c = tolower(c); if (c == '-' || c == '.' || c == '\\') c = '_'; }
+            const char* sfxs[] = {"_npu2","_instruct","_it","_it_npu2"};
+            for (auto sf : sfxs) {
+                size_t sl = strlen(sf);
+                if (tag.size() > sl && tag.substr(tag.size() - sl) == sf)
+                    tag = tag.substr(0, tag.size() - sl);
+            }
+            setenv("NPU_MODEL_TAG", tag.c_str(), 1);
+            printf("NPU: model tag set to '%s' (from %s)\n", tag.c_str(), actual_path);
+        }
+
         // Load embed + norm weights from model file
         if (!model.open(model_path)) {
             fprintf(stderr, "NPU: failed to open model file\n");
@@ -568,6 +591,11 @@ struct NPUBackend : Backend {
     bool reset() override {
         pos = 0;
         for (auto& kv : kv_caches) kv.seq_len = 0;
+        // Signal the worker to reset its internal KV cache
+        if (worker.ready) {
+            std::vector<float> dummy;
+            worker.gemm(31, 0, 0, 0, nullptr, dummy);
+        }
         return true;
     }
 

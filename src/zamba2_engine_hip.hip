@@ -255,7 +255,7 @@ extern "C" void zamba2_hip_forward(Zamba2HIPState* s, Zamba2Model& model, int to
         // ── Mamba2 GPU forward (single-token decode) ──
         mamba2_gpu_decode_block(
             s->d_hidden, lw.in_proj_w, lw.conv1d_w, lw.conv1d_b,
-            lw.dt_bias, lw.A_log, lw.D, lw.out_proj_w,
+            lw.dt_bias, lw.A_log, lw.D, lw.norm_w, lw.out_proj_w,
             conv_state, ssm_state,
             s->d_hidden, s->d_tmp,
             d_model, d_inner, d_state, cfg.d_conv,
@@ -277,7 +277,7 @@ extern "C" void zamba2_hip_forward(Zamba2HIPState* s, Zamba2Model& model, int to
 
             zamba2_hybrid_forward_gpu(
                 lw.in_proj_w, lw.conv1d_w, lw.conv1d_b,
-                lw.dt_bias, lw.A_log, lw.D, lw.out_proj_w,
+                lw.dt_bias, lw.A_log, lw.D, lw.norm_w, lw.out_proj_w,
                 conv_state, ssm_state,
                 lw.input_norm_w,
                 lw.linear_w,

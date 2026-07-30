@@ -10,6 +10,7 @@
 #pragma once
 #include "backend.h"
 #include "pilot.h"
+#include "dynamic_router.h"
 #include "backend_monitor.h"
 #include <string>
 #include <vector>
@@ -152,6 +153,8 @@ public:
     const Pilot& pilot() const { return pilot_; }
     Pilot& pilot() { return pilot_; }
     bool pilot_active() const { return pilot_active_; }
+    std::vector<DynamicRouter::BackendStats> router_stats() const { return router_.stats(); }
+    DynamicRouter& router() { return router_; }
 
     /// Re-evaluate active backend against strategy and current scores.
     /// For FASTEST: switches to the backend with best (lowest) benchmark score.
@@ -209,7 +212,8 @@ private:
     FallbackPolicy fallback_policy_ = FallbackPolicy::SEQUENTIAL;
 
     BackendMonitor monitor_;      // live performance tracking
-    Pilot pilot_;                 // cross-layer prefetch engine
+    DynamicRouter router_;        // per-token GPU ↔ NPU router
+    Pilot pilot_;
     bool pilot_active_ = false;
     bool initialized_ = false;
     mutable std::mutex mtx_;

@@ -170,8 +170,7 @@ public:
             for (int g = 0; g < groups; g++) {
                 float scale = bf16_to_f32(scales[r * groups + g]);
                 float zp    = bf16_to_f32(zps[r * groups + g]);
-                float inv_scale = scale;  // for quant: (v - zp) / scale
-                if (scale < 1e-10f) { scale = 1.0f; inv_scale = 1.0f; }
+                if (scale < 1e-10f) scale = 1.0f;
 
                 for (int i = 0; i < group_size && g * group_size + i < out_cols; i += 2) {
                     int col = g * group_size + i;

@@ -33,8 +33,9 @@ struct Adapter {
             char path[256]; snprintf(path,256,"%s/adapter_%s.bin",dir,name);
             FILE* f=fopen(path,"rb");
             if(!f) return false;
-            fread(data,4,n,f);
-            fclose(f); return true;
+            size_t nr = fread(data,4,n,f);
+            fclose(f);
+            return nr == (size_t)n;
         };
         return load("W",W,1024*1024) && load("X_mean",Xm,1024) && 
                load("X_std",Xs,1024) && load("Y_mean",Ym,1024) && load("Y_std",Ys,1024);
@@ -73,6 +74,7 @@ int main(int argc, char** argv) {
     int fd=open(path,O_RDONLY);
     size_t fsz=lseek(fd,0,SEEK_END);
     auto p=(const char*)mmap(0,fsz,PROT_READ,MAP_PRIVATE,fd,0);close(fd);
+    if (p == MAP_FAILED) { fprintf(stderr, "mmap failed\n"); return 1; }
     auto r4=[&](int o){uint32_t v;memcpy(&v,p+o,4);return(int)v;};
     auto r8=[&](int o){uint64_t v;memcpy(&v,p+o,8);return v;};
     int H=r4(4),IM=r4(8),NH=r4(12),NKV=r4(16),HD=r4(20),V=r4(24),L=r4(28),GQA=r4(32);

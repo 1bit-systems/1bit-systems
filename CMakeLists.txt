@@ -408,6 +408,25 @@ target_sources(rocm_cpp PRIVATE src/prefill_dispatcher.cpp)
 add_subdirectory(engine/gpu/zinc_cpp zinc_cpp_build)
 set(ZINC_CPP_AVAILABLE TRUE)
 
+# -- llama.cpp ggml-vulkan integration (MIT License) -----------------------------------
+set(GGML_VULKAN_DIR "${CMAKE_SOURCE_DIR}/third_party/llama.cpp")
+set(GGML_BUILD_DIR "${GGML_VULKAN_DIR}/build")
+
+if(EXISTS "${GGML_BUILD_DIR}/ggml/src/ggml-vulkan/libggml-vulkan.a")
+    add_library(ggml_vulkan STATIC IMPORTED GLOBAL)
+    set_target_properties(ggml_vulkan PROPERTIES IMPORTED_LOCATION "${GGML_BUILD_DIR}/ggml/src/ggml-vulkan/libggml-vulkan.a")
+    add_library(ggml STATIC IMPORTED GLOBAL)
+    set_target_properties(ggml PROPERTIES IMPORTED_LOCATION "${GGML_BUILD_DIR}/ggml/src/libggml.a")
+    add_library(ggml_cpu STATIC IMPORTED GLOBAL)
+    set_target_properties(ggml_cpu PROPERTIES IMPORTED_LOCATION "${GGML_BUILD_DIR}/ggml/src/libggml-cpu.a")
+    add_library(ggml_base STATIC IMPORTED GLOBAL)
+    set_target_properties(ggml_base PROPERTIES IMPORTED_LOCATION "${GGML_BUILD_DIR}/ggml/src/libggml-base.a")
+    target_include_directories(ggml INTERFACE "${GGML_VULKAN_DIR}/ggml/include")
+    message(STATUS "llama.cpp ggml-vulkan: FOUND")
+else()
+    message(WARNING "llama.cpp ggml-vulkan not built — cd third_party/llama.cpp && cmake -B build -G Ninja -DGGML_VULKAN=ON && cmake --build build -j8")
+endif()
+
 # -- libbackend_manager : Backend abstraction layer (requires rocm_cpp for HIP) ---------
 set(BACKEND_MANAGER_SOURCES
     src/backend_factory.cpp
@@ -424,7 +443,8 @@ set(BACKEND_MANAGER_SOURCES
     src/q4nx_reader.cpp
     src/safetensors_reader.cpp
     src/model_discovery.cpp
-    src/model_router.cpp)
+    src/model_router.cpp
+    src/dynamic_router.cpp)
 
 if(RCPP_HAVE_CUDA)
     list(APPEND BACKEND_MANAGER_SOURCES src/backend_cuda.cpp)
@@ -662,6 +682,16 @@ target_link_libraries(test_medusa_skeleton PRIVATE rocm_cpp)
 # due to transitive HIP deps through backend_factory → backend_generic → gguf_loader.
 # Now wired as a proper ninja target linking backend_manager (which already handles
 # the rocm_cpp dependency). Run without a model to see usage.
+# -- bench_hip_1bp: GPU 1BP engine standalone benchmark --
+add_executable(bench_hip_1bp tools/bench_hip_1bp.cpp src/backend_hip_1bp.cpp src/hip_1bp_kernels.hip src/kv_cache_attn.hip)
+target_include_directories(bench_hip_1bp PRIVATE src include engine/fusion/zero_copy engine/npu/src)
+target_compile_options(bench_hip_1bp PRIVATE -O3 -ffast-math -std=c++23 -D__HIP_PLATFORM_AMD__ -DRCPP_HAVE_FUSION_ZERO_COPY)
+target_link_libraries(bench_hip_1bp PRIVATE hip::host hip::device hipblas rocm_cpp)
+set_source_files_properties(tools/bench_hip_1bp.cpp PROPERTIES LANGUAGE CXX)
+set_target_properties(bench_hip_1bp PROPERTIES
+    HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}"
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/build)
+
 add_executable(test_backend tests/test_backend.cpp)
 target_include_directories(test_backend PRIVATE src)
 target_compile_options(test_backend PRIVATE -O3 -Wall -Wno-unused-result -std=c++23)
@@ -802,6 +832,13 @@ set(UNIFIED_SERVER_SOURCES
     src/strategy_engine.cpp
     src/agent_watchdog.cpp
     src/backend_hip.cpp
+    src/backend_hip_1bp.cpp
+    src/hip_1bp_kernels.hip
+    src/unified_pool.cpp
+    src/backend_fused.cpp
+    src/backend_fused_npu.cpp
+    src/backend_vulkan_hpp.cpp
+    src/backend_ggml_vulkan.cpp
     src/zaya_engine.cpp
     src/backend_npu.cpp
     src/backend_npu_flm.cpp
@@ -812,19 +849,36 @@ set(UNIFIED_SERVER_SOURCES
 # so they don't appear in sources or link line here.
 add_executable(unified_server ${UNIFIED_SERVER_SOURCES})
 set_source_files_properties(src/backend_hip.cpp PROPERTIES LANGUAGE HIP)
+set_source_files_properties(src/backend_hip_1bp.cpp PROPERTIES LANGUAGE HIP)
+set_source_files_properties(src/hip_1bp_kernels.hip PROPERTIES LANGUAGE HIP)
 set_source_files_properties(src/zaya_engine.cpp PROPERTIES LANGUAGE HIP)
 set_source_files_properties(src/backend_generic.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(tools/unified_server.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(src/backend_npu.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(src/backend_npu_flm.cpp PROPERTIES LANGUAGE CXX)
+set_source_files_properties(src/unified_pool.cpp PROPERTIES LANGUAGE CXX)
+set_source_files_properties(src/backend_fused_npu.cpp PROPERTIES LANGUAGE CXX)
+set_source_files_properties(src/backend_fused.cpp PROPERTIES LANGUAGE HIP)
 target_include_directories(unified_server PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/kernels>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/engine/npu/src>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/llama.cpp/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/llama.cpp/ggml/include>
     $<INSTALL_INTERFACE:include>)
 target_compile_options(unified_server PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>
     $<$<COMPILE_LANGUAGE:CXX>:-O3 -Wall -Wno-unused-result -std=c++23>)
+if(TARGET ggml_vulkan)
+    target_link_libraries(unified_server PRIVATE ggml_vulkan ggml ggml_cpu ggml_base)
+    # Also link llama.cpp lib for model loading
+    target_link_libraries(unified_server PRIVATE
+        "${GGML_BUILD_DIR}/src/libllama.a"
+        "${GGML_BUILD_DIR}/common/libllama-common.a"
+        "${GGML_BUILD_DIR}/common/libllama-common-base.a"
+        -lvulkan -ldl -lpthread -lm)
+endif()
 # Build FLM from submodule
 set(FLM_SOURCE_DIR "${CMAKE_SOURCE_DIR}/third_party/FastFlowLM/src")
 set(FLM_BUILD_DIR "${FLM_SOURCE_DIR}/build")
@@ -863,6 +917,20 @@ if(EXISTS "${FLM_BINARY}")
         BYPRODUCTS ${FLM_BINARY}
     )
     add_dependencies(unified_server build_flm)
+    
+    # ── hotpatch target: update FLM submodule to latest main + rebuild ──
+    # Keeps npu_flm backend on the latest ROCm/FLM source.
+    # Run: cmake --build build --target update_flm
+    add_custom_target(update_flm
+        COMMAND git submodule update --remote third_party/FastFlowLM
+        COMMAND cd ${FLM_SOURCE_DIR} && cmake -B build -G Ninja
+            -DFLM_VERSION=0.9.46 -DNPU_VERSION=1.1.2
+        COMMAND cd ${FLM_SOURCE_DIR} && cmake --build build -j8
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Updating FLM submodule to latest + rebuilding"
+        BYPRODUCTS ${FLM_BINARY}
+    )
+    add_dependencies(unified_server update_flm)
 else()
     message(STATUS "flm: FLM binary not available — skipping build_flm target")
 endif()
@@ -878,7 +946,8 @@ target_link_libraries(unified_server PRIVATE
     backend_manager vl_image dl
     httplib::httplib
     nlohmann_json::nlohmann_json
-    rocm_cpp hip::host hip::device)
+    rocm_cpp hip::host hip::device hipblas)
+
 target_link_options(unified_server PRIVATE -rdynamic -luuid)
 set_target_properties(unified_server PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 if(ZINC_CPP_AVAILABLE)
@@ -916,7 +985,7 @@ target_link_libraries(test_mamba2_kernels PRIVATE rocm_cpp hip::host hip::device
 set_target_properties(test_mamba2_kernels PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
 # Register as ctest (requires GGUF model path via env or default)
-set(MAMBA1_TEST_MODEL "models/blackmamba-1.5b.gguf" CACHE FILEPATH "GGUF model for test_mamba1_backend")
+set(MAMBA1_TEST_MODEL "${CMAKE_CURRENT_SOURCE_DIR}/models/blackmamba-1.5b.gguf" CACHE FILEPATH "GGUF model for test_mamba1_backend")
 if(MAMBA1_TEST_MODEL AND EXISTS "${MAMBA1_TEST_MODEL}")
     add_test(NAME test_mamba1_backend_regression COMMAND test_mamba1_backend ${MAMBA1_TEST_MODEL} 8)
     set_tests_properties(test_mamba1_backend_regression PROPERTIES LABELS "gpu_required;model_required;regression" SKIP_RETURN_CODE 77)
@@ -1128,19 +1197,86 @@ if(TARGET npu_engine_hybrid)
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/engine/npu/build)
 endif()
 
-# -- test_pipeline_real: GPU+NPU fused pipeline with real kernels (#446) ------
-# Requires HIP, XRT, and the zero-copy pipeline sources.
-# Uses relative paths (no variable indirection) so the CI reference checker
-# can verify they resolve.
+# -- libfusion_zero_copy: zero-copy NPU<->GPU shared-buffer substrate --------
+# Promotes the proven SharedBO/PipelineOverlap primitives (engine/fusion/zero_copy/,
+# see its README — hardware-verified zero-copy, 3/3 runs, zero IO_PAGE_FAULTs)
+# from "only reachable via the test_pipeline_real binary" to a real linkable
+# library, so backend_manager and future hybrid GPU+NPU backends can use them
+# without pulling in test_pipeline_real.cpp's demo/harness code.
 find_package(aiebu QUIET)
 find_package(xrt QUIET)
 if(hip_FOUND AND xrt_FOUND AND aiebu_FOUND)
     if(EXISTS "${CMAKE_SOURCE_DIR}/engine/fusion/zero_copy/shared_bo.cpp" AND
        EXISTS "${CMAKE_SOURCE_DIR}/engine/fusion/zero_copy/pipeline_overlap.cpp")
-        add_executable(test_pipeline_real
-            engine/fusion/zero_copy/test_pipeline_real.cpp
+        add_library(fusion_zero_copy STATIC
             engine/fusion/zero_copy/shared_bo.cpp
             engine/fusion/zero_copy/pipeline_overlap.cpp
+        )
+        target_include_directories(fusion_zero_copy PUBLIC
+            engine/fusion/zero_copy
+            ${CMAKE_SOURCE_DIR}/include
+            ${THEROCK_SDK_BASE}/include)
+        target_compile_options(fusion_zero_copy PRIVATE
+            -g -O3 -march=native -fno-signed-zeros -fno-trapping-math -fassociative-math
+            -freciprocal-math -fno-math-errno -fno-rounding-math
+            -std=c++23 -D__HIP_PLATFORM_AMD__)
+        target_link_libraries(fusion_zero_copy PUBLIC
+            xrt_coreutil xrt_core uuid rt pthread
+            /usr/lib/x86_64-linux-gnu/libaiebu.a)
+
+        # Link fusion_zero_copy into unified_server for fused backend
+        if(TARGET unified_server)
+            target_link_libraries(unified_server PRIVATE fusion_zero_copy)
+            target_include_directories(unified_server PRIVATE engine/fusion/zero_copy)
+            target_compile_definitions(unified_server PRIVATE RCPP_HAVE_FUSION_ZERO_COPY=1)
+        endif()
+
+        # bench_fused: Fused GPU attn ∥ NPU FFN benchmark
+        add_executable(bench_fused tools/bench_fused.cpp src/backend_fused.cpp src/backend_fused_npu.cpp src/hip_1bp_kernels.hip src/kv_cache_attn.hip)
+        set_source_files_properties(src/backend_fused.cpp PROPERTIES LANGUAGE HIP)
+        set_source_files_properties(src/backend_fused_npu.cpp PROPERTIES LANGUAGE CXX)
+        set_source_files_properties(src/kv_cache_attn.hip PROPERTIES LANGUAGE HIP)
+        target_include_directories(bench_fused PRIVATE src include engine/fusion/zero_copy engine/npu/src)
+        target_compile_options(bench_fused PRIVATE -O2 -std=c++23 -D__HIP_PLATFORM_AMD__ -DRCPP_HAVE_FUSION_ZERO_COPY)
+        target_link_libraries(bench_fused PRIVATE fusion_zero_copy hip::host hip::device hipblas rocm_cpp)
+        set_source_files_properties(tools/bench_fused.cpp PROPERTIES LANGUAGE CXX)
+        set_target_properties(bench_fused PROPERTIES
+            HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}"
+            RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/build)
+    endif()
+endif()
+
+# -- bench_ggml_vk: GGML-Vulkan backend benchmark (llama.cpp MIT License) ---
+if(TARGET ggml_vulkan)
+    add_executable(bench_ggml_vk tools/bench_ggml_vk.cpp src/backend_ggml_vulkan.cpp)
+    target_include_directories(bench_ggml_vk PRIVATE
+        include
+        src
+        third_party/llama.cpp/include
+        third_party/llama.cpp/ggml/include)
+    target_link_options(bench_ggml_vk PRIVATE -Wl,--allow-multiple-definition)
+    target_link_libraries(bench_ggml_vk PRIVATE
+        "${GGML_BUILD_DIR}/ggml/src/ggml-vulkan/libggml-vulkan.a"
+        "${GGML_BUILD_DIR}/ggml/src/libggml.a"
+        "${GGML_BUILD_DIR}/ggml/src/libggml-cpu.a"
+        "${GGML_BUILD_DIR}/ggml/src/libggml-base.a"
+        "${GGML_BUILD_DIR}/src/libllama.a"
+        -lvulkan -ldl -lpthread -lm)
+    if(OpenMP_CXX_FOUND)
+        target_link_libraries(bench_ggml_vk PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+    set_target_properties(bench_ggml_vk PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/build)
+    message(STATUS "bench_ggml_vk: GGML-Vulkan benchmark enabled")
+endif()
+
+# -- test_pipeline_real: GPU+NPU fused pipeline with real kernels (#446) ------
+# Requires HIP, XRT, and the zero-copy pipeline sources.
+# Uses relative paths (no variable indirection) so the CI reference checker
+# can verify they resolve.
+if(hip_FOUND AND xrt_FOUND AND aiebu_FOUND)
+    if(TARGET fusion_zero_copy)
+        add_executable(test_pipeline_real
+            engine/fusion/zero_copy/test_pipeline_real.cpp
             src/kv_cache_attn.hip
         )
         target_include_directories(test_pipeline_real PRIVATE
@@ -1156,6 +1292,7 @@ if(hip_FOUND AND xrt_FOUND AND aiebu_FOUND)
             -freciprocal-math -fno-math-errno -fno-rounding-math
             -std=c++23 -fopenmp -D__HIP_PLATFORM_AMD__)
         target_link_libraries(test_pipeline_real PRIVATE
+            fusion_zero_copy
             xrt_coreutil xrt_core uuid rt pthread
             /usr/lib/x86_64-linux-gnu/libaiebu.a)
         target_link_options(test_pipeline_real PRIVATE
@@ -1167,6 +1304,34 @@ if(hip_FOUND AND xrt_FOUND AND aiebu_FOUND)
         set_tests_properties(test_pipeline_real PROPERTIES
             LABELS "gpu_required;npu_required" SKIP_RETURN_CODE 77
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+        # -- test_npu_ffn_real_weights: NPU FFN correctness vs real model weights --
+        # Loads real blk.0 FFN weights from models/Qwen3-0.6B.1bp (shape-matched
+        # to this pipeline demo's H=1024/IM=3072) and checks the NPU's
+        # int8-quantized GEMM output against a CPU float32 reference computed
+        # from the same real, dequantized weights (see file header for the
+        # GGUF [out,in] -> packB [K,N] transpose this depends on).
+        add_executable(test_npu_ffn_real_weights
+            engine/fusion/zero_copy/test_npu_ffn_real_weights.cpp
+        )
+        target_include_directories(test_npu_ffn_real_weights PRIVATE
+            engine/fusion/zero_copy
+            ${CMAKE_SOURCE_DIR}/include
+            ${THEROCK_SDK_BASE}/include)
+        target_compile_options(test_npu_ffn_real_weights PRIVATE
+            -g -O2 -std=c++23 -D__HIP_PLATFORM_AMD__)
+        target_link_libraries(test_npu_ffn_real_weights PRIVATE
+            xrt_coreutil xrt_core uuid rt pthread
+            /usr/lib/x86_64-linux-gnu/libaiebu.a)
+        set_target_properties(test_npu_ffn_real_weights PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/engine/fusion/zero_copy)
+        if(EXISTS "${CMAKE_SOURCE_DIR}/models/Qwen3-0.6B.1bp")
+            add_test(NAME test_npu_ffn_real_weights COMMAND test_npu_ffn_real_weights
+                     ${CMAKE_SOURCE_DIR}/models/Qwen3-0.6B.1bp)
+            set_tests_properties(test_npu_ffn_real_weights PROPERTIES
+                LABELS "npu_required;model_required;regression" SKIP_RETURN_CODE 77
+                WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+        endif()
     else()
         message(STATUS "test_pipeline_real: shared_bo.cpp or pipeline_overlap.cpp not found — skipping")
     endif()
@@ -1471,3 +1636,5 @@ if(XRT_FOUND)
 else()
     message(STATUS "npu: XRT NOT found — skipping NPU engine build")
 endif()
+
+

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rg --files --glob '**/*.md' /home/bcloud/1bit-systems --sort modified)",
+      "Bash(which amdclang++ 2>&1; ls /opt/rocm-therock/bin/amdclang++ 2>&1; ls /opt/rocm/lib/llvm/bin/amdclang++ 2>&1; echo \"HOME=$…)",
+      "Bash(cd /home/bcloud/1bit-systems && cmake --build build 2>&1 | tail -100)",
+      "Bash(cat *)",
+      "Bash(df *)"
+    ]
+  }
+}

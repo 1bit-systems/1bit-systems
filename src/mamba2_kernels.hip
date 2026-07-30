@@ -816,6 +816,7 @@ void mamba2_gpu_decode_block_tuned(
     const float* dt_bias,
     const float* A_log,
     const float* D,
+    const float* norm_w,
     const float* out_proj_w,
     float* conv_state,
     float* ssm_state,
@@ -878,25 +879,14 @@ void mamba2_gpu_decode_block_tuned(
         1, 1, d_inner, d_state, n_head, n_group, head_dim);
 
     // ── 5. Group norm (RMS norm) on y_inner ──
-    // Mamba2 applies per-group RMS norm after selective scan, before gate.
-    // norm_w layout: [d_inner / n_group, n_group], but we don't have it in
-    // the decode block signature. For compatibility, we use a simple RMS
-    // norm without per-channel weights (uniform scaling).
-    // The caller should apply norm_w separately if needed.
-    //
-    // FIXME: norm_w should be added to the decode block API for full correctness.
-    // For now, this applies RMS normalization without per-element weights.
-    // Most Zamba2 models use n_group=1 so norm_w is uniform anyway.
+    // Uses the caller-provided norm_w (may be nullptr for identity scaling).
     if (n_group > 0) {
         int group_size = d_inner / n_group;
         dim3 norm_grid(n_group, 1, 1);
         dim3 norm_block(256, 1, 1);
-        // norm_w is null because the caller doesn't pass it yet.
-        // FIXME: add norm_w to all decode block callers.
-        // Without actual group norm weights, this is an identity RMS norm.
         hipLaunchKernelGGL(mamba2_group_norm_kernel,
             norm_grid, norm_block, 0, stream,
-            y_inner, (const float*)nullptr, d_inner, n_group, 1, 1e-6f);
+            y_inner, norm_w, d_inner, n_group, 1, 1e-6f);
     }
 
     // ── 6. Fused: y_inner = y_inner * silu(z) ──
@@ -917,6 +907,7 @@ void mamba2_gpu_decode_block(
     const float* x_in, const float* in_proj_w,
     const float* conv1d_w, const float* conv1d_b,
     const float* dt_bias, const float* A_log, const float* D,
+    const float* norm_w,
     const float* out_proj_w,
     float* conv_state, float* ssm_state, float* y_out,
     float* tmp,
@@ -926,7 +917,7 @@ void mamba2_gpu_decode_block(
 {
     // Delegate to the tuned orchestration.
     mamba2_gpu_decode_block_tuned(
-        x_in, in_proj_w, conv1d_w, conv1d_b, dt_bias, A_log, D, out_proj_w,
+        x_in, in_proj_w, conv1d_w, conv1d_b, dt_bias, A_log, D, norm_w, out_proj_w,
         conv_state, ssm_state, y_out, tmp,
         d_model, d_inner, d_state, d_conv,
         n_head, n_group, head_dim, conv_dim, stream);

@@ -240,8 +240,11 @@ struct Mamba1Backend : Backend {
         }
 
         // Read SSM config from GGUF metadata
-        r.get_u32("mamba.ssm.state_size", (uint32_t&)d_state);
-        r.get_u32("mamba.ssm.conv_kernel", (uint32_t&)d_conv);
+        uint32_t state_size_tmp = 0, conv_kernel_tmp = 0;
+        r.get_u32("mamba.ssm.state_size", state_size_tmp);
+        r.get_u32("mamba.ssm.conv_kernel", conv_kernel_tmp);
+        d_state = (int)state_size_tmp;
+        d_conv = (int)conv_kernel_tmp;
         if (d_state == 0) d_state = 16;   // fallback: Zamba-7B-v1 default
         if (d_conv == 0) d_conv = 4;      // fallback
 
@@ -252,12 +255,10 @@ struct Mamba1Backend : Backend {
             fprintf(stderr, "[mamba1] Missing token_embd.weight\n");
             return false;
         }
-        // GGUF stores [d_model, vocab]; transpose to [vocab, d_model]
+        // GGUF stores [vocab, d_model] row-major — no transpose needed.
+        // Direct copy preserves the embedding lookup layout (issue #1171).
         int actual_vocab = (int)n / d_model;
-        embed.resize((size_t)actual_vocab * d_model);
-        for (int i = 0; i < actual_vocab; ++i)
-            for (int j = 0; j < d_model; ++j)
-                embed[(size_t)i * d_model + j] = embed_tmp[(size_t)j * actual_vocab + i];
+        embed = std::move(embed_tmp);
         vocab_size = actual_vocab;
 
         r.get_tensor_f32("output_norm.weight", final_norm_w);

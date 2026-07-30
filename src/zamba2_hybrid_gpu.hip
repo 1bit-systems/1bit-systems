@@ -152,6 +152,7 @@ void zamba2_hybrid_forward_gpu(
     const float* mamba_in_proj_w, const float* mamba_conv1d_w,
     const float* mamba_conv1d_b, const float* mamba_dt_bias,
     const float* mamba_A_log, const float* mamba_D,
+    const float* mamba_norm_w,
     const float* mamba_out_proj_w,
     float* mamba_conv_state, float* mamba_ssm_state,
 
@@ -190,7 +191,7 @@ void zamba2_hybrid_forward_gpu(
     // ──────────────────────────────────────────────────────────────────
     mamba2_gpu_decode_block_tuned(
         hidden, mamba_in_proj_w, mamba_conv1d_w, mamba_conv1d_b,
-        mamba_dt_bias, mamba_A_log, mamba_D, mamba_out_proj_w,
+        mamba_dt_bias, mamba_A_log, mamba_D, mamba_norm_w, mamba_out_proj_w,
         mamba_conv_state, mamba_ssm_state,
         hidden, scratch,
         d_model, d_inner, d_state, d_conv,

@@ -244,10 +244,20 @@ def my_matmul(M, K, N, m, k, n, batch_size, mtk):
                             # ── Batch: full batches of batch_size ────────
                             for batch in range_(num_batches):
                                 # Acquire ALL batch_size A and B buffers
-                                # This triggers all L2→L1 DMA BDs at once
+                                # This triggers all L2→L1 DMA BDs at once.
+                                # Python-level unroll (plain range, not the
+                                # scf.for range_) — batch_size is a compile-time
+                                # constant and A_bufs/B_bufs must hold
+                                # batch_size distinct acquire() results indexed
+                                # by a real Python int, not an MLIR loop
+                                # induction variable (range_ here would trace
+                                # the body once with a symbolic index, both
+                                # crashing on list indexing and defeating the
+                                # "acquire everything up front" batching this
+                                # is meant to do).
                                 A_bufs = []
                                 B_bufs = []
-                                for i in range_(batch_size):
+                                for i in range(batch_size):
                                     B_buf = B_l2l1[col].acquire(
                                         ObjectFifoPort.Consume, 1)
                                     A_buf = A_l2l1[row].acquire(
@@ -257,11 +267,11 @@ def my_matmul(M, K, N, m, k, n, batch_size, mtk):
 
                                 # Compute all batch_size iterations
                                 # (A and B data has been pipelined in)
-                                for i in range_(batch_size):
+                                for i in range(batch_size):
                                     matmul(A_bufs[i], B_bufs[i], C)
 
                                 # Release all buffers
-                                for i in range_(batch_size):
+                                for i in range(batch_size):
                                     A_l2l1[row].release(
                                         ObjectFifoPort.Consume, 1)
                                     B_l2l1[col].release(
@@ -269,18 +279,20 @@ def my_matmul(M, K, N, m, k, n, batch_size, mtk):
 
                             # ── Remainder: process leftover K-iterations ──
                             if remainder > 0:
+                                # Same fix as the batch loop above: plain
+                                # Python range, not scf.for range_.
                                 A_bufs_r = []
                                 B_bufs_r = []
-                                for i in range_(remainder):
+                                for i in range(remainder):
                                     B_buf = B_l2l1[col].acquire(
                                         ObjectFifoPort.Consume, 1)
                                     A_buf = A_l2l1[row].acquire(
                                         ObjectFifoPort.Consume, 1)
                                     A_bufs_r.append(A_buf)
                                     B_bufs_r.append(B_buf)
-                                for i in range_(remainder):
+                                for i in range(remainder):
                                     matmul(A_bufs_r[i], B_bufs_r[i], C)
-                                for i in range_(remainder):
+                                for i in range(remainder):
                                     A_l2l1[row].release(
                                         ObjectFifoPort.Consume, 1)
                                     B_l2l1[col].release(

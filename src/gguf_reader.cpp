@@ -441,6 +441,17 @@ bool GgufReader::read_kv_value(uint32_t vtype, KV& out) {
             if (at == 8) {
                 out.arr_str.resize(an);
                 for (uint64_t j = 0; j < an; j++) out.arr_str[j] = read_string();
+            } else if (an == 1) {
+                // Single-element numeric array: store as scalar u
+                out.vtype = at;  // override to inner type
+                switch (at) {
+                    case 4: { uint32_t v; fread(&v, 4, 1, f_); out.u = v; break; }
+                    case 5: { int32_t v; fread(&v, 4, 1, f_); out.u = (uint64_t)(int64_t)v; break; }
+                    case 10: { uint64_t v; fread(&v, 8, 1, f_); out.u = v; break; }
+                    case 11: { int64_t v; fread(&v, 8, 1, f_); out.u = (uint64_t)v; break; }
+                    case 6: { float v; fread(&v, 4, 1, f_); out.f = v; break; }
+                    default: skip_kv_value(at); break;
+                }
             } else {
                 for (uint64_t j = 0; j < an; j++) skip_kv_value(at);
             }

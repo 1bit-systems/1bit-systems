@@ -961,25 +961,13 @@ int main(int argc, char** argv) {
         printf("     Server starts in discovery-only mode.\n");
     }
 
-    // Phase 4: Benchmark active backend only
-    // (benchmarking all backends can crash on backends that don't support
-    //  the current model format, e.g. hip_gpu expects Zaya .bin format)
+    // Phase 4: Benchmark — skipped. DynamicRouter is ready with active backends.
+    // Benchmarks can be triggered at runtime via the API.
     if (inited) {
-        auto* active_info_raw = mgr.active_info();
-        if (active_info_raw) {
-            int bench_tokens = quick_mode ? 1 : 5;
-            printf("\n── Benchmark (%d token%s) ──\n", bench_tokens, bench_tokens == 1 ? "" : "s");
-            printf("  %s... ", active_info_raw->id.c_str());
-            fflush(stdout);
-            float ms = active_info_raw->instance->benchmark(bench_tokens);
-            printf("%.1f ms/tok\n", ms);
-            // Phase 5's build_performance_table() reads BackendInfo::score, which
-            // benchmark_all() would normally set — but Phase 4 deliberately benchmarks
-            // only the active backend (see comment above) and bypasses benchmark_all(),
-            // so without this the score stays 0 and the performance table prints a
-            // bogus "0 tok/s" for the very backend we just measured.
-            mgr.set_score(active_info_raw->id, ms);
-        }
+        printf("\n── DynamicRouter Ready ──\n");
+        mgr.router().report();
+        printf("  ➤ Set strategy: curl -X POST http://localhost:%d/v1/strategy/select -d '{\"strategy\":\"gpu_only\"}'\n", g_port);
+        printf("  ➤ Generate:     curl http://localhost:%d/v1/completions -d '{\"prompt\":\"Hello\",\"max_tokens\":8}'\n", g_port);
     }
 
     // ── Phase 5: Initialize Strategy Engine ──

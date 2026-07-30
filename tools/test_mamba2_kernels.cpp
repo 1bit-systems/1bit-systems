@@ -436,7 +436,7 @@ int main() {
         // GPU decode block
         mamba2_gpu_decode_block_tuned(
             d_x_in, d_w_in_proj, d_w_conv1d, d_b_conv1d,
-            d_dt_bias, d_A_log, d_D, d_w_out_proj,
+            d_dt_bias, d_A_log, d_D, nullptr, d_w_out_proj,
             d_conv_state, d_ssm_state, d_y, d_tmp,
             D_MODEL, D_INNER, D_STATE, D_CONV,
             N_HEAD, N_GROUP, HEAD_DIM, CONV_DIM, stream);
