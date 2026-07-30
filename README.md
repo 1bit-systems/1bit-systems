@@ -53,28 +53,128 @@ See the [Installation Guide](docs/wiki/Installation.md) for full instructions.
 
 ## Model Families
 
-| Family | Type | Best Backend | Peak tok/s | Status |
-|--------|------|-------------|-----------:|--------|
-| Zaya1 | MoE + CCA attn | GPU HIP | 64 | ✅ |
-| BlackMamba | Mamba1 + MoE | GPU HIP | 79.4 | ✅ |
-| Zamba2 | Mamba2 hybrid | GPU Vulkan | 30 | ✅ |
-| Qwen2/Qwen3 | Dense / VL | GPU Vulkan | 423 | ✅ |
-| Llama 3.1/3.2 | Dense | GPU HIP (kernel) | 543 | ✅ |
-| DeepSeek V2/V3/R1 | MoE + MLA | GPU HIP | 20 | ✅ |
-| Mistral / Pixtral | Dense | GPU HIP (kernel) | 543 | ✅ |
-| Gemma 3/4 | Dense | NPU | 67.5 | ✅ |
-| Phi4-Mini | Dense | NPU | 67.5 | ✅ |
-| Bonsai (Deepgrove) | Ternary-native | GPU HIP | 21.9 | ✅ |
-| Laguna | Dense | GPU HIP (kernel) | 543 | ✅ |
-| Falcon | Dense + MQA | GPU HIP (kernel) | 543 | ✅ |
-| OLMo | Dense (no RoPE) | GPU HIP (kernel) | 543 | ✅ |
-| ZR1 | Dense reasoning | GPU Vulkan | 26 | ✅ |
-| Qwen2-VL / Qwen3-VL | Vision-Language | GPU HIP | — | ✅ |
-| Whisper | Speech-to-text | NPU / GPU | — | ✅ |
-| Nanbeige4.1 | Dense | NPU | — | ✅ |
-| Moonshot Kimi (Moonlight, Kimi-VL) | Gated MLA MoE | GPU HIP | — | ✅ architecture analyzed |
+We group models by **architecture family** — each entry shows 1BP file size, supported backends, and real measured performance. Families with an end-to-end pipeline (LLM + voice + vision) are marked with a pipeline badge.
 
-**[→ Full model details and per-model benchmarks](docs/wiki/models.md)**
+**Legend:** ✅ = validated · ⚙️ = optimized · 🏁 = end-to-end · 🔄 = in progress
+
+---
+
+### 🧬 Zyphra Ecosystem — Complete End-to-End Pipeline
+
+Zyphra's model portfolio spans the entire AI stack: **EEG → LLM (dense, MoE, Mamba) → TTS → Voice cloning**. We support all of them — 11 models in 1BP format, plus EEG and TTS pipelines documented for ecosystem completeness.
+
+| Model | Params | 1BP Size | Backend(s) | Pipeline | Perf |
+|-------|:------:|:--------:|------------|:--------:|:----:|
+| **ZAYA1-8B** | 8.8B | 6.6 GB¹ | ZINC / HIP / NPU | 🧠🗣️ | 64 tok/s HIP |
+| **ZAYA1-74B-preview** | 74B | 739 MB² | ZINC / HIP | 🧠🗣️ | — |
+| **ZAYA1-VL-8B** | 8.8B | — | ZINC (vision) | 👁️🧠🗣️ | — |
+| **ZR1-1.5B** | 1.5B | 781 MB | ZINC / NPU | 🧠🗣️ | 26 tok/s ZINC |
+| **BlackMamba-1.5B** | 1.5B | 970 MB | Mamba1 HIP | 🧠🗣️ | **79.4 tok/s** 🏁 |
+| **BlackMamba-2.8B** | 2.8B | 1.8 GB | Mamba1 HIP | 🧠🗣️ | 46.0 tok/s 🏁 |
+| **Zamba2-1.2B-v2** | 1.2B | 1.1 GB | ZINC ✅ / NPU | 🧠 | 30 tok/s ZINC |
+| **Zamba2-2.7B-v2** | 2.7B | 2.4 GB | ZINC ✅ / NPU | 🧠 | — |
+| **Zamba2-7B-v2** | 7B | 6.6 GB | ZINC ✅ / NPU | 🧠 | — |
+| **Zamba-7B-v1** | 7B | 4.3 GB | Mamba1 HIP | 🧠 | — |
+
+**Pipeline depth:**
+- 🧠 **LLM** — Zaya (MoE+CCA), ZR1 (dense reasoning), BlackMamba (Mamba1+MoE), Zamba (Mamba1/2 hybrid)
+- 👁️ **Vision** — ZAYA1-VL-8B (built-in vision encoder)
+- 🗣️ **Voice** — Voice cloning pipeline (RVQ-VAE codec + QLoRA adapter + ONNX decoder + streaming + persona system), see [`tools/jarvis/`](tools/jarvis/)
+- 🧠 **EEG** — ZUNA1.1 / ZUNA (diffusion autoencoder, not 1BP) → [Zyphra/ZUNA1.1](https://huggingface.co/Zyphra/ZUNA1.1) · ⭐ 320
+- 🗣️ **TTS** — Zonos-v0.1-hybrid / ZONOS2 (neural audio codec + MoE, not 1BP) → [Zyphra/Zonos-v0.1-hybrid](https://huggingface.co/Zyphra/Zonos-v0.1-hybrid) · ⭐ 1,106
+
+> ¹ ZAYA1-8B 1BP is ~6.6 GB full-weight — the 149 MB entry on HF is MoE-expert-stripped; use the complete file. ² 1BP is extremely small (TQ2 ternary quantization on a 74B MoE).
+
+---
+
+### 🏗️ Qwen Family — Dense + VL + MoE + Speech
+
+The most versatile ecosystem: dense models from 0.5B to 72B, vision-language variants, DeepSeek-distilled derivatives, and Whisper speech-to-text. Strongest on GPU Vulkan (ZINC) with 423 tok/s peak.
+
+| Model | Params | 1BP Size | Backend(s) | Perf |
+|-------|:------:|:--------:|------------|:----:|
+| **Qwen2.5-0.5B** | 0.5B | 328 MB | ZINC / NPU | — |
+| **Qwen3-0.6B** | 0.6B | 356 MB | ZINC / NPU / HIP | — |
+| **Qwen3-4B** | 4B | 2.2 GB | ZINC / NPU / HIP | — |
+| **Qwen3-8B** | 8B | 4.1 GB | ZINC / NPU / HIP | 423 tok/s ZINC |
+| **Qwen2-VL-2B** | 2B | 781 MB | ZINC (vision) | — |
+| **Qwen3-VL-4B** | 4B | 2.2 GB | ZINC (vision) | — |
+| **Qwen2-VL-7B** | 7B | 3.9 GB | ZINC (vision) | — |
+| **DeepSeek-R1-Distill-Qwen-7B** | 7B | 3.8 GB | ZINC / NPU / HIP | — |
+| **Whisper (speech-to-text)** | — | — | NPU / GPU | 🔄 |
+
+**Pipeline depth:** Dense LLM + Vision-Language (text inference ✅, vision encoder 🔄) + Whisper speech-to-text
+
+---
+
+### 📐 Dense Transformers
+
+General-purpose dense transformer models — Llama-derived, Mistral, Gemma, Phi, Falcon, OLMo, Granite. Each supports 3+ backends and auto-detects from GGUF/1BP headers.
+
+| Model | Params | 1BP Size | Backend(s) | Peak tok/s |
+|-------|:------:|:--------:|------------|:----------:|
+| **Llama-3.2-1B** | 1B | 581 MB | ZINC / NPU | 543 (kernel) |
+| **Llama-3.2-3B** | 3B | 1.7 GB | ZINC / NPU / HIP | 543 (kernel) |
+| **Llama-3.1-8B** | 8B | 4.1 GB | ZINC / NPU / HIP | 543 (kernel) |
+| **TinyLlama-1.1B** | 1.1B | 328 MB | ZINC / NPU | — |
+| **Mistral-7B-v0.3** | 7B | 4.3 GB | ZINC / NPU / HIP | 543 (kernel) |
+| **Ministral-8B** | 8B | 4.7 GB | ZINC / NPU / HIP | — |
+| **Gemma-2-2B** | 2B | 1.2 GB | ZINC / NPU / HIP | 67.5 (NPU) |
+| **Gemma-3-1B** | 1B | 447 MB | ZINC / NPU | — |
+| **Gemma-3-4B** | 4B | 1.9 GB | ZINC / NPU / HIP | 67.5 (NPU) |
+| **Phi-3-mini** | 3.8B | 2.3 GB | ZINC / NPU / HIP | — |
+| **Phi-3.5-mini** | 3.8B | 2.3 GB | ZINC / NPU / HIP | — |
+| **Phi-4-mini** | 3.8B | 1.9 GB | ZINC / NPU / HIP | 67.5 (NPU) |
+| **Falcon3-1B** | 1B | 675 MB | ZINC / NPU / HIP | — |
+| **Falcon3-3B** | 3B | 1.4 GB | ZINC / NPU / HIP | — |
+| **Falcon3-7B** | 7B | 4.0 GB | ZINC / NPU / HIP | — |
+| **Falcon3-10B** | 10B | 5.7 GB | ZINC / NPU / HIP | — |
+| **OLMo-2-7B** | 7B | 3.9 GB | ZINC / NPU / HIP | — |
+| **OLMo-2-13B** | 13B | 7.6 GB | ZINC / NPU / HIP | — |
+| **Granite-3.2-2B** | 2B | 1.5 GB | ZINC / NPU / HIP | — |
+| **Granite-3.2-8B** | 8B | 4.8 GB | ZINC / NPU / HIP | — |
+| **Nanbeige4.1** | — | — | NPU | — |
+
+**[→ Full per-model benchmarks](docs/wiki/models.md)**
+
+---
+
+### 🔀 Specialized Architectures
+
+Mixture-of-Experts, ternary, and other non-standard architectures — MoE for sparse throughput, TQ2 ternary for extreme compression, and reverse-engineered architectures.
+
+**MoE & Sparse**
+
+| Model | Params | 1BP Size | Backend(s) | Perf |
+|-------|:------:|:--------:|------------|:----:|
+| **DeepSeek-V2/V3/R1** | — | — | GPU HIP | 20 tok/s |
+| **DeepSeek-R1-Distill-Llama-8B** | 8B | 4.1 GB | ZINC / NPU / HIP | — |
+| **Mixtral-8x7B** | 46.7B | 27.8 GB | ZINC / NPU / HIP | — |
+| **Laguna-S-2.1** | 48×256ex | 73.5 GB | ZINC / NPU / HIP | — |
+| **Laguna-XS-2.1** | 40×256ex | 20.9 GB | ZINC / NPU / HIP | — |
+| **Laguna-S-dflash (draft)** | 6L dense | 665 MB | ZINC / NPU / HIP | — |
+| **Moonshot Kimi (Moonlight, Kimi-VL)** | Gated MLA MoE | — | GPU HIP | 🔄 arch analyzed |
+
+**Ternary & 1-bit (TQ2)** — Native ternary models using TQ2 2-bit quantization
+
+| Model | Params | 1BP Size | Backend | Perf |
+|-------|:------:|:--------:|---------|:----:|
+| **Bonsai-1.7B** | 1.7B | 841 MB | HIP GPU | 21.9 tok/s |
+| **Bonsai-4B** | 4B | 2.2 GB | HIP GPU | — |
+| **Bonsai-8B** | 8B | 4.1 GB | HIP GPU | — |
+| **Bonsai-27B** | 27B | 15 GB | HIP GPU | — |
+
+**Ternary kernel benchmarks:**
+| Kernel | tok/s | Backend |
+|--------|:-----:|---------|
+| Q1 GEMV | 433 | ROCm HIP |
+| Fused TQ2 (QKV+GU) | 420 | ROCm HIP |
+| TQ2 GEMV | 367 | ROCm HIP |
+| GPU ternary (Vulkan) | 318 | Vulkan ZINC |
+
+---
+
+**[→ Full model catalog with 1BP conversion status](models/catalog/README.md)** · **[→ Per-model benchmarks](docs/wiki/models.md)**
 
 ## Benchmarks
 
