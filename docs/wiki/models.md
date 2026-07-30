@@ -626,7 +626,7 @@ bool dequant_q6_k(const uint8_t* bd, float* out, int count) {
         for (int n = 0; n < BS; n += 128) {
             for (int l = 0; l < 32; l++) {
                 int is = l / 16;
-                int8_t q1 = (int8_t)((qlÃ] & 0xF) | (((qh[l] >> 0) & 3) << 4)) - 32;
+                int8_t q1 = (int8_t)((ql[l & 0xF) | (((qh[l] >> 0) & 3) << 4)) - 32;
                 int8_t q2 = (int8_t)((ql[l + 32] & 0xF) | (((qh[l] >> 2) & 3) << 4)) - 32;
                 int8_t q3 = (int8_t)((ql[l] >> 4) | (((qh[l] >> 4) & 3) << 4)) - 32;
                 int8_t q4 = (int8_t)((ql[l + 32] >> 4) | (((qh[l] >> 6) & 3) << 4)) - 32;
