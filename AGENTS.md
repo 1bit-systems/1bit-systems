@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **1bit-systems** (15957 symbols, 27916 relationships, 229 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **1bit-systems** (21485 symbols, 38841 relationships, 230 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -20,21 +20,6 @@ This project is indexed by GitNexus as **1bit-systems** (15957 symbols, 27916 re
 - NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
 - NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
 - NEVER commit changes without running `detect_changes()` to check affected scope.
-
-## Bug Fix Workflow
-
-**MUST file a GitHub issue BEFORE making any fix.** The purpose is to document the bug (what's wrong, where, impact) before changing any code. This creates a clear audit trail: issue describes the problem, commit/PR provides the solution.
-
-1. **File the issue** using `github_issue_write` with `method: "create"` — include:
-   - Clear title with file name and bug category
-   - Summary explaining what's wrong and where
-   - Impact assessment (what breaks, when)
-   - Suggested fix approach
-   - Appropriate labels (`bug`, `security`, `performance`, etc.)
-2. **Implement the fix** — edit the code
-3. **Close the issue** — after the fix is committed, close the issue with `state: "closed"` and reference the commit/PR in a comment
-
-Exception: trivial typos (comment spelling, formatting) don't need an issue. Every real bug does.
 
 ## Resources
 

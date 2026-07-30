@@ -111,7 +111,12 @@ struct VK {
         FILE* f = fopen(spv_path, "rb");
         if (!f) { fprintf(stderr, "[vk] load_shader: cannot open %s\n", spv_path); return VK_NULL_HANDLE; }
         fseek(f, 0, SEEK_END); size_t sz = ftell(f); fseek(f, 0, SEEK_SET);
-        std::vector<uint32_t> code(sz/4); fread(code.data(), 4, code.size(), f); fclose(f);
+        std::vector<uint32_t> code(sz/4);
+        size_t nread = fread(code.data(), 4, code.size(), f);
+        fclose(f);
+        if (nread == 0) { fprintf(stderr, "[vk] load_shader: failed to read %s\n", spv_path); return VK_NULL_HANDLE; }
+        code.resize(nread);
+        sz = nread * 4;
         VkShaderModuleCreateInfo sm = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
         sm.codeSize = sz; sm.pCode = code.data();
         VkShaderModule mod = VK_NULL_HANDLE;

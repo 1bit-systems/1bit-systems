@@ -107,7 +107,8 @@ rcpp_status_t rcpp_bitnet_load_gguf(const char* path, rcpp_bitnet_model_t* out_m
         HIP_CHECK(hipMalloc(&out_model->final_norm_weight_dev, f16.size() * sizeof(_Float16)));
         HIP_CHECK(hipMemcpy(out_model->final_norm_weight_dev, f16.data(), f16.size() * sizeof(_Float16), hipMemcpyHostToDevice));
     }
-    out_model->layers = new rcpp_bitnet_layer_t[n_layers]();
+    out_model->layers = static_cast<rcpp_bitnet_layer_t*>(std::calloc(n_layers, sizeof(rcpp_bitnet_layer_t)));
+    if (!out_model->layers) return RCPP_INTERNAL;
     for (int l = 0; l < n_layers; ++l) {
         auto& layer = out_model->layers[l];
         auto prefix = [&](const char* n) -> std::string {

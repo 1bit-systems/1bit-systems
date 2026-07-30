@@ -37,20 +37,28 @@ struct Zamba2Tokenizer {
         // KV metadata header. Simple inline reader — no external deps.
         FILE* f = fopen(gguf_path.c_str(), "rb");
         if (!f) { fprintf(stderr, "[zamba2] Tokenizer: can't open %s\n", gguf_path.c_str()); return true; }
-        uint32_t magic; fread(&magic, 4, 1, f);
+        uint32_t magic;
+        if (fread(&magic, 4, 1, f) != 1) { fclose(f); return true; }
         if (magic != 0x46554747) { fclose(f); return true; }
         fseek(f, 4, SEEK_CUR);  // skip version
         uint64_t n_tensors, n_kv;
-        fread(&n_tensors, 8, 1, f); fread(&n_kv, 8, 1, f);
+        if (fread(&n_tensors, 8, 1, f) != 1 || fread(&n_kv, 8, 1, f) != 1) { fclose(f); return true; }
         for (uint64_t i = 0; i < n_kv && i < 1024; i++) {
-            uint64_t klen; fread(&klen, 8, 1, f);
+            uint64_t klen;
+            if (fread(&klen, 8, 1, f) != 1) { fclose(f); return true; }
             if (klen > 256) { fclose(f); return true; }
-            std::string key(klen, '\0'); fread(&key[0], 1, klen, f);
-            uint32_t vtype; fread(&vtype, 4, 1, f);
+            std::string key(klen, '\0');
+            if (fread(&key[0], 1, klen, f) != klen) { fclose(f); return true; }
+            uint32_t vtype;
+            if (fread(&vtype, 4, 1, f) != 1) { fclose(f); return true; }
             if (key == "tokenizer.ggml.bos_token_id" && vtype == 4) {
-                uint32_t v; fread(&v, 4, 1, f); bos_id_ = (int)v;
+                uint32_t v;
+                if (fread(&v, 4, 1, f) != 1) { fclose(f); return true; }
+                bos_id_ = (int)v;
             } else if (key == "tokenizer.ggml.eos_token_id" && vtype == 4) {
-                uint32_t v; fread(&v, 4, 1, f); eos_id_ = (int)v;
+                uint32_t v;
+                if (fread(&v, 4, 1, f) != 1) { fclose(f); return true; }
+                eos_id_ = (int)v;
             } else {
                 // Skip value
                 if (vtype == 0 || vtype == 1 || vtype == 7) fseek(f, 1, SEEK_CUR);
