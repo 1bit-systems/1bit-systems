@@ -692,7 +692,7 @@ int main(int argc, char** argv) {
     };
 
     bool quick_mode = false;
-    bool free_npu = false;
+    bool free_npu = false; (void)free_npu;
     std::string g_cors_origin;
     std::string g_model_name;
     int opt;

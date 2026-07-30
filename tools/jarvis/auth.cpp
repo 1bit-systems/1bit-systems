@@ -123,7 +123,7 @@ std::string sha256_hex(const std::string& input) {
 // Used internally for Stripe webhook verification (billing.cpp) and for
 // the API key checksum. Self-contained.
 
-static std::string hmac_sha256_hex(const std::string& key, const std::string& msg) {
+[[maybe_unused]] static std::string hmac_sha256_hex(const std::string& key, const std::string& msg) {
     // Block size for SHA-256 is 64 bytes.
     const size_t BLOCK_SIZE = 64;
 

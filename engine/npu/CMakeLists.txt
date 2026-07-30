@@ -14,7 +14,7 @@ set(NPU_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 set(NPU_ENGINE_SOURCES
     ${NPU_SRC_DIR}/npu_engine_universal.cpp
-    ${NPU_SRC_DIR}/dequant_q4nx.c
+    ${NPU_SRC_DIR}/dequant_q4nx.cpp
     ${NPU_SRC_DIR}/gemm_npu_instructions.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../../npu-infer/src/flm_bridge.cpp
 )
@@ -46,7 +46,7 @@ target_link_libraries(npu_engine_universal
 
 target_compile_options(npu_engine_universal PRIVATE
     -O3 -ffast-math -march=native -funroll-loops -fno-math-errno
-    -Wno-unused-parameter -Wno-unused-variable
+    -Wno-unused-parameter -Wno-unused-variable -Wno-nan-infinity-disabled -Wno-implicit-const-int-float-conversion
 )
 
 install(TARGETS npu_engine_universal DESTINATION bin)
@@ -69,7 +69,7 @@ find_library(XRT_COREUTIL xrt_coreutil)
 
 set(NPU_CB_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/npu_engine_cb.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/dequant_q4nx.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dequant_q4nx.cpp
 )
 
 add_executable(npu_engine_cb ${NPU_CB_SOURCES})

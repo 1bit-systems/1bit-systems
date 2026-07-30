@@ -462,8 +462,8 @@ inline void lm_topk_omp(const float*hidden,float*lg,int*top_ids,int K,int NV,int
 int main(int argc,char**argv){
     setvbuf(stdout,NULL,_IONBF,0);
     // Install SIGABRT handler for issue #202: heap corruption during decode
-    // causes free(): invalid size → SIGABRT. The handler calls _exit(0) to
-    // suppress the crash dump — results are already printed before this point.
+    // causes free(): invalid size → SIGABRT. The handler prints diagnostic
+    // info, then re-raises with SIG_DFL restored to produce a core dump.
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = sigabrt_handler;
@@ -487,8 +487,22 @@ int main(int argc,char**argv){
     std::string mp_s(mp),model_tag;
     for(int i=2;i<argc-1;i++){if(strcmp(argv[i],"--model-tag")==0){model_tag=argv[i+1];break;}}
     if(model_tag.empty()){
-        auto ls=mp_s.rfind('/');model_tag=(ls!=std::string::npos)?mp_s.substr(ls+1):mp_s;
-        auto dot=model_tag.rfind('.');if(dot!=std::string::npos)model_tag=model_tag.substr(0,dot);
+        // Try environment variable override first
+        const char* env_mt = getenv("NPU_MODEL_TAG");
+        if (env_mt && env_mt[0]) {
+            model_tag = env_mt;
+        } else {
+            auto ls=mp_s.rfind('/');model_tag=(ls!=std::string::npos)?mp_s.substr(ls+1):mp_s;
+            auto dot=model_tag.rfind('.');if(dot!=std::string::npos)model_tag=model_tag.substr(0,dot);
+            // If filename is the generic "model" after extension strip, try parent dir name instead
+            if (model_tag == "model") {
+                std::string parent = mp_s.substr(0, ls);
+                auto ps = parent.rfind('/');
+                if (ps != std::string::npos) {
+                    model_tag = parent.substr(ps + 1);
+                }
+            }
+        }
     }
     for(auto&c:model_tag){c=tolower(c);if(c=='-'||c=='.'||c=='\\')c='_';}
     const char*sfxs[]={"_npu2","_instruct","_it","_it_npu2"};
@@ -743,7 +757,7 @@ int main(int argc,char**argv){
         if(!co.init(dev,xp("O").c_str(),ip("O").c_str(),4,NC)){fprintf(stderr,"FAIL O\n");return 1;}
         if(cfg.gu_split){if(!cg.init(dev,xp("G").c_str(),ip("G").c_str(),4,NC)){fprintf(stderr,"FAIL G\n");return 1;}}else{if(!cg.init(dev,xp("GU").c_str(),ip("GU").c_str(),4,NC)){fprintf(stderr,"FAIL GU\n");return 1;}}
         if(!cd.init(dev,xp("D").c_str(),ip("D").c_str(),4,NC)){fprintf(stderr,"FAIL D\n");return 1;}
-        if(cfg.gu_split){cu_ptr=std::make_unique<I8Ctx>();cu_ptr->MD=XM;cu_ptr->KD=cfg.xclbin_u_k;cu_ptr->ND=cfg.xclbin_u_n;if(!cu_ptr->init(dev,xp("U").c_str(),ip("U").c_str(),4,NC)){fprintf(stderr,"FAIL U\n");return 1;}}
+        if(cfg.gu_split){cu_ptr=std::make_unique<I8Ctx>();cu_ptr->MD=XM;cu_ptr->KD=cfg.xclbin_u_k;cu_ptr->ND=cfg.xclbin_u_n;if(!cu_ptr->init(dev,xp("U").c_str(),ip("U").c_str(),4,NC)){fprintf(stderr,"FAIL U\n");return 1;}}}
     // NPU attention via pre-compiled KV xclbin instructions.
     // Set NPU_ATTN=1 to enable. Uses insts_i8_KV_<tag>.txt from xclbin dir.
     // Set NPU_ATTN_FILE=<path> to override instruction file path.
@@ -872,7 +886,7 @@ int main(int argc,char**argv){
         write(1, "READY\n", 6);
         setbuf(stdout, NULL);
         clearerr(stdout);
-        write(1, "EADY\n", 5);
+
         fflush(stdout);
         uint32_t hdr[4];
         while(fread(hdr,sizeof(uint32_t),4,stdin)==4){
@@ -1129,7 +1143,7 @@ int main(int argc,char**argv){
     auto tgs=std::chrono::steady_clock::now();
     // NOTE: greedy batched decode — runs batch_size tokens per step, no draft verification.
     // (fixes #95). total_verified tracks all tokens processed.
-    int top_ids[BS]={0},total_generated=0,total_verified=0,n_batches=0;double t_boot=0;
+    std::vector<int> top_ids_v(BS, 0);int* top_ids=top_ids_v.data();int total_generated=0,total_verified=0,n_batches=0;double t_boot=0;
 
     // Boot: single-token decode → top-32 token IDs
     {

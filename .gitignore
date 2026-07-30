@@ -103,3 +103,6 @@ packaging/appimage/AppDir/usr/bin/1bit-engine
 # Backup xclbins (8-tile variants)
 engine/npu/xclbins/backup_8tile/
 engine/npu/xclbins/backup_8tile_insts/
+build-npu/
+engine/npu/build-npu/
+build/*.ninja*

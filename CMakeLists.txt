@@ -797,6 +797,7 @@ set(UNIFIED_SERVER_SOURCES
     src/backend_hip.cpp
     src/zaya_engine.cpp
     src/backend_npu.cpp
+    src/backend_npu_flm.cpp
     src/backend_generic.cpp
 )
 
@@ -808,6 +809,7 @@ set_source_files_properties(src/zaya_engine.cpp PROPERTIES LANGUAGE HIP)
 set_source_files_properties(src/backend_generic.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(tools/unified_server.cpp PROPERTIES LANGUAGE CXX)
 set_source_files_properties(src/backend_npu.cpp PROPERTIES LANGUAGE CXX)
+set_source_files_properties(src/backend_npu_flm.cpp PROPERTIES LANGUAGE CXX)
 target_include_directories(unified_server PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
@@ -816,7 +818,47 @@ target_include_directories(unified_server PRIVATE
 target_compile_options(unified_server PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>
     $<$<COMPILE_LANGUAGE:CXX>:-O3 -Wall -Wno-unused-result -std=c++23>)
-target_compile_definitions(unified_server PRIVATE ROCM_CPP_STATIC_HIP=1 ROCM_CPP_STATIC_NPU=1)
+# Build FLM from submodule
+set(FLM_SOURCE_DIR "${CMAKE_SOURCE_DIR}/third_party/FastFlowLM/src")
+set(FLM_BUILD_DIR "${FLM_SOURCE_DIR}/build")
+set(FLM_BINARY "${FLM_BUILD_DIR}/flm")
+set(FLM_CONFIG "${FLM_SOURCE_DIR}/model_list.json")
+set(FLM_XCLBINS "${FLM_SOURCE_DIR}/xclbins")
+
+if(NOT EXISTS "${FLM_BINARY}")
+    message(STATUS "flm: building FastFlowLM from submodule...")
+    execute_process(COMMAND ${CMAKE_COMMAND} -B build -G Ninja
+        -DFLM_VERSION=0.9.46 -DNPU_VERSION=1.1.2
+        WORKING_DIRECTORY ${FLM_SOURCE_DIR}
+        OUTPUT_QUIET ERROR_QUIET)
+    execute_process(COMMAND ${CMAKE_COMMAND} --build build -j8
+        WORKING_DIRECTORY ${FLM_SOURCE_DIR}
+        OUTPUT_QUIET ERROR_QUIET)
+    if(EXISTS "${FLM_BINARY}")
+        message(STATUS "flm: built at ${FLM_BINARY}")
+    else()
+        message(WARNING "flm: build failed — FLM backend unavailable")
+    endif()
+else()
+    message(STATUS "flm: using existing binary at ${FLM_BINARY}")
+endif()
+
+# Add flm as a build dependency so rebuilds happen automatically
+add_custom_target(build_flm ALL
+    COMMAND ${CMAKE_COMMAND} --build ${FLM_BUILD_DIR} -j8
+    WORKING_DIRECTORY ${FLM_SOURCE_DIR}
+    COMMENT "Building FastFlowLM NPU engine"
+    BYPRODUCTS ${FLM_BINARY}
+)
+add_dependencies(unified_server build_flm)
+
+target_compile_definitions(unified_server PRIVATE
+    ROCM_CPP_STATIC_HIP=1
+    ROCM_CPP_STATIC_NPU=1
+    FLM_BINARY_PATH="${FLM_BINARY}"
+    FLM_CONFIG_PATH="${FLM_CONFIG}"
+    FLM_XCLBIN_PATH="${FLM_XCLBINS}"
+)
 target_link_libraries(unified_server PRIVATE
     backend_manager vl_image dl
     httplib::httplib
@@ -1403,3 +1445,14 @@ message(STATUS "tests: Phase 2.3 Commercial API tests enabled")
 # TRACK 2: New 1BP model architecture additions
 # ═══════════════════════════════════════════════════════════════════════════
 message(STATUS "models: 35+ architectures supported for 1BP conversion")
+
+# ═══════════════════════════════════════════════════════════════════════════
+# NPU Engine (XRT required)
+# ═══════════════════════════════════════════════════════════════════════════
+find_package(XRT QUIET)
+if(XRT_FOUND)
+    add_subdirectory(engine/npu EXCLUDE_FROM_ALL)
+    message(STATUS "npu: XRT found — NPU engine targets available via 'cmake --build build --target npu_engine_universal'")
+else()
+    message(STATUS "npu: XRT NOT found — skipping NPU engine build")
+endif()

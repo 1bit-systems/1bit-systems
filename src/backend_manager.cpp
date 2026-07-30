@@ -1264,6 +1264,21 @@ Backend* BackendManager::create_instance_rt(const BackendInfo& info) {
                     if (fn) b = fn(); } }
             return b;
         case BackendType::NPU_XRT:
+            // npu_flm: use FLM native binary (MIT, 67.5 tok/s) — preferred
+            if (info.id == "npu_flm") {
+#ifdef ROCM_CPP_STATIC_NPU
+                extern Backend* create_npu_flm_backend();
+                b = create_npu_flm_backend();
+                if (b) return b;
+#endif
+                b = try_load_backend("librocm_cpp.so", "create_npu_flm_backend");
+                if (!b) b = try_load_backend("libnpu_flm_backend.so", "create_npu_flm_backend");
+                if (!b) { void* self = dlopen(NULL, RTLD_NOW|RTLD_LOCAL);
+                    if (self) { auto* fn = (Backend*(*)())dlsym(self, "create_npu_flm_backend");
+                        if (fn) b = fn(); } }
+                return b;
+            }
+            // npu_xrt: legacy worker subprocess backend (0.06 tok/s)
 #ifdef ROCM_CPP_STATIC_NPU
             b = create_npu_backend();
             if (b) return b;

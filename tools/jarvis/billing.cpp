@@ -17,7 +17,7 @@ using json = nlohmann::json;
 namespace jarvis {
 
 // ── PlanTier helpers ─────────────────────────────────────────────────
-static const char* plan_tier_to_string(PlanTier tier) {
+[[maybe_unused]] static const char* plan_tier_to_string(PlanTier tier) {
     switch (tier) {
         case PlanTier::FREE:       return "free";
         case PlanTier::BASIC:      return "basic";
@@ -28,7 +28,7 @@ static const char* plan_tier_to_string(PlanTier tier) {
     return "free";
 }
 
-static PlanTier string_to_plan_tier(const std::string& s) {
+[[maybe_unused]] static PlanTier string_to_plan_tier(const std::string& s) {
     if (s == "basic")      return PlanTier::BASIC;
     if (s == "pro")        return PlanTier::PRO;
     if (s == "enterprise") return PlanTier::ENTERPRISE;
