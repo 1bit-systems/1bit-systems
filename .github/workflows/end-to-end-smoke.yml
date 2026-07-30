@@ -27,6 +27,19 @@ jobs:
           cmake -B build -G Ninja
           cmake --build build --target unified_server -j$(nproc)
 
+      - name: Download test model
+        # Model files are git-ignored (symlinked to HF cache locally).
+        # Download a small GGUF model so the server can actually load one.
+        run: |
+          MODEL="models/SmolLM2-135M-Instruct-Q4_K_M.gguf"
+          if [ ! -f "$MODEL" ]; then
+            echo "Downloading SmolLM2-135M (104 MB)..."
+            curl -sL -o "$MODEL"               "https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/main/SmolLM2-135M-Instruct-Q4_K_M.gguf"
+            ls -lh "$MODEL"
+          else
+            echo "Model already cached"
+          fi
+
       - name: Stop production service (issue #1036)
         # This runner is the same box as the always-on production
         # 1bit-systems.service (unified_server, port 8088). Every historical
@@ -57,15 +70,22 @@ jobs:
       - name: Dump server model info
         run: |
           echo "=== Active backend ==="
-          curl -sf http://127.0.0.1:8099/v1/health | python3 -c '
+          health=$(curl -sf http://127.0.0.1:8099/v1/health)
+          echo "$health" | python3 -c '
           import json,sys; d=json.load(sys.stdin)
-          print("Model: " + str(d.get("model", "?")))
+          model = d.get("model", "?")
+          print("Model: " + str(model))
           ab = d.get("active_backend", {})
           print("Active backend: " + str(ab.get("id", "?")))
           print("All backends:")
           for b in d.get("backends", []):
               mark = ">" if b.get("id") == ab.get("id") else " "
               print("  " + mark + " " + str(b.get("id","?")) + " functional=" + str(b.get("functional")) + " available=" + str(b.get("available")))
+          # Show model format info
+          if model and model != "?" and model != "unknown":
+              print("Model loaded: YES (" + str(model) + ")")
+          else:
+              print("Model loaded: NO")
           '
 
       - name: Test health endpoint
