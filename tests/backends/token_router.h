@@ -30,6 +30,7 @@ struct TokenRouter {
     std::vector<ModelConfig> loaded_models;
     std::vector<ModelConfig> draft_loaded_models;
     RouteStrategy strategy = RouteStrategy::AUTO;
+    int eos_token_id = 106;  // Zaya1 default; set after tokenizer loads
     MoePipeline moe_pipeline_;
 
     // ── Initialize: detect hardware, load backends ─────────────────
@@ -125,6 +126,8 @@ struct TokenRouter {
         }
 
         loaded_models.push_back(cfg);
+        // Pick up EOS token ID from the loaded model config
+        eos_token_id = cfg.eos_token_id > 0 ? cfg.eos_token_id : eos_token_id;
 
         // ── Initialize MoE pipeline if GPU+NPU are available ─────
         if (gpu_backend && npu_backend &&
@@ -190,8 +193,15 @@ struct TokenRouter {
         auto t0 = std::chrono::high_resolution_clock::now();
         primary->reset_state();
 
+        // ── Prefill: feed all prompt tokens except the last to build KV cache ──
+        // Without this, only the final prompt token has context and generation
+        // starts from an empty KV cache, producing garbage.
+        for (size_t pi = 0; pi + 1 < prompt_tokens.size(); pi++) {
+            primary->forward(prompt_tokens[pi], (int)pi);
+        }
+
         std::vector<int> out_tokens;
-        int last_token = prompt_tokens.empty() ? 2 : prompt_tokens.back();
+        int last_token = prompt_tokens.empty() ? eos_token_id : prompt_tokens.back();
 
         switch (use_strat) {
             case RouteStrategy::PASSTHROUGH:
@@ -200,7 +210,7 @@ struct TokenRouter {
                     int next = primary->forward(last_token, i);
                     out_tokens.push_back(next);
                     last_token = next;
-                    if (next == 106) break;
+                    if (next == eos_token_id) break;
                 }
                 break;
 
@@ -240,7 +250,7 @@ struct TokenRouter {
                         }
                     }
                     last_token = next;
-                    if (next == 106) break;
+                    if (next == eos_token_id) break;
                 }
                 break;
             }
@@ -258,7 +268,7 @@ struct TokenRouter {
                     for (int i = 0; i < max_tokens; i++) {
                         int next = drafter->forward(last_token, i);
                         out_tokens.push_back(next); last_token = next;
-                        if (next == 106) break;
+                        if (next == eos_token_id) break;
                     }
                 } else {
                     int n_draft = 4, generated = 0;
@@ -268,7 +278,7 @@ struct TokenRouter {
                         for (int d = 0; d < n_draft && generated + d < max_tokens; d++) {
                             int next = drafter->forward(draft_last, generated + d);
                             drafts.push_back(next); draft_last = next;
-                            if (next == 106) break;
+                            if (next == eos_token_id) break;
                         }
                         if (!drafts.empty()) {
                             int verified = verifier->forward(last_token, generated);
@@ -285,7 +295,7 @@ struct TokenRouter {
                             } else {
                                 out_tokens.push_back(verified); last_token = verified; generated++;
                             }
-                            if (last_token == 106) break;
+                            if (last_token == eos_token_id) break;
                         } else break;
                     }
                 }
@@ -297,7 +307,7 @@ struct TokenRouter {
                     int next = primary->forward(last_token, i);
                     out_tokens.push_back(next);
                     last_token = next;
-                    if (next == 106) break;
+                    if (next == eos_token_id) break;
                 }
                 break;
 
@@ -316,7 +326,7 @@ struct TokenRouter {
                     int next = primary->forward(last_token, i);
                     out_tokens.push_back(next);
                     last_token = next;
-                    if (next == 106) break;
+                    if (next == eos_token_id) break;
                 }
                 break;
         }
@@ -347,6 +357,10 @@ struct TokenRouter {
             if (prompt.empty()) continue;
 
             primary->reset_state();
+            // Prefill all prompt tokens except the last
+            for (size_t pi = 0; pi + 1 < prompt.size(); pi++) {
+                primary->forward(prompt[pi], (int)pi);
+            }
             std::vector<int> out_tokens;
             int last_token = prompt.back();
 
@@ -354,7 +368,7 @@ struct TokenRouter {
                 int next = primary->forward(last_token, i);
                 out_tokens.push_back(next);
                 last_token = next;
-                if (next == 106) break;
+                if (next == eos_token_id) break;
             }
 
             results[b].tokens = out_tokens;

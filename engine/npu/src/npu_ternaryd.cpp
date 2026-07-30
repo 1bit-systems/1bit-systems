@@ -1097,10 +1097,110 @@ static std::vector<int> json_get_int_array(const char* js, size_t jl, const char
 }
 
 // ═══════════════════════════════════════════════════════════════
+//  Native TQ2 Context (bypasses INT8 bridge — 4× less DDR traffic)
+// ═══════════════════════════════════════════════════════════════
+//
+// Uses gemm_generate_sequence_tq2() to generate NPU instructions for
+// TQ2 ternary weights directly, instead of converting TQ2→INT8 first.
+//
+// Build:
+//   g++ -std=c++23 -O3 -o npu_ternaryd npu_ternaryd.cpp \
+//       gemm_npu_instructions.cpp \
+//       -I/usr/include/xrt -L/usr/lib -lxrt_coreutil -lxrt_core \
+//       -I../include -luuid -lm
+//
+// Usage:
+//   ./npu_ternaryd --native-tq2 <model.ternary/> <xclbin_dir/>
+//
+struct Tq2Daemon {
+    // Forward decl of instruction generator
+    void gemm_generate_sequence_tq2(npu_sequence* seq, uint32_t M, uint32_t K, uint32_t N,
+                                    uint32_t weight_offset, bool add_bias, int activation,
+                                    uint32_t bias_offset, uint32_t output_offset);
+
+    xrt::device dev{0};
+    std::unique_ptr<xrt::kernel> k;
+    std::unique_ptr<xrt::bo> bI, bA, bW, bC;
+    std::vector<uint32_t> ins;
+
+    int H=1024, NC=28, NH=16, NKV=8, HD=128, IM=3072, NV=151936;
+
+    // Per-layer weight BOs (TQ2 packed: codes + scales)
+    std::vector<std::unique_ptr<xrt::bo>> layerB;
+
+    bool init(const std::string& xclbin_path, const std::string& tag, int _H, int _NC, int _NH, int _NKV, int _HD, int _IM, int _NV) {
+        H=_H; NC=_NC; NH=_NH; NKV=_NKV; HD=_HD; IM=_IM; NV=_NV;
+
+        // Generate TQ2 instructions via npu_sequence
+        npu_sequence seq(device_npu2);
+        uint32_t qkv_n = NH * HD + 2 * NKV * HD;
+        gemm_generate_sequence_tq2(&seq, 128, H, qkv_n, 0, false, 0, 0, 0);
+        gemm_generate_sequence_tq2(&seq, 128, NH * HD, H, 0, false, 0, 0, 0);
+        gemm_generate_sequence_tq2(&seq, 128, H, 2 * IM, 0, false, 0, 0, 0);
+        gemm_generate_sequence_tq2(&seq, 128, IM, H, 0, false, 0, 0, 0);
+        seq.cmds2seq();
+        auto [dp, sz] = seq.dump();
+        ins.assign(dp, dp + sz / sizeof(uint32_t));
+
+        // Load xclbin (FLM's mm.xclbin fused kernel supports any dims)
+        auto xc = std::make_unique<xrt::xclbin>(xclbin_path);
+        dev.register_xclbin(*xc);
+        auto hc = std::make_unique<xrt::hw_context>(dev, xc->get_uuid());
+        k = std::make_unique<xrt::kernel>(*hc, "MLIR_AIE");
+
+        // BOs
+        bI = std::make_unique<xrt::bo>(dev, ins.size() * 4, XCL_BO_FLAGS_CACHEABLE, k->group_id(1));
+        memcpy(bI->map(), ins.data(), ins.size() * 4);
+        bI->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+
+        bA = std::make_unique<xrt::bo>(dev, (size_t)128 * std::max({H, NH*HD, 2*IM, IM}), XRT_BO_FLAGS_HOST_ONLY, k->group_id(3));
+        bC = std::make_unique<xrt::bo>(dev, (size_t)128 * std::max({H, NH*HD, 2*IM, IM}) * 2, XRT_BO_FLAGS_HOST_ONLY, k->group_id(5));
+
+        // Per-layer weight BOs: TQ2 codes + scales
+        for (int l = 0; l < NC; l++) {
+            size_t tq2_qkv_bytes = (size_t)H * qkv_n / 4 + (size_t)qkv_n * 16;
+            size_t tq2_o_bytes   = (size_t)(NH*HD) * H / 4 + (size_t)H * 16;
+            size_t tq2_gu_bytes  = (size_t)H * (2*IM) / 4 + (size_t)(2*IM) * 16;
+            size_t tq2_d_bytes   = (size_t)IM * H / 4 + (size_t)H * 16;
+            size_t max_bytes = std::max({tq2_qkv_bytes, tq2_o_bytes, tq2_gu_bytes, tq2_d_bytes});
+            layerB.emplace_back(std::make_unique<xrt::bo>(dev, max_bytes, XRT_BO_FLAGS_HOST_ONLY, k->group_id(4)));
+        }
+        return true;
+    }
+
+    void run(int layer_idx, int8_t* act, int M, int K, int N,
+             uint8_t* tq2_codes, bfloat16* tq2_scales,
+             int16_t* out) {
+        // Pack TQ2 codes + scales into the weight BO for this layer
+        auto* wm = (uint8_t*)layerB[layer_idx]->map();
+        memcpy(wm, tq2_codes, (size_t)K * N / 4);
+        memcpy(wm + K*N/4, tq2_scales, (size_t)N * 16);
+        layerB[layer_idx]->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+
+        // Upload activations
+        memcpy(bA->map(), act, (size_t)M * K);
+        bA->sync(XCL_BO_SYNC_BO_TO_DEVICE);
+
+        // Dispatch
+        auto r = (*k)(3, *bI, (unsigned)ins.size(), *bA, *layerB[layer_idx], *bC);
+        r.wait();
+        bC->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+        memcpy(out, bC->map(), (size_t)M * N * 2);
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
 //  Main
 // ═══════════════════════════════════════════════════════════════
 
 int main(int argc, char** argv) {
+    bool native_tq2 = false;
+    if (argc >= 2 && strcmp(argv[1], "--native-tq2") == 0) {
+        native_tq2 = true;
+        argv[1] = argv[2]; argv[2] = argv[3];
+        argc -= 2;
+    }
+
     if (argc < 3) {
         fprintf(stderr, "Usage: %s <model.ternary/> <xclbin_dir/>\n", argv[0]);
         fprintf(stderr, "  Reads JSON from stdin, writes JSON to stdout.\n");

@@ -75,6 +75,52 @@ static bool detect_from_h1b(const std::string& path, ModelConfig& cfg) {
     return true;
 }
 
+// ─── .1bp header auto-detection ─────────────────────────────────
+// 1BP format: 256-byte OnebpHeader. Magic = 0x00504231 = "1BP\0".
+// Header layout (all uint32/int32):
+//   [0]:  magic  [1]: version  [2]: arch  [3]: quant
+//   [4]:  scale_type  [5..17]: hidden_size..max_seq_len (13 int32)
+//   [18]: tile_rows  [19]: tile_cols  [20]: group_size
+//   [21]: has_q_norm  [22]: has_k_norm  [23]: has_bias
+//   [19]: rope_theta_f  [20]: bos_token_id  [21]: eos_token_id
+//   [22]: tensor_count
+//   [28]: num_experts  [29]: n_expert_used  [30..35]: expert config
+//   [36]: rope_freq_base_swa_f  [37]: n_rot_swa  [38]: n_rot_full
+//   [39..50]: reserved[12]  [51..63]: reserved[13]
+//   [64..79]: model_tag[64] as chars (offset 192)
+static bool detect_from_1bp(const std::string& path, ModelConfig& cfg) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+    uint32_t header[64]; // 256 bytes / 4
+    f.read(reinterpret_cast<char*>(header), 256);
+    if (!f.good()) return false;
+    if (header[0] != 0x00504231) return false; // magic "1BP\0"
+    // Read dimensions from header[5..17]
+    cfg.hidden_size       = (int32_t)header[5];
+    cfg.num_layers        = (int32_t)header[6];
+    cfg.num_heads         = (int32_t)header[7];
+    cfg.num_kv_heads      = (int32_t)header[8];
+    cfg.head_dim          = (int32_t)header[9];
+    cfg.intermediate_size = (int32_t)header[10];
+    cfg.vocab_size        = (int32_t)header[11];
+    cfg.max_seq_len       = (int32_t)header[12];
+    cfg.num_experts       = (int32_t)header[28];
+    cfg.num_experts_top   = (int32_t)header[29];
+    uint32_t eos_u        = header[21];  // eos_token_id at index 21 per OnebpHeader
+    cfg.eos_token_id      = (int)eos_u;
+    // router_hidden default (not in 1BP header for older models)
+    cfg.router_hidden     = 256;
+    f.close();
+    auto slash = path.find_last_of('/');
+    cfg.model_name = (slash != std::string::npos) ? path.substr(slash + 1) : path;
+    cfg.model_path = path;
+    fprintf(stderr, "  Auto-detected from .1bp: %s\n", cfg.model_name.c_str());
+    fprintf(stderr, "    hidden=%d layers=%d heads=%d kv_heads=%d head_dim=%d vocab=%d eos=%d\n",
+            cfg.hidden_size, cfg.num_layers, cfg.num_heads, cfg.num_kv_heads,
+            cfg.head_dim, cfg.vocab_size, cfg.eos_token_id);
+    return true;
+}
+
 static bool detect_from_manifest(const std::string& path, ModelConfig& cfg) {
     std::ifstream f(path);
     if (!f) return false;
@@ -574,6 +620,12 @@ int main(int argc, char** argv) {
         }
     }
     if (!detected && !model_arg.empty()) {
+        std::string ext = model_arg.size() > 4 ? model_arg.substr(model_arg.size() - 4) : "";
+        if (ext == ".1bp") {
+            detected = detect_from_1bp(model_arg, cfg);
+        }
+    }
+    if (!detected && !model_arg.empty()) {
         detected = detect_from_h1b(model_arg, cfg);
         if (detected && cfg.weights_dir.empty()) {
             auto slash = model_arg.find_last_of('/');
@@ -664,8 +716,47 @@ int main(int argc, char** argv) {
                         tok.id_to_token.size());
             }
         } else {
-            fprintf(stderr, "  Tokenizer: using default BOS=%d EOS=%d (no GGUF metadata)\n",
-                    tok.bos_id, tok.eos_id);
+            // Non-GGUF model: search for .htok tokenizer alongside model or in weights_dir
+            std::vector<std::string> htok_candidates;
+            // Priority 1: <model_path>.htok (same basename, .htok extension)
+            std::string model_base = cfg.model_path;
+            auto dot = model_base.find_last_of('.');
+            if (dot != std::string::npos) {
+                htok_candidates.push_back(model_base.substr(0, dot) + ".htok");
+            }
+            // Priority 2: <model_dir>/tokenizer.htok
+            auto slash = cfg.model_path.find_last_of('/');
+            std::string model_dir = (slash != std::string::npos) ? cfg.model_path.substr(0, slash) : ".";
+            htok_candidates.push_back(model_dir + "/tokenizer.htok");
+            // Priority 3: weights_dir/tokenizer.htok
+            if (!cfg.weights_dir.empty()) {
+                htok_candidates.push_back(cfg.weights_dir + "tokenizer.htok");
+            }
+            // Priority 4: XDG/HOME fallback
+            const char* xdg = getenv("XDG_DATA_HOME");
+            if (xdg && xdg[0]) htok_candidates.push_back(std::string(xdg) + "/1bit-systems/weights/tokenizer.htok");
+            const char* home = getenv("HOME");
+            if (home && home[0]) htok_candidates.push_back(std::string(home) + "/.local/share/1bit-systems/weights/tokenizer.htok");
+
+            bool found = false;
+            for (const auto& htok_path : htok_candidates) {
+                FILE* htok_test = fopen(htok_path.c_str(), "rb");
+                if (htok_test) {
+                    fclose(htok_test);
+                    fprintf(stderr, "  Tokenizer: found .htok at %s\n", htok_path.c_str());
+                    if (tok.load_htok(htok_path)) {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (found) {
+                fprintf(stderr, "  Tokenizer: BOS=%d EOS=%d + BPE(vocab loaded from .htok)\n",
+                        tok.bos_id, tok.eos_id);
+            } else {
+                fprintf(stderr, "  Tokenizer: using default BOS=%d EOS=%d (no .htok/GGUF found)\n",
+                        tok.bos_id, tok.eos_id);
+            }
         }
     }
 

@@ -149,15 +149,6 @@ static std::string ensure_trailing_slash(const std::string& s) {
     if (s.empty()) return s;
     return s.back() == '/' ? s : s + "/";
 }
-static const std::string g_weights_dir = []() -> std::string {
-    const char* env = getenv("ZAYA_WEIGHTS_DIR");
-    if (env && env[0]) return ensure_trailing_slash(env);
-    const char* xdg = getenv("XDG_DATA_HOME");
-    if (xdg && xdg[0]) return std::string(xdg) + "/1bit-systems/weights/";
-    const char* home = getenv("HOME");
-    if (home && home[0]) return std::string(home) + "/.local/share/1bit-systems/weights/";
-    return "/tmp/zaya_weights/";
-}();
 #define W(N) load_bin(g_weights_dir+N)
 #define WF(N) load_bin_f16(g_weights_dir+N)  // FP16 weight matrices
 static void upf16(const std::vector<float>& s,__half*d,int n,hipStream_t h=0){
@@ -179,7 +170,27 @@ extern "C" {
 #define WMMA_THREADS 128
 
 // ── Init: load weights, allocate GPU memory ──
+// ── Resolve weights directory ──
+// thread_local so multiple engines in different threads can load different models.
+// Priority: 1. weights_dir parameter  2. ZAYA_WEIGHTS_DIR env  3. XDG_DATA_HOME  4. HOME  5. /tmp
+static thread_local std::string g_weights_dir;
+static void resolve_weights_dir(const char* weights_dir) {
+    if (weights_dir && weights_dir[0]) {
+        g_weights_dir = ensure_trailing_slash(weights_dir);
+        return;
+    }
+    const char* env = getenv("ZAYA_WEIGHTS_DIR");
+    if (env && env[0]) { g_weights_dir = ensure_trailing_slash(env); return; }
+    const char* xdg = getenv("XDG_DATA_HOME");
+    if (xdg && xdg[0]) { g_weights_dir = std::string(xdg) + "/1bit-systems/weights/"; return; }
+    const char* home = getenv("HOME");
+    if (home && home[0]) { g_weights_dir = std::string(home) + "/.local/share/1bit-systems/weights/"; return; }
+    g_weights_dir = "/tmp/zaya_weights/";
+}
+
 ZayaState* zaya_init(const char* weights_dir, const ZayaConfig* cfg) {
+    // Use the passed-in weights_dir (or env fallback)
+    resolve_weights_dir(weights_dir);
     // Populate runtime config from the provided ZayaConfig (or default Zaya1-8B)
     if (cfg) {
         eng = *cfg;

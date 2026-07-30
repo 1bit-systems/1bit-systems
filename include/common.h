@@ -82,6 +82,7 @@ struct ModelConfig {
     bool has_k_norm = false;
     bool gu_split = false;
     int max_seq_len       = 2048;
+    int eos_token_id      = 106;   // Zaya1 default; set from model header
     float rope_theta      = 500000.0f;
     float rms_norm_eps    = 1e-5f;
     std::string model_name = "unknown";
