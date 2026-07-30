@@ -136,6 +136,16 @@ struct VitConfig {
         c.use_gelu = true; c.use_bias = true;
         return c;
     }
+    static VitConfig mage_vit() {
+        VitConfig c;
+        c.hidden_size = 1024;
+        c.num_layers  = 24;
+        c.num_heads   = 16;
+        c.patch_size  = 16;
+        c.intermediate_size = 4096;
+        c.use_gelu = true; c.use_bias = true; c.use_pre_ln = true;
+        return c;
+    }
 };
 
 // ─── Projector config ─────────────────────────────────────────────
@@ -299,3 +309,22 @@ std::vector<float> vit_load_and_preprocess(
     const std::string& image_path,
     int out_w, int out_h,
     const float* mean, const float* std);
+
+// ─── Mage-ViT: 3D RoPE ────────────────────────────────────────────
+void vit_rope3d_apply(float* q, float* k, int head_dim,
+                       int t, int h, int w, float freq_base);
+
+// ─── Mage-ViT forward pass ─────────────────────────────────────────
+std::vector<float> mage_vit_forward(
+    const VisionWeights& weights,
+    const float* pixels, int channels, int time, int height, int width,
+    int frame_window_size = 4);
+
+// ─── Q4NX tile dequantizers ────────────────────────────────────────
+void dequant_q4nx_row(const uint8_t* row_data, float* out,
+                       int n_groups, int gs = 32);
+void dequant_q4nx_tile(const uint8_t* tile_data, float* out,
+                        int tr, int tc, int gs = 32);
+
+// ─── Load Mage-ViT vision weights from 1BP file ───────────────────
+bool mage_vit_load_weights_1bp(const char* path, VisionWeights& vw);

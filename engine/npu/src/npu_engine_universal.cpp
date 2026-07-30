@@ -118,7 +118,7 @@ static uint64_t jo(const char*js,size_t jl,const char*nm){size_t nl=strlen(nm);
 struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt::hw_context>hc;
     std::unique_ptr<xrt::module>mdl;std::unique_ptr<xrt::elf>elf;
     std::unique_ptr<xrt::ext::kernel>k;std::vector<uint32_t>ins;std::unique_ptr<xrt::bo>bA,bC;
-    std::vector<std::unique_ptr<xrt::bo>>layerB;int8_t*Am;int16_t*Cm;
+    std::vector<std::unique_ptr<xrt::bo>>layerB;int8_t*Am;int32_t*Cm;
     std::vector<std::vector<float>> group_scales;
     bool initialized=false;
     ~I8Ctx(){/* Am/Cm are mapped from bA/bC — destroyed by unique_ptr dtors */}
@@ -140,8 +140,8 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
         k=std::make_unique<xrt::ext::kernel>(*hc,*mdl,"MLIR_AIE");
         // Create data BOs (instruction BO not needed — embedded in ELF)
         bA=std::make_unique<xrt::bo>(d,(size_t)MD*KD,XRT_BO_FLAGS_HOST_ONLY,0);
-        bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*2,XRT_BO_FLAGS_HOST_ONLY,0);
-        Am=(int8_t*)bA->map();Cm=(int16_t*)bC->map();
+        bC=std::make_unique<xrt::bo>(d,(size_t)MD*ND*4,XRT_BO_FLAGS_HOST_ONLY,0);
+        Am=(int8_t*)bA->map();Cm=(int32_t*)bC->map();
         for(int l=0;l<NL;l++)layerB.emplace_back(std::make_unique<xrt::bo>(d,(size_t)KD*ND,XRT_BO_FLAGS_HOST_ONLY,0));
         group_scales.resize(NL);initialized=true;return true;}
     // Per-group INT8 quantization: K is divided into groups of 32, each with its own scale.
@@ -194,7 +194,7 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
             Bscale=ssum/group_scales[layer].size();}
         float cs=ascale*Bscale;
         for(int m=0;m<am;m++)for(int n=0;n<an;n++){
-            float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;
+            float val=(float)((int32_t)Cm[m*ND+n])*cs;if(!std::isfinite(val))val=0;
             C[m*an+n]=val;}
     }
     // Wait for NPU kernel completion without readback.
@@ -212,7 +212,7 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
             Bscale=ssum/group_scales[layer].size();}
         float cs=ascale*Bscale;
         for(int m=0;m<am;m++)for(int n=0;n<an;n++){
-            float val=(float)Cm[m*ND+n]*cs;if(!std::isfinite(val))val=0;
+            float val=(float)((int32_t)Cm[m*ND+n])*cs;if(!std::isfinite(val))val=0;
             C[m*an+n]=val;}
     }
     // Synchronous go() — simple, always works
@@ -267,9 +267,9 @@ struct I8Ctx{int MD,KD,ND,NL;std::unique_ptr<xrt::xclbin>xc;std::unique_ptr<xrt:
         mdl = std::make_unique<xrt::module>(*elf);
         k = std::make_unique<xrt::ext::kernel>(*hc, *mdl, "MLIR_AIE");
         bA = std::make_unique<xrt::bo>(d, (size_t)MD * KD, XRT_BO_FLAGS_HOST_ONLY, 0);
-        bC = std::make_unique<xrt::bo>(d, (size_t)MD * ND * 2, XRT_BO_FLAGS_HOST_ONLY, 0);
+        bC = std::make_unique<xrt::bo>(d, (size_t)MD * ND * 4, XRT_BO_FLAGS_HOST_ONLY, 0);
         Am = (int8_t*)bA->map();
-        Cm = (int16_t*)bC->map();
+        Cm = (int32_t*)bC->map();
         for (int l = 0; l < NL; l++)
             layerB.emplace_back(
                 std::make_unique<xrt::bo>(d, (size_t)KD * ND, XRT_BO_FLAGS_HOST_ONLY, 0));
@@ -355,7 +355,7 @@ struct AttnCtx {
         // Pre-allocate BOs at max dimensions
         size_t q_bytes = (size_t)XM * NH * HD;            // Q: batch * NH * HD
         size_t kv_bytes = (size_t)max_seq * NKV * HD;     // K/V: max_seq * NKV * HD
-        size_t out_bytes = (size_t)XM * NH * HD * 2;       // output: i16
+        size_t out_bytes = (size_t)XM * NH * HD * 4;       // output: i32 (NPU attention kernel may output int32 accumulators)
         bQ = std::make_unique<xrt::bo>(d, q_bytes, XRT_BO_FLAGS_HOST_ONLY, 0);
         bK = std::make_unique<xrt::bo>(d, kv_bytes, XRT_BO_FLAGS_HOST_ONLY, 0);
         bV = std::make_unique<xrt::bo>(d, kv_bytes, XRT_BO_FLAGS_HOST_ONLY, 0);
@@ -414,10 +414,10 @@ struct AttnCtx {
                 float q_scale, float kv_scale) {
         r.wait();
         bOut->sync(XCL_BO_SYNC_BO_FROM_DEVICE);
-        auto* out_i16 = (int16_t*)bOut->map();
+        auto* out_i32 = (int32_t*)bOut->map();
         float cs = q_scale * kv_scale;
         for (int i = 0; i < batch * NH * HD; i++) {
-            float val = (float)out_i16[i] * cs;
+            float val = (float)out_i32[i] * cs;
             if (!std::isfinite(val)) val = 0;
             out[i] = val;
         }
@@ -886,7 +886,6 @@ int main(int argc,char**argv){
         write(1, "READY\n", 6);
         setbuf(stdout, NULL);
         clearerr(stdout);
-
         fflush(stdout);
         uint32_t hdr[4];
         while(fread(hdr,sizeof(uint32_t),4,stdin)==4){

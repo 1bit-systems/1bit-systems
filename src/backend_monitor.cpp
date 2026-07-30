@@ -116,14 +116,7 @@ std::string BackendMonitor::dashboard_line() const {
 }
 
 PerBackendMetrics* BackendMonitor::find_or_create(const std::string& id) {
-    // First, check existing
-    for (auto* pm : metrics_) {
-        if (pm->backend_id == id) return pm;
-    }
-
-    // Create new
     std::lock_guard<std::mutex> lock(mtx_);
-    // Double-check after acquiring lock
     for (auto* pm : metrics_) {
         if (pm->backend_id == id) return pm;
     }

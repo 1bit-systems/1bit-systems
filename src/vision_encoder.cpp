@@ -659,7 +659,7 @@ std::vector<float> vit_preprocess(const uint8_t* src, int src_w, int src_h,
                 float v10 = src[(y1 * src_w + x0) * 3 + c];
                 float v11 = src[(y1 * src_w + x1) * 3 + c];
                 float v0 = v00 * (1 - fx) + v01 * fx;
-                float v1 = v10 * (1 - fy) + v11 * fy;
+                float v1 = v10 * (1 - fx) + v11 * fx;
                 float v = (v0 * (1 - fy) + v1 * fy) / 255.0f;
                 v = (v - mean[c]) / std[c];
                 dst[((size_t)y * out_w + x) * 3 + c] = v;
@@ -686,4 +686,387 @@ std::vector<float> vit_load_and_preprocess(const std::string& image_path,
     auto result = vit_preprocess(img_u8, sw, sh, out_w, out_h, mean, std);
     stbi_image_free(img_u8);
     return result;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Q4NX tile dequant helpers (matching 1BP tile layout)
+// ═══════════════════════════════════════════════════════════════════
+
+static uint16_t bf16_from_bytes(const uint8_t* b) {
+    return (uint16_t)b[0] | ((uint16_t)b[1] << 8);
+}
+
+static float bf16_to_f32(uint16_t bf) {
+    uint32_t bits = (uint32_t)bf << 16;
+    float f;
+    memcpy(&f, &bits, 4);
+    return f;
+}
+
+void dequant_q4nx_row(const uint8_t* row_data, float* out, int n_groups, int gs) {
+    for (int g = 0; g < n_groups; g++) {
+        float scale = bf16_to_f32(bf16_from_bytes(row_data + g * 2));
+        float zp    = bf16_to_f32(bf16_from_bytes(row_data + n_groups * 2 + g * 2));
+        if (!std::isfinite(scale)) scale = 0.0f;
+        if (!std::isfinite(zp)) zp = 0.0f;
+        const uint8_t* pk = row_data + n_groups * 4;
+        for (int i = 0; i < gs && g * gs + i < n_groups * gs; i++) {
+            int byte_idx = g * gs / 2 + i / 2;
+            int nibble = (i & 1) ? (pk[byte_idx] >> 4) : (pk[byte_idx] & 0x0F);
+            float dqv = (float)nibble * scale + zp;
+            out[g * gs + i] = std::isfinite(dqv) ? dqv : 0.0f;
+        }
+    }
+}
+
+void dequant_q4nx_tile(const uint8_t* tile_data, float* out,
+                        int tr, int tc, int gs) {
+    int n_groups = tc / gs;
+    int row_bytes = n_groups * 4 + tc / 2;
+    for (int r = 0; r < tr; r++)
+        dequant_q4nx_row(tile_data + r * row_bytes, out + r * tc, n_groups, gs);
+}
+
+#include "onebp_loader.h"
+
+static bool find_tensor_1bp(OnebpModel& mdl, const std::string& suffix,
+                             std::vector<float>& dst) {
+    for (auto& t : mdl.tensors) {
+        bool match = t.name == suffix || t.name == "model." + suffix ||
+            (t.name.size() >= suffix.size() &&
+             t.name.compare(t.name.size() - suffix.size(), suffix.size(), suffix) == 0);
+        if (!match) continue;
+        uint8_t* raw = mdl.tensor_data(t);
+        if (!raw) return false;
+        if (t.ndim == 1) {
+            int n = (int)t.dims[0];
+            dst.resize(n);
+            const uint16_t* f16 = (const uint16_t*)raw;
+            for (int i = 0; i < n; i++) {
+                uint32_t bits = (uint32_t)f16[i] << 16;
+                memcpy(&dst[i], &bits, 4);
+            }
+            return true;
+        }
+        if (t.ndim != 2) continue;
+        int rows = (int)t.dims[0];
+        int cols = (int)t.dims[1];
+        size_t f16_sz = (size_t)rows * cols * 2;
+        size_t f32_sz = (size_t)rows * cols * 4;
+        bool is_f16 = (t.bytes == f16_sz || t.bytes == f32_sz);
+        if (is_f16) {
+            dst.resize((size_t)rows * cols);
+            if (t.bytes == f32_sz) {
+                memcpy(dst.data(), raw, f32_sz);
+            } else {
+                const uint16_t* f16 = (const uint16_t*)raw;
+                for (size_t i = 0; i < (size_t)rows * cols; i++) {
+                    uint32_t bits = (uint32_t)f16[i] << 16;
+                    memcpy(&dst[i], &bits, 4);
+                }
+            }
+            return true;
+        }
+        int tr = 32, tc2 = 256, gs = 32;
+        int ntr = (rows + tr - 1) / tr;
+        int ntc = (cols + tc2 - 1) / tc2;
+        int row_bytes = (tc2 / gs) * 4 + tc2 / 2;
+        int tile_bytes = tr * row_bytes;
+        dst.resize((size_t)rows * cols);
+        size_t data_off = 0;
+        for (int ti = 0; ti < ntr; ti++) {
+            for (int tj = 0; tj < ntc; tj++) {
+                int r0 = ti * tr, c0 = tj * tc2;
+                int rh = std::min(tr, rows - r0);
+                int ch = std::min(tc2, cols - c0);
+                std::vector<float> tile_buf((size_t)tr * tc2);
+                dequant_q4nx_tile(raw + data_off, tile_buf.data(), tr, tc2, gs);
+                data_off += tile_bytes;
+                for (int r = 0; r < rh; r++)
+                    for (int c = 0; c < ch; c++)
+                        dst[(size_t)(r0 + r) * cols + (c0 + c)] = tile_buf[(size_t)r * tc2 + c];
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
+bool mage_vit_load_weights_1bp(const char* path, VisionWeights& vw) {
+    OnebpModel mdl;
+    if (!mdl.load(path)) {
+        fprintf(stderr, "[mage_vit] FAIL: load %s\n", path);
+        return false;
+    }
+    auto& h = mdl.header;
+    int H = h.reserved[0] > 0 ? h.reserved[0] : 1024;
+    int NL = h.reserved[1] > 0 ? h.reserved[1] : 24;
+    int NH = h.reserved[2] > 0 ? h.reserved[2] : 16;
+    int FF = h.reserved[3] > 0 ? h.reserved[3] : 4096;
+    int PS = h.reserved[5] > 0 ? h.reserved[5] : 16;
+    vw.config = VitConfig::mage_vit();
+    vw.config.hidden_size = H;
+    vw.config.num_layers = NL;
+    vw.config.num_heads = NH;
+    vw.config.intermediate_size = FF;
+    vw.config.patch_size = PS;
+    vw.layers.resize(NL);
+    fprintf(stderr, "[mage_vit] 1BP: H=%d L=%d NH=%d FF=%d P=%d\n", H, NL, NH, FF, PS);
+    auto find = [&](const std::string& suf, std::vector<float>& dst) { return find_tensor_1bp(mdl, suf, dst); };
+    find("visual.embeddings.patch_embedding.weight", vw.patch_embd0);
+    vw.has_pre_ln = find("visual.layernorm_pre.weight", vw.pre_ln_w);
+    if (vw.has_pre_ln) {
+        find("visual.layernorm_pre.bias", vw.pre_ln_b);
+        if (vw.pre_ln_b.empty()) vw.pre_ln_b.resize(H, 0.0f);
+    }
+    find("visual.layernorm_pre.weight", vw.post_ln_w);
+    find("visual.layernorm_pre.bias", vw.post_ln_b);
+    if (vw.post_ln_b.empty() && !vw.post_ln_w.empty()) vw.post_ln_b.resize(H, 0.0f);
+    find("visual.merger.ln_q.weight", vw.mm1_w);
+    find("visual.merger.ln_q.bias", vw.mm1_b);
+    find("visual.merger.mlp.0.weight", vw.mm0_w);
+    find("visual.merger.mlp.0.bias", vw.mm0_b);
+    find("visual.merger.mlp.2.weight", vw.mm2_w);
+    find("visual.merger.mlp.2.bias", vw.mm2_b);
+    if (vw.post_ln_w.empty() && !vw.pre_ln_w.empty() && NL > 0) {
+        vw.post_ln_w = vw.pre_ln_w;
+        vw.post_ln_b = vw.pre_ln_b;
+    }
+    for (int il = 0; il < NL; il++) {
+        auto& l = vw.layers[il];
+        std::string p = "visual.encoder.layers." + std::to_string(il) + ".";
+        find(p + "layer_norm1.weight", l.ln1_w);
+        find(p + "layer_norm1.bias", l.ln1_b);
+        if (l.ln1_b.empty() && !l.ln1_w.empty()) l.ln1_b.resize(H, 0.0f);
+        find(p + "layer_norm2.weight", l.ln2_w);
+        find(p + "layer_norm2.bias", l.ln2_b);
+        if (l.ln2_b.empty() && !l.ln2_w.empty()) l.ln2_b.resize(H, 0.0f);
+        std::vector<float> qkv_w, qkv_b;
+        if (find(p + "self_attn.qkv.weight", qkv_w)) {
+            l.attn_q_w.resize((size_t)H * H);
+            l.attn_k_w.resize((size_t)H * H);
+            l.attn_v_w.resize((size_t)H * H);
+            for (int i = 0; i < H; i++) {
+                for (int j = 0; j < H; j++) {
+                    l.attn_q_w[(size_t)i * H + j] = qkv_w[(size_t)i * 3 * H + j];
+                    l.attn_k_w[(size_t)i * H + j] = qkv_w[(size_t)i * 3 * H + H + j];
+                    l.attn_v_w[(size_t)i * H + j] = qkv_w[(size_t)i * 3 * H + 2*H + j];
+                }
+            }
+            if (find(p + "self_attn.qkv.bias", qkv_b)) {
+                l.attn_q_b.resize(H); l.attn_k_b.resize(H); l.attn_v_b.resize(H);
+                for (int i = 0; i < H; i++) {
+                    l.attn_q_b[i] = qkv_b[i];
+                    l.attn_k_b[i] = qkv_b[H + i];
+                    l.attn_v_b[i] = qkv_b[2*H + i];
+                }
+            } else {
+                l.attn_q_b.resize(H, 0.0f); l.attn_k_b.resize(H, 0.0f); l.attn_v_b.resize(H, 0.0f);
+            }
+        }
+        find(p + "self_attn.proj.weight", l.attn_o_w);
+        find(p + "self_attn.proj.bias", l.attn_o_b);
+        if (l.attn_o_b.empty() && !l.attn_o_w.empty()) l.attn_o_b.resize(H, 0.0f);
+        find(p + "mlp.fc1.weight", l.ffn_up_w);
+        find(p + "mlp.fc1.bias", l.ffn_up_b);
+        if (l.ffn_up_b.empty() && !l.ffn_up_w.empty()) l.ffn_up_b.resize(FF, 0.0f);
+        find(p + "mlp.fc2.weight", l.ffn_down_w);
+        find(p + "mlp.fc2.bias", l.ffn_down_b);
+        if (l.ffn_down_b.empty() && !l.ffn_down_w.empty()) l.ffn_down_b.resize(H, 0.0f);
+    }
+    fprintf(stderr, "[mage_vit] Load complete: %d layers, %s merger\n", NL, vw.mm0_w.empty() ? "no" : "yes");
+    return true;
+}
+
+// ═══ Mage-ViT: 3D interleaved RoPE ═══════════════════════════════
+static void mage_vit_rope_one(float* x, int head_dim,
+                               int t, int h, int w, float theta_base) {
+    int half = head_dim / 2;
+    int t_pairs = head_dim * 4 / 32;
+    int h_pairs = head_dim * 6 / 32;
+    int w_pairs = head_dim * 6 / 32;
+    int off = 0;
+    for (int i = 0; i < t_pairs; i++) {
+        float freq = t * powf(theta_base, -2.0f * (float)(off + i) / (float)head_dim);
+        float c = cosf(freq), s = sinf(freq);
+        float x0 = x[off + i], x1 = x[off + i + half];
+        x[off + i] = x0 * c - x1 * s;
+        x[off + i + half] = x0 * s + x1 * c;
+    }
+    off += t_pairs;
+    for (int i = 0; i < h_pairs; i++) {
+        float freq = h * powf(theta_base, -2.0f * (float)(off + i) / (float)head_dim);
+        float c = cosf(freq), s = sinf(freq);
+        float x0 = x[off + i], x1 = x[off + i + half];
+        x[off + i] = x0 * c - x1 * s;
+        x[off + i + half] = x0 * s + x1 * c;
+    }
+    off += h_pairs;
+    for (int i = 0; i < w_pairs; i++) {
+        float freq = w * powf(theta_base, -2.0f * (float)(off + i) / (float)head_dim);
+        float c = cosf(freq), s = sinf(freq);
+        float x0 = x[off + i], x1 = x[off + i + half];
+        x[off + i] = x0 * c - x1 * s;
+        x[off + i + half] = x0 * s + x1 * c;
+    }
+}
+
+void vit_rope3d_apply(float* q, float* k, int head_dim,
+                       int t, int h, int w, float freq_base) {
+    mage_vit_rope_one(q, head_dim, t, h, w, freq_base);
+    mage_vit_rope_one(k, head_dim, t, h, w, freq_base);
+}
+
+// ═══ Mage-ViT full forward ════════════════════════════════════════
+std::vector<float> mage_vit_forward(
+    const VisionWeights& weights,
+    const float* pixels, int channels, int time, int height, int width,
+    int frame_window_size) {
+    using namespace vit_math;
+    const auto& cfg = weights.config;
+    int H = cfg.hidden_size, NH = cfg.num_heads, HD = H / NH;
+    int P = cfg.patch_size, FF = cfg.intermediate_size;
+    int ph = height / P, pw = width / P;
+    int ppf = ph * pw, tp = ppf * time;
+    std::vector<float> seq((size_t)tp * H);
+    std::vector<float> qb((size_t)tp * H), kb((size_t)tp * H), vb((size_t)tp * H);
+    std::vector<float> x2(H), att(H), up(FF), dn(H);
+    int cp3 = P * P * channels;
+    for (int t = 0; t < time; t++)
+        for (int r = 0; r < ph; r++)
+            for (int c = 0; c < pw; c++) {
+                int pi = t * ppf + r * pw + c;
+                float* out = &seq[(size_t)pi * H];
+                std::fill(out, out + H, 0.0f);
+                const float* w = weights.patch_embd0.data();
+                if (!w || weights.patch_embd0.empty()) return {};
+                for (int ch = 0; ch < channels; ch++)
+                    for (int ky = 0; ky < P; ky++) {
+                        int py = r * P + ky;
+                        if (py >= height) continue;
+                        for (int kx = 0; kx < P; kx++) {
+                            int px = c * P + kx;
+                            if (px >= width) continue;
+                            float pix = pixels[((size_t)t * height * width + (size_t)py * width + px) * channels + ch];
+                            size_t wo = (size_t)ch * P * P + (size_t)ky * P + kx;
+                            for (int o = 0; o < H; o++)
+                                out[o] += pix * w[(size_t)o * (size_t)cp3 + wo];
+                        }
+                    }
+                if (!weights.patch_bias.empty())
+                    for (int o = 0; o < H; o++) out[o] += weights.patch_bias[o];
+            }
+    if (weights.has_pre_ln && !weights.pre_ln_w.empty())
+        for (int i = 0; i < tp; i++) {
+            layernorm(x2.data(), &seq[(size_t)i * H],
+                      weights.pre_ln_w.data(), weights.pre_ln_b.data(), H, cfg.layer_norm_eps);
+            std::copy(x2.begin(), x2.end(), &seq[(size_t)i * H]);
+        }
+    float ascale = 1.0f / sqrtf((float)HD);
+    int nw = (time + frame_window_size - 1) / frame_window_size;
+    float attn_scr[4096];
+    for (int il = 0; il < cfg.num_layers; il++) {
+        const auto& l = weights.layers[il];
+        for (int i = 0; i < tp; i++) {
+            float* xt = &seq[(size_t)i * H];
+            layernorm(x2.data(), xt, l.ln1_w.data(), l.ln1_b.data(), H, cfg.layer_norm_eps);
+            matmul(&qb[(size_t)i * H], x2.data(), l.attn_q_w.data(), H, H);
+            matmul(&kb[(size_t)i * H], x2.data(), l.attn_k_w.data(), H, H);
+            matmul(&vb[(size_t)i * H], x2.data(), l.attn_v_w.data(), H, H);
+            for (int j = 0; j < H; j++) {
+                qb[(size_t)i * H + j] += l.attn_q_b[j];
+                kb[(size_t)i * H + j] += l.attn_k_b[j];
+                vb[(size_t)i * H + j] += l.attn_v_b[j];
+            }
+            int t = i / ppf, ipf = i % ppf, row = ipf / pw, col = ipf % pw;
+            for (int h = 0; h < NH; h++) {
+                mage_vit_rope_one(&qb[(size_t)i * H + (size_t)h * HD], HD, t, row, col, 10000.0f);
+                mage_vit_rope_one(&kb[(size_t)i * H + (size_t)h * HD], HD, t, row, col, 10000.0f);
+            }
+        }
+        for (int w = 0; w < nw; w++) {
+            int ts = w * frame_window_size, te = std::min(ts + frame_window_size, time);
+            int nt = (te - ts) * ppf, base = ts * ppf;
+            for (int i = 0; i < nt; i++) {
+                int ai = base + i;
+                std::fill(att.begin(), att.end(), 0.0f);
+                for (int h = 0; h < NH; h++) {
+                    float* Qh = &qb[(size_t)ai * H + (size_t)h * HD];
+                    for (int sj = 0; sj < nt; sj++) {
+                        int aj = base + sj;
+                        float* Kh = &kb[(size_t)aj * H + (size_t)h * HD];
+                        float acc = 0;
+                        for (int d = 0; d < HD; d++) acc += Qh[d] * Kh[d];
+                        attn_scr[sj] = acc * ascale;
+                    }
+                    softmax_inplace(attn_scr, nt);
+                    for (int d = 0; d < HD; d++) {
+                        float acc = 0;
+                        for (int sj = 0; sj < nt; sj++) {
+                            int aj = base + sj;
+                            acc += attn_scr[sj] * vb[(size_t)aj * H + (size_t)h * HD + d];
+                        }
+                        att[(size_t)h * HD + d] = acc;
+                    }
+                }
+                float* xt = &seq[(size_t)ai * H];
+                float att_out[4096];
+                matmul(att_out, att.data(), l.attn_o_w.data(), H, H);
+                for (int j = 0; j < H; j++) {
+                    if (cfg.use_bias) att_out[j] += l.attn_o_b[j];
+                    xt[j] += att_out[j];
+                }
+            }
+        }
+        for (int i = 0; i < tp; i++) {
+            float* xt = &seq[(size_t)i * H];
+            layernorm(x2.data(), xt, l.ln2_w.data(), l.ln2_b.data(), H, cfg.layer_norm_eps);
+            matmul(up.data(), x2.data(), l.ffn_up_w.data(), FF, H);
+            if (cfg.use_bias) for (int j = 0; j < FF; j++) up[j] += l.ffn_up_b[j];
+            gelu(up.data(), up.data(), FF);
+            matmul(dn.data(), up.data(), l.ffn_down_w.data(), H, FF);
+            if (cfg.use_bias) for (int j = 0; j < H; j++) dn[j] += l.ffn_down_b[j];
+            for (int j = 0; j < H; j++) xt[j] += dn[j];
+        }
+    }
+    // (No post-LN — goes directly to merger)
+    // 2x2 spatial merger
+    if (!weights.mm0_w.empty()) {
+        int pm = (int)(weights.mm0_w.size() / (4 * H));
+        int mph = ph / 2, mpw = pw / 2;
+        int mpf = mph * mpw, tm = mpf * time;
+        int th = weights.mm2_w.empty() ? pm : (int)(weights.mm2_w.size() / pm);
+        std::vector<float> merged((size_t)tm * th), mb(4*H), lb(4*H), hid(pm);
+        for (int t = 0; t < time; t++)
+            for (int mr = 0; mr < mph; mr++)
+                for (int mc = 0; mc < mpw; mc++) {
+                    for (int dr = 0; dr < 2; dr++)
+                        for (int dc = 0; dc < 2; dc++) {
+                            int si = t * ppf + (mr * 2 + dr) * pw + (mc * 2 + dc);
+                            std::copy(seq.begin() + (size_t)si * H, seq.begin() + (size_t)si * H + H,
+                                      mb.begin() + (size_t)(dr * 2 + dc) * H);
+                        }
+                    float mn = 0; for (int i = 0; i < 4*H; i++) mn += mb[i];
+                    mn /= (4*H);
+                    float vr = 0; for (int i = 0; i < 4*H; i++) { float d = mb[i] - mn; vr += d*d; }
+                    vr /= (4*H);
+                    float inv = 1.0f / sqrtf(vr + 1e-6f);
+                    for (int i = 0; i < 4*H; i++) lb[i] = (mb[i] - mn) * inv;
+                    if (!weights.mm1_w.empty() && (int)weights.mm1_w.size() == 4*H) {
+                        for (int i = 0; i < 4*H; i++)
+                            lb[i] = lb[i] * weights.mm1_w[i] + (weights.mm1_b.empty() ? 0.0f : weights.mm1_b[i % (int)weights.mm1_b.size()]);
+                    }
+                    matmul(hid.data(), lb.data(), weights.mm0_w.data(), pm, 4*H);
+                    if (!weights.mm0_b.empty() && (int)weights.mm0_b.size() == pm)
+                        for (int i = 0; i < pm; i++) hid[i] += weights.mm0_b[i];
+                    gelu(hid.data(), hid.data(), pm);
+                    int di = t * mpf + mr * mpw + mc;
+                    matmul(&merged[(size_t)di * th], hid.data(), weights.mm2_w.data(), th, pm);
+                    if (!weights.mm2_b.empty() && (int)weights.mm2_b.size() == th)
+                        for (int i = 0; i < th; i++)
+                            merged[(size_t)di * th + i] += weights.mm2_b[i];
+                }
+        return merged;
+    }
+    return seq;
 }
