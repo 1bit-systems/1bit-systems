@@ -314,6 +314,7 @@ __attribute__((weak)) std::vector<InferenceBackend*> detect_backends_vulkan() { 
 __attribute__((weak)) std::vector<InferenceBackend*> detect_backends_npu() { return {}; }
 extern std::vector<InferenceBackend*> detect_backends_generic();
 __attribute__((weak)) std::vector<InferenceBackend*> detect_backends_zinc() { return {}; }
+extern std::vector<InferenceBackend*> detect_backends_zamba2();
 
 std::vector<InferenceBackend*> detect_backends() {
     std::vector<InferenceBackend*> backends;
@@ -326,6 +327,10 @@ std::vector<InferenceBackend*> detect_backends() {
 
     auto npu_backends = detect_backends_npu();
     for (auto* b : npu_backends) backends.push_back(b);
+
+    // Zamba2 GPU backend (tried before generic CPU)
+    auto zamba2_backends = detect_backends_zamba2();
+    for (auto* b : zamba2_backends) backends.push_back(b);
 
     auto generic_backends = detect_backends_generic();
     for (auto* b : generic_backends) backends.push_back(b);

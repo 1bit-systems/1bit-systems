@@ -227,6 +227,11 @@ struct FusedBackend : Backend {
     NpuState* npu = nullptr;
     bool npu_ok = false;
     fusion::SharedBO* slot[2] = {};
+    // GPU-accessible device pointers into the SharedBO pages.
+    // hipHostRegister(host_ptr, hipHostRegisterDefault) exposes the NPU-owned
+    // XRT HOST_ONLY pages to the HIP runtime so hipMemcpy can use them as the
+    // destination/source without an intermediate CPU bounce buffer (issue #1215).
+    void* slot_dev[2] = {};
 
     // CPU weights (for NPU pack + lm_head)
     std::vector<float> cpu_embed, cpu_final_norm, cpu_output;
@@ -294,6 +299,30 @@ struct FusedBackend : Backend {
             if (!slot[0] || !slot[1]) {
                 fprintf(stderr,"[fused] SharedBO alloc fail — GPU-only\n");
                 npu_ok = false;
+            } else {
+                // Register the NPU-owned pages with HIP so hipMemcpy can use them
+                // directly without a bounce buffer.  hipHostRegisterDefault works on
+                // Strix Halo (unified memory, APU); hipHostRegisterMapped is not needed
+                // because hipMemcpy with these pointers already avoids the CPU copy.
+                // On failure we fall back to the vector<float> bounce path (no assert).
+                for (int i = 0; i < 2; i++) {
+                    void* hp = slot[i]->host_ptr();
+                    size_t sz = slot[i]->size();
+                    hipError_t reg_err = hipHostRegister(hp, sz, hipHostRegisterDefault);
+                    if (reg_err == hipSuccess) {
+                        hipError_t gdp_err = hipHostGetDevicePointer(&slot_dev[i], hp, 0);
+                        if (gdp_err != hipSuccess) {
+                            fprintf(stderr, "[fused] SharedBO hipHostGetDevicePointer slot[%d]: %s\n",
+                                    i, hipGetErrorString(gdp_err));
+                            (void)hipHostUnregister(hp);
+                            slot_dev[i] = nullptr;
+                        }
+                    } else {
+                        fprintf(stderr, "[fused] SharedBO hipHostRegister slot[%d]: %s "
+                                "(will use bounce buffer)\n", i, hipGetErrorString(reg_err));
+                        slot_dev[i] = nullptr;
+                    }
+                }
             }
         }
 
@@ -431,10 +460,29 @@ struct FusedBackend : Backend {
             bool ffn_done = false;
             if (npu && npu_ok && getenv("USE_NPU_FFN")) {
                 HIP_CHECK(hipStreamSynchronize(stream));
-                std::vector<float> h(H_);
-                HIP_CHECK(hipMemcpy(h.data(), doproj, H_*sizeof(float), hipMemcpyDeviceToHost));
-                if (npu_state_ffn(npu, l, h.data(), H_)) {
-                    HIP_CHECK(hipMemcpy(dh, h.data(), H_*sizeof(float), hipMemcpyHostToDevice));
+                int si = l & 1;
+                float* host_buf = (float*)slot[si]->host_ptr();
+                // Zero-copy path (issue #1215): GPU writes the post-attention hidden
+                // state directly into the SharedBO pages via the HIP-registered device
+                // pointer.  NPU then reads from host_ptr (same physical pages on Strix
+                // Halo unified memory) without an intermediate bounce buffer.
+                // If registration failed at init time, fall back to hipMemcpy to CPU.
+                if (slot_dev[si]) {
+                    HIP_CHECK(hipMemcpy(slot_dev[si], doproj, H_*sizeof(float),
+                                        hipMemcpyDeviceToDevice));
+                } else {
+                    HIP_CHECK(hipMemcpy(host_buf, doproj, H_*sizeof(float),
+                                        hipMemcpyDeviceToHost));
+                }
+                if (npu_state_ffn(npu, l, host_buf, H_)) {
+                    // Read result back to the GPU hidden-state buffer.
+                    if (slot_dev[si]) {
+                        HIP_CHECK(hipMemcpy(dh, slot_dev[si], H_*sizeof(float),
+                                            hipMemcpyDeviceToDevice));
+                    } else {
+                        HIP_CHECK(hipMemcpy(dh, host_buf, H_*sizeof(float),
+                                            hipMemcpyHostToDevice));
+                    }
                     ffn_done = true;
                 } else {
                     fprintf(stderr, "[fused] NPU FFN l=%d failed — fallback GPU\n", l);
@@ -509,7 +557,10 @@ struct FusedBackend : Backend {
         hfhst(dK); hfhst(dV);
         devK = devV = nullptr;
         for (int i = 0; i < 2; i++) {
-            if (slot[i] && slot[i]->host_ptr()) HIP_CHECK_D(hipHostUnregister(slot[i]->host_ptr()));
+            if (slot_dev[i] && slot[i]) {
+                HIP_CHECK_D(hipHostUnregister(slot[i]->host_ptr()));
+                slot_dev[i] = nullptr;
+            }
             delete slot[i]; slot[i] = nullptr;
         }
         if (stream) { HIP_CHECK_D(hipStreamDestroy(stream)); stream = nullptr; }

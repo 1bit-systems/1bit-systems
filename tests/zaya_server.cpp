@@ -114,6 +114,7 @@ static bool detect_from_1bp(const std::string& path, ModelConfig& cfg) {
     auto slash = path.find_last_of('/');
     cfg.model_name = (slash != std::string::npos) ? path.substr(slash + 1) : path;
     cfg.model_path = path;
+    cfg.weights_dir = (slash != std::string::npos) ? path.substr(0, slash + 1) : "./";
     fprintf(stderr, "  Auto-detected from .1bp: %s\n", cfg.model_name.c_str());
     fprintf(stderr, "    hidden=%d layers=%d heads=%d kv_heads=%d head_dim=%d vocab=%d eos=%d\n",
             cfg.hidden_size, cfg.num_layers, cfg.num_heads, cfg.num_kv_heads,
@@ -214,7 +215,20 @@ static bool detect_from_gguf(const std::string& path, ModelConfig& cfg) {
         // The backend can dynamically allocate more if needed.
         if (cfg.max_seq_len > 32768) cfg.max_seq_len = 32768;
         if (cfg.hidden_size > 0) {
-            fprintf(stderr, "  GGUF dims: H=%d L=%d NH=%d NKV=%d FF=%d V=%d CTX=%d (arch=%s)\n",
+            // Set numeric architecture enum for backend routing
+    // Map GGUF arch string to rcpp_arch_t
+    if (arch == "zamba2")      cfg.arch = RCPP_ARCH_ZAMBA2;
+    else if (arch == "zamba")  cfg.arch = RCPP_ARCH_ZAMBA;
+    else if (arch == "mamba")  cfg.arch = RCPP_ARCH_MAMBA;
+    else if (arch == "llama")  cfg.arch = RCPP_ARCH_LLAMA;
+    else if (arch == "qwen3") cfg.arch = RCPP_ARCH_QWEN3;
+    else if (arch == "qwen2") cfg.arch = RCPP_ARCH_QWEN2;
+    else if (arch == "mistral") cfg.arch = RCPP_ARCH_MISTRAL;
+    else if (arch == "gemma" || arch == "gemma2" || arch == "gemma3") cfg.arch = RCPP_ARCH_GEMMA;
+    else if (arch == "zr1")    cfg.arch = RCPP_ARCH_ZAMBA2;
+    else cfg.arch = RCPP_ARCH_BITNET;  // default / unknown
+
+    fprintf(stderr, "  GGUF dims: H=%d L=%d NH=%d NKV=%d FF=%d V=%d CTX=%d (arch=%s)\n",
                     cfg.hidden_size, cfg.num_layers, cfg.num_heads, cfg.num_kv_heads,
                     cfg.intermediate_size, cfg.vocab_size, cfg.max_seq_len, arch.c_str());
         }

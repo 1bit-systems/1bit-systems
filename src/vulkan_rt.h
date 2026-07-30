@@ -12,10 +12,18 @@
 // unnecessary copy -- consistent with the zero-copy direction already
 // explored for this engine. If this ever needs to run well on a discrete
 // GPU, add a staging-upload path then; don't build it speculatively now.
+//
+// External memory (dma-buf) support for NPU zero-copy (issue #1217):
+// VkCtx::init() enables VK_KHR_external_memory_fd and the related instance
+// extension when available.  GpuBuffer::create_from_dma_buf() imports a
+// SharedBO dma-buf fd as Vulkan device memory so the GPU shader can read and
+// write it without any CPU copy.
 #ifndef VULKAN_RT_H
 #define VULKAN_RT_H
 
+#define VK_USE_PLATFORM_XLIB_KHR 0
 #include <vulkan/vulkan.h>
+#include <vulkan/vulkan_core.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -55,6 +63,7 @@ struct GpuBuffer {
     VkDeviceMemory mem = VK_NULL_HANDLE;
     size_t size = 0;
     VkDevice dev = VK_NULL_HANDLE;
+    bool imported_ = false;  // true when memory was imported (not owned by us)
 
     void create(VkDevice d, const VkPhysicalDeviceMemoryProperties& mp, size_t sz, VkBufferUsageFlags usage) {
         dev = d;
@@ -72,6 +81,61 @@ struct GpuBuffer {
         VKRT_CK(vkAllocateMemory(dev, &ai, nullptr, &mem));
         VKRT_CK(vkBindBufferMemory(dev, buf, mem, 0));
     }
+
+    // Import a Linux dma-buf fd (e.g. from SharedBO::dma_buf_fd()) as Vulkan
+    // device memory — zero-copy NPU↔GPU path (issue #1217).
+    // Requires VK_KHR_external_memory_fd on the device (enabled in VkCtx::init).
+    // Returns false if the extension is unavailable or the import fails.
+    bool create_from_dma_buf(VkDevice d,
+                              const VkPhysicalDeviceMemoryProperties& mp,
+                              size_t sz, int dma_fd,
+                              VkBufferUsageFlags usage) {
+        dev = d; size = sz;
+
+        // Buffer with VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT declared.
+        VkExternalMemoryBufferCreateInfo ext_bi{
+            VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO};
+        ext_bi.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT;
+
+        VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        bi.pNext = &ext_bi;
+        bi.size  = sz;
+        bi.usage = usage;
+        if (vkCreateBuffer(dev, &bi, nullptr, &buf) != VK_SUCCESS) {
+            fprintf(stderr, "vulkan_rt: create_from_dma_buf: vkCreateBuffer failed\n");
+            return false;
+        }
+
+        VkMemoryRequirements mr;
+        vkGetBufferMemoryRequirements(dev, buf, &mr);
+
+        // Import the dma-buf fd as Vulkan device memory.
+        VkImportMemoryFdInfoKHR import_info{VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR};
+        import_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT;
+        import_info.fd         = dma_fd;
+
+        VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+        ai.pNext          = &import_info;
+        ai.allocationSize = mr.size;
+        // SharedBO pages are HOST_ONLY coherent system RAM — pick the first
+        // memory type that matches the buffer's requirements and is host-visible.
+        ai.memoryTypeIndex = findMemType(mp, mr.memoryTypeBits,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        if (vkAllocateMemory(dev, &ai, nullptr, &mem) != VK_SUCCESS) {
+            fprintf(stderr, "vulkan_rt: create_from_dma_buf: vkAllocateMemory failed\n");
+            vkDestroyBuffer(dev, buf, nullptr); buf = VK_NULL_HANDLE;
+            return false;
+        }
+        if (vkBindBufferMemory(dev, buf, mem, 0) != VK_SUCCESS) {
+            fprintf(stderr, "vulkan_rt: create_from_dma_buf: vkBindBufferMemory failed\n");
+            vkFreeMemory(dev, mem, nullptr); mem = VK_NULL_HANDLE;
+            vkDestroyBuffer(dev, buf, nullptr); buf = VK_NULL_HANDLE;
+            return false;
+        }
+        imported_ = true;
+        return true;
+    }
+
     void upload(const void* data) {
         void* p;
         VKRT_CK(vkMapMemory(dev, mem, 0, size, 0, &p));
@@ -85,10 +149,9 @@ struct GpuBuffer {
         vkUnmapMemory(dev, mem);
     }
     void destroy() {
-        if (mem) vkFreeMemory(dev, mem, nullptr);
-        if (buf) vkDestroyBuffer(dev, buf, nullptr);
-        mem = VK_NULL_HANDLE;
-        buf = VK_NULL_HANDLE;
+        if (mem) { vkFreeMemory(dev, mem, nullptr); mem = VK_NULL_HANDLE; }
+        if (buf) { vkDestroyBuffer(dev, buf, nullptr); buf = VK_NULL_HANDLE; }
+        imported_ = false;
     }
 };
 
@@ -104,13 +167,30 @@ struct VkCtx {
     float timestampPeriodNs = 1.0f;
     char deviceName[256] = {0};
 
+    // Whether VK_KHR_external_memory_fd is available on the chosen device.
+    bool ext_mem_fd = false;
+
     void init() {
         VkApplicationInfo ai{VK_STRUCTURE_TYPE_APPLICATION_INFO};
         ai.pApplicationName = "1bit-vulkan-rt";
         ai.apiVersion = VK_API_VERSION_1_2;
+
+        // VK_KHR_external_memory_capabilities is an instance extension needed
+        // before VK_KHR_external_memory_fd (device extension) can be used.
+        const char* inst_exts[] = {
+            "VK_KHR_external_memory_capabilities",
+            "VK_KHR_get_physical_device_properties2",
+        };
         VkInstanceCreateInfo ici{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
-        ici.pApplicationInfo = &ai;
-        VKRT_CK(vkCreateInstance(&ici, nullptr, &inst));
+        ici.pApplicationInfo        = &ai;
+        ici.enabledExtensionCount   = 2;
+        ici.ppEnabledExtensionNames = inst_exts;
+        // If the instance extensions are unsupported, fall back to no extensions.
+        if (vkCreateInstance(&ici, nullptr, &inst) != VK_SUCCESS) {
+            ici.enabledExtensionCount   = 0;
+            ici.ppEnabledExtensionNames = nullptr;
+            VKRT_CK(vkCreateInstance(&ici, nullptr, &inst));
+        }
 
         uint32_t nd = 0;
         VKRT_CK(vkEnumeratePhysicalDevices(inst, &nd, nullptr));
@@ -132,6 +212,19 @@ struct VkCtx {
         }
         if (!phys) VKRT_BAIL("No integrated/discrete GPU found");
 
+        // Probe for VK_KHR_external_memory_fd device extension (needed for
+        // dma-buf import — issue #1217).
+        uint32_t ext_count = 0;
+        vkEnumerateDeviceExtensionProperties(phys, nullptr, &ext_count, nullptr);
+        std::vector<VkExtensionProperties> avail_exts(ext_count);
+        vkEnumerateDeviceExtensionProperties(phys, nullptr, &ext_count, avail_exts.data());
+        for (auto& e : avail_exts) {
+            if (strcmp(e.extensionName, "VK_KHR_external_memory_fd") == 0) {
+                ext_mem_fd = true;
+                break;
+            }
+        }
+
         float qp = 1.0f;
         VkDeviceQueueCreateInfo qci{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
         qci.queueCount = 1;
@@ -139,7 +232,22 @@ struct VkCtx {
         VkDeviceCreateInfo dci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
         dci.queueCreateInfoCount = 1;
         dci.pQueueCreateInfos = &qci;
-        VKRT_CK(vkCreateDevice(phys, &dci, nullptr, &dev));
+
+        const char* dev_exts[] = {
+            "VK_KHR_external_memory",
+            "VK_KHR_external_memory_fd",
+        };
+        if (ext_mem_fd) {
+            dci.enabledExtensionCount   = 2;
+            dci.ppEnabledExtensionNames = dev_exts;
+        }
+        if (vkCreateDevice(phys, &dci, nullptr, &dev) != VK_SUCCESS) {
+            // Retry without the external-memory extensions if unavailable.
+            dci.enabledExtensionCount   = 0;
+            dci.ppEnabledExtensionNames = nullptr;
+            ext_mem_fd = false;
+            VKRT_CK(vkCreateDevice(phys, &dci, nullptr, &dev));
+        }
         vkGetDeviceQueue(dev, 0, 0, &queue);
 
         VkCommandPoolCreateInfo cpci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};

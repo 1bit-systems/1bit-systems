@@ -645,7 +645,7 @@ set_target_properties(test_lora_merge PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_
 
 # -- zaya_server : multi-model multi-backend inference server (main binary,
 #    NOT a test — not registered with add_test(), see install() below) ------
-set(ZAYA_SERVER_SRC tests/zaya_server.cpp tests/backends/backend_cpu.cpp tests/backends/backend_npu.cpp tests/backends/backend_generic.cpp)
+set(ZAYA_SERVER_SRC tests/zaya_server.cpp tests/backends/backend_cpu.cpp tests/backends/backend_npu.cpp tests/backends/backend_generic.cpp tests/backends/backend_zamba2_adapter.cpp src/backend_zamba2.cpp)
 if(RCPP_HAVE_VULKAN)
     list(APPEND ZAYA_SERVER_SRC tests/backends/backend_vulkan.cpp)
 endif()
@@ -963,6 +963,18 @@ add_custom_target(zaya_agent ALL
     COMMENT "Creating zaya_agent -> unified_server copy")
 set_property(TARGET unified_server APPEND PROPERTY
     LINK_OPTIONS "-Wl,-rpath,\$ORIGIN")
+# TheRock SDK runtime lib path — find libhipblas.so.3 and add its dir to rpath
+find_library(THEROCK_HIPBLAS_LIB hipblas PATHS
+    "${THEROCK_SDK_BASE}/lib"
+    "/opt/rocm-therock/lib/python3.14/site-packages/_rocm_sdk_devel/lib"
+    "/opt/rocm-therock/lib/python3.14/site-packages/_rocm_sdk_libraries/lib"
+    NO_DEFAULT_PATH)
+if(THEROCK_HIPBLAS_LIB)
+    get_filename_component(THEROCK_LIB_DIR "${THEROCK_HIPBLAS_LIB}" DIRECTORY)
+    set_property(TARGET unified_server APPEND PROPERTY
+        LINK_OPTIONS "-Wl,-rpath,${THEROCK_LIB_DIR}")
+    message(STATUS "unified_server rpath: ${THEROCK_LIB_DIR}")
+endif()
 
 
 add_executable(backend_demo tools/backend_demo.cpp)

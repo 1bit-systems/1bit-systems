@@ -24,65 +24,6 @@ __global__ void gemv_kernel(float* y, const float* W, const float* x, int M, int
     if (threadIdx.x == 0) y[row] = (float)sdata[0];
 }
 
-// ── Custom GEMV: y[M] = W[M,N] @ x[N]  (row-major W) ──
-// Each block handles one output row. Up to 256 rows per grid.
-// For M <= 256 (which covers most of our projections: NH*HD <= 2048
-// fits in 8 blocks of 256 threads), this is much faster than rocBLAS.
-// The key: one kernel launch vs one per row.
-template<int BLOCK=256>
-__launch_bounds__(BLOCK)
-__global__ void gemv_kernel(float* __restrict__ y,
-                             const float* __restrict__ W,
-                             const float* __restrict__ x,
-                             int M, int N) {
-    int row = blockIdx.x * blockDim.y + threadIdx.y;
-    if (row >= M) return;
-
-    // Each thread accumulates a partial sum
-    float sum = 0.0f;
-    int k = threadIdx.x;
-    for (; k < N; k += blockDim.x) {
-        sum += x[k] * W[(size_t)row * N + k];
-    }
-
-    // Warp reduction within the row's thread group
-    __shared__ float sdata[32][32];  // [warp][lane]
-    int warp = threadIdx.y * blockDim.x + threadIdx.x;
-    // ... simplified: single warp per row for now
-    if (threadIdx.x == 0) y[row] = sum;
-}
-
-// ── Fused QKV: computes Q, K, V from x in one kernel ──
-// Q[Mq,N] = Wq[Mq,N] @ x[N]
-// K[Mk,N] = Wk[Mk,N] @ x[N]  (Mk = NKV*HD)
-// V[Mv,N] = Wv[Mv,N] @ x[N]  (Mv = NKV*HD)
-// All three read from `x` once, reducing memory traffic.
-__global__ void qkv_kernel(float* __restrict__ Q, float* __restrict__ K, float* __restrict__ V,
-                            const float* __restrict__ Wq, const float* __restrict__ Wk,
-                            const float* __restrict__ Wv, const float* __restrict__ x,
-                            int N, int Mq, int Mk) {
-    int row = blockIdx.x;  // row index in the concatenated output
-    int tid = threadIdx.x;
-
-    if (row < Mq) {
-        // Q row
-        float sum = 0;
-        for (int k = tid; k < N; k += blockDim.x)
-            sum += x[k] * Wq[(size_t)row * N + k];
-        __shared__ float qred[256];
-        qred[tid] = sum;
-        __syncthreads();
-        // Simple reduction (warp-level would be better)
-        if (tid == 0) {
-            double s = 0;
-            for (int i = 0; i < blockDim.x; i++) s += qred[i];
-            Q[row] = (float)s;
-        }
-    }
-    // Can't easily handle K/V in same kernel due to different row ranges.
-    // Split into separate kernel instances for simplicity.
-}
-
 // ── RMSNorm (GPU cooperative reduction) ──
 static constexpr int RMS_BLOCK = 256;
 __launch_bounds__(RMS_BLOCK)

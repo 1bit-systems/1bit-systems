@@ -775,22 +775,31 @@ int main(int argc, char** argv) {
     printf("\n── Model Discovery ──\n");
     static std::vector<ModelConfig> discovered = discover_models(g_weights_dir);
 
+    // Helper: normalize name separators for matching (hyphens/underscores → spaces)
+    auto normalize = [](std::string s) -> std::string {
+        for (auto& c : s) { if (c == '-' || c == '_') c = ' '; }
+        return s;
+    };
     // Select model: --model flag takes priority, otherwise first discovered
     static ModelConfig current_cfg = default_model_config();
     if (!g_model_name.empty()) {
+        std::string user_name = normalize(g_model_name);
         // 1. Exact match (case-sensitive)
         for (auto& m : discovered) {
-            if (m.model_name == g_model_name) {
+            if (normalize(m.model_name) == user_name) {
+                printf("  (matched \"%s\" via exact → \"%s\")\n",
+                       g_model_name.c_str(), m.model_name.c_str());
                 current_cfg = m;
                 break;
             }
         }
         // 2. Case-insensitive match
         if (current_cfg.model_path.empty()) {
-            auto ci_eq = [](const std::string& a, const std::string& b) -> bool {
-                if (a.size() != b.size()) return false;
-                for (size_t i = 0; i < a.size(); i++) {
-                    if (tolower((unsigned char)a[i]) != tolower((unsigned char)b[i]))
+            auto ci_eq = [&](const std::string& a, const std::string& b) -> bool {
+                std::string na = normalize(a), nb = normalize(b);
+                if (na.size() != nb.size()) return false;
+                for (size_t i = 0; i < na.size(); i++) {
+                    if (tolower((unsigned char)na[i]) != tolower((unsigned char)nb[i]))
                         return false;
                 }
                 return true;
@@ -804,11 +813,12 @@ int main(int argc, char** argv) {
                 }
             }
         }
-        // 3. Prefix match (user name is a prefix of a discovered name)
+        // 3. Prefix match (user name is a prefix of a discovered name, normalized)
         if (current_cfg.model_path.empty()) {
             for (auto& m : discovered) {
-                if (m.model_name.size() >= g_model_name.size() &&
-                    m.model_name.compare(0, g_model_name.size(), g_model_name) == 0) {
+                std::string mn = normalize(m.model_name);
+                if (mn.size() >= user_name.size() &&
+                    mn.compare(0, user_name.size(), user_name) == 0) {
                     printf("  (matched \"%s\" as prefix → \"%s\")\n",
                            g_model_name.c_str(), m.model_name.c_str());
                     current_cfg = m;
@@ -816,14 +826,15 @@ int main(int argc, char** argv) {
                 }
             }
         }
-        // 4. Case-insensitive prefix match
+        // 4. Case-insensitive prefix match (normalized)
         if (current_cfg.model_path.empty()) {
             for (auto& m : discovered) {
-                if (m.model_name.size() >= g_model_name.size()) {
+                std::string mn = normalize(m.model_name);
+                if (mn.size() >= user_name.size()) {
                     bool match = true;
-                    for (size_t i = 0; i < g_model_name.size(); i++) {
-                        if (tolower((unsigned char)m.model_name[i]) !=
-                            tolower((unsigned char)g_model_name[i])) {
+                    for (size_t i = 0; i < user_name.size(); i++) {
+                        if (tolower((unsigned char)mn[i]) !=
+                            tolower((unsigned char)user_name[i])) {
                             match = false; break;
                         }
                     }
@@ -868,12 +879,28 @@ int main(int argc, char** argv) {
     printf("  Router: %s\n", route.reason.c_str());
     bool inited = mgr.init(cfg, g_weights_dir, route.backend_ids_in_order);
     if (inited) {
-        // Ensure active_idx_ points to the initialized backend
-        // (init() returns true but doesn't update active_idx_)
-        for (auto& b : mgr.backends()) {
-            if (b.available && b.functional && b.instance) {
-                mgr.select_backend(b.id);
-                break;
+        // Select active backend from the route's ordered list (not global
+        // priority order), so the backend that matches the model format is
+        // chosen first. Without this, npu_flm (T1_ACCELERATOR priority) gets
+        // picked for every model even though it only supports Q4NX format.
+        bool selected = false;
+        for (const auto& bid : route.backend_ids_in_order) {
+            for (auto& b : mgr.backends()) {
+                if (b.id == bid && b.available && b.functional && b.instance) {
+                    mgr.select_backend(b.id);
+                    selected = true;
+                    break;
+                }
+            }
+            if (selected) break;
+        }
+        if (!selected) {
+            // Fallback: any functional backend
+            for (auto& b : mgr.backends()) {
+                if (b.available && b.functional && b.instance) {
+                    mgr.select_backend(b.id);
+                    break;
+                }
             }
         }
         auto* active = mgr.active_info();

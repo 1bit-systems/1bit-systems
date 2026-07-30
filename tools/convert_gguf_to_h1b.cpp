@@ -219,73 +219,8 @@ private:
 };
 
 // ========================================================================
-// TQ2_0_g128 packer — ternarize float weights to 34-byte blocks of 128
+// FP16 helpers — must be defined before TQ2 packer that uses them
 // ========================================================================
-
-// Convert float to ternary {-1, 0, +1} with threshold around 2 std devs
-// that ensures ~50% zeros for BitNet-style models.
-static inline int8_t ternarize(float v, float threshold) {
-    if (v > threshold) return 1;
-    if (v < -threshold) return -1;
-    return 0;
-}
-
-// Pack a row of 128 floats into TQ2_0_g128 block (34 bytes).
-// Layout: 32 bytes of 2-bit codes (weights in {-1,0,+1} → codes {0,1,2})
-//         + 2 bytes FP16 block scale d.
-void pack_tq2_block(const float* vals, int n, uint8_t* out) {
-    // Find the right threshold for 50% zeros
-    // For BitNet/b1.58: threshold = 0.5 * max_abs works well
-    float max_abs = 0.0f;
-    double sum_abs = 0.0;
-    for (int i = 0; i < n; ++i) {
-        float a = std::fabs(vals[i]);
-        if (a > max_abs) max_abs = a;
-        sum_abs += a;
-    }
-    // Threshold: 0.7 * mean_abs gives ~50% zeros for balanced distributions
-    float mean_abs = (float)(sum_abs / n);
-    float threshold = 0.7f * mean_abs;
-    if (threshold < 1e-10f) threshold = 1e-10f;
-
-    // Ternarize and find the block scale d = max|w| for the non-zero values
-    int8_t ternary[128];
-    float max_mag = 0.0f;
-    for (int i = 0; i < n; ++i) {
-        ternary[i] = ternarize(vals[i], threshold);
-        if (ternary[i] != 0) {
-            float mag = std::fabs(vals[i]);
-            if (mag > max_mag) max_mag = mag;
-        }
-    }
-    if (max_mag < 1e-10f) max_mag = 1.0f;
-
-    // Block scale d is the max magnitude (FP16)
-    uint16_t d_fp16 = float_to_fp16(max_mag);
-    float d = fp16_to_float(d_fp16);
-
-    // Encode 2-bit codes: -1→0, 0→1, +1→2
-    // Pack 4 codes per byte (2 bits each), little-endian
-    for (int i = 0; i < 32; ++i) {
-        uint8_t byte = 0;
-        for (int j = 0; j < 4; ++j) {
-            int idx = i * 4 + j;
-            int code;
-            float w = (float)ternary[idx] * max_mag / d;
-            // Round to nearest ternary value
-            float ratio = valRatio(w, d);
-            if (w > d * 0.5f) code = 2;      // +1
-            else if (w < -d * 0.5f) code = 0; // -1
-            else code = 1;                    //  0
-            byte |= (uint8_t)(code << (j * 2));
-        }
-        out[i] = byte;
-    }
-
-    // Write FP16 scale at offset 32
-    memcpy(out + 32, &d_fp16, 2);
-}
-
 static inline float fp16_to_float(uint16_t h) {
     // FP16 -> FP32 conversion
     uint32_t sign = (h >> 15) & 1;
@@ -344,6 +279,66 @@ static inline uint16_t float_to_fp16(float v) {
 static inline float valRatio(float w, float d) {
     if (d < 1e-10f) return 0.0f;
     return w / d;
+}
+
+// ========================================================================
+// TQ2_0_g128 packer — ternarize float weights to 34-byte blocks of 128
+// ========================================================================
+
+// Convert float to ternary {-1, 0, +1} with threshold around 2 std devs
+// that ensures ~50% zeros for BitNet-style models.
+static inline int8_t ternarize(float v, float threshold) {
+    if (v > threshold) return 1;
+    if (v < -threshold) return -1;
+    return 0;
+}
+
+// Pack a row of 128 floats into TQ2_0_g128 block (34 bytes).
+// Layout: 32 bytes of 2-bit codes (weights in {-1,0,+1} → codes {0,1,2})
+//         + 2 bytes FP16 block scale d.
+void pack_tq2_block(const float* vals, int n, uint8_t* out) {
+    // Find the right threshold for 50% zeros
+    float max_abs = 0.0f;
+    double sum_abs = 0.0;
+    for (int i = 0; i < n; ++i) {
+        float a = std::fabs(vals[i]);
+        if (a > max_abs) max_abs = a;
+        sum_abs += a;
+    }
+    float mean_abs = (float)(sum_abs / n);
+    float threshold = 0.7f * mean_abs;
+    if (threshold < 1e-10f) threshold = 1e-10f;
+
+    int8_t ternary[128];
+    float max_mag = 0.0f;
+    for (int i = 0; i < n; ++i) {
+        ternary[i] = ternarize(vals[i], threshold);
+        if (ternary[i] != 0) {
+            float mag = std::fabs(vals[i]);
+            if (mag > max_mag) max_mag = mag;
+        }
+    }
+    if (max_mag < 1e-10f) max_mag = 1.0f;
+
+    uint16_t d_fp16 = float_to_fp16(max_mag);
+    float d = fp16_to_float(d_fp16);
+
+    for (int i = 0; i < 32; ++i) {
+        uint8_t byte = 0;
+        for (int j = 0; j < 4; ++j) {
+            int idx = i * 4 + j;
+            int code;
+            float w = (float)ternary[idx] * max_mag / d;
+            float ratio = valRatio(w, d);
+            (void)ratio;
+            if (w > d * 0.5f) code = 2;
+            else if (w < -d * 0.5f) code = 0;
+            else code = 1;
+            byte |= (uint8_t)(code << (j * 2));
+        }
+        out[i] = byte;
+    }
+    memcpy(out + 32, &d_fp16, 2);
 }
 
 void ternarize_and_pack_tq2(const float* data, int rows, int cols,
@@ -561,6 +556,10 @@ int main(int argc, char** argv) {
     TensorData output_norm = read_weight_f16("output_norm.weight");
 
     // ==================================================================
+    // Common vars shared by step 2 (h1b) and step 3 (sidecar GGUF)
+    float rope_theta = cfg.rope_theta_float;
+    float rms_norm_eps = 1e-5f;
+
     // Step 2: Write .h1b file
     // ==================================================================
     {
@@ -588,8 +587,6 @@ int main(int argc, char** argv) {
         f.write(reinterpret_cast<const char*>(cfg9), sizeof(cfg9));
 
         // Extra fp32[2]: rope_theta, rms_norm_eps (version >= 2)
-        float rope_theta = cfg.rope_theta_float;
-        float rms_norm_eps = 1e-5f;
         f.write(reinterpret_cast<const char*>(&rope_theta), 4);
         f.write(reinterpret_cast<const char*>(&rms_norm_eps), 4);
 
@@ -705,4 +702,107 @@ int main(int argc, char** argv) {
 
             std::vector<uint64_t> shape_hd = {hd};
             w.write_tensor_info("blk." + std::to_string(l) + ".attn_q_norm.weight",
-                                shape_hd
+                                shape_hd, 0, offset);
+            offset += hd * sizeof(float);
+
+            w.write_tensor_info("blk." + std::to_string(l) + ".attn_k_norm.weight",
+                                shape_hd, 0, offset);
+            offset += hd * sizeof(float);
+        }
+
+        // token_embd.weight: [vocab_size, hs] F32
+        {
+            std::vector<uint64_t> shape_2d = {(uint64_t)vocab_size, (uint64_t)hs};
+            w.write_tensor_info("token_embd.weight", shape_2d, 0, offset);
+            offset += (uint64_t)vocab_size * hs * sizeof(float);
+        }
+
+        // output_norm.weight: [hs] F32
+        {
+            std::vector<uint64_t> shape_1d = {(uint64_t)hs};
+            w.write_tensor_info("output_norm.weight", shape_1d, 0, offset);
+            offset += hs * sizeof(float);
+        }
+
+        // ── Write actual data ─────────────────────────────────────
+        w.align_to(32);
+
+        // Per-layer norms: read from source GGUF and write to sidecar
+        for (uint32_t l = 0; l < num_layers; ++l) {
+            auto write_norm = [&](const TensorData& td) {
+                if (tensor_size(td) == 0) {
+                    // Fallback: write identity-like weights (all 1s for RMSNorm)
+                    std::vector<float> ones(tensor_size(layers[l].attn_norm) > 0
+                        ? tensor_size(layers[l].attn_norm) : hs, 1.0f);
+                    w.write_tensor_data(ones.data(), ones.size() * sizeof(float));
+                } else {
+                    size_t n = tensor_size(td);
+                    std::vector<float> f32(n);
+                    for (size_t i = 0; i < n; ++i) f32[i] = get_float(td, i);
+                    w.write_tensor_data(f32.data(), n * sizeof(float));
+                }
+            };
+            write_norm(layers[l].attn_norm);
+            write_norm(layers[l].ffn_norm);
+            // attn_q_norm and attn_k_norm are shape [hd], not [hs]
+            {
+                auto& td = layers[l].attn_q_norm;
+                if (tensor_size(td) == 0) {
+                    std::vector<float> ones(hd, 1.0f);
+                    w.write_tensor_data(ones.data(), hd * sizeof(float));
+                } else {
+                    size_t n = tensor_size(td);
+                    std::vector<float> f32(n);
+                    for (size_t i = 0; i < n; ++i) f32[i] = get_float(td, i);
+                    w.write_tensor_data(f32.data(), n * sizeof(float));
+                }
+            }
+            {
+                auto& td = layers[l].attn_k_norm;
+                if (tensor_size(td) == 0) {
+                    std::vector<float> ones(hd, 1.0f);
+                    w.write_tensor_data(ones.data(), hd * sizeof(float));
+                } else {
+                    size_t n = tensor_size(td);
+                    std::vector<float> f32(n);
+                    for (size_t i = 0; i < n; ++i) f32[i] = get_float(td, i);
+                    w.write_tensor_data(f32.data(), n * sizeof(float));
+                }
+            }
+        }
+
+        // token_embd.weight
+        {
+            size_t n = tensor_size(token_embd);
+            if (n == 0) {
+                std::vector<float> zeros(vocab_size * hs, 0.0f);
+                w.write_tensor_data(zeros.data(), zeros.size() * sizeof(float));
+            } else {
+                std::vector<float> f32(n);
+                for (size_t i = 0; i < n; ++i) f32[i] = get_float(token_embd, i);
+                w.write_tensor_data(f32.data(), n * sizeof(float));
+            }
+        }
+
+        // output_norm.weight
+        {
+            size_t n = tensor_size(output_norm);
+            if (n == 0) {
+                std::vector<float> ones(hs, 1.0f);
+                w.write_tensor_data(ones.data(), hs * sizeof(float));
+            } else {
+                std::vector<float> f32(n);
+                for (size_t i = 0; i < n; ++i) f32[i] = get_float(output_norm, i);
+                w.write_tensor_data(f32.data(), n * sizeof(float));
+            }
+        }
+
+        w.align_to(32);
+        fprintf(stderr, "[convert] sidecar GGUF written: %s (data=%lu bytes)\n",
+                gguf_path.c_str(), (unsigned long)w.tell());
+    }
+
+    fprintf(stderr, "[convert] done. Run with: zaya_server --model %s\n",
+            h1b_path.c_str());
+    return 0;
+}

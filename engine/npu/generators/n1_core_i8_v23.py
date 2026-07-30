@@ -54,6 +54,15 @@ def my_matmul(M, K, N, m, k, n, n_aie_cols=8):
 
     assert M % m == 0 and K % k == 0 and N % n == 0
     assert (N // n) % n_aie_cols == 0, "N//n must be a multiple of n_aie_cols"
+    # n_aie_cols=1 has never been validated: all tested shapes use >= 4 columns.
+    # With a single column, shim_tiles[0] serves A_S0, B_S0, and C_S0 simultaneously
+    # (three concurrent object_fifos on one shim tile), which may exhaust DMA channels
+    # and produce all-zero output.  Minimum supported value is 2 (issue #1208).
+    assert n_aie_cols >= 2, (
+        f"n_aie_cols={n_aie_cols} is unsupported; minimum is 2.  "
+        "Single-column builds compile successfully but produce all-zero GEMM output "
+        "(issue #1208 — likely a shim-tile DMA-channel exhaustion with 3 concurrent fifos)."
+    )
 
     @device(AIEDevice.npu2)
     def device_body():
@@ -68,11 +77,19 @@ def my_matmul(M, K, N, m, k, n, n_aie_cols=8):
         tiles = [[tile(col, row) for col in range(n_aie_cols)] for row in range(3)]
         shim_tiles, mem_tiles, core_tiles = tiles[0], tiles[1], tiles[2]
 
-        # A: single broadcast fifo, shim[0] -> mem[0] -> all 8 cores. Plain flat
-        # (m,k) element, no repeat dimensions — one DMA delivers exactly one tile.
-        A_s = object_fifo("A_S", shim_tiles[0], mem_tiles[0], 2, A_ty)
-        A_c = object_fifo("A_C", mem_tiles[0], core_tiles[0:n_aie_cols], 2, A_ty)
-        object_fifo_link(A_s, A_c)
+        # A: per-column fifos — each column gets its own independent A shim→mem→core
+        # path.  A single broadcast via object_fifo_link (shim[0]→mem[0]→all cores)
+        # turns out to DISTRIBUTE (round-robin) rather than broadcast: each core
+        # receives only n_k/n_aie_cols A tiles instead of all n_k, explaining the
+        # ~K/n_aie_cols accumulation observed in hardware (issue #1207).  Giving every
+        # column its own path and issuing each A tile once per column from the host
+        # sequence guarantees every core sees all n_k K-tiles.
+        A_s = [None] * n_aie_cols
+        A_c = [None] * n_aie_cols
+        for c in range(n_aie_cols):
+            A_s[c] = object_fifo(f"A_S{c}", shim_tiles[c], mem_tiles[c], 2, A_ty)
+            A_c[c] = object_fifo(f"A_C{c}", mem_tiles[c], core_tiles[c], 2, A_ty)
+            object_fifo_link(A_s[c], A_c[c])
 
         # B, C: independent per-column fifos.
         B_s = [None] * n_aie_cols
@@ -101,10 +118,10 @@ def my_matmul(M, K, N, m, k, n, n_aie_cols=8):
                         Cbuf = C_c[c].acquire(ObjectFifoPort.Produce, 1)
                         zero(Cbuf)
                         for _ in range_(n_k):
-                            Abuf = A_c.acquire(ObjectFifoPort.Consume, 1)
+                            Abuf = A_c[c].acquire(ObjectFifoPort.Consume, 1)
                             Bbuf = B_c[c].acquire(ObjectFifoPort.Consume, 1)
                             matmul(Abuf, Bbuf, Cbuf)
-                            A_c.release(ObjectFifoPort.Consume, 1)
+                            A_c[c].release(ObjectFifoPort.Consume, 1)
                             B_c[c].release(ObjectFifoPort.Consume, 1)
                         C_c[c].release(ObjectFifoPort.Produce, 1)
 
@@ -124,16 +141,18 @@ def my_matmul(M, K, N, m, k, n, n_aie_cols=8):
                 row_tile = gi // num_col_group
                 col_group = gi % num_col_group
 
-                # Serialize DMA issuance per K-iteration: this tile's hardware BD
-                # queue only supports 16 simultaneously active descriptors, and a
-                # batched issue-everything-then-wait approach (like the first draft
-                # of this file, and like several of the 22 prior falsified attempts)
-                # blows past that for any K large enough. Await+free each
-                # K-iteration's A/B tasks before issuing the next.
+                # Serialize DMA issuance per K-iteration.  With per-column A fifos
+                # we now issue n_aie_cols A tasks + n_aie_cols B tasks per ki step.
+                # Each shim tile carries at most 2 concurrent BDs (1 A + 1 B), well
+                # within the per-tile limit.  Await+free before the next ki to keep
+                # the global active-descriptor count bounded at 2 × n_aie_cols ≤ 16.
                 for ki in range(n_k):
                     a_idx = row_tile * n_k + ki
-                    at = shim_dma_single_bd_task(A_s, A, tap=A_taps[a_idx], issue_token=True)
-                    dma_start_task(at)
+                    at_list = []
+                    for c in range(n_aie_cols):
+                        at = shim_dma_single_bd_task(A_s[c], A, tap=A_taps[a_idx], issue_token=True)
+                        dma_start_task(at)
+                        at_list.append(at)
 
                     bt_list = []
                     for c in range(n_aie_cols):
@@ -143,8 +162,8 @@ def my_matmul(M, K, N, m, k, n, n_aie_cols=8):
                         dma_start_task(bt)
                         bt_list.append(bt)
 
-                    dma_await_task(at, *bt_list)
-                    dma_free_task(at, *bt_list)
+                    dma_await_task(*at_list, *bt_list)
+                    dma_free_task(*at_list, *bt_list)
 
                 c_tasks = []
                 for c in range(n_aie_cols):
