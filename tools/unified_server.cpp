@@ -1,5 +1,6 @@
 // unified_server.cpp — One binary, all backends, auto-failover.
 // Replaces tests/zaya_server.cpp by wiring BackendManager into an HTTP server.
+// Smoke test trigger: PR #1219 model download + fixed assertions.
 // Auto-detects NPU, GPU (HIP/Vulkan), and CPU backends, picks the fastest,
 // and transparently failsover on error — zero config, one binary.
 //
