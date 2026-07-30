@@ -3,6 +3,48 @@
 All notable changes to 1bit.systems. Versioning is **date-based** (`YYYY.MM.DD`),
 matching the GitHub release tags (`vYYYY.MM.DD`).
 
+## 2026.07.30 — GGML-Vulkan backend + CI smoke test fixed + stale PRs cleared 🏋️
+
+- **GGML-Vulkan backend** — llama.cpp's Vulkan backend integrated as a new
+  inference backend for GGUF/H1B models (MIT). Registered at T2_GPU tier with
+  auto-failover → ZINC GPU → CPU.
+  - Qwen3-0.6B Q4_K_M: **337 tok/s** (3.0 ms/tok), Init: 335 ms
+  - SmolLM2-135M Q4_K_M: **598 tok/s** (1.7 ms/tok), Init: 110 ms
+  - Standalone bench: `build/bench_ggml_vk <model.gguf> <tokens> <warmup>`
+
+- **CI smoke test fixed** — 3 root causes resolved after 50+ consecutive failures:
+  1. `libhipblas.so.3` not found → auto-detected TheRock SDK lib path at CMake
+     configure time, added to `unified_server` RUNPATH
+  2. `--model "Llama 3.2 1B Instruct"` didn't match `Llama-3.2-1B-Instruct.1bp`
+     → hyphens/underscores normalized to spaces before name matching
+  3. `npu_flm` always selected as active backend regardless of model format
+     → backend selection respects `route.backend_ids_in_order` instead of
+       global priority
+  4. Models/ directory empty on CI (files git-ignored) → download
+     SmolLM2-135M-Instruct-Q4_K_M.gguf (~104 MB) before server start
+
+- **Backend selection fix** — active backend now chosen from the model route's
+  ordered list (not global priority), so GGUF/H1B models route through
+  ggml_vulkan first instead of being hijacked by npu_flm.
+
+- **Model name normalization** — `-` and `_` in model names normalized to spaces
+  before matching, so `--model "Qwen3 0.6B"` matches filenames like
+  `Qwen3-0.6B.Q4_K_M.gguf`.
+
+- **DynamicRouter integration** — ggml_vulkan (BackendType::GENERIC) participates
+  in the existing per-token routing infrastructure via FASTEST strategy.
+
+- **Stale PRs cleared** — #1148 closed (superseded), #1138 merged
+  (validation-gaps.md restore + GGUF tooling), #1195 merged (1BP build
+  pipeline scripts: build_1bp.sh, build_all_1bp.sh, bench_1bp_cpu.cpp).
+
+- **Model catalog** — docs/wiki/models.md restored from base64 corruption (992
+  lines of validated performance data). docs/validation-gaps.md restored with
+  confirmed bugs + engineering blockers.
+
+- **New tools added:** dump_gguf_meta.cpp, gguf_to_zaya_bins.cpp, run_gguf.cpp
+  (minimal CPU inference runner), bench_1bp_cpu.cpp.
+
 ## 2026.07.29 — FastFlowLM integration + full benchmark sweep 🏋️
 
 - **ROCm/FastFlowLM submodule added** — official MIT-licensed NPU engine at
