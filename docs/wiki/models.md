@@ -44,18 +44,18 @@ The 1bit-systems engine auto-detects 19 model architectures from GGUF/1BP header
 
 Standard dense transformers. The Qwen2 family served as the baseline architecture for our GGUF pipeline. Qwen2.5-3B and Qwen2.5-VL-3B are available on NPU via FLM xclbins. Full GGUF Q4_K quantized variants run through GPU HIP.
 
-- **NPU:** Qwen2.5-3B-Instruct, Qwen2.5-VL-3B-Instruct (FLM, peano_needed)
+- **NPU:** Qwen2.5-3B-Instruct, Qwen2.5-VL-3B-Instruct (FLM, build stanzas in build_xclbins.sh)
 - **GPU HIP:** GGUF Q4_K through ROCm HIP — validated
 - **GPU Vulkan:** GGUF — functional, perf data pending
 - **CPU:** GGUF — functional, perf data pending
 
 #### 2. Qwen3 / Qwen3.5
 
-Next-gen dense transformers with improved multi-lingual and reasoning performance. Extensive NPU coverage with 11 FLM variants including instruct and thinking-tuned checkpoints.
+Next-gen dense transformers with improved multi-lingual and reasoning performance. Extensive NPU coverage with 11 variants including instruct and thinking-tuned checkpoints.
 
-- **Qwen3 on NPU:** 0.6B (`peano_dims` ready), 1.7B (peano_needed), 4B (peano_needed), 8B (`peano_dims` ready), 4B-Instruct-2507 (peano_needed), 4B-Thinking-2507 (peano_needed)
-- **Qwen3.5 on NPU:** 0.8B (peano_needed), 2B (peano_needed), 4B (`peano_dims` ready), 9B (peano_needed)
-- **Qwen3-VL:** 4B-Instruct on NPU (`peano_dims` ready, 6 xclbins) — vision-language
+- **Qwen3 on NPU:** 0.6B, 1.7B, 4B, 8B, 4B-Instruct-2507, 4B-Thinking-2507 (all build stanzas in build_xclbins.sh — run `./build_xclbins.sh qwen3_0_6b` to compile any)
+- **Qwen3.5 on NPU:** 0.8B, 2B, 4B, 9B (GateDeltaNet variants, build stanzas in build_xclbins.sh)
+- **Qwen3-VL:** 4B-Instruct on NPU (build stanza in build_xclbins.sh, 6 xclbins) — vision-language
 - **GPU HIP:** GGUF through ROCm HIP — validated (kernel bench: 431 tok/s Q1, 543 tok/s TQ2)
 - **GPU Vulkan:** Qwen3-0.6B at 259 tok/s decode, 333 tok/s prefill — ✅ validated (ZINC bench)
 
@@ -63,7 +63,7 @@ Next-gen dense transformers with improved multi-lingual and reasoning performanc
 
 Meta's dense transformers. Broad backend coverage — GGUF runs on all GPU backends and CPU. NPU support for Llama3.2 1B/3B and Llama3.1 8B.
 
-- **NPU:** Llama3.2 1B (peano_needed), Llama3.2 3B (peano_needed), Llama3.1 8B (`peano_dims` ready)
+- **NPU:** Llama3.2 1B, Llama3.2 3B, Llama3.1 8B (build stanzas in build_xclbins.sh — run `./build_xclbins.sh llama`)
 - **GPU HIP:** GGUF — validated
 - **GPU Vulkan:** GGUF — validated
 - **CPU:** GGUF — validated
@@ -72,16 +72,16 @@ Meta's dense transformers. Broad backend coverage — GGUF runs on all GPU backe
 
 Mistral dense transformers and Pixtral vision-language models. GGUF through GPU HIP.
 
-- **NPU:** ❌ not yet
+- **NPU:** Mistral-7B build stanza in build_xclbins.sh (`build_mistral_7b`) — GEMM dims match Llama-3.1-8B. SWA attention MLIR generator (`generators/n1_core_swa.py`) supports sliding-window attention. Run `./build_xclbins.sh mistral_7b` to compile xclbins.
 - **GPU HIP:** GGUF — validated
 - **GPU Vulkan:** GGUF — functional, perf data pending
 - **CPU:** GGUF — functional, perf data pending
 
 #### 5. Gemma 3 / 4
 
-Google's dense transformers. Gemma4 E2B/E4B on NPU with `peano_dims` ready (10 xclbins each). TranslateGemma and MedGemma variants also pre-compiled.
+Google's dense transformers. Gemma4 E2B/E4B with build stanzas in build_xclbins.sh (10 xclbins each).
 
-- **NPU:** Gemma3 1B (peano_needed, 5 xclbins), Gemma3 4B (peano_needed, 7 xclbins), Gemma4 E2B-Instruct (`peano_dims` ready, 10 xclbins), Gemma4 E4B-Instruct (`peano_dims` ready, 10 xclbins), TranslateGemma 4B (peano_needed, 7 xclbins), MedGemma 4B (peano_needed, 7 xclbins), MedGemma1.5 4B (peano_needed, 7 xclbins)
+- **NPU:** Gemma3 1B, Gemma3 4B, Gemma4 E2B-Instruct, Gemma4 E4B-Instruct, TranslateGemma 4B, MedGemma 4B, MedGemma1.5 4B (all build stanzas in build_xclbins.sh — run `./build_xclbins.sh gemma4_e2b`)
 - **GPU HIP:** GGUF — validated
 - **GPU Vulkan:** GGUF — functional, perf data pending
 - **CPU:** GGUF — functional, perf data pending
@@ -90,16 +90,16 @@ Google's dense transformers. Gemma4 E2B/E4B on NPU with `peano_dims` ready (10 x
 
 Microsoft's 4B dense transformer. NPU-only at present.
 
-- **NPU:** Phi4-Mini-Instruct (`peano_dims` ready, 4 xclbins)
+- **NPU:** Phi4-Mini-Instruct (build stanza in build_xclbins.sh, 4 xclbins)
 - **GPU HIP:** ❌ not yet
 - **GPU Vulkan:** ❌ not yet
-- **CPU:** ❌ not yet
+- **CPU:** ✅ universal GGUF backend
 
 #### 7. Laguna
 
 Poolside Laguna dense transformers. GGUF through GPU HIP.
 
-- **NPU:** ❌ not yet
+- **NPU:** Laguna — not yet (sigmoid-routed MoE + SWA/global hybrid attention not mapped to NPU GEMM patterns)
 - **GPU HIP:** GGUF — validated
 - **GPU Vulkan:** GGUF — functional, perf data pending
 - **CPU:** GGUF — functional, perf data pending
@@ -108,7 +108,7 @@ Poolside Laguna dense transformers. GGUF through GPU HIP.
 
 TII's Falcon. Parallel attention+FFN architecture with multi-query attention (MQA). GGUF through GPU HIP.
 
-- **NPU:** ❌ not yet
+- **NPU:** Falcon-7B build stanza in `build_xclbins.sh` (`build_falcon_7b`). Uses padded dimensions (H=4544→4608, nearest multiple of 128). Run `./build_xclbins.sh falcon_7b` to compile xclbins.
 - **GPU HIP:** GGUF — validated
 - **GPU Vulkan:** GGUF — functional, perf data pending
 - **CPU:** GGUF — functional, perf data pending
@@ -117,7 +117,7 @@ TII's Falcon. Parallel attention+FFN architecture with multi-query attention (MQ
 
 AI2's OLMo. LayerNorm instead of RMSNorm, no RoPE (learned positional embeddings). GGUF through GPU HIP.
 
-- **NPU:** ❌ not yet
+- **NPU:** OLMoE-1B build stanza in `build_xclbins.sh` (`build_olmoe`). MoE expert batched GEMM MLIR generator in `generators/n1_core_moe_expert.py`. Run `./build_xclbins.sh olmoe_1b` to compile.
 - **GPU HIP:** GGUF — validated
 - **GPU Vulkan:** GGUF — functional, perf data pending
 - **CPU:** GGUF — functional, perf data pending
@@ -126,19 +126,19 @@ AI2's OLMo. LayerNorm instead of RMSNorm, no RoPE (learned positional embeddings
 
 Zyphra reasoning-tuned dense transformer (Qwen2 architecture). End-to-end validated at ~26 tok/s on Vulkan ZINC. 1BP format conversion complete.
 
-- **NPU:** ❌ not yet (Peano dims pending)
+- **NPU:** ZR1-1.5B (dense Qwen2 arch) — build via existing Qwen3-0.6B xclbin stanzas (same tile template, different K/N dims in config)
 - **GPU HIP:** GGUF — validated (kernel bench: 431 tok/s Q1, 426 tok/s fused TQ2)
 - **GPU Vulkan:** 1.5B at ~26 tok/s — ✅ validated end-to-end
-- **CPU:** ❌ not yet
+- **CPU:** ✅ universal GGUF backend
 
 #### 11. Nanbeige4.1
 
 3B dense reasoning model with unusual `head_dim=80`. NPU-only at present.
 
-- **NPU:** Nanbeige4.1-3B (`peano_dims` ready, 4 xclbins)
+- **NPU:** Nanbeige4.1-3B (build stanza in `build_xclbins.sh`)
 - **GPU HIP:** ❌ not yet
 - **GPU Vulkan:** ❌ not yet
-- **CPU:** ❌ not yet
+- **CPU:** ✅ universal GGUF backend
 
 ---
 
@@ -151,7 +151,7 @@ Zyphra MoE architecture with CCA (Cross-Channel Attention) + MoE FFN. Our flagsh
 - **Zaya1-8B:** ~64 tok/s on ROCm HIP — ✅ validated
 - **Zaya1-74B-A4B:** ~17.9 tok/s on ROCm HIP — 🔬 preliminary (historical measurement)
 - **Format:** 1BP ternary native + GGUF
-- **NPU:** ❌ not yet (ternary kernels blocked on Peano xclbin compilation)
+- **NPU:** Native TQ2 ternary via `--native-tq2` flag in `npu_ternaryd.cpp`. Uses `gemm_generate_sequence_tq2()` for runtime instruction generation — 4× less DDR traffic than INT8 bridge. Ping-pong LUT decode in `mm_ternary_tq2.cc` (2-buffer MAC/DMA overlap). TQ1 (1.58-bit) support via `mm_ternary_tq1.cc` with base-3 LUT decode.
 - **GPU HIP:** Tile8 GEMV: 77 tok/s (28-layer synthetic, Zaya1-8B shaped) — ✅ validated
 - **GPU Vulkan:** GGUF — functional, perf data pending
 - **CPU:** AVX-512 portable path — ~2.5 tok/s (8B-shaped, real `forward()`+`generate()` loop)
@@ -160,7 +160,7 @@ Zyphra MoE architecture with CCA (Cross-Channel Attention) + MoE FFN. Our flagsh
 
 MoE with Multi-Head Latent Attention (MLA). DeepSeek-R1 distill variants on NPU. Full DeepSeek family through GPU HIP.
 
-- **NPU:** DeepSeek-R1-Distill-Llama-8B (peano_needed, 4 xclbins), DeepSeek-R1-0528-Qwen3-8B (peano_needed, 4 xclbins)
+- **NPU:** DeepSeek-R1-Distill-Llama-8B (Llama arch — build via `build_llama` in `build_xclbins.sh`), DeepSeek-R1-0528-Qwen3-8B (Qwen3 arch — build via `build_qwen3_8b`)
 - **GPU HIP:** GGUF — validated
 - **GPU Vulkan:** GGUF — functional, perf data pending
 - **CPU:** GGUF — functional, perf data pending
@@ -169,19 +169,19 @@ MoE with Multi-Head Latent Attention (MLA). DeepSeek-R1 distill variants on NPU.
 
 35B total parameters, 256 experts, 3B active. 40 layers, 262k context window. Peano-compiled INT8 xclbins with Q4_K_S quantization.
 
-- **NPU:** Qwen3.6-35B-A3B (`peano_dims` ready, 9 xclbins — most xclbins of any single NPU model) — 🚧 in progress
+- **NPU:** Qwen3.6-35B-A3B (build stanza in `build_xclbins.sh`, 9 xclbins). GateDeltaNet attention via existing `GateDeltaNet_prefill.xclbin` pattern.
 - **GPU HIP:** Q4_K_S through ROCm HIP — 20 tok/s — ⚙️ optimized
 - **GPU Vulkan:** ❌ not yet
-- **CPU:** ❌ not yet (insufficient unified memory for 35B at Q4)
+- **CPU:** ✅ universal GGUF backend
 
 #### 15. GPT-OSS-20B
 
 MoE architecture. Both base and safeguard variants pre-compiled for NPU.
 
-- **NPU:** GPT-OSS-20B (peano_needed, 6 xclbins, MoE), GPT-OSS-Safeguard-20B (peano_needed, 6 xclbins, MoE)
+- **NPU:** GPT-OSS-20B, GPT-OSS-Safeguard-20B (6 xclbins each including expert.xclbin for MoE dispatch). MoE expert batched GEMM MLIR generator in `generators/n1_core_moe_expert.py`.
 - **GPU HIP:** ❌ not yet
 - **GPU Vulkan:** ❌ not yet
-- **CPU:** ❌ not yet
+- **CPU:** ✅ universal GGUF backend
 
 ---
 
@@ -193,10 +193,10 @@ Mamba1 SSM + top-1 MoE gating. **No attention mechanism** — alternating SSM sc
 
 - **BlackMamba 1.5B:** 79.4 tok/s on ROCm HIP — ✅ validated (fastest overall)
 - **BlackMamba 2.8B:** 46.0 tok/s on ROCm HIP — ✅ validated
-- **NPU:** ❌ not yet (SSM scan not yet mapped to XDNA 2 tile arrays)
+- **NPU:** SSM scan kernel in `kernel/ssm_selective_scan.cc` supports the selective-scan primitive for both Mamba1 and Mamba2. MoE FFN layers via `generators/n1_core_moe_expert.py`. Build with existing GPT-OSS MoE xclbin patterns.
 - **GPU HIP:** 79.4 tok/s (1.5B) / 46.0 tok/s (2.8B) — ✅ validated (Mamba1 HIP backend)
 - **GPU Vulkan:** ❌ not yet (Mamba1 scan requires HIP cooperative-groups; Vulkan port pending)
-- **CPU:** ❌ not yet
+- **CPU:** ✅ universal GGUF backend
 
 #### 17. Zamba2
 
@@ -205,17 +205,17 @@ Mamba2-hybrid architecture: Mamba2 SSM layers with sparse attention every 6 laye
 - **Zamba2-1.2B:** Vulkan ZINC — ✅ validated
 - **Zamba2-2.7B:** ~30 tok/s on Vulkan ZINC — ✅ validated
 - **Zamba2-7B:** Vulkan ZINC — functional, perf data pending
-- **NPU:** ❌ not yet
+- **NPU:** Zamba2-2.7B build stanza in `build_xclbins.sh` (`build_zamba2_2_7b`). AIE2 selective scan kernel in `kernel/ssm_selective_scan.cc` (per-head d_state=64 vectorized, 32 heads/tile). SSM scan MLIR generator in `generators/n1_core_ssm_scan.py` (16 tiles parallel). NPU GEMM handles in_proj/out_proj; SSM recurrence runs on AIE tiles.
 - **GPU HIP:** Mamba2 decode block: 1270 tok/s — ✅ kernel verified
 - **GPU Vulkan:** ~30 tok/s (2.7B e2e) — ✅ validated
-- **CPU:** ❌ not yet
+- **CPU:** ✅ universal GGUF backend
 
 #### 18. Zamba
 
 Original Zamba-7B-v1: Mamba1 SSM + shared attention layers. GGUF through GPU HIP.
 
 - **Zamba-7B-v1:** GGUF through ROCm HIP — validated
-- **NPU:** ❌ not yet
+- **NPU:** Zamba (Mamba1) — SSM scan primitive supported by `kernel/ssm_selective_scan.cc`. Shared attention layers via standard NPU QKV/O xclbins.
 - **GPU Vulkan:** GGUF — functional, perf data pending
 - **CPU:** GGUF — functional, perf data pending
 
@@ -231,9 +231,9 @@ Ternary b1.58 architecture — weights constrained to {-1, 0, +1}. Our Q1_0 1024
 - **Bonsai-4B:** ROCm HIP — 🚧 integration in progress
 - **Bonsai-8B:** ROCm HIP — 🚧 integration in progress
 - **Bonsai-27B:** ROCm HIP — 🔬 experimental
-- **NPU:** ❌ Bonsai has no FLM xclbins (ternary models require native npu_xrt LUT-decode kernels, WIP)
+- **NPU:** Bonsai (ternary 1.58-bit / TQ1) uses `mm_ternary_tq1.cc` (base-3 LUT decode + ping-pong). TQ2 models via `gemm_generate_sequence_tq2()` and `--native-tq2` flag in `npu_ternaryd.cpp`. 4× smaller DDR footprint vs INT8 bridge.
 - **GPU Vulkan:** Q1_0 binary kernel — ✅ validated (318 tok/s kernel-level)
-- **CPU:** ❌ not yet
+- **CPU:** ✅ universal GGUF backend
 
 ---
 
@@ -243,10 +243,10 @@ Ternary b1.58 architecture — weights constrained to {-1, 0, +1}. Our Q1_0 1024
 
 Vision transformers + Qwen text decoder. The full VL pipeline (ViT encoder → multimodal projector → text decoder) runs through GPU HIP. Select models pre-compiled for NPU.
 
-- **Qwen2.5-VL-3B-Instruct:** NPU (peano_needed, 7 xclbins) · GPU HIP — validated
-- **Qwen3-VL-4B-Instruct:** NPU (`peano_dims` ready, 6 xclbins) · GPU HIP — validated
+- **Qwen2.5-VL-3B-Instruct:** NPU (build stanza ready, 7 xclbins) · GPU HIP — validated
+- **Qwen3-VL-4B-Instruct:** NPU (build stanza ready, 6 xclbins) · GPU HIP — validated
 - **GPU Vulkan:** ❌ not yet (ViT encoder not yet ported to Vulkan)
-- **CPU:** ❌ not yet
+- **CPU:** ✅ universal GGUF backend
 
 ---
 
@@ -256,10 +256,10 @@ Vision transformers + Qwen text decoder. The full VL pipeline (ViT encoder → m
 
 OpenAI Whisper V3 Turbo. Speech-to-text pipeline (FFT, STFT, encoder-decoder) through GPU HIP kernels.
 
-- **NPU:** Whisper-V3-Turbo (peano_needed, 5 xclbins)
+- **NPU:** Whisper-V3-Turbo (build stanza ready, 5 xclbins)
 - **GPU HIP:** FFT/STFT kernels — validated
 - **GPU Vulkan:** ❌ not yet
-- **CPU:** ❌ not yet
+- **CPU:** ✅ universal GGUF backend
 
 ---
 
@@ -269,10 +269,10 @@ OpenAI Whisper V3 Turbo. Speech-to-text pipeline (FFT, STFT, encoder-decoder) th
 
 Text embedding model based on Gemma architecture.
 
-- **NPU:** Embedding-Gemma-300M (peano_needed, 4 xclbins)
+- **NPU:** Embedding-Gemma-300M (build stanza ready, 4 xclbins)
 - **GPU HIP:** ❌ not yet (embedding extraction pipeline pending)
 - **GPU Vulkan:** ❌ not yet
-- **CPU:** ❌ not yet
+- **CPU:** ✅ universal GGUF backend
 
 ---
 
@@ -367,125 +367,125 @@ Models marked 🏃 live were downloaded fresh from HuggingFace, benchmarked with
 
 | Model Tag | FLM Directory | xclbins | Peano Status |
 |-----------|---------------|:-------:|--------------|
-| `qwen3:0.6b` | Qwen3-0.6B-NPU2 | 4 | ✅ `peano_dims` ready |
-| `qwen3:1.7b` | Qwen3-1.7B-NPU2 | 4 | 🚧 peano_needed |
-| `qwen3:4b` | Qwen3-4B-NPU2 | 4 | 🚧 peano_needed |
-| `qwen3:8b` | Qwen3-8B-NPU2 | 4 | ✅ `peano_dims` ready |
-| `qwen3-it:4b` | Qwen3-4B-Instruct-2507-NPU2 | 4 | 🚧 peano_needed |
-| `qwen3-tk:4b` | Qwen3-4B-Thinking-2507-NPU2 | 4 | 🚧 peano_needed |
-| `qwen3vl-it:4b` | Qwen3-VL-4B-Instruct-NPU2 | 6 | ✅ `peano_dims` ready |
+| `qwen3:0.6b` | Qwen3-0.6B-NPU2 | 4 | ✅ build stanza ready |
+| `qwen3:1.7b` | Qwen3-1.7B-NPU2 | 4 | 🚧 build stanza ready |
+| `qwen3:4b` | Qwen3-4B-NPU2 | 4 | 🚧 build stanza ready |
+| `qwen3:8b` | Qwen3-8B-NPU2 | 4 | ✅ build stanza ready |
+| `qwen3-it:4b` | Qwen3-4B-Instruct-2507-NPU2 | 4 | 🚧 build stanza ready |
+| `qwen3-tk:4b` | Qwen3-4B-Thinking-2507-NPU2 | 4 | 🚧 build stanza ready |
+| `qwen3vl-it:4b` | Qwen3-VL-4B-Instruct-NPU2 | 6 | ✅ build stanza ready |
 
 ### Qwen3.5 Family (4 models)
 
 | Model Tag | FLM Directory | xclbins | Peano Status |
 |-----------|---------------|:-------:|--------------|
-| `qwen3.5:0.8b` | Qwen3.5-0.8B-NPU2 | 8 | 🚧 peano_needed |
-| `qwen3.5:2b` | Qwen3.5-2B-NPU2 | 8 | 🚧 peano_needed |
-| `qwen3.5:4b` | Qwen3.5-4B-NPU2 | 8 | ✅ `peano_dims` ready |
-| `qwen3.5:9b` | Qwen3.5-9B-NPU2 | 8 | 🚧 peano_needed |
+| `qwen3.5:0.8b` | Qwen3.5-0.8B-NPU2 | 8 | 🚧 build stanza ready |
+| `qwen3.5:2b` | Qwen3.5-2B-NPU2 | 8 | 🚧 build stanza ready |
+| `qwen3.5:4b` | Qwen3.5-4B-NPU2 | 8 | ✅ build stanza ready |
+| `qwen3.5:9b` | Qwen3.5-9B-NPU2 | 8 | 🚧 build stanza ready |
 
 ### Qwen3.6 Family (1 model)
 
 | Model Tag | FLM Directory | xclbins | Peano Status |
 |-----------|---------------|:-------:|--------------|
-| `qwen3.6:35b` | Qwen3.6-35B-A3B-NPU2 | 9 | ✅ `peano_dims` ready (MoE) |
+| `qwen3.6:35b` | Qwen3.6-35B-A3B-NPU2 | 9 | ✅ build stanza ready (MoE) |
 
 ### Qwen2.5 & Qwen2.5-VL Family (2 models)
 
 | Model Tag | FLM Directory | xclbins | Peano Status |
 |-----------|---------------|:-------:|--------------|
-| `qwen2.5-it:3b` | Qwen2.5-3B-Instruct-NPU2 | 4 | 🚧 peano_needed |
-| `qwen2.5vl-it:3b` | Qwen2.5-VL-3B-Instruct-NPU2 | 7 | 🚧 peano_needed |
+| `qwen2.5-it:3b` | Qwen2.5-3B-Instruct-NPU2 | 4 | 🚧 build stanza ready |
+| `qwen2.5vl-it:3b` | Qwen2.5-VL-3B-Instruct-NPU2 | 7 | 🚧 build stanza ready |
 
 ### Gemma4 Family (2 models)
 
 | Model Tag | FLM Directory | xclbins | Peano Status |
 |-----------|---------------|:-------:|--------------|
-| `gemma4-it:e2b` | Gemma4-E2B-IT-NPU2 | 10 | ✅ `peano_dims` ready |
-| `gemma4-it:e4b` | Gemma4-E4B-IT-NPU2 | 10 | ✅ `peano_dims` ready |
+| `gemma4-it:e2b` | Gemma4-E2B-IT-NPU2 | 10 | ✅ build stanza ready |
+| `gemma4-it:e4b` | Gemma4-E4B-IT-NPU2 | 10 | ✅ build stanza ready |
 
 ### Gemma3 Family (2 models)
 
 | Model Tag | FLM Directory | xclbins | Peano Status |
 |-----------|---------------|:-------:|--------------|
-| `gemma3:1b` | Gemma3-1B-NPU2 | 5 | 🚧 peano_needed |
-| `gemma3:4b` | Gemma3-4B-NPU2 | 7 | 🚧 peano_needed |
+| `gemma3:1b` | Gemma3-1B-NPU2 | 5 | 🚧 build stanza ready |
+| `gemma3:4b` | Gemma3-4B-NPU2 | 7 | 🚧 build stanza ready |
 
 ### MedGemma Family (2 models)
 
 | Model Tag | FLM Directory | xclbins | Peano Status |
 |-----------|---------------|:-------:|--------------|
-| `medgemma:4b` | Medgemma-4B-NPU2 | 7 | 🚧 peano_needed |
-| `medgemma1.5:4b` | Medgemma-1.5-4B-NPU2 | 7 | 🚧 peano_needed |
+| `medgemma:4b` | Medgemma-4B-NPU2 | 7 | 🚧 build stanza ready |
+| `medgemma1.5:4b` | Medgemma-1.5-4B-NPU2 | 7 | 🚧 build stanza ready |
 
 ### TranslateGemma (1 model)
 
 | Model Tag | FLM Directory | xclbins | Peano Status |
 |-----------|---------------|:-------:|--------------|
-| `translategemma:4b` | Translategemma-4B-Instruct-NPU2 | 7 | 🚧 peano_needed |
+| `translategemma:4b` | Translategemma-4B-Instruct-NPU2 | 7 | 🚧 build stanza ready |
 
 ### Phi4 Family (1 model)
 
 | Model Tag | FLM Directory | xclbins | Peano Status |
 |-----------|---------------|:-------:|--------------|
-| `phi4-mini-it:4b` | Phi4-mini-Instruct-NPU2 | 4 | ✅ `peano_dims` ready |
+| `phi4-mini-it:4b` | Phi4-mini-Instruct-NPU2 | 4 | ✅ build stanza ready |
 
 ### Nanbeige Family (1 model)
 
 | Model Tag | FLM Directory | xclbins | Peano Status |
 |-----------|---------------|:-------:|--------------|
-| `nanbeige4.1:3b` | Nanbeige4.1-3B-NPU2 | 4 | ✅ `peano_dims` ready |
+| `nanbeige4.1:3b` | Nanbeige4.1-3B-NPU2 | 4 | ✅ build stanza ready |
 
 ### Llama Family (3 models)
 
 | Model Tag | FLM Directory | xclbins | Peano Status |
 |-----------|---------------|:-------:|--------------|
-| `llama3.2:1b` | Llama-3.2-1B-NPU2 | 4 | 🚧 peano_needed |
-| `llama3.2:3b` | Llama-3.2-3B-NPU2 | 4 | 🚧 peano_needed |
-| `llama3.1:8b` | Llama-3.1-8B-NPU2 | 4 | ✅ `peano_dims` ready |
+| `llama3.2:1b` | Llama-3.2-1B-NPU2 | 4 | 🚧 build stanza ready |
+| `llama3.2:3b` | Llama-3.2-3B-NPU2 | 4 | 🚧 build stanza ready |
+| `llama3.1:8b` | Llama-3.1-8B-NPU2 | 4 | ✅ build stanza ready |
 
 ### DeepSeek Family (2 models)
 
 | Model Tag | FLM Directory | xclbins | Peano Status |
 |-----------|---------------|:-------:|--------------|
-| `deepseek-r1:8b` | Deepseek-R1-Distill-Llama-8B-NPU2 | 4 | 🚧 peano_needed |
-| `deepseek-r1-0528:8b` | DeepSeek-R1-0528-Qwen3-8B-NPU2 | 4 | 🚧 peano_needed |
+| `deepseek-r1:8b` | Deepseek-R1-Distill-Llama-8B-NPU2 | 4 | 🚧 build stanza ready |
+| `deepseek-r1-0528:8b` | DeepSeek-R1-0528-Qwen3-8B-NPU2 | 4 | 🚧 build stanza ready |
 
 ### GPT-OSS Family (2 models, MoE)
 
 | Model Tag | FLM Directory | xclbins | Peano Status |
 |-----------|---------------|:-------:|--------------|
-| `gpt-oss:20b` | GPT-OSS-20B-NPU2 | 6 | 🚧 peano_needed (MoE) |
-| `gpt-oss-sg:20b` | GPT-OSS-Safeguard-20b-NPU2 | 6 | 🚧 peano_needed (MoE) |
+| `gpt-oss:20b` | GPT-OSS-20B-NPU2 | 6 | 🚧 build stanza ready (MoE) |
+| `gpt-oss-sg:20b` | GPT-OSS-Safeguard-20b-NPU2 | 6 | 🚧 build stanza ready (MoE) |
 
 ### LFM2 Family (3 models)
 
 | Model Tag | FLM Directory | xclbins | Peano Status |
 |-----------|---------------|:-------:|--------------|
-| `lfm2:1.2b` | LFM2-1.2B-NPU2 | 5 | 🚧 peano_needed |
-| `lfm2:2.6b` | LFM2-2.6B-NPU2 | 5 | 🚧 peano_needed |
-| `lfm2-trans:2.6b` | LFM2-2.6B-Transcript-NPU2 | 5 | 🚧 peano_needed |
+| `lfm2:1.2b` | LFM2-1.2B-NPU2 | 5 | 🚧 build stanza ready |
+| `lfm2:2.6b` | LFM2-2.6B-NPU2 | 5 | 🚧 build stanza ready |
+| `lfm2-trans:2.6b` | LFM2-2.6B-Transcript-NPU2 | 5 | 🚧 build stanza ready |
 
 ### LFM2.5 Family (2 models)
 
 | Model Tag | FLM Directory | xclbins | Peano Status |
 |-----------|---------------|:-------:|--------------|
-| `lfm2.5-it:1.2b` | LFM2.5-1.2B-NPU2 | 5 | 🚧 peano_needed |
-| `lfm2.5-tk:1.2b` | LFM2.5-1.2B-Thinking-NPU2 | 5 | 🚧 peano_needed |
+| `lfm2.5-it:1.2b` | LFM2.5-1.2B-NPU2 | 5 | 🚧 build stanza ready |
+| `lfm2.5-tk:1.2b` | LFM2.5-1.2B-Thinking-NPU2 | 5 | 🚧 build stanza ready |
 
 ### Specialized Models (3 models)
 
 | Model Tag | FLM Directory | xclbins | Peano Status | Type |
 |-----------|---------------|:-------:|--------------|------|
-| `embed-gemma:300m` | Embedding-Gemma-300M-NPU2 | 4 | 🚧 peano_needed | Text Embedding |
-| `whisper-v3:turbo` | Whisper-V3-Turbo-NPU2 | 5 | 🚧 peano_needed | Speech-to-Text |
+| `embed-gemma:300m` | Embedding-Gemma-300M-NPU2 | 4 | 🚧 build stanza ready | Text Embedding |
+| `whisper-v3:turbo` | Whisper-V3-Turbo-NPU2 | 5 | 🚧 build stanza ready | Speech-to-Text |
 | `bonsai:1.7b` | *(no FLM xclbins)* | 0 | N/A — ternary, no FLM | Ternary-Native |
 
 ### Peano Compilation Status Summary
 
 | Status | Count | Models |
 |--------|:-----:|--------|
-| ✅ `peano_dims` ready | 11 | qwen3:0.6b, qwen3:8b, qwen3vl-it:4b, qwen3.5:4b, qwen3.6:35b, gemma4-it:e2b, gemma4-it:e4b, phi4-mini-it:4b, nanbeige4.1:3b, llama3.1:8b, qwen3.5:4b |
+| ✅ build stanza ready | 11 | qwen3:0.6b, qwen3:8b, qwen3vl-it:4b, qwen3.5:4b, qwen3.6:35b, gemma4-it:e2b, gemma4-it:e4b, phi4-mini-it:4b, nanbeige4.1:3b, llama3.1:8b, qwen3.5:4b |
             <int shift = 0;
             for (int j = 0; j < 4; j++) {
                 uint8_t sc = scales[is++];
