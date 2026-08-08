@@ -79,6 +79,10 @@ footer{border-top:1px solid var(--border);margin-top:20px;padding:40px 32px;}
 .demo-card img{width:100%;display:block;}
 .demo-card .cap{padding:14px 20px;font-size:13px;color:var(--muted);border-top:1px solid var(--border);}
 .demo-card .cap a{color:var(--blue);font-weight:600;}
+.dist-note{margin-top:20px;padding:18px 22px;max-width:680px;}
+.dist-note h3{font-size:14px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:8px;}
+.dist-note p{font-size:14px;color:var(--text);line-height:1.6;}
+.dist-note a{color:var(--blue);font-weight:600;}
 @media (max-width:860px){.nav-links{display:none;}}
 </style>
 </head>
@@ -147,6 +151,10 @@ footer{border-top:1px solid var(--border);margin-top:20px;padding:40px 32px;}
 <div class="stat"><span class="lbl">Last sync</span><span class="val" id="stat-lastsync" style="font-size:16px;">—</span></div>
 </div>
 <div class="disclaimer">This is a research pipeline, not a diagnostic tool. Outputs have not been validated for clinical decision-making and should not be used to diagnose or treat patients. The sync stats above are aggregate pipeline progress metrics only — no raw EEG data, file listings, or patient information is published here, per Temple University's data use agreement.</div>
+<div class="card dist-note">
+<h3>Model distribution</h3>
+<p>Once fine-tuning is complete, the resulting model weights and artifacts will be published on <a href="https://huggingface.co" target="_blank" rel="noopener">Hugging Face</a> and mirrored via <a href="https://freenet.org" target="_blank" rel="noopener">Freenet</a>, a peer-to-peer network with no central host or company in the middle. The TUH EEG training data itself is never redistributed here or anywhere else — only this project's own model weights leave its infrastructure, consistent with Temple University's data use agreement.</p>
+</div>
 </section>
 
 <section id="quickstart" class="block">
