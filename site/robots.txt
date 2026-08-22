@@ -1,6 +1,4 @@
 User-agent: *
 Allow: /
-Disallow: /releases.json
-Disallow: /private/
 
 Sitemap: https://1bit.monster/sitemap.xml

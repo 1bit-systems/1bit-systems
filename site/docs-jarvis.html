@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>1bit.MONSTER: JARVIS</title>
+  <meta name="description" content="The 1bit.MONSTER voice assistant. Mic to VAD to STT to LLM to TTS to speaker, all in-process, pure C++, on any backend." />
+  <style>
+    /* ─── tokens ─────────────────────────────────────────────────────────
+       Bound verbatim to the locked light modern-minimal + 1-bit identity. */
+    :root {
+      --bg:      oklch(99% 0.002 240);
+      --surface: oklch(100% 0 0);
+      --fg:      oklch(18% 0.012 250);
+      --muted:   oklch(54% 0.012 250);
+      --border:  oklch(92% 0.005 250);
+      --accent:  oklch(58% 0.18 255);
+      --status:  oklch(52% 0.14 158);
+      --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+      --fg-soft:       color-mix(in oklch, var(--fg) 5%, transparent);
+      --muted-strong:  color-mix(in oklch, var(--muted) 76%, var(--fg));
+      --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+      --font-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      --font-mono:    ui-monospace, 'SF Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+      --fs-h1: clamp(40px, 5.2vw, 66px);
+      --fs-h2: clamp(28px, 3.6vw, 42px);
+      --fs-h3: 19px;
+      --fs-lead: 18px;
+      --fs-body: 16px;
+      --fs-meta: 13px;
+      --gap-xs: 8px;
+      --gap-sm: 12px;
+      --gap-md: 20px;
+      --gap-lg: 32px;
+      --gap-xl: 48px;
+      --gap-2xl: 80px;
+      --container: 1120px;
+      --gutter: 32px;
+      --radius: 10px;
+      --radius-lg: 16px;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: var(--fs-body); line-height: 1.6; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
+    img, svg { display: block; max-width: 100%; }
+    a { color: inherit; text-decoration: none; }
+    button { font: inherit; cursor: pointer; }
+    p { text-wrap: pretty; }
+    h1, h2, h3, h4 { text-wrap: balance; }
+    ::selection { background: var(--accent-soft); color: var(--fg); }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+    .container { max-width: var(--container); margin-inline: auto; padding-inline: var(--gutter); }
+    .stack { display: flex; flex-direction: column; }
+    .stack > * + * { margin-top: var(--gap-md); }
+    .row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-md); }
+
+    h1 { font-family: var(--font-display); font-size: var(--fs-h1); line-height: 1.08; letter-spacing: -0.02em; margin: 0; font-weight: 600; }
+    h2 { font-family: var(--font-display); font-size: var(--fs-h2); line-height: 1.12; letter-spacing: -0.015em; margin: 0; font-weight: 600; }
+    h3 { font-size: var(--fs-h3); font-weight: 600; line-height: 1.3; letter-spacing: -0.005em; margin: var(--gap-lg) 0 0; }
+    .lead { font-size: var(--fs-lead); line-height: 1.6; color: var(--muted-strong); max-width: 60ch; margin: 0; }
+    .meta { font-family: var(--font-mono); font-size: var(--fs-meta); color: var(--muted-strong); }
+    .eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted-strong); font-weight: 500; margin-bottom: var(--gap-sm); }
+
+    .topnav { position: sticky; top: 0; z-index: 10; background: color-mix(in oklch, var(--bg) 92%, transparent); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); }
+    .topnav-inner { display: flex; align-items: center; justify-content: space-between; padding-block: 14px; }
+    .topnav .logo { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+    .topnav .logo svg { width: 26px; height: 26px; color: var(--fg); }
+    .topnav .logo .relay { fill: var(--surface); stroke: currentColor; stroke-opacity: 0.28; animation: logo-relay 80s ease-in-out infinite; }
+    .topnav .logo .r1 { animation-delay: 0s; }
+    .topnav .logo .r2 { animation-delay: 20s; }
+    .topnav .logo .r3 { animation-delay: 40s; }
+    .topnav .logo .r4 { animation-delay: 60s; }
+    @keyframes logo-relay { 0% { fill: var(--surface); } 13% { fill: var(--fg); } 14% { fill: var(--fg); } 25% { fill: var(--surface); } 100% { fill: var(--surface); } }
+    @media (prefers-reduced-motion: reduce) { .topnav .logo .relay { animation: none; } .topnav .logo .r1 { fill: var(--fg); } }
+    .topnav nav { display: flex; gap: var(--gap-lg); }
+    .topnav nav a { font-size: 14px; color: var(--muted-strong); }
+    .topnav nav a:hover { color: var(--fg); }
+    .topnav nav a[aria-current="page"] { color: var(--fg); font-weight: 500; }
+    .pagefoot { padding-block: var(--gap-xl); color: var(--muted-strong); font-size: 13px; border-top: 1px solid var(--border); }
+    .pagefoot .place { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em; color: var(--muted-strong); text-align: center; margin: var(--gap-lg) auto 0; }
+    .pagefoot .quote { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em; color: var(--muted-strong); text-align: center; margin: var(--gap-sm) auto 0; }
+    .pagefoot a:hover { color: var(--fg); }
+    .pagefoot .row-between { flex-wrap: wrap; gap: var(--gap-md); }
+
+    /* ─── docs shell: sidebar + content ────────────────────────────── */
+    .docs-shell { display: grid; grid-template-columns: 232px 1fr; gap: var(--gap-2xl); align-items: start; padding-block: var(--gap-xl); }
+    .docs-nav { position: sticky; top: 84px; }
+    .docs-nav .group { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin: var(--gap-lg) 0 var(--gap-xs); }
+    .docs-nav .group:first-child { margin-top: 0; }
+    .docs-nav a { display: block; padding: 6px 10px; border-radius: var(--radius); font-size: 14px; color: var(--muted-strong); border-left: 2px solid transparent; }
+    .docs-nav a:hover { color: var(--fg); } 
+    .docs-nav a[aria-current="page"] { color: var(--fg); font-weight: 600; border-left-color: var(--accent); }
+    .docs-content { max-width: 66ch; }
+    .docs-content h2 { margin-top: var(--gap-2xl); }
+    .docs-content h2:first-child { margin-top: 0; }
+    .docs-content p { color: var(--muted-strong); }
+    .docs-content p strong, .docs-content li strong { color: var(--fg); }
+    .docs-content ul, .docs-content ol { color: var(--muted-strong); padding-left: 20px; }
+    .docs-content li { margin: var(--gap-xs) 0; }
+    .docs-content a { color: var(--accent); }
+    .docs-content a:hover { text-decoration: underline; }
+    .docs-content code { font-family: var(--font-mono); font-size: 0.88em; background: var(--fg-soft); padding: 2px 6px; border-radius: 6px; color: var(--fg); }
+    .docs-content table { width: 100%; border-collapse: collapse; font-size: 14px; margin-block: var(--gap-lg); }
+    .docs-content th { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; text-align: left; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--border); padding: 10px 12px; }
+    .docs-content td { color: var(--muted-strong); border-bottom: 1px solid var(--border); padding: 10px 12px; vertical-align: top; }
+    .docs-content td code { font-size: 12px; }
+    .code { margin-block: var(--gap-lg); padding: 18px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); font-family: var(--font-mono); font-size: 13px; line-height: 1.85; color: var(--fg); overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+    .code .c { color: var(--muted-strong); }
+    .code .cmd { color: var(--accent); font-weight: 600; }
+    .callout { margin-block: var(--gap-lg); padding: 16px 18px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--radius); background: var(--fg-soft); }
+    .callout .t { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 500; }
+    .callout p { margin: 8px 0 0; font-size: 14px; color: var(--muted-strong); }
+    @media (max-width: 920px) { .docs-shell { grid-template-columns: 1fr; gap: var(--gap-xl); } .docs-nav { position: static; } }
+    @media (max-width: 720px) { .topnav-inner { flex-wrap: wrap; row-gap: 12px; } .topnav nav { order: 3; width: 100%; gap: var(--gap-md); justify-content: space-between; } }
+  </style>
+</head>
+<body>
+  <header class="topnav" data-od-id="topnav">
+    <div class="container topnav-inner">
+      <a href="index.html" class="logo">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect class="relay r1" x="2" y="2" width="9" height="9" rx="2"/><rect class="relay r2" x="13" y="2" width="9" height="9" rx="2"/><rect class="relay r3" x="2" y="13" width="9" height="9" rx="2"/><rect class="relay r4" x="13" y="13" width="9" height="9" rx="2"/></svg>
+        <span>1bit.MONSTER</span>
+      </a>
+      <nav>
+        <a href="1bit-monster-v2.html">Engine</a>
+        <a href="1bit-models.html">Models</a>
+        <a href="1bit-jarvis.html">1bit JARVIS</a>
+        <a href="1bit-blog.html">Blog</a>
+        <a href="1bit-store.html">Store</a>
+        <a href="1bit-docs.html" aria-current="page">Docs</a>
+        <a href="1bit-benchmarks.html">Benchmarks</a>
+      </nav>
+      <a class="meta" href="https://github.com/1bit-MONSTER/1bit-MONSTER">GitHub ↗</a>
+    </div>
+  </header>
+
+  <main id="content">
+    <div class="container docs-shell">
+      <nav class="docs-nav" data-od-id="docs-nav" aria-label="Docs">
+        <p class="group">Docs home</p>
+        <a href="1bit-docs.html">Documentation</a>
+        <p class="group">User</p>
+        <a href="docs-getting-started.html">Getting started</a>
+        <a href="docs-building.html">Building the engine</a>
+        <a href="docs-running.html">Running &amp; serving</a>
+        <a aria-current="page" href="docs-jarvis.html">JARVIS</a>
+        <p class="group">Reference</p>
+        <a href="docs-models.html">Model families</a>
+        <a href="1bit-benchmarks.html">Benchmarks</a>
+      </nav>
+      <article class="docs-content">
+        <p class="eyebrow">User · Voice</p>
+        <h1>JARVIS</h1>
+        <p class="lead">The reference application that proves the engine: mic to VAD to STT to LLM to TTS to speaker, all in-process, pure C++, with the LLM on any backend. The engine is the app.</p>
+
+        <h2>The pipeline</h2>
+        <pre class="code"><code>mic -> VAD -> STT (libwhisper) -> LLM (engine) -> TTS (piper) -> speaker</code></pre>
+        <p>Every stage is in-process and pure C++, and the LLM stage runs on any engine backend: NPU, GPU, CPU.</p>
+
+        <h2>JARVIS v2 (rebuild 2026-08-06)</h2>
+        <p>v1 was a C++ port of a deleted Python package that carried the whole deleted product stack (auth, billing, usage, beacon, personas, RAG, an HTTP agent server). v2 gutted all of it:</p>
+        <ul>
+          <li><strong>One process</strong> n/a in-process <code>BackendManager</code>; the engine IS the app.</li>
+          <li><strong>Pure C++</strong> n/a only subprocesses are <code>arecord</code>, <code>aplay</code>, <code>piper</code>.</li>
+          <li><strong>Thin</strong> n/a <code>tools/jarvis/</code> is 9 files, ~1300 lines.</li>
+        </ul>
+
+        <h2>Default stack: Zyphra</h2>
+        <p>Without <code>--model</code>, JARVIS picks the first Zyphra model in the weights dir (preference: ZAYA1-8B to ZAYA1-74B to BlackMamba-2.8B to BlackMamba-1.5B to Zamba2 to ZR1-1.5B). <code>--model &lt;any&gt;</code> bypasses it.</p>
+
+        <h2>Run it</h2>
+        <pre class="code"><code>$ cmake --build build --target jarvis_app          <span class="c"># build/jarvis</span>
+$ ./build/1bit jarvis --model "Qwen3-0.6B" --text   <span class="c"># text chat</span>
+$ ./build/1bit jarvis --model "Qwen3-0.6B" \
+    --whisper models/whisper-tiny.gguf \
+    --piper-model ~/piper/en_US-lessac-medium.onnx   <span class="c"># voice</span></code></pre>
+
+        <h2>Status</h2>
+        <table>
+          <thead><tr><th>Stage</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>VAD</td><td>energy-based, 20 ms frames</td></tr>
+            <tr><td>LLM</td><td>in-process, any backend, last-6-turns; default Zyphra</td></tr>
+            <tr><td>TTS</td><td>piper (fork/exec, 22050 Hz); codec voice = P2</td></tr>
+            <tr><td>STT</td><td>GPU-accelerated; <code>WHISPER_GPU=0</code> forces scalar</td></tr>
+            <tr><td>Barge-in</td><td>not yet; utterances during a reply are dropped (P1)</td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <span class="t">Honesty</span>
+          <p>STT is GPU-accelerated when a HIP device is present, scalar CPU fallback otherwise. Verify on hardware before you trust it.</p>
+        </div>
+      </article>
+    </div>
+  </main>
+
+  <footer class="pagefoot" data-od-id="footer">
+    <div class="container row-between">
+      <span>© 2026 1bit.MONSTER · MIT License</span>
+      <a class="meta" href="https://github.com/1bit-MONSTER/1bit-MONSTER">github.com/1bit-MONSTER</a>
+    </div>
+    <div class="container">
+      <p class="place" data-od-id="footer-place">Metepenagiag Mi’kmaq Nation, New Brunswick, Canada</p>
+      <p class="quote" data-od-id="footer-quote">"Sorry but not sorry." by bong-water-water-bong</p>
+    </div>
+  </footer>
+</body>
+</html>

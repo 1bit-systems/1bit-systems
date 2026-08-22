@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NPU v12: M=32 batch decode at 97 tok/s | 1bit.MONSTER</title>
+  <meta name="description" content="A 24x speedup in one session, from 244 to 10 ms/tok, beating FLM Kraken Point by 46%. OpenMP attention plus LM head. Full C++23, zero Python." />
+  <style>
+    /* ─── tokens ─────────────────────────────────────────────────────────
+       Bound verbatim to the locked light modern-minimal + 1-bit identity. */
+    :root {
+      --bg:      oklch(99% 0.002 240);
+      --surface: oklch(100% 0 0);
+      --fg:      oklch(18% 0.012 250);
+      --muted:   oklch(54% 0.012 250);
+      --border:  oklch(92% 0.005 250);
+      --accent:  oklch(58% 0.18 255);
+      --status:  oklch(52% 0.14 158);
+
+      --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+      --fg-soft:       color-mix(in oklch, var(--fg) 5%, transparent);
+      --muted-strong:  color-mix(in oklch, var(--muted) 76%, var(--fg));
+      --hairblock:     color-mix(in oklch, var(--fg) 7%, transparent);
+
+      --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+      --font-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      --font-mono:    ui-monospace, 'SF Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+
+      --fs-h1: clamp(38px, 5vw, 64px);
+      --fs-h2: clamp(26px, 3vw, 34px);
+      --fs-lead: 19px;
+      --fs-body: 17px;
+      --fs-meta: 13px;
+      --radius: 10px;
+      --radius-lg: 16px;
+      --gap-sm: 12px; --gap-md: 20px; --gap-lg: 32px; --gap-xl: 48px; --gap-2xl: 80px;
+      --container: 760px; --gutter: 32px;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: var(--fs-body); line-height: 1.7; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
+    a { color: inherit; text-decoration: none; }
+    p { text-wrap: pretty; }
+    h1, h2, h3, h4 { text-wrap: balance; }
+    ::selection { background: var(--accent-soft); color: var(--fg); }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+    .container { max-width: var(--container); margin-inline: auto; padding-inline: var(--gutter); }
+    .row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-md); }
+
+    .topnav { position: sticky; top: 0; z-index: 10; background: color-mix(in oklch, var(--bg) 92%, transparent); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); }
+    .topnav-inner { display: flex; align-items: center; justify-content: space-between; padding-block: 14px; }
+    .topnav .logo { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+    .topnav .logo svg { width: 26px; height: 26px; color: var(--fg); }
+    /* header logo: 1bit relay mark - one block solid at a time, slow */
+    .topnav .logo .relay { fill: var(--surface); stroke: currentColor; stroke-opacity: 0.28; animation: logo-relay 80s ease-in-out infinite; }
+    .topnav .logo .r1 { animation-delay: 0s; }
+    .topnav .logo .r2 { animation-delay: 20s; }
+    .topnav .logo .r3 { animation-delay: 40s; }
+    .topnav .logo .r4 { animation-delay: 60s; }
+    @keyframes logo-relay {
+      0%       { fill: var(--surface); }
+      13%      { fill: var(--fg); }
+      14%      { fill: var(--fg); }
+      25%      { fill: var(--surface); }
+      100%     { fill: var(--surface); }
+    }
+    @media (prefers-reduced-motion: reduce) { .topnav .logo .relay { animation: none; } .topnav .logo .r1 { fill: var(--fg); } }
+
+    .topnav nav { display: flex; gap: var(--gap-lg); }
+    .topnav nav a { font-size: 14px; color: var(--muted-strong); }
+    .topnav nav a:hover { color: var(--fg); }
+    .topnav nav a[aria-current="page"] { color: var(--fg); font-weight: 500; }
+    .pagefoot { padding-block: var(--gap-xl); color: var(--muted-strong); font-size: 13px; border-top: 1px solid var(--border); }
+    .pagefoot .place { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em; color: var(--muted-strong); text-align: center; margin: var(--gap-lg) auto 0; }
+    .pagefoot .quote { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em; color: var(--muted-strong); text-align: center; margin: var(--gap-sm) auto 0; }
+    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 20px; border-radius: var(--radius); border: 1px solid transparent; font-size: 14px; font-weight: 500; letter-spacing: -0.005em; transition: transform 0.05s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease; }
+    .btn-ghost { background: transparent; color: var(--fg); padding-inline: 8px; }
+    .btn-ghost:hover { color: var(--accent); }
+
+    .art { padding-block: clamp(48px, 7vw, 96px) clamp(40px, 6vw, 72px); }
+    .art .back { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; color: var(--muted-strong); display: inline-flex; gap: 6px; margin-bottom: var(--gap-lg); }
+    .art .back a:hover { color: var(--fg); }
+    .art-meta { display: flex; flex-wrap: wrap; gap: var(--gap-md); align-items: center; margin-bottom: var(--gap-md); font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.04em; color: var(--muted-strong); }
+    .art-meta .tag { padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; }
+    .art-meta .tag.corr { border-color: color-mix(in oklch, var(--accent) 40%, transparent); border-style: dashed; color: color-mix(in oklch, var(--muted) 62%, var(--fg)); }
+    .art h1 { font-family: var(--font-display); font-size: var(--fs-h1); line-height: 1.08; letter-spacing: -0.02em; font-weight: 600; margin: 0 0 var(--gap-md); }
+    .art .lead { font-size: var(--fs-lead); line-height: 1.6; color: var(--muted-strong); max-width: 64ch; margin: 0 0 var(--gap-2xl); }
+
+    .prose h2 { font-family: var(--font-display); font-size: var(--fs-h2); line-height: 1.16; letter-spacing: -0.015em; font-weight: 600; margin: var(--gap-2xl) 0 var(--gap-md); }
+    .prose p { margin: 0 0 var(--gap-md); }
+    .prose b { font-weight: 600; }
+    .prose .mono { font-family: var(--font-mono); font-size: 0.92em; }
+    .prose code { font-family: var(--font-mono); font-size: 0.9em; background: var(--hairblock); padding: 2px 6px; border-radius: 4px; }
+    .prose pre { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; overflow-x: auto; font-family: var(--font-mono); font-size: 13px; line-height: 1.85; margin: 0 0 var(--gap-lg); }
+    .prose table { width: 100%; border-collapse: collapse; margin: 0 0 var(--gap-lg); font-size: 15px; }
+    .prose th, .prose td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--border); }
+    .prose th { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-strong); font-weight: 500; }
+    .prose td { font-family: var(--font-mono); font-size: 14px; }
+    .prose .callout { border-left: 1px solid var(--accent); padding: 4px 0 4px var(--gap-lg); margin: 0 0 var(--gap-lg); }
+    @media (max-width: 720px) {
+      .topnav-inner { flex-wrap: wrap; row-gap: 12px; }
+      .topnav nav { order: 3; width: 100%; gap: var(--gap-md); justify-content: space-between; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topnav" data-od-id="topnav">
+    <div class="container topnav-inner" style="max-width: 1000px;">
+      <a href="index.html" class="logo">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect class="relay r1" x="2" y="2" width="9" height="9" rx="2"/><rect class="relay r2" x="13" y="2" width="9" height="9" rx="2"/><rect class="relay r3" x="2" y="13" width="9" height="9" rx="2"/><rect class="relay r4" x="13" y="13" width="9" height="9" rx="2"/>
+        </svg>
+        <span>1bit.MONSTER</span>
+      </a>
+      <nav>
+        <a href="1bit-monster-v2.html">Engine</a>
+        <a href="1bit-models.html">Models</a>
+        <a href="1bit-jarvis.html">1bit JARVIS</a>
+        <a href="1bit-blog.html" aria-current="page">Blog</a>
+        <a href="1bit-store.html">Store</a>
+        <a href="1bit-docs.html">Docs</a>
+        <a href="1bit-benchmarks.html">Benchmarks</a>
+      </nav>
+      <a class="btn btn-ghost" href="https://github.com/1bit-MONSTER/1bit-MONSTER">GitHub&nbsp;↗</a>
+    </div>
+  </header>
+
+  <main id="content">
+    <article class="art container" data-od-id="post-npu-v12">
+      <a class="back" href="1bit-blog.html">&larr; all posts</a>
+      <div class="art-meta">
+        <span>2026-07-02</span>
+        <span class="tag">npu</span>
+        <span class="tag">performance</span>
+      </div>
+      <h1>NPU v12: M=32 batch decode at 97 tok/s</h1>
+      <p class="lead">One session took decode from 244 to 10 ms per token, a 24x speedup, and put v12 at 97 tok/s with M=32 batch decode, 46% ahead of FLM Kraken Point. OpenMP attention plus an LM head, all C++23, zero Python.</p>
+
+      <div class="prose" data-od-id="body">
+        <h2>One session</h2>
+        <p>V12 did not arrive through a long campaign of tuning. In a single session decode went from 244 to 10 ms per token, a 24x speedup, by moving to M=32 batch decode and clearing the two biggest stalls in the path.</p>
+        <h2>The numbers</h2>
+        <table>
+          <thead><tr><th>measure</th><th>value</th></tr></thead>
+          <tbody>
+            <tr><td>batch width M</td><td>32</td></tr>
+            <tr><td>decode before</td><td>244 ms/tok</td></tr>
+            <tr><td>decode after</td><td>10 ms/tok</td></tr>
+            <tr><td>speedup</td><td>24x</td></tr>
+            <tr><td>throughput</td><td>97 tok/s</td></tr>
+            <tr><td>vs FLM Kraken Point</td><td>+46%</td></tr>
+          </tbody>
+        </table>
+        <p>The M=32 number matters: at M=1 the NPU spends most of a dispatch waiting. Batch decode spreads the fixed launch cost across 32 tokens instead of one.</p>
+        <h2>What changed</h2>
+        <p>Two changes did the work. Attention moved to an OpenMP parallel path so the batch width actually scales, and the LM head moved out of a separate round trip and into the same steady pipeline. Same hardware, less time standing still.</p>
+        <h2>The stack</h2>
+        <p>The whole engine is full <b>C++23</b> with <b>zero Python</b> in the inference path. No interpreter, no glue process, no second runtime to break. The kernel is a single binary that talks to the NPU directly.</p>
+        <h2>The session result</h2>
+        <p>This is one session's before and after, written down while it was still fresh. A session result is not a guarantee, but it is the kind of record a build log is for.</p>
+      </div>
+    </article>
+  </main>
+
+  <footer class="pagefoot" data-od-id="footer">
+    <div class="container row-between" style="max-width: 1000px;">
+      <span>© 2026 1bit.MONSTER · MIT License</span>
+      <a class="meta" href="https://github.com/1bit-MONSTER/1bit-MONSTER">github.com/1bit-MONSTER</a>
+    </div>
+    <div class="container">
+      <p class="place" data-od-id="footer-place">Metepenagiag Mi’kmaq Nation, New Brunswick, Canada</p>
+      <p class="quote" data-od-id="footer-quote">"Sorry but not sorry." by bong-water-water-bong</p>
+    </div>
+  </footer>
+</body>
+</html>

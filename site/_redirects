@@ -1,50 +1,24 @@
 # Cloudflare Pages — redirect rules
 # Format: <from> <to> <status>
 
-# Short permalinks
+# External + convenience permalinks
 /gh           https://github.com/1bit-MONSTER/1bit-MONSTER        302
 /github       https://github.com/1bit-MONSTER/1bit-MONSTER        302
 /wiki         https://github.com/1bit-MONSTER/1bit-MONSTER/wiki   302
-/install      /#quickstart                                                 302
+/install      /index.html                                         302
 
-# 1bit coding agent
-/agent        /                                                            301
+# Section shortcuts -> current page files
+/models       /1bit-models.html          301
+/benchmarks   /1bit-benchmarks.html      301
+/docs         /1bit-docs.html            301
+/store        /1bit-store.html           301
+/blog         /1bit-blog.html            301
+/jarvis       /1bit-jarvis.html          301
+/engine       /1bit-monster-v2.html      301
 
-# Real pages exist at models.html / benchmarks.html / docs.html — route the
-# legacy collapse paths (and the old single-page anchors) to them.
-# Each path also has a matching meta-refresh stub file as a fallback.
-/models                     /models.html               301
-/models/                    /models.html               301
-/models.html                /models.html               301
-/benchmarks                 /benchmarks.html          301
-/benchmarks/                /benchmarks.html          301
-/benchmarks.html            /benchmarks.html          301
-/docs                       /docs.html                301
-/docs/                      /docs.html                301
-/docs/index.html            /docs.html                301
-/docs/install.html          /docs.html                301
-/docs/install               /docs.html                301
-/docs/quickstart.html       /docs.html                301
-/docs/quickstart            /docs.html                301
-/docs/troubleshooting.html  /docs.html                301
-/docs/troubleshooting       /docs.html                301
-/docs/faq.html              /docs.html                301
-/docs/faq                   /docs.html                301
-/docs/architecture.html     /docs.html                301
-/docs/architecture          /docs.html                301
-/docs/models.html           /models.html              301
-/docs/models                /models.html              301
-/docs/api.html              /docs.html                301
-/docs/api                   /docs.html                301
-/docs/benchmarks.html       /benchmarks.html          301
-/docs/benchmarks            /benchmarks.html          301
-/docs/why.html              /docs.html                301
-/docs/why                   /docs.html                301
-/docs/contributing.html     /docs.html                301
-/docs/contributing          /docs.html                301
-/docs/changelog.html        /docs.html                301
-/docs/changelog             /docs.html                301
-
-# Repo docs (paths removed from /docs/ collapse)
-/wiki/models        https://github.com/1bit-MONSTER/1bit-MONSTER/blob/main/docs/wiki/models.md        302
-/wiki/performance   https://github.com/1bit-MONSTER/1bit-MONSTER/blob/main/docs/wiki/performance.md   302
+# Docs section shortcuts
+/docs/getting-started  /docs-getting-started.html   301
+/docs/building         /docs-building.html          301
+/docs/running          /docs-running.html           301
+/docs/models           /docs-models.html            301
+/docs/jarvis           /docs-jarvis.html            301

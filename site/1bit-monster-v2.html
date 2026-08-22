@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>1bit.MONSTER: One engine. Any model. Zero Python.</title>
+  <meta name="description" content="A model-agnostic, hardware-agnostic pure-C++ inference engine. One engine, NPU + GPU + CPU, 100% HuggingFace architecture coverage, zero Python. MIT." />
+  <style>
+    /* ─── tokens ─────────────────────────────────────────────────────────
+       Core six bound verbatim from `modern-minimal` (v2 rebrand: light,
+       premium-restrained). Extended for the 1-bit identity: a near-black
+       ink console ground with derived light-on-dark text, one scanline
+       pixel device, and brightened accent/status shades for the dark band.
+       All derived values stay in oklch - no new hex. */
+    :root {
+      --bg:      oklch(99% 0.002 240);
+      --surface: oklch(100% 0 0);
+      --fg:      oklch(18% 0.012 250);
+      --muted:   oklch(54% 0.012 250);
+      --border:  oklch(92% 0.005 250);
+      --accent:  oklch(58% 0.18 255);
+
+      --status:  oklch(52% 0.14 158);   /* status green - live dot, pass marks */
+
+      /* derived - do not change */
+      --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+      --fg-soft:       color-mix(in oklch, var(--fg) 5%, transparent);
+      --muted-strong:  color-mix(in oklch, var(--muted) 76%, var(--fg));
+
+      /* 1-bit console ground (derived from ink, never pure black) */
+      --ink-deep:      color-mix(in oklch, var(--fg) 90%, var(--bg));
+      --on-dark:       color-mix(in oklch, var(--bg) 96%, transparent);
+      --on-dark-muted: color-mix(in oklch, var(--bg) 70%, transparent);
+      --border-dark:   color-mix(in oklch, var(--bg) 16%, transparent);
+      --accent-bright: color-mix(in oklch, var(--accent) 78%, white);
+      --status-bright: color-mix(in oklch, var(--status) 78%, white);
+
+      /* type - system-first per direction */
+      --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+      --font-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      --font-mono:    ui-monospace, 'SF Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+
+      /* scale */
+      --fs-h1: clamp(44px, 6vw, 76px);
+      --fs-h2: clamp(32px, 4vw, 48px);
+      --fs-h3: 20px;
+      --fs-lead: 19px;
+      --fs-body: 16px;
+      --fs-meta: 13px;
+
+      /* spacing - 8-point grid */
+      --gap-xs: 8px;
+      --gap-sm: 12px;
+      --gap-md: 20px;
+      --gap-lg: 32px;
+      --gap-xl: 48px;
+      --gap-2xl: 80px;
+      --container: 1120px;
+      --gutter: 32px;
+
+      --radius: 10px;
+      --radius-lg: 16px;
+    }
+
+    /* ─── reset & base ──────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-body);
+      font-size: var(--fs-body);
+      line-height: 1.6;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+    }
+    img, svg { display: block; max-width: 100%; }
+    a { color: inherit; text-decoration: none; }
+    button { font: inherit; cursor: pointer; }
+    p { text-wrap: pretty; }
+    h1, h2, h3, h4 { text-wrap: balance; }
+    ::selection { background: var(--accent-soft); color: var(--fg); }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+    /* ─── layout primitives ─────────────────────────────────────────── */
+    .container {
+      max-width: var(--container);
+      margin-inline: auto;
+      padding-inline: var(--gutter);
+    }
+    .section {
+      padding-block: clamp(40px, 5vw, 72px);
+    }
+    .section + .section { border-top: 1px solid var(--border); }
+    .stack { display: flex; flex-direction: column; }
+    .stack > * + * { margin-top: var(--gap-md); }
+    .row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-md); }
+
+    /* ─── type ──────────────────────────────────────────────────────── */
+    .h1, h1 { font-family: var(--font-display); font-size: var(--fs-h1); line-height: 1.08; letter-spacing: -0.02em; margin: 0; font-weight: 600; }
+    .h2, h2 { font-family: var(--font-display); font-size: var(--fs-h2); line-height: 1.12; letter-spacing: -0.015em; margin: 0; font-weight: 600; }
+    .h3, h3 { font-size: var(--fs-h3); font-weight: 600; line-height: 1.3; letter-spacing: -0.005em; margin: 0; }
+    .lead   { font-size: var(--fs-lead); line-height: 1.6; color: var(--muted-strong); max-width: 60ch; margin: 0; }
+    .meta { font-family: var(--font-mono); font-size: var(--fs-meta); color: var(--muted-strong); }
+
+    /* ─── chrome: nav + footer ──────────────────────────────────────── */
+    .topnav {
+      position: sticky; top: 0; z-index: 10;
+      background: color-mix(in oklch, var(--bg) 92%, transparent);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .topnav-inner { display: flex; align-items: center; justify-content: space-between; padding-block: 14px; }
+    .topnav .logo { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+    .topnav .logo svg { width: 26px; height: 26px; color: var(--fg); }
+    /* header logo: 1bit relay mark - one block solid at a time, slow */
+    .topnav .logo .relay { fill: var(--surface); stroke: currentColor; stroke-opacity: 0.28; animation: logo-relay 80s ease-in-out infinite; }
+    .topnav .logo .r1 { animation-delay: 0s; }
+    .topnav .logo .r2 { animation-delay: 20s; }
+    .topnav .logo .r3 { animation-delay: 40s; }
+    .topnav .logo .r4 { animation-delay: 60s; }
+    @keyframes logo-relay {
+      0%       { fill: var(--surface); }
+      13%      { fill: var(--fg); }
+      14%      { fill: var(--fg); }
+      25%      { fill: var(--surface); }
+      100%     { fill: var(--surface); }
+    }
+    @media (prefers-reduced-motion: reduce) { .topnav .logo .relay { animation: none; } .topnav .logo .r1 { fill: var(--fg); } }
+
+    .topnav nav { display: flex; gap: var(--gap-lg); }
+    .topnav nav a { font-size: 14px; color: var(--muted-strong); }
+    .topnav nav a:hover { color: var(--fg); }
+    .topnav nav a[aria-current="page"] { color: var(--fg); font-weight: 500; }
+    .pagefoot { padding-block: var(--gap-xl); color: var(--muted-strong); font-size: 13px; border-top: 1px solid var(--border); }
+    .pagefoot .place { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em; color: var(--muted-strong); text-align: center; margin: var(--gap-lg) auto 0; }
+    .pagefoot .quote { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em; color: var(--muted-strong); text-align: center; margin: var(--gap-sm) auto 0; }
+    .pagefoot a:hover { color: var(--fg); }
+    .pagefoot .row-between { flex-wrap: wrap; gap: var(--gap-md); }
+
+    /* ─── buttons ───────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 11px 20px;
+      border-radius: var(--radius);
+      border: 1px solid transparent;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: -0.005em;
+      transition: transform 0.05s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary {
+      background: color-mix(in oklch, var(--accent) 78%, black);
+      color: var(--surface);
+      border-color: transparent;
+    }
+    .btn-primary:hover { background: color-mix(in oklch, var(--accent) 68%, black); }
+    .btn-secondary { background: transparent; color: var(--fg); border-color: var(--border); }
+    .btn-secondary:hover { border-color: var(--fg); }
+    .btn-ghost { background: transparent; color: var(--fg); border-color: transparent; padding-inline: 8px; }
+    .btn-ghost:hover { color: var(--accent); }
+    .btn-arrow::after { content: '→'; transition: transform 0.15s ease; }
+    .btn-arrow:hover::after { transform: translateX(2px); }
+
+    /* ─── hero ──────────────────────────────────────────────────────── */
+    .hero { padding-block: clamp(52px, 6vw, 84px); }
+    .hero h1 { margin-bottom: var(--gap-md); }
+    .hero .lead { margin-top: var(--gap-md); }
+    .hero-split { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-2xl); align-items: center; }
+    .hero-cta { display: inline-flex; gap: var(--gap-sm); flex-wrap: wrap; margin-top: 28px; }
+    @media (max-width: 920px) { .hero-split { grid-template-columns: 1fr; gap: var(--gap-xl); } }
+
+    /* ─── census: the dark console screen ───────────────────────────── */
+    .section.section-dark { border-top: 0; padding-top: 0; background: var(--ink-deep); color: var(--on-dark); }
+    .section-dark .container { padding-top: clamp(40px, 5vw, 72px); }
+    .section-dark h2, .section-dark h3 { color: var(--on-dark); }
+    .section-dark .lead, .section-dark .meta { color: var(--on-dark-muted); }
+    .section-dark :focus-visible { outline-color: var(--accent-bright); }
+    .section-dark .btn-primary:focus-visible { outline-color: var(--on-dark); }
+    .section-dark ::selection { background: color-mix(in oklch, var(--accent-bright) 30%, transparent); color: var(--on-dark); }
+    .scanline {
+      height: 6px;
+      background-image:
+        linear-gradient(45deg, var(--on-dark) 25%, transparent 25%, transparent 75%, var(--on-dark) 75%),
+        linear-gradient(45deg, var(--on-dark) 25%, transparent 25%, transparent 75%, var(--on-dark) 75%);
+      background-size: 4px 4px;
+      background-position: 0 0, 2px 2px;
+      opacity: 0.16;
+    }
+    .band-head { display: flex; align-items: center; gap: 8px; padding-bottom: 14px; border-bottom: 1px solid var(--border-dark); margin-bottom: var(--gap-lg); }
+    .band-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--status-bright); flex: none; }
+    .band-title { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--on-dark-muted); }
+    .band-meta { margin-left: auto; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--on-dark-muted); }
+    .census-line { margin-top: 14px; }
+    .map-chain { margin-top: var(--gap-lg); }
+    .map-head { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 12px; border-bottom: 1px solid var(--border-dark); }
+    .map-title, .map-scale { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--on-dark-muted); }
+    .map-row { display: grid; grid-template-columns: 250px 1fr; gap: var(--gap-lg); align-items: center; padding: 9px 0; border-top: 1px solid var(--border-dark); }
+    .map-row:last-of-type { border-bottom: 1px solid var(--border-dark); }
+    .map-label { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+    .map-name { font-size: 14px; color: var(--on-dark); }
+    .map-count { font-family: var(--font-mono); font-size: 13px; color: var(--on-dark-muted); }
+    .map-track { height: 16px; background: color-mix(in oklch, var(--bg) 9%, transparent); border-radius: 2px; overflow: hidden; }
+    .map-bar { display: block; height: 100%; background: var(--on-dark); border-radius: 2px; }
+    .gate-matrix { margin-top: var(--gap-lg); }
+    .gate-grid { display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid var(--border-dark); }
+    .gate-cell { padding: 14px 16px 0 0; }
+    .gate-cell + .gate-cell { border-left: 1px solid var(--border-dark); padding-left: 16px; }
+    .gate-cell-name { font-size: 13px; color: var(--on-dark); font-weight: 600; display: inline-flex; gap: 6px; align-items: baseline; }
+    .gate-cell-name .ok { color: var(--status-bright); font-family: var(--font-mono); font-size: 12px; }
+    .gate-cell-note { font-family: var(--font-mono); font-size: 11px; color: var(--on-dark-muted); margin-top: 3px; }
+    @media (max-width: 920px) {
+      .map-row { grid-template-columns: 1fr; gap: 8px; }
+      .gate-grid { grid-template-columns: 1fr 1fr; row-gap: 18px; }
+      .gate-cell + .gate-cell { border-left: 0; padding-left: 0; }
+    }
+    .census-cta { margin-top: var(--gap-lg); padding-top: var(--gap-lg); border-top: 1px solid var(--border-dark); text-align: center; }
+    .census-cta .lead { margin: 14px auto 28px; max-width: 44ch; }
+    .section-dark .btn-primary { background: var(--accent-bright); color: var(--ink-deep); }
+    .section-dark .btn-primary:hover { background: color-mix(in oklch, var(--accent) 92%, white); }
+
+    /* ─── brand: terminal card (hero product moment) ────────────────── */
+    .term {
+      background: var(--ink-deep);
+      border: 1px solid var(--border-dark);
+      border-radius: 14px;
+      overflow: hidden;
+      font-family: var(--font-mono);
+    }
+    .term-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border-dark); }
+    .term-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--status-bright); flex: none; }
+    .term-status { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--on-dark-muted); }
+    .term-meta { margin-left: auto; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--on-dark-muted); }
+    .term-body { margin: 0; padding: 20px 22px; font-size: 13px; line-height: 1.9; color: var(--on-dark); white-space: pre-wrap; word-break: break-word; }
+    .term-body .c { color: var(--on-dark-muted); }
+    .term-body .cmd { color: var(--accent-bright); font-weight: 600; }
+    .term-body .s { color: var(--on-dark); }
+    .caret { display: inline-block; width: 8px; height: 14px; margin-left: 6px; background: var(--on-dark); vertical-align: -2px; animation: blink 1.1s steps(1) infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { .caret { animation: none; } }
+
+    /* ─── responsive nav ────────────────────────────────────────────── */
+    @media (max-width: 720px) {
+      .topnav-inner { flex-wrap: wrap; row-gap: 12px; }
+      .topnav nav { order: 3; width: 100%; gap: var(--gap-md); justify-content: space-between; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topnav" data-od-id="topnav">
+    <div class="container topnav-inner">
+      <a href="index.html" class="logo">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect class="relay r1" x="2" y="2" width="9" height="9" rx="2"/><rect class="relay r2" x="13" y="2" width="9" height="9" rx="2"/><rect class="relay r3" x="2" y="13" width="9" height="9" rx="2"/><rect class="relay r4" x="13" y="13" width="9" height="9" rx="2"/>
+        </svg>
+        <span>1bit.MONSTER</span>
+      </a>
+      <nav>
+        <a href="1bit-monster-v2.html" aria-current="page">Engine</a>
+        <a href="1bit-models.html">Models</a>
+        <a href="1bit-jarvis.html">1bit JARVIS</a>
+        <a href="1bit-blog.html">Blog</a>
+        <a href="1bit-store.html">Store</a>
+        <a href="1bit-docs.html">Docs</a>
+        <a href="1bit-benchmarks.html">Benchmarks</a>
+      </nav>
+      <a class="btn btn-ghost" href="https://github.com/1bit-MONSTER/1bit-MONSTER">GitHub&nbsp;↗</a>
+    </div>
+  </header>
+
+  <main id="content">
+
+    <!-- Hero split: brand headline + engine console -->
+    <section class="section hero" data-od-id="hero">
+      <div class="container hero-split">
+        <div>
+          <h1>One engine. Any model. Zero Python.</h1>
+          <p class="lead">One engine. NPU, GPU, or CPU. 100% HuggingFace architecture coverage. No Python, no runtime, no config.</p>
+          <div class="hero-cta">
+            <a class="btn btn-primary" href="https://github.com/1bit-MONSTER/1bit-MONSTER">Star on GitHub</a>
+            <a class="btn btn-ghost btn-arrow" href="https://github.com/1bit-MONSTER/1bit-MONSTER/blob/main/docs/journey.md">Read the story</a>
+          </div>
+        </div>
+        <div class="term" data-od-id="terminal-card" aria-label="1bit.MONSTER quick start">
+          <div class="term-head">
+            <span class="term-dot"></span>
+            <span class="term-status">engine online</span>
+            <span class="term-meta">1bp / gguf / onnx</span>
+          </div>
+          <pre class="term-body"><code><span class="c"># build from source: no installer yet</span>
+$ git clone https://github.com/1bit-MONSTER/1bit-MONSTER
+$ cd 1bit-MONSTER &amp;&amp; cmake -B build &amp;&amp; cmake --build build
+$ <span class="cmd">./build/1bit</span> zaya -m model.1bp -p <span class="s">"Hello world"</span>
+$<span class="caret"></span></code></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- Scale: the census, rendered on the console screen -->
+    <section class="section section-dark" data-od-id="census">
+      <div class="scanline" aria-hidden="true"></div>
+      <div class="container">
+        <div class="band-head">
+          <span class="band-dot"></span>
+          <span class="band-title">engine census</span>
+          <span class="band-meta">317,310 checkpoints · 552 tokens</span>
+        </div>
+        <div class="stack" style="max-width: 44ch;">
+          <h2>Every checkpoint maps. Nothing is dropped.</h2>
+          <p class="lead">317,310 arch-bearing checkpoints resolve to 552 tokens, 32 families, 12 backends. Measured, not projected.</p>
+        </div>
+        <p class="meta census-line">100% coverage / 6 hardware targets probed / 0 Python</p>
+        <div class="map-chain" data-od-id="census-map">
+          <div class="map-head">
+            <span class="map-title">coverage map</span>
+            <span class="map-scale">bar width on a log scale</span>
+          </div>
+          <div class="map-row" data-od-id="map-row-checkpoints">
+            <div class="map-label"><span class="map-name">checkpoints</span><span class="map-count">317,310</span></div>
+            <div class="map-track"><span class="map-bar" style="width: 100%;"></span></div>
+          </div>
+          <div class="map-row" data-od-id="map-row-strings">
+            <div class="map-label"><span class="map-name">architecture strings</span><span class="map-count">1,774</span></div>
+            <div class="map-track"><span class="map-bar" style="width: 58%;"></span></div>
+          </div>
+          <div class="map-row" data-od-id="map-row-tokens">
+            <div class="map-label"><span class="map-name">architecture tokens</span><span class="map-count">552</span></div>
+            <div class="map-track"><span class="map-bar" style="width: 49%;"></span></div>
+          </div>
+          <div class="map-row" data-od-id="map-row-families">
+            <div class="map-label"><span class="map-name">manifest families</span><span class="map-count">32</span></div>
+            <div class="map-track"><span class="map-bar" style="width: 26%;"></span></div>
+          </div>
+          <div class="map-row" data-od-id="map-row-backends">
+            <div class="map-label"><span class="map-name">backend implementations</span><span class="map-count">12</span></div>
+            <div class="map-track"><span class="map-bar" style="width: 18%;"></span></div>
+          </div>
+        </div>
+        <div class="gate-matrix" data-od-id="gate-matrix">
+          <div class="map-head">
+            <span class="map-title">frontier gates</span>
+            <span class="map-scale">17/17 green · full logits vs reference</span>
+          </div>
+          <div class="gate-grid">
+            <div class="gate-cell" data-od-id="gate-cell-nemotron">
+              <div class="gate-cell-name">Nemotron 3 <span class="ok">✓</span></div>
+              <div class="gate-cell-note">corr 0.99986</div>
+            </div>
+            <div class="gate-cell" data-od-id="gate-cell-deepseek">
+              <div class="gate-cell-name">DeepSeek V4 <span class="ok">✓</span></div>
+              <div class="gate-cell-note">top-1 == HF</div>
+            </div>
+            <div class="gate-cell" data-od-id="gate-cell-glm">
+              <div class="gate-cell-name">GLM-5.2 <span class="ok">✓</span></div>
+              <div class="gate-cell-note">top-1 == HF</div>
+            </div>
+            <div class="gate-cell" data-od-id="gate-cell-mimo">
+              <div class="gate-cell-name">MiMo V2 <span class="ok">✓</span></div>
+              <div class="gate-cell-note">top-1 == HF</div>
+            </div>
+            <div class="gate-cell" data-od-id="gate-cell-qwen">
+              <div class="gate-cell-name">Qwen3.5 <span class="ok">✓</span></div>
+              <div class="gate-cell-note">corr 1.00000</div>
+            </div>
+          </div>
+        </div>
+        <p class="meta" style="margin-top: var(--gap-lg);">The one gap: the CUDA backend compiles and is wired into the factory, but has never run on real NVIDIA hardware. Validation is open: testers wanted.</p>
+        <div class="census-cta">
+          <h2>Build from source. That is the whole install.</h2>
+          <p class="lead">Clone, cmake, run. MIT licensed, no accounts, no telemetry.</p>
+          <a class="btn btn-primary" href="https://github.com/1bit-MONSTER/1bit-MONSTER">Contribute on GitHub</a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="pagefoot" data-od-id="footer">
+    <div class="container row-between">
+      <span>© 2026 1bit.MONSTER · MIT License</span>
+      <a class="meta" href="https://github.com/1bit-MONSTER/1bit-MONSTER">github.com/1bit-MONSTER</a>
+    </div>
+    <div class="container">
+      <p class="place" data-od-id="footer-place">Metepenagiag Mi’kmaq Nation, New Brunswick, Canada</p>
+      <p class="quote" data-od-id="footer-quote">"Sorry but not sorry." by bong-water-water-bong</p>
+    </div>
+  </footer>
+</body>
+</html>

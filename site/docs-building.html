@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>1bit.MONSTER: Building the engine</title>
+  <meta name="description" content="Build the 1bit.MONSTER engine from source. TheRock 7.15.0a prerequisites, the onebin target, FastFlowLM discovery, optional GPU decode, and the known gotchas." />
+  <style>
+    /* ─── tokens ─────────────────────────────────────────────────────────
+       Bound verbatim to the locked light modern-minimal + 1-bit identity. */
+    :root {
+      --bg:      oklch(99% 0.002 240);
+      --surface: oklch(100% 0 0);
+      --fg:      oklch(18% 0.012 250);
+      --muted:   oklch(54% 0.012 250);
+      --border:  oklch(92% 0.005 250);
+      --accent:  oklch(58% 0.18 255);
+      --status:  oklch(52% 0.14 158);
+      --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+      --fg-soft:       color-mix(in oklch, var(--fg) 5%, transparent);
+      --muted-strong:  color-mix(in oklch, var(--muted) 76%, var(--fg));
+      --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+      --font-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      --font-mono:    ui-monospace, 'SF Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+      --fs-h1: clamp(40px, 5.2vw, 66px);
+      --fs-h2: clamp(28px, 3.6vw, 42px);
+      --fs-h3: 19px;
+      --fs-lead: 18px;
+      --fs-body: 16px;
+      --fs-meta: 13px;
+      --gap-xs: 8px;
+      --gap-sm: 12px;
+      --gap-md: 20px;
+      --gap-lg: 32px;
+      --gap-xl: 48px;
+      --gap-2xl: 80px;
+      --container: 1120px;
+      --gutter: 32px;
+      --radius: 10px;
+      --radius-lg: 16px;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: var(--fs-body); line-height: 1.6; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
+    img, svg { display: block; max-width: 100%; }
+    a { color: inherit; text-decoration: none; }
+    button { font: inherit; cursor: pointer; }
+    p { text-wrap: pretty; }
+    h1, h2, h3, h4 { text-wrap: balance; }
+    ::selection { background: var(--accent-soft); color: var(--fg); }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+    .container { max-width: var(--container); margin-inline: auto; padding-inline: var(--gutter); }
+    .stack { display: flex; flex-direction: column; }
+    .stack > * + * { margin-top: var(--gap-md); }
+    .row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-md); }
+
+    h1 { font-family: var(--font-display); font-size: var(--fs-h1); line-height: 1.08; letter-spacing: -0.02em; margin: 0; font-weight: 600; }
+    h2 { font-family: var(--font-display); font-size: var(--fs-h2); line-height: 1.12; letter-spacing: -0.015em; margin: 0; font-weight: 600; }
+    h3 { font-size: var(--fs-h3); font-weight: 600; line-height: 1.3; letter-spacing: -0.005em; margin: var(--gap-lg) 0 0; }
+    .lead { font-size: var(--fs-lead); line-height: 1.6; color: var(--muted-strong); max-width: 60ch; margin: 0; }
+    .meta { font-family: var(--font-mono); font-size: var(--fs-meta); color: var(--muted-strong); }
+    .eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted-strong); font-weight: 500; margin-bottom: var(--gap-sm); }
+
+    .topnav { position: sticky; top: 0; z-index: 10; background: color-mix(in oklch, var(--bg) 92%, transparent); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); }
+    .topnav-inner { display: flex; align-items: center; justify-content: space-between; padding-block: 14px; }
+    .topnav .logo { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+    .topnav .logo svg { width: 26px; height: 26px; color: var(--fg); }
+    .topnav .logo .relay { fill: var(--surface); stroke: currentColor; stroke-opacity: 0.28; animation: logo-relay 80s ease-in-out infinite; }
+    .topnav .logo .r1 { animation-delay: 0s; }
+    .topnav .logo .r2 { animation-delay: 20s; }
+    .topnav .logo .r3 { animation-delay: 40s; }
+    .topnav .logo .r4 { animation-delay: 60s; }
+    @keyframes logo-relay { 0% { fill: var(--surface); } 13% { fill: var(--fg); } 14% { fill: var(--fg); } 25% { fill: var(--surface); } 100% { fill: var(--surface); } }
+    @media (prefers-reduced-motion: reduce) { .topnav .logo .relay { animation: none; } .topnav .logo .r1 { fill: var(--fg); } }
+    .topnav nav { display: flex; gap: var(--gap-lg); }
+    .topnav nav a { font-size: 14px; color: var(--muted-strong); }
+    .topnav nav a:hover { color: var(--fg); }
+    .topnav nav a[aria-current="page"] { color: var(--fg); font-weight: 500; }
+    .pagefoot { padding-block: var(--gap-xl); color: var(--muted-strong); font-size: 13px; border-top: 1px solid var(--border); }
+    .pagefoot .place { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em; color: var(--muted-strong); text-align: center; margin: var(--gap-lg) auto 0; }
+    .pagefoot .quote { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em; color: var(--muted-strong); text-align: center; margin: var(--gap-sm) auto 0; }
+    .pagefoot a:hover { color: var(--fg); }
+    .pagefoot .row-between { flex-wrap: wrap; gap: var(--gap-md); }
+
+    /* ─── docs shell: sidebar + content ────────────────────────────── */
+    .docs-shell { display: grid; grid-template-columns: 232px 1fr; gap: var(--gap-2xl); align-items: start; padding-block: var(--gap-xl); }
+    .docs-nav { position: sticky; top: 84px; }
+    .docs-nav .group { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin: var(--gap-lg) 0 var(--gap-xs); }
+    .docs-nav .group:first-child { margin-top: 0; }
+    .docs-nav a { display: block; padding: 6px 10px; border-radius: var(--radius); font-size: 14px; color: var(--muted-strong); border-left: 2px solid transparent; }
+    .docs-nav a:hover { color: var(--fg); } 
+    .docs-nav a[aria-current="page"] { color: var(--fg); font-weight: 600; border-left-color: var(--accent); }
+    .docs-content { max-width: 66ch; }
+    .docs-content h2 { margin-top: var(--gap-2xl); }
+    .docs-content h2:first-child { margin-top: 0; }
+    .docs-content p { color: var(--muted-strong); }
+    .docs-content p strong, .docs-content li strong { color: var(--fg); }
+    .docs-content ul, .docs-content ol { color: var(--muted-strong); padding-left: 20px; }
+    .docs-content li { margin: var(--gap-xs) 0; }
+    .docs-content a { color: var(--accent); }
+    .docs-content a:hover { text-decoration: underline; }
+    .docs-content code { font-family: var(--font-mono); font-size: 0.88em; background: var(--fg-soft); padding: 2px 6px; border-radius: 6px; color: var(--fg); }
+    .docs-content table { width: 100%; border-collapse: collapse; font-size: 14px; margin-block: var(--gap-lg); }
+    .docs-content th { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; text-align: left; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--border); padding: 10px 12px; }
+    .docs-content td { color: var(--muted-strong); border-bottom: 1px solid var(--border); padding: 10px 12px; vertical-align: top; }
+    .docs-content td code { font-size: 12px; }
+    .code { margin-block: var(--gap-lg); padding: 18px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); font-family: var(--font-mono); font-size: 13px; line-height: 1.85; color: var(--fg); overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+    .code .c { color: var(--muted-strong); }
+    .code .cmd { color: var(--accent); font-weight: 600; }
+    .callout { margin-block: var(--gap-lg); padding: 16px 18px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--radius); background: var(--fg-soft); }
+    .callout .t { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 500; }
+    .callout p { margin: 8px 0 0; font-size: 14px; color: var(--muted-strong); }
+    @media (max-width: 920px) { .docs-shell { grid-template-columns: 1fr; gap: var(--gap-xl); } .docs-nav { position: static; } }
+    @media (max-width: 720px) { .topnav-inner { flex-wrap: wrap; row-gap: 12px; } .topnav nav { order: 3; width: 100%; gap: var(--gap-md); justify-content: space-between; } }
+  </style>
+</head>
+<body>
+  <header class="topnav" data-od-id="topnav">
+    <div class="container topnav-inner">
+      <a href="index.html" class="logo">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect class="relay r1" x="2" y="2" width="9" height="9" rx="2"/><rect class="relay r2" x="13" y="2" width="9" height="9" rx="2"/><rect class="relay r3" x="2" y="13" width="9" height="9" rx="2"/><rect class="relay r4" x="13" y="13" width="9" height="9" rx="2"/></svg>
+        <span>1bit.MONSTER</span>
+      </a>
+      <nav>
+        <a href="1bit-monster-v2.html">Engine</a>
+        <a href="1bit-models.html">Models</a>
+        <a href="1bit-jarvis.html">1bit JARVIS</a>
+        <a href="1bit-blog.html">Blog</a>
+        <a href="1bit-store.html">Store</a>
+        <a href="1bit-docs.html" aria-current="page">Docs</a>
+        <a href="1bit-benchmarks.html">Benchmarks</a>
+      </nav>
+      <a class="meta" href="https://github.com/1bit-MONSTER/1bit-MONSTER">GitHub ↗</a>
+    </div>
+  </header>
+
+  <main id="content">
+    <div class="container docs-shell">
+      <nav class="docs-nav" data-od-id="docs-nav" aria-label="Docs">
+        <p class="group">Docs home</p>
+        <a href="1bit-docs.html">Documentation</a>
+        <p class="group">User</p>
+        <a href="docs-getting-started.html">Getting started</a>
+        <a href="docs-building.html" aria-current="page">Building the engine</a>
+        <a href="docs-running.html">Running &amp; serving</a>
+        <a href="docs-jarvis.html">JARVIS</a>
+        <p class="group">Reference</p>
+        <a href="docs-models.html">Model families</a>
+        <a href="1bit-benchmarks.html">Benchmarks</a>
+      </nav>
+      <article class="docs-content">
+        <p class="eyebrow">User · Build</p>
+        <h1>Building the engine</h1>
+        <p class="lead">One target, one binary. The <code>onebin</code> build drops the engine, the serving server, JARVIS, vision, and the CLI into <code>build/1bit</code>. Here is how to get it to compile on your hardware, and the exact gotchas that stop people.</p>
+
+        <h2>Prerequisites</h2>
+        <table>
+          <thead>
+            <tr><th>Package</th><th>Version / notes</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>OS</code></td><td>Ubuntu 24.04 LTS+ (CachyOS / Arch also works)</td></tr>
+            <tr><td><code>Kernel</code></td><td><strong>6.18.22-lts or 7.x, not 6.19.x</strong> (issue #1 OPTC hang)</td></tr>
+            <tr><td><code>ROCm</code></td><td><strong>TheRock 7.15.0a</strong>, nightly C++ SDK, native gfx1151</td></tr>
+            <tr><td><code>CMake</code></td><td>≥ 3.28 · Ninja ≥ 1.12 · GCC ≥ 13 (C++20) / ≥ 14 (C++23)</td></tr>
+          </tbody>
+        </table>
+        <pre class="code"><code>$ sudo apt update &amp;&amp; sudo apt install -y cmake ninja-build build-essential git</code></pre>
+
+        <h3>TheRock 7.15.0a</h3>
+        <p>The Rock is the NPU-and-GPU toolchain. Install the nightly pip wheel that ships the gfx1151 code objects.</p>
+        <pre class="code"><code>$ pip install --index-url https://rocm.nightlies.amd.com/whl-multi-arch/ \
+    "rocm[libraries,devel,device-gfx1151]"
+$ export THEROCK_PIP_ROOT="$HOME/.cache/pip/therock"</code></pre>
+        <p>CMake auto-discovers TheRock: <code>/opt/rocm-therock</code> → <code>$THEROCK_PIP_ROOT</code> → <code>~/.cache/lemonade/bin/therock</code>. <strong>Never</strong> point <code>CMAKE_PREFIX_PATH</code> at system ROCm (<code>/opt/rocm</code>). Always set the target architecture.</p>
+        <pre class="code"><code>$ export CMAKE_HIP_ARCHITECTURES=gfx1151</code></pre>
+
+        <h2>Build</h2>
+        <pre class="code"><code>$ cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_HIP_ARCHITECTURES=gfx1151
+$ cmake --build build --target onebin</code></pre>
+        <p>The result is the single binary <code>build/1bit</code>. There is no standalone <code>zaya_server</code> target; packaged installs ship a <code>zaya_server</code> symlink, dispatched by <code>argv[0]</code>. Header-only deps (cpp-httplib, nlohmann_json, FTXUI) are fetched automatically via CMake FetchContent.</p>
+
+        <h3>FastFlowLM (the NPU backend)</h3>
+        <p>Discovery order, no source build for the first two:</p>
+        <ol>
+          <li>TheRock dist (<code>&lt;therock-root&gt;/bin/flm</code>, ships in 7.14 / 7.15a)</li>
+          <li>FastFlowLM .deb (<code>/opt/fastflowlm/bin/flm</code>)</li>
+          <li><code>flm</code> on PATH (<code>/usr/bin/flm</code>)</li>
+          <li>Submodule build (<code>third_party/FastFlowLM</code>) as a last resort</li>
+        </ol>
+
+        <h3>Optional GPU decode (Q4NX models)</h3>
+        <pre class="code"><code>$ cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_HIP_ARCHITECTURES=gfx1151 -DZAYA_ENABLE_GPU_DECODE=ON
+$ cmake --build build --target zaya_gpu_decode    <span class="c"># -> build/libzaya_gpu_decode.so</span></code></pre>
+        <p>Auto-detected at startup for Q4NX models. Without it, inference stays on CPU.</p>
+
+        <h2>Gotchas</h2>
+        <table>
+          <thead>
+            <tr><th>Symptom</th><th>Fix</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>hipErrorNoBinaryForGPU</code></td><td><code>CMAKE_HIP_ARCHITECTURES=gfx1151</code> + TheRock 7.15.0a (older ROCm lacks gfx1151 objects)</td></tr>
+            <tr><td><code>cannot find -lamdhip64</code></td><td>TheRock at <code>/opt/rocm-therock</code> or <code>THEROCK_PIP_ROOT</code>; never system ROCm</td></tr>
+            <tr><td>No GPU decode despite build</td><td><code>export LD_LIBRARY_PATH=/path/to/zaya/build:$LD_LIBRARY_PATH</code>; verify the model is actually Q4NX</td></tr>
+            <tr><td>First-inference hang (issue #1, ~1 in 5 boots)</td><td><code>export HSA_ENABLE_SDMA=0</code>, avoiding the OPTC code path</td></tr>
+            <tr><td>6.19.x kernel lockup under NPU/GPU load</td><td>Use 6.18.22-lts or 7.x; <code>install.sh</code> detects and warns</td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <span class="t">Honesty</span>
+          <p>The build is proven on Strix Halo with TheRock. If you are on a different ROCm stack, expect to solve the architecture flag first; the engine does not hide that the NPU path is the tuned one.</p>
+        </div>
+      </article>
+    </div>
+  </main>
+
+  <footer class="pagefoot" data-od-id="footer">
+    <div class="container row-between">
+      <span>© 2026 1bit.MONSTER · MIT License</span>
+      <a class="meta" href="https://github.com/1bit-MONSTER/1bit-MONSTER">github.com/1bit-MONSTER</a>
+    </div>
+    <div class="container">
+      <p class="place" data-od-id="footer-place">Metepenagiag Mi’kmaq Nation, New Brunswick, Canada</p>
+      <p class="quote" data-od-id="footer-quote">"Sorry but not sorry." by bong-water-water-bong</p>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>1bit.MONSTER: 1bit JARVIS</title>
+  <meta name="description" content="The zero-Python voice assistant that ships with the engine. Mic to VAD to STT to LLM to TTS to speaker, all in-process, pure C++, on any backend. The engine is the app." />
+  <style>
+    /* ─── tokens ─────────────────────────────────────────────────────────
+       Bound verbatim to the locked light modern-minimal + 1-bit identity.
+       All derived values stay in oklch - no new hex. */
+    :root {
+      --bg:      oklch(99% 0.002 240);
+      --surface: oklch(100% 0 0);
+      --fg:      oklch(18% 0.012 250);
+      --muted:   oklch(54% 0.012 250);
+      --border:  oklch(92% 0.005 250);
+      --accent:  oklch(58% 0.18 255);
+
+      --status:  oklch(52% 0.14 158);
+
+      /* derived - do not change */
+      --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+      --fg-soft:       color-mix(in oklch, var(--fg) 5%, transparent);
+      --muted-strong:  color-mix(in oklch, var(--muted) 76%, var(--fg));
+
+      /* type - system-first per direction */
+      --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+      --font-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      --font-mono:    ui-monospace, 'SF Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+
+      /* scale */
+      --fs-h1: clamp(44px, 6vw, 76px);
+      --fs-h2: clamp(32px, 4vw, 48px);
+      --fs-h3: 20px;
+      --fs-lead: 19px;
+      --fs-body: 16px;
+      --fs-meta: 13px;
+
+      /* spacing - 8-point grid */
+      --gap-xs: 8px;
+      --gap-sm: 12px;
+      --gap-md: 20px;
+      --gap-lg: 32px;
+      --gap-xl: 48px;
+      --gap-2xl: 80px;
+      --container: 1120px;
+      --gutter: 32px;
+
+      --radius: 10px;
+      --radius-lg: 16px;
+    }
+
+    /* ─── reset & base ──────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-body);
+      font-size: var(--fs-body);
+      line-height: 1.6;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+    }
+    img, svg { display: block; max-width: 100%; }
+    a { color: inherit; text-decoration: none; }
+    button { font: inherit; cursor: pointer; }
+    p { text-wrap: pretty; }
+    h1, h2, h3, h4 { text-wrap: balance; }
+    ::selection { background: var(--accent-soft); color: var(--fg); }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+    /* ─── layout primitives ─────────────────────────────────────────── */
+    .container {
+      max-width: var(--container);
+      margin-inline: auto;
+      padding-inline: var(--gutter);
+    }
+    .section {
+      padding-block: clamp(40px, 5vw, 72px);
+    }
+    .section + .section { border-top: 1px solid var(--border); }
+    .stack { display: flex; flex-direction: column; }
+    .stack > * + * { margin-top: var(--gap-md); }
+    .row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-md); }
+
+    /* ─── type ──────────────────────────────────────────────────────── */
+    .h1, h1 { font-family: var(--font-display); font-size: var(--fs-h1); line-height: 1.08; letter-spacing: -0.02em; margin: 0; font-weight: 600; }
+    .h2, h2 { font-family: var(--font-display); font-size: var(--fs-h2); line-height: 1.12; letter-spacing: -0.015em; margin: 0; font-weight: 600; }
+    .h3, h3 { font-size: var(--fs-h3); font-weight: 600; line-height: 1.3; letter-spacing: -0.005em; margin: 0; }
+    .lead   { font-size: var(--fs-lead); line-height: 1.6; color: var(--muted-strong); max-width: 60ch; margin: 0; }
+    .meta { font-family: var(--font-mono); font-size: var(--fs-meta); color: var(--muted-strong); }
+
+    /* ─── chrome: nav + footer ──────────────────────────────────────── */
+    .topnav {
+      position: sticky; top: 0; z-index: 10;
+      background: color-mix(in oklch, var(--bg) 92%, transparent);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .topnav-inner { display: flex; align-items: center; justify-content: space-between; padding-block: 14px; }
+    .topnav .logo { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+    .topnav .logo svg { width: 26px; height: 26px; color: var(--fg); }
+    /* header logo: 1bit relay mark - one block solid at a time, slow */
+    .topnav .logo .relay { fill: var(--surface); stroke: currentColor; stroke-opacity: 0.28; animation: logo-relay 80s ease-in-out infinite; }
+    .topnav .logo .r1 { animation-delay: 0s; }
+    .topnav .logo .r2 { animation-delay: 20s; }
+    .topnav .logo .r3 { animation-delay: 40s; }
+    .topnav .logo .r4 { animation-delay: 60s; }
+    @keyframes logo-relay {
+      0%       { fill: var(--surface); }
+      13%      { fill: var(--fg); }
+      14%      { fill: var(--fg); }
+      25%      { fill: var(--surface); }
+      100%     { fill: var(--surface); }
+    }
+    @media (prefers-reduced-motion: reduce) { .topnav .logo .relay { animation: none; } .topnav .logo .r1 { fill: var(--fg); } }
+
+    .topnav nav { display: flex; gap: var(--gap-lg); }
+    .topnav nav a { font-size: 14px; color: var(--muted-strong); }
+    .topnav nav a:hover { color: var(--fg); }
+    .topnav nav a[aria-current="page"] { color: var(--fg); font-weight: 500; }
+    .pagefoot { padding-block: var(--gap-xl); color: var(--muted-strong); font-size: 13px; border-top: 1px solid var(--border); }
+    .pagefoot .place { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em; color: var(--muted-strong); text-align: center; margin: var(--gap-lg) auto 0; }
+    .pagefoot .quote { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em; color: var(--muted-strong); text-align: center; margin: var(--gap-sm) auto 0; }
+    .pagefoot a:hover { color: var(--fg); }
+    .pagefoot .row-between { flex-wrap: wrap; gap: var(--gap-md); }
+
+    /* ─── buttons ───────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 11px 20px;
+      border-radius: var(--radius);
+      border: 1px solid transparent;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: -0.005em;
+      transition: transform 0.05s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary {
+      background: color-mix(in oklch, var(--accent) 78%, black);
+      color: var(--surface);
+      border-color: transparent;
+    }
+    .btn-primary:hover { background: color-mix(in oklch, var(--accent) 68%, black); }
+    .btn-secondary { background: transparent; color: var(--fg); border-color: var(--border); }
+    .btn-secondary:hover { border-color: var(--fg); }
+    .btn-ghost { background: transparent; color: var(--fg); border-color: transparent; padding-inline: 8px; }
+    .btn-ghost:hover { color: var(--accent); }
+
+    /* ─── hero (centered) ───────────────────────────────────────────── */
+    .hero-center { padding-block: clamp(52px, 6vw, 84px); text-align: center; }
+    .hero-center h1 { margin-bottom: var(--gap-md); }
+    .hero-center .lead { margin: var(--gap-md) auto 0; }
+
+    /* ─── pipeline diagram ──────────────────────────────────────────── */
+    .pipe {
+      display: flex; align-items: center; justify-content: center;
+      gap: clamp(10px, 2vw, 18px); flex-wrap: wrap;
+      margin-top: var(--gap-lg);
+      font-family: var(--font-mono); font-size: 13px;
+    }
+    .pipe .st {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 14px; border: 1px solid var(--border);
+      border-radius: 999px; color: var(--fg);
+    }
+    .pipe .st .dot { width: 7px; height: 7px; border-radius: 999px; background: var(--status); }
+    .pipe .ar { color: var(--muted-strong); }
+
+    /* ─── avatar: the 1bit.MONSTER mark (four blocks) as JARVIS ───────── */
+    .avatar { position: relative; width: 236px; margin: 0 auto clamp(28px, 3vw, 36px); padding: 34px 30px 22px; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; box-shadow: 0 22px 48px color-mix(in oklch, var(--fg) 10%, transparent); text-align: center; }
+    .avatar .mark { position: relative; width: 148px; height: 148px; margin: 0 auto; }
+    .avatar .mark svg { display: block; width: 100%; height: 100%; shape-rendering: crispEdges; }
+    /* every block starts as a white square with a faint outline */
+    .avatar .mark .blk { fill: var(--surface); stroke: currentColor; stroke-opacity: 0.28; animation: jarvis-relay 80s ease-in-out infinite; }
+    /* each block: 10s fade in, 1s hold, 9s fade out; staggered a quarter apart */
+    .avatar .mark .b1 { animation-delay: 0s; }
+    .avatar .mark .b2 { animation-delay: 20s; }
+    .avatar .mark .b3 { animation-delay: 40s; }
+    .avatar .mark .b4 { animation-delay: 60s; }
+    @keyframes jarvis-relay {
+      0%       { fill: var(--surface); }
+      13%      { fill: var(--fg); }
+      14%      { fill: var(--fg); }
+      25%      { fill: var(--surface); }
+      100%     { fill: var(--surface); }
+    }
+    /* soft accent halo behind the mark */
+    .avatar .halo { position: absolute; inset: -18px; border-radius: 24px; background: radial-gradient(circle, color-mix(in oklch, var(--accent) 16%, transparent) 0%, transparent 68%); filter: blur(2px); }
+    .avatar .cap { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted-strong); text-align: center; margin: 18px 0 0; }
+    .avatar .live { position: absolute; left: 20px; bottom: 18px; width: 9px; height: 9px; border-radius: 999px; background: var(--status); box-shadow: 0 0 0 4px color-mix(in oklch, var(--status) 16%, transparent); }
+    @media (prefers-reduced-motion: reduce) {
+      .avatar .mark .blk { animation: none; }
+      .avatar .mark .b1 { fill: var(--fg); }
+    }
+
+    /* ─── facts ─────────────────────────────────────────────────────── */
+    .fact-list { margin-top: var(--gap-lg); }
+    .fact-row {
+      display: grid; grid-template-columns: 200px 1fr;
+      gap: var(--gap-lg); align-items: baseline;
+      padding: 16px 0; border-top: 1px solid var(--border);
+    }
+    .fact-row:last-of-type { border-bottom: 1px solid var(--border); }
+    .fact-k { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted-strong); }
+    .fact-v { margin: 0; font-size: 15px; max-width: 58ch; }
+    @media (max-width: 920px) { .fact-row { grid-template-columns: 1fr; gap: 8px; } }
+
+    /* ─── code block ────────────────────────────────────────────────── */
+    .code {
+      margin-top: var(--gap-lg);
+      padding: 18px 20px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-family: var(--font-mono);
+      font-size: 13px; line-height: 1.85;
+      color: var(--fg);
+      overflow-x: auto;
+      white-space: pre-wrap; word-break: break-word;
+    }
+    .code .c { color: var(--muted-strong); }
+    .code .cmd { color: var(--accent); font-weight: 600; }
+    h2 .sub { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted-strong); font-weight: 500; display: block; margin-top: 10px; }
+
+    /* ─── status rows ───────────────────────────────────────────────── */
+    .status-list { margin-top: var(--gap-lg); }
+    .status-row {
+      display: grid; grid-template-columns: 200px 1fr;
+      gap: var(--gap-lg); align-items: start;
+      padding: 16px 0; border-top: 1px solid var(--border);
+    }
+    .status-row:last-of-type { border-bottom: 1px solid var(--border); }
+    .status-name { display: inline-flex; gap: 9px; align-items: center; font-size: 15px; font-weight: 600; }
+    .status-note { font-size: 14px; color: var(--muted-strong); }
+    .dot { width: 8px; height: 8px; border-radius: 999px; flex: none; }
+    .dot.v { background: var(--status); }
+    .dot.w { background: var(--border); }
+    @media (max-width: 920px) { .status-row { grid-template-columns: 1fr; gap: 8px; } }
+
+    @media (max-width: 720px) {
+      .topnav-inner { flex-wrap: wrap; row-gap: 12px; }
+      .topnav nav { order: 3; width: 100%; gap: var(--gap-md); justify-content: space-between; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topnav" data-od-id="topnav">
+    <div class="container topnav-inner">
+      <a href="index.html" class="logo">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect class="relay r1" x="2" y="2" width="9" height="9" rx="2"/><rect class="relay r2" x="13" y="2" width="9" height="9" rx="2"/><rect class="relay r3" x="2" y="13" width="9" height="9" rx="2"/><rect class="relay r4" x="13" y="13" width="9" height="9" rx="2"/>
+        </svg>
+        <span>1bit.MONSTER</span>
+      </a>
+      <nav>
+        <a href="1bit-monster-v2.html">Engine</a>
+        <a href="1bit-models.html">Models</a>
+        <a href="1bit-jarvis.html" aria-current="page">1bit JARVIS</a>
+        <a href="1bit-blog.html">Blog</a>
+        <a href="1bit-store.html">Store</a>
+        <a href="1bit-docs.html">Docs</a>
+        <a href="1bit-benchmarks.html">Benchmarks</a>
+      </nav>
+      <a class="btn btn-ghost" href="https://github.com/1bit-MONSTER/1bit-MONSTER">GitHub&nbsp;↗</a>
+    </div>
+  </header>
+
+  <main id="content">
+
+    <!-- Hero -->
+    <section class="section hero-center" data-od-id="hero">
+      <div class="container">
+        <div class="avatar" data-od-id="jarvis-avatar" role="img" aria-label="1bit JARVIS. The 1bit.MONSTER four-block mark as a living avatar. It pulses as it listens, to show it is online and available.">
+          <div class="mark" aria-hidden="true">
+            <span class="halo"></span>
+            <svg viewBox="0 0 24 24">
+              <rect class="blk b1" x="2"  y="2"  width="9" height="9" rx="2"/>
+              <rect class="blk b2" x="13" y="2"  width="9" height="9" rx="2"/>
+              <rect class="blk b3" x="2"  y="13" width="9" height="9" rx="2"/>
+              <rect class="blk b4" x="13" y="13" width="9" height="9" rx="2"/>
+            </svg>
+          </div>
+          <p class="cap">online · available</p>
+          <span class="live" aria-hidden="true"></span>
+        </div>
+        <h1>1bit JARVIS</h1>
+        <p class="lead">The reference voice assistant that ships with the engine. Every stage is in-process and pure C++, and the LLM runs on any backend. The engine is the app.</p>
+        <div class="pipe" data-od-id="pipeline" aria-label="The JARVIS pipeline">
+          <span class="st"><span class="dot"></span>mic</span><span class="ar">→</span>
+          <span class="st">VAD</span><span class="ar">→</span>
+          <span class="st">STT</span><span class="ar">→</span>
+          <span class="st">LLM</span><span class="ar">→</span>
+          <span class="st">TTS</span><span class="ar">→</span>
+          <span class="st">speaker</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- How it runs -->
+    <section class="section" data-od-id="runs">
+      <div class="container">
+        <h2>One process. No Python.<span class="sub">9 files · ~1,300 lines in tools/jarvis/</span></h2>
+        <div class="fact-list" data-od-id="facts">
+          <div class="fact-row" data-od-id="fact-process">
+            <span class="fact-k">one process</span>
+            <p class="fact-v">The in-process BackendManager replaced the old HTTP link to a second server. No wire, no orchestration, no service to babysit.</p>
+          </div>
+          <div class="fact-row" data-od-id="fact-python">
+            <span class="fact-k">pure C++</span>
+            <p class="fact-v">The only subprocesses are arecord, aplay, and piper, the same fork/exec idiom as the engine's own NPU worker. Zero Python anywhere.</p>
+          </div>
+          <div class="fact-row" data-od-id="fact-stack">
+            <span class="fact-k">default stack</span>
+            <p class="fact-v">Zyphra, by default: ZR1 routing into the ZAYA / BlackMamba / Zamba2 LLMs. Point the engine at any model instead, and JARVIS runs it.</p>
+          </div>
+        </div>
+        <pre class="code" data-od-id="run"><code><span class="c"># the one binary is the app</span>
+$ ./build/1bit jarvis --model "Qwen3-0.6B" --text            <span class="c"># text chat</span>
+$ ./build/1bit jarvis --model "Qwen3-0.6B" \
+    --whisper models/whisper-tiny.gguf \
+    --piper-model ~/piper/en_US-lessac-medium.onnx         <span class="c"># voice</span></code></pre>
+      </div>
+    </section>
+
+    <!-- Honest status -->
+    <section class="section" data-od-id="status">
+      <div class="container">
+        <h2>Honest status.<span class="sub">measured, not promised</span></h2>
+        <div class="status-list" data-od-id="status-list">
+          <div class="status-row" data-od-id="status-vad">
+            <span class="status-name"><span class="dot v"></span>VAD</span>
+            <p class="status-note">Energy-based, 20 ms frames, lookback and ramp-down. Kept from v1.</p>
+          </div>
+          <div class="status-row" data-od-id="status-stt">
+            <span class="status-name"><span class="dot v"></span>STT</span>
+            <p class="status-note">GPU-accelerated when a HIP device is present, scalar CPU fallback, WHISPER_GPU=0 to force scalar. Verify on hardware before you trust it.</p>
+          </div>
+          <div class="status-row" data-od-id="status-bargein">
+            <span class="status-name"><span class="dot w"></span>Barge-in</span>
+            <p class="status-note">Not yet. Utterances during a reply are dropped (P1).</p>
+          </div>
+        </div>
+        <p class="meta" style="margin-top: var(--gap-lg);">Etc: STT on an engine backend (for NPU), sentence streaming, barge-in (P1). Codec voice as a stock voice and native ALSA audio (P2).</p>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="pagefoot" data-od-id="footer">
+    <div class="container row-between">
+      <span>© 2026 1bit.MONSTER · MIT License</span>
+      <a class="meta" href="https://github.com/1bit-MONSTER/1bit-MONSTER">github.com/1bit-MONSTER</a>
+    </div>
+    <div class="container">
+      <p class="place" data-od-id="footer-place">Metepenagiag Mi’kmaq Nation, New Brunswick, Canada</p>
+      <p class="quote" data-od-id="footer-quote">"Sorry but not sorry." by bong-water-water-bong</p>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>1bit.MONSTER: Blog</title>
+  <meta name="description" content="The 1bit.MONSTER blog. Notes on reverse-engineering a closed NPU stack, mapping 317,310 checkpoints, and building an engine with zero Python." />
+  <style>
+    /* ─── tokens ─────────────────────────────────────────────────────────
+       Bound verbatim from `1bit-monster-v2.html` (modern-minimal + the
+       1-bit identity). Never reintroduce raw hex; derive in oklch only. */
+    :root {
+      --bg:      oklch(99% 0.002 240);
+      --surface: oklch(100% 0 0);
+      --fg:      oklch(18% 0.012 250);
+      --muted:   oklch(54% 0.012 250);
+      --border:  oklch(92% 0.005 250);
+      --accent:  oklch(58% 0.18 255);
+
+      --status:  oklch(52% 0.14 158);
+
+      --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+      --fg-soft:       color-mix(in oklch, var(--fg) 5%, transparent);
+      --muted-strong:  color-mix(in oklch, var(--muted) 76%, var(--fg));
+      --accent-ink:    color-mix(in oklch, var(--accent) 72%, var(--fg));
+
+      --ink-deep:      color-mix(in oklch, var(--fg) 90%, var(--bg));
+      --on-dark:       color-mix(in oklch, var(--bg) 96%, transparent);
+      --on-dark-muted: color-mix(in oklch, var(--bg) 70%, transparent);
+      --border-dark:   color-mix(in oklch, var(--bg) 16%, transparent);
+      --accent-bright: color-mix(in oklch, var(--accent) 78%, white);
+      --status-bright: color-mix(in oklch, var(--status) 78%, white);
+
+      --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+      --font-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      --font-mono:    ui-monospace, 'SF Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+
+      --fs-h1: clamp(44px, 6vw, 76px);
+      --fs-h2: clamp(32px, 4vw, 48px);
+      --fs-h3: 20px;
+      --fs-lead: 19px;
+      --fs-body: 16px;
+      --fs-meta: 13px;
+
+      --gap-xs: 8px;
+      --gap-sm: 12px;
+      --gap-md: 20px;
+      --gap-lg: 32px;
+      --gap-xl: 48px;
+      --gap-2xl: 80px;
+      --container: 1120px;
+      --gutter: 32px;
+
+      --radius: 10px;
+      --radius-lg: 16px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-body);
+      font-size: var(--fs-body);
+      line-height: 1.6;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+    }
+    img, svg { display: block; max-width: 100%; }
+    a { color: inherit; text-decoration: none; }
+    button { font: inherit; cursor: pointer; }
+    p { text-wrap: pretty; }
+    h1, h2, h3, h4 { text-wrap: balance; }
+    ::selection { background: var(--accent-soft); color: var(--fg); }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+    .container { max-width: var(--container); margin-inline: auto; padding-inline: var(--gutter); }
+    .section { padding-block: clamp(40px, 5vw, 72px); }
+    .section + .section { border-top: 1px solid var(--border); }
+    .stack { display: flex; flex-direction: column; }
+    .stack > * + * { margin-top: var(--gap-md); }
+    .row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-md); }
+
+    .h1, h1 { font-family: var(--font-display); font-size: var(--fs-h1); line-height: 1.08; letter-spacing: -0.02em; margin: 0; font-weight: 600; }
+    .h2, h2 { font-family: var(--font-display); font-size: var(--fs-h2); line-height: 1.12; letter-spacing: -0.015em; margin: 0; font-weight: 600; }
+    .h3, h3 { font-size: var(--fs-h3); font-weight: 600; line-height: 1.3; letter-spacing: -0.005em; margin: 0; }
+    .lead   { font-size: var(--fs-lead); line-height: 1.6; color: var(--muted-strong); max-width: 60ch; margin: 0; }
+    .meta { font-family: var(--font-mono); font-size: var(--fs-meta); color: var(--muted-strong); }
+
+    .topnav { position: sticky; top: 0; z-index: 10; background: color-mix(in oklch, var(--bg) 92%, transparent); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); }
+    .topnav-inner { display: flex; align-items: center; justify-content: space-between; padding-block: 14px; }
+    .topnav .logo { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+    .topnav .logo svg { width: 26px; height: 26px; color: var(--fg); }
+    /* header logo: 1bit relay mark - one block solid at a time, slow */
+    .topnav .logo .relay { fill: var(--surface); stroke: currentColor; stroke-opacity: 0.28; animation: logo-relay 80s ease-in-out infinite; }
+    .topnav .logo .r1 { animation-delay: 0s; }
+    .topnav .logo .r2 { animation-delay: 20s; }
+    .topnav .logo .r3 { animation-delay: 40s; }
+    .topnav .logo .r4 { animation-delay: 60s; }
+    @keyframes logo-relay {
+      0%       { fill: var(--surface); }
+      13%      { fill: var(--fg); }
+      14%      { fill: var(--fg); }
+      25%      { fill: var(--surface); }
+      100%     { fill: var(--surface); }
+    }
+    @media (prefers-reduced-motion: reduce) { .topnav .logo .relay { animation: none; } .topnav .logo .r1 { fill: var(--fg); } }
+
+    .topnav nav { display: flex; gap: var(--gap-lg); }
+    .topnav nav a { font-size: 14px; color: var(--muted-strong); }
+    .topnav nav a:hover { color: var(--fg); }
+    .topnav nav a[aria-current="page"] { color: var(--fg); font-weight: 500; }
+    .pagefoot { padding-block: var(--gap-xl); color: var(--muted-strong); font-size: 13px; border-top: 1px solid var(--border); }
+    .pagefoot a:hover { color: var(--fg); }
+    .pagefoot .row-between { flex-wrap: wrap; gap: var(--gap-md); }
+    .pagefoot .place { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em; color: var(--muted-strong); text-align: center; margin: var(--gap-lg) auto 0; }
+    .pagefoot .quote { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em; color: var(--muted-strong); text-align: center; margin: var(--gap-sm) auto 0; }
+
+    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 20px; border-radius: var(--radius); border: 1px solid transparent; font-size: 14px; font-weight: 500; letter-spacing: -0.005em; transition: transform 0.05s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease; }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary { background: color-mix(in oklch, var(--accent) 78%, black); color: var(--surface); border-color: transparent; }
+    .btn-primary:hover { background: color-mix(in oklch, var(--accent) 68%, black); }
+    .btn-secondary { background: transparent; color: var(--fg); border-color: var(--border); }
+    .btn-secondary:hover { border-color: var(--fg); }
+    .btn-ghost { background: transparent; color: var(--fg); border-color: transparent; padding-inline: 8px; }
+    .btn-ghost:hover { color: var(--accent-ink); }
+    .btn-arrow::after { content: '→'; transition: transform 0.15s ease; }
+    .btn-arrow:hover::after { transform: translateX(2px); }
+
+    /* ─── blog: hero-center ──────────────────────────────────────────── */
+    .hero-center { max-width: 720px; margin-inline: auto; text-align: center; }
+    .hero-center h1 { margin-bottom: var(--gap-md); }
+    .hero-center .lead { margin: var(--gap-md) auto 0; }
+    .eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted-strong); margin: 0 0 18px; }
+
+    /* ─── blog: log list (editorial index) ───────────────────────────── */
+    .log-head { margin-bottom: clamp(20px, 4vw, 40px); }
+    .log-row { display: grid; grid-template-columns: 150px 1fr; gap: var(--gap-lg); align-items: start; padding: clamp(14px, 2.4vw, 22px) 0; border-top: 1px solid var(--border); }
+    .log-row:last-of-type { border-bottom: 1px solid var(--border); }
+    .log-date { font-family: var(--font-mono); font-size: var(--fs-meta); color: var(--muted-strong); padding-top: 4px; }
+    .log-body h3 { font-size: 21px; letter-spacing: -0.01em; margin: 0 0 6px; }
+    .log-body p { margin: 0; color: var(--muted-strong); font-size: 15px; line-height: 1.6; max-width: 66ch; }
+    .log-tags { display: flex; gap: var(--gap-sm); margin-top: 12px; flex-wrap: wrap; }
+    .log-tag { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; color: var(--muted-strong); border: 1px solid var(--border); padding: 3px 9px; border-radius: 999px; }
+    .log-tag.corr { color: color-mix(in oklch, var(--muted) 62%, var(--fg)); border-style: dashed; font-style: italic; }
+    .log-row:hover h3 { color: var(--accent-ink); }
+    .log-link:hover { text-decoration: underline; text-underline-offset: 4px; text-decoration-color: color-mix(in oklch, var(--accent) 55%, transparent); }
+    @media (max-width: 720px) { .log-row { grid-template-columns: 1fr; gap: 6px; } }
+
+    /* ─── blog: featured pull + cta ──────────────────────────────────── */
+    .cta-strip { text-align: center; }
+    .cta-strip .container { max-width: 620px; }
+    .cta-strip .lead { margin: 16px auto 32px; }
+
+    @media (max-width: 920px) {
+      .topnav-inner { flex-wrap: wrap; row-gap: 12px; }
+      .topnav nav { order: 3; width: 100%; gap: var(--gap-md); justify-content: space-between; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topnav" data-od-id="topnav">
+    <div class="container topnav-inner">
+      <a href="index.html" class="logo">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect class="relay r1" x="2" y="2" width="9" height="9" rx="2"/><rect class="relay r2" x="13" y="2" width="9" height="9" rx="2"/><rect class="relay r3" x="2" y="13" width="9" height="9" rx="2"/><rect class="relay r4" x="13" y="13" width="9" height="9" rx="2"/>
+        </svg>
+        <span>1bit.MONSTER</span>
+      </a>
+      <nav>
+        <a href="1bit-monster-v2.html">Engine</a>
+        <a href="1bit-models.html">Models</a>
+        <a href="1bit-jarvis.html">1bit JARVIS</a>
+        <a href="1bit-blog.html" aria-current="page">Blog</a>
+        <a href="1bit-store.html">Store</a>
+        <a href="1bit-docs.html">Docs</a>
+        <a href="1bit-benchmarks.html">Benchmarks</a>
+      </nav>
+      <a class="btn btn-ghost" href="https://github.com/1bit-MONSTER/1bit-MONSTER">GitHub&nbsp;↗</a>
+    </div>
+  </header>
+
+  <main id="content">
+
+    <!-- Blog hero -->
+    <section class="section hero-center" data-od-id="blog-hero">
+      <div class="container">
+        <p class="eyebrow">research · field notes</p>
+        <h1>How the engine actually gets built.</h1>
+        <p class="lead">Public notes on the work. Papers we steal from, benchmarks we run, things we ship. The earliest posts carry measured figures we no longer trust, and each one is marked with a correction.</p>
+      </div>
+    </section>
+
+    <!-- Post index -->
+    <section class="section" data-od-id="index">
+      <div class="container">
+        <div class="row-between log-head">
+          <div>
+            <p class="eyebrow" style="margin-bottom: 12px;">serial · 2026</p>
+            <h2>Notes, in order.</h2>
+          </div>
+          <a class="btn btn-ghost btn-arrow" href="https://github.com/1bit-MONSTER/1bit-MONSTER">Full archive</a>
+        </div>
+
+        <div>
+          <article class="log-row" data-od-id="post-fleet">
+            <span class="log-date">2026-08-19</span>
+            <div class="log-body">
+              <h3><a href="1bit-post-fleet.html" class="log-link">Two PCs, two GPUs, zero cloud</a></h3>
+              <p>A two-node agent fleet on home hardware: two DeepSeek Harness agents on one LAN, both fed by 1bit.MONSTER. 35B at 166 tok/s on a Radeon 8060S, 8B at 96 tok/s on an RX 9070 XT, plus Qwen3-VL vision. Six engine bugs fixed along the way, with methodology.</p>
+              <div class="log-tags"><span class="log-tag">agents</span><span class="log-tag">lan</span><span class="log-tag">benchmarks</span></div>
+            </div>
+          </article>
+
+          <article class="log-row" data-od-id="post-qwen36">
+            <span class="log-date">2026-07-30</span>
+            <div class="log-body">
+              <h3><a href="1bit-post-qwen36.html" class="log-link">Qwen3.6-35B-A3B streams fully on the Ryzen AI NPU</a></h3>
+              <p>AMD's official FastFlowLM numbers, decoded: 13.65 tok/s decode and 221.96 tok/s prefill fully on the NPU (Kraken Point), verified against the official Qwen config. Our own first pass: 75.65 tok/s via llama.cpp Vulkan on Strix Halo.</p>
+              <div class="log-tags"><span class="log-tag">npu</span><span class="log-tag">qwen</span><span class="log-tag">amd</span></div>
+            </div>
+          </article>
+
+          <article class="log-row" data-od-id="post-flm-zoo">
+            <span class="log-date">2026-07-29</span>
+            <div class="log-body">
+              <h3><a href="1bit-post-flm-zoo.html" class="log-link">37 FLM models, 209 xclbins, zero config files</a></h3>
+              <p>We extracted AMD's entire NPU model zoo: all 37 pre-built FLM models from ROCm/FastFlowLM v0.9.46, including the Qwen3.5 Omni multi-modal C++ source and Qwen3.6-MoE-35B with 256 experts. Auto-detection straight from the Q4NX header.</p>
+              <div class="log-tags"><span class="log-tag">reverse-engineer</span><span class="log-tag">npu</span><span class="log-tag">flm</span></div>
+            </div>
+          </article>
+
+          <article class="log-row" data-od-id="post-zyphra">
+            <span class="log-date">2026-07-26</span>
+            <div class="log-body">
+              <h3><a href="1bit-post-zyphra.html" class="log-link">Zyphra family complete</a></h3>
+              <p>Zamba2 hybrid SSM and ZR1 reasoning, all 1BP. All four models converted and validated end-to-end on ZINC GPU: Zamba2 1.2B/2.7B/7B (Mamba2-hybrid) and ZR1-1.5B, 26 tok/s on Strix Halo. Two architectures, one engine.</p>
+              <div class="log-tags"><span class="log-tag">zyphra</span><span class="log-tag">1bp</span><span class="log-tag">zinc</span></div>
+            </div>
+          </article>
+
+          <article class="log-row" data-od-id="post-binary-formats">
+            <span class="log-date">2026-07-24</span>
+            <div class="log-body">
+              <h3><a href="1bit-post-binary-formats.html" class="log-link">One binary, all formats</a></h3>
+              <p>Ternary and binary inference on NPU + GPU. Full support for Q1_0, TQ1, TQ2, IQ1_S/M and BitNet GGUF on both GPU (HIP/Vulkan) and NPU (XDNA 2), verified exact on real Strix Halo hardware. 4,200 lines across 31 files.</p>
+              <div class="log-tags"><span class="log-tag">formats</span><span class="log-tag">quantization</span><span class="log-tag">npu</span></div>
+            </div>
+          </article>
+
+          <article class="log-row" data-od-id="post-unsloth">
+            <span class="log-date">2026-07-23</span>
+            <div class="log-body">
+              <h3><a href="1bit-post-unsloth.html" class="log-link">Unsloth for AMD</a></h3>
+              <p>Train and fine-tune LLMs on Radeon, Instinct and Ryzen AI. Native AMD GPU support for training, fine-tuning and RL: 2x faster, 70% less VRAM, runs in 3GB. Complementary to our inference side.</p>
+              <div class="log-tags"><span class="log-tag">training</span><span class="log-tag">amd</span></div>
+            </div>
+          </article>
+
+          <article class="log-row" data-od-id="post-tokenrouter">
+            <span class="log-date">2026-07-11</span>
+            <div class="log-body">
+              <h3><a href="1bit-post-tokenrouter.html" class="log-link">TokenRouter: token-level multi-backend inference</a></h3>
+              <p>Open-source token-level routing for multi-backend LLM inference on AMD Strix Halo. NPU draft plus GPU verify, with real logprobs on the wire.</p>
+              <div class="log-tags"><span class="log-tag">routing</span><span class="log-tag">npu</span><span class="log-tag">open-source</span></div>
+            </div>
+          </article>
+
+          <article class="log-row" data-od-id="post-halo-reviews">
+            <span class="log-date">2026-07-06</span>
+            <div class="log-body">
+              <h3><a href="1bit-post-halo-reviews.html" class="log-link">What the Ryzen AI Halo reviews didn't tell you</a></h3>
+              <p>AMD Strix Halo ships a 50 TOPS NPU. AMD's FLM runtime gets 11 tok/s and ROCm gets 41 tok/s; we drive the same NPU through a fused-layer engine. Throughput here is historical and unsourced.</p>
+              <div class="log-tags"><span class="log-tag">npu</span><span class="log-tag">amd</span><span class="log-tag corr">correction</span></div>
+            </div>
+          </article>
+
+          <article class="log-row" data-od-id="post-dspark">
+            <span class="log-date">2026-07-06</span>
+            <div class="log-body">
+              <h3><a href="1bit-post-dspark.html" class="log-link">DSpark speculative decoding, disproven</a></h3>
+              <p>DSpark was projected to hit 572 tok/s on Strix Halo. End-to-end measurement on the NPU disproved it: 0.1 to 0.2 tok/s at 0% draft acceptance. How and why, and what it would take to fix. Figures here are historical and unsourced.</p>
+              <div class="log-tags"><span class="log-tag">spec-decode</span><span class="log-tag">npu</span><span class="log-tag corr">correction</span></div>
+            </div>
+          </article>
+
+          <article class="log-row" data-od-id="post-three-bugs">
+            <span class="log-date">2026-07-06</span>
+            <div class="log-body">
+              <h3><a href="1bit-post-three-bugs.html" class="log-link">Three bugs that broke 97 tok/s</a></h3>
+              <p>The 97 tok/s number was real. The output behind it never was. Three silent bugs, LM head substitution, weight transpose and activation clipping, were producing garbage at full speed.</p>
+              <div class="log-tags"><span class="log-tag">debugging</span><span class="log-tag">npu</span></div>
+            </div>
+          </article>
+
+          <article class="log-row" data-od-id="post-one-engine">
+            <span class="log-date">2026-07-06</span>
+            <div class="log-body">
+              <h3><a href="1bit-post-one-engine.html" class="log-link">One engine. Every model. Any chip.</a></h3>
+              <p>How a single tiny C++ binary auto-detects 73+ models across six backends, NPU, ROCm, Vulkan, CUDA, Metal and CPU, from one Q4NX header parse.</p>
+              <div class="log-tags"><span class="log-tag">architecture</span><span class="log-tag">auto-detect</span></div>
+            </div>
+          </article>
+
+          <article class="log-row" data-od-id="post-sprint">
+            <span class="log-date">2026-07-06</span>
+            <div class="log-body">
+              <h3><a href="1bit-post-sprint.html" class="log-link">244 to 3.4 ms/tok: the NPU optimization sprint</a></h3>
+              <p>Seven engine versions in four days took NPU inference from 1,930 ms/tok to 3.4 ms/tok, a 72x speedup through batch decode, fused dispatch and INT8 GEMM. Throughput here is historical and unsourced.</p>
+              <div class="log-tags"><span class="log-tag">performance</span><span class="log-tag">npu</span><span class="log-tag corr">correction</span></div>
+            </div>
+          </article>
+
+          <article class="log-row" data-od-id="post-50t">
+            <span class="log-date">2026-07-06</span>
+            <div class="log-body">
+              <h3><a href="1bit-post-50t.html" class="log-link">50 TOPS on a laptop</a></h3>
+              <p>Benchmarking the XDNA 2 NPU: historical NPU benchmark notes from the first month of the project. Figures quarantined as unsourced.</p>
+              <div class="log-tags"><span class="log-tag">npu</span><span class="log-tag">benchmark</span><span class="log-tag corr">correction</span></div>
+            </div>
+          </article>
+
+          <article class="log-row" data-od-id="post-fused">
+            <span class="log-date">2026-07-06</span>
+            <div class="log-body">
+              <h3><a href="1bit-post-fused.html" class="log-link">The fused layer engine</a></h3>
+              <p>How QKV, attention and FFN combine into a single NPU dispatch, eliminating five of every six per-layer xclbin calls. Throughput here is historical and unsourced.</p>
+              <div class="log-tags"><span class="log-tag">npu</span><span class="log-tag">fused</span><span class="log-tag corr">correction</span></div>
+            </div>
+          </article>
+
+          <article class="log-row" data-od-id="post-reverse-4days">
+            <span class="log-date">2026-07-06</span>
+            <div class="log-body">
+              <h3><a href="1bit-post-npu-reversal.html" class="log-link">I reverse-engineered AMD's NPU stack in 4 days</a></h3>
+              <p>One person, a free Chess license and a C++ compiler turned AMD's locked-down NPU into an open-source inference engine. Throughput figures here are historical and unsourced.</p>
+              <div class="log-tags"><span class="log-tag">reverse-engineer</span><span class="log-tag">npu</span><span class="log-tag corr">correction</span></div>
+            </div>
+          </article>
+
+          <article class="log-row" data-od-id="post-coding-agent">
+            <span class="log-date">2026-07-02</span>
+            <div class="log-body">
+              <h3><a href="1bit-post-coding-agent.html" class="log-link">1bit Coding Agent released</a></h3>
+              <p>A pi.dev-compatible coding agent CLI with 7 commands, NPU-native inference, package management, extensions, skills, themes and a systemd service. Ships as part of the 1bit MONSTER monorepo.</p>
+              <div class="log-tags"><span class="log-tag">agent</span><span class="log-tag">release</span></div>
+            </div>
+          </article>
+
+          <article class="log-row" data-od-id="post-npu-v12">
+            <span class="log-date">2026-07-02</span>
+            <div class="log-body">
+              <h3><a href="1bit-post-npu-v12.html" class="log-link">NPU v12: M=32 batch decode at 97 tok/s</a></h3>
+              <p>A 24x speedup in one session, from 244 to 10 ms/tok, beating FLM Kraken Point by 46%. OpenMP attention plus LM head. Full C++23, zero Python.</p>
+              <div class="log-tags"><span class="log-tag">npu</span><span class="log-tag">performance</span></div>
+            </div>
+          </article>
+
+          <article class="log-row" data-od-id="post-historical">
+            <span class="log-date">2026-04-28</span>
+            <div class="log-body">
+              <h3><a href="1bit-post-historical.html" class="log-link">Historical benchmark: both lanes green</a></h3>
+              <p>An early local run with one Lemonade endpoint over two compute lanes, iGPU llama.cpp ROCm plus NPU FLM, on Linux. Historical local run, kept for the record.</p>
+              <div class="log-tags"><span class="log-tag">benchmark</span><span class="log-tag corr">correction</span></div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA strip -->
+    <section class="section cta-strip" data-od-id="cta-strip">
+      <div class="container">
+        <h2>Read the source, not the blog.</h2>
+        <p class="lead">The notes will land. The engine is already there and it is free.</p>
+        <a class="btn btn-primary" href="https://github.com/1bit-MONSTER/1bit-MONSTER">Read the source on GitHub</a>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="pagefoot" data-od-id="footer">
+    <div class="container">
+      <div class="row-between">
+        <span>© 2026 1bit.MONSTER · MIT License</span>
+        <a class="meta" href="https://github.com/1bit-MONSTER/1bit-MONSTER">github.com/1bit-MONSTER</a>
+      </div>
+      <p class="place" data-od-id="footer-place">Metepenagiag Mi'kmaq Nation, New Brunswick, Canada</p>
+      <p class="quote" data-od-id="footer-quote">"Sorry but not sorry." by bong-water-water-bong</p>
+    </div>
+  </footer>
+</body>
+</html>

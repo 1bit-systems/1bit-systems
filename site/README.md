@@ -1,77 +1,86 @@
-# 1bit-site
+# 1bit.MONSTER
 
-Static Cloudflare Pages site for `1bit.monster`.
+<sub>**One engine. Any model. Zero Python.**</sub>
 
-The site is deliberately simple: vanilla HTML/CSS/JS, no framework, no CDN, no analytics. The landing page is the public docs surface for the current repair path; legacy `/docs/*` paths redirect back to anchors on `/` through `_redirects`.
+A model-agnostic, hardware-agnostic, pure-C++23 inference engine — MIT licensed.
+One binary that runs Hugging Face models on **NPU + GPU + CPU**. 16 model families,
+the native **1BP** format, and **JARVIS** (the flagship voice assistant) all inside
+`build/1bit`.
 
-## Layout
+100% HF model coverage, any hardware. An open-source, pure-C++ inference engine.
+NPU + GPU + CPU in one engine. Zero Python. MIT.
 
-```text
-1bit-site/
-  index.html       clean landing/docs page for the toolbox-first repair path
-  install.sh       curl-pipe bootstrap that hands off to repo install.sh
-  _headers         Cloudflare Pages headers
-  _redirects       docs and short-link redirects
-  robots.txt       crawler policy
-  wrangler.toml    Cloudflare Pages project config
-  assets/          local fonts, logos, CSS, JS, app screenshots
-  blog/            static blog index
+---
+
+### The lines
+
+- **One engine, any model** — detects the architecture and picks a kernel path. No config, no glue.
+- **Zero Python** — pure C++23. No virtualenv, no pip, nothing to babysit. Source to model in three commands.
+- **The NPU story** — AMD's closed XDNA 2 stack, 22 proprietary libraries, was reverse-engineered in four days. And now it beats it.
+
+---
+
+### Hardware targets
+
+| Backend | Notes |
+|---|---|
+| **NPU** | XDNA 2 DPU kernels, Q4NX / 1BP, 64 MB SRAM |
+| **GPU** | HIP (ROCm) + Vulkan, fused MoE shaders |
+| **CPU** | scalar + OpenMP fallbacks |
+
+One binary, every backend. `build/1bit` is the engine, the serving server, the CLI, and the voice assistant.
+
+---
+
+### Model coverage
+
+16 documented families: `qwen`, `llama`, `deepseek`, `gemma`, `mistral`, `phi`,
+`olmo`, `gpt-oss`, `falcon`, `granite`, `kimi`, `laguna`, `bitnet-bonsai`,
+`smollm`, `whisper`, `zyphra`. The **Zyphra** family is the one the engine was
+tuned against and powers JARVIS by default.
+
+---
+
+### Quick start
+
+```bash
+git clone https://github.com/1bit-MONSTER/1bit-MONSTER && cd 1bit-MONSTER
+bash install.sh            # build
+bash install.sh --with-jarvis   # build + JARVIS launcher + config
+
+./build/1bit zaya               # serve on :8088
+./build/1bit zaya --port 8080   # custom port
 ```
 
-Current public architecture:
+---
 
-```text
-Apps / SDKs -> 1bit-proxy :13306/v1 or :13306/api/v1
-                 -> toolbox llama-server or Lemonade :13305/v1
+### The site
 
-Open WebUI :3000 -> 1bit-proxy :13306/v1
-Control plane    -> target: 1bit CLI + systemd/toolbox lifecycle
-```
+This repo hosts the **1bit.MONSTER marketing site** — a self-contained static
+site (no build step, no dependencies), designed in a modern-minimal light system
+with a 1-bit pixel identity.
 
-The finished single control plane is not shipping yet. Public copy should say
-the repaired out-of-box path is toolbox-backed Strix Halo inference first:
-`vulkan-radv` for compatibility, then `rocm-7.2.2` after `/dev/dri` and
-`/dev/kfd` are verified.
+| Page | File |
+|---|---|
+| Landing / index | [`index.html`](index.html) |
+| Engine | [`1bit-monster-v2.html`](1bit-monster-v2.html) |
+| Models | [`1bit-models.html`](1bit-models.html) |
+| JARVIS | [`1bit-jarvis.html`](1bit-jarvis.html) |
+| Blog | [`1bit-blog.html`](1bit-blog.html) |
+| Store | [`1bit-store.html`](1bit-store.html) |
+| Docs | [`1bit-docs.html`](1bit-docs.html) · `docs-*.html` |
+| Benchmarks | [`1bit-benchmarks.html`](1bit-benchmarks.html) |
 
-## Local Preview
+---
 
-```sh
-cd 1bit-site
-python3 -m http.server 8765
-```
+### Design system
 
-Open `http://127.0.0.1:8765`.
+- **Light modern-minimal ground** — near-white background, ink type, hairline structure.
+- **1-bit pixel identity** — the relay mark, crisp pixel art, one blue accent + one status green.
+- **Type** — system display sans + system body; mono for numerics, labels, micro-labels.
 
-## Cloudflare Pages Deploy
+---
 
-Preview deploy:
+### License
 
-```sh
-cd 1bit-site
-npx wrangler pages deploy . \
-  --project-name=1bit-systems \
-  --branch=preview-$(date +%Y-%m-%d) \
-  --commit-dirty=true
-```
-
-Production deploy:
-
-```sh
-cd 1bit-site
-npx wrangler pages deploy . \
-  --project-name=1bit-systems \
-  --branch=main \
-  --commit-dirty=true
-```
-
-The custom domain `1bit.monster` is bound to the `main` branch in Cloudflare Pages. `_headers` is applied automatically.
-
-## Rules
-
-- Keep it static.
-- Keep copy aligned with `README.md`.
-- Do not publish local inference ports as internet-accessible services.
-- Keep the inference endpoint contract primary.
-- Keep the single control plane secondary and explicitly unfinished.
-- Keep toolbox-backed llama.cpp first for Ubuntu/Fedora repair copy.
-- Keep proxy on `:13306`, active backend on `:13305`, Open WebUI secondary.
+MIT. See [`LICENSE`](LICENSE).

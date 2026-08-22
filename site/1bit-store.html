@@ -1,0 +1,2714 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>1bit.MONSTER: Store</title>
+  <meta name="description" content="The 1bit.MONSTER store. Printed hardware for the engine: tees, hoodies, mugs, bottles, and the full sticker line. Priced in real dollars, made on demand." />
+  <style>
+    /* ─── tokens ─────────────────────────────────────────────────────────
+       Bound verbatim from `1bit-monster-v2.html` (modern-minimal + the
+       1-bit identity). Never reintroduce raw hex; derive in oklch only. */
+    :root {
+      --bg:      oklch(99% 0.002 240);
+      --surface: oklch(100% 0 0);
+      --fg:      oklch(18% 0.012 250);
+      --muted:   oklch(54% 0.012 250);
+      --border:  oklch(92% 0.005 250);
+      --accent:  oklch(58% 0.18 255);
+
+      --status:  oklch(52% 0.14 158);
+
+      --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+      --fg-soft:       color-mix(in oklch, var(--fg) 5%, transparent);
+      --muted-strong:  color-mix(in oklch, var(--muted) 76%, var(--fg));
+
+      --ink-deep:      color-mix(in oklch, var(--fg) 90%, var(--bg));
+      --on-dark:       color-mix(in oklch, var(--bg) 96%, transparent);
+      --on-dark-muted: color-mix(in oklch, var(--bg) 70%, transparent);
+      --border-dark:   color-mix(in oklch, var(--bg) 16%, transparent);
+      --accent-bright: color-mix(in oklch, var(--accent) 78%, white);
+      --status-bright: color-mix(in oklch, var(--status) 78%, white);
+
+      --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+      --font-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      --font-mono:    ui-monospace, 'SF Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+
+      --fs-h1: clamp(44px, 6vw, 76px);
+      --fs-h2: clamp(32px, 4vw, 48px);
+      --fs-h3: 20px;
+      --fs-lead: 19px;
+      --fs-body: 16px;
+      --fs-meta: 13px;
+
+      --gap-xs: 8px;
+      --gap-sm: 12px;
+      --gap-md: 20px;
+      --gap-lg: 32px;
+      --gap-xl: 48px;
+      --gap-2xl: 80px;
+      --container: 1120px;
+      --gutter: 32px;
+
+      --radius: 10px;
+      --radius-lg: 16px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-body);
+      font-size: var(--fs-body);
+      line-height: 1.6;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+    }
+    body.cart-open { overflow: hidden; }
+    img, svg { display: block; max-width: 100%; }
+    a { color: inherit; text-decoration: none; }
+    button { font: inherit; cursor: pointer; }
+    p { text-wrap: pretty; }
+    h1, h2, h3, h4 { text-wrap: balance; }
+    ::selection { background: var(--accent-soft); color: var(--fg); }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+    .container { max-width: var(--container); margin-inline: auto; padding-inline: var(--gutter); }
+    .section { padding-block: clamp(40px, 5vw, 72px); }
+    .section + .section { border-top: 1px solid var(--border); }
+    .stack { display: flex; flex-direction: column; }
+    .stack > * + * { margin-top: var(--gap-md); }
+    .row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-md); }
+
+    .h1, h1 { font-family: var(--font-display); font-size: var(--fs-h1); line-height: 1.08; letter-spacing: -0.02em; margin: 0; font-weight: 600; }
+    .h2, h2 { font-family: var(--font-display); font-size: var(--fs-h2); line-height: 1.12; letter-spacing: -0.015em; margin: 0; font-weight: 600; }
+    .h3, h3 { font-size: var(--fs-h3); font-weight: 600; line-height: 1.3; letter-spacing: -0.005em; margin: 0; }
+    .lead   { font-size: var(--fs-lead); line-height: 1.6; color: var(--muted-strong); max-width: 60ch; margin: 0; }
+    .meta { font-family: var(--font-mono); font-size: var(--fs-meta); color: var(--muted-strong); }
+
+    .topnav { position: sticky; top: 0; z-index: 30; background: color-mix(in oklch, var(--bg) 92%, transparent); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); }
+    .topnav-inner { display: flex; align-items: center; justify-content: space-between; padding-block: 14px; }
+    .topnav .logo { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+    .topnav .logo svg { width: 26px; height: 26px; color: var(--fg); }
+    /* header logo: 1bit relay mark - one block solid at a time, slow */
+    .topnav .logo .relay { fill: var(--surface); stroke: currentColor; stroke-opacity: 0.28; animation: logo-relay 80s ease-in-out infinite; }
+    .topnav .logo .r1 { animation-delay: 0s; }
+    .topnav .logo .r2 { animation-delay: 20s; }
+    .topnav .logo .r3 { animation-delay: 40s; }
+    .topnav .logo .r4 { animation-delay: 60s; }
+    @keyframes logo-relay {
+      0%       { fill: var(--surface); }
+      13%      { fill: var(--fg); }
+      14%      { fill: var(--fg); }
+      25%      { fill: var(--surface); }
+      100%     { fill: var(--surface); }
+    }
+    @media (prefers-reduced-motion: reduce) { .topnav .logo .relay { animation: none; } .topnav .logo .r1 { fill: var(--fg); } }
+
+    .topnav nav { display: flex; gap: var(--gap-lg); }
+    .topnav nav a { font-size: 14px; color: var(--muted-strong); }
+    .topnav nav a:hover { color: var(--fg); }
+    .topnav nav a[aria-current="page"] { color: var(--fg); font-weight: 500; }
+    .nav-actions { display: flex; align-items: center; gap: 8px; }
+    .cart-btn { position: fixed; right: 20px; bottom: 20px; z-index: 39; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 16px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 14px; font-weight: 500; color: var(--fg); background: var(--surface); box-shadow: 0 10px 28px color-mix(in oklch, var(--ink-deep) 18%, transparent); }
+    .cart-btn:hover { border-color: var(--fg); background: var(--fg-soft); }
+    .cart-btn svg { width: 17px; height: 17px; }
+    .cart-count { display: none; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding-inline: 5px; border-radius: 999px; background: var(--ink-deep); color: var(--on-dark); font-family: var(--font-mono); font-size: 11px; }
+    .pagefoot { padding-block: var(--gap-xl); color: var(--muted-strong); font-size: 13px; border-top: 1px solid var(--border); }
+    .pagefoot .place { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em; color: var(--muted-strong); text-align: center; margin: var(--gap-lg) auto 0; }
+    .pagefoot .quote { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em; color: var(--muted-strong); text-align: center; margin: var(--gap-sm) auto 0; }
+    .pagefoot a:hover { color: var(--fg); }
+    .pagefoot .row-between { flex-wrap: wrap; gap: var(--gap-md); }
+
+    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 20px; border-radius: var(--radius); border: 1px solid transparent; font-size: 14px; font-weight: 500; letter-spacing: -0.005em; transition: transform 0.05s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease; }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary { background: color-mix(in oklch, var(--accent) 78%, black); color: var(--surface); border-color: transparent; }
+    .btn-primary:hover { background: color-mix(in oklch, var(--accent) 68%, black); }
+    .btn-secondary { background: transparent; color: var(--fg); border-color: var(--border); }
+    .btn-secondary:hover { border-color: color-mix(in oklch, var(--fg) 55%, var(--border)); }
+    .btn-ghost { background: transparent; color: var(--fg); border-color: transparent; padding-inline: 8px; }
+    .btn-ghost:hover { color: var(--accent); }
+    .btn-arrow::after { content: '→'; transition: transform 0.15s ease; }
+    .btn-arrow:hover::after { transform: translateX(2px); }
+
+    /* ─── store: hero-center ─────────────────────────────────────────── */
+    .hero-center { max-width: 760px; margin-inline: auto; text-align: center; }
+    .hero-center h1 { margin-bottom: var(--gap-md); }
+    .hero-center .lead { margin: var(--gap-md) auto 0; }
+    .eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted-strong); margin: 0 0 18px; }
+
+    /* ─── store: product grid ────────────────────────────────────────── */
+    .shop-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--gap-lg); margin-top: var(--gap-xl); }
+    .product-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--gap-md); display: flex; flex-direction: column; position: relative; transition: border-color 0.15s ease; }
+    .product-card:hover { border-color: color-mix(in oklch, var(--fg) 22%, var(--border)); }
+    .product-card.featured { grid-column: span 2; border-color: color-mix(in oklch, var(--accent) 40%, var(--border)); }
+    .product-tile { position: relative; background: linear-gradient(180deg, var(--surface) 0%, color-mix(in oklch, var(--fg) 3.5%, var(--surface)) 100%); border-radius: var(--radius); overflow: hidden; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; margin-bottom: 16px; }
+    .product-card.featured .product-tile { aspect-ratio: 5 / 3; }
+    .product-tile svg { width: 84%; height: 84%; }
+    .product-card.featured .product-tile svg { width: 78%; height: 78%; }
+    .product-tile .ink { fill: var(--ink-deep); }
+    .product-tile .ink2 { fill: color-mix(in oklch, var(--fg) 74%, var(--bg)); }
+    .product-tile .shade { fill: color-mix(in oklch, var(--fg) 13%, transparent); }
+    .product-tile .print { fill: var(--on-dark); }
+    .product-tile .ink-stroke { stroke: var(--ink-deep); fill: none; }
+    .product-tile .print-stroke { stroke: var(--on-dark); fill: none; }
+    .product-tile .sub { fill: color-mix(in oklch, var(--fg) 58%, var(--bg)); }
+    .product-tile .sheet { fill: var(--surface); stroke: var(--ink-deep); stroke-width: 1.6; }
+    /* ─── 1-bit pixel-art plates ── crisp, blocky, one accent ───────── */
+    .product-tile svg { shape-rendering: crispEdges; }
+    .product-tile .p-ink  { fill: var(--ink-deep); }
+    .product-tile .p-mid  { fill: color-mix(in oklch, var(--fg) 66%, var(--bg)); }
+    .product-tile .p-soft { fill: color-mix(in oklch, var(--fg) 30%, var(--surface)); }
+    .product-tile .p-foot { fill: color-mix(in oklch, var(--fg) 16%, transparent); }
+    .product-tile .p-print{ fill: var(--on-dark); }
+    .product-tile .p-line { fill: var(--on-dark); stroke: none; }
+    /* live relay on the prints: one block solid at a time */
+    .product-tile .relay { fill: var(--on-dark); animation: store-relay 9s ease-in-out infinite; animation-delay: var(--rd, 0s); }
+    .sticker-tile .relay { fill: currentColor; animation: store-relay 9s ease-in-out infinite; animation-delay: var(--rd, 0s); }
+    @keyframes store-relay { 0%, 82%, 100% { opacity: 1; } 88% { opacity: 0.25; } 93% { opacity: 1; } }
+    .product-card.featured .relay { animation-duration: 12s; }
+    @media (prefers-reduced-motion: reduce) { .product-tile .relay, .sticker-tile .relay { animation: none; } }
+    .product-body { display: flex; flex-direction: column; flex: 1; gap: 8px; }
+    .product-kicker { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted-strong); }
+    .sku-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 4px 0 8px; }
+    .product-name { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+    .product-desc { margin: 0; color: var(--muted-strong); font-size: 14px; line-height: 1.55; flex: 1; }
+    .product-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
+    .product-price { font-family: var(--font-mono); font-size: 14px; color: var(--fg); }
+    .product-card.featured .product-kicker { color: var(--accent); }
+
+    /* size chips */
+    .size-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+    .size-btn { min-width: 36px; height: 34px; padding-inline: 8px; font-family: var(--font-mono); font-size: 12px; color: var(--muted-strong); background: transparent; border: 1px solid var(--border); border-radius: 8px; }
+    .size-btn:hover { border-color: var(--fg); color: var(--fg); }
+    .size-btn.active { background: var(--ink-deep); color: var(--on-dark); border-color: var(--ink-deep); }
+
+    /* single stickers: compact strip */
+    .sticker-label { margin: clamp(32px, 4.6vw, 52px) 0 0; display: flex; align-items: baseline; justify-content: space-between; gap: var(--gap-md); flex-wrap: wrap; }
+    .sticker-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--gap-md); margin-top: var(--gap-lg); }
+    .sticker-card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--gap-md); display: flex; flex-direction: column; background: var(--surface); transition: border-color 0.15s ease; }
+    .sticker-card:hover { border-color: color-mix(in oklch, var(--fg) 22%, var(--border)); }
+    .sticker-tile { background-color: var(--fg-soft); background-image: radial-gradient(color-mix(in oklch, var(--fg) 14%, transparent) 1px, transparent 1px); background-size: 14px 14px; border-radius: var(--radius); aspect-ratio: 1; display: flex; align-items: center; justify-content: center; margin-bottom: 14px; color: var(--fg); }
+    .sticker-tile svg { width: 64%; height: 64%; }
+    .sticker-name { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+    .sticker-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+
+    /* free with order */
+    .free-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--gap-lg); margin-top: var(--gap-lg); }
+    .free-cell { border-top: 1px solid var(--border); padding-top: 14px; }
+    .free-cell h3 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+    .free-cell p { margin: 0; color: var(--muted-strong); font-size: 14px; line-height: 1.55; }
+
+    /* ─── store: cta strip ───────────────────────────────────────────── */
+    .cta-strip { text-align: center; }
+    .cta-strip .container { max-width: 620px; }
+    .cta-strip .lead { margin: 16px auto 32px; }
+    .cta-strip .btn { margin-top: 0; }
+
+    /* ─── cart drawer ────────────────────────────────────────────────── */
+    .cart-scrim { position: fixed; inset: 0; z-index: 40; background: color-mix(in oklch, var(--ink-deep) 42%, transparent); opacity: 0; pointer-events: none; transition: opacity 0.2s ease; }
+    .cart-drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 41; width: min(400px, 100%); background: var(--surface); border-left: 1px solid var(--border); box-shadow: -24px 0 60px color-mix(in oklch, var(--ink-deep) 14%, transparent); transform: translateX(105%); transition: transform 0.28s ease; display: flex; flex-direction: column; }
+    body.cart-open .cart-scrim { opacity: 1; pointer-events: auto; }
+    body.cart-open .cart-drawer { transform: none; }
+    .cart-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 24px; border-bottom: 1px solid var(--border); }
+    .cart-head h2 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+    .cart-close { display: inline-flex; width: 34px; height: 34px; align-items: center; justify-content: center; border-radius: 8px; background: transparent; border: 1px solid transparent; color: var(--muted-strong); }
+    .cart-close:hover { color: var(--fg); background: var(--fg-soft); }
+    .cart-close svg { width: 16px; height: 16px; }
+    .cart-items { flex: 1; overflow-y: auto; padding: 8px 24px; }
+    .cart-empty { padding: 48px 8px; text-align: center; color: var(--muted-strong); font-size: 14px; }
+    .cart-empty code { font-family: var(--font-mono); font-size: 12px; color: var(--fg); }
+    .cart-item { display: flex; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--border); }
+    .cart-item:last-of-type { border-bottom: none; }
+    .cart-item-tile { flex: 0 0 52px; height: 52px; border-radius: 8px; background: var(--fg-soft); color: var(--fg); display: flex; align-items: center; justify-content: center; }
+    .cart-item-tile svg { width: 70%; height: 70%; }
+    .cart-item-info { flex: 1; min-width: 0; }
+    .cart-item-name { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+    .cart-item-meta { font-family: var(--font-mono); font-size: 11px; color: var(--muted-strong); margin-top: 2px; }
+    .cart-item-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+    .cart-qty { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .cart-qty button { width: 28px; height: 28px; background: transparent; border: none; color: var(--fg); font-size: 14px; line-height: 1; }
+    .cart-qty button:hover { background: var(--fg-soft); }
+    .cart-qty span { min-width: 28px; text-align: center; font-family: var(--font-mono); font-size: 12px; }
+    .cart-item-price { font-family: var(--font-mono); font-size: 13px; }
+    .cart-remove { font-family: var(--font-mono); font-size: 11px; color: var(--muted-strong); background: none; border: none; padding: 4px; }
+    .cart-remove:hover { color: var(--fg); text-decoration: underline; }
+    .cart-foot { padding: 18px 24px 24px; border-top: 1px solid var(--border); }
+    .cart-total { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+    .cart-total span { font-size: 14px; }
+    .cart-total strong { font-family: var(--font-mono); font-size: 18px; font-weight: 600; }
+    .cart-note { font-family: var(--font-mono); font-size: 11px; color: var(--muted-strong); margin: 12px 0 0; line-height: 1.5; }
+    .cart-foot .btn { width: 100%; justify-content: center; }
+
+    @media (max-width: 920px) {
+      .shop-grid { grid-template-columns: repeat(2, 1fr); gap: var(--gap-md); }
+      .product-card.featured { grid-column: span 2; }
+      .sticker-grid { grid-template-columns: repeat(2, 1fr); }
+      .free-grid { grid-template-columns: 1fr; gap: var(--gap-md); }
+    }
+    @media (max-width: 560px) {
+      .shop-grid { grid-template-columns: 1fr; }
+      .product-card.featured { grid-column: span 1; }
+      .sticker-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 920px) {
+      .topnav-inner { flex-wrap: wrap; row-gap: 12px; }
+      .topnav nav { order: 3; width: 100%; gap: var(--gap-md); justify-content: space-between; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .cart-scrim, .cart-drawer { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topnav" data-od-id="topnav">
+    <div class="container topnav-inner">
+      <a href="index.html" class="logo">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect class="relay r1" x="2" y="2" width="9" height="9" rx="2"/><rect class="relay r2" x="13" y="2" width="9" height="9" rx="2"/><rect class="relay r3" x="2" y="13" width="9" height="9" rx="2"/><rect class="relay r4" x="13" y="13" width="9" height="9" rx="2"/>
+        </svg>
+        <span>1bit.MONSTER</span>
+      </a>
+      <nav>
+        <a href="1bit-monster-v2.html">Engine</a>
+        <a href="1bit-models.html">Models</a>
+        <a href="1bit-jarvis.html">1bit JARVIS</a>
+        <a href="1bit-blog.html">Blog</a>
+        <a href="1bit-store.html" aria-current="page">Store</a>
+        <a href="1bit-docs.html">Docs</a>
+        <a href="1bit-benchmarks.html">Benchmarks</a>
+      </nav>
+      <div class="nav-actions">
+        <a class="btn btn-ghost" href="https://github.com/1bit-MONSTER/1bit-MONSTER">GitHub&nbsp;↗</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="content">
+
+    <button class="cart-btn" type="button" id="cart-open" aria-haspopup="dialog" aria-controls="cart-drawer" data-od-id="path-0-0-2-0" data-od-source-path="path-0-0-2-0">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 4h2l2.4 12h11.1L21 8H6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9.5" cy="20" r="1.4" fill="currentColor"/><circle cx="17" cy="20" r="1.4" fill="currentColor"/></svg>
+      Cart
+      <span class="cart-count" id="cart-count" aria-label="items in cart">0</span>
+    </button>
+
+    <!-- Store hero -->
+    <section class="section hero-center" data-od-id="store-hero">
+      <div class="container">
+        <p class="eyebrow">1bit.MONSTER · physical</p>
+        <h1>The engine is free. The merch is real.</h1>
+        <p class="lead">Printed hardware for the people who run it. Every item below is made on demand and priced in real dollars. Every order ships with a free 1bit lanyard, a three-pack of stickers, and a mystery sticker we never sell separately.</p>
+      </div>
+    </section>
+
+    <!-- Catalog -->
+    <section class="section" data-od-id="catalog">
+      <div class="container">
+        <div class="row-between" style="margin-bottom: 8px;">
+          <div>
+            <p class="eyebrow" style="margin-bottom: 12px;">catalog · in stock</p>
+            <h2>Apparel, drinkware, stickers.</h2>
+          </div>
+          <span class="meta">made to order · ships worldwide</span>
+        </div>
+
+        <div class="shop-grid">
+
+          <!-- Featured: flagship tee -->
+          <article class="product-card featured" data-od-id="product-tee-sorry">
+            <div class="product-tile">
+              <svg viewBox="0 0 40 32" aria-hidden="true">
+<rect x="8" y="18" width="1" height="1" class="p-ink"/>
+<rect x="10" y="20" width="1" height="1" class="p-ink"/>
+<rect x="16" y="18" width="1" height="1" class="p-ink"/>
+<rect x="20" y="12" width="1" height="1" class="p-ink"/>
+<rect x="18" y="16" width="1" height="1" class="p-ink"/>
+<rect x="22" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="16" width="1" height="1" class="p-ink"/>
+<rect x="30" y="10" width="1" height="1" class="p-ink"/>
+<rect x="12" y="22" width="1" height="1" class="p-ink"/>
+<rect x="14" y="20" width="1" height="1" class="p-ink"/>
+<rect x="6" y="12" width="1" height="1" class="p-ink"/>
+<rect x="10" y="6" width="1" height="1" class="p-ink"/>
+<rect x="34" y="10" width="1" height="1" class="p-ink"/>
+<rect x="10" y="24" width="1" height="1" class="p-ink"/>
+<rect x="16" y="22" width="1" height="1" class="p-ink"/>
+<rect x="18" y="20" width="1" height="1" class="p-ink"/>
+<rect x="22" y="14" width="1" height="1" class="p-ink"/>
+<rect x="4" y="8" width="1" height="1" class="p-ink"/>
+<rect x="26" y="20" width="1" height="1" class="p-ink"/>
+<rect x="30" y="14" width="1" height="1" class="p-ink"/>
+<rect x="12" y="8" width="1" height="1" class="p-ink"/>
+<rect x="32" y="12" width="1" height="1" class="p-ink"/>
+<rect x="14" y="24" width="1" height="1" class="p-ink"/>
+<rect x="6" y="16" width="1" height="1" class="p-ink"/>
+<rect x="10" y="10" width="1" height="1" class="p-ink"/>
+<rect x="28" y="16" width="1" height="1" class="p-ink"/>
+<rect x="18" y="24" width="1" height="1" class="p-ink"/>
+<rect x="22" y="18" width="1" height="1" class="p-ink"/>
+<rect x="26" y="6" width="1" height="1" class="p-ink"/>
+<rect x="26" y="24" width="1" height="1" class="p-ink"/>
+<rect x="30" y="18" width="1" height="1" class="p-ink"/>
+<rect x="12" y="12" width="1" height="1" class="p-ink"/>
+<rect x="32" y="16" width="1" height="1" class="p-ink"/>
+<rect x="14" y="10" width="1" height="1" class="p-ink"/>
+<rect x="36" y="10" width="1" height="1" class="p-ink"/>
+<rect x="6" y="20" width="1" height="1" class="p-ink"/>
+<rect x="10" y="14" width="1" height="1" class="p-ink"/>
+<rect x="28" y="20" width="1" height="1" class="p-ink"/>
+<rect x="18" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="10" width="1" height="1" class="p-ink"/>
+<rect x="30" y="22" width="1" height="1" class="p-ink"/>
+<rect x="32" y="20" width="1" height="1" class="p-ink"/>
+<rect x="14" y="14" width="1" height="1" class="p-ink"/>
+<rect x="24" y="12" width="1" height="1" class="p-ink"/>
+<rect x="6" y="6" width="1" height="1" class="p-ink"/>
+<rect x="28" y="6" width="1" height="1" class="p-ink"/>
+<rect x="6" y="24" width="1" height="1" class="p-ink"/>
+<rect x="10" y="18" width="1" height="1" class="p-ink"/>
+<rect x="8" y="22" width="1" height="1" class="p-ink"/>
+<rect x="28" y="24" width="1" height="1" class="p-ink"/>
+<rect x="18" y="14" width="1" height="1" class="p-ink"/>
+<rect x="20" y="16" width="1" height="1" class="p-ink"/>
+<rect x="26" y="14" width="1" height="1" class="p-ink"/>
+<rect x="30" y="8" width="1" height="1" class="p-ink"/>
+<rect x="2" y="10" width="1" height="1" class="p-ink"/>
+<rect x="32" y="6" width="1" height="1" class="p-ink"/>
+<rect x="32" y="24" width="1" height="1" class="p-ink"/>
+<rect x="14" y="18" width="1" height="1" class="p-ink"/>
+<rect x="24" y="16" width="1" height="1" class="p-ink"/>
+<rect x="6" y="10" width="1" height="1" class="p-ink"/>
+<rect x="28" y="10" width="1" height="1" class="p-ink"/>
+<rect x="8" y="8" width="1" height="1" class="p-ink"/>
+<rect x="34" y="8" width="1" height="1" class="p-ink"/>
+<rect x="10" y="22" width="1" height="1" class="p-ink"/>
+<rect x="18" y="18" width="1" height="1" class="p-ink"/>
+<rect x="20" y="20" width="1" height="1" class="p-ink"/>
+<rect x="26" y="18" width="1" height="1" class="p-ink"/>
+<rect x="30" y="12" width="1" height="1" class="p-ink"/>
+<rect x="32" y="10" width="1" height="1" class="p-ink"/>
+<rect x="14" y="22" width="1" height="1" class="p-ink"/>
+<rect x="24" y="20" width="1" height="1" class="p-ink"/>
+<rect x="6" y="14" width="1" height="1" class="p-ink"/>
+<rect x="10" y="8" width="1" height="1" class="p-ink"/>
+<rect x="8" y="12" width="1" height="1" class="p-ink"/>
+<rect x="28" y="14" width="1" height="1" class="p-ink"/>
+<rect x="16" y="12" width="1" height="1" class="p-ink"/>
+<rect x="20" y="24" width="1" height="1" class="p-ink"/>
+<rect x="26" y="22" width="1" height="1" class="p-ink"/>
+<rect x="22" y="22" width="1" height="1" class="p-ink"/>
+<rect x="32" y="14" width="1" height="1" class="p-ink"/>
+<rect x="36" y="8" width="1" height="1" class="p-ink"/>
+<rect x="12" y="16" width="1" height="1" class="p-ink"/>
+<rect x="24" y="24" width="1" height="1" class="p-ink"/>
+<rect x="6" y="18" width="1" height="1" class="p-ink"/>
+<rect x="10" y="12" width="1" height="1" class="p-ink"/>
+<rect x="8" y="16" width="1" height="1" class="p-ink"/>
+<rect x="28" y="18" width="1" height="1" class="p-ink"/>
+<rect x="16" y="16" width="1" height="1" class="p-ink"/>
+<rect x="20" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="8" width="1" height="1" class="p-ink"/>
+<rect x="32" y="18" width="1" height="1" class="p-ink"/>
+<rect x="12" y="20" width="1" height="1" class="p-ink"/>
+<rect x="24" y="10" width="1" height="1" class="p-ink"/>
+<rect x="6" y="22" width="1" height="1" class="p-ink"/>
+<rect x="28" y="22" width="1" height="1" class="p-ink"/>
+<rect x="8" y="20" width="1" height="1" class="p-ink"/>
+<rect x="16" y="20" width="1" height="1" class="p-ink"/>
+<rect x="20" y="14" width="1" height="1" class="p-ink"/>
+<rect x="2" y="8" width="1" height="1" class="p-ink"/>
+<rect x="22" y="12" width="1" height="1" class="p-ink"/>
+<rect x="12" y="6" width="1" height="1" class="p-ink"/>
+<rect x="12" y="24" width="1" height="1" class="p-ink"/>
+<rect x="24" y="14" width="1" height="1" class="p-ink"/>
+<rect x="6" y="8" width="1" height="1" class="p-ink"/>
+<rect x="28" y="8" width="1" height="1" class="p-ink"/>
+<rect x="8" y="6" width="1" height="1" class="p-ink"/>
+<rect x="8" y="24" width="1" height="1" class="p-ink"/>
+<rect x="16" y="24" width="1" height="1" class="p-ink"/>
+<rect x="20" y="18" width="1" height="1" class="p-ink"/>
+<rect x="18" y="22" width="1" height="1" class="p-ink"/>
+<rect x="22" y="16" width="1" height="1" class="p-ink"/>
+<rect x="4" y="10" width="1" height="1" class="p-ink"/>
+<rect x="32" y="8" width="1" height="1" class="p-ink"/>
+<rect x="30" y="16" width="1" height="1" class="p-ink"/>
+<rect x="12" y="10" width="1" height="1" class="p-ink"/>
+<rect x="24" y="18" width="1" height="1" class="p-ink"/>
+<rect x="28" y="12" width="1" height="1" class="p-ink"/>
+<rect x="8" y="10" width="1" height="1" class="p-ink"/>
+<rect x="16" y="10" width="1" height="1" class="p-ink"/>
+<rect x="20" y="22" width="1" height="1" class="p-ink"/>
+<rect x="22" y="20" width="1" height="1" class="p-ink"/>
+<rect x="30" y="20" width="1" height="1" class="p-ink"/>
+<rect x="12" y="14" width="1" height="1" class="p-ink"/>
+<rect x="14" y="12" width="1" height="1" class="p-ink"/>
+<rect x="24" y="22" width="1" height="1" class="p-ink"/>
+<rect x="8" y="14" width="1" height="1" class="p-ink"/>
+<rect x="10" y="16" width="1" height="1" class="p-ink"/>
+<rect x="16" y="14" width="1" height="1" class="p-ink"/>
+<rect x="18" y="12" width="1" height="1" class="p-ink"/>
+<rect x="22" y="24" width="1" height="1" class="p-ink"/>
+<rect x="26" y="12" width="1" height="1" class="p-ink"/>
+<rect x="30" y="6" width="1" height="1" class="p-ink"/>
+<rect x="30" y="24" width="1" height="1" class="p-ink"/>
+<rect x="12" y="18" width="1" height="1" class="p-ink"/>
+<rect x="32" y="22" width="1" height="1" class="p-ink"/>
+<rect x="14" y="16" width="1" height="1" class="p-ink"/>
+<rect x="24" y="20" width="1" height="1" class="p-print"/>
+<rect x="20" y="18" width="1" height="1" class="p-print"/>
+<rect x="0" y="16" width="1" height="1" class="p-print"/>
+<rect x="4" y="22" width="1" height="1" class="p-print"/>
+<rect x="2" y="18" width="1" height="1" class="p-print"/>
+<rect x="0" y="22" width="1" height="1" class="p-print"/>
+<rect x="32" y="14" width="1" height="1" class="p-print"/>
+<rect x="30" y="22" width="1" height="1" class="p-print"/>
+<rect x="30" y="16" width="1" height="1" class="p-print"/>
+<rect x="34" y="22" width="1" height="1" class="p-print"/>
+<rect x="34" y="16" width="1" height="1" class="p-print"/>
+<rect x="0" y="14" width="1" height="1" class="p-print"/>
+<rect x="22" y="14" width="1" height="1" class="p-print"/>
+<rect x="20" y="22" width="1" height="1" class="p-print"/>
+<rect x="4" y="14" width="1" height="1" class="p-print"/>
+<rect x="20" y="16" width="1" height="1" class="p-print"/>
+<rect x="2" y="22" width="1" height="1" class="p-print"/>
+<rect x="4" y="20" width="1" height="1" class="p-print"/>
+<rect x="2" y="16" width="1" height="1" class="p-print"/>
+<rect x="32" y="18" width="1" height="1" class="p-print"/>
+<rect x="30" y="14" width="1" height="1" class="p-print"/>
+<rect x="30" y="20" width="1" height="1" class="p-print"/>
+<rect x="24" y="22" width="1" height="1" class="p-print"/>
+<rect x="24" y="16" width="1" height="1" class="p-print"/>
+<rect x="34" y="20" width="1" height="1" class="p-print"/>
+<rect x="22" y="18" width="1" height="1" class="p-print"/>
+<rect x="20" y="14" width="1" height="1" class="p-print"/>
+<rect x="20" y="20" width="1" height="1" class="p-print"/>
+<rect x="2" y="14" width="1" height="1" class="p-print"/>
+<rect x="30" y="18" width="1" height="1" class="p-print"/>
+<rect x="8" y="30" width="1" height="1" class="p-print"/>
+<rect x="16" y="30" width="1" height="1" class="p-print"/>
+<rect x="24" y="30" width="1" height="1" class="p-print"/>
+<rect x="32" y="30" width="1" height="1" class="p-print"/>
+<rect class="relay" style="--rd:0.00s" x="8" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:1.20s" x="16" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:2.40s" x="24" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:3.60s" x="32" y="30" width="1" height="1"/>
+</svg>
+            </div>
+            <div class="product-body">
+              <span class="product-kicker">flagship · black cotton · sku 1BT-TEE-001</span>
+              <h3 class="product-name">"Sorry but not Sorry" T-Shirt</h3>
+              <p class="product-desc">Premium cotton, black. The words that started it all, printed italic serif across the chest, 1bit.MONSTER lockup on the left. Unisex S-3XL.</p>
+              <div class="size-row" data-sizes>
+                <button class="size-btn" type="button" data-size="S">S</button>
+                <button class="size-btn active" type="button" data-size="M">M</button>
+                <button class="size-btn" type="button" data-size="L">L</button>
+                <button class="size-btn" type="button" data-size="XL">XL</button>
+                <button class="size-btn" type="button" data-size="2XL">2XL</button>
+                <button class="size-btn" type="button" data-size="3XL">3XL</button>
+              </div>
+              <div class="product-foot">
+                <span class="product-price">$29.99</span>
+                <button class="btn btn-primary" type="button" data-add="tee-sorry" data-sku="1BT-TEE-001">Add to cart</button>
+              </div>
+            </div>
+          </article>
+
+          <!-- AMD Edition tee -->
+          <article class="product-card" data-od-id="product-tee-amd">
+            <div class="product-tile">
+              <svg viewBox="0 0 40 32" aria-hidden="true">
+<rect x="8" y="18" width="1" height="1" class="p-ink"/>
+<rect x="10" y="20" width="1" height="1" class="p-ink"/>
+<rect x="16" y="18" width="1" height="1" class="p-ink"/>
+<rect x="20" y="12" width="1" height="1" class="p-ink"/>
+<rect x="18" y="16" width="1" height="1" class="p-ink"/>
+<rect x="22" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="16" width="1" height="1" class="p-ink"/>
+<rect x="30" y="10" width="1" height="1" class="p-ink"/>
+<rect x="12" y="22" width="1" height="1" class="p-ink"/>
+<rect x="14" y="20" width="1" height="1" class="p-ink"/>
+<rect x="6" y="12" width="1" height="1" class="p-ink"/>
+<rect x="10" y="6" width="1" height="1" class="p-ink"/>
+<rect x="34" y="10" width="1" height="1" class="p-ink"/>
+<rect x="10" y="24" width="1" height="1" class="p-ink"/>
+<rect x="16" y="22" width="1" height="1" class="p-ink"/>
+<rect x="18" y="20" width="1" height="1" class="p-ink"/>
+<rect x="22" y="14" width="1" height="1" class="p-ink"/>
+<rect x="4" y="8" width="1" height="1" class="p-ink"/>
+<rect x="26" y="20" width="1" height="1" class="p-ink"/>
+<rect x="30" y="14" width="1" height="1" class="p-ink"/>
+<rect x="12" y="8" width="1" height="1" class="p-ink"/>
+<rect x="32" y="12" width="1" height="1" class="p-ink"/>
+<rect x="14" y="24" width="1" height="1" class="p-ink"/>
+<rect x="6" y="16" width="1" height="1" class="p-ink"/>
+<rect x="10" y="10" width="1" height="1" class="p-ink"/>
+<rect x="28" y="16" width="1" height="1" class="p-ink"/>
+<rect x="18" y="24" width="1" height="1" class="p-ink"/>
+<rect x="22" y="18" width="1" height="1" class="p-ink"/>
+<rect x="26" y="6" width="1" height="1" class="p-ink"/>
+<rect x="26" y="24" width="1" height="1" class="p-ink"/>
+<rect x="30" y="18" width="1" height="1" class="p-ink"/>
+<rect x="12" y="12" width="1" height="1" class="p-ink"/>
+<rect x="32" y="16" width="1" height="1" class="p-ink"/>
+<rect x="14" y="10" width="1" height="1" class="p-ink"/>
+<rect x="36" y="10" width="1" height="1" class="p-ink"/>
+<rect x="6" y="20" width="1" height="1" class="p-ink"/>
+<rect x="10" y="14" width="1" height="1" class="p-ink"/>
+<rect x="28" y="20" width="1" height="1" class="p-ink"/>
+<rect x="18" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="10" width="1" height="1" class="p-ink"/>
+<rect x="30" y="22" width="1" height="1" class="p-ink"/>
+<rect x="32" y="20" width="1" height="1" class="p-ink"/>
+<rect x="14" y="14" width="1" height="1" class="p-ink"/>
+<rect x="24" y="12" width="1" height="1" class="p-ink"/>
+<rect x="6" y="6" width="1" height="1" class="p-ink"/>
+<rect x="28" y="6" width="1" height="1" class="p-ink"/>
+<rect x="6" y="24" width="1" height="1" class="p-ink"/>
+<rect x="10" y="18" width="1" height="1" class="p-ink"/>
+<rect x="8" y="22" width="1" height="1" class="p-ink"/>
+<rect x="28" y="24" width="1" height="1" class="p-ink"/>
+<rect x="18" y="14" width="1" height="1" class="p-ink"/>
+<rect x="20" y="16" width="1" height="1" class="p-ink"/>
+<rect x="26" y="14" width="1" height="1" class="p-ink"/>
+<rect x="30" y="8" width="1" height="1" class="p-ink"/>
+<rect x="2" y="10" width="1" height="1" class="p-ink"/>
+<rect x="32" y="6" width="1" height="1" class="p-ink"/>
+<rect x="32" y="24" width="1" height="1" class="p-ink"/>
+<rect x="14" y="18" width="1" height="1" class="p-ink"/>
+<rect x="24" y="16" width="1" height="1" class="p-ink"/>
+<rect x="6" y="10" width="1" height="1" class="p-ink"/>
+<rect x="28" y="10" width="1" height="1" class="p-ink"/>
+<rect x="8" y="8" width="1" height="1" class="p-ink"/>
+<rect x="34" y="8" width="1" height="1" class="p-ink"/>
+<rect x="10" y="22" width="1" height="1" class="p-ink"/>
+<rect x="18" y="18" width="1" height="1" class="p-ink"/>
+<rect x="20" y="20" width="1" height="1" class="p-ink"/>
+<rect x="26" y="18" width="1" height="1" class="p-ink"/>
+<rect x="30" y="12" width="1" height="1" class="p-ink"/>
+<rect x="32" y="10" width="1" height="1" class="p-ink"/>
+<rect x="14" y="22" width="1" height="1" class="p-ink"/>
+<rect x="24" y="20" width="1" height="1" class="p-ink"/>
+<rect x="6" y="14" width="1" height="1" class="p-ink"/>
+<rect x="10" y="8" width="1" height="1" class="p-ink"/>
+<rect x="8" y="12" width="1" height="1" class="p-ink"/>
+<rect x="28" y="14" width="1" height="1" class="p-ink"/>
+<rect x="16" y="12" width="1" height="1" class="p-ink"/>
+<rect x="20" y="24" width="1" height="1" class="p-ink"/>
+<rect x="26" y="22" width="1" height="1" class="p-ink"/>
+<rect x="22" y="22" width="1" height="1" class="p-ink"/>
+<rect x="32" y="14" width="1" height="1" class="p-ink"/>
+<rect x="36" y="8" width="1" height="1" class="p-ink"/>
+<rect x="12" y="16" width="1" height="1" class="p-ink"/>
+<rect x="24" y="24" width="1" height="1" class="p-ink"/>
+<rect x="6" y="18" width="1" height="1" class="p-ink"/>
+<rect x="10" y="12" width="1" height="1" class="p-ink"/>
+<rect x="8" y="16" width="1" height="1" class="p-ink"/>
+<rect x="28" y="18" width="1" height="1" class="p-ink"/>
+<rect x="16" y="16" width="1" height="1" class="p-ink"/>
+<rect x="20" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="8" width="1" height="1" class="p-ink"/>
+<rect x="32" y="18" width="1" height="1" class="p-ink"/>
+<rect x="12" y="20" width="1" height="1" class="p-ink"/>
+<rect x="24" y="10" width="1" height="1" class="p-ink"/>
+<rect x="6" y="22" width="1" height="1" class="p-ink"/>
+<rect x="28" y="22" width="1" height="1" class="p-ink"/>
+<rect x="8" y="20" width="1" height="1" class="p-ink"/>
+<rect x="16" y="20" width="1" height="1" class="p-ink"/>
+<rect x="20" y="14" width="1" height="1" class="p-ink"/>
+<rect x="2" y="8" width="1" height="1" class="p-ink"/>
+<rect x="22" y="12" width="1" height="1" class="p-ink"/>
+<rect x="12" y="6" width="1" height="1" class="p-ink"/>
+<rect x="12" y="24" width="1" height="1" class="p-ink"/>
+<rect x="24" y="14" width="1" height="1" class="p-ink"/>
+<rect x="6" y="8" width="1" height="1" class="p-ink"/>
+<rect x="28" y="8" width="1" height="1" class="p-ink"/>
+<rect x="8" y="6" width="1" height="1" class="p-ink"/>
+<rect x="8" y="24" width="1" height="1" class="p-ink"/>
+<rect x="16" y="24" width="1" height="1" class="p-ink"/>
+<rect x="20" y="18" width="1" height="1" class="p-ink"/>
+<rect x="18" y="22" width="1" height="1" class="p-ink"/>
+<rect x="22" y="16" width="1" height="1" class="p-ink"/>
+<rect x="4" y="10" width="1" height="1" class="p-ink"/>
+<rect x="32" y="8" width="1" height="1" class="p-ink"/>
+<rect x="30" y="16" width="1" height="1" class="p-ink"/>
+<rect x="12" y="10" width="1" height="1" class="p-ink"/>
+<rect x="24" y="18" width="1" height="1" class="p-ink"/>
+<rect x="28" y="12" width="1" height="1" class="p-ink"/>
+<rect x="8" y="10" width="1" height="1" class="p-ink"/>
+<rect x="16" y="10" width="1" height="1" class="p-ink"/>
+<rect x="20" y="22" width="1" height="1" class="p-ink"/>
+<rect x="22" y="20" width="1" height="1" class="p-ink"/>
+<rect x="30" y="20" width="1" height="1" class="p-ink"/>
+<rect x="12" y="14" width="1" height="1" class="p-ink"/>
+<rect x="14" y="12" width="1" height="1" class="p-ink"/>
+<rect x="24" y="22" width="1" height="1" class="p-ink"/>
+<rect x="8" y="14" width="1" height="1" class="p-ink"/>
+<rect x="10" y="16" width="1" height="1" class="p-ink"/>
+<rect x="16" y="14" width="1" height="1" class="p-ink"/>
+<rect x="18" y="12" width="1" height="1" class="p-ink"/>
+<rect x="22" y="24" width="1" height="1" class="p-ink"/>
+<rect x="26" y="12" width="1" height="1" class="p-ink"/>
+<rect x="30" y="6" width="1" height="1" class="p-ink"/>
+<rect x="30" y="24" width="1" height="1" class="p-ink"/>
+<rect x="12" y="18" width="1" height="1" class="p-ink"/>
+<rect x="32" y="22" width="1" height="1" class="p-ink"/>
+<rect x="14" y="16" width="1" height="1" class="p-ink"/>
+<rect x="24" y="14" width="1" height="1" class="p-print"/>
+<rect x="8" y="18" width="1" height="1" class="p-print"/>
+<rect x="6" y="14" width="1" height="1" class="p-print"/>
+<rect x="24" y="20" width="1" height="1" class="p-print"/>
+<rect x="28" y="20" width="1" height="1" class="p-print"/>
+<rect x="18" y="16" width="1" height="1" class="p-print"/>
+<rect x="18" y="22" width="1" height="1" class="p-print"/>
+<rect x="4" y="22" width="1" height="1" class="p-print"/>
+<rect x="26" y="22" width="1" height="1" class="p-print"/>
+<rect x="4" y="16" width="1" height="1" class="p-print"/>
+<rect x="14" y="14" width="1" height="1" class="p-print"/>
+<rect x="14" y="20" width="1" height="1" class="p-print"/>
+<rect x="24" y="18" width="1" height="1" class="p-print"/>
+<rect x="6" y="18" width="1" height="1" class="p-print"/>
+<rect x="28" y="18" width="1" height="1" class="p-print"/>
+<rect x="8" y="16" width="1" height="1" class="p-print"/>
+<rect x="8" y="22" width="1" height="1" class="p-print"/>
+<rect x="18" y="14" width="1" height="1" class="p-print"/>
+<rect x="18" y="20" width="1" height="1" class="p-print"/>
+<rect x="16" y="16" width="1" height="1" class="p-print"/>
+<rect x="26" y="14" width="1" height="1" class="p-print"/>
+<rect x="4" y="20" width="1" height="1" class="p-print"/>
+<rect x="14" y="18" width="1" height="1" class="p-print"/>
+<rect x="24" y="22" width="1" height="1" class="p-print"/>
+<rect x="24" y="16" width="1" height="1" class="p-print"/>
+<rect x="8" y="20" width="1" height="1" class="p-print"/>
+<rect x="28" y="16" width="1" height="1" class="p-print"/>
+<rect x="18" y="18" width="1" height="1" class="p-print"/>
+<rect x="4" y="18" width="1" height="1" class="p-print"/>
+<rect x="14" y="22" width="1" height="1" class="p-print"/>
+<rect x="14" y="16" width="1" height="1" class="p-print"/>
+<rect x="8" y="30" width="1" height="1" class="p-print"/>
+<rect x="16" y="30" width="1" height="1" class="p-print"/>
+<rect x="24" y="30" width="1" height="1" class="p-print"/>
+<rect x="32" y="30" width="1" height="1" class="p-print"/>
+<rect class="relay" style="--rd:0.00s" x="8" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:1.20s" x="16" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:2.40s" x="24" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:3.60s" x="32" y="30" width="1" height="1"/>
+</svg>
+            </div>
+            <div class="product-body">
+              <span class="product-kicker">edition tee · navy cotton · sku 1BT-TEE-002</span>
+              <h3 class="product-name">"Sorry but not Sorry" AMD Edition</h3>
+              <p class="product-desc">Navy cotton, edition print. "SORRY" in italic serif with an AMD chip mark, for the people who read the xclbins. Unisex S-3XL.</p>
+              <div class="size-row" data-sizes>
+                <button class="size-btn" type="button" data-size="S">S</button>
+                <button class="size-btn active" type="button" data-size="M">M</button>
+                <button class="size-btn" type="button" data-size="L">L</button>
+                <button class="size-btn" type="button" data-size="XL">XL</button>
+                <button class="size-btn" type="button" data-size="2XL">2XL</button>
+                <button class="size-btn" type="button" data-size="3XL">3XL</button>
+              </div>
+              <div class="product-foot">
+                <span class="product-price">$29.99</span>
+                <button class="btn btn-secondary" type="button" data-add="tee-amd" data-sku="1BT-TEE-002">>Add</button>
+              </div>
+            </div>
+          </article>
+
+          <!-- 50 TOPS tee -->
+          <article class="product-card" data-od-id="product-tee-50t">
+            <div class="product-tile">
+              <svg viewBox="0 0 40 32" aria-hidden="true">
+<rect x="8" y="18" width="1" height="1" class="p-ink"/>
+<rect x="10" y="20" width="1" height="1" class="p-ink"/>
+<rect x="16" y="18" width="1" height="1" class="p-ink"/>
+<rect x="20" y="12" width="1" height="1" class="p-ink"/>
+<rect x="18" y="16" width="1" height="1" class="p-ink"/>
+<rect x="22" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="16" width="1" height="1" class="p-ink"/>
+<rect x="30" y="10" width="1" height="1" class="p-ink"/>
+<rect x="12" y="22" width="1" height="1" class="p-ink"/>
+<rect x="14" y="20" width="1" height="1" class="p-ink"/>
+<rect x="6" y="12" width="1" height="1" class="p-ink"/>
+<rect x="10" y="6" width="1" height="1" class="p-ink"/>
+<rect x="34" y="10" width="1" height="1" class="p-ink"/>
+<rect x="10" y="24" width="1" height="1" class="p-ink"/>
+<rect x="16" y="22" width="1" height="1" class="p-ink"/>
+<rect x="18" y="20" width="1" height="1" class="p-ink"/>
+<rect x="22" y="14" width="1" height="1" class="p-ink"/>
+<rect x="4" y="8" width="1" height="1" class="p-ink"/>
+<rect x="26" y="20" width="1" height="1" class="p-ink"/>
+<rect x="30" y="14" width="1" height="1" class="p-ink"/>
+<rect x="12" y="8" width="1" height="1" class="p-ink"/>
+<rect x="32" y="12" width="1" height="1" class="p-ink"/>
+<rect x="14" y="24" width="1" height="1" class="p-ink"/>
+<rect x="6" y="16" width="1" height="1" class="p-ink"/>
+<rect x="10" y="10" width="1" height="1" class="p-ink"/>
+<rect x="28" y="16" width="1" height="1" class="p-ink"/>
+<rect x="18" y="24" width="1" height="1" class="p-ink"/>
+<rect x="22" y="18" width="1" height="1" class="p-ink"/>
+<rect x="26" y="6" width="1" height="1" class="p-ink"/>
+<rect x="26" y="24" width="1" height="1" class="p-ink"/>
+<rect x="30" y="18" width="1" height="1" class="p-ink"/>
+<rect x="12" y="12" width="1" height="1" class="p-ink"/>
+<rect x="32" y="16" width="1" height="1" class="p-ink"/>
+<rect x="14" y="10" width="1" height="1" class="p-ink"/>
+<rect x="36" y="10" width="1" height="1" class="p-ink"/>
+<rect x="6" y="20" width="1" height="1" class="p-ink"/>
+<rect x="10" y="14" width="1" height="1" class="p-ink"/>
+<rect x="28" y="20" width="1" height="1" class="p-ink"/>
+<rect x="18" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="10" width="1" height="1" class="p-ink"/>
+<rect x="30" y="22" width="1" height="1" class="p-ink"/>
+<rect x="32" y="20" width="1" height="1" class="p-ink"/>
+<rect x="14" y="14" width="1" height="1" class="p-ink"/>
+<rect x="24" y="12" width="1" height="1" class="p-ink"/>
+<rect x="6" y="6" width="1" height="1" class="p-ink"/>
+<rect x="28" y="6" width="1" height="1" class="p-ink"/>
+<rect x="6" y="24" width="1" height="1" class="p-ink"/>
+<rect x="10" y="18" width="1" height="1" class="p-ink"/>
+<rect x="8" y="22" width="1" height="1" class="p-ink"/>
+<rect x="28" y="24" width="1" height="1" class="p-ink"/>
+<rect x="18" y="14" width="1" height="1" class="p-ink"/>
+<rect x="20" y="16" width="1" height="1" class="p-ink"/>
+<rect x="26" y="14" width="1" height="1" class="p-ink"/>
+<rect x="30" y="8" width="1" height="1" class="p-ink"/>
+<rect x="2" y="10" width="1" height="1" class="p-ink"/>
+<rect x="32" y="6" width="1" height="1" class="p-ink"/>
+<rect x="32" y="24" width="1" height="1" class="p-ink"/>
+<rect x="14" y="18" width="1" height="1" class="p-ink"/>
+<rect x="24" y="16" width="1" height="1" class="p-ink"/>
+<rect x="6" y="10" width="1" height="1" class="p-ink"/>
+<rect x="28" y="10" width="1" height="1" class="p-ink"/>
+<rect x="8" y="8" width="1" height="1" class="p-ink"/>
+<rect x="34" y="8" width="1" height="1" class="p-ink"/>
+<rect x="10" y="22" width="1" height="1" class="p-ink"/>
+<rect x="18" y="18" width="1" height="1" class="p-ink"/>
+<rect x="20" y="20" width="1" height="1" class="p-ink"/>
+<rect x="26" y="18" width="1" height="1" class="p-ink"/>
+<rect x="30" y="12" width="1" height="1" class="p-ink"/>
+<rect x="32" y="10" width="1" height="1" class="p-ink"/>
+<rect x="14" y="22" width="1" height="1" class="p-ink"/>
+<rect x="24" y="20" width="1" height="1" class="p-ink"/>
+<rect x="6" y="14" width="1" height="1" class="p-ink"/>
+<rect x="10" y="8" width="1" height="1" class="p-ink"/>
+<rect x="8" y="12" width="1" height="1" class="p-ink"/>
+<rect x="28" y="14" width="1" height="1" class="p-ink"/>
+<rect x="16" y="12" width="1" height="1" class="p-ink"/>
+<rect x="20" y="24" width="1" height="1" class="p-ink"/>
+<rect x="26" y="22" width="1" height="1" class="p-ink"/>
+<rect x="22" y="22" width="1" height="1" class="p-ink"/>
+<rect x="32" y="14" width="1" height="1" class="p-ink"/>
+<rect x="36" y="8" width="1" height="1" class="p-ink"/>
+<rect x="12" y="16" width="1" height="1" class="p-ink"/>
+<rect x="24" y="24" width="1" height="1" class="p-ink"/>
+<rect x="6" y="18" width="1" height="1" class="p-ink"/>
+<rect x="10" y="12" width="1" height="1" class="p-ink"/>
+<rect x="8" y="16" width="1" height="1" class="p-ink"/>
+<rect x="28" y="18" width="1" height="1" class="p-ink"/>
+<rect x="16" y="16" width="1" height="1" class="p-ink"/>
+<rect x="20" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="8" width="1" height="1" class="p-ink"/>
+<rect x="32" y="18" width="1" height="1" class="p-ink"/>
+<rect x="12" y="20" width="1" height="1" class="p-ink"/>
+<rect x="24" y="10" width="1" height="1" class="p-ink"/>
+<rect x="6" y="22" width="1" height="1" class="p-ink"/>
+<rect x="28" y="22" width="1" height="1" class="p-ink"/>
+<rect x="8" y="20" width="1" height="1" class="p-ink"/>
+<rect x="16" y="20" width="1" height="1" class="p-ink"/>
+<rect x="20" y="14" width="1" height="1" class="p-ink"/>
+<rect x="2" y="8" width="1" height="1" class="p-ink"/>
+<rect x="22" y="12" width="1" height="1" class="p-ink"/>
+<rect x="12" y="6" width="1" height="1" class="p-ink"/>
+<rect x="12" y="24" width="1" height="1" class="p-ink"/>
+<rect x="24" y="14" width="1" height="1" class="p-ink"/>
+<rect x="6" y="8" width="1" height="1" class="p-ink"/>
+<rect x="28" y="8" width="1" height="1" class="p-ink"/>
+<rect x="8" y="6" width="1" height="1" class="p-ink"/>
+<rect x="8" y="24" width="1" height="1" class="p-ink"/>
+<rect x="16" y="24" width="1" height="1" class="p-ink"/>
+<rect x="20" y="18" width="1" height="1" class="p-ink"/>
+<rect x="18" y="22" width="1" height="1" class="p-ink"/>
+<rect x="22" y="16" width="1" height="1" class="p-ink"/>
+<rect x="4" y="10" width="1" height="1" class="p-ink"/>
+<rect x="32" y="8" width="1" height="1" class="p-ink"/>
+<rect x="30" y="16" width="1" height="1" class="p-ink"/>
+<rect x="12" y="10" width="1" height="1" class="p-ink"/>
+<rect x="24" y="18" width="1" height="1" class="p-ink"/>
+<rect x="28" y="12" width="1" height="1" class="p-ink"/>
+<rect x="8" y="10" width="1" height="1" class="p-ink"/>
+<rect x="16" y="10" width="1" height="1" class="p-ink"/>
+<rect x="20" y="22" width="1" height="1" class="p-ink"/>
+<rect x="22" y="20" width="1" height="1" class="p-ink"/>
+<rect x="30" y="20" width="1" height="1" class="p-ink"/>
+<rect x="12" y="14" width="1" height="1" class="p-ink"/>
+<rect x="14" y="12" width="1" height="1" class="p-ink"/>
+<rect x="24" y="22" width="1" height="1" class="p-ink"/>
+<rect x="8" y="14" width="1" height="1" class="p-ink"/>
+<rect x="10" y="16" width="1" height="1" class="p-ink"/>
+<rect x="16" y="14" width="1" height="1" class="p-ink"/>
+<rect x="18" y="12" width="1" height="1" class="p-ink"/>
+<rect x="22" y="24" width="1" height="1" class="p-ink"/>
+<rect x="26" y="12" width="1" height="1" class="p-ink"/>
+<rect x="30" y="6" width="1" height="1" class="p-ink"/>
+<rect x="30" y="24" width="1" height="1" class="p-ink"/>
+<rect x="12" y="18" width="1" height="1" class="p-ink"/>
+<rect x="32" y="22" width="1" height="1" class="p-ink"/>
+<rect x="14" y="16" width="1" height="1" class="p-ink"/>
+<rect x="8" y="18" width="1" height="1" class="p-print"/>
+<rect x="10" y="14" width="1" height="1" class="p-print"/>
+<rect x="18" y="16" width="1" height="1" class="p-print"/>
+<rect x="20" y="18" width="1" height="1" class="p-print"/>
+<rect x="22" y="16" width="1" height="1" class="p-print"/>
+<rect x="12" y="22" width="1" height="1" class="p-print"/>
+<rect x="8" y="16" width="1" height="1" class="p-print"/>
+<rect x="10" y="18" width="1" height="1" class="p-print"/>
+<rect x="8" y="22" width="1" height="1" class="p-print"/>
+<rect x="18" y="20" width="1" height="1" class="p-print"/>
+<rect x="20" y="22" width="1" height="1" class="p-print"/>
+<rect x="22" y="20" width="1" height="1" class="p-print"/>
+<rect x="12" y="14" width="1" height="1" class="p-print"/>
+<rect x="12" y="20" width="1" height="1" class="p-print"/>
+<rect x="8" y="14" width="1" height="1" class="p-print"/>
+<rect x="10" y="22" width="1" height="1" class="p-print"/>
+<rect x="18" y="18" width="1" height="1" class="p-print"/>
+<rect x="22" y="18" width="1" height="1" class="p-print"/>
+<rect x="20" y="14" width="1" height="1" class="p-print"/>
+<rect x="8" y="30" width="1" height="1" class="p-print"/>
+<rect x="16" y="30" width="1" height="1" class="p-print"/>
+<rect x="24" y="30" width="1" height="1" class="p-print"/>
+<rect x="32" y="30" width="1" height="1" class="p-print"/>
+<rect class="relay" style="--rd:0.00s" x="8" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:1.20s" x="16" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:2.40s" x="24" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:3.60s" x="32" y="30" width="1" height="1"/>
+</svg>
+            </div>
+            <div class="product-body">
+              <span class="product-kicker">tee · black · sku 1BT-TEE-003</span>
+              <h3 class="product-name">50 TOPS on a Laptop T-Shirt</h3>
+              <p class="product-desc">Black tee, chest print. The number on the box, worn on the body. XDNA 2 · 32 tiles. Unisex S-3XL.</p>
+              <div class="size-row" data-sizes>
+                <button class="size-btn" type="button" data-size="S">S</button>
+                <button class="size-btn active" type="button" data-size="M">M</button>
+                <button class="size-btn" type="button" data-size="L">L</button>
+                <button class="size-btn" type="button" data-size="XL">XL</button>
+                <button class="size-btn" type="button" data-size="2XL">2XL</button>
+                <button class="size-btn" type="button" data-size="3XL">3XL</button>
+              </div>
+              <div class="product-foot">
+                <span class="product-price">$29.99</span>
+                <button class="btn btn-secondary" type="button" data-add="tee-50t" data-sku="1BT-TEE-003">>Add</button>
+              </div>
+            </div>
+          </article>
+
+          <!-- NPU tee -->
+          <article class="product-card" data-od-id="product-tee-npu">
+            <div class="product-tile">
+              <svg viewBox="0 0 40 32" aria-hidden="true">
+<rect x="8" y="18" width="1" height="1" class="p-ink"/>
+<rect x="10" y="20" width="1" height="1" class="p-ink"/>
+<rect x="16" y="18" width="1" height="1" class="p-ink"/>
+<rect x="20" y="12" width="1" height="1" class="p-ink"/>
+<rect x="18" y="16" width="1" height="1" class="p-ink"/>
+<rect x="22" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="16" width="1" height="1" class="p-ink"/>
+<rect x="30" y="10" width="1" height="1" class="p-ink"/>
+<rect x="12" y="22" width="1" height="1" class="p-ink"/>
+<rect x="14" y="20" width="1" height="1" class="p-ink"/>
+<rect x="6" y="12" width="1" height="1" class="p-ink"/>
+<rect x="10" y="6" width="1" height="1" class="p-ink"/>
+<rect x="34" y="10" width="1" height="1" class="p-ink"/>
+<rect x="10" y="24" width="1" height="1" class="p-ink"/>
+<rect x="16" y="22" width="1" height="1" class="p-ink"/>
+<rect x="18" y="20" width="1" height="1" class="p-ink"/>
+<rect x="22" y="14" width="1" height="1" class="p-ink"/>
+<rect x="4" y="8" width="1" height="1" class="p-ink"/>
+<rect x="26" y="20" width="1" height="1" class="p-ink"/>
+<rect x="30" y="14" width="1" height="1" class="p-ink"/>
+<rect x="12" y="8" width="1" height="1" class="p-ink"/>
+<rect x="32" y="12" width="1" height="1" class="p-ink"/>
+<rect x="14" y="24" width="1" height="1" class="p-ink"/>
+<rect x="6" y="16" width="1" height="1" class="p-ink"/>
+<rect x="10" y="10" width="1" height="1" class="p-ink"/>
+<rect x="28" y="16" width="1" height="1" class="p-ink"/>
+<rect x="18" y="24" width="1" height="1" class="p-ink"/>
+<rect x="22" y="18" width="1" height="1" class="p-ink"/>
+<rect x="26" y="6" width="1" height="1" class="p-ink"/>
+<rect x="26" y="24" width="1" height="1" class="p-ink"/>
+<rect x="30" y="18" width="1" height="1" class="p-ink"/>
+<rect x="12" y="12" width="1" height="1" class="p-ink"/>
+<rect x="32" y="16" width="1" height="1" class="p-ink"/>
+<rect x="14" y="10" width="1" height="1" class="p-ink"/>
+<rect x="36" y="10" width="1" height="1" class="p-ink"/>
+<rect x="6" y="20" width="1" height="1" class="p-ink"/>
+<rect x="10" y="14" width="1" height="1" class="p-ink"/>
+<rect x="28" y="20" width="1" height="1" class="p-ink"/>
+<rect x="18" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="10" width="1" height="1" class="p-ink"/>
+<rect x="30" y="22" width="1" height="1" class="p-ink"/>
+<rect x="32" y="20" width="1" height="1" class="p-ink"/>
+<rect x="14" y="14" width="1" height="1" class="p-ink"/>
+<rect x="24" y="12" width="1" height="1" class="p-ink"/>
+<rect x="6" y="6" width="1" height="1" class="p-ink"/>
+<rect x="28" y="6" width="1" height="1" class="p-ink"/>
+<rect x="6" y="24" width="1" height="1" class="p-ink"/>
+<rect x="10" y="18" width="1" height="1" class="p-ink"/>
+<rect x="8" y="22" width="1" height="1" class="p-ink"/>
+<rect x="28" y="24" width="1" height="1" class="p-ink"/>
+<rect x="18" y="14" width="1" height="1" class="p-ink"/>
+<rect x="20" y="16" width="1" height="1" class="p-ink"/>
+<rect x="26" y="14" width="1" height="1" class="p-ink"/>
+<rect x="30" y="8" width="1" height="1" class="p-ink"/>
+<rect x="2" y="10" width="1" height="1" class="p-ink"/>
+<rect x="32" y="6" width="1" height="1" class="p-ink"/>
+<rect x="32" y="24" width="1" height="1" class="p-ink"/>
+<rect x="14" y="18" width="1" height="1" class="p-ink"/>
+<rect x="24" y="16" width="1" height="1" class="p-ink"/>
+<rect x="6" y="10" width="1" height="1" class="p-ink"/>
+<rect x="28" y="10" width="1" height="1" class="p-ink"/>
+<rect x="8" y="8" width="1" height="1" class="p-ink"/>
+<rect x="34" y="8" width="1" height="1" class="p-ink"/>
+<rect x="10" y="22" width="1" height="1" class="p-ink"/>
+<rect x="18" y="18" width="1" height="1" class="p-ink"/>
+<rect x="20" y="20" width="1" height="1" class="p-ink"/>
+<rect x="26" y="18" width="1" height="1" class="p-ink"/>
+<rect x="30" y="12" width="1" height="1" class="p-ink"/>
+<rect x="32" y="10" width="1" height="1" class="p-ink"/>
+<rect x="14" y="22" width="1" height="1" class="p-ink"/>
+<rect x="24" y="20" width="1" height="1" class="p-ink"/>
+<rect x="6" y="14" width="1" height="1" class="p-ink"/>
+<rect x="10" y="8" width="1" height="1" class="p-ink"/>
+<rect x="8" y="12" width="1" height="1" class="p-ink"/>
+<rect x="28" y="14" width="1" height="1" class="p-ink"/>
+<rect x="16" y="12" width="1" height="1" class="p-ink"/>
+<rect x="20" y="24" width="1" height="1" class="p-ink"/>
+<rect x="26" y="22" width="1" height="1" class="p-ink"/>
+<rect x="22" y="22" width="1" height="1" class="p-ink"/>
+<rect x="32" y="14" width="1" height="1" class="p-ink"/>
+<rect x="36" y="8" width="1" height="1" class="p-ink"/>
+<rect x="12" y="16" width="1" height="1" class="p-ink"/>
+<rect x="24" y="24" width="1" height="1" class="p-ink"/>
+<rect x="6" y="18" width="1" height="1" class="p-ink"/>
+<rect x="10" y="12" width="1" height="1" class="p-ink"/>
+<rect x="8" y="16" width="1" height="1" class="p-ink"/>
+<rect x="28" y="18" width="1" height="1" class="p-ink"/>
+<rect x="16" y="16" width="1" height="1" class="p-ink"/>
+<rect x="20" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="8" width="1" height="1" class="p-ink"/>
+<rect x="32" y="18" width="1" height="1" class="p-ink"/>
+<rect x="12" y="20" width="1" height="1" class="p-ink"/>
+<rect x="24" y="10" width="1" height="1" class="p-ink"/>
+<rect x="6" y="22" width="1" height="1" class="p-ink"/>
+<rect x="28" y="22" width="1" height="1" class="p-ink"/>
+<rect x="8" y="20" width="1" height="1" class="p-ink"/>
+<rect x="16" y="20" width="1" height="1" class="p-ink"/>
+<rect x="20" y="14" width="1" height="1" class="p-ink"/>
+<rect x="2" y="8" width="1" height="1" class="p-ink"/>
+<rect x="22" y="12" width="1" height="1" class="p-ink"/>
+<rect x="12" y="6" width="1" height="1" class="p-ink"/>
+<rect x="12" y="24" width="1" height="1" class="p-ink"/>
+<rect x="24" y="14" width="1" height="1" class="p-ink"/>
+<rect x="6" y="8" width="1" height="1" class="p-ink"/>
+<rect x="28" y="8" width="1" height="1" class="p-ink"/>
+<rect x="8" y="6" width="1" height="1" class="p-ink"/>
+<rect x="8" y="24" width="1" height="1" class="p-ink"/>
+<rect x="16" y="24" width="1" height="1" class="p-ink"/>
+<rect x="20" y="18" width="1" height="1" class="p-ink"/>
+<rect x="18" y="22" width="1" height="1" class="p-ink"/>
+<rect x="22" y="16" width="1" height="1" class="p-ink"/>
+<rect x="4" y="10" width="1" height="1" class="p-ink"/>
+<rect x="32" y="8" width="1" height="1" class="p-ink"/>
+<rect x="30" y="16" width="1" height="1" class="p-ink"/>
+<rect x="12" y="10" width="1" height="1" class="p-ink"/>
+<rect x="24" y="18" width="1" height="1" class="p-ink"/>
+<rect x="28" y="12" width="1" height="1" class="p-ink"/>
+<rect x="8" y="10" width="1" height="1" class="p-ink"/>
+<rect x="16" y="10" width="1" height="1" class="p-ink"/>
+<rect x="20" y="22" width="1" height="1" class="p-ink"/>
+<rect x="22" y="20" width="1" height="1" class="p-ink"/>
+<rect x="30" y="20" width="1" height="1" class="p-ink"/>
+<rect x="12" y="14" width="1" height="1" class="p-ink"/>
+<rect x="14" y="12" width="1" height="1" class="p-ink"/>
+<rect x="24" y="22" width="1" height="1" class="p-ink"/>
+<rect x="8" y="14" width="1" height="1" class="p-ink"/>
+<rect x="10" y="16" width="1" height="1" class="p-ink"/>
+<rect x="16" y="14" width="1" height="1" class="p-ink"/>
+<rect x="18" y="12" width="1" height="1" class="p-ink"/>
+<rect x="22" y="24" width="1" height="1" class="p-ink"/>
+<rect x="26" y="12" width="1" height="1" class="p-ink"/>
+<rect x="30" y="6" width="1" height="1" class="p-ink"/>
+<rect x="30" y="24" width="1" height="1" class="p-ink"/>
+<rect x="12" y="18" width="1" height="1" class="p-ink"/>
+<rect x="32" y="22" width="1" height="1" class="p-ink"/>
+<rect x="14" y="16" width="1" height="1" class="p-ink"/>
+<rect x="24" y="14" width="1" height="1" class="p-print"/>
+<rect x="8" y="18" width="1" height="1" class="p-print"/>
+<rect x="24" y="20" width="1" height="1" class="p-print"/>
+<rect x="28" y="14" width="1" height="1" class="p-print"/>
+<rect x="28" y="20" width="1" height="1" class="p-print"/>
+<rect x="16" y="18" width="1" height="1" class="p-print"/>
+<rect x="18" y="16" width="1" height="1" class="p-print"/>
+<rect x="4" y="22" width="1" height="1" class="p-print"/>
+<rect x="26" y="22" width="1" height="1" class="p-print"/>
+<rect x="4" y="16" width="1" height="1" class="p-print"/>
+<rect x="14" y="14" width="1" height="1" class="p-print"/>
+<rect x="14" y="20" width="1" height="1" class="p-print"/>
+<rect x="24" y="18" width="1" height="1" class="p-print"/>
+<rect x="28" y="18" width="1" height="1" class="p-print"/>
+<rect x="8" y="16" width="1" height="1" class="p-print"/>
+<rect x="4" y="14" width="1" height="1" class="p-print"/>
+<rect x="4" y="20" width="1" height="1" class="p-print"/>
+<rect x="14" y="18" width="1" height="1" class="p-print"/>
+<rect x="8" y="14" width="1" height="1" class="p-print"/>
+<rect x="24" y="16" width="1" height="1" class="p-print"/>
+<rect x="8" y="20" width="1" height="1" class="p-print"/>
+<rect x="28" y="16" width="1" height="1" class="p-print"/>
+<rect x="6" y="16" width="1" height="1" class="p-print"/>
+<rect x="16" y="14" width="1" height="1" class="p-print"/>
+<rect x="4" y="18" width="1" height="1" class="p-print"/>
+<rect x="14" y="22" width="1" height="1" class="p-print"/>
+<rect x="14" y="16" width="1" height="1" class="p-print"/>
+<rect x="8" y="30" width="1" height="1" class="p-print"/>
+<rect x="16" y="30" width="1" height="1" class="p-print"/>
+<rect x="24" y="30" width="1" height="1" class="p-print"/>
+<rect x="32" y="30" width="1" height="1" class="p-print"/>
+<rect class="relay" style="--rd:0.00s" x="8" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:1.20s" x="16" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:2.40s" x="24" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:3.60s" x="32" y="30" width="1" height="1"/>
+</svg>
+            </div>
+            <div class="product-body">
+              <span class="product-kicker">tee · black · sku 1BT-TEE-004</span>
+              <h3 class="product-name">NPU UNLOCKED T-Shirt</h3>
+              <p class="product-desc">Black tee, chest print. XDNA 2 chips are not supposed to do this. Unisex S-3XL.</p>
+              <div class="size-row" data-sizes>
+                <button class="size-btn" type="button" data-size="S">S</button>
+                <button class="size-btn active" type="button" data-size="M">M</button>
+                <button class="size-btn" type="button" data-size="L">L</button>
+                <button class="size-btn" type="button" data-size="XL">XL</button>
+                <button class="size-btn" type="button" data-size="2XL">2XL</button>
+                <button class="size-btn" type="button" data-size="3XL">3XL</button>
+              </div>
+              <div class="product-foot">
+                <span class="product-price">$29.99</span>
+                <button class="btn btn-secondary" type="button" data-add="tee-npu" data-sku="1BT-TEE-004">>Add</button>
+              </div>
+            </div>
+          </article>
+
+          <!-- JARVIS tee -->
+          <article class="product-card" data-od-id="product-tee-jarvis">
+            <div class="product-tile">
+              <svg viewBox="0 0 40 32" aria-hidden="true">
+<rect x="8" y="18" width="1" height="1" class="p-ink"/>
+<rect x="10" y="20" width="1" height="1" class="p-ink"/>
+<rect x="16" y="18" width="1" height="1" class="p-ink"/>
+<rect x="20" y="12" width="1" height="1" class="p-ink"/>
+<rect x="18" y="16" width="1" height="1" class="p-ink"/>
+<rect x="22" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="16" width="1" height="1" class="p-ink"/>
+<rect x="30" y="10" width="1" height="1" class="p-ink"/>
+<rect x="12" y="22" width="1" height="1" class="p-ink"/>
+<rect x="14" y="20" width="1" height="1" class="p-ink"/>
+<rect x="6" y="12" width="1" height="1" class="p-ink"/>
+<rect x="10" y="6" width="1" height="1" class="p-ink"/>
+<rect x="34" y="10" width="1" height="1" class="p-ink"/>
+<rect x="10" y="24" width="1" height="1" class="p-ink"/>
+<rect x="16" y="22" width="1" height="1" class="p-ink"/>
+<rect x="18" y="20" width="1" height="1" class="p-ink"/>
+<rect x="22" y="14" width="1" height="1" class="p-ink"/>
+<rect x="4" y="8" width="1" height="1" class="p-ink"/>
+<rect x="26" y="20" width="1" height="1" class="p-ink"/>
+<rect x="30" y="14" width="1" height="1" class="p-ink"/>
+<rect x="12" y="8" width="1" height="1" class="p-ink"/>
+<rect x="32" y="12" width="1" height="1" class="p-ink"/>
+<rect x="14" y="24" width="1" height="1" class="p-ink"/>
+<rect x="6" y="16" width="1" height="1" class="p-ink"/>
+<rect x="10" y="10" width="1" height="1" class="p-ink"/>
+<rect x="28" y="16" width="1" height="1" class="p-ink"/>
+<rect x="18" y="24" width="1" height="1" class="p-ink"/>
+<rect x="22" y="18" width="1" height="1" class="p-ink"/>
+<rect x="26" y="6" width="1" height="1" class="p-ink"/>
+<rect x="26" y="24" width="1" height="1" class="p-ink"/>
+<rect x="30" y="18" width="1" height="1" class="p-ink"/>
+<rect x="12" y="12" width="1" height="1" class="p-ink"/>
+<rect x="32" y="16" width="1" height="1" class="p-ink"/>
+<rect x="14" y="10" width="1" height="1" class="p-ink"/>
+<rect x="36" y="10" width="1" height="1" class="p-ink"/>
+<rect x="6" y="20" width="1" height="1" class="p-ink"/>
+<rect x="10" y="14" width="1" height="1" class="p-ink"/>
+<rect x="28" y="20" width="1" height="1" class="p-ink"/>
+<rect x="18" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="10" width="1" height="1" class="p-ink"/>
+<rect x="30" y="22" width="1" height="1" class="p-ink"/>
+<rect x="32" y="20" width="1" height="1" class="p-ink"/>
+<rect x="14" y="14" width="1" height="1" class="p-ink"/>
+<rect x="24" y="12" width="1" height="1" class="p-ink"/>
+<rect x="6" y="6" width="1" height="1" class="p-ink"/>
+<rect x="28" y="6" width="1" height="1" class="p-ink"/>
+<rect x="6" y="24" width="1" height="1" class="p-ink"/>
+<rect x="10" y="18" width="1" height="1" class="p-ink"/>
+<rect x="8" y="22" width="1" height="1" class="p-ink"/>
+<rect x="28" y="24" width="1" height="1" class="p-ink"/>
+<rect x="18" y="14" width="1" height="1" class="p-ink"/>
+<rect x="20" y="16" width="1" height="1" class="p-ink"/>
+<rect x="26" y="14" width="1" height="1" class="p-ink"/>
+<rect x="30" y="8" width="1" height="1" class="p-ink"/>
+<rect x="2" y="10" width="1" height="1" class="p-ink"/>
+<rect x="32" y="6" width="1" height="1" class="p-ink"/>
+<rect x="32" y="24" width="1" height="1" class="p-ink"/>
+<rect x="14" y="18" width="1" height="1" class="p-ink"/>
+<rect x="24" y="16" width="1" height="1" class="p-ink"/>
+<rect x="6" y="10" width="1" height="1" class="p-ink"/>
+<rect x="28" y="10" width="1" height="1" class="p-ink"/>
+<rect x="8" y="8" width="1" height="1" class="p-ink"/>
+<rect x="34" y="8" width="1" height="1" class="p-ink"/>
+<rect x="10" y="22" width="1" height="1" class="p-ink"/>
+<rect x="18" y="18" width="1" height="1" class="p-ink"/>
+<rect x="20" y="20" width="1" height="1" class="p-ink"/>
+<rect x="26" y="18" width="1" height="1" class="p-ink"/>
+<rect x="30" y="12" width="1" height="1" class="p-ink"/>
+<rect x="32" y="10" width="1" height="1" class="p-ink"/>
+<rect x="14" y="22" width="1" height="1" class="p-ink"/>
+<rect x="24" y="20" width="1" height="1" class="p-ink"/>
+<rect x="6" y="14" width="1" height="1" class="p-ink"/>
+<rect x="10" y="8" width="1" height="1" class="p-ink"/>
+<rect x="8" y="12" width="1" height="1" class="p-ink"/>
+<rect x="28" y="14" width="1" height="1" class="p-ink"/>
+<rect x="16" y="12" width="1" height="1" class="p-ink"/>
+<rect x="20" y="24" width="1" height="1" class="p-ink"/>
+<rect x="26" y="22" width="1" height="1" class="p-ink"/>
+<rect x="22" y="22" width="1" height="1" class="p-ink"/>
+<rect x="32" y="14" width="1" height="1" class="p-ink"/>
+<rect x="36" y="8" width="1" height="1" class="p-ink"/>
+<rect x="12" y="16" width="1" height="1" class="p-ink"/>
+<rect x="24" y="24" width="1" height="1" class="p-ink"/>
+<rect x="6" y="18" width="1" height="1" class="p-ink"/>
+<rect x="10" y="12" width="1" height="1" class="p-ink"/>
+<rect x="8" y="16" width="1" height="1" class="p-ink"/>
+<rect x="28" y="18" width="1" height="1" class="p-ink"/>
+<rect x="16" y="16" width="1" height="1" class="p-ink"/>
+<rect x="20" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="8" width="1" height="1" class="p-ink"/>
+<rect x="32" y="18" width="1" height="1" class="p-ink"/>
+<rect x="12" y="20" width="1" height="1" class="p-ink"/>
+<rect x="24" y="10" width="1" height="1" class="p-ink"/>
+<rect x="6" y="22" width="1" height="1" class="p-ink"/>
+<rect x="28" y="22" width="1" height="1" class="p-ink"/>
+<rect x="8" y="20" width="1" height="1" class="p-ink"/>
+<rect x="16" y="20" width="1" height="1" class="p-ink"/>
+<rect x="20" y="14" width="1" height="1" class="p-ink"/>
+<rect x="2" y="8" width="1" height="1" class="p-ink"/>
+<rect x="22" y="12" width="1" height="1" class="p-ink"/>
+<rect x="12" y="6" width="1" height="1" class="p-ink"/>
+<rect x="12" y="24" width="1" height="1" class="p-ink"/>
+<rect x="24" y="14" width="1" height="1" class="p-ink"/>
+<rect x="6" y="8" width="1" height="1" class="p-ink"/>
+<rect x="28" y="8" width="1" height="1" class="p-ink"/>
+<rect x="8" y="6" width="1" height="1" class="p-ink"/>
+<rect x="8" y="24" width="1" height="1" class="p-ink"/>
+<rect x="16" y="24" width="1" height="1" class="p-ink"/>
+<rect x="20" y="18" width="1" height="1" class="p-ink"/>
+<rect x="18" y="22" width="1" height="1" class="p-ink"/>
+<rect x="22" y="16" width="1" height="1" class="p-ink"/>
+<rect x="4" y="10" width="1" height="1" class="p-ink"/>
+<rect x="32" y="8" width="1" height="1" class="p-ink"/>
+<rect x="30" y="16" width="1" height="1" class="p-ink"/>
+<rect x="12" y="10" width="1" height="1" class="p-ink"/>
+<rect x="24" y="18" width="1" height="1" class="p-ink"/>
+<rect x="28" y="12" width="1" height="1" class="p-ink"/>
+<rect x="8" y="10" width="1" height="1" class="p-ink"/>
+<rect x="16" y="10" width="1" height="1" class="p-ink"/>
+<rect x="20" y="22" width="1" height="1" class="p-ink"/>
+<rect x="22" y="20" width="1" height="1" class="p-ink"/>
+<rect x="30" y="20" width="1" height="1" class="p-ink"/>
+<rect x="12" y="14" width="1" height="1" class="p-ink"/>
+<rect x="14" y="12" width="1" height="1" class="p-ink"/>
+<rect x="24" y="22" width="1" height="1" class="p-ink"/>
+<rect x="8" y="14" width="1" height="1" class="p-ink"/>
+<rect x="10" y="16" width="1" height="1" class="p-ink"/>
+<rect x="16" y="14" width="1" height="1" class="p-ink"/>
+<rect x="18" y="12" width="1" height="1" class="p-ink"/>
+<rect x="22" y="24" width="1" height="1" class="p-ink"/>
+<rect x="26" y="12" width="1" height="1" class="p-ink"/>
+<rect x="30" y="6" width="1" height="1" class="p-ink"/>
+<rect x="30" y="24" width="1" height="1" class="p-ink"/>
+<rect x="12" y="18" width="1" height="1" class="p-ink"/>
+<rect x="32" y="22" width="1" height="1" class="p-ink"/>
+<rect x="14" y="16" width="1" height="1" class="p-ink"/>
+<rect x="24" y="14" width="1" height="1" class="p-print"/>
+<rect x="8" y="18" width="1" height="1" class="p-print"/>
+<rect x="28" y="14" width="1" height="1" class="p-print"/>
+<rect x="6" y="14" width="1" height="1" class="p-print"/>
+<rect x="16" y="18" width="1" height="1" class="p-print"/>
+<rect x="18" y="16" width="1" height="1" class="p-print"/>
+<rect x="18" y="22" width="1" height="1" class="p-print"/>
+<rect x="4" y="22" width="1" height="1" class="p-print"/>
+<rect x="26" y="22" width="1" height="1" class="p-print"/>
+<rect x="4" y="16" width="1" height="1" class="p-print"/>
+<rect x="14" y="14" width="1" height="1" class="p-print"/>
+<rect x="14" y="20" width="1" height="1" class="p-print"/>
+<rect x="6" y="18" width="1" height="1" class="p-print"/>
+<rect x="8" y="16" width="1" height="1" class="p-print"/>
+<rect x="8" y="22" width="1" height="1" class="p-print"/>
+<rect x="18" y="20" width="1" height="1" class="p-print"/>
+<rect x="4" y="20" width="1" height="1" class="p-print"/>
+<rect x="26" y="20" width="1" height="1" class="p-print"/>
+<rect x="14" y="18" width="1" height="1" class="p-print"/>
+<rect x="24" y="16" width="1" height="1" class="p-print"/>
+<rect x="8" y="20" width="1" height="1" class="p-print"/>
+<rect x="28" y="16" width="1" height="1" class="p-print"/>
+<rect x="16" y="14" width="1" height="1" class="p-print"/>
+<rect x="4" y="18" width="1" height="1" class="p-print"/>
+<rect x="26" y="18" width="1" height="1" class="p-print"/>
+<rect x="14" y="22" width="1" height="1" class="p-print"/>
+<rect x="14" y="16" width="1" height="1" class="p-print"/>
+<rect x="8" y="30" width="1" height="1" class="p-print"/>
+<rect x="16" y="30" width="1" height="1" class="p-print"/>
+<rect x="24" y="30" width="1" height="1" class="p-print"/>
+<rect x="32" y="30" width="1" height="1" class="p-print"/>
+<rect class="relay" style="--rd:0.00s" x="8" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:1.20s" x="16" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:2.40s" x="24" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:3.60s" x="32" y="30" width="1" height="1"/>
+</svg>
+            </div>
+            <div class="product-body">
+              <span class="product-kicker">tee · black · sku 1BT-TEE-005</span>
+              <h3 class="product-name">1bit JARVIS T-Shirt</h3>
+              <p class="product-desc">Private AI, public drip. JARVIS lockup on chest. Unisex S-3XL.</p>
+              <div class="size-row" data-sizes>
+                <button class="size-btn" type="button" data-size="S">S</button>
+                <button class="size-btn active" type="button" data-size="M">M</button>
+                <button class="size-btn" type="button" data-size="L">L</button>
+                <button class="size-btn" type="button" data-size="XL">XL</button>
+                <button class="size-btn" type="button" data-size="2XL">2XL</button>
+                <button class="size-btn" type="button" data-size="3XL">3XL</button>
+              </div>
+              <div class="product-foot">
+                <span class="product-price">$29.99</span>
+                <button class="btn btn-secondary" type="button" data-add="tee-jarvis" data-sku="1BT-TEE-005">>Add</button>
+              </div>
+            </div>
+          </article>
+
+          <!-- Hoodie -->
+          <article class="product-card" data-od-id="product-hoodie">
+            <div class="product-tile">
+              <svg viewBox="0 0 40 32" aria-hidden="true">
+<rect x="24" y="8" width="1" height="1" class="p-ink"/>
+<rect x="8" y="18" width="1" height="1" class="p-ink"/>
+<rect x="34" y="6" width="1" height="1" class="p-ink"/>
+<rect x="10" y="20" width="1" height="1" class="p-ink"/>
+<rect x="16" y="18" width="1" height="1" class="p-ink"/>
+<rect x="20" y="12" width="1" height="1" class="p-ink"/>
+<rect x="18" y="16" width="1" height="1" class="p-ink"/>
+<rect x="22" y="10" width="1" height="1" class="p-ink"/>
+<rect x="4" y="4" width="1" height="1" class="p-ink"/>
+<rect x="34" y="24" width="1" height="1" class="p-ink"/>
+<rect x="4" y="22" width="1" height="1" class="p-ink"/>
+<rect x="26" y="16" width="1" height="1" class="p-ink"/>
+<rect x="30" y="10" width="1" height="1" class="p-ink"/>
+<rect x="12" y="4" width="1" height="1" class="p-ink"/>
+<rect x="12" y="22" width="1" height="1" class="p-ink"/>
+<rect x="14" y="20" width="1" height="1" class="p-ink"/>
+<rect x="8" y="4" width="1" height="1" class="p-ink"/>
+<rect x="6" y="12" width="1" height="1" class="p-ink"/>
+<rect x="10" y="6" width="1" height="1" class="p-ink"/>
+<rect x="34" y="10" width="1" height="1" class="p-ink"/>
+<rect x="10" y="24" width="1" height="1" class="p-ink"/>
+<rect x="16" y="22" width="1" height="1" class="p-ink"/>
+<rect x="18" y="20" width="1" height="1" class="p-ink"/>
+<rect x="22" y="14" width="1" height="1" class="p-ink"/>
+<rect x="4" y="8" width="1" height="1" class="p-ink"/>
+<rect x="26" y="20" width="1" height="1" class="p-ink"/>
+<rect x="30" y="14" width="1" height="1" class="p-ink"/>
+<rect x="12" y="8" width="1" height="1" class="p-ink"/>
+<rect x="32" y="12" width="1" height="1" class="p-ink"/>
+<rect x="14" y="24" width="1" height="1" class="p-ink"/>
+<rect x="6" y="16" width="1" height="1" class="p-ink"/>
+<rect x="10" y="10" width="1" height="1" class="p-ink"/>
+<rect x="16" y="8" width="1" height="1" class="p-ink"/>
+<rect x="34" y="14" width="1" height="1" class="p-ink"/>
+<rect x="28" y="16" width="1" height="1" class="p-ink"/>
+<rect x="38" y="8" width="1" height="1" class="p-ink"/>
+<rect x="18" y="24" width="1" height="1" class="p-ink"/>
+<rect x="22" y="18" width="1" height="1" class="p-ink"/>
+<rect x="26" y="24" width="1" height="1" class="p-ink"/>
+<rect x="30" y="18" width="1" height="1" class="p-ink"/>
+<rect x="12" y="12" width="1" height="1" class="p-ink"/>
+<rect x="32" y="16" width="1" height="1" class="p-ink"/>
+<rect x="14" y="10" width="1" height="1" class="p-ink"/>
+<rect x="6" y="20" width="1" height="1" class="p-ink"/>
+<rect x="10" y="14" width="1" height="1" class="p-ink"/>
+<rect x="34" y="18" width="1" height="1" class="p-ink"/>
+<rect x="28" y="20" width="1" height="1" class="p-ink"/>
+<rect x="18" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="10" width="1" height="1" class="p-ink"/>
+<rect x="30" y="4" width="1" height="1" class="p-ink"/>
+<rect x="30" y="22" width="1" height="1" class="p-ink"/>
+<rect x="32" y="20" width="1" height="1" class="p-ink"/>
+<rect x="14" y="14" width="1" height="1" class="p-ink"/>
+<rect x="24" y="12" width="1" height="1" class="p-ink"/>
+<rect x="6" y="6" width="1" height="1" class="p-ink"/>
+<rect x="34" y="4" width="1" height="1" class="p-ink"/>
+<rect x="28" y="6" width="1" height="1" class="p-ink"/>
+<rect x="6" y="24" width="1" height="1" class="p-ink"/>
+<rect x="10" y="18" width="1" height="1" class="p-ink"/>
+<rect x="8" y="22" width="1" height="1" class="p-ink"/>
+<rect x="34" y="22" width="1" height="1" class="p-ink"/>
+<rect x="18" y="14" width="1" height="1" class="p-ink"/>
+<rect x="22" y="8" width="1" height="1" class="p-ink"/>
+<rect x="28" y="24" width="1" height="1" class="p-ink"/>
+<rect x="20" y="16" width="1" height="1" class="p-ink"/>
+<rect x="26" y="14" width="1" height="1" class="p-ink"/>
+<rect x="30" y="8" width="1" height="1" class="p-ink"/>
+<rect x="32" y="6" width="1" height="1" class="p-ink"/>
+<rect x="32" y="24" width="1" height="1" class="p-ink"/>
+<rect x="14" y="18" width="1" height="1" class="p-ink"/>
+<rect x="24" y="16" width="1" height="1" class="p-ink"/>
+<rect x="6" y="10" width="1" height="1" class="p-ink"/>
+<rect x="10" y="4" width="1" height="1" class="p-ink"/>
+<rect x="8" y="8" width="1" height="1" class="p-ink"/>
+<rect x="34" y="8" width="1" height="1" class="p-ink"/>
+<rect x="28" y="10" width="1" height="1" class="p-ink"/>
+<rect x="10" y="22" width="1" height="1" class="p-ink"/>
+<rect x="18" y="18" width="1" height="1" class="p-ink"/>
+<rect x="20" y="20" width="1" height="1" class="p-ink"/>
+<rect x="26" y="18" width="1" height="1" class="p-ink"/>
+<rect x="30" y="12" width="1" height="1" class="p-ink"/>
+<rect x="4" y="12" width="1" height="1" class="p-ink"/>
+<rect x="32" y="10" width="1" height="1" class="p-ink"/>
+<rect x="14" y="22" width="1" height="1" class="p-ink"/>
+<rect x="24" y="20" width="1" height="1" class="p-ink"/>
+<rect x="6" y="14" width="1" height="1" class="p-ink"/>
+<rect x="10" y="8" width="1" height="1" class="p-ink"/>
+<rect x="8" y="12" width="1" height="1" class="p-ink"/>
+<rect x="28" y="14" width="1" height="1" class="p-ink"/>
+<rect x="16" y="12" width="1" height="1" class="p-ink"/>
+<rect x="20" y="24" width="1" height="1" class="p-ink"/>
+<rect x="26" y="22" width="1" height="1" class="p-ink"/>
+<rect x="22" y="22" width="1" height="1" class="p-ink"/>
+<rect x="4" y="16" width="1" height="1" class="p-ink"/>
+<rect x="32" y="14" width="1" height="1" class="p-ink"/>
+<rect x="14" y="8" width="1" height="1" class="p-ink"/>
+<rect x="36" y="8" width="1" height="1" class="p-ink"/>
+<rect x="12" y="16" width="1" height="1" class="p-ink"/>
+<rect x="24" y="24" width="1" height="1" class="p-ink"/>
+<rect x="6" y="18" width="1" height="1" class="p-ink"/>
+<rect x="10" y="12" width="1" height="1" class="p-ink"/>
+<rect x="8" y="16" width="1" height="1" class="p-ink"/>
+<rect x="28" y="18" width="1" height="1" class="p-ink"/>
+<rect x="16" y="16" width="1" height="1" class="p-ink"/>
+<rect x="20" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="8" width="1" height="1" class="p-ink"/>
+<rect x="0" y="8" width="1" height="1" class="p-ink"/>
+<rect x="4" y="20" width="1" height="1" class="p-ink"/>
+<rect x="32" y="18" width="1" height="1" class="p-ink"/>
+<rect x="12" y="20" width="1" height="1" class="p-ink"/>
+<rect x="24" y="10" width="1" height="1" class="p-ink"/>
+<rect x="28" y="4" width="1" height="1" class="p-ink"/>
+<rect x="6" y="4" width="1" height="1" class="p-ink"/>
+<rect x="6" y="22" width="1" height="1" class="p-ink"/>
+<rect x="28" y="22" width="1" height="1" class="p-ink"/>
+<rect x="8" y="20" width="1" height="1" class="p-ink"/>
+<rect x="16" y="20" width="1" height="1" class="p-ink"/>
+<rect x="20" y="14" width="1" height="1" class="p-ink"/>
+<rect x="2" y="8" width="1" height="1" class="p-ink"/>
+<rect x="22" y="12" width="1" height="1" class="p-ink"/>
+<rect x="4" y="6" width="1" height="1" class="p-ink"/>
+<rect x="32" y="4" width="1" height="1" class="p-ink"/>
+<rect x="4" y="24" width="1" height="1" class="p-ink"/>
+<rect x="12" y="6" width="1" height="1" class="p-ink"/>
+<rect x="12" y="24" width="1" height="1" class="p-ink"/>
+<rect x="24" y="14" width="1" height="1" class="p-ink"/>
+<rect x="6" y="8" width="1" height="1" class="p-ink"/>
+<rect x="28" y="8" width="1" height="1" class="p-ink"/>
+<rect x="8" y="6" width="1" height="1" class="p-ink"/>
+<rect x="8" y="24" width="1" height="1" class="p-ink"/>
+<rect x="34" y="12" width="1" height="1" class="p-ink"/>
+<rect x="16" y="24" width="1" height="1" class="p-ink"/>
+<rect x="20" y="18" width="1" height="1" class="p-ink"/>
+<rect x="18" y="22" width="1" height="1" class="p-ink"/>
+<rect x="22" y="16" width="1" height="1" class="p-ink"/>
+<rect x="4" y="10" width="1" height="1" class="p-ink"/>
+<rect x="32" y="8" width="1" height="1" class="p-ink"/>
+<rect x="30" y="16" width="1" height="1" class="p-ink"/>
+<rect x="12" y="10" width="1" height="1" class="p-ink"/>
+<rect x="24" y="18" width="1" height="1" class="p-ink"/>
+<rect x="28" y="12" width="1" height="1" class="p-ink"/>
+<rect x="8" y="10" width="1" height="1" class="p-ink"/>
+<rect x="34" y="16" width="1" height="1" class="p-ink"/>
+<rect x="16" y="10" width="1" height="1" class="p-ink"/>
+<rect x="18" y="8" width="1" height="1" class="p-ink"/>
+<rect x="20" y="22" width="1" height="1" class="p-ink"/>
+<rect x="22" y="20" width="1" height="1" class="p-ink"/>
+<rect x="4" y="14" width="1" height="1" class="p-ink"/>
+<rect x="30" y="20" width="1" height="1" class="p-ink"/>
+<rect x="12" y="14" width="1" height="1" class="p-ink"/>
+<rect x="14" y="12" width="1" height="1" class="p-ink"/>
+<rect x="24" y="22" width="1" height="1" class="p-ink"/>
+<rect x="8" y="14" width="1" height="1" class="p-ink"/>
+<rect x="10" y="16" width="1" height="1" class="p-ink"/>
+<rect x="16" y="14" width="1" height="1" class="p-ink"/>
+<rect x="20" y="8" width="1" height="1" class="p-ink"/>
+<rect x="18" y="12" width="1" height="1" class="p-ink"/>
+<rect x="34" y="20" width="1" height="1" class="p-ink"/>
+<rect x="22" y="24" width="1" height="1" class="p-ink"/>
+<rect x="4" y="18" width="1" height="1" class="p-ink"/>
+<rect x="26" y="12" width="1" height="1" class="p-ink"/>
+<rect x="30" y="6" width="1" height="1" class="p-ink"/>
+<rect x="30" y="24" width="1" height="1" class="p-ink"/>
+<rect x="12" y="18" width="1" height="1" class="p-ink"/>
+<rect x="32" y="22" width="1" height="1" class="p-ink"/>
+<rect x="14" y="16" width="1" height="1" class="p-ink"/>
+<rect x="12" y="20" width="1" height="1" class="p-mid"/>
+<rect x="12" y="22" width="1" height="1" class="p-mid"/>
+<rect x="14" y="20" width="1" height="1" class="p-mid"/>
+<rect x="14" y="22" width="1" height="1" class="p-mid"/>
+<rect x="16" y="20" width="1" height="1" class="p-mid"/>
+<rect x="16" y="22" width="1" height="1" class="p-mid"/>
+<rect x="18" y="20" width="1" height="1" class="p-mid"/>
+<rect x="18" y="22" width="1" height="1" class="p-mid"/>
+<rect x="20" y="20" width="1" height="1" class="p-mid"/>
+<rect x="20" y="22" width="1" height="1" class="p-mid"/>
+<rect x="22" y="20" width="1" height="1" class="p-mid"/>
+<rect x="22" y="22" width="1" height="1" class="p-mid"/>
+<rect x="24" y="20" width="1" height="1" class="p-mid"/>
+<rect x="24" y="22" width="1" height="1" class="p-mid"/>
+<rect x="26" y="20" width="1" height="1" class="p-mid"/>
+<rect x="26" y="22" width="1" height="1" class="p-mid"/>
+<rect x="8" y="30" width="1" height="1" class="p-print"/>
+<rect x="16" y="30" width="1" height="1" class="p-print"/>
+<rect x="24" y="30" width="1" height="1" class="p-print"/>
+<rect x="32" y="30" width="1" height="1" class="p-print"/>
+<rect class="relay" style="--rd:0.00s" x="8" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:1.60s" x="16" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:3.20s" x="24" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:4.80s" x="32" y="30" width="1" height="1"/>
+</svg>
+            </div>
+            <div class="product-body">
+              <span class="product-kicker">hoodie · heavyweight fleece · sku 1BT-APP-001</span>
+              <h3 class="product-name">Zero Dependencies Hoodie</h3>
+              <p class="product-desc">Heavyweight fleece, black. 1bit.MONSTER on chest, "One engine. Every model. Any chip." across the back. S-3XL.</p>
+              <div class="size-row" data-sizes>
+                <button class="size-btn" type="button" data-size="S">S</button>
+                <button class="size-btn active" type="button" data-size="M">M</button>
+                <button class="size-btn" type="button" data-size="L">L</button>
+                <button class="size-btn" type="button" data-size="XL">XL</button>
+                <button class="size-btn" type="button" data-size="2XL">2XL</button>
+                <button class="size-btn" type="button" data-size="3XL">3XL</button>
+              </div>
+              <div class="product-foot">
+                <span class="product-price">$49.99</span>
+                <button class="btn btn-secondary" type="button" data-add="hoodie" data-sku="1BT-APP-001">>Add</button>
+              </div>
+            </div>
+          </article>
+
+          <!-- Mug -->
+          <article class="product-card" data-od-id="product-mug">
+            <div class="product-tile">
+              <svg viewBox="0 0 40 32" aria-hidden="true">
+<rect x="10" y="10" width="1" height="1" class="p-ink"/>
+<rect x="12" y="10" width="1" height="1" class="p-ink"/>
+<rect x="14" y="10" width="1" height="1" class="p-ink"/>
+<rect x="16" y="10" width="1" height="1" class="p-ink"/>
+<rect x="18" y="10" width="1" height="1" class="p-ink"/>
+<rect x="20" y="10" width="1" height="1" class="p-ink"/>
+<rect x="22" y="10" width="1" height="1" class="p-ink"/>
+<rect x="24" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="10" width="1" height="1" class="p-ink"/>
+<rect x="10" y="12" width="1" height="1" class="p-ink"/>
+<rect x="12" y="12" width="1" height="1" class="p-ink"/>
+<rect x="14" y="12" width="1" height="1" class="p-ink"/>
+<rect x="16" y="12" width="1" height="1" class="p-ink"/>
+<rect x="18" y="12" width="1" height="1" class="p-ink"/>
+<rect x="20" y="12" width="1" height="1" class="p-ink"/>
+<rect x="22" y="12" width="1" height="1" class="p-ink"/>
+<rect x="24" y="12" width="1" height="1" class="p-ink"/>
+<rect x="26" y="12" width="1" height="1" class="p-ink"/>
+<rect x="10" y="14" width="1" height="1" class="p-ink"/>
+<rect x="12" y="14" width="1" height="1" class="p-ink"/>
+<rect x="14" y="14" width="1" height="1" class="p-ink"/>
+<rect x="16" y="14" width="1" height="1" class="p-ink"/>
+<rect x="18" y="14" width="1" height="1" class="p-ink"/>
+<rect x="20" y="14" width="1" height="1" class="p-ink"/>
+<rect x="22" y="14" width="1" height="1" class="p-ink"/>
+<rect x="24" y="14" width="1" height="1" class="p-ink"/>
+<rect x="26" y="14" width="1" height="1" class="p-ink"/>
+<rect x="10" y="16" width="1" height="1" class="p-ink"/>
+<rect x="12" y="16" width="1" height="1" class="p-ink"/>
+<rect x="14" y="16" width="1" height="1" class="p-ink"/>
+<rect x="16" y="16" width="1" height="1" class="p-ink"/>
+<rect x="18" y="16" width="1" height="1" class="p-ink"/>
+<rect x="20" y="16" width="1" height="1" class="p-ink"/>
+<rect x="22" y="16" width="1" height="1" class="p-ink"/>
+<rect x="24" y="16" width="1" height="1" class="p-ink"/>
+<rect x="26" y="16" width="1" height="1" class="p-ink"/>
+<rect x="10" y="18" width="1" height="1" class="p-ink"/>
+<rect x="12" y="18" width="1" height="1" class="p-ink"/>
+<rect x="14" y="18" width="1" height="1" class="p-ink"/>
+<rect x="16" y="18" width="1" height="1" class="p-ink"/>
+<rect x="18" y="18" width="1" height="1" class="p-ink"/>
+<rect x="20" y="18" width="1" height="1" class="p-ink"/>
+<rect x="22" y="18" width="1" height="1" class="p-ink"/>
+<rect x="24" y="18" width="1" height="1" class="p-ink"/>
+<rect x="26" y="18" width="1" height="1" class="p-ink"/>
+<rect x="10" y="20" width="1" height="1" class="p-ink"/>
+<rect x="12" y="20" width="1" height="1" class="p-ink"/>
+<rect x="14" y="20" width="1" height="1" class="p-ink"/>
+<rect x="16" y="20" width="1" height="1" class="p-ink"/>
+<rect x="18" y="20" width="1" height="1" class="p-ink"/>
+<rect x="20" y="20" width="1" height="1" class="p-ink"/>
+<rect x="22" y="20" width="1" height="1" class="p-ink"/>
+<rect x="24" y="20" width="1" height="1" class="p-ink"/>
+<rect x="26" y="20" width="1" height="1" class="p-ink"/>
+<rect x="10" y="22" width="1" height="1" class="p-ink"/>
+<rect x="12" y="22" width="1" height="1" class="p-ink"/>
+<rect x="14" y="22" width="1" height="1" class="p-ink"/>
+<rect x="16" y="22" width="1" height="1" class="p-ink"/>
+<rect x="18" y="22" width="1" height="1" class="p-ink"/>
+<rect x="20" y="22" width="1" height="1" class="p-ink"/>
+<rect x="22" y="22" width="1" height="1" class="p-ink"/>
+<rect x="24" y="22" width="1" height="1" class="p-ink"/>
+<rect x="26" y="22" width="1" height="1" class="p-ink"/>
+<rect x="10" y="24" width="1" height="1" class="p-ink"/>
+<rect x="12" y="24" width="1" height="1" class="p-ink"/>
+<rect x="14" y="24" width="1" height="1" class="p-ink"/>
+<rect x="16" y="24" width="1" height="1" class="p-ink"/>
+<rect x="18" y="24" width="1" height="1" class="p-ink"/>
+<rect x="20" y="24" width="1" height="1" class="p-ink"/>
+<rect x="22" y="24" width="1" height="1" class="p-ink"/>
+<rect x="24" y="24" width="1" height="1" class="p-ink"/>
+<rect x="26" y="24" width="1" height="1" class="p-ink"/>
+<rect x="10" y="26" width="1" height="1" class="p-ink"/>
+<rect x="12" y="26" width="1" height="1" class="p-ink"/>
+<rect x="14" y="26" width="1" height="1" class="p-ink"/>
+<rect x="16" y="26" width="1" height="1" class="p-ink"/>
+<rect x="18" y="26" width="1" height="1" class="p-ink"/>
+<rect x="20" y="26" width="1" height="1" class="p-ink"/>
+<rect x="22" y="26" width="1" height="1" class="p-ink"/>
+<rect x="24" y="26" width="1" height="1" class="p-ink"/>
+<rect x="26" y="26" width="1" height="1" class="p-ink"/>
+<rect x="10" y="8" width="1" height="1" class="p-mid"/>
+<rect x="12" y="8" width="1" height="1" class="p-mid"/>
+<rect x="14" y="8" width="1" height="1" class="p-mid"/>
+<rect x="16" y="8" width="1" height="1" class="p-mid"/>
+<rect x="18" y="8" width="1" height="1" class="p-mid"/>
+<rect x="20" y="8" width="1" height="1" class="p-mid"/>
+<rect x="22" y="8" width="1" height="1" class="p-mid"/>
+<rect x="24" y="8" width="1" height="1" class="p-mid"/>
+<rect x="26" y="8" width="1" height="1" class="p-mid"/>
+<rect x="28" y="12" width="1" height="1" class="p-mid"/>
+<rect x="30" y="12" width="1" height="1" class="p-mid"/>
+<rect x="30" y="14" width="1" height="1" class="p-mid"/>
+<rect x="30" y="16" width="1" height="1" class="p-mid"/>
+<rect x="28" y="18" width="1" height="1" class="p-mid"/>
+<rect x="32" y="14" width="1" height="1" class="p-mid"/>
+<rect x="32" y="16" width="1" height="1" class="p-mid"/>
+<rect x="14" y="22" width="1" height="1" class="p-print"/>
+<rect x="16" y="22" width="1" height="1" class="p-print"/>
+<rect x="18" y="22" width="1" height="1" class="p-print"/>
+<rect x="20" y="22" width="1" height="1" class="p-print"/>
+<rect x="22" y="22" width="1" height="1" class="p-print"/>
+<rect x="14" y="28" width="1" height="1" class="p-print"/>
+<rect x="20" y="28" width="1" height="1" class="p-print"/>
+<rect x="26" y="28" width="1" height="1" class="p-print"/>
+<rect class="relay" style="--rd:0.00s" x="14" y="28" width="1" height="1"/>
+<rect class="relay" style="--rd:1.40s" x="20" y="28" width="1" height="1"/>
+<rect class="relay" style="--rd:2.80s" x="26" y="28" width="1" height="1"/>
+</svg>
+            </div>
+            <div class="product-body">
+              <span class="product-kicker">11oz ceramic · matte black · sku 1BT-APP-002</span>
+              <h3 class="product-name">1bit.monster Coffee Mug</h3>
+              <p class="product-desc">Matte black ceramic. "1bit MONSTER" up front, "94 tok/s · zero cloud" around the side. Dishwasher safe.</p>
+              <div class="product-foot">
+                <span class="product-price">$18.99</span>
+                <button class="btn btn-secondary" type="button" data-add="mug" data-sku="1BT-APP-002">>Add to cart</button>
+              </div>
+            </div>
+          </article>
+
+          <!-- Bottle -->
+          <article class="product-card" data-od-id="product-bottle">
+            <div class="product-tile">
+              <svg viewBox="0 0 40 32" aria-hidden="true">
+<rect x="18" y="2" width="1" height="1" class="p-mid"/>
+<rect x="20" y="2" width="1" height="1" class="p-mid"/>
+<rect x="22" y="2" width="1" height="1" class="p-mid"/>
+<rect x="16" y="4" width="1" height="1" class="p-mid"/>
+<rect x="18" y="4" width="1" height="1" class="p-mid"/>
+<rect x="20" y="4" width="1" height="1" class="p-mid"/>
+<rect x="22" y="4" width="1" height="1" class="p-mid"/>
+<rect x="24" y="4" width="1" height="1" class="p-mid"/>
+<rect x="18" y="6" width="1" height="1" class="p-ink"/>
+<rect x="20" y="6" width="1" height="1" class="p-ink"/>
+<rect x="22" y="6" width="1" height="1" class="p-ink"/>
+<rect x="18" y="8" width="1" height="1" class="p-ink"/>
+<rect x="20" y="8" width="1" height="1" class="p-ink"/>
+<rect x="22" y="8" width="1" height="1" class="p-ink"/>
+<rect x="12" y="10" width="1" height="1" class="p-ink"/>
+<rect x="14" y="10" width="1" height="1" class="p-ink"/>
+<rect x="16" y="10" width="1" height="1" class="p-ink"/>
+<rect x="18" y="10" width="1" height="1" class="p-ink"/>
+<rect x="20" y="10" width="1" height="1" class="p-ink"/>
+<rect x="22" y="10" width="1" height="1" class="p-ink"/>
+<rect x="24" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="10" width="1" height="1" class="p-ink"/>
+<rect x="12" y="12" width="1" height="1" class="p-ink"/>
+<rect x="14" y="12" width="1" height="1" class="p-ink"/>
+<rect x="16" y="12" width="1" height="1" class="p-ink"/>
+<rect x="18" y="12" width="1" height="1" class="p-ink"/>
+<rect x="20" y="12" width="1" height="1" class="p-ink"/>
+<rect x="22" y="12" width="1" height="1" class="p-ink"/>
+<rect x="24" y="12" width="1" height="1" class="p-ink"/>
+<rect x="26" y="12" width="1" height="1" class="p-ink"/>
+<rect x="12" y="14" width="1" height="1" class="p-ink"/>
+<rect x="14" y="14" width="1" height="1" class="p-ink"/>
+<rect x="16" y="14" width="1" height="1" class="p-ink"/>
+<rect x="18" y="14" width="1" height="1" class="p-ink"/>
+<rect x="20" y="14" width="1" height="1" class="p-ink"/>
+<rect x="22" y="14" width="1" height="1" class="p-ink"/>
+<rect x="24" y="14" width="1" height="1" class="p-ink"/>
+<rect x="26" y="14" width="1" height="1" class="p-ink"/>
+<rect x="12" y="16" width="1" height="1" class="p-ink"/>
+<rect x="14" y="16" width="1" height="1" class="p-ink"/>
+<rect x="16" y="16" width="1" height="1" class="p-ink"/>
+<rect x="18" y="16" width="1" height="1" class="p-ink"/>
+<rect x="20" y="16" width="1" height="1" class="p-ink"/>
+<rect x="22" y="16" width="1" height="1" class="p-ink"/>
+<rect x="24" y="16" width="1" height="1" class="p-ink"/>
+<rect x="26" y="16" width="1" height="1" class="p-ink"/>
+<rect x="12" y="18" width="1" height="1" class="p-ink"/>
+<rect x="14" y="18" width="1" height="1" class="p-ink"/>
+<rect x="16" y="18" width="1" height="1" class="p-ink"/>
+<rect x="18" y="18" width="1" height="1" class="p-ink"/>
+<rect x="20" y="18" width="1" height="1" class="p-ink"/>
+<rect x="22" y="18" width="1" height="1" class="p-ink"/>
+<rect x="24" y="18" width="1" height="1" class="p-ink"/>
+<rect x="26" y="18" width="1" height="1" class="p-ink"/>
+<rect x="12" y="20" width="1" height="1" class="p-ink"/>
+<rect x="14" y="20" width="1" height="1" class="p-ink"/>
+<rect x="16" y="20" width="1" height="1" class="p-ink"/>
+<rect x="18" y="20" width="1" height="1" class="p-ink"/>
+<rect x="20" y="20" width="1" height="1" class="p-ink"/>
+<rect x="22" y="20" width="1" height="1" class="p-ink"/>
+<rect x="24" y="20" width="1" height="1" class="p-ink"/>
+<rect x="26" y="20" width="1" height="1" class="p-ink"/>
+<rect x="12" y="22" width="1" height="1" class="p-ink"/>
+<rect x="14" y="22" width="1" height="1" class="p-ink"/>
+<rect x="16" y="22" width="1" height="1" class="p-ink"/>
+<rect x="18" y="22" width="1" height="1" class="p-ink"/>
+<rect x="20" y="22" width="1" height="1" class="p-ink"/>
+<rect x="22" y="22" width="1" height="1" class="p-ink"/>
+<rect x="24" y="22" width="1" height="1" class="p-ink"/>
+<rect x="26" y="22" width="1" height="1" class="p-ink"/>
+<rect x="12" y="24" width="1" height="1" class="p-ink"/>
+<rect x="14" y="24" width="1" height="1" class="p-ink"/>
+<rect x="16" y="24" width="1" height="1" class="p-ink"/>
+<rect x="18" y="24" width="1" height="1" class="p-ink"/>
+<rect x="20" y="24" width="1" height="1" class="p-ink"/>
+<rect x="22" y="24" width="1" height="1" class="p-ink"/>
+<rect x="24" y="24" width="1" height="1" class="p-ink"/>
+<rect x="26" y="24" width="1" height="1" class="p-ink"/>
+<rect x="12" y="26" width="1" height="1" class="p-ink"/>
+<rect x="14" y="26" width="1" height="1" class="p-ink"/>
+<rect x="16" y="26" width="1" height="1" class="p-ink"/>
+<rect x="18" y="26" width="1" height="1" class="p-ink"/>
+<rect x="20" y="26" width="1" height="1" class="p-ink"/>
+<rect x="22" y="26" width="1" height="1" class="p-ink"/>
+<rect x="24" y="26" width="1" height="1" class="p-ink"/>
+<rect x="26" y="26" width="1" height="1" class="p-ink"/>
+<rect x="12" y="28" width="1" height="1" class="p-ink"/>
+<rect x="14" y="28" width="1" height="1" class="p-ink"/>
+<rect x="16" y="28" width="1" height="1" class="p-ink"/>
+<rect x="18" y="28" width="1" height="1" class="p-ink"/>
+<rect x="20" y="28" width="1" height="1" class="p-ink"/>
+<rect x="22" y="28" width="1" height="1" class="p-ink"/>
+<rect x="24" y="28" width="1" height="1" class="p-ink"/>
+<rect x="26" y="28" width="1" height="1" class="p-ink"/>
+<rect x="12" y="30" width="1" height="1" class="p-ink"/>
+<rect x="14" y="30" width="1" height="1" class="p-ink"/>
+<rect x="16" y="30" width="1" height="1" class="p-ink"/>
+<rect x="18" y="30" width="1" height="1" class="p-ink"/>
+<rect x="20" y="30" width="1" height="1" class="p-ink"/>
+<rect x="22" y="30" width="1" height="1" class="p-ink"/>
+<rect x="24" y="30" width="1" height="1" class="p-ink"/>
+<rect x="26" y="30" width="1" height="1" class="p-ink"/>
+<rect x="14" y="24" width="1" height="1" class="p-print"/>
+<rect x="16" y="24" width="1" height="1" class="p-print"/>
+<rect x="18" y="24" width="1" height="1" class="p-print"/>
+<rect x="20" y="24" width="1" height="1" class="p-print"/>
+<rect x="22" y="24" width="1" height="1" class="p-print"/>
+<rect x="24" y="24" width="1" height="1" class="p-print"/>
+<rect x="14" y="28" width="1" height="1" class="p-print"/>
+<rect x="20" y="28" width="1" height="1" class="p-print"/>
+<rect x="26" y="28" width="1" height="1" class="p-print"/>
+<rect class="relay" style="--rd:0.00s" x="14" y="28" width="1" height="1"/>
+<rect class="relay" style="--rd:1.40s" x="20" y="28" width="1" height="1"/>
+<rect class="relay" style="--rd:2.80s" x="26" y="28" width="1" height="1"/>
+</svg>
+            </div>
+            <div class="product-body">
+              <span class="product-kicker">20oz stainless · insulated · sku 1BT-APP-003</span>
+              <h3 class="product-name">100% Local AI Water Bottle</h3>
+              <p class="product-desc">20oz vacuum-insulated stainless steel. "100% LOCAL AI" plus the 1bit lockup. 24 hours cold, zero cloud.</p>
+              <div class="product-foot">
+                <span class="product-price">$24.99</span>
+                <button class="btn btn-secondary" type="button" data-add="bottle" data-sku="1BT-APP-003">>Add to cart</button>
+              </div>
+            </div>
+          </article>
+
+          <!-- Sticker mega pack -->
+          <article class="product-card" data-od-id="product-pack-mega">
+            <div class="product-tile">
+              <svg viewBox="0 0 40 32" aria-hidden="true">
+<rect x="0" y="6" width="1" height="1" class="p-ink"/>
+<rect x="0" y="8" width="1" height="1" class="p-ink"/>
+<rect x="0" y="10" width="1" height="1" class="p-ink"/>
+<rect x="2" y="6" width="1" height="1" class="p-ink"/>
+<rect x="2" y="8" width="1" height="1" class="p-ink"/>
+<rect x="2" y="10" width="1" height="1" class="p-ink"/>
+<rect x="4" y="6" width="1" height="1" class="p-ink"/>
+<rect x="4" y="8" width="1" height="1" class="p-ink"/>
+<rect x="4" y="10" width="1" height="1" class="p-ink"/>
+<rect x="2" y="8" width="1" height="1" class="p-print"/>
+<rect x="8" y="6" width="1" height="1" class="p-ink"/>
+<rect x="8" y="8" width="1" height="1" class="p-ink"/>
+<rect x="8" y="10" width="1" height="1" class="p-ink"/>
+<rect x="10" y="6" width="1" height="1" class="p-ink"/>
+<rect x="10" y="8" width="1" height="1" class="p-ink"/>
+<rect x="10" y="10" width="1" height="1" class="p-ink"/>
+<rect x="12" y="6" width="1" height="1" class="p-ink"/>
+<rect x="12" y="8" width="1" height="1" class="p-ink"/>
+<rect x="12" y="10" width="1" height="1" class="p-ink"/>
+<rect x="10" y="8" width="1" height="1" class="p-print"/>
+<rect x="16" y="6" width="1" height="1" class="p-ink"/>
+<rect x="16" y="8" width="1" height="1" class="p-ink"/>
+<rect x="16" y="10" width="1" height="1" class="p-ink"/>
+<rect x="18" y="6" width="1" height="1" class="p-ink"/>
+<rect x="18" y="8" width="1" height="1" class="p-ink"/>
+<rect x="18" y="10" width="1" height="1" class="p-ink"/>
+<rect x="20" y="6" width="1" height="1" class="p-ink"/>
+<rect x="20" y="8" width="1" height="1" class="p-ink"/>
+<rect x="20" y="10" width="1" height="1" class="p-ink"/>
+<rect x="18" y="8" width="1" height="1" class="p-print"/>
+<rect x="24" y="6" width="1" height="1" class="p-ink"/>
+<rect x="24" y="8" width="1" height="1" class="p-ink"/>
+<rect x="24" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="6" width="1" height="1" class="p-ink"/>
+<rect x="26" y="8" width="1" height="1" class="p-ink"/>
+<rect x="26" y="10" width="1" height="1" class="p-ink"/>
+<rect x="28" y="6" width="1" height="1" class="p-ink"/>
+<rect x="28" y="8" width="1" height="1" class="p-ink"/>
+<rect x="28" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="8" width="1" height="1" class="p-print"/>
+<rect x="32" y="6" width="1" height="1" class="p-ink"/>
+<rect x="32" y="8" width="1" height="1" class="p-ink"/>
+<rect x="32" y="10" width="1" height="1" class="p-ink"/>
+<rect x="34" y="6" width="1" height="1" class="p-ink"/>
+<rect x="34" y="8" width="1" height="1" class="p-ink"/>
+<rect x="34" y="10" width="1" height="1" class="p-ink"/>
+<rect x="36" y="6" width="1" height="1" class="p-ink"/>
+<rect x="36" y="8" width="1" height="1" class="p-ink"/>
+<rect x="36" y="10" width="1" height="1" class="p-ink"/>
+<rect x="34" y="8" width="1" height="1" class="p-print"/>
+<rect x="0" y="14" width="1" height="1" class="p-ink"/>
+<rect x="0" y="16" width="1" height="1" class="p-ink"/>
+<rect x="0" y="18" width="1" height="1" class="p-ink"/>
+<rect x="2" y="14" width="1" height="1" class="p-ink"/>
+<rect x="2" y="16" width="1" height="1" class="p-ink"/>
+<rect x="2" y="18" width="1" height="1" class="p-ink"/>
+<rect x="4" y="14" width="1" height="1" class="p-ink"/>
+<rect x="4" y="16" width="1" height="1" class="p-ink"/>
+<rect x="4" y="18" width="1" height="1" class="p-ink"/>
+<rect x="2" y="16" width="1" height="1" class="p-print"/>
+<rect x="8" y="14" width="1" height="1" class="p-ink"/>
+<rect x="8" y="16" width="1" height="1" class="p-ink"/>
+<rect x="8" y="18" width="1" height="1" class="p-ink"/>
+<rect x="10" y="14" width="1" height="1" class="p-ink"/>
+<rect x="10" y="16" width="1" height="1" class="p-ink"/>
+<rect x="10" y="18" width="1" height="1" class="p-ink"/>
+<rect x="12" y="14" width="1" height="1" class="p-ink"/>
+<rect x="12" y="16" width="1" height="1" class="p-ink"/>
+<rect x="12" y="18" width="1" height="1" class="p-ink"/>
+<rect x="10" y="16" width="1" height="1" class="p-print"/>
+<rect x="16" y="14" width="1" height="1" class="p-ink"/>
+<rect x="16" y="16" width="1" height="1" class="p-ink"/>
+<rect x="16" y="18" width="1" height="1" class="p-ink"/>
+<rect x="18" y="14" width="1" height="1" class="p-ink"/>
+<rect x="18" y="16" width="1" height="1" class="p-ink"/>
+<rect x="18" y="18" width="1" height="1" class="p-ink"/>
+<rect x="20" y="14" width="1" height="1" class="p-ink"/>
+<rect x="20" y="16" width="1" height="1" class="p-ink"/>
+<rect x="20" y="18" width="1" height="1" class="p-ink"/>
+<rect x="18" y="16" width="1" height="1" class="p-print"/>
+<rect x="24" y="14" width="1" height="1" class="p-ink"/>
+<rect x="24" y="16" width="1" height="1" class="p-ink"/>
+<rect x="24" y="18" width="1" height="1" class="p-ink"/>
+<rect x="26" y="14" width="1" height="1" class="p-ink"/>
+<rect x="26" y="16" width="1" height="1" class="p-ink"/>
+<rect x="26" y="18" width="1" height="1" class="p-ink"/>
+<rect x="28" y="14" width="1" height="1" class="p-ink"/>
+<rect x="28" y="16" width="1" height="1" class="p-ink"/>
+<rect x="28" y="18" width="1" height="1" class="p-ink"/>
+<rect x="26" y="16" width="1" height="1" class="p-print"/>
+<rect x="32" y="14" width="1" height="1" class="p-ink"/>
+<rect x="32" y="16" width="1" height="1" class="p-ink"/>
+<rect x="32" y="18" width="1" height="1" class="p-ink"/>
+<rect x="34" y="14" width="1" height="1" class="p-ink"/>
+<rect x="34" y="16" width="1" height="1" class="p-ink"/>
+<rect x="34" y="18" width="1" height="1" class="p-ink"/>
+<rect x="36" y="14" width="1" height="1" class="p-ink"/>
+<rect x="36" y="16" width="1" height="1" class="p-ink"/>
+<rect x="36" y="18" width="1" height="1" class="p-ink"/>
+<rect x="34" y="16" width="1" height="1" class="p-print"/>
+<rect x="8" y="30" width="1" height="1" class="p-print"/>
+<rect x="16" y="30" width="1" height="1" class="p-print"/>
+<rect x="24" y="30" width="1" height="1" class="p-print"/>
+<rect x="32" y="30" width="1" height="1" class="p-print"/>
+<rect class="relay" style="--rd:0.00s" x="8" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:1.40s" x="16" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:2.80s" x="24" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:4.20s" x="32" y="30" width="1" height="1"/>
+</svg>
+            </div>
+            <div class="product-body">
+              <span class="product-kicker">vinyl · ten pack · sku 1BT-PAK-001</span>
+              <h3 class="product-name">Laptop Sticker Mega Pack</h3>
+              <p class="product-desc">Ten die-cut vinyl stickers in the full design language. Weatherproof, 3×3. Every pack includes a bonus mystery sticker.</p>
+              <div class="product-foot">
+                <span class="product-price">$14.99</span>
+                <button class="btn btn-secondary" type="button" data-add="pack-mega" data-sku="1BT-PAK-001">>Add to cart</button>
+              </div>
+            </div>
+          </article>
+
+          <!-- Starter pack -->
+          <article class="product-card" data-od-id="product-pack-starter">
+            <div class="product-tile">
+              <svg viewBox="0 0 40 32" aria-hidden="true">
+<rect x="8" y="6" width="1" height="1" class="p-ink"/>
+<rect x="8" y="8" width="1" height="1" class="p-ink"/>
+<rect x="8" y="10" width="1" height="1" class="p-ink"/>
+<rect x="10" y="6" width="1" height="1" class="p-ink"/>
+<rect x="10" y="8" width="1" height="1" class="p-ink"/>
+<rect x="10" y="10" width="1" height="1" class="p-ink"/>
+<rect x="12" y="6" width="1" height="1" class="p-ink"/>
+<rect x="12" y="8" width="1" height="1" class="p-ink"/>
+<rect x="12" y="10" width="1" height="1" class="p-ink"/>
+<rect x="10" y="8" width="1" height="1" class="p-print"/>
+<rect x="16" y="6" width="1" height="1" class="p-ink"/>
+<rect x="16" y="8" width="1" height="1" class="p-ink"/>
+<rect x="16" y="10" width="1" height="1" class="p-ink"/>
+<rect x="18" y="6" width="1" height="1" class="p-ink"/>
+<rect x="18" y="8" width="1" height="1" class="p-ink"/>
+<rect x="18" y="10" width="1" height="1" class="p-ink"/>
+<rect x="20" y="6" width="1" height="1" class="p-ink"/>
+<rect x="20" y="8" width="1" height="1" class="p-ink"/>
+<rect x="20" y="10" width="1" height="1" class="p-ink"/>
+<rect x="18" y="8" width="1" height="1" class="p-print"/>
+<rect x="24" y="6" width="1" height="1" class="p-ink"/>
+<rect x="24" y="8" width="1" height="1" class="p-ink"/>
+<rect x="24" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="6" width="1" height="1" class="p-ink"/>
+<rect x="26" y="8" width="1" height="1" class="p-ink"/>
+<rect x="26" y="10" width="1" height="1" class="p-ink"/>
+<rect x="28" y="6" width="1" height="1" class="p-ink"/>
+<rect x="28" y="8" width="1" height="1" class="p-ink"/>
+<rect x="28" y="10" width="1" height="1" class="p-ink"/>
+<rect x="26" y="8" width="1" height="1" class="p-print"/>
+<rect x="8" y="30" width="1" height="1" class="p-print"/>
+<rect x="16" y="30" width="1" height="1" class="p-print"/>
+<rect x="24" y="30" width="1" height="1" class="p-print"/>
+<rect x="32" y="30" width="1" height="1" class="p-print"/>
+<rect class="relay" style="--rd:0.00s" x="8" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:1.40s" x="16" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:2.80s" x="24" y="30" width="1" height="1"/>
+<rect class="relay" style="--rd:4.20s" x="32" y="30" width="1" height="1"/>
+</svg>
+            </div>
+            <div class="product-body">
+              <span class="product-kicker">vinyl · three pack · sku 1BT-PAK-002</span>
+              <h3 class="product-name">Starter Sticker Pack</h3>
+              <p class="product-desc">The 1bit mark, "94 tok/s", and "NPU UNLOCKED". Die-cut vinyl, 3×3, weatherproof.</p>
+              <div class="product-foot">
+                <span class="product-price">$8.99</span>
+                <button class="btn btn-secondary" type="button" data-add="pack-starter" data-sku="1BT-PAK-002">>Add to cart</button>
+              </div>
+            </div>
+          </article>
+
+          <!-- Temporary tattoos -->
+          <article class="product-card" data-od-id="product-tattoos">
+            <div class="product-tile">
+              <svg viewBox="0 0 40 32" aria-hidden="true">
+<rect x="6" y="4" width="1" height="1" class="p-soft"/>
+<rect x="8" y="4" width="1" height="1" class="p-soft"/>
+<rect x="10" y="4" width="1" height="1" class="p-soft"/>
+<rect x="12" y="4" width="1" height="1" class="p-soft"/>
+<rect x="14" y="4" width="1" height="1" class="p-soft"/>
+<rect x="16" y="4" width="1" height="1" class="p-soft"/>
+<rect x="18" y="4" width="1" height="1" class="p-soft"/>
+<rect x="20" y="4" width="1" height="1" class="p-soft"/>
+<rect x="22" y="4" width="1" height="1" class="p-soft"/>
+<rect x="24" y="4" width="1" height="1" class="p-soft"/>
+<rect x="26" y="4" width="1" height="1" class="p-soft"/>
+<rect x="28" y="4" width="1" height="1" class="p-soft"/>
+<rect x="30" y="4" width="1" height="1" class="p-soft"/>
+<rect x="32" y="4" width="1" height="1" class="p-soft"/>
+<rect x="6" y="6" width="1" height="1" class="p-soft"/>
+<rect x="8" y="6" width="1" height="1" class="p-soft"/>
+<rect x="10" y="6" width="1" height="1" class="p-soft"/>
+<rect x="12" y="6" width="1" height="1" class="p-soft"/>
+<rect x="14" y="6" width="1" height="1" class="p-soft"/>
+<rect x="16" y="6" width="1" height="1" class="p-soft"/>
+<rect x="18" y="6" width="1" height="1" class="p-soft"/>
+<rect x="20" y="6" width="1" height="1" class="p-soft"/>
+<rect x="22" y="6" width="1" height="1" class="p-soft"/>
+<rect x="24" y="6" width="1" height="1" class="p-soft"/>
+<rect x="26" y="6" width="1" height="1" class="p-soft"/>
+<rect x="28" y="6" width="1" height="1" class="p-soft"/>
+<rect x="30" y="6" width="1" height="1" class="p-soft"/>
+<rect x="32" y="6" width="1" height="1" class="p-soft"/>
+<rect x="6" y="8" width="1" height="1" class="p-soft"/>
+<rect x="8" y="8" width="1" height="1" class="p-soft"/>
+<rect x="10" y="8" width="1" height="1" class="p-soft"/>
+<rect x="12" y="8" width="1" height="1" class="p-soft"/>
+<rect x="14" y="8" width="1" height="1" class="p-soft"/>
+<rect x="16" y="8" width="1" height="1" class="p-soft"/>
+<rect x="18" y="8" width="1" height="1" class="p-soft"/>
+<rect x="20" y="8" width="1" height="1" class="p-soft"/>
+<rect x="22" y="8" width="1" height="1" class="p-soft"/>
+<rect x="24" y="8" width="1" height="1" class="p-soft"/>
+<rect x="26" y="8" width="1" height="1" class="p-soft"/>
+<rect x="28" y="8" width="1" height="1" class="p-soft"/>
+<rect x="30" y="8" width="1" height="1" class="p-soft"/>
+<rect x="32" y="8" width="1" height="1" class="p-soft"/>
+<rect x="6" y="10" width="1" height="1" class="p-soft"/>
+<rect x="8" y="10" width="1" height="1" class="p-soft"/>
+<rect x="10" y="10" width="1" height="1" class="p-soft"/>
+<rect x="12" y="10" width="1" height="1" class="p-soft"/>
+<rect x="14" y="10" width="1" height="1" class="p-soft"/>
+<rect x="16" y="10" width="1" height="1" class="p-soft"/>
+<rect x="18" y="10" width="1" height="1" class="p-soft"/>
+<rect x="20" y="10" width="1" height="1" class="p-soft"/>
+<rect x="22" y="10" width="1" height="1" class="p-soft"/>
+<rect x="24" y="10" width="1" height="1" class="p-soft"/>
+<rect x="26" y="10" width="1" height="1" class="p-soft"/>
+<rect x="28" y="10" width="1" height="1" class="p-soft"/>
+<rect x="30" y="10" width="1" height="1" class="p-soft"/>
+<rect x="32" y="10" width="1" height="1" class="p-soft"/>
+<rect x="6" y="12" width="1" height="1" class="p-soft"/>
+<rect x="8" y="12" width="1" height="1" class="p-soft"/>
+<rect x="10" y="12" width="1" height="1" class="p-soft"/>
+<rect x="12" y="12" width="1" height="1" class="p-soft"/>
+<rect x="14" y="12" width="1" height="1" class="p-soft"/>
+<rect x="16" y="12" width="1" height="1" class="p-soft"/>
+<rect x="18" y="12" width="1" height="1" class="p-soft"/>
+<rect x="20" y="12" width="1" height="1" class="p-soft"/>
+<rect x="22" y="12" width="1" height="1" class="p-soft"/>
+<rect x="24" y="12" width="1" height="1" class="p-soft"/>
+<rect x="26" y="12" width="1" height="1" class="p-soft"/>
+<rect x="28" y="12" width="1" height="1" class="p-soft"/>
+<rect x="30" y="12" width="1" height="1" class="p-soft"/>
+<rect x="32" y="12" width="1" height="1" class="p-soft"/>
+<rect x="6" y="14" width="1" height="1" class="p-soft"/>
+<rect x="8" y="14" width="1" height="1" class="p-soft"/>
+<rect x="10" y="14" width="1" height="1" class="p-soft"/>
+<rect x="12" y="14" width="1" height="1" class="p-soft"/>
+<rect x="14" y="14" width="1" height="1" class="p-soft"/>
+<rect x="16" y="14" width="1" height="1" class="p-soft"/>
+<rect x="18" y="14" width="1" height="1" class="p-soft"/>
+<rect x="20" y="14" width="1" height="1" class="p-soft"/>
+<rect x="22" y="14" width="1" height="1" class="p-soft"/>
+<rect x="24" y="14" width="1" height="1" class="p-soft"/>
+<rect x="26" y="14" width="1" height="1" class="p-soft"/>
+<rect x="28" y="14" width="1" height="1" class="p-soft"/>
+<rect x="30" y="14" width="1" height="1" class="p-soft"/>
+<rect x="32" y="14" width="1" height="1" class="p-soft"/>
+<rect x="6" y="16" width="1" height="1" class="p-soft"/>
+<rect x="8" y="16" width="1" height="1" class="p-soft"/>
+<rect x="10" y="16" width="1" height="1" class="p-soft"/>
+<rect x="12" y="16" width="1" height="1" class="p-soft"/>
+<rect x="14" y="16" width="1" height="1" class="p-soft"/>
+<rect x="16" y="16" width="1" height="1" class="p-soft"/>
+<rect x="18" y="16" width="1" height="1" class="p-soft"/>
+<rect x="20" y="16" width="1" height="1" class="p-soft"/>
+<rect x="22" y="16" width="1" height="1" class="p-soft"/>
+<rect x="24" y="16" width="1" height="1" class="p-soft"/>
+<rect x="26" y="16" width="1" height="1" class="p-soft"/>
+<rect x="28" y="16" width="1" height="1" class="p-soft"/>
+<rect x="30" y="16" width="1" height="1" class="p-soft"/>
+<rect x="32" y="16" width="1" height="1" class="p-soft"/>
+<rect x="6" y="18" width="1" height="1" class="p-soft"/>
+<rect x="8" y="18" width="1" height="1" class="p-soft"/>
+<rect x="10" y="18" width="1" height="1" class="p-soft"/>
+<rect x="12" y="18" width="1" height="1" class="p-soft"/>
+<rect x="14" y="18" width="1" height="1" class="p-soft"/>
+<rect x="16" y="18" width="1" height="1" class="p-soft"/>
+<rect x="18" y="18" width="1" height="1" class="p-soft"/>
+<rect x="20" y="18" width="1" height="1" class="p-soft"/>
+<rect x="22" y="18" width="1" height="1" class="p-soft"/>
+<rect x="24" y="18" width="1" height="1" class="p-soft"/>
+<rect x="26" y="18" width="1" height="1" class="p-soft"/>
+<rect x="28" y="18" width="1" height="1" class="p-soft"/>
+<rect x="30" y="18" width="1" height="1" class="p-soft"/>
+<rect x="32" y="18" width="1" height="1" class="p-soft"/>
+<rect x="6" y="20" width="1" height="1" class="p-soft"/>
+<rect x="8" y="20" width="1" height="1" class="p-soft"/>
+<rect x="10" y="20" width="1" height="1" class="p-soft"/>
+<rect x="12" y="20" width="1" height="1" class="p-soft"/>
+<rect x="14" y="20" width="1" height="1" class="p-soft"/>
+<rect x="16" y="20" width="1" height="1" class="p-soft"/>
+<rect x="18" y="20" width="1" height="1" class="p-soft"/>
+<rect x="20" y="20" width="1" height="1" class="p-soft"/>
+<rect x="22" y="20" width="1" height="1" class="p-soft"/>
+<rect x="24" y="20" width="1" height="1" class="p-soft"/>
+<rect x="26" y="20" width="1" height="1" class="p-soft"/>
+<rect x="28" y="20" width="1" height="1" class="p-soft"/>
+<rect x="30" y="20" width="1" height="1" class="p-soft"/>
+<rect x="32" y="20" width="1" height="1" class="p-soft"/>
+<rect x="6" y="22" width="1" height="1" class="p-soft"/>
+<rect x="8" y="22" width="1" height="1" class="p-soft"/>
+<rect x="10" y="22" width="1" height="1" class="p-soft"/>
+<rect x="12" y="22" width="1" height="1" class="p-soft"/>
+<rect x="14" y="22" width="1" height="1" class="p-soft"/>
+<rect x="16" y="22" width="1" height="1" class="p-soft"/>
+<rect x="18" y="22" width="1" height="1" class="p-soft"/>
+<rect x="20" y="22" width="1" height="1" class="p-soft"/>
+<rect x="22" y="22" width="1" height="1" class="p-soft"/>
+<rect x="24" y="22" width="1" height="1" class="p-soft"/>
+<rect x="26" y="22" width="1" height="1" class="p-soft"/>
+<rect x="28" y="22" width="1" height="1" class="p-soft"/>
+<rect x="30" y="22" width="1" height="1" class="p-soft"/>
+<rect x="32" y="22" width="1" height="1" class="p-soft"/>
+<rect x="6" y="24" width="1" height="1" class="p-soft"/>
+<rect x="8" y="24" width="1" height="1" class="p-soft"/>
+<rect x="10" y="24" width="1" height="1" class="p-soft"/>
+<rect x="12" y="24" width="1" height="1" class="p-soft"/>
+<rect x="14" y="24" width="1" height="1" class="p-soft"/>
+<rect x="16" y="24" width="1" height="1" class="p-soft"/>
+<rect x="18" y="24" width="1" height="1" class="p-soft"/>
+<rect x="20" y="24" width="1" height="1" class="p-soft"/>
+<rect x="22" y="24" width="1" height="1" class="p-soft"/>
+<rect x="24" y="24" width="1" height="1" class="p-soft"/>
+<rect x="26" y="24" width="1" height="1" class="p-soft"/>
+<rect x="28" y="24" width="1" height="1" class="p-soft"/>
+<rect x="30" y="24" width="1" height="1" class="p-soft"/>
+<rect x="32" y="24" width="1" height="1" class="p-soft"/>
+<rect x="6" y="26" width="1" height="1" class="p-soft"/>
+<rect x="8" y="26" width="1" height="1" class="p-soft"/>
+<rect x="10" y="26" width="1" height="1" class="p-soft"/>
+<rect x="12" y="26" width="1" height="1" class="p-soft"/>
+<rect x="14" y="26" width="1" height="1" class="p-soft"/>
+<rect x="16" y="26" width="1" height="1" class="p-soft"/>
+<rect x="18" y="26" width="1" height="1" class="p-soft"/>
+<rect x="20" y="26" width="1" height="1" class="p-soft"/>
+<rect x="22" y="26" width="1" height="1" class="p-soft"/>
+<rect x="24" y="26" width="1" height="1" class="p-soft"/>
+<rect x="26" y="26" width="1" height="1" class="p-soft"/>
+<rect x="28" y="26" width="1" height="1" class="p-soft"/>
+<rect x="30" y="26" width="1" height="1" class="p-soft"/>
+<rect x="32" y="26" width="1" height="1" class="p-soft"/>
+<rect x="18" y="10" width="1" height="1" class="p-ink"/>
+<rect x="20" y="10" width="1" height="1" class="p-ink"/>
+<rect x="20" y="6" width="1" height="1" class="p-ink"/>
+<rect x="16" y="8" width="1" height="1" class="p-ink"/>
+<rect x="24" y="8" width="1" height="1" class="p-ink"/>
+<rect x="18" y="14" width="1" height="1" class="p-ink"/>
+<rect x="22" y="14" width="1" height="1" class="p-ink"/>
+<rect x="20" y="12" width="1" height="1" class="p-ink"/>
+<rect x="20" y="16" width="1" height="1" class="p-ink"/>
+<rect x="10" y="18" width="1" height="1" class="p-mid"/>
+<rect x="12" y="18" width="1" height="1" class="p-mid"/>
+<rect x="14" y="18" width="1" height="1" class="p-mid"/>
+<rect x="12" y="20" width="1" height="1" class="p-mid"/>
+<rect x="24" y="20" width="1" height="1" class="p-mid"/>
+<rect x="26" y="20" width="1" height="1" class="p-mid"/>
+<rect x="28" y="20" width="1" height="1" class="p-mid"/>
+<rect x="26" y="22" width="1" height="1" class="p-mid"/>
+<rect x="12" y="24" width="1" height="1" class="p-mid"/>
+<rect x="28" y="12" width="1" height="1" class="p-mid"/>
+<rect x="10" y="12" width="1" height="1" class="p-mid"/>
+<rect x="8" y="28" width="1" height="1" class="p-print"/>
+<rect x="16" y="28" width="1" height="1" class="p-print"/>
+<rect x="24" y="28" width="1" height="1" class="p-print"/>
+<rect x="32" y="28" width="1" height="1" class="p-print"/>
+<rect class="relay" style="--rd:0.00s" x="8" y="28" width="1" height="1"/>
+<rect class="relay" style="--rd:1.40s" x="16" y="28" width="1" height="1"/>
+<rect class="relay" style="--rd:2.80s" x="24" y="28" width="1" height="1"/>
+<rect class="relay" style="--rd:4.20s" x="32" y="28" width="1" height="1"/>
+</svg>
+            </div>
+            <div class="product-body">
+              <span class="product-kicker">six sheets · skin-safe · sku 1BT-PAK-003</span>
+              <h3 class="product-name">1bit Temporary Tattoo Pack</h3>
+              <p class="product-desc">Six sheets in the design language. Lasts 3-5 days, waterproof. Flex your NPU at the next conference.</p>
+              <div class="product-foot">
+                <span class="product-price">$9.99</span>
+                <button class="btn btn-secondary" type="button" data-add="tattoos" data-sku="1BT-PAK-003">>Add to cart</button>
+              </div>
+            </div>
+          </article>
+
+        </div>
+
+        <!-- Single stickers -->
+        <div class="sticker-label">
+          <div>
+            <p class="eyebrow" style="margin-bottom: 10px;">single stickers</p>
+            <h3 style="font-size: 24px; letter-spacing: -0.01em;">The full line.</h3>
+          </div>
+          <span class="meta">$4.99 each · die-cut vinyl · 3×3</span>
+        </div>
+        <div class="sticker-grid">
+
+          <article class="sticker-card" data-od-id="sticker-1bit">
+            <div class="sticker-tile">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+<circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+<rect x="8" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="18" width="1" height="1" fill="currentColor"/>
+<rect x="10" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="10" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="10" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="10" y="18" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="18" width="1" height="1" fill="currentColor"/>
+<rect x="18" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="18" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="18" y="16" width="1" height="1" fill="currentColor"/>
+<rect class="relay" style="--rd:1.2s" x="4" y="4" width="1" height="1" fill="currentColor"/>
+</svg>
+            </div>
+            <div class="product-body">
+              <h3 class="sticker-name">1bit MONSTER Sticker</h3>
+              <p class="sku-label">SKU 1BT-STK-001</p>
+              <p class="product-desc">Round die-cut. "One engine. Every model. Any chip."</p>
+              <div class="sticker-foot">
+                <span class="product-price">$4.99</span>
+                <button class="btn btn-secondary" type="button" data-add="stk-1bit" data-sku="1BT-STK-001">Add</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="sticker-card" data-od-id="sticker-94">
+            <div class="sticker-tile">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+<circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+<rect x="4" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="4" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="4" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="4" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="6" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="6" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="6" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="18" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="18" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="18" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="18" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="20" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="20" y="14" width="1" height="1" fill="currentColor"/>
+<rect class="relay" style="--rd:1.2s" x="4" y="4" width="1" height="1" fill="currentColor"/>
+</svg>
+            </div>
+            <div class="product-body">
+              <h3 class="sticker-name">"94 tok/s" Sticker</h3>
+              <p class="sku-label">SKU 1BT-STK-002</p>
+              <p class="product-desc">Round die-cut. Measured, not marketed.</p>
+              <div class="sticker-foot">
+                <span class="product-price">$4.99</span>
+                <button class="btn btn-secondary" type="button" data-add="stk-94" data-sku="1BT-STK-002">Add</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="sticker-card" data-od-id="sticker-npu">
+            <div class="sticker-tile">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+<circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+<rect x="6" y="6" width="1" height="1" fill="currentColor"/>
+<rect x="6" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="6" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="6" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="6" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="6" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="6" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="10" y="6" width="1" height="1" fill="currentColor"/>
+<rect x="10" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="10" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="12" y="6" width="1" height="1" fill="currentColor"/>
+<rect x="12" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="12" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="14" y="6" width="1" height="1" fill="currentColor"/>
+<rect x="14" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="14" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="14" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="14" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="14" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="6" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="16" width="1" height="1" fill="currentColor"/>
+<rect class="relay" style="--rd:1.2s" x="4" y="4" width="1" height="1" fill="currentColor"/>
+</svg>
+            </div>
+            <div class="product-body">
+              <h3 class="sticker-name">NPU UNLOCKED Sticker</h3>
+              <p class="sku-label">SKU 1BT-STK-003</p>
+              <p class="product-desc">Round die-cut. XDNA 2 · 32 tiles.</p>
+              <div class="sticker-foot">
+                <span class="product-price">$4.99</span>
+                <button class="btn btn-secondary" type="button" data-add="stk-npu" data-sku="1BT-STK-003">Add</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="sticker-card" data-od-id="sticker-void">
+            <div class="sticker-tile">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+<circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+<rect x="4" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="6" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="10" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="12" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="14" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="18" y="8" width="1" height="1" fill="currentColor"/>
+<rect class="relay" style="--rd:1.2s" x="4" y="4" width="1" height="1" fill="currentColor"/>
+</svg>
+            </div>
+            <div class="product-body">
+              <h3 class="sticker-name">"I Voided My NPU Warranty" Sticker</h3>
+              <p class="sku-label">SKU 1BT-STK-004</p>
+              <p class="product-desc">Warning-triangle die-cut. For the brave.</p>
+              <div class="sticker-foot">
+                <span class="product-price">$4.99</span>
+                <button class="btn btn-secondary" type="button" data-add="stk-void" data-sku="1BT-STK-004">Add</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="sticker-card" data-od-id="sticker-amd">
+            <div class="sticker-tile">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+<circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+<rect x="4" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="4" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="4" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="4" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="4" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="6" y="6" width="1" height="1" fill="currentColor"/>
+<rect x="6" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="6" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="6" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="6" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="6" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="4" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="6" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="10" y="4" width="1" height="1" fill="currentColor"/>
+<rect x="10" y="6" width="1" height="1" fill="currentColor"/>
+<rect x="10" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="10" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="10" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="10" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="10" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="12" y="4" width="1" height="1" fill="currentColor"/>
+<rect x="12" y="6" width="1" height="1" fill="currentColor"/>
+<rect x="12" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="12" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="12" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="12" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="12" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="14" y="4" width="1" height="1" fill="currentColor"/>
+<rect x="14" y="6" width="1" height="1" fill="currentColor"/>
+<rect x="14" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="14" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="14" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="14" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="14" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="4" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="6" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="16" width="1" height="1" fill="currentColor"/>
+<rect class="relay" style="--rd:1.2s" x="4" y="4" width="1" height="1" fill="currentColor"/>
+</svg>
+            </div>
+            <div class="product-body">
+              <h3 class="sticker-name">AMD Unlocked Edition Sticker</h3>
+              <p class="sku-label">SKU 1BT-STK-005</p>
+              <p class="product-desc">Die-cut chip. Reverse-engineered in 4 days.</p>
+              <div class="sticker-foot">
+                <span class="product-price">$4.99</span>
+                <button class="btn btn-secondary" type="button" data-add="stk-amd" data-sku="1BT-STK-005">Add</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="sticker-card" data-od-id="sticker-jarvis">
+            <div class="sticker-tile">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+<circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+<rect x="6" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="6" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="6" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="6" width="1" height="1" fill="currentColor"/>
+<rect x="10" y="18" width="1" height="1" fill="currentColor"/>
+<rect x="12" y="6" width="1" height="1" fill="currentColor"/>
+<rect x="12" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="12" y="18" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="6" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="18" width="1" height="1" fill="currentColor"/>
+<rect x="18" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="18" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="18" y="16" width="1" height="1" fill="currentColor"/>
+<rect class="relay" style="--rd:1.2s" x="4" y="4" width="1" height="1" fill="currentColor"/>
+</svg>
+            </div>
+            <div class="product-body">
+              <h3 class="sticker-name">1bit JARVIS Sticker</h3>
+              <p class="sku-label">SKU 1BT-STK-006</p>
+              <p class="product-desc">Round die-cut. Private AI, on-device, zero cloud.</p>
+              <div class="sticker-foot">
+                <span class="product-price">$4.99</span>
+                <button class="btn btn-secondary" type="button" data-add="stk-jarvis" data-sku="1BT-STK-006">Add</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="sticker-card" data-od-id="sticker-python">
+            <div class="sticker-tile">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+<circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+<rect x="8" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="8" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="10" y="8" width="1" height="1" fill="currentColor"/>
+<rect x="10" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="10" y="16" width="1" height="1" fill="currentColor"/>
+<rect x="12" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="12" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="12" y="14" width="1" height="1" fill="currentColor"/>
+<rect class="relay" style="--rd:1.2s" x="4" y="4" width="1" height="1" fill="currentColor"/>
+</svg>
+            </div>
+            <div class="product-body">
+              <h3 class="sticker-name">"Zero Python" Sticker</h3>
+              <p class="sku-label">SKU 1BT-STK-007</p>
+              <p class="product-desc">Round die-cut. 100% C++23 · one binary, any chip.</p>
+              <div class="sticker-foot">
+                <span class="product-price">$4.99</span>
+                <button class="btn btn-secondary" type="button" data-add="stk-python" data-sku="1BT-STK-007">Add</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="sticker-card" data-od-id="sticker-sorry">
+            <div class="sticker-tile">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+<circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+<rect x="8" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="10" y="14" width="1" height="1" fill="currentColor"/>
+<rect x="12" y="12" width="1" height="1" fill="currentColor"/>
+<rect x="14" y="10" width="1" height="1" fill="currentColor"/>
+<rect x="16" y="10" width="1" height="1" fill="currentColor"/>
+<rect class="relay" style="--rd:1.2s" x="4" y="4" width="1" height="1" fill="currentColor"/>
+</svg>
+            </div>
+            <div class="product-body">
+              <h3 class="sticker-name">"Sorry but not Sorry" Sticker</h3>
+              <p class="sku-label">SKU 1BT-STK-008</p>
+              <p class="product-desc">Round die-cut. We unlocked the NPU, then made stickers.</p>
+              <div class="sticker-foot">
+                <span class="product-price">$4.99</span>
+                <button class="btn btn-secondary" type="button" data-add="stk-sorry" data-sku="1BT-STK-008">Add</button>
+              </div>
+            </div>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- Free with every order -->
+    <section class="section" data-od-id="free-with-order">
+      <div class="container">
+        <div class="stack" style="max-width: 46ch; margin-bottom: var(--gap-lg);">
+          <h2>Every order, free.</h2>
+          <p class="lead">No minimum, no fine print. Three things ride along on every shipment, no matter what you buy.</p>
+        </div>
+        <div class="free-grid">
+          <div class="free-cell" data-od-id="free-stickers">
+            <h3>3-Pack Stickers</h3>
+            <p>Die-cut vinyl. The 1bit mark, "94 tok/s", and "NPU UNLOCKED".</p>
+          </div>
+          <div class="free-cell" data-od-id="free-lanyard">
+            <h3>1bit Lanyard</h3>
+            <p>Black polyester with a repeating "1bit.monster" weave and a metal clip.</p>
+          </div>
+          <div class="free-cell" data-od-id="free-mystery">
+            <h3>Mystery Sticker</h3>
+            <p>Limited edition, never sold separately. You get what you get.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Fulfilment -->
+    <section class="section" data-od-id="fulfilment">
+      <div class="container">
+        <div class="row-between" style="align-items: start; gap: var(--gap-xl); flex-wrap: wrap;">
+          <div style="max-width: 34ch;">
+            <p class="eyebrow" style="margin-bottom: 12px;">the fine print</p>
+            <h2>Made on demand. Priced in dollars.</h2>
+          </div>
+          <div class="stack" style="flex: 1; min-width: 280px;">
+            <div class="free-cell" data-od-id="fulfil-on-demand">
+              <h3>Fulfilment</h3>
+              <p>Everything is printed to order, so allow about a week between ordering and shipping. Tracking lands by email.</p>
+            </div>
+            <div class="free-cell" data-od-id="fulfil-shipping">
+              <h3>Shipping</h3>
+              <p>Calculated at checkout. The exact rate is worked out from your address and shown before you pay.</p>
+            </div>
+            <div class="free-cell" data-od-id="fulfil-proceeds">
+              <h3>All proceeds</h3>
+              <p>Once production pays for itself, everything else funds the engine. MIT license stays MIT.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA strip -->
+    <section class="section cta-strip" data-od-id="cta-strip">
+      <div class="container">
+        <h2>Merch aside, the engine is free.</h2>
+        <p class="lead">Nothing here is required to run the thing. Clone, cmake, run.</p>
+        <a class="btn btn-ghost btn-arrow" href="1bit-monster-v2.html">Back to the engine</a>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="pagefoot" data-od-id="footer">
+    <div class="container row-between">
+      <span>© 2026 1bit.MONSTER · MIT License</span>
+      <a class="meta" href="mailto:sales@1bit.monster">sales@1bit.monster</a>
+      <a class="meta" href="https://github.com/1bit-MONSTER/1bit-MONSTER">github.com/1bit-MONSTER</a>
+    </div>
+    <div class="container">
+      <p class="place" data-od-id="footer-place">Metepenagiag Mi’kmaq Nation, New Brunswick, Canada</p>
+      <p class="quote" data-od-id="footer-quote">"Sorry but not sorry." by bong-water-water-bong</p>
+    </div>
+  </footer>
+
+  <!-- Cart -->
+  <div class="cart-scrim" id="cart-scrim"></div>
+  <aside class="cart-drawer" id="cart-drawer" role="dialog" aria-modal="true" aria-label="Shopping cart">
+    <div class="cart-head">
+      <h2>Cart</h2>
+      <button class="cart-close" type="button" id="cart-close" aria-label="Close cart">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="cart-items" id="cart-items"></div>
+    <div class="cart-foot">
+      <div class="cart-total">
+        <span>Subtotal</span>
+        <strong id="cart-total">$0.00</strong>
+      </div>
+      <p class="cart-note" style="margin: 4px 0 14px;" data-od-id="cart-shipping-note">Shipping calculated at checkout, shown before you pay.</p>
+      <a class="btn btn-primary" href="https://1bit.monster/store/" target="_blank" rel="noopener">Checkout on the live store</a>
+      <p class="cart-note">This prototype tracks your cart locally. Checkout runs on the production store.</p>
+    </div>
+  </aside>
+
+  <script>
+    (function () {
+      var KEY = '1bit-cart-v1';
+      var PROD = {
+        'tee-sorry':    { n: 'Sorry but not Sorry T-Shirt', p: 29.99, sku: '1BT-TEE-001', apparel: true },
+        'tee-npu':      { n: 'NPU UNLOCKED T-Shirt', p: 29.99, sku: '1BT-TEE-004', apparel: true },
+        'tee-jarvis':   { n: '1bit JARVIS T-Shirt', p: 29.99, sku: '1BT-TEE-005', apparel: true },
+        'tee-amd':      { n: 'Sorry but not Sorry · AMD Edition T-Shirt', p: 29.99, sku: '1BT-TEE-002', apparel: true },
+        'tee-50t':      { n: '50 TOPS on a Laptop T-Shirt', p: 29.99, sku: '1BT-TEE-003', apparel: true },
+        'hoodie':       { n: 'Zero Dependencies Hoodie', p: 49.99, sku: '1BT-APP-001', apparel: true },
+        'mug':          { n: '1bit.monster Coffee Mug', p: 18.99, sku: '1BT-APP-002' },
+        'bottle':       { n: '100% Local AI Water Bottle', p: 24.99, sku: '1BT-APP-003' },
+        'pack-mega':    { n: 'Laptop Sticker Mega Pack', p: 14.99, sku: '1BT-PAK-001' },
+        'pack-starter': { n: 'Starter Sticker Pack', p: 8.99, sku: '1BT-PAK-002' },
+        'tattoos':      { n: '1bit Temporary Tattoo Pack', p: 9.99, sku: '1BT-PAK-003' },
+        'stk-1bit':     { n: '1bit MONSTER Sticker', p: 4.99, sku: '1BT-STK-001' },
+        'stk-94':       { n: '"94 tok/s" Sticker', p: 4.99, sku: '1BT-STK-002' },
+        'stk-npu':      { n: 'NPU UNLOCKED Sticker', p: 4.99, sku: '1BT-STK-003' },
+        'stk-void':     { n: 'I Voided My NPU Warranty Sticker', p: 4.99, sku: '1BT-STK-004' },
+        'stk-amd':      { n: 'AMD Unlocked Edition Sticker', p: 4.99, sku: '1BT-STK-005' },
+        'stk-jarvis':   { n: '1bit JARVIS Sticker', p: 4.99, sku: '1BT-STK-006' },
+        'stk-python':   { n: 'Zero Python Sticker', p: 4.99, sku: '1BT-STK-007' },
+        'stk-sorry':    { n: 'Sorry but not Sorry Sticker', p: 4.99, sku: '1BT-STK-008' }
+      };
+
+      var state;
+      try { state = JSON.parse(localStorage.getItem(KEY) || '[]'); }
+      catch (e) { state = []; }
+      if (!Array.isArray(state)) state = [];
+
+      function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
+
+      var badge = document.getElementById('cart-count');
+      var drawer = document.getElementById('cart-drawer');
+      var scrim = document.getElementById('cart-scrim');
+      var itemsEl = document.getElementById('cart-items');
+      var totalEl = document.getElementById('cart-total');
+
+      function keyFor(id, size) { return id + (size ? '|' + size : ''); }
+
+      function renderBadge() {
+        var count = state.length;
+        badge.textContent = count;
+        badge.style.display = count ? 'inline-flex' : 'none';
+      }
+
+      function money(v) { return '$' + v.toFixed(2); }
+
+      function open() { document.body.classList.add('cart-open'); }
+      function close() { document.body.classList.remove('cart-open'); }
+
+      function render() {
+        renderBadge();
+        if (!state.length) {
+          itemsEl.innerHTML = '<div class="cart-empty">The cart is empty.<br>The engine is not.<br><br><code>git clone &amp;&amp; cmake --build</code></div>';
+          totalEl.textContent = money(0);
+          return;
+        }
+        var html = '';
+        var total = 0;
+        for (var i = 0; i < state.length; i++) {
+          var it = state[i];
+          var prod = PROD[it.id] || { n: it.id, p: 0 };
+          var line = prod.p * it.q;
+          total += line;
+          var meta = it.size ? 'size ' + it.size : '';
+          html += '<div class="cart-item" data-key="' + keyFor(it.id, it.size) + '">' +
+            '<div class="cart-item-tile"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="2" y="2" width="9" height="9" rx="2" fill="currentColor"/><rect x="13" y="2" width="9" height="9" rx="2" stroke="currentColor" stroke-opacity="0.4"/><rect x="2" y="13" width="9" height="9" rx="2" stroke="currentColor" stroke-opacity="0.4"/><rect x="13" y="13" width="9" height="9" rx="2" stroke="currentColor" stroke-opacity="0.4"/></svg></div>' +
+            '<div class="cart-item-info">' +
+              '<p class="cart-item-name">' + prod.n + '</p>' +
+              (meta ? '<p class="cart-item-meta">' + meta + '</p>' : '') +
+              '<div class="cart-item-foot">' +
+                '<span class="cart-qty">' +
+                  '<button type="button" data-dec aria-label="decrease">-</button>' +
+                  '<span>' + it.q + '</span>' +
+                  '<button type="button" data-inc aria-label="increase">+</button>' +
+                '</span>' +
+                '<span class="cart-item-price">' + money(line) + '</span>' +
+              '</div>' +
+              '<button type="button" class="cart-remove" data-remove>remove</button>' +
+            '</div>' +
+          '</div>';
+        }
+        itemsEl.innerHTML = html;
+        totalEl.textContent = money(total);
+      }
+
+      function add(id, size) {
+        var k = keyFor(id, size);
+        for (var i = 0; i < state.length; i++) {
+          if (keyFor(state[i].id, state[i].size) === k) { state[i].q += 1; save(); render(); return; }
+        }
+        state.push({ id: id, size: size || '', q: 1 });
+        save(); render();
+      }
+
+      function change(k, delta) {
+        for (var i = 0; i < state.length; i++) {
+          if (keyFor(state[i].id, state[i].size) === k) {
+            state[i].q += delta;
+            if (state[i].q < 1) state.splice(i, 1);
+            save(); render(); return;
+          }
+        }
+      }
+
+      function remove(k) {
+        for (var i = 0; i < state.length; i++) {
+          if (keyFor(state[i].id, state[i].size) === k) { state.splice(i, 1); break; }
+        }
+        save(); render();
+      }
+
+      document.querySelectorAll('.size-btn').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var row = b.closest('[data-sizes]');
+          row.querySelectorAll('.size-btn').forEach(function (x) { x.classList.remove('active'); });
+          b.classList.add('active');
+        });
+      });
+
+      document.querySelectorAll('[data-add]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var id = b.getAttribute('data-add');
+          var size = '';
+          var card = b.closest('.product-card');
+          if (card && PROD[id].apparel) {
+            var active = card.querySelector('.size-btn.active');
+            size = active ? active.getAttribute('data-size') : 'M';
+          }
+          add(id, size);
+          open();
+        });
+      });
+
+      itemsEl.addEventListener('click', function (e) {
+        var item = e.target.closest('.cart-item');
+        if (!item) return;
+        var k = item.getAttribute('data-key');
+        if (e.target.closest('[data-inc]')) change(k, 1);
+        else if (e.target.closest('[data-dec]')) change(k, -1);
+        else if (e.target.closest('[data-remove]')) remove(k);
+      });
+
+      document.getElementById('cart-open').addEventListener('click', open);
+      document.getElementById('cart-close').addEventListener('click', close);
+      scrim.addEventListener('click', close);
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') close();
+      });
+
+      render();
+    })();
+  </script>
+</body>
+</html>

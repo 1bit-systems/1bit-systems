@@ -1,135 +1,266 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-KV5N1VSM2S"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-KV5N1VSM2S');
-</script>
+<!doctype html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>1bit.MONSTER</title>
+  <meta name="description" content="One engine, any model, zero Python. A model-agnostic, hardware-agnostic pure-C++ inference engine. MIT. Navigate the engine, models, JARVIS, blog, store, docs, and benchmarks.">
+  <style>
+    /* ─── tokens ─────────────────────────────────────────────────────────
+       Bound verbatim to the locked light modern-minimal + 1-bit identity.
+       All derived values stay in oklch - no new hex. */
+    :root {
+      --bg:      oklch(99% 0.002 240);
+      --surface: oklch(100% 0 0);
+      --fg:      oklch(18% 0.012 250);
+      --muted:   oklch(54% 0.012 250);
+      --border:  oklch(92% 0.005 250);
+      --accent:  oklch(58% 0.18 255);
 
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>1bit MONSTER — One engine. Every model. Any chip.</title>
-<meta name="description" content="100% HF model coverage, any hardware. An open-source, pure-C++ inference engine. NPU + GPU + CPU in one engine. Zero Python. MIT.">
-<link rel="icon" href="assets/favicon.svg?v=3" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500;700&display=swap">
-<link rel="canonical" href="https://1bit.monster/">
-<meta property="og:type" content="website">
-<meta property="og:site_name" content="1bit MONSTER">
-<meta property="og:title" content="1bit MONSTER — One engine. Every model. Any chip.">
-<meta property="og:description" content="100% HF model coverage, any hardware. An open-source, pure-C++ inference engine. NPU + GPU + CPU in one engine. Zero Python. MIT.">
-<meta property="og:url" content="https://1bit.monster/">
-<meta property="og:image" content="https://1bit.monster/assets/og-card.png">
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@graph": [
-    {
-      "@type": "WebSite",
-      "name": "1bit MONSTER",
-      "url": "https://1bit.monster/",
-      "description": "100% HF model coverage, any hardware. An open-source, pure-C++ inference engine. NPU + GPU + CPU in one engine. Zero Python. MIT."
-    },
-    {
-      "@type": "Organization",
-      "name": "1bit MONSTER",
-      "url": "https://1bit.monster/",
-      "logo": "https://1bit.monster/assets/logo.png",
-      "sameAs": [
-        "https://github.com/1bit-MONSTER/1bit-MONSTER"
-      ]
-    },
-    {
-      "@type": "SoftwareApplication",
-      "name": "1bit MONSTER",
-      "operatingSystem": "Linux, macOS, Windows",
-      "applicationCategory": "DeveloperApplication",
-      "description": "100% HF model coverage, any hardware. An open-source, pure-C++ inference engine. NPU + GPU + CPU in one engine. Zero Python. MIT.",
-      "url": "https://1bit.monster/",
-      "downloadUrl": "https://github.com/1bit-MONSTER/1bit-MONSTER",
-      "offers": {
-        "@type": "Offer",
-        "price": "0",
-        "priceCurrency": "USD"
-      }
+      --status:  oklch(52% 0.14 158);
+
+      /* derived - do not change */
+      --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+      --fg-soft:       color-mix(in oklch, var(--fg) 5%, transparent);
+      --muted-strong:  color-mix(in oklch, var(--muted) 76%, var(--fg));
+
+      /* type - system-first per direction */
+      --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+      --font-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      --font-mono:    ui-monospace, 'SF Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+
+      /* scale */
+      --fs-h1: clamp(44px, 6vw, 76px);
+      --fs-h2: clamp(32px, 4vw, 48px);
+      --fs-h3: 20px;
+      --fs-lead: 19px;
+      --fs-body: 16px;
+      --fs-meta: 13px;
+
+      /* spacing - 8-point grid */
+      --gap-xs: 8px;
+      --gap-sm: 12px;
+      --gap-md: 20px;
+      --gap-lg: 32px;
+      --gap-xl: 48px;
+      --gap-2xl: 80px;
+      --container: 1120px;
+      --gutter: 32px;
+
+      --radius: 10px;
+      --radius-lg: 16px;
     }
-  ]
-}
-</script>
 
-<!-- Cloudflare Web Analytics --><script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "1fdeba29ed164ab5bd63abf15e0418f0"}'></script><!-- End Cloudflare Web Analytics -->
-<style>
-  body{margin:0}
-  *{box-sizing:border-box}
-  .bh-badge:hover{border-color:#00e5ff}
-  .bh-nav a:hover{color:#ff9f1c}
-  .bh-cta-ghost:hover{border-color:#00e5ff;color:#00e5ff}
-  .bh-cta-primary:hover{filter:brightness(1.08)}
-  .bh-hw:hover{border-color:#00e5ff}
-  .bh-hw.bh-hw-untested:hover{border-color:#ff9f1c}
+    /* ─── reset & base ──────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-body);
+      font-size: var(--fs-body);
+      line-height: 1.6;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; text-decoration: none; }
+    p { text-wrap: pretty; }
+    h1, h2, h3 { text-wrap: balance; }
+    ::selection { background: var(--accent-soft); color: var(--fg); }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
 
-  .brand-logo{position:relative}
-  .brand-logo::after{content:"";position:absolute;left:0;right:0;bottom:-8px;height:3px;border-radius:999px;background:linear-gradient(90deg,#00e5ff,#ff9f1c)}
-</style>
+    /* ─── layout primitives ─────────────────────────────────────────── */
+    .container {
+      max-width: var(--container);
+      margin-inline: auto;
+      padding-inline: var(--gutter);
+    }
+    .section { padding-block: clamp(40px, 5vw, 72px); }
+    .row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-md); }
+
+    /* ─── type ──────────────────────────────────────────────────────── */
+    h1 { font-family: var(--font-display); font-size: var(--fs-h1); line-height: 1.08; letter-spacing: -0.02em; margin: 0; font-weight: 600; }
+    h2 { font-family: var(--font-display); font-size: var(--fs-h2); line-height: 1.12; letter-spacing: -0.015em; margin: 0; font-weight: 600; }
+    .lead { font-size: var(--fs-lead); line-height: 1.6; color: var(--muted-strong); max-width: 60ch; margin: 0; }
+    .meta { font-family: var(--font-mono); font-size: var(--fs-meta); color: var(--muted-strong); }
+
+    /* ─── chrome: nav + footer ──────────────────────────────────────── */
+    .topnav {
+      position: sticky; top: 0; z-index: 10;
+      background: color-mix(in oklch, var(--bg) 92%, transparent);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .topnav-inner { display: flex; align-items: center; justify-content: space-between; padding-block: 14px; }
+    .topnav .logo { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+    .topnav .logo svg { width: 26px; height: 26px; color: var(--fg); }
+    /* header logo: 1bit relay mark - one block solid at a time, slow */
+    .topnav .logo .relay { fill: var(--surface); stroke: currentColor; stroke-opacity: 0.28; animation: logo-relay 80s ease-in-out infinite; }
+    .topnav .logo .r1 { animation-delay: 0s; }
+    .topnav .logo .r2 { animation-delay: 20s; }
+    .topnav .logo .r3 { animation-delay: 40s; }
+    .topnav .logo .r4 { animation-delay: 60s; }
+    @keyframes logo-relay {
+      0%       { fill: var(--surface); }
+      13%      { fill: var(--fg); }
+      14%      { fill: var(--fg); }
+      25%      { fill: var(--surface); }
+      100%     { fill: var(--surface); }
+    }
+    @media (prefers-reduced-motion: reduce) { .topnav .logo .relay { animation: none; } .topnav .logo .r1 { fill: var(--fg); } }
+
+    .topnav nav { display: flex; gap: var(--gap-lg); }
+    .topnav nav a { font-size: 14px; color: var(--muted-strong); }
+    .topnav nav a:hover { color: var(--fg); }
+    .topnav nav a[aria-current="page"] { color: var(--fg); font-weight: 500; }
+    .pagefoot { padding-block: var(--gap-xl); color: var(--muted-strong); font-size: 13px; border-top: 1px solid var(--border); }
+    .pagefoot .place { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em; color: var(--muted-strong); text-align: center; margin: var(--gap-lg) auto 0; }
+    .pagefoot .quote { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em; color: var(--muted-strong); text-align: center; margin: var(--gap-sm) auto 0; }
+    .pagefoot a:hover { color: var(--fg); }
+    .pagefoot .row-between { flex-wrap: wrap; gap: var(--gap-md); }
+
+    /* ─── buttons ───────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 11px 20px;
+      border-radius: var(--radius);
+      border: 1px solid transparent;
+      font-size: 14px; font-weight: 500; letter-spacing: -0.005em;
+      transition: transform 0.05s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary {
+      background: color-mix(in oklch, var(--accent) 78%, black);
+      color: var(--surface);
+    }
+    .btn-primary:hover { background: color-mix(in oklch, var(--accent) 68%, black); }
+    .btn-ghost { background: transparent; color: var(--fg); padding-inline: 8px; }
+    .btn-ghost:hover { color: var(--accent); }
+
+    /* ─── hero (centered) ───────────────────────────────────────────── */
+    .hero-center { padding-block: clamp(56px, 8vw, 112px); text-align: center; }
+    .hero-center h1 { margin-bottom: var(--gap-md); }
+    .hero-center .lead { margin: var(--gap-md) auto 0; }
+
+    /* ─── site index grid ───────────────────────────────────────────── */
+    .site-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--muted-strong); margin-bottom: var(--gap-lg);
+    }
+    .site-badge .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--status); }
+    .site-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: var(--gap-md); margin-top: var(--gap-lg);
+    }
+    .site-card {
+      display: flex; flex-direction: column; gap: 10px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+      padding: 22px; position: relative;
+      transition: border-color 0.15s ease;
+    }
+    .site-card:hover { border-color: var(--fg); }
+    .site-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .site-title { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; display: flex; align-items: baseline; gap: 8px; }
+    .site-title .ar { color: var(--muted-strong); font-size: 13px; transition: transform 0.15s ease; }
+    .site-card:hover .site-title .ar { transform: translateX(2px); color: var(--accent); }
+    .site-desc { margin: 0; font-size: 14px; color: var(--muted-strong); }
+    .site-path { font-family: var(--font-mono); font-size: 12px; color: var(--muted-strong); margin-top: auto; }
+
+    @media (max-width: 720px) {
+      .topnav-inner { flex-wrap: wrap; row-gap: 12px; }
+      .topnav nav { order: 3; width: 100%; gap: var(--gap-md); justify-content: space-between; }
+    }
+  </style>
 </head>
 <body>
-<div style="background:radial-gradient(1200px 600px at 15% -10%, rgba(0,229,255,.12), transparent 60%),radial-gradient(1000px 550px at 90% 0%, rgba(255,159,28,.10), transparent 60%),#021621;color:#e7f6fd;font-family:'DM Mono',ui-monospace,Menlo,monospace;line-height:1.6;min-height:100vh">
-<nav style="display:flex;align-items:center;justify-content:space-between;max-width:1100px;margin:0 auto;padding:28px 24px">
-<a href="index.html" class="brand-logo" style="position:relative;display:inline-flex;align-items:center;gap:10px;font-family:'DM Serif Display',Georgia,serif;font-size:20px;color:#e7f6fd;text-decoration:none"><img src="/assets/logo-mark.svg" alt="1bit MONSTER" style="width:30px;height:30px;border-radius:999px;box-shadow:0 0 10px rgba(255,159,28,.35);flex:none"><span style="color:#00e5ff">1bit</span>.MONSTER</a>
-<div class="bh-nav" style="display:flex;gap:28px;font-size:13px;color:#a0d9f8;flex-wrap:wrap;justify-content:flex-end">
-<a href="models.html" style="color:inherit;text-decoration:none">Models</a>
-<a href="benchmarks.html" style="color:inherit;text-decoration:none">Benchmarks</a>
-<a href="docs.html" style="color:inherit;text-decoration:none">Docs</a>
-<a href="jarvis/" style="color:inherit;text-decoration:none">1bit JARVIS</a>
-<a href="blog/" style="color:inherit;text-decoration:none">Blog</a>
-<a href="store/" style="color:inherit;text-decoration:none">Store</a>
-<a href="demo/" style="color:inherit;text-decoration:none">Demos</a>
-<a href="analytics/" style="color:inherit;text-decoration:none">Analytics</a>
-<a href="https://github.com/1bit-MONSTER/1bit-MONSTER" style="color:inherit;text-decoration:none">GitHub</a>
-</div>
-</nav>
-<div style="max-width:920px;margin:60px auto 0;padding:0 24px;text-align:center">
-<div class="bh-badge" style="display:inline-flex;align-items:center;gap:8px;padding:7px 16px;border:1px solid #0e80be;border-radius:999px;font-size:12px;color:#00e5ff;margin-bottom:28px;transition:border-color .15s"><span style="width:6px;height:6px;background:#ff9f1c;border-radius:999px"></span>engine online — 6 hardware targets probed</div>
-<h1 style="font-family:'DM Serif Display',Georgia,serif;font-weight:400;font-size:clamp(44px,7vw,88px);line-height:1.02;margin:0 0 24px;letter-spacing:-.02em">One engine. <span style="color:#00e5ff">Any</span> model. <span style="color:#ff9f1c">Zero</span> Python.</h1>
-<p style="max-width:64ch;margin:0 auto 40px;font-size:18px;color:#a0d9f8">A pure C++23 inference engine that runs on NPU, GPU, or CPU with the same binary. 100% HF architecture coverage. Reverse-engineered AMD's closed NPU stack in 4 days — and now beats it.</p>
-<div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-bottom:80px">
-<a href="docs.html" class="bh-cta-primary" style="display:inline-flex;align-items:center;height:54px;padding:0 32px;border-radius:6px;font-size:13px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;text-decoration:none;background:linear-gradient(90deg,#00e5ff,#ff9f1c);color:#021621;transition:filter .15s">Get started</a>
-<a href="story.html" class="bh-cta-ghost" style="display:inline-flex;align-items:center;height:54px;padding:0 32px;border-radius:6px;font-size:13px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;text-decoration:none;border:1px solid #5d9ec2;color:#e7f6fd;transition:border-color .15s,color .15s">Read the journey →</a>
-</div>
-</div>
-<div style="display:grid;grid-template-columns:repeat(4,1fr);max-width:1000px;margin:0 auto 96px;padding:0 24px">
-<div style="text-align:center;padding:20px 12px"><b style="display:block;font-family:'DM Serif Display',Georgia,serif;font-size:40px;font-weight:400;line-height:1.1;color:#00e5ff">100%</b><span style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#5d9ec2">HF coverage</span></div>
-<div style="text-align:center;padding:20px 12px;border-left:1px solid rgba(93,158,194,.2)"><b style="display:block;font-family:'DM Serif Display',Georgia,serif;font-size:40px;font-weight:400;line-height:1.1;color:#ff9f1c">6</b><span style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#5d9ec2">hardware targets</span></div>
-<div style="text-align:center;padding:20px 12px;border-left:1px solid rgba(93,158,194,.2)"><b style="display:block;font-family:'DM Serif Display',Georgia,serif;font-size:40px;font-weight:400;line-height:1.1;color:#0e80be">17.6</b><span style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#5d9ec2">tok/s · 74B model</span></div>
-<div style="text-align:center;padding:20px 12px;border-left:1px solid rgba(93,158,194,.2)"><b style="display:block;font-family:'DM Serif Display',Georgia,serif;font-size:40px;font-weight:400;line-height:1.1;color:#00e5ff">0</b><span style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#5d9ec2">Python in runtime</span></div>
-</div>
-<div style="max-width:1000px;margin:0 auto 96px;padding:0 24px">
-<div style="display:flex;align-items:baseline;justify-content:space-between;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#5d9ec2;border-bottom:1px solid rgba(93,158,194,.24);padding-bottom:12px;margin-bottom:20px"><span>Hardware targets</span><span>same binary</span></div>
-<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
-<div class="bh-hw" style="border:1px solid rgba(93,158,194,.24);border-radius:12px;padding:20px;background:rgba(4,32,47,.6);transition:border-color .15s"><div style="font-size:15px;font-weight:500;margin-bottom:6px">AMD Strix Halo</div><div style="font-size:12px;color:#00e5ff">XDNA 2 NPU</div></div>
-<a href="https://github.com/1bit-MONSTER/1bit-MONSTER/issues/1703" class="bh-hw bh-hw-untested" style="display:block;text-decoration:none;color:inherit;border:1px dashed rgba(255,159,28,.5);border-radius:12px;padding:20px;background:rgba(4,32,47,.6);transition:border-color .15s"><div style="font-size:15px;font-weight:500;margin-bottom:6px">NVIDIA GPU (sm_70+)</div><div style="font-size:12px;color:#ff9f1c">CUDA — untested, testers wanted →</div></a>
-<div class="bh-hw" style="border:1px solid rgba(93,158,194,.24);border-radius:12px;padding:20px;background:rgba(4,32,47,.6);transition:border-color .15s"><div style="font-size:15px;font-weight:500;margin-bottom:6px">AMD GPU</div><div style="font-size:12px;color:#00e5ff">ROCm HIP</div></div>
-<div class="bh-hw" style="border:1px solid rgba(93,158,194,.24);border-radius:12px;padding:20px;background:rgba(4,32,47,.6);transition:border-color .15s"><div style="font-size:15px;font-weight:500;margin-bottom:6px">Any Vulkan 1.2+ GPU</div><div style="font-size:12px;color:#00e5ff">ZINC + GGML-Vulkan</div></div>
-<div class="bh-hw" style="border:1px solid rgba(93,158,194,.24);border-radius:12px;padding:20px;background:rgba(4,32,47,.6);transition:border-color .15s"><div style="font-size:15px;font-weight:500;margin-bottom:6px">Apple Silicon</div><div style="font-size:12px;color:#00e5ff">Metal</div></div>
-<div class="bh-hw" style="border:1px solid rgba(93,158,194,.24);border-radius:12px;padding:20px;background:rgba(4,32,47,.6);transition:border-color .15s"><div style="font-size:15px;font-weight:500;margin-bottom:6px">x86 CPU</div><div style="font-size:12px;color:#00e5ff">OpenMP</div></div>
-</div>
-</div>
-<div style="max-width:820px;margin:0 auto 96px;padding:44px;border:1px solid rgba(255,159,28,.35);border-radius:16px;background:rgba(255,159,28,.05);text-align:center">
-<h2 style="font-family:'DM Serif Display',Georgia,serif;font-weight:400;font-size:30px;color:#ff9f1c;margin:0 0 14px">22 proprietary libraries. Zero documentation.</h2>
-<p style="color:#a0d9f8;font-size:15px;max-width:60ch;margin:0 auto">AMD locked the XDNA 2 NPU behind a closed-source runtime. We reverse-engineered it in 4 days — and as of this week, the engine's own instruction streams are byte-identical to the original, and faster.</p>
-</div>
-<div style="max-width:820px;margin:0 auto 100px;padding:0 24px">
-<div style="font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#5d9ec2;margin-bottom:14px">Quick start</div>
-<pre style="margin:0;background:#010d15;border:1px solid rgba(0,229,255,.22);border-radius:12px;padding:22px 24px;font-size:13px;line-height:1.9;overflow-x:auto;color:#a0d9f8;font-family:'DM Mono',ui-monospace,Menlo,monospace"><span style="color:#5d9ec2"># build from source</span>
-git clone https://github.com/1bit-MONSTER/1bit-MONSTER
-cd 1bit-MONSTER &amp;&amp; cmake -B build &amp;&amp; cmake --build build
-<span style="color:#00e5ff">./build/1bit</span> zaya -m model.1bp -p <span style="color:#ff9f1c">"Hello world"</span></pre>
-</div>
-<footer style="text-align:center;padding:30px;font-size:12px;color:#5d9ec2;border-top:1px solid rgba(93,158,194,.2)">MIT License · github.com/1bit-MONSTER · "Sorry but not sorry."</footer>
-</div>
-</body>
-</html>
+  <header class="topnav" data-od-id="topnav">
+    <div class="container topnav-inner">
+      <a href="index.html" class="logo">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect class="relay r1" x="2" y="2" width="9" height="9" rx="2"></rect><rect class="relay r2" x="13" y="2" width="9" height="9" rx="2"></rect><rect class="relay r3" x="2" y="13" width="9" height="9" rx="2"></rect><rect class="relay r4" x="13" y="13" width="9" height="9" rx="2"></rect>
+        </svg>
+        <span>1bit.MONSTER</span>
+      </a>
+      <nav>
+        <a href="1bit-monster-v2.html">Engine</a>
+        <a href="1bit-models.html">Models</a>
+        <a href="1bit-jarvis.html">1bit JARVIS</a>
+        <a href="1bit-blog.html">Blog</a>
+        <a href="1bit-store.html">Store</a>
+        <a href="1bit-docs.html">Docs</a>
+        <a href="1bit-benchmarks.html">Benchmarks</a>
+      </nav>
+      <a class="btn btn-ghost" href="https://github.com/1bit-MONSTER/1bit-MONSTER">GitHub&nbsp;↗</a>
+    </div>
+  </header>
+
+  <main id="content">
+
+    <!-- Overview -->
+    <section class="section hero-center" data-od-id="hero">
+      <div class="container">
+        <h1><svg viewBox="0 0 24 24" fill="none" aria-hidden="true" style="width:0.72em;height:0.72em;display:inline-block;vertical-align:-0.06em;margin-right:0.18em;"><rect x="2" y="2" width="9" height="9" rx="2" style="fill:var(--surface);stroke:currentColor;stroke-opacity:0.28;animation:logo-relay 80s ease-in-out infinite;"/><rect x="13" y="2" width="9" height="9" rx="2" style="fill:var(--surface);stroke:currentColor;stroke-opacity:0.28;animation:logo-relay 80s ease-in-out infinite;animation-delay:20s;"/><rect x="2" y="13" width="9" height="9" rx="2" style="fill:var(--surface);stroke:currentColor;stroke-opacity:0.28;animation:logo-relay 80s ease-in-out infinite;animation-delay:40s;"/><rect x="13" y="13" width="9" height="9" rx="2" style="fill:var(--surface);stroke:currentColor;stroke-opacity:0.28;animation:logo-relay 80s ease-in-out infinite;animation-delay:60s;"/></svg>1bit.MONSTER</h1>
+        <p class="lead">One engine, any model, zero Python. A model-agnostic, hardware-agnostic pure-C++ inference engine. This is the index to the whole site.</p>
+      </div>
+    </section>
+
+    <!-- Page index -->
+    <section class="section" data-od-id="site-index">
+      <div class="container">
+        <span class="site-badge"><span class="dot"></span>site index</span>
+        <div class="site-grid" data-od-id="page-grid">
+          <a class="site-card" data-od-id="card-engine" href="1bit-monster-v2.html">
+            <span class="site-title">Engine <span class="ar">→</span></span>
+            <p class="site-desc">The claim, the census, the console. One engine, any model, zero Python.</p>
+            <span class="site-path">engine</span>
+          </a>
+          <a class="site-card" data-od-id="card-models" href="1bit-models.html">
+            <span class="site-title">Models <span class="ar">→</span></span>
+            <p class="site-desc">The families the engine runs, with real sizes and backend availability.</p>
+            <span class="site-path">models</span>
+          </a>
+          <a class="site-card" data-od-id="card-jarvis" href="1bit-jarvis.html">
+            <span class="site-title">1bit JARVIS <span class="ar">→</span></span>
+            <p class="site-desc">The in-process voice assistant that ships with the engine.</p>
+            <span class="site-path">jarvis</span>
+          </a>
+          <a class="site-card" data-od-id="card-blog" href="1bit-blog.html">
+            <span class="site-title">Blog <span class="ar">→</span></span>
+            <p class="site-desc">The build log: the four-day NPU reversal, the gates, the journey.</p>
+            <span class="site-path">blog</span>
+          </a>
+          <a class="site-card" data-od-id="card-store" href="1bit-store.html">
+            <span class="site-title">Store <span class="ar">→</span></span>
+            <p class="site-desc">Merch with real inventory and a working cart. Checkout on the live store.</p>
+            <span class="site-path">store</span>
+          </a>
+          <a class="site-card" data-od-id="card-docs" href="1bit-docs.html">
+            <span class="site-title">Docs <span class="ar">→</span></span>
+            <p class="site-desc">From scratch to NPU. The docs index, routed to the real sources.</p>
+            <span class="site-path">docs</span>
+          </a>
+          <a class="site-card" data-od-id="card-benchmarks" href="1bit-benchmarks.html">
+            <span class="site-title">Benchmarks <span class="ar">→</span></span>
+            <p class="site-desc">Measured, not projected. Kernel-level and end-to-end numbers.</p>
+            <span class="site-path">benchmarks</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="pagefoot" data-od-id="footer">
+    <div class="container row-between">
+      <span>© 2026 1bit.MONSTER · MIT License</span>
+      <a class="meta" href="https://github.com/1bit-MONSTER/1bit-MONSTER">github.com/1bit-MONSTER</a>
+    </div>
+    <div class="container">
+      <p class="place" data-od-id="footer-place">Metepenagiag Mi’kmaq Nation, New Brunswick, Canada</p>
+      <p class="quote" data-od-id="footer-quote">"Sorry but not sorry." by bong-water-water-bong</p>
+    </div>
+  </footer>
+
+
+</body></html>

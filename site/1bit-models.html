@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>1bit.MONSTER: One engine, Any model.</title>
+  <meta name="description" content="552 architecture tokens, 1,774 HF arch strings, 100% HuggingFace coverage. The validated model families the engine runs, with real parameter sizes and backend availability." />
+  <style>
+    /* ─── tokens ─────────────────────────────────────────────────────────
+       Bound verbatim to the locked light modern-minimal + 1-bit identity.
+       All derived values stay in oklch - no new hex. */
+    :root {
+      --bg:      oklch(99% 0.002 240);
+      --surface: oklch(100% 0 0);
+      --fg:      oklch(18% 0.012 250);
+      --muted:   oklch(54% 0.012 250);
+      --border:  oklch(92% 0.005 250);
+      --accent:  oklch(58% 0.18 255);
+
+      --status:  oklch(52% 0.14 158);
+
+      /* derived - do not change */
+      --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+      --fg-soft:       color-mix(in oklch, var(--fg) 5%, transparent);
+      --muted-strong:  color-mix(in oklch, var(--muted) 76%, var(--fg));
+
+      /* type - system-first per direction */
+      --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+      --font-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      --font-mono:    ui-monospace, 'SF Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+
+      /* scale */
+      --fs-h1: clamp(44px, 6vw, 76px);
+      --fs-h2: clamp(32px, 4vw, 48px);
+      --fs-h3: 20px;
+      --fs-lead: 19px;
+      --fs-body: 16px;
+      --fs-meta: 13px;
+
+      /* spacing - 8-point grid */
+      --gap-xs: 8px;
+      --gap-sm: 12px;
+      --gap-md: 20px;
+      --gap-lg: 32px;
+      --gap-xl: 48px;
+      --gap-2xl: 80px;
+      --container: 1120px;
+      --gutter: 32px;
+
+      --radius: 10px;
+      --radius-lg: 16px;
+    }
+
+    /* ─── reset & base ──────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-body);
+      font-size: var(--fs-body);
+      line-height: 1.6;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+    }
+    img, svg { display: block; max-width: 100%; }
+    a { color: inherit; text-decoration: none; }
+    button { font: inherit; cursor: pointer; }
+    p { text-wrap: pretty; }
+    h1, h2, h3, h4 { text-wrap: balance; }
+    ::selection { background: var(--accent-soft); color: var(--fg); }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+    /* ─── layout primitives ─────────────────────────────────────────── */
+    .container {
+      max-width: var(--container);
+      margin-inline: auto;
+      padding-inline: var(--gutter);
+    }
+    .section {
+      padding-block: clamp(40px, 5vw, 72px);
+    }
+    .section + .section { border-top: 1px solid var(--border); }
+    .stack { display: flex; flex-direction: column; }
+    .stack > * + * { margin-top: var(--gap-md); }
+    .row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-md); }
+
+    /* ─── type ──────────────────────────────────────────────────────── */
+    .h1, h1 { font-family: var(--font-display); font-size: var(--fs-h1); line-height: 1.08; letter-spacing: -0.02em; margin: 0; font-weight: 600; }
+    .h2, h2 { font-family: var(--font-display); font-size: var(--fs-h2); line-height: 1.12; letter-spacing: -0.015em; margin: 0; font-weight: 600; }
+    .h3, h3 { font-size: var(--fs-h3); font-weight: 600; line-height: 1.3; letter-spacing: -0.005em; margin: 0; }
+    .lead   { font-size: var(--fs-lead); line-height: 1.6; color: var(--muted-strong); max-width: 60ch; margin: 0; }
+    .meta { font-family: var(--font-mono); font-size: var(--fs-meta); color: var(--muted-strong); }
+
+    /* ─── chrome: nav + footer ──────────────────────────────────────── */
+    .topnav {
+      position: sticky; top: 0; z-index: 10;
+      background: color-mix(in oklch, var(--bg) 92%, transparent);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .topnav-inner { display: flex; align-items: center; justify-content: space-between; padding-block: 14px; }
+    .topnav .logo { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+    .topnav .logo svg { width: 26px; height: 26px; color: var(--fg); }
+    /* header logo: 1bit relay mark - one block solid at a time, slow */
+    .topnav .logo .relay { fill: var(--surface); stroke: currentColor; stroke-opacity: 0.28; animation: logo-relay 80s ease-in-out infinite; }
+    .topnav .logo .r1 { animation-delay: 0s; }
+    .topnav .logo .r2 { animation-delay: 20s; }
+    .topnav .logo .r3 { animation-delay: 40s; }
+    .topnav .logo .r4 { animation-delay: 60s; }
+    @keyframes logo-relay {
+      0%       { fill: var(--surface); }
+      13%      { fill: var(--fg); }
+      14%      { fill: var(--fg); }
+      25%      { fill: var(--surface); }
+      100%     { fill: var(--surface); }
+    }
+    @media (prefers-reduced-motion: reduce) { .topnav .logo .relay { animation: none; } .topnav .logo .r1 { fill: var(--fg); } }
+
+    .topnav nav { display: flex; gap: var(--gap-lg); }
+    .topnav nav a { font-size: 14px; color: var(--muted-strong); }
+    .topnav nav a:hover { color: var(--fg); }
+    .topnav nav a[aria-current="page"] { color: var(--fg); font-weight: 500; }
+    .pagefoot { padding-block: var(--gap-xl); color: var(--muted-strong); font-size: 13px; border-top: 1px solid var(--border); }
+    .pagefoot .place { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em; color: var(--muted-strong); text-align: center; margin: var(--gap-lg) auto 0; }
+    .pagefoot .quote { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em; color: var(--muted-strong); text-align: center; margin: var(--gap-sm) auto 0; }
+    .pagefoot a:hover { color: var(--fg); }
+    .pagefoot .row-between { flex-wrap: wrap; gap: var(--gap-md); }
+
+    /* ─── buttons ───────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 11px 20px;
+      border-radius: var(--radius);
+      border: 1px solid transparent;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: -0.005em;
+      transition: transform 0.05s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary {
+      background: color-mix(in oklch, var(--accent) 78%, black);
+      color: var(--surface);
+      border-color: transparent;
+    }
+    .btn-primary:hover { background: color-mix(in oklch, var(--accent) 68%, black); }
+    .btn-secondary { background: transparent; color: var(--fg); border-color: var(--border); }
+    .btn-secondary:hover { border-color: var(--fg); }
+    .btn-ghost { background: transparent; color: var(--fg); border-color: transparent; padding-inline: 8px; }
+    .btn-ghost:hover { color: var(--accent); }
+    .btn-arrow::after { content: '→'; transition: transform 0.15s ease; }
+    .btn-arrow:hover::after { transform: translateX(2px); }
+
+    /* ─── hero (centered) ───────────────────────────────────────────── */
+    .hero-center { padding-block: clamp(52px, 6vw, 84px); text-align: center; }
+    .hero-center h1 { margin-bottom: var(--gap-md); }
+    .hero-center .lead { margin: var(--gap-md) auto 0; }
+    .hero-center .hero-cta { justify-content: center; }
+
+    /* ─── coverage stat row ─────────────────────────────────────────── */
+    .stat-row {
+      display: flex; gap: var(--gap-2xl); justify-content: center;
+      flex-wrap: wrap; margin-top: var(--gap-xl);
+    }
+    .stat { display: flex; flex-direction: column; gap: 6px; text-align: center; }
+    .stat .n { font-family: var(--font-mono); font-size: 30px; font-weight: 600; letter-spacing: -0.01em; line-height: 1; }
+    .stat .l { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted-strong); }
+
+    /* ─── family table (hairline rows) ─────────────────────────────── */
+    .section-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: var(--gap-lg); }
+    .section-head .h2 { max-width: 28ch; }
+    .legend { display: flex; gap: var(--gap-md); flex-wrap: wrap; }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-strong); }
+    .dot { width: 8px; height: 8px; border-radius: 999px; flex: none; }
+    .dot.v { background: var(--status); }
+    .dot.w { background: var(--border); }
+
+    .fam-list { margin-top: var(--gap-lg); }
+    .fam-row {
+      display: grid; grid-template-columns: 260px 1fr;
+      gap: var(--gap-lg); align-items: start;
+      padding: 18px 0;
+      border-top: 1px solid var(--border);
+    }
+    .fam-row:last-of-type { border-bottom: 1px solid var(--border); }
+    .fam-name { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+    .fam-arch { display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-strong); margin-top: 4px; }
+    .fam-meta { display: flex; flex-direction: column; gap: 8px; }
+    .fam-sizes { font-family: var(--font-mono); font-size: 14px; color: var(--fg); }
+    .fam-backends { font-family: var(--font-mono); font-size: 13px; color: var(--muted-strong); }
+    .fam-backends .v { color: var(--status); }
+    .fam-note { font-size: 14px; color: var(--muted-strong); }
+    @media (max-width: 920px) { .fam-row { grid-template-columns: 1fr; gap: 8px; } }
+
+    /* ─── format note ───────────────────────────────────────────────── */
+    .note {
+      margin-top: var(--gap-xl);
+      padding: clamp(18px, 3vw, 24px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 15px;
+      color: var(--muted-strong);
+      line-height: 1.65;
+    }
+    .note b { color: var(--fg); font-weight: 600; }
+
+    @media (max-width: 720px) {
+      .topnav-inner { flex-wrap: wrap; row-gap: 12px; }
+      .topnav nav { order: 3; width: 100%; gap: var(--gap-md); justify-content: space-between; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topnav" data-od-id="topnav">
+    <div class="container topnav-inner">
+      <a href="index.html" class="logo">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect class="relay r1" x="2" y="2" width="9" height="9" rx="2"/><rect class="relay r2" x="13" y="2" width="9" height="9" rx="2"/><rect class="relay r3" x="2" y="13" width="9" height="9" rx="2"/><rect class="relay r4" x="13" y="13" width="9" height="9" rx="2"/>
+        </svg>
+        <span>1bit.MONSTER</span>
+      </a>
+      <nav>
+        <a href="1bit-monster-v2.html">Engine</a>
+        <a href="1bit-models.html" aria-current="page">Models</a>
+        <a href="1bit-jarvis.html">1bit JARVIS</a>
+        <a href="1bit-blog.html">Blog</a>
+        <a href="1bit-store.html">Store</a>
+        <a href="1bit-docs.html">Docs</a>
+        <a href="1bit-benchmarks.html">Benchmarks</a>
+      </nav>
+      <a class="btn btn-ghost" href="https://github.com/1bit-MONSTER/1bit-MONSTER">GitHub&nbsp;↗</a>
+    </div>
+  </header>
+
+  <main id="content">
+
+    <!-- Hero: any model, one engine -->
+    <section class="section hero-center" data-od-id="hero">
+      <div class="container">
+        <h1>One engine, Any model.</h1>
+        <p class="lead">The engine reads the model header, picks the architecture and kernel path, and runs. No config, no per-model glue, no registry to maintain.</p>
+        <div class="stat-row" data-od-id="coverage-stats">
+          <div class="stat" data-od-id="stat-tokens"><span class="n">552</span><span class="l">architecture tokens</span></div>
+          <div class="stat" data-od-id="stat-strings"><span class="n">1,774</span><span class="l">HF arch strings</span></div>
+          <div class="stat" data-od-id="stat-coverage"><span class="n">100%</span><span class="l">checkpoints mapped</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Validated families -->
+    <section class="section" data-od-id="library">
+      <div class="container">
+        <div class="section-head">
+          <h2 class="h2">The validated families.</h2>
+          <div class="legend" data-od-id="backend-legend">
+            <span><span class="dot v"></span>supported &amp; validated</span>
+            <span><span class="dot w"></span>functional · perf pending / not yet</span>
+          </div>
+        </div>
+        <div class="fam-list" data-od-id="family-list">
+          <div class="fam-row" data-od-id="fam-zyphra">
+            <div><h3 class="fam-name">Zyphra</h3><span class="fam-arch">flagship · MoE · SSM · dense</span></div>
+            <div class="fam-meta">
+              <span class="fam-sizes">1.2B-74B</span>
+              <span class="fam-backends"><span class="v">npu</span> · <span class="v">hip</span> · <span class="v">vulkan</span> · <span class="v">cpu</span></span>
+              <span class="fam-note">Zaya1 · ZR1 · BlackMamba · Zamba/Zamba2 · 6.6 / 45.8 GB 1BP</span>
+            </div>
+          </div>
+          <div class="fam-row" data-od-id="fam-qwen">
+            <div><h3 class="fam-name">Qwen</h3><span class="fam-arch">dense · MoE · vision</span></div>
+            <div class="fam-meta">
+              <span class="fam-sizes">0.5B-72B</span>
+              <span class="fam-backends"><span class="v">npu</span> · <span class="v">hip</span> · <span class="v">vulkan</span> · <span class="v">cpu</span></span>
+            </div>
+          </div>
+          <div class="fam-row" data-od-id="fam-llama">
+            <div><h3 class="fam-name">Llama</h3><span class="fam-arch">dense</span></div>
+            <div class="fam-meta">
+              <span class="fam-sizes">1B-8B</span>
+              <span class="fam-backends"><span class="v">npu</span> · <span class="v">hip</span> · <span class="v">vulkan</span> · <span class="v">cpu</span></span>
+            </div>
+          </div>
+          <div class="fam-row" data-od-id="fam-mistral">
+            <div><h3 class="fam-name">Mistral / Pixtral</h3><span class="fam-arch">dense · vision</span></div>
+            <div class="fam-meta">
+              <span class="fam-sizes">7B-12B</span>
+              <span class="fam-backends"><span class="v">npu</span> · <span class="v">hip</span> · <span class="v">vulkan</span> · <span class="v">cpu</span></span>
+            </div>
+          </div>
+          <div class="fam-row" data-od-id="fam-gemma">
+            <div><h3 class="fam-name">Gemma</h3><span class="fam-arch">dense · embedding</span></div>
+            <div class="fam-meta">
+              <span class="fam-sizes">0.3B-4B</span>
+              <span class="fam-backends"><span class="v">npu</span> · <span class="v">hip</span> · <span class="v">vulkan</span> · <span class="v">cpu</span></span>
+            </div>
+          </div>
+          <div class="fam-row" data-od-id="fam-phi">
+            <div><h3 class="fam-name">Phi</h3><span class="fam-arch">dense</span></div>
+            <div class="fam-meta">
+              <span class="fam-sizes">3.8B-4B</span>
+              <span class="fam-backends"><span class="v">npu</span> · <span class="w">hip</span> · <span class="w">vulkan</span> · <span class="v">cpu</span></span>
+              <span class="fam-note">NPU + CPU at present · GPU pending</span>
+            </div>
+          </div>
+          <div class="fam-row" data-od-id="fam-deepseek">
+            <div><h3 class="fam-name">DeepSeek</h3><span class="fam-arch">MoE (MLA)</span></div>
+            <div class="fam-meta">
+              <span class="fam-sizes">8B-671B</span>
+              <span class="fam-backends"><span class="v">npu</span> · <span class="v">hip</span> · <span class="v">vulkan</span> · <span class="v">cpu</span></span>
+            </div>
+          </div>
+          <div class="fam-row" data-od-id="fam-falcon">
+            <div><h3 class="fam-name">Falcon</h3><span class="fam-arch">dense</span></div>
+            <div class="fam-meta">
+              <span class="fam-sizes">1B-40B</span>
+              <span class="fam-backends"><span class="v">npu</span> · <span class="v">hip</span> · <span class="v">vulkan</span> · <span class="v">cpu</span></span>
+            </div>
+          </div>
+          <div class="fam-row" data-od-id="fam-gptoss">
+            <div><h3 class="fam-name">GPT-OSS</h3><span class="fam-arch">MoE</span></div>
+            <div class="fam-meta">
+              <span class="fam-sizes">20B</span>
+              <span class="fam-backends"><span class="v">npu</span> · <span class="v">hip</span> · <span class="v">vulkan</span> · <span class="v">cpu</span></span>
+            </div>
+          </div>
+          <div class="fam-row" data-od-id="fam-kimi">
+            <div><h3 class="fam-name">Moonshot Kimi</h3><span class="fam-arch">gated MLA MoE</span></div>
+            <div class="fam-meta">
+              <span class="fam-sizes">16B (3B active)</span>
+              <span class="fam-backends"><span class="v">npu</span> · <span class="v">hip</span> · <span class="v">vulkan</span> · <span class="v">cpu</span></span>
+            </div>
+          </div>
+          <div class="fam-row" data-od-id="fam-bonsai">
+            <div><h3 class="fam-name">BitNet / Bonsai</h3><span class="fam-arch">ternary-native</span></div>
+            <div class="fam-meta">
+              <span class="fam-sizes">1.7B-4B</span>
+              <span class="fam-backends"><span class="v">npu</span> · <span class="v">hip</span> · <span class="v">vulkan</span> · <span class="v">cpu</span></span>
+            </div>
+          </div>
+          <div class="fam-row" data-od-id="fam-whisper">
+            <div><h3 class="fam-name">Whisper</h3><span class="fam-arch">speech-to-text</span></div>
+            <div class="fam-meta">
+              <span class="fam-sizes">V3 Turbo</span>
+              <span class="fam-backends"><span class="v">npu</span> · <span class="v">hip</span> · <span class="w">vulkan</span> · <span class="v">cpu</span></span>
+              <span class="fam-note">Vulkan port pending</span>
+            </div>
+          </div>
+          <div class="fam-row" data-od-id="fam-qwenvl">
+            <div><h3 class="fam-name">Qwen-VL</h3><span class="fam-arch">vision</span></div>
+            <div class="fam-meta">
+              <span class="fam-sizes">3B-4B</span>
+              <span class="fam-backends"><span class="v">npu</span> · <span class="v">hip</span> · <span class="w">vulkan</span> · <span class="v">cpu</span></span>
+              <span class="fam-note">ViT not yet on Vulkan</span>
+            </div>
+          </div>
+        </div>
+        <p class="meta" style="margin-top: var(--gap-lg);">Also validated: OLMo, ZR1, Laguna, Nanbeige, Embedding-Gemma. Per-family pages live in the docs.</p>
+        <div class="note" data-od-id="format-note">
+          <b>1BP format.</b> Dense models use <b>Q4NX</b> 4-bit; only ternary-native checkpoints (BitNet / Bonsai) use <b>TQ2</b> 2-bit. The engine never converts dense to TQ2, because it is quality-destructive and it refuses to do it silently.
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="pagefoot" data-od-id="footer">
+    <div class="container row-between">
+      <span>© 2026 1bit.MONSTER · MIT License</span>
+      <a class="meta" href="https://github.com/1bit-MONSTER/1bit-MONSTER">github.com/1bit-MONSTER</a>
+    </div>
+    <div class="container">
+      <p class="place" data-od-id="footer-place">Metepenagiag Mi’kmaq Nation, New Brunswick, Canada</p>
+      <p class="quote" data-od-id="footer-quote">"Sorry but not sorry." by bong-water-water-bong</p>
+    </div>
+  </footer>
+</body>
+</html>
